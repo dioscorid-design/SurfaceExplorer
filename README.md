@@ -22,8 +22,6 @@ This project is currently developed and optimized for **Linux (Fedora)** using *
 * **Linux**: Fully supported and tested (Wayland/XCB).
 * **Windows/macOS**: Code is written in portable Qt6/C++, but binary deployment and hardware-specific OpenGL testing are still in progress.
 
-*Help is welcome! If you'd like to test or contribute to Windows/macOS builds, please open an Issue.*
-
 ## 📦 How to Build
 To compile **Surface Explorer** from source on Linux, ensure you have **Qt 6.10.2** and **CMake** installed, then run the following commands in your terminal:
 
