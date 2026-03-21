@@ -1,0 +1,41 @@
+{
+    "name": "S3 uv_slice",
+    "type": "motion",
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 1.4900000095367432,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "sin(t) * pi/2",
+        "p": "A * sin(w) ",
+        "x": "A *cos(w)*cos(v)*cos(u) ",
+        "y": "A * cos(w)*sin(u) * cos(v)",
+        "z": "A * cos(w) * sin(v)"
+    },
+    "lightingMode": 1,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 1.5707963705062866,
+        "vMin": -1.5707963705062866,
+        "wMax": 1.559999942779541,
+        "wMin": -1.5700000524520874
+    },
+    "projectionMode": 1,
+    "renderMode": 0,
+    "showBorder": true,
+    "steps": 750,
+    "use4DLighting": false
+}

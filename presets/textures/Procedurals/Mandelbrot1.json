@@ -1,0 +1,12 @@
+{
+    "code": "// --- CONFIGURAZIONE ---\nfloat zoom = 1.0; \n\n// Costanti C++ fedeli\nfloat s = 512.0;                 \nvec2 center = vec2(-0.748, 0.1); \n\n// Zoom (Logica esatta C++)\nfloat baseScale = 0.005;\nfloat scale = baseScale / (1.0 + zoom * 20.0);\nint maxIter = 200 + int(zoom * 100.0);\n\n// --- LOGICA PRINCIPALE (Mandelbrot) ---\nvec2 c = center + (vec2(u, v) - 0.5) * s * scale;\nvec2 z = vec2(0.0);\nint iter = 0;\nfloat minDist = 100.0; // Orbit Trap\n\nfor (int i = 0; i < 2000; i++) {\n    if (i >= maxIter) break;\n    if (dot(z, z) > 4.0) break;\n\n    // Z = Z^2 + C\n    float x = (z.x * z.x - z.y * z.y) + c.x;\n    float y = (2.0 * z.x * z.y) + c.y;\n    z = vec2(x, y);\n\n    // Trap Distance\n    float d = dot(z, z);\n    if (d < minDist) minDist = d;\n    iter++;\n}\n\n// --- COLORAZIONE ---\nfloat t_input = 0.0;   // Il valore 't' passato a getPsychedelicColor\nfloat brightness = 1.0; // Fattore di oscuramento\n\nif (iter >= maxIter) {\n    // --- INTERNO: Orbit Trap ---\n    // C++: float trap = std::sqrt(minDist) * 10.0f;\n    float trap = sqrt(minDist) * 10.0;\n    \n    // C++: getPsychedelicColor(trap + 0.5f)\n    t_input = trap + 0.5;\n    \n    // C++: darker(250) -> Divide luminosità per 2.5 -> Moltiplica per 0.4\n    brightness = 0.4;\n    \n} else {\n    // --- ESTERNO: Smoothing ---\n    float dist = dot(z, z);\n    if (dist < 0.0001) dist = 0.0001;\n    \n    // Smoothing Logaritmico esatto\n    float val = sqrt(dist);\n    float correction = log(log(val)) / log(2.0);\n    float smoothIter = float(iter) + 1.0 - correction;\n    \n    // C++: getPsychedelicColor(smoothIter * 0.15f)\n    // Qui NON c'è moltiplicazione per 2*PI, l'onda è lenta.\n    t_input = smoothIter * 0.15;\n    brightness = 1.0;\n}\n\n// --- REPLICA ESATTA getPsychedelicColor(float t) ---\n// La formula standard Qt/C++ usa fasi fisse su RGB: 0, 2.09, 4.18\nvec3 color;\n\n// Nota: NON moltiplico t_input per 6.28. Uso il valore grezzo come in C++.\ncolor.r = 0.5 + 0.5 * sin(t_input + 0.0);\ncolor.g = 0.5 + 0.5 * sin(t_input + 2.094); // + 120 gradi\ncolor.b = 0.5 + 0.5 * sin(t_input + 4.188); // + 240 gradi\n\nreturn color * brightness;",
+    "color1": "#4ab0ce",
+    "color2": "#9a3f9e",
+    "hasCustomColors": true,
+    "name": "Mandelbrot1",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

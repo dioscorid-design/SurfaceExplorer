@@ -1,0 +1,57 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.9330127239227295,
+        "rot_x": 0.2500000298023224,
+        "rot_y": 0.2499999701976776,
+        "rot_z": -0.06698719412088394,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.283180236816406,
+        "uMin": 0,
+        "vMax": 6.283180236816406,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Otto",
+    "projectionMode": 1,
+    "renderMode": 1,
+    "scriptCode": "// --- CONFIGURAZIONE ---\nu_min := 0;\nu_max := 6.28318; // 2*PI\nv_min := 0;\nv_max := 6.28318;\nsteps := 350;\n\n// --- CODICE SHADER ---\n\n// Parametri Geometrici\nfloat scale = 3.0; \nfloat r = 0.4; // Raggio del tubo\n\n// --- 1. EQUAZIONE CANONICA NODO A OTTO (4_1) ---\n// Questa è la forma parametrica standard che garantisce la topologia corretta.\n// x = (2 + cos(2u)) * cos(3u)\n// y = (2 + cos(2u)) * sin(3u)\n// z = sin(4u)\n\n// Modulazione del raggio nel piano\nfloat R_base = 2.5; // Allarga il buco centrale\nfloat mod_r = 1.0 * cos(2.0 * u);\n\nfloat r_xy = R_base + mod_r;\n\n// Posizione Curva\nvec3 Curve = vec3(\n    r_xy * cos(3.0 * u),\n    r_xy * sin(3.0 * u),\n    1.2 * sin(4.0 * u) // 1.2 estende la Z per evitare collisioni nei sovrappassi\n);\n\n// --- 2. DERIVATA PRIMA (Velocità Analitica) ---\n// Calcolata per ottenere tangenti perfette\n// R' = -2 * sin(2u)\nfloat dr = -1.0 * 2.0 * sin(2.0 * u);\n\n// Derivate parziali\n// dX = r'cos(3u) - r*3sin(3u)\n// dY = r'sin(3u) + r*3cos(3u)\n// dZ = 1.2 * 4 * cos(4u)\n\nvec3 dC = vec3(\n    dr * cos(3.0 * u) - r_xy * 3.0 * sin(3.0 * u),\n    dr * sin(3.0 * u) + r_xy * 3.0 * cos(3.0 * u),\n    4.8 * cos(4.0 * u)\n);\n\nvec3 Tangent = normalize(dC);\n\n// --- 3. CALCOLO FRAME STABILE (Global Up Method) ---\n// INVECE di guardare il centro (che causa strozzature),\n// usiamo l'asse Z come riferimento stabile.\nvec3 Up = vec3(0.0, 0.0, 1.0);\n\n// Calcoliamo la Binormale come prodotto vettoriale tra Tangente e Su.\n// Questo crea un vettore orizzontale perpendicolare alla curva.\nvec3 Binorm = cross(Tangent, Up);\n\n// Se la tangente è quasi verticale, usiamo l'asse Y come fallback per evitare glitch\nif (length(Binorm) < 0.001) {\n    Binorm = cross(Tangent, vec3(0.0, 1.0, 0.0));\n}\nBinorm = normalize(Binorm);\n\n// La Normale è il terzo vettore ortogonale\nvec3 Norm = cross(Binorm, Tangent);\nNorm = normalize(Norm);\n\n// --- 4. COSTRUZIONE TUBO ---\nfloat tube_cos = r * cos(v);\nfloat tube_sin = r * sin(v);\n\n// Combina tutto\nvec3 pos = Curve + (tube_cos * Norm + tube_sin * Binorm);\n\n// Scala finale per adattarlo allo schermo\nreturn vec4(pos * 0.35, 0.0);",
+    "showBorder": false,
+    "steps": 350,
+    "type": "surface",
+    "use4DLighting": false
+}

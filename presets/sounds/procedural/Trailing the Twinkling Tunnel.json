@@ -1,0 +1,4 @@
+{
+    "code": "// =========================================================================\n// Title: Trailing the Twinkling Tunnelwisp (Audio)\n// Original Music: Pestis (Cassini's Cosmic Conclusion - demozoo.org/productions/367582/)\n// \n// License: CC0 1.0 Universal (Public Domain Dedication)\n//          https://creativecommons.org/publicdomain/zero/1.0/\n//\n// Note: Adapted for the \"Surfaces Explorer\" engine.\n// =========================================================================\n\nvec2 mainSound(int s,float t) {\n  vec2 r;\n  for(float i,j;++i<4.;)\n  for(j=0.;++j<5.;){\n    float a=t*j/32.+i/3.,b=fract(a),c;\n    vec2 m,n=vec2(t,t+3.)+t/j;\n    for(c=3.;c<4.1;n+=c*=1.02)\n      m+=sin(n*c)/c;\n    if(a<9.)\n      r+=sin(m+4.*sin(t/j/47.)*sin(exp2(mod(a-b,3.)/6.+8.5)*t*j*i+i+j))\n      *exp2(-b*12.-1./b+6.-(i+j)/3.);\n  }\n  return r;\n}",
+    "type": "sound"
+}

@@ -1,0 +1,107 @@
+{
+    "angles": {
+        "omega": 0.009999999776482582,
+        "phi": 1.1099992990493774,
+        "psi": 0.009999999776482582
+    },
+    "background": {
+        "code": "// --- PARAMETRI ---\nfloat scale = 50.0; // Densità degli anelli (più alto = più cerchi)\nvec2 center = vec2(0.5, 0.5); // Centro dei cerchi (0.5, 0.5 è il centro della texture)\n\n// --- LOGICA ---\n// 1. Calcola la distanza del pixel corrente (u, v) dal centro\nfloat dist = distance(vec2(u, v), center);\n\n// 2. Crea l'onda sinusoidale basata sulla distanza\n// Moltiplichiamo per 'scale' per aumentare la frequenza\nfloat val = sin(dist * scale);\n\n// 3. Mappiamo il risultato da -1..1 a 0..1 per il mix\nfloat t = (val + 1.0) * 0.5;\n\n// 4. Mix finale\nreturn mix(u_col1, u_col2, t);",
+        "col1": "#eb3335",
+        "col2": "#000000",
+        "color": "#f86f00",
+        "enabled": false,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.21971182525157928,
+        "rot_x": 0.7702111005783081,
+        "rot_y": 0.18743014335632324,
+        "rot_z": 0.568657636642456,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1.2000000476837158,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "A * sin(u) * sin(v)",
+        "x": "A * cos(2*u) * cos(v)",
+        "y": "A * sin(2*u) * cos(v)",
+        "z": "A * cos(u) * sin(v)"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 1,
+    "limits": {
+        "uMax": 3.1415927410125732,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0.10000000149011612,
+        "wMin": 0
+    },
+    "name": "Klein Bottle",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 0,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 100,
+    "texture": {
+        "code": "// --- PARAMETRI ---\nfloat scale = 50.0; // Densità degli anelli (più alto = più cerchi)\nvec2 center = vec2(0.5, 0.5); // Centro dei cerchi (0.5, 0.5 è il centro della texture)\n\n// --- LOGICA ---\n// 1. Calcola la distanza del pixel corrente (u, v) dal centro\nfloat dist = distance(vec2(u, v), center);\n\n// 2. Crea l'onda sinusoidale basata sulla distanza\n// Moltiplichiamo per 'scale' per aumentare la frequenza\nfloat val = sin(dist * scale);\n\n// 3. Mappiamo il risultato da -1..1 a 0..1 per il mix\nfloat t = (val + 1.0) * 0.5;\n\n// 4. Mix finale\nreturn mix(u_col1, u_col2, t);",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

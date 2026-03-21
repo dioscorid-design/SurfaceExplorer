@@ -1,0 +1,11 @@
+{
+    "code": "// =========================================================================\n// Title: Squished Coordinates\n// Author: pyBlob\n// Link: https://www.shadertoy.com/view/W3KcWd\n// \n// License: Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported\n//          (CC BY-NC-SA 3.0) - https://creativecommons.org/licenses/by-nc-sa/3.0/\n//\n// Note: Adapted and modified for the \"Surfaces Explorer\" engine.\n// =========================================================================\n\nvoid mainImage(out vec4 Q, vec2 U)\n{\n    float f = iResolution.y / 1.;\n    vec2 O = floor(iResolution.xy / 2.);\n    vec2 V = (U - O - .5) / f;\n    vec4 M = (abs(iMouse) - O.xyxy) / f;\n    \n    float a = iTime / 5.;\n    float e = .5;\n    \n    if (length(iMouse.zw) > 10.)\n    {\n        a = atan(M.y, M.x);\n        e = length(M.xy);\n    }\n\n    mat2 R = mat2(cos(a), sin(a), -sin(a), cos(a));\n    mat2 S = mat2(exp(-e), 0, 0, exp(e));\n    \n    //V = R * S * transpose(R) * V;\n    \n    float c2 = cos(a) * cos(a);\n    float s2 = sin(a) * sin(a);\n    V = mat2(c2*exp(-e) + s2*exp(e), -sin(2.*a)*sinh(e), -sin(2.*a)*sinh(e), c2*exp(e) + s2*exp(-e)) * V;\n\n    Q = vec4(1);\n    Q = mix(texture(iChannel0, V - .5, -abs(e)), Q, .6);\n    Q = mix(vec4(1, 0, 0, 1), Q, clamp(abs(V.x) * f * .7, 0., 1.));\n    Q = mix(vec4(1, 0, 0, 1), Q, clamp(abs(V.y) * f * .7, 0., 1.));\n    Q = mix(vec4(1, .5, 0, 1), Q, clamp(length(length(V) - .3) * f - 1., 0., 1.));\n}",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "hasCustomColors": true,
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

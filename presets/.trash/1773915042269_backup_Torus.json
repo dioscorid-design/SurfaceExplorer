@@ -1,0 +1,104 @@
+{
+    "angles": {
+        "omega": 1.2799991369247437,
+        "phi": 1.0299993753433228,
+        "psi": 2.2299983501434326
+    },
+    "background": {
+        "code": "// Default Background Image",
+        "col1": "#3333cc",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": false,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.7422166466712952,
+        "rot_x": -0.12687638401985168,
+        "rot_y": -0.6394981741905212,
+        "rot_z": 0.15510860085487366,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 18.399999618530273
+    },
+    "colors": {
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1.5,
+        "B": 1.5,
+        "C": 0.30000001192092896,
+        "D": 0,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "u",
+        "defV": "1.5708 + C * cos(v)",
+        "defW": "C * sin(v)",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "A * cos(V) * sin(t) + B * W * cos(t)",
+        "x": "A * sin(V) * cos(U)",
+        "y": "A * sin(V) * sin(U)",
+        "z": "A * cos(V) * cos(t) - B * W * sin(t)"
+    },
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.28318977355957,
+        "uMin": 0,
+        "vMax": 6.28318977355957,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Torus",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "projectionMode": 2,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 100,
+    "texture": {
+        "code": "",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

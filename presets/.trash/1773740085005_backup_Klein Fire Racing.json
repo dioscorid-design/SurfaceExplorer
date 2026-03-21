@@ -1,0 +1,109 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 5.766499996185303
+    },
+    "background": {
+        "code": "// Default Background Image",
+        "col1": "#3333cc",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": false,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 1,
+        "rot_x": 0,
+        "rot_y": 0,
+        "rot_z": 0,
+        "x": 0.6802405714988708,
+        "y": -1.9228287935256958,
+        "yaw": 0,
+        "z": 0
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1,
+        "B": 1,
+        "C": 1,
+        "D": 0,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.3*sin(v)*sin(u/2)",
+        "x": "(1 + 0.3*cos(v))*cos(u)",
+        "y": "(1 + 0.3*cos(v))*sin(u)",
+        "z": "0.3*sin(v)*cos(u/2)"
+    },
+    "lightIntensity": 1.94,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.28318977355957,
+        "uMin": 0,
+        "vMax": 6.28318977355957,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Klein Fire Racing",
+    "observer4D": 5,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "-t/2",
+        "gamma": "",
+        "w": "",
+        "x": "cos(t)",
+        "y": "sin(t)",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 1,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 10,
+        "path4D": 14,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 100,
+    "texture": {
+        "code": "//MUSIC: /home/dioscorid/Projects/presets/sounds/Used/3935__jovica__tail-230.wav\n\n//IMG:/home/dioscorid/Projects/presets/textures/Images/2.png",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": true
+}

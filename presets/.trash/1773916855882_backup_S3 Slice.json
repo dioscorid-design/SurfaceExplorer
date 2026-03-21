@@ -1,0 +1,88 @@
+{
+    "angles": {
+        "omega": 0.10000000149011612,
+        "phi": 0.10000000149011612,
+        "psi": 0.10000000149011612
+    },
+    "background": {
+        "code": "\n\n\n\n// --- CONFIGURAZIONE ---\n// Costruiamo il vettore posizione usando u e v (già forniti dal sistema)\n// Moltiplichiamo per 8.0 per fare \"zoom out\" e vedere più dettagli\nvec2 p = vec2(u, v) * 8.0;\n\n// --- DISTORSIONE (Domain Warping) ---\n// Calcoliamo un valore di rumore base\nfloat n1 = sys_noise(p);\n\n// Usiamo il rumore per spostare le coordinate del passaggio successivo\n// Questo crea l'effetto fluido/liquido\nvec2 shift = vec2(n1, sys_noise(p + vec2(5.0, 5.0))); \n\n// --- PATTERN FINALE ---\n// Calcoliamo il rumore finale sulle coordinate distorte\nfloat pattern = sys_noise(p + shift * 2.0);\n\n// --- CONTRASTO ---\n// Rendiamo i bordi più netti (taglia i grigi intermedi)\npattern = smoothstep(0.3, 0.7, pattern);\n\n// --- COLORE ---\n// Usa i colori che hai scelto nel pannello (Color 1 e Color 2)\nreturn mix(u_col1, u_col2, pattern);",
+        "col1": "#c97533",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 18.82151222229004
+    },
+    "colors": {
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1.2999999523162842,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "sin(u + v+t) * pi + pi",
+        "p": "A * sin(w) ",
+        "x": "A *cos(w)*cos(v)*cos(u) ",
+        "y": "A * cos(w)*sin(u) * cos(v)",
+        "z": "A * cos(w) * sin(v)"
+    },
+    "lightingMode": 1,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 1.5707963705062866,
+        "vMin": -1.5707963705062866,
+        "wMax": 1.559999942779541,
+        "wMin": -1.5700000524520874
+    },
+    "name": "S3 Slice",
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "projectionMode": 1,
+    "showBorder": true,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 750,
+    "texture": {
+        "code": "// --- PARAMETRI ---\n// Imposta nel dock: Rosso (c1) e Bianco (c2) per l'effetto classico\nvec3 c1 = u_col1;\nvec3 c2 = u_col2;\n\n// --- CONFIGURAZIONE SPIRALE ---\n// Coils: Quante strisce vedi in una sezione trasversale del tubo\nfloat coils = 6.0;\n\n// Twists: Quanti giri completi fa la spirale lungo tutto il toro\n// Deve essere un numero intero per evitare che la texture si tagli alla giunzione\nfloat twists = 40.0;\n\n// --- CALCOLO ---\n// La magia è sommare U e V moltiplicati.\n// (u * twists) spinge la texture lungo il percorso\n// (v * coils) avvolge la texture attorno al tubo\n// Sommando i due si ottiene una linea diagonale (elica/spirale)\nfloat pos = (u * twists) + (v * coils);\n\n// --- CREAZIONE STRISCE NETTE ---\n// fract(pos) crea un dente di sega da 0.0 a 1.0 ripetuto\n// step(0.5, ...) taglia di netto il valore: sotto 0.5 è 0, sopra è 1.\nfloat stripe = step(0.5, fract(pos));\n\n// Restituisce il colore (senza sfumature)\nreturn mix(c1, c2, stripe);",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

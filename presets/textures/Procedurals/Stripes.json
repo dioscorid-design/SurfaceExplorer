@@ -1,0 +1,8 @@
+{
+    "code": "// --- Parametri Locali ---\nfloat density = 10.0;  // Quante strisce vuoi\nbool vertical = true;  // true = verticali, false = orizzontali\n\n// --- Logica ---\n\n// 1. Scegliamo la coordinata su cui basarci (u o v)\n// 'u' e 'v' sono variabili standard disponibili nel tuo shader template\nfloat coord = vertical ? u : v;\n\n// 2. Calcoliamo il pattern alternato\n// Moltiplichiamo la coordinata (0.0 -> 1.0) per la densità.\n// floor() crea gradini interi (0, 1, 2, 3...)\n// mod(..., 2.0) restituisce 0.0 o 1.0 alternati\nfloat pattern = mod(floor(coord * density), 2.0);\n\n// 3. Mixing dei colori\n// u_col1 e u_col2 sono gli uniform passati dall'interfaccia (Color 1 e Color 2)\n// Se pattern è 0.0 -> restituisce u_col1\n// Se pattern è 1.0 -> restituisce u_col2\nreturn mix(u_col1, u_col2, pattern);",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

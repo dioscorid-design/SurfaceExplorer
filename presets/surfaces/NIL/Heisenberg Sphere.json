@@ -1,0 +1,62 @@
+{
+    "angles": {
+        "omega": 9.999999747378752e-05,
+        "phi": 9.999999747378752e-05,
+        "psi": 9.999999747378752e-05
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.6672338247299194,
+        "rot_x": -0.06637405604124069,
+        "rot_y": 0.7144476175308228,
+        "rot_z": -0.19989518821239471,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 11.19999885559082
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 0.3400000035762787,
+        "B": 1,
+        "C": 1,
+        "D": 0,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "2 * sin(u) * cos(v)",
+        "defV": "2 * sin(u) * sin(v)",
+        "defW": "2 * cos(u)",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0",
+        "x": "U",
+        "y": "V",
+        "z": "W + A * U * V"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 2,
+    "limits": {
+        "uMax": 3.13700008392334,
+        "uMin": 0.004999999888241291,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Heisenberg Sphere",
+    "projectionMode": 1,
+    "renderMode": 0,
+    "showBorder": false,
+    "steps": 681,
+    "type": "surface",
+    "use4DLighting": false
+}

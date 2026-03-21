@@ -1,0 +1,62 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 5.1999993324279785,
+        "rot_w": 0.3577411472797394,
+        "rot_x": 0.7500295042991638,
+        "rot_y": 0.014613807201385498,
+        "rot_z": 0.5561146140098572,
+        "x": -1.4999996423721313,
+        "y": 1.0000001192092896,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 0.20000000298023224,
+        "B": 2,
+        "C": 0.20000000298023224,
+        "D": 0,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.0",
+        "x": "2*A*(1-exp(u/(6*pi)))*cos(u)*cos(v/2)*cos(v/2)",
+        "y": "2*A*(-1+exp(u/(6*pi)))*sin(u)*cos(v/2)*cos(v/2)",
+        "z": "A*(1-exp(u/(3*pi))-sin(v)+exp(u/(6*pi))*sin(v))"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 18.84955596923828,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Shell",
+    "projectionMode": 1,
+    "renderMode": 1,
+    "showBorder": true,
+    "steps": 100,
+    "type": "surface",
+    "use4DLighting": false
+}

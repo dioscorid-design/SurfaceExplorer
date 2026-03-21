@@ -1,0 +1,7 @@
+{
+    "code": "// Imposta lo zoom/scala iniziale\nvec2 z = (uv - 0.5) * 3.0; \n\n// Costante complessa C (Modifica questi valori per cambiare la forma!)\n// Valori interessanti: \n// vec2(-0.7, 0.27015)\n// vec2(0.285, 0.01)\n// vec2(-0.8, 0.156)\nvec2 c = vec2(0.285, 0.01); \n\nint iter = 0;\nint maxIter = 100;\n\n// Iterazione Julia standard: Z = Z^2 + C\nfor(iter = 0; iter < maxIter; iter++) {\n    float x = (z.x * z.x - z.y * z.y) + c.x;\n    float y = (2.0 * z.x * z.y) + c.y;\n    z = vec2(x, y);\n    \n    // Se esce dal raggio 2 (distanza quadrata 4), è fuori dall'insieme\n    if (dot(z, z) > 4.0) break;\n}\n\n// Colorazione\nif (iter == maxIter) {\n    // Interno dell'insieme: un colore scuro ma morbido (es. indaco scuro)\n    return vec3(0.2, 0.15, 0.3); \n} else {\n    // Esterno: Gradiente Pastello\n    float t = float(iter) / 20.0; // Divisore più basso = bande più fitte\n    \n    // Generazione colori base (Ciclo RGB morbido)\n    float r = 0.5 + 0.5 * cos(t + 0.0);\n    float g = 0.5 + 0.5 * cos(t + 2.09); // 2.09 è circa 2*PI/3\n    float b = 0.5 + 0.5 * cos(t + 4.18); // 4.18 è circa 4*PI/3\n    \n    vec3 color = vec3(r, g, b);\n    \n    // TRUCCO PASTELLO: \n    // Mixiamo il colore con il bianco (vec3(1.0)) al 50%\n    return mix(color, vec3(1.0), 0.5);\n}",
+    "pan_x": 0.04167800396680832,
+    "pan_y": 0.1721055805683136,
+    "type": "custom_texture",
+    "zoom": 0.1350851058959961
+}

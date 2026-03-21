@@ -1,0 +1,11 @@
+{
+    "code": "// =========================================================================\n// Title: Trailing the Twinkling Tunnelwisp (Visual)\n// Gyroid logic adapted from: Paul Karlik\n// \n// License: CC0 1.0 Universal (Public Domain Dedication)\n//          https://creativecommons.org/publicdomain/zero/1.0/\n//\n// Note: Adapted for the \"Surfaces Explorer\" engine.\n// =========================================================================\n\nfloat g(vec4 p,float s) {\n  return abs(dot(sin(p*=s),cos(p.zxwy))-1.)/s;\n}\n\nvoid mainImage(out vec4 O,vec2 C) {\n  float i, d, z, s, T = iTime;\n  vec4 o = vec4(0.0), q, p, U=vec4(2,1,0,3);\n  for (\n    vec2 r = iResolution.xy; ++i < 79.; z += d + 5E-4, \n    q = vec4(normalize(vec3(C-.5*r, r.y)) * z, .2), q.z += T/3E1, \n    s = q.y + .1, q.y = abs(s), p = q, p.y -= .11, \n    p.xy *= mat2(cos(11.*U.zywz - 2. * p.z )), p.y -= .2, \n    d = abs(g(p,8.) - g(p,24.)) / 4., p = 1. + cos(.7 * U + 5. * q.z)\n  )\n    o += (s > 0. ? 1. : .1) * p.w * p / max(s > 0. ? d : d*d*d, 5E-4);\n\n  o += (1.4 + sin(T) * sin(1.7 * T) * sin(2.3 * T)) * 1E3 * U / length(q.xy);\n  O = tanh(o / 1E5);\n}",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "hasCustomColors": true,
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

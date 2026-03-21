@@ -1,0 +1,109 @@
+{
+    "angles": {
+        "omega": 0.1900000125169754,
+        "phi": 0.10999996960163116,
+        "psi": 0.4999997913837433
+    },
+    "background": {
+        "code": "//IMG:/home/dioscorid/Projects/presets/textures/Images/Perlin Noise/8.png",
+        "col1": "#3333cc",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.40966030955314636,
+        "rot_x": 0.8603396415710449,
+        "rot_y": 0.3033003807067871,
+        "rot_z": -0.0017255765851587057,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 19.600000381469727
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 3.2200000286102295,
+        "B": 0.20999999344348907,
+        "C": 1,
+        "D": 2.5299999713897705,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0",
+        "x": "(A+ B*v * cos(u/2 + t)) * cos(u)",
+        "y": "(A+ B*v * cos(u/2 + t)) * sin(u)",
+        "z": "B*v * sin(u/2 + t)"
+    },
+    "lightIntensity": 2,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.28318977355957,
+        "uMin": 0,
+        "vMax": 4,
+        "vMin": -4,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Dynamic Mobius Band",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 0,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 1,
+        "path4D": 1,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 101,
+    "texture": {
+        "code": "//MUSIC: /home/dioscorid/Projects/presets/sounds/Wav/321723__rhodesmas__deep-space-vibrations-ambience-loop.wav\n\n// --- PARAMETRI ---\nfloat scale = 50.0; // Densità degli anelli (più alto = più cerchi)\nvec2 center = vec2(0.5, 0.5); // Centro dei cerchi (0.5, 0.5 è il centro della texture)\n\n// --- LOGICA ---\n// 1. Calcola la distanza del pixel corrente (u, v) dal centro\nfloat dist = distance(vec2(u, v), center);\n\n// 2. Crea l'onda sinusoidale basata sulla distanza\n// Moltiplichiamo per 'scale' per aumentare la frequenza\nfloat val = sin(dist * scale);\n\n// 3. Mappiamo il risultato da -1..1 a 0..1 per il mix\nfloat t = (val + 1.0) * 0.5;\n\n// 4. Mix finale\nreturn mix(u_col1, u_col2, t);",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 0.10686486214399338
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

@@ -1,0 +1,110 @@
+{
+    "angles": {
+        "omega": 0.1900000125169754,
+        "phi": 0.10999996960163116,
+        "psi": 0.4999997913837433
+    },
+    "background": {
+        "code": "//IMG:/home/dioscorid/Projects/presets/textures/Images/7.png",
+        "col1": "#3333cc",
+        "col2": "#000000",
+        "color": "#dfda00",
+        "enabled": false,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.26042696833610535,
+        "rot_x": 0.9147707223892212,
+        "rot_y": 0.3077599108219147,
+        "rot_z": 0.02561205066740513,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 0.23000000417232513,
+        "B": 4.159999847412109,
+        "C": 1,
+        "D": 2.5299999713897705,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "u",
+        "defV": "v",
+        "defW": "0",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "W",
+        "x": "A * V * cos(U)",
+        "y": "A * V * sin(U)",
+        "z": "A * sin(V*B - t*D) / (V*V*0.1 + 1.0)"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.28318977355957,
+        "uMin": 0,
+        "vMax": 15,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Waves",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 1,
+    "renderMode": 0,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 1,
+        "path4D": 1,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 101,
+    "texture": {
+        "code": "//SOUND_BEGIN\n//Audio by Dave_Hoskins\n\nvec2 add = vec2(1.0, 0.0);\n#define MOD2 vec2(.16632,.17369)\n#define MOD3 vec3(.16532,.17369,.15787)\n\n//----------------------------------------------------------------------------------------\n//  1 out, 1 in ...\nfloat hash11(float p)\n{\n\tvec2 p2 = fract(vec2(p) * MOD2);\n    p2 += dot(p2.yx, p2.xy+19.19);\n\treturn fract(p2.x * p2.y);\n}\n//----------------------------------------------------------------------------------------\n//  2 out, 1 in...\nvec2 hash21(float p)\n{\n\t//p  = fract(p * MOD3);\n    vec3 p3 = fract(vec3(p) * MOD3);\n    p3 += dot(p3.xyz, p3.yzx + 19.19);\n   return fract(vec2(p3.x * p3.y, p3.z*p3.x))-.5;\n}\n\n//----------------------------------------------------------------------------------------\n///  2 out, 2 in...\nvec2 hash22(vec2 p)\n{\n\tvec3 p3 = fract(vec3(p.xyx) * MOD3);\n    p3 += dot(p3.zxy, p3.yxz+19.19);\n    return fract(vec2(p3.x * p3.y, p3.z*p3.x));\n}\n\n//----------------------------------------------------------------------------------------\n//  2 out, 1 in...\nvec2 Noise21(float x)\n{\n    float p = floor(x);\n    float f = fract(x);\n    f = f*f*(3.0-2.0*f);\n    return  mix( hash21(p), hash21(p + 1.0), f)-.5;\n    \n}\n\n//----------------------------------------------------------------------------------------\n//  2 out, 1 in...\nfloat Noise11(float x)\n{\n    float p = floor(x);\n    float f = fract(x);\n    f = f*f*(3.0-2.0*f);\n    return mix( hash11(p), hash11(p + 1.0), f)-.5;\n\n}\n\n//----------------------------------------------------------------------------------------\n//  2 out, 2 in...\nvec2 Noise22(vec2 x)\n{\n    vec2 p = floor(x);\n    vec2 f = fract(x);\n    f = f*f*(3.0-2.0*f);\n    \n    vec2 res = mix(mix( hash22(p),          hash22(p + add.xy),f.x),\n                    mix( hash22(p + add.yx), hash22(p + add.xx),f.x),f.y);\n    return res-.5;\n}\n\n//----------------------------------------------------------------------------------------\n// Fractal Brownian Motion...\nvec2 FBM21(float v)\n{\n    vec2 r = vec2(0.0);\n    vec2 x = vec2(v, v*1.3+23.333);\n    float a = .6;\n    \n    for (int i = 0; i < 8; i++)\n    {\n        r += Noise22(x * a) / a;\n        a += a;\n    }\n     \n    return r;\n}\n\n//----------------------------------------------------------------------------------------\n// Fractal Brownian Motion...\nvec2 FBM22(vec2 x)\n{\n    vec2 r = vec2(0.0);\n    \n    float a = .6;\n    \n    for (int i = 0; i < 8; i++)\n    {\n        r += Noise22(x * a) / a;\n        a += a;\n    }\n     \n    return r;\n}\n\n\nvec2 mainSound( in int samp,float time)\n{\n     vec2 audio = vec2(.0);\n    for (float t = 0.0; t < 1.0; t+=.5)\n    {\n        time = time+t;\n        vec2 n1 = FBM22( time*(Noise21(time*3.25)*40.0+Noise21(time*.03)*3500.0+8500.0)) * (abs(Noise21(time*.8)))*.25;\n        vec2 n2 = FBM22( time*(Noise21(time*.4)+900.0))*abs(Noise21(time*1.5));\n        vec2 n3 = FBM22( time*(Noise21(time*1.3)+Noise21(-time*.03)*200.0+540.0))*(.5+abs(Noise21(time-99.)))*1.5;\n        vec2 s1 = sin(time*1300.+(Noise21(time*.23))*(Noise21(-time*.12)*3000.0+4000.0))*abs(Noise21(time*42.3+199.))*abs(Noise21(-time*.04+9.))*1.7;\n\n        audio += (n1+n2+n3+s1)/4.0;\n    }\n    float foot = sin(time*.9*3.141);\n    audio += Noise11(time*380.0)*Noise11(time*880.0)* smoothstep(0.7,1.1,abs(foot)) * 2.;\n    \n    return clamp(audio, -1.0, 1.0) * smoothstep(0.0, 3.0, time) * smoothstep(60.0, 55.0, time);\n    \n    \n}\n//SOUND_END\n\n//IMG:/home/dioscorid/Projects/presets/textures/Images/14.png",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

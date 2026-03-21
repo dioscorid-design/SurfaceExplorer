@@ -1,0 +1,12 @@
+{
+    "code": "// --- PARAMETRI ---\n// Imposta nel dock: Rosso (c1) e Bianco (c2) per l'effetto classico\nvec3 c1 = u_col1;\nvec3 c2 = u_col2;\n\n// --- CONFIGURAZIONE SPIRALE ---\n// Coils: Quante strisce vedi in una sezione trasversale del tubo\nfloat coils = 6.0;\n\n// Twists: Quanti giri completi fa la spirale lungo tutto il toro\n// Deve essere un numero intero per evitare che la texture si tagli alla giunzione\nfloat twists = 40.0;\n\n// --- CALCOLO ---\n// La magia è sommare U e V moltiplicati.\n// (u * twists) spinge la texture lungo il percorso\n// (v * coils) avvolge la texture attorno al tubo\n// Sommando i due si ottiene una linea diagonale (elica/spirale)\nfloat pos = (u * twists) + (v * coils);\n\n// --- CREAZIONE STRISCE NETTE ---\n// fract(pos) crea un dente di sega da 0.0 a 1.0 ripetuto\n// step(0.5, ...) taglia di netto il valore: sotto 0.5 è 0, sopra è 1.\nfloat stripe = step(0.5, fract(pos));\n\n// Restituisce il colore (senza sfumature)\nreturn mix(c1, c2, stripe);",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "hasCustomColors": true,
+    "name": "Row",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

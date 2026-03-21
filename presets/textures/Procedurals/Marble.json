@@ -1,0 +1,11 @@
+{
+    "code": "// --- PARAMETRI ---\nvec3 c1 = u_col1; // Colore 1 dall'interfaccia\nvec3 c2 = u_col2; // Colore 2 dall'interfaccia\n\n// Parametri Marmo\nfloat density = 10.0;\nfloat turbulence = 4.0;\n\n// Coordinate scalate (u, v sono disponibili grazie a common.glsl)\nvec2 p = vec2(u, v) * 4.0;\n\n// --- CALCOLO TURBOLENZA ---\nfloat tVal = 0.0;\nfloat amp = 1.0;\nfloat freq = 1.0;\n\nfor(int i = 0; i < 3; i++) {\n    // [FIX] Usa 'sys_noise' invece di 'noise'\n    tVal += sys_noise(p * freq) * amp;\n    amp *= 0.5;\n    freq *= 2.0;\n}\n\n// --- FORMULA MARMO ---\n// Distorce le linee diagonali (x + y) con il rumore\nfloat xyValue = p.x + p.y + (tVal * turbulence);\n\n// Crea le venature usando il seno\nfloat val = sin(xyValue * density);\n\n// Mappa da [-1, 1] a [0, 1] per il mix\nfloat mixFactor = (val + 1.0) * 0.5;\n\n// Interpolazione finale tra i due colori scelti\nreturn mix(c1, c2, mixFactor);",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "hasCustomColors": true,
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

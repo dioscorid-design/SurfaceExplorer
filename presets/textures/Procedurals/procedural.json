@@ -1,0 +1,13 @@
+{
+    "code": "// Texture Preset",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "hasCustomColors": true,
+    "name": "procedural",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "scriptCode": "// Texture Preset",
+    "type": "custom_texture",
+    "zoom": 1
+}

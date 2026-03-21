@@ -1,0 +1,110 @@
+{
+    "angles": {
+        "omega": 19.750455856323242,
+        "phi": 37.72077178955078,
+        "psi": 18.860435485839844
+    },
+    "background": {
+        "code": "// --- CONFIGURAZIONE ---\n// Costruiamo il vettore posizione usando u e v (già forniti dal sistema)\n// Moltiplichiamo per 8.0 per fare \"zoom out\" e vedere più dettagli\nvec2 p = vec2(u, v) * 8.0;\n\n// --- DISTORSIONE (Domain Warping) ---\n// Calcoliamo un valore di rumore base\nfloat n1 = sys_noise(p);\n\n// Usiamo il rumore per spostare le coordinate del passaggio successivo\n// Questo crea l'effetto fluido/liquido\nvec2 shift = vec2(n1, sys_noise(p + vec2(5.0, 5.0))); \n\n// --- PATTERN FINALE ---\n// Calcoliamo il rumore finale sulle coordinate distorte\nfloat pattern = sys_noise(p + shift * 2.0);\n\n// --- CONTRASTO ---\n// Rendiamo i bordi più netti (taglia i grigi intermedi)\npattern = smoothstep(0.3, 0.7, pattern);\n\n// --- COLORE ---\n// Usa i colori che hai scelto nel pannello (Color 1 e Color 2)\nreturn mix(u_col1, u_col2, pattern);",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.7251167893409729,
+        "rot_x": 0.444132924079895,
+        "rot_y": 0.49234235286712646,
+        "rot_z": -0.18587829172611237,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 15.999999046325684
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 2,
+        "B": 1,
+        "C": 0.5,
+        "D": 0.3499999940395355,
+        "E": 2,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "u +D*t",
+        "defV": "v",
+        "defW": "C*u",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "B * W ",
+        "x": "A*sin(V)*cos(U)",
+        "y": "A*sin(V)*sin(U)",
+        "z": "A * cos(V) "
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": -6.2831854820251465,
+        "vMax": 3.1410000324249268,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Revolving Helicoid",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 0,
+    "renderMode": 0,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0.20000000298023224,
+        "omega": 0.20000000298023224,
+        "path3D": 1,
+        "path4D": 1,
+        "phi": 0.4000000059604645,
+        "precession": 0.20000000298023224,
+        "psi": 0.20000000298023224,
+        "spin": 0.20000000298023224
+    },
+    "steps": 158,
+    "texture": {
+        "code": "//SOUND_BEGIN\n//SOUND_BEGIN\n// =========================================================================\n// Title: Tie-Dye Sonification (Harmonic Drone)\n// Note: Versione ammorbidita. Utilizza intervalli di quinta giusta (110Hz e 165Hz)\n// e sottomultipli per una modulazione FM molto più dolce.\n// =========================================================================\n\nfloat noise(vec2 p) {\n    vec2 i = floor(p);\n    vec2 f = fract(p);\n    f = f*f*(3.0-2.0*f);\n    \n    float a = fract(sin(dot(i, vec2(12.9898, 78.233))) * 43758.5453);\n    float b = fract(sin(dot(i + vec2(1.0, 0.0), vec2(12.9898, 78.233))) * 43758.5453);\n    float c = fract(sin(dot(i + vec2(0.0, 1.0), vec2(12.9898, 78.233))) * 43758.5453);\n    float d = fract(sin(dot(i + vec2(1.0, 1.0), vec2(12.9898, 78.233))) * 43758.5453);\n    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);\n}\n\nvec2 mainSound( int samp, float time ) {\n    // Frequenze armoniche: 110Hz (La) e 165Hz (Mi, una quinta giusta sopra)\n    float freqL = 110.0; \n    float freqR = 165.0; \n\n    // Modulazione molto più dolce (usiamo 55.0Hz, che è l'ottava bassa di 110Hz)\n    // Questo garantisce che le distorsioni siano intonate con la nota principale\n    float t = time * 0.2;\n    float modL = sin(6.28318 * 55.0 * time + t) * 0.8; \n    float modR = cos(6.28318 * 55.0 * time - t) * 0.8;\n    \n    // Generazione dei toni principali (onde sinusoidali modificate dolcemente)\n    float toneL = sin(6.28318 * freqL * time + modL);\n    float toneR = sin(6.28318 * freqR * time + modR);\n\n    // Aggiungiamo un'ottava superiore morbida per dare un po' di \"luce\" al suono\n    toneL += sin(6.28318 * 220.0 * time) * 0.25;\n    toneR += sin(6.28318 * 330.0 * time) * 0.25;\n\n    // Rumore di fondo abbassato di frequenza e di volume (solo per dare un po' di respiro)\n    float nL = noise(vec2(time * 300.0, time * 100.0)) - 0.5;\n    float nR = noise(vec2(time * 100.0, time * 320.0)) - 0.5;\n\n    // Mix finale: diamo priorità ai toni armonici e scaliamo tutto per non superare 1.0\n    // (evitando così il fastidioso effetto \"onda quadra\" del clamp)\n    vec2 audio = vec2(toneL, toneR) * 0.6 + vec2(nL, nR) * 0.03;\n    \n    // Inviluppo per ammorbidire l'attacco iniziale\n    float env = smoothstep(0.0, 2.0, time) * (0.8 + 0.2 * sin(time * 0.5));\n\n    return clamp(audio * env, -1.0, 1.0);\n}\n//SOUND_END\n\n// Imposta lo zoom/scala iniziale\nvec2 z_pos = (uv - 0.5) * 3.0; \n\n// Costante complessa C\nvec2 c = vec2(0.285, 0.01); \n\nint maxIter = 80; // Ridotto leggermente per sicurezza\nint i = 0;\n\n// Iterazione Julia standard\nfor(i = 0; i < maxIter; i++) {\n    // Usiamo nomi sicuri (zx, zy) invece di x, y\n    float zx = (z_pos.x * z_pos.x - z_pos.y * z_pos.y) + c.x;\n    float zy = (2.0 * z_pos.x * z_pos.y) + c.y;\n    z_pos = vec2(zx, zy);\n    \n    if (dot(z_pos, z_pos) > 4.0) break;\n}\n\n// Colorazione\nif (i == maxIter) {\n    return vec3(0.2, 0.15, 0.3); \n} else {\n    float t = float(i) / 20.0;\n    \n    float r = 0.5 + 0.5 * sin(t + 0.0);\n    float g = 0.5 + 0.5 * cos(t + 2.09); \n    float b = 0.5 + 0.5 * cos(t + 4.18); \n    \n    vec3 color = vec3(r, g, b);\n    \n    // Mix esplicito\n    return mix(color, vec3(1.0, 1.0, 1.0), 0.5);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": -143,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

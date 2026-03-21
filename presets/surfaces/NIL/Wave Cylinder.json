@@ -1,0 +1,62 @@
+{
+    "angles": {
+        "omega": 9.999999747378752e-05,
+        "phi": 9.999999747378752e-05,
+        "psi": 9.999999747378752e-05
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.18303734064102173,
+        "rot_x": -0.26375812292099,
+        "rot_y": -0.014364121481776237,
+        "rot_z": 0.9469543695449829,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 17.19999885559082
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 0.41999998688697815,
+        "B": 1,
+        "C": 1,
+        "D": 0,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "2*cos(u)",
+        "defV": "2*sin(u)",
+        "defW": "v",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0",
+        "x": "U",
+        "y": "V",
+        "z": "W + A * U * V"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 2,
+    "limits": {
+        "uMax": 3,
+        "uMin": -3,
+        "vMax": 3,
+        "vMin": -3,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Wave Cylinder",
+    "projectionMode": 1,
+    "renderMode": 1,
+    "showBorder": false,
+    "steps": 200,
+    "type": "surface",
+    "use4DLighting": false
+}

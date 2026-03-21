@@ -1,0 +1,40 @@
+# --- Build and Release folders ---
+# These contain generated binaries and libraries that should not be tracked
+build/
+SurfaceExplorer_Release/
+AppDir/
+Surface/
+*.zip
+*.AppImage
+*.run
+
+# --- CMake generated files ---
+# Temporary files created by the build system
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+Makefile
+install_manifest.txt
+*_autogen/
+
+# --- IDE and Editor specific files ---
+# Settings specific to Qt Creator or other development tools
+*.user
+.qtc_clangd/
+.cmake/
+
+# --- System and Temporary files ---
+# OS-generated files and editor swap files
+.DS_Store
+Thumbs.db
+*~
+*.swp
+
+# Additional UI and Desktop files
+SurfaceExplorer.desktop
+.qtcreator/
+CREDITS.txt
+documentation.html
+Info.plist
+update_resources.py

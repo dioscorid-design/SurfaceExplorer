@@ -1,0 +1,62 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.08521733433008194,
+        "rot_x": 0.3132956624031067,
+        "rot_y": 0.9447482824325562,
+        "rot_z": 0.04510517418384552,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 1,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "acos(-cos(w)/(1+cos(w)))",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.0",
+        "x": "(1-v)*A*(0.5+cos(w))+v*A*(-0.5+cos(u))",
+        "y": "v*A*sin(u)",
+        "z": "(1-v)*A*sin(w)"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 1,
+        "vMin": 0,
+        "wMax": 2.094395160675049,
+        "wMin": -2.094395160675049
+    },
+    "name": "NewSurfacetemp",
+    "projectionMode": 1,
+    "renderMode": 1,
+    "showBorder": false,
+    "steps": 100,
+    "type": "surface",
+    "use4DLighting": false
+}

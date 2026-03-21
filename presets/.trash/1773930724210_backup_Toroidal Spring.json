@@ -1,0 +1,110 @@
+{
+    "angles": {
+        "omega": 9.999999747378752e-05,
+        "phi": 9.999999747378752e-05,
+        "psi": 0.27010002732276917
+    },
+    "background": {
+        "code": "// PARAMETRI\nfloat density = 10.0;\n\n// [FIX] Usa i colori del pannello laterale\nvec3 c1 = vec3(1.0, 0.0, 0.0); // Rosso\nvec3 c2 = vec3(1.0, 1.0, 0.0); // Giallo\n\nfloat freq = density * 0.05;\n\n// Coordinate scalate\n// Moltiplichiamo per 25.0 invece di 512*0.05 per semplicità\nfloat xx = u * 25.0; \nfloat yy = v * 25.0;\n\n// --- FORMULA PLASMA ---\nfloat v1 = sin(xx + yy);\nfloat v2 = sin((xx * sin(yy/2.0)) + (yy * cos(xx/3.0)));\n\nfloat cx = xx + 0.5 * sin(yy/5.0);\nfloat cy = yy + 0.5 * cos(xx/3.0);\nfloat v3 = sin(sqrt(100.0 * (cx*cx + cy*cy) + 1.0));\n\nfloat vf = (v1 + v2 + v3) / 3.0;\n\n// [FIX] Rinominato 't' in 'plasmaVal' per evitare conflitti\nfloat plasmaVal = vf * 0.5 + 0.5;\n\nreturn mix(c1, c2, plasmaVal);",
+        "col1": "#3333cc",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.9599871635437012,
+        "rot_x": -0.10775864124298096,
+        "rot_y": 0.2579629421234131,
+        "rot_z": -0.01636606454849243,
+        "x": 4.8400163650512695,
+        "y": 1.009999394416809,
+        "yaw": 0,
+        "z": 17.19999885559082
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1,
+        "B": 0.30000001192092896,
+        "C": 0.5,
+        "D": 0,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "u",
+        "defV": "v",
+        "defW": "u * 2 + (sin(t) * 4)\n",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "W",
+        "x": "(A+B*cos(V))*cos(U)",
+        "y": "(A+B*cos(V))*sin(U)",
+        "z": "B*sin(V)"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 12.566370964050293,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Toroidal Spring",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 0,
+    "renderMode": 0,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 1,
+        "path4D": 1,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0.30000001192092896,
+        "spin": 0
+    },
+    "steps": 100,
+    "texture": {
+        "code": "//SOUND_BEGIN\n//SOUND_BEGIN\n// =========================================================================\n// Title: Tie-Dye Sonification (Harmonic Drone)\n// Note: Versione ammorbidita. Utilizza intervalli di quinta giusta (110Hz e 165Hz)\n// e sottomultipli per una modulazione FM molto più dolce.\n// =========================================================================\n\nfloat noise(vec2 p) {\n    vec2 i = floor(p);\n    vec2 f = fract(p);\n    f = f*f*(3.0-2.0*f);\n    \n    float a = fract(sin(dot(i, vec2(12.9898, 78.233))) * 43758.5453);\n    float b = fract(sin(dot(i + vec2(1.0, 0.0), vec2(12.9898, 78.233))) * 43758.5453);\n    float c = fract(sin(dot(i + vec2(0.0, 1.0), vec2(12.9898, 78.233))) * 43758.5453);\n    float d = fract(sin(dot(i + vec2(1.0, 1.0), vec2(12.9898, 78.233))) * 43758.5453);\n    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);\n}\n\nvec2 mainSound( int samp, float time ) {\n    // Frequenze armoniche: 110Hz (La) e 165Hz (Mi, una quinta giusta sopra)\n    float freqL = 110.0; \n    float freqR = 165.0; \n\n    // Modulazione molto più dolce (usiamo 55.0Hz, che è l'ottava bassa di 110Hz)\n    // Questo garantisce che le distorsioni siano intonate con la nota principale\n    float t = time * 0.2;\n    float modL = sin(6.28318 * 55.0 * time + t) * 0.8; \n    float modR = cos(6.28318 * 55.0 * time - t) * 0.8;\n    \n    // Generazione dei toni principali (onde sinusoidali modificate dolcemente)\n    float toneL = sin(6.28318 * freqL * time + modL);\n    float toneR = sin(6.28318 * freqR * time + modR);\n\n    // Aggiungiamo un'ottava superiore morbida per dare un po' di \"luce\" al suono\n    toneL += sin(6.28318 * 220.0 * time) * 0.25;\n    toneR += sin(6.28318 * 330.0 * time) * 0.25;\n\n    // Rumore di fondo abbassato di frequenza e di volume (solo per dare un po' di respiro)\n    float nL = noise(vec2(time * 300.0, time * 100.0)) - 0.5;\n    float nR = noise(vec2(time * 100.0, time * 320.0)) - 0.5;\n\n    // Mix finale: diamo priorità ai toni armonici e scaliamo tutto per non superare 1.0\n    // (evitando così il fastidioso effetto \"onda quadra\" del clamp)\n    vec2 audio = vec2(toneL, toneR) * 0.6 + vec2(nL, nR) * 0.03;\n    \n    // Inviluppo per ammorbidire l'attacco iniziale\n    float env = smoothstep(0.0, 2.0, time) * (0.8 + 0.2 * sin(time * 0.5));\n\n    return clamp(audio * env, -1.0, 1.0);\n}\n//SOUND_END\n//SOUND_END\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    // Normalizzazione coordinate (0..1)\n    vec2 uv = fragCoord/iResolution.xy;\n\n    // --- 1. CONFIGURAZIONE COLORI ---\n    vec3 colBackground = vec3(0.0, 0.5, 0.9); // Sfondo Azzurro\n    \n    // Gradiente Verticale dei segmenti\n    vec3 colBasso      = vec3(1.0, 1.0, 0.0); // Giallo Intenso (Basso)\n    vec3 colAlto       = vec3(1.0, 0.4, 0.0); // Arancio Intenso (Alto)\n\n    // --- 2. CALCOLO COLORE GRADIENTE ---\n    // Mescola il colore dal basso verso l'alto basandosi sull'altezza (uv.y)\n    vec3 coloreSegmento = mix(colBasso, colAlto, uv.y);\n\n    // --- 3. GEOMETRIA (RIGHE) ---\n    float densita = 200.0; \n    float spessore = 0.5; \n\n    // Crea il pattern a righe\n    float pattern = sin(uv.x * densita);\n    float maskSegmenti = smoothstep(spessore, spessore + 0.02, pattern);\n\n    // --- 4. COMBINAZIONE FINALE ---\n    // Se c'è il segmento (maskSegmenti = 1), usa 'coloreSegmento' (Giallo->Arancio)\n    // Altrimenti usa 'colBackground' (Azzurro)\n    vec3 finalColor = mix(colBackground, coloreSegmento, maskSegmenti);\n\n    fragColor = vec4(finalColor, 1.0);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

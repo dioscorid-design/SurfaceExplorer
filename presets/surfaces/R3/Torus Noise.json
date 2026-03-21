@@ -1,0 +1,62 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.03600884601473808,
+        "rot_x": 0.8666598200798035,
+        "rot_y": 0.46348896622657776,
+        "rot_z": -0.18105879426002502,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 0.800000011920929,
+        "B": 0.36000001430511475,
+        "C": 0,
+        "D": 0,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.0",
+        "x": "(A+(1.0/2.0)*cos(u))*cos(v)*(1-B*NoiseW(((1+(1.0/2.0)*cos(u))*cos(v))*4.0, ((1+(1.0/2.0)*cos(u))*sin(v))*4.0, ((1.0/2.0)*sin(u))*4.0, 5.0, 2.0, 0.5))",
+        "y": "(A+(1.0/2.0)*cos(u))*sin(v)*(1-B*NoiseW(((1+(1.0/2.0)*cos(u))*cos(v))*4.0, ((1+(1.0/2.0)*cos(u))*sin(v))*4.0, ((1.0/2.0)*sin(u))*4.0, 5.0, 2.0, 0.5))",
+        "z": "sin(u)*(A-B*NoiseW(((1+(1.0/2.0)*cos(u))*cos(v))*4.0, ((1+(1.0/2.0)*cos(u))*sin(v))*4.0, ((1.0/2.0)*sin(u))*4.0, 5.0, 2.0, 0.5))"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.28318977355957,
+        "uMin": 0,
+        "vMax": 6.283199787139893,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Torus Noise",
+    "projectionMode": 1,
+    "renderMode": 1,
+    "showBorder": false,
+    "steps": 100,
+    "type": "surface",
+    "use4DLighting": false
+}

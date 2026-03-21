@@ -1,0 +1,106 @@
+{
+    "angles": {
+        "omega": 0.10000000149011612,
+        "phi": 0.10000000149011612,
+        "psi": 0.10000000149011612
+    },
+    "background": {
+        "code": "// =========================================================================\n// Title: Winds of Io (High Quality - Optimized)\n// Author: Procedural Volumetrics for Surfaces Explorer\n// License: MIT\n// =========================================================================\n\nconst mat3 m3 = mat3( 0.33338, 0.56034, -0.71817, \n                     -0.87887, 0.32651, -0.15323, \n                      0.15162, 0.69596,  0.61339 ) * 1.93;\n\nfloat hash(float n) { return fract(sin(n) * 43758.5453123); }\n\nfloat noise(in vec3 x) {\n    vec3 i = floor(x);\n    vec3 f = fract(x);\n    f = f * f * (3.0 - 2.0 * f);\n    float n = i.x + i.y * 157.0 + 113.0 * i.z;\n    \n    return mix(\n        mix(mix(hash(n +   0.0), hash(n +   1.0), f.x),\n            mix(hash(n + 157.0), hash(n + 158.0), f.x), f.y),\n        mix(mix(hash(n + 113.0), hash(n + 114.0), f.x),\n            mix(hash(n + 270.0), hash(n + 271.0), f.x), f.y), f.z);\n}\n\n// TORNATO AL MASSIMO DETTAGLIO: 4 Ottave di FBM per avere i \"ciuffi\"\nfloat fbm(in vec3 q) {\n    float f = 0.0;\n    float weight = 0.5;\n    for (int i = 0; i < 4; i++) { \n        f += weight * noise(q);\n        q = m3 * q;\n        weight *= 0.5;\n    }\n    return f;\n}\n\n// Scultura della forma intatta\nfloat map(in vec3 p) {\n    float heightProfile = 1.0 - abs(p.y - 0.5); \n    if (heightProfile <= 0.0) return 0.0; \n    \n    vec3 q = p;\n    q.z -= iTime * 0.2; \n    \n    vec3 warp = vec3(fbm(q * 0.5), fbm(q * 0.5 + 13.3), 0.0);\n    float n = fbm(q * 1.5 + warp);\n    \n    float density = (n - 0.45) * heightProfile * 2.0;\n    return max(0.0, density);\n}\n\n// RAYMARCHING INTELLIGENTE\nvec4 renderClouds(in vec3 ro, in vec3 rd) {\n    vec4 sum = vec4(0.0);\n    float t = 0.0;\n    \n    vec3 lightDir = normalize(vec3(0.8, 0.4, -0.3)); \n    vec3 sunCol = vec3(1.0, 0.55, 0.1);               \n    vec3 ambCol = vec3(0.4, 0.15, 0.05);               \n    \n    // 35 passi: il perfetto equilibrio tra fluidità e profondità volumetrica\n    for(int i = 0; i < 35; i++) { \n        if(sum.a > 0.98) break;\n        \n        vec3 pos = ro + t * rd;\n        float den = map(pos);\n        \n        if(den > 0.01) {\n            // IL TRUCCO DELLE OMBRE: Misuriamo la densità poco più in là verso il sole\n            // Se la densità diminuisce (cioè usciamo dalla nuvola), significa che quella parte è esposta alla luce!\n            float denVersoIlSole = map(pos + lightDir * 0.3);\n            \n            // Calcoliamo la differenza per generare ombre perfette senza cicli extra\n            float dif = clamp((den - denVersoIlSole) * 4.0, 0.0, 1.0);\n            \n            // Effetto Powder per schiarire i bordi\n            float powder = 1.0 - exp(-den * 3.0);\n            \n            vec3 lighting = ambCol + sunCol * (dif + 0.1) * powder * 1.5;\n            \n            vec4 col = vec4(lighting, den);\n            col.a *= 0.5; // Morbidezza originale\n            col.rgb *= col.a; \n            \n            sum += col * (1.0 - sum.a);\n        }\n        \n        t += max(0.05, 0.12 * (1.0 - den));\n    }\n    \n    return clamp(sum, 0.0, 1.0);\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord ) {\n    vec2 p = (gl_FragCoord.xy - 0.5 * iResolution.xy) / iResolution.y;\n    \n    vec3 ro = vec3(0.0, 0.2, iTime * 0.5); \n    vec3 rd = normalize(vec3(p.x, p.y + 0.2, 1.0)); \n    \n    vec3 skyColor = mix(vec3(0.3, 0.1, 0.05), vec3(0.9, 0.4, 0.1), clamp(rd.y + 0.1, 0.0, 1.0));\n    \n    vec4 clouds = renderClouds(ro, rd);\n    vec3 finalColor = mix(skyColor, clouds.rgb, clouds.a);\n    \n    float distanceFog = 1.0 - exp(-0.02 * clouds.a);\n    finalColor = mix(finalColor, skyColor, distanceFog);\n    \n    finalColor = smoothstep(0.0, 1.0, finalColor);\n    \n    vec2 q = gl_FragCoord.xy / iResolution.xy;\n    float vig = max(0.0, 16.0 * q.x * q.y * (1.0 - q.x) * (1.0 - q.y));\n    finalColor *= pow(vig, 0.15) * 0.7 + 0.3;\n    \n    fragColor = vec4(finalColor, 1.0);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 1,
+        "rot_x": 0,
+        "rot_y": 0,
+        "rot_z": 0,
+        "x": -0.3312218189239502,
+        "y": 1.894709587097168,
+        "yaw": 0,
+        "z": 0.06433495879173279
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1,
+        "B": 1,
+        "C": 1,
+        "D": 0,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0",
+        "x": "(1 + (v/2)*cos(u/2))*cos(u)",
+        "y": "(1 + (v/2)*cos(u/2))*sin(u)",
+        "z": "(v/2)*sin(u/2)"
+    },
+    "lightIntensity": 1.59,
+    "lightingMode": 1,
+    "limits": {
+        "uMax": 6.283180236816406,
+        "uMin": 0,
+        "vMax": 1,
+        "vMin": -1,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Mobius Racing",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "-t/2",
+        "x": "cos(t) - 0.05 * cos(t) * sin(t/2)",
+        "y": "sin(t) - 0.05 * sin(t) * sin(t/2)",
+        "z": "0.05 * cos(t/2)"
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "projectionMode": 1,
+    "showBorder": true,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 100,
+    "texture": {
+        "code": "//SOUND_BEGIN\n//----------------------------------------------------------------------\n// Wind function by Dave Hoskins https://www.shadertoy.com/view/4ssXW2\n\n\nfloat hash( float n ) {\n    return fract(sin(n)*43758.5453123);\n}\nvec2 Hash( vec2 p) {\n    return vec2( hash(p.x), hash(p.y) );\n}\n\n//--------------------------------------------------------------------------\nvec2 Noise( in vec2 x ) {\n    vec2 p = floor(x);\n    vec2 f = fract(x);\n    f = f*f*(3.0-2.0*f);\n    vec2 res = mix(mix( Hash(p + 0.0), Hash(p + vec2(1.0, 0.0)),f.x),\n                   mix( Hash(p + vec2(0.0, 1.0) ), Hash(p + vec2(1.0, 1.0)),f.x),f.y);\n    return res-.5;\n}\n\n//--------------------------------------------------------------------------\nvec2 FBM( vec2 p ) {\n    vec2 f;\n\tf  = 0.5000\t * Noise(p); p = p * 2.32;\n\tf += 0.2500  * Noise(p); p = p * 2.23;\n\tf += 0.1250  * Noise(p); p = p * 2.31;\n    f += 0.0625  * Noise(p); p = p * 2.28;\n    f += 0.03125 * Noise(p);\n    return f;\n}\n\n//--------------------------------------------------------------------------\nvec2 Wind(float n) {\n    vec2 pos = vec2(n * (162.017331), n * (132.066927));\n    vec2 vol = Noise(vec2(n*23.131, -n*42.13254))*1.0 + 1.0;\n    \n    vec2 noise = vec2(FBM(pos*33.313))* vol.x *.5 + vec2(FBM(pos*4.519)) * vol.y;\n    \n\treturn noise;\n}\n\n//----------------------------------------------------------------------\n\n\n\nvec2 mainSound( in int samp,float time) {\n    //16 - 38\n //   time -= 7.5;\n    time *= .7;\n    float vol = 1.-smoothstep(6.,8.5, time);\n    vol += smoothstep(16.5,20., time);\n    vol *= 1.-smoothstep(23.5,25.5, time);\n    vol += smoothstep(47.5,51.5, time);\n    vol = vol*.8+.2;\n    \n\treturn Wind(time*.05) * vol;\n}\n//SOUND_END\n\n// --- PARAMETRI ---\nfloat zoom = 10.0;  // <--- AUMENTATO DA 1.0 A 20.0 PER RIDURRE I BLOCCHI\nfloat s = 512.0;    // Risoluzione virtuale\n\n// --- LOGICA XOR ---\n// Convertiamo u, v (0.0-1.0) in coordinate intere scalate\n// Formula C++ originale: int xx = x * z / 5;\n// Qui moltiplichiamo per zoom alto per avere il pattern fitto\nint xx = int(u * s * zoom / 5.0);\nint yy = int(v * s * zoom / 5.0);\n\n// Formula XOR bitwise\nint val = (xx ^ yy) % 256;\n\n// Mappiamo a 0.0-1.0\nfloat t = float(val) / 255.0;\n\n// --- GENERAZIONE COLORE PSICHEDELICO (Inline) ---\n// t * 3.0 serve a fare 3 giri completi di spettro\nfloat time = t * 3.0; \nfloat freq = 6.283; // 2 * PI\n\n// Calcolo componenti RGB con le fasi originali (0.00, 0.33, 0.67)\nfloat r_psy = 0.5 + 0.5 * cos(freq * time + 0.00);\nfloat g_psy = 0.5 + 0.5 * cos(freq * time + 0.33); \nfloat b_psy = 0.5 + 0.5 * cos(freq * time + 0.67); \n\nvec3 psyColor = vec3(r_psy, g_psy, b_psy);\n\n// --- MIX FINALE ---\n// Mischiamo il risultato psichedelico con la tinta base (Colore 1)\nreturn (psyColor + u_col1) * 0.5;",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

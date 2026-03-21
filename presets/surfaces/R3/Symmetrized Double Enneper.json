@@ -1,0 +1,57 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.8920641541481018,
+        "rot_x": 0.3602105379104614,
+        "rot_y": 0.269620805978775,
+        "rot_z": -0.042124420404434204,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 10,
+        "B": 0.10000000149011612,
+        "C": 0,
+        "D": 0,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 1,
+        "uMin": -1,
+        "vMax": 3.141590118408203,
+        "vMin": -3.141590118408203,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Symmetrized Double Enneper",
+    "projectionMode": 1,
+    "renderMode": 1,
+    "scriptCode": "// --- CONFIGURAZIONE UI ---\n// Usiamo u da -1 a 1 per rappresentare le due metà (Sotto -> Sopra)\nu_min := -1.0; \nu_max := 1.0; \nv_min := -3.14159;\nv_max := 3.14159;\nsteps := 300;  // Alta qualità per la giunzione\nA := 10.0;     // k\nB := 0.1;     // SCALA\nC := 0.0;     \n\n// --- INIZIO GLSL ---\n\nfloat k = u_mathParams.x;    // 10\nfloat scale = u_mathParams.y;// 0.04\n\n// 1. MAPPING INTELLIGENTE DEL RAGGIO\n// Invece di disegnare da 0 a 1, mappiamo l'input [-1...1] \n// nel range reale della figura [0.28...1.1].\n// Questo salta la parte centrale \"brutta\" e unisce i bordi interni.\nfloat u_input = u;\nfloat u_real = 0.28 + abs(u_input) * (1.09 - 0.28);\n\n// 2. Calcolo Geometria Base (Usando il raggio mappato positivo)\nfloat v_val = v; // Usiamo v normale (giro completo)\n\nfloat pow_u_2k_1 = pow(u_real, 2.0 * k - 1.0);\nfloat pow_u_k    = pow(u_real, k);\n\nfloat x = k * u_real * cos(v_val) - (pow_u_2k_1 / 6.0) * cos((2.0 * k - 1.0) * v_val);\nfloat y = -k * u_real * sin(v_val) - (pow_u_2k_1 / 6.0) * sin((2.0 * k - 1.0) * v_val);\nfloat z_base = -(pow_u_k * cos(k * v_val));\n\n// 3. SELEZIONE FACCIA (Sopra o Sotto)\n// Se u è negativo, facciamo la faccia 1. Se positivo, la faccia 2.\n// Il punto u=0 diventa la cucitura perfetta al centro del buco.\n\nfloat shift = 2.0 * exp(2.0 * cos(4.0 * u_real));\nfloat constant = 24.0 / 5.0; // 4.8\nfloat finalZ;\n\nif (u_input < 0.0) {\n    // Componente 1 (Sotto)\n    finalZ = z_base - shift + constant;\n} else {\n    // Componente 2 (Sopra)\n    finalZ = -z_base + shift - constant;\n}\n\n// 4. Output\nreturn vec4(x * scale, y * scale, finalZ * scale, 0.0);",
+    "showBorder": false,
+    "steps": 300,
+    "type": "surface",
+    "use4DLighting": false
+}

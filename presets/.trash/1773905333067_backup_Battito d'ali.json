@@ -1,0 +1,109 @@
+{
+    "angles": {
+        "omega": 0.10000000149011612,
+        "phi": 0.10000000149011612,
+        "psi": 0.10000000149011612
+    },
+    "background": {
+        "code": "// --- PARAMETRI ---\nfloat scale = 50.0; // Densità degli anelli (più alto = più cerchi)\nvec2 center = vec2(0.5, 0.5); // Centro dei cerchi (0.5, 0.5 è il centro della texture)\n\n// --- LOGICA ---\n// 1. Calcola la distanza del pixel corrente (u, v) dal centro\nfloat dist = distance(vec2(u, v), center);\n\n// 2. Crea l'onda sinusoidale basata sulla distanza\n// Moltiplichiamo per 'scale' per aumentare la frequenza\nfloat val = sin(dist * scale);\n\n// 3. Mappiamo il risultato da -1..1 a 0..1 per il mix\nfloat t = (val + 1.0) * 0.5;\n\n// 4. Mix finale\nreturn mix(u_col1, u_col2, t);",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 0.6575163006782532
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.1563667207956314,
+        "rot_x": -0.48573538661003113,
+        "rot_y": 0.27598002552986145,
+        "rot_z": -0.8145216703414917,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1,
+        "B": 0.3400000035762787,
+        "C": 0.30000001192092896,
+        "D": 1.5,
+        "E": 1.5,
+        "F": 0,
+        "S": 3.7899999618530273
+    },
+    "equations": {
+        "defU": "u ",
+        "defV": "v",
+        "defW": "C * u * cos(2*v) * sin(t*D)",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0",
+        "x": "A * tanh(U/2) * cos(V)",
+        "y": "A * tanh(U/2) * sin(V)",
+        "z": "B * W"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 8,
+        "uMin": 0,
+        "vMax": 6.28318977355957,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Battito d'ali",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 1,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 1,
+        "path4D": 1,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 272,
+    "texture": {
+        "code": "//SOUND_BEGIN\n//SOUND_BEGIN\n// =========================================================================\n// Title: Tie-Dye Sonification (Harmonic Drone)\n// Note: Versione ammorbidita. Utilizza intervalli di quinta giusta (110Hz e 165Hz)\n// e sottomultipli per una modulazione FM molto più dolce.\n// =========================================================================\n\nfloat noise(vec2 p) {\n    vec2 i = floor(p);\n    vec2 f = fract(p);\n    f = f*f*(3.0-2.0*f);\n    \n    float a = fract(sin(dot(i, vec2(12.9898, 78.233))) * 43758.5453);\n    float b = fract(sin(dot(i + vec2(1.0, 0.0), vec2(12.9898, 78.233))) * 43758.5453);\n    float c = fract(sin(dot(i + vec2(0.0, 1.0), vec2(12.9898, 78.233))) * 43758.5453);\n    float d = fract(sin(dot(i + vec2(1.0, 1.0), vec2(12.9898, 78.233))) * 43758.5453);\n    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);\n}\n\nvec2 mainSound( int samp, float time ) {\n    // Frequenze armoniche: 110Hz (La) e 165Hz (Mi, una quinta giusta sopra)\n    float freqL = 110.0; \n    float freqR = 165.0; \n\n    // Modulazione molto più dolce (usiamo 55.0Hz, che è l'ottava bassa di 110Hz)\n    // Questo garantisce che le distorsioni siano intonate con la nota principale\n    float t = time * 0.2;\n    float modL = sin(6.28318 * 55.0 * time + t) * 0.8; \n    float modR = cos(6.28318 * 55.0 * time - t) * 0.8;\n    \n    // Generazione dei toni principali (onde sinusoidali modificate dolcemente)\n    float toneL = sin(6.28318 * freqL * time + modL);\n    float toneR = sin(6.28318 * freqR * time + modR);\n\n    // Aggiungiamo un'ottava superiore morbida per dare un po' di \"luce\" al suono\n    toneL += sin(6.28318 * 220.0 * time) * 0.25;\n    toneR += sin(6.28318 * 330.0 * time) * 0.25;\n\n    // Rumore di fondo abbassato di frequenza e di volume (solo per dare un po' di respiro)\n    float nL = noise(vec2(time * 300.0, time * 100.0)) - 0.5;\n    float nR = noise(vec2(time * 100.0, time * 320.0)) - 0.5;\n\n    // Mix finale: diamo priorità ai toni armonici e scaliamo tutto per non superare 1.0\n    // (evitando così il fastidioso effetto \"onda quadra\" del clamp)\n    vec2 audio = vec2(toneL, toneR) * 0.6 + vec2(nL, nR) * 0.03;\n    \n    // Inviluppo per ammorbidire l'attacco iniziale\n    float env = smoothstep(0.0, 2.0, time) * (0.8 + 0.2 * sin(time * 0.5));\n\n    return clamp(audio * env, -1.0, 1.0);\n}\n//SOUND_END\n\n//SOUND_END\n\nfloat noise(vec2 p) {\n    vec2 i = floor(p);\n    vec2 f = fract(p);\n    f = f*f*(3.0-2.0*f); // Smoothstep interpolation\n    \n    float a = fract(sin(dot(i, vec2(12.9898, 78.233))) * 43758.5453);\n    float b = fract(sin(dot(i + vec2(1, 0), vec2(12.9898, 78.233))) * 43758.5453);\n    float c = fract(sin(dot(i + vec2(0, 1), vec2(12.9898, 78.233))) * 43758.5453);\n    float d = fract(sin(dot(i + vec2(1, 1), vec2(12.9898, 78.233))) * 43758.5453);\n    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);\n}\n\nmat2 rot(float a) {\n    float c = cos(a), s = sin(a);\n    return mat2(c,-s,s,c);\n}\n\nvec3 pal(float t) {\n    return vec3(.5,.4,.5)+vec3(.5,.2,.5)\n        *cos(6.28318*(vec3(1./2.,1./3.,5) * t + vec3(0,.54,0)-iTime*.4));\n}\n\nfloat getFreq(float f) {\n    return texture(iChannel0, vec2(f,.25)).x;\n}\n\nvec3 tiedie(vec2 uv, float f) {\n    float t = iTime * 0.4;\n    float fft = getFreq(.001)*.35 - getFreq(.99)*.2;\n    \n    uv *= rot(t*.9);\n    float amp = .3;\n    float a = atan(uv.y+amp*sin(t),uv.x+amp*cos(t));\n    \n    uv.x += amp * cos(sin(a*f+t)*fft + t);\n    uv.y += amp * sin(cos(a*f+t)*fft + t);\n    \n    return pal((1.-exp(-length(uv)*2.))*3.+.3);\n}\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = 1.*(fragCoord - 0.5 * iResolution.xy) / iResolution.y;\n    vec3 col = tiedie(uv, 4.);\n    vec3 col2 = tiedie(uv, 220.);\n\n    col = mix(col, col2, .2);\n    col = pow(col, vec3(2));\n    col += vec3(.4,.4,.1)*(exp(-length(uv+.2*vec2(cos(iTime*.4),sin(iTime*.4)))*1.));\n    col += .05 * (noise(uv * 400.)-.5);\n\n    fragColor = vec4(col, 1.0);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": true
+}

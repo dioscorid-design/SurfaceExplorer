@@ -1,0 +1,12 @@
+{
+    "code": "// Parametri\nvec2 c = (uv - 0.5) * 3.0 - vec2(0.7, 0.0);\nvec2 z = vec2(0.0);\n\nfloat iter = 0.0;\nfloat maxIter = 100.0;\n\n// Ciclo principale del Mandelbrot\nfor(float i = 0.0; i < maxIter; i++) {\n    // Formula: Z = Z^2 + C\n    float x = (z.x * z.x - z.y * z.y) + c.x;\n    float y = (2.0 * z.x * z.y) + c.y;\n\n    // Controllo di fuga (modulo > 2, quindi modulo^2 > 4)\n    if((x * x + y * y) > 4.0) break;\n\n    z.x = x;\n    z.y = y;\n    iter++;\n}\n\n// Colorazione\nfloat t = iter / maxIter;\n\n// Smoothing della sfumatura\nt = pow(t, 0.5);\n\n// Se il punto è all'interno del set (non è fuggito), colora di nero\nif (iter >= maxIter - 0.5) return vec3(0.0);\n\n// Altrimenti interpola tra i due colori definiti nell'interfaccia (u_col2 e u_col1)\nreturn mix(u_col2, u_col1, t);",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "hasCustomColors": true,
+    "name": "Mandelbrot2",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

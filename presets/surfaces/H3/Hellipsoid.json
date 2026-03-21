@@ -1,0 +1,62 @@
+{
+    "angles": {
+        "omega": 9.999999747378752e-05,
+        "phi": 9.999999747378752e-05,
+        "psi": 9.999999747378752e-05
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.8439387083053589,
+        "rot_x": -0.17292265594005585,
+        "rot_y": -0.24841010570526123,
+        "rot_z": -0.4428969919681549,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 1.2999999523162842,
+        "B": 5,
+        "C": 1.5700000524520874,
+        "D": 0,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "2*C*(1+sin(v)*cos(u))",
+        "defV": "C*(1+sin(v)*sin(u))",
+        "defW": "2+cos(v)",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.5",
+        "x": "A*tanh(W/2) * sin(V) * cos(U)",
+        "y": "A*tanh(W/2) * sin(V) * sin(U)",
+        "z": "A*tanh(W/2) * cos(V)"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.28318977355957,
+        "uMin": 0,
+        "vMax": 3.141590118408203,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Hellipsoid",
+    "projectionMode": 1,
+    "renderMode": 1,
+    "showBorder": false,
+    "steps": 101,
+    "type": "surface",
+    "use4DLighting": true
+}

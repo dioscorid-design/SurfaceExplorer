@@ -1,0 +1,104 @@
+{
+    "angles": {
+        "omega": 0.10000000149011612,
+        "phi": 0.10000000149011612,
+        "psi": 0.10000000149011612
+    },
+    "background": {
+        "code": "// Default Background Image",
+        "col1": "#3333cc",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": false,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.1563667207956314,
+        "rot_x": -0.48573538661003113,
+        "rot_y": 0.27598002552986145,
+        "rot_z": -0.8145216703414917,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1,
+        "B": 0.3400000035762787,
+        "C": 0.30000001192092896,
+        "D": 1.5,
+        "E": 1.5,
+        "F": 0,
+        "S": 3.7899999618530273
+    },
+    "equations": {
+        "defU": "u ",
+        "defV": "v",
+        "defW": "C * u * cos(2*v) * sin(t*D)",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0",
+        "x": "A * tanh(U/2) * cos(V)",
+        "y": "A * tanh(U/2) * sin(V)",
+        "z": "B * W"
+    },
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 8,
+        "uMin": 0,
+        "vMax": 6.28318977355957,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Battito d'ali (saddle)",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "projectionMode": 1,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 272,
+    "texture": {
+        "code": "",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": true
+}

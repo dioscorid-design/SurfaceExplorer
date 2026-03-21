@@ -1,0 +1,110 @@
+{
+    "angles": {
+        "omega": 0.1900000125169754,
+        "phi": 0.10999996960163116,
+        "psi": 0.4999997913837433
+    },
+    "background": {
+        "code": "// Title: Fiber Optics\n// Author: NFX\n\nfloat ZGESize = 0.5; // Global settings @separator\nfloat ZGEPositionX = 0.5;\nfloat ZGEPositionY = 0.5;\nfloat ZGEHue = 0.6; // Color settings @separator\nfloat ZGESaturation = 0.8;\nfloat ZGELightness = 0.5;\nfloat ZGEAlpha = 0.0;\nbool ZGEWarpTexture = false; // Background settings @separator\nbool ZGEUseBGFeedback = true;\nfloat ZGEBGHue = 0.0; \nfloat ZGEBGSaturation = 0.0;\nfloat ZGEBGLightness = 0.0;\nfloat ZGESpeed = 0.5; // Effect settings @separator\nfloat ZGEWireDensity = 0.5;\nfloat ZGEWireThickness = 0.4;\nfloat ZGEOutlineThickness = 0.3;\nfloat ZGEWaviness = 0.3; \nfloat ZGERotation = 0.5; \nbool ZGEFlowDirection = true;\n\nvec3 hsl2rgb(vec3 c) {\n    vec3 rgb = clamp(abs(mod(c.x * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);\n    return c.z + c.y * (rgb - 0.5) * (1.0 - abs(2.0 * c.z - 1.0));\n}\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    // Derive local variables\n    float size = ZGESize * 2.0;\n    float posX = ZGEPositionX - 0.5;\n    float posY = ZGEPositionY - 0.5;\n    float alphaInner = 1.0 - ZGEAlpha;\n    float flowDir = ZGEFlowDirection ? 1.0 : -1.0;\n    float speedBase = ZGESpeed * 4.0 * flowDir;\n    float warpTex = ZGEWarpTexture ? 1.0 : 0.0;\n    float useBGFeedback = ZGEUseBGFeedback ? 1.0 : 0.0;\n    \n    // Scale waviness and rotation\n    float waviness = ZGEWaviness * 0.15;\n    float rotationOsc = (ZGERotation - 0.5) * 0.5;\n    float baseThick = ZGEWireThickness * 0.35 + 0.05;\n    float borderWeight = ZGEOutlineThickness * 0.15 + 0.01;\n    float cablesCount = floor(ZGEWireDensity * 70.0 + 10.0);\n    \n    vec2 res = iResolution.xy;\n    vec2 uv = (fragCoord - 0.5 * res) / min(res.y, res.x);\n    \n    // Global transform\n    uv -= vec2(posX, posY);\n    uv /= (size + 0.0001);\n\n    float r = length(uv);\n    float angle = atan(uv.y, uv.x); \n    float depth = -log(r + 0.0001); \n    \n    // Global transform oscillation\n    float swing = sin(iTime * (ZGESpeed * 0.5 + 0.1)) * rotationOsc;\n    float waveOffset = sin(depth * 1.2 + iTime * speedBase * 0.25) * waviness;\n    \n    // Coordinate Mapping for fibers\n    float angleNormalized = (angle / 6.2831853) + 0.5;\n    float finalAngle = fract(angleNormalized + waveOffset + swing);\n    \n    // Grid Logic\n    float cableID = floor(finalAngle * cablesCount);\n    float gvX = (fract(finalAngle * cablesCount) - 0.5);\n    \n    // Per-cable Randoms\n    float rand = fract(sin(cableID * 12.9898) * 43758.5453);\n    float randSpeed = (0.4 + rand * 0.6) * speedBase;\n    float cableHue = mod(ZGEHue + (rand - 0.5) * 0.1, 1.0);\n    float cableThick = baseThick * (0.6 + rand * 0.4);\n    \n    // Animation/Pulse logic\n    float scroll = depth + (iTime * randSpeed);\n    float pulseFact = fract(scroll);\n    \n    // Geometry Distances\n    float distToCore = abs(gvX);\n    \n    // Masks\n    float wireMask = smoothstep(cableThick, cableThick - 0.05, distToCore);\n    float rimGlow = smoothstep(borderWeight, 0.0, abs(distToCore - cableThick));\n    \n    // Background Color or Texture Selection\n    vec3 backCol;\n    if (useBGFeedback > 0.0) {\n        vec2 texUV;\n        if (warpTex > 0.0) {\n            texUV = vec2(angle/6.2831853 + 0.5 + waveOffset + swing, depth * 0.2);\n        } else {\n            texUV = fragCoord / iResolution.xy;\n        }\n        backCol = texture(iChannel0, texUV).rgb;\n    } else {\n        backCol = hsl2rgb(vec3(ZGEBGHue, ZGEBGSaturation, ZGEBGLightness));\n    }\n    \n    // Fiber Color Assembly\n    float dataPulse = smoothstep(0.2, 0.0, abs(pulseFact - 0.5));\n    float hotSpot = smoothstep(0.04, 0.0, abs(pulseFact - 0.52));\n    vec3 baseCol = hsl2rgb(vec3(cableHue, ZGESaturation, ZGELightness));\n    vec3 fiberCol = (baseCol * rimGlow * 1.3) + ((baseCol * dataPulse * 3.0 + vec3(1.0) * hotSpot * 2.5) * wireMask);\n    \n    // Depth Fading for the tunnel effect\n    float distFade = smoothstep(0.0, 0.2, r) * smoothstep(1.6, 0.7, r);\n    \n    // Mix Logic: \n    // fiberLayer represents the cables themselves\n    float fiberMask = clamp(wireMask + rimGlow, 0.0, 1.0) * distFade;\n    \n    // Final color: Background is always visible, fibers fade in based on Alpha\n    // We mix from the raw background to the \"fiber tunnel\" using our alpha and mask\n    vec3 finalCol = mix(backCol, fiberCol, fiberMask * alphaInner);\n\n    fragColor = vec4(finalCol, 1.0);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.6219044923782349,
+        "rot_x": 0.26547762751579285,
+        "rot_y": -0.1491229087114334,
+        "rot_z": -0.7214699387550354,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 5.199999809265137
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1.559999942779541,
+        "B": 1,
+        "C": 1,
+        "D": 0,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "u + t * C",
+        "defV": "v + 0.00001",
+        "defW": "0",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "W",
+        "x": "A * (((sin(V) - V*cos(V)) / (V*V)) * cos(U) + ((cos(V) - 1.0 + V*sin(V)) / (V*V)) * sin(U))",
+        "y": "A * (((sin(V) - V*cos(V)) / (V*V)) * sin(U) - ((cos(V) - 1.0 + V*sin(V)) / (V*V)) * cos(U))",
+        "z": "A * (2.0*V - sin(2.0*V)) / (2.0*V*V)"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.28318977355957,
+        "uMin": 0,
+        "vMax": 15,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Nil Sphere",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 1,
+    "renderMode": 0,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 1,
+        "path4D": 1,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 101,
+    "texture": {
+        "code": "//MUSIC: /home/dioscorid/Projects/presets/sounds/Used/3322__jovica__dronetail-52.wav\n\n// PARAMETRI\nfloat density = 10.0;\n\n// [FIX] Usa i colori del pannello laterale\nvec3 c1 = vec3(1.0, 0.0, 0.0); // Rosso\nvec3 c2 = vec3(1.0, 1.0, 0.0); // Giallo\n\nfloat freq = density * 0.05;\n\n// Coordinate scalate\n// Moltiplichiamo per 25.0 invece di 512*0.05 per semplicità\nfloat xx = u * 25.0; \nfloat yy = v * 25.0;\n\n// --- FORMULA PLASMA ---\nfloat v1 = sin(xx + yy);\nfloat v2 = sin((xx * sin(yy/2.0)) + (yy * cos(xx/3.0)));\n\nfloat cx = xx + 0.5 * sin(yy/5.0);\nfloat cy = yy + 0.5 * cos(xx/3.0);\nfloat v3 = sin(sqrt(100.0 * (cx*cx + cy*cy) + 1.0));\n\nfloat vf = (v1 + v2 + v3) / 3.0;\n\n// [FIX] Rinominato 't' in 'plasmaVal' per evitare conflitti\nfloat plasmaVal = vf * 0.5 + 0.5;\n\nreturn mix(c1, c2, plasmaVal);",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

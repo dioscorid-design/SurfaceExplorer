@@ -1,0 +1,104 @@
+{
+    "angles": {
+        "omega": 52.133689880371094,
+        "phi": 52.133689880371094,
+        "psi": 52.133689880371094
+    },
+    "background": {
+        "code": "// --- PARAMETRI ---\nfloat zoom = 1.0;       // Collegato alla densità/zoom dell'UI\nvec2 center = vec2(-0.5, 0.0); // Centro del frattale\nint max_iter = 100;     // Qualità del dettaglio\n\n// --- MAPPATURA COORDINATE ---\n// Trasformiamo u,v (0.0 - 1.0) nel piano complesso\n// Moltiplichiamo per 3.0 per avere un'inquadratura iniziale classica.\n// Dividiamo per 'zoom' per ingrandire.\nvec2 c = (vec2(u, v) - 0.5) * (3.0 / zoom) + center;\n\n// --- LOGICA MANDELBROT (Z = Z^2 + C) ---\nvec2 z = vec2(0.0);\nint iter = 0;\n\nfor (int i = 0; i < 100; i++) { // Loop fisso per GLSL (usa max_iter per il break)\n    if (i >= max_iter) break;\n    \n    // Ottimizzazione: se la distanza al quadrato > 4, è scappato\n    if (dot(z, z) > 4.0) break;\n\n    // Calcolo numero complesso: (x + iy)^2 + c\n    // Parte Reale: x^2 - y^2 + cx\n    // Parte Immaginaria: 2xy + cy\n    float x = (z.x * z.x - z.y * z.y) + c.x;\n    float y = (2.0 * z.x * z.y) + c.y;\n    \n    z = vec2(x, y);\n    iter++;\n}\n\n// --- COLORAZIONE ---\n// Normalizziamo le iterazioni tra 0.0 e 1.0\nfloat t = float(iter) / float(max_iter);\n\n// Usiamo una radice quadrata (pow 0.5) per rendere il gradiente più visibile\n// e meno \"tutto nero\" ai bordi.\nt = sqrt(t);\n\n// Mix tra i colori dell'utente\n// t=0 (esterno immediato) -> Colore 1\n// t=1 (interno insieme)   -> Colore 2\nreturn mix(u_col1, u_col2, t);",
+        "col1": "#1c3664",
+        "col2": "#e28d57",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.9330127239227295,
+        "rot_x": 0.2500000298023224,
+        "rot_y": 0.2499999701976776,
+        "rot_z": -0.06698719412088394,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 0.5199999809265137,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "C*u+v",
+        "p": "A*cosh(w)/B",
+        "x": "A*sinh(w)*sin(v)*cos(u)/B",
+        "y": "A*sinh(w)*sin(v)*sin(u)/B",
+        "z": "A*sinh(w)*cos(v)/B"
+    },
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.28318977355957,
+        "uMin": 0,
+        "vMax": 6.28318977355957,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "HYbrid hyperbolic",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "projectionMode": 0,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0.30000001192092896,
+        "phi": 0.30000001192092896,
+        "precession": 0,
+        "psi": 0.30000001192092896,
+        "spin": 0
+    },
+    "steps": 101,
+    "texture": {
+        "code": "//MUSIC: /home/dioscorid/Projects/presets/Sounds/Mp3/845832__frame__complex-shifting-ambient-drone-9.mp3\n\nvoid mainImage(out vec4 Q, vec2 U)\n{\n    float f = iResolution.y / 1.;\n    vec2 O = floor(iResolution.xy / 2.);\n    vec2 V = (U - O - .5) / f;\n    vec4 M = (abs(iMouse) - O.xyxy) / f;\n    float a = iTime / 5.;\n    float e = .5;\n    if (length(iMouse.zw) > 10.)\n    {\n        a = atan(M.y, M.x);\n        e = length(M.xy);\n    }\n    mat2 R = mat2(cos(a), sin(a), -sin(a), cos(a));\n    mat2 S = mat2(exp(-e), 0, 0, exp(e));\n    //V = R * S * transpose(R) * V;\n    float c2 = cos(a) * cos(a);\n    float s2 = sin(a) * sin(a);\n    V = mat2(c2*exp(-e) + s2*exp(e), -sin(2.*a)*sinh(e), -sin(2.*a)*sinh(e), c2*exp(e) + s2*exp(-e)) * V;\n    Q = vec4(1);\n    Q = mix(texture(iChannel0, V - .5, -abs(e)), Q, .6);\n    Q = mix(vec4(1, 0, 0, 1), Q, clamp(abs(V.x) * f * .7, 0., 1.));\n    Q = mix(vec4(1, 0, 0, 1), Q, clamp(abs(V.y) * f * .7, 0., 1.));\n    Q = mix(vec4(1, .5, 0, 1), Q, clamp(length(length(V) - .3) * f - 1., 0., 1.));\n}",
+        "col1": "#1c3664",
+        "col2": "#e28d57",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

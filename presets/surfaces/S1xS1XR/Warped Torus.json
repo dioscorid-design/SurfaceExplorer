@@ -1,0 +1,62 @@
+{
+    "angles": {
+        "omega": 0.2201000303030014,
+        "phi": 0.13009998202323914,
+        "psi": 0.280100017786026
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.951095700263977,
+        "rot_x": 0.28631165623664856,
+        "rot_y": 0.09151435643434525,
+        "rot_z": 0.0711873322725296,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 1,
+        "B": 0.30000001192092896,
+        "C": 0.5,
+        "D": 0,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "u",
+        "defV": "v",
+        "defW": "2*sin(v)",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "W",
+        "x": "(A+B*cos(V))*cos(U)",
+        "y": "(A+B*cos(V))*sin(U)",
+        "z": "B*sin(V)"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Warped Torus",
+    "projectionMode": 0,
+    "renderMode": 1,
+    "showBorder": false,
+    "steps": 100,
+    "type": "surface",
+    "use4DLighting": true
+}

@@ -1,0 +1,7 @@
+{
+    "code": "// --- PARAMETRI ---\nfloat squares = 8.0;\n\n// --- COLORI ---\n// Usiamo i nomi corretti delle uniform definiti in glwidget.cpp\nvec3 c1 = u_col1;\nvec3 c2 = u_col2;\n\n// --- LOGICA ---\nfloat cx = floor(u * squares);\nfloat cy = floor(v * squares);\n\nbool isC1 = mod(cx + cy, 2.0) == 0.0;\n\nreturn isC1 ? c1 : c2;",
+    "pan_x": 0,
+    "pan_y": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

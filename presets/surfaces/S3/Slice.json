@@ -1,0 +1,61 @@
+{
+    "angles": {
+        "omega": 0.009999999776482582,
+        "phi": 0.009999999776482582,
+        "psi": 0.009999999776482582
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.9330127239227295,
+        "rot_x": 0.2500000298023224,
+        "rot_y": 0.2499999701976776,
+        "rot_z": -0.06698719412088394,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 2.009999990463257,
+        "B": 1,
+        "C": 1.5700000524520874,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "cos(C*(1+sin(v)))",
+        "x": "sin(C*(1+sin(v))) * sin((((A + B * cos(v)) * sin(u) / (A + B))+1)*C) * cos((((A + B * cos(v)) * cos(u) / (A + B))+1)*2*C)",
+        "y": "sin(C*(1+sin(v))) * sin((((A + B * cos(v)) * sin(u) / (A + B))+1)*C) * sin((((A + B * cos(v)) * cos(u) / (A + B))+1)*2*C)",
+        "z": "sin(C*(1+sin(v))) * cos((((A + B * cos(v)) * sin(u) / (A + B))+1)*C)"
+    },
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.28318977355957,
+        "uMin": 0,
+        "vMax": 6.28318977355957,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Slice",
+    "projectionMode": 1,
+    "renderMode": 0,
+    "showBorder": false,
+    "steps": 533,
+    "type": "surface",
+    "use4DLighting": false
+}

@@ -1,0 +1,98 @@
+{
+    "angles": {
+        "omega": 1.6699987649917603,
+        "phi": 1.3699990510940552,
+        "psi": 1.0499993562698364
+    },
+    "background": {
+        "code": "//IMG:/home/dioscorid/Projects/presets/textures/Images/1763635586924.jpg",
+        "col1": "#3333cc",
+        "col2": "#000000",
+        "color": "#664d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "rot_w": 0.004869387019425631,
+        "rot_x": 0.7511728405952454,
+        "rot_y": 0.46526604890823364,
+        "rot_z": 0.4682340621948242,
+        "x": 0,
+        "y": 0,
+        "z": 4
+    },
+    "colors": {
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 0.9800000190734863,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "A * 2.0 * cos(u) * sin(v) / sqrt(1.0 + 3.0 * cos(u)*cos(u))",
+        "x": "A * sin(u) * cos(2.0*v) / sqrt(1.0 + 3.0 * cos(u)*cos(u))",
+        "y": "A * sin(u) * sin(2.0*v) / sqrt(1.0 + 3.0 * cos(u)*cos(u))",
+        "z": "A * 2.0 * cos(u) * cos(v) / sqrt(1.0 + 3.0 * cos(u)*cos(u))"
+    },
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 3.1415927410125732,
+        "uMin": 0,
+        "vMax": 1.5707963705062866,
+        "vMin": -1.5707963705062866,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Veronese Surface",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "projectionMode": 1,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 203,
+    "texture": {
+        "code": "// --- PARAMETRI ---\n// Imposta nel dock: Rosso (c1) e Bianco (c2) per l'effetto classico\nvec3 c1 = u_col1;\nvec3 c2 = u_col2;\n\n// --- CONFIGURAZIONE SPIRALE ---\n// Coils: Quante strisce vedi in una sezione trasversale del tubo\nfloat coils = 6.0;\n\n// Twists: Quanti giri completi fa la spirale lungo tutto il toro\n// Deve essere un numero intero per evitare che la texture si tagli alla giunzione\nfloat twists = 40.0;\n\n// --- CALCOLO ---\n// La magia è sommare U e V moltiplicati.\n// (u * twists) spinge la texture lungo il percorso\n// (v * coils) avvolge la texture attorno al tubo\n// Sommando i due si ottiene una linea diagonale (elica/spirale)\nfloat pos = (u * twists) + (v * coils);\n\n// --- CREAZIONE STRISCE NETTE ---\n// fract(pos) crea un dente di sega da 0.0 a 1.0 ripetuto\n// step(0.5, ...) taglia di netto il valore: sotto 0.5 è 0, sopra è 1.\nfloat stripe = step(0.5, fract(pos));\n\n// Restituisce il colore (senza sfumature)\nreturn mix(c1, c2, stripe);",
+        "col1": "#5aff51",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": true
+}

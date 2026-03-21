@@ -1,0 +1,62 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.8823633193969727,
+        "rot_x": 0.08453857898712158,
+        "rot_y": 0.4374433755874634,
+        "rot_z": -0.151431605219841,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 1,
+        "B": 1,
+        "C": 1,
+        "D": 0,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0",
+        "x": "0.5*cos(u)*sin(v)",
+        "y": "0.5*sin(u)*sin(v)",
+        "z": "0.1*cos(v) + 0.5*log(tan(v/2)) + 0.1*u"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 12.566399574279785,
+        "uMin": 0,
+        "vMax": 2,
+        "vMin": 0.009999999776482582,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Dini Surface",
+    "projectionMode": 1,
+    "renderMode": 1,
+    "showBorder": true,
+    "steps": 100,
+    "type": "surface",
+    "use4DLighting": false
+}

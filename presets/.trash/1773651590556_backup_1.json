@@ -1,0 +1,1 @@
+"code": "vec2 mainSound(int samp, float t) {\n    return vec2(sin(440.0 * 2.0 * 3.14159 * t));\n}",

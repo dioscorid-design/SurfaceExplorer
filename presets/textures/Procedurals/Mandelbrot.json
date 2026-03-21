@@ -1,0 +1,11 @@
+{
+    "code": "// --- PARAMETRI ---\nfloat zoom = 1.0;       // Collegato alla densità/zoom dell'UI\nvec2 center = vec2(-0.5, 0.0); // Centro del frattale\nint max_iter = 100;     // Qualità del dettaglio\n\n// --- MAPPATURA COORDINATE ---\n// Trasformiamo u,v (0.0 - 1.0) nel piano complesso\n// Moltiplichiamo per 3.0 per avere un'inquadratura iniziale classica.\n// Dividiamo per 'zoom' per ingrandire.\nvec2 c = (vec2(u, v) - 0.5) * (3.0 / zoom) + center;\n\n// --- LOGICA MANDELBROT (Z = Z^2 + C) ---\nvec2 z = vec2(0.0);\nint iter = 0;\n\nfor (int i = 0; i < 100; i++) { // Loop fisso per GLSL (usa max_iter per il break)\n    if (i >= max_iter) break;\n    \n    // Ottimizzazione: se la distanza al quadrato > 4, è scappato\n    if (dot(z, z) > 4.0) break;\n\n    // Calcolo numero complesso: (x + iy)^2 + c\n    // Parte Reale: x^2 - y^2 + cx\n    // Parte Immaginaria: 2xy + cy\n    float x = (z.x * z.x - z.y * z.y) + c.x;\n    float y = (2.0 * z.x * z.y) + c.y;\n    \n    z = vec2(x, y);\n    iter++;\n}\n\n// --- COLORAZIONE ---\n// Normalizziamo le iterazioni tra 0.0 e 1.0\nfloat t = float(iter) / float(max_iter);\n\n// Usiamo una radice quadrata (pow 0.5) per rendere il gradiente più visibile\n// e meno \"tutto nero\" ai bordi.\nt = sqrt(t);\n\n// Mix tra i colori dell'utente\n// t=0 (esterno immediato) -> Colore 1\n// t=1 (interno insieme)   -> Colore 2\nreturn mix(u_col1, u_col2, t);",
+    "color1": "#1c3664",
+    "color2": "#e28d57",
+    "hasCustomColors": true,
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

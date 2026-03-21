@@ -1,0 +1,110 @@
+{
+    "angles": {
+        "omega": 0.3099999725818634,
+        "phi": 0.3299999535083771,
+        "psi": 0.2600000202655792
+    },
+    "background": {
+        "code": "void mainImage(out vec4 o, vec2 u) {\n    // 1. INIZIALIZZAZIONE ESPLICITA (Fondamentale in Desktop GL)\n    float s = 0.0;\n    float i = 0.0;      // Iteratore inizializzato a 0\n    float d = 0.0;      // Distanza inizializzata a 0\n    float T = iTime;\n    \n    // Inizializziamo l'output (colore) a nero per sicurezza\n    o = vec4(0.0);\n\n    // 2. SETUP COORDINATE\n    // Usa iResolution passata dall'uniform\n    vec3 p_res = iResolution; \n    \n    // Centra e scala le UV\n    u = (u - p_res.xy * 0.5) / p_res.y;\n    \n    // Aggiungi movimento camera\n    u += vec2(sin(T * 0.2) * 0.3, sin(T * 0.5) * 0.1);\n\n    // 3. RAYMARCHING LOOP\n    // Abbiamo rimosso i trucchi strani nel 'for' e reso tutto esplicito\n    for(i = 0.0; i < 128.0; i++) {\n        \n        // Calcolo posizione raggio (p)\n        // p = ro + rd * d (approssimato per questo shader specifico)\n        vec3 p = vec3(u * d, d + T * 100.0);\n        \n        // Effetti di distorsione dello spazio (Iso lines effect)\n        p.z += cos(p.z * 0.7);\n        \n        // Spostamento asse X per evitare artefatti centrali\n        p.x += 100.0 - cos(T) * 10.0;\n        \n        // Turbolenza \"Xor style\" (flusso)\n        p += cos(p.yzx / 16.0) * 16.0;\n        \n        // Funzione Gyroid: dot(sin(p), cos(p))\n        // Questa è la formula che crea la forma aliena\n        float gyroid = dot(sin(p / 132.0), cos(p.yzx / 64.0));\n        \n        // Calcolo distanza (Signed Distance Function)\n        s = 0.005 + 0.8 * abs(32.0 * gyroid);\n        \n        // Avanza il raggio\n        d += s;\n        \n        // Accumula colore (Fog/Glow effect) basato su altezza Y\n        // Usiamo punti e virgola standard invece delle virgole\n        vec4 colorUpdate = (1.0 + cos(0.03 * p.y + vec4(3, 1, 0, 0))) / s;\n        o += colorUpdate;\n        \n        // Ottimizzazione: se siamo troppo lontani o abbiamo toccato, usciamo?\n        // In questo shader artistico si lascia correre per l'effetto glow,\n        // ma in uno standard si farebbe: if(d > 1000.0 || s < 0.001) break;\n    }\n\n    // 4. TONE MAPPING\n    // Divide per normalizzare la luminosità accumulata e applica tanh\n    o = tanh(o / 3000.0);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#574d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.080975741147995,
+        "rot_x": 0.33112865686416626,
+        "rot_y": 0.7341930270195007,
+        "rot_z": -0.5871602892875671,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1.149999976158142,
+        "B": 0.23000000417232513,
+        "C": 1,
+        "D": 0,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "u",
+        "defV": "v",
+        "defW": "v + 3*u + (t * 2)",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "B*sin(V)*sin(W)",
+        "x": "(A + B*cos(V))*cos(U)",
+        "y": "(A + B*cos(V))*sin(U)",
+        "z": "B*sin(V)*cos(W)"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.28318977355957,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Sliding Spring",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 1,
+    "renderMode": 0,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 1,
+        "path4D": 1,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 100,
+    "texture": {
+        "code": "//MUSIC: /home/dioscorid/Projects/presets/sounds/Used/723963__badwolf23__spatial-audio-4.wav\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    // Normalized pixel coordinates (from 0 to 1)\n    vec2 uv = fragCoord/iResolution.xy;\n\n    // Time varying pixel color\n    vec3 col = 0.5 + 0.5*cos(iTime+uv.xyx+vec3(0,2,4));\n\n    // Output to screen\n    fragColor = vec4(col,1.0);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

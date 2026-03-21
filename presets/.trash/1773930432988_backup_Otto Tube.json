@@ -1,0 +1,111 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "background": {
+        "code": "// --- PARAMETRI ---\nfloat zoom = 1.0;       // Collegato alla densità/zoom dell'UI\nvec2 center = vec2(-0.5, 0.0); // Centro del frattale\nint max_iter = 100;     // Qualità del dettaglio\n// --- MAPPATURA COORDINATE ---\n// Trasformiamo u,v (0.0 - 1.0) nel piano complesso\n// Moltiplichiamo per 3.0 per avere un'inquadratura iniziale classica.\n// Dividiamo per 'zoom' per ingrandire.\nvec2 c = (vec2(u, v) - 0.5) * (3.0 / zoom) + center;\n// --- LOGICA MANDELBROT (Z = Z^2 + C) ---\nvec2 z = vec2(0.0);\nint iter = 0;\nfor (int i = 0; i < 100; i++) { // Loop fisso per GLSL (usa max_iter per il break)\n    if (i >= max_iter) break;\n    // Ottimizzazione: se la distanza al quadrato > 4, è scappato\n    if (dot(z, z) > 4.0) break;\n    // Calcolo numero complesso: (x + iy)^2 + c\n    // Parte Reale: x^2 - y^2 + cx\n    // Parte Immaginaria: 2xy + cy\n    float x = (z.x * z.x - z.y * z.y) + c.x;\n    float y = (2.0 * z.x * z.y) + c.y;\n    z = vec2(x, y);\n    iter++;\n}\n// --- COLORAZIONE ---\n// Normalizziamo le iterazioni tra 0.0 e 1.0\nfloat t = float(iter) / float(max_iter);\n// Usiamo una radice quadrata (pow 0.5) per rendere il gradiente più visibile\n// e meno \"tutto nero\" ai bordi.\nt = sqrt(t);\n// Mix tra i colori dell'utente\n// t=0 (esterno immediato) -> Colore 1\n// t=1 (interno insieme)   -> Colore 2\nreturn mix(u_col1, u_col2, t);",
+        "col1": "#1c3664",
+        "col2": "#e28d57",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.9821170568466187,
+        "rot_x": 0.11499260365962982,
+        "rot_y": -0.14890621602535248,
+        "rot_z": 0.007040032651275396,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 24.40000343322754
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 0.4000000059604645,
+        "B": 3,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0.5
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.283180236816406,
+        "uMin": 0,
+        "vMax": 6.283180236816406,
+        "vMin": 0,
+        "wMax": 0.10000000149011612,
+        "wMin": 0
+    },
+    "name": "Otto Tube",
+    "observer4D": 12.100030899047852,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 1,
+    "renderMode": 0,
+    "scriptCode": "// --- CONFIGURAZIONE ---\nu_min := 0;\nu_max := 6.28318; \nv_min := 0;\nv_max := 6.28318;\nsteps := 350;\n\ns := 0.5; // Velocità del respiro 4D\nA := 0.4; // Spessore del tubo\nB := 3; // Moltiplicatore Altezza 4D (portalo > 1.0 per la singolarità)\n\n// --- CODICE SHADER ---\n\nfloat r = A; \n\n// Animazione: Respiro nel tempo 't' controllato da 's'.\nfloat lift4D = (sin(t * s) + 1.0) * (B * 2.0); \n\n// --- 1. CURVA CENTRALE (Nodo a Otto) ---\nvec4 Curve4D = vec4(\n    (2.5 + cos(2.0 * u)) * cos(3.0 * u), // X\n    (2.5 + cos(2.0 * u)) * sin(3.0 * u), // Y\n    1.2 * sin(4.0 * u),                  // Z (crea l'incrocio in 3D)\n    lift4D * sin(2.0 * u)                // W (L'escursione 4D)\n);\n\n// Estraiamo la parte 3D\nvec3 Curve = Curve4D.xyz;\n\n// --- 2. DERIVATA (Direzione della curva) ---\nfloat dr = -2.0 * sin(2.0 * u);\nvec3 dC = vec3(\n    dr * cos(3.0 * u) - (2.5 + cos(2.0 * u)) * 3.0 * sin(3.0 * u),\n    dr * sin(3.0 * u) + (2.5 + cos(2.0 * u)) * 3.0 * cos(3.0 * u),\n    4.8 * cos(4.0 * u)\n);\nvec3 Tangent = normalize(dC);\n\n// --- 3. COSTRUZIONE DEL FRAME ---\nvec3 Up = vec3(0.0, 0.0, 1.0);\nvec3 Binorm = cross(Tangent, Up);\nif (length(Binorm) < 0.001) Binorm = cross(Tangent, vec3(0.0, 1.0, 0.0));\nBinorm = normalize(Binorm);\nvec3 Norm = cross(Binorm, Tangent);\nNorm = normalize(Norm);\n\n// --- 4. COSTRUZIONE DEL TUBO ---\nfloat tube_cos = r * cos(v);\nfloat tube_sin = r * sin(v);\n\nvec3 pos3D = Curve + (tube_cos * Norm + tube_sin * Binorm);\n\n// Output finale\nreturn vec4(pos3D * 0.35, Curve4D.w);",
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 1,
+        "path4D": 1,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 350,
+    "texture": {
+        "code": "//SOUND_BEGIN\n//SOUND_BEGIN\n\n// =========================================================================\n// Title: Neptune Racing (Audio)\n// Author: Dave_Hoskins\n// Source: https://www.shadertoy.com/view/XtX3Rr\n// License: CC BY-NC-SA 3.0 (Shadertoy Default License)\n//\n// Note: Adapted for Desktop GLSL Audio. The original texture-based \n//       hash (iChannel0) has been replaced with a math-based pseudo-random hash.\n// =========================================================================\n// =========================================================================\n// Adattamento per Desktop GLSL Audio\n// Rimosse le dipendenze da iChannel0 (texture Shadertoy) in favore di \n// funzioni hash puramente matematiche per la compatibilità con il custom synth.\n// =========================================================================\n\nvec3 CameraPath( float t )\n{\n    float s = smoothstep(0.0, 3.0, t);\n    vec3 pos = vec3( t*30.0*s +120.0, 1.0, t* 220.0* s -80.0);\n    \n    float a = t/4.0;\n    pos.xz += vec2(1350.0 * cos(a), 350.0*sin(a));\n    pos.xz += vec2(1400.0 * sin(-a*1.8), 400.0*cos(-a*4.43));\n\n    return pos;\n}\n\n// -------------------------------------------------------------------------\n// NUOVO HASH MATEMATICO: Sostituisce la lettura da iChannel0\nvec2 Hash(vec2 p) \n{\n    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));\n    return fract(sin(p) * 43758.5453123);\n}\n\n//--------------------------------------------------------------------------\nvec2 Noise( in vec2 x )\n{\n    vec2 p = floor(x);\n    vec2 f = fract(x);\n    f = f*f*(3.0-2.0*f);\n    \n    // Ora utilizza la funzione Hash matematica definita sopra\n    vec2 res = mix(mix( Hash(p + 0.0), Hash(p + vec2(1.0, 0.0)), f.x),\n                   mix( Hash(p + vec2(0.0, 1.0) ), Hash(p + vec2(1.0, 1.0)), f.x), f.y);\n    return res - 0.5;\n}\n\n//--------------------------------------------------------------------------\nvec2 FBM( vec2 p )\n{\n    vec2 f;\n    f  = 0.50000 * Noise(p); p = p * 2.32;\n    f += 0.25000 * Noise(p); p = p * 2.23;\n    f += 0.12500 * Noise(p); p = p * 2.31;\n    f += 0.06250 * Noise(p); p = p * 2.28;\n    f += 0.03125 * Noise(p);\n    return f;\n}\n\n//--------------------------------------------------------------------------\n// Funzione extra adattata anch'essa senza texture (anche se non usata sotto)\nfloat rockets(float t)\n{\n    vec2 h1 = Hash(vec2(t*0.3, t*0.1731));\n    vec2 h2 = Hash(vec2(t*0.2, t*0.01731));\n    return (h1.x - 0.5) + (h2.y - 0.5);\n}\n\n//--------------------------------------------------------------------------\nvec2 mainSound( in int samp, float time )\n{\n    float gTime = (time + 135.0) * 0.25;\n    vec3 ca = CameraPath(gTime);\n    vec3 ct = CameraPath(gTime + 0.05);\n    float f = length(ct - ca) * 0.1;\n    \n    vec2 audio;\n    audio = FBM(vec2(gTime * 120.0, gTime * 1200.0)) * 5.0 * f;\n    audio += FBM(vec2(gTime * 200.0 * f, gTime * 200.0)) * 4.5;\n    audio *= 0.1;\n    \n    // float g = mod(f*gTime, 8.0);\n    // audio *= g < 4.0 ? 1.0 : 0.0;\n    \n    // Applica fade-in e fade-out\n    return audio * smoothstep(0.0, 2.0, time) * smoothstep(180.0, 170.0, time);\n}\n//SOUND_END\n//SOUND_END\n\n// --- PARAMETRI ---\nfloat scale = 50.0; // Densità degli anelli (più alto = più cerchi)\nvec2 center = vec2(0.5, 0.5); // Centro dei cerchi (0.5, 0.5 è il centro della texture)\n\n// --- LOGICA ---\n// 1. Calcola la distanza del pixel corrente (u, v) dal centro\nfloat dist = distance(vec2(u, v), center);\n\n// 2. Crea l'onda sinusoidale basata sulla distanza\n// Moltiplichiamo per 'scale' per aumentare la frequenza\nfloat val = sin(dist * scale);\n\n// 3. Mappiamo il risultato da -1..1 a 0..1 per il mix\nfloat t = (val + 1.0) * 0.5;\n\n// 4. Mix finale\nreturn mix(u_col1, u_col2, t);",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 0.10686486214399338
+    },
+    "type": "motion",
+    "use4DLighting": true
+}

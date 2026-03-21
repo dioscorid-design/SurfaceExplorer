@@ -1,0 +1,12 @@
+{
+    "code": "// Imposta lo zoom/scala iniziale\nvec2 z_pos = (uv - 0.5) * 3.0; \n\n// Costante complessa C\nvec2 c = vec2(0.285, 0.01); \n\nint maxIter = 80; // Ridotto leggermente per sicurezza\nint i = 0;\n\n// Iterazione Julia standard\nfor(i = 0; i < maxIter; i++) {\n    // Usiamo nomi sicuri (zx, zy) invece di x, y\n    float zx = (z_pos.x * z_pos.x - z_pos.y * z_pos.y) + c.x;\n    float zy = (2.0 * z_pos.x * z_pos.y) + c.y;\n    z_pos = vec2(zx, zy);\n    \n    if (dot(z_pos, z_pos) > 4.0) break;\n}\n\n// Colorazione\nif (i == maxIter) {\n    return vec3(0.2, 0.15, 0.3); \n} else {\n    float t = float(i) / 20.0;\n    \n    float r = 0.5 + 0.5 * sin(t + 0.0);\n    float g = 0.5 + 0.5 * cos(t + 2.09); \n    float b = 0.5 + 0.5 * cos(t + 4.18); \n    \n    vec3 color = vec3(r, g, b);\n    \n    // Mix esplicito\n    return mix(color, vec3(1.0, 1.0, 1.0), 0.5);\n}",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "hasCustomColors": true,
+    "name": "Julia1",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": -143,
+    "type": "custom_texture",
+    "zoom": 1
+}

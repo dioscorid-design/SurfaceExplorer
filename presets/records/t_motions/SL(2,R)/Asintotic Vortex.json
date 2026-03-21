@@ -1,0 +1,110 @@
+{
+    "angles": {
+        "omega": 126.728759765625,
+        "phi": 126.728759765625,
+        "psi": 215.49354553222656
+    },
+    "background": {
+        "code": "// =========================================================================\n// Title: Disco Sun Vortex\n// Author: workingclasshacker (@WorkingClassHacker)\n// Source: https://www.shadertoy.com/view/7cfGzn\n//\n// License: SPDX-License-Identifier: CC-BY-NC-SA-4.0\n//          https://creativecommons.org/licenses/by-nc-sa/4.0/\n//          Copyright (c) 2026 @WorkingClassHacker\n//\n// Attributions & Credits:\n// - Based on \"Abstract Shine\" by @Frostbyte (Copyright (c) 2026)\n// - Continuous cosine palette by Inigo Quilez / IQ (MIT License) \n//   https://www.shadertoy.com/view/ll2GD3\n//\n// Description:\n// Volumetric raymarching shader featuring organic deformation fields, \n// depth-dependent coloration using continuous cosine palettes, and \n// time-gated screen-space shimmer.\n// =========================================================================\n// Rotation matrix using cosine phase offsets.\n// cos(a+33) ≈ -sin(a)\n// cos(a+11) ≈  sin(a)\n// compact 2D rotation without sin(). \n// Approximates sin within an invisible margin for animated graphics\n\n#define R(a) mat2(cos(a+vec4(0, 33, 11, 0)))\n\n// IQ`s continuous cosine palette (MIT)\n// produces smooth, periodic color gradients\n// https://www.shadertoy.com/view/ll2GD3\n\nvec3 palette(float i){\n    const vec3 a = vec3(0.50, 0.38, 0.26);  // base tone (warm midtone)\n    const vec3 b = vec3(0.50, 0.35, 0.25);  // amplitude (vibrance)\n    const vec3 c = vec3(1.00);              // frequency (cyclic complexity)\n    const vec3 d = vec3(0.00, 0.12, 0.25);  // phase offsets (hue shift)\n    return a + b * cos(6.2831853 * (c * i + d));\n}\n\nvec3 palette2(float i){\n\n    const vec3 a = vec3(0.742702f, 0.908877f, 0.959831f);\n    const vec3 b = vec3(-0.711000f, 0.275000f, -0.052000f);\n    const vec3 c = vec3(1.000000f, 1.855000f, 1.000000f);\n    const vec3 d = vec3(0.180000f, 0.091000f, 0.380000f);\n    return a + b * cos(6.2831853f * (c * i + d));\n\n}\n\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    // pixel coordinate\n    vec2 u = fragCoord.xy;\n\n    // normalized screen space centered at origin\n    // (useful for screen-space modulation later)\n    vec2 uv = (u - 0.5*iResolution.xy + 0.5) / iResolution.y;\n\n    float i, s;\n    float t = iTime;\n\n    vec3 p;\n\n    // ray direction through pixel (camera ray)\n    vec3 d = normalize(vec3(\n        2.0 * u - iResolution.xy,\n        iResolution.y\n    ));\n\n    // starting depth → creates forward motion\n    p.z = t;\n\n    // raymarch loop\n    for (fragColor *= i; i < 20.0; i++)\n    {\n        // depth-dependent rotation\n        // produces corkscrew tunnel motion\n        p.xy *= R(-p.z * 0.01 - iTime * 0.05);\n\n        // base step size\n        s = 0.6;\n\n        // cylindrical confinement\n        // creates tunnel boundary at radius ≈ 10\n        s = max(s, 4.0 * (-length(p.xy) + 10.0));\n\n        // organic deformation field\n        // adds flow & energy patterns\n        s += abs(\n            p.y * 0.004 +                // slight tilt\n            sin(t - p.x * 0.5) * 0.9 +  // traveling wave\n            1.0                          // baseline thickness\n        );\n\n        // march ray forward\n        p += d * s;\n\n        // volumetric glow accumulation\n        fragColor += 1.0 / (s * 0.2);\n    }\n\n    // apply palette based on final ray distance\n    // length(p) approximates depth travelled\n    // gives depth-dependent coloration\n    // divisor controls the palette scaling - try messing with it!\n    // try swapping to palette2 here!\n    fragColor *= vec4(palette(length(p)/(abs(sin(iTime*0.02)*50.)+6.0)), 1.0);\n\n    // time-gated screen-space shimmer / interference layer\n    fragColor -= 20.0 *\n        smoothstep(\n            .001,\n            abs(sin(iTime*5.0)), // pulsating dots, in a demo I would sync this to beat\n            .7 - length(sin(uv*200.0)/1.5)-abs(uv.y)+.2   // high-frequency pattern\n        );\n\n    // brightness normalization\n    fragColor /= 0.5e2;\n\n    // radial gradient\n    float l = length(uv);\n\n    // vignette\n    fragColor *= 1.2-l;\n\n    // center glow\n\n    fragColor = mix(fragColor, palette(l-.23).rgbr, 1.0-smoothstep(.01,.95,l));\n\n    // soft highlight compression\n    fragColor = tanh(fragColor+fragColor);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.7903925180435181,
+        "rot_x": -0.5502175092697144,
+        "rot_y": 0.010893821716308594,
+        "rot_z": 0.269112765789032,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 117.99988555908203
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1.2000000476837158,
+        "B": 0.9399999976158142,
+        "C": 0.5,
+        "D": 1,
+        "E": 0.5,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "u +D*t\n",
+        "defV": "u",
+        "defW": "v ",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "A * sinh(V) * sin(W)",
+        "x": "A * cosh(V) * cos(U)",
+        "y": "A * cosh(V) * sin(U)",
+        "z": "A * sinh(V) * cos(W)"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 3.141590118408203,
+        "uMin": -3.141590118408203,
+        "vMax": 2,
+        "vMin": -2,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Asintotic Vortex",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 0,
+    "renderMode": 0,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0.20000000298023224,
+        "path3D": 1,
+        "path4D": 1,
+        "phi": 0.20000000298023224,
+        "precession": 0,
+        "psi": 0.6000000238418579,
+        "spin": 0
+    },
+    "steps": 386,
+    "texture": {
+        "code": "//SOUND_BEGIN\n//SOUND_BEGIN\n// =========================================================================\n// Title: Alien Thorns\n// Author: Dave Hoskins\n// Source: https://www.shadertoy.com/view/XsSSzD\n// License: CC BY-NC-SA 3.0 (Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported)\n//\n// Note: Adapted for Desktop GLSL Audio. Removed dependencies on iChannel0 \n//       and iChannel3. Replaced with mathematical hash functions.\n// =========================================================================\n// =========================================================================\n// Title: Voronoi Thorns Synth\n// Note: Adattato per Desktop GLSL Audio. Rimosse le dipendenze da iChannel0 \n// e iChannel3. Sostituite con funzioni di hash matematiche.\n// =========================================================================\n\n#define PI 3.14159265359\n#define MOD3 vec3(0.0631, 0.07369, 0.08787)\n\nfloat gTime;\n\n//--------------------------------------------------------------------------------------------------\nvec2 Hash2(vec2 p) {\n    vec3 p3 = fract(vec3(p.xyx) * MOD3);\n    p3 += dot(p3.zxy, p3.yxz + 19.19);\n    return fract(vec2(p3.x * p3.y, p3.z * p3.x));\n}\n\n//--------------------------------------------------------------------------------------------------\nvec2 Noise(in vec2 x) {\n    return mix(Hash2(floor(x)), Hash2(floor(x) + 1.0), fract(x));\n}\n\n// Generatore di forma d'onda a dente di sega tramite sintesi additiva\nfloat Saw(float n, float fil) {\n    float v = 0.0;\n    float f = 1.0;\n    int filt = int(fil);\n    \n    for (int i = 0; i < 100; i++) {\n        if (i > filt) break;\n        float a = 0.5 * (sin(2.0 * f * n * PI) / f);\n        if (i > filt - filt / 10) a = 2.5 * a;\n        v += a;\n        f++;\n    }\n    return v * 2000.0 / (fil + 1000.0);\n}\n\n// NUOVO HASH MATEMATICO (Sostituisce iChannel0)\nvec2 Hash(vec2 p) {\n    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));\n    return fract(sin(p) * 43758.5453123);\n}\n\n//--------------------------------------------------------------------------\nvec2 Noise2D(in vec2 x) {\n    vec2 p = floor(x);\n    vec2 f = fract(x);\n    f = f * f * (3.0 - 2.0 * f);\n    vec2 res = mix(mix(Hash(p + 0.0), Hash(p + vec2(1.0, 0.0)), f.x),\n                   mix(Hash(p + vec2(0.0, 1.0)), Hash(p + vec2(1.0, 1.0)), f.x), f.y);\n    return res - 0.5;\n}\n\n//--------------------------------------------------------------------------\nvec2 FBM(vec2 p) {\n    vec2 f;\n    f  = 0.50000 * Noise2D(p); p = p * 2.32;\n    f += 0.25000 * Noise2D(p); p = p * 2.23;\n    f += 0.12500 * Noise2D(p); p = p * 2.31;\n    f += 0.06250 * Noise2D(p); p = p * 2.28;\n    f += 0.03125 * Noise2D(p);\n    return f;\n}\n\n//--------------------------------------------------------------------------------------------------\nvec4 ThornVoronoi(vec3 p) {\n    vec2 f = fract(p.xz);\n    p.xz = floor(p.xz);\n    float d = 1.0e10;\n    vec3 id = vec3(0.0);\n    \n    for (int xo = -1; xo <= 1; xo++) {\n        for (int yo = -1; yo <= 1; yo++) {\n            vec2 g = vec2(xo, yo);\n            \n            // NUOVO HASH PER VORONOI (Sostituisce iChannel3)\n            // Genera un vettore casuale stabile per la cella corrente\n            vec2 n = Hash(p.xz + g);\n            n = n * n * (3.0 - 2.0 * n);\n            \n            vec2 tp = g + 0.5 + sin(p.y + 1.2831 * (n * gTime * 0.5)) - f;\n            float d2 = dot(tp, tp);\n            if (d2 < d) {\n                d = d2;\n                id = vec3(tp.x, p.y, tp.y);\n            }\n        }\n    }\n    return vec4(id, 1.35 - pow(d, 0.17));\n}\n\n//--------------------------------------------------------------------------------------------------\nfloat MapThorns(in vec3 pos) {\n    return pos.y * 0.21 - ThornVoronoi(pos).w - max(pos.y - 5.0, 0.0) * 0.5 + max(pos.y - 5.5, 0.0) * 0.8;\n}\n\n//--------------------------------------------------------------------------------------------------\nvec3 Path(float time) {\n    return vec3(1.3 + 17.2 * cos(0.2 - 0.5 * 0.33 * time * 0.75), \n                4.7, \n                7.6 - 16.2 * sin(0.5 * 0.11 * time * 0.75));\n}\n\n//--------------------------------------------------------------------------------------------------\nvec2 mainSound(int samp, float time) {\n    gTime = time + 173.0;\n    \n    // Calcolo del percorso e della direzione\n    vec3 ro = Path(gTime + 0.0);\n    vec3 ta = Path(gTime + 5.2);\n    float add = (sin(gTime * 0.3) + 1.0) * 2.0;\n    ro.y += add;\n    ta.y -= add;\n    \n    vec3 cw = normalize(ta - ro);     \n    vec3 cp = vec3(0.0, 1.0, 0.0);    \n    vec3 cu = normalize(cross(cw, cp)); \n    \n    // Rilevamento della prossimità agli ostacoli (per l'orecchio destro e sinistro)\n    vec2 ears;\n    ears.x = abs(MapThorns(ro + cu * 0.1)) * 0.8;\n    ears.y = abs(MapThorns(ro - cu * 0.1)) * 0.8;\n    \n    // Calcolo del guadagno volumetrico (se mi avvicino a un ostacolo, il suono cambia)\n    vec2 gain = clamp(1.0 - ears, 0.0, 1.0);\n    gain = pow(gain, vec2(3.9));\n    \n    // Frequenze di filtro dinamiche\n    float fil1 = sin(gTime * 0.521) * 50.0 + 60.0;\n    float fil2 = -sin(gTime * 0.474) * 50.0 + 60.0;\n    \n    // Generazione del suono base (Sintesi Additiva Sawtooth)\n    vec2 audio;\n    audio.x = gain.x * (Saw(11.125 * time, fil1) + Saw(22.2 * time, fil1));\n    audio.y = gain.y * (Saw(11.125 * time, fil2) + Saw(22.3 * time, fil2));\n    \n    // Aggiunta di rumore turbolento basato sul movimento\n    vec2 pos = vec2(gTime * 192.017331, gTime * 182.066927);\n    pos -= sin(gTime * 0.143) * 20.0 * (gain.x + gain.y);\n    audio += FBM(pos) * Saw(gTime * 10.5 - sin(gTime * 0.2) * 8.0, 30.0);\n    \n    // Fade out verso la fine della traccia\n    return clamp(audio, -1.0, 1.0) * smoothstep(180.0, 175.0, time);\n}\n//SOUND_END\n\n// --- PARAMETRI ---\nfloat scale = 50.0; // Densità degli anelli (più alto = più cerchi)\nvec2 center = vec2(0.5, 0.5); // Centro dei cerchi (0.5, 0.5 è il centro della texture)\n\n// --- LOGICA ---\n// 1. Calcola la distanza del pixel corrente (u, v) dal centro\nfloat dist = distance(vec2(u, v), center);\n\n// 2. Crea l'onda sinusoidale basata sulla distanza\n// Moltiplichiamo per 'scale' per aumentare la frequenza\nfloat val = sin(dist * scale);\n\n// 3. Mappiamo il risultato da -1..1 a 0..1 per il mix\nfloat t = (val + 1.0) * 0.5;\n\n// 4. Mix finale\nreturn mix(u_col1, u_col2, t);",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

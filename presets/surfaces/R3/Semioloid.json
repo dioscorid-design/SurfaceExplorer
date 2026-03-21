@@ -1,0 +1,57 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.09294815361499786,
+        "rot_x": 0.42751842737197876,
+        "rot_y": 0.7758923768997192,
+        "rot_z": -0.4545103907585144,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 1,
+        "B": 1,
+        "C": 1,
+        "D": 0,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 2.0999999046325684,
+        "uMin": -2.0999999046325684,
+        "vMax": 1,
+        "vMin": -1,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Semioloid",
+    "projectionMode": 1,
+    "renderMode": 1,
+    "scriptCode": "u_min := -2.1;\nu_max := 2.1;\nv_min := -1.0;\nv_max := 1.0;\nA := 1.0;\nsteps := 250;\n\nfloat r = A; \n\n// --- 1. IL TRUCCO DEL WARPING (Riallineamento Punti) ---\n// Normalizziamo la griglia da [-2.1, 2.1] a [-1.0, 1.0] in modo sicuro\nfloat t = clamp(u / (2.0 * pi / 3.0), -1.0, 1.0);\n\n// Applichiamo l'easing: il seno rallenta la corsa vicino agli estremi!\n// Questa è l'esatta funzione inversa dell'accelerazione che ci rovinava la mesh\nt = sin(t * pi / 2.0);\n\n// Riconvertiamo 't' nel nostro safe_u definitivo\nfloat safe_u = t * (2.0 * pi / 3.0);\n\n// --- 2. CALCOLI ---\nfloat safe_v = clamp(v, -1.0, 1.0);\nfloat cos_u = clamp(-cos(safe_u) / (1.0 + cos(safe_u)), -1.0, 1.0);\nfloat angle_u = sign(safe_v) * acos(cos_u);\n\nfloat v_real = abs(safe_v);\n\n// --- 3. COSTRUZIONE GEOMETRIA ---\nfloat x1 = (r / 2.0) + r * cos(safe_u);\nfloat y1 = 0.0;\nfloat z1 = r * sin(safe_u);\n\nfloat x2 = -(r / 2.0) + r * cos(angle_u);\nfloat y2 = r * sin(angle_u);\nfloat z2 = 0.0;\n\nfloat final_x = mix(x1, x2, v_real);\nfloat final_y = mix(y1, y2, v_real);\nfloat final_z = mix(z1, z2, v_real);\n\nreturn vec4(final_x, final_y, final_z, 0.0);//IMG:/home/dioscorid/Projects/presets/textures/Images/linea_30_closed_fullcycle.png",
+    "showBorder": false,
+    "steps": 250,
+    "type": "surface",
+    "use4DLighting": false
+}

@@ -1,0 +1,110 @@
+{
+    "angles": {
+        "omega": 9.999999747378752e-05,
+        "phi": 9.999999747378752e-05,
+        "psi": 9.999999747378752e-05
+    },
+    "background": {
+        "code": "// --- SETTINGS ---\n#define CAMERA_HEIGHT 3.4\n#define CAMERA_TILT - 1.2\n#define FLYOVER_SPEED 1.3\n#define FOVY 1.8\n\n#define FOG_COLOR vec3(0.00, 0.001, 0.015)\n#define SKY_COLOR vec3(0.00, 0.00, 0.01)\n#define FOG_DENSITY 0.001\n\n#define N_SUM 14\n#define MAX_STEPS 100\n#define MAX_DIST 200.0      \n\n// Spectral Color Palette\nvec3 getPalette(float t) {\n    return 0.5 + 0.5 * cos(6.28318 * (t + vec3(0.26, 0.41, 0.55)));\n}\n\n// Optimized Height Function\nfloat riemann(float x, float z) {\n    vec2 res = vec2(0.0);\n    for (int n = 1; n <= N_SUM; n++) {\n        float n2 = float(n * n);\n        float phase = n2 * x;\n        float shift = float(n) * z;\n        res += (1.0/n2) * 2.0 * cos(shift) * vec2(cos(phase) - 1.0, sin(phase));\n    }\n    return length(res) * 0.5;\n}\n\nfloat map(vec3 p) {\n    return (p.y - riemann(p.x, p.z)) * 0.4; \n}\n\nvec3 getNormal(vec3 p) {\n    vec2 e = vec2(0.01, 0.0);\n    return normalize(vec3(map(p + e.xyy) - map(p - e.xyy),\n                          map(p + e.yxy) - map(p - e.yxy),\n                          map(p + e.yyx) - map(p - e.yyx)));\n}\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;\n\n    // Setup Camera\n    vec3 ro = vec3(iTime * FLYOVER_SPEED, CAMERA_HEIGHT, iTime * FLYOVER_SPEED); \n    vec3 fd = normalize(vec3(1.0, CAMERA_TILT, 1.0)); \n    vec3 rt = normalize(cross(vec3(0, 1, 0), fd));\n    vec3 rd = normalize(fd + (uv.x * rt + uv.y * cross(fd, rt)) * FOVY);\n\n    // Background Gradient\n    vec3 bg = mix(FOG_COLOR, SKY_COLOR, rd.y * 0.5 + 0.5);\n\n    // Raymarching\n    float d = 0.0;\n    for(int i = 0; i < MAX_STEPS; i++) {\n        float s = map(ro + rd * d);\n        d += s;\n        if(d > MAX_DIST || s < 0.0005) break;\n    }\n\n    vec3 col = bg;\n\n    if(d < MAX_DIST) {\n        vec3 p = ro + rd * d;\n        vec3 n = getNormal(p);\n        \n        // Lighting: Diffuse + Fresnel\n        float dif = max(dot(n, normalize(vec3(0.5, 0.8, 0.2))), 0.0);\n        float fre = pow(clamp(1.0 + dot(rd, n), 0.0, 1.0), 4.0);\n        \n        // Final Surface Color\n        col = getPalette(p.y * 0.5 + n.y * 0.1) * (dif + 0.3);\n        col += fre * vec3(0.4, 0.7, 1.0); // Edge glow\n        col *= smoothstep(-0.2, 1.0, p.y); // Vertical shading\n        \n        // Fog Apply\n        col = mix(bg, col, exp2(-FOG_DENSITY * d * d));\n    }\n\n    fragColor = vec4(pow(col, vec3(0.4545)), 1.0);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.13079833984375,
+        "rot_x": 0.8790640234947205,
+        "rot_y": -0.45513150095939636,
+        "rot_z": -0.054712917655706406,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 6.090000152587891,
+        "B": 2.869999885559082,
+        "C": 5.059999942779541,
+        "D": 4.019999980926514,
+        "E": 0,
+        "F": 0,
+        "S": 3.7899999618530273
+    },
+    "equations": {
+        "defU": "C*cos(t)+(A + B*cos(v)) * cos(u)",
+        "defV": "C*sin(t)+(A + B*cos(v)) * sin(u)",
+        "defW": "D*cos(t)+B*sin(v)",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0",
+        "x": "U * tanh(sqrt(U^2+V^2+W^2)/2) / (sqrt(U^2+V^2+W^2) + 0.00001)",
+        "y": "V * tanh(sqrt(U^2+V^2+W^2)/2) / (sqrt(U^2+V^2+W^2) + 0.00001)",
+        "z": "W * tanh(sqrt(U^2+V^2+W^2)/2) / (sqrt(U^2+V^2+W^2) + 0.00001)"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.28318977355957,
+        "uMin": 0,
+        "vMax": 6.28318977355957,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Torus",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 1,
+    "renderMode": 1,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 1,
+        "path4D": 1,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 101,
+    "texture": {
+        "code": "//SOUND_BEGIN\n// SOUND_BEGIN\n// =========================================================================\n// Title: Waterfalls\n// Author: P_Malin\n// Source: https://www.shadertoy.com/view/MdlXD4\n// License: Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported License.\n//\n// Note: Procedural waterfall/ambient noise synthesis using FBM.\n//       Adapted for Desktop GLSL Audio.\n// =========================================================================\n\nfloat Hash(float p)\n{\n    vec2 p2 = fract(vec2(p * 5.3983, p * 5.4427));\n    p2 += dot(p2.yx, p2.xy + vec2(21.5351, 14.3137));\n    return fract(p2.x * p2.y * 95.4337);\n}\n\nfloat SmoothNoise( float t )\n{\n    float noiset = t * 32.0;\n    float tfloor = floor(noiset);\n    float ffract = fract(noiset);\n    \n    float n0 = Hash(tfloor);\n    float n1 = Hash(tfloor + 1.0);\n    float blend = ffract*ffract*(3.0 - 2.0*ffract);\n    return mix(n0, n1, blend) * 2.0 - 1.0;\n}\n\nfloat FBM( float t, float persistence )\n{\n    float result = 0.0;\n    float a = 1.0;\n    float tot = 0.0;\n    \n    // Stratificazione di rumore per l'effetto \"cascata\"\n    for(int i=0; i<3; i++) {\n        result += SmoothNoise(t) * a;\n        tot += a;\n        t *= 2.02;\n        a *= persistence;\n    }\n    \n    return result / tot;\n}\n\n// -------------------------------------------------------------------------\n// MAIN SOUND\n// -------------------------------------------------------------------------\n\nvec2 mainSound( in int samp, float time)\n{\n    // Generazione di due canali leggermente sfasati per l'effetto stereo ampio\n    float left = FBM(fract(time * 0.25) * 400.0, 0.4);\n    float right = FBM((fract(0.435 + time * 0.25)) * 450.0, 0.3);\n    \n    vec2 audio = vec2(left * 0.25, right * 0.4);\n    \n    // Aggiunta di un secondo strato per corpo alle basse frequenze\n    audio += vec2(0.15, 0.025) * FBM(time * 20.0, 0.5);\n\n    // Fade-in iniziale per evitare spike audio all'avvio\n    float fadeIn = smoothstep(0.0, 2.0, time);\n    \n    // VOLUME: Impostato leggermente più basso (moltiplicatore 0.5)\n    return audio * fadeIn * 0.5;\n}\n// SOUND_END\n//SOUND_END\n\n// --- PARAMETRI ---\nfloat scale = 50.0; // Densità degli anelli (più alto = più cerchi)\nvec2 center = vec2(0.5, 0.5); // Centro dei cerchi (0.5, 0.5 è il centro della texture)\n\n// --- LOGICA ---\n// 1. Calcola la distanza del pixel corrente (u, v) dal centro\nfloat dist = distance(vec2(u, v), center);\n\n// 2. Crea l'onda sinusoidale basata sulla distanza\n// Moltiplichiamo per 'scale' per aumentare la frequenza\nfloat val = sin(dist * scale);\n\n// 3. Mappiamo il risultato da -1..1 a 0..1 per il mix\nfloat t = (val + 1.0) * 0.5;\n\n// 4. Mix finale\nreturn mix(u_col1, u_col2, t);",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": true
+}

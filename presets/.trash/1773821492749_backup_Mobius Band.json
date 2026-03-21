@@ -1,0 +1,110 @@
+{
+    "angles": {
+        "omega": 9.999999747378752e-05,
+        "phi": 9.999999747378752e-05,
+        "psi": 9.999999747378752e-05
+    },
+    "background": {
+        "code": "// --- THE COSMIC SHADER (Versione ULTRA - Alta Luminosità) ---\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    // TEMPO\n    float t = iTime * 0.5;\n\n    // COORDINATE\n    vec2 st = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;\n    vec2 u_cloud = st * 2.0;\n\n    // =========================================================\n    // 1. NUBI VOLUMETRICHE (Alta Qualità: 60 step)\n    // =========================================================\n    vec4 o = vec4(0.0);\n    float s = 0.0;\n    vec3 p = vec3(0.0);\n\n    for(int it = 0; it < 60; it++) { \n        p += vec3(u_cloud * s, s);\n        s = 6.0 + p.y;\n        \n        s -= abs(dot(sin(t + 0.1 * p.z + 0.3 * p / 0.08), vec3(0.16)));\n        s -= abs(dot(sin(t + 0.1 * p.z + 0.3 * p / 0.20), vec3(0.40)));\n        s -= abs(dot(sin(t + 0.1 * p.z + 0.3 * p / 0.60), vec3(1.20)));\n        \n        s = 0.1 + abs(s) * 0.2;\n        // Moltiplicatore luce nuvole aumentato (da 4.0 a 6.0)\n        o += vec4(6.0, 3.0, 1.5, 0.0) / s; \n    }\n    o *= smoothstep(0.8, 0.75, abs(u_cloud.y));\n\n    // =========================================================\n    // 2. NEBULA (Kali-Set Fractal - Alta Qualità: 15 step)\n    // =========================================================\n    vec4 o2 = vec4(0.0);\n    float t2 = -t * 0.05;\n    float k = 0.0;\n\n    for(int it = 0; it < 15; it++) { \n        float d_neb = fract(k - 3.0 * t2);\n        vec4 c = vec4(st * d_neb, k, 0.0) * 28.0;\n        \n        for(int j = 0; j < 22; j++) {\n            float dotC = dot(c, c);\n            if(dotC < 0.001) dotC = 0.001; \n            vec4 temp = abs(c / dotC - vec4(7.0 - 0.2 * sin(t2), 6.3, 0.7, 1.0 - cos(t2 / 0.8)) / 7.0);\n            c = temp.xzyw;\n        }\n        \n        float mult_d = d_neb * d_neb;\n        o2 -= c * c.yzww * mult_d / vec4(3.0, 5.0, 1.0, 1.0);\n        k -= 0.06;\n    }\n    o += o2;\n\n    float lenU = length(u_cloud);\n    if(lenU < 0.001) lenU = 0.001;\n    \n    // Compressione luce più morbida per far passare più luminosità\n    vec4 val = o / 1000.0 / lenU; \n    o = val / (0.8 + abs(val)); \n\n    // =========================================================\n    // 3. CAMPO STELLARE (Stelle più brillanti)\n    // =========================================================\n    vec3 col = vec3(0.0);\n    float t_star = 0.0; \n\n    for(int idx = 0; idx < 8; idx++) {\n        float j = float(idx) / 8.0;\n        float depth = fract(j + t_star);\n        float scale = mix(20.0, 0.5, depth);\n        float fade = depth * smoothstep(1.0, 0.9, depth);\n        \n        vec2 luv = st * scale + j * 453.2 - t * 0.05;\n        \n        vec3 layerCol = vec3(0.0);\n        vec2 gv = fract(luv);\n        vec2 id = floor(luv);\n        \n        for(int y = -1; y <= 1; y++) {\n            for(int x = -1; x <= 1; x++) {\n                vec2 offs = vec2(float(x), float(y));\n                \n                vec2 hp = fract((id + offs) * vec2(0.129898, 0.78233));\n                hp += dot(hp, hp + 19.19);\n                float n = fract(hp.x * hp.y);\n                float size = fract(n);\n                \n                vec2 suv = gv - offs - vec2(n, fract(n * 34.0)) + 0.5;\n                // Stelle più grandi e luminose\n                float flare = smoothstep(0.1, 0.9, size) * 0.8; \n                \n                float d_star = length(suv);\n                if(d_star < 0.001) d_star = 0.001; \n                float m = sin(0.025 * 1.2) / d_star; \n                float rays = max(0.0, 0.5 - abs(suv.x * suv.y * 1000.0));\n                m += (rays * flare) * 2.0;\n                m *= smoothstep(1.0, 0.1, d_star);\n                \n                vec3 color = sin(vec3(0.2, 0.3, 0.9) * fract(n * 23.2) * 6.28318) * 0.25 + 0.75;\n                color = color * vec3(0.9, 0.59, 0.9 + size);\n                \n                float star_val = m * (sin(t * 0.6 + n * 6.28318) * 0.5 + 0.5);\n                layerCol += star_val * size * color;\n            }\n        }\n        col += layerCol * fade;\n    }\n\n    float starMask = smoothstep(-0.4, 0.1, u_cloud.y);\n    o.rgb += col * starMask * o2.xyz * 15.0; // Nebulosa di fondo intensificata\n\n    // =========================================================\n    // 4. CORREZIONE LUMINOSITÀ FINALE E CONTRASTO\n    // =========================================================\n    vec3 finalColor = o.rgb * 1.8; // <-- AUMENTA QUESTO VALORE PER AVERE PIÙ LUCE (es. 2.0 o 2.5)\n    \n    // Aggiungiamo un pizzico di contrasto\n    finalColor = smoothstep(0.0, 1.0, finalColor);\n\n    fragColor = vec4(clamp(finalColor, 0.0, 1.0), 1.0);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.398534893989563,
+        "rot_x": 0.8970685005187988,
+        "rot_y": 0.004696711432188749,
+        "rot_z": 0.19082941114902496,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 4.760000228881836,
+        "B": 4.940000057220459,
+        "C": 1.7200000286102295,
+        "D": 0.800000011920929,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "C*cos(t)+(A + u * cos(v/2)) * cos(v)",
+        "defV": "C*sin(t)+(A + u * cos(v/2)) * sin(v)",
+        "defW": "D*cos(t)+u * sin(v/2)",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.5",
+        "x": "U * tanh(sqrt(U^2+V^2+W^2)/2) / (sqrt(U^2+V^2+W^2) + 0.00001)",
+        "y": "V * tanh(sqrt(U^2+V^2+W^2)/2) / (sqrt(U^2+V^2+W^2) + 0.00001)",
+        "z": "W * tanh(sqrt(U^2+V^2+W^2)/2) / (sqrt(U^2+V^2+W^2) + 0.00001)"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 2,
+    "limits": {
+        "uMax": 2,
+        "uMin": -2,
+        "vMax": 6.28318977355957,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Mobius Band",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 1,
+    "renderMode": 1,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 1,
+        "path4D": 1,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 101,
+    "texture": {
+        "code": "//SOUND_BEGIN\n// SOUND_BEGIN\n// =========================================================================\n// Title: Cross-Galactic Ocean\n// Author: Klems\n// Source: https://www.shadertoy.com/view/4l2XWh\n// License: CC BY-NC-SA 3.0 (Shadertoy Default License)\n//\n// Note: Procedural sea waves and melodic synth pad.\n//       Adapted for Desktop GLSL Audio.\n// =========================================================================\n\n// Commenta queste righe per attivare/disattivare i componenti\n#define SYNTH\n#define WAVE\n\n// Converte ottava e tono in frequenza Hz\nfloat tone(float octave, float pitch) {\n    float baseFreq = 264.0;\n    baseFreq *= pow(2.0, octave);\n    baseFreq *= pow(1.1041, pitch);\n    return baseFreq;\n}\n\n// -------------------------------------------------------------------------\n// GENERATORI DI RUMORE (Noise)\n// -------------------------------------------------------------------------\n\nfloat hash(float p) {\n    float h = p * 127.1;\n    return fract(sin(h) * 43758.5453123);\n}\n\nfloat perlinNoise(in float x) {\n    float lower = floor(x);\n    float upper = lower + 1.0;\n    float lowerV = hash(lower);\n    float upperV = hash(upper);\n    return smoothstep(lower, upper, x) * (upperV - lowerV) + lowerV;\n}\n\n#define ITERATIONS 8\n#define MOD3_WAVE vec3(443.8975, 397.2973, 491.1871)\n\nvec2 hash22(in vec2 p) {\n    vec3 p3 = fract(vec3(p.xyx) * MOD3_WAVE);\n    p3 += dot(p3.zxy, p3.yxz + 19.19);\n    return fract(vec2(p3.x * p3.y, p3.z * p3.x));\n}\n\nvec2 noise(in float time) {\n    vec2 audio = vec2(0.0);\n    for (int t = 0; t < ITERATIONS; t++) {\n        float v = float(t) * 3.21239;\n        audio += hash22(vec2(time + v, time * 1.423 + v)) * 2.0 - 1.0;\n    }\n    audio /= float(ITERATIONS);\n    return audio;\n}\n\n// -------------------------------------------------------------------------\n// SUONO DELLE ONDE\n// -------------------------------------------------------------------------\n\n#define SAMPLES 41\nvec2 getWaveSound(in float time) {\n    // Usiamo u_sampleRate passata dal tuo synthesizer.cpp\n    float period = 1.0 / u_sampleRate;\n    float t_snapped = floor(time / period) * period;\n    float totAmpl = 0.0;\n    vec2 audio = vec2(0);\n    \n    for (int i = 0; i < SAMPLES; i++) {\n        float index = float(i - SAMPLES / 2);\n        float currStepF = period * index;\n        vec2 curr = noise(t_snapped + currStepF);\n        index /= 2.0; \n        index *= index;\n        float ampl = 1.0 - index;\n        totAmpl += ampl;\n        audio += curr * ampl;\n    }\n    return audio / totAmpl;\n}\n\n// -------------------------------------------------------------------------\n// SINTETIZZATORE MELODICO\n// -------------------------------------------------------------------------\n\n#define SYNTH_HARMONICS 3\nfloat getSynthBase(in float time, in float freq, in float frac) {\n    float x = fract(time * freq);\n    float value = 0.0;\n    if (x < 0.078) {\n        value = 0.692 - smoothstep(0.0, 0.078, x) * 0.588;\n    } else if (x < 0.346) {\n        value = smoothstep(0.078, 0.346, x) * 0.666 + 0.105; \n    } else if (x < 0.986) {\n        value = 0.771 - smoothstep(0.346, 0.986, x) * 0.351;\n    } else {\n        value = smoothstep(0.986, 1.0, x) * 0.272 + 0.420;\n    }\n    \n    value *= 2.7;\n    float totAmpl = 2.7;\n    \n    float mult = time * 2.0 * PI * freq;\n    for (int i = 0 ; i < SYNTH_HARMONICS ; i++) {\n        float fact = 1.0 / pow(2.0, float(i));\n        float harm = sin(mult * fact);\n        float ampl = (cos(frac * 2.0 * PI) * 3.0 + 4.0) * (1.0 - fact) + 3.0;\n        value += harm * ampl;\n        totAmpl += ampl;\n    }\n    \n    return value / totAmpl;\n}\n\n#define TEMPO 7.0\n\nfloat getTone(in float time) {\n    float timei = floor((time + TEMPO) / TEMPO);\n    return floor((sin(timei * 3.95216) * 0.5 + 0.5) * 4.0);\n}\n\n#define PART_LENGTH 4.0\n#define PART_COUNT 3.0\n#define TOT_PART (PART_LENGTH * PART_COUNT)\n\nvec2 getSynth(in float time) {\n    float part = mod(floor(time / TEMPO / PART_LENGTH), PART_COUNT);\n    if (mod(time, TEMPO * TOT_PART) > TEMPO * 7.0) return vec2(0);\n    \n    float currentTone = getTone(time);\n    float frac = mod(time, TEMPO);\n    float freq = tone(-2.0 + part, currentTone);\n    float ampl = smoothstep(0.0, 2.0, frac) * (1.0 - smoothstep(TEMPO - 2.0, TEMPO, frac));\n    float synthBase = ampl * getSynthBase(time, freq, mod(time, TEMPO) / TEMPO);\n    \n    float pan = smoothstep(0.0, TEMPO, frac); \n    if (mod(floor(time / TEMPO), 2.0) < 1.0) pan = 1.0 - pan;\n    return vec2((1.0 - pan) * synthBase, pan * synthBase);\n}\n\n// -------------------------------------------------------------------------\n// MAIN SOUND\n// -------------------------------------------------------------------------\n\nvec2 mainSound(int samp, float time) {\n    vec2 result = vec2(0);\n    \n    #ifdef SYNTH\n    result += smoothstep(0.0, 2.0, time) * getSynth(time);\n    #endif\n    \n    #ifdef WAVE\n    float waveAmpl = sin(time * 0.353) * 0.12 + 0.24;\n    float perlinAmpl = 1.0 - perlinNoise(time * 1.2146) * 0.5;\n    result += smoothstep(0.0, 12.0, time) * getWaveSound(time) * waveAmpl * perlinAmpl;\n    #endif\n    \n    // VOLUME FINALE: Aumentato a 0.8 per maggiore impatto\n    return result * 0.8; \n}\n// SOUND_END\n//SOUND_END\n\n// --- PARAMETRI ---\nfloat scale = 50.0; // Densità degli anelli (più alto = più cerchi)\nvec2 center = vec2(0.5, 0.5); // Centro dei cerchi (0.5, 0.5 è il centro della texture)\n\n// --- LOGICA ---\n// 1. Calcola la distanza del pixel corrente (u, v) dal centro\nfloat dist = distance(vec2(u, v), center);\n\n// 2. Crea l'onda sinusoidale basata sulla distanza\n// Moltiplichiamo per 'scale' per aumentare la frequenza\nfloat val = sin(dist * scale);\n\n// 3. Mappiamo il risultato da -1..1 a 0..1 per il mix\nfloat t = (val + 1.0) * 0.5;\n\n// 4. Mix finale\nreturn mix(u_col1, u_col2, t);",
+        "col1": "#8eff37",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 0.10686486214399338
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

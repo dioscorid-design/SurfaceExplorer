@@ -1,0 +1,110 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "background": {
+        "code": "void mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    // Normalized pixel coordinates (from 0 to 1)\n    vec2 uv = fragCoord/iResolution.xy;\n\n    // Time varying pixel color\n    vec3 col = 0.5 + 0.5*cos(iTime+uv.xyx+vec3(0,2,4));\n\n    // Output to screen\n    fragColor = vec4(col,1.0);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.5554681420326233,
+        "rot_x": 0.6354224681854248,
+        "rot_y": 0.5284689664840698,
+        "rot_z": -0.09172777086496353,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": -0.7999995946884155
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 0.10000000149011612,
+        "B": 1.1100000143051147,
+        "C": 1,
+        "D": 0.5,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "v * cos(u)",
+        "defV": "v * sin(u)",
+        "defW": "E * u\n",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.0",
+        "x": "A*(U + C * sin(t))",
+        "y": "A*(V + D * cos(t))",
+        "z": "A*(W + 0.5 * (C * sin(t) * V - D * cos(t) * U))"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.28318977355957,
+        "uMin": -6.28318977355957,
+        "vMax": 3,
+        "vMin": -3,
+        "wMax": 0.10000000149011612,
+        "wMin": 0
+    },
+    "name": "Geodetic Elicoid",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 1,
+    "renderMode": 0,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 1,
+        "path4D": 1,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 100,
+    "texture": {
+        "code": "//SOUND_BEGIN\n// SOUND_BEGIN\n// =========================================================================\n// Title: Cross-Galactic Ocean\n// Author: Klems\n// Source: https://www.shadertoy.com/view/4l2XWh\n// License: CC BY-NC-SA 3.0 (Shadertoy Default License)\n//\n// Note: Procedural sea waves and melodic synth pad.\n//       Adapted for Desktop GLSL Audio.\n// =========================================================================\n\n// Commenta queste righe per attivare/disattivare i componenti\n#define SYNTH\n#define WAVE\n\n// Converte ottava e tono in frequenza Hz\nfloat tone(float octave, float pitch) {\n    float baseFreq = 264.0;\n    baseFreq *= pow(2.0, octave);\n    baseFreq *= pow(1.1041, pitch);\n    return baseFreq;\n}\n\n// -------------------------------------------------------------------------\n// GENERATORI DI RUMORE (Noise)\n// -------------------------------------------------------------------------\n\nfloat hash(float p) {\n    float h = p * 127.1;\n    return fract(sin(h) * 43758.5453123);\n}\n\nfloat perlinNoise(in float x) {\n    float lower = floor(x);\n    float upper = lower + 1.0;\n    float lowerV = hash(lower);\n    float upperV = hash(upper);\n    return smoothstep(lower, upper, x) * (upperV - lowerV) + lowerV;\n}\n\n#define ITERATIONS 8\n#define MOD3_WAVE vec3(443.8975, 397.2973, 491.1871)\n\nvec2 hash22(in vec2 p) {\n    vec3 p3 = fract(vec3(p.xyx) * MOD3_WAVE);\n    p3 += dot(p3.zxy, p3.yxz + 19.19);\n    return fract(vec2(p3.x * p3.y, p3.z * p3.x));\n}\n\nvec2 noise(in float time) {\n    vec2 audio = vec2(0.0);\n    for (int t = 0; t < ITERATIONS; t++) {\n        float v = float(t) * 3.21239;\n        audio += hash22(vec2(time + v, time * 1.423 + v)) * 2.0 - 1.0;\n    }\n    audio /= float(ITERATIONS);\n    return audio;\n}\n\n// -------------------------------------------------------------------------\n// SUONO DELLE ONDE\n// -------------------------------------------------------------------------\n\n#define SAMPLES 41\nvec2 getWaveSound(in float time) {\n    // Usiamo u_sampleRate passata dal tuo synthesizer.cpp\n    float period = 1.0 / u_sampleRate;\n    float t_snapped = floor(time / period) * period;\n    float totAmpl = 0.0;\n    vec2 audio = vec2(0);\n    \n    for (int i = 0; i < SAMPLES; i++) {\n        float index = float(i - SAMPLES / 2);\n        float currStepF = period * index;\n        vec2 curr = noise(t_snapped + currStepF);\n        index /= 2.0; \n        index *= index;\n        float ampl = 1.0 - index;\n        totAmpl += ampl;\n        audio += curr * ampl;\n    }\n    return audio / totAmpl;\n}\n\n// -------------------------------------------------------------------------\n// SINTETIZZATORE MELODICO\n// -------------------------------------------------------------------------\n\n#define SYNTH_HARMONICS 3\nfloat getSynthBase(in float time, in float freq, in float frac) {\n    float x = fract(time * freq);\n    float value = 0.0;\n    if (x < 0.078) {\n        value = 0.692 - smoothstep(0.0, 0.078, x) * 0.588;\n    } else if (x < 0.346) {\n        value = smoothstep(0.078, 0.346, x) * 0.666 + 0.105; \n    } else if (x < 0.986) {\n        value = 0.771 - smoothstep(0.346, 0.986, x) * 0.351;\n    } else {\n        value = smoothstep(0.986, 1.0, x) * 0.272 + 0.420;\n    }\n    \n    value *= 2.7;\n    float totAmpl = 2.7;\n    \n    float mult = time * 2.0 * PI * freq;\n    for (int i = 0 ; i < SYNTH_HARMONICS ; i++) {\n        float fact = 1.0 / pow(2.0, float(i));\n        float harm = sin(mult * fact);\n        float ampl = (cos(frac * 2.0 * PI) * 3.0 + 4.0) * (1.0 - fact) + 3.0;\n        value += harm * ampl;\n        totAmpl += ampl;\n    }\n    \n    return value / totAmpl;\n}\n\n#define TEMPO 7.0\n\nfloat getTone(in float time) {\n    float timei = floor((time + TEMPO) / TEMPO);\n    return floor((sin(timei * 3.95216) * 0.5 + 0.5) * 4.0);\n}\n\n#define PART_LENGTH 4.0\n#define PART_COUNT 3.0\n#define TOT_PART (PART_LENGTH * PART_COUNT)\n\nvec2 getSynth(in float time) {\n    float part = mod(floor(time / TEMPO / PART_LENGTH), PART_COUNT);\n    if (mod(time, TEMPO * TOT_PART) > TEMPO * 7.0) return vec2(0);\n    \n    float currentTone = getTone(time);\n    float frac = mod(time, TEMPO);\n    float freq = tone(-2.0 + part, currentTone);\n    float ampl = smoothstep(0.0, 2.0, frac) * (1.0 - smoothstep(TEMPO - 2.0, TEMPO, frac));\n    float synthBase = ampl * getSynthBase(time, freq, mod(time, TEMPO) / TEMPO);\n    \n    float pan = smoothstep(0.0, TEMPO, frac); \n    if (mod(floor(time / TEMPO), 2.0) < 1.0) pan = 1.0 - pan;\n    return vec2((1.0 - pan) * synthBase, pan * synthBase);\n}\n\n// -------------------------------------------------------------------------\n// MAIN SOUND\n// -------------------------------------------------------------------------\n\nvec2 mainSound(int samp, float time) {\n    vec2 result = vec2(0);\n    \n    #ifdef SYNTH\n    result += smoothstep(0.0, 2.0, time) * getSynth(time);\n    #endif\n    \n    #ifdef WAVE\n    float waveAmpl = sin(time * 0.353) * 0.12 + 0.24;\n    float perlinAmpl = 1.0 - perlinNoise(time * 1.2146) * 0.5;\n    result += smoothstep(0.0, 12.0, time) * getWaveSound(time) * waveAmpl * perlinAmpl;\n    #endif\n    \n    // VOLUME FINALE: Aumentato a 0.8 per maggiore impatto\n    return result * 0.8; \n}\n// SOUND_END\n//SOUND_END\n\n// =========================================================================\n// Title: Disco Sun Vortex\n// Author: workingclasshacker (@WorkingClassHacker)\n// Source: https://www.shadertoy.com/view/7cfGzn\n//\n// License: SPDX-License-Identifier: CC-BY-NC-SA-4.0\n//          https://creativecommons.org/licenses/by-nc-sa/4.0/\n//          Copyright (c) 2026 @WorkingClassHacker\n//\n// Attributions & Credits:\n// - Based on \"Abstract Shine\" by @Frostbyte (Copyright (c) 2026)\n// - Continuous cosine palette by Inigo Quilez / IQ (MIT License) \n//   https://www.shadertoy.com/view/ll2GD3\n//\n// Description:\n// Volumetric raymarching shader featuring organic deformation fields, \n// depth-dependent coloration using continuous cosine palettes, and \n// time-gated screen-space shimmer.\n// =========================================================================\n// Rotation matrix using cosine phase offsets.\n// cos(a+33) ≈ -sin(a)\n// cos(a+11) ≈  sin(a)\n// compact 2D rotation without sin(). \n// Approximates sin within an invisible margin for animated graphics\n\n#define R(a) mat2(cos(a+vec4(0, 33, 11, 0)))\n\n// IQ`s continuous cosine palette (MIT)\n// produces smooth, periodic color gradients\n// https://www.shadertoy.com/view/ll2GD3\n\nvec3 palette(float i){\n    const vec3 a = vec3(0.50, 0.38, 0.26);  // base tone (warm midtone)\n    const vec3 b = vec3(0.50, 0.35, 0.25);  // amplitude (vibrance)\n    const vec3 c = vec3(1.00);              // frequency (cyclic complexity)\n    const vec3 d = vec3(0.00, 0.12, 0.25);  // phase offsets (hue shift)\n    return a + b * cos(6.2831853 * (c * i + d));\n}\n\nvec3 palette2(float i){\n\n    const vec3 a = vec3(0.742702f, 0.908877f, 0.959831f);\n    const vec3 b = vec3(-0.711000f, 0.275000f, -0.052000f);\n    const vec3 c = vec3(1.000000f, 1.855000f, 1.000000f);\n    const vec3 d = vec3(0.180000f, 0.091000f, 0.380000f);\n    return a + b * cos(6.2831853f * (c * i + d));\n\n}\n\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    // pixel coordinate\n    vec2 u = fragCoord.xy;\n\n    // normalized screen space centered at origin\n    // (useful for screen-space modulation later)\n    vec2 uv = (u - 0.5*iResolution.xy + 0.5) / iResolution.y;\n\n    float i, s;\n    float t = iTime;\n\n    vec3 p;\n\n    // ray direction through pixel (camera ray)\n    vec3 d = normalize(vec3(\n        2.0 * u - iResolution.xy,\n        iResolution.y\n    ));\n\n    // starting depth → creates forward motion\n    p.z = t;\n\n    // raymarch loop\n    for (fragColor *= i; i < 20.0; i++)\n    {\n        // depth-dependent rotation\n        // produces corkscrew tunnel motion\n        p.xy *= R(-p.z * 0.01 - iTime * 0.05);\n\n        // base step size\n        s = 0.6;\n\n        // cylindrical confinement\n        // creates tunnel boundary at radius ≈ 10\n        s = max(s, 4.0 * (-length(p.xy) + 10.0));\n\n        // organic deformation field\n        // adds flow & energy patterns\n        s += abs(\n            p.y * 0.004 +                // slight tilt\n            sin(t - p.x * 0.5) * 0.9 +  // traveling wave\n            1.0                          // baseline thickness\n        );\n\n        // march ray forward\n        p += d * s;\n\n        // volumetric glow accumulation\n        fragColor += 1.0 / (s * 0.2);\n    }\n\n    // apply palette based on final ray distance\n    // length(p) approximates depth travelled\n    // gives depth-dependent coloration\n    // divisor controls the palette scaling - try messing with it!\n    // try swapping to palette2 here!\n    fragColor *= vec4(palette(length(p)/(abs(sin(iTime*0.02)*50.)+6.0)), 1.0);\n\n    // time-gated screen-space shimmer / interference layer\n    fragColor -= 20.0 *\n        smoothstep(\n            .001,\n            abs(sin(iTime*5.0)), // pulsating dots, in a demo I would sync this to beat\n            .7 - length(sin(uv*200.0)/1.5)-abs(uv.y)+.2   // high-frequency pattern\n        );\n\n    // brightness normalization\n    fragColor /= 0.5e2;\n\n    // radial gradient\n    float l = length(uv);\n\n    // vignette\n    fragColor *= 1.2-l;\n\n    // center glow\n\n    fragColor = mix(fragColor, palette(l-.23).rgbr, 1.0-smoothstep(.01,.95,l));\n\n    // soft highlight compression\n    fragColor = tanh(fragColor+fragColor);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

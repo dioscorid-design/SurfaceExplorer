@@ -1,0 +1,104 @@
+{
+    "angles": {
+        "omega": 145.6592254638672,
+        "phi": 145.94906616210938,
+        "psi": 145.85911560058594
+    },
+    "background": {
+        "code": "//IMG:/home/dioscorid/Projects/presets/textures/Images/1763635187350.jpg",
+        "col1": "#3333cc",
+        "col2": "#000000",
+        "color": "#383b41",
+        "enabled": false,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.6017878651618958,
+        "rot_x": -0.4762916564941406,
+        "rot_y": 0.2802145779132843,
+        "rot_z": 0.5766085386276245,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 42.40000915527344
+    },
+    "colors": {
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1.2000000476837158,
+        "B": 1.2000000476837158,
+        "C": 1,
+        "D": 2,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "u\n",
+        "defV": "C * sin(v - t * D)",
+        "defW": "C * cos(v - t * D)",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "A*(exp(-B*W)*cos(U)-V*exp(B*W)*sin(U))",
+        "x": "A*exp(B*W)*cos(U)",
+        "y": "A*exp(B*W)*sin(U)",
+        "z": "A*(exp(-B*W)*sin(U)+V*exp(B*W)*cos(U))"
+    },
+    "lightingMode": 1,
+    "limits": {
+        "uMax": 6.28318977355957,
+        "uMin": 0,
+        "vMax": 6.28318977355957,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Iwasawa Torus",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "projectionMode": 1,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0.20000000298023224,
+        "phi": 0.20000000298023224,
+        "precession": 0,
+        "psi": 0.20000000298023224,
+        "spin": 0
+    },
+    "steps": 100,
+    "texture": {
+        "code": "\nvec3 palette(float d){\n\treturn mix(vec3(0.2,0.7,0.9),vec3(1.,0.,1.),d);\n}\n\nvec2 rotate(vec2 p,float a){\n\tfloat c = cos(a);\n    float s = sin(a);\n    return p*mat2(c,s,-s,c);\n}\n\nfloat map(vec3 p){\n    for( int i = 0; i<8; ++i){\n        float t = iTime*0.2;\n        p.xz =rotate(p.xz,t);\n        p.xy =rotate(p.xy,t*1.89);\n        p.xz = abs(p.xz);\n        p.xz-=.5;\n\t}\n\treturn dot(sign(p),p)/5.;\n}\n\nvec4 rm (vec3 ro, vec3 rd){\n    float t = 0.;\n    vec3 col = vec3(0.);\n    float d;\n    for(float i =0.; i<64.; i++){\n\t\tvec3 p = ro + rd*t;\n        d = map(p)*.5;\n        if(d<0.02){\n            break;\n        }\n        if(d>100.){\n        \tbreak;\n        }\n        //col+=vec3(0.6,0.8,0.8)/(400.*(d));\n        col+=palette(length(p)*.1)/(400.*(d));\n        t+=d;\n    }\n    return vec4(col,1./(d*100.));\n}\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = (fragCoord-(iResolution.xy/2.))/iResolution.x;\n\tvec3 ro = vec3(0.,0.,-50.);\n    ro.xz = rotate(ro.xz,iTime);\n    vec3 cf = normalize(-ro);\n    vec3 cs = normalize(cross(cf,vec3(0.,1.,0.)));\n    vec3 cu = normalize(cross(cf,cs));\n    \n    vec3 uuv = ro+cf*3. + uv.x*cs + uv.y*cu;\n    \n    vec3 rd = normalize(uuv-ro);\n    \n    vec4 col = rm(ro,rd);\n    \n    \n    fragColor = col;\n}\n\n/** SHADERDATA\n{\n\t\"title\": \"fractal pyramid\",\n\t\"description\": \"\",\n\t\"model\": \"car\"\n}\n*/",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

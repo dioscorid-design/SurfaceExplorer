@@ -1,0 +1,41 @@
+{
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 1.090000033378601,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "A * sin(2.0*u) * sin(v)",
+        "x": "A * cos(u) * cos(v)",
+        "y": "A * sin(u) * cos(v)",
+        "z": "A * cos(2.0*u) * sin(v)"
+    },
+    "lightingMode": 2,
+    "limits": {
+        "uMax": 3.1415927410125732,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "KB",
+    "projectionMode": 1,
+    "renderMode": 1,
+    "showBorder": false,
+    "steps": 101,
+    "type": "surface",
+    "use4DLighting": false
+}

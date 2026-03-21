@@ -1,0 +1,110 @@
+{
+    "angles": {
+        "omega": 0.3099999725818634,
+        "phi": 0.3299999535083771,
+        "psi": 0.2600000202655792
+    },
+    "background": {
+        "code": "\n// =========================================================================\n// Title: Raymarching Basic\n// Author: gyabo\n// Source: https://www.shadertoy.com/view/Ml2XRD\n//\n// License: CC BY-NC-SA 3.0 (Shadertoy Default)\n//          https://creativecommons.org/licenses/by-nc-sa/3.0/\n//\n// Attributions & Credits:\n// - Includes a shading/color tweak suggested by Shadertoy user 'Shane'.\n//\n// Description:\n// A compact and classic raymarching implementation featuring an infinite, \n// procedurally generated geometric landscape. It uses modulo arithmetic \n// on Signed Distance Fields (SDFs) to repeat the structure and features \n// a continuously rotating camera.\n// =========================================================================\n\nfloat map(vec3 p) {\n\tvec3 n = vec3(0, 1, 0);\n\tfloat k1 = 1.9;\n\tfloat k2 = (sin(p.x * k1) + sin(p.z * k1)) * 0.8;\n\tfloat k3 = (sin(p.y * k1) + sin(p.z * k1)) * 0.8;\n\tfloat w1 = 4.0 - dot(abs(p), normalize(n)) + k2;\n\tfloat w2 = 4.0 - dot(abs(p), normalize(n.yzx)) + k3;\n\tfloat s1 = length(mod(p.xy + vec2(sin((p.z + p.x) * 2.0) * 0.3, cos((p.z + p.x) * 1.0) * 0.5), 2.0) - 1.0) - 0.2;\n\tfloat s2 = length(mod(0.5+p.yz + vec2(sin((p.z + p.x) * 2.0) * 0.3, cos((p.z + p.x) * 1.0) * 0.3), 2.0) - 1.0) - 0.2;\n\treturn min(w1, min(w2, min(s1, s2)));\n}\n\nvec2 rot(vec2 p, float a) {\n\treturn vec2(\n\t\tp.x * cos(a) - p.y * sin(a),\n\t\tp.x * sin(a) + p.y * cos(a));\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord ) {\n    float time = iTime;\n\tvec2 uv = ( fragCoord.xy / iResolution.xy ) * 2.0 - 1.0;\n\tuv.x *= iResolution.x /  iResolution.y;\n\tvec3 dir = normalize(vec3(uv, 1.0));\n\tdir.xz = rot(dir.xz, time * 0.23);dir = dir.yzx;\n\tdir.xz = rot(dir.xz, time * 0.2);dir = dir.yzx;\n\tvec3 pos = vec3(0, 0, time);\n\tvec3 col = vec3(0.0);\n\tfloat t = 0.0;\n    float tt = 0.0;\n\tfor(int i = 0 ; i < 100; i++) {\n\t\ttt = map(pos + dir * t);\n\t\tif(tt < 0.001) break;\n\t\tt += tt * 0.45;\n\t}\n\tvec3 ip = pos + dir * t;\n\tcol = vec3(t * 0.1);\n\tcol = sqrt(col);\n\tfragColor = vec4(0.05*t+abs(dir) * col + max(0.0, map(ip - 0.1) - tt), 1.0); //Thanks! Shane!\n    fragColor.a = 1.0 / (t * t * t * t);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#574d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.080975741147995,
+        "rot_x": 0.33112865686416626,
+        "rot_y": 0.7341930270195007,
+        "rot_z": -0.5871602892875671,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1.149999976158142,
+        "B": 0.23000000417232513,
+        "C": 1,
+        "D": 0,
+        "E": 0,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "u",
+        "defV": "v",
+        "defW": "v + 3*u + (t * 2)",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "B*sin(V)*sin(W)",
+        "x": "(A + B*cos(V))*cos(U)",
+        "y": "(A + B*cos(V))*sin(U)",
+        "z": "B*sin(V)*cos(W)"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.28318977355957,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Sliding Spring",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 1,
+    "renderMode": 0,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 1,
+        "path4D": 1,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 100,
+    "texture": {
+        "code": "//SOUND_BEGIN\n// =========================================================================\n// Title: Trailing the Twinkling Tunnelwisp (Audio)\n// Original Music: Pestis (Cassini's Cosmic Conclusion - demozoo.org/productions/367582/)\n// \n// License: CC0 1.0 Universal (Public Domain Dedication)\n//          https://creativecommons.org/publicdomain/zero/1.0/\n//\n// Note: Adapted for the \"Surfaces Explorer\" engine.\n// =========================================================================\n\nvec2 mainSound(int s,float t) {\n  vec2 r;\n  for(float i,j;++i<4.;)\n  for(j=0.;++j<5.;){\n    float a=t*j/32.+i/3.,b=fract(a),c;\n    vec2 m,n=vec2(t,t+3.)+t/j;\n    for(c=3.;c<4.1;n+=c*=1.02)\n      m+=sin(n*c)/c;\n    if(a<9.)\n      r+=sin(m+4.*sin(t/j/47.)*sin(exp2(mod(a-b,3.)/6.+8.5)*t*j*i+i+j))\n      *exp2(-b*12.-1./b+6.-(i+j)/3.);\n  }\n  return r;\n}\n//SOUND_END\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    // Normalized pixel coordinates (from 0 to 1)\n    vec2 uv = fragCoord/iResolution.xy;\n\n    // Time varying pixel color\n    vec3 col = 0.5 + 0.5*cos(iTime+uv.xyx+vec3(0,2,4));\n\n    // Output to screen\n    fragColor = vec4(col,1.0);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

@@ -1,0 +1,62 @@
+{
+    "angles": {
+        "omega": 45.228515625,
+        "phi": 45.228515625,
+        "psi": 45.228515625
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.611495852470398,
+        "rot_x": -0.6150745153427124,
+        "rot_y": -0.4909049868583679,
+        "rot_z": -0.08227076381444931,
+        "x": 0,
+        "y": -6.150005340576172,
+        "yaw": 0,
+        "z": 83.1999740600586
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 1.2000000476837158,
+        "B": 0.9399999976158142,
+        "C": 0.5,
+        "D": 1,
+        "E": 0.5,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "u\n",
+        "defV": "u",
+        "defW": "v ",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "A * sinh(V) * sin(W)",
+        "x": "A * cosh(V) * cos(U)",
+        "y": "A * cosh(V) * sin(U)",
+        "z": "A * sinh(V) * cos(W)"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 3.1415927410125732,
+        "uMin": -3.1415927410125732,
+        "vMax": 2,
+        "vMin": -2,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Asintotic Vortex",
+    "projectionMode": 0,
+    "renderMode": 1,
+    "showBorder": false,
+    "steps": 100,
+    "type": "surface",
+    "use4DLighting": true
+}

@@ -1,0 +1,110 @@
+{
+    "angles": {
+        "omega": 0.10000000149011612,
+        "phi": 0.10000000149011612,
+        "psi": 0.10000000149011612
+    },
+    "background": {
+        "code": "// 1. FUNZIONI DI SUPPORTO (Noise & Random)\n// Devono essere definite fuori dal main\n\nfloat random (in vec2 st) {\n    return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);\n}\n\n// Rumore di valore (Value Noise) 2D\nfloat noise (in vec2 st) {\n    vec2 i = floor(st);\n    vec2 f = fract(st);\n\n    // Interpolazione cubica (Smoothstep) per bordi morbidi\n    vec2 u = f * f * (3.0 - 2.0 * f);\n\n    float a = random(i);\n    float b = random(i + vec2(1.0, 0.0));\n    float c = random(i + vec2(0.0, 1.0));\n    float d = random(i + vec2(1.0, 1.0));\n\n    return mix(a, b, u.x) +\n            (c - a)* u.y * (1.0 - u.x) +\n            (d - b) * u.x * u.y;\n}\n\n// 2. MAIN IMAGE (Il tuo motore riconosce questa firma)\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    // Calcolo coordinate UV normalizzate (0.0 - 1.0)\n    vec2 uv = fragCoord.xy / iResolution.xy;\n    float u = uv.x;\n    float v = uv.y;\n\n    // --- I TUOI PARAMETRI ORIGINALI ---\n    float scale = 4.0;\n    int octaves = 5;\n    float cloudCover = 0.0; // Prova ad alzare questo (es. 0.1 o 0.2) per sfoltire\n\n    // --- FIX INCOLLATURA (Mirroring) ---\n    // Questo crea l'effetto specchio per rendere la texture \"tileable\"\n    float u_fix = abs(u * 2.0 - 1.0);\n    float v_fix = abs(v * 2.0 - 1.0);\n    vec2 st = vec2(u_fix, v_fix) * scale;\n\n    // --- FBM LOOP (Fractal Brownian Motion) ---\n    //  Somma strati di rumore a frequenze crescenti e ampiezze decrescenti\n    float value = 0.0;\n    float amplitude = 0.5;\n    float totalAmplitude = 0.0; // Per normalizzare alla fine\n\n    for (int i = 0; i < 5; i++) {\n        // Usiamo un loop fisso (GLSL preferisce) e rompiamo se serve\n        if (i >= octaves) break; \n        \n        value += amplitude * noise(st);\n        st *= 2.0;       // Lacunarity: Raddoppia la frequenza\n        totalAmplitude += amplitude;\n        amplitude *= 0.5; // Gain: Dimezza l'ampiezza\n    }\n    \n    // Normalizziamo il valore tra 0.0 e 1.0\n    value /= totalAmplitude;\n\n    // --- CONTRASTO E MASKING ---\n    // Definiamo dove sono le nuvole rispetto al cielo vuoto\n    float n = smoothstep(cloudCover + 0.2, cloudCover + 0.8, value);\n\n    // --- OUTPUT COLORE ---\n    // u_col1 e u_col2 sono le uniform globali del tuo programma\n    vec3 color = mix(u_col1, u_col2, n);\n    \n    fragColor = vec4(color, 1.0);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.7282830476760864,
+        "rot_x": 0.37883806228637695,
+        "rot_y": 0.5038919448852539,
+        "rot_z": -0.26865994930267334,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 19.600000381469727
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1.5,
+        "B": 1,
+        "C": 1,
+        "D": 0,
+        "E": 1.5,
+        "F": 0,
+        "S": 0
+    },
+    "equations": {
+        "defU": "A * cos(u) * cos(v)",
+        "defV": "A * sin(u) * cos(v)",
+        "defW": "A * sin(v)",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0",
+        "x": "U * exp(E * sin(t * C))",
+        "y": "V * exp(-E * sin(t * C))",
+        "z": "W + E * sin(t * C)"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 1.5707963705062866,
+        "vMin": -1.5707963705062866,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Sphere",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 1,
+    "renderMode": 0,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 1,
+        "path4D": 1,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 101,
+    "texture": {
+        "code": "//SOUND_BEGIN\n//SOUND_BEGIN\n// =========================================================================\n// Title: Tie-Dye Sonification (Harmonic Drone)\n// Note: Versione ammorbidita. Utilizza intervalli di quinta giusta (110Hz e 165Hz)\n// e sottomultipli per una modulazione FM molto più dolce.\n// =========================================================================\n\nfloat noise(vec2 p) {\n    vec2 i = floor(p);\n    vec2 f = fract(p);\n    f = f*f*(3.0-2.0*f);\n    \n    float a = fract(sin(dot(i, vec2(12.9898, 78.233))) * 43758.5453);\n    float b = fract(sin(dot(i + vec2(1.0, 0.0), vec2(12.9898, 78.233))) * 43758.5453);\n    float c = fract(sin(dot(i + vec2(0.0, 1.0), vec2(12.9898, 78.233))) * 43758.5453);\n    float d = fract(sin(dot(i + vec2(1.0, 1.0), vec2(12.9898, 78.233))) * 43758.5453);\n    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);\n}\n\nvec2 mainSound( int samp, float time ) {\n    // Frequenze armoniche: 110Hz (La) e 165Hz (Mi, una quinta giusta sopra)\n    float freqL = 110.0; \n    float freqR = 165.0; \n\n    // Modulazione molto più dolce (usiamo 55.0Hz, che è l'ottava bassa di 110Hz)\n    // Questo garantisce che le distorsioni siano intonate con la nota principale\n    float t = time * 0.2;\n    float modL = sin(6.28318 * 55.0 * time + t) * 0.8; \n    float modR = cos(6.28318 * 55.0 * time - t) * 0.8;\n    \n    // Generazione dei toni principali (onde sinusoidali modificate dolcemente)\n    float toneL = sin(6.28318 * freqL * time + modL);\n    float toneR = sin(6.28318 * freqR * time + modR);\n\n    // Aggiungiamo un'ottava superiore morbida per dare un po' di \"luce\" al suono\n    toneL += sin(6.28318 * 220.0 * time) * 0.25;\n    toneR += sin(6.28318 * 330.0 * time) * 0.25;\n\n    // Rumore di fondo abbassato di frequenza e di volume (solo per dare un po' di respiro)\n    float nL = noise(vec2(time * 300.0, time * 100.0)) - 0.5;\n    float nR = noise(vec2(time * 100.0, time * 320.0)) - 0.5;\n\n    // Mix finale: diamo priorità ai toni armonici e scaliamo tutto per non superare 1.0\n    // (evitando così il fastidioso effetto \"onda quadra\" del clamp)\n    vec2 audio = vec2(toneL, toneR) * 0.6 + vec2(nL, nR) * 0.03;\n    \n    // Inviluppo per ammorbidire l'attacco iniziale\n    float env = smoothstep(0.0, 2.0, time) * (0.8 + 0.2 * sin(time * 0.5));\n\n    return clamp(audio * env, -1.0, 1.0);\n}\n//SOUND_END\n\n//SOUND_END\n\n// PARAMETRI\nfloat density = 10.0;\n\n// [FIX] Usa i colori del pannello laterale\nvec3 c1 = vec3(1.0, 0.0, 0.0); // Rosso\nvec3 c2 = vec3(1.0, 1.0, 0.0); // Giallo\n\nfloat freq = density * 0.05;\n\n// Coordinate scalate\n// Moltiplichiamo per 25.0 invece di 512*0.05 per semplicità\nfloat xx = u * 25.0; \nfloat yy = v * 25.0;\n\n// --- FORMULA PLASMA ---\nfloat v1 = sin(xx + yy);\nfloat v2 = sin((xx * sin(yy/2.0)) + (yy * cos(xx/3.0)));\n\nfloat cx = xx + 0.5 * sin(yy/5.0);\nfloat cy = yy + 0.5 * cos(xx/3.0);\nfloat v3 = sin(sqrt(100.0 * (cx*cx + cy*cy) + 1.0));\n\nfloat vf = (v1 + v2 + v3) / 3.0;\n\n// [FIX] Rinominato 't' in 'plasmaVal' per evitare conflitti\nfloat plasmaVal = vf * 0.5 + 0.5;\n\nreturn mix(c1, c2, plasmaVal);",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

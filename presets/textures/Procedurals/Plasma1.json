@@ -1,0 +1,8 @@
+{
+    "code": "// PARAMETRI\nfloat density = 10.0;\n\n// [FIX] Usa i colori del pannello laterale\nvec3 c1 = vec3(1.0, 0.0, 0.0); // Rosso\nvec3 c2 = vec3(1.0, 1.0, 0.0); // Giallo\n\nfloat freq = density * 0.05;\n\n// Coordinate scalate\n// Moltiplichiamo per 25.0 invece di 512*0.05 per semplicità\nfloat xx = u * 25.0; \nfloat yy = v * 25.0;\n\n// --- FORMULA PLASMA ---\nfloat v1 = sin(xx + yy);\nfloat v2 = sin((xx * sin(yy/2.0)) + (yy * cos(xx/3.0)));\n\nfloat cx = xx + 0.5 * sin(yy/5.0);\nfloat cy = yy + 0.5 * cos(xx/3.0);\nfloat v3 = sin(sqrt(100.0 * (cx*cx + cy*cy) + 1.0));\n\nfloat vf = (v1 + v2 + v3) / 3.0;\n\n// [FIX] Rinominato 't' in 'plasmaVal' per evitare conflitti\nfloat plasmaVal = vf * 0.5 + 0.5;\n\nreturn mix(c1, c2, plasmaVal);",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

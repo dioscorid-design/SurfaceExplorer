@@ -1,0 +1,62 @@
+{
+    "angles": {
+        "omega": 0.4800998270511627,
+        "phi": 0.04010000079870224,
+        "psi": 0.35009995102882385
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.724850058555603,
+        "rot_x": 0.0852871909737587,
+        "rot_y": -0.6065866351127625,
+        "rot_z": -0.3152318298816681,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 0.40000033378601074
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 0.5699999928474426,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 4.309999942779541
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "A * cos(u) * sin(v) * sin(3.0 * v)",
+        "x": "A *sin(u)",
+        "y": "A * cos(u) * cos(v)",
+        "z": "A * cos(u) * sin(v) * cos(3.0 * v)"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 1.5707999467849731,
+        "uMin": -1.5707999467849731,
+        "vMax": 3.141590118408203,
+        "vMin": -3.141590118408203,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Twisted Sphere",
+    "projectionMode": 1,
+    "renderMode": 1,
+    "showBorder": false,
+    "steps": 750,
+    "type": "surface",
+    "use4DLighting": true
+}

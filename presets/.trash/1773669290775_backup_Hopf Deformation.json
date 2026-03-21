@@ -1,0 +1,98 @@
+{
+    "angles": {
+        "omega": 93.47200775146484,
+        "phi": 93.47200775146484,
+        "psi": 93.47200775146484
+    },
+    "background": {
+        "code": "// =========================================================\n// MOTORE RAY MARCHING 4D: SUPERFICIE DI LAWSON (Genere 2)\n// =========================================================\n\n// Rotazione 4D (Sfrutta le variabili globali del tuo programma)\nvec4 rotate4D(vec4 p) {\n    // Se u_omega, u_phi, u_psi non sono disponibili, usa iTime\n    float omega = iTime * 0.3; // Sostituisci con u_omega se mappato nel tuo shader\n    float phi   = iTime * 0.2; // Sostituisci con u_phi\n    float psi   = iTime * 0.1; // Sostituisci con u_psi\n\n    float co = cos(omega), so = sin(omega);\n    float cp = cos(phi),   sp = sin(phi);\n    float cs = cos(psi),   ss = sin(psi);\n\n    // Rotazione nei piani 4D\n    float x1 = p.x * co - p.w * so;\n    float w1 = p.x * so + p.w * co;\n    vec4 p1 = vec4(x1, p.y, p.z, w1);\n\n    float y2 = p1.y * cp - p1.w * sp;\n    float w2 = p1.y * sp + p1.w * cp;\n    vec4 p2 = vec4(p1.x, y2, p1.z, w2);\n\n    float z3 = p2.z * cs - p2.w * ss;\n    float w3 = p2.z * ss + p2.w * cs;\n    \n    return vec4(p2.x, p2.y, z3, w3);\n}\n\n// Funzione Distanza (SDF) per la Lawson Implicita\nfloat map(vec3 p3D) {\n    // 1. Proiezione Stereografica Inversa: \n    // Prendiamo lo spazio 3D infinito e lo \"arrotoliamo\" sull'Ipersfera 4D (S^3)\n    float r2 = dot(p3D, p3D);\n    vec4 p4 = vec4(2.0 * p3D, r2 - 1.0) / (r2 + 1.0);\n\n    // 2. Ruotiamo l'Ipersfera in 4D\n    p4 = rotate4D(p4);\n\n    // 3. Equazione Implicita di Lawson: 3x^2y - y^3 + 2zw = 0\n    float x = p4.x;\n    float y = p4.y;\n    float z = p4.z;\n    float w = p4.w;\n\n    float lawsonValue = 3.0 * x * x * y - y * y * y + 2.0 * z * w;\n\n    // 4. Creiamo uno \"spessore\" per renderla solida (es. 0.05)\n    // Moltiplichiamo per 0.5 per stabilizzare il Ray Marching sulla geometria curva\n    return (abs(lawsonValue) - 0.04) * 0.5;\n}\n\n// Calcolo matematico della Normale per luci e riflessi\nvec3 calcNormal(vec3 p) {\n    vec2 e = vec2(0.005, 0.0);\n    return normalize(vec3(\n        map(p + e.xyy) - map(p - e.xyy),\n        map(p + e.yxy) - map(p - e.yxy),\n        map(p + e.yyx) - map(p - e.yyx)\n    ));\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord ) {\n    // Normalizza lo schermo (-1 a 1)\n    vec2 uv = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;\n\n    // Setup della \"Videocamera\" per il Raymarching\n    vec3 rayOrigin = vec3(0.0, 0.0, 4.0);     // Arretriamo la camera di 4 unità\n    vec3 rayDir = normalize(vec3(uv, -1.0));  // Spara raggi verso lo schermo\n\n    float t = 0.0;           // Distanza percorsa dal raggio\n    float maxDist = 20.0;    // Limite di visuale\n    int maxSteps = 150;      // Precisione della ricerca\n    float dist = 0.0;\n    vec3 p;\n\n    // Motore di Sphere Tracing\n    for(int i = 0; i < maxSteps; i++) {\n        p = rayOrigin + rayDir * t;\n        dist = map(p);\n        if(dist < 0.001 || t > maxDist) break; // Colpito o perso nel vuoto\n        t += dist;\n    }\n\n    // Colore di Sfondo base (Grigio cosmico sfumato)\n    vec3 color = vec3(0.1, 0.1, 0.12) * (1.0 - length(uv) * 0.4);\n\n    // Se il raggio ha colpito la superficie matematica:\n    if(t < maxDist) {\n        vec3 normal = calcNormal(p);\n\n        // Illuminazione Direzionale Morbida\n        vec3 lightDir = normalize(vec3(1.0, 2.0, 1.5));\n        float diff = max(dot(normal, lightDir), 0.0);\n        float ambient = 0.15;\n\n        // Materiale: Turchese Matematico Elegante\n        vec3 objColor = vec3(0.1, 0.8, 0.6);\n        color = objColor * (diff + ambient);\n\n        // Riflesso Speculare tipo Plastica/Vetro\n        vec3 viewDir = normalize(rayOrigin - p);\n        vec3 reflectDir = reflect(-lightDir, normal);\n        float spec = pow(max(dot(viewDir, reflectDir), 0.0), 64.0);\n        color += vec3(1.0) * spec * 0.6;\n\n        // Ombreggiatura sui bordi (Fresnel) per far risaltare i buchi\n        float fresnel = pow(1.0 - max(dot(normal, viewDir), 0.0), 3.0);\n        color += vec3(0.5, 0.9, 0.8) * fresnel * 0.5;\n    }\n\n    fragColor = vec4(color, 1.0);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "rot_w": 0.3486766219139099,
+        "rot_x": 0.5428022742271423,
+        "rot_y": 0.736469030380249,
+        "rot_z": -0.20347914099693298,
+        "x": 0,
+        "y": 0,
+        "z": 2.8000001907348633
+    },
+    "colors": {
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1.0299999713897705,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": -0.18000000715255737
+    },
+    "equations": {
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "A * sin(sin(s*t)*u) * sin(v)",
+        "x": "A * cos(u) * cos(v)",
+        "y": "A * sin(u) * cos(v)",
+        "z": "A * cos(sin(s*t)*u) * sin(v)"
+    },
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 1.5707963705062866,
+        "vMin": -1.5707963705062866,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Hopf Deformation",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "projectionMode": 1,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0.20000000298023224,
+        "omega": 0.30000001192092896,
+        "phi": 0.30000001192092896,
+        "precession": 0.20000000298023224,
+        "psi": 0.30000001192092896,
+        "spin": 0.20000000298023224
+    },
+    "steps": 203,
+    "texture": {
+        "code": "// --- PARAMETRI ---\nvec3 c1 = u_col1; // Colore 1 dall'interfaccia\nvec3 c2 = u_col2; // Colore 2 dall'interfaccia\n\n// Parametri Marmo\nfloat density = 10.0;\nfloat turbulence = 4.0;\n\n// Coordinate scalate (u, v sono disponibili grazie a common.glsl)\nvec2 p = vec2(u, v) * 4.0;\n\n// --- CALCOLO TURBOLENZA ---\nfloat tVal = 0.0;\nfloat amp = 1.0;\nfloat freq = 1.0;\n\nfor(int i = 0; i < 3; i++) {\n    // [FIX] Usa 'sys_noise' invece di 'noise'\n    tVal += sys_noise(p * freq) * amp;\n    amp *= 0.5;\n    freq *= 2.0;\n}\n\n// --- FORMULA MARMO ---\n// Distorce le linee diagonali (x + y) con il rumore\nfloat xyValue = p.x + p.y + (tVal * turbulence);\n\n// Crea le venature usando il seno\nfloat val = sin(xyValue * density);\n\n// Mappa da [-1, 1] a [0, 1] per il mix\nfloat mixFactor = (val + 1.0) * 0.5;\n\n// Interpolazione finale tra i due colori scelti\nreturn mix(c1, c2, mixFactor);",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

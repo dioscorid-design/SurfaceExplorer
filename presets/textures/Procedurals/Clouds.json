@@ -1,0 +1,12 @@
+{
+    "code": "#ifdef GL_ES\nprecision mediump float;\n#endif\n\nfloat noise(vec2 p) {\n    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);\n}\n\nfloat smoothNoise(vec2 p) {\n    vec2 i = floor(p);\n    vec2 f = fract(p);\n    float a = noise(i);\n    float b = noise(i + vec2(1.0, 0.0));\n    float c = noise(i + vec2(0.0, 1.0));\n    float d = noise(i + vec2(1.0, 1.0));\n    vec2 u = f * f * (3.0 - 2.0 * f);\n    return mix(a, b, u.x) +\n           (c - a) * u.y * (1.0 - u.x) +\n           (d - b) * u.x * u.y;\n}\n\nfloat fbm(vec2 p) {\n    float v = 0.0;\n    float amp = 0.5;\n    for (int i = 0; i < 5; i++) {\n        v += amp * smoothNoise(p);\n        p *= 2.0;\n        amp *= 0.5;\n    }\n    return v;\n}\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = fragCoord.xy / iResolution.xy;\n    float t = iTime * 0.15;\n    float n = fbm(uv * 4.0 + vec2(0.0, -t));\n\n    float smoke = smoothstep(0.3, 0.7, n);\n    smoke *= smoothstep(0.0, 0.2, uv.y);\n\n    vec3 col = vec3(smoke);\n    fragColor = vec4(col, 1.0);\n}\n",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "hasCustomColors": true,
+    "name": "Clouds",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}
