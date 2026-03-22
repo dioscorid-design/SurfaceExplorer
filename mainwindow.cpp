@@ -1068,7 +1068,8 @@ MainWindow::MainWindow(QWidget *parent)
     switchToMainMode();
     refreshRepositories();
 
-    this->showFullScreen();
+    this->resize(1280, 720);
+    this->showMaximized();
 }
 
 // ==========================================================
