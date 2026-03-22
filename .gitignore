@@ -8,6 +8,7 @@ Surface/
 *.AppImage
 *.run
 *.dmg
+Surface*.dmg
 
 # --- CMake generated files ---
 # Temporary files created by the build system
