@@ -57,7 +57,11 @@ void TextureManager::loadFromFile(const QString& path)
         }
 
         // Fix Warning: mirrored(false, true) specchia verticalmente senza warning
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
         m_currentImage = img.convertToFormat(QImage::Format_RGBA8888).flipped(Qt::Orientations(Qt::Vertical));
+#else
+        m_currentImage = img.convertToFormat(QImage::Format_RGBA8888).mirrored(false, true);
+#endif
         m_textureReady = false;
     }
 }
@@ -104,7 +108,11 @@ void TextureManager::loadFromImage(const QImage& image)
     if (image.isNull()) return;
 
     // Convertiamo e specchiamo l'immagine per OpenGL (come fai già in loadFromFile)
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
     m_currentImage = image.convertToFormat(QImage::Format_RGBA8888).flipped(Qt::Orientations(Qt::Vertical));
+#else
+    m_currentImage = image.convertToFormat(QImage::Format_RGBA8888).mirrored(false, true);
+#endif
 
     m_textureReady = false;
 

@@ -21,9 +21,14 @@
 #define NATIVE_GL_FUNCTIONS QOpenGLExtraFunctions
 #else
 // --- DESKTOP (Mac, Windows, Linux) ---
-// Usiamo OpenGL 4.1 Core Profile
+#ifdef Q_OS_MAC
 #include <QOpenGLFunctions_4_1_Core>
 #define NATIVE_GL_FUNCTIONS QOpenGLFunctions_4_1_Core
+#else
+// Windows e Linux al massimo delle prestazioni
+#include <QOpenGLFunctions_4_5_Core>
+#define NATIVE_GL_FUNCTIONS QOpenGLFunctions_4_5_Core
+#endif
 #endif
 
 class InputHandler;

@@ -47,8 +47,7 @@ GLWidget::GLWidget(QWidget *parent)
     format.setProfile(QSurfaceFormat::CoreProfile);
 #else
     // Windows e Linux: Richiediamo l'ultima versione (4.6)
-    //format.setVersion(4, 6);
-    format.setVersion(3, 3);
+    format.setVersion(4, 6);
     format.setProfile(QSurfaceFormat::CoreProfile);
 #endif
 
@@ -1703,8 +1702,7 @@ void GLWidget::rebuildBackgroundShader(bool isTextureMode, const QString &custom
 #elif defined(Q_OS_MAC)
     glslVersion = "#version 410 core\n";
 #else
-    //glslVersion = "#version 460 core\n";
-    glslVersion = "#version 330 core\n";
+    glslVersion = "#version 460 core\n";
 #endif
     // ------------------------------------------
 
@@ -1939,8 +1937,7 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
 #elif defined(Q_OS_MAC)
     header = "#version 410 core\n";
 #else
-    //header = "#version 460 core\n";
-    header = "#version 330 core\n";
+    header = "#version 460 core\n";
 #endif
 
     QString safePowDef = R"(
@@ -2058,8 +2055,7 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
 #elif defined(Q_OS_MAC)
     header = "#version 410 core\n";
 #else
-    // Windows/Linux: Usiamo GLSL 460
-    header = "#version 330 core\n";
+    header = "#version 460 core\n";
 #endif
 
     QString fullSource = header + fragmentTemplate;
