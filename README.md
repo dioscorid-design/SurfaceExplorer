@@ -21,13 +21,6 @@ You don't need to compile the project to try it! Check out the **[Latest Release
 * **Linux**: Download `SurfaceExplorer_Linux_Alpha.zip`, extract, and run `./surface-explorer.sh`.
 * **macOS**: Download `Surface.Explorer.dmg`, open it, and drag the app to your Applications folder.
 
-### 🍏 macOS Troubleshooting ("App is damaged" error)
-Since this is an unsigned open-source application, Apple's Gatekeeper may flag it as "damaged" upon download. This is a standard macOS security warning. To bypass it:
-1. Drag **Surface Explorer** from the `.dmg` into your **Applications** folder.
-2. Open **Terminal** and run this exact command to remove the quarantine flag:
-   ```bash
-   xattr -d com.apple.quarantine /Applications/Surface\ Explorer.app
-
 ## 🛠️ Build from Source
 To compile Surface Explorer manually, ensure you have **Qt 6.10.2** and **CMake** installed:
 
