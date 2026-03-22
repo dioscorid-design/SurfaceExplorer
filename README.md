@@ -5,20 +5,21 @@ Surface Explorer 4D is an advanced interactive tool designed to visualize, anima
 
 ## 🚀 Key Features
 * **4D Spatial Exploration**: Native support for four-dimensional coordinate systems with dedicated 4D rotation and projection controls.
-* **Modern Rendering Engine**: Powered by **OpenGL 4.6 (Core Profile)** and GLSL 460 for maximum performance on modern GPUs.
+* **Modern Rendering Engine**: Powered by **OpenGL 4.6 (Core Profile)** on Windows/Linux and **OpenGL 4.1** on macOS for maximum hardware compatibility.
 * **Dynamic GLSL Scripting**: Integrated engine to write custom shaders for procedural textures and surface logic on the fly.
-* **Cross-Platform Excellence**: Optimized for **Fedora Linux (Wayland/AMD)** and **Windows 10/11** with full High-DPI scaling support.
+* **Cross-Platform Excellence**: Optimized for **Fedora Linux (Wayland/AMD)**, **Windows 10/11**, and **macOS** (Intel/Apple Silicon) with full High-DPI scaling support.
 * **Audio-Visual Sync**: Dynamic sound synthesis and music integration (FFmpeg powered) mapped to geometric parameters.
 
 ## 💻 System Requirements
-* **OS**: Linux (Fedora/Ubuntu recommended) or Windows 10/11.
-* **Graphics**: GPU with **OpenGL 4.6** support (NVIDIA, AMD, or Intel Arc).
+* **OS**: Linux (Fedora/Ubuntu), Windows 10/11, or macOS 12.0+.
+* **Graphics**: GPU with **OpenGL 4.6** support (Win/Lin) or **OpenGL 4.1** (Mac).
 * **Framework**: Qt 6.10.2 or higher.
 
 ## 📦 Releases (Alpha)
 You don't need to compile the project to try it! Check out the **[Latest Releases](https://github.com/dioscorid-design/SurfaceExplorer/releases)** for portable, standalone binaries:
-* **Windows**: Download the `SurfaceExplorer_Windows_Alpha.zip`, extract, and run `SurfaceExplorer.exe`.
-* **Linux**: Download the `SurfaceExplorer_Linux_Alpha.zip`, extract, and run `./surface-explorer.sh`.
+* **Windows**: Download `SurfaceExplorer_Windows_Alpha.zip`, extract, and run `SurfaceExplorer.exe`.
+* **Linux**: Download `SurfaceExplorer_Linux_Alpha.zip`, extract, and run `./surface-explorer.sh`.
+* **macOS**: Download `Surface.Explorer.dmg`, open it, and drag the app to your Applications folder.
 
 ## 🛠️ Build from Source
 To compile Surface Explorer manually, ensure you have **Qt 6.10.2** and **CMake** installed:
