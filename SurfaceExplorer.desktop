@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Surface Explorer
+Exec=/home/dioscorid/Projects/SurfaceExplorer/Release/surface-explorer.sh
+Icon=/home/dioscorid/Projects/SurfaceExplorer/icon.png
+Terminal=false
+Categories=Education;Science;Math;
+StartupNotify=true
+StartupWMClass=SurfaceExplorer

@@ -102,8 +102,8 @@
         "enabled": true,
         "pan_x": 0,
         "pan_y": 0,
-        "rotation": 0,
-        "zoom": 12.37545108795166
+        "rotation": -34,
+        "zoom": 0.32690200209617615
     },
     "type": "motion",
     "use4DLighting": true

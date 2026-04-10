@@ -14,7 +14,7 @@ public:
     static std::vector<QVector3D> buildBorders(const SurfaceEngine* engine);
 
     // Costruisce i dati raw per il buffer wireframe
-    static std::vector<float> buildWireframe(const SurfaceEngine* engine, int stepU, int stepV);
+   static std::vector<unsigned int> buildWireframe(const SurfaceEngine* engine, int stepU, int stepV);
 };
 
 #endif // GEOMETRYBUILDER_H

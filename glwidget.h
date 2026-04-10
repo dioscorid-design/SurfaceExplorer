@@ -1,47 +1,66 @@
 #ifndef GLWIDGET_H
 #define GLWIDGET_H
 
-#include <QOpenGLWidget>
-#include <QOpenGLFunctions>
-#include <QOpenGLVertexArrayObject>
+#include "surfaceengine.h"
+
+#include <QRhiWidget>
+#include <private/qrhi_p.h>
+#include <rhi/qshader.h>
+#include <rhi/qshaderbaker.h>
 #include <QTimer>
 #include <memory>
-#include <QOpenGLBuffer>
 #include <QMatrix4x4>
 #include <QMouseEvent>
-#include <QOpenGLShaderProgram>
-#include <QOpenGLTexture>
 #include <QElapsedTimer>
 #include <QQuaternion>
 
-#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-// --- MOBILE (Android & iOS) ---
-// Usiamo OpenGL ES 3.0+ tramite ExtraFunctions
-#include <QOpenGLExtraFunctions>
-#define NATIVE_GL_FUNCTIONS QOpenGLExtraFunctions
-#else
-// --- DESKTOP (Mac, Windows, Linux) ---
-#ifdef Q_OS_MAC
-#include <QOpenGLFunctions_4_1_Core>
-#define NATIVE_GL_FUNCTIONS QOpenGLFunctions_4_1_Core
-#else
-// Windows e Linux al massimo delle prestazioni
-#include <QOpenGLFunctions_4_5_Core>
-#define NATIVE_GL_FUNCTIONS QOpenGLFunctions_4_5_Core
-#endif
-#endif
-
 class InputHandler;
 class SurfaceEngine;
-class TextureManager;
 
-class GLWidget : public QOpenGLWidget, protected NATIVE_GL_FUNCTIONS
+struct UboData {
+    float mvpMatrix[16];
+    float mvMatrix[16];
+    float mMatrix[16];
+    QVector4D dummyZero;
+    QVector4D observerPos;
+    QVector4D cameraPos4D;
+    QVector4D mathParams;
+    QVector4D mathParams2;
+    QVector3D color;
+    float alpha;
+    QVector3D col1;
+    float lightIntensity;
+    QVector3D col2;
+    float zoom;
+    QVector2D center;
+    float rotation;
+    float omega;
+    float phi;
+    float psi;
+    float time;
+    int projMode;
+    int lightingMode;
+    int renderMode;
+    int isFlat;
+    int useTexture;
+    int useSpecular;
+    float u_min;
+    float u_max;
+    float v_min;
+    float v_max;
+    int hasExplicitW;
+    float padding[2];
+};
+
+class GLWidget : public QRhiWidget
 {
     Q_OBJECT
 
 public:
     explicit GLWidget(QWidget *parent = nullptr);
     ~GLWidget();
+
+    QRhi* getRhi() const { return rhi(); }
 
     // ==========================================================
     // ENUMS & CONSTANTS
@@ -203,15 +222,15 @@ public:
     // UTILITIES
     // ==========================================================
     int projectionMode = 0;
-    QImage getFrameForVideo();
+    QImage getFrameForVideo(int targetW = -1, int targetH = -1, bool useFbo = false);
 
 signals:
     void rotationChanged();
 
 protected:
-    void initializeGL() override;
-    void resizeGL(int w, int h) override;
-    void paintGL() override;
+    void initialize(QRhiCommandBuffer *cb) override;
+    void render(QRhiCommandBuffer *cb) override;
+    void releaseResources() override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
@@ -226,49 +245,67 @@ private:
     // CORE ARCHITECTURE
     // ==========================================================
     std::unique_ptr<SurfaceEngine> engine;
-    std::unique_ptr<TextureManager> m_texManager;
     std::unique_ptr<InputHandler> m_inputHandler;
 
-    // ==========================================================
-    // OPENGL BUFFERS & SHADERS
-    // ==========================================================
-    QOpenGLVertexArrayObject m_vao;
-    QOpenGLBuffer m_vbo;
-    QOpenGLBuffer m_ibo;
-    QOpenGLBuffer m_borderVbo;
-    QOpenGLBuffer m_wireframeVbo;
-    QOpenGLShaderProgram *m_program = nullptr;
-
-    QOpenGLVertexArrayObject m_bgVao;
-    QOpenGLBuffer m_bgVbo;
-    QOpenGLShaderProgram *m_bgProgram = nullptr;
-    QOpenGLTexture *m_bgTexture = nullptr;
-    GLuint m_dummyTex = 0;
 
     // ==========================================================
-    // SHADER UNIFORM LOCATIONS
+    // TEXTURE
     // ==========================================================
-    int m_posAttr = 0, m_normAttr = 0, m_texAttr = 0;
-    int m_matrixUniform = 0, m_modelViewUniform = 0, m_modelUniform = 0;
-    int m_colorUniform = 0, m_alphaUniform = 0, m_useTextureUniform = 0;
-    int m_textureUniform = 0, m_specularUniform = 0, m_lightIntensityUniform = -1;
-    int m_uMinUniform = -1, m_uMaxUniform = -1, m_vMinUniform = -1, m_vMaxUniform = -1;
-    int m_mathParamsUniform = -1, m_mathParams2Uniform = -1, m_dummyUniform = -1;
-    int m_lightingModeUniform = -1, m_observerPosUniform = -1;
-    int m_cameraPosUniform = -1, m_cameraPos4DUniform = -1, m_hasExplicitWUniform = -1;
-    int m_omegaUniform = -1, m_phiUniform = -1, m_psiUniform = -1;
-    int m_projModeUniform = -1, m_isFlatUniform = -1, m_renderModeUniform = 0;
-    int m_zoomUniform = 0, m_centerUniform = 0, m_rotationUniform = -1;
-    int m_col1Uniform = 0, m_col2Uniform = 0;
-    int m_iTimeUniform = -1, m_iResolutionUniform = -1, m_iMouseUniform = -1;
+    QRhiTexture *m_surfaceTexture = nullptr;
+    QImage m_pendingSurfaceImage;
+    bool m_surfaceTextureNeedsUpload = false;
+
+    QRhiTexture *m_backgroundTexture = nullptr;
+    QImage m_pendingBackgroundImage;
+    bool m_backgroundTextureNeedsUpload = false;
+    QRhiBuffer *m_bgVbo = nullptr;
+    QRhiGraphicsPipeline *m_bgPipeline = nullptr;
+    QRhiShaderResourceBindings *m_bgBindings = nullptr;
+    bool m_bgVboUploaded = false;
+    QString m_customFragmentCode;
+    QString m_bgScriptCode;
+
+
+    // ==========================================================
+    // RISORSE QRHI (Sostituiscono i vecchi QOpenGLBuffer e Shader)
+    // ==========================================================
+    QRhiBuffer *m_vbo = nullptr;
+    QRhiBuffer *m_ibo = nullptr;
+    QRhiBuffer *m_ubo = nullptr;
+
+    QRhiTexture *m_dummyTexture = nullptr;
+    QRhiSampler *m_sampler = nullptr;
+
+    QRhiShaderResourceBindings *m_bindings = nullptr;
+
+    QRhiBuffer *m_wireframeIbo = nullptr;
+    QRhiGraphicsPipeline *m_wireframePipeline = nullptr;
+    std::vector<unsigned int> m_wireframeIndices;
+    bool wireframeNeedsUpdate = true;
+    int m_wireframeIndexCount = 0;
+
+    std::vector<Vertex> m_borderVertices;
+    QRhiBuffer *m_borderVbo = nullptr;
+    QRhiBuffer *m_borderUbo = nullptr;
+    QRhiShaderResourceBindings *m_borderBindings = nullptr;
+    QRhiGraphicsPipeline *m_borderPipeline = nullptr;
+    bool borderNeedsUpdate = true;
+
+    QRhiGraphicsPipeline *m_pipelineOpaque = nullptr;
+    QRhiGraphicsPipeline *m_pipelineTranspBack = nullptr;
+    QRhiGraphicsPipeline *m_pipelineTranspFront = nullptr;
+
+    QRhiBuffer *m_bgUbo = nullptr;
+
+    UboData m_uboData;
 
     // ==========================================================
     // MATHEMATICAL & GEOMETRY STATE
     // ==========================================================
     QString m_eqX, m_eqY, m_eqZ, m_eqW;
     bool meshNeedsUpdate = true;
+    int m_indexCount = 0;
     int m_borderVertexCount = 0;
-    int m_wireframeVertexCount = 0;
     int wfStepU = 4;
     int wfStepV = 4;
     float m_surfaceScale = 2.0f;
@@ -301,8 +338,6 @@ private:
     float m_flatZoom = 1.0f;
     float m_flatRotation = 0.0f;
     QVector2D m_flatPan;
-    float m_gpuZoom = 1.0f;
-    QVector2D m_gpuCenter = QVector2D(-0.748f, 0.1f);
 
     // ==========================================================
     // CAMERA & TRANSFORMATIONS STATE
@@ -349,21 +384,30 @@ private:
     // ==========================================================
     // PRIVATE HELPER METHODS
     // ==========================================================
-    void uploadGeometry();
     void buildBorderGeometry();
     void buildWireframeGeometry();
-    void uploadQuadGeometry();
 
     void initBackgroundShader();
     void rebuildBackgroundShader(bool isTextureMode, const QString &customCode = "");
-    void drawBackground();
 
     QString createVertexShaderSource(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq);
     QString createFragmentShaderSource(const QString &customCode);
-    void fetchUniformLocations();
     void createDummyTexture();
 
+    // Sostituisci la riga di prima con questa:
+    QShader bakeShader(const QByteArray &source, QShader::Stage stage);
+
     QVector3D projectPoint4Dto3D(const QVector4D& point4D);
+
+    void buildPipeline();
+    QImage generateCheckerboard();
+
+    // ==========================================================
+    // UTILITIES
+    // ==========================================================
+    bool m_useFbo = false;
+    int m_fboWidth = 0;
+    int m_fboHeight = 0;
 };
 
 #endif // GLWIDGET_H

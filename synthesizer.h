@@ -2,23 +2,33 @@
 #define SYNTHESIZER_H
 
 #include <QIODevice>
-#include <QAudioSink>
-#include <QAudioFormat>
-#include <QOpenGLContext>
-#include <QOffscreenSurface>
-#include <QOpenGLFramebufferObject>
-#include <QOpenGLShaderProgram>
-#include <QOpenGLExtraFunctions>
-#include <QOpenGLVertexArrayObject> // FIX 1: Inclusione del VAO
+#include <QtMultimedia/QAudioSink>
+#include <QtMultimedia/QAudioFormat>
 #include <QTimer>
 #include <QMutex>
 #include <QByteArray>
 
-class Synthesizer : public QIODevice, protected QOpenGLExtraFunctions {
+// 1. Includiamo l'header principale di RHI
+#include <rhi/qrhi.h>
+
+// 2. Definiamo la struttura per i parametri da inviare alla GPU.
+// NOTA: I buffer in RHI (e Vulkan/Metal) richiedono un allineamento a blocchi di 16 byte (vec4).
+// time (4 byte) + sampleRate (4 byte) + padding (8 byte) = 16 byte esatti.
+struct AudioUboData {
+    int startSample;
+    float sampleRate;
+    float padding[2];
+};
+
+// 3. Rimuoviamo l'ereditarietà da QOpenGLExtraFunctions
+class Synthesizer : public QIODevice {
     Q_OBJECT
 public:
     explicit Synthesizer(QObject *parent = nullptr);
     ~Synthesizer() override;
+
+    // Nuovo metodo per ricevere il motore RHI dal widget principale
+    void setRhi(QRhi *rhi);
 
     bool updateScript(const QString &glslCode, bool isSimpleMath = false);
 
@@ -35,27 +45,35 @@ private slots:
     void renderAudioChunk();
 
 private:
-    void initializeOpenGL();
-    void cleanupOpenGL();
+    // Rinominati per RHI
+    void initializeRhiResources();
+    void cleanupRhiResources();
 
     QAudioSink *m_audioSink;
     QAudioFormat m_format;
 
-    QOpenGLContext *m_context;
-    QOffscreenSurface *m_surface;
-    QOpenGLFramebufferObject *m_fbo;
-    QOpenGLShaderProgram *m_shader;
-    QOpenGLVertexArrayObject *m_vao; // FIX 2: Aggiunto oggetto VAO
-
     QTimer *m_renderTimer;
 
-    float m_time;
+    int m_currentSample = 0;
     int m_sampleRate;
     int m_chunkSize;
 
     QByteArray m_audioBuffer;
     QMutex m_bufferMutex;
     bool m_isScriptValid;
+
+    // --- NUOVE VARIABILI RHI ---
+    QRhi *m_rhi = nullptr; // Non possediamo noi l'RHI, ci viene solo prestato
+
+    QRhiTexture *m_texture = nullptr;
+    QRhiTextureRenderTarget *m_renderTarget = nullptr;
+    QRhiRenderPassDescriptor *m_renderPassDesc = nullptr;
+
+    QRhiGraphicsPipeline *m_pipeline = nullptr;
+    QRhiBuffer *m_ubo = nullptr;
+    QRhiShaderResourceBindings *m_bindings = nullptr;
+
+    AudioUboData m_uboData;
 };
 
 #endif // SYNTHESIZER_H

@@ -168,49 +168,92 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
     // ==========================================================
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     QString boxSize = "24px";
-    QString radioRadius = "12px";
-    QString radioBorder = "6px"; // Bordo spesso per rimpicciolire il pallino
+    QString radioRadius = "14px";
+    QString radioBorder = "6px";
 #else
-    QString boxSize = "18px";
-    QString radioRadius = "9px";
+    QString boxSize = "16px";
+    QString radioRadius = "10px";
     QString radioBorder = "4px";
 #endif
 
     QString formStyle = QString(R"(
         /* --- CHECKBOX --- */
         QCheckBox { color: #FFFFFF; spacing: 10px; font-weight: bold; }
+
         QCheckBox::indicator {
             width: %1; height: %1;
-            background-color: #111111; border: 2px solid #888888; border-radius: 4px;
+            background-color: #111111;
+            border: 2px solid #888888;
+            border-radius: 4px;
         }
-        QCheckBox::indicator:hover { border: 2px solid #007ACC; background-color: #1E1E1E; }
+        QCheckBox::indicator:unchecked {
+            /* L'ARMA SEGRETA: PNG 1x1 trasparente in Base64 */
+            image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=");
+        }
+        QCheckBox::indicator:hover {
+            border: 2px solid #007ACC;
+            background-color: #1E1E1E;
+        }
         QCheckBox::indicator:checked {
-            background-color: #007ACC; border: 2px solid #007ACC;
+            background-color: #007ACC;
+            border: 2px solid #007ACC;
             image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3 8.5 L6.5 12 L13 4' stroke='%23FFFFFF' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
         }
-        QCheckBox::indicator:disabled { background-color: #2D2D30; border: 2px solid #444444; color: #555555; }
+        QCheckBox::indicator:disabled {
+            background-color: #2D2D30;
+            border: 2px solid #444444;
+            color: #555555;
+        }
 
         /* --- RADIO BUTTON --- */
         QRadioButton { color: #FFFFFF; spacing: 10px; }
+
         QRadioButton::indicator {
             width: %1; height: %1;
             background-color: #111111;
             border: 2px solid #888888;
             border-radius: %2;
         }
-        QRadioButton::indicator:hover { border: 2px solid #007ACC; }
-
-        /* IL TRUCCO DEL PALLINO SOLIDO */
-        QRadioButton::indicator:checked {
-            background-color: #007ACC; /* Azzurro pieno */
-            border: %3 solid #222222;  /* Il bordo scuro "stringe" l'azzurro al centro! */
+        QRadioButton::indicator:unchecked {
+            /* PNG 1x1 trasparente */
+            image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=");
         }
-
-        QRadioButton::indicator:disabled { background-color: #2D2D30; border: 2px solid #444444; }
+        QRadioButton::indicator:hover {
+            border: 2px solid #007ACC;
+        }
+        QRadioButton::indicator:checked {
+            background-color: #007ACC;
+            border: %3 solid #222222;
+            /* PNG trasparente per evitare collassi anche nello stato acceso */
+            image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=");
+        }
+        QRadioButton::indicator:disabled {
+            background-color: #2D2D30;
+            border: 2px solid #444444;
+        }
     )").arg(boxSize, radioRadius, radioBorder);
 
-    // 5. Applica tutti gli stili combinati alla finestra
-    window->setStyleSheet(darkStyle + formStyle);
+    // ==========================================================
+    // 5. STILE ALBERI (QTreeView) SPECIFICO PER PIATTAFORMA
+    // ==========================================================
+    QString treeStyle = R"(
+        QTreeView {
+            border: none;
+            background-color: #2D2D30;
+        }
+    )";
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    // Distanza verticale "stile desktop" ma leggermente maggiorata (4px)
+    treeStyle += R"(
+        QTreeView::item {
+            padding: 4px 5px;
+        }
+    )";
+#endif
+
+    // 6. Applica tutti gli stili combinati alla finestra
+    window->setStyleSheet(darkStyle + formStyle + treeStyle);
 }
 
 void UiStyleManager::applyPlatformStyle(QMainWindow* window) {
@@ -263,9 +306,6 @@ void UiStyleManager::setupDockScroll(QDockWidget* dock, bool isExamplesDock) {
     dock->setMinimumHeight(0); // Sblocca l'altezza del dock
     dock->setMinimumWidth(minWidth);
 
-    // --- FIX: Se è il dock Esempi (QTreeWidget), NON avvolgerlo in una QScrollArea ---
-    // Il QTreeWidget gestisce lo scroll nativamente. Avvolgerlo creerebbe
-    // doppie scrollbar e conflitti di gesture (galleggiamento).
     if (isExamplesDock) {
         return;
     }
@@ -282,7 +322,7 @@ void UiStyleManager::setupDockScroll(QDockWidget* dock, bool isExamplesDock) {
     QScroller::grabGesture(scrollArea->viewport(), QScroller::LeftMouseButtonGesture);
 }
 
-void UiStyleManager::compactForMobile(const QList<QWidget*>& containers, QWidget* panelColor, const QList<QWidget*>& sliderRows, const QList<QLabel*>& valueLabels) {
+void UiStyleManager::compactForMobile(const QList<QWidget*>& containers) {
 #ifdef Q_OS_ANDROID
     QString style = R"(
         QWidget { font-size: 13px; }

@@ -1,0 +1,110 @@
+{
+    "angles": {
+        "omega": 490.8746337890625,
+        "phi": 327.6585998535156,
+        "psi": 328.0589904785156
+    },
+    "background": {
+        "code": "// --- PARAMETRI ---\nvec3 c1 = u_col1; // Colore 1 dall'interfaccia\nvec3 c2 = u_col2; // Colore 2 dall'interfaccia\n\n// Parametri Marmo\nfloat density = 10.0;\nfloat turbulence = 4.0;\n\n// Coordinate scalate (u, v sono disponibili grazie a common.glsl)\nvec2 p = vec2(u, v) * 4.0;\n\n// --- CALCOLO TURBOLENZA ---\nfloat tVal = 0.0;\nfloat amp = 1.0;\nfloat freq = 1.0;\n\nfor(int i = 0; i < 3; i++) {\n    // [FIX] Usa 'sys_noise' invece di 'noise'\n    tVal += sys_noise(p * freq) * amp;\n    amp *= 0.5;\n    freq *= 2.0;\n}\n\n// --- FORMULA MARMO ---\n// Distorce le linee diagonali (x + y) con il rumore\nfloat xyValue = p.x + p.y + (tVal * turbulence);\n\n// Crea le venature usando il seno\nfloat val = sin(xyValue * density);\n\n// Mappa da [-1, 1] a [0, 1] per il mix\nfloat mixFactor = (val + 1.0) * 0.5;\n\n// Interpolazione finale tra i due colori scelti\nreturn mix(c1, c2, mixFactor);",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.04751785844564438,
+        "rot_x": -0.3873305320739746,
+        "rot_y": 0.7688724994659424,
+        "rot_z": 0.5065099596977234,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1.1299999952316284,
+        "B": 1.3899999856948853,
+        "C": 1.100000023841858,
+        "D": 0.800000011920929,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "B*cos(v)+pi/2",
+        "defV": "B*2*sin(u)*sin(v)+pi/2",
+        "defW": "B*3*cos(u)*sin(v)+pi",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "A * sin(U) * sin(V) * sin(W)",
+        "x": "A * cos(U)",
+        "y": "A * sin(U) * cos(V)",
+        "z": "A * sin(U) * sin(V) * cos(W)"
+    },
+    "lightIntensity": 1,
+    "lightingMode": 1,
+    "limits": {
+        "uMax": 3.141590118408203,
+        "uMin": 0,
+        "vMax": 6.28318977355957,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0
+    },
+    "name": "Ellipsoid",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 1,
+    "renderMode": 1,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0.30000001192092896,
+        "path3D": 10,
+        "path4D": 10,
+        "phi": 0.20000000298023224,
+        "precession": 0,
+        "psi": 0.20000000298023224,
+        "spin": 0
+    },
+    "steps": 308,
+    "texture": {
+        "code": "//MUSIC: /home/dioscorid/Projects/Presets/Sounds/wav/723963__badwolf23__spatial-audio-4.wav\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    // Normalizzazione coordinate (0..1)\n    vec2 uv = fragCoord/iResolution.xy;\n\n    // --- 1. CONFIGURAZIONE COLORI ---\n    vec3 colBackground = vec3(0.0, 0.5, 0.9); // Sfondo Azzurro\n    \n    // Gradiente Verticale dei segmenti\n    vec3 colBasso      = vec3(1.0, 1.0, 0.0); // Giallo Intenso (Basso)\n    vec3 colAlto       = vec3(1.0, 0.4, 0.0); // Arancio Intenso (Alto)\n\n    // --- 2. CALCOLO COLORE GRADIENTE ---\n    // Mescola il colore dal basso verso l'alto basandosi sull'altezza (uv.y)\n    vec3 coloreSegmento = mix(colBasso, colAlto, uv.y);\n\n    // --- 3. GEOMETRIA (RIGHE) ---\n    float densita = 200.0; \n    float spessore = 0.5; \n\n    // Crea il pattern a righe\n    float pattern = sin(uv.x * densita);\n    float maskSegmenti = smoothstep(spessore, spessore + 0.02, pattern);\n\n    // --- 4. COMBINAZIONE FINALE ---\n    // Se c'è il segmento (maskSegmenti = 1), usa 'coloreSegmento' (Giallo->Arancio)\n    // Altrimenti usa 'colBackground' (Azzurro)\n    vec3 finalColor = mix(colBackground, coloreSegmento, maskSegmenti);\n\n    fragColor = vec4(finalColor, 1.0);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": true
+}

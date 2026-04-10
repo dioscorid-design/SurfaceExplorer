@@ -59,7 +59,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
 
     app.setWindowIcon(QIcon(":/icon.png"));
-    app.setDesktopFileName("Surface4D");
+    app.setDesktopFileName("SurfaceExplorer");
     QCoreApplication::setOrganizationName("Dioscorid");
     QCoreApplication::setApplicationName("SurfaceExplorer");
 

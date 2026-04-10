@@ -5,7 +5,7 @@ import shutil
 # --- CONFIGURAZIONE PERCORSI ---
 QT_PATH = os.path.expanduser("~/Qt/6.10.2/gcc_64")
 CQT_PATH = os.path.expanduser("~/CQtDeployer/1.6/bin/CQtDeployer")
-PROJECT_DIR = os.path.expanduser("~/Projects/Surface Explorer")
+PROJECT_DIR = os.path.expanduser("~/Projects/SurfaceExplorer")
 
 # Ora punta correttamente dentro la cartella del progetto
 RELEASE_DIR = os.path.join(PROJECT_DIR, "Release")

@@ -22,8 +22,8 @@
         "rot_x": 0,
         "rot_y": 0,
         "rot_z": 0,
-        "x": 0.7685531973838806,
-        "y": 1.4592210054397583,
+        "x": 0.7664644718170166,
+        "y": -0.011469900608062744,
         "yaw": 0,
         "z": 0
     },
@@ -33,7 +33,7 @@
         "surfColor": "#33cc33"
     },
     "constants": {
-        "A": 0.800000011920929,
+        "A": 0.7400000095367432,
         "B": 0.800000011920929,
         "C": 0.30000001192092896,
         "D": 0.15000000596046448,
@@ -43,8 +43,8 @@
     },
     "equations": {
         "defU": "u ",
-        "defV": "1.5708 + (C + D * sin(3*u - t*E)) * cos(v)",
-        "defW": "(C + D * sin(3*u - t*E)) * sin(v)",
+        "defV": "1.5708 + (C + D * sin(3*u + t*E)) * cos(v)",
+        "defW": "(C + D * sin(3*u + t*E)) * sin(v)",
         "explicitU": "",
         "explicitV": "",
         "explicitW": "",
@@ -106,5 +106,5 @@
         "zoom": 1
     },
     "type": "motion",
-    "use4DLighting": false
+    "use4DLighting": true
 }

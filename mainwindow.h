@@ -273,7 +273,7 @@ private:
     void generateTexture();
     void setupDefaultFolders();
     void copyPath(QString src, QString dst);
-    void syncResourcesToFolder(const QString &resourcePath, const QString &diskPath, bool forceRestore = false);
+    void syncResourcesToFolder(const QString &resourcePath, const QString &diskPath, bool forceRestore = false, int *overwriteState = nullptr);
     void updateFlatPreviewButton();
     void updateWatcherPaths();
     QString composeEquation(const QString &eq, const QString &uDef, const QString &vDef, const QString &wDef);

@@ -97,82 +97,91 @@ bool InputHandler::handleTouch(QEvent* e)
         return false;
     }
 
-    // >>> 1. RIMOSSO IL BLOCCO: Ora il touch funziona sempre, sia in 3D che in 4D <<<
-    // if (!m_glWidget->is4DActive()) return false;
-
     QTouchEvent *touchEvent = static_cast<QTouchEvent *>(e);
     const auto &points = touchEvent->points();
     int pointCount = points.count();
 
-    // Reset quando si alzano le dita
+    // =========================================================
+    // 1. GESTIONE FINE TOCCO (TouchEnd) - TAP (Rotazione 90°)
+    // =========================================================
     if (e->type() == QEvent::TouchEnd || pointCount == 0) {
+        // Se siamo in 2D e il dito non è stato trascinato, è un TAP -> Ruota 90°
+        if (m_glWidget->isFlatView() && m_isClickCandidate) {
+            m_glWidget->rotateFlat90();
+        }
         m_lastPointCount = 0;
+        m_isClickCandidate = false;
         return true;
     }
 
-    // Gestione transizioni (appena tocco lo schermo o cambio numero di dita)
+    // =========================================================
+    // 2. TRANSIZIONI (TouchBegin o cambio numero di dita)
+    // =========================================================
     if (pointCount != m_lastPointCount || e->type() == QEvent::TouchBegin) {
         if (pointCount == 1) {
             m_lastTouchPos = points[0].position();
+            m_pressPos = m_lastTouchPos.toPoint(); // Memorizza per la deadzone del Tap
+            m_isClickCandidate = true;             // Parte come potenziale Tap
         }
         else if (pointCount == 2) {
-            // Inizializza la distanza per il Pinch
             QPointF p1 = points[0].position();
             QPointF p2 = points[1].position();
             m_lastPinchDist = QLineF(p1, p2).length();
+            m_isClickCandidate = false;            // Con due dita si annulla il Tap
         }
         m_lastPointCount = pointCount;
         return true;
     }
 
     // =========================================================
-    // A. 1 DITO: ROTAZIONE (Uguale al Mouse Left-Drag)
+    // 3. MOVIMENTO (TouchUpdate)
     // =========================================================
+
+    // --- UN DITO: ROTAZIONE CONTINUA ---
     if (pointCount == 1) {
         QPointF currentPos = points[0].position();
         float dx = currentPos.x() - m_lastTouchPos.x();
         float dy = currentPos.y() - m_lastTouchPos.y();
 
-        // Sensibilità touch (spesso serve un po' più bassa del mouse)
-        float rotSens = 0.3f;
-
-        // Recuperiamo la modalità di rotazione corrente (Oggetto vs Camera)
-        // per mantenere coerenza con il comportamento Desktop
-        bool isCameraMode = false;
-
-        if (isCameraMode) {
-            m_glWidget->addCameraRotation(dx * rotSens, dy * rotSens);
-        } else {
-            // Rotazione Oggetto (Precessione/Nutazione)
-            m_glWidget->addObjectRotation(dx * rotSens, dy * rotSens, 0.0f);
+        // Controllo "Deadzone": se il dito si muove oltre 10 pixel, non è più un Tap ma un trascinamento
+        if (m_isClickCandidate && QLineF(currentPos, m_pressPos).length() > 10.0f) {
+            m_isClickCandidate = false;
         }
 
+        if (m_glWidget->isFlatView()) {
+            // Modalità 2D: Trascinamento = ROTAZIONE CONTINUA
+            if (!m_isClickCandidate) {
+                float sensitivity = 0.5f;
+                // Usa lo spostamento orizzontale (dx) per ruotare, come fa il click sinistro del mouse
+                m_glWidget->addFlatRotation(dx * sensitivity);
+            }
+        } else {
+            // Modalità 3D/4D: Rotazione standard dell'oggetto
+            float rotSens = 0.3f;
+            m_glWidget->addObjectRotation(dx * rotSens, dy * rotSens, 0.0f);
+        }
         m_lastTouchPos = currentPos;
     }
-    // =========================================================
-    // B. 2 DITA: PINCH TO ZOOM
-    // =========================================================
+
+    // --- DUE DITA: SOLO ZOOM ---
     else if (pointCount == 2) {
         QPointF p1 = points[0].position();
         QPointF p2 = points[1].position();
-
-        // Calcola la distanza attuale tra le dita
         float currentDist = QLineF(p1, p2).length();
+        float deltaDist = currentDist - m_lastPinchDist;
 
-        // Calcola la differenza rispetto al frame precedente
-        // delta > 0: Allargo le dita (Zoom In / Avvicino)
-        // delta < 0: Stringo le dita (Zoom Out / Allontano)
-        float delta = currentDist - m_lastPinchDist;
-
-        // Sensibilità Zoom
-        float zoomSens = 0.05f;
-
-        // Applica lo zoom (usiamo la stessa funzione della rotella del mouse)
-        if (std::abs(delta) > 0.5f) { // Piccola soglia per evitare tremolii
-            m_glWidget->zoomCamera(delta * zoomSens);
+        if (std::abs(deltaDist) > 0.5f) {
+            if (m_glWidget->isFlatView()) {
+                // Modalità 2D: ZOOM fluido
+                float currentZoom = m_glWidget->getFlatZoom();
+                // Moltiplicatore per rendere lo zoom scalare (es. 0.005 è la sensibilità)
+                float zoomFactor = 1.0f + (deltaDist * 0.005f);
+                m_glWidget->setFlatZoom(currentZoom * zoomFactor);
+            } else {
+                // Modalità 3D: ZOOM della camera
+                m_glWidget->zoomCamera(deltaDist * 0.05f);
+            }
         }
-
-        // Aggiorna la distanza per il prossimo frame
         m_lastPinchDist = currentDist;
     }
 

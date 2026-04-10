@@ -1,11 +1,11 @@
 {
     "angles": {
-        "omega": 203.47744750976562,
-        "phi": 203.7672882080078,
-        "psi": 203.67733764648438
+        "omega": 228.2538299560547,
+        "phi": 228.54367065429688,
+        "psi": 228.45372009277344
     },
     "background": {
-        "code": "//IMG:/home/dioscorid/Projects/presets/textures/Images/7.png",
+        "code": "//IMG:/home/dioscorid/Projects/Presets/Textures/Images/15.png",
         "col1": "#33cc33",
         "col2": "#000000",
         "color": "#383b41",

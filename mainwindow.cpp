@@ -49,6 +49,34 @@
 #include <QPainter>
 #include <QDropEvent>
 #include <QDebug>
+#include <QWindow>
+
+#if defined(Q_OS_ANDROID)
+#include <QJniObject>
+#include <QCoreApplication>
+#endif
+
+#if defined(Q_OS_ANDROID)
+void notifyAndroidMediaStore(const QString& filePath) {
+    QJniEnvironment env;
+    jstring jFilePath = env->NewStringUTF(filePath.toUtf8().constData());
+    jobjectArray pathsArray = env->NewObjectArray(1, env->FindClass("java/lang/String"), jFilePath);
+
+    QJniObject context = QNativeInterface::QAndroidApplication::context();
+    QJniObject::callStaticMethod<void>(
+        "android/media/MediaScannerConnection",
+        "scanFile",
+        "(Landroid/content/Context;[Ljava/lang/String;[Ljava/lang/String;Landroid/media/MediaScannerConnection$OnScanCompletedListener;)V",
+        context.object(),
+        pathsArray,
+        nullptr,
+        nullptr
+    );
+
+    env->DeleteLocalRef(pathsArray);
+    env->DeleteLocalRef(jFilePath);
+}
+#endif
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -69,6 +97,35 @@ MainWindow::MainWindow(QWidget *parent)
     m_blockTextureGen = false;
     m_currentTexturePath = "";
     m_surfaceTextureState = false;
+
+#if defined(Q_OS_ANDROID)
+    // 1. Controlla prima l'API Level (Deve essere >= 30 per questa funzione)
+    if (QNativeInterface::QAndroidApplication::sdkVersion() >= 30) {
+
+        // 2. Ora è sicuro chiamare isExternalStorageManager
+        bool isStorageManager = QJniObject::callStaticMethod<jboolean>("android/os/Environment", "isExternalStorageManager");
+
+        if (!isStorageManager) {
+            QJniObject intent("android/content/Intent", "(Ljava/lang/String;)V",
+                              QJniObject::fromString("android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION").object<jstring>());
+
+            // 3. Recupera dinamicamente il VERO nome del pacchetto dell'app, niente hardcoding!
+            QJniObject context = QNativeInterface::QAndroidApplication::context();
+            QJniObject packageName = context.callObjectMethod("getPackageName", "()Ljava/lang/String;");
+            QString uriString = "package:" + packageName.toString();
+
+            QJniObject uri = QJniObject::callStaticObjectMethod("android/net/Uri", "parse", "(Ljava/lang/String;)Landroid/net/Uri;",
+                                                                QJniObject::fromString(uriString).object<jstring>());
+
+            intent.callObjectMethod("setData", "(Landroid/net/Uri;)Landroid/content/Intent;", uri.object());
+            intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;", 0x10000000); // FLAG_ACTIVITY_NEW_TASK
+
+            if (context.isValid()) {
+                context.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", intent.object());
+            }
+        }
+    }
+#endif
 
     // --- SBLOCCO DEI CAMPI COSTANTI (Permette lettere, 'pi', formule) ---
     ui->lineA->setValidator(nullptr);
@@ -109,39 +166,18 @@ MainWindow::MainWindow(QWidget *parent)
     ui->lineGamma_P->setFont(boldFont);
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-    // A. Lista dei contenitori principali da compattare
+    // Lista dei contenitori principali da compattare
     QList<QWidget*> dockContents = {
         ui->dockEquations->widget(),
         ui->dockRenders->widget(),
-        ui->dockScripts->widget(),
+        //ui->dockScripts->widget(),
         ui->dock3D->widget(),
         ui->dock4D->widget(),
         ui->dockSurfaces->widget()
     };
 
-    // B. Lista delle righe degli slider (per forzare altezza minima e tocco facile)
-    QList<QWidget*> sliderRows = {
-        ui->panelRed,
-        ui->panelGreen,
-        ui->panelBlue,
-        ui->panelSliderTrans
-    };
-
-    // C. Lista delle label valori (per evitare che il numero "salti" quando cambia cifre)
-    QList<QLabel*> valueLabels = {
-        ui->valR,
-        ui->valG,
-        ui->valB,
-        ui->lblAlphaVal
-    };
-
     // CHIAMATA UNICA CENTRALIZZATA
-    UiStyleManager::compactForMobile(
-                dockContents,       // Widget generali
-                ui->panelColor,     // Pannello colori (per fix margini)
-                sliderRows,         // Righe slider
-                valueLabels         // Label valori
-                );
+   UiStyleManager::compactForMobile(dockContents);
 #endif
 
     // =========================================================================
@@ -218,11 +254,17 @@ MainWindow::MainWindow(QWidget *parent)
         else if (currentTab->objectName().contains("Sound", Qt::CaseInsensitive)) currentType = LibraryType::Sound;
         onAddRepositoryClicked(currentType);
     });
+
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    ui->actionSelectFolder->setVisible(false);
+#endif
+
     connect(ui->actionCut, &QAction::triggered, this, [this](){ performCut(nullptr); });
     connect(ui->actionPaste, &QAction::triggered, this, [this](){
         if (!m_cutFilePaths.isEmpty()) onPasteExample();
         else if (!m_cutTexturePaths.isEmpty()) onPasteTexture();
     });
+
     connect(ui->actionUndoDelete, &QAction::triggered, this, &MainWindow::onUndoDelete);
 
     // MACOS MENU
@@ -233,7 +275,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->actionAbout, &QAction::triggered, this, [this](){
         QMessageBox::about(this, "About Surface Explorer",
                            "<b>Surface Explorer 4D</b><br>"
-                           "Version 1.0<br><br>"
+                           "Version 2.0<br><br>"
                            "Developed by: <b>Dioscorid</b><br>"
                            "License: <b>GNU GPL v3</b><br><br>"
                            "This is free software: you are free to change and redistribute it "
@@ -244,12 +286,17 @@ MainWindow::MainWindow(QWidget *parent)
 
     ui->actionDocumentation->setMenuRole(QAction::NoRole);
     connect(ui->actionDocumentation, &QAction::triggered, this, [this](){
-        QSettings settings;
-        QStringList repos = settings.value("repositoryPaths").toStringList();
-        QString targetDir = !repos.isEmpty() ? repos.first() : QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+        // Usa la cartella temporanea sicura del sistema operativo (funziona sempre su Linux/Mac/Windows)
+        QString targetDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/SurfaceExplorerDoc";
 
+        // Crea la cartella temporanea e la struttura di sottocartelle
+        QDir dir(targetDir);
+        if (!dir.exists()) dir.mkpath(".");
+        dir.mkpath("presets/sounds"); // Crea la sottocartella ESATTA per i crediti
+
+        // Definisci i percorsi dei file temporanei
         QString docPath = targetDir + "/documentation.html";
-        QString credPath = targetDir + "/CREDITS.txt"; // <--- Preparazione percorso CREDITS
+        QString credPath = targetDir + "/presets/sounds/CREDITS.TXT"; // Percorso fisico coerente con l'HTML
 
         // Estrazione Documentazione
         if (QFile::exists(docPath)) QFile::remove(docPath);
@@ -257,15 +304,18 @@ MainWindow::MainWindow(QWidget *parent)
             QFile::setPermissions(docPath, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadGroup);
         }
 
-        // Estrazione File di Testo dei Crediti
+        // Estrazione File di Testo dei Crediti (usa il nuovo percorso virtuale nel QRC)
         if (QFile::exists(credPath)) QFile::remove(credPath);
-        if (QFile::copy(":/CREDITS.txt", credPath)) {
+        if (QFile::copy(":/library/presets/sounds/CREDITS.txt", credPath)) {
             QFile::setPermissions(credPath, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadGroup);
         }
 
-        // Apertura nel Browser
-        if (QFile::exists(docPath)) QDesktopServices::openUrl(QUrl::fromLocalFile(docPath));
-        else QMessageBox::warning(this, "Error", "Documentation file not found in resources.\nMake sure 'documentation.html' is added to your .qrc file.");
+        // Apertura nel Browser puntando al file temporaneo
+        if (QFile::exists(docPath)) {
+            QDesktopServices::openUrl(QUrl::fromLocalFile(docPath));
+        } else {
+            QMessageBox::warning(this, "Error", "Documentation file not found in resources.\nMake sure 'documentation.html' is added to your .qrc file.");
+        }
     });
 
     // =========================================================================
@@ -321,22 +371,59 @@ MainWindow::MainWindow(QWidget *parent)
     };
 
     auto safeOpenDock = [this, closeAllDocks](QDockWidget* dock) {
-        if (dock->isVisible()) { dock->close(); return; }
-        closeAllDocks();
-#if defined(Q_OS_IOS)
-        QTimer::singleShot(10, this, [this, dock](){
-            if (!dock->isFloating()) dock->setFloating(true);
-            int screenW = this->width();
-            int screenH = this->height();
-            int w = screenW * 0.40; if (w < 320) w = 320;
-            int h = screenH - 40;
-            int winX = this->geometry().x();
-            int winY = this->geometry().y();
-            dock->setGeometry(winX, winY, w, h);
-            dock->show();
-            dock->raise();
+
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+        static qint64 lastToggleTime = 0;
+        qint64 currentTime = QDateTime::currentMSecsSinceEpoch();
+        if (currentTime - lastToggleTime < 400) return;
+        lastToggleTime = currentTime;
+
+        if (dock->isVisible()) {
+            dock->close();
+            return;
+        }
+
+        if (dock->isFloating()) dock->setFloating(false);
+
+        // 1. CONGELIAMO LO SCHERMO (Elimina il flash visivo)
+        this->setUpdatesEnabled(false);
+
+        // 2. FORZIAMO LA LARGHEZZA (Evita il collasso a 0 pixel e il "millimetro" di splitter)
+        dock->setFixedWidth(400);
+
+        // 3. AGGANCIAMO E MOSTRIAMO
+        this->addDockWidget(Qt::RightDockWidgetArea, dock);
+        dock->show();
+        dock->raise();
+
+        // 4. CHIUDIAMO I VECCHI IN BACKGROUND
+        if (dock != ui->dockEquations) ui->dockEquations->close();
+        if (dock != ui->dockRenders) ui->dockRenders->close();
+        if (dock != ui->dock3D) ui->dock3D->close();
+        if (dock != ui->dock4D) ui->dock4D->close();
+        if (dock != ui->dockScripts) ui->dockScripts->close();
+        if (dock != ui->dockSurfaces) ui->dockSurfaces->close();
+
+        // 5. SCONGELIAMO LO SCHERMO
+        this->setUpdatesEnabled(true);
+
+        // 6. SBLOCCHIAMO LA LARGHEZZA DOPO L'APERTURA
+        QTimer::singleShot(100, dock, [dock]() {
+            dock->setMinimumWidth(400);
+            dock->setMaximumWidth(16777215);
         });
+
 #else
+        // =========================================================
+        // RAMO DESKTOP (Intatto)
+        // =========================================================
+        if (dock->isVisible()) {
+            dock->close();
+            return;
+        }
+
+        closeAllDocks();
+
         if (dock->isFloating()) dock->setFloating(false);
         this->addDockWidget(Qt::RightDockWidgetArea, dock);
         dock->show();
@@ -453,9 +540,8 @@ MainWindow::MainWindow(QWidget *parent)
             ui->glWidget->setEquationConstants(valA, valB, valC, valD, valE, valF, valS);
 
             // Ricostruiamo la griglia poligonale con i nuovi parametri
-            ui->glWidget->makeCurrent();
+
             ui->glWidget->updateSurfaceData();
-            ui->glWidget->doneCurrent();
 
             // Diciamo allo schermo di rinfrescare l'immagine
             ui->glWidget->update();
@@ -750,9 +836,7 @@ MainWindow::MainWindow(QWidget *parent)
 
                     generateTexture();
 
-                    ui->glWidget->makeCurrent();
                     ui->glWidget->rebuildShader();
-                    ui->glWidget->doneCurrent();
                 }
             }
         }
@@ -768,7 +852,7 @@ MainWindow::MainWindow(QWidget *parent)
     // Colori Default
     float defR = 0.20f, defG = 0.80f, defB = 0.20f;
     m_currentSurfaceColor = QColor::fromRgbF(defR, defG, defB);
-    m_currentBorderColor  = QColor::fromRgbF(defR, defG, defB);
+    m_currentBorderColor  = m_currentSurfaceColor.darker(300);
     m_texColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
     m_texColor2 = Qt::black;
 
@@ -804,17 +888,33 @@ MainWindow::MainWindow(QWidget *parent)
     ui->radioEditBorder->setEnabled(false);
 
     connect(ui->btnBorder, &QPushButton::toggled, this, [this](bool checked){
-        ui->glWidget->setShowBorders(checked);
-        ui->btnBorder->setText(checked ? "Border ON" : "Border OFF");
-        if(checked) ui->btnBorder->setStyleSheet("color: #44FF44; font-weight: bold;");
-        else        ui->btnBorder->setStyleSheet("");
-        ui->radioEditBorder->setEnabled(checked);
+            ui->glWidget->setShowBorders(checked);
+            ui->btnBorder->setText(checked ? "Border ON" : "Border OFF");
 
-        if (!checked && ui->radioEditBorder->isChecked()) {
-            ui->radioEditSurf->setChecked(true);
-            onColorTargetChanged();
-        }
-    });
+            if(checked) {
+                ui->btnBorder->setStyleSheet("color: #44FF44; font-weight: bold;");
+
+                if (m_currentBorderColor == m_currentSurfaceColor) {
+                    m_currentBorderColor = m_currentSurfaceColor.darker(300);
+                    ui->glWidget->setBorderColor(m_currentBorderColor.redF(), m_currentBorderColor.greenF(), m_currentBorderColor.blueF());
+                }
+
+                // --- SPOSTAMENTO AUTOMATICO DEL FOCUS ---
+                ui->radioEditBorder->setEnabled(true);
+                ui->radioEditBorder->setChecked(true);
+                onColorTargetChanged();
+            }
+            else {
+                ui->btnBorder->setStyleSheet("");
+                ui->radioEditBorder->setEnabled(false);
+
+                // Se stavamo modificando il bordo e lo spegniamo, torniamo alla superficie
+                if (ui->radioEditBorder->isChecked()) {
+                    ui->radioEditSurf->setChecked(true);
+                    onColorTargetChanged();
+                }
+            }
+        });
 
     auto handleColorChange = [this]() {
         int r = ui->sliderR->value(); int g = ui->sliderG->value(); int b = ui->sliderB->value();
@@ -959,11 +1059,12 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->btnFlatPreview, &QPushButton::toggled, this, [this](bool checked){
         if (checked) {
             ui->btnFlatPreview->setText("3D View");
-            ui->radioBasic->setEnabled(false); ui->radioPhong->setEnabled(false); ui->radioWF->setEnabled(false); ui->alphaSlider->setEnabled(false);
+            ui->alphaSlider->setEnabled(false); // Blocchiamo solo la trasparenza
         } else {
             updateFlatPreviewButton();
-            ui->radioBasic->setEnabled(true); ui->radioPhong->setEnabled(true); ui->radioWF->setEnabled(true); ui->alphaSlider->setEnabled(true);
+            ui->alphaSlider->setEnabled(true);
         }
+
         if (ui->radioBackground->isChecked()) ui->glWidget->setFlatViewTarget(1);
         else ui->glWidget->setFlatViewTarget(0);
 
@@ -985,8 +1086,7 @@ MainWindow::MainWindow(QWidget *parent)
     else {
         QString osBaseDir;
 #ifdef Q_OS_ANDROID
-        osBaseDir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-        if (osBaseDir.isEmpty()) osBaseDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        osBaseDir = "/storage/emulated/0/Download";
 #elif defined(Q_OS_LINUX)
         osBaseDir = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
         if (osBaseDir.isEmpty()) osBaseDir = QDir::homePath();
@@ -1005,19 +1105,32 @@ MainWindow::MainWindow(QWidget *parent)
     m_audioController = new AudioController(this);
 
     auto initTree = [this](QTreeWidget* tree) {
-        tree->setHeaderHidden(true); tree->setColumnCount(1);
+        tree->setHeaderHidden(true);
+        tree->setColumnCount(1);
         tree->setContextMenuPolicy(Qt::CustomContextMenu);
         tree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         tree->setSelectionMode(QAbstractItemView::ExtendedSelection);
         tree->setDragDropMode(QAbstractItemView::InternalMove);
+
+        // 1. FORZA lo scroll per pixel
+        tree->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+        tree->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+
+        // 2. IL VERO SEGRETO: Dichiara che le righe sono tutte alte uguali.
+        // Senza questo, Qt annulla lo scroll fluido e torna agli "scatti"!
+        tree->setUniformRowHeights(true);
+
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-        QScroller::grabGesture(tree, QScroller::TouchGesture);
+        // 3. FIX VIEWPORT: Applica il tocco alla "tela" interna, non al bordo!
+        QScroller::grabGesture(tree->viewport(), QScroller::TouchGesture);
         tree->grabGesture(Qt::TapAndHoldGesture);
+
+        tree->setIndentation(12);
 #endif
+
         tree->installEventFilter(m_dragDropHandler);
         tree->viewport()->installEventFilter(m_dragDropHandler);
     };
-
     initTree(ui->treeSurfaces);
     connect(ui->treeSurfaces, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint &pos){
         if (!ui->treeSurfaces->itemAt(pos)) { ui->treeSurfaces->clearSelection(); ui->treeSurfaces->setCurrentItem(nullptr); }
@@ -1068,8 +1181,39 @@ MainWindow::MainWindow(QWidget *parent)
     switchToMainMode();
     refreshRepositories();
 
+#if defined(Q_OS_IOS)
+    // SU IOS: showFullScreen() è obbligatorio per sbloccare la risoluzione nativa
+    this->showFullScreen();
+#elif defined(Q_OS_ANDROID)
+    // SU ANDROID: Ripristiniamo showMaximized().
+    // Evita l'Immersive Mode che spinge la UI a destra contro il Notch.
+    this->showMaximized();
+#else
     this->resize(1280, 720);
     this->showMaximized();
+#endif
+
+#if defined(Q_OS_ANDROID)
+    ui->menuBar->setNativeMenuBar(false);
+#endif
+
+#if defined (Q_OS_IOS)
+    // Manteniamo il tuo HACK DI PRE-RISCALDAMENTO per l'iPad
+    this->setUpdatesEnabled(false);
+
+    ui->dockEquations->show(); ui->dockEquations->hide();
+    ui->dockRenders->show();   ui->dockRenders->hide();
+    ui->dock3D->show();        ui->dock3D->hide();
+    ui->dock4D->show();        ui->dock4D->hide();
+    ui->dockScripts->show();   ui->dockScripts->hide();
+    ui->dockSurfaces->show();  ui->dockSurfaces->hide();
+
+    ui->dock3D->blockSignals(false);
+    ui->dock4D->blockSignals(false);
+
+    this->setUpdatesEnabled(true);
+#endif
+
 }
 
 // ==========================================================
@@ -1145,8 +1289,7 @@ void MainWindow::resetInterface() {
 
     // Aggiorna variabili e motore
     m_currentSurfaceColor = QColor::fromRgbF(defR, defG, defB);
-    m_currentBorderColor = QColor::fromRgbF(defR, defG, defB);
-
+    m_currentBorderColor = m_currentSurfaceColor.darker(300);
     ui->glWidget->setColor(defR, defG, defB);
     ui->glWidget->setBorderColor(defR, defG, defB);
 
@@ -1291,26 +1434,26 @@ void MainWindow::checkParametricDependency()
     bool needsConstraint = false;
     bool needsComposition = false;
 
-    if (ui->tabWidget_2) {
+    if (ui->panelImplicit) {
         if (rawLowerCount == 3 && rawUpperCount == 0) {
             // Solo 3 minuscole: Vincoli attivi, Composizioni SPENTE
             needsConstraint = true;
-            ui->tabWidget_2->setTabEnabled(0, true);  // Accende linguetta Vincoli
-            ui->tabWidget_2->setTabEnabled(1, false); // Ingrigisce linguetta Composizioni
-            ui->tabWidget_2->setCurrentIndex(0);
+            ui->panelImplicit->setTabEnabled(0, true);  // Accende linguetta Vincoli
+            ui->panelImplicit->setTabEnabled(1, false); // Ingrigisce linguetta Composizioni
+            ui->panelImplicit->setCurrentIndex(0);
         }
         // ---> FIX: ACCETTA SIA 2 CHE 3 MAIUSCOLE (es. U, V oppure U, V, W) <---
         else if ((rawUpperCount == 2 || rawUpperCount == 3) && rawLowerCount == 0) {
             // Solo maiuscole: Composizioni attive, Vincoli SPENTI
             needsComposition = true;
-            ui->tabWidget_2->setTabEnabled(0, false); // Ingrigisce linguetta Vincoli
-            ui->tabWidget_2->setTabEnabled(1, true);  // Accende linguetta Composizioni
-            ui->tabWidget_2->setCurrentIndex(1);
+            ui->panelImplicit->setTabEnabled(0, false); // Ingrigisce linguetta Vincoli
+            ui->panelImplicit->setTabEnabled(1, true);  // Accende linguetta Composizioni
+            ui->panelImplicit->setCurrentIndex(1);
         }
         else {
             // Qualsiasi altra combinazione (2 minuscole, miste, ecc): TUTTO SPENTO
-            ui->tabWidget_2->setTabEnabled(0, false);
-            ui->tabWidget_2->setTabEnabled(1, false);
+            ui->panelImplicit->setTabEnabled(0, false);
+            ui->panelImplicit->setTabEnabled(1, false);
         }
     }
 
@@ -1518,6 +1661,25 @@ void MainWindow::handleTextureSelection(int index)
     // 1. Recupera i dati
     const LibraryItem &data = m_libraryManager.getTexture(index);
 
+    static int lastTextureIndex = -1;
+    static bool lastWasBg = false;
+    bool isBg = ui->radioBackground->isChecked();
+
+    // Se l'utente clicca di nuovo lo stesso script procedurale, scarta l'immagine!
+    if (index == lastTextureIndex && isBg == lastWasBg && !data.isImage) {
+        m_isImageMode = false;
+        m_currentTexturePath.clear();
+
+        // Rimuove il tag //IMG: dall'editor testuale
+        QString currentText = ui->txtScriptEditor->toPlainText();
+        currentText.remove(QRegularExpression(R"(^\s*//IMG:\s*(.*)$\n?)", QRegularExpression::MultilineOption));
+        ui->txtScriptEditor->blockSignals(true);
+        ui->txtScriptEditor->setPlainText(currentText);
+        ui->txtScriptEditor->blockSignals(false);
+    }
+    lastTextureIndex = index;
+    lastWasBg = isBg;
+
     // 2. CONTROLLO MODALITÀ SFONDO
     if (ui->radioBackground->isChecked()) {
         if (data.isImage) {
@@ -1554,6 +1716,13 @@ void MainWindow::handleTextureSelection(int index)
             }
 
             m_bgTextureCode = data.scriptCode;
+
+            QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)", QRegularExpression::MultilineOption);
+            QRegularExpressionMatch match = imgRe.match(ui->txtScriptEditor->toPlainText());
+            if (match.hasMatch()) {
+                m_bgTextureCode = "//IMG:" + match.captured(1).trimmed() + "\n" + data.scriptCode;
+            }
+
             m_bgTextureScriptText = m_bgTextureCode;
 
             QString prevEditorText = ui->txtScriptEditor->toPlainText();
@@ -1584,7 +1753,6 @@ void MainWindow::handleTextureSelection(int index)
     }
 
     // 3. CONTROLLO MODALITÀ SUPERFICIE
-    m_currentTexturePath = data.filePath;
     m_blockTextureGen = true;
 
     if (data.hasCustomColors) {
@@ -1602,12 +1770,13 @@ void MainWindow::handleTextureSelection(int index)
     }
 
     if (data.isImage) {
+        // Selettore su un'immagine: salviamo il percorso e attiviamo la modalità immagine
+        m_currentTexturePath = data.filePath;
         if (ui->glWidget) {
+            ui->glWidget->loadCustomShader("");
             ui->glWidget->loadTextureFromFile(data.filePath);
             ui->glWidget->setTextureEnabled(true);
-            ui->glWidget->makeCurrent();
             ui->glWidget->rebuildShader();
-            ui->glWidget->doneCurrent();
 
             if (!ui->chkBoxTexture->isChecked()) {
                 bool old = ui->chkBoxTexture->blockSignals(true);
@@ -1635,19 +1804,27 @@ void MainWindow::handleTextureSelection(int index)
         ui->txtScriptEditor->setPlainText(m_surfaceTextureCode);
         ui->txtScriptEditor->blockSignals(false);
 
-        // RIMOSSO onRunSoundClicked();
     }
     else if (!data.scriptCode.isEmpty()) {
-        m_isImageMode = false;
-
+        // Selettore su uno SCRIPT procedurale (es. Squished Coordinates)
         QString newCode = data.scriptCode;
-        m_surfaceTextureCode = newCode;
 
+        // FONDAMENTALE: Se c'era già un'immagine caricata, PRESERVIAMOLA aggiungendo il tag //IMG in cima
+        if (m_isImageMode && !m_currentTexturePath.isEmpty()) {
+            newCode = "//IMG:" + m_currentTexturePath + "\n" + newCode;
+        } else {
+            // Se non c'era nessuna immagine prima, allora disattiviamo la modalità immagine
+            m_isImageMode = false;
+        }
+
+        m_surfaceTextureCode = newCode;
         m_surfaceTextureScriptText = newCode;
 
         QString prevEditorText = ui->txtScriptEditor->toPlainText();
         ui->txtScriptEditor->blockSignals(true);
         ui->txtScriptEditor->setPlainText(newCode);
+
+        // Questo comando leggerà il tag //IMG (se presente) e caricherà l'immagine assieme allo script!
         onApplyTextureScriptClicked();
 
         if (m_currentScriptMode != ScriptModeTexture) {
@@ -1705,7 +1882,7 @@ void MainWindow::onStartClicked()
 
     if (ui->lineX->toPlainText().trimmed().isEmpty() && ui->glWidget->getEngine()->isScriptModeActive()) {
         QString currentScript = ui->txtScriptEditor->toPlainText();
-        if (currentScript.contains(QRegularExpression("\\bt\\b"))) {
+        if (currentScript.contains(QRegularExpression("\\bt\\b")) || currentScript.contains("iTime")) {
             ui->glWidget->setSurfaceAnimating(true);
             if (m_btnStart) m_btnStart->setText("STOP");
         }
@@ -1987,9 +2164,11 @@ void MainWindow::onStartClicked()
                          ui->lineExplicitW->toPlainText() + " " +
                          ui->lineU->toPlainText() + " " +
                          ui->lineV->toPlainText() + " " +
-                         ui->lineW->toPlainText();
+                         ui->lineW->toPlainText() + " " +
+                         m_surfaceTextureCode + " " +
+                         m_bgTextureCode;
 
-    if (rawEqsForT.contains(QRegularExpression("\\bt\\b"))) {
+    if (rawEqsForT.contains(QRegularExpression("\\bt\\b")) || rawEqsForT.contains("iTime")) {
         ui->glWidget->setSurfaceAnimating(true);
         if (m_btnStart) m_btnStart->setText("STOP");
     } else {
@@ -2016,9 +2195,7 @@ void MainWindow::onStartClicked()
         textToCheck += " " + ui->lineExplicitW->toPlainText();
     }
 
-    ui->glWidget->makeCurrent();
     ui->glWidget->updateSurfaceData();
-    ui->glWidget->doneCurrent();
 
     ui->glWidget->update();
 }
@@ -2245,10 +2422,6 @@ void MainWindow::onPathTimerTick()
     finalUp4D = N1 * c1 + N2 * c2 + N3 * c3;
     finalUp4D.normalize();
 
-    // Scaling
-    finalPos4D = finalPos4D * surfaceScale;
-    finalTarget4D = finalTarget4D * surfaceScale;
-
     // =========================================================================
     // >>> SINCRONIZZATO BETA + GAMMA <<<
     // =========================================================================
@@ -2361,7 +2534,7 @@ void MainWindow::onPath3DTimerTick()
     QVector4D rawData = ui->glWidget->getEngine()->evaluatePath3DPosition(pathTimeT3D);
 
     // Scala la posizione (XYZ) ma NON il rollio (W)
-    QVector3D currentPos = rawData.toVector3D() * surfaceScale;
+    QVector3D currentPos = rawData.toVector3D();
     float currentRoll = rawData.w();
 
     QVector3D target;
@@ -2369,7 +2542,7 @@ void MainWindow::onPath3DTimerTick()
     if (m_pathMode == ModeTangential) {
         float delta = 0.1f;
         QVector4D futureData = ui->glWidget->getEngine()->evaluatePath3DPosition(pathTimeT3D + delta);
-        target = futureData.toVector3D() * surfaceScale;
+        target = futureData.toVector3D();
     } else {
         target = QVector3D(0, 0, 0);
     }
@@ -2461,30 +2634,77 @@ void MainWindow::onRunCurrentScript()
     // 1. Estrae il testo correntemente scritto nell'editor
     QString currentText = ui->txtScriptEditor->toPlainText();
 
+    // --- INIZIO BLOCCO DI SICUREZZA (WRONG MODE BLOCK) ---
+    // Identifichiamo il "dna" del codice tramite le parole chiave tipiche
+    bool isTextureCode = currentText.contains("mainImage", Qt::CaseInsensitive) ||
+                         currentText.contains("fragColor", Qt::CaseInsensitive) ||
+                         currentText.contains("//IMG:", Qt::CaseInsensitive);
+
+    bool isSoundCode   = currentText.contains("mainSound", Qt::CaseInsensitive) ||
+                         currentText.contains("//SOUND_BEGIN", Qt::CaseInsensitive) ||
+                         currentText.contains("//MUSIC:", Qt::CaseInsensitive);
+
+    // Identificatore per script di Superficie (cerca i parametri di configurazione della mesh 3D)
+    bool isSurfaceCode = currentText.contains("u_min", Qt::CaseInsensitive) ||
+                         currentText.contains("v_min", Qt::CaseInsensitive) ||
+                         currentText.contains("w_min", Qt::CaseInsensitive) ||
+                         currentText.contains("steps:=", Qt::CaseInsensitive);
+
     // 2. Salva e avvia in base alla modalità attuale
     if (m_currentScriptMode == ScriptModeSurface) {
+
+        // CONTROLLO SUPERFICIE
+        if (isTextureCode || isSoundCode) {
+            QMessageBox::critical(this, "Wrong Script Mode",
+                                  "You are trying to run Texture or Audio code while in the 'Surface' tab.\n\n"
+                                  "Please select the correct mode using the 'Script Mode' button before running this code.");
+            ui->txtScriptEditor->clear();
+            return;
+        }
+
         m_surfaceScriptText = currentText;
         onRunScriptClicked();
 
     } else if (m_currentScriptMode == ScriptModeTexture) {
+
+        // CONTROLLO TEXTURE
+        if (isSoundCode || isSurfaceCode) {
+            QMessageBox::critical(this, "Wrong Script Mode",
+                                  "You are trying to run Audio or Surface code while in the 'Texture' tab.\n\n"
+                                  "Please select the correct mode before running this code.");
+            ui->txtScriptEditor->clear();
+            return;
+        }
+
         if (ui->radioBackground->isChecked()) m_bgTextureScriptText = currentText;
         else m_surfaceTextureScriptText = currentText;
         onApplyTextureScriptClicked();
 
     } else if (m_currentScriptMode == ScriptModeSound) {
+
+        // CONTROLLO AUDIO
+        if (isTextureCode || isSurfaceCode) {
+            QMessageBox::critical(this, "Wrong Script Mode",
+                                  "You are trying to run Texture or Surface code while in the 'Sound' tab.\n\n"
+                                  "Please select the correct mode before running this code.");
+            ui->txtScriptEditor->clear();
+            return;
+        }
+
         m_soundScriptText = currentText;
 
         QString& targetTexture = ui->radioBackground->isChecked() ? m_bgTextureScriptText : m_surfaceTextureScriptText;
 
-        // Pulizia vecchi tag
+        // Pulizia vecchi tag dalla texture di destinazione
         targetTexture.remove(QRegularExpression(R"(^\s*//(SYNTH|MUSIC):.*$\n?)", QRegularExpression::MultilineOption));
         targetTexture.remove(QRegularExpression(R"(//SOUND_BEGIN.*?//SOUND_END\n?)", QRegularExpression::DotMatchesEverythingOption));
 
         if (!m_soundScriptText.isEmpty()) {
             if (m_soundScriptText.startsWith("//MUSIC:")) {
                 targetTexture = m_soundScriptText + "\n" + targetTexture.trimmed();
+            } else if (m_soundScriptText.contains("//SOUND_BEGIN")) {
+                targetTexture = m_soundScriptText + "\n\n" + targetTexture.trimmed();
             } else {
-                // Avvolgiamo il codice GLSL che l'utente ha scritto a mano nell'editor!
                 targetTexture = "//SOUND_BEGIN\n" + m_soundScriptText + "\n//SOUND_END\n\n" + targetTexture.trimmed();
             }
         }
@@ -2502,14 +2722,6 @@ void MainWindow::onRunScriptClicked()
     if (fullText.trimmed().isEmpty()) return;
 
     this->setProperty("rawSurfaceScript", fullText);
-
-    if (fullText.contains("void mainImage", Qt::CaseInsensitive)) {
-        QMessageBox::warning(this, "Script Type Error",
-                             "You pasted a TEXTURE (Shader) script\n"
-                             "but clicked 'Run Script' (Surface).\n\n"
-                             "Use the 'Apply Texture Script' button in the Texture panel.");
-        return;
-    }
 
     this->setProperty("rawSurfaceScript", fullText);
 
@@ -2543,9 +2755,7 @@ void MainWindow::onRunScriptClicked()
     ui->glWidget->setEquationConstants(valA, valB, valC, valD, valE, valF, valS);
 
     // 5. Ricompila lo shader
-    ui->glWidget->makeCurrent();
     bool success = ui->glWidget->rebuildShader();
-    ui->glWidget->doneCurrent();
 
     if (!success) {
         QMessageBox::critical(this, "Script Error",
@@ -2569,7 +2779,7 @@ void MainWindow::onRunScriptClicked()
     ui->lineW->clear();
 
     // B. Cerca la 't' e avvia automaticamente il respiro
-    if (fullText.contains(QRegularExpression("\\bt\\b"))) {
+    if (fullText.contains(QRegularExpression("\\bt\\b")) || fullText.contains("iTime")) {
         ui->glWidget->setSurfaceAnimating(true);
         if (m_btnStart) m_btnStart->setText("STOP");
     } else {
@@ -2677,6 +2887,7 @@ void MainWindow::onApplyTextureScriptClicked()
             m_isImageMode = true;
             m_currentTexturePath = imgPath;
             if (ui->glWidget) {
+                ui->glWidget->loadCustomShader("");
                 ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
                 ui->glWidget->loadTextureFromFile(imgPath);
             }
@@ -2693,6 +2904,11 @@ void MainWindow::onApplyTextureScriptClicked()
             m_isCustomMode = true;
             if (ui->glWidget) {
                 ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
+
+                if (imgPath.isEmpty()) {
+                                    generateTexture();
+                                }
+
                 ui->glWidget->loadCustomShader(code);
                 ui->glWidget->setFlatViewTarget(0);
                 ui->glWidget->setFlatPan(0.0f, 0.0f);
@@ -2702,10 +2918,9 @@ void MainWindow::onApplyTextureScriptClicked()
         } else {
             m_isCustomMode = false;
             if (ui->glWidget) {
+                ui->glWidget->loadCustomShader("");
                 ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
-                ui->glWidget->makeCurrent();
                 ui->glWidget->rebuildShader(); // Torna allo shader standard
-                ui->glWidget->doneCurrent();
             }
         }
 
@@ -2714,6 +2929,11 @@ void MainWindow::onApplyTextureScriptClicked()
             ui->glWidget->update();
         }
     }
+
+    if (code.contains(QRegularExpression("\\bt\\b")) || code.contains("iTime")) {
+            if (ui->glWidget) ui->glWidget->setSurfaceAnimating(true);
+            if (m_btnStart) m_btnStart->setText("STOP");
+        }
 
     updateFlatPreviewButton();
 }
@@ -2742,6 +2962,15 @@ void MainWindow::onRunSoundClicked()
 void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
 {
     Q_UNUSED(column);
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    // Se l'utente tocca una riga che ha dei figli (una cartella/categoria),
+    // invertiamo lo stato di apertura.
+    if (item->childCount() > 0) {
+        item->setExpanded(!item->isExpanded());
+        return; // Non cerchiamo dati, è solo una cartella
+    }
+#endif
 
     // 1. Surface
     QVariant vSurf = item->data(0, Qt::UserRole);
@@ -2917,9 +3146,7 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
         ui->glWidget->setBackgroundTextureEnabled(false);
 
         // CRUCIALE: Ricostruisce lo shader standard (Phong/Basic)
-        ui->glWidget->makeCurrent();
         ui->glWidget->rebuildShader();
-        ui->glWidget->doneCurrent();
     }
 
     updateRenderState();
@@ -2946,14 +3173,15 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
     // UNICO E DEFINITIVO invio alla GPU per la posizione della telecamera!
     ui->glWidget->setRotation4D(startOmega, startPhi, startPsi);
 
-    // FIX: Essendo una superficie statica, azzeriamo esplicitamente le etichette delle VELOCITÀ
     ui->lblOmegaVal->setText("0.00");
     ui->lblPhiVal->setText("0.00");
     ui->lblPsiVal->setText("0.00");
 
     // 6. Eseguiamo onStartClicked per inizializzare equazioni
     bool hasValidEquations = (d.x.trimmed().length() > 0 && d.x != "0" && d.x != "0.0");
-    bool isScript = (d.isScript && !d.scriptCode.isEmpty() && !hasValidEquations);
+
+    // Inferiamo che è uno script se c'è codice e le equazioni sono vuote!
+    bool isScript = d.isScript || (!d.scriptCode.isEmpty() && !hasValidEquations);
 
     if (!isScript) {
         onStartClicked();
@@ -3055,9 +3283,7 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
             updateWLimits();
             ui->glWidget->setResolution(ui->stepSlider->value());
 
-            ui->glWidget->makeCurrent();
             ui->glWidget->updateSurfaceData();
-            ui->glWidget->doneCurrent();
             ui->glWidget->update();
         }
     });
@@ -3306,9 +3532,7 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
     if (ui->glWidget) {
         ui->glWidget->clearTexture();
         ui->glWidget->loadCustomShader("");
-        ui->glWidget->makeCurrent();
         ui->glWidget->rebuildShader();
-        ui->glWidget->doneCurrent();
     }
 
     // --- APPLICAZIONE TEXTURE SUPERFICIE ---
@@ -3322,7 +3546,7 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
         if (!texCode.isEmpty()) {
             if (!imgPath.isEmpty()) {
                 ui->glWidget->loadTextureFromFile(imgPath);
-                ui->glWidget->makeCurrent(); ui->glWidget->rebuildShader(); ui->glWidget->doneCurrent();
+                ui->glWidget->rebuildShader();
                 m_isImageMode = true;
                 m_isCustomMode = false;
                 m_currentTexturePath = imgPath;
@@ -3332,21 +3556,19 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
                 m_isImageMode = false;
                 ui->glWidget->loadCustomShader(texCode);
                 // Sicurezza aggiuntiva: forziamo subito la ricompilazione!
-                ui->glWidget->makeCurrent();
-                ui->glWidget->doneCurrent();
             }
             else {
                 m_isCustomMode = false;
                 m_isImageMode = false;
                 generateTexture();
-                ui->glWidget->makeCurrent(); ui->glWidget->rebuildShader(); ui->glWidget->doneCurrent();
+                ui->glWidget->rebuildShader();
             }
         }
         else {
             m_isCustomMode = false;
             m_isImageMode = false;
             generateTexture();
-            ui->glWidget->makeCurrent(); ui->glWidget->rebuildShader(); ui->glWidget->doneCurrent();
+            ui->glWidget->rebuildShader();
         }
 
         ui->glWidget->setFlatViewTarget(currentTarget);
@@ -3487,13 +3709,14 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
 
     // 7. AVVIO AUTOMATICO GRAFICA
     bool hasValidEquations = (data.x.trimmed().length() > 0 && data.x != "0" && data.x != "0.0");
-    bool isScript = (data.isScript && !data.scriptCode.isEmpty() && !hasValidEquations);
+
+    // Deduzione automatica dello script
+    bool isScript = data.isScript || (!data.scriptCode.isEmpty() && !hasValidEquations);
 
     if (!isScript) {
         onStartClicked();
     } else {
         if (ui->glWidget) {
-            ui->glWidget->makeCurrent();
 
             // Carica lo shader personalizzato OPPURE rigenera quello standard, mai entrambi.
             if (texEnabled && m_isCustomMode && !m_surfaceTextureCode.isEmpty()) {
@@ -3503,7 +3726,6 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
                 ui->glWidget->rebuildShader();
             }
 
-            ui->glWidget->doneCurrent();
             ui->glWidget->updateSurfaceData();
             ui->glWidget->update();
         }
@@ -3630,9 +3852,7 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
             updateWLimits();
             ui->glWidget->setResolution(ui->stepSlider->value());
 
-            ui->glWidget->makeCurrent();
             ui->glWidget->updateSurfaceData();
-            ui->glWidget->doneCurrent();
             ui->glWidget->update();
         }
     });
@@ -3648,6 +3868,12 @@ void MainWindow::onUndoDelete() {
 
 void MainWindow::onAddRepositoryClicked(LibraryType /*type*/)
 {
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    QMessageBox::information(this, "Gestione Libreria",
+                             "Su iPhone e iPad la tua libreria è gestita in automatico dal sistema.\n"
+                             "Apri l'app 'File' di iOS per organizzare le tue cartelle e i preset.");
+    return;
+#else
     QSettings settings;
     QString currentRoot = settings.value("libraryRootPath", QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)).toString();
 
@@ -3656,20 +3882,19 @@ void MainWindow::onAddRepositoryClicked(LibraryType /*type*/)
 
     if (selectedPath.isEmpty()) return;
 
-    // PULIZIA DEL PERCORSO e AGGIUNTA FORZATA
     selectedPath = QDir::cleanPath(selectedPath);
-    QString finalPath = selectedPath + "/Presets"; // <-- CREA SEMPRE LA SOTTOCARTELLA
+    QString finalPath = selectedPath + "/Presets";
 
     QDir().mkpath(finalPath);
     settings.setValue("libraryRootPath", finalPath);
 
-    // Essendo cambiato il percorso root, eliminiamo le vecchie chiavi specifiche
     settings.remove("pathSurfaces");
     settings.remove("pathTextures");
     settings.remove("pathRecords");
     settings.remove("pathSounds");
 
     setupDefaultFolders();
+#endif
 }
 
 void MainWindow::onCreateFolderClicked()
@@ -3684,7 +3909,6 @@ void MainWindow::onCreateFolderClicked()
     QString basePath;
     QTreeWidgetItem *item = getCurrentLibraryItem();
     QSettings settings;
-    QString rootPath = settings.value("libraryRootPath").toString();
 
     // A. C'è un item selezionato? Usiamo la sua cartella madre.
     if (item) {
@@ -3699,10 +3923,19 @@ void MainWindow::onCreateFolderClicked()
     // B. Nessun item selezionato? Inseriamo nella root della categoria corretta.
     if (basePath.isEmpty()) {
         QWidget *currentTab = ui->tabWidget->currentWidget();
+
+        // --- UNICO BLOCCO rootPath (Scopo limitato a dove serve davvero) ---
+#if defined(Q_OS_ANDROID)
+        QString rootPath = "/storage/emulated/0/Documents/SurfaceExplorer_Presets";
+#elif defined(Q_OS_IOS)
+        // Chiediamo il percorso live al sistema operativo, così non è mai scaduto
+        QString rootPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/SurfaceExplorer_Presets";
+#else
         QString rootPath = settings.value("libraryRootPath").toString();
+#endif
 
         if (currentTab == ui->Texture) basePath = settings.value("pathTextures", rootPath + "/Textures").toString();
-        else if (currentTab == ui->Motions) basePath = settings.value("pathMotions", rootPath + "/Motions").toString();
+        else if (currentTab == ui->Motions) basePath = settings.value("pathRecords", rootPath + "/Records").toString();
         else if (currentTab->objectName().contains("Sound", Qt::CaseInsensitive)) basePath = settings.value("pathSounds", rootPath + "/Sounds").toString();
         else basePath = settings.value("pathSurfaces", rootPath + "/Surfaces").toString();
     }
@@ -3724,21 +3957,23 @@ void MainWindow::onSyncPresetsClicked()
 {
     QSettings settings;
 
-    // 1. AMNESIA FORZATA: Cancelliamo TUTTE le vecchie configurazioni sballate
+    // 1. AMNESIA FORZATA: Cancelliamo le vecchie configurazioni sballate
     settings.remove("pathSurfaces");
     settings.remove("pathTextures");
     settings.remove("pathMotions");
     settings.remove("pathRecords");
     settings.remove("pathSounds");
-    settings.remove("repoPathsSurfaces");
-    settings.remove("repoPathsTextures");
-    settings.remove("repoPathsMotions");
-    settings.remove("repoPathsSounds");
 
+    // 2. PERCORSO DINAMICO (La chiave per iOS!)
+#if defined(Q_OS_ANDROID)
+    QString rootPath = "/storage/emulated/0/Documents/SurfaceExplorer_Presets";
+#elif defined(Q_OS_IOS)
+    QString rootPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/SurfaceExplorer_Presets";
+#else
     QString rootPath = settings.value("libraryRootPath").toString();
+#endif
 
-    // Se la cartella radice non c'è, avviamo il setup iniziale
-    if (rootPath.isEmpty() || !QDir(rootPath).exists()) {
+    if (rootPath.isEmpty()) {
         setupDefaultFolders();
         return;
     }
@@ -3750,29 +3985,30 @@ void MainWindow::onSyncPresetsClicked()
 
     if (reply == QMessageBox::No) return;
 
-    // 2. PERCORSI ASSOLUTI E INVALICABILI
+    // 3. PERCORSI ASSOLUTI
     QString pathSurf = rootPath + "/Surfaces";
     QString pathTex  = rootPath + "/Textures";
     QString pathRec  = rootPath + "/Records";
     QString pathSnd  = rootPath + "/Sounds";
 
-    // Li salviamo puliti in memoria
     settings.setValue("pathSurfaces", pathSurf);
     settings.setValue("pathTextures", pathTex);
     settings.setValue("pathRecords", pathRec);
     settings.setValue("pathSounds", pathSnd);
 
-    // 3. CREAZIONE FISICA CARTELLE (se mancano)
+    // 4. CREAZIONE FISICA CARTELLE
     QDir().mkpath(pathSurf);
     QDir().mkpath(pathTex);
     QDir().mkpath(pathRec);
     QDir().mkpath(pathSnd);
 
-    // 4. ESTRAZIONE RISORSE (Assicurati che queste 4 righe siano ESATTAMENTE così)
-    syncResourcesToFolder(":/library/presets/surfaces", pathSurf, true);
-    syncResourcesToFolder(":/library/presets/textures", pathTex, true);
-    syncResourcesToFolder(":/library/presets/records", pathRec, true);
-    syncResourcesToFolder(":/library/presets/sounds", pathSnd, true);
+    // 5. ESTRAZIONE RICORSIVA
+    int overwriteState = 0; // 0 = Chiedi, 1 = Yes to All, 2 = No to All
+
+    syncResourcesToFolder(":/library/presets/surfaces", pathSurf, true, &overwriteState);
+    syncResourcesToFolder(":/library/presets/textures", pathTex, true, &overwriteState);
+    syncResourcesToFolder(":/library/presets/records", pathRec, true, &overwriteState);
+    syncResourcesToFolder(":/library/presets/sounds", pathSnd, true, &overwriteState);
 
     refreshRepositories();
     QMessageBox::information(this, "Completed", "Library successfully updated and repaired!");
@@ -3822,10 +4058,41 @@ void MainWindow::onSaveTexJsonClicked() // SAVE AS
     if (wasPath3D) pathTimer3D->stop();
 
     // Apre il dialogo
-    QString fileName = QFileDialog::getSaveFileName(this,
-                                                    "Save Texture Preset",
-                                                    startDir,
-                                                    "Texture Preset (*.json)");
+    QString fileName;
+
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    // --- APPROCCIO MOBILE: Niente esplora risorse, chiediamo solo il nome ---
+    bool ok;
+    QString baseName = QInputDialog::getText(this, "Save Texture Preset",
+                                             "Scegli un nome per il preset:",
+                                             QLineEdit::Normal, "NuovaTexture", &ok);
+
+    if (!ok || baseName.isEmpty()) {
+        // L'utente ha annullato
+        if (wasAnimating) ui->glWidget->resumeMotion();
+        if (wasPath4D) pathTimer->start();
+        if (wasPath3D) pathTimer3D->start();
+        return;
+    }
+
+    // Costruiamo il percorso sicuro forzando l'estensione json
+    QString safeDir = settings.value("pathTextures", settings.value("libraryRootPath").toString() + "/Textures").toString();
+    fileName = safeDir + "/" + baseName + ".json";
+
+#else
+    // --- APPROCCIO DESKTOP: QFileDialog classico ---
+    fileName = QFileDialog::getSaveFileName(this,
+                                            "Save Texture Preset",
+                                            startDir,
+                                            "Texture Preset (*.json)");
+
+    if (fileName.isEmpty()) {
+        if (wasAnimating) ui->glWidget->resumeMotion();
+        if (wasPath4D) pathTimer->start();
+        if (wasPath3D) pathTimer3D->start();
+        return;
+    }
+#endif
 
     if (wasAnimating) ui->glWidget->resumeMotion();
     if (wasPath4D) pathTimer->start();
@@ -3871,6 +4138,13 @@ void MainWindow::onSaveMotionClicked() {
 void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
 {
     Q_UNUSED(column);
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    if (item->childCount() > 0) {
+        item->setExpanded(!item->isExpanded());
+        return;
+    }
+#endif
 
     QVariant vSound = item->data(0, Qt::UserRole + 3);
     if (!vSound.isValid()) return;
@@ -4132,7 +4406,12 @@ void MainWindow::refreshRepositories()
 
     // 5. CARICAMENTO DAL FILE SYSTEM
     QSettings settings;
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    QString rootPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/SurfaceExplorer_Presets";
+#else
     QString rootPath = settings.value("libraryRootPath").toString();
+#endif
 
     QString pathSurf = settings.value("pathSurfaces", rootPath + "/Surfaces").toString();
     QString pathTex  = settings.value("pathTextures", rootPath + "/Textures").toString();
@@ -4333,20 +4612,17 @@ void MainWindow::saveTextureConfig(const QString &path) {
 QTreeWidgetItem* MainWindow::getCurrentLibraryItem() {
     QWidget* currentTab = ui->tabWidget->currentWidget();
 
+    // Ci fidiamo SOLO della selezione esplicita e reale, ignorando il focus invisibile!
     if (currentTab == ui->Surface) {
-        if (ui->treeSurfaces->currentItem()) return ui->treeSurfaces->currentItem();
         if (!ui->treeSurfaces->selectedItems().isEmpty()) return ui->treeSurfaces->selectedItems().first();
     }
     else if (currentTab == ui->Texture) {
-        if (ui->treeTextures->currentItem()) return ui->treeTextures->currentItem();
         if (!ui->treeTextures->selectedItems().isEmpty()) return ui->treeTextures->selectedItems().first();
     }
     else if (currentTab == ui->Motions) {
-        if (ui->treeMotions->currentItem()) return ui->treeMotions->currentItem();
         if (!ui->treeMotions->selectedItems().isEmpty()) return ui->treeMotions->selectedItems().first();
     }
     else if (currentTab->objectName().contains("Sound", Qt::CaseInsensitive)) {
-        if (ui->treeSounds->currentItem()) return ui->treeSounds->currentItem();
         if (!ui->treeSounds->selectedItems().isEmpty()) return ui->treeSounds->selectedItems().first();
     }
     return nullptr;
@@ -4466,7 +4742,10 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     bool hasValidEquations = false;
     if (d.x.trimmed().length() > 0 && d.x != "0" && d.x != "0.0") hasValidEquations = true;
 
-    if (d.isScript && !d.scriptCode.isEmpty() && !hasValidEquations) {
+    // Salvataggio
+    bool isScript = d.isScript || (!d.scriptCode.isEmpty() && !hasValidEquations);
+
+    if (isScript && !d.scriptCode.isEmpty() && !hasValidEquations) {
         m_surfaceScriptText = d.scriptCode;
         this->setProperty("rawSurfaceScript", d.scriptCode);
         ui->lineX->clear(); ui->lineY->clear(); ui->lineZ->clear(); ui->lineP->clear();
@@ -4538,11 +4817,11 @@ void MainWindow::applyCommonData(const LibraryItem &d)
         }
 
         ui->glWidget->setParametricEquations(
-            GlslTranslator::translateEquation(d.x),
-            GlslTranslator::translateEquation(d.y),
-            GlslTranslator::translateEquation(d.z),
-            GlslTranslator::translateEquation(d.w)
-            );
+                    GlslTranslator::translateEquation(d.x),
+                    GlslTranslator::translateEquation(d.y),
+                    GlslTranslator::translateEquation(d.z),
+                    GlslTranslator::translateEquation(d.w)
+                    );
 
         ui->glWidget->updateSurfaceData();
         ui->glWidget->update();
@@ -4569,9 +4848,9 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     ui->lineGamma_P->setText(d.path4D_gamma);
 
     ui->glWidget->getEngine()->compilePathEquations(
-        d.path4D_x, d.path4D_y, d.path4D_z, d.path4D_w,
-        d.path4D_alpha, d.path4D_beta, d.path4D_gamma
-        );
+                d.path4D_x, d.path4D_y, d.path4D_z, d.path4D_w,
+                d.path4D_alpha, d.path4D_beta, d.path4D_gamma
+                );
 
     // Reset Variabili Tempo Locali
     pathTimeT = 0.0f;
@@ -4637,18 +4916,29 @@ void MainWindow::generateTexture()
 void MainWindow::setupDefaultFolders()
 {
     QSettings settings;
-    QString rootPath = settings.value("libraryRootPath").toString();
 
-#ifdef Q_OS_ANDROID
-    QString androidDataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    QString autoPath = androidDataPath + "/SurfaceExplorer_Presets";
+    QString rootPath;
 
-    if (rootPath.isEmpty() || !QDir(rootPath).exists()) {
-        rootPath = autoPath;
-        QDir().mkpath(rootPath);
-        settings.setValue("libraryRootPath", rootPath);
-    }
+#if defined(Q_OS_ANDROID)
+    rootPath = "/storage/emulated/0/Documents/SurfaceExplorer_Presets";
+    QDir().mkpath(rootPath);
+    settings.setValue("libraryRootPath", rootPath);
+#elif defined(Q_OS_IOS)
+    QString docPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    qDebug() << "\n[DEBUG-IOS] 1. Percorso Documents ufficiale iOS:" << docPath;
+
+    rootPath = docPath + "/SurfaceExplorer_Presets";
+    qDebug() << "[DEBUG-IOS] 2. Percorso finale richiesto per i preset:" << rootPath;
+
+    bool mkpathResult = QDir().mkpath(rootPath);
+    qDebug() << "[DEBUG-IOS] 3. Creazione cartella rootPath riuscita?" << mkpathResult;
+
+    qDebug() << "[DEBUG-IOS] 4. La cartella rootPath ESISTE fisicamente?" << QDir(rootPath).exists();
+
+    settings.setValue("libraryRootPath", rootPath);
 #else
+    // Su Desktop leggiamo la memoria e mostriamo il popup se manca
+    rootPath = settings.value("libraryRootPath").toString();
     if (rootPath.isEmpty() || !QDir(rootPath).exists()) {
         QMessageBox::information(this, "Welcome to Surface Explorer",
                                  "Choose a location to install your Library.\n"
@@ -4658,15 +4948,12 @@ void MainWindow::setupDefaultFolders()
         QString selectedPath = QFileDialog::getExistingDirectory(this, "Select Master Folder", defaultPath);
 
         if (selectedPath.isEmpty()) {
-            // L'utente ha annullato, usiamo il default
             rootPath = defaultPath + "/SurfaceExplorer_Presets";
         } else {
-            // PULIZIA DEL PERCORSO e AGGIUNTA FORZATA
             selectedPath = QDir::cleanPath(selectedPath);
-            rootPath = selectedPath + "/Presets"; // <-- CREA SEMPRE LA SOTTOCARTELLA
+            rootPath = selectedPath + "/Presets";
         }
 
-        // Creiamo fisicamente la cartella madre sul disco
         QDir().mkpath(rootPath);
         settings.setValue("libraryRootPath", rootPath);
     }
@@ -4708,16 +4995,105 @@ void MainWindow::copyPath(QString src, QString dst) {
     m_fileOps->copyPath(src, dst);
 }
 
-void MainWindow::syncResourcesToFolder(const QString &resourcePath, const QString &diskPath, bool forceRestore)
+void MainWindow::syncResourcesToFolder(const QString &resourcePath, const QString &diskPath, bool forceRestore, int *overwriteState)
 {
-    QDir resDir(resourcePath);
     QDir diskDir(diskPath);
 
     if (!diskDir.exists()) {
         diskDir.mkpath(".");
     }
 
-    // 1. COPIA DEI FILE (Se ce ne sono nella cartella corrente)
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    // =========================================================
+    // VERSIONE MOBILE (iOS/Android)
+    // =========================================================
+    QDirIterator it(resourcePath, QDir::Files, QDirIterator::Subdirectories);
+
+    while (it.hasNext()) {
+        QString src = it.next();
+
+        QString relativePath = src.mid(resourcePath.length());
+        if (relativePath.startsWith("/")) relativePath = relativePath.mid(1);
+
+        QString dst = diskDir.absoluteFilePath(relativePath);
+        QString dstDir = QFileInfo(dst).absolutePath();
+
+        if (!QDir(dstDir).exists()) QDir().mkpath(dstDir);
+
+        QString deletedPath = dst + ".deleted";
+        if (forceRestore && QFile::exists(deletedPath)) QFile::remove(deletedPath);
+
+        bool isDeleted = QFile::exists(deletedPath);
+        bool needsCopy = false;
+
+        // --- CONTROLLO ESISTENZA E CONTENUTO ---
+        if (!QFile::exists(dst)) {
+            if (!isDeleted || forceRestore) needsCopy = true;
+        } else if (forceRestore) {
+            QFile srcFile(src);
+            QFile dstFile(dst);
+            if (srcFile.open(QIODevice::ReadOnly) && dstFile.open(QIODevice::ReadOnly)) {
+                if (srcFile.readAll() != dstFile.readAll()) {
+
+                    if (overwriteState && *overwriteState == 1) {
+                        needsCopy = true; // Yes To All
+                    } else if (overwriteState && *overwriteState == 2) {
+                        needsCopy = false; // No To All
+                    } else {
+                        // Chiediamo all'utente
+                        QMessageBox msgBox(this);
+                        msgBox.setWindowTitle("Modified Preset Detected");
+                        msgBox.setText(QString("The preset '%1' has been modified.\nDo you want to overwrite it with the factory default?").arg(QFileInfo(dst).fileName()));
+                        msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::YesToAll | QMessageBox::No | QMessageBox::NoToAll);
+                        msgBox.setDefaultButton(QMessageBox::No);
+
+                        int ret = msgBox.exec();
+                        if (ret == QMessageBox::Yes) {
+                            needsCopy = true;
+                        } else if (ret == QMessageBox::YesToAll) {
+                            needsCopy = true;
+                            if (overwriteState) *overwriteState = 1;
+                        } else if (ret == QMessageBox::NoToAll) {
+                            needsCopy = false;
+                            if (overwriteState) *overwriteState = 2;
+                        } else {
+                            needsCopy = false; // No
+                        }
+                    }
+                }
+            }
+        }
+
+        if (needsCopy) {
+            if (QFileInfo(src).fileName().startsWith("._")) continue;
+
+            QFile inFile(src);
+            if (inFile.open(QIODevice::ReadOnly)) {
+                QFile outFile(dst);
+
+                if (outFile.exists()) {
+                    outFile.setPermissions(QFile::WriteOwner | QFile::WriteUser);
+                    outFile.remove();
+                }
+
+                if (outFile.open(QIODevice::WriteOnly)) {
+                    outFile.write(inFile.readAll());
+                    outFile.close();
+#if defined(Q_OS_ANDROID)
+                    notifyAndroidMediaStore(dst);
+#endif
+                }
+                inFile.close();
+            }
+        }
+    }
+
+#else
+    // =========================================================
+    // VERSIONE DESKTOP ORIGINALE
+    // =========================================================
+    QDir resDir(resourcePath);
+
     for (const QString &filename : resDir.entryList(QDir::Files)) {
         QString src = resourcePath + "/" + filename;
         QString dst = diskDir.absoluteFilePath(filename);
@@ -4727,27 +5103,69 @@ void MainWindow::syncResourcesToFolder(const QString &resourcePath, const QStrin
             QFile::remove(deletedPath);
         }
 
-        // Procediamo alla copia solo se non esiste la versione .deleted (o se stiamo forzando il ripristino)
         bool isDeleted = QFile::exists(deletedPath);
+        bool needsCopy = false;
 
-        if (!QFile::exists(dst) && (!isDeleted || forceRestore)) {
+        // --- CONTROLLO ESISTENZA E CONTENUTO ---
+        if (!QFile::exists(dst)) {
+            if (!isDeleted || forceRestore) needsCopy = true;
+        } else if (forceRestore) {
+            QFile srcFile(src);
+            QFile dstFile(dst);
+            if (srcFile.open(QIODevice::ReadOnly) && dstFile.open(QIODevice::ReadOnly)) {
+                if (srcFile.readAll() != dstFile.readAll()) {
+
+                    if (overwriteState && *overwriteState == 1) {
+                        needsCopy = true; // Yes To All
+                    } else if (overwriteState && *overwriteState == 2) {
+                        needsCopy = false; // No To All
+                    } else {
+                        // Chiediamo all'utente
+                        QMessageBox msgBox(this);
+                        msgBox.setWindowTitle("Modified Preset Detected");
+                        msgBox.setText(QString("The preset '%1' has been modified.\nDo you want to overwrite it with the factory default?").arg(filename));
+                        msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::YesToAll | QMessageBox::No | QMessageBox::NoToAll);
+                        msgBox.setDefaultButton(QMessageBox::No);
+
+                        int ret = msgBox.exec();
+                        if (ret == QMessageBox::Yes) {
+                            needsCopy = true;
+                        } else if (ret == QMessageBox::YesToAll) {
+                            needsCopy = true;
+                            if (overwriteState) *overwriteState = 1;
+                        } else if (ret == QMessageBox::NoToAll) {
+                            needsCopy = false;
+                            if (overwriteState) *overwriteState = 2;
+                        } else {
+                            needsCopy = false; // No
+                        }
+                    }
+                }
+            }
+        }
+
+        if (needsCopy) {
             if (filename.startsWith("._")) continue;
+
+            if (QFile::exists(dst)) {
+                QFile::setPermissions(dst, QFile::WriteOwner | QFile::WriteUser);
+                QFile::remove(dst);
+            }
 
             if (QFile::copy(src, dst)) {
                 QFile::setPermissions(dst, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadGroup);
-                qDebug() << "Copiato:" << dst;
             }
         }
     }
 
-    // 2. GESTIONE SOTTOCARTELLE
+    // GESTIONE SOTTOCARTELLE (Nota l'aggiunta di overwriteState)
     for (const QString &dirName : resDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
         QString subResPath = resourcePath + "/" + dirName;
         QString subDiskPath = diskPath + "/" + dirName;
 
-        // Passiamo il parametro forceRestore anche alle sottocartelle
-        syncResourcesToFolder(subResPath, subDiskPath, forceRestore);
+        syncResourcesToFolder(subResPath, subDiskPath, forceRestore, overwriteState);
     }
+#endif
 }
 
 void MainWindow::updateFlatPreviewButton()
@@ -4790,7 +5208,15 @@ void MainWindow::updateWatcherPaths()
     };
 
     QSettings settings;
+
+#if defined(Q_OS_ANDROID)
+    QString rootPath = "/storage/emulated/0/Documents/SurfaceExplorer_Presets";
+#elif defined(Q_OS_IOS)
+    // Chiediamo il percorso live al sistema operativo, così non è mai scaduto
+    QString rootPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/SurfaceExplorer_Presets";
+#else
     QString rootPath = settings.value("libraryRootPath").toString();
+#endif
 
     addDirsToWatcher(settings.value("pathSurfaces", rootPath + "/Surfaces").toString());
     addDirsToWatcher(settings.value("pathTextures", rootPath + "/Textures").toString());
@@ -4817,8 +5243,6 @@ QString MainWindow::composeEquation(const QString &eq, const QString &uDef, cons
 
     return res;
 }
-
-#include <QDebug> // Assicurati di avere questo in cima al file!
 
 float MainWindow::parseUIConstant(const QString &exprStr, float A, float B, float C, float D, float E, float F, float S)
 {

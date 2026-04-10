@@ -1,14 +1,12 @@
 # --- Build and Release folders ---
 # These contain generated binaries and libraries that should not be tracked
 build/
-SurfaceExplorer_Release/
+Release/
 AppDir/
-Surface/
 *.zip
 *.AppImage
 *.run
 *.dmg
-Surface*.dmg
 
 # --- CMake generated files ---
 # Temporary files created by the build system
@@ -25,6 +23,7 @@ install_manifest.txt
 *.user
 .qtc_clangd/
 .cmake/
+.qtcreator/
 
 # --- System and Temporary files ---
 # OS-generated files and editor swap files
@@ -33,10 +32,6 @@ Thumbs.db
 *~
 *.swp
 
-# Additional UI and Desktop files
-SurfaceExplorer.desktop
-.qtcreator/
-CREDITS.txt
-documentation.html
-Info.plist
-update_resources.py
+# --- Python ---
+__pycache__/
+*.pyc

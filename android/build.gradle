@@ -81,4 +81,10 @@ android {
         targetSdkVersion qtTargetSdkVersion
         ndk.abiFilters = qtTargetAbiList.split(",")
     }
+
+    packagingOptions {
+        doNotStrip "**/libffmpeg_exec.so"
+    }
 }
+
+

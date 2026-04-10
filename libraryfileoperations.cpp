@@ -339,7 +339,25 @@ void LibraryFileOperations::deleteSelected()
         QString msg = QString("You are about to move %1 folder(s) to the Trash/Recycle Bin.\n\nAre you sure you want to proceed?").arg(physicalFoldersToDelete.count());
         if (QMessageBox::question(m_mainWindow, "Move Folders to Trash", msg, QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
             for (const QString &path : physicalFoldersToDelete) {
-                if (QFile::moveToTrash(path)) needRefresh = true;
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+                // --- MOBILE LOGIC: Sposta la cartella nel cestino interno ---
+                QSettings settings;
+                QString trashDir = settings.value("libraryRootPath").toString() + "/.trash";
+                QDir().mkpath(trashDir);
+
+                QString folderName = QFileInfo(path).fileName();
+                QString internalTrashPath = trashDir + "/" + QString::number(QDateTime::currentMSecsSinceEpoch()) + "_delFolder_" + folderName;
+
+                // QDir().rename funziona perfettamente per spostare/rinominare intere cartelle
+                if (QDir().rename(path, internalTrashPath)) {
+                    needRefresh = true;
+                }
+#else
+                // --- DESKTOP LOGIC: Cestino di sistema originale ---
+                if (QFile::moveToTrash(path)) {
+                    needRefresh = true;
+                }
+#endif
             }
         }
     }

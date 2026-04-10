@@ -11,15 +11,25 @@ if(MINGW)
 endif()
 
 # 🔹 Trova i moduli necessari di Qt
-find_package(Qt6 REQUIRED COMPONENTS Widgets OpenGL OpenGLWidgets Concurrent)
-find_package(Qt6 REQUIRED COMPONENTS Widgets OpenGL OpenGLWidgets Network Multimedia)
-
+find_package(Qt6 REQUIRED COMPONENTS
+    Core
+    Gui
+    GuiPrivate
+    Widgets
+    Concurrent
+    Network
+    Multimedia
+    ShaderTools
+    ShaderToolsPrivate
+)
 # 🔹 Includi la cartella sorgente locale
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 qt_standard_project_setup()
 
 qt_add_executable(SurfaceExplorer
+    resources.qrc
+
     # --- MAIN & UI ---
     main.cpp
     mainwindow.cpp
@@ -36,8 +46,8 @@ qt_add_executable(SurfaceExplorer
     glwidget.h
     geometrybuilder.cpp
     geometrybuilder.h
-    texturemanager.cpp
-    texturemanager.h
+
+
 
     # --- UTILITIES & INPUT ---
     uistylemanager.cpp
@@ -50,7 +60,7 @@ qt_add_executable(SurfaceExplorer
     librarymanager.h
     shaders/common.glsl
 
-    resources.qrc
+
     shaders/surface.frag
     shaders/surface.vert
 
@@ -78,11 +88,15 @@ set_source_files_properties(documentation.html PROPERTIES MACOSX_PACKAGE_LOCATIO
 
 # 🔹 Collega le librerie Qt
 target_link_libraries(SurfaceExplorer PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::GuiPrivate
     Qt6::Widgets
-    Qt6::OpenGL
-    Qt6::OpenGLWidgets
     Qt6::Concurrent
+    Qt6::Network
     Qt6::Multimedia
+    Qt6::ShaderTools
+    Qt6::ShaderToolsPrivate
 )
 
 # =========================================================
@@ -90,45 +104,47 @@ target_link_libraries(SurfaceExplorer PRIVATE
 # =========================================================
 
 if (IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
-
-    # --- CONFIGURAZIONE SPECIFICA PER IPAD FISICO ---
     message(STATUS "Configuring for iOS Device...")
 
-    # 1. Architettura e Versione
-    set(CMAKE_OSX_ARCHITECTURES "arm64")   # Forza processore reale (no simulatore)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0")
-
-    set_target_properties(SurfaceExplorer PROPERTIES
-        MACOSX_BUNDLE TRUE
-        MACOSX_BUNDLE_GUI_IDENTIFIER "com.dioscorid.surface4d"
-        MACOSX_BUNDLE_BUNDLE_NAME "Surface Explorer"
-
-        # Identificativo univoco per la firma
-        XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.dioscorid.surface4d"
-
-        # Famiglia dispositivi: 1=iPhone, 2=iPad (1,2 = entrambi)
-        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
-
-        # FIRMA: Lasciamo "Automatic" così Xcode usa il tuo account personale
-        XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic"
-        XCODE_ATTRIBUTE_DEVELOPMENT_TEAM ""
+    set_target_properties(SurfaceExplorer PROPERTIES QT_PLUGINS "darwinmediaplugin")
+    qt_import_plugins(SurfaceExplorer
+        INCLUDE Qt6::QDarwinMediaPlugin
+        EXCLUDE Qt6::QFFmpegMediaPlugin
     )
 
-    # 2. Framework di Sistema iOS
+    # 1. FORZATURA GLOBALE DELLA FIRMA (Ferma il bulldozer di CMake)
+    set(CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "AJ655XKJR8")
+    set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic")
+    set(CMAKE_XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.dioscorid.surfaceexplorer")
+
+    # 2. Architettura e Versione
+    set(CMAKE_OSX_ARCHITECTURES "arm64")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "17.0")
+
+    # 3. Proprietà dell'App
+    set_target_properties(SurfaceExplorer PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.dioscorid.surfaceexplorer"
+        MACOSX_BUNDLE_BUNDLE_NAME "Surface Explorer"
+        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist"
+        VERSION "1.0"
+        MACOSX_BUNDLE_BUNDLE_VERSION "1"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0"
+        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "1"
+        XCODE_ATTRIBUTE_MARKETING_VERSION "1.0"
+)
+
+    # 4. Framework di Sistema iOS
     target_link_libraries(SurfaceExplorer PRIVATE
         "-framework Foundation"
         "-framework UIKit"
-        "-framework OpenGLES"
+        "-framework Metal"
         "-framework QuartzCore"
         "-framework CoreGraphics"
     )
 
 elseif (APPLE)
-    # Su macOS usiamo i Frameworks.
-    target_link_libraries(SurfaceExplorer PRIVATE
-        "-framework OpenGL"
-    )
-
     # --- CONFIGURAZIONE NOME APP MACOS ---
     set_target_properties(SurfaceExplorer PROPERTIES
         MACOSX_BUNDLE TRUE
@@ -153,9 +169,6 @@ elseif (APPLE)
     set_source_files_properties(documentation.html PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 
 elseif (UNIX AND NOT ANDROID)
-    # Configurazione classica per Linux
-    target_link_libraries(SurfaceExplorer PRIVATE GL)
-
     # Impostiamo il nome dell'eseguibile finale (tutto minuscolo per standard Linux)
     set_target_properties(SurfaceExplorer PROPERTIES OUTPUT_NAME "surface-explorer")
 
@@ -184,28 +197,6 @@ endif()
 # CONFIGURAZIONE ORIENTAMENTO E FIRMA (FIX DEFINITIVO)
 # =========================================================
 
-if(IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
-
-    # 1. IL TUO TEAM ID (Quello che hai appena copiato da Xcode)
-    set(MY_TEAM_ID "AJ655XKJR8")
-
-    # 2. IL NUOVO NOME DELL'APP (Quello che ha funzionato: v2)
-    set(MY_BUNDLE_ID "com.dioscorid.surface4d")
-
-    set_target_properties(SurfaceExplorer PROPERTIES
-        # Impostiamo firma e team
-        XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic"
-        XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${MY_TEAM_ID}"
-
-        # Aggiorniamo l'identificativo ovunque con la versione
-        MACOSX_BUNDLE_GUI_IDENTIFIER "${MY_BUNDLE_ID}"
-        XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${MY_BUNDLE_ID}"
-
-        # Usa il file Info.plist (quello che forza il Landscape)
-        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist"
-    )
-endif()
-
 if(ANDROID)
     # Imposta la cartella sorgente per il pacchetto Android (dove sta il Manifest)
     set_property(TARGET SurfaceExplorer PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android")
@@ -217,11 +208,33 @@ if(ANDROID)
         QT_ANDROID_TARGET_SDK_VERSION 34
         QT_ANDROID_MIN_SDK_VERSION 26
     )
+endif()
 
-    # Link esplicito alle librerie grafiche Android (Essenziale per SurfaceExplorer)
-    target_link_libraries(SurfaceExplorer PRIVATE
-        EGL
-        GLESv2
-    #  Qt6::AndroidExtras
+# --- CONFIGURAZIONE NATIVA PER REGISTRAZIONE VIDEO SU iOS ---
+if(IOS)
+    # Aggiunge il file Objective-C++ alla compilazione
+    target_sources(SurfaceExplorer PRIVATE
+        nativevideoencoder.h
+        nativevideoencoder_ios.mm
     )
+
+    # 1. Framework Apple e librerie di compressione necessarie a FFmpeg
+    target_link_libraries(SurfaceExplorer PRIVATE
+        "-framework AVFoundation"
+        "-framework CoreVideo"
+        "-framework CoreMedia"
+        "-framework UIKit"
+        "-framework Foundation"
+        "-framework VideoToolbox"
+        "-framework AudioToolbox"
+        "-framework Security"
+        "-lbz2"
+        "-lz"
+        "-liconv"
+    )
+
+    # 2. Troviamo dinamicamente la cartella "lib" di Qt 6.10
+    get_target_property(QT_CORE_LOC Qt6::Core LOCATION)
+    get_filename_component(QT_FRAMEWORK_DIR "${QT_CORE_LOC}" DIRECTORY)
+    get_filename_component(QT_LIB_DIR "${QT_FRAMEWORK_DIR}" DIRECTORY)
 endif()

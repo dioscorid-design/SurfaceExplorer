@@ -2,6 +2,7 @@
 #include <QDirIterator>
 #include <QUrl>
 #include <QDebug>
+#include <QSettings>
 
 LibraryManager::LibraryManager() {}
 
@@ -520,21 +521,35 @@ DeletionBackup LibraryManager::softDelete(int index, LibraryType type)
     LibraryItem item = (*targetList)[index];
 
     if (item.filePath.startsWith(":")) {
-        qDebug() << "Tentativo di cancellare risorsa protetta:" << item.filePath;
-        return backup; // Restituisce backup vuoto, nessuna cancellazione avviene.
+        return backup;
     }
 
-    // Procedura standard di cancellazione per i file utente
     backup.data = item;
     backup.originalPath = backup.data.filePath;
 
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    // --- MOBILE LOGIC (iOS/Android): Spostamento nel cestino interno ---
+    QSettings settings;
+    QString trashDir = settings.value("libraryRootPath").toString() + "/.trash";
+    QDir().mkpath(trashDir);
+
+    QString fileName = QFileInfo(backup.originalPath).fileName();
+    QString internalTrashPath = trashDir + "/" + QString::number(QDateTime::currentMSecsSinceEpoch()) + "_del_" + fileName;
+
+    if (QFile::rename(backup.originalPath, internalTrashPath)) {
+        backup.isValid = true;
+        backup.backupPath = internalTrashPath;
+        targetList->removeAt(index);
+    }
+#else
+    // --- DESKTOP LOGIC: Cestino di sistema originale ---
     QString pathInTrash;
-    // moveToTrash restituisce il percorso interno al cestino, utilissimo per il nostro "Undo"
     if (QFile::moveToTrash(backup.originalPath, &pathInTrash)) {
         backup.isValid = true;
         backup.backupPath = pathInTrash;
         targetList->removeAt(index);
     }
+#endif
 
     return backup;
 }

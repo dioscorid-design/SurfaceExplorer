@@ -16,7 +16,8 @@ public:
     void saveSurface(const QString &suggestedPath = "");
     void saveTexture(const QString &path);
     void saveMotion(const QString &suggestedPath = "");
-    void saveSound(const QString &startDir, const QString &sourceFilePath = "");
+    void saveSoundAs(const QString &startDir, const QString &sourceFilePath = "");
+    void saveSound(const QString &filePath);
     void saveScript();
     void saveTextureAs(const QString &startDir, const QString &sourceFilePath = "");
     void saveSurfaceAs(const QString &startDir, const QString &sourceFilePath = "");

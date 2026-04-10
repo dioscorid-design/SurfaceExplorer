@@ -90,6 +90,10 @@ void AudioController::playFromScript(const QString &scriptCode)
             if (m_player) m_player->stop();
             if (m_synth) m_synth->stop();
 
+            // Recupera il motore RHI dal tuo widget grafico e passalo al synth
+            m_synth->setRhi(m_mainWindow->ui->glWidget->getRhi());
+            // ----------------------------
+
             // Passiamo 'false' perché passiamo direttamente la funzione GLSL pura!
             if (m_synth->updateScript(glslCode, false)) {
                 m_synth->start();

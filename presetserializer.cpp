@@ -4,6 +4,7 @@
 #include "libraryfileoperations.h"
 
 #include <QFileDialog>
+#include <QInputDialog>
 #include <QSettings>
 #include <QJsonObject>
 #include <QJsonDocument>
@@ -12,6 +13,144 @@
 #include <QStandardPaths>
 #include <QRegularExpression>
 #include <QMessageBox>
+#include <QTimer>
+#include <QDialog>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QListWidget>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QLabel>
+#include <QDir>
+
+// --- INIZIO CUSTOM ANDROID DIALOG ---
+#if defined(Q_OS_ANDROID)
+#include <QMessageBox> // Assicurati di includerlo in cima al file presetserializer.cpp
+
+class AndroidSaveDialog : public QDialog {
+public:
+    AndroidSaveDialog(const QString& title, const QString& startDir, const QString& defaultFileName, QWidget* parent = nullptr)
+        : QDialog(parent), currentDir(startDir) {
+        setWindowTitle(title);
+        setMinimumSize(320, 450); // Dimensione ideale per smartphone
+
+        QVBoxLayout* mainLayout = new QVBoxLayout(this);
+
+        // 1. Label del percorso attuale (In cima)
+        pathLabel = new QLabel(currentDir.absolutePath(), this);
+        pathLabel->setWordWrap(true);
+        pathLabel->setStyleSheet("font-size: 12px; color: gray;");
+        mainLayout->addWidget(pathLabel);
+
+        // 2. Input del nome (Spostato in ALTO per non essere coperto dalla tastiera!)
+        QHBoxLayout* nameLayout = new QHBoxLayout();
+        nameLayout->addWidget(new QLabel("Name:", this));
+        nameEdit = new QLineEdit(defaultFileName, this);
+        nameEdit->setStyleSheet("padding: 10px; font-size: 16px;");
+        nameLayout->addWidget(nameEdit);
+        mainLayout->addLayout(nameLayout);
+
+        // 3. Lista delle cartelle e dei file
+        listWidget = new QListWidget(this);
+        listWidget->setStyleSheet("QListWidget::item { padding: 18px; border-bottom: 1px solid #ddd; font-size: 16px; }");
+        mainLayout->addWidget(listWidget);
+
+        // 4. Bottoni Salva / Annulla (In fondo)
+        QHBoxLayout* btnLayout = new QHBoxLayout();
+        QPushButton* cancelBtn = new QPushButton("Cancel", this);
+        QPushButton* saveBtn = new QPushButton("Save", this);
+        cancelBtn->setStyleSheet("padding: 12px; font-size: 16px;");
+        saveBtn->setStyleSheet("padding: 12px; font-size: 16px; font-weight: bold;");
+        btnLayout->addWidget(cancelBtn);
+        btnLayout->addWidget(saveBtn);
+        mainLayout->addLayout(btnLayout);
+
+        // Connessioni Bottoni
+        connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
+
+        // ---> MODIFICA 1: Invece di fare direttamente accept(), facciamo un controllo
+        connect(saveBtn, &QPushButton::clicked, this, &AndroidSaveDialog::onSaveClicked);
+
+        // Connessione Navigazione: leggiamo il nome e il TIPO da Qt::UserRole
+        connect(listWidget, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
+            QString itemName = item->data(Qt::UserRole).toString();
+            QString itemType = item->data(Qt::UserRole + 1).toString(); // Leggiamo il tipo
+
+            if (itemType == "DIR") {
+                // È una cartella: navighiamo
+                if (itemName == "..") {
+                    currentDir.cdUp();
+                } else {
+                    currentDir.cd(itemName);
+                }
+                refreshList();
+            }
+            else if (itemType == "FILE") {
+                // È un file: copiamo il nome senza l'estensione (o con, come preferisci)
+                nameEdit->setText(itemName);
+            }
+        });
+
+        refreshList();
+    }
+
+    QString getSelectedPath() const {
+        QString name = nameEdit->text();
+        if (!name.endsWith(".json", Qt::CaseInsensitive)) name += ".json";
+        return currentDir.absoluteFilePath(name);
+    }
+
+private:
+    void refreshList() {
+        listWidget->clear();
+
+        // Elemento per tornare su
+        QListWidgetItem* upItem = new QListWidgetItem("📁 .. (Up)", listWidget);
+        upItem->setData(Qt::UserRole, "..");
+        upItem->setData(Qt::UserRole + 1, "DIR"); // Contrassegno come Directory
+
+        // Popoliamo le cartelle
+        QFileInfoList dirs = currentDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+        for (const QFileInfo& dir : dirs) {
+            QListWidgetItem* dirItem = new QListWidgetItem("📁 " + dir.fileName(), listWidget);
+            dirItem->setData(Qt::UserRole, dir.fileName());
+            dirItem->setData(Qt::UserRole + 1, "DIR"); // Contrassegno come Directory
+        }
+
+        // ---> MODIFICA 2: Popoliamo anche i file JSON
+        QFileInfoList files = currentDir.entryInfoList(QStringList() << "*.json", QDir::Files, QDir::Name);
+        for (const QFileInfo& file : files) {
+            QListWidgetItem* fileItem = new QListWidgetItem("📄 " + file.fileName(), listWidget);
+            fileItem->setData(Qt::UserRole, file.fileName());
+            fileItem->setData(Qt::UserRole + 1, "FILE"); // Contrassegno come File
+        }
+
+        pathLabel->setText(currentDir.absolutePath());
+    }
+
+    // ---> MODIFICA 3: Controllo di sovrascrittura prima di chiudere la finestra
+    void onSaveClicked() {
+        QString finalPath = getSelectedPath();
+        QFileInfo checkFile(finalPath);
+
+        if (checkFile.exists()) {
+            QMessageBox::StandardButton reply;
+            reply = QMessageBox::question(this, "Sovrascrivi",
+                                          "Un preset con questo nome esiste già in questa cartella.\nVuoi sovrascriverlo?",
+                                          QMessageBox::Yes | QMessageBox::No);
+            if (reply == QMessageBox::No) {
+                return; // Ferma il processo, la finestra rimane aperta
+            }
+        }
+        accept(); // Tutto ok, chiudiamo la finestra con successo
+    }
+
+    QDir currentDir;
+    QLabel* pathLabel;
+    QListWidget* listWidget;
+    QLineEdit* nameEdit;
+};
+#endif
 
 PresetSerializer::PresetSerializer(MainWindow *parent)
     : QObject(parent), m_mainWindow(parent)
@@ -31,7 +170,15 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     QSettings settings("Repository");
     QSettings globalSettings;
     QString rootPath = globalSettings.value("libraryRootPath").toString();
-    if (rootPath.isEmpty()) rootPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/SurfaceExplorer";
+
+    if (rootPath.isEmpty()) {
+#if defined(Q_OS_ANDROID)
+        // Su Android forziamo la cartella Download pubblica bypassando la sandbox di Qt
+        rootPath = "/storage/emulated/0/Documents/SurfaceExplorer_Presets";
+#else
+        rootPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/SurfaceExplorer_Presets";
+#endif
+    }
 
     QString fileName;
     if (!suggestedPath.isEmpty() && suggestedPath.endsWith(".json", Qt::CaseInsensitive)) {
@@ -58,7 +205,22 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
             startPath += "NewSurface.json";
         }
 
+#if defined(Q_OS_ANDROID)
+        bool ok;
+        QString baseName = QFileInfo(startPath).completeBaseName();
+        QString inputName = QInputDialog::getText(m_mainWindow, "Save Surface", "File name:", QLineEdit::Normal, baseName, &ok);
+        if (!ok || inputName.isEmpty()) {
+            if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
+            if (wasPath4D) m_mainWindow->pathTimer->start();
+            if (wasPath3D) m_mainWindow->pathTimer3D->start();
+            return;
+        }
+        fileName = QFileInfo(startPath).absolutePath() + "/" + inputName + ".json";
+#elif defined(Q_OS_IOS)
+        fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface", startPath, "JSON Files (*.json)");
+#else
         fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface", startPath, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
+#endif
     }
 
     if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
@@ -173,10 +335,12 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         root["camera3D"] = camera3D;
     }
 
+    QDir().mkpath(QFileInfo(fileName).absolutePath()); // 1. Crea la cartella se manca
     QFile file(fileName);
 
     if (file.exists()) {
         file.setPermissions(file.permissions() | QFile::WriteOwner | QFile::WriteUser);
+        file.remove(); // 2. Distrugge il file lucchettato da iOS per poterlo ricreare
     }
 
     if (m_mainWindow->m_fileOps) {
@@ -188,7 +352,7 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         file.write(doc.toJson());
         file.close();
 
-        m_mainWindow->refreshRepositories();
+        QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
         m_mainWindow->ui->dockSurfaces->show();
     } else {
         QMessageBox::critical(m_mainWindow, "Save Error",
@@ -222,12 +386,13 @@ void PresetSerializer::saveTexture(const QString &path)
     }
 
     if (m_mainWindow->m_isImageMode && !m_mainWindow->m_currentTexturePath.isEmpty()) {
-        // Se c'era già un vecchio tag //IMG:, lo rimuoviamo per non fare duplicati
-        int imgIndex = currentCode.indexOf("//IMG:");
-        if (imgIndex != -1) {
-            currentCode = currentCode.left(imgIndex).trimmed();
-        }
-        currentCode += "\n//IMG:" + m_mainWindow->m_currentTexturePath;
+        // Usiamo una RegEx per rimuovere l'intera linea //IMG: ovunque si trovi,
+        // senza cancellare il codice procedurale che la segue.
+        QRegularExpression imgRe(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption);
+        currentCode.remove(imgRe);
+
+        // Riappendiamo il tag in cima al codice in modo pulito
+        currentCode = "//IMG:" + m_mainWindow->m_currentTexturePath + "\n" + currentCode.trimmed();
     }
 
     if (currentCode.trimmed().isEmpty()) currentCode = "// Texture Preset";
@@ -250,7 +415,12 @@ void PresetSerializer::saveTexture(const QString &path)
         m_mainWindow->m_fileOps->backupBeforeOverwrite(path);
     }
 
+    QDir().mkpath(QFileInfo(path).absolutePath());
     QFile file(path);
+    if (file.exists()) {
+        file.setPermissions(file.permissions() | QFile::WriteOwner | QFile::WriteUser);
+        file.remove();
+    }
     if (file.open(QIODevice::WriteOnly)) {
         QJsonDocument doc(root);
         file.write(doc.toJson());
@@ -258,7 +428,7 @@ void PresetSerializer::saveTexture(const QString &path)
 
         m_mainWindow->m_currentTexturePath = path;
         m_mainWindow->ui->tabWidget->setCurrentWidget(m_mainWindow->ui->Texture);
-        m_mainWindow->refreshRepositories();
+        QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
         m_mainWindow->ui->dockSurfaces->show();
     }
 }
@@ -308,7 +478,26 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
             startPath += "NewMotion.json";
         }
 
+#if defined(Q_OS_ANDROID)
+        bool ok;
+        QString baseName = QFileInfo(startPath).completeBaseName();
+        QString inputName = QInputDialog::getText(m_mainWindow, "Save Record", "File name:", QLineEdit::Normal, baseName, &ok);
+        if (!ok || inputName.isEmpty()) {
+            if (wasRotating) m_mainWindow->ui->glWidget->resumeMotion();
+            if (wasPath4D) m_mainWindow->pathTimer->start();
+            if (wasPath3D) m_mainWindow->pathTimer3D->start();
+            if (wasTimeAnimating) {
+                m_mainWindow->ui->glWidget->setSurfaceAnimating(true);
+                m_mainWindow->ui->glWidget->startAnimationTimer();
+            }
+            return;
+        }
+        fileName = QFileInfo(startPath).absolutePath() + "/" + inputName + ".json";
+#elif defined(Q_OS_IOS)
+        fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Record", startPath, "JSON Files (*.json)");
+#else
         fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Record", startPath, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
+#endif
     }
 
     if (wasRotating) m_mainWindow->ui->glWidget->resumeMotion();
@@ -529,13 +718,18 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         m_mainWindow->m_fileOps->backupBeforeOverwrite(fileName);
     }
 
+    QDir().mkpath(QFileInfo(fileName).absolutePath());
     QFile file(fileName);
+    if (file.exists()) {
+        file.setPermissions(file.permissions() | QFile::WriteOwner | QFile::WriteUser);
+        file.remove();
+    }
     if (file.open(QIODevice::WriteOnly)) {
         QJsonDocument doc(root);
         file.write(doc.toJson());
         file.close();
 
-        m_mainWindow->refreshRepositories();
+        QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
     }
 }
 
@@ -577,15 +771,28 @@ void PresetSerializer::saveScript()
     }
 
     QString fileName;
-    QFileDialog::Options options = QFileDialog::DontUseNativeDialog;
 
-    if (isSurface) {
-        fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface Script", currentMem, "Surface Script (*.json)", nullptr, options);
-    } else if (isSound) {
-        fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Sound Script", currentMem, "Sound Script (*.json)", nullptr, options);
-    } else {
-        fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Texture Script", currentMem, "Texture Script (*.json)", nullptr, options);
+#if defined(Q_OS_ANDROID)
+    QString title = isSurface ? "Save Surface Script" : (isSound ? "Save Sound Script" : "Save Texture Script");
+    // currentMem è la cartella di partenza, "NewScript" è il nome di default
+    AndroidSaveDialog dialog(title, currentMem, "NewScript", m_mainWindow);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        resumeTimers();
+        return;
     }
+    fileName = dialog.getSelectedPath();
+#elif defined(Q_OS_IOS)
+    QFileDialog::Options options = QFileDialog::Options();
+    if (isSurface) fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface Script", currentMem, "Surface Script (*.json)", nullptr, options);
+    else if (isSound) fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Sound Script", currentMem, "Sound Script (*.json)", nullptr, options);
+    else fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Texture Script", currentMem, "Texture Script (*.json)", nullptr, options);
+#else
+    QFileDialog::Options options = QFileDialog::DontUseNativeDialog;
+    if (isSurface) fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface Script", currentMem, "Surface Script (*.json)", nullptr, options);
+    else if (isSound) fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Sound Script", currentMem, "Sound Script (*.json)", nullptr, options);
+    else fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Texture Script", currentMem, "Texture Script (*.json)", nullptr, options);
+#endif
 
     resumeTimers();
 
@@ -635,26 +842,176 @@ void PresetSerializer::saveScript()
         m_mainWindow->m_fileOps->backupBeforeOverwrite(fileName);
     }
 
+    QDir().mkpath(QFileInfo(fileName).absolutePath());
     QFile file(fileName);
+    if (file.exists()) {
+        file.setPermissions(file.permissions() | QFile::WriteOwner | QFile::WriteUser);
+        file.remove();
+    }
     if (file.open(QIODevice::WriteOnly)) {
         QJsonDocument doc(root);
         file.write(doc.toJson());
         file.close();
 
         settings.setValue(settingsKey, QFileInfo(fileName).absolutePath());
-        m_mainWindow->refreshRepositories();
+        QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
     } else {
         QMessageBox::critical(m_mainWindow, "Error", "Could not write to file.");
     }
 }
 
-void PresetSerializer::saveSound(const QString &startDir, const QString &sourceFilePath)
+void PresetSerializer::saveSound(const QString &filePath)
+{
+    if (filePath.isEmpty()) return;
+
+    // 1. Se è un file audio multimediale (mp3, wav, ogg), non facciamo nulla.
+    // L'app non altera i byte di un file audio originale. (Per copiarlo si usa Save As).
+    if (filePath.endsWith(".mp3", Qt::CaseInsensitive) ||
+        filePath.endsWith(".wav", Qt::CaseInsensitive) ||
+        filePath.endsWith(".ogg", Qt::CaseInsensitive)) {
+        return;
+    }
+
+    // 2. È uno script JSON. Procediamo al salvataggio silenzioso.
+    QString finalPath = filePath;
+    if (!finalPath.endsWith(".json", Qt::CaseInsensitive)) {
+        finalPath += ".json";
+    }
+
+    // Backup di sicurezza prima di sovrascrivere (se implementato)
+    if (m_mainWindow->m_fileOps) {
+        m_mainWindow->m_fileOps->backupBeforeOverwrite(finalPath);
+    }
+
+    // 3. Recuperiamo il contenuto aggiornato dello script
+    QString content = m_mainWindow->m_soundScriptText;
+    if (m_mainWindow->m_currentScriptMode == 2) { // 2 = ScriptModeSound
+        content = m_mainWindow->ui->txtScriptEditor->toPlainText();
+    }
+
+    // 4. Creiamo la struttura JSON
+    QJsonObject root;
+    root["code"] = content;
+    root["type"] = "sound";
+    root["name"] = QFileInfo(finalPath).baseName();
+
+    // 5. Scrittura fisica su disco (sovrascrittura brutale e silenziosa)
+    QDir().mkpath(QFileInfo(finalPath).absolutePath());
+    QFile outFile(finalPath);
+
+    if (outFile.exists()) {
+        outFile.setPermissions(QFile::WriteOwner);
+        outFile.remove();
+    }
+
+    if (outFile.open(QIODevice::WriteOnly)) {
+        QJsonDocument doc(root);
+        outFile.write(doc.toJson());
+        outFile.close();
+    }
+
+    // 6. Aggiorniamo la UI per riflettere eventuali modifiche (es. orario di ultima modifica)
+    QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
+}
+
+void PresetSerializer::saveTextureAs(const QString &startDir, const QString &sourceFilePath)
+{
+    bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
+    bool wasPath4D = m_mainWindow->pathTimer->isActive();
+    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
+
+    if (wasAnimating) m_mainWindow->ui->glWidget->pauseMotion();
+    if (wasPath4D) m_mainWindow->pathTimer->stop();
+    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
+
+    QString defaultSelection = startDir + "/NewTexture.json";
+
+    if (!sourceFilePath.isEmpty()) {
+        QString baseName = QFileInfo(sourceFilePath).completeBaseName();
+        defaultSelection = startDir + "/" + baseName + ".json";
+    }
+
+#if defined(Q_OS_ANDROID)
+    QString baseName = QFileInfo(defaultSelection).completeBaseName();
+    AndroidSaveDialog dialog("Save Texture As...", startDir, baseName, m_mainWindow);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        // Se l'utente preme Cancel, riprendiamo l'animazione ed usciamo
+        if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
+        if (wasPath4D) m_mainWindow->pathTimer->start();
+        if (wasPath3D) m_mainWindow->pathTimer3D->start();
+        return;
+    }
+    QString savePath = dialog.getSelectedPath();
+#elif defined(Q_OS_IOS)
+    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Texture As...", defaultSelection, "JSON Files (*.json)");
+#else
+    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Texture As...", defaultSelection, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
+#endif
+
+    if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
+    if (wasPath4D) m_mainWindow->pathTimer->start();
+    if (wasPath3D) m_mainWindow->pathTimer3D->start();
+
+    if (savePath.isEmpty()) return;
+    if (!savePath.endsWith(".json", Qt::CaseInsensitive)) savePath += ".json";
+
+    QSettings().setValue("lastCustomTexDir", QFileInfo(savePath).absolutePath());
+
+    saveTexture(savePath);
+}
+
+void PresetSerializer::saveSurfaceAs(const QString &startDir, const QString &sourceFilePath)
+{
+    bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
+    bool wasPath4D = m_mainWindow->pathTimer->isActive();
+    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
+
+    if (wasAnimating) m_mainWindow->ui->glWidget->pauseMotion();
+    if (wasPath4D) m_mainWindow->pathTimer->stop();
+    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
+
+    QString defaultSelection = startDir + "/NewSurface.json";
+    if (!sourceFilePath.isEmpty()) defaultSelection = startDir + "/" + QFileInfo(sourceFilePath).fileName();
+
+#if defined(Q_OS_ANDROID)
+    QString baseName = QFileInfo(defaultSelection).completeBaseName();
+    AndroidSaveDialog dialog("Save Surface As...", startDir, baseName, m_mainWindow);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        // Se l'utente preme Cancel, riprendiamo l'animazione ed usciamo
+        if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
+        if (wasPath4D) m_mainWindow->pathTimer->start();
+        if (wasPath3D) m_mainWindow->pathTimer3D->start();
+        return;
+    }
+    QString savePath = dialog.getSelectedPath();
+#elif defined(Q_OS_IOS)
+    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface As...", defaultSelection, "JSON Files (*.json)");
+#else
+    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface As...", defaultSelection, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
+#endif
+
+    if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
+    if (wasPath4D) m_mainWindow->pathTimer->start();
+    if (wasPath3D) m_mainWindow->pathTimer3D->start();
+
+    if (savePath.isEmpty()) return;
+    if (!savePath.endsWith(".json", Qt::CaseInsensitive)) savePath += ".json";
+
+    QSettings().setValue("lastFolder", QFileInfo(savePath).absolutePath());
+
+    saveSurface(savePath);
+}
+
+void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourceFilePath)
 {
     QString defaultSelection = startDir + "/NewSound.json";
     QString filter = "JSON Files (*.json)";
     bool isMediaFile = false;
+    QString expectedExt = "json"; // Inizializza con json
 
-    // Capisce se stiamo clonando un file audio reale (MP3/WAV/OGG)
+    // 1. Capisce se stiamo clonando un file audio reale (MP3/WAV/OGG)
     if (!sourceFilePath.isEmpty()) {
         defaultSelection = startDir + "/" + QFileInfo(sourceFilePath).fileName();
         if (sourceFilePath.endsWith(".mp3", Qt::CaseInsensitive) ||
@@ -662,8 +1019,9 @@ void PresetSerializer::saveSound(const QString &startDir, const QString &sourceF
             sourceFilePath.endsWith(".ogg", Qt::CaseInsensitive)) {
 
             isMediaFile = true;
-            QString ext = QFileInfo(sourceFilePath).suffix().toLower();
-            filter = QString("%1 Files (*.%2)").arg(ext.toUpper(), ext);
+            expectedExt = QFileInfo(sourceFilePath).suffix().toLower();
+            // Aggiorna il filtro dinamicamente (Es: "MP3 Files (*.mp3)")
+            filter = QString("%1 Files (*.%2)").arg(expectedExt.toUpper(), expectedExt);
         }
     }
 
@@ -678,8 +1036,36 @@ void PresetSerializer::saveSound(const QString &startDir, const QString &sourceF
     if (wasPath4D) m_mainWindow->pathTimer->stop();
     if (wasPath3D) m_mainWindow->pathTimer3D->stop();
 
-    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Sound As...", defaultSelection, filter, nullptr, QFileDialog::DontUseNativeDialog);
+    // ==============================================================
+    // Apertura finestra di salvataggio
+    // ==============================================================
+#if defined(Q_OS_ANDROID)
+    QString baseName = QFileInfo(defaultSelection).completeBaseName();
+    AndroidSaveDialog dialog("Save Sound As...", startDir, baseName, m_mainWindow);
 
+    if (dialog.exec() != QDialog::Accepted) {
+        if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
+        if (wasPath4D) m_mainWindow->pathTimer->start();
+        if (wasPath3D) m_mainWindow->pathTimer3D->start();
+        return;
+    }
+    QString savePath = dialog.getSelectedPath();
+
+    // FIX ANDROID: Se è un file media, assicuriamoci che getSelectedPath non abbia
+    // forzato ".json" per errore (la nostra classe aggiunge sempre .json di default).
+    if (isMediaFile && savePath.endsWith(".json", Qt::CaseInsensitive)) {
+        savePath.chop(5); // Rimuove ".json"
+    }
+
+#elif defined(Q_OS_IOS)
+    // FIX: Usa la variabile "filter" calcolata sopra, non la stringa hardcoded!
+    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Sound As...", defaultSelection, filter);
+#else
+    // FIX: Usa la variabile "filter" calcolata sopra!
+    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Sound As...", defaultSelection, filter, nullptr, QFileDialog::DontUseNativeDialog);
+#endif
+
+    // Riprendiamo i timer dopo la chiusura della finestra
     if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
     if (wasPath4D) m_mainWindow->pathTimer->start();
     if (wasPath3D) m_mainWindow->pathTimer3D->start();
@@ -687,8 +1073,7 @@ void PresetSerializer::saveSound(const QString &startDir, const QString &sourceF
 
     if (savePath.isEmpty()) return;
 
-    // Forza l'estensione corretta
-    QString expectedExt = isMediaFile ? QFileInfo(sourceFilePath).suffix() : "json";
+    // 2. Forza l'estensione corretta (che sia json o mp3/wav)
     if (!savePath.endsWith("." + expectedExt, Qt::CaseInsensitive)) {
         savePath += "." + expectedExt;
     }
@@ -718,7 +1103,10 @@ void PresetSerializer::saveSound(const QString &startDir, const QString &sourceF
             if (doc.isObject()) {
                 QJsonObject root = doc.object();
                 root["name"] = QFileInfo(savePath).baseName();
+                QDir().mkpath(QFileInfo(savePath).absolutePath());
+
                 QFile outFile(savePath);
+                if (outFile.exists()) { outFile.setPermissions(QFile::WriteOwner); outFile.remove(); }
                 if (outFile.open(QIODevice::WriteOnly)) {
                     outFile.write(QJsonDocument(root).toJson());
                     outFile.close();
@@ -728,7 +1116,6 @@ void PresetSerializer::saveSound(const QString &startDir, const QString &sourceF
     } else {
         // Creazione nuovo script audio (JSON) da zero
         QString content = m_mainWindow->m_soundScriptText;
-        // Usa ScriptModeSound temporaneamente se necessario, o assumi il flag della mainWindow
         if (m_mainWindow->m_currentScriptMode == 2) { // 2 = ScriptModeSound
             content = m_mainWindow->ui->txtScriptEditor->toPlainText();
         }
@@ -738,7 +1125,10 @@ void PresetSerializer::saveSound(const QString &startDir, const QString &sourceF
         root["type"] = "sound";
         root["name"] = QFileInfo(savePath).baseName();
 
+        QDir().mkpath(QFileInfo(savePath).absolutePath());
+
         QFile outFile(savePath);
+        if (outFile.exists()) { outFile.setPermissions(QFile::WriteOwner); outFile.remove(); }
         if (outFile.open(QIODevice::WriteOnly)) {
             QJsonDocument doc(root);
             outFile.write(doc.toJson());
@@ -747,65 +1137,7 @@ void PresetSerializer::saveSound(const QString &startDir, const QString &sourceF
     }
 
     m_mainWindow->ui->tabWidget->setCurrentWidget(m_mainWindow->ui->Sounds);
-    m_mainWindow->refreshRepositories();
-}
-
-void PresetSerializer::saveTextureAs(const QString &startDir, const QString &sourceFilePath)
-{
-    bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
-    bool wasPath4D = m_mainWindow->pathTimer->isActive();
-    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
-
-    if (wasAnimating) m_mainWindow->ui->glWidget->pauseMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->stop();
-    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
-
-    QString defaultSelection = startDir + "/NewTexture.json";
-
-    if (!sourceFilePath.isEmpty()) {
-        QString baseName = QFileInfo(sourceFilePath).completeBaseName();
-        defaultSelection = startDir + "/" + baseName + ".json";
-    }
-
-    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Texture Preset", defaultSelection, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
-
-    if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->start();
-    if (wasPath3D) m_mainWindow->pathTimer3D->start();
-
-    if (savePath.isEmpty()) return;
-    if (!savePath.endsWith(".json", Qt::CaseInsensitive)) savePath += ".json";
-
-    QSettings().setValue("lastCustomTexDir", QFileInfo(savePath).absolutePath());
-
-    saveTexture(savePath);
-}
-
-void PresetSerializer::saveSurfaceAs(const QString &startDir, const QString &sourceFilePath)
-{
-    bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
-    bool wasPath4D = m_mainWindow->pathTimer->isActive();
-    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
-
-    if (wasAnimating) m_mainWindow->ui->glWidget->pauseMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->stop();
-    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
-
-    QString defaultSelection = startDir + "/NewSurface.json";
-    if (!sourceFilePath.isEmpty()) defaultSelection = startDir + "/" + QFileInfo(sourceFilePath).fileName();
-
-    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface As...", defaultSelection, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
-
-    if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->start();
-    if (wasPath3D) m_mainWindow->pathTimer3D->start();
-
-    if (savePath.isEmpty()) return;
-    if (!savePath.endsWith(".json", Qt::CaseInsensitive)) savePath += ".json";
-
-    QSettings().setValue("lastFolder", QFileInfo(savePath).absolutePath());
-
-    saveSurface(savePath);
+    QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
 }
 
 void PresetSerializer::saveMotionAs(const QString &startDir, const QString &sourceFilePath)
@@ -821,7 +1153,23 @@ void PresetSerializer::saveMotionAs(const QString &startDir, const QString &sour
     QString defaultSelection = startDir + "/NewMotion.json";
     if (!sourceFilePath.isEmpty()) defaultSelection = startDir + "/" + QFileInfo(sourceFilePath).fileName();
 
+#if defined(Q_OS_ANDROID)
+    QString baseName = QFileInfo(defaultSelection).completeBaseName();
+    AndroidSaveDialog dialog("Save Record As...", startDir, baseName, m_mainWindow);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        // Se l'utente preme Cancel, riprendiamo l'animazione ed usciamo
+        if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
+        if (wasPath4D) m_mainWindow->pathTimer->start();
+        if (wasPath3D) m_mainWindow->pathTimer3D->start();
+        return;
+    }
+    QString savePath = dialog.getSelectedPath();
+#elif defined(Q_OS_IOS)
+    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Record As...", defaultSelection, "JSON Files (*.json)");
+#else
     QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Record As...", defaultSelection, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
+#endif
 
     if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
     if (wasPath4D) m_mainWindow->pathTimer->start();

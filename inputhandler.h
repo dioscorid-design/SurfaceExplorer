@@ -30,9 +30,8 @@ private:
     QPoint m_lastMousePos;
 
     // --- NUOVE VARIABILI PER GESTIONE CLICK/DRAG ---
-    QPoint m_pressPos;      // Dove ho premuto
-    bool m_isClickCandidate; // E' ancora un possibile click?
-
+    QPoint m_pressPos;
+    bool m_isClickCandidate;
     // Stato Touch
     QPointF m_lastTouchPos;
     float m_lastPinchDist = 0.0f;

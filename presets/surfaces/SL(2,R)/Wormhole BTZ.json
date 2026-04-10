@@ -7,14 +7,14 @@
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": -0.8141530752182007,
-        "rot_x": 0.09105979651212692,
-        "rot_y": -0.430176317691803,
-        "rot_z": 0.3792243003845215,
+        "rot_w": 0.9367488622665405,
+        "rot_x": -0.08584486693143845,
+        "rot_y": -0.3382173478603363,
+        "rot_z": -0.027226373553276062,
         "x": 0,
         "y": 0,
         "yaw": 0,
-        "z": 42.40000915527344
+        "z": 20.79999542236328
     },
     "colors": {
         "b": 0.20000000298023224,
@@ -42,6 +42,7 @@
         "y": "A*exp(B*W)*sin(U)",
         "z": "A*(exp(-B*W)*sin(U)+V*exp(B*W)*cos(U))"
     },
+    "lightIntensity": 1,
     "lightingMode": 1,
     "limits": {
         "uMax": 6.28318977355957,
@@ -55,7 +56,7 @@
     "projectionMode": 0,
     "renderMode": 1,
     "showBorder": false,
-    "steps": 100,
+    "steps": 111,
     "type": "surface",
     "use4DLighting": false
 }

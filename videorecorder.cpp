@@ -5,6 +5,7 @@
 #include "surfaceengine.h"
 #include "synthesizer.h"
 #include "audiocontroller.h"
+#include "nativevideoencoder.h"
 
 #include <QInputDialog>
 #include <QFileDialog>
@@ -18,6 +19,188 @@
 #include <QMediaPlayer>
 #include <QDebug>
 #include <QPainter>
+
+#ifdef Q_OS_ANDROID
+#include <QJniObject>
+#include <QJniEnvironment>
+#endif
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+#include <QFormLayout>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QSpinBox>
+#include <QComboBox>
+#include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
+#include <QPushButton>
+#include <QDialogButtonBox>
+#include <QScrollArea>
+#endif
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+class MobileVideoSaveDialog : public QDialog {
+public:
+    QSpinBox* spinDuration;
+    QSpinBox* spinFps;
+    QComboBox* comboRes;
+    QComboBox* comboEngine;
+    QLineEdit* nameEdit;
+#if !defined(Q_OS_IOS)
+    QComboBox* comboFormat;
+#endif
+
+    MobileVideoSaveDialog(const QString& startDir, int defDur, int defFps, int defRes, QWidget* parent = nullptr)
+        : QDialog(parent), currentDir(startDir) {
+        setWindowTitle("Export Settings & Save");
+
+        // RIMOSSO setMinimumSize(320, 500)! Ora blocchiamo solo la larghezza, lasciando
+        // l'altezza libera di restringersi e adattarsi in landscape.
+        setMinimumWidth(320);
+
+        // Layout principale: divide l'area scorrevole dai bottoni in fondo
+        QVBoxLayout* mainDialogLayout = new QVBoxLayout(this);
+        mainDialogLayout->setContentsMargins(0, 0, 0, 0); // Massimizza lo spazio
+
+        // --- CREAZIONE DELL'AREA DI SCORRIMENTO ---
+        QScrollArea* scrollArea = new QScrollArea(this);
+        scrollArea->setWidgetResizable(true);
+        scrollArea->setFrameShape(QFrame::NoFrame); // Rimuove bordi antiestetici
+
+        // Widget contenitore che andrà DENTRO l'area di scorrimento
+        QWidget* scrollContent = new QWidget(scrollArea);
+        QVBoxLayout* scrollLayout = new QVBoxLayout(scrollContent);
+
+        // --- 1. IMPOSTAZIONI VIDEO (Dentro la Scrollbar) ---
+        QFormLayout* form = new QFormLayout();
+        spinDuration = new QSpinBox(scrollContent);
+        spinDuration->setRange(1, 86400);
+        spinDuration->setValue(defDur);
+        spinDuration->setStyleSheet("padding: 8px; font-size: 16px;");
+        form->addRow("Duration (sec):", spinDuration);
+
+        spinFps = new QSpinBox(scrollContent);
+        spinFps->setRange(24, 120);
+        spinFps->setValue(defFps > 120 ? 120 : defFps);
+        spinFps->setStyleSheet("padding: 8px; font-size: 16px;");
+        form->addRow("FPS (24-120):", spinFps);
+
+        comboRes = new QComboBox(scrollContent);
+        comboRes->addItems({
+            "Monitor Default (Current Size)",
+            "1080p Full HD (1920x1080)",
+            "1440p 2K (2560x1440)",
+            "2160p 4K (3840x2160)"
+        });
+        int safeRes = (defRes >= 0 && defRes < comboRes->count()) ? defRes : 1;
+        comboRes->setCurrentIndex(safeRes);
+        comboRes->setStyleSheet("padding: 8px; font-size: 14px;");
+        form->addRow("Resolution:", comboRes);
+
+#if !defined(Q_OS_IOS)
+        comboFormat = new QComboBox(scrollContent);
+        comboFormat->addItems({
+            "PNG (Lossless - Saves Disk Space)",
+            "BMP (Uncompressed - Faster)"
+        });
+        comboFormat->setStyleSheet("padding: 8px; font-size: 14px;");
+        form->addRow("Frame Format:", comboFormat);
+#endif
+
+        comboEngine = new QComboBox(scrollContent);
+        comboEngine->addItems({
+            "Native Resolution (FBO - Max Quality, Slower)",
+            "Screen Upscale (Standard, Faster)"
+        });
+        comboEngine->setStyleSheet("padding: 8px; font-size: 14px;");
+        form->addRow("Render Engine:", comboEngine);
+
+        scrollLayout->addLayout(form);
+
+        // --- 2. NAVIGATORE CARTELLE (Dentro la Scrollbar) ---
+        pathLabel = new QLabel(currentDir.absolutePath(), scrollContent);
+        pathLabel->setWordWrap(true);
+        pathLabel->setStyleSheet("font-size: 12px; color: gray; margin-top: 10px;");
+        scrollLayout->addWidget(pathLabel);
+
+        QHBoxLayout* nameLayout = new QHBoxLayout();
+        nameLayout->addWidget(new QLabel("Name:", scrollContent));
+        nameEdit = new QLineEdit("NewVideo", scrollContent);
+        nameEdit->setStyleSheet("padding: 10px; font-size: 16px;");
+        nameLayout->addWidget(nameEdit);
+        scrollLayout->addLayout(nameLayout);
+
+        listWidget = new QListWidget(scrollContent);
+        listWidget->setStyleSheet("QListWidget::item { padding: 18px; border-bottom: 1px solid #ddd; font-size: 16px; }");
+        listWidget->setMinimumHeight(150); // Garantisce che la lista sia usabile prima di dover scorrere
+        scrollLayout->addWidget(listWidget);
+
+        // Chiude il pacchetto e lo inserisce nell'area di scorrimento
+        scrollContent->setLayout(scrollLayout);
+        scrollArea->setWidget(scrollContent);
+        mainDialogLayout->addWidget(scrollArea);
+
+        // --- 3. BOTTONI SALVATAGGIO (FUORI dalla scrollbar, sempre visibili) ---
+        QHBoxLayout* btnLayout = new QHBoxLayout();
+        btnLayout->setContentsMargins(10, 10, 10, 10); // Margine per dare respiro ai tasti
+        QPushButton* cancelBtn = new QPushButton("Cancel", this);
+        QPushButton* saveBtn = new QPushButton("Save", this);
+        cancelBtn->setStyleSheet("padding: 12px; font-size: 16px;");
+        saveBtn->setStyleSheet("padding: 12px; font-size: 16px; font-weight: bold; color: #cc0000;");
+        btnLayout->addWidget(cancelBtn);
+        btnLayout->addWidget(saveBtn);
+
+        mainDialogLayout->addLayout(btnLayout);
+
+        // --- LOGICA BOTTONI E SELEZIONE ---
+        connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
+        connect(saveBtn, &QPushButton::clicked, this, [this]() {
+            QString finalPath = getSelectedPath();
+            if (QFile::exists(finalPath)) {
+                QMessageBox::StandardButton reply = QMessageBox::question(this,
+                                                                          "Overwrite File?",
+                                                                          "A video with this name already exists in this folder.\nDo you want to overwrite it?",
+                                                                          QMessageBox::Yes | QMessageBox::No);
+                if (reply == QMessageBox::No) return;
+            }
+            accept();
+        });
+
+        connect(listWidget, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
+            QString dirName = item->data(Qt::UserRole).toString();
+            if (dirName == "..") currentDir.cdUp();
+            else currentDir.cd(dirName);
+            refreshList();
+        });
+
+        refreshList();
+    }
+
+    QString getSelectedPath() const {
+        QString name = nameEdit->text();
+        if (!name.endsWith(".mp4", Qt::CaseInsensitive)) name += ".mp4";
+        return currentDir.absoluteFilePath(name);
+    }
+
+private:
+    void refreshList() {
+        listWidget->clear();
+        QListWidgetItem* upItem = new QListWidgetItem("📁 .. (Up)", listWidget);
+        upItem->setData(Qt::UserRole, "..");
+        QFileInfoList dirs = currentDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+        for (const QFileInfo& dir : dirs) {
+            QListWidgetItem* dirItem = new QListWidgetItem("📁 " + dir.fileName(), listWidget);
+            dirItem->setData(Qt::UserRole, dir.fileName());
+        }
+        pathLabel->setText(currentDir.absolutePath());
+    }
+
+    QDir currentDir;
+    QLabel* pathLabel;
+    QListWidget* listWidget;
+};
+#endif
 
 VideoRecorder::VideoRecorder(MainWindow *mainWindow, QObject *parent)
     : QObject(parent), m_mainWindow(mainWindow)
@@ -74,70 +257,134 @@ void VideoRecorder::toggleRecord()
     // 2. INPUT UTENTE E PERCORSI SALVATAGGIO
     // ==============================================================
     QSettings settings;
+    // DICHIARIAMO TUTTE LE VARIABILI QUI AL SICURO, GLOBALI PER LA FUNZIONE!
+    int seconds = 10;
+    int fps = 60;
+    int resIndex = 1;
+    int targetWidth = -1;
+    int targetHeight = -1;
+    bool useFBO = false;
+    bool usePng = false;
+
+    QString rootPath;
+#if defined(Q_OS_ANDROID)
+    rootPath = "/storage/emulated/0/Documents/SurfaceExplorer_Presets";
+#elif defined(Q_OS_IOS)
+    rootPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/SurfaceExplorer_Presets";
+#else
+    rootPath = settings.value("libraryRootPath").toString();
+    if (rootPath.isEmpty()) rootPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/SurfaceExplorer_Presets";
+#endif
+
+    QString defaultVideoDir = rootPath + "/Renders";
+    QDir().mkpath(defaultVideoDir);
+    QString userSelectedFile;
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    // --- ANDROID e IOS: FINESTRA UNIFICATA MOBILE ---
+    int defDur = settings.value("lastRecDuration", 10).toInt();
+    int defFps = settings.value("lastRecFPS", 60).toInt();
+    int defRes = settings.value("lastRecResIndex", 1).toInt();
+
+    MobileVideoSaveDialog pathDialog(defaultVideoDir, defDur, defFps, defRes, m_mainWindow);
+    if (pathDialog.exec() != QDialog::Accepted) {
+        restoreState();
+        return;
+    }
+
+    seconds = pathDialog.spinDuration->value();
+    fps = pathDialog.spinFps->value();
+    resIndex = pathDialog.comboRes->currentIndex();
+    userSelectedFile = pathDialog.getSelectedPath();
+    useFBO = (pathDialog.comboEngine->currentIndex() == 0);
+
+#if defined(Q_OS_IOS)
+    usePng = false; // iOS forza sempre BMP silenziosamente
+#else
+    usePng = (pathDialog.comboFormat->currentIndex() == 0);
+#endif
+
+#else
+    // --- DESKTOP (Mac, Windows, Linux): FINESTRE CLASSICHE ---
     int defaultDuration = settings.value("lastRecDuration", 10).toInt();
     bool ok;
-    int seconds = QInputDialog::getInt(m_mainWindow, "Render Video", "MAX video duration (seconds):", defaultDuration, 1, 600, 1, &ok);
-    if (!ok) {
-        restoreState();
-        return;
-    }
-    settings.setValue("lastRecDuration", seconds);
+    seconds = QInputDialog::getInt(m_mainWindow, "Render Video", "Video duration (seconds):", defaultDuration, 1, 86400, 1, &ok);
+    if (!ok) { restoreState(); return; }
 
     int defaultFPS = settings.value("lastRecFPS", 60).toInt();
-    int fps = QInputDialog::getInt(m_mainWindow, "Frame Rate", "FPS (e.g. 30, 60):", defaultFPS, 24, 120, 1, &ok);
-    if (!ok) {
-        restoreState();
-        return;
-    }
-    settings.setValue("lastRecFPS", fps);
 
-    // ==============================================================
-    // NUOVO: SELEZIONE DELLA RISOLUZIONE DEL VIDEO
-    // ==============================================================
+#if defined(Q_OS_MACOS)
+    int maxFps = 84;
+    QString fpsPrompt = "FPS (24-84) [QuickTime slo-mo limit]:";
+#else
+    int maxFps = 120;
+    QString fpsPrompt = "FPS (24-120):";
+#endif
+
+    if (defaultFPS > maxFps) defaultFPS = maxFps;
+
+    fps = QInputDialog::getInt(m_mainWindow, "Frame Rate", fpsPrompt, defaultFPS, 24, maxFps, 1, &ok);
+    if (!ok) { restoreState(); return; }
+
     QStringList resolutions = {
         "Monitor Default (Current Window Size)",
         "1080p Full HD (1920x1080)",
         "1440p 2K (2560x1440)",
         "2160p 4K (3840x2160)"
     };
-
     int defaultResIndex = settings.value("lastRecResIndex", 1).toInt();
     QString selectedRes = QInputDialog::getItem(m_mainWindow, "Video Resolution", "Select export resolution:", resolutions, defaultResIndex, false, &ok);
-    if (!ok) {
-        restoreState();
-        return;
-    }
+    if (!ok) { restoreState(); return; }
+    resIndex = resolutions.indexOf(selectedRes);
 
-    int resIndex = resolutions.indexOf(selectedRes);
+    // Formato
+    QStringList formats = {
+        "PNG (Lossless - Saves Disk Space)",
+        "BMP (Uncompressed - Faster)"
+    };
+    int defaultFormatIndex = settings.value("lastRecFormat", 0).toInt();
+    QString selectedFormat = QInputDialog::getItem(m_mainWindow, "Frame Format", "Select temporary frame format:", formats, defaultFormatIndex, false, &ok);
+    if (!ok) { restoreState(); return; }
+    int formatIndex = formats.indexOf(selectedFormat);
+    settings.setValue("lastRecFormat", formatIndex);
+    usePng = (formatIndex == 0);
+
+    // FBO
+    QStringList engineModes = {
+        "Native Resolution (FBO - Max Quality, Slower)",
+        "Screen Upscale (Standard, Faster)"
+    };
+    int defaultEngineIndex = settings.value("lastRecEngine", 0).toInt();
+    QString selectedEngine = QInputDialog::getItem(m_mainWindow, "Render Engine", "Select rendering engine:", engineModes, defaultEngineIndex, false, &ok);
+    if (!ok) { restoreState(); return; }
+    int engineIndex = engineModes.indexOf(selectedEngine);
+    settings.setValue("lastRecEngine", engineIndex);
+    useFBO = (engineIndex == 0);
+
+    // Salvataggio File
+    QString lastVideoDir = settings.value("lastVideoDir", defaultVideoDir).toString();
+    if (!QDir(lastVideoDir).exists()) lastVideoDir = defaultVideoDir;
+    QString defaultSelection = lastVideoDir + "/NewVideo.mp4";
+    userSelectedFile = QFileDialog::getSaveFileName(m_mainWindow, "Save MP4 Video", defaultSelection, "MP4 Video (*.mp4)");
+    if (userSelectedFile.isEmpty()) { restoreState(); return; }
+    if (!userSelectedFile.endsWith(".mp4", Qt::CaseInsensitive)) userSelectedFile += ".mp4";
+    settings.setValue("lastVideoDir", QFileInfo(userSelectedFile).absolutePath());
+#endif
+
+    qDebug() << "\n=====================================";
+    qDebug() << "STATUS MOTORE DI RENDERING:";
+    qDebug() << "Risoluzione Target (Index):" << resIndex;
+    qDebug() << "Utilizzo FBO Nativo:" << (useFBO ? "ATTIVO" : "DISATTIVATO");
+    qDebug() << "=====================================\n";
+
+    // --- SALVATAGGIO IMPOSTAZIONI E CALCOLO RISOLUZIONE (COMUNE) ---
+    settings.setValue("lastRecDuration", seconds);
+    settings.setValue("lastRecFPS", fps);
     settings.setValue("lastRecResIndex", resIndex);
-
-    // Calcoliamo la larghezza e l'altezza desiderate
-    int targetWidth = -1;
-    int targetHeight = -1;
 
     if (resIndex == 1) { targetWidth = 1920; targetHeight = 1080; }
     else if (resIndex == 2) { targetWidth = 2560; targetHeight = 1440; }
     else if (resIndex == 3) { targetWidth = 3840; targetHeight = 2160; }
-    // Se resIndex == 0, lasciamo a -1 per usare la risoluzione nativa
-
-    // --- Calcolo Root Libreria ---
-    QString rootPath = settings.value("libraryRootPath").toString();
-    if (rootPath.isEmpty()) rootPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/SurfaceExplorer";
-
-    // Dialogo Salvataggio MP4 (Default nella cartella Renders)
-    QString defaultVideoDir = rootPath + "/Renders";
-    QString lastVideoDir = settings.value("lastVideoDir", defaultVideoDir).toString();
-    if (!QDir(lastVideoDir).exists()) lastVideoDir = defaultVideoDir;
-
-    QString userSelectedFile = QFileDialog::getSaveFileName(m_mainWindow, "Save MP4 Video", lastVideoDir + "/video_output.mp4", "MP4 Video (*.mp4)");
-
-    if (userSelectedFile.isEmpty()) {
-        restoreState();
-        return;
-    }
-
-    if (!userSelectedFile.endsWith(".mp4", Qt::CaseInsensitive)) userSelectedFile += ".mp4";
-    settings.setValue("lastVideoDir", QFileInfo(userSelectedFile).absolutePath());
 
     // ==============================================================
     // 3. PREPARAZIONE REGISTRAZIONE
@@ -145,6 +392,21 @@ void VideoRecorder::toggleRecord()
     m_mainWindow->m_isRecording = true;
     m_mainWindow->m_stopRecordingRequested = false;
 
+    // ---> BLOCCA LO SPEGNIMENTO DELLO SCHERMO <---
+#if defined(Q_OS_IOS)
+    NativeVideoEncoder::setKeepScreenOn(true);
+#elif defined(Q_OS_ANDROID)
+    QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
+        QJniObject activity = QNativeInterface::QAndroidApplication::context();
+        if (activity.isValid()) {
+            QJniObject window = activity.callObjectMethod("getWindow", "()Landroid/view/Window;");
+            if (window.isValid()) {
+                const int FLAG_KEEP_SCREEN_ON = 128; // Flag di sistema Android
+                window.callMethod<void>("addFlags", "(I)V", FLAG_KEEP_SCREEN_ON);
+            }
+        }
+    });
+#endif
     // STOP AUDIO E ATTIVAZIONE TEMPO VIRTUALE
     // DOPO:
     m_mainWindow->m_audioController->stopAll();
@@ -161,7 +423,13 @@ void VideoRecorder::toggleRecord()
     float timeStep = 1.0f / (float)fps;
     float fpsScale = 30.0f / (float)fps;
 
-    QString targetPath = rootPath + "/Temp";
+#ifdef Q_OS_ANDROID
+    // Android: Usa la cache interna dell'app in modo che FFmpeg (C nativo) abbia i permessi
+    QString targetPath = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+#else
+    QString targetPath = rootPath + "/Renders";
+#endif
+
     QString timeStamp = QDateTime::currentDateTime().toString("yyyy-MM-dd_HH-mm-ss");
     m_mainWindow->m_recFolder = targetPath + "/Temp_Render_" + timeStamp;
     if (!QDir(m_mainWindow->m_recFolder).exists()) {
@@ -266,7 +534,6 @@ void VideoRecorder::toggleRecord()
                 N2.normalize();
             } else N2 = QVector4D(1,0,0,0);
 
-            // Accessing the static private helper function of MainWindow
             float dx =  MainWindow::det3x3(V.y(), V.z(), V.w(),  N1.y(), N1.z(), N1.w(),  N2.y(), N2.z(), N2.w());
             float dy = -MainWindow::det3x3(V.x(), V.z(), V.w(),  N1.x(), N1.z(), N1.w(),  N2.x(), N2.z(), N2.w());
             float dz =  MainWindow::det3x3(V.x(), V.y(), V.w(),  N1.x(), N1.y(), N1.w(),  N2.x(), N2.y(), N2.w());
@@ -283,10 +550,7 @@ void VideoRecorder::toggleRecord()
             QVector4D finalUp4D = N1 * c1 + N2 * c2 + N3 * c3;
             finalUp4D.normalize();
 
-            float scale = m_mainWindow->ui->glWidget->getSurfaceScale();
-            finalPos4D = finalPos4D * scale;
-            finalTarget4D = finalTarget4D * scale;
-
+            // RIMOZIONE MOLTIPLICAZIONE ERRATA: Le coordinate rimangono incontaminate
             float rotPhi   = -gamma;
             float rotPsi   = -beta;
             m_mainWindow->ui->glWidget->setRotation4D(0.0f, rotPhi, rotPsi);
@@ -310,10 +574,10 @@ void VideoRecorder::toggleRecord()
         else if (wasPath3D) {
             float step3D = m_mainWindow->m_pathSpeed3D * fpsScale;
             float t = m_mainWindow->pathTimeT3D + (i * step3D);
-            float scale = m_mainWindow->ui->glWidget->getSurfaceScale();
 
             QVector4D raw = engine->evaluatePath3DPosition(t);
-            QVector3D curPos = raw.toVector3D() * scale;
+            // RIMOZIONE MOLTIPLICAZIONE ERRATA
+            QVector3D curPos = raw.toVector3D();
             float roll = raw.w();
 
             // --- FIX PATH 3D: CENTER vs TANGENT ---
@@ -322,7 +586,7 @@ void VideoRecorder::toggleRecord()
             if (m_mainWindow->m_pathMode == MainWindow::ModeTangential) {
                 // Guarda avanti (Tangent)
                 QVector4D nextRaw = engine->evaluatePath3DPosition(t + 0.1f);
-                target = nextRaw.toVector3D() * scale;
+                target = nextRaw.toVector3D(); // RIMOZIONE MOLTIPLICAZIONE ERRATA
             } else {
                 // Guarda Origine (Center)
                 target = QVector3D(0.0f, 0.0f, 0.0f);
@@ -353,21 +617,25 @@ void VideoRecorder::toggleRecord()
 
         m_mainWindow->ui->glWidget->setShaderTime(currentTime);
 
-        QImage frame = m_mainWindow->ui->glWidget->getFrameForVideo();
-
+        // 1. Estrazione del frame (con o senza FBO)
+        QImage frame = m_mainWindow->ui->glWidget->getFrameForVideo(targetWidth, targetHeight, useFBO);
         frame.setDevicePixelRatio(1.0);
+
         // ==============================================================
-        // NUOVO: SCALATURA SENZA DEFORMAZIONI (LETTERBOXING)
+        // 2. ALPHA CHANNEL (FONDAMENTALE PER IOS E FBO)
         // ==============================================================
-        if (targetWidth > 0 && targetHeight > 0) {
-            // 1. Scala l'immagine mantenendo le proporzioni originali (niente stiramenti!)
+        if (frame.format() != QImage::Format_RGB32) {
+            frame = frame.convertToFormat(QImage::Format_RGB32);
+        }
+
+        // ==============================================================
+        // 3. SCALING E LETTERBOXING (SOLO SE NON USIAMO L'FBO)
+        // ==============================================================
+        if (!useFBO && targetWidth > 0 && targetHeight > 0) {
             QImage scaledFrame = frame.scaled(targetWidth, targetHeight, Qt::KeepAspectRatio, Qt::SmoothTransformation);
 
-            // 2. Crea una "tela" vuota della risoluzione perfetta (es. 1920x1080) e colorala di nero
             QImage finalFrame(targetWidth, targetHeight, QImage::Format_RGB32);
-            finalFrame.fill(Qt::black); // Sfondo nero per riempire i vuoti
-
-            // 3. "Incolla" il frame scalato esattamente al centro della tela nera
+            finalFrame.fill(Qt::black);
             QPainter painter(&finalFrame);
             int x = (targetWidth - scaledFrame.width()) / 2;
             int y = (targetHeight - scaledFrame.height()) / 2;
@@ -375,14 +643,31 @@ void VideoRecorder::toggleRecord()
             painter.end();
 
             frame = finalFrame;
-        } else {
-            // Risoluzione nativa del monitor: taglia i bordi se dispari (FFmpeg vuole numeri pari)
+        } else if (!useFBO) {
+            // Risoluzione nativa: taglia i bordi se dispari (per FFmpeg)
             if (frame.width() % 2 != 0) frame = frame.copy(0, 0, frame.width()-1, frame.height());
             if (frame.height() % 2 != 0) frame = frame.copy(0, 0, frame.width(), frame.height()-1);
         }
 
-        QString fileName = QString("frame_%1.bmp").arg(i, 5, 10, QChar('0'));
+        // ==============================================================
+        // 4. UNICO SALVATAGGIO FINALE DEL FOTOGRAMMA
+        // ==============================================================
+        QString fileName; // Dichiariamo la variabile UNA SOLA VOLTA qui per evitare errori
+
+#if defined(Q_OS_IOS)
+        // iOS usa sempre BMP a 24-bit per il NativeVideoEncoder
+        fileName = QString("frame_%1.bmp").arg(i, 5, 10, QChar('0'));
         frame.save(m_mainWindow->m_recFolder + "/" + fileName, "BMP");
+#else
+        // Desktop e Android usano la scelta dell'utente
+        if (usePng) {
+            fileName = QString("frame_%1.png").arg(i, 5, 10, QChar('0'));
+            frame.save(m_mainWindow->m_recFolder + "/" + fileName, "PNG");
+        } else {
+            fileName = QString("frame_%1.bmp").arg(i, 5, 10, QChar('0'));
+            frame.save(m_mainWindow->m_recFolder + "/" + fileName, "BMP");
+        }
+#endif
 
         m_mainWindow->m_renderProgress->setValue(i + 1);
         actualFramesRendered++;
@@ -393,7 +678,22 @@ void VideoRecorder::toggleRecord()
     // ==============================================================
     m_mainWindow->m_isRecording = false;
 
-    // >>> FIX 3: DISATTIVAZIONE TEMPO VIRTUALE E RIAVVIO AUDIO <<<
+#if defined(Q_OS_IOS)
+    NativeVideoEncoder::setKeepScreenOn(false);
+#elif defined(Q_OS_ANDROID)
+    QNativeInterface::QAndroidApplication::runOnAndroidMainThread([]() {
+        QJniObject activity = QNativeInterface::QAndroidApplication::context();
+        if (activity.isValid()) {
+            QJniObject window = activity.callObjectMethod("getWindow", "()Landroid/view/Window;");
+            if (window.isValid()) {
+                const int FLAG_KEEP_SCREEN_ON = 128;
+                window.callMethod<void>("clearFlags", "(I)V", FLAG_KEEP_SCREEN_ON);
+            }
+        }
+    });
+#endif
+
+    // >>> DISATTIVAZIONE TEMPO VIRTUALE E RIAVVIO AUDIO <<<
     if (m_mainWindow->ui->glWidget) {
         m_mainWindow->ui->glWidget->setProperty("use_virtual_time", false);
     }
@@ -459,33 +759,63 @@ void VideoRecorder::toggleRecord()
         }
     }
 
+#if defined(Q_OS_ANDROID)
+    // ANDROID: FFmpeg scrive in un file temporaneo isolato
+    QString videoFileName = m_mainWindow->m_recFolder + "/temp_video.mp4";
+#else
+    // DESKTOP: FFmpeg scrive DIRETTAMENTE nel file di destinazione finale
     QString videoFileName = userSelectedFile;
+#endif
+
+#if defined(Q_OS_IOS)
     QString inputPattern = m_mainWindow->m_recFolder + "/frame_%05d.bmp";
+#else
+    // Diciamo a FFmpeg di leggere i file in base alla scelta che abbiamo fatto
+    QString inputPattern = m_mainWindow->m_recFolder + (usePng ? "/frame_%05d.png" : "/frame_%05d.bmp");
+#endif
+
     QStringList arguments;
 
-    arguments << "-y" << "-framerate" << QString::number(fps)
-              << "-i" << inputPattern;
+    // 1. INPUT VIDEO
+    arguments << "-y" << "-framerate" << QString::number(fps) << "-i" << inputPattern;
 
+    // 2. INPUT AUDIO (Loop infinito che poi taglieremo)
     if (hasAudio) {
+        arguments << "-stream_loop" << "-1";
+
         if (isRaw) arguments << "-f" << "f32le" << "-ar" << "44100" << "-ac" << "2" << "-i" << audioFile;
         else arguments << "-i" << audioFile;
     }
 
+    // 3. IMPOSTAZIONI OUTPUT VIDEO
     arguments << "-vf" << "scale=trunc(iw/2)*2:trunc(ih/2)*2"
-              << "-c:v" << "libx264" << "-pix_fmt" << "yuv420p" << "-crf" << "18";
+              << "-c:v" << "libx264"
+              << "-preset" << "fast"
+              << "-pix_fmt" << "yuv420p"
+              << "-crf" << "18"
+              << "-r" << QString::number(fps) // Forza il contenitore MP4 ai tuoi FPS esatti
+              << "-vframes" << QString::number(actualFramesRendered) // LA GHIGLIOTTINA: Solo N fotogrammi, vietato inventarne!
+              << "-movflags" << "+faststart";
 
+    // 4. IMPOSTAZIONI OUTPUT AUDIO (E chiusura)
     if (hasAudio) {
-        arguments << "-c:a" << "aac" << "-b:a" << "192k" << "-shortest";
+        arguments << "-c:a" << "aac" << "-b:a" << "192k";
+        arguments << "-t" << QString::number(actualSeconds, 'f', 3); // Taglia l'audio in eccesso
+    } else {
+        arguments << "-t" << QString::number(actualSeconds, 'f', 3);
     }
 
     arguments << videoFileName;
 
-#if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
-
+#if !defined(Q_OS_IOS)
+    // ==============================================================
+    // 6. GENERAZIONE VIDEO (FFMPEG VIA QPROCESS PER DESKTOP E ANDROID)
+    // ==============================================================
     m_mainWindow->m_isProcessingVideo = true;
     QProcess *ffmpegProcess = new QProcess(this);
 
-#ifdef Q_OS_LINUX
+// 1. FIX FONDAMENTALE: Applichiamo la rimozione solo su vero Linux Desktop, non su Android!
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.remove("LD_LIBRARY_PATH");
     ffmpegProcess->setProcessEnvironment(env);
@@ -494,38 +824,89 @@ void VideoRecorder::toggleRecord()
     connect(ffmpegProcess, &QProcess::errorOccurred, this, [this, ffmpegProcess](QProcess::ProcessError err){
         m_mainWindow->m_isProcessingVideo = false;
         m_mainWindow->m_statusLabel->clear();
-        QString errorMsg;
-        if (err == QProcess::FailedToStart)
-            errorMsg = "The 'ffmpeg' executable was not found.\nMake sure it is installed and in your PATH.";
-        else
-            errorMsg = "Error during FFmpeg execution.";
-
+        QString errorMsg = (err == QProcess::FailedToStart)
+                               ? "L'eseguibile FFmpeg non ha i permessi per avviarsi o è stato corrotto.\nOS Block: W^X Violation."
+                               : "Errore durante l'esecuzione di FFmpeg.";
         QMessageBox::critical(m_mainWindow, "Video Creation Error", errorMsg);
         ffmpegProcess->deleteLater();
     });
 
     connect(ffmpegProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, [this, videoFileName, ffmpegProcess](int exitCode, QProcess::ExitStatus status){
+            this, [this, videoFileName, userSelectedFile, ffmpegProcess](int exitCode, QProcess::ExitStatus status){
                 m_mainWindow->m_isProcessingVideo = false;
                 m_mainWindow->m_statusLabel->clear();
 
                 if (status == QProcess::NormalExit && exitCode == 0) {
-                    QDir dir(m_mainWindow->m_recFolder);
-                    dir.setNameFilters(QStringList() << "*.bmp" << "*.raw");
-                    for (const QString &f : dir.entryList(QDir::Files)) dir.remove(f);
-                    dir.rmdir(m_mainWindow->m_recFolder);
 
-                    QMessageBox::information(m_mainWindow, "Finished!", "Video successfully saved:\n" + videoFileName);
-                } else {
-                    QString log = ffmpegProcess->readAllStandardError();
-                    QMessageBox::warning(m_mainWindow, "Encoding Error",
-                                         "FFmpeg exited with an error.\nExit code: " + QString::number(exitCode) +
-                                             "\n\nLog:\n" + log.right(500));
+#if defined(Q_OS_ANDROID)
+            // Copia fisica sicura (Byte per Byte come in MainWindow)
+            QFile inFile(videoFileName);
+            if (inFile.open(QIODevice::ReadOnly)) {
+                QFile outFile(userSelectedFile);
+                if (outFile.exists()) outFile.remove();
+                if (outFile.open(QIODevice::WriteOnly)) {
+                    outFile.write(inFile.readAll());
+                    outFile.close();
+
+                    // FORZIAMO L'AGGIORNAMENTO DEL MEDIASTORE (Appare subito in Galleria!)
+                    QJniEnvironment env;
+                    jstring jFilePath = env->NewStringUTF(userSelectedFile.toUtf8().constData());
+                    jobjectArray pathsArray = env->NewObjectArray(1, env->FindClass("java/lang/String"), jFilePath);
+                    QJniObject context = QNativeInterface::QAndroidApplication::context();
+                    QJniObject::callStaticMethod<void>(
+                        "android/media/MediaScannerConnection", "scanFile",
+                        "(Landroid/content/Context;[Ljava/lang/String;[Ljava/lang/String;Landroid/media/MediaScannerConnection$OnScanCompletedListener;)V",
+                        context.object(), pathsArray, nullptr, nullptr
+                        );
+                    env->DeleteLocalRef(pathsArray);
+                    env->DeleteLocalRef(jFilePath);
                 }
-                ffmpegProcess->deleteLater();
-            });
+                inFile.close();
+            }
+#endif
 
-    QString program = QStandardPaths::findExecutable("ffmpeg");
+            // Pulizia dei file temporanei
+            QDir dir(m_mainWindow->m_recFolder);
+            dir.setNameFilters(QStringList() << "*.bmp" << "*.png" << "*.raw" << "*.mp4");
+            for (const QString &f : dir.entryList(QDir::Files)) dir.remove(f);
+            dir.rmdir(m_mainWindow->m_recFolder);
+
+            QMessageBox::information(m_mainWindow, "Finished!", "Video successfully saved:\n" + userSelectedFile);
+        } else {
+            QString log = ffmpegProcess->readAllStandardError();
+            QMessageBox::warning(m_mainWindow, "Encoding Error",
+                                 "FFmpeg exited with an error.\nExit code: " + QString::number(exitCode) +
+                                     "\n\nLog:\n" + log.right(500));
+        }
+        ffmpegProcess->deleteLater();
+    });
+
+    QString program;
+
+#if defined(Q_OS_ANDROID)
+    // Su Android peschiamo il finto .so estratto nella cartella nativa dell'app
+    program = QCoreApplication::applicationDirPath() + "/libffmpeg_exec.so";
+
+    if (!QFile::exists(program)) {
+        m_mainWindow->m_isProcessingVideo = false;
+        m_mainWindow->m_statusLabel->clear();
+        QMessageBox::critical(m_mainWindow, "Missing FFmpeg", "Cannot find static FFmpeg binary at:\n" + program);
+        return;
+    }
+
+    // 2. LA MAGIA: Insegniamo al linker dove trovare libc++_shared.so (nella cartella dell'app!)
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.insert("LD_LIBRARY_PATH", QCoreApplication::applicationDirPath());
+    ffmpegProcess->setProcessEnvironment(env);
+
+    // IL TRUCCO MAGICO: Linker di sistema manuale
+    QStringList linkerArgs;
+    linkerArgs << program << arguments;
+    ffmpegProcess->start("/system/bin/linker64", linkerArgs);
+
+#else
+    // Logica originale Desktop
+    program = QStandardPaths::findExecutable("ffmpeg");
     if (program.isEmpty()) {
         QStringList candidates;
 #ifdef Q_OS_WIN
@@ -534,28 +915,83 @@ void VideoRecorder::toggleRecord()
         candidates << "/opt/homebrew/bin/ffmpeg" << "/usr/local/bin/ffmpeg" << "/usr/bin/ffmpeg";
 #endif
         for(const QString &path : candidates) {
-            if (QFile::exists(path)) {
-                program = path;
-                break;
-            }
+            if (QFile::exists(path)) { program = path; break; }
         }
     }
 
     if (program.isEmpty()) {
         m_mainWindow->m_isProcessingVideo = false;
         m_mainWindow->m_statusLabel->clear();
-        QMessageBox::critical(m_mainWindow, "Missing FFmpeg",
-                              "Cannot find 'ffmpeg'.\n\n"
-                              "1. Install it and make sure it is in your PATH.");
+        QMessageBox::critical(m_mainWindow, "Missing FFmpeg", "Cannot find 'ffmpeg'.\nMake sure it is installed and in your PATH.");
         return;
     }
 
     ffmpegProcess->start(program, arguments);
+#endif
 
-#else
-    QMessageBox::information(m_mainWindow, "Export Frames",
-                             "On iOS/Android, automatic video assembly (FFmpeg) is not supported.\n"
-                             "Frames saved in:\n" + m_mainWindow->m_recFolder);
+#elif defined(Q_OS_IOS)
+    // ==============================================================
+    // VERSIONE iOS (AVFoundation Nativo con Audio Multiplexing)
+    // ==============================================================
+    m_mainWindow->m_statusLabel->setText("Assembling MP4 with Audio...");
+    QApplication::processEvents();
+
+    QString finalAudioFile = "";
+
+    // NUOVO: Se c'è audio grezzo (.raw), gli costruiamo attorno un'intestazione WAV!
+    if (hasAudio) {
+        if (isRaw) {
+            QString wavPath = m_mainWindow->m_recFolder + "/soundtrack.wav";
+            QFile rawFile(audioFile);
+            QFile wavFile(wavPath);
+            if (rawFile.open(QIODevice::ReadOnly) && wavFile.open(QIODevice::WriteOnly)) {
+                QByteArray rawData = rawFile.readAll();
+                QDataStream out(&wavFile);
+                out.setByteOrder(QDataStream::LittleEndian);
+
+                // Scrittura Header WAV (44.1kHz, Stereo, 32-bit Float)
+                out.writeRawData("RIFF", 4);
+                out << (quint32)(36 + rawData.size());
+                out.writeRawData("WAVE", 4);
+                out.writeRawData("fmt ", 4);
+                out << (quint32)16 << (quint16)3 << (quint16)2 << (quint32)44100;
+                out << (quint32)(44100 * 2 * 4) << (quint16)(2 * 4) << (quint16)32;
+                out.writeRawData("data", 4);
+                out << (quint32)rawData.size();
+
+                wavFile.write(rawData);
+                rawFile.close();
+                wavFile.close();
+                finalAudioFile = wavPath;
+            }
+        } else {
+            // È già un mp3 o wav
+            finalAudioFile = audioFile;
+        }
+    }
+
+    // Usa il percorso scelto dall'utente tramite la finestra di dialogo
+    QString finalSafePath = userSelectedFile;
+
+    QString firstFramePath = m_mainWindow->m_recFolder + "/frame_00000.bmp";
+    QImage sampleFrame(firstFramePath);
+    int videoW = sampleFrame.width();
+    int videoH = sampleFrame.height();
+
+    if (videoW % 2 != 0) videoW--;
+    if (videoH % 2 != 0) videoH--;
+
+    // Passiamo finalAudioFile alla funzione iOS
+    bool success = NativeVideoEncoder::createMP4(m_mainWindow->m_recFolder, finalSafePath, fps, videoW, videoH, finalAudioFile);
+
     m_mainWindow->m_statusLabel->clear();
+
+    if (success) {
+        QDir tempDir(m_mainWindow->m_recFolder);
+        if (tempDir.exists()) tempDir.removeRecursively();
+        QMessageBox::information(m_mainWindow, "Finished!", "Video successfully generated on iOS!\nSaved as: " + finalSafePath);
+    } else {
+        QMessageBox::warning(m_mainWindow, "Encoding Error", "Failed to assemble the video on iOS.");
+    }
 #endif
 }
