@@ -82,9 +82,11 @@ qt_add_executable(SurfaceExplorer
     librarydragdrophandler.cpp
     audiocontroller.h
     audiocontroller.cpp
+    icon.icns
 )
 
 set_source_files_properties(documentation.html PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+set_source_files_properties(icon.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 
 # 🔹 Collega le librerie Qt
 target_link_libraries(SurfaceExplorer PRIVATE
@@ -124,6 +126,7 @@ if (IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # 3. Proprietà dell'App
     set_target_properties(SurfaceExplorer PROPERTIES
         MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist"
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.dioscorid.surfaceexplorer"
         MACOSX_BUNDLE_BUNDLE_NAME "Surface Explorer"
         XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
@@ -149,6 +152,9 @@ elseif (APPLE)
     set_target_properties(SurfaceExplorer PROPERTIES
         MACOSX_BUNDLE TRUE
 
+        # 0. FORZIAMO L'USO DEL PLIST PERSONALIZZATO
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist"
+
         # 1. Nome nella BARRA DEI MENU (Accanto alla Mela )
         MACOSX_BUNDLE_BUNDLE_NAME "Surface Explorer"
 
@@ -156,13 +162,13 @@ elseif (APPLE)
         MACOSX_BUNDLE_DISPLAY_NAME "Surface Explorer"
 
         # 3. Nome del file fisico (.app)
-        OUTPUT_NAME "Surface Explorer"
+        OUTPUT_NAME "SurfaceExplorer"
 
         # 4. Identificativo univoco
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.dioscorid.surfaceexplorer"
 
-        # 5. Icona (se hai il file .icns, altrimenti usa quella di default)
-        # MACOSX_BUNDLE_ICON_FILE "Icon.icns"
+        # 5. Icona (TUTTO MINUSCOLO!)
+        MACOSX_BUNDLE_ICON_FILE "icon.icns"
     )
 
     # Copia documentation.html dentro l'app (risorsa)

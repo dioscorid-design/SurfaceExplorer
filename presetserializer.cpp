@@ -627,17 +627,15 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     texture["col2"] = m_mainWindow->m_texColor2.name();
 
     // L'audio è ora completamente separato in memoria, quindi estraiamo la texture pura.
-    QString codeToSave;
-    if (texEnabled) {
-        if (m_mainWindow->m_isImageMode && !m_mainWindow->m_currentTexturePath.isEmpty()) {
-            codeToSave = "//IMG:" + m_mainWindow->m_currentTexturePath;
-        } else if (m_mainWindow->m_isCustomMode) {
-            codeToSave = m_mainWindow->m_surfaceTextureCode.trimmed();
-        } else {
-            codeToSave = m_mainWindow->m_surfaceTextureCode.trimmed();
-        }
-    } else {
-        codeToSave = m_mainWindow->m_surfaceTextureCode.trimmed();
+    QString codeToSave = m_mainWindow->m_surfaceTextureCode.trimmed();
+
+    if (texEnabled && m_mainWindow->m_isImageMode && !m_mainWindow->m_currentTexturePath.isEmpty()) {
+        // Rimuoviamo eventuali vecchi tag //IMG per evitare duplicati sporchi
+        QRegularExpression imgRe(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption);
+        codeToSave.remove(imgRe);
+
+        // Riappendiamo il tag in cima, CONSERVANDO tutto il prezioso codice GLSL sottostante!
+        codeToSave = "//IMG:" + m_mainWindow->m_currentTexturePath + "\n" + codeToSave.trimmed();
     }
 
     codeToSave.remove(QRegularExpression(R"(^\s*//MUSIC:.*$\n?)", QRegularExpression::MultilineOption));

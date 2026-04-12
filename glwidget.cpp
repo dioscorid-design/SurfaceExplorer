@@ -314,7 +314,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     } else {
         // === MODALITÀ 3D NORMALE ===
         m_projection.setToIdentity();
-        m_projection.perspective(45.0f, aspect, 0.01f, 100.0f);
+        m_projection.perspective(45.0f, aspect, 0.1f, 100.0f);
 
         m_view.setToIdentity();
         if (m_isPathFollowing) {

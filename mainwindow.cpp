@@ -50,6 +50,9 @@
 #include <QDropEvent>
 #include <QDebug>
 #include <QWindow>
+#include <QTextBrowser>
+#include <QDialog>
+#include <QVBoxLayout>
 
 #if defined(Q_OS_ANDROID)
 #include <QJniObject>
@@ -89,7 +92,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     //QSettings().clear(); // Primo avvio dell'applicazione
 
-    setWindowTitle("Surfaces Explorer");
+    setWindowTitle("Surface Explorer");
     setAttribute(Qt::WA_AcceptTouchEvents);
 
     m_isCustomMode = false;
@@ -286,36 +289,36 @@ MainWindow::MainWindow(QWidget *parent)
 
     ui->actionDocumentation->setMenuRole(QAction::NoRole);
     connect(ui->actionDocumentation, &QAction::triggered, this, [this](){
-        // Usa la cartella temporanea sicura del sistema operativo (funziona sempre su Linux/Mac/Windows)
-        QString targetDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/SurfaceExplorerDoc";
 
-        // Crea la cartella temporanea e la struttura di sottocartelle
-        QDir dir(targetDir);
-        if (!dir.exists()) dir.mkpath(".");
-        dir.mkpath("presets/sounds"); // Crea la sottocartella ESATTA per i crediti
+        // Creiamo una finestra di dialogo interna all'app
+        QDialog* docDialog = new QDialog(this);
+        docDialog->setWindowTitle("Documentation");
 
-        // Definisci i percorsi dei file temporanei
-        QString docPath = targetDir + "/documentation.html";
-        QString credPath = targetDir + "/presets/sounds/CREDITS.TXT"; // Percorso fisico coerente con l'HTML
+        // Rendiamo la finestra bella grande su Desktop e a tutto schermo su Mobile
+        docDialog->setMinimumSize(320, 480);
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+        docDialog->showMaximized();
+#else
+        docDialog->resize(800, 600);
+#endif
 
-        // Estrazione Documentazione
-        if (QFile::exists(docPath)) QFile::remove(docPath);
-        if (QFile::copy(":/documentation.html", docPath)) {
-            QFile::setPermissions(docPath, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadGroup);
-        }
+        QVBoxLayout* layout = new QVBoxLayout(docDialog);
 
-        // Estrazione File di Testo dei Crediti (usa il nuovo percorso virtuale nel QRC)
-        if (QFile::exists(credPath)) QFile::remove(credPath);
-        if (QFile::copy(":/library/presets/sounds/CREDITS.txt", credPath)) {
-            QFile::setPermissions(credPath, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadGroup);
-        }
+        // QTextBrowser supporta HTML, immagini embedded e formattazione
+        QTextBrowser* browser = new QTextBrowser(docDialog);
+        browser->setOpenExternalLinks(true); // Se l'utente clicca un link web (http://...), si aprirà nel browser vero
 
-        // Apertura nel Browser puntando al file temporaneo
-        if (QFile::exists(docPath)) {
-            QDesktopServices::openUrl(QUrl::fromLocalFile(docPath));
-        } else {
-            QMessageBox::warning(this, "Error", "Documentation file not found in resources.\nMake sure 'documentation.html' is added to your .qrc file.");
-        }
+        // MAGIA: Leggiamo l'HTML direttamente dal file system virtuale di Qt! Niente file temporanei.
+        browser->setSource(QUrl("qrc:/documentation.html"));
+
+        QPushButton* closeBtn = new QPushButton("Close", docDialog);
+        closeBtn->setStyleSheet("padding: 12px; font-weight: bold; font-size: 16px;");
+        connect(closeBtn, &QPushButton::clicked, docDialog, &QDialog::accept);
+
+        layout->addWidget(browser);
+        layout->addWidget(closeBtn);
+
+        docDialog->exec();
     });
 
     // =========================================================================
@@ -3544,23 +3547,25 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
         ui->glWidget->setFlatRotation(surfRot);
 
         if (!texCode.isEmpty()) {
+            bool hasCustomLogic = texCode.contains("return") || texCode.contains("vec3") || texCode.contains("vec4") || texCode.contains("mainImage");
+
+            // 1. Carica l'immagine se presente
             if (!imgPath.isEmpty()) {
                 ui->glWidget->loadTextureFromFile(imgPath);
-                ui->glWidget->rebuildShader();
                 m_isImageMode = true;
-                m_isCustomMode = false;
                 m_currentTexturePath = imgPath;
+            } else {
+                m_isImageMode = false;
+                m_currentTexturePath.clear();
             }
-            else if (texCode.contains("return") || texCode.contains("vec3") || texCode.contains("vec4") || texCode.contains("mainImage")) {
+
+            // 2. Carica lo script indipendentemente dall'immagine
+            if (hasCustomLogic) {
                 m_isCustomMode = true;
-                m_isImageMode = false;
                 ui->glWidget->loadCustomShader(texCode);
-                // Sicurezza aggiuntiva: forziamo subito la ricompilazione!
-            }
-            else {
+            } else {
                 m_isCustomMode = false;
-                m_isImageMode = false;
-                generateTexture();
+                if (imgPath.isEmpty()) generateTexture();
                 ui->glWidget->rebuildShader();
             }
         }
@@ -3591,6 +3596,7 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
             ui->glWidget->setProperty("bg_pan", QVector2D(bgPanX, bgPanY));
             ui->glWidget->setProperty("bg_rot", bgRot);
         }
+
         QRegularExpressionMatch bgImgMatch = imgRe.match(bgCode);
         if (bgImgMatch.hasMatch()) {
             QString bgImgPath = bgImgMatch.captured(1).trimmed();
@@ -3604,7 +3610,12 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
                 if (it.hasNext()) bgImgPath = it.next(); // Ritrovata automaticamente!
             }
             ui->glWidget->setBackgroundTexture(bgImgPath);
-        } else {
+        }
+
+        // RIMOSSO L'ELSE: Controlliamo se c'è logica custom e la applichiamo SEMPRE
+        bool bgHasCustomLogic = bgCode.contains("return") || bgCode.contains("vec3") || bgCode.contains("vec4") || bgCode.contains("mainImage");
+
+        if (bgHasCustomLogic || !bgImgMatch.hasMatch()) {
             ui->glWidget->loadBackgroundScript(bgCode);
         }
     }
