@@ -3,10 +3,9 @@
 #include <cmath>
 #include <algorithm>
 
-std::vector<QVector3D> GeometryBuilder::buildBorders(const SurfaceEngine* engine)
+std::vector<QVector4D> GeometryBuilder::buildBorders(const SurfaceEngine* engine)
 {
-    std::vector<QVector3D> borderLines;
-
+    std::vector<QVector4D> borderLines; // <--- Cambiato in QVector4D
     const std::vector<Vertex>& vertices = engine->getVertices();
     if (vertices.empty()) return borderLines;
 
@@ -14,13 +13,12 @@ std::vector<QVector3D> GeometryBuilder::buildBorders(const SurfaceEngine* engine
     int nV = engine->getNumV();
     int stride = nV + 1;
 
-    // Helper per leggere il vertice (i, j) dalla griglia parametrica (U, V, 0)
-    auto getPos = [&](int i, int j) -> QVector3D {
+    auto getPos = [&](int i, int j) -> QVector4D { // <--- Ritorna QVector4D
         int index = i * stride + j;
         if (index >= 0 && index < (int)vertices.size()) {
-            return vertices[index].position;
+            return vertices[index].position; // Che ora è già 4D
         }
-        return QVector3D(0,0,0);
+        return QVector4D(0,0,0,1);
     };
 
     // Bordi lungo U (Linee orizzontali: Lato superiore e inferiore)

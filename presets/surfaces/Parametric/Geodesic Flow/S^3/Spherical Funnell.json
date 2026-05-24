@@ -1,0 +1,78 @@
+{
+    "angles": {
+        "omega": 0.4200998842716217,
+        "phi": 0.3900999128818512,
+        "psi": 0.4200998842716217
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.36525312066078186,
+        "rot_x": -0.10391424596309662,
+        "rot_y": 0.4767600893974304,
+        "rot_z": 0.7927747964859009,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 2.8000001907348633
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 1,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "A*cos(W)",
+        "x": "A * sin(W) * sin(V) * cos(U)",
+        "y": "A * sin(W) * sin(V) * sin(U)",
+        "z": "A*sin(W)*cos(V)"
+    },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "0",
+        "dv": "cos(u)",
+        "dw": "sin(u)\n",
+        "u0": "u",
+        "v0": "pi/2",
+        "w0": "pi/2"
+    },
+    "isImplicitMode": false,
+    "lightIntensity": 1,
+    "lightingMode": 2,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 1.5,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "name": "Spherical Funnell",
+    "projectionMode": 1,
+    "renderMode": 1,
+    "showBorder": false,
+    "steps": 100,
+    "type": "surface",
+    "use4DLighting": false
+}

@@ -1,0 +1,14 @@
+{
+    "code": "textureCol = vec3(1.0, 0.0, 0.0);",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "displacement": "",
+    "hasCustomColors": true,
+    "isImplicitMode": true,
+    "name": "Hello World",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

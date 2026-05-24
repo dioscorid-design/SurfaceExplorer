@@ -1,0 +1,70 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.325273722410202,
+        "rot_x": 0.1054648607969284,
+        "rot_y": 0.9362742900848389,
+        "rot_z": 0.08040156215429306,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 22.000001907348633
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 0.4300000071525574,
+        "B": 0.41999998688697815,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0.25
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.0",
+        "x": "(0.8 + 0.3*cos(v))*cos(u)",
+        "y": "(0.8 + 0.3*cos(v))*sin(u)",
+        "z": "0.3*sin(v)"
+    },
+    "implicitEquation": "(sqrt((10*x/27)*(10*x/27)+(y*sin(A*x)+z*cos(A*x))*(y*sin(A*x)+z*cos(A*x)))-3)^2+(y*cos(A*x)-z*sin(A*x))*(y*cos(A*x)-z*sin(A*x))-1=0",
+    "isImplicitMode": true,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0.10000000149011612,
+        "wMin": 0,
+        "xMax": 10.800000190734863,
+        "xMin": -10.800000190734863,
+        "yMax": 4,
+        "yMin": -4,
+        "zMax": 4,
+        "zMin": -4
+    },
+    "name": "Pseudo Torus",
+    "projectionMode": 1,
+    "renderMode": 10,
+    "showBorder": false,
+    "steps": 650,
+    "type": "surface",
+    "use4DLighting": false
+}

@@ -1,0 +1,79 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.3559897541999817,
+        "rot_x": -0.5498741269111633,
+        "rot_y": -0.7157450318336487,
+        "rot_z": -0.24211335182189941,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 16.00000762939453
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 1,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0.11999999731779099
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.0",
+        "x": "(0.8 + 0.3*cos(v))*cos(u)",
+        "y": "(0.8 + 0.3*cos(v))*sin(u)",
+        "z": "0.3*sin(v)"
+    },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "implicitEquation": "(cos(x)+cos(y)+cos(z))*((cos(x+sin(x)/(2*sqrt(sin(x)^2+sin(y)^2+sin(z)^2)))+cos(y+sin(y)/(2*sqrt(sin(x)^2+sin(y)^2+sin(z)^2)))+cos(z+sin(z)/(2*sqrt(sin(x)^2+sin(y)^2+sin(z)^2)))))=0",
+    "isImplicitMode": true,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 4,
+        "xMin": -4,
+        "yMax": 4,
+        "yMin": -4,
+        "zMax": 4,
+        "zMin": -4
+    },
+    "name": "ThickIso",
+    "projectionMode": 1,
+    "renderMode": 0,
+    "showBorder": false,
+    "steps": 1000,
+    "type": "surface",
+    "use4DLighting": false
+}

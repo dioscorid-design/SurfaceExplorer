@@ -1,0 +1,70 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.7529041171073914,
+        "rot_x": 0.641852855682373,
+        "rot_y": 0.06687977910041809,
+        "rot_z": -0.12918007373809814,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 14.799997329711914
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 0.10000000149011612,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0.20000000298023224
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.0",
+        "x": "(0.8 + 0.3*cos(v))*cos(u)",
+        "y": "(0.8 + 0.3*cos(v))*sin(u)",
+        "z": "0.3*sin(v)"
+    },
+    "implicitEquation": "A*(x^2 + y^2 + z^2 + 2*x*y*z - 1.0 )= 0",
+    "isImplicitMode": true,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0.10000000149011612,
+        "wMin": 0,
+        "xMax": 3,
+        "xMin": -3,
+        "yMax": 3,
+        "yMin": -3,
+        "zMax": 3,
+        "zMin": -3
+    },
+    "name": "Cayley Cubic",
+    "projectionMode": 1,
+    "renderMode": 10,
+    "showBorder": false,
+    "steps": 753,
+    "type": "surface",
+    "use4DLighting": false
+}

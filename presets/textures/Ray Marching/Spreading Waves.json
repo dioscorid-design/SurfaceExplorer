@@ -1,0 +1,14 @@
+{
+    "code": "// Calcola la distanza dal centro esatto della figura\nfloat dist = pModel.y;\n\n// 'fract' taglia il numero decimale creando strisce nette (effetto anello)\n// Sottraendo ubuf.u_time gli anelli si espandono verso l'esterno\nfloat anelli = fract(dist * 10.0 - ubuf.u_time * 2.0); \n\n// Rende i bordi degli anelli leggermente sfumati\nanelli = smoothstep(0.0, 0.2, anelli) * smoothstep(1.0, 0.8, anelli);\n\nvec3 colFondo = vec3(0.05, 0.05, 0.1); // Blu notte\nvec3 colRadar = vec3(0.2, 1.0, 0.4);   // Verde radar\n\ntextureCol = mix(colFondo, colRadar, anelli);",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "displacement": "",
+    "hasCustomColors": true,
+    "isImplicitMode": true,
+    "name": "Spreading Waves",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

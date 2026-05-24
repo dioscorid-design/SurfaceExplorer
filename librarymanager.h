@@ -39,6 +39,23 @@ struct LibraryItem {
     QString defU, defV, defW;
 
     // ==========================================================
+    // GEODESIC FLOW
+    // ==========================================================
+    QString geoU0, geoV0, geoW0;
+    QString geoDU, geoDV, geoDW;
+    QString geoConform;
+
+    // ==========================================================
+    // IMPLICIT EQUATIONS
+    // ==========================================================
+    bool isImplicitMode = false;
+    QString implicitEq;
+
+    float xMin = -1.0f, xMax = 1.0f;
+    float yMin = -1.0f, yMax = 1.0f;
+    float zMin = -1.0f, zMax = 1.0f;
+
+    // ==========================================================
     // MATHEMATICAL CONSTANTS & LIMITS
     // ==========================================================
     int steps = 100;
@@ -78,6 +95,7 @@ struct LibraryItem {
 
     bool bgTextureEnabled = false;
     QString bgTextureCode;
+    QString displacementCode;
 
     // Texture transformations
     float zoom = 1.0f;

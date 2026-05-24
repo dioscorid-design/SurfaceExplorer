@@ -1,4 +1,6 @@
 #include "surfaceengine.h"
+#include "geodesiccalculator.h"
+
 #include <cmath>
 #include "exprtk.hpp"
 
@@ -32,6 +34,9 @@ SurfaceEngine::SurfaceEngine()
     m_surfaceSymbolTable.add_variable("u", m_varU);
     m_surfaceSymbolTable.add_variable("v", m_varV);
     m_surfaceSymbolTable.add_variable("w", m_varW);
+    m_surfaceSymbolTable.add_variable("U", m_varU_comp);
+    m_surfaceSymbolTable.add_variable("V", m_varV_comp);
+    m_surfaceSymbolTable.add_variable("W", m_varW_comp);
     m_surfaceSymbolTable.add_variable("p", m_varP);
     m_surfaceSymbolTable.add_variable("A", m_varA);
     m_surfaceSymbolTable.add_variable("B", m_varB);
@@ -70,6 +75,16 @@ void SurfaceEngine::setResolution(int u, int v)
 {
     numU = std::max(2, u);
     numV = std::max(2, v);
+}
+
+void SurfaceEngine::setCustomMesh(const std::vector<Vertex>& vertices, const std::vector<unsigned int>& indices, bool isUClosed, bool isVClosed)
+{
+    generatedVertices = vertices;
+    generatedIndices = indices;
+
+    // Ora rispettiamo la vera topologia della mesh geodetica
+    u_is_closed = isUClosed;
+    v_is_closed = isVClosed;
 }
 
 
@@ -120,6 +135,26 @@ QString SurfaceEngine::getActiveExplicitEquation() const {
     default: return m_explicitW;
     }
 }
+QVector<QVector<QVector4D>> SurfaceEngine::computeGeodesicFlow(
+    QRhi* rhi,
+    const QString& eqX, const QString& eqY, const QString& eqZ, const QString& eqP,
+    const QString& eqU, const QString& eqV, const QString& eqW,
+    const QString& eqDu, const QString& eqDv, const QString& eqDw, const QString& eqLambda,
+    float uMin, float uMax, int numU,
+    float vMin, float vMax, int numV,
+    const QMap<QString, float>& constants,
+    QString* outErrorMsg) // <--- AGGIUNTO QUI
+{
+    return GeodesicCalculator::computeGeodesicFlow(
+        rhi,
+        eqX, eqY, eqZ, eqP, eqU, eqV, eqW, eqDu, eqDv, eqDw,
+        eqLambda, uMin, uMax, numU, vMin, vMax, numV, constants,
+        outErrorMsg);
+}
+
+void SurfaceEngine::setTime(float t) {
+    m_varT = t;
+}
 
 
 // ==========================================================
@@ -153,6 +188,24 @@ void SurfaceEngine::setConstants(float a, float b, float c, float d, float e, fl
     m_varA = a; m_varB = b; m_varC = c;
     m_varD = d; m_varE = e; m_varF = f;
     m_varS = s;
+}
+
+bool SurfaceEngine::isMeshValid() const {
+    if (generatedVertices.empty()) return false;
+
+    float limit = 100000.0f;
+
+    for (const Vertex& v : generatedVertices) {
+        if (std::isnan(v.position.x()) || std::isinf(v.position.x()) || std::abs(v.position.x()) > limit ||
+            std::isnan(v.position.y()) || std::isinf(v.position.y()) || std::abs(v.position.y()) > limit ||
+            std::isnan(v.position.z()) || std::isinf(v.position.z()) || std::abs(v.position.z()) > limit ||
+            std::isnan(v.position.w()) || std::isinf(v.position.w()) || std::abs(v.position.w()) > limit) {
+
+            return false;
+        }
+    }
+
+    return true;
 }
 
 
@@ -264,17 +317,7 @@ void SurfaceEngine::setScriptMode(bool active) {
 // PRIVATE INTERNAL HELPERS
 // ==========================================================
 
-void SurfaceEngine::compileSingleExpr(const QString &eqStr, CachedExpression &target, exprtk::parser<float> &parser)
-{
-    target.isValid = false;
-    if (eqStr.trimmed().isEmpty()) return;
-
-    target.expr.register_symbol_table(m_pathSymbolTable);
-
-    if (parser.compile(eqStr.toStdString(), target.expr)) {
-        target.isValid = true;
-    }
-}
+// --- Mesh Generation & Analysis ---
 
 void SurfaceEngine::generateParametricGrid()
 {
@@ -312,7 +355,7 @@ void SurfaceEngine::generateParametricGrid()
             QVector3D paramPos(val1, val2, 0.0f);
 
             Vertex vert;
-            vert.position = paramPos;
+            vert.position = QVector4D(paramPos, 1.0f);
             vert.normal = QVector4D(0.0f, 0.0f, 1.0f, 0.0f);
             vert.texCoord = QVector2D((float)i/numU, (float)j/numV);
 
@@ -391,3 +434,21 @@ void SurfaceEngine::detectMeshClosure()
     QVector3D pEnd2   = evalPoint(mid1, end2);
     v_is_closed = (pStart2.distanceToPoint(pEnd2) < threshold);
 }
+
+ // --- Expression Parsing ---
+
+void SurfaceEngine::compileSingleExpr(const QString &eqStr, CachedExpression &target, exprtk::parser<float> &parser)
+{
+    target.isValid = false;
+    if (eqStr.trimmed().isEmpty()) return;
+
+    target.expr.register_symbol_table(m_pathSymbolTable);
+
+    if (parser.compile(eqStr.toStdString(), target.expr)) {
+        target.isValid = true;
+    }
+}
+
+
+
+

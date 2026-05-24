@@ -105,6 +105,20 @@ bool Synthesizer::updateScript(const QString &glslCode, bool isSimpleMath) {
         file.close();
     }
 
+    // Fallback: se common.glsl non si carica, forniamo le costanti base
+    // (PI/pi/TAU/tau/e) che common.glsl avrebbe normalmente fornito,
+    // così il fragment shader rimane comunque compilabile.
+    QString fallbackConsts;
+    if (commonCode.trimmed().isEmpty()) {
+        fallbackConsts = R"(
+        const float PI  = 3.14159265359;
+        const float pi  = 3.14159265359;
+        const float TAU = 6.28318530718;
+        const float tau = 6.28318530718;
+        const float e   = 2.71828182846;
+        )";
+    }
+
     // --- 2. INTESTAZIONE DINAMICA ---
     QString header = "#version 450\n";
 
@@ -120,19 +134,13 @@ bool Synthesizer::updateScript(const QString &glslCode, bool isSimpleMath) {
     #define u_startSample ubuf.val_startSample
     #define u_sampleRate  ubuf.val_sampleRate
 
-    // Costanti matematiche universali protette
-    #ifndef PI
-    #define PI 3.14159265358979323846
-    #endif
-    #ifndef pi
-    #define pi 3.14159265358979323846
-    #endif
-    #ifndef TWO_PI
-    #define TWO_PI 6.28318530717958647692
-    #endif
-
     layout(location = 0) out vec4 fragColor;
-    )" + commonCode + "\n" + glslCode + R"(
+    )" + commonCode + "\n" + fallbackConsts + R"(
+
+    // Costante TWO_PI (non presente in common.glsl, ma usata da alcuni script audio)
+    const float TWO_PI = 6.28318530717958647692;
+
+    )" + glslCode + R"(
 
     void main() {
         // Calcolo esatto del tempo (usando i nomi univoci, niente macro loop!)

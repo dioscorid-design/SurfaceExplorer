@@ -1,0 +1,119 @@
+{
+    "angles": {
+        "omega": 0.10000000149011612,
+        "phi": 0.10000000149011612,
+        "psi": 0.10000000149011612
+    },
+    "background": {
+        "code": "#ifdef GL_ES\nprecision mediump float;\n#endif\n\nfloat noise(vec2 p) {\n    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);\n}\n\nfloat smoothNoise(vec2 p) {\n    vec2 i = floor(p);\n    vec2 f = fract(p);\n    float a = noise(i);\n    float b = noise(i + vec2(1.0, 0.0));\n    float c = noise(i + vec2(0.0, 1.0));\n    float d = noise(i + vec2(1.0, 1.0));\n    vec2 u = f * f * (3.0 - 2.0 * f);\n    return mix(a, b, u.x) +\n           (c - a) * u.y * (1.0 - u.x) +\n           (d - b) * u.x * u.y;\n}\n\nfloat fbm(vec2 p) {\n    float v = 0.0;\n    float amp = 0.5;\n    for (int i = 0; i < 5; i++) {\n        v += amp * smoothNoise(p);\n        p *= 2.0;\n        amp *= 0.5;\n    }\n    return v;\n}\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord) {\n    vec2 uv = fragCoord.xy / iResolution.xy;\n    float t = iTime * 0.15;\n    float n = fbm(uv * 4.0 + vec2(0.0, -t));\n\n    float smoke = smoothstep(0.3, 0.7, n);\n    smoke *= smoothstep(0.0, 0.2, uv.y);\n\n    vec3 col = vec3(smoke);\n    fragColor = vec4(col, 1.0);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.7611690759658813,
+        "rot_x": 0.3338097333908081,
+        "rot_y": 0.5555148720741272,
+        "rot_z": -0.0244145505130291,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1,
+        "B": 0.2800000011920929,
+        "C": 0.9700000286102295,
+        "D": 0.4000000059604645,
+        "E": 1,
+        "F": 1,
+        "S": 0.10000000149011612
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.0",
+        "x": "(0.8 + 0.3*cos(v))*cos(u)",
+        "y": "(0.8 + 0.3*cos(v))*sin(u)",
+        "z": "0.3*sin(v)"
+    },
+    "implicitEquation": "(x^2 + y^2 - 1.0)^2 + (y^2 + z^2 - 1.0)^2 + (z^2 + x^2 - 1.0)^2 = 0.5*sin(t)",
+    "isImplicitMode": true,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0.10000000149011612,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -2,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "name": "Deco Cube",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 1,
+    "renderMode": 0,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 10,
+        "path4D": 10,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 1000,
+    "texture": {
+        "code": "//MUSIC: /home/dioscorid/Projects/Presets/Sounds/wav/321723__rhodesmas__deep-space-vibrations-ambience-loop.wav\n\ntextureCol = 0.5 + 0.5 * cos(ubuf.u_time + n_model.xyz + vec3(0, 2, 4));",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "displacement": "",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

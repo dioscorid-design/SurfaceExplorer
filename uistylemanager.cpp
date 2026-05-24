@@ -13,6 +13,15 @@
 #include <QDockWidget>
 #include <QApplication>
 #include <QStyleFactory>
+#include <QWidget>
+#include <QDialog>
+#include <QVBoxLayout>
+#include <QTextBrowser>
+#include <QPainter>
+#include <QPixmap>
+#include <QIcon>
+#include <QMenu>
+#include <QGraphicsDropShadowEffect>
 
 void UiStyleManager::applyDarkTheme(QMainWindow* window) {
 
@@ -36,14 +45,25 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
     darkPalette.setColor(QPalette::HighlightedText, Qt::black);
     qApp->setPalette(darkPalette);
 
+    // --- SETUP DIMENSIONI FONT DINAMICHE ---
+    QString baseFontSize = "12pt";
+    QString inputFontSize = "10pt";
+
+#if defined(Q_OS_MACOS)
+    baseFontSize = "15pt";
+    inputFontSize = "13pt";
+#endif
+    // ---------------------------------------
+
     // 3. IL TUO FOGLIO DI STILE (QSS)
-    QString darkStyle = R"(
+    // Usa QString(...) e .arg() alla fine per iniettare i font
+    QString darkStyle = QString(R"(
         /* --- GLOBAL --- */
         QWidget {
             background-color: #2D2D30;
             color: #F0F0F0;
             font-family: "Segoe UI", Arial, sans-serif;
-            font-size: 12pt;
+            font-size: %1;
         }
 
         /* --- DOCK WIDGETS --- */
@@ -100,6 +120,7 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
             padding: 4px;
             color: #E0E0E0;
             selection-background-color: #264F78;
+            font-size: %2;
         }
         QPlainTextEdit:focus, QLineEdit:focus { border: 2px solid #007ACC; }
 
@@ -123,7 +144,66 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
         QTabBar::tab { background: #2D2D30; border: 1px solid #444; padding: 5px 10px; color: #AAA; }
         QTabBar::tab:selected { background: #3E3E42; color: #FFF; border-bottom-color: #3E3E42; }
 
-        /* --- SCROLLBAR --- */
+/* --- TABS --- */
+        QTabWidget::pane { border: 1px solid #444; background: #2D2D30; }
+        QTabBar::tab { background: #2D2D30; border: 1px solid #444; padding: 5px 10px; color: #AAA; }
+        QTabBar::tab:selected { background: #3E3E42; color: #FFF; border-bottom-color: #3E3E42; }
+    )" // Chiude il primo blocco di testo
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+                                // --- STILE SCROLLBAR MOBILE ---
+                                R"(
+        QScrollBar:vertical {
+            background: transparent;
+            width: 26px;
+            margin: 0px;
+            padding: 0px;
+        }
+        QScrollBar::handle:vertical {
+            background-color: #666666;
+            min-height: 28px;
+            border-radius: 11px; /* 11px per una larghezza interna di 22px */
+            margin: 2px;
+            border: none; /* <--- QUESTO FORZA IL DISEGNO ROTONDO! */
+        }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+            height: 0px;
+            width: 0px;
+            border: none;
+            background: transparent;
+            margin: 0px;
+        }
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+            background: none;
+        }
+
+        QScrollBar:horizontal {
+            background: transparent;
+            height: 22px;
+            margin: 0px;
+            padding: 0px;
+        }
+        QScrollBar::handle:horizontal {
+            background-color: #666666;
+            min-width: 28px;
+            border-radius: 9px;  /* 9px per un'altezza interna di 18px */
+            margin: 2px;
+            border: none; /* <--- QUESTO FORZA IL DISEGNO ROTONDO! */
+        }
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+            height: 0px;
+            width: 0px;
+            border: none;
+            background: transparent;
+            margin: 0px;
+        }
+        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+            background: none;
+        }
+    )"
+#else
+                                // --- STILE SCROLLBAR DESKTOP (Normali) ---
+                                R"(
         QScrollBar:vertical { border: none; background: #2D2D30; width: 14px; margin: 0px; }
         QScrollBar::handle:vertical { background: #555; min-height: 20px; border-radius: 7px; margin: 2px; }
         QScrollBar::handle:vertical:hover { background: #666; }
@@ -132,7 +212,11 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
         QScrollBar:horizontal { border: none; background: #2D2D30; height: 14px; margin: 0px; }
         QScrollBar::handle:horizontal { background: #555; min-width: 20px; border-radius: 7px; margin: 2px; }
         QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }
+    )"
+#endif
 
+                                // --- CONTINUAZIONE E FINE DELLO STILE ---
+                                R"(
         /* --- MENU --- */
         QMenuBar { background-color: #2D2D30; color: #FFF; }
         QMenuBar::item:selected { background-color: #3E3E42; }
@@ -142,26 +226,26 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
         /* --- SLIDERS STANDARD (Costanti, Steps, ecc.) --- */
         QSlider::groove:horizontal {
             border: 1px solid #444;
-            height: 8px; /* Più spesso del default, ma non enorme */
+            height: 8px;
             background: #1E1E1E;
             border-radius: 4px;
         }
         QSlider::handle:horizontal {
             background: #D0D0D0;
             border: 1px solid #555;
-            width: 20px;  /* Pallino ben afferrabile (quelli grandi sono 30px) */
+            width: 20px;
             height: 20px;
-            margin: -6px 0; /* Centra il pallino verticalmente sulla barra */
+            margin: -6px 0;
             border-radius: 10px;
         }
         QSlider::handle:horizontal:hover {
-            background: #007ACC; /* Diventa azzurro quando ci passi sopra col mouse */
+            background: #007ACC;
             border: 1px solid #007ACC;
         }
         QSlider::handle:horizontal:pressed {
-            background: #0098FF; /* Si illumina quando lo clicchi */
+            background: #0098FF;
         }
-    )";
+    )").arg(baseFontSize, inputFontSize);
 
     // ==========================================================
     // 4. FIX: STILE CHECKBOX E RADIO BUTTON (Alto Contrasto e Pallino Solido)
@@ -284,17 +368,19 @@ void UiStyleManager::setupDockScroll(QDockWidget* dock, bool isExamplesDock) {
     QWidget* content = dock->widget();
     int minHeight = 0;
 
-#ifdef Q_OS_ANDROID
+    // 1. Controllo UNIFICATO per la libreria (Android, iOS, Desktop)
     if (isExamplesDock) {
-        minHeight = 600;
+        minHeight = 0;
     } else {
+        // 2. Altezze specifiche solo per i pannelli standard (Equazioni, Render, ecc.)
+#ifdef Q_OS_ANDROID
         minHeight = content->sizeHint().height();
         if (minHeight < 400) minHeight = 450;
-    }
 #else
-    minHeight = dock->minimumHeight();
-    if (minHeight < 800) minHeight = 850;
+        minHeight = dock->minimumHeight();
+        if (minHeight < 800) minHeight = 850;
 #endif
+    }
 
     content->setMinimumHeight(minHeight);
 
@@ -307,10 +393,8 @@ void UiStyleManager::setupDockScroll(QDockWidget* dock, bool isExamplesDock) {
     dock->setMinimumWidth(minWidth);
 
     if (isExamplesDock) {
-        return;
+        return; // Esce prima di creare la QScrollArea extra!
     }
-    // --------------------------------------------------------------------------------
-
     QScrollArea* scrollArea = new QScrollArea();
     scrollArea->setWidgetResizable(true);
     scrollArea->setFrameShape(QFrame::NoFrame);
@@ -323,13 +407,36 @@ void UiStyleManager::setupDockScroll(QDockWidget* dock, bool isExamplesDock) {
 }
 
 void UiStyleManager::compactForMobile(const QList<QWidget*>& containers) {
-#ifdef Q_OS_ANDROID
+// Estendiamo la compattazione anche a iOS!
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     QString style = R"(
         QWidget { font-size: 13px; }
         QGroupBox { font-weight: bold; margin-top: 1ex; padding: 0px; border: 1px solid #999; }
         QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top center; padding: 0 2px; }
         QLabel { margin: 0px; padding: 0px; }
         QLineEdit { height: 30px; }
+
+        /* --- INGRANDIMENTO SLIDER PER MOBILE --- */
+        QSlider {
+            min-height: 40px; /* Dà respiro verticale al layout per non tagliare il pallino */
+        }
+        QSlider::groove:horizontal {
+            border: 1px solid #444;
+            height: 8px;
+            background: #1E1E1E;
+            border-radius: 4px;
+        }
+        QSlider::handle:horizontal {
+            background: #D0D0D0;
+            border: 1px solid #555;
+            width: 26px;       /* 1. Dimensione aggiornata */
+            height: 26px;
+            margin: -9px 0;    /* 2. Margine ricalcolato: -(26 - 8) / 2 = -9 */
+            border-radius: 13px; /* 3. Esattamente la metà di 26 */
+        }
+        QSlider::handle:horizontal:pressed {
+            background: #0098FF;
+        }
     )";
 
     for (QWidget* w : containers) {
@@ -350,7 +457,9 @@ void UiStyleManager::compactForMobile(const QList<QWidget*>& containers) {
 
         QList<QPlainTextEdit*> textEdits = w->findChildren<QPlainTextEdit*>();
         for (QPlainTextEdit* edit : textEdits) {
-            edit->setMaximumHeight(45); edit->setMinimumHeight(40);
+            // Questo è il blocco chiave che forza i campi delle equazioni a una riga singola!
+            edit->setMaximumHeight(75);
+            edit->setMinimumHeight(70);
         }
     }
 #endif
@@ -380,4 +489,211 @@ void UiStyleManager::setupBigSliders(QSlider* r, QSlider* g, QSlider* b, QSlider
     if(light) light->setMinimumHeight(minH);
     if(speed3D) speed3D->setMinimumHeight(minH);
     if(speed4D) speed4D->setMinimumHeight(minH);
+}
+
+void UiStyleManager::applyInputFieldsStyle(const QList<QWidget*>& fields) {
+    if (fields.isEmpty()) return;
+
+    // Prende il font di base dal primo elemento
+    QFont boldFont = fields.first()->font();
+    boldFont.setBold(true);
+
+#if defined(Q_OS_MACOS)
+    boldFont.setPointSize(14);
+#endif
+
+    // Applica il nuovo font a tutti i campi
+    for (QWidget* field : fields) {
+        if (field) {
+            field->setFont(boldFont);
+        }
+    }
+}
+
+void UiStyleManager::addScrollToDock(QDockWidget* dock) {
+    if (!dock) return;
+
+    // Recupera il widget che contiene attualmente i bottoni/caselle
+    QWidget* innerWidget = dock->widget();
+
+    // Se c'è già una scrollarea o il widget è nullo, ci fermiamo
+    if (!innerWidget || qobject_cast<QScrollArea*>(innerWidget)) return;
+
+    // Crea la nuova ScrollArea
+    QScrollArea* scrollArea = new QScrollArea(dock);
+
+    // Impostazioni estetiche e funzionali
+    scrollArea->setWidget(innerWidget);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+
+    // Assegna la scrollarea come nuovo widget principale del dock
+    dock->setWidget(scrollArea);
+}
+
+void UiStyleManager::applyConstraintStyle(QPlainTextEdit* editor, ConstraintState state) {
+    if (!editor) return;
+
+    switch (state) {
+    case ConstraintState::Active:
+        editor->setStyleSheet("QPlainTextEdit { background-color: #1E1E1E; color: #FFFFFF; font-weight: bold; border: 1px solid #007ACC; }");
+        break;
+    case ConstraintState::Inactive:
+        editor->setStyleSheet("QPlainTextEdit { background-color: #1E1E1E; color: #666666; border: 1px solid #3E3E42; } QPlainTextEdit:focus { border: 1px solid #007ACC; }");
+        break;
+    case ConstraintState::Default:
+        editor->setStyleSheet("QPlainTextEdit { background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3E3E42; } QPlainTextEdit:focus { border: 1px solid #007ACC; }");
+        break;
+    case ConstraintState::Disabled:
+        editor->setStyleSheet("QPlainTextEdit { background-color: #252526; color: #555555; border: 1px solid #333; } QPlainTextEdit:focus { border: 1px solid #007ACC; background-color: #1E1E1E; }");
+        break;
+    }
+}
+
+void UiStyleManager::setupDocumentationDialog(QDialog* dialog, QVBoxLayout* layout, QTextBrowser* browser, QPushButton* closeBtn) {
+    if (!dialog || !layout || !browser || !closeBtn) return;
+
+    // Stile del pulsante di chiusura
+    closeBtn->setStyleSheet("padding: 12px; font-weight: bold; font-size: 16px; background-color: #333; color: white;");
+
+#if defined(Q_OS_IOS)
+    // --- COMPORTAMENTO iOS ---
+    // FullScreen + Margini di sicurezza per evitare Notch e barra Home
+    dialog->setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
+    dialog->showFullScreen();
+    layout->setContentsMargins(0, 45, 0, 20);
+    layout->setSpacing(0);
+    QScroller::grabGesture(browser->viewport(), QScroller::TouchGesture);
+    QFont mobileFont = browser->font();
+    mobileFont.setPointSize(mobileFont.pointSize() + 2);
+    browser->setFont(mobileFont);
+
+#elif defined(Q_OS_ANDROID)
+    // --- COMPORTAMENTO ANDROID ---
+    // Maximized mantiene la Status Bar intatta, evitando sbalzi di UI alla chiusura!
+    dialog->setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
+    dialog->showMaximized();
+    layout->setContentsMargins(0, 0, 0, 0); // Nessun margine
+    layout->setSpacing(0);
+    QScroller::grabGesture(browser->viewport(), QScroller::TouchGesture);
+    QFont mobileFont = browser->font();
+    mobileFont.setPointSize(mobileFont.pointSize() + 2);
+    browser->setFont(mobileFont);
+
+#else
+    // --- COMPORTAMENTO DESKTOP (Mac, Windows, Linux) ---
+    dialog->setMinimumSize(320, 480);
+    dialog->resize(800, 600);
+#endif
+}
+
+void UiStyleManager::styleMobileMenuButton(QPushButton* button) {
+    if (!button) return;
+
+    button->setFlat(true);
+
+    QPixmap pixmap(60, 60);
+    pixmap.fill(Qt::transparent);
+    {
+        QPainter painter(&pixmap);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        int r = 4; // Raggio del puntino
+        int cx = 30; // Centro orizzontale
+
+        // --- NUOVO: Disegna prima l'ombra dei puntini ---
+        // Usiamo un nero semi-trasparente e lo spostiamo leggermente in basso
+        painter.setBrush(QColor(0, 0, 0, 180));
+        painter.setPen(Qt::NoPen);
+        int shadowOffset = 2; // Pixel di spostamento dell'ombra verso il basso
+
+        painter.drawEllipse(QPoint(cx, 16 + shadowOffset), r, r);
+        painter.drawEllipse(QPoint(cx, 30 + shadowOffset), r, r);
+        painter.drawEllipse(QPoint(cx, 44 + shadowOffset), r, r);
+
+        // --- ORIGINALE: Disegna i puntini bianchi esatti sopra ---
+        painter.setBrush(Qt::white);
+
+        painter.drawEllipse(QPoint(cx, 16), r, r);
+        painter.drawEllipse(QPoint(cx, 30), r, r);
+        painter.drawEllipse(QPoint(cx, 44), r, r);
+    } // Il distruttore di QPainter applica definitivamente il disegno
+
+    button->setIcon(QIcon(pixmap));
+    button->setIconSize(QSize(60, 60));
+    button->setFixedSize(60, 60);
+
+    // Stile invariato con effetto "Ripple"
+    button->setStyleSheet(
+        "QPushButton { "
+        "  background: transparent; "
+        "  border: none; "
+        "}"
+        "QPushButton:pressed { "
+        "  background-color: rgba(255, 255, 255, 0.2); "
+        "  border-radius: 30px; "
+        "}"
+        "QPushButton::menu-indicator { "
+        "  image: none; "
+        "  width: 0px; "
+        "}"
+        );
+}
+
+void UiStyleManager::styleMobileOverflowMenu(QMenu* menu) {
+    if (!menu) return;
+
+    menu->setStyleSheet(
+        "QMenu { font-size: 18px; background-color: #2D2D2D; border: 1px solid #444; }"
+        "QMenu::item { padding: 20px 40px; color: white; border-bottom: 1px solid #333; }"
+        "QMenu::item:selected { background-color: #007ACC; }"
+        );
+}
+
+void UiStyleManager::styleMobileScriptButtons(const QList<QPushButton*>& btns) {
+    QString btnStyle = "QPushButton { font-size: 13px; font-weight: bold; padding: 6px 4px; "
+                       "background-color: #3A3A3C; color: white; border: 1px solid #555; border-radius: 4px; }"
+                       "QPushButton:pressed { background-color: #007ACC; }";
+    for (QPushButton* btn : btns) {
+        if (btn) btn->setStyleSheet(btnStyle);
+    }
+}
+
+void UiStyleManager::applyToastShadow(QWidget* widget) {
+    if (!widget) return;
+    QGraphicsDropShadowEffect* shadow = new QGraphicsDropShadowEffect(widget);
+    shadow->setBlurRadius(10);
+    shadow->setColor(QColor(0, 0, 0, 150));
+    shadow->setOffset(0, 4);
+    widget->setGraphicsEffect(shadow);
+}
+
+void UiStyleManager::applyToastStyle(QLabel* label, bool isError) {
+    if (!label) return;
+    QString bgColor = isError ? "rgba(220, 53, 69, 240)" : "rgba(0, 191, 255, 240)";
+    label->setStyleSheet(QString(
+                             "QLabel {"
+                             "  background-color: %1;"
+                             "  color: white;"
+                             "  padding: 12px 24px;"
+                             "  border-radius: 8px;"
+                             "  font-weight: bold;"
+                             "  font-size: 14px;"
+                             "}"
+                             ).arg(bgColor));
+}
+
+void UiStyleManager::applyRecordButtonStyle(QPushButton* btn) {
+    if (btn) btn->setStyleSheet("QPushButton { color: red; font-weight: bold; }");
+}
+
+void UiStyleManager::applyActiveToggleStyle(QPushButton* btn, bool isActive) {
+    if (!btn) return;
+    if (isActive) {
+        btn->setStyleSheet("color: #44FF44; font-weight: bold;");
+    } else {
+        btn->setStyleSheet(""); // Ripristina lo stile base
+    }
 }

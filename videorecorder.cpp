@@ -129,11 +129,16 @@ public:
         nameEdit = new QLineEdit("NewVideo", scrollContent);
         nameEdit->setStyleSheet("padding: 10px; font-size: 16px;");
         nameLayout->addWidget(nameEdit);
+        connect(nameEdit, &QLineEdit::returnPressed, nameEdit, &QLineEdit::clearFocus);
         scrollLayout->addLayout(nameLayout);
 
         listWidget = new QListWidget(scrollContent);
         listWidget->setStyleSheet("QListWidget::item { padding: 18px; border-bottom: 1px solid #ddd; font-size: 16px; }");
-        listWidget->setMinimumHeight(150); // Garantisce che la lista sia usabile prima di dover scorrere
+
+        // Disattiviamo le scrollbar interne per evitare sovrapposizioni
+        listWidget->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        listWidget->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+
         scrollLayout->addWidget(listWidget);
 
         // Chiude il pacchetto e lo inserisce nell'area di scorrimento
@@ -146,6 +151,8 @@ public:
         btnLayout->setContentsMargins(10, 10, 10, 10); // Margine per dare respiro ai tasti
         QPushButton* cancelBtn = new QPushButton("Cancel", this);
         QPushButton* saveBtn = new QPushButton("Save", this);
+        cancelBtn->setAutoDefault(false);
+        saveBtn->setAutoDefault(false);
         cancelBtn->setStyleSheet("padding: 12px; font-size: 16px;");
         saveBtn->setStyleSheet("padding: 12px; font-size: 16px; font-weight: bold; color: #cc0000;");
         btnLayout->addWidget(cancelBtn);
@@ -168,10 +175,21 @@ public:
         });
 
         connect(listWidget, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
-            QString dirName = item->data(Qt::UserRole).toString();
-            if (dirName == "..") currentDir.cdUp();
-            else currentDir.cd(dirName);
-            refreshList();
+            QString data = item->data(Qt::UserRole).toString();
+
+            if (data == "..") {
+                currentDir.cdUp();
+                refreshList();
+            } else if (data.startsWith("DIR|")) {
+                // È una cartella: navighiamo all'interno
+                currentDir.cd(data.mid(4));
+                refreshList();
+            } else if (data.startsWith("FILE|")) {
+                // È un file video: copiamo il suo nome nella casella di input!
+                QString fileName = data.mid(5);
+                QFileInfo fi(fileName);
+                nameEdit->setText(fi.completeBaseName()); // Prende il nome senza il ".mp4"
+            }
         });
 
         refreshList();
@@ -186,14 +204,45 @@ public:
 private:
     void refreshList() {
         listWidget->clear();
+
+        // 1. Aggiungiamo sempre il tasto per tornare indietro
         QListWidgetItem* upItem = new QListWidgetItem("📁 .. (Up)", listWidget);
         upItem->setData(Qt::UserRole, "..");
+
+        // =========================================================
+        // METODO SICURO A DUE PASSAGGI (Anti-Bug per filtri Mobile)
+        // =========================================================
+
+        // FASE A: Recuperiamo SOLO LE CARTELLE (azzerando i filtri testuali)
+        currentDir.setNameFilters(QStringList());
         QFileInfoList dirs = currentDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
-        for (const QFileInfo& dir : dirs) {
-            QListWidgetItem* dirItem = new QListWidgetItem("📁 " + dir.fileName(), listWidget);
-            dirItem->setData(Qt::UserRole, dir.fileName());
+
+        for (const QFileInfo& info : dirs) {
+            QListWidgetItem* dirItem = new QListWidgetItem("📁 " + info.fileName(), listWidget);
+            dirItem->setData(Qt::UserRole, "DIR|" + info.fileName());
         }
+
+        // FASE B: Recuperiamo SOLO I FILE VIDEO (applicando il filtro)
+        currentDir.setNameFilters(QStringList() << "*.mp4" << "*.mov" << "*.avi" << "*.mkv");
+        QFileInfoList files = currentDir.entryInfoList(QDir::Files, QDir::Name);
+
+        for (const QFileInfo& info : files) {
+            QListWidgetItem* fileItem = new QListWidgetItem("🎞️ " + info.fileName(), listWidget);
+            fileItem->setData(Qt::UserRole, "FILE|" + info.fileName());
+            fileItem->setForeground(Qt::gray);
+        }
+
+        // Pulizia finale: riazzeriamo il filtro per non corrompere la navigazione futura
+        currentDir.setNameFilters(QStringList());
+
+        // =========================================================
+
         pathLabel->setText(currentDir.absolutePath());
+
+        // Espansione dinamica per disattivare la doppia scrollbar
+        int itemHeight = 55;
+        int totalListHeight = listWidget->count() * itemHeight;
+        listWidget->setMinimumHeight(qMax(150, totalListHeight));
     }
 
     QDir currentDir;
@@ -216,18 +265,43 @@ void VideoRecorder::toggleRecord()
     }
 
     // ==============================================================
-    // 1. SALVATAGGIO STATO E STOP IMMEDIATO (FIX CONGELAMENTO)
+    // 1. SALVATAGGIO STATO E STOP IMMEDIATO (FIX CONGELAMENTO E GEODETICO)
     // ==============================================================
     bool wasPath4D = m_mainWindow->pathTimer->isActive();
     bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
     bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
 
-    // ---> NUOVO: Salva e ferma l'animazione temporale ('t') <---
     bool wasTimeAnimating = false;
     if (m_mainWindow->m_btnStart && m_mainWindow->m_btnStart->text().toUpper() == "STOP") {
         wasTimeAnimating = true;
         m_mainWindow->ui->glWidget->setSurfaceAnimating(false);
     }
+
+    // ---> FIX: GESTIONE FLUSSO GEODETICO <---
+    QTimer* geoAnimTimer = m_mainWindow->findChild<QTimer*>("geoAnimTimer");
+    bool wasGeoAnimating = false;
+    if (geoAnimTimer && geoAnimTimer->isActive()) {
+        wasGeoAnimating = true;
+        geoAnimTimer->stop(); // Fermiamo i calcoli asincroni
+    }
+
+    // Rilevamento preciso per sapere se dovremo ricalcolare la mesh frame-by-frame
+    QString mainEqs = m_mainWindow->ui->lineX->toPlainText() + " " + m_mainWindow->ui->lineY->toPlainText() + " " + m_mainWindow->ui->lineZ->toPlainText() + " " + m_mainWindow->ui->lineP->toPlainText();
+    int upperCount = (mainEqs.contains(QRegularExpression("\\bU\\b")) ? 1 : 0) +
+                     (mainEqs.contains(QRegularExpression("\\bV\\b")) ? 1 : 0) +
+                     (mainEqs.contains(QRegularExpression("\\bW\\b")) ? 1 : 0);
+    bool geoHasText = false;
+    if (m_mainWindow->ui->lnU) {
+        geoHasText = !m_mainWindow->ui->lnU->toPlainText().trimmed().isEmpty() ||
+                     !m_mainWindow->ui->lnV->toPlainText().trimmed().isEmpty() ||
+                     !m_mainWindow->ui->lnW->toPlainText().trimmed().isEmpty() ||
+                     !m_mainWindow->ui->lndU->toPlainText().trimmed().isEmpty() ||
+                     !m_mainWindow->ui->lndV->toPlainText().trimmed().isEmpty() ||
+                     !m_mainWindow->ui->lndW->toPlainText().trimmed().isEmpty();
+    }
+    bool isGeodesicActive = (upperCount > 0) && geoHasText && (m_mainWindow->ui->tabModeSelector->currentIndex() == 0);
+    double startGeoTime = m_mainWindow->property("geoTime").toDouble();
+    // ----------------------------------------
 
     // Fermiamo tutto PRIMA di aprire finestre di dialogo
     if (wasPath4D) m_mainWindow->pathTimer->stop();
@@ -236,7 +310,7 @@ void VideoRecorder::toggleRecord()
     m_mainWindow->ui->glWidget->pauseMotion();
 
     // Helper per ripristinare lo stato
-    auto restoreState = [this, wasAnimating, wasPath4D, wasPath3D, wasTimeAnimating]() {
+    auto restoreState = [this, wasAnimating, wasPath4D, wasPath3D, wasTimeAnimating, wasGeoAnimating, geoAnimTimer]() {
         if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
         if (wasPath4D) {
             m_mainWindow->pathTimer->start();
@@ -246,10 +320,12 @@ void VideoRecorder::toggleRecord()
             m_mainWindow->pathTimer3D->start();
             m_mainWindow->ui->btnDeparture3D->setText("STOP");
         }
-        // ---> NUOVO: Ripristina l'animazione temporale ('t') <---
         if (wasTimeAnimating) {
             m_mainWindow->ui->glWidget->setSurfaceAnimating(true);
             m_mainWindow->ui->glWidget->startAnimationTimer();
+        }
+        if (wasGeoAnimating && geoAnimTimer) {
+            geoAnimTimer->start(); // Riavviamo l'asincronia per la normale visualizzazione
         }
     };
 
@@ -276,7 +352,7 @@ void VideoRecorder::toggleRecord()
     if (rootPath.isEmpty()) rootPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/SurfaceExplorer_Presets";
 #endif
 
-    QString defaultVideoDir = rootPath + "/Renders";
+    QString defaultVideoDir = rootPath + "/renders";
     QDir().mkpath(defaultVideoDir);
     QString userSelectedFile;
 
@@ -365,7 +441,7 @@ void VideoRecorder::toggleRecord()
     QString lastVideoDir = settings.value("lastVideoDir", defaultVideoDir).toString();
     if (!QDir(lastVideoDir).exists()) lastVideoDir = defaultVideoDir;
     QString defaultSelection = lastVideoDir + "/NewVideo.mp4";
-    userSelectedFile = QFileDialog::getSaveFileName(m_mainWindow, "Save MP4 Video", defaultSelection, "MP4 Video (*.mp4)");
+    userSelectedFile = QFileDialog::getSaveFileName(m_mainWindow, "Save MP4 Video", defaultSelection, "MP4 Video (*.mp4)", nullptr, QFileDialog::DontUseNativeDialog);
     if (userSelectedFile.isEmpty()) { restoreState(); return; }
     if (!userSelectedFile.endsWith(".mp4", Qt::CaseInsensitive)) userSelectedFile += ".mp4";
     settings.setValue("lastVideoDir", QFileInfo(userSelectedFile).absolutePath());
@@ -391,6 +467,7 @@ void VideoRecorder::toggleRecord()
     // ==============================================================
     m_mainWindow->m_isRecording = true;
     m_mainWindow->m_stopRecordingRequested = false;
+    m_mainWindow->ui->glWidget->setUpdatesEnabled(false);
 
     // ---> BLOCCA LO SPEGNIMENTO DELLO SCHERMO <---
 #if defined(Q_OS_IOS)
@@ -408,11 +485,22 @@ void VideoRecorder::toggleRecord()
     });
 #endif
     // STOP AUDIO E ATTIVAZIONE TEMPO VIRTUALE
-    // DOPO:
     m_mainWindow->m_audioController->stopAll();
+
+    // 1. Creiamo una variabile per salvare il momento esatto in cui l'utente ha premuto REC
+    float initialTimeOffset = 0.0f;
+
     if (m_mainWindow->ui->glWidget) {
+        // 2. Leggiamo il tempo reale corrente dello shader dal vivo
+        initialTimeOffset = m_mainWindow->ui->glWidget->property("virtual_time").toFloat();
+
+        if (initialTimeOffset < 0.001f) initialTimeOffset = 0.001f;
+
+        // Diciamo al widget di smettere di usare il tempo reale
         m_mainWindow->ui->glWidget->setProperty("use_virtual_time", true);
-        m_mainWindow->ui->glWidget->setProperty("virtual_time", 0.0f);
+
+        // 3. Impostiamo il virtual_time iniziale al tempo appena catturato
+        m_mainWindow->ui->glWidget->setProperty("virtual_time", initialTimeOffset);
     }
 
     // Feedback visivo
@@ -427,7 +515,7 @@ void VideoRecorder::toggleRecord()
     // Android: Usa la cache interna dell'app in modo che FFmpeg (C nativo) abbia i permessi
     QString targetPath = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
 #else
-    QString targetPath = rootPath + "/Renders";
+    QString targetPath = rootPath + "/renders";
 #endif
 
     QString timeStamp = QDateTime::currentDateTime().toString("yyyy-MM-dd_HH-mm-ss");
@@ -482,12 +570,14 @@ void VideoRecorder::toggleRecord()
             break;
         }
 
-        float currentTime = i * timeStep;
+        // Calcolo corretto del tempo basato sull'istante in cui è iniziata la registrazione
+        float currentTime = initialTimeOffset + (i * timeStep);
 
-        // >>> FIX 2: INVIA IL TEMPO VIRTUALE AL BACKGROUND <<<
+        // INVIA IL TEMPO VIRTUALE AL BACKGROUND
         if (m_mainWindow->ui->glWidget) {
             m_mainWindow->ui->glWidget->setProperty("virtual_time", currentTime);
         }
+
         // ====================================================
 
         if (wasPath4D) {
@@ -677,6 +767,7 @@ void VideoRecorder::toggleRecord()
     // 5. RIPRISTINO E PULIZIA
     // ==============================================================
     m_mainWindow->m_isRecording = false;
+    m_mainWindow->ui->glWidget->setUpdatesEnabled(true);
 
 #if defined(Q_OS_IOS)
     NativeVideoEncoder::setKeepScreenOn(false);
@@ -713,7 +804,6 @@ void VideoRecorder::toggleRecord()
     restoreState();
 
     m_mainWindow->ui->glWidget->setRotation4D(startOmega, startPhi, startPsi);
-    m_mainWindow->ui->glWidget->updateSurfaceData();
     m_mainWindow->ui->glWidget->update();
 
     m_mainWindow->m_statusLabel->setText("Generating MP4... please wait.");
@@ -865,11 +955,11 @@ void VideoRecorder::toggleRecord()
             }
 #endif
 
-            // Pulizia dei file temporanei
-            QDir dir(m_mainWindow->m_recFolder);
-            dir.setNameFilters(QStringList() << "*.bmp" << "*.png" << "*.raw" << "*.mp4");
-            for (const QString &f : dir.entryList(QDir::Files)) dir.remove(f);
-            dir.rmdir(m_mainWindow->m_recFolder);
+            // Pulizia profonda e totale dei file temporanei
+            QDir tempDir(m_mainWindow->m_recFolder);
+            if (tempDir.exists()) {
+                tempDir.removeRecursively();
+            }
 
             QMessageBox::information(m_mainWindow, "Finished!", "Video successfully saved:\n" + userSelectedFile);
         } else {

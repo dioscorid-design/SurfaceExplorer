@@ -16,6 +16,9 @@ public:
         exprtk::symbol_table<double> symbol_table;
         symbol_table.add_constants();
 
+        symbol_table.add_constant("tau", 6.28318530717958647692);
+        symbol_table.add_constant("TAU", 6.28318530717958647692);
+
         exprtk::expression<double> expression;
         expression.register_symbol_table(symbol_table);
 
@@ -30,6 +33,48 @@ public:
         return mathStr.toFloat();
     }
 
+    static float evaluateSimple(const QString& mathStr, bool& ok) {
+        ok = false;
+
+        if (mathStr.trimmed().isEmpty()) {
+            return 0.0f;
+        }
+
+        exprtk::symbol_table<double> symbol_table;
+        symbol_table.add_constants();
+
+        symbol_table.add_constant("tau", 6.28318530717958647692);
+        symbol_table.add_constant("TAU", 6.28318530717958647692);
+
+        exprtk::expression<double> expression;
+        expression.register_symbol_table(symbol_table);
+
+        exprtk::parser<double> parser;
+
+        // Tentiamo la compilazione exprtk
+        if (parser.compile(mathStr.toStdString(), expression)) {
+            double result = expression.value();
+            // exprtk può ritornare NaN/Inf per overflow o divisioni per zero
+            if (!std::isfinite(result)) {
+                return 0.0f; // ok rimane false
+            }
+            ok = true;
+            return static_cast<float>(result);
+        }
+
+        // Fallback: numero puro tipo "0.5", "-3.14" ecc.
+        // Usiamo QString::toFloat con flag esplicito anziché silenzioso.
+        bool numOk = false;
+        float v = mathStr.toFloat(&numOk);
+        if (numOk && std::isfinite(v)) {
+            ok = true;
+            return v;
+        }
+
+        // Tutto fallito: stringa malformata.
+        return 0.0f; // ok rimane false
+    }
+
     // Configura le variabili dinamiche (coordinate)
     // Vengono passate per riferimento per garantire velocità estrema nel loop di rendering
     template <typename T>
@@ -42,7 +87,13 @@ public:
 
         // --- QUI AGGIUNGIAMO LE COSTANTI MATEMATICHE (pi, e, ecc.) ---
         symbol_table.add_constants();
+        symbol_table.add_constant("tau", 6.28318530717958647692);
+        symbol_table.add_constant("TAU", 6.28318530717958647692);
         // -------------------------------------------------------------
+    }
+
+    void addCustomVariable(const QString& varName, double& variable) {
+        symbol_table.add_variable(varName.toStdString(), variable);
     }
 
     // Configura i parametri costanti dell'equazione (A, B, C, D, E, D, s)

@@ -1,0 +1,14 @@
+{
+    "code": "// Calcola quanto pesa ogni asse (X, Y, Z) in base alla normale\nvec3 blend = abs(n_model);\nblend /= max(blend.x + blend.y + blend.z, 0.00001);\n\n// Genera pattern procedurali diversi per ogni piano di proiezione\nvec3 colX = vec3(sin(pModel.y * 30.0) * 0.5 + 0.5, 0.0, 0.0); // Strisce rosse sul piano YZ\nvec3 colY = vec3(0.0, sin(pModel.x * 30.0) * 0.5 + 0.5, 0.0); // Strisce verdi sul piano XZ\nvec3 colZ = vec3(0.0, 0.0, sin(pModel.x * 30.0) * 0.5 + 0.5); // Strisce blu sul piano XY\n\n// Miscela i pattern usando i pesi della normale\ntextureCol = colX * blend.x + colY * blend.y + colZ * blend.z;",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "displacement": "",
+    "hasCustomColors": true,
+    "isImplicitMode": true,
+    "name": "Triplanar Stripes",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

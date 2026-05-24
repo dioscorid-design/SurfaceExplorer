@@ -1,7 +1,7 @@
 #version 440
 
 // INPUT
-layout(location = 0) in vec3 vertex;
+layout(location = 0) in vec4 vertex;
 layout(location = 1) in vec4 normal;
 layout(location = 2) in vec2 texCoord;
 
@@ -45,9 +45,6 @@ layout(std140, binding = 0) uniform SceneUBO {
     float v_max;
     int u_hasExplicitW;
 } ubuf;
-
-const float PI = 3.14159265359;
-const float pi = 3.14159265359;
 
 float sq(float x) { return x*x; }
 
@@ -97,6 +94,11 @@ vec3 project4D(vec4 p) {
 
 // --- FUNZIONE UTENTE ---
 vec4 getRawPosition(float u, float v, float w) {
+#ifdef CUSTOM_MESH
+    // SE SIAMO IN MODALITÀ GEODESIC FLOW, PRENDIAMO IL VERTICE DIRETTAMENTE DAL BUFFER
+    return vertex;
+#else
+    // ALTRIMENTI FACCIAMO I CALCOLI CLASSICI
     float A = ubuf.u_mathParams.x;
     float B = ubuf.u_mathParams.y;
     float C = ubuf.u_mathParams.z;
@@ -111,6 +113,7 @@ vec4 getRawPosition(float u, float v, float w) {
     float z = %Z_EQ%;
     float p = %W_EQ%;
     return vec4(x, y, z, p);
+#endif
 }
 
 // --- FUNZIONE INIETTATA DA C++ ---
@@ -263,13 +266,45 @@ vec3 calculateFinalNormal(float u, float v) {
     vec3 N = cross(tangentU, tangentV);
 
     // Se la normale collassa (siamo sul polo / singolarità)
-    if (dot(N, N) < 1.0e-8) { // Soglia rilassata data la moltiplicazione
-        float offset = 0.01;
-        vec3 p1 = project4D(getRotatedPoint4D(u + offset, v + offset));
-        vec3 p2 = project4D(getRotatedPoint4D(u - offset, v + offset));
-        vec3 p3 = project4D(getRotatedPoint4D(u, v - offset));
+    if (dot(N, N) < 1.0e-8) {
+        // Strategia: spostiamoci LONTANO dal polo (offset grande, ASIMMETRICO),
+        // poi facciamo differenze in avanti standard nel nuovo punto.
+        // Proviamo le 4 direzioni cardinali: la prima che produce una
+        // normale non degenere vince.
+        float pole_off = 0.05;
+        float eps2     = 0.005;
 
-        N = cross((p1 - p3) * 50.0, (p2 - p3) * 50.0);
+        vec3 p0, pU, pV;
+
+        // Tentativo 1: offset in +u
+        p0 = project4D(getRotatedPoint4D(u + pole_off, v));
+        pU = project4D(getRotatedPoint4D(u + pole_off + eps2, v));
+        pV = project4D(getRotatedPoint4D(u + pole_off, v + eps2));
+        N  = cross(pU - p0, pV - p0);
+
+        // Tentativo 2: offset in -u
+        if (dot(N, N) < 1.0e-8) {
+            p0 = project4D(getRotatedPoint4D(u - pole_off, v));
+            pU = project4D(getRotatedPoint4D(u - pole_off + eps2, v));
+            pV = project4D(getRotatedPoint4D(u - pole_off, v + eps2));
+            N  = cross(pU - p0, pV - p0);
+        }
+
+        // Tentativo 3: offset in +v
+        if (dot(N, N) < 1.0e-8) {
+            p0 = project4D(getRotatedPoint4D(u, v + pole_off));
+            pU = project4D(getRotatedPoint4D(u + eps2, v + pole_off));
+            pV = project4D(getRotatedPoint4D(u, v + pole_off + eps2));
+            N  = cross(pU - p0, pV - p0);
+        }
+
+        // Tentativo 4: offset in -v
+        if (dot(N, N) < 1.0e-8) {
+            p0 = project4D(getRotatedPoint4D(u, v - pole_off));
+            pU = project4D(getRotatedPoint4D(u + eps2, v - pole_off));
+            pV = project4D(getRotatedPoint4D(u, v - pole_off + eps2));
+            N  = cross(pU - p0, pV - p0);
+        }
 
         if (dot(N, N) < 1.0e-8) return vec3(0.0, 0.0, 1.0);
     }
@@ -280,8 +315,8 @@ vec3 calculateFinalNormal(float u, float v) {
 void main() {
     // --- BYPASS PER FLAT VIEW (TEXTURE PREVIEW) ---
     if (ubuf.u_isFlat != 0) {
-        gl_Position = ubuf.u_mvpMatrix * vec4(vertex, 1.0);
-        v_pos = vertex;
+        gl_Position = ubuf.u_mvpMatrix * vec4(vertex.xyz, 1.0);
+        v_pos = vertex.xyz;
         v_normal = vec4(0.0, 0.0, 1.0, 0.0);
         v_texCoord = vec2(texCoord.x, 1.0 - texCoord.y);
         v_light4D = 1.0;
@@ -324,7 +359,13 @@ void main() {
         finalPos3D = obs.xyz + (pRot.xyz - obs.xyz) * wFactor;
     }
 
+#ifdef CUSTOM_MESH
+    // SE SIAMO NEL GEODESIC FLOW, PRENDIAMO LA NORMALE DAL BUFFER
+    vec3 finalNormal3D = normal.xyz;
+#else
+    // ALTRIMENTI LA CALCOLIAMO CON LA MATEMATICA
     vec3 finalNormal3D = calculateFinalNormal(u, v);
+#endif
 
     // 3. CALCOLO ILLUMINAZIONE 4D E SPECULARE
     v_spec4D = 0.0; // Valore di default

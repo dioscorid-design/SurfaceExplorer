@@ -3,6 +3,7 @@
 
 #include "surfaceengine.h"
 
+#include <QWidget>
 #include <QRhiWidget>
 #include <private/qrhi_p.h>
 #include <rhi/qshader.h>
@@ -49,7 +50,13 @@ struct UboData {
     float v_min;
     float v_max;
     int hasExplicitW;
-    float padding[2];
+    int u_raySteps;
+    float x_min;
+    float x_max;
+    float y_min;
+    float y_max;
+    float z_min;
+    float z_max;
 };
 
 class GLWidget : public QRhiWidget
@@ -60,7 +67,7 @@ public:
     explicit GLWidget(QWidget *parent = nullptr);
     ~GLWidget();
 
-    QRhi* getRhi() const { return rhi(); }
+    QRhi* getRhi() { return rhi(); }
 
     // ==========================================================
     // ENUMS & CONSTANTS
@@ -82,17 +89,40 @@ public:
         RotPsiPos,   RotPsiNeg
     };
 
+
+    // ==========================================================
+    // ENGINE MODES
+    // ==========================================================
+    enum EngineMode {
+        ModeParametric = 0,
+        ModeImplicit   = 1
+    };
+
+    void setEngineMode(EngineMode mode);
+    EngineMode getEngineMode() const { return m_engineMode; }
+
+
     // ==========================================================
     // EQUATIONS & MATHEMATICS
     // ==========================================================
     bool setParametricEquations(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq);
+    void setImplicitEquation(const QString &eqF);
     void setExplicitWEquation(const QString &eq);
     void setEquationConstants(float a, float b, float c, float d, float e, float f, float s);
     void setRangeU(float min, float max);
     void setRangeV(float min, float max);
     void setRangeW(float min, float max);
+    void setRangeX(float min, float max);
+    void setRangeY(float min, float max);
+    void setRangeZ(float min, float max);
     void setResolution(int n);
+    void setRaySteps(int steps);
+    bool setCustomMesh(const QVector<QVector<QVector4D>>& grid);
+    const QMap<QString, float>& getConstantsMap() const { return m_constants; }
+
     SurfaceEngine* getEngine() const { return engine.get(); }
+
+
 
     // ==========================================================
     // RENDERING & VISUALS
@@ -113,7 +143,8 @@ public:
     void decreaseWireframeVDensity();
     float getSurfaceScale() const { return m_surfaceScale; }
     void setSurfaceScale(float s) { m_surfaceScale = s; update(); }
-    bool rebuildShader();
+    void rebuildShader();
+
 
     // ==========================================================
     // TEXTURES, SCRIPTS & BACKGROUND
@@ -135,6 +166,10 @@ public:
     bool isBackgroundTextureEnabled() const { return m_useBackgroundTexture; }
     void loadBackgroundScript(const QString &scriptCode);
 
+    void setTextureCode(const QString& code);
+    void setDisplacementCode(const QString& code);
+
+
     // ==========================================================
     // 2D FLAT VIEW
     // ==========================================================
@@ -149,6 +184,7 @@ public:
     void rotateFlat90();
     QVector2D getFlatPan() const;
     void setFlatPan(float x, float y);
+
 
     // ==========================================================
     // CAMERA 3D & 4D STATE
@@ -172,7 +208,7 @@ public:
     void addCameraRoll(float dRoll);
     void moveCameraFromScreenDelta(float dx, float dy);
     void resetTransformations();
-    void virtualMove(MoveDir dir, bool slowMode);
+    void virtualMove(MoveDir dir, float speed3D, float speed4D);
 
     QVector3D getCameraPos() const { return m_cameraPos; }
     float getCameraYaw() const { return m_cameraYaw; }
@@ -186,6 +222,7 @@ public:
     void setRotationQuat(const QQuaternion& q) { m_rotationQuat = q; meshNeedsUpdate = true; update(); }
     float getObserverPos4D() const { return m_observerPos.w(); }
     void setObserverPos4D(float pos) { m_observerPos.setW(pos); m_cameraPos4D.setW(pos); meshNeedsUpdate = true; update(); }
+
 
     // ==========================================================
     // ANIMATION & MOTION CONTROL
@@ -217,12 +254,25 @@ public:
     void resetSurfaceTime();
     void setSurfaceAnimating(bool animating);
     bool isSurfaceAnimating() const { return m_surfaceAnimating; }
+    float surfaceTime() const;
+
+    void setBackgroundTextureAnimating(bool animating) { m_bgAnimating = animating; }
+    bool isBackgroundTextureAnimating() const { return m_bgAnimating; }
+
+    void setSurfaceTextureAnimating(bool animating) { m_texAnimating = animating; }
+    bool isSurfaceTextureAnimating() const { return m_texAnimating; }
+
 
     // ==========================================================
     // UTILITIES
     // ==========================================================
     int projectionMode = 0;
     QImage getFrameForVideo(int targetW = -1, int targetH = -1, bool useFbo = false);
+    QString getShaderError() const { return m_lastCompilationError; }
+    bool validateAndApplyParametricShader(const QString &customLogic);
+    bool validateAndApplyImplicitShader(const QString &eqF, const QString &texCode, const QString &dispCode);
+    bool validateAndApplyBackgroundShader(const QString &scriptCode);
+    bool validateAndApplyParametricScript(const QString &scriptCodeGLSL);
 
 signals:
     void rotationChanged();
@@ -237,6 +287,16 @@ protected:
     bool event(QEvent *e) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
 
+public slots:
+    void rebuildBackgroundShader(bool isTextureMode, const QString &customCode = "");
+    void forceTextureRefresh();
+
+    // ==========================================================
+    // GEODESIC FLOW CALCULATIONS
+    // ==========================================================
+    void triggerGeodesicCalculation();
+    void setConstants(const QMap<QString, float>& constants) { m_constants = constants; }
+
 private slots:
     void updateRotation();
 
@@ -246,6 +306,21 @@ private:
     // ==========================================================
     std::unique_ptr<SurfaceEngine> engine;
     std::unique_ptr<InputHandler> m_inputHandler;
+
+
+    // ==========================================================
+    // ENGINE STATE & REFACTORING
+    // ==========================================================
+    EngineMode m_engineMode = ModeParametric;
+
+    void prepareCommonResources(QRhiResourceUpdateBatch *updates);
+    void prepareParametricResources(QRhiResourceUpdateBatch *updates);
+    void prepareImplicitResources(QRhiResourceUpdateBatch *updates);
+
+    void drawBackground(QRhiCommandBuffer *cb, const QSize &outputSize);
+    void drawParametric(QRhiCommandBuffer *cb, const QSize &outputSize);
+    void drawImplicit(QRhiCommandBuffer *cb, const QSize &outputSize);
+    void drawFlatView(QRhiCommandBuffer *cb, const QSize &outputSize);
 
 
     // ==========================================================
@@ -265,9 +340,12 @@ private:
     QString m_customFragmentCode;
     QString m_bgScriptCode;
 
+    QString m_textureCode;
+    QString m_displacementCode;
+
 
     // ==========================================================
-    // RISORSE QRHI (Sostituiscono i vecchi QOpenGLBuffer e Shader)
+    // RISORSE QRHI
     // ==========================================================
     QRhiBuffer *m_vbo = nullptr;
     QRhiBuffer *m_ibo = nullptr;
@@ -299,6 +377,15 @@ private:
 
     UboData m_uboData;
 
+
+    // ==========================================================
+    // RISORSE QRHI IMPLICIT (RAY MARCHING)
+    // ==========================================================
+    void buildImplicitPipeline();
+    QRhiGraphicsPipeline *m_pipelineImplicit = nullptr;
+    QRhiShaderResourceBindings *m_bindingsImplicit = nullptr;
+
+
     // ==========================================================
     // MATHEMATICAL & GEOMETRY STATE
     // ==========================================================
@@ -308,7 +395,33 @@ private:
     int m_borderVertexCount = 0;
     int wfStepU = 4;
     int wfStepV = 4;
+    int m_raySteps = 100;
     float m_surfaceScale = 2.0f;
+    bool m_isCustomMesh = false;
+
+
+    // ==========================================================
+    // IMPLICIT EQUATIONS STATE
+    // ==========================================================
+    QString m_eqImplicitF = "x*x + y*y + z*z - 1.0";
+
+    QString createImplicitFragmentShader();
+    QString createBackgroundFragmentShader(bool isTextureMode, const QString &customCode);
+
+
+    // ==========================================================
+    // GEODESIC FLOW STATE
+    // ==========================================================
+    QString m_eqLambda = "1.0";
+    QString m_initU = "u", m_initV = "0", m_initW = "0";
+    QString m_eqDu = "0", m_eqDv = "1", m_eqDw = "0";
+    QMap<QString, float> m_constants;
+
+    int m_numU_geo = 100;
+    int m_numV_geo = 200;
+    float m_vMin_geo = -5.0f;
+    float m_vMax_geo = 5.0f;
+
 
     // ==========================================================
     // RENDERING & TEXTURE STATE
@@ -330,6 +443,7 @@ private:
     QVector3D m_bgColor = QVector3D(0.3f, 0.3f, 0.3f);
     int m_lightingMode4D = 0;
 
+
     // ==========================================================
     // 2D / FLAT VIEW STATE
     // ==========================================================
@@ -338,6 +452,7 @@ private:
     float m_flatZoom = 1.0f;
     float m_flatRotation = 0.0f;
     QVector2D m_flatPan;
+
 
     // ==========================================================
     // CAMERA & TRANSFORMATIONS STATE
@@ -360,6 +475,7 @@ private:
     QVector3D m_pathUp;
     float m_pathRoll = 0.0f;
 
+
     // ==========================================================
     // ANIMATION & MOTION STATE
     // ==========================================================
@@ -381,26 +497,56 @@ private:
     QVector3D m_lastValidUp{0.0f, 1.0f, 0.0f};
     bool m_isFirstPathRun{true};
 
+    float m_lastRealTime = 0.0f;
+    float m_timeGeom = 0.0f;
+    float m_timeTex = 0.0f;
+    float m_timeBg = 0.0f;
+
+    bool m_bgAnimating = false;
+    bool m_texAnimating = false;
+
+
+    // ==========================================================
+    // MEMORIA DI STATO DELLA VISTA (Parametrica vs Implicita)
+    // ==========================================================
+    struct ViewState {
+        QVector3D cameraPos = QVector3D(0.0f, 0.0f, 4.0f);
+        float cameraYaw = 0.0f;
+        float cameraPitch = 0.0f;
+        float cameraRoll = 0.0f;
+        QQuaternion rotationQuat;
+        float flatZoom = 1.0f;
+        float flatRotation = 0.0f;
+        QVector2D flatPan = QVector2D(0.0f, 0.0f);
+    };
+
+    // Array con i 2 slot di memoria (0 = Parametrico, 1 = Implicito)
+    ViewState m_viewStates[2];
+
     // ==========================================================
     // PRIVATE HELPER METHODS
     // ==========================================================
+    // --- Geometry & Mesh Builders ---
     void buildBorderGeometry();
     void buildWireframeGeometry();
 
-    void initBackgroundShader();
-    void rebuildBackgroundShader(bool isTextureMode, const QString &customCode = "");
-
+    // --- Shader Generation & Compilation ---
     QString createVertexShaderSource(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq);
     QString createFragmentShaderSource(const QString &customCode);
-    void createDummyTexture();
-
-    // Sostituisci la riga di prima con questa:
+    QString generateGlslHelperVars(const QString& sourceCode);
     QShader bakeShader(const QByteArray &source, QShader::Stage stage);
 
+    // --- Pipeline & Resource Initialization ---
+    void buildPipeline();
+    void initBackgroundShader();
+
+    // --- Texture Utilities ---
+    void createDummyTexture();
+    QImage generateCheckerboard();
+
+    // --- Math & Projections ---
     QVector3D projectPoint4Dto3D(const QVector4D& point4D);
 
-    void buildPipeline();
-    QImage generateCheckerboard();
 
     // ==========================================================
     // UTILITIES
@@ -408,6 +554,7 @@ private:
     bool m_useFbo = false;
     int m_fboWidth = 0;
     int m_fboHeight = 0;
+    QString m_lastCompilationError;
 };
 
 #endif // GLWIDGET_H

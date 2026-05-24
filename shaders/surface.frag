@@ -74,12 +74,21 @@ void main() {
 
     // --- 1. SETUP VETTORI CON SAFETY CHECKS ---
     vec3 N;
+
+    // Usiamo sempre le normali interpolate dal Vertex Shader (Smooth Shading nativo)
     float lenN = length(v_normal.xyz);
     if (lenN > 0.0001) {
         N = normalize(v_normal.xyz);
     } else {
         N = vec3(0.0, 0.0, 1.0);
     }
+
+#ifdef CUSTOM_MESH
+    // Manteniamo il fix di orientamento visivo per le mesh custom
+    if (dot(N, vec3(0.0, 0.0, 1.0)) < 0.0) {
+        N = -N;
+    }
+#endif
 
     vec3 V;
     float lenPos = length(v_pos);

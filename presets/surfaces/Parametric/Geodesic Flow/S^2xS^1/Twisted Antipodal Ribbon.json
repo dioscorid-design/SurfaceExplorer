@@ -1,0 +1,78 @@
+{
+    "angles": {
+        "omega": 24.93930435180664,
+        "phi": 24.93930435180664,
+        "psi": 24.93930435180664
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.16946062445640564,
+        "rot_x": -0.9486832618713379,
+        "rot_y": 0.08815037459135056,
+        "rot_z": 0.25201746821403503,
+        "x": 0,
+        "y": -0.5299999713897705,
+        "yaw": 0,
+        "z": 7.59999942779541
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 2,
+        "B": 0.800000011920929,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "B*sin(V)*sin(W)",
+        "x": "(A + B*cos(V))*cos(U)",
+        "y": "(A + B*cos(V))*sin(U)",
+        "z": "B*sin(V)*cos(W)"
+    },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "1",
+        "dv": "-1",
+        "dw": "0.2",
+        "u0": "0.3 * cos(u)",
+        "v0": "pi/2+ 0.3 * sin(u)",
+        "w0": ""
+    },
+    "isImplicitMode": false,
+    "lightIntensity": 1,
+    "lightingMode": 1,
+    "limits": {
+        "uMax": 6.28318977355957,
+        "uMin": 0,
+        "vMax": 7,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "name": "Twisted Antipodal Ribbon",
+    "projectionMode": 2,
+    "renderMode": 1,
+    "showBorder": false,
+    "steps": 400,
+    "type": "surface",
+    "use4DLighting": false
+}

@@ -1,0 +1,70 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.4665285646915436,
+        "rot_x": 0.519158661365509,
+        "rot_y": -0.6984377503395081,
+        "rot_z": -0.1581452339887619,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 13.59999942779541
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 0.009999999776482582,
+        "B": 6.760000228881836,
+        "C": 8,
+        "D": 16,
+        "E": 0.10000000149011612,
+        "F": 1,
+        "S": 0.20000000298023224
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.0",
+        "x": "(0.8 + 0.3*cos(v))*cos(u)",
+        "y": "(0.8 + 0.3*cos(v))*sin(u)",
+        "z": "0.3*sin(v)"
+    },
+    "implicitEquation": "A * ( (x*x+y*y+z*z+2.0*y-B) * ((x*x+y*y+z*z-2.0*y-B)*(x*x+y*y+z*z-2.0*y-B) - C*z*z) + D*x*z*(x*x+y*y+z*z-2.0*y-B) ) + E = 0.0",
+    "isImplicitMode": true,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0.10000000149011612,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "name": "KleinIso",
+    "projectionMode": 1,
+    "renderMode": 10,
+    "showBorder": false,
+    "steps": 772,
+    "type": "surface",
+    "use4DLighting": false
+}

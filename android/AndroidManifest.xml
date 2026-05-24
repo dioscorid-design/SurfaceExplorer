@@ -18,18 +18,21 @@
             android:hardwareAccelerated="true"
             android:extractNativeLibs="true"
             android:label="-- %%INSERT_APP_NAME%% --"
-            android:icon="-- %%INSERT_APP_ICON%% --"
+            android:icon="@drawable/icon"
+            android:roundIcon="@drawable/icon"
             android:requestLegacyExternalStorage="true"
             android:allowBackup="true"
             android:fullBackupOnly="false">
         <activity
             android:name="org.qtproject.qt.android.bindings.QtActivity"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
             android:configChanges="orientation|uiMode|screenLayout|screenSize|smallestScreenSize|layoutDirection|locale|fontScale|keyboard|keyboardHidden|navigation|mcc|mnc|density"
             android:label="-- %%INSERT_APP_NAME%% --"
             android:launchMode="singleTop"
             android:screenOrientation="sensorLandscape"
             android:exported="true">
+
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

@@ -8,7 +8,6 @@
 #include <cmath>
 #include <QtMath>
 #include <QMouseEvent>
-#include <QDebug>
 #include <algorithm>
 #include <QFile>
 #include <QTextStream>
@@ -37,6 +36,13 @@ GLWidget::GLWidget(QWidget *parent)
     : QRhiWidget(parent)
 {
     m_uboData = UboData();
+
+    m_uboData.x_min = -10.0f;
+    m_uboData.x_max =  10.0f;
+    m_uboData.y_min = -10.0f;
+    m_uboData.y_max =  10.0f;
+    m_uboData.z_min = -10.0f;
+    m_uboData.z_max =  10.0f;
 
     // --- 1. SETUP LOGICA APPLICATIVA E INPUT ---
     m_inputHandler = std::make_unique<InputHandler>(this);
@@ -100,8 +106,7 @@ GLWidget::~GLWidget()
 
 void GLWidget::initialize(QRhiCommandBuffer *cb)
 {
-    // Se la pipeline esiste già, non dobbiamo reinizializzare nulla
-    if (m_pipelineOpaque) {
+    if (m_ubo) {
         return;
     }
 
@@ -169,131 +174,14 @@ void GLWidget::initialize(QRhiCommandBuffer *cb)
     buildPipeline();
 }
 
-QShader GLWidget::bakeShader(const QByteArray &source, QShader::Stage stage)
-{
-    QShaderBaker baker;
-    baker.setSourceString(source, stage);
-    baker.setGeneratedShaderVariants({QShader::StandardShader});
-
-    QList<QShaderBaker::GeneratedShader> targets;
-
-    // Target base per Mobile e Desktop (Vulkan e OpenGL ES)
-    targets.append({QShader::SpirvShader, QShaderVersion(100)});
-    targets.append({QShader::GlslShader, QShaderVersion(300, QShaderVersion::GlslEs)});
-    targets.append({QShader::GlslShader, QShaderVersion(310, QShaderVersion::GlslEs)});
-    targets.append({QShader::GlslShader, QShaderVersion(320, QShaderVersion::GlslEs)});
-
-    // Compila DirectX e OpenGL Desktop SOLO se NON siamo su smartphone
-#if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
-    targets.append({QShader::GlslShader, QShaderVersion(410)});
-    targets.append({QShader::GlslShader, QShaderVersion(460)});
-    targets.append({QShader::HlslShader, QShaderVersion(50)});
-#endif
-
-    // Compila Metal SOLO su sistemi Apple (macOS/iOS)
-#if defined(Q_OS_APPLE)
-    targets.append({QShader::MslShader,  QShaderVersion(12)});
-#endif
-
-    baker.setGeneratedShaders(targets);
-
-    QShader shader = baker.bake();
-    if (!shader.isValid()) {
-        qWarning() << "SHADER ERROR (" << (stage == QShader::VertexStage ? "VERT" : "FRAG") << "):" << baker.errorMessage();
-    }
-    return shader;
-}
-
 void GLWidget::render(QRhiCommandBuffer *cb)
 {
-    if (!m_pipelineOpaque) {
-        buildPipeline();
-    }
-
+    // ==========================================================
+    // PARTE COMUNE (SEMPRE IN ESECUZIONE)
+    // ==========================================================
     QRhiResourceUpdateBatch *resourceUpdates = rhi()->nextResourceUpdateBatch();
 
-    if (m_surfaceTextureNeedsUpload && !m_pendingSurfaceImage.isNull()) {
-
-        // 1. Distruggiamo la vecchia texture se esisteva
-        if (m_surfaceTexture) {
-            m_surfaceTexture->destroy();
-            delete m_surfaceTexture;
-        }
-
-        // 2. Creiamo il nuovo oggetto Texture in RHI
-        m_surfaceTexture = rhi()->newTexture(QRhiTexture::RGBA8, m_pendingSurfaceImage.size(), 1);
-        m_surfaceTexture->create();
-
-        // 3. Istruiamo RHI per copiare i byte dell'immagine nella Texture VRAM
-        QRhiTextureSubresourceUploadDescription subresDesc(m_pendingSurfaceImage.constBits(), m_pendingSurfaceImage.sizeInBytes());
-        QRhiTextureUploadEntry entry(0, 0, subresDesc);
-        QRhiTextureUploadDescription uploadDesc({ entry });
-        resourceUpdates->uploadTexture(m_surfaceTexture, uploadDesc);
-
-        // 4. AGGIORNAMENTO DEL BINDING:
-        m_bindings->setBindings({
-            QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, m_ubo),
-            QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_surfaceTexture, m_sampler)
-        });
-        m_bindings->create(); // Ricrea la struttura interna dei binding
-
-        // Abbassiamo la bandierina
-        m_surfaceTextureNeedsUpload = false;
-    }
-
-    // --- 1. CARICAMENTO GEOMETRIA (VBO / IBO) ---
-    if (meshNeedsUpdate) {
-        const auto& vertices = engine->getVertices();
-        const auto& indices = engine->getIndices();
-
-        if (vertices.empty() || indices.empty()) {
-            qWarning() << "ATTENZIONE: Stai inviando una mesh vuota alla GPU!";
-        } else {
-            int vSize = vertices.size() * sizeof(Vertex);
-            int iSize = indices.size() * sizeof(unsigned int);
-
-            // AUTO-RESIZE DEL VBO
-            if (m_vbo->size() < vSize) {
-                m_vbo->destroy();
-                delete m_vbo;
-                m_vbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, vSize * 1.5); // +50% di margine
-                m_vbo->create();
-            }
-
-            // AUTO-RESIZE DELL'IBO
-            if (m_ibo->size() < iSize) {
-                m_ibo->destroy();
-                delete m_ibo;
-                m_ibo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, iSize * 1.5);
-                m_ibo->create();
-            }
-
-            resourceUpdates->updateDynamicBuffer(m_vbo, 0, vSize, vertices.data());
-            resourceUpdates->updateDynamicBuffer(m_ibo, 0, iSize, indices.data());
-
-            m_indexCount = indices.size();
-        }
-        meshNeedsUpdate = false;
-    }
-
-    // +++ BLOCCO BORDI 1: Caricamento Vertici +++
-    if (borderNeedsUpdate && m_borderVertexCount > 0) {
-        int vSize = m_borderVertexCount * sizeof(Vertex);
-
-        // AUTO-RESIZE DEL BORDER VBO
-        if (m_borderVbo->size() < vSize) {
-            m_borderVbo->destroy();
-            delete m_borderVbo;
-            m_borderVbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, vSize * 1.5);
-            m_borderVbo->create();
-        }
-
-        resourceUpdates->updateDynamicBuffer(m_borderVbo, 0, vSize, m_borderVertices.data());
-        borderNeedsUpdate = false;
-    }
-    // ++++++++++++++++++++++++++++++++++++++++++++
-
-    // --- 2. CALCOLO MATRICI E TELECAMERA ---
+    // --- CALCOLO MATRICI E TELECAMERA ---
     QSize outputSize = renderTarget()->pixelSize();
     float aspect = (float)outputSize.width() / (float)(outputSize.height() > 0 ? outputSize.height() : 1);
 
@@ -301,20 +189,22 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     QMatrix4x4 mv;
 
     if (m_isFlatView) {
-        // === MODALITÀ 2D PIATTA ===
-        // Neutralizziamo le matrici 3D (Camera, Prospettiva, Rotazione).
-        // Il quadrato così riempirà esattamente lo schermo intero (da -1 a +1).
         m_projection.setToIdentity();
         m_view.setToIdentity();
         m_model.setToIdentity();
-
-        // rhi()->clipSpaceCorrMatrix() è vitale per allineare le API Vulkan/OpenGL
         mvp = rhi()->clipSpaceCorrMatrix();
         mv.setToIdentity();
     } else {
-        // === MODALITÀ 3D NORMALE ===
         m_projection.setToIdentity();
-        m_projection.perspective(45.0f, aspect, 0.1f, 100.0f);
+        if (projectionMode == Ortho4D) {
+            float dist = m_cameraPos.length();
+            if (dist < 0.1f) dist = 4.0f;
+            float halfHeight = dist * std::tan(45.0f * 0.5f * M_PI / 180.0f);
+            float halfWidth = halfHeight * aspect;
+            m_projection.ortho(-halfWidth, halfWidth, -halfHeight, halfHeight, 0.1f, 100.0f);
+        } else {
+            m_projection.perspective(45.0f, aspect, 0.01f, 100.0f);
+        }
 
         m_view.setToIdentity();
         if (m_isPathFollowing) {
@@ -328,11 +218,9 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             float radYaw = m_cameraYaw * M_PI / 180.0f;
             float radPitch = m_cameraPitch * M_PI / 180.0f;
             QVector3D front(std::sin(radYaw)*std::cos(radPitch), std::sin(radPitch), -std::cos(radYaw)*std::cos(radPitch));
-
             QMatrix4x4 rollMat;
             rollMat.rotate(m_cameraRoll, 0.0f, 0.0f, 1.0f);
             QVector3D up = rollMat * QVector3D(0.0f, 1.0f, 0.0f);
-
             m_view.lookAt(m_cameraPos, m_cameraPos + front, up);
         }
 
@@ -349,20 +237,39 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     memcpy(m_uboData.mMatrix, m_model.constData(), 64);
 
     m_uboData.dummyZero = QVector4D(0.0f, 0.0f, 0.0f, 0.0f);
-
     m_uboData.observerPos = m_observerPos;
     m_uboData.cameraPos4D = m_cameraPos4D;
-
     m_uboData.omega = omega;
     m_uboData.phi = phi;
     m_uboData.psi = psi;
 
-    float currentTime = m_manualTime + m_surfaceTimeOffset;
-    if (m_surfaceAnimating) {
-        currentTime += (float)m_surfaceTimer.elapsed() / 1000.0f;
+    // 1. CALCOLO DEL DELTA TIME (dt) GLOBALE
+    float currentRealTime = (float)m_surfaceTimer.elapsed() / 1000.0f;
+    float dt = currentRealTime - m_lastRealTime;
+    if (dt < 0) dt = 0; // Protezione al riavvio del timer
+    m_lastRealTime = currentRealTime;
+
+    // 2. GESTIONE TEMPO: LIVE vs VIDEO RECORDER
+    QVariant useVirtualTimeVar = property("use_virtual_time");
+    if (useVirtualTimeVar.isValid() && useVirtualTimeVar.toBool()) {
+        // Se stiamo registrando, forziamo tutti gli orologi al tempo del recorder
+        float vTime = property("virtual_time").toFloat();
+        m_timeGeom = vTime;
+        m_timeTex  = vTime;
+        m_timeBg   = vTime;
+    } else {
+        // App in uso normale: ogni orologio avanza solo se la sua parte è "attiva"
+        // Se corrono insieme, avanzano dello stesso identico 'dt', restando in sincrono!
+        if (m_surfaceAnimating) m_timeGeom += dt;
+        if (m_texAnimating)     m_timeTex  += dt;
+        if (m_bgAnimating)      m_timeBg   += dt;
     }
 
-    m_uboData.time = currentTime;
+    // 3. INVIO DEI DATI ALLA GPU
+    m_uboData.time = m_manualTime + m_timeGeom; // Usato da Geometria e Ray Marching
+
+    // Usiamo la coordinata X di dummyZero per inviare il tempo specifico della Texture
+    m_uboData.dummyZero.setX(m_manualTime + m_timeTex);
     m_uboData.projMode = projectionMode;
     m_uboData.renderMode = renderMode;
     m_uboData.lightingMode = is4DActive() ? m_lightingMode4D : 0;
@@ -379,7 +286,9 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         m_uboData.hasExplicitW = 0;
     }
 
-    if (m_textureEnabled) {
+    m_uboData.u_raySteps = m_raySteps;
+
+    if (m_textureEnabled && m_engineMode == ModeParametric) {
         m_uboData.color = QVector3D(1.0f, 1.0f, 1.0f);
     } else {
         m_uboData.color = QVector3D(red, green, blue);
@@ -395,36 +304,35 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // Aggiornamento Buffer Principale
     resourceUpdates->updateDynamicBuffer(m_ubo, 0, sizeof(UboData), &m_uboData);
 
-    // +++ BLOCCO BORDI 2: UBO Separato per il colore dei bordi +++
-    if (showBorders && m_borderUbo) {
-        UboData borderUboData = m_uboData;
-        borderUboData.color = QVector3D(bordRed, bordGreen, bordBlue); // Usa i colori del bordo
-        borderUboData.useTexture = 0;                                  // Niente texture sulle linee
-        borderUboData.useSpecular = 0;                                 // Niente luce speculare
-
-        resourceUpdates->updateDynamicBuffer(m_borderUbo, 0, sizeof(UboData), &borderUboData);
-    }
-    // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-    if (wireframeNeedsUpdate && !m_wireframeIndices.empty()) {
-        int iSize = m_wireframeIndexCount * sizeof(unsigned int);
-
-        // AUTO-RESIZE DEL WIREFRAME IBO
-        if (m_wireframeIbo->size() < iSize) {
-            m_wireframeIbo->destroy();
-            delete m_wireframeIbo;
-            m_wireframeIbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, iSize * 1.5);
-            m_wireframeIbo->create();
+    // =========================================================================
+    // GESTIONE COMUNE UPLOAD TEXTURE (Superficie)
+    // =========================================================================
+    if (m_surfaceTextureNeedsUpload && !m_pendingSurfaceImage.isNull()) {
+        if (m_surfaceTexture) {
+            m_surfaceTexture->destroy();
+            delete m_surfaceTexture;
         }
+        m_surfaceTexture = rhi()->newTexture(QRhiTexture::RGBA8, m_pendingSurfaceImage.size(), 1);
+        m_surfaceTexture->create();
 
-        resourceUpdates->updateDynamicBuffer(m_wireframeIbo, 0, iSize, m_wireframeIndices.data());
-        wireframeNeedsUpdate = false;
+        QRhiTextureSubresourceUploadDescription subresDesc(m_pendingSurfaceImage.constBits(), m_pendingSurfaceImage.sizeInBytes());
+        QRhiTextureUploadEntry entry(0, 0, subresDesc);
+        QRhiTextureUploadDescription uploadDesc({ entry });
+        resourceUpdates->uploadTexture(m_surfaceTexture, uploadDesc);
+
+        m_bindings->setBindings({
+            QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, m_ubo),
+            QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_surfaceTexture, m_sampler)
+        });
+        m_bindings->create();
+
+        m_surfaceTextureNeedsUpload = false;
     }
 
-    // --- 4. RENDER PASS (Disegno effettivo) ---
-    QColor clearColor = QColor::fromRgbF(m_bgColor.x(), m_bgColor.y(), m_bgColor.z());
-
-    // +++ CARICAMENTO VRAM TEXTURE BACKGROUND +++
+    // =========================================================================
+    // GESTIONE COMUNE SFONDO 2D (Texture Upload, UBO, VBO)
+    // Questo serve sia alla Parametrica che al Ray Marching!
+    // =========================================================================
     if (m_backgroundTextureNeedsUpload && !m_pendingBackgroundImage.isNull()) {
         if (!m_bgBindings) initBackgroundShader();
 
@@ -441,9 +349,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         QRhiTextureUploadDescription bgUploadDesc({ bgEntry });
         resourceUpdates->uploadTexture(m_backgroundTexture, bgUploadDesc);
 
-        // Collega l'immagine allo shader del background
         m_bgBindings->setBindings({
-            // CORREZIONE: Usa m_bgUbo invece di m_ubo!
             QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, m_bgUbo),
             QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_backgroundTexture, m_sampler)
         });
@@ -452,13 +358,13 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         m_backgroundTextureNeedsUpload = false;
     }
 
-    // +++ CARICAMENTO DATI UBO E VBO PER QUADRATO 2D +++
-    if (m_useBackgroundTexture || m_isFlatView) {
+    if (m_useBackgroundTexture || m_isFlatView || m_engineMode == ModeImplicit) {
         if (!m_bgBindings) initBackgroundShader();
 
-        // Aggiorna UBO Sfondo
         if (m_bgUbo) {
             UboData bgUboData = m_uboData;
+            bgUboData.time = m_manualTime + m_timeBg;
+
             QVariant c1 = property("bg_col1");
             QVariant c2 = property("bg_col2");
             if (c1.isValid()) bgUboData.col1 = c1.value<QVector3D>();
@@ -474,56 +380,181 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             resourceUpdates->updateDynamicBuffer(m_bgUbo, 0, sizeof(UboData), &bgUboData);
         }
 
-        // Prepariamo 6 vertici per formare due triangoli completi (TriangleList)
         if (!m_bgVboUploaded && m_bgVbo) {
             Vertex quadVertices[6] = {
-                { QVector3D(-1.0f, -1.0f, 0.99f), QVector4D(), QVector2D(0.0f, 1.0f) }, // Bottom-Left
-                { QVector3D( 1.0f, -1.0f, 0.99f), QVector4D(), QVector2D(1.0f, 1.0f) }, // Bottom-Right
-                { QVector3D(-1.0f,  1.0f, 0.99f), QVector4D(), QVector2D(0.0f, 0.0f) }, // Top-Left
-
-                { QVector3D(-1.0f,  1.0f, 0.99f), QVector4D(), QVector2D(0.0f, 0.0f) }, // Top-Left
-                { QVector3D( 1.0f, -1.0f, 0.99f), QVector4D(), QVector2D(1.0f, 1.0f) }, // Bottom-Right
-                { QVector3D( 1.0f,  1.0f, 0.99f), QVector4D(), QVector2D(1.0f, 0.0f) }  // Top-Right
+                { QVector4D(-1.0f, -1.0f, 0.99f, 1.0f), QVector4D(), QVector2D(0.0f, 1.0f) },
+                { QVector4D( 1.0f, -1.0f, 0.99f, 1.0f), QVector4D(), QVector2D(1.0f, 1.0f) },
+                { QVector4D(-1.0f,  1.0f, 0.99f, 1.0f), QVector4D(), QVector2D(0.0f, 0.0f) },
+                { QVector4D(-1.0f,  1.0f, 0.99f, 1.0f), QVector4D(), QVector2D(0.0f, 0.0f) },
+                { QVector4D( 1.0f, -1.0f, 0.99f, 1.0f), QVector4D(), QVector2D(1.0f, 1.0f) },
+                { QVector4D( 1.0f,  1.0f, 0.99f, 1.0f), QVector4D(), QVector2D(1.0f, 0.0f) }
             };
             resourceUpdates->updateDynamicBuffer(m_bgVbo, 0, sizeof(quadVertices), quadVertices);
             m_bgVboUploaded = true;
         }
     }
 
-    cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 }, resourceUpdates);
 
-    if (m_isFlatView) {
-        // ==========================================
-        // MODALITÀ 2D PURA: NIENTE MESH 3D
-        // ==========================================
-        if (m_flatViewTarget == 1 && m_bgPipeline && m_bgVbo) {
-            // Disegna SOLO lo Sfondo 2D
-            cb->setGraphicsPipeline(m_bgPipeline);
-            cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-            cb->setShaderResources(m_bgBindings);
-            const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
-            cb->setVertexInput(0, 1, &vbufBinding);
-            cb->draw(6);
-        } else if (m_pipelineOpaque && m_bgVbo) {
-            // Disegna SOLO la Superficie 2D
-            cb->setGraphicsPipeline(m_pipelineOpaque);
-            cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-            cb->setShaderResources(m_bindings);
+    if (m_engineMode == ModeParametric) {
 
-            // Usiamo il quadrato piatto (m_bgVbo) ma con la pipeline e texture della superficie
-            const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
-            cb->setVertexInput(0, 1, &vbufBinding);
-            cb->draw(6);
+        // ==========================================
+        // 1. MODALITÀ PARAMETRICA
+        // ==========================================
+        if (!m_pipelineOpaque) {
+            buildPipeline();
         }
-    } else {
-        // ==========================================
-        // MODALITÀ 3D: SFONDO + MODELLO 3D
-        // ==========================================
 
-        // 1. Disegna il quadrato di Sfondo (Dietro a tutto)
-        if (m_useBackgroundTexture) {
-            if (!m_bgPipeline) rebuildBackgroundShader(!m_bgIsScript, m_bgScriptCode);
-            if (m_bgPipeline && m_bgVbo) {
+        if (meshNeedsUpdate) {
+            const auto& vertices = engine->getVertices();
+            const auto& indices = engine->getIndices();
+
+            if (vertices.empty() || indices.empty()) {
+                qWarning() << "ATTENZIONE: Stai inviando una mesh vuota alla GPU!";
+            } else {
+                int vSize = vertices.size() * sizeof(Vertex);
+                int iSize = indices.size() * sizeof(unsigned int);
+
+                if (m_vbo->size() < vSize) {
+                    m_vbo->destroy(); delete m_vbo;
+                    m_vbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, vSize * 1.5);
+                    m_vbo->create();
+                }
+
+                if (m_ibo->size() < iSize) {
+                    m_ibo->destroy(); delete m_ibo;
+                    m_ibo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, iSize * 1.5);
+                    m_ibo->create();
+                }
+
+                resourceUpdates->updateDynamicBuffer(m_vbo, 0, vSize, vertices.data());
+                resourceUpdates->updateDynamicBuffer(m_ibo, 0, iSize, indices.data());
+                m_indexCount = indices.size();
+            }
+            meshNeedsUpdate = false;
+        }
+
+        if (borderNeedsUpdate && m_borderVertexCount > 0) {
+            int vSize = m_borderVertexCount * sizeof(Vertex);
+            if (m_borderVbo->size() < vSize) {
+                m_borderVbo->destroy(); delete m_borderVbo;
+                m_borderVbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, vSize * 1.5);
+                m_borderVbo->create();
+            }
+            resourceUpdates->updateDynamicBuffer(m_borderVbo, 0, vSize, m_borderVertices.data());
+            borderNeedsUpdate = false;
+        }
+
+        if (showBorders && m_borderUbo) {
+            UboData borderUboData = m_uboData;
+            borderUboData.color = QVector3D(bordRed, bordGreen, bordBlue);
+            borderUboData.useTexture = 0;
+            borderUboData.useSpecular = 0;
+            resourceUpdates->updateDynamicBuffer(m_borderUbo, 0, sizeof(UboData), &borderUboData);
+        }
+
+        if (wireframeNeedsUpdate && !m_wireframeIndices.empty()) {
+            int iSize = m_wireframeIndexCount * sizeof(unsigned int);
+            if (m_wireframeIbo->size() < iSize) {
+                m_wireframeIbo->destroy(); delete m_wireframeIbo;
+                m_wireframeIbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, iSize * 1.5);
+                m_wireframeIbo->create();
+            }
+            resourceUpdates->updateDynamicBuffer(m_wireframeIbo, 0, iSize, m_wireframeIndices.data());
+            wireframeNeedsUpdate = false;
+        }
+
+        // --- RENDER PASS ---
+        QColor clearColor = QColor::fromRgbF(m_bgColor.x(), m_bgColor.y(), m_bgColor.z());
+        cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 }, resourceUpdates);
+
+        if (m_isFlatView) {
+            if (m_flatViewTarget == 1 && m_bgPipeline && m_bgVbo) {
+                cb->setGraphicsPipeline(m_bgPipeline);
+                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+                cb->setShaderResources(m_bgBindings);
+                const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
+                cb->setVertexInput(0, 1, &vbufBinding);
+                cb->draw(6);
+            } else if (m_pipelineOpaque && m_bgVbo) {
+                cb->setGraphicsPipeline(m_pipelineOpaque);
+                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+                cb->setShaderResources(m_bindings);
+                const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
+                cb->setVertexInput(0, 1, &vbufBinding);
+                cb->draw(6);
+            }
+        } else {
+            if (m_useBackgroundTexture) {
+                if (!m_bgPipeline) rebuildBackgroundShader(!m_bgIsScript, m_bgScriptCode);
+                if (m_bgPipeline && m_bgVbo) {
+                    cb->setGraphicsPipeline(m_bgPipeline);
+                    cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+                    cb->setShaderResources(m_bgBindings);
+                    const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
+                    cb->setVertexInput(0, 1, &vbufBinding);
+                    cb->draw(6);
+                }
+            }
+
+            if (renderMode == 2) {
+                // Wireframe
+                if (m_wireframePipeline && m_wireframeIndexCount > 0) {
+                    cb->setGraphicsPipeline(m_wireframePipeline);
+                    cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+                    cb->setShaderResources(m_bindings);
+                    const QRhiCommandBuffer::VertexInput vbufBinding(m_vbo, 0);
+                    cb->setVertexInput(0, 1, &vbufBinding, m_wireframeIbo, 0, QRhiCommandBuffer::IndexUInt32);
+                    cb->drawIndexed(m_wireframeIndexCount);
+                }
+            } else {
+                // Solido
+                if (m_indexCount > 0) {
+                    cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+                    const QRhiCommandBuffer::VertexInput vbufBinding(m_vbo, 0);
+
+                    if (alpha < 0.99f) {
+                        cb->setGraphicsPipeline(m_pipelineTranspBack);
+                        cb->setShaderResources(m_bindings);
+                        cb->setVertexInput(0, 1, &vbufBinding, m_ibo, 0, QRhiCommandBuffer::IndexUInt32);
+                        cb->drawIndexed(m_indexCount);
+
+                        cb->setGraphicsPipeline(m_pipelineTranspFront);
+                        cb->setShaderResources(m_bindings);
+                        cb->setVertexInput(0, 1, &vbufBinding, m_ibo, 0, QRhiCommandBuffer::IndexUInt32);
+                        cb->drawIndexed(m_indexCount);
+                    } else {
+                        cb->setGraphicsPipeline(m_pipelineOpaque);
+                        cb->setShaderResources(m_bindings);
+                        cb->setVertexInput(0, 1, &vbufBinding, m_ibo, 0, QRhiCommandBuffer::IndexUInt32);
+                        cb->drawIndexed(m_indexCount);
+                    }
+                }
+            }
+
+            // Bordi 3D
+            if (showBorders && m_borderPipeline && m_borderVertexCount > 0) {
+                cb->setGraphicsPipeline(m_borderPipeline);
+                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+                cb->setShaderResources(m_borderBindings);
+                const QRhiCommandBuffer::VertexInput vbufBinding(m_borderVbo, 0);
+                cb->setVertexInput(0, 1, &vbufBinding);
+                cb->draw(m_borderVertexCount);
+            }
+        }
+
+        cb->endPass();
+
+    } else if (m_engineMode == ModeImplicit) {
+        // ==========================================
+        // MODALITÀ IMPLICITA (RAY MARCHING)
+        // ==========================================
+        if (!m_pipelineImplicit) buildImplicitPipeline();
+
+        QColor clearColor = QColor::fromRgbF(m_bgColor.x(), m_bgColor.y(), m_bgColor.z());
+        cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 }, resourceUpdates);
+
+        if (m_isFlatView) {
+            if (m_flatViewTarget == 1 && m_bgPipeline && m_bgVbo) {
                 cb->setGraphicsPipeline(m_bgPipeline);
                 cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
                 cb->setShaderResources(m_bgBindings);
@@ -531,58 +562,32 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 cb->setVertexInput(0, 1, &vbufBinding);
                 cb->draw(6);
             }
-        }
-
-        // 2. Disegna la Mesh 3D Principale
-        if (renderMode == 2) {
-            // Wireframe
-            if (m_wireframePipeline && m_wireframeIndexCount > 0) {
-                cb->setGraphicsPipeline(m_wireframePipeline);
-                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-                cb->setShaderResources(m_bindings);
-                const QRhiCommandBuffer::VertexInput vbufBinding(m_vbo, 0);
-                cb->setVertexInput(0, 1, &vbufBinding, m_wireframeIbo, 0, QRhiCommandBuffer::IndexUInt32);
-                cb->drawIndexed(m_wireframeIndexCount);
-            }
         } else {
-            // Solido
-            if (m_indexCount > 0) {
-                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-                const QRhiCommandBuffer::VertexInput vbufBinding(m_vbo, 0);
-
-                if (alpha < 0.99f) {
-                    // Modalità Trasparente
-                    cb->setGraphicsPipeline(m_pipelineTranspBack);
-                    cb->setShaderResources(m_bindings);
-                    cb->setVertexInput(0, 1, &vbufBinding, m_ibo, 0, QRhiCommandBuffer::IndexUInt32);
-                    cb->drawIndexed(m_indexCount);
-
-                    cb->setGraphicsPipeline(m_pipelineTranspFront);
-                    cb->setShaderResources(m_bindings);
-                    cb->setVertexInput(0, 1, &vbufBinding, m_ibo, 0, QRhiCommandBuffer::IndexUInt32);
-                    cb->drawIndexed(m_indexCount);
-                } else {
-                    // Modalità Opaca Standard
-                    cb->setGraphicsPipeline(m_pipelineOpaque);
-                    cb->setShaderResources(m_bindings);
-                    cb->setVertexInput(0, 1, &vbufBinding, m_ibo, 0, QRhiCommandBuffer::IndexUInt32);
-                    cb->drawIndexed(m_indexCount);
+            if (m_useBackgroundTexture) {
+                if (!m_bgPipeline) rebuildBackgroundShader(!m_bgIsScript, m_bgScriptCode);
+                if (m_bgPipeline && m_bgVbo) {
+                    cb->setGraphicsPipeline(m_bgPipeline);
+                    cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+                    cb->setShaderResources(m_bgBindings);
+                    const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
+                    cb->setVertexInput(0, 1, &vbufBinding);
+                    cb->draw(6);
                 }
             }
+
+            if (m_pipelineImplicit && m_bgVbo) {
+                cb->setGraphicsPipeline(m_pipelineImplicit);
+                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+                cb->setShaderResources(m_bindings);
+
+                const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
+                cb->setVertexInput(0, 1, &vbufBinding);
+                cb->draw(6);
+            }
         }
 
-        // 3. Disegna i Bordi 3D
-        if (showBorders && m_borderPipeline && m_borderVertexCount > 0) {
-            cb->setGraphicsPipeline(m_borderPipeline);
-            cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-            cb->setShaderResources(m_borderBindings);
-            const QRhiCommandBuffer::VertexInput vbufBinding(m_borderVbo, 0);
-            cb->setVertexInput(0, 1, &vbufBinding);
-            cb->draw(m_borderVertexCount);
-        }
+        cb->endPass();
     }
-
-    cb->endPass();
 }
 
 void GLWidget::releaseResources()
@@ -675,6 +680,14 @@ void GLWidget::releaseResources()
         delete m_bgUbo;
         m_bgUbo = nullptr;
     }
+    if (m_pipelineImplicit) {
+        delete m_pipelineImplicit;
+        m_pipelineImplicit = nullptr;
+    }
+    if (m_bindingsImplicit) {
+        delete m_bindingsImplicit;
+        m_bindingsImplicit = nullptr;
+    }
 }
 
 void GLWidget::mousePressEvent(QMouseEvent *event) {
@@ -716,8 +729,108 @@ void GLWidget::mouseReleaseEvent(QMouseEvent *event) {
 }
 
 
+//===========================================================
+// PUBLIC SLOTS
+//===========================================================
+
+void GLWidget::rebuildBackgroundShader(bool isTextureMode, const QString &customCode) {
+    if (!m_bgVbo) initBackgroundShader();
+
+    if (m_bgPipeline) {
+        delete m_bgPipeline;
+        m_bgPipeline = nullptr;
+    }
+
+    m_bgPipeline = rhi()->newGraphicsPipeline();
+    m_bgPipeline->setTopology(QRhiGraphicsPipeline::Triangles);
+
+    QRhiVertexInputLayout inputLayout;
+    inputLayout.setBindings({ { sizeof(Vertex) } });
+    inputLayout.setAttributes({
+        { 0, 0, QRhiVertexInputAttribute::Float3, offsetof(Vertex, position) },
+        { 0, 1, QRhiVertexInputAttribute::Float4, offsetof(Vertex, normal) },
+        { 0, 2, QRhiVertexInputAttribute::Float2, offsetof(Vertex, texCoord) }
+    });
+    m_bgPipeline->setVertexInputLayout(inputLayout);
+
+    QString header = "#version 450\n";
+
+    QString vsSource = header +
+                       "layout(location=0) in vec3 position;\n"
+                       "layout(location=1) in vec4 normal;\n"
+                       "layout(location=2) in vec2 texCoord;\n"
+                       "layout(location=0) out vec2 v_texCoord;\n"
+                       "void main() {\n"
+                       "  v_texCoord = vec2(texCoord.x, 1.0 - texCoord.y);\n"
+                       "  gl_Position = vec4(position.xy, 0.999, 1.0);\n"
+                       "}\n";
+
+
+    QString fsSource = createBackgroundFragmentShader(isTextureMode, customCode);
+
+    QShader vs = bakeShader(vsSource.toUtf8(), QShader::VertexStage);
+    QShader fs = bakeShader(fsSource.toUtf8(), QShader::FragmentStage);
+
+    m_bgPipeline->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
+    m_bgPipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+    m_bgPipeline->setSampleCount(renderTarget()->sampleCount());
+    m_bgPipeline->setDepthTest(false);
+    m_bgPipeline->setDepthWrite(false);
+    m_bgPipeline->setCullMode(QRhiGraphicsPipeline::None);
+
+    QRhiGraphicsPipeline::TargetBlend blend;
+    blend.enable = true;
+    blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
+    blend.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+    m_bgPipeline->setTargetBlends({ blend });
+    m_bgPipeline->setShaderResourceBindings(m_bgBindings);
+    m_bgPipeline->create();
+}
+
+void GLWidget::forceTextureRefresh() {
+    // Comunica alla scheda video che c'è una texture pronta in RAM da caricare
+    m_surfaceTextureNeedsUpload = true;
+
+    // Ricostruisce i collegamenti e forza il disegno immediato
+    rebuildShader();
+    update();
+}
+
+
+
 // ==========================================================
-// PRIVATE SLOT
+// GEODESIC FLOW CALCULATIONS
+// ==========================================================
+
+void GLWidget::triggerGeodesicCalculation() {
+    // 1. Verifica che il sistema RHI sia pronto
+    if (!rhi()) {
+        qWarning() << "RHI non inizializzato, impossibile calcolare geodetiche.";
+        return;
+    }
+
+    // 2. Chiamata al calcolo GPU tramite l'Engine
+    // Aggiungiamo m_constants come ultimo argomento
+    QVector<QVector<QVector4D>> grid = engine->computeGeodesicFlow(
+        rhi(),
+        m_eqX, m_eqY, m_eqZ, m_eqW,
+        m_initU, m_initV, m_initW,
+        m_eqDu, m_eqDv, m_eqDw,
+        m_eqLambda,
+        m_uboData.u_min, m_uboData.u_max, m_numU_geo,
+        m_vMin_geo, m_vMax_geo, m_numV_geo,
+        m_constants
+        );
+
+    // 3. Applichiamo la griglia risultante
+    if (!grid.isEmpty()) {
+        setCustomMesh(grid);
+    }
+}
+
+
+// ==========================================================
+// PRIVATE SLOTS
 // ==========================================================
 
 void GLWidget::updateRotation() {
@@ -733,14 +846,14 @@ void GLWidget::updateRotation() {
     if (std::abs(dPrec) > 0.0001f || std::abs(dNut) > 0.0001f || std::abs(dSpin) > 0.0001f) {
         addObjectRotation(dPrec, dNut, dSpin);
     }
+
     // ------------- Rotazioni 4D -----------
     omega += omegaSpeed * speedMult4D * timeFactor;
     phi   += phiSpeed   * speedMult4D * timeFactor;
     psi   += psiSpeed   * speedMult4D * timeFactor;
 
     // Controllo aggiornamento mesh (Invariato)
-    if (std::abs(omegaSpeed) > 0.001f || std::abs(phiSpeed) > 0.001f || std::abs(psiSpeed) > 0.001f ||
-        std::abs(nutationSpeed) > 0.001f || std::abs(precessionSpeed) > 0.001f || std::abs(spinSpeed) > 0.001f) {
+    if (std::abs(omegaSpeed) > 0.001f || std::abs(phiSpeed) > 0.001f || std::abs(psiSpeed) > 0.001f) {
         meshNeedsUpdate = true;
     }
 
@@ -750,39 +863,84 @@ void GLWidget::updateRotation() {
 
 
 // ==========================================================
+// ENGINE MODES
+// ==========================================================
+
+void GLWidget::setEngineMode(EngineMode mode)
+{
+    if (m_engineMode == mode) return;
+
+    // 1. SALVA lo stato del "Banco di Lavoro" nello slot che stiamo abbandonando
+    int oldIndex = (m_engineMode == ModeParametric) ? 0 : 1;
+    m_viewStates[oldIndex].cameraPos    = m_cameraPos;
+    m_viewStates[oldIndex].cameraYaw    = m_cameraYaw;
+    m_viewStates[oldIndex].cameraPitch  = m_cameraPitch;
+    m_viewStates[oldIndex].cameraRoll   = m_cameraRoll;
+    m_viewStates[oldIndex].rotationQuat = m_rotationQuat;
+    m_viewStates[oldIndex].flatZoom     = m_flatZoom;
+    m_viewStates[oldIndex].flatPan      = m_flatPan;
+    m_viewStates[oldIndex].flatRotation = m_flatRotation;
+
+    // 2. Cambia la modalità attiva
+    m_engineMode = mode;
+
+    // 3. RIPRISTINA i dati nel "Banco di Lavoro" dallo slot in cui stiamo entrando
+    int newIndex = (m_engineMode == ModeParametric) ? 0 : 1;
+    m_cameraPos    = m_viewStates[newIndex].cameraPos;
+    m_cameraYaw    = m_viewStates[newIndex].cameraYaw;
+    m_cameraPitch  = m_viewStates[newIndex].cameraPitch;
+    m_cameraRoll   = m_viewStates[newIndex].cameraRoll;
+    m_rotationQuat = m_viewStates[newIndex].rotationQuat;
+    m_flatZoom     = m_viewStates[newIndex].flatZoom;
+    m_flatPan      = m_viewStates[newIndex].flatPan;
+    m_flatRotation = m_viewStates[newIndex].flatRotation;
+
+    update();
+}
+
+
+// ==========================================================
 // EQUATIONS & MATHEMATICS
 // ==========================================================
 
-bool GLWidget::setParametricEquations(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq)
+bool GLWidget::setParametricEquations(const QString &xEq, const QString &yEq,
+                                      const QString &zEq, const QString &wEq)
 {
-    // Backup delle vecchie equazioni in caso di errore
+    m_isCustomMesh = false;
     QString oldX = m_eqX, oldY = m_eqY, oldZ = m_eqZ, oldW = m_eqW;
 
-    // 1. Memorizza le stringhe
-    m_eqX = xEq;
-    m_eqY = yEq;
-    m_eqZ = zEq;
-    m_eqW = wEq;
-
-    // 2. Passale anche all'engine
-    engine->setEquations(xEq, yEq, zEq, wEq);
-
-    // In RHI non serve controllare isValid() o usare makeCurrent()!
-    // Chiamiamo semplicemente la nostra funzione che segnala di distruggere la pipeline.
-    bool success = rebuildShader();
-
-    // 3. Se fallisce davvero (per un errore dell'utente), ripristina e blocca
-    if (!success) {
-        m_eqX = oldX; m_eqY = oldY; m_eqZ = oldZ; m_eqW = oldW;
-        engine->setEquations(oldX, oldY, oldZ, oldW);
-        return false;
+    // 1. DRY RUN del vertex con le NUOVE equazioni prima di toccare lo stato
+    QString vsSource = createVertexShaderSource(xEq, yEq, zEq, wEq);
+    QShaderBaker baker;
+    baker.setSourceString(vsSource.toUtf8(), QShader::VertexStage);
+    baker.setGeneratedShaderVariants({QShader::StandardShader});
+    baker.setGeneratedShaders({ {QShader::SpirvShader, QShaderVersion(100)} });
+    QShader shader = baker.bake();
+    if (!shader.isValid()) {
+        m_lastCompilationError = "VERTEX (parametric): " + baker.errorMessage();
+        return false;  // Non tocchiamo nulla, l'UI riceve false e mostra il popup
     }
 
-    // 4. Tutto ok: la pipeline verrà ricreata al prossimo frame.
+    // 2. Solo ora applichiamo
+    m_eqX = xEq; m_eqY = yEq; m_eqZ = zEq; m_eqW = wEq;
+    engine->setEquations(xEq, yEq, zEq, wEq);
+    rebuildShader();
     meshNeedsUpdate = true;
     update();
-
     return true;
+}
+
+void GLWidget::setImplicitEquation(const QString &eqF)
+{
+    if (m_eqImplicitF == eqF) return;
+
+    m_eqImplicitF = eqF;
+
+    if (m_pipelineImplicit) {
+        delete m_pipelineImplicit;
+        m_pipelineImplicit = nullptr;
+    }
+    update();
 }
 
 void GLWidget::setExplicitWEquation(const QString &eq) {
@@ -797,6 +955,16 @@ void GLWidget::setEquationConstants(float a, float b, float c, float d, float e,
     m_uboData.mathParams = QVector4D(a, b, c, s);
     m_uboData.mathParams2 = QVector4D(d, e, f, 0.0f);
     meshNeedsUpdate = true;
+
+    m_constants.clear();
+    m_constants["A"] = a;
+    m_constants["B"] = b;
+    m_constants["C"] = c;
+    m_constants["D"] = d;
+    m_constants["E"] = e;
+    m_constants["F"] = f;
+    m_constants["s"] = s;
+
     update();
 }
 
@@ -820,10 +988,246 @@ void GLWidget::setRangeW(float min, float max)
     meshNeedsUpdate = true;
 }
 
+void GLWidget::setRangeX(float min, float max) {
+    m_uboData.x_min = min;
+    m_uboData.x_max = max;
+    meshNeedsUpdate = true;
+    update();
+}
+
+void GLWidget::setRangeY(float min, float max) {
+    m_uboData.y_min = min;
+    m_uboData.y_max = max;
+    meshNeedsUpdate = true;
+    update();
+}
+
+void GLWidget::setRangeZ(float min, float max) {
+    m_uboData.z_min = min;
+    m_uboData.z_max = max;
+    meshNeedsUpdate = true;
+    update();
+}
+
 void GLWidget::setResolution(int n) {
 
     engine->setResolution(n, n);
     meshNeedsUpdate = true;
+}
+
+void GLWidget::setRaySteps(int steps) {
+    m_raySteps = steps; // Salva il valore nello stato del Widget
+    update();           // Richiede un nuovo fotogramma
+}
+
+bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid)
+{
+    bool wasCustom = m_isCustomMesh; // Salviamo lo stato precedente
+    m_isCustomMesh = true;
+
+    if (grid.isEmpty() || grid[0].isEmpty()) return false;
+
+    int numU = grid.size() - 1;
+    int numV = grid[0].size() - 1;
+
+    // =====================================================================
+    // 1. CONTROLLO MATEMATICO GENERALE (Anticipazione Errori e Artefatti)
+    // =====================================================================
+    int deadTrajectories = 0;
+
+    // Soglia coerente con safeLim in GeodesicCalculator, scalata in base alla scena.
+    const float limitThreshold = 999.0f * m_surfaceScale / 2.0f;
+
+    // NUOVO: Limite di salto. Se un singolo step schizza oltre 20 unità,
+    // l'equazione differenziale sta esplodendo generando artefatti.
+    const float jumpThreshold = 20.0f;
+
+    for (int i = 0; i <= numU; ++i) {
+        bool isDead = false;
+
+        // A. Punto "nato morto" (il calcolatore ha intercettato un NaN al primo step)
+        if (grid[i][0].lengthSquared() < 1e-8f && grid[i][1].lengthSquared() < 1e-8f) {
+            isDead = true;
+        } else {
+            for (int j = 0; j <= numV; ++j) {
+                // B. Controllo sul limite spaziale assoluto (Anticipato a 250)
+                if (std::abs(grid[i][j].x()) > limitThreshold ||
+                    std::abs(grid[i][j].y()) > limitThreshold ||
+                    std::abs(grid[i][j].z()) > limitThreshold) {
+                    isDead = true;
+                    break;
+                }
+
+                // C. NUOVO: Controllo sull'esplosione della derivata (Jump Check)
+                if (j > 0) {
+                    float distSq = (grid[i][j] - grid[i][j-1]).lengthSquared();
+                    if (distSq > (jumpThreshold * jumpThreshold)) {
+                        isDead = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (isDead) deadTrajectories++;
+    }
+
+    // Blocca la mesh se più del 5% delle traiettorie sono collassate
+    if (deadTrajectories > (numU * 0.05f)) {
+        return false;
+    }
+
+    // =====================================================================
+    // 1.5 MARCATURA DEI VERTICI "CONGELATI" (tail di truncate del calculator)
+    // =====================================================================
+    // Il GeodesicCalculator congela una traiettoria sull'ultimo punto valido
+    // quando incontra un NaN. Quei punti hanno (grid[i][j] == grid[i][j-1])
+    // esatto. Vanno esclusi dal rendering per non generare quad degeneri.
+    std::vector<bool> isFrozen((numU + 1) * (numV + 1), false);
+    for (int i = 0; i <= numU; ++i) {
+        for (int j = 1; j <= numV; ++j) {
+            if ((grid[i][j] - grid[i][j-1]).lengthSquared() < 1e-12f) {
+                isFrozen[i * (numV + 1) + j] = true;
+            }
+        }
+    }
+
+    // =====================================================================
+    // 2. COSTRUZIONE GEOMETRIA
+    // =====================================================================
+    std::vector<Vertex> vertices;
+    std::vector<unsigned int> indices;
+
+    // Costruzione Vertici e Normali
+    for (int i = 0; i <= numU; ++i) {
+        for (int j = 0; j <= numV; ++j) {
+            Vertex v;
+            v.position = grid[i][j];
+
+            auto p = [&](int x, int y) { return grid[x][y].toVector3D(); };
+            QVector3D du, dv;
+
+            if (i > 0 && i < numU) {
+                du = grid[i+1][j].toVector3D() - grid[i-1][j].toVector3D();
+            } else {
+                if ((grid[numU][j] - grid[0][j]).lengthSquared() < 1e-5f) {
+                    du = grid[1][j].toVector3D() - grid[numU-1][j].toVector3D();
+                } else {
+                    if (i == 0) du = grid[1][j].toVector3D() - grid[0][j].toVector3D();
+                    else        du = grid[numU][j].toVector3D() - grid[numU-1][j].toVector3D();
+                }
+            }
+
+            if (j > 0 && j < numV) {
+                dv = grid[i][j+1].toVector3D() - grid[i][j-1].toVector3D();
+            } else {
+                if ((grid[i][numV] - grid[i][0]).lengthSquared() < 1e-5f) {
+                    dv = grid[i][1].toVector3D() - grid[i][numV-1].toVector3D();
+                } else {
+                    if (j == 0) dv = grid[i][1].toVector3D() - grid[i][0].toVector3D();
+                    else        dv = grid[i][numV].toVector3D() - grid[i][numV-1].toVector3D();
+                }
+            }
+
+            // Normalizza i vettori in modo sicuro prima del prodotto vettoriale
+            QVector3D safeDu = du.normalized();
+            QVector3D safeDv = dv.normalized();
+
+            // Calcola la normale (la sua lunghezza ora dipenderà solo dall'angolo tra du e dv)
+            QVector3D normal = QVector3D::crossProduct(safeDu, safeDv);
+
+            // Threshold per vertici degeneri / singolarità matematiche
+            if (normal.lengthSquared() < 1e-5f) {
+                if (j > 0) {
+                    normal = vertices.back().normal.toVector3D();
+                } else {
+                    normal = QVector3D(0.0f, 0.0f, 1.0f);
+                }
+            } else {
+                normal.normalize();
+            }
+
+            if (j > 0) {
+                QVector3D prevNormal = vertices.back().normal.toVector3D();
+                if (QVector3D::dotProduct(normal, prevNormal) < 0.0f) {
+                    normal = -normal;
+                }
+            }
+
+            v.normal = QVector4D(normal, 0.0f);
+            v.texCoord = QVector2D((float)i / numU, (float)j / numV);
+            vertices.push_back(v);
+        }
+    }
+
+    // Costruzione Indici (Triangoli)
+    for (int i = 0; i < numU; ++i) {
+        for (int j = 0; j < numV; ++j) {
+            int p0 = i * (numV + 1) + j;
+            int p1 = (i + 1) * (numV + 1) + j;
+            int p2 = i * (numV + 1) + (j + 1);
+            int p3 = (i + 1) * (numV + 1) + (j + 1);
+
+            // Salta il quad se almeno 2 dei 4 vertici sono "frozen".
+            // Tollerare 1 frozen evita di bucare la mesh per artefatti
+            // di arrotondamento isolati; saltare a >=2 elimina i quad
+            // dentro la coda congelata e sul confine con essa.
+            int frozenCount = (isFrozen[p0] ? 1 : 0) +
+                              (isFrozen[p1] ? 1 : 0) +
+                              (isFrozen[p2] ? 1 : 0) +
+                              (isFrozen[p3] ? 1 : 0);
+            if (frozenCount >= 2) continue;
+
+            indices.push_back(p0);
+            indices.push_back(p1);
+            indices.push_back(p2);
+
+            indices.push_back(p2);
+            indices.push_back(p1);
+            indices.push_back(p3);
+        }
+    }
+
+    // RILEVAMENTO TOPOLOGICO DELLA CHIUSURA (Cilindro o Möbius)
+    bool isUClosed = true;
+    bool isVClosed = true;
+    float threshold = 1e-4f; // Tolleranza per l'errore del calcolo geodetico numerico
+
+    // Controllo Chiusura su U
+    for (int j = 0; j <= numV; ++j) {
+        float distNormal = (grid[0][j] - grid[numU][j]).lengthSquared();
+        float distTwisted = (grid[0][j] - grid[numU][numV - j]).lengthSquared();
+
+        if (distNormal > threshold && distTwisted > threshold) {
+            isUClosed = false;
+            break;
+        }
+    }
+
+    // Controllo Chiusura su V
+    for (int i = 0; i <= numU; ++i) {
+        float distNormal = (grid[i][0] - grid[i][numV]).lengthSquared();
+        float distTwisted = (grid[i][0] - grid[numU - i][numV]).lengthSquared();
+
+        if (distNormal > threshold && distTwisted > threshold) {
+            isVClosed = false;
+            break;
+        }
+    }
+
+    // 3. Invia i dati al SurfaceEngine
+    engine->setCustomMesh(vertices, indices, isUClosed, isVClosed);
+
+    buildWireframeGeometry();
+    buildBorderGeometry();
+
+    meshNeedsUpdate = true;
+
+    if (!wasCustom) {
+        rebuildShader();
+    }
+
+    update();
+    return true; // Costruzione completata con successo!
 }
 
 
@@ -959,20 +1363,20 @@ void GLWidget::decreaseWireframeVDensity() {
     update();
 }
 
-bool GLWidget::rebuildShader()
+void GLWidget::rebuildShader()
 {
-    // --- VERSIONE RHI ---
-    // Distruggendo la pipeline, diciamo a RHI di ricrearla
-    // (con le nuove equazioni) al prossimo frame in initialize()
     if (m_pipelineOpaque) {
         delete m_pipelineOpaque;
         m_pipelineOpaque = nullptr;
     }
 
+    if (m_pipelineImplicit) {
+        delete m_pipelineImplicit;
+        m_pipelineImplicit = nullptr;
+    }
+
     meshNeedsUpdate = true;
     update();
-
-    return true;
 }
 
 
@@ -991,20 +1395,27 @@ void GLWidget::loadTextureFromImage(const QImage &img) {
     if (img.isNull()) return;
 
     // 1. RHI richiede formati precisi (RGBA8888)
-#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
     m_pendingSurfaceImage = img.convertToFormat(QImage::Format_RGBA8888).flipped(Qt::Orientations(Qt::Vertical));
-#else
-    m_pendingSurfaceImage = img.convertToFormat(QImage::Format_RGBA8888).mirrored(false, true);
-#endif
 
     // 2. Alziamo la bandierina per il Render Loop
     m_surfaceTextureNeedsUpload = true;
+
+    rebuildShader();
     update();
 }
 
 void GLWidget::setTextureEnabled(bool enable) {
-    m_textureEnabled = enable;
-    update();
+    if (m_textureEnabled != enable) {
+        m_textureEnabled = enable;
+
+        if (m_engineMode == ModeImplicit && m_pipelineImplicit) {
+            m_pipelineImplicit->destroy();
+            delete m_pipelineImplicit;
+            m_pipelineImplicit = nullptr;
+        }
+
+        update();
+    }
 }
 
 void GLWidget::setTextureColors(const QColor& c1, const QColor& c2)
@@ -1085,11 +1496,7 @@ void GLWidget::setBackgroundTexture(const QString &path) {
     }
 
     // A questo punto 'img' ha SEMPRE dei pixel validi da mostrare a Vulkan
-#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
     m_pendingBackgroundImage = img.convertToFormat(QImage::Format_RGBA8888).flipped(Qt::Orientations(Qt::Vertical));
-#else
-    m_pendingBackgroundImage = img.convertToFormat(QImage::Format_RGBA8888).mirrored(false, true);
-#endif
 
     m_backgroundTextureNeedsUpload = true;
     m_bgIsScript = false;
@@ -1135,6 +1542,37 @@ void GLWidget::loadBackgroundScript(const QString &scriptCode) {
     update();
 }
 
+void GLWidget::setTextureCode(const QString& code) {
+    if (m_textureCode != code) {
+        m_textureCode = code;
+
+        // 1. Distruggiamo la pipeline del ray marching
+        if (m_pipelineImplicit) {
+            m_pipelineImplicit->destroy();
+            delete m_pipelineImplicit;
+            m_pipelineImplicit = nullptr;
+        }
+
+        // 2. Forza un nuovo ciclo di disegno.
+        update();
+    }
+}
+
+void GLWidget::setDisplacementCode(const QString& code) {
+    if (m_displacementCode != code) {
+        m_displacementCode = code;
+
+        // Distruggiamo la pipeline del ray marching per forzare la ricompilazione
+        if (m_pipelineImplicit) {
+            m_pipelineImplicit->destroy();
+            delete m_pipelineImplicit;
+            m_pipelineImplicit = nullptr;
+        }
+
+        // Forza un nuovo ciclo di disegno
+        update();
+    }
+}
 
 // ==========================================================
 // 2D FLAT VIEW
@@ -1220,6 +1658,7 @@ void GLWidget::setFlatPan(float x, float y) {
 // ==========================================================
 
 void GLWidget::set4DLighting(bool enable) {
+
     engine->set4DLighting(enable);
     meshNeedsUpdate = true;
     update();
@@ -1245,8 +1684,6 @@ bool GLWidget::is4DActive() const {
 
 void GLWidget::setRotation4D(float o, float p, float ps) {
     omega = o; phi = p; psi = ps;
-    meshNeedsUpdate = true;
-
     update();
 }
 
@@ -1255,7 +1692,6 @@ void GLWidget::setCameraPosAndLookAt(const QVector3D& pos, float wValue)
     m_cameraPos = pos;
     if (std::abs(m_observerPos.w() - wValue) > 0.001f) {
         m_observerPos.setW(wValue);
-        meshNeedsUpdate = true;
     }
 
     update();
@@ -1275,9 +1711,6 @@ void GLWidget::setCameraPosAndDirection(const QVector3D& pos, const QVector3D& t
     // 3. Invio dati se cambiati
     if ((m_observerPos - newObsPos).lengthSquared() > 0.000001f) {
         m_observerPos = newObsPos;
-
-        // Segnala che i dati sono cambiati (per aggiornare gli uniform nel paintGL)
-        meshNeedsUpdate = true;
     }
 
     update();
@@ -1349,7 +1782,6 @@ void GLWidget::setCameraFrom4DVectors(const QVector4D &pos4D, const QVector4D &t
     m_view.setToIdentity();
     m_view.lookAt(pos3D, target3D, finalUp3D);
 
-    meshNeedsUpdate = true;
     update();
 }
 
@@ -1377,7 +1809,7 @@ void GLWidget::addCameraRotation(float dYaw, float dPitch) {
     if (m_cameraPitch > 89.0f) m_cameraPitch = 89.0f;
     if (m_cameraPitch < -89.0f) m_cameraPitch = -89.0f;
 
-    update();
+  //  update();
 }
 
 void GLWidget::addCameraRoll(float dRoll) {
@@ -1401,66 +1833,69 @@ void GLWidget::moveCameraFromScreenDelta(float dx, float dy) {
 void GLWidget::resetTransformations()
 {
     m_isPathFollowing = false;
-    pauseMotion();
-    resetSurfaceTime();
 
     precession = 0.0f;
     nutation = 0.0f;
     spin = 0.0f;
 
-    // Manteniamo il piccolo offset per evitare lo Z-Fighting
+    // Manteniamo un offset sicuro per evitare lo Z-Fighting in 4D
     omega = 0.1f;
     phi = 0.1f;
     psi = 0.1f;
 
-    if (engine) {
-        // Passing empty strings forces the engine to set isValid = false
-        engine->compilePathEquations("", "", "", "", "", "", "");
-        engine->compilePath3DEquations("", "", "", "");
+    // =======================================================
+    // FIX 1: SALVAVITA ZOOM 3D (Risolve l'effetto "Gigante")
+    // =======================================================
+    float current3DZoom = m_cameraPos.length();
+    // Se la telecamera era dentro la figura (distanza < 2.5), la tiriamo indietro a 4.0
+    if (std::isnan(current3DZoom) || std::isinf(current3DZoom) || current3DZoom < 2.5f) {
+        current3DZoom = 4.0f;
     }
+    m_cameraPos = QVector3D(0.0f, 0.0f, current3DZoom);
 
-    nutationSpeed = 0.0f;
-    precessionSpeed = 0.0f;
-    spinSpeed = 0.0f;
-    omegaSpeed = 0.0f;
-    phiSpeed = 0.0f;
-    psiSpeed = 0.0f;
-
-    m_cameraPos = QVector3D(0.0f, 0.0f, 4.0f);
     m_cameraYaw = 0.0f;
     m_cameraPitch = 0.0f;
     m_cameraRoll = 0.0f;
 
-    m_observerPos = QVector4D(0.0f, 0.0f, 0.0f, 4.0f);
-    m_cameraPos4D = QVector4D(0.0f, 0.0f, 0.0f, 4.0f);
+    // =======================================================
+    // FIX 2: SALVAVITA PROIEZIONE 4D
+    // =======================================================
+    // Leggiamo la distanza dall'Osservatore fisso, NON dalla telecamera mobile!
+    float current4DZoom = m_observerPos.w();
+    if (std::isnan(current4DZoom) || std::isinf(current4DZoom) || std::abs(current4DZoom) < 1.5f) {
+        current4DZoom = 4.0f;
+    }
 
-    m_pathUp = QVector3D(0.0f, 0.0f, 1.0f);
+    m_observerPos = QVector4D(0.0f, 0.0f, 0.0f, current4DZoom);
+    m_cameraPos4D = QVector4D(0.0f, 0.0f, 0.0f, current4DZoom);
+
+    // Reset dei vettori di mira
+    m_pathTarget = QVector3D(0.0f, 0.0f, 0.0f);
+    m_pathUp = QVector3D(0.0f, 1.0f, 0.0f);
+    m_lastValidUp = QVector3D(0.0f, 1.0f, 0.0f);
+    m_isFirstPathRun = true;
+
     m_flatPan = QVector2D(0.0f, 0.0f);
-    m_flatZoom = 1.0f;
-    m_flatRotation = 0.0f;
-
-    setProperty("bg_zoom", 1.0f);
     setProperty("bg_pan", QVector2D(0.0f, 0.0f));
-    setProperty("bg_rot", 0.0f);
 
     m_rotationQuat = QQuaternion();
 
-    m_isFirstPathRun = true;
-    m_lastValidUp = QVector3D(0.0f, 1.0f, 0.0f);
+    // Azzera le memorie di backup
+    m_viewStates[0] = ViewState();
+    m_viewStates[1] = ViewState();
 
-    // Forza aggiornamento geometria
     meshNeedsUpdate = true;
-
     update();
 }
 
-void GLWidget::virtualMove(MoveDir dir, bool slowMode)
+void GLWidget::virtualMove(MoveDir dir, float speed3D, float speed4D)
 {
-    float speed = slowMode ? 0.01f : 0.05f;
-    float rollSpeed = slowMode ? 0.05f : 0.2f;
-    float rotSpeed = slowMode ? 0.005f : 0.01f;
-    float obsSpeed = slowMode ? 0.01f : 0.05f;
-
+    // speed3D e speed4D arrivano dagli slider e vanno da 0.001 a 0.1.
+    // Li moltiplichiamo per dei "moltiplicatori base" per avere una buona sensibilità
+    float speed     = speed3D * 5.0f;   // Spostamento 3D standard (Avanti, Indietro...)
+    float rollSpeed = speed3D * 10.0f;  // Rollio della telecamera 3D
+    float rotSpeed  = speed4D * 2.0f;   // Rotazioni 4D (Omega, Phi, Psi)
+    float obsSpeed  = speed4D * 5.0f;   // Spostamento 4D lineare (X+, P-, ecc.)
 
     bool updateNeeded = true;
 
@@ -1540,10 +1975,6 @@ void GLWidget::virtualMove(MoveDir dir, bool slowMode)
         break;
     }
 
-    if (updateNeeded) {
-        updateSurfaceData();
-    }
-
     update();
 }
 
@@ -1609,8 +2040,12 @@ void GLWidget::stopAllTimers() {
 
 void GLWidget::resetTime() {
     m_manualTime = 0.00001f;
-    m_elapsedTimer.restart();
-    update(); //
+    m_surfaceTimer.restart();
+    m_lastRealTime = 0.0f;
+    m_timeGeom = 0.0f;
+    m_timeTex = 0.0f;
+    m_timeBg = 0.0f;
+    update();
 }
 
 void GLWidget::resetSurfaceTime() {
@@ -1663,76 +2098,165 @@ QImage GLWidget::getFrameForVideo(int targetW, int targetH, bool useFbo) {
     return img;
 }
 
+bool GLWidget::validateAndApplyParametricShader(const QString &customLogic)
+{
+    // Backup dei valori correnti per ripristino
+    QString oldCustom = m_customFragmentCode;
+    QString oldX = m_eqX, oldY = m_eqY, oldZ = m_eqZ, oldW = m_eqW;
+
+    // 1. DRY RUN FRAGMENT
+    QString fsSource = createFragmentShaderSource(customLogic);
+    {
+        QShaderBaker baker;
+        baker.setSourceString(fsSource.toUtf8(), QShader::FragmentStage);
+        baker.setGeneratedShaderVariants({QShader::StandardShader});
+        baker.setGeneratedShaders({ {QShader::SpirvShader, QShaderVersion(100)} });
+        QShader shader = baker.bake();
+        if (!shader.isValid()) {
+            m_lastCompilationError = "FRAGMENT: " + baker.errorMessage();
+            return false;
+        }
+    }
+
+    // 2. DRY RUN VERTEX (NUOVO!) - testa le equazioni x/y/z/w correnti
+    QString vsSource = createVertexShaderSource(m_eqX, m_eqY, m_eqZ, m_eqW);
+    {
+        QShaderBaker baker;
+        baker.setSourceString(vsSource.toUtf8(), QShader::VertexStage);
+        baker.setGeneratedShaderVariants({QShader::StandardShader});
+        baker.setGeneratedShaders({ {QShader::SpirvShader, QShaderVersion(100)} });
+        QShader shader = baker.bake();
+        if (!shader.isValid()) {
+            m_lastCompilationError = "VERTEX: " + baker.errorMessage();
+            return false;
+        }
+    }
+
+    // 3. APPLICA
+    m_customFragmentCode = customLogic;
+    rebuildShader();
+    return true;
+}
+
+bool GLWidget::validateAndApplyImplicitShader(const QString &eqF, const QString &texCode, const QString &dispCode)
+{
+    // Salvataggio di emergenza dei vecchi parametri funzionanti
+    QString oldEq = m_eqImplicitF;
+    QString oldTex = m_textureCode;
+    QString oldDisp = m_displacementCode;
+
+    // Prepariamo i nuovi parametri per generare lo shader
+    m_eqImplicitF = eqF;
+    m_textureCode = texCode;
+    m_displacementCode = dispCode;
+
+    QString fsSource = createImplicitFragmentShader();
+
+    // DRY RUN
+    QShaderBaker baker;
+    baker.setSourceString(fsSource.toUtf8(), QShader::FragmentStage);
+    baker.setGeneratedShaderVariants({QShader::StandardShader});
+    baker.setGeneratedShaders({ {QShader::SpirvShader, QShaderVersion(100)} });
+
+    QShader shader = baker.bake();
+    if (!shader.isValid()) {
+        m_lastCompilationError = baker.errorMessage();
+
+        // RIPRISTINO: Se la compilazione fallisce, rimettiamo tutto a posto!
+        m_eqImplicitF = oldEq;
+        m_textureCode = oldTex;
+        m_displacementCode = oldDisp;
+        return false;
+    }
+
+    // Se compila, la pipeline prosegue sicura
+    rebuildShader();
+    return true;
+}
+
+bool GLWidget::validateAndApplyBackgroundShader(const QString &scriptCode)
+{
+    // Genera la stessa stringa fsSource che produrrebbe rebuildBackgroundShader
+    QString fsSource = createBackgroundFragmentShader(false, scriptCode);
+
+    // DRY RUN con un baker locale: a differenza di bakeShader (la funzione del
+    // widget che genera multi-target SPIR-V/GLSL/HLSL/MSL), qui generiamo solo
+    // SPIR-V. Questo rende isValid() affidabile: se SPIR-V fallisce, sappiamo
+    // che lo shader è rotto e blocchiamo prima di toccare la pipeline.
+    QShaderBaker baker;
+    baker.setSourceString(fsSource.toUtf8(), QShader::FragmentStage);
+    baker.setGeneratedShaderVariants({QShader::StandardShader});
+    baker.setGeneratedShaders({ {QShader::SpirvShader, QShaderVersion(100)} });
+
+    QShader shader = baker.bake();
+    if (!shader.isValid()) {
+        m_lastCompilationError = baker.errorMessage();
+        return false;
+    }
+
+    // OK: applichiamo davvero
+    m_bgScriptCode = scriptCode;
+    m_bgIsScript = true;
+    m_useBackgroundTexture = true;
+    rebuildBackgroundShader(false, scriptCode);
+    update();
+    return true;
+}
+
+bool GLWidget::validateAndApplyParametricScript(const QString &scriptCodeGLSL)
+{
+    // Salva lo stato attuale dello script per ripristinarlo se fallisce
+    QString oldScript = engine->getScriptCodeGLSL();
+    bool oldScriptMode = engine->isScriptModeActive();
+
+    // Applica temporaneamente per testare
+    engine->setScriptCodeGLSL(scriptCodeGLSL);
+    engine->setScriptMode(true);
+
+    // Genera il vertex shader con lo script applicato
+    QString vsSource = createVertexShaderSource("0", "0", "0", "0");
+
+    // DRY RUN: solo SPIR-V con baker locale (vedi pattern background)
+    QShaderBaker baker;
+    baker.setSourceString(vsSource.toUtf8(), QShader::VertexStage);
+    baker.setGeneratedShaderVariants({QShader::StandardShader});
+    baker.setGeneratedShaders({ {QShader::SpirvShader, QShaderVersion(100)} });
+
+    QShader shader = baker.bake();
+    if (!shader.isValid()) {
+        m_lastCompilationError = "VERTEX (script): " + baker.errorMessage();
+        // RIPRISTINO: rimettiamo lo stato di prima
+        engine->setScriptCodeGLSL(oldScript);
+        engine->setScriptMode(oldScriptMode);
+        return false;
+    }
+
+    // OK: lo script è valido. Lo lasciamo applicato e schedula il rebuild.
+    rebuildShader();
+    return true;
+}
+
 
 // ==========================================================
-// PRIVATE HELPER METHODS
+// RISORSE QRHI IMPLICIT (RAY MARCHING)
 // ==========================================================
 
-void GLWidget::buildBorderGeometry() {
-    // 1. Generiamo i dati grezzi sulla CPU
-    std::vector<QVector3D> data = GeometryBuilder::buildBorders(engine.get());
-
-    m_borderVertices.clear();
-    m_borderVertices.reserve(data.size());
-
-    // 2. Li convertiamo nel formato Vertex compatibile con l'input layout di RHI
-    for (const QVector3D& pos : data) {
-        Vertex v;
-        v.position = pos;
-
-        // Usiamo QVector4D per rispettare la struttura del Vertex!
-        // (La normale non serve per le linee, ma va riempita per non inviare "spazzatura" alla VRAM)
-        v.normal = QVector4D(0.0f, 0.0f, 1.0f, 0.0f);
-
-        v.texCoord = QVector2D(0.0f, 0.0f);
-        m_borderVertices.push_back(v);
+void GLWidget::buildImplicitPipeline()
+{
+    if (m_pipelineImplicit) {
+        delete m_pipelineImplicit;
+        m_pipelineImplicit = nullptr;
     }
 
-    m_borderVertexCount = (int)m_borderVertices.size();
-    borderNeedsUpdate = true; // Segnaliamo al render loop che i dati sono pronti
-}
-
-void GLWidget::buildWireframeGeometry() {
-    m_wireframeIndices = GeometryBuilder::buildWireframe(engine.get(), wfStepU, wfStepV);
-    m_wireframeIndexCount = m_wireframeIndices.size();
-    wireframeNeedsUpdate = true;
-
-    if (m_wireframeIndexCount == 0) {
-        qWarning() << "ATTENZIONE: Nessun indice wireframe generato! (I commenti in updateSurfaceData sono stati tolti?)";
-    }
-}
-
-void GLWidget::initBackgroundShader() {
-    if (m_bgVbo) return;
-
-    m_bgVbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, 6 * sizeof(Vertex));
-    m_bgVbo->create();
-
-    if (!m_bgUbo) {
-        m_bgUbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(UboData));
-        m_bgUbo->create();
+    // 1. Assicuriamoci che il VBO dello schermo intero esista (sfruttiamo quello del background!)
+    if (!m_bgVbo) {
+        initBackgroundShader();
     }
 
-    m_bgBindings = rhi()->newShaderResourceBindings();
-    m_bgBindings->setBindings({
-        // CORREZIONE: Usa m_bgUbo invece di m_ubo!
-        QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, m_bgUbo),
-        QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_dummyTexture, m_sampler)
-    });
-    m_bgBindings->create();
-}
+    m_pipelineImplicit = rhi()->newGraphicsPipeline();
+    m_pipelineImplicit->setTopology(QRhiGraphicsPipeline::Triangles);
 
-void GLWidget::rebuildBackgroundShader(bool isTextureMode, const QString &customCode) {
-    if (!m_bgVbo) initBackgroundShader();
-
-    if (m_bgPipeline) {
-        delete m_bgPipeline;
-        m_bgPipeline = nullptr;
-    }
-
-    m_bgPipeline = rhi()->newGraphicsPipeline();
-    m_bgPipeline->setTopology(QRhiGraphicsPipeline::Triangles);
-
+    // 2. Diciamo alla GPU come leggere i vertici del quad
     QRhiVertexInputLayout inputLayout;
     inputLayout.setBindings({ { sizeof(Vertex) } });
     inputLayout.setAttributes({
@@ -1740,21 +2264,125 @@ void GLWidget::rebuildBackgroundShader(bool isTextureMode, const QString &custom
         { 0, 1, QRhiVertexInputAttribute::Float4, offsetof(Vertex, normal) },
         { 0, 2, QRhiVertexInputAttribute::Float2, offsetof(Vertex, texCoord) }
     });
-    m_bgPipeline->setVertexInputLayout(inputLayout);
+    m_pipelineImplicit->setVertexInputLayout(inputLayout);
 
-    QString header = "#version 450\n";
-
-    QString vsSource = header +
+    // 3. VERTEX SHADER (Adattato da raymarch.vert per QRhi)
+    QString vsSource = "#version 450\n"
                        "layout(location=0) in vec3 position;\n"
                        "layout(location=1) in vec4 normal;\n"
                        "layout(location=2) in vec2 texCoord;\n"
-                       "layout(location=0) out vec2 v_texCoord;\n"
+                       "layout(location=0) out vec2 fragCoord;\n"
                        "void main() {\n"
-                       "  v_texCoord = vec2(texCoord.x, 1.0 - texCoord.y);\n"
+                       "  // Passiamo le coordinate al Fragment Shader (da 0 a 1)\n"
+                       "  fragCoord = texCoord;\n"
+                       "  // Disegniamo il quadrato che copre tutto lo schermo\n"
                        "  gl_Position = vec4(position.xy, 0.999, 1.0);\n"
                        "}\n";
 
-    // UBO Block sincronizzato matematicamente col C++ e con surface.frag
+    // 4. FRAGMENT SHADER: Generiamo lo shader di Ray Marching con l'equazione corrente!
+   QString fsSource = createImplicitFragmentShader();
+
+    QShader vs = bakeShader(vsSource.toUtf8(), QShader::VertexStage);
+    QShader fs = bakeShader(fsSource.toUtf8(), QShader::FragmentStage);
+
+    m_pipelineImplicit->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
+    m_pipelineImplicit->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+
+    m_pipelineImplicit->setSampleCount(renderTarget()->sampleCount());
+
+    // Per il Ray Marching, la profondità si calcola via matematica, non via Z-Buffer nativo
+    m_pipelineImplicit->setDepthTest(false);
+    m_pipelineImplicit->setDepthWrite(false);
+    m_pipelineImplicit->setCullMode(QRhiGraphicsPipeline::None);
+
+    // --- TRASPARENZA ---
+    QRhiGraphicsPipeline::TargetBlend blend;
+    blend.enable = true;
+    blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
+    blend.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+    blend.srcAlpha = QRhiGraphicsPipeline::One;
+    blend.dstAlpha = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+    m_pipelineImplicit->setTargetBlends({ blend });
+
+    // 5. Usiamo temporaneamente i bindings standard (che contengono il tuo UBO con la telecamera)
+    m_pipelineImplicit->setShaderResourceBindings(m_bindings);
+
+    m_pipelineImplicit->create();
+}
+
+
+// ==========================================================
+// IMPLICIT EQUATIONS STATE
+// ==========================================================
+
+QString GLWidget::createImplicitFragmentShader()
+{
+    QString safeEqF = GlslTranslator::translateEquation(m_eqImplicitF);
+
+    // Per garantire la compatibilità con script stile Shadertoy:
+    safeEqF.replace(QRegularExpression("\\biTime\\b"), "t");
+
+    // Fallback di sicurezza se la stringa è vuota
+    if (safeEqF.trimmed().isEmpty()) safeEqF = "x*x + y*y + z*z - 1.0";
+
+    QString templateSource = loadShaderSource(":/shaders/raymarch_template.txt");
+    templateSource.remove(QRegularExpression("^\\s*#version\\s+450\\s*\n?"));
+
+    QString safePowDef = "float safe_pow(float x, float y) { return sign(x) * pow(abs(x), y); }\n";
+    QString commonCode = loadShaderSource(":/shaders/common.glsl");
+
+    QString finalSource = "#version 450\n\n" + safePowDef + "\n" + commonCode + "\n" + templateSource;
+
+    // --- INIZIO NUOVA LOGICA SCRIPT MULTI-RIGA ---
+    if (engine->isScriptModeActive()) {
+        QString customCode = engine->getScriptCodeGLSL();
+
+        // Iniettiamo le stesse comodità presenti in map()
+        QString injectedVars = "    float t = ubuf.u_time;\n"
+                               "    float iTime = ubuf.u_time;\n"
+                               "    float A = ubuf.u_mathParams.x;\n"
+                               "    float B = ubuf.u_mathParams.y;\n"
+                               "    float C = ubuf.u_mathParams.z;\n"
+                               "    float s = ubuf.u_mathParams.w;\n"
+                               "    float S = ubuf.u_mathParams.w;\n"
+                               "    float D = ubuf.u_mathParams2.x;\n"
+                               "    float E = ubuf.u_mathParams2.y;\n"
+                               "    float F = ubuf.u_mathParams2.z;\n"
+                               "    float x = p.x; float y = p.y; float z = p.z;\n";
+
+        // Creiamo una funzione indipendente con il codice custom
+        QString newFunction = "float getCustomImplicit(vec3 p) {\n" + injectedVars + customCode + "\n}\n\n";
+
+        // 1. Dichiariamo la nostra funzione custom ESATTAMENTE prima della funzione map standard
+        finalSource.replace("float map(vec3 p) {", newFunction + "float map(vec3 p) {");
+
+        // 2. Sostituiamo il placeholder in map() delegando il calcolo alla nostra funzione
+        finalSource.replace("%IMPLICIT_EQ%", "getCustomImplicit(p)");
+
+    } else {
+        // Modalità classica: UI LineEdit (Singola Riga)
+        finalSource.replace("%IMPLICIT_EQ%", safeEqF);
+    }
+    // --- FINE NUOVA LOGICA ---
+
+    if (m_textureEnabled) {
+        QString texWrap = "{\n  float t = ubuf.u_dummyZero.x;\n  float iTime = ubuf.u_dummyZero.x;\n"
+                          + m_textureCode + "\n}\n";
+        finalSource.replace("%TEXTURE_CODE%", texWrap);
+        finalSource.replace("%DISPLACEMENT_CODE%", m_displacementCode);
+    } else {
+        finalSource.replace("%TEXTURE_CODE%", "");
+        finalSource.replace("%DISPLACEMENT_CODE%", "");
+    }
+
+    return finalSource;
+}
+
+QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QString &customCode)
+{
+    QString fsSource;
+    QString header = "#version 450\n";
+
     QString uboBlock = "layout(std140, binding=0) uniform SceneUBO {\n"
                        "    mat4 u_mvpMatrix; mat4 u_mvMatrix; mat4 u_mMatrix;\n"
                        "    vec4 u_dummyZero; vec4 u_observerPos; vec4 u_cameraPos4D; vec4 u_mathParams; vec4 u_mathParams2;\n"
@@ -1765,11 +2393,14 @@ void GLWidget::rebuildBackgroundShader(bool isTextureMode, const QString &custom
                        "    float u_phi; float u_psi; float u_time; int u_projMode;\n"
                        "    int u_lightingMode; int u_renderMode; int u_isFlat; int useTexture;\n"
                        "    int useSpecular; float u_min; float u_max; float v_min;\n"
-                       "    float v_max; int u_hasExplicitW; vec2 padding;\n"
+                       "    float v_max; int u_hasExplicitW; float x_min; float x_max;\n"
+                       "    float y_min; float y_max; float z_min; float z_max;\n"
                        "} ubuf;\n";
 
-    QString fsSource;
-    if (isTextureMode) {
+    if (!customCode.isEmpty() && customCode.contains("#version")) {
+        fsSource = customCode;
+    }
+    else if (isTextureMode) {
         fsSource = header +
                    "layout(binding=1) uniform sampler2D tex;\n"
                    + uboBlock +
@@ -1806,6 +2437,14 @@ void GLWidget::rebuildBackgroundShader(bool isTextureMode, const QString &custom
                           "    bool u_isFlat = (ubuf.u_isFlat != 0);\n";
 
         if (!safeCode.contains(QRegularExpression("\\bfloat\\s+t\\b"))) helpers += "    float t = ubuf.u_time;\n";
+        if (!safeCode.contains(QRegularExpression("\\bfloat\\s+A\\b"))) helpers += "    float A = ubuf.u_mathParams.x;\n";
+        if (!safeCode.contains(QRegularExpression("\\bfloat\\s+B\\b"))) helpers += "    float B = ubuf.u_mathParams.y;\n";
+        if (!safeCode.contains(QRegularExpression("\\bfloat\\s+C\\b"))) helpers += "    float C = ubuf.u_mathParams.z;\n";
+        if (!safeCode.contains(QRegularExpression("\\bfloat\\s+S\\b"))) helpers += "    float S = ubuf.u_mathParams.w;\n";
+        if (!safeCode.contains(QRegularExpression("\\bfloat\\s+s\\b"))) helpers += "    float s = ubuf.u_mathParams.w;\n";
+        if (!safeCode.contains(QRegularExpression("\\bfloat\\s+D\\b"))) helpers += "    float D = ubuf.u_mathParams2.x;\n";
+        if (!safeCode.contains(QRegularExpression("\\bfloat\\s+E\\b"))) helpers += "    float E = ubuf.u_mathParams2.y;\n";
+        if (!safeCode.contains(QRegularExpression("\\bfloat\\s+F\\b"))) helpers += "    float F = ubuf.u_mathParams2.z;\n";
         if (!safeCode.contains(QRegularExpression("\\bvec3\\s+u_col1\\b"))) helpers += "    vec3 u_col1 = ubuf.u_col1;\n";
         if (!safeCode.contains(QRegularExpression("\\bvec3\\s+u_col2\\b"))) helpers += "    vec3 u_col2 = ubuf.u_col2;\n";
 
@@ -1851,6 +2490,8 @@ void GLWidget::rebuildBackgroundShader(bool isTextureMode, const QString &custom
         }
         else if (safeCode.contains("void main()")) {
             QString extHelpers = "#define iResolution vec3(1.0, 1.0, 1.0)\n#define iTime ubuf.u_time\n";
+            extHelpers += "#define A ubuf.u_mathParams.x\n#define B ubuf.u_mathParams.y\n#define C ubuf.u_mathParams.z\n#define S ubuf.u_mathParams.w\n";
+            extHelpers += "#define D ubuf.u_mathParams2.x\n#define E ubuf.u_mathParams2.y\n#define F ubuf.u_mathParams2.z\n";
             if (!safeCode.contains(QRegularExpression("\\bvec3\\s+u_col1\\b"))) extHelpers += "#define u_col1 ubuf.u_col1\n";
             if (!safeCode.contains(QRegularExpression("\\bvec3\\s+u_col2\\b"))) extHelpers += "#define u_col2 ubuf.u_col2\n";
             dynamicBody = extHelpers + safeCode + "\n";
@@ -1878,23 +2519,55 @@ void GLWidget::rebuildBackgroundShader(bool isTextureMode, const QString &custom
                    + uboBlock + "\n" + commonCode + "\n" + dynamicBody;
     }
 
-    QShader vs = bakeShader(vsSource.toUtf8(), QShader::VertexStage);
-    QShader fs = bakeShader(fsSource.toUtf8(), QShader::FragmentStage);
-
-    m_bgPipeline->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
-    m_bgPipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
-    m_bgPipeline->setDepthTest(false);
-    m_bgPipeline->setDepthWrite(false);
-    m_bgPipeline->setCullMode(QRhiGraphicsPipeline::None);
-
-    QRhiGraphicsPipeline::TargetBlend blend;
-    blend.enable = true;
-    blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
-    blend.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
-    m_bgPipeline->setTargetBlends({ blend });
-    m_bgPipeline->setShaderResourceBindings(m_bgBindings);
-    m_bgPipeline->create();
+    return fsSource;
 }
+
+
+// ==========================================================
+// PRIVATE HELPER METHODS
+// ==========================================================
+
+// --- Geometry & Mesh Builders ---
+
+void GLWidget::buildBorderGeometry() {
+    // 1. Generiamo i dati grezzi sulla CPU
+    // CAMBIATO DA QVector3D a QVector4D
+    std::vector<QVector4D> data = GeometryBuilder::buildBorders(engine.get());
+
+    m_borderVertices.clear();
+    m_borderVertices.reserve(data.size());
+
+    // 2. Li convertiamo nel formato Vertex compatibile con l'input layout di RHI
+    // CAMBIATO DA QVector3D a QVector4D
+    for (const QVector4D& pos : data) {
+        Vertex v;
+        // Ora sia v.position (che abbiamo cambiato in surfaceengine.h)
+        // sia 'pos' sono QVector4D, quindi l'assegnazione funzionerà perfettamente!
+        v.position = pos;
+
+        // Usiamo QVector4D per rispettare la struttura del Vertex!
+        // (La normale non serve per le linee, ma va riempita per non inviare "spazzatura" alla VRAM)
+        v.normal = QVector4D(0.0f, 0.0f, 1.0f, 0.0f);
+
+        v.texCoord = QVector2D(0.0f, 0.0f);
+        m_borderVertices.push_back(v);
+    }
+
+    m_borderVertexCount = (int)m_borderVertices.size();
+    borderNeedsUpdate = true; // Segnaliamo al render loop che i dati sono pronti
+}
+
+void GLWidget::buildWireframeGeometry() {
+    m_wireframeIndices = GeometryBuilder::buildWireframe(engine.get(), wfStepU, wfStepV);
+    m_wireframeIndexCount = m_wireframeIndices.size();
+    wireframeNeedsUpdate = true;
+
+    if (m_wireframeIndexCount == 0) {
+        qWarning() << "ATTENZIONE: Nessun indice wireframe generato! (I commenti in updateSurfaceData sono stati tolti?)";
+    }
+}
+
+ // --- Shader Generation & Compilation ---
 
 QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq)
 {
@@ -1918,17 +2591,10 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
     QString source = header + "\n" + safePowDef + "\n" + commonCode + "\n" + vertexTemplate;
 
     auto sanitizeEq = [](const QString &s) {
-        // 1. Traduce u^2 in safe_pow(u, 2.0) e pi in 3.1415
+        // 1. Traduce potenze e costanti (pi, e)
         QString translated = GlslTranslator::translateEquation(s);
 
-        // 2. FIX RHI: Il traduttore legacy converte 't' in 'u_time'.
-        // In RHI dobbiamo reindirizzarlo obbligatoriamente al blocco UBO!
-        translated.replace(QRegularExpression("\\bu_time\\b"), "ubuf.u_time");
-
-        // Manteniamo anche il replace di 't' nel caso il traduttore non lo faccia
-        translated.replace(QRegularExpression("\\bt\\b"), "ubuf.u_time");
-
-        // 3. Wrap di sicurezza finale
+        // 2. Wrap di sicurezza finale (Niente più "replace" manuali del tempo!)
         if (translated.trimmed().isEmpty()) return QString("0.0");
         return "float(" + translated + ")";
     };
@@ -1944,15 +2610,8 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
 
         QRegularExpression regEx("vec4 getRawPosition\\(float u, float v, float w\\)\\s*\\{[\\s\\S]*?\\}");
 
-        QString injectedVars = "    float t = ubuf.u_time;\n"
-                               "    float A = ubuf.u_mathParams.x;\n"
-                               "    float B = ubuf.u_mathParams.y;\n"
-                               "    float C = ubuf.u_mathParams.z;\n"
-                               "    float s = ubuf.u_mathParams.w;\n"
-                               "    float S = ubuf.u_mathParams.w;\n"
-                               "    float D = ubuf.u_mathParams2.x;\n"
-                               "    float E = ubuf.u_mathParams2.y;\n"
-                               "    float F = ubuf.u_mathParams2.z;\n";
+        // INIEZIONE VARIABILI DI SUPPORTO
+        QString injectedVars = generateGlslHelperVars(customCode);
 
         QString newFunction = "vec4 getRawPosition(float u, float v, float w) {\n" +
                               injectedVars +
@@ -1983,15 +2642,14 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
     // Applica sanitize anche al vincolo
     QString explicitEqSafe = sanitizeEq(explicitEq);
 
+    // PARAMETRI SOLO MAIUSCOLI (a e b minuscoli sotto rimangono perché sono le coordinate U,V della funzione)
     QString params = "float A=ubuf.u_mathParams.x; "
                      "float B=ubuf.u_mathParams.y; "
                      "float C=ubuf.u_mathParams.z; "
-                     "float _valS=ubuf.u_mathParams.w; "
+                     "float S=ubuf.u_mathParams.w; float s=S; "
                      "float D=ubuf.u_mathParams2.x; "
                      "float E=ubuf.u_mathParams2.y; "
                      "float F=ubuf.u_mathParams2.z; "
-                     "float s=_valS; "
-                     "float S=_valS; "
                      "float t=ubuf.u_time; ";
 
     QString explicitBody;
@@ -2006,8 +2664,13 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
     source.replace("%EXPLICIT_BODY%", explicitBody);
     source.replace("%CONSTRAINT_MODE%", QString::number((int)mode));
 
+    if (m_isCustomMesh) {
+        source.replace("#version 450", "#version 450\n#define CUSTOM_MESH\n");
+    }
+
     return source;
 }
+
 QString GLWidget::createFragmentShaderSource(const QString &customLogic)
 {
     QString fragmentTemplate = loadShaderSource(":/shaders/surface.frag");
@@ -2031,7 +2694,6 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
     safeLogic.remove(QRegularExpression("#ifdef GL_ES[\\s\\S]*?#endif"));
     safeLogic.remove(QRegularExpression("precision\\s+(highp|mediump|lowp)\\s+float\\s*;"));
     safeLogic.replace("gl_FragColor", "fragColor");
-    safeLogic.replace(QRegularExpression("\\bu_time\\b"), "ubuf.u_time");
 
     QString helpers = "    float _rad = radians(ubuf.u_rotation);\n"
                       "    float _c = cos(_rad); float _s = sin(_rad);\n"
@@ -2042,7 +2704,9 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
                       "    vec2 uv = (_rot - 0.5) * _scale + 0.5 + _shift;\n"
                       "    bool u_isFlat = (ubuf.u_isFlat != 0);\n";
 
-    if (!safeLogic.contains(QRegularExpression("\\bfloat\\s+t\\b"))) helpers += "    float t = ubuf.u_time;\n";
+    helpers += generateGlslHelperVars(safeLogic);
+    helpers.replace("ubuf.u_time", "ubuf.u_dummyZero.x");
+
     if (!safeLogic.contains(QRegularExpression("\\bvec3\\s+u_col1\\b"))) helpers += "    vec3 u_col1 = ubuf.u_col1;\n";
     if (!safeLogic.contains(QRegularExpression("\\bvec3\\s+u_col2\\b"))) helpers += "    vec3 u_col2 = ubuf.u_col2;\n";
 
@@ -2055,10 +2719,10 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
         codeToInject = samplerDecl +
                        "vec3 getCustomColor(vec2 in_uv) {\n" +
                        helpers +
-                       "\n    return texture(tex, uv).rgb;\n}"; // <--- Modificato in tex
+                       "\n    return texture(tex, uv).rgb;\n}";
     }
     else if (safeLogic.contains("mainImage")) {
-        // FIX: Vere variabili globali
+        // Supporto Shadertoy
         QString stHelpers = "vec3 iResolution;\n"
                             "float iTime;\n"
                             "float iTimeDelta;\n"
@@ -2074,9 +2738,9 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
         if (!safeLogic.contains(QRegularExpression("\\bvec3\\s+u_col2\\b"))) stHelpers += "vec3 u_col2;\n";
 
         QString initVars = "    iResolution = vec3(1024.0, 1024.0, 1.0);\n"
-                           "    iTime = ubuf.u_time;\n"
+                           "    iTime = ubuf.u_dummyZero.x;\n"               // <- SOLO l'orologio della texture!
                            "    iTimeDelta = 0.016;\n"
-                           "    iFrame = int(ubuf.u_time * 60.0);\n"
+                           "    iFrame = int(ubuf.u_dummyZero.x * 60.0);\n"  // <- Anche iFrame usa l'orologio texture
                            "    iMouse = vec4(0.0);\n"
                            "    iDate = vec4(0.0);\n";
 
@@ -2093,6 +2757,10 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
     }
     else if (safeLogic.contains("getCustomColor")) {
         QString extHelpers;
+
+        extHelpers += "#define iResolution vec3(1.0, 1.0, 1.0)\n"
+                      "#define iTime ubuf.u_dummyZero.x\n";
+
         if (!safeLogic.contains(QRegularExpression("\\bvec3\\s+u_col1\\b"))) extHelpers += "#define u_col1 ubuf.u_col1\n";
         if (!safeLogic.contains(QRegularExpression("\\bvec3\\s+u_col2\\b"))) extHelpers += "#define u_col2 ubuf.u_col2\n";
         codeToInject = samplerDecl + extHelpers + safeLogic;
@@ -2112,66 +2780,68 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
 
     fullSource.replace("%CUSTOM_CODE%", codeToInject);
 
-    // Queste due righe puoi anche cancellarle, appartenevano a un vecchio surface.frag
-    // e ora non servono più, ma lasciarle non fa danni se le hai ancora.
     fullSource.replace("vec4 tex = texture(textureSampler, v_texCoord);",
                        "vec4 tex = vec4(getCustomColor(v_texCoord), 1.0);");
     fullSource.replace("vec3 texColor = texture(textureSampler, v_texCoord).rgb;",
                        "vec3 texColor = getCustomColor(v_texCoord);");
 
+    if (m_isCustomMesh) {
+        fullSource.replace("#version 450", "#version 450\n#define CUSTOM_MESH\n");
+    }
+
     return fullSource;
 }
 
-void GLWidget::createDummyTexture() {
-    if (!rhi()) return;
-
-    // Crea un'immagine minuscola (1x1 pixel) per tappare il buco
-    m_dummyTexture = rhi()->newTexture(QRhiTexture::RGBA8, QSize(1, 1), 1);
-    m_dummyTexture->create();
-
-    // Crea le regole di lettura per l'immagine
-    m_sampler = rhi()->newSampler(QRhiSampler::Linear,
-                                  QRhiSampler::Linear,
-                                  QRhiSampler::None,
-                                  QRhiSampler::Repeat,
-                                  QRhiSampler::Repeat);
-    m_sampler->create();
+QString GLWidget::generateGlslHelperVars(const QString& sourceCode) {
+    QString vars;
+    if (!sourceCode.contains(QRegularExpression("\\bfloat\\s+t\\b"))) vars += "    float t = ubuf.u_time;\n";
+    if (!sourceCode.contains(QRegularExpression("\\bfloat\\s+A\\b"))) vars += "    float A = ubuf.u_mathParams.x;\n";
+    if (!sourceCode.contains(QRegularExpression("\\bfloat\\s+B\\b"))) vars += "    float B = ubuf.u_mathParams.y;\n";
+    if (!sourceCode.contains(QRegularExpression("\\bfloat\\s+C\\b"))) vars += "    float C = ubuf.u_mathParams.z;\n";
+    if (!sourceCode.contains(QRegularExpression("\\bfloat\\s+S\\b"))) vars += "    float S = ubuf.u_mathParams.w;\n";
+    if (!sourceCode.contains(QRegularExpression("\\bfloat\\s+s\\b"))) vars += "    float s = ubuf.u_mathParams.w;\n";
+    if (!sourceCode.contains(QRegularExpression("\\bfloat\\s+D\\b"))) vars += "    float D = ubuf.u_mathParams2.x;\n";
+    if (!sourceCode.contains(QRegularExpression("\\bfloat\\s+E\\b"))) vars += "    float E = ubuf.u_mathParams2.y;\n";
+    if (!sourceCode.contains(QRegularExpression("\\bfloat\\s+F\\b"))) vars += "    float F = ubuf.u_mathParams2.z;\n";
+    return vars;
 }
 
-QVector3D GLWidget::projectPoint4Dto3D(const QVector4D& p) {
-    // 1. Ortogonale Pura
-    if (projectionMode == 0) {
-        return p.toVector3D();
+QShader GLWidget::bakeShader(const QByteArray &source, QShader::Stage stage)
+{
+    QShaderBaker baker;
+    baker.setSourceString(source, stage);
+    baker.setGeneratedShaderVariants({QShader::StandardShader});
+
+    QList<QShaderBaker::GeneratedShader> targets;
+
+    // Target base per Mobile e Desktop (Vulkan e OpenGL ES)
+    targets.append({QShader::SpirvShader, QShaderVersion(100)});
+    targets.append({QShader::GlslShader, QShaderVersion(300, QShaderVersion::GlslEs)});
+    targets.append({QShader::GlslShader, QShaderVersion(310, QShaderVersion::GlslEs)});
+    targets.append({QShader::GlslShader, QShaderVersion(320, QShaderVersion::GlslEs)});
+
+    // Compila DirectX e OpenGL Desktop SOLO se NON siamo su smartphone
+#if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
+    targets.append({QShader::GlslShader, QShaderVersion(410)});
+    targets.append({QShader::GlslShader, QShaderVersion(460)});
+    targets.append({QShader::HlslShader, QShaderVersion(50)});
+#endif
+
+    // Compila Metal SOLO su sistemi Apple (macOS/iOS)
+#if defined(Q_OS_APPLE)
+    targets.append({QShader::MslShader,  QShaderVersion(12)});
+#endif
+
+    baker.setGeneratedShaders(targets);
+
+    QShader shader = baker.bake();
+    if (!shader.isValid()) {
+        qWarning() << "SHADER ERROR (" << (stage == QShader::VertexStage ? "VERT" : "FRAG") << "):" << baker.errorMessage();
     }
-    // 2. Stereografica Pura (Polo fissato sull'asse W)
-    else if (projectionMode == 2) {
-        float r = p.length();
-        if (r < 0.0001f) return QVector3D(0, 0, 0);
-
-        // 1. Curviamo lo spazio normalizzando il punto sulla sfera 4D
-        QVector4D pNorm = p / r;
-
-        // 2. Proiettiamo dal "Polo Nord" (W = 1.0)
-        float denom = 1.0f - pNorm.w();
-        if (denom < 0.05f) denom = 0.05f; // Evita esplosioni matematiche al polo
-
-        // 3. Ripristiniamo la scala (r) ammorbidita (* 0.5) per il 3D
-        return pNorm.toVector3D() * (r / denom);
-    }
-
-    // 3. Prospettiva Centrale (Camera Pinhole 4D)
-    float distW = m_observerPos.w() - p.w();
-    if (std::abs(distW) < 0.01f) {
-        return p.toVector3D();
-    }
-
-    float wFactor = m_observerPos.w() / distW;
-    float x = m_observerPos.x() + (p.x() - m_observerPos.x()) * wFactor;
-    float y = m_observerPos.y() + (p.y() - m_observerPos.y()) * wFactor;
-    float z = m_observerPos.z() + (p.z() - m_observerPos.z()) * wFactor;
-
-    return QVector3D(x, y, z);
+    return shader;
 }
+
+// --- Pipeline & Resource Initialization ---
 
 void GLWidget::buildPipeline() {
     // Pulisce preventivamente se esiste già
@@ -2180,50 +2850,22 @@ void GLWidget::buildPipeline() {
         m_pipelineOpaque = nullptr;
     }
 
-    m_pipelineOpaque = rhi()->newGraphicsPipeline();
-
+    // --- Layout, shader e blend (variabili locali, usate da tutte le pipeline) ---
     QRhiVertexInputLayout inputLayout;
     inputLayout.setBindings({ { sizeof(Vertex) } });
     inputLayout.setAttributes({
-        { 0, 0, QRhiVertexInputAttribute::Float3, offsetof(Vertex, position) },
-        { 0, 1, QRhiVertexInputAttribute::Float4, offsetof(Vertex, normal) },
+        { 0, 0, QRhiVertexInputAttribute::Float4, offsetof(Vertex, position) },
+        { 0, 1, QRhiVertexInputAttribute::Float4, offsetof(Vertex, normal)   },
         { 0, 2, QRhiVertexInputAttribute::Float2, offsetof(Vertex, texCoord) }
     });
-    m_pipelineOpaque->setVertexInputLayout(inputLayout);
 
     QString vsSource = createVertexShaderSource(m_eqX, m_eqY, m_eqZ, m_eqW);
     QString fsSource = createFragmentShaderSource(m_customFragmentCode);
-
-    qDebug() << "\n=== SURFACE FRAGMENT SHADER ===";
-    qDebug().noquote() << fsSource;
-
     QShader vs = bakeShader(vsSource.toUtf8(), QShader::VertexStage);
-
-    qDebug() << "\n=== SURFACE FRAGMENT SHADER ===";
-    qDebug().noquote() << fsSource;
-
     QShader fs = bakeShader(fsSource.toUtf8(), QShader::FragmentStage);
 
-    m_pipelineOpaque->setShaderStages({
-        { QRhiShaderStage::Vertex, vs },
-        { QRhiShaderStage::Fragment, fs }
-    });
-
-    // --- 1. SETUP COMUNE (Depth, Blend, ecc.) ---
-    m_pipelineOpaque->setSampleCount(renderTarget()->sampleCount());
-    m_pipelineOpaque->setDepthTest(true);
-
-    // 1. SCRITTURA PROFONDITA' ATTIVA (Nasconde i bordi dietro e risolve gli incroci)
-    m_pipelineOpaque->setDepthWrite(true);
-
-    m_pipelineOpaque->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
-
-    // 2. NESSUN CULLING
-    m_pipelineOpaque->setCullMode(QRhiGraphicsPipeline::None);
-
-    // Preparazione del Blend (uguale per tutti, anche se per l'opaco non servirà)
     QRhiGraphicsPipeline::TargetBlend blend;
-    blend.enable = true;
+    blend.enable   = true;
     blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
     blend.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
     blend.srcAlpha = QRhiGraphicsPipeline::One;
@@ -2305,11 +2947,51 @@ void GLWidget::buildPipeline() {
     m_borderPipeline->setDepthTest(true);
     m_borderPipeline->setDepthWrite(true);
     m_borderPipeline->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
+    m_borderPipeline->setDepthBias(-3);
+    m_borderPipeline->setSlopeScaledDepthBias(-3.0f);
     m_borderPipeline->setTargetBlends({ blend });
     m_borderPipeline->setShaderResourceBindings(m_borderBindings); // <-- Binding esclusivo
     m_borderPipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
 
     m_borderPipeline->create();
+}
+
+void GLWidget::initBackgroundShader() {
+    if (m_bgVbo) return;
+
+    m_bgVbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, 6 * sizeof(Vertex));
+    m_bgVbo->create();
+
+    if (!m_bgUbo) {
+        m_bgUbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(UboData));
+        m_bgUbo->create();
+    }
+
+    m_bgBindings = rhi()->newShaderResourceBindings();
+    m_bgBindings->setBindings({
+        // CORREZIONE: Usa m_bgUbo invece di m_ubo!
+        QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, m_bgUbo),
+        QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_dummyTexture, m_sampler)
+    });
+    m_bgBindings->create();
+}
+
+// --- Texture Utilities ---
+
+void GLWidget::createDummyTexture() {
+    if (!rhi()) return;
+
+    // Crea un'immagine minuscola (1x1 pixel) per tappare il buco
+    m_dummyTexture = rhi()->newTexture(QRhiTexture::RGBA8, QSize(1, 1), 1);
+    m_dummyTexture->create();
+
+    // Crea le regole di lettura per l'immagine
+    m_sampler = rhi()->newSampler(QRhiSampler::Linear,
+                                  QRhiSampler::Linear,
+                                  QRhiSampler::None,
+                                  QRhiSampler::Repeat,
+                                  QRhiSampler::Repeat);
+    m_sampler->create();
 }
 
 QImage GLWidget::generateCheckerboard() {
@@ -2326,4 +3008,41 @@ QImage GLWidget::generateCheckerboard() {
         }
     }
     return img;
+}
+
+// --- Math & Projections ---
+
+QVector3D GLWidget::projectPoint4Dto3D(const QVector4D& p) {
+    // 1. Ortogonale Pura
+    if (projectionMode == 0) {
+        return p.toVector3D();
+    }
+    // 2. Stereografica Pura (Polo fissato sull'asse W)
+    else if (projectionMode == 2) {
+        float r = p.length();
+        if (r < 0.0001f) return QVector3D(0, 0, 0);
+
+        // 1. Curviamo lo spazio normalizzando il punto sulla sfera 4D
+        QVector4D pNorm = p / r;
+
+        // 2. Proiettiamo dal "Polo Nord" (W = 1.0)
+        float denom = 1.0f - pNorm.w();
+        if (denom < 0.05f) denom = 0.05f; // Evita esplosioni matematiche al polo
+
+        // 3. Ripristiniamo la scala (r) ammorbidita (* 0.5) per il 3D
+        return pNorm.toVector3D() * (r / denom);
+    }
+
+    // 3. Prospettiva Centrale (Camera Pinhole 4D)
+    float distW = m_observerPos.w() - p.w();
+    if (std::abs(distW) < 0.01f) {
+        return p.toVector3D();
+    }
+
+    float wFactor = m_observerPos.w() / distW;
+    float x = m_observerPos.x() + (p.x() - m_observerPos.x()) * wFactor;
+    float y = m_observerPos.y() + (p.y() - m_observerPos.y()) * wFactor;
+    float z = m_observerPos.z() + (p.z() - m_observerPos.z()) * wFactor;
+
+    return QVector3D(x, y, z);
 }

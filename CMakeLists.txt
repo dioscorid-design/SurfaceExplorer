@@ -83,6 +83,16 @@ qt_add_executable(SurfaceExplorer
     audiocontroller.h
     audiocontroller.cpp
     icon.icns
+    shaders/raymarch_template.txt
+    geodesiccalculator.h
+    geodesiccalculator.cpp
+    inputvalidator.h
+    inputvalidator.cpp
+    shaders/geodesic.glsl
+
+
+
+
 )
 
 set_source_files_properties(documentation.html PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
@@ -99,6 +109,7 @@ target_link_libraries(SurfaceExplorer PRIVATE
     Qt6::Multimedia
     Qt6::ShaderTools
     Qt6::ShaderToolsPrivate
+    Qt6::Concurrent
 )
 
 # =========================================================

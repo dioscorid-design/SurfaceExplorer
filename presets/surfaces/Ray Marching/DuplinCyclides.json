@@ -1,0 +1,70 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.24789099395275116,
+        "rot_x": -0.8815392851829529,
+        "rot_y": 0.195127934217453,
+        "rot_z": -0.35123148560523987,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 6.40000057220459
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 0,
+        "B": 0.7300000190734863,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0.20000000298023224
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.0",
+        "x": "(0.8 + 0.3*cos(v))*cos(u)",
+        "y": "(0.8 + 0.3*cos(v))*sin(u)",
+        "z": "0.3*sin(v)"
+    },
+    "implicitEquation": "51.0*((x*x*x*x) + (y*y*y*y) + (z*z*z*z)) + 102.0*((x*x)*(y*y) + (x*x)*(z*z) + (y*y)*(z*z)) - 141.0*(x-1.0)*((x*x) + (y*y) + (z*z)) - 256.0*x*(x-2.0) - 282.0*(y*y) - 256.0 = 0.0",
+    "isImplicitMode": true,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0.10000000149011612,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 2,
+        "zMin": -2
+    },
+    "name": "DuplinCyclides",
+    "projectionMode": 1,
+    "renderMode": 10,
+    "showBorder": false,
+    "steps": 562,
+    "type": "surface",
+    "use4DLighting": false
+}

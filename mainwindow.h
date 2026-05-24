@@ -12,6 +12,8 @@
 #include <QtMultimedia/QMediaPlayer>
 #include <QtMultimedia/QAudioOutput>
 #include <QFileSystemWatcher>
+#include <QVector>
+#include <QVector4D>
 
 #include "glwidget.h"
 #include "librarymanager.h"
@@ -46,7 +48,8 @@ class MainWindow : public QMainWindow
     friend class LibraryFileOperations;
     friend class LibraryDragDropHandler;
     friend class AudioController;
-
+    friend class DesktopInputFilter;
+    friend class MobileInputFilter;
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
@@ -56,18 +59,17 @@ public:
 
 
 private slots:
-
     // ==========================================================
     // UI & STATE MANAGEMENT
     // ==========================================================
     void switchToMainMode();
     void switchTo3DMode();
     void switchTo4DMode();
-    void resetInterface();
     void update4DButtonState();
     void updateRenderState();
     void checkParametricDependency();
     void updateConstraintState();
+    void updateConstantsUIState();
 
     // ==========================================================
     // RENDERING & VISUALS
@@ -139,7 +141,6 @@ private slots:
 
 
 private:
-
     // ==========================================================
     // CORE UI COMPONENTS
     // ==========================================================
@@ -149,6 +150,8 @@ private:
     QPushButton *m_btnProjection;
     QPushButton *m_btnRec;
     QLabel *m_statusLabel;
+    QLabel* m_topMessageBar;
+    QTimer* m_topMessageTimer;
     QProgressBar *m_renderProgress;
     QButtonGroup *m_colorGroup;
     QButtonGroup *m_modeGroup;
@@ -163,6 +166,10 @@ private:
     float vMax = TWO_PI;
     float wMin = 0.0f;
     float wMax = 0.1f;
+    int m_lastParametricSteps = 100;
+    int m_lastImplicitSteps = 400;
+    double m_lastParametricS = 0.0;
+    double m_lastImplicitS = 0.4;
 
     // ==========================================================
     // RENDERING & COLOR STATE
@@ -256,30 +263,51 @@ private:
     // ==========================================================
     // PRIVATE HELPER METHODS
     // ==========================================================
-    void toggleProjection();
-    float parseMath(const QString &text);
-    void updateProjectionButtonText();
-    void connectNavButton(QPushButton *btn, int action);
+
+    // --- Data & Initialization ---
+    void setupDefaultFolders();
     void connectSidePanels();
-    void updateLayoutForMode(int mode);
+    void connectNavButton(QPushButton *btn, int action);
+
+    // --- Library & File I/O ---
+    void syncResourcesToFolder(const QString &resourcePath, const QString &diskPath, bool forceRestore = false, int *overwriteState = nullptr);
     void refreshRepositories();
-    void setupSpeedControl(QPushButton* btnPlus, QPushButton* btnMinus, QLabel* label, std::function<void(float)> setter);
-    void parseAndApplyScriptParams(const QString &scriptCode);
-    void updateTextureUIState(bool isTextureOn);
+    void updateWatcherPaths();
+    void copyPath(QString src, QString dst);
     void saveTextureConfig(const QString &savePath);
     QTreeWidgetItem* getCurrentLibraryItem();
     void applyCommonData(const LibraryItem &data);
-    void addScrollToDock(QDockWidget* dock);
-    void generateTexture();
-    void setupDefaultFolders();
-    void copyPath(QString src, QString dst);
-    void syncResourcesToFolder(const QString &resourcePath, const QString &diskPath, bool forceRestore = false, int *overwriteState = nullptr);
-    void updateFlatPreviewButton();
-    void updateWatcherPaths();
-    QString composeEquation(const QString &eq, const QString &uDef, const QString &vDef, const QString &wDef);
-    float parseUIConstant(const QString &exprStr, float A, float B, float C, float D, float E, float F, float S);
 
-    // Inline Math Helper
+    // --- Parsing, Strings & Scripts ---
+    float parseMath(const QString &text, bool *ok = nullptr);
+    float parseUIConstant(const QString &exprStr, float A, float B, float C, float D, float E, float F, float S);
+    QString composeEquation(const QString &eq, const QString &uDef, const QString &vDef, const QString &wDef);
+    void parseAndApplyScriptParams(const QString &scriptCode);
+    bool hasTimeVariable(const QString& code);
+    QString extractAndResolveImagePath(const QString& scriptCode);
+    QString extractAudioDirectives(const QString& fullText);
+
+    // --- UI State & Graphics ---
+    void updateLayoutForMode(int mode);
+    void setupSpeedControl(QPushButton* btnPlus, QPushButton* btnMinus, QLabel* label, std::function<void(float)> setter);
+    void updateProjectionButtonText();
+    void updateScriptButtonText();
+    void updateTextureUIState(bool isTextureOn);
+    void updateFlatPreviewButton();
+    void updateMasterButtonState();
+    void applyAnimationState(bool animated);
+    void generateTexture();
+    void toggleProjection();
+    void showTopMessage(const QString& msg, bool isError = true);
+    void hideTopMessage();
+
+    // --- Geometry & Geodesic Flow ---
+    void commitUiFieldsDuringMotion();
+    bool updateGeodesicMesh();
+    void checkAndTriggerMeshUpdate();
+    void stopGeodesicAnimation();
+
+    // --- Inline Math Helper ---
     static float det3x3(float a1, float a2, float a3,
                         float b1, float b2, float b3,
                         float c1, float c2, float c3)
@@ -288,6 +316,12 @@ private:
                a2 * (b1 * c3 - b3 * c1) +
                a3 * (b1 * c2 - b2 * c1);
     }
+
+
+protected:
+    void changeEvent(QEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
+    void showEvent(QShowEvent* event) override;
 };
 
 #endif // MAINWINDOW_H

@@ -1,0 +1,14 @@
+{
+    "code": "// Usa la posizione X e Y del modello per creare un pattern\nfloat pattern = sin(pModel.x * 20.0) * sin(pModel.y * 20.0);\n\n// Se il pattern è positivo diventa verde, altrimenti blu scuro\nif (pattern > 0.0) {\n    textureCol = vec3(0.2, 0.8, 0.2); \n} else {\n    textureCol = vec3(0.0, 0.1, 0.3);\n}",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "displacement": "",
+    "hasCustomColors": true,
+    "isImplicitMode": true,
+    "name": "Checkboard",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

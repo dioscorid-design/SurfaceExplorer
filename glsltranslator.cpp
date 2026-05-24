@@ -11,8 +11,9 @@ QString GlslTranslator::translateEquation(const QString& mathInput)
 
     // 1. SOSTITUZIONE COSTANTI
     result.replace(QRegularExpression("\\bpi\\b", QRegularExpression::CaseInsensitiveOption), "3.14159265359");
+    result.replace(QRegularExpression("\\btau\\b", QRegularExpression::CaseInsensitiveOption), "6.28318530718");
     result.replace(QRegularExpression("\\be\\b"), "2.71828182846");
-    result.replace(QRegularExpression("\\bt\\b"), "u_time");
+   // result.replace(QRegularExpression("\\bt\\b"), "u_time");
 
     // 2. CORREZIONE SINONIMI FUNZIONI
     result.replace(QRegularExpression("\\bln\\b"), "log");

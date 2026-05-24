@@ -2,8 +2,10 @@
 #define SURFACEENGINE_H
 
 #include "expressionparser.h"
+#include <rhi/qrhi.h>
 #include <vector>
 #include <QString>
+#include <QVector>
 #include <QVector3D>
 #include <QVector4D>
 #include <QVector2D>
@@ -12,7 +14,7 @@
 // CORE DATA STRUCTURES
 // ==========================================================
 struct Vertex {
-    QVector3D position;
+    QVector4D position;
     QVector4D normal;
     QVector2D texCoord;
 };
@@ -38,6 +40,8 @@ public:
     void clear();
     void computeMesh();
     void setResolution(int u, int v);
+    void setCustomMesh(const std::vector<Vertex>& vertices, const std::vector<unsigned int>& indices, bool isUClosed, bool isVClosed);
+
 
     const std::vector<Vertex>& getVertices() const { return generatedVertices; }
     const std::vector<unsigned int>& getIndices() const { return generatedIndices; }
@@ -65,6 +69,18 @@ public:
     QString getExplicitW() const { return m_explicitW; }
     QString getActiveExplicitEquation() const;
 
+    QVector<QVector<QVector4D>> computeGeodesicFlow(
+        QRhi* rhi,
+        const QString& eqX, const QString& eqY, const QString& eqZ, const QString& eqP, // <-- Aggiunto eqP
+        const QString& eqU, const QString& eqV, const QString& eqW,
+        const QString& eqDu, const QString& eqDv, const QString& eqDw, const QString& eqLambda,
+        float uMin, float uMax, int numU,
+        float vMin, float vMax, int numV,
+        const QMap<QString, float>& constants,
+        QString* outErrorMsg = nullptr);
+
+    void setTime(float t);
+
     // ==========================================================
     // MATHEMATICAL RANGES & CONSTANTS
     // ==========================================================
@@ -87,6 +103,8 @@ public:
     float getValE() const { return valE; }
     float getValF() const { return valF; }
     float getValS() const { return valS; }
+
+    bool isMeshValid() const;
 
     // ==========================================================
     // PATHS 3D & 4D (EVALUATION)
@@ -168,6 +186,11 @@ private:
     float m_varU = 0.0f;
     float m_varV = 0.0f;
     float m_varW = 0.0f;
+
+    float m_varU_comp = 0.0f;
+    float m_varV_comp = 0.0f;
+    float m_varW_comp = 0.0f;
+
     float m_varP = 0.0f;
     float m_varT = 0.0f;
 
@@ -186,9 +209,12 @@ private:
     // ==========================================================
     // PRIVATE INTERNAL HELPERS
     // ==========================================================
-    void compileSingleExpr(const QString &eqStr, CachedExpression &target, exprtk::parser<float> &parser);
+    // --- Mesh Generation & Analysis ---
     void generateParametricGrid();
     void detectMeshClosure();
+
+    // --- Expression Parsing ---
+    void compileSingleExpr(const QString &eqStr, CachedExpression &target, exprtk::parser<float> &parser);
 };
 
 #endif // SURFACEENGINE_H

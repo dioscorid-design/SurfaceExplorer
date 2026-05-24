@@ -2,6 +2,12 @@
 // LIBRERIA FUNZIONI GLOBALI (Disponibili in tutti gli script)
 // =========================================================
 
+const float PI  = 3.14159265359;
+const float pi  = 3.14159265359;
+const float TAU = 6.28318530718;
+const float tau = 6.28318530718;
+const float e   = 2.71828182846;
+
 // --- HASH FUNCTIONS ---
 float sys_hash(float n) {
     return fract(sin(n) * 1e4);

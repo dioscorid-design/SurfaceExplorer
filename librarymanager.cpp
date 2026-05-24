@@ -248,6 +248,20 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.defV = eq["defV"].toString();
             d.defW = eq["defW"].toString();
         }
+        if (root.contains("geodesic")) {
+            QJsonObject geo = root["geodesic"].toObject();
+            d.geoU0 = geo["u0"].toString();
+            d.geoV0 = geo["v0"].toString();
+            d.geoW0 = geo["w0"].toString();
+            d.geoDU = geo["du"].toString();
+            d.geoDV = geo["dv"].toString();
+            d.geoDW = geo["dw"].toString();
+            d.geoConform = geo["conform"].toString();
+        }
+        if (root.contains("isImplicitMode")) {
+            d.isImplicitMode = root["isImplicitMode"].toBool();
+            d.implicitEq = root["implicitEquation"].toString();
+        }
         if (root.contains("path4D")) {
             QJsonObject p4 = root["path4D"].toObject();
             d.path4D_x = p4["x"].toString();
@@ -274,6 +288,10 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.uMin=l["uMin"].toDouble(); d.uMax=l["uMax"].toDouble();
             d.vMin=l["vMin"].toDouble(); d.vMax=l["vMax"].toDouble();
             d.wMin=l["wMin"].toDouble(); d.wMax=l["wMax"].toDouble();
+
+            d.xMin=l["xMin"].toDouble(-1000.0); d.xMax=l["xMax"].toDouble(1000.0);
+            d.yMin=l["yMin"].toDouble(-1000.0); d.yMax=l["yMax"].toDouble(1000.0);
+            d.zMin=l["zMin"].toDouble(-1000.0); d.zMax=l["zMax"].toDouble(1000.0);
         }
         d.steps = root["steps"].toInt(100);
         if (root.contains("constants")) {
@@ -301,6 +319,9 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
         if (root.contains("texture")) {
             QJsonObject tex = root["texture"].toObject();
             d.textureEnabled = tex["enabled"].toBool();
+            if (tex.contains("displacement")) {
+                d.displacementCode = tex["displacement"].toString();
+            }
             if (tex.contains("zoom")) d.zoom = tex["zoom"].toDouble(1.0);
             if (tex.contains("pan_x")) d.panX = tex["pan_x"].toDouble(0.0);
             if (tex.contains("pan_y")) d.panY = tex["pan_y"].toDouble(0.0);
@@ -378,6 +399,12 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
     // --- TEXTURE ---
     if (type == LibraryType::Texture) {
         if (root.contains("equations") || root.contains("scriptCode") || jsonType == "motion") { d.name = ""; return d; }
+        if (root.contains("isImplicitMode")) {
+            d.isImplicitMode = root["isImplicitMode"].toBool();
+        }
+        if (root.contains("displacement")) {
+            d.displacementCode = root["displacement"].toString();
+        }
         if (root.contains("code")) {
             d.scriptCode = root["code"].toString();
             d.textureCode = d.scriptCode;
@@ -432,13 +459,31 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.defW = eq["defW"].toString();
         }
         else { d.name = ""; return d; }
-
+        if (root.contains("geodesic")) {
+            QJsonObject geo = root["geodesic"].toObject();
+            d.geoU0 = geo["u0"].toString();
+            d.geoV0 = geo["v0"].toString();
+            d.geoW0 = geo["w0"].toString();
+            d.geoDU = geo["du"].toString();
+            d.geoDV = geo["dv"].toString();
+            d.geoDW = geo["dw"].toString();
+            d.geoConform = geo["conform"].toString();
+        }
+        // Caso 3: E' una superficie implicita
+        if (root.contains("isImplicitMode")) {
+            d.isImplicitMode = root["isImplicitMode"].toBool();
+            d.implicitEq = root["implicitEquation"].toString();
+        }
         // Lettura parametri comuni (Limiti, step, costanti...)
         if (root.contains("limits")) {
             QJsonObject l = root["limits"].toObject();
             d.uMin=l["uMin"].toDouble(); d.uMax=l["uMax"].toDouble();
             d.vMin=l["vMin"].toDouble(); d.vMax=l["vMax"].toDouble();
             d.wMin=l["wMin"].toDouble(); d.wMax=l["wMax"].toDouble();
+
+            d.xMin=l["xMin"].toDouble(-1000.0); d.xMax=l["xMax"].toDouble(1000.0);
+            d.yMin=l["yMin"].toDouble(-1000.0); d.yMax=l["yMax"].toDouble(1000.0);
+            d.zMin=l["zMin"].toDouble(-1000.0); d.zMax=l["zMax"].toDouble(1000.0);
         }
         d.steps = root["steps"].toInt(100);
         if (root.contains("constants")) {

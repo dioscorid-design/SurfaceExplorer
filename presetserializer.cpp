@@ -23,26 +23,23 @@
 #include <QLabel>
 #include <QDir>
 
-// --- INIZIO CUSTOM ANDROID DIALOG ---
-#if defined(Q_OS_ANDROID)
-#include <QMessageBox> // Assicurati di includerlo in cima al file presetserializer.cpp
+// --- INIZIO CUSTOM MOBILE DIALOG ---
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+#include <QMessageBox>
 
-class AndroidSaveDialog : public QDialog {
+class MobileSaveDialog : public QDialog {
 public:
-    AndroidSaveDialog(const QString& title, const QString& startDir, const QString& defaultFileName, QWidget* parent = nullptr)
+    MobileSaveDialog(const QString& title, const QString& startDir, const QString& defaultFileName, QWidget* parent = nullptr)
         : QDialog(parent), currentDir(startDir) {
         setWindowTitle(title);
-        setMinimumSize(320, 450); // Dimensione ideale per smartphone
 
         QVBoxLayout* mainLayout = new QVBoxLayout(this);
 
-        // 1. Label del percorso attuale (In cima)
         pathLabel = new QLabel(currentDir.absolutePath(), this);
         pathLabel->setWordWrap(true);
         pathLabel->setStyleSheet("font-size: 12px; color: gray;");
         mainLayout->addWidget(pathLabel);
 
-        // 2. Input del nome (Spostato in ALTO per non essere coperto dalla tastiera!)
         QHBoxLayout* nameLayout = new QHBoxLayout();
         nameLayout->addWidget(new QLabel("Name:", this));
         nameEdit = new QLineEdit(defaultFileName, this);
@@ -50,48 +47,70 @@ public:
         nameLayout->addWidget(nameEdit);
         mainLayout->addLayout(nameLayout);
 
-        // 3. Lista delle cartelle e dei file
         listWidget = new QListWidget(this);
         listWidget->setStyleSheet("QListWidget::item { padding: 18px; border-bottom: 1px solid #ddd; font-size: 16px; }");
-        mainLayout->addWidget(listWidget);
+        listWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        mainLayout->addWidget(listWidget, 1);
 
-        // 4. Bottoni Salva / Annulla (In fondo)
         QHBoxLayout* btnLayout = new QHBoxLayout();
         QPushButton* cancelBtn = new QPushButton("Cancel", this);
         QPushButton* saveBtn = new QPushButton("Save", this);
+        saveBtn->setObjectName("mobileSaveBtn");
+
+        // ---> FIX 1: Impedisce ai pulsanti di intercettare il tasto Invio chiudendo il dialogo
+        cancelBtn->setAutoDefault(false);
+        saveBtn->setAutoDefault(false);
+
         cancelBtn->setStyleSheet("padding: 12px; font-size: 16px;");
         saveBtn->setStyleSheet("padding: 12px; font-size: 16px; font-weight: bold;");
         btnLayout->addWidget(cancelBtn);
         btnLayout->addWidget(saveBtn);
         mainLayout->addLayout(btnLayout);
 
-        // Connessioni Bottoni
+        // ---> FIX 2: Alla pressione di Invio, toglie solo il focus (su iOS la tastiera sparisce)
+        connect(nameEdit, &QLineEdit::returnPressed, this, [this]() {
+            nameEdit->clearFocus();
+        });
+
         connect(cancelBtn, &QPushButton::clicked, this, &QDialog::reject);
+        connect(saveBtn, &QPushButton::clicked, this, &MobileSaveDialog::onSaveClicked);
 
-        // ---> MODIFICA 1: Invece di fare direttamente accept(), facciamo un controllo
-        connect(saveBtn, &QPushButton::clicked, this, &AndroidSaveDialog::onSaveClicked);
+        // Se l'utente cambia il nome digitando, resettiamo il tasto "Save"
+        connect(nameEdit, &QLineEdit::textChanged, this, [this]() {
+            QPushButton* btn = this->findChild<QPushButton*>("mobileSaveBtn");
+            if (btn && btn->text() != "Save") {
+                btn->setText("Save");
+                btn->setStyleSheet("padding: 12px; font-size: 16px; font-weight: bold;");
+            }
+        });
 
-        // Connessione Navigazione: leggiamo il nome e il TIPO da Qt::UserRole
         connect(listWidget, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
             QString itemName = item->data(Qt::UserRole).toString();
-            QString itemType = item->data(Qt::UserRole + 1).toString(); // Leggiamo il tipo
+            QString itemType = item->data(Qt::UserRole + 1).toString();
 
             if (itemType == "DIR") {
-                // È una cartella: navighiamo
-                if (itemName == "..") {
-                    currentDir.cdUp();
-                } else {
-                    currentDir.cd(itemName);
-                }
+                if (itemName == "..") currentDir.cdUp();
+                else currentDir.cd(itemName);
                 refreshList();
             }
             else if (itemType == "FILE") {
-                // È un file: copiamo il nome senza l'estensione (o con, come preferisci)
                 nameEdit->setText(itemName);
             }
         });
 
         refreshList();
+
+        if (QScreen *screen = QGuiApplication::primaryScreen()) {
+            QRect screenGeom = screen->availableGeometry();
+            int w = screenGeom.width() * 0.98;
+            int h = screenGeom.height() * 0.92;
+            this->resize(w, h);
+            this->move(screenGeom.center() - this->rect().center());
+        }
+
+        mainLayout->setContentsMargins(8, 8, 8, 8);
+        mainLayout->setSpacing(6);
+        mainLayout->setStretch(2, 1);
     }
 
     QString getSelectedPath() const {
@@ -103,46 +122,40 @@ public:
 private:
     void refreshList() {
         listWidget->clear();
-
-        // Elemento per tornare su
         QListWidgetItem* upItem = new QListWidgetItem("📁 .. (Up)", listWidget);
         upItem->setData(Qt::UserRole, "..");
-        upItem->setData(Qt::UserRole + 1, "DIR"); // Contrassegno come Directory
+        upItem->setData(Qt::UserRole + 1, "DIR");
 
-        // Popoliamo le cartelle
         QFileInfoList dirs = currentDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
         for (const QFileInfo& dir : dirs) {
             QListWidgetItem* dirItem = new QListWidgetItem("📁 " + dir.fileName(), listWidget);
             dirItem->setData(Qt::UserRole, dir.fileName());
-            dirItem->setData(Qt::UserRole + 1, "DIR"); // Contrassegno come Directory
+            dirItem->setData(Qt::UserRole + 1, "DIR");
         }
 
-        // ---> MODIFICA 2: Popoliamo anche i file JSON
         QFileInfoList files = currentDir.entryInfoList(QStringList() << "*.json", QDir::Files, QDir::Name);
         for (const QFileInfo& file : files) {
             QListWidgetItem* fileItem = new QListWidgetItem("📄 " + file.fileName(), listWidget);
             fileItem->setData(Qt::UserRole, file.fileName());
-            fileItem->setData(Qt::UserRole + 1, "FILE"); // Contrassegno come File
+            fileItem->setData(Qt::UserRole + 1, "FILE");
         }
 
         pathLabel->setText(currentDir.absolutePath());
     }
 
-    // ---> MODIFICA 3: Controllo di sovrascrittura prima di chiudere la finestra
     void onSaveClicked() {
         QString finalPath = getSelectedPath();
         QFileInfo checkFile(finalPath);
 
         if (checkFile.exists()) {
-            QMessageBox::StandardButton reply;
-            reply = QMessageBox::question(this, "Sovrascrivi",
-                                          "Un preset con questo nome esiste già in questa cartella.\nVuoi sovrascriverlo?",
-                                          QMessageBox::Yes | QMessageBox::No);
-            if (reply == QMessageBox::No) {
-                return; // Ferma il processo, la finestra rimane aperta
+            QPushButton* saveBtn = this->findChild<QPushButton*>("mobileSaveBtn");
+            if (saveBtn && saveBtn->text() != "Overwrite?") {
+                saveBtn->setText("Overwrite?");
+                saveBtn->setStyleSheet("padding: 12px; font-size: 16px; font-weight: bold; color: white; background-color: #d9534f; border-radius: 5px;");
+                return;
             }
         }
-        accept(); // Tutto ok, chiudiamo la finestra con successo
+        accept();
     }
 
     QDir currentDir;
@@ -196,7 +209,7 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
                 }
             }
             if (startPath.isEmpty() || !QDir(startPath).exists()) {
-                startPath = settings.value("lastFolder", rootPath + "/Surfaces").toString();
+                startPath = settings.value("lastFolder", rootPath + "/surfaces").toString();
             }
         }
 
@@ -205,7 +218,7 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
             startPath += "NewSurface.json";
         }
 
-#if defined(Q_OS_ANDROID)
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
         bool ok;
         QString baseName = QFileInfo(startPath).completeBaseName();
         QString inputName = QInputDialog::getText(m_mainWindow, "Save Surface", "File name:", QLineEdit::Normal, baseName, &ok);
@@ -216,8 +229,6 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
             return;
         }
         fileName = QFileInfo(startPath).absolutePath() + "/" + inputName + ".json";
-#elif defined(Q_OS_IOS)
-        fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface", startPath, "JSON Files (*.json)");
 #else
         fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface", startPath, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
 #endif
@@ -232,9 +243,9 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
 
     // --- BLOCCO VALIDAZIONE RIGIDA ---
     QString absPath = QFileInfo(fileName).absolutePath() + "/";
-    if (absPath.contains("/Motions/", Qt::CaseInsensitive) ||
-        absPath.contains("/Textures/", Qt::CaseInsensitive) ||
-        absPath.contains("/Sounds/", Qt::CaseInsensitive)) {
+    if (absPath.contains("/recordss/", Qt::CaseInsensitive) ||
+        absPath.contains("/textures/", Qt::CaseInsensitive) ||
+        absPath.contains("/sounds/", Qt::CaseInsensitive)) {
         QMessageBox::warning(m_mainWindow, "Salvataggio Bloccato",
                              "Operazione non consentita.\n\nLe Superfici statiche devono risiedere in 'Surfaces'.\nSe vuoi salvare la scena globale (che contiene questa superficie), usa il comando 'Save Motion'.");
         return;
@@ -247,11 +258,36 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     root["name"] = QFileInfo(fileName).baseName();
     root["type"] = "surface";
 
+    // --- Salvataggio Ray Marching ---
+    bool isImplicit = (m_mainWindow->ui->tabModeSelector->currentIndex() == 1);
+    root["isImplicitMode"] = isImplicit;
+    if (isImplicit) {
+        root["implicitEquation"] = m_mainWindow->ui->lineEquation->toPlainText();
+    }
+
     QString eqX = m_mainWindow->ui->lineX->toPlainText().trimmed();
     QString eqY = m_mainWindow->ui->lineY->toPlainText().trimmed();
     QString eqZ = m_mainWindow->ui->lineZ->toPlainText().trimmed();
 
-    if (!eqX.isEmpty() || !eqY.isEmpty() || !eqZ.isEmpty()) {
+    QString implicitEq = m_mainWindow->ui->lineEquation->toPlainText();
+
+    // Controlliamo in modo inequivocabile chi comanda
+    bool isImplicitScript = isImplicit && implicitEq.contains("// Controlled by Script");
+    bool isParametricScript = !isImplicit && eqX.isEmpty() && eqY.isEmpty() && eqZ.isEmpty();
+
+    if (isImplicitScript || isParametricScript) {
+        QString scriptContent = m_mainWindow->property("rawSurfaceScript").toString();
+        // Fallback di sicurezza se la property è sfuggita
+        if (scriptContent.isEmpty() && m_mainWindow->m_currentScriptMode == 0) {
+            scriptContent = m_mainWindow->ui->txtScriptEditor->toPlainText();
+        }
+
+        if (!scriptContent.trimmed().isEmpty()) {
+            root["scriptCode"] = scriptContent;
+        }
+        QJsonObject eq; eq["x"]=""; eq["y"]=""; eq["z"]=""; eq["p"]="";
+        root["equations"] = eq;
+    } else {
         QJsonObject equations;
         equations["x"] = m_mainWindow->ui->lineX->toPlainText();
         equations["y"] = m_mainWindow->ui->lineY->toPlainText();
@@ -264,14 +300,17 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         equations["defV"] = m_mainWindow->ui->lineV->toPlainText();
         equations["defW"] = m_mainWindow->ui->lineW->toPlainText();
         root["equations"] = equations;
-    } else {
-        QString scriptContent = m_mainWindow->property("rawSurfaceScript").toString();
-        if (!scriptContent.trimmed().isEmpty()) {
-            root["scriptCode"] = scriptContent;
-            QJsonObject eq; eq["x"]=""; eq["y"]=""; eq["z"]=""; eq["p"]="";
-            root["equations"] = eq;
-        }
     }
+
+    QJsonObject geo;
+    geo["u0"] = m_mainWindow->ui->lnU->toPlainText();
+    geo["v0"] = m_mainWindow->ui->lnV->toPlainText();
+    geo["w0"] = m_mainWindow->ui->lnW->toPlainText();
+    geo["du"] = m_mainWindow->ui->lndU->toPlainText();
+    geo["dv"] = m_mainWindow->ui->lndV->toPlainText();
+    geo["dw"] = m_mainWindow->ui->lndW->toPlainText();
+    geo["conform"] = m_mainWindow->ui->lineConform->toPlainText();
+    root["geodesic"] = geo;
 
     QJsonObject constants;
     constants["A"] = m_mainWindow->ui->aSlider->value() / 100.0f;
@@ -290,6 +329,19 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     limits["vMax"] = m_mainWindow->parseMath(m_mainWindow->ui->vMaxEdit->text());
     limits["wMin"] = m_mainWindow->parseMath(m_mainWindow->ui->wMinEdit->text());
     limits["wMax"] = m_mainWindow->parseMath(m_mainWindow->ui->wMaxEdit->text());
+
+    auto getSpaceLimit = [&](QLineEdit* edit, float defVal) {
+        if (edit->text().trimmed().isEmpty()) return defVal;
+        return m_mainWindow->parseMath(edit->text());
+    };
+
+    limits["xMin"] = getSpaceLimit(m_mainWindow->ui->lineXMin, -1000.0f);
+    limits["xMax"] = getSpaceLimit(m_mainWindow->ui->lineXMax, 1000.0f);
+    limits["yMin"] = getSpaceLimit(m_mainWindow->ui->lineYMin, -1000.0f);
+    limits["yMax"] = getSpaceLimit(m_mainWindow->ui->lineYMax, 1000.0f);
+    limits["zMin"] = getSpaceLimit(m_mainWindow->ui->lineZMin, -1000.0f);
+    limits["zMax"] = getSpaceLimit(m_mainWindow->ui->lineZMax, 1000.0f);
+
     root["limits"] = limits;
 
     root["steps"] = m_mainWindow->ui->stepSlider->value();
@@ -303,15 +355,20 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     root["lightingMode"] = m_mainWindow->m_lightingMode4D;
     root["lightIntensity"] = m_mainWindow->ui->lightSlider->value() / 100.0;
     root["use4DLighting"] = m_mainWindow->ui->glWidget->is4DActive();
-    root["renderMode"] = m_mainWindow->m_savedRenderMode;
+    if (isImplicit) {
+        int shellState = m_mainWindow->ui->radioShell->isChecked() ? 10 : 0;
+        root["renderMode"] = m_mainWindow->m_savedRenderMode + shellState;
+    } else {
+        root["renderMode"] = m_mainWindow->m_savedRenderMode;
+    }
     root["projectionMode"] = (int)m_mainWindow->ui->glWidget->projectionMode;
     root["showBorder"] = m_mainWindow->ui->btnBorder->isChecked();
 
     // 1. Salva Rotazione 4D
     QJsonObject angles;
-    angles["omega"] = (double)m_mainWindow->ui->glWidget->getOmega();
-    angles["phi"] = (double)m_mainWindow->ui->glWidget->getPhi();
-    angles["psi"] = (double)m_mainWindow->ui->glWidget->getPsi();
+    angles["omega"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getOmega();
+    angles["phi"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getPhi();
+    angles["psi"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getPsi();
     root["angles"] = angles;
 
     // 2. Salva Telecamera 3D
@@ -352,20 +409,19 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         file.write(doc.toJson());
         file.close();
 
+        // (La cartella è già stata salvata sopra, quindi avviamo solo il refresh visivo)
         QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
-        m_mainWindow->ui->dockSurfaces->show();
     } else {
-        QMessageBox::critical(m_mainWindow, "Save Error",
-                              "Could not overwrite the file. Check if it's locked by the system:\n" + fileName);
+        QMessageBox::critical(m_mainWindow, "Error", "Could not write to file.");
     }
 }
 
 void PresetSerializer::saveTexture(const QString &path)
 {
     QString absPath = QFileInfo(path).absolutePath() + "/";
-    if (absPath.contains("/Surfaces/", Qt::CaseInsensitive) ||
-        absPath.contains("/Motions/", Qt::CaseInsensitive) ||
-        absPath.contains("/Sounds/", Qt::CaseInsensitive)) {
+    if (absPath.contains("/surfaces/", Qt::CaseInsensitive) ||
+        absPath.contains("/records/", Qt::CaseInsensitive) ||
+        absPath.contains("/sounds/", Qt::CaseInsensitive)) {
         QMessageBox::warning(m_mainWindow, "Salvataggio Bloccato",
                              "Operazione non consentita.\n\nI preset Texture devono essere salvati esclusivamente nella cartella 'Textures'.");
         return;
@@ -375,14 +431,20 @@ void PresetSerializer::saveTexture(const QString &path)
 
     QString currentCode;
     bool isBg = m_mainWindow->ui->radioBackground->isChecked();
+    bool isImplicit = (m_mainWindow->ui->tabModeSelector->currentIndex() == 1);
 
-    // Se stiamo guardando esplicitamente la scheda Texture nello script, prendiamo il testo live
-    if (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeTexture) {
-        currentCode = m_mainWindow->ui->txtScriptEditor->toPlainText();
-        if (isBg) m_mainWindow->m_bgTextureCode = currentCode;
-        else m_mainWindow->m_surfaceTextureCode = currentCode;
+    if (isImplicit && !isBg) {
+        // Se siamo in Ray Marching, leggi il codice direttamente dal box dell'interfaccia! +++
+        currentCode = m_mainWindow->ui->lineTexture->toPlainText();
     } else {
-        currentCode = isBg ? m_mainWindow->m_bgTextureCode : m_mainWindow->m_surfaceTextureCode;
+        // [Logica originale per le superfici parametriche]
+        if (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeTexture) {
+            currentCode = m_mainWindow->ui->txtScriptEditor->toPlainText();
+            if (isBg) m_mainWindow->m_bgTextureCode = currentCode;
+            else m_mainWindow->m_surfaceTextureCode = currentCode;
+        } else {
+            currentCode = isBg ? m_mainWindow->m_bgTextureCode : m_mainWindow->m_surfaceTextureCode;
+        }
     }
 
     if (m_mainWindow->m_isImageMode && !m_mainWindow->m_currentTexturePath.isEmpty()) {
@@ -393,6 +455,18 @@ void PresetSerializer::saveTexture(const QString &path)
 
         // Riappendiamo il tag in cima al codice in modo pulito
         currentCode = "//IMG:" + m_mainWindow->m_currentTexturePath + "\n" + currentCode.trimmed();
+    }
+
+    if (isImplicit) {
+        // Se siamo in Ray Marching salviamo entrambi i campi
+        currentCode = m_mainWindow->ui->lineTexture->toPlainText();
+        root["displacement"] = m_mainWindow->ui->lineVariations->toPlainText();
+        root["isImplicitMode"] = true; // Flag fondamentale per il caricamento
+    } else {
+        // Logica Parametrica
+        bool isBg = m_mainWindow->ui->radioBackground->isChecked();
+        currentCode = isBg ? m_mainWindow->m_bgTextureCode : m_mainWindow->m_surfaceTextureCode;
+        root["isImplicitMode"] = false;
     }
 
     if (currentCode.trimmed().isEmpty()) currentCode = "// Texture Preset";
@@ -427,9 +501,9 @@ void PresetSerializer::saveTexture(const QString &path)
         file.close();
 
         m_mainWindow->m_currentTexturePath = path;
-        m_mainWindow->ui->tabWidget->setCurrentWidget(m_mainWindow->ui->Texture);
+
+        // Un semplice aggiornamento visivo in background, senza spostare/aprire pannelli
         QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
-        m_mainWindow->ui->dockSurfaces->show();
     }
 }
 
@@ -478,10 +552,10 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
             startPath += "NewMotion.json";
         }
 
-#if defined(Q_OS_ANDROID)
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
         bool ok;
         QString baseName = QFileInfo(startPath).completeBaseName();
-        QString inputName = QInputDialog::getText(m_mainWindow, "Save Record", "File name:", QLineEdit::Normal, baseName, &ok);
+        QString inputName = QInputDialog::getText(m_mainWindow, "Save File", "File name:", QLineEdit::Normal, baseName, &ok);
         if (!ok || inputName.isEmpty()) {
             if (wasRotating) m_mainWindow->ui->glWidget->resumeMotion();
             if (wasPath4D) m_mainWindow->pathTimer->start();
@@ -493,10 +567,8 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
             return;
         }
         fileName = QFileInfo(startPath).absolutePath() + "/" + inputName + ".json";
-#elif defined(Q_OS_IOS)
-        fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Record", startPath, "JSON Files (*.json)");
 #else
-        fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Record", startPath, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
+        fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save File", startPath, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
 #endif
     }
 
@@ -513,9 +585,9 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
 
     // --- BLOCCO VALIDAZIONE RIGIDA ---
     QString absPath = QFileInfo(fileName).absolutePath() + "/";
-    if (absPath.contains("/Surfaces/", Qt::CaseInsensitive) ||
-        absPath.contains("/Textures/", Qt::CaseInsensitive) ||
-        absPath.contains("/Sounds/", Qt::CaseInsensitive)) {
+    if (absPath.contains("/surfaces/", Qt::CaseInsensitive) ||
+        absPath.contains("/textures/", Qt::CaseInsensitive) ||
+        absPath.contains("/sounds/", Qt::CaseInsensitive)) {
         QMessageBox::warning(m_mainWindow, "Salvataggio Bloccato",
                              "Operazione non consentita.\n\nI preset Motion catturano l'intera scena (superficie compresa) e devono essere salvati esclusivamente nella cartella 'Motions'.");
         return;
@@ -527,6 +599,13 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     QJsonObject root;
     root["type"] = "motion";
     root["name"] = QFileInfo(fileName).baseName();
+
+    // --- Salvataggio Ray Marching ---
+    bool isImplicit = (m_mainWindow->ui->tabModeSelector->currentIndex() == 1);
+    root["isImplicitMode"] = isImplicit;
+    if (isImplicit) {
+        root["implicitEquation"] = m_mainWindow->ui->lineEquation->toPlainText();
+    }
 
     QJsonObject equations;
     equations["x"] = m_mainWindow->ui->lineX->toPlainText();
@@ -541,11 +620,25 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     equations["defW"] = m_mainWindow->ui->lineW->toPlainText();
     root["equations"] = equations;
 
+    QJsonObject geo;
+    geo["u0"] = m_mainWindow->ui->lnU->toPlainText();
+    geo["v0"] = m_mainWindow->ui->lnV->toPlainText();
+    geo["w0"] = m_mainWindow->ui->lnW->toPlainText();
+    geo["du"] = m_mainWindow->ui->lndU->toPlainText();
+    geo["dv"] = m_mainWindow->ui->lndV->toPlainText();
+    geo["dw"] = m_mainWindow->ui->lndW->toPlainText();
+    geo["conform"] = m_mainWindow->ui->lineConform->toPlainText();
+    root["geodesic"] = geo;
+
     bool usingEquations = !m_mainWindow->ui->lineX->toPlainText().trimmed().isEmpty() &&
                           m_mainWindow->ui->lineX->toPlainText().trimmed() != "0";
 
+    if (isImplicit) {
+        usingEquations = !m_mainWindow->ui->lineEquation->toPlainText().contains("// Controlled by Script");
+    }
+
     QString scriptContent = m_mainWindow->property("rawSurfaceScript").toString();
-    if (scriptContent.isEmpty()) {
+    if (scriptContent.isEmpty() && m_mainWindow->m_currentScriptMode == 0) {
         scriptContent = m_mainWindow->ui->txtScriptEditor->toPlainText();
     }
 
@@ -570,6 +663,19 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     limits["vMax"] = m_mainWindow->parseMath(m_mainWindow->ui->vMaxEdit->text());
     limits["wMin"] = m_mainWindow->parseMath(m_mainWindow->ui->wMinEdit->text());
     limits["wMax"] = m_mainWindow->parseMath(m_mainWindow->ui->wMaxEdit->text());
+
+    auto getSpaceLimit = [&](QLineEdit* edit, float defVal) {
+        if (edit->text().trimmed().isEmpty()) return defVal;
+        return m_mainWindow->parseMath(edit->text());
+    };
+
+    limits["xMin"] = getSpaceLimit(m_mainWindow->ui->lineXMin, -1000.0f);
+    limits["xMax"] = getSpaceLimit(m_mainWindow->ui->lineXMax, 1000.0f);
+    limits["yMin"] = getSpaceLimit(m_mainWindow->ui->lineYMin, -1000.0f);
+    limits["yMax"] = getSpaceLimit(m_mainWindow->ui->lineYMax, 1000.0f);
+    limits["zMin"] = getSpaceLimit(m_mainWindow->ui->lineZMin, -1000.0f);
+    limits["zMax"] = getSpaceLimit(m_mainWindow->ui->lineZMax, 1000.0f);
+
     root["limits"] = limits;
 
     root["steps"] = m_mainWindow->ui->stepSlider->value();
@@ -626,44 +732,65 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     texture["col1"] = m_mainWindow->m_texColor1.name();
     texture["col2"] = m_mainWindow->m_texColor2.name();
 
-    // L'audio è ora completamente separato in memoria, quindi estraiamo la texture pura.
-    QString codeToSave = m_mainWindow->m_surfaceTextureCode.trimmed();
+    // --- REINIEZIONE DELL'AUDIO E GESTIONE IMMAGINI ---
+    QString audioCode = m_mainWindow->m_soundScriptText.trimmed();
 
-    if (texEnabled && m_mainWindow->m_isImageMode && !m_mainWindow->m_currentTexturePath.isEmpty()) {
-        // Rimuoviamo eventuali vecchi tag //IMG per evitare duplicati sporchi
-        QRegularExpression imgRe(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption);
-        codeToSave.remove(imgRe);
+    if (isImplicit) {
+        QString implicitTex = m_mainWindow->ui->lineTexture->toPlainText().trimmed();
 
-        // Riappendiamo il tag in cima, CONSERVANDO tutto il prezioso codice GLSL sottostante!
-        codeToSave = "//IMG:" + m_mainWindow->m_currentTexturePath + "\n" + codeToSave.trimmed();
+        // Puliamo eventuali vecchi tag e riaggiungiamo l'audio pulito
+        QRegularExpression blockRe(R"(//\s*SOUND_BEGIN.*?//\s*SOUND_END\n?)", QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
+        while (implicitTex.contains(blockRe)) implicitTex.remove(blockRe);
+        implicitTex.remove(QRegularExpression(R"(^\s*//(MUSIC|SYNTH):.*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
+        implicitTex.remove(QRegularExpression(R"(^\s*//\s*(SOUND_BEGIN|SOUND_END).*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
+
+        if (!audioCode.isEmpty()) {
+            implicitTex = audioCode + "\n\n" + implicitTex.trimmed();
+        }
+        texture["code"] = implicitTex;
+        texture["displacement"] = m_mainWindow->ui->lineVariations->toPlainText();
+    } else {
+        QString codeToSave = m_mainWindow->m_surfaceTextureCode;
+
+        // Pulizia vecchi tag audio robusta
+        QRegularExpression blockRe(R"(//\s*SOUND_BEGIN.*?//\s*SOUND_END\n?)", QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
+        while (codeToSave.contains(blockRe)) codeToSave.remove(blockRe);
+        codeToSave.remove(QRegularExpression(R"(^\s*//(MUSIC|SYNTH):.*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
+        codeToSave.remove(QRegularExpression(R"(^\s*//\s*(SOUND_BEGIN|SOUND_END).*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
+        codeToSave = codeToSave.trimmed();
+
+        // Se c'è un'immagine, il tag //IMG: deve stare sempre alla riga 1!
+        if (texEnabled && m_mainWindow->m_isImageMode && !m_mainWindow->m_currentTexturePath.isEmpty()) {
+            QRegularExpression imgRe(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption);
+            codeToSave.remove(imgRe);
+
+            QString newCode = "//IMG:" + m_mainWindow->m_currentTexturePath + "\n";
+            if (!audioCode.isEmpty()) newCode += audioCode + "\n\n";
+            newCode += codeToSave;
+            codeToSave = newCode;
+        } else if (!audioCode.isEmpty()) {
+            codeToSave = audioCode + "\n\n" + codeToSave;
+        }
+
+        texture["code"] = codeToSave.trimmed();
     }
-
-    codeToSave.remove(QRegularExpression(R"(^\s*//MUSIC:.*$\n?)", QRegularExpression::MultilineOption));
-    codeToSave.remove(QRegularExpression(R"(//SOUND_BEGIN.*?//SOUND_END\n?)", QRegularExpression::DotMatchesEverythingOption));
-    codeToSave = codeToSave.trimmed();
-
-    if (!m_mainWindow->m_soundScriptText.trimmed().isEmpty()) {
-        codeToSave = m_mainWindow->m_soundScriptText.trimmed() + "\n\n" + codeToSave;
-    }
-
-    texture["code"] = codeToSave;
     root["texture"] = texture;
 
     QJsonObject speeds;
     speeds["nutation"] = (double)m_mainWindow->ui->glWidget->getNutationSpeed();
     speeds["precession"] = (double)m_mainWindow->ui->glWidget->getPrecessionSpeed();
     speeds["spin"] = (double)m_mainWindow->ui->glWidget->getSpinSpeed();
-    speeds["omega"] = (double)m_mainWindow->ui->glWidget->getOmegaSpeed();
-    speeds["phi"] = (double)m_mainWindow->ui->glWidget->getPhiSpeed();
-    speeds["psi"] = (double)m_mainWindow->ui->glWidget->getPsiSpeed();
+    speeds["omega"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getOmegaSpeed();
+    speeds["phi"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getPhiSpeed();
+    speeds["psi"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getPsiSpeed();
     speeds["path3D"] = m_mainWindow->ui->speed3DSlider->value();
-    speeds["path4D"] = m_mainWindow->ui->speed4DSlider->value();
+    speeds["path4D"] = isImplicit ? 0 : m_mainWindow->ui->speed4DSlider->value();
     root["speeds"] = speeds;
 
     QJsonObject angles;
-    angles["omega"] = (double)m_mainWindow->ui->glWidget->getOmega();
-    angles["phi"] = (double)m_mainWindow->ui->glWidget->getPhi();
-    angles["psi"] = (double)m_mainWindow->ui->glWidget->getPsi();
+    angles["omega"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getOmega();
+    angles["phi"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getPhi();
+    angles["psi"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getPsi();
     root["angles"] = angles;
 
     if (m_mainWindow->ui->glWidget) {
@@ -708,7 +835,12 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     root["lightingMode"] = m_mainWindow->m_lightingMode4D;
     root["lightIntensity"] = m_mainWindow->ui->lightSlider->value() / 100.0;
     root["use4DLighting"] = m_mainWindow->ui->glWidget->is4DActive();
-    root["renderMode"] = m_mainWindow->m_savedRenderMode;
+    if (isImplicit) {
+        int shellState = m_mainWindow->ui->radioShell->isChecked() ? 10 : 0;
+        root["renderMode"] = m_mainWindow->m_savedRenderMode + shellState;
+    } else {
+        root["renderMode"] = m_mainWindow->m_savedRenderMode;
+    }
     root["projectionMode"] = m_mainWindow->ui->glWidget->projectionMode;
     root["showBorder"] = m_mainWindow->ui->btnBorder->isChecked();
 
@@ -763,28 +895,23 @@ void PresetSerializer::saveScript()
     QString rootPath = settings.value("libraryRootPath").toString();
 
     if (currentMem.isEmpty() || currentMem.contains("build", Qt::CaseInsensitive) || !QDir(currentMem).exists()) {
-        if (isSurface) currentMem = settings.value("pathSurfaces", rootPath + "/Surfaces").toString();
-        else if (isSound) currentMem = settings.value("pathSounds", rootPath + "/Sounds").toString();
-        else currentMem = settings.value("pathTextures", rootPath + "/Textures").toString();
+        if (isSurface) currentMem = settings.value("pathSurfaces", rootPath + "/surfaces").toString();
+        else if (isSound) currentMem = settings.value("pathSounds", rootPath + "/sounds").toString();
+        else currentMem = settings.value("pathTextures", rootPath + "/textures").toString();
     }
 
     QString fileName;
 
-#if defined(Q_OS_ANDROID)
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     QString title = isSurface ? "Save Surface Script" : (isSound ? "Save Sound Script" : "Save Texture Script");
     // currentMem è la cartella di partenza, "NewScript" è il nome di default
-    AndroidSaveDialog dialog(title, currentMem, "NewScript", m_mainWindow);
+    MobileSaveDialog dialog(title, currentMem, "NewScript", m_mainWindow);
 
     if (dialog.exec() != QDialog::Accepted) {
         resumeTimers();
         return;
     }
     fileName = dialog.getSelectedPath();
-#elif defined(Q_OS_IOS)
-    QFileDialog::Options options = QFileDialog::Options();
-    if (isSurface) fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface Script", currentMem, "Surface Script (*.json)", nullptr, options);
-    else if (isSound) fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Sound Script", currentMem, "Sound Script (*.json)", nullptr, options);
-    else fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Texture Script", currentMem, "Texture Script (*.json)", nullptr, options);
 #else
     QFileDialog::Options options = QFileDialog::DontUseNativeDialog;
     if (isSurface) fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface Script", currentMem, "Surface Script (*.json)", nullptr, options);
@@ -798,8 +925,17 @@ void PresetSerializer::saveScript()
     if (!fileName.endsWith(".json", Qt::CaseInsensitive)) fileName += ".json";
 
     QJsonObject root;
+
+    // Aggiungiamo il nome estratto dal percorso
+    root["name"] = QFileInfo(fileName).baseName();
+
     if (isSurface) {
+        root["type"] = "surface";
         root["scriptCode"] = content;
+
+        root["isScript"] = true;
+        root["isImplicitMode"] = (m_mainWindow->ui->tabModeSelector->currentIndex() == 1);
+
         root["steps"] = m_mainWindow->ui->stepSlider->value();
 
         QJsonObject limits;
@@ -807,12 +943,31 @@ void PresetSerializer::saveScript()
         limits["uMax"] = m_mainWindow->parseMath(m_mainWindow->ui->uMaxEdit->text());
         limits["vMin"] = m_mainWindow->parseMath(m_mainWindow->ui->vMinEdit->text());
         limits["vMax"] = m_mainWindow->parseMath(m_mainWindow->ui->vMaxEdit->text());
+        limits["wMin"] = m_mainWindow->parseMath(m_mainWindow->ui->wMinEdit->text());
+        limits["wMax"] = m_mainWindow->parseMath(m_mainWindow->ui->wMaxEdit->text());
+
+        // Helper per i limiti di spazio (come in saveSurface)
+        auto getSpaceLimit = [&](QLineEdit* edit, float defVal) {
+            if (edit->text().trimmed().isEmpty()) return defVal;
+            return m_mainWindow->parseMath(edit->text());
+        };
+
+        limits["xMin"] = getSpaceLimit(m_mainWindow->ui->lineXMin, -1000.0f);
+        limits["xMax"] = getSpaceLimit(m_mainWindow->ui->lineXMax, 1000.0f);
+        limits["yMin"] = getSpaceLimit(m_mainWindow->ui->lineYMin, -1000.0f);
+        limits["yMax"] = getSpaceLimit(m_mainWindow->ui->lineYMax, 1000.0f);
+        limits["zMin"] = getSpaceLimit(m_mainWindow->ui->lineZMin, -1000.0f);
+        limits["zMax"] = getSpaceLimit(m_mainWindow->ui->lineZMax, 1000.0f);
+
         root["limits"] = limits;
 
         QJsonObject constants;
         constants["A"] = m_mainWindow->ui->aSlider->value() / 100.0f;
         constants["B"] = m_mainWindow->ui->bSlider->value() / 100.0f;
         constants["C"] = m_mainWindow->ui->cSlider->value() / 100.0f;
+        constants["D"] = m_mainWindow->ui->dSlider->value() / 100.0f;
+        constants["E"] = m_mainWindow->ui->eSlider->value() / 100.0f;
+        constants["F"] = m_mainWindow->ui->fSlider->value() / 100.0f;
         constants["S"] = m_mainWindow->ui->sSlider->value() / 100.0f;
         root["constants"] = constants;
     }
@@ -851,8 +1006,16 @@ void PresetSerializer::saveScript()
         file.write(doc.toJson());
         file.close();
 
-        settings.setValue(settingsKey, QFileInfo(fileName).absolutePath());
+        // Ricreiamo le chiavi di salvataggio per evitare errori di compilazione
+        bool isSurf = (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeSurface);
+        bool isSnd  = (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeSound);
+        QString safeSettingsKey = isSurf ? "lastFolder" : (isSnd ? "lastSoundDir" : "lastCustomTexDir");
+
+        QSettings().setValue(safeSettingsKey, QFileInfo(fileName).absolutePath());
+
+        // Un semplice refresh visivo senza spostare pannelli
         QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
+
     } else {
         QMessageBox::critical(m_mainWindow, "Error", "Could not write to file.");
     }
@@ -929,9 +1092,9 @@ void PresetSerializer::saveTextureAs(const QString &startDir, const QString &sou
         defaultSelection = startDir + "/" + baseName + ".json";
     }
 
-#if defined(Q_OS_ANDROID)
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     QString baseName = QFileInfo(defaultSelection).completeBaseName();
-    AndroidSaveDialog dialog("Save Texture As...", startDir, baseName, m_mainWindow);
+    MobileSaveDialog dialog("Save Surface As...", startDir, baseName, m_mainWindow);
 
     if (dialog.exec() != QDialog::Accepted) {
         // Se l'utente preme Cancel, riprendiamo l'animazione ed usciamo
@@ -941,10 +1104,8 @@ void PresetSerializer::saveTextureAs(const QString &startDir, const QString &sou
         return;
     }
     QString savePath = dialog.getSelectedPath();
-#elif defined(Q_OS_IOS)
-    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Texture As...", defaultSelection, "JSON Files (*.json)");
 #else
-    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Texture As...", defaultSelection, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
+    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface As...", defaultSelection, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
 #endif
 
     if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
@@ -972,9 +1133,9 @@ void PresetSerializer::saveSurfaceAs(const QString &startDir, const QString &sou
     QString defaultSelection = startDir + "/NewSurface.json";
     if (!sourceFilePath.isEmpty()) defaultSelection = startDir + "/" + QFileInfo(sourceFilePath).fileName();
 
-#if defined(Q_OS_ANDROID)
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     QString baseName = QFileInfo(defaultSelection).completeBaseName();
-    AndroidSaveDialog dialog("Save Surface As...", startDir, baseName, m_mainWindow);
+    MobileSaveDialog dialog("Save Surface As...", startDir, baseName, m_mainWindow);
 
     if (dialog.exec() != QDialog::Accepted) {
         // Se l'utente preme Cancel, riprendiamo l'animazione ed usciamo
@@ -984,8 +1145,6 @@ void PresetSerializer::saveSurfaceAs(const QString &startDir, const QString &sou
         return;
     }
     QString savePath = dialog.getSelectedPath();
-#elif defined(Q_OS_IOS)
-    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface As...", defaultSelection, "JSON Files (*.json)");
 #else
     QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface As...", defaultSelection, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
 #endif
@@ -1037,9 +1196,9 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
     // ==============================================================
     // Apertura finestra di salvataggio
     // ==============================================================
-#if defined(Q_OS_ANDROID)
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     QString baseName = QFileInfo(defaultSelection).completeBaseName();
-    AndroidSaveDialog dialog("Save Sound As...", startDir, baseName, m_mainWindow);
+    MobileSaveDialog dialog("Save Sound As...", startDir, baseName, m_mainWindow);
 
     if (dialog.exec() != QDialog::Accepted) {
         if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
@@ -1049,17 +1208,14 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
     }
     QString savePath = dialog.getSelectedPath();
 
-    // FIX ANDROID: Se è un file media, assicuriamoci che getSelectedPath non abbia
+    // FIX MOBILE (Android & iOS): Se è un file media, assicuriamoci che getSelectedPath non abbia
     // forzato ".json" per errore (la nostra classe aggiunge sempre .json di default).
     if (isMediaFile && savePath.endsWith(".json", Qt::CaseInsensitive)) {
         savePath.chop(5); // Rimuove ".json"
     }
 
-#elif defined(Q_OS_IOS)
-    // FIX: Usa la variabile "filter" calcolata sopra, non la stringa hardcoded!
-    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Sound As...", defaultSelection, filter);
 #else
-    // FIX: Usa la variabile "filter" calcolata sopra!
+    // FIX DESKTOP: Usa la variabile "filter" calcolata sopra!
     QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Sound As...", defaultSelection, filter, nullptr, QFileDialog::DontUseNativeDialog);
 #endif
 
@@ -1134,7 +1290,6 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
         }
     }
 
-    m_mainWindow->ui->tabWidget->setCurrentWidget(m_mainWindow->ui->Sounds);
     QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
 }
 
@@ -1151,9 +1306,9 @@ void PresetSerializer::saveMotionAs(const QString &startDir, const QString &sour
     QString defaultSelection = startDir + "/NewMotion.json";
     if (!sourceFilePath.isEmpty()) defaultSelection = startDir + "/" + QFileInfo(sourceFilePath).fileName();
 
-#if defined(Q_OS_ANDROID)
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     QString baseName = QFileInfo(defaultSelection).completeBaseName();
-    AndroidSaveDialog dialog("Save Record As...", startDir, baseName, m_mainWindow);
+    MobileSaveDialog dialog("Save Surface As...", startDir, baseName, m_mainWindow);
 
     if (dialog.exec() != QDialog::Accepted) {
         // Se l'utente preme Cancel, riprendiamo l'animazione ed usciamo
@@ -1163,10 +1318,8 @@ void PresetSerializer::saveMotionAs(const QString &startDir, const QString &sour
         return;
     }
     QString savePath = dialog.getSelectedPath();
-#elif defined(Q_OS_IOS)
-    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Record As...", defaultSelection, "JSON Files (*.json)");
 #else
-    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Record As...", defaultSelection, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
+    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface As...", defaultSelection, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
 #endif
 
     if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();

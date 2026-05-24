@@ -1,0 +1,78 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.7809435725212097,
+        "rot_x": 0.5985321998596191,
+        "rot_y": 0.005112260580062866,
+        "rot_z": 0.1784946322441101,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 1,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0",
+        "x": "U",
+        "y": "V",
+        "z": "W"
+    },
+    "geodesic": {
+        "conform": "4.0 / ((1.0 - (U^2 + V^2 + W^2))^2)",
+        "du": "-sin(u)",
+        "dv": "cos(u)",
+        "dw": "3.0",
+        "u0": "0.5*cos(u)+0.3",
+        "v0": "0.5*sin(u)",
+        "w0": ""
+    },
+    "isImplicitMode": false,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 2,
+        "vMin": -2,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "name": "Hyperboloid",
+    "projectionMode": 1,
+    "renderMode": 0,
+    "showBorder": false,
+    "steps": 100,
+    "type": "surface",
+    "use4DLighting": false
+}

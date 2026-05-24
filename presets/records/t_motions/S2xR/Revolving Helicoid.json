@@ -1,8 +1,8 @@
 {
     "angles": {
-        "omega": 39.17953109741211,
-        "phi": 76.57926177978516,
-        "psi": 38.28968048095703
+        "omega": 52.407310485839844,
+        "phi": 103.03482055664062,
+        "psi": 51.517459869384766
     },
     "background": {
         "code": "// --- CONFIGURAZIONE ---\n// Costruiamo il vettore posizione usando u e v (già forniti dal sistema)\n// Moltiplichiamo per 8.0 per fare \"zoom out\" e vedere più dettagli\nvec2 p = vec2(u, v) * 8.0;\n\n// --- DISTORSIONE (Domain Warping) ---\n// Calcoliamo un valore di rumore base\nfloat n1 = sys_noise(p);\n\n// Usiamo il rumore per spostare le coordinate del passaggio successivo\n// Questo crea l'effetto fluido/liquido\nvec2 shift = vec2(n1, sys_noise(p + vec2(5.0, 5.0))); \n\n// --- PATTERN FINALE ---\n// Calcoliamo il rumore finale sulle coordinate distorte\nfloat pattern = sys_noise(p + shift * 2.0);\n\n// --- CONTRASTO ---\n// Rendiamo i bordi più netti (taglia i grigi intermedi)\npattern = smoothstep(0.3, 0.7, pattern);\n\n// --- COLORE ---\n// Usa i colori che hai scelto nel pannello (Color 1 e Color 2)\nreturn mix(u_col1, u_col2, pattern);",
@@ -18,10 +18,10 @@
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": 0.8090695738792419,
-        "rot_x": 0.2766726315021515,
-        "rot_y": -0.24673378467559814,
-        "rot_z": -0.456049382686615,
+        "rot_w": 0.13283787667751312,
+        "rot_x": 0.3081388473510742,
+        "rot_y": 0.9150784015655518,
+        "rot_z": 0.22368766367435455,
         "x": 0,
         "y": 0,
         "yaw": 0,
@@ -38,7 +38,7 @@
         "C": 0.5,
         "D": 0.3499999940395355,
         "E": 2,
-        "F": 0,
+        "F": 1,
         "S": 0
     },
     "equations": {
@@ -53,6 +53,16 @@
         "y": "A*sin(V)*sin(U)",
         "z": "A * cos(V) "
     },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {
@@ -61,7 +71,13 @@
         "vMax": 3.1410000324249268,
         "vMin": 0,
         "wMax": 0,
-        "wMin": 0
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
     },
     "name": "Revolving Helicoid",
     "observer4D": 4,
@@ -96,13 +112,13 @@
     },
     "steps": 158,
     "texture": {
-        "code": "//SOUND_BEGIN\n// SOUND_BEGIN\n// =========================================================================\n// Title: The Sanctuary\n// Author: srtuss (2018)\n// Source: https://www.shadertoy.com/view/4ddfWX\n// License: CC BY-NC-SA 3.0\n//\n// Adattamento: Questa versione è stata ottimizzata per Desktop GLSL Audio.\n// Sono stati rinominati i parametri interni per evitare conflitti con le \n// macro del compilatore e ridotto il numero di iterazioni per garantire \n// la stabilità del driver video (GPU).\n// =========================================================================\n\n#define PI_S 3.14159265359\nfloat tempo_val = 2.0;\n\n// Funzioni Hash uniche per evitare conflitti di nomi\nfloat hash_s(float x) { return fract(sin(x) * 897612.531); }\nfloat hsh_s(float x) { return fract(sin(x * 237.234234) * 982734.1235); }\nfloat rnd_s(float x, float mn, float mx) { return mn + floor((mx - mn) * hash_s(floor(x))); }\n\nfloat nse_s(float x) {\n    float y = floor(x);\n    float f = fract(x);\n    f = f * f * (3.0 - 2.0 * f);\n    return mix(hash_s(y), hash_s(y + 1.0), f) - 0.5;\n}\n\n// Strumento: Campana FM\nvec2 inst_bell(float t, float f) {\n    float m = sin(t * f * 80.0) * exp(t * -50.0);\n    float sig = sin(t * f * PI_S * 2.0 + m) * min(t * 800.0, 1.0) * exp(t * -5.0) * 0.25;\n    return vec2(sig);\n}\n\n// Strumento: Vocale \"A\"\nfloat voc_s(float t, float f, float formant) {\n    float x = fract(t * f) / f;\n    return (sin(x * 6.0 * formant) * 0.4 + sin(x * 12.0 * formant) + sin(x * 26.0 * formant) * 0.2) * min(x * 1000.0, 1.0) * exp(x * -200.0);\n}\n\n// Coro Swarm (Ridotto a 4 voci per performance)\nvec2 inst_choir(float t, float f) {\n    vec2 v = vec2(0.0);\n    float formant = 300.0 * exp2(sin(t * 0.1));\n    for(int i = 0; i < 4; ++i) {\n        float h = float(i);\n        float m = voc_s(t + h / 3.0, f + pow(2.01, (h - 8.0) * 0.2), formant);\n        float pan = hash_s(h);\n        v.x += m * pan;\n        v.y += m * (1.0 - pan);\n    }\n    return v * 0.15;\n}\n\n// Strumento secondario (Armoniche)\nvec2 inst_harm(float t, float f) {\n    vec2 v = vec2(0.0);\n    for(int i = 0; i < 4; ++i) {\n        float h = float(i) * 2.0 + 1.0;\n        float m = sin(t * f * 2.0 * PI_S * h) * (1.0 + nse_s(h * 41.0 + t * 10.0)) / h;\n        float pan = hash_s(h);\n        v.x += m * pan;\n        v.y += m * (1.0 - pan);\n    }\n    return v * 0.2;\n}\n\nfloat penta_s(float x) {\n    x /= 5.0;\n    float y = floor(x);\n    float fr = fract(x) * 5.0;\n    return step(1.0, fr) * 2.0 + step(2.0, fr) * 3.0 + step(3.0, fr) * 2.0 + step(4.0, fr) * 2.0 + y * 12.0;\n}\n\nvec2 scene_choir(float time, float n) {\n    vec2 v = inst_choir(time, 140.0 * pow(2.0, n / 12.0));\n    v += inst_choir(-time, 140.0 * pow(2.0, n / 12.0 - 1.0));\n    if(time > 64.0 / tempo_val) {\n        v += inst_harm(time, 140.0 * 3.0 * pow(2.0, (n + 12.0) / 12.0)) * 0.1;\n    }\n    return v;\n}\n\nvec2 snare_s(float t) {\n    if(t < 0.0) return vec2(0.0);\n    t *= 3.0;\n    float env = exp(t * -10.0) + exp(t * -1.0) * 0.07;\n    return vec2(hsh_s(t), hsh_s(t + 0.1)) * env * 0.4;\n}\n\nvec2 echomix_s(float time) {\n    vec2 v = vec2(0.0);\n    float x = mod(time, 8.0 / tempo_val);\n    v += vec2(0.5) * sin(pow(x, 0.9) * 300.0) * min(1.0, x * 200.0) * exp(x * -5.0);\n    float rate = tempo_val * 2.0;\n    if(time > 32.0 / tempo_val)\n        v += inst_bell(fract(time * rate) / rate, 140.0 * 2.0 * pow(2.0, penta_s(rnd_s(time * rate, 0.0, 10.0)) / 12.0)) * 0.4;\n    return v;\n}\n\n// Funzione principale adattata al tuo synthesizer.cpp\nvec2 mainSound(in int samp, float time) {\n    vec2 v = echomix_s(time);\n    float x = mod(time, 32.0 / tempo_val);\n    \n    // Gestione dinamica del coro\n    v += scene_choir(time, -5.0) * clamp(x * tempo_val * 0.5, 0.0, 1.0) * smoothstep(20.0, 15.0, x * tempo_val);\n    \n    if(time >= 30.0) { // Ridotto tempo di attivazione snare per test immediato\n        v += snare_s(mod(time - 0.5, 1.0)) * 0.15;\n    }\n    \n    // Mastering finale con limiter\n    return clamp(v * 0.6, -1.0, 1.0);\n}\n// SOUND_END\n//SOUND_END\n\n// Imposta lo zoom/scala iniziale\nvec2 z_pos = (uv - 0.5) * 3.0; \n\n// Costante complessa C\nvec2 c = vec2(0.285, 0.01); \n\nint maxIter = 80; // Ridotto leggermente per sicurezza\nint i = 0;\n\n// Iterazione Julia standard\nfor(i = 0; i < maxIter; i++) {\n    // Usiamo nomi sicuri (zx, zy) invece di x, y\n    float zx = (z_pos.x * z_pos.x - z_pos.y * z_pos.y) + c.x;\n    float zy = (2.0 * z_pos.x * z_pos.y) + c.y;\n    z_pos = vec2(zx, zy);\n    \n    if (dot(z_pos, z_pos) > 4.0) break;\n}\n\n// Colorazione\nif (i == maxIter) {\n    return vec3(0.2, 0.15, 0.3); \n} else {\n    float t = float(i) / 20.0;\n    \n    float r = 0.5 + 0.5 * sin(t + 0.0);\n    float g = 0.5 + 0.5 * cos(t + 2.09); \n    float b = 0.5 + 0.5 * cos(t + 4.18); \n    \n    vec3 color = vec3(r, g, b);\n    \n    // Mix esplicito\n    return mix(color, vec3(1.0, 1.0, 1.0), 0.5);\n}",
+        "code": "//SOUND_BEGIN\n// SOUND_BEGIN\n// =========================================================================\n// Title: The Sanctuary\n// Author: srtuss (2018)\n// Source: https://www.shadertoy.com/view/4ddfWX\n// License: CC BY-NC-SA 3.0\n//\n// Adattamento: Questa versione è stata ottimizzata per Desktop GLSL Audio.\n// Sono stati rinominati i parametri interni per evitare conflitti con le \n// macro del compilatore e ridotto il numero di iterazioni per garantire \n// la stabilità del driver video (GPU).\n// =========================================================================\n\n#define PI_S 3.14159265359\nfloat tempo_val = 2.0;\n\n// Funzioni Hash uniche per evitare conflitti di nomi\nfloat hash_s(float x) { return fract(sin(x) * 897612.531); }\nfloat hsh_s(float x) { return fract(sin(x * 237.234234) * 982734.1235); }\nfloat rnd_s(float x, float mn, float mx) { return mn + floor((mx - mn) * hash_s(floor(x))); }\n\nfloat nse_s(float x) {\n    float y = floor(x);\n    float f = fract(x);\n    f = f * f * (3.0 - 2.0 * f);\n    return mix(hash_s(y), hash_s(y + 1.0), f) - 0.5;\n}\n\n// Strumento: Campana FM\nvec2 inst_bell(float t, float f) {\n    float m = sin(t * f * 80.0) * exp(t * -50.0);\n    float sig = sin(t * f * PI_S * 2.0 + m) * min(t * 800.0, 1.0) * exp(t * -5.0) * 0.25;\n    return vec2(sig);\n}\n\n// Strumento: Vocale \"A\"\nfloat voc_s(float t, float f, float formant) {\n    float x = fract(t * f) / f;\n    return (sin(x * 6.0 * formant) * 0.4 + sin(x * 12.0 * formant) + sin(x * 26.0 * formant) * 0.2) * min(x * 1000.0, 1.0) * exp(x * -200.0);\n}\n\n// Coro Swarm (Ridotto a 4 voci per performance)\nvec2 inst_choir(float t, float f) {\n    vec2 v = vec2(0.0);\n    float formant = 300.0 * exp2(sin(t * 0.1));\n    for(int i = 0; i < 4; ++i) {\n        float h = float(i);\n        float m = voc_s(t + h / 3.0, f + pow(2.01, (h - 8.0) * 0.2), formant);\n        float pan = hash_s(h);\n        v.x += m * pan;\n        v.y += m * (1.0 - pan);\n    }\n    return v * 0.15;\n}\n\n// Strumento secondario (Armoniche)\nvec2 inst_harm(float t, float f) {\n    vec2 v = vec2(0.0);\n    for(int i = 0; i < 4; ++i) {\n        float h = float(i) * 2.0 + 1.0;\n        float m = sin(t * f * 2.0 * PI_S * h) * (1.0 + nse_s(h * 41.0 + t * 10.0)) / h;\n        float pan = hash_s(h);\n        v.x += m * pan;\n        v.y += m * (1.0 - pan);\n    }\n    return v * 0.2;\n}\n\nfloat penta_s(float x) {\n    x /= 5.0;\n    float y = floor(x);\n    float fr = fract(x) * 5.0;\n    return step(1.0, fr) * 2.0 + step(2.0, fr) * 3.0 + step(3.0, fr) * 2.0 + step(4.0, fr) * 2.0 + y * 12.0;\n}\n\nvec2 scene_choir(float time, float n) {\n    vec2 v = inst_choir(time, 140.0 * pow(2.0, n / 12.0));\n    v += inst_choir(-time, 140.0 * pow(2.0, n / 12.0 - 1.0));\n    if(time > 64.0 / tempo_val) {\n        v += inst_harm(time, 140.0 * 3.0 * pow(2.0, (n + 12.0) / 12.0)) * 0.1;\n    }\n    return v;\n}\n\nvec2 snare_s(float t) {\n    if(t < 0.0) return vec2(0.0);\n    t *= 3.0;\n    float env = exp(t * -10.0) + exp(t * -1.0) * 0.07;\n    return vec2(hsh_s(t), hsh_s(t + 0.1)) * env * 0.4;\n}\n\nvec2 echomix_s(float time) {\n    vec2 v = vec2(0.0);\n    float x = mod(time, 8.0 / tempo_val);\n    v += vec2(0.5) * sin(pow(x, 0.9) * 300.0) * min(1.0, x * 200.0) * exp(x * -5.0);\n    float rate = tempo_val * 2.0;\n    if(time > 32.0 / tempo_val)\n        v += inst_bell(fract(time * rate) / rate, 140.0 * 2.0 * pow(2.0, penta_s(rnd_s(time * rate, 0.0, 10.0)) / 12.0)) * 0.4;\n    return v;\n}\n\n// Funzione principale adattata al tuo synthesizer.cpp\nvec2 mainSound(in int samp, float time) {\n    vec2 v = echomix_s(time);\n    float x = mod(time, 32.0 / tempo_val);\n    \n    // Gestione dinamica del coro\n    v += scene_choir(time, -5.0) * clamp(x * tempo_val * 0.5, 0.0, 1.0) * smoothstep(20.0, 15.0, x * tempo_val);\n    \n    if(time >= 30.0) { // Ridotto tempo di attivazione snare per test immediato\n        v += snare_s(mod(time - 0.5, 1.0)) * 0.15;\n    }\n    \n    // Mastering finale con limiter\n    return clamp(v * 0.6, -1.0, 1.0);\n}\n// SOUND_END\n//SOUND_END\n\n// Imposta lo zoom/scala iniziale\nvec2 z = (uv - 0.5) * 3.0; \n\n// Costante complessa C (Modifica questi valori per cambiare la forma!)\n// Valori interessanti: \n// vec2(-0.7, 0.27015)\n// vec2(0.285, 0.01)\n// vec2(-0.8, 0.156)\nvec2 c = vec2(0.285, 0.01); \n\nint iter = 0;\nint maxIter = 100;\n\n// Iterazione Julia standard: Z = Z^2 + C\nfor(iter = 0; iter < maxIter; iter++) {\n    float x = (z.x * z.x - z.y * z.y) + c.x;\n    float y = (2.0 * z.x * z.y) + c.y;\n    z = vec2(x, y);\n    \n    // Se esce dal raggio 2 (distanza quadrata 4), è fuori dall'insieme\n    if (dot(z, z) > 4.0) break;\n}\n\n// Colorazione\nif (iter == maxIter) {\n    // Interno dell'insieme: un colore scuro ma morbido (es. indaco scuro)\n    return vec3(0.2, 0.15, 0.3); \n} else {\n    // Esterno: Gradiente Pastello\n    float tit = float(iter) / 20.0; // Divisore più basso = bande più fitte\n    \n    // Generazione colori base (Ciclo RGB morbido)\n    float r = 0.5 + 0.5 * cos(tit + 0.0);\n    float g = 0.5 + 0.5 * cos(tit + 2.09); // 2.09 è circa 2*PI/3\n    float b = 0.5 + 0.5 * cos(tit + 4.18); // 4.18 è circa 4*PI/3\n    \n    vec3 color = vec3(r, g, b);\n    \n    // TRUCCO PASTELLO: \n    // Mixiamo il colore con il bianco (vec3(1.0)) al 50%\n    return mix(color, vec3(1.0), 0.5);\n}",
         "col1": "#33cc33",
         "col2": "#000000",
         "enabled": true,
         "pan_x": 0,
         "pan_y": 0,
-        "rotation": -143,
+        "rotation": 0,
         "zoom": 1
     },
     "type": "motion",

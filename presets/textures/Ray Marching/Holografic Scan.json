@@ -1,0 +1,14 @@
+{
+    "code": "// Velocità e posizione della linea di scansione\nfloat scanSpeed = ubuf.u_time * 3.0;\nfloat scanline = sin(pModel.y * 40.0 - scanSpeed);\n\n// Rende la linea netta e luminosa\nscanline = smoothstep(0.8, 1.0, scanline);\n\n// Usa direttamente ubuf.color senza creare variabili in conflitto!\nvec3 glowColor = vec3(0.0, 1.0, 0.5); // Bagliore ciano/verde\n\ntextureCol = mix(ubuf.color, glowColor, scanline);",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "displacement": "",
+    "hasCustomColors": true,
+    "isImplicitMode": true,
+    "name": "Holografic Scan",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

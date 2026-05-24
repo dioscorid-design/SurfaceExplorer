@@ -1,0 +1,268 @@
+#version 450
+layout(location=0) in vec2 fragCoord;
+layout(location=0) out vec4 FragColor;
+
+layout(std140, binding=0) uniform SceneUBO {
+    mat4 u_mvpMatrix; mat4 u_mvMatrix; mat4 u_mMatrix;
+    vec4 u_dummyZero; vec4 u_observerPos; vec4 u_cameraPos4D; vec4 u_mathParams; vec4 u_mathParams2;
+    vec3 color; float alpha;
+    vec3 u_col1; float u_lightIntensity;
+    vec3 u_col2; float u_zoom;
+    vec2 u_center; float u_rotation; float u_omega;
+    float u_phi; float u_psi; float u_time; int u_projMode;
+    int u_lightingMode; int u_renderMode; int u_isFlat; int useTexture;
+    int useSpecular; float u_min; float u_max; float v_min;
+    float v_max; int u_hasExplicitW; int u_raySteps; float x_min;
+    float x_max; float y_min; float y_max; float z_min; float z_max;
+} ubuf;
+
+layout(binding=1) uniform sampler2D tex;
+
+// --- FUNZIONE PER INTERSEZIONI MORBIDE (SMOOTH MAX) ---
+float smax(float a, float b, float k) {
+    float h = clamp(0.5 + 0.5 * (a - b) / k, 0.0, 1.0);
+    return mix(b, a, h) + k * h * (1.0 - h);
+}
+
+// --- EQUAZIONE IMPLICITA 3D ---
+float map(vec3 p) {
+    float x = p.x; float y = p.y; float z = p.z;
+    float t = ubuf.u_time;
+    float A = ubuf.u_mathParams.x; float B = ubuf.u_mathParams.y;
+    float C = ubuf.u_mathParams.z; float S = ubuf.u_mathParams.w;
+    float D = ubuf.u_mathParams2.x; float E = ubuf.u_mathParams2.y;
+    float F = ubuf.u_mathParams2.z;
+
+    // 1. Calcola la distanza matematica pura dalla tua equazione
+    float d_surf = float( %IMPLICIT_EQ% );
+
+    // INIEZIONE RILIEVI PROCEDURALI DALLA UI +++
+    // Creiamo un alias pModel per comodità dell'utente
+    vec3 pModel = p;
+
+    // Qui verrà inserito il codice del box "Rilievi"
+    %DISPLACEMENT_CODE%
+    // ++++++++++++++++++++++++++++++++++++++++++++++
+
+    // --- NUOVA LOGICA GUSCIO (SHELL) ---
+    // Se u_renderMode è 1 (oppure scegli tu il numero associato nel menu della tua UI)
+    // trasformiamo l'oggetto solido in un guscio vuoto con spessore 0.01
+    if (ubuf.u_renderMode == 1) {
+        d_surf = abs(d_surf) - 0.01;
+    }
+
+    // 2. Bounding Box SDF (Il cubo di taglio)
+    vec3 bMin = vec3(ubuf.x_min, ubuf.y_min, ubuf.z_min);
+    vec3 bMax = vec3(ubuf.x_max, ubuf.y_max, ubuf.z_max);
+    vec3 bCenter = (bMax + bMin) * 0.5;
+    vec3 bHalf = (bMax - bMin) * 0.5;
+
+    vec3 q = abs(p - bCenter) - bHalf;
+    float d_box = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+
+    // Ritorna l'intersezione tra la forma (piena o a guscio) e il cubo di taglio
+    return smax(d_surf, d_box, 0.02);
+}
+
+// --- CALCOLO NORMALI 3D ---
+vec3 calcNormal(vec3 p) {
+    vec2 e = vec2(0.005, 0.0);
+    return normalize(vec3(
+        map(p + e.xyy) - map(p - e.xyy),
+        map(p + e.yxy) - map(p - e.yxy),
+        map(p + e.yyx) - map(p - e.yyx)
+    ));
+}
+
+// --- AMBIENT OCCLUSION PROCEDURALE ---
+float calcAO(vec3 pos, vec3 nor) {
+    float occ = 0.0;
+    float sca = 1.0;
+    for(int i = 0; i < 5; i++) {
+        float h = 0.01 + 0.12 * float(i) / 4.0;
+        float d = map(pos + h * nor);
+        occ += (h - d) * sca;
+        sca *= 0.95;
+    }
+    return clamp(1.0 - 3.0 * occ, 0.0, 1.0);
+}
+
+void main() {
+    vec2 ndc = fragCoord * 2.0 - 1.0;
+    ndc.y = -ndc.y;
+
+    vec3 rayPos;
+    vec3 rayDir;
+
+// --- SETUP DEL RAGGIO BASATO SULLA PROIEZIONE ---
+    if (ubuf.u_projMode == 2) {
+        // === MODALITÀ STEREOGRAFICA ===
+
+        // u_mvpMatrix contiene le rotazioni 3D.
+        // Moltiplicandola per l'inversa della ModelView otteniamo la pura Matrice di Proiezione.
+        // Questo garantisce un Aspect Ratio stabile come la roccia in qualsiasi angolazione!
+        mat4 projMatrix = ubuf.u_mvpMatrix * inverse(ubuf.u_mvMatrix);
+        float aspect = abs(projMatrix[1][1] / projMatrix[0][0]);
+
+        vec2 uv_stereo = vec2(ndc.x * aspect, ndc.y);
+
+        // Angolo di campo (45 gradi in radianti)
+        float fov = 0.785398;
+
+        // Vera formula della proiezione Stereografica inversa:
+        // Raggio sullo schermo proporzionale alla tangente del FOV
+        float r = length(uv_stereo) * tan(fov / 4.0);
+
+        // Angolo sferico puro
+        float phi = 2.0 * atan(r);
+
+        vec3 dir_cam;
+        if (length(uv_stereo) < 0.0001) {
+            dir_cam = vec3(0.0, 0.0, -1.0);
+        } else {
+            // Mappiamo le coordinate dal piano sferico 2D al vettore 3D
+            vec2 uv_norm = normalize(uv_stereo);
+            dir_cam = vec3(uv_norm.x * sin(phi), uv_norm.y * sin(phi), -cos(phi));
+        }
+
+        // Convertiamo il raggio dalla telecamera allo spazio del modello
+        mat3 camToModel = mat3(inverse(ubuf.u_mvMatrix));
+        rayDir = normalize(camToModel * dir_cam);
+
+        vec4 camPos_model = inverse(ubuf.u_mvMatrix) * vec4(0.0, 0.0, 0.0, 1.0);
+        rayPos = camPos_model.xyz;
+
+    } else if (ubuf.u_projMode == 0) {
+        // === MODALITÀ ORTOGONALE ===
+        mat4 invMV = inverse(ubuf.u_mvMatrix);
+        mat4 invMVP = inverse(ubuf.u_mvpMatrix);
+
+        // 1. Direzione del raggio: In ortogonale, tutti i raggi sono paralleli all'asse Z della telecamera
+        rayDir = normalize((invMV * vec4(0.0, 0.0, -1.0, 0.0)).xyz);
+
+        // 2. Troviamo la posizione della telecamera nello spazio 3D
+        vec3 camPos_model = (invMV * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+
+        // 3. Troviamo un punto qualsiasi lungo il raggio che corrisponde al pixel corrente
+        vec4 midPoint = invMVP * vec4(ndc.x, ndc.y, 0.5, 1.0);
+        midPoint /= midPoint.w;
+
+        // 4. MAGIA MATEMATICA: Calcoliamo l'esatta distanza tra il midPoint e il piano della telecamera.
+        // Usando il prodotto scalare (dot product), scopriamo quanto dobbiamo far scivolare indietro il raggio.
+        float t_offset = dot(midPoint.xyz - camPos_model, rayDir);
+
+        // 5. Origine perfetta: Allineata al millimetro con la tua telecamera C++
+        rayPos = midPoint.xyz - rayDir * t_offset;
+
+    } else {
+        // === MODALITÀ PROSPETTICA (1) ===
+        mat4 invMVP = inverse(ubuf.u_mvpMatrix);
+
+        // Troviamo il punto di mira al centro della scena (Z = 0.5)
+        vec4 midPoint = invMVP * vec4(ndc.x, ndc.y, 0.5, 1.0);
+        midPoint /= midPoint.w;
+
+        // La telecamera è il punto di origine
+        vec4 camPos_model = inverse(ubuf.u_mvMatrix) * vec4(0.0, 0.0, 0.0, 1.0);
+        rayPos = camPos_model.xyz;
+
+        // Semplice vettore da A a B
+        rayDir = normalize(midPoint.xyz - rayPos);
+    }
+
+    // NEAR CLIPPING PLANE: Ignora i primissimi istanti del raggio
+    // Valori consigliati: tra 0.1 e 0.5 a seconda della grandezza della scena
+    float t_dist = 0.3;
+    float d = 0.0;
+    bool hit = false;
+    vec3 pModel;
+
+    // 1. Aumentiamo il numero di passi per compensare il rallentamento
+    float stepRelax = (ubuf.u_mathParams.w > 0.001) ? ubuf.u_mathParams.w : 0.4;
+
+    for(int i = 0; i < 1000; i++) {
+        if (i >= ubuf.u_raySteps) break;
+        pModel = rayPos + rayDir * t_dist;
+
+        float val = map(pModel);
+
+        // 1. Calcoliamo il gradiente (il "radar" per le equazioni arbitrarie)
+        vec2 e = vec2(0.001, 0.0);
+        vec3 grad = vec3(
+            map(pModel + e.xyy) - map(pModel - e.xyy),
+            map(pModel + e.yxy) - map(pModel - e.yxy),
+            map(pModel + e.yyx) - map(pModel - e.yyx)
+        );
+
+        float gradLen = length(grad) / 0.002;
+
+        // 2. LO SCUDO ANTI-SFILETTATURA
+        // Se il gradiente crolla a zero (colpa di un abs() nella formula)
+        // o esplode verso l'infinito, lo forziamo in un range di sicurezza.
+        // Questo salva il Gyroid e salva le equazioni dell'utente.
+        gradLen = max(gradLen, 0.2);
+
+        // 3. Normalizzazione universale della distanza
+        d = val / gradLen;
+
+        // 4. Hit test dinamico (più lontani siamo, meno siamo pignoli)
+        float hitThreshold = max(0.0005, 0.001 * t_dist);
+
+        if(abs(d) < hitThreshold) {
+            hit = true;
+            break;
+        }
+
+        if(t_dist > 50.0) break;
+
+        // 5. Avanzamento assistito
+        t_dist += clamp(abs(d) * stepRelax, 0.0001, 0.5);
+    }
+
+    // --- SHADING ---
+    if(hit) {
+        vec3 n_model = calcNormal(pModel);
+        vec3 viewDir_model = -rayDir; // La telecamera guarda in direzione opposta al raggio
+
+        // +++ 1. CALCOLO DELL'AMBIENT OCCLUSION +++
+        float ao = calcAO(pModel, n_model);
+
+        // 2. Definiamo le luci FISSE rispetto alla TELECAMERA
+        vec3 mainLight_cam = normalize(vec3(1.0, 1.5, 1.0));   // Luce principale (Sole)
+        vec3 backLight_cam = normalize(vec3(-1.0, -0.5, -2.0)); // Luce secondaria (Riflesso del terreno)
+
+        // Trasformiamo le luci nello spazio del modello
+        mat3 camToModel = mat3(inverse(ubuf.u_mvMatrix));
+        vec3 mainLight_model = normalize(camToModel * mainLight_cam);
+        vec3 backLight_model = normalize(camToModel * backLight_cam);
+
+        // Illuminazione a 2 Punti
+        float diffMain = max(dot(n_model, mainLight_model), 0.0);
+        float diffBack = max(dot(n_model, backLight_model), 0.0) * 0.4;
+
+        // +++ 3. APPLICHIAMO L'AO ALLA LUCE AMBIENTALE +++
+        float ambient  = 0.15 * ao;
+        float totalLight = diffMain + diffBack + ambient;
+
+    // --- GESTIONE TEXTURE DINAMICA ---
+        vec3 textureCol = ubuf.color; // Colore base dalla UI
+
+        // Qui viene iniettato il tuo codice (es. textureCol = mix(...))
+        %TEXTURE_CODE%
+
+        // FIX: Usiamo textureCol che contiene il risultato del tuo codice!
+        vec3 baseColor = textureCol * totalLight * ubuf.u_lightIntensity;
+
+        // 4. Luce Speculare
+        float spec = 0.0;
+        if (ubuf.useSpecular != 0 && diffMain > 0.0) {
+            vec3 reflectDir = reflect(-mainLight_model, n_model);
+            float specAngle = max(dot(viewDir_model, reflectDir), 0.0);
+            spec = pow(specAngle, 64.0) * 0.4 * ubuf.u_lightIntensity;
+        }
+
+        FragColor = vec4(baseColor + vec3(spec), ubuf.alpha);
+    } else {
+        discard;
+    }
+}

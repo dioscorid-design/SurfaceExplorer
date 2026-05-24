@@ -53,6 +53,7 @@
         "y": "v* A * sin(u)",
         "z": "(1 - abs(v)) * A * sin(w)"
     },
+    "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {
@@ -61,7 +62,13 @@
         "vMax": 1,
         "vMin": -1,
         "wMax": 2.094395160675049,
-        "wMin": -2.094395160675049
+        "wMin": -2.094395160675049,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
     },
     "name": "Oloid",
     "observer4D": 4,
@@ -103,7 +110,7 @@
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 180,
-        "zoom": 0.09292598068714142
+        "zoom": 1.0000003576278687
     },
     "type": "motion",
     "use4DLighting": false

@@ -1,0 +1,119 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "background": {
+        "code": "// PARAMETRI\nfloat density = 10.0;\n\n// [FIX] Usa i colori del pannello laterale\nvec3 c1 = vec3(1.0, 0.0, 0.0); // Rosso\nvec3 c2 = vec3(1.0, 1.0, 0.0); // Giallo\n\nfloat freq = density * 0.05;\n\n// Coordinate scalate\n// Moltiplichiamo per 25.0 invece di 512*0.05 per semplicità\nfloat xx = u * 25.0; \nfloat yy = v * 25.0;\n\n// --- FORMULA PLASMA ---\nfloat v1 = sin(xx + yy);\nfloat v2 = sin((xx * sin(yy/2.0)) + (yy * cos(xx/3.0)));\n\nfloat cx = xx + 0.5 * sin(yy/5.0);\nfloat cy = yy + 0.5 * cos(xx/3.0);\nfloat v3 = sin(sqrt(100.0 * (cx*cx + cy*cy) + 1.0));\n\nfloat vf = (v1 + v2 + v3) / 3.0;\n\n// [FIX] Rinominato 't' in 'plasmaVal' per evitare conflitti\nfloat plasmaVal = vf * 0.5 + 0.5;\n\nreturn mix(c1, c2, plasmaVal);",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.21501019597053528,
+        "rot_x": -0.47391778230667114,
+        "rot_y": 0.8139246106147766,
+        "rot_z": -0.25826191902160645,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 36.40000915527344
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 0.7300000190734863,
+        "B": 0.7300000190734863,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.0",
+        "x": "(0.8 + 0.3*cos(v))*cos(u)",
+        "y": "(0.8 + 0.3*cos(v))*sin(u)",
+        "z": "0.3*sin(v)"
+    },
+    "implicitEquation": "sin(x)*cos(y)+sin(y)*cos(z)+sin(z)*cos(x)=0",
+    "isImplicitMode": true,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0.10000000149011612,
+        "wMin": 0,
+        "xMax": 7,
+        "xMin": -7,
+        "yMax": 7,
+        "yMin": -7,
+        "zMax": 7,
+        "zMin": -7
+    },
+    "name": "Gyroid",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 1,
+    "renderMode": 11,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0.30000001192092896,
+        "omega": 0,
+        "path3D": 10,
+        "path4D": 10,
+        "phi": 0,
+        "precession": -0.4000000059604645,
+        "psi": 0,
+        "spin": 0.20000000298023224
+    },
+    "steps": 396,
+    "texture": {
+        "code": "//MUSIC: /home/dioscorid/Projects/Presets/Sounds/wav/3322__jovica__dronetail-52.wav\n\n// Velocità e posizione della linea di scansione\nfloat scanSpeed = ubuf.u_time * 3.0;\nfloat scanline = sin(pModel.y * 40.0 - scanSpeed);\n\n// Rende la linea netta e luminosa\nscanline = smoothstep(0.8, 1.0, scanline);\n\n// Usa direttamente ubuf.color senza creare variabili in conflitto!\nvec3 glowColor = vec3(0.0, 1.0, 0.5); // Bagliore ciano/verde\n\ntextureCol = mix(ubuf.color, glowColor, scanline);",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "displacement": "",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}
