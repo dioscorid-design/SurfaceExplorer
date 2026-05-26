@@ -70,6 +70,8 @@ private slots:
     void checkParametricDependency();
     void updateConstraintState();
     void updateConstantsUIState();
+    void performMasterStop();
+    void applyStartSideEffects();
 
     // ==========================================================
     // RENDERING & VISUALS
@@ -232,6 +234,8 @@ private:
     };
     CameraPathMode m_pathMode;
 
+    bool m_masterStopped = false;
+
     // ==========================================================
     // LIBRARY & FILE SYSTEM
     // ==========================================================
@@ -302,10 +306,16 @@ private:
     void hideTopMessage();
 
     // --- Geometry & Geodesic Flow ---
+    void snapshotActiveEquations();
+    void restoreActiveEquations(const QStringList &saved);
+    QStringList readActiveEquations() const;
     void commitUiFieldsDuringMotion();
     bool updateGeodesicMesh();
     void checkAndTriggerMeshUpdate();
     void stopGeodesicAnimation();
+    bool isGeodesicMotionActive() const;
+
+    bool m_geodesicErrorPending = false;
 
     // --- Inline Math Helper ---
     static float det3x3(float a1, float a2, float a3,

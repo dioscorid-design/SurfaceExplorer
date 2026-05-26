@@ -294,7 +294,7 @@ public slots:
     // ==========================================================
     // GEODESIC FLOW CALCULATIONS
     // ==========================================================
-    void triggerGeodesicCalculation();
+    void triggerGeodesicCalculation(); //codice morto da rimuovere
     void setConstants(const QMap<QString, float>& constants) { m_constants = constants; }
 
 private slots:

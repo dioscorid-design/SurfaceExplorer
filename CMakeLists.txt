@@ -83,16 +83,13 @@ qt_add_executable(SurfaceExplorer
     audiocontroller.h
     audiocontroller.cpp
     icon.icns
+    $<$<PLATFORM_ID:iOS>:${CMAKE_CURRENT_SOURCE_DIR}/Assets.xcassets>
     shaders/raymarch_template.txt
     geodesiccalculator.h
     geodesiccalculator.cpp
     inputvalidator.h
     inputvalidator.cpp
     shaders/geodesic.glsl
-
-
-
-
 )
 
 set_source_files_properties(documentation.html PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
@@ -118,22 +115,18 @@ target_link_libraries(SurfaceExplorer PRIVATE
 
 if (IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
     message(STATUS "Configuring for iOS Device...")
-
     set_target_properties(SurfaceExplorer PROPERTIES QT_PLUGINS "darwinmediaplugin")
     qt_import_plugins(SurfaceExplorer
         INCLUDE Qt6::QDarwinMediaPlugin
         EXCLUDE Qt6::QFFmpegMediaPlugin
     )
-
     # 1. FORZATURA GLOBALE DELLA FIRMA (Ferma il bulldozer di CMake)
     set(CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "AJ655XKJR8")
     set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic")
     set(CMAKE_XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.dioscorid.surfaceexplorer")
-
     # 2. Architettura e Versione
     set(CMAKE_OSX_ARCHITECTURES "arm64")
     set(CMAKE_OSX_DEPLOYMENT_TARGET "17.0")
-
     # 3. Proprietà dell'App
     set_target_properties(SurfaceExplorer PROPERTIES
         MACOSX_BUNDLE TRUE
@@ -147,7 +140,17 @@ if (IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
         MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0"
         XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "1"
         XCODE_ATTRIBUTE_MARKETING_VERSION "1.0"
-)
+    )
+
+    # --- App icon via Asset Catalog ---
+    # Copia Assets.xcassets nelle Resources del bundle; Xcode lo compila in
+    # Assets.car automaticamente. ASSETCATALOG_COMPILER_APPICON_NAME dice a
+    # iOS quale icon-set usare come app icon.
+    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/Assets.xcassets
+        PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    set_target_properties(SurfaceExplorer PROPERTIES
+        XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon"
+    )
 
     # 4. Framework di Sistema iOS
     target_link_libraries(SurfaceExplorer PRIVATE
@@ -182,7 +185,7 @@ elseif (APPLE)
         MACOSX_BUNDLE_ICON_FILE "icon.icns"
     )
 
-    # Copia documentation.html dentro l'app (risorsa)
+# Copia documentation.html dentro l'app (risorsa)
     set_source_files_properties(documentation.html PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 
 elseif (UNIX AND NOT ANDROID)

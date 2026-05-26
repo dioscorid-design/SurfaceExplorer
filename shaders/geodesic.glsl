@@ -7,6 +7,13 @@ layout(std430, binding = 0) buffer OutputGrid {
     vec4 grid[];
 };
 
+// Tempo come uniform, niente più re-bake per frame ===
+layout(std140, binding = 1) uniform TimeParams {
+    float u_time;
+};
+#define t u_time
+#define iTime u_time
+
 // Costanti iniettate dal C++
 const float uMin = /*%U_MIN%*/;
 const float uMax = /*%U_MAX%*/;

@@ -803,14 +803,10 @@ void GLWidget::forceTextureRefresh() {
 // ==========================================================
 
 void GLWidget::triggerGeodesicCalculation() {
-    // 1. Verifica che il sistema RHI sia pronto
     if (!rhi()) {
         qWarning() << "RHI non inizializzato, impossibile calcolare geodetiche.";
         return;
     }
-
-    // 2. Chiamata al calcolo GPU tramite l'Engine
-    // Aggiungiamo m_constants come ultimo argomento
     QVector<QVector<QVector4D>> grid = engine->computeGeodesicFlow(
         rhi(),
         m_eqX, m_eqY, m_eqZ, m_eqW,
@@ -819,15 +815,13 @@ void GLWidget::triggerGeodesicCalculation() {
         m_eqLambda,
         m_uboData.u_min, m_uboData.u_max, m_numU_geo,
         m_vMin_geo, m_vMax_geo, m_numV_geo,
-        m_constants
+        m_constants,
+        m_timeGeom
         );
-
-    // 3. Applichiamo la griglia risultante
     if (!grid.isEmpty()) {
         setCustomMesh(grid);
     }
 }
-
 
 // ==========================================================
 // PRIVATE SLOTS

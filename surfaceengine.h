@@ -2,6 +2,7 @@
 #define SURFACEENGINE_H
 
 #include "expressionparser.h"
+#include "geodesiccalculator.h"
 #include <rhi/qrhi.h>
 #include <vector>
 #include <QString>
@@ -77,6 +78,7 @@ public:
         float uMin, float uMax, int numU,
         float vMin, float vMax, int numV,
         const QMap<QString, float>& constants,
+        float currentT,
         QString* outErrorMsg = nullptr);
 
     void setTime(float t);
@@ -205,6 +207,11 @@ private:
     CachedExpression m_exprPathX, m_exprPathY, m_exprPathZ, m_exprPathP;
     CachedExpression m_exprPathAlpha, m_exprPathBeta, m_exprPathGamma;
     CachedExpression m_exprPath3DX, m_exprPath3DY, m_exprPath3DZ, m_exprPath3DR;
+
+    // ==========================================================
+    // GEODESIC FLOW CACHE (GPU pipeline persistente)
+    // ==========================================================
+    GeodesicCalculator m_geoCalc;
 
     // ==========================================================
     // PRIVATE INTERNAL HELPERS

@@ -2822,6 +2822,76 @@ void MainWindow::updateConstantsUIState() {
     updateControl("S", ui->sSlider, ui->lineS);
 }
 
+void MainWindow::performMasterStop()
+{
+    m_masterStopped = true;
+
+    // Ferma le animazioni delle variabili t
+    if (ui->glWidget) {
+        ui->glWidget->setSurfaceAnimating(false);
+        ui->glWidget->setSurfaceTextureAnimating(false);
+        ui->glWidget->setBackgroundTextureAnimating(false);
+    }
+
+    // Ferma il flusso geodetico
+    QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
+    if (geoAnimTimer && geoAnimTimer->isActive()) {
+        geoAnimTimer->stop();
+    }
+
+    // Ferma le rotazioni 3D/4D delegando al suo tasto dedicato
+    if (ui->glWidget && ui->glWidget->isAnimating()) onStopClicked();
+
+    // Ferma i path delegando ai loro tasti dedicati
+    if (pathTimer && pathTimer->isActive()) onDepartureClicked();
+    if (pathTimer3D && pathTimer3D->isActive()) onDeparture3DClicked();
+
+    // Ferma l'audio
+    if (m_audioController && m_audioController->isPlaying()) {
+        m_audioController->stopAll();
+        updateScriptButtonText();
+    }
+
+    // Sincronizza il bottone principale
+    updateMasterButtonState();
+}
+
+void MainWindow::applyStartSideEffects()
+{
+    if (!ui->glWidget) return;
+
+    bool hasRotationSpeed = (std::abs(ui->glWidget->getNutationSpeed()) > 0.001f ||
+                             std::abs(ui->glWidget->getPrecessionSpeed()) > 0.001f ||
+                             std::abs(ui->glWidget->getSpinSpeed()) > 0.001f ||
+                             std::abs(ui->glWidget->getOmegaSpeed()) > 0.001f ||
+                             std::abs(ui->glWidget->getPhiSpeed()) > 0.001f ||
+                             std::abs(ui->glWidget->getPsiSpeed()) > 0.001f);
+    if (hasRotationSpeed && !ui->glWidget->isAnimating()) {
+        onStopClicked(); // Toggle: riavvia le rotazioni
+    }
+
+    bool hasPath4D = !ui->lineX_P->text().isEmpty() && ui->lineX_P->text() != "0";
+    if (hasPath4D && !pathTimer->isActive()) {
+        onDepartureClicked();
+    }
+
+    bool hasPath3D = !ui->lineX_P3D->text().isEmpty() && ui->lineX_P3D->text() != "0";
+    if (hasPath3D && !pathTimer3D->isActive()) {
+        onDeparture3DClicked();
+    }
+
+    if (m_audioController && !m_audioController->isPlaying()) {
+        QString codeToAnalyze = m_soundScriptText + "\n" + m_surfaceScriptText + "\n" +
+                                m_surfaceTextureCode + "\n" + m_bgTextureCode;
+        if (codeToAnalyze.trimmed().isEmpty()) codeToAnalyze = ui->txtScriptEditor->toPlainText();
+
+        if (!codeToAnalyze.trimmed().isEmpty()) {
+            m_audioController->playFromScript(codeToAnalyze);
+            updateScriptButtonText();
+        }
+    }
+}
+
 
 // ==========================================================
 // RENDERING & VISUALS
@@ -3359,36 +3429,12 @@ void MainWindow::updateWLimits() {
 
 void MainWindow::onStartClicked()
 {
+    m_geodesicErrorPending = false;
+
     // --- 1. BLOCCO STOP GLOBALE (MASTER) ---
     if (m_btnStart && m_btnStart->text().toUpper() == "STOP") {
         if (sender() == m_btnStart) {
-
-            // Ferma l'animazione della variabile 't'
-            ui->glWidget->setSurfaceAnimating(false);
-            ui->glWidget->setSurfaceTextureAnimating(false);
-            ui->glWidget->setBackgroundTextureAnimating(false);
-
-            // Ferma il Flusso Geodetico
-            QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
-            if (geoAnimTimer && geoAnimTimer->isActive()) {
-                geoAnimTimer->stop();
-            }
-
-            // Ferma le Rotazioni 3D/4D delegando al suo tasto dedicato
-            if (ui->glWidget->isAnimating()) onStopClicked();
-
-            // Ferma i Path delegando ai loro tasti dedicati
-            if (pathTimer->isActive()) onDepartureClicked();
-            if (pathTimer3D->isActive()) onDeparture3DClicked();
-
-            // Ferma l'Audio
-            if (m_audioController && m_audioController->isPlaying()) {
-                m_audioController->stopAll();
-                updateScriptButtonText();
-            }
-
-            // Sincronizza il bottone principale e interrompe la funzione (non ricompila le equazioni)
-            updateMasterButtonState();
+            performMasterStop();
             return;
         }
     }
@@ -3396,6 +3442,8 @@ void MainWindow::onStartClicked()
     // --- 2. BLOCCO START GLOBALE (MASTER) ---
     if (m_btnStart && m_btnStart->text().toUpper() == "START") {
         if (sender() == m_btnStart) {
+            m_masterStopped = false;
+
             this->setProperty("active_lineX", ui->lineX->toPlainText());
             this->setProperty("active_lineY", ui->lineY->toPlainText());
             this->setProperty("active_lineZ", ui->lineZ->toPlainText());
@@ -3408,43 +3456,6 @@ void MainWindow::onStartClicked()
                 this->setProperty("active_lndV", ui->lndV->toPlainText());
                 this->setProperty("active_lndW", ui->lndW->toPlainText());
                 this->setProperty("active_lineConform", ui->lineConform->toPlainText());
-            }
-
-            // Controlla se ci sono rotazioni e le avvia
-            bool hasRotationSpeed = (std::abs(ui->glWidget->getNutationSpeed()) > 0.001f ||
-                                     std::abs(ui->glWidget->getPrecessionSpeed()) > 0.001f ||
-                                     std::abs(ui->glWidget->getSpinSpeed()) > 0.001f ||
-                                     std::abs(ui->glWidget->getOmegaSpeed()) > 0.001f ||
-                                     std::abs(ui->glWidget->getPhiSpeed()) > 0.001f ||
-                                     std::abs(ui->glWidget->getPsiSpeed()) > 0.001f);
-            if (hasRotationSpeed && !ui->glWidget->isAnimating()) {
-                onStopClicked(); // Agisce come toggle per riavviare
-            }
-
-            // Controlla e avvia Path 4D
-            bool hasPath4D = !ui->lineX_P->text().isEmpty() && ui->lineX_P->text() != "0";
-            if (hasPath4D && !pathTimer->isActive()) {
-                onDepartureClicked();
-            }
-
-            // Controlla e avvia Path 3D
-            bool hasPath3D = !ui->lineX_P3D->text().isEmpty() && ui->lineX_P3D->text() != "0";
-            if (hasPath3D && !pathTimer3D->isActive()) {
-                onDeparture3DClicked();
-            }
-
-            // Controlla e avvia Audio
-            if (m_audioController && !m_audioController->isPlaying()) {
-                // Verifichiamo se c'è effettivamente qualcosa da suonare
-                QString codeToAnalyze = m_soundScriptText + "\n" + m_surfaceScriptText + "\n" + m_surfaceTextureCode + "\n" + m_bgTextureCode;
-                if (codeToAnalyze.trimmed().isEmpty()) codeToAnalyze = ui->txtScriptEditor->toPlainText();
-
-                if (!codeToAnalyze.trimmed().isEmpty()) {
-                    // NON chiamare onRunSoundClicked() perché è un toggle.
-                    // Eseguiamo l'avvio diretto:
-                    m_audioController->playFromScript(codeToAnalyze);
-                    updateScriptButtonText(); // Sincronizza i tasti laterali
-                }
             }
         }
     }
@@ -3778,13 +3789,15 @@ void MainWindow::onStartClicked()
         // Ora updateGeodesicMesh() calcola, verifica e restituisce false se i dati sono corrotti
         // updateGeodesicMesh() returns false if the data is corrupted
         if (!updateGeodesicMesh()) {
-            stopGeodesicAnimation();
+            m_geodesicErrorPending = true;
+            performMasterStop();
             if (this->property("geoErrorType").toString() == "singularity") {
                 InputValidator::showGeodesicSingularityError(this);
             }
             return;
         }
 
+        applyStartSideEffects();
         ui->glWidget->update();
         return;
     }
@@ -3943,6 +3956,7 @@ void MainWindow::onStartClicked()
         return; // Ferma l'invio alla GPU!
     }
 
+    applyStartSideEffects();
     ui->glWidget->update();
 }
 
@@ -4913,6 +4927,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             ui->glWidget->setSurfaceTextureAnimating(true);
         }
 
+        updateMasterButtonState();
         return;
     }
 
@@ -5718,6 +5733,8 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
 
     // 2. Deduzione corretta
     bool isScript = data.isScript || (!data.scriptCode.isEmpty() && !hasValidEquations);
+
+    snapshotActiveEquations();
 
     if (!isScript) {
         onStartClicked();
@@ -7843,11 +7860,12 @@ void MainWindow::updateMasterButtonState()
 }
 
 void MainWindow::applyAnimationState(bool animated) {
+    const bool effective = animated && !m_masterStopped;
+
     if (ui->glWidget) {
-        // Avvia/ferma TUTTI gli orologi contemporaneamente
-        ui->glWidget->setSurfaceAnimating(animated);
-        ui->glWidget->setSurfaceTextureAnimating(animated);
-        ui->glWidget->setBackgroundTextureAnimating(animated);
+        ui->glWidget->setSurfaceAnimating(effective);
+        ui->glWidget->setSurfaceTextureAnimating(effective);
+        ui->glWidget->setBackgroundTextureAnimating(effective);
     }
 
     updateMasterButtonState();
@@ -7931,85 +7949,98 @@ void MainWindow::hideTopMessage()
 
  // --- Geometry & Geodesic Flow ---
 
-void MainWindow::commitUiFieldsDuringMotion() {
-    // Agisce solo se l'animazione è effettivamente in corso (tasto su STOP)
+// Nomi delle Q_PROPERTY che fungono da snapshot stabile delle equazioni
+// geodetiche durante il loop di animazione. L'ordine deve combaciare con
+// quello letto in updateGeodesicMesh() e con i campi UI corrispondenti.
+namespace {
+constexpr const char* kActiveEqProps[] = {
+    "active_lineX", "active_lineY", "active_lineZ", "active_lineP",
+    "active_lnU",   "active_lnV",   "active_lnW",
+    "active_lndU",  "active_lndV",  "active_lndW",
+    "active_lineConform"
+};
+}
 
+void MainWindow::snapshotActiveEquations() {
+    // Salva il testo correntemente nei campi UI nelle proprietà active_*.
+    // Va chiamato ogni volta che il "set di equazioni correntemente in
+    // esecuzione" cambia: click su START, caricamento di un preset,
+    // commit di un edit in volo. updateGeodesicMesh() e il suo timer
+    // useranno questi valori come fonte stabile invece della UI.
+    setProperty("active_lineX", ui->lineX->toPlainText());
+    setProperty("active_lineY", ui->lineY->toPlainText());
+    setProperty("active_lineZ", ui->lineZ->toPlainText());
+    setProperty("active_lineP", ui->lineP->toPlainText());
+    if (ui->lnU) {
+        setProperty("active_lnU",   ui->lnU->toPlainText());
+        setProperty("active_lnV",   ui->lnV->toPlainText());
+        setProperty("active_lnW",   ui->lnW->toPlainText());
+        setProperty("active_lndU",  ui->lndU->toPlainText());
+        setProperty("active_lndV",  ui->lndV->toPlainText());
+        setProperty("active_lndW",  ui->lndW->toPlainText());
+        setProperty("active_lineConform", ui->lineConform->toPlainText());
+    }
+}
+
+QStringList MainWindow::readActiveEquations() const {
+    QStringList out;
+    out.reserve(int(std::size(kActiveEqProps)));
+    for (const char* name : kActiveEqProps) {
+        out << property(name).toString();
+    }
+    return out;
+}
+
+void MainWindow::restoreActiveEquations(const QStringList &saved) {
+    Q_ASSERT(saved.size() == int(std::size(kActiveEqProps)));
+    for (size_t i = 0; i < std::size(kActiveEqProps); ++i) {
+        setProperty(kActiveEqProps[i], saved[int(i)]);
+    }
+}
+
+void MainWindow::commitUiFieldsDuringMotion() {
     if (!m_btnStart || m_btnStart->text().toUpper() != "STOP") return;
+    if (m_geodesicErrorPending) return;   // gate: niente operazioni mentre c'è un errore pendente
+
     QString mainEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
-            ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText();
+                      ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText();
     int upperCount = (mainEqs.contains(QRegularExpression("\\bU\\b")) ? 1 : 0) +
-            (mainEqs.contains(QRegularExpression("\\bV\\b")) ? 1 : 0) +
-            (mainEqs.contains(QRegularExpression("\\bW\\b")) ? 1 : 0);
+                     (mainEqs.contains(QRegularExpression("\\bV\\b")) ? 1 : 0) +
+                     (mainEqs.contains(QRegularExpression("\\bW\\b")) ? 1 : 0);
     bool geoHasText = false;
     if (ui->lnU) {
         geoHasText = !ui->lnU->toPlainText().trimmed().isEmpty() ||
-                !ui->lnV->toPlainText().trimmed().isEmpty() ||
-                !ui->lnW->toPlainText().trimmed().isEmpty() ||
-                !ui->lndU->toPlainText().trimmed().isEmpty() ||
-                !ui->lndV->toPlainText().trimmed().isEmpty() ||
-                !ui->lndW->toPlainText().trimmed().isEmpty();
+                     !ui->lnV->toPlainText().trimmed().isEmpty() ||
+                     !ui->lnW->toPlainText().trimmed().isEmpty() ||
+                     !ui->lndU->toPlainText().trimmed().isEmpty() ||
+                     !ui->lndV->toPlainText().trimmed().isEmpty() ||
+                     !ui->lndW->toPlainText().trimmed().isEmpty();
     }
     bool isGeodesicActive = (upperCount > 0) && geoHasText &&
-            (ui->tabModeSelector->currentIndex() == 0);
+                            (ui->tabModeSelector->currentIndex() == 0);
     if (!isGeodesicActive) {
         onStartClicked();
         return;
     }
 
-    // Salvataggio transazionale dello stato precedente valido
-    QString oldX = this->property("active_lineX").toString();
-    QString oldY = this->property("active_lineY").toString();
-    QString oldZ = this->property("active_lineZ").toString();
-    QString oldP = this->property("active_lineP").toString();
-    QString oldU = this->property("active_lnU").toString();
-    QString oldV = this->property("active_lnV").toString();
-    QString oldW = this->property("active_lnW").toString();
-    QString oldDU = this->property("active_lndU").toString();
-    QString oldDV = this->property("active_lndV").toString();
-    QString oldDW = this->property("active_lndW").toString();
-    QString oldConf = this->property("active_lineConform").toString();
+    // Snapshot dei valori attuali prima di provare i nuovi.
+    const QStringList previous = readActiveEquations();
 
-    // Carica temporaneamente i nuovi testi digitati dall'utente nelle proprietà attive
-    this->setProperty("active_lineX", ui->lineX->toPlainText());
-    this->setProperty("active_lineY", ui->lineY->toPlainText());
-    this->setProperty("active_lineZ", ui->lineZ->toPlainText());
-    this->setProperty("active_lineP", ui->lineP->toPlainText());
-    if (ui->lnU) {
-        this->setProperty("active_lnU", ui->lnU->toPlainText());
-        this->setProperty("active_lnV", ui->lnV->toPlainText());
-        this->setProperty("active_lnW", ui->lnW->toPlainText());
-        this->setProperty("active_lndU", ui->lndU->toPlainText());
-        this->setProperty("active_lndV", ui->lndV->toPlainText());
-        this->setProperty("active_lndW", ui->lndW->toPlainText());
-        this->setProperty("active_lineConform", ui->lineConform->toPlainText());
+    // Tentativo: applichiamo i nuovi e validiamo.
+    snapshotActiveEquations();
+    if (updateGeodesicMesh()) {
+        return;  // OK: i nuovi valori restano nelle active_*, il moto continua.
     }
 
-    // Esegue un dry-run di validazione calcolando la mesh
-    if (!updateGeodesicMesh()) {
-        // Se la nuova espressione fallisce (es. contiene errori), il popup viene mostrato,
-        // ma ripristiniamo immediatamente i vecchi dati validi per non interrompere il moto.
-        this->setProperty("active_lineX", oldX);
-        this->setProperty("active_lineY", oldY);
-        this->setProperty("active_lineZ", oldZ);
-        this->setProperty("active_lineP", oldP);
-        if (ui->lnU) {
-            this->setProperty("active_lnU", oldU);
-            this->setProperty("active_lnV", oldV);
-            this->setProperty("active_lnW", oldW);
-            this->setProperty("active_lndU", oldDU);
-            this->setProperty("active_lndV", oldDV);
-            this->setProperty("active_lndW", oldDW);
-            this->setProperty("active_lineConform", oldConf);
-        }
-        // Forza un ricalcolo di ripristino per mantenere la stabilità della GPU
-        updateGeodesicMesh();
-    }
+    restoreActiveEquations(previous);
 }
 
 bool MainWindow::updateGeodesicMesh()
 {
     // Resettiamo il flag degli errori per questa esecuzione
     this->setProperty("geoErrorType", "none");
+
+    if (m_geodesicErrorPending) return false;
 
     // --- 1. LETTURA E VALIDAZIONE DEI LIMITI (U/V sempre attivi nel geodesic) ---
     QVector<InputValidator::LimitField> limitFields = {
@@ -8039,12 +8070,6 @@ bool MainWindow::updateGeodesicMesh()
     // 1. GESTIONE TEMPO (Animazione)
     double t = this->property("geoTime").toDouble();
 
-    auto injectT = [t](const QString& eq) {
-        QString res = eq;
-        res.replace(QRegularExpression("\\b(t|iTime|u_time)\\b"), QString("(%1)").arg(t, 0, 'f', 4));
-        return res;
-    };
-
     if (this->property("isInitialLoad").toBool()) {
         if (ui->glWidget) ui->glWidget->setUpdatesEnabled(false);
         if (m_statusLabel) {
@@ -8053,8 +8078,8 @@ bool MainWindow::updateGeodesicMesh()
         this->setProperty("isInitialLoad", false);
     }
 
-    // --- NUOVA LOGICA DI DISACCOPPIAMENTO PER IL MOTO CORRENTE ---
-    bool isRunning = (m_btnStart && m_btnStart->text().toUpper() == "STOP");
+    // --- LOGICA DI DISACCOPPIAMENTO PER IL MOTO CORRENTE ---
+    bool isRunning = isGeodesicMotionActive();
 
     QString rawX = (isRunning && this->property("active_lineX").isValid()) ? this->property("active_lineX").toString() : ui->lineX->toPlainText();
     QString rawY = (isRunning && this->property("active_lineY").isValid()) ? this->property("active_lineY").toString() : ui->lineY->toPlainText();
@@ -8070,27 +8095,11 @@ bool MainWindow::updateGeodesicMesh()
     QString rawDW = (isRunning && this->property("active_lndW").isValid()) ? this->property("active_lndW").toString() : (ui->lndW ? ui->lndW->toPlainText() : "");
 
     QString rawConf = (isRunning && this->property("active_lineConform").isValid()) ? this->property("active_lineConform").toString() : (ui->lineConform ? ui->lineConform->toPlainText() : "");
-
-    // INIETTIAMO LA VARIABILE TEMPO 't' SULLE STRINGHE DISACCOPPIATE PROTETTE
-    QString eqX_val = injectT(rawX);
-    QString eqY_val = injectT(rawY);
-    QString eqZ_val = injectT(rawZ);
-    QString eqP_val = injectT(rawP);
-
-    QString eqU_val = injectT(rawU);
-    QString eqV_val = injectT(rawV);
-    QString eqW_val = injectT(rawW);
-
-    QString eqDu_val = injectT(rawDU);
-    QString eqDv_val = injectT(rawDV);
-    QString eqDw_val = injectT(rawDW);
-
-    QString eqConf_val = injectT(rawConf);
     // --- FINE LOGICA DI DISACCOPPIAMENTO ---
 
     QRegularExpression varRegex("\\b(u|v|w|U|V|W|x|y|z|t|iTime|u_time)\\b");
 
-    if (!eqConf_val.contains(varRegex)) {
+    if (!rawConf.contains(varRegex)) {
         float valA = ui->aSlider->value() / 100.0f;
         float valB = ui->bSlider->value() / 100.0f;
         float valC = ui->cSlider->value() / 100.0f;
@@ -8099,10 +8108,11 @@ bool MainWindow::updateGeodesicMesh()
         float valF = ui->fSlider->value() / 100.0f;
         float valS = ui->sSlider->value() / 100.0f;
 
-        float lambdaVal = parseUIConstant(eqConf_val, valA, valB, valC, valD, valE, valF, valS);
+        float lambdaVal = parseUIConstant(rawConf, valA, valB, valC, valD, valE, valF, valS);
 
         if (lambdaVal <= 1e-8f) {
-            stopGeodesicAnimation();
+            m_geodesicErrorPending = true;
+            performMasterStop();                                    // <-- cambiato
             InputValidator::showInvalidConformalConstantError(this);
             return false;
         }
@@ -8126,34 +8136,40 @@ bool MainWindow::updateGeodesicMesh()
     // 3. CALCOLO SINCRONO SU GPU
     QVector<QVector<QVector4D>> grid = engine->computeGeodesicFlow(
                 rhi,
-                eqX_val, eqY_val, eqZ_val, eqP_val,
-                eqU_val, eqV_val, eqW_val,
-                eqDu_val, eqDv_val, eqDw_val,
-                eqConf_val,
+                rawX, rawY, rawZ, rawP,
+                rawU, rawV, rawW,
+                rawDU, rawDV, rawDW,
+                rawConf,
                 uMin, uMax, safeSteps,
                 vMin, vMax, safeSteps,
                 constantsMap,
+                static_cast<float>(t),       // <--- NUOVO: tempo come uniform
                 &shaderError
                 );
 
     // --- GESTIONE DEGLI ERRORI ---
     if (grid.isEmpty()) {
         if (!shaderError.isEmpty()) {
-            // Sfruttiamo InputValidator per mostrare l'errore di sintassi
+            // Errore di sintassi shader: il popup lo mostriamo qui perché tutti
+            // i chiamanti reagirebbero allo stesso modo.
+            m_geodesicErrorPending = true;
+            performMasterStop();
             InputValidator::showShaderCompilationError(this, "Geodesic Shader Error", shaderError);
             this->setProperty("geoErrorType", "syntax");
         } else {
-            // Segnaliamo al chiamante che si tratta di un collasso matematico puro
+            m_geodesicErrorPending = true;
+            performMasterStop();
             this->setProperty("geoErrorType", "singularity");
         }
-        return false; // Interrompiamo l'aggiornamento della UI/rendering
+        return false;
     }
 
     // 4. APPLICHIAMO IMMEDIATAMENTE IL RISULTATO
     if (!grid.isEmpty()) {
         if (!ui->glWidget->setCustomMesh(grid)) {
+            m_geodesicErrorPending = true;
+            performMasterStop();
             this->setProperty("geoErrorType", "singularity");
-            stopGeodesicAnimation();
             return false;
         }
 
@@ -8188,8 +8204,9 @@ bool MainWindow::updateGeodesicMesh()
             this->setProperty("geoTime", currentT + 0.015);
 
             if (!updateGeodesicMesh()) {
-                stopGeodesicAnimation();
-                InputValidator::showAnimatedGeodesicSingularityError(this);
+                if (this->property("geoErrorType").toString() == "singularity") {
+                    InputValidator::showAnimatedGeodesicSingularityError(this);
+                }
             }
         });
     }
@@ -8258,7 +8275,6 @@ void MainWindow::checkAndTriggerMeshUpdate() {
     }
 }
 
-// In mainwindow.cpp:
 void MainWindow::stopGeodesicAnimation()
 {
     QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
@@ -8272,6 +8288,22 @@ void MainWindow::stopGeodesicAnimation()
             ui->glWidget->setUpdatesEnabled(true);
     }
 }
+
+bool MainWindow::isGeodesicMotionActive() const {
+    // Sorgente di verità: il timer di animazione geodetica.
+    // Sostituisce il proxy `m_btnStart->text() == "STOP"`, che è
+    // uno stato derivato e può transitare prima che le proprietà
+    // active_* siano coerenti — è esattamente il pattern che ha
+    // causato il bug del caricamento preset geodetico.
+    QTimer* t = findChild<QTimer*>("geoAnimTimer");
+    return t && t->isActive();
+}
+
+
+// ==========================================
+// PROTECTED
+// ==========================================
+
 
 void MainWindow::changeEvent(QEvent* event)
 {

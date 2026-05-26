@@ -143,12 +143,14 @@ QVector<QVector<QVector4D>> SurfaceEngine::computeGeodesicFlow(
     float uMin, float uMax, int numU,
     float vMin, float vMax, int numV,
     const QMap<QString, float>& constants,
-    QString* outErrorMsg) // <--- AGGIUNTO QUI
+    float currentT,
+    QString* outErrorMsg)
 {
-    return GeodesicCalculator::computeGeodesicFlow(
+    return m_geoCalc.computeGeodesicFlow(
         rhi,
-        eqX, eqY, eqZ, eqP, eqU, eqV, eqW, eqDu, eqDv, eqDw,
-        eqLambda, uMin, uMax, numU, vMin, vMax, numV, constants,
+        eqX, eqY, eqZ, eqP, eqU, eqV, eqW, eqDu, eqDv, eqDw, eqLambda,
+        uMin, uMax, numU, vMin, vMax, numV, constants,
+        currentT,
         outErrorMsg);
 }
 
