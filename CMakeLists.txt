@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 project(SurfaceExplorer LANGUAGES CXX)
 
+if(WIN32)
+    enable_language(RC)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_PCH_INSTANTIATE_TEMPLATES ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -83,6 +87,7 @@ qt_add_executable(SurfaceExplorer
     audiocontroller.h
     audiocontroller.cpp
     icon.icns
+    $<$<PLATFORM_ID:Windows>:${CMAKE_CURRENT_SOURCE_DIR}/app.rc>
     $<$<PLATFORM_ID:iOS>:${CMAKE_CURRENT_SOURCE_DIR}/Assets.xcassets>
     shaders/raymarch_template.txt
     geodesiccalculator.h
@@ -204,13 +209,14 @@ elseif (UNIX AND NOT ANDROID)
     # 2. Installa il file .desktop per il menu
     install(FILES SurfaceExplorer.desktop DESTINATION share/applications)
 
-    # 3. Installa l'icona nella cartella di sistema rinominandola come richiesto dal file .desktop
-    # (Icon=surface-explorer nel file .desktop cerca surface-explorer.png)
-    install(FILES icon.png
-            DESTINATION share/icons/hicolor/48x48/apps
+    # 3. Installa l'icona in tutte le dimensioni standard hicolor
+    # (Icon=surface-explorer nel file .desktop cerca surface-explorer.png
+    # nella cartella corrispondente alla risoluzione richiesta dal DE)
+    foreach(_size 16 22 24 32 48 64 128 256 512)
+        install(FILES linux-icons/icon_${_size}.png
+            DESTINATION share/icons/hicolor/${_size}x${_size}/apps
             RENAME surface-explorer.png)
-
-    # ------------------------------
+    endforeach()
 endif()
 
 # =========================================================

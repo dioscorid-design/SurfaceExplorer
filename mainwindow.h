@@ -286,7 +286,7 @@ private:
     float parseMath(const QString &text, bool *ok = nullptr);
     float parseUIConstant(const QString &exprStr, float A, float B, float C, float D, float E, float F, float S);
     QString composeEquation(const QString &eq, const QString &uDef, const QString &vDef, const QString &wDef);
-    void parseAndApplyScriptParams(const QString &scriptCode);
+    void parseAndApplyScriptParams(const QString &scriptCode, bool restartAudio = true);
     bool hasTimeVariable(const QString& code);
     QString extractAndResolveImagePath(const QString& scriptCode);
     QString extractAudioDirectives(const QString& fullText);

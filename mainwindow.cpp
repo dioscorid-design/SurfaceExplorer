@@ -1515,6 +1515,7 @@ MainWindow::MainWindow(QWidget *parent)
                 ui->txtScriptEditor->setPlainText(m_bgTextureScriptText);
                 ui->txtScriptEditor->blockSignals(oldBlock);
                 ui->btnRunCurrentScript->setText("Run Background Texture");
+                updateScriptButtonText();
             }
 
             bool bgTexActive = ui->glWidget->isBackgroundTextureEnabled();
@@ -1548,6 +1549,7 @@ MainWindow::MainWindow(QWidget *parent)
                 ui->txtScriptEditor->setPlainText(m_surfaceTextureScriptText);
                 ui->txtScriptEditor->blockSignals(oldBlock);
                 ui->btnRunCurrentScript->setText("Run Surface Texture");
+                updateScriptButtonText();
             }
 
             ui->radioEditSurf->setEnabled(true);
@@ -2573,26 +2575,10 @@ void MainWindow::checkParametricDependency()
     ui->lineExplicitV->setEnabled(needsConstraint);
     ui->lineExplicitW->setEnabled(needsConstraint);
 
-    if (!needsConstraint) {
-        ui->lineExplicitU->blockSignals(true); ui->lineExplicitU->clear(); ui->lineExplicitU->blockSignals(false);
-        ui->lineExplicitV->blockSignals(true); ui->lineExplicitV->clear(); ui->lineExplicitV->blockSignals(false);
-        ui->lineExplicitW->blockSignals(true); ui->lineExplicitW->clear(); ui->lineExplicitW->blockSignals(false);
-
-        if (ui->glWidget && ui->glWidget->getEngine()) {
-            ui->glWidget->getEngine()->setExplicitW("");
-        }
-    }
-
     // 4. Applica stato fisico ai campi Composition
     ui->lineU->setEnabled(needsComposition && hasRaw_U);
     ui->lineV->setEnabled(needsComposition && hasRaw_V);
     ui->lineW->setEnabled(needsComposition && hasRaw_W);
-
-    if (!needsComposition) {
-        ui->lineU->blockSignals(true); ui->lineU->clear(); ui->lineU->blockSignals(false);
-        ui->lineV->blockSignals(true); ui->lineV->clear(); ui->lineV->blockSignals(false);
-        ui->lineW->blockSignals(true); ui->lineW->clear(); ui->lineW->blockSignals(false);
-    }
 
     // 5. Applica stato fisico ai campi Geodesic
     if (ui->lnU) {
@@ -2602,15 +2588,6 @@ void MainWindow::checkParametricDependency()
         ui->lndU->setEnabled(needsGeodesic);
         ui->lndV->setEnabled(needsGeodesic);
         ui->lndW->setEnabled(needsGeodesic);
-
-        if (!needsGeodesic) {
-            ui->lnU->blockSignals(true); ui->lnU->clear(); ui->lnU->blockSignals(false);
-            ui->lnV->blockSignals(true); ui->lnV->clear(); ui->lnV->blockSignals(false);
-            ui->lnW->blockSignals(true); ui->lnW->clear(); ui->lnW->blockSignals(false);
-            ui->lndU->blockSignals(true); ui->lndU->clear(); ui->lndU->blockSignals(false);
-            ui->lndV->blockSignals(true); ui->lndV->clear(); ui->lndV->blockSignals(false);
-            ui->lndW->blockSignals(true); ui->lndW->clear(); ui->lndW->blockSignals(false);
-        }
     }
 
     // 6. ANALISI COMPOSTA: Accensione degli Slider (Rigidamente Case-Sensitive!)
@@ -2679,16 +2656,6 @@ void MainWindow::updateConstraintState()
     auto applyLimitsState = [](QLineEdit* minEdit, QLineEdit* maxEdit, bool enable) {
         minEdit->setEnabled(enable);
         maxEdit->setEnabled(enable);
-
-        if (!enable) {
-            bool b1 = minEdit->blockSignals(true);
-            minEdit->clear();
-            minEdit->blockSignals(b1);
-
-            bool b2 = maxEdit->blockSignals(true);
-            maxEdit->clear();
-            maxEdit->blockSignals(b2);
-        }
     };
 
     if (hasConstraintU) {
@@ -2867,7 +2834,7 @@ void MainWindow::applyStartSideEffects()
                              std::abs(ui->glWidget->getPhiSpeed()) > 0.001f ||
                              std::abs(ui->glWidget->getPsiSpeed()) > 0.001f);
     if (hasRotationSpeed && !ui->glWidget->isAnimating()) {
-        onStopClicked(); // Toggle: riavvia le rotazioni
+        onStopClicked();
     }
 
     bool hasPath4D = !ui->lineX_P->text().isEmpty() && ui->lineX_P->text() != "0";
@@ -3334,6 +3301,7 @@ void MainWindow::handleTextureSelection(int index)
             bool success = ui->glWidget->validateAndApplyImplicitShader(implicitEqF, rmTexCode, data.displacementCode);
 
             if (!success) {
+                performMasterStop();
                 InputValidator::showShaderCompilationError(this, "Preset Shader Error", ui->glWidget->getShaderError());
                 ui->glWidget->setTextureCode("");
                 ui->glWidget->setTextureEnabled(false);
@@ -3510,12 +3478,127 @@ void MainWindow::onStartClicked()
 
     // 2.5. RIPRESA PER GLI SCRIPT
     if (ui->glWidget->getEngine()->isScriptModeActive()) {
-        QString currentScript = ui->txtScriptEditor->toPlainText();
+        QString currentScript = (m_currentScriptMode == ScriptModeSurface)
+                ? ui->txtScriptEditor->toPlainText()
+                : m_surfaceScriptText;
 
-        if (hasTimeVariable(currentScript)) {
+        // Ri-valida lo script corrente prima di riprendere: se contiene un
+        // errore non corretto NON facciamo ripartire il moto (come le equazioni).
+        QString glslBody;
+        QString copy = currentScript;
+        QTextStream stream(&copy);
+        while (!stream.atEnd()) {
+            QString line = stream.readLine();
+            if (line.contains(":=")) continue;
+            glslBody.append(line + "\n");
+        }
+        glslBody = GlslTranslator::translateEquation(glslBody);
+
+        const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
+        const bool ok = isImplicit
+                ? ui->glWidget->validateAndApplyImplicitScript(glslBody)
+                : ui->glWidget->validateAndApplyParametricScript(glslBody);
+
+        if (!ok) {
+            InputValidator::showShaderCompilationError(this,
+                                                       "Script Compilation Error", ui->glWidget->getShaderError());
+            return;
+        }
+
+        if (ui->tabModeSelector->currentIndex() == 1) {
+            QString texCode = ui->lineTexture->toPlainText();
+            QString dispCode = ui->lineVariations->toPlainText();
+
+            // Controllo parentesi (popup di "Unmatched parentheses" chiaro)
+            auto stripComments = [](QString s) {
+                s.remove(QRegularExpression(R"(//.*$)", QRegularExpression::MultilineOption));
+                s.remove(QRegularExpression(R"(/\*.*?\*/)", QRegularExpression::DotMatchesEverythingOption));
+                return s;
+            };
+            if (!InputValidator::validateParentheses(this, stripComments(texCode))) return;
+            if (!InputValidator::validateParentheses(this, stripComments(dispCode))) return;
+
+            // Validazione compilazione GLSL completa per texture+displacement
+            if (!ui->glWidget->validateAndApplyTextureDisplacement(texCode, dispCode)) {
+                InputValidator::showShaderCompilationError(this,
+                                                           "Texture/Displacement Compilation Error",
+                                                           ui->glWidget->getShaderError());
+                return;
+            }
+
+            // BACKGROUND (anche in ray marching): stesso gate del ramo parametrico.
+            // Lo sfondo è comune alle due modalità, ma qui non era validato.
+            if (ui->glWidget->isBackgroundTextureEnabled()) {
+                QString bgSrc = (m_currentScriptMode == ScriptModeTexture && ui->radioBackground->isChecked())
+                        ? ui->txtScriptEditor->toPlainText()
+                        : m_bgTextureScriptText;
+                bool bgHasLogic = bgSrc.contains("return") || bgSrc.contains("vec3")
+                        || bgSrc.contains("vec4") || bgSrc.contains("mainImage");
+                if (bgHasLogic) {
+                    if (!ui->glWidget->validateAndApplyBackgroundShader(bgSrc)) {
+                        InputValidator::showShaderCompilationError(this,
+                                                                   "Syntax Error (Background Texture)", ui->glWidget->getShaderError());
+                        return;
+                    }
+                    m_bgTextureCode = bgSrc; // applicata e valida: committa
+                }
+            }
+        } else {
+            if (!ui->radioBackground->isChecked() && ui->chkBoxTexture->isChecked()) {
+                QString texSrc = (m_currentScriptMode == ScriptModeTexture)
+                        ? ui->txtScriptEditor->toPlainText()
+                        : m_surfaceTextureScriptText;
+                bool texHasLogic = texSrc.contains("return") || texSrc.contains("vec3")
+                        || texSrc.contains("vec4") || texSrc.contains("mainImage");
+                if (texHasLogic) {
+                    if (!ui->glWidget->validateAndApplyParametricShader(texSrc)) {
+                        InputValidator::showShaderCompilationError(this,
+                                                                   "Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
+                        return;
+                    }
+                    m_surfaceTextureCode = texSrc; // applicata e valida: committa
+                }
+            }
+            if (ui->glWidget->isBackgroundTextureEnabled()) {
+                QString bgSrc = (m_currentScriptMode == ScriptModeTexture && ui->radioBackground->isChecked())
+                        ? ui->txtScriptEditor->toPlainText()
+                        : m_bgTextureScriptText;
+                bool bgHasLogic = bgSrc.contains("return") || bgSrc.contains("vec3")
+                        || bgSrc.contains("vec4") || bgSrc.contains("mainImage");
+                if (bgHasLogic) {
+                    if (!ui->glWidget->validateAndApplyBackgroundShader(bgSrc)) {
+                        InputValidator::showShaderCompilationError(this,
+                                                                   "Syntax Error (Background Texture)", ui->glWidget->getShaderError());
+                        return;
+                    }
+                    m_bgTextureCode = bgSrc; // applicata e valida: committa
+                }
+            }
+        }
+
+        {
+            QString soundSrc = (m_currentScriptMode == ScriptModeSound)
+                    ? ui->txtScriptEditor->toPlainText()
+                    : m_soundScriptText;
+            if (!soundSrc.trimmed().isEmpty()) {
+                QString audioErr;
+                if (!m_audioController->validateScript(soundSrc, &audioErr)) {
+                    InputValidator::showShaderCompilationError(this,
+                                                               "Syntax Error (Sound Script)",
+                                                               audioErr.isEmpty() ? "Audio shader compilation failed." : audioErr);
+                    return;
+                }
+                // Bozza valida: committa, così applyStartSideEffects suona questa.
+                if (m_currentScriptMode == ScriptModeSound) m_soundScriptText = soundSrc;
+            }
+        }
+
+
+        if (hasTimeVariable(currentScript + "\n" + m_surfaceTextureCode + "\n" + m_bgTextureCode)) {
             applyAnimationState(true);
         }
 
+        applyStartSideEffects();
         ui->glWidget->update();
         return;
     }
@@ -3561,10 +3644,9 @@ void MainWindow::onStartClicked()
                                         QRegularExpression::DotMatchesEverythingOption));
             return s;
         };
-        if (!InputValidator::validateParentheses(this, stripComments(texCode)))
-            return;
-        if (!InputValidator::validateParentheses(this, stripComments(dispCode)))
-            return;
+        if (!InputValidator::validateParentheses(this, stripComments(texCode))) return;
+
+        if (!InputValidator::validateParentheses(this, stripComments(dispCode))) return;
 
         ui->glWidget->setTextureCode(texCode);
 
@@ -3626,6 +3708,7 @@ void MainWindow::onStartClicked()
         }
 
         ui->glWidget->rebuildShader();
+        applyStartSideEffects();
         ui->glWidget->update();
         return;
     }
@@ -3667,7 +3750,7 @@ void MainWindow::onStartClicked()
         {"Explicit U", ui->lineExplicitU->toPlainText()},
         {"Explicit V", ui->lineExplicitV->toPlainText()},
         {"Explicit W", ui->lineExplicitW->toPlainText()},
-    })) return;
+    }))  return;
 
     // --- BLOCCO VALIDAZIONE COMPOSITION & GEODESIC FLOW ---
     QString cU = ui->lineU->toPlainText().trimmed();
@@ -3697,22 +3780,14 @@ void MainWindow::onStartClicked()
 
     QVector<float> limitValues;
     auto parseFn = [this](const QString& s, bool* ok) { return this->parseMath(s, ok); };
-    if (!InputValidator::validateAndParseLimits(this, limitFields, parseFn, limitValues)) {
-        ui->glWidget->setSurfaceAnimating(false);
-        if (m_btnStart) m_btnStart->setText("START");
-        return;
-    }
+    if (!InputValidator::validateAndParseLimits(this, limitFields, parseFn, limitValues)) return;
 
     float uMin = limitValues[0], uMax = limitValues[1];
     float vMin = limitValues[2], vMax = limitValues[3];
     float wMin = limitValues[4], wMax = limitValues[5];
 
     // Controllo distrazione dell'utente (Min >= Max) solo sulle variabili in uso!
-    if (!InputValidator::validateLimits(this, uMin, uMax, uActive, vMin, vMax, vActive, wMin, wMax, wActive)) {
-        ui->glWidget->setSurfaceAnimating(false);
-        if (m_btnStart) m_btnStart->setText("START");
-        return;
-    }
+    if (!InputValidator::validateLimits(this, uMin, uMax, uActive, vMin, vMax, vActive, wMin, wMax, wActive)) return;
 
     // --- AGGIORNAMENTO UI: Svuota e disabilita i limiti W in modalità Composition ---
     bool has_U = mainEqs.contains(QRegularExpression("\\bU\\b"));
@@ -3767,12 +3842,8 @@ void MainWindow::onStartClicked()
             {"du/dt",            ui->lndU->toPlainText()},
             {"dv/dt",            ui->lndV->toPlainText()},
             {"dw/dt",            ui->lndW->toPlainText()},
-            {"Conformal Factor", ui->lineConform->toPlainText()},
-        })) {
-            ui->glWidget->setSurfaceAnimating(false);
-            if (m_btnStart) m_btnStart->setText("START");
-            return;
-        }
+        {"Conformal Factor", ui->lineConform->toPlainText()},
+    })) return;
 
         QString geoEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
                 ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
@@ -3783,20 +3854,15 @@ void MainWindow::onStartClicked()
         if (ui->chkBoxTexture->isChecked()) geoEqs += " " + m_surfaceTextureCode;
         if (ui->radioBackground->isChecked() || ui->glWidget->isBackgroundTextureEnabled()) geoEqs += " " + m_bgTextureCode;
 
-        // Se c'è la variabile tempo, accendiamo TUTTI i clock (superficie + texture + sfondo)
-        applyAnimationState(hasTimeVariable(geoEqs));
-
-        // Ora updateGeodesicMesh() calcola, verifica e restituisce false se i dati sono corrotti
-        // updateGeodesicMesh() returns false if the data is corrupted
+        // updateGeodesicMesh() calcola, verifica e restituisce false se i dati sono corrotti
         if (!updateGeodesicMesh()) {
-            m_geodesicErrorPending = true;
-            performMasterStop();
             if (this->property("geoErrorType").toString() == "singularity") {
                 InputValidator::showGeodesicSingularityError(this);
             }
             return;
         }
 
+        applyAnimationState(hasTimeVariable(geoEqs));
         applyStartSideEffects();
         ui->glWidget->update();
         return;
@@ -3902,8 +3968,6 @@ void MainWindow::onStartClicked()
                 !probeEquation(rawZ) ||
                 !probeEquation(rawP))
         {
-            ui->glWidget->setSurfaceAnimating(false);
-            if (m_btnStart) m_btnStart->setText("START");
             InputValidator::showMathematicalCollapseError(this);
             return;
         }
@@ -3947,13 +4011,8 @@ void MainWindow::onStartClicked()
 
     // Controllo Collasso Matematico
     if (!ui->glWidget->getEngine()->isMeshValid()) {
-        // 1. FERMA L'ANIMAZIONE
-        ui->glWidget->setSurfaceAnimating(false);
-        if (m_btnStart) m_btnStart->setText("START");
-
-        // 2. MOSTRA L'ERRORE
         InputValidator::showMathematicalCollapseError(this);
-        return; // Ferma l'invio alla GPU!
+        return;
     }
 
     applyStartSideEffects();
@@ -4446,13 +4505,6 @@ void MainWindow::onRunCurrentScript()
                 return;
             }
 
-            parseAndApplyScriptParams(currentText);
-
-            bool oldX = ui->lineX->blockSignals(true); ui->lineX->clear(); ui->lineX->blockSignals(oldX);
-            bool oldY = ui->lineY->blockSignals(true); ui->lineY->clear(); ui->lineY->blockSignals(oldY);
-            bool oldZ = ui->lineZ->blockSignals(true); ui->lineZ->clear(); ui->lineZ->blockSignals(oldZ);
-            bool oldP = ui->lineP->blockSignals(true); ui->lineP->clear(); ui->lineP->blockSignals(oldP);
-
             QString glslBody;
             QString scriptCopy = currentText;
             QTextStream stream(&scriptCopy);
@@ -4463,12 +4515,23 @@ void MainWindow::onRunCurrentScript()
             }
             glslBody = GlslTranslator::translateEquation(glslBody);
 
-            ui->glWidget->getEngine()->setScriptCodeGLSL(glslBody);
-            ui->glWidget->getEngine()->setScriptMode(true);
             ui->glWidget->setRaySteps(ui->stepSlider->value());
 
-            // 2. SECONDA LINEA DI DIFESA: schedula la ricostruzione della pipeline.
-            ui->glWidget->rebuildShader();
+            // 2. SECONDA LINEA DI DIFESA: dry-run del fragment implicito.
+            if (!ui->glWidget->validateAndApplyImplicitScript(glslBody)) {
+                InputValidator::showShaderCompilationError(this,
+                                                           "Script Compilation Error",
+                                                           ui->glWidget->getShaderError());
+
+                return;
+            }
+
+            parseAndApplyScriptParams(currentText, false);
+
+            bool oldX = ui->lineX->blockSignals(true); ui->lineX->clear(); ui->lineX->blockSignals(oldX);
+            bool oldY = ui->lineY->blockSignals(true); ui->lineY->clear(); ui->lineY->blockSignals(oldY);
+            bool oldZ = ui->lineZ->blockSignals(true); ui->lineZ->clear(); ui->lineZ->blockSignals(oldZ);
+            bool oldP = ui->lineP->blockSignals(true); ui->lineP->clear(); ui->lineP->blockSignals(oldP);
 
             // TUTTO OK: ABILITIAMO IL TASTO SALVA
             ui->btnSaveScript->setEnabled(true);
@@ -4476,7 +4539,12 @@ void MainWindow::onRunCurrentScript()
             ui->lineEquation->blockSignals(true);
             ui->lineEquation->setPlainText("// Controlled by Script");
             ui->lineEquation->blockSignals(false);
-            applyAnimationState(hasTimeVariable(currentText));
+
+            m_masterStopped = false;
+            if (ui->glWidget) {
+                ui->glWidget->setSurfaceAnimating(hasTimeVariable(currentText));
+            }
+            updateMasterButtonState();
             ui->glWidget->update();
 
         } else {
@@ -4538,7 +4606,7 @@ void MainWindow::onRunScriptClicked()
     }
 
     this->setProperty("rawSurfaceScript", fullText);
-    parseAndApplyScriptParams(fullText);
+    parseAndApplyScriptParams(fullText, false);
 
     QString glslBody;
     QTextStream stream(&fullText);
@@ -4564,6 +4632,7 @@ void MainWindow::onRunScriptClicked()
         InputValidator::showShaderCompilationError(this,
                                                    "Script Compilation Error",
                                                    ui->glWidget->getShaderError());
+
         return;
     }
 
@@ -4571,12 +4640,14 @@ void MainWindow::onRunScriptClicked()
     ui->glWidget->updateSurfaceData();
 
     if (!ui->glWidget->getEngine()->isMeshValid()) {
+        performMasterStop();
         InputValidator::showMathematicalCollapseError(this);
 
         ui->glWidget->getEngine()->setScriptMode(false);
         ui->glWidget->getEngine()->setScriptCodeGLSL("");
         ui->glWidget->rebuildShader();
         ui->glWidget->updateSurfaceData();
+
         return;
     }
 
@@ -4601,7 +4672,11 @@ void MainWindow::onRunScriptClicked()
         }
     }
 
-    applyAnimationState(hasTimeVariable(fullText));
+    m_masterStopped = false;
+    if (ui->glWidget) {
+        ui->glWidget->setSurfaceAnimating(hasTimeVariable(fullText));
+    }
+    updateMasterButtonState();
     ui->glWidget->update();
 }
 
@@ -4675,6 +4750,13 @@ void MainWindow::onApplyTextureScriptClicked()
     } else {
         // --- RAMO B: SUPERFICIE ---
         if (!InputValidator::validateParametricScriptContext(this, code)) return;
+
+        if (hasCustomLogic && ui->glWidget &&
+                !ui->glWidget->validateAndApplyParametricShader(code)) {
+            InputValidator::showShaderCompilationError(this,
+                                                       "Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
+            return;
+        }
 
         m_surfaceTextureCode = code;
 
@@ -4752,34 +4834,26 @@ void MainWindow::onApplyTextureScriptClicked()
     }
 
     QRegularExpression timeRegex("\\b(t|iTime|u_time)\\b");
-    bool needsAnim = false;
 
-    // 1. Controlla l'equazione principale base
-    if (ui->tabModeSelector->currentIndex() == 1) {
-        // FIX: Includiamo m_surfaceScriptText nel controllo
-        QString eq = ui->lineEquation->toPlainText() + " " + ui->lineVariations->toPlainText() + " " + m_surfaceScriptText;
-        if (eq.contains(timeRegex)) needsAnim = true;
+    // RUN texture: agisce SOLO sul clock della texture interessata (Problema 3).
+    // La superficie e l'altro canale texture NON vengono toccati.
+    m_masterStopped = false;
+    if (ui->radioBackground->isChecked()) {
+        // RUN sulla texture di SFONDO: solo il clock background.
+        bool bgNeedsAnim = m_bgTextureCode.contains(timeRegex);
+        if (ui->glWidget) ui->glWidget->setBackgroundTextureAnimating(bgNeedsAnim);
     } else {
-        QString eq = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " + ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText();
-        if (eq.contains(timeRegex)) needsAnim = true;
+        // RUN sulla texture di SUPERFICIE: solo il clock texture superficie.
+        bool surfTexNeedsAnim = false;
+        if (ui->chkBoxTexture->isChecked()) {
+            QString surfTexToCheck = (ui->tabModeSelector->currentIndex() == 1)
+                    ? (ui->lineTexture->toPlainText() + ui->lineVariations->toPlainText())
+                    : m_surfaceTextureCode;
+            if (surfTexToCheck.contains(timeRegex)) surfTexNeedsAnim = true;
+        }
+        if (ui->glWidget) ui->glWidget->setSurfaceTextureAnimating(surfTexNeedsAnim);
     }
-
-    // 2. Controlla la texture di superficie (se attiva)
-    bool isSurfTexActive = ui->radioBackground->isChecked() ? m_surfaceTextureState : ui->chkBoxTexture->isChecked();
-    if (isSurfTexActive) {
-        QString surfTexToCheck = (ui->tabModeSelector->currentIndex() == 1)
-                ? (ui->lineTexture->toPlainText() + ui->lineVariations->toPlainText())
-                : m_surfaceTextureCode;
-        if (surfTexToCheck.contains(timeRegex)) needsAnim = true;
-    }
-
-    // 3. Controlla la texture di sfondo (se attiva)
-    if (ui->glWidget && ui->glWidget->isBackgroundTextureEnabled()) {
-        if (m_bgTextureCode.contains(timeRegex)) needsAnim = true;
-    }
-
-    // Applica e resetta lo stato dell'animazione (Geometria + Texture)
-    applyAnimationState(needsAnim);
+    updateMasterButtonState();
 
     updateFlatPreviewButton();
     ui->btnSaveScript->setEnabled(true);
@@ -4800,14 +4874,16 @@ void MainWindow::onRunSoundClicked()
     QString codeToAnalyze = m_soundScriptText + "\n" + m_surfaceScriptText + "\n" + m_surfaceTextureCode + "\n" + m_bgTextureCode;
     if (codeToAnalyze.trimmed().isEmpty()) codeToAnalyze = ui->txtScriptEditor->toPlainText();
 
-    // Passa la palla all'audio controller
-    m_audioController->playFromScript(codeToAnalyze);
-
-    // Cambia il pulsante istantaneamente!
-    if (m_currentScriptMode == ScriptModeSound) {
-        ui->btnRunCurrentScript->setText("Stop Sound");
+    QString audioErr;
+    if (!m_audioController->playFromScript(codeToAnalyze, &audioErr)) {
+        InputValidator::showShaderCompilationError(this,
+                                                   "Syntax Error (Sound Script)",
+                                                   audioErr.isEmpty() ? "Audio shader compilation failed." : audioErr);
+        updateMasterButtonState();
+        return;
     }
 
+    // playFromScript ha già impostato "Stop Sound" sul ramo che suona.
     updateMasterButtonState();
 }
 
@@ -4819,6 +4895,18 @@ void MainWindow::onRunSoundClicked()
 void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
 {
     Q_UNUSED(column);
+
+    if (QTreeWidget *src = qobject_cast<QTreeWidget*>(sender())) {
+        for (QTreeWidget *tree : { ui->treeSurfaces, ui->treeTextures,
+             ui->treeMotions, ui->treeSounds }) {
+            if (tree && tree != src) {
+                bool b = tree->blockSignals(true);
+                tree->clearSelection();
+                tree->setCurrentItem(nullptr);
+                tree->blockSignals(b);
+            }
+        }
+    }
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     if (item->childCount() > 0) {
@@ -5015,6 +5103,8 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
 
     m_bgTextureCode = "";
     m_bgTextureScriptText = "";
+
+    m_soundScriptText.clear();
 
     m_surfaceScriptText.clear();
     ui->txtScriptEditor->blockSignals(true);
@@ -5225,6 +5315,8 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
 
 void MainWindow::applyMotionExample(const LibraryItem &data)
 {
+    m_masterStopped = false;
+
     InputValidator::resetGeodesicWarning();
 
     // 1. STOP TOTALE (Reset stato iniziale)
@@ -5758,7 +5850,7 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
     }
 
     // =======================================================
-    // FIX: RIATTIVAZIONE ANIMAZIONI TEXTURE AL CARICAMENTO
+    // RIATTIVAZIONE ANIMAZIONI TEXTURE AL CARICAMENTO
     // =======================================================
     if (ui->glWidget) {
         if (texEnabled && hasTimeVariable(m_surfaceTextureCode)) {
@@ -5771,11 +5863,29 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
     updateMasterButtonState();
     // =======================================================
 
+    qDebug().noquote() << "[START-audio] m_soundScriptText=["
+            << m_soundScriptText << "]\n editorNow=["
+            << ui->txtScriptEditor->toPlainText() << "]";
+
     // 8. AVVIO AUDIO
     if (!m_soundScriptText.isEmpty()) {
-        m_audioController->playFromScript(m_soundScriptText);
+        QString audioErr;
+        bool audioOk = m_audioController->playFromScript(m_soundScriptText, &audioErr);
+        if (!audioOk) {
+            InputValidator::showShaderCompilationError(this,
+                                                       "Syntax Error (Sound Script)",
+                                                       audioErr.isEmpty() ? "Audio shader compilation failed." : audioErr);
+            // niente return: animazione gia' avviata resta attiva, l'audio no
+        }
+        if (m_currentScriptMode == ScriptModeSound) {
+            // Il testo del pulsante riflette l'esito reale, non la sola presenza di codice
+            ui->btnRunCurrentScript->setText(audioOk ? "Stop Sound" : "Run Sound");
+        }
     } else {
         m_audioController->stopAll();
+        if (m_currentScriptMode == ScriptModeSound) {
+            ui->btnRunCurrentScript->setText("Run Sound");
+        }
     }
 
     if (m_currentScriptMode == ScriptModeSound) {
@@ -7346,7 +7456,7 @@ QString MainWindow::composeEquation(const QString &eq, const QString &uDef, cons
     return res;
 }
 
-void MainWindow::parseAndApplyScriptParams(const QString &scriptCode)
+void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool restartAudio)
 {
     QRegularExpression re(R"(^\s*(u_min|u_max|v_min|v_max|w_min|w_max|steps|A|B|C|D|E|F|S)\s*[:=]+\s*([^;]+);)",
                           QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption);
@@ -7396,8 +7506,13 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode)
         updateWLimits();
     }
 
-    QString globalCode = scriptCode + "\n" + m_surfaceTextureCode + "\n" + m_bgTextureCode;
-    m_audioController->playFromScript(globalCode);
+    if (!m_audioController->isPlaying()) {
+        if (restartAudio) {
+            QString globalCode = m_soundScriptText + "\n" + scriptCode + "\n"
+                    + m_surfaceTextureCode + "\n" + m_bgTextureCode;
+            m_audioController->playFromScript(globalCode);
+        }
+    }
 }
 
 bool MainWindow::hasTimeVariable(const QString& code) {
@@ -7611,12 +7726,15 @@ void MainWindow::updateScriptButtonText() {
     bool hasGLSLCode = !codeOnly.trimmed().isEmpty();
     bool hasAnyText = !rawText.trimmed().isEmpty();
 
-    // 2. CONTROLLO MODIFICHE: Verifichiamo se il testo nell'editor differisce da quello in memoria
+    // 2. CONTROLLO MODIFICHE
+    const QString editorText = rawText.trimmed();
     bool isModified = false;
     if (m_currentScriptMode == ScriptModeSurface) {
-        isModified = (rawText != m_surfaceScriptText);
+        isModified = (editorText != m_surfaceScriptText.trimmed());
     } else if (m_currentScriptMode == ScriptModeTexture) {
-        isModified = isBackground ? (rawText != m_bgTextureScriptText) : (rawText != m_surfaceTextureScriptText);
+        isModified = isBackground
+                ? (editorText != m_bgTextureScriptText.trimmed())
+                : (editorText != m_surfaceTextureScriptText.trimmed());
     }
 
     // Regola 1: Tasto Modo sempre attivo per poter scorrere le Tab
@@ -8017,10 +8135,20 @@ void MainWindow::commitUiFieldsDuringMotion() {
                      !ui->lndW->toPlainText().trimmed().isEmpty();
     }
     bool isGeodesicActive = (upperCount > 0) && geoHasText &&
-                            (ui->tabModeSelector->currentIndex() == 0);
+            (ui->tabModeSelector->currentIndex() == 0);
     if (!isGeodesicActive) {
         onStartClicked();
         return;
+    }
+
+    QVector<InputValidator::LimitField> limitFields = {
+        {ui->uMinEdit, true}, {ui->uMaxEdit, true},
+        {ui->vMinEdit, true}, {ui->vMaxEdit, true},
+    };
+    QVector<float> dummy;
+    auto parseFn = [this](const QString& s, bool* ok) { return this->parseMath(s, ok); };
+    if (!InputValidator::validateAndParseLimits(this, limitFields, parseFn, dummy)) {
+        return;  // popup mostrato dal validator, niente dry-run
     }
 
     // Snapshot dei valori attuali prima di provare i nuovi.
@@ -8049,9 +8177,18 @@ bool MainWindow::updateGeodesicMesh()
     };
 
     QVector<float> limitValues;
-    auto parseFn = [this](const QString& s, bool* ok) { return this->parseMath(s, ok); };
-    if (!InputValidator::validateAndParseLimits(this, limitFields, parseFn, limitValues)) {
-        stopGeodesicAnimation();
+    bool allOk = true;
+    for (const auto& field : limitFields) {
+        if (!field.active) {
+            limitValues.append(0.0f);
+            continue;
+        }
+        bool ok = false;
+        float v = parseMath(field.edit->text(), &ok);
+        if (!ok) { allOk = false; break; }
+        limitValues.append(v);
+    }
+    if (!allOk) {
         return false;
     }
 
@@ -8112,7 +8249,8 @@ bool MainWindow::updateGeodesicMesh()
 
         if (lambdaVal <= 1e-8f) {
             m_geodesicErrorPending = true;
-            performMasterStop();                                    // <-- cambiato
+            QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
+            if (geoAnimTimer && geoAnimTimer->isActive()) geoAnimTimer->stop();
             InputValidator::showInvalidConformalConstantError(this);
             return false;
         }
@@ -8150,15 +8288,15 @@ bool MainWindow::updateGeodesicMesh()
     // --- GESTIONE DEGLI ERRORI ---
     if (grid.isEmpty()) {
         if (!shaderError.isEmpty()) {
-            // Errore di sintassi shader: il popup lo mostriamo qui perché tutti
-            // i chiamanti reagirebbero allo stesso modo.
             m_geodesicErrorPending = true;
-            performMasterStop();
+            QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
+            if (geoAnimTimer && geoAnimTimer->isActive()) geoAnimTimer->stop();
             InputValidator::showShaderCompilationError(this, "Geodesic Shader Error", shaderError);
             this->setProperty("geoErrorType", "syntax");
         } else {
             m_geodesicErrorPending = true;
-            performMasterStop();
+            QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
+            if (geoAnimTimer && geoAnimTimer->isActive()) geoAnimTimer->stop();
             this->setProperty("geoErrorType", "singularity");
         }
         return false;
@@ -8168,7 +8306,8 @@ bool MainWindow::updateGeodesicMesh()
     if (!grid.isEmpty()) {
         if (!ui->glWidget->setCustomMesh(grid)) {
             m_geodesicErrorPending = true;
-            performMasterStop();
+            QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
+            if (geoAnimTimer && geoAnimTimer->isActive()) geoAnimTimer->stop();
             this->setProperty("geoErrorType", "singularity");
             return false;
         }
@@ -8249,25 +8388,13 @@ void MainWindow::checkAndTriggerMeshUpdate() {
 
     // 4. Routing: se Geodetico è attivo e siamo nel tab Parametrico (0), usa il calcolatore Tensoriale
     if ((upperCount > 0) && geoHasText && (ui->tabModeSelector->currentIndex() == 0)) {
+        if (m_geodesicErrorPending) return;
 
         bool success = updateGeodesicMesh();
-
         if (!success) {
-            if (navTimer && navTimer->isActive()) {
-                onStopClicked();
-            }
-            // Ferma anche il timer di animazione geodetica per evitare doppi popup
-            QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
-            if (geoAnimTimer && geoAnimTimer->isActive()) {
-                geoAnimTimer->stop();
-                if (m_btnStart) m_btnStart->setText("START");
-                ui->glWidget->setSurfaceAnimating(false);
-            }
-            InputValidator::showGeodesicSingularityError(this);
-        } else {
-            hideTopMessage();
+            return;
         }
-
+        hideTopMessage();
     } else {
         // Altrimenti, rigenera la griglia poligonale standard
         ui->glWidget->updateSurfaceData();

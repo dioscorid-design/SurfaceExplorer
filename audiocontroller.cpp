@@ -34,7 +34,7 @@ void AudioController::playMusic(const QString &filePath)
 }
 
 void AudioController::stopAll()
-{
+{ qDebug() << "[stopAll] called! sender=" << (sender() ? sender()->objectName() : "(no sender)");
     if (m_player && m_player->playbackState() != QMediaPlayer::StoppedState) {
         m_player->stop();
     }
@@ -56,61 +56,79 @@ bool AudioController::isPlaying() const
     return playing;
 }
 
-void AudioController::playFromScript(const QString &scriptCode)
+bool AudioController::playFromScript(const QString &scriptCode, QString *outError)
 {
-    if (scriptCode.trimmed().isEmpty()) return;
+    if (scriptCode.trimmed().isEmpty()) return true; // niente da suonare: non è un errore
 
-    // 1. CERCA MUSICA MP3/WAV
+    // 1. MUSICA MP3/WAV
     QRegularExpression musicRe(R"(^\s*//MUSIC:\s*(.*)$)", QRegularExpression::MultilineOption);
     QRegularExpressionMatch musicMatch = musicRe.match(scriptCode);
-
     if (musicMatch.hasMatch()) {
         if (m_synth) m_synth->stop();
-
         QString newMusicPath = musicMatch.captured(1).trimmed();
         QString currentPlaying = (m_player->playbackState() == QMediaPlayer::PlayingState) ? m_player->source().toLocalFile() : "";
-
         if (currentPlaying != newMusicPath) {
             playMusic(newMusicPath);
         }
-
         if (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeSound) {
             m_mainWindow->ui->btnRunCurrentScript->setText("Stop Sound");
         }
-        return;
+        return true;
     }
 
-    // 2. CERCA SCRIPT AUDIO GPU (GLSL protetto dai tag)
+    // 2. SCRIPT AUDIO GPU
     QRegularExpression blockRe(R"(//SOUND_BEGIN(.*?)//SOUND_END)", QRegularExpression::DotMatchesEverythingOption);
     QRegularExpressionMatch blockMatch = blockRe.match(scriptCode);
-
     if (blockMatch.hasMatch()) {
         QString glslCode = blockMatch.captured(1).trimmed();
-        if (!glslCode.isEmpty()) {
+        if (!glslCode.isEmpty()) {qDebug().noquote() << "[playFromScript] updateScript will run on:\n[" << glslCode << "]";
             if (m_player) m_player->stop();
             if (m_synth) m_synth->stop();
-
-            // Recupera il motore RHI dal tuo widget grafico e passalo al synth
             m_synth->setRhi(m_mainWindow->ui->glWidget->getRhi());
-            // ----------------------------
 
-            // Passiamo 'false' perché passiamo direttamente la funzione GLSL pura!
             if (m_synth->updateScript(glslCode, false)) {
                 m_synth->start();
                 if (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeSound) {
                     m_mainWindow->ui->btnRunCurrentScript->setText("Stop Sound");
                 }
-            } else {
+                return true;
+            } else {qDebug().noquote() << "[playFromScript] updateScript FAILED err=" << m_synth->lastError();
+                if (outError) *outError = m_synth->lastError();
                 if (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeSound) {
                     m_mainWindow->ui->btnRunCurrentScript->setText("Run Sound");
                 }
+                return false; // errore di compilazione audio
             }
-            return;
         }
     }
 
-    // 3. SE NESSUN TAG È TROVATO, FERMA TUTTO
+    // 3. NESSUN TAG: ferma tutto
     stopAll();
+    return true;
+}
+
+bool AudioController::validateScript(const QString &scriptCode, QString *outError)
+{
+    if (scriptCode.trimmed().isEmpty()) return true;
+
+    // La musica MP3/WAV non si compila: niente da validare qui.
+    QRegularExpression musicRe(R"(^\s*//MUSIC:\s*(.*)$)", QRegularExpression::MultilineOption);
+    if (musicRe.match(scriptCode).hasMatch()) return true;
+
+    // Script audio GPU: compila SENZA suonare (updateScript non avvia l'audio).
+    QRegularExpression blockRe(R"(//SOUND_BEGIN(.*?)//SOUND_END)", QRegularExpression::DotMatchesEverythingOption);
+    QRegularExpressionMatch blockMatch = blockRe.match(scriptCode);
+    if (blockMatch.hasMatch()) {
+        QString glslCode = blockMatch.captured(1).trimmed();
+        if (!glslCode.isEmpty()) {
+            m_synth->setRhi(m_mainWindow->ui->glWidget->getRhi());
+            if (!m_synth->updateScript(glslCode, false)) {
+                if (outError) *outError = m_synth->lastError();
+                return false;
+            }
+        }
+    }
+    return true; // nessun tag o compilazione ok
 }
 
 bool AudioController::saveSynthToRawFile(const QString &filePath, int durationSeconds)

@@ -96,6 +96,7 @@ bool Synthesizer::updateScript(const QString &glslCode, bool isSimpleMath) {
     }
 
     m_isScriptValid = false;
+    m_lastError.clear();
 
     // --- 1. CARICHIAMO LA LIBRERIA COMUNE ---
     QString commonCode = "";
@@ -169,7 +170,7 @@ bool Synthesizer::updateScript(const QString &glslCode, bool isSimpleMath) {
         gl_Position = vec4(x, y, 0.0, 1.0);
     })";
 
-    auto bakeShader = [](const QByteArray &source, QShader::Stage stage) -> QShader {
+    auto bakeShader = [this](const QByteArray &source, QShader::Stage stage) -> QShader {
         QShaderBaker baker;
         baker.setSourceString(source, stage);
         baker.setGeneratedShaderVariants({QShader::StandardShader});
@@ -193,7 +194,8 @@ bool Synthesizer::updateScript(const QString &glslCode, bool isSimpleMath) {
 
         QShader shader = baker.bake();
         if (!shader.isValid()) {
-            qWarning() << "Errore compilazione shader audio:" << baker.errorMessage();
+            qWarning() << "Audio shader compilation error:" << baker.errorMessage();
+            if (m_lastError.isEmpty()) m_lastError = baker.errorMessage();
         }
         return shader;
     };

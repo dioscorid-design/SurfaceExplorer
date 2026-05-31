@@ -31,6 +31,7 @@ public:
     void setRhi(QRhi *rhi);
 
     bool updateScript(const QString &glslCode, bool isSimpleMath = false);
+    QString lastError() const { return m_lastError; }
 
     void start();
     void stop();
@@ -61,6 +62,7 @@ private:
     QByteArray m_audioBuffer;
     QMutex m_bufferMutex;
     bool m_isScriptValid;
+    QString m_lastError;
 
     // --- NUOVE VARIABILI RHI ---
     QRhi *m_rhi = nullptr; // Non possediamo noi l'RHI, ci viene solo prestato

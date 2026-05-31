@@ -123,7 +123,6 @@ public:
     SurfaceEngine* getEngine() const { return engine.get(); }
 
 
-
     // ==========================================================
     // RENDERING & VISUALS
     // ==========================================================
@@ -168,6 +167,8 @@ public:
 
     void setTextureCode(const QString& code);
     void setDisplacementCode(const QString& code);
+
+    bool validateAndApplyTextureDisplacement(const QString &texCode, const QString &dispCode);
 
 
     // ==========================================================
@@ -271,8 +272,10 @@ public:
     QString getShaderError() const { return m_lastCompilationError; }
     bool validateAndApplyParametricShader(const QString &customLogic);
     bool validateAndApplyImplicitShader(const QString &eqF, const QString &texCode, const QString &dispCode);
+      bool validateAndApplyImplicitScript(const QString &scriptCodeGLSL);
     bool validateAndApplyBackgroundShader(const QString &scriptCode);
     bool validateAndApplyParametricScript(const QString &scriptCodeGLSL);
+
 
 signals:
     void rotationChanged();
@@ -294,7 +297,7 @@ public slots:
     // ==========================================================
     // GEODESIC FLOW CALCULATIONS
     // ==========================================================
-    void triggerGeodesicCalculation(); //codice morto da rimuovere
+
     void setConstants(const QMap<QString, float>& constants) { m_constants = constants; }
 
 private slots:

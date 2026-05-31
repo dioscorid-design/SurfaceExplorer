@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QTextStream>
 #include <QCryptographicHash>
+#include <QElapsedTimer>
 #include <cmath>
 
 // =============================================================================
@@ -23,6 +24,7 @@ struct GeodesicCalculator::Cached {
     size_t bufferSize = 0;
     int numU = 0;
     int numV = 0;
+    float uMin = 0, uMax = 0, vMin = 0, vMax = 0;
 };
 
 // =============================================================================
@@ -121,14 +123,6 @@ bool GeodesicCalculator::rebuildPipeline(QRhi* rhi,
     }
     source.replace("#version 450 core", "#version 450 core\n" + constantsGLSL);
 
-    // Range e risoluzione
-    source.replace("/*%U_MIN%*/", QString::number(uMin, 'f', 6));
-    source.replace("/*%U_MAX%*/", QString::number(uMax, 'f', 6));
-    source.replace("/*%V_MIN%*/", QString::number(vMin, 'f', 6));
-    source.replace("/*%V_MAX%*/", QString::number(vMax, 'f', 6));
-    source.replace("/*%NUM_U%*/", QString::number(numU));
-    source.replace("/*%NUM_V%*/", QString::number(numV));
-
     // Equazioni: passate verbatim al GlslTranslator, vuote → "0.0"
     auto sanitize = [](const QString& eq) {
         QString s = GlslTranslator::translateEquation(eq);
@@ -162,7 +156,9 @@ bool GeodesicCalculator::rebuildPipeline(QRhi* rhi,
         {QShader::HlslShader,  QShaderVersion(60)}
     });
 
+    QElapsedTimer timer; timer.start();
     QShader computeShader = baker.bake();
+
     if (!computeShader.isValid()) {
         if (outErrorMsg) *outErrorMsg = baker.errorMessage();
         return false;
@@ -177,6 +173,8 @@ bool GeodesicCalculator::rebuildPipeline(QRhi* rhi,
     cached->bufferSize = bufferSize;
     cached->numU = numU;
     cached->numV = numV;
+    cached->uMin = uMin; cached->uMax = uMax;
+    cached->vMin = vMin; cached->vMax = vMax;
     cached->computeShader = computeShader;
 
     cached->ssbo.reset(rhi->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer, bufferSize));
@@ -188,7 +186,7 @@ bool GeodesicCalculator::rebuildPipeline(QRhi* rhi,
     // UBO per il tempo. std140 con un singolo float: serve un buffer ≥ 16 byte
     // (regola di alignment del blocco). Lo dichiariamo Dynamic perché lo
     // aggiorniamo a ogni frame.
-    cached->ubo.reset(rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 16));
+    cached->ubo.reset(rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, 32));
     if (!cached->ubo->create()) {
         if (outErrorMsg) *outErrorMsg = "Cannot create UBO.";
         return false;
@@ -209,6 +207,7 @@ bool GeodesicCalculator::rebuildPipeline(QRhi* rhi,
     cached->pipeline.reset(rhi->newComputePipeline());
     cached->pipeline->setShaderResourceBindings(cached->srb.get());
     cached->pipeline->setShaderStage(QRhiShaderStage(QRhiShaderStage::Compute, computeShader));
+    timer.restart();
     if (!cached->pipeline->create()) {
         if (outErrorMsg) *outErrorMsg = "Cannot create compute pipeline.";
         return false;
@@ -234,8 +233,15 @@ QVector<QVector<QVector4D>> GeodesicCalculator::executeCached(float currentT) {
     rhi->beginOffscreenFrame(&cb);
 
     // Update UBO con il nuovo t
+    // Update UBO: layout std140 = { float time; float uMin,uMax,vMin,vMax; int numU,numV; }
     QRhiResourceUpdateBatch* rub = rhi->nextResourceUpdateBatch();
-    rub->updateDynamicBuffer(m_cached->ubo.get(), 0, sizeof(float), &currentT);
+    rub->updateDynamicBuffer(m_cached->ubo.get(),  0, sizeof(float), &currentT);
+    rub->updateDynamicBuffer(m_cached->ubo.get(),  4, sizeof(float), &m_cached->uMin);
+    rub->updateDynamicBuffer(m_cached->ubo.get(),  8, sizeof(float), &m_cached->uMax);
+    rub->updateDynamicBuffer(m_cached->ubo.get(), 12, sizeof(float), &m_cached->vMin);
+    rub->updateDynamicBuffer(m_cached->ubo.get(), 16, sizeof(float), &m_cached->vMax);
+    rub->updateDynamicBuffer(m_cached->ubo.get(), 20, sizeof(int),   &m_cached->numU);
+    rub->updateDynamicBuffer(m_cached->ubo.get(), 24, sizeof(int),   &m_cached->numV);
 
     cb->beginComputePass(rub);
     cb->setComputePipeline(m_cached->pipeline.get());
@@ -250,7 +256,8 @@ QVector<QVector<QVector4D>> GeodesicCalculator::executeCached(float currentT) {
     cb->endComputePass(readbackRub);
 
     rhi->endOffscreenFrame();
-    rhi->finish();  // blocca CPU fino a GPU done — necessario per readback sincrono
+    QElapsedTimer t2; t2.start();
+    rhi->finish();
 
     // --- Ricostruzione griglia (logica identica all'originale) ---
     QVector<QVector<QVector4D>> grid(numU + 1, QVector<QVector4D>(numV + 1));

@@ -266,7 +266,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     }
 
     // 3. INVIO DEI DATI ALLA GPU
-    m_uboData.time = m_manualTime + m_timeGeom; // Usato da Geometria e Ray Marching
+    m_uboData.time = m_manualTime + m_timeGeom;
 
     // Usiamo la coordinata X di dummyZero per inviare il tempo specifico della Texture
     m_uboData.dummyZero.setX(m_manualTime + m_timeTex);
@@ -796,32 +796,6 @@ void GLWidget::forceTextureRefresh() {
     update();
 }
 
-
-
-// ==========================================================
-// GEODESIC FLOW CALCULATIONS
-// ==========================================================
-
-void GLWidget::triggerGeodesicCalculation() {
-    if (!rhi()) {
-        qWarning() << "RHI non inizializzato, impossibile calcolare geodetiche.";
-        return;
-    }
-    QVector<QVector<QVector4D>> grid = engine->computeGeodesicFlow(
-        rhi(),
-        m_eqX, m_eqY, m_eqZ, m_eqW,
-        m_initU, m_initV, m_initW,
-        m_eqDu, m_eqDv, m_eqDw,
-        m_eqLambda,
-        m_uboData.u_min, m_uboData.u_max, m_numU_geo,
-        m_vMin_geo, m_vMax_geo, m_numV_geo,
-        m_constants,
-        m_timeGeom
-        );
-    if (!grid.isEmpty()) {
-        setCustomMesh(grid);
-    }
-}
 
 // ==========================================================
 // PRIVATE SLOTS
@@ -1537,35 +1511,56 @@ void GLWidget::loadBackgroundScript(const QString &scriptCode) {
 }
 
 void GLWidget::setTextureCode(const QString& code) {
-    if (m_textureCode != code) {
-        m_textureCode = code;
+    if (m_textureCode == code) return;
 
-        // 1. Distruggiamo la pipeline del ray marching
-        if (m_pipelineImplicit) {
-            m_pipelineImplicit->destroy();
-            delete m_pipelineImplicit;
-            m_pipelineImplicit = nullptr;
-        }
+    QString oldTex = m_textureCode;
+    m_textureCode = code;
 
-        // 2. Forza un nuovo ciclo di disegno.
-        update();
+    QString fsSource = createImplicitFragmentShader();
+    QShaderBaker baker;
+    baker.setSourceString(fsSource.toUtf8(), QShader::FragmentStage);
+    baker.setGeneratedShaderVariants({QShader::StandardShader});
+    baker.setGeneratedShaders({ {QShader::SpirvShader, QShaderVersion(100)} });
+
+    QShader shader = baker.bake();
+    if (!shader.isValid()) {
+        // Rollback silenzioso
+        m_textureCode = oldTex;
+        return;
     }
+
+    if (m_pipelineImplicit) {
+        m_pipelineImplicit->destroy();
+        delete m_pipelineImplicit;
+        m_pipelineImplicit = nullptr;
+    }
+    update();
 }
 
 void GLWidget::setDisplacementCode(const QString& code) {
-    if (m_displacementCode != code) {
-        m_displacementCode = code;
+    if (m_displacementCode == code) return;
 
-        // Distruggiamo la pipeline del ray marching per forzare la ricompilazione
-        if (m_pipelineImplicit) {
-            m_pipelineImplicit->destroy();
-            delete m_pipelineImplicit;
-            m_pipelineImplicit = nullptr;
-        }
+    QString oldDisp = m_displacementCode;
+    m_displacementCode = code;
 
-        // Forza un nuovo ciclo di disegno
-        update();
+    QString fsSource = createImplicitFragmentShader();
+    QShaderBaker baker;
+    baker.setSourceString(fsSource.toUtf8(), QShader::FragmentStage);
+    baker.setGeneratedShaderVariants({QShader::StandardShader});
+    baker.setGeneratedShaders({ {QShader::SpirvShader, QShaderVersion(100)} });
+
+    QShader shader = baker.bake();
+    if (!shader.isValid()) {
+        m_displacementCode = oldDisp;
+        return;
     }
+
+    if (m_pipelineImplicit) {
+        m_pipelineImplicit->destroy();
+        delete m_pipelineImplicit;
+        m_pipelineImplicit = nullptr;
+    }
+    update();
 }
 
 // ==========================================================
@@ -2168,6 +2163,40 @@ bool GLWidget::validateAndApplyImplicitShader(const QString &eqF, const QString 
     return true;
 }
 
+bool GLWidget::validateAndApplyTextureDisplacement(const QString &texCode, const QString &dispCode)
+{
+    // Salvataggio di emergenza
+    QString oldTex = m_textureCode;
+    QString oldDisp = m_displacementCode;
+
+    // Prepariamo i nuovi parametri per generare lo shader. m_eqImplicitF
+    // resta invariato — è già valido (per i record script-mode è settato da
+    // validateAndApplyImplicitScript).
+    m_textureCode = texCode;
+    m_displacementCode = dispCode;
+
+    QString fsSource = createImplicitFragmentShader();
+
+    // DRY RUN
+    QShaderBaker baker;
+    baker.setSourceString(fsSource.toUtf8(), QShader::FragmentStage);
+    baker.setGeneratedShaderVariants({QShader::StandardShader});
+    baker.setGeneratedShaders({ {QShader::SpirvShader, QShaderVersion(100)} });
+
+    QShader shader = baker.bake();
+    if (!shader.isValid()) {
+        m_lastCompilationError = baker.errorMessage();
+        // RIPRISTINO
+        m_textureCode = oldTex;
+        m_displacementCode = oldDisp;
+        return false;
+    }
+
+    // Se compila, la pipeline prosegue
+    rebuildShader();
+    return true;
+}
+
 bool GLWidget::validateAndApplyBackgroundShader(const QString &scriptCode)
 {
     // Genera la stessa stringa fsSource che produrrebbe rebuildBackgroundShader
@@ -2230,6 +2259,34 @@ bool GLWidget::validateAndApplyParametricScript(const QString &scriptCodeGLSL)
     return true;
 }
 
+bool GLWidget::validateAndApplyImplicitScript(const QString &scriptCodeGLSL)
+{
+    QString oldScript     = engine->getScriptCodeGLSL();
+    bool    oldScriptMode = engine->isScriptModeActive();
+
+    engine->setScriptCodeGLSL(scriptCodeGLSL);
+    engine->setScriptMode(true);
+
+    // createImplicitFragmentShader() inietta lo scriptCodeGLSL appena impostato
+    QString fsSource = createImplicitFragmentShader();
+
+    QShaderBaker baker;
+    baker.setSourceString(fsSource.toUtf8(), QShader::FragmentStage);
+    baker.setGeneratedShaderVariants({QShader::StandardShader});
+    baker.setGeneratedShaders({ {QShader::SpirvShader, QShaderVersion(100)} });
+
+    QShader shader = baker.bake();
+    if (!shader.isValid()) {
+        m_lastCompilationError = "FRAGMENT (script): " + baker.errorMessage();
+        engine->setScriptCodeGLSL(oldScript);   // rollback
+        engine->setScriptMode(oldScriptMode);
+        return false;
+    }
+
+    rebuildShader();
+    return true;
+}
+
 
 // ==========================================================
 // RISORSE QRHI IMPLICIT (RAY MARCHING)
@@ -2279,6 +2336,13 @@ void GLWidget::buildImplicitPipeline()
     QShader vs = bakeShader(vsSource.toUtf8(), QShader::VertexStage);
     QShader fs = bakeShader(fsSource.toUtf8(), QShader::FragmentStage);
 
+    if (!vs.isValid() || !fs.isValid()) {
+        m_lastCompilationError = "Implicit pipeline: invalid shader stage.";
+        delete m_pipelineImplicit;
+        m_pipelineImplicit = nullptr;
+        return;
+    }
+
     m_pipelineImplicit->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
     m_pipelineImplicit->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
 
@@ -2301,7 +2365,12 @@ void GLWidget::buildImplicitPipeline()
     // 5. Usiamo temporaneamente i bindings standard (che contengono il tuo UBO con la telecamera)
     m_pipelineImplicit->setShaderResourceBindings(m_bindings);
 
-    m_pipelineImplicit->create();
+    if (!m_pipelineImplicit->create()) {
+        m_lastCompilationError = "Implicit pipeline: create() failed.";
+        delete m_pipelineImplicit;
+        m_pipelineImplicit = nullptr;
+        return;
+    }
 }
 
 

@@ -10,17 +10,23 @@ layout(std430, binding = 0) buffer OutputGrid {
 // Tempo come uniform, niente più re-bake per frame ===
 layout(std140, binding = 1) uniform TimeParams {
     float u_time;
+    float u_uMin;
+    float u_uMax;
+    float u_vMin;
+    float u_vMax;
+    int u_numU;
+    int u_numV;
 };
 #define t u_time
 #define iTime u_time
 
 // Costanti iniettate dal C++
-const float uMin = /*%U_MIN%*/;
-const float uMax = /*%U_MAX%*/;
-const float vMin = /*%V_MIN%*/;
-const float vMax = /*%V_MAX%*/;
-const int numU = /*%NUM_U%*/;
-const int numV = /*%NUM_V%*/;
+#define uMin u_uMin
+#define uMax u_uMax
+#define vMin u_vMin
+#define vMax u_vMax
+#define numU u_numU
+#define numV u_numV
 
 // Definiamo un valore di errore sicuro che non richieda funzioni speciali
 const float SAFE_ERR = 99999.0;

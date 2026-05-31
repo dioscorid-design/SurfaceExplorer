@@ -19,7 +19,8 @@ public:
     void playMusic(const QString &filePath);
 
     // Analizza un testo, trova i tag e suona
-    void playFromScript(const QString &scriptCode);
+    bool playFromScript(const QString &scriptCode, QString *outError = nullptr);
+    bool validateScript(const QString &scriptCode, QString *outError = nullptr);
 
     // Verifica se qualcosa sta suonando
     bool isPlaying() const;
