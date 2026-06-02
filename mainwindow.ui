@@ -1493,7 +1493,7 @@
         <item>
          <widget class="QTabWidget" name="tabModeSelector">
           <property name="currentIndex">
-           <number>0</number>
+           <number>1</number>
           </property>
           <widget class="QWidget" name="tabParametric">
            <attribute name="title">
@@ -2331,6 +2331,12 @@
            <layout class="QVBoxLayout" name="verticalLayout_23">
             <item>
              <widget class="QFrame" name="panelEquation">
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>16777215</height>
+               </size>
+              </property>
               <property name="frameShape">
                <enum>QFrame::Shape::StyledPanel</enum>
               </property>
@@ -2340,6 +2346,18 @@
               <layout class="QVBoxLayout" name="verticalLayout_24" stretch="2,6,1">
                <item>
                 <widget class="QLabel" name="lblEq">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>16777215</width>
+                   <height>20</height>
+                  </size>
+                 </property>
                  <property name="text">
                   <string>Implicit Equation</string>
                  </property>
@@ -2366,6 +2384,18 @@
                </item>
                <item>
                 <widget class="QWidget" name="panelRadio" native="true">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>16777215</width>
+                   <height>40</height>
+                  </size>
+                 </property>
                  <layout class="QHBoxLayout" name="horizontalLayout_5">
                   <item>
                    <widget class="QRadioButton" name="radioShell">
@@ -2389,9 +2419,27 @@
             </item>
             <item>
              <widget class="QWidget" name="panelVariations" native="true">
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>16777215</height>
+               </size>
+              </property>
               <layout class="QVBoxLayout" name="verticalLayout_26">
                <item>
                 <widget class="QLabel" name="lbl3DTexture">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>16777215</width>
+                   <height>20</height>
+                  </size>
+                 </property>
                  <property name="text">
                   <string>3D Variation</string>
                  </property>
@@ -2408,17 +2456,23 @@
             </item>
             <item>
              <widget class="QFrame" name="panelRayTexture">
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>16777215</height>
+               </size>
+              </property>
               <property name="frameShape">
                <enum>QFrame::Shape::StyledPanel</enum>
               </property>
               <property name="frameShadow">
                <enum>QFrame::Shadow::Raised</enum>
               </property>
-              <layout class="QVBoxLayout" name="verticalLayout_27" stretch="2,6">
+              <layout class="QVBoxLayout" name="verticalLayout_27" stretch="0,0,0">
                <item>
                 <widget class="QLabel" name="lbl2DTexture">
                  <property name="sizePolicy">
-                  <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                  <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
                    <horstretch>0</horstretch>
                    <verstretch>0</verstretch>
                   </sizepolicy>
@@ -2426,7 +2480,7 @@
                  <property name="maximumSize">
                   <size>
                    <width>16777215</width>
-                   <height>16777215</height>
+                   <height>20</height>
                   </size>
                  </property>
                  <property name="text">
@@ -2453,11 +2507,24 @@
                  </property>
                 </widget>
                </item>
+               <item>
+                <widget class="QPushButton" name="btnTextureCode">
+                 <property name="text">
+                  <string>Run</string>
+                 </property>
+                </widget>
+               </item>
               </layout>
              </widget>
             </item>
             <item>
              <widget class="QFrame" name="panelLimits">
+              <property name="maximumSize">
+               <size>
+                <width>16777215</width>
+                <height>100</height>
+               </size>
+              </property>
               <property name="frameShape">
                <enum>QFrame::Shape::StyledPanel</enum>
               </property>

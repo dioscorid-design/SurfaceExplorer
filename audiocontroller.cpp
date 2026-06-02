@@ -34,7 +34,7 @@ void AudioController::playMusic(const QString &filePath)
 }
 
 void AudioController::stopAll()
-{ qDebug() << "[stopAll] called! sender=" << (sender() ? sender()->objectName() : "(no sender)");
+{
     if (m_player && m_player->playbackState() != QMediaPlayer::StoppedState) {
         m_player->stop();
     }
@@ -81,7 +81,7 @@ bool AudioController::playFromScript(const QString &scriptCode, QString *outErro
     QRegularExpressionMatch blockMatch = blockRe.match(scriptCode);
     if (blockMatch.hasMatch()) {
         QString glslCode = blockMatch.captured(1).trimmed();
-        if (!glslCode.isEmpty()) {qDebug().noquote() << "[playFromScript] updateScript will run on:\n[" << glslCode << "]";
+        if (!glslCode.isEmpty()) {
             if (m_player) m_player->stop();
             if (m_synth) m_synth->stop();
             m_synth->setRhi(m_mainWindow->ui->glWidget->getRhi());
@@ -92,7 +92,7 @@ bool AudioController::playFromScript(const QString &scriptCode, QString *outErro
                     m_mainWindow->ui->btnRunCurrentScript->setText("Stop Sound");
                 }
                 return true;
-            } else {qDebug().noquote() << "[playFromScript] updateScript FAILED err=" << m_synth->lastError();
+            } else {
                 if (outError) *outError = m_synth->lastError();
                 if (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeSound) {
                     m_mainWindow->ui->btnRunCurrentScript->setText("Run Sound");

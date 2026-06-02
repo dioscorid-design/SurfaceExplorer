@@ -113,7 +113,8 @@ protected:
             QKeyEvent* keyEvent = static_cast<QKeyEvent*>(event);
 
             if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter) {
-                if (obj->objectName() == "txtScriptEditor") {
+                const QString on = obj->objectName();
+                if (on == "txtScriptEditor" || on == "lineVariations" || on == "lineTexture") {
                     return false;
                 }
 
@@ -145,8 +146,9 @@ protected:
 
         // 1. DISATTIVAZIONE MENU CONTESTUALI (Usiamo la nostra Toolbar)
         if (event->type() == QEvent::ContextMenu) {
-            if (obj->objectName() == "txtScriptEditor") {
-                return true; // Blocca la comparsa di popup nativi
+            const QString on = obj->objectName();
+            if (on == "txtScriptEditor" || on == "lineVariations" || on == "lineTexture") {
+                return false;
             }
             return true;
         }
@@ -180,6 +182,25 @@ protected:
             }
         }
 
+        return QObject::eventFilter(obj, event);
+    }
+};
+
+class EnterApplyFilter : public QObject {
+public:
+    std::function<void()> onEnter;
+    EnterApplyFilter(QObject* parent = nullptr) : QObject(parent) {}
+protected:
+    bool eventFilter(QObject* obj, QEvent* event) override {
+        if (event->type() == QEvent::KeyPress) {
+            QKeyEvent* keyEvent = static_cast<QKeyEvent*>(event);
+            if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter) {
+                if (!(keyEvent->modifiers() & Qt::ShiftModifier)) {
+                    if (onEnter) onEnter();
+                    return true;
+                }
+            }
+        }
         return QObject::eventFilter(obj, event);
     }
 };
@@ -1471,8 +1492,8 @@ MainWindow::MainWindow(QWidget *parent)
     connectSpaceLimit(ui->lineYMin, ui->lineYMax, &GLWidget::setRangeY);
     connectSpaceLimit(ui->lineZMin, ui->lineZMax, &GLWidget::setRangeZ);
 
-    connect(ui->lineVariations, &QPlainTextEdit::textChanged, this, [=]() {
-        ui->glWidget->setDisplacementCode(ui->lineVariations->toPlainText());
+    connect(ui->btnTextureCode, &QPushButton::clicked, this, [this]() {
+        onRunRaymarchTextureClicked();
     });
 
     // =========================================================================
@@ -2299,6 +2320,10 @@ MainWindow::MainWindow(QWidget *parent)
         lineEdit->installEventFilter(desktopFilter);
     }
 #endif
+
+    EnterApplyFilter* equationEnterFilter = new EnterApplyFilter(this);
+    equationEnterFilter->onEnter = [this]() { onStartClicked(); };
+    ui->lineEquation->installEventFilter(equationEnterFilter);
 }
 
 
@@ -3321,38 +3346,26 @@ void MainWindow::handleTextureSelection(int index)
     updateFlatPreviewButton();
 
     // ==========================================
-    // LOGICA ANIMAZIONE PULITA E SEPARATA
+    // ANIMAZIONE: selezionare una texture di SUPERFICIE avvia solo il proprio
+    // orologio. NON tocca né la geometria (SDF) né lo sfondo né la camera.
     // ==========================================
     QRegularExpression timeRegex("\\b(t|iTime|u_time)\\b");
-    QString texCodeForAnim = "";
-    QString mainEq = "";
 
-    // 1. Leggiamo l'equazione principale in base al Tab attivo
-    if (ui->tabModeSelector->currentIndex() == 1) {
-        // FIX: Aggiungiamo m_surfaceScriptText per non perdere la 't' degli script!
-        mainEq = ui->lineEquation->toPlainText() + " " + m_surfaceScriptText;
-    } else {
-        mainEq = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " + ui->lineZ->toPlainText();
-    }
-
-    // 2. Leggiamo la texture di SUPERFICIE
-    bool isSurfTexActive = ui->radioBackground->isChecked() ? m_surfaceTextureState : ui->chkBoxTexture->isChecked();
+    bool isSurfTexActive = ui->chkBoxTexture->isChecked();   // qui radioBackground è già escluso
+    bool surfTexNeedsAnim = false;
     if (isSurfTexActive) {
-        if (ui->tabModeSelector->currentIndex() == 1) {
-            texCodeForAnim += " " + ui->lineTexture->toPlainText() + " " + ui->lineVariations->toPlainText();
-        } else {
-            texCodeForAnim += " " + m_surfaceTextureCode;
-        }
+        QString texEq = (ui->tabModeSelector->currentIndex() == 1)
+                ? (ui->lineTexture->toPlainText() + " " + ui->lineVariations->toPlainText())
+                : m_surfaceTextureCode;
+        surfTexNeedsAnim = texEq.contains(timeRegex);
     }
 
-    // 3. Leggiamo la texture di SFONDO
-    if (ui->glWidget && ui->glWidget->isBackgroundTextureEnabled()) {
-        texCodeForAnim += " " + m_bgTextureCode;
+    // Solo l'orologio della texture di superficie. setSurfaceAnimating e
+    // setBackgroundTextureAnimating restano intatti.
+    if (ui->glWidget) {
+        ui->glWidget->setSurfaceTextureAnimating(surfTexNeedsAnim);
     }
-
-    // 4. Valutiamo l'animazione e aggiorniamo il tasto e tutti i timer!
-    bool needsAnim = texCodeForAnim.contains(timeRegex) || mainEq.contains(timeRegex);
-    applyAnimationState(needsAnim);
+    updateMasterButtonState();
 
     // Se abbiamo cambiato scheda, assicuriamoci che l'engine inizializzi correttamente
     // le equazioni chiamando onStartClicked() se necessario
@@ -3527,7 +3540,6 @@ void MainWindow::onStartClicked()
             }
 
             // BACKGROUND (anche in ray marching): stesso gate del ramo parametrico.
-            // Lo sfondo è comune alle due modalità, ma qui non era validato.
             if (ui->glWidget->isBackgroundTextureEnabled()) {
                 QString bgSrc = (m_currentScriptMode == ScriptModeTexture && ui->radioBackground->isChecked())
                         ? ui->txtScriptEditor->toPlainText()
@@ -3571,7 +3583,7 @@ void MainWindow::onStartClicked()
                                                                    "Syntax Error (Background Texture)", ui->glWidget->getShaderError());
                         return;
                     }
-                    m_bgTextureCode = bgSrc; // applicata e valida: committa
+                    m_bgTextureCode = bgSrc;
                 }
             }
         }
@@ -3594,15 +3606,19 @@ void MainWindow::onStartClicked()
         }
 
 
-        if (hasTimeVariable(currentScript + "\n" + m_surfaceTextureCode + "\n" + m_bgTextureCode)) {
+        const bool applyOnly = this->property("rmApplyOnly").toBool();
+
+        if (!applyOnly &&
+                hasTimeVariable(currentScript + "\n" + m_surfaceTextureCode + "\n" + m_bgTextureCode)) {
             applyAnimationState(true);
         }
 
-        applyStartSideEffects();
+        if (!applyOnly) {
+            applyStartSideEffects();
+        }
         ui->glWidget->update();
         return;
     }
-
 
     // ==========================================================
     // MODALITÀ IMPLICITA (RAY MARCHING)
@@ -3698,7 +3714,11 @@ void MainWindow::onStartClicked()
             isAnimated = isAnimated || hasTimeVariable(texCode) || hasTimeVariable(dispCode);
         }
 
-        applyAnimationState(isAnimated);
+        const bool applyOnly = this->property("rmApplyOnly").toBool();
+
+        if (!applyOnly) {
+            applyAnimationState(isAnimated);
+        }
         updateMasterButtonState();
 
         if (ui->radioShell->isChecked()) {
@@ -3708,7 +3728,9 @@ void MainWindow::onStartClicked()
         }
 
         ui->glWidget->rebuildShader();
-        applyStartSideEffects();
+        if (!applyOnly) {
+            applyStartSideEffects();
+        }
         ui->glWidget->update();
         return;
     }
@@ -3998,13 +4020,32 @@ void MainWindow::onStartClicked()
                          m_surfaceTextureCode + " " +
             m_bgTextureCode;
 
-    applyAnimationState(hasTimeVariable(rawEqsForT));
-    updateMasterButtonState();
-
     bool isSurfTexEnabled = ui->radioBackground->isChecked() ? m_surfaceTextureState : ui->chkBoxTexture->isChecked();
     if (isSurfTexEnabled && wasCustomTexture && !currentScript.isEmpty()) {
-        ui->glWidget->loadCustomShader(currentScript);
+
+        if (!ui->glWidget->loadCustomShader(currentScript)) {
+            InputValidator::showShaderCompilationError(this,
+                                                       "Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
+            return;
+        }
     }
+
+    if (ui->glWidget->isBackgroundTextureEnabled()) {
+        QString bgSrc = m_bgTextureScriptText;
+        bool bgHasLogic = bgSrc.contains("return") || bgSrc.contains("vec3")
+                || bgSrc.contains("vec4") || bgSrc.contains("mainImage");
+        if (bgHasLogic) {
+            if (!ui->glWidget->validateAndApplyBackgroundShader(bgSrc)) {
+                InputValidator::showShaderCompilationError(this,
+                                                           "Syntax Error (Background Texture)", ui->glWidget->getShaderError());
+                return;
+            }
+            m_bgTextureCode = bgSrc; // valida: committa
+        }
+    }
+
+    applyAnimationState(hasTimeVariable(rawEqsForT));
+    updateMasterButtonState();
 
     // 4. REPAINT E VALIDAZIONE GEOMETRIA
     ui->glWidget->updateSurfaceData(); // Calcola la mesh
@@ -4453,7 +4494,12 @@ void MainWindow::onRunCurrentScript()
 
     // 2. Salva e avvia in base alla modalità attuale
     if (m_currentScriptMode == ScriptModeSurface) {
-        // AUTO-SWITCH INTELLIGENTE: PARAMETRIC <-> IMPLICIT
+        if (ui->btnRunCurrentScript->text().startsWith("Stop")) {
+            if (ui->glWidget) ui->glWidget->setSurfaceAnimating(false);
+            updateMasterButtonState();
+            return;
+        }
+
         bool isImplicitTab = (ui->tabModeSelector->currentIndex() == 1);
 
         // Analisi del "DNA" dello script
@@ -4553,6 +4599,17 @@ void MainWindow::onRunCurrentScript()
         }
 
     } else if (m_currentScriptMode == ScriptModeTexture) {
+        if (ui->btnRunCurrentScript->text().startsWith("Stop")) {
+            if (ui->glWidget) {
+                if (ui->radioBackground->isChecked())
+                    ui->glWidget->setBackgroundTextureAnimating(false);
+                else
+                    ui->glWidget->setSurfaceTextureAnimating(false);
+            }
+            updateMasterButtonState();   // riallinea i pulsanti -> "Run ..."
+            return;
+        }
+
         if (ui->radioBackground->isChecked()) m_bgTextureScriptText = currentText;
         else m_surfaceTextureScriptText = currentText;
         onApplyTextureScriptClicked();
@@ -4585,9 +4642,7 @@ void MainWindow::onRunCurrentScript()
         onRunSoundClicked();
     }
 
-    if (m_currentScriptMode != ScriptModeSound) {
-        ui->btnRunCurrentScript->setEnabled(false);
-    }
+    updateScriptButtonText();
 }
 
 void MainWindow::onRunScriptClicked()
@@ -4859,6 +4914,33 @@ void MainWindow::onApplyTextureScriptClicked()
     ui->btnSaveScript->setEnabled(true);
 }
 
+void MainWindow::onRunRaymarchTextureClicked()
+{
+    if (!ui->glWidget) return;
+
+    // --- STATO "STOP": ferma solo l'orologio della texture ---
+    if (ui->btnTextureCode->text() == "Stop") {
+        ui->glWidget->setSurfaceTextureAnimating(false);   // SDF, camera e sfondo intatti
+        updateMasterButtonState();                          // riallinea il testo -> "Run"
+        return;
+    }
+
+    // --- STATO "RUN": applica Texture Code + 3D Variation, poi avvia se serve ---
+    this->setProperty("rmApplyOnly", true);
+    onStartClicked();                                       // applica entrambi gli script
+    this->setProperty("rmApplyOnly", false);
+
+    QRegularExpression timeRegex("\\b(t|iTime|u_time)\\b");
+    bool needs = ui->chkBoxTexture->isChecked() &&
+        (ui->lineTexture->toPlainText().contains(timeRegex) ||
+         ui->lineVariations->toPlainText().contains(timeRegex));
+
+    if (needs) m_masterStopped = false;
+    ui->glWidget->setSurfaceTextureAnimating(needs);
+
+    updateMasterButtonState();                              // imposta "Stop"/"Run" secondo lo stato reale
+}
+
 void MainWindow::onRunSoundClicked()
 {
     // Se sta suonando, ferma
@@ -4980,25 +5062,20 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
                 if (ui->glWidget->isBackgroundTextureAnimating()) {
                     ui->glWidget->setBackgroundTextureAnimating(false);
                 } else {
-                    // Se vuoi che riparta in sincrono, rimuovi resetBackgroundTime.
-                    // Se vuoi che riparta da zero, lascialo.
                     ui->glWidget->setBackgroundTextureAnimating(true);
                 }
             } else {
-                bool isRM = (ui->tabModeSelector->currentIndex() == 1);
-
-                // Nelle parametriche leggiamo SurfaceTextureAnimating.
-                // Nel Ray Marching (implicite) il tempo è centralizzato su SurfaceAnimating.
-                bool isCurrentlyAnimating = isRM ? ui->glWidget->isSurfaceAnimating() : ui->glWidget->isSurfaceTextureAnimating();
+                // Il toggle della texture agisce SOLO sull'orologio della texture,
+                // sia in Parametrico che in Ray Marching. La geometria (SurfaceAnimating)
+                // NON viene mai toccata: se la 't' della SDF era ferma, resta ferma.
+                bool isCurrentlyAnimating = ui->glWidget->isSurfaceTextureAnimating();
 
                 if (isCurrentlyAnimating) {
                     ui->glWidget->setSurfaceTextureAnimating(false);
-                    // Ferma anche il clock principale se siamo in Ray Marching
-                    if (isRM) ui->glWidget->setSurfaceAnimating(false);
                 } else {
                     ui->glWidget->setSurfaceTextureAnimating(true);
-                    // Riavvia anche il clock principale se siamo in Ray Marching
-                    if (isRM) ui->glWidget->setSurfaceAnimating(true);
+                    // Sblocca il master se stiamo riattivando l'animazione dal toggle
+                    m_masterStopped = false;
                 }
             }
 
@@ -5007,13 +5084,16 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         }
 
         // 5. Se non è un match (o se la texture era spenta), carichiamola normalmente
+
+        // FIX 1: Sblocca lo stato di STOP globale. Così handleTextureSelection
+        // è libera di attivare il motore se la nuova texture contiene u_time.
+        m_masterStopped = false;
+
         handleTextureSelection(index);
 
-        if (ui->radioBackground->isChecked()) {
-            ui->glWidget->setBackgroundTextureAnimating(true);
-        } else {
-            ui->glWidget->setSurfaceTextureAnimating(true);
-        }
+        // FIX 2: Rimosso il blocco if/else che forzava setSurfaceTextureAnimating(true).
+        // handleTextureSelection() sa già calcolare perfettamente se serve l'animazione
+        // e imposta tutti i flag necessari in modo coerente per Parametric e Ray Marching.
 
         updateMasterButtonState();
         return;
@@ -5290,9 +5370,7 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
     }
     ui->txtScriptEditor->blockSignals(block);
 
-    if (m_currentScriptMode != ScriptModeSound) {
-        ui->btnRunCurrentScript->setEnabled(false);
-    }
+    updateScriptButtonText();
 
     QTimer::singleShot(20, this, [this, isScript]() {
         if (ui->glWidget) {
@@ -5863,10 +5941,6 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
     updateMasterButtonState();
     // =======================================================
 
-    qDebug().noquote() << "[START-audio] m_soundScriptText=["
-            << m_soundScriptText << "]\n editorNow=["
-            << ui->txtScriptEditor->toPlainText() << "]";
-
     // 8. AVVIO AUDIO
     if (!m_soundScriptText.isEmpty()) {
         QString audioErr;
@@ -6022,9 +6096,7 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
         }
     }
 
-    if (m_currentScriptMode != ScriptModeSound) {
-        ui->btnRunCurrentScript->setEnabled(false);
-    }
+    updateScriptButtonText();
 
     // MODIFICA: Catturiamo 'isScript' (calcolato al punto 7) dentro la parentesi quadra
     QTimer::singleShot(20, this, [this, isScript]() {
@@ -7368,6 +7440,7 @@ void MainWindow::applyCommonData(const LibraryItem &d)
 
     updateRenderState();
     this->setProperty("isPresetActive", true);
+    updateMasterButtonState();
 }
 
  // --- Parsing, Strings & Scripts ---
@@ -7750,18 +7823,22 @@ void MainWindow::updateScriptButtonText() {
     if (m_currentScriptMode == ScriptModeSurface) {
         ui->txtScriptEditor->setEnabled(true);
 
+        // Lo stato del tasto rispecchia DIRETTAMENTE l'orologio della geometria,
+        // non il testo dell'editor (vuoto al load per i record impliciti non-script).
+        bool isSurfaceMoving = ui->glWidget && ui->glWidget->isSurfaceAnimating();
+
         if (isRayMarching) {
             ui->btnScriptMode->setText("Implicit Surface");
-            ui->btnRunCurrentScript->setText("Run Implicit");
+            ui->btnRunCurrentScript->setText(isSurfaceMoving ? "Stop Implicit" : "Run Implicit");
             ui->txtScriptEditor->setPlaceholderText("Write GLSL for Implicit Surface (Ray Marching).\nExample: return length(p) - 1.0;");
         } else {
             ui->btnScriptMode->setText("Parametric Surface");
-            ui->btnRunCurrentScript->setText("Run Parametric");
+            ui->btnRunCurrentScript->setText(isSurfaceMoving ? "Stop Parametric" : "Run Parametric");
             ui->txtScriptEditor->setPlaceholderText("Write GLSL for Parametric Surface.\nExample: return vec4(0.2 * u - 0.5, 0.2 * v - 0.5, 0.2 * sin(u * v), 1.0);");
         }
 
-        // Il tasto Run si attiva solo se c'è codice valido E se l'utente lo ha modificato
-        enableRun = hasGLSLCode && isModified;
+        // Sempre attivo se c'è codice; resta attivo se in moto (per poterla fermare).
+        enableRun = hasGLSLCode || isSurfaceMoving;
         enableSave = hasGLSLCode;
     }
 
@@ -7769,39 +7846,44 @@ void MainWindow::updateScriptButtonText() {
     // LOGICA PER TAB TEXTURE
     // ==========================================
     else if (m_currentScriptMode == ScriptModeTexture) {
+        // Stato reale dell'orologio della texture interessata (sfondo o superficie).
+        bool texMoving = false;
+        if (ui->glWidget) {
+            if (isBackground) {
+                texMoving = ui->glWidget->isBackgroundTextureAnimating()
+                        && ui->glWidget->isBackgroundTextureEnabled()
+                        && hasTimeVariable(m_bgTextureCode);
+            } else {
+                texMoving = ui->glWidget->isSurfaceTextureAnimating()
+                        && ui->chkBoxTexture->isChecked()
+                        && hasTimeVariable(m_surfaceTextureCode);
+            }
+        }
+
         if (isBackground) {
             ui->btnScriptMode->setText("Texture");
-            ui->btnRunCurrentScript->setText("Run Background Texture");
+            ui->btnRunCurrentScript->setText(texMoving ? "Stop Background Texture" : "Run Background Texture");
             ui->txtScriptEditor->setEnabled(true);
-
-            // ---> NUOVO PLACEHOLDER BACKGROUND <---
             ui->txtScriptEditor->setPlaceholderText("Write GLSL for Background Texture.\nExample: return vec3(uv.x, uv.y, 0.5);");
 
-            // Attivi solo se c'è vero codice modificato
-            enableRun = hasGLSLCode && isModified;
+            enableRun = hasGLSLCode || texMoving;
             enableSave = hasGLSLCode;
         } else {
             if (isRayMarching) {
-                // Ray Marching blocca le texture di superficie
                 ui->btnScriptMode->setText("Texture (Disabled)");
                 ui->btnRunCurrentScript->setText("Not Available in Ray Marching");
                 ui->txtScriptEditor->setEnabled(false);
-
-                // ---> NUOVO PLACEHOLDER RAY MARCHING <---
                 ui->txtScriptEditor->setPlaceholderText("Surface textures in Ray Marching are handled directly via the Equations Panel.");
 
                 enableRun = false;
                 enableSave = false;
             } else {
                 ui->btnScriptMode->setText("Texture");
-                ui->btnRunCurrentScript->setText("Run Parametric Texture");
+                ui->btnRunCurrentScript->setText(texMoving ? "Stop Parametric Texture" : "Run Parametric Texture");
                 ui->txtScriptEditor->setEnabled(true);
-
-                // ---> NUOVO PLACEHOLDER PARAMETRICO <---
                 ui->txtScriptEditor->setPlaceholderText("Write GLSL for Parametric Texture.\nExample: return vec3(u / tau, v / tau, 1.0);");
 
-                // Attivi solo se c'è vero codice modificato
-                enableRun = hasGLSLCode && isModified;
+                enableRun = hasGLSLCode || texMoving;
                 enableSave = hasGLSLCode;
             }
         }
@@ -7959,6 +8041,10 @@ void MainWindow::updateMasterButtonState()
 
         // La grafica è "attiva" SOLO se c'è almeno un elemento che usa il tempo E il suo orologio è acceso
         surfaceActive = isGeomVisuallyMoving || isTexVisuallyMoving || isBgVisuallyMoving;
+
+        if (ui->btnTextureCode) {
+            ui->btnTextureCode->setText(isTexVisuallyMoving ? "Stop" : "Run");
+        }
     }
 
     // 4. Controllo Timer Flusso Geodetico
@@ -7975,6 +8061,8 @@ void MainWindow::updateMasterButtonState()
 
     // 6. Aggiorniamo dinamicamente il Master Button
     m_btnStart->setText(somethingIsMoving ? "STOP" : "START");
+
+    updateScriptButtonText();
 }
 
 void MainWindow::applyAnimationState(bool animated) {
@@ -8055,6 +8143,21 @@ void MainWindow::showTopMessage(const QString& msg, bool isError)
 
     // Nascondi automaticamente dopo 3 secondi
     m_topMessageTimer->start(3000);
+}
+
+void MainWindow::startSurfaceTextureClockIfNeeded()
+{
+    if (!ui->glWidget) return;
+    QRegularExpression timeRegex("\\b(t|iTime|u_time)\\b");
+
+    // Texture e displacement condividono l'orologio della texture (u_dummyZero.x).
+    bool needs = ui->chkBoxTexture->isChecked() &&
+        (ui->lineTexture->toPlainText().contains(timeRegex) ||
+         ui->lineVariations->toPlainText().contains(timeRegex));
+
+    if (needs) m_masterStopped = false;
+    ui->glWidget->setSurfaceTextureAnimating(needs);   // mai setSurfaceAnimating: SDF e camera intatte
+    updateMasterButtonState();
 }
 
 void MainWindow::hideTopMessage()

@@ -156,7 +156,7 @@ public:
     void clearTexture();
 
     void setScriptCheck(bool enabled);
-    void loadCustomShader(const QString &customCode);
+    bool loadCustomShader(const QString &customCode);
     void setShaderTime(float t);
 
     void setBackgroundColor(const QColor &color);
@@ -255,12 +255,20 @@ public:
     void resetSurfaceTime();
     void setSurfaceAnimating(bool animating);
     bool isSurfaceAnimating() const { return m_surfaceAnimating; }
-    float surfaceTime() const;
+  //  float surfaceTime() const;
 
     void setBackgroundTextureAnimating(bool animating) { m_bgAnimating = animating; }
     bool isBackgroundTextureAnimating() const { return m_bgAnimating; }
 
-    void setSurfaceTextureAnimating(bool animating) { m_texAnimating = animating; }
+    void setSurfaceTextureAnimating(bool animating) {
+        if (animating == m_texAnimating) return;
+        m_texAnimating = animating;
+        if (animating) {
+            m_surfaceTimer.restart();                 // azzera la base del dt: niente salti
+            if (m_animTimer && !m_animTimer->isActive()) m_animTimer->start();
+        }
+    }
+
     bool isSurfaceTextureAnimating() const { return m_texAnimating; }
 
 
@@ -316,14 +324,14 @@ private:
     // ==========================================================
     EngineMode m_engineMode = ModeParametric;
 
-    void prepareCommonResources(QRhiResourceUpdateBatch *updates);
+ /*  void prepareCommonResources(QRhiResourceUpdateBatch *updates);
     void prepareParametricResources(QRhiResourceUpdateBatch *updates);
     void prepareImplicitResources(QRhiResourceUpdateBatch *updates);
 
     void drawBackground(QRhiCommandBuffer *cb, const QSize &outputSize);
     void drawParametric(QRhiCommandBuffer *cb, const QSize &outputSize);
     void drawImplicit(QRhiCommandBuffer *cb, const QSize &outputSize);
-    void drawFlatView(QRhiCommandBuffer *cb, const QSize &outputSize);
+    void drawFlatView(QRhiCommandBuffer *cb, const QSize &outputSize);*/
 
 
     // ==========================================================

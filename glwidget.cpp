@@ -508,25 +508,30 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 }
             } else {
                 // Solido
-                if (m_indexCount > 0) {
+                if (m_indexCount > 0 && m_vbo && m_ibo) {
                     cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
                     const QRhiCommandBuffer::VertexInput vbufBinding(m_vbo, 0);
-
                     if (alpha < 0.99f) {
-                        cb->setGraphicsPipeline(m_pipelineTranspBack);
-                        cb->setShaderResources(m_bindings);
-                        cb->setVertexInput(0, 1, &vbufBinding, m_ibo, 0, QRhiCommandBuffer::IndexUInt32);
-                        cb->drawIndexed(m_indexCount);
-
-                        cb->setGraphicsPipeline(m_pipelineTranspFront);
-                        cb->setShaderResources(m_bindings);
-                        cb->setVertexInput(0, 1, &vbufBinding, m_ibo, 0, QRhiCommandBuffer::IndexUInt32);
-                        cb->drawIndexed(m_indexCount);
+                        // Disegna solo se entrambe le pipeline di trasparenza sono valide.
+                        // Dopo un errore di compilazione la pipeline pu\u00f2 essere nulla:
+                        // passarla a Metal causa EXC_BAD_ACCESS.
+                        if (m_pipelineTranspBack && m_pipelineTranspFront) {
+                            cb->setGraphicsPipeline(m_pipelineTranspBack);
+                            cb->setShaderResources(m_bindings);
+                            cb->setVertexInput(0, 1, &vbufBinding, m_ibo, 0, QRhiCommandBuffer::IndexUInt32);
+                            cb->drawIndexed(m_indexCount);
+                            cb->setGraphicsPipeline(m_pipelineTranspFront);
+                            cb->setShaderResources(m_bindings);
+                            cb->setVertexInput(0, 1, &vbufBinding, m_ibo, 0, QRhiCommandBuffer::IndexUInt32);
+                            cb->drawIndexed(m_indexCount);
+                        }
                     } else {
-                        cb->setGraphicsPipeline(m_pipelineOpaque);
-                        cb->setShaderResources(m_bindings);
-                        cb->setVertexInput(0, 1, &vbufBinding, m_ibo, 0, QRhiCommandBuffer::IndexUInt32);
-                        cb->drawIndexed(m_indexCount);
+                        if (m_pipelineOpaque) {
+                            cb->setGraphicsPipeline(m_pipelineOpaque);
+                            cb->setShaderResources(m_bindings);
+                            cb->setVertexInput(0, 1, &vbufBinding, m_ibo, 0, QRhiCommandBuffer::IndexUInt32);
+                            cb->drawIndexed(m_indexCount);
+                        }
                     }
                 }
             }
@@ -1419,10 +1424,14 @@ void GLWidget::setScriptCheck(bool enabled) {
     meshNeedsUpdate = true;
 }
 
-void GLWidget::loadCustomShader(const QString &customCode)
+bool GLWidget::loadCustomShader(const QString &customCode)
 {
-    m_customFragmentCode = customCode; // Memorizza il codice
-    rebuildShader(); // Dice a RHI di ricompilare usando la nuova stringa
+    if (!validateAndApplyParametricShader(customCode)) {
+        qWarning() << "loadCustomShader: codice non valido, non applicato:"
+                   << m_lastCompilationError;
+        return false;
+    }
+    return true;
 }
 
 void GLWidget::setShaderTime(float t) {
@@ -2429,10 +2438,15 @@ QString GLWidget::createImplicitFragmentShader()
     // --- FINE NUOVA LOGICA ---
 
     if (m_textureEnabled) {
+        QString texCodeRemapped = m_textureCode;
+        texCodeRemapped.replace("ubuf.u_time", "ubuf.u_dummyZero.x");
         QString texWrap = "{\n  float t = ubuf.u_dummyZero.x;\n  float iTime = ubuf.u_dummyZero.x;\n"
-                          + m_textureCode + "\n}\n";
+                          + texCodeRemapped + "\n}\n";
         finalSource.replace("%TEXTURE_CODE%", texWrap);
-        finalSource.replace("%DISPLACEMENT_CODE%", m_displacementCode);
+
+        QString dispRemapped = m_displacementCode;
+        dispRemapped.replace("ubuf.u_time", "ubuf.u_dummyZero.x");   // STESSO orologio della texture
+        finalSource.replace("%DISPLACEMENT_CODE%", dispRemapped);
     } else {
         finalSource.replace("%TEXTURE_CODE%", "");
         finalSource.replace("%DISPLACEMENT_CODE%", "");
@@ -2927,6 +2941,17 @@ void GLWidget::buildPipeline() {
     QShader vs = bakeShader(vsSource.toUtf8(), QShader::VertexStage);
     QShader fs = bakeShader(fsSource.toUtf8(), QShader::FragmentStage);
 
+    if (!vs.isValid() || !fs.isValid()) {
+        qWarning() << "buildPipeline: shader non valido, pipeline non costruite.";
+        auto clearPipe = [](QRhiGraphicsPipeline *&p){ if (p) { delete p; p = nullptr; } };
+        clearPipe(m_pipelineOpaque);
+        clearPipe(m_pipelineTranspBack);
+        clearPipe(m_pipelineTranspFront);
+        clearPipe(m_wireframePipeline);
+        clearPipe(m_borderPipeline);
+        return;
+    }
+
     QRhiGraphicsPipeline::TargetBlend blend;
     blend.enable   = true;
     blend.srcColor = QRhiGraphicsPipeline::SrcAlpha;
@@ -2946,7 +2971,11 @@ void GLWidget::buildPipeline() {
     m_pipelineOpaque->setTargetBlends({ blend });
     m_pipelineOpaque->setShaderResourceBindings(m_bindings);
     m_pipelineOpaque->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
-    m_pipelineOpaque->create();
+
+    if (!m_pipelineOpaque->create()) {
+        qWarning() << "buildPipeline: create() opaque fallita.";
+        delete m_pipelineOpaque; m_pipelineOpaque = nullptr;
+    }
 
     // --- 2. PIPELINE TRASPARENTE: FACCE POSTERIORI (Passata 1) ---
     m_pipelineTranspBack = rhi()->newGraphicsPipeline();
@@ -2960,7 +2989,11 @@ void GLWidget::buildPipeline() {
     m_pipelineTranspBack->setTargetBlends({ blend });
     m_pipelineTranspBack->setShaderResourceBindings(m_bindings);
     m_pipelineTranspBack->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
-    m_pipelineTranspBack->create();
+
+    if (!m_pipelineTranspBack->create()) {
+        qWarning() << "buildPipeline: create() transpBack fallita.";
+        delete m_pipelineTranspBack; m_pipelineTranspBack = nullptr;
+    }
 
     // --- 3. PIPELINE TRASPARENTE: FACCE ANTERIORI (Passata 2) ---
     m_pipelineTranspFront = rhi()->newGraphicsPipeline();
@@ -2974,7 +3007,11 @@ void GLWidget::buildPipeline() {
     m_pipelineTranspFront->setTargetBlends({ blend });
     m_pipelineTranspFront->setShaderResourceBindings(m_bindings);
     m_pipelineTranspFront->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
-    m_pipelineTranspFront->create();
+
+    if (!m_pipelineTranspFront->create()) {
+        qWarning() << "buildPipeline: create() transpBack fallita.";
+        delete m_pipelineTranspFront; m_pipelineTranspFront = nullptr;
+    }
 
     // --- PIPELINE WIREFRAME ---
     if (m_wireframePipeline) {
@@ -2982,7 +3019,7 @@ void GLWidget::buildPipeline() {
         m_wireframePipeline = nullptr;
     }
     m_wireframePipeline = rhi()->newGraphicsPipeline();
-    m_wireframePipeline->setTopology(QRhiGraphicsPipeline::Lines); // <-- LA MAGIA È QUI
+    m_wireframePipeline->setTopology(QRhiGraphicsPipeline::Lines);
 
     // Assegna gli stessi identici layout e shader della mesh principale
     m_wireframePipeline->setVertexInputLayout(inputLayout);
@@ -2995,7 +3032,10 @@ void GLWidget::buildPipeline() {
     m_wireframePipeline->setShaderResourceBindings(m_bindings);
     m_wireframePipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
 
-    m_wireframePipeline->create();
+    if (!m_wireframePipeline->create()) {
+        qWarning() << "buildPipeline: create() transpBack fallita.";
+        delete m_wireframePipeline; m_wireframePipeline = nullptr;
+    }
 
     // --- PIPELINE BORDER ---
     if (m_borderPipeline) {
@@ -3016,7 +3056,10 @@ void GLWidget::buildPipeline() {
     m_borderPipeline->setShaderResourceBindings(m_borderBindings); // <-- Binding esclusivo
     m_borderPipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
 
-    m_borderPipeline->create();
+    if (!m_borderPipeline->create()) {
+        qWarning() << "buildPipeline: create() transpBack fallita.";
+        delete m_borderPipeline; m_borderPipeline = nullptr;
+    }
 }
 
 void GLWidget::initBackgroundShader() {

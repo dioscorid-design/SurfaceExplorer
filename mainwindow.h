@@ -109,6 +109,7 @@ private slots:
     void onRunCurrentScript();
     void onRunScriptClicked();
     void onApplyTextureScriptClicked();
+    void onRunRaymarchTextureClicked();
     void onRunSoundClicked();
 
     // ==========================================================
@@ -304,6 +305,7 @@ private:
     void toggleProjection();
     void showTopMessage(const QString& msg, bool isError = true);
     void hideTopMessage();
+    void startSurfaceTextureClockIfNeeded();
 
     // --- Geometry & Geodesic Flow ---
     void snapshotActiveEquations();
