@@ -457,11 +457,77 @@ void UiStyleManager::compactForMobile(const QList<QWidget*>& containers) {
 
         QList<QPlainTextEdit*> textEdits = w->findChildren<QPlainTextEdit*>();
         for (QPlainTextEdit* edit : textEdits) {
-            // Questo è il blocco chiave che forza i campi delle equazioni a una riga singola!
+            const QString on = edit->objectName();
+            // Gli editor del tab Ray Marching sono gestiti da setupRaymarchTabMobile.
+            if (on == "lineEquation" || on == "lineTexture" || on == "lineVariations")
+                continue;
             edit->setMaximumHeight(75);
             edit->setMinimumHeight(70);
         }
     }
+#endif
+}
+
+void UiStyleManager::setupRaymarchTabMobile(QWidget* equationsContainer) {
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    if (!equationsContainer) return;
+
+    // Risolviamo i widget per objectName: nessuna dipendenza dall'oggetto ui.
+    auto* lblEq        = equationsContainer->findChild<QLabel*>("lblEq");
+    auto* lbl3DTexture = equationsContainer->findChild<QLabel*>("lbl3DTexture");
+    auto* lbl2DTexture = equationsContainer->findChild<QLabel*>("lbl2DTexture");
+    auto* panelRadio   = equationsContainer->findChild<QWidget*>("panelRadio");
+    auto* lineEquation = equationsContainer->findChild<QPlainTextEdit*>("lineEquation");
+    auto* lineTexture  = equationsContainer->findChild<QPlainTextEdit*>("lineTexture");
+    auto* lineVars     = equationsContainer->findChild<QPlainTextEdit*>("lineVariations");
+
+    // 1. Le tre label: altezza fissa e bassa, testo centrato verticalmente.
+    for (QLabel* lbl : { lblEq, lbl3DTexture, lbl2DTexture }) {
+        if (!lbl) continue;
+        lbl->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        lbl->setMinimumHeight(30);
+        lbl->setMaximumHeight(30);
+        lbl->setAlignment(Qt::AlignCenter);   // centrato H e V
+        lbl->setContentsMargins(0, 0, 0, 0);
+    }
+
+    // 2. Pannello radio Shell/Solid: più basso e compatto.
+    if (panelRadio) {
+        panelRadio->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        panelRadio->setMinimumHeight(30);
+        panelRadio->setMaximumHeight(30);
+        if (panelRadio->layout()) {
+            panelRadio->layout()->setContentsMargins(0, 0, 0, 0);
+            panelRadio->layout()->setSpacing(0);
+        }
+    }
+
+    // 3. Editor più alti: equazione stretta, texture molto più ampie.
+    if (lineEquation) { lineEquation->setMinimumHeight(60);  lineEquation->setMaximumHeight(QWIDGETSIZE_MAX); }
+    if (lineTexture)  { lineTexture->setMinimumHeight(170);  lineTexture->setMaximumHeight(QWIDGETSIZE_MAX); }
+    if (lineVars)     { lineVars->setMinimumHeight(170);     lineVars->setMaximumHeight(QWIDGETSIZE_MAX); }
+
+    // 4. Ribilanciamo gli stretch ereditati dal .ui, altrimenti label e radio
+    //    si riprendono lo spazio verticale a scapito degli editor.
+    if (auto* vl24 = equationsContainer->findChild<QVBoxLayout*>("verticalLayout_24")) {
+        vl24->setStretch(0, 0);   // lblEq
+        vl24->setStretch(1, 1);   // lineEquation
+        vl24->setStretch(2, 0);   // panelRadio
+    }
+    if (auto* vl26 = equationsContainer->findChild<QVBoxLayout*>("verticalLayout_26")) {
+        vl26->setStretch(0, 0);   // lbl3DTexture
+        vl26->setStretch(1, 5);   // lineTexture
+        vl26->setStretch(2, 0);   // lbl2DTexture
+        vl26->setStretch(3, 5);   // lineVariations
+        vl26->setStretch(4, 0);   // btnTextureCode
+    }
+    if (auto* vl23 = equationsContainer->findChild<QVBoxLayout*>("verticalLayout_23")) {
+        vl23->setStretch(0, 2);   // panelEquation (stretto)
+        vl23->setStretch(1, 7);   // panelVariations (texture, più ampio)
+        vl23->setStretch(2, 1);   // panelLimits
+    }
+#else
+    Q_UNUSED(equationsContainer);
 #endif
 }
 

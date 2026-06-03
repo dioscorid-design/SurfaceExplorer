@@ -2328,7 +2328,7 @@
            <attribute name="title">
             <string>Ray Marching</string>
            </attribute>
-           <layout class="QVBoxLayout" name="verticalLayout_23">
+           <layout class="QVBoxLayout" name="verticalLayout_23" stretch="2,6,2">
             <item>
              <widget class="QFrame" name="panelEquation">
               <property name="maximumSize">
@@ -2419,17 +2419,23 @@
             </item>
             <item>
              <widget class="QWidget" name="panelVariations" native="true">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
               <property name="maximumSize">
                <size>
                 <width>16777215</width>
                 <height>16777215</height>
                </size>
               </property>
-              <layout class="QVBoxLayout" name="verticalLayout_26">
+              <layout class="QVBoxLayout" name="verticalLayout_26" stretch="0,4,0,4,0">
                <item>
                 <widget class="QLabel" name="lbl3DTexture">
                  <property name="sizePolicy">
-                  <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                  <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
                    <horstretch>0</horstretch>
                    <verstretch>0</verstretch>
                   </sizepolicy>
@@ -2437,7 +2443,7 @@
                  <property name="maximumSize">
                   <size>
                    <width>16777215</width>
-                   <height>20</height>
+                   <height>16777215</height>
                   </size>
                  </property>
                  <property name="text">
@@ -2449,30 +2455,9 @@
                 </widget>
                </item>
                <item>
-                <widget class="QPlainTextEdit" name="lineVariations"/>
-               </item>
-              </layout>
-             </widget>
-            </item>
-            <item>
-             <widget class="QFrame" name="panelRayTexture">
-              <property name="maximumSize">
-               <size>
-                <width>16777215</width>
-                <height>16777215</height>
-               </size>
-              </property>
-              <property name="frameShape">
-               <enum>QFrame::Shape::StyledPanel</enum>
-              </property>
-              <property name="frameShadow">
-               <enum>QFrame::Shadow::Raised</enum>
-              </property>
-              <layout class="QVBoxLayout" name="verticalLayout_27" stretch="0,0,0">
-               <item>
-                <widget class="QLabel" name="lbl2DTexture">
+                <widget class="QPlainTextEdit" name="lineVariations">
                  <property name="sizePolicy">
-                  <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                  <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
                    <horstretch>0</horstretch>
                    <verstretch>0</verstretch>
                   </sizepolicy>
@@ -2480,7 +2465,23 @@
                  <property name="maximumSize">
                   <size>
                    <width>16777215</width>
-                   <height>20</height>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QLabel" name="lbl2DTexture">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>16777215</width>
+                   <height>16777215</height>
                   </size>
                  </property>
                  <property name="text">
@@ -2509,6 +2510,18 @@
                </item>
                <item>
                 <widget class="QPushButton" name="btnTextureCode">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Minimum" vsizetype="Preferred">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>16777215</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
                  <property name="text">
                   <string>Run</string>
                  </property>
@@ -2522,7 +2535,7 @@
               <property name="maximumSize">
                <size>
                 <width>16777215</width>
-                <height>100</height>
+                <height>120</height>
                </size>
               </property>
               <property name="frameShape">

@@ -95,6 +95,7 @@ qt_add_executable(SurfaceExplorer
     inputvalidator.h
     inputvalidator.cpp
     shaders/geodesic.glsl
+
 )
 
 set_source_files_properties(documentation.html PROPERTIES MACOSX_PACKAGE_LOCATION Resources)

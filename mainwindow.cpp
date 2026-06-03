@@ -167,9 +167,7 @@ protected:
                 }
 
                 if (QWidget* w = qobject_cast<QWidget*>(obj)) {
-                    bool oldState = w->blockSignals(true);
                     w->clearFocus();
-                    w->blockSignals(oldState);
 
                     // Notifica a MainWindow di applicare i campi modificati
                     if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
@@ -528,6 +526,8 @@ MainWindow::MainWindow(QWidget *parent)
         // 4. Applichiamo i flag finali
         input->setInputMethodHints(hints);
     }
+
+    UiStyleManager::setupRaymarchTabMobile(ui->dockEquations->widget());
 #endif
 
     // =========================================================================
@@ -1155,21 +1155,6 @@ MainWindow::MainWindow(QWidget *parent)
         ui->stepSlider->blockSignals(false);
     });
 
-    // 4. E SOLO ORA COLLEGA IL SEGNALE DELLO SLIDER STESSO
-    connect(ui->stepSlider, &QSlider::valueChanged, this, [this](int val) {
-        ui->lineSteps->setText(QString::number(val));
-
-        if (ui->glWidget) {
-            if (ui->tabModeSelector->currentIndex() == 1) {
-                ui->glWidget->setRaySteps(val);
-            } else {
-                ui->glWidget->setResolution(val);
-                ui->glWidget->updateSurfaceData();
-            }
-            ui->glWidget->update();
-        }
-    });
-
     ui->lineX->setPlainText("(0.8 + 0.3*cos(v))*cos(u)");
     ui->lineY->setPlainText("(0.8 + 0.3*cos(v))*sin(u)");
     ui->lineZ->setPlainText("0.3*sin(v)");
@@ -1205,8 +1190,20 @@ MainWindow::MainWindow(QWidget *parent)
     if (ui->lineE->text().isEmpty()) ui->lineE->setText("1");
     if (ui->lineF->text().isEmpty()) ui->lineF->setText("1");
     if (ui->lineS->text().isEmpty() || ui->lineS->text() == "0.4") {
-            ui->lineS->setText("0");
-        }
+        ui->lineS->setText("0");
+    }
+
+    if (!m_meshDebounce) {
+        m_meshDebounce = new QTimer(this);
+        m_meshDebounce->setSingleShot(true);
+        m_meshDebounce->setInterval(120);
+        connect(m_meshDebounce, &QTimer::timeout, this, [this]() {
+            if (ui->glWidget && ui->tabModeSelector->currentIndex() != 1) {
+                ui->glWidget->setResolution(ui->stepSlider->value());
+            }
+            checkAndTriggerMeshUpdate();
+        });
+    }
 
     // --- MOTORE COSTANTI A CASCATA ---
     auto evaluateCascade = [this]() {
@@ -1265,7 +1262,7 @@ MainWindow::MainWindow(QWidget *parent)
 
         if (ui->glWidget) {
             ui->glWidget->setEquationConstants(valA, valB, valC, valD, valE, valF, valS);
-            checkAndTriggerMeshUpdate();
+            m_meshDebounce->start();
         }
     };
 
@@ -1304,34 +1301,55 @@ MainWindow::MainWindow(QWidget *parent)
     ui->glWidget->setResolution(initialSteps);
     ui->lblSteps->setText(QString("Steps="));
 
+    // (1) valueChanged: aggiorna testo + avvia debounce
     connect(ui->stepSlider, &QSlider::valueChanged, this, [this](int val) {
         ui->lineSteps->setText(QString::number(val));
-
-        if (ui->glWidget) {
-            if (ui->tabModeSelector->currentIndex() == 1) {
-                // Se siamo in Ray Marching, aggiorna solo le iterazioni GPU
-                ui->glWidget->setRaySteps(val);
-                ui->glWidget->update();
-            } else {
-                // Se siamo in Parametrico, rigenera la geometria
-                ui->glWidget->setResolution(val);
-                checkAndTriggerMeshUpdate();
-            }
+        if (!ui->glWidget) return;
+        if (ui->tabModeSelector->currentIndex() == 1) {
+            ui->glWidget->setRaySteps(val);
+            ui->glWidget->update();
+        } else {
+            m_meshDebounce->start();
         }
     });
 
-    connect(ui->lineSteps, &QLineEdit::editingFinished, this, [this](){
+    // (2) sliderPressed: sospende il rendering durante il trascinamento
+    connect(ui->stepSlider, &QSlider::sliderPressed, this, [this]() {
+        if (ui->glWidget) ui->glWidget->setUpdatesEnabled(false);
+    });
+
+    // (3) sliderReleased: riattiva il rendering e rigenera al rilascio
+    connect(ui->stepSlider, &QSlider::sliderReleased, this, [this]() {
+        if (ui->glWidget) {
+            ui->glWidget->setUpdatesEnabled(true);
+            ui->glWidget->update();
+        }
+        m_meshDebounce->start();
+    });
+
+    auto applyStepsFromLine = [this]() {
         bool ok;
         int val = ui->lineSteps->text().toInt(&ok);
-        if (ok) {
-            int min = ui->stepSlider->minimum();
-            int max = ui->stepSlider->maximum();
-            val = std::clamp(val, min, max);
-            ui->stepSlider->setValue(val);
-            ui->lineSteps->setText(QString::number(val));
-            ui->lineSteps->clearFocus();
-        }
+        if (!ok) return;   // campo vuoto o non numerico durante la digitazione: ignora
+        val = std::clamp(val, ui->stepSlider->minimum(), ui->stepSlider->maximum());
+        if (val != ui->stepSlider->value())
+            ui->stepSlider->setValue(val);   // emette valueChanged -> aggiorna glWidget e testo
+    };
+
+    // Trigger "forti" (funzionano su desktop, innocui su mobile
+    connect(ui->lineSteps, &QLineEdit::editingFinished, this, applyStepsFromLine);
+    connect(ui->lineSteps, &QLineEdit::returnPressed,   this, applyStepsFromLine);
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    m_stepsDebounce = new QTimer(this);
+    m_stepsDebounce->setSingleShot(true);
+    m_stepsDebounce->setInterval(350);
+    connect(m_stepsDebounce, &QTimer::timeout, this, applyStepsFromLine);
+
+    connect(ui->lineSteps, &QLineEdit::textEdited, this, [this](const QString&) {
+        m_stepsDebounce->start();
     });
+#endif
 
     // 1. Dipendenze delle equazioni principali
     connect(ui->lineX, &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
@@ -1491,6 +1509,25 @@ MainWindow::MainWindow(QWidget *parent)
     connectSpaceLimit(ui->lineXMin, ui->lineXMax, &GLWidget::setRangeX);
     connectSpaceLimit(ui->lineYMin, ui->lineYMax, &GLWidget::setRangeY);
     connectSpaceLimit(ui->lineZMin, ui->lineZMax, &GLWidget::setRangeZ);
+
+    // --- Limiti parametrici U/V/W: Enter applica subito, come il lato Ray Marching ---
+    auto connectParametricLimit = [this](QLineEdit* minEdit, QLineEdit* maxEdit,
+            void (MainWindow::*updateFunc)()) {
+        auto apply = [this, updateFunc]() {
+            (this->*updateFunc)();                         // imposta setRangeU/V/W sul glWidget
+            if (m_meshDebounce) m_meshDebounce->start();   // rigenera la mesh (stesso path delle costanti)
+        };
+        // editingFinished: copre Enter su desktop e perdita di focus su mobile.
+        connect(minEdit, &QLineEdit::editingFinished, this, apply);
+        connect(maxEdit, &QLineEdit::editingFinished, this, apply);
+        // returnPressed: trigger "forte" su desktop, innocuo su mobile (evento consumato dal filtro).
+        connect(minEdit, &QLineEdit::returnPressed,   this, apply);
+        connect(maxEdit, &QLineEdit::returnPressed,   this, apply);
+    };
+
+    connectParametricLimit(ui->uMinEdit, ui->uMaxEdit, &MainWindow::updateULimits);
+    connectParametricLimit(ui->vMinEdit, ui->vMaxEdit, &MainWindow::updateVLimits);
+    connectParametricLimit(ui->wMinEdit, ui->wMaxEdit, &MainWindow::updateWLimits);
 
     connect(ui->btnTextureCode, &QPushButton::clicked, this, [this]() {
         onRunRaymarchTextureClicked();
@@ -2681,6 +2718,10 @@ void MainWindow::updateConstraintState()
     auto applyLimitsState = [](QLineEdit* minEdit, QLineEdit* maxEdit, bool enable) {
         minEdit->setEnabled(enable);
         maxEdit->setEnabled(enable);
+        if (!enable) {
+            minEdit->clear();
+            maxEdit->clear();
+        }
     };
 
     if (hasConstraintU) {
@@ -8143,21 +8184,6 @@ void MainWindow::showTopMessage(const QString& msg, bool isError)
 
     // Nascondi automaticamente dopo 3 secondi
     m_topMessageTimer->start(3000);
-}
-
-void MainWindow::startSurfaceTextureClockIfNeeded()
-{
-    if (!ui->glWidget) return;
-    QRegularExpression timeRegex("\\b(t|iTime|u_time)\\b");
-
-    // Texture e displacement condividono l'orologio della texture (u_dummyZero.x).
-    bool needs = ui->chkBoxTexture->isChecked() &&
-        (ui->lineTexture->toPlainText().contains(timeRegex) ||
-         ui->lineVariations->toPlainText().contains(timeRegex));
-
-    if (needs) m_masterStopped = false;
-    ui->glWidget->setSurfaceTextureAnimating(needs);   // mai setSurfaceAnimating: SDF e camera intatte
-    updateMasterButtonState();
 }
 
 void MainWindow::hideTopMessage()

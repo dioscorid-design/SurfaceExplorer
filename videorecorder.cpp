@@ -447,12 +447,6 @@ void VideoRecorder::toggleRecord()
     settings.setValue("lastVideoDir", QFileInfo(userSelectedFile).absolutePath());
 #endif
 
-    qDebug() << "\n=====================================";
-    qDebug() << "STATUS MOTORE DI RENDERING:";
-    qDebug() << "Risoluzione Target (Index):" << resIndex;
-    qDebug() << "Utilizzo FBO Nativo:" << (useFBO ? "ATTIVO" : "DISATTIVATO");
-    qDebug() << "=====================================\n";
-
     // --- SALVATAGGIO IMPOSTAZIONI E CALCOLO RISOLUZIONE (COMUNE) ---
     settings.setValue("lastRecDuration", seconds);
     settings.setValue("lastRecFPS", fps);

@@ -255,7 +255,6 @@ public:
     void resetSurfaceTime();
     void setSurfaceAnimating(bool animating);
     bool isSurfaceAnimating() const { return m_surfaceAnimating; }
-  //  float surfaceTime() const;
 
     void setBackgroundTextureAnimating(bool animating) { m_bgAnimating = animating; }
     bool isBackgroundTextureAnimating() const { return m_bgAnimating; }

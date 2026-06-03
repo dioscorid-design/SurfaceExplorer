@@ -173,6 +173,8 @@ private:
     int m_lastImplicitSteps = 400;
     double m_lastParametricS = 0.0;
     double m_lastImplicitS = 0.4;
+    QTimer* m_stepsDebounce = nullptr;
+    QTimer* m_meshDebounce = nullptr;
 
     // ==========================================================
     // RENDERING & COLOR STATE
@@ -305,7 +307,6 @@ private:
     void toggleProjection();
     void showTopMessage(const QString& msg, bool isError = true);
     void hideTopMessage();
-    void startSurfaceTextureClockIfNeeded();
 
     // --- Geometry & Geodesic Flow ---
     void snapshotActiveEquations();
