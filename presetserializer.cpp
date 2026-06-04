@@ -144,6 +144,10 @@ private:
     }
 
     void onSaveClicked() {
+        QString rawName = nameEdit->text().trimmed();
+        if (rawName.endsWith(".json", Qt::CaseInsensitive)) rawName.chop(5);
+        if (rawName.isEmpty()) { nameEdit->setFocus(); return; }   // niente nome -> non salva
+
         QString finalPath = getSelectedPath();
         QFileInfo checkFile(finalPath);
 
@@ -904,8 +908,11 @@ void PresetSerializer::saveScript()
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     QString title = isSurface ? "Save Surface Script" : (isSound ? "Save Sound Script" : "Save Texture Script");
-    // currentMem è la cartella di partenza, "NewScript" è il nome di default
-    MobileSaveDialog dialog(title, currentMem, "NewScript", m_mainWindow);
+    // Nome di default: per le texture il nome di quella caricata, altrimenti vuoto (nuovo).
+    QString defaultName;
+    if (!isSurface && !isSound && !m_mainWindow->m_currentTexturePath.isEmpty())
+        defaultName = QFileInfo(m_mainWindow->m_currentTexturePath).completeBaseName();
+    MobileSaveDialog dialog(title, currentMem, defaultName, m_mainWindow);
 
     if (dialog.exec() != QDialog::Accepted) {
         resumeTimers();
@@ -1084,17 +1091,13 @@ void PresetSerializer::saveTextureAs(const QString &startDir, const QString &sou
     if (wasAnimating) m_mainWindow->ui->glWidget->pauseMotion();
     if (wasPath4D) m_mainWindow->pathTimer->stop();
     if (wasPath3D) m_mainWindow->pathTimer3D->stop();
-
-    QString defaultSelection = startDir + "/NewTexture.json";
-
-    if (!sourceFilePath.isEmpty()) {
-        QString baseName = QFileInfo(sourceFilePath).completeBaseName();
-        defaultSelection = startDir + "/" + baseName + ".json";
-    }
+    // Nome di default: quello della texture caricata, vuoto se è una texture nuova.
+    QString defaultName = sourceFilePath.isEmpty()
+                              ? QString()
+                              : QFileInfo(sourceFilePath).completeBaseName();
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-    QString baseName = QFileInfo(defaultSelection).completeBaseName();
-    MobileSaveDialog dialog("Save Surface As...", startDir, baseName, m_mainWindow);
+    MobileSaveDialog dialog("Save Texture As...", startDir, defaultName, m_mainWindow);
 
     if (dialog.exec() != QDialog::Accepted) {
         // Se l'utente preme Cancel, riprendiamo l'animazione ed usciamo
@@ -1105,7 +1108,9 @@ void PresetSerializer::saveTextureAs(const QString &startDir, const QString &sou
     }
     QString savePath = dialog.getSelectedPath();
 #else
-    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface As...", defaultSelection, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
+    QString defaultSelection = startDir + "/";
+    if (!defaultName.isEmpty()) defaultSelection += defaultName + ".json";
+    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Texture As...", defaultSelection, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
 #endif
 
     if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();

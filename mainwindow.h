@@ -208,6 +208,7 @@ private:
 
     QString lastTextureFolder;
     QString m_currentTexturePath;
+    QString m_currentTexturePresetPath;
     QString m_surfaceTextureCode;
     QString m_bgTextureCode;
 
@@ -284,6 +285,9 @@ private:
     void saveTextureConfig(const QString &savePath);
     QTreeWidgetItem* getCurrentLibraryItem();
     void applyCommonData(const LibraryItem &data);
+    QString presetsRootPath() const;
+    bool resolveNeedsCopy(const QString& src, const QString& dst,
+                          bool forceRestore, bool isDeleted, int* overwriteState);
 
     // --- Parsing, Strings & Scripts ---
     float parseMath(const QString &text, bool *ok = nullptr);
@@ -293,6 +297,7 @@ private:
     bool hasTimeVariable(const QString& code);
     QString extractAndResolveImagePath(const QString& scriptCode);
     QString extractAudioDirectives(const QString& fullText);
+    static QString cleanCodeForComparison(QString str);
 
     // --- UI State & Graphics ---
     void updateLayoutForMode(int mode);
@@ -307,6 +312,7 @@ private:
     void toggleProjection();
     void showTopMessage(const QString& msg, bool isError = true);
     void hideTopMessage();
+    bool applyBackgroundTextureIfNeeded();
 
     // --- Geometry & Geodesic Flow ---
     void snapshotActiveEquations();
@@ -317,6 +323,7 @@ private:
     void checkAndTriggerMeshUpdate();
     void stopGeodesicAnimation();
     bool isGeodesicMotionActive() const;
+    bool hasGeodesicText() const;
 
     bool m_geodesicErrorPending = false;
 

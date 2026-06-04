@@ -227,6 +227,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_isImageMode = false;
     m_blockTextureGen = false;
     m_currentTexturePath = "";
+    m_currentTexturePresetPath = "";
     m_surfaceTextureState = false;
 
 #if defined(Q_OS_ANDROID)
@@ -1533,6 +1534,8 @@ MainWindow::MainWindow(QWidget *parent)
         onRunRaymarchTextureClicked();
     });
 
+    connect(ui->btnSave, &QPushButton::clicked, this, &MainWindow::onSaveTextureClicked);
+
     // =========================================================================
     // 7. RENDERER, COLORS & LIGHTING
     // =========================================================================
@@ -1646,20 +1649,7 @@ MainWindow::MainWindow(QWidget *parent)
             }
         }
 
-        // NUOVA FUNZIONE ULTRA-AGGRESSIVA UNIFICATA
-        auto cleanForComparison = [](QString str) {
-            QRegularExpression blockRe(R"(//\s*SOUND_BEGIN.*?//\s*SOUND_END\n?)", QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
-            while (str.contains(blockRe)) str.remove(blockRe);
-            str.remove(QRegularExpression(R"(^\s*//(MUSIC|SYNTH):.*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
-            str.remove(QRegularExpression(R"(^\s*//\s*(SOUND_BEGIN|SOUND_END).*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
-            str.remove(QRegularExpression(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
-            str.remove(QRegularExpression(R"(//.*$)", QRegularExpression::MultilineOption));
-            str.remove(QRegularExpression(R"(/\*.*?\*/)", QRegularExpression::DotMatchesEverythingOption));
-            str.replace(QRegularExpression("\\s+"), "");
-            return str;
-        };
-
-        QString cleanedActive = cleanForComparison(activeCode);
+        QString cleanedActive =  cleanCodeForComparison(activeCode);
 
         // Usiamo activeCode.trimmed()! Così se è un'immagine entra comunque nel ciclo.
         if (!activeCode.trimmed().isEmpty()) {
@@ -1678,7 +1668,7 @@ MainWindow::MainWindow(QWidget *parent)
                         }
                     } else {
                         // MATCH PROCEDURALE (Usa i codici PULITI)
-                        QString cleanLibCode = cleanForComparison(texItem.scriptCode);
+                        QString cleanLibCode =  cleanCodeForComparison(texItem.scriptCode);
                         if (!cleanedActive.isEmpty() && cleanedActive == cleanLibCode) {
                             isMatch = true;
                         }
@@ -2266,6 +2256,7 @@ MainWindow::MainWindow(QWidget *parent)
     connectSidePanels();
     switchToMainMode();
     refreshRepositories();
+    updateWatcherPaths();
 
 #if defined(Q_OS_IOS)
     // SU IOS: showFullScreen() è obbligatorio per sbloccare la risoluzione nativa
@@ -2569,15 +2560,7 @@ void MainWindow::checkParametricDependency()
                        !defV.trimmed().isEmpty() ||
                        !defW.trimmed().isEmpty();
 
-    bool geoHasText = false;
-    if (ui->lnU) {
-        geoHasText = !ui->lnU->toPlainText().trimmed().isEmpty() ||
-                !ui->lnV->toPlainText().trimmed().isEmpty() ||
-                !ui->lnW->toPlainText().trimmed().isEmpty() ||
-                !ui->lndU->toPlainText().trimmed().isEmpty() ||
-                !ui->lndV->toPlainText().trimmed().isEmpty() ||
-                !ui->lndW->toPlainText().trimmed().isEmpty();
-    }
+   bool geoHasText = hasGeodesicText();
 
     // 2. MACCHINA A STATI: Apertura e Blocco Tab intelligente
     if (ui->panelImplicit) {
@@ -2696,15 +2679,7 @@ void MainWindow::updateConstraintState()
             (allMainEqs.contains(QRegularExpression("\\bV\\b")) ? 1 : 0) +
             (allMainEqs.contains(QRegularExpression("\\bW\\b")) ? 1 : 0);
 
-    bool geoHasText = false;
-    if (ui->lnU) {
-        geoHasText = !ui->lnU->toPlainText().trimmed().isEmpty() ||
-                !ui->lnV->toPlainText().trimmed().isEmpty() ||
-                !ui->lnW->toPlainText().trimmed().isEmpty() ||
-                !ui->lndU->toPlainText().trimmed().isEmpty() ||
-                !ui->lndV->toPlainText().trimmed().isEmpty() ||
-                !ui->lndW->toPlainText().trimmed().isEmpty();
-    }
+    bool geoHasText = hasGeodesicText();
 
     bool isGeodesicActive = (upperCount > 0) && geoHasText && (ui->tabModeSelector->currentIndex() == 0);
 
@@ -2997,6 +2972,10 @@ void MainWindow::handleTextureSelection(int index)
 {
     // 1. Recupera i dati
     const LibraryItem &data = m_libraryManager.getTexture(index);
+
+    // Ricorda il file della texture caricata: serve come nome di default in salvataggio
+    // (stessa logica dei record). Vuoto solo se non è stata caricata nessuna texture.
+    m_currentTexturePresetPath = data.filePath;
 
     static int lastTextureIndex = -1;
     static bool lastWasBg = false;
@@ -3391,20 +3370,28 @@ void MainWindow::handleTextureSelection(int index)
     // orologio. NON tocca né la geometria (SDF) né lo sfondo né la camera.
     // ==========================================
     QRegularExpression timeRegex("\\b(t|iTime|u_time)\\b");
+    bool isRM = (ui->tabModeSelector->currentIndex() == 1);
+    bool isSurfTexActive = ui->chkBoxTexture->isChecked();
 
-    bool isSurfTexActive = ui->chkBoxTexture->isChecked();   // qui radioBackground è già escluso
+    // Orologio TEXTURE (colore): solo il code 2D
     bool surfTexNeedsAnim = false;
     if (isSurfTexActive) {
-        QString texEq = (ui->tabModeSelector->currentIndex() == 1)
-                ? (ui->lineTexture->toPlainText() + " " + ui->lineVariations->toPlainText())
-                : m_surfaceTextureCode;
+        QString texEq = isRM ? ui->lineTexture->toPlainText() : m_surfaceTextureCode;
         surfTexNeedsAnim = texEq.contains(timeRegex);
     }
 
-    // Solo l'orologio della texture di superficie. setSurfaceAnimating e
-    // setBackgroundTextureAnimating restano intatti.
+    // Orologio GEOMETRIA (SDF): in ray marching displacement ed equazione
+    // deformano la superficie -> il loro 't' va guidato da setSurfaceAnimating
+    bool surfGeomNeedsAnim = false;
+    if (isRM && isSurfTexActive) {
+        surfGeomNeedsAnim = ui->lineVariations->toPlainText().contains(timeRegex) ||
+                            ui->lineEquation->toPlainText().contains(timeRegex);
+    }
+    if (surfGeomNeedsAnim) m_masterStopped = false;
+
     if (ui->glWidget) {
         ui->glWidget->setSurfaceTextureAnimating(surfTexNeedsAnim);
+        if (surfGeomNeedsAnim) ui->glWidget->setSurfaceAnimating(true); // <-- avvia l'SDF
     }
     updateMasterButtonState();
 
@@ -3580,22 +3567,6 @@ void MainWindow::onStartClicked()
                 return;
             }
 
-            // BACKGROUND (anche in ray marching): stesso gate del ramo parametrico.
-            if (ui->glWidget->isBackgroundTextureEnabled()) {
-                QString bgSrc = (m_currentScriptMode == ScriptModeTexture && ui->radioBackground->isChecked())
-                        ? ui->txtScriptEditor->toPlainText()
-                        : m_bgTextureScriptText;
-                bool bgHasLogic = bgSrc.contains("return") || bgSrc.contains("vec3")
-                        || bgSrc.contains("vec4") || bgSrc.contains("mainImage");
-                if (bgHasLogic) {
-                    if (!ui->glWidget->validateAndApplyBackgroundShader(bgSrc)) {
-                        InputValidator::showShaderCompilationError(this,
-                                                                   "Syntax Error (Background Texture)", ui->glWidget->getShaderError());
-                        return;
-                    }
-                    m_bgTextureCode = bgSrc; // applicata e valida: committa
-                }
-            }
         } else {
             if (!ui->radioBackground->isChecked() && ui->chkBoxTexture->isChecked()) {
                 QString texSrc = (m_currentScriptMode == ScriptModeTexture)
@@ -3612,22 +3583,9 @@ void MainWindow::onStartClicked()
                     m_surfaceTextureCode = texSrc; // applicata e valida: committa
                 }
             }
-            if (ui->glWidget->isBackgroundTextureEnabled()) {
-                QString bgSrc = (m_currentScriptMode == ScriptModeTexture && ui->radioBackground->isChecked())
-                        ? ui->txtScriptEditor->toPlainText()
-                        : m_bgTextureScriptText;
-                bool bgHasLogic = bgSrc.contains("return") || bgSrc.contains("vec3")
-                        || bgSrc.contains("vec4") || bgSrc.contains("mainImage");
-                if (bgHasLogic) {
-                    if (!ui->glWidget->validateAndApplyBackgroundShader(bgSrc)) {
-                        InputValidator::showShaderCompilationError(this,
-                                                                   "Syntax Error (Background Texture)", ui->glWidget->getShaderError());
-                        return;
-                    }
-                    m_bgTextureCode = bgSrc;
-                }
-            }
         }
+
+        if (!applyBackgroundTextureIfNeeded()) return;
 
         {
             QString soundSrc = (m_currentScriptMode == ScriptModeSound)
@@ -3754,6 +3712,10 @@ void MainWindow::onStartClicked()
         if (ui->chkBoxTexture->isChecked()) {
             isAnimated = isAnimated || hasTimeVariable(texCode) || hasTimeVariable(dispCode);
         }
+        // Anche la texture di background può essere animata (gate indipendente da chkBoxTexture)
+        if (ui->glWidget->isBackgroundTextureEnabled()) {
+            isAnimated = isAnimated || hasTimeVariable(m_bgTextureCode);
+        }
 
         const bool applyOnly = this->property("rmApplyOnly").toBool();
 
@@ -3820,11 +3782,7 @@ void MainWindow::onStartClicked()
     QString cV = ui->lineV->toPlainText().trimmed();
     QString cW = ui->lineW->toPlainText().trimmed();
 
-    bool geoHasText = false;
-    if (ui->lnU) {
-        geoHasText = !ui->lnU->toPlainText().trimmed().isEmpty() || !ui->lnV->toPlainText().trimmed().isEmpty() || !ui->lnW->toPlainText().trimmed().isEmpty() ||
-                !ui->lndU->toPlainText().trimmed().isEmpty() || !ui->lndV->toPlainText().trimmed().isEmpty() || !ui->lndW->toPlainText().trimmed().isEmpty();
-    }
+    bool geoHasText = hasGeodesicText();
 
     QString composedTest = composeEquation(mainEqs, cU, cV, cW);
 
@@ -4972,14 +4930,17 @@ void MainWindow::onRunRaymarchTextureClicked()
     this->setProperty("rmApplyOnly", false);
 
     QRegularExpression timeRegex("\\b(t|iTime|u_time)\\b");
-    bool needs = ui->chkBoxTexture->isChecked() &&
-        (ui->lineTexture->toPlainText().contains(timeRegex) ||
-         ui->lineVariations->toPlainText().contains(timeRegex));
+    bool texHasTime  = ui->lineTexture->toPlainText().contains(timeRegex);
+    bool dispHasTime = ui->lineVariations->toPlainText().contains(timeRegex) ||
+                       ui->lineEquation->toPlainText().contains(timeRegex);
+    bool needs = ui->chkBoxTexture->isChecked() && (texHasTime || dispHasTime);
 
     if (needs) m_masterStopped = false;
     ui->glWidget->setSurfaceTextureAnimating(needs);
+    if (ui->chkBoxTexture->isChecked() && dispHasTime)
+        ui->glWidget->setSurfaceAnimating(true); // <-- displacement = geometria
 
-    updateMasterButtonState();                              // imposta "Stop"/"Run" secondo lo stato reale
+    updateMasterButtonState();
 }
 
 void MainWindow::onRunSoundClicked()
@@ -5063,20 +5024,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         int index = vTex.toInt();
         const LibraryItem &data = m_libraryManager.getTexture(index);
 
-        // 1. Lambda per pulire il codice (per un confronto preciso e immune ai tag multimediali)
-        auto cleanForComp = [](QString str) {
-            QRegularExpression blockRe(R"(//\s*SOUND_BEGIN.*?//\s*SOUND_END\n?)", QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
-            while (str.contains(blockRe)) str.remove(blockRe);
-            str.remove(QRegularExpression(R"(^\s*//(MUSIC|SYNTH):.*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
-            str.remove(QRegularExpression(R"(^\s*//\s*(SOUND_BEGIN|SOUND_END).*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
-            str.remove(QRegularExpression(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
-            str.remove(QRegularExpression(R"(//.*$)", QRegularExpression::MultilineOption));
-            str.remove(QRegularExpression(R"(/\*.*?\*/)", QRegularExpression::DotMatchesEverythingOption));
-            str.replace(QRegularExpression("\\s+"), "");
-            return str;
-        };
-
-        // 2. Recuperiamo il codice attualmente in uso nel tab attivo
+        // 1. Recuperiamo il codice attualmente in uso nel tab attivo
         QString activeCode;
         if (ui->radioBackground->isChecked()) {
             activeCode = m_bgTextureCode;
@@ -5086,16 +5034,16 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
                     : m_surfaceTextureCode;
         }
 
-        // 3. Verifichiamo se la texture cliccata è già quella visualizzata
+        // 2. Verifichiamo se la texture cliccata è già quella visualizzata
         bool isMatch = false;
         if (data.isImage) {
             QString fileName = QFileInfo(data.filePath).fileName();
             isMatch = (!fileName.isEmpty() && activeCode.contains(fileName));
         } else {
-            isMatch = (cleanForComp(activeCode) == cleanForComp(data.scriptCode));
+            isMatch = (cleanCodeForComparison(activeCode) == cleanCodeForComparison(data.scriptCode));
         }
 
-        // 4. LOGICA DI TOGGLE (Stop/Restart) STRUTTURALE
+        // 3. LOGICA DI TOGGLE (Stop/Restart) STRUTTURALE
         if (isMatch && ui->chkBoxTexture->isChecked()) {
             bool isBg = ui->radioBackground->isChecked();
 
@@ -5124,7 +5072,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             return;
         }
 
-        // 5. Se non è un match (o se la texture era spenta), carichiamola normalmente
+        // 4. Se non è un match (o se la texture era spenta), carichiamola normalmente
 
         // FIX 1: Sblocca lo stato di STOP globale. Così handleTextureSelection
         // è libera di attivare il motore se la nuova texture contiene u_time.
@@ -6082,20 +6030,7 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
                     ui->lineTexture->toPlainText() : m_surfaceTextureCode;
     }
 
-    // Funzione di pulizia ultra-aggressiva per il confronto
-    auto cleanForComparison = [](QString str) {
-        QRegularExpression blockRe(R"(//\s*SOUND_BEGIN.*?//\s*SOUND_END\n?)", QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
-        while (str.contains(blockRe)) str.remove(blockRe);
-        str.remove(QRegularExpression(R"(^\s*//(MUSIC|SYNTH):.*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
-        str.remove(QRegularExpression(R"(^\s*//\s*(SOUND_BEGIN|SOUND_END).*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
-        str.remove(QRegularExpression(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
-        str.remove(QRegularExpression(R"(//.*$)", QRegularExpression::MultilineOption));
-        str.remove(QRegularExpression(R"(/\*.*?\*/)", QRegularExpression::DotMatchesEverythingOption));
-        str.replace(QRegularExpression("\\s+"), "");
-        return str;
-    };
-
-    QString cleanedActive = cleanForComparison(activeCode);
+    QString cleanedActive = cleanCodeForComparison(activeCode);
 
     // Usiamo activeCode.trimmed()! Così se è un'immagine entra comunque nel ciclo.
     if (!activeCode.trimmed().isEmpty()) {
@@ -6112,7 +6047,7 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
                         isMatch = true; // È un'immagine, usa il codice sporco
                     }
                 } else {
-                    QString cleanLibCode = cleanForComparison(texItem.scriptCode);
+                    QString cleanLibCode = cleanCodeForComparison(texItem.scriptCode);
                     // Match solo se non è vuota (per evitare falsi positivi con le immagini)
                     if (!cleanedActive.isEmpty() && cleanedActive == cleanLibCode) {
                         isMatch = true; // È procedurale, usa il codice pulito
@@ -6226,14 +6161,7 @@ void MainWindow::onCreateFolderClicked()
         QWidget *currentTab = ui->tabWidget->currentWidget();
 
         // --- UNICO BLOCCO rootPath (Scopo limitato a dove serve davvero) ---
-#if defined(Q_OS_ANDROID)
-        QString rootPath = "/storage/emulated/0/Documents/SurfaceExplorer_Presets";
-#elif defined(Q_OS_IOS)
-        // Chiediamo il percorso live al sistema operativo, così non è mai scaduto
-        QString rootPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/SurfaceExplorer_Presets";
-#else
-        QString rootPath = settings.value("libraryRootPath").toString();
-#endif
+    QString rootPath = presetsRootPath();
 
         if (currentTab == ui->Texture) basePath = settings.value("pathTextures", rootPath + "/textures").toString();
         else if (currentTab == ui->Motions) basePath = settings.value("pathRecords", rootPath + "/records").toString();
@@ -6249,6 +6177,7 @@ void MainWindow::onCreateFolderClicked()
 
     if (baseDir.mkdir(folderName)) {
         refreshRepositories();
+        updateWatcherPaths();
     } else {
         QMessageBox::critical(this, "Error", "Could not create folder. A folder with this name might already exist.");
     }
@@ -6266,13 +6195,7 @@ void MainWindow::onSyncPresetsClicked()
     settings.remove("pathSounds");
 
     // 2. PERCORSO DINAMICO (La chiave per iOS!)
-#if defined(Q_OS_ANDROID)
-    QString rootPath = "/storage/emulated/0/Documents/SurfaceExplorer_Presets";
-#elif defined(Q_OS_IOS)
-    QString rootPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/SurfaceExplorer_Presets";
-#else
-    QString rootPath = settings.value("libraryRootPath").toString();
-#endif
+    QString rootPath = presetsRootPath();
 
     if (rootPath.isEmpty()) {
         setupDefaultFolders();
@@ -6312,6 +6235,7 @@ void MainWindow::onSyncPresetsClicked()
     syncResourcesToFolder(":/library/presets/sounds", pathSnd, true, &overwriteState);
 
     refreshRepositories();
+    updateWatcherPaths();
     QMessageBox::information(this, "Completed", "Library successfully updated and repaired!");
 }
 
@@ -6413,14 +6337,19 @@ void MainWindow::onSaveTexJsonClicked() // SAVE AS
 
 void MainWindow::onSaveTextureClicked()
 {
-    // CASO 1: Nessun file aperto, oppure stiamo modificando un'immagine diretta (.png/.jpg)
-    if (m_currentTexturePath.isEmpty() || !m_currentTexturePath.endsWith(".json", Qt::CaseInsensitive)) {
-        onSaveTexJsonClicked();
-        return;
+    QSettings settings;
+    QString rootPath = settings.value("libraryRootPath").toString();
+
+    // Cartella di partenza: ultima usata per le texture, con fallback a /textures
+    // (stessa logica di PresetSerializer::saveScript()).
+    QString startDir = settings.value("lastCustomTexDir").toString();
+    if (startDir.isEmpty() || startDir.contains("build", Qt::CaseInsensitive) || !QDir(startDir).exists()) {
+        startDir = settings.value("pathTextures", rootPath + "/textures").toString();
     }
 
-    // CASO 2: Stiamo già lavorando su un file .json -> Sovrascrivilo
-    saveTextureConfig(m_currentTexturePath);
+    // Stesso dialog navigabile del dock Library: MobileSaveDialog su mobile,
+    // QFileDialog su desktop. saveTextureAs() poi chiama saveTexture().
+    m_presetSerializer->saveTextureAs(startDir, m_currentTexturePresetPath);
 }
 
 void MainWindow::onSaveScriptClicked() {
@@ -6613,6 +6542,7 @@ void MainWindow::setupDefaultFolders()
     settings.remove("repositoryPaths");
 
     refreshRepositories();
+    updateWatcherPaths();
 }
 
 void MainWindow::connectSidePanels()
@@ -6724,45 +6654,7 @@ void MainWindow::syncResourcesToFolder(const QString &resourcePath, const QStrin
         if (forceRestore && QFile::exists(deletedPath)) QFile::remove(deletedPath);
 
         bool isDeleted = QFile::exists(deletedPath);
-        bool needsCopy = false;
-
-        // --- CONTROLLO ESISTENZA E CONTENUTO ---
-        if (!QFile::exists(dst)) {
-            if (!isDeleted || forceRestore) needsCopy = true;
-        } else if (forceRestore) {
-            QFile srcFile(src);
-            QFile dstFile(dst);
-            if (srcFile.open(QIODevice::ReadOnly) && dstFile.open(QIODevice::ReadOnly)) {
-                if (srcFile.readAll() != dstFile.readAll()) {
-
-                    if (overwriteState && *overwriteState == 1) {
-                        needsCopy = true; // Yes To All
-                    } else if (overwriteState && *overwriteState == 2) {
-                        needsCopy = false; // No To All
-                    } else {
-                        // Chiediamo all'utente
-                        QMessageBox msgBox(this);
-                        msgBox.setWindowTitle("Modified Preset Detected");
-                        msgBox.setText(QString("The preset '%1' has been modified.\nDo you want to overwrite it with the factory default?").arg(QFileInfo(dst).fileName()));
-                        msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::YesToAll | QMessageBox::No | QMessageBox::NoToAll);
-                        msgBox.setDefaultButton(QMessageBox::No);
-
-                        int ret = msgBox.exec();
-                        if (ret == QMessageBox::Yes) {
-                            needsCopy = true;
-                        } else if (ret == QMessageBox::YesToAll) {
-                            needsCopy = true;
-                            if (overwriteState) *overwriteState = 1;
-                        } else if (ret == QMessageBox::NoToAll) {
-                            needsCopy = false;
-                            if (overwriteState) *overwriteState = 2;
-                        } else {
-                            needsCopy = false; // No
-                        }
-                    }
-                }
-            }
-        }
+        bool needsCopy = resolveNeedsCopy(src, dst, forceRestore, isDeleted, overwriteState);
 
         if (needsCopy) {
             if (QFileInfo(src).fileName().startsWith("._")) continue;
@@ -6804,45 +6696,7 @@ void MainWindow::syncResourcesToFolder(const QString &resourcePath, const QStrin
         }
 
         bool isDeleted = QFile::exists(deletedPath);
-        bool needsCopy = false;
-
-        // --- CONTROLLO ESISTENZA E CONTENUTO ---
-        if (!QFile::exists(dst)) {
-            if (!isDeleted || forceRestore) needsCopy = true;
-        } else if (forceRestore) {
-            QFile srcFile(src);
-            QFile dstFile(dst);
-            if (srcFile.open(QIODevice::ReadOnly) && dstFile.open(QIODevice::ReadOnly)) {
-                if (srcFile.readAll() != dstFile.readAll()) {
-
-                    if (overwriteState && *overwriteState == 1) {
-                        needsCopy = true; // Yes To All
-                    } else if (overwriteState && *overwriteState == 2) {
-                        needsCopy = false; // No To All
-                    } else {
-                        // Chiediamo all'utente
-                        QMessageBox msgBox(this);
-                        msgBox.setWindowTitle("Modified Preset Detected");
-                        msgBox.setText(QString("The preset '%1' has been modified.\nDo you want to overwrite it with the factory default?").arg(filename));
-                        msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::YesToAll | QMessageBox::No | QMessageBox::NoToAll);
-                        msgBox.setDefaultButton(QMessageBox::No);
-
-                        int ret = msgBox.exec();
-                        if (ret == QMessageBox::Yes) {
-                            needsCopy = true;
-                        } else if (ret == QMessageBox::YesToAll) {
-                            needsCopy = true;
-                            if (overwriteState) *overwriteState = 1;
-                        } else if (ret == QMessageBox::NoToAll) {
-                            needsCopy = false;
-                            if (overwriteState) *overwriteState = 2;
-                        } else {
-                            needsCopy = false; // No
-                        }
-                    }
-                }
-            }
-        }
+        bool needsCopy = resolveNeedsCopy(src, dst, forceRestore, isDeleted, overwriteState);
 
         if (needsCopy) {
             if (filename.startsWith("._")) continue;
@@ -6997,14 +6851,7 @@ void MainWindow::updateWatcherPaths()
 
     QSettings settings;
 
-#if defined(Q_OS_ANDROID)
-    QString rootPath = "/storage/emulated/0/Documents/SurfaceExplorer_Presets";
-#elif defined(Q_OS_IOS)
-    // Chiediamo il percorso live al sistema operativo, così non è mai scaduto
-    QString rootPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/SurfaceExplorer_Presets";
-#else
-    QString rootPath = settings.value("libraryRootPath").toString();
-#endif
+    QString rootPath = presetsRootPath();
 
     addDirsToWatcher(settings.value("pathSurfaces", rootPath + "/surfaces").toString());
     addDirsToWatcher(settings.value("pathTextures", rootPath + "/textures").toString());
@@ -7484,6 +7331,64 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     updateMasterButtonState();
 }
 
+QString MainWindow::presetsRootPath() const {
+#if defined(Q_OS_ANDROID)
+    return "/storage/emulated/0/Documents/SurfaceExplorer_Presets";
+#elif defined(Q_OS_IOS)
+    // Percorso live dal sistema operativo, così non scade mai
+    return QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/SurfaceExplorer_Presets";
+#else
+    return QSettings().value("libraryRootPath").toString();
+#endif
+}
+
+bool MainWindow::resolveNeedsCopy(const QString& src, const QString& dst,
+                                  bool forceRestore, bool isDeleted, int* overwriteState)
+{
+    bool needsCopy = false;
+
+    // --- CONTROLLO ESISTENZA E CONTENUTO ---
+    if (!QFile::exists(dst)) {
+        if (!isDeleted || forceRestore) needsCopy = true;
+    } else if (forceRestore) {
+        QFile srcFile(src);
+        QFile dstFile(dst);
+        if (srcFile.open(QIODevice::ReadOnly) && dstFile.open(QIODevice::ReadOnly)) {
+            if (srcFile.readAll() != dstFile.readAll()) {
+
+                if (overwriteState && *overwriteState == 1) {
+                    needsCopy = true; // Yes To All
+                } else if (overwriteState && *overwriteState == 2) {
+                    needsCopy = false; // No To All
+                } else {
+                    // Chiediamo all'utente
+                    QMessageBox msgBox(this);
+                    msgBox.setWindowTitle("Modified Preset Detected");
+                    msgBox.setText(QString("The preset '%1' has been modified.\nDo you want to overwrite it with the factory default?").arg(QFileInfo(dst).fileName()));
+                    msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::YesToAll | QMessageBox::No | QMessageBox::NoToAll);
+                    msgBox.setDefaultButton(QMessageBox::No);
+
+                    int ret = msgBox.exec();
+                    if (ret == QMessageBox::Yes) {
+                        needsCopy = true;
+                    } else if (ret == QMessageBox::YesToAll) {
+                        needsCopy = true;
+                        if (overwriteState) *overwriteState = 1;
+                    } else if (ret == QMessageBox::NoToAll) {
+                        needsCopy = false;
+                        if (overwriteState) *overwriteState = 2;
+                    } else {
+                        needsCopy = false; // No
+                    }
+                }
+            }
+        }
+    }
+
+    return needsCopy;
+}
+
+
  // --- Parsing, Strings & Scripts ---
 
 float MainWindow::parseMath(const QString &text, bool *ok)
@@ -7680,13 +7585,7 @@ QString MainWindow::extractAudioDirectives(const QString& fullText) {
             QSettings settings;
             QString rootPath;
 
-            #if defined(Q_OS_ANDROID)
-                rootPath = "/storage/emulated/0/Documents/surfaceexplorer_presets";
-            #elif defined(Q_OS_IOS)
-                rootPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/surfaceexplorer_presets";
-            #else
-                rootPath = settings.value("libraryRootPath").toString();
-            #endif
+            rootPath = presetsRootPath();
 
             QString sndDir = settings.value("pathSounds", rootPath + "/sounds").toString();
 
@@ -7711,6 +7610,19 @@ QString MainWindow::extractAudioDirectives(const QString& fullText) {
     }
 
     return extractedSound.trimmed();
+}
+
+QString MainWindow::cleanCodeForComparison(QString str) {
+    QRegularExpression blockRe(R"(//\s*SOUND_BEGIN.*?//\s*SOUND_END\n?)",
+        QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
+    while (str.contains(blockRe)) str.remove(blockRe);
+    str.remove(QRegularExpression(R"(^\s*//(MUSIC|SYNTH):.*$\n?)",            QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
+    str.remove(QRegularExpression(R"(^\s*//\s*(SOUND_BEGIN|SOUND_END).*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
+    str.remove(QRegularExpression(R"(^\s*//IMG:.*$\n?)",                       QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
+    str.remove(QRegularExpression(R"(//.*$)",                                  QRegularExpression::MultilineOption));
+    str.remove(QRegularExpression(R"(/\*.*?\*/)",                              QRegularExpression::DotMatchesEverythingOption));
+    str.replace(QRegularExpression("\\s+"), "");
+    return str;
 }
 
  // --- UI State & Graphics ---
@@ -8194,11 +8106,28 @@ void MainWindow::hideTopMessage()
     }
 }
 
+bool MainWindow::applyBackgroundTextureIfNeeded() {
+    if (!ui->glWidget->isBackgroundTextureEnabled()) return true;
+
+    QString bgSrc = (m_currentScriptMode == ScriptModeTexture && ui->radioBackground->isChecked())
+            ? ui->txtScriptEditor->toPlainText()
+            : m_bgTextureScriptText;
+    bool bgHasLogic = bgSrc.contains("return") || bgSrc.contains("vec3")
+            || bgSrc.contains("vec4") || bgSrc.contains("mainImage");
+    if (bgHasLogic) {
+        if (!ui->glWidget->validateAndApplyBackgroundShader(bgSrc)) {
+            InputValidator::showShaderCompilationError(this,
+                "Syntax Error (Background Texture)", ui->glWidget->getShaderError());
+            return false;
+        }
+        m_bgTextureCode = bgSrc; // applicata e valida: committa
+    }
+    return true;
+}
+
+
  // --- Geometry & Geodesic Flow ---
 
-// Nomi delle Q_PROPERTY che fungono da snapshot stabile delle equazioni
-// geodetiche durante il loop di animazione. L'ordine deve combaciare con
-// quello letto in updateGeodesicMesh() e con i campi UI corrispondenti.
 namespace {
 constexpr const char* kActiveEqProps[] = {
     "active_lineX", "active_lineY", "active_lineZ", "active_lineP",
@@ -8209,11 +8138,6 @@ constexpr const char* kActiveEqProps[] = {
 }
 
 void MainWindow::snapshotActiveEquations() {
-    // Salva il testo correntemente nei campi UI nelle proprietà active_*.
-    // Va chiamato ogni volta che il "set di equazioni correntemente in
-    // esecuzione" cambia: click su START, caricamento di un preset,
-    // commit di un edit in volo. updateGeodesicMesh() e il suo timer
-    // useranno questi valori come fonte stabile invece della UI.
     setProperty("active_lineX", ui->lineX->toPlainText());
     setProperty("active_lineY", ui->lineY->toPlainText());
     setProperty("active_lineZ", ui->lineZ->toPlainText());
@@ -8254,15 +8178,7 @@ void MainWindow::commitUiFieldsDuringMotion() {
     int upperCount = (mainEqs.contains(QRegularExpression("\\bU\\b")) ? 1 : 0) +
                      (mainEqs.contains(QRegularExpression("\\bV\\b")) ? 1 : 0) +
                      (mainEqs.contains(QRegularExpression("\\bW\\b")) ? 1 : 0);
-    bool geoHasText = false;
-    if (ui->lnU) {
-        geoHasText = !ui->lnU->toPlainText().trimmed().isEmpty() ||
-                     !ui->lnV->toPlainText().trimmed().isEmpty() ||
-                     !ui->lnW->toPlainText().trimmed().isEmpty() ||
-                     !ui->lndU->toPlainText().trimmed().isEmpty() ||
-                     !ui->lndV->toPlainText().trimmed().isEmpty() ||
-                     !ui->lndW->toPlainText().trimmed().isEmpty();
-    }
+    bool geoHasText = hasGeodesicText();
     bool isGeodesicActive = (upperCount > 0) && geoHasText &&
             (ui->tabModeSelector->currentIndex() == 0);
     if (!isGeodesicActive) {
@@ -8505,15 +8421,7 @@ void MainWindow::checkAndTriggerMeshUpdate() {
                      (mainEqs.contains(QRegularExpression("\\bW\\b")) ? 1 : 0);
 
     // 3. Verifica presenza campi Geodetici
-    bool geoHasText = false;
-    if (ui->lnU) {
-        geoHasText = !ui->lnU->toPlainText().trimmed().isEmpty() ||
-                     !ui->lnV->toPlainText().trimmed().isEmpty() ||
-                     !ui->lnW->toPlainText().trimmed().isEmpty() ||
-                     !ui->lndU->toPlainText().trimmed().isEmpty() ||
-                     !ui->lndV->toPlainText().trimmed().isEmpty() ||
-                     !ui->lndW->toPlainText().trimmed().isEmpty();
-    }
+    bool geoHasText = hasGeodesicText();
 
     // 4. Routing: se Geodetico è attivo e siamo nel tab Parametrico (0), usa il calcolatore Tensoriale
     if ((upperCount > 0) && geoHasText && (ui->tabModeSelector->currentIndex() == 0)) {
@@ -8546,13 +8454,18 @@ void MainWindow::stopGeodesicAnimation()
 }
 
 bool MainWindow::isGeodesicMotionActive() const {
-    // Sorgente di verità: il timer di animazione geodetica.
-    // Sostituisce il proxy `m_btnStart->text() == "STOP"`, che è
-    // uno stato derivato e può transitare prima che le proprietà
-    // active_* siano coerenti — è esattamente il pattern che ha
-    // causato il bug del caricamento preset geodetico.
     QTimer* t = findChild<QTimer*>("geoAnimTimer");
     return t && t->isActive();
+}
+
+bool MainWindow::hasGeodesicText() const {
+    if (!ui->lnU) return false;
+    return !ui->lnU->toPlainText().trimmed().isEmpty()  ||
+           !ui->lnV->toPlainText().trimmed().isEmpty()  ||
+           !ui->lnW->toPlainText().trimmed().isEmpty()  ||
+           !ui->lndU->toPlainText().trimmed().isEmpty() ||
+           !ui->lndV->toPlainText().trimmed().isEmpty() ||
+           !ui->lndW->toPlainText().trimmed().isEmpty();
 }
 
 

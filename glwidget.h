@@ -256,7 +256,7 @@ public:
     void setSurfaceAnimating(bool animating);
     bool isSurfaceAnimating() const { return m_surfaceAnimating; }
 
-    void setBackgroundTextureAnimating(bool animating) { m_bgAnimating = animating; }
+    void setBackgroundTextureAnimating(bool animating);
     bool isBackgroundTextureAnimating() const { return m_bgAnimating; }
 
     void setSurfaceTextureAnimating(bool animating) {

@@ -2063,6 +2063,17 @@ void GLWidget::setSurfaceAnimating(bool animating) {
     }
 }
 
+void GLWidget::setBackgroundTextureAnimating(bool animating)
+{
+    if (animating == m_bgAnimating) return;
+    m_bgAnimating = animating;
+    if (animating) {
+        m_surfaceTimer.restart();                  // azzera la base del dt: niente salti al primo avvio
+        if (m_animTimer && !m_animTimer->isActive())
+            m_animTimer->start();
+    }
+}
+
 
 // ==========================================================
 // UTILITIES
