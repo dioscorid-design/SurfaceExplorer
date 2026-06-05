@@ -175,6 +175,7 @@ private:
     double m_lastImplicitS = 0.4;
     QTimer* m_stepsDebounce = nullptr;
     QTimer* m_meshDebounce = nullptr;
+    bool m_constantPopupActive = false;
 
     // ==========================================================
     // RENDERING & COLOR STATE
@@ -291,7 +292,7 @@ private:
 
     // --- Parsing, Strings & Scripts ---
     float parseMath(const QString &text, bool *ok = nullptr);
-    float parseUIConstant(const QString &exprStr, float A, float B, float C, float D, float E, float F, float S);
+    float parseUIConstant(const QString &exprStr, float A, float B, float C, float D, float E, float F, float S, bool* ok = nullptr);
     QString composeEquation(const QString &eq, const QString &uDef, const QString &vDef, const QString &wDef);
     void parseAndApplyScriptParams(const QString &scriptCode, bool restartAudio = true);
     bool hasTimeVariable(const QString& code);
@@ -319,6 +320,7 @@ private:
     void restoreActiveEquations(const QStringList &saved);
     QStringList readActiveEquations() const;
     void commitUiFieldsDuringMotion();
+    void commitFieldsOnEnter();
     bool updateGeodesicMesh();
     void checkAndTriggerMeshUpdate();
     void stopGeodesicAnimation();

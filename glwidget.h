@@ -257,17 +257,8 @@ public:
     bool isSurfaceAnimating() const { return m_surfaceAnimating; }
 
     void setBackgroundTextureAnimating(bool animating);
+    void setSurfaceTextureAnimating(bool animating);
     bool isBackgroundTextureAnimating() const { return m_bgAnimating; }
-
-    void setSurfaceTextureAnimating(bool animating) {
-        if (animating == m_texAnimating) return;
-        m_texAnimating = animating;
-        if (animating) {
-            m_surfaceTimer.restart();                 // azzera la base del dt: niente salti
-            if (m_animTimer && !m_animTimer->isActive()) m_animTimer->start();
-        }
-    }
-
     bool isSurfaceTextureAnimating() const { return m_texAnimating; }
 
 

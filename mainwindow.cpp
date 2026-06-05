@@ -118,12 +118,19 @@ protected:
                     return false;
                 }
 
+                // Campi equazione principali del tab parametrico:
+                // Enter NON deve eseguire. Lo consumiamo (niente a-capo) e basta.
+                if (on == "lineX" || on == "lineY" || on == "lineZ" || on == "lineP") {
+                    if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
+                    return true;
+                }
+
                 if (QWidget* w = qobject_cast<QWidget*>(obj)) {
                     w->clearFocus();
 
-                    // Notifica a MainWindow di applicare i campi modificati
+                    // Applica i campi modificati (sia in moto che a superficie ferma)
                     if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
-                        mainWin->commitUiFieldsDuringMotion();
+                        mainWin->commitFieldsOnEnter();
                     }
                     return true;
                 }
@@ -1208,15 +1215,37 @@ MainWindow::MainWindow(QWidget *parent)
 
     // --- MOTORE COSTANTI A CASCATA ---
     auto evaluateCascade = [this]() {
-        float valA = std::max(0.0f, parseUIConstant(ui->lineA->text(), 0, 0, 0, 0, 0, 0, 0));
-        float valB = std::max(0.0f, parseUIConstant(ui->lineB->text(), valA, 0, 0, 0, 0, 0, 0));
-        float valC = std::max(0.0f, parseUIConstant(ui->lineC->text(), valA, valB, 0, 0, 0, 0, 0));
-        float valD = std::max(0.0f, parseUIConstant(ui->lineD->text(), valA, valB, valC, 0, 0, 0, 0));
-        float valE = std::max(0.0f, parseUIConstant(ui->lineE->text(), valA, valB, valC, valD, 0, 0, 0));
-        float valF = std::max(0.0f, parseUIConstant(ui->lineF->text(), valA, valB, valC, valD, valE, 0, 0));
+        bool okA=true, okB=true, okC=true, okD=true, okE=true, okF=true, okS=true;
+        float valA = std::max(0.0f, parseUIConstant(ui->lineA->text(), 0, 0, 0, 0, 0, 0, 0, &okA));
+        float valB = std::max(0.0f, parseUIConstant(ui->lineB->text(), valA, 0, 0, 0, 0, 0, 0, &okB));
+        float valC = std::max(0.0f, parseUIConstant(ui->lineC->text(), valA, valB, 0, 0, 0, 0, 0, &okC));
+        float valD = std::max(0.0f, parseUIConstant(ui->lineD->text(), valA, valB, valC, 0, 0, 0, 0, &okD));
+        float valE = std::max(0.0f, parseUIConstant(ui->lineE->text(), valA, valB, valC, valD, 0, 0, 0, &okE));
+        float valF = std::max(0.0f, parseUIConstant(ui->lineF->text(), valA, valB, valC, valD, valE, 0, 0, &okF));
 
         // Tolto il vincolo std::max(0.0f) per S, così in parametrica accetta ancora i negativi
-        float valS = parseUIConstant(ui->lineS->text(), valA, valB, valC, valD, valE, valF, 0);
+        float valS = parseUIConstant(ui->lineS->text(), valA, valB, valC, valD, valE, valF, 0, &okS);
+
+        {
+            struct Ck { bool ok; QLineEdit* edit; QString name; };
+            const Ck checks[] = {
+                {okA, ui->lineA, "A"}, {okB, ui->lineB, "B"}, {okC, ui->lineC, "C"},
+                {okD, ui->lineD, "D"}, {okE, ui->lineE, "E"}, {okF, ui->lineF, "F"},
+                {okS, ui->lineS, "S"},
+            };
+            for (const auto& c : checks) {
+                if (!c.ok) {
+                    if (!m_constantPopupActive) {
+                        m_constantPopupActive = true;
+                        InputValidator::showInvalidConstantError(this, c.name, c.edit->text());
+                        c.edit->setFocus();
+                        c.edit->selectAll();
+                        m_constantPopupActive = false;
+                    }
+                    return;   // costante non valida: non applichiamo nulla
+                }
+            }
+        }
 
         // ESPANSIONE DINAMICA: Nota l'aggiunta di '[this]' per leggere il Tab attuale
         auto setSmartSlider = [this](QSlider* s, float v, bool isS) {
@@ -1328,24 +1357,40 @@ MainWindow::MainWindow(QWidget *parent)
         m_meshDebounce->start();
     });
 
-    auto applyStepsFromLine = [this]() {
-        bool ok;
-        int val = ui->lineSteps->text().toInt(&ok);
-        if (!ok) return;   // campo vuoto o non numerico durante la digitazione: ignora
+    auto applyStepsFromLine = [this](bool notify) {
+        const QString txt = ui->lineSteps->text().trimmed();
+        if (txt.isEmpty()) return;   // vuoto durante la digitazione: ignora
+        bool ok = false;
+        int val = txt.toInt(&ok);
+        if (!ok) {
+            // notify=true solo al commit (Enter/uscita campo): niente popup mentre si digita
+            if (!ok) {
+                if (notify && !m_constantPopupActive) {
+                    m_constantPopupActive = true;
+                    InputValidator::showInvalidStepsError(this, txt);
+                    bool oldL = ui->lineSteps->blockSignals(true);
+                    ui->lineSteps->setText(QString::number(ui->stepSlider->value()));
+                    ui->lineSteps->blockSignals(oldL);
+                    ui->lineSteps->selectAll();
+                    m_constantPopupActive = false;
+                }
+                return;
+            }
+        }
         val = std::clamp(val, ui->stepSlider->minimum(), ui->stepSlider->maximum());
         if (val != ui->stepSlider->value())
             ui->stepSlider->setValue(val);   // emette valueChanged -> aggiorna glWidget e testo
     };
 
-    // Trigger "forti" (funzionano su desktop, innocui su mobile
-    connect(ui->lineSteps, &QLineEdit::editingFinished, this, applyStepsFromLine);
-    connect(ui->lineSteps, &QLineEdit::returnPressed,   this, applyStepsFromLine);
+    // Trigger "forti": al commit notifichiamo (notify=true)
+    connect(ui->lineSteps, &QLineEdit::editingFinished, this, [applyStepsFromLine]() { applyStepsFromLine(true); });
+    connect(ui->lineSteps, &QLineEdit::returnPressed,   this, [applyStepsFromLine]() { applyStepsFromLine(true); });
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     m_stepsDebounce = new QTimer(this);
     m_stepsDebounce->setSingleShot(true);
     m_stepsDebounce->setInterval(350);
-    connect(m_stepsDebounce, &QTimer::timeout, this, applyStepsFromLine);
+    connect(m_stepsDebounce, &QTimer::timeout, this, [applyStepsFromLine]() { applyStepsFromLine(false); });
 
     connect(ui->lineSteps, &QLineEdit::textEdited, this, [this](const QString&) {
         m_stepsDebounce->start();
@@ -1481,35 +1526,50 @@ MainWindow::MainWindow(QWidget *parent)
     ui->lineYMin->clear(); ui->lineYMax->clear();
     ui->lineZMin->clear(); ui->lineZMax->clear();
 
-    auto connectSpaceLimit = [this](QLineEdit* minEdit, QLineEdit* maxEdit, void (GLWidget::*setLimitFunc)(float, float)) {
-        auto applyLimits = [this, minEdit, maxEdit, setLimitFunc]() {
-            bool ok;
-            float minVal = -1000.0f;
-            if (!minEdit->text().isEmpty()) {
-                float v = minEdit->text().toFloat(&ok);
-                if (ok) minVal = v;
-            }
+    auto connectSpaceLimit = [this](QLineEdit* minEdit, QLineEdit* maxEdit,
+            void (GLWidget::*setLimitFunc)(float, float),
+            const QString& axis) {
+        auto applyLimits = [this, minEdit, maxEdit, setLimitFunc, axis](bool notify) {
+            // helper: campo vuoto -> usa il default (nessun taglio); non valido -> popup + stop
+            auto readField = [this, notify, axis](QLineEdit* edit, float def, const QString& side, bool* good) -> float {
+                *good = true;
+                if (edit->text().trimmed().isEmpty()) return def;   // vuoto = nessun limite
+                bool ok = false;
+                float v = parseMath(edit->text(), &ok);
+                if (!ok) {
+                    *good = false;
+                    if (notify && !m_constantPopupActive) {
+                        m_constantPopupActive = true;
+                        InputValidator::showInvalidLimitError(this, axis + " " + side, edit->text());
+                        edit->setFocus();
+                        edit->selectAll();
+                        m_constantPopupActive = false;
+                    }
+                    return def;
+                }
+                return v;
+            };
 
-            float maxVal = 1000.0f;
-            if (!maxEdit->text().isEmpty()) {
-                float v = maxEdit->text().toFloat(&ok);
-                if (ok) maxVal = v;
-            }
+            bool okMin = true, okMax = true;
+            float minVal = readField(minEdit, -1000.0f, "min", &okMin);
+            if (!okMin) return;                       // non applichiamo limiti non validi
+            float maxVal = readField(maxEdit,  1000.0f, "max", &okMax);
+            if (!okMax) return;
 
             if (ui->glWidget) {
                 (ui->glWidget->*setLimitFunc)(minVal, maxVal);
             }
         };
 
-        connect(minEdit, &QLineEdit::editingFinished, this, applyLimits);
-        connect(maxEdit, &QLineEdit::editingFinished, this, applyLimits);
+        connect(minEdit, &QLineEdit::editingFinished, this, [applyLimits]() { applyLimits(true); });
+        connect(maxEdit, &QLineEdit::editingFinished, this, [applyLimits]() { applyLimits(true); });
 
-        applyLimits();
+        applyLimits(false);   // chiamata iniziale silenziosa
     };
 
-    connectSpaceLimit(ui->lineXMin, ui->lineXMax, &GLWidget::setRangeX);
-    connectSpaceLimit(ui->lineYMin, ui->lineYMax, &GLWidget::setRangeY);
-    connectSpaceLimit(ui->lineZMin, ui->lineZMax, &GLWidget::setRangeZ);
+    connectSpaceLimit(ui->lineXMin, ui->lineXMax, &GLWidget::setRangeX, "X");
+    connectSpaceLimit(ui->lineYMin, ui->lineYMax, &GLWidget::setRangeY, "Y");
+    connectSpaceLimit(ui->lineZMin, ui->lineZMax, &GLWidget::setRangeZ, "Z");
 
     // --- Limiti parametrici U/V/W: Enter applica subito, come il lato Ray Marching ---
     auto connectParametricLimit = [this](QLineEdit* minEdit, QLineEdit* maxEdit,
@@ -3373,25 +3433,22 @@ void MainWindow::handleTextureSelection(int index)
     bool isRM = (ui->tabModeSelector->currentIndex() == 1);
     bool isSurfTexActive = ui->chkBoxTexture->isChecked();
 
-    // Orologio TEXTURE (colore): solo il code 2D
-    bool surfTexNeedsAnim = false;
+    bool texColorAnim = false;   // 't' nel colore texture -> orologio TEXTURE
+    bool geomAnim     = false;   // 't' in displacement/equazione -> orologio GEOMETRIA
     if (isSurfTexActive) {
-        QString texEq = isRM ? ui->lineTexture->toPlainText() : m_surfaceTextureCode;
-        surfTexNeedsAnim = texEq.contains(timeRegex);
+        if (isRM) {
+            texColorAnim = ui->lineTexture->toPlainText().contains(timeRegex);
+            geomAnim     = ui->lineVariations->toPlainText().contains(timeRegex) ||
+                           ui->lineEquation->toPlainText().contains(timeRegex);
+        } else {
+            texColorAnim = m_surfaceTextureCode.contains(timeRegex);
+        }
     }
-
-    // Orologio GEOMETRIA (SDF): in ray marching displacement ed equazione
-    // deformano la superficie -> il loro 't' va guidato da setSurfaceAnimating
-    bool surfGeomNeedsAnim = false;
-    if (isRM && isSurfTexActive) {
-        surfGeomNeedsAnim = ui->lineVariations->toPlainText().contains(timeRegex) ||
-                            ui->lineEquation->toPlainText().contains(timeRegex);
-    }
-    if (surfGeomNeedsAnim) m_masterStopped = false;
+    if (texColorAnim || geomAnim) m_masterStopped = false;
 
     if (ui->glWidget) {
-        ui->glWidget->setSurfaceTextureAnimating(surfTexNeedsAnim);
-        if (surfGeomNeedsAnim) ui->glWidget->setSurfaceAnimating(true); // <-- avvia l'SDF
+        ui->glWidget->setSurfaceTextureAnimating(texColorAnim);
+        if (isRM) ui->glWidget->setSurfaceAnimating(geomAnim);   // <-- il displacement vive qui
     }
     updateMasterButtonState();
 
@@ -3473,6 +3530,22 @@ void MainWindow::onStartClicked()
     // AZIONI COMUNI (Evita ripetizioni di codice!)
     // ==========================================================
     ui->glWidget->setFocus();
+
+    // --- VALIDAZIONE COSTANTI (parametriche e implicite) ---
+    auto constParse = [this](const QString& s, bool* ok) {
+        return parseUIConstant(s, 0, 0, 0, 0, 0, 0, 0, ok);
+    };
+    if (!InputValidator::validateConstants(this, {
+        {"A", ui->lineA->text()},
+        {"B", ui->lineB->text()},
+        {"C", ui->lineC->text()},
+        {"D", ui->lineD->text()},
+        {"E", ui->lineE->text()},
+        {"F", ui->lineF->text()},
+        {"S", ui->lineS->text()},
+    }, constParse)) {
+    return;
+    }
 
     // Lettura delle Costanti a cascata valida per entrambe le modalità
     float valA = parseUIConstant(ui->lineA->text(), 0, 0, 0, 0, 0, 0, 0);
@@ -4043,7 +4116,8 @@ void MainWindow::onStartClicked()
         }
     }
 
-    applyAnimationState(hasTimeVariable(rawEqsForT));
+    const bool applyOnly = this->property("rmApplyOnly").toBool();
+    applyAnimationState(applyOnly ? false : hasTimeVariable(rawEqsForT));
     updateMasterButtonState();
 
     // 4. REPAINT E VALIDAZIONE GEOMETRIA
@@ -4055,7 +4129,7 @@ void MainWindow::onStartClicked()
         return;
     }
 
-    applyStartSideEffects();
+    if (!applyOnly) applyStartSideEffects();
     ui->glWidget->update();
 }
 
@@ -4917,28 +4991,29 @@ void MainWindow::onRunRaymarchTextureClicked()
 {
     if (!ui->glWidget) return;
 
-    // --- STATO "STOP": ferma solo l'orologio della texture ---
+    QRegularExpression timeRegex("\\b(t|iTime|u_time)\\b");
+    bool texColorHasTime = ui->lineTexture->toPlainText().contains(timeRegex);
+    bool geomHasTime     = ui->lineVariations->toPlainText().contains(timeRegex) ||
+                           ui->lineEquation->toPlainText().contains(timeRegex);
+
+    // STOP: ferma entrambi gli orologi che una texture RM può usare
     if (ui->btnTextureCode->text() == "Stop") {
-        ui->glWidget->setSurfaceTextureAnimating(false);   // SDF, camera e sfondo intatti
-        updateMasterButtonState();                          // riallinea il testo -> "Run"
+        ui->glWidget->setSurfaceTextureAnimating(false);
+        ui->glWidget->setSurfaceAnimating(false);
+        updateMasterButtonState();
         return;
     }
 
-    // --- STATO "RUN": applica Texture Code + 3D Variation, poi avvia se serve ---
+    // RUN: ricompila e avvia l'orologio giusto a seconda di dove sta 't'
     this->setProperty("rmApplyOnly", true);
-    onStartClicked();                                       // applica entrambi gli script
+    onStartClicked();
     this->setProperty("rmApplyOnly", false);
 
-    QRegularExpression timeRegex("\\b(t|iTime|u_time)\\b");
-    bool texHasTime  = ui->lineTexture->toPlainText().contains(timeRegex);
-    bool dispHasTime = ui->lineVariations->toPlainText().contains(timeRegex) ||
-                       ui->lineEquation->toPlainText().contains(timeRegex);
-    bool needs = ui->chkBoxTexture->isChecked() && (texHasTime || dispHasTime);
+    bool active = ui->chkBoxTexture->isChecked();
+    if (active && (texColorHasTime || geomHasTime)) m_masterStopped = false;
 
-    if (needs) m_masterStopped = false;
-    ui->glWidget->setSurfaceTextureAnimating(needs);
-    if (ui->chkBoxTexture->isChecked() && dispHasTime)
-        ui->glWidget->setSurfaceAnimating(true); // <-- displacement = geometria
+    ui->glWidget->setSurfaceTextureAnimating(active && texColorHasTime);
+    ui->glWidget->setSurfaceAnimating(active && geomHasTime);
 
     updateMasterButtonState();
 }
@@ -7408,10 +7483,10 @@ float MainWindow::parseMath(const QString &text, bool *ok)
     return parseOk ? v : 0.0f;
 }
 
-float MainWindow::parseUIConstant(const QString &exprStr, float A, float B, float C, float D, float E, float F, float S)
+float MainWindow::parseUIConstant(const QString &exprStr, float A, float B, float C, float D, float E, float F, float S, bool* ok)
 {
     QString cleanExpr = exprStr.trimmed();
-    if (cleanExpr.isEmpty()) return 0.0f;
+    if (cleanExpr.isEmpty()) { if (ok) *ok = true; return 0.0f; }
 
     // 1. Uniformiamo la punteggiatura
     cleanExpr.replace(",", ".");
@@ -7449,8 +7524,10 @@ float MainWindow::parseUIConstant(const QString &exprStr, float A, float B, floa
 
     // 5. COMPILAZIONE
     if (parser.compile(cleanExpr.toStdString(), expression)) {
+        if (ok) *ok = true;
         return static_cast<float>(expression.value());
     } else {
+        if (ok) *ok = false;
         return 0.0f;
     }
 }
@@ -7982,10 +8059,19 @@ void MainWindow::updateMasterButtonState()
 
         // B. Orologio della Texture di Superficie
         bool isSurfTexActive = ui->radioBackground->isChecked() ? m_surfaceTextureState : ui->chkBoxTexture->isChecked();
-        bool texClockRunning = ui->glWidget->isSurfaceTextureAnimating();
-        QString texEq = isRM ? (ui->lineTexture->toPlainText() + " " + ui->lineVariations->toPlainText()) : m_surfaceTextureCode;
-        bool texHasTime = isSurfTexActive && hasTimeVariable(texEq);
-        bool isTexVisuallyMoving = texClockRunning && texHasTime;
+        bool isTexVisuallyMoving;
+        if (isRM) {
+            // displacement -> orologio geometria (geomClockRunning); colore -> orologio texture
+            bool texColorMoving = ui->glWidget->isSurfaceTextureAnimating() && isSurfTexActive &&
+                                  hasTimeVariable(ui->lineTexture->toPlainText());
+            bool dispMoving     = geomClockRunning && isSurfTexActive &&
+                                  hasTimeVariable(ui->lineVariations->toPlainText());
+            isTexVisuallyMoving = texColorMoving || dispMoving;
+        } else {
+            bool texClockRunning = ui->glWidget->isSurfaceTextureAnimating();
+            bool texHasTime = isSurfTexActive && hasTimeVariable(m_surfaceTextureCode);
+            isTexVisuallyMoving = texClockRunning && texHasTime;
+        }
 
         // C. Orologio della Texture di Sfondo
         bool bgClockRunning = ui->glWidget->isBackgroundTextureAnimating();
@@ -8206,6 +8292,38 @@ void MainWindow::commitUiFieldsDuringMotion() {
     }
 
     restoreActiveEquations(previous);
+}
+
+void MainWindow::commitFieldsOnEnter() {
+    if (m_geodesicErrorPending) return;
+
+    // In moto: usa la logica live già esistente.
+    if (m_btnStart && m_btnStart->text().toUpper() == "STOP") {
+        commitUiFieldsDuringMotion();
+        return;
+    }
+
+    // A superficie ferma: applica solo nel tab parametrico.
+    if (ui->tabModeSelector->currentIndex() != 0) return;
+
+    // Stesso routing di checkAndTriggerMeshUpdate: geodetico vs standard.
+    QString mainEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
+                      ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText();
+    int upperCount = (mainEqs.contains(QRegularExpression("\\bU\\b")) ? 1 : 0) +
+                     (mainEqs.contains(QRegularExpression("\\bV\\b")) ? 1 : 0) +
+                     (mainEqs.contains(QRegularExpression("\\bW\\b")) ? 1 : 0);
+
+    if ((upperCount > 0) && hasGeodesicText()) {
+        // Rigenera la mesh geodetica statica con i valori correnti.
+        updateGeodesicMesh();
+        return;
+    }
+
+    // Standard / composition / constraint: applica equazioni, composizioni e
+    // vincoli correnti e rigenera la mesh, senza far ripartire moto/rotazioni/audio.
+    setProperty("rmApplyOnly", true);
+    onStartClicked();                 // sender != m_btnStart -> niente toggle START/STOP
+    setProperty("rmApplyOnly", false);
 }
 
 bool MainWindow::updateGeodesicMesh()

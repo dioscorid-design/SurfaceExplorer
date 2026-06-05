@@ -505,6 +505,7 @@ void PresetSerializer::saveTexture(const QString &path)
         file.close();
 
         m_mainWindow->m_currentTexturePath = path;
+        m_mainWindow->m_currentTexturePresetPath = path;
 
         // Un semplice aggiornamento visivo in background, senza spostare/aprire pannelli
         QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);

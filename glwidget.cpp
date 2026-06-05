@@ -2052,25 +2052,32 @@ void GLWidget::resetSurfaceTime() {
 }
 
 void GLWidget::setSurfaceAnimating(bool animating) {
-    if (animating == m_surfaceAnimating) return;
+    bool changed = (animating != m_surfaceAnimating);
     m_surfaceAnimating = animating;
-
     if (animating) {
-        m_surfaceTimer.restart();
-        if (!m_animTimer->isActive()) m_animTimer->start();
-    } else {
+        if (m_animTimer && !m_animTimer->isActive()) {
+            m_surfaceTimer.restart();
+            m_animTimer->start();
+        }
+    } else if (changed) {
         m_surfaceTimeOffset += (float)m_surfaceTimer.elapsed() / 1000.0f;
     }
 }
 
 void GLWidget::setBackgroundTextureAnimating(bool animating)
 {
-    if (animating == m_bgAnimating) return;
     m_bgAnimating = animating;
-    if (animating) {
-        m_surfaceTimer.restart();                  // azzera la base del dt: niente salti al primo avvio
-        if (m_animTimer && !m_animTimer->isActive())
-            m_animTimer->start();
+    if (animating && m_animTimer && !m_animTimer->isActive()) {
+        m_surfaceTimer.restart();
+        m_animTimer->start();
+    }
+}
+
+void GLWidget::setSurfaceTextureAnimating(bool animating) {
+    m_texAnimating = animating;
+    if (animating && m_animTimer && !m_animTimer->isActive()) {
+        m_surfaceTimer.restart();   // azzera la base del dt: niente salti
+        m_animTimer->start();        // <-- avvia anche se il flag era già true
     }
 }
 

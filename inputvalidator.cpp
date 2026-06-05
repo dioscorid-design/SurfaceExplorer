@@ -276,6 +276,31 @@ void InputValidator::showShaderCompilationError(QWidget* parent, const QString& 
                           "A compilation error was found:\n\n" + errorLog);
 }
 
+void InputValidator::showInvalidConstantError(QWidget* parent, const QString& name, const QString& text)
+{
+    QMessageBox::critical(parent, "Invalid Constant",
+                          QString("The constant '%1' is not a valid number or expression:\n\n"
+                                  "    \"%2\"\n\n"
+                                  "Please enter a number (e.g. 2, 0.5) or a valid expression "
+                                  "(e.g. pi/2, A+1).\nAllowed parameters: A, B, C, D, E, F, S.")
+                              .arg(name, text.trimmed()));
+}
+
+void InputValidator::showInvalidStepsError(QWidget* parent, const QString& text)
+{
+    QMessageBox::critical(parent, "Invalid Steps",
+                          QString("The 'Steps' value is not a valid integer:\n\n    \"%1\"\n\n"
+                                  "Please enter a whole number (e.g. 100).").arg(text.trimmed()));
+}
+
+void InputValidator::showInvalidLimitError(QWidget* parent, const QString& name, const QString& text)
+{
+    QMessageBox::critical(parent, "Invalid Limit",
+                          QString("The %1 limit is not a valid number:\n\n    \"%2\"\n\n"
+                                  "Please enter a number (e.g. -10, 2.5) or leave it empty for no limit.")
+                              .arg(name, text.trimmed()));
+}
+
 bool InputValidator::validateParametricScriptContext(QWidget* parent, const QString& texCode)
 {
     QString cleanCode = texCode;
@@ -468,6 +493,21 @@ bool InputValidator::validateFieldList(QWidget* parent, const QVector<NamedField
             return false;
         if (!validateIdentifiers(parent, f.text, f.name))
             return false;
+    }
+    return true;
+}
+
+bool InputValidator::validateConstants(QWidget* parent, const QVector<NamedField>& fields, ParseFn parse)
+{
+    for (const auto& f : fields) {
+        if (f.text.trimmed().isEmpty()) continue;   // campo vuoto = 0, lecito
+
+        bool ok = false;
+        parse(f.text, &ok);                          // tenta di valutare la costante
+        if (!ok) {
+            showInvalidConstantError(parent, f.name, f.text);
+            return false;
+        }
     }
     return true;
 }

@@ -45,6 +45,9 @@ public:
     // Gestione avvisi file e shader
     static void showImageNotFoundError(QWidget* parent, const QString& imgPath);
     static void showShaderCompilationError(QWidget* parent, const QString& title, const QString& errorLog);
+    static void showInvalidConstantError(QWidget* parent, const QString& name, const QString& text);
+    static void showInvalidStepsError(QWidget* parent, const QString& text);
+    static void showInvalidLimitError(QWidget* parent, const QString& name, const QString& text);
 
     // Validazione specifica per il dock script (Parametrico)
     static bool validateParametricScriptContext(QWidget* parent, const QString& texCode);
@@ -57,6 +60,7 @@ public:
     static bool validateExpressionSyntax(QWidget* parent, const QString& expr, const QString& fieldName);
     static bool validateAndParseLimits(QWidget* parent, const QVector<LimitField>& fields, ParseFn parse, QVector<float>& outValues);
     static bool validateFieldList(QWidget* parent, const QVector<NamedField>& fields);
+    static bool validateConstants(QWidget* parent, const QVector<NamedField>& fields, ParseFn parse);
     static bool validateIdentifiers(QWidget* parent, const QString& expr, const QString& fieldName);
     static void addAllowedIdentifier(const QString& name);
 
