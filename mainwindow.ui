@@ -110,7 +110,7 @@
          <verstretch>0</verstretch>
         </sizepolicy>
        </property>
-       <layout class="QVBoxLayout" name="verticalLayout_4" stretch="0,0,3,0,0,4,0">
+       <layout class="QVBoxLayout" name="verticalLayout_4" stretch="0,0,0,0,0,0,0">
         <property name="sizeConstraint">
          <enum>QLayout::SizeConstraint::SetMinimumSize</enum>
         </property>
@@ -118,7 +118,7 @@
          <widget class="QFrame" name="panelSolid">
           <layout class="QVBoxLayout" name="verticalLayout_31">
            <item>
-            <widget class="QGroupBox" name="groupBox_3">
+            <widget class="QGroupBox" name="boxSurface">
              <layout class="QVBoxLayout" name="verticalLayout_13">
               <item>
                <widget class="QLabel" name="lblSurf">
@@ -169,24 +169,8 @@
             </widget>
            </item>
            <item>
-            <widget class="QWidget" name="widget_9" native="true">
+            <widget class="QGroupBox" name="boxBackground">
              <layout class="QHBoxLayout" name="horizontalLayout_17">
-              <item>
-               <spacer name="horizontalSpacer">
-                <property name="orientation">
-                 <enum>Qt::Orientation::Horizontal</enum>
-                </property>
-                <property name="sizeType">
-                 <enum>QSizePolicy::Policy::Fixed</enum>
-                </property>
-                <property name="sizeHint" stdset="0">
-                 <size>
-                  <width>85</width>
-                  <height>10</height>
-                 </size>
-                </property>
-               </spacer>
-              </item>
               <item>
                <widget class="QRadioButton" name="radioBackground">
                 <property name="text">
@@ -201,16 +185,10 @@
          </widget>
         </item>
         <item>
-         <widget class="QFrame" name="panelTexture">
-          <property name="frameShape">
-           <enum>QFrame::Shape::Panel</enum>
-          </property>
-          <property name="frameShadow">
-           <enum>QFrame::Shadow::Raised</enum>
-          </property>
+         <widget class="QGroupBox" name="panelTexture">
           <layout class="QVBoxLayout" name="verticalLayout_15">
            <item>
-            <widget class="QWidget" name="widget_5" native="true">
+            <widget class="QWidget" name="panelTexture_2" native="true">
              <layout class="QHBoxLayout" name="horizontalLayout_12">
               <item>
                <widget class="QCheckBox" name="chkBoxTexture">
@@ -229,7 +207,7 @@
             </widget>
            </item>
            <item>
-            <widget class="QWidget" name="widget_4" native="true">
+            <widget class="QWidget" name="panelColorChoice" native="true">
              <layout class="QHBoxLayout" name="horizontalLayout_8">
               <item>
                <widget class="QRadioButton" name="radioTexColor1">
@@ -246,11 +224,6 @@
                </widget>
               </item>
              </layout>
-            </widget>
-           </item>
-           <item>
-            <widget class="QWidget" name="widget_6" native="true">
-             <layout class="QHBoxLayout" name="horizontalLayout_14"/>
             </widget>
            </item>
           </layout>
@@ -468,7 +441,7 @@
          </widget>
         </item>
         <item>
-         <widget class="QWidget" name="panelColor" native="true">
+         <widget class="QGroupBox" name="panelColor">
           <property name="sizePolicy">
            <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
             <horstretch>0</horstretch>

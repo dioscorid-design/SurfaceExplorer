@@ -14,6 +14,7 @@
 #include <QFileSystemWatcher>
 #include <QVector>
 #include <QVector4D>
+#include <QHash>
 
 #include "glwidget.h"
 #include "librarymanager.h"
@@ -83,9 +84,9 @@ private slots:
     // ==========================================================
     // EQUATIONS & MATHEMATICS
     // ==========================================================
-    void updateULimits();
-    void updateVLimits();
-    void updateWLimits();
+    bool updateULimits();
+    bool updateVLimits();
+    bool updateWLimits();
 
     // ==========================================================
     // ANIMATION, MOTION & TIMERS
@@ -176,6 +177,9 @@ private:
     QTimer* m_stepsDebounce = nullptr;
     QTimer* m_meshDebounce = nullptr;
     bool m_constantPopupActive = false;
+    QHash<QLineEdit*, float> m_lastValidConst;
+    bool m_geodesicErrorPending = false;
+    bool m_inGeoAnimTick = false;
 
     // ==========================================================
     // RENDERING & COLOR STATE
@@ -326,8 +330,7 @@ private:
     void stopGeodesicAnimation();
     bool isGeodesicMotionActive() const;
     bool hasGeodesicText() const;
-
-    bool m_geodesicErrorPending = false;
+    bool geodesicFieldsAreFinite(const QStringList& exprs, float uMin, float uMax, float vMin, float vMax, float A, float B, float C, float D, float E, float F, float S);
 
     // --- Inline Math Helper ---
     static float det3x3(float a1, float a2, float a3,

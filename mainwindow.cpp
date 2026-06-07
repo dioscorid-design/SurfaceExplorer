@@ -85,6 +85,17 @@ void notifyAndroidMediaStore(const QString& filePath) {
 #endif
 
 // ==========================================
+// Controllo robustezza valori prima dell'invio in GPU
+// ==========================================
+static constexpr double kMaxRenderableMagnitude = 1.0e5;
+static constexpr double kSpikeRatio = 50.0;
+static constexpr double kAliasEdgeFraction = 0.15;
+
+static inline bool isMeshSafeValue(double val) {
+    return std::isfinite(val) && std::abs(val) <= kMaxRenderableMagnitude;
+}
+
+// ==========================================
 // Filtro per catturare il ridimensionamento OpenGL
 // ==========================================
 class GLResizeFilter : public QObject {
@@ -1216,12 +1227,36 @@ MainWindow::MainWindow(QWidget *parent)
     // --- MOTORE COSTANTI A CASCATA ---
     auto evaluateCascade = [this]() {
         bool okA=true, okB=true, okC=true, okD=true, okE=true, okF=true, okS=true;
-        float valA = std::max(0.0f, parseUIConstant(ui->lineA->text(), 0, 0, 0, 0, 0, 0, 0, &okA));
-        float valB = std::max(0.0f, parseUIConstant(ui->lineB->text(), valA, 0, 0, 0, 0, 0, 0, &okB));
-        float valC = std::max(0.0f, parseUIConstant(ui->lineC->text(), valA, valB, 0, 0, 0, 0, 0, &okC));
-        float valD = std::max(0.0f, parseUIConstant(ui->lineD->text(), valA, valB, valC, 0, 0, 0, 0, &okD));
-        float valE = std::max(0.0f, parseUIConstant(ui->lineE->text(), valA, valB, valC, valD, 0, 0, 0, &okE));
-        float valF = std::max(0.0f, parseUIConstant(ui->lineF->text(), valA, valB, valC, valD, valE, 0, 0, &okF));
+        QString negativeConstName;
+
+        auto resolveConst = [this, &negativeConstName](QLineEdit* edit, const QString& name, float raw, bool ok) -> float {
+            if (ok && raw >= 0.0f) {
+                m_lastValidConst[edit] = raw;
+                return raw;
+            }
+            if (ok) { // raw < 0: ripristino + memorizza l'errore
+                float prev = m_lastValidConst.value(edit, 1.0f);
+                QSignalBlocker block(edit);   // niente editingFinished/valueChanged ricorsivi
+                edit->setText(QString::number(prev, 'g', 6));
+                if (negativeConstName.isEmpty()) negativeConstName = name;   // primo errore
+                return prev;
+            }
+            return raw; // !ok
+        };
+
+        // Variabili intermedie per evitare l'ordine di valutazione non garantito di &okX
+        float rawA = parseUIConstant(ui->lineA->text(), 0, 0, 0, 0, 0, 0, 0, &okA);
+        float valA = resolveConst(ui->lineA, "A", rawA, okA);
+        float rawB = parseUIConstant(ui->lineB->text(), valA, 0, 0, 0, 0, 0, 0, &okB);
+        float valB = resolveConst(ui->lineB, "B", rawB, okB);
+        float rawC = parseUIConstant(ui->lineC->text(), valA, valB, 0, 0, 0, 0, 0, &okC);
+        float valC = resolveConst(ui->lineC, "C", rawC, okC);
+        float rawD = parseUIConstant(ui->lineD->text(), valA, valB, valC, 0, 0, 0, 0, &okD);
+        float valD = resolveConst(ui->lineD, "D", rawD, okD);
+        float rawE = parseUIConstant(ui->lineE->text(), valA, valB, valC, valD, 0, 0, 0, &okE);
+        float valE = resolveConst(ui->lineE, "E", rawE, okE);
+        float rawF = parseUIConstant(ui->lineF->text(), valA, valB, valC, valD, valE, 0, 0, &okF);
+        float valF = resolveConst(ui->lineF, "F", rawF, okF);
 
         // Tolto il vincolo std::max(0.0f) per S, così in parametrica accetta ancora i negativi
         float valS = parseUIConstant(ui->lineS->text(), valA, valB, valC, valD, valE, valF, 0, &okS);
@@ -1238,11 +1273,18 @@ MainWindow::MainWindow(QWidget *parent)
                     if (!m_constantPopupActive) {
                         m_constantPopupActive = true;
                         InputValidator::showInvalidConstantError(this, c.name, c.edit->text());
-                        c.edit->setFocus();
-                        c.edit->selectAll();
-                        m_constantPopupActive = false;
+
+                        // Ripristino focus senza ri-emettere editingFinished
+                        {
+                            QSignalBlocker blocker(c.edit);
+                            c.edit->setFocus();
+                            c.edit->selectAll();
+                        }
+                        // Reset rimandato: il flag resta true per tutto il resto
+                        // del ciclo di eventi (compreso il setFocus in onStartClicked)
+                        QTimer::singleShot(0, this, [this]{ m_constantPopupActive = false; });
                     }
-                    return;   // costante non valida: non applichiamo nulla
+                    return;
                 }
             }
         }
@@ -1294,6 +1336,12 @@ MainWindow::MainWindow(QWidget *parent)
             ui->glWidget->setEquationConstants(valA, valB, valC, valD, valE, valF, valS);
             m_meshDebounce->start();
         }
+
+        if (!negativeConstName.isEmpty() && !m_constantPopupActive) {
+            m_constantPopupActive = true;
+            InputValidator::showNegativeConstantError(this, negativeConstName);
+            QTimer::singleShot(0, this, [this]{ m_constantPopupActive = false; });
+        }
     };
 
     auto connectSlider = [this, evaluateCascade](QSlider* slider, QLineEdit* line) {
@@ -1313,10 +1361,13 @@ MainWindow::MainWindow(QWidget *parent)
     connectSlider(ui->sSlider, ui->lineS);
 
     auto connectLineEdit = [this, evaluateCascade](QLineEdit* line) {
-        connect(line, &QLineEdit::editingFinished, this, [evaluateCascade]() {
-            evaluateCascade();
+        connect(line, &QLineEdit::editingFinished, this, [this, evaluateCascade]() {
+            evaluateCascade();                           // clamp + cascata + slider + push costanti
+            if (m_meshDebounce) m_meshDebounce->stop();  // evita il doppio ridisegno asincrono
+            commitFieldsOnEnter();                       // valida: se ok ridisegna, altrimenti vecchia immagine + popup
         });
     };
+
     connectLineEdit(ui->lineA); connectLineEdit(ui->lineB);
     connectLineEdit(ui->lineC); connectLineEdit(ui->lineD);
     connectLineEdit(ui->lineE); connectLineEdit(ui->lineF);
@@ -1556,6 +1607,8 @@ MainWindow::MainWindow(QWidget *parent)
             float maxVal = readField(maxEdit,  1000.0f, "max", &okMax);
             if (!okMax) return;
 
+            if (minVal >= maxVal) return;             // range impossibile: non applicare
+
             if (ui->glWidget) {
                 (ui->glWidget->*setLimitFunc)(minVal, maxVal);
             }
@@ -1571,12 +1624,12 @@ MainWindow::MainWindow(QWidget *parent)
     connectSpaceLimit(ui->lineYMin, ui->lineYMax, &GLWidget::setRangeY, "Y");
     connectSpaceLimit(ui->lineZMin, ui->lineZMax, &GLWidget::setRangeZ, "Z");
 
-    // --- Limiti parametrici U/V/W: Enter applica subito, come il lato Ray Marching ---
     auto connectParametricLimit = [this](QLineEdit* minEdit, QLineEdit* maxEdit,
-            void (MainWindow::*updateFunc)()) {
+            bool (MainWindow::*updateFunc)()) {
         auto apply = [this, updateFunc]() {
-            (this->*updateFunc)();                         // imposta setRangeU/V/W sul glWidget
-            if (m_meshDebounce) m_meshDebounce->start();   // rigenera la mesh (stesso path delle costanti)
+            if ((this->*updateFunc)()) {                   // applica solo se min < max
+                if (m_meshDebounce) m_meshDebounce->start();
+            }
         };
         // editingFinished: copre Enter su desktop e perdita di focus su mobile.
         connect(minEdit, &QLineEdit::editingFinished, this, apply);
@@ -3462,6 +3515,8 @@ void MainWindow::handleTextureSelection(int index)
         ui->btnRunCurrentScript->setEnabled(false);
     }
 
+    onColorTargetChanged();
+
     this->setProperty("isTextureModified", false);
 }
 
@@ -3470,22 +3525,31 @@ void MainWindow::handleTextureSelection(int index)
 // EQUATIONS & MATHEMATICS
 // ==========================================================
 
-void MainWindow::updateULimits() {
-    uMin = parseMath(ui->uMinEdit->text());
-    uMax = parseMath(ui->uMaxEdit->text());
+bool MainWindow::updateULimits() {
+    float lo = parseMath(ui->uMinEdit->text());
+    float hi = parseMath(ui->uMaxEdit->text());
+    if (lo >= hi) return false;            // limiti impossibili: non applicare né ridisegnare
+    uMin = lo; uMax = hi;
     if (ui->glWidget) ui->glWidget->setRangeU(uMin, uMax);
+    return true;
 }
 
-void MainWindow::updateVLimits() {
-    vMin = parseMath(ui->vMinEdit->text());
-    vMax = parseMath(ui->vMaxEdit->text());
+bool MainWindow::updateVLimits() {
+    float lo = parseMath(ui->vMinEdit->text());
+    float hi = parseMath(ui->vMaxEdit->text());
+    if (lo >= hi) return false;            // limiti impossibili: non applicare né ridisegnare
+    vMin = lo; vMax = hi;
     if (ui->glWidget) ui->glWidget->setRangeV(vMin, vMax);
+    return true;
 }
 
-void MainWindow::updateWLimits() {
-    wMin = parseMath(ui->wMinEdit->text());
-    wMax = parseMath(ui->wMaxEdit->text());
+bool MainWindow::updateWLimits() {
+    float lo = parseMath(ui->wMinEdit->text());
+    float hi = parseMath(ui->wMaxEdit->text());
+    if (lo >= hi) return false;            // limiti impossibili: non applicare né ridisegnare
+    wMin = lo; wMax = hi;
     if (ui->glWidget) ui->glWidget->setRangeW(wMin, wMax);
+    return true;
 }
 
 
@@ -3495,7 +3559,21 @@ void MainWindow::updateWLimits() {
 
 void MainWindow::onStartClicked()
 {
+    //******************DEBUG************************
+    {
+            static int s_dbgStartCount = 0;
+            QObject* s = sender();
+            qDebug() << "[onStartClicked] #" << ++s_dbgStartCount
+                     << "sender=" << (s ? s->objectName() : QStringLiteral("<direct-call>"))
+                     << "rmApplyOnly=" << property("rmApplyOnly").toBool()
+                     << "btn=" << (m_btnStart ? m_btnStart->text() : QString())
+                     << "ms=" << QDateTime::currentMSecsSinceEpoch();
+        }
+    //************************************************
     m_geodesicErrorPending = false;
+    setProperty("geoErrorShown", false);   // riarma il popup geodetico per la nuova azione
+    if (!property("rmApplyOnly").toBool())
+        setProperty("collapseErrorShown", false);  // riarma il collasso solo sulle azioni vere (Start/caricamento)
 
     // --- 1. BLOCCO STOP GLOBALE (MASTER) ---
     if (m_btnStart && m_btnStart->text().toUpper() == "STOP") {
@@ -3532,6 +3610,9 @@ void MainWindow::onStartClicked()
     ui->glWidget->setFocus();
 
     // --- VALIDAZIONE COSTANTI (parametriche e implicite) ---
+    if (m_constantPopupActive)
+            return;
+
     auto constParse = [this](const QString& s, bool* ok) {
         return parseUIConstant(s, 0, 0, 0, 0, 0, 0, 0, ok);
     };
@@ -3547,13 +3628,19 @@ void MainWindow::onStartClicked()
     return;
     }
 
-    // Lettura delle Costanti a cascata valida per entrambe le modalità
-    float valA = parseUIConstant(ui->lineA->text(), 0, 0, 0, 0, 0, 0, 0);
-    float valB = parseUIConstant(ui->lineB->text(), valA, 0, 0, 0, 0, 0, 0);
-    float valC = parseUIConstant(ui->lineC->text(), valA, valB, 0, 0, 0, 0, 0);
-    float valD = parseUIConstant(ui->lineD->text(), valA, valB, valC, 0, 0, 0, 0);
-    float valE = parseUIConstant(ui->lineE->text(), valA, valB, valC, valD, 0, 0, 0);
-    float valF = parseUIConstant(ui->lineF->text(), valA, valB, valC, valD, valE, 0, 0);
+    // Lettura delle Costanti a cascata valida per entrambe le modalità.
+    auto clampConst = [this](QLineEdit* edit, float raw) -> float {
+        if (raw < 0.0f)
+            return m_lastValidConst.value(edit, 1.0f);
+        return raw;
+    };
+
+    float valA = clampConst(ui->lineA, parseUIConstant(ui->lineA->text(), 0, 0, 0, 0, 0, 0, 0));
+    float valB = clampConst(ui->lineB, parseUIConstant(ui->lineB->text(), valA, 0, 0, 0, 0, 0, 0));
+    float valC = clampConst(ui->lineC, parseUIConstant(ui->lineC->text(), valA, valB, 0, 0, 0, 0, 0));
+    float valD = clampConst(ui->lineD, parseUIConstant(ui->lineD->text(), valA, valB, valC, 0, 0, 0, 0));
+    float valE = clampConst(ui->lineE, parseUIConstant(ui->lineE->text(), valA, valB, valC, valD, 0, 0, 0));
+    float valF = clampConst(ui->lineF, parseUIConstant(ui->lineF->text(), valA, valB, valC, valD, valE, 0, 0));
     float valS = parseUIConstant(ui->lineS->text(), valA, valB, valC, valD, valE, valF, 0);
 
     ui->glWidget->setEquationConstants(valA, valB, valC, valD, valE, valF, valS);
@@ -3950,7 +4037,9 @@ void MainWindow::onStartClicked()
 
         // updateGeodesicMesh() calcola, verifica e restituisce false se i dati sono corrotti
         if (!updateGeodesicMesh()) {
-            if (this->property("geoErrorType").toString() == "singularity") {
+            if (this->property("geoErrorType").toString() == "singularity"
+                    && !property("geoErrorShown").toBool()) {
+                setProperty("geoErrorShown", true);
                 InputValidator::showGeodesicSingularityError(this);
             }
             return;
@@ -4037,22 +4126,41 @@ void MainWindow::onStartClicked()
                         (double)valE, (double)valF, (double)valS);
 
             if (!p.compile(eq)) {
-                // Errore di sintassi: lasciamo decidere al controllo successivo
-                // (setParametricEquations -> showEquationSyntaxError).
+                // Errore di sintassi: lo gestisce il controllo successivo.
                 return true;
             }
 
-            constexpr int N = 16;  // 17x17 = 289 campioni, costo trascurabile
+            constexpr int N = 48;  // griglia più fitta: intercetta i poli vicini ai bordi
+            QVector<double> mags;
+            mags.reserve((N + 1) * (N + 1));
+            double maxMag = 0.0;
+
             for (int i = 0; i <= N; ++i) {
                 for (int j = 0; j <= N; ++j) {
                     pu = (double)uMin + ((double)uMax - (double)uMin) * i / (double)N;
                     pv = (double)vMin + ((double)vMax - (double)vMin) * j / (double)N;
-                    // pw, pp_ restano 0: w è usato solo in 4D, p è l'output stesso
                     double val = p.value();
-                    if (!std::isfinite(val)) {
-                        return false;
-                    }
+
+                    // 1) inf / NaN espliciti (1/0, log(0), ...)
+                    if (!std::isfinite(val)) return false;
+
+                    // 2) tetto assoluto di sicurezza (oltre la portata float32 GPU)
+                    if (std::abs(val) > kMaxRenderableMagnitude) return false;
+
+                    double m = std::abs(val);
+                    maxMag = std::max(maxMag, m);
+                    mags.push_back(m);
                 }
+            }
+
+            // 3) Picco RELATIVO alla scala della superficie. La mediana è una
+            //    stima robusta della scala "tipica"; se il massimo la supera di
+            //    troppo è un polo/spike che farà appiattire il render.
+            if (!mags.isEmpty()) {
+                std::nth_element(mags.begin(), mags.begin() + mags.size() / 2, mags.end());
+                double medianMag = mags[mags.size() / 2];
+                if (medianMag > 1e-9 && maxMag > kSpikeRatio * medianMag)
+                    return false;
             }
             return true;
         };
@@ -4062,7 +4170,10 @@ void MainWindow::onStartClicked()
                 !probeEquation(rawZ) ||
                 !probeEquation(rawP))
         {
-            InputValidator::showMathematicalCollapseError(this);
+            if (!property("collapseErrorShown").toBool()) {
+                setProperty("collapseErrorShown", true);
+                InputValidator::showMathematicalCollapseError(this);
+            }
             return;
         }
     }
@@ -4125,11 +4236,15 @@ void MainWindow::onStartClicked()
 
     // Controllo Collasso Matematico
     if (!ui->glWidget->getEngine()->isMeshValid()) {
-        InputValidator::showMathematicalCollapseError(this);
+        if (!property("collapseErrorShown").toBool()) {
+            setProperty("collapseErrorShown", true);
+            InputValidator::showMathematicalCollapseError(this);
+        }
         return;
     }
 
     if (!applyOnly) applyStartSideEffects();
+    setProperty("collapseErrorShown", false);  // superficie valida: riarma il popup di collasso
     ui->glWidget->update();
 }
 
@@ -4769,6 +4884,7 @@ void MainWindow::onRunScriptClicked()
 
     if (!ui->glWidget->getEngine()->isMeshValid()) {
         performMasterStop();
+        qDebug() << "[COLLAPSE-3] onRunScriptClicked";
         InputValidator::showMathematicalCollapseError(this);
 
         ui->glWidget->getEngine()->setScriptMode(false);
@@ -8257,7 +8373,7 @@ void MainWindow::restoreActiveEquations(const QStringList &saved) {
 
 void MainWindow::commitUiFieldsDuringMotion() {
     if (!m_btnStart || m_btnStart->text().toUpper() != "STOP") return;
-    if (m_geodesicErrorPending) return;   // gate: niente operazioni mentre c'è un errore pendente
+    m_geodesicErrorPending = false;
 
     QString mainEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
                       ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText();
@@ -8283,19 +8399,34 @@ void MainWindow::commitUiFieldsDuringMotion() {
     }
 
     // Snapshot dei valori attuali prima di provare i nuovi.
-    const QStringList previous = readActiveEquations();
+    // Snapshot dei valori attuali prima di provare i nuovi.
+        const QStringList previous = readActiveEquations();
 
-    // Tentativo: applichiamo i nuovi e validiamo.
-    snapshotActiveEquations();
-    if (updateGeodesicMesh()) {
-        return;  // OK: i nuovi valori restano nelle active_*, il moto continua.
+        // Tentativo: applichiamo i nuovi e validiamo.
+        snapshotActiveEquations();
+        if (updateGeodesicMesh()) {
+            return;  // OK: i nuovi valori restano nelle active_*, il moto continua.
+        }
+
+        // I nuovi valori fanno collassare il flusso: ripristiniamo, fermiamo il moto
+        // e segnaliamo (una sola volta).
+        qDebug() << "[MOTION-FAIL] geoErrorType=" << property("geoErrorType").toString()
+                 << " geoErrorShown=" << property("geoErrorShown").toBool()
+                 << " inTick=" << m_inGeoAnimTick;
+
+        restoreActiveEquations(previous);
+        stopGeodesicAnimation();
+
+        if (!property("geoErrorShown").toBool()) {
+            setProperty("geoErrorShown", true);
+            InputValidator::showGeodesicSingularityError(this);
+        }
     }
 
-    restoreActiveEquations(previous);
-}
-
 void MainWindow::commitFieldsOnEnter() {
-    if (m_geodesicErrorPending) return;
+    qDebug() << "[commitFieldsOnEnter] sender=" << (sender() ? sender()->objectName() : QStringLiteral("<direct>"));
+
+    m_geodesicErrorPending = false;
 
     // In moto: usa la logica live già esistente.
     if (m_btnStart && m_btnStart->text().toUpper() == "STOP") {
@@ -8314,8 +8445,12 @@ void MainWindow::commitFieldsOnEnter() {
                      (mainEqs.contains(QRegularExpression("\\bW\\b")) ? 1 : 0);
 
     if ((upperCount > 0) && hasGeodesicText()) {
-        // Rigenera la mesh geodetica statica con i valori correnti.
-        updateGeodesicMesh();
+        if (!updateGeodesicMesh()
+                && property("geoErrorType").toString() == "singularity"
+                && !property("geoErrorShown").toBool()) {
+            setProperty("geoErrorShown", true);
+            InputValidator::showGeodesicSingularityError(this);
+        }
         return;
     }
 
@@ -8414,7 +8549,10 @@ bool MainWindow::updateGeodesicMesh()
             m_geodesicErrorPending = true;
             QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
             if (geoAnimTimer && geoAnimTimer->isActive()) geoAnimTimer->stop();
-            InputValidator::showInvalidConformalConstantError(this);
+            if (!property("geoErrorShown").toBool()) {
+                setProperty("geoErrorShown", true);
+                InputValidator::showInvalidConformalConstantError(this);
+            }
             return false;
         }
     }
@@ -8429,6 +8567,44 @@ bool MainWindow::updateGeodesicMesh()
     // ==============================================================
     // 2.5 ESTRAZIONE DELLE COSTANTI
     // ==============================================================
+    {
+        auto clampConst = [this](QLineEdit* edit, float raw) -> float {
+            if (raw < 0.0f) {
+                float prev = m_lastValidConst.value(edit, 1.0f);
+                QSignalBlocker b(edit);
+                edit->setText(QString::number(prev, 'g', 6));
+                return prev;
+            }
+            m_lastValidConst[edit] = raw;
+            return raw;
+        };
+
+        float cA = clampConst(ui->lineA, parseUIConstant(ui->lineA->text(), 0, 0, 0, 0, 0, 0, 0));
+        float cB = clampConst(ui->lineB, parseUIConstant(ui->lineB->text(), cA, 0, 0, 0, 0, 0, 0));
+        float cC = clampConst(ui->lineC, parseUIConstant(ui->lineC->text(), cA, cB, 0, 0, 0, 0, 0));
+        float cD = clampConst(ui->lineD, parseUIConstant(ui->lineD->text(), cA, cB, cC, 0, 0, 0, 0));
+        float cE = clampConst(ui->lineE, parseUIConstant(ui->lineE->text(), cA, cB, cC, cD, 0, 0, 0));
+        float cF = clampConst(ui->lineF, parseUIConstant(ui->lineF->text(), cA, cB, cC, cD, cE, 0, 0));
+        float cS = parseUIConstant(ui->lineS->text(), cA, cB, cC, cD, cE, cF, 0);
+        if (ui->glWidget) ui->glWidget->setEquationConstants(cA, cB, cC, cD, cE, cF, cS);
+
+        if (!m_inGeoAnimTick &&
+                !geodesicFieldsAreFinite({rawU, rawV, rawW, rawDU, rawDV, rawDW,
+                                         rawConf, rawX, rawY, rawZ, rawP},
+                                         uMin, uMax, vMin, vMax,
+                                         cA, cB, cC, cD, cE, cF, cS)) {
+            m_geodesicErrorPending = true;
+            QTimer* gt = this->findChild<QTimer*>("geoAnimTimer");
+            if (gt && gt->isActive()) gt->stop();
+            this->setProperty("geoErrorType", "nonfinite");
+            if (!property("geoErrorShown").toBool()) {
+                setProperty("geoErrorShown", true);
+                InputValidator::showGeodesicSingularityError(this);
+            }
+            return false;
+        }
+    }
+
     // Recupera la mappa delle costanti (già calcolate a cascata da onStartClicked)
     QMap<QString, float> constantsMap = ui->glWidget->getConstantsMap();
 
@@ -8447,6 +8623,26 @@ bool MainWindow::updateGeodesicMesh()
                 static_cast<float>(t),       // <--- NUOVO: tempo come uniform
                 &shaderError
                 );
+
+    // --- DEBUG temporaneo: misura l'estensione della griglia geodetica ---
+        {
+            int npts = 0;
+            double mnx=1e300, mny=1e300, mnz=1e300, mxx=-1e300, mxy=-1e300, mxz=-1e300;
+            bool anyNonFinite = false;
+            for (const auto& row : grid)
+                for (const QVector4D& p : row) {
+                    ++npts;
+                    if (!std::isfinite(p.x()) || !std::isfinite(p.y()) || !std::isfinite(p.z()))
+                        anyNonFinite = true;
+                    mnx = std::min(mnx, (double)p.x()); mxx = std::max(mxx, (double)p.x());
+                    mny = std::min(mny, (double)p.y()); mxy = std::max(mxy, (double)p.y());
+                    mnz = std::min(mnz, (double)p.z()); mxz = std::max(mxz, (double)p.z());
+                }
+            qDebug() << "[GEOGRID] rows=" << grid.size() << " pts=" << npts
+                     << " nonFinite=" << anyNonFinite
+                     << " extX=" << (mxx-mnx) << " extY=" << (mxy-mny) << " extZ=" << (mxz-mnz);
+        }
+    //***********************************************************************
 
     // --- GESTIONE DEGLI ERRORI ---
     if (grid.isEmpty()) {
@@ -8498,14 +8694,24 @@ bool MainWindow::updateGeodesicMesh()
             if (!isVisible()) return;
 
             // Guardia 2: contesto GPU non ancora ripristinato dopo il ritorno
-            // dal background. Senza questa, getRhi()==nullptr farebbe scattare
-            // un falso popup di "Geodesic Flow encountered infinite values".
             if (!ui->glWidget || !ui->glWidget->getRhi()) return;
+
+            // Guardia 3: l'utente sta editando una costante (A..F / S).
+            {
+                QWidget* fw = qApp->focusWidget();
+                if (fw == ui->lineA || fw == ui->lineB || fw == ui->lineC ||
+                        fw == ui->lineD || fw == ui->lineE || fw == ui->lineF ||
+                        fw == ui->lineS)
+                    return;
+            }
 
             double currentT = this->property("geoTime").toDouble();
             this->setProperty("geoTime", currentT + 0.015);
 
-            if (!updateGeodesicMesh()) {
+            m_inGeoAnimTick = true;
+            bool meshOk = updateGeodesicMesh();
+            m_inGeoAnimTick = false;
+            if (!meshOk) {
                 if (this->property("geoErrorType").toString() == "singularity") {
                     InputValidator::showAnimatedGeodesicSingularityError(this);
                 }
@@ -8519,10 +8725,13 @@ bool MainWindow::updateGeodesicMesh()
         if (geoAnimTimer->isActive()) geoAnimTimer->stop();
     }
 
+    setProperty("geoErrorShown", false);
+    m_geodesicErrorPending = false;
     return true;
 }
 
 void MainWindow::checkAndTriggerMeshUpdate() {
+    qDebug() << "[checkAndTriggerMeshUpdate] enter, ms=" << QDateTime::currentMSecsSinceEpoch();
     if (!ui->glWidget) return;
 
     if (ui->glWidget->getEngine() && ui->glWidget->getEngine()->isScriptModeActive()) {
@@ -8584,6 +8793,71 @@ bool MainWindow::hasGeodesicText() const {
            !ui->lndU->toPlainText().trimmed().isEmpty() ||
            !ui->lndV->toPlainText().trimmed().isEmpty() ||
            !ui->lndW->toPlainText().trimmed().isEmpty();
+}
+
+bool MainWindow::geodesicFieldsAreFinite(const QStringList& exprs,
+                                         float uMin, float uMax,
+                                         float vMin, float vMax,
+                                         float A, float B, float C,
+                                         float D, float E, float F, float S)
+{
+    typedef exprtk::symbol_table<double> symbol_table_t;
+    typedef exprtk::expression<double>   expression_t;
+    typedef exprtk::parser<double>       parser_t;
+
+    // Variabili legate per riferimento. u,v,t li facciamo variare;
+    // gli altri restano a un valore interno "sicuro" così le espressioni che li
+    // citano compilano e non incappano nella loro singolarità naturale di bordo
+    // (es. il fattore conforme di Poincaré che esplode solo a U^2+V^2+W^2 = 1).
+    double u = 0, v = 0, t = 0;
+    double w = 0.137, U = 0.137, V = 0.137, W = 0.137;
+    double x = 0.137, y = 0.137, z = 0.137, iTime = 0, u_time = 0;
+
+    symbol_table_t st;
+    st.add_constants();
+    st.add_constant("pi", 3.14159265358979323846);
+    st.add_constant("PI", 3.14159265358979323846);
+    st.add_constant("e",  2.71828182845904523536);
+    st.add_constant("tau", 6.28318530717958647692);
+    st.add_constant("TAU", 6.28318530717958647692);
+    st.add_constant("A", (double)A); st.add_constant("B", (double)B);
+    st.add_constant("C", (double)C); st.add_constant("D", (double)D);
+    st.add_constant("E", (double)E); st.add_constant("F", (double)F);
+    st.add_constant("S", (double)S); st.add_constant("s", (double)S);
+    st.add_variable("u", u); st.add_variable("v", v); st.add_variable("w", w);
+    st.add_variable("t", t);
+    st.add_variable("U", U); st.add_variable("V", V); st.add_variable("W", W);
+    st.add_variable("x", x); st.add_variable("y", y); st.add_variable("z", z);
+    st.add_variable("iTime", iTime); st.add_variable("u_time", u_time);
+
+    // Punti campione interni: evitiamo gli estremi esatti per non scambiare una
+    // singolarità legittima di bordo (es. il fattore conforme di Poincaré, che
+    // esplode solo a U^2+V^2+W^2 = 1) per un errore.
+    const double fu = uMax - uMin, fv = vMax - vMin;
+    const double us[3] = { uMin + 0.25*fu, uMin + 0.5*fu, uMin + 0.75*fu };
+    const double vs[3] = { vMin + 0.25*fv, vMin + 0.5*fv, vMin + 0.75*fv };
+    const double ts[3] = { 0.0, 0.5, 1.0 };
+
+    for (const QString& raw : exprs) {
+        QString clean = raw.trimmed();
+        if (clean.isEmpty()) continue;
+        clean.replace(",", ".");
+
+        expression_t expr;
+        expr.register_symbol_table(st);
+        parser_t parser;
+        if (!parser.compile(clean.toStdString(), expr))
+            continue;   // errore di sintassi: lo gestisce la validazione esistente
+
+        for (double su : us)
+            for (double sv : vs)
+                for (double stime : ts) {
+                    u = su; v = sv; t = stime; iTime = stime; u_time = stime;
+                    if (!isMeshSafeValue(expr.value()))
+                        return false;
+                }
+    }
+    return true;
 }
 
 
