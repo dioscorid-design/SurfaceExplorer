@@ -262,11 +262,6 @@ void InputValidator::showEquationSyntaxError(QWidget* parent)
 
 void InputValidator::showMathematicalCollapseError(QWidget* parent)
 {
-    //************DEBUG********************************
-     static int s_n = 0;
-    qDebug() << "[POPUP] showMathematicalCollapseError  count=" << ++s_n           << "  s_boxActive=" << s_boxActive;
-    //***********************************************
-
     notify(parent, QMessageBox::Critical, "Mathematical Collapse",
                           "The entered limits or equations generate impossible or infinite values (e.g., division by zero).\n\n"
                           "Execution has been blocked to prevent graphical artifacts or a blank screen.");
@@ -630,11 +625,6 @@ void InputValidator::showNegativeConstantError(QWidget* parent, const QString& n
 void InputValidator::notify(QWidget* parent, QMessageBox::Icon icon,
                             const QString& title, const QString& text)
 {
-    //***************DEBUG******************************
-    static int s_notifyN = 0;
-    qDebug() << "[NOTIFY] #" << ++s_notifyN << " title=" << title
-             << " s_boxActive=" << s_boxActive;
-//********************************************************
 #if defined(Q_OS_ANDROID)
     // Evita di impilare due modali (è proprio questo che fa crashare Android)
     if (s_boxActive) return;

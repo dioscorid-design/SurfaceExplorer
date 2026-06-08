@@ -8,9 +8,6 @@
 #include <functional>
 #include <QButtonGroup>
 #include <QProgressBar>
-#include <QDebug>
-#include <QtMultimedia/QMediaPlayer>
-#include <QtMultimedia/QAudioOutput>
 #include <QFileSystemWatcher>
 #include <QVector>
 #include <QVector4D>

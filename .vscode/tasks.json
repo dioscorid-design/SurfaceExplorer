@@ -1,0 +1,26 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Deploy APK (dispositivo default)",
+      "type": "shell",
+      "command": "mkdir -p /tmp/SurfaceExplorer-android-build/libs/arm64-v8a && cp '${workspaceFolder}/build/android-build/libs/arm64-v8a/libSurfaceExplorer_arm64-v8a.so' /tmp/SurfaceExplorer-android-build/libs/arm64-v8a/ && /Users/dioscorid/Qt/6.10.1/macos/bin/androiddeployqt --input '${workspaceFolder}/build/Qt_6_10_1_for_Android_arm64_v8a-Debug/android-SurfaceExplorer-deployment-settings.json' --output /tmp/SurfaceExplorer-android-build --android-platform android-36 --jdk /Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home --gradle && /Users/dioscorid/Library/Android/sdk/platform-tools/adb install -r /tmp/SurfaceExplorer-android-build/build/outputs/apk/debug/SurfaceExplorer-android-build-debug.apk",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Deploy APK (scegli dispositivo)",
+      "type": "shell",
+      "command": "mkdir -p /tmp/SurfaceExplorer-android-build/libs/arm64-v8a && cp '${workspaceFolder}/build/android-build/libs/arm64-v8a/libSurfaceExplorer_arm64-v8a.so' /tmp/SurfaceExplorer-android-build/libs/arm64-v8a/ && /Users/dioscorid/Qt/6.10.1/macos/bin/androiddeployqt --input '${workspaceFolder}/build/Qt_6_10_1_for_Android_arm64_v8a-Debug/android-SurfaceExplorer-deployment-settings.json' --output /tmp/SurfaceExplorer-android-build --android-platform android-36 --jdk /Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home --gradle && /Users/dioscorid/Library/Android/sdk/platform-tools/adb -s ${input:deviceId} install -r /tmp/SurfaceExplorer-android-build/build/outputs/apk/debug/SurfaceExplorer-android-build-debug.apk",
+      "group": "build",
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "deviceId",
+      "type": "promptString",
+      "description": "ID dispositivo (da 'adb devices')"
+    }
+  ]
+}

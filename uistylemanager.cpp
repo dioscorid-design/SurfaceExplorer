@@ -10,7 +10,6 @@
 #include <QSlider>
 #include <QDockWidget>
 #include <QMainWindow>
-#include <QDockWidget>
 #include <QApplication>
 #include <QStyleFactory>
 #include <QWidget>
@@ -716,15 +715,6 @@ void UiStyleManager::styleMobileOverflowMenu(QMenu* menu) {
         "QMenu::item { padding: 20px 40px; color: white; border-bottom: 1px solid #333; }"
         "QMenu::item:selected { background-color: #007ACC; }"
         );
-}
-
-void UiStyleManager::styleMobileScriptButtons(const QList<QPushButton*>& btns) {
-    QString btnStyle = "QPushButton { font-size: 13px; font-weight: bold; padding: 6px 4px; "
-                       "background-color: #3A3A3C; color: white; border: 1px solid #555; border-radius: 4px; }"
-                       "QPushButton:pressed { background-color: #007ACC; }";
-    for (QPushButton* btn : btns) {
-        if (btn) btn->setStyleSheet(btnStyle);
-    }
 }
 
 void UiStyleManager::applyToastShadow(QWidget* widget) {

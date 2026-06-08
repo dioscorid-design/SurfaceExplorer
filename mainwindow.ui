@@ -110,7 +110,7 @@
          <verstretch>0</verstretch>
         </sizepolicy>
        </property>
-       <layout class="QVBoxLayout" name="verticalLayout_4" stretch="0,0,0,0,0,0,0">
+       <layout class="QVBoxLayout" name="verticalLayout_4" stretch="0,0,0,0,0,0">
         <property name="sizeConstraint">
          <enum>QLayout::SizeConstraint::SetMinimumSize</enum>
         </property>
@@ -358,7 +358,7 @@
             <verstretch>0</verstretch>
            </sizepolicy>
           </property>
-          <layout class="QVBoxLayout" name="verticalLayout_11" stretch="0,0">
+          <layout class="QVBoxLayout" name="verticalLayout_11" stretch="0,0,0,0">
            <item>
             <widget class="QLabel" name="lblTrans">
              <property name="text">
@@ -401,12 +401,6 @@
              </layout>
             </widget>
            </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QWidget" name="panelLight_2" native="true">
-          <layout class="QVBoxLayout" name="verticalLayout_19">
            <item>
             <widget class="QLabel" name="lblLight">
              <property name="text">
