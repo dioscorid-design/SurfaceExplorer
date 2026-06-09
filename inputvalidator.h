@@ -6,8 +6,6 @@
 #include <QLineEdit>
 #include <QVector>
 #include <functional>
-#include <QVector>
-#include <QString>
 #include <QSet>
 #include <QMessageBox>
 

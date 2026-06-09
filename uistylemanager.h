@@ -39,7 +39,6 @@ public:
     static void setupDocumentationDialog(QDialog* dialog, QVBoxLayout* layout, QTextBrowser* browser, QPushButton* closeBtn);
     static void styleMobileMenuButton(QPushButton* button);
     static void styleMobileOverflowMenu(QMenu* menu);
-    static void styleMobileScriptButtons(const QList<QPushButton*>& btns);
     static void applyToastShadow(QWidget* widget);
     static void applyToastStyle(QLabel* label, bool isError);
     static void applyRecordButtonStyle(QPushButton* btn);

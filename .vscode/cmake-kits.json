@@ -1,0 +1,42 @@
+[
+  {
+    "name": "Desktop macOS (clang)",
+    "compilers": {
+      "C": "/usr/bin/clang",
+      "CXX": "/usr/bin/clang++"
+    },
+    "cmakeSettings": {
+      "CMAKE_PREFIX_PATH": "/Users/dioscorid/Qt/6.10.1/macos"
+    }
+  },
+  {
+    "name": "Qt 6.10.1 Android arm64",
+    "toolchainFile": "/Users/dioscorid/Qt/6.10.1/android_arm64_v8a/lib/cmake/Qt6/qt.toolchain.cmake",
+    "cmakeSettings": {
+      "ANDROID_ABI": "arm64-v8a",
+      "ANDROID_PLATFORM": "latest",
+      "ANDROID_NDK_ROOT": "/Users/dioscorid/Library/Android/sdk/ndk/27.2.12479018",
+      "ANDROID_SDK_ROOT": "/Users/dioscorid/Library/Android/sdk",
+      "QT_HOST_PATH": "/Users/dioscorid/Qt/6.10.1/macos"
+    }
+  },
+  {
+    "name": "Qt 6.10.1 iOS arm64 (device)",
+    "toolchainFile": "/Users/dioscorid/Qt/6.10.1/ios/lib/cmake/Qt6/qt.toolchain.cmake",
+    "cmakeSettings": {
+      "QT_HOST_PATH": "/Users/dioscorid/Qt/6.10.1/macos",
+      "CMAKE_SYSTEM_NAME": "iOS",
+      "CMAKE_OSX_ARCHITECTURES": "arm64"
+    }
+  },
+  {
+    "name": "Qt 6.10.1 iOS Simulator (arm64)",
+    "toolchainFile": "/Users/dioscorid/Qt/6.10.1/ios/lib/cmake/Qt6/qt.toolchain.cmake",
+    "cmakeSettings": {
+      "QT_HOST_PATH": "/Users/dioscorid/Qt/6.10.1/macos",
+      "CMAKE_SYSTEM_NAME": "iOS",
+      "CMAKE_OSX_ARCHITECTURES": "arm64",
+      "CMAKE_OSX_SYSROOT": "iphonesimulator"
+    }
+  }
+]

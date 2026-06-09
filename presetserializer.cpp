@@ -1021,6 +1021,10 @@ void PresetSerializer::saveScript()
 
         QSettings().setValue(safeSettingsKey, QFileInfo(fileName).absolutePath());
 
+        if (!isSurf && !isSnd) {
+            m_mainWindow->m_currentTexturePresetPath = fileName;
+        }
+
         // Un semplice refresh visivo senza spostare pannelli
         QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
 

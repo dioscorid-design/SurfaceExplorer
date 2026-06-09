@@ -327,6 +327,51 @@ MainWindow::MainWindow(QWidget *parent)
 
 #endif
 
+#if defined(Q_OS_IOS)
+    // Su iPhone iOS non solleva la finestra automaticamente come fa su iPad,
+    // quindi applichiamo lo stesso meccanismo di Android: margine inferiore +
+    // scroll al widget focalizzato.
+    {
+        QSize s = QGuiApplication::primaryScreen()->availableSize();
+        const bool isIPhone = qMin(s.width(), s.height()) < 700;
+        if (isIPhone) {
+            connect(QGuiApplication::inputMethod(), &QInputMethod::keyboardRectangleChanged,
+                    this, [this]() {
+                QRectF kbdRect = QGuiApplication::inputMethod()->keyboardRectangle();
+                int kbdHeight = kbdRect.height();
+
+                QList<QDockWidget*> docks = {
+                    ui->dockEquations, ui->dockScripts, ui->dockRenders,
+                    ui->dock3D, ui->dock4D, ui->dockSurfaces
+                };
+
+                for (QDockWidget* dock : docks) {
+                    if (dock->isVisible() && dock->widget()) {
+                        if (kbdHeight > 0) {
+                            dock->widget()->setContentsMargins(0, 0, 0, kbdHeight);
+                            QWidget* fw = this->focusWidget();
+                            if (fw) {
+                                QTimer::singleShot(100, fw, [fw]() {
+                                    QWidget* p = fw->parentWidget();
+                                    while (p) {
+                                        if (QScrollArea* sa = qobject_cast<QScrollArea*>(p)) {
+                                            sa->ensureWidgetVisible(fw, 0, 50);
+                                            break;
+                                        }
+                                        p = p->parentWidget();
+                                    }
+                                });
+                            }
+                        } else {
+                            dock->widget()->setContentsMargins(0, 0, 0, 0);
+                        }
+                    }
+                }
+            });
+        }
+    }
+#endif
+
     // --- SBLOCCO DEI CAMPI COSTANTI (Permette lettere, 'pi', formule) ---
     ui->lineA->setValidator(nullptr);
     ui->lineB->setValidator(nullptr);
@@ -403,102 +448,6 @@ MainWindow::MainWindow(QWidget *parent)
         dockScrollArea->setWidget(originalWidget);
         ui->dockScripts->setWidget(dockScrollArea);
 
-        // 2. CONFIGURAZIONE TOOLBAR (5 TASTI CON UNDO/REDO TOGGLE)
-        QVBoxLayout* scriptLayout = qobject_cast<QVBoxLayout*>(originalWidget->layout());
-        if (scriptLayout) {
-            QHBoxLayout* toolbarLayout = new QHBoxLayout();
-            toolbarLayout->setContentsMargins(0, 0, 0, 5);
-            toolbarLayout->setSpacing(5);
-
-            QPushButton* btnSelectAll = new QPushButton("Select All", originalWidget);
-            QPushButton* btnCopy      = new QPushButton("Copy", originalWidget);
-            QPushButton* btnCut       = new QPushButton("Cut", originalWidget);
-            QPushButton* btnPaste     = new QPushButton("Paste", originalWidget);
-            QPushButton* btnUndoRedo  = new QPushButton("Undo", originalWidget);
-
-            QSizePolicy expandPolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-            btnSelectAll->setSizePolicy(expandPolicy);
-            btnCopy->setSizePolicy(expandPolicy);
-            btnCut->setSizePolicy(expandPolicy);
-            btnPaste->setSizePolicy(expandPolicy);
-            btnUndoRedo->setSizePolicy(expandPolicy);
-
-            btnSelectAll->setFocusPolicy(Qt::NoFocus);
-            btnCopy->setFocusPolicy(Qt::NoFocus);
-            btnCut->setFocusPolicy(Qt::NoFocus);
-            btnPaste->setFocusPolicy(Qt::NoFocus);
-            btnUndoRedo->setFocusPolicy(Qt::NoFocus);
-
-            UiStyleManager::styleMobileScriptButtons({btnSelectAll, btnCopy, btnCut, btnPaste, btnUndoRedo});
-
-            toolbarLayout->addWidget(btnSelectAll);
-            toolbarLayout->addWidget(btnCopy);
-            toolbarLayout->addWidget(btnCut);
-            toolbarLayout->addWidget(btnPaste);
-            toolbarLayout->addWidget(btnUndoRedo);
-
-            // Inseriamo la toolbar in cima al layout interno scorrevole
-            scriptLayout->insertLayout(0, toolbarLayout);
-
-            // Gestione dei margini interni per la lente d'ingrandimento
-            int left, top, right, bottom;
-            scriptLayout->getContentsMargins(&left, &top, &right, &bottom);
-#if defined(Q_OS_IOS)
-            scriptLayout->setContentsMargins(left, top + 15, right, bottom);
-#else
-            scriptLayout->setContentsMargins(left, top + 5, right, bottom);
-#endif
-
-            // 3. CONNESSIONI LOGICHE DEI BOTTONI
-            connect(btnSelectAll, &QPushButton::clicked, this, [this]() {
-                ui->txtScriptEditor->selectAll();
-            });
-
-            connect(btnCopy, &QPushButton::clicked, this, [this]() {
-                QString text = ui->txtScriptEditor->textCursor().selectedText();
-                text.replace(QChar::ParagraphSeparator, '\n');
-                if (!text.isEmpty()) {
-                    QGuiApplication::clipboard()->setText(text);
-                    showTopMessage("Text copied", false);
-                }
-            });
-
-            connect(btnCut, &QPushButton::clicked, this, [this]() {
-                QTextCursor cursor = ui->txtScriptEditor->textCursor();
-                QString text = cursor.selectedText();
-                text.replace(QChar::ParagraphSeparator, '\n');
-                if (!text.isEmpty()) {
-                    QGuiApplication::clipboard()->setText(text);
-                    cursor.removeSelectedText();
-                    showTopMessage("Text cut", false);
-                }
-            });
-
-            connect(btnPaste, &QPushButton::clicked, this, [this]() {
-                QString text = QGuiApplication::clipboard()->text();
-                if (!text.isEmpty()) {
-                    ui->txtScriptEditor->textCursor().insertText(text);
-                }
-            });
-
-            connect(btnUndoRedo, &QPushButton::clicked, this, [this, btnUndoRedo]() {
-                if (btnUndoRedo->text() == "Undo") {
-                    ui->txtScriptEditor->undo();
-                    if (ui->txtScriptEditor->document()->isRedoAvailable()) {
-                        btnUndoRedo->setText("Redo");
-                    }
-                } else {
-                    ui->txtScriptEditor->redo();
-                    btnUndoRedo->setText("Undo");
-                }
-            });
-
-            connect(ui->txtScriptEditor->document(), &QTextDocument::redoAvailable, this, [btnUndoRedo](bool available) {
-                if (!available) {
-                    btnUndoRedo->setText("Undo");
-                }
-            });
-        }
     }
 
 
