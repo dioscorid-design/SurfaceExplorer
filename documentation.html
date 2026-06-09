@@ -123,9 +123,9 @@
             <li><a href="#rendering">Rendering & Textures</a></li>
             <li><a href="#audio">Sounds & Audio</a></li>
             <li><a href="#animation">Animation & Video</a></li>
-            <li><a href="#modular-controls">Modular Controls</a></li>
             <li><a href="#scripting">Script Dock & Advanced Scripting</a></li>
             <li><a href="#library-management">Library, Presets & Saving</a></li>
+            <li><a href="#modular-controls">Modular Controls</a></li>
             <li><a href="#acknowledgments">Acknowledgments</a></li>
         </ul>
     </nav>
@@ -133,11 +133,11 @@
     <main>
         <section id="intro">
             <h1>User Manual</h1>
-            <p>Welcome to <strong>Surface Explorer 4D</strong>, an advanced tool for visualizing and exploring parametric surfaces in 3 and 4 dimensions and implicit surfaces in 3 dimension. This software allows mathematicians, students, and enthusiasts to manipulate complex geometries in real-time.</p>
+            <p>Welcome to <strong>Surface Explorer</strong>, an advanced tool for visualizing and exploring parametric surfaces in 3 and 4 dimensions and implicit surfaces in 3 dimension. This software allows mathematicians, students, and enthusiasts to manipulate complex geometries in real-time.</p>
             <div class="note">
-                <strong>Version:</strong> 2.0<br>
+                <strong>Version:</strong> 3.0<br>
                 <strong>Graphics Engine:</strong> Qt RHI (Vulkan, Metal, Direct3D, OpenGL)<br>
-                <strong>Developed by:</strong> Dioscorid
+                <strong>Developed by:</strong> Gaetano Moschetti
             </div>
         </section>
 
@@ -154,7 +154,7 @@
             </ul>
             <p>In the center is the interactive <strong>3D Viewport</strong> (powered by Qt RHI).</p>
             <div class="note">
-                <strong>Button States:</strong> With the exception of the <em>Go/Stop</em> button in the 3D Motion dock, all toggle buttons in the interface display the <strong>current active state</strong> of the setting, rather than the action that will occur when pressed.
+                <strong>Button States:</strong> All toggle buttons in the interface describe the <strong>action that will occur when pressed</strong>. The only exceptions are the <em>Projection</em> buttons on the status bar, the <em>Border</em> button in the Renderer dock, and the <em>Illumination</em> button in the 4D dock — these display the current active state instead.
             </div>
         </section>
 
@@ -182,24 +182,24 @@
             <p>Surface Explorer 4D offers different projection methods to map geometry onto your screen. You can cycle through these modes using the dedicated button in the bottom status bar:</p>
             <ul>
                 <li><strong>Perspective:</strong> Standard 3D perspective projection with depth perception.</li>
-                <li><strong>Wide Perspective:</strong> A wider field of view (FOV) that creates a more dramatic, expansive rendering of large or complex surfaces.</li>
+                <li><strong>Stereographic:</strong> A conformal projection that maps the geometry onto a sphere before projecting it onto the screen, producing a characteristic wide, curved distortion.</li>
                 <li><strong>Orthogonal:</strong> Flat, parallel projection without depth distortion. Ideal for technical visualization and exact proportional sizing.</li>
             </ul>
             <div class="note">
-                <strong>Important:</strong> When using Perspective or Wide Perspective modes, if the surface moves too close to the camera (near-clipping plane), visual artifacts or "holes" may appear. If this happens, try switching the projection mode to <strong>Orthogonal</strong>.
+                <strong>Important:</strong> When using Perspective or Stereographic modes, if the surface moves too close to the camera (near-clipping plane), visual artifacts or "holes" may appear. If this happens, try switching the projection mode to <strong>Orthogonal</strong>.
             </div>
         </section>
 
         <section id="dimensions">
             <h2>The 4th Dimension</h2>
-            <p>Surface Explorer calculates geometry in R4 (X, Y, Z, W) and projects it into R3 for visualization.</p>
+            <p>Surface Explorer calculates geometry in R4 (X, Y, Z, P) and projects it into R3 for visualization.</p>
 
             <h3>4D Rotations</h3>
-            <p>In addition to classic 3D rotations, three hyperspatial rotations involving the W axis are available:</p>
+            <p>In addition to classic 3D rotations, three hyperspatial rotations involving the P axis are available:</p>
             <ul>
-                <li><strong>Omega (X-W):</strong> Rotates the X plane onto the W axis.</li>
-                <li><strong>Phi (Y-W):</strong> Rotates the Y plane onto the W axis.</li>
-                <li><strong>Psi (Z-W):</strong> Rotates the Z plane onto the W axis.</li>
+                <li><strong>Omega (X-P):</strong> Rotates the X plane onto the P axis.</li>
+                <li><strong>Phi (Y-P):</strong> Rotates the Y plane onto the P axis.</li>
+                <li><strong>Psi (Z-P):</strong> Rotates the Z plane onto the P axis.</li>
             </ul>
 
             <h3>Lighting Modes (3D vs 4D)</h3>
@@ -218,14 +218,15 @@
 
         <section id="equations">
             <h2>Parametric Equations</h2>
-            <p>The core of the software is the mathematical parser (based on <em>ExprTk</em>). Because the software generates 2-dimensional surfaces embedded in 3D or 4D space, the mathematical definitions must always ultimately reduce to exactly <strong>two independent parameters</strong>.</p>
+            <p>Parametric equations are translated into GLSL and evaluated directly on the GPU via Qt RHI. Before compilation, the expression parser (based on <em>ExprTk</em>) validates the syntax and resolves constants and constraints. Because the software generates 2-dimensional surfaces embedded in 3D or 4D space, the mathematical definitions must always ultimately reduce to exactly <strong>two independent parameters</strong>.</p>
 
-            <h3>The 2-Parameter Rule (Three Methods)</h3>
-            <p>You can achieve this reduction to two dimensions using one of the following three methods:</p>
+            <h3>The 2-Parameter Rule (Four Methods)</h3>
+            <p>You can achieve this reduction to two dimensions using one of the following four methods:</p>
             <ol>
                 <li><strong>Direct 2D Parametrization:</strong> Write the main spatial equations (X, Y, Z, P) directly as functions of exactly two lowercase parameters (<code>u</code>, <code>v</code>).</li>
                 <li><strong>Constraint Mode:</strong> Write the main equations using three lowercase parameters (<code>u, v, w</code>), but bind one of them to the other two by providing an explicit equation in the Constraints tab (e.g., <code>w = f(u, v)</code>).</li>
                 <li><strong>Composition Mode:</strong> Write the main equations using uppercase composite variables (<code>U, V, W</code>). Then, in the Composition tab, define how these uppercase variables are calculated from the base parameters <code>u</code> and <code>v</code> (e.g., <code>U = cos(u)*sin(v)</code>). <br><em>Note: You cannot mix lowercase (u, v, w) and uppercase (U, V, W) spatial variables in the main coordinate equations.</em></li>
+                <li><strong>Geodesic Flow:</strong> Described in detail in the <a href="#geodesic">Geodesic Flow & Non-Euclidean Geometries</a> section.</li>
             </ol>
 
             <h3>Syntax</h3>
@@ -240,7 +241,7 @@
                 </tr>
                 <tr>
                     <td><code>U, V, W</code></td>
-                    <td>Uppercase composite variables, defined in the Composition tab.</td>
+                    <td>Uppercase composite variables, used in Composition Mode (defined in the Composition tab) and in Geodesic Flow.</td>
                 </tr>
                 <tr>
                     <td><code>A, B, C... F</code></td>
@@ -258,6 +259,10 @@
                     <td><code>e</code></td>
                     <td>Euler's number (2.71828...).</td>
                 </tr>
+                <tr>
+                    <td><code>tau</code></td>
+                    <td>Constant &tau; = 2&pi; (6.28318...).</td>
+                </tr>
             </table>
 
             <h3>Resolution (Steps)</h3>
@@ -273,7 +278,7 @@
             <p>Surface Explorer 4D includes an advanced <strong>Geodesic Flow</strong> engine. Instead of defining a surface explicitly, this mode generates geometry by simulating the physical paths of particles (geodesics) traveling through a curved space.</p>
 
             <h3>Geometric & Numerical Mechanism</h3>
-            <p>The system evaluates the parametric equations of the ambient space to automatically compute the <strong>Metric Tensor</strong> (<code>g<sub>ij</sub></code>) and the <strong>Christoffel Symbols</strong> (<code>&Gamma;<sup>k</sup><sub>ij</sub></code>). These symbols describe the intrinsic curvature of the space. The engine then uses a highly stable <strong>4th-Order Runge-Kutta (RK4)</strong> numerical integration to solve the differential equations of the geodesics in real-time.</p>
+            <p>The system evaluates the parametric equations of the ambient space to automatically compute the <strong>Metric Tensor</strong> (<code>g<sub>ij</sub></code>) and the <strong>Christoffel Symbols</strong> (<code>&Gamma;<sup>k</sup><sub>ij</sub></code>). These symbols describe the intrinsic curvature of the space. All numerical computations are performed on the GPU via a dedicated compute shader (<code>geodesic.glsl</code>), which uses a highly stable <strong>4th-Order Runge-Kutta (RK4)</strong> integration to solve the geodesic differential equations in real-time.</p>
             <ul>
                 <li><strong>Parameter <code>u</code>:</strong> Acts as the generator for the family of geodesics (e.g., varying the starting position or the initial velocity vector).</li>
                 <li><strong>Parameter <code>v</code>:</strong> Acts as the "time" or the distance traveled along the geodesic path.</li>
@@ -323,7 +328,7 @@
             <p><strong>Shell vs. Solid Stability:</strong> These artifacts are especially prominent in <strong>Shell</strong> mode. Because the shell has a fixed, microscopic thickness, a fast-traveling ray can easily jump right through it without detecting a hit. If you don't specifically need the hollow shell effect, switching to <strong>Solid</strong> mode provides a much more robust and stable rendering. If you must use Shell mode, using the <code>0.1</code> multiplier or lowering the <strong>Step Relax (S)</strong> slider is highly recommended.</p>
 
             <div class="note">
-                <strong>Limitations:</strong> Because Ray Marching does not use traditional polygons, the <strong>Wireframe</strong> rendering mode is disabled. Additionally, implicit surfaces in this software are strictly evaluated in 3D space (X, Y, Z); therefore, 4D hyperspatial rotations (Omega, Phi, Psi) and the P/W coordinates are not applicable.
+                <strong>Limitations:</strong> Because Ray Marching does not use traditional polygons, the <strong>Wireframe</strong> rendering mode is disabled. Additionally, implicit surfaces in this software are strictly evaluated in 3D space (X, Y, Z); therefore, 4D hyperspatial rotations (Omega, Phi, Psi) and the P coordinate are not applicable.
             </div>
         </section>
 
@@ -371,6 +376,7 @@ return vec3(r, g, 0.5);</pre>
                 <li>Open the <strong>Sounds</strong> tab in the Library panel.</li>
                 <li><strong>Single-click</strong> any audio file or procedural preset in the tree.</li>
                 <li>The software will automatically clean up any previous audio directives, inject the new sound at the top of your current script Editor, and start playing it instantly!</li>
+                <li>To stop playback, <strong>single-click the same file again</strong>.</li>
             </ol>
 
             <h3>Script Directives</h3>
@@ -409,39 +415,14 @@ return vec3(r, g, 0.5);</pre>
             <h4>Recording Workflow</h4>
             <ol>
                 <li>Press <strong>REC</strong>.</li>
-                <li>Set the video duration (in seconds).</li>
+                <li>Set the video duration (in seconds), frame rate (24–120 FPS), resolution (Full HD, 2K, 4K), and render engine (FBO or Standard).</li>
                 <li>Choose where to save the MP4 file.</li>
                 <li>The software will render frame by frame (eliminating stutter caused by PC lag).</li>
-                <li>Upon completion, a smooth 30 FPS video will be generated using FFmpeg.</li>
+                <li>Upon completion, a smooth video will be generated using FFmpeg.</li>
             </ol>
             <div class="note">
                 <strong>Technical Note:</strong> Offline rendering decouples real-time from video time. Even if calculating a frame takes 1 second, the final video will be perfectly fluid.
             </div>
-        </section>
-
-        <section id="modular-controls">
-            <h2>Modular Activation & Master Controls</h2>
-            <p>Surface Explorer 4D features a modular control system designed for maximum flexibility. This allows users to control individual components independently or use a global command to synchronize the entire environment.</p>
-
-            <h3>Individual Component Controls</h3>
-            <p>Each functional module has its own dedicated activation and deactivation methods:</p>
-            <ul>
-                <li><strong>Surfaces & t_Motions:</strong> These can be activated using the <strong>START</strong> button in the <em>Equations Dock</em>, the <strong>Run Parametric</strong> or <strong>Run Implicit</strong> buttons in the <em>Script Dock</em>, or by loading a <strong>Preset</strong>.</li>
-                <li><strong>Textures:</strong> Managed primarily through the <em>Render Dock</em> and the <em>Script Dock</em>.
-                    <ul>
-                        <li><strong>Activation:</strong> Use the <strong>Run Parametric Texture</strong> or <strong>Run Background Texture</strong> buttons in the <em>Script Dock</em>. The selection between modes (Base/Phong for geometry vs. Background for environment) is handled in the <em>Render Dock</em>.</li>
-                        <li><strong>Deactivation:</strong> Use the <strong>checkbox</strong> located in the <em>Render Dock</em> to disable active textures.</li>
-                    </ul>
-                </li>
-                <li><strong>Audio (Sounds):</strong> Sound scripts are triggered by clicking <strong>Run Sound</strong> in the <em>Script Dock</em> or through <strong>Presets</strong>. To halt playback, use the <strong>Stop Sound</strong> button in the <em>Script Dock</em> or the global <strong>STOP</strong> button.</li>
-            </ul>
-
-            <h3>Global START-STOP (Status Bar)</h3>
-            <p>The master <strong>START-STOP</strong> button in the Status Bar provides synchronized control over the entire scene:</p>
-            <ul>
-                <li><strong>Global START:</strong> Simultaneously triggers all configured components (e.g., starting geometric animations and audio playback at once).</li>
-                <li><strong>Global STOP:</strong> Immediately deactivates all currently running components across all modules.</li>
-            </ul>
         </section>
 
         <section id="scripting">
@@ -487,7 +468,7 @@ return vec3(r, g, 0.5);</pre>
             <p>A Record save is an <strong>absolute and complete snapshot</strong> of your entire workspace. It is the most powerful format, designed for animations and final renders.</p>
             <ul>
                 <li><strong>What it saves:</strong> <em>Absolutely everything.</em> The surface geometry in a complete composite form, customized colors, applied textures (both surface and background), active sounds, all mathematical constants, 4D lighting configuration, 3D/4D path tracking data, and all continuous rotation speeds (Spin, Nutation, Precession, Omega, Phi, Psi).</li>
-                <li><strong>Camera and Observer:</strong> It perfectly immortalizes the exact position of the 3D camera (the zoom and orbital rotation you set with the mouse) and the distance of the 4D Observer (P+/P-). When you reopen a Record, the framing, audio, and animation will resume exactly as you left them.</li>
+                <li><strong>Camera and Observer:</strong> It perfectly immortalizes the exact position of the 3D camera (the zoom and orbital rotation you set with the mouse) and the distance of the 4D Observer (P+/P-). When you reopen a Record, the framing and audio will resume exactly as you left them, while the animation restarts from the beginning.</li>
             </ul>
 
             <h3>Workflow & Organization</h3>
@@ -502,6 +483,32 @@ return vec3(r, g, 0.5);</pre>
             <ul>
                 <li><strong>Textures:</strong> The included texture presets consist primarily of procedural JSON scripts. While standard image files are perfectly supported and included, their number is strictly limited to avoid bloating the application's overall file size.</li>
                 <li><strong>Sounds:</strong> Similarly, sound presets rely mostly on procedural audio scripts. A select few standard audio files (such as .wav) are included, but they are also kept to a minimum to conserve space and maintain high performance.</li>
+            </ul>
+        </section>
+
+        <section id="modular-controls">
+            <h2>Modular Activation & Master Controls</h2>
+            <p>Surface Explorer features a modular control system designed for maximum flexibility. This allows users to control individual components independently or use a global command to synchronize the entire environment.</p>
+
+            <h3>Individual Component Controls</h3>
+            <p>Each functional module has its own dedicated activation and deactivation methods:</p>
+            <ul>
+                <li><strong>Surfaces & t_Motions:</strong> These can be activated using the <strong>START</strong> button in the <em>Equations Dock</em>, the <strong>Run Parametric</strong> or <strong>Run Implicit</strong> buttons in the <em>Script Dock</em>, or by loading a <strong>Preset</strong>.</li>
+                <li><strong>Textures:</strong> Managed primarily through the <em>Render Dock</em> and the <em>Script Dock</em>. Textures can also be created directly from the <em>Ray Marching</em> tab of the <em>Equations Dock</em>.
+                    <ul>
+                        <li><strong>Activation:</strong> Use the <strong>Run Parametric Texture</strong> or <strong>Run Background Texture</strong> buttons in the <em>Script Dock</em>, or the <strong>Run</strong> button in the <em>Ray Marching</em> tab of the <em>Equations Dock</em>. The selection between modes (Base/Phong for geometry vs. Background for environment) is handled in the <em>Render Dock</em>.</li>
+                        <li><strong>Deactivation:</strong> Use the <strong>checkbox</strong> located in the <em>Render Dock</em> to disable active textures.</li>
+                    </ul>
+                </li>
+                <li><strong>Audio (Sounds):</strong> Sound scripts are triggered by clicking <strong>Run Sound</strong> in the <em>Script Dock</em> or through <strong>Presets</strong>. To halt playback, use the <strong>Stop Sound</strong> button in the <em>Script Dock</em> or the global <strong>STOP</strong> button.</li>
+            </ul>
+
+            <h3>START-STOP</h3>
+            <p>The master <strong>START-STOP</strong> button in the Status Bar provides synchronized control over the entire scene:</p>
+            <ul>
+                <li><strong>Global START:</strong> Simultaneously triggers all configured components (e.g., starting geometric animations and audio playback at once).</li>
+                <li><strong>Global STOP:</strong> Immediately deactivates all currently running components across all modules.</li>
+                <li><strong>Individual Controls:</strong> Each animation component can also be started or stopped independently using the local <strong>Run</strong>, <strong>Stop</strong>, <strong>Departure</strong>, and <strong>Stop</strong> buttons found in their respective panels, or by clicking the corresponding item directly in the <em>Library Dock</em>.</li>
             </ul>
         </section>
 

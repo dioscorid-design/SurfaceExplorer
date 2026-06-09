@@ -642,9 +642,9 @@ MainWindow::MainWindow(QWidget *parent)
     ui->actionAbout->setMenuRole(QAction::AboutRole);
     connect(ui->actionAbout, &QAction::triggered, this, [this](){
         QMessageBox::about(this, "About Surface Explorer",
-                           "<b>Surface Explorer 4D</b><br>"
+                           "<b>Surface Explorer</b><br>"
                            "Version 3.0<br><br>"
-                           "Developed by: <b>Dioscorid</b><br>"
+                           "Developed by: <b>Gaetano Moschetti</b><br>"
                            "License: <b>GNU GPL v3</b><br><br>"
                            "This is free software: you are free to change and redistribute it "
                            "under the terms of the GNU General Public License as published by "
@@ -3559,17 +3559,6 @@ bool MainWindow::updateWLimits() {
 
 void MainWindow::onStartClicked()
 {
-    //******************DEBUG************************
-    {
-            static int s_dbgStartCount = 0;
-            QObject* s = sender();
-            qDebug() << "[onStartClicked] #" << ++s_dbgStartCount
-                     << "sender=" << (s ? s->objectName() : QStringLiteral("<direct-call>"))
-                     << "rmApplyOnly=" << property("rmApplyOnly").toBool()
-                     << "btn=" << (m_btnStart ? m_btnStart->text() : QString())
-                     << "ms=" << QDateTime::currentMSecsSinceEpoch();
-        }
-    //************************************************
     m_geodesicErrorPending = false;
     setProperty("geoErrorShown", false);   // riarma il popup geodetico per la nuova azione
     if (!property("rmApplyOnly").toBool())
@@ -4884,7 +4873,6 @@ void MainWindow::onRunScriptClicked()
 
     if (!ui->glWidget->getEngine()->isMeshValid()) {
         performMasterStop();
-        qDebug() << "[COLLAPSE-3] onRunScriptClicked";
         InputValidator::showMathematicalCollapseError(this);
 
         ui->glWidget->getEngine()->setScriptMode(false);
@@ -8399,8 +8387,8 @@ void MainWindow::commitUiFieldsDuringMotion() {
     }
 
     // Snapshot dei valori attuali prima di provare i nuovi.
-    // Snapshot dei valori attuali prima di provare i nuovi.
         const QStringList previous = readActiveEquations();
+        bool wasTimerActive = isGeodesicMotionActive();
 
         // Tentativo: applichiamo i nuovi e validiamo.
         snapshotActiveEquations();
@@ -8408,24 +8396,26 @@ void MainWindow::commitUiFieldsDuringMotion() {
             return;  // OK: i nuovi valori restano nelle active_*, il moto continua.
         }
 
-        // I nuovi valori fanno collassare il flusso: ripristiniamo, fermiamo il moto
-        // e segnaliamo (una sola volta).
-        qDebug() << "[MOTION-FAIL] geoErrorType=" << property("geoErrorType").toString()
-                 << " geoErrorShown=" << property("geoErrorShown").toBool()
-                 << " inTick=" << m_inGeoAnimTick;
-
+        // Errore: ripristiniamo i valori validi precedenti.
+        // Il tasto rimane su STOP; mostriamo un solo popup.
         restoreActiveEquations(previous);
-        stopGeodesicAnimation();
+        m_geodesicErrorPending = false;
+        setProperty("geoErrorType", "none");
 
         if (!property("geoErrorShown").toBool()) {
             setProperty("geoErrorShown", true);
             InputValidator::showGeodesicSingularityError(this);
         }
+
+        // Riavvia il timer con i dati ripristinati (se era in moto).
+        if (wasTimerActive) {
+            QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
+            if (geoAnimTimer && !geoAnimTimer->isActive())
+                geoAnimTimer->start();
+        }
     }
 
 void MainWindow::commitFieldsOnEnter() {
-    qDebug() << "[commitFieldsOnEnter] sender=" << (sender() ? sender()->objectName() : QStringLiteral("<direct>"));
-
     m_geodesicErrorPending = false;
 
     // In moto: usa la logica live già esistente.
@@ -8624,32 +8614,13 @@ bool MainWindow::updateGeodesicMesh()
                 &shaderError
                 );
 
-    // --- DEBUG temporaneo: misura l'estensione della griglia geodetica ---
-        {
-            int npts = 0;
-            double mnx=1e300, mny=1e300, mnz=1e300, mxx=-1e300, mxy=-1e300, mxz=-1e300;
-            bool anyNonFinite = false;
-            for (const auto& row : grid)
-                for (const QVector4D& p : row) {
-                    ++npts;
-                    if (!std::isfinite(p.x()) || !std::isfinite(p.y()) || !std::isfinite(p.z()))
-                        anyNonFinite = true;
-                    mnx = std::min(mnx, (double)p.x()); mxx = std::max(mxx, (double)p.x());
-                    mny = std::min(mny, (double)p.y()); mxy = std::max(mxy, (double)p.y());
-                    mnz = std::min(mnz, (double)p.z()); mxz = std::max(mxz, (double)p.z());
-                }
-            qDebug() << "[GEOGRID] rows=" << grid.size() << " pts=" << npts
-                     << " nonFinite=" << anyNonFinite
-                     << " extX=" << (mxx-mnx) << " extY=" << (mxy-mny) << " extZ=" << (mxz-mnz);
-        }
-    //***********************************************************************
-
     // --- GESTIONE DEGLI ERRORI ---
     if (grid.isEmpty()) {
         if (!shaderError.isEmpty()) {
             m_geodesicErrorPending = true;
             QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
             if (geoAnimTimer && geoAnimTimer->isActive()) geoAnimTimer->stop();
+            setProperty("geoErrorShown", true);
             InputValidator::showShaderCompilationError(this, "Geodesic Shader Error", shaderError);
             this->setProperty("geoErrorType", "syntax");
         } else {
@@ -8731,7 +8702,6 @@ bool MainWindow::updateGeodesicMesh()
 }
 
 void MainWindow::checkAndTriggerMeshUpdate() {
-    qDebug() << "[checkAndTriggerMeshUpdate] enter, ms=" << QDateTime::currentMSecsSinceEpoch();
     if (!ui->glWidget) return;
 
     if (ui->glWidget->getEngine() && ui->glWidget->getEngine()->isScriptModeActive()) {

@@ -1,0 +1,5 @@
+{
+    "cmake.configureSettings": {
+        "CMAKE_PREFIX_PATH": "/Users/dioscorid/Qt/6.10.1/macos"
+    }
+}
