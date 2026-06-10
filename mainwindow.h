@@ -282,6 +282,7 @@ private:
     // --- Library & File I/O ---
     void syncResourcesToFolder(const QString &resourcePath, const QString &diskPath, bool forceRestore = false, int *overwriteState = nullptr);
     void refreshRepositories();
+    void refreshAndSelectTexture(const QString &path);
     void updateWatcherPaths();
     void copyPath(QString src, QString dst);
     void saveTextureConfig(const QString &savePath);

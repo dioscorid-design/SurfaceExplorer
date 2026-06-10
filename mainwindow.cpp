@@ -1941,7 +1941,7 @@ MainWindow::MainWindow(QWidget *parent)
             QString eq = ui->lineEquation->toPlainText() + " " + ui->lineVariations->toPlainText() + " " + m_surfaceScriptText;
             if (hasTimeVariable(eq)) needsAnim = true;
         } else { // Parametrica
-            QString eq = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " + ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText();
+            QString eq = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " + ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " + m_surfaceScriptText;
             if (hasTimeVariable(eq)) needsAnim = true;
         }
 
@@ -5360,7 +5360,11 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
     // 5. CARICAMENTO DATI (Equazioni, Colori, ecc.)
     applyCommonData(d);
 
-    if (d.isImplicitMode) {
+    // Le superfici implicite da script sono già state configurate da applyCommonData:
+    // sovrascrivere lineEquation/setImplicitEquation qui ripristinerebbe la sfera di default.
+    bool isImplicitScript = d.isImplicitMode && !d.scriptCode.isEmpty();
+
+    if (d.isImplicitMode && !isImplicitScript) {
         QString eqToLoad = d.implicitEq.trimmed();
 
         // Se l'equazione letta dal file è vuota o NON contiene l'uguale,
@@ -5402,10 +5406,11 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
     ui->lblPsiVal->setText("0.00");
 
     // 6. Eseguiamo onStartClicked per inizializzare equazioni
-    bool hasValidEquations = (d.x.trimmed().length() > 0 && d.x != "0" && d.x != "0.0") || d.isImplicitMode;
+    // Le superfici implicite da script non hanno equazioni valide nei campi standard.
+    bool hasValidEquations = (d.x.trimmed().length() > 0 && d.x != "0" && d.x != "0.0") || (d.isImplicitMode && !isImplicitScript);
 
-    // Inferiamo che è uno script se c'è codice e le equazioni sono vuote!
-    bool isScript = d.isScript || (!d.scriptCode.isEmpty() && !hasValidEquations);
+    // Inferiamo che è uno script se c'è codice e le equazioni sono vuote, o se è uno script implicito!
+    bool isScript = d.isScript || isImplicitScript || (!d.scriptCode.isEmpty() && !hasValidEquations);
 
     if (!isScript) {
         onStartClicked();
@@ -5536,6 +5541,9 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
     // =================================================================
     bool isImplicit = data.isImplicitMode;
 
+    // Le superfici implicite da script sono gestite da applyCommonData: non sovrascrivere.
+    bool isImplicitScript = isImplicit && !data.scriptCode.isEmpty();
+
     if (isImplicit) {
         ui->tabModeSelector->setCurrentIndex(1); // Forza Tab Ray Marching
 
@@ -5551,23 +5559,25 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
         ui->txtScriptEditor->clear();
         ui->txtScriptEditor->blockSignals(false);
 
-        // +++ FILTRO DI SICUREZZA PER L'EQUAZIONE IMPLICITA +++QRegularExpression timeRegex("\\b(t|iTime|u_time)\\b");
-        QString eqToLoad = data.implicitEq.trimmed();
+        if (!isImplicitScript) {
+            // +++ FILTRO DI SICUREZZA PER L'EQUAZIONE IMPLICITA +++
+            QString eqToLoad = data.implicitEq.trimmed();
 
-        // Se l'equazione letta dal file è vuota o NON contiene l'uguale (vecchio formato),
-        // forziamo la stringa umana di default per evitare crash della scheda video!
-        if (eqToLoad.isEmpty() || !eqToLoad.contains("=")) {
-            eqToLoad = "x^2 + y^2 + z^2 = 1.0";
+            // Se l'equazione letta dal file è vuota o NON contiene l'uguale (vecchio formato),
+            // forziamo la stringa umana di default per evitare crash della scheda video!
+            if (eqToLoad.isEmpty() || !eqToLoad.contains("=")) {
+                eqToLoad = "x^2 + y^2 + z^2 = 1.0";
+            }
+
+            ui->lineEquation->blockSignals(true);
+            ui->lineEquation->setPlainText(eqToLoad);
+            ui->lineEquation->blockSignals(false);
+
+            if (ui->glWidget) {
+                ui->glWidget->setImplicitEquation(eqToLoad);
+            }
+            // ++++++++++++++++++++++++++++++++++++++++++++++++++++++
         }
-
-        ui->lineEquation->blockSignals(true);
-        ui->lineEquation->setPlainText(eqToLoad);
-        ui->lineEquation->blockSignals(false);
-
-        if (ui->glWidget) {
-            ui->glWidget->setImplicitEquation(eqToLoad);
-        }
-        // ++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
     } else {
         ui->tabModeSelector->setCurrentIndex(0); // Forza Tab Parametrica
@@ -6958,6 +6968,25 @@ void MainWindow::refreshRepositories()
     if (m_fsWatcher) m_fsWatcher->blockSignals(false);
 }
 
+void MainWindow::refreshAndSelectTexture(const QString &path)
+{
+    refreshRepositories();
+
+    QTreeWidgetItemIterator it(ui->treeTextures);
+    while (*it) {
+        if ((*it)->toolTip(0) == path) {
+            ui->treeTextures->clearSelection();
+            (*it)->setSelected(true);
+            ui->treeTextures->setCurrentItem(*it);
+            QTreeWidgetItem* parent = (*it)->parent();
+            while (parent) { parent->setExpanded(true); parent = parent->parent(); }
+            ui->treeTextures->scrollToItem(*it);
+            break;
+        }
+        ++it;
+    }
+}
+
 void MainWindow::updateWatcherPaths()
 {
     if (!m_fsWatcher) return;
@@ -7254,7 +7283,8 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     // 4. Logica Caricamento Equazioni vs Script
     bool hasValidEquations = false;
     if (d.x.trimmed().length() > 0 && d.x != "0" && d.x != "0.0") hasValidEquations = true;
-    if (d.isImplicitMode) hasValidEquations = true;
+    // Le superfici implicite da script non hanno equazioni valide: non forzare hasValidEquations.
+    if (d.isImplicitMode && d.scriptCode.isEmpty()) hasValidEquations = true;
 
     // Salvataggio
     bool isScript = d.isScript || (!d.scriptCode.isEmpty() && !hasValidEquations);
@@ -7607,8 +7637,8 @@ QString MainWindow::composeEquation(const QString &eq, const QString &uDef, cons
 
 void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool restartAudio)
 {
-    QRegularExpression re(R"(^\s*(u_min|u_max|v_min|v_max|w_min|w_max|steps|A|B|C|D|E|F|S)\s*[:=]+\s*([^;]+);)",
-                          QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption);
+    QRegularExpression re(R"(\b(u_min|u_max|v_min|v_max|w_min|w_max|steps|A|B|C|D|E|F|S)\b\s*[:=]+\s*([^;]+);)",
+                          QRegularExpression::CaseInsensitiveOption);
 
     QRegularExpressionMatchIterator i = re.globalMatch(scriptCode);
 

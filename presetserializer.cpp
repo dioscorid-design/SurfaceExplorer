@@ -223,16 +223,14 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         }
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-        bool ok;
-        QString baseName = QFileInfo(startPath).completeBaseName();
-        QString inputName = QInputDialog::getText(m_mainWindow, "Save Surface", "File name:", QLineEdit::Normal, baseName, &ok);
-        if (!ok || inputName.isEmpty()) {
+        MobileSaveDialog dialog("Save Surface", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow);
+        if (dialog.exec() != QDialog::Accepted) {
             if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
             if (wasPath4D) m_mainWindow->pathTimer->start();
             if (wasPath3D) m_mainWindow->pathTimer3D->start();
             return;
         }
-        fileName = QFileInfo(startPath).absolutePath() + "/" + inputName + ".json";
+        fileName = dialog.getSelectedPath();
 #else
         fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface", startPath, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
 #endif
@@ -504,11 +502,12 @@ void PresetSerializer::saveTexture(const QString &path)
         file.write(doc.toJson());
         file.close();
 
-        m_mainWindow->m_currentTexturePath = path;
         m_mainWindow->m_currentTexturePresetPath = path;
 
-        // Un semplice aggiornamento visivo in background, senza spostare/aprire pannelli
-        QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
+        // Refresh visivo + selezione del file appena salvato nella libreria
+        QTimer::singleShot(100, m_mainWindow, [this, path]() {
+            m_mainWindow->refreshAndSelectTexture(path);
+        });
     }
 }
 
@@ -558,10 +557,8 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         }
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-        bool ok;
-        QString baseName = QFileInfo(startPath).completeBaseName();
-        QString inputName = QInputDialog::getText(m_mainWindow, "Save File", "File name:", QLineEdit::Normal, baseName, &ok);
-        if (!ok || inputName.isEmpty()) {
+        MobileSaveDialog dialog("Save Record", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow);
+        if (dialog.exec() != QDialog::Accepted) {
             if (wasRotating) m_mainWindow->ui->glWidget->resumeMotion();
             if (wasPath4D) m_mainWindow->pathTimer->start();
             if (wasPath3D) m_mainWindow->pathTimer3D->start();
@@ -571,7 +568,7 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
             }
             return;
         }
-        fileName = QFileInfo(startPath).absolutePath() + "/" + inputName + ".json";
+        fileName = dialog.getSelectedPath();
 #else
         fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save File", startPath, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
 #endif
@@ -1023,10 +1020,12 @@ void PresetSerializer::saveScript()
 
         if (!isSurf && !isSnd) {
             m_mainWindow->m_currentTexturePresetPath = fileName;
+            QTimer::singleShot(100, m_mainWindow, [this, fileName]() {
+                m_mainWindow->refreshAndSelectTexture(fileName);
+            });
+        } else {
+            QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
         }
-
-        // Un semplice refresh visivo senza spostare pannelli
-        QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
 
     } else {
         QMessageBox::critical(m_mainWindow, "Error", "Could not write to file.");
