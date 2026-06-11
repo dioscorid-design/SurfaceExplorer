@@ -20,7 +20,6 @@
 #include <QPixmap>
 #include <QIcon>
 #include <QMenu>
-#include <QGraphicsDropShadowEffect>
 
 void UiStyleManager::applyDarkTheme(QMainWindow* window) {
 
@@ -632,7 +631,7 @@ void UiStyleManager::setupDocumentationDialog(QDialog* dialog, QVBoxLayout* layo
     layout->setSpacing(0);
     QScroller::grabGesture(browser->viewport(), QScroller::TouchGesture);
     QFont mobileFont = browser->font();
-    mobileFont.setPointSize(mobileFont.pointSize() + 2);
+    mobileFont.setPointSize(mobileFont.pointSize() + 3);
     browser->setFont(mobileFont);
 
 #elif defined(Q_OS_ANDROID)
@@ -644,7 +643,7 @@ void UiStyleManager::setupDocumentationDialog(QDialog* dialog, QVBoxLayout* layo
     layout->setSpacing(0);
     QScroller::grabGesture(browser->viewport(), QScroller::TouchGesture);
     QFont mobileFont = browser->font();
-    mobileFont.setPointSize(mobileFont.pointSize() + 2);
+    mobileFont.setPointSize(mobileFont.pointSize() + 3);
     browser->setFont(mobileFont);
 
 #else
@@ -715,30 +714,6 @@ void UiStyleManager::styleMobileOverflowMenu(QMenu* menu) {
         "QMenu::item { padding: 20px 40px; color: white; border-bottom: 1px solid #333; }"
         "QMenu::item:selected { background-color: #007ACC; }"
         );
-}
-
-void UiStyleManager::applyToastShadow(QWidget* widget) {
-    if (!widget) return;
-    QGraphicsDropShadowEffect* shadow = new QGraphicsDropShadowEffect(widget);
-    shadow->setBlurRadius(10);
-    shadow->setColor(QColor(0, 0, 0, 150));
-    shadow->setOffset(0, 4);
-    widget->setGraphicsEffect(shadow);
-}
-
-void UiStyleManager::applyToastStyle(QLabel* label, bool isError) {
-    if (!label) return;
-    QString bgColor = isError ? "rgba(220, 53, 69, 240)" : "rgba(0, 191, 255, 240)";
-    label->setStyleSheet(QString(
-                             "QLabel {"
-                             "  background-color: %1;"
-                             "  color: white;"
-                             "  padding: 12px 24px;"
-                             "  border-radius: 8px;"
-                             "  font-weight: bold;"
-                             "  font-size: 14px;"
-                             "}"
-                             ).arg(bgColor));
 }
 
 void UiStyleManager::applyRecordButtonStyle(QPushButton* btn) {

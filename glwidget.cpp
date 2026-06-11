@@ -59,7 +59,6 @@ GLWidget::GLWidget(QWidget *parent)
 
     m_surfaceAnimating = false;
     m_manualTime = 0.00001f;
-    m_surfaceTimeOffset = 0.00001f;
 
     m_textureEnabled = false;
     showBorders = false;
@@ -220,7 +219,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             QVector3D front(std::sin(radYaw)*std::cos(radPitch), std::sin(radPitch), -std::cos(radYaw)*std::cos(radPitch));
             QMatrix4x4 rollMat;
             rollMat.rotate(m_cameraRoll, 0.0f, 0.0f, 1.0f);
-            QVector3D up = rollMat * QVector3D(0.0f, 1.0f, 0.0f);
+            QVector3D up = rollMat.map(QVector3D(0.0f, 1.0f, 0.0f));
             m_view.lookAt(m_cameraPos, m_cameraPos + front, up);
         }
 
@@ -792,38 +791,26 @@ void GLWidget::rebuildBackgroundShader(bool isTextureMode, const QString &custom
     m_bgPipeline->create();
 }
 
-void GLWidget::forceTextureRefresh() {
-    // Comunica alla scheda video che c'è una texture pronta in RAM da caricare
-    m_surfaceTextureNeedsUpload = true;
-
-    // Ricostruisce i collegamenti e forza il disegno immediato
-    rebuildShader();
-    update();
-}
-
-
 // ==========================================================
 // PRIVATE SLOTS
 // ==========================================================
 
 void GLWidget::updateRotation() {
-    float timeFactor = m_slowModeActive ? 0.1f : 1.0f;
-
     float speedMult3D = 2.0f;
     float speedMult4D = 0.05f;
 
-    float dPrec = precessionSpeed * speedMult3D * timeFactor;
-    float dNut  = nutationSpeed   * speedMult3D * timeFactor;
-    float dSpin = spinSpeed       * speedMult3D * timeFactor;
+    float dPrec = precessionSpeed * speedMult3D;
+    float dNut  = nutationSpeed   * speedMult3D;
+    float dSpin = spinSpeed       * speedMult3D;
 
     if (std::abs(dPrec) > 0.0001f || std::abs(dNut) > 0.0001f || std::abs(dSpin) > 0.0001f) {
         addObjectRotation(dPrec, dNut, dSpin);
     }
 
     // ------------- Rotazioni 4D -----------
-    omega += omegaSpeed * speedMult4D * timeFactor;
-    phi   += phiSpeed   * speedMult4D * timeFactor;
-    psi   += psiSpeed   * speedMult4D * timeFactor;
+    omega += omegaSpeed * speedMult4D;
+    phi   += phiSpeed   * speedMult4D;
+    psi   += psiSpeed   * speedMult4D;
 
     // Controllo aggiornamento mesh (Invariato)
     if (std::abs(omegaSpeed) > 0.001f || std::abs(phiSpeed) > 0.001f || std::abs(psiSpeed) > 0.001f) {
@@ -913,12 +900,6 @@ void GLWidget::setImplicitEquation(const QString &eqF)
         delete m_pipelineImplicit;
         m_pipelineImplicit = nullptr;
     }
-    update();
-}
-
-void GLWidget::setExplicitWEquation(const QString &eq) {
-    engine->setExplicitW(eq);
-    meshNeedsUpdate = true;
     update();
 }
 
@@ -1404,12 +1385,6 @@ void GLWidget::setTextureColors(const QColor& c1, const QColor& c2)
     update();
 }
 
-void GLWidget::resetTexture() {
-    // Genera la scacchiera e la carica in RHI
-    loadTextureFromImage(generateCheckerboard());
-    update();
-}
-
 void GLWidget::clearTexture() {
     // Svuota l'immagine in attesa
     m_pendingSurfaceImage = QImage();
@@ -1685,35 +1660,6 @@ void GLWidget::setRotation4D(float o, float p, float ps) {
     update();
 }
 
-void GLWidget::setCameraPosAndLookAt(const QVector3D& pos, float wValue)
-{
-    m_cameraPos = pos;
-    if (std::abs(m_observerPos.w() - wValue) > 0.001f) {
-        m_observerPos.setW(wValue);
-    }
-
-    update();
-}
-
-void GLWidget::setCameraPosAndDirection(const QVector3D& pos, const QVector3D& targetPoint, float wValue)
-{
-    // 1. Aggiorna la Camera 3D (i tuoi "occhi")
-    m_cameraPos = pos;
-    m_pathTarget = targetPoint;
-    m_isPathFollowing = true;
-    m_pathUp = QVector3D(0.0f, 0.0f, 1.0f);
-
-    // 2. SINCRONIZZAZIONE TOTALE 4D
-    QVector4D newObsPos(pos.x(), pos.y(), pos.z(), wValue);
-
-    // 3. Invio dati se cambiati
-    if ((m_observerPos - newObsPos).lengthSquared() > 0.000001f) {
-        m_observerPos = newObsPos;
-    }
-
-    update();
-}
-
 void GLWidget::setCameraPosAndDirection3D(const QVector3D& pos, const QVector3D& targetPoint, float roll)
 {
     m_cameraPos = pos;
@@ -1808,24 +1754,6 @@ void GLWidget::addCameraRotation(float dYaw, float dPitch) {
     if (m_cameraPitch < -89.0f) m_cameraPitch = -89.0f;
 
   //  update();
-}
-
-void GLWidget::addCameraRoll(float dRoll) {
-    m_cameraRoll += dRoll;
-    update();
-}
-
-void GLWidget::moveCameraFromScreenDelta(float dx, float dy) {
-    float radYaw = m_cameraYaw * M_PI / 180.0f;
-    QVector3D front(sin(radYaw), 0, -cos(radYaw));
-    QVector3D right(cos(radYaw), 0, sin(radYaw));
-
-    float speed = 0.01f;
-
-    m_cameraPos += right * (dx * speed);
-    m_cameraPos -= front * (dy * speed);
-
-    update();
 }
 
 void GLWidget::resetTransformations()
@@ -2046,21 +1974,11 @@ void GLWidget::resetTime() {
     update();
 }
 
-void GLWidget::resetSurfaceTime() {
-    m_surfaceTimeOffset = 0.00001f;
-    m_surfaceAnimating = false;
-}
-
 void GLWidget::setSurfaceAnimating(bool animating) {
-    bool changed = (animating != m_surfaceAnimating);
     m_surfaceAnimating = animating;
-    if (animating) {
-        if (m_animTimer && !m_animTimer->isActive()) {
-            m_surfaceTimer.restart();
-            m_animTimer->start();
-        }
-    } else if (changed) {
-        m_surfaceTimeOffset += (float)m_surfaceTimer.elapsed() / 1000.0f;
+    if (animating && m_animTimer && !m_animTimer->isActive()) {
+        m_surfaceTimer.restart();   // azzera la base del dt: niente salti
+        m_animTimer->start();
     }
 }
 
@@ -3116,22 +3034,6 @@ void GLWidget::createDummyTexture() {
                                   QRhiSampler::Repeat,
                                   QRhiSampler::Repeat);
     m_sampler->create();
-}
-
-QImage GLWidget::generateCheckerboard() {
-    int s = 512;
-    QImage img(s, s, QImage::Format_RGBA8888);
-    int step = 16;
-    for (int y = 0; y < s; ++y) {
-        for (int x = 0; x < s; ++x) {
-            if (((x / step) + (y / step)) % 2 == 0) {
-                img.setPixelColor(x, y, QColor(0, 255, 0)); // Verde
-            } else {
-                img.setPixelColor(x, y, Qt::black); // Nero
-            }
-        }
-    }
-    return img;
 }
 
 // --- Math & Projections ---

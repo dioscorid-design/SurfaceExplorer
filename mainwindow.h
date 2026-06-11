@@ -9,8 +9,6 @@
 #include <QButtonGroup>
 #include <QProgressBar>
 #include <QFileSystemWatcher>
-#include <QVector>
-#include <QVector4D>
 #include <QHash>
 
 #include "glwidget.h"
@@ -130,7 +128,6 @@ private slots:
     void onPasteTexture();
     void performCut(QTreeWidgetItem* item = nullptr);
     void performCopy(QTreeWidgetItem* targetItem = nullptr);
-    void onSaveTexJsonClicked();
     void onSaveTextureClicked();
     void onSaveScriptClicked();
     void onSaveMotionClicked();
@@ -151,8 +148,6 @@ private:
     QPushButton *m_btnProjection;
     QPushButton *m_btnRec;
     QLabel *m_statusLabel;
-    QLabel* m_topMessageBar;
-    QTimer* m_topMessageTimer;
     QProgressBar *m_renderProgress;
     QButtonGroup *m_colorGroup;
     QButtonGroup *m_modeGroup;
@@ -175,6 +170,7 @@ private:
     QTimer* m_meshDebounce = nullptr;
     bool m_constantPopupActive = false;
     QHash<QLineEdit*, float> m_lastValidConst;
+    QTimer* m_geoAnimTimer = nullptr;   // timer del flusso geodetico (creato al primo updateGeodesicMesh)
     bool m_geodesicErrorPending = false;
     bool m_inGeoAnimTick = false;
 
@@ -282,9 +278,9 @@ private:
     // --- Library & File I/O ---
     void syncResourcesToFolder(const QString &resourcePath, const QString &diskPath, bool forceRestore = false, int *overwriteState = nullptr);
     void refreshRepositories();
+    void refreshAndSelectPreset(QTreeWidget *tree, const QString &path);
     void updateWatcherPaths();
     void copyPath(QString src, QString dst);
-    void saveTextureConfig(const QString &savePath);
     QTreeWidgetItem* getCurrentLibraryItem();
     void applyCommonData(const LibraryItem &data);
     QString presetsRootPath() const;
@@ -294,6 +290,8 @@ private:
     // --- Parsing, Strings & Scripts ---
     float parseMath(const QString &text, bool *ok = nullptr);
     float parseUIConstant(const QString &exprStr, float A, float B, float C, float D, float E, float F, float S, bool* ok = nullptr);
+    struct CascadeConstants { float a, b, c, d, e, f, s; };
+    CascadeConstants resolveCascadeConstants(bool restoreTextOnNegative);
     QString composeEquation(const QString &eq, const QString &uDef, const QString &vDef, const QString &wDef);
     void parseAndApplyScriptParams(const QString &scriptCode, bool restartAudio = true);
     bool hasTimeVariable(const QString& code);
@@ -310,10 +308,9 @@ private:
     void updateFlatPreviewButton();
     void updateMasterButtonState();
     void applyAnimationState(bool animated);
+    bool hasAnyRotationSpeed() const;
     void generateTexture();
     void toggleProjection();
-    void showTopMessage(const QString& msg, bool isError = true);
-    void hideTopMessage();
     bool applyBackgroundTextureIfNeeded();
 
     // --- Geometry & Geodesic Flow ---

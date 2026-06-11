@@ -19,6 +19,11 @@ int main(int argc, char *argv[])
 
     // 2. CONFIGURAZIONE VERSIONE OPENGL
 #ifdef Q_OS_ANDROID
+    // Disattiva le maniglie di selezione e il mini-popup taglia/copia/incolla
+    // del plugin Android di Qt (lato Java): il menu di modifica completo
+    // (con undo, redo, elimina) viene mostrato dall'app nel MobileInputFilter.
+    qputenv("QT_QPA_NO_TEXT_HANDLES", "1");
+
     QCoreApplication::setAttribute(Qt::AA_UseOpenGLES);
     format.setRenderableType(QSurfaceFormat::OpenGLES);
     format.setVersion(3, 0);

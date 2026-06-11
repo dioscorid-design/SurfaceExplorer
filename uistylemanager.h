@@ -7,7 +7,6 @@
 class QMainWindow;
 class QDockWidget;
 class QSlider;
-class QLabel;
 class QWidget;
 class QPlainTextEdit;
 class QDialog;
@@ -39,8 +38,6 @@ public:
     static void setupDocumentationDialog(QDialog* dialog, QVBoxLayout* layout, QTextBrowser* browser, QPushButton* closeBtn);
     static void styleMobileMenuButton(QPushButton* button);
     static void styleMobileOverflowMenu(QMenu* menu);
-    static void applyToastShadow(QWidget* widget);
-    static void applyToastStyle(QLabel* label, bool isError);
     static void applyRecordButtonStyle(QPushButton* btn);
     static void applyActiveToggleStyle(QPushButton* btn, bool isActive);
 };

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Surface Explorer 4D - GLSL Script Guide</title>
+</head>
+<body style="background-color: #1e1e1e; color: #d4d4d4;">
+<div style="max-width: 900px; margin: 0 auto; padding: 20px;">
+
+    <p style="font-size: 24px; color: #569cd6;"><b>GLSL Script Writing Guide</b></p>
+    <p>Scripts are written in <strong>GLSL</strong> (the OpenGL Shading Language), but Surface Explorer
+    pre-processes your code with an internal <strong>translator</strong> that adds math-friendly shortcuts
+    and a few strict rules. This guide covers everything you need to write working scripts.</p>
+
+    <p style="font-size: 22px; color: #569cd6;"><b>1. How a Script Is Compiled</b></p>
+    <p>Your code becomes the <em>body of a GLSL function</em> running on the GPU. Before compilation:</p>
+    <ul>
+        <li>Lines containing <code>:=</code> are treated as <strong>UI directives</strong>: they are removed from the code and applied to the interface (sliders, limits). See section 5.</li>
+        <li>The <strong>translator</strong> rewrites math shorthand (<code>^</code>, <code>%</code>, <code>pi</code>, integer numbers...) into valid GLSL. See section 6.</li>
+        <li>The code is wrapped in a function and compiled. If compilation fails, an error dialog shows the GLSL compiler message.</li>
+    </ul>
+
+    <p style="font-size: 22px; color: #569cd6;"><b>2. Ray Marching Scripts (Implicit Surfaces)</b></p>
+    <p>The script must <strong>return a float</strong>: the value of your implicit function at point <code>p</code>.
+    Negative inside the object, positive outside, zero on the surface. For best rendering quality, return a
+    <em>signed distance</em> (SDF) whenever possible.</p>
+
+    <p style="font-size: 18px; color: #007acc;"><b>Variables available</b></p>
+    <table border="1" cellspacing="0" cellpadding="6">
+        <tr><th>Variable</th><th>Type</th><th>Meaning</th></tr>
+        <tr><td><code>p</code></td><td>vec3</td><td>The 3D point being evaluated</td></tr>
+        <tr><td><code>x, y, z</code></td><td>float</td><td>Shortcuts for <code>p.x, p.y, p.z</code></td></tr>
+        <tr><td><code>t</code> / <code>iTime</code></td><td>float</td><td>Time in seconds (enables animation automatically)</td></tr>
+        <tr><td><code>A, B, C, D, E, F</code></td><td>float</td><td>The constant sliders of the Equations dock</td></tr>
+        <tr><td><code>S</code> / <code>s</code></td><td>float</td><td><strong>Reserved in Ray Marching:</strong> acts as Step Relax for the ray marcher. Do not use it as a free constant here.</td></tr>
+    </table>
+
+    <p style="font-size: 18px; color: #007acc;"><b>Minimal example</b></p>
+    <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">steps := 400;
+A := 1.5;
+
+// Sphere of radius A, pulsing over time
+float d = length(p) - A * (1.0 + 0.1 * sin(t));
+return d;</pre>
+
+    <p style="font-size: 22px; color: #569cd6;"><b>3. Parametric Scripts</b></p>
+    <p>The script must <strong>return a vec3 or vec4</strong>: the position of the surface point for the
+    parameters <code>u, v</code> (and <code>w</code> in 4D; the fourth component of a vec4 is the 4D coordinate).
+    The parameter ranges come from the U/V/W limits in the UI, or from directives.</p>
+    <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">u_min := 0; u_max := 2*pi;
+v_min := 0; v_max := pi;
+
+// Sphere of radius B
+return vec3(B * sin(v) * cos(u),
+            B * sin(v) * sin(u),
+            B * cos(v));</pre>
+
+    <p style="font-size: 22px; color: #569cd6;"><b>4. Texture Scripts</b></p>
+    <p>Texture scripts compute a color. Return a <code>vec4(r, g, b, a)</code> using the texture coordinates
+    <code>u, v</code>; <code>t</code> / <code>iTime</code> are available for animated patterns. The result is
+    mapped onto the surface or the background depending on the active target in the <em>Renderer</em> dock.</p>
+    <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">// Animated checkerboard
+float c = mod(floor(u * 10.0) + floor(v * 10.0) + t, 2.0);
+return vec4(vec3(c), 1.0);</pre>
+    <p>To use an image file instead of code, the directive <code>//IMG: path/to/image.png</code> is injected
+    automatically when you load an image from the Library.</p>
+
+    <p style="font-size: 22px; color: #569cd6;"><b>5. UI Directives ( := )</b></p>
+    <p>A line of the form <code>name := value;</code> is <strong>not</strong> compiled: it is removed from the
+    code and applied to the interface. The value may be an expression like <code>2*pi</code>.</p>
+    <table border="1" cellspacing="0" cellpadding="6">
+        <tr><th>Directive</th><th>Effect</th></tr>
+        <tr><td><code>u_min := 0; u_max := 2*pi;</code></td><td>Sets the U parameter range (same for <code>v_min/v_max</code>, <code>w_min/w_max</code>)</td></tr>
+        <tr><td><code>steps := 400;</code></td><td>Sets the resolution / ray steps slider</td></tr>
+        <tr><td><code>A := 2;</code> ... <code>F := 0.5;</code></td><td>Sets the corresponding constant slider (range expands automatically if needed)</td></tr>
+    </table>
+    <div style="background-color: #2a2a00; padding: 10px; margin-top: 8px;">
+        <strong>Rules:</strong> end each directive with a semicolon, one per line, and use <code>:=</code>
+        (not plain <code>=</code>, which would stay inside the GLSL code). Directives inside comments are ignored,
+        so prose like <code>// A: number of holes</code> is safe and does not touch the sliders.
+    </div>
+
+    <p style="font-size: 22px; color: #569cd6;"><b>6. The Translator: Math Shorthand and Its Rules</b></p>
+    <p>The translator rewrites your whole script before compiling. What you can write:</p>
+    <table border="1" cellspacing="0" cellpadding="6">
+        <tr><th>You write</th><th>It becomes</th><th>Notes</th></tr>
+        <tr><td><code>x^2</code>, <code>x^3</code></td><td><code>(x*x)</code>, <code>(x*x*x)</code></td><td>Fast inline expansion</td></tr>
+        <tr><td><code>x^5</code> (odd integer)</td><td><code>sign(x)*pow(abs(x), 5.0)</code></td><td>Sign is preserved for negative bases</td></tr>
+        <tr><td><code>x^4</code>, <code>x^2.5</code>, <code>x^A</code></td><td><code>pow(abs(x), exp)</code></td><td>abs() avoids NaN for negative bases</td></tr>
+        <tr><td><code>a % b</code></td><td><code>mod(a, b)</code></td><td>Works with floats</td></tr>
+        <tr><td><code>pi</code>, <code>tau</code></td><td>3.14159..., 6.28318...</td><td>Any letter case</td></tr>
+        <tr><td><code>e</code> (lowercase, standalone)</td><td>2.71828...</td><td><strong>Never name a variable <code>e</code>!</strong></td></tr>
+        <tr><td><code>ln</code>, <code>log10</code></td><td><code>log</code>, <code>log/ln(10)</code></td><td>Natural and base-10 logarithm</td></tr>
+        <tr><td><code>cot</code>, <code>sec</code>, <code>csc</code></td><td><code>1/tan</code>, <code>1/cos</code>, <code>1/sin</code></td><td>Trigonometric synonyms</td></tr>
+        <tr><td><code>2</code> (integer number)</td><td><code>2.0</code></td><td>Every standalone integer becomes a float — see warning below</td></tr>
+    </table>
+
+    <div style="background-color: #3a1a1a; padding: 10px; margin-top: 8px;">
+        <strong>Integer warning:</strong> because every integer literal is converted to a float,
+        code that genuinely needs GLSL integers breaks: <code>for (int k = 0; k &lt; 20; k++)</code>
+        would become <code>for (int k = 0.0; ...)</code> and fail to compile. Wrap such values in
+        <code>int(...)</code> to protect them:
+        <pre style="background-color: #101010; color: #dcdcaa; padding: 10px;">for (int k = int(0.0); k &lt; int(20.0); k++) {
+    if (k == int(0.0)) { ... }
+}</pre>
+        The same applies to array indices and any integer comparison.
+    </div>
+
+    <p style="font-size: 22px; color: #569cd6;"><b>7. Built-in Helper Functions (Ray Marching)</b></p>
+    <p>These functions are pre-defined and available inside Ray Marching and texture code:</p>
+    <table border="1" cellspacing="0" cellpadding="6">
+        <tr><th>Function</th><th>Description</th></tr>
+        <tr><td><code>smax(a, b, k)</code></td><td>Smooth maximum (soft intersection of two SDFs). For a smooth <em>union</em> use <code>-smax(-a, -b, k)</code>.</td></tr>
+        <tr><td><code>safe_pow(x, y)</code></td><td>Sign-preserving power: <code>sign(x)*pow(abs(x), y)</code></td></tr>
+        <tr><td><code>sys_hash(n)</code></td><td>Pseudo-random value in [0,1] (accepts float, vec2 or vec3)</td></tr>
+        <tr><td><code>sys_noise(x)</code></td><td>Smooth value noise (accepts float, vec2 or vec3)</td></tr>
+        <tr><td><code>NoiseW(x, y, z, octaves, lacunarity, gain)</code></td><td>Fractal (FBM) noise for organic detail</td></tr>
+    </table>
+
+    <p style="font-size: 22px; color: #569cd6;"><b>8. Sound and Music Directives</b></p>
+    <p>Scripts can also drive the audio engine with comment directives (these are real directives, kept in comments on purpose):</p>
+    <ul>
+        <li><code>//MUSIC: path/to/file.mp3</code> — streams a background music track.</li>
+        <li><code>//SYNTH: formula</code> — feeds a formula to the internal synthesizer.</li>
+    </ul>
+    <p>They are usually injected automatically by single-clicking a sound in the Library.</p>
+
+    <p style="font-size: 22px; color: #569cd6;"><b>9. Tips</b></p>
+    <ul>
+        <li>Include <code>t</code> anywhere in the script to enable the animation system automatically.</li>
+        <li>In Ray Marching, if the surface shows artifacts or "onion rings", lower the <code>S</code> (Step Relax) slider or increase <code>steps</code>.</li>
+        <li>Constant sliders <code>A-F</code> are enabled automatically when the letters appear in your script: use them to explore shapes interactively without recompiling.</li>
+        <li>Keep return values smooth: discontinuous distance fields confuse the ray marcher.</li>
+    </ul>
+
+</div>
+</body>
+</html>

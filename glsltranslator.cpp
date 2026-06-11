@@ -9,18 +9,27 @@ QString GlslTranslator::translateEquation(const QString& mathInput)
         return "0.0";
     }
 
+    // Regex compilate una volta sola: questa funzione gira per ogni equazione a ogni Run
+    static const QRegularExpression rePi("\\bpi\\b", QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression reTau("\\btau\\b", QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression reEuler("\\be\\b");
+    static const QRegularExpression reLn("\\bln\\b");
+    static const QRegularExpression reCot("\\bcot\\b");
+    static const QRegularExpression reSec("\\bsec\\b");
+    static const QRegularExpression reCsc("\\bcsc\\b");
+    static const QRegularExpression reLog10("\\blog10\\b");
+
     // 1. SOSTITUZIONE COSTANTI
-    result.replace(QRegularExpression("\\bpi\\b", QRegularExpression::CaseInsensitiveOption), "3.14159265359");
-    result.replace(QRegularExpression("\\btau\\b", QRegularExpression::CaseInsensitiveOption), "6.28318530718");
-    result.replace(QRegularExpression("\\be\\b"), "2.71828182846");
-   // result.replace(QRegularExpression("\\bt\\b"), "u_time");
+    result.replace(rePi, "3.14159265359");
+    result.replace(reTau, "6.28318530718");
+    result.replace(reEuler, "2.71828182846");
 
     // 2. CORREZIONE SINONIMI FUNZIONI
-    result.replace(QRegularExpression("\\bln\\b"), "log");
-    result.replace(QRegularExpression("\\bcot\\b"), "1.0/tan");
-    result.replace(QRegularExpression("\\bsec\\b"), "1.0/cos");
-    result.replace(QRegularExpression("\\bcsc\\b"), "1.0/sin");
-    result.replace(QRegularExpression("\\blog10\\b"), "(1.0/2.302585)*log");
+    result.replace(reLn, "log");
+    result.replace(reCot, "1.0/tan");
+    result.replace(reSec, "1.0/cos");
+    result.replace(reCsc, "1.0/sin");
+    result.replace(reLog10, "(1.0/2.302585)*log");
 
     // 3. CONVERSIONE POTENZE E MODULO ( x^y -> pow(x, y) | x%y -> mod(x, y) )
     result = convertPowersToPowFunction(result);
@@ -34,7 +43,7 @@ QString GlslTranslator::translateEquation(const QString& mathInput)
 
 QString GlslTranslator::fixIntegersToFloats(QString expr)
 {
-    QRegularExpression re("(?<![\\w\\.])(\\d+)(?![\\w\\.])");
+    static const QRegularExpression re("(?<![\\w\\.])(\\d+)(?![\\w\\.])");
     return expr.replace(re, "\\1.0");
 }
 

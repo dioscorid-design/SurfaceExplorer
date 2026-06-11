@@ -223,16 +223,14 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         }
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-        bool ok;
-        QString baseName = QFileInfo(startPath).completeBaseName();
-        QString inputName = QInputDialog::getText(m_mainWindow, "Save Surface", "File name:", QLineEdit::Normal, baseName, &ok);
-        if (!ok || inputName.isEmpty()) {
+        MobileSaveDialog dialog("Save Surface", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow);
+        if (dialog.exec() != QDialog::Accepted) {
             if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
             if (wasPath4D) m_mainWindow->pathTimer->start();
             if (wasPath3D) m_mainWindow->pathTimer3D->start();
             return;
         }
-        fileName = QFileInfo(startPath).absolutePath() + "/" + inputName + ".json";
+        fileName = dialog.getSelectedPath();
 #else
         fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface", startPath, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
 #endif
@@ -413,8 +411,9 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         file.write(doc.toJson());
         file.close();
 
-        // (La cartella è già stata salvata sopra, quindi avviamo solo il refresh visivo)
-        QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
+        QTimer::singleShot(100, m_mainWindow, [this, fileName]() {
+            m_mainWindow->refreshAndSelectPreset(m_mainWindow->ui->treeSurfaces, fileName);
+        });
     } else {
         QMessageBox::critical(m_mainWindow, "Error", "Could not write to file.");
     }
@@ -504,11 +503,11 @@ void PresetSerializer::saveTexture(const QString &path)
         file.write(doc.toJson());
         file.close();
 
-        m_mainWindow->m_currentTexturePath = path;
         m_mainWindow->m_currentTexturePresetPath = path;
 
-        // Un semplice aggiornamento visivo in background, senza spostare/aprire pannelli
-        QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
+        QTimer::singleShot(100, m_mainWindow, [this, path]() {
+            m_mainWindow->refreshAndSelectPreset(m_mainWindow->ui->treeTextures, path);
+        });
     }
 }
 
@@ -558,10 +557,8 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         }
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-        bool ok;
-        QString baseName = QFileInfo(startPath).completeBaseName();
-        QString inputName = QInputDialog::getText(m_mainWindow, "Save File", "File name:", QLineEdit::Normal, baseName, &ok);
-        if (!ok || inputName.isEmpty()) {
+        MobileSaveDialog dialog("Save Record", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow);
+        if (dialog.exec() != QDialog::Accepted) {
             if (wasRotating) m_mainWindow->ui->glWidget->resumeMotion();
             if (wasPath4D) m_mainWindow->pathTimer->start();
             if (wasPath3D) m_mainWindow->pathTimer3D->start();
@@ -571,7 +568,7 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
             }
             return;
         }
-        fileName = QFileInfo(startPath).absolutePath() + "/" + inputName + ".json";
+        fileName = dialog.getSelectedPath();
 #else
         fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save File", startPath, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
 #endif
@@ -864,7 +861,9 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         file.write(doc.toJson());
         file.close();
 
-        QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
+        QTimer::singleShot(100, m_mainWindow, [this, fileName]() {
+            m_mainWindow->refreshAndSelectPreset(m_mainWindow->ui->treeMotions, fileName);
+        });
     }
 }
 
@@ -1025,8 +1024,12 @@ void PresetSerializer::saveScript()
             m_mainWindow->m_currentTexturePresetPath = fileName;
         }
 
-        // Un semplice refresh visivo senza spostare pannelli
-        QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
+        QTreeWidget *targetTree = isSurf ? m_mainWindow->ui->treeSurfaces
+                                : isSnd  ? m_mainWindow->ui->treeSounds
+                                         : m_mainWindow->ui->treeTextures;
+        QTimer::singleShot(100, m_mainWindow, [this, targetTree, fileName]() {
+            m_mainWindow->refreshAndSelectPreset(targetTree, fileName);
+        });
 
     } else {
         QMessageBox::critical(m_mainWindow, "Error", "Could not write to file.");
@@ -1084,7 +1087,9 @@ void PresetSerializer::saveSound(const QString &filePath)
     }
 
     // 6. Aggiorniamo la UI per riflettere eventuali modifiche (es. orario di ultima modifica)
-    QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
+    QTimer::singleShot(100, m_mainWindow, [this, finalPath]() {
+        m_mainWindow->refreshAndSelectPreset(m_mainWindow->ui->treeSounds, finalPath);
+    });
 }
 
 void PresetSerializer::saveTextureAs(const QString &startDir, const QString &sourceFilePath)
@@ -1300,7 +1305,9 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
         }
     }
 
-    QTimer::singleShot(100, m_mainWindow, &MainWindow::refreshRepositories);
+    QTimer::singleShot(100, m_mainWindow, [this, savePath]() {
+        m_mainWindow->refreshAndSelectPreset(m_mainWindow->ui->treeSounds, savePath);
+    });
 }
 
 void PresetSerializer::saveMotionAs(const QString &startDir, const QString &sourceFilePath)

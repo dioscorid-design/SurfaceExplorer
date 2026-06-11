@@ -1425,7 +1425,7 @@
    <property name="minimumSize">
     <size>
      <width>400</width>
-     <height>1836</height>
+     <height>2316</height>
     </size>
    </property>
    <property name="maximumSize">
@@ -1460,7 +1460,7 @@
         <item>
          <widget class="QTabWidget" name="tabModeSelector">
           <property name="currentIndex">
-           <number>1</number>
+           <number>0</number>
           </property>
           <widget class="QWidget" name="tabParametric">
            <attribute name="title">
@@ -1702,6 +1702,13 @@
                    </widget>
                   </item>
                  </layout>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="btnRunParametric">
+                 <property name="text">
+                  <string>Run</string>
+                 </property>
                 </widget>
                </item>
               </layout>

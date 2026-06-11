@@ -1,6 +1,7 @@
 #include "inputvalidator.h"
 #include <QRegularExpression>
 #include <QMessageBox>
+#include <QSet>
 
 static bool geodesicWarningDisabledForCurrentLoad = false;
 bool InputValidator::s_boxActive = false;
@@ -163,7 +164,7 @@ bool InputValidator::validateCompositionFields(QWidget* parent, const QString& m
     if (isCompositionActive) {
         if ((has_U && cU.isEmpty()) || (has_V && cV.isEmpty()) || (has_W && cW.isEmpty())) {
             notify(parent, QMessageBox::Warning, "Missing Composition Fields",
-                                 "You have activated the Composition mode, but one of the used fields (U, V, or W) is empty.\n\n"
+                                 "You have activated the Composition or Geodesic Flow mode, but one of the used fields (U, V, or W) is empty.\n\n"
                                  "Please explicitly fill the corresponding composition fields.");
             return false;
         }
@@ -593,7 +594,7 @@ bool InputValidator::validateIdentifiers(QWidget* parent, const QString& expr,
     auto it = identRe.globalMatch(expr);
     while (it.hasNext()) {
         QString token = it.next().captured(0);
-        if (!kAllowedMultiLetter.contains(token) && !extraIdentifiers().contains(token)) {
+        if (!kAllowedMultiLetter.contains(token)) {
             notify(parent, QMessageBox::Critical, "Unknown Identifier",
                                   QString("Unknown function or variable name '%1' in field '%2'.\n\n"
                                           "Check for typos (e.g. 'lengt' vs 'length', 'pwr' vs 'pow').")
@@ -602,16 +603,6 @@ bool InputValidator::validateIdentifiers(QWidget* parent, const QString& expr,
         }
     }
     return true;
-}
-
-// Pool dinamico — vuoto di default, ma il chiamante può popolarlo all'avvio
-QSet<QString>& InputValidator::extraIdentifiers() {
-    static QSet<QString> pool;
-    return pool;
-}
-
-void InputValidator::addAllowedIdentifier(const QString& name) {
-    extraIdentifiers().insert(name);
 }
 
 void InputValidator::showNegativeConstantError(QWidget* parent, const QString& name)

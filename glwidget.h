@@ -107,7 +107,6 @@ public:
     // ==========================================================
     bool setParametricEquations(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq);
     void setImplicitEquation(const QString &eqF);
-    void setExplicitWEquation(const QString &eq);
     void setEquationConstants(float a, float b, float c, float d, float e, float f, float s);
     void setRangeU(float min, float max);
     void setRangeV(float min, float max);
@@ -141,7 +140,6 @@ public:
     void increaseWireframeVDensity();
     void decreaseWireframeVDensity();
     float getSurfaceScale() const { return m_surfaceScale; }
-    void setSurfaceScale(float s) { m_surfaceScale = s; update(); }
     void rebuildShader();
 
 
@@ -152,7 +150,6 @@ public:
     void loadTextureFromImage(const QImage &img);
     void setTextureEnabled(bool enable);
     void setTextureColors(const QColor& c1, const QColor& c2);
-    void resetTexture();
     void clearTexture();
 
     void setScriptCheck(bool enabled);
@@ -199,15 +196,11 @@ public:
     float getPhi() const { return phi; }
     float getPsi() const { return psi; }
 
-    void setCameraPosAndLookAt(const QVector3D& pos, float wValue);
-    void setCameraPosAndDirection(const QVector3D& pos, const QVector3D& target, float wValue);
     void setCameraPosAndDirection3D(const QVector3D& pos, const QVector3D& target, float roll);
     void setCameraFrom4DVectors(const QVector4D &pos4D, const QVector4D &target4D, const QVector4D &up4D);
 
     void zoomCamera(float delta);
     void addCameraRotation(float dYaw, float dPitch);
-    void addCameraRoll(float dRoll);
-    void moveCameraFromScreenDelta(float dx, float dy);
     void resetTransformations();
     void virtualMove(MoveDir dir, float speed3D, float speed4D);
 
@@ -243,7 +236,6 @@ public:
     float getPhiSpeed() const { return phiSpeed; }
     float getPsiSpeed() const { return psiSpeed; }
 
-    void setSlowMode(bool active) { m_slowModeActive = active; }
     bool isAnimating() const { return rotationTimer && rotationTimer->isActive(); }
     void pauseMotion();
     void resumeMotion();
@@ -252,7 +244,6 @@ public:
     void stopAnimationTimer();
     void stopAllTimers();
     void resetTime();
-    void resetSurfaceTime();
     void setSurfaceAnimating(bool animating);
     bool isSurfaceAnimating() const { return m_surfaceAnimating; }
 
@@ -290,7 +281,6 @@ protected:
 
 public slots:
     void rebuildBackgroundShader(bool isTextureMode, const QString &customCode = "");
-    void forceTextureRefresh();
 
     // ==========================================================
     // GEODESIC FLOW CALCULATIONS
@@ -313,16 +303,6 @@ private:
     // ENGINE STATE & REFACTORING
     // ==========================================================
     EngineMode m_engineMode = ModeParametric;
-
- /*  void prepareCommonResources(QRhiResourceUpdateBatch *updates);
-    void prepareParametricResources(QRhiResourceUpdateBatch *updates);
-    void prepareImplicitResources(QRhiResourceUpdateBatch *updates);
-
-    void drawBackground(QRhiCommandBuffer *cb, const QSize &outputSize);
-    void drawParametric(QRhiCommandBuffer *cb, const QSize &outputSize);
-    void drawImplicit(QRhiCommandBuffer *cb, const QSize &outputSize);
-    void drawFlatView(QRhiCommandBuffer *cb, const QSize &outputSize);*/
-
 
     // ==========================================================
     // TEXTURE
@@ -485,10 +465,8 @@ private:
     QElapsedTimer m_elapsedTimer;
     QElapsedTimer m_surfaceTimer;
 
-    bool m_slowModeActive = false;
     bool m_surfaceAnimating = false;
     float m_manualTime = 0.0f;
-    float m_surfaceTimeOffset = 0.0f;
 
     float nutation = 0, precession = 0, spin = 0;
     float omega = 0, phi = 0, psi = 0;
@@ -543,7 +521,6 @@ private:
 
     // --- Texture Utilities ---
     void createDummyTexture();
-    QImage generateCheckerboard();
 
     // --- Math & Projections ---
     QVector3D projectPoint4Dto3D(const QVector4D& point4D);

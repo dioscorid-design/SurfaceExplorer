@@ -6,7 +6,6 @@
 #include <QLineEdit>
 #include <QVector>
 #include <functional>
-#include <QSet>
 #include <QMessageBox>
 
 class InputValidator
@@ -61,13 +60,10 @@ public:
     static bool validateFieldList(QWidget* parent, const QVector<NamedField>& fields);
     static bool validateConstants(QWidget* parent, const QVector<NamedField>& fields, ParseFn parse);
     static bool validateIdentifiers(QWidget* parent, const QString& expr, const QString& fieldName);
-    static void addAllowedIdentifier(const QString& name);
     static void showNegativeConstantError(QWidget* parent, const QString& name);
 
 
 private:
-    static QSet<QString>& extraIdentifiers();
-
     static void notify(QWidget* parent, QMessageBox::Icon icon,
                        const QString& title, const QString& text);
     static bool s_boxActive;

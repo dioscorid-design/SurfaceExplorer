@@ -32,8 +32,6 @@
 #include <QScroller>
 #include <QScrollBar>
 #include <QSettings>
-#include <QGestureEvent>
-#include <QTapAndHoldGesture>
 #include <QMessageBox>
 #include <QRegularExpression>
 #include <QDirIterator>
@@ -42,15 +40,17 @@
 #include <QDir>
 #include <QUrl>
 #include <QPainter>
-#include <QDropEvent>
 #include <QTextBrowser>
 #include <QDialog>
 #include <QVBoxLayout>
 #include <QEvent>
+#include <QMenu>
+#include <QContextMenuEvent>
+#include <QGesture>
+#include <QGestureEvent>
 #include <QTextStream>
-#include <QtConcurrent>
-#include <QFuture>
-#include <QClipboard>
+#include <QVector>
+#include <QVector4D>
 #include <QInputMethod>
 #include <QGuiApplication>
 #include <cmath>
@@ -95,22 +95,29 @@ static inline bool isMeshSafeValue(double val) {
     return std::isfinite(val) && std::abs(val) <= kMaxRenderableMagnitude;
 }
 
+// Rimuove i commenti di linea e di blocco dal codice (GLSL o equazioni)
+static QString stripCodeComments(QString s) {
+    static const QRegularExpression lineComments(R"(//.*$)", QRegularExpression::MultilineOption);
+    static const QRegularExpression blockComments(R"(/\*.*?\*/)", QRegularExpression::DotMatchesEverythingOption);
+    s.remove(lineComments);
+    s.remove(blockComments);
+    return s;
+}
+
+// Regex condivise per l'analisi delle variabili nelle equazioni: vengono usate
+// nei percorsi caldi (textChanged di 17 campi, aggiornamenti del master button),
+// quindi le compiliamo una volta sola invece che a ogni chiamata.
+static const QRegularExpression kReLowerU("\\bu\\b");
+static const QRegularExpression kReLowerV("\\bv\\b");
+static const QRegularExpression kReLowerW("\\bw\\b");
+static const QRegularExpression kReUpperU("\\bU\\b");
+static const QRegularExpression kReUpperV("\\bV\\b");
+static const QRegularExpression kReUpperW("\\bW\\b");
+static const QRegularExpression kReTimeVar("\\b(t|iTime|u_time)\\b");
+
 // ==========================================
 // Filtro per catturare il ridimensionamento OpenGL
 // ==========================================
-class GLResizeFilter : public QObject {
-public:
-    std::function<void()> onResize;
-    GLResizeFilter(QObject* parent = nullptr) : QObject(parent) {}
-protected:
-    bool eventFilter(QObject* obj, QEvent* event) override {
-        if (event->type() == QEvent::Resize) {
-            if (onResize) onResize();
-        }
-        return QObject::eventFilter(obj, event);
-    }
-};
-
 // ==========================================
 // Filtro per Desktop: Blocca l'andata a capo nelle equazioni
 // ==========================================
@@ -162,14 +169,37 @@ public:
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override {
 
-        // 1. DISATTIVAZIONE MENU CONTESTUALI (Usiamo la nostra Toolbar)
+        // 1. MENU CONTESTUALI
         if (event->type() == QEvent::ContextMenu) {
-            const QString on = obj->objectName();
-            if (on == "txtScriptEditor" || on == "lineVariations" || on == "lineTexture") {
-                return false;
-            }
+#if defined(Q_OS_ANDROID)
+            // Mouse esterno / DeX: stesso menu completo, senza selezione parola.
+            QContextMenuEvent* cme = static_cast<QContextMenuEvent*>(event);
+            showEditMenu(obj, cme->globalPos(), false);
             return true;
+#else
+            // Su iOS lasciamo il menu nativo: l'incolla tramite il menu di sistema
+            // non fa scattare il popup di permesso "Incolla da...".
+            return false;
+#endif
         }
+
+#if defined(Q_OS_ANDROID)
+        // 1b. LONG-PRESS: il mini-popup di sistema (lato Java) è disattivato con
+        // QT_QPA_NO_TEXT_HANDLES in main(). Riproduciamo qui il comportamento
+        // nativo: selezione della parola sotto il dito + menu completo di Qt
+        // (undo, redo, taglia, copia, incolla, elimina, seleziona tutto).
+        if (event->type() == QEvent::Gesture) {
+            QGestureEvent* ge = static_cast<QGestureEvent*>(event);
+            if (QGesture* g = ge->gesture(Qt::TapAndHoldGesture)) {
+                if (g->state() == Qt::GestureFinished) {
+                    // position() del TapAndHold è in coordinate globali (schermo)
+                    showEditMenu(obj, static_cast<QTapAndHoldGesture*>(g)->position().toPoint(), true);
+                }
+                ge->accept(g);
+                return true;
+            }
+        }
+#endif
 
         // 2. GESTIONE TASTI INVIO E TAB
         if (event->type() == QEvent::KeyPress) {
@@ -200,6 +230,40 @@ protected:
 
         return QObject::eventFilter(obj, event);
     }
+
+#if defined(Q_OS_ANDROID)
+private:
+    // Menu di modifica completo, lo stesso che Qt mostra su desktop.
+    // selectWordUnderFinger: su long-press emula il comportamento nativo
+    // selezionando la parola sotto il dito (se non c'è già una selezione).
+    void showEditMenu(QObject* obj, const QPoint& globalPos, bool selectWordUnderFinger) {
+        QMenu* menu = nullptr;
+
+        if (auto* pte = qobject_cast<QPlainTextEdit*>(obj)) {
+            if (selectWordUnderFinger && !pte->textCursor().hasSelection()) {
+                QTextCursor c = pte->cursorForPosition(pte->viewport()->mapFromGlobal(globalPos));
+                c.select(QTextCursor::WordUnderCursor);
+                if (c.hasSelection()) pte->setTextCursor(c);
+            }
+            menu = pte->createStandardContextMenu();
+        } else if (auto* le = qobject_cast<QLineEdit*>(obj)) {
+            if (selectWordUnderFinger && !le->hasSelectedText()) {
+                const QString t = le->text();
+                const int pos = le->cursorPositionAt(le->mapFromGlobal(globalPos));
+                auto isWordChar = [](QChar ch){ return ch.isLetterOrNumber() || ch == '_'; };
+                int s = pos, e = pos;
+                while (s > 0 && isWordChar(t.at(s - 1))) --s;
+                while (e < t.size() && isWordChar(t.at(e))) ++e;
+                if (e > s) le->setSelection(s, e - s);
+            }
+            menu = le->createStandardContextMenu();
+        }
+
+        if (!menu) return;
+        menu->setAttribute(Qt::WA_DeleteOnClose);
+        menu->popup(globalPos);
+    }
+#endif
 };
 
 class EnterApplyFilter : public QObject {
@@ -468,6 +532,13 @@ MainWindow::MainWindow(QWidget *parent)
     for (QWidget* input : allTextInputs) {
         input->installEventFilter(mobileFilter);
 
+#if defined(Q_OS_ANDROID)
+        // Long-press -> menu di modifica completo (vedi MobileInputFilter):
+        // il gesto parte anche se il tocco avviene sul viewport dei QPlainTextEdit,
+        // perché il gesture manager risale la gerarchia fino al widget che ha il grab.
+        input->grabGesture(Qt::TapAndHoldGesture);
+#endif
+
         input->setInputMethodHints(Qt::ImhSensitiveData | Qt::ImhNoPredictiveText | Qt::ImhNoAutoUppercase);
     }
 
@@ -611,6 +682,15 @@ MainWindow::MainWindow(QWidget *parent)
 
         QTextBrowser* browser = new QTextBrowser(docDialog);
         browser->setOpenExternalLinks(true);
+        // Il motore rich text di Qt ignora il grosso del CSS del file html:
+        // la dimensione del testo va imposta qui, PRIMA di caricare la pagina.
+        // div copre i riquadri "note", td/th le tabelle; i titoli restano
+        // leggermente più grandi del testo per mantenere la gerarchia.
+        browser->document()->setDefaultStyleSheet(
+            "p, li, div, td, th { font-size: 17px; }"
+            " h2 { font-size: 22px; }"
+            " h3 { font-size: 19px; }"
+            " h4 { font-size: 18px; }");
         browser->setSource(QUrl("qrc:/documentation.html"));
 
         QPushButton* closeBtn = new QPushButton("Close", docDialog);
@@ -626,7 +706,9 @@ MainWindow::MainWindow(QWidget *parent)
 
         // 2. Cambiamo automaticamente il testo del bottone leggendo la pagina corrente
         connect(browser, &QTextBrowser::sourceChanged, docDialog, [closeBtn](const QUrl &src) {
-            if (src.toString().endsWith("CREDITS.html", Qt::CaseInsensitive)) {
+            const QString page = src.toString();
+            if (page.endsWith("CREDITS.html", Qt::CaseInsensitive) ||
+                page.endsWith("script_guide.html", Qt::CaseInsensitive)) {
                 closeBtn->setText("Back");
             } else {
                 closeBtn->setText("Close");
@@ -827,18 +909,6 @@ MainWindow::MainWindow(QWidget *parent)
         safeOpenDock(ui->dockSurfaces);
     });
     ui->statusbar->addPermanentWidget(btnEx);
-
-    // TOP MESSAGE OVERLAY (Toast Notification)
-    m_topMessageBar = new QLabel(this->centralWidget());
-    m_topMessageBar->setAlignment(Qt::AlignCenter);
-    m_topMessageBar->hide(); // Nascosto di default
-
-    // Crea una piccola ombra per farlo staccare dal 3D
-    UiStyleManager::applyToastShadow(m_topMessageBar);
-
-    m_topMessageTimer = new QTimer(this);
-    m_topMessageTimer->setSingleShot(true);
-    connect(m_topMessageTimer, &QTimer::timeout, m_topMessageBar, &QLabel::hide);
 
     // =========================================================================
     // 6. EQUATIONS, CONSTANTS & PARAMETERS
@@ -1049,7 +1119,9 @@ MainWindow::MainWindow(QWidget *parent)
             m_lastImplicitS = ui->lineS->text().toDouble();
 
             // 1. STOP E RESET FISICO
-            onStopClicked();
+            // onStopClicked è un toggle: senza la guardia, con moto in pausa e
+            // velocità impostate farebbe RIPARTIRE le rotazioni
+            if (ui->glWidget->isAnimating()) onStopClicked();
             if (pathTimer->isActive()) onDepartureClicked();
             if (pathTimer3D->isActive()) onDeparture3DClicked();
             ui->glWidget->resetTransformations();
@@ -1057,6 +1129,9 @@ MainWindow::MainWindow(QWidget *parent)
             ui->glWidget->setSurfaceAnimating(false);
             if (m_btnStart) m_btnStart->setText("START");
 
+            // Azzera anche le velocità reali del motore, non solo le etichette
+            ui->glWidget->setNutationSpeed(0.0f); ui->glWidget->setPrecessionSpeed(0.0f); ui->glWidget->setSpinSpeed(0.0f);
+            ui->glWidget->setOmegaSpeed(0.0f); ui->glWidget->setPhiSpeed(0.0f); ui->glWidget->setPsiSpeed(0.0f);
             ui->lblNutVal->setText("0.00"); ui->lblPrecVal->setText("0.00"); ui->lblSpinVal->setText("0.00");
             ui->lblOmegaVal->setText("0.00"); ui->lblPhiVal->setText("0.00"); ui->lblPsiVal->setText("0.00");
 
@@ -1941,7 +2016,7 @@ MainWindow::MainWindow(QWidget *parent)
             QString eq = ui->lineEquation->toPlainText() + " " + ui->lineVariations->toPlainText() + " " + m_surfaceScriptText;
             if (hasTimeVariable(eq)) needsAnim = true;
         } else { // Parametrica
-            QString eq = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " + ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText();
+            QString eq = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " + ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " + m_surfaceScriptText;
             if (hasTimeVariable(eq)) needsAnim = true;
         }
 
@@ -2385,16 +2460,6 @@ MainWindow::MainWindow(QWidget *parent)
     // =========================================================================
     // 12. RESCALING & DESKTOP FILTERS
     // =========================================================================
-    GLResizeFilter* resizeFixer = new GLResizeFilter(ui->glWidget);
-
-    resizeFixer->onResize = [this]() {
-        if (m_topMessageBar && m_topMessageBar->isVisible()) {
-            int x = (this->centralWidget()->width() - m_topMessageBar->width()) / 2;
-            m_topMessageBar->move(x, 40);
-        }
-    };
-
-    ui->glWidget->installEventFilter(resizeFixer);
 
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
     // Applica il blocco dell'invio su Desktop per TUTTI i campi di testo
@@ -2414,6 +2479,10 @@ MainWindow::MainWindow(QWidget *parent)
     EnterApplyFilter* equationEnterFilter = new EnterApplyFilter(this);
     equationEnterFilter->onEnter = [this]() { onStartClicked(); };
     ui->lineEquation->installEventFilter(equationEnterFilter);
+
+    // Run del dock Equations: applica le equazioni parametriche senza passare
+    // dal tasto master START/STOP della status bar
+    connect(ui->btnRunParametric, &QPushButton::clicked, this, &MainWindow::onStartClicked);
 }
 
 
@@ -2602,14 +2671,14 @@ void MainWindow::checkParametricDependency()
     // 1. ANALISI RAW: Contiamo ESATTAMENTE cosa ha digitato l'utente
     QString mainEqs = eqX + " " + eqY + " " + eqZ + " " + eqP;
 
-    bool hasRaw_u = mainEqs.contains(QRegularExpression("\\bu\\b"));
-    bool hasRaw_v = mainEqs.contains(QRegularExpression("\\bv\\b"));
-    bool hasRaw_w = mainEqs.contains(QRegularExpression("\\bw\\b"));
+    bool hasRaw_u = mainEqs.contains(kReLowerU);
+    bool hasRaw_v = mainEqs.contains(kReLowerV);
+    bool hasRaw_w = mainEqs.contains(kReLowerW);
     int rawLowerCount = (hasRaw_u ? 1 : 0) + (hasRaw_v ? 1 : 0) + (hasRaw_w ? 1 : 0);
 
-    bool hasRaw_U = mainEqs.contains(QRegularExpression("\\bU\\b"));
-    bool hasRaw_V = mainEqs.contains(QRegularExpression("\\bV\\b"));
-    bool hasRaw_W = mainEqs.contains(QRegularExpression("\\bW\\b"));
+    bool hasRaw_U = mainEqs.contains(kReUpperU);
+    bool hasRaw_V = mainEqs.contains(kReUpperV);
+    bool hasRaw_W = mainEqs.contains(kReUpperW);
     int rawUpperCount = (hasRaw_U ? 1 : 0) + (hasRaw_V ? 1 : 0) + (hasRaw_W ? 1 : 0);
 
     // Variabili di stato per i Tab
@@ -2732,14 +2801,14 @@ void MainWindow::updateConstraintState()
 
     QString composedEqs = composeEquation(allMainEqs, defU, defV, defW);
 
-    bool usesU = composedEqs.contains(QRegularExpression("\\bu\\b"));
-    bool usesV = composedEqs.contains(QRegularExpression("\\bv\\b"));
-    bool usesW = composedEqs.contains(QRegularExpression("\\bw\\b"));
+    bool usesU = composedEqs.contains(kReLowerU);
+    bool usesV = composedEqs.contains(kReLowerV);
+    bool usesW = composedEqs.contains(kReLowerW);
 
     // --- Disabilitazione e svuotamento Limiti W in modalità Geodesic Flow / Composition ---
-    int upperCount = (allMainEqs.contains(QRegularExpression("\\bU\\b")) ? 1 : 0) +
-            (allMainEqs.contains(QRegularExpression("\\bV\\b")) ? 1 : 0) +
-            (allMainEqs.contains(QRegularExpression("\\bW\\b")) ? 1 : 0);
+    int upperCount = (allMainEqs.contains(kReUpperU) ? 1 : 0) +
+            (allMainEqs.contains(kReUpperV) ? 1 : 0) +
+            (allMainEqs.contains(kReUpperW) ? 1 : 0);
 
     bool geoHasText = hasGeodesicText();
 
@@ -2904,9 +2973,8 @@ void MainWindow::performMasterStop()
     }
 
     // Ferma il flusso geodetico
-    QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
-    if (geoAnimTimer && geoAnimTimer->isActive()) {
-        geoAnimTimer->stop();
+    if (m_geoAnimTimer && m_geoAnimTimer->isActive()) {
+        m_geoAnimTimer->stop();
     }
 
     // Ferma le rotazioni 3D/4D delegando al suo tasto dedicato
@@ -2926,17 +2994,21 @@ void MainWindow::performMasterStop()
     updateMasterButtonState();
 }
 
+bool MainWindow::hasAnyRotationSpeed() const
+{
+    return std::abs(ui->glWidget->getNutationSpeed()) > 0.001f ||
+           std::abs(ui->glWidget->getPrecessionSpeed()) > 0.001f ||
+           std::abs(ui->glWidget->getSpinSpeed()) > 0.001f ||
+           std::abs(ui->glWidget->getOmegaSpeed()) > 0.001f ||
+           std::abs(ui->glWidget->getPhiSpeed()) > 0.001f ||
+           std::abs(ui->glWidget->getPsiSpeed()) > 0.001f;
+}
+
 void MainWindow::applyStartSideEffects()
 {
     if (!ui->glWidget) return;
 
-    bool hasRotationSpeed = (std::abs(ui->glWidget->getNutationSpeed()) > 0.001f ||
-                             std::abs(ui->glWidget->getPrecessionSpeed()) > 0.001f ||
-                             std::abs(ui->glWidget->getSpinSpeed()) > 0.001f ||
-                             std::abs(ui->glWidget->getOmegaSpeed()) > 0.001f ||
-                             std::abs(ui->glWidget->getPhiSpeed()) > 0.001f ||
-                             std::abs(ui->glWidget->getPsiSpeed()) > 0.001f);
-    if (hasRotationSpeed && !ui->glWidget->isAnimating()) {
+    if (hasAnyRotationSpeed() && !ui->glWidget->isAnimating()) {
         onStopClicked();
     }
 
@@ -3431,7 +3503,7 @@ void MainWindow::handleTextureSelection(int index)
     // ANIMAZIONE: selezionare una texture di SUPERFICIE avvia solo il proprio
     // orologio. NON tocca né la geometria (SDF) né lo sfondo né la camera.
     // ==========================================
-    QRegularExpression timeRegex("\\b(t|iTime|u_time)\\b");
+    const QRegularExpression& timeRegex = kReTimeVar;
     bool isRM = (ui->tabModeSelector->currentIndex() == 1);
     bool isSurfTexActive = ui->chkBoxTexture->isChecked();
 
@@ -3501,6 +3573,34 @@ bool MainWindow::updateWLimits() {
     return true;
 }
 
+MainWindow::CascadeConstants MainWindow::resolveCascadeConstants(bool restoreTextOnNegative)
+{
+    // A..F non ammettono valori negativi: si torna all'ultimo valore valido.
+    // S invece li accetta (in parametrica servono per invertire il tempo).
+    auto clampConst = [this, restoreTextOnNegative](QLineEdit* edit, float raw) -> float {
+        if (raw < 0.0f) {
+            float prev = m_lastValidConst.value(edit, 1.0f);
+            if (restoreTextOnNegative) {
+                QSignalBlocker b(edit);   // niente editingFinished/valueChanged ricorsivi
+                edit->setText(QString::number(prev, 'g', 6));
+            }
+            return prev;
+        }
+        m_lastValidConst[edit] = raw;
+        return raw;
+    };
+
+    CascadeConstants k;
+    k.a = clampConst(ui->lineA, parseUIConstant(ui->lineA->text(), 0, 0, 0, 0, 0, 0, 0));
+    k.b = clampConst(ui->lineB, parseUIConstant(ui->lineB->text(), k.a, 0, 0, 0, 0, 0, 0));
+    k.c = clampConst(ui->lineC, parseUIConstant(ui->lineC->text(), k.a, k.b, 0, 0, 0, 0, 0));
+    k.d = clampConst(ui->lineD, parseUIConstant(ui->lineD->text(), k.a, k.b, k.c, 0, 0, 0, 0));
+    k.e = clampConst(ui->lineE, parseUIConstant(ui->lineE->text(), k.a, k.b, k.c, k.d, 0, 0, 0));
+    k.f = clampConst(ui->lineF, parseUIConstant(ui->lineF->text(), k.a, k.b, k.c, k.d, k.e, 0, 0));
+    k.s = parseUIConstant(ui->lineS->text(), k.a, k.b, k.c, k.d, k.e, k.f, 0);
+    return k;
+}
+
 
 // ==========================================================
 // ANIMATION, MOTION & TIMERS
@@ -3513,6 +3613,10 @@ void MainWindow::onStartClicked()
     if (!property("rmApplyOnly").toBool())
         setProperty("collapseErrorShown", false);  // riarma il collasso solo sulle azioni vere (Start/caricamento)
 
+    // Run del dock Equations: agisce SOLO sul modulo equazioni (applica e
+    // riavvia il suo orologio), senza toccare rotazioni, path e audio.
+    const bool runDockOnly = (sender() == ui->btnRunParametric);
+
     // --- 1. BLOCCO STOP GLOBALE (MASTER) ---
     if (m_btnStart && m_btnStart->text().toUpper() == "STOP") {
         if (sender() == m_btnStart) {
@@ -3521,25 +3625,11 @@ void MainWindow::onStartClicked()
         }
     }
 
-    // --- 2. BLOCCO START GLOBALE (MASTER) ---
-    if (m_btnStart && m_btnStart->text().toUpper() == "START") {
-        if (sender() == m_btnStart) {
-            m_masterStopped = false;
-
-            this->setProperty("active_lineX", ui->lineX->toPlainText());
-            this->setProperty("active_lineY", ui->lineY->toPlainText());
-            this->setProperty("active_lineZ", ui->lineZ->toPlainText());
-            this->setProperty("active_lineP", ui->lineP->toPlainText());
-            if (ui->lnU) {
-                this->setProperty("active_lnU", ui->lnU->toPlainText());
-                this->setProperty("active_lnV", ui->lnV->toPlainText());
-                this->setProperty("active_lnW", ui->lnW->toPlainText());
-                this->setProperty("active_lndU", ui->lndU->toPlainText());
-                this->setProperty("active_lndV", ui->lndV->toPlainText());
-                this->setProperty("active_lndW", ui->lndW->toPlainText());
-                this->setProperty("active_lineConform", ui->lineConform->toPlainText());
-            }
-        }
+    // --- 2. BLOCCO START GLOBALE (MASTER) / RUN (dock Equations) ---
+    if (runDockOnly ||
+            (m_btnStart && m_btnStart->text().toUpper() == "START" && sender() == m_btnStart)) {
+        m_masterStopped = false;
+        snapshotActiveEquations();
     }
 
     // ==========================================================
@@ -3567,19 +3657,8 @@ void MainWindow::onStartClicked()
     }
 
     // Lettura delle Costanti a cascata valida per entrambe le modalità.
-    auto clampConst = [this](QLineEdit* edit, float raw) -> float {
-        if (raw < 0.0f)
-            return m_lastValidConst.value(edit, 1.0f);
-        return raw;
-    };
-
-    float valA = clampConst(ui->lineA, parseUIConstant(ui->lineA->text(), 0, 0, 0, 0, 0, 0, 0));
-    float valB = clampConst(ui->lineB, parseUIConstant(ui->lineB->text(), valA, 0, 0, 0, 0, 0, 0));
-    float valC = clampConst(ui->lineC, parseUIConstant(ui->lineC->text(), valA, valB, 0, 0, 0, 0, 0));
-    float valD = clampConst(ui->lineD, parseUIConstant(ui->lineD->text(), valA, valB, valC, 0, 0, 0, 0));
-    float valE = clampConst(ui->lineE, parseUIConstant(ui->lineE->text(), valA, valB, valC, valD, 0, 0, 0));
-    float valF = clampConst(ui->lineF, parseUIConstant(ui->lineF->text(), valA, valB, valC, valD, valE, 0, 0));
-    float valS = parseUIConstant(ui->lineS->text(), valA, valB, valC, valD, valE, valF, 0);
+    const CascadeConstants kc = resolveCascadeConstants(false);
+    float valA = kc.a, valB = kc.b, valC = kc.c, valD = kc.d, valE = kc.e, valF = kc.f, valS = kc.s;
 
     ui->glWidget->setEquationConstants(valA, valB, valC, valD, valE, valF, valS);
 
@@ -3649,13 +3728,8 @@ void MainWindow::onStartClicked()
             QString dispCode = ui->lineVariations->toPlainText();
 
             // Controllo parentesi (popup di "Unmatched parentheses" chiaro)
-            auto stripComments = [](QString s) {
-                s.remove(QRegularExpression(R"(//.*$)", QRegularExpression::MultilineOption));
-                s.remove(QRegularExpression(R"(/\*.*?\*/)", QRegularExpression::DotMatchesEverythingOption));
-                return s;
-            };
-            if (!InputValidator::validateParentheses(this, stripComments(texCode))) return;
-            if (!InputValidator::validateParentheses(this, stripComments(dispCode))) return;
+            if (!InputValidator::validateParentheses(this, stripCodeComments(texCode))) return;
+            if (!InputValidator::validateParentheses(this, stripCodeComments(dispCode))) return;
 
             // Validazione compilazione GLSL completa per texture+displacement
             if (!ui->glWidget->validateAndApplyTextureDisplacement(texCode, dispCode)) {
@@ -3710,7 +3784,7 @@ void MainWindow::onStartClicked()
             applyAnimationState(true);
         }
 
-        if (!applyOnly) {
+        if (!applyOnly && !runDockOnly) {
             applyStartSideEffects();
         }
         ui->glWidget->update();
@@ -3750,16 +3824,9 @@ void MainWindow::onStartClicked()
 
         if (!InputValidator::validateImplicitScriptContext(this, texCode)) return;
 
-        auto stripComments = [](QString s) {
-            s.remove(QRegularExpression(R"(//.*$)",
-                                        QRegularExpression::MultilineOption));
-            s.remove(QRegularExpression(R"(/\*.*?\*/)",
-                                        QRegularExpression::DotMatchesEverythingOption));
-            return s;
-        };
-        if (!InputValidator::validateParentheses(this, stripComments(texCode))) return;
+        if (!InputValidator::validateParentheses(this, stripCodeComments(texCode))) return;
 
-        if (!InputValidator::validateParentheses(this, stripComments(dispCode))) return;
+        if (!InputValidator::validateParentheses(this, stripCodeComments(dispCode))) return;
 
         ui->glWidget->setTextureCode(texCode);
 
@@ -3829,7 +3896,7 @@ void MainWindow::onStartClicked()
         }
 
         ui->glWidget->rebuildShader();
-        if (!applyOnly) {
+        if (!applyOnly && !runDockOnly) {
             applyStartSideEffects();
         }
         ui->glWidget->update();
@@ -3909,9 +3976,9 @@ void MainWindow::onStartClicked()
     if (!InputValidator::validateLimits(this, uMin, uMax, uActive, vMin, vMax, vActive, wMin, wMax, wActive)) return;
 
     // --- AGGIORNAMENTO UI: Svuota e disabilita i limiti W in modalità Composition ---
-    bool has_U = mainEqs.contains(QRegularExpression("\\bU\\b"));
-    bool has_V = mainEqs.contains(QRegularExpression("\\bV\\b"));
-    bool has_W = mainEqs.contains(QRegularExpression("\\bW\\b"));
+    bool has_U = mainEqs.contains(kReUpperU);
+    bool has_V = mainEqs.contains(kReUpperV);
+    bool has_W = mainEqs.contains(kReUpperW);
     int upperCount = (has_U ? 1 : 0) + (has_V ? 1 : 0) + (has_W ? 1 : 0);
 
     bool isCompositionActive = ((upperCount > 0) || !cU.isEmpty() || !cV.isEmpty() || !cW.isEmpty()) && !geoHasText;
@@ -3940,7 +4007,7 @@ void MainWindow::onStartClicked()
 
         // 2. Controllo Geometria Euclidea delegato al Validator
         bool isPreset = this->property("isPresetActive").toBool();
-        if (sender() == m_btnStart && !isPreset) {
+        if ((sender() == m_btnStart || runDockOnly) && !isPreset) {
             InputValidator::validateGeodesicConformalFactor(
                         this,
                         ui->lineX->toPlainText(), ui->lineY->toPlainText(),
@@ -3984,7 +4051,7 @@ void MainWindow::onStartClicked()
         }
 
         applyAnimationState(hasTimeVariable(geoEqs));
-        applyStartSideEffects();
+        if (!runDockOnly) applyStartSideEffects();
         ui->glWidget->update();
         return;
     }
@@ -4181,7 +4248,7 @@ void MainWindow::onStartClicked()
         return;
     }
 
-    if (!applyOnly) applyStartSideEffects();
+    if (!applyOnly && !runDockOnly) applyStartSideEffects();
     setProperty("collapseErrorShown", false);  // superficie valida: riarma il popup di collasso
     ui->glWidget->update();
 }
@@ -4193,14 +4260,7 @@ void MainWindow::onStopClicked() {
         ui->glWidget->pauseMotion();
         if (ui->btnStart_2) ui->btnStart_2->setText("GO");
     } else {
-        bool hasSpeed = (std::abs(ui->glWidget->getNutationSpeed()) > 0.001f ||
-                         std::abs(ui->glWidget->getPrecessionSpeed()) > 0.001f ||
-                         std::abs(ui->glWidget->getSpinSpeed()) > 0.001f ||
-                         std::abs(ui->glWidget->getOmegaSpeed()) > 0.001f ||
-                         std::abs(ui->glWidget->getPhiSpeed()) > 0.001f ||
-                         std::abs(ui->glWidget->getPsiSpeed()) > 0.001f);
-
-        if (!hasSpeed) return;
+        if (!hasAnyRotationSpeed()) return;
 
         ui->glWidget->resumeMotion();
         if (ui->btnStart_2) ui->btnStart_2->setText("STOP");
@@ -4668,9 +4728,7 @@ void MainWindow::onRunCurrentScript()
             // --- RAMO 1: SCRIPT IMPLICITO (RAY MARCHING) MULTI-RIGA ---
 
             // 1. PRIMA LINEA DI DIFESA: Sanity Check Testuale Minimalista
-            QString cleanCode = currentText;
-            cleanCode.remove(QRegularExpression(R"(//.*$)", QRegularExpression::MultilineOption));
-            cleanCode.remove(QRegularExpression(R"(/\*.*?\*/)", QRegularExpression::DotMatchesEverythingOption));
+            QString cleanCode = stripCodeComments(currentText);
 
             // DELEGA LA VALIDAZIONE E BLOCCA SE FALLISCE
             if (!InputValidator::validateImplicitScriptReturn(this, cleanCode)) {
@@ -4777,9 +4835,7 @@ void MainWindow::onRunScriptClicked()
     if (fullText.trimmed().isEmpty()) return;
 
     // 1. PRIMA LINEA DI DIFESA: Evita che testo spazzatura faccia crashare il parser
-    QString cleanCode = fullText;
-    cleanCode.remove(QRegularExpression(R"(//.*$)", QRegularExpression::MultilineOption));
-    cleanCode.remove(QRegularExpression(R"(/\*.*?\*/)", QRegularExpression::DotMatchesEverythingOption));
+    QString cleanCode = stripCodeComments(fullText);
 
     // DELEGA LA VALIDAZIONE E BLOCCA SE FALLISCE
     if (!InputValidator::validateParametricScriptReturn(this, cleanCode)) {
@@ -5014,7 +5070,7 @@ void MainWindow::onApplyTextureScriptClicked()
         }
     }
 
-    QRegularExpression timeRegex("\\b(t|iTime|u_time)\\b");
+    const QRegularExpression& timeRegex = kReTimeVar;
 
     // RUN texture: agisce SOLO sul clock della texture interessata (Problema 3).
     // La superficie e l'altro canale texture NON vengono toccati.
@@ -5044,7 +5100,7 @@ void MainWindow::onRunRaymarchTextureClicked()
 {
     if (!ui->glWidget) return;
 
-    QRegularExpression timeRegex("\\b(t|iTime|u_time)\\b");
+    const QRegularExpression& timeRegex = kReTimeVar;
     bool texColorHasTime = ui->lineTexture->toPlainText().contains(timeRegex);
     bool geomHasTime     = ui->lineVariations->toPlainText().contains(timeRegex) ||
                            ui->lineEquation->toPlainText().contains(timeRegex);
@@ -5170,6 +5226,11 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         } else {
             isMatch = (cleanCodeForComparison(activeCode) == cleanCodeForComparison(data.scriptCode));
         }
+        // Se il file preset è diverso da quello attualmente caricato, non è mai un match
+        // (es. due preset con lo stesso codice ma zoom/rotazione diversi)
+        if (data.filePath != m_currentTexturePresetPath) {
+            isMatch = false;
+        }
 
         // 3. LOGICA DI TOGGLE (Stop/Restart) STRUTTURALE
         if (isMatch && ui->chkBoxTexture->isChecked()) {
@@ -5182,16 +5243,17 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
                     ui->glWidget->setBackgroundTextureAnimating(true);
                 }
             } else {
-                // Il toggle della texture agisce SOLO sull'orologio della texture,
-                // sia in Parametrico che in Ray Marching. La geometria (SurfaceAnimating)
-                // NON viene mai toccata: se la 't' della SDF era ferma, resta ferma.
-                bool isCurrentlyAnimating = ui->glWidget->isSurfaceTextureAnimating();
+                bool isRM = (ui->tabModeSelector->currentIndex() == 1);
+                bool texAnim  = ui->glWidget->isSurfaceTextureAnimating();
+                bool geomAnim = isRM && ui->glWidget->isSurfaceAnimating();
+                bool isCurrentlyAnimating = texAnim || geomAnim;
 
                 if (isCurrentlyAnimating) {
                     ui->glWidget->setSurfaceTextureAnimating(false);
+                    if (isRM) ui->glWidget->setSurfaceAnimating(false);
                 } else {
                     ui->glWidget->setSurfaceTextureAnimating(true);
-                    // Sblocca il master se stiamo riattivando l'animazione dal toggle
+                    if (isRM) ui->glWidget->setSurfaceAnimating(true);
                     m_masterStopped = false;
                 }
             }
@@ -5360,7 +5422,11 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
     // 5. CARICAMENTO DATI (Equazioni, Colori, ecc.)
     applyCommonData(d);
 
-    if (d.isImplicitMode) {
+    // Le superfici implicite da script sono già state configurate da applyCommonData:
+    // sovrascrivere lineEquation/setImplicitEquation qui ripristinerebbe la sfera di default.
+    bool isImplicitScript = d.isImplicitMode && !d.scriptCode.isEmpty();
+
+    if (d.isImplicitMode && !isImplicitScript) {
         QString eqToLoad = d.implicitEq.trimmed();
 
         // Se l'equazione letta dal file è vuota o NON contiene l'uguale,
@@ -5402,10 +5468,11 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
     ui->lblPsiVal->setText("0.00");
 
     // 6. Eseguiamo onStartClicked per inizializzare equazioni
-    bool hasValidEquations = (d.x.trimmed().length() > 0 && d.x != "0" && d.x != "0.0") || d.isImplicitMode;
+    // Le superfici implicite da script non hanno equazioni valide nei campi standard.
+    bool hasValidEquations = (d.x.trimmed().length() > 0 && d.x != "0" && d.x != "0.0") || (d.isImplicitMode && !isImplicitScript);
 
-    // Inferiamo che è uno script se c'è codice e le equazioni sono vuote!
-    bool isScript = d.isScript || (!d.scriptCode.isEmpty() && !hasValidEquations);
+    // Inferiamo che è uno script se c'è codice e le equazioni sono vuote, o se è uno script implicito!
+    bool isScript = d.isScript || isImplicitScript || (!d.scriptCode.isEmpty() && !hasValidEquations);
 
     if (!isScript) {
         onStartClicked();
@@ -5523,9 +5590,8 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
     if (pathTimer->isActive()) onDepartureClicked();
     if (pathTimer3D->isActive()) onDeparture3DClicked();
 
-    QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
-    if (geoAnimTimer && geoAnimTimer->isActive()) {
-        geoAnimTimer->stop();
+    if (m_geoAnimTimer && m_geoAnimTimer->isActive()) {
+        m_geoAnimTimer->stop();
     }
 
     if (m_btnStart) m_btnStart->setText("START");
@@ -5535,6 +5601,9 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
     // 1.5 SANIFICAZIONE E SEPARAZIONE DEI MODI (Parametrico vs Ray Marching)
     // =================================================================
     bool isImplicit = data.isImplicitMode;
+
+    // Le superfici implicite da script sono gestite da applyCommonData: non sovrascrivere.
+    bool isImplicitScript = isImplicit && !data.scriptCode.isEmpty();
 
     if (isImplicit) {
         ui->tabModeSelector->setCurrentIndex(1); // Forza Tab Ray Marching
@@ -5551,23 +5620,25 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
         ui->txtScriptEditor->clear();
         ui->txtScriptEditor->blockSignals(false);
 
-        // +++ FILTRO DI SICUREZZA PER L'EQUAZIONE IMPLICITA +++QRegularExpression timeRegex("\\b(t|iTime|u_time)\\b");
-        QString eqToLoad = data.implicitEq.trimmed();
+        if (!isImplicitScript) {
+            // +++ FILTRO DI SICUREZZA PER L'EQUAZIONE IMPLICITA +++
+            QString eqToLoad = data.implicitEq.trimmed();
 
-        // Se l'equazione letta dal file è vuota o NON contiene l'uguale (vecchio formato),
-        // forziamo la stringa umana di default per evitare crash della scheda video!
-        if (eqToLoad.isEmpty() || !eqToLoad.contains("=")) {
-            eqToLoad = "x^2 + y^2 + z^2 = 1.0";
+            // Se l'equazione letta dal file è vuota o NON contiene l'uguale (vecchio formato),
+            // forziamo la stringa umana di default per evitare crash della scheda video!
+            if (eqToLoad.isEmpty() || !eqToLoad.contains("=")) {
+                eqToLoad = "x^2 + y^2 + z^2 = 1.0";
+            }
+
+            ui->lineEquation->blockSignals(true);
+            ui->lineEquation->setPlainText(eqToLoad);
+            ui->lineEquation->blockSignals(false);
+
+            if (ui->glWidget) {
+                ui->glWidget->setImplicitEquation(eqToLoad);
+            }
+            // ++++++++++++++++++++++++++++++++++++++++++++++++++++++
         }
-
-        ui->lineEquation->blockSignals(true);
-        ui->lineEquation->setPlainText(eqToLoad);
-        ui->lineEquation->blockSignals(false);
-
-        if (ui->glWidget) {
-            ui->glWidget->setImplicitEquation(eqToLoad);
-        }
-        // ++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
     } else {
         ui->tabModeSelector->setCurrentIndex(0); // Forza Tab Parametrica
@@ -6392,77 +6463,6 @@ void MainWindow::performCopy(QTreeWidgetItem* targetItem) {
     m_fileOps->performCopy(targetItem);
 }
 
-void MainWindow::onSaveTexJsonClicked() // SAVE AS
-{
-    // Recupera l'ultima cartella usata o quella del file corrente
-    QSettings settings;
-    QString startDir = settings.value("lastCustomTexDir", lastTextureFolder).toString();
-
-    if (!m_currentTexturePath.isEmpty()) {
-        startDir = QFileInfo(m_currentTexturePath).absolutePath();
-    }
-
-    bool wasAnimating = ui->glWidget->isAnimating();
-    bool wasPath4D = pathTimer->isActive();
-    bool wasPath3D = pathTimer3D->isActive();
-
-    if (wasAnimating) ui->glWidget->pauseMotion();
-    if (wasPath4D) pathTimer->stop();
-    if (wasPath3D) pathTimer3D->stop();
-
-    // Apre il dialogo
-    QString fileName;
-
-#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
-    // --- APPROCCIO MOBILE: Niente esplora risorse, chiediamo solo il nome ---
-    bool ok;
-    QString baseName = QInputDialog::getText(this, "Save Texture Preset",
-                                             "Scegli un nome per il preset:",
-                                             QLineEdit::Normal, "NuovaTexture", &ok);
-
-    if (!ok || baseName.isEmpty()) {
-        // L'utente ha annullato
-        if (wasAnimating) ui->glWidget->resumeMotion();
-        if (wasPath4D) pathTimer->start();
-        if (wasPath3D) pathTimer3D->start();
-        return;
-    }
-
-    // Costruiamo il percorso sicuro forzando l'estensione json
-    QString safeDir = settings.value("pathTextures", settings.value("libraryRootPath").toString() + "/Textures").toString();
-    fileName = safeDir + "/" + baseName + ".json";
-
-#else
-    // --- APPROCCIO DESKTOP: QFileDialog classico ---
-    fileName = QFileDialog::getSaveFileName(this,
-                                            "Save Texture Preset",
-                                            startDir,
-                                            "Texture Preset (*.json)");
-
-    if (fileName.isEmpty()) {
-        if (wasAnimating) ui->glWidget->resumeMotion();
-        if (wasPath4D) pathTimer->start();
-        if (wasPath3D) pathTimer3D->start();
-        return;
-    }
-#endif
-
-    if (wasAnimating) ui->glWidget->resumeMotion();
-    if (wasPath4D) pathTimer->start();
-    if (wasPath3D) pathTimer3D->start();
-
-    if (fileName.isEmpty()) return;
-
-    // Forza estensione .json
-    if (!fileName.endsWith(".json", Qt::CaseInsensitive)) fileName += ".json";
-
-    // Salva la cartella usata per il futuro
-    settings.setValue("lastCustomTexDir", QFileInfo(fileName).absolutePath());
-
-    // Chiama l'helper
-    saveTextureConfig(fileName);
-}
-
 void MainWindow::onSaveTextureClicked()
 {
     QSettings settings;
@@ -6958,6 +6958,24 @@ void MainWindow::refreshRepositories()
     if (m_fsWatcher) m_fsWatcher->blockSignals(false);
 }
 
+void MainWindow::refreshAndSelectPreset(QTreeWidget *tree, const QString &path)
+{
+    refreshRepositories();
+    QTreeWidgetItemIterator it(tree);
+    while (*it) {
+        if ((*it)->toolTip(0) == path) {
+            tree->clearSelection();
+            (*it)->setSelected(true);
+            tree->setCurrentItem(*it);
+            QTreeWidgetItem* parent = (*it)->parent();
+            while (parent) { parent->setExpanded(true); parent = parent->parent(); }
+            tree->scrollToItem(*it);
+            break;
+        }
+        ++it;
+    }
+}
+
 void MainWindow::updateWatcherPaths()
 {
     if (!m_fsWatcher) return;
@@ -6991,11 +7009,6 @@ void MainWindow::updateWatcherPaths()
 
 void MainWindow::copyPath(QString src, QString dst) {
     m_fileOps->copyPath(src, dst);
-}
-
-void MainWindow::saveTextureConfig(const QString &path) {
-    m_presetSerializer->saveTexture(path);
-    this->setProperty("isTextureModified", false);
 }
 
 QTreeWidgetItem* MainWindow::getCurrentLibraryItem() {
@@ -7037,9 +7050,8 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     if (pathTimer->isActive()) onDepartureClicked();
     if (pathTimer3D->isActive()) onDeparture3DClicked();
 
-    QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
-    if (geoAnimTimer && geoAnimTimer->isActive()) {
-        geoAnimTimer->stop();
+    if (m_geoAnimTimer && m_geoAnimTimer->isActive()) {
+        m_geoAnimTimer->stop();
     }
 
     // Reset Telecamera e Rotazioni 3D/4D
@@ -7254,7 +7266,8 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     // 4. Logica Caricamento Equazioni vs Script
     bool hasValidEquations = false;
     if (d.x.trimmed().length() > 0 && d.x != "0" && d.x != "0.0") hasValidEquations = true;
-    if (d.isImplicitMode) hasValidEquations = true;
+    // Le superfici implicite da script non hanno equazioni valide: non forzare hasValidEquations.
+    if (d.isImplicitMode && d.scriptCode.isEmpty()) hasValidEquations = true;
 
     // Salvataggio
     bool isScript = d.isScript || (!d.scriptCode.isEmpty() && !hasValidEquations);
@@ -7341,6 +7354,11 @@ void MainWindow::applyCommonData(const LibraryItem &d)
 
         updateScriptButtonText();
         ui->txtScriptEditor->blockSignals(false);
+
+        // Editor ed equazione sono stati riempiti a segnali bloccati: nessun
+        // textChanged è scattato, quindi ricalcoliamo qui l'abilitazione degli
+        // slider A-F/S in base al codice dello script appena caricato.
+        updateConstantsUIState();
     }
     else {
         ui->glWidget->setScriptCheck(false);
@@ -7598,19 +7616,22 @@ QString MainWindow::composeEquation(const QString &eq, const QString &uDef, cons
 
     // \b indica un "word boundary", così sostituisce la "U" isolata,
     // ma ignora ad esempio la "U" dentro una parola fittizia
-    res.replace(QRegularExpression("\\bU\\b"), subU);
-    res.replace(QRegularExpression("\\bV\\b"), subV);
-    res.replace(QRegularExpression("\\bW\\b"), subW);
+    res.replace(kReUpperU, subU);
+    res.replace(kReUpperV, subV);
+    res.replace(kReUpperW, subW);
 
     return res;
 }
 
 void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool restartAudio)
 {
-    QRegularExpression re(R"(^\s*(u_min|u_max|v_min|v_max|w_min|w_max|steps|A|B|C|D|E|F|S)\s*[:=]+\s*([^;]+);)",
-                          QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption);
+    QRegularExpression re(R"(\b(u_min|u_max|v_min|v_max|w_min|w_max|steps|A|B|C|D|E|F|S)\b\s*[:=]+\s*([^;]+);)",
+                          QRegularExpression::CaseInsensitiveOption);
 
-    QRegularExpressionMatchIterator i = re.globalMatch(scriptCode);
+    // Rimuoviamo i commenti prima di cercare le assegnazioni di costanti: altrimenti
+    // un commento come "// A: numero di buchi" verrebbe interpretato come "A = ..."
+    // e azzererebbe la costante (il testo non è valutabile -> evaluateSimple = 0).
+    QRegularExpressionMatchIterator i = re.globalMatch(stripCodeComments(scriptCode));
 
     bool limitsChanged = false;
 
@@ -7665,14 +7686,8 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
 }
 
 bool MainWindow::hasTimeVariable(const QString& code) {
-    QString cleanCode = code;
-
-    // Rimuove i commenti di linea e di blocco per evitare falsi positivi (es. "don't")
-    cleanCode.remove(QRegularExpression(R"(//.*$)", QRegularExpression::MultilineOption));
-    cleanCode.remove(QRegularExpression(R"(/\*.*?\*/)", QRegularExpression::DotMatchesEverythingOption));
-
-    static const QRegularExpression timeRegex("\\b(t|iTime|u_time)\\b");
-    return cleanCode.contains(timeRegex);
+    // Commenti rimossi per evitare falsi positivi (es. "don't")
+    return stripCodeComments(code).contains(kReTimeVar);
 }
 
 QString MainWindow::extractAndResolveImagePath(const QString& scriptCode) {
@@ -8140,8 +8155,7 @@ void MainWindow::updateMasterButtonState()
     }
 
     // 4. Controllo Timer Flusso Geodetico
-    QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
-    bool geoActive = (geoAnimTimer && geoAnimTimer->isActive());
+    bool geoActive = (m_geoAnimTimer && m_geoAnimTimer->isActive());
 
     // 5. Tiriamo le somme: c'è ALMENO UNA cosa che si sta muovendo/suonando fisicamente?
     bool somethingIsMoving = rotActive ||
@@ -8216,35 +8230,6 @@ void MainWindow::toggleProjection()
     ui->glWidget->update();
 }
 
-void MainWindow::showTopMessage(const QString& msg, bool isError)
-{
-    m_topMessageBar->setText(msg);
-
-    // Stile "Toast" moderno
-    UiStyleManager::applyToastStyle(m_topMessageBar, isError);
-
-    m_topMessageBar->adjustSize();
-
-    // Posizionalo al centro-alto (es. a 40 pixel dal top)
-    int x = (this->centralWidget()->width() - m_topMessageBar->width()) / 2;
-    int y = 40;
-
-    m_topMessageBar->move(x, y);
-    m_topMessageBar->show();
-    m_topMessageBar->raise(); // Assicurati che stia sopra l'OpenGL
-
-    // Nascondi automaticamente dopo 3 secondi
-    m_topMessageTimer->start(3000);
-}
-
-void MainWindow::hideTopMessage()
-{
-    if (m_topMessageBar && m_topMessageBar->isVisible()) {
-        m_topMessageTimer->stop(); // Ferma il timer per evitare conflitti
-        m_topMessageBar->hide();   // Nascondi immediatamente
-    }
-}
-
 bool MainWindow::applyBackgroundTextureIfNeeded() {
     if (!ui->glWidget->isBackgroundTextureEnabled()) return true;
 
@@ -8314,9 +8299,9 @@ void MainWindow::commitUiFieldsDuringMotion() {
 
     QString mainEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
                       ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText();
-    int upperCount = (mainEqs.contains(QRegularExpression("\\bU\\b")) ? 1 : 0) +
-                     (mainEqs.contains(QRegularExpression("\\bV\\b")) ? 1 : 0) +
-                     (mainEqs.contains(QRegularExpression("\\bW\\b")) ? 1 : 0);
+    int upperCount = (mainEqs.contains(kReUpperU) ? 1 : 0) +
+                     (mainEqs.contains(kReUpperV) ? 1 : 0) +
+                     (mainEqs.contains(kReUpperW) ? 1 : 0);
     bool geoHasText = hasGeodesicText();
     bool isGeodesicActive = (upperCount > 0) && geoHasText &&
             (ui->tabModeSelector->currentIndex() == 0);
@@ -8358,9 +8343,8 @@ void MainWindow::commitUiFieldsDuringMotion() {
 
         // Riavvia il timer con i dati ripristinati (se era in moto).
         if (wasTimerActive) {
-            QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
-            if (geoAnimTimer && !geoAnimTimer->isActive())
-                geoAnimTimer->start();
+            if (m_geoAnimTimer && !m_geoAnimTimer->isActive())
+                m_geoAnimTimer->start();
         }
     }
 
@@ -8379,9 +8363,9 @@ void MainWindow::commitFieldsOnEnter() {
     // Stesso routing di checkAndTriggerMeshUpdate: geodetico vs standard.
     QString mainEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
                       ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText();
-    int upperCount = (mainEqs.contains(QRegularExpression("\\bU\\b")) ? 1 : 0) +
-                     (mainEqs.contains(QRegularExpression("\\bV\\b")) ? 1 : 0) +
-                     (mainEqs.contains(QRegularExpression("\\bW\\b")) ? 1 : 0);
+    int upperCount = (mainEqs.contains(kReUpperU) ? 1 : 0) +
+                     (mainEqs.contains(kReUpperV) ? 1 : 0) +
+                     (mainEqs.contains(kReUpperW) ? 1 : 0);
 
     if ((upperCount > 0) && hasGeodesicText()) {
         if (!updateGeodesicMesh()
@@ -8486,8 +8470,7 @@ bool MainWindow::updateGeodesicMesh()
 
         if (lambdaVal <= 1e-8f) {
             m_geodesicErrorPending = true;
-            QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
-            if (geoAnimTimer && geoAnimTimer->isActive()) geoAnimTimer->stop();
+            if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
             if (!property("geoErrorShown").toBool()) {
                 setProperty("geoErrorShown", true);
                 InputValidator::showInvalidConformalConstantError(this);
@@ -8507,24 +8490,8 @@ bool MainWindow::updateGeodesicMesh()
     // 2.5 ESTRAZIONE DELLE COSTANTI
     // ==============================================================
     {
-        auto clampConst = [this](QLineEdit* edit, float raw) -> float {
-            if (raw < 0.0f) {
-                float prev = m_lastValidConst.value(edit, 1.0f);
-                QSignalBlocker b(edit);
-                edit->setText(QString::number(prev, 'g', 6));
-                return prev;
-            }
-            m_lastValidConst[edit] = raw;
-            return raw;
-        };
-
-        float cA = clampConst(ui->lineA, parseUIConstant(ui->lineA->text(), 0, 0, 0, 0, 0, 0, 0));
-        float cB = clampConst(ui->lineB, parseUIConstant(ui->lineB->text(), cA, 0, 0, 0, 0, 0, 0));
-        float cC = clampConst(ui->lineC, parseUIConstant(ui->lineC->text(), cA, cB, 0, 0, 0, 0, 0));
-        float cD = clampConst(ui->lineD, parseUIConstant(ui->lineD->text(), cA, cB, cC, 0, 0, 0, 0));
-        float cE = clampConst(ui->lineE, parseUIConstant(ui->lineE->text(), cA, cB, cC, cD, 0, 0, 0));
-        float cF = clampConst(ui->lineF, parseUIConstant(ui->lineF->text(), cA, cB, cC, cD, cE, 0, 0));
-        float cS = parseUIConstant(ui->lineS->text(), cA, cB, cC, cD, cE, cF, 0);
+        const CascadeConstants kc = resolveCascadeConstants(true);
+        float cA = kc.a, cB = kc.b, cC = kc.c, cD = kc.d, cE = kc.e, cF = kc.f, cS = kc.s;
         if (ui->glWidget) ui->glWidget->setEquationConstants(cA, cB, cC, cD, cE, cF, cS);
 
         if (!m_inGeoAnimTick &&
@@ -8533,8 +8500,7 @@ bool MainWindow::updateGeodesicMesh()
                                          uMin, uMax, vMin, vMax,
                                          cA, cB, cC, cD, cE, cF, cS)) {
             m_geodesicErrorPending = true;
-            QTimer* gt = this->findChild<QTimer*>("geoAnimTimer");
-            if (gt && gt->isActive()) gt->stop();
+            if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
             this->setProperty("geoErrorType", "nonfinite");
             if (!property("geoErrorShown").toBool()) {
                 setProperty("geoErrorShown", true);
@@ -8567,34 +8533,29 @@ bool MainWindow::updateGeodesicMesh()
     if (grid.isEmpty()) {
         if (!shaderError.isEmpty()) {
             m_geodesicErrorPending = true;
-            QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
-            if (geoAnimTimer && geoAnimTimer->isActive()) geoAnimTimer->stop();
+            if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
             setProperty("geoErrorShown", true);
             InputValidator::showShaderCompilationError(this, "Geodesic Shader Error", shaderError);
             this->setProperty("geoErrorType", "syntax");
         } else {
             m_geodesicErrorPending = true;
-            QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
-            if (geoAnimTimer && geoAnimTimer->isActive()) geoAnimTimer->stop();
+            if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
             this->setProperty("geoErrorType", "singularity");
         }
         return false;
     }
 
-    // 4. APPLICHIAMO IMMEDIATAMENTE IL RISULTATO
-    if (!grid.isEmpty()) {
-        if (!ui->glWidget->setCustomMesh(grid)) {
-            m_geodesicErrorPending = true;
-            QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
-            if (geoAnimTimer && geoAnimTimer->isActive()) geoAnimTimer->stop();
-            this->setProperty("geoErrorType", "singularity");
-            return false;
-        }
-
-        // Ripristiniamo la UI post-caricamento (caso successo)
-        if (ui->glWidget && !ui->glWidget->updatesEnabled())
-            ui->glWidget->setUpdatesEnabled(true);
+    // 4. APPLICHIAMO IMMEDIATAMENTE IL RISULTATO (grid non vuota: verificato sopra)
+    if (!ui->glWidget->setCustomMesh(grid)) {
+        m_geodesicErrorPending = true;
+        if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
+        this->setProperty("geoErrorType", "singularity");
+        return false;
     }
+
+    // Ripristiniamo la UI post-caricamento (caso successo)
+    if (ui->glWidget && !ui->glWidget->updatesEnabled())
+        ui->glWidget->setUpdatesEnabled(true);
 
     // 5. LOGICA DEL TIMER CPU PER ANIMAZIONI
     QString geoEqs = rawX + " " + rawY + " " + rawZ + " " + rawP + " " +
@@ -8603,13 +8564,12 @@ bool MainWindow::updateGeodesicMesh()
 
     bool hasTime = hasTimeVariable(geoEqs);
 
-    QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
-    if (!geoAnimTimer) {
-        geoAnimTimer = new QTimer(this);
-        geoAnimTimer->setObjectName("geoAnimTimer");
-        geoAnimTimer->setInterval(16);
+    if (!m_geoAnimTimer) {
+        m_geoAnimTimer = new QTimer(this);
+        m_geoAnimTimer->setObjectName("geoAnimTimer");   // VideoRecorder lo cerca per nome
+        m_geoAnimTimer->setInterval(16);
 
-        connect(geoAnimTimer, &QTimer::timeout, this, [this]() {
+        connect(m_geoAnimTimer, &QTimer::timeout, this, [this]() {
             // Guardia 1: finestra nascosta (app in background su iOS/Android)
             if (!isVisible()) return;
 
@@ -8640,9 +8600,9 @@ bool MainWindow::updateGeodesicMesh()
     }
 
     if (hasTime && m_btnStart && m_btnStart->text() == "STOP") {
-        if (!geoAnimTimer->isActive()) geoAnimTimer->start();
+        if (!m_geoAnimTimer->isActive()) m_geoAnimTimer->start();
     } else {
-        if (geoAnimTimer->isActive()) geoAnimTimer->stop();
+        if (m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
     }
 
     setProperty("geoErrorShown", false);
@@ -8662,9 +8622,9 @@ void MainWindow::checkAndTriggerMeshUpdate() {
     QString mainEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " + ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText();
 
     // 2. Analisi variabili composte (U, V, W)
-    int upperCount = (mainEqs.contains(QRegularExpression("\\bU\\b")) ? 1 : 0) +
-                     (mainEqs.contains(QRegularExpression("\\bV\\b")) ? 1 : 0) +
-                     (mainEqs.contains(QRegularExpression("\\bW\\b")) ? 1 : 0);
+    int upperCount = (mainEqs.contains(kReUpperU) ? 1 : 0) +
+                     (mainEqs.contains(kReUpperV) ? 1 : 0) +
+                     (mainEqs.contains(kReUpperW) ? 1 : 0);
 
     // 3. Verifica presenza campi Geodetici
     bool geoHasText = hasGeodesicText();
@@ -8677,7 +8637,6 @@ void MainWindow::checkAndTriggerMeshUpdate() {
         if (!success) {
             return;
         }
-        hideTopMessage();
     } else {
         // Altrimenti, rigenera la griglia poligonale standard
         ui->glWidget->updateSurfaceData();
@@ -8687,8 +8646,7 @@ void MainWindow::checkAndTriggerMeshUpdate() {
 
 void MainWindow::stopGeodesicAnimation()
 {
-    QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
-    if (geoAnimTimer && geoAnimTimer->isActive()) geoAnimTimer->stop();
+    if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
 
     if (m_btnStart) m_btnStart->setText("START");
 
@@ -8700,8 +8658,7 @@ void MainWindow::stopGeodesicAnimation()
 }
 
 bool MainWindow::isGeodesicMotionActive() const {
-    QTimer* t = findChild<QTimer*>("geoAnimTimer");
-    return t && t->isActive();
+    return m_geoAnimTimer && m_geoAnimTimer->isActive();
 }
 
 bool MainWindow::hasGeodesicText() const {
@@ -8809,9 +8766,8 @@ void MainWindow::hideEvent(QHideEvent* event)
     // Necessario su iOS: al ritorno dal background il QRhi può essere
     // valido ma le risorse Metal non ancora ripristinate -> grid vuota
     // -> falso popup di singolarita'.
-    QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
-    if (geoAnimTimer && geoAnimTimer->isActive()) {
-        geoAnimTimer->stop();
+    if (m_geoAnimTimer && m_geoAnimTimer->isActive()) {
+        m_geoAnimTimer->stop();
         this->setProperty("geoAnimTimerWasRunning", true);
     }
 
@@ -8834,9 +8790,8 @@ void MainWindow::showEvent(QShowEvent* event)
             if (!isVisible()) return;
             if (!ui->glWidget || !ui->glWidget->getRhi()) return;
 
-            QTimer* geoAnimTimer = this->findChild<QTimer*>("geoAnimTimer");
-            if (geoAnimTimer && !geoAnimTimer->isActive()) {
-                geoAnimTimer->start();
+            if (m_geoAnimTimer && !m_geoAnimTimer->isActive()) {
+                m_geoAnimTimer->start();
             }
         });
     }
