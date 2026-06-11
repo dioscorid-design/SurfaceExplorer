@@ -505,6 +505,7 @@ void PresetSerializer::saveTexture(const QString &path)
 
         m_mainWindow->m_currentTexturePresetPath = path;
 
+        // Refresh visivo + selezione del file appena salvato nella libreria
         QTimer::singleShot(100, m_mainWindow, [this, path]() {
             m_mainWindow->refreshAndSelectPreset(m_mainWindow->ui->treeTextures, path);
         });
