@@ -47,12 +47,17 @@ public:
     // `currentT` è l'unico parametro che NON entra nella chiave di cache: viene
     // scritto come uniform nello shader. Gli altri parametri, se cambiano,
     // forzano una ricompilazione.
+    // `eqMetric` (opzionale): corpo GLSL di uno script che restituisce il
+    // tensore metrico come mat3(U,V,W). Se non vuoto, il flusso geodetico usa
+    // la formula intrinseca dei Christoffel su questo tensore e le equazioni
+    // X/Y/Z/P diventano una pura mappa di visualizzazione.
     QVector<QVector<QVector4D>> computeGeodesicFlow(
         QRhi* rhi,
         const QString& eqX, const QString& eqY, const QString& eqZ, const QString& eqP,
         const QString& eqU, const QString& eqV, const QString& eqW,
         const QString& eqDu, const QString& eqDv, const QString& eqDw,
         const QString& eqLambda,
+        const QString& eqMetric,
         float uMin, float uMax, int numU,
         float vMin, float vMax, int numV,
         const QMap<QString, float>& constants,
@@ -75,6 +80,7 @@ private:
                             const QString& eqU, const QString& eqV, const QString& eqW,
                             const QString& eqDu, const QString& eqDv, const QString& eqDw,
                             const QString& eqLambda,
+                            const QString& eqMetric,
                             float uMin, float uMax, int numU,
                             float vMin, float vMax, int numV,
                             const QMap<QString, float>& constants) const;
@@ -84,6 +90,7 @@ private:
                          const QString& eqU, const QString& eqV, const QString& eqW,
                          const QString& eqDu, const QString& eqDv, const QString& eqDw,
                          const QString& eqLambda,
+                         const QString& eqMetric,
                          float uMin, float uMax, int numU,
                          float vMin, float vMax, int numV,
                          const QMap<QString, float>& constants,

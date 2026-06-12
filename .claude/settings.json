@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(awk 'NR>=7224 && NR<=7396' /Users/dioscorid/Projects/C/SurfaceExplorer/mainwindow.cpp)"
+    ]
+  }
+}

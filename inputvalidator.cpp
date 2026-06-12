@@ -402,6 +402,34 @@ bool InputValidator::validateParametricScriptReturn(QWidget* parent, const QStri
     return true;
 }
 
+void InputValidator::showMetricMissingConditionsInfo(QWidget* parent)
+{
+    notify(parent, QMessageBox::Information, "Metric Script",
+           "Metric tensor script loaded.\n\n"
+           "To start the geodesic flow, set the initial conditions in the "
+           "Equations dock (U, V, W and dU, dV, dW as functions of u), "
+           "then run the script again.\n\n"
+           "Tip: you can declare them in the script itself, e.g.\n"
+           "B := 0.1;\n"
+           "U := 4; V := pi/2; W := 0;\n"
+           "dU := -1; dV := B*cos(u); dW := B*sin(u);");
+}
+
+void InputValidator::showMetricAmbiguousConstantWarning(QWidget* parent, const QStringList& names)
+{
+    const QString list = names.join(", ");
+    const QString plural = names.size() > 1 ? "s" : "";
+    notify(parent, QMessageBox::Warning, "Metric Script",
+           QString("The constant%1 %2 appear%3 both in the metric tensor and in the "
+                   "initial conditions.\n\n"
+                   "Each constant A..F is a single global slider: moving %2 will change "
+                   "the metric and the initial conditions together, which is usually not "
+                   "what you want (e.g. the black-hole mass and the beam aperture at once).\n\n"
+                   "Use a different free constant for the initial conditions "
+                   "(B..F are unused if the metric only uses A).")
+           .arg(plural, list, names.size() > 1 ? "" : "s"));
+}
+
 bool InputValidator::validateImplicitScriptReturn(QWidget* parent, const QString& cleanCode)
 {
     // 1. Controllo presenza return o fragColor

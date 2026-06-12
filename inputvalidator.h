@@ -52,6 +52,8 @@ public:
     static bool validateScriptModeContext(QWidget* parent, int currentScriptMode, const QString& currentText);
     static bool validateParametricScriptReturn(QWidget* parent, const QString& cleanCode);
     static bool validateImplicitScriptReturn(QWidget* parent, const QString& cleanCode);
+    static void showMetricMissingConditionsInfo(QWidget* parent);
+    static void showMetricAmbiguousConstantWarning(QWidget* parent, const QStringList& names);
     static bool validateParentheses(QWidget* parent, const QString& cleanCode);
 
     // Validatore generico di sintassi

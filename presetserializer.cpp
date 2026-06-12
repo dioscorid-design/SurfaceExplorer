@@ -276,8 +276,12 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     // Controlliamo in modo inequivocabile chi comanda
     bool isImplicitScript = isImplicit && implicitEq.contains("// Controlled by Script");
     bool isParametricScript = !isImplicit && eqX.isEmpty() && eqY.isEmpty() && eqZ.isEmpty();
+    // Script metrico: i campi x/y/z/p non sono vuoti (contengono la carta
+    // identità), ma la geometria è definita dallo script: senza questo caso il
+    // preset verrebbe salvato come superficie parametrica e lo script sparirebbe.
+    bool isMetricScript = !isImplicit && !m_mainWindow->m_metricScriptBody.trimmed().isEmpty();
 
-    if (isImplicitScript || isParametricScript) {
+    if (isImplicitScript || isParametricScript || isMetricScript) {
         QString scriptContent = m_mainWindow->property("rawSurfaceScript").toString();
         // Fallback di sicurezza se la property è sfuggita
         if (scriptContent.isEmpty() && m_mainWindow->m_currentScriptMode == 0) {
@@ -313,6 +317,11 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     geo["dw"] = m_mainWindow->ui->lndW->toPlainText();
     geo["conform"] = m_mainWindow->ui->lineConform->toPlainText();
     root["geodesic"] = geo;
+
+    // Mappa di visualizzazione (embedding) di uno script metrico: i campi
+    // x/y/z/p qui sopra sono stati salvati vuoti nel ramo script; se sono una
+    // mappa custom (es. Flamm) la salviamo a parte per ripristinarla al load.
+    m_mainWindow->writeMetricDisplayMap(root);
 
     QJsonObject constants;
     constants["A"] = m_mainWindow->ui->aSlider->value() / 100.0f;
@@ -645,7 +654,10 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         scriptContent = m_mainWindow->ui->txtScriptEditor->toPlainText();
     }
 
-    if (!scriptContent.trimmed().isEmpty() && !usingEquations) {
+    // In modalità metrica usingEquations è vero (carta identità nei campi),
+    // ma lo script resta la sorgente della geometria e va salvato.
+    bool metricScriptActive = !m_mainWindow->m_metricScriptBody.trimmed().isEmpty();
+    if (!scriptContent.trimmed().isEmpty() && (!usingEquations || metricScriptActive)) {
         root["scriptCode"] = scriptContent;
     }
 
@@ -978,6 +990,23 @@ void PresetSerializer::saveScript()
         constants["F"] = m_mainWindow->ui->fSlider->value() / 100.0f;
         constants["S"] = m_mainWindow->ui->sSlider->value() / 100.0f;
         root["constants"] = constants;
+
+        // Condizioni iniziali del flusso geodetico: servono agli script metrici
+        // che non le dichiarano con le direttive U:=/dU:=/...
+        QJsonObject geo;
+        geo["u0"] = m_mainWindow->ui->lnU->toPlainText();
+        geo["v0"] = m_mainWindow->ui->lnV->toPlainText();
+        geo["w0"] = m_mainWindow->ui->lnW->toPlainText();
+        geo["du"] = m_mainWindow->ui->lndU->toPlainText();
+        geo["dv"] = m_mainWindow->ui->lndV->toPlainText();
+        geo["dw"] = m_mainWindow->ui->lndW->toPlainText();
+        geo["conform"] = m_mainWindow->ui->lineConform->toPlainText();
+        root["geodesic"] = geo;
+
+        // Mappa di visualizzazione (embedding) di uno script metrico: se la mappa
+        // x/y/z/p è custom (non la carta identità, es. paraboloide di Flamm) va
+        // salvata, altrimenti al ricaricamento torna l'identità.
+        m_mainWindow->writeMetricDisplayMap(root);
     }
     else if (isSound) {
         root["code"] = content;

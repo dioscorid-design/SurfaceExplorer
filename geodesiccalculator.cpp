@@ -25,6 +25,7 @@ struct GeodesicCalculator::Cached {
     int numU = 0;
     int numV = 0;
     float uMin = 0, uMax = 0, vMin = 0, vMax = 0;
+    bool metricMode = false;                   // tensore da script: singolarità attese
 };
 
 // =============================================================================
@@ -50,6 +51,7 @@ QByteArray GeodesicCalculator::makeCacheKey(QRhi* rhi,
                                             const QString& eqU, const QString& eqV, const QString& eqW,
                                             const QString& eqDu, const QString& eqDv, const QString& eqDw,
                                             const QString& eqLambda,
+                                            const QString& eqMetric,
                                             float uMin, float uMax, int numU,
                                             float vMin, float vMax, int numV,
                                             const QMap<QString, float>& constants) const
@@ -64,6 +66,7 @@ QByteArray GeodesicCalculator::makeCacheKey(QRhi* rhi,
     feedStr(eqU); feedStr(eqV); feedStr(eqW);
     feedStr(eqDu); feedStr(eqDv); feedStr(eqDw);
     feedStr(eqLambda);
+    feedStr(eqMetric);
 
     auto feedBytes = [&h](const void* data, qsizetype n) {
         h.addData(QByteArray(reinterpret_cast<const char*>(data), int(n)));
@@ -101,6 +104,7 @@ bool GeodesicCalculator::rebuildPipeline(QRhi* rhi,
                                          const QString& eqU, const QString& eqV, const QString& eqW,
                                          const QString& eqDu, const QString& eqDv, const QString& eqDw,
                                          const QString& eqLambda,
+                                         const QString& eqMetric,
                                          float uMin, float uMax, int numU,
                                          float vMin, float vMax, int numV,
                                          const QMap<QString, float>& constants,
@@ -140,6 +144,14 @@ bool GeodesicCalculator::rebuildPipeline(QRhi* rhi,
     source.replace("/*%DV_EQ%*/", sanitize(eqDv));
     source.replace("/*%DW_EQ%*/", sanitize(eqDw));
 
+    // Script metrico: corpo GLSL multilinea (non un'espressione), tradotto
+    // qui come gli script parametrici. Vuoto => modalità embedding classica.
+    const QString metricBody = GlslTranslator::translateEquation(eqMetric);
+    const bool useMetric = !metricBody.trimmed().isEmpty();
+    source.replace("/*%USE_METRIC%*/", useMetric ? "true" : "false");
+    source.replace("/*%METRIC_BODY%*/", useMetric ? metricBody : "return mat3(1.0);");
+    // (il flag entra in Cached più sotto, dopo la creazione)
+
     // --- 2. Bake su tutti i target ---
     QShaderBaker baker;
     baker.setSourceString(source.toUtf8(), QShader::ComputeStage);
@@ -175,6 +187,7 @@ bool GeodesicCalculator::rebuildPipeline(QRhi* rhi,
     cached->numV = numV;
     cached->uMin = uMin; cached->uMax = uMax;
     cached->vMin = vMin; cached->vMax = vMax;
+    cached->metricMode = useMetric;
     cached->computeShader = computeShader;
 
     cached->ssbo.reset(rhi->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer, bufferSize));
@@ -279,42 +292,69 @@ QVector<QVector<QVector4D>> GeodesicCalculator::executeCached(float currentT) {
     int truncatedTrajectories = 0;
     int completelyDeadTrajectories = 0;
 
+    // j_split come nello shader: l'integrazione parte da v=0 e procede in
+    // avanti (j crescente) e all'indietro (j decrescente). Il troncamento va
+    // quindi gestito per direzione: un crash nel ramo all'indietro non deve
+    // cancellare il ramo in avanti valido (e viceversa).
+    int j_split = 0;
+    {
+        const float dv = (numV > 0) ? (m_cached->vMax - m_cached->vMin) / float(numV) : 0.01f;
+        while (j_split < numV && (m_cached->vMin + float(j_split) * dv) < 0.0f) j_split++;
+    }
+
     for (int i = 0; i <= numU; ++i) {
-        QVector4D lastGood(0.0f, 0.0f, 0.0f, 0.0f);
-        bool foundGood = false;
-        bool truncated = false;
+        bool rowTruncated = false;
+        bool rowHasGood = false;
 
-        for (int j = 0; j <= numV; ++j) {
-            QVector4D v = rawData[i * stride + j];
+        // Scansiona una direzione a partire da j_split, fermandosi (clamp
+        // all'ultimo punto buono) al primo punto invalido incontrato.
+        auto scanDirection = [&](int step) {
+            QVector4D lastGood(0.0f, 0.0f, 0.0f, 0.0f);
+            bool foundGood = false;
+            bool truncated = false;
 
-            if (truncated) {
-                grid[i][j] = lastGood;
-                continue;
+            for (int j = j_split; j >= 0 && j <= numV; j += step) {
+                QVector4D v = rawData[i * stride + j];
+
+                if (truncated) {
+                    grid[i][j] = lastGood;
+                    continue;
+                }
+
+                if (isBadPoint(v)) {
+                    truncated = true;
+                    grid[i][j] = foundGood ? lastGood : QVector4D(0,0,0,0);
+                } else {
+                    grid[i][j] = v;
+                    lastGood = v;
+                    foundGood = true;
+                }
             }
 
-            if (isBadPoint(v)) {
-                truncated = true;
-                if (foundGood) grid[i][j] = lastGood;
-                else           grid[i][j] = QVector4D(0,0,0,0);
-            } else {
-                grid[i][j] = v;
-                lastGood = v;
-                foundGood = true;
-            }
-        }
+            rowTruncated = rowTruncated || truncated;
+            rowHasGood = rowHasGood || foundGood;
+        };
 
-        if (truncated) {
-            truncatedTrajectories++;
-            if (!foundGood) completelyDeadTrajectories++;
-        }
+        scanDirection(+1);                       // avanti:   j_split..numV
+        if (j_split > 0) scanDirection(-1);      // indietro: j_split..0
+
+        if (rowTruncated) truncatedTrajectories++;
+        if (!rowHasGood)  completelyDeadTrajectories++;
     }
 
     const int totalTrajectories = numU + 1;
     if (completelyDeadTrajectories == totalTrajectories) return {};
 
-    constexpr float kMaxTruncatedFraction = 0.05f;
-    const int maxAllowedTruncated = static_cast<int>(totalTrajectories * kMaxTruncatedFraction);
-    if (truncatedTrajectories > maxAllowedTruncated) return {};
+    // Con la metrica da script le singolarità (es. orizzonti/centri di metriche
+    // relativistiche) sono parte della geometria: le traiettorie troncate sono
+    // fisiologiche e non vanno usate per rigettare la griglia. In modalità
+    // embedding manteniamo la storica soglia del 5% come indicatore di
+    // superficie degenere.
+    if (!m_cached->metricMode) {
+        constexpr float kMaxTruncatedFraction = 0.05f;
+        const int maxAllowedTruncated = static_cast<int>(totalTrajectories * kMaxTruncatedFraction);
+        if (truncatedTrajectories > maxAllowedTruncated) return {};
+    }
 
     return grid;
 }
@@ -328,6 +368,7 @@ QVector<QVector<QVector4D>> GeodesicCalculator::computeGeodesicFlow(
     const QString& eqU, const QString& eqV, const QString& eqW,
     const QString& eqDu, const QString& eqDv, const QString& eqDw,
     const QString& eqLambda,
+    const QString& eqMetric,
     float uMin, float uMax, int numU,
     float vMin, float vMax, int numV,
     const QMap<QString, float>& constants,
@@ -337,14 +378,14 @@ QVector<QVector<QVector4D>> GeodesicCalculator::computeGeodesicFlow(
     if (!rhi) return {};
 
     const QByteArray key = makeCacheKey(rhi,
-                                        eqX, eqY, eqZ, eqP, eqU, eqV, eqW, eqDu, eqDv, eqDw, eqLambda,
+                                        eqX, eqY, eqZ, eqP, eqU, eqV, eqW, eqDu, eqDv, eqDw, eqLambda, eqMetric,
                                         uMin, uMax, numU, vMin, vMax, numV, constants);
 
     const bool hit = m_cached && m_cached->rhi == rhi && m_cached->key == key;
     if (!hit) {
         m_cached.reset();
         if (!rebuildPipeline(rhi,
-                             eqX, eqY, eqZ, eqP, eqU, eqV, eqW, eqDu, eqDv, eqDw, eqLambda,
+                             eqX, eqY, eqZ, eqP, eqU, eqV, eqW, eqDu, eqDv, eqDw, eqLambda, eqMetric,
                              uMin, uMax, numU, vMin, vMax, numV, constants,
                              outErrorMsg)) {
             return {};

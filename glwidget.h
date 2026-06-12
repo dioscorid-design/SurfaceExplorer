@@ -116,7 +116,7 @@ public:
     void setRangeZ(float min, float max);
     void setResolution(int n);
     void setRaySteps(int steps);
-    bool setCustomMesh(const QVector<QVector<QVector4D>>& grid);
+    bool setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool tolerateTruncated = false);
     const QMap<QString, float>& getConstantsMap() const { return m_constants; }
 
     SurfaceEngine* getEngine() const { return engine.get(); }

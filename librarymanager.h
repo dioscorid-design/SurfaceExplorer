@@ -45,6 +45,11 @@ struct LibraryItem {
     QString geoDU, geoDV, geoDW;
     QString geoConform;
 
+    // Mappa di visualizzazione (embedding) di uno script metrico: x/y/z/p custom
+    // (non carta identità). hasMetricMap=false => identità, niente override.
+    bool hasMetricMap = false;
+    QString metricMapX, metricMapY, metricMapZ, metricMapP;
+
     // ==========================================================
     // IMPLICIT EQUATIONS
     // ==========================================================

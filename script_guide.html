@@ -55,6 +55,95 @@ return vec3(B * sin(v) * cos(u),
             B * sin(v) * sin(u),
             B * cos(v));</pre>
 
+    <p style="font-size: 20px; color: #569cd6;"><b>3.1 Metric Tensor Scripts (Geodesic Flow)</b></p>
+    <p>Instead of deriving the metric from a parametric surface, you can define the metric tensor
+    <code>g<sub>ij</sub>(U, V, W)</code> directly: a script run from the <em>Parametric</em> tab that
+    <strong>returns a mat3</strong> (the symmetric matrix of the metric) is treated as a metric script.
+    The geodesic flow then integrates the intrinsic geodesic equation
+    (Christoffel symbols computed from <code>g<sub>ij</sub></code> and its derivatives), with no embedding involved.</p>
+    <p>Available variables: the coordinates <code>U, V, W</code> (also as lowercase <code>u, v, w</code>),
+    <code>t</code> / <code>iTime</code>, and the constants <code>A..F, S</code>. UI directives (<code>:=</code>) work as usual.</p>
+    <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">u_min := 0; u_max := 2*pi;
+v_min := -3; v_max := 3;
+
+// Poincaré half-plane: g = diag(1/V^2, 1/V^2, 1)
+float f = 1.0 / (V*V);
+return mat3(f, 0, 0,
+            0, f, 0,
+            0, 0, 1);</pre>
+    <p>How the rest of the UI behaves in this mode:</p>
+    <ul>
+        <li><strong>Initial conditions</strong> can be declared directly in the script with the directives
+        <code>U :=</code>, <code>V :=</code>, <code>W :=</code>, <code>dU :=</code>, <code>dV :=</code>,
+        <code>dW :=</code>, <code>Conform :=</code> (expressions in the family parameter <code>u</code>,
+        copied verbatim into the <em>Geodesic Flow</em> fields), or typed in the <em>Equations</em> dock as usual.
+        All <code>:=</code> directives (initial conditions, but also limits, constants and steps) are applied at
+        every manual <em>Run</em> of the script; when a saved preset is loaded, the state stored in the preset
+        &mdash; including any edits made from the UI after the Run &mdash; takes precedence, and the directives
+        only fill fields that are still empty.
+        <em>Geodesic Flow</em> is the only active tab: <em>Constraints</em> and <em>Composition</em>
+        are disabled while the metric script is running.</li>
+        <li><strong>x(U,V,W), y(U,V,W), z(U,V,W), p(U,V,W)</strong> are <strong>locked</strong>: they do not
+        influence the metric (the geometry is entirely intrinsic, defined by <code>g<sub>ij</sub></code>) and are
+        held at the identity chart <code>x=U, y=V, z=W</code>, i.e. the flow is drawn in coordinate space.
+        (A chart already present in the fields that mentions <code>U, V, W</code> is kept, as a display-only map.)</li>
+        <li>The <strong>u/v limits</strong> stay active even if the display map does not mention all coordinates:
+        <code>u</code> parametrizes the family of geodesics, <code>v</code> is the integration parameter along them.</li>
+        <li>The <strong>Conform</strong> field still acts as a conformal factor: the effective metric is
+        <code>&lambda;(U,V,W) &middot; g<sub>ij</sub></code>.</li>
+        <li>For a 2D metric simply set the third row/column to <code>0, 0, 1</code>.</li>
+    </ul>
+
+    <p style="font-size: 18px; color: #569cd6;"><b>Reading the picture (and avoiding artifacts)</b></p>
+    <p>A fully self-contained example: the spatial part of the Kruskal metric in coordinates
+    <code>(U,V,W) = (r, &theta;, &phi;)</code>, with a <em>cone</em> of geodesics falling inward from
+    <code>r = 4</code> (each value of <code>u</code> shoots in a slightly different angular direction):</p>
+    <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">// g11 = (32 A^3 / U) e^(-U/(2A)),  g22 = U^2,  g33 = U^2 sin^2(V)
+u_min := 0; u_max := 2*pi;
+v_min := 0; v_max := 4;
+A := 1;      // black-hole mass (metric)
+B := 0.1;    // angular aperture of the geodesic cone
+
+// Condizioni iniziali: cono di geodetiche in caduta da r = 4
+U := 4; V := pi/2; W := 0;
+dU := -1; dV := B*cos(u); dW := B*sin(u);
+Conform := 1.0;
+
+float g11 = (32.0 * A*A*A / U) * exp(-U / (2.0 * A));
+float g22 = U * U;
+float g33 = U * U * sin(V) * sin(V);
+return mat3(g11, 0.0, 0.0,
+            0.0, g22, 0.0,
+            0.0, 0.0, g33);</pre>
+    <div style="background-color: #2a2a00; padding: 10px; margin: 4px 0 10px 0;">
+        <strong>One constant, one role.</strong> Each slider <code>A..F</code> is a single global variable. Do not
+        reuse the metric's constant (here <code>A</code>) for the initial conditions: moving its slider would
+        change the metric <em>and</em> the beam at once &mdash; e.g. setting <code>A = 0.1</code> to narrow the cone
+        also collapses <code>g<sub>11</sub> &sim; A&sup3;</code> and the flow blocks with an "impossible values"
+        error. Use a separate free constant (above, <code>B</code> for the aperture). The app warns you at Run time
+        if the same constant appears in both the metric and the initial conditions.</div>
+    <ul>
+        <li><strong>Why a cone and not a planar fan.</strong> A fan confined to a coordinate plane (e.g. the
+        equatorial one: <code>V := pi/2; dV := 0;</code>) correctly produces a <em>flat</em> picture: the metric is
+        symmetric about that plane, so the geodesics never leave it, and the curvature shows up only in how the
+        lines bend <em>inside</em> the plane. The cone of directions (<code>dV</code> and <code>dW</code> together)
+        sweeps a genuinely 3D sheet that twists as it falls, with no extra ingredients.
+        Keep the aperture <code>B</code> in roughly <code>0</code>&ndash;<code>0.15</code>: larger values push the
+        meridians across the poles <code>V = 0, &pi;</code>, where they focus into a caustic.</li>
+        <li><strong>Why inward (<code>dU := -1</code>) and <code>v_max := 4</code>.</strong> In this metric
+        <code>g<sub>11</sub></code> decays exponentially, so <em>outgoing</em> rays accelerate without bound in
+        coordinates and get truncated early (clamped points, ragged rims); infalling ones integrate cleanly.
+        Keep the angular spread moderate (<code>0.1</code>&ndash;<code>0.15</code>): larger values send
+        trajectories across the poles <code>V = 0, &pi;</code>, where the meridians focus into a caustic.</li>
+        <li><strong>Why <code>v_min := 0</code>.</strong> The flow also integrates backward when
+        <code>v_min &lt; 0</code>. For a symmetric planar fan with <code>u_max := 2*pi</code> the backward branch
+        retraces the forward branch of <code>u + pi</code> and every line is drawn twice (coplanar z-fighting);
+        for this cone it would add the outgoing cone, which truncates early. Forward-only avoids both.</li>
+        <li><strong>Truncated trajectories are physiological</strong> near singularities (<code>U &rarr; 0</code>)
+        or where the coordinate velocity blows up: they simply stop at the last valid point. If the rim looks
+        ragged, reduce <code>v_max</code>. Families of curves often read best in <em>Wireframe</em> mode.</li>
+    </ul>
+
     <p style="font-size: 22px; color: #569cd6;"><b>4. Texture Scripts</b></p>
     <p>Texture scripts compute a color. Return a <code>vec4(r, g, b, a)</code> using the texture coordinates
     <code>u, v</code>; <code>t</code> / <code>iTime</code> are available for animated patterns. The result is
@@ -73,11 +162,15 @@ return vec4(vec3(c), 1.0);</pre>
         <tr><td><code>u_min := 0; u_max := 2*pi;</code></td><td>Sets the U parameter range (same for <code>v_min/v_max</code>, <code>w_min/w_max</code>)</td></tr>
         <tr><td><code>steps := 400;</code></td><td>Sets the resolution / ray steps slider</td></tr>
         <tr><td><code>A := 2;</code> ... <code>F := 0.5;</code></td><td>Sets the corresponding constant slider (range expands automatically if needed)</td></tr>
+        <tr><td><code>U := 4; dV := 0.1*cos(u);</code> ...</td><td>Metric scripts only: <code>U/V/W</code>, <code>dU/dV/dW</code>, <code>Conform</code>
+        (case-sensitive) fill the Geodesic Flow initial conditions; the expression is copied as-is, so it may use the family parameter <code>u</code></td></tr>
     </table>
     <div style="background-color: #2a2a00; padding: 10px; margin-top: 8px;">
-        <strong>Rules:</strong> end each directive with a semicolon, one per line, and use <code>:=</code>
-        (not plain <code>=</code>, which would stay inside the GLSL code). Directives inside comments are ignored,
-        so prose like <code>// A: number of holes</code> is safe and does not touch the sliders.
+        <strong>Rules:</strong> end each directive with a semicolon and use <code>:=</code>
+        (not plain <code>=</code>, which would stay inside the GLSL code). Several directives may share one line,
+        but a directive line must contain <em>only</em> directives: the whole line is removed before compiling.
+        Directives inside comments are ignored, so prose like <code>// A: number of holes</code> is safe
+        and does not touch the sliders.
     </div>
 
     <p style="font-size: 22px; color: #569cd6;"><b>6. The Translator: Math Shorthand and Its Rules</b></p>

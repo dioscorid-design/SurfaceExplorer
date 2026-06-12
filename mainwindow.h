@@ -30,6 +30,7 @@ class PresetSerializer;
 class LibraryFileOperations;
 class LibraryDragDropHandler;
 class AudioController;
+class QJsonObject;
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -104,6 +105,8 @@ private slots:
     void onToggleScriptMode();
     void onRunCurrentScript();
     void onRunScriptClicked();
+    void runMetricScript(const QString& fullText);
+    void exitMetricScriptMode();
     void onApplyTextureScriptClicked();
     void onRunRaymarchTextureClicked();
     void onRunSoundClicked();
@@ -211,6 +214,25 @@ private:
     QString m_bgTextureCode;
 
     QString m_surfaceScriptText;
+    // Corpo GLSL dello script metrico (direttive := rimosse, non tradotto).
+    // Non vuoto = il flusso geodetico usa il tensore g_ij dello script invece
+    // della metrica indotta dall'embedding X/Y/Z/P.
+    QString m_metricScriptBody;
+    // Caricamento preset: lo stato salvato (limiti, costanti, steps e
+    // condizioni iniziali, eventualmente modificati dall'utente dopo il Run)
+    // ha la precedenza sulle direttive := dello script metrico, che valgono
+    // per intero solo al Run manuale; al load riempiono solo i campi vuoti.
+    bool m_metricPresetLoad = false;
+    // Firma dell'ultima combinazione metrica+condizioni per cui è già stato
+    // mostrato l'avviso "costante ambigua": evita di ripeterlo a ogni frame di
+    // animazione o a ogni tweak di slider con la stessa configurazione.
+    QString m_lastAmbiguousConstSig;
+    void checkMetricConstantAmbiguity();
+    // Mappa di visualizzazione (embedding) di uno script metrico. Salva i campi
+    // x/y/z/p in root solo se sono una mappa custom (non la carta identità);
+    // applica al load reimpostando i campi. Vuoto = identità, non serializzato.
+    void writeMetricDisplayMap(QJsonObject& root) const;
+    bool metricDisplayMapIsCustom() const;
     QString m_surfaceTextureScriptText;
     QString m_bgTextureScriptText;
     QString m_soundScriptText;

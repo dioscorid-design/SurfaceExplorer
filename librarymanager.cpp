@@ -440,6 +440,15 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
                 d.z = eq["z"].toString();
                 d.w = eq["p"].toString();
             }
+            // Mappa di visualizzazione custom di uno script metrico (Flamm ecc.)
+            if (root.contains("metricDisplayMap")) {
+                QJsonObject map = root["metricDisplayMap"].toObject();
+                d.hasMetricMap = true;
+                d.metricMapX = map["x"].toString();
+                d.metricMapY = map["y"].toString();
+                d.metricMapZ = map["z"].toString();
+                d.metricMapP = map["p"].toString();
+            }
         }
         // Caso 2: È una SUPERFICIE PARAMETRICA
         else if (root.contains("equations")) {

@@ -917,7 +917,7 @@ void GLWidget::setEquationConstants(float a, float b, float c, float d, float e,
     m_constants["D"] = d;
     m_constants["E"] = e;
     m_constants["F"] = f;
-    m_constants["s"] = s;
+    m_constants["S"] = s;
 
     update();
 }
@@ -974,7 +974,7 @@ void GLWidget::setRaySteps(int steps) {
     update();           // Richiede un nuovo fotogramma
 }
 
-bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid)
+bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool tolerateTruncated)
 {
     bool wasCustom = m_isCustomMesh; // Salviamo lo stato precedente
     m_isCustomMesh = true;
@@ -1025,8 +1025,12 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid)
         if (isDead) deadTrajectories++;
     }
 
-    // Blocca la mesh se più del 5% delle traiettorie sono collassate
-    if (deadTrajectories > (numU * 0.05f)) {
+    // Blocca la mesh se più del 5% delle traiettorie sono collassate.
+    // Con la metrica da script (tolerateTruncated) i troncamenti sono
+    // fisiologici (singolarità, blow-up di coordinate): si rigetta solo se
+    // sono collassate tutte le traiettorie, come nel GeodesicCalculator.
+    if (tolerateTruncated ? (deadTrajectories > numU)
+                          : (deadTrajectories > (numU * 0.05f))) {
         return false;
     }
 

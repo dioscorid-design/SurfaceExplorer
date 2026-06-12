@@ -968,6 +968,7 @@ MainWindow::MainWindow(QWidget *parent)
             ui->txtScriptEditor->blockSignals(false);
         }
         m_surfaceScriptText.clear();
+        exitMetricScriptMode();
         // ==========================================================
 
         // ==========================================================
@@ -1244,6 +1245,10 @@ MainWindow::MainWindow(QWidget *parent)
             if (ui->glWidget && ui->tabModeSelector->currentIndex() != 1) {
                 ui->glWidget->setResolution(ui->stepSlider->value());
             }
+            // Input nuovo (costanti/steps): un errore geodetico precedente non
+            // deve congelare il ricalcolo, altrimenti riportare una costante
+            // al valore buono lascia la mesh bloccata sull'ultimo stato.
+            m_geodesicErrorPending = false;
             checkAndTriggerMeshUpdate();
         });
     }
@@ -2693,9 +2698,32 @@ void MainWindow::checkParametricDependency()
 
    bool geoHasText = hasGeodesicText();
 
+    // Modalità metrica (script che restituisce mat3): la geometria è definita
+    // dal tensore g_ij. I campi X/Y/Z/P restano una MAPPA DI VISUALIZZAZIONE
+    // (embedding) modificabile: di norma la carta identità x=U,y=V,z=W, ma per
+    // certe geometrie (es. paraboloide di Flamm / ponte di Einstein-Rosen) si
+    // vuole una mappa esplicita z=±f(U) che pieghi il piano nello spazio 3D.
+    // La mappa non altera la metrica: realizza fedelmente la g_ij intrinseca.
+    // Constraints resta off (vincoli non hanno senso); Composition resta
+    // disponibile per le definizioni intermedie usate dalla mappa.
+    const bool metricModeActive = !m_metricScriptBody.trimmed().isEmpty();
+
     // 2. MACCHINA A STATI: Apertura e Blocco Tab intelligente
     if (ui->panelImplicit) {
-        if (rawLowerCount == 3 && rawUpperCount == 0) {
+        if (metricModeActive) {
+            // Vive solo Geodesic Flow: le condizioni iniziali restano l'unico
+            // input modificabile dal dock Equations.
+            needsGeodesic = true;
+            ui->panelImplicit->setTabEnabled(0, false);
+            ui->panelImplicit->setTabEnabled(1, false);
+            if (ui->panelImplicit->count() > 2) ui->panelImplicit->setTabEnabled(2, true);
+
+            if (ui->panelImplicit->count() > 2 &&
+                    !ui->panelImplicit->widget(ui->panelImplicit->currentIndex())->isEnabled()) {
+                ui->panelImplicit->setCurrentIndex(2);
+            }
+        }
+        else if (rawLowerCount == 3 && rawUpperCount == 0) {
             // Caso 3 minuscole: Solo Vincoli attivi
             needsConstraint = true;
             ui->panelImplicit->setTabEnabled(0, true);
@@ -2745,6 +2773,10 @@ void MainWindow::checkParametricDependency()
             if (ui->panelImplicit->count() > 2) ui->panelImplicit->setTabEnabled(2, false);
         }
     }
+
+    // 2.5 In modalità metrica i campi X/Y/Z/P restano editabili come mappa di
+    // visualizzazione (embedding): vuoti => carta identità, oppure una mappa
+    // esplicita z=±f(U) per piegare il piano (es. Flamm). Non vanno disabilitati.
 
     // 3. Applica stato fisico ai campi dei Vincoli
     ui->lineExplicitU->setEnabled(needsConstraint);
@@ -2818,6 +2850,17 @@ void MainWindow::updateConstraintState()
     bool isCompositionActive = (upperCount > 0 || !defU.trimmed().isEmpty() || !defV.trimmed().isEmpty() || !defW.trimmed().isEmpty()) && !geoHasText && (ui->tabModeSelector->currentIndex() == 0);
 
     if (isGeodesicActive || isCompositionActive) {
+        usesW = false;
+    }
+
+    // Modalità metrica: u e v parametrizzano il fascio di geodetiche e il
+    // tempo di integrazione, non la mappa di visualizzazione. I limiti devono
+    // restare attivi anche se la mappa non cita una delle variabili (es. una
+    // carta alla Flamm senza V), altrimenti si svuotano e il flusso non parte.
+    if (!m_metricScriptBody.trimmed().isEmpty() &&
+            ui->tabModeSelector->currentIndex() == 0) {
+        usesU = true;
+        usesV = true;
         usesW = false;
     }
 
@@ -4035,7 +4078,8 @@ void MainWindow::onStartClicked()
                 ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
                 ui->lnU->toPlainText() + " " + ui->lnV->toPlainText() + " " + ui->lnW->toPlainText() + " " +
                 ui->lndU->toPlainText() + " " + ui->lndV->toPlainText() + " " + ui->lndW->toPlainText()+
-                ui->lineConform->toPlainText();
+                ui->lineConform->toPlainText() + " " +
+                m_metricScriptBody;   // t può vivere nel corpo della metrica g_ij(U,V,W,t)
 
         if (ui->chkBoxTexture->isChecked()) geoEqs += " " + m_surfaceTextureCode;
         if (ui->radioBackground->isChecked() || ui->glWidget->isBackgroundTextureEnabled()) geoEqs += " " + m_bgTextureCode;
@@ -4837,6 +4881,14 @@ void MainWindow::onRunScriptClicked()
     // 1. PRIMA LINEA DI DIFESA: Evita che testo spazzatura faccia crashare il parser
     QString cleanCode = stripCodeComments(fullText);
 
+    // SCRIPT METRICO: se il codice restituisce un mat3 è il tensore metrico
+    // g_ij(U,V,W) per il flusso geodetico, non una superficie parametrica.
+    static const QRegularExpression metricReturnRegex(R"(\breturn\s+mat3\s*\()");
+    if (cleanCode.contains(metricReturnRegex)) {
+        runMetricScript(fullText);
+        return;
+    }
+
     // DELEGA LA VALIDAZIONE E BLOCCA SE FALLISCE
     if (!InputValidator::validateParametricScriptReturn(this, cleanCode)) {
         return;
@@ -4891,6 +4943,9 @@ void MainWindow::onRunScriptClicked()
     // TUTTO OK: ABILITIAMO IL TASTO SALVA
     ui->btnSaveScript->setEnabled(true);
 
+    // Uno script parametrico attivo esclude la modalità metrica
+    exitMetricScriptMode();
+
     // Tutto OK
     bool oldX = ui->lineX->blockSignals(true); ui->lineX->clear(); ui->lineX->blockSignals(oldX);
     bool oldY = ui->lineY->blockSignals(true); ui->lineY->clear(); ui->lineY->blockSignals(oldY);
@@ -4915,6 +4970,221 @@ void MainWindow::onRunScriptClicked()
     }
     updateMasterButtonState();
     ui->glWidget->update();
+}
+
+// =============================================================================
+// SCRIPT METRICO: lo script restituisce il tensore metrico g_ij come
+// mat3(U,V,W). La mesh non viene generata dallo script: arriva dal flusso
+// geodetico (setCustomMesh), nel cui compute shader il tensore dello script
+// sostituisce la metrica indotta dall'embedding. I campi X/Y/Z/P restano in
+// uso solo come mappa di visualizzazione delle coordinate; le condizioni
+// iniziali si danno come sempre dal dock Equations (U,V,W / dU,dV,dW).
+// =============================================================================
+void MainWindow::runMetricScript(const QString& fullText)
+{
+    QString cleanCode = stripCodeComments(fullText);
+    if (!InputValidator::validateParentheses(this, cleanCode)) return;
+
+    this->setProperty("rawSurfaceScript", fullText);
+    m_surfaceScriptText = fullText;
+
+    // Applica le direttive := (limiti U/V/W, costanti A..F, steps). Al
+    // caricamento di un preset NON vanno riapplicate: limiti, costanti e
+    // steps salvati (già ripristinati da applyCommonData) hanno la precedenza,
+    // altrimenti le modifiche fatte dall'utente dopo il Run andrebbero perse.
+    if (!m_metricPresetLoad)
+        parseAndApplyScriptParams(fullText, false);
+
+    // Condizioni iniziali dichiarate nello script: le direttive case-sensitive
+    // U/V/W/dU/dV/dW/Conform := espressione; vengono copiate verbatim nei campi
+    // della tab Geodesic Flow (possono citare il parametro di famiglia u). Così
+    // lo script metrico è autosufficiente: metrica + condizioni iniziali.
+    // Al caricamento di un preset riempiono solo i campi rimasti vuoti:
+    // valgono i campi salvati.
+    {
+        static const QRegularExpression icRegex(
+            R"(\b(U|V|W|dU|dV|dW|Conform|conform)\s*:=\s*([^;]+);)");
+
+        QRegularExpressionMatchIterator it = icRegex.globalMatch(cleanCode);
+        while (it.hasNext()) {
+            const QRegularExpressionMatch m = it.next();
+            const QString name = m.captured(1);
+            const QString value = m.captured(2).trimmed();
+
+            QPlainTextEdit* field = nullptr;
+            if      (name == "U")  field = ui->lnU;
+            else if (name == "V")  field = ui->lnV;
+            else if (name == "W")  field = ui->lnW;
+            else if (name == "dU") field = ui->lndU;
+            else if (name == "dV") field = ui->lndV;
+            else if (name == "dW") field = ui->lndW;
+            else                   field = ui->lineConform;
+
+            if (!field) continue;
+            if (m_metricPresetLoad && !field->toPlainText().trimmed().isEmpty())
+                continue;
+
+            bool old = field->blockSignals(true);
+            field->setPlainText(value);
+            field->blockSignals(old);
+        }
+    }
+
+    // Corpo GLSL: via le direttive; la traduzione avviene nel GeodesicCalculator
+    QString body;
+    QString scriptCopy = fullText;
+    QTextStream stream(&scriptCopy);
+    while (!stream.atEnd()) {
+        QString line = stream.readLine();
+        if (line.contains(":=")) continue;
+        body.append(line + "\n");
+    }
+    m_metricScriptBody = body;
+
+    // La modalità script di superficie va spenta: la mesh arriva dal
+    // calcolatore geodetico, non dal vertex shader parametrico.
+    if (ui->glWidget && ui->glWidget->getEngine() &&
+            ui->glWidget->getEngine()->isScriptModeActive()) {
+        ui->glWidget->getEngine()->setScriptMode(false);
+        ui->glWidget->getEngine()->setScriptCodeGLSL("");
+        ui->glWidget->rebuildShader();
+    }
+
+    // Mappa di visualizzazione: in modalità metrica i campi x/y/z/p mappano le
+    // coordinate (U,V,W) nello spazio 3D/4D. Se non citano U/V/W maiuscole
+    // (campi vuoti o ancora occupati da una superficie parametrica in u,v
+    // minuscole, es. il toro di default) li prendiamo in consegna con la carta
+    // identità. Serve anche al routing: sia onStartClicked che
+    // checkAndTriggerMeshUpdate attivano il geodetico sulle maiuscole.
+    const QString displayEqs = ui->lineX->toPlainText() + " " +
+            ui->lineY->toPlainText() + " " + ui->lineZ->toPlainText() + " " +
+            ui->lineP->toPlainText();
+    if (!displayEqs.contains(kReUpperU) && !displayEqs.contains(kReUpperV) &&
+            !displayEqs.contains(kReUpperW)) {
+        bool bX = ui->lineX->blockSignals(true);
+        bool bY = ui->lineY->blockSignals(true);
+        bool bZ = ui->lineZ->blockSignals(true);
+        bool bP = ui->lineP->blockSignals(true);
+        ui->lineX->setPlainText("U");
+        ui->lineY->setPlainText("V");
+        ui->lineZ->setPlainText("W");
+        ui->lineP->setPlainText("0");
+        ui->lineX->blockSignals(bX);
+        ui->lineY->blockSignals(bY);
+        ui->lineZ->blockSignals(bZ);
+        ui->lineP->blockSignals(bP);
+    }
+
+    // I campi sono stati riempiti a segnali bloccati: la macchina a stati dei
+    // tab (che abilita i campi delle condizioni iniziali sul caso "3 maiuscole")
+    // va rieseguita a mano, con focus sulla tab Geodesic Flow.
+    checkParametricDependency();
+    if (ui->panelImplicit && ui->panelImplicit->count() > 2 &&
+            ui->panelImplicit->isTabEnabled(2)) {
+        ui->panelImplicit->setCurrentIndex(2);
+    }
+
+    // Fattore conforme di default, come in onStartClicked
+    if (ui->lineConform->toPlainText().trimmed().isEmpty()) {
+        bool oldBlock = ui->lineConform->blockSignals(true);
+        ui->lineConform->setPlainText("1.0");
+        ui->lineConform->blockSignals(oldBlock);
+    }
+
+    ui->btnSaveScript->setEnabled(true);
+
+    // Senza condizioni iniziali il flusso non può partire: guida l'utente
+    // verso il dock Equations e resta in attesa.
+    if (!hasGeodesicText()) {
+        InputValidator::showMetricMissingConditionsInfo(this);
+        return;
+    }
+
+    m_masterStopped = false;
+    updateMasterButtonState();
+
+    m_geodesicErrorPending = false;
+    setProperty("geoErrorShown", false);
+    setProperty("geoErrorType", "none");
+
+    checkAndTriggerMeshUpdate();
+}
+
+// Avviso "costante ambigua": A..F è una sola variabile globale. Se la stessa
+// costante compare sia nel corpo metrico sia nelle condizioni iniziali (campi
+// del dock Geodesic Flow), muovere il relativo slider altera entrambe — es. la
+// massa della metrica e l'apertura del fascio insieme. Il controllo legge i
+// campi del dock, così intercetta sia le direttive U:=/dU:=/... (già scritte
+// nei campi al Run) sia le modifiche fatte a mano nel dock. Sta in
+// updateGeodesicMesh, l'imbuto unico di ogni ricalcolo geodetico; una firma
+// dell'ultima configurazione evita di ripetere il popup a ogni frame o slider.
+void MainWindow::checkMetricConstantAmbiguity()
+{
+    if (m_metricScriptBody.trimmed().isEmpty()) {
+        m_lastAmbiguousConstSig.clear();
+        return;
+    }
+
+    const QString metricBody = stripCodeComments(m_metricScriptBody);
+    const QString conditions =
+            ui->lnU->toPlainText() + " " + ui->lnV->toPlainText() + " " +
+            ui->lnW->toPlainText() + " " + ui->lndU->toPlainText() + " " +
+            ui->lndV->toPlainText() + " " + ui->lndW->toPlainText() + " " +
+            ui->lineConform->toPlainText();
+
+    QStringList ambiguous;
+    for (const QChar c : {'A','B','C','D','E','F'}) {
+        const QRegularExpression re("\\b" + QString(c) + "\\b");
+        if (metricBody.contains(re) && conditions.contains(re))
+            ambiguous << QString(c);
+    }
+
+    // Firma = corpo metrico + condizioni: cambia solo quando l'utente edita
+    // metrica o condizioni, non quando muove gli slider o avanza l'animazione.
+    const QString sig = metricBody + "\x1f" + conditions;
+    if (sig == m_lastAmbiguousConstSig) return;
+    m_lastAmbiguousConstSig = sig;
+
+    if (!ambiguous.isEmpty())
+        InputValidator::showMetricAmbiguousConstantWarning(this, ambiguous);
+}
+
+// La mappa di visualizzazione di uno script metrico è "custom" se non è la
+// carta identità (x=U, y=V, z=W, p=0). Solo in quel caso va salvata nel preset.
+bool MainWindow::metricDisplayMapIsCustom() const
+{
+    auto norm = [](QString s) { return s.trimmed().remove(' '); };
+    const QString x = norm(ui->lineX->toPlainText());
+    const QString y = norm(ui->lineY->toPlainText());
+    const QString z = norm(ui->lineZ->toPlainText());
+    const QString p = norm(ui->lineP->toPlainText());
+    const bool isIdentity = (x == "U") && (y == "V") && (z == "W") &&
+                            (p == "0" || p.isEmpty());
+    return !isIdentity;
+}
+
+void MainWindow::writeMetricDisplayMap(QJsonObject& root) const
+{
+    if (m_metricScriptBody.trimmed().isEmpty()) return;   // non in modalità metrica
+    if (!metricDisplayMapIsCustom()) return;              // identità: non serve salvarla
+
+    QJsonObject map;
+    map["x"] = ui->lineX->toPlainText();
+    map["y"] = ui->lineY->toPlainText();
+    map["z"] = ui->lineZ->toPlainText();
+    map["p"] = ui->lineP->toPlainText();
+    root["metricDisplayMap"] = map;
+}
+
+// Spegne la modalità metrica ovunque essa termini (reset, cambio tab, run di
+// uno script non metrico, caricamento preset): oltre ad azzerare il corpo
+// dello script, la macchina a stati va rieseguita per riabilitare i campi
+// X/Y/Z/P e le tab Constraints/Composition bloccate da runMetricScript.
+void MainWindow::exitMetricScriptMode()
+{
+    if (m_metricScriptBody.isEmpty()) return;
+    m_metricScriptBody.clear();
+    checkParametricDependency();
 }
 
 void MainWindow::onApplyTextureScriptClicked()
@@ -5366,6 +5636,7 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
     m_soundScriptText.clear();
 
     m_surfaceScriptText.clear();
+    exitMetricScriptMode();
     ui->txtScriptEditor->blockSignals(true);
     ui->txtScriptEditor->clear();
     ui->txtScriptEditor->blockSignals(false);
@@ -5615,6 +5886,7 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
         ui->lineP->clear();
         m_surfaceTextureCode.clear();
         m_surfaceScriptText.clear();
+        exitMetricScriptMode();
 
         ui->txtScriptEditor->blockSignals(true);
         ui->txtScriptEditor->clear();
@@ -7290,16 +7562,31 @@ void MainWindow::applyCommonData(const LibraryItem &d)
         m_surfaceScriptText = d.scriptCode;
         this->setProperty("rawSurfaceScript", d.scriptCode);
 
+        // Reset modalità metrica: se lo script caricato è metrico la riattiva
+        // onRunScriptClicked più sotto.
+        exitMetricScriptMode();
+
         // Blocca i segnali prima di fare clear per non innescare reset indesiderati
         bool bX = ui->lineX->blockSignals(true);
         bool bY = ui->lineY->blockSignals(true);
         bool bZ = ui->lineZ->blockSignals(true);
         bool bP = ui->lineP->blockSignals(true);
 
-        ui->lineX->clear();
-        ui->lineY->clear();
-        ui->lineZ->clear();
-        ui->lineP->clear();
+        if (d.hasMetricMap) {
+            // Script metrico con mappa di visualizzazione custom (es. Flamm):
+            // ripristiniamo la mappa nei campi prima del Run, così
+            // runMetricScript la riconosce (cita U/V/W) e non la sovrascrive
+            // con la carta identità.
+            ui->lineX->setPlainText(d.metricMapX);
+            ui->lineY->setPlainText(d.metricMapY);
+            ui->lineZ->setPlainText(d.metricMapZ);
+            ui->lineP->setPlainText(d.metricMapP);
+        } else {
+            ui->lineX->clear();
+            ui->lineY->clear();
+            ui->lineZ->clear();
+            ui->lineP->clear();
+        }
 
         // Ripristina i segnali
         ui->lineX->blockSignals(bX);
@@ -7348,8 +7635,14 @@ void MainWindow::applyCommonData(const LibraryItem &d)
 
             applyAnimationState(hasTimeVariable(d.scriptCode));
         } else {
-            // Esecuzione Parametrica standard
+            // Esecuzione Parametrica standard. Durante il load di un preset lo
+            // stato salvato (limiti, costanti, steps e condizioni iniziali,
+            // già ripristinati più sopra, eventualmente modificati dall'utente
+            // dopo il Run) ha la precedenza sulle direttive := di un eventuale
+            // script metrico: al load riempiono solo i campi rimasti vuoti.
+            m_metricPresetLoad = true;
             onRunScriptClicked();
+            m_metricPresetLoad = false;
         }
 
         updateScriptButtonText();
@@ -7363,6 +7656,7 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     else {
         ui->glWidget->setScriptCheck(false);
         m_surfaceScriptText.clear();
+        exitMetricScriptMode();
 
         if (d.isImplicitMode) {
             ui->lineEquation->setPlainText(d.implicitEq);
@@ -8510,6 +8804,13 @@ bool MainWindow::updateGeodesicMesh()
         }
     }
 
+    // Avviso "costante ambigua" (una sola volta per configurazione): la stessa
+    // A..F nella metrica e nelle condizioni iniziali rende lo slider ambiguo.
+    // Qui intercetta anche le modifiche fatte dal dock, che non passano da
+    // runMetricScript. Non durante i tick di animazione, per non interromperla.
+    if (!m_inGeoAnimTick)
+        checkMetricConstantAmbiguity();
+
     // Recupera la mappa delle costanti (già calcolate a cascata da onStartClicked)
     QMap<QString, float> constantsMap = ui->glWidget->getConstantsMap();
 
@@ -8522,6 +8823,7 @@ bool MainWindow::updateGeodesicMesh()
                 rawU, rawV, rawW,
                 rawDU, rawDV, rawDW,
                 rawConf,
+                m_metricScriptBody,
                 uMin, uMax, safeSteps,
                 vMin, vMax, safeSteps,
                 constantsMap,
@@ -8546,7 +8848,7 @@ bool MainWindow::updateGeodesicMesh()
     }
 
     // 4. APPLICHIAMO IMMEDIATAMENTE IL RISULTATO (grid non vuota: verificato sopra)
-    if (!ui->glWidget->setCustomMesh(grid)) {
+    if (!ui->glWidget->setCustomMesh(grid, !m_metricScriptBody.trimmed().isEmpty())) {
         m_geodesicErrorPending = true;
         if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
         this->setProperty("geoErrorType", "singularity");
@@ -8560,7 +8862,8 @@ bool MainWindow::updateGeodesicMesh()
     // 5. LOGICA DEL TIMER CPU PER ANIMAZIONI
     QString geoEqs = rawX + " " + rawY + " " + rawZ + " " + rawP + " " +
             rawU + " " + rawV + " " + rawW + " " +
-            rawDU + " " + rawDV + " " + rawDW + " " + rawConf;
+            rawDU + " " + rawDV + " " + rawDW + " " + rawConf + " " +
+            m_metricScriptBody;
 
     bool hasTime = hasTimeVariable(geoEqs);
 
@@ -8599,10 +8902,24 @@ bool MainWindow::updateGeodesicMesh()
         });
     }
 
-    if (hasTime && m_btnStart && m_btnStart->text() == "STOP") {
-        if (!m_geoAnimTimer->isActive()) m_geoAnimTimer->start();
+    // Il timer del ricalcolo geodetico (animazione di t nella metrica/condizioni)
+    // dipende dallo stato logico "in moto", non dal TESTO del bottone: al primo
+    // Start il bottone diventa "STOP" solo dopo updateGeodesicMesh, quindi qui
+    // leggerlo darebbe ancora "START" e il timer non partirebbe mai.
+    if (hasTime && !m_masterStopped) {
+        if (!m_geoAnimTimer->isActive()) {
+            m_geoAnimTimer->start();
+            // Il bottone master deve riflettere subito il timer appena avviato,
+            // senza dipendere dal fatto che un chiamante a valle richiami
+            // updateMasterButtonState: lo facciamo qui, fuori dai tick (durante
+            // l'animazione il bottone è già coerente e non va ritoccato).
+            if (!m_inGeoAnimTick) updateMasterButtonState();
+        }
     } else {
-        if (m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
+        if (m_geoAnimTimer->isActive()) {
+            m_geoAnimTimer->stop();
+            if (!m_inGeoAnimTick) updateMasterButtonState();
+        }
     }
 
     setProperty("geoErrorShown", false);
@@ -8629,8 +8946,11 @@ void MainWindow::checkAndTriggerMeshUpdate() {
     // 3. Verifica presenza campi Geodetici
     bool geoHasText = hasGeodesicText();
 
-    // 4. Routing: se Geodetico è attivo e siamo nel tab Parametrico (0), usa il calcolatore Tensoriale
-    if ((upperCount > 0) && geoHasText && (ui->tabModeSelector->currentIndex() == 0)) {
+    // 4. Routing: se Geodetico è attivo e siamo nel tab Parametrico (0), usa il
+    // calcolatore Tensoriale. Lo script metrico forza il routing geodetico anche
+    // se la mappa di visualizzazione X/Y/Z/P non cita U/V/W.
+    const bool metricScriptActive = !m_metricScriptBody.trimmed().isEmpty();
+    if ((upperCount > 0 || metricScriptActive) && geoHasText && (ui->tabModeSelector->currentIndex() == 0)) {
         if (m_geodesicErrorPending) return;
 
         bool success = updateGeodesicMesh();

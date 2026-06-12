@@ -37,6 +37,92 @@ vec4 evalS(float U, float V, float W) { return vec4(/*%X_EQ%*/, /*%Y_EQ%*/, /*%Z
 vec3 getInitialPos(float u) { return vec3(/*%U_EQ%*/, /*%V_EQ%*/, /*%W_EQ%*/); }
 vec3 getInitialVel(float u) { return vec3(/*%DU_EQ%*/, /*%DV_EQ%*/, /*%DW_EQ%*/); }
 
+// =====================================================================
+// MODALITA' METRICA (script): il tensore g_ij arriva da uno script che
+// restituisce un mat3(U,V,W), invece di essere indotto dall'embedding.
+// In questa modalità evalS resta in uso solo come mappa di
+// visualizzazione delle coordinate (U,V,W) -> spazio 3D/4D.
+// =====================================================================
+const bool USE_METRIC = /*%USE_METRIC%*/;
+
+mat3 evalMetric(float U, float V, float W) {
+    float u = U; float v = V; float w = W;
+    /*%METRIC_BODY%*/
+}
+
+// Simmetrizzazione difensiva: tutta la geometria sotto assume g_ij = g_ji.
+mat3 evalMetricSym(float U, float V, float W) {
+    mat3 m = evalMetric(U, V, W);
+    return 0.5 * (m + transpose(m));
+}
+
+vec3 getAccelerationsMetric(vec3 p, vec3 vel) {
+    float h = 0.05;
+
+    // Fattore conforme Lambda: metrica effettiva = Lambda * g, come in
+    // modalità embedding.
+    float L_val = evalLambda(p.x, p.y, p.z);
+    if (L_val <= 1e-6) return vec3(SAFE_ERR);
+
+    vec3 Lgrad = vec3(
+        (evalLambda(p.x + h, p.y, p.z) - evalLambda(p.x - h, p.y, p.z)) / (2.0 * h),
+        (evalLambda(p.x, p.y + h, p.z) - evalLambda(p.x, p.y - h, p.z)) / (2.0 * h),
+        (evalLambda(p.x, p.y, p.z + h) - evalLambda(p.x, p.y, p.z - h)) / (2.0 * h));
+
+    mat3 g = evalMetricSym(p.x, p.y, p.z);
+
+    // Derivate parziali del tensore: dg[i] = d(g)/dx^i
+    mat3 dg[3];
+    dg[0] = (evalMetricSym(p.x + h, p.y, p.z) - evalMetricSym(p.x - h, p.y, p.z)) / (2.0 * h);
+    dg[1] = (evalMetricSym(p.x, p.y + h, p.z) - evalMetricSym(p.x, p.y - h, p.z)) / (2.0 * h);
+    dg[2] = (evalMetricSym(p.x, p.y, p.z + h) - evalMetricSym(p.x, p.y, p.z - h)) / (2.0 * h);
+
+    // Inversa con lo stesso fallback 2D/3D della modalità embedding
+    mat3 ginv = mat3(0.0);
+    if (abs(g[2][2]) < 1e-6 && abs(g[0][2]) < 1e-6 && abs(g[1][2]) < 1e-6) {
+        float det2D = g[0][0] * g[1][1] - g[0][1] * g[0][1];
+        if (abs(det2D) < 1e-8) return vec3(SAFE_ERR);
+        float invDet2D = 1.0 / det2D;
+        ginv[0][0] =  g[1][1] * invDet2D;
+        ginv[0][1] = -g[0][1] * invDet2D;
+        ginv[1][0] = -g[0][1] * invDet2D;
+        ginv[1][1] =  g[0][0] * invDet2D;
+    } else {
+        float det = determinant(g);
+        if (abs(det) < 1e-6) return vec3(SAFE_ERR);
+        ginv = inverse(g);
+    }
+
+    // G^k = g^kl * d_l(Lambda), per la correzione conforme
+    vec3 Gvec = ginv * Lgrad;
+
+    vec3 acc = vec3(0.0);
+    for (int k = 0; k < 3; ++k) {
+        float a_k = 0.0;
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                // Christoffel intrinseco: Gamma^k_ij = 1/2 g^kl (d_i g_jl + d_j g_il - d_l g_ij)
+                float gamma = 0.0;
+                for (int l = 0; l < 3; ++l) {
+                    gamma += ginv[k][l] * (dg[i][j][l] + dg[j][i][l] - dg[l][i][j]);
+                }
+                gamma *= 0.5;
+
+                // Correzione conforme, identica a getGammaConformal
+                float d_ki = (k == i) ? 1.0 : 0.0;
+                float d_kj = (k == j) ? 1.0 : 0.0;
+                gamma += (d_ki * Lgrad[j] + d_kj * Lgrad[i] - g[i][j] * Gvec[k]) / (2.0 * L_val);
+
+                a_k -= gamma * vel[i] * vel[j];
+            }
+        }
+        acc[k] = a_k;
+    }
+
+    if (length(acc) > 1000.0) return vec3(SAFE_ERR);
+    return acc;
+}
+
 float getGammaConformal(vec4 S_ij, int k, int i, int j,
                         float g11, float g12, float g13, float g22, float g23, float g33,
                         float g_inv11, float g_inv12, float g_inv13, float g_inv22, float g_inv23, float g_inv33,
@@ -77,6 +163,8 @@ float getGammaConformal(vec4 S_ij, int k, int i, int j,
 }
 
 vec3 getAccelerations(vec3 p, vec3 vel) {
+    if (USE_METRIC) return getAccelerationsMetric(p, vel);
+
     float h = 0.05;
 
     // Gradiente del fattore conforme Lambda
