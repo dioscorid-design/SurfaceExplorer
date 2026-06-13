@@ -146,8 +146,15 @@ bool GeodesicCalculator::rebuildPipeline(QRhi* rhi,
 
     // Script metrico: corpo GLSL multilinea (non un'espressione), tradotto
     // qui come gli script parametrici. Vuoto => modalità embedding classica.
-    const QString metricBody = GlslTranslator::translateEquation(eqMetric);
-    const bool useMetric = !metricBody.trimmed().isEmpty();
+    // La decisione va presa sull'input GREZZO: translateEquation() restituisce
+    // "0.0" per un input vuoto o di soli spazi (come m_metricScriptBody quando
+    // lo script ha solo direttive U:=/dU:=/...), e quel "0.0" è non-vuoto. Senza
+    // questo guard useMetric diventerebbe true per un flusso geodetico classico
+    // e il template inietterebbe "0.0" (senza return/;) in evalMetric, rompendo
+    // la compilazione con "unexpected RIGHT_BRACE" sul } che lo segue.
+    const bool useMetric = !eqMetric.trimmed().isEmpty();
+    const QString metricBody = useMetric ? GlslTranslator::translateEquation(eqMetric)
+                                         : QString();
     source.replace("/*%USE_METRIC%*/", useMetric ? "true" : "false");
     source.replace("/*%METRIC_BODY%*/", useMetric ? metricBody : "return mat3(1.0);");
     // (il flag entra in Cached più sotto, dopo la creazione)

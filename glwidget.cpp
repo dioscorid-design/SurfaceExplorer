@@ -195,14 +195,22 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         mv.setToIdentity();
     } else {
         m_projection.setToIdentity();
+        // Piani near/far scalati con la distanza della camera. Un far fisso a
+        // 100 tagliava la parte lontana di oggetti grandi quando si rimpicciolisce
+        // (la camera arretra oltre i 100). Scalando NEAR e FAR insieme il rapporto
+        // far/near resta costante (~10000, come l'originale 0.01:100), quindi la
+        // precisione del depth buffer non peggiora (niente z-fighting/appiattimento)
+        // e a camDist=4 si riottengono esattamente i valori storici.
+        float camDist = m_cameraPos.length();
+        if (camDist < 0.1f) camDist = 4.0f;
+        const float nearPlane = camDist * 0.0025f;
+        const float farPlane  = camDist * 25.0f;
         if (projectionMode == Ortho4D) {
-            float dist = m_cameraPos.length();
-            if (dist < 0.1f) dist = 4.0f;
-            float halfHeight = dist * std::tan(45.0f * 0.5f * M_PI / 180.0f);
+            float halfHeight = camDist * std::tan(45.0f * 0.5f * M_PI / 180.0f);
             float halfWidth = halfHeight * aspect;
-            m_projection.ortho(-halfWidth, halfWidth, -halfHeight, halfHeight, 0.1f, 100.0f);
+            m_projection.ortho(-halfWidth, halfWidth, -halfHeight, halfHeight, nearPlane, farPlane);
         } else {
-            m_projection.perspective(45.0f, aspect, 0.01f, 100.0f);
+            m_projection.perspective(45.0f, aspect, nearPlane, farPlane);
         }
 
         m_view.setToIdentity();
@@ -1768,10 +1776,14 @@ void GLWidget::resetTransformations()
     nutation = 0.0f;
     spin = 0.0f;
 
-    // Manteniamo un offset sicuro per evitare lo Z-Fighting in 4D
-    omega = 0.1f;
-    phi = 0.1f;
-    psi = 0.1f;
+    // Manteniamo un offset sicuro per evitare lo Z-Fighting in 4D.
+    // Deve combaciare col valore usato all'avvio e nel guard di onStartClicked
+    // (0.0001): un 0.1 introdurrebbe una rotazione XW/YW/ZW reale che, proiettata
+    // 4D->3D, deforma in modo asimmetrico le superfici con componente P costruite
+    // dopo un giro nei tab (Parametric->Ray Marching->Parametric).
+    omega = 0.0001f;
+    phi = 0.0001f;
+    psi = 0.0001f;
 
     // =======================================================
     // FIX 1: SALVAVITA ZOOM 3D (Risolve l'effetto "Gigante")
@@ -2740,12 +2752,21 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
     }
     else if (safeLogic.contains("mainImage")) {
         // Supporto Shadertoy
+
+        // Molti shader Shadertoy ignorano il parametro 'fragCoord' di mainImage e
+        // leggono direttamente gl_FragCoord (la posizione del pixel sullo schermo).
+        // gl_FragCoord scavalca la nostra trasformazione flat (zoom/pan/rotazione),
+        // così la texture in vista 2D non rispondeva al mouse. La rimappiamo su una
+        // variabile globale che impostiamo al fragCoord trasformato prima di mainImage.
+        safeLogic.replace(QRegularExpression("\\bgl_FragCoord\\b"), "_st_fragCoord");
+
         QString stHelpers = "vec3 iResolution;\n"
                             "float iTime;\n"
                             "float iTimeDelta;\n"
                             "int iFrame;\n"
                             "vec4 iMouse;\n"
                             "vec4 iDate;\n"
+                            "vec4 _st_fragCoord;\n"
                             "#define iChannel0 tex\n"
                             "#define iChannel1 tex\n"
                             "#define iChannel2 tex\n"
@@ -2767,8 +2788,10 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
         codeToInject = samplerDecl + stHelpers + safeLogic + "\n"
                                                              "vec3 getCustomColor(vec2 in_uv) {\n"
                        + helpers + initVars +
+                       "    vec2 _st_coord = uv * iResolution.xy;\n"
+                       "    _st_fragCoord = vec4(_st_coord, 0.0, 1.0);\n"
                        "    vec4 fragColor_out;\n"
-                       "    mainImage(fragColor_out, uv * iResolution.xy);\n"
+                       "    mainImage(fragColor_out, _st_coord);\n"
                        "    return fragColor_out.rgb;\n"
                        "}\n";
     }

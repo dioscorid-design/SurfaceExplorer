@@ -3037,6 +3037,24 @@ void MainWindow::performMasterStop()
     updateMasterButtonState();
 }
 
+void MainWindow::performEquationsStop()
+{
+    // Stop del dock Equations: ferma SOLO l'orologio della geometria
+    // principale e il flusso geodetico. Texture, sfondo, rotazioni, path e
+    // audio restano sotto il controllo del master.
+    if (ui->glWidget) {
+        ui->glWidget->setSurfaceAnimating(false);
+    }
+
+    if (m_geoAnimTimer && m_geoAnimTimer->isActive()) {
+        m_geoAnimTimer->stop();
+    }
+
+    // Riallinea i pulsanti (il dock torna a "Run", il master a STOP/START a
+    // seconda di cosa resta in movimento).
+    updateMasterButtonState();
+}
+
 bool MainWindow::hasAnyRotationSpeed() const
 {
     return std::abs(ui->glWidget->getNutationSpeed()) > 0.001f ||
@@ -3659,6 +3677,15 @@ void MainWindow::onStartClicked()
     // Run del dock Equations: agisce SOLO sul modulo equazioni (applica e
     // riavvia il suo orologio), senza toccare rotazioni, path e audio.
     const bool runDockOnly = (sender() == ui->btnRunParametric);
+
+    // --- 0. STOP DEL DOCK EQUATIONS ---
+    // Se il tasto del dock mostra "Stop", interrompe SOLO l'animazione delle
+    // equazioni (orologio geometria + flusso geodetico), lasciando intatti
+    // rotazioni, path, texture e audio gestiti dal master.
+    if (runDockOnly && ui->btnRunParametric->text().toUpper() == "STOP") {
+        performEquationsStop();
+        return;
+    }
 
     // --- 1. BLOCCO STOP GLOBALE (MASTER) ---
     if (m_btnStart && m_btnStart->text().toUpper() == "STOP") {
@@ -4725,8 +4752,11 @@ void MainWindow::onRunCurrentScript()
     // 2. Salva e avvia in base alla modalità attuale
     if (m_currentScriptMode == ScriptModeSurface) {
         if (ui->btnRunCurrentScript->text().startsWith("Stop")) {
-            if (ui->glWidget) ui->glWidget->setSurfaceAnimating(false);
-            updateMasterButtonState();
+            // Ferma SOLO il modulo geometria: orologio shader della superficie
+            // e, per gli script metrici, il flusso geodetico (m_geoAnimTimer).
+            // Timer condiviso col dock Equations: performEquationsStop() ferma
+            // entrambe le sorgenti di 't' e riallinea i due tasti a "Run".
+            performEquationsStop();
             return;
         }
 
@@ -4988,19 +5018,26 @@ void MainWindow::runMetricScript(const QString& fullText)
     this->setProperty("rawSurfaceScript", fullText);
     m_surfaceScriptText = fullText;
 
-    // Applica le direttive := (limiti U/V/W, costanti A..F, steps). Al
-    // caricamento di un preset NON vanno riapplicate: limiti, costanti e
-    // steps salvati (già ripristinati da applyCommonData) hanno la precedenza,
-    // altrimenti le modifiche fatte dall'utente dopo il Run andrebbero perse.
+    // Direttive := (limiti U/V/W, costanti A..F, steps). Al caricamento di un
+    // preset NON vanno riapplicate: limiti/costanti/steps salvati (già
+    // ripristinati da applyCommonData) hanno la precedenza. Al Run MANUALE vince
+    // lo stato UI corrente, esattamente come il tasto Run del dock Equations
+    // (onlyFillEmptyLimits): una direttiva di limite riempie solo il campo
+    // ancora vuoto, costanti e steps non vengono mai reimposti dallo script.
+    // Così i due tasti producono la stessa superficie (niente rimpicciolimento
+    // da v_min/v_max := che sovrascrivevano i limiti del dock).
     if (!m_metricPresetLoad)
-        parseAndApplyScriptParams(fullText, false);
+        parseAndApplyScriptParams(fullText, false, /*onlyFillEmptyLimits=*/true);
 
     // Condizioni iniziali dichiarate nello script: le direttive case-sensitive
     // U/V/W/dU/dV/dW/Conform := espressione; vengono copiate verbatim nei campi
     // della tab Geodesic Flow (possono citare il parametro di famiglia u). Così
     // lo script metrico è autosufficiente: metrica + condizioni iniziali.
-    // Al caricamento di un preset riempiono solo i campi rimasti vuoti:
-    // valgono i campi salvati.
+    // Vince SEMPRE lo stato UI corrente (come i limiti e come il Run del dock
+    // Equations): una direttiva riempie SOLO il campo ancora vuoto, mai
+    // sovrascrive una condizione già presente nel dock — né al caricamento di un
+    // preset né al Run manuale. Altrimenti il Run dello script ripristinerebbe le
+    // condizioni dello script difformi da quelle correntemente in uso nel dock.
     {
         static const QRegularExpression icRegex(
             R"(\b(U|V|W|dU|dV|dW|Conform|conform)\s*:=\s*([^;]+);)");
@@ -5021,7 +5058,7 @@ void MainWindow::runMetricScript(const QString& fullText)
             else                   field = ui->lineConform;
 
             if (!field) continue;
-            if (m_metricPresetLoad && !field->toPlainText().trimmed().isEmpty())
+            if (!field->toPlainText().trimmed().isEmpty())
                 continue;
 
             bool old = field->blockSignals(true);
@@ -7917,7 +7954,8 @@ QString MainWindow::composeEquation(const QString &eq, const QString &uDef, cons
     return res;
 }
 
-void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool restartAudio)
+void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool restartAudio,
+                                           bool onlyFillEmptyLimits)
 {
     QRegularExpression re(R"(\b(u_min|u_max|v_min|v_max|w_min|w_max|steps|A|B|C|D|E|F|S)\b\s*[:=]+\s*([^;]+);)",
                           QRegularExpression::CaseInsensitiveOption);
@@ -7946,13 +7984,24 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
         // Usiamo il tuo parser per calcolare il valore (es. "2*PI" -> 6.28)
         float value = ExpressionParser::evaluateSimple(valStr);
 
+        // onlyFillEmptyLimits (Run manuale dello script metrico): vince lo stato
+        // UI corrente, come il tasto Run del dock Equations. Una direttiva di
+        // limite scrive SOLO nel campo ancora vuoto; costanti A..F/S e steps non
+        // vengono mai riapplicate (restano quelle della UI/slider).
+        auto setLimitIfAllowed = [&](QLineEdit* edit) {
+            if (onlyFillEmptyLimits && !edit->text().trimmed().isEmpty()) return;
+            edit->setText(QString::number(value, 'g', 12));
+            limitsChanged = true;
+        };
+
         // Funzione per impostare valore E range dinamico dagli script
-        if (varName == "u_min") { ui->uMinEdit->setText(QString::number(value, 'g', 12)); limitsChanged = true; }
-        else if (varName == "u_max") { ui->uMaxEdit->setText(QString::number(value, 'g', 12)); limitsChanged = true; }
-        else if (varName == "v_min") { ui->vMinEdit->setText(QString::number(value, 'g', 12)); limitsChanged = true; }
-        else if (varName == "v_max") { ui->vMaxEdit->setText(QString::number(value, 'g', 12)); limitsChanged = true; }
-        else if (varName == "w_min") { ui->wMinEdit->setText(QString::number(value, 'g', 12)); limitsChanged = true; }
-        else if (varName == "w_max") { ui->wMaxEdit->setText(QString::number(value, 'g', 12)); limitsChanged = true; }
+        if (varName == "u_min") { setLimitIfAllowed(ui->uMinEdit); }
+        else if (varName == "u_max") { setLimitIfAllowed(ui->uMaxEdit); }
+        else if (varName == "v_min") { setLimitIfAllowed(ui->vMinEdit); }
+        else if (varName == "v_max") { setLimitIfAllowed(ui->vMaxEdit); }
+        else if (varName == "w_min") { setLimitIfAllowed(ui->wMinEdit); }
+        else if (varName == "w_max") { setLimitIfAllowed(ui->wMaxEdit); }
+        else if (onlyFillEmptyLimits) { continue; }  // costanti/steps: vince la UI
         else if (varName == "steps") { ui->stepSlider->setValue((int)value); }
         else if (varName == "a") { ui->aSlider->setValue(static_cast<int>(value * 100.0f)); }
         else if (varName == "b") { ui->bSlider->setValue(static_cast<int>(value * 100.0f)); }
@@ -8217,7 +8266,12 @@ void MainWindow::updateScriptButtonText() {
 
         // Lo stato del tasto rispecchia DIRETTAMENTE l'orologio della geometria,
         // non il testo dell'editor (vuoto al load per i record impliciti non-script).
-        bool isSurfaceMoving = ui->glWidget && ui->glWidget->isSurfaceAnimating();
+        // Per gli script metrici la geometria è la mesh geodetica (ricalcolo CPU
+        // via m_geoAnimTimer), non lo shader della superficie: vanno considerati
+        // entrambi i clock, così il tasto resta sincronizzato col dock Equations.
+        bool geoFlowRunning = (m_geoAnimTimer && m_geoAnimTimer->isActive());
+        bool isSurfaceMoving = (ui->glWidget && ui->glWidget->isSurfaceAnimating())
+                || geoFlowRunning;
 
         if (isRayMarching) {
             ui->btnScriptMode->setText("Implicit Surface");
@@ -8417,7 +8471,15 @@ void MainWindow::updateMasterButtonState()
         }
 
         bool geomHasTime = hasTimeVariable(mainEq);
+        bool geoFlowRunning = (m_geoAnimTimer && m_geoAnimTimer->isActive());
         bool isGeomVisuallyMoving = geomClockRunning && geomHasTime;
+
+        // Il tasto Run del dock Equations riflette SOLO il modulo equazioni:
+        // mostra "Stop" se la geometria o il flusso geodetico sono in moto.
+        if (ui->btnRunParametric) {
+            bool eqModuleMoving = isGeomVisuallyMoving || geoFlowRunning;
+            ui->btnRunParametric->setText(eqModuleMoving ? "Stop" : "Run");
+        }
 
         // B. Orologio della Texture di Superficie
         bool isSurfTexActive = ui->radioBackground->isChecked() ? m_surfaceTextureState : ui->chkBoxTexture->isChecked();

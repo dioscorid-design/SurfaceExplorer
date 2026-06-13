@@ -32,6 +32,10 @@ Thumbs.db
 *~
 *.swp
 
+# --- Local notes (not for upload) ---
+# Personal reference notes kept out of the repository
+docs/
+
 # --- Python ---
 __pycache__/
 *.pyc

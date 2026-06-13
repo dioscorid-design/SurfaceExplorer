@@ -68,6 +68,7 @@ private slots:
     void updateConstraintState();
     void updateConstantsUIState();
     void performMasterStop();
+    void performEquationsStop();
     void applyStartSideEffects();
 
     // ==========================================================
@@ -315,7 +316,8 @@ private:
     struct CascadeConstants { float a, b, c, d, e, f, s; };
     CascadeConstants resolveCascadeConstants(bool restoreTextOnNegative);
     QString composeEquation(const QString &eq, const QString &uDef, const QString &vDef, const QString &wDef);
-    void parseAndApplyScriptParams(const QString &scriptCode, bool restartAudio = true);
+    void parseAndApplyScriptParams(const QString &scriptCode, bool restartAudio = true,
+                                   bool onlyFillEmptyLimits = false);
     bool hasTimeVariable(const QString& code);
     QString extractAndResolveImagePath(const QString& scriptCode);
     QString extractAudioDirectives(const QString& fullText);
