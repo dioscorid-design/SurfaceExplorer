@@ -24,6 +24,8 @@ install_manifest.txt
 .qtc_clangd/
 .cmake/
 .qtcreator/
+.vscode/
+.claude/
 
 # --- System and Temporary files ---
 # OS-generated files and editor swap files
