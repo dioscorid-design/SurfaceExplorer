@@ -2603,6 +2603,11 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
     // 1. Carica il template
     QString vertexTemplate = loadShaderSource(":/shaders/surface.vert");
     QString commonCode = loadShaderSource(":/shaders/common.glsl");
+    // Libreria di solver per variabili implicite (Kerr, Kruskal, ...): la stessa
+    // iniettata nel flusso geodetico. Resa disponibile anche alle superfici
+    // PARAMETRICHE così i campi x/y/z possono chiamare kerrRadius/kerrEmbedZ ecc.
+    // (es. imbuto equatoriale di Kerr come superficie di rivoluzione).
+    QString implicitCode = loadShaderSource(":/shaders/implicit.glsl");
 
     // 2. RIMUOVE QUALSIASI INTESTAZIONE ESISTENTE
     QRegularExpression headerCleanup("^\\s*(#version|precision).*\n", QRegularExpression::MultilineOption);
@@ -2617,7 +2622,7 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
     }
     )";
 
-    QString source = header + "\n" + safePowDef + "\n" + commonCode + "\n" + vertexTemplate;
+    QString source = header + "\n" + safePowDef + "\n" + commonCode + "\n" + implicitCode + "\n" + vertexTemplate;
 
     auto sanitizeEq = [](const QString &s) {
         // 1. Traduce potenze e costanti (pi, e)

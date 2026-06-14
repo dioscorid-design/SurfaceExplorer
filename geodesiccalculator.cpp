@@ -118,6 +118,18 @@ bool GeodesicCalculator::rebuildPipeline(QRhi* rhi,
     }
     QString source = QTextStream(&file).readAll();
 
+    // Libreria di solver per variabili definite implicitamente (Kerr, Kruskal,
+    // ...). Iniettata prima di evalMetric così il corpo metrico dello script può
+    // chiamarne le funzioni. Se il file manca, sostituiamo con stringa vuota: gli
+    // script che non usano i solver continuano a compilare.
+    {
+        QString implicitLib;
+        QFile implicitFile(":/shaders/implicit.glsl");
+        if (implicitFile.open(QIODevice::ReadOnly | QIODevice::Text))
+            implicitLib = QTextStream(&implicitFile).readAll();
+        source.replace("/*%IMPLICIT_LIB%*/", implicitLib);
+    }
+
     // Costanti dal JSON, iniettate subito sotto #version
     QString constantsGLSL = "\n// Costanti dal file JSON\n";
     for (auto it = constants.constBegin(); it != constants.constEnd(); ++it) {

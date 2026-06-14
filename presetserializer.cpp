@@ -944,6 +944,20 @@ void PresetSerializer::saveScript()
     if (fileName.isEmpty()) return;
     if (!fileName.endsWith(".json", Qt::CaseInsensitive)) fileName += ".json";
 
+    // Conferma sovrascrittura: il dialog è aperto con DontUseNativeDialog (e su
+    // mobile con MobileSaveDialog), che NON mostrano il prompt nativo di
+    // sovrascrittura. Senza questo controllo saveScript rimpiazzava un file
+    // esistente in silenzio (il backup di backupBeforeOverwrite è muto). Chiediamo
+    // conferma esplicita, così l'utente non perde un preset per sbaglio.
+    if (QFile::exists(fileName)) {
+        const QMessageBox::StandardButton choice = QMessageBox::question(
+            m_mainWindow, "Sovrascrivere il file?",
+            QString("Il file \"%1\" esiste già.\n\nVuoi sovrascriverlo?")
+                .arg(QFileInfo(fileName).fileName()),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (choice != QMessageBox::Yes) return;
+    }
+
     QJsonObject root;
 
     // Aggiungiamo il nome estratto dal percorso

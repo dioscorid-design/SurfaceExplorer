@@ -610,6 +610,13 @@ bool InputValidator::validateIdentifiers(QWidget* parent, const QString& expr,
         // funzioni di common.glsl (progetto)
         "sys_hash", "sys_noise", "NoiseW",
 
+        // solver per variabili implicite (shaders/implicit.glsl): chiamabili
+        // dal corpo metrico e dalla mappa di visualizzazione x/y/z.
+        "solveKerrR", "solveQuadraticPos", "clampPositive",
+        "kerrGrr", "kerrGpp", "kerrRadius", "kerrRprime", "kerrEmbedZ", "kerrUmin",
+        "solveKruskalR",
+        "kruskalR_U", "kruskalGxx", "kruskalRprime", "kruskalEmbedZ",
+
         // altre funzioni GLSL standard talvolta utili
         "inverse", "transpose", "determinant",
         "radians", "degrees",

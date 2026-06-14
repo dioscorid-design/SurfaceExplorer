@@ -314,6 +314,7 @@
         <file>shaders/surface.frag</file>
         <file>shaders/common.glsl</file>
         <file>shaders/geodesic.glsl</file>
+        <file>shaders/implicit.glsl</file>
         <file>shaders/surface.vert</file>
         <file>shaders/raymarch_template.txt</file>
     </qresource>
@@ -325,6 +326,7 @@
         <file>shaders/surface.frag</file>
         <file>shaders/common.glsl</file>
         <file>shaders/geodesic.glsl</file>
+        <file>shaders/implicit.glsl</file>
         <file>shaders/surface.vert</file>
         <file>shaders/raymarch_template.txt</file>
     </qresource>

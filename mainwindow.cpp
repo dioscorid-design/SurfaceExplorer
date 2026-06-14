@@ -17,6 +17,7 @@
 #include <QPushButton>
 #include <QCheckBox>
 #include <QTimer>
+#include <QScopeGuard>
 #include <QAction>
 #include <QJsonObject>
 #include <QJsonDocument>
@@ -5163,11 +5164,28 @@ void MainWindow::checkMetricConstantAmbiguity()
     }
 
     const QString metricBody = stripCodeComments(m_metricScriptBody);
-    const QString conditions =
+    QString conditions =
             ui->lnU->toPlainText() + " " + ui->lnV->toPlainText() + " " +
             ui->lnW->toPlainText() + " " + ui->lndU->toPlainText() + " " +
             ui->lndV->toPlainText() + " " + ui->lndW->toPlainText() + " " +
             ui->lineConform->toPlainText();
+
+    // Uso COERENTE vs AMBIGUO. Una costante che compare in una condizione DENTRO
+    // una chiamata a un solver geometrico (kerrUmin(A,B), kerrRadius(...),
+    // solveKruskalR(...) ...) NON e' ambigua: sta calcolando il punto di partenza
+    // a partire dalla STESSA geometria della metrica (es. partire fuori
+    // dall'orizzonte r_+(M,a)). Ambiguo e' invece l'uso scollegato (es.
+    // dV = A*cos(u), dove A apre il fascio mentre nella metrica e' la massa).
+    // Per distinguere, rimuoviamo dalle condizioni gli ARGOMENTI delle chiamate ai
+    // solver impliciti prima di cercare i token A..F: cosi' kerrUmin(A,min(B,A))
+    // non conta, ma A*cos(u) si'.
+    {
+        const QRegularExpression solverCall(
+            "\\b(?:kerrUmin|kerrRadius|kerrEmbedZ|kerrGrr|kerrGpp|kerrRprime|"
+            "solveKerrR|kruskalR_U|kruskalGxx|kruskalRprime|kruskalEmbedZ|"
+            "solveKruskalR)\\s*\\([^()]*(?:\\([^()]*\\)[^()]*)*\\)");
+        conditions.remove(solverCall);
+    }
 
     QStringList ambiguous;
     for (const QChar c : {'A','B','C','D','E','F'}) {
@@ -7363,6 +7381,27 @@ void MainWindow::applyCommonData(const LibraryItem &d)
         m_geoAnimTimer->stop();
     }
 
+    // Reset dello stato d'errore geodetico: m_geodesicErrorPending è "appiccicoso"
+    // (resettato solo da updateGeodesicMesh in caso di successo). Se il preset
+    // precedente è degenerato in una singolarità il flag resta true e farebbe
+    // abortire updateGeodesicMesh (riga ~8748) per OGNI preset successivo,
+    // bloccando i caricamenti. Caricare un nuovo preset è proprio l'azione che
+    // deve ripulirlo, quindi lo azzeriamo qui insieme alle sue proprietà.
+    m_geodesicErrorPending = false;
+    setProperty("geoErrorShown", false);
+    setProperty("geoErrorType", "none");
+
+    // CRUCIALE per lo sblocco: quando updateGeodesicMesh parte con isInitialLoad
+    // disabilita gli update del glWidget (riga ~8798) e li riabilita SOLO in caso
+    // di successo (riga ~8931). Se il preset precedente è degenerato in
+    // singolarità, updateGeodesicMesh è uscito prima di riabilitarli → il
+    // glWidget resta congelato sull'ultima superficie valida e NESSUN preset
+    // successivo viene più disegnato (specie quelli non-geodetici, che non
+    // ripassano da updateGeodesicMesh). Riabilitiamoli qui, all'inizio di ogni
+    // caricamento.
+    if (ui->glWidget && !ui->glWidget->updatesEnabled())
+        ui->glWidget->setUpdatesEnabled(true);
+
     // Reset Telecamera e Rotazioni 3D/4D
     ui->glWidget->resetTransformations();
     ui->glWidget->resetTime();
@@ -8747,6 +8786,19 @@ bool MainWindow::updateGeodesicMesh()
 
     if (m_geodesicErrorPending) return false;
 
+    // GUARD RAII anti-congelamento: più sotto, con isInitialLoad, disabilitiamo
+    // gli update del glWidget (setUpdatesEnabled(false)) e li riabilitiamo solo
+    // nel ramo di successo. Ognuno dei numerosi `return false` di errore qui
+    // sotto, se raggiunto DOPO quella disabilitazione, lascerebbe il widget
+    // congelato sull'ultima mesh valida. Questo guard riabilita SEMPRE gli
+    // update all'uscita per errore (e su qualunque return futuro), e va
+    // disarmato esplicitamente solo sul percorso di successo.
+    bool meshSucceeded = false;
+    auto updatesGuard = qScopeGuard([this, &meshSucceeded]() {
+        if (!meshSucceeded && ui->glWidget && !ui->glWidget->updatesEnabled())
+            ui->glWidget->setUpdatesEnabled(true);
+    });
+
     // --- 1. LETTURA E VALIDAZIONE DEI LIMITI (U/V sempre attivi nel geodesic) ---
     QVector<InputValidator::LimitField> limitFields = {
         {ui->uMinEdit, true}, {ui->uMaxEdit, true},
@@ -8917,7 +8969,9 @@ bool MainWindow::updateGeodesicMesh()
         return false;
     }
 
-    // Ripristiniamo la UI post-caricamento (caso successo)
+    // Percorso di successo: disarma il guard anti-congelamento e ripristina la
+    // UI post-caricamento riabilitando gli update del glWidget.
+    meshSucceeded = true;
     if (ui->glWidget && !ui->glWidget->updatesEnabled())
         ui->glWidget->setUpdatesEnabled(true);
 
@@ -9017,6 +9071,16 @@ void MainWindow::checkAndTriggerMeshUpdate() {
 
         bool success = updateGeodesicMesh();
         if (!success) {
+            // Allinea il percorso Script al percorso dock (onStartClicked): se il
+            // flusso è degenerato in una singolarità, l'avviso va mostrato anche
+            // qui, altrimenti il Run dallo Script fallisce in silenzio. La guard
+            // geoErrorShown evita doppioni se più chiamanti si concatenano; i
+            // rami "nonfinite"/"syntax" mostrano già da soli il loro popup.
+            if (this->property("geoErrorType").toString() == "singularity"
+                    && !property("geoErrorShown").toBool()) {
+                setProperty("geoErrorShown", true);
+                InputValidator::showGeodesicSingularityError(this);
+            }
             return;
         }
     } else {

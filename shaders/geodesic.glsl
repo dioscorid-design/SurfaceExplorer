@@ -31,6 +31,12 @@ layout(std140, binding = 1) uniform TimeParams {
 // Definiamo un valore di errore sicuro che non richieda funzioni speciali
 const float SAFE_ERR = 99999.0;
 
+// Libreria di solver per variabili definite implicitamente (Kerr, Kruskal,
+// ...). Iniettata da geodesiccalculator.cpp PRIMA delle equazioni, così le sue
+// funzioni sono visibili sia alla mappa di visualizzazione evalS (embedding,
+// es. x = solveKruskalR(...)*cos(V)) sia al corpo metrico evalMetric.
+/*%IMPLICIT_LIB%*/
+
 // Equazioni iniettate
 float evalLambda(float U, float V, float W) { return /*%LAMBDA_EQ%*/; }
 vec4 evalS(float U, float V, float W) { return vec4(/*%X_EQ%*/, /*%Y_EQ%*/, /*%Z_EQ%*/, /*%P_EQ%*/); }
