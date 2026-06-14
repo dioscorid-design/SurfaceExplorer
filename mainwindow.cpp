@@ -5176,15 +5176,32 @@ void MainWindow::checkMetricConstantAmbiguity()
     // a partire dalla STESSA geometria della metrica (es. partire fuori
     // dall'orizzonte r_+(M,a)). Ambiguo e' invece l'uso scollegato (es.
     // dV = A*cos(u), dove A apre il fascio mentre nella metrica e' la massa).
-    // Per distinguere, rimuoviamo dalle condizioni gli ARGOMENTI delle chiamate ai
-    // solver impliciti prima di cercare i token A..F: cosi' kerrUmin(A,min(B,A))
-    // non conta, ma A*cos(u) si'.
+    // Per distinguere, rimuoviamo dalle condizioni le chiamate ai solver impliciti
+    // (nome + argomenti) prima di cercare i token A..F: cosi' kerrUmin(A,min(B,A))
+    // non conta, ma A*cos(u) si'. Usiamo un match a PARENTESI BILANCIATE (non un
+    // regex), per gestire annidamenti arbitrari come kerrUmin(A, abs(sin(C*t))).
     {
-        const QRegularExpression solverCall(
+        const QRegularExpression nameRe(
             "\\b(?:kerrUmin|kerrRadius|kerrEmbedZ|kerrGrr|kerrGpp|kerrRprime|"
             "solveKerrR|kruskalR_U|kruskalGxx|kruskalRprime|kruskalEmbedZ|"
-            "solveKruskalR)\\s*\\([^()]*(?:\\([^()]*\\)[^()]*)*\\)");
-        conditions.remove(solverCall);
+            "solveKruskalR)\\s*\\(");
+        QRegularExpressionMatch m;
+        while ((m = nameRe.match(conditions)).hasMatch()) {
+            const int start = m.capturedStart();   // inizio del nome
+            int i = m.capturedEnd() - 1;           // posizione della '(' iniziale
+            int depth = 0;
+            bool closed = false;
+            for (; i < conditions.size(); ++i) {
+                const QChar ch = conditions.at(i);
+                if (ch == '(') ++depth;
+                else if (ch == ')') { if (--depth == 0) { ++i; closed = true; break; } }
+            }
+            // i e' uno oltre la ')' che chiude. Rimuove il tratto [start, i).
+            // Se le parentesi non si chiudono (input incompleto) rimuove fino alla
+            // fine e interrompe, per non ciclare all'infinito.
+            conditions.remove(start, i - start);
+            if (!closed) break;
+        }
     }
 
     QStringList ambiguous;
