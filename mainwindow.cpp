@@ -2624,9 +2624,8 @@ void MainWindow::updateRenderState()
     }
     else {
         ui->chkBoxTexture->setEnabled(true);
-        if (wantTexture && !ui->radioBackground->isChecked()) {
-            if (m_isCustomMode) mode = 11;
-        }
+        // (qui c'era 'if (m_isCustomMode) mode = 11;', rimosso: renderMode 11
+        // legacy parametrico, inerte — 'mode' locale mai passato al motore.)
     }
 
     bool isPhong = (m_savedRenderMode == 1);
@@ -5737,6 +5736,10 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
     }
 
     ui->alphaSlider->setValue(d.alpha * 100);
+    // setValue NON emette valueChanged se il valore coincide con quello corrente
+    // (es. due preset di fila con stesso alpha): pushiamo l'alpha esplicitamente
+    // alla GPU cosi' la trasparenza del preset si applica sempre.
+    if (ui->glWidget) ui->glWidget->setAlpha(d.alpha);
     ui->lightSlider->setValue(d.lightIntensity * 100);
 
     onColorTargetChanged();
@@ -5764,6 +5767,27 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
 
     // 5. CARICAMENTO DATI (Equazioni, Colori, ecc.)
     applyCommonData(d);
+
+    // Ripristina il COLORE SUPERFICIE del preset. Sopra (riga ~5716) abbiamo
+    // resettato al verde di default; senza questo blocco il colore salvato non
+    // verrebbe mai riapplicato e ogni superficie caricata resterebbe verde
+    // (come faceva gia' applyMotionExample). Il parser ora popola d.color1 sia
+    // dal formato "surfColor" sia da r/g/b numerici (vedi librarymanager).
+    if (d.hasCustomColors && !d.color1.isEmpty()) {
+        QColor surfCol(d.color1);
+        QColor bordCol(d.color2.isEmpty() ? d.color1 : d.color2);
+        if (surfCol.isValid()) {
+            m_currentSurfaceColor = surfCol;
+            m_currentBorderColor  = bordCol.isValid() ? bordCol : surfCol;
+            if (ui->glWidget) {
+                ui->glWidget->setColor(surfCol.redF(), surfCol.greenF(), surfCol.blueF());
+                ui->glWidget->setBorderColor(m_currentBorderColor.redF(),
+                                             m_currentBorderColor.greenF(),
+                                             m_currentBorderColor.blueF());
+            }
+            onColorTargetChanged();
+        }
+    }
 
     // Le superfici implicite da script sono già state configurate da applyCommonData:
     // sovrascrivere lineEquation/setImplicitEquation qui ripristinerebbe la sfera di default.
@@ -6438,14 +6462,32 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
 
     snapshotActiveEquations();
 
+    // Script metrico (return mat3): la mesh NON è parametrica, arriva già pronta
+    // dal flusso geodetico (runMetricScript → checkAndTriggerMeshUpdate, custom
+    // mesh). updateSurfaceData()/computeMesh() la ricalcolerebbe dalle equazioni
+    // x/y/z (qui "0,0,0"), distruggendo l'imbuto geodetico e lasciando un quad
+    // degenere. Anche il renderMode 11 (legacy parametrico) non va applicato.
+    static const QRegularExpression metricReturnRe(R"(\breturn\s+mat3\s*\()");
+    const bool isMetricScript =
+            isScript && data.scriptCode.contains(metricReturnRe);
+
     if (!isScript) {
         onStartClicked();
+    } else if (isMetricScript) {
+        // La mesh geodetica è già stata generata e texturizzata da applyCommonData
+        // (blocco texture più sopra). Solo refresh visivo, niente recompute mesh.
+        if (ui->glWidget) ui->glWidget->update();
+        QString scriptToCheck = m_surfaceScriptText + " " + m_surfaceTextureCode + " " + m_bgTextureCode;
+        applyAnimationState(hasTimeVariable(scriptToCheck));
     } else {
         if (ui->glWidget) {
 
             // Applica lo shader personalizzato se presente
+            // (qui c'era 'ui->glWidget->setRenderMode(11);', rimosso: 11 come render
+            // mode non e' interpretato dal motore — equivaleva a 0; la update() era
+            // gia' coperta sotto. NB: il 11 SALVATO nei preset ray marching e' altra
+            // cosa, vedi decodifica '>= 10' in applyCommonData.)
             if (texEnabled && m_isCustomMode && !m_surfaceTextureCode.isEmpty()) {
-                ui->glWidget->setRenderMode(11);
                 ui->glWidget->loadCustomShader(m_surfaceTextureCode);
             }
 
@@ -7459,6 +7501,10 @@ void MainWindow::applyCommonData(const LibraryItem &d)
 
     bool isShell = false;
     if (d.isImplicitMode) {
+        // renderMode salvato nei preset ray marching e' una codifica composita:
+        // decine = flag Shell (+10), unita' = modo base (0=Basic, 1=Phong). Es. 11
+        // = Shell + Phong. Da NON confondere col vecchio renderMode 11 "parametrico"
+        // (rimosso): qui il 10 e' vivo e usato da preset reali (Gyroid, Lawson, ...).
         if (m_savedRenderMode >= 10) {
             isShell = true;
             m_savedRenderMode -= 10;
@@ -7637,6 +7683,29 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     // Salvataggio
     bool isScript = d.isScript || (!d.scriptCode.isEmpty() && !hasValidEquations);
 
+    // PRE-ARMO DELLO STATO SCRIPT (fix ergosfera "puntino verde").
+    // setEngineMode(ModeImplicit) chiama update(): Qt puo' dispatchare un render()
+    // PRIMA che il blocco script piu' sotto (riga ~7755) installi script-mode e il
+    // corpo GLSL. Quel render lazy chiamerebbe buildImplicitPipeline() leggendo
+    // engine->isScriptModeActive()==false e il VECCHIO m_eqImplicitF (es. il toro
+    // del preset precedente): risultato, una superficie sbagliata e collassata con
+    // hasInner=0 (verificato su ~/raymarch_dump.frag). Installiamo qui lo stato
+    // dell'engine cosi' la prima build implicita vede gia' lo script corretto.
+    // Il rebuildShader() autorevole piu' sotto resta (ridondante ma innocuo).
+    if (d.isImplicitMode && isScript && !d.scriptCode.isEmpty() && ui->glWidget->getEngine()) {
+        QString preBody;
+        QString preCopy = d.scriptCode;
+        QTextStream preStream(&preCopy);
+        while (!preStream.atEnd()) {
+            QString line = preStream.readLine();
+            if (line.contains(":=")) continue;
+            preBody.append(line + "\n");
+        }
+        preBody = GlslTranslator::translateEquation(preBody);
+        ui->glWidget->getEngine()->setScriptCodeGLSL(preBody);
+        ui->glWidget->getEngine()->setScriptMode(true);
+    }
+
     bool oldTabSig = ui->tabModeSelector->blockSignals(true);
     if (d.isImplicitMode) {
         ui->tabModeSelector->setCurrentIndex(1); // Cambia al tab Implicit
@@ -7665,15 +7734,30 @@ void MainWindow::applyCommonData(const LibraryItem &d)
         bool bZ = ui->lineZ->blockSignals(true);
         bool bP = ui->lineP->blockSignals(true);
 
+        // Mappa di visualizzazione di uno script metrico (es. Flamm): porta le
+        // coordinate intrinseche (U,V,W) in 3D. Due fonti equivalenti, in ordine
+        // di precedenza:
+        //  1) metricDisplayMap dedicata (hasMetricMap);
+        //  2) i campi equations x/y/z/p del preset, quando citano U/V/W
+        //     maiuscole (la tecnica "script + equations": la display map è
+        //     scritta direttamente nelle equazioni della superficie).
+        // runMetricScript riconosce U/V/W e non sovrascrive con la carta
+        // identità. Se nessuna delle due cita U/V/W, i campi restano vuoti e
+        // runMetricScript applica l'identità (x=U, y=V, z=W).
+        const QString eqMap = d.x + " " + d.y + " " + d.z + " " + d.w;
+        const bool eqIsDisplayMap =
+                eqMap.contains(QRegularExpression("\\b[UVW]\\b"));
+
         if (d.hasMetricMap) {
-            // Script metrico con mappa di visualizzazione custom (es. Flamm):
-            // ripristiniamo la mappa nei campi prima del Run, così
-            // runMetricScript la riconosce (cita U/V/W) e non la sovrascrive
-            // con la carta identità.
             ui->lineX->setPlainText(d.metricMapX);
             ui->lineY->setPlainText(d.metricMapY);
             ui->lineZ->setPlainText(d.metricMapZ);
             ui->lineP->setPlainText(d.metricMapP);
+        } else if (eqIsDisplayMap) {
+            ui->lineX->setPlainText(d.x);
+            ui->lineY->setPlainText(d.y);
+            ui->lineZ->setPlainText(d.z);
+            ui->lineP->setPlainText(d.w);
         } else {
             ui->lineX->clear();
             ui->lineY->clear();
@@ -8013,7 +8097,12 @@ QString MainWindow::composeEquation(const QString &eq, const QString &uDef, cons
 void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool restartAudio,
                                            bool onlyFillEmptyLimits)
 {
-    QRegularExpression re(R"(\b(u_min|u_max|v_min|v_max|w_min|w_max|steps|A|B|C|D|E|F|S)\b\s*[:=]+\s*([^;]+);)",
+    // SOLO direttive ":=" (es. "A := 1.2", "u_min := -3.0"), NON il "=" nudo del
+    // codice GLSL. Il vecchio "[:=]+" catturava anche righe legittime come
+    // "float a = min(B, A);": con CaseInsensitive, "a" -> costante A, e
+    // evaluateSimple("min(B, A)") = 0 azzerava A (ergosfera ridotta a un punto).
+    // Tutte le vere direttive dei preset usano ":=", quindi richiederlo è sicuro.
+    QRegularExpression re(R"(\b(u_min|u_max|v_min|v_max|w_min|w_max|steps|A|B|C|D|E|F|S)\b\s*:=\s*([^;]+);)",
                           QRegularExpression::CaseInsensitiveOption);
 
     // Rimuoviamo i commenti prima di cercare le assegnazioni di costanti: altrimenti

@@ -3,6 +3,7 @@
 #include <QUrl>
 #include <QDebug>
 #include <QSettings>
+#include <QColor>
 
 LibraryManager::LibraryManager() {}
 
@@ -302,8 +303,20 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
         }
         if (root.contains("colors")) {
             QJsonObject col = root["colors"].toObject();
-            d.color1 = col["surfColor"].toString();
-            d.color2 = col["bordColor"].toString();
+            // Due formati storici per il colore superficie:
+            //  - stringa "#rrggbb" in "surfColor"/"bordColor" (saveScript);
+            //  - componenti numeriche r/g/b 0..1 (saveSurface, es. Ergosphere.json).
+            // Il reader leggeva solo il primo: i preset salvati col secondo
+            // restavano senza colore (default verde) e non trasparenti. Accettiamo
+            // entrambi, convertendo r/g/b nella stringa "#rrggbb" attesa a valle.
+            if (col.contains("surfColor")) {
+                d.color1 = col["surfColor"].toString();
+                d.color2 = col["bordColor"].toString();
+            } else if (col.contains("r")) {
+                QColor surf = QColor::fromRgbF(col["r"].toDouble(), col["g"].toDouble(), col["b"].toDouble());
+                d.color1 = surf.name();
+                d.color2 = col.contains("bordColor") ? col["bordColor"].toString() : surf.name();
+            }
             d.hasCustomColors = true;
 
             if (col.contains("alpha")) {
@@ -502,9 +515,28 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             if (c.contains("S")) d.s = c["S"].toDouble(0.0);
         }
 
+        // COLORE + TRASPARENZA della superficie. Questo ramo (type=="surface")
+        // prima IGNORAVA del tutto "colors": ogni superficie si ricaricava verde
+        // di default e opaca, qualunque cosa fosse salvata. Accettiamo entrambi i
+        // formati storici (r/g/b numerici di saveSurface, "#rrggbb" di saveScript)
+        // + alpha. applySurfaceExample riapplica d.color1/d.alpha dopo il reset.
+        if (root.contains("colors")) {
+            QJsonObject col = root["colors"].toObject();
+            if (col.contains("surfColor")) {
+                d.color1 = col["surfColor"].toString();
+                d.color2 = col["bordColor"].toString();
+            } else if (col.contains("r")) {
+                QColor surf = QColor::fromRgbF(col["r"].toDouble(), col["g"].toDouble(), col["b"].toDouble());
+                d.color1 = surf.name();
+                d.color2 = col.contains("bordColor") ? col["bordColor"].toString() : surf.name();
+            }
+            d.hasCustomColors = !d.color1.isEmpty();
+            if (col.contains("alpha")) d.alpha = col["alpha"].toDouble(1.0);
+        }
+
         if (root.contains("lightingMode")) {
             d.lightingMode = root["lightingMode"].toInt();
-        }    
+        }
         if (root.contains("lightIntensity")) {
             d.lightIntensity = root["lightIntensity"].toDouble(1.0);
         }

@@ -361,6 +361,10 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     colors["r"] = m_mainWindow->m_currentSurfaceColor.redF();
     colors["g"] = m_mainWindow->m_currentSurfaceColor.greenF();
     colors["b"] = m_mainWindow->m_currentSurfaceColor.blueF();
+    // Trasparenza: senza questo, una superficie trasparente (es. ergosfera con
+    // limite statico trasparente + orizzonte interno) si risalvava OPACA perche'
+    // l'alpha non finiva mai nel JSON. Il reader la legge gia' da col["alpha"].
+    colors["alpha"] = m_mainWindow->ui->alphaSlider->value() / 100.0;
     root["colors"] = colors;
 
     root["lightingMode"] = m_mainWindow->m_lightingMode4D;

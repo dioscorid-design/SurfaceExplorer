@@ -10,6 +10,7 @@
 #include <QMouseEvent>
 #include <algorithm>
 #include <QFile>
+#include <QDir>
 #include <QTextStream>
 #include <QRegularExpression>
 #include <QCoreApplication>
@@ -277,6 +278,10 @@ void GLWidget::render(QRhiCommandBuffer *cb)
 
     // Usiamo la coordinata X di dummyZero per inviare il tempo specifico della Texture
     m_uboData.dummyZero.setX(m_manualTime + m_timeTex);
+
+    // .y = flag "seconda superficie interna" (Inner:= nello script ray marching).
+    // .x resta l'orologio texture; .y/.z/.w erano liberi (azzerati a inizio frame).
+    m_uboData.dummyZero.setY(m_raymarchHasInner ? 1.0f : 0.0f);
     m_uboData.projMode = projectionMode;
     m_uboData.renderMode = renderMode;
     m_uboData.lightingMode = is4DActive() ? m_lightingMode4D : 0;
@@ -2355,26 +2360,55 @@ QString GLWidget::createImplicitFragmentShader()
     QString safePowDef = "float safe_pow(float x, float y) { return sign(x) * pow(abs(x), y); }\n";
     QString commonCode = loadShaderSource(":/shaders/common.glsl");
 
-    QString finalSource = "#version 450\n\n" + safePowDef + "\n" + commonCode + "\n" + templateSource;
+    // Libreria solver (solveKerrR, kerr*SDF, ...): serve agli script ray marching
+    // che usano la direttiva Inner:= (es. ergosfera di Kerr). Le sue funzioni sono
+    // self-contained (prendono M/a come parametri, non leggono ubuf), quindi
+    // possono precedere la dichiarazione dell'UBO nel template senza problemi.
+    QString implicitLib = loadShaderSource(":/shaders/implicit.glsl");
+
+    QString finalSource = "#version 450\n\n" + safePowDef + "\n" + commonCode + "\n"
+                          + implicitLib + "\n" + templateSource;
+
+    // Variabili iniettate, condivise tra superficie esterna e interna.
+    QString injectedVars = "    float t = ubuf.u_time;\n"
+                           "    float iTime = ubuf.u_time;\n"
+                           "    float A = ubuf.u_mathParams.x;\n"
+                           "    float B = ubuf.u_mathParams.y;\n"
+                           "    float C = ubuf.u_mathParams.z;\n"
+                           "    float s = ubuf.u_mathParams.w;\n"
+                           "    float S = ubuf.u_mathParams.w;\n"
+                           "    float D = ubuf.u_mathParams2.x;\n"
+                           "    float E = ubuf.u_mathParams2.y;\n"
+                           "    float F = ubuf.u_mathParams2.z;\n"
+                           "    float x = p.x; float y = p.y; float z = p.z;\n";
+
+    // Default: nessuna seconda superficie. Lo stub ritorna 1e9 (mai colpito) e
+    // il flag resta false, così il main() segue il cammino storico opaco.
+    m_raymarchHasInner = false;
+    QString innerExpr = "1e9";
 
     // --- INIZIO NUOVA LOGICA SCRIPT MULTI-RIGA ---
     if (engine->isScriptModeActive()) {
         QString customCode = engine->getScriptCodeGLSL();
 
-        // Iniettiamo le stesse comodità presenti in map()
-        QString injectedVars = "    float t = ubuf.u_time;\n"
-                               "    float iTime = ubuf.u_time;\n"
-                               "    float A = ubuf.u_mathParams.x;\n"
-                               "    float B = ubuf.u_mathParams.y;\n"
-                               "    float C = ubuf.u_mathParams.z;\n"
-                               "    float s = ubuf.u_mathParams.w;\n"
-                               "    float S = ubuf.u_mathParams.w;\n"
-                               "    float D = ubuf.u_mathParams2.x;\n"
-                               "    float E = ubuf.u_mathParams2.y;\n"
-                               "    float F = ubuf.u_mathParams2.z;\n"
-                               "    float x = p.x; float y = p.y; float z = p.z;\n";
+        // --- DIRETTIVA //INNER: (seconda superficie opaca interna) ---
+        // Espressione SDF del campo interno; il resto dello script è la
+        // superficie esterna. È una DIRETTIVA-COMMENTO (inizia con //): cruciale
+        // perché il filtro direttive di mainwindow SCARTA ogni riga con ":=",
+        // quindi una "Inner:=" sparirebbe prima di arrivare qui. Con "//INNER:"
+        // (niente :=) la riga sopravvive intatta nel glslCode e la estraiamo noi.
+        // ANCORATA A INIZIO RIGA (^ + MultilineOption).
+        QRegularExpression innerRe("^[ \\t]*//[ \\t]*INNER[ \\t]*:[ \\t]*([^\\n;]+);?",
+                                   QRegularExpression::CaseInsensitiveOption
+                                   | QRegularExpression::MultilineOption);
+        QRegularExpressionMatch innerMatch = innerRe.match(customCode);
+        if (innerMatch.hasMatch()) {
+            innerExpr = innerMatch.captured(1).trimmed();
+            customCode.remove(innerMatch.capturedStart(), innerMatch.capturedLength());
+            m_raymarchHasInner = true;
+        }
 
-        // Creiamo una funzione indipendente con il codice custom
+        // Creiamo una funzione indipendente con il codice custom (esterna)
         QString newFunction = "float getCustomImplicit(vec3 p) {\n" + injectedVars + customCode + "\n}\n\n";
 
         // 1. Dichiariamo la nostra funzione custom ESATTAMENTE prima della funzione map standard
@@ -2389,6 +2423,10 @@ QString GLWidget::createImplicitFragmentShader()
     }
     // --- FINE NUOVA LOGICA ---
 
+    // Iniettiamo l'espressione del campo interno (o lo stub 1e9). Le variabili
+    // x,y,z,A,B,... sono già dichiarate nel corpo di mapInner() nel template.
+    finalSource.replace("%INNER_MAP%", innerExpr);
+
     if (m_textureEnabled) {
         QString texCodeRemapped = m_textureCode;
         texCodeRemapped.replace("ubuf.u_time", "ubuf.u_dummyZero.x");
@@ -2402,6 +2440,24 @@ QString GLWidget::createImplicitFragmentShader()
     } else {
         finalSource.replace("%TEXTURE_CODE%", "");
         finalSource.replace("%DISPLACEMENT_CODE%", "");
+    }
+
+    // [DEBUG TEMP] dump dello shader implicito generato, per diagnosi ergosfera.
+    {
+        QFile dbg(QDir::homePath() + "/raymarch_dump.frag");
+        if (dbg.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream(&dbg) << "// hasInner=" << (m_raymarchHasInner ? 1 : 0) << "\n"
+                << "// UBO mathParams (A,B,C,S) = " << m_uboData.mathParams.x() << ", "
+                << m_uboData.mathParams.y() << ", " << m_uboData.mathParams.z() << ", "
+                << m_uboData.mathParams.w() << "\n"
+                << "// UBO color (rgb) = " << red << ", " << green << ", " << blue
+                << "  alpha = " << alpha << "\n"
+                << "// camPos = (" << m_cameraPos.x() << ", " << m_cameraPos.y() << ", "
+                << m_cameraPos.z() << ")  len = " << m_cameraPos.length()
+                << "  bbox x = [" << m_uboData.x_min << ", " << m_uboData.x_max << "]\n"
+                << finalSource;
+            dbg.close();
+        }
     }
 
     return finalSource;

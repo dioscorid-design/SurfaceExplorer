@@ -409,6 +409,10 @@ private:
     // ==========================================================
     int renderMode = 0;
     bool showBorders = false;
+    // True quando lo script ray marching definisce la direttiva Inner:=
+    // (seconda superficie opaca interna, es. orizzonte di Kerr). Settato in
+    // createImplicitFragmentShader() e inviato alla GPU via u_dummyZero.y.
+    bool m_raymarchHasInner = false;
     bool m_textureEnabled = false;
     bool m_isSpecularEnabled = false;
     float alpha = 0.5f;

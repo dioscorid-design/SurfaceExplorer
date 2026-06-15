@@ -117,6 +117,44 @@ float kerrRadius(float r, float M, float a) {
     return sqrt(max(kerrGpp(r, M, a), 0.0));
 }
 
+// ---------------------------------------------------------------------
+// ERGOSFERA DI KERR — DUE SUPERFICI COORDINATE (per il ray marching)
+// ---------------------------------------------------------------------
+// Diversamente dall'imbuto equatoriale qui NON immergiamo la metrica: le due
+// superfici sono le SUPERFICI COORDINATE r = const(theta) di Kerr in coordinate
+// di Boyer-Lindquist, disegnate come SDF implicite nello spazio (x,y,z) cartesiano.
+// r implicito da solveKerrR(x,y,z,a); cos(theta) = z / r.
+//
+//   Orizzonte degli eventi:  r = r_+ = M + sqrt(M^2 - a^2)            (sfera)
+//   Limite statico (ergosfera esterna): r = M + sqrt(M^2 - a^2 cos^2 theta)
+// Coincidono ai poli (cos^2=1) e sono massimamente separate all'equatore
+// (cos=0 -> r = 2M). L'ergosfera e' la regione tra le due. M = A, a = B (0<=a<=M).
+
+// Raggio dell'orizzonte degli eventi esterno (sfera coordinata). Reale per a<=M.
+float kerrHorizonR(float M, float a) {
+    return M + sqrt(max(M * M - a * a, 0.0));
+}
+
+// Raggio del limite statico in funzione di cos(theta) = z/r (schiacciato ai poli).
+float kerrStaticLimitR(float ct, float M, float a) {
+    return M + sqrt(max(M * M - a * a * ct * ct, 0.0));
+}
+
+// SDF implicita (segno: <0 dentro la superficie coordinata, >0 fuori) dell'ORIZZONTE.
+// Da usare come campo Inner:= (superficie opaca in fondo).
+float kerrHorizonSDF(vec3 p, float M, float a) {
+    float r = solveKerrR(p.x, p.y, p.z, a);
+    return r - kerrHorizonR(M, a);
+}
+
+// SDF implicita del LIMITE STATICO (ergosfera). Da usare come superficie esterna
+// trasparente (corpo dello script ray marching).
+float kerrStaticLimitSDF(vec3 p, float M, float a) {
+    float r  = solveKerrR(p.x, p.y, p.z, a);
+    float ct = p.z / max(r, 1e-4);
+    return r - kerrStaticLimitR(ct, M, a);
+}
+
 // R'(r) per differenze finite centrate (per l'embedding).
 float kerrRprime(float r, float M, float a) {
     float h  = 1e-3;

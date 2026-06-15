@@ -64,6 +64,30 @@ float map(vec3 p) {
     return smax(d_surf, d_box, 0.02);
 }
 
+// --- SECONDA SUPERFICIE OPZIONALE (campo interno/opaco) ---
+// Attiva SOLO quando lo script ray marching definisce la direttiva Inner:=
+// (C++ setta ubuf.u_dummyZero.y = 1.0). Altrimenti %INNER_MAP% e' uno stub
+// che ritorna 1e9 e questa funzione non viene mai chiamata dal main().
+// Applica lo STESSO bounding-box di map() per coerenza del cubo di taglio.
+float mapInner(vec3 p) {
+    float x = p.x; float y = p.y; float z = p.z;
+    float t = ubuf.u_time;
+    float A = ubuf.u_mathParams.x; float B = ubuf.u_mathParams.y;
+    float C = ubuf.u_mathParams.z; float S = ubuf.u_mathParams.w;
+    float D = ubuf.u_mathParams2.x; float E = ubuf.u_mathParams2.y;
+    float F = ubuf.u_mathParams2.z;
+
+    float d_surf = float( %INNER_MAP% );
+
+    vec3 bMin = vec3(ubuf.x_min, ubuf.y_min, ubuf.z_min);
+    vec3 bMax = vec3(ubuf.x_max, ubuf.y_max, ubuf.z_max);
+    vec3 bCenter = (bMax + bMin) * 0.5;
+    vec3 bHalf = (bMax - bMin) * 0.5;
+    vec3 q = abs(p - bCenter) - bHalf;
+    float d_box = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+    return smax(d_surf, d_box, 0.02);
+}
+
 // --- CALCOLO NORMALI 3D ---
 vec3 calcNormal(vec3 p) {
     vec2 e = vec2(0.005, 0.0);
@@ -71,6 +95,15 @@ vec3 calcNormal(vec3 p) {
         map(p + e.xyy) - map(p - e.xyy),
         map(p + e.yxy) - map(p - e.yxy),
         map(p + e.yyx) - map(p - e.yyx)
+    ));
+}
+
+vec3 calcNormalInner(vec3 p) {
+    vec2 e = vec2(0.005, 0.0);
+    return normalize(vec3(
+        mapInner(p + e.xyy) - mapInner(p - e.xyy),
+        mapInner(p + e.yxy) - mapInner(p - e.yxy),
+        mapInner(p + e.yyx) - mapInner(p - e.yyx)
     ));
 }
 
@@ -85,6 +118,82 @@ float calcAO(vec3 pos, vec3 nor) {
         sca *= 0.95;
     }
     return clamp(1.0 - 3.0 * occ, 0.0, 1.0);
+}
+
+// --- MARCHER CONDIVISO ---
+// Esegue il ray marching sul campo principale (map) o sul campo interno
+// (mapInner) a seconda di useInner. E' la copia ESATTA del loop storico:
+// per la passata 1 (useInner=false) il risultato e' identico al comportamento
+// precedente. tStart permette alla passata 2 di ripartire oltre il primo hit.
+bool marchField(vec3 rayPos, vec3 rayDir, bool useInner, float tStart, out vec3 pHit) {
+    float t_dist = tStart;
+    float d = 0.0;
+    bool hit = false;
+    vec3 pModel = rayPos + rayDir * t_dist;
+
+    float stepRelax = (ubuf.u_mathParams.w > 0.001) ? ubuf.u_mathParams.w : 0.4;
+
+    for(int i = 0; i < 1000; i++) {
+        if (i >= ubuf.u_raySteps) break;
+        pModel = rayPos + rayDir * t_dist;
+
+        float val = useInner ? mapInner(pModel) : map(pModel);
+
+        vec2 e = vec2(0.001, 0.0);
+        vec3 grad = useInner
+            ? vec3(mapInner(pModel + e.xyy) - mapInner(pModel - e.xyy),
+                   mapInner(pModel + e.yxy) - mapInner(pModel - e.yxy),
+                   mapInner(pModel + e.yyx) - mapInner(pModel - e.yyx))
+            : vec3(map(pModel + e.xyy) - map(pModel - e.xyy),
+                   map(pModel + e.yxy) - map(pModel - e.yxy),
+                   map(pModel + e.yyx) - map(pModel - e.yyx));
+
+        float gradLen = length(grad) / 0.002;
+        gradLen = max(gradLen, 0.2);
+        d = val / gradLen;
+
+        float hitThreshold = max(0.0005, 0.001 * t_dist);
+        if(abs(d) < hitThreshold) { hit = true; break; }
+        if(t_dist > 50.0) break;
+        t_dist += clamp(abs(d) * stepRelax, 0.0001, 0.5);
+    }
+    pHit = pModel;
+    return hit;
+}
+
+// --- SHADING CONDIVISO ---
+// Illuminazione a 2 punti + AO + speculare, identica al path storico.
+// useInner sceglie le normali del campo giusto. Ritorna l'rgb illuminato
+// (senza alpha): il compositing trasparente avviene nel main().
+vec3 shadeSurface(vec3 pModel, vec3 rayDir, bool useInner) {
+    vec3 n_model = useInner ? calcNormalInner(pModel) : calcNormal(pModel);
+    vec3 viewDir_model = -rayDir;
+
+    float ao = calcAO(pModel, n_model);
+
+    vec3 mainLight_cam = normalize(vec3(1.0, 1.5, 1.0));
+    vec3 backLight_cam = normalize(vec3(-1.0, -0.5, -2.0));
+
+    mat3 camToModel = mat3(inverse(ubuf.u_mvMatrix));
+    vec3 mainLight_model = normalize(camToModel * mainLight_cam);
+    vec3 backLight_model = normalize(camToModel * backLight_cam);
+
+    float diffMain = max(dot(n_model, mainLight_model), 0.0);
+    float diffBack = max(dot(n_model, backLight_model), 0.0) * 0.4;
+    float ambient  = 0.15 * ao;
+    float totalLight = diffMain + diffBack + ambient;
+
+    vec3 textureCol = ubuf.color;
+    %TEXTURE_CODE%
+    vec3 baseColor = textureCol * totalLight * ubuf.u_lightIntensity;
+
+    float spec = 0.0;
+    if (ubuf.useSpecular != 0 && diffMain > 0.0) {
+        vec3 reflectDir = reflect(-mainLight_model, n_model);
+        float specAngle = max(dot(viewDir_model, reflectDir), 0.0);
+        spec = pow(specAngle, 64.0) * 0.4 * ubuf.u_lightIntensity;
+    }
+    return baseColor + vec3(spec);
 }
 
 void main() {
@@ -171,97 +280,52 @@ void main() {
     }
 
     // NEAR CLIPPING PLANE: Ignora i primissimi istanti del raggio
-    // Valori consigliati: tra 0.1 e 0.5 a seconda della grandezza della scena
-    float t_dist = 0.3;
-    float d = 0.0;
-    bool hit = false;
+    float tNear = 0.3;
+
+    // === PASSATA 1: superficie principale (map) — comportamento storico ===
     vec3 pModel;
+    bool hit = marchField(rayPos, rayDir, false, tNear, pModel);
 
-    // 1. Aumentiamo il numero di passi per compensare il rallentamento
-    float stepRelax = (ubuf.u_mathParams.w > 0.001) ? ubuf.u_mathParams.w : 0.4;
+    bool hasInner = (ubuf.u_dummyZero.y > 0.5);
 
-    for(int i = 0; i < 1000; i++) {
-        if (i >= ubuf.u_raySteps) break;
-        pModel = rayPos + rayDir * t_dist;
-
-        float val = map(pModel);
-
-        // 1. Calcoliamo il gradiente (il "radar" per le equazioni arbitrarie)
-        vec2 e = vec2(0.001, 0.0);
-        vec3 grad = vec3(
-            map(pModel + e.xyy) - map(pModel - e.xyy),
-            map(pModel + e.yxy) - map(pModel - e.yxy),
-            map(pModel + e.yyx) - map(pModel - e.yyx)
-        );
-
-        float gradLen = length(grad) / 0.002;
-
-        // 2. LO SCUDO ANTI-SFILETTATURA
-        // Se il gradiente crolla a zero (colpa di un abs() nella formula)
-        // o esplode verso l'infinito, lo forziamo in un range di sicurezza.
-        // Questo salva il Gyroid e salva le equazioni dell'utente.
-        gradLen = max(gradLen, 0.2);
-
-        // 3. Normalizzazione universale della distanza
-        d = val / gradLen;
-
-        // 4. Hit test dinamico (più lontani siamo, meno siamo pignoli)
-        float hitThreshold = max(0.0005, 0.001 * t_dist);
-
-        if(abs(d) < hitThreshold) {
-            hit = true;
-            break;
+    if (!hasInner) {
+        // --- CAMMINO STORICO: una sola superficie, opaca con ubuf.alpha ---
+        if (hit) {
+            vec3 rgb = shadeSurface(pModel, rayDir, false);
+            FragColor = vec4(rgb, ubuf.alpha);
+        } else {
+            discard;
         }
-
-        if(t_dist > 50.0) break;
-
-        // 5. Avanzamento assistito
-        t_dist += clamp(abs(d) * stepRelax, 0.0001, 0.5);
+        return;
     }
 
-    // --- SHADING ---
-    if(hit) {
-        vec3 n_model = calcNormal(pModel);
-        vec3 viewDir_model = -rayDir; // La telecamera guarda in direzione opposta al raggio
+    // === MODO ERGOSFERA: superficie esterna TRASPARENTE + interna OPACA ===
+    // La passata 1 (map) e' la superficie ESTERNA (limite statico): trasparente
+    // con alpha = ubuf.alpha (slider UI). Poi marciamo sul campo INTERNO opaco
+    // (orizzonte) per compositare cio' che si vede ATTRAVERSO la trasparenza.
+    vec3  outerRGB   = vec3(0.0);
+    float outerAlpha = 0.0;
+    float tInnerStart = tNear;     // da dove parte la passata interna
 
-        // +++ 1. CALCOLO DELL'AMBIENT OCCLUSION +++
-        float ao = calcAO(pModel, n_model);
+    if (hit) {
+        outerRGB   = shadeSurface(pModel, rayDir, false);
+        outerAlpha = clamp(ubuf.alpha, 0.0, 1.0);
+        // riprendi l'interna appena oltre il guscio esterno colpito
+        tInnerStart = dot(pModel - rayPos, rayDir) + 0.02;
+    }
 
-        // 2. Definiamo le luci FISSE rispetto alla TELECAMERA
-        vec3 mainLight_cam = normalize(vec3(1.0, 1.5, 1.0));   // Luce principale (Sole)
-        vec3 backLight_cam = normalize(vec3(-1.0, -0.5, -2.0)); // Luce secondaria (Riflesso del terreno)
+    // === PASSATA 2: campo interno (mapInner) — opaco, sullo sfondo ===
+    vec3 pInner;
+    bool hitInner = marchField(rayPos, rayDir, true, tInnerStart, pInner);
 
-        // Trasformiamo le luci nello spazio del modello
-        mat3 camToModel = mat3(inverse(ubuf.u_mvMatrix));
-        vec3 mainLight_model = normalize(camToModel * mainLight_cam);
-        vec3 backLight_model = normalize(camToModel * backLight_cam);
-
-        // Illuminazione a 2 Punti
-        float diffMain = max(dot(n_model, mainLight_model), 0.0);
-        float diffBack = max(dot(n_model, backLight_model), 0.0) * 0.4;
-
-        // +++ 3. APPLICHIAMO L'AO ALLA LUCE AMBIENTALE +++
-        float ambient  = 0.15 * ao;
-        float totalLight = diffMain + diffBack + ambient;
-
-    // --- GESTIONE TEXTURE DINAMICA ---
-        vec3 textureCol = ubuf.color; // Colore base dalla UI
-
-        // Qui viene iniettato il tuo codice (es. textureCol = mix(...))
-        %TEXTURE_CODE%
-
-        // FIX: Usiamo textureCol che contiene il risultato del tuo codice!
-        vec3 baseColor = textureCol * totalLight * ubuf.u_lightIntensity;
-
-        // 4. Luce Speculare
-        float spec = 0.0;
-        if (ubuf.useSpecular != 0 && diffMain > 0.0) {
-            vec3 reflectDir = reflect(-mainLight_model, n_model);
-            float specAngle = max(dot(viewDir_model, reflectDir), 0.0);
-            spec = pow(specAngle, 64.0) * 0.4 * ubuf.u_lightIntensity;
-        }
-
-        FragColor = vec4(baseColor + vec3(spec), ubuf.alpha);
+    if (hitInner) {
+        vec3 innerRGB = shadeSurface(pInner, rayDir, true);
+        // compositing "over": esterna trasparente sopra interna opaca
+        vec3 outRGB = mix(innerRGB, outerRGB, outerAlpha);
+        FragColor = vec4(outRGB, 1.0);
+    } else if (hit) {
+        // solo l'esterna trasparente, sullo sfondo
+        FragColor = vec4(outerRGB, outerAlpha);
     } else {
         discard;
     }
