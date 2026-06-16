@@ -38,7 +38,7 @@ bool LibraryDragDropHandler::eventFilter(QObject *obj, QEvent *event)
             QString treeRootPath;
 
             if (tree == m_mainWindow->ui->treeTextures) treeRootPath = settings.value("pathTextures", rootPath + "/Textures").toString();
-            else if (tree == m_mainWindow->ui->treeMotions) treeRootPath = settings.value("pathMotions", rootPath + "/Motions").toString();
+            else if (tree == m_mainWindow->ui->treeMotions) treeRootPath = settings.value("pathRecords", rootPath + "/records").toString();
             else if (tree == m_mainWindow->ui->treeSounds) treeRootPath = settings.value("pathSounds", rootPath + "/Sounds").toString();
             else treeRootPath = settings.value("pathSurfaces", rootPath + "/Surfaces").toString();
 
@@ -81,6 +81,8 @@ bool LibraryDragDropHandler::eventFilter(QObject *obj, QEvent *event)
 
             bool anyMoved = false;
             QList<QTreeWidgetItem*> draggedItems = tree->selectedItems();
+            int applyToAllChoice = -1;
+            const bool multipleDragged = draggedItems.size() > 1;
 
             for (QTreeWidgetItem* item : draggedItems) {
                 QString sourcePath;
@@ -109,22 +111,41 @@ bool LibraryDragDropHandler::eventFilter(QObject *obj, QEvent *event)
                     QFileInfo srcInfo(sourcePath);
                     QString newPath = destDir + "/" + srcInfo.fileName();
 
-                    if (sourcePath != newPath && !QFile::exists(newPath) && !destDir.startsWith(sourcePath)) {
+                    if (sourcePath != newPath && !destDir.startsWith(sourcePath)) {
                         if (isDir) {
-                            if (QDir().rename(sourcePath, newPath)) {
-                                anyMoved = true;
-                            } else {
-                                m_mainWindow->m_fileOps->copyPath(sourcePath, newPath);
-                                QDir(sourcePath).removeRecursively();
-                                anyMoved = true;
+                            // Le cartelle omonime restano saltate (no merge): comportamento invariato.
+                            if (!QFile::exists(newPath)) {
+                                if (QDir().rename(sourcePath, newPath)) {
+                                    anyMoved = true;
+                                } else {
+                                    m_mainWindow->m_fileOps->copyPath(sourcePath, newPath);
+                                    QDir(sourcePath).removeRecursively();
+                                    anyMoved = true;
+                                }
                             }
                         } else {
-                            if (QFile::rename(sourcePath, newPath)) {
-                                anyMoved = true;
-                            } else if (QFile::copy(sourcePath, newPath)) {
-                                QFile::setPermissions(newPath, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadGroup);
-                                QFile::remove(sourcePath);
-                                anyMoved = true;
+                            // File omonimo a destinazione: chiedi (prima era azione nulla).
+                            bool proceed = true;
+                            if (QFile::exists(newPath)) {
+                                LibraryFileOperations::CollisionChoice choice =
+                                    m_mainWindow->m_fileOps->resolveMoveCollision(
+                                        srcInfo.fileName(), newPath, multipleDragged, applyToAllChoice);
+                                if (choice == LibraryFileOperations::CollisionChoice::Cancel) {
+                                    proceed = false;
+                                } else if (choice == LibraryFileOperations::CollisionChoice::Overwrite) {
+                                    m_mainWindow->m_fileOps->backupBeforeOverwrite(newPath);
+                                    QFile::remove(newPath);
+                                }
+                                // KeepBoth: newPath gia' riscritto col suffisso _copyN.
+                            }
+                            if (proceed) {
+                                if (QFile::rename(sourcePath, newPath)) {
+                                    anyMoved = true;
+                                } else if (QFile::copy(sourcePath, newPath)) {
+                                    QFile::setPermissions(newPath, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadGroup);
+                                    QFile::remove(sourcePath);
+                                    anyMoved = true;
+                                }
                             }
                         }
                     }

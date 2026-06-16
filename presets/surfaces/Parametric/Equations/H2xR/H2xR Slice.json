@@ -17,6 +17,7 @@
         "z": 4
     },
     "colors": {
+        "alpha": 1,
         "b": 0.20000000298023224,
         "g": 0.800000011920929,
         "r": 0.20000000298023224
@@ -42,14 +43,31 @@
         "y": "A*sin(u)/cosh(v)",
         "z": "B*(v-tanh(v))"
     },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
+    "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {
         "uMax": 6.28318977355957,
         "uMin": -6.28318977355957,
         "vMax": 5,
         "vMin": -5,
-        "wMax": 10,
-        "wMin": -10
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
     },
     "name": "H2xR Slice",
     "projectionMode": 1,

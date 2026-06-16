@@ -1,0 +1,14 @@
+{
+    "code": "textureCol = 0.5 + 0.5 * cos(ubuf.u_time + n_model.xyz + vec3(0, 2, 4));",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "displacement": "",
+    "hasCustomColors": true,
+    "isImplicitMode": true,
+    "name": "lang",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

@@ -1,0 +1,127 @@
+{
+    "angles": {
+        "omega": 9.999999747378752e-05,
+        "phi": 9.999999747378752e-05,
+        "psi": 9.999999747378752e-05
+    },
+    "background": {
+        "code": "",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#000000",
+        "enabled": false,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.7711949348449707,
+        "rot_x": 0.041575971990823746,
+        "rot_y": 0.6349785923957825,
+        "rot_z": -0.01822430081665516,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 61.37999725341797
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1,
+        "B": 0.8999999761581421,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.0",
+        "x": "kerrRadius(U, A, min(B,A)) * cos(V)",
+        "y": "kerrRadius(U, A, min(B,A)) * sin(V)",
+        "z": "kerrEmbedZ(U, A, min(B,A))"
+    },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "1",
+        "dv": "0",
+        "dw": "0",
+        "u0": "kerrUmin(A, min(B,A)) + 0.1",
+        "v0": "u",
+        "w0": "0"
+    },
+    "isImplicitMode": false,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 4,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "name": "Kerr",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 1,
+    "renderMode": 1,
+    "scriptCode": "float M = A;\nfloat a = min(B, M);\nfloat r = U;\nfloat Delta = r*r - 2.0*M*r + a*a;\nfloat g_rr = r*r / Delta;\nfloat g_pp = r*r + a*a + 2.0*M*a*a/r;\nreturn mat3(g_rr, 0.0, 0.0,\n            0.0,  g_pp, 0.0,\n            0.0,  0.0,  1.0);",
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0.10000000149011612,
+        "omega": 0,
+        "path3D": 1,
+        "path4D": 1,
+        "phi": 0,
+        "precession": 0.20000000298023224,
+        "psi": 0,
+        "spin": 0.10000000149011612
+    },
+    "steps": 200,
+    "texture": {
+        "code": "//SOUND_BEGIN\n//SOUND_BEGIN\n// =========================================================================\n// Title: Trailing the Twinkling Tunnelwisp (Audio)\n// Original Music: Pestis (Cassini's Cosmic Conclusion - demozoo.org/productions/367582/)\n// \n// License: CC0 1.0 Universal (Public Domain Dedication)\n//          https://creativecommons.org/publicdomain/zero/1.0/\n//\n// Note: Adapted for the \"Surfaces Explorer\" engine.\n// =========================================================================\n\nvec2 mainSound(int s, float t) {\n  vec2 r = vec2(0.0); // FIX 1: Inizializzato a zero\n  \n  // FIX 2: i e j inizializzati a zero\n  for(float i = 0.0, j = 0.0; ++i < 4.0;)\n  for(j = 0.0; ++j < 5.0;) {\n      \n    float a = t * j / 32.0 + i / 3.0;\n    float b = fract(a);\n    float c;\n    \n    // FIX 3: m inizializzato a zero\n    vec2 m = vec2(0.0); \n    vec2 n = vec2(t, t + 3.0) + t / j;\n    \n    for(c = 3.0; c < 4.1; n += c *= 1.02)\n      m += sin(n * c) / c;\n      \n    if(a < 9.0)\n      r += sin(m + 4.0 * sin(t / j / 47.0) * sin(exp2(mod(a - b, 3.0) / 6.0 + 8.5) * t * j * i + i + j))\n      * exp2(-b * 12.0 - 1.0 / b + 6.0 - (i + j) / 3.0);\n  }\n  return r;\n}\n//SOUND_END\n//SOUND_END\n\nfloat aSpin = min(B, A);\nfloat rPlus = A + sqrt(max(A*A - aSpin*aSpin, 0.0));\nfloat vMax = 4.0;\nfloat r = rPlus + (1.0 - in_uv.y) * vMax;\nfloat rErgo = 2.0 * A;\nfloat darkBand = smoothstep(rErgo + 0.04, rErgo - 0.04, r);\nfloat shade = mix(1.0, 0.45, darkBand);\nreturn u_col1 * shade;",
+        "col1": "#ff1d1a",
+        "col2": "#786200",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

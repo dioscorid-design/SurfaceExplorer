@@ -1,0 +1,74 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.9330127239227295,
+        "rot_x": 0.2500000298023224,
+        "rot_y": 0.2499999701976776,
+        "rot_z": -0.06698719412088394,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 11.120001792907715
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 9.020000457763672,
+        "B": 0.49000000953674316,
+        "C": 1.3899999856948853,
+        "D": 2.049999952316284,
+        "E": 0.30000001192092896,
+        "F": 1,
+        "S": 0.4000000059604645
+    },
+    "equations": {
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "implicitEquation": "// Controlled by Script",
+    "isImplicitMode": true,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "name": "N-Tours",
+    "projectionMode": 1,
+    "renderMode": 10,
+    "scriptCode": "// Numero di buchi determinato dalla costante A dell'interfaccia\nfloat numHoles = max(A, 1.0); \n\n// Coordinate polari sul piano XY dello spazio (variabile 'p' nello script editor)\nfloat r_polar = length(p.xy);\nfloat angle = atan(p.y, p.x);\n\n// Ripetizione angolare: piega lo spazio in base al numero dei buchi\nfloat angle_rep = mod(angle + 3.14159265 / numHoles, 6.2831853 / numHoles) - 3.14159265 / numHoles;\n\n// Distanza SDF dai cilindri sottraenti (centrati lungo l'anello D)\nfloat d_hole = sqrt(r_polar * r_polar + D * D - 2.0 * r_polar * D * cos(angle_rep)) - B;\n\n// Distanza SDF del toro principale\nfloat d_torus = length(vec2(r_polar - D, p.z)) - C;\n\n// Calcolo finale: Ritorna esplicitamente la sottrazione morbida usando smax\nreturn smax(d_torus, -d_hole, max(E, 0.01));\n",
+    "showBorder": false,
+    "steps": 489,
+    "type": "surface",
+    "use4DLighting": false
+}

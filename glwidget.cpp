@@ -2442,24 +2442,6 @@ QString GLWidget::createImplicitFragmentShader()
         finalSource.replace("%DISPLACEMENT_CODE%", "");
     }
 
-    // [DEBUG TEMP] dump dello shader implicito generato, per diagnosi ergosfera.
-    {
-        QFile dbg(QDir::homePath() + "/raymarch_dump.frag");
-        if (dbg.open(QIODevice::WriteOnly | QIODevice::Text)) {
-            QTextStream(&dbg) << "// hasInner=" << (m_raymarchHasInner ? 1 : 0) << "\n"
-                << "// UBO mathParams (A,B,C,S) = " << m_uboData.mathParams.x() << ", "
-                << m_uboData.mathParams.y() << ", " << m_uboData.mathParams.z() << ", "
-                << m_uboData.mathParams.w() << "\n"
-                << "// UBO color (rgb) = " << red << ", " << green << ", " << blue
-                << "  alpha = " << alpha << "\n"
-                << "// camPos = (" << m_cameraPos.x() << ", " << m_cameraPos.y() << ", "
-                << m_cameraPos.z() << ")  len = " << m_cameraPos.length()
-                << "  bbox x = [" << m_uboData.x_min << ", " << m_uboData.x_max << "]\n"
-                << finalSource;
-            dbg.close();
-        }
-    }
-
     return finalSource;
 }
 

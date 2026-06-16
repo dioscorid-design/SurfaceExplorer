@@ -909,8 +909,8 @@ void VideoRecorder::toggleRecord()
         m_mainWindow->m_isProcessingVideo = false;
         m_mainWindow->m_statusLabel->clear();
         QString errorMsg = (err == QProcess::FailedToStart)
-                               ? "L'eseguibile FFmpeg non ha i permessi per avviarsi o è stato corrotto.\nOS Block: W^X Violation."
-                               : "Errore durante l'esecuzione di FFmpeg.";
+                               ? "The FFmpeg executable does not have permission to start or has been corrupted.\nOS Block: W^X Violation."
+                               : "Error while running FFmpeg.";
         QMessageBox::critical(m_mainWindow, "Video Creation Error", errorMsg);
         ffmpegProcess->deleteLater();
     });

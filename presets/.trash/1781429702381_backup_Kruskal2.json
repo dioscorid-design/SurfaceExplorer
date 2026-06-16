@@ -1,0 +1,79 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.6984999179840088,
+        "rot_x": 0.3311630189418793,
+        "rot_y": 0.587001621723175,
+        "rot_z": -0.24053709208965302,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 38.66001510620117
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 1,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "1",
+        "dv": "0",
+        "dw": "0",
+        "u0": "0",
+        "v0": "u",
+        "w0": "0"
+    },
+    "isImplicitMode": false,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 6,
+        "vMin": -6,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "metricDisplayMap": {
+        "p": "0.0",
+        "x": "kruskalR_U(U, A, min(B,0.95)*sin(C*t)) * cos(V)",
+        "y": "kruskalR_U(U, A, min(B,0.95)*sin(C*t)) * sin(V)",
+        "z": "kruskalEmbedZ(U, A, min(B,0.95)*sin(C*t))"
+    },
+    "name": "Kruskal2",
+    "projectionMode": 1,
+    "renderMode": 0,
+    "scriptCode": "u_min := 0; u_max := 2*pi;\nv_min := 0; v_max := 3;\nA := 1;       // massa\nB := 0.7;     // ampiezza pulsazione (0..1)\nC := 1;       // velocità pulsazione\n\nU := 0; V := u; W := 0;\ndU := 1; dV := 0; dW := 0;\nConform := 1.0;\n\nfloat M  = A;\nfloat T0 = min(B, 0.95) * sin(C * t);\nfloat K  = U*U - T0*T0;\nfloat r  = solveKruskalR(K, M);\nfloat gXX = (32.0*M*M*M / r) * exp(-r/(2.0*M));\nfloat gpp = r * r;\nreturn mat3(gXX, 0.0, 0.0,\n            0.0, gpp, 0.0,\n            0.0, 0.0, 1.0);\n",
+    "showBorder": false,
+    "steps": 100,
+    "type": "surface",
+    "use4DLighting": false
+}

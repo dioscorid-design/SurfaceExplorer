@@ -8,6 +8,8 @@
 #include <QDir>
 #include <QMessageBox>
 #include <QFileInfo>
+#include <QCheckBox>
+#include <QPushButton>
 #include <QDebug>
 
 LibraryFileOperations::LibraryFileOperations(MainWindow *parent)
@@ -116,6 +118,78 @@ void LibraryFileOperations::performCopy(QTreeWidgetItem* targetItem)
     m_mainWindow->m_cutTexturePaths.removeDuplicates();
 }
 
+LibraryFileOperations::CollisionChoice
+LibraryFileOperations::resolveMoveCollision(const QString &fileName, QString &destPath,
+                                            bool multiple, int &applyToAllChoice)
+{
+    // Riusa una scelta gia' presa per questo batch ("Applica a tutti").
+    if (applyToAllChoice == static_cast<int>(CollisionChoice::Overwrite)) {
+        return CollisionChoice::Overwrite;
+    }
+    if (applyToAllChoice == static_cast<int>(CollisionChoice::KeepBoth)) {
+        // Trova un nome _copyN libero nella cartella di destinazione.
+        QFileInfo fi(destPath);
+        QString dir = fi.absolutePath();
+        QString base = fi.completeBaseName();
+        QString suffix = fi.suffix();
+        if (!suffix.isEmpty()) suffix = "." + suffix;
+        int copyIndex = 1;
+        QString candidate;
+        do {
+            candidate = dir + "/" + base + QString("_copy%1").arg(copyIndex) + suffix;
+            copyIndex++;
+        } while (QFileInfo::exists(candidate));
+        destPath = candidate;
+        return CollisionChoice::KeepBoth;
+    }
+
+    QMessageBox box(m_mainWindow);
+    box.setIcon(QMessageBox::Warning);
+    box.setWindowTitle(tr("File already exists"));
+    box.setText(tr("A file named \"%1\" already exists in the destination folder.").arg(fileName));
+    box.setInformativeText(tr("What do you want to do?"));
+
+    QPushButton *overwriteBtn = box.addButton(tr("Overwrite"), QMessageBox::AcceptRole);
+    QPushButton *keepBothBtn  = box.addButton(tr("Keep both"), QMessageBox::ActionRole);
+    box.addButton(QMessageBox::Cancel);
+    box.setDefaultButton(keepBothBtn);
+
+    QCheckBox *applyAll = nullptr;
+    if (multiple) {
+        applyAll = new QCheckBox(tr("Apply to all"), &box);
+        box.setCheckBox(applyAll);
+    }
+
+    box.exec();
+
+    CollisionChoice choice = CollisionChoice::Cancel;
+    if (box.clickedButton() == overwriteBtn) {
+        choice = CollisionChoice::Overwrite;
+    } else if (box.clickedButton() == keepBothBtn) {
+        choice = CollisionChoice::KeepBoth;
+        QFileInfo fi(destPath);
+        QString dir = fi.absolutePath();
+        QString base = fi.completeBaseName();
+        QString suffix = fi.suffix();
+        if (!suffix.isEmpty()) suffix = "." + suffix;
+        int copyIndex = 1;
+        QString candidate;
+        do {
+            candidate = dir + "/" + base + QString("_copy%1").arg(copyIndex) + suffix;
+            copyIndex++;
+        } while (QFileInfo::exists(candidate));
+        destPath = candidate;
+    }
+
+    // "Annulla" non viene mai applicato a tutti: ogni file resta annullabile
+    // singolarmente, ma se scelto Overwrite/KeepBoth con la spunta lo ricordiamo.
+    if (applyAll && applyAll->isChecked() && choice != CollisionChoice::Cancel) {
+        applyToAllChoice = static_cast<int>(choice);
+    }
+
+    return choice;
+}
+
 void LibraryFileOperations::performPasteExample()
 {
     static bool isPasting = false;
@@ -145,8 +219,12 @@ void LibraryFileOperations::performPasteExample()
         QString rootPath = settings.value("libraryRootPath").toString();
         QString firstFile = m_mainWindow->m_cutFilePaths.first();
 
-        if (firstFile.contains("motions", Qt::CaseInsensitive) || firstFile.contains("motion", Qt::CaseInsensitive)) {
-            destDir = settings.value("pathMotions", rootPath + "/Motions").toString();
+        if (firstFile.contains("records", Qt::CaseInsensitive) || firstFile.contains("record", Qt::CaseInsensitive)
+            || firstFile.contains("motions", Qt::CaseInsensitive) || firstFile.contains("motion", Qt::CaseInsensitive)) {
+            // I Record (ex "Motion") stanno in pathRecords -> .../records; il vecchio
+            // ramo cercava solo "motion" e usava pathMotions, cosi' un path .../records
+            // cadeva nell'else (Surfaces) e usava la chiave sbagliata.
+            destDir = settings.value("pathRecords", rootPath + "/records").toString();
         } else if (firstFile.contains("sounds", Qt::CaseInsensitive) || firstFile.contains("sound", Qt::CaseInsensitive)) {
             destDir = settings.value("pathSounds", rootPath + "/Sounds").toString();
         } else {
@@ -155,6 +233,8 @@ void LibraryFileOperations::performPasteExample()
     }
 
     int opCount = 0;
+    int applyToAllChoice = -1;
+    const bool multiple = m_mainWindow->m_cutFilePaths.size() > 1;
     for (const QString &sourcePath : m_mainWindow->m_cutFilePaths) {
         QFileInfo fi(sourcePath);
         QString newFilePath = destDir + "/" + fi.fileName();
@@ -175,6 +255,18 @@ void LibraryFileOperations::performPasteExample()
                 newFilePath = destDir + "/" + baseName + QString("_copy%1").arg(copyIndex) + suffix;
                 copyIndex++;
             }
+        }
+
+        // Move di un file su un omonimo: chiedi all'utente (prima era azione nulla,
+        // perche' QFile::rename/copy falliscono in silenzio sulla destinazione esistente).
+        if (!m_mainWindow->m_isCopyOperation && !fi.isDir() && QFileInfo::exists(newFilePath)) {
+            CollisionChoice choice = resolveMoveCollision(fi.fileName(), newFilePath, multiple, applyToAllChoice);
+            if (choice == CollisionChoice::Cancel) continue;
+            if (choice == CollisionChoice::Overwrite) {
+                backupBeforeOverwrite(newFilePath); // salvabile via undo
+                QFile::remove(newFilePath);
+            }
+            // KeepBoth: newFilePath e' gia' stato riscritto col suffisso _copyN.
         }
 
         bool ok = false;
@@ -237,6 +329,8 @@ void LibraryFileOperations::performPasteTexture()
     if (destDir.isEmpty()) return;
 
     int opCount = 0;
+    int applyToAllChoice = -1;
+    const bool multiple = m_mainWindow->m_cutTexturePaths.size() > 1;
     for (const QString &sourcePath : m_mainWindow->m_cutTexturePaths) {
         QFileInfo fi(sourcePath);
         QString newFilePath = destDir + "/" + fi.fileName();
@@ -246,13 +340,25 @@ void LibraryFileOperations::performPasteTexture()
         }
 
         if (QFileInfo(newFilePath).exists()) {
-            QString baseName = fi.completeBaseName();
-            QString suffix = fi.suffix();
-            if(!suffix.isEmpty()) suffix = "." + suffix;
-            int copyIndex = 1;
-            while (QFileInfo(newFilePath).exists()) {
-                newFilePath = destDir + "/" + baseName + QString("_copy%1").arg(copyIndex) + suffix;
-                copyIndex++;
+            if (m_mainWindow->m_isCopyOperation) {
+                // Copia: come prima, rinomina automaticamente _copyN.
+                QString baseName = fi.completeBaseName();
+                QString suffix = fi.suffix();
+                if(!suffix.isEmpty()) suffix = "." + suffix;
+                int copyIndex = 1;
+                while (QFileInfo(newFilePath).exists()) {
+                    newFilePath = destDir + "/" + baseName + QString("_copy%1").arg(copyIndex) + suffix;
+                    copyIndex++;
+                }
+            } else {
+                // Move su omonimo: chiedi all'utente.
+                CollisionChoice choice = resolveMoveCollision(fi.fileName(), newFilePath, multiple, applyToAllChoice);
+                if (choice == CollisionChoice::Cancel) continue;
+                if (choice == CollisionChoice::Overwrite) {
+                    backupBeforeOverwrite(newFilePath);
+                    QFile::remove(newFilePath);
+                }
+                // KeepBoth: newFilePath gia' riscritto col suffisso _copyN.
             }
         }
 

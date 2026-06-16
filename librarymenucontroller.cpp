@@ -316,7 +316,7 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
             QString key;
             QString currentPath;
             if (senderTree == m_mainWindow->ui->treeTextures) { key = "pathTextures"; currentPath = settings.value(key, rootPath + "/Textures").toString(); }
-            else if (senderTree == m_mainWindow->ui->treeMotions) { key = "pathMotions"; currentPath = settings.value(key, rootPath + "/Motions").toString(); }
+            else if (senderTree == m_mainWindow->ui->treeMotions) { key = "pathRecords"; currentPath = settings.value(key, rootPath + "/records").toString(); }
             else if (senderTree == m_mainWindow->ui->treeSounds) { key = "pathSounds"; currentPath = settings.value(key, rootPath + "/Sounds").toString(); }
             else { key = "pathSurfaces"; currentPath = settings.value(key, rootPath + "/Surfaces").toString(); }
 

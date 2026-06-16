@@ -1,0 +1,75 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.5058013796806335,
+        "rot_x": 0.3446628153324127,
+        "rot_y": 0.6348140239715576,
+        "rot_z": -0.4715757668018341,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 9.399999618530273
+    },
+    "colors": {
+        "alpha": 0.68,
+        "b": 0.19607843458652496,
+        "g": 0.8196078538894653,
+        "r": 0.20392157137393951
+    },
+    "constants": {
+        "A": 1,
+        "B": 0.8999999761581421,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0.20000000298023224
+    },
+    "equations": {
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "implicitEquation": "// Controlled by Script",
+    "isImplicitMode": true,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "name": "Ergosphere",
+    "projectionMode": 1,
+    "renderMode": 11,
+    "scriptCode": "// Ergosfera di Kerr. M = A, spin a = B (0 <= a <= M).\n// ESTERNA (trasparente) = limite statico; interna opaca (sotto) = orizzonte.\nfloat a = min(B, A);\nreturn kerrStaticLimitSDF(p, A, a);\n//INNER: kerrHorizonSDF(p, A, min(B, A))",
+    "showBorder": false,
+    "steps": 300,
+    "type": "surface",
+    "use4DLighting": false
+}

@@ -1,5 +1,5 @@
 {
-    "code": "// Dipingiamo l'energia fluida sulla forma a bolle\nvec3 p = pModel * 5.0; \nfloat distorsione = sin(p.x) * sin(p.y + ubuf.u_time) * sin(p.z);\nfloat energia = sin(length(p) * 3.0 + distorsione * 4.0 - ubuf.u_time * 3.0);\nenergia = energia * 0.5 + 0.5;\n\nvec3 coloreScuro = vec3(0.0, 0.05, 0.2); \nvec3 coloreLuce  = vec3(0.0, 0.8, 1.0);  \n\n// Applichiamo il colore!\ntextureCol = mix(coloreScuro, coloreLuce, energia);",
+    "code": "// Energia fluida sulla forma a bolle\nvec3 p = pModel * 5.0;\nfloat distorsione = sin(p.x) * sin(p.y + ubuf.u_time) * sin(p.z);\nfloat energia = sin(length(p) * 3.0 + distorsione * 4.0 - ubuf.u_time * 3.0);\nenergia = energia * 0.5 + 0.5;\n\n// u_col2 = fondo scuro, u_col1 = energia luminosa (colori del dock)\ntextureCol = mix(ubuf.u_col2, ubuf.u_col1, energia);",
     "color1": "#33cc33",
     "color2": "#000000",
     "displacement": "// Calcoliamo un rilievo 3D\nfloat rilievo = sin(pModel.x * 20.0) * sin(pModel.y * 20.0) * sin(pModel.z * 20.0);\n\n// Lo sottraiamo alla superficie (allargandola e creando i bernoccoli)\nd_surf -= rilievo * 0.05;",

@@ -2,6 +2,7 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "libraryfileoperations.h"
+#include "audiocontroller.h"
 
 #include <QFileDialog>
 #include <QInputDialog>
@@ -245,11 +246,11 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
 
     // --- BLOCCO VALIDAZIONE RIGIDA ---
     QString absPath = QFileInfo(fileName).absolutePath() + "/";
-    if (absPath.contains("/recordss/", Qt::CaseInsensitive) ||
+    if (absPath.contains("/records/", Qt::CaseInsensitive) ||
         absPath.contains("/textures/", Qt::CaseInsensitive) ||
         absPath.contains("/sounds/", Qt::CaseInsensitive)) {
-        QMessageBox::warning(m_mainWindow, "Salvataggio Bloccato",
-                             "Operazione non consentita.\n\nLe Superfici statiche devono risiedere in 'Surfaces'.\nSe vuoi salvare la scena globale (che contiene questa superficie), usa il comando 'Save Motion'.");
+        QMessageBox::warning(m_mainWindow, "Save Blocked",
+                             "Operation not allowed.\n\nStatic surfaces must reside in 'Surfaces'.\nIf you want to save the global scene (which contains this surface), use the 'Save Motion' command.");
         return;
     }
 
@@ -438,8 +439,8 @@ void PresetSerializer::saveTexture(const QString &path)
     if (absPath.contains("/surfaces/", Qt::CaseInsensitive) ||
         absPath.contains("/records/", Qt::CaseInsensitive) ||
         absPath.contains("/sounds/", Qt::CaseInsensitive)) {
-        QMessageBox::warning(m_mainWindow, "Salvataggio Bloccato",
-                             "Operazione non consentita.\n\nI preset Texture devono essere salvati esclusivamente nella cartella 'Textures'.");
+        QMessageBox::warning(m_mainWindow, "Save Blocked",
+                             "Operation not allowed.\n\nTexture presets must be saved exclusively in the 'Textures' folder.");
         return;
     }
 
@@ -604,8 +605,8 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     if (absPath.contains("/surfaces/", Qt::CaseInsensitive) ||
         absPath.contains("/textures/", Qt::CaseInsensitive) ||
         absPath.contains("/sounds/", Qt::CaseInsensitive)) {
-        QMessageBox::warning(m_mainWindow, "Salvataggio Bloccato",
-                             "Operazione non consentita.\n\nI preset Motion catturano l'intera scena (superficie compresa) e devono essere salvati esclusivamente nella cartella 'Motions'.");
+        QMessageBox::warning(m_mainWindow, "Save Blocked",
+                             "Operation not allowed.\n\nRecord presets capture the entire scene (including the surface) and must be saved exclusively in the 'Records' folder.");
         return;
     }
 
@@ -753,6 +754,32 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
 
     // --- REINIEZIONE DELL'AUDIO E GESTIONE IMMAGINI ---
     QString audioCode = m_mainWindow->m_soundScriptText.trimmed();
+
+    // Salvataggio SENZA suono: se il record ha un audio associato ma al momento
+    // del Save l'audio e' stoppato (ne' synth ne' player attivi), l'utente puo'
+    // salvare il record senza il blocco audio. Rete di sicurezza: chiediamo
+    // conferma, cosi' un audio messo in pausa solo per lavorare non viene perso
+    // per sbaglio.
+    if (!audioCode.isEmpty() && m_mainWindow->m_audioController
+        && !m_mainWindow->m_audioController->isPlaying()) {
+        QMessageBox box(m_mainWindow);
+        box.setIcon(QMessageBox::Question);
+        box.setWindowTitle("Save Record");
+        box.setText("The sound is stopped.");
+        box.setInformativeText("Do you want to save the record without sound?");
+        QPushButton *withoutBtn = box.addButton("Save without sound", QMessageBox::AcceptRole);
+        QPushButton *withBtn    = box.addButton("Keep the sound", QMessageBox::ActionRole);
+        box.addButton(QMessageBox::Cancel);
+        box.setDefaultButton(withoutBtn);
+        box.exec();
+
+        if (box.clickedButton() == withoutBtn) {
+            audioCode.clear();      // omette il blocco audio dalla reiniezione sotto
+        } else if (box.clickedButton() != withBtn) {
+            return;                 // Annulla: animazioni/timer gia' ripristinati sopra
+        }
+        // "Includi il suono": lascia audioCode invariato (comportamento classico)
+    }
 
     if (isImplicit) {
         QString implicitTex = m_mainWindow->ui->lineTexture->toPlainText().trimmed();
@@ -955,8 +982,8 @@ void PresetSerializer::saveScript()
     // conferma esplicita, così l'utente non perde un preset per sbaglio.
     if (QFile::exists(fileName)) {
         const QMessageBox::StandardButton choice = QMessageBox::question(
-            m_mainWindow, "Sovrascrivere il file?",
-            QString("Il file \"%1\" esiste già.\n\nVuoi sovrascriverlo?")
+            m_mainWindow, "Overwrite file?",
+            QString("The file \"%1\" already exists.\n\nDo you want to overwrite it?")
                 .arg(QFileInfo(fileName).fileName()),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (choice != QMessageBox::Yes) return;

@@ -1,0 +1,13 @@
+{
+    "code": "float k = smoothstep(0.0, 1.0, v + 0.1 * sin(6.2831 * u + t));\nreturn mix(u_col1, u_col2, k);",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "hasCustomColors": true,
+    "isImplicitMode": false,
+    "name": "Gradient2",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 151.5,
+    "type": "custom_texture",
+    "zoom": 1
+}

@@ -3537,6 +3537,12 @@ void MainWindow::handleTextureSelection(int index)
             ui->glWidget->setTextureEnabled(true);
             m_surfaceTextureState = true;
 
+            // La checkbox è stata attivata con blockSignals: il suo handler non
+            // scatta, quindi sincronizziamo a mano lo stato UI. I picker Colore
+            // Texture vanno accesi solo se lo script referenzia davvero u_col1/u_col2.
+            bool texUsesColors = rmTexCode.contains("u_col1") || rmTexCode.contains("u_col2");
+            updateTextureUIState(true, texUsesColors);
+
             // 3. Validazione reale
             bool success = ui->glWidget->validateAndApplyImplicitShader(implicitEqF, rmTexCode, data.displacementCode);
 
@@ -6690,9 +6696,9 @@ void MainWindow::onUndoDelete() {
 void MainWindow::onAddRepositoryClicked(LibraryType /*type*/)
 {
 #if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
-    QMessageBox::information(this, "Gestione Libreria",
-                             "Su iPhone e iPad la tua libreria è gestita in automatico dal sistema.\n"
-                             "Apri l'app 'File' di iOS per organizzare le tue cartelle e i preset.");
+    QMessageBox::information(this, "Library Management",
+                             "On iPhone and iPad your library is managed automatically by the system.\n"
+                             "Open the iOS 'Files' app to organize your folders and presets.");
     return;
 #else
     QSettings settings;
@@ -6921,7 +6927,6 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
         // Usiamo la pulizia per confrontare il codice in memoria con quello della libreria
         isAlreadyPresent = (cleanAudioCode(m_soundScriptText) == cleanAudioCode(soundData.scriptCode));
     }
-
     // 3. IL RESTO RIMANE ESATTAMENTE UGUALE
     if (isAlreadyPresent) {
         if (m_audioController && m_audioController->isPlaying()) {
@@ -7387,7 +7392,10 @@ void MainWindow::updateWatcherPaths()
 
     addDirsToWatcher(settings.value("pathSurfaces", rootPath + "/surfaces").toString());
     addDirsToWatcher(settings.value("pathTextures", rootPath + "/textures").toString());
-    addDirsToWatcher(settings.value("pathMotions", rootPath + "/motions").toString());
+    // I Record usano la chiave "pathRecords" come il loader (refreshRepositories):
+    // "pathMotions" era una chiave divergente -> la cartella .../records non veniva
+    // mai osservata, quindi un record salvato in radice non innescava il refresh.
+    addDirsToWatcher(settings.value("pathRecords", rootPath + "/records").toString());
     addDirsToWatcher(settings.value("pathSounds", rootPath + "/sounds").toString());
 }
 
@@ -7688,9 +7696,9 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     // PRIMA che il blocco script piu' sotto (riga ~7755) installi script-mode e il
     // corpo GLSL. Quel render lazy chiamerebbe buildImplicitPipeline() leggendo
     // engine->isScriptModeActive()==false e il VECCHIO m_eqImplicitF (es. il toro
-    // del preset precedente): risultato, una superficie sbagliata e collassata con
-    // hasInner=0 (verificato su ~/raymarch_dump.frag). Installiamo qui lo stato
-    // dell'engine cosi' la prima build implicita vede gia' lo script corretto.
+    // del preset precedente): risultato, una superficie sbagliata e collassata
+    // con hasInner=0. Installiamo qui lo stato dell'engine cosi' la prima build
+    // implicita vede gia' lo script corretto.
     // Il rebuildShader() autorevole piu' sotto resta (ridondante ma innocuo).
     if (d.isImplicitMode && isScript && !d.scriptCode.isEmpty() && ui->glWidget->getEngine()) {
         QString preBody;
@@ -8235,11 +8243,22 @@ QString MainWindow::extractAudioDirectives(const QString& fullText) {
         }
     }
 
-    // 2. Estrae il formato procedurale (Sintesi GLSL) - Lasciato intatto
+    // 2. Estrae il formato procedurale (Sintesi GLSL).
     QRegularExpression blockRe(R"(//\s*SOUND_BEGIN(.*?)//\s*SOUND_END)", QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
+    // Marcatori interni residui: con blocchi annidati/duplicati (es. preset salvati
+    // due volte con "//SOUND_BEGIN\n//SOUND_BEGIN\n...\n//SOUND_END\n//SOUND_END")
+    // la cattura non-greedy include un //SOUND_BEGIN interno spurio. Li rimuoviamo
+    // dal contenuto, cosi' l'output e' SEMPRE un blocco singolo pulito: altrimenti
+    // m_soundScriptText differisce dal codice salvato in libreria e il confronto
+    // isAlreadyPresent (onSoundItemClicked) da' un falso negativo -> il click di
+    // stop ricarica e riavvia il suono invece di fermarlo.
+    QRegularExpression innerMarkerRe(R"(^\s*//\s*(SOUND_BEGIN|SOUND_END).*$\n?)",
+        QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption);
     QRegularExpressionMatchIterator blockIt = blockRe.globalMatch(fullText);
     while (blockIt.hasNext()) {
-        extractedSound += "//SOUND_BEGIN\n" + blockIt.next().captured(1).trimmed() + "\n//SOUND_END\n";
+        QString inner = blockIt.next().captured(1);
+        inner.remove(innerMarkerRe);   // toglie eventuali marcatori annidati residui
+        extractedSound += "//SOUND_BEGIN\n" + inner.trimmed() + "\n//SOUND_END\n";
     }
 
     return extractedSound.trimmed();
@@ -8511,17 +8530,21 @@ void MainWindow::updateScriptButtonText() {
     }
 }
 
-void MainWindow::updateTextureUIState(bool isTextureOn)
+void MainWindow::updateTextureUIState(bool isTextureOn, bool texUsesColors)
 {
     // 1. Surface è abilitato SOLO se la texture è SPENTA
     ui->radioEditSurf->setEnabled(!isTextureOn);
 
     // 2. I controlli Colore Texture sono abilitati SOLO se la texture è ACCESA
-    ui->radioTexColor1->setEnabled(isTextureOn);
-    ui->radioTexColor2->setEnabled(isTextureOn);
+    //    E lo script referenzia davvero u_col1/u_col2 (texUsesColors).
+    //    Le texture che non usano quei colori (es. immagini triplanar, pattern
+    //    a colori fissi) lasciano i picker spenti per non illudere l'utente.
+    bool colorsActive = isTextureOn && texUsesColors;
+    ui->radioTexColor1->setEnabled(colorsActive);
+    ui->radioTexColor2->setEnabled(colorsActive);
 
     // 3. GESTIONE SPOSTAMENTO "PALLINO"
-    if (isTextureOn) {
+    if (colorsActive) {
         if (ui->radioEditSurf->isChecked()) {
             bool oldBlock = ui->radioTexColor1->blockSignals(true);
             ui->radioTexColor1->setChecked(true);
