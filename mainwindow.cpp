@@ -1729,10 +1729,13 @@ MainWindow::MainWindow(QWidget *parent)
             ui->radioEditSurf->setEnabled(false);
             ui->radioEditBorder->setEnabled(false);
 
-            ui->radioTexColor1->setEnabled(bgTexActive);
-            ui->radioTexColor2->setEnabled(bgTexActive);
+            // Picker Colore attivi solo se lo sfondo è acceso E usa u_col1/u_col2.
+            bool bgUsesColors = bgTexActive &&
+                                (m_bgTextureCode.contains("u_col1") || m_bgTextureCode.contains("u_col2"));
+            ui->radioTexColor1->setEnabled(bgUsesColors);
+            ui->radioTexColor2->setEnabled(bgUsesColors);
 
-            if (bgTexActive) {
+            if (bgUsesColors) {
                 bool oldBlock2 = ui->radioTexColor1->blockSignals(true);
                 ui->radioTexColor1->setChecked(true);
                 ui->radioTexColor1->blockSignals(oldBlock2);
@@ -1862,10 +1865,13 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->chkBoxTexture, &QCheckBox::toggled, this, [this](bool checked){
         if (ui->radioBackground->isChecked()) {
             ui->glWidget->setBackgroundTextureEnabled(checked);
-            ui->radioTexColor1->setEnabled(checked);
-            ui->radioTexColor2->setEnabled(checked);
+            // Picker Colore solo se lo sfondo è acceso E usa u_col1/u_col2.
+            bool bgUsesColors = checked &&
+                                (m_bgTextureCode.contains("u_col1") || m_bgTextureCode.contains("u_col2"));
+            ui->radioTexColor1->setEnabled(bgUsesColors);
+            ui->radioTexColor2->setEnabled(bgUsesColors);
 
-            if (checked && !ui->radioTexColor1->isChecked() && !ui->radioTexColor2->isChecked()) {
+            if (bgUsesColors && !ui->radioTexColor1->isChecked() && !ui->radioTexColor2->isChecked()) {
                 bool oldBlock = ui->radioTexColor1->blockSignals(true);
                 ui->radioTexColor1->setChecked(true);
                 ui->radioTexColor1->blockSignals(oldBlock);
@@ -1874,6 +1880,14 @@ MainWindow::MainWindow(QWidget *parent)
             if (!checked) {
                 m_bgTextureCode.clear();
                 m_bgTextureScriptText.clear();
+
+                // Reset dello stato sfondo lato GPU alla default. Cancellare solo le
+                // stringhe CPU non basta: setBackgroundTextureEnabled(true) al
+                // riaccendere tiene "l'ultima usata" (m_backgroundTexture/m_bgScriptCode/
+                // m_bgIsScript restano in memoria) e ricompare l'ultimo sfondo invece
+                // della default. setBackgroundTexture ricarica background.png e azzera
+                // m_bgIsScript, così la riaccensione riparte sempre dalla default.
+                if (ui->glWidget) ui->glWidget->setBackgroundTexture("background.png");
 
                 // Se stiamo visualizzando il dock degli script in modalità Texture
                 if (m_currentScriptMode == ScriptModeTexture) {
@@ -1913,6 +1927,49 @@ MainWindow::MainWindow(QWidget *parent)
                     if (!tex.isEmpty() && !isOnlyImage) hasCode = true;
                 }
 
+                // Cancellazione fisica del codice texture in memoria. DEVE avvenire
+                // a OGNI spegnimento (non solo quando si modifica a mano), altrimenti
+                // riaccendendo il checkbox il rebuildShader/generateTexture riusa il
+                // codice ancora in memoria e ricompare l'ULTIMA texture caricata invece
+                // della default. Il warning sotto decide solo se CHIEDERE conferma
+                // (quando c'è codice scritto a mano che andrebbe perso).
+                auto clearTextureMemory = [this]() {
+                    if (ui->tabModeSelector->currentIndex() == 1) {
+                        // Svuota i campi della tab Ray Marching
+                        bool b1 = ui->lineTexture->blockSignals(true);
+                        bool b2 = ui->lineVariations->blockSignals(true);
+                        ui->lineTexture->clear();
+                        ui->lineVariations->clear();
+                        ui->lineTexture->blockSignals(b1);
+                        ui->lineVariations->blockSignals(b2);
+                        if (ui->glWidget) {
+                            ui->glWidget->setTextureCode("");
+                            ui->glWidget->setDisplacementCode("");
+                        }
+                    } else {
+                        // Svuota memoria e variabili parametriche
+                        m_surfaceTextureCode.clear();
+                        m_surfaceTextureScriptText.clear();
+                        m_isCustomMode = false;
+                        m_isImageMode = false;
+                        m_currentTexturePath.clear();
+
+                        // Se l'utente sta visualizzando il dock script in modalità texture, svuota l'editor
+                        if (m_currentScriptMode == ScriptModeTexture) {
+                            bool ob = ui->txtScriptEditor->blockSignals(true);
+                            ui->txtScriptEditor->clear();
+                            ui->txtScriptEditor->blockSignals(ob);
+                        }
+
+                        if (ui->glWidget) {
+                            ui->glWidget->loadCustomShader(""); // Torna allo shader standard
+                            ui->glWidget->clearTexture();
+                        }
+                    }
+                    // Codice perso/azzerato: lo stato "modificato" non ha più senso.
+                    this->setProperty("isTextureModified", false);
+                };
+
                 // MOSTRA IL WARNING SOLO SE C'È VERO CODICE *E* L'UTENTE LO HA MODIFICATO MANUALMENTE
                 if (hasCode && isModified) {
                     auto reply = QMessageBox::warning(this, "Warning",
@@ -1928,33 +1985,13 @@ MainWindow::MainWindow(QWidget *parent)
                         return; // Interrompe l'operazione
                     }
 
-                    // 2. Se l'utente clicca SI, cancelliamo fisicamente tutto
-                    if (ui->tabModeSelector->currentIndex() == 1) {
-                        // Svuota i campi della tab Ray Marching
-                        ui->lineTexture->clear();
-                        ui->lineVariations->clear();
-                        if (ui->glWidget) {
-                            ui->glWidget->setTextureCode("");
-                            ui->glWidget->setDisplacementCode("");
-                        }
-                    } else {
-                        // Svuota memoria e variabili parametriche
-                        m_surfaceTextureCode.clear();
-                        m_surfaceTextureScriptText.clear();
-                        m_isCustomMode = false;
-                        m_isImageMode = false;
-                        m_currentTexturePath.clear();
-
-                        // Se l'utente sta visualizzando il dock script in modalità texture, svuota l'editor
-                        if (m_currentScriptMode == ScriptModeTexture) {
-                            ui->txtScriptEditor->clear();
-                        }
-
-                        if (ui->glWidget) {
-                            ui->glWidget->loadCustomShader(""); // Torna allo shader standard
-                            ui->glWidget->clearTexture();
-                        }
-                    }
+                    // Se l'utente clicca SI, cancelliamo fisicamente tutto
+                    clearTextureMemory();
+                } else {
+                    // Nessun codice scritto a mano da proteggere (es. texture solo
+                    // CARICATA da preset): niente warning, ma azzeriamo lo stesso così
+                    // la riaccensione riparte sempre dalla texture di default.
+                    clearTextureMemory();
                 }
             }
 
@@ -1969,6 +2006,20 @@ MainWindow::MainWindow(QWidget *parent)
 
                     if (currentTex.isEmpty()) {
                         QString targetImg = ":/defaultray.png";
+
+                        // Reset dei colori texture alla default: senza questo, dopo
+                        // una texture RM con colori custom (u_col1/u_col2), la default
+                        // ricompariva con i colori della precedente (m_texColor1/2 e
+                        // l'UBO restavano stantii). Simmetrico al ramo parametrico.
+                        m_texColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
+                        m_texColor2 = Qt::black;
+                        if (ui->glWidget) ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
+                        {
+                            bool ob = ui->radioTexColor1->blockSignals(true);
+                            ui->radioTexColor1->setChecked(true);
+                            ui->radioTexColor1->blockSignals(ob);
+                        }
+                        onColorTargetChanged();
 
                         // Codice Triplanar Mapping automatico
                         QString defaultRM = "//IMG:" + targetImg + "\n"
@@ -1998,6 +2049,12 @@ MainWindow::MainWindow(QWidget *parent)
                     if (m_isCustomMode) m_isCustomMode = false;
                     m_isImageMode = false;
 
+                    // Reset dei colori texture alla default. Senza questo m_texColor1/2
+                    // restano quelli del preset precedente (settati in applyCommonData
+                    // ~3437) e la scacchiera default ricompare coi colori vecchi.
+                    // Stesso reset del ramo Ray Marching.
+                    m_texColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
+                    m_texColor2 = Qt::black;
                     if (ui->glWidget) ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
 
                     bool oldBlock = ui->radioTexColor1->blockSignals(true);
@@ -3321,11 +3378,15 @@ void MainWindow::handleTextureSelection(int index)
         ui->chkBoxTexture->setChecked(true);
         ui->chkBoxTexture->blockSignals(oldBlock);
 
-        ui->radioTexColor1->setEnabled(true);
-        ui->radioTexColor2->setEnabled(true);
-        bool oldRad = ui->radioTexColor1->blockSignals(true);
-        ui->radioTexColor1->setChecked(true);
-        ui->radioTexColor1->blockSignals(oldRad);
+        // Picker Colore solo se lo sfondo usa u_col1/u_col2 (un'immagine no).
+        bool bgUsesColors = m_bgTextureCode.contains("u_col1") || m_bgTextureCode.contains("u_col2");
+        ui->radioTexColor1->setEnabled(bgUsesColors);
+        ui->radioTexColor2->setEnabled(bgUsesColors);
+        if (bgUsesColors) {
+            bool oldRad = ui->radioTexColor1->blockSignals(true);
+            ui->radioTexColor1->setChecked(true);
+            ui->radioTexColor1->blockSignals(oldRad);
+        }
 
         onColorTargetChanged();
         updateFlatPreviewButton();
@@ -3418,6 +3479,13 @@ void MainWindow::handleTextureSelection(int index)
                 ui->glWidget->setTextureEnabled(true);
                 ui->glWidget->rebuildShader();
 
+                m_isCustomMode = false;
+                m_isImageMode = true;
+                // Impostato prima dell'aggiornamento UI: updateTextureUIState
+                // legge questo codice per decidere se accendere i picker Colore
+                // (un'immagine "//IMG:" non usa u_col1/u_col2 -> picker spenti).
+                m_surfaceTextureCode = "//IMG:" + data.filePath;
+
                 if (!ui->chkBoxTexture->isChecked()) {
                     bool old = ui->chkBoxTexture->blockSignals(true);
                     ui->chkBoxTexture->setChecked(true);
@@ -3425,10 +3493,6 @@ void MainWindow::handleTextureSelection(int index)
                     updateTextureUIState(true);
                     m_surfaceTextureState = true;
                 }
-
-                m_isCustomMode = false;
-                m_isImageMode = true;
-                m_surfaceTextureCode = "//IMG:" + data.filePath;
 
                 ui->glWidget->setFlatViewTarget(0);
                 ui->glWidget->setFlatZoom(data.zoom);
@@ -3538,10 +3602,10 @@ void MainWindow::handleTextureSelection(int index)
             m_surfaceTextureState = true;
 
             // La checkbox è stata attivata con blockSignals: il suo handler non
-            // scatta, quindi sincronizziamo a mano lo stato UI. I picker Colore
-            // Texture vanno accesi solo se lo script referenzia davvero u_col1/u_col2.
-            bool texUsesColors = rmTexCode.contains("u_col1") || rmTexCode.contains("u_col2");
-            updateTextureUIState(true, texUsesColors);
+            // scatta, quindi sincronizziamo a mano lo stato UI. updateTextureUIState
+            // deduce da solo se i picker Colore servono (lineTexture contiene rmTexCode).
+            // resetColorTargetToFirst: caricando il preset il focus torna a Colore 1.
+            updateTextureUIState(true, true);
 
             // 3. Validazione reale
             bool success = ui->glWidget->validateAndApplyImplicitShader(implicitEqF, rmTexCode, data.displacementCode);
@@ -3944,7 +4008,7 @@ void MainWindow::onStartClicked()
                 bool oldState = ui->chkBoxTexture->blockSignals(true);
                 ui->chkBoxTexture->setChecked(true);
                 ui->chkBoxTexture->blockSignals(oldState);
-                updateTextureUIState(true);
+                updateTextureUIState(true, true); // nuova texture -> focus a Colore 1
             }
         }
 
@@ -4223,10 +4287,17 @@ void MainWindow::onStartClicked()
                     pv = (double)vMin + ((double)vMax - (double)vMin) * j / (double)N;
                     double val = p.value();
 
-                    // 1) inf / NaN espliciti (1/0, log(0), ...)
-                    if (!std::isfinite(val)) return false;
+                    // 1) inf / NaN: NON blocchiamo subito. Una singolarità RIMOVIBILE
+                    //    (es. Torus Artifact: z = B*sin(v)/v, che a v=0 dà 0/0=NaN ma
+                    //    il limite è B, finito) tocca solo i punti esatti della
+                    //    singolarità mentre i vicini restano limitati: la GPU la
+                    //    disegna bene. Saltiamo il campione. Un polo VERO (1/(v-π),
+                    //    tan, csc) ha invece i vicini finiti che esplodono e vengono
+                    //    presi dal tetto kMax qui sotto.
+                    if (!std::isfinite(val)) continue;
 
-                    // 2) tetto assoluto di sicurezza (oltre la portata float32 GPU)
+                    // 2) tetto assoluto di sicurezza (oltre la portata float32 GPU):
+                    //    qui cade il vicinato di un polo vero -> blocco corretto.
                     if (std::abs(val) > kMaxRenderableMagnitude) return false;
 
                     double m = std::abs(val);
@@ -4235,13 +4306,22 @@ void MainWindow::onStartClicked()
                 }
             }
 
-            // 3) Picco RELATIVO alla scala della superficie. La mediana è una
-            //    stima robusta della scala "tipica"; se il massimo la supera di
-            //    troppo è un polo/spike che farà appiattire il render.
+            // Tutti i campioni non finiti: non c'è nulla di renderizzabile.
+            if (mags.isEmpty()) return false;
+
+            // 3) Picco RELATIVO alla scala della superficie. Usiamo il 90°
+            //    percentile (NON la mediana) come riferimento di scala "tipica":
+            //    superfici legittime possono avere oltre metà dei campioni vicini
+            //    a zero (es. Koranyi: x = A*pow(max(cos(v),0),B)*cos(u), dove
+            //    max(cos(v),0) annulla mezzo dominio in v e cos(u) lo attraversa).
+            //    Con la mediana ~0 il rapporto max/mediana esplodeva e bloccava
+            //    per errore queste superfici; un polo vero (1/0, tan ai bordi)
+            //    supera comunque il p90 di vari ordini di grandezza ed è preso.
             if (!mags.isEmpty()) {
-                std::nth_element(mags.begin(), mags.begin() + mags.size() / 2, mags.end());
-                double medianMag = mags[mags.size() / 2];
-                if (medianMag > 1e-9 && maxMag > kSpikeRatio * medianMag)
+                size_t p90Idx = static_cast<size_t>(0.90 * (mags.size() - 1));
+                std::nth_element(mags.begin(), mags.begin() + p90Idx, mags.end());
+                double p90Mag = mags[p90Idx];
+                if (p90Mag > 1e-9 && maxMag > kSpikeRatio * p90Mag)
                     return false;
             }
             return true;
@@ -5292,9 +5372,11 @@ void MainWindow::onApplyTextureScriptClicked()
         ui->chkBoxTexture->setChecked(true);
         ui->chkBoxTexture->blockSignals(oldBlock);
 
-        ui->radioTexColor1->setEnabled(true);
-        ui->radioTexColor2->setEnabled(true);
-        if (!ui->radioTexColor1->isChecked() && !ui->radioTexColor2->isChecked()) {
+        // I picker Colore servono solo se lo script di sfondo usa u_col1/u_col2.
+        bool bgUsesColors = code.contains("u_col1") || code.contains("u_col2");
+        ui->radioTexColor1->setEnabled(bgUsesColors);
+        ui->radioTexColor2->setEnabled(bgUsesColors);
+        if (bgUsesColors && !ui->radioTexColor1->isChecked() && !ui->radioTexColor2->isChecked()) {
             bool oldRad = ui->radioTexColor1->blockSignals(true);
             ui->radioTexColor1->setChecked(true);
             ui->radioTexColor1->blockSignals(oldRad);
@@ -5348,10 +5430,14 @@ void MainWindow::onApplyTextureScriptClicked()
             const bool wasBlocked = ui->chkBoxTexture->blockSignals(true);
             ui->chkBoxTexture->setChecked(true);
             ui->chkBoxTexture->blockSignals(wasBlocked);
-            updateTextureUIState(true);
             ui->glWidget->setTextureEnabled(true);
             m_surfaceTextureState = true;
         }
+        // Rinfresca lo stato UI ad OGNI applicazione (anche se la texture era già
+        // accesa): cambiando texture i picker Colore vanno riallineati a u_col1/u_col2
+        // del nuovo script. m_surfaceTextureCode è già aggiornato sopra.
+        // resetColorTargetToFirst: caricando una nuova texture il focus torna a Colore 1.
+        updateTextureUIState(true, true);
 
         // 1. GESTIONE MEMORIA IMMAGINE
         if (!imgPath.isEmpty()) {
@@ -6344,9 +6430,12 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
         ui->chkBoxTexture->setChecked(bgTexEnabled);
         ui->chkBoxTexture->blockSignals(oldBlock);
 
-        ui->radioTexColor1->setEnabled(bgTexEnabled);
-        ui->radioTexColor2->setEnabled(bgTexEnabled);
-        if (bgTexEnabled && !ui->radioTexColor1->isChecked() && !ui->radioTexColor2->isChecked()) {
+        // Picker Colore attivi solo se lo sfondo è acceso E usa u_col1/u_col2.
+        bool bgUsesColors = bgTexEnabled &&
+                            (bgCode.contains("u_col1") || bgCode.contains("u_col2"));
+        ui->radioTexColor1->setEnabled(bgUsesColors);
+        ui->radioTexColor2->setEnabled(bgUsesColors);
+        if (bgUsesColors && !ui->radioTexColor1->isChecked() && !ui->radioTexColor2->isChecked()) {
             bool oldRad = ui->radioTexColor1->blockSignals(true);
             ui->radioTexColor1->setChecked(true);
             ui->radioTexColor1->blockSignals(oldRad);
@@ -8530,22 +8619,49 @@ void MainWindow::updateScriptButtonText() {
     }
 }
 
-void MainWindow::updateTextureUIState(bool isTextureOn, bool texUsesColors)
+// Ritorna true se la texture attualmente attiva (superficie/ray-marching o
+// background, a seconda della modalità) referenzia davvero u_col1/u_col2.
+// Le texture che non li usano (immagini, triplanar, pattern a colori fissi)
+// devono lasciare i picker Colore spenti per non illudere l'utente.
+bool MainWindow::activeTextureUsesColors() const
+{
+    if (ui->radioBackground->isChecked()) {
+        return m_bgTextureCode.contains("u_col1") || m_bgTextureCode.contains("u_col2");
+    }
+
+    // Scacchiera procedurale di default (generateTexture() in C++): non è uno
+    // script, ma usa comunque m_texColor1/m_texColor2 -> i picker servono.
+    if (!m_isCustomMode && !m_isImageMode) {
+        return true;
+    }
+
+    // In Ray Marching la texture vive nel campo dedicato, altrimenti è lo
+    // script di superficie (stessa logica usata per la sync dell'albero).
+    QString activeCode = (ui->tabModeSelector->currentIndex() == 1)
+                             ? ui->lineTexture->toPlainText()
+                             : m_surfaceTextureCode;
+    return activeCode.contains("u_col1") || activeCode.contains("u_col2");
+}
+
+void MainWindow::updateTextureUIState(bool isTextureOn, bool resetColorTargetToFirst)
 {
     // 1. Surface è abilitato SOLO se la texture è SPENTA
     ui->radioEditSurf->setEnabled(!isTextureOn);
 
     // 2. I controlli Colore Texture sono abilitati SOLO se la texture è ACCESA
-    //    E lo script referenzia davvero u_col1/u_col2 (texUsesColors).
-    //    Le texture che non usano quei colori (es. immagini triplanar, pattern
-    //    a colori fissi) lasciano i picker spenti per non illudere l'utente.
-    bool colorsActive = isTextureOn && texUsesColors;
+    //    E lo script referenzia davvero u_col1/u_col2: lo deduciamo dalla
+    //    texture attiva, così ogni chiamante è automaticamente corretto.
+    bool colorsActive = isTextureOn && activeTextureUsesColors();
     ui->radioTexColor1->setEnabled(colorsActive);
     ui->radioTexColor2->setEnabled(colorsActive);
 
     // 3. GESTIONE SPOSTAMENTO "PALLINO"
     if (colorsActive) {
-        if (ui->radioEditSurf->isChecked()) {
+        // Caricando una NUOVA texture (resetColorTargetToFirst) il focus torna
+        // sempre a Colore 1, anche se sulla precedente era selezionato Colore 2.
+        // Negli altri casi (cambio tab/modalità) spostiamo solo se eravamo su
+        // Surface, per non disturbare una selezione texture già valida.
+        if (resetColorTargetToFirst || ui->radioEditSurf->isChecked()) {
             bool oldBlock = ui->radioTexColor1->blockSignals(true);
             ui->radioTexColor1->setChecked(true);
             ui->radioTexColor1->blockSignals(oldBlock);

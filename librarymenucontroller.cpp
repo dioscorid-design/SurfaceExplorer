@@ -95,11 +95,6 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                 int index = refItem->data(0, Qt::UserRole).toInt();
                 QString path = m_mainWindow->m_libraryManager.getSurface(index).filePath;
 
-#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
-                contextMenu->addAction("Save Surface", m_mainWindow, [this, path, executeAction](){
-                    executeAction([this, path](){ m_mainWindow->m_presetSerializer->saveSurface(path); });
-                });
-#endif
                 contextMenu->addAction("Save Surface As...", m_mainWindow, [this, path, executeAction](){
                     executeAction([this, path](){ m_mainWindow->m_presetSerializer->saveSurfaceAs(QFileInfo(path).absolutePath(), path); });
                 });
@@ -117,11 +112,6 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                 int index = refItem->data(0, Qt::UserRole + 1).toInt();
                 const LibraryItem &data = m_mainWindow->m_libraryManager.getTexture(index);
 
-#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
-                contextMenu->addAction("Save Texture", m_mainWindow, [this, data, executeAction](){
-                    executeAction([this, data](){ m_mainWindow->m_presetSerializer->saveTexture(data.filePath); });
-                });
-#endif
                 contextMenu->addAction("Save Texture As...", m_mainWindow, [this, data, executeAction](){
                     executeAction([this, data](){ m_mainWindow->m_presetSerializer->saveTextureAs(QFileInfo(data.filePath).absolutePath(), data.filePath); });
                 });
@@ -140,11 +130,6 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                 int index = refItem->data(0, Qt::UserRole + 2).toInt();
                 QString path = m_mainWindow->m_libraryManager.getMotion(index).filePath;
 
-#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
-                contextMenu->addAction("Save Record", m_mainWindow, [this, path, executeAction](){
-                    executeAction([this, path](){ m_mainWindow->m_presetSerializer->saveMotion(path); });
-                });
-#endif
                 contextMenu->addAction("Save Record As...", m_mainWindow, [this, path, executeAction](){
                     executeAction([this, path](){ m_mainWindow->m_presetSerializer->saveMotionAs(QFileInfo(path).absolutePath(), path); });
                 });
@@ -163,12 +148,6 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                 const LibraryItem &data = m_mainWindow->m_libraryManager.getSound(index);
 
                 if (data.filePath.endsWith(".json", Qt::CaseInsensitive)) {
-#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
-                    contextMenu->addAction("Save Sound", m_mainWindow, [this, data, executeAction](){
-                        // Salvataggio silenzioso (1 argomento: il file stesso)
-                        executeAction([this, data](){ m_mainWindow->m_presetSerializer->saveSound(data.filePath); });
-                    });
-#endif
                     contextMenu->addAction("Save Sound As...", m_mainWindow, [this, data, executeAction](){
                         // Finestra di dialogo (2 argomenti: cartella base e file sorgente)
                         executeAction([this, data](){ m_mainWindow->m_presetSerializer->saveSoundAs(QFileInfo(data.filePath).absolutePath(), data.filePath); });

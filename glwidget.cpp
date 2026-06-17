@@ -2828,9 +2828,17 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
         if (!safeLogic.contains(QRegularExpression("\\bvec3\\s+u_col1\\b"))) initVars += "    u_col1 = ubuf.u_col1;\n";
         if (!safeLogic.contains(QRegularExpression("\\bvec3\\s+u_col2\\b"))) initVars += "    u_col2 = ubuf.u_col2;\n";
 
+        // Nel ramo Shadertoy u_col1/u_col2 sono GLOBALI (lette da mainImage) e
+        // vengono assegnate in initVars. Le dichiarazioni LOCALI aggiunte da
+        // `helpers` farebbero shadowing: mainImage leggerebbe le globali rimaste
+        // a vec3(0) e gli slider colore non avrebbero effetto. Le rimuoviamo qui.
+        QString stLocalHelpers = helpers;
+        stLocalHelpers.remove("    vec3 u_col1 = ubuf.u_col1;\n");
+        stLocalHelpers.remove("    vec3 u_col2 = ubuf.u_col2;\n");
+
         codeToInject = samplerDecl + stHelpers + safeLogic + "\n"
                                                              "vec3 getCustomColor(vec2 in_uv) {\n"
-                       + helpers + initVars +
+                       + stLocalHelpers + initVars +
                        "    vec2 _st_coord = uv * iResolution.xy;\n"
                        "    _st_fragCoord = vec4(_st_coord, 0.0, 1.0);\n"
                        "    vec4 fragColor_out;\n"

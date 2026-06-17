@@ -177,6 +177,7 @@
         <file>presets/surfaces/Parametric/Equations/R3/Limpet Torus.json</file>
         <file>presets/textures/Ray Marching/Hellish Plasma.json</file>
         <file>presets/textures/Ray Marching/Holografic Scan.json</file>
+        <file>presets/textures/Ray Marching/Animated Psychedelic Waves.json</file>
         <file>presets/textures/Ray Marching/Fractal Noise FBm.json</file>
         <file>presets/textures/Ray Marching/Texture 3D.json</file>
         <file>presets/textures/Ray Marching/Hello World.json</file>
@@ -190,7 +191,6 @@
         <file>presets/textures/Ray Marching/Cyclic Noise.json</file>
         <file>presets/textures/Ray Marching/Checkboard.json</file>
         <file>presets/textures/Ray Marching/Griglia 3D al Neon.json</file>
-        <file>presets/textures/Ray Marching/Onde Psichedeliche Animate.json</file>
         <file>presets/textures/Images/8.png</file>
         <file>presets/textures/Images/14.png</file>
         <file>presets/textures/Images/15.png</file>
@@ -226,6 +226,7 @@
         <file>presets/textures/Procedurals/Psychedelic Vortex.json</file>
         <file>presets/textures/Procedurals/Rows.json</file>
         <file>presets/textures/Procedurals/Checkboard.json</file>
+        <file>presets/textures/Procedurals/Reactive Holography.json</file>
         <file>presets/textures/Procedurals/Venus Canopy Light.json</file>
         <file>presets/textures/Procedurals/Mandelbrot1.json</file>
         <file>presets/textures/Procedurals/Stripes.json</file>

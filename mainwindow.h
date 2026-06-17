@@ -328,7 +328,8 @@ private:
     void setupSpeedControl(QPushButton* btnPlus, QPushButton* btnMinus, QLabel* label, std::function<void(float)> setter);
     void updateProjectionButtonText();
     void updateScriptButtonText();
-    void updateTextureUIState(bool isTextureOn, bool texUsesColors = true);
+    void updateTextureUIState(bool isTextureOn, bool resetColorTargetToFirst = false);
+    bool activeTextureUsesColors() const;
     void updateFlatPreviewButton();
     void updateMasterButtonState();
     void applyAnimationState(bool animated);
