@@ -1460,7 +1460,7 @@
         <item>
          <widget class="QTabWidget" name="tabModeSelector">
           <property name="currentIndex">
-           <number>0</number>
+           <number>1</number>
           </property>
           <widget class="QWidget" name="tabParametric">
            <attribute name="title">
@@ -2317,7 +2317,7 @@
               <property name="frameShadow">
                <enum>QFrame::Shadow::Raised</enum>
               </property>
-              <layout class="QVBoxLayout" name="verticalLayout_24" stretch="2,6,1">
+              <layout class="QVBoxLayout" name="verticalLayout_24" stretch="2,6,1,0">
                <item>
                 <widget class="QLabel" name="lblEq">
                  <property name="sizePolicy">
@@ -2386,6 +2386,13 @@
                    </widget>
                   </item>
                  </layout>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="btnImplicit">
+                 <property name="text">
+                  <string>Run Implicit</string>
+                 </property>
                 </widget>
                </item>
               </layout>

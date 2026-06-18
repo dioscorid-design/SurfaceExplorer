@@ -310,6 +310,11 @@ private:
     QRhiTexture *m_surfaceTexture = nullptr;
     QImage m_pendingSurfaceImage;
     bool m_surfaceTextureNeedsUpload = false;
+    // Richiesta di scarico della texture di superficie dalla GPU: la distruzione
+    // dell'oggetto RHI va fatta DENTRO il render loop (non sul thread GUI), come
+    // per l'upload. Senza questo, una texture caricata resta residente e ricompare
+    // stantia cambiando superficie o riaccendendo il checkbox.
+    bool m_surfaceTextureNeedsClear = false;
 
     QRhiTexture *m_backgroundTexture = nullptr;
     QImage m_pendingBackgroundImage;

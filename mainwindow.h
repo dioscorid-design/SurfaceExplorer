@@ -332,7 +332,7 @@ private:
     bool activeTextureUsesColors() const;
     void updateFlatPreviewButton();
     void updateMasterButtonState();
-    void applyAnimationState(bool animated);
+    void applyAnimationState(bool animated, bool dockOnly = false);
     bool hasAnyRotationSpeed() const;
     void generateTexture();
     void toggleProjection();

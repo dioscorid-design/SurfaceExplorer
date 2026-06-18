@@ -317,6 +317,31 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     resourceUpdates->updateDynamicBuffer(m_ubo, 0, sizeof(UboData), &m_uboData);
 
     // =========================================================================
+    // SCARICO TEXTURE (Superficie) — distruzione RHI nel contesto del frame.
+    // Eseguito PRIMA dell'upload: se nello stesso giro arriva una nuova immagine,
+    // il blocco di upload sotto ricrea comunque m_surfaceTexture.
+    // =========================================================================
+    if (m_surfaceTextureNeedsClear) {
+        if (m_surfaceTexture) {
+            m_surfaceTexture->destroy();
+            delete m_surfaceTexture;
+            m_surfaceTexture = nullptr;
+
+            // Il binding allo slot 1 puntava a m_surfaceTexture appena distrutta:
+            // ricolleghiamolo a m_dummyTexture (come all'init), altrimenti un frame
+            // disegnato senza re-upload leggerebbe memoria liberata.
+            if (m_bindings && m_dummyTexture) {
+                m_bindings->setBindings({
+                    QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, m_ubo),
+                    QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_dummyTexture, m_sampler)
+                });
+                m_bindings->create();
+            }
+        }
+        m_surfaceTextureNeedsClear = false;
+    }
+
+    // =========================================================================
     // GESTIONE COMUNE UPLOAD TEXTURE (Superficie)
     // =========================================================================
     if (m_surfaceTextureNeedsUpload && !m_pendingSurfaceImage.isNull()) {
@@ -1405,6 +1430,13 @@ void GLWidget::setTextureColors(const QColor& c1, const QColor& c2)
 void GLWidget::clearTexture() {
     // Svuota l'immagine in attesa
     m_pendingSurfaceImage = QImage();
+    m_surfaceTextureNeedsUpload = false;
+
+    // Distruzione effettiva dell'oggetto RHI rinviata al render loop: svuotare solo
+    // m_pendingSurfaceImage NON bastava (m_surfaceTexture restava residente sulla GPU
+    // e riaffiorava cambiando superficie / riaccendendo la texture). Il flag forza lo
+    // scarico al prossimo frame, nel contesto RHI corretto.
+    m_surfaceTextureNeedsClear = true;
 
     // Al prossimo frame tornerà tutto nero/colore base se disattiviamo m_textureEnabled
     setTextureEnabled(false);
