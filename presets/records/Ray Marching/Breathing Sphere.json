@@ -1,0 +1,129 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "background": {
+        "code": "#define PI 3.14159265\n\nvec3 palette(in float t) {\n    vec3 a = vec3(0.5, 0.5, 0.5);\n    vec3 b = vec3(0.5, 0.5, 0.5);\n    vec3 c = vec3(1.0, 1.0, 1.0);\n    vec3 d = vec3(0.1, 0.4, 0.5);\n    return a + b * cos(2.0 * PI * (c * t + d));\n}\n\nvec4 wave(vec2 uv, vec4 color, float amp, float freq, float phase, float thick, vec3 hue) {\n    float x = uv.x - phase;\n    float y = uv.y + amp * sin(freq * x);\n    float bright = smoothstep(0.0, 1.0, 1.0 - abs(y) / thick);\n    return vec4(vec3(bright) * hue, 1.0);\n}\n\nvoid mainImage(out vec4 color, in vec2 coord) {\n    vec2 uv = (2.0 * coord - iResolution.xy) / iResolution.y;\n\n    color = vec4(0.0, 0.0, 0.0, 1.0);\n\n    for (float layer = 0.0; layer < 1.0; layer += 0.1) {\n        float amp = 0.25 + 0.25 * sin(iTime + layer) * (1.0 - layer);\n        float freq = 2.0;\n        float phase = iTime * (1.0 - layer);\n        float thick = 0.01 + 0.001 * pow(abs(uv.x), 8.0);\n        vec3 hue = palette(0.5 * uv.x + 1.0 * layer - 0.5 * iTime);\n        color += wave(uv, color, amp, freq, phase, thick, hue);\n    }\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.9330127239227295,
+        "rot_x": 0.2500000298023224,
+        "rot_y": 0.2499999701976776,
+        "rot_z": -0.06698719412088394,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "alpha": 1,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1.2000000476837158,
+        "B": 0.15000000596046448,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0.4000000059604645
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "implicitEquation": "// Controlled by Script",
+    "isImplicitMode": true,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 0,
+        "uMin": 0,
+        "vMax": 0,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "name": "Breathing Sphere",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 1,
+    "renderMode": 10,
+    "scriptCode": "A := 1.2;\nB := 0.15;\nreturn length(p) - (A + B * sin(3.0 * t));\n",
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 1,
+        "path4D": 0,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 400,
+    "texture": {
+        "code": "// Distanza dal centro (asse Y) per gli anelli\nfloat dist = pModel.y;\n\n// 'fract' crea strisce nette (anelli); -u_time li espande verso l'esterno\nfloat anelli = fract(dist * 10.0 - ubuf.u_time * 2.0);\n\n// Bordi leggermente sfumati\nanelli = smoothstep(0.0, 0.2, anelli) * smoothstep(1.0, 0.8, anelli);\n\n// Fondo = u_col2, anelli = u_col1 (colori del dock)\ntextureCol = mix(ubuf.u_col2, ubuf.u_col1, anelli);",
+        "col1": "#25cc1b",
+        "col2": "#7200a5",
+        "displacement": "",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

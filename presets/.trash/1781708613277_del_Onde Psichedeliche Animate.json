@@ -1,0 +1,14 @@
+{
+    "code": "// Moltiplicatore di velocità del tempo\nfloat timeVar = ubuf.u_time * 2.0;\n\n// Onde sui tre assi spaziali\nfloat waveX = sin(pModel.x * 10.0 + timeVar);\nfloat waveY = sin(pModel.y * 8.0 - timeVar * 0.5);\nfloat waveZ = sin(pModel.z * 12.0 + timeVar * 0.8);\n\n// Combina le onde e normalizza tra 0.0 e 1.0\nfloat combinedWave = (waveX + waveY + waveZ) / 3.0;\ncombinedWave = combinedWave * 0.5 + 0.5;\n\n// Sfuma tra i due colori del dock (u_col2 / u_col1)\ntextureCol = mix(ubuf.u_col2, ubuf.u_col1, combinedWave);",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "displacement": "",
+    "hasCustomColors": true,
+    "isImplicitMode": true,
+    "name": "Onde Psichedeliche Animate",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

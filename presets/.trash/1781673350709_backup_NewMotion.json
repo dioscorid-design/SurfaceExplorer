@@ -1,0 +1,126 @@
+{
+    "angles": {
+        "omega": 0.009999999776482582,
+        "phi": 0.009999999776482582,
+        "psi": 0.5699997544288635
+    },
+    "background": {
+        "code": "",
+        "col1": "#3333cc",
+        "col2": "#000000",
+        "color": "#577460",
+        "enabled": false,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.8312222957611084,
+        "rot_x": 0.3190913796424866,
+        "rot_y": 0.45235881209373474,
+        "rot_z": -0.05120186135172844,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 4
+    },
+    "colors": {
+        "alpha": 0.44,
+        "bordColor": "#33cc33",
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 0.7200000286102295,
+        "B": 0.17000000178813934,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "u+v",
+        "p": "B*w+0.5",
+        "x": "A*cos(u)/cosh(v)",
+        "y": "A*sin(u)/cosh(v)",
+        "z": "B*(v-tanh(v))"
+    },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.28318977355957,
+        "uMin": -6.28318977355957,
+        "vMax": 5,
+        "vMin": -5,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "name": "NewMotion",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "projectionMode": 1,
+    "renderMode": 1,
+    "showBorder": false,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 10,
+        "path4D": 10,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 100,
+    "texture": {
+        "code": "float k = smoothstep(0.0, 1.0, v + 0.1 * sin(6.2831 * u + t));\nreturn mix(u_col1, u_col2, k);",
+        "col1": "#33cc33",
+        "col2": "#95973c",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 151.5,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false
+}

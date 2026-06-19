@@ -1023,6 +1023,10 @@ MainWindow::MainWindow(QWidget *parent)
 
         // Aggiorna gli slider colore della UI per allinearli ai valori appena resettati
         onColorTargetChanged();
+
+        // La superficie di default (toro/sfera) e' opaca: la trasparenza della
+        // superficie precedente non deve sopravvivere al cambio tab.
+        resetTransparency();
         // ==========================================================
 
         if (index == 1) { // --- PASSAGGIO A IMPLICIT (RAY MARCHING) ---
@@ -3184,6 +3188,20 @@ void MainWindow::applyStartSideEffects()
 // RENDERING & VISUALS
 // ==========================================================
 
+void MainWindow::resetTransparency()
+{
+    // setValue(100) scatena il valueChanged dello slider, che e' la fonte unica
+    // di verita': aggiorna alphaValue, l'etichetta e la GPU (setAlpha) in un
+    // colpo. Se eravamo gia' a 100 il segnale non scatta, quindi forziamo a mano
+    // membro/label/GPU per coprire anche quel caso.
+    if (ui->alphaSlider->value() != 100) {
+        ui->alphaSlider->setValue(100);
+    }
+    alphaValue = 1.0f;
+    ui->lblAlphaVal->setText("1.00");
+    if (ui->glWidget) ui->glWidget->setAlpha(1.0f);
+}
+
 void MainWindow::onColorTargetChanged()
 {
     // Blocchiamo i segnali per evitare loop infiniti
@@ -3473,6 +3491,11 @@ void MainWindow::handleTextureSelection(int index)
             ui->glWidget->clearTexture();
             ui->glWidget->setTextureCode(0);
         }
+
+        // D. La texture incompatibile ci ha fatto ricadere sulla superficie di
+        // default (sfera/toro): e' opaca, quindi azzeriamo la trasparenza
+        // ereditata dalla superficie precedente (stesso reset del cambio tab).
+        resetTransparency();
     }
 
     // =====================================================================
@@ -3577,6 +3600,15 @@ void MainWindow::handleTextureSelection(int index)
             if (ui->glWidget) {
                 ui->glWidget->loadTextureFromFile(data.filePath);
             }
+        } else {
+            // Texture procedurale RM (non immagine): è codice custom. Va segnato
+            // PRIMA di updateTextureUIState, altrimenti la scorciatoia di
+            // activeTextureUsesColors() (!m_isCustomMode && !m_isImageMode -> true)
+            // leggeva i flag stantii della texture/superficie precedente e
+            // accendeva i picker Colore a torto alla PRIMA texture senza
+            // u_col1/u_col2 (si correggeva solo al secondo caricamento).
+            m_isImageMode  = false;
+            m_isCustomMode = true;
         }
 
         ui->lineVariations->blockSignals(true);
@@ -5484,15 +5516,26 @@ void MainWindow::onApplyTextureScriptClicked()
             ui->glWidget->setTextureEnabled(true);
             m_surfaceTextureState = true;
         }
+
+        // I flag di modalità vanno impostati PRIMA di updateTextureUIState.
+        // activeTextureUsesColors() ha una scorciatoia "scacchiera default ->
+        // picker accesi" che scatta quando !m_isCustomMode && !m_isImageMode.
+        // Se questi flag erano ancora quelli della texture PRECEDENTE (sono
+        // impostati piu' in basso), alla PRIMA texture procedurale senza
+        // u_col1/u_col2 la scorciatoia scattava e i picker restavano accesi a
+        // torto; si correggevano solo al secondo caricamento (un giro di
+        // ritardo). Allineiamoli qui in base allo script appena caricato.
+        m_isImageMode  = !imgPath.isEmpty();
+        m_isCustomMode = hasCustomLogic;
+
         // Rinfresca lo stato UI ad OGNI applicazione (anche se la texture era già
         // accesa): cambiando texture i picker Colore vanno riallineati a u_col1/u_col2
-        // del nuovo script. m_surfaceTextureCode è già aggiornato sopra.
+        // del nuovo script. m_surfaceTextureCode e i flag di modalità sono già aggiornati.
         // resetColorTargetToFirst: caricando una nuova texture il focus torna a Colore 1.
         updateTextureUIState(true, true);
 
         // 1. GESTIONE MEMORIA IMMAGINE
         if (!imgPath.isEmpty()) {
-            m_isImageMode = true;
             m_currentTexturePath = imgPath;
             if (ui->glWidget) {
                 ui->glWidget->loadCustomShader("");
@@ -5500,7 +5543,6 @@ void MainWindow::onApplyTextureScriptClicked()
                 ui->glWidget->loadTextureFromFile(imgPath);
             }
         } else {
-            m_isImageMode = false;
             m_currentTexturePath.clear();
             if (ui->glWidget) {
                 ui->glWidget->clearTexture();
@@ -5509,7 +5551,6 @@ void MainWindow::onApplyTextureScriptClicked()
 
         // 2. GESTIONE COMPILAZIONE SHADER
         if (hasCustomLogic) {
-            m_isCustomMode = true;
             if (ui->glWidget) {
                 ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
 
@@ -5536,7 +5577,7 @@ void MainWindow::onApplyTextureScriptClicked()
                 ui->glWidget->setFlatRotation(0.0f);
             }
         } else {
-            m_isCustomMode = false;
+            // m_isCustomMode è già false (impostato = hasCustomLogic più sopra).
             if (ui->glWidget) {
                 ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
 
@@ -5672,14 +5713,22 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
 {
     Q_UNUSED(column);
 
+    // Azzeramento incrociato ASIMMETRICO. Prima un click su QUALSIASI albero
+    // azzerava tutti gli altri: cosi' caricare una texture dopo una superficie
+    // toglieva l'evidenziazione alla superficie. Ora la superficie e' il
+    // contesto principale: solo cliccando una SUPERFICIE si azzerano gli altri
+    // alberi (texture/motion/sound), perche' la nuova superficie riparte da uno
+    // stato pulito. Cliccare una texture/motion/sound invece LASCIA evidenziata
+    // la superficie caricata (ognuno di questi conserva la propria selezione).
     if (QTreeWidget *src = qobject_cast<QTreeWidget*>(sender())) {
-        for (QTreeWidget *tree : { ui->treeSurfaces, ui->treeTextures,
-             ui->treeMotions, ui->treeSounds }) {
-            if (tree && tree != src) {
-                bool b = tree->blockSignals(true);
-                tree->clearSelection();
-                tree->setCurrentItem(nullptr);
-                tree->blockSignals(b);
+        if (src == ui->treeSurfaces) {
+            for (QTreeWidget *tree : { ui->treeTextures, ui->treeMotions, ui->treeSounds }) {
+                if (tree) {
+                    bool b = tree->blockSignals(true);
+                    tree->clearSelection();
+                    tree->setCurrentItem(nullptr);
+                    tree->blockSignals(b);
+                }
             }
         }
     }

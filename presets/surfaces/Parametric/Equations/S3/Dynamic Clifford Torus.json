@@ -17,6 +17,7 @@
         "z": 4
     },
     "colors": {
+        "alpha": 1,
         "b": 0.20000000298023224,
         "g": 0.800000011920929,
         "r": 0.20000000298023224
@@ -42,6 +43,17 @@
         "y": "C*cos(v) * sin(u)",
         "z": "C*sin(v) * cos(A * u + B * v)"
     },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
+    "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {
         "uMax": 3.141590118408203,
@@ -49,13 +61,19 @@
         "vMax": 3.141590118408203,
         "vMin": -3.141590118408203,
         "wMax": 0,
-        "wMin": 0
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
     },
     "name": "Dynamic Clifford Torus",
     "projectionMode": 1,
     "renderMode": 1,
     "showBorder": false,
-    "steps": 100,
+    "steps": 567,
     "type": "surface",
     "use4DLighting": false
 }

@@ -165,13 +165,20 @@ bool marchField(vec3 rayPos, vec3 rayDir, bool useInner, float tStart, out vec3 
 // Illuminazione a 2 punti + AO + speculare, identica al path storico.
 // useInner sceglie le normali del campo giusto. Ritorna l'rgb illuminato
 // (senza alpha): il compositing trasparente avviene nel main().
-vec3 shadeSurface(vec3 pModel, vec3 rayDir, bool useInner) {
+vec3 shadeSurface(vec3 pModel, vec3 rayDir, bool useInner, bool glassLight) {
     vec3 n_model = useInner ? calcNormalInner(pModel) : calcNormal(pModel);
     vec3 viewDir_model = -rayDir;
 
     float ao = calcAO(pModel, n_model);
 
-    vec3 mainLight_cam = normalize(vec3(1.0, 1.5, 1.0));
+    // LUCE PRINCIPALE: di norma laterale (da destra-alto, spazio camera) per
+    // dare modellato 3D. glassLight=true -> headlight allineata alla vista:
+    // fronte e retro di una superficie trasparente ricevono luce SIMILE, quindi
+    // non si crea il lato in ombra che, raddoppiato dal compositing fronte+retro,
+    // produceva il salto di colore netto al bordo. Si attiva SOLO nel ramo
+    // trasparente; le superfici opache restano laterali (modellato invariato).
+    vec3 mainLight_cam = glassLight ? normalize(vec3(0.2, 0.4, 1.0))
+                                    : normalize(vec3(1.0, 1.5, 1.0));
     vec3 backLight_cam = normalize(vec3(-1.0, -0.5, -2.0));
 
     mat3 camToModel = mat3(inverse(ubuf.u_mvMatrix));
@@ -289,13 +296,72 @@ void main() {
     bool hasInner = (ubuf.u_dummyZero.y > 0.5);
 
     if (!hasInner) {
-        // --- CAMMINO STORICO: una sola superficie, opaca con ubuf.alpha ---
-        if (hit) {
-            vec3 rgb = shadeSurface(pModel, rayDir, false);
-            FragColor = vec4(rgb, ubuf.alpha);
-        } else {
-            discard;
+        // --- CAMMINO STORICO: una sola superficie con ubuf.alpha ---
+        if (!hit) { discard; return; }
+
+        float aFront = clamp(ubuf.alpha, 0.0, 1.0);
+        vec3  frontRGB = shadeSurface(pModel, rayDir, false, false);
+
+        // OPACA: comportamento storico identico, nessuna seconda passata.
+        if (aFront >= 0.999) {
+            FragColor = vec4(frontRGB, 1.0);
+            return;
         }
+
+        // === TRASPARENZA VERA su superficie singola ===
+        // La trasparenza storica (vec4(rgb, alpha)) si limitava a sfumare la
+        // faccia frontale sullo SFONDO: la parte nascosta dell'oggetto non era
+        // mai marciata, quindi non si vedeva attraverso. Qui riprendiamo il
+        // marcher sullo STESSO campo (map) appena oltre il primo hit per trovare
+        // gli strati retrostanti (faccia posteriore / pieghe interne) e li
+        // compositiamo "over". E' la stessa tecnica dell'ergosfera, ma sul
+        // medesimo campo invece di un campo interno distinto.
+        const int MAX_LAYERS = 6;          // strati massimi attraversati (geometrie concave/stratificate)
+        vec3  accumRGB = vec3(0.0);
+        float accumA   = 0.0;
+        vec3  pLayer   = pModel;
+        bool  layerHit = true;
+
+        for (int L = 0; L < MAX_LAYERS; L++) {
+            vec3 layerRGB = shadeSurface(pLayer, rayDir, false, true);
+
+            // === ALPHA PER-STRATO MODULATA DALL'ANGOLO DI VISTA (vetro) ===
+            // Il "salto" di colore al bordo nasceva dal compositing a aFront
+            // PIATTO: agli angoli radenti il marcher trova molti strati quasi
+            // tangenti e accumA saturava di colpo -> anello brillante netto.
+            // Qui pesiamo l'alpha dello strato col fattore Fresnel-vetro:
+            //   ndv -> 1 frontale, -> 0 radente.
+            // - Beer-Lambert (1/ndv) tiene conto del cammino ottico piu' lungo
+            //   ai bordi, ma con un floor su ndv per non far esplodere l'alpha.
+            // - smoothstep aggiunge una transizione GRADUALE invece del gradino.
+            // RITOCCO: la fascia di transizione Fresnel e' stata ALLARGATA
+            // (0.0..0.95 invece di 0.55): l'anello al bordo dove fronte e retro
+            // si avvicinano sfuma su una zona piu' ampia, attenuando il salto
+            // di colore senza toccare luminosita' (layerRGB) ne' alpha di base.
+            vec3  nLayer = calcNormal(pLayer);
+            float ndv    = max(abs(dot(nLayer, rayDir)), 0.12);
+            // cammino ottico: piu' lungo a vista radente
+            float aPath  = 1.0 - pow(max(1.0 - aFront, 1e-4), 1.0 / ndv);
+            // Fresnel morbido e largo: bordo pieno ma molto sfumato (no gradino)
+            float fres   = 1.0 - smoothstep(0.0, 0.95, ndv);
+            float aLayer = clamp(mix(aPath, max(aPath, aFront), fres), 0.0, 1.0);
+
+            // compositing "over" front-to-back
+            accumRGB += (1.0 - accumA) * aLayer * layerRGB;
+            accumA   += (1.0 - accumA) * aLayer;
+
+            // riparti appena oltre lo strato corrente, sullo STESSO campo
+            float tNext = dot(pLayer - rayPos, rayDir) + 0.05;
+            layerHit = marchField(rayPos, rayDir, false, tNext, pLayer);
+            if (!layerHit) break;
+        }
+
+        // accumRGB e' PRE-moltiplicato per accumA. La pipeline implicita usa
+        // blend a alpha dritto (srcColor = SrcAlpha), quindi l'hardware
+        // rimoltiplichera' per FragColor.a: dividiamo qui per non applicarlo due
+        // volte. Lo sfondo trasparente residuo resta visibile via (1-accumA).
+        vec3 straightRGB = accumRGB / max(accumA, 1e-4);
+        FragColor = vec4(straightRGB, accumA);
         return;
     }
 
@@ -308,7 +374,7 @@ void main() {
     float tInnerStart = tNear;     // da dove parte la passata interna
 
     if (hit) {
-        outerRGB   = shadeSurface(pModel, rayDir, false);
+        outerRGB   = shadeSurface(pModel, rayDir, false, false);
         outerAlpha = clamp(ubuf.alpha, 0.0, 1.0);
         // riprendi l'interna appena oltre il guscio esterno colpito
         tInnerStart = dot(pModel - rayPos, rayDir) + 0.02;
@@ -319,7 +385,7 @@ void main() {
     bool hitInner = marchField(rayPos, rayDir, true, tInnerStart, pInner);
 
     if (hitInner) {
-        vec3 innerRGB = shadeSurface(pInner, rayDir, true);
+        vec3 innerRGB = shadeSurface(pInner, rayDir, true, false);
         // compositing "over": esterna trasparente sopra interna opaca
         vec3 outRGB = mix(innerRGB, outerRGB, outerAlpha);
         FragColor = vec4(outRGB, 1.0);

@@ -77,6 +77,11 @@ private slots:
     void onColorTargetChanged();
     void scheduleTextureGeneration();
     void handleTextureSelection(int index);
+    // Riporta la trasparenza all'opacità piena (alpha=1). Va chiamata quando si
+    // ricade su una superficie di DEFAULT (toro/sfera) per cui la trasparenza
+    // del preset/superficie precedente non ha più senso: cambio tab o texture
+    // incompatibile col modo corrente (RM su parametrica e viceversa).
+    void resetTransparency();
 
     // ==========================================================
     // EQUATIONS & MATHEMATICS

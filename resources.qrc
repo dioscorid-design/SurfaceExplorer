@@ -1,11 +1,5 @@
 <RCC>
     <qresource prefix="/library">
-        <file>presets/surfaces/Hopf Deformation.json</file>
-        <file>presets/surfaces/Hyperboloid_copy1.json</file>
-        <file>presets/surfaces/Kerr Ergosphere_copy1.json</file>
-        <file>presets/surfaces/Kerr Ergosphere.json</file>
-        <file>presets/surfaces/3.json</file>
-        <file>presets/surfaces/Hyperboloid.json</file>
         <file>presets/surfaces/Ray Marching/N-Torus4.json</file>
         <file>presets/surfaces/Ray Marching/ThickIso.json</file>
         <file>presets/surfaces/Ray Marching/Tangle Cube.json</file>
@@ -47,7 +41,6 @@
         <file>presets/surfaces/Ray Marching/Holes.json</file>
         <file>presets/surfaces/Ray Marching/Gyroid1.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Whiteney Umbrella.json</file>
-        <file>presets/surfaces/Parametric/Geodesic Flow/H^3/pippo.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Twisted Torus Ribbon.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Mobius Strip.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Tri-Twisted Ribbon.json</file>
@@ -78,7 +71,6 @@
         <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Hyperboloid.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Clifford's Torus2.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Twisted Sphere.json</file>
-        <file>presets/surfaces/Parametric/Equations/S3/Dynamical Clifford Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Dynamic Clifford Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Villarceau Circles.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/S3 uv_slice.json</file>
@@ -87,10 +79,12 @@
         <file>presets/surfaces/Parametric/Equations/S3/Wavy Cliffod Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Ellipsoid.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Clifford's Torus.json</file>
+        <file>presets/surfaces/Parametric/Equations/S3/Clifford's Torus1.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Non-orientable/Roman Surface.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Non-orientable/Klein Bottle.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Heisenberg Plane.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Cuspid Koranyi Sphere.json</file>
+        <file>presets/surfaces/Parametric/Equations/NIL/Cone Distorsion.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/NIL Helicoid.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Heisenberg Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Wave Cylinder.json</file>
@@ -121,10 +115,8 @@
         <file>presets/surfaces/Parametric/Equations/SL(2,R)/Anti-de Sitter Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/Tubes/Otto_4D (Slider A).json</file>
         <file>presets/surfaces/Parametric/Equations/Tubes/Otto.json</file>
-        <file>presets/surfaces/Parametric/Equations/H2xR/pippo.json</file>
         <file>presets/surfaces/Parametric/Equations/H2xR/H2xR Slice.json</file>
         <file>presets/surfaces/Parametric/Equations/H2xR/Hyperbolic Saddle.json</file>
-        <file>presets/surfaces/Parametric/Equations/Waves/Radial wave.json</file>
         <file>presets/surfaces/Parametric/Equations/S1xS1XR/Warped Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/S1xS1XR/Toroidal Helix.json</file>
         <file>presets/surfaces/Parametric/Equations/S1xS1XR/Slice.json</file>
@@ -163,7 +155,6 @@
         <file>presets/surfaces/Parametric/Equations/R3/Richmond Polar.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Nil Sphere2.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Toupie.json</file>
-        <file>presets/surfaces/Parametric/Equations/R3/Modulated Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Helicoid.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Dini's Spiral.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Star.json</file>
@@ -201,6 +192,7 @@
         <file>presets/textures/Procedurals/procedural.json</file>
         <file>presets/textures/Procedurals/Animated Gradient.json</file>
         <file>presets/textures/Procedurals/Animated Checkboard.json</file>
+        <file>presets/textures/Procedurals/Fractal Pyramid.json</file>
         <file>presets/textures/Procedurals/Shadertoy Style.json</file>
         <file>presets/textures/Procedurals/Plasma1.json</file>
         <file>presets/textures/Procedurals/Rainbow.json</file>
@@ -234,8 +226,10 @@
         <file>presets/textures/Procedurals/Shadertoy/tm tiedie.json</file>
         <file>presets/textures/Procedurals/Shadertoy/Wormhood.json</file>
         <file>presets/textures/Procedurals/Shadertoy/Fractal Pyramid.json</file>
+        <file>presets/textures/Procedurals/Shadertoy/Shadertoy Style.json</file>
         <file>presets/textures/Procedurals/Shadertoy/QuasiCrystal - Gragon Eye.json</file>
         <file>presets/textures/Procedurals/Shadertoy/Mount Zoomington 3D.json</file>
+        <file>presets/textures/Procedurals/Shadertoy/Iridescent fibers.json</file>
         <file>presets/textures/Procedurals/Shadertoy/Neon Mnt Range.json</file>
         <file>presets/textures/Procedurals/Shadertoy/Disco Sun Vortex.json</file>
         <file>presets/textures/Procedurals/Shadertoy/Infinite Zoom (tension).json</file>
@@ -262,6 +256,7 @@
         <file>presets/records/Ray Marching/Gyroid Race.json</file>
         <file>presets/records/Ray Marching/pippo.json</file>
         <file>presets/records/Ray Marching/Pseudo Lawson2.json</file>
+        <file>presets/records/Ray Marching/Breathing Sphere.json</file>
         <file>presets/records/Ray Marching/pippo1.json</file>
         <file>presets/records/Ray Marching/Deco Cube.json</file>
         <file>presets/records/Ray Marching/Wormhole.json</file>
@@ -273,11 +268,13 @@
         <file>presets/records/Rotations/Hopf Deformation.json</file>
         <file>presets/records/Rotations/HYbrid hyperbolic.json</file>
         <file>presets/records/Rotations/Kerr Spin Animated.json</file>
+        <file>presets/records/Rotations/Dynamical Clifford Torus.json</file>
         <file>presets/records/Rotations/Kerr Black Hole.json</file>
         <file>presets/records/Rotations/Ellipsoid.json</file>
         <file>presets/records/t_motions/Otto Tube.json</file>
         <file>presets/records/t_motions/pippo.json</file>
         <file>presets/records/t_motions/Waves.json</file>
+        <file>presets/records/t_motions/3D/Modular Tours.json</file>
         <file>presets/records/t_motions/3D/Nil Sphere1.json</file>
         <file>presets/records/t_motions/3D/Nil Sphere.json</file>
         <file>presets/records/t_motions/3D/Dynamic Mobius Band.json</file>
@@ -333,6 +330,7 @@
         <file>presets/records/Static/Klein Bottle.json</file>
         <file>presets/records/Static/S3_slice.json</file>
         <file>presets/records/Static/Veronese Surface.json</file>
+        <file>presets/records/New/H2xR Slice.json</file>
         <file>presets/sounds/CREDITS.txt</file>
         <file>presets/sounds/CREDITS.html</file>
         <file>presets/sounds/wav/321723__rhodesmas__deep-space-vibrations-ambience-loop.wav</file>
