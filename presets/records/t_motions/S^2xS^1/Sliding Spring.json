@@ -28,7 +28,7 @@
         "z": 4
     },
     "colors": {
-        "alpha": 1,
+        "alpha": 0.53,
         "bordColor": "#33cc33",
         "surfColor": "#33cc33"
     },
@@ -38,7 +38,7 @@
         "C": 1,
         "D": 0,
         "E": 0,
-        "F": 0,
+        "F": 1,
         "S": 0
     },
     "equations": {
@@ -53,6 +53,16 @@
         "y": "(A + B*cos(V))*sin(U)",
         "z": "B*sin(V)*cos(W)"
     },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {
@@ -61,7 +71,13 @@
         "vMax": 6.2831854820251465,
         "vMin": 0,
         "wMax": 0,
-        "wMin": 0
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
     },
     "name": "Sliding Spring",
     "observer4D": 4,
@@ -94,9 +110,9 @@
         "psi": 0,
         "spin": 0
     },
-    "steps": 100,
+    "steps": 802,
     "texture": {
-        "code": "//SOUND_BEGIN\n//SOUND_BEGIN\n// =========================================================================\n// Title: Trailing the Twinkling Tunnelwisp (Audio)\n// Original Music: Pestis (Cassini's Cosmic Conclusion - demozoo.org/productions/367582/)\n// \n// License: CC0 1.0 Universal (Public Domain Dedication)\n//          https://creativecommons.org/publicdomain/zero/1.0/\n//\n// Note: Adapted for the \"Surfaces Explorer\" engine.\n// =========================================================================\n\nvec2 mainSound(int s, float t) {\n  vec2 r = vec2(0.0); // FIX 1: Inizializzato a zero\n  \n  // FIX 2: i e j inizializzati a zero\n  for(float i = 0.0, j = 0.0; ++i < 4.0;)\n  for(j = 0.0; ++j < 5.0;) {\n      \n    float a = t * j / 32.0 + i / 3.0;\n    float b = fract(a);\n    float c;\n    \n    // FIX 3: m inizializzato a zero\n    vec2 m = vec2(0.0); \n    vec2 n = vec2(t, t + 3.0) + t / j;\n    \n    for(c = 3.0; c < 4.1; n += c *= 1.02)\n      m += sin(n * c) / c;\n      \n    if(a < 9.0)\n      r += sin(m + 4.0 * sin(t / j / 47.0) * sin(exp2(mod(a - b, 3.0) / 6.0 + 8.5) * t * j * i + i + j))\n      * exp2(-b * 12.0 - 1.0 / b + 6.0 - (i + j) / 3.0);\n  }\n  return r;\n}\n//SOUND_END\n//SOUND_END\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    // Normalized pixel coordinates (from 0 to 1)\n    vec2 uv = fragCoord/iResolution.xy;\n\n    // Time varying pixel color\n    vec3 col = 0.5 + 0.5*cos(iTime+uv.xyx+vec3(0,2,4));\n\n    // Output to screen\n    fragColor = vec4(col,1.0);\n}",
+        "code": "//SOUND_BEGIN\n// =========================================================================\n// Title: Trailing the Twinkling Tunnelwisp (Audio)\n// Original Music: Pestis (Cassini's Cosmic Conclusion - demozoo.org/productions/367582/)\n// \n// License: CC0 1.0 Universal (Public Domain Dedication)\n//          https://creativecommons.org/publicdomain/zero/1.0/\n//\n// Note: Adapted for the \"Surfaces Explorer\" engine.\n// =========================================================================\n\nvec2 mainSound(int s, float t) {\n  vec2 r = vec2(0.0); // FIX 1: Inizializzato a zero\n  \n  // FIX 2: i e j inizializzati a zero\n  for(float i = 0.0, j = 0.0; ++i < 4.0;)\n  for(j = 0.0; ++j < 5.0;) {\n      \n    float a = t * j / 32.0 + i / 3.0;\n    float b = fract(a);\n    float c;\n    \n    // FIX 3: m inizializzato a zero\n    vec2 m = vec2(0.0); \n    vec2 n = vec2(t, t + 3.0) + t / j;\n    \n    for(c = 3.0; c < 4.1; n += c *= 1.02)\n      m += sin(n * c) / c;\n      \n    if(a < 9.0)\n      r += sin(m + 4.0 * sin(t / j / 47.0) * sin(exp2(mod(a - b, 3.0) / 6.0 + 8.5) * t * j * i + i + j))\n      * exp2(-b * 12.0 - 1.0 / b + 6.0 - (i + j) / 3.0);\n  }\n  return r;\n}\n//SOUND_END\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    // Normalized pixel coordinates (from 0 to 1)\n    vec2 uv = fragCoord/iResolution.xy;\n\n    // Time varying pixel color\n    vec3 col = 0.5 + 0.5*cos(iTime+uv.xyx+vec3(0,2,4));\n\n    // Output to screen\n    fragColor = vec4(col,1.0);\n}",
         "col1": "#33cc33",
         "col2": "#000000",
         "enabled": true,

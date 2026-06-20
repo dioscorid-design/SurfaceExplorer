@@ -1,5 +1,11 @@
 <RCC>
     <qresource prefix="/library">
+        <file>presets/surfaces/Hopf Deformation.json</file>
+        <file>presets/surfaces/Hyperboloid_copy1.json</file>
+        <file>presets/surfaces/Kerr Ergosphere_copy1.json</file>
+        <file>presets/surfaces/Kerr Ergosphere.json</file>
+        <file>presets/surfaces/3.json</file>
+        <file>presets/surfaces/Hyperboloid.json</file>
         <file>presets/surfaces/Ray Marching/N-Torus4.json</file>
         <file>presets/surfaces/Ray Marching/ThickIso.json</file>
         <file>presets/surfaces/Ray Marching/Tangle Cube.json</file>
@@ -27,6 +33,7 @@
         <file>presets/surfaces/Ray Marching/CellNoiseSchwarz.json</file>
         <file>presets/surfaces/Ray Marching/Chmutov.json</file>
         <file>presets/surfaces/Ray Marching/Chain.json</file>
+        <file>presets/surfaces/Ray Marching/N-Torus1.json</file>
         <file>presets/surfaces/Ray Marching/Metaball.json</file>
         <file>presets/surfaces/Ray Marching/Torus.json</file>
         <file>presets/surfaces/Ray Marching/Pseudo Torus.json</file>
@@ -255,12 +262,17 @@
         <file>presets/records/Ray Marching/Ergosphere.json</file>
         <file>presets/records/Ray Marching/Gyroid Race.json</file>
         <file>presets/records/Ray Marching/pippo.json</file>
+        <file>presets/records/Ray Marching/N-Tours.json</file>
         <file>presets/records/Ray Marching/Pseudo Lawson2.json</file>
         <file>presets/records/Ray Marching/Breathing Sphere.json</file>
         <file>presets/records/Ray Marching/pippo1.json</file>
+        <file>presets/records/Ray Marching/N-Torus2.json</file>
         <file>presets/records/Ray Marching/Deco Cube.json</file>
         <file>presets/records/Ray Marching/Wormhole.json</file>
         <file>presets/records/Ray Marching/Gyroid.json</file>
+        <file>presets/records/Ray Marching/N-Torus3.json</file>
+        <file>presets/records/Ray Marching/N-Torus1.json</file>
+        <file>presets/records/Ray Marching/Metaball.json</file>
         <file>presets/records/Ray Marching/Torus.json</file>
         <file>presets/records/Ray Marching/Gyroid alien.json</file>
         <file>presets/records/Ray Marching/Pseudo Lawson.json</file>
@@ -274,6 +286,7 @@
         <file>presets/records/t_motions/Otto Tube.json</file>
         <file>presets/records/t_motions/pippo.json</file>
         <file>presets/records/t_motions/Waves.json</file>
+        <file>presets/records/t_motions/Otto.json</file>
         <file>presets/records/t_motions/3D/Modular Tours.json</file>
         <file>presets/records/t_motions/3D/Nil Sphere1.json</file>
         <file>presets/records/t_motions/3D/Nil Sphere.json</file>
@@ -330,6 +343,7 @@
         <file>presets/records/Static/Klein Bottle.json</file>
         <file>presets/records/Static/S3_slice.json</file>
         <file>presets/records/Static/Veronese Surface.json</file>
+        <file>presets/records/Static/H^2xR.json</file>
         <file>presets/records/New/H2xR Slice.json</file>
         <file>presets/sounds/CREDITS.txt</file>
         <file>presets/sounds/CREDITS.html</file>

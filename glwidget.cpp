@@ -401,6 +401,10 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         if (m_bgUbo) {
             UboData bgUboData = m_uboData;
             bgUboData.time = m_manualTime + m_timeBg;
+            // Lo sfondo è sempre opaco: lo slider trasparenza del renderer agisce
+            // sulla superficie (m_uboData.alpha), non deve sbiadire la texture di
+            // background fondendola col clearColor (pipeline bg con blend SrcAlpha).
+            bgUboData.alpha = 1.0f;
 
             QVariant c1 = property("bg_col1");
             QVariant c2 = property("bg_col2");
@@ -2466,9 +2470,19 @@ QString GLWidget::createImplicitFragmentShader()
                           + texCodeRemapped + "\n}\n";
         finalSource.replace("%TEXTURE_CODE%", texWrap);
 
+        // Il displacement appartiene al MODULO TEXTURE: il suo 't' deve leggere
+        // l'orologio texture (dummyZero.x), non quello geometria (u_time del map()).
+        // Lo avvolgiamo in uno scope che fa SHADOW del 't' esterno, come il colore
+        // texture qui sopra. Senza questo, un 't' nudo nel displacement leggeva il
+        // 'float t = ubuf.u_time' del template (orologio geometria), creando
+        // l'interazione incrociata col dock Equations. Il blocco { } ridichiara
+        // solo 't'/'iTime' (shadow): d_surf, pModel, p restano quelli esterni e
+        // le assegnazioni del displacement (d_surf -= ...) li modificano davvero.
         QString dispRemapped = m_displacementCode;
         dispRemapped.replace("ubuf.u_time", "ubuf.u_dummyZero.x");   // STESSO orologio della texture
-        finalSource.replace("%DISPLACEMENT_CODE%", dispRemapped);
+        QString dispWrap = "{\n  float t = ubuf.u_dummyZero.x;\n  float iTime = ubuf.u_dummyZero.x;\n"
+                           + dispRemapped + "\n}\n";
+        finalSource.replace("%DISPLACEMENT_CODE%", dispWrap);
     } else {
         finalSource.replace("%TEXTURE_CODE%", "");
         finalSource.replace("%DISPLACEMENT_CODE%", "");

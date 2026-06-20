@@ -2094,7 +2094,9 @@ MainWindow::MainWindow(QWidget *parent)
 
         // 1. Controllo Equazioni Base
         if (ui->tabModeSelector->currentIndex() == 1) { // Ray Marching
-            QString eq = ui->lineEquation->toPlainText() + " " + ui->lineVariations->toPlainText() + " " + m_surfaceScriptText;
+            // Solo l'SDF (lineEquation/script) è geometria; il displacement
+            // (lineVariations) è del modulo texture ed è controllato al punto 2.
+            QString eq = ui->lineEquation->toPlainText() + " " + m_surfaceScriptText;
             if (hasTimeVariable(eq)) needsAnim = true;
         } else { // Parametrica
             // Includere i campi Composition (lineU/lineV/lineW) e i vincoli espliciti:
@@ -3697,42 +3699,30 @@ void MainWindow::handleTextureSelection(int index)
     bool isRM = (ui->tabModeSelector->currentIndex() == 1);
     bool isSurfTexActive = ui->chkBoxTexture->isChecked();
 
-    bool texColorAnim = false;   // 't' nel colore texture -> orologio TEXTURE
-    bool geomAnim     = false;   // 't' in displacement/equazione -> orologio GEOMETRIA
+    // MODULO TEXTURE: sia il COLORE che il DISPLACEMENT appartengono a questo
+    // modulo e nello shader leggono lo STESSO orologio texture (dummyZero.x).
+    // Quindi il loro 't' accende/spegne SOLO setSurfaceTextureAnimating. Il clock
+    // GEOMETRIA (setSurfaceAnimating) è dell'SDF/equazioni e non va MAI toccato da
+    // un caricamento di texture: così sparisce l'interazione incrociata per cui il
+    // Run texture faceva partire la "superficie" e i tasti restavano bloccati.
+    bool texColorAnim = false;   // 't' nel colore texture  -> orologio TEXTURE
+    bool dispAnim     = false;   // 't' nel displacement     -> orologio TEXTURE
     if (isSurfTexActive) {
         if (isRM) {
             texColorAnim = ui->lineTexture->toPlainText().contains(timeRegex);
-            // m_surfaceScriptText: per le implicite definite da SCRIPT (con return)
-            // lineEquation è solo "// Controlled by Script" e l'SDF vive qui. Senza
-            // questo, caricare una texture dalla libreria su un'implicita animata via
-            // script azzerava geomAnim e fermava l'animazione della geometria.
-            geomAnim     = ui->lineVariations->toPlainText().contains(timeRegex) ||
-                           ui->lineEquation->toPlainText().contains(timeRegex) ||
-                           m_surfaceScriptText.contains(timeRegex);
+            dispAnim     = ui->lineVariations->toPlainText().contains(timeRegex);
         } else {
             texColorAnim = m_surfaceTextureCode.contains(timeRegex);
         }
     }
-    if (texColorAnim || geomAnim) m_masterStopped = false;
+    bool texAnim = texColorAnim || dispAnim;
+    if (texAnim) m_masterStopped = false;
 
     if (ui->glWidget) {
-        // Modulo TEXTURE: governa il clock texture (colore). Per il clock GEOMETRIA
-        // (condiviso con l'SDF/master) tocca SOLO la parte displacement: se il
-        // displacement della nuova texture usa 't' lo accende; altrimenti PRESERVA
-        // lo stato corrente, così non spegne né forza l'animazione dell'SDF.
-        ui->glWidget->setSurfaceTextureAnimating(texColorAnim);
-        if (isRM) {
-            bool dispHasTime = ui->lineVariations->toPlainText().contains(timeRegex);
-            bool sdfHasTime  = ui->lineEquation->toPlainText().contains(timeRegex) ||
-                               m_surfaceScriptText.contains(timeRegex);
-            if (dispHasTime) {
-                ui->glWidget->setSurfaceAnimating(true);
-            } else if (!sdfHasTime) {
-                // né displacement né SDF usano 't': nessuna geometria animata
-                ui->glWidget->setSurfaceAnimating(false);
-            }
-            // se solo l'SDF usa 't': lasciamo invariato il clock (lo governa il master)
-        }
+        // Unico orologio del modulo: colore + displacement insieme.
+        ui->glWidget->setSurfaceTextureAnimating(texAnim);
+        // L'SDF/geometria resta invariato: un caricamento di texture non lo accende
+        // né lo spegne (lo governano il dock Equations e il master).
     }
     updateMasterButtonState();
 
@@ -4095,20 +4085,30 @@ void MainWindow::onStartClicked()
             }
         }
 
-        // 4. Animazione dinamica sicura
-        bool isAnimated = hasTimeVariable(implicitEqF);
+        // 4. Animazione dinamica sicura. Teniamo separati i due orologi:
+        //  - GEOMETRIA: solo l'SDF (implicitEqF).
+        //  - TEXTURE: colore + displacement (entrambi leggono dummyZero.x nello
+        //    shader) + background. Il displacement NON appartiene alla geometria,
+        //    altrimenti un Run riaccoppierebbe i due moduli (bug texture/superficie).
+        bool geomAnimated = hasTimeVariable(implicitEqF);
+        bool texAnimated = false;
         if (ui->chkBoxTexture->isChecked()) {
-            isAnimated = isAnimated || hasTimeVariable(texCode) || hasTimeVariable(dispCode);
+            texAnimated = hasTimeVariable(texCode) || hasTimeVariable(dispCode);
         }
-        // Anche la texture di background può essere animata (gate indipendente da chkBoxTexture)
-        if (ui->glWidget->isBackgroundTextureEnabled()) {
-            isAnimated = isAnimated || hasTimeVariable(m_bgTextureCode);
+        if (ui->glWidget->isBackgroundTextureEnabled() && hasTimeVariable(m_bgTextureCode)) {
+            texAnimated = true;
         }
 
         const bool applyOnly = this->property("rmApplyOnly").toBool();
 
         if (!applyOnly) {
-            applyAnimationState(isAnimated, runDockOnly);
+            // Il clock GEOMETRIA è del dock Equations/master: lo guida geomAnimated.
+            applyAnimationState(geomAnimated, runDockOnly);
+            // Il clock TEXTURE è del suo modulo: NON lo tocca il Run del dock
+            // Equations (runDockOnly), solo il master/Start globale.
+            if (!runDockOnly && ui->glWidget) {
+                ui->glWidget->setSurfaceTextureAnimating(texAnimated && !m_masterStopped);
+            }
         }
         updateMasterButtonState();
 
@@ -5627,51 +5627,30 @@ void MainWindow::onRunRaymarchTextureClicked()
 
     const QRegularExpression& timeRegex = kReTimeVar;
     bool texColorHasTime = ui->lineTexture->toPlainText().contains(timeRegex);
+    bool dispHasTime     = ui->lineVariations->toPlainText().contains(timeRegex);
 
-    // STOP del modulo TEXTURE: ferma solo gli orologi che appartengono a QUESTO
-    // modulo. La regola è: master = tutto, azione su un modulo = solo quel modulo.
-    // - orologio TEXTURE (colore): sempre nostro -> lo fermiamo.
-    // - orologio GEOMETRIA: lo condividono il displacement (modulo texture, in
-    //   lineVariations) e l'equazione/SDF (modulo geometria, master). Lo fermiamo
-    //   SOLO se l'unica sorgente di tempo geometrica è il displacement; se anche
-    //   l'SDF (lineEquation/m_surfaceScriptText) usa 't', la geometria è animata
-    //   in proprio e NON va fermata da un'azione sul modulo texture.
+    // Il MODULO TEXTURE possiede UN solo orologio: colore e displacement leggono
+    // entrambi dummyZero.x nello shader. Quindi Run/Stop texture agisce SOLO su
+    // setSurfaceTextureAnimating e NON tocca mai la geometria/SDF (setSurfaceAnimating):
+    // è proprio l'aver toccato il clock geometria che faceva "partire la superficie"
+    // e bloccava i tasti. Regola: azione su un modulo = solo quel modulo.
     if (ui->btnTextureCode->text() == "Stop") {
         ui->glWidget->setSurfaceTextureAnimating(false);
-
-        bool dispHasTime = ui->lineVariations->toPlainText().contains(timeRegex);
-        bool sdfHasTime  = ui->lineEquation->toPlainText().contains(timeRegex) ||
-                           m_surfaceScriptText.contains(timeRegex);
-        if (dispHasTime && !sdfHasTime) {
-            ui->glWidget->setSurfaceAnimating(false);
-        }
         updateMasterButtonState();
         return;
     }
 
-    // RUN del modulo TEXTURE: avvia gli orologi di QUESTO modulo, senza spegnere
-    // la geometria animata in proprio dall'SDF (regola: azione su un modulo =
-    // solo quel modulo).
+    // RUN del modulo TEXTURE: applica le equazioni (rmApplyOnly non avvia la
+    // geometria) e avvia il proprio unico orologio.
     this->setProperty("rmApplyOnly", true);
     onStartClicked();
     this->setProperty("rmApplyOnly", false);
 
     bool active = ui->chkBoxTexture->isChecked();
-    bool dispHasTime = ui->lineVariations->toPlainText().contains(timeRegex);
-    // Lo sblocco del master vale solo per sorgenti di QUESTO modulo (colore texture
-    // o displacement), MAI per l'SDF: avviare la geometria è compito del master /
-    // del Run geometria, non di un'azione sulla texture.
-    if (active && (texColorHasTime || dispHasTime)) m_masterStopped = false;
+    bool texAnim = active && (texColorHasTime || dispHasTime);
+    if (texAnim) m_masterStopped = false;
 
-    // Orologio TEXTURE (colore): nostro.
-    ui->glWidget->setSurfaceTextureAnimating(active && texColorHasTime);
-
-    // Orologio GEOMETRIA: lo tocchiamo SOLO per il displacement (nostro modulo).
-    // L'SDF NON va mai avviato né fermato da qui: se l'utente ha messo in pausa la
-    // superficie dal dock script, un Run sulla texture non deve farla ripartire.
-    if (active && dispHasTime) {
-        ui->glWidget->setSurfaceAnimating(true);
-    }
+    ui->glWidget->setSurfaceTextureAnimating(texAnim);
 
     updateMasterButtonState();
 }
@@ -5800,33 +5779,15 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
                     ui->glWidget->setBackgroundTextureAnimating(true);
                 }
             } else {
-                // Toggle del MODULO TEXTURE: agisce SOLO sui suoi orologi (colore
-                // texture + displacement). Il clock geometria è condiviso con l'SDF
-                // (modulo geometria/master): NON va mai acceso/spento da un click
-                // sulla texture se la sua unica/co-sorgente è l'SDF, altrimenti il
-                // controllo texture si comporta come il master (avvia/ferma tutto).
-                const QRegularExpression& timeRegex = kReTimeVar;
-                bool isRM = (ui->tabModeSelector->currentIndex() == 1);
-                bool dispHasTime = isRM && ui->lineVariations->toPlainText().contains(timeRegex);
-                bool sdfHasTime  = ui->lineEquation->toPlainText().contains(timeRegex) ||
-                                   m_surfaceScriptText.contains(timeRegex);
-
-                // "Attualmente in moto" per il MODULO texture = clock texture acceso,
-                // oppure displacement acceso SENZA che sia l'SDF a tenerlo vivo.
-                bool texAnim  = ui->glWidget->isSurfaceTextureAnimating();
-                bool dispOnlyAnim = dispHasTime && !sdfHasTime && ui->glWidget->isSurfaceAnimating();
-                bool isCurrentlyAnimating = texAnim || dispOnlyAnim;
-
-                if (isCurrentlyAnimating) {
+                // Toggle del MODULO TEXTURE: colore E displacement condividono lo
+                // stesso orologio texture, quindi basta invertire quello. Il clock
+                // geometria/SDF NON va mai toccato da qui (lo governano dock
+                // Equations e master): è proprio quel coupling che faceva "partire
+                // la superficie" e bloccava i tasti.
+                if (ui->glWidget->isSurfaceTextureAnimating()) {
                     ui->glWidget->setSurfaceTextureAnimating(false);
-                    // Spegne la geometria SOLO se la sua unica sorgente è il
-                    // displacement (nostro modulo); l'SDF animato resta in moto.
-                    if (dispHasTime && !sdfHasTime) ui->glWidget->setSurfaceAnimating(false);
                 } else {
                     ui->glWidget->setSurfaceTextureAnimating(true);
-                    // Accende la geometria solo per il displacement; mai per l'SDF
-                    // (quello è governato dal Run geometria / master).
-                    if (dispHasTime) ui->glWidget->setSurfaceAnimating(true);
                     m_masterStopped = false;
                 }
             }
@@ -6667,9 +6628,18 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
         return !t.isEmpty() && t != "0" && t != "0.0";
     };
 
-    bool hasRotation = (std::abs(data.speedPrec) > 0.001f || std::abs(data.speedOmega) > 0.001f ||
-                        std::abs(data.speedNut) > 0.001f || std::abs(data.speedSpin) > 0.001f ||
-                        std::abs(data.speedPhi) > 0.001f || std::abs(data.speedPsi) > 0.001f);
+    // In Ray Marching le rotazioni 4D (omega/phi/psi) sono disabilitate e qui
+    // sopra vengono già azzerate (spdOmega/spdPhi/spdPsi). hasRotation deve
+    // guardare le velocità EFFETTIVE applicate al motore, non quelle grezze del
+    // record: altrimenti un preset RM con omega/phi/psi salvati faceva partire il
+    // rotationTimer (isAnimating()==true) pur senza alcuna rotazione visibile,
+    // tenendo il master bloccato su STOP anche a tutto fermo.
+    bool hasRotation = (std::abs(data.speedPrec) > 0.001f ||
+                        std::abs(data.speedNut)  > 0.001f ||
+                        std::abs(data.speedSpin) > 0.001f ||
+                        std::abs(spdOmega) > 0.001f ||
+                        std::abs(spdPhi)   > 0.001f ||
+                        std::abs(spdPsi)   > 0.001f);
     bool hasPath4D = isReal(data.path4D_x) || isReal(data.path4D_y) || isReal(data.path4D_z) || isReal(data.path4D_w) ||
             isReal(data.path4D_alpha) || isReal(data.path4D_beta) || isReal(data.path4D_gamma);
 
@@ -8115,6 +8085,16 @@ void MainWindow::applyCommonData(const LibraryItem &d)
         bool bCU = ui->lineU->blockSignals(true);
         bool bCV = ui->lineV->blockSignals(true);
         bool bCW = ui->lineW->blockSignals(true);
+        // I campi vincolo vanno bloccati come quelli di composizione: altrimenti
+        // azzerare un vincolo residuo del preset precedente (es. explicitV) emette
+        // textChanged a metà caricamento. checkParametricDependency() parte con uno
+        // stato misto (vincolo vecchio ancora visto come attivo) e
+        // updateConstraintState svuota i limiti del parametro vincolato; quel campo
+        // viene poi riabilitato ma NON ripopolato, restando attivo e vuoto → il
+        // Run successivo fallisce la validazione min/max (popup spurio).
+        bool bEU = ui->lineExplicitU->blockSignals(true);
+        bool bEV = ui->lineExplicitV->blockSignals(true);
+        bool bEW = ui->lineExplicitW->blockSignals(true);
 
         ui->lineU->setPlainText(d.defU);
         ui->lineV->setPlainText(d.defV);
@@ -8127,6 +8107,9 @@ void MainWindow::applyCommonData(const LibraryItem &d)
         ui->lineU->blockSignals(bCU);
         ui->lineV->blockSignals(bCV);
         ui->lineW->blockSignals(bCW);
+        ui->lineExplicitU->blockSignals(bEU);
+        ui->lineExplicitV->blockSignals(bEV);
+        ui->lineExplicitW->blockSignals(bEW);
 
         checkParametricDependency();
 
@@ -8887,7 +8870,11 @@ void MainWindow::updateMasterButtonState()
 
         QString mainEq;
         if (isRM) {
-            mainEq = ui->lineEquation->toPlainText() + " " + ui->lineVariations->toPlainText() + " " + m_surfaceScriptText;
+            // NB: lineVariations (displacement) è del MODULO TEXTURE, non della
+            // geometria: NON va incluso qui, altrimenti il tasto Equations crede
+            // che la geometria sia in moto e resta bloccato su "Stop" finché la
+            // texture anima il displacement.
+            mainEq = ui->lineEquation->toPlainText() + " " + m_surfaceScriptText;
         } else {
             mainEq = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
                     ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
@@ -8920,11 +8907,11 @@ void MainWindow::updateMasterButtonState()
         bool isSurfTexActive = ui->radioBackground->isChecked() ? m_surfaceTextureState : ui->chkBoxTexture->isChecked();
         bool isTexVisuallyMoving;
         if (isRM) {
-            // displacement -> orologio geometria (geomClockRunning); colore -> orologio texture
-            bool texColorMoving = ui->glWidget->isSurfaceTextureAnimating() && isSurfTexActive &&
-                                  hasTimeVariable(ui->lineTexture->toPlainText());
-            bool dispMoving     = geomClockRunning && isSurfTexActive &&
-                                  hasTimeVariable(ui->lineVariations->toPlainText());
+            // colore E displacement leggono lo STESSO orologio texture: entrambi
+            // dipendono da isSurfaceTextureAnimating().
+            bool texClockRunning = ui->glWidget->isSurfaceTextureAnimating() && isSurfTexActive;
+            bool texColorMoving = texClockRunning && hasTimeVariable(ui->lineTexture->toPlainText());
+            bool dispMoving     = texClockRunning && hasTimeVariable(ui->lineVariations->toPlainText());
             isTexVisuallyMoving = texColorMoving || dispMoving;
         } else {
             bool texClockRunning = ui->glWidget->isSurfaceTextureAnimating();
@@ -8974,8 +8961,18 @@ void MainWindow::applyAnimationState(bool animated, bool dockOnly) {
         // il tasto Run del dock NON deve toccarli (regola "ogni tasto non-master
         // agisce solo sul suo modulo"). Solo il master può accenderli/spegnerli.
         if (!dockOnly) {
-            ui->glWidget->setSurfaceTextureAnimating(effective);
-            ui->glWidget->setBackgroundTextureAnimating(effective);
+            // Ogni clock va acceso SOLO se il suo modulo è davvero attivo: 'animated'
+            // è un OR su geometria+texture+sfondo, quindi da solo accenderebbe anche
+            // un clock il cui modulo è spento. In particolare lo SFONDO disabilitato
+            // restava con il clock acceso (m_bgAnimating=true): poi, riattivando la
+            // texture di sfondo, updateMasterButtonState lo vedeva "in moto" e il
+            // master tornava su STOP facendo "ripartire tutto". Gate esplicito.
+            bool surfTexActive = ui->radioBackground->isChecked()
+                                     ? m_surfaceTextureState
+                                     : ui->chkBoxTexture->isChecked();
+            ui->glWidget->setSurfaceTextureAnimating(effective && surfTexActive);
+            ui->glWidget->setBackgroundTextureAnimating(
+                        effective && ui->glWidget->isBackgroundTextureEnabled());
         }
     }
 
