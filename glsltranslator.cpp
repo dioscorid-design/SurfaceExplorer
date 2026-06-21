@@ -35,6 +35,14 @@ QString GlslTranslator::translateEquation(const QString& mathInput)
     result = convertPowersToPowFunction(result);
     result = convertModuloToModFunction(result); // <--- NUOVA CHIAMATA
 
+    // 3.5 POW SICURA: pow(x, y) in GLSL è undefined per x < 0 e su Android (Mali/
+    // Adreno) dà NaN, facendo "esplodere" mesh come Fresnel (usa pow(cos(u), 4) con
+    // base negativa). Riscriviamo ogni chiamata pow( in safePow( (definita negli
+    // shader), che calcola su |base| e ripristina il segno per esponenti dispari.
+    // \b evita di toccare identificatori che finiscono in "pow" (es. safePow stessa).
+    static const QRegularExpression rePowCall("\\bpow\\s*\\(");
+    result.replace(rePowCall, "safePow(");
+
     // 4. SICUREZZA FLOAT ( 2 -> 2.0 )
     result = fixIntegersToFloats(result);
 

@@ -2652,6 +2652,29 @@ void MainWindow::update4DButtonState()
     }
 }
 
+// Allinea etichette e range degli slider che cambiano significato col modo:
+// - S: "s=" (parametrico, range [-1000,1000]) vs "Step Relax" (Ray Marching, min 0)
+// - Steps: "Steps=" (parametrico) vs "Ray Steps=" (Ray Marching)
+// Il gestore di tabModeSelector::currentChanged fa già questo, ma durante il load di
+// un preset il tab viene cambiato a SEGNALI BLOCCATI (per non innescare il reset
+// distruttivo), quindi va richiamato esplicitamente: senza, caricando una superficie
+// Ray Marching all'avvio (tab Parametric mai cambiato a mano) restano "s="/"Steps=".
+// Tocca SOLO etichette e min dello slider, mai i VALORI (li imposta il preset).
+void MainWindow::applyModeDependentStepUI(bool isImplicit)
+{
+    bool sB = ui->sSlider->blockSignals(true);
+    if (isImplicit) {
+        ui->lblS->setText("Step Relax");
+        ui->lblSteps->setText("Ray Steps=");
+        if (ui->sSlider->minimum() < 0) ui->sSlider->setMinimum(0);
+    } else {
+        ui->lblS->setText("s=");
+        ui->lblSteps->setText("Steps=");
+        if (ui->sSlider->minimum() == 0) ui->sSlider->setMinimum(-1000);
+    }
+    ui->sSlider->blockSignals(sB);
+}
+
 void MainWindow::updateRenderState()
 {
     // 1. Identifichiamo se siamo in modalità Ray Marching
@@ -8171,6 +8194,10 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     if (ui->glWidget) ui->glWidget->resetTime();
 
     updateRenderState();
+    // In coda, dopo ogni altro setup: allinea etichette/range degli slider S e Steps
+    // al modo del preset. Il tab è stato cambiato a segnali bloccati, quindi il
+    // gestore currentChanged (che normalmente lo fa) non è scattato.
+    applyModeDependentStepUI(d.isImplicitMode);
     this->setProperty("isPresetActive", true);
     updateMasterButtonState();
 }
@@ -8658,7 +8685,7 @@ void MainWindow::updateScriptButtonText() {
 
         if (isRayMarching) {
             ui->btnScriptMode->setText("Implicit Surface");
-            ui->btnRunCurrentScript->setText(isSurfaceMoving ? "Stop Implicit" : "Run Implicit");
+            ui->btnRunCurrentScript->setText(isSurfaceMoving ? "Stop" : "Run");
             ui->txtScriptEditor->setPlaceholderText("Write GLSL for Implicit Surface (Ray Marching).\nExample: return length(p) - 1.0;");
         } else {
             ui->btnScriptMode->setText("Parametric Surface");
@@ -8759,18 +8786,24 @@ bool MainWindow::activeTextureUsesColors() const
         return m_bgTextureCode.contains("u_col1") || m_bgTextureCode.contains("u_col2");
     }
 
-    // Scacchiera procedurale di default (generateTexture() in C++): non è uno
-    // script, ma usa comunque m_texColor1/m_texColor2 -> i picker servono.
+    // In Ray Marching la texture vive SEMPRE nel campo dedicato (lineTexture) e i
+    // flag m_isCustomMode/m_isImageMode sono un concetto del solo modo parametrico:
+    // al load di un record RM restano entrambi false (il texCode parametrico viene
+    // svuotato, la texture va in lineTexture), quindi la scorciatoia "scacchiera"
+    // più sotto accendeva i picker a torto su texture RM senza u_col1/u_col2. In RM
+    // la verità è solo nel codice del campo texture.
+    if (ui->tabModeSelector->currentIndex() == 1) {
+        QString rm = ui->lineTexture->toPlainText();
+        return rm.contains("u_col1") || rm.contains("u_col2");
+    }
+
+    // Parametrico: la scacchiera procedurale di default (generateTexture() in C++)
+    // non è uno script ma usa comunque m_texColor1/m_texColor2 -> i picker servono.
     if (!m_isCustomMode && !m_isImageMode) {
         return true;
     }
 
-    // In Ray Marching la texture vive nel campo dedicato, altrimenti è lo
-    // script di superficie (stessa logica usata per la sync dell'albero).
-    QString activeCode = (ui->tabModeSelector->currentIndex() == 1)
-                             ? ui->lineTexture->toPlainText()
-                             : m_surfaceTextureCode;
-    return activeCode.contains("u_col1") || activeCode.contains("u_col2");
+    return m_surfaceTextureCode.contains("u_col1") || m_surfaceTextureCode.contains("u_col2");
 }
 
 void MainWindow::updateTextureUIState(bool isTextureOn, bool resetColorTargetToFirst)
@@ -8900,7 +8933,7 @@ void MainWindow::updateMasterButtonState()
             ui->btnRunParametric->setText(eqModuleMoving ? "Stop" : "Run");
         }
         if (ui->btnImplicit) {
-            ui->btnImplicit->setText(eqModuleMoving ? "Stop" : "Run Implicit");
+            ui->btnImplicit->setText(eqModuleMoving ? "Stop" : "Run");
         }
 
         // B. Orologio della Texture di Superficie

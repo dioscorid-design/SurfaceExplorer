@@ -2393,7 +2393,7 @@ QString GLWidget::createImplicitFragmentShader()
     QString templateSource = loadShaderSource(":/shaders/raymarch_template.txt");
     templateSource.remove(QRegularExpression("^\\s*#version\\s+450\\s*\n?"));
 
-    QString safePowDef = "float safe_pow(float x, float y) { return sign(x) * pow(abs(x), y); }\n";
+    // safePow (pow sicura per basi negative) vive in common.glsl, iniettato qui sotto.
     QString commonCode = loadShaderSource(":/shaders/common.glsl");
 
     // Libreria solver (solveKerrR, kerr*SDF, ...): serve agli script ray marching
@@ -2402,7 +2402,7 @@ QString GLWidget::createImplicitFragmentShader()
     // possono precedere la dichiarazione dell'UBO nel template senza problemi.
     QString implicitLib = loadShaderSource(":/shaders/implicit.glsl");
 
-    QString finalSource = "#version 450\n\n" + safePowDef + "\n" + commonCode + "\n"
+    QString finalSource = "#version 450\n\n" + commonCode + "\n"
                           + implicitLib + "\n" + templateSource;
 
     // Variabili iniettate, condivise tra superficie esterna e interna.
@@ -2700,13 +2700,9 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
 
     QString header = "#version 450\n";
 
-    QString safePowDef = R"(
-    float safe_pow(float x, float y) {
-        return sign(x) * pow(abs(x), y);
-    }
-    )";
-
-    QString source = header + "\n" + safePowDef + "\n" + commonCode + "\n" + implicitCode + "\n" + vertexTemplate;
+    // safePow (pow sicura per basi negative) è definita in common.glsl, iniettato qui
+    // sotto prima del template: il traduttore riscrive pow(->safePow( nelle equazioni.
+    QString source = header + "\n" + commonCode + "\n" + implicitCode + "\n" + vertexTemplate;
 
     auto sanitizeEq = [](const QString &s) {
         // 1. Traduce potenze e costanti (pi, e)
@@ -2799,13 +2795,8 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
 
     QString header = "#version 450\n";
 
-    QString safePowLogic = R"(
-    float safe_pow(float x, float y) {
-        return sign(x) * pow(abs(x), y);
-    }
-    )";
-
-    QString fullSource = header + "\n" + safePowLogic + "\n" + commonCode + "\n" + fragmentTemplate;
+    // safePow (pow sicura per basi negative) è in common.glsl, iniettato qui sotto.
+    QString fullSource = header + "\n" + commonCode + "\n" + fragmentTemplate;
 
     QString safeLogic = customLogic;
     safeLogic.remove(QRegularExpression("//SOUND_BEGIN.*?//SOUND_END", QRegularExpression::DotMatchesEverythingOption));

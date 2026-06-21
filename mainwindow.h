@@ -64,6 +64,7 @@ private slots:
     void switchTo4DMode();
     void update4DButtonState();
     void updateRenderState();
+    void applyModeDependentStepUI(bool isImplicit);
     void checkParametricDependency();
     void updateConstraintState();
     void updateConstantsUIState();
