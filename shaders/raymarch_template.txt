@@ -161,24 +161,81 @@ bool marchField(vec3 rayPos, vec3 rayDir, bool useInner, float tStart, out vec3 
     return hit;
 }
 
+// --- RICERCA STRATO SUCCESSIVO (per la trasparenza vera) ---
+// Trova la PROSSIMA superficie lungo il raggio partendo da tStart, basandosi sul
+// CAMBIO DI SEGNO del campo grezzo map() invece che sulla stima SDF d=val/gradLen.
+// Perche': la passata trasparente deve attraversare l'interno del solido (map<0)
+// e ritrovare la faccia posteriore. Lo sphere-tracing classico (marchField) usa
+// passi proporzionali a abs(d), che per campi ANISOTROPI (es. ellissoide
+// x^2+y^2+3z^2: gradiente esploso lungo l'asse schiacciato) collassano dentro il
+// volume -> u_raySteps esaurito prima di uscire -> faccia posteriore persa ->
+// "anello"/disco di sfondo pieno. Qui marciamo a PASSO FISSO fitto cercando dove
+// map() cambia segno (attraversamento di superficie), immune all'anisotropia, poi
+// raffiniamo con bisezione per un hit preciso. Robustezza > velocita': serve solo
+// per i pochi strati interni di una superficie trasparente.
+bool marchNextLayer(vec3 rayPos, vec3 rayDir, float tStart, out vec3 pHit) {
+    // Passo ADATTIVO guidato dalla distanza stimata |map|/|grad|: si accorcia
+    // automaticamente vicino alla superficie e non salta MAI un attraversamento.
+    // Un passo fisso (STEP costante) aliasava: lungo i raggi quasi-tangenti
+    // all'asse schiacciato dell'ellissoide due crossing ravvicinati (< STEP)
+    // venivano saltati a coppie -> pathLen sbagliato in anelli -> banding a moire'
+    // nell'alpha. Cap superiore CAP per non sorvolare comunque gusci sottili.
+    const float CAP    = 0.05;         // passo massimo
+    const float FLOOR  = 0.0008;       // passo minimo (progresso garantito)
+    float tPrev = tStart;
+    float vPrev = map(rayPos + rayDir * tPrev);
+    float t = tStart;
+
+    for (int i = 0; i < 2000; i++) {
+        // stima distanza con gradiente locale (campo non normalizzato)
+        vec2 e = vec2(0.002, 0.0);
+        vec3 pp = rayPos + rayDir * t;
+        vec3 grad = vec3(map(pp + e.xyy) - map(pp - e.xyy),
+                         map(pp + e.yxy) - map(pp - e.yxy),
+                         map(pp + e.yyx) - map(pp - e.yyx));
+        float gradLen = max(length(grad) / (2.0 * e.x), 0.05);
+        float step = clamp(abs(vPrev) / gradLen, FLOOR, CAP);
+
+        float tNextS = t + step;
+        if (tNextS > 50.0) break;
+        float v = map(rayPos + rayDir * tNextS);
+
+        // Attraversamento di superficie: il campo cambia segno tra t e tNextS.
+        if (v * vPrev <= 0.0 && v != vPrev) {
+            // bisezione robusta: segno di riferimento FISSO all'estremo 'a'.
+            float a = t, b = tNextS;
+            float sPrev = sign(vPrev);
+            for (int k = 0; k < 24; k++) {
+                float m  = 0.5 * (a + b);
+                float vm = map(rayPos + rayDir * m);
+                if (sign(vm) == sPrev) a = m; else b = m;
+            }
+            pHit = rayPos + rayDir * (0.5 * (a + b));
+            return true;
+        }
+        t     = tNextS;
+        vPrev = v;
+    }
+    pHit = rayPos + rayDir * tStart;
+    return false;
+}
+
 // --- SHADING CONDIVISO ---
 // Illuminazione a 2 punti + AO + speculare, identica al path storico.
 // useInner sceglie le normali del campo giusto. Ritorna l'rgb illuminato
 // (senza alpha): il compositing trasparente avviene nel main().
-vec3 shadeSurface(vec3 pModel, vec3 rayDir, bool useInner, bool glassLight) {
+vec3 shadeSurface(vec3 pModel, vec3 rayDir, bool useInner) {
     vec3 n_model = useInner ? calcNormalInner(pModel) : calcNormal(pModel);
     vec3 viewDir_model = -rayDir;
 
     float ao = calcAO(pModel, n_model);
 
-    // LUCE PRINCIPALE: di norma laterale (da destra-alto, spazio camera) per
-    // dare modellato 3D. glassLight=true -> headlight allineata alla vista:
-    // fronte e retro di una superficie trasparente ricevono luce SIMILE, quindi
-    // non si crea il lato in ombra che, raddoppiato dal compositing fronte+retro,
-    // produceva il salto di colore netto al bordo. Si attiva SOLO nel ramo
-    // trasparente; le superfici opache restano laterali (modellato invariato).
-    vec3 mainLight_cam = glassLight ? normalize(vec3(0.2, 0.4, 1.0))
-                                    : normalize(vec3(1.0, 1.5, 1.0));
+    // LUCE PRINCIPALE: laterale (da destra-alto, spazio camera) per dare modellato
+    // 3D. STESSA luce per opaco e trasparente: cosi' muovere lo slider della
+    // trasparenza NON sposta la sorgente luminosa (lo switch a una headlight nel
+    // ramo trasparente era una pezza del vecchio compositing multi-strato, ora
+    // rimpiazzato dal modello a facce + Beer-Lambert).
+    vec3 mainLight_cam = normalize(vec3(1.0, 1.5, 1.0));
     vec3 backLight_cam = normalize(vec3(-1.0, -0.5, -2.0));
 
     mat3 camToModel = mat3(inverse(ubuf.u_mvMatrix));
@@ -300,7 +357,7 @@ void main() {
         if (!hit) { discard; return; }
 
         float aFront = clamp(ubuf.alpha, 0.0, 1.0);
-        vec3  frontRGB = shadeSurface(pModel, rayDir, false, false);
+        vec3  frontRGB = shadeSurface(pModel, rayDir, false);
 
         // OPACA: comportamento storico identico, nessuna seconda passata.
         if (aFront >= 0.999) {
@@ -316,50 +373,68 @@ void main() {
         // gli strati retrostanti (faccia posteriore / pieghe interne) e li
         // compositiamo "over". E' la stessa tecnica dell'ergosfera, ma sul
         // medesimo campo invece di un campo interno distinto.
-        const int MAX_LAYERS = 6;          // strati massimi attraversati (geometrie concave/stratificate)
+        // Modello a FACCE + Beer-Lambert sul CAMMINO INTERNO (continuo).
+        // Iteriamo gli attraversamenti REALI di superficie (entrata/uscita, e di
+        // nuovo entrata/uscita per geometrie concave). Per ogni coppia
+        // entrata->uscita l'opacita' del segmento dipende dalla LUNGHEZZA del
+        // cammino dentro il solido, non dal numero di campioni: cosi' non si crea
+        // banding (gli "anelli" nascevano dal compositing di tanti strati con
+        // alpha quantizzato dal passo). Il colore di ogni faccia (front e back)
+        // e' compositato "over" front-to-back.
+        const int MAX_FACES = 8;           // facce massime (geometrie stratificate)
         vec3  accumRGB = vec3(0.0);
         float accumA   = 0.0;
-        vec3  pLayer   = pModel;
-        bool  layerHit = true;
 
-        for (int L = 0; L < MAX_LAYERS; L++) {
-            vec3 layerRGB = shadeSurface(pLayer, rayDir, false, true);
+        // coeff. di assorbimento tarato perche' uno spessore UNITARIO dia
+        // un'attenuazione pari ad aFront: sigma = -ln(1-aFront).
+        float sigma = -log(max(1.0 - aFront, 1e-4));
 
-            // === ALPHA PER-STRATO MODULATA DALL'ANGOLO DI VISTA (vetro) ===
-            // Il "salto" di colore al bordo nasceva dal compositing a aFront
-            // PIATTO: agli angoli radenti il marcher trova molti strati quasi
-            // tangenti e accumA saturava di colpo -> anello brillante netto.
-            // Qui pesiamo l'alpha dello strato col fattore Fresnel-vetro:
-            //   ndv -> 1 frontale, -> 0 radente.
-            // - Beer-Lambert (1/ndv) tiene conto del cammino ottico piu' lungo
-            //   ai bordi, ma con un floor su ndv per non far esplodere l'alpha.
-            // - smoothstep aggiunge una transizione GRADUALE invece del gradino.
-            // RITOCCO: la fascia di transizione Fresnel e' stata ALLARGATA
-            // (0.0..0.95 invece di 0.55): l'anello al bordo dove fronte e retro
-            // si avvicinano sfuma su una zona piu' ampia, attenuando il salto
-            // di colore senza toccare luminosita' (layerRGB) ne' alpha di base.
-            vec3  nLayer = calcNormal(pLayer);
-            float ndv    = max(abs(dot(nLayer, rayDir)), 0.12);
-            // cammino ottico: piu' lungo a vista radente
-            float aPath  = 1.0 - pow(max(1.0 - aFront, 1e-4), 1.0 / ndv);
-            // Fresnel morbido e largo: bordo pieno ma molto sfumato (no gradino)
-            float fres   = 1.0 - smoothstep(0.0, 0.95, ndv);
-            float aLayer = clamp(mix(aPath, max(aPath, aFront), fres), 0.0, 1.0);
+        // IMPORTANTE: NON usiamo pModel (primo hit di marchField) come faccia di
+        // entrata. Lo sphere-tracing con stima d=val/gradLen su campo ANISOTROPO
+        // (ellissoide) puo' OVERSHOOTARE la faccia frontale e colpire direttamente
+        // la POSTERIORE: in quel caso partire da li' lascia il marcher gia' FUORI
+        // dal solido, nessuna uscita davanti -> guscio mancato -> sfondo in anelli.
+        // Per la trasparenza ricostruiamo TUTTE le facce da zero con la ricerca a
+        // cambio-segno (marchNextLayer), affidabile a prescindere dall'anisotropia.
+        vec3  pEnter;
+        bool  more = marchNextLayer(rayPos, rayDir, tNear, pEnter);
+        for (int f = 0; f < MAX_FACES && more; f++) {
+            // --- FACCIA DI ENTRATA: la sua riflessione (shading) si compone ---
+            vec3 enterRGB = shadeSurface(pEnter, rayDir, false);
+            // alpha della superficie frontale (riflesso di Fresnel morbido):
+            // contributo di superficie, NON dipende dallo spessore.
+            float aSurf = aFront;
+            accumRGB += (1.0 - accumA) * aSurf * enterRGB;
+            accumA   += (1.0 - accumA) * aSurf;
 
-            // compositing "over" front-to-back
-            accumRGB += (1.0 - accumA) * aLayer * layerRGB;
-            accumA   += (1.0 - accumA) * aLayer;
+            // --- USCITA: prossimo crossing = faccia posteriore di questo guscio.
+            vec3 pExit;
+            float tEnter = dot(pEnter - rayPos, rayDir);
+            bool gotExit = marchNextLayer(rayPos, rayDir, tEnter + 0.005, pExit);
+            if (!gotExit) { more = false; break; }
 
-            // riparti appena oltre lo strato corrente, sullo STESSO campo
-            float tNext = dot(pLayer - rayPos, rayDir) + 0.05;
-            layerHit = marchField(rayPos, rayDir, false, tNext, pLayer);
-            if (!layerHit) break;
+            // --- ASSORBIMENTO DEL VOLUME tra entrata e uscita (Beer-Lambert) ---
+            // dipende SOLO dalla lunghezza del cammino interno -> continuo,
+            // niente banding; e il centro (cammino lungo) e' piu' opaco dei bordi.
+            float pathLen = dot(pExit - rayPos, rayDir) - tEnter;
+            float aVol    = 1.0 - exp(-sigma * max(pathLen, 0.0));
+            // il "colore" del volume e' lo shading della faccia di uscita
+            vec3 exitRGB  = shadeSurface(pExit, rayDir, false);
+            accumRGB += (1.0 - accumA) * aVol * exitRGB;
+            accumA   += (1.0 - accumA) * aVol;
+
+            // --- prossimo guscio (geometrie concave): cerca la prossima ENTRATA
+            vec3 pNext;
+            float tExit = dot(pExit - rayPos, rayDir);
+            more = marchNextLayer(rayPos, rayDir, tExit + 0.005, pNext);
+            pEnter = pNext;
+            if (accumA > 0.995) break;     // gia' opaco: inutile proseguire
         }
 
-        // accumRGB e' PRE-moltiplicato per accumA. La pipeline implicita usa
-        // blend a alpha dritto (srcColor = SrcAlpha), quindi l'hardware
-        // rimoltiplichera' per FragColor.a: dividiamo qui per non applicarlo due
-        // volte. Lo sfondo trasparente residuo resta visibile via (1-accumA).
+        // accumRGB e' PRE-moltiplicato per accumA. La pipeline implicita usa blend
+        // a alpha dritto (srcColor = SrcAlpha), quindi l'hardware rimoltiplichera'
+        // per FragColor.a: dividiamo qui per non applicarlo due volte. Lo sfondo
+        // resta visibile solo via (1-accumA) DIETRO la sagoma.
         vec3 straightRGB = accumRGB / max(accumA, 1e-4);
         FragColor = vec4(straightRGB, accumA);
         return;
@@ -374,7 +449,7 @@ void main() {
     float tInnerStart = tNear;     // da dove parte la passata interna
 
     if (hit) {
-        outerRGB   = shadeSurface(pModel, rayDir, false, false);
+        outerRGB   = shadeSurface(pModel, rayDir, false);
         outerAlpha = clamp(ubuf.alpha, 0.0, 1.0);
         // riprendi l'interna appena oltre il guscio esterno colpito
         tInnerStart = dot(pModel - rayPos, rayDir) + 0.02;
@@ -385,7 +460,7 @@ void main() {
     bool hitInner = marchField(rayPos, rayDir, true, tInnerStart, pInner);
 
     if (hitInner) {
-        vec3 innerRGB = shadeSurface(pInner, rayDir, true, false);
+        vec3 innerRGB = shadeSurface(pInner, rayDir, true);
         // compositing "over": esterna trasparente sopra interna opaca
         vec3 outRGB = mix(innerRGB, outerRGB, outerAlpha);
         FragColor = vec4(outRGB, 1.0);

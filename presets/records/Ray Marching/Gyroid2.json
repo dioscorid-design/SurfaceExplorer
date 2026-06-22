@@ -1,8 +1,8 @@
 {
     "angles": {
-        "omega": 1121.44482421875,
-        "phi": 748.0386962890625,
-        "psi": 748.4390869140625
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
     },
     "background": {
         "code": "// --- PARAMETRI ---\nfloat zoom = 10.0;  // <--- AUMENTATO DA 1.0 A 20.0 PER RIDURRE I BLOCCHI\nfloat s = 512.0;    // Risoluzione virtuale\n\n// --- LOGICA XOR ---\n// Convertiamo u, v (0.0-1.0) in coordinate intere scalate\n// Formula C++ originale: int xx = x * z / 5;\n// Qui moltiplichiamo per zoom alto per avere il pattern fitto\nint xx = int(u * s * zoom / 5.0);\nint yy = int(v * s * zoom / 5.0);\n\n// Formula XOR bitwise\nint val = (xx ^ yy) % 256;\n\n// Mappiamo a 0.0-1.0\nfloat t = float(val) / 255.0;\n\n// --- GENERAZIONE COLORE PSICHEDELICO (Inline) ---\n// t * 3.0 serve a fare 3 giri completi di spettro\nfloat time = t * 3.0; \nfloat freq = 6.283; // 2 * PI\n\n// Calcolo componenti RGB con le fasi originali (0.00, 0.33, 0.67)\nfloat r_psy = 0.5 + 0.5 * cos(freq * time + 0.00);\nfloat g_psy = 0.5 + 0.5 * cos(freq * time + 0.33); \nfloat b_psy = 0.5 + 0.5 * cos(freq * time + 0.67); \n\nvec3 psyColor = vec3(r_psy, g_psy, b_psy);\n\n// --- MIX FINALE ---\n// Mischiamo il risultato psichedelico con la tinta base (Colore 1)\nreturn (psyColor + u_col1) * 0.5;",
@@ -53,6 +53,15 @@
         "y": "",
         "z": ""
     },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
     "implicitEquation": "// Controlled by Script",
     "isImplicitMode": true,
     "lightIntensity": 1,
@@ -90,23 +99,23 @@
     },
     "pathMode": 0,
     "projectionMode": 1,
-    "renderMode": 1,
+    "renderMode": 11,
     "scriptCode": "// --- GYROID (Superficie Minima Triplamente Periodica) ---\n\n// Lo slider A controlla lo zoom (frequenza)\nfloat scale = A > 0.0 ? (A * 5.0) : 4.0;\n\n// Lo slider B controlla lo spessore della \"crosta\"\nfloat thickness = B > 0.0 ? B : 0.05;\n\n// Scaliamo lo spazio e aggiungiamo il tempo 't' per far scorrere il labirinto\nvec3 q = p * scale + vec3(t, t * 0.5, 0.0);\n\n// La formula esatta del Gyroid\nfloat d = abs(dot(sin(q), cos(q.zxy))) - thickness;\n\nfloat fudgeFactor = C > 0.0 ? C : 0.5;\n\n// Riduciamo i passi del raggio moltiplicando per il fudge factor\nreturn (d / scale) * fudgeFactor;",
     "showBorder": false,
     "speeds": {
         "nutation": 0,
-        "omega": 0.30000001192092896,
+        "omega": 0,
         "path3D": 10,
-        "path4D": 10,
-        "phi": 0.20000000298023224,
+        "path4D": 0,
+        "phi": 0,
         "precession": 0,
-        "psi": 0.20000000298023224,
+        "psi": 0,
         "spin": 0
     },
     "steps": 783,
     "texture": {
-        "code": "//MUSIC: /home/dioscorid/Projects/Presets/Sounds/wav/723963__badwolf23__spatial-audio-4.wav\n\n// Dipingiamo l'energia fluida sulla forma a bolle\nvec3 p = pModel * 5.0; \nfloat distorsione = sin(p.x) * sin(p.y + ubuf.u_time) * sin(p.z);\nfloat energia = sin(length(p) * 3.0 + distorsione * 4.0 - ubuf.u_time * 3.0);\nenergia = energia * 0.5 + 0.5;\n\nvec3 coloreScuro = vec3(0.0, 0.05, 0.2); \nvec3 coloreLuce  = vec3(0.0, 0.8, 1.0);  \n\n// Applichiamo il colore!\ntextureCol = mix(coloreScuro, coloreLuce, energia);",
-        "col1": "#33cc33",
+        "code": "//MUSIC: /var/mobile/Containers/Data/Application/1B55C89B-A961-4B7A-9CC1-736FF25E6F85/Documents/SurfaceExplorer_Presets/sounds/wav/723963__badwolf23__spatial-audio-4.wav\n\n// Energia fluida sulla forma a bolle\nvec3 p = pModel * 5.0;\nfloat distorsione = sin(p.x) * sin(p.y + ubuf.u_time) * sin(p.z);\nfloat energia = sin(length(p) * 3.0 + distorsione * 4.0 - ubuf.u_time * 3.0);\nenergia = energia * 0.5 + 0.5;\n\n// u_col2 = fondo scuro, u_col1 = energia luminosa (colori del dock)\ntextureCol = mix(ubuf.u_col2, ubuf.u_col1, energia);",
+        "col1": "#5cc8ff",
         "col2": "#000000",
         "displacement": "// Calcoliamo un rilievo 3D\nfloat rilievo = sin(pModel.x * 20.0) * sin(pModel.y * 20.0) * sin(pModel.z * 20.0);\n\n// Lo sottraiamo alla superficie (allargandola e creando i bernoccoli)\nd_surf -= rilievo * 0.05;",
         "enabled": true,

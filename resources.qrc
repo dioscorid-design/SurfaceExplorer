@@ -1,11 +1,5 @@
 <RCC>
     <qresource prefix="/library">
-        <file>presets/surfaces/Hopf Deformation.json</file>
-        <file>presets/surfaces/Hyperboloid_copy1.json</file>
-        <file>presets/surfaces/Kerr Ergosphere_copy1.json</file>
-        <file>presets/surfaces/Kerr Ergosphere.json</file>
-        <file>presets/surfaces/3.json</file>
-        <file>presets/surfaces/Hyperboloid.json</file>
         <file>presets/surfaces/Ray Marching/N-Torus4.json</file>
         <file>presets/surfaces/Ray Marching/ThickIso.json</file>
         <file>presets/surfaces/Ray Marching/Tangle Cube.json</file>
@@ -113,7 +107,6 @@
         <file>presets/surfaces/Parametric/Equations/Non-orientable/Klein Bottle 3D.json</file>
         <file>presets/surfaces/Parametric/Equations/Non-orientable/Klein Bottle.json</file>
         <file>presets/surfaces/Parametric/Equations/Non-orientable/Veronese Surface.json</file>
-        <file>presets/surfaces/Parametric/Equations/Non-orientable/Boy Surface.json</file>
         <file>presets/surfaces/Parametric/Equations/SOL/Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/SOL/Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/SOL/SOLSlice.json</file>
@@ -181,8 +174,8 @@
         <file>presets/textures/Ray Marching/Hello World.json</file>
         <file>presets/textures/Ray Marching/Animated Iridescence.json</file>
         <file>presets/textures/Ray Marching/Fractal Noise.json</file>
+        <file>presets/textures/Ray Marching/Animated Iridescence1.json</file>
         <file>presets/textures/Ray Marching/Cyclic Noise1.json</file>
-        <file>presets/textures/Ray Marching/NewTexture.json</file>
         <file>presets/textures/Ray Marching/Cyclic Noise2.json</file>
         <file>presets/textures/Ray Marching/Triplanar Stripes.json</file>
         <file>presets/textures/Ray Marching/Spreading Waves.json</file>
@@ -256,13 +249,12 @@
         <file>presets/records/Geodesic Flow/H^3/Hyperboloid.json</file>
         <file>presets/records/Geodesic Flow/S^2xS^1/Slice.json</file>
         <file>presets/records/Geodesic Flow/R^3/Hyperboloid.json</file>
-        <file>presets/records/Ray Marching/Holografic scan.json</file>
         <file>presets/records/Ray Marching/Gyroid2.json</file>
         <file>presets/records/Ray Marching/Morphing Sphere-Cube.json</file>
         <file>presets/records/Ray Marching/Ergosphere.json</file>
         <file>presets/records/Ray Marching/Gyroid Race.json</file>
-        <file>presets/records/Ray Marching/pippo.json</file>
         <file>presets/records/Ray Marching/N-Tours.json</file>
+        <file>presets/records/Ray Marching/Gyroid3.json</file>
         <file>presets/records/Ray Marching/Pseudo Lawson2.json</file>
         <file>presets/records/Ray Marching/Breathing Sphere.json</file>
         <file>presets/records/Ray Marching/pippo1.json</file>
@@ -271,6 +263,7 @@
         <file>presets/records/Ray Marching/Wormhole.json</file>
         <file>presets/records/Ray Marching/Gyroid.json</file>
         <file>presets/records/Ray Marching/N-Torus3.json</file>
+        <file>presets/records/Ray Marching/Morphing Shere-Hyperboloid.json</file>
         <file>presets/records/Ray Marching/N-Torus1.json</file>
         <file>presets/records/Ray Marching/Metaball.json</file>
         <file>presets/records/Ray Marching/Torus.json</file>

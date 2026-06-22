@@ -2391,7 +2391,7 @@
                <item>
                 <widget class="QPushButton" name="btnImplicit">
                  <property name="text">
-                  <string>Run Implicit</string>
+                  <string>Run</string>
                  </property>
                 </widget>
                </item>

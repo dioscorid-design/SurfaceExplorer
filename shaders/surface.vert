@@ -48,6 +48,25 @@ layout(std140, binding = 0) uniform SceneUBO {
 
 float sq(float x) { return x*x; }
 
+// NB: safePow(base, expo) — pow() sicura per basi negative — è definita e iniettata
+// da GLWidget (createVertexShaderSource) PRIMA di questo template, ed è quella che il
+// traduttore usa al posto di pow(. Qui non va ridefinita.
+
+// Bonifica NaN/Inf da una posizione calcolata: equazioni numericamente delicate
+// (sqrt/acos/pow con argomenti al limite, es. il preset "Fresnel") possono uscire
+// dal dominio valido su GPU con precisione diversa (tipico Android Mali/Adreno vs
+// desktop/Metal) e produrre NaN/Inf -> i vertici schizzano all'infinito e la mesh
+// "esplode" in triangoli. Sostituiamo i componenti non finiti con 0, così un vertice
+// degenere collassa in un punto finito invece di sparare via.
+// NB: usiamo il test `!(abs <= 1e6)` invece di isnan()/isinf(): è FALSO per ogni
+// confronto con NaN (quindi !false=true -> scartato) e cattura anche Inf/valori
+// enormi, restando affidabile anche sui driver Android con fast-math che ignorano
+// isnan()/isinf().
+vec4 sanitizePos(vec4 p) {
+    bvec4 ok = lessThanEqual(abs(p), vec4(1.0e6));
+    return mix(vec4(0.0), p, vec4(ok));
+}
+
 // --- MATRICI DI ROTAZIONE 4D ---
 vec4 rotateXW(vec4 p, float t) {
     float c = cos(t); float s = sin(t);
@@ -112,7 +131,7 @@ vec4 getRawPosition(float u, float v, float w) {
     float y = %Y_EQ%;
     float z = %Z_EQ%;
     float p = %W_EQ%;
-    return vec4(x, y, z, p);
+    return sanitizePos(vec4(x, y, z, p));
 #endif
 }
 

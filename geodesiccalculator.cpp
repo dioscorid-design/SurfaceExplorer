@@ -195,6 +195,52 @@ bool GeodesicCalculator::rebuildPipeline(QRhi* rhi,
         return false;
     }
 
+    // --- 2b. Patch delle varianti GLSL ES (Android) ---------------------------
+    // Indipendente dal "triangolo-artefatto" (quello è risolto a valle, in
+    // GLWidget::setCustomMesh via isDeadOrigin). Qui risolviamo due problemi dei
+    // compute shader GLSL ES, invisibili su desktop/Metal:
+    //
+    //  (1) safePow: GlslTranslator::translateEquation riscrive OGNI pow( utente
+    //      in safePow( (glsltranslator.cpp), definita SOLO in common.glsl — che
+    //      questo path NON inietta (solo implicit.glsl). Senza, ogni preset
+    //      geodetico con una potenza fallisce la compilazione ("safePow: no
+    //      matching function"). È l'iniezione PRIMARIA.
+    //
+    //  (2) precision: i compute shader GLSL ES non hanno una precisione di
+    //      default; Mali ripiega su mediump. Forziamo highp per uniformare il
+    //      comportamento numerico tra GPU (costo nullo). Scrivere "precision
+    //      highp" nel SORGENTE non basta: SPIRV-Cross la rimuove nel round-trip.
+    //
+    // common.glsl non contiene #version, quindi è sicuro inserirlo subito sotto
+    // la riga #version delle varianti ES.
+    {
+        QString commonLib;
+        QFile commonFile(":/shaders/common.glsl");
+        if (commonFile.open(QIODevice::ReadOnly | QIODevice::Text))
+            commonLib = QTextStream(&commonFile).readAll();
+
+        const QByteArray prologue =
+            "\nprecision highp float;\nprecision highp int;\n"
+            + commonLib.toUtf8() + "\n";
+
+        const auto keys = computeShader.availableShaders();
+        for (const QShaderKey &key : keys) {
+            if (key.source() != QShader::GlslShader) continue;
+            if (!key.sourceVersion().flags().testFlag(QShaderVersion::GlslEs)) continue;
+
+            QByteArray code = computeShader.shader(key).shader();
+            const int versionPos = code.indexOf("#version");
+            if (versionPos < 0) continue;            // difensivo
+            const int eol = code.indexOf('\n', versionPos);
+            if (eol < 0) continue;
+            code.insert(eol + 1, prologue);
+
+            QShaderCode patched = computeShader.shader(key);
+            patched.setShader(code);
+            computeShader.setShader(key, patched);
+        }
+    }
+
     // --- 3. Creazione risorse RHI persistenti ---
     int totalElements = (numU + 1) * (numV + 1);
     size_t bufferSize = totalElements * sizeof(QVector4D);

@@ -16,8 +16,17 @@
 #include <QCoreApplication>
 #include <QPainter>
 #include <QLinearGradient>
+#include <QDebug>
 #include <cstddef>
 #include <cstring>
+
+// Diagnostica del "triangolo-artefatto" geodetico: 1 = ispeziona la mesh FINALE
+// (vertices+indices effettivamente inviati alla GPU) in setCustomMesh e logga i
+// triangoli con un lato spropositato rispetto alla mediana + il numero di
+// sentinelle (0,0,0,0) intercettate. Puramente osservativo, NON altera la mesh.
+// Servì a localizzare il triangolo (vertice grid[0][0]=(0,0,0) triangolato su
+// Mali, intermittente). Lasciato a 0; rimettere a 1 se ricompare un artefatto.
+#define GEO_DIAG_TRIANGLE 0
 #include <rhi/qrhi.h>
 
 #define STEP_MIN 1
@@ -1082,14 +1091,46 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
     // Il GeodesicCalculator congela una traiettoria sull'ultimo punto valido
     // quando incontra un NaN. Quei punti hanno (grid[i][j] == grid[i][j-1])
     // esatto. Vanno esclusi dal rendering per non generare quad degeneri.
+    //
+    // Inoltre il calculator usa QVector4D(0,0,0,0) ESATTO come sentinella per un
+    // punto "nato morto" (traiettoria che crasha al primo step, prima di avere un
+    // ultimo-punto-buono a cui ripiegare: vedi scanDirection in
+    // geodesiccalculator.cpp). Su alcune GPU (Mali) una singola traiettoria può
+    // crashare così mentre su altre (Adreno) no: il vertice resta a (0,0,0,0),
+    // NON è uguale al suo vicino (quindi sfugge al test di "congelato" sopra) e
+    // viene triangolato verso i vicini sani, generando la scheggia che attraversa
+    // la superficie (confermato: triangolo grid[0][0]=(0,0,0) -> grid[1][0],
+    // grid[0][1], lato 2.17 vs mediana 0.04). Un vertice geodetico legittimo non
+    // cade mai esattamente su tutte e 4 le coordinate nulle, quindi possiamo
+    // trattare (0,0,0,0) esatto come la sentinella che è ed escluderlo dai quad.
     std::vector<bool> isFrozen((numU + 1) * (numV + 1), false);
+    std::vector<bool> isDeadOrigin((numU + 1) * (numV + 1), false);
     for (int i = 0; i <= numU; ++i) {
-        for (int j = 1; j <= numV; ++j) {
-            if ((grid[i][j] - grid[i][j-1]).lengthSquared() < 1e-12f) {
-                isFrozen[i * (numV + 1) + j] = true;
+        for (int j = 0; j <= numV; ++j) {
+            const int idx = i * (numV + 1) + j;
+            if (grid[i][j] == QVector4D(0.0f, 0.0f, 0.0f, 0.0f)) {
+                isDeadOrigin[idx] = true;        // sentinella punto-morto: SEMPRE da escludere
+                continue;
+            }
+            if (j >= 1 && (grid[i][j] - grid[i][j-1]).lengthSquared() < 1e-12f) {
+                isFrozen[idx] = true;            // coda congelata di un troncamento
             }
         }
     }
+
+#if GEO_DIAG_TRIANGLE
+    // Quante sentinelle punto-morto sono state intercettate. Il fenomeno è
+    // INTERMITTENTE (la stessa traiettoria su Mali a volte crasha a volte no, anche
+    // a parità di binario): se questo numero oscilla tra 0 e >0 tra un caricamento
+    // e l'altro è la conferma del non-determinismo a monte — e che la rete a valle
+    // scatta quando serve. A regime (assenza di artefatto) il triangolo NON dipende
+    // più da questo valore: con sentinella i quad sono esclusi, senza non ci sono.
+    {
+        int deadCount = 0;
+        for (bool b : isDeadOrigin) if (b) deadCount++;
+        qWarning("[GEO_TRI] dead-origin sentinels intercepted=%d", deadCount);
+    }
+#endif
 
     // =====================================================================
     // 2. COSTRUZIONE GEOMETRIA
@@ -1167,6 +1208,15 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
             int p2 = i * (numV + 1) + (j + 1);
             int p3 = (i + 1) * (numV + 1) + (j + 1);
 
+            // Sentinella punto-morto (0,0,0,0): basta UN vertice del quad per
+            // saltarlo. È un punto inventato (traiettoria crashata al primo step),
+            // non un vertice reale: triangolarlo verso i vicini sani produce la
+            // scheggia che attraversa la superficie. Soglia >=1 (a differenza dei
+            // frozen) perché qui NON c'è il rischio di bucare la mesh su un
+            // artefatto di arrotondamento: o il punto è la sentinella esatta, o no.
+            if (isDeadOrigin[p0] || isDeadOrigin[p1] || isDeadOrigin[p2] || isDeadOrigin[p3])
+                continue;
+
             // Salta il quad se almeno 2 dei 4 vertici sono "frozen".
             // Tollerare 1 frozen evita di bucare la mesh per artefatti
             // di arrotondamento isolati; saltare a >=2 elimina i quad
@@ -1213,6 +1263,51 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
             break;
         }
     }
+
+#if GEO_DIAG_TRIANGLE
+    // --- Diagnostica triangolo-artefatto sulla MESH FINALE --------------------
+    // Esamina i triangoli realmente inviati alla GPU. Un artefatto = un triangolo
+    // con un lato enormemente più lungo della mediana di tutti i lati (una
+    // scheggia che attraversa la superficie). Logghiamo i peggiori con indici e
+    // posizioni 3D dei 3 vertici, così si risale al vertice colpevole e al perché
+    // è finito nella mesh. Su Android → logcat (qWarning, priorità W).
+    {
+        auto vpos = [&](unsigned int idx) {
+            return vertices[idx].position.toVector3D();
+        };
+        QVector<float> edges;
+        edges.reserve(indices.size());
+        auto triLongestEdge = [&](unsigned int a, unsigned int b, unsigned int c) {
+            const QVector3D pa = vpos(a), pb = vpos(b), pc = vpos(c);
+            return std::max({ (pa-pb).length(), (pb-pc).length(), (pc-pa).length() });
+        };
+        for (size_t k = 0; k + 2 < indices.size(); k += 3)
+            edges.push_back(triLongestEdge(indices[k], indices[k+1], indices[k+2]));
+
+        if (!edges.isEmpty()) {
+            QVector<float> s = edges; std::sort(s.begin(), s.end());
+            const float median = s[s.size()/2];
+            const float maxEdge = s.last();
+            const float thr = std::max(median * 20.0f, 1e-4f);
+            qWarning("[GEO_TRI] tris=%lld median edge=%.4f  maxEdge=%.4f  thr=%.4f",
+                     static_cast<long long>(edges.size()), median, maxEdge, thr);
+            int reported = 0;
+            for (size_t k = 0; k + 2 < indices.size() && reported < 12; k += 3) {
+                const unsigned int a=indices[k], b=indices[k+1], c=indices[k+2];
+                if (triLongestEdge(a,b,c) > thr) {
+                    const QVector3D pa=vpos(a), pb=vpos(b), pc=vpos(c);
+                    qWarning("[GEO_TRI] BIG tri longest=%.3f  idx(%u,%u,%u) -> (%d,%d)(%d,%d)(%d,%d)  A=(%.3f,%.3f,%.3f) B=(%.3f,%.3f,%.3f) C=(%.3f,%.3f,%.3f)",
+                             triLongestEdge(a,b,c), a,b,c,
+                             a/(numV+1), a%(numV+1), b/(numV+1), b%(numV+1), c/(numV+1), c%(numV+1),
+                             pa.x(),pa.y(),pa.z(), pb.x(),pb.y(),pb.z(), pc.x(),pc.y(),pc.z());
+                    reported++;
+                }
+            }
+            if (reported == 0)
+                qWarning("[GEO_TRI] no oversized triangle (all edges <= %.4f)", thr);
+        }
+    }
+#endif
 
     // 3. Invia i dati al SurfaceEngine
     engine->setCustomMesh(vertices, indices, isUClosed, isVClosed);
@@ -2393,7 +2488,7 @@ QString GLWidget::createImplicitFragmentShader()
     QString templateSource = loadShaderSource(":/shaders/raymarch_template.txt");
     templateSource.remove(QRegularExpression("^\\s*#version\\s+450\\s*\n?"));
 
-    QString safePowDef = "float safe_pow(float x, float y) { return sign(x) * pow(abs(x), y); }\n";
+    // safePow (pow sicura per basi negative) vive in common.glsl, iniettato qui sotto.
     QString commonCode = loadShaderSource(":/shaders/common.glsl");
 
     // Libreria solver (solveKerrR, kerr*SDF, ...): serve agli script ray marching
@@ -2402,7 +2497,7 @@ QString GLWidget::createImplicitFragmentShader()
     // possono precedere la dichiarazione dell'UBO nel template senza problemi.
     QString implicitLib = loadShaderSource(":/shaders/implicit.glsl");
 
-    QString finalSource = "#version 450\n\n" + safePowDef + "\n" + commonCode + "\n"
+    QString finalSource = "#version 450\n\n" + commonCode + "\n"
                           + implicitLib + "\n" + templateSource;
 
     // Variabili iniettate, condivise tra superficie esterna e interna.
@@ -2700,13 +2795,9 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
 
     QString header = "#version 450\n";
 
-    QString safePowDef = R"(
-    float safe_pow(float x, float y) {
-        return sign(x) * pow(abs(x), y);
-    }
-    )";
-
-    QString source = header + "\n" + safePowDef + "\n" + commonCode + "\n" + implicitCode + "\n" + vertexTemplate;
+    // safePow (pow sicura per basi negative) è definita in common.glsl, iniettato qui
+    // sotto prima del template: il traduttore riscrive pow(->safePow( nelle equazioni.
+    QString source = header + "\n" + commonCode + "\n" + implicitCode + "\n" + vertexTemplate;
 
     auto sanitizeEq = [](const QString &s) {
         // 1. Traduce potenze e costanti (pi, e)
@@ -2799,13 +2890,8 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
 
     QString header = "#version 450\n";
 
-    QString safePowLogic = R"(
-    float safe_pow(float x, float y) {
-        return sign(x) * pow(abs(x), y);
-    }
-    )";
-
-    QString fullSource = header + "\n" + safePowLogic + "\n" + commonCode + "\n" + fragmentTemplate;
+    // safePow (pow sicura per basi negative) è in common.glsl, iniettato qui sotto.
+    QString fullSource = header + "\n" + commonCode + "\n" + fragmentTemplate;
 
     QString safeLogic = customLogic;
     safeLogic.remove(QRegularExpression("//SOUND_BEGIN.*?//SOUND_END", QRegularExpression::DotMatchesEverythingOption));

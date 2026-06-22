@@ -8,6 +8,19 @@ const float TAU = 6.28318530718;
 const float tau = 6.28318530718;
 const float e   = 2.71828182846;
 
+// --- SAFE POW ---
+// pow() sicura per basi negative. In GLSL pow(x, y) è UNDEFINED per x < 0: su
+// desktop/Metal spesso restituisce il valore corretto per esponenti interi, ma su
+// Android (Mali/Adreno) restituisce NaN, facendo "esplodere" le mesh (es. il preset
+// "Fresnel" usa pow(cos(u), 4) con cos(u) negativo su metà dominio). Calcoliamo su
+// |base| e ripristiniamo il segno SOLO per esponenti dispari (per i pari il risultato
+// è positivo). Il traduttore (GlslTranslator) riscrive ogni pow( utente in safePow(.
+float safePow(float base, float expo) {
+    if (base >= 0.0) return pow(base, expo);
+    float r = pow(abs(base), expo);
+    return (abs(mod(expo, 2.0) - 1.0) < 1.0e-4) ? -r : r;
+}
+
 // --- HASH FUNCTIONS ---
 float sys_hash(float n) {
     return fract(sin(n) * 1e4);
