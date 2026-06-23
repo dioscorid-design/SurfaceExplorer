@@ -1027,6 +1027,21 @@ MainWindow::MainWindow(QWidget *parent)
         // La superficie di default (toro/sfera) e' opaca: la trasparenza della
         // superficie precedente non deve sopravvivere al cambio tab.
         resetTransparency();
+
+        // Anche la LUMINOSITA' (intensità luce direzionale) non deve sopravvivere
+        // al cambio tab: senza questo reset la superficie di default eredita la
+        // luminosità della superficie/preset precedente. Vale per il cambio tab
+        // manuale E per quello forzato dal caricamento di una texture incompatibile
+        // (che passa anch'esso da qui via setCurrentIndex). setValue da solo non
+        // riemette valueChanged se il valore è già 100, quindi applichiamo anche
+        // direttamente intensità e label.
+        {
+            bool oldLight = ui->lightSlider->blockSignals(true);
+            ui->lightSlider->setValue(100);
+            ui->lightSlider->blockSignals(oldLight);
+            ui->lblValLight->setText("100 %");
+            if (ui->glWidget) ui->glWidget->setLightIntensity(1.0f);
+        }
         // ==========================================================
 
         if (index == 1) { // --- PASSAGGIO A IMPLICIT (RAY MARCHING) ---
@@ -1157,6 +1172,15 @@ MainWindow::MainWindow(QWidget *parent)
             ui->glWidget->setBackgroundTextureEnabled(false);
             m_bgTextureCode = "";
             m_bgTextureScriptText = "";
+            // Background è un toggle indipendente: va spento esplicitamente (non più
+            // nel gruppo esclusivo, quindi checkare radioBasic non lo spegne più).
+            if (ui->radioBackground && ui->radioBackground->isChecked()) {
+                bool oldBgBlock = ui->radioBackground->blockSignals(true);
+                ui->radioBackground->setChecked(false);
+                ui->radioBackground->blockSignals(oldBgBlock);
+                ui->radioEditSurf->setEnabled(true);
+                ui->radioEditBorder->setEnabled(true);
+            }
             ui->chkBoxTexture->setText("Texture");
             ui->chkBoxTexture->setChecked(m_surfaceTextureState);
 
@@ -1689,34 +1713,67 @@ MainWindow::MainWindow(QWidget *parent)
     ui->glWidget->setProjectionMode(1);
     updateProjectionButtonText();
 
+    // Il gruppo esclusivo gestisce SOLO la modalità di rendering della superficie
+    // (Base / Phong / Wireframe): sono mutuamente esclusivi perché la superficie
+    // viene disegnata in un solo modo. Il Background NON ne fa parte: è una funzione
+    // indipendente (texture di sfondo) e va attivata/disattivata senza spegnere la
+    // modalità superficie e viceversa.
     m_modeGroup = new QButtonGroup(this);
     m_modeGroup->addButton(ui->radioBasic, 0);
     m_modeGroup->addButton(ui->radioPhong, 1);
     m_modeGroup->addButton(ui->radioWF,    2);
-    m_modeGroup->addButton(ui->radioBackground, 3);
     m_modeGroup->setExclusive(true);
 
-    connect(m_modeGroup, &QButtonGroup::idPressed, this, [this](int id){
-        if (id == 3 && !ui->radioBackground->isChecked()) {
-            // SALVATAGGIO: L'utente sta per entrare nella modalità Background.
-            // Salviamo lo stato della checkbox (che ora appartiene alla superficie).
+    // radioBackground è una QCheckBox indipendente (NON nel gruppo): commuta solo il
+    // target dei controlli texture/colore (sfondo se spuntata, superficie altrimenti),
+    // lasciando sempre attiva la modalità di rendering della superficie.
+
+    connect(m_modeGroup, &QButtonGroup::idClicked, this, [this](int id){
+        // Click su un radio della superficie (Base/Phong/Wireframe).
+        // NON tocchiamo il Background: è indipendente. Se il dock texture sta
+        // attualmente editando lo sfondo (radioBackground acceso) lasciamo invariati
+        // editor, checkbox e picker: continuano a riferirsi allo sfondo.
+        m_savedRenderMode = id;
+
+        bool editingBackground = ui->radioBackground->isChecked();
+
+        if (!editingBackground) {
+            ui->chkBoxTexture->setText("Texture");
+            bool oldBlock = ui->chkBoxTexture->blockSignals(true);
+            if (id == 2) {
+                ui->chkBoxTexture->setChecked(false);
+                ui->chkBoxTexture->setEnabled(false);
+            } else {
+                ui->chkBoxTexture->setEnabled(true);
+                ui->chkBoxTexture->setChecked(m_surfaceTextureState);
+            }
+            ui->chkBoxTexture->blockSignals(oldBlock);
+
+            updateTextureUIState(m_surfaceTextureState);
+            ui->glWidget->setTextureEnabled(m_surfaceTextureState && (id != 2));
+            onColorTargetChanged();
+        }
+
+        updateFlatPreviewButton();
+        updateRenderState();
+        syncTextureTreeSelection();
+        updateScriptButtonText();
+    });
+
+    // BACKGROUND: toggle indipendente. Acceso = il dock texture edita lo sfondo e
+    // (se c'è codice) lo sfondo è attivo; spento = il dock torna a editare la
+    // superficie. NON spegne né accende i radio Base/Phong/Wireframe: la modalità
+    // di rendering della superficie resta quella che era.
+    connect(ui->radioBackground, &QRadioButton::toggled, this, [this](bool checked){
+        if (ui->glWidget) ui->glWidget->setFlatViewTarget(checked ? 1 : 0);
+
+        if (checked) {
+            // ENTRO in editing sfondo: salvo lo stato della checkbox texture, che
+            // appartiene alla superficie, per ripristinarlo all'uscita.
             if (m_savedRenderMode != 2) {
                 m_surfaceTextureState = ui->chkBoxTexture->isChecked();
             }
-        }
-        else if (id != 3 && ui->radioBackground->isChecked()) {
-            // RIPRISTINO: L'utente sta cliccando su un altro radio button per uscire.
-            // Ripristiniamo la checkbox al valore salvato per la superficie.
-            bool oldBlock = ui->chkBoxTexture->blockSignals(true);
-            ui->chkBoxTexture->setChecked(m_surfaceTextureState);
-            ui->chkBoxTexture->blockSignals(oldBlock);
-        }
-    });
 
-    connect(m_modeGroup, &QButtonGroup::idClicked, this, [this](int id){
-        if (ui->glWidget) ui->glWidget->setFlatViewTarget(id == 3 ? 1 : 0);
-
-        if (id == 3) {
             if (m_currentScriptMode == ScriptModeTexture) {
                 m_surfaceTextureScriptText = ui->txtScriptEditor->toPlainText();
                 bool oldBlock = ui->txtScriptEditor->blockSignals(true);
@@ -1748,12 +1805,11 @@ MainWindow::MainWindow(QWidget *parent)
             bool oldBlock = ui->chkBoxTexture->blockSignals(true);
             ui->chkBoxTexture->setChecked(bgTexActive);
             ui->chkBoxTexture->blockSignals(oldBlock);
-
-            onColorTargetChanged();
         }
         else {
-            m_savedRenderMode = id;
-
+            // ESCO dall'editing sfondo: il dock torna alla superficie. Lo sfondo
+            // resta com'è a video (acceso o spento), spegnere il radio significa
+            // solo "non sto più editando lo sfondo".
             if (m_currentScriptMode == ScriptModeTexture) {
                 m_bgTextureScriptText = ui->txtScriptEditor->toPlainText();
                 bool oldBlock = ui->txtScriptEditor->blockSignals(true);
@@ -1766,9 +1822,11 @@ MainWindow::MainWindow(QWidget *parent)
             ui->radioEditSurf->setEnabled(true);
             ui->radioEditBorder->setEnabled(true);
 
+            // Ripristino la checkbox al valore della superficie e la sua etichetta.
+            int surfMode = m_savedRenderMode;
             ui->chkBoxTexture->setText("Texture");
             bool oldBlock = ui->chkBoxTexture->blockSignals(true);
-            if (id == 2) {
+            if (surfMode == 2) {
                 ui->chkBoxTexture->setChecked(false);
                 ui->chkBoxTexture->setEnabled(false);
             } else {
@@ -1778,66 +1836,13 @@ MainWindow::MainWindow(QWidget *parent)
             ui->chkBoxTexture->blockSignals(oldBlock);
 
             updateTextureUIState(m_surfaceTextureState);
-            ui->glWidget->setTextureEnabled(m_surfaceTextureState && (id != 2));
-            onColorTargetChanged();
+            ui->glWidget->setTextureEnabled(m_surfaceTextureState && (surfMode != 2));
         }
+
+        onColorTargetChanged();
         updateFlatPreviewButton();
         updateRenderState();
-
-        // SINCRONIZZA L'ALBERO TEXTURE AL CAMBIO MODALITÀ
-        ui->treeTextures->clearSelection();
-        QTreeWidgetItemIterator itTex(ui->treeTextures);
-
-        QString activeCode;
-        if (ui->radioBackground->isChecked()) {
-            activeCode = m_bgTextureCode;
-        } else {
-            if (ui->tabModeSelector->currentIndex() == 1) {
-                activeCode = ui->lineTexture->toPlainText();
-            } else {
-                activeCode = m_surfaceTextureCode;
-            }
-        }
-
-        QString cleanedActive =  cleanCodeForComparison(activeCode);
-
-        // Usiamo activeCode.trimmed()! Così se è un'immagine entra comunque nel ciclo.
-        if (!activeCode.trimmed().isEmpty()) {
-            while (*itTex) {
-                QVariant vTex = (*itTex)->data(0, Qt::UserRole + 1);
-                if (vTex.isValid()) {
-                    int idx = vTex.toInt();
-                    const LibraryItem &texItem = m_libraryManager.getTexture(idx);
-                    bool isMatch = false;
-
-                    if (texItem.isImage) {
-                        // MATCH ROBUSTO PER IMMAGINI (Usa il codice NON pulito)
-                        QString fileName = QFileInfo(texItem.filePath).fileName();
-                        if (!fileName.isEmpty() && activeCode.contains(fileName)) {
-                            isMatch = true;
-                        }
-                    } else {
-                        // MATCH PROCEDURALE (Usa i codici PULITI)
-                        QString cleanLibCode =  cleanCodeForComparison(texItem.scriptCode);
-                        if (!cleanedActive.isEmpty() && cleanedActive == cleanLibCode) {
-                            isMatch = true;
-                        }
-                    }
-
-                    // IL TUO ULTIMO IF (Intatto e funzionante!)
-                    if (isMatch) {
-                        (*itTex)->setSelected(true);
-                        ui->treeTextures->setCurrentItem(*itTex);
-                        QTreeWidgetItem* parent = (*itTex)->parent();
-                        while(parent) { parent->setExpanded(true); parent = parent->parent(); }
-                        ui->treeTextures->scrollToItem(*itTex);
-                        break;
-                    }
-                }
-                ++itTex;
-            }
-        }
-
+        syncTextureTreeSelection();
         updateScriptButtonText();
     });
 
@@ -1850,7 +1855,11 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->radioWF, &QRadioButton::toggled, this, [this](bool checked){
         if (checked) {
             ui->glWidget->setRenderMode(2);
-            ui->chkBoxTexture->setEnabled(false);
+            // Il wireframe disabilita la texture DELLA SUPERFICIE. Se però il dock
+            // texture sta editando lo sfondo, la checkbox controlla il Background e
+            // non va disabilitata (sono funzioni indipendenti).
+            if (!ui->radioBackground->isChecked())
+                ui->chkBoxTexture->setEnabled(false);
         }
     });
 
@@ -2183,7 +2192,8 @@ MainWindow::MainWindow(QWidget *parent)
     m_currentBackgroundColor = QColor::fromRgbF(0.3f, 0.3f, 0.3f);
     ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
 
-    connect(ui->radioBackground, &QRadioButton::toggled, this, &MainWindow::onColorTargetChanged);
+    // (onColorTargetChanged è già invocato dall'handler toggled di radioBackground
+    //  definito sopra: nessuna connessione separata per evitare doppia chiamata.)
 
     ui->btnBorder->setChecked(false);
     ui->btnBorder->setText("Border OFF");
@@ -3225,6 +3235,63 @@ void MainWindow::resetTransparency()
     alphaValue = 1.0f;
     ui->lblAlphaVal->setText("1.00");
     if (ui->glWidget) ui->glWidget->setAlpha(1.0f);
+}
+
+void MainWindow::syncTextureTreeSelection()
+{
+    // SINCRONIZZA L'ALBERO TEXTURE AL CAMBIO MODALITÀ
+    ui->treeTextures->clearSelection();
+    QTreeWidgetItemIterator itTex(ui->treeTextures);
+
+    QString activeCode;
+    if (ui->radioBackground->isChecked()) {
+        activeCode = m_bgTextureCode;
+    } else {
+        if (ui->tabModeSelector->currentIndex() == 1) {
+            activeCode = ui->lineTexture->toPlainText();
+        } else {
+            activeCode = m_surfaceTextureCode;
+        }
+    }
+
+    QString cleanedActive =  cleanCodeForComparison(activeCode);
+
+    // Usiamo activeCode.trimmed()! Così se è un'immagine entra comunque nel ciclo.
+    if (!activeCode.trimmed().isEmpty()) {
+        while (*itTex) {
+            QVariant vTex = (*itTex)->data(0, Qt::UserRole + 1);
+            if (vTex.isValid()) {
+                int idx = vTex.toInt();
+                const LibraryItem &texItem = m_libraryManager.getTexture(idx);
+                bool isMatch = false;
+
+                if (texItem.isImage) {
+                    // MATCH ROBUSTO PER IMMAGINI (Usa il codice NON pulito)
+                    QString fileName = QFileInfo(texItem.filePath).fileName();
+                    if (!fileName.isEmpty() && activeCode.contains(fileName)) {
+                        isMatch = true;
+                    }
+                } else {
+                    // MATCH PROCEDURALE (Usa i codici PULITI)
+                    QString cleanLibCode =  cleanCodeForComparison(texItem.scriptCode);
+                    if (!cleanedActive.isEmpty() && cleanedActive == cleanLibCode) {
+                        isMatch = true;
+                    }
+                }
+
+                // IL TUO ULTIMO IF (Intatto e funzionante!)
+                if (isMatch) {
+                    (*itTex)->setSelected(true);
+                    ui->treeTextures->setCurrentItem(*itTex);
+                    QTreeWidgetItem* parent = (*itTex)->parent();
+                    while(parent) { parent->setExpanded(true); parent = parent->parent(); }
+                    ui->treeTextures->scrollToItem(*itTex);
+                    break;
+                }
+            }
+            ++itTex;
+        }
+    }
 }
 
 void MainWindow::onColorTargetChanged()
@@ -7760,6 +7827,13 @@ void MainWindow::applyCommonData(const LibraryItem &d)
         }
         ui->radioEditSurf->setEnabled(true);
         ui->radioEditBorder->setEnabled(true);
+
+        // Carico una nuova superficie: esco dall'editing sfondo. Background non è più
+        // nel gruppo esclusivo, quindi va spento esplicitamente (a segnali bloccati,
+        // il ripristino del dock è già gestito qui sopra).
+        bool oldBgBlock = ui->radioBackground->blockSignals(true);
+        ui->radioBackground->setChecked(false);
+        ui->radioBackground->blockSignals(oldBgBlock);
     }
 
     // Forza il testo della checkbox indipendentemente da tutto

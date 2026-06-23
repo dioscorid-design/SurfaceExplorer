@@ -76,6 +76,9 @@ private slots:
     // RENDERING & VISUALS
     // ==========================================================
     void onColorTargetChanged();
+    // Evidenzia nell'albero texture la voce corrispondente al codice attivo
+    // (sfondo se radioBackground è acceso, altrimenti texture superficie).
+    void syncTextureTreeSelection();
     void scheduleTextureGeneration();
     void handleTextureSelection(int index);
     // Riporta la trasparenza all'opacità piena (alpha=1). Va chiamata quando si
