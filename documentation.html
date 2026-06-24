@@ -130,6 +130,7 @@
         <p align="center" style="font-size: 20px; color: #33cc33; margin-bottom: 30px;"><b>User Manual</b></p>
         <ul>
             <li class="navitem" style="margin-top: 12px; margin-bottom: 12px;"><a class="navlink" style="font-size: 17px;" href="#intro">Introduction</a></li>
+            <li class="navitem" style="margin-top: 12px; margin-bottom: 12px;"><a class="navlink" style="font-size: 17px;" href="#quickstart">Quick Start (First Launch)</a></li>
             <li class="navitem" style="margin-top: 12px; margin-bottom: 12px;"><a class="navlink" style="font-size: 17px;" href="#interface">User Interface</a></li>
             <li class="navitem" style="margin-top: 12px; margin-bottom: 12px;"><a class="navlink" style="font-size: 17px;" href="#interaction">Interaction & Navigation</a></li>
             <li class="navitem" style="margin-top: 12px; margin-bottom: 12px;"><a class="navlink" style="font-size: 17px;" href="#projection">Projection Modes</a></li>
@@ -156,6 +157,34 @@
                 <strong>Graphics Engine:</strong> Qt RHI (Vulkan, Metal, Direct3D, OpenGL)<br>
                 <strong>Developed by:</strong> Gaetano Moschetti
             </div>
+        </section>
+
+        <section id="quickstart">
+            <p class="h2t" style="font-size: 22px; color: #569cd6;"><b>Quick Start (First Launch)</b></p>
+            <p>New to Surface Explorer? You don't need to write a single equation to get started. The fastest way to see the application in action is to <strong>load a preset</strong> from the built-in library. Follow these three steps and you will have an animated surface on screen in under a minute.</p>
+
+            <p class="h3t" style="font-size: 19px; color: #007acc;"><b>Step 1 — Open the Library</b></p>
+            <p>Find the <strong>Library</strong> button on the bottom status bar and click it once to open the Library dock. This panel holds all the ready-made content shipped with the app, organized into four tabs: <strong>Surfaces</strong>, <strong>Textures</strong>, <strong>Sounds</strong>, and <strong>Records</strong>.</p>
+
+            <p class="h3t" style="font-size: 19px; color: #007acc;"><b>Step 2 — Load a Record</b></p>
+            <p>For your very first look, open the <strong>Records</strong> tab and double-click any item (for example one of the <em>Ray Marching</em> entries). A <strong>Record</strong> is a complete snapshot of a whole scene — geometry, colors, textures, camera framing and animation are all restored at once — so it is the single click that shows off the most. The surface appears immediately and, if the preset is animated, it starts moving on its own.</p>
+            <div class="note">
+                <strong>Tip:</strong> Records are the best starting point because they load <em>everything</em> together. If instead you only want the bare shape (to then restyle it yourself), pick an item from the <strong>Surfaces</strong> tab; to change only the look, apply something from the <strong>Textures</strong> tab on top of the current object.
+            </div>
+
+            <p class="h3t" style="font-size: 19px; color: #007acc;"><b>Step 3 — Explore and Make It Yours</b></p>
+            <ul>
+                <li><strong>Move around:</strong> Drag with the left mouse button to rotate, and use the mouse wheel to zoom. See <a href="#interaction">Interaction &amp; Navigation</a>.</li>
+                <li><strong>Change the constants:</strong> Open the <strong>Equations</strong> dock and adjust the sliders for the mathematical constants (A–F, S) to reshape the preset in real time.</li>
+                <li><strong>Restyle it:</strong> Open the <strong>Renderer</strong> dock to switch between Solid and Wireframe, change the colors, or toggle a texture.</li>
+                <li><strong>Save your version:</strong> Once you like the result, use the <strong>Save</strong> button to store it as your own preset. See <a href="#library-management">Library, Presets &amp; Saving</a> for the full details on each save format.</li>
+            </ul>
+
+            <div class="note">
+                <strong>Nothing on screen?</strong> A few presets use heavy <a href="#raymarching">Ray Marching</a> surfaces. If a preset looks empty or distorted, try switching the projection to <strong>Orthogonal</strong> from the status bar, and check the <a href="#rm-artifacts">Fixing Visual Artifacts</a> section.
+            </div>
+
+            <p>When you are ready to go beyond presets and define your own geometry, continue with the sections below — they cover the interface, the equation system, and the advanced scripting tools in full.</p>
         </section>
 
         <section id="interface">

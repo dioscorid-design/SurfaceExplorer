@@ -139,16 +139,26 @@ bool marchField(vec3 rayPos, vec3 rayDir, bool useInner, float tStart, out vec3 
 
         float val = useInner ? mapInner(pModel) : map(pModel);
 
+        // GRADIENTE FORWARD (non centrale): il gradiente serve a NORMALIZZARE il
+        // campo grezzo in una stima di distanza (d = val/gradLen) per soglia di hit
+        // e passo. Il punto base del forward-difference e' pModel, di cui abbiamo
+        // GIA' il valore in 'val': riusandolo bastano 3 map() extra invece di 6.
+        // Costo per passo: da 7 a 4 map(). Il forward e' meno accurato del centrale
+        // di O(e) sul valore di gradLen, ma e' poi clampato (>=0.2) e la soglia di
+        // hit e' gia' sub-pixel (max(0.0005, 0.001*t)): lo spostamento del punto di
+        // convergenza e' dello stesso ordine del threshold -> impercettibile.
+        // Intervallo forward = e.x (0.001), quindi divisore e.x (il centrale usava
+        // 2*e.x = 0.002): cosi' gradLen resta sulla stessa scala fisica.
         vec2 e = vec2(0.001, 0.0);
         vec3 grad = useInner
-            ? vec3(mapInner(pModel + e.xyy) - mapInner(pModel - e.xyy),
-                   mapInner(pModel + e.yxy) - mapInner(pModel - e.yxy),
-                   mapInner(pModel + e.yyx) - mapInner(pModel - e.yyx))
-            : vec3(map(pModel + e.xyy) - map(pModel - e.xyy),
-                   map(pModel + e.yxy) - map(pModel - e.yxy),
-                   map(pModel + e.yyx) - map(pModel - e.yyx));
+            ? vec3(mapInner(pModel + e.xyy) - val,
+                   mapInner(pModel + e.yxy) - val,
+                   mapInner(pModel + e.yyx) - val)
+            : vec3(map(pModel + e.xyy) - val,
+                   map(pModel + e.yxy) - val,
+                   map(pModel + e.yyx) - val);
 
-        float gradLen = length(grad) / 0.002;
+        float gradLen = length(grad) / e.x;
         gradLen = max(gradLen, 0.2);
         d = val / gradLen;
 
@@ -186,14 +196,30 @@ bool marchNextLayer(vec3 rayPos, vec3 rayDir, float tStart, out vec3 pHit) {
     float vPrev = map(rayPos + rayDir * tPrev);
     float t = tStart;
 
-    for (int i = 0; i < 2000; i++) {
-        // stima distanza con gradiente locale (campo non normalizzato)
+    // Tetto di iterazioni iniettato dal C++: 2000 su desktop (robustezza piena),
+    // ridotto su Android. marchNextLayer costa 4 map() per passo ed e' chiamato
+    // MAX_FACES x 3 volte per pixel nel ramo trasparente: e' il moltiplicatore di
+    // costo dominante che, su un pannello ad alta risoluzione (es. Galaxy Tab S9),
+    // fa sforare il timeout di rendering GPU -> fault -> app killed. Il cap mobile
+    // non cambia l'aspetto (le superfici stanno in poche unita'; a CAP=0.05 servono
+    // pochi passi per attraversarle), ma mette un tetto duro al costo per pixel.
+    for (int i = 0; i < %MAX_LAYER_STEPS%; i++) {
+        // stima distanza con gradiente locale (campo non normalizzato).
+        // GRADIENTE FORWARD (non centrale): il gradiente serve SOLO a dimensionare
+        // il passo adattivo (gradLen ~ |df/ds|), non deve essere preciso. Il punto
+        // base del forward-difference e' pp = rayPos+rayDir*t, di cui abbiamo GIA'
+        // il valore in vPrev: quindi riusiamo vPrev e bastano 3 map() in piu' invece
+        // di 6. Costo per passo: da 7 a 4 map() (3 gradiente + 1 v) — proprio i "4
+        // map() per passo" gia' citati nel commento sopra. Il forward cambia
+        // leggermente gradLen e quindi la lunghezza dei passi, ma NON dove avviene
+        // l'attraversamento di segno: quello e' poi raffinato da bisezione a
+        // precisione sub-pixel, percio' il punto d'intersezione finale e' invariato.
         vec2 e = vec2(0.002, 0.0);
         vec3 pp = rayPos + rayDir * t;
-        vec3 grad = vec3(map(pp + e.xyy) - map(pp - e.xyy),
-                         map(pp + e.yxy) - map(pp - e.yxy),
-                         map(pp + e.yyx) - map(pp - e.yyx));
-        float gradLen = max(length(grad) / (2.0 * e.x), 0.05);
+        vec3 grad = vec3(map(pp + e.xyy) - vPrev,
+                         map(pp + e.yxy) - vPrev,
+                         map(pp + e.yyx) - vPrev);
+        float gradLen = max(length(grad) / e.x, 0.05);
         float step = clamp(abs(vPrev) / gradLen, FLOOR, CAP);
 
         float tNextS = t + step;
@@ -205,7 +231,11 @@ bool marchNextLayer(vec3 rayPos, vec3 rayDir, float tStart, out vec3 pHit) {
             // bisezione robusta: segno di riferimento FISSO all'estremo 'a'.
             float a = t, b = tNextS;
             float sPrev = sign(vPrev);
-            for (int k = 0; k < 24; k++) {
+            // iterazioni di bisezione iniettate dal C++: 24 su desktop/iOS (precisione
+            // piena), ridotte su Android per alleggerire il ramo trasparente. A 12
+            // iterazioni l'intervallo si dimezza 2^12 volte: errore < passo/4096,
+            // ampiamente sotto il pixel -> nessuna differenza visibile.
+            for (int k = 0; k < %BISECT_ITERS%; k++) {
                 float m  = 0.5 * (a + b);
                 float vm = map(rayPos + rayDir * m);
                 if (sign(vm) == sPrev) a = m; else b = m;
@@ -220,16 +250,17 @@ bool marchNextLayer(vec3 rayPos, vec3 rayDir, float tStart, out vec3 pHit) {
     return false;
 }
 
-// --- SHADING CONDIVISO ---
-// Illuminazione a 2 punti + AO + speculare, identica al path storico.
-// useInner sceglie le normali del campo giusto. Ritorna l'rgb illuminato
-// (senza alpha): il compositing trasparente avviene nel main().
-vec3 shadeSurface(vec3 pModel, vec3 rayDir, bool useInner) {
-    vec3 n_model = useInner ? calcNormalInner(pModel) : calcNormal(pModel);
-    vec3 viewDir_model = -rayDir;
+// --- LUCI IN SPAZIO MODELLO (costanti nel frame) ---
+// mainLight/backLight sono fisse in spazio camera; la matrice camera->modello e'
+// costante per frame. Le calcoliamo UNA volta nel main() (g_mainLight_model /
+// g_backLight_model) invece che dentro shadeSurface: prima ogni chiamata faceva
+// inverse(u_mvMatrix) (matrice 4x4) + 2 normalize, ripetuti fino a MAX_FACES x 3
+// volte per pixel nel ramo trasparente -> decine di inversioni 4x4 identiche per
+// pixel. Ora zero inversioni nel loop di shading.
+vec3 g_mainLight_model;
+vec3 g_backLight_model;
 
-    float ao = calcAO(pModel, n_model);
-
+void setupLights() {
     // LUCE PRINCIPALE: laterale (da destra-alto, spazio camera) per dare modellato
     // 3D. STESSA luce per opaco e trasparente: cosi' muovere lo slider della
     // trasparenza NON sposta la sorgente luminosa (lo switch a una headlight nel
@@ -239,8 +270,32 @@ vec3 shadeSurface(vec3 pModel, vec3 rayDir, bool useInner) {
     vec3 backLight_cam = normalize(vec3(-1.0, -0.5, -2.0));
 
     mat3 camToModel = mat3(inverse(ubuf.u_mvMatrix));
-    vec3 mainLight_model = normalize(camToModel * mainLight_cam);
-    vec3 backLight_model = normalize(camToModel * backLight_cam);
+    g_mainLight_model = normalize(camToModel * mainLight_cam);
+    g_backLight_model = normalize(camToModel * backLight_cam);
+}
+
+// --- SHADING CONDIVISO ---
+// Illuminazione a 2 punti + AO + speculare, identica al path storico.
+// useInner sceglie le normali del campo giusto. Ritorna l'rgb illuminato
+// (senza alpha): il compositing trasparente avviene nel main().
+// PREREQUISITO: setupLights() dev'essere stata chiamata in main() prima.
+//
+// withAO: l'ambient occlusion (calcAO = 5 map()) entra SOLO nel termine
+// ambient = 0.15*ao. Nel ramo OPACO/ergosfera vale 'true' (aspetto storico).
+// Nel ramo TRASPARENTE lo passiamo 'false': li' lo shading di ogni faccia e'
+// pesato da alpha<1 e dall'assorbimento Beer-Lambert, quindi l'AO e' di fatto
+// invisibile, mentre il suo costo (5 map() per ognuna delle ~MAX_FACES x 2
+// facce per pixel) e' tutt'altro che trascurabile. Saltarlo li' non cambia
+// l'aspetto percepito e toglie il secondo contributo di costo del ramo
+// trasparente dopo marchNextLayer.
+vec3 shadeSurface(vec3 pModel, vec3 rayDir, bool useInner, bool withAO) {
+    vec3 n_model = useInner ? calcNormalInner(pModel) : calcNormal(pModel);
+    vec3 viewDir_model = -rayDir;
+
+    float ao = withAO ? calcAO(pModel, n_model) : 1.0;
+
+    vec3 mainLight_model = g_mainLight_model;
+    vec3 backLight_model = g_backLight_model;
 
     float diffMain = max(dot(n_model, mainLight_model), 0.0);
     float diffBack = max(dot(n_model, backLight_model), 0.0) * 0.4;
@@ -260,9 +315,19 @@ vec3 shadeSurface(vec3 pModel, vec3 rayDir, bool useInner) {
     return baseColor + vec3(spec);
 }
 
+// Overload storico (con AO): usato dai rami OPACO ed ERGOSFERA, aspetto identico
+// al passato. Il ramo trasparente chiama invece la versione a 4 argomenti con
+// withAO=false. Tenere il wrapper evita di toccare i call site esistenti.
+vec3 shadeSurface(vec3 pModel, vec3 rayDir, bool useInner) {
+    return shadeSurface(pModel, rayDir, useInner, true);
+}
+
 void main() {
     vec2 ndc = fragCoord * 2.0 - 1.0;
     ndc.y = -ndc.y;
+
+    // Direzioni luce in spazio modello: calcolate una volta sola per pixel.
+    setupLights();
 
     vec3 rayPos;
     vec3 rayDir;
@@ -357,10 +422,13 @@ void main() {
         if (!hit) { discard; return; }
 
         float aFront = clamp(ubuf.alpha, 0.0, 1.0);
-        vec3  frontRGB = shadeSurface(pModel, rayDir, false);
 
         // OPACA: comportamento storico identico, nessuna seconda passata.
+        // frontRGB (shading completo CON AO) si calcola SOLO qui: nel ramo
+        // trasparente sotto non veniva usato, quindi prima era shading sprecato
+        // per pixel a ogni superficie con alpha<1.
         if (aFront >= 0.999) {
+            vec3 frontRGB = shadeSurface(pModel, rayDir, false);
             FragColor = vec4(frontRGB, 1.0);
             return;
         }
@@ -381,7 +449,12 @@ void main() {
         // banding (gli "anelli" nascevano dal compositing di tanti strati con
         // alpha quantizzato dal passo). Il colore di ogni faccia (front e back)
         // e' compositato "over" front-to-back.
-        const int MAX_FACES = 8;           // facce massime (geometrie stratificate)
+        const int MAX_FACES = %MAX_FACES%; // facce massime (geometrie stratificate).
+        // Valore iniettato dal C++: 8 su desktop, ridotto su Android (Adreno). Il ramo
+        // trasparente fa MAX_FACES x 3 marchNextLayer (loop di marcia) per pixel: su un
+        // campo SDF pesante + alpha<1, a 8 facce il costo supera il timeout di rendering
+        // GPU e l'Adreno va in fault (verificato su Galaxy Tab S9: N-Tours trasparente
+        // -> frame ~1700ms -> gpuSnapshot -> context lost; opaco gira). Vedi createImplicitFragmentShader.
         vec3  accumRGB = vec3(0.0);
         float accumA   = 0.0;
 
@@ -400,7 +473,8 @@ void main() {
         bool  more = marchNextLayer(rayPos, rayDir, tNear, pEnter);
         for (int f = 0; f < MAX_FACES && more; f++) {
             // --- FACCIA DI ENTRATA: la sua riflessione (shading) si compone ---
-            vec3 enterRGB = shadeSurface(pEnter, rayDir, false);
+            // withAO=false: l'AO e' invisibile sotto alpha<1 + Beer-Lambert.
+            vec3 enterRGB = shadeSurface(pEnter, rayDir, false, false);
             // alpha della superficie frontale (riflesso di Fresnel morbido):
             // contributo di superficie, NON dipende dallo spessore.
             float aSurf = aFront;
@@ -419,7 +493,8 @@ void main() {
             float pathLen = dot(pExit - rayPos, rayDir) - tEnter;
             float aVol    = 1.0 - exp(-sigma * max(pathLen, 0.0));
             // il "colore" del volume e' lo shading della faccia di uscita
-            vec3 exitRGB  = shadeSurface(pExit, rayDir, false);
+            // (withAO=false: vale lo stesso ragionamento della faccia di entrata)
+            vec3 exitRGB  = shadeSurface(pExit, rayDir, false, false);
             accumRGB += (1.0 - accumA) * aVol * exitRGB;
             accumA   += (1.0 - accumA) * aVol;
 

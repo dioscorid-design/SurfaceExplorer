@@ -2488,6 +2488,40 @@ QString GLWidget::createImplicitFragmentShader()
     QString templateSource = loadShaderSource(":/shaders/raymarch_template.txt");
     templateSource.remove(QRegularExpression("^\\s*#version\\s+450\\s*\n?"));
 
+    // MAX_FACES del ramo trasparente (raymarch_template.txt): ogni faccia costa 3
+    // marchNextLayer (loop di marcia completi) per pixel. Su Android (GPU Adreno) a 8
+    // facce, con un campo SDF pesante e alpha<1, il frame supera il timeout di rendering
+    // -> GPU fault -> l'app viene terminata (verificato su Galaxy Tab S9 con N-Tours
+    // trasparente). Riduciamo a 3 SOLO su mobile: la trasparenza resta (entrata+uscita+
+    // un secondo guscio per le concavita'), ma il costo cala ~60%. Desktop invariato (8).
+    // RETE DI SICUREZZA TRASPARENZA — MOBILE (desktop INVARIATO).
+    // Il ramo trasparente costa MAX_FACES x 3 chiamate a marchNextLayer per pixel, e
+    // ogni marchNextLayer e' un loop fino a MAX_LAYER_STEPS con 4 map() a passo. Su
+    // mobile (anche superfici fisse RM trasparenti) questo supera il timeout GPU su
+    // pannelli ad alta risoluzione (es. Galaxy Tab S9 Adreno) -> fault -> app killed.
+    // Riduciamo ENTRAMBI i moltiplicatori; il ramo OPACO (una sola marchField, cappata
+    // a u_raySteps) resta a piena qualita'. Android e' il caso peggiore osservato
+    // (schermo grande + watchdog severo) -> piu' aggressivo; iOS un gradino sopra.
+    // Desktop usa i valori pieni (8 facce, 2000 passi).
+#if defined(Q_OS_ANDROID)
+    templateSource.replace("%MAX_FACES%", "4");          // Android: 4 facce (era 8)
+    templateSource.replace("%MAX_LAYER_STEPS%", "600");  // Android: tetto passi/strato (era 2000)
+    templateSource.replace("%BISECT_ITERS%", "24");      // Android: bisezione piena
+#elif defined(Q_OS_IOS)
+    templateSource.replace("%MAX_FACES%", "4");           // iOS: 4 facce (era 8)
+    // iOS: tetto passi/strato a 2000 (TEST). Ridurlo a 1000 NON ha eliminato il
+    // glitch residuo in casi estremi su iPhone (non iPad), quindi quel tetto non
+    // era il collo di bottiglia: i raggi del caso estremo escono prima di 1000.
+    // Riportato a 2000 per isolare la vera causa altrove (probabilmente MAX_FACES
+    // o il costo del campo map() con texture 3D + animazione insieme).
+    templateSource.replace("%MAX_LAYER_STEPS%", "2000");
+    templateSource.replace("%BISECT_ITERS%", "24");       // iOS: bisezione invariata
+#else
+    templateSource.replace("%MAX_FACES%", "8");
+    templateSource.replace("%MAX_LAYER_STEPS%", "2000");
+    templateSource.replace("%BISECT_ITERS%", "24");
+#endif
+
     // safePow (pow sicura per basi negative) vive in common.glsl, iniettato qui sotto.
     QString commonCode = loadShaderSource(":/shaders/common.glsl");
 
@@ -2659,6 +2693,15 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
         QString dynamicBody;
 
         if (safeCode.contains("mainImage")) {
+            // Molti shader Shadertoy ignorano il parametro 'fragCoord' di mainImage e
+            // leggono direttamente gl_FragCoord (posizione del pixel sullo schermo).
+            // gl_FragCoord scavalca la nostra trasformazione (zoom/pan/rotazione di
+            // u_center/u_zoom/u_rotation), così la texture di SFONDO non rispondeva ai
+            // comandi (a differenza della stessa texture su superficie, dove il fix
+            // c'e' gia' in createFragmentShaderSource). Lo rimappiamo su una globale
+            // _st_fragCoord impostata al fragCoord TRASFORMATO prima di mainImage.
+            safeCode.replace(QRegularExpression("\\bgl_FragCoord\\b"), "_st_fragCoord");
+
             // FIX: Vere variabili globali invece di macro!
             QString stHelpers = "vec3 iResolution;\n"
                                 "float iTime;\n"
@@ -2666,6 +2709,7 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
                                 "int iFrame;\n"
                                 "vec4 iMouse;\n"
                                 "vec4 iDate;\n"
+                                "vec4 _st_fragCoord;\n"
                                 "#define iChannel0 tex\n"
                                 "#define iChannel1 tex\n"
                                 "#define iChannel2 tex\n"
@@ -2685,11 +2729,20 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
             if (!safeCode.contains(QRegularExpression("\\bvec3\\s+u_col1\\b"))) initVars += "    u_col1 = ubuf.u_col1;\n";
             if (!safeCode.contains(QRegularExpression("\\bvec3\\s+u_col2\\b"))) initVars += "    u_col2 = ubuf.u_col2;\n";
 
+            // Le helpers locali ridichiarano u_col1/u_col2: rimuovile per non fare
+            // shadowing delle globali assegnate in initVars (vedi stesso accorgimento
+            // in createFragmentShaderSource), altrimenti gli slider colore non agiscono.
+            QString stLocalHelpers = helpers;
+            stLocalHelpers.remove("    vec3 u_col1 = ubuf.u_col1;\n");
+            stLocalHelpers.remove("    vec3 u_col2 = ubuf.u_col2;\n");
+
             dynamicBody = stHelpers + safeCode + "\n"
                                                  "vec3 getCustomColor(vec2 in_uv) {\n"
-                          + helpers + initVars +
+                          + stLocalHelpers + initVars +
+                          "    vec2 _st_coord = uv * iResolution.xy;\n"
+                          "    _st_fragCoord = vec4(_st_coord, 0.0, 1.0);\n"
                           "    vec4 fragColor_out;\n"
-                          "    mainImage(fragColor_out, uv * iResolution.xy);\n"
+                          "    mainImage(fragColor_out, _st_coord);\n"
                           "    return fragColor_out.rgb;\n"
                           "}\n"
                           "void main() {\n"
