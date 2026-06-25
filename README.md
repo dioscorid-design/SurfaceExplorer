@@ -24,8 +24,13 @@ You don't need to compile the project to try it! Check out the **[Latest Release
 * **Windows**: Download `SurfaceExplorer_Windows.zip`, extract, and run `SurfaceExplorer.exe`.
 * **Linux**: Download `SurfaceExplorer_Linux_Alpha.zip`, extract, and run `./surface-explorer.sh`.
 
-> **macOS note:** Since this is an unsigned open-source application, Gatekeeper may flag it on first launch. If you see an "app is damaged" warning, run:
-> `xattr -dr com.apple.quarantine /Applications/SurfaceExplorer.app`
+> **macOS note:** Since this is an unsigned (non-notarized) open-source application, Gatekeeper blocks it on first launch — you may see *"app is damaged"* or *"cannot be opened because it is from an unidentified developer"* with only a **Move to Trash / Cancel** prompt.
+>
+> After dragging the app into your Applications folder, clear the quarantine flag from Terminal:
+> ```
+> xattr -dr com.apple.quarantine /Applications/SurfaceExplorer.app
+> ```
+> Then open it normally. If macOS still refuses on a double-click, **right-click the app → Open → Open** (this is the only path that shows an "Open anyway" button).
 
 ## 🛠️ Build from Source
 To compile Surface Explorer manually, ensure you have **Qt 6.10.2** and **CMake** installed:
