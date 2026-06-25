@@ -216,6 +216,10 @@ private:
     bool m_isImageMode = false;
     bool m_surfaceTextureState = false;
     bool m_blockTextureGen = false;
+    // Ricorda se il TASTO Border era ON prima di entrare in editing sfondo, per
+    // riaccenderlo automaticamente all'uscita (Background e Border esclusivi nei
+    // controlli, ma la grafica del bordo non viene mai toccata).
+    bool m_borderWasOnBeforeBg = false;
 
     QString lastTextureFolder;
     QString m_currentTexturePath;

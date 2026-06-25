@@ -723,7 +723,13 @@ void UiStyleManager::applyRecordButtonStyle(QPushButton* btn) {
 void UiStyleManager::applyActiveToggleStyle(QPushButton* btn, bool isActive) {
     if (!btn) return;
     if (isActive) {
-        btn->setStyleSheet("color: #44FF44; font-weight: bold;");
+        // Verde acceso quando attivo E cliccabile. Lo stato :disabled forza il grigio:
+        // serve quando un toggle resta "ON" ma viene disabilitato da un'esclusione UI
+        // (es. il tasto Border mentre Background e' attivo) — senza la regola :disabled
+        // il color esplicito sovrascriverebbe l'attenuazione di default di Qt e il
+        // testo resterebbe verde anche da non cliccabile.
+        btn->setStyleSheet("QPushButton { color: #44FF44; font-weight: bold; }"
+                           "QPushButton:disabled { color: #777777; }");
     } else {
         btn->setStyleSheet(""); // Ripristina lo stile base
     }

@@ -1790,6 +1790,17 @@ MainWindow::MainWindow(QWidget *parent)
             ui->radioEditSurf->setEnabled(false);
             ui->radioEditBorder->setEnabled(false);
 
+            // Background e Border sono MUTUALMENTE ESCLUSIVI nei controlli: entrando in
+            // editing sfondo il TASTO Border viene DISABILITATO (gli slider servono solo
+            // lo sfondo), MA non tocchiamo ne' la grafica del bordo ne' lo stato/aspetto
+            // del bottone: se il bordo era ON resta visibile e il tasto mantiene la
+            // scritta "Border ON" (solo grigio/non cliccabile), cosi' e' chiaro che il
+            // bordo e' ancora attivo, solo non controllabile finche' Background e' acceso.
+            // Per riprendere il controllo l'utente deve prima spegnere Background.
+            // Memorizziamo lo stato per ripristinare il focus colore sul bordo all'uscita.
+            m_borderWasOnBeforeBg = ui->btnBorder->isChecked();
+            ui->btnBorder->setEnabled(false);
+
             // Picker Colore attivi solo se lo sfondo è acceso E usa u_col1/u_col2.
             bool bgUsesColors = bgTexActive &&
                                 (m_bgTextureCode.contains("u_col1") || m_bgTextureCode.contains("u_col2"));
@@ -1822,6 +1833,11 @@ MainWindow::MainWindow(QWidget *parent)
             ui->radioEditSurf->setEnabled(true);
             ui->radioEditBorder->setEnabled(true);
 
+            // Il bottone Border viene riabilitato da updateRenderState() in fondo a
+            // questo handler (setEnabled(!isImplicitMode && !editingBackground)): qui
+            // editingBackground e' ormai false, quindi torna attivabile (salvo Ray
+            // Marching). Niente setEnabled duplicato per non avere due fonti di verita'.
+
             // Ripristino la checkbox al valore della superficie e la sua etichetta.
             int surfMode = m_savedRenderMode;
             ui->chkBoxTexture->setText("Texture");
@@ -1837,6 +1853,19 @@ MainWindow::MainWindow(QWidget *parent)
 
             updateTextureUIState(m_surfaceTextureState);
             ui->glWidget->setTextureEnabled(m_surfaceTextureState && (surfMode != 2));
+
+            // Uscendo dall'editing sfondo il TASTO Border torna cliccabile (lo fa
+            // updateRenderState() in fondo all'handler). Stato/aspetto del bottone non
+            // sono mai stati toccati durante l'editing sfondo: se il bordo era ON, lo e'
+            // ancora. Ripristiniamo il FOCUS colore sul bordo cosi' gli slider riprendono
+            // a pilotarlo subito, senza dover fare OFF->ON. DEVE stare DOPO
+            // updateTextureUIState: quando la texture superficie e' spenta quella forza
+            // radioEditSurf->setChecked(true), che (gruppo esclusivo m_colorGroup)
+            // ruberebbe il check al bordo. onColorTargetChanged() finale allinea gli slider.
+            if (m_borderWasOnBeforeBg) {
+                ui->radioEditBorder->setChecked(true);
+            }
+            m_borderWasOnBeforeBg = false;
         }
 
         onColorTargetChanged();
@@ -2207,6 +2236,14 @@ MainWindow::MainWindow(QWidget *parent)
         UiStyleManager::applyActiveToggleStyle(ui->btnBorder, checked);
 
         if(checked) {
+            // Esclusione simmetrica: accendere Border SPEGNE l'editing dello sfondo.
+            // Lasciamo scattare l'handler di radioBackground (ramo "else"), che riporta
+            // il dock alla superficie e riabilita i controlli del bordo. Lo sfondo
+            // resta com'e' a video: spegniamo solo il CONTROLLO, non la grafica.
+            if (ui->radioBackground && ui->radioBackground->isChecked()) {
+                ui->radioBackground->setChecked(false);
+            }
+
             if (m_currentBorderColor == m_currentSurfaceColor) {
                 m_currentBorderColor = QColor::fromRgbF(1.0f, 0.0f, 0.0f);
                 ui->glWidget->setBorderColor(m_currentBorderColor.redF(), m_currentBorderColor.greenF(), m_currentBorderColor.blueF());
@@ -2692,7 +2729,13 @@ void MainWindow::updateRenderState()
 
         // --- DISATTIVAZIONE CONTROLLI NON SUPPORTATI ---
         ui->radioWF->setEnabled(!isImplicitMode);
-        ui->btnBorder->setEnabled(!isImplicitMode);
+
+        // Border: non supportato in Ray Marching (implicito) E senza senso mentre si
+        // edita lo sfondo (il bordo appartiene alla superficie). Disabilitato se una
+        // delle due condizioni e' vera, cosi' la regola resta coerente da qualunque
+        // dei punti che chiamano updateRenderState (cambio tab, load preset, ...).
+        bool editingBackground = ui->radioBackground && ui->radioBackground->isChecked();
+        ui->btnBorder->setEnabled(!isImplicitMode && !editingBackground);
 
         // Disattiviamo i controlli della densità del Wireframe
         ui->btnWireUMinus->setEnabled(!isImplicitMode);
@@ -8767,8 +8810,15 @@ void MainWindow::updateScriptButtonText() {
             ui->txtScriptEditor->setPlaceholderText("Write GLSL for Parametric Surface.\nExample: return vec4(0.2 * u - 0.5, 0.2 * v - 0.5, 0.2 * sin(u * v), 1.0);");
         }
 
-        // Sempre attivo se c'è codice; resta attivo se in moto (per poterla fermare).
-        enableRun = hasGLSLCode || isSurfaceMoving;
+        // Il tasto Run/Stop del dock SCRIPT dipende SOLO dalla presenza di uno script
+        // nell'editor, non dal movimento della geometria. Un RECORD (preset non-script)
+        // ha l'editor vuoto: anche se la sua geometria e' in animazione (movimento del
+        // record, NON uno script), il tasto va DISABILITATO — non c'e' nulla da avviare
+        // o fermare lato script (l'animazione del record si governa da master/Equations).
+        // Quando uno script E' in esecuzione il suo testo e' nell'editor (hasGLSLCode
+        // resta true), quindi lo Stop resta comunque disponibile. isSurfaceMoving non
+        // entra piu' nell'abilitazione (serve solo per la scritta Run/Stop sopra).
+        enableRun = hasGLSLCode;
         enableSave = hasGLSLCode;
     }
 

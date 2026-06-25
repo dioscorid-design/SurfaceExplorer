@@ -264,11 +264,10 @@
         <file>presets/records/Rotations/Kerr Black Hole.json</file>
         <file>presets/records/Rotations/Ellipsoid.json</file>
         <file>presets/records/t_motions/Otto Tube.json</file>
-        <file>presets/records/t_motions/pippo.json</file>
         <file>presets/records/t_motions/Waves.json</file>
         <file>presets/records/t_motions/Otto.json</file>
-        <file>presets/records/t_motions/3D/Modular Tours.json</file>
         <file>presets/records/t_motions/3D/Nil Sphere1.json</file>
+        <file>presets/records/t_motions/3D/Modular Torus.json</file>
         <file>presets/records/t_motions/3D/Nil Sphere.json</file>
         <file>presets/records/t_motions/3D/Dynamic Mobius Band.json</file>
         <file>presets/records/t_motions/S3/Hopf.json</file>
@@ -324,7 +323,6 @@
         <file>presets/records/Static/S3_slice.json</file>
         <file>presets/records/Static/Veronese Surface.json</file>
         <file>presets/records/Static/H^2xR.json</file>
-        <file>presets/records/New/H2xR Slice.json</file>
         <file>presets/sounds/CREDITS.txt</file>
         <file>presets/sounds/CREDITS.html</file>
         <file>presets/sounds/wav/321723__rhodesmas__deep-space-vibrations-ambience-loop.wav</file>
