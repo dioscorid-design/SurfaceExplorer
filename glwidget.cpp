@@ -863,10 +863,14 @@ void GLWidget::updateRotation() {
     phi   += phiSpeed   * speedMult4D;
     psi   += psiSpeed   * speedMult4D;
 
-    // Controllo aggiornamento mesh (Invariato)
-    if (std::abs(omegaSpeed) > 0.001f || std::abs(phiSpeed) > 0.001f || std::abs(psiSpeed) > 0.001f) {
-        meshNeedsUpdate = true;
-    }
+    // NB: la rotazione 4D NON cambia i dati CPU della mesh: la rotazione XW/YW/ZW
+    // e la proiezione 4D->3D avvengono nel VERTEX SHADER leggendo omega/phi/psi
+    // dall'UBO, che render() ricarica a OGNI frame (updateDynamicBuffer(m_ubo)).
+    // Settare meshNeedsUpdate qui forzava un re-upload INTEGRALE di VBO+IBO a ogni
+    // frame con dati IDENTICI: spreco puro che su iOS/Metal (memoria stretta +
+    // watchdog jetsam) accumula buffer transitori e fa killare l'app dopo qualche
+    // decina di secondi, specie su superfici dense (steps alti) in wireframe.
+    // Basta l'update() qui sotto: ridisegna col nuovo omega senza toccare la mesh.
 
     emit rotationChanged();
     update();
