@@ -551,6 +551,22 @@ void VideoRecorder::toggleRecord()
     SurfaceEngine* engine = m_mainWindow->ui->glWidget->getEngine();
     int actualFramesRendered = 0;
 
+    // Vero rendering FBO: fissiamo il color buffer offscreen alla risoluzione di
+    // export UNA volta (non per-frame, per evitare flicker/ricostruzioni ripetute),
+    // così ogni frame è renderizzato nativamente a piena risoluzione e
+    // getFrameForVideo lo cattura senza upscale (fix wireframe sfocato).
+    // Per "Monitor Default" (target -1) usiamo la dimensione nativa del widget.
+    bool fboCapture = useFBO;
+    if (fboCapture) {
+        int capW = targetWidth, capH = targetHeight;
+        if (capW <= 0 || capH <= 0) {
+            QSize nat = m_mainWindow->ui->glWidget->size() *
+                        m_mainWindow->ui->glWidget->devicePixelRatio();
+            capW = nat.width(); capH = nat.height();
+        }
+        m_mainWindow->ui->glWidget->beginHiResCapture(capW, capH);
+    }
+
     // ==============================================================
     // 4. CICLO RENDERING
     // ==============================================================
@@ -761,6 +777,13 @@ void VideoRecorder::toggleRecord()
     // 5. RIPRISTINO E PULIZIA
     // ==============================================================
     m_mainWindow->m_isRecording = false;
+
+    // Ripristina il color buffer alla dimensione a schermo (esce dalla cattura FBO).
+    // Va fatto SEMPRE, anche su stop anticipato (il loop esce solo con break).
+    if (fboCapture) {
+        m_mainWindow->ui->glWidget->endHiResCapture();
+    }
+
     m_mainWindow->ui->glWidget->setUpdatesEnabled(true);
 
 #if defined(Q_OS_IOS)

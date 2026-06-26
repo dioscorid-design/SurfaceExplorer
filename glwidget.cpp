@@ -2160,18 +2160,40 @@ void GLWidget::setSurfaceTextureAnimating(bool animating) {
 // UTILITIES
 // ==========================================================
 
+void GLWidget::beginHiResCapture(int w, int h) {
+    if (w <= 0 || h <= 0) return;
+    m_hiResCapture = true;
+    // Fissa il color buffer offscreen di QRhiWidget alla risoluzione di export:
+    // d'ora in poi render() disegna NATIVAMENTE a w x h (renderTarget()->pixelSize()
+    // diventa questa) e grabFramebuffer() restituisce pixel nitidi a quella misura.
+    setFixedColorBufferSize(QSize(w, h));
+    // La riconfigurazione del render target avviene al prossimo grab/render:
+    // grabFramebuffer() in getFrameForVideo fa un render sincrono e raccoglie la
+    // nuova dimensione. Niente processEvents (ignorato su iOS).
+}
+
+void GLWidget::endHiResCapture() {
+    if (!m_hiResCapture) return;
+    m_hiResCapture = false;
+    // Torna a seguire la dimensione a schermo del widget (QSize() = dinamica).
+    setFixedColorBufferSize(QSize());
+    this->repaint();
+}
+
 QImage GLWidget::getFrameForVideo(int targetW, int targetH, bool useFbo) {
     if (meshNeedsUpdate) updateSurfaceData();
 
-    // 1. Forziamo il sistema a "disegnare" fisicamente il nuovo fotogramma
-    // prima di scattare la foto, mettendo in pausa il ciclo per un millisecondo.
-    this->repaint();
-    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+    // 1. Catturiamo il frame. grabFramebuffer() (QRhiWidget) esegue da sé un render
+    //    SINCRONO e restituisce i PIXEL REALI del color buffer: non serve repaint()
+    //    né processEvents (quest'ultimo con ExcludeUserInputEvents è IGNORATO su iOS
+    //    e spammava il log, oltre a non forzare nulla). In modalità hi-res capture
+    //    (FBO) il buffer è già fissato alla risoluzione di export -> nessun upscale.
+    QImage img = this->grabFramebuffer();
 
-    // 2. Catturiamo il widget aggiornato così come appare sullo schermo
-    QImage img = this->grab().toImage();
-
-    // Se la cattura è fallita, restituiamo un'immagine nera come fallback anti-crash
+    // Fallback anti-crash: se la cattura RHI fallisce, prova il vecchio grab().
+    if (img.isNull()) {
+        img = this->grab().toImage();
+    }
     if (img.isNull()) {
         img = QImage(targetW > 0 ? targetW : 1920,
                      targetH > 0 ? targetH : 1080,
@@ -2180,8 +2202,11 @@ QImage GLWidget::getFrameForVideo(int targetW, int targetH, bool useFbo) {
         return img;
     }
 
-    // 3. Upscaling se le dimensioni richieste non coincidono con quelle dello schermo
-    if (targetW > 0 && targetH > 0 && (img.width() != targetW || img.height() != targetH)) {
+    // 3. In hi-res capture il buffer è GIÀ alla risoluzione di export: NON riscalare
+    //    (eviterebbe la nitidezza appena guadagnata). Negli altri casi adatta al
+    //    target con SmoothTransformation (di norma un downscale nitido).
+    if (!m_hiResCapture && targetW > 0 && targetH > 0 &&
+            (img.width() != targetW || img.height() != targetH)) {
         img = img.scaled(targetW, targetH, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
     }
 

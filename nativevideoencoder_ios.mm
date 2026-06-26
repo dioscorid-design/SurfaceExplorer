@@ -23,11 +23,30 @@ bool NativeVideoEncoder::createMP4(const QString& framesDir, const QString& outp
     if (error) return false;
 
     // --- SETUP VIDEO ---
-    NSDictionary *videoSettings = @{
-        AVVideoCodecKey: AVVideoCodecTypeH264,
-        AVVideoWidthKey: @(width),
-        AVVideoHeightKey: @(height)
+    // I frame sorgente sono NITIDI (verificato) e il bitrate è altissimo (~62 Mbps),
+    // eppure H.264 impastava le linee sottili del wireframe: la perdita è strutturale,
+    // dovuta al chroma subsampling 4:2:0. Le linee sono verde puro (quasi solo chroma)
+    // su sfondo scuro -> il 4:2:0 ne dimezza la risoluzione di colore e le sfoca, e
+    // nessun bitrate lo recupera. Passiamo a HEVC (H.265): a parità di bitrate
+    // ricostruisce molto meglio le alte frequenze del chroma, riducendo l'effetto.
+    // HEVC è accelerato in hardware sugli iPad recenti.
+    double bpp = 0.5;                        // bit per pixel per frame (molto alto)
+    long long bitRate = (long long)((double)width * (double)height * (double)fps * bpp);
+    long long minBitRate = 24000000LL;       // 24 Mbps minimo
+    if (bitRate < minBitRate) bitRate = minBitRate;
+
+    NSDictionary *compression = @{
+        AVVideoAverageBitRateKey: @(bitRate),
+        AVVideoMaxKeyFrameIntervalKey: @(fps)   // almeno un keyframe al secondo
     };
+
+    NSDictionary *videoSettings = @{
+        AVVideoCodecKey: AVVideoCodecTypeHEVC,
+        AVVideoWidthKey: @(width),
+        AVVideoHeightKey: @(height),
+        AVVideoCompressionPropertiesKey: compression
+    };
+
     AVAssetWriterInput *writerInput = [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeVideo outputSettings:videoSettings];
     writerInput.expectsMediaDataInRealTime = NO;
 

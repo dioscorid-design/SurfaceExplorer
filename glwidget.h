@@ -258,6 +258,13 @@ public:
     // ==========================================================
     int projectionMode = 0;
     QImage getFrameForVideo(int targetW = -1, int targetH = -1, bool useFbo = false);
+    // Cattura a risoluzione PIENA (vero "FBO"): fissa la dimensione in pixel del
+    // color buffer offscreen di QRhiWidget alla risoluzione di export, così la
+    // scena viene renderizzata NATIVAMENTE a quella risoluzione e grabFramebuffer()
+    // restituisce pixel nitidi senza upscale (fix wireframe sfocato nei video).
+    // begin va chiamata una volta prima del loop di registrazione, end alla fine.
+    void beginHiResCapture(int w, int h);
+    void endHiResCapture();
     QString getShaderError() const { return m_lastCompilationError; }
     bool validateAndApplyParametricShader(const QString &customLogic);
     bool validateAndApplyImplicitShader(const QString &eqF, const QString &texCode, const QString &dispCode);
@@ -438,6 +445,9 @@ private:
     // 2D / FLAT VIEW STATE
     // ==========================================================
     bool m_isFlatView = false;
+    // true tra beginHiResCapture/endHiResCapture: il color buffer è già fissato
+    // alla risoluzione di export, quindi getFrameForVideo NON deve riscalare.
+    bool m_hiResCapture = false;
     int m_flatViewTarget = 0;
     float m_flatZoom = 1.0f;
     float m_flatRotation = 0.0f;
