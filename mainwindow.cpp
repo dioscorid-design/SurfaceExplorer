@@ -1226,6 +1226,18 @@ MainWindow::MainWindow(QWidget *parent)
         ui->glWidget->update();
         updateScriptButtonText();
         ui->stepSlider->blockSignals(false);
+
+        // Il cambio tab ripristina e RENDERIZZA la superficie di default del tab di
+        // destinazione (toro o sfera): non c'è nulla da applicare, quindi i Run
+        // "one-shot" tornano DISABILITATI. La scrittura delle equazioni di default
+        // qui sopra (es. lineEquation a riga ~1048, segnali non bloccati) aveva
+        // azzerato i flag via textChanged: li riasseriamo e riallineamo i tasti.
+        // Anche la texture parte azzerata (campi vuoti dopo il reset): il Run
+        // texture sarà comunque disabilitato dal controllo campi-vuoti.
+        m_parametricApplied = true;
+        m_implicitApplied = true;
+        m_rmTextureApplied = true;
+        updateMasterButtonState();
     });
 
     ui->lineX->setPlainText("(0.8 + 0.3*cos(v))*cos(u)");
@@ -1512,20 +1524,47 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->lineZ, &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
     connect(ui->lineP, &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
 
-    auto markUserEdit = [this]() { this->setProperty("isPresetActive", false); };
+    auto markUserEdit = [this]() {
+        this->setProperty("isPresetActive", false);
+        // Le equazioni sono cambiate: il Run parametrico "one-shot" (senza 't')
+        // torna eseguibile. updateMasterButtonState() riabilita il tasto.
+        m_parametricApplied = false;
+        updateMasterButtonState();
+    };
     connect(ui->lineX, &QPlainTextEdit::textChanged, this, markUserEdit);
     connect(ui->lineY, &QPlainTextEdit::textChanged, this, markUserEdit);
     connect(ui->lineZ, &QPlainTextEdit::textChanged, this, markUserEdit);
     connect(ui->lineP, &QPlainTextEdit::textChanged, this, markUserEdit);
+
+    // Anche composizioni (U/V/W) e vincoli espliciti cambiano la superficie:
+    // un loro edit deve riabilitare il Run parametrico one-shot.
+    connect(ui->lineU, &QPlainTextEdit::textChanged, this, markUserEdit);
+    connect(ui->lineV, &QPlainTextEdit::textChanged, this, markUserEdit);
+    connect(ui->lineW, &QPlainTextEdit::textChanged, this, markUserEdit);
+    connect(ui->lineExplicitU, &QPlainTextEdit::textChanged, this, markUserEdit);
+    connect(ui->lineExplicitV, &QPlainTextEdit::textChanged, this, markUserEdit);
+    connect(ui->lineExplicitW, &QPlainTextEdit::textChanged, this, markUserEdit);
 
     auto markTextureModified = [this]() { this->setProperty("isTextureModified", true); };
     connect(ui->txtScriptEditor, &QPlainTextEdit::textChanged, this, markTextureModified);
     connect(ui->lineTexture, &QPlainTextEdit::textChanged, this, markTextureModified);
     connect(ui->lineVariations, &QPlainTextEdit::textChanged, this, markTextureModified);
 
+    // Run "one-shot" della texture Ray Marching: modificare lo script di colore
+    // (lineTexture) o di displacement (lineVariations) lo riabilita.
+    auto markRmTextureEdited = [this]() {
+        m_rmTextureApplied = false;
+        updateMasterButtonState();
+    };
+    connect(ui->lineTexture, &QPlainTextEdit::textChanged, this, markRmTextureEdited);
+    connect(ui->lineVariations, &QPlainTextEdit::textChanged, this, markRmTextureEdited);
+
     connect(ui->txtScriptEditor, &QPlainTextEdit::textChanged, this, [this](){
         updateScriptButtonText();
         updateConstantsUIState();
+        // Mantiene allineato il tasto Save texture (hasSavableTexture legge l'editor
+        // in modalità script texture parametrico/sfondo).
+        updateMasterButtonState();
     });
 
     // 2. Mutua esclusione dei vincoli (con blocco segnali per evitare loop a catena!)
@@ -1561,6 +1600,14 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->lineEquation, &QPlainTextEdit::textChanged, this, &MainWindow::updateConstantsUIState);
     connect(ui->lineTexture, &QPlainTextEdit::textChanged, this, &MainWindow::updateConstantsUIState);
     connect(ui->lineVariations, &QPlainTextEdit::textChanged, this, &MainWindow::updateConstantsUIState);
+
+    // Run "one-shot" del tab Ray Marching: modificare l'EQUAZIONE implicita lo
+    // riabilita. Solo lineEquation -> texture e displacement sono del modulo
+    // texture, non della geometria (coerente con geomAnimated in onStartClicked).
+    connect(ui->lineEquation, &QPlainTextEdit::textChanged, this, [this]() {
+        m_implicitApplied = false;
+        updateMasterButtonState();
+    });
 
     if (ui->lnU) {
         connect(ui->lnU,    &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
@@ -2057,9 +2104,12 @@ MainWindow::MainWindow(QWidget *parent)
                         m_texColor2 = Qt::black;
                         if (ui->glWidget) ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
                         {
-                            bool ob = ui->radioTexColor1->blockSignals(true);
-                            ui->radioTexColor1->setChecked(true);
-                            ui->radioTexColor1->blockSignals(ob);
+                            // Attivando la texture il target colore va su "Surface"
+                            // (alias di col1): se Border era ON viene spento (giusto)
+                            // e Surface si accende, mantenendo l'esclusività.
+                            bool ob = ui->radioEditSurf->blockSignals(true);
+                            ui->radioEditSurf->setChecked(true);
+                            ui->radioEditSurf->blockSignals(ob);
                         }
                         onColorTargetChanged();
 
@@ -2113,9 +2163,12 @@ MainWindow::MainWindow(QWidget *parent)
                     m_texColor2 = Qt::black;
                     if (ui->glWidget) ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
 
-                    bool oldBlock = ui->radioTexColor1->blockSignals(true);
-                    ui->radioTexColor1->setChecked(true);
-                    ui->radioTexColor1->blockSignals(oldBlock);
+                    // Attivando la texture il target colore va su "Surface" (alias
+                    // di col1): se Border era ON viene spento (giusto) e Surface si
+                    // accende, mantenendo l'esclusività Surface/Border.
+                    bool oldBlock = ui->radioEditSurf->blockSignals(true);
+                    ui->radioEditSurf->setChecked(true);
+                    ui->radioEditSurf->blockSignals(oldBlock);
                     onColorTargetChanged();
 
                     generateTexture();
@@ -2285,8 +2338,17 @@ MainWindow::MainWindow(QWidget *parent)
             }
         }
         else if (ui->radioEditSurf->isChecked()) {
-            m_currentSurfaceColor = newColor;
-            ui->glWidget->setColor(r/255.0f, g/255.0f, b/255.0f);
+            // Con una texture colorata attiva "Surface" è alias di Color 1: gli
+            // slider scrivono su col1 (il colore base liscio è coperto). Senza
+            // texture editano il colore della superficie.
+            if (m_surfaceTextureState && activeTextureUsesColors()) {
+                m_texColor1 = newColor;
+                ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
+                if (!m_isCustomMode && !m_isImageMode) scheduleTextureGeneration();
+            } else {
+                m_currentSurfaceColor = newColor;
+                ui->glWidget->setColor(r/255.0f, g/255.0f, b/255.0f);
+            }
         }
         else if (ui->radioEditBorder->isChecked()) {
             m_currentBorderColor = newColor;
@@ -2626,6 +2688,20 @@ MainWindow::MainWindow(QWidget *parent)
     // Run del dock Equations (modalità implicita / Ray Marching): stesso effetto
     // dell'invio nel campo equazione, agisce SOLO sul modulo equazioni.
     connect(ui->btnImplicit, &QPushButton::clicked, this, &MainWindow::onStartClicked);
+
+    // All'avvio entrambe le superfici di default (toro parametrico e sfera
+    // implicita) sono già renderizzate: i Run "one-shot" devono nascere
+    // DISABILITATI. Riasseriamo i flag a true perché impostare le equazioni di
+    // default in costruzione fa scattare i loro textChanged (es. lineEquation a
+    // segnali NON bloccati) che li avrebbero rimessi a false. Poi forziamo
+    // l'allineamento dei tasti: senza questa chiamata updateMasterButtonState non
+    // gira mai in costruzione (m_btnStart non esisteva ancora ai primi trigger) e
+    // i tasti resterebbero sull'enabled di default del .ui.
+    m_parametricApplied = true;
+    m_implicitApplied = true;
+    m_rmTextureApplied = true;
+    m_uiReady = true;   // sblocca updateMasterButtonState: la UI è completa
+    updateMasterButtonState();
 }
 
 
@@ -3346,29 +3422,61 @@ void MainWindow::onColorTargetChanged()
 
     QColor target;
 
-    if (ui->radioBackground->isChecked()) {
-        if (ui->chkBoxTexture->isChecked()) {
-            if (ui->radioTexColor1->isChecked()) {
-                target = m_bgTexColor1;
+    // Caso "morto": una texture (di superficie o di sfondo) è attiva ma NON
+    // referenzia u_col1/u_col2. La texture copre la superficie/lo sfondo, quindi
+    // gli slider R/G/B non hanno alcun effetto visibile e vanno azzerati e
+    // disattivati. Unica eccezione: il BORDO, che resta visibile e indipendente
+    // dalla texture -> se Border è selezionato gli slider restano vivi. ATTENZIONE:
+    // serve che Border sia anche ABILITATO (editabile): entrando in editing sfondo
+    // il tasto Border resta checked ma viene disabilitato (grigio), e in quel caso
+    // gli slider servirebbero solo lo sfondo -> l'eccezione NON deve valere, altrimenti
+    // restano attivi a vuoto sulla texture di sfondo senza colori.
+    // activeTextureUsesColors() copre superficie e sfondo, parametrico e RM.
+    bool borderEditable = ui->radioEditBorder->isChecked() && ui->radioEditBorder->isEnabled();
+    bool textureOn = ui->radioBackground->isChecked() ? ui->chkBoxTexture->isChecked()
+                                                       : m_surfaceTextureState;
+    bool noValidColorTarget = textureOn && !activeTextureUsesColors() && !borderEditable;
+
+    if (noValidColorTarget) {
+        target = Qt::black;
+        ui->sliderR->setEnabled(false);
+        ui->sliderG->setEnabled(false);
+        ui->sliderB->setEnabled(false);
+    } else {
+        ui->sliderR->setEnabled(true);
+        ui->sliderG->setEnabled(true);
+        ui->sliderB->setEnabled(true);
+
+        if (ui->radioBackground->isChecked()) {
+            if (ui->chkBoxTexture->isChecked()) {
+                if (ui->radioTexColor1->isChecked()) {
+                    target = m_bgTexColor1;
+                } else {
+                    target = m_bgTexColor2;
+                }
             } else {
-                target = m_bgTexColor2;
+                target = m_currentBackgroundColor;
             }
-        } else {
-            target = m_currentBackgroundColor;
-        }
-    }
-    else {
-        if (ui->radioEditSurf->isChecked()) {
-            target = m_currentSurfaceColor;
-        }
-        else if (ui->radioEditBorder->isChecked()) {
-            target = m_currentBorderColor;
-        }
-        else if (ui->radioTexColor1->isChecked()) {
-            target = m_texColor1;
         }
         else {
-            target = m_texColor2;
+            if (ui->radioEditSurf->isChecked()) {
+                // Con una texture colorata attiva "Surface" fa da alias di Color 1:
+                // il colore base della superficie liscia è coperto, quindi gli
+                // slider editano col1. Senza texture edita il colore superficie.
+                if (m_surfaceTextureState && activeTextureUsesColors())
+                    target = m_texColor1;
+                else
+                    target = m_currentSurfaceColor;
+            }
+            else if (ui->radioEditBorder->isChecked()) {
+                target = m_currentBorderColor;
+            }
+            else if (ui->radioTexColor1->isChecked()) {
+                target = m_texColor1;
+            }
+            else {
+                target = m_texColor2;
+            }
         }
     }
 
@@ -3550,6 +3658,14 @@ void MainWindow::handleTextureSelection(int index)
                 ui->glWidget->setProperty("bg_rot", data.rotation);
             }
 
+            // Riallinea gli slider colore al nuovo script di sfondo: se la texture
+            // procedurale usa u_col1/u_col2 devono riattivarsi (m_bgTextureCode è già
+            // aggiornato qui sopra). Senza questa chiamata, dopo una texture di sfondo
+            // SENZA colori (es. immagine di default) gli slider restavano disattivati
+            // a zero anche caricando poi una texture procedurale CON colori, perché
+            // questo ramo procedurale terminava senza rinfrescare onColorTargetChanged.
+            onColorTargetChanged();
+
             return;
         }
 
@@ -3675,8 +3791,13 @@ void MainWindow::handleTextureSelection(int index)
                     bool old = ui->chkBoxTexture->blockSignals(true);
                     ui->chkBoxTexture->setChecked(true);
                     ui->chkBoxTexture->blockSignals(old);
-                    updateTextureUIState(true);
+                    // m_surfaceTextureState PRIMA di updateTextureUIState:
+                    // onColorTargetChanged() vi si appoggia per decidere se
+                    // azzerare/disabilitare gli slider colore (texture senza
+                    // u_col1/u_col2). Se restasse stantio a false gli slider non
+                    // verrebbero disattivati su questa immagine.
                     m_surfaceTextureState = true;
+                    updateTextureUIState(true);
                 }
 
                 ui->glWidget->setFlatViewTarget(0);
@@ -3856,6 +3977,15 @@ void MainWindow::handleTextureSelection(int index)
         ui->glWidget->setSurfaceTextureAnimating(texAnim);
         // L'SDF/geometria resta invariato: un caricamento di texture non lo accende
         // né lo spegne (lo governano il dock Equations e il master).
+    }
+
+    // Caricare una texture (preset/record) la applica e la renderizza subito: in
+    // RM senza animazione non c'è nulla da rieseguire -> il Run texture nasce
+    // disabilitato finché lo script non viene modificato. La scrittura dei campi
+    // qui sopra è a segnali bloccati, quindi non passa da markRmTextureEdited:
+    // allineiamo il flag qui. Con animazione resta Run/Stop.
+    if (isRM && !texAnim) {
+        m_rmTextureApplied = true;
     }
     updateMasterButtonState();
 
@@ -4255,6 +4385,16 @@ void MainWindow::onStartClicked()
         if (!applyOnly && !runDockOnly) {
             applyStartSideEffects();
         }
+
+        // Run "one-shot" Ray Marching: se l'equazione NON è animata (geomAnimated
+        // guarda solo l'SDF, non texture/displacement), la modifica è applicata e
+        // il tasto si disabilita finché l'equazione non cambia. Con animazione
+        // resta Run/Stop (gestito da updateMasterButtonState).
+        if (!geomAnimated) {
+            m_implicitApplied = true;
+            updateMasterButtonState();
+        }
+
         ui->glWidget->update();
         return;
     }
@@ -4623,6 +4763,16 @@ void MainWindow::onStartClicked()
 
     if (!applyOnly && !runDockOnly) applyStartSideEffects();
     setProperty("collapseErrorShown", false);  // superficie valida: riarma il popup di collasso
+
+    // Run parametrico "one-shot": se le equazioni NON sono animate (nessun 't'),
+    // la modifica grafica è ormai applicata e non c'è nulla da rieseguire finché
+    // l'utente non cambia di nuovo le equazioni -> disabilitiamo il tasto. Con
+    // animazione il tasto resta Run/Stop (gestito da updateMasterButtonState).
+    if (!hasTimeVariable(rawEqsForT)) {
+        m_parametricApplied = true;
+        updateMasterButtonState();
+    }
+
     ui->glWidget->update();
 }
 
@@ -5784,6 +5934,13 @@ void MainWindow::onRunRaymarchTextureClicked()
     if (texAnim) m_masterStopped = false;
 
     ui->glWidget->setSurfaceTextureAnimating(texAnim);
+
+    // Run "one-shot": se gli script texture NON sono animati, la modifica è
+    // applicata e il tasto si disabilita finché lineTexture/lineVariations non
+    // cambiano. Con animazione resta Run/Stop (gestito da updateMasterButtonState).
+    if (!texColorHasTime && !dispHasTime) {
+        m_rmTextureApplied = true;
+    }
 
     updateMasterButtonState();
 }
@@ -8930,11 +9087,33 @@ bool MainWindow::activeTextureUsesColors() const
     return m_surfaceTextureCode.contains("u_col1") || m_surfaceTextureCode.contains("u_col2");
 }
 
+bool MainWindow::hasSavableTexture() const
+{
+    // Un'immagine caricata è salvabile anche con i box di codice vuoti.
+    if (m_isImageMode && !m_currentTexturePath.isEmpty())
+        return true;
+
+    const bool isBg = ui->radioBackground->isChecked();
+    const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
+
+    // Ray Marching (non sfondo): contenuto = colore (lineTexture) + displacement
+    // (lineVariations), gli stessi campi salvati da saveTexture().
+    if (isImplicit && !isBg) {
+        return !ui->lineTexture->toPlainText().trimmed().isEmpty()
+               || !ui->lineVariations->toPlainText().trimmed().isEmpty();
+    }
+
+    // Parametrico/sfondo: in modalità script texture la verità è l'editor aperto,
+    // altrimenti il codice in memoria del target attivo.
+    if (m_currentScriptMode == ScriptModeTexture)
+        return !ui->txtScriptEditor->toPlainText().trimmed().isEmpty();
+
+    const QString &code = isBg ? m_bgTextureCode : m_surfaceTextureCode;
+    return !code.trimmed().isEmpty();
+}
+
 void MainWindow::updateTextureUIState(bool isTextureOn, bool resetColorTargetToFirst)
 {
-    // 1. Surface è abilitato SOLO se la texture è SPENTA
-    ui->radioEditSurf->setEnabled(!isTextureOn);
-
     // 2. I controlli Colore Texture sono abilitati SOLO se la texture è ACCESA
     //    E lo script referenzia davvero u_col1/u_col2: lo deduciamo dalla
     //    texture attiva, così ogni chiamante è automaticamente corretto.
@@ -8942,16 +9121,33 @@ void MainWindow::updateTextureUIState(bool isTextureOn, bool resetColorTargetToF
     ui->radioTexColor1->setEnabled(colorsActive);
     ui->radioTexColor2->setEnabled(colorsActive);
 
+    // 1. "Surface" è abilitato quando la texture è SPENTA (edita il colore base)
+    //    OPPURE quando la texture usa u_col1/u_col2: in quel caso "Surface" fa da
+    //    alias di Color 1 (il colore principale della texture), così l'esclusività
+    //    Surface/Border resta sempre attiva anche con una texture colorata. È
+    //    disabilitato solo con una texture SENZA colori (immagine), dove non
+    //    esiste alcun colore editabile dal dock.
+    ui->radioEditSurf->setEnabled(!isTextureOn || colorsActive);
+
     // 3. GESTIONE SPOSTAMENTO "PALLINO"
     if (colorsActive) {
         // Caricando una NUOVA texture (resetColorTargetToFirst) il focus torna
-        // sempre a Colore 1, anche se sulla precedente era selezionato Colore 2.
-        // Negli altri casi (cambio tab/modalità) spostiamo solo se eravamo su
-        // Surface, per non disturbare una selezione texture già valida.
-        if (resetColorTargetToFirst || ui->radioEditSurf->isChecked()) {
+        // sempre a Colore 1. NON spostiamo il pallino quando è già su "Surface"
+        // (ora alias valido di Color 1) o su "Border": rubargli il check
+        // romperebbe l'esclusività. MA garantiamo che UN target sia sempre
+        // selezionato: se nessuno dei quattro è checked il gruppo resterebbe
+        // vuoto -> default a Surface (il colore principale della texture).
+        bool anyChecked = ui->radioEditSurf->isChecked() || ui->radioEditBorder->isChecked()
+                          || ui->radioTexColor1->isChecked() || ui->radioTexColor2->isChecked();
+        if (resetColorTargetToFirst) {
             bool oldBlock = ui->radioTexColor1->blockSignals(true);
             ui->radioTexColor1->setChecked(true);
             ui->radioTexColor1->blockSignals(oldBlock);
+            onColorTargetChanged();
+        } else if (!anyChecked) {
+            bool oldBlock = ui->radioEditSurf->blockSignals(true);
+            ui->radioEditSurf->setChecked(true);
+            ui->radioEditSurf->blockSignals(oldBlock);
             onColorTargetChanged();
         }
     } else {
@@ -8996,6 +9192,12 @@ void MainWindow::updateFlatPreviewButton() {
 void MainWindow::updateMasterButtonState()
 {
     if (!m_btnStart) return;
+
+    // In costruzione i sotto-oggetti (es. m_audioController->QMediaPlayer) possono
+    // non essere ancora pronti: i textChanged delle equazioni di default
+    // arriverebbero qui troppo presto e crasherebbero in Release. La chiamata
+    // finale del costruttore (dopo m_uiReady=true) fa il primo allineamento.
+    if (!m_uiReady) return;
 
     // 1. Controllo Rotazioni 3D/4D
     bool rotActive = false;
@@ -9055,9 +9257,19 @@ void MainWindow::updateMasterButtonState()
         bool eqModuleMoving = isGeomVisuallyMoving || geoFlowRunning;
         if (ui->btnRunParametric) {
             ui->btnRunParametric->setText(eqModuleMoving ? "Stop" : "Run");
+            // Run "one-shot" senza animazione: quando il modulo non è in moto e la
+            // modifica è già stata applicata (m_parametricApplied), il tasto è
+            // disabilitato finché le equazioni non cambiano. Se è in moto è un
+            // tasto Stop e resta attivo; appena le equazioni vengono modificate
+            // markUserEdit azzera il flag e lo riabilita.
+            ui->btnRunParametric->setEnabled(eqModuleMoving || !m_parametricApplied);
         }
         if (ui->btnImplicit) {
             ui->btnImplicit->setText(eqModuleMoving ? "Stop" : "Run");
+            // Stessa logica one-shot del tasto parametrico: disabilitato quando la
+            // modifica è già applicata e nulla è in moto; l'edit dell'equazione lo
+            // riabilita azzerando m_implicitApplied.
+            ui->btnImplicit->setEnabled(eqModuleMoving || !m_implicitApplied);
         }
 
         // B. Orologio della Texture di Superficie
@@ -9086,6 +9298,23 @@ void MainWindow::updateMasterButtonState()
 
         if (ui->btnTextureCode) {
             ui->btnTextureCode->setText(isTexVisuallyMoving ? "Stop" : "Run");
+
+            // Tre stati del Run texture (Ray Marching), alimentato da lineTexture
+            // (colore) + lineVariations (displacement):
+            //  1. entrambi i campi vuoti -> niente da applicare -> disabilitato;
+            //  2. script in moto -> è un tasto Stop, attivo;
+            //  3. script statico -> Run one-shot: disabilitato dopo l'applicazione
+            //     (m_rmTextureApplied), riabilitato all'edit degli script.
+            bool texFieldsEmpty = ui->lineTexture->toPlainText().trimmed().isEmpty()
+                                  && ui->lineVariations->toPlainText().trimmed().isEmpty();
+            ui->btnTextureCode->setEnabled(!texFieldsEmpty
+                                           && (isTexVisuallyMoving || !m_rmTextureApplied));
+        }
+
+        // Save texture: attivo solo se c'è del codice/immagine da salvare,
+        // disabilitato a campi vuoti (rispecchia i campi letti da saveTexture()).
+        if (ui->btnSave) {
+            ui->btnSave->setEnabled(hasSavableTexture());
         }
     }
 

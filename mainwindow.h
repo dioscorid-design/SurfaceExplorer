@@ -274,6 +274,35 @@ private:
 
     bool m_masterStopped = false;
 
+    // Run del dock Equations (tab Parametric) senza animazione (nessun 't'):
+    // dopo aver applicato la modifica grafica il tasto va DISABILITATO finché le
+    // equazioni non vengono modificate di nuovo. true = già applicato, niente da
+    // rieseguire. Per le equazioni animate il tasto resta Run/Stop e questo flag
+    // non lo tocca (vedi updateMasterButtonState). Parte da true: all'avvio la
+    // superficie di default è già renderizzata, quindi non c'è nulla da applicare.
+    bool m_parametricApplied = true;
+
+    // Stessa logica per il Run del tab Ray Marching (btnImplicit): senza 't'
+    // nell'EQUAZIONE implicita (il displacement è del modulo texture, non conta)
+    // il tasto si disabilita dopo l'applicazione finché l'equazione non cambia.
+    // Parte da true: all'avvio la sfera implicita di default è già renderizzata.
+    bool m_implicitApplied = true;
+
+    // Stessa logica one-shot per il Run della TEXTURE Ray Marching (btnTextureCode,
+    // alimentato da lineTexture + lineVariations): senza 't' negli script il tasto
+    // si disabilita dopo l'applicazione finché uno dei due script non cambia. Con
+    // animazione resta Run/Stop. Se entrambi i campi sono vuoti il tasto è
+    // disabilitato a prescindere (vedi updateMasterButtonState). Parte da true:
+    // all'avvio non c'è texture da applicare.
+    bool m_rmTextureApplied = true;
+
+    // false durante la costruzione di MainWindow, true alla fine. Scrivere le
+    // equazioni di default in costruzione emette textChanged, che invocherebbe
+    // updateMasterButtonState() quando sotto-oggetti come m_audioController
+    // (QMediaPlayer interno) non sono ancora pronti -> crash in Release. La
+    // guardia in updateMasterButtonState() salta finché la UI non è completa.
+    bool m_uiReady = false;
+
     // ==========================================================
     // LIBRARY & FILE SYSTEM
     // ==========================================================
@@ -343,6 +372,10 @@ private:
     void updateScriptButtonText();
     void updateTextureUIState(bool isTextureOn, bool resetColorTargetToFirst = false);
     bool activeTextureUsesColors() const;
+    // true se la texture attiva (superficie/sfondo, parametrico o ray marching)
+    // ha del codice salvabile: rispecchia la selezione dei campi di
+    // PresetSerializer::saveTexture(). Pilota l'abilitazione del tasto Save.
+    bool hasSavableTexture() const;
     void updateFlatPreviewButton();
     void updateMasterButtonState();
     void applyAnimationState(bool animated, bool dockOnly = false);
