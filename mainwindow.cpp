@@ -1798,6 +1798,17 @@ MainWindow::MainWindow(QWidget *parent)
 
             updateTextureUIState(m_surfaceTextureState);
             ui->glWidget->setTextureEnabled(m_surfaceTextureState && (id != 2));
+
+            // In Wireframe gli slider editano il colore superficie (le linee usano
+            // quello): portiamo il target su "Surface" così è chiaro cosa si modifica,
+            // invece di lasciare selezionato un radio texture (Color 1/2) che non
+            // c'entra più. updateTextureUIState sopra può aver rimesso il check su un
+            // radio texture se la texture aveva colori: lo correggiamo qui.
+            if (id == 2 && ui->radioEditSurf->isEnabled()) {
+                bool ob = ui->radioEditSurf->blockSignals(true);
+                ui->radioEditSurf->setChecked(true);
+                ui->radioEditSurf->blockSignals(ob);
+            }
             onColorTargetChanged();
         }
 
@@ -2323,6 +2334,12 @@ MainWindow::MainWindow(QWidget *parent)
         ui->valR->setNum(r); ui->valG->setNum(g); ui->valB->setNum(b);
         QColor newColor(r, g, b);
 
+        // In Wireframe la texture è nascosta e le linee usano il COLORE SUPERFICIE
+        // (setColor): gli slider devono editare quello, non i colori texture
+        // (m_texColor1/2) che altrimenti verrebbero modificati di nascosto. Vale
+        // solo per la superficie, non quando si edita lo sfondo.
+        bool wireframeMode = ui->radioWF->isChecked() && !ui->radioBackground->isChecked();
+
         if (ui->radioBackground->isChecked()) {
             if (ui->chkBoxTexture->isChecked()) {
                 if (ui->radioTexColor1->isChecked()) m_bgTexColor1 = newColor;
@@ -2336,6 +2353,10 @@ MainWindow::MainWindow(QWidget *parent)
                 ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
                 ui->glWidget->update();
             }
+        }
+        else if (wireframeMode) {
+            m_currentSurfaceColor = newColor;
+            ui->glWidget->setColor(r/255.0f, g/255.0f, b/255.0f);
         }
         else if (ui->radioEditSurf->isChecked()) {
             // Con una texture colorata attiva "Surface" è alias di Color 1: gli
@@ -3437,7 +3458,18 @@ void MainWindow::onColorTargetChanged()
                                                        : m_surfaceTextureState;
     bool noValidColorTarget = textureOn && !activeTextureUsesColors() && !borderEditable;
 
-    if (noValidColorTarget) {
+    // In Wireframe la texture è nascosta e le linee usano il COLORE SUPERFICIE: gli
+    // slider devono SEMPRE editare quello (mai i colori texture), quindi sono
+    // sempre attivi e mostrano m_currentSurfaceColor. Ha priorità sul caso "morto"
+    // e sui radio texture. Vale solo per la superficie, non in editing sfondo.
+    bool wireframeMode = ui->radioWF->isChecked() && !ui->radioBackground->isChecked();
+
+    if (wireframeMode) {
+        target = m_currentSurfaceColor;
+        ui->sliderR->setEnabled(true);
+        ui->sliderG->setEnabled(true);
+        ui->sliderB->setEnabled(true);
+    } else if (noValidColorTarget) {
         target = Qt::black;
         ui->sliderR->setEnabled(false);
         ui->sliderG->setEnabled(false);
