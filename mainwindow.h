@@ -76,6 +76,17 @@ private slots:
     // RENDERING & VISUALS
     // ==========================================================
     void onColorTargetChanged();
+    // Seleziona "Surface" come target colore a segnali bloccati, garantendo
+    // l'esclusività cross-gruppo (deseleziona Color1/Color2, che vivono in un
+    // QButtonGroup diverso dalla tripla Surface/Background/Border). Sostituisce
+    // il vecchio radioEditSurf->setChecked(true), che otteneva la deselezione
+    // gratis dall'esclusività del singolo m_colorGroup a quattro.
+    void selectSurfaceColorTarget();
+    // Deseleziona un radio che appartiene a un QButtonGroup ESCLUSIVO. setChecked(false)
+    // diretto è un no-op sull'unico bottone acceso di un gruppo esclusivo (Qt insiste a
+    // tenerne uno selezionato): bisogna togliere temporaneamente l'esclusività. Serve per
+    // l'esclusività MANUALE fra tripla (m_bgTargetGroup) e color slot (m_colorGroup).
+    void uncheckInExclusiveGroup(QAbstractButton *btn);
     // Evidenzia nell'albero texture la voce corrispondente al codice attivo
     // (sfondo se radioBackground è acceso, altrimenti texture superficie).
     void syncTextureTreeSelection();
@@ -164,6 +175,12 @@ private:
     QProgressBar *m_renderProgress;
     QButtonGroup *m_colorGroup;
     QButtonGroup *m_modeGroup;
+    // Tripla esclusiva Surface / Background / Border: scelta del target di editing (cosa
+    // pilotano slider/texture/colore). radioSurface = superficie, radioBackground = sfondo,
+    // radioBorder = bordo. La semantica resta radioBackground->isChecked() == "edito lo
+    // sfondo", radioBorder->isChecked() == "edito il bordo". I color slot (radioTexColor1/2)
+    // stanno in m_colorGroup a parte; l'esclusività fra i due gruppi è manuale.
+    QButtonGroup *m_bgTargetGroup;
 
     // ==========================================================
     // MATHEMATICAL CONSTANTS & LIMITS
@@ -216,11 +233,6 @@ private:
     bool m_isImageMode = false;
     bool m_surfaceTextureState = false;
     bool m_blockTextureGen = false;
-    // Ricorda se il TASTO Border era ON prima di entrare in editing sfondo, per
-    // riaccenderlo automaticamente all'uscita (Background e Border esclusivi nei
-    // controlli, ma la grafica del bordo non viene mai toccata).
-    bool m_borderWasOnBeforeBg = false;
-
     QString lastTextureFolder;
     QString m_currentTexturePath;
     QString m_currentTexturePresetPath;
