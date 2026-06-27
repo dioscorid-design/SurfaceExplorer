@@ -31,6 +31,8 @@
 
 #define STEP_MIN 1
 #define STEP_MAX 50
+// Densità wireframe di default (deve coincidere con l'init di wfStepU/wfStepV in glwidget.h).
+#define STEP_DEF 4
 
 QString loadShaderSource(const QString& path) {
     QFile file(path);
@@ -1460,6 +1462,20 @@ void GLWidget::decreaseWireframeVDensity() {
     if (wfStepU < STEP_MAX) wfStepU++;
     buildWireframeGeometry();
     update();
+}
+
+void GLWidget::resetWireframeDensity() {
+    if (wfStepU == STEP_DEF && wfStepV == STEP_DEF) return; // già al default
+    wfStepU = STEP_DEF;
+    wfStepV = STEP_DEF;
+    // Ricostruiamo la geometria wireframe solo se c'è un engine valido: chiamato anche
+    // su cambio superficie/tab, quando la nuova mesh potrebbe non essere ancora pronta.
+    // In quel caso basta aver riportato wfStepU/V al default: la geometria sarà costruita
+    // con questi valori quando la superficie viene caricata.
+    if (engine) {
+        buildWireframeGeometry();
+        update();
+    }
 }
 
 void GLWidget::rebuildShader()

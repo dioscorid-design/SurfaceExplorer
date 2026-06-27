@@ -386,21 +386,32 @@
 
         <section id="rendering">
             <p class="h2t" style="font-size: 22px; color: #569cd6;"><b>Rendering & Textures</b></p>
-            <p>You can choose between different visualization modes:</p>
+            <p>The Renderer dock is organized around <strong>two independent choices</strong>: the <em>rendering style</em> of the surface, and the <em>edit target</em> that the colors and textures act upon.</p>
+
+            <p class="h3t" style="font-size: 19px; color: #007acc;"><b>Rendering Style (Surface)</b></p>
+            <p>This selects how the surface itself is drawn. The three modes are mutually exclusive:</p>
             <ul>
-                <li><strong>Basic:</strong> Flat color (fast).</li>
+                <li><strong>Base:</strong> Flat color (fast).</li>
                 <li><strong>Phong:</strong> Realistic specular lighting.</li>
-                <li><strong>Wireframe:</strong> Displays the polygonal grid.</li>
-                <li><strong>Background:</strong> Displays the 2D interactive environment behind the 3D objects.</li>
+                <li><strong>WireFrame:</strong> Displays the polygonal grid. When this mode is active, the <strong>Density u</strong> and <strong>Density v</strong> controls become enabled, letting you increase or decrease how many grid lines are drawn along each parameter. They are greyed out in any other mode (and in Ray Marching, where wireframe is not available).</li>
             </ul>
 
-            <p class="h3t" style="font-size: 19px; color: #007acc;"><b>Applying Textures (Surface vs. Background)</b></p>
-            <p>Textures (both procedural scripts and static images) can be applied in two distinct ways depending on your current rendering mode target:</p>
+            <p class="h3t" style="font-size: 19px; color: #007acc;"><b>Edit Target (Surface / Background / Border)</b></p>
+            <p>This trio of buttons is a single exclusive choice that decides <em>what</em> the color sliders, the Texture checkbox and the Library textures act upon. Switching the target never changes the rendering style above &mdash; the two are completely separate axes.</p>
             <ul>
-                <li><strong>Surface Textures:</strong> When the <em>Basic</em> or <em>Phong</em> modes are active, applying a texture from the Library (or activating the Texture checkbox) will wrap the selected image or script directly onto the geometry of the 3D/4D surface.</li>
-                <li><strong>Background Textures:</strong> By selecting the <em>Background</em> rendering mode first, any texture you load or procedural script you run will be applied to the 2D background behind the surface. In this mode, both images and procedural effects remain fully interactive: you can pan, zoom, and rotate them using the mouse, just like you would with the 3D camera.</li>
+                <li><strong>Surface:</strong> Colors and textures are applied to the 3D/4D surface itself. This is the default.</li>
+                <li><strong>Background:</strong> Everything is redirected to the 2D interactive environment drawn behind the objects. While this target is active, images and procedural effects stay fully interactive &mdash; you can pan, zoom and rotate them with the mouse, just like the 3D camera. The surface is <em>not</em> hidden: only the editing focus moves to the background, so you can keep Surface or Border one click away.</li>
+                <li><strong>Border:</strong> The color sliders edit the outline/border color. Because the surface texture is irrelevant while you are editing the border, the <strong>Texture</strong> checkbox is greyed out (its checked state and the texture on screen are preserved); it becomes available again as soon as you switch back to Surface or Background. The companion <strong>Border ON/OFF</strong> button toggles the border graphic itself and, like the Projection and Illumination buttons, displays the current active state rather than the pending action.</li>
             </ul>
             <p><em>Note: If no background image is explicitly loaded, a fallback procedural Deep Space gradient will be automatically generated to ensure a sleek presentation.</em></p>
+
+            <p class="h3t" style="font-size: 19px; color: #007acc;"><b>Applying Textures (Surface vs. Background)</b></p>
+            <p>Textures (both procedural scripts and static images) follow whichever edit target is selected:</p>
+            <ul>
+                <li><strong>Surface Textures:</strong> With the <em>Surface</em> target selected, applying a texture from the Library (or activating the Texture checkbox) wraps the selected image or script directly onto the geometry of the 3D/4D surface. This works in both the <em>Base</em> and <em>Phong</em> rendering styles; in <em>WireFrame</em> the surface texture is hidden and the sliders edit the line color instead.</li>
+                <li><strong>Background Textures:</strong> With the <em>Background</em> target selected, any texture you load or procedural script you run is applied to the 2D background behind the surface, where it remains fully interactive (pan, zoom, rotate).</li>
+            </ul>
+            <p>When a colored procedural texture is active, the <strong>Color 1</strong> and <strong>Color 2</strong> buttons appear and let the sliders edit the two tint slots of that texture. In the Surface target, picking Color 1, Color 2, Surface or Border is a single mutually-exclusive choice of what the sliders control; in the Background target, Color 1/Color 2 instead drive the two background-texture colors.</p>
 
             <p class="h3t" style="font-size: 19px; color: #007acc;"><b>Procedural Textures (GLSL)</b></p>
             <p>Besides loading images (PNG/JPG), you can write custom GLSL scripts to generate mathematical textures in real-time.</p>
@@ -467,7 +478,7 @@ return vec3(r, g, 0.5);</pre>
             <p class="h4t" style="font-size: 18px;"><b>Recording Workflow</b></p>
             <ol>
                 <li>Press <strong>REC</strong>.</li>
-                <li>Set the video duration (in seconds), frame rate (24–120 FPS), resolution (Full HD, 2K, 4K), frame format (PNG or BMP — available on all devices except iOS, which always uses BMP), and render engine (FBO or Standard).</li>
+                <li>Set the video duration (in seconds), frame rate (24–120 FPS), resolution (Full HD, 2K, 4K), frame format (PNG or BMP, on platforms where it is offered), and render engine (FBO or Standard).</li>
                 <li>Choose where to save the MP4 file.</li>
                 <li>The software will render frame by frame (eliminating stutter caused by PC lag).</li>
                 <li>Upon completion, a smooth video will be generated using FFmpeg.</li>

@@ -139,6 +139,10 @@ public:
     void decreaseWireframeUDensity();
     void increaseWireframeVDensity();
     void decreaseWireframeVDensity();
+    // Riporta la densità wireframe (wfStepU/V) al valore di default. La densità è
+    // stato runtime non serializzato nei preset, quindi va azzerata a ogni nuova
+    // superficie per non ereditare quella della precedente.
+    void resetWireframeDensity();
     float getSurfaceScale() const { return m_surfaceScale; }
     void rebuildShader();
 
