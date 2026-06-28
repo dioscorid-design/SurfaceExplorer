@@ -9,6 +9,7 @@
 
 #include <QInputDialog>
 #include <QFileDialog>
+#include <QFile>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QDateTime>
@@ -100,9 +101,12 @@ public:
 
 #if !defined(Q_OS_IOS)
         comboFormat = new QComboBox(scrollContent);
+        // BMP per primo = default: la compressione PNG a 4K è proibitiva su mobile
+        // (misurato ~2.1s/frame vs ~30ms con BMP). PNG resta solo per chi vuole
+        // risparmiare spazio su disco accettando l'export molto più lento.
         comboFormat->addItems({
-            "PNG (Lossless - Saves Disk Space)",
-            "BMP (Uncompressed - Faster)"
+            "BMP (Uncompressed - Faster)",
+            "PNG (Lossless - Saves Disk Space)"
         });
         comboFormat->setStyleSheet("padding: 8px; font-size: 14px;");
         form->addRow("Frame Format:", comboFormat);
@@ -375,9 +379,11 @@ void VideoRecorder::toggleRecord()
     useFBO = (pathDialog.comboEngine->currentIndex() == 0);
 
 #if defined(Q_OS_IOS)
-    usePng = false; // iOS forza sempre BMP silenziosamente
+    // iOS non espone la scelta del formato: i frame temporanei sono sempre RAW
+    // (pixel grezzi), copiati con un memcpy nel CVPixelBuffer dall'encoder nativo.
+    usePng = false;
 #else
-    usePng = (pathDialog.comboFormat->currentIndex() == 0);
+    usePng = (pathDialog.comboFormat->currentIndex() == 1); // idx 0 = BMP (default), 1 = PNG
 #endif
 
 #else
@@ -413,17 +419,17 @@ void VideoRecorder::toggleRecord()
     if (!ok) { restoreState(); return; }
     resIndex = resolutions.indexOf(selectedRes);
 
-    // Formato
+    // Formato — BMP per primo = default (PNG a 4K è proibitivo: ~2.1s/frame).
     QStringList formats = {
-        "PNG (Lossless - Saves Disk Space)",
-        "BMP (Uncompressed - Faster)"
+        "BMP (Uncompressed - Faster)",
+        "PNG (Lossless - Saves Disk Space)"
     };
     int defaultFormatIndex = settings.value("lastRecFormat", 0).toInt();
     QString selectedFormat = QInputDialog::getItem(m_mainWindow, "Frame Format", "Select temporary frame format:", formats, defaultFormatIndex, false, &ok);
     if (!ok) { restoreState(); return; }
     int formatIndex = formats.indexOf(selectedFormat);
     settings.setValue("lastRecFormat", formatIndex);
-    usePng = (formatIndex == 0);
+    usePng = (formatIndex == 1); // idx 0 = BMP (default), 1 = PNG
 
     // FBO
     QStringList engineModes = {
@@ -550,6 +556,60 @@ void VideoRecorder::toggleRecord()
 
     SurfaceEngine* engine = m_mainWindow->ui->glWidget->getEngine();
     int actualFramesRendered = 0;
+
+#if defined(Q_OS_IOS)
+    // Dimensioni (pari) dei frame RAW scritti su iOS: catturate al primo frame e
+    // passate all'encoder, che con i RAW non può dedurle dal file (è grezzo).
+    int iosFrameW = 0, iosFrameH = 0;
+#endif
+
+#if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)
+    // ==============================================================
+    // MODALITÀ PIPE (solo Desktop, solo clip MUTA)
+    // --------------------------------------------------------------
+    // Se non c'è audio, evitiamo del tutto i frame su disco: avviamo FFmpeg PRIMA
+    // del loop e gli mandiamo ogni frame raw via stdin (-f rawvideo). Niente
+    // scrittura+rilettura di migliaia di BMP/PNG (su 4K/60fps sono molti GB).
+    // Quando c'è audio l'encoder lo muxa in coda al loop, quindi lì restiamo sul
+    // collaudato percorso a file. Su iOS/Android il flusso resta quello a file.
+    bool willHaveAudio = false;
+    {
+        QString preCode = m_mainWindow->m_surfaceScriptText + "\n" +
+                          m_mainWindow->m_surfaceTextureCode + "\n" +
+                          m_mainWindow->m_bgTextureCode + "\n" +
+                          m_mainWindow->m_soundScriptText;
+        if (preCode.trimmed().isEmpty())
+            preCode = m_mainWindow->ui->txtScriptEditor->toPlainText();
+
+        if (preCode.contains("mainSound") && m_mainWindow->m_audioController) {
+            willHaveAudio = true;
+        } else {
+            QRegularExpression musicRe(R"(^\s*//MUSIC:\s*(.*)$)", QRegularExpression::MultilineOption);
+            QRegularExpressionMatch m = musicRe.match(preCode);
+            if (m.hasMatch()) willHaveAudio = QFile::exists(m.captured(1).trimmed());
+        }
+    }
+
+    const bool usePipe = !willHaveAudio;
+    QProcess *pipeProcess = nullptr; // valorizzato al primo frame (serve W/H note)
+    int pipeW = 0, pipeH = 0;
+
+    // Localizza l'eseguibile ffmpeg (stessa logica del ramo a file più sotto).
+    auto findFfmpeg = []() -> QString {
+        QString prog = QStandardPaths::findExecutable("ffmpeg");
+        if (prog.isEmpty()) {
+            QStringList candidates;
+#ifdef Q_OS_WIN
+            candidates << "C:/ffmpeg/bin/ffmpeg.exe" << "C:/Program Files/ffmpeg/bin/ffmpeg.exe";
+#else
+            candidates << "/opt/homebrew/bin/ffmpeg" << "/usr/local/bin/ffmpeg" << "/usr/bin/ffmpeg";
+#endif
+            for (const QString &path : candidates)
+                if (QFile::exists(path)) { prog = path; break; }
+        }
+        return prog;
+    };
+#endif
 
     // Vero rendering FBO: fissiamo il color buffer offscreen alla risoluzione di
     // export UNA volta (non per-frame, per evitare flicker/ricostruzioni ripetute),
@@ -755,11 +815,89 @@ void VideoRecorder::toggleRecord()
         QString fileName; // Dichiariamo la variabile UNA SOLA VOLTA qui per evitare errori
 
 #if defined(Q_OS_IOS)
-        // iOS usa sempre BMP a 24-bit per il NativeVideoEncoder
-        fileName = QString("frame_%1.bmp").arg(i, 5, 10, QChar('0'));
-        frame.save(m_mainWindow->m_recFolder + "/" + fileName, "BMP");
+        // iOS: scriviamo il frame come RAW (Format_RGB32, B,G,R,A in memoria) che
+        // l'encoder copia con un memcpy nel CVPixelBuffer 32BGRA, senza più passare
+        // da BMP -> UIImage -> CGContext (due conversioni a frame).
+        // Croppiamo a dimensioni PARI già qui, così lo stride del .raw combacia con
+        // le W/H passate all'encoder (che non può dedurle da un file grezzo).
+        if (frame.width() % 2 != 0)  frame = frame.copy(0, 0, frame.width() - 1, frame.height());
+        if (frame.height() % 2 != 0) frame = frame.copy(0, 0, frame.width(), frame.height() - 1);
+        if (iosFrameW == 0) { iosFrameW = frame.width(); iosFrameH = frame.height(); }
+
+        fileName = QString("frame_%1.raw").arg(i, 5, 10, QChar('0'));
+        {
+            QFile rawOut(m_mainWindow->m_recFolder + "/" + fileName);
+            if (rawOut.open(QIODevice::WriteOnly)) {
+                const int rowBytes = frame.width() * 4; // RGB32
+                for (int y = 0; y < frame.height(); ++y)
+                    rawOut.write(reinterpret_cast<const char*>(frame.constScanLine(y)), rowBytes);
+                rawOut.close();
+            }
+        }
+#elif !defined(Q_OS_ANDROID)
+        // --- DESKTOP ---
+        if (usePipe) {
+            // Frame raw direttamente nello stdin di FFmpeg: niente file su disco.
+            // Le dimensioni devono restare costanti per tutta la clip -> al 1° frame
+            // fissiamo W/H (pari) e avviamo l'encoder con -s WxH -pix_fmt bgra.
+            if (frame.width() % 2 != 0)  frame = frame.copy(0, 0, frame.width() - 1, frame.height());
+            if (frame.height() % 2 != 0) frame = frame.copy(0, 0, frame.width(), frame.height() - 1);
+
+            if (!pipeProcess) {
+                pipeW = frame.width();
+                pipeH = frame.height();
+                QString prog = findFfmpeg();
+                if (prog.isEmpty()) {
+                    // Niente FFmpeg: interrompiamo pulito (lo segnaliamo dopo il loop).
+                    m_mainWindow->m_stopRecordingRequested = true;
+                } else {
+                    pipeProcess = new QProcess(this);
+#if defined(Q_OS_LINUX)
+                    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+                    env.remove("LD_LIBRARY_PATH");
+                    pipeProcess->setProcessEnvironment(env);
+#endif
+                    QStringList a;
+                    a << "-y"
+                      << "-f" << "rawvideo"
+                      << "-pix_fmt" << "bgra"   // Format_RGB32 = B,G,R,A in memoria
+                      << "-s" << QString("%1x%2").arg(pipeW).arg(pipeH)
+                      << "-framerate" << QString::number(fps)
+                      << "-i" << "-"            // stdin
+                      << "-c:v" << "libx264"
+                      << "-preset" << "fast"
+                      << "-pix_fmt" << "yuv420p"
+                      << "-crf" << "18"
+                      << "-r" << QString::number(fps)
+                      << "-movflags" << "+faststart"
+                      << userSelectedFile;
+                    pipeProcess->start(prog, a);
+                    if (!pipeProcess->waitForStarted(5000)) {
+                        delete pipeProcess; pipeProcess = nullptr;
+                        m_mainWindow->m_stopRecordingRequested = true;
+                    }
+                }
+            }
+
+            if (pipeProcess && frame.width() == pipeW && frame.height() == pipeH) {
+                const int rowBytes = pipeW * 4; // bgra
+                for (int y = 0; y < pipeH; ++y) {
+                    pipeProcess->write(reinterpret_cast<const char*>(frame.constScanLine(y)), rowBytes);
+                    // Drena lo stdin se l'encoder è più lento del rendering, così non
+                    // gonfiamo all'infinito il buffer in RAM.
+                    if (pipeProcess->bytesToWrite() > 32 * 1024 * 1024)
+                        pipeProcess->waitForBytesWritten(-1);
+                }
+            }
+        } else if (usePng) {
+            fileName = QString("frame_%1.png").arg(i, 5, 10, QChar('0'));
+            frame.save(m_mainWindow->m_recFolder + "/" + fileName, "PNG");
+        } else {
+            fileName = QString("frame_%1.bmp").arg(i, 5, 10, QChar('0'));
+            frame.save(m_mainWindow->m_recFolder + "/" + fileName, "BMP");
+        }
 #else
-        // Desktop e Android usano la scelta dell'utente
+        // --- ANDROID: sempre percorso a file (ramo linker collaudato) ---
         if (usePng) {
             fileName = QString("frame_%1.png").arg(i, 5, 10, QChar('0'));
             frame.save(m_mainWindow->m_recFolder + "/" + fileName, "PNG");
@@ -825,6 +963,47 @@ void VideoRecorder::toggleRecord()
 
     m_mainWindow->m_statusLabel->setText("Generating MP4... please wait.");
     m_mainWindow->m_renderProgress->setVisible(false);
+
+#if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)
+    // ==============================================================
+    // 6-bis. FINALIZZAZIONE PIPE (Desktop, clip MUTA)
+    // I frame sono già stati spinti nello stdin di FFmpeg durante il loop:
+    // chiudiamo lo stream e aspettiamo che chiuda il file. Niente file su disco,
+    // niente audio (per definizione di usePipe), quindi qui finisce tutto.
+    // ==============================================================
+    if (usePipe) {
+        m_mainWindow->m_isProcessingVideo = true;
+        bool ok = false;
+        QString errLog;
+
+        if (pipeProcess) {
+            pipeProcess->closeWriteChannel();           // EOF su stdin -> FFmpeg chiude
+            pipeProcess->waitForFinished(-1);
+            ok = (pipeProcess->exitStatus() == QProcess::NormalExit &&
+                  pipeProcess->exitCode() == 0);
+            if (!ok) errLog = QString::fromUtf8(pipeProcess->readAllStandardError()).right(500);
+            pipeProcess->deleteLater();
+            pipeProcess = nullptr;
+        } else {
+            // Pipe mai avviata: ffmpeg non trovato o avvio fallito (già segnalato
+            // via stopRecordingRequested). Niente da finalizzare.
+            errLog = "FFmpeg not found or failed to start.";
+        }
+
+        m_mainWindow->m_isProcessingVideo = false;
+        m_mainWindow->m_statusLabel->clear();
+
+        // La cartella temp esiste ancora (vuota di frame): rimuoviamola comunque.
+        QDir tempDir(m_mainWindow->m_recFolder);
+        if (tempDir.exists()) tempDir.removeRecursively();
+
+        if (ok)
+            QMessageBox::information(m_mainWindow, "Finished!", "Video successfully saved:\n" + userSelectedFile);
+        else
+            QMessageBox::warning(m_mainWindow, "Encoding Error", "FFmpeg failed.\n\n" + errLog);
+        return;
+    }
+#endif
 
     // ==============================================================
     // 6. GENERAZIONE VIDEO (FFMPEG)
@@ -895,6 +1074,9 @@ void VideoRecorder::toggleRecord()
     }
 
     // 3. IMPOSTAZIONI OUTPUT VIDEO
+    // libx264 -crf 18 su TUTTE le piattaforme: qualità (quasi lossless visivo)
+    // prioritaria sul tempo. L'encoder HW (h264/hevc_mediacodec) su Android era
+    // ~10x più veloce ma lavora a bitrate (no CRF) -> qualità inferiore, scartato.
     arguments << "-vf" << "scale=trunc(iw/2)*2:trunc(ih/2)*2"
               << "-c:v" << "libx264"
               << "-preset" << "fast"
@@ -1080,16 +1262,13 @@ void VideoRecorder::toggleRecord()
     // Usa il percorso scelto dall'utente tramite la finestra di dialogo
     QString finalSafePath = userSelectedFile;
 
-    QString firstFramePath = m_mainWindow->m_recFolder + "/frame_00000.bmp";
-    QImage sampleFrame(firstFramePath);
-    int videoW = sampleFrame.width();
-    int videoH = sampleFrame.height();
-
-    if (videoW % 2 != 0) videoW--;
-    if (videoH % 2 != 0) videoH--;
+    // Le dimensioni (già pari) sono quelle catturate al primo frame RAW scritto.
+    int videoW = iosFrameW;
+    int videoH = iosFrameH;
 
     // Passiamo finalAudioFile alla funzione iOS
-    bool success = NativeVideoEncoder::createMP4(m_mainWindow->m_recFolder, finalSafePath, fps, videoW, videoH, finalAudioFile);
+    bool success = (videoW > 0 && videoH > 0) &&
+                   NativeVideoEncoder::createMP4(m_mainWindow->m_recFolder, finalSafePath, fps, videoW, videoH, finalAudioFile);
 
     m_mainWindow->m_statusLabel->clear();
 

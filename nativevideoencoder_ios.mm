@@ -7,6 +7,7 @@
 #import <UIKit/UIKit.h>
 #import <CoreVideo/CoreVideo.h>
 #include <QDir>
+#include <QFile>
 #include <QStringList>
 #include <QDebug>
 
@@ -23,21 +24,23 @@ bool NativeVideoEncoder::createMP4(const QString& framesDir, const QString& outp
     if (error) return false;
 
     // --- SETUP VIDEO ---
-    // I frame sorgente sono NITIDI (verificato) e il bitrate è altissimo (~62 Mbps),
-    // eppure H.264 impastava le linee sottili del wireframe: la perdita è strutturale,
+    // I frame sorgente sono NITIDI (verificato) e il bitrate è altissimo, eppure
+    // H.264 impastava le linee sottili del wireframe: la perdita è strutturale,
     // dovuta al chroma subsampling 4:2:0. Le linee sono verde puro (quasi solo chroma)
     // su sfondo scuro -> il 4:2:0 ne dimezza la risoluzione di colore e le sfoca, e
-    // nessun bitrate lo recupera. Passiamo a HEVC (H.265): a parità di bitrate
-    // ricostruisce molto meglio le alte frequenze del chroma, riducendo l'effetto.
+    // nessun bitrate lo recupera del tutto. Usiamo HEVC (H.265): a parità di bitrate
+    // ricostruisce molto meglio le alte frequenze del chroma, riducendo l'effetto, e
+    // teniamo il bitrate molto alto (bpp 0.8) per spremere il massimo dal 4:2:0.
     // HEVC è accelerato in hardware sugli iPad recenti.
-    double bpp = 0.5;                        // bit per pixel per frame (molto alto)
+    double bpp = 0.8;                        // bit per pixel per frame (molto alto)
     long long bitRate = (long long)((double)width * (double)height * (double)fps * bpp);
-    long long minBitRate = 24000000LL;       // 24 Mbps minimo
+    long long minBitRate = 30000000LL;       // 30 Mbps minimo
     if (bitRate < minBitRate) bitRate = minBitRate;
 
     NSDictionary *compression = @{
         AVVideoAverageBitRateKey: @(bitRate),
-        AVVideoMaxKeyFrameIntervalKey: @(fps)   // almeno un keyframe al secondo
+        AVVideoMaxKeyFrameIntervalKey: @(fps),  // almeno un keyframe al secondo
+        AVVideoQualityKey: @(1.0)               // qualità massima richiesta all'encoder
     };
 
     NSDictionary *videoSettings = @{
@@ -50,8 +53,11 @@ bool NativeVideoEncoder::createMP4(const QString& framesDir, const QString& outp
     AVAssetWriterInput *writerInput = [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeVideo outputSettings:videoSettings];
     writerInput.expectsMediaDataInRealTime = NO;
 
+    // Formato BGRA: combacia byte-per-byte col Format_RGB32 di Qt (in memoria little-
+    // endian i pixel sono B,G,R,A), così i frame RAW si copiano con un memcpy senza
+    // scambiare canali. Il fallback BMP disegna comunque in questo stesso layout.
     NSDictionary *sourcePixelBufferAttributes = @{
-        (NSString *)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32ARGB),
+        (NSString *)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_32BGRA),
         (NSString *)kCVPixelBufferWidthKey: @(width),
         (NSString *)kCVPixelBufferHeightKey: @(height)
     };
@@ -105,9 +111,19 @@ bool NativeVideoEncoder::createMP4(const QString& framesDir, const QString& outp
     [videoWriter startSessionAtSourceTime:kCMTimeZero];
 
     QDir dir(framesDir);
-    dir.setNameFilters(QStringList() << "*.bmp");
+    // Preferiamo i frame RAW (RGBA a 4 byte/pixel, Format_RGB32 di Qt): si copiano
+    // direttamente nel CVPixelBuffer con un memcpy riga-per-riga, senza decodifica
+    // UIImage né redraw in CGContext (vecchia via BMP, ~2 conversioni a frame).
+    // Se non ci sono RAW (build vecchia / fallback) ricadiamo sui BMP via UIImage.
+    dir.setNameFilters(QStringList() << "*.raw");
     dir.setSorting(QDir::Name);
     QStringList files = dir.entryList();
+
+    const bool useRaw = !files.isEmpty();
+    if (!useRaw) {
+        dir.setNameFilters(QStringList() << "*.bmp");
+        files = dir.entryList();
+    }
 
 int frameCount = 0;
     bool videoDone = (files.count() == 0);
@@ -145,26 +161,59 @@ int frameCount = 0;
         if (!videoDone && writerInput.readyForMoreMediaData) {
             if (frameCount < files.count()) {
                 QString fullPath = dir.absoluteFilePath(files[frameCount]);
-                UIImage *image = [UIImage imageWithContentsOfFile:fullPath.toNSString()];
 
-                if (image) {
-                    CVPixelBufferRef buffer = NULL;
-                    CVReturn status = CVPixelBufferPoolCreatePixelBuffer(NULL, adaptor.pixelBufferPool, &buffer);
-                    if (status == kCVReturnSuccess && buffer != NULL) {
-                        CVPixelBufferLockBaseAddress(buffer, 0);
-                        void *pxdata = CVPixelBufferGetBaseAddress(buffer);
-                        CGColorSpaceRef rgbColorSpace = CGColorSpaceCreateDeviceRGB();
-                        CGContextRef context = CGBitmapContextCreate(pxdata, width, height, 8, CVPixelBufferGetBytesPerRow(buffer), rgbColorSpace, kCGImageAlphaNoneSkipFirst);
-                        if (context) {
-                            CGContextDrawImage(context, CGRectMake(0, 0, width, height), image.CGImage);
-                            CGContextRelease(context);
+                if (useRaw) {
+                    // --- VIA RAPIDA: frame RAW (4 byte/pixel) -> memcpy nel buffer ---
+                    // Il lato Qt salva i pixel come Format_RGB32, che in memoria (little-
+                    // endian) è B,G,R,A: coincide 1:1 col layout 32BGRA del pixel buffer,
+                    // quindi niente conversione né scambio di canali.
+                    QFile rawFile(fullPath);
+                    if (rawFile.open(QIODevice::ReadOnly)) {
+                        CVPixelBufferRef buffer = NULL;
+                        CVReturn status = CVPixelBufferPoolCreatePixelBuffer(NULL, adaptor.pixelBufferPool, &buffer);
+                        if (status == kCVReturnSuccess && buffer != NULL) {
+                            CVPixelBufferLockBaseAddress(buffer, 0);
+                            uchar *dst = (uchar *)CVPixelBufferGetBaseAddress(buffer);
+                            const size_t dstStride = CVPixelBufferGetBytesPerRow(buffer);
+                            const size_t srcStride = (size_t)width * 4; // RGB32: 4 byte/pixel
+
+                            // Copia riga per riga: dstStride può essere > srcStride (padding).
+                            for (int row = 0; row < height; ++row) {
+                                QByteArray line = rawFile.read(srcStride);
+                                if ((size_t)line.size() < srcStride) break; // file corto/corrotto
+                                memcpy(dst + row * dstStride, line.constData(), srcStride);
+                            }
+                            CVPixelBufferUnlockBaseAddress(buffer, 0);
+
+                            CMTime frameTime = CMTimeMake(frameCount, fps);
+                            [adaptor appendPixelBuffer:buffer withPresentationTime:frameTime];
+                            CVPixelBufferRelease(buffer);
                         }
-                        CGColorSpaceRelease(rgbColorSpace);
-                        CVPixelBufferUnlockBaseAddress(buffer, 0);
+                        rawFile.close();
+                    }
+                } else {
+                    // --- FALLBACK: vecchia via BMP via UIImage + CGContext ---
+                    UIImage *image = [UIImage imageWithContentsOfFile:fullPath.toNSString()];
+                    if (image) {
+                        CVPixelBufferRef buffer = NULL;
+                        CVReturn status = CVPixelBufferPoolCreatePixelBuffer(NULL, adaptor.pixelBufferPool, &buffer);
+                        if (status == kCVReturnSuccess && buffer != NULL) {
+                            CVPixelBufferLockBaseAddress(buffer, 0);
+                            void *pxdata = CVPixelBufferGetBaseAddress(buffer);
+                            CGColorSpaceRef rgbColorSpace = CGColorSpaceCreateDeviceRGB();
+                            // Pool BGRA: byte order little + skipFirst => layout B,G,R,A.
+                            CGContextRef context = CGBitmapContextCreate(pxdata, width, height, 8, CVPixelBufferGetBytesPerRow(buffer), rgbColorSpace, kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little);
+                            if (context) {
+                                CGContextDrawImage(context, CGRectMake(0, 0, width, height), image.CGImage);
+                                CGContextRelease(context);
+                            }
+                            CGColorSpaceRelease(rgbColorSpace);
+                            CVPixelBufferUnlockBaseAddress(buffer, 0);
 
-                        CMTime frameTime = CMTimeMake(frameCount, fps);
-                        [adaptor appendPixelBuffer:buffer withPresentationTime:frameTime];
-                        CVPixelBufferRelease(buffer);
+                            CMTime frameTime = CMTimeMake(frameCount, fps);
+                            [adaptor appendPixelBuffer:buffer withPresentationTime:frameTime];
+                            CVPixelBufferRelease(buffer);
+                        }
                     }
                 }
                 frameCount++;
