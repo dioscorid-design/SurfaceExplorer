@@ -1891,6 +1891,13 @@ MainWindow::MainWindow(QWidget *parent)
                 bool oldBlock2 = ui->radioTexColor1->blockSignals(true);
                 ui->radioTexColor1->setChecked(true);
                 ui->radioTexColor1->blockSignals(oldBlock2);
+            } else {
+                // Sfondo senza colori: oltre a disabilitarli, DESELEZIONIAMO i color slot,
+                // altrimenti un Color rimasto checked dalla superficie precedente mostra un
+                // pallino fantasma (grigio ma acceso). uncheckInExclusiveGroup perché un
+                // setChecked(false) diretto sull'unico acceso di un gruppo esclusivo è no-op.
+                uncheckInExclusiveGroup(ui->radioTexColor1);
+                uncheckInExclusiveGroup(ui->radioTexColor2);
             }
 
             bool oldBlock = ui->chkBoxTexture->blockSignals(true);
@@ -2030,9 +2037,12 @@ MainWindow::MainWindow(QWidget *parent)
                     QString tex = ui->lineTexture->toPlainText().trimmed();
                     QString disp = ui->lineVariations->toPlainText().trimmed();
 
-                    // Ignoriamo i Triplanar Mapping standard generati automaticamente
-                    bool isAutoTriplanar = tex.contains("vec3 blend = abs(n_model);");
-                    if (!tex.isEmpty() && !isAutoTriplanar) hasCode = true;
+                    // Ignoriamo le texture di DEFAULT generate automaticamente (non sono
+                    // codice scritto dall'utente da proteggere): la scacchiera procedurale
+                    // attuale e il vecchio Triplanar Mapping (per record/preset salvati prima).
+                    bool isAutoDefault = tex.contains("sin(pModel.x * 20.0) * sin(pModel.y * 20.0)")
+                                         || tex.contains("vec3 blend = abs(n_model);");
+                    if (!tex.isEmpty() && !isAutoDefault) hasCode = true;
                     if (!disp.isEmpty()) hasCode = true;
 
                 } else { // Parametrica
@@ -2121,8 +2131,6 @@ MainWindow::MainWindow(QWidget *parent)
                     QString currentTex = ui->lineTexture->toPlainText().trimmed();
 
                     if (currentTex.isEmpty()) {
-                        QString targetImg = ":/defaultray.png";
-
                         // Reset dei colori texture alla default: senza questo, dopo
                         // una texture RM con colori custom (u_col1/u_col2), la default
                         // ricompariva con i colori della precedente (m_texColor1/2 e
@@ -2130,33 +2138,32 @@ MainWindow::MainWindow(QWidget *parent)
                         m_texColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
                         m_texColor2 = Qt::black;
                         if (ui->glWidget) ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
-                        // Texture colorata appena attivata: il pallino dei Color va su
-                        // Color 1 (resetColorTargetToFirst), la tripla resta dov'è
-                        // (gruppi indipendenti). updateTextureUIState chiama già
-                        // onColorTargetChanged.
-                        updateTextureUIState(true, true);
 
-                        // Codice Triplanar Mapping automatico
-                        QString defaultRM = "//IMG:" + targetImg + "\n"
-                                                                   "vec3 blend = abs(n_model);\n"
-                                                                   "blend /= max(blend.x + blend.y + blend.z, 0.00001);\n"
-                                                                   "float scale = 0.5;\n"
-                                                                   "vec3 cX = texture(tex, pModel.yz * scale).rgb;\n"
-                                                                   "vec3 cY = texture(tex, pModel.xz * scale).rgb;\n"
-                                                                   "vec3 cZ = texture(tex, pModel.xy * scale).rgb;\n"
-                                                                   "textureCol = cX * blend.x + cY * blend.y + cZ * blend.z;";
+                        // Default RM = scacchiera PROCEDURALE pilotata da u_col1/u_col2
+                        // (come il preset "Checkboard"): niente immagine, così i picker
+                        // Color 1/2 sono attivi sulla texture di default. Contratto texture
+                        // RM: assegnare textureCol usando pModel e ubuf.u_col1/u_col2.
+                        QString defaultRM =
+                            "float pattern = sin(pModel.x * 20.0) * sin(pModel.y * 20.0);\n"
+                            "if (pattern > 0.0) {\n"
+                            "    textureCol = ubuf.u_col1;\n"
+                            "} else {\n"
+                            "    textureCol = ubuf.u_col2;\n"
+                            "}";
 
                         ui->lineTexture->setPlainText(defaultRM);
                         if (ui->glWidget) ui->glWidget->setTextureCode(defaultRM);
 
-                        // Carichiamo la texture dalla risorsa interna
-                        if (QFile::exists(targetImg)) {
-                            ui->glWidget->loadTextureFromFile(targetImg);
-                            m_isImageMode = true;
-                            m_currentTexturePath = targetImg;
-                        } else {
-                            generateTexture();
-                        }
+                        // Texture procedurale, non immagine.
+                        m_isImageMode = false;
+                        m_currentTexturePath.clear();
+
+                        // Texture colorata appena attivata: il pallino dei Color va su
+                        // Color 1 (resetColorTargetToFirst), la tripla resta dov'è
+                        // (gruppi indipendenti). updateTextureUIState chiama già
+                        // onColorTargetChanged. DEVE stare DOPO aver impostato lineTexture:
+                        // activeTextureUsesColors() in RM legge u_col1/u_col2 da lineTexture.
+                        updateTextureUIState(true, true);
                     }
                 }
                 // --- LOGICA PARAMETRICA (Tab 0) ---
