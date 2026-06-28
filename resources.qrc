@@ -315,6 +315,13 @@
         <file>presets/records/Paths/Warping Torus.json</file>
         <file>presets/records/Paths/P2_1.json</file>
         <file>presets/records/Paths/P2.json</file>
+        <file>presets/records/Wireframe/Roman Surface.json</file>
+        <file>presets/records/Wireframe/Mobius Strip.json</file>
+        <file>presets/records/Wireframe/Hyperbolic flow.json</file>
+        <file>presets/records/Wireframe/Villarceau Circles.json</file>
+        <file>presets/records/Wireframe/Iwasawa Torus.json</file>
+        <file>presets/records/Wireframe/Ellipsoid.json</file>
+        <file>presets/records/Wireframe/Boy Surface.json</file>
         <file>presets/records/Static/S3_slice1.json</file>
         <file>presets/records/Static/Kerr.json</file>
         <file>presets/records/Static/Klein Bottle_copy1.json</file>
