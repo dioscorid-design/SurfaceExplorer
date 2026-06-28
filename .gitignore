@@ -46,3 +46,8 @@ __pycache__/
 .DS_Store
 ._*
 Thumbs.db
+
+# --- App runtime folders (not source) ---
+# Recycle bin and exported renders created by the app at runtime
+presets/.trash/
+presets/renders/
