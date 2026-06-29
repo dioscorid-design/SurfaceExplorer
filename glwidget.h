@@ -502,6 +502,8 @@ private:
     float m_slowAccumMs = 0.0f;          // tempo accumulato sotto soglia
     float m_perfWarnLevelMs = 0.0f;      // livello a cui e' apparso l'ultimo avviso
                                          // (0 = armato); riappare se raddoppia (+100%)
+    bool m_wasAnimating = false;         // stato anim. al frame precedente: per saltare
+                                         // il primo frame dopo lo start (transitorio)
 
     bool m_surfaceAnimating = false;
     float m_manualTime = 0.0f;

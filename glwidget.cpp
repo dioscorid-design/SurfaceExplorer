@@ -199,50 +199,59 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     {
         const bool animating = isAnimating() || m_surfaceAnimating || m_isPathFollowing;
         if (animating) {
-            if (m_frameClock.isValid()) {
+            // Il PRIMO frame dopo l'avvio (o ri-avvio) dell'animazione non e' una
+            // misura valida: l'intervallo dal frame precedente include il tempo da
+            // FERMI (click di start, pausa UI), non il costo GPU. Misurarlo dava un
+            // dtMs enorme che inquinava l'EMA e faceva scattare un FALSO avviso
+            // proprio allo start/stop di preset scorrevoli. Lo saltiamo.
+            const bool justResumed = !m_wasAnimating;
+            if (m_frameClock.isValid() && !justResumed) {
                 float dtMs = (float)m_frameClock.nsecsElapsed() / 1.0e6f;
-                // Clamp: un primo frame o uno stallo da I/O non deve falsare la media.
-                // Tetto alto perche' a soglia 2 fps i frame "lenti" durano gia' ~500 ms
-                // e un peggioramento (riarmo a +100%) li porta oltre 1 s.
-                if (dtMs > 4000.0f) dtMs = 4000.0f;
-                // EMA: reattiva ma immune ai picchi isolati di un singolo frame.
-                m_avgFrameMs = 0.85f * m_avgFrameMs + 0.15f * dtMs;
+                // Un dtMs enorme (> ~2 s) durante l'animazione NON e' un frame lento:
+                // e' un buco da inattivita' (timer in pausa, finestra nascosta). Lo
+                // scartiamo del tutto invece di clamparlo-e-mediarlo nell'EMA.
+                if (dtMs <= 2000.0f) {
+                    // EMA: reattiva ma immune ai picchi isolati di un singolo frame.
+                    m_avgFrameMs = 0.85f * m_avgFrameMs + 0.15f * dtMs;
 
-                // Soglia per piattaforma: su Android il watchdog del driver GPU puo'
-                // uccidere l'app prima dell'avviso, quindi avvisiamo PRIMA (2 fps);
-                // su desktop, dove non c'e' kill, lasciamo scendere fino a ~1.5 fps.
+                    // Soglia per piattaforma: su Android il watchdog del driver GPU
+                    // puo' uccidere l'app prima dell'avviso, quindi avvisiamo PRIMA
+                    // (2 fps); su desktop, dove non c'e' kill, scendiamo a ~1.5 fps.
 #if defined(Q_OS_ANDROID)
-                constexpr float kSlowFrameMs = 500.0f;  // ~2 fps
+                    constexpr float kSlowFrameMs = 500.0f;  // ~2 fps
 #else
-                constexpr float kSlowFrameMs = 667.0f;  // ~1.5 fps
+                    constexpr float kSlowFrameMs = 667.0f;  // ~1.5 fps
 #endif
-                constexpr float kSlowDwellMs = 600.0f;  // sostenuto per >0.6 s
+                    constexpr float kSlowDwellMs = 600.0f;  // sostenuto per >0.6 s
 
-                if (m_avgFrameMs > kSlowFrameMs) {
-                    m_slowAccumMs += dtMs;
-                    // Riarmo per PEGGIORAMENTO: compare la prima volta (level==0) e poi
-                    // di nuovo solo se la media raddoppia rispetto a quando e' apparso
-                    // (+100%). Cosi' non tormenta ai cali lievi ma riavvisa se la
-                    // situazione degrada davvero. m_perfWarnLevelMs==0 = armato.
-                    const bool firstTime = (m_perfWarnLevelMs <= 0.0f);
-                    const bool worsened  = (m_avgFrameMs > m_perfWarnLevelMs * 2.0f);
-                    if (m_slowAccumMs >= kSlowDwellMs && (firstTime || worsened)) {
-                        m_perfWarnLevelMs = m_avgFrameMs;  // memorizza il livello mostrato
-                        emit performanceWarning();
+                    if (m_avgFrameMs > kSlowFrameMs) {
+                        m_slowAccumMs += dtMs;
+                        // Riarmo per PEGGIORAMENTO: compare la prima volta (level==0)
+                        // e poi solo se la media raddoppia rispetto a quando e'
+                        // apparso (+100%). Non tormenta ai cali lievi ma riavvisa se
+                        // la situazione degrada. m_perfWarnLevelMs==0 = armato.
+                        const bool firstTime = (m_perfWarnLevelMs <= 0.0f);
+                        const bool worsened  = (m_avgFrameMs > m_perfWarnLevelMs * 2.0f);
+                        if (m_slowAccumMs >= kSlowDwellMs && (firstTime || worsened)) {
+                            m_perfWarnLevelMs = m_avgFrameMs;  // livello mostrato
+                            emit performanceWarning();
+                        }
+                    } else {
+                        m_slowAccumMs = 0.0f;
+                        // Tornati sopra soglia (fluidi): riarmiamo, cosi' un successivo
+                        // rallentamento (anche dopo un cambio di preset, senza passare
+                        // dallo stop) fa ricomparire l'avviso.
+                        m_perfWarnLevelMs = 0.0f;
                     }
-                } else {
-                    m_slowAccumMs = 0.0f;
-                    // Tornati sopra soglia (fluidi): riarmiamo, cosi' un successivo
-                    // rallentamento (anche dopo un cambio di preset, senza passare
-                    // dallo stop) fa ricomparire l'avviso.
-                    m_perfWarnLevelMs = 0.0f;
-                }
+                } // chiude: if (dtMs <= 2000.0f)
             }
+            m_wasAnimating = true;
         } else {
             // Animazione ferma: azzeriamo gli accumulatori e riarmiamo.
             m_slowAccumMs = 0.0f;
             m_avgFrameMs = 16.0f;
             m_perfWarnLevelMs = 0.0f;
+            m_wasAnimating = false;
         }
         m_frameClock.restart();
     }
