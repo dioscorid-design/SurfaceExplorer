@@ -244,12 +244,12 @@ public:
     void pauseMotion();
     void resumeMotion();
 
-    // Il path-following e' acceso come effetto collaterale di
-    // setCameraPosAndDirection3D (chiamata a ogni frame del path). Va spento
-    // ESPLICITAMENTE quando MainWindow ferma il path, altrimenti m_isPathFollowing
-    // resta true e il watchdog di performance lo considera "in animazione" anche
-    // da fermo (falso avviso al resize dopo lo stop). Vedi render().
-    void setPathFollowing(bool following) { m_isPathFollowing = following; }
+    // "Il path sta ANIMANDO". Distinto da m_isPathFollowing, che e' la MODALITA'
+    // CAMERA (tangent vs center, render() riga ~298) e deve restare attiva anche
+    // dopo lo stop perche' l'utente non perda l'orientamento tangente. Questo flag
+    // serve SOLO al watchdog di performance per sapere se c'e' rendering continuo;
+    // MainWindow lo spegne allo stop del path. Vedi render().
+    void setPathAnimating(bool animating) { m_pathAnimating = animating; }
 
     void startAnimationTimer();
     void stopAnimationTimer();
@@ -486,7 +486,8 @@ private:
     float m_cameraPitch;
     float m_cameraRoll = 0.0f;
 
-    bool m_isPathFollowing = false;
+    bool m_isPathFollowing = false;   // MODALITA' camera tangent (persiste dopo stop)
+    bool m_pathAnimating = false;     // path in animazione (solo per il watchdog)
     QVector3D m_pathTarget;
     QVector3D m_pathUp;
     float m_pathRoll = 0.0f;

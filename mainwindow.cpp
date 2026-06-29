@@ -3326,13 +3326,14 @@ void MainWindow::performMasterStop()
     // Ferma le rotazioni 3D/4D delegando al suo tasto dedicato
     if (ui->glWidget && ui->glWidget->isAnimating()) onStopClicked();
 
-    // Ferma i path delegando ai loro tasti dedicati (che spengono anche il flag
-    // di path-following nel GLWidget). Lo forziamo comunque a false come rete di
-    // sicurezza: il flag e' acceso a ogni frame da setCameraPosAndDirection3D e
-    // se restasse sporco il watchdog di performance lo crederebbe "in animazione".
+    // Ferma i path delegando ai loro tasti dedicati (che spengono gia' il flag
+    // di animazione nel GLWidget). Lo forziamo comunque a false come rete di
+    // sicurezza per il watchdog. NB: NON tocchiamo m_isPathFollowing (modalita'
+    // camera tangent): deve persistere dopo lo stop, altrimenti la vista
+    // tornerebbe a center view al primo render (es. resize/fullscreen).
     if (pathTimer && pathTimer->isActive()) onDepartureClicked();
     if (pathTimer3D && pathTimer3D->isActive()) onDeparture3DClicked();
-    if (ui->glWidget) ui->glWidget->setPathFollowing(false);
+    if (ui->glWidget) ui->glWidget->setPathAnimating(false);
 
     // Ferma l'audio
     if (m_audioController && m_audioController->isPlaying()) {
@@ -4921,7 +4922,7 @@ void MainWindow::onDepartureClicked()
     // CASO 1: VOGLIAMO FERMARE
     if (pathTimer->isActive()) {
         pathTimer->stop();
-        if (ui->glWidget) ui->glWidget->setPathFollowing(false);
+        if (ui->glWidget) ui->glWidget->setPathAnimating(false);
         ui->btnDeparture->setText("DEPARTURE");
         checkPathFields();
         updateMasterButtonState();
@@ -4973,6 +4974,7 @@ void MainWindow::onDepartureClicked()
     }
 
     pathTimer->start();
+    if (ui->glWidget) ui->glWidget->setPathAnimating(true);
     ui->btnDeparture->setText("STOP");
 
     updateMasterButtonState();
@@ -5132,7 +5134,7 @@ void MainWindow::onDeparture3DClicked()
     // CASO 1: STOP
     if (pathTimer3D->isActive()) {
         pathTimer3D->stop();
-        if (ui->glWidget) ui->glWidget->setPathFollowing(false);
+        if (ui->glWidget) ui->glWidget->setPathAnimating(false);
         ui->btnDeparture3D->setText("DEPARTURE");
         checkPath3DFields();
         updateMasterButtonState();
@@ -5172,6 +5174,7 @@ void MainWindow::onDeparture3DClicked()
     }
 
     pathTimer3D->start();
+    if (ui->glWidget) ui->glWidget->setPathAnimating(true);
     ui->btnDeparture3D->setText("STOP");
 
     updateMasterButtonState();

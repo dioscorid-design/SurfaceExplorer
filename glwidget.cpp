@@ -197,7 +197,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // qui solo avviso. Si misura SOLO con animazione attiva, altrimenti gli
     // intervalli non rappresentano un throughput continuo.
     {
-        const bool animating = isAnimating() || m_surfaceAnimating || m_isPathFollowing;
+        const bool animating = isAnimating() || m_surfaceAnimating || m_pathAnimating;
         if (animating) {
             // Il PRIMO frame dopo l'avvio (o ri-avvio) dell'animazione non e' una
             // misura valida: l'intervallo dal frame precedente include il tempo da
