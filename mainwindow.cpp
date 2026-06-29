@@ -2485,8 +2485,9 @@ MainWindow::MainWindow(QWidget *parent)
     ui->btnDeparture3D->setEnabled(false); connect(ui->btnDeparture3D, &QPushButton::clicked, this, &MainWindow::onDeparture3DClicked);
 
     m_pathMode = ModeTangential;
+    m_pathMode3D = ModeTangential;
     ui->pushView->setText("Tangent View"); ui->pushView->setEnabled(false); connect(ui->pushView, &QPushButton::clicked, this, &MainWindow::onToggleViewClicked);
-    ui->pushView3D->setText("Tangent View"); ui->pushView3D->setEnabled(false); connect(ui->pushView3D, &QPushButton::clicked, this, &MainWindow::onToggleViewClicked);
+    ui->pushView3D->setText("Tangent View"); ui->pushView3D->setEnabled(false); connect(ui->pushView3D, &QPushButton::clicked, this, &MainWindow::onToggleView3DClicked);
 
     connect(ui->lineX_P, &QLineEdit::textChanged, this, &MainWindow::checkPathFields);
     connect(ui->lineY_P, &QLineEdit::textChanged, this, &MainWindow::checkPathFields);
@@ -5204,7 +5205,7 @@ void MainWindow::onPath3DTimerTick()
 
     QVector3D target;
 
-    if (m_pathMode == ModeTangential) {
+    if (m_pathMode3D == ModeTangential) {
         float delta = 0.1f;
         QVector4D futureData = ui->glWidget->getEngine()->evaluatePath3DPosition(pathTimeT3D + delta);
         target = futureData.toVector3D();
@@ -5232,23 +5233,31 @@ void MainWindow::checkPath3DFields()
 
 void MainWindow::updateViewButtonsEnabled()
 {
-    // Abilitati solo se almeno un path sta animando (4D o 3D): a path ferma il
-    // toggle non avrebbe effetto grafico (m_pathMode e' letto solo nei tick).
-    const bool anyPathRunning = (pathTimer && pathTimer->isActive())
-                             || (pathTimer3D && pathTimer3D->isActive());
-    ui->pushView->setEnabled(anyPathRunning);
-    ui->pushView3D->setEnabled(anyPathRunning);
+    // Ogni pulsante e' indipendente e abilitato solo mentre il SUO path anima:
+    // a path fermo il toggle non avrebbe effetto grafico (m_pathMode/m_pathMode3D
+    // sono letti solo nei rispettivi tick).
+    ui->pushView->setEnabled(pathTimer && pathTimer->isActive());
+    ui->pushView3D->setEnabled(pathTimer3D && pathTimer3D->isActive());
 }
 
-void MainWindow::onToggleViewClicked()
+void MainWindow::onToggleViewClicked()  // path 4D (pushView)
 {
     if (m_pathMode == ModeTangential) {
         m_pathMode = ModeCentered;
         ui->pushView->setText("Center View");
-        ui->pushView3D->setText("Center View");
     } else {
         m_pathMode = ModeTangential;
         ui->pushView->setText("Tangent View");
+    }
+}
+
+void MainWindow::onToggleView3DClicked()  // path 3D (pushView3D)
+{
+    if (m_pathMode3D == ModeTangential) {
+        m_pathMode3D = ModeCentered;
+        ui->pushView3D->setText("Center View");
+    } else {
+        m_pathMode3D = ModeTangential;
         ui->pushView3D->setText("Tangent View");
     }
 }
@@ -6761,21 +6770,20 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
         }
 
         if (root.contains("pathMode")) {
-            // Usa decltype per fare un cast sicuro all'Enum originale
-            m_pathMode = static_cast<decltype(m_pathMode)>(root["pathMode"].toInt());
+            // Il preset salva un solo pathMode (formato storico): lo applichiamo a
+            // entrambe le modalita' indipendenti (4D e 3D) per retrocompatibilita'.
+            CameraPathMode loaded = static_cast<CameraPathMode>(root["pathMode"].toInt());
+            m_pathMode = loaded;
+            m_pathMode3D = loaded;
         } else {
             // Retrocompatibilità per i vecchi record salvati prima di questa modifica
             m_pathMode = ModeTangential;
+            m_pathMode3D = ModeTangential;
         }
 
-        // Aggiorniamo subito i testi dei pulsanti nella UI
-        if (m_pathMode == ModeTangential) {
-            ui->pushView->setText("Tangent View");
-            ui->pushView3D->setText("Tangent View");
-        } else {
-            ui->pushView->setText("Center View");
-            ui->pushView3D->setText("Center View");
-        }
+        // Aggiorniamo subito i testi dei pulsanti nella UI (ciascuno sulla sua modalita')
+        ui->pushView->setText(m_pathMode == ModeTangential ? "Tangent View" : "Center View");
+        ui->pushView3D->setText(m_pathMode3D == ModeTangential ? "Tangent View" : "Center View");
         // Abilitazione coerente con lo stato dei path (a load fermo -> disabilitati).
         updateViewButtonsEnabled();
 

@@ -118,11 +118,12 @@ private slots:
     void onDeparture3DClicked();
     void onPath3DTimerTick();
     void checkPath3DFields();
-    void onToggleViewClicked();
-    // I pulsanti Tangent/Center View hanno effetto solo mentre un path anima
-    // (m_pathMode e' letto nei tick dei timer). A path ferma il toggle non
-    // produce alcun cambiamento grafico, quindi li abilitiamo solo a movimento
-    // avviato. Chiamato agli avvii/stop del path.
+    void onToggleViewClicked();    // toggle vista path 4D (pushView)
+    void onToggleView3DClicked();  // toggle vista path 3D (pushView3D)
+    // I pulsanti Tangent/Center View hanno effetto solo mentre il rispettivo path
+    // anima (m_pathMode/m_pathMode3D sono letti nei tick dei timer). A path fermo
+    // il toggle non produce alcun cambiamento grafico, quindi ogni pulsante e'
+    // abilitato solo mentre il SUO path e' in movimento. Chiamato agli avvii/stop.
     void updateViewButtonsEnabled();
 
     // ==========================================================
@@ -287,7 +288,8 @@ private:
         ModeTangential,
         ModeCentered
     };
-    CameraPathMode m_pathMode;
+    CameraPathMode m_pathMode;     // modalita' vista del path 4D (pushView)
+    CameraPathMode m_pathMode3D;   // modalita' vista del path 3D (pushView3D)
 
     bool m_masterStopped = false;
 
