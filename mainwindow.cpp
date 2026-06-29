@@ -2485,8 +2485,8 @@ MainWindow::MainWindow(QWidget *parent)
     ui->btnDeparture3D->setEnabled(false); connect(ui->btnDeparture3D, &QPushButton::clicked, this, &MainWindow::onDeparture3DClicked);
 
     m_pathMode = ModeTangential;
-    ui->pushView->setText("Tangent View"); connect(ui->pushView, &QPushButton::clicked, this, &MainWindow::onToggleViewClicked);
-    ui->pushView3D->setText("Tangent View"); connect(ui->pushView3D, &QPushButton::clicked, this, &MainWindow::onToggleViewClicked);
+    ui->pushView->setText("Tangent View"); ui->pushView->setEnabled(false); connect(ui->pushView, &QPushButton::clicked, this, &MainWindow::onToggleViewClicked);
+    ui->pushView3D->setText("Tangent View"); ui->pushView3D->setEnabled(false); connect(ui->pushView3D, &QPushButton::clicked, this, &MainWindow::onToggleViewClicked);
 
     connect(ui->lineX_P, &QLineEdit::textChanged, this, &MainWindow::checkPathFields);
     connect(ui->lineY_P, &QLineEdit::textChanged, this, &MainWindow::checkPathFields);
@@ -3334,6 +3334,7 @@ void MainWindow::performMasterStop()
     if (pathTimer && pathTimer->isActive()) onDepartureClicked();
     if (pathTimer3D && pathTimer3D->isActive()) onDeparture3DClicked();
     if (ui->glWidget) ui->glWidget->setPathAnimating(false);
+    updateViewButtonsEnabled();
 
     // Ferma l'audio
     if (m_audioController && m_audioController->isPlaying()) {
@@ -4923,6 +4924,7 @@ void MainWindow::onDepartureClicked()
     if (pathTimer->isActive()) {
         pathTimer->stop();
         if (ui->glWidget) ui->glWidget->setPathAnimating(false);
+        updateViewButtonsEnabled();
         ui->btnDeparture->setText("DEPARTURE");
         checkPathFields();
         updateMasterButtonState();
@@ -4975,6 +4977,7 @@ void MainWindow::onDepartureClicked()
 
     pathTimer->start();
     if (ui->glWidget) ui->glWidget->setPathAnimating(true);
+    updateViewButtonsEnabled();
     ui->btnDeparture->setText("STOP");
 
     updateMasterButtonState();
@@ -5135,6 +5138,7 @@ void MainWindow::onDeparture3DClicked()
     if (pathTimer3D->isActive()) {
         pathTimer3D->stop();
         if (ui->glWidget) ui->glWidget->setPathAnimating(false);
+        updateViewButtonsEnabled();
         ui->btnDeparture3D->setText("DEPARTURE");
         checkPath3DFields();
         updateMasterButtonState();
@@ -5175,6 +5179,7 @@ void MainWindow::onDeparture3DClicked()
 
     pathTimer3D->start();
     if (ui->glWidget) ui->glWidget->setPathAnimating(true);
+    updateViewButtonsEnabled();
     ui->btnDeparture3D->setText("STOP");
 
     updateMasterButtonState();
@@ -5223,6 +5228,16 @@ void MainWindow::checkPath3DFields()
     } else {
         ui->btnDeparture3D->setEnabled(filled >= 2);
     }
+}
+
+void MainWindow::updateViewButtonsEnabled()
+{
+    // Abilitati solo se almeno un path sta animando (4D o 3D): a path ferma il
+    // toggle non avrebbe effetto grafico (m_pathMode e' letto solo nei tick).
+    const bool anyPathRunning = (pathTimer && pathTimer->isActive())
+                             || (pathTimer3D && pathTimer3D->isActive());
+    ui->pushView->setEnabled(anyPathRunning);
+    ui->pushView3D->setEnabled(anyPathRunning);
 }
 
 void MainWindow::onToggleViewClicked()
@@ -6761,6 +6776,8 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
             ui->pushView->setText("Center View");
             ui->pushView3D->setText("Center View");
         }
+        // Abilitazione coerente con lo stato dei path (a load fermo -> disabilitati).
+        updateViewButtonsEnabled();
 
         if (root.contains("speeds")) {
             QJsonObject spd = root["speeds"].toObject();

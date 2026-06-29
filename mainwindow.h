@@ -119,6 +119,11 @@ private slots:
     void onPath3DTimerTick();
     void checkPath3DFields();
     void onToggleViewClicked();
+    // I pulsanti Tangent/Center View hanno effetto solo mentre un path anima
+    // (m_pathMode e' letto nei tick dei timer). A path ferma il toggle non
+    // produce alcun cambiamento grafico, quindi li abilitiamo solo a movimento
+    // avviato. Chiamato agli avvii/stop del path.
+    void updateViewButtonsEnabled();
 
     // ==========================================================
     // SCRIPTING ENGINE
