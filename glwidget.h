@@ -244,6 +244,13 @@ public:
     void pauseMotion();
     void resumeMotion();
 
+    // Il path-following e' acceso come effetto collaterale di
+    // setCameraPosAndDirection3D (chiamata a ogni frame del path). Va spento
+    // ESPLICITAMENTE quando MainWindow ferma il path, altrimenti m_isPathFollowing
+    // resta true e il watchdog di performance lo considera "in animazione" anche
+    // da fermo (falso avviso al resize dopo lo stop). Vedi render().
+    void setPathFollowing(bool following) { m_isPathFollowing = following; }
+
     void startAnimationTimer();
     void stopAnimationTimer();
     void stopAllTimers();
