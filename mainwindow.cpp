@@ -2255,6 +2255,31 @@ MainWindow::MainWindow(QWidget *parent)
         if (ui->glWidget) ui->glWidget->update();
     });
 
+    // Avviso di rallentamento: il GLWidget segnala quando il rendering resta
+    // sotto soglia troppo a lungo. Lasciamo all'utente la scelta tra continuare
+    // (a suo rischio) o fermare l'animazione per modificare i parametri.
+    // QueuedConnection: il segnale parte dal thread di rendering del QRhiWidget,
+    // il QMessageBox deve invece girare nel thread GUI.
+    connect(ui->glWidget, &GLWidget::performanceWarning, this, [this]() {
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Warning);
+        box.setWindowTitle(tr("Rendering is slowing down"));
+        box.setText(tr("The animation is slowing down significantly."));
+        box.setInformativeText(tr("Pushing the complexity further (steps, effects, "
+                                  "resolution) may degrade the image or, on some "
+                                  "devices, freeze the application.\n\n"
+                                  "You can keep going at your own risk, or stop the "
+                                  "animation to adjust the parameters."));
+        QPushButton *continueBtn = box.addButton(tr("Keep going"), QMessageBox::AcceptRole);
+        QPushButton *stopBtn     = box.addButton(tr("Stop animation"), QMessageBox::RejectRole);
+        box.setDefaultButton(stopBtn);
+        box.exec();
+        if (box.clickedButton() == stopBtn) {
+            performMasterStop();
+        }
+        Q_UNUSED(continueBtn);
+    }, Qt::QueuedConnection);
+
     connect(ui->btnWireUPlus,  &QPushButton::clicked, this, [this](){ ui->glWidget->increaseWireframeUDensity(); });
     connect(ui->btnWireVPlus,  &QPushButton::clicked, this, [this](){ ui->glWidget->increaseWireframeVDensity(); });
     connect(ui->btnWireUMinus, &QPushButton::clicked, this, [this](){ ui->glWidget->decreaseWireframeUDensity(); });

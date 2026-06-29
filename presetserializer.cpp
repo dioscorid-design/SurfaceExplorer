@@ -975,19 +975,12 @@ void PresetSerializer::saveScript()
     if (fileName.isEmpty()) return;
     if (!fileName.endsWith(".json", Qt::CaseInsensitive)) fileName += ".json";
 
-    // Conferma sovrascrittura: il dialog è aperto con DontUseNativeDialog (e su
-    // mobile con MobileSaveDialog), che NON mostrano il prompt nativo di
-    // sovrascrittura. Senza questo controllo saveScript rimpiazzava un file
-    // esistente in silenzio (il backup di backupBeforeOverwrite è muto). Chiediamo
-    // conferma esplicita, così l'utente non perde un preset per sbaglio.
-    if (QFile::exists(fileName)) {
-        const QMessageBox::StandardButton choice = QMessageBox::question(
-            m_mainWindow, "Overwrite file?",
-            QString("The file \"%1\" already exists.\n\nDo you want to overwrite it?")
-                .arg(QFileInfo(fileName).fileName()),
-            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-        if (choice != QMessageBox::Yes) return;
-    }
+    // NB: la conferma di sovrascrittura la dà GIA' il dialogo di salvataggio:
+    // su desktop il prompt "replace?" di QFileDialog::getSaveFileName, su mobile
+    // il bottone Save del MobileSaveDialog che diventa "Overwrite?" (vedi
+    // MobileSaveDialog::onSaveClicked). Un QMessageBox manuale qui sarebbe un
+    // secondo avviso ridondante ("sovrascrivere" dopo "rimpiazzare"), quindi non
+    // lo aggiungiamo. Il backup di backupBeforeOverwrite resta come rete di sicurezza.
 
     QJsonObject root;
 

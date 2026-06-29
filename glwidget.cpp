@@ -188,6 +188,66 @@ void GLWidget::initialize(QRhiCommandBuffer *cb)
 void GLWidget::render(QRhiCommandBuffer *cb)
 {
     // ==========================================================
+    // WATCHDOG DI PERFORMANCE (avviso da rallentamento)
+    // ==========================================================
+    // Misuriamo l'intervallo tra frame consecutivi: quando un'animazione e'
+    // attiva ma il throughput resta sotto ~13 fps abbastanza a lungo, il carico
+    // GPU e' eccessivo e avvisiamo l'utente (una sola volta). Non modifichiamo la
+    // qualita' (l'adaptive su raySteps fu provata e rimossa perche' peggiorava):
+    // qui solo avviso. Si misura SOLO con animazione attiva, altrimenti gli
+    // intervalli non rappresentano un throughput continuo.
+    {
+        const bool animating = isAnimating() || m_surfaceAnimating || m_isPathFollowing;
+        if (animating) {
+            if (m_frameClock.isValid()) {
+                float dtMs = (float)m_frameClock.nsecsElapsed() / 1.0e6f;
+                // Clamp: un primo frame o uno stallo da I/O non deve falsare la media.
+                // Tetto alto perche' a soglia 2 fps i frame "lenti" durano gia' ~500 ms
+                // e un peggioramento (riarmo a +100%) li porta oltre 1 s.
+                if (dtMs > 4000.0f) dtMs = 4000.0f;
+                // EMA: reattiva ma immune ai picchi isolati di un singolo frame.
+                m_avgFrameMs = 0.85f * m_avgFrameMs + 0.15f * dtMs;
+
+                // Soglia per piattaforma: su Android il watchdog del driver GPU puo'
+                // uccidere l'app prima dell'avviso, quindi avvisiamo PRIMA (2 fps);
+                // su desktop, dove non c'e' kill, lasciamo scendere fino a ~1.5 fps.
+#if defined(Q_OS_ANDROID)
+                constexpr float kSlowFrameMs = 500.0f;  // ~2 fps
+#else
+                constexpr float kSlowFrameMs = 667.0f;  // ~1.5 fps
+#endif
+                constexpr float kSlowDwellMs = 600.0f;  // sostenuto per >0.6 s
+
+                if (m_avgFrameMs > kSlowFrameMs) {
+                    m_slowAccumMs += dtMs;
+                    // Riarmo per PEGGIORAMENTO: compare la prima volta (level==0) e poi
+                    // di nuovo solo se la media raddoppia rispetto a quando e' apparso
+                    // (+100%). Cosi' non tormenta ai cali lievi ma riavvisa se la
+                    // situazione degrada davvero. m_perfWarnLevelMs==0 = armato.
+                    const bool firstTime = (m_perfWarnLevelMs <= 0.0f);
+                    const bool worsened  = (m_avgFrameMs > m_perfWarnLevelMs * 2.0f);
+                    if (m_slowAccumMs >= kSlowDwellMs && (firstTime || worsened)) {
+                        m_perfWarnLevelMs = m_avgFrameMs;  // memorizza il livello mostrato
+                        emit performanceWarning();
+                    }
+                } else {
+                    m_slowAccumMs = 0.0f;
+                    // Tornati sopra soglia (fluidi): riarmiamo, cosi' un successivo
+                    // rallentamento (anche dopo un cambio di preset, senza passare
+                    // dallo stop) fa ricomparire l'avviso.
+                    m_perfWarnLevelMs = 0.0f;
+                }
+            }
+        } else {
+            // Animazione ferma: azzeriamo gli accumulatori e riarmiamo.
+            m_slowAccumMs = 0.0f;
+            m_avgFrameMs = 16.0f;
+            m_perfWarnLevelMs = 0.0f;
+        }
+        m_frameClock.restart();
+    }
+
+    // ==========================================================
     // PARTE COMUNE (SEMPRE IN ESECUZIONE)
     // ==========================================================
     QRhiResourceUpdateBatch *resourceUpdates = rhi()->nextResourceUpdateBatch();
@@ -2801,6 +2861,22 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
             if (!safeCode.contains(QRegularExpression("\\bvec3\\s+u_col1\\b"))) extHelpers += "#define u_col1 ubuf.u_col1\n";
             if (!safeCode.contains(QRegularExpression("\\bvec3\\s+u_col2\\b"))) extHelpers += "#define u_col2 ubuf.u_col2\n";
             dynamicBody = extHelpers + safeCode + "\n";
+        }
+        else if (safeCode.contains("getCustomColor")) {
+            // Lo snippet definisce GIA' la propria getCustomColor(vec2 in_uv) — e' il
+            // formato dei preset texture parametrica/superficie. Senza questo ramo
+            // ricadeva nel fallback che lo ri-avvolgeva in un'altra getCustomColor,
+            // producendo una funzione annidata (illegale in GLSL) -> "unexpected
+            // LEFT_BRACE". Lo iniettiamo cosi' com'e' (come fa createFragmentShaderSource),
+            // mappando iTime/u_col1/u_col2, e gli forniamo noi la void main() perche'
+            // nel background non preesiste.
+            QString extHelpers = "#define iResolution vec3(1.0, 1.0, 1.0)\n#define iTime ubuf.u_time\n";
+            if (!safeCode.contains(QRegularExpression("\\bvec3\\s+u_col1\\b"))) extHelpers += "#define u_col1 ubuf.u_col1\n";
+            if (!safeCode.contains(QRegularExpression("\\bvec3\\s+u_col2\\b"))) extHelpers += "#define u_col2 ubuf.u_col2\n";
+            dynamicBody = extHelpers + safeCode + "\n"
+                          "void main() {\n"
+                          "  out_FragColor = vec4(getCustomColor(v_texCoord), ubuf.alpha);\n"
+                          "}\n";
         }
         else {
             if (!safeCode.contains("return")) {

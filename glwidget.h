@@ -279,6 +279,11 @@ public:
 
 signals:
     void rotationChanged();
+    // Emesso quando il throughput di rendering resta basso (animazione che
+    // rallenta sensibilmente) abbastanza a lungo da segnalare un carico GPU
+    // eccessivo. MainWindow lo intercetta per avvisare l'utente. Vedi la logica
+    // di misura intervallo-frame in render().
+    void performanceWarning();
 
 protected:
     void initialize(QRhiCommandBuffer *cb) override;
@@ -487,6 +492,16 @@ private:
     QTimer* m_animTimer = nullptr;
     QElapsedTimer m_elapsedTimer;
     QElapsedTimer m_surfaceTimer;
+
+    // --- Watchdog di performance (avviso da rallentamento) ---
+    // Misura l'intervallo TRA frame consecutivi (non la durata di render(): in
+    // QRhiWidget render() registra solo i comandi, la GPU li esegue dopo, quindi
+    // il throughput reale si legge dal ritmo dei frame, non dall'encoding CPU).
+    QElapsedTimer m_frameClock;          // delta dall'ultimo frame
+    float m_avgFrameMs = 16.0f;          // media mobile (EMA) dell'intervallo, ms
+    float m_slowAccumMs = 0.0f;          // tempo accumulato sotto soglia
+    float m_perfWarnLevelMs = 0.0f;      // livello a cui e' apparso l'ultimo avviso
+                                         // (0 = armato); riappare se raddoppia (+100%)
 
     bool m_surfaceAnimating = false;
     float m_manualTime = 0.0f;
