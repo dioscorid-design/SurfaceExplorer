@@ -6068,7 +6068,10 @@ void MainWindow::onRunRaymarchTextureClicked()
 
     bool active = ui->chkBoxTexture->isChecked();
     bool texAnim = active && (texColorHasTime || dispHasTime);
-    if (texAnim) m_masterStopped = false;
+    // NB: NON azzeriamo m_masterStopped. setSurfaceTextureAnimating avvia il clock
+    // texture da solo (non gated dallo stop globale), quindi la texture si anima
+    // comunque; azzerare il flag sbloccherebbe la GEOMETRIA e dopo un master STOP
+    // un toggle della texture potrebbe far ripartire la superficie (t in defU/V/W).
 
     ui->glWidget->setSurfaceTextureAnimating(texAnim);
 
@@ -6220,8 +6223,10 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
                 if (ui->glWidget->isSurfaceTextureAnimating()) {
                     ui->glWidget->setSurfaceTextureAnimating(false);
                 } else {
+                    // NON azzeriamo m_masterStopped (come il ramo background sopra):
+                    // il clock texture parte da solo, sbloccare lo stop globale
+                    // farebbe ripartire la geometria ferma dopo un master STOP.
                     ui->glWidget->setSurfaceTextureAnimating(true);
-                    m_masterStopped = false;
                 }
             }
 
