@@ -177,16 +177,30 @@ int frameCount = 0;
                             const size_t dstStride = CVPixelBufferGetBytesPerRow(buffer);
                             const size_t srcStride = (size_t)width * 4; // RGB32: 4 byte/pixel
 
+                            // I buffer vengono da un POOL riciclato: se NON scriviamo
+                            // tutte le righe (raw corto), quelle rimaste contengono il
+                            // garbage di un frame precedente -> banda di rumore in cima
+                            // (le righe mancanti finiscono in alto per il flip verticale).
+                            // Azzeriamo prima della copia: al peggio una banda NERA.
+                            memset(dst, 0, dstStride * (size_t)height);
+
                             // Copia riga per riga: dstStride può essere > srcStride (padding).
+                            bool incomplete = false;
                             for (int row = 0; row < height; ++row) {
                                 QByteArray line = rawFile.read(srcStride);
-                                if ((size_t)line.size() < srcStride) break; // file corto/corrotto
+                                if ((size_t)line.size() < srcStride) { incomplete = true; break; } // file corto/corrotto
                                 memcpy(dst + row * dstStride, line.constData(), srcStride);
                             }
                             CVPixelBufferUnlockBaseAddress(buffer, 0);
 
-                            CMTime frameTime = CMTimeMake(frameCount, fps);
-                            [adaptor appendPixelBuffer:buffer withPresentationTime:frameTime];
+                            // Un frame troncato (tipicamente l'ULTIMO, scritto mentre la
+                            // registrazione si ferma) lo SCARTIAMO invece di emettere un
+                            // frame parziale: un fotogramma in meno e' impercettibile, una
+                            // banda di rumore/nero no.
+                            if (!incomplete) {
+                                CMTime frameTime = CMTimeMake(frameCount, fps);
+                                [adaptor appendPixelBuffer:buffer withPresentationTime:frameTime];
+                            }
                             CVPixelBufferRelease(buffer);
                         }
                         rawFile.close();
