@@ -1881,16 +1881,19 @@ MainWindow::MainWindow(QWidget *parent)
             // m_bgTargetGroup) e il ramo "else" di questo handler ripristina il contesto
             // superficie. Niente più disabilitazione di radioSurface/radioBorder/btnBorder.
 
-            // Picker Colore attivi solo se lo sfondo è acceso E usa u_col1/u_col2.
-            bool bgUsesColors = bgTexActive &&
-                                (m_bgTextureCode.contains("u_col1") || m_bgTextureCode.contains("u_col2"));
-            ui->radioTexColor1->setEnabled(bgUsesColors);
-            ui->radioTexColor2->setEnabled(bgUsesColors);
+            // Picker Colore attivi solo se lo sfondo è acceso E usa quel colore:
+            // ciascuno indipendente (una texture che usa solo u_col1 non abilita col2).
+            bool bgCol1 = bgTexActive && m_bgTextureCode.contains("u_col1");
+            bool bgCol2 = bgTexActive && m_bgTextureCode.contains("u_col2");
+            ui->radioTexColor1->setEnabled(bgCol1);
+            ui->radioTexColor2->setEnabled(bgCol2);
 
-            if (bgUsesColors) {
-                bool oldBlock2 = ui->radioTexColor1->blockSignals(true);
-                ui->radioTexColor1->setChecked(true);
-                ui->radioTexColor1->blockSignals(oldBlock2);
+            if (bgCol1 || bgCol2) {
+                // Accendiamo il picker ABILITATO (col1 se usato, altrimenti col2).
+                QRadioButton *target = bgCol1 ? ui->radioTexColor1 : ui->radioTexColor2;
+                bool oldBlock2 = target->blockSignals(true);
+                target->setChecked(true);
+                target->blockSignals(oldBlock2);
             } else {
                 // Sfondo senza colori: oltre a disabilitarli, DESELEZIONIAMO i color slot,
                 // altrimenti un Color rimasto checked dalla superficie precedente mostra un
@@ -1988,16 +1991,17 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->chkBoxTexture, &QCheckBox::toggled, this, [this](bool checked){
         if (ui->radioBackground->isChecked()) {
             ui->glWidget->setBackgroundTextureEnabled(checked);
-            // Picker Colore solo se lo sfondo è acceso E usa u_col1/u_col2.
-            bool bgUsesColors = checked &&
-                                (m_bgTextureCode.contains("u_col1") || m_bgTextureCode.contains("u_col2"));
-            ui->radioTexColor1->setEnabled(bgUsesColors);
-            ui->radioTexColor2->setEnabled(bgUsesColors);
+            // Picker Colore solo se lo sfondo è acceso E usa quel colore (indipendenti).
+            bool bgCol1 = checked && m_bgTextureCode.contains("u_col1");
+            bool bgCol2 = checked && m_bgTextureCode.contains("u_col2");
+            ui->radioTexColor1->setEnabled(bgCol1);
+            ui->radioTexColor2->setEnabled(bgCol2);
 
-            if (bgUsesColors && !ui->radioTexColor1->isChecked() && !ui->radioTexColor2->isChecked()) {
-                bool oldBlock = ui->radioTexColor1->blockSignals(true);
-                ui->radioTexColor1->setChecked(true);
-                ui->radioTexColor1->blockSignals(oldBlock);
+            if ((bgCol1 || bgCol2) && !ui->radioTexColor1->isChecked() && !ui->radioTexColor2->isChecked()) {
+                QRadioButton *target = bgCol1 ? ui->radioTexColor1 : ui->radioTexColor2;
+                bool oldBlock = target->blockSignals(true);
+                target->setChecked(true);
+                target->blockSignals(oldBlock);
             }
 
             if (!checked) {
@@ -3762,14 +3766,16 @@ void MainWindow::handleTextureSelection(int index)
         ui->chkBoxTexture->setChecked(true);
         ui->chkBoxTexture->blockSignals(oldBlock);
 
-        // Picker Colore solo se lo sfondo usa u_col1/u_col2 (un'immagine no).
-        bool bgUsesColors = m_bgTextureCode.contains("u_col1") || m_bgTextureCode.contains("u_col2");
-        ui->radioTexColor1->setEnabled(bgUsesColors);
-        ui->radioTexColor2->setEnabled(bgUsesColors);
-        if (bgUsesColors) {
-            bool oldRad = ui->radioTexColor1->blockSignals(true);
-            ui->radioTexColor1->setChecked(true);
-            ui->radioTexColor1->blockSignals(oldRad);
+        // Picker Colore solo se lo sfondo usa quel colore (un'immagine no; indipendenti).
+        bool bgCol1 = m_bgTextureCode.contains("u_col1");
+        bool bgCol2 = m_bgTextureCode.contains("u_col2");
+        ui->radioTexColor1->setEnabled(bgCol1);
+        ui->radioTexColor2->setEnabled(bgCol2);
+        if (bgCol1 || bgCol2) {
+            QRadioButton *target = bgCol1 ? ui->radioTexColor1 : ui->radioTexColor2;
+            bool oldRad = target->blockSignals(true);
+            target->setChecked(true);
+            target->blockSignals(oldRad);
         }
 
         onColorTargetChanged();
@@ -5852,14 +5858,16 @@ void MainWindow::onApplyTextureScriptClicked()
         ui->chkBoxTexture->setChecked(true);
         ui->chkBoxTexture->blockSignals(oldBlock);
 
-        // I picker Colore servono solo se lo script di sfondo usa u_col1/u_col2.
-        bool bgUsesColors = code.contains("u_col1") || code.contains("u_col2");
-        ui->radioTexColor1->setEnabled(bgUsesColors);
-        ui->radioTexColor2->setEnabled(bgUsesColors);
-        if (bgUsesColors && !ui->radioTexColor1->isChecked() && !ui->radioTexColor2->isChecked()) {
-            bool oldRad = ui->radioTexColor1->blockSignals(true);
-            ui->radioTexColor1->setChecked(true);
-            ui->radioTexColor1->blockSignals(oldRad);
+        // I picker Colore servono solo se lo script di sfondo usa quel colore (indipendenti).
+        bool bgCol1 = code.contains("u_col1");
+        bool bgCol2 = code.contains("u_col2");
+        ui->radioTexColor1->setEnabled(bgCol1);
+        ui->radioTexColor2->setEnabled(bgCol2);
+        if ((bgCol1 || bgCol2) && !ui->radioTexColor1->isChecked() && !ui->radioTexColor2->isChecked()) {
+            QRadioButton *target = bgCol1 ? ui->radioTexColor1 : ui->radioTexColor2;
+            bool oldRad = target->blockSignals(true);
+            target->setChecked(true);
+            target->blockSignals(oldRad);
         }
 
         if (ui->glWidget) {
@@ -6943,15 +6951,16 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
         ui->chkBoxTexture->setChecked(bgTexEnabled);
         ui->chkBoxTexture->blockSignals(oldBlock);
 
-        // Picker Colore attivi solo se lo sfondo è acceso E usa u_col1/u_col2.
-        bool bgUsesColors = bgTexEnabled &&
-                            (bgCode.contains("u_col1") || bgCode.contains("u_col2"));
-        ui->radioTexColor1->setEnabled(bgUsesColors);
-        ui->radioTexColor2->setEnabled(bgUsesColors);
-        if (bgUsesColors && !ui->radioTexColor1->isChecked() && !ui->radioTexColor2->isChecked()) {
-            bool oldRad = ui->radioTexColor1->blockSignals(true);
-            ui->radioTexColor1->setChecked(true);
-            ui->radioTexColor1->blockSignals(oldRad);
+        // Picker Colore attivi solo se lo sfondo è acceso E usa quel colore (indipendenti).
+        bool bgCol1 = bgTexEnabled && bgCode.contains("u_col1");
+        bool bgCol2 = bgTexEnabled && bgCode.contains("u_col2");
+        ui->radioTexColor1->setEnabled(bgCol1);
+        ui->radioTexColor2->setEnabled(bgCol2);
+        if ((bgCol1 || bgCol2) && !ui->radioTexColor1->isChecked() && !ui->radioTexColor2->isChecked()) {
+            QRadioButton *target = bgCol1 ? ui->radioTexColor1 : ui->radioTexColor2;
+            bool oldRad = target->blockSignals(true);
+            target->setChecked(true);
+            target->blockSignals(oldRad);
         }
         // Surface resta SEMPRE abilitato anche in editing sfondo: è il modo per tornare
         // alla superficie (la tripla Surface/Background/Border va sempre navigabile) e
@@ -9189,8 +9198,14 @@ void MainWindow::updateScriptButtonText() {
 // devono lasciare i picker Colore spenti per non illudere l'utente.
 bool MainWindow::activeTextureUsesColors() const
 {
+    // OR delle due granulari: la texture usa ALMENO uno dei due colori.
+    return activeTextureUsesColorToken("u_col1") || activeTextureUsesColorToken("u_col2");
+}
+
+bool MainWindow::activeTextureUsesColorToken(const QString &token) const
+{
     if (ui->radioBackground->isChecked()) {
-        return m_bgTextureCode.contains("u_col1") || m_bgTextureCode.contains("u_col2");
+        return m_bgTextureCode.contains(token);
     }
 
     // In Ray Marching la texture vive SEMPRE nel campo dedicato (lineTexture) e i
@@ -9200,17 +9215,17 @@ bool MainWindow::activeTextureUsesColors() const
     // più sotto accendeva i picker a torto su texture RM senza u_col1/u_col2. In RM
     // la verità è solo nel codice del campo texture.
     if (ui->tabModeSelector->currentIndex() == 1) {
-        QString rm = ui->lineTexture->toPlainText();
-        return rm.contains("u_col1") || rm.contains("u_col2");
+        return ui->lineTexture->toPlainText().contains(token);
     }
 
     // Parametrico: la scacchiera procedurale di default (generateTexture() in C++)
-    // non è uno script ma usa comunque m_texColor1/m_texColor2 -> i picker servono.
+    // non è uno script ma usa comunque ENTRAMBI m_texColor1/m_texColor2 -> entrambi
+    // i picker servono, quindi true per qualunque token.
     if (!m_isCustomMode && !m_isImageMode) {
         return true;
     }
 
-    return m_surfaceTextureCode.contains("u_col1") || m_surfaceTextureCode.contains("u_col2");
+    return m_surfaceTextureCode.contains(token);
 }
 
 bool MainWindow::hasSavableTexture() const
@@ -9247,9 +9262,15 @@ void MainWindow::updateTextureUIState(bool isTextureOn, bool resetColorTargetToF
     //    editano il colore uniforme delle linee, quindi Color1/2 non hanno senso e
     //    vanno spenti (lo sfondo invece può mostrare la sua texture anche in wireframe).
     bool surfaceWireframe = ui->radioWF->isChecked() && !ui->radioBackground->isChecked();
-    bool colorsActive = isTextureOn && activeTextureUsesColors() && !surfaceWireframe;
-    ui->radioTexColor1->setEnabled(colorsActive);
-    ui->radioTexColor2->setEnabled(colorsActive);
+    bool baseActive = isTextureOn && !surfaceWireframe;
+    // Ogni picker abilitato solo se la texture referenzia il SUO colore: una texture
+    // che usa solo u_col1 (es. "Xor") lascia spento il picker di col2, che sarebbe
+    // inerte e fuorviante. colorsActive (almeno un colore) governa il "pallino".
+    bool col1Active = baseActive && activeTextureUsesColorToken("u_col1");
+    bool col2Active = baseActive && activeTextureUsesColorToken("u_col2");
+    bool colorsActive = col1Active || col2Active;
+    ui->radioTexColor1->setEnabled(col1Active);
+    ui->radioTexColor2->setEnabled(col2Active);
 
     // 1. "Surface" resta SEMPRE abilitato: è l'indicatore del target (il pallino deve
     //    restare visibile sulla superficie). Anche con una texture SENZA colori
@@ -9266,13 +9287,16 @@ void MainWindow::updateTextureUIState(bool isTextureOn, bool resetColorTargetToF
     //      texture colorata attiva; in quel caso almeno un Color dev'essere acceso
     //      (default Color 1); altrimenti vanno entrambi spenti (sono pure disabilitati).
     if (colorsActive) {
-        // Texture colorata: assicuriamo Color 1 acceso. Sempre su nuova texture
+        // Texture colorata: assicuriamo un Color acceso. Sempre su nuova texture
         // (resetColorTargetToFirst) o se nessuno dei due Color era selezionato.
+        // Accendiamo il picker ABILITATO: col1 se la texture lo usa, altrimenti col2
+        // (una texture che usa solo u_col2 non deve selezionare un col1 disabilitato).
         if (resetColorTargetToFirst ||
             (!ui->radioTexColor1->isChecked() && !ui->radioTexColor2->isChecked())) {
-            bool ob1 = ui->radioTexColor1->blockSignals(true);
-            ui->radioTexColor1->setChecked(true);
-            ui->radioTexColor1->blockSignals(ob1);
+            QRadioButton *target = col1Active ? ui->radioTexColor1 : ui->radioTexColor2;
+            bool ob1 = target->blockSignals(true);
+            target->setChecked(true);
+            target->blockSignals(ob1);
         }
     } else {
         // Nessuna texture colorata: spegniamo i color slot (gruppo esclusivo: serve
