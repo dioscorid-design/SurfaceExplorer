@@ -9432,17 +9432,17 @@ void MainWindow::updateMasterButtonState()
             ui->btnRunParametric->setText(eqModuleMoving ? "Stop" : "Run");
             // Run "one-shot" senza animazione: quando il modulo non è in moto e la
             // modifica è già stata applicata (m_parametricApplied), il tasto è
-            // disabilitato finché le equazioni non cambiano. Se è in moto è un
-            // tasto Stop e resta attivo; appena le equazioni vengono modificate
-            // markUserEdit azzera il flag e lo riabilita.
-            ui->btnRunParametric->setEnabled(eqModuleMoving || !m_parametricApplied);
+            // disabilitato finché le equazioni non cambiano. ECCEZIONE: se l'equazione
+            // contiene 't' (t-motion) il Run da fermo NON è un no-op, serve a
+            // RIAVVIARE l'animazione del modulo (es. dopo un master STOP), quindi
+            // resta abilitato. Se è in moto è un tasto Stop e resta comunque attivo.
+            ui->btnRunParametric->setEnabled(eqModuleMoving || !m_parametricApplied || geomHasTime);
         }
         if (ui->btnImplicit) {
             ui->btnImplicit->setText(eqModuleMoving ? "Stop" : "Run");
-            // Stessa logica one-shot del tasto parametrico: disabilitato quando la
-            // modifica è già applicata e nulla è in moto; l'edit dell'equazione lo
-            // riabilita azzerando m_implicitApplied.
-            ui->btnImplicit->setEnabled(eqModuleMoving || !m_implicitApplied);
+            // Stessa logica one-shot del tasto parametrico, con la stessa eccezione
+            // t-motion: un'equazione con 't' resta riavviabile da fermo.
+            ui->btnImplicit->setEnabled(eqModuleMoving || !m_implicitApplied || geomHasTime);
         }
 
         // B. Orologio della Texture di Superficie
