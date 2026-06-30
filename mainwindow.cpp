@@ -4067,7 +4067,10 @@ void MainWindow::handleTextureSelection(int index)
         }
     }
     bool texAnim = texColorAnim || dispAnim;
-    if (texAnim) m_masterStopped = false;
+    // NB: NON azzeriamo m_masterStopped. Il clock texture (setSurfaceTextureAnimating)
+    // parte da solo nel GLWidget e non e' gated dallo stop globale, quindi la texture
+    // si anima comunque; azzerare il flag resusciterebbe la GEOMETRIA ferma dopo un
+    // master STOP (vedi nota in onTreeItemClicked, sezione texture).
 
     if (ui->glWidget) {
         // Unico orologio del modulo: colore + displacement insieme.
@@ -6224,9 +6227,13 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
 
         // 4. Se non è un match (o se la texture era spenta), carichiamola normalmente
 
-        // FIX 1: Sblocca lo stato di STOP globale. Così handleTextureSelection
-        // è libera di attivare il motore se la nuova texture contiene u_time.
-        m_masterStopped = false;
+        // NB: NON azzeriamo m_masterStopped qui. Il clock del modulo TEXTURE
+        // (setSurface/BackgroundTextureAnimating in GLWidget) parte da solo e NON
+        // e' gated da m_masterStopped, quindi una texture animata si anima comunque.
+        // Azzerare il flag globale sbloccava invece anche la GEOMETRIA: dopo un
+        // master STOP, caricare una texture di sfondo e poi spegnerla faceva
+        // RIPARTIRE la superficie (quando 't' e' nelle composizioni defU/defV/defW).
+        // Caricare una texture tocca SOLO il modulo texture.
 
         handleTextureSelection(index);
 
