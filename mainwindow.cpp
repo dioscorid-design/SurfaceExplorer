@@ -8871,7 +8871,20 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
 
 bool MainWindow::hasTimeVariable(const QString& code) {
     // Commenti rimossi per evitare falsi positivi (es. "don't")
-    return stripCodeComments(code).contains(kReTimeVar);
+    QString cleaned = stripCodeComments(code);
+
+    // Rimuoviamo il blocco audio //SOUND_BEGIN..//SOUND_END prima del match: la
+    // firma mainSound(int samp, float time) e le sue 'time'/'t' LOCALI sono del
+    // sintetizzatore audio, NON dell'uniforme tempo grafico. Senza questo, ogni
+    // record con un suono (la maggioranza) risultava "animato" anche a geometria
+    // statica -> clock accesi a vuoto e potenziali riavvii spuri. La 't'/'iTime'
+    // del codice GRAFICO (es. "float t = iTime;") resta e segnala animazione vera.
+    // Stesso regex (con blocchi annidati) di cleanCodeForComparison.
+    QRegularExpression soundBlock(R"(//\s*SOUND_BEGIN.*?//\s*SOUND_END\n?)",
+        QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
+    while (cleaned.contains(soundBlock)) cleaned.remove(soundBlock);
+
+    return cleaned.contains(kReTimeVar);
 }
 
 QString MainWindow::extractAndResolveImagePath(const QString& scriptCode) {
