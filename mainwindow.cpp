@@ -9428,21 +9428,30 @@ void MainWindow::updateMasterButtonState()
         // mostra "Stop" se la geometria o il flusso geodetico sono in moto.
         // Il tasto parametrico e quello implicito condividono lo stesso stato.
         bool eqModuleMoving = isGeomVisuallyMoving || geoFlowRunning;
+
+        // Se la superficie è definita da uno SCRIPT (dock Script), la geometria è
+        // gestita da lì: il dock Equations non è in uso e i suoi tasti Run/Stop
+        // (entrambi i tab) vanno DISABILITATI. Il controllo del modulo passa al
+        // tasto Run del dock Script (btnRunCurrentScript).
+        bool surfaceFromScript = !m_surfaceScriptText.trimmed().isEmpty();
+
         if (ui->btnRunParametric) {
-            ui->btnRunParametric->setText(eqModuleMoving ? "Stop" : "Run");
+            ui->btnRunParametric->setText((eqModuleMoving && !surfaceFromScript) ? "Stop" : "Run");
             // Run "one-shot" senza animazione: quando il modulo non è in moto e la
             // modifica è già stata applicata (m_parametricApplied), il tasto è
             // disabilitato finché le equazioni non cambiano. ECCEZIONE: se l'equazione
             // contiene 't' (t-motion) il Run da fermo NON è un no-op, serve a
             // RIAVVIARE l'animazione del modulo (es. dopo un master STOP), quindi
-            // resta abilitato. Se è in moto è un tasto Stop e resta comunque attivo.
-            ui->btnRunParametric->setEnabled(eqModuleMoving || !m_parametricApplied || geomHasTime);
+            // resta abilitato. Sempre disabilitato se la superficie è da script.
+            ui->btnRunParametric->setEnabled(!surfaceFromScript &&
+                                             (eqModuleMoving || !m_parametricApplied || geomHasTime));
         }
         if (ui->btnImplicit) {
-            ui->btnImplicit->setText(eqModuleMoving ? "Stop" : "Run");
+            ui->btnImplicit->setText((eqModuleMoving && !surfaceFromScript) ? "Stop" : "Run");
             // Stessa logica one-shot del tasto parametrico, con la stessa eccezione
-            // t-motion: un'equazione con 't' resta riavviabile da fermo.
-            ui->btnImplicit->setEnabled(eqModuleMoving || !m_implicitApplied || geomHasTime);
+            // t-motion; e disabilitato anch'esso se la superficie è da script.
+            ui->btnImplicit->setEnabled(!surfaceFromScript &&
+                                        (eqModuleMoving || !m_implicitApplied || geomHasTime));
         }
 
         // B. Orologio della Texture di Superficie
