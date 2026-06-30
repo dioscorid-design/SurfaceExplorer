@@ -292,6 +292,11 @@ private:
     CameraPathMode m_pathMode3D;   // modalita' vista del path 3D (pushView3D)
 
     bool m_masterStopped = false;
+    // L'utente ha fermato il suono ESPLICITAMENTE (tasto Stop Sound): in tal caso
+    // applyStartSideEffects() non deve riaccenderlo a ogni re-commit di equazione/
+    // texture (Enter ad animazione attiva passa per onStartClicked). Si riarma solo
+    // su un vero master Start. Stesso pattern di m_masterStopped.
+    bool m_userStoppedSound = false;
 
     // Run del dock Equations (tab Parametric) senza animazione (nessun 't'):
     // dopo aver applicato la modifica grafica il tasto va DISABILITATO finché le

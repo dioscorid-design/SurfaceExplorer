@@ -3397,7 +3397,10 @@ void MainWindow::applyStartSideEffects()
         onDeparture3DClicked();
     }
 
-    if (m_audioController && !m_audioController->isPlaying()) {
+    // Non riaccendere il suono se l'utente l'ha fermato esplicitamente: un commit
+    // di equazione/texture (Enter ad animazione attiva) arriva qui via onStartClicked
+    // e altrimenti lo farebbe ripartire come un master Start.
+    if (m_audioController && !m_audioController->isPlaying() && !m_userStoppedSound) {
         QString codeToAnalyze = m_soundScriptText + "\n" + m_surfaceScriptText + "\n" +
                                 m_surfaceTextureCode + "\n" + m_bgTextureCode;
         if (codeToAnalyze.trimmed().isEmpty()) codeToAnalyze = ui->txtScriptEditor->toPlainText();
@@ -4196,10 +4199,15 @@ void MainWindow::onStartClicked()
     }
 
     // --- 2. BLOCCO START GLOBALE (MASTER) / RUN (dock Equations) ---
-    if (runDockOnly ||
-            (m_btnStart && m_btnStart->text().toUpper() == "START" && sender() == m_btnStart)) {
+    const bool masterStart = (m_btnStart && m_btnStart->text().toUpper() == "START" && sender() == m_btnStart);
+    if (runDockOnly || masterStart) {
         m_masterStopped = false;
         snapshotActiveEquations();
+    }
+    // Solo un vero master Start riarma il riavvio automatico del suono (un Run di
+    // dock o un commit di equazione NON deve riaccendere un suono fermato a mano).
+    if (masterStart) {
+        m_userStoppedSound = false;
     }
 
     // ==========================================================
@@ -6072,6 +6080,9 @@ void MainWindow::onRunSoundClicked()
     // Se sta suonando, ferma
     if (ui->btnRunCurrentScript->text() == "Stop Sound") {
         m_audioController->stopAll();
+        // Stop ESPLICITO dell'utente: un successivo commit di equazione/texture non
+        // deve riaccendere il suono (vedi gate in applyStartSideEffects).
+        m_userStoppedSound = true;
         if (m_currentScriptMode == ScriptModeSound) {
             ui->btnRunCurrentScript->setText("Run Sound");
         }
@@ -6090,6 +6101,9 @@ void MainWindow::onRunSoundClicked()
         updateMasterButtonState();
         return;
     }
+
+    // Avvio esplicito dell'utente: riarma il riavvio automatico del suono.
+    m_userStoppedSound = false;
 
     // playFromScript ha già impostato "Stop Sound" sul ramo che suona.
     updateMasterButtonState();
@@ -6557,6 +6571,9 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
 void MainWindow::applyMotionExample(const LibraryItem &data)
 {
     m_masterStopped = false;
+    // Nuovo record caricato: dimentica un eventuale stop manuale del suono
+    // precedente, cosi' l'audio del nuovo preset puo' partire.
+    m_userStoppedSound = false;
 
     InputValidator::resetGeodesicWarning();
 
