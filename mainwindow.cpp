@@ -6015,7 +6015,11 @@ void MainWindow::onApplyTextureScriptClicked()
 
     // RUN texture: agisce SOLO sul clock della texture interessata (Problema 3).
     // La superficie e l'altro canale texture NON vengono toccati.
-    m_masterStopped = false;
+    // NB: NON azzeriamo m_masterStopped. I clock texture (setBackground/
+    // SurfaceTextureAnimating) partono da soli nel GLWidget e non sono gated dallo
+    // stop globale, quindi la texture si anima comunque. Azzerare il flag globale
+    // sbloccava invece la GEOMETRIA: dopo un master STOP, applicare una texture di
+    // sfondo e poi spegnerla faceva ripartire la superficie (t nelle composizioni).
     if (ui->radioBackground->isChecked()) {
         // RUN sulla texture di SFONDO: solo il clock background.
         bool bgNeedsAnim = m_bgTextureCode.contains(timeRegex);
