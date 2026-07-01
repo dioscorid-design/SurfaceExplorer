@@ -361,32 +361,33 @@ MainWindow::MainWindow(QWidget *parent)
         };
 
         for (QDockWidget* dock : docks) {
-            // Se il dock è visibile e contiene la ScrollArea creata dal manager
-            if (dock->isVisible() && dock->widget()) {
-                if (kbdHeight > 0) {
-                    // Comprime l'area di scorrimento aggiungendo spazio vuoto in fondo
-                    dock->widget()->setContentsMargins(0, 0, 0, kbdHeight);
+            if (!dock->widget()) continue;
+            if (kbdHeight > 0) {
+                // Comprime solo il dock realmente visibile (quello su cui si digita).
+                if (!dock->isVisible()) continue;
+                dock->widget()->setContentsMargins(0, 0, 0, kbdHeight);
 
-                    // Trova il campo di testo su cui stiamo digitando
-                    QWidget* fw = this->focusWidget();
-                    if (fw) {
-                        // Un piccolo timer permette al layout di aggiornarsi prima di scorrere
-                        QTimer::singleShot(100, fw, [fw]() {
-                            QWidget* p = fw->parentWidget();
-                            while (p) {
-                                if (QScrollArea* sa = qobject_cast<QScrollArea*>(p)) {
-                                    // Forza lo scorrimento verso il campo, lasciando 50px di margine
-                                    sa->ensureWidgetVisible(fw, 0, 50);
-                                    break;
-                                }
-                                p = p->parentWidget();
+                // Trova il campo di testo su cui stiamo digitando
+                QWidget* fw = this->focusWidget();
+                if (fw) {
+                    // Un piccolo timer permette al layout di aggiornarsi prima di scorrere
+                    QTimer::singleShot(100, fw, [fw]() {
+                        QWidget* p = fw->parentWidget();
+                        while (p) {
+                            if (QScrollArea* sa = qobject_cast<QScrollArea*>(p)) {
+                                // Forza lo scorrimento verso il campo, lasciando 50px di margine
+                                sa->ensureWidgetVisible(fw, 0, 50);
+                                break;
                             }
-                        });
-                    }
-                } else {
-                    // Tastiera chiusa: il dock torna a coprire l'intera altezza
-                    dock->widget()->setContentsMargins(0, 0, 0, 0);
+                            p = p->parentWidget();
+                        }
+                    });
                 }
+            } else {
+                // Tastiera chiusa: ripristina SEMPRE il margine, anche se il dock non
+                // e' visibile in questo istante (vedi ramo iOS): condizionarlo a
+                // isVisible() lascia il dock dimezzato dopo un MobileSaveDialog.
+                dock->widget()->setContentsMargins(0, 0, 0, 0);
             }
         }
     });
@@ -412,25 +413,32 @@ MainWindow::MainWindow(QWidget *parent)
                 };
 
                 for (QDockWidget* dock : docks) {
-                    if (dock->isVisible() && dock->widget()) {
-                        if (kbdHeight > 0) {
-                            dock->widget()->setContentsMargins(0, 0, 0, kbdHeight);
-                            QWidget* fw = this->focusWidget();
-                            if (fw) {
-                                QTimer::singleShot(100, fw, [fw]() {
-                                    QWidget* p = fw->parentWidget();
-                                    while (p) {
-                                        if (QScrollArea* sa = qobject_cast<QScrollArea*>(p)) {
-                                            sa->ensureWidgetVisible(fw, 0, 50);
-                                            break;
-                                        }
-                                        p = p->parentWidget();
+                    if (!dock->widget()) continue;
+                    if (kbdHeight > 0) {
+                        // La compressione ha senso solo sul dock realmente visibile
+                        // (quello su cui si sta digitando).
+                        if (!dock->isVisible()) continue;
+                        dock->widget()->setContentsMargins(0, 0, 0, kbdHeight);
+                        QWidget* fw = this->focusWidget();
+                        if (fw) {
+                            QTimer::singleShot(100, fw, [fw]() {
+                                QWidget* p = fw->parentWidget();
+                                while (p) {
+                                    if (QScrollArea* sa = qobject_cast<QScrollArea*>(p)) {
+                                        sa->ensureWidgetVisible(fw, 0, 50);
+                                        break;
                                     }
-                                });
-                            }
-                        } else {
-                            dock->widget()->setContentsMargins(0, 0, 0, 0);
+                                    p = p->parentWidget();
+                                }
+                            });
                         }
+                    } else {
+                        // Tastiera chiusa: ripristina SEMPRE il margine, anche se il
+                        // dock non e' visibile in questo istante. Se lo si condiziona a
+                        // isVisible() (come prima), chiudendo un MobileSaveDialog mentre
+                        // il dock e' momentaneamente coperto il margine resta e il dock
+                        // riappare dimezzato in verticale. Azzerarlo da invisibile e' innocuo.
+                        dock->widget()->setContentsMargins(0, 0, 0, 0);
                     }
                 }
             });
