@@ -459,7 +459,7 @@ bool InputValidator::validateParentheses(QWidget* parent, const QString& cleanCo
     return true;
 }
 
-bool InputValidator::validateExpressionSyntax(QWidget* parent, const QString& expr, const QString& fieldName)
+bool InputValidator::validateExpressionSyntax(QWidget* parent, const QString& expr, const QString& fieldName, bool* outWarned)
 {
     if (expr.trimmed().isEmpty()) return true; // vuoto = valido
 
@@ -494,7 +494,10 @@ bool InputValidator::validateExpressionSyntax(QWidget* parent, const QString& ex
         notify(parent, QMessageBox::Warning, "Possible Syntax Error",
                              QString("Field '%1' contains consecutive operators. Use parentheses "
                                      "to clarify (e.g. 'a*(-b)' instead of 'a*-b').").arg(fieldName));
-        // warning non blocca: solo se vuoi rigore, return false.
+        // warning non blocca: solo se vuoi rigore, return false. Segnaliamo pero'
+        // al chiamante che un warning e' stato mostrato, cosi' non aggiunge un
+        // secondo popup (es. errore di compilazione) per lo stesso input.
+        if (outWarned) *outWarned = true;
     }
     // 5. Virgola decimale "sospetta" non separata da operatori
     // (opzionale; molti utenti scrivono "1,5" pensando italiano)
@@ -502,6 +505,7 @@ bool InputValidator::validateExpressionSyntax(QWidget* parent, const QString& ex
         notify(parent, QMessageBox::Warning, "Decimal Format",
                              QString("Field '%1' seems to use a comma as decimal separator. "
                                      "Use a dot (e.g. '1.5').").arg(fieldName));
+        if (outWarned) *outWarned = true;
     }
     return true;
 }
@@ -532,10 +536,10 @@ bool InputValidator::validateAndParseLimits(QWidget* parent, const QVector<Limit
     return true;
 }
 
-bool InputValidator::validateFieldList(QWidget* parent, const QVector<NamedField>& fields)
+bool InputValidator::validateFieldList(QWidget* parent, const QVector<NamedField>& fields, bool* outWarned)
 {
     for (const auto& f : fields) {
-        if (!validateExpressionSyntax(parent, f.text, f.name))
+        if (!validateExpressionSyntax(parent, f.text, f.name, outWarned))
             return false;
         if (!validateIdentifiers(parent, f.text, f.name))
             return false;

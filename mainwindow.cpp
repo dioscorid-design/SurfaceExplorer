@@ -4973,6 +4973,7 @@ void MainWindow::onDepartureClicked()
     QString eqBeta  = getSafeEq(ui->lineBeta_P);
     QString eqGamma = getSafeEq(ui->lineGamma_P);
 
+    bool syntaxWarned = false;
     if (!InputValidator::validateFieldList(this, {
         {"X(t)", eqX},
         {"Y(t)", eqY},
@@ -4981,7 +4982,7 @@ void MainWindow::onDepartureClicked()
         {"Alpha(t)", eqAlpha},
         {"Beta(t)", eqBeta},
         {"Gamma(t)", eqGamma}
-    })) {
+    }, &syntaxWarned)) {
         return; // Ferma l'avvio se c'è un errore matematico
     }
 
@@ -4989,7 +4990,9 @@ void MainWindow::onDepartureClicked()
     bool ok = ui->glWidget->getEngine()->compilePathEquations(eqX, eqY, eqZ, eqP, eqAlpha, eqBeta, eqGamma);
 
     if (!ok) {
-        QMessageBox::warning(this, "Error", "Path 4D compilation error .\nCheck the syntax.");
+        // Niente secondo popup se un warning di sintassi e' gia' comparso (stesso errore).
+        if (!syntaxWarned)
+            QMessageBox::warning(this, "Error", "Path 4D compilation error .\nCheck the syntax.");
         return;
     }
 
@@ -5180,18 +5183,22 @@ void MainWindow::onDeparture3DClicked()
     QString eqZ = getSafeEq(ui->lineZ_P3D);
     QString eqR = getSafeEq(ui->lineR_P3D);
 
+    bool syntaxWarned = false;
     if (!InputValidator::validateFieldList(this, {
     {"X(t)", eqX},
         {"Y(t)", eqY},
         {"Z(t)", eqZ},
         {"Roll(t)", eqR}
-    })) {
+    }, &syntaxWarned)) {
         return;
     }
 
     bool ok = ui->glWidget->getEngine()->compilePath3DEquations(eqX, eqY, eqZ, eqR);
     if (!ok) {
-        QMessageBox::warning(this, "Error", "4D path compilation error.\nCheck the syntax.");
+        // Niente secondo popup se l'utente e' gia' stato avvisato da un warning di
+        // sintassi (es. operatori consecutivi): sarebbe lo stesso errore due volte.
+        if (!syntaxWarned)
+            QMessageBox::warning(this, "Error", "3D path compilation error.\nCheck the syntax.");
         return;
     }
 

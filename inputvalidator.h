@@ -56,10 +56,13 @@ public:
     static void showMetricAmbiguousConstantWarning(QWidget* parent, const QStringList& names);
     static bool validateParentheses(QWidget* parent, const QString& cleanCode);
 
-    // Validatore generico di sintassi
-    static bool validateExpressionSyntax(QWidget* parent, const QString& expr, const QString& fieldName);
+    // Validatore generico di sintassi.
+    // outWarned (opzionale): posto a true se e' stato mostrato un WARNING non
+    // bloccante (es. operatori consecutivi). Il chiamante puo' usarlo per NON
+    // mostrare un secondo popup (es. errore di compilazione) sullo stesso errore.
+    static bool validateExpressionSyntax(QWidget* parent, const QString& expr, const QString& fieldName, bool* outWarned = nullptr);
     static bool validateAndParseLimits(QWidget* parent, const QVector<LimitField>& fields, ParseFn parse, QVector<float>& outValues);
-    static bool validateFieldList(QWidget* parent, const QVector<NamedField>& fields);
+    static bool validateFieldList(QWidget* parent, const QVector<NamedField>& fields, bool* outWarned = nullptr);
     static bool validateConstants(QWidget* parent, const QVector<NamedField>& fields, ParseFn parse);
     static bool validateIdentifiers(QWidget* parent, const QString& expr, const QString& fieldName);
     static void showNegativeConstantError(QWidget* parent, const QString& name);
