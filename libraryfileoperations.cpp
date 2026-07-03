@@ -190,7 +190,7 @@ LibraryFileOperations::resolveMoveCollision(const QString &fileName, QString &de
     return choice;
 }
 
-void LibraryFileOperations::performPasteExample()
+void LibraryFileOperations::performPasteExample(const QString &destDirOverride)
 {
     static bool isPasting = false;
     if (isPasting) return;
@@ -201,18 +201,24 @@ void LibraryFileOperations::performPasteExample()
         return;
     }
 
-    QString destDir;
-    QTreeWidgetItem *currentItem = m_mainWindow->getCurrentLibraryItem();
     QSettings settings;
 
-    if (currentItem && currentItem->data(0, Qt::UserRole + 10).isValid()) {
-        destDir = currentItem->data(0, Qt::UserRole + 10).toString();
-    }
-    else if (currentItem && currentItem->data(0, Qt::UserRole).isValid()) {
-        destDir = QFileInfo(m_mainWindow->m_libraryManager.getSurface(currentItem->data(0, Qt::UserRole).toInt()).filePath).absolutePath();
-    }
-    else if (currentItem && currentItem->data(0, Qt::UserRole + 2).isValid()) {
-        destDir = QFileInfo(m_mainWindow->m_libraryManager.getMotion(currentItem->data(0, Qt::UserRole + 2).toInt()).filePath).absolutePath();
+    // Destinazione esplicita (ramo principale): il menu ci passa gia' la root della
+    // categoria, quindi saltiamo del tutto la deduzione da item selezionato/euristica.
+    QString destDir = destDirOverride;
+
+    if (destDir.isEmpty()) {
+        QTreeWidgetItem *currentItem = m_mainWindow->getCurrentLibraryItem();
+
+        if (currentItem && currentItem->data(0, Qt::UserRole + 10).isValid()) {
+            destDir = currentItem->data(0, Qt::UserRole + 10).toString();
+        }
+        else if (currentItem && currentItem->data(0, Qt::UserRole).isValid()) {
+            destDir = QFileInfo(m_mainWindow->m_libraryManager.getSurface(currentItem->data(0, Qt::UserRole).toInt()).filePath).absolutePath();
+        }
+        else if (currentItem && currentItem->data(0, Qt::UserRole + 2).isValid()) {
+            destDir = QFileInfo(m_mainWindow->m_libraryManager.getMotion(currentItem->data(0, Qt::UserRole + 2).toInt()).filePath).absolutePath();
+        }
     }
 
     if (destDir.isEmpty()) {
@@ -226,11 +232,20 @@ void LibraryFileOperations::performPasteExample()
             // cadeva nell'else (Surfaces) e usava la chiave sbagliata.
             destDir = settings.value("pathRecords", rootPath + "/records").toString();
         } else if (firstFile.contains("sounds", Qt::CaseInsensitive) || firstFile.contains("sound", Qt::CaseInsensitive)) {
-            destDir = settings.value("pathSounds", rootPath + "/Sounds").toString();
+            destDir = settings.value("pathSounds", rootPath + "/sounds").toString();
         } else {
-            destDir = settings.value("pathSurfaces", rootPath + "/Surfaces").toString();
+            // Case MINUSCOLO: la cartella reale e' "/surfaces" (mainwindow ~7430);
+            // "/Surfaces" non esiste su iOS case-sensitive.
+            destDir = settings.value("pathSurfaces", rootPath + "/surfaces").toString();
         }
     }
+
+    // Su iOS/Android la sottocartella di destinazione puo' non esistere ancora nel
+    // container (prima scrittura): senza questo mkpath sia QFile::rename che
+    // QFile::copy falliscono in silenzio -> opCount 0 -> nessun refresh -> il paste
+    // "non fa nulla". Stessa garanzia gia' applicata in saveMotion/saveSurface.
+    if (!destDir.isEmpty() && !QDir(destDir).exists())
+        QDir().mkpath(destDir);
 
     int opCount = 0;
     int applyToAllChoice = -1;
@@ -303,30 +318,46 @@ void LibraryFileOperations::performPasteExample()
     if (opCount > 0) {
         if (!m_mainWindow->m_isCopyOperation) m_mainWindow->m_cutFilePaths.clear();
         m_mainWindow->refreshRepositories();
+    } else {
+        // opCount 0 con lista non vuota = copy/rename falliti (permessi, cartella
+        // sparita) oppure destinazione = origine. Prima era silenzio totale ("il
+        // paste non fa niente"): su mobile diamo un riscontro esplicito.
+        notifyPasteNoOp(destDir);
     }
     isPasting = false;
 }
 
-void LibraryFileOperations::performPasteTexture()
+void LibraryFileOperations::performPasteTexture(const QString &destDirOverride)
 {
     if (m_mainWindow->m_cutTexturePaths.isEmpty()) return;
 
-    QString destDir;
-    QTreeWidgetItem *currentItem = m_mainWindow->getCurrentLibraryItem();
     QSettings settings;
 
-    if (currentItem && currentItem->data(0, Qt::UserRole + 10).isValid()) {
-        destDir = currentItem->data(0, Qt::UserRole + 10).toString();
-    }
-    else if (currentItem && currentItem->data(0, Qt::UserRole + 1).isValid()) {
-        destDir = QFileInfo(m_mainWindow->m_libraryManager.getTexture(currentItem->data(0, Qt::UserRole + 1).toInt()).filePath).absolutePath();
-    }
-    else {
-        QString rootPath = settings.value("libraryRootPath").toString();
-        destDir = settings.value("pathTextures", rootPath + "/Textures").toString();
+    // Destinazione esplicita dal ramo principale (vedi performPasteExample).
+    QString destDir = destDirOverride;
+
+    if (destDir.isEmpty()) {
+        QTreeWidgetItem *currentItem = m_mainWindow->getCurrentLibraryItem();
+
+        if (currentItem && currentItem->data(0, Qt::UserRole + 10).isValid()) {
+            destDir = currentItem->data(0, Qt::UserRole + 10).toString();
+        }
+        else if (currentItem && currentItem->data(0, Qt::UserRole + 1).isValid()) {
+            destDir = QFileInfo(m_mainWindow->m_libraryManager.getTexture(currentItem->data(0, Qt::UserRole + 1).toInt()).filePath).absolutePath();
+        }
+        else {
+            QString rootPath = settings.value("libraryRootPath").toString();
+            // Case MINUSCOLO: cartella reale "/textures" (mainwindow ~7431).
+            destDir = settings.value("pathTextures", rootPath + "/textures").toString();
+        }
     }
 
     if (destDir.isEmpty()) return;
+
+    // Vedi performPasteExample: garantiamo l'esistenza della cartella di
+    // destinazione, altrimenti su mobile copy/rename falliscono in silenzio.
+    if (!QDir(destDir).exists())
+        QDir().mkpath(destDir);
 
     int opCount = 0;
     int applyToAllChoice = -1;
@@ -382,6 +413,8 @@ void LibraryFileOperations::performPasteTexture()
     if (opCount > 0) {
         if (!m_mainWindow->m_isCopyOperation) m_mainWindow->m_cutTexturePaths.clear();
         m_mainWindow->refreshRepositories();
+    } else {
+        notifyPasteNoOp(destDir);
     }
 }
 
@@ -556,4 +589,17 @@ void LibraryFileOperations::backupBeforeOverwrite(const QString &filePath)
         m_mainWindow->ui->actionUndoDelete->setText("Undo Overwrite");
         m_mainWindow->ui->actionUndoDelete->setEnabled(true);
     }
+}
+
+void LibraryFileOperations::notifyPasteNoOp(const QString &destDir)
+{
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    QMessageBox::information(
+        m_mainWindow, "Paste",
+        QString("Nothing was pasted.\n\nThe items may already be in this folder, "
+                "or the destination could not be written:\n%1")
+            .arg(destDir));
+#else
+    Q_UNUSED(destDir);
+#endif
 }

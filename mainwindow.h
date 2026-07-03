@@ -154,8 +154,8 @@ private slots:
     // FILE I/O & CLIPBOARD
     // ==========================================================
     void saveSurfaceToFile(const QString &suggestedPath = QString());
-    void onPasteExample();
-    void onPasteTexture();
+    void onPasteExample(const QString &destDirOverride = QString());
+    void onPasteTexture(const QString &destDirOverride = QString());
     void performCut(QTreeWidgetItem* item = nullptr);
     void performCopy(QTreeWidgetItem* targetItem = nullptr);
     void onSaveTextureClicked();
@@ -214,6 +214,10 @@ private:
     // RENDERING & COLOR STATE
     // ==========================================================
     int m_savedRenderMode = 0;
+    // True quando il ramo Texture del dock Library e' collassato+grigio perche'
+    // siamo in surface-wireframe. Traccia la transizione: applichiamo il grigio
+    // (o lo togliamo) solo quando lo stato cambia, non a ogni updateRenderState.
+    bool m_textureLibraryGrayed = false;
     int m_lightingMode4D = 0;
     float alphaValue = 1.0f;
 
@@ -371,6 +375,10 @@ private:
     void updateWatcherPaths();
     void copyPath(QString src, QString dst);
     QTreeWidgetItem* getCurrentLibraryItem();
+    // Collassa e ingrigisce (grayed=true) o ripristina (false) il ramo Texture del
+    // dock Library. Usato per riflettere che in surface-wireframe la texture non e'
+    // applicabile. Idempotente sul colore; il collasso e' one-shot (non riespande).
+    void setTextureLibraryGrayed(bool grayed);
     void applyCommonData(const LibraryItem &data);
     QString presetsRootPath() const;
     bool resolveNeedsCopy(const QString& src, const QString& dst,

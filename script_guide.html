@@ -43,6 +43,21 @@ A := 1.5;
 float d = length(p) - A * (1.0 + 0.1 * sin(t));
 return d;</pre>
 
+    <p style="font-size: 18px; color: #007acc;"><b>Combining shapes (smooth blend)</b></p>
+    <p>Build composite objects from several SDFs. Use <code>min</code> for a hard union and the built-in
+    <code>smax</code> (see section&nbsp;7) for smooth blends. Here two spheres merge and separate over time,
+    with a soft &quot;metaball&quot; neck:</p>
+    <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">A := 0.7;   // sphere radius
+B := 0.6;   // blend smoothness
+
+// Two spheres whose distance oscillates
+float gap = 0.8 + 0.6 * sin(t);
+float s1 = length(p - vec3(-gap, 0.0, 0.0)) - A;
+float s2 = length(p - vec3( gap, 0.0, 0.0)) - A;
+
+// Smooth union = -smax(-a, -b, k)
+return -smax(-s1, -s2, B);</pre>
+
     <p style="font-size: 22px; color: #569cd6;"><b>3. Parametric Scripts</b></p>
     <p>The script must <strong>return a vec3 or vec4</strong>: the position of the surface point for the
     parameters <code>u, v</code> (and <code>w</code> in 4D; the fourth component of a vec4 is the 4D coordinate).
@@ -54,6 +69,42 @@ v_min := 0; v_max := pi;
 return vec3(B * sin(v) * cos(u),
             B * sin(v) * sin(u),
             B * cos(v));</pre>
+
+    <p style="font-size: 18px; color: #007acc;"><b>Animating a parametric surface</b></p>
+    <p>Just like Ray Marching and textures, a parametric script animates as soon as <code>t</code>
+    (or <code>iTime</code>, in seconds) appears anywhere in it &mdash; no extra switch is needed. Here a
+    torus breathes and ripples over time:</p>
+    <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">u_min := 0; u_max := 2*pi;
+v_min := 0; v_max := 2*pi;
+A := 1.0;   // main radius
+B := 0.4;   // tube radius
+
+// Radius pulses; the tube ripples along u as a travelling wave
+float R = A + 0.1 * sin(t);
+float r = B * (1.0 + 0.15 * sin(4.0*u + 2.0*t));
+return vec3((R + r*cos(v)) * cos(u),
+            (R + r*cos(v)) * sin(u),
+            r * sin(v));</pre>
+
+    <p style="font-size: 18px; color: #007acc;"><b>Animating in 4D</b></p>
+    <p>Return a <code>vec4</code>: the fourth component is the 4D coordinate <code>w</code>, projected to 3D
+    by the app. Driving it with <code>t</code> produces a wave that sweeps through the fourth dimension &mdash;
+    combine it with a 4D rotation from the Equations dock to see the shape morph:</p>
+    <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">u_min := -pi; u_max := pi;
+v_min := -pi; v_max := pi;
+
+// A sheet whose 4th coordinate is a travelling wave
+return vec4(u,
+            v,
+            0.3 * sin(u) * cos(v),
+            0.6 * sin(u + t));   // w-coordinate animated in time</pre>
+
+    <div style="background-color: #12233a; padding: 10px; margin: 4px 0 10px 0;">
+        <strong>Independent clocks.</strong> The surface geometry and the texture (and displacement) each run on
+        their <em>own</em> animation clock. So an animated texture keeps moving even on a static surface, and a
+        moving surface can carry a still texture &mdash; using <code>t</code> in one does not force the other to
+        animate.
+    </div>
 
     <p style="font-size: 20px; color: #569cd6;"><b>3.1 Metric Tensor Scripts (Geodesic Flow)</b></p>
     <p>Instead of deriving the metric from a parametric surface, you can define the metric tensor
@@ -151,6 +202,16 @@ return mat3(g11, 0.0, 0.0,
     <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">// Animated checkerboard
 float c = mod(floor(u * 10.0) + floor(v * 10.0) + t, 2.0);
 return vec4(vec3(c), 1.0);</pre>
+
+    <p style="font-size: 18px; color: #007acc;"><b>Using the Renderer color pickers</b></p>
+    <p>Two ready-made colors are available as <code>vec3 u_col1</code> and <code>vec3 u_col2</code>: they mirror
+    the <em>Color&nbsp;1 / Color&nbsp;2</em> pickers in the <em>Renderer</em> dock. Reference either token in a
+    texture script and its picker lights up, so you can recolor the texture live without editing code. A texture
+    that ignores both tokens leaves the pickers disabled. Here an animated wave blends between the two colors:</p>
+    <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">// Travelling wave that mixes the two Renderer colors
+float w = 0.5 + 0.5 * sin(6.0*u + 4.0*v + 2.0*t);
+return vec4(mix(u_col1, u_col2, w), 1.0);</pre>
+
     <p>To use an image file instead of code, the directive <code>//IMG: path/to/image.png</code> is injected
     automatically when you load an image from the Library.</p>
 

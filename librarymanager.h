@@ -112,6 +112,10 @@ struct LibraryItem {
     // COLORS & APPEARANCE
     // ==========================================================
     bool isImage = false;
+    // Path dell'IMMAGINE vera (PNG/JPG). Per una texture-immagine salvata come
+    // JSON, filePath e' il .json mentre imagePath e' l'immagine estratta dal tag
+    // //IMG:. Per un file immagine caricato direttamente coincide con filePath.
+    QString imagePath;
     bool hasCustomColors = false;
 
     QString bgColor;

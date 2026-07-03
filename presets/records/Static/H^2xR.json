@@ -13,7 +13,7 @@
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
-        "zoom": 0.1413288712501526
+        "zoom": 1
     },
     "camera3D": {
         "pitch": 0,
@@ -99,7 +99,7 @@
     "pathMode": 0,
     "projectionMode": 1,
     "renderMode": 1,
-    "showBorder": true,
+    "showBorder": false,
     "speeds": {
         "nutation": 0,
         "omega": 0,
@@ -113,8 +113,8 @@
     "steps": 100,
     "texture": {
         "code": "float k = smoothstep(0.0, 1.0, v + 0.1 * sin(6.2831 * u + t));\nreturn mix(u_col1, u_col2, k);",
-        "col1": "#33cc33",
-        "col2": "#95973c",
+        "col1": "#52cc33",
+        "col2": "#000000",
         "enabled": true,
         "pan_x": 0,
         "pan_y": 0,

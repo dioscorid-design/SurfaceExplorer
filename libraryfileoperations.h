@@ -19,8 +19,12 @@ public:
 
     void performCut(QTreeWidgetItem* targetItem = nullptr);
     void performCopy(QTreeWidgetItem* targetItem = nullptr);
-    void performPasteExample();
-    void performPasteTexture();
+    // destDirOverride: cartella di destinazione esplicita. Usata dalla voce
+    // "Paste N Item(s)" del ramo PRINCIPALE, dove non c'e' un item selezionato da
+    // cui dedurre la destinazione: su mobile getCurrentLibraryItem() e' nullo e le
+    // vecchie euristiche sul nome del file sorgente fallivano -> paste inerte.
+    void performPasteExample(const QString &destDirOverride = QString());
+    void performPasteTexture(const QString &destDirOverride = QString());
     void deleteSelected();
     void undoDelete();
     void copyPath(const QString &src, const QString &dst);
@@ -36,6 +40,11 @@ public:
                                          bool multiple, int &applyToAllChoice);
 
 private:
+    // Avvisa (solo su mobile) quando un paste non ha prodotto alcuna operazione:
+    // copy/rename falliti o destinazione coincidente con l'origine. Su desktop
+    // resta silenzioso per non intralciare il flusso rapido.
+    void notifyPasteNoOp(const QString &destDir);
+
     MainWindow *m_mainWindow;
 };
 

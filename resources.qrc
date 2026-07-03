@@ -246,7 +246,6 @@
         <file>presets/records/Ray Marching/Breathing Sphere.json</file>
         <file>presets/records/Ray Marching/N-Torus2.json</file>
         <file>presets/records/Ray Marching/Deco Cube.json</file>
-        <file>presets/records/Ray Marching/Wormhole.json</file>
         <file>presets/records/Ray Marching/Gyroid.json</file>
         <file>presets/records/Ray Marching/N-Torus3.json</file>
         <file>presets/records/Ray Marching/Morphing Shere-Hyperboloid.json</file>
@@ -260,6 +259,7 @@
         <file>presets/records/Rotations/HYbrid hyperbolic.json</file>
         <file>presets/records/Rotations/Kerr Spin Animated.json</file>
         <file>presets/records/Rotations/Dynamical Clifford Torus.json</file>
+        <file>presets/records/Rotations/Wormhole.json</file>
         <file>presets/records/Rotations/Kerr Black Hole.json</file>
         <file>presets/records/Rotations/Ellipsoid.json</file>
         <file>presets/records/t_motions/Otto Tube.json</file>
@@ -358,6 +358,7 @@
         <file>icon.png</file>
         <file>background.png</file>
         <file>documentation.html</file>
+        <file>script_guide.html</file>
         <file>shaders/surface.frag</file>
         <file>shaders/common.glsl</file>
         <file>shaders/geodesic.glsl</file>

@@ -55,6 +55,8 @@
 #include <QVector4D>
 #include <QInputMethod>
 #include <QGuiApplication>
+#include <QDockWidget>
+#include <QLabel>
 #include <cmath>
 #include <algorithm>
 #include <functional>
@@ -394,57 +396,10 @@ MainWindow::MainWindow(QWidget *parent)
 
 #endif
 
-#if defined(Q_OS_IOS)
-    // Su iPhone iOS non solleva la finestra automaticamente come fa su iPad,
-    // quindi applichiamo lo stesso meccanismo di Android: margine inferiore +
-    // scroll al widget focalizzato.
-    {
-        QSize s = QGuiApplication::primaryScreen()->availableSize();
-        const bool isIPhone = qMin(s.width(), s.height()) < 700;
-        if (isIPhone) {
-            connect(QGuiApplication::inputMethod(), &QInputMethod::keyboardRectangleChanged,
-                    this, [this]() {
-                QRectF kbdRect = QGuiApplication::inputMethod()->keyboardRectangle();
-                int kbdHeight = kbdRect.height();
-
-                QList<QDockWidget*> docks = {
-                    ui->dockEquations, ui->dockScripts, ui->dockRenders,
-                    ui->dock3D, ui->dock4D, ui->dockSurfaces
-                };
-
-                for (QDockWidget* dock : docks) {
-                    if (!dock->widget()) continue;
-                    if (kbdHeight > 0) {
-                        // La compressione ha senso solo sul dock realmente visibile
-                        // (quello su cui si sta digitando).
-                        if (!dock->isVisible()) continue;
-                        dock->widget()->setContentsMargins(0, 0, 0, kbdHeight);
-                        QWidget* fw = this->focusWidget();
-                        if (fw) {
-                            QTimer::singleShot(100, fw, [fw]() {
-                                QWidget* p = fw->parentWidget();
-                                while (p) {
-                                    if (QScrollArea* sa = qobject_cast<QScrollArea*>(p)) {
-                                        sa->ensureWidgetVisible(fw, 0, 50);
-                                        break;
-                                    }
-                                    p = p->parentWidget();
-                                }
-                            });
-                        }
-                    } else {
-                        // Tastiera chiusa: ripristina SEMPRE il margine, anche se il
-                        // dock non e' visibile in questo istante. Se lo si condiziona a
-                        // isVisible() (come prima), chiudendo un MobileSaveDialog mentre
-                        // il dock e' momentaneamente coperto il margine resta e il dock
-                        // riappare dimezzato in verticale. Azzerarlo da invisibile e' innocuo.
-                        dock->widget()->setContentsMargins(0, 0, 0, 0);
-                    }
-                }
-            });
-        }
-    }
-#endif
+    // NOTA (2026-07-01): su iPhone NON comprimiamo i dock all'apparizione della
+    // tastiera. Si era ipotizzato che il dock allungato dipendesse dalla tastiera,
+    // ma iOS porta gia' i campi in-dock sopra la tastiera da solo e il dock si rompe
+    // anche senza tastiera. Bug del dock ancora IRRISOLTO: vedi DOCK_BUG_REPORT.md.
 
     // --- SBLOCCO DEI CAMPI COSTANTI (Permette lettere, 'pi', formule) ---
     ui->lineA->setValidator(nullptr);
@@ -514,8 +469,9 @@ MainWindow::MainWindow(QWidget *parent)
         // umano (es. 300px) e non venga mai schiacciato a zero pixel dalla tastiera.
         ui->txtScriptEditor->setMinimumHeight(300);
 
-        // Attiviamo lo scorrimento cinetico (Touch Gesture) sull'intero contenitore del dock
-        QScroller::grabGesture(dockScrollArea->viewport(), QScroller::TouchGesture);
+        // Niente scroll cinetico a dito: sui pannelli con controlli interattivi
+        // il TouchGesture selezionava/attivava i figli durante il trascinamento.
+        // Come gli altri dock, si scrolla solo con la scroll bar.
 
         // Sostituiamo il widget principale del dock inserendovi la ScrollArea,
         // e mettiamo il vecchio widget all'interno della scroll area.
@@ -977,6 +933,19 @@ MainWindow::MainWindow(QWidget *parent)
             ui->txtScriptEditor->clear();
             ui->txtScriptEditor->blockSignals(false);
         }
+        // Se il dock Script e' aperto sulla texture di SUPERFICIE, l'editor va
+        // allineato al nuovo tab: in Ray Marching la texture di superficie non si
+        // scrive qui (si gestisce dal dock Equations) -> editor svuotato; tornando
+        // in Parametrico -> ripristinato da m_surfaceTextureScriptText. Il codice
+        // resta sempre nella variabile membro, l'editor ne e' solo la vista.
+        else if (m_currentScriptMode == ScriptModeTexture && !ui->radioBackground->isChecked()) {
+            ui->txtScriptEditor->blockSignals(true);
+            if (index == 1) ui->txtScriptEditor->clear();                      // -> Ray Marching
+            else            ui->txtScriptEditor->setPlainText(m_surfaceTextureScriptText); // -> Parametrico
+            ui->txtScriptEditor->blockSignals(false);
+            // Ricalcola lo stato dei pulsanti con l'editor ora corretto.
+            updateScriptButtonText();
+        }
         m_surfaceScriptText.clear();
         exitMetricScriptMode();
         // ==========================================================
@@ -1140,6 +1109,18 @@ MainWindow::MainWindow(QWidget *parent)
                 ui->glWidget->setRangeX(-1000.0f, 1000.0f);
                 ui->glWidget->setRangeY(-1000.0f, 1000.0f);
                 ui->glWidget->setRangeZ(-1000.0f, 1000.0f);
+
+                // Distanza camera alla standard (4.0): la sfera di default ha
+                // raggio 1 e va vista da qui. Senza questo reset la camera resta a
+                // quella del RECORD RM caricato prima (resetTransformations PRESERVA
+                // la distanza corrente se >= 2.5, "salvavita zoom"), quindi la sfera
+                // appariva RIMPICCIOLITA e la sua dimensione dipendeva dal camera3D.z
+                // del record (es. N-Tours z=11.12). Stato persistente: ne' Run ne'
+                // cambi tab successivi la ripristinavano.
+                ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
+                ui->glWidget->setCameraYaw(0.0f);
+                ui->glWidget->setCameraPitch(0.0f);
+                ui->glWidget->setCameraRoll(0.0f);
 
                 // FIX 3: Compilazione e invio della sfera alla GPU
                 QString implicitEqF = "(x^2 + y^2 + z^2) - (1.0)";
@@ -2596,8 +2577,20 @@ MainWindow::MainWindow(QWidget *parent)
         tree->setColumnCount(1);
         tree->setContextMenuPolicy(Qt::CustomContextMenu);
         tree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+        // Su mobile la selezione multipla col dito e' involontaria (muovendo il dito
+        // si selezionano piu' file) e comunque il long-press per aprire il menu la
+        // riduceva a 1 -> "Copy/Cut/Delete N items" agiva su un solo file. Selezione
+        // SINGOLA: un tocco = un item, menu sempre coerente. Su desktop resta
+        // ExtendedSelection (Ctrl/Shift+click funziona bene col mouse).
+        tree->setSelectionMode(QAbstractItemView::SingleSelection);
+        // Drag&drop diretto disabilitato su mobile (competeva con lo scroll a dito):
+        // lo spostamento resta via menu Cut/Paste (long-press).
+        tree->setDragDropMode(QAbstractItemView::NoDragDrop);
+#else
         tree->setSelectionMode(QAbstractItemView::ExtendedSelection);
         tree->setDragDropMode(QAbstractItemView::InternalMove);
+#endif
 
         // 1. FORZA lo scroll per pixel
         tree->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
@@ -2608,8 +2601,9 @@ MainWindow::MainWindow(QWidget *parent)
         tree->setUniformRowHeights(true);
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-        // 3. FIX VIEWPORT: Applica il tocco alla "tela" interna, non al bordo!
-        QScroller::grabGesture(tree->viewport(), QScroller::TouchGesture);
+        // Niente scroll cinetico a dito sul viewport: il TouchGesture, trascinando,
+        // selezionava piu' file / competeva col drag&drop. Come gli altri dock, si
+        // scrolla solo con la scroll bar. Il TapAndHold resta: apre il menu.
         tree->grabGesture(Qt::TapAndHoldGesture);
 
         tree->setIndentation(12);
@@ -2935,13 +2929,28 @@ void MainWindow::updateRenderState()
     }
 
     // 3. LOGICA TEXTURE (Mantenendo il fix per il Background)
-    if (mode == 2 && !ui->radioBackground->isChecked()) {
+    // In Wireframe superficie (mode==2, non in editing sfondo) la texture della
+    // superficie non e' visibile: oltre al checkbox Texture, disabilitiamo anche
+    // il ramo Texture del dock Library (l'albero treeTextures), cosi' non si puo'
+    // applicare una texture che non avrebbe effetto. In editing sfondo la texture
+    // di background e' indipendente dal wireframe, quindi resta tutto attivo.
+    bool wireframeSurface = (mode == 2 && !ui->radioBackground->isChecked());
+    if (wireframeSurface) {
         ui->chkBoxTexture->setEnabled(false);
     }
     else {
         ui->chkBoxTexture->setEnabled(true);
         // (qui c'era 'if (m_isCustomMode) mode = 11;', rimosso: renderMode 11
         // legacy parametrico, inerte — 'mode' locale mai passato al motore.)
+    }
+    if (ui->treeTextures) ui->treeTextures->setEnabled(!wireframeSurface);
+
+    // Collasso + grigio del ramo Texture solo alla TRANSIZIONE di stato, non a
+    // ogni updateRenderState (chiamata di frequente). Entrando in wireframe le
+    // cartelle si chiudono e restano chiuse; uscendo si ripristina il colore.
+    if (wireframeSurface != m_textureLibraryGrayed) {
+        setTextureLibraryGrayed(wireframeSurface);
+        m_textureLibraryGrayed = wireframeSurface;
     }
 
     bool isPhong = (m_savedRenderMode == 1);
@@ -3650,8 +3659,11 @@ void MainWindow::handleTextureSelection(int index)
         }
 
         if (data.isImage) {
-            ui->glWidget->setBackgroundTexture(data.filePath);
-            m_bgTextureCode = "//IMG:" + data.filePath;
+            // Come per la texture di superficie: se e' un JSON-immagine, la PNG
+            // sta in imagePath (filePath e' il .json).
+            QString bgImgSrc = data.imagePath.isEmpty() ? data.filePath : data.imagePath;
+            ui->glWidget->setBackgroundTexture(bgImgSrc);
+            m_bgTextureCode = "//IMG:" + bgImgSrc;
 
             if (ui->glWidget) {
                 ui->glWidget->setProperty("bg_zoom", data.zoom);
@@ -3810,7 +3822,20 @@ void MainWindow::handleTextureSelection(int index)
         // A. Cambia automaticamente il pannello (Tab)
         ui->tabModeSelector->setCurrentIndex(texIsImplicit ? 1 : 0);
 
-        // B. Imposta una Superficie di Default sicura e azzera il resto
+        // B. Imposta una Superficie di Default sicura e azzera il resto.
+        // I setPlainText/clear qui sotto NON devono emettere textChanged: quei
+        // segnali chiamerebbero markUserEdit / il lambda di lineEquation che
+        // azzerano m_parametricApplied / m_implicitApplied, riabilitando a torto
+        // i tasti Run del dock Equations (la superficie di default e' gia' quella
+        // a schermo, non c'e' nulla da "applicare"). Blocchiamo i segnali attorno
+        // all'intera preparazione e ripristiniamo i flag "applied" piu' sotto.
+        const QList<QPlainTextEdit*> eqFields = {
+            ui->lineEquation, ui->lineVariations, ui->lineTexture,
+            ui->lineX, ui->lineY, ui->lineZ, ui->lineP
+        };
+        QList<bool> eqOldBlock;
+        for (QPlainTextEdit* f : eqFields) eqOldBlock.append(f->blockSignals(true));
+
         if (texIsImplicit) {
             //modeSwitched = true;
             // --- PREPARA AMBIENTE RAY MARCHING ---
@@ -3821,9 +3846,41 @@ void MainWindow::handleTextureSelection(int index)
             ui->lineZ->clear();
             ui->lineP->clear();
             m_surfaceTextureCode.clear();
+
+            // Ambiente di rendering RM DETERMINISTICO per la sfera di default.
+            // Come nel gestore canonico del cambio tab (~1108): l'equazione viene
+            // applicata piu' avanti dal flusso texture (~4063), ma limiti spaziali,
+            // ray steps e CAMERA vanno fissati qui, altrimenti la sfera eredita lo
+            // stato (in particolare la distanza camera = camera3D.z) del record RM
+            // precedente e appare rimpicciolita.
+            if (ui->glWidget) {
+                ui->glWidget->setEngineMode(GLWidget::ModeImplicit);
+                ui->glWidget->setRaySteps(m_lastImplicitSteps);
+
+                bool bxm = ui->lineXMin->blockSignals(true), bxM = ui->lineXMax->blockSignals(true);
+                bool bym = ui->lineYMin->blockSignals(true), byM = ui->lineYMax->blockSignals(true);
+                bool bzm = ui->lineZMin->blockSignals(true), bzM = ui->lineZMax->blockSignals(true);
+                ui->lineXMin->clear(); ui->lineXMax->clear();
+                ui->lineYMin->clear(); ui->lineYMax->clear();
+                ui->lineZMin->clear(); ui->lineZMax->clear();
+                ui->lineXMin->blockSignals(bxm); ui->lineXMax->blockSignals(bxM);
+                ui->lineYMin->blockSignals(bym); ui->lineYMax->blockSignals(byM);
+                ui->lineZMin->blockSignals(bzm); ui->lineZMax->blockSignals(bzM);
+
+                ui->glWidget->setRangeX(-1000.0f, 1000.0f);
+                ui->glWidget->setRangeY(-1000.0f, 1000.0f);
+                ui->glWidget->setRangeZ(-1000.0f, 1000.0f);
+
+                // Camera alla distanza standard: altrimenti la sfera di default
+                // eredita il camera3D.z del record RM precedente (vedi ~1108).
+                ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
+                ui->glWidget->setCameraYaw(0.0f);
+                ui->glWidget->setCameraPitch(0.0f);
+                ui->glWidget->setCameraRoll(0.0f);
+            }
         } else {
             // --- PREPARA AMBIENTE PARAMETRICO ---
-            ui->lineX->setPlainText("(0.8 + 0.3 * cos(v)) * cos(u))");
+            ui->lineX->setPlainText("(0.8 + 0.3 * cos(v)) * cos(u)");
             ui->lineY->setPlainText("(0.8 + 0.3 * cos(v)) * sin(u)");
             ui->lineZ->setPlainText("0.3 * sin(v)");
             ui->uMinEdit->setText("0");
@@ -3840,6 +3897,20 @@ void MainWindow::handleTextureSelection(int index)
                 ui->glWidget->setTextureCode("");
             }
         }
+
+        for (int i = 0; i < eqFields.size(); ++i) eqFields[i]->blockSignals(eqOldBlock[i]);
+
+        // La superficie di default e' quella ora a schermo: niente da applicare,
+        // quindi i due flag "applied" restano/tornano true -> i tasti Run del dock
+        // Equations restano SPENTI (updateMasterButtonState li tiene disabilitati
+        // finche' non c'e' un'animazione o un edit reale dell'utente).
+        m_parametricApplied = true;
+        m_implicitApplied = true;
+
+        // Avendo bloccato i textChanged sopra, checkParametricDependency (che vi era
+        // agganciato) non e' scattato: la richiamiamo qui per riallineare le
+        // sotto-tab Constraints/Composition/Geodesic ai campi ora puliti.
+        checkParametricDependency();
 
         // C. Resetta lo shader nel widget per rimuovere codice obsoleto
         if (ui->glWidget) {
@@ -3873,15 +3944,20 @@ void MainWindow::handleTextureSelection(int index)
         onColorTargetChanged();
     }
 
+    // Path dell'IMMAGINE da caricare: per un file immagine diretto e' filePath;
+    // per una texture-immagine salvata come JSON e' imagePath (estratto dal tag
+    // //IMG:), perche' filePath punta al .json e non alla PNG.
+    QString imgSrc = data.imagePath.isEmpty() ? data.filePath : data.imagePath;
+
     // DIVIDIAMO IL FLUSSO IN BASE ALLA NATURA DELLA TEXTURE
     if (!texIsImplicit) {
 
         // --- LOGICA PARAMETRICA ---
         if (data.isImage) {
-            m_currentTexturePath = data.filePath;
+            m_currentTexturePath = imgSrc;
             if (ui->glWidget) {
                 ui->glWidget->loadCustomShader("");
-                ui->glWidget->loadTextureFromFile(data.filePath);
+                ui->glWidget->loadTextureFromFile(imgSrc);
                 ui->glWidget->setTextureEnabled(true);
                 ui->glWidget->rebuildShader();
 
@@ -3890,7 +3966,7 @@ void MainWindow::handleTextureSelection(int index)
                 // Impostato prima dell'aggiornamento UI: updateTextureUIState
                 // legge questo codice per decidere se accendere i picker Colore
                 // (un'immagine "//IMG:" non usa u_col1/u_col2 -> picker spenti).
-                m_surfaceTextureCode = "//IMG:" + data.filePath;
+                m_surfaceTextureCode = "//IMG:" + imgSrc;
 
                 if (!ui->chkBoxTexture->isChecked()) {
                     bool old = ui->chkBoxTexture->blockSignals(true);
@@ -3955,11 +4031,11 @@ void MainWindow::handleTextureSelection(int index)
         // --- LOGICA RAY MARCHING (IMPLICIT) ---
         // 1. Caricamento fisico dell'immagine nella GPU
         if (data.isImage) {
-            m_currentTexturePath = data.filePath;
+            m_currentTexturePath = imgSrc;
             m_isImageMode = true;
             m_isCustomMode = false;
             if (ui->glWidget) {
-                ui->glWidget->loadTextureFromFile(data.filePath);
+                ui->glWidget->loadTextureFromFile(imgSrc);
             }
         } else {
             // Texture procedurale RM (non immagine): è codice custom. Va segnato
@@ -5306,7 +5382,10 @@ void MainWindow::onToggleScriptMode()
     if (m_currentScriptMode == ScriptModeSurface) m_surfaceScriptText = currentText;
     else if (m_currentScriptMode == ScriptModeTexture) {
         if (ui->radioBackground->isChecked()) m_bgTextureScriptText = currentText;
-        else m_surfaceTextureScriptText = currentText;
+        // In Ray Marching la texture di SUPERFICIE ha l'editor svuotato di proposito
+        // (si gestisce dal dock Equations): NON salvarlo, altrimenti sovrascriveremmo
+        // m_surfaceTextureScriptText con il vuoto, perdendo il codice parametrico.
+        else if (ui->tabModeSelector->currentIndex() != 1) m_surfaceTextureScriptText = currentText;
     }
     else if (m_currentScriptMode == ScriptModeSound) m_soundScriptText = currentText;
 
@@ -5358,39 +5437,13 @@ void MainWindow::onRunCurrentScript()
             return;
         }
 
-        bool isImplicitTab = (ui->tabModeSelector->currentIndex() == 1);
-
-        // Analisi del "DNA" dello script
-        bool hasParametricReturn = currentText.contains(QRegularExpression(R"(return\s+vec[34]\b)"));
-        bool hasParametricLimits = currentText.contains("u_min") || currentText.contains("v_min") || currentText.contains("w_min");
-        bool seemsParametric = hasParametricReturn || hasParametricLimits;
-
-        bool usesPointP = currentText.contains(QRegularExpression(R"(\bp\b)"));
-        bool hasImplicitReturn = !hasParametricReturn && (usesPointP || currentText.contains("length("));
-        bool seemsImplicit = hasImplicitReturn;
-
-        bool modeSwitched = false;
-
-        if (isImplicitTab && seemsParametric) {
-            modeSwitched = true;
-            ui->tabModeSelector->setCurrentIndex(0); // Passa a Parametrico
-        }
-        else if (!isImplicitTab && seemsImplicit) {
-            modeSwitched = true;
-            ui->tabModeSelector->setCurrentIndex(1); // Passa a Ray Marching
-        }
-
-        // Se abbiamo cambiato scheda, il segnale 'currentChanged' ha appena svuotato l'editor.
-        // Dobbiamo ripristinare il testo salvato prima di procedere con la compilazione!
-        if (modeSwitched) {
-            m_surfaceScriptText = currentText;
-            bool oldBlock = ui->txtScriptEditor->blockSignals(true);
-            ui->txtScriptEditor->setPlainText(currentText);
-            ui->txtScriptEditor->blockSignals(oldBlock);
-
-            // Aggiorniamo la variabile di stato per il ramo di esecuzione qui sotto
-            isImplicitTab = (ui->tabModeSelector->currentIndex() == 1);
-        }
+        // Nessun cambio automatico di modo: il Run rispetta SEMPRE la tab in cui
+        // sei. La vecchia euristica sul "DNA" del testo (una 'p' isolata o
+        // 'length(' -> passa a Ray Marching) faceva scattare cambi di tab
+        // improvvisi e non voluti mentre si lavorava nel dock Equations. Se lo
+        // script non e' compatibile con la modalita' corrente, ci pensa la
+        // validazione qui sotto (validateImplicitScriptReturn nel ramo RM, e
+        // l'equivalente parametrico) a segnalarlo, senza spostare l'utente.
 
         // BIFORCAZIONE TRA RAY MARCHING (IMPLICIT) E PARAMETRIC
         m_surfaceScriptText = currentText;
@@ -7510,12 +7563,12 @@ void MainWindow::saveSurfaceToFile(const QString &suggestedPath) {
     m_presetSerializer->saveSurface(suggestedPath);
 }
 
-void MainWindow::onPasteExample() {
-    m_fileOps->performPasteExample();
+void MainWindow::onPasteExample(const QString &destDirOverride) {
+    m_fileOps->performPasteExample(destDirOverride);
 }
 
-void MainWindow::onPasteTexture() {
-    m_fileOps->performPasteTexture();
+void MainWindow::onPasteTexture(const QString &destDirOverride) {
+    m_fileOps->performPasteTexture(destDirOverride);
 }
 
 void MainWindow::performCut(QTreeWidgetItem* targetItem) {
@@ -8018,6 +8071,12 @@ void MainWindow::refreshRepositories()
     ui->treeSounds->blockSignals(false);
 
     if (m_fsWatcher) m_fsWatcher->blockSignals(false);
+
+    // Il refresh ha ricostruito gli item (colore di default) e riespanso le
+    // cartelle via restoreState: se siamo in surface-wireframe riapplichiamo
+    // collasso + grigio, altrimenti l'albero apparirebbe attivo pur essendo
+    // la texture non applicabile.
+    if (m_textureLibraryGrayed) setTextureLibraryGrayed(true);
 }
 
 void MainWindow::refreshAndSelectPreset(QTreeWidget *tree, const QString &path)
@@ -8093,6 +8152,27 @@ QTreeWidgetItem* MainWindow::getCurrentLibraryItem() {
         if (!ui->treeSounds->selectedItems().isEmpty()) return ui->treeSounds->selectedItems().first();
     }
     return nullptr;
+}
+
+void MainWindow::setTextureLibraryGrayed(bool grayed)
+{
+    if (!ui->treeTextures) return;
+
+    // Entrando in wireframe chiudiamo tutte le cartelle (restano chiuse anche
+    // all'uscita: nessun ripristino dello stato di espansione, per scelta).
+    if (grayed) {
+        ui->treeTextures->collapseAll();
+    }
+
+    // Grigio esplicito sul testo di ogni voce (cartelle e file). All'uscita
+    // rimuoviamo l'override col QVariant vuoto, cosi' l'item torna al colore di
+    // default della palette (tema-indipendente) invece di un grigio hardcodato.
+    QTreeWidgetItemIterator it(ui->treeTextures);
+    while (*it) {
+        if (grayed) (*it)->setForeground(0, QBrush(Qt::gray));
+        else        (*it)->setData(0, Qt::ForegroundRole, QVariant());
+        ++it;
+    }
 }
 
 void MainWindow::applyCommonData(const LibraryItem &d)
@@ -9163,15 +9243,17 @@ void MainWindow::updateScriptButtonText() {
             ui->txtScriptEditor->setPlaceholderText("Write GLSL for Parametric Surface.\nExample: return vec4(0.2 * u - 0.5, 0.2 * v - 0.5, 0.2 * sin(u * v), 1.0);");
         }
 
-        // Il tasto Run/Stop del dock SCRIPT dipende SOLO dalla presenza di uno script
-        // nell'editor, non dal movimento della geometria. Un RECORD (preset non-script)
-        // ha l'editor vuoto: anche se la sua geometria e' in animazione (movimento del
-        // record, NON uno script), il tasto va DISABILITATO — non c'e' nulla da avviare
-        // o fermare lato script (l'animazione del record si governa da master/Equations).
-        // Quando uno script E' in esecuzione il suo testo e' nell'editor (hasGLSLCode
-        // resta true), quindi lo Stop resta comunque disponibile. isSurfaceMoving non
-        // entra piu' nell'abilitazione (serve solo per la scritta Run/Stop sopra).
-        enableRun = hasGLSLCode;
+        // Abilitazione del tasto Run/Stop del dock SCRIPT (regola richiesta):
+        //   - ACCESO se c'e' un'animazione: o lo script sta gia' girando
+        //     (isSurfaceMoving -> serve lo Stop), o il codice contiene 't'/'iTime'
+        //     (un'animazione avviabile);
+        //   - se NON c'e' animazione (script statico), resta SPENTO finche' non si
+        //     modifica il testo (isModified) -> allora si puo' ri-eseguire.
+        // Serve comunque del codice nell'editor: un RECORD non-script ha editor
+        // vuoto e il tasto va disabilitato (l'animazione del record si governa da
+        // master/Equations, non da qui).
+        bool codeAnimated = hasTimeVariable(codeOnly);
+        enableRun = hasGLSLCode && (isSurfaceMoving || codeAnimated || isModified);
         enableSave = hasGLSLCode;
     }
 
@@ -9193,13 +9275,18 @@ void MainWindow::updateScriptButtonText() {
             }
         }
 
+        // Stessa regola della superficie: ACCESO se c'e' animazione (texture in
+        // movimento o codice con 't'/'iTime'), altrimenti SPENTO finche' non si
+        // modifica il testo.
+        bool texCodeAnimated = hasTimeVariable(codeOnly);
+
         if (isBackground) {
             ui->btnScriptMode->setText("Texture");
             ui->btnRunCurrentScript->setText(texMoving ? "Stop Background Texture" : "Run Background Texture");
             ui->txtScriptEditor->setEnabled(true);
             ui->txtScriptEditor->setPlaceholderText("Write GLSL for Background Texture.\nExample: return vec3(uv.x, uv.y, 0.5);");
 
-            enableRun = hasGLSLCode || texMoving;
+            enableRun = hasGLSLCode && (texMoving || texCodeAnimated || isModified);
             enableSave = hasGLSLCode;
         } else {
             if (isRayMarching) {
@@ -9216,7 +9303,7 @@ void MainWindow::updateScriptButtonText() {
                 ui->txtScriptEditor->setEnabled(true);
                 ui->txtScriptEditor->setPlaceholderText("Write GLSL for Parametric Texture.\nExample: return vec3(u / tau, v / tau, 1.0);");
 
-                enableRun = hasGLSLCode || texMoving;
+                enableRun = hasGLSLCode && (texMoving || texCodeAnimated || isModified);
                 enableSave = hasGLSLCode;
             }
         }

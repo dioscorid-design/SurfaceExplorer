@@ -228,26 +228,35 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     }
 
     if (!refItem) {
+        // Click nel ramo PRINCIPALE (fuori da ogni cartella): il dialog deve aprirsi
+        // nella root della categoria, MAI su una cartella secondaria o sull'ultima
+        // usata. Per questo passiamo esplicitamente la root come suggestedPath
+        // (come fanno gia' Texture e Sound); senza path, saveSurface/saveMotion
+        // ricadono sull'item selezionato / lastDir -> il dialog si apre in un ramo
+        // secondario.
+        QString rootPath = QSettings().value("libraryRootPath").toString();
         if (senderTree == m_mainWindow->ui->treeSurfaces) {
-            contextMenu->addAction("Save New Surface...", m_mainWindow, [this, executeAction](){
-                executeAction([this](){ m_mainWindow->saveSurfaceToFile(); });
+            QString startDir = QSettings().value("pathSurfaces", rootPath + "/surfaces").toString();
+            contextMenu->addAction("Save New Surface...", m_mainWindow, [this, startDir, executeAction](){
+                executeAction([this, startDir](){ m_mainWindow->saveSurfaceToFile(startDir); });
             });
         } else if (senderTree == m_mainWindow->ui->treeTextures) {
             contextMenu->addAction("Save New Texture...", m_mainWindow, [this, executeAction](){
                 executeAction([this](){
                     QString rootPath = QSettings().value("libraryRootPath").toString();
-                    m_mainWindow->m_presetSerializer->saveTextureAs(QSettings().value("pathTextures", rootPath + "/Textures").toString());
+                    m_mainWindow->m_presetSerializer->saveTextureAs(QSettings().value("pathTextures", rootPath + "/textures").toString());
                 });
             });
         } else if (senderTree == m_mainWindow->ui->treeMotions) {
-            contextMenu->addAction("Save New Record...", m_mainWindow, [this, executeAction](){
-                executeAction([this](){ m_mainWindow->onSaveMotionClicked(); });
+            QString startDir = QSettings().value("pathRecords", rootPath + "/records").toString();
+            contextMenu->addAction("Save New Record...", m_mainWindow, [this, startDir, executeAction](){
+                executeAction([this, startDir](){ m_mainWindow->m_presetSerializer->saveMotion(startDir); });
             });
         } else if (senderTree == m_mainWindow->ui->treeSounds) {
             contextMenu->addAction("Save New Sound...", m_mainWindow, [this, executeAction](){
                 executeAction([this](){
                     QString rootPath = QSettings().value("libraryRootPath").toString();
-                    m_mainWindow->m_presetSerializer->saveSoundAs(QSettings().value("pathSounds", rootPath + "/Sounds").toString(), "");
+                    m_mainWindow->m_presetSerializer->saveSoundAs(QSettings().value("pathSounds", rootPath + "/sounds").toString(), "");
                 });
             });
         }
@@ -257,13 +266,29 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
 
     bool clickedOnFolder = (refItem && refItem->data(0, Qt::UserRole + 10).isValid());
     if (!clickedOnFolder && (!m_mainWindow->m_cutFilePaths.isEmpty() || !m_mainWindow->m_cutTexturePaths.isEmpty())) {
+        // Paste nel ramo PRINCIPALE: qui non c'e' un item da cui dedurre la
+        // destinazione (su mobile getCurrentLibraryItem() e' nullo). Passiamo la
+        // root della CATEGORIA corrente col case corretto (/surfaces, /records...
+        // minuscoli, come nel resto del codice): il vecchio fallback su Surface
+        // usava "/Surfaces" (maiuscolo, inesistente su iOS case-sensitive) -> copy
+        // fallita -> paste inerte.
+        QString rootPath = QSettings().value("libraryRootPath").toString();
+        QString destRoot;
+        // Case MINUSCOLO per tutte: le cartelle reali sono create minuscole
+        // (mainwindow ~7430). Su iOS/APFS case-sensitive "/Textures"/"/Sounds"
+        // non esistono -> copy fallita -> paste inerte (stesso bug di Surface).
+        if (senderTree == m_mainWindow->ui->treeSurfaces)      destRoot = QSettings().value("pathSurfaces", rootPath + "/surfaces").toString();
+        else if (senderTree == m_mainWindow->ui->treeMotions)  destRoot = QSettings().value("pathRecords",  rootPath + "/records").toString();
+        else if (senderTree == m_mainWindow->ui->treeSounds)   destRoot = QSettings().value("pathSounds",   rootPath + "/sounds").toString();
+        else if (senderTree == m_mainWindow->ui->treeTextures) destRoot = QSettings().value("pathTextures", rootPath + "/textures").toString();
+
         if (!m_mainWindow->m_cutFilePaths.isEmpty()) {
-            contextMenu->addAction(QString("Paste %1 Item(s)").arg(m_mainWindow->m_cutFilePaths.count()), m_mainWindow, [this, executeAction](){
-                executeAction([this](){ m_mainWindow->onPasteExample(); });
+            contextMenu->addAction(QString("Paste %1 Item(s)").arg(m_mainWindow->m_cutFilePaths.count()), m_mainWindow, [this, destRoot, executeAction](){
+                executeAction([this, destRoot](){ m_mainWindow->onPasteExample(destRoot); });
             });
         } else if (!m_mainWindow->m_cutTexturePaths.isEmpty()) {
-            contextMenu->addAction(QString("Paste %1 Texture(s)").arg(m_mainWindow->m_cutTexturePaths.count()), m_mainWindow, [this, executeAction](){
-                executeAction([this](){ m_mainWindow->onPasteTexture(); });
+            contextMenu->addAction(QString("Paste %1 Texture(s)").arg(m_mainWindow->m_cutTexturePaths.count()), m_mainWindow, [this, destRoot, executeAction](){
+                executeAction([this, destRoot](){ m_mainWindow->onPasteTexture(destRoot); });
             });
         }
         contextMenu->addSeparator();

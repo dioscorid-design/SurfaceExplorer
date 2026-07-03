@@ -37,10 +37,13 @@ bool LibraryDragDropHandler::eventFilter(QObject *obj, QEvent *event)
             QString rootPath = settings.value("libraryRootPath").toString();
             QString treeRootPath;
 
-            if (tree == m_mainWindow->ui->treeTextures) treeRootPath = settings.value("pathTextures", rootPath + "/Textures").toString();
+            // Default case MINUSCOLO: le cartelle reali sono minuscole (mainwindow
+            // ~7430); "/Textures"/"/Sounds"/"/Surfaces" non esistono su iOS
+            // case-sensitive -> drop sul ramo principale fallirebbe come il paste.
+            if (tree == m_mainWindow->ui->treeTextures) treeRootPath = settings.value("pathTextures", rootPath + "/textures").toString();
             else if (tree == m_mainWindow->ui->treeMotions) treeRootPath = settings.value("pathRecords", rootPath + "/records").toString();
-            else if (tree == m_mainWindow->ui->treeSounds) treeRootPath = settings.value("pathSounds", rootPath + "/Sounds").toString();
-            else treeRootPath = settings.value("pathSurfaces", rootPath + "/Surfaces").toString();
+            else if (tree == m_mainWindow->ui->treeSounds) treeRootPath = settings.value("pathSounds", rootPath + "/sounds").toString();
+            else treeRootPath = settings.value("pathSurfaces", rootPath + "/surfaces").toString();
 
             auto getTargetDirectory = [&](QTreeWidgetItem *item) -> QString {
                 if (!item) return "";

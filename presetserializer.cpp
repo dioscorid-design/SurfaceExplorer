@@ -30,8 +30,14 @@
 
 class MobileSaveDialog : public QDialog {
 public:
-    MobileSaveDialog(const QString& title, const QString& startDir, const QString& defaultFileName, QWidget* parent = nullptr)
+    // navFloor: cartella oltre la quale ".. (Up)" NON deve salire (tipicamente la
+    // radice del tipo su cui si e' tappato: surfaces/textures/records/sounds).
+    // Vuota = nessun limite.
+    MobileSaveDialog(const QString& title, const QString& startDir, const QString& defaultFileName,
+                     QWidget* parent = nullptr, const QString& navFloor = QString())
         : QDialog(parent), currentDir(startDir) {
+        if (!navFloor.isEmpty())
+            m_navFloor = QDir(navFloor).absolutePath();
         setWindowTitle(title);
 
         QVBoxLayout* mainLayout = new QVBoxLayout(this);
@@ -90,7 +96,16 @@ public:
             QString itemType = item->data(Qt::UserRole + 1).toString();
 
             if (itemType == "DIR") {
-                if (itemName == "..") currentDir.cdUp();
+                if (itemName == "..") {
+                    // NON salire in una cartella che non si riesce a enumerare.
+                    // Su mobile (sandbox iOS/Android) salendo troppo si arriva a
+                    // directory di cui l'OS nega il listing: entryInfoList torna
+                    // VUOTA, non compaiono sottocartelle e si resta INTRAPPOLATI
+                    // (nulla da toccare per ridiscendere). Salire e' concesso solo
+                    // se la cartella genitore e' leggibile; altrimenti si resta.
+                    if (!canNavigateUp()) return;
+                    currentDir.cdUp();
+                }
                 else currentDir.cd(itemName);
                 refreshList();
             }
@@ -121,11 +136,48 @@ public:
     }
 
 private:
+    // Si puo' salire di livello solo se la cartella genitore esiste, e' DIVERSA
+    // da quella corrente (a filesystem root cdUp() non muove nulla) ed e'
+    // effettivamente leggibile: cosi' non si finisce in una directory sandbox
+    // che l'OS non lascia enumerare, da cui non si ridiscende piu'.
+    bool canNavigateUp() const {
+        // Non salire OLTRE il floor (radice del tipo su cui si e' tappato): se la
+        // cartella corrente E' gia' il floor, l'up e' vietato.
+        if (!m_navFloor.isEmpty()
+            && currentDir.absolutePath() == m_navFloor)
+            return false;
+
+        QDir probe = currentDir;
+        const QString currentName = probe.dirName();      // cartella in cui siamo
+        const QString before = probe.absolutePath();
+        if (!probe.cdUp()) return false;                  // gia' alla radice
+        if (probe.absolutePath() == before) return false; // cdUp() non ha mosso
+        const QFileInfo parentInfo(probe.absolutePath());
+        if (!parentInfo.exists() || !parentInfo.isReadable()) return false;
+        // Test decisivo su sandbox iOS/Android: isReadable() puo' mentire (i
+        // permessi POSIX sembrano ok ma l'OS nega l'enumerazione). Consideriamo
+        // il genitore navigabile SOLO se riusciamo a ri-vedere da li' la cartella
+        // corrente tra le sue sottocartelle. Se il listing e' bloccato non la
+        // ritroviamo -> non saliamo, cosi' non restiamo intrappolati.
+        if (currentName.isEmpty()) return true;           // parent = filesystem root
+        const QStringList siblings = probe.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        return siblings.contains(currentName);
+    }
+
     void refreshList() {
         listWidget->clear();
-        QListWidgetItem* upItem = new QListWidgetItem("📁 .. (Up)", listWidget);
-        upItem->setData(Qt::UserRole, "..");
-        upItem->setData(Qt::UserRole + 1, "DIR");
+        // QDir fa cache del contenuto: dopo aver navigato (o se le sottocartelle
+        // sono state create dopo la costruzione del QDir) l'enumerazione puo'
+        // risultare stantia/vuota. refresh() la forza a rileggere dal disco.
+        currentDir.refresh();
+
+        // Mostra ".. (Up)" solo se salire e' davvero possibile, altrimenti la
+        // riga sarebbe una trappola (tap che non fa nulla o che intrappola).
+        if (canNavigateUp()) {
+            QListWidgetItem* upItem = new QListWidgetItem("📁 .. (Up)", listWidget);
+            upItem->setData(Qt::UserRole, "..");
+            upItem->setData(Qt::UserRole + 1, "DIR");
+        }
 
         QFileInfoList dirs = currentDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
         for (const QFileInfo& dir : dirs) {
@@ -164,6 +216,7 @@ private:
     }
 
     QDir currentDir;
+    QString m_navFloor;   // path assoluto oltre cui non si sale (vuoto = nessun limite)
     QLabel* pathLabel;
     QListWidget* listWidget;
     QLineEdit* nameEdit;
@@ -213,9 +266,28 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
                     startPath = QFileInfo(selItem->toolTip(0)).absolutePath(); // È un file
                 }
             }
+            // Se selezioni il NODO di categoria "Surfaces" (non una foglia) il
+            // path ricavato e' vuoto/non valido: cadi qui. Il fallback deve
+            // puntare a una cartella GARANTITA esistente, altrimenti su iOS il
+            // dialog apre una directory inesistente -> lista vuota + salvataggio
+            // fallito (su Android non capita perche' rootPath e' un percorso
+            // pubblico fisso sempre presente).
             if (startPath.isEmpty() || !QDir(startPath).exists()) {
                 startPath = settings.value("lastFolder", rootPath + "/surfaces").toString();
             }
+            if (startPath.isEmpty() || !QDir(startPath).exists()) {
+                startPath = rootPath + "/surfaces";
+            }
+        }
+
+        // Garantiamo che la cartella di partenza esista davvero (prima
+        // scrittura su iOS: il container puo' non avere ancora /surfaces).
+        {
+            QString startDir = startPath.endsWith(".json", Qt::CaseInsensitive)
+                                   ? QFileInfo(startPath).absolutePath()
+                                   : startPath;
+            if (!startDir.isEmpty() && !QDir(startDir).exists())
+                QDir().mkpath(startDir);
         }
 
         if (!startPath.endsWith(".json", Qt::CaseInsensitive)) {
@@ -224,7 +296,7 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         }
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-        MobileSaveDialog dialog("Save Surface", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow);
+        MobileSaveDialog dialog("Save Surface", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow, rootPath + "/surfaces");
         if (dialog.exec() != QDialog::Accepted) {
             if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
             if (wasPath4D) m_mainWindow->pathTimer->start();
@@ -464,16 +536,7 @@ void PresetSerializer::saveTexture(const QString &path)
         }
     }
 
-    if (m_mainWindow->m_isImageMode && !m_mainWindow->m_currentTexturePath.isEmpty()) {
-        // Usiamo una RegEx per rimuovere l'intera linea //IMG: ovunque si trovi,
-        // senza cancellare il codice procedurale che la segue.
-        QRegularExpression imgRe(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption);
-        currentCode.remove(imgRe);
-
-        // Riappendiamo il tag in cima al codice in modo pulito
-        currentCode = "//IMG:" + m_mainWindow->m_currentTexturePath + "\n" + currentCode.trimmed();
-    }
-
+    // Determiniamo il codice BASE (senza tag immagine) in base al modo.
     if (isImplicit) {
         // Se siamo in Ray Marching salviamo entrambi i campi
         currentCode = m_mainWindow->ui->lineTexture->toPlainText();
@@ -481,9 +544,20 @@ void PresetSerializer::saveTexture(const QString &path)
         root["isImplicitMode"] = true; // Flag fondamentale per il caricamento
     } else {
         // Logica Parametrica
-        bool isBg = m_mainWindow->ui->radioBackground->isChecked();
         currentCode = isBg ? m_mainWindow->m_bgTextureCode : m_mainWindow->m_surfaceTextureCode;
         root["isImplicitMode"] = false;
+    }
+
+    // Tag immagine: va prepeso DOPO aver scelto il codice base, altrimenti (bug
+    // storico) i rami isImplicit/parametrico qui sopra ricalcolavano currentCode
+    // da zero e BUTTAVANO VIA il //IMG: -> il path immagine non finiva mai nel
+    // JSON -> al reload appariva l'ultima immagine caricata, non quella salvata.
+    // Prima togliamo eventuali //IMG: gia' presenti nel codice base per evitare
+    // duplicati, poi lo rimettiamo pulito in cima.
+    QRegularExpression imgRe(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption);
+    currentCode.remove(imgRe);
+    if (m_mainWindow->m_isImageMode && !m_mainWindow->m_currentTexturePath.isEmpty()) {
+        currentCode = "//IMG:" + m_mainWindow->m_currentTexturePath + "\n" + currentCode.trimmed();
     }
 
     if (currentCode.trimmed().isEmpty()) currentCode = "// Texture Preset";
@@ -561,9 +635,26 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
                     startPath = QFileInfo(selItem->toolTip(0)).absolutePath(); // È un file
                 }
             }
+            // Selezionando il NODO di categoria (non una foglia) il path e'
+            // vuoto/non valido: il fallback deve puntare a una cartella GARANTITA
+            // esistente, altrimenti su iOS il dialog apre una dir inesistente ->
+            // lista vuota + salvataggio fallito (vedi saveSurface).
             if (startPath.isEmpty() || !QDir(startPath).exists()) {
                 startPath = lastDir;
             }
+            if (startPath.isEmpty() || !QDir(startPath).exists()) {
+                startPath = m_mainWindow->presetsRootPath() + "/records";
+            }
+        }
+
+        // Garantiamo che la cartella di partenza esista davvero (prima scrittura
+        // su iOS: il container puo' non avere ancora /records).
+        {
+            QString startDir = startPath.endsWith(".json", Qt::CaseInsensitive)
+                                   ? QFileInfo(startPath).absolutePath()
+                                   : startPath;
+            if (!startDir.isEmpty() && !QDir(startDir).exists())
+                QDir().mkpath(startDir);
         }
 
         if (!startPath.endsWith(".json", Qt::CaseInsensitive)) {
@@ -572,7 +663,7 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         }
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-        MobileSaveDialog dialog("Save Record", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow);
+        MobileSaveDialog dialog("Save Record", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow, m_mainWindow->presetsRootPath() + "/records");
         if (dialog.exec() != QDialog::Accepted) {
             if (wasRotating) m_mainWindow->ui->glWidget->resumeMotion();
             if (wasPath4D) m_mainWindow->pathTimer->start();
@@ -956,7 +1047,15 @@ void PresetSerializer::saveScript()
     QString defaultName;
     if (!isSurface && !isSound && !m_mainWindow->m_currentTexturePath.isEmpty())
         defaultName = QFileInfo(m_mainWindow->m_currentTexturePath).completeBaseName();
-    MobileSaveDialog dialog(title, currentMem, defaultName, m_mainWindow);
+    // navFloor = radice del tipo corrente: l'Up e' disponibile quando currentMem e'
+    // una sottocartella e si ferma alla radice (surfaces/sounds/textures). Su mobile
+    // presetsRootPath() e' il container fisso del sistema = radice reale sempre
+    // valida (niente workspace custom, che e' desktop-only).
+    QString presetsRoot = m_mainWindow->presetsRootPath();
+    QString navFloor = isSurface ? presetsRoot + "/surfaces"
+                     : (isSound  ? presetsRoot + "/sounds"
+                                 : presetsRoot + "/textures");
+    MobileSaveDialog dialog(title, currentMem, defaultName, m_mainWindow, navFloor);
 
     if (dialog.exec() != QDialog::Accepted) {
         resumeTimers();
@@ -1174,8 +1273,21 @@ void PresetSerializer::saveTextureAs(const QString &startDir, const QString &sou
                               ? QString()
                               : QFileInfo(sourceFilePath).completeBaseName();
 
+    // startDir puo' arrivare inesistente (tap sul NODO di categoria "Textures":
+    // rootPath+"/Textures" con la T maiuscola / cartella mai creata su iOS) ->
+    // il dialog aprirebbe una dir vuota e il salvataggio fallirebbe. Ricadiamo su
+    // una cartella texture GARANTITA e la creiamo (vedi saveSurface/saveMotion).
+    QString effStartDir = startDir;
+    if (effStartDir.isEmpty() || !QDir(effStartDir).exists())
+        effStartDir = m_mainWindow->presetsRootPath() + "/textures";
+    if (!QDir(effStartDir).exists())
+        QDir().mkpath(effStartDir);
+
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-    MobileSaveDialog dialog("Save Texture As...", startDir, defaultName, m_mainWindow);
+    // navFloor = radice del tipo (textures): l'Up e' disponibile quando si parte
+    // da una SOTTOCARTELLA e si ferma qui, senza salire nel filesystem sandbox.
+    MobileSaveDialog dialog("Save Texture As...", effStartDir, defaultName, m_mainWindow,
+                            m_mainWindow->presetsRootPath() + "/textures");
 
     if (dialog.exec() != QDialog::Accepted) {
         // Se l'utente preme Cancel, riprendiamo l'animazione ed usciamo
@@ -1186,7 +1298,7 @@ void PresetSerializer::saveTextureAs(const QString &startDir, const QString &sou
     }
     QString savePath = dialog.getSelectedPath();
 #else
-    QString defaultSelection = startDir + "/";
+    QString defaultSelection = effStartDir + "/";
     if (!defaultName.isEmpty()) defaultSelection += defaultName + ".json";
     QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Texture As...", defaultSelection, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
 #endif
@@ -1218,7 +1330,10 @@ void PresetSerializer::saveSurfaceAs(const QString &startDir, const QString &sou
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     QString baseName = QFileInfo(defaultSelection).completeBaseName();
-    MobileSaveDialog dialog("Save Surface As...", startDir, baseName, m_mainWindow);
+    // navFloor = radice del tipo (surfaces): Up disponibile dalle sottocartelle,
+    // fermo alla radice.
+    MobileSaveDialog dialog("Save Surface As...", startDir, baseName, m_mainWindow,
+                            m_mainWindow->presetsRootPath() + "/surfaces");
 
     if (dialog.exec() != QDialog::Accepted) {
         // Se l'utente preme Cancel, riprendiamo l'animazione ed usciamo
@@ -1246,14 +1361,24 @@ void PresetSerializer::saveSurfaceAs(const QString &startDir, const QString &sou
 
 void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourceFilePath)
 {
-    QString defaultSelection = startDir + "/NewSound.json";
+    // startDir puo' arrivare inesistente (tap sul NODO di categoria "Sounds":
+    // rootPath+"/Sounds" con la S maiuscola / cartella mai creata su iOS) -> il
+    // dialog aprirebbe una dir vuota e il salvataggio fallirebbe. Ricadiamo su
+    // una cartella sound GARANTITA e la creiamo (vedi saveSurface/saveMotion).
+    QString effStartDir = startDir;
+    if (effStartDir.isEmpty() || !QDir(effStartDir).exists())
+        effStartDir = m_mainWindow->presetsRootPath() + "/sounds";
+    if (!QDir(effStartDir).exists())
+        QDir().mkpath(effStartDir);
+
+    QString defaultSelection = effStartDir + "/NewSound.json";
     QString filter = "JSON Files (*.json)";
     bool isMediaFile = false;
     QString expectedExt = "json"; // Inizializza con json
 
     // 1. Capisce se stiamo clonando un file audio reale (MP3/WAV/OGG)
     if (!sourceFilePath.isEmpty()) {
-        defaultSelection = startDir + "/" + QFileInfo(sourceFilePath).fileName();
+        defaultSelection = effStartDir + "/" + QFileInfo(sourceFilePath).fileName();
         if (sourceFilePath.endsWith(".mp3", Qt::CaseInsensitive) ||
             sourceFilePath.endsWith(".wav", Qt::CaseInsensitive) ||
             sourceFilePath.endsWith(".ogg", Qt::CaseInsensitive)) {
@@ -1281,7 +1406,9 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
     // ==============================================================
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     QString baseName = QFileInfo(defaultSelection).completeBaseName();
-    MobileSaveDialog dialog("Save Sound As...", startDir, baseName, m_mainWindow);
+    // navFloor = radice del tipo (sounds): Up dalle sottocartelle, fermo alla radice.
+    MobileSaveDialog dialog("Save Sound As...", effStartDir, baseName, m_mainWindow,
+                            m_mainWindow->presetsRootPath() + "/sounds");
 
     if (dialog.exec() != QDialog::Accepted) {
         if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
@@ -1393,7 +1520,9 @@ void PresetSerializer::saveMotionAs(const QString &startDir, const QString &sour
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     QString baseName = QFileInfo(defaultSelection).completeBaseName();
-    MobileSaveDialog dialog("Save Surface As...", startDir, baseName, m_mainWindow);
+    // navFloor = radice del tipo (records): Up dalle sottocartelle, fermo alla radice.
+    MobileSaveDialog dialog("Save Record As...", startDir, baseName, m_mainWindow,
+                            m_mainWindow->presetsRootPath() + "/records");
 
     if (dialog.exec() != QDialog::Accepted) {
         // Se l'utente preme Cancel, riprendiamo l'animazione ed usciamo

@@ -4,6 +4,7 @@
 #include <QDebug>
 #include <QSettings>
 #include <QColor>
+#include <QRegularExpression>
 
 LibraryManager::LibraryManager() {}
 
@@ -422,6 +423,21 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.scriptCode = root["code"].toString();
             d.textureCode = d.scriptCode;
             d.isTextureCustom = true; d.isImage = false;
+
+            // Una texture-immagine viene salvata come JSON col path della PNG nel
+            // tag "//IMG:<path>" in cima al code. Va riconosciuta qui, altrimenti
+            // isImage resta false -> al load il ramo immagine non parte, la
+            // protezione anti-cambio-modo salta e la scena collassa in RM default.
+            QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)", QRegularExpression::MultilineOption);
+            QRegularExpressionMatch imgMatch = imgRe.match(d.scriptCode);
+            if (imgMatch.hasMatch()) {
+                QString imgPath = imgMatch.captured(1).trimmed();
+                if (!imgPath.isEmpty()) {
+                    d.isImage = true;
+                    d.imagePath = imgPath;
+                }
+            }
+
             if (root.contains("zoom")) d.zoom = root["zoom"].toDouble(1.0);
             if (root.contains("pan_x")) d.panX = root["pan_x"].toDouble(0.0);
             if (root.contains("pan_y")) d.panY = root["pan_y"].toDouble(0.0);
