@@ -71,7 +71,9 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
     // =========================================================
     // --- GESTIONE VISTA 3D / 4D  ---
     // =========================================================
-    else {
+    // Mentre un path anima la telecamera, la rotazione manuale 3D/4D e' bloccata
+    // (la vista 2D del dock Script sopra resta invece libera).
+    else if (!m_glWidget->isPathAnimating()) {
         // TASTO SINISTRO: Precession + Nutation (Invariato)
         if (event->buttons() & Qt::LeftButton) {
             float sensitivity = 0.3f;
@@ -81,6 +83,7 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
                 m_glWidget->addCameraRotation(dx * sensitivity, dy * sensitivity);
             } else {
                 // Passiamo 0.0f come terzo argomento (Spin)
+                m_glWidget->markUserRotated();
                 m_glWidget->addObjectRotation(dx * sensitivity, dy * sensitivity, 0.0f);
             }
         }
@@ -155,9 +158,10 @@ bool InputHandler::handleTouch(QEvent* e)
                 // Usa lo spostamento orizzontale (dx) per ruotare, come fa il click sinistro del mouse
                 m_glWidget->addFlatRotation(dx * sensitivity);
             }
-        } else {
-            // Modalità 3D/4D: Rotazione standard dell'oggetto
+        } else if (!m_glWidget->isPathAnimating()) {
+            // Modalità 3D/4D: Rotazione standard dell'oggetto (bloccata durante un path)
             float rotSens = 0.3f;
+            m_glWidget->markUserRotated();
             m_glWidget->addObjectRotation(dx * rotSens, dy * rotSens, 0.0f);
         }
         m_lastTouchPos = currentPos;
@@ -177,8 +181,8 @@ bool InputHandler::handleTouch(QEvent* e)
                 // Moltiplicatore per rendere lo zoom scalare (es. 0.005 è la sensibilità)
                 float zoomFactor = 1.0f + (deltaDist * 0.005f);
                 m_glWidget->setFlatZoom(currentZoom * zoomFactor);
-            } else {
-                // Modalità 3D: ZOOM della camera
+            } else if (!m_glWidget->isPathAnimating()) {
+                // Modalità 3D: ZOOM della camera (bloccato durante un path)
                 m_glWidget->zoomCamera(deltaDist * 0.05f);
             }
         }
@@ -203,7 +207,8 @@ void InputHandler::handleWheel(QWheelEvent* event)
         m_glWidget->setFlatZoom(currentZoom * zoomFactor);
     }
     // --- GESTIONE ZOOM 3D / 4D ---
-    else {
+    // Bloccato mentre un path controlla la telecamera (lo zoom 2D sopra resta libero).
+    else if (!m_glWidget->isPathAnimating()) {
         float zoomSpeed = 0.01f;
         m_glWidget->zoomCamera(delta * zoomSpeed);
     }

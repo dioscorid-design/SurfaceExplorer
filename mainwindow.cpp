@@ -2601,9 +2601,9 @@ MainWindow::MainWindow(QWidget *parent)
         tree->setUniformRowHeights(true);
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-        // Niente scroll cinetico a dito sul viewport: il TouchGesture, trascinando,
-        // selezionava piu' file / competeva col drag&drop. Come gli altri dock, si
-        // scrolla solo con la scroll bar. Il TapAndHold resta: apre il menu.
+        // Niente scroll cinetico a dito sul viewport: si scrolla solo con la scroll
+        // bar (lo scroll a dito animava di moto proprio ed evidenziava gli item).
+        // Il TapAndHold resta: apre il menu contestuale.
         tree->grabGesture(Qt::TapAndHoldGesture);
 
         tree->setIndentation(12);
@@ -4965,6 +4965,39 @@ void MainWindow::onStartClicked()
     ui->glWidget->update();
 }
 
+void MainWindow::stopPathAnimations()
+{
+    // Ferma entrambi i percorsi camera (4D + 3D) riportandoli allo stato "fermo".
+    // Rispecchia il ramo STOP di onDepartureClicked / onDeparture3DClicked.
+    bool changed = false;
+    if (pathTimer && pathTimer->isActive()) {
+        pathTimer->stop();
+        ui->btnDeparture->setText("DEPARTURE");
+        checkPathFields();
+        changed = true;
+    }
+    if (pathTimer3D && pathTimer3D->isActive()) {
+        pathTimer3D->stop();
+        ui->btnDeparture3D->setText("DEPARTURE");
+        checkPath3DFields();
+        changed = true;
+    }
+    if (changed) {
+        if (ui->glWidget) ui->glWidget->setPathAnimating(false);
+        updateViewButtonsEnabled();
+    }
+}
+
+void MainWindow::stopRotationMotion()
+{
+    // Ferma il moto GO (rotazioni superficie/4D). Rispecchia il ramo "STOP" di
+    // onStopClicked, ma non tocca i timer dei path.
+    if (ui->glWidget && ui->glWidget->isAnimating()) {
+        ui->glWidget->pauseMotion();
+        if (ui->btnStart_2) ui->btnStart_2->setText("GO");
+    }
+}
+
 void MainWindow::onStopClicked() {
     bool isRunning = ui->glWidget->isAnimating();
 
@@ -4973,6 +5006,9 @@ void MainWindow::onStopClicked() {
         if (ui->btnStart_2) ui->btnStart_2->setText("GO");
     } else {
         if (!hasAnyRotationSpeed()) return;
+
+        // Mutua esclusivita': avviando GO fermiamo i due percorsi camera.
+        stopPathAnimations();
 
         ui->glWidget->resumeMotion();
         if (ui->btnStart_2) ui->btnStart_2->setText("STOP");
@@ -5034,10 +5070,12 @@ void MainWindow::onDepartureClicked()
     }
 
     // CASO 2: VOGLIAMO PARTIRE
+    // Mutua esclusivita': fermiamo il percorso 3D e il moto GO se attivi.
     if (pathTimer3D->isActive()) {
         pathTimer3D->stop();
         ui->btnDeparture3D->setText("DEPARTURE");
     }
+    stopRotationMotion();
 
     // Funzione helper per pulire l'input
     auto getSafeEq = [](QLineEdit* line) {
@@ -5081,11 +5119,17 @@ void MainWindow::onDepartureClicked()
     }
 
     pathTimer->start();
-    if (ui->glWidget) ui->glWidget->setPathAnimating(true);
+    if (ui->glWidget) {
+        ui->glWidget->setPathAnimating(true);
+        // La superficie parte da neutro se l'orientamento e' solo quello di default
+        // del preset/avvio; se l'utente l'ha ruotata a mano, resta.
+        ui->glWidget->neutralizeDefaultRotationForPath();
+    }
     updateViewButtonsEnabled();
     ui->btnDeparture->setText("STOP");
 
     updateMasterButtonState();
+    update4DButtonState();   // riallinea i controlli 4D dopo l'eventuale stop del moto GO
 }
 
 void MainWindow::onPathTimerTick()
@@ -5251,10 +5295,12 @@ void MainWindow::onDeparture3DClicked()
     }
 
     // CASO 2: START
+    // Mutua esclusivita': fermiamo il percorso 4D e il moto GO se attivi.
     if (pathTimer->isActive()) {
         pathTimer->stop();
         ui->btnDeparture->setText("DEPARTURE");
     }
+    stopRotationMotion();
 
     auto getSafeEq = [](QLineEdit* line) {
         QString t = line->text().trimmed();
@@ -5287,11 +5333,17 @@ void MainWindow::onDeparture3DClicked()
     }
 
     pathTimer3D->start();
-    if (ui->glWidget) ui->glWidget->setPathAnimating(true);
+    if (ui->glWidget) {
+        ui->glWidget->setPathAnimating(true);
+        // La superficie parte da neutro se l'orientamento e' solo quello di default
+        // del preset/avvio; se l'utente l'ha ruotata a mano, resta.
+        ui->glWidget->neutralizeDefaultRotationForPath();
+    }
     updateViewButtonsEnabled();
     ui->btnDeparture3D->setText("STOP");
 
     updateMasterButtonState();
+    update4DButtonState();   // riallinea i controlli 4D dopo l'eventuale stop del moto GO
 }
 
 void MainWindow::onPath3DTimerTick()
@@ -5344,8 +5396,25 @@ void MainWindow::updateViewButtonsEnabled()
     // Ogni pulsante e' indipendente e abilitato solo mentre il SUO path anima:
     // a path fermo il toggle non avrebbe effetto grafico (m_pathMode/m_pathMode3D
     // sono letti solo nei rispettivi tick).
-    ui->pushView->setEnabled(pathTimer && pathTimer->isActive());
-    ui->pushView3D->setEnabled(pathTimer3D && pathTimer3D->isActive());
+    bool path4D = pathTimer && pathTimer->isActive();
+    bool path3D = pathTimer3D && pathTimer3D->isActive();
+    ui->pushView->setEnabled(path4D);
+    ui->pushView3D->setEnabled(path3D);
+
+    // Mentre un path qualsiasi controlla la telecamera, i tasti di spostamento a
+    // click dei dock 3D/4D sono disabilitati. Chiamato ovunque si avvii/fermi un
+    // path (in coppia con setPathAnimating), quindi resta sempre sincronizzato.
+    // I comandi mouse 3D (rotazione/zoom) sono bloccati a parte in InputHandler
+    // via GLWidget::isPathAnimating().
+    setNavControlsEnabled(!(path4D || path3D));
+}
+
+void MainWindow::setNavControlsEnabled(bool enabled)
+{
+    // Tasti di spostamento a click dei dock 3D/4D (X±, Y±, left/right, roll, ...).
+    for (QPushButton* btn : m_navButtons) {
+        if (btn) btn->setEnabled(enabled);
+    }
 }
 
 void MainWindow::onToggleViewClicked()  // path 4D (pushView)
@@ -7840,6 +7909,11 @@ void MainWindow::connectSidePanels()
 void MainWindow::connectNavButton(QPushButton *btn, int action)
 {
     if (!btn) return;
+
+    // Registriamo il pulsante per poterli disabilitare in blocco durante un path
+    // (i tasti di spostamento a click dei dock 3D/4D non hanno senso mentre la
+    // telecamera segue un percorso).
+    m_navButtons.append(btn);
 
     // Quando PREMI un bottone
     connect(btn, &QPushButton::pressed, this, [this, action]() {

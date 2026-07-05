@@ -216,8 +216,21 @@ public:
     void setCameraYaw(float y) { m_cameraYaw = y; meshNeedsUpdate = true; update(); }
     void setCameraPitch(float p) { m_cameraPitch = p; meshNeedsUpdate = true; update(); }
     void setCameraRoll(float r) { m_cameraRoll = r; meshNeedsUpdate = true; update(); }
+    // Attiva/disattiva la soppressione del watchdog di performance durante
+    // l'esportazione video (vedi m_isRecording). Chiamato dal VideoRecorder.
+    void setRecordingActive(bool on) { m_isRecording = on; }
     QQuaternion getRotationQuat() const { return m_rotationQuat; }
-    void setRotationQuat(const QQuaternion& q) { m_rotationQuat = q; meshNeedsUpdate = true; update(); }
+    // setRotationQuat imposta la rotazione "di default" (load preset / stato iniziale):
+    // azzera m_userRotatedManually perche' questa NON e' una rotazione dell'utente.
+    void setRotationQuat(const QQuaternion& q) { m_rotationQuat = q; m_userRotatedManually = false; meshNeedsUpdate = true; update(); }
+    // All'avvio di un path: se l'orientamento corrente e' quello di default del
+    // preset/avvio (l'utente non ha ruotato a mano), lo riporta a neutro; se invece
+    // l'utente ha ruotato col mouse, lo conserva.
+    void neutralizeDefaultRotationForPath() {
+        if (!m_userRotatedManually) { m_rotationQuat = QQuaternion(); meshNeedsUpdate = true; update(); }
+    }
+    // Marcato dalla rotazione manuale (mouse/touch) via InputHandler.
+    void markUserRotated() { m_userRotatedManually = true; }
     float getObserverPos4D() const { return m_observerPos.w(); }
     void setObserverPos4D(float pos) { m_observerPos.setW(pos); m_cameraPos4D.setW(pos); meshNeedsUpdate = true; update(); }
 
@@ -250,6 +263,7 @@ public:
     // serve SOLO al watchdog di performance per sapere se c'e' rendering continuo;
     // MainWindow lo spegne allo stop del path. Vedi render().
     void setPathAnimating(bool animating) { m_pathAnimating = animating; }
+    bool isPathAnimating() const { return m_pathAnimating; }
 
     void startAnimationTimer();
     void stopAnimationTimer();
@@ -464,6 +478,11 @@ private:
     // true tra beginHiResCapture/endHiResCapture: il color buffer è già fissato
     // alla risoluzione di export, quindi getFrameForVideo NON deve riscalare.
     bool m_hiResCapture = false;
+    // true durante l'esportazione video: il rendering e' frame-by-frame (con
+    // cattura + scrittura su disco tra i frame), quindi gli intervalli sono
+    // naturalmente lentissimi -> il watchdog di performance darebbe un FALSO
+    // avviso "il rendering rallenta". Lo si disattiva mentre e' true.
+    bool m_isRecording = false;
     int m_flatViewTarget = 0;
     float m_flatZoom = 1.0f;
     float m_flatRotation = 0.0f;
@@ -477,6 +496,9 @@ private:
     QMatrix4x4 m_view;
     QMatrix4x4 m_model;
     QQuaternion m_rotationQuat;
+    // true se l'utente ha ruotato la superficie a mano (mouse/touch) dopo l'ultima
+    // rotazione "di default" (setRotationQuat). Governa neutralizeDefaultRotationForPath.
+    bool m_userRotatedManually = false;
 
     QVector3D m_cameraPos;
     QVector4D m_cameraPos4D = QVector4D(0.0f, 0.0f, 4.0f, 4.0f);

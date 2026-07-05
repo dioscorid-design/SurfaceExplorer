@@ -118,6 +118,11 @@ private slots:
     void onDeparture3DClicked();
     void onPath3DTimerTick();
     void checkPath3DFields();
+    // Mutua esclusivita' GO / Departure 3D / Departure 4D: attivando uno di questi
+    // tre moti gli altri due si spengono. Questi helper fermano gli "altri" senza
+    // duplicare la logica di pulizia UI. Ognuno e' un no-op se il suo moto e' fermo.
+    void stopPathAnimations();   // ferma pathTimer (4D) e pathTimer3D (3D)
+    void stopRotationMotion();   // ferma il moto GO (rotazioni superficie/4D)
     void onToggleViewClicked();    // toggle vista path 4D (pushView)
     void onToggleView3DClicked();  // toggle vista path 3D (pushView3D)
     // I pulsanti Tangent/Center View hanno effetto solo mentre il rispettivo path
@@ -278,6 +283,10 @@ private:
     // ==========================================================
     QTimer *navTimer;
     QSet<int> activeNavActions;
+    // Tasti di spostamento a click dei dock 3D/4D (X±, Y±, left, right, roll, ...),
+    // raccolti in connectNavButton per abilitarli/disabilitarli in blocco: durante
+    // un path la telecamera segue il percorso e questi comandi non hanno senso.
+    QVector<QPushButton*> m_navButtons;
 
     QTimer *pathTimer;
     float pathTimeT = 0.0f;
@@ -367,6 +376,9 @@ private:
     void setupDefaultFolders();
     void connectSidePanels();
     void connectNavButton(QPushButton *btn, int action);
+    // Abilita/disabilita in blocco i tasti di spostamento dei dock 3D/4D e blocca i
+    // comandi mouse 3D (rotazione/zoom) del glWidget mentre un path e' attivo.
+    void setNavControlsEnabled(bool enabled);
 
     // --- Library & File I/O ---
     void syncResourcesToFolder(const QString &resourcePath, const QString &diskPath, bool forceRestore = false, int *overwriteState = nullptr);

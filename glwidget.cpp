@@ -197,7 +197,12 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // qui solo avviso. Si misura SOLO con animazione attiva, altrimenti gli
     // intervalli non rappresentano un throughput continuo.
     {
-        const bool animating = isAnimating() || m_surfaceAnimating || m_pathAnimating;
+        // Durante l'esportazione video il rendering e' frame-by-frame (cattura +
+        // scrittura su disco tra i frame): gli intervalli sono lentissimi per
+        // costruzione, non per carico GPU. Saltiamo il watchdog per non dare un
+        // falso avviso "il rendering rallenta" durante la registrazione.
+        const bool animating = !m_isRecording &&
+                               (isAnimating() || m_surfaceAnimating || m_pathAnimating);
         if (animating) {
             // Il PRIMO frame dopo l'avvio (o ri-avvio) dell'animazione non e' una
             // misura valida: l'intervallo dal frame precedente include il tempo da

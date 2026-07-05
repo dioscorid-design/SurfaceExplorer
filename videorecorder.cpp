@@ -255,6 +255,48 @@ private:
 };
 #endif
 
+#if defined(Q_OS_IOS)
+// Rileva un frame di RUMORE (grabFramebuffer che a volte, su iOS, restituisce il
+// color buffer non renderizzato -> pixel RGB casuali a schermo intero). Un frame
+// REALE ha ampie zone correlate (sfondo/superfici lisce): pixel adiacenti quasi
+// uguali. Il rumore ha pixel indipendenti: ~ogni coppia adiacente salta di molto
+// su tutti i canali. Campioniamo delle coppie orizzontali sparse e misuriamo la
+// frazione di "salti forti": se e' altissima (impossibile in un frame vero, dove
+// lo sfondo domina) il frame e' rumore e va scartato. frame: Format_RGB32.
+static bool frameLooksLikeNoise(const QImage &frame)
+{
+    if (frame.isNull() || frame.width() < 4 || frame.height() < 4)
+        return false; // non decidibile: non scartare
+
+    const int rowStep = qMax(1, frame.height() / 200); // ~200 righe campionate
+    const int colStep = 4;                              // coppie ogni 4 px
+    const int jumpThreshold = 40;                       // salto "forte" per canale (0..255)
+
+    qint64 pairs = 0;
+    qint64 strongJumps = 0;
+
+    for (int y = 0; y < frame.height(); y += rowStep) {
+        const QRgb *line = reinterpret_cast<const QRgb*>(frame.constScanLine(y));
+        for (int x = 0; x + 1 < frame.width(); x += colStep) {
+            const QRgb a = line[x];
+            const QRgb b = line[x + 1];
+            const int dr = qAbs(qRed(a)   - qRed(b));
+            const int dg = qAbs(qGreen(a) - qGreen(b));
+            const int db = qAbs(qBlue(a)  - qBlue(b));
+            ++pairs;
+            if (dr > jumpThreshold && dg > jumpThreshold && db > jumpThreshold)
+                ++strongJumps;
+        }
+    }
+
+    if (pairs == 0) return false;
+    // Nel rumore vero i "salti forti su tutti i canali" sono la stragrande
+    // maggioranza; in un frame reale sono rari (bordi netti a parte). Soglia alta
+    // (0.85) per non scartare MAI un frame legittimo, anche molto dettagliato.
+    return (double)strongJumps / (double)pairs > 0.85;
+}
+#endif
+
 VideoRecorder::VideoRecorder(MainWindow *mainWindow, QObject *parent)
     : QObject(parent), m_mainWindow(mainWindow)
 {
@@ -466,6 +508,9 @@ void VideoRecorder::toggleRecord()
     // 3. PREPARAZIONE REGISTRAZIONE
     // ==============================================================
     m_mainWindow->m_isRecording = true;
+    // Sopprime il watchdog di performance durante l'export (rendering frame-by-frame
+    // = intervalli lentissimi per costruzione, non falso allarme da carico GPU).
+    m_mainWindow->ui->glWidget->setRecordingActive(true);
     m_mainWindow->m_stopRecordingRequested = false;
     m_mainWindow->ui->glWidget->setUpdatesEnabled(false);
 
@@ -822,6 +867,18 @@ void VideoRecorder::toggleRecord()
         // le W/H passate all'encoder (che non può dedurle da un file grezzo).
         if (frame.width() % 2 != 0)  frame = frame.copy(0, 0, frame.width() - 1, frame.height());
         if (frame.height() % 2 != 0) frame = frame.copy(0, 0, frame.width(), frame.height() - 1);
+
+        // Scarta i frame di rumore: su iOS grabFramebuffer a volte restituisce il
+        // color buffer non renderizzato (RGB casuale a schermo intero). Non
+        // scrivendo il .raw, l'encoder non trova quel frame e lo salta: un
+        // fotogramma in meno e' impercettibile, un frame di rumore no. Il check e'
+        // PRIMA di fissare iosFrameW/H, cosi' un eventuale primo frame di rumore non
+        // detta le dimensioni. Aggiorniamo comunque il progress prima di saltare.
+        if (frameLooksLikeNoise(frame)) {
+            m_mainWindow->m_renderProgress->setValue(i + 1);
+            continue;
+        }
+
         if (iosFrameW == 0) { iosFrameW = frame.width(); iosFrameH = frame.height(); }
 
         fileName = QString("frame_%1.raw").arg(i, 5, 10, QChar('0'));
@@ -915,6 +972,7 @@ void VideoRecorder::toggleRecord()
     // 5. RIPRISTINO E PULIZIA
     // ==============================================================
     m_mainWindow->m_isRecording = false;
+    m_mainWindow->ui->glWidget->setRecordingActive(false); // riattiva il watchdog
 
     // Ripristina il color buffer alla dimensione a schermo (esce dalla cattura FBO).
     // Va fatto SEMPRE, anche su stop anticipato (il loop esce solo con break).
