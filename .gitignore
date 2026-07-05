@@ -3,10 +3,12 @@
 build/
 Release/
 AppDir/
+dist/
 *.zip
 *.AppImage
 *.run
 *.dmg
+*.sha256
 
 # --- CMake generated files ---
 # Temporary files created by the build system
