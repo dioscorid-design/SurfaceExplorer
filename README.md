@@ -20,17 +20,19 @@ Surface Explorer 4D 3.0 builds on the Qt RHI architecture introduced in 2.0 and 
 
 ## 📦 Releases
 You don't need to compile the project to try it! Check out the **[Latest Releases](https://github.com/dioscorid-design/SurfaceExplorer/releases)** for portable, standalone binaries:
-* **macOS**: Download `SurfaceExplorer.dmg`, open it, and drag the app to your Applications folder.
-* **Windows**: Download `SurfaceExplorer_Windows.zip`, extract, and run `SurfaceExplorer.exe`.
-* **Linux**: Download `SurfaceExplorer_Linux_Alpha.zip`, extract, and run `./surface-explorer.sh`.
 
-> **macOS note:** Since this is an unsigned (non-notarized) open-source application, Gatekeeper blocks it on first launch — you may see *"app is damaged"* or *"cannot be opened because it is from an unidentified developer"* with only a **Move to Trash / Cancel** prompt.
->
-> After dragging the app into your Applications folder, clear the quarantine flag from Terminal:
-> ```
-> xattr -dr com.apple.quarantine /Applications/SurfaceExplorer.app
-> ```
-> Then open it normally. If macOS still refuses on a double-click, **right-click the app → Open → Open** (this is the only path that shows an "Open anyway" button).
+* **macOS**: Download `SurfaceExplorer.dmg`, open it, and drag the app to your Applications folder. The app is signed with an Apple Developer ID and notarized, so it opens normally on first launch — no Gatekeeper workaround needed.
+* **Windows**: Download `SurfaceExplorer-v3.0-win64.zip`, extract, and run `SurfaceExplorer.exe`.
+* **Linux**: Download `SurfaceExplorer-v3.0-linux-x86_64.AppImage` — a self-contained binary that bundles Qt, so it runs on any x86_64 distribution with no installation. Make it executable and launch it:
+  ```bash
+  chmod +x SurfaceExplorer-*-linux-x86_64.AppImage
+  ./SurfaceExplorer-*-linux-x86_64.AppImage
+  ```
+  To add it to your applications menu (icon + launcher), download `install-linux.sh` into the same folder and run it:
+  ```bash
+  chmod +x install-linux.sh
+  ./install-linux.sh            # integrates into the menu; re-run to update, --uninstall to remove
+  ```
 
 ## 🛠️ Build from Source
 To compile Surface Explorer manually, ensure you have **Qt 6.10.2** and **CMake** installed:
