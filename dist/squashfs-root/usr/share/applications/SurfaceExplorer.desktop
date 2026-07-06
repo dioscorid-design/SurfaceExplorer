@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Surface Explorer
+Exec=surface-explorer
+Icon=surface-explorer
+Terminal=false
+Categories=Education;Science;Math;
+StartupNotify=true
+StartupWMClass=SurfaceExplorer

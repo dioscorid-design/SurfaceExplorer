@@ -297,6 +297,22 @@ private:
     float m_pathSpeed3D = 0.01f;
     float m_pathSpeed4D = 0.01f;
 
+    // Orientamento 4D (omega/phi/psi) della superficie catturato all'avvio del
+    // path 4D: il tick applica le compensazioni -gamma/-beta RELATIVE a questa
+    // base, cosi' l'orientamento accumulato dal moto GO non viene azzerato a ogni
+    // Departure. Solo il PRIMO Departure 4D della sessione parte da neutro
+    // (m_path4DStartedOnce), come gia' avviene per il path 3D.
+    float m_pathBaseOmega = 0.0f;
+    float m_pathBasePhi   = 0.0f;
+    float m_pathBasePsi   = 0.0f;
+    bool  m_path4DStartedOnce = false;
+
+    // Il PRIMO Departure della sessione (3D o 4D) azzera la rotazione spaziale di
+    // default (neutralizeDefaultRotationForPath); dai successivi si conserva
+    // l'orientamento accumulato (es. dal moto GO), senza reset nel passaggio da
+    // una modalita' all'altra (GO <-> Departure 3D <-> Departure 4D).
+    bool  m_anyPathStartedOnce = false;
+
     enum CameraPathMode {
         ModeTangential,
         ModeCentered

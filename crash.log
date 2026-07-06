@@ -1,0 +1,244 @@
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <ima:enforcing>
+  <https://debuginfod.fedoraproject.org/>
+  <ima:ignore>
+Enable debuginfod for this session? (y or [n]) [answered N; input not from terminal]
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib64/libthread_db.so.1".
+
+Program received signal SIGSEGV, Segmentation fault.
+0x00007ffff13ce294 in ?? ()
+#0  0x00007ffff13ce294 in ?? ()
+No symbol table info available.
+#1  0x00007ffff7fca460 in call_init (l=0x7ffff4e7d6c0, argc=1, argv=0x7fffffffdd78, env=0x7fffffffdd88) at dl-init.c:60
+        init_array = <optimized out>
+        __PRETTY_FUNCTION__ = "call_init"
+#2  call_init (l=0x7ffff4e7d6c0, argc=1, argv=0x7fffffffdd78, env=0x7fffffffdd88) at dl-init.c:26
+        init_array = <optimized out>
+        __PRETTY_FUNCTION__ = "call_init"
+        j = <optimized out>
+        jm = <optimized out>
+        addrs = <optimized out>
+#3  0x00007ffff7fca57d in _dl_init (main_map=0x7ffff7ffe2f0, argc=1, argv=0x7fffffffdd78, env=0x7fffffffdd88) at dl-init.c:121
+        preinit_array = <optimized out>
+        preinit_array_size = <optimized out>
+        i = <optimized out>
+#4  0x00007ffff7fe2ea0 in _dl_start_user () from /lib64/ld-linux-x86-64.so.2
+        DL_LOOKUP_GSCOPE_LOCK = DL_LOOKUP_GSCOPE_LOCK
+        relocate_time = 19649040
+        start_time = 16524545899560
+        _dl_rtld_libname = {name = 0x94f000 "/lib64/ld-linux-x86-64.so.2", next = 0x7ffff7ffe260 <newname>, dont_free = 0}
+        DL_LOOKUP_FOR_RELOCATE = DL_LOOKUP_FOR_RELOCATE
+        load_time = 4878900
+        DL_LOOKUP_RETURN_NEWEST = DL_LOOKUP_RETURN_NEWEST
+        DL_LOOKUP_ADD_DEPENDENCY = DL_LOOKUP_ADD_DEPENDENCY
+        lt_library = lt_library
+        lt_loaded = lt_loaded
+        lc_property_valid = lc_property_valid
+        lt_executable = lt_executable
+        lc_property_unknown = lc_property_unknown
+        lc_property_none = lc_property_none
+        dl_readonly_area_writable = dl_readonly_area_writable
+        arch_kind_hygon = arch_kind_hygon
+        arch_kind_unknown = arch_kind_unknown
+        dl_readonly_area_rdonly = dl_readonly_area_rdonly
+        dl_readonly_area_not_found = dl_readonly_area_not_found
+        arch_kind_zhaoxin = arch_kind_zhaoxin
+        arch_kind_amd = arch_kind_amd
+        arch_kind_other = arch_kind_other
+        dso_sort_algorithm_original = dso_sort_algorithm_original
+        arch_kind_intel = arch_kind_intel
+        dso_sort_algorithm_dfs = dso_sort_algorithm_dfs
+        unknown = unknown
+        nonexisting = nonexisting
+        existing = existing
+        PTHREAD_MUTEX_TIMED_NP = PTHREAD_MUTEX_TIMED_NP
+        PTHREAD_MUTEX_RECURSIVE_NP = PTHREAD_MUTEX_RECURSIVE_NP
+        PTHREAD_MUTEX_ERRORCHECK_NP = PTHREAD_MUTEX_ERRORCHECK_NP
+        PTHREAD_MUTEX_ADAPTIVE_NP = PTHREAD_MUTEX_ADAPTIVE_NP
+        PTHREAD_MUTEX_NORMAL = PTHREAD_MUTEX_TIMED_NP
+        PTHREAD_MUTEX_RECURSIVE = PTHREAD_MUTEX_RECURSIVE_NP
+        PTHREAD_MUTEX_ERRORCHECK = PTHREAD_MUTEX_ERRORCHECK_NP
+        PTHREAD_MUTEX_DEFAULT = PTHREAD_MUTEX_TIMED_NP
+        PTHREAD_MUTEX_FAST_NP = PTHREAD_MUTEX_TIMED_NP
+        TD_SWITCHFROM = TD_SWITCHFROM
+        TD_PREEMPT = TD_PREEMPT
+        TD_CONCURRENCY = TD_CONCURRENCY
+        TD_DEATH = TD_DEATH
+        TD_EVENTS_ENABLE = TD_EVENTS_ENABLE
+        _URC_NO_REASON = _URC_NO_REASON
+        _URC_FATAL_PHASE2_ERROR = _URC_FATAL_PHASE2_ERROR
+        TD_READY = TD_READY
+        TD_CATCHSIG = TD_CATCHSIG
+        TD_PRI_INHERIT = TD_PRI_INHERIT
+        TD_SWITCHTO = TD_SWITCHTO
+        TD_LOCK_TRY = TD_LOCK_TRY
+        _URC_FATAL_PHASE1_ERROR = _URC_FATAL_PHASE1_ERROR
+        TD_CREATE = TD_CREATE
+        TD_TIMEOUT = TD_TIMEOUT
+        TD_MAX_EVENT_NUM = TD_TIMEOUT
+        _URC_FOREIGN_EXCEPTION_CAUGHT = _URC_FOREIGN_EXCEPTION_CAUGHT
+        _URC_NORMAL_STOP = _URC_NORMAL_STOP
+        TD_EVENT_NONE = TD_ALL_EVENTS
+        TD_SLEEP = TD_SLEEP
+        TD_REAP = TD_REAP
+        TD_ALL_EVENTS = TD_ALL_EVENTS
+        TD_MIN_EVENT_NUM = TD_READY
+        _URC_HANDLER_FOUND = _URC_HANDLER_FOUND
+        _URC_CONTINUE_UNWIND = _URC_CONTINUE_UNWIND
+        TD_IDLE = TD_IDLE
+        _URC_END_OF_STACK = _URC_END_OF_STACK
+        _URC_INSTALL_CONTEXT = _URC_INSTALL_CONTEXT
+        RT_CONSISTENT = RT_CONSISTENT
+        RT_ADD = RT_ADD
+        RT_DELETE = RT_DELETE
+        cet_elf_property = cet_elf_property
+        cet_always_off = cet_always_off
+        cet_permissive = cet_permissive
+        plt_rewrite_none = plt_rewrite_none
+        plt_rewrite_jmp = plt_rewrite_jmp
+        cet_always_on = cet_always_on
+        plt_rewrite_jmpabs = plt_rewrite_jmpabs
+        CPUID_INDEX_1 = CPUID_INDEX_1
+        CPUID_INDEX_7 = CPUID_INDEX_7
+        CPUID_INDEX_80000001 = CPUID_INDEX_80000001
+        CPUID_INDEX_D_ECX_1 = CPUID_INDEX_D_ECX_1
+        CPUID_INDEX_80000007 = CPUID_INDEX_80000007
+        CPUID_INDEX_80000008 = CPUID_INDEX_80000008
+        CPUID_INDEX_7_ECX_1 = CPUID_INDEX_7_ECX_1
+        CPUID_INDEX_19 = CPUID_INDEX_19
+        CPUID_INDEX_14_ECX_0 = CPUID_INDEX_14_ECX_0
+        CPUID_INDEX_24_ECX_0 = CPUID_INDEX_24_ECX_0
+        CPUID_INDEX_MAX = CPUID_INDEX_MAX
+        PREFERRED_FEATURE_INDEX_1 = PREFERRED_FEATURE_INDEX_1
+        PREFERRED_FEATURE_INDEX_MAX = PREFERRED_FEATURE_INDEX_MAX
+        cpuid_register_index_ebx = cpuid_register_index_ebx
+        cpuid_register_index_edx = cpuid_register_index_edx
+        cpuid_register_index_eax = cpuid_register_index_eax
+        cpuid_register_index_ecx = cpuid_register_index_ecx
+        LA_ACT_CONSISTENT = LA_ACT_CONSISTENT
+        LA_ACT_ADD = LA_ACT_ADD
+        LA_ACT_DELETE = LA_ACT_DELETE
+        cache_extension_tag_generator = cache_extension_tag_generator
+        cache_extension_tag_glibc_hwcaps = cache_extension_tag_glibc_hwcaps
+        cache_extension_count = cache_extension_count
+        _bitindex_arch_Fast_Rep_String = _bitindex_arch_Fast_Rep_String
+        _bitindex_arch_Slow_BSF = _bitindex_arch_Slow_BSF
+        _bitindex_arch_I686 = _bitindex_arch_I686
+        _bitindex_arch_Prefer_No_VZEROUPPER = _bitindex_arch_Prefer_No_VZEROUPPER
+        _bitindex_arch_Prefer_ERMS = _bitindex_arch_Prefer_ERMS
+        _bitindex_arch_Avoid_Non_Temporal_Memset = _bitindex_arch_Avoid_Non_Temporal_Memset
+        _bitindex_arch_Prefer_FSRM = _bitindex_arch_Prefer_FSRM
+        _bitindex_arch_Avoid_Short_Distance_REP_MOVSB = _bitindex_arch_Avoid_Short_Distance_REP_MOVSB
+        _bitindex_arch_Avoid_STOSB = _bitindex_arch_Avoid_STOSB
+        _bitindex_arch_Prefer_PMINUB_for_stringop = _bitindex_arch_Prefer_PMINUB_for_stringop
+        _bitindex_arch_Fast_Unaligned_Copy = _bitindex_arch_Fast_Unaligned_Copy
+        _bitindex_arch_Slow_SSE4_2 = _bitindex_arch_Slow_SSE4_2
+        _bitindex_arch_Prefer_MAP_32BIT_EXEC = _bitindex_arch_Prefer_MAP_32BIT_EXEC
+        _bitindex_arch_MathVec_Prefer_No_AVX512 = _bitindex_arch_MathVec_Prefer_No_AVX512
+        _bitindex_arch_Fast_Copy_Backward = _bitindex_arch_Fast_Copy_Backward
+        _bitindex_arch_Fast_Unaligned_Load = _bitindex_arch_Fast_Unaligned_Load
+        _bitindex_arch_I586 = _bitindex_arch_I586
+        _bitindex_arch_AVX_Fast_Unaligned_Load = _bitindex_arch_AVX_Fast_Unaligned_Load
+        _bitindex_arch_Prefer_No_AVX512 = _bitindex_arch_Prefer_No_AVX512
+        rtld_mode_verify = rtld_mode_verify
+        rtld_mode_trace = rtld_mode_trace
+        rtld_mode_list_diagnostics = rtld_mode_list_diagnostics
+        rtld_mode_help = rtld_mode_help
+        rtld_mode_normal = rtld_mode_normal
+        rtld_mode_list = rtld_mode_list
+        rtld_mode_list_tunables = rtld_mode_list_tunables
+        ALLOCATE_GUARD_MADV_GUARD = ALLOCATE_GUARD_MADV_GUARD
+        ALLOCATE_GUARD_PROT_NONE = ALLOCATE_GUARD_PROT_NONE
+        ALLOCATE_GUARD_USER = ALLOCATE_GUARD_USER
+        __GI__dl_argv = 0x7fffffffdd78
+        __pointer_chk_guard_local = 7979795714913797727
+        _dl_rtld_map = {l_addr = 140737353895936, l_name = 0x94f000 "/lib64/ld-linux-x86-64.so.2", l_ld = 0x7ffff7ffce60, l_next = 0x7ffff7dd07f0, l_prev = 0x7ffff7dd00c0, l_real = 0x7ffff7ffdda0 <_dl_rtld_map>, l_ns = 0, l_libname = 0x7ffff7ffe280 <_dl_rtld_libname>, l_info = {0x0, 0x0, 0x0, 0x0, 0x7ffff7ffce70, 0x7ffff7ffce90, 0x7ffff7ffcea0, 0x7ffff7ffced0, 0x7ffff7ffcee0, 0x7ffff7ffcef0, 0x7ffff7ffceb0, 0x7ffff7ffcec0, 0x0, 0x0, 0x7ffff7ffce60, 0x0 <repeats 15 times>, 0x7ffff7ffcf20, 0x0, 0x0, 0x0, 0x0, 0x7ffff7ffcf60, 0x7ffff7ffcf50, 0x7ffff7ffcf70, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x7ffff7ffcf10, 0x7ffff7ffcf00, 0x7ffff7ffcf30, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x7ffff7ffcf40, 0x0 <repeats 25 times>, 0x7ffff7ffce80}, l_phdr = 0x7ffff7fc5040, l_entry = 0, l_phnum = 10, l_ldnum = 0, l_searchlist = {r_list = 0x0, r_nlist = 0}, l_symbolic_searchlist = {r_list = 0x0, r_nlist = 0}, l_loader = 0x0, l_versions = 0x7ffff4e793f0, l_nversions = 8, l_nbuckets = 37, l_gnu_bitmask_idxbits = 3, l_gnu_shift = 8, l_gnu_bitmask = 0x7ffff7fef148, {l_gnu_buckets = 0x7ffff7fef168, l_chain = 0x7ffff7fef168}, {l_gnu_chain_zero = 0x7ffff7fef1f8, l_buckets = 0x7ffff7fef1f8}, l_direct_opencount = 0, l_type = lt_library, l_dt_relr_ref = 0, l_relocated = 1, l_init_called = 1, l_global = 1, l_reserved = 0, l_main_map = 0, l_visited = 1, l_map_used = 0, l_map_done = 0, l_phdr_allocated = 0, l_soname_added = 0, l_faked = 0, l_need_tls_init = 0, l_auditing = 0, l_audit_any_plt = 0, l_removed = 0, l_contiguous = 1, l_free_initfini = 0, l_ld_readonly = 0, l_find_object_processed = 1, l_tls_in_slotinfo = 0, l_nodelete_active = false, l_nodelete_pending = false, l_has_jump_slot_reloc = false, l_property = lc_property_unknown, l_x86_feature_1_and = 0, l_x86_isa_1_needed = 0, l_1_needed = 0, l_rpath_dirs = {dirs = 0x0, malloced = 0}, l_reloc_result = 0x0, l_versyms = 0x7ffff7fef8f2, l_origin = 0x0, l_map_start = 140737353895936, l_map_end = 140737354130152, l_scope_mem = {0x0, 0x0, 0x0, 0x0}, l_scope_max = 0, l_scope = 0x0, l_local_scope = {0x0, 0x0}, l_file_id = {dev = 0, ino = 0}, l_runpath_dirs = {dirs = 0x0, malloced = 0}, l_initfini = 0x0, l_reldeps = 0x0, l_reldepsmax = 0, l_used = 1, l_feature_1 = 0, l_flags_1 = 0, l_flags = 0, l_idx = 0, l_mach = {plt = 0, gotplt = 0, tlsdesc_table = 0x0}, l_lookup_cache = {sym = 0x0, type_class = 0, value = 0x0, ret = 0x0}, l_tls_initimage = 0x0, l_tls_initimage_size = 0, l_tls_blocksize = 0, l_tls_align = 0, l_tls_firstbyte_offset = 0, l_tls_offset = 0, l_tls_modid = 0, l_tls_dtor_count = 0, l_relro_addr = 221792, l_relro_size = 7584, l_serial = 0}
+        _rtld_global_ro = {_dl_debug_mask = 0, _dl_platform = 0x7fffffffe0d9 "x86_64", _dl_platformlen = 6, _dl_pagesize = 4096, _dl_minsigstacksize = 3376, _dl_inhibit_cache = 0, _dl_initial_searchlist = {r_list = 0x7ffff4e7a268, r_nlist = 68}, _dl_clktck = 100, _dl_verbose = 0, _dl_debug_fd = 2, _dl_lazy = 1, _dl_bind_not = 0, _dl_dynamic_weak = 0, _dl_fpu_control = 895, _dl_hwcap = 2, _dl_auxv = 0x7fffffffdf58, _dl_x86_cpu_features = {basic = {kind = arch_kind_amd, max_cpuid = 16, family = 26, model = 36, stepping = 0}, features = {{{cpuid_array = {11669312, 303564800, 2128097803, 395049983}, cpuid = {eax = 11669312, ebx = 303564800, ecx = 2128097803, edx = 395049983}}, {active_array = {0, 0, 2128097795, 394821904}, active = {eax = 0, ebx = 0, ecx = 2128097795, edx = 394821904}}}, {{cpuid_array = {1, 4055865259, 423649246, 268435728}, cpuid = {eax = 1, ebx = 4055865259, ecx = 423649246, edx = 268435728}}, {active_array = {0, 4054778665, 406871898, 272}, active = {eax = 0, ebx = 4054778665, ecx = 406871898, edx = 272}}}, {{cpuid_array = {11669312, 268435456, 1975662591, 802421759}, cpuid = {eax = 11669312, ebx = 268435456, ecx = 1975662591, edx = 802421759}}, {active_array = {0, 0, 353, 134217728}, active = {eax = 0, ebx = 0, ecx = 353, edx = 134217728}}}, {{cpuid_array = {15, 2480, 6144, 0}, cpuid = {eax = 15, ebx = 2480, ecx = 6144, edx = 0}}, {active_array = {7, 0, 0, 0}, active = {eax = 7, ebx = 0, ecx = 0, edx = 0}}}, {{cpuid_array = {0, 59, 0, 26521}, cpuid = {eax = 0, ebx = 59, ecx = 0, edx = 26521}}, {active_array = {0, 0, 0, 0}, active = {eax = 0, ebx = 0, ecx = 0, edx = 0}}}, {{cpuid_array = {12336, 2032071255, 20503, 65536}, cpuid = {eax = 12336, ebx = 2032071255, ecx = 20503, edx = 65536}}, {active_array = {0, 512, 0, 0}, active = {eax = 0, ebx = 512, ecx = 0, edx = 0}}}, {{cpuid_array = {48, 0, 0, 0}, cpuid = {eax = 48, ebx = 0, ecx = 0, edx = 0}}, {active_array = {48, 0, 0, 0}, active = {eax = 48, ebx = 0, ecx = 0, edx = 0}}}, {{cpuid_array = {0, 0, 0, 0}, cpuid = {eax = 0, ebx = 0, ecx = 0, edx = 0}}, {active_array = {0, 0, 0, 0}, active = {eax = 0, ebx = 0, ecx = 0, edx = 0}}}, {{cpuid_array = {0, 0, 0, 0}, cpuid = {eax = 0, ebx = 0, ecx = 0, edx = 0}}, {active_array = {0, 0, 0, 0}, active = {eax = 0, ebx = 0, ecx = 0, edx = 0}}}, {{cpuid_array = {0, 0, 0, 0}, cpuid = {eax = 0, ebx = 0, ecx = 0, edx = 0}}, {active_array = {0, 0, 0, 0}, active = {eax = 0, ebx = 0, ecx = 0, edx = 0}}}}, preferred = {704}, isa_1 = 15, xsave_state_size = 2560, xsave_state_full_size = 2560, data_cache_size = 49152, shared_cache_size = 8388608, non_temporal_threshold = 6291456, memset_non_temporal_threshold = 6291456, rep_movsb_threshold = 6291456, rep_movsb_stop_threshold = 6291456, rep_stosb_threshold = 18446744073709551615, level1_icache_size = 32768, level1_icache_linesize = 64, level1_dcache_size = 49152, level1_dcache_assoc = 12, level1_dcache_linesize = 64, level2_cache_size = 1048576, level2_cache_assoc = 16, level2_cache_linesize = 64, level3_cache_size = 8388608, level3_cache_assoc = 16, level3_cache_linesize = 64, level4_cache_size = 0, cachesize_non_temporal_divisor = 4}, _dl_x86_tlsdesc_dynamic = 0x7ffff7fdd730 <_dl_tlsdesc_dynamic_xsavec>, _dl_x86_64_runtime_resolve = 0x7ffff7fd8630 <_dl_runtime_resolve_xsavec>, _dl_inhibit_rpath = 0x0, _dl_origin_path = 0x0, _dl_tls_static_size = 5184, _dl_tls_static_align = 64, _dl_tls_static_surplus = 1664, _dl_profile = 0x0, _dl_profile_output = 0x0, _dl_init_all_dirs = 0x7ffff7fbb160, _dl_sysinfo_dso = 0x7ffff7fc3000, _dl_sysinfo_map = 0x7ffff7ffe8d0, _dl_vdso_clock_gettime64 = 0x7ffff7fc41a0 <clock_gettime>, _dl_vdso_gettimeofday = 0x7ffff7fc4160 <gettimeofday>, _dl_vdso_time = 0x7ffff7fc4170 <time>, _dl_vdso_getcpu = 0x7ffff7fc4220 <getcpu>, _dl_vdso_clock_getres_time64 = 0x7ffff7fc41b0 <clock_getres>, _dl_vdso_getrandom = 0x7ffff7fc4260 <getrandom>, _dl_hwcap2 = 2, _dl_hwcap3 = 0, _dl_hwcap4 = 0, _dl_dso_sort_algo = dso_sort_algorithm_dfs, _dl_debug_printf = 0x7ffff7fd2fb0 <_dl_debug_printf>, _dl_mcount = 0x7ffff7fe1700 <__GI__dl_mcount>, _dl_lookup_symbol_x = 0x7ffff7fcfa00 <_dl_lookup_symbol_x>, _dl_open = 0x7ffff7fd1890 <_dl_open>, _dl_close = 0x7ffff7fc77d0 <_dl_close>, _dl_catch_error = 0x7ffff7fc6840 <_dl_catch_error>, _dl_error_free = 0x7ffff7fc8b60 <_dl_error_free>, _dl_tls_get_addr_soft = 0x7ffff7fd7de0 <_dl_tls_get_addr_soft>, _dl_libc_freeres = 0x7ffff7fe08e0 <__rtld_libc_freeres>, _dl_find_object = 0x7ffff7fc94f0 <__GI__dl_find_object>, _dl_readonly_area = 0x7ffff7fd3370 <_dl_readonly_area>, _dl_dlfcn_hook = 0x0, _dl_audit = 0x0, _dl_naudit = 0}
+        _dl_rtld_auditstate = {{cookie = 0, bindflags = 0} <repeats 16 times>}
+        _dl_argc = 1
+        _rtld_global = {_dl_ns = {{_ns_loaded = 0x7ffff7ffe2f0, _ns_nloaded = 69, _ns_main_searchlist = 0x7ffff7ffe5e8, _ns_global_scope_alloc = 0, _ns_global_scope_pending_adds = 0, libc_map = 0x7ffff7dd2f90, _ns_unique_sym_table = {lock = {mutex = {__data = {__lock = 0, __count = 0, __owner = 0, __nusers = 0, __kind = 1, __spins = 0, __elision = 0, __list = {__prev = 0x0, __next = 0x0}}, __size = '\000' <repeats 16 times>, "\001", '\000' <repeats 22 times>, __align = 0}}, entries = 0x7ffff1f87000, size = 1021, n_elements = 425, free = 0x7ffff7fd0a40 <__minimal_free>}}, {_ns_loaded = 0x0, _ns_nloaded = 0, _ns_main_searchlist = 0x0, _ns_global_scope_alloc = 0, _ns_global_scope_pending_adds = 0, libc_map = 0x0, _ns_unique_sym_table = {lock = {mutex = {__data = {__lock = 0, __count = 0, __owner = 0, __nusers = 0, __kind = 0, __spins = 0, __elision = 0, __list = {__prev = 0x0, __next = 0x0}}, __size = '\000' <repeats 39 times>, __align = 0}}, entries = 0x0, size = 0, n_elements = 0, free = 0x0}} <repeats 15 times>}, _dl_nns = 1, _dl_load_lock = {mutex = {__data = {__lock = 0, __count = 0, __owner = 0, __nusers = 0, __kind = 1, __spins = 0, __elision = 0, __list = {__prev = 0x0, __next = 0x0}}, __size = '\000' <repeats 16 times>, "\001", '\000' <repeats 22 times>, __align = 0}}, _dl_load_write_lock = {mutex = {__data = {__lock = 0, __count = 0, __owner = 0, __nusers = 0, __kind = 1, __spins = 0, __elision = 0, __list = {__prev = 0x0, __next = 0x0}}, __size = '\000' <repeats 16 times>, "\001", '\000' <repeats 22 times>, __align = 0}}, _dl_load_tls_lock = {mutex = {__data = {__lock = 0, __count = 0, __owner = 0, __nusers = 0, __kind = 1, __spins = 0, __elision = 0, __list = {__prev = 0x0, __next = 0x0}}, __size = '\000' <repeats 16 times>, "\001", '\000' <repeats 22 times>, __align = 0}}, _dl_load_adds = 69, _dl_initfirst = 0x0, _dl_profile_map = 0x0, _dl_num_relocations = 20633, _dl_num_cache_relocations = 18179, _dl_all_dirs = 0x7ffff7fbb160, _dl_x86_feature_1 = 0, _dl_x86_feature_control = {ibt = cet_elf_property, shstk = cet_elf_property, plt_rewrite = plt_rewrite_none}, _dl_stack_flags = 6, _dl_tls_dtv_gaps = false, _dl_tls_max_dtv_idx = 11, _dl_tls_dtv_slotinfo_list = 0x7ffff4223990, _dl_tls_static_nelem = 11, _dl_tls_static_used = 1152, _dl_tls_static_optional = 512, _dl_initial_dtv = 0x7ffff42204a0, _dl_tls_generation = 1, _dl_scope_free_list = 0x0, _dl_stack_used = {next = 0x7ffff7ffd800 <_rtld_local+2048>, prev = 0x7ffff7ffd800 <_rtld_local+2048>}, _dl_stack_user = {next = 0x7ffff421fdc0, prev = 0x7ffff421fdc0}, _dl_stack_cache = {next = 0x7ffff7ffd820 <_rtld_local+2080>, prev = 0x7ffff7ffd820 <_rtld_local+2080>}, _dl_stack_cache_actsize = 0, _dl_in_flight_stack = 0, _dl_stack_cache_lock = 0}
+        __rtld_tls_init_tp_called = true
+#5  0x0000000000000001 in ?? ()
+No symbol table info available.
+#6  0x00007fffffffe0ea in ?? ()
+No symbol table info available.
+#7  0x0000000000000000 in ?? ()
+No symbol table info available.
+From                To                  Syms Read   Shared Object Library
+0x00007ffff7fc5000  0x00007ffff7fff000  Yes         /lib64/ld-linux-x86-64.so.2
+0x00007ffff7600000  0x00007ffff7dbe000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libQt6Widgets.so.6
+0x00007ffff7df4000  0x00007ffff7fbb000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libQt6Multimedia.so.6
+0x00007ffff7ded000  0x00007ffff7df4000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libQt6Concurrent.so.6
+0x00007ffff7200000  0x00007ffff740e000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libQt6Network.so.6
+0x00007ffff75a5000  0x00007ffff7600000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libxkbcommon.so.0
+0x00007ffff6400000  0x00007ffff7023000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libQt6ShaderTools.so.6
+0x00007ffff5800000  0x00007ffff62ee000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libQt6Gui.so.6
+0x00007ffff7574000  0x00007ffff75a5000  Yes (*)     /lib64/libGLX.so.0
+0x00007ffff7550000  0x00007ffff7574000  Yes (*)     /lib64/libOpenGL.so.0
+0x00007ffff5000000  0x00007ffff5719000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libQt6Core.so.6
+0x00007ffff4c00000  0x00007ffff4e77000  Yes (*)     /lib64/libstdc++.so.6
+0x00007ffff745b000  0x00007ffff7550000  Yes (*)     /lib64/libm.so.6
+0x00007ffff742f000  0x00007ffff745b000  Yes (*)     /lib64/libgcc_s.so.1
+0x00007ffff4a0d000  0x00007ffff4c00000  Yes (*)     /lib64/libc.so.6
+0x00007ffff718d000  0x00007ffff7200000  Yes (*)     /lib64/libGL.so.1
+0x00007ffff70b2000  0x00007ffff718d000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libQt6DBus.so.6
+0x00007ffff7062000  0x00007ffff70b2000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libpulse.so.0
+0x00007ffff633b000  0x00007ffff6400000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libzstd.so.1
+0x00007ffff57a4000  0x00007ffff5800000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libgssapi_krb5.so.2
+0x00007ffff7dc1000  0x00007ffff7dd0000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libbrotlidec.so.1
+0x00007ffff703a000  0x00007ffff7062000  Yes (*)     /lib64/libz.so.1
+0x00007ffff741c000  0x00007ffff742f000  Yes (*)     /lib64/libresolv.so.2
+0x00007ffff7029000  0x00007ffff703a000  Yes (*)     /lib64/libEGL.so.1
+0x00007ffff5754000  0x00007ffff57a4000  Yes (*)     /lib64/libfontconfig.so.1
+0x00007ffff4ebb000  0x00007ffff5000000  Yes (*)     /lib64/libX11.so.6
+0x00007ffff48aa000  0x00007ffff4a0d000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libglib-2.0.so.0
+0x00007ffff47e0000  0x00007ffff48aa000  Yes (*)     /lib64/libfreetype.so.6
+0x00007ffff7415000  0x00007ffff741a000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libgthread-2.0.so.0
+0x00007ffff6327000  0x00007ffff633b000  Yes (*)     /lib64/libXext.so.6
+0x00007ffff4768000  0x00007ffff47e0000  Yes (*)     /lib64/libGLdispatch.so.0
+0x00007ffff4400000  0x00007ffff474f000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libicui18n.so.73
+0x00007ffff4000000  0x00007ffff4218000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libicuuc.so.73
+0x00007ffff2000000  0x00007ffff3e8e000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libicudata.so.73
+0x00007ffff43a5000  0x00007ffff4400000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libdbus-1.so.3
+0x00007ffff4318000  0x00007ffff43a5000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libpulsecommon-17.0.so
+0x00007ffff4245000  0x00007ffff4318000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libkrb5.so.3
+0x00007ffff630d000  0x00007ffff6327000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libk5crypto.so.3
+0x00007ffff7023000  0x00007ffff7029000  Yes (*)     /lib64/libcom_err.so.2
+0x00007ffff62fb000  0x00007ffff630d000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libkrb5support.so.0
+0x00007ffff62f4000  0x00007ffff62fb000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libkeyutils.so.1
+0x00007ffff1a00000  0x00007ffff1f62000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libcrypto.so.3
+0x00007ffff5730000  0x00007ffff5754000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libbrotlicommon.so.1
+0x00007ffff3ea2000  0x00007ffff4000000  Yes (*)     /lib64/libxml2.so.2
+0x00007ffff4e91000  0x00007ffff4ebb000  Yes (*)     /lib64/libxcb.so.1
+0x00007ffff1952000  0x00007ffff1a00000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libpcre2-8.so.0
+0x00007ffff571c000  0x00007ffff5730000  Yes (*)     /lib64/libbz2.so.1
+0x00007ffff1fc4000  0x00007ffff2000000  Yes (*)     /lib64/libpng16.so.16
+0x00007ffff181e000  0x00007ffff1952000  Yes (*)     /lib64/libharfbuzz.so.0
+0x00007ffff62ee000  0x00007ffff62f2000  Yes (*)     /lib64/libpthread.so.0
+0x00007ffff4e8d000  0x00007ffff4e91000  Yes (*)     /lib64/libdl.so.2
+0x00007ffff16ee000  0x00007ffff181e000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libsystemd.so.0
+0x00007ffff166b000  0x00007ffff16ee000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libsndfile.so.1
+0x00007ffff4e85000  0x00007ffff4e8d000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libasyncns.so.0
+0x00007ffff1f90000  0x00007ffff1fc4000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libselinux.so.1
+0x00007ffff1636000  0x00007ffff166b000  Yes (*)     /lib64/liblzma.so.5
+0x00007ffff4e80000  0x00007ffff4e85000  Yes (*)     /lib64/libXau.so.6
+0x00007ffff4226000  0x00007ffff4245000  Yes (*)     /lib64/libgraphite2.so.3
+0x00007ffff475b000  0x00007ffff4768000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libcap.so.2
+0x00007ffff3e93000  0x00007ffff3ea2000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libgsm.so.1
+0x00007ffff15df000  0x00007ffff1636000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libFLAC.so.14
+0x00007ffff15ae000  0x00007ffff15df000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libvorbis.so.0
+0x00007ffff1515000  0x00007ffff15ae000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libvorbisenc.so.2
+0x00007ffff14a8000  0x00007ffff1515000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libopus.so.0
+0x00007ffff4750000  0x00007ffff475b000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libogg.so.0
+0x00007ffff1449000  0x00007ffff14a8000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libmpg123.so.0
+0x00007ffff13ce000  0x00007ffff1449000  Yes (*)     /home/dioscorid/Projects/SurfaceExplorer/dist/squashfs-root/usr/bin/../lib/libmp3lame.so.0
+(*): Shared library is missing debugging information.
+A debugging session is active.
+
+	Inferior 1 [process 27609] will be killed.
+
+Quit anyway? (y or n) [answered Y; input not from terminal]

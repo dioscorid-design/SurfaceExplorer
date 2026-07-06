@@ -2479,8 +2479,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_pathMode = ModeTangential;
     m_pathMode3D = ModeTangential;
-    ui->pushView->setText("Tangent View"); ui->pushView->setEnabled(false); connect(ui->pushView, &QPushButton::clicked, this, &MainWindow::onToggleViewClicked);
-    ui->pushView3D->setText("Tangent View"); ui->pushView3D->setEnabled(false); connect(ui->pushView3D, &QPushButton::clicked, this, &MainWindow::onToggleView3DClicked);
+    ui->pushView->setText("Tangent View"); ui->pushView->setEnabled(true); connect(ui->pushView, &QPushButton::clicked, this, &MainWindow::onToggleViewClicked);
+    ui->pushView3D->setText("Tangent View"); ui->pushView3D->setEnabled(true); connect(ui->pushView3D, &QPushButton::clicked, this, &MainWindow::onToggleView3DClicked);
 
     connect(ui->lineX_P, &QLineEdit::textChanged, this, &MainWindow::checkPathFields);
     connect(ui->lineY_P, &QLineEdit::textChanged, this, &MainWindow::checkPathFields);
@@ -2836,8 +2836,14 @@ void MainWindow::update4DButtonState()
         btn4D->setEnabled(true);
     }
 
-    // 5. Uscita forzata se disabilitato mentre attivo
-    if (!enable4D && ui->dock4D->isVisible()) {
+    // 5. Uscita forzata se disabilitato mentre attivo.
+    // MA non mentre un path anima: all'avvio di un Departure questa funzione viene
+    // richiamata prima che il primo tick imposti la rotazione 4D, quindi enable4D
+    // potrebbe risultare falso e chiuderebbe il dock 4D da cui si e' avviato il
+    // path. I dock si chiudono solo a mano (o quando P viene svuotato a path fermo).
+    bool pathActive = (pathTimer && pathTimer->isActive()) ||
+                      (pathTimer3D && pathTimer3D->isActive());
+    if (!enable4D && ui->dock4D->isVisible() && !pathActive) {
         ui->dock4D->close();
     }
 }
@@ -5118,12 +5124,28 @@ void MainWindow::onDepartureClicked()
         return;
     }
 
+    // Base 4D per le compensazioni del tick: solo il primo Departure parte da
+    // orientamento 4D neutro; dai successivi si conserva l'orientamento corrente
+    // (es. quello accumulato dal moto GO), senza reset nel passaggio di modalita'.
+    if (!m_path4DStartedOnce) {
+        m_path4DStartedOnce = true;
+        m_pathBaseOmega = m_pathBasePhi = m_pathBasePsi = 0.0f;
+    } else {
+        m_pathBaseOmega = ui->glWidget->getOmega();
+        m_pathBasePhi   = ui->glWidget->getPhi();
+        m_pathBasePsi   = ui->glWidget->getPsi();
+    }
+
     pathTimer->start();
     if (ui->glWidget) {
         ui->glWidget->setPathAnimating(true);
-        // La superficie parte da neutro se l'orientamento e' solo quello di default
-        // del preset/avvio; se l'utente l'ha ruotata a mano, resta.
-        ui->glWidget->neutralizeDefaultRotationForPath();
+        // Solo il PRIMO Departure della sessione azzera la rotazione di default
+        // (se non ruotata a mano); dai successivi si conserva l'orientamento
+        // accumulato (es. dal moto GO), senza reset nel cambio di modalita'.
+        if (!m_anyPathStartedOnce) {
+            m_anyPathStartedOnce = true;
+            ui->glWidget->neutralizeDefaultRotationForPath();
+        }
     }
     updateViewButtonsEnabled();
     ui->btnDeparture->setText("STOP");
@@ -5221,17 +5243,28 @@ void MainWindow::onPathTimerTick()
     // >>> SINCRONIZZATO BETA + GAMMA <<<
     // =========================================================================
 
-    // 1. Definiamo le rotazioni globali per compensare
-    float rotOmega = 0.0f;     // X-W (Opzionale)
-    float rotPhi   = -gamma;   // Y-W (Fix per Gamma)
-    float rotPsi   = -beta;    // Z-W (Fix per Beta)
+    // 1. Definiamo le rotazioni globali per compensare, RELATIVE alla base
+    // catturata all'avvio del path (orientamento 4D preesistente, es. dal moto GO)
+    float rotOmega = m_pathBaseOmega;          // X-W (base)
+    float rotPhi   = m_pathBasePhi - gamma;    // Y-W (base + fix per Gamma)
+    float rotPsi   = m_pathBasePsi - beta;     // Z-W (base + fix per Beta)
 
     // 2. Aggiorniamo la GPU (Shader)
     ui->glWidget->setRotation4D(rotOmega, rotPhi, rotPsi);
 
     // 3. Funzione helper per ruotare la CPU Camera
+    // NB: stesso ordine dello shader (surface.vert): XW -> YW -> ZW
     auto transformCPU = [&](QVector4D v) {
-        // A. Rotazione YW (Phi / Gamma Fix)
+        // A. Rotazione XW (Omega base)
+        if (std::abs(rotOmega) > 1e-6f) {
+            float c = std::cos(rotOmega);
+            float s = std::sin(rotOmega);
+            float x = v.x();
+            float w = v.w();
+            v.setX( x * c + w * s);
+            v.setW(-x * s + w * c);
+        }
+        // B. Rotazione YW (Phi / Gamma Fix)
         if (std::abs(rotPhi) > 1e-6f) {
             float c = std::cos(rotPhi);
             float s = std::sin(rotPhi);
@@ -5240,7 +5273,7 @@ void MainWindow::onPathTimerTick()
             v.setY( y * c + w * s);
             v.setW(-y * s + w * c);
         }
-        // B. Rotazione ZW (Psi / Beta Fix)
+        // C. Rotazione ZW (Psi / Beta Fix)
         if (std::abs(rotPsi) > 1e-6f) {
             float c = std::cos(rotPsi);
             float s = std::sin(rotPsi);
@@ -5335,9 +5368,13 @@ void MainWindow::onDeparture3DClicked()
     pathTimer3D->start();
     if (ui->glWidget) {
         ui->glWidget->setPathAnimating(true);
-        // La superficie parte da neutro se l'orientamento e' solo quello di default
-        // del preset/avvio; se l'utente l'ha ruotata a mano, resta.
-        ui->glWidget->neutralizeDefaultRotationForPath();
+        // Solo il PRIMO Departure della sessione azzera la rotazione di default
+        // (se non ruotata a mano); dai successivi si conserva l'orientamento
+        // accumulato (es. dal moto GO), senza reset nel cambio di modalita'.
+        if (!m_anyPathStartedOnce) {
+            m_anyPathStartedOnce = true;
+            ui->glWidget->neutralizeDefaultRotationForPath();
+        }
     }
     updateViewButtonsEnabled();
     ui->btnDeparture3D->setText("STOP");
@@ -5393,13 +5430,14 @@ void MainWindow::checkPath3DFields()
 
 void MainWindow::updateViewButtonsEnabled()
 {
-    // Ogni pulsante e' indipendente e abilitato solo mentre il SUO path anima:
-    // a path fermo il toggle non avrebbe effetto grafico (m_pathMode/m_pathMode3D
-    // sono letti solo nei rispettivi tick).
+    // I tasti Tangent/Center View restano sempre abilitati: a path fermo il toggle
+    // non produce un effetto grafico immediato (m_pathMode/m_pathMode3D sono letti
+    // nei rispettivi tick), ma permette di PRE-SELEZIONARE la modalita' di vista
+    // prima di avviare il path, che poi partira' gia' nella vista scelta.
     bool path4D = pathTimer && pathTimer->isActive();
     bool path3D = pathTimer3D && pathTimer3D->isActive();
-    ui->pushView->setEnabled(path4D);
-    ui->pushView3D->setEnabled(path3D);
+    ui->pushView->setEnabled(true);
+    ui->pushView3D->setEnabled(true);
 
     // Mentre un path qualsiasi controlla la telecamera, i tasti di spostamento a
     // click dei dock 3D/4D sono disabilitati. Chiamato ovunque si avvii/fermi un
