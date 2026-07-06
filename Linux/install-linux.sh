@@ -54,7 +54,7 @@ uninstall() {
 find_source() {
   local self_dir
   self_dir="$(cd "$(dirname "$0")" && pwd)"
-  local dirs=("$self_dir" "$self_dir/dist" "$PWD" "$PWD/dist" "$HOME/Downloads")
+  local dirs=("$self_dir" "$self_dir/dist" "$self_dir/.." "$self_dir/../dist" "$PWD" "$PWD/dist" "$HOME/Downloads")
   local matches=()
   local dir cand
   for dir in "${dirs[@]}"; do

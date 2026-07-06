@@ -24,7 +24,7 @@
 set -euo pipefail
 
 # ============================ CONFIGURAZIONE ================================
-PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"   # lo script vive in Linux/ : root = una sopra
 QT_DIR="${QT_DIR:-$HOME/Qt/6.10.2/gcc_64}"      # override: QT_DIR=... ./release_linux.sh
 REPO="dioscorid-design/SurfaceExplorer"
 APP_BIN="surface-explorer"                       # OUTPUT_NAME Linux (vedi CMakeLists.txt)
@@ -174,7 +174,7 @@ upload_asset() {
 }
 upload_asset "$DIST_DIR/$OUTPUT"        "application/octet-stream"
 upload_asset "$DIST_DIR/$OUTPUT.sha256" "text/plain"
-[ -f "$PROJECT_DIR/install-linux.sh" ] && upload_asset "$PROJECT_DIR/install-linux.sh" "application/x-shellscript"
+[ -f "$PROJECT_DIR/Linux/install-linux.sh" ] && upload_asset "$PROJECT_DIR/Linux/install-linux.sh" "application/x-shellscript"
 
 cat <<EOF
 

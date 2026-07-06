@@ -7,7 +7,8 @@ BUNDLE_ID="com.dioscorid.surfaceexplorer"
 SIGN_IDENTITY="Developer ID Application: GAETANO MOSCHETTI (BAPKX72394)"
 NOTARY_PROFILE="notarytool-profile"
 
-BUILD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/build/Desktop_Qt_6_10-Release"
+# Lo script vive in Mac/ : la build sta nella root del progetto (una cartella sopra)
+BUILD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/build/Desktop_Qt_6_10-Release"
 APP_PATH="$BUILD_DIR/$APP_NAME.app"
 DMG_NAME="$APP_NAME.dmg"
 DMG_PATH="$BUILD_DIR/$DMG_NAME"

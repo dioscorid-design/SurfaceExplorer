@@ -5,9 +5,9 @@ Linux. Riassume il processo e i due script del repo:
 
 | Script | Piattaforma | Cosa fa |
 |--------|-------------|---------|
-| [`release_linux.sh`](release_linux.sh) | Linux | Compila → AppImage → carica su GitHub |
-| [`release_macos.sh`](release_macos.sh) | macOS | Firma → `.dmg` → notarizza (da lanciare **sul Mac**) |
-| [`install-linux.sh`](install-linux.sh) | Linux (utente finale) | Integra l'AppImage nel menu applicazioni |
+| [`Linux/release_linux.sh`](Linux/release_linux.sh) | Linux | Compila → AppImage → carica su GitHub |
+| [`Mac/release_macos.sh`](Mac/release_macos.sh) | macOS | Firma → `.dmg` → notarizza (da lanciare **sul Mac**) |
+| [`Linux/install-linux.sh`](Linux/install-linux.sh) | Linux (utente finale) | Integra l'AppImage nel menu applicazioni |
 
 ---
 
@@ -46,10 +46,10 @@ Un solo comando fa tutto: compila, crea l'AppImage autonoma e la carica su GitHu
 
 ```sh
 # solo build + AppImage in dist/ (senza toccare GitHub)
-./release_linux.sh
+./Linux/release_linux.sh
 
 # build + AppImage + creazione/aggiornamento release GitHub + upload asset
-./release_linux.sh --upload
+./Linux/release_linux.sh --upload
 ```
 
 Cosa fa `--upload`, nell'ordine:
@@ -64,9 +64,9 @@ Cosa fa `--upload`, nell'ordine:
 
 Opzioni utili:
 ```sh
-QT_DIR=~/Qt/6.11.0/gcc_64 ./release_linux.sh --upload   # altro Qt
-./release_linux.sh --skip-build --upload                # riusa un build gia' fatto
-GH_TOKEN=ghp_xxx ./release_linux.sh --upload            # token esplicito
+QT_DIR=~/Qt/6.11.0/gcc_64 ./Linux/release_linux.sh --upload   # altro Qt
+./Linux/release_linux.sh --skip-build --upload                # riusa un build gia' fatto
+GH_TOKEN=ghp_xxx ./Linux/release_linux.sh --upload            # token esplicito
 ```
 
 Il token GitHub viene preso da `GH_TOKEN` oppure da `~/.git-credentials`
@@ -80,7 +80,7 @@ Sul Mac, dopo aver compilato la `.app` in `build/Desktop_Qt_6_10-Release`
 (con `macdeployqt` incluso):
 
 ```sh
-./release_macos.sh      # firma Developer ID + hardened runtime, crea .dmg, notarizza
+./Mac/release_macos.sh  # firma Developer ID + hardened runtime, crea .dmg, notarizza
 ```
 
 Poi carica manualmente il `.dmg` risultante come asset della release `vX.Y`
