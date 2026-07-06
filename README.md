@@ -1,4 +1,4 @@
-# Surface Explorer 4D — Version 3.0
+# Surface Explorer — Version 1.0
 **A high-performance multi-backend 4D surface visualizer built with Qt6 and Qt RHI.**
 
 Surface Explorer 4D 3.0 builds on the Qt RHI architecture introduced in 2.0 and adds two major rendering and visualization capabilities: a **Ray Marching engine** for implicit surfaces and signed-distance fields, and a **Geodesic Flow** solver for intrinsic geometry on curved manifolds. By relying on the **Qt Rendering Hardware Interface (RHI)**, the application remains hardware-agnostic, automatically leveraging the most efficient graphics API available on your system: **Vulkan**, **Metal**, **Direct3D**, or **OpenGL**. This version is designed for high-precision visualization of complex mathematical surfaces in 4D space ($x, y, z, p$), providing a seamless bridge between abstract geometry and real-time GPU performance.
