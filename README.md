@@ -1,11 +1,11 @@
-# Surface Explorer — Version 1.0
+# Surface Explorer
 **A high-performance multi-backend 4D surface visualizer built with Qt6 and Qt RHI.**
 
-Surface Explorer 4D 3.0 builds on the Qt RHI architecture introduced in 2.0 and adds two major rendering and visualization capabilities: a **Ray Marching engine** for implicit surfaces and signed-distance fields, and a **Geodesic Flow** solver for intrinsic geometry on curved manifolds. By relying on the **Qt Rendering Hardware Interface (RHI)**, the application remains hardware-agnostic, automatically leveraging the most efficient graphics API available on your system: **Vulkan**, **Metal**, **Direct3D**, or **OpenGL**. This version is designed for high-precision visualization of complex mathematical surfaces in 4D space ($x, y, z, p$), providing a seamless bridge between abstract geometry and real-time GPU performance.
+Surface Explorer 1.0 is built on the Qt RHI architecture and adds two major rendering and visualization capabilities: a **Ray Marching engine** for implicit surfaces and signed-distance fields, and a **Geodesic Flow** solver for intrinsic geometry on curved manifolds. By relying on the **Qt Rendering Hardware Interface (RHI)**, the application remains hardware-agnostic, automatically leveraging the most efficient graphics API available on your system: **Vulkan**, **Metal**, **Direct3D**, or **OpenGL**. This version is designed for high-precision visualization of complex mathematical surfaces in 4D space ($x, y, z, p$), providing a seamless bridge between abstract geometry and real-time GPU performance.
 
 ## 🚀 Key Features
-* **Ray Marching Engine** *(new in 3.0)*: Real-time rendering of implicit surfaces and signed-distance fields directly on the GPU, with support for procedural displacement, transparency, and true multi-layer field surfaces.
-* **Geodesic Flow** *(new in 3.0)*: Intrinsic geometry on curved manifolds — integrate geodesics from initial conditions and explore metric-driven surfaces (S³, H²×R, SL(2,R), and more) via the Equations panel.
+* **Ray Marching Engine**: Real-time rendering of implicit surfaces and signed-distance fields directly on the GPU, with support for procedural displacement, transparency, and true multi-layer field surfaces.
+* **Geodesic Flow**: Intrinsic geometry on curved manifolds — integrate geodesics from initial conditions and explore metric-driven surfaces (S³, H²×R, SL(2,R), and more) via the Equations panel.
 * **Qt RHI Engine**: Native support for **Vulkan** (Linux/Windows), **Metal** (macOS), and **Direct3D** (Windows), ensuring smoother performance and future-proof compatibility.
 * **4D Spatial Exploration**: Native support for four-dimensional coordinate systems with dedicated controls for hyperspatial rotation (Omega, Phi, Psi) and projection.
 * **4D Lighting Models**: Advanced lighting modes specifically designed for hyperspace, including **Directional**, **Observer**, and **Slice** lighting.
@@ -22,8 +22,8 @@ Surface Explorer 4D 3.0 builds on the Qt RHI architecture introduced in 2.0 and 
 You don't need to compile the project to try it! Check out the **[Latest Releases](https://github.com/dioscorid-design/SurfaceExplorer/releases)** for portable, standalone binaries:
 
 * **macOS**: Download `SurfaceExplorer.dmg`, open it, and drag the app to your Applications folder. The app is signed with an Apple Developer ID and notarized, so it opens normally on first launch — no Gatekeeper workaround needed.
-* **Windows**: Download `SurfaceExplorer-v3.0-win64.zip`, extract, and run `SurfaceExplorer.exe`.
-* **Linux**: Download `SurfaceExplorer-v3.0-linux-x86_64.AppImage` — a self-contained binary that bundles Qt, so it runs on any x86_64 distribution with no installation. Make it executable and launch it:
+* **Windows**: Download `SurfaceExplorer-win64.zip`, extract, and run `SurfaceExplorer.exe`.
+* **Linux**: Download `SurfaceExplorer-*-linux-x86_64.AppImage` — a self-contained binary that bundles Qt, so it runs on any x86_64 distribution with no installation. Make it executable and launch it:
   ```bash
   chmod +x SurfaceExplorer-*-linux-x86_64.AppImage
   ./SurfaceExplorer-*-linux-x86_64.AppImage
