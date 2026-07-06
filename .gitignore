@@ -3,7 +3,6 @@
 build/
 Release/
 AppDir/
-dist/
 *.zip
 *.AppImage
 *.run
@@ -36,9 +35,11 @@ Thumbs.db
 *~
 *.swp
 
-# --- Local notes (not for upload) ---
-# Personal reference notes kept out of the repository
+# --- Local notes & platform tooling (not for upload) ---
+# Personal notes (docs/) and per-platform helper scripts kept out of the repository
 docs/
+Mac/
+Linux/
 
 # --- Python ---
 __pycache__/
