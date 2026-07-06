@@ -3,11 +3,15 @@
 build/
 Release/
 AppDir/
+dist/
 *.zip
 *.AppImage
 *.run
 *.dmg
 *.sha256
+
+# --- Diagnostic logs (crash/run dumps, not source) ---
+*.log
 
 # --- CMake generated files ---
 # Temporary files created by the build system
