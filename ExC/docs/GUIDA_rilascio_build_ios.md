@@ -71,8 +71,10 @@ che PASSA la validazione ma non contiene i tuoi fix.
 
 **Fai SEMPRE così, in quest'ordine:**
 ```bash
-# 1. Pulisci la cache di build di Xcode per questo progetto
-rm -rf ~/Library/Developer/Xcode/DerivedData/SurfaceExplorer-*
+# 1. Pulisci la cache di build di Xcode per questo progetto.
+#    (find, non 'rm -rf .../SurfaceExplorer-*': su zsh il glob senza match
+#     dà "no matches found" e non esegue. Con find, cache già pulita = nessun output.)
+find ~/Library/Developer/Xcode/DerivedData -maxdepth 1 -name 'SurfaceExplorer-*' -exec rm -rf {} +
 
 # 2. Cancella la cartella del progetto iOS generato
 rm -rf build/ios-appstore
@@ -210,7 +212,7 @@ risoluzioni esatte: 2064×2752, 2752×2064, 2048×2732 o 2732×2048 px.
 cd /Users/dioscorid/Projects/C/SurfaceExplorer
 git add -A && git commit -m "Fix <descrizione>; build number -> N" && git push origin v1
 
-rm -rf ~/Library/Developer/Xcode/DerivedData/SurfaceExplorer-*
+find ~/Library/Developer/Xcode/DerivedData -maxdepth 1 -name 'SurfaceExplorer-*' -exec rm -rf {} +
 rm -rf build/ios-appstore
 /Users/dioscorid/Qt/6.10.1/ios/bin/qt-cmake -S . -B build/ios-appstore -G Xcode
 
