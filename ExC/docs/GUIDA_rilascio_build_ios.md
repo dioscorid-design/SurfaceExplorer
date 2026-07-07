@@ -75,8 +75,7 @@ che PASSA la validazione ma non contiene i tuoi fix.
 rm -rf ~/Library/Developer/Xcode/DerivedData/SurfaceExplorer-*
 
 # 2. Cancella la cartella del progetto iOS generato
-
-
+rm -rf build/ios-appstore
 
 # 3. Rigenera da zero con qt-cmake (NON usare cmake generico: serve il toolchain iOS)
 cd /Users/dioscorid/Projects/C/SurfaceExplorer
