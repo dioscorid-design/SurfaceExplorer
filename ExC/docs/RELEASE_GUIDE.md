@@ -128,6 +128,37 @@ Linux. Serve permesso di scrittura sul repo.
 > L'`Info.plist` si è già corrotto in passato con una sincronizzazione a copia-cartella
 > (testo spurio dentro `<dict>`, invalido per la DTD Apple). Vedi la nota sotto.
 
+### Troubleshooting macOS
+
+- **`no identity found` nello script**: il certificato Developer ID non è nel
+  Keychain. Verifica con `security find-identity -v -p codesigning` → deve comparire
+  `Developer ID Application: GAETANO MOSCHETTI (BAPKX72394)`.
+
+- **Errore 403 durante la notarizzazione**: le credenziali del profilo
+  `notarytool-profile` sono scadute o sbagliate. Rigenera con:
+  ```sh
+  xcrun notarytool store-credentials "notarytool-profile" \
+    --apple-id "adenio@libero.it" --team-id "BAPKX72394" \
+    --password "NUOVA_APP_SPECIFIC_PASSWORD"
+  ```
+  (la app-specific password si genera da appleid.apple.com → Sicurezza →
+  Password specifiche per l'app).
+
+- **Notarizzazione fallita con `Code=-1003 ... hostname could not be found`**:
+  è un problema di **rete/DNS** (l'host Apple non risolve), non dello script.
+  Ricontrolla la connessione e rilancia; la firma/dmg già fatti si possono
+  riutilizzare.
+
+- **La notarizzazione ha funzionato ma `spctl` risponde `rejected / Insufficient
+  Context`**: falso allarme di quel comando `--context` sui `.dmg`. Il verdetto
+  autorevole è `xcrun stapler validate "<file>.dmg"` → se dice *"The validate
+  action worked!"* il `.dmg` è a posto. In caso di dubbio ri-staple con
+  `xcrun stapler staple "<file>.dmg"`.
+
+- **L'app non si avvia dopo `macdeployqt`** (crash silenzioso): cerca in
+  Console.app "SurfaceExplorer" — di solito è un plugin Qt mancante; rilancia
+  `macdeployqt` con `-verbose=3` per capire cosa manca.
+
 ---
 
 ## 🪟 Rilascio Windows (su Windows)
