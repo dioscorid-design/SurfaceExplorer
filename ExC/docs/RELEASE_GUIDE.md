@@ -65,7 +65,10 @@ Cosa fa `--upload`, nell'ordine:
    (scaricati e messi in cache in `build/appimage-tools/`, senza bisogno di FUSE).
 5. Genera lo `.sha256`.
 6. Se il tag non esiste sul remoto lo crea su `HEAD` e lo pusha; poi crea/riusa la
-   release e carica **AppImage + .sha256 + install-linux.sh**, sostituendo asset omonimi.
+   release e carica **AppImage + install-linux.sh**, sostituendo asset omonimi.
+   Prima dell'upload rimuove dalla release gli AppImage di **versioni precedenti**
+   (nome `SurfaceExplorer-vX.Y-linux-x86_64.AppImage`), che altrimenti resterebbero
+   affiancati al nuovo (il `--clobber` sostituisce solo asset con lo stesso nome).
 
 Opzioni utili:
 ```sh
@@ -108,8 +111,10 @@ Ora c'è uno script che automatizza il bundle; la **pubblicazione resta manuale*
 
 2. **Genera l'app indipendente** con lo script (dalla cartella `ExC\Windows`):
    ```bat
-   .\make_standalone.bat -Version X.Y
+   .\make_standalone.bat
    ```
+   La versione nel nome dello zip viene letta da `CMakeLists.txt` (come per Linux);
+   puoi comunque forzarla con `-Version X.Y`.
    Lo script:
    - rileva automaticamente l'exe Release (o passalo con `-ExePath`);
    - costruisce il bundle in una cartella **temporanea** e vi lancia `windeployqt`

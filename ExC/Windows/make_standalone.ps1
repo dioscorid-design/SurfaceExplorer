@@ -17,14 +17,15 @@
 
     Parametri opzionali:
         -ExePath <path>   Percorso di SurfaceExplorer.exe (autorilevato se omesso)
-        -Version <str>    Numero di versione usato nel nome dello zip (default 3.0)
+        -Version <str>    Numero di versione usato nel nome dello zip
+                          (se omesso, letto da CMakeLists.txt)
         -KeepFolder       Mantiene anche la cartella non compressa (per verifica locale)
 #>
 
 [CmdletBinding()]
 param(
     [string]$ExePath,
-    [string]$Version  = "3.0",
+    [string]$Version,
     [string]$QtBin    = "C:\Qt\6.10.2\mingw_64\bin",
     [string]$MinGWBin = "C:\Qt\Tools\mingw1310_64\bin",
     [switch]$KeepFolder
@@ -36,6 +37,24 @@ $ErrorActionPreference = "Stop"
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Definition   # ...\ExC\Windows
 $ProjectDir = Split-Path -Parent (Split-Path -Parent $ScriptDir)      # radice sorgenti (due su: ExC\Windows -> root)
 $AppName    = "SurfaceExplorer"
+
+# --- Versione: se non passata con -Version, leggila da CMakeLists.txt --------
+# (stessa fonte usata da release_linux.sh: prima MACOSX_BUNDLE_SHORT_VERSION_STRING,
+#  poi VERSION). Evita di generare uno zip con una versione sbagliata hardcoded.
+if (-not $Version) {
+    $cmake = Join-Path $ProjectDir "CMakeLists.txt"
+    $m = Select-String -Path $cmake -Pattern 'MACOSX_BUNDLE_SHORT_VERSION_STRING\s+"([0-9.]+)"' | Select-Object -First 1
+    if (-not $m) {
+        $m = Select-String -Path $cmake -Pattern 'VERSION\s+"([0-9.]+)"' | Select-Object -First 1
+    }
+    if ($m) { $Version = $m.Matches[0].Groups[1].Value }
+    if (-not $Version) {
+        Write-Error "Versione non trovata in CMakeLists.txt: passala con -Version X.Y"
+        exit 1
+    }
+    Write-Host "Versione (da CMakeLists.txt):  $Version" -ForegroundColor Cyan
+}
+
 $ZipPath    = Join-Path $ScriptDir "$AppName-$Version-windows-x64.zip"
 
 # --- 1. Trova l'eseguibile Release --------------------------------------

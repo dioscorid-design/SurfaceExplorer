@@ -257,6 +257,25 @@ fi
 [ -n "$RID" ] || err "Impossibile ottenere/creare la release."
 msg "Release id: $RID"
 
+# 4b-bis. rimuovi gli AppImage di VERSIONI PRECEDENTI rimasti sulla release.
+# Il nome include il tag (SurfaceExplorer-vX.Y-linux-x86_64.AppImage): a un cambio
+# di versione il nuovo asset ha nome diverso dal vecchio, quindi gh --clobber (che
+# sostituisce solo asset OMONIMI) non lo tocca e i due AppImage restano affiancati.
+# Cancelliamo qui tutti gli AppImage tranne quello che stiamo per caricare.
+msg "Rimuovo eventuali AppImage di versioni precedenti dalla release ..."
+STALE_IDS="$(gh_api "$API/releases/$RID/assets" | python3 -c '
+import json,sys
+keep=sys.argv[1]
+for a in json.load(sys.stdin):
+    n=a.get("name","")
+    if n.startswith("SurfaceExplorer-v") and n.endswith("-linux-x86_64.AppImage") and n!=keep:
+        print(a["id"])
+' "$OUTPUT")"
+for aid in $STALE_IDS; do
+  msg "  elimino AppImage obsoleto (asset id $aid)"
+  gh_api -X DELETE "$API/releases/assets/$aid" >/dev/null
+done
+
 # 4c. carica gli asset in modo ROBUSTO.
 # - NON cancella l'asset esistente PRIMA: carica; solo se GitHub risponde 422
 #   (nome gia' presente) rimuove il vecchio e riprova. Cosi' un upload fallito non
