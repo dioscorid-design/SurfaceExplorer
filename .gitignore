@@ -39,11 +39,16 @@ Thumbs.db
 *~
 *.swp
 
-# --- Local notes & platform tooling (not for upload) ---
-# Personal notes (docs/) and per-platform helper scripts kept out of the repository
-docs/
-Mac/
-Linux/
+# --- Platform tooling & release notes (ExC/) ---
+# Gli script di release (Linux/, Mac/, Windows/) e la RELEASE_GUIDE.md sono
+# versionati, cosi' si sincronizzano tra le macchine via git. Restano fuori solo
+# le note personali e gli artefatti di build:
+# note personali (non sorgenti)
+ExC/docs/*.odt
+# cartella portable Windows (prodotta con -KeepFolder)
+ExC/Windows/SurfaceExplorer/
+# NB: gli output .AppImage / .dmg / .zip in ExC/{Linux,Mac,Windows} sono gia'
+#     esclusi dalle regole globali *.AppImage / *.dmg / *.zip piu' in alto.
 
 # --- Python ---
 __pycache__/
