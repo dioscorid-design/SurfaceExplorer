@@ -18,6 +18,16 @@ e integrarla nel desktop. Riassume il processo e gli strumenti per piattaforma:
 
 ## 🆕 Promemoria: cosa cambiare per una NUOVA versione
 
+> ✅ **Modo rapido e a prova di errore:** usa lo script che aggiorna la versione
+> in tutti i punti che devono coincidere e committa in un colpo solo:
+> ```sh
+> ./ExC/bump-version.sh 1.1          # aggiorna CMakeLists.txt + Info.plist e committa
+> ./ExC/bump-version.sh 1.1 --no-commit   # aggiorna soltanto i file
+> ```
+> Aggiorna solo la **versione marketing** (X.Y); NON tocca il build number, che si
+> incrementa a parte (vedi sotto). Dopo: `git push`, poi lo script di release.
+> I dettagli manuali qui sotto restano come riferimento / per capire cosa cambia.
+
 Prima di tutto, **aggiorna il numero di versione in due file** (devono coincidere):
 
 1. **`CMakeLists.txt`** (blocco iOS, righe ~144-148):
@@ -34,7 +44,7 @@ Prima di tutto, **aggiorna il numero di versione in due file** (devono coincider
    ```sh
    git add CMakeLists.txt Info.plist
    git commit -m "Bump versione X.Y build N"
-   git push origin v3
+   git push origin v1
    ```
 
 Il tag della release sarà `vX.Y`, derivato automaticamente da `CMakeLists.txt`.
@@ -172,7 +182,7 @@ Se manca FUSE: `./SurfaceExplorer-...AppImage --appimage-extract-and-run`.
 Copiare la cartella del progetto tra le macchine (drive condiviso, AirDrop…) ha
 causato: `Info.plist` corrotto, file spazzatura macOS (`._*`, `.DS_Store`) sparsi,
 e `._pack-*` dentro `.git` che rompono git. **Sincronizza sempre con
-`git pull` / `git push`** (branch di lavoro: `v3`). Ogni macchina tiene la propria
+`git pull` / `git push`** (branch di lavoro: `v1`). Ogni macchina tiene la propria
 working tree; git trasferisce solo contenuti versionati e validi.
 
 Pulizia rapida dei file spazzatura macOS, se ricompaiono:
