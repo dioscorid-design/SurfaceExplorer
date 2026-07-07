@@ -98,11 +98,31 @@ Sul Mac, dopo aver compilato la `.app` in `build/Desktop_Qt_6_10-Release`
 (con `macdeployqt` incluso):
 
 ```sh
-./ExC/Mac/release_macos.sh  # firma Developer ID + hardened runtime, crea .dmg, notarizza
+# firma + .dmg + notarizza (senza toccare GitHub)
+./ExC/Mac/release_macos.sh
+
+# come sopra, poi crea/aggiorna la release GitHub e carica il .dmg
+./ExC/Mac/release_macos.sh --upload
 ```
 
-Poi carica manualmente il `.dmg` risultante come asset della release `vX.Y`
-(o via API, come per Linux).
+Cosa fa lo script, nell'ordine:
+1. Firma la `.app` con **Developer ID + Hardened Runtime** e verifica la firma.
+2. Crea il `.dmg` (con un link ad `/Applications`, così l'utente installa col
+   drag-and-drop) e lo firma.
+3. Lo invia a **notarizzazione** Apple (`notarytool submit --wait`) e fa lo
+   **staple** del ticket.
+4. Solo con `--upload`: legge la versione da `CMakeLists.txt` → tag `vX.Y`; se il
+   tag non esiste sul remoto lo crea su `HEAD` e lo pusha; crea/riusa la release e
+   carica il `.dmg` come **`SurfaceExplorer-vX.Y-macos.dmg`** (nome versionato).
+   Prima dell'upload rimuove dalla release i `.dmg` di **versioni precedenti**
+   (il `--clobber` sostituisce solo asset con lo stesso nome).
+
+Il token GitHub viene preso da `GH_TOKEN` oppure da `~/.git-credentials`, come per
+Linux. Serve permesso di scrittura sul repo.
+
+> Cambiando la versione in `CMakeLists.txt` cambiano automaticamente tag e nome
+> asset: nessun valore è cablato nello script. **Ricompila** dopo il bump, così il
+> binario dentro il `.dmg` corrisponde alla versione nel nome.
 
 > ⚠️ Prima di ogni build iOS/macOS: `git restore Info.plist && plutil -lint Info.plist`.
 > L'`Info.plist` si è già corrotto in passato con una sincronizzazione a copia-cartella
