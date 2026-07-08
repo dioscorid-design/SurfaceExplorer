@@ -3997,6 +3997,20 @@ void MainWindow::handleTextureSelection(int index)
         // default (sfera/toro): e' opaca, quindi azzeriamo la trasparenza
         // ereditata dalla superficie precedente (stesso reset del cambio tab).
         resetTransparency();
+
+        // E. La superficie precedente e' stata SOSTITUITA dalla default (sfera/toro),
+        // ma nel dock Library il suo item restava evidenziato (onExampleItemClicked
+        // lascia di proposito la selezione superficie quando si clicca una texture).
+        // Qui la selezione sarebbe ingannevole: punterebbe a una superficie non piu'
+        // a schermo. La sfera/toro di default non e' un item di libreria, quindi
+        // deselezioniamo del tutto il treeSurfaces (senza emettere itemClicked, che
+        // ricaricherebbe la superficie e azzererebbe la selezione texture in corso).
+        if (ui->treeSurfaces) {
+            bool bSurf = ui->treeSurfaces->blockSignals(true);
+            ui->treeSurfaces->clearSelection();
+            ui->treeSurfaces->setCurrentItem(nullptr);
+            ui->treeSurfaces->blockSignals(bSurf);
+        }
     }
 
     // =====================================================================
