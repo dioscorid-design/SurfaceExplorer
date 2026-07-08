@@ -2919,12 +2919,9 @@ void MainWindow::syncImplicitAlphaSlider(bool isImplicitMode, bool newSurface)
 // il campo gia' verificato come a prodotto.
 void MainWindow::onAlphaSliderMovedIllCheck(int /*value*/)
 {
-    // Ripristina opacita' piena. Marchiamo il set come programmatico cosi' la rientranza
-    // in valueChanged non ripassa da questo controllo (value==100 comunque non entrerebbe,
-    // ma il flag lo rende esplicito e a prova di futuri cambi di soglia).
-    m_settingAlphaProgrammatic = true;
+    // Ripristina opacita' piena. La rientranza in valueChanged porta value==100, che
+    // non rientra nel ramo dell'intercetto (gated da value < 100).
     ui->alphaSlider->setValue(100);
-    m_settingAlphaProgrammatic = false;
 
     if (!m_implicitAlphaDisabled) {
         m_implicitAlphaDisabled = true;   // guardia PRIMA del popup modale (anti-doppio)
