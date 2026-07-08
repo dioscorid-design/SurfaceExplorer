@@ -64,6 +64,11 @@ private slots:
     void switchTo4DMode();
     void update4DButtonState();
     void updateRenderState();
+    // Slider trasparenza su campo implicito a prodotto: tooltip al caricamento (slider
+    // abilitato), riabilitazione tornando a un campo sano. Il blocco+popup avviene al
+    // TOCCO utente in onAlphaSliderMovedIllCheck. Vedi definizioni in .cpp.
+    void syncImplicitAlphaSlider(bool isImplicitMode, bool newSurface = false);
+    void onAlphaSliderMovedIllCheck(int value);
     void applyModeDependentStepUI(bool isImplicit);
     void checkParametricDependency();
     void updateConstraintState();
@@ -223,6 +228,14 @@ private:
     // siamo in surface-wireframe. Traccia la transizione: applichiamo il grigio
     // (o lo togliamo) solo quando lo stato cambia, non a ogni updateRenderState.
     bool m_textureLibraryGrayed = false;
+    // Guardia "popup gia' mostrato / slider bloccato per campo a prodotto": il popup
+    // compare UNA volta, al primo TOCCO dell'utente sullo slider su un campo a prodotto.
+    // Resettata tornando a un campo sano (syncImplicitAlphaSlider). Vedi onAlphaSliderMovedIllCheck.
+    bool m_implicitAlphaDisabled = false;
+    // Alzata mentre impostiamo lo slider trasparenza DA CODICE (load preset,
+    // resetTransparency): l'handler valueChanged distingue cosi' il set programmatico
+    // dall'interazione utente e non fa scattare il blocco/popup sui load. Vedi setAlphaSliderProgrammatic.
+    bool m_settingAlphaProgrammatic = false;
     int m_lightingMode4D = 0;
     float alphaValue = 1.0f;
 

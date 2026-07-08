@@ -1972,6 +1972,17 @@ MainWindow::MainWindow(QWidget *parent)
     ui->lblAlphaVal->setText("1.00");
 
     connect(ui->alphaSlider, &QSlider::valueChanged, this, [this](int value){
+        // Su campo implicito a PRODOTTO ("Chain") la trasparenza fa sparire la superficie.
+        // Se e' l'UTENTE ad abbassare lo slider (non un set programmatico di caricamento
+        // preset), ripristiniamo l'opacita', mostriamo il popup UNA volta e blocchiamo.
+        if (!m_settingAlphaProgrammatic && value < 100) {
+            bool isImplicitMode = (ui->tabModeSelector->currentIndex() == 1);
+            bool illImplicit = isImplicitMode && ui->glWidget && ui->glWidget->isImplicitIllConditioned();
+            if (illImplicit) {
+                onAlphaSliderMovedIllCheck(value);
+                return;   // onAlphaSliderMovedIllCheck ha gia' rimesso alpha a 100
+            }
+        }
         alphaValue = static_cast<float>(value) / 100.0f;
         ui->lblAlphaVal->setText(QString::number(alphaValue, 'f', 2));
         ui->glWidget->setAlpha(alphaValue);
@@ -2871,6 +2882,63 @@ void MainWindow::applyModeDependentStepUI(bool isImplicit)
     ui->sSlider->blockSignals(sB);
 }
 
+// Sincronizza lo stato dello slider di trasparenza con il condizionamento del campo
+// implicito corrente. I campi a PRODOTTO (es. preset "Chain") fanno sparire la
+// superficie con alpha<1 (crossing fantasma nel ramo trasparente): il motore forza
+// gia' opaco (m_uboData.alpha=1).
+//
+// LOGICA (scelta utente): al caricamento lo slider resta ABILITATO e NON compare il
+// popup. Solo quando l'utente TOCCA lo slider su un campo a prodotto scatta il popup e
+// lo slider si blocca (handler valueChanged -> onAlphaSliderMovedIllCheck).
+//
+// newSurface=true  -> chiamata dopo un COMMIT di equazione implicita (nuova superficie):
+//   riparte "fresco", slider abilitato e popup riarmato, cosi' l'utente puo' toccare di
+//   nuovo lo slider su questa superficie.
+// newSurface=false -> chiamata da updateRenderState (eventi UI vari, NON cambi superficie):
+//   aggiorna SOLO il tooltip, senza toccare enabled/guardia (altrimenti un toggle
+//   qualsiasi riabiliterebbe uno slider appena bloccato dall'utente sulla stessa superficie).
+void MainWindow::syncImplicitAlphaSlider(bool isImplicitMode, bool newSurface)
+{
+    bool illImplicit = isImplicitMode && ui->glWidget && ui->glWidget->isImplicitIllConditioned();
+
+    if (newSurface) {
+        if (!ui->alphaSlider->isEnabled()) ui->alphaSlider->setEnabled(true);
+        m_implicitAlphaDisabled = false;
+    }
+
+    ui->alphaSlider->setToolTip(illImplicit
+        ? tr("Transparency is unavailable for this surface: it is defined by a "
+             "product of several factors, so true transparency cannot be computed "
+             "reliably. Moving the slider will keep the surface opaque.")
+        : QString());
+}
+
+// L'utente ha abbassato lo slider trasparenza su un campo implicito a PRODOTTO:
+// ripristina l'opacita' piena, mostra il popup UNA VOLTA e blocca lo slider. Chiamata
+// dall'handler valueChanged solo per interazioni utente (non set programmatici) e con
+// il campo gia' verificato come a prodotto.
+void MainWindow::onAlphaSliderMovedIllCheck(int /*value*/)
+{
+    // Ripristina opacita' piena. Marchiamo il set come programmatico cosi' la rientranza
+    // in valueChanged non ripassa da questo controllo (value==100 comunque non entrerebbe,
+    // ma il flag lo rende esplicito e a prova di futuri cambi di soglia).
+    m_settingAlphaProgrammatic = true;
+    ui->alphaSlider->setValue(100);
+    m_settingAlphaProgrammatic = false;
+
+    if (!m_implicitAlphaDisabled) {
+        m_implicitAlphaDisabled = true;   // guardia PRIMA del popup modale (anti-doppio)
+        ui->alphaSlider->setEnabled(false);
+        QMessageBox::information(
+            this, tr("Transparency unavailable"),
+            tr("This surface is defined by a product of several factors "
+               "(e.g. linked tori). True transparency cannot be computed "
+               "reliably on such fields — with transparency the surface would "
+               "disappear instead of turning translucent.\n\n"
+               "It will stay opaque. The transparency slider is disabled."));
+    }
+}
+
 void MainWindow::updateRenderState()
 {
     // 1. Identifichiamo se siamo in modalità Ray Marching
@@ -2958,6 +3026,9 @@ void MainWindow::updateRenderState()
         setTextureLibraryGrayed(wireframeSurface);
         m_textureLibraryGrayed = wireframeSurface;
     }
+
+    // Slider trasparenza su campo implicito mal condizionato (vedi syncImplicitAlphaSlider).
+    syncImplicitAlphaSlider(isImplicitMode);
 
     bool isPhong = (m_savedRenderMode == 1);
 
@@ -4126,6 +4197,10 @@ void MainWindow::handleTextureSelection(int index)
 
             ui->glWidget->updateSurfaceData();
             ui->glWidget->update();
+
+            // L'equazione implicita e' committata: risincronizza lo slider trasparenza
+            // (campi a prodotto -> disabilitato + popup). Vedi syncImplicitAlphaSlider.
+            syncImplicitAlphaSlider(true, true);
         }
     }
 
@@ -4589,6 +4664,10 @@ void MainWindow::onStartClicked()
             m_implicitApplied = true;
             updateMasterButtonState();
         }
+
+        // Equazione implicita committata: risincronizza lo slider trasparenza
+        // (campi a prodotto -> disabilitato + popup). Vedi syncImplicitAlphaSlider.
+        syncImplicitAlphaSlider(true, true);
 
         ui->glWidget->update();
         return;
@@ -6545,7 +6624,11 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
         ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
     }
 
+    // Set PROGRAMMATICO (caricamento preset): il flag evita che valueChanged scambi
+    // questo per un'interazione utente e faccia scattare il blocco/popup del campo a prodotto.
+    m_settingAlphaProgrammatic = true;
     ui->alphaSlider->setValue(d.alpha * 100);
+    m_settingAlphaProgrammatic = false;
     // setValue NON emette valueChanged se il valore coincide con quello corrente
     // (es. due preset di fila con stesso alpha): pushiamo l'alpha esplicitamente
     // alla GPU cosi' la trasparenza del preset si applica sempre.
@@ -6625,6 +6708,10 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
 
         if (ui->glWidget) {
             ui->glWidget->setImplicitEquation(eqToLoad);
+            // L'equazione e' appena stata committata: ora isImplicitIllConditioned()
+            // riflette il campo nuovo. updateRenderState() sopra ha girato PRIMA di
+            // questo setImplicitEquation, quindi risincronizziamo lo slider qui.
+            syncImplicitAlphaSlider(true, true);
         }
     }
 
@@ -6824,6 +6911,9 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
 
             if (ui->glWidget) {
                 ui->glWidget->setImplicitEquation(eqToLoad);
+                // Equazione appena committata: risincronizza lo slider trasparenza
+                // (campi a prodotto -> disabilitato + popup). Vedi syncImplicitAlphaSlider.
+                syncImplicitAlphaSlider(true, true);
             }
             // ++++++++++++++++++++++++++++++++++++++++++++++++++++++
         }
@@ -6862,7 +6952,10 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
         onColorTargetChanged();
     }
 
+    // Set PROGRAMMATICO (caricamento motion/preset): vedi nota in applySurfaceExample.
+    m_settingAlphaProgrammatic = true;
     ui->alphaSlider->setValue(data.alpha * 100);
+    m_settingAlphaProgrammatic = false;
 
     // 3b. Colore Sfondo
     if (!data.bgColor.isEmpty()) {

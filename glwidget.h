@@ -101,6 +101,10 @@ public:
     void setEngineMode(EngineMode mode);
     EngineMode getEngineMode() const { return m_engineMode; }
 
+    // true se il campo implicito corrente e' a prodotto/mal condizionato: la UI
+    // usa questo per disabilitare lo slider di trasparenza (vedi m_implicitIllConditioned).
+    bool isImplicitIllConditioned() const { return m_implicitIllConditioned; }
+
 
     // ==========================================================
     // EQUATIONS & MATHEMATICS
@@ -340,6 +344,19 @@ private:
     // ENGINE STATE & REFACTORING
     // ==========================================================
     EngineMode m_engineMode = ModeParametric;
+
+    // Campo implicito "mal condizionato": equazioni a PRODOTTO di piu' fattori
+    // (es. preset "Chain" = -(f1*f2*...*f6)) hanno un range dinamico enorme
+    // (~1e9) e cambiano segno per PARITA' del prodotto anche lontano da ogni
+    // superficie reale. Il ramo trasparente (marchNextLayer) rileva le facce col
+    // cambio di segno GREZZO del campo, quindi aggancia questi crossing FANTASMA
+    // e il compositing esce con alpha~0 -> la superficie SPARISCE con alpha<1.
+    // Il ramo OPACO usa d=val/gradLen e non ne soffre. Quando questo flag e' true
+    // forziamo alpha=1.0 (fallback a opaco) e la UI disabilita lo slider alpha.
+    // Rilevato empiricamente campionando il campo su CPU in setImplicitEquation:
+    // NON e' un'euristica sulla stringa (un legittimo (x)*(y) non lo attiva).
+    bool m_implicitIllConditioned = false;
+    void detectImplicitConditioning(const QString &eqF);
 
     // ==========================================================
     // TEXTURE

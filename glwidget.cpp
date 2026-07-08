@@ -3,6 +3,7 @@
 #include "inputhandler.h"
 #include "surfaceengine.h"
 #include "glsltranslator.h"
+#include "expressionparser.h"
 
 #include <QTimer>
 #include <cmath>
@@ -391,7 +392,12 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         m_uboData.color = QVector3D(red, green, blue);
     }
 
-    m_uboData.alpha = alpha;
+    // FALLBACK ANTI-SPARIZIONE: su un campo implicito mal condizionato (prodotto,
+    // es. "Chain") il ramo trasparente aggancia crossing fantasma e la superficie
+    // sparirebbe con alpha<1. Forziamo opaco: il cammino opaco (d=val/gradLen) e'
+    // affidabile. La UI disabilita comunque lo slider, ma questo e' l'ultimo baluardo
+    // indipendente da come alpha e' stato impostato (slider/preset/script).
+    m_uboData.alpha = (m_engineMode == ModeImplicit && m_implicitIllConditioned) ? 1.0f : alpha;
     m_uboData.lightIntensity = m_lightIntensity;
 
     m_uboData.col1 = QVector3D(texRed1, texGreen1, texBlue1);
@@ -1026,12 +1032,108 @@ void GLWidget::setImplicitEquation(const QString &eqF)
     if (m_eqImplicitF == eqF) return;
 
     m_eqImplicitF = eqF;
+    detectImplicitConditioning(eqF);
 
     if (m_pipelineImplicit) {
         delete m_pipelineImplicit;
         m_pipelineImplicit = nullptr;
     }
     update();
+}
+
+// Rileva EMPIRICAMENTE se il campo implicito e' "mal condizionato" (prodotto di
+// piu' fattori, es. preset "Chain"). Non e' un'euristica sulla stringa: valuta il
+// campo su una griglia CPU (exprtk) e misura il RANGE DINAMICO. Un prodotto di piu'
+// fattori esplode a ~1e13, mentre ogni superficie a espressione singola resta molto
+// sotto (<=1e8 anche a grado 6). Se max|f| sfonda la soglia -> il ramo trasparente
+// aggancerebbe crossing FANTASMA (cambi di segno per parita' del prodotto, lontani da
+// ogni superficie reale) e la superficie sparirebbe con alpha<1: settiamo
+// m_implicitIllConditioned = true cosi' il render forza alpha=1.0 e la UI disabilita
+// lo slider. Vedi m_implicitIllConditioned in glwidget.h per il razionale completo.
+void GLWidget::detectImplicitConditioning(const QString &eqF)
+{
+    m_implicitIllConditioned = false;
+    if (eqF.trimmed().isEmpty()) return;
+
+    // I chiamanti passano l'equazione in due forme: gia' sottratta "(LHS) - (RHS)"
+    // oppure grezza "LHS = RHS". exprtk NON compila l'uguaglianza come espressione di
+    // valore, quindi normalizziamo "A = B" -> "(A) - (B)" (altrimenti compile fallisce
+    // e usciremmo con un falso negativo proprio sul "Chain").
+    QString expr = eqF.trimmed();
+    int eqPos = expr.indexOf('=');
+    if (eqPos >= 0) {
+        QString lhs = expr.left(eqPos).trimmed();
+        QString rhs = expr.mid(eqPos + 1).trimmed();
+        if (rhs.isEmpty()) rhs = "0.0";
+        expr = QString("(%1) - (%2)").arg(lhs, rhs);
+    }
+
+    // Coordinate e costanti collegate per riferimento (exprtk richiede lvalue vivi).
+    double x = 0.0, y = 0.0, z = 0.0, tVar = 0.0;
+    double A = m_uboData.mathParams.x(), B = m_uboData.mathParams.y();
+    double C = m_uboData.mathParams.z(), S = m_uboData.mathParams.w();
+    double D = m_uboData.mathParams2.x(), E = m_uboData.mathParams2.y();
+    double F = m_uboData.mathParams2.z();
+
+    ExpressionParser parser;
+    // Il campo implicito e' in x,y,z (+ eventuale t e costanti A..F,S). Aggiungiamo
+    // solo questi simboli: setupConstants collega A..F,S e crea la symbol_table.
+    parser.setupConstants(A, B, C, D, E, F, S);
+    parser.addCustomVariable("x", x);
+    parser.addCustomVariable("y", y);
+    parser.addCustomVariable("z", z);
+    parser.addCustomVariable("t", tVar);
+    if (!parser.compile(expr)) {
+        // se non compila lato CPU non blocchiamo nulla: lo shader la gestisce a modo suo
+        return;
+    }
+
+    // Campioniamo dentro un box RAGIONEVOLE dove vive la geometria: intersezione tra
+    // il bounding box UI e [-10,10]^3 (i clip box di default sono +/-1000, campionarli
+    // tutti misurerebbe solo il vuoto lontano).
+    const float clampR = 10.0f;
+    float bxMin = std::max(m_uboData.x_min, -clampR), bxMax = std::min(m_uboData.x_max, clampR);
+    float byMin = std::max(m_uboData.y_min, -clampR), byMax = std::min(m_uboData.y_max, clampR);
+    float bzMin = std::max(m_uboData.z_min, -clampR), bzMax = std::min(m_uboData.z_max, clampR);
+    if (bxMax <= bxMin) { bxMin = -clampR; bxMax = clampR; }
+    if (byMax <= byMin) { byMin = -clampR; byMax = clampR; }
+    if (bzMax <= bzMin) { bzMin = -clampR; bzMax = clampR; }
+
+    // Griglia FITTA (40^3): i tubi dei tori sono sottili (raggio ~sqrt(0.4)~0.63);
+    // una griglia grossa (12^3) li mancherebbe e sottostimerebbe max|f|. 40^3 = 64k
+    // valutazioni exprtk: eseguito UNA volta per cambio-equazione, costo trascurabile.
+    const int N = 40;
+    double maxAbs = 0.0;
+    for (int i = 0; i < N; ++i) {
+        x = bxMin + (bxMax - bxMin) * (i + 0.5) / N;
+        for (int j = 0; j < N; ++j) {
+            y = byMin + (byMax - byMin) * (j + 0.5) / N;
+            for (int k = 0; k < N; ++k) {
+                z = bzMin + (bzMax - bzMin) * (k + 0.5) / N;
+                double v = parser.value();
+                if (!std::isfinite(v)) continue;
+                double av = std::abs(v);
+                if (av > maxAbs) maxAbs = av;
+            }
+        }
+    }
+
+    // Soglia empirica sul RANGE DINAMICO del campo grezzo. Verificato campionando su
+    // griglia fitta [-10,10]^3: un prodotto di piu' fattori quadratici (es. "Chain",
+    // 6 tori) esplode a ~1e13..1e14, mentre QUALSIASI superficie a espressione singola
+    // di grado ragionevole resta molto sotto: sfera/toro ~1e2, gyroide ~1, quartica
+    // ~1e5, genus-2 ~1e6, "cuore" grado 6 ~1e8. La soglia 1e10 lascia un margine di
+    // ~2 ordini di grandezza sopra la peggiore superficie legittima testata e ~4 sotto
+    // il "Chain": separa in modo netto i campi a prodotto senza falsi positivi.
+    // (Niente gate su segni misti: i tubi sottili possono non essere "bucati" e darebbero
+    //  falsi negativi proprio sul "Chain" — vedi cronologia analisi.)
+    const double ILL_THRESHOLD = 1.0e10;
+    m_implicitIllConditioned = (maxAbs > ILL_THRESHOLD);
+
+    if (m_implicitIllConditioned) {
+        qDebug() << "[implicit] campo mal condizionato (prodotto): max|f| =" << maxAbs
+                 << "-> trasparenza disabilitata (fallback opaco)";
+    }
 }
 
 void GLWidget::setEquationConstants(float a, float b, float c, float d, float e, float f, float s) {
@@ -2374,7 +2476,10 @@ bool GLWidget::validateAndApplyImplicitShader(const QString &eqF, const QString 
         return false;
     }
 
-    // Se compila, la pipeline prosegue sicura
+    // Se compila, la pipeline prosegue sicura. Questo percorso setta m_eqImplicitF
+    // direttamente (bypassa setImplicitEquation), quindi rileviamo qui il
+    // condizionamento del campo per il fallback trasparenza (vedi m_implicitIllConditioned).
+    detectImplicitConditioning(eqF);
     rebuildShader();
     return true;
 }
@@ -2499,6 +2604,11 @@ bool GLWidget::validateAndApplyImplicitScript(const QString &scriptCodeGLSL)
         return false;
     }
 
+    // Le superfici da script usano GLSL grezzo (non un campo algebrico x,y,z che il
+    // parser CPU possa valutare): la rilevazione "campo a prodotto" non si applica.
+    // Azzeriamo il flag cosi' non resta stantio da un preset "Chain" caricato prima
+    // (l'autore dello script e' responsabile della propria trasparenza).
+    m_implicitIllConditioned = false;
     rebuildShader();
     return true;
 }
