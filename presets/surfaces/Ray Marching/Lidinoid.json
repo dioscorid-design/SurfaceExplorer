@@ -17,6 +17,7 @@
         "z": 13.59999942779541
     },
     "colors": {
+        "alpha": 1,
         "b": 0.20000000298023224,
         "g": 0.800000011920929,
         "r": 0.20000000298023224
@@ -42,6 +43,15 @@
         "y": "(0.8 + 0.3*cos(v))*sin(u)",
         "z": "0.3*sin(v)"
     },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
     "implicitEquation": "-((1/2)*(sin(2*x)*cos(y)*sin(z)+sin(2*y)*cos(z)*sin(x)+sin(2*z)*cos(x)*sin(y))-(1/2)*(cos(2*x)*cos(2*y)+cos(2*y)*cos(2*z)+cos(2*z)*cos(2*x))+(3/20))=0",
     "isImplicitMode": true,
     "lightIntensity": 1,
@@ -51,12 +61,12 @@
         "uMin": 0,
         "vMax": 6.2831854820251465,
         "vMin": 0,
-        "wMax": 0.10000000149011612,
+        "wMax": 0,
         "wMin": 0,
         "xMax": 3,
         "xMin": -3,
-        "yMax": 2.299999952316284,
-        "yMin": -2.299999952316284,
+        "yMax": 2,
+        "yMin": -2,
         "zMax": 3,
         "zMin": -3
     },

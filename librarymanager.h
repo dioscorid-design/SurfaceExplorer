@@ -137,6 +137,12 @@ struct LibraryItem {
     int projectionMode = 1;
     bool showBorder = true;
 
+    // Densità wireframe (passi campionamento U/V). hasWireframe=false => il preset non
+    // la contiene (formato vecchio): il load usa il default (resetWireframeDensity).
+    bool hasWireframe = false;
+    int wireframeUStep = 4;
+    int wireframeVStep = 4;
+
     bool hasLightingState = false;
     bool use4DLighting = false;
     int lightingMode = -1;

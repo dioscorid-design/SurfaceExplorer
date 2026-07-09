@@ -1677,6 +1677,20 @@ void GLWidget::decreaseWireframeVDensity() {
     update();
 }
 
+void GLWidget::setWireframeDensity(int uStep, int vStep) {
+    // Clamp ai limiti dei tasti +/- (STEP_MIN..STEP_MAX): un preset con valori fuori
+    // range o corrotto non deve produrre una geometria degenere.
+    wfStepU = std::clamp(uStep, STEP_MIN, STEP_MAX);
+    wfStepV = std::clamp(vStep, STEP_MIN, STEP_MAX);
+    // Ricostruiamo solo se c'è un engine valido: al load la mesh potrebbe non essere
+    // ancora pronta, nel qual caso basta aver impostato wfStepU/V (la geometria sarà
+    // costruita con questi valori quando la superficie viene caricata). Vedi resetWireframeDensity.
+    if (engine) {
+        buildWireframeGeometry();
+        update();
+    }
+}
+
 void GLWidget::resetWireframeDensity() {
     if (wfStepU == STEP_DEF && wfStepV == STEP_DEF) return; // già al default
     wfStepU = STEP_DEF;

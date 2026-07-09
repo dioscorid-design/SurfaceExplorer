@@ -18,10 +18,10 @@
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": -0.3513266444206238,
-        "rot_x": 0.4336247444152832,
-        "rot_y": -0.3711068332195282,
-        "rot_z": 0.7421717047691345,
+        "rot_w": -0.5753154158592224,
+        "rot_x": 0.5906100869178772,
+        "rot_y": -0.5113546252250671,
+        "rot_z": -0.24229839444160461,
         "x": 0,
         "y": 0,
         "yaw": 0,
@@ -118,9 +118,13 @@
         "enabled": false,
         "pan_x": 0,
         "pan_y": 0,
-        "rotation": 180,
-        "zoom": 1.0000003576278687
+        "rotation": 0,
+        "zoom": 1
     },
     "type": "motion",
-    "use4DLighting": false
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 1,
+        "vStep": 1
+    }
 }

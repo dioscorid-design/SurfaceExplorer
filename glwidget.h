@@ -143,10 +143,16 @@ public:
     void decreaseWireframeUDensity();
     void increaseWireframeVDensity();
     void decreaseWireframeVDensity();
-    // Riporta la densità wireframe (wfStepU/V) al valore di default. La densità è
-    // stato runtime non serializzato nei preset, quindi va azzerata a ogni nuova
-    // superficie per non ereditare quella della precedente.
+    // Riporta la densità wireframe (wfStepU/V) al valore di default. Va azzerata a ogni
+    // nuova superficie (cambio tab / caricamento senza densità salvata) per non ereditare
+    // quella della precedente. I preset che HANNO la densità salvata la ripristinano
+    // invece via setWireframeDensity dopo il load (vedi applyCommonData).
     void resetWireframeDensity();
+    // Densità wireframe corrente (passi di campionamento U/V). Serializzata nei preset
+    // per riprodurre a schermo lo stesso numero di linee al reload.
+    int getWireframeUStep() const { return wfStepU; }
+    int getWireframeVStep() const { return wfStepV; }
+    void setWireframeDensity(int uStep, int vStep);
     float getSurfaceScale() const { return m_surfaceScale; }
     void rebuildShader();
 

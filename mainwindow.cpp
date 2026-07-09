@@ -1006,8 +1006,9 @@ MainWindow::MainWindow(QWidget *parent)
         // superficie precedente non deve sopravvivere al cambio tab.
         resetTransparency();
 
-        // La densità wireframe (Density u/v) è stato runtime non serializzato: va
-        // riportata al default a ogni cambio superficie, come trasparenza e luminosità.
+        // Cambio tab -> superficie di default (sfera/toro): la densità wireframe torna al
+        // default, come trasparenza e luminosità. (Il ripristino della densità SALVATA
+        // avviene solo caricando un preset che la contiene, in applyCommonData.)
         if (ui->glWidget) ui->glWidget->resetWireframeDensity();
 
         // Anche la LUMINOSITA' (intensità luce direzionale) non deve sopravvivere
@@ -8415,10 +8416,17 @@ void MainWindow::applyCommonData(const LibraryItem &d)
         m_geoAnimTimer->stop();
     }
 
-    // Densità wireframe: stato runtime non salvato nei preset -> al default per ogni
-    // superficie caricata, così non eredita quella della precedente. La geometria verrà
-    // ricostruita con questi valori quando la nuova mesh è pronta.
-    if (ui->glWidget) ui->glWidget->resetWireframeDensity();
+    // Densità wireframe: se il preset la contiene (hasWireframe) ripristiniamo il numero
+    // di linee salvato, così a schermo riappare l'aspetto scelto; altrimenti (preset
+    // vecchi senza il campo) torniamo al default per non ereditare quella precedente. In
+    // entrambi i casi impostiamo solo wfStepU/V: la geometria verrà (ri)costruita con
+    // questi valori quando la nuova mesh è pronta.
+    if (ui->glWidget) {
+        if (d.hasWireframe)
+            ui->glWidget->setWireframeDensity(d.wireframeUStep, d.wireframeVStep);
+        else
+            ui->glWidget->resetWireframeDensity();
+    }
 
     // Reset dello stato d'errore geodetico: m_geodesicErrorPending è "appiccicoso"
     // (resettato solo da updateGeodesicMesh in caso di successo). Se il preset

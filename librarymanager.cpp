@@ -376,6 +376,15 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.showBorder = root["showBorder"].toBool();
         }
 
+        // Densità wireframe (opzionale): assente nei preset vecchi -> hasWireframe resta
+        // false e il load applica il default. Il tag STEP_DEF=4 lato GLWidget clampa i valori.
+        if (root.contains("wireframe")) {
+            QJsonObject wf = root["wireframe"].toObject();
+            d.hasWireframe = true;
+            d.wireframeUStep = wf["uStep"].toInt(4);
+            d.wireframeVStep = wf["vStep"].toInt(4);
+        }
+
         if (root.contains("camera3D")) {
             d.hasCamera3D = true;
             QJsonObject cam = root["camera3D"].toObject();

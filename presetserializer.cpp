@@ -459,6 +459,13 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     root["projectionMode"] = (int)m_mainWindow->ui->glWidget->projectionMode;
     root["showBorder"] = m_mainWindow->ui->btnBorder->isChecked();
 
+    // Densità wireframe corrente (passi U/V): salviamo il numero di linee a schermo IN
+    // QUESTO MOMENTO, non il default, così il reload riproduce l'aspetto scelto.
+    QJsonObject wireframe;
+    wireframe["uStep"] = m_mainWindow->ui->glWidget->getWireframeUStep();
+    wireframe["vStep"] = m_mainWindow->ui->glWidget->getWireframeVStep();
+    root["wireframe"] = wireframe;
+
     // 1. Salva Rotazione 4D
     QJsonObject angles;
     angles["omega"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getOmega();
@@ -990,6 +997,13 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     }
     root["projectionMode"] = m_mainWindow->ui->glWidget->projectionMode;
     root["showBorder"] = m_mainWindow->ui->btnBorder->isChecked();
+
+    // Densità wireframe corrente (passi U/V): come in saveSurface, salviamo le linee a
+    // schermo in questo momento così il record le riproduce al reload.
+    QJsonObject wireframe;
+    wireframe["uStep"] = m_mainWindow->ui->glWidget->getWireframeUStep();
+    wireframe["vStep"] = m_mainWindow->ui->glWidget->getWireframeVStep();
+    root["wireframe"] = wireframe;
 
     if (m_mainWindow->m_fileOps) {
         m_mainWindow->m_fileOps->backupBeforeOverwrite(fileName);
