@@ -7,6 +7,8 @@
 
 #include <QTimer>
 #include <cmath>
+#include <vector>
+#include <limits>
 #include <QtMath>
 #include <QMouseEvent>
 #include <algorithm>
@@ -1043,13 +1045,21 @@ void GLWidget::setImplicitEquation(const QString &eqF)
 
 // Rileva EMPIRICAMENTE se il campo implicito e' "mal condizionato" (prodotto di
 // piu' fattori, es. preset "Chain"). Non e' un'euristica sulla stringa: valuta il
-// campo su una griglia CPU (exprtk) e misura il RANGE DINAMICO. Un prodotto di piu'
-// fattori esplode a ~1e13, mentre ogni superficie a espressione singola resta molto
-// sotto (<=1e8 anche a grado 6). Se max|f| sfonda la soglia -> il ramo trasparente
-// aggancerebbe crossing FANTASMA (cambi di segno per parita' del prodotto, lontani da
-// ogni superficie reale) e la superficie sparirebbe con alpha<1: settiamo
-// m_implicitIllConditioned = true cosi' il render forza alpha=1.0 e la UI disabilita
-// lo slider. Vedi m_implicitIllConditioned in glwidget.h per il razionale completo.
+// campo su una griglia CPU (exprtk) e misura il RANGE DINAMICO *SULLA SUPERFICIE*.
+//
+// La chiave e' misurare |f| SOLO vicino a f=0 (celle adiacenti a un cambio di segno),
+// NON su tutto il box. Un polinomio a espressione singola di grado alto (es. "Filament
+// Cube", grado ~12) esplode nel vuoto lontano dalle sue radici (~1e12) pur restando
+// SANO sulla superficie (~1): misurando il max globale sarebbe un FALSO POSITIVO. Un
+// prodotto di piu' fattori (es. "Chain", 6 tori) invece resta enorme ANCHE vicino ai
+// suoi crossing (~1e8), perche' ogni crossing porta con se' il prodotto degli altri
+// fattori grandi. La banda near-surface separa i due con ~6 ordini di margine.
+//
+// Se max|f| near-surface sfonda la soglia -> il ramo trasparente aggancerebbe crossing
+// FANTASMA (cambi di segno per parita' del prodotto, con salti di scala enormi) e la
+// superficie sparirebbe con alpha<1: settiamo m_implicitIllConditioned = true cosi' il
+// render forza alpha=1.0 e la UI disabilita lo slider. Vedi m_implicitIllConditioned in
+// glwidget.h per il razionale completo.
 void GLWidget::detectImplicitConditioning(const QString &eqF)
 {
     m_implicitIllConditioned = false;
@@ -1100,10 +1110,14 @@ void GLWidget::detectImplicitConditioning(const QString &eqF)
     if (bzMax <= bzMin) { bzMin = -clampR; bzMax = clampR; }
 
     // Griglia FITTA (40^3): i tubi dei tori sono sottili (raggio ~sqrt(0.4)~0.63);
-    // una griglia grossa (12^3) li mancherebbe e sottostimerebbe max|f|. 40^3 = 64k
+    // una griglia grossa (12^3) li mancherebbe e non troverebbe i crossing. 40^3 = 64k
     // valutazioni exprtk: eseguito UNA volta per cambio-equazione, costo trascurabile.
+    // Materializziamo l'intero campo in un buffer per poter confrontare i VICINI.
     const int N = 40;
-    double maxAbs = 0.0;
+    std::vector<double> vals(static_cast<size_t>(N) * N * N);
+    auto idx = [N](int i, int j, int k) {
+        return (static_cast<size_t>(i) * N + j) * N + k;
+    };
     for (int i = 0; i < N; ++i) {
         x = bxMin + (bxMax - bxMin) * (i + 0.5) / N;
         for (int j = 0; j < N; ++j) {
@@ -1111,28 +1125,51 @@ void GLWidget::detectImplicitConditioning(const QString &eqF)
             for (int k = 0; k < N; ++k) {
                 z = bzMin + (bzMax - bzMin) * (k + 0.5) / N;
                 double v = parser.value();
-                if (!std::isfinite(v)) continue;
-                double av = std::abs(v);
-                if (av > maxAbs) maxAbs = av;
+                vals[idx(i, j, k)] = std::isfinite(v) ? v : std::numeric_limits<double>::quiet_NaN();
             }
         }
     }
 
-    // Soglia empirica sul RANGE DINAMICO del campo grezzo. Verificato campionando su
-    // griglia fitta [-10,10]^3: un prodotto di piu' fattori quadratici (es. "Chain",
-    // 6 tori) esplode a ~1e13..1e14, mentre QUALSIASI superficie a espressione singola
-    // di grado ragionevole resta molto sotto: sfera/toro ~1e2, gyroide ~1, quartica
-    // ~1e5, genus-2 ~1e6, "cuore" grado 6 ~1e8. La soglia 1e10 lascia un margine di
-    // ~2 ordini di grandezza sopra la peggiore superficie legittima testata e ~4 sotto
-    // il "Chain": separa in modo netto i campi a prodotto senza falsi positivi.
-    // (Niente gate su segni misti: i tubi sottili possono non essere "bucati" e darebbero
-    //  falsi negativi proprio sul "Chain" — vedi cronologia analisi.)
-    const double ILL_THRESHOLD = 1.0e10;
-    m_implicitIllConditioned = (maxAbs > ILL_THRESHOLD);
+    // Misuriamo max|f| SOLO nella banda near-surface: celle che hanno almeno un vicino
+    // (6-connesso) di segno opposto. E' qui che il ramo trasparente aggancia i crossing;
+    // e' qui che un campo a prodotto tradisce la sua scala enorme, mentre un polinomio
+    // grado-alto sano (che esplode solo nel vuoto lontano) resta O(1).
+    double maxNear = 0.0;
+    auto opposite = [](double a, double b) {
+        return std::isfinite(a) && std::isfinite(b) && ((a < 0.0) != (b < 0.0)) && a != 0.0 && b != 0.0;
+    };
+    for (int i = 0; i < N; ++i)
+        for (int j = 0; j < N; ++j)
+            for (int k = 0; k < N; ++k) {
+                double v = vals[idx(i, j, k)];
+                if (!std::isfinite(v)) continue;
+                bool onSurface =
+                    (i + 1 < N && opposite(v, vals[idx(i + 1, j, k)])) ||
+                    (i - 1 >= 0 && opposite(v, vals[idx(i - 1, j, k)])) ||
+                    (j + 1 < N && opposite(v, vals[idx(i, j + 1, k)])) ||
+                    (j - 1 >= 0 && opposite(v, vals[idx(i, j - 1, k)])) ||
+                    (k + 1 < N && opposite(v, vals[idx(i, j, k + 1)])) ||
+                    (k - 1 >= 0 && opposite(v, vals[idx(i, j, k - 1)]));
+                if (onSurface) {
+                    double av = std::abs(v);
+                    if (av > maxNear) maxNear = av;
+                }
+            }
+
+    // Soglia empirica sul RANGE DINAMICO del campo NEAR-SURFACE. Verificato valutando
+    // TUTTI i preset impliciti Ray Marching su griglia 40^3: il "Chain" (prodotto di 6
+    // tori) resta a ~1e8 anche sui suoi crossing, mentre OGNI superficie a espressione
+    // singola sta sotto ~20 (peggiori: KleinIso ~21, DuplinCyclides ~14) — incluso il
+    // "Filament Cube" grado ~12 che vale ~1 sulla superficie pur esplodendo a ~1e12 nel
+    // vuoto lontano (era il falso positivo della vecchia soglia globale 1e10). La soglia
+    // 1e5 lascia ~3.7 ordini di margine su ENTRAMBI i lati (sopra il peggior legittimo,
+    // sotto il "Chain"): separazione netta e robusta.
+    const double ILL_THRESHOLD = 1.0e5;
+    m_implicitIllConditioned = (maxNear > ILL_THRESHOLD);
 
     if (m_implicitIllConditioned) {
-        qDebug() << "[implicit] campo mal condizionato (prodotto): max|f| =" << maxAbs
-                 << "-> trasparenza disabilitata (fallback opaco)";
+        qDebug() << "[implicit] campo mal condizionato (prodotto): max|f| near-surface ="
+                 << maxNear << "-> trasparenza disabilitata (fallback opaco)";
     }
 }
 

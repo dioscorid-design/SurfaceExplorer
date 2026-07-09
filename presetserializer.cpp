@@ -396,14 +396,21 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     // mappa custom (es. Flamm) la salviamo a parte per ripristinarla al load.
     m_mainWindow->writeMetricDisplayMap(root);
 
+    // Le costanti si serializzano dai CAMPI TESTO (lineA..lineS), non dagli slider.
+    // Gli slider sono interi centesimali (value()/100), quindi troncano ogni valore con
+    // piu' di 2 decimali o < 0.005 -> es. A=0.005 diventava 0 (campo=0.005 ma slider=0),
+    // salvando una costante SBAGLIATA. I campi testo sono la source-of-truth (piena
+    // precisione, espressioni a cascata); resolveCascadeConstants(false) li risolve
+    // esattamente come evaluateCascade, senza toccare il testo (false = non-restore).
+    const MainWindow::CascadeConstants kc = m_mainWindow->resolveCascadeConstants(false);
     QJsonObject constants;
-    constants["A"] = m_mainWindow->ui->aSlider->value() / 100.0f;
-    constants["B"] = m_mainWindow->ui->bSlider->value() / 100.0f;
-    constants["C"] = m_mainWindow->ui->cSlider->value() / 100.0f;
-    constants["D"] = m_mainWindow->ui->dSlider->value() / 100.0f;
-    constants["E"] = m_mainWindow->ui->eSlider->value() / 100.0f;
-    constants["F"] = m_mainWindow->ui->fSlider->value() / 100.0f;
-    constants["S"] = m_mainWindow->ui->sSlider->value() / 100.0f;
+    constants["A"] = kc.a;
+    constants["B"] = kc.b;
+    constants["C"] = kc.c;
+    constants["D"] = kc.d;
+    constants["E"] = kc.e;
+    constants["F"] = kc.f;
+    constants["S"] = kc.s;
     root["constants"] = constants;
 
     QJsonObject limits;
@@ -757,14 +764,17 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         root["scriptCode"] = scriptContent;
     }
 
+    // Costanti dai CAMPI TESTO, non dagli slider centesimali (troncherebbero i valori
+    // con >2 decimali). Vedi saveSurface per il razionale completo.
+    const MainWindow::CascadeConstants kc = m_mainWindow->resolveCascadeConstants(false);
     QJsonObject constants;
-    constants["A"] = m_mainWindow->ui->aSlider->value() / 100.0f;
-    constants["B"] = m_mainWindow->ui->bSlider->value() / 100.0f;
-    constants["C"] = m_mainWindow->ui->cSlider->value() / 100.0f;
-    constants["D"] = m_mainWindow->ui->dSlider->value() / 100.0f;
-    constants["E"] = m_mainWindow->ui->eSlider->value() / 100.0f;
-    constants["F"] = m_mainWindow->ui->fSlider->value() / 100.0f;
-    constants["S"] = m_mainWindow->ui->sSlider->value() / 100.0f;
+    constants["A"] = kc.a;
+    constants["B"] = kc.b;
+    constants["C"] = kc.c;
+    constants["D"] = kc.d;
+    constants["E"] = kc.e;
+    constants["F"] = kc.f;
+    constants["S"] = kc.s;
     root["constants"] = constants;
 
     QJsonObject limits;
@@ -1118,14 +1128,16 @@ void PresetSerializer::saveScript()
 
         root["limits"] = limits;
 
+        // Costanti dai CAMPI TESTO, non dagli slider centesimali. Vedi saveSurface.
+        const MainWindow::CascadeConstants kc = m_mainWindow->resolveCascadeConstants(false);
         QJsonObject constants;
-        constants["A"] = m_mainWindow->ui->aSlider->value() / 100.0f;
-        constants["B"] = m_mainWindow->ui->bSlider->value() / 100.0f;
-        constants["C"] = m_mainWindow->ui->cSlider->value() / 100.0f;
-        constants["D"] = m_mainWindow->ui->dSlider->value() / 100.0f;
-        constants["E"] = m_mainWindow->ui->eSlider->value() / 100.0f;
-        constants["F"] = m_mainWindow->ui->fSlider->value() / 100.0f;
-        constants["S"] = m_mainWindow->ui->sSlider->value() / 100.0f;
+        constants["A"] = kc.a;
+        constants["B"] = kc.b;
+        constants["C"] = kc.c;
+        constants["D"] = kc.d;
+        constants["E"] = kc.e;
+        constants["F"] = kc.f;
+        constants["S"] = kc.s;
         root["constants"] = constants;
 
         // Condizioni iniziali del flusso geodetico: servono agli script metrici

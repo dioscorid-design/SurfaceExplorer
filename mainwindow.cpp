@@ -8617,13 +8617,17 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     updateSliderPreset(ui->fSlider, d.f, false);
     updateSliderPreset(ui->sSlider, d.s, true);
 
-    ui->lineA->setText(QString::number(d.a, 'f', 2));
-    ui->lineB->setText(QString::number(d.b, 'f', 2));
-    ui->lineC->setText(QString::number(d.c, 'f', 2));
-    ui->lineD->setText(QString::number(d.d, 'f', 2));
-    ui->lineE->setText(QString::number(d.e, 'f', 2));
-    ui->lineF->setText(QString::number(d.f, 'f', 2));
-    ui->lineS->setText(QString::number(d.s, 'f', 2));
+    // Formato 'g',6 (precisione significativa), NON 'f',2: quest'ultimo troncava le
+    // costanti a 2 decimali al LOAD (es. A=0.005 -> "0.01"), e un successivo salvataggio
+    // le rileggeva gia' rovinate da lineA -> il valore fine si perdeva. 'g',6 e' coerente
+    // con connectSlider (che scrive i campi con lo stesso formato).
+    ui->lineA->setText(QString::number(d.a, 'g', 6));
+    ui->lineB->setText(QString::number(d.b, 'g', 6));
+    ui->lineC->setText(QString::number(d.c, 'g', 6));
+    ui->lineD->setText(QString::number(d.d, 'g', 6));
+    ui->lineE->setText(QString::number(d.e, 'g', 6));
+    ui->lineF->setText(QString::number(d.f, 'g', 6));
+    ui->lineS->setText(QString::number(d.s, 'g', 6));
 
     ui->aSlider->blockSignals(false); ui->lineA->blockSignals(false);
     ui->bSlider->blockSignals(false); ui->lineB->blockSignals(false);
