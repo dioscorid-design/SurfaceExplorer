@@ -6880,6 +6880,22 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
         m_geoAnimTimer->stop();
     }
 
+    // Caricare un nuovo record = nuovo "primo Departure": i flag di sessione che
+    // gate-ano la neutralizzazione dell'orientamento (m_path4DStartedOnce e
+    // m_anyPathStartedOnce) NON venivano mai rimessi a false, quindi dal secondo
+    // record in poi il path partiva da una base 4D non-neutra (l'angolo psi del
+    // preset appena applicato via setRotation4D) -> il frame della camera si ribaltava
+    // e il moto appariva percorso in senso OPPOSTO a ogni ricarica. Reset qui: ogni
+    // record riparte pulito come il primissimo della sessione.
+    m_path4DStartedOnce = false;
+    m_anyPathStartedOnce = false;
+
+    // Tempo dei path azzerato: un nuovo record deve partire da t=0, non dal tempo
+    // RESIDUO del moto precedente (che altrimenti farebbe ripartire la traiettoria da
+    // una fase arbitraria a ogni ricarica).
+    pathTimeT = 0.0f;
+    pathTimeT3D = 0.0f;
+
     if (m_btnStart) m_btnStart->setText("START");
     if (ui->btnStart_2) ui->btnStart_2->setText("GO");
 
@@ -7382,6 +7398,17 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
 
     if (hasPath4D) onDepartureClicked();
     else if (hasPath3D) onDeparture3DClicked();
+
+    // Sincronizzazione del PRIMO FRAME al path: applyCommonData ha appena piazzato la
+    // camera3D SALVATA nel preset (l'istantanea del momento in cui il record fu creato),
+    // ma il path la muove da t=0 su una traiettoria del tutto diversa (es. Gyroid Race:
+    // camera salvata a x=-2.12, path(t=0) a x=1.5). Senza questo, il primo frame mostra
+    // la camera salvata e poi al primo tick la vista SALTA sul path -> discontinuità
+    // secca (più visibile su mobile, dove il primo frame resta a schermo più a lungo).
+    // Eseguendo subito un tick, la camera è già sul path prima del primo paint, così il
+    // moto parte fluido dal punto iniziale della traiettoria.
+    if (hasPath4D && pathTimer->isActive()) onPathTimerTick();
+    else if (hasPath3D && pathTimer3D->isActive()) onPath3DTimerTick();
 
     ui->glWidget->setProjectionMode(data.projectionMode);
     updateProjectionButtonText();
