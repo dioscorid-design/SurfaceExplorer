@@ -2266,6 +2266,11 @@ MainWindow::MainWindow(QWidget *parent)
     // QueuedConnection: il segnale parte dal thread di rendering del QRhiWidget,
     // il QMessageBox deve invece girare nel thread GUI.
     connect(ui->glWidget, &GLWidget::performanceWarning, this, [this]() {
+        // Un popup alla volta: eventuali segnali gia' in coda quando il box e' aperto
+        // (il rendering resta lento mentre l'utente legge) non devono aprirne altri.
+        if (m_perfPopupActive) return;
+        m_perfPopupActive = true;
+
         QMessageBox box(this);
         box.setIcon(QMessageBox::Warning);
         box.setWindowTitle(tr("Rendering is slowing down"));
@@ -2281,8 +2286,13 @@ MainWindow::MainWindow(QWidget *parent)
         box.exec();
         if (box.clickedButton() == stopBtn) {
             performMasterStop();
+        } else {
+            // "Keep going": l'utente accetta il rallentamento. Zittiamo il watchdog per
+            // questa animazione (niente altri popup finche' non la ferma/ricarica).
+            if (ui->glWidget) ui->glWidget->acknowledgePerformanceWarning();
         }
         Q_UNUSED(continueBtn);
+        m_perfPopupActive = false;
     }, Qt::QueuedConnection);
 
     connect(ui->btnWireUPlus,  &QPushButton::clicked, this, [this](){ ui->glWidget->increaseWireframeUDensity(); });

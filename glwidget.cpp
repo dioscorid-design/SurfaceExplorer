@@ -240,7 +240,10 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                         // la situazione degrada. m_perfWarnLevelMs==0 = armato.
                         const bool firstTime = (m_perfWarnLevelMs <= 0.0f);
                         const bool worsened  = (m_avgFrameMs > m_perfWarnLevelMs * 2.0f);
-                        if (m_slowAccumMs >= kSlowDwellMs && (firstTime || worsened)) {
+                        // Se l'utente ha gia' scelto "Keep going" (m_perfWarnDismissed),
+                        // NON riemettiamo: niente popup a raffica al peggiorare. Il flag
+                        // si riarma solo quando l'animazione si ferma (ramo !animating).
+                        if (!m_perfWarnDismissed && m_slowAccumMs >= kSlowDwellMs && (firstTime || worsened)) {
                             m_perfWarnLevelMs = m_avgFrameMs;  // livello mostrato
                             emit performanceWarning();
                         }
@@ -255,10 +258,12 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             }
             m_wasAnimating = true;
         } else {
-            // Animazione ferma: azzeriamo gli accumulatori e riarmiamo.
+            // Animazione ferma: azzeriamo gli accumulatori e riarmiamo (incluso il
+            // flag "Keep going": una NUOVA animazione potra' riavvisare una volta).
             m_slowAccumMs = 0.0f;
             m_avgFrameMs = 16.0f;
             m_perfWarnLevelMs = 0.0f;
+            m_perfWarnDismissed = false;
             m_wasAnimating = false;
         }
         m_frameClock.restart();

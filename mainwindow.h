@@ -215,6 +215,9 @@ private:
     QTimer* m_stepsDebounce = nullptr;
     QTimer* m_meshDebounce = nullptr;
     bool m_constantPopupActive = false;
+    // True mentre il popup di rallentamento e' a schermo: evita che segnali
+    // performanceWarning gia' in coda aprano box sovrapposti (raffica).
+    bool m_perfPopupActive = false;
     QHash<QLineEdit*, float> m_lastValidConst;
     QTimer* m_geoAnimTimer = nullptr;   // timer del flusso geodetico (creato al primo updateGeodesicMesh)
     bool m_geodesicErrorPending = false;

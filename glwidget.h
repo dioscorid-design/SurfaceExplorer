@@ -153,6 +153,9 @@ public:
     int getWireframeUStep() const { return wfStepU; }
     int getWireframeVStep() const { return wfStepV; }
     void setWireframeDensity(int uStep, int vStep);
+    // Chiamato dal popup di rallentamento quando l'utente sceglie "Keep going":
+    // sopprime ogni ulteriore avviso finche' l'animazione non si ferma/riparte.
+    void acknowledgePerformanceWarning() { m_perfWarnDismissed = true; }
     float getSurfaceScale() const { return m_surfaceScale; }
     void rebuildShader();
 
@@ -555,6 +558,9 @@ private:
     float m_slowAccumMs = 0.0f;          // tempo accumulato sotto soglia
     float m_perfWarnLevelMs = 0.0f;      // livello a cui e' apparso l'ultimo avviso
                                          // (0 = armato); riappare se raddoppia (+100%)
+    bool m_perfWarnDismissed = false;    // l'utente ha scelto "Keep going": sopprime
+                                         // OGNI ulteriore avviso finche' l'animazione non
+                                         // si ferma/riparte (riarmo nel ramo !animating)
     bool m_wasAnimating = false;         // stato anim. al frame precedente: per saltare
                                          // il primo frame dopo lo start (transitorio)
 
