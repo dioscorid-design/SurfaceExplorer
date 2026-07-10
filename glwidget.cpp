@@ -3014,13 +3014,12 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
 // --- Geometry & Mesh Builders ---
 
 void GLWidget::buildWireframeGeometry() {
+    // Zero indici è legittimo quando l'engine non ha ancora vertici (reset/init/
+    // flat-view): la mesh arriva subito dopo e il wireframe si rigenera. Nessun
+    // warning: era una diagnostica residua di un vecchio bug, ormai solo rumore.
     m_wireframeIndices = GeometryBuilder::buildWireframe(engine.get(), wfStepU, wfStepV);
     m_wireframeIndexCount = m_wireframeIndices.size();
     wireframeNeedsUpdate = true;
-
-    if (m_wireframeIndexCount == 0) {
-        qWarning() << "ATTENZIONE: Nessun indice wireframe generato! (I commenti in updateSurfaceData sono stati tolti?)";
-    }
 }
 
  // --- Shader Generation & Compilation ---

@@ -9100,15 +9100,6 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
 
     bool limitsChanged = false;
 
-    // Funzione per impostare valore e range dinamico dagli script
-    auto setScriptSlider = [](QSlider* s, float val, bool isS) {
-        int intVal = static_cast<int>(val * 100.0f);
-        int newMin = isS ? std::min(-1000, intVal) : 0;
-        int newMax = std::max(1000, intVal);
-        s->setRange(newMin, newMax);
-        s->setValue(intVal);
-    };
-
     while (i.hasNext()) {
         QRegularExpressionMatch match = i.next();
         QString varName = match.captured(1).toLower(); // es. "u_min"
