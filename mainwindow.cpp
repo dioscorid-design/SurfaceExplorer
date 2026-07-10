@@ -9135,7 +9135,12 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
         else if (varName == "w_min") { setLimitIfAllowed(ui->wMinEdit); }
         else if (varName == "w_max") { setLimitIfAllowed(ui->wMaxEdit); }
         else if (onlyFillEmptyLimits) { continue; }  // costanti/steps: vince la UI
-        else if (varName == "steps") { ui->stepSlider->setValue((int)value); }
+        // 'steps' NON viene mai applicato dallo script: la risoluzione è governata
+        // esclusivamente dallo slider stepSlider (inizializzato da d.steps del JSON al
+        // caricamento). Prima la direttiva "steps := N" riportava lo slider a N ad ogni
+        // Run, scavalcando la regolazione manuale dell'utente (es. preset Otto): lo
+        // slider "non modificava" più lo step. La direttiva resta inerte nel testo.
+        else if (varName == "steps") { /* ignorata: comanda lo slider */ }
         else if (varName == "a") { ui->aSlider->setValue(static_cast<int>(value * 100.0f)); }
         else if (varName == "b") { ui->bSlider->setValue(static_cast<int>(value * 100.0f)); }
         else if (varName == "c") { ui->cSlider->setValue(static_cast<int>(value * 100.0f)); }
@@ -10341,7 +10346,16 @@ bool MainWindow::updateGeodesicMesh()
 void MainWindow::checkAndTriggerMeshUpdate() {
     if (!ui->glWidget) return;
 
-    if (ui->glWidget->getEngine() && ui->glWidget->getEngine()->isScriptModeActive()) {
+    // Ray marching (tab implicito): la superficie è calcolata per pixel dallo
+    // shader, non è una mesh poligonale. Cambiare "steps" agisce su setRaySteps,
+    // non sulla griglia: qui basta un update() delle uniform. NB: lo script
+    // PARAMETRICO (tab 0, es. tubi come Otto) è invece una mesh poligonale la cui
+    // densità dipende da numU/numV (setResolution -> computeMesh): DEVE rigenerare,
+    // altrimenti lo slider Steps risulta inerte sugli script parametrici. Prima
+    // l'early-return copriva ogni script (isScriptModeActive) e bloccava proprio
+    // quel caso.
+    if (ui->tabModeSelector->currentIndex() == 1
+        && ui->glWidget->getEngine() && ui->glWidget->getEngine()->isScriptModeActive()) {
         ui->glWidget->update(); // Aggiorna solo la visualizzazione (Uniforms)
         return;                 // Uscita anticipata per proteggere la GPU
     }
