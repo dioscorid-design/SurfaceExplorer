@@ -1977,6 +1977,13 @@ MainWindow::MainWindow(QWidget *parent)
                 onAlphaSliderMovedIllCheck(value);
                 return;   // onAlphaSliderMovedIllCheck ha gia' rimesso alpha a 100
             }
+            // SOLO ANDROID: superficie la cui trasparenza puo' degradare (Gyroid, script
+            // RM). NON blocchiamo: mostriamo l'avviso una volta e proseguiamo applicando
+            // l'alpha normalmente (lo slider agisce, l'utente vede l'effetto reale).
+            bool warnImplicit = isImplicitMode && ui->glWidget && ui->glWidget->implicitTransparencyMayDegrade();
+            if (warnImplicit) {
+                onAlphaSliderMovedWarnCheck();   // no return: l'alpha si applica sotto
+            }
         }
         alphaValue = static_cast<float>(value) / 100.0f;
         ui->lblAlphaVal->setText(QString::number(alphaValue, 'f', 2));
@@ -2848,17 +2855,30 @@ void MainWindow::applyModeDependentStepUI(bool isImplicit)
 void MainWindow::syncImplicitAlphaSlider(bool isImplicitMode, bool newSurface)
 {
     bool illImplicit = isImplicitMode && ui->glWidget && ui->glWidget->isImplicitIllConditioned();
+    // SOLO ANDROID (implicitTransparencyMayDegrade e' sempre false altrove): superficie
+    // la cui trasparenza potrebbe degradare (Gyroid, script RM). NON blocca: lo slider
+    // resta usabile, mostriamo solo un avviso.
+    bool warnImplicit = isImplicitMode && ui->glWidget && ui->glWidget->implicitTransparencyMayDegrade();
 
     if (newSurface) {
         if (!ui->alphaSlider->isEnabled()) ui->alphaSlider->setEnabled(true);
         m_implicitAlphaDisabled = false;
+        m_implicitWarnShown = false;   // riarma il popup di avviso per la nuova superficie
     }
 
-    ui->alphaSlider->setToolTip(illImplicit
-        ? tr("Transparency is unavailable for this surface: it is defined by a "
-             "product of several factors, so true transparency cannot be computed "
-             "reliably. Moving the slider will keep the surface opaque.")
-        : QString());
+    if (illImplicit) {
+        ui->alphaSlider->setToolTip(
+            tr("Transparency is unavailable for this surface: it is defined by a "
+               "product of several factors, so true transparency cannot be computed "
+               "reliably. Moving the slider will keep the surface opaque."));
+    } else if (warnImplicit) {
+        ui->alphaSlider->setToolTip(
+            tr("Transparency may not render correctly on this surface on this device: "
+               "it has many layers along each ray. The slider still works, but the "
+               "surface may look clipped."));
+    } else {
+        ui->alphaSlider->setToolTip(QString());
+    }
 }
 
 // L'utente ha abbassato lo slider trasparenza su un campo implicito a PRODOTTO:
@@ -2882,6 +2902,23 @@ void MainWindow::onAlphaSliderMovedIllCheck(int /*value*/)
                "disappear instead of turning translucent.\n\n"
                "It will stay opaque. The transparency slider is disabled."));
     }
+}
+
+// SOLO ANDROID. L'utente ha abbassato lo slider su una superficie implicita la cui
+// trasparenza puo' degradare (Gyroid, script RM): NON blocchiamo e NON ripristiniamo
+// l'opacita' (lo slider agisce davvero, l'utente vede l'effetto reale). Mostriamo solo
+// un popup di avviso UNA VOLTA per superficie. Chiamata dall'handler valueChanged solo
+// per interazioni utente (non set programmatici), con warn gia' verificato.
+void MainWindow::onAlphaSliderMovedWarnCheck()
+{
+    if (m_implicitWarnShown) return;
+    m_implicitWarnShown = true;   // guardia PRIMA del popup modale (anti-doppio)
+    QMessageBox::information(
+        this, tr("Transparency may not render correctly"),
+        tr("On this device, transparency may not render correctly on this surface: "
+           "it is made of many layers stacked along each viewing ray, more than the "
+           "renderer can blend here, so with transparency it may look clipped.\n\n"
+           "The slider still works — this is just a heads-up."));
 }
 
 void MainWindow::updateRenderState()
@@ -6676,6 +6713,14 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
             syncImplicitAlphaSlider(true, true);
         }
     }
+    else if (isImplicitScript && ui->glWidget) {
+        // Script implicito (es. Gyroid1): applyCommonData sopra ha gia' azzerato
+        // m_implicitIllConditioned e (su Android) armato l'avviso trasparenza.
+        // Risincronizziamo lo slider per la nuova superficie: newSurface=true lo
+        // riabilita (non fu bloccato da un Chain precedente) e riarma la guardia del
+        // popup di avviso.
+        syncImplicitAlphaSlider(true, true);
+    }
 
     // Leggiamo i dati esatti salvati nel JSON per la posa statica
     float startOmega = d.startOmega;
@@ -8774,6 +8819,19 @@ void MainWindow::applyCommonData(const LibraryItem &d)
             ui->glWidget->getEngine()->setScriptCodeGLSL(glslBody);
             ui->glWidget->getEngine()->setScriptMode(true);
             ui->glWidget->setRaySteps(ui->stepSlider->value());
+
+            // Il campo di uno script implicito e' GLSL grezzo, non valutabile su CPU:
+            // la rilevazione "campo a prodotto" (Chain) non si applica. Azzeriamo quel
+            // flag come fa validateAndApplyImplicitScript (questo ramo di load NON ci
+            // passa) per non ereditare il blocco+opaco da un Chain caricato prima.
+            ui->glWidget->clearImplicitIllConditioned();
+            // SOLO ANDROID: non potendo contare le facce di uno script su CPU, avvisiamo
+            // preventivamente per OGNI script RM (Gyroid1 & co. si tagliano/spariscono
+            // con alpha<1 sul budget facce ridotto di Android). Slider USABILE, popup di
+            // avviso al primo tocco. Sempre false su desktop/iOS (trasparenza piena).
+#if defined(Q_OS_ANDROID)
+            ui->glWidget->setImplicitTransparencyWarn(true);
+#endif
 
             ui->glWidget->rebuildShader();
 

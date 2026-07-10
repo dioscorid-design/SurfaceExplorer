@@ -69,6 +69,9 @@ private slots:
     // TOCCO utente in onAlphaSliderMovedIllCheck. Vedi definizioni in .cpp.
     void syncImplicitAlphaSlider(bool isImplicitMode, bool newSurface = false);
     void onAlphaSliderMovedIllCheck(int value);
+    // SOLO ANDROID: popup di avviso (NON blocca) al primo tocco dell'alpha su una
+    // superficie implicita la cui trasparenza puo' degradare (Gyroid, script RM).
+    void onAlphaSliderMovedWarnCheck();
     void applyModeDependentStepUI(bool isImplicit);
     void checkParametricDependency();
     void updateConstraintState();
@@ -235,6 +238,10 @@ private:
     // compare UNA volta, al primo TOCCO dell'utente sullo slider su un campo a prodotto.
     // Resettata tornando a un campo sano (syncImplicitAlphaSlider). Vedi onAlphaSliderMovedIllCheck.
     bool m_implicitAlphaDisabled = false;
+    // SOLO ANDROID. Guardia "avviso trasparenza gia' mostrato": il popup di avviso
+    // (NON bloccante) compare UNA volta, al primo tocco dell'alpha su Gyroid / script
+    // RM. Resettata per ogni nuova superficie (syncImplicitAlphaSlider newSurface=true).
+    bool m_implicitWarnShown = false;
     // Alzata mentre impostiamo lo slider trasparenza DA CODICE (load preset,
     // resetTransparency): l'handler valueChanged distingue cosi' il set programmatico
     // dall'interazione utente e non fa scattare il blocco/popup sui load. Vedi setAlphaSliderProgrammatic.

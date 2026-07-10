@@ -1004,6 +1004,7 @@ void GLWidget::setImplicitEquation(const QString &eqF)
 void GLWidget::detectImplicitConditioning(const QString &eqF)
 {
     m_implicitIllConditioned = false;
+    m_implicitTransparencyWarn = false;   // SOLO Android; ricalcolato sotto
     if (eqF.trimmed().isEmpty()) return;
 
     // I chiamanti passano l'equazione in due forme: gia' sottratta "(LHS) - (RHS)"
@@ -1121,8 +1122,10 @@ void GLWidget::detectImplicitConditioning(const QString &eqF)
     // (Gyroid, Lidinoid, Holes...) attraversano MOLTE facce lungo un raggio e sforano
     // quel budget: con alpha<1 su Android la superficie si TAGLIA (facce oltre MAX_FACES
     // non composte). Non potendo alzare i limiti senza reintrodurre il fault GPU,
-    // blocchiamo la trasparenza come per il "Chain": riusiamo m_implicitIllConditioned
-    // -> slider bloccato + popup al tocco + fallback opaco (glwidget.cpp:387).
+    // AVVISIAMO l'utente: alziamo m_implicitTransparencyWarn -> lo slider resta USABILE
+    // (nessun blocco, nessun fallback opaco) e la UI mostra un popup di avviso al primo
+    // tocco dell'alpha. Diverso dal "Chain" (m_implicitIllConditioned), che invece
+    // sparisce del tutto e resta bloccato+opaco su tutte le piattaforme.
     //
     // STIMA DELLE FACCE: contiamo i cambi di segno del campo lungo 7 raggi che
     // attraversano il CENTRO del box (3 assi + 4 diagonali dello spazio), a passo fine
@@ -1133,7 +1136,7 @@ void GLWidget::detectImplicitConditioning(const QString &eqF)
     // problematiche danno 13-26 crossing, tutte le legittime <=6 (Chmutov 6, Blobs 4,
     // sfere/tori/quadriche <=4). Soglia 8 (= 2 * MAX_FACES Android) nel mezzo, con
     // margine su entrambi i lati. Solo per superfici a EQUAZIONE (parser CPU); gli
-    // script RM azzerano il flag altrove e restano invariati.
+    // script RM sono avvisati preventivamente altrove (non valutabili su CPU).
     if (!m_implicitIllConditioned) {
         const int    ANDROID_MAX_FACES = 4;                 // deve combaciare col %MAX_FACES% Android
         const int    CROSSINGS_LIMIT   = 2 * ANDROID_MAX_FACES;
@@ -1170,10 +1173,10 @@ void GLWidget::detectImplicitConditioning(const QString &eqF)
             if (crossings > maxCrossings) maxCrossings = crossings;
         }
         if (maxCrossings > CROSSINGS_LIMIT) {
-            m_implicitIllConditioned = true;
+            m_implicitTransparencyWarn = true;
             qDebug() << "[implicit] Android: troppe facce per raggio (crossings ="
                      << maxCrossings << "> " << CROSSINGS_LIMIT
-                     << ") -> trasparenza disabilitata (fallback opaco)";
+                     << ") -> avviso trasparenza (slider resta usabile)";
         }
     }
 #endif

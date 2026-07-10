@@ -101,9 +101,22 @@ public:
     void setEngineMode(EngineMode mode);
     EngineMode getEngineMode() const { return m_engineMode; }
 
-    // true se il campo implicito corrente e' a prodotto/mal condizionato: la UI
-    // usa questo per disabilitare lo slider di trasparenza (vedi m_implicitIllConditioned).
+    // true se il campo implicito corrente e' a prodotto/mal condizionato (es. "Chain"):
+    // con alpha<1 sparisce. Su TUTTE le piattaforme la UI disabilita lo slider e il
+    // render forza opaco. Vedi m_implicitIllConditioned.
     bool isImplicitIllConditioned() const { return m_implicitIllConditioned; }
+    // Azzera il flag per gli script impliciti (GLSL grezzo non valutabile su CPU):
+    // il ramo di load che applica lo script via setScriptCodeGLSL non passa da
+    // validateAndApplyImplicitScript, che lo azzererebbe. Vedi il chiamante.
+    void clearImplicitIllConditioned() { m_implicitIllConditioned = false; }
+
+    // SOLO ANDROID: true se la trasparenza di questa superficie implicita potrebbe
+    // degradare (superficie triplamente periodica come Gyroid, o QUALSIASI script RM
+    // non valutabile su CPU) per via del budget facce ridotto su Android. A differenza
+    // di isImplicitIllConditioned NON blocca e NON forza opaco: lo slider resta usabile,
+    // la UI mostra solo un popup di avviso al primo tocco. Sempre false su desktop/iOS.
+    bool implicitTransparencyMayDegrade() const { return m_implicitTransparencyWarn; }
+    void setImplicitTransparencyWarn(bool w) { m_implicitTransparencyWarn = w; }
 
 
     // ==========================================================
@@ -363,6 +376,9 @@ private:
     // Rilevato empiricamente campionando il campo su CPU in setImplicitEquation:
     // NON e' un'euristica sulla stringa (un legittimo (x)*(y) non lo attiva).
     bool m_implicitIllConditioned = false;
+    // SOLO ANDROID: avviso (non blocco) per la trasparenza che potrebbe degradare.
+    // Sempre false su desktop/iOS. Vedi implicitTransparencyMayDegrade().
+    bool m_implicitTransparencyWarn = false;
     void detectImplicitConditioning(const QString &eqF);
 
     // ==========================================================
