@@ -21,6 +21,13 @@ const LibraryItem& LibraryManager::getSurface(int index) const {
     static LibraryItem dummy; return dummy;
 }
 
+const LibraryItem* LibraryManager::getSurfaceByPath(const QString &filePath) const {
+    for (const LibraryItem &it : m_surfaces) {
+        if (it.filePath == filePath) return &it;
+    }
+    return nullptr;
+}
+
 const LibraryItem& LibraryManager::getTexture(int index) const {
     if (index >= 0 && index < m_textures.size()) return m_textures[index];
     static LibraryItem dummy; return dummy;
@@ -305,18 +312,17 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
         if (root.contains("colors")) {
             QJsonObject col = root["colors"].toObject();
             // Due formati storici per il colore superficie:
-            //  - stringa "#rrggbb" in "surfColor"/"bordColor" (saveScript);
+            //  - stringa "#rrggbb" in "surfColor" (saveScript);
             //  - componenti numeriche r/g/b 0..1 (saveSurface, es. Ergosphere.json).
             // Il reader leggeva solo il primo: i preset salvati col secondo
             // restavano senza colore (default verde) e non trasparenti. Accettiamo
             // entrambi, convertendo r/g/b nella stringa "#rrggbb" attesa a valle.
+            // (La vecchia chiave "bordColor" di preset legacy viene semplicemente ignorata.)
             if (col.contains("surfColor")) {
                 d.color1 = col["surfColor"].toString();
-                d.color2 = col["bordColor"].toString();
             } else if (col.contains("r")) {
                 QColor surf = QColor::fromRgbF(col["r"].toDouble(), col["g"].toDouble(), col["b"].toDouble());
                 d.color1 = surf.name();
-                d.color2 = col.contains("bordColor") ? col["bordColor"].toString() : surf.name();
             }
             d.hasCustomColors = true;
 
@@ -371,9 +377,6 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
         }
         if (root.contains("projectionMode")) {
             d.projectionMode = root["projectionMode"].toInt();
-        }
-        if (root.contains("showBorder")) {
-            d.showBorder = root["showBorder"].toBool();
         }
 
         // Densità wireframe (opzionale): assente nei preset vecchi -> hasWireframe resta
@@ -549,11 +552,9 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             QJsonObject col = root["colors"].toObject();
             if (col.contains("surfColor")) {
                 d.color1 = col["surfColor"].toString();
-                d.color2 = col["bordColor"].toString();
             } else if (col.contains("r")) {
                 QColor surf = QColor::fromRgbF(col["r"].toDouble(), col["g"].toDouble(), col["b"].toDouble());
                 d.color1 = surf.name();
-                d.color2 = col.contains("bordColor") ? col["bordColor"].toString() : surf.name();
             }
             d.hasCustomColors = !d.color1.isEmpty();
             if (col.contains("alpha")) d.alpha = col["alpha"].toDouble(1.0);
@@ -576,6 +577,16 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
         }
         if (root.contains("projectionMode")) {
             d.projectionMode = root["projectionMode"].toInt();
+        }
+
+        // DENSITA' WIREFRAME. Veniva letta SOLO nel ramo Motion (sopra): il ramo
+        // Surface la ignorava del tutto, quindi le superfici si ricaricavano SEMPRE
+        // con wireframe di default, qualunque cosa fosse salvata nel JSON.
+        if (root.contains("wireframe")) {
+            QJsonObject wf = root["wireframe"].toObject();
+            d.hasWireframe = true;
+            d.wireframeUStep = wf["uStep"].toInt(4);
+            d.wireframeVStep = wf["vStep"].toInt(4);
         }
     }
 

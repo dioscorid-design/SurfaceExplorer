@@ -83,7 +83,7 @@ private slots:
     void onColorTargetChanged();
     // Seleziona "Surface" come target colore a segnali bloccati, garantendo
     // l'esclusività cross-gruppo (deseleziona Color1/Color2, che vivono in un
-    // QButtonGroup diverso dalla tripla Surface/Background/Border). Sostituisce
+    // QButtonGroup diverso dalla coppia Surface/Background). Sostituisce
     // il vecchio radioEditSurf->setChecked(true), che otteneva la deselezione
     // gratis dall'esclusività del singolo m_colorGroup a quattro.
     void selectSurfaceColorTarget();
@@ -191,11 +191,11 @@ private:
     QProgressBar *m_renderProgress;
     QButtonGroup *m_colorGroup;
     QButtonGroup *m_modeGroup;
-    // Tripla esclusiva Surface / Background / Border: scelta del target di editing (cosa
-    // pilotano slider/texture/colore). radioSurface = superficie, radioBackground = sfondo,
-    // radioBorder = bordo. La semantica resta radioBackground->isChecked() == "edito lo
-    // sfondo", radioBorder->isChecked() == "edito il bordo". I color slot (radioTexColor1/2)
-    // stanno in m_colorGroup a parte; l'esclusività fra i due gruppi è manuale.
+    // Coppia esclusiva Surface / Background: scelta del target di editing (cosa
+    // pilotano slider/texture/colore). radioSurface = superficie, radioBackground = sfondo.
+    // La semantica: radioBackground->isChecked() == "edito lo sfondo". I color slot
+    // (radioTexColor1/2) stanno in m_colorGroup a parte; l'esclusività fra i due gruppi
+    // è manuale.
     QButtonGroup *m_bgTargetGroup;
 
     // ==========================================================
@@ -243,7 +243,6 @@ private:
     float alphaValue = 1.0f;
 
     QColor m_currentSurfaceColor;
-    QColor m_currentBorderColor;
     QColor m_currentBackgroundColor;
     QColor m_texColor1 = Qt::white;
     QColor m_texColor2 = Qt::black;

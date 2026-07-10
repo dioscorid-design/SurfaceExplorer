@@ -3,49 +3,6 @@
 #include <cmath>
 #include <algorithm>
 
-std::vector<QVector4D> GeometryBuilder::buildBorders(const SurfaceEngine* engine)
-{
-    std::vector<QVector4D> borderLines; // <--- Cambiato in QVector4D
-    const std::vector<Vertex>& vertices = engine->getVertices();
-    if (vertices.empty()) return borderLines;
-
-    int nU = engine->getNumU();
-    int nV = engine->getNumV();
-    int stride = nV + 1;
-
-    auto getPos = [&](int i, int j) -> QVector4D { // <--- Ritorna QVector4D
-        int index = i * stride + j;
-        if (index >= 0 && index < (int)vertices.size()) {
-            return vertices[index].position; // Che ora è già 4D
-        }
-        return QVector4D(0,0,0,1);
-    };
-
-    // Bordi lungo U (Linee orizzontali: Lato superiore e inferiore)
-    if (!engine->isVClosed()) {
-        for (int i = 0; i < nU; ++i) {
-            borderLines.push_back(getPos(i, 0));
-            borderLines.push_back(getPos(i + 1, 0));
-
-            borderLines.push_back(getPos(i, nV));
-            borderLines.push_back(getPos(i + 1, nV));
-        }
-    }
-
-    // Bordi lungo V (Linee verticali: Lato sinistro e destro)
-    if (!engine->isUClosed()) {
-        for (int j = 0; j < nV; ++j) {
-            borderLines.push_back(getPos(0, j));
-            borderLines.push_back(getPos(0, j + 1));
-
-            borderLines.push_back(getPos(nU, j));
-            borderLines.push_back(getPos(nU, j + 1));
-        }
-    }
-
-    return borderLines;
-}
-
 std::vector<unsigned int> GeometryBuilder::buildWireframe(const SurfaceEngine* engine, int stepU, int stepV)
 {
     std::vector<unsigned int> indices;

@@ -133,9 +133,7 @@ public:
     void resetVisuals();
     void setProjectionMode(int mode);
     void setRenderMode(int mode);
-    void setShowBorders(bool enable);
     void setColor(float r, float g, float b);
-    void setBorderColor(float r, float g, float b);
     void setAlpha(float a);
     void setSpecularEnabled(bool enabled);
     void setLightIntensity(float intensity);
@@ -411,13 +409,6 @@ private:
     bool wireframeNeedsUpdate = true;
     int m_wireframeIndexCount = 0;
 
-    std::vector<Vertex> m_borderVertices;
-    QRhiBuffer *m_borderVbo = nullptr;
-    QRhiBuffer *m_borderUbo = nullptr;
-    QRhiShaderResourceBindings *m_borderBindings = nullptr;
-    QRhiGraphicsPipeline *m_borderPipeline = nullptr;
-    bool borderNeedsUpdate = true;
-
     QRhiGraphicsPipeline *m_pipelineOpaque = nullptr;
     QRhiGraphicsPipeline *m_pipelineTranspBack = nullptr;
     QRhiGraphicsPipeline *m_pipelineTranspFront = nullptr;
@@ -441,7 +432,6 @@ private:
     QString m_eqX, m_eqY, m_eqZ, m_eqW;
     bool meshNeedsUpdate = true;
     int m_indexCount = 0;
-    int m_borderVertexCount = 0;
     int wfStepU = 4;
     int wfStepV = 4;
     int m_raySteps = 100;
@@ -476,7 +466,6 @@ private:
     // RENDERING & TEXTURE STATE
     // ==========================================================
     int renderMode = 0;
-    bool showBorders = false;
     // True quando lo script ray marching definisce la direttiva Inner:=
     // (seconda superficie opaca interna, es. orizzonte di Kerr). Settato in
     // createImplicitFragmentShader() e inviato alla GPU via u_dummyZero.y.
@@ -485,7 +474,6 @@ private:
     bool m_isSpecularEnabled = false;
     float alpha = 0.5f;
     float red = 1, green = 1, blue = 1;
-    float bordRed = 1, bordGreen = 1, bordBlue = 0;
     float m_lightIntensity = 1.0f;
 
     float texRed1 = 1.0f, texGreen1 = 1.0f, texBlue1 = 1.0f;
@@ -605,7 +593,6 @@ private:
     // PRIVATE HELPER METHODS
     // ==========================================================
     // --- Geometry & Mesh Builders ---
-    void buildBorderGeometry();
     void buildWireframeGeometry();
 
     // --- Shader Generation & Compilation ---

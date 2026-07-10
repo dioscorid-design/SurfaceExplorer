@@ -76,7 +76,6 @@ GLWidget::GLWidget(QWidget *parent)
     m_manualTime = 0.00001f;
 
     m_textureEnabled = false;
-    showBorders = false;
     nutationSpeed = precessionSpeed = spinSpeed = 0.0f;
     omegaSpeed = phiSpeed = psiSpeed = 0.0f;
     precession = 0.0f; nutation = 0.0f; spin = 0.0f;
@@ -144,14 +143,6 @@ void GLWidget::initialize(QRhiCommandBuffer *cb)
     m_wireframeIbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, maxIndexSize);
     m_wireframeIbo->create();
 
-    // VBO per i bordi (100.000 vertici sono sufficienti per i perimetri)
-    m_borderVbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, 100000 * sizeof(Vertex));
-    m_borderVbo->create();
-
-    // UBO indipendente per poter colorare il bordo diversamente dalla mesh principale
-    m_borderUbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(UboData));
-    m_borderUbo->create();
-
     // --- 3. CREAZIONE TEXTURE E BINDINGS ---
     // A. Creiamo la texture "tappabuchi"
     createDummyTexture();
@@ -167,17 +158,6 @@ void GLWidget::initialize(QRhiCommandBuffer *cb)
                                                   m_dummyTexture, m_sampler)
     });
     m_bindings->create();
-
-    m_borderBindings = rhi()->newShaderResourceBindings();
-    m_borderBindings->setBindings({
-        QRhiShaderResourceBinding::uniformBuffer(0,
-                                                 QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-                                                 m_borderUbo),
-        QRhiShaderResourceBinding::sampledTexture(1,
-                                                  QRhiShaderResourceBinding::FragmentStage,
-                                                  m_dummyTexture, m_sampler)
-    });
-    m_borderBindings->create();
 
     // Inizializzazioni di base dell'engine che avevi prima
     if (m_eqX.isEmpty()) {
@@ -572,25 +552,6 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             meshNeedsUpdate = false;
         }
 
-        if (borderNeedsUpdate && m_borderVertexCount > 0) {
-            int vSize = m_borderVertexCount * sizeof(Vertex);
-            if (m_borderVbo->size() < vSize) {
-                m_borderVbo->destroy(); delete m_borderVbo;
-                m_borderVbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, vSize * 1.5);
-                m_borderVbo->create();
-            }
-            resourceUpdates->updateDynamicBuffer(m_borderVbo, 0, vSize, m_borderVertices.data());
-            borderNeedsUpdate = false;
-        }
-
-        if (showBorders && m_borderUbo) {
-            UboData borderUboData = m_uboData;
-            borderUboData.color = QVector3D(bordRed, bordGreen, bordBlue);
-            borderUboData.useTexture = 0;
-            borderUboData.useSpecular = 0;
-            resourceUpdates->updateDynamicBuffer(m_borderUbo, 0, sizeof(UboData), &borderUboData);
-        }
-
         if (wireframeNeedsUpdate && !m_wireframeIndices.empty()) {
             int iSize = m_wireframeIndexCount * sizeof(unsigned int);
             if (m_wireframeIbo->size() < iSize) {
@@ -675,15 +636,6 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 }
             }
 
-            // Bordi 3D
-            if (showBorders && m_borderPipeline && m_borderVertexCount > 0) {
-                cb->setGraphicsPipeline(m_borderPipeline);
-                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-                cb->setShaderResources(m_borderBindings);
-                const QRhiCommandBuffer::VertexInput vbufBinding(m_borderVbo, 0);
-                cb->setVertexInput(0, 1, &vbufBinding);
-                cb->draw(m_borderVertexCount);
-            }
         }
 
         cb->endPass();
@@ -769,22 +721,6 @@ void GLWidget::releaseResources()
     if (m_wireframePipeline) {
         delete m_wireframePipeline;
         m_wireframePipeline = nullptr;
-    }
-    if (m_borderVbo) {
-        delete m_borderVbo;
-        m_borderVbo = nullptr;
-    }
-    if (m_borderUbo) {
-        delete m_borderUbo;
-        m_borderUbo = nullptr;
-    }
-    if (m_borderPipeline) {
-        delete m_borderPipeline;
-        m_borderPipeline = nullptr;
-    }
-    if (m_borderBindings) {
-        delete m_borderBindings;
-        m_borderBindings = nullptr;
     }
     if (m_surfaceTexture) {
         m_surfaceTexture->destroy();
@@ -1537,7 +1473,6 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
     engine->setCustomMesh(vertices, indices, isUClosed, isVClosed);
 
     buildWireframeGeometry();
-    buildBorderGeometry();
 
     meshNeedsUpdate = true;
 
@@ -1565,7 +1500,6 @@ void GLWidget::updateSurfaceData()
     }
 
     buildWireframeGeometry();
-    buildBorderGeometry();
 
     // 2. Diciamo al Render Pass che i dati sono pronti per essere spediti alla GPU
     meshNeedsUpdate = true;
@@ -1579,7 +1513,6 @@ void GLWidget::resetVisuals()
     engine->clear();
     m_lightingMode4D = 0;
 
-    m_borderVertexCount = 0;
     m_wireframeIndexCount = 0;
 
     meshNeedsUpdate = true; // Diciamo a RHI di svuotare i buffer al prossimo render()
@@ -1625,21 +1558,11 @@ void GLWidget::setRenderMode(int mode) {
     update();
 }
 
-void GLWidget::setShowBorders(bool enable) {
-    showBorders = enable;            // Serve alla CPU per sapere se generare la geometria
-    update();
-}
-
 void GLWidget::setColor(float r, float g, float b) {
     this->red = r;
     this->green = g;
     this->blue = b;
     // Rimuovi l'assegnazione diretta a m_uboData qui, lo fa già il render()
-    update();
-}
-
-void GLWidget::setBorderColor(float r, float g, float b) {
-    bordRed = r; bordGreen = g; bordBlue = b;
     update();
 }
 
@@ -1955,7 +1878,6 @@ void GLWidget::setFlatView(bool active) {
     m_isFlatView = active;
 
     if (!m_isFlatView) {
-        buildBorderGeometry();
         buildWireframeGeometry();
     }
 
@@ -3091,34 +3013,6 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
 
 // --- Geometry & Mesh Builders ---
 
-void GLWidget::buildBorderGeometry() {
-    // 1. Generiamo i dati grezzi sulla CPU
-    // CAMBIATO DA QVector3D a QVector4D
-    std::vector<QVector4D> data = GeometryBuilder::buildBorders(engine.get());
-
-    m_borderVertices.clear();
-    m_borderVertices.reserve(data.size());
-
-    // 2. Li convertiamo nel formato Vertex compatibile con l'input layout di RHI
-    // CAMBIATO DA QVector3D a QVector4D
-    for (const QVector4D& pos : data) {
-        Vertex v;
-        // Ora sia v.position (che abbiamo cambiato in surfaceengine.h)
-        // sia 'pos' sono QVector4D, quindi l'assegnazione funzionerà perfettamente!
-        v.position = pos;
-
-        // Usiamo QVector4D per rispettare la struttura del Vertex!
-        // (La normale non serve per le linee, ma va riempita per non inviare "spazzatura" alla VRAM)
-        v.normal = QVector4D(0.0f, 0.0f, 1.0f, 0.0f);
-
-        v.texCoord = QVector2D(0.0f, 0.0f);
-        m_borderVertices.push_back(v);
-    }
-
-    m_borderVertexCount = (int)m_borderVertices.size();
-    borderNeedsUpdate = true; // Segnaliamo al render loop che i dati sono pronti
-}
-
 void GLWidget::buildWireframeGeometry() {
     m_wireframeIndices = GeometryBuilder::buildWireframe(engine.get(), wfStepU, wfStepV);
     m_wireframeIndexCount = m_wireframeIndices.size();
@@ -3448,7 +3342,6 @@ void GLWidget::buildPipeline() {
         clearPipe(m_pipelineTranspBack);
         clearPipe(m_pipelineTranspFront);
         clearPipe(m_wireframePipeline);
-        clearPipe(m_borderPipeline);
         return;
     }
 
@@ -3535,30 +3428,6 @@ void GLWidget::buildPipeline() {
     if (!m_wireframePipeline->create()) {
         qWarning() << "buildPipeline: create() transpBack fallita.";
         delete m_wireframePipeline; m_wireframePipeline = nullptr;
-    }
-
-    // --- PIPELINE BORDER ---
-    if (m_borderPipeline) {
-        delete m_borderPipeline;
-        m_borderPipeline = nullptr;
-    }
-    m_borderPipeline = rhi()->newGraphicsPipeline();
-    m_borderPipeline->setTopology(QRhiGraphicsPipeline::Lines); // Topologia a linee sparse
-    m_borderPipeline->setVertexInputLayout(inputLayout);
-    m_borderPipeline->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
-    m_borderPipeline->setSampleCount(renderTarget()->sampleCount());
-    m_borderPipeline->setDepthTest(true);
-    m_borderPipeline->setDepthWrite(true);
-    m_borderPipeline->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
-    m_borderPipeline->setDepthBias(-3);
-    m_borderPipeline->setSlopeScaledDepthBias(-3.0f);
-    m_borderPipeline->setTargetBlends({ blend });
-    m_borderPipeline->setShaderResourceBindings(m_borderBindings); // <-- Binding esclusivo
-    m_borderPipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
-
-    if (!m_borderPipeline->create()) {
-        qWarning() << "buildPipeline: create() transpBack fallita.";
-        delete m_borderPipeline; m_borderPipeline = nullptr;
     }
 }
 

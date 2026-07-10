@@ -135,7 +135,6 @@ struct LibraryItem {
     // ==========================================================
     int renderMode = 0;
     int projectionMode = 1;
-    bool showBorder = true;
 
     // Densità wireframe (passi campionamento U/V). hasWireframe=false => il preset non
     // la contiene (formato vecchio): il load usa il default (resetWireframeDensity).
@@ -179,6 +178,13 @@ public:
     const LibraryItem& getTexture(int index) const;
     const LibraryItem& getMotion(int index) const;
     const LibraryItem& getSound(int index) const;
+
+    // Lookup per percorso file (univoco), robusto al disallineamento degli indici
+    // posizionali: dopo un refresh (fsWatcher) la lista m_surfaces viene ricostruita
+    // e l'ordine può cambiare, ma i vecchi nodi albero conservano l'indice vecchio.
+    // Il tooltip del nodo porta sempre il filePath, quindi cerchiamo per quello.
+    // Ritorna nullptr se non trovato.
+    const LibraryItem* getSurfaceByPath(const QString &filePath) const;
 
     // ==========================================================
     // FILE OPERATIONS & BACKUP

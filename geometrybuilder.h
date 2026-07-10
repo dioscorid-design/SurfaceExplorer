@@ -10,9 +10,6 @@ class SurfaceEngine;
 class GeometryBuilder
 {
 public:
-    // Costruisce i dati raw (float array) per il buffer dei bordi
-    static std::vector<QVector4D> buildBorders(const SurfaceEngine* engine);
-
     // Costruisce i dati raw per il buffer wireframe
    static std::vector<unsigned int> buildWireframe(const SurfaceEngine* engine, int stepU, int stepV);
 };

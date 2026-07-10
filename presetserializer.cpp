@@ -457,7 +457,6 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         root["renderMode"] = m_mainWindow->m_savedRenderMode;
     }
     root["projectionMode"] = (int)m_mainWindow->ui->glWidget->projectionMode;
-    root["showBorder"] = m_mainWindow->ui->btnBorder->isChecked();
 
     // Densità wireframe corrente (passi U/V): salviamo il numero di linee a schermo IN
     // QUESTO MOMENTO, non il default, così il reload riproduce l'aspetto scelto.
@@ -810,7 +809,6 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
 
     QJsonObject colors;
     colors["surfColor"] = m_mainWindow->m_currentSurfaceColor.name();
-    colors["bordColor"] = m_mainWindow->m_currentBorderColor.name();
     colors["alpha"] = m_mainWindow->ui->alphaSlider->value() / 100.0;
     root["colors"] = colors;
 
@@ -996,7 +994,6 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         root["renderMode"] = m_mainWindow->m_savedRenderMode;
     }
     root["projectionMode"] = m_mainWindow->ui->glWidget->projectionMode;
-    root["showBorder"] = m_mainWindow->ui->btnBorder->isChecked();
 
     // Densità wireframe corrente (passi U/V): come in saveSurface, salviamo le linee a
     // schermo in questo momento così il record le riproduce al reload.
@@ -1170,6 +1167,14 @@ void PresetSerializer::saveScript()
         // x/y/z/p è custom (non la carta identità, es. paraboloide di Flamm) va
         // salvata, altrimenti al ricaricamento torna l'identità.
         m_mainWindow->writeMetricDisplayMap(root);
+
+        // Colore: saveScript NON lo scriveva, quindi una superficie salvata in
+        // modalità Script tornava sempre verde. Stesso formato di saveSurface, così
+        // il parser (colors.surfColor) lo ripristina identico.
+        QJsonObject colors;
+        colors["surfColor"] = m_mainWindow->m_currentSurfaceColor.name();
+        colors["alpha"] = m_mainWindow->ui->alphaSlider->value() / 100.0;
+        root["colors"] = colors;
     }
     else if (isSound) {
         root["code"] = content;

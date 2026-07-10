@@ -986,7 +986,6 @@ MainWindow::MainWindow(QWidget *parent)
         // 2. Resetta i colori al default per evitare "sanguinamenti" dai record precedenti
         m_currentBackgroundColor = QColor::fromRgbF(0.3f, 0.3f, 0.3f);
         m_currentSurfaceColor = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
-        m_currentBorderColor = m_currentSurfaceColor;
         m_texColor1 = m_currentSurfaceColor;
         m_texColor2 = Qt::black;
         m_bgTexColor1 = QColor::fromRgbF(0.2f, 0.2f, 0.8f);
@@ -995,7 +994,6 @@ MainWindow::MainWindow(QWidget *parent)
         if (ui->glWidget) {
             ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
             ui->glWidget->setColor(m_currentSurfaceColor.redF(), m_currentSurfaceColor.greenF(), m_currentSurfaceColor.blueF());
-            ui->glWidget->setBorderColor(m_currentBorderColor.redF(), m_currentBorderColor.greenF(), m_currentBorderColor.blueF());
             ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
         }
 
@@ -1178,7 +1176,6 @@ MainWindow::MainWindow(QWidget *parent)
                 ui->radioSurface->blockSignals(oldSurfBlock);
                 ui->radioBackground->blockSignals(oldBgBlock);
                 ui->radioSurface->setEnabled(true);
-                ui->radioBorder->setEnabled(true);
             }
             ui->chkBoxTexture->setText("Texture");
             ui->chkBoxTexture->setChecked(m_surfaceTextureState);
@@ -1770,24 +1767,22 @@ MainWindow::MainWindow(QWidget *parent)
     m_modeGroup->addButton(ui->radioWF,    2);
     m_modeGroup->setExclusive(true);
 
-    // TARGET DI EDITING: tripla esclusiva Surface / Background / Border. Sceglie COSA
-    // pilotano gli slider/texture/colore: la superficie, lo sfondo o il bordo. NON
-    // tocca la modalità di rendering della superficie (Base/Phong/Wireframe), che
-    // resta un asse a sé nel m_modeGroup. La semantica per il resto del codice non
-    // cambia: radioBackground->isChecked() == "edito lo sfondo", radioBorder
-    // == "edito il bordo". radioSurface ha assorbito il vecchio radioEditSurf.
+    // TARGET DI EDITING: coppia esclusiva Surface / Background. Sceglie COSA
+    // pilotano gli slider/texture/colore: la superficie o lo sfondo. NON tocca la
+    // modalità di rendering della superficie (Base/Phong/Wireframe), che resta un
+    // asse a sé nel m_modeGroup. La semantica per il resto del codice: radioBackground
+    // ->isChecked() == "edito lo sfondo". radioSurface ha assorbito il vecchio radioEditSurf.
     // I due color slot della texture (radioTexColor1/2) stanno in m_colorGroup a parte;
     // l'esclusività FRA i due gruppi è mantenuta a mano (vedi setColorTargetExclusive).
     m_bgTargetGroup = new QButtonGroup(this);
     m_bgTargetGroup->addButton(ui->radioSurface);
     m_bgTargetGroup->addButton(ui->radioBackground);
-    m_bgTargetGroup->addButton(ui->radioBorder);
     m_bgTargetGroup->setExclusive(true);
     // Default = editing superficie. Impostato PRIMA della connect dell'handler di
     // radioBackground (più sotto) così non scatena logica al boot.
     ui->radioSurface->setChecked(true);
-    // I due gruppi (tripla m_bgTargetGroup e color slot m_colorGroup) sono INDIPENDENTI:
-    // la tripla dice DOVE operi (Surface/Background/Border), Color1/2 dicono QUALE tinta
+    // I due gruppi (coppia m_bgTargetGroup e color slot m_colorGroup) sono INDIPENDENTI:
+    // la coppia dice DOVE operi (Surface/Background), Color1/2 dicono QUALE tinta
     // della texture editi quando una texture colorata è attiva. Possono essere accesi
     // entrambi (es. Surface + Color 1). Nessuna deselezione incrociata: cliccare un radio
     // della tripla lascia intatta la coppia Color1/2 e viceversa. Qui basta riallineare
@@ -1864,12 +1859,11 @@ MainWindow::MainWindow(QWidget *parent)
             ui->chkBoxTexture->setText("Background Texture");
             ui->chkBoxTexture->setEnabled(true);
 
-            // Surface, Border (radio) e il tasto Border ON/OFF restano TUTTI cliccabili
-            // anche in editing sfondo: la tripla Surface/Background/Border è l'asse di
-            // scelta della scena, quindi disabilitare Surface impedirebbe di tornare alla
-            // superficie. Cliccare Surface o Border esce da Background (esclusività di
+            // Surface resta cliccabile anche in editing sfondo: la coppia Surface/Background
+            // è l'asse di scelta della scena, quindi disabilitare Surface impedirebbe di
+            // tornare alla superficie. Cliccare Surface esce da Background (esclusività di
             // m_bgTargetGroup) e il ramo "else" di questo handler ripristina il contesto
-            // superficie. Niente più disabilitazione di radioSurface/radioBorder/btnBorder.
+            // superficie. Niente disabilitazione di radioSurface.
 
             // Picker Colore attivi solo se lo sfondo è acceso E usa quel colore:
             // ciascuno indipendente (una texture che usa solo u_col1 non abilita col2).
@@ -1910,8 +1904,8 @@ MainWindow::MainWindow(QWidget *parent)
                 updateScriptButtonText();
             }
 
-            // radioSurface/radioBorder e il tasto Border non vengono più disabilitati
-            // entrando in Background, quindi qui non c'è nulla da riabilitare.
+            // radioSurface non viene più disabilitato entrando in Background,
+            // quindi qui non c'è nulla da riabilitare.
 
             // Ripristino la checkbox al valore della superficie e la sua etichetta.
             int surfMode = m_savedRenderMode;
@@ -2304,20 +2298,12 @@ MainWindow::MainWindow(QWidget *parent)
     float defR = 0.20f, defG = 0.80f, defB = 0.20f;
     m_currentSurfaceColor = QColor::fromRgbF(defR, defG, defB);
 
-    // Imposti il colore del bordo come desideri (es. Giallo Oro)
-    m_currentBorderColor = QColor::fromRgbF(1.0f, 0.85f, 0.0f);
-
     m_texColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
     m_texColor2 = Qt::black;
 
     if (ui->glWidget) {
         // Colore superficie (Verde)
         ui->glWidget->setColor(defR, defG, defB);
-
-        // Colore bordo (legge i canali RGB da m_currentBorderColor)
-        ui->glWidget->setBorderColor(m_currentBorderColor.redF(),
-                                     m_currentBorderColor.greenF(),
-                                     m_currentBorderColor.blueF());
     }
 
     ui->sliderR->setRange(0, 255);
@@ -2330,8 +2316,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     UiStyleManager::setupBigSliders(ui->sliderR, ui->sliderG, ui->sliderB, ui->alphaSlider, ui->lightSlider, ui->speed3DSlider, ui->speed4DSlider);
 
-    // Color slot della texture (col1/col2). Surface/Border NON sono più qui: sono
-    // passati nella tripla m_bgTargetGroup. L'esclusività FRA i due gruppi è a mano.
+    // Color slot della texture (col1/col2). Surface NON è qui: è nella coppia
+    // m_bgTargetGroup (Surface/Background). L'esclusività FRA i due gruppi è a mano.
     m_colorGroup = new QButtonGroup(this);
     m_colorGroup->addButton(ui->radioTexColor1);
     m_colorGroup->addButton(ui->radioTexColor2);
@@ -2343,65 +2329,16 @@ MainWindow::MainWindow(QWidget *parent)
     // (onColorTargetChanged è già invocato dall'handler toggled di radioBackground
     //  definito sopra: nessuna connessione separata per evitare doppia chiamata.)
 
-    ui->btnBorder->setChecked(false);
-    ui->btnBorder->setText("Border OFF");
-    ui->radioBorder->setEnabled(false);
-
-    connect(ui->btnBorder, &QPushButton::toggled, this, [this](bool checked){
-        ui->glWidget->setShowBorders(checked);
-        ui->btnBorder->setText(checked ? "Border ON" : "Border OFF");
-
-        // --- DELEGA DELLO STILE AL MANAGER ---
-        UiStyleManager::applyActiveToggleStyle(ui->btnBorder, checked);
-
-        if(checked) {
-            // Accendere il bordo sposta il focus colore su Border. Se eravamo in editing
-            // sfondo, selezionare Border (stesso gruppo esclusivo m_bgTargetGroup) spegne
-            // radioBackground ed emette toggled(false): scatta il suo handler "else" che
-            // riporta il dock alla superficie. Lo sfondo resta com'è a video: spegniamo
-            // solo il CONTROLLO, non la grafica.
-            if (m_currentBorderColor == m_currentSurfaceColor) {
-                m_currentBorderColor = QColor::fromRgbF(1.0f, 0.0f, 0.0f);
-                ui->glWidget->setBorderColor(m_currentBorderColor.redF(), m_currentBorderColor.greenF(), m_currentBorderColor.blueF());
-            }
-
-            // --- SPOSTAMENTO AUTOMATICO DEL FOCUS SU BORDER ---
-            // Selezionare Border nella tripla. Se eravamo in editing sfondo, l'esclusività
-            // della tripla spegne radioBackground -> il suo handler else ripristina il
-            // contesto superficie. I color slot sono un gruppo INDIPENDENTE e restano come
-            // sono: il bordo non ha texture, quindi onColorTargetChanged ignora Color1/2
-            // quando il target è Border.
-            ui->radioBorder->setEnabled(true);
-            ui->radioBorder->setChecked(true);
-            onColorTargetChanged();
-        }
-        else {
-            ui->radioBorder->setEnabled(false);
-
-            // Se stavamo modificando il bordo e lo spegniamo, torniamo alla superficie
-            if (ui->radioBorder->isChecked()) {
-                selectSurfaceColorTarget();
-                onColorTargetChanged();
-            }
-        }
-    });
-
     auto handleColorChange = [this]() {
         int r = ui->sliderR->value(); int g = ui->sliderG->value(); int b = ui->sliderB->value();
         ui->valR->setNum(r); ui->valG->setNum(g); ui->valB->setNum(b);
         QColor newColor(r, g, b);
 
-        // Due gruppi INDIPENDENTI: la tripla (Surface/Background/Border) dice DOVE
+        // Due gruppi INDIPENDENTI: la coppia (Surface/Background) dice DOVE
         // operiamo, la coppia Color1/Color2 QUALE tinta della texture editiamo. La
-        // priorità è data dalla tripla; Color1/2 scelgono solo lo slot quando il target
+        // priorità è data dalla coppia; Color1/2 scelgono solo lo slot quando il target
         // ha una texture colorata attiva.
-        if (ui->radioBorder->isChecked()) {
-            // Il bordo non ha texture: gli slider editano sempre il colore del bordo,
-            // anche in wireframe. Ha priorità su tutto il resto.
-            m_currentBorderColor = newColor;
-            ui->glWidget->setBorderColor(r/255.0f, g/255.0f, b/255.0f);
-        }
-        else if (ui->radioBackground->isChecked()) {
+        if (ui->radioBackground->isChecked()) {
             if (ui->chkBoxTexture->isChecked() && activeTextureUsesColors()) {
                 // Texture di sfondo colorata: Color1/Color2 scelgono quale tinta.
                 if (ui->radioTexColor2->isChecked()) m_bgTexColor2 = newColor;
@@ -2444,7 +2381,7 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     // Click su Color1/Color2. Gruppi indipendenti: scegliere quale tinta editare NON
-    // tocca la tripla Surface/Background/Border (che resta dov'è: continui a operare
+    // tocca la coppia Surface/Background (che resta dov'è: continui a operare
     // sulla superficie o sullo sfondo). Basta riallineare gli slider alla tinta scelta.
     connect(m_colorGroup, &QButtonGroup::buttonClicked, this, [this](){
         onColorTargetChanged();
@@ -2955,11 +2892,6 @@ void MainWindow::updateRenderState()
         // --- DISATTIVAZIONE CONTROLLI NON SUPPORTATI ---
         ui->radioWF->setEnabled(!isImplicitMode);
 
-        // Border: non supportato in Ray Marching (implicito). Resta invece cliccabile
-        // durante l'editing sfondo: la tripla Surface/Background/Border è l'asse di
-        // scelta della scena e va sempre navigabile (cliccare Border esce da Background).
-        ui->btnBorder->setEnabled(!isImplicitMode);
-
         // Controlli densità Wireframe (uDensity/vDensity, contenitori dei tasti +/-):
         // attivi SOLO quando il Wireframe è la modalità di rendering attiva (e non in Ray
         // Marching, dove il wireframe non esiste). Disabilitare il widget contenitore
@@ -2992,9 +2924,6 @@ void MainWindow::updateRenderState()
             if (ui->radioWF->isChecked()) {
                 ui->radioPhong->setChecked(true);
                 m_savedRenderMode = 1;
-            }
-            if (ui->btnBorder->isChecked()) {
-                ui->btnBorder->setChecked(false);
             }
         }
 
@@ -3628,14 +3557,10 @@ void MainWindow::onColorTargetChanged()
     QColor target;
     bool slidersEnabled = true;
 
-    // Stessa priorità di handleColorChange (gruppi indipendenti): la tripla decide DOVE,
+    // Stessa priorità di handleColorChange (gruppi indipendenti): la coppia decide DOVE,
     // Color1/Color2 QUALE tinta. Qui calcoliamo il colore da MOSTRARE e se gli slider
     // hanno un effetto (altrimenti li disattiviamo).
-    if (ui->radioBorder->isChecked()) {
-        // Il bordo non ha texture: gli slider editano sempre il colore del bordo.
-        target = m_currentBorderColor;
-    }
-    else if (ui->radioBackground->isChecked()) {
+    if (ui->radioBackground->isChecked()) {
         if (ui->chkBoxTexture->isChecked() && activeTextureUsesColors()) {
             target = ui->radioTexColor2->isChecked() ? m_bgTexColor2 : m_bgTexColor1;
         } else if (ui->chkBoxTexture->isChecked()) {
@@ -3680,16 +3605,13 @@ void MainWindow::onColorTargetChanged()
     ui->sliderG->blockSignals(false);
     ui->sliderB->blockSignals(false);
 
-    // Checkbox Texture: quando il target è il BORDO la texture (di superficie) non
-    // c'entra, quindi il controllo va in grigio (lo stato di spunta è preservato e la
-    // texture a video resta invariata). Tornando a Surface/Background si riapplica la
-    // regola canonica (stessa di updateRenderState): abilitato salvo Wireframe sulla
-    // superficie. Background gestisce il proprio enable nel suo handler, qui non lo
-    // tocchiamo per non sovrascriverlo.
+    // Checkbox Texture: su Surface segue la regola canonica (stessa di
+    // updateRenderState): abilitato salvo Wireframe sulla superficie. Background
+    // gestisce il proprio enable nel suo handler, qui non lo tocchiamo per non
+    // sovrascriverlo.
     if (!ui->radioBackground->isChecked()) {
-        bool borderTarget = ui->radioBorder->isChecked();
         bool wireframeSurface = (m_savedRenderMode == 2);
-        ui->chkBoxTexture->setEnabled(!borderTarget && !wireframeSurface);
+        ui->chkBoxTexture->setEnabled(!wireframeSurface);
     }
 }
 
@@ -5128,27 +5050,48 @@ void MainWindow::onStopClicked() {
 
 void MainWindow::onResetViewClicked()
 {
-    // 1. Ferma SOLO i percorsi (Path) che alterano esplicitamente la telecamera
-    if (pathTimer->isActive()) pathTimer->stop();
-    if (pathTimer3D->isActive()) pathTimer3D->stop();
+    // Il reset deve comportarsi come per le rotazioni: se un path e' in corso,
+    // NON lo fermiamo. Reset azzera solo la posizione (t=0) e la vista spaziale,
+    // poi il path RIPARTE da capo (come la rotazione riprende dalla posa resettata).
+    bool wasPathRunning   = pathTimer->isActive();
+    bool wasPath3DRunning = pathTimer3D->isActive();
 
+    // Riportiamo il tempo del percorso a t=0 in entrambi i casi (il path,
+    // se attivo, ricomincera' dall'inizio; se fermo, resta fermo a 0).
     pathTimeT = 0.0f;
     pathTimeT3D = 0.0f;
 
-    ui->btnDeparture->setText("DEPARTURE");
-    ui->btnDeparture3D->setText("DEPARTURE");
+    // Solo i path NON attivi tornano allo stato "DEPARTURE"; quelli in corso
+    // restano su "STOP" perche' continuano a girare.
+    if (!wasPathRunning) {
+        ui->btnDeparture->setText("DEPARTURE");
+        checkPathFields();
+    }
+    if (!wasPath3DRunning) {
+        ui->btnDeparture3D->setText("DEPARTURE");
+        checkPath3DFields();
+    }
 
-    checkPathFields();
-    checkPath3DFields();
-
-    // 2. Il motore ora resetta SOLO la vista spaziale (angoli e posizione),
-    // senza uccidere il tempo 't' e senza azzerare le velocità di rotazione!
+    // Il motore resetta SOLO la vista spaziale (angoli e posizione), senza
+    // uccidere il tempo 't' e senza azzerare le velocità di rotazione.
+    // NB: resetTransformations() spegne m_isPathFollowing, ma il primo tick
+    // successivo del pathTimer lo riaccende: basta lasciare il timer attivo.
     ui->glWidget->resetTransformations();
 
-    // 3. Aggiorna in sicurezza la mesh
+    // Se un path era in corso, lo teniamo vivo: riparte da t=0 dopo il reset
+    // della posa, esattamente come fa la rotazione.
+    if (wasPathRunning && ui->glWidget) {
+        ui->glWidget->setPathAnimating(true);
+    }
+    if (wasPath3DRunning && ui->glWidget) {
+        ui->glWidget->setPathAnimating(true);
+    }
+
+    // Aggiorna in sicurezza la mesh
     checkAndTriggerMeshUpdate();
 
-    // 4. Sincronizza il pulsante principale (che rimarrà su STOP se la superficie o le rotazioni stanno andando)
+    // Sincronizza il pulsante principale (che rimarrà su STOP se la superficie,
+    // le rotazioni o un path stanno andando)
     updateMasterButtonState();
 }
 
@@ -6438,7 +6381,17 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
     if (vSurf.isValid()) {
         static QString lastSurfacePath = "";
         int index = vSurf.toInt();
-        const LibraryItem &data = m_libraryManager.getSurface(index);
+
+        // L'indice posizionale è fragile: dopo un refresh (fsWatcher dopo un save)
+        // la lista m_surfaces viene ricostruita e l'ordine può cambiare, mentre il
+        // nodo albero conserva l'indice VECCHIO -> si caricava un preset omonimo di
+        // un'altra cartella (bug del bordo: 3 "Mobius Strip" diversi). Il tooltip del
+        // nodo porta sempre il filePath univoco: cerchiamo per quello, con fallback
+        // all'indice per retrocompatibilità se il tooltip fosse vuoto.
+        const QString nodePath = item->toolTip(0);
+        const LibraryItem *byPath = nodePath.isEmpty() ? nullptr
+                                    : m_libraryManager.getSurfaceByPath(nodePath);
+        const LibraryItem &data = byPath ? *byPath : m_libraryManager.getSurface(index);
 
         if (!data.name.isEmpty()) {
             lastSurfacePath = data.filePath;
@@ -6626,7 +6579,6 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
     // Reset Colori a Default (Superficie Verde, Sfondo Grigio scuro)
     float defR = 0.20f, defG = 0.80f, defB = 0.20f;
     m_currentSurfaceColor = QColor::fromRgbF(defR, defG, defB);
-    m_currentBorderColor  = QColor::fromRgbF(defR, defG, defB);
     m_currentBackgroundColor = QColor::fromRgbF(0.3f, 0.3f, 0.3f);
     m_texColor1 = QColor::fromRgbF(defR, defG, defB);
     m_texColor2 = Qt::black;
@@ -6635,13 +6587,6 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
 
     if (ui->glWidget) {
         ui->glWidget->setColor(defR, defG, defB);
-
-        // TROVA QUESTA RIGA: Invia ancora il verde (defR, defG, defB)!
-        ui->glWidget->setBorderColor(defR, defG, defB);
-
-        // SOSTITUISCILA CON QUESTA: Legge il rosso corretto dalla variabile
-        ui->glWidget->setBorderColor(m_currentBorderColor.redF(), m_currentBorderColor.greenF(), m_currentBorderColor.blueF());
-
         ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
         ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
     }
@@ -6697,15 +6642,10 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
     // dal formato "surfColor" sia da r/g/b numerici (vedi librarymanager).
     if (d.hasCustomColors && !d.color1.isEmpty()) {
         QColor surfCol(d.color1);
-        QColor bordCol(d.color2.isEmpty() ? d.color1 : d.color2);
         if (surfCol.isValid()) {
             m_currentSurfaceColor = surfCol;
-            m_currentBorderColor  = bordCol.isValid() ? bordCol : surfCol;
             if (ui->glWidget) {
                 ui->glWidget->setColor(surfCol.redF(), surfCol.greenF(), surfCol.blueF());
-                ui->glWidget->setBorderColor(m_currentBorderColor.redF(),
-                                             m_currentBorderColor.greenF(),
-                                             m_currentBorderColor.blueF());
             }
             onColorTargetChanged();
         }
@@ -6981,12 +6921,9 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
     // 3. Colori
     if (data.hasCustomColors && !data.color1.isEmpty()) {
         QColor surfCol(data.color1);
-        QColor bordCol(data.color2);
         m_currentSurfaceColor = surfCol;
-        m_currentBorderColor = bordCol;
 
         ui->glWidget->setColor(surfCol.redF(), surfCol.greenF(), surfCol.blueF());
-        ui->glWidget->setBorderColor(bordCol.redF(), bordCol.greenF(), bordCol.blueF());
         onColorTargetChanged();
     }
 
@@ -7302,7 +7239,7 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
             target->blockSignals(oldRad);
         }
         // Surface resta SEMPRE abilitato anche in editing sfondo: è il modo per tornare
-        // alla superficie (la tripla Surface/Background/Border va sempre navigabile) e
+        // alla superficie (la coppia Surface/Background va sempre navigabile) e
         // l'indicatore di target non deve mai sparire. (Prima: setEnabled(!texEnabled).)
         ui->radioSurface->setEnabled(true);
         if (!texEnabled && ui->btnFlatPreview->isChecked()) {
@@ -7422,7 +7359,6 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
 
     ui->glWidget->setProjectionMode(data.projectionMode);
     updateProjectionButtonText();
-    ui->btnBorder->setChecked(data.showBorder);
 
     // 7. AVVIO AUTOMATICO GRAFICA
     // 1. Nuova logica di validazione sicura
@@ -8515,9 +8451,6 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     ui->lineZMin->clear();
     ui->lineZMax->clear();
 
-    // Reset Bordo
-    ui->btnBorder->setChecked(false);
-
     // ==========================================================
     // 2. APPLICAZIONE DATI DEL PRESET
     // ==========================================================
@@ -8547,7 +8480,6 @@ void MainWindow::applyCommonData(const LibraryItem &d)
             ui->btnRunCurrentScript->setText("Run Surface Texture");
         }
         ui->radioSurface->setEnabled(true);
-        ui->radioBorder->setEnabled(true);
 
         // Carico una nuova superficie: esco dall'editing sfondo, riporto il target
         // sulla superficie. radioSurface/radioBackground sono esclusivi; li tocco a
@@ -9694,7 +9626,7 @@ void MainWindow::updateTextureUIState(bool isTextureOn, bool resetColorTargetToF
     ui->radioSurface->setEnabled(true);
 
     // 3. GESTIONE DEL "PALLINO" (due gruppi INDIPENDENTI)
-    //    - Tripla Surface/Background/Border: dove operi. La lasciamo dov'è, salvo
+    //    - Coppia Surface/Background: dove operi. La lasciamo dov'è, salvo
     //      garantire che un target esista (default Surface).
     //    - Coppia Color1/Color2: quale tinta texture editi. Ha senso solo con una
     //      texture colorata attiva; in quel caso almeno un Color dev'essere acceso
@@ -9718,10 +9650,8 @@ void MainWindow::updateTextureUIState(bool isTextureOn, bool resetColorTargetToF
         uncheckInExclusiveGroup(ui->radioTexColor2);
     }
 
-    // La tripla deve sempre avere un target: se nessuno è acceso (né Border) default
-    // a Surface. Non rubiamo mai il check a Border già selezionato.
-    if (!ui->radioSurface->isChecked() && !ui->radioBackground->isChecked()
-        && !ui->radioBorder->isChecked()) {
+    // La coppia deve sempre avere un target: se nessuno è acceso, default a Surface.
+    if (!ui->radioSurface->isChecked() && !ui->radioBackground->isChecked()) {
         selectSurfaceColorTarget();
     }
     onColorTargetChanged();
