@@ -35,7 +35,40 @@ Per iterare rapidamente SENZA rifare tutto il giro Xcode/App Store Connect ogni 
 
 Solo quando sei soddisfatto del fix, procedi al packaging per App Store Connect.
 
+## VIA RAPIDA — script `release_testflight.sh` (automatizza i passi 3–5)
+
+Lo script `ExC/Mac/release_testflight.sh` esegue in un colpo solo: incremento del build
+number, commit, pulizia cache Xcode, rigenerazione pulita del progetto e `xcodebuild
+archive`. Al termine apre l'Organizer per l'upload manuale (passo 6).
+
+```bash
+cd /Users/dioscorid/Projects/C/SurfaceExplorer
+./ExC/Mac/release_testflight.sh                 # bump +1, commit, clean, rigenera, archivia, apri Organizer
+# opzioni:
+#   --no-commit    applica il bump ma non committa
+#   --no-archive   solo bump + clean + rigenera, poi apre il progetto (Archive a mano)
+#   --help
+```
+
+Dettagli:
+- **Build number auto-incrementale**: legge il valore corrente da CMakeLists.txt e fa +1,
+  sincronizzando i 3 punti (CMake ×2 + Info.plist) con verifica di coerenza e `plutil -lint`.
+  NON tocca la versione marketing X.Y (quella si cambia con `ExC/bump-version.sh`).
+- **Fa da sé la pulizia critica** del passo 4 (DerivedData + `build/ios-appstore`): niente
+  binari stantii.
+- **Non fa l'upload** (nessuna API key richiesta): l'Organizer si apre già sull'archivio,
+  tu procedi con *Distribute App → App Store Connect → Upload* (passo 6) e poi con
+  Export Compliance + assegnazione tester (passi 7–8).
+- Se `xcodebuild archive` fallisce per firma/profili, vedi il Troubleshooting in fondo.
+
+I passi 3–8 qui sotto restano la **procedura manuale di riferimento** (e il fallback se lo
+script si ferma su un intoppo): leggili per capire cosa fa lo script e per i passi che
+restano comunque manuali (6–8).
+
 ## 3. Incrementa il build number (OBBLIGATORIO)
+
+> Automatizzato dallo script `release_testflight.sh` (vedi "Via rapida" sopra). Questa
+> sezione descrive la procedura manuale equivalente.
 
 Apple non accetta due upload con lo stesso build number, anche se il precedente
 non è mai stato pubblicato. Ad ogni ricarica, incrementa di 1.
@@ -203,9 +236,39 @@ salvataggio della scheda richiede obbligatoriamente anche la 13", bisogna genera
 Simulatore Xcode (device "iPad Pro 13-inch") oppure ridimensionare quelli esistenti alle
 risoluzioni esatte: 2064×2752, 2752×2064, 2048×2732 o 2732×2048 px.
 
+### Errore -1003 "hostname could not be found" durante upload/notarizzazione
+Sintomo (visto sul flusso macOS con `notarytool`, ma vale per ogni upload verso Apple):
+```
+Error: HTTPError(statusCode: nil, ... Code=-1003 "A server with the specified hostname
+could not be found." ... NSErrorFailingURLKey=https://appstoreconnect.apple.com/...)
+```
+**NON è un problema di firma, API key o del pacchetto**: è un fallimento di risoluzione
+**DNS** transitorio (spesso Wi-Fi debole — nei log compare `LQM: moderate` — e cache DNS
+che restituisce "Resolved 0 endpoints"). La sottomissione non parte nemmeno. Soluzione:
+1. **Riprova**: di solito basta, è transitorio.
+2. Svuota la cache DNS: `sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder`
+3. Verifica di essere online e che l'host risolva:
+   ```bash
+   nslookup appstoreconnect.apple.com          # deve risolvere
+   curl -sS -o /dev/null -w "%{http_code}\n" https://appstoreconnect.apple.com/notary/v2/asp
+   # un HTTP 401 qui = server RAGGIUNGIBILE (401 = solo "non autenticato", atteso)
+   ```
+4. Con Wi-Fi instabile, passa a **ethernet** o avvicinati al router: l'upload trasferisce
+   il pacchetto e serve una connessione stabile.
+
 ---
 
 ## Riepilogo comandi rapidi (copia-incolla)
+
+```bash
+# === VIA RAPIDA: script (fa bump + clean + rigenera + archivia, poi apre l'Organizer) ===
+cd /Users/dioscorid/Projects/C/SurfaceExplorer
+./ExC/Mac/release_testflight.sh
+# poi in Organizer: Distribute App > App Store Connect > Upload; quindi Export Compliance
+# e assegnazione al gruppo "Internal Testers" (passi 7–8).
+```
+
+### Procedura manuale equivalente
 
 ```bash
 # --- Dopo aver corretto il bug e aggiornato i numeri di versione a mano ---
