@@ -1112,6 +1112,71 @@ void GLWidget::detectImplicitConditioning(const QString &eqF)
         qDebug() << "[implicit] campo mal condizionato (prodotto): max|f| near-surface ="
                  << maxNear << "-> trasparenza disabilitata (fallback opaco)";
     }
+
+#if defined(Q_OS_ANDROID)
+    // TROPPE FACCE PER RAGGIO — SOLO ANDROID (desktop/iOS: questo blocco non esiste
+    // nemmeno, #if compilato via). Il ramo trasparente RM compone al massimo MAX_FACES
+    // gusci per pixel; su Android MAX_FACES/MAX_LAYER_STEPS sono ridotti (4/600 vs
+    // 8/2000 desktop) come rete anti-timeout-GPU. Le superfici triplamente periodiche
+    // (Gyroid, Lidinoid, Holes...) attraversano MOLTE facce lungo un raggio e sforano
+    // quel budget: con alpha<1 su Android la superficie si TAGLIA (facce oltre MAX_FACES
+    // non composte). Non potendo alzare i limiti senza reintrodurre il fault GPU,
+    // blocchiamo la trasparenza come per il "Chain": riusiamo m_implicitIllConditioned
+    // -> slider bloccato + popup al tocco + fallback opaco (glwidget.cpp:387).
+    //
+    // STIMA DELLE FACCE: contiamo i cambi di segno del campo lungo 7 raggi che
+    // attraversano il CENTRO del box (3 assi + 4 diagonali dello spazio), a passo fine
+    // 0.05 come il marcher. La griglia 40^3 sopra e' troppo grossa (celle ~0.5) per
+    // contare le facce di un campo con periodo ~2*PI, e i raggi assiali sottostimano
+    // (i raggi reali della camera lontana tagliano in diagonale): i raggi centrali
+    // colgono il caso peggiore. Taratura su tutti i preset impliciti RM: le periodiche
+    // problematiche danno 13-26 crossing, tutte le legittime <=6 (Chmutov 6, Blobs 4,
+    // sfere/tori/quadriche <=4). Soglia 8 (= 2 * MAX_FACES Android) nel mezzo, con
+    // margine su entrambi i lati. Solo per superfici a EQUAZIONE (parser CPU); gli
+    // script RM azzerano il flag altrove e restano invariati.
+    if (!m_implicitIllConditioned) {
+        const int    ANDROID_MAX_FACES = 4;                 // deve combaciare col %MAX_FACES% Android
+        const int    CROSSINGS_LIMIT   = 2 * ANDROID_MAX_FACES;
+        const double rayStep = 0.05;
+        const double cx = 0.5 * (bxMin + bxMax);
+        const double cy = 0.5 * (byMin + byMax);
+        const double cz = 0.5 * (bzMin + bzMax);
+        const double hx = 0.5 * (bxMax - bxMin);
+        const double hy = 0.5 * (byMax - byMin);
+        const double hz = 0.5 * (bzMax - bzMin);
+        const double dirs[7][3] = {
+            {1,0,0}, {0,1,0}, {0,0,1},
+            {1,1,1}, {1,-1,1}, {1,1,-1}, {-1,1,1}
+        };
+        int maxCrossings = 0;
+        for (int r = 0; r < 7 && maxCrossings <= CROSSINGS_LIMIT; ++r) {
+            double dx = dirs[r][0], dy = dirs[r][1], dz = dirs[r][2];
+            double dlen = std::sqrt(dx*dx + dy*dy + dz*dz);
+            dx /= dlen; dy /= dlen; dz /= dlen;
+            // Estensione del raggio: mezza-diagonale del box, in entrambi i versi.
+            double L = std::sqrt(hx*hx + hy*hy + hz*hz);
+            int crossings = 0;
+            double prev = 0.0; bool havePrev = false;
+            for (double s = -L; s <= L; s += rayStep) {
+                x = cx + dx * s; y = cy + dy * s; z = cz + dz * s;
+                if (std::abs(x - cx) > hx || std::abs(y - cy) > hy || std::abs(z - cz) > hz)
+                    continue; // fuori dal box di taglio
+                double v = parser.value();
+                if (!std::isfinite(v)) { havePrev = false; continue; }
+                if (havePrev && ((prev < 0.0) != (v < 0.0)) && prev != 0.0 && v != 0.0)
+                    ++crossings;
+                prev = v; havePrev = true;
+            }
+            if (crossings > maxCrossings) maxCrossings = crossings;
+        }
+        if (maxCrossings > CROSSINGS_LIMIT) {
+            m_implicitIllConditioned = true;
+            qDebug() << "[implicit] Android: troppe facce per raggio (crossings ="
+                     << maxCrossings << "> " << CROSSINGS_LIMIT
+                     << ") -> trasparenza disabilitata (fallback opaco)";
+        }
+    }
+#endif
 }
 
 void GLWidget::setEquationConstants(float a, float b, float c, float d, float e, float f, float s) {
