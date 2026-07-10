@@ -110,7 +110,7 @@
          <verstretch>0</verstretch>
         </sizepolicy>
        </property>
-       <layout class="QVBoxLayout" name="verticalLayout_4" stretch="0,0,0,0,0,0">
+       <layout class="QVBoxLayout" name="verticalLayout_4" stretch="0,0,0,0,0">
         <property name="sizeConstraint">
          <enum>QLayout::SizeConstraint::SetMinimumSize</enum>
         </property>
@@ -128,13 +128,6 @@
             <widget class="QRadioButton" name="radioBackground">
              <property name="text">
               <string>Background</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="3">
-            <widget class="QRadioButton" name="radioBorder">
-             <property name="text">
-              <string>Border</string>
              </property>
             </widget>
            </item>
@@ -506,16 +499,6 @@
             </widget>
            </item>
           </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QPushButton" name="btnBorder">
-          <property name="text">
-           <string>Border OFF</string>
-          </property>
-          <property name="checkable">
-           <bool>true</bool>
-          </property>
          </widget>
         </item>
        </layout>
@@ -2264,7 +2247,7 @@
           </widget>
           <widget class="QWidget" name="tabImplicit">
            <attribute name="title">
-            <string>Ray Marching</string>
+            <string>Implicit</string>
            </attribute>
            <layout class="QVBoxLayout" name="verticalLayout_23" stretch="2,6,2">
             <item>
