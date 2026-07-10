@@ -200,7 +200,7 @@
             </ul>
             <p>In the center is the interactive <strong>3D Viewport</strong> (powered by Qt RHI).</p>
             <div class="note">
-                <strong>Button States:</strong> All toggle buttons in the interface describe the <strong>action that will occur when pressed</strong>. The only exceptions are the <em>Projection</em> buttons on the status bar, the <em>Border</em> button in the Renderer dock, and the <em>Illumination</em> button in the 4D dock — these display the current active state instead.
+                <strong>Button States:</strong> All toggle buttons in the interface describe the <strong>action that will occur when pressed</strong>. The only exceptions are the <em>Projection</em> buttons on the status bar and the <em>Illumination</em> button in the 4D dock — these display the current active state instead.
             </div>
         </section>
 
@@ -312,11 +312,13 @@
             </table>
 
             <p class="h3t" style="font-size: 19px; color: #007acc;"><b>Resolution (Steps)</b></p>
-            <p>Within the Equations dock, you will find the <strong>Steps</strong> input field. This parameter controls the geometric resolution of the generated 3D mesh:</p>
+            <p>Within the Equations dock, you will find the <strong>Steps</strong> slider (and matching input field). This parameter controls the geometric resolution of the generated 3D mesh &mdash; the actual number of samples taken along each parameter:</p>
             <ul>
                 <li><strong>Higher values (e.g., 100-200):</strong> Generate a smoother, highly detailed, and perfectly curved surface, but require more processing power from your CPU/GPU.</li>
                 <li><strong>Lower values (e.g., 10-50):</strong> Create a blocky, low-polygon mesh. This is excellent for boosting performance on older devices, exploring complex 4D shapes rapidly, or achieving a stylized, retro wireframe aesthetic.</li>
             </ul>
+            <p><strong>Steps is what actually changes the wireframe density.</strong> Because the wireframe simply draws the edges of the polygonal grid, raising or lowering Steps directly makes the wireframe finer or coarser. Moving the slider takes effect live, on parametric surfaces, scripted surfaces, and geodesic flows alike &mdash; you do not need to press Run. (In Ray Marching mode the surface is computed per-pixel rather than as a polygon grid, so there Steps drives the ray-marching accuracy instead; see the Ray Marching section.)</p>
+            <p>Do not confuse Steps with the <strong>Density u / Density v</strong> controls in the Renderer dock. Those do <em>not</em> change the mesh resolution: they only <strong>rebalance the appearance</strong> of the two families of coordinate lines. On shapes whose form stretches one parameter much more than the other &mdash; long tubes, thin ribbons &mdash; the U-lines and V-lines can look visually mismatched (too crowded one way, too sparse the other); Density u/v let you thin out or thicken each family independently to restore a balanced look, without altering the underlying geometry. See <a href="#rendering">Rendering &amp; Textures</a> for details.</p>
         </section>
 
         <section id="geodesic">
@@ -338,8 +340,9 @@
             <p class="h3t" style="font-size: 19px; color: #007acc;"><b>Script &amp; Equations: who decides</b></p>
             <p>A geometry can be driven by <strong>both</strong> the Script dock and the Equations dock at the same time. A common case is a <strong>metric-tensor script</strong> (one that ends with <code>return mat3(...)</code> to define the metric <code>g<sub>ij</sub></code> directly) whose initial conditions are also present in the Geodesic Flow fields. When the two panels disagree, the rule is simple:</p>
             <p style="text-align: center;"><strong>The Equations dock always wins.</strong></p>
-            <p>A script's <code>:=</code> directives&mdash;the limits (<code>u_min</code>, <code>u_max</code>, &hellip;), the constants (<code>A</code>&hellip;<code>F</code>, <code>S</code>), <code>steps</code>, and the geodesic initial conditions (<code>U</code>, <code>V</code>, <code>W</code>, <code>dU</code>, <code>dV</code>, <code>dW</code>, <code>Conform</code>)&mdash;only <strong>fill in fields that are still empty</strong>. They never overwrite a value already present in the dock, whether you press <strong>Run</strong> from the Equations dock or from the Script dock, and whether you are loading a preset or running manually. As a result both <strong>Run</strong> buttons produce the same surface and the same animation, and edits you make in the dock after loading are never reverted by re-running the script.</p>
+            <p>A script's <code>:=</code> directives&mdash;the limits (<code>u_min</code>, <code>u_max</code>, &hellip;), the constants (<code>A</code>&hellip;<code>F</code>, <code>S</code>), and the geodesic initial conditions (<code>U</code>, <code>V</code>, <code>W</code>, <code>dU</code>, <code>dV</code>, <code>dW</code>, <code>Conform</code>)&mdash;only <strong>fill in fields that are still empty</strong>. They never overwrite a value already present in the dock, whether you press <strong>Run</strong> from the Equations dock or from the Script dock, and whether you are loading a preset or running manually. As a result both <strong>Run</strong> buttons produce the same surface and the same animation, and edits you make in the dock after loading are never reverted by re-running the script.</p>
             <p>The directives therefore behave as <strong>defaults / first-load seeds</strong>: a freshly written script with empty dock fields still populates them on its first Run. To change a value that is already filled, edit the corresponding field in the Equations dock&mdash;the panels are not auto-synced back into the script source.</p>
+            <p><strong>Note on <code>steps</code>:</strong> a <code>steps := N;</code> line in a script is <em>not</em> applied to the resolution. The mesh resolution is governed exclusively by the <strong>Steps</strong> slider (seeded from the preset's saved value when you load it). This lets you drag the slider freely without a re-run snapping it back to the scripted number; the directive is kept in the source only as a note of the author's intended value.</p>
 
             <div class="note">
                 <strong>Technical Note:</strong> Because geodesic integration calculates multiple micro-steps per vertex using RK4, extremely high grid resolutions combined with steep conformal gradients may impact your CPU's performance. The engine includes an automatic singularity detection system that will safely halt the calculation if a geodesic escapes to infinity or hits a mathematical pole.
@@ -393,15 +396,14 @@
             <ul>
                 <li><strong>Base:</strong> Flat color (fast).</li>
                 <li><strong>Phong:</strong> Realistic specular lighting.</li>
-                <li><strong>WireFrame:</strong> Displays the polygonal grid. When this mode is active, the <strong>Density u</strong> and <strong>Density v</strong> controls become enabled, letting you increase or decrease how many grid lines are drawn along each parameter. They are greyed out in any other mode (and in Ray Marching, where wireframe is not available).</li>
+                <li><strong>WireFrame:</strong> Displays the polygonal grid. The overall fineness of that grid is set by <strong>Steps</strong> in the Equations dock (more steps &rarr; denser wireframe). When this mode is active, the <strong>Density u</strong> and <strong>Density v</strong> controls also become enabled: they do <em>not</em> add resolution, they only <strong>rebalance the two families of coordinate lines</strong> relative to each other. This is useful when the surface shape stretches one parameter far more than the other (long tubes, thin ribbons), leaving the U-lines and V-lines looking visually mismatched &mdash; you can thin out the crowded family or thicken the sparse one to even out the appearance, without changing the geometry. They are greyed out in any other mode (and in Ray Marching, where wireframe is not available).</li>
             </ul>
 
-            <p class="h3t" style="font-size: 19px; color: #007acc;"><b>Edit Target (Surface / Background / Border)</b></p>
-            <p>This trio of buttons is a single exclusive choice that decides <em>what</em> the color sliders, the Texture checkbox and the Library textures act upon. Switching the target never changes the rendering style above &mdash; the two are completely separate axes.</p>
+            <p class="h3t" style="font-size: 19px; color: #007acc;"><b>Edit Target (Surface / Background)</b></p>
+            <p>This pair of buttons is a single exclusive choice that decides <em>what</em> the color sliders, the Texture checkbox and the Library textures act upon. Switching the target never changes the rendering style above &mdash; the two are completely separate axes.</p>
             <ul>
                 <li><strong>Surface:</strong> Colors and textures are applied to the 3D/4D surface itself. This is the default.</li>
-                <li><strong>Background:</strong> Everything is redirected to the 2D interactive environment drawn behind the objects. While this target is active, images and procedural effects stay fully interactive &mdash; you can pan, zoom and rotate them with the mouse, just like the 3D camera. The surface is <em>not</em> hidden: only the editing focus moves to the background, so you can keep Surface or Border one click away.</li>
-                <li><strong>Border:</strong> The color sliders edit the outline/border color. Because the surface texture is irrelevant while you are editing the border, the <strong>Texture</strong> checkbox is greyed out (its checked state and the texture on screen are preserved); it becomes available again as soon as you switch back to Surface or Background. The companion <strong>Border ON/OFF</strong> button toggles the border graphic itself and, like the Projection and Illumination buttons, displays the current active state rather than the pending action.</li>
+                <li><strong>Background:</strong> Everything is redirected to the 2D interactive environment drawn behind the objects. While this target is active, images and procedural effects stay fully interactive &mdash; you can pan, zoom and rotate them with the mouse, just like the 3D camera. The surface is <em>not</em> hidden: only the editing focus moves to the background, so you can keep Surface one click away.</li>
             </ul>
             <p><em>Note: If no background image is explicitly loaded, a fallback procedural Deep Space gradient will be automatically generated to ensure a sleek presentation.</em></p>
 
@@ -411,7 +413,7 @@
                 <li><strong>Surface Textures:</strong> With the <em>Surface</em> target selected, applying a texture from the Library (or activating the Texture checkbox) wraps the selected image or script directly onto the geometry of the 3D/4D surface. This works in both the <em>Base</em> and <em>Phong</em> rendering styles; in <em>WireFrame</em> the surface texture is hidden and the sliders edit the line color instead.</li>
                 <li><strong>Background Textures:</strong> With the <em>Background</em> target selected, any texture you load or procedural script you run is applied to the 2D background behind the surface, where it remains fully interactive (pan, zoom, rotate).</li>
             </ul>
-            <p>When a colored procedural texture is active, the <strong>Color 1</strong> and <strong>Color 2</strong> buttons appear and let the sliders edit the two tint slots of that texture. In the Surface target, picking Color 1, Color 2, Surface or Border is a single mutually-exclusive choice of what the sliders control; in the Background target, Color 1/Color 2 instead drive the two background-texture colors.</p>
+            <p>When a colored procedural texture is active, the <strong>Color 1</strong> and <strong>Color 2</strong> buttons appear and let the sliders edit the two tint slots of that texture. In the Surface target, picking Color 1, Color 2 or Surface is a single mutually-exclusive choice of what the sliders control; in the Background target, Color 1/Color 2 instead drive the two background-texture colors.</p>
 
             <p class="h3t" style="font-size: 19px; color: #007acc;"><b>Procedural Textures (GLSL)</b></p>
             <p>Besides loading images (PNG/JPG), you can write custom GLSL scripts to generate mathematical textures in real-time.</p>
@@ -495,7 +497,7 @@ return vec3(r, g, 0.5);</pre>
             <p class="h3t" style="font-size: 19px; color: #007acc;"><b>Script Buttons</b></p>
             <p>The Script dock features several action buttons to compile and apply your code depending on your current goal:</p>
             <ul>
-                <li><strong>Run Script:</strong> Compiles the code to define the geometry of a surface. The engine intelligently detects the script's nature: it can handle <strong>Parametric surfaces</strong> (using <code>u, v, w</code>) or <strong>Implicit surfaces</strong> for Ray Marching (using <code>x, y, z</code> and distance functions). Special configuration variables like <code>u_min</code>, <code>steps</code>, <code>A</code>, <code>B</code> can be declared at the top to <strong>seed</strong> the matching UI fields and sliders. These directives act as defaults: they only fill in values that have not yet been set in the dock&mdash;they never overwrite a value you already entered there. See <a href="#geodesic">Geodesic Flow</a> for the precedence rule when a surface is driven by both the script and the Equations dock.</li>
+                <li><strong>Run Script:</strong> Compiles the code to define the geometry of a surface. The engine intelligently detects the script's nature: it can handle <strong>Parametric surfaces</strong> (using <code>u, v, w</code>) or <strong>Implicit surfaces</strong> for Ray Marching (using <code>x, y, z</code> and distance functions). Special configuration variables like <code>u_min</code>, <code>A</code>, <code>B</code> can be declared at the top to <strong>seed</strong> the matching UI fields and sliders. These directives act as defaults: they only fill in values that have not yet been set in the dock&mdash;they never overwrite a value you already entered there. (The <code>steps</code> directive is the exception: it is not applied at all &mdash; resolution is always driven by the Steps slider.) See <a href="#geodesic">Geodesic Flow</a> for the precedence rule when a surface is driven by both the script and the Equations dock.</li>
                 <li><strong>Apply Texture Script:</strong> Applies the GLSL code as a procedural texture. It will be mapped onto the 3D surface or the 2D background, depending on which target is currently active in the <em>Renderer</em> dock.</li>
                 <li><strong>Run Sound / Stop Sound:</strong> Parses the script for <code>//SYNTH:</code> or <code>//MUSIC:</code> directives and executes the audio engine. The button toggles to "Stop Sound" during playback and can be clicked again to halt the audio.</li>
                 <li><strong>Save Script:</strong> Prompts you to save the current editor content as a new Surface, Texture, or Sound preset in your Library.</li>
@@ -504,7 +506,7 @@ return vec3(r, g, 0.5);</pre>
             <p class="h3t" style="font-size: 19px; color: #007acc;"><b>Script Language Reference</b></p>
             <p>Scripts are GLSL code pre-processed by the application's internal translator, which adds math
             shorthand (<code>^</code> powers, <code>%</code> modulo, <code>pi</code>/<code>tau</code> constants),
-            UI directives (<code>steps := 400;</code>) and a few strict rules (such as automatic integer-to-float
+            UI directives (<code>u_min := -3.0;</code>) and a few strict rules (such as automatic integer-to-float
             conversion). <strong>For the complete syntax, available variables, helper functions and examples,
             read the dedicated guide: <a href="qrc:/script_guide.html">GLSL Script Writing Guide</a>.</strong></p>
         </section>
@@ -516,7 +518,7 @@ return vec3(r, g, 0.5);</pre>
             <p class="h3t" style="font-size: 19px; color: #007acc;"><b>1. Surfaces (*.json)</b></p>
             <p>Saving a Surface captures the mathematical definition and the base visual style of your 3D/4D object. It is ideal for storing pure geometry without linking it to a specific animation or texture.</p>
             <ul>
-                <li><strong>What it saves:</strong> The essential geometric elements such as parametric and implicit equations, custom GLSL surface scripts, explicit constraints (U, V, W), mathematical constants (A-F, S), U/V/W limits, grid resolution (Steps), 4D rotation state, lighting configuration, and base colors (Surface and Border). It always loads with default colors (green for the surface, dark gray for the background).</li>
+                <li><strong>What it saves:</strong> The essential geometric elements such as parametric and implicit equations, custom GLSL surface scripts, explicit constraints (U, V, W), mathematical constants (A-F, S), U/V/W limits, grid resolution (Steps), 4D rotation state, lighting configuration, and the base surface color. It always loads with default colors (green for the surface, dark gray for the background).</li>
                 <li><strong>What it ignores:</strong> Textures, camera positions, 3D/4D paths, and animation speeds.</li>
             </ul>
 
