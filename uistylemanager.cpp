@@ -719,17 +719,3 @@ void UiStyleManager::styleMobileOverflowMenu(QMenu* menu) {
 void UiStyleManager::applyRecordButtonStyle(QPushButton* btn) {
     if (btn) btn->setStyleSheet("QPushButton { color: red; font-weight: bold; }");
 }
-
-void UiStyleManager::applyActiveToggleStyle(QPushButton* btn, bool isActive) {
-    if (!btn) return;
-    if (isActive) {
-        // Verde acceso quando attivo E cliccabile. Lo stato :disabled forza il grigio:
-        // serve quando un toggle resta "ON" ma viene disabilitato da un'esclusione UI
-        // — senza la regola :disabled il color esplicito sovrascriverebbe l'attenuazione
-        // di default di Qt e il testo resterebbe verde anche da non cliccabile.
-        btn->setStyleSheet("QPushButton { color: #44FF44; font-weight: bold; }"
-                           "QPushButton:disabled { color: #777777; }");
-    } else {
-        btn->setStyleSheet(""); // Ripristina lo stile base
-    }
-}

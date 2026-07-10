@@ -39,7 +39,6 @@ public:
     static void styleMobileMenuButton(QPushButton* button);
     static void styleMobileOverflowMenu(QMenu* menu);
     static void applyRecordButtonStyle(QPushButton* btn);
-    static void applyActiveToggleStyle(QPushButton* btn, bool isActive);
 };
 
 #endif // UISTYLEMANAGER_H
