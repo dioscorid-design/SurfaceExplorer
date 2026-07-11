@@ -3001,6 +3001,29 @@ void MainWindow::updateRenderState()
         m_textureLibraryGrayed = wireframeSurface;
     }
 
+    // Transparence e Light non hanno effetto in Wireframe: la superficie è disegnata
+    // a colore piatto senza illuminazione (surface.frag, ramo u_renderMode == 2),
+    // quindi i due slider vanno in grigio. Qui NON c'è l'esclusione radioBackground
+    // usata sopra per la texture: questi slider agiscono SEMPRE sulla superficie
+    // (l'alpha dello sfondo è forzato a 1), anche mentre si edita lo sfondo.
+    // Disabilitiamo il PANNELLO contenitore (etichette comprese) e non i singoli
+    // slider: agire sul parent preserva il flag enabled proprio di alphaSlider,
+    // così i suoi blocchi indipendenti (campo a prodotto, vista 2D) sopravvivono
+    // al passaggio per il wireframe.
+    //
+    // In wireframe i due slider tornano anche al DEFAULT (opaco, luce 100%): lo
+    // shader usa comunque ubuf.alpha sulle linee, e un alpha stantio (< 1) le
+    // renderebbe sbiadite con lo slider ormai bloccato. Reset incondizionato
+    // finché mode == 2, non solo alla transizione: copre anche il load di un
+    // preset wireframe con alpha salvato < 1 (setValue del load, poi questa
+    // chiamata lo riporta a 1). A slider disabilitati nessun input utente da
+    // preservare; uscendo dal wireframe restano ai default.
+    if (mode == 2) {
+        resetTransparency();
+        ui->lightSlider->setValue(100);   // valueChanged aggiorna intensità e label
+    }
+    ui->panelTransp->setEnabled(mode != 2);
+
     // Slider trasparenza su campo implicito mal condizionato (vedi syncImplicitAlphaSlider).
     syncImplicitAlphaSlider(isImplicitMode);
 
