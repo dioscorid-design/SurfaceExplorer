@@ -3343,17 +3343,24 @@ void MainWindow::updateConstantsUIState() {
                     " " + ui->lineConform->toPlainText();
         }
         // In parametrica aggiungiamo lo script della superficie se non siamo in Ray Marching
-        activeText += m_surfaceTextureCode;
+        activeText += stripCodeComments(m_surfaceTextureCode);
     }
     else { // MODALITÀ RAY MARCHING
-        activeText = ui->lineEquation->toPlainText() + " " +
-                     ui->lineTexture->toPlainText() + " " +
-                     ui->lineVariations->toPlainText();
+        activeText = stripCodeComments(ui->lineEquation->toPlainText()) + " " +
+                     stripCodeComments(ui->lineTexture->toPlainText()) + " " +
+                     stripCodeComments(ui->lineVariations->toPlainText());
     }
 
     // 2. AGGIUNGI CAMPI SEMPRE ATTIVI (Shared)
-    activeText += " " + m_bgTextureCode; // Lo sfondo è comune
-    activeText += " " + ui->txtScriptEditor->toPlainText(); // L'editor mostra il codice della tab attuale
+    // I COMMENTI non contano come "uso" di una costante: il match qui sotto è
+    // case-insensitive e un commento italiano basta ad accendere uno slider a
+    // vuoto (es. "Se c'è il segmento" in una texture -> l'elisione c' viene
+    // presa per la costante C). Strip PER BLOCCO e non sull'insieme: i blocchi
+    // sono concatenati con spazi, e un commento di linea non terminato a fine
+    // blocco inghiottirebbe l'inizio del blocco successivo (falso negativo:
+    // costante vera creduta inutilizzata -> reset a 1).
+    activeText += " " + stripCodeComments(m_bgTextureCode); // Lo sfondo è comune
+    activeText += " " + stripCodeComments(ui->txtScriptEditor->toPlainText()); // L'editor mostra il codice della tab attuale
 
     // 3. LOGICA DI BLOCCO/SBLOCCO E RESET
     auto updateControl = [&](const QString& letter, QSlider* slider, QLineEdit* line) {
