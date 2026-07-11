@@ -31,6 +31,21 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 qt_standard_project_setup()
 
+# GUARDIA ANTI-REGRESSIONE: script_guide.html è già sparito più volte da
+# resources.qrc (rimozioni accidentali durante l'editing delle risorse), e il
+# link "GLSL Script Writing Guide" nella documentazione muore in SILENZIO.
+# Meglio un errore di build chiaro. CONFIGURE_DEPENDS fa rieseguire la
+# configure (e quindi il controllo) a ogni modifica del .qrc.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS resources.qrc)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/resources.qrc" _qrc_content)
+if(NOT _qrc_content MATCHES "script_guide\\.html")
+    message(FATAL_ERROR
+        "resources.qrc non contiene <file>script_guide.html</file>: il link "
+        "'GLSL Script Writing Guide' nella documentazione sarebbe morto. "
+        "Rimettilo nel blocco <qresource prefix=\"/\"> accanto a documentation.html.")
+endif()
+unset(_qrc_content)
+
 qt_add_executable(SurfaceExplorer
     resources.qrc
 

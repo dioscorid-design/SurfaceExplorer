@@ -629,7 +629,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->actionAbout, &QAction::triggered, this, [this](){
         QMessageBox::about(this, "About Surface Explorer",
                            "<b>Surface Explorer</b><br>"
-                           "Version 3.0<br><br>"
+                           "Version 1.0<br><br>"
                            "Developed by: <b>Gaetano Moschetti</b><br>"
                            "License: <b>GNU GPL v3</b><br><br>"
                            "This is free software: you are free to change and redistribute it "
