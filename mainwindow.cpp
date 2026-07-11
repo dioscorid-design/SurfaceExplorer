@@ -8763,9 +8763,12 @@ void MainWindow::applyCommonData(const LibraryItem &d)
         m_surfaceScriptText = d.scriptCode;
         this->setProperty("rawSurfaceScript", d.scriptCode);
 
-        // Reset modalità metrica: se lo script caricato è metrico la riattiva
-        // onRunScriptClicked più sotto.
-        exitMetricScriptMode();
+        // NB: l'uscita dalla modalità metrica (exitMetricScriptMode) avviene più
+        // sotto, DOPO che campi ed editor contengono il preset NUOVO: la sua
+        // checkParametricDependency -> updateConstantsUIState resetta a 1 le
+        // costanti "non usate", e giudicarle sulle equazioni VECCHIE (es. la
+        // display map Kruskal, che usa solo A) azzerava le costanti del preset
+        // appena scritte (B=0.17 -> 1, superficie deformata).
 
         // Blocca i segnali prima di fare clear per non innescare reset indesiderati
         bool bX = ui->lineX->blockSignals(true);
@@ -8824,6 +8827,12 @@ void MainWindow::applyCommonData(const LibraryItem &d)
 
         ui->txtScriptEditor->blockSignals(true);
         ui->txtScriptEditor->setPlainText(d.scriptCode);
+
+        // Ora campi X/Y/Z/P (display map) ed editor riflettono il preset nuovo:
+        // l'uscita dalla modalità metrica può rivalutare le costanti sul testo
+        // giusto. Se lo script caricato è metrico la riattiva onRunScriptClicked
+        // più sotto (runMetricScript riscrive m_metricScriptBody da sé).
+        exitMetricScriptMode();
 
         if (d.isImplicitMode) {
             parseAndApplyScriptParams(d.scriptCode);
@@ -8885,7 +8894,13 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     else {
         ui->glWidget->setScriptCheck(false);
         m_surfaceScriptText.clear();
-        exitMetricScriptMode();
+        // NB: exitMetricScriptMode è spostata più sotto, a campi già popolati:
+        // chiamarla QUI (con lineX/Y/Z/P ancora del preset VECCHIO) faceva
+        // resettare a 1 dalla sua updateConstantsUIState le costanti che le
+        // equazioni vecchie non usano — es. dopo un metric script Kruskal
+        // (display map con la sola A) la B=0.17 di H^2xR, appena scritta dal
+        // blocco costanti, veniva riportata a 1: p=B*(u+v)+0.5 sforava
+        // l'osservatore 4D e la superficie collassava in "lenzuola" giganti.
 
         if (d.isImplicitMode) {
             ui->lineEquation->setPlainText(d.implicitEq);
@@ -8948,6 +8963,13 @@ void MainWindow::applyCommonData(const LibraryItem &d)
         ui->lineExplicitU->blockSignals(bEU);
         ui->lineExplicitV->blockSignals(bEV);
         ui->lineExplicitW->blockSignals(bEW);
+
+        // Uscita dalla modalità metrica A CAMPI NUOVI (vedi nota a inizio ramo):
+        // la macchina a stati interna giudica ora le equazioni del preset appena
+        // caricato, quindi le costanti realmente usate restano intatte. Se non
+        // eravamo in modalità metrica è un no-op (early return), e la
+        // checkParametricDependency sotto copre comunque il caso.
+        exitMetricScriptMode();
 
         checkParametricDependency();
 
