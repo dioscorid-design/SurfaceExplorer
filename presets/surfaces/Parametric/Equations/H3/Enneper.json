@@ -7,27 +7,28 @@
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": -0.849657416343689,
-        "rot_x": 0.32851651310920715,
-        "rot_y": 0.10814662277698517,
-        "rot_z": -0.3980747163295746,
+        "rot_w": -0.9443084597587585,
+        "rot_x": 0.15382333099842072,
+        "rot_y": -0.01546032726764679,
+        "rot_z": -0.2904835641384125,
         "x": 0,
         "y": 0,
         "yaw": 0,
         "z": 4
     },
     "colors": {
+        "alpha": 0.76,
         "b": 0.20000000298023224,
         "g": 0.800000011920929,
         "r": 0.20000000298023224
     },
     "constants": {
-        "A": 4.760000228881836,
-        "B": 4.940000057220459,
-        "C": 1.7200000286102295,
-        "D": 0.800000011920929,
-        "E": 0,
-        "F": 0,
+        "A": 1,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
         "S": 0
     },
     "equations": {
@@ -42,6 +43,17 @@
         "y": "V * tanh(sqrt(U^2+V^2+W^2)/2) / (sqrt(U^2+V^2+W^2) + 0.00001)",
         "z": "W * tanh(sqrt(U^2+V^2+W^2)/2) / (sqrt(U^2+V^2+W^2) + 0.00001)"
     },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
+    "lightIntensity": 1,
     "lightingMode": 2,
     "limits": {
         "uMax": 2,
@@ -49,13 +61,23 @@
         "vMax": 2,
         "vMin": -2,
         "wMax": 0,
-        "wMin": 0
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
     },
     "name": "Enneper",
     "projectionMode": 1,
     "renderMode": 1,
     "showBorder": false,
-    "steps": 101,
+    "steps": 648,
     "type": "surface",
-    "use4DLighting": false
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
 }

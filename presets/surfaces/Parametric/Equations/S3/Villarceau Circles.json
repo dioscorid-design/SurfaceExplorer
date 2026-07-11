@@ -17,6 +17,7 @@
         "z": 4
     },
     "colors": {
+        "alpha": 1,
         "b": 0.20000000298023224,
         "g": 0.800000011920929,
         "r": 0.20000000298023224
@@ -28,7 +29,7 @@
         "D": 1,
         "E": 1,
         "F": 1,
-        "S": 4.309999942779541
+        "S": 0
     },
     "equations": {
         "defU": "",
@@ -42,6 +43,16 @@
         "y": "A * cos(w)*sin(u) * cos(v)",
         "z": "A * cos(w) * sin(v)"
     },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {
@@ -49,14 +60,24 @@
         "uMin": 0,
         "vMax": 1.5707999467849731,
         "vMin": -1.5707999467849731,
-        "wMax": 1.559999942779541,
-        "wMin": -1.5700000524520874
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
     },
     "name": "Villarceau Circles",
     "projectionMode": 1,
-    "renderMode": 1,
+    "renderMode": 2,
     "showBorder": false,
-    "steps": 400,
+    "steps": 215,
     "type": "surface",
-    "use4DLighting": false
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 45
+    }
 }

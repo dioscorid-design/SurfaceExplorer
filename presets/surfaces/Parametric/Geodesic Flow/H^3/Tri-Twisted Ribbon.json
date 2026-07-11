@@ -17,7 +17,9 @@
         "z": 4.000000953674316
     },
     "colors": {
+        "alpha": 1,
         "b": 0.20000000298023224,
+        "bordColor": "#ff0000",
         "g": 0.800000011920929,
         "r": 0.20000000298023224
     },
@@ -74,5 +76,9 @@
     "showBorder": false,
     "steps": 200,
     "type": "surface",
-    "use4DLighting": false
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
 }

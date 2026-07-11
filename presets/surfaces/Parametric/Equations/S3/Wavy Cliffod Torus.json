@@ -7,16 +7,17 @@
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": -0.7601613998413086,
-        "rot_x": 0.13612714409828186,
-        "rot_y": 0.1678621917963028,
-        "rot_z": 0.6127366423606873,
+        "rot_w": -0.6528382301330566,
+        "rot_x": 0.19025450944900513,
+        "rot_y": 0.45306190848350525,
+        "rot_z": 0.5764898061752319,
         "x": 0,
         "y": 0,
         "yaw": 0,
         "z": 2.8000001907348633
     },
     "colors": {
+        "alpha": 0.87,
         "b": 0.20000000298023224,
         "g": 0.800000011920929,
         "r": 0.20000000298023224
@@ -42,6 +43,16 @@
         "y": "A * sqrt(0.5 + 0.4 * cos(3.0*u + 2.0*v)) * sin(u)",
         "z": "A * sqrt(0.5 - 0.4 * cos(3.0*u + 2.0*v)) * cos(v)"
     },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {
@@ -50,13 +61,23 @@
         "vMax": 6.283180236816406,
         "vMin": 0,
         "wMax": 0,
-        "wMin": 0
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
     },
     "name": "Wavy Cliffod Torus",
     "projectionMode": 1,
     "renderMode": 1,
     "showBorder": false,
-    "steps": 351,
+    "steps": 707,
     "type": "surface",
-    "use4DLighting": true
+    "use4DLighting": true,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
 }

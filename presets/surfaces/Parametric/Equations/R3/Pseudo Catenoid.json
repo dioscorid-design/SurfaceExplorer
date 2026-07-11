@@ -17,7 +17,9 @@
         "z": 4
     },
     "colors": {
+        "alpha": 1,
         "b": 0.20000000298023224,
+        "bordColor": "#ff0000",
         "g": 0.800000011920929,
         "r": 0.20000000298023224
     },
@@ -42,6 +44,16 @@
         "y": "E*(B * (2.0 * cosh(v * 0.5) * sin(u) * cos((A * cosh(v * 0.5) * cos(u) + 11.0) * C * pi) - D * v * sin((A * cosh(v * 0.5) * cos(u) + 11.0) * C * pi)))",
         "z": "E*(B * (2.0 * cosh(v * 0.5) * sin(u) * sin((A * cosh(v * 0.5) * cos(u) + 11.0) * C * pi) + D * v * cos((A * cosh(v * 0.5) * cos(u) + 11.0) * C * pi)))"
     },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {
@@ -49,14 +61,24 @@
         "uMin": -3.141590118408203,
         "vMax": 3.141590118408203,
         "vMin": -3.141590118408203,
-        "wMax": 1,
-        "wMin": 0
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
     },
     "name": "Pseudo Catenoid",
     "projectionMode": 1,
     "renderMode": 1,
-    "showBorder": true,
+    "showBorder": false,
     "steps": 100,
     "type": "surface",
-    "use4DLighting": false
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
 }

@@ -17,17 +17,19 @@
         "z": 4
     },
     "colors": {
+        "alpha": 1,
         "b": 0.20000000298023224,
+        "bordColor": "#ff0000",
         "g": 0.800000011920929,
         "r": 0.21568627655506134
     },
     "constants": {
         "A": 0.800000011920929,
-        "B": 0,
-        "C": 0,
-        "D": 0,
-        "E": 0,
-        "F": 0,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
         "S": 0
     },
     "equations": {
@@ -42,6 +44,16 @@
         "y": "A*(-u*sin(v)-(u*u*u)/3.0*sin(3*v))",
         "z": "A*u*u*cos(2*v)"
     },
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {
@@ -50,13 +62,23 @@
         "vMax": 3.141590118408203,
         "vMin": -3.141590118408203,
         "wMax": 0,
-        "wMin": 0
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
     },
     "name": "Ennepper",
     "projectionMode": 1,
     "renderMode": 1,
-    "showBorder": true,
+    "showBorder": false,
     "steps": 100,
     "type": "surface",
-    "use4DLighting": false
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
 }
