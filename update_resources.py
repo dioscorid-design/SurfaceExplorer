@@ -23,10 +23,15 @@ RESOURCE_GROUPS = {
 }
 
 # 3. File singoli principali da includere SEMPRE nel prefisso "/"
+# NB: script_guide.html è la guida linkata da documentation.html
+# (qrc:/script_guide.html): ometterla da questa lista uccide il link.
+# È già successo più volte: c'è una guardia in CMakeLists che fa fallire
+# il build se manca dal .qrc.
 STATIC_FILES = [
     "icon.png",
     "background.png",
     "documentation.html",
+    "script_guide.html",
 ]
 
 def generate_qrc():
@@ -48,7 +53,11 @@ def generate_qrc():
                     qrc_content += f'        <file>{static_file}</file>\n'
                     total_files += 1
                 else:
-                    print(f"⚠️  ATTENZIONE: File statico non trovato: {static_file}")
+                    # I file STATIC sono "da includere SEMPRE": se ne manca uno
+                    # il .qrc sarebbe rotto (link/risorse morte). Meglio fermarsi
+                    # subito che scrivere un file incompleto con esito "Successo".
+                    print(f"❌ ERRORE: File statico non trovato: {static_file} — .qrc NON aggiornato.")
+                    raise SystemExit(1)
 
         for folder in folders:
             abs_folder_path = os.path.join(base_dir, folder)
