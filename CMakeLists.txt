@@ -254,10 +254,12 @@ endif()
 
 # --- CONFIGURAZIONE NATIVA PER REGISTRAZIONE VIDEO SU iOS ---
 if(IOS)
-    # Aggiunge il file Objective-C++ alla compilazione
+    # Aggiunge i file Objective-C++ alla compilazione
     target_sources(SurfaceExplorer PRIVATE
         nativevideoencoder.h
         nativevideoencoder_ios.mm
+        ioseditmenu.h
+        ioseditmenu.mm
     )
 
     # 1. Framework Apple e librerie di compressione necessarie a FFmpeg

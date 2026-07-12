@@ -48,13 +48,17 @@
 #include <QEvent>
 #include <QMenu>
 #include <QContextMenuEvent>
+#include <QPointer>
+#include "ioseditmenu.h"
 #include <QGesture>
 #include <QGestureEvent>
+#include <QMouseEvent>
 #include <QTextStream>
 #include <QVector>
 #include <QVector4D>
 #include <QInputMethod>
 #include <QGuiApplication>
+#include <QApplication>
 #include <QDockWidget>
 #include <QLabel>
 #include <cmath>
@@ -165,6 +169,182 @@ protected:
 // ==========================================
 // Filtro per Mobile: Tastiera e Navigazione
 // ==========================================
+#if defined(Q_OS_IOS)
+// Ultimo editor la cui selezione è stata modificata coi pallini: quando il
+// trascinamento entra nella tastiera, il gesto del plugin la chiude azzerando
+// il focus (focusWidget() diventa nullo) — questo puntatore permette comunque
+// di ripresentare il menu sulla selezione superstite (vedi visibleChanged).
+static QPointer<QWidget> s_lastSelectionEditor;
+
+// Autoscroll durante la selezione coi pallini. Trascinando il pallino fino
+// al bordo del campo visibile il testo non scorre (Qt non scrolla finché il
+// tocco resta nel viewport) e la selezione muore lì. Il trigger è
+// QPlainTextEdit::selectionChanged (connesso nel setup iOS): il drag dei
+// pallini non genera eventi mouse e il canale QInputMethodEvent non è un
+// flusso continuo (entrambi provati su device), mentre il segnale scatta a
+// ogni variazione qualunque sia il canale. Quando l'estremo MOBILE della
+// selezione entra nella fascia al bordo del viewport (in basso tagliata
+// dalla tastiera), un timer scrolla un passo per tick; il plugin ri-mappa
+// il dito fermo sul testo che gli scorre sotto ed estende da solo la
+// selezione (è il meccanismo osservato nella "valanga" del
+// keyboard-avoidance — qui però a passo fisso, vincolato alla fascia).
+// La tastiera NON è un requisito: il gesto nascondi-tastiera del plugin
+// la uccide spesso a metà drag, ma pallini e drag sopravvivono.
+class SelectionAutoScroller : public QObject {
+public:
+    static SelectionAutoScroller* instance() {
+        static SelectionAutoScroller s;
+        return &s;
+    }
+
+    // Chiamata su ogni selectionChanged. La valutazione è accodata per
+    // lavorare a stato del widget assestato (il segnale può arrivare nel
+    // mezzo dell'applicazione di un evento).
+    void onSelectionEvent(QPlainTextEdit* editor) {
+        QMetaObject::invokeMethod(this, [this, ed = QPointer<QPlainTextEdit>(editor)]() {
+            if (ed)
+                evaluate(ed.data());
+        }, Qt::QueuedConnection);
+    }
+
+private:
+    static constexpr int kBandPx = 60;   // fascia di attivazione al bordo
+    static constexpr int kTickMs = 90;   // ~11 righe/secondo
+
+    SelectionAutoScroller() {
+        m_timer.setInterval(kTickMs);
+        connect(&m_timer, &QTimer::timeout, this, [this]() { tick(); });
+    }
+
+    void evaluate(QPlainTextEdit* editor) {
+        const QTextCursor c = editor->textCursor();
+        if (!c.hasSelection()) {
+            stop();
+            return;
+        }
+        if (editor != m_editor) {
+            m_editor = editor;
+            m_lastAnchor = m_lastPosition = -1;
+            m_movingEndIsPosition = true;
+        }
+        // L'estremo mobile è quello cambiato rispetto all'evento precedente.
+        if (c.position() != m_lastPosition)
+            m_movingEndIsPosition = true;
+        else if (c.anchor() != m_lastAnchor)
+            m_movingEndIsPosition = false;
+        m_lastAnchor = c.anchor();
+        m_lastPosition = c.position();
+
+        if (bandDirection(editor) != 0) {
+            // start() su timer attivo lo RIAZZERA e durante il drag i
+            // selectionChanged arrivano di continuo: il tick non
+            // arriverebbe mai.
+            if (!m_timer.isActive()) {
+                m_stallTicks = 0;
+                m_tickAnchor = m_tickPosition = -1;
+                m_timer.start();
+            }
+        } else {
+            stop();
+        }
+    }
+
+    // Direzione di scroll dalla posizione dell'estremo mobile della
+    // selezione rispetto alle fasce sul bordo visibile del viewport (quello
+    // inferiore tagliato dalla tastiera). Si usa l'estremo mobile, non il
+    // dito: durante il drag dei pallini non esiste alcun evento con la
+    // posizione del tocco, ma il pallino sta comunque sul carattere
+    // dell'estremo che trascina.
+    int bandDirection(QPlainTextEdit* editor) const {
+        QWidget* viewport = editor->viewport();
+        QRect vis = viewport->visibleRegion().boundingRect();
+        if (vis.isEmpty())
+            vis = viewport->rect();
+        int bottomEdge = vis.bottom();
+        const QRectF kb = QGuiApplication::inputMethod()->keyboardRectangle();
+        if (!kb.isEmpty()) {
+            const int kbTop = viewport->mapFrom(viewport->window(), kb.topLeft().toPoint()).y();
+            if (kbTop > vis.top())
+                bottomEdge = qMin(bottomEdge, kbTop);
+        }
+        QTextCursor moving = editor->textCursor();
+        if (!m_movingEndIsPosition)
+            moving.setPosition(moving.anchor());
+        const QRect r = editor->cursorRect(moving);
+        if (r.bottom() >= bottomEdge - kBandPx)
+            return +1;
+        if (r.top() <= vis.top() + kBandPx)
+            return -1;
+        return 0;
+    }
+
+    void tick() {
+        // NESSUN vincolo sulla visibilità della tastiera: il gesto
+        // nascondi-tastiera del plugin la uccide spesso proprio durante il
+        // drag del pallino (il tocco entra nel keyboardEndRect), ma pallini
+        // e drag sopravvivono e l'autoscroll deve continuare (visto su
+        // device: selezione che cresceva con la tastiera già morta).
+        QPlainTextEdit* editor = m_editor.data();
+        if (!editor || !editor->textCursor().hasSelection()) {
+            stop();
+            return;
+        }
+        const int dir = bandDirection(editor);
+        if (dir == 0) {
+            stop();
+            return;
+        }
+        // Criterio di vita = il feedback scroll→estensione: se il drag è
+        // attivo, il plugin ri-mappa il dito sul testo scrollato e la
+        // selezione avanza tra un tick e l'altro. Ferma per 2 tick = drag
+        // finito o cambio programmatico (es. Select All): fermarsi qui
+        // evita di scrollare da soli fino a fine documento.
+        const QTextCursor cur = editor->textCursor();
+        if (cur.anchor() == m_tickAnchor && cur.position() == m_tickPosition) {
+            if (++m_stallTicks >= 2) {
+                stop();
+                return;
+            }
+        } else {
+            m_stallTicks = 0;
+            m_tickAnchor = cur.anchor();
+            m_tickPosition = cur.position();
+        }
+
+        // Prima la scrollbar dell'editor (in RIGHE), ma su mobile l'editor
+        // spesso mostra tutto il testo ed è la QScrollArea del dock a
+        // scorrere (in pixel). A fine corsa non c'è nulla da fare: la
+        // selezione smette di avanzare e il criterio qui sopra ferma tutto.
+        QScrollBar* bar = editor->verticalScrollBar();
+        if (bar && bar->maximum() > bar->minimum()) {
+            bar->setValue(bar->value() + dir);
+        } else {
+            const int stepPx = qMax(1, editor->fontMetrics().lineSpacing());
+            for (QWidget* w = editor->parentWidget(); w; w = w->parentWidget()) {
+                if (auto* area = qobject_cast<QAbstractScrollArea*>(w)) {
+                    QScrollBar* outer = area->verticalScrollBar();
+                    if (outer && outer->maximum() > outer->minimum()) {
+                        outer->setValue(outer->value() + dir * stepPx);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    void stop() { m_timer.stop(); }
+
+    QPointer<QPlainTextEdit> m_editor;
+    int m_lastAnchor = -1;
+    int m_lastPosition = -1;
+    bool m_movingEndIsPosition = true;
+    int m_tickAnchor = -1;
+    int m_tickPosition = -1;
+    int m_stallTicks = 0;
+    QTimer m_timer;
+};
+#endif
+
 class MobileInputFilter : public QObject {
     bool m_isProcessingQuery = false; // Evita loop infiniti durante l'intercettazione
 public:
@@ -180,12 +360,29 @@ protected:
             QContextMenuEvent* cme = static_cast<QContextMenuEvent*>(event);
             showEditMenu(obj, cme->globalPos(), false);
             return true;
-#else
-            // Su iOS lasciamo il menu nativo: l'incolla tramite il menu di sistema
-            // non fa scattare il popup di permesso "Incolla da...".
+#elif defined(Q_OS_IOS)
+            // Su iOS il menu lo presentiamo noi con UIEditMenuInteraction
+            // (ioseditmenu.mm): i percorsi Qt sono entrambi morti sugli iOS
+            // recenti (UIMenuController e' un no-op da iOS 17, il QMenu
+            // widget non viene renderizzato). L'evento arriva a fine lente
+            // (long press) e al tap sul cursore; le voci si adattano alla
+            // selezione (Cut/Copy solo se esiste, senno' Paste/Select All/
+            // Undo/Redo). Il tap secco altrove resta solo tastiera: per
+            // quello il plugin non genera alcun evento.
+            if (qobject_cast<QPlainTextEdit*>(obj) || qobject_cast<QLineEdit*>(obj)) {
+                iosPresentEditMenu(qobject_cast<QWidget*>(obj),
+                    static_cast<QContextMenuEvent*>(event)->globalPos());
+                return true; // consumato: niente QMenu Qt ne' fallback del plugin
+            }
             return false;
 #endif
         }
+
+        // NB (iOS): il doppio tap seleziona la parola (comportamento Qt
+        // nativo) ma NON presenta più il menu, per scelta: il menu copriva
+        // la zona dei pallini e intralciava l'estensione della selezione.
+        // Il menu arriva al rilascio dei pallini, a fine lente (long press)
+        // e — via visibleChanged — se la tastiera muore con una selezione.
 
 #if defined(Q_OS_ANDROID)
         // 1b. LONG-PRESS: il mini-popup di sistema (lato Java) è disattivato con
@@ -201,6 +398,29 @@ protected:
                 }
                 ge->accept(g);
                 return true;
+            }
+        }
+#endif
+
+#if defined(Q_OS_IOS)
+        // 1c. Il menu di modifica presentato (UIEditMenuInteraction) non si
+        // chiude da solo quando si digita: lo congediamo al primo input di
+        // tastiera. Sulla tastiera virtuale il testo arriva come evento
+        // input-method, ma conta SOLO se porta testo (commit o preedit): il
+        // trascinamento dei pallini genera QInputMethodEvent di sola
+        // selezione, che non devono chiudere il menu a fine trascinamento.
+        // Su quegli eventi di sola-selezione ricordiamo invece l'editor: se
+        // il trascinamento entra nella tastiera e la uccide (gesto del
+        // plugin, resign -> focus perso), il connect su visibleChanged usa
+        // questo puntatore per ripresentare il menu sulla selezione rimasta.
+        if (event->type() == QEvent::KeyPress) {
+            iosDismissEditMenu();
+        } else if (event->type() == QEvent::InputMethod) {
+            auto* ime = static_cast<QInputMethodEvent*>(event);
+            if (!ime->commitString().isEmpty() || !ime->preeditString().isEmpty()) {
+                iosDismissEditMenu();
+            } else if (auto* w = qobject_cast<QWidget*>(obj)) {
+                s_lastSelectionEditor = w;
             }
         }
 #endif
@@ -269,6 +489,102 @@ private:
     }
 #endif
 };
+
+#if defined(Q_OS_IOS)
+// ==========================================
+// Filtro iOS: tap-vs-scroll sugli editor
+// ==========================================
+// Su iOS la tastiera si apre al focus-in, e il focus arriva già col PRESS:
+// bastava toccare un QPlainTextEdit per iniziare uno scroll e la tastiera
+// compariva senza alcuna intenzione di digitare. Il press su un editor NON
+// focalizzato viene trattenuto: se il dito si muove è uno scroll (muoviamo
+// noi il contenuto dell'editor, o la QScrollArea che lo contiene se l'editor
+// non ha nulla da scrollare), se resta fermo è un tap e il focus — quindi la
+// tastiera — scatta solo al rilascio. Un editor già focalizzato mantiene il
+// comportamento nativo (posizionamento cursore, selezione).
+class TapVsScrollFilter : public QObject {
+public:
+    TapVsScrollFilter(QObject* parent = nullptr) : QObject(parent) {}
+
+protected:
+    bool eventFilter(QObject* obj, QEvent* event) override {
+        auto* viewport = qobject_cast<QWidget*>(obj);
+        auto* editor = viewport ? qobject_cast<QPlainTextEdit*>(viewport->parentWidget()) : nullptr;
+        if (!editor)
+            return QObject::eventFilter(obj, event);
+
+        switch (event->type()) {
+        case QEvent::MouseButtonPress: {
+            auto* me = static_cast<QMouseEvent*>(event);
+            if (me->button() != Qt::LeftButton || editor->hasFocus())
+                return false;
+            m_pending = true;
+            m_dragging = false;
+            m_pressPos = m_lastPos = me->globalPosition();
+            m_scrollRemainder = 0.0;
+            return true; // niente focus al press = niente tastiera
+        }
+        case QEvent::MouseMove: {
+            auto* me = static_cast<QMouseEvent*>(event);
+            if (!m_pending)
+                return false;
+            const QPointF pos = me->globalPosition();
+            if (!m_dragging && (pos - m_pressPos).manhattanLength() > kDragThreshold)
+                m_dragging = true;
+            if (m_dragging) {
+                scrollBy(editor, m_lastPos.y() - pos.y());
+                m_lastPos = pos;
+            }
+            return true;
+        }
+        case QEvent::MouseButtonRelease: {
+            if (!m_pending) return false;
+            m_pending = false;
+            if (!m_dragging) {
+                auto* me = static_cast<QMouseEvent*>(event);
+                editor->setFocus(Qt::MouseFocusReason);
+                editor->setTextCursor(editor->cursorForPosition(me->position().toPoint()));
+            }
+            return true;
+        }
+        default:
+            return QObject::eventFilter(obj, event);
+        }
+    }
+
+private:
+    static constexpr int kDragThreshold = 12; // px: oltre = scroll, sotto = tap
+
+    void scrollBy(QPlainTextEdit* editor, qreal dyPixels) {
+        QScrollBar* bar = editor->verticalScrollBar();
+        if (bar && bar->maximum() > bar->minimum()) {
+            // La scrollbar verticale del QPlainTextEdit lavora in righe, non in pixel
+            m_scrollRemainder += dyPixels / qMax(1, editor->fontMetrics().lineSpacing());
+            const int lines = int(m_scrollRemainder);
+            if (lines != 0) {
+                bar->setValue(bar->value() + lines);
+                m_scrollRemainder -= lines;
+            }
+            return;
+        }
+        for (QWidget* w = editor->parentWidget(); w; w = w->parentWidget()) {
+            if (auto* area = qobject_cast<QAbstractScrollArea*>(w)) {
+                QScrollBar* outer = area->verticalScrollBar();
+                if (outer && outer->maximum() > outer->minimum()) {
+                    outer->setValue(outer->value() + qRound(dyPixels));
+                    return;
+                }
+            }
+        }
+    }
+
+    bool m_pending = false;
+    bool m_dragging = false;
+    QPointF m_pressPos;
+    QPointF m_lastPos;
+    qreal m_scrollRemainder = 0.0;
+};
+#endif // Q_OS_IOS
 
 class EnterApplyFilter : public QObject {
 public:
@@ -505,32 +821,66 @@ MainWindow::MainWindow(QWidget *parent)
         input->grabGesture(Qt::TapAndHoldGesture);
 #endif
 
-        input->setInputMethodHints(Qt::ImhSensitiveData | Qt::ImhNoPredictiveText | Qt::ImhNoAutoUppercase);
-    }
-
-    for (QWidget* input : allTextInputs) {
-        input->installEventFilter(mobileFilter);
-
-        // 1. Recuperiamo gli hint nativi del widget
-        Qt::InputMethodHints hints = input->inputMethodHints();
-
-        // 2. Ripristiniamo ESATTAMENTE i flag che volevi tu
-        hints |= Qt::ImhSensitiveData | Qt::ImhNoPredictiveText | Qt::ImhNoAutoUppercase;
-
-        // 3. La magia per l'Invio: filtriamo in base al nome dell'oggetto
-        if (input->objectName() == "txtScriptEditor") {
-            // Per lo script: ci assicuriamo che il MultiLine sia ACCESO
+        // Hint tastiera: niente predizione né maiuscole automatiche.
+        // MultiLine SOLO per lo script editor: sugli altri campi la tastiera
+        // mostra il tasto "Fatto/Vai" che innesca la chiusura via Invio.
+        Qt::InputMethodHints hints = Qt::ImhSensitiveData | Qt::ImhNoPredictiveText | Qt::ImhNoAutoUppercase;
+        if (input->objectName() == "txtScriptEditor")
             hints |= Qt::ImhMultiLine;
-        } else {
-            // Per le equazioni: SPEGNIAMO forzatamente il MultiLine!
-            // L'operatore &= ~ rimuove uno specifico bit preservando gli altri.
-            // Così la tastiera mostrerà il tasto "Fatto/Vai" e innescherà la chiusura.
-            hints &= ~Qt::ImhMultiLine;
-        }
-
-        // 4. Applichiamo i flag finali
         input->setInputMethodHints(hints);
     }
+
+#if defined(Q_OS_IOS)
+    // Tap-vs-scroll (vedi TapVsScrollFilter): va installato sul viewport,
+    // è lì che arrivano i mouse event dei QPlainTextEdit.
+    // NoFocus è essenziale: su iOS setFocusOnTouchRelease=true e il focus da
+    // click viene assegnato al RILASCIO a livello di QWidgetWindow, PRIMA che
+    // l'evento raggiunga i filtri sul viewport e senza controllare se il dito
+    // ha scrollato. Con NoFocus quel percorso è neutralizzato e il focus lo dà
+    // solo il filtro (setFocus programmatico ignora la policy) sul tap pulito.
+    auto* tapVsScroll = new TapVsScrollFilter(this);
+    for (auto* textEdit : this->findChildren<QPlainTextEdit*>()) {
+        textEdit->setFocusPolicy(Qt::NoFocus);
+        textEdit->viewport()->installEventFilter(tapVsScroll);
+        // Trigger dell'autoscroll di selezione: scatta a ogni variazione
+        // della selezione qualunque sia il canale con cui il plugin la
+        // applica (il drag dei pallini non genera eventi mouse e il canale
+        // IM non è un flusso continuo, provato su device).
+        connect(textEdit, &QPlainTextEdit::selectionChanged, this, [textEdit]() {
+            SelectionAutoScroller::instance()->onSelectionEvent(textEdit);
+        });
+    }
+
+    // Se la tastiera sparisce mentre c'è una selezione attiva (trascinando
+    // il pallino dentro l'area della tastiera scatta il gesto del plugin,
+    // che fa resign E azzera il focus: pallini e menu muoiono), la selezione
+    // superstite resterebbe inutilizzabile — qualsiasi tap per riaprire il
+    // menu la cancella. Ripresentiamo quindi noi il menu: sul widget ancora
+    // focalizzato se c'è, altrimenti sull'ultimo editor di cui i pallini
+    // stavano modificando la selezione (il focus a quel punto è già nullo).
+    // Cut/Copy/Paste agiscono sul widget e funzionano anche senza focus;
+    // UIEditMenuInteraction vive anche senza tastiera.
+    connect(QGuiApplication::inputMethod(), &QInputMethod::visibleChanged, this, []() {
+        if (QGuiApplication::inputMethod()->isVisible())
+            return;
+        auto hasSelection = [](QWidget* w) {
+            if (auto* pte = qobject_cast<QPlainTextEdit*>(w))
+                return pte->textCursor().hasSelection();
+            if (auto* le = qobject_cast<QLineEdit*>(w))
+                return le->hasSelectedText();
+            return false;
+        };
+        QWidget* editor = QApplication::focusWidget();
+        if (!hasSelection(editor)) {
+            editor = s_lastSelectionEditor.data();
+            if (!hasSelection(editor))
+                return;
+        }
+        const QRect r = editor->inputMethodQuery(Qt::ImCursorRectangle).toRect();
+        const QPoint gp = editor->mapToGlobal(r.center());
+        QTimer::singleShot(0, editor, [editor, gp]() { iosPresentEditMenu(editor, gp); });
+    });
+#endif
 
     UiStyleManager::setupRaymarchTabMobile(ui->dockEquations->widget());
 #endif
@@ -6497,6 +6847,15 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         // Se il file preset è diverso da quello attualmente caricato, non è mai un match
         // (es. due preset con lo stesso codice ma zoom/rotazione diversi)
         if (data.filePath != m_currentTexturePresetPath) {
+            isMatch = false;
+        }
+
+        // Se l'editor script (che in modalità texture mostra questo codice) è
+        // stato svuotato dall'utente, la texture non è più "visualizzata":
+        // senza questo, il ramo toggle qui sotto non ripristinava il testo e
+        // bisognava caricare un'ALTRA texture per rivederlo.
+        if (isMatch && m_currentScriptMode == ScriptModeTexture
+            && ui->txtScriptEditor->toPlainText().trimmed().isEmpty()) {
             isMatch = false;
         }
 
