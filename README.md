@@ -1,7 +1,7 @@
-# Surface Explorer 1.0
+# Surface Explorer 1.1
 **A high-performance multi-backend 4D surface visualizer built with Qt6 and Qt RHI.**
 
-Surface Explorer 1.0 is built on the Qt RHI architecture and adds two major rendering and visualization capabilities: a **Ray Marching engine** for implicit surfaces and signed-distance fields, and a **Geodesic Flow** solver for intrinsic geometry on curved manifolds. By relying on the **Qt Rendering Hardware Interface (RHI)**, the application remains hardware-agnostic, automatically leveraging the most efficient graphics API available on your system: **Vulkan**, **Metal**, **Direct3D**, or **OpenGL**. This version is designed for high-precision visualization of complex mathematical surfaces in 4D space ($x, y, z, p$), providing a seamless bridge between abstract geometry and real-time GPU performance.
+Surface Explorer 1.1 is built on the Qt RHI architecture and adds two major rendering and visualization capabilities: a **Ray Marching engine** for implicit surfaces and signed-distance fields, and a **Geodesic Flow** solver for intrinsic geometry on curved manifolds. By relying on the **Qt Rendering Hardware Interface (RHI)**, the application remains hardware-agnostic, automatically leveraging the most efficient graphics API available on your system: **Vulkan**, **Metal**, **Direct3D**, or **OpenGL**. This version is designed for high-precision visualization of complex mathematical surfaces in 4D space ($x, y, z, p$), providing a seamless bridge between abstract geometry and real-time GPU performance.
 
 ## 🚀 Key Features
 * **Ray Marching Engine**: Real-time rendering of implicit surfaces and signed-distance fields directly on the GPU, with support for procedural displacement, transparency, and true multi-layer field surfaces.
