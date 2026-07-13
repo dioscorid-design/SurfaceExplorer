@@ -13,6 +13,10 @@ dist/
 # --- Diagnostic logs (crash/run dumps, not source) ---
 *.log
 
+# --- Android build system (Gradle) ---
+# Cache/artefatti generati dal Gradle daemon: non sono sorgenti
+android/.gradle/
+
 # --- CMake generated files ---
 # Temporary files created by the build system
 CMakeCache.txt
