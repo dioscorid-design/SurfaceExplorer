@@ -979,7 +979,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->actionAbout, &QAction::triggered, this, [this](){
         QMessageBox::about(this, "About Surface Explorer",
                            "<b>Surface Explorer</b><br>"
-                           "Version 1.0<br><br>"
+                           "Version 1.1<br><br>"
                            "Developed by: <b>Gaetano Moschetti</b><br>"
                            "License: <b>GNU GPL v3</b><br><br>"
                            "This is free software: you are free to change and redistribute it "
@@ -1265,6 +1265,34 @@ MainWindow::MainWindow(QWidget *parent)
         resetExtraFields();
 
         // ==========================================================
+        // RESET PATH CAMERA (4D e 3D) AL CAMBIO TAB
+        // ==========================================================
+        // Il cambio tab carica la superficie di default, quindi nessun residuo
+        // del path del preset precedente deve sopravvivere. Lo stop passa dai
+        // TASTI (onDeparture*Clicked): testo riportato a "DEPARTURE",
+        // setPathAnimating(false), master button riallineato. Il ramo Ray
+        // Marching fermava i timer con pathTimer->stop() diretto: il tasto
+        // restava su STOP e campi/tempo/flag del path sopravvivevano al tab.
+        if (pathTimer->isActive()) onDepartureClicked();
+        if (pathTimer3D->isActive()) onDeparture3DClicked();
+
+        // Campi svuotati a segnali VIVI: textChanged -> checkPath(3D)Fields
+        // disabilita i tasti Departure ora che i campi sono vuoti.
+        ui->lineX_P->clear(); ui->lineY_P->clear(); ui->lineZ_P->clear();
+        ui->lineP_P->clear();
+        ui->lineAlpha_P->clear(); ui->lineBeta_P->clear(); ui->lineGamma_P->clear();
+        ui->lineX_P3D->clear(); ui->lineY_P3D->clear(); ui->lineZ_P3D->clear();
+        ui->lineR_P3D->clear();
+
+        // Stato di sessione dei path azzerato, come al load di un record
+        // (vedi applyMotionExample): un futuro Departure riparte da t=0 e
+        // da orientamento neutro.
+        pathTimeT = 0.0f;
+        pathTimeT3D = 0.0f;
+        m_path4DStartedOnce = false;
+        m_anyPathStartedOnce = false;
+
+        // ==========================================================
         // AGGIORNAMENTO UI E PULIZIA MOTORE SCRIPT AL CAMBIO TAB
         // ==========================================================
         // 1. Aggiorna dinamicamente i nomi sui bottoni del dock script
@@ -1385,10 +1413,9 @@ MainWindow::MainWindow(QWidget *parent)
             // 1. SALVA IN MEMORIA IL VALORE PARAMETRICO DELLA S
             m_lastParametricS = ui->lineS->text().toDouble();
 
-            // 2. Ferma tutte le animazioni
+            // 2. Ferma tutte le animazioni (i path camera sono già stati
+            // fermati e ripuliti nel blocco RESET PATH CAMERA più sopra)
             if (ui->glWidget->isAnimating()) ui->glWidget->pauseMotion();
-            if (pathTimer->isActive()) pathTimer->stop();
-            if (pathTimer3D->isActive()) pathTimer3D->stop();
             ui->glWidget->setSurfaceAnimating(false);
             ui->glWidget->stopAnimationTimer();
 
@@ -1459,6 +1486,15 @@ MainWindow::MainWindow(QWidget *parent)
                 ui->glWidget->setRangeY(-1000.0f, 1000.0f);
                 ui->glWidget->setRangeZ(-1000.0f, 1000.0f);
 
+                // Reset completo della vista, come già fa il ramo Parametrico:
+                // in particolare spegne m_isPathFollowing, che dopo un record
+                // col path resterebbe acceso e la view continuerebbe il lookAt
+                // su m_pathTarget/m_pathUp stantii -> la sfera di default
+                // compariva spostata/inclinata. La distanza viene comunque
+                // forzata a 4.0 subito sotto (il salvavita zoom di
+                // resetTransformations da solo non basta).
+                ui->glWidget->resetTransformations();
+
                 // Distanza camera alla standard (4.0): la sfera di default ha
                 // raggio 1 e va vista da qui. Senza questo reset la camera resta a
                 // quella del RECORD RM caricato prima (resetTransformations PRESERVA
@@ -1484,11 +1520,16 @@ MainWindow::MainWindow(QWidget *parent)
 
             // 1. STOP E RESET FISICO
             // onStopClicked è un toggle: senza la guardia, con moto in pausa e
-            // velocità impostate farebbe RIPARTIRE le rotazioni
+            // velocità impostate farebbe RIPARTIRE le rotazioni. (I path camera
+            // sono già stati fermati nel blocco RESET PATH CAMERA più sopra.)
             if (ui->glWidget->isAnimating()) onStopClicked();
-            if (pathTimer->isActive()) onDepartureClicked();
-            if (pathTimer3D->isActive()) onDeparture3DClicked();
             ui->glWidget->resetTransformations();
+            // Distanza camera alla standard (4.0): il salvavita zoom di
+            // resetTransformations PRESERVA una distanza >= 2.5 (es. quella
+            // della camera del path/record appena abbandonato) e il toro di
+            // default apparirebbe da li'. Stesso riallineamento che il ramo
+            // Ray Marching fa per la sfera di default.
+            ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
             ui->glWidget->resetTime();
             ui->glWidget->setSurfaceAnimating(false);
             if (m_btnStart) m_btnStart->setText("START");
@@ -8818,6 +8859,15 @@ void MainWindow::applyCommonData(const LibraryItem &d)
 
     if (pathTimer->isActive()) onDepartureClicked();
     if (pathTimer3D->isActive()) onDeparture3DClicked();
+
+    // Rete di sicurezza: se un path fosse stato fermato altrove senza passare
+    // dai tasti (timer già inattivo -> le due righe sopra non scattano), il
+    // testo resterebbe congelato su "STOP" pur a tasto disabilitato. Al load
+    // di un preset le etichette ripartono comunque da "DEPARTURE"; se il
+    // preset ha un path, l'avvio in coda ad applyMotionExample le rimette a
+    // "STOP" via onDeparture(3D)Clicked.
+    if (ui->btnDeparture) ui->btnDeparture->setText("DEPARTURE");
+    if (ui->btnDeparture3D) ui->btnDeparture3D->setText("DEPARTURE");
 
     if (m_geoAnimTimer && m_geoAnimTimer->isActive()) {
         m_geoAnimTimer->stop();

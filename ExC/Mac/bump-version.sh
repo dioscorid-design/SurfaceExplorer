@@ -12,15 +12,15 @@
 # si incrementa a parte, a ogni upload verso Apple (vedi RELEASE_GUIDE.md).
 #
 # Uso:
-#   ./ExC/bump-version.sh 1.1          aggiorna i file e committa "Bump versione 1.1"
-#   ./ExC/bump-version.sh 1.1 --no-commit   aggiorna soltanto i file
+#   ./ExC/Mac/bump-version.sh 1.1          aggiorna i file e committa "Bump versione 1.1"
+#   ./ExC/Mac/bump-version.sh 1.1 --no-commit   aggiorna soltanto i file
 #
 # Portabile Linux/macOS (bash + sed/awk POSIX). Su Windows: Git Bash o WSL.
 
 set -euo pipefail
 
-# --- root del progetto: lo script vive in ExC/, la root e' una cartella sopra ---
-PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# --- root del progetto: lo script vive in ExC/Mac/, la root e' due cartelle sopra ---
+PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 CMAKE="$PROJECT_DIR/CMakeLists.txt"
 PLIST="$PROJECT_DIR/Info.plist"
 
@@ -67,11 +67,16 @@ grep -A1 'CFBundleShortVersionString' "$PLIST" | grep -qE "<string>${NEW}</strin
 
 printf '\nVersione: %s -> %s   (aggiornati CMakeLists.txt + Info.plist)\n' "$OLD" "$NEW"
 
+# --- PROMEMORIA: la stringa mostrata dal dialogo About (mainwindow.cpp,
+# "Version X.Y" dentro QMessageBox::about) e' hardcoded e NON viene toccata da
+# questo script: va aggiornata a mano.
+printf '\nPROMEMORIA: aggiorna a mano "Version %s" nel dialogo About (mainwindow.cpp).\n' "$NEW"
+
 # --- 3. commit (salvo --no-commit) -------------------------------------------
 if [ "$DO_COMMIT" -eq 1 ]; then
   ( cd "$PROJECT_DIR" && git add CMakeLists.txt Info.plist \
       && git commit -m "Bump versione $NEW" )
-  printf '\nCommit creato. Ricorda di: git push, poi ./ExC/Linux/release_linux.sh --upload\n'
+  printf '\nCommit creato. Ricorda di: git push\n'
 else
   printf '\n--no-commit: file aggiornati ma non committati.\n'
 fi
