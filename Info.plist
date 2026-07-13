@@ -6,16 +6,16 @@
 	<string>Surface Explorer</string>
 	<key>CFBundleExecutable</key>
 	<string>SurfaceExplorer</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.dioscorid.surfaceexplorer</string>
-	<key>CFBundleName</key>
-	<string>Surface Explorer</string>
 	<key>CFBundleIconFile</key>
 	<string>icon.icns</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
 	<key>CFBundleIconName</key>
 	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.dioscorid.surfaceexplorer</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Surface Explorer</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -24,9 +24,19 @@
 	<string>9</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Surface Explorer does not use the camera. This permission is requested only because a linked multimedia framework declares this capability.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Surface Explorer does not use the microphone. This permission is requested only because a linked multimedia framework declares this capability.</string>
 	<key>UIFileSharingEnabled</key>
 	<true/>
-	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UIRequiresFullScreen</key>
+	<true/>
+	<key>UIStatusBarHidden</key>
 	<true/>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
@@ -38,17 +48,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>UILaunchScreen</key>
-	<dict/>
-	<key>UIRequiresFullScreen</key>
-	<true/>
-	<key>UIStatusBarHidden</key>
-	<true/>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
-	<key>NSCameraUsageDescription</key>
-	<string>Surface Explorer does not use the camera. This permission is requested only because a linked multimedia framework declares this capability.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Surface Explorer does not use the microphone. This permission is requested only because a linked multimedia framework declares this capability.</string>
 </dict>
 </plist>

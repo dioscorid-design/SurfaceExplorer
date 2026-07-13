@@ -113,8 +113,8 @@ find ~/Library/Developer/Xcode/DerivedData -maxdepth 1 -name 'SurfaceExplorer-*'
 rm -rf build/ios-appstore
 
 # 3. Rigenera da zero con qt-cmake (NON usare cmake generico: serve il toolchain iOS)
-cd /Users/dioscorid/Projects/C/SurfaceExplorer
-/Users/dioscorid/Qt/6.10.1/ios/bin/qt-cmake -S . -B build/ios-appstore -G Xcode
+
+
 ```
 Verifica che i valori siano quelli attesi:
 ```bash
