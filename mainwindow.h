@@ -349,6 +349,18 @@ private:
     // su un vero master Start. Stesso pattern di m_masterStopped.
     bool m_userStoppedSound = false;
 
+    // Stessa famiglia di m_userStoppedSound, per gli altri moduli: l'utente ha
+    // fermato ESPLICITAMENTE il clock (Stop del dock texture/script o del dock
+    // Equations). Senza questi flag lo stop viveva solo nel GLWidget e ogni
+    // ricalcolo globale (applyAnimationState) lo sovrascriveva: con path,
+    // rotazioni o t-motion in corso, accendere lo sfondo o togglare la checkbox
+    // Texture faceva RIPARTIRE la texture (o la geometria) fermata a mano.
+    // Si riarmano su Run esplicito del proprio modulo, load di preset/record
+    // e master Start (il master governa tutti i moduli).
+    bool m_userStoppedTexClock  = false;
+    bool m_userStoppedBgClock   = false;
+    bool m_userStoppedGeomClock = false;
+
     // Run del dock Equations (tab Parametric) senza animazione (nessun 't'):
     // dopo aver applicato la modifica grafica il tasto va DISABILITATO finché le
     // equazioni non vengono modificate di nuovo. true = già applicato, niente da

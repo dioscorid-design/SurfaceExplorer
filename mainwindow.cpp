@@ -3845,6 +3845,10 @@ void MainWindow::performEquationsStop()
     // Stop del dock Equations: ferma SOLO l'orologio della geometria
     // principale e il flusso geodetico. Texture, sfondo, rotazioni, path e
     // audio restano sotto il controllo del master.
+    // Lo stop e' una scelta ESPLICITA dell'utente: il flag impedisce ai
+    // ricalcoli globali (applyAnimationState) di riaccendere la geometria
+    // finche' un Run/Start non lo riarma.
+    m_userStoppedGeomClock = true;
     if (ui->glWidget) {
         ui->glWidget->setSurfaceAnimating(false);
     }
@@ -4640,6 +4644,9 @@ void MainWindow::handleTextureSelection(int index)
     // master STOP (vedi nota in onTreeItemClicked, sezione texture).
 
     if (ui->glWidget) {
+        // Caricare una texture e' un avvio esplicito del modulo: riarma un
+        // eventuale stop manuale del suo clock.
+        m_userStoppedTexClock = false;
         // Unico orologio del modulo: colore + displacement insieme.
         ui->glWidget->setSurfaceTextureAnimating(texAnim);
         // L'SDF/geometria resta invariato: un caricamento di texture non lo accende
@@ -4772,12 +4779,19 @@ void MainWindow::onStartClicked()
     const bool masterStart = (m_btnStart && m_btnStart->text().toUpper() == "START" && sender() == m_btnStart);
     if (runDockOnly || masterStart) {
         m_masterStopped = false;
+        // Run del dock Equations o master Start: entrambi riavviano ESPLICITAMENTE
+        // il modulo geometria, quindi riarmano lo stop manuale del suo clock.
+        m_userStoppedGeomClock = false;
         snapshotActiveEquations();
     }
     // Solo un vero master Start riarma il riavvio automatico del suono (un Run di
     // dock o un commit di equazione NON deve riaccendere un suono fermato a mano).
+    // Stessa regola per i clock texture/sfondo: il master governa tutti i moduli,
+    // il commit di un'equazione no.
     if (masterStart) {
         m_userStoppedSound = false;
+        m_userStoppedTexClock = false;
+        m_userStoppedBgClock = false;
     }
 
     // ==========================================================
@@ -5040,9 +5054,12 @@ void MainWindow::onStartClicked()
             // Il clock GEOMETRIA è del dock Equations/master: lo guida geomAnimated.
             applyAnimationState(geomAnimated, runDockOnly);
             // Il clock TEXTURE è del suo modulo: NON lo tocca il Run del dock
-            // Equations (runDockOnly), solo il master/Start globale.
+            // Equations (runDockOnly), solo il master/Start globale. E come per
+            // il suono, un COMMIT di equazione non riaccende una texture fermata
+            // a mano (m_userStoppedTexClock; un vero master Start l'ha già riarmato).
             if (!runDockOnly && ui->glWidget) {
-                ui->glWidget->setSurfaceTextureAnimating(texAnimated && !m_masterStopped);
+                ui->glWidget->setSurfaceTextureAnimating(texAnimated && !m_masterStopped
+                                                         && !m_userStoppedTexClock);
             }
         }
         updateMasterButtonState();
@@ -6105,6 +6122,7 @@ void MainWindow::onRunCurrentScript()
             ui->lineEquation->blockSignals(false);
 
             m_masterStopped = false;
+            m_userStoppedGeomClock = false;   // run esplicito del modulo geometria
             if (ui->glWidget) {
                 ui->glWidget->setSurfaceAnimating(hasTimeVariable(currentText));
             }
@@ -6118,6 +6136,10 @@ void MainWindow::onRunCurrentScript()
 
     } else if (m_currentScriptMode == ScriptModeTexture) {
         if (ui->btnRunCurrentScript->text().startsWith("Stop")) {
+            // Stop esplicito del clock texture/sfondo: il flag lo tiene fermo
+            // anche attraverso i ricalcoli globali (vedi applyAnimationState).
+            if (ui->radioBackground->isChecked()) m_userStoppedBgClock = true;
+            else                                  m_userStoppedTexClock = true;
             if (ui->glWidget) {
                 if (ui->radioBackground->isChecked())
                     ui->glWidget->setBackgroundTextureAnimating(false);
@@ -6255,6 +6277,7 @@ void MainWindow::onRunScriptClicked()
     }
 
     m_masterStopped = false;
+    m_userStoppedGeomClock = false;   // run esplicito del modulo geometria
     if (ui->glWidget) {
         ui->glWidget->setSurfaceAnimating(hasTimeVariable(fullText));
     }
@@ -6398,6 +6421,7 @@ void MainWindow::runMetricScript(const QString& fullText)
     }
 
     m_masterStopped = false;
+    m_userStoppedGeomClock = false;   // run esplicito del modulo geometria
     updateMasterButtonState();
 
     m_geodesicErrorPending = false;
@@ -6699,10 +6723,14 @@ void MainWindow::onApplyTextureScriptClicked()
     // sfondo e poi spegnerla faceva ripartire la superficie (t nelle composizioni).
     if (ui->radioBackground->isChecked()) {
         // RUN sulla texture di SFONDO: solo il clock background.
+        // Run esplicito del canale: riarma un eventuale stop manuale.
+        m_userStoppedBgClock = false;
         bool bgNeedsAnim = m_bgTextureCode.contains(timeRegex);
         if (ui->glWidget) ui->glWidget->setBackgroundTextureAnimating(bgNeedsAnim);
     } else {
         // RUN sulla texture di SUPERFICIE: solo il clock texture superficie.
+        // Run esplicito del canale: riarma un eventuale stop manuale.
+        m_userStoppedTexClock = false;
         bool surfTexNeedsAnim = false;
         if (ui->chkBoxTexture->isChecked()) {
             QString surfTexToCheck = (ui->tabModeSelector->currentIndex() == 1)
@@ -6732,6 +6760,9 @@ void MainWindow::onRunRaymarchTextureClicked()
     // è proprio l'aver toccato il clock geometria che faceva "partire la superficie"
     // e bloccava i tasti. Regola: azione su un modulo = solo quel modulo.
     if (ui->btnTextureCode->text() == "Stop") {
+        // Stop esplicito del clock texture: il flag lo tiene fermo anche
+        // attraverso i ricalcoli globali (vedi applyAnimationState).
+        m_userStoppedTexClock = true;
         ui->glWidget->setSurfaceTextureAnimating(false);
         updateMasterButtonState();
         return;
@@ -6750,6 +6781,8 @@ void MainWindow::onRunRaymarchTextureClicked()
     // comunque; azzerare il flag sbloccherebbe la GEOMETRIA e dopo un master STOP
     // un toggle della texture potrebbe far ripartire la superficie (t in defU/V/W).
 
+    // Run esplicito del modulo texture: riarma un eventuale stop manuale.
+    m_userStoppedTexClock = false;
     ui->glWidget->setSurfaceTextureAnimating(texAnim);
 
     // Run "one-shot": se gli script texture NON sono animati, la modifica è
@@ -6906,8 +6939,11 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
 
             if (isBg) {
                 if (ui->glWidget->isBackgroundTextureAnimating()) {
+                    // Toggle-stop dell'utente: e' uno stop esplicito del modulo.
+                    m_userStoppedBgClock = true;
                     ui->glWidget->setBackgroundTextureAnimating(false);
                 } else {
+                    m_userStoppedBgClock = false;
                     ui->glWidget->setBackgroundTextureAnimating(true);
                 }
             } else {
@@ -6917,11 +6953,14 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
                 // Equations e master): è proprio quel coupling che faceva "partire
                 // la superficie" e bloccava i tasti.
                 if (ui->glWidget->isSurfaceTextureAnimating()) {
+                    // Toggle-stop dell'utente: e' uno stop esplicito del modulo.
+                    m_userStoppedTexClock = true;
                     ui->glWidget->setSurfaceTextureAnimating(false);
                 } else {
                     // NON azzeriamo m_masterStopped (come il ramo background sopra):
                     // il clock texture parte da solo, sbloccare lo stop globale
                     // farebbe ripartire la geometria ferma dopo un master STOP.
+                    m_userStoppedTexClock = false;
                     ui->glWidget->setSurfaceTextureAnimating(true);
                 }
             }
@@ -6985,6 +7024,13 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
 void MainWindow::applySurfaceExample(const LibraryItem &d)
 {
     InputValidator::resetGeodesicWarning();
+
+    // Nuova superficie caricata: dimentica gli stop manuali dei clock del
+    // contesto precedente (stesso criterio di m_userStoppedSound in
+    // applyMotionExample), altrimenti il preset partirebbe congelato.
+    m_userStoppedGeomClock = false;
+    m_userStoppedTexClock = false;
+    m_userStoppedBgClock = false;
 
     // 1. Pulizia totale
     ui->glWidget->pauseMotion();
@@ -7287,8 +7333,12 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
 {
     m_masterStopped = false;
     // Nuovo record caricato: dimentica un eventuale stop manuale del suono
-    // precedente, cosi' l'audio del nuovo preset puo' partire.
+    // precedente, cosi' l'audio del nuovo preset puo' partire. Idem per gli
+    // stop manuali dei clock geometria/texture/sfondo.
     m_userStoppedSound = false;
+    m_userStoppedGeomClock = false;
+    m_userStoppedTexClock = false;
+    m_userStoppedBgClock = false;
 
     InputValidator::resetGeodesicWarning();
 
@@ -10363,8 +10413,10 @@ void MainWindow::applyAnimationState(bool animated, bool dockOnly) {
 
     if (ui->glWidget) {
         // Il clock GEOMETRIA appartiene al modulo equazioni: lo governa sia il
-        // master sia il tasto Run del dock Equations.
-        ui->glWidget->setSurfaceAnimating(effective);
+        // master sia il tasto Run del dock Equations. Se l'utente l'ha fermato
+        // col tasto Stop del dock, resta fermo finché un Run/Start esplicito
+        // non riarma il flag (vedi m_userStoppedGeomClock).
+        ui->glWidget->setSurfaceAnimating(effective && !m_userStoppedGeomClock);
 
         // I clock TEXTURE (colore) e SFONDO appartengono ai rispettivi moduli:
         // il tasto Run del dock NON deve toccarli (regola "ogni tasto non-master
@@ -10379,9 +10431,16 @@ void MainWindow::applyAnimationState(bool animated, bool dockOnly) {
             bool surfTexActive = ui->radioBackground->isChecked()
                                      ? m_surfaceTextureState
                                      : ui->chkBoxTexture->isChecked();
-            ui->glWidget->setSurfaceTextureAnimating(effective && surfTexActive);
+            // Modulo attivo NON basta: se l'utente ha fermato il clock col suo
+            // Stop (dock texture/script), il ricalcolo non deve riaccenderlo.
+            // Senza questo gate, con path/rotazioni/t-motion in corso (master su
+            // STOP) bastava accendere lo sfondo o togglare la checkbox Texture
+            // per far ripartire la texture fermata a mano.
+            ui->glWidget->setSurfaceTextureAnimating(
+                        effective && surfTexActive && !m_userStoppedTexClock);
             ui->glWidget->setBackgroundTextureAnimating(
-                        effective && ui->glWidget->isBackgroundTextureEnabled());
+                        effective && ui->glWidget->isBackgroundTextureEnabled()
+                                  && !m_userStoppedBgClock);
         }
     }
 
