@@ -301,6 +301,13 @@ public:
     bool isBackgroundTextureAnimating() const { return m_bgAnimating; }
     bool isSurfaceTextureAnimating() const { return m_texAnimating; }
 
+    // Registrazione video: fotografa/ripristina il tempo mostrato dai moduli
+    // col clock FERMO, che non devono seguire il tempo virtuale del recorder
+    // (vedi ramo use_virtual_time in render). begin va chiamata PRIMA di
+    // attivare use_virtual_time e di toccare m_manualTime; end quando torna false.
+    void beginVirtualTimeFreeze();
+    void endVirtualTimeFreeze();
+
 
     // ==========================================================
     // UTILITIES
@@ -583,6 +590,14 @@ private:
     float m_timeGeom = 0.0f;
     float m_timeTex = 0.0f;
     float m_timeBg = 0.0f;
+
+    // Tempi congelati per la registrazione video (beginVirtualTimeFreeze):
+    // il tempo TOTALE (m_manualTime + m_time*) mostrato quando e' partito il REC.
+    // In registrazione i moduli fermi restano inchiodati a questi valori.
+    bool  m_vtFreezeValid = false;
+    float m_vtFrozenGeom = 0.0f;
+    float m_vtFrozenTex  = 0.0f;
+    float m_vtFrozenBg   = 0.0f;
 
     bool m_bgAnimating = false;
     bool m_texAnimating = false;

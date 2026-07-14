@@ -332,12 +332,17 @@ void GLWidget::render(QRhiCommandBuffer *cb)
 
     // 2. GESTIONE TEMPO: LIVE vs VIDEO RECORDER
     QVariant useVirtualTimeVar = property("use_virtual_time");
-    if (useVirtualTimeVar.isValid() && useVirtualTimeVar.toBool()) {
-        // Se stiamo registrando, forziamo tutti gli orologi al tempo del recorder
+    const bool useVirtualTime = useVirtualTimeVar.isValid() && useVirtualTimeVar.toBool();
+    if (useVirtualTime) {
+        // Se stiamo registrando, il tempo del recorder guida SOLO i moduli col
+        // clock attivo: un modulo FERMATO dall'utente resta congelato al tempo
+        // fotografato da beginVirtualTimeFreeze (vedi sotto), come a schermo.
+        // Prima vTime era forzato incondizionatamente su tutti e tre: nel video
+        // la texture (o la geometria) ferma ripartiva ad animarsi.
         float vTime = property("virtual_time").toFloat();
-        m_timeGeom = vTime;
-        m_timeTex  = vTime;
-        m_timeBg   = vTime;
+        if (m_surfaceAnimating) m_timeGeom = vTime;
+        if (m_texAnimating)     m_timeTex  = vTime;
+        if (m_bgAnimating)      m_timeBg   = vTime;
     } else {
         // App in uso normale: ogni orologio avanza solo se la sua parte è "attiva"
         // Se corrono insieme, avanzano dello stesso identico 'dt', restando in sincrono!
@@ -347,10 +352,16 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     }
 
     // 3. INVIO DEI DATI ALLA GPU
-    m_uboData.time = m_manualTime + m_timeGeom;
+    // In registrazione m_manualTime avanza per TUTTI (setShaderTime dal loop del
+    // recorder): per i moduli fermi va neutralizzato col tempo totale congelato,
+    // altrimenti animerebbero comunque via m_manualTime.
+    const bool vtFreezeGeom = useVirtualTime && m_vtFreezeValid && !m_surfaceAnimating;
+    const bool vtFreezeTex  = useVirtualTime && m_vtFreezeValid && !m_texAnimating;
+    const bool vtFreezeBg   = useVirtualTime && m_vtFreezeValid && !m_bgAnimating;
+    m_uboData.time = vtFreezeGeom ? m_vtFrozenGeom : m_manualTime + m_timeGeom;
 
     // Usiamo la coordinata X di dummyZero per inviare il tempo specifico della Texture
-    m_uboData.dummyZero.setX(m_manualTime + m_timeTex);
+    m_uboData.dummyZero.setX(vtFreezeTex ? m_vtFrozenTex : m_manualTime + m_timeTex);
 
     // .y = flag "seconda superficie interna" (Inner:= nello script ray marching).
     // .x resta l'orologio texture; .y/.z/.w erano liberi (azzerati a inizio frame).
@@ -478,7 +489,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
 
         if (m_bgUbo) {
             UboData bgUboData = m_uboData;
-            bgUboData.time = m_manualTime + m_timeBg;
+            bgUboData.time = vtFreezeBg ? m_vtFrozenBg : m_manualTime + m_timeBg;
             // Lo sfondo è sempre opaco: lo slider trasparenza del renderer agisce
             // sulla superficie (m_uboData.alpha), non deve sbiadire la texture di
             // background fondendola col clearColor (pipeline bg con blend SrcAlpha).
@@ -2391,6 +2402,29 @@ void GLWidget::setSurfaceTextureAnimating(bool animating) {
         m_surfaceTimer.restart();   // azzera la base del dt: niente salti
         m_animTimer->start();        // <-- avvia anche se il flag era già true
     }
+}
+
+// Chiamata dal VideoRecorder PRIMA di attivare use_virtual_time e di toccare
+// m_manualTime (setShaderTime): fotografa il tempo TOTALE attualmente mostrato
+// da ogni modulo. Durante la registrazione i moduli col clock fermo restano
+// inchiodati a questi valori (vedi render, ramo use_virtual_time).
+void GLWidget::beginVirtualTimeFreeze() {
+    m_vtFrozenGeom = m_manualTime + m_timeGeom;
+    m_vtFrozenTex  = m_manualTime + m_timeTex;
+    m_vtFrozenBg   = m_manualTime + m_timeBg;
+    m_vtFreezeValid = true;
+}
+
+// Chiamata a fine registrazione (use_virtual_time torna false): ricompone i
+// m_time* dei moduli fermi cosi' che (m_manualTime + m_time*) torni ESATTAMENTE
+// al valore congelato — il modulo riprende dallo stesso identico frame di prima
+// del REC, invece di saltare al tempo raggiunto dal recorder.
+void GLWidget::endVirtualTimeFreeze() {
+    if (!m_vtFreezeValid) return;
+    if (!m_surfaceAnimating) m_timeGeom = m_vtFrozenGeom - m_manualTime;
+    if (!m_texAnimating)     m_timeTex  = m_vtFrozenTex  - m_manualTime;
+    if (!m_bgAnimating)      m_timeBg   = m_vtFrozenBg   - m_manualTime;
+    m_vtFreezeValid = false;
 }
 
 

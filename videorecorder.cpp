@@ -488,9 +488,20 @@ void VideoRecorder::toggleRecord()
     // Salvataggio File
     QString lastVideoDir = settings.value("lastVideoDir", defaultVideoDir).toString();
     if (!QDir(lastVideoDir).exists()) lastVideoDir = defaultVideoDir;
-    QString defaultSelection = lastVideoDir + "/NewVideo.mp4";
-    userSelectedFile = QFileDialog::getSaveFileName(m_mainWindow, "Save MP4 Video", defaultSelection, "MP4 Video (*.mp4)", nullptr, QFileDialog::DontUseNativeDialog);
-    if (userSelectedFile.isEmpty()) { restoreState(); return; }
+    // QFileDialog ISTANZIATO (non lo static getSaveFileName) per poter impostare
+    // setDefaultSuffix: cosi' il dialogo completa il nome con ".mp4" PRIMA del suo
+    // controllo di sovrascrittura. Con lo static il check avveniva sul testo
+    // digitato: "NewVideo1" senza estensione non esiste -> nessun avviso, e il
+    // ".mp4" aggiunto DOPO faceva sovrascrivere NewVideo1.mp4 in silenzio (mentre
+    // il default prefillato "NewVideo.mp4", estensione gia' nel campo, avvisava).
+    QFileDialog saveDlg(m_mainWindow, "Save MP4 Video", lastVideoDir, "MP4 Video (*.mp4)");
+    saveDlg.setAcceptMode(QFileDialog::AcceptSave);
+    saveDlg.setFileMode(QFileDialog::AnyFile);
+    saveDlg.setOption(QFileDialog::DontUseNativeDialog, true);
+    saveDlg.setDefaultSuffix("mp4");
+    saveDlg.selectFile("NewVideo.mp4");
+    if (saveDlg.exec() != QDialog::Accepted || saveDlg.selectedFiles().isEmpty()) { restoreState(); return; }
+    userSelectedFile = saveDlg.selectedFiles().first();
     if (!userSelectedFile.endsWith(".mp4", Qt::CaseInsensitive)) userSelectedFile += ".mp4";
     settings.setValue("lastVideoDir", QFileInfo(userSelectedFile).absolutePath());
 #endif
@@ -530,6 +541,12 @@ void VideoRecorder::toggleRecord()
     });
 #endif
     // STOP AUDIO E ATTIVAZIONE TEMPO VIRTUALE
+    // Il suono stava suonando quando l'utente ha premuto REC? Se l'aveva fermato
+    // (Stop Sound), il video deve restare MUTO e a fine registrazione il suono
+    // NON va riavviato: si registra quello che si vede e si sente. Catturato
+    // PRIMA dello stopAll qui sotto, che azzera lo stato di riproduzione.
+    const bool wasSoundPlaying = m_mainWindow->m_audioController &&
+                                 m_mainWindow->m_audioController->isPlaying();
     m_mainWindow->m_audioController->stopAll();
 
     // 1. Creiamo una variabile per salvare il momento esatto in cui l'utente ha premuto REC
@@ -540,6 +557,12 @@ void VideoRecorder::toggleRecord()
         initialTimeOffset = m_mainWindow->ui->glWidget->property("virtual_time").toFloat();
 
         if (initialTimeOffset < 0.001f) initialTimeOffset = 0.001f;
+
+        // Fotografa il tempo mostrato da ogni modulo PRIMA di attivare il tempo
+        // virtuale e di toccare m_manualTime: i moduli col clock FERMO (es.
+        // texture stoppata dal suo dock) resteranno su quel frame per tutto il
+        // video, invece di ripartire ad animarsi col tempo del recorder.
+        m_mainWindow->ui->glWidget->beginVirtualTimeFreeze();
 
         // Diciamo al widget di smettere di usare il tempo reale
         m_mainWindow->ui->glWidget->setProperty("use_virtual_time", true);
@@ -572,12 +595,23 @@ void VideoRecorder::toggleRecord()
     // Recupero variabili per il loop
     float currentPathT = m_mainWindow->pathTimeT;
 
-    float vNut   = m_mainWindow->ui->glWidget->getNutationSpeed();
-    float vPrec  = m_mainWindow->ui->glWidget->getPrecessionSpeed();
-    float vSpin  = m_mainWindow->ui->glWidget->getSpinSpeed();
-    float vOmega = m_mainWindow->ui->glWidget->getOmegaSpeed();
-    float vPhi   = m_mainWindow->ui->glWidget->getPhiSpeed();
-    float vPsi   = m_mainWindow->ui->glWidget->getPsiSpeed();
+    // Rotazioni 3D/4D: le VELOCITA' sopravvivono allo stop (il tasto GO/STOP
+    // ferma solo il timer), ma il loop di registrazione ricostruisce le
+    // rotazioni proprio dalle velocita' — quindi una rotazione FERMATA
+    // dall'utente girava comunque nel video. Se le rotazioni non erano in
+    // moto al REC, azzeriamo le velocita' locali: posa statica, come a
+    // schermo. Stesso controllo incrociato col testo del tasto usato da
+    // updateMasterButtonState (timer attivo ma tasto su "GO" = fermata).
+    bool rotationsWereRunning = wasAnimating;
+    if (m_mainWindow->ui->btnStart_2 && m_mainWindow->ui->btnStart_2->text() == "GO")
+        rotationsWereRunning = false;
+
+    float vNut   = rotationsWereRunning ? m_mainWindow->ui->glWidget->getNutationSpeed()   : 0.0f;
+    float vPrec  = rotationsWereRunning ? m_mainWindow->ui->glWidget->getPrecessionSpeed() : 0.0f;
+    float vSpin  = rotationsWereRunning ? m_mainWindow->ui->glWidget->getSpinSpeed()       : 0.0f;
+    float vOmega = rotationsWereRunning ? m_mainWindow->ui->glWidget->getOmegaSpeed()      : 0.0f;
+    float vPhi   = rotationsWereRunning ? m_mainWindow->ui->glWidget->getPhiSpeed()        : 0.0f;
+    float vPsi   = rotationsWereRunning ? m_mainWindow->ui->glWidget->getPsiSpeed()        : 0.0f;
 
     float startOmega = m_mainWindow->ui->glWidget->getOmega();
     float startPhi   = m_mainWindow->ui->glWidget->getPhi();
@@ -617,8 +651,10 @@ void VideoRecorder::toggleRecord()
     // scrittura+rilettura di migliaia di BMP/PNG (su 4K/60fps sono molti GB).
     // Quando c'è audio l'encoder lo muxa in coda al loop, quindi lì restiamo sul
     // collaudato percorso a file. Su iOS/Android il flusso resta quello a file.
+    // NB: la presenza dello script sonoro non basta — se l'utente aveva FERMATO
+    // il suono prima del REC (wasSoundPlaying=false) la clip e' muta per scelta.
     bool willHaveAudio = false;
-    {
+    if (wasSoundPlaying) {
         QString preCode = m_mainWindow->m_surfaceScriptText + "\n" +
                           m_mainWindow->m_surfaceTextureCode + "\n" +
                           m_mainWindow->m_bgTextureCode + "\n" +
@@ -1000,10 +1036,15 @@ void VideoRecorder::toggleRecord()
     // >>> DISATTIVAZIONE TEMPO VIRTUALE E RIAVVIO AUDIO <<<
     if (m_mainWindow->ui->glWidget) {
         m_mainWindow->ui->glWidget->setProperty("use_virtual_time", false);
+        // Riallinea i moduli fermi al tempo che mostravano prima del REC
+        // (il loro frame statico non deve saltare al tempo del recorder).
+        m_mainWindow->ui->glWidget->endVirtualTimeFreeze();
     }
 
-    // Possiamo chiamare la funzione privata di MainWindow grazie alla friend class
-    m_mainWindow->onRunSoundClicked();
+    // Riavvia il suono SOLO se stava suonando quando l'utente ha premuto REC:
+    // un suono fermato a mano (Stop Sound) deve restare fermo anche dopo la
+    // registrazione. (Chiamata privata di MainWindow grazie alla friend class.)
+    if (wasSoundPlaying) m_mainWindow->onRunSoundClicked();
     // ==============================================================
 
     m_mainWindow->m_btnRec->setText("REC");
@@ -1083,7 +1124,9 @@ void VideoRecorder::toggleRecord()
     bool isRaw = false;
 
     // 2. SCENARIO A: Audio Procedurale (GPU GLSL Synth)
-    if (currentCode.contains("mainSound") && m_mainWindow->m_audioController) {
+    // Gate wasSoundPlaying su entrambi gli scenari (stesso criterio di
+    // willHaveAudio): suono fermato dall'utente prima del REC = clip muta.
+    if (wasSoundPlaying && currentCode.contains("mainSound") && m_mainWindow->m_audioController) {
         audioFile = m_mainWindow->m_recFolder + "/soundtrack.raw";
 
         // Bouncing Offline (Molto più veloce del tempo reale)
@@ -1093,7 +1136,7 @@ void VideoRecorder::toggleRecord()
         }
     }
     // 3. SCENARIO B: File Esterno (MP3/WAV)
-    else {
+    else if (wasSoundPlaying) {
         QRegularExpression musicRe(R"(^\s*//MUSIC:\s*(.*)$)", QRegularExpression::MultilineOption);
         QRegularExpressionMatch musicMatch = musicRe.match(currentCode);
         if (musicMatch.hasMatch()) {
