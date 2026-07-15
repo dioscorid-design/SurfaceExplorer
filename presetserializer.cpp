@@ -828,7 +828,21 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     path3D["z"] = m_mainWindow->ui->lineZ_P3D->text();
     path3D["roll"] = m_mainWindow->ui->lineR_P3D->text();
     root["path3D"] = path3D;
+    // Vista corrente di ENTRAMBI i path: salvare solo m_pathMode (4D) faceva
+    // ripartire i record 3D sempre in Tangent (la vista 3D vive in m_pathMode3D).
     root["pathMode"] = static_cast<int>(m_mainWindow->m_pathMode);
+    root["pathMode3D"] = static_cast<int>(m_mainWindow->m_pathMode3D);
+    // Moto camera CORRENTE al salvataggio: al load riparte solo questo. Se al
+    // momento del save nessun moto e' in corsa (l'utente spesso ferma la scena
+    // prima di salvare) vale l'ULTIMO moto camera avviato in sessione
+    // (m_lastCameraMotion): senza fallback si scriveva "none" e il load
+    // ricadeva nella sequenza legacy, che fa sempre vincere il path 4D.
+    root["activeMotion"] = wasPath3D ? QStringLiteral("path3D")
+                         : wasPath4D ? QStringLiteral("path4D")
+                         : wasRotating ? QStringLiteral("rotation")
+                         : !m_mainWindow->m_lastCameraMotion.isEmpty()
+                                       ? m_mainWindow->m_lastCameraMotion
+                                       : QStringLiteral("none");
 
     bool isLookingAtBackground = m_mainWindow->ui->radioBackground->isChecked();
 

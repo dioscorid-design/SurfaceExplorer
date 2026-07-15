@@ -2836,8 +2836,10 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_pathMode = ModeTangential;
     m_pathMode3D = ModeTangential;
-    ui->pushView->setText("Tangent View"); ui->pushView->setEnabled(true); connect(ui->pushView, &QPushButton::clicked, this, &MainWindow::onToggleViewClicked);
-    ui->pushView3D->setText("Tangent View"); ui->pushView3D->setEnabled(true); connect(ui->pushView3D, &QPushButton::clicked, this, &MainWindow::onToggleView3DClicked);
+    // Enabled iniziale ai View: deciso da updateViewButtonsEnabled (campi path
+    // vuoti all'avvio -> spenti, come il Departure; si accendono compilandoli).
+    ui->pushView->setText("Tangent View"); ui->pushView->setEnabled(false); connect(ui->pushView, &QPushButton::clicked, this, &MainWindow::onToggleViewClicked);
+    ui->pushView3D->setText("Tangent View"); ui->pushView3D->setEnabled(false); connect(ui->pushView3D, &QPushButton::clicked, this, &MainWindow::onToggleView3DClicked);
 
     connect(ui->lineX_P, &QLineEdit::textChanged, this, &MainWindow::checkPathFields);
     connect(ui->lineY_P, &QLineEdit::textChanged, this, &MainWindow::checkPathFields);
@@ -2852,6 +2854,14 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->lineY_P3D, &QLineEdit::textChanged, this, &MainWindow::checkPath3DFields);
     connect(ui->lineZ_P3D, &QLineEdit::textChanged, this, &MainWindow::checkPath3DFields);
     connect(ui->lineR_P3D, &QLineEdit::textChanged, this, &MainWindow::checkPath3DFields);
+
+    // Le espressioni dei path possono usare le costanti A..F/S: scrivere una
+    // costante in un campo path deve sbloccarne l'edit come nelle equazioni.
+    for (QLineEdit* pathEdit : { ui->lineX_P, ui->lineY_P, ui->lineZ_P, ui->lineP_P,
+                                 ui->lineAlpha_P, ui->lineBeta_P, ui->lineGamma_P,
+                                 ui->lineX_P3D, ui->lineY_P3D, ui->lineZ_P3D, ui->lineR_P3D }) {
+        connect(pathEdit, &QLineEdit::textChanged, this, &MainWindow::updateConstantsUIState);
+    }
 
     connect(ui->speed3DSlider, &QSlider::valueChanged, this, [this](int val){ m_pathSpeed3D = val / 1000.0f; });
     connect(ui->speed4DSlider, &QSlider::valueChanged, this, [this](int val){ m_pathSpeed4D = val / 1000.0f; });
@@ -3753,6 +3763,17 @@ void MainWindow::updateConstantsUIState() {
     activeText += " " + stripCodeComments(m_bgTextureCode); // Lo sfondo è comune
     activeText += " " + stripCodeComments(ui->txtScriptEditor->toPlainText()); // L'editor mostra il codice della tab attuale
 
+    // Anche i path camera 4D/3D valgono come "uso" di una costante: le loro
+    // espressioni sono compilate su exprtk con A..F/s registrate
+    // (m_pathSymbolTable in SurfaceEngine), quindi una costante citata solo da
+    // un path deve restare sbloccata e NON essere resettata dal ramo !used.
+    activeText += " " + ui->lineX_P->text() + " " + ui->lineY_P->text() +
+                  " " + ui->lineZ_P->text() + " " + ui->lineP_P->text() +
+                  " " + ui->lineAlpha_P->text() + " " + ui->lineBeta_P->text() +
+                  " " + ui->lineGamma_P->text() +
+                  " " + ui->lineX_P3D->text() + " " + ui->lineY_P3D->text() +
+                  " " + ui->lineZ_P3D->text() + " " + ui->lineR_P3D->text();
+
     // 3. LOGICA DI BLOCCO/SBLOCCO E RESET
     auto updateControl = [&](const QString& letter, QSlider* slider, QLineEdit* line) {
 
@@ -3876,18 +3897,38 @@ void MainWindow::applyStartSideEffects()
 {
     if (!ui->glWidget) return;
 
-    if (hasAnyRotationSpeed() && !ui->glWidget->isAnimating()) {
-        onStopClicked();
-    }
-
     bool hasPath4D = !ui->lineX_P->text().isEmpty() && ui->lineX_P->text() != "0";
-    if (hasPath4D && !pathTimer->isActive()) {
-        onDepartureClicked();
-    }
-
     bool hasPath3D = !ui->lineX_P3D->text().isEmpty() && ui->lineX_P3D->text() != "0";
-    if (hasPath3D && !pathTimer3D->isActive()) {
-        onDeparture3DClicked();
+
+    // Con piu' moti camera disponibili (rotazioni, path 4D, path 3D) riparte
+    // SOLO la modalita' corrente (ultimo moto avviato in sessione, o quello
+    // salvato nel record via "activeMotion"): la vecchia cascata li accendeva
+    // in sequenza e la mutua esclusivita' faceva vincere sempre il path 3D.
+    // Se l'indicazione non e' piu' onorabile (campi svuotati) si torna alla
+    // cascata storica.
+    // (validazione con la stessa soglia del tasto Departure, >=2 campi: il
+    // vecchio check sul solo campo X negherebbe un path 4D con X vuota)
+    QString pick = m_lastCameraMotion;
+    if (pick == "rotation" && !hasAnyRotationSpeed()) pick.clear();
+    if (pick == "path4D" && !hasPath4DInput()) pick.clear();
+    if (pick == "path3D" && !hasPath3DInput()) pick.clear();
+
+    if (pick == "rotation") {
+        if (!ui->glWidget->isAnimating()) onStopClicked();
+    } else if (pick == "path4D") {
+        if (!pathTimer->isActive()) onDepartureClicked();
+    } else if (pick == "path3D") {
+        if (!pathTimer3D->isActive()) onDeparture3DClicked();
+    } else {
+        if (hasAnyRotationSpeed() && !ui->glWidget->isAnimating()) {
+            onStopClicked();
+        }
+        if (hasPath4D && !pathTimer->isActive()) {
+            onDepartureClicked();
+        }
+        if (hasPath3D && !pathTimer3D->isActive()) {
+            onDeparture3DClicked();
+        }
     }
 
     // Non riaccendere il suono se l'utente l'ha fermato esplicitamente: un commit
@@ -5515,6 +5556,7 @@ void MainWindow::onStopClicked() {
         stopPathAnimations();
 
         ui->glWidget->resumeMotion();
+        m_lastCameraMotion = "rotation";
         if (ui->btnStart_2) ui->btnStart_2->setText("STOP");
     }
 
@@ -5596,6 +5638,9 @@ void MainWindow::onDepartureClicked()
 
     // CASO 2: VOGLIAMO PARTIRE
     // Mutua esclusivita': fermiamo il percorso 3D e il moto GO se attivi.
+    // Se stiamo SUBENTRANDO al path 3D, la camera fa l'handoff (scivolata
+    // continua invece del teletrasporto): vedi GLWidget::beginPathHandoff.
+    const bool handoffFrom3D = pathTimer3D->isActive();
     if (pathTimer3D->isActive()) {
         pathTimer3D->stop();
         ui->btnDeparture3D->setText("DEPARTURE");
@@ -5655,7 +5700,10 @@ void MainWindow::onDepartureClicked()
         m_pathBasePsi   = ui->glWidget->getPsi();
     }
 
+    if (handoffFrom3D && ui->glWidget) ui->glWidget->beginPathHandoff();
+
     pathTimer->start();
+    m_lastCameraMotion = "path4D";
     if (ui->glWidget) {
         ui->glWidget->setPathAnimating(true);
         // Solo il PRIMO Departure della sessione azzera la rotazione di default
@@ -5813,7 +5861,7 @@ void MainWindow::onPathTimerTick()
     ui->glWidget->setCameraFrom4DVectors(rotPos, rotTarget, rotUp);
 }
 
-void MainWindow::checkPathFields()
+bool MainWindow::hasPath4DInput() const
 {
     int filled = 0;
     if (!ui->lineX_P->text().trimmed().isEmpty()) filled++;
@@ -5826,11 +5874,17 @@ void MainWindow::checkPathFields()
     if (!ui->lineBeta_P->text().trimmed().isEmpty()) filled++;
     if (!ui->lineGamma_P->text().trimmed().isEmpty()) filled++;
 
+    return filled >= 2;
+}
+
+void MainWindow::checkPathFields()
+{
     if (pathTimer->isActive()) {
         ui->btnDeparture->setEnabled(true);
     } else {
-        ui->btnDeparture->setEnabled(filled >= 2);
+        ui->btnDeparture->setEnabled(hasPath4DInput());
     }
+    updateViewButtonsEnabled();
 }
 
 void MainWindow::onDeparture3DClicked()
@@ -5848,6 +5902,9 @@ void MainWindow::onDeparture3DClicked()
 
     // CASO 2: START
     // Mutua esclusivita': fermiamo il percorso 4D e il moto GO se attivi.
+    // Se stiamo SUBENTRANDO al path 4D, la camera fa l'handoff (scivolata
+    // continua invece del teletrasporto): vedi GLWidget::beginPathHandoff.
+    const bool handoffFrom4D = pathTimer->isActive();
     if (pathTimer->isActive()) {
         pathTimer->stop();
         ui->btnDeparture->setText("DEPARTURE");
@@ -5884,7 +5941,10 @@ void MainWindow::onDeparture3DClicked()
         return;
     }
 
+    if (handoffFrom4D && ui->glWidget) ui->glWidget->beginPathHandoff();
+
     pathTimer3D->start();
+    m_lastCameraMotion = "path3D";
     if (ui->glWidget) {
         ui->glWidget->setPathAnimating(true);
         // Solo il PRIMO Departure della sessione azzera la rotazione di default
@@ -5932,7 +5992,7 @@ void MainWindow::onPath3DTimerTick()
     ui->glWidget->setCameraPosAndDirection3D(currentPos, target, currentRoll);
 }
 
-void MainWindow::checkPath3DFields()
+bool MainWindow::hasPath3DInput() const
 {
     int filled = 0;
     if (!ui->lineX_P3D->text().trimmed().isEmpty()) filled++;
@@ -5940,23 +6000,30 @@ void MainWindow::checkPath3DFields()
     if (!ui->lineZ_P3D->text().trimmed().isEmpty()) filled++;
     if (!ui->lineR_P3D->text().trimmed().isEmpty()) filled++;
 
+    return filled >= 2;
+}
+
+void MainWindow::checkPath3DFields()
+{
     if (pathTimer3D->isActive()) {
         ui->btnDeparture3D->setEnabled(true);
     } else {
-        ui->btnDeparture3D->setEnabled(filled >= 2);
+        ui->btnDeparture3D->setEnabled(hasPath3DInput());
     }
+    updateViewButtonsEnabled();
 }
 
 void MainWindow::updateViewButtonsEnabled()
 {
-    // I tasti Tangent/Center View restano sempre abilitati: a path fermo il toggle
-    // non produce un effetto grafico immediato (m_pathMode/m_pathMode3D sono letti
-    // nei rispettivi tick), ma permette di PRE-SELEZIONARE la modalita' di vista
-    // prima di avviare il path, che poi partira' gia' nella vista scelta.
+    // I tasti Tangent/Center View rispecchiano i rispettivi Departure: attivi
+    // se il proprio path e' in corsa O i suoi campi sono compilati. Anche a
+    // path ALTRUI in corsa il View resta attivo coi campi compilati: per il
+    // subentro 3D<->4D (handoff) si deve poter pre-selezionare la vista con
+    // cui partira' l'altro path (m_pathMode/m_pathMode3D sono letti nei tick).
     bool path4D = pathTimer && pathTimer->isActive();
     bool path3D = pathTimer3D && pathTimer3D->isActive();
-    ui->pushView->setEnabled(true);
-    ui->pushView3D->setEnabled(true);
+    ui->pushView->setEnabled(path4D || hasPath4DInput());
+    ui->pushView3D->setEnabled(path3D || hasPath3DInput());
 
     // Mentre un path qualsiasi controlla la telecamera, i tasti di spostamento a
     // click dei dock 3D/4D sono disabilitati. Chiamato ovunque si avvii/fermi un
@@ -7340,6 +7407,11 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
     m_userStoppedTexClock = false;
     m_userStoppedBgClock = false;
 
+    // Moto camera del record: riletto piu' sotto dal JSON ("activeMotion");
+    // azzerato qui perche' un residuo di sessione non guidi l'avvio automatico
+    // di un record storico privo della chiave.
+    m_lastCameraMotion.clear();
+
     InputValidator::resetGeodesicWarning();
 
     // 1. STOP TOTALE (Reset stato iniziale)
@@ -7440,30 +7512,11 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
         ui->glWidget->setTextureCode(0);
     }
 
-    // 2. Dati Comuni (Surface)
-    applyCommonData(data);
-
-    // 3. Colori
-    if (data.hasCustomColors && !data.color1.isEmpty()) {
-        QColor surfCol(data.color1);
-        m_currentSurfaceColor = surfCol;
-
-        ui->glWidget->setColor(surfCol.redF(), surfCol.greenF(), surfCol.blueF());
-        onColorTargetChanged();
-    }
-
-    // Set PROGRAMMATICO (caricamento motion/preset): vedi nota in applySurfaceExample.
-    m_settingAlphaProgrammatic = true;
-    ui->alphaSlider->setValue(data.alpha * 100);
-    m_settingAlphaProgrammatic = false;
-
-    // 3b. Colore Sfondo
-    if (!data.bgColor.isEmpty()) {
-        m_currentBackgroundColor = QColor(data.bgColor);
-        ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
-    }
-
-    // 4. RIEMPI CAMPI TESTO PATH
+    // 2. RIEMPI CAMPI TESTO PATH — PRIMA di applyCommonData: la sua
+    // updateConstantsUIState/checkParametricDependency finale giudica le
+    // costanti anche sul testo dei path (una costante usata solo dal path va
+    // tenuta sbloccata); coi campi ancora del record VECCHIO verrebbe
+    // resettata a 1 (stessa firma del bug "preset metrico precedente").
     ui->lineX_P->setText(data.path4D_x);
     ui->lineY_P->setText(data.path4D_y);
     ui->lineZ_P->setText(data.path4D_z);
@@ -7478,6 +7531,31 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
     ui->lineZ_P3D->setText(data.path3D_z);
     ui->lineR_P3D->setText(data.path3D_roll);
     checkPath3DFields();
+
+    // 3. Dati Comuni (Surface)
+    applyCommonData(data);
+
+    // 3b. Colori
+    if (data.hasCustomColors && !data.color1.isEmpty()) {
+        QColor surfCol(data.color1);
+        m_currentSurfaceColor = surfCol;
+
+        ui->glWidget->setColor(surfCol.redF(), surfCol.greenF(), surfCol.blueF());
+        onColorTargetChanged();
+    }
+
+    // Set PROGRAMMATICO (caricamento motion/preset): vedi nota in applySurfaceExample.
+    m_settingAlphaProgrammatic = true;
+    ui->alphaSlider->setValue(data.alpha * 100);
+    m_settingAlphaProgrammatic = false;
+
+    // 3c. Colore Sfondo
+    if (!data.bgColor.isEmpty()) {
+        m_currentBackgroundColor = QColor(data.bgColor);
+        ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
+    }
+
+    // 4. (I campi path sono già stati riempiti PRIMA di applyCommonData, vedi punto 2.)
 
     // 5. TEXTURE E AUDIO SUPERFICIE E SFONDO
     bool oldTxtBlock = ui->txtScriptEditor->blockSignals(true);
@@ -7578,12 +7656,21 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
             ui->glWidget->setObserverPos4D(root["observer4D"].toDouble(4.0));
         }
 
+        // Moto camera attivo al salvataggio: guida l'avvio automatico piu' sotto
+        // (applyStartSideEffects). Nei record storici manca -> stringa vuota =
+        // cascata legacy; "none" (salvato a moti fermi) idem.
+        m_lastCameraMotion = root["activeMotion"].toString();
+        if (m_lastCameraMotion == "none") m_lastCameraMotion.clear();
+
         if (root.contains("pathMode")) {
-            // Il preset salva un solo pathMode (formato storico): lo applichiamo a
-            // entrambe le modalita' indipendenti (4D e 3D) per retrocompatibilita'.
             CameraPathMode loaded = static_cast<CameraPathMode>(root["pathMode"].toInt());
             m_pathMode = loaded;
-            m_pathMode3D = loaded;
+            // I record nuovi salvano anche la vista del path 3D ("pathMode3D");
+            // quelli col solo "pathMode" (formato storico) la applicano a
+            // entrambe le modalita' per retrocompatibilita'.
+            m_pathMode3D = root.contains("pathMode3D")
+                    ? static_cast<CameraPathMode>(root["pathMode3D"].toInt())
+                    : loaded;
         } else {
             // Retrocompatibilità per i vecchi record salvati prima di questa modifica
             m_pathMode = ModeTangential;
@@ -7863,13 +7950,31 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
 
     bool hasPath3D = isReal(data.path3D_x) || isReal(data.path3D_y) || isReal(data.path3D_z) || isReal(data.path3D_roll);
 
-    if (hasRotation) {
+    // Moto camera del record: riparte SOLO quello attivo al salvataggio
+    // (m_lastCameraMotion, letto dal JSON "activeMotion" piu' sopra). La
+    // vecchia sequenza fissa (rotazioni, poi 4D con precedenza sul 3D) faceva
+    // sempre vincere il path 4D. Record storici senza chiave: sequenza di prima.
+    QString pick = m_lastCameraMotion;
+    if (pick == "rotation" && !hasRotation) pick.clear();
+    if (pick == "path4D" && !hasPath4D) pick.clear();
+    if (pick == "path3D" && !hasPath3D) pick.clear();
+
+    if (pick == "rotation") {
         if (ui->btnStart_2) ui->btnStart_2->setText("STOP");
         ui->glWidget->resumeMotion();
+    } else if (pick == "path4D") {
+        if (!pathTimer->isActive()) onDepartureClicked();
+    } else if (pick == "path3D") {
+        if (!pathTimer3D->isActive()) onDeparture3DClicked();
+    } else {
+        if (hasRotation) {
+            if (ui->btnStart_2) ui->btnStart_2->setText("STOP");
+            ui->glWidget->resumeMotion();
+            m_lastCameraMotion = "rotation";
+        }
+        if (hasPath4D) onDepartureClicked();
+        else if (hasPath3D) onDeparture3DClicked();
     }
-
-    if (hasPath4D) onDepartureClicked();
-    else if (hasPath3D) onDeparture3DClicked();
 
     // Sincronizzazione del PRIMO FRAME al path: applyCommonData ha appena piazzato la
     // camera3D SALVATA nel preset (l'istantanea del momento in cui il record fu creato),
@@ -7879,8 +7984,8 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
     // secca (più visibile su mobile, dove il primo frame resta a schermo più a lungo).
     // Eseguendo subito un tick, la camera è già sul path prima del primo paint, così il
     // moto parte fluido dal punto iniziale della traiettoria.
-    if (hasPath4D && pathTimer->isActive()) onPathTimerTick();
-    else if (hasPath3D && pathTimer3D->isActive()) onPath3DTimerTick();
+    if (pathTimer->isActive()) onPathTimerTick();
+    else if (pathTimer3D->isActive()) onPath3DTimerTick();
 
     ui->glWidget->setProjectionMode(data.projectionMode);
     updateProjectionButtonText();

@@ -226,6 +226,11 @@ public:
 
     void setCameraPosAndDirection3D(const QVector3D& pos, const QVector3D& target, float roll);
     void setCameraFrom4DVectors(const QVector4D &pos4D, const QVector4D &target4D, const QVector4D &up4D);
+    // Handoff camera tra path 3D<->4D: cattura la camera CORRENTE e per i primi
+    // tick del nuovo path fonde (smoothstep) la vista catturata con quella del
+    // path, evitando il teletrasporto al cambio. Chiamato dai Departure quando
+    // l'ALTRO path era attivo al click.
+    void beginPathHandoff();
 
     void zoomCamera(float delta);
     void addCameraRotation(float dYaw, float dPitch);
@@ -286,7 +291,13 @@ public:
     // dopo lo stop perche' l'utente non perda l'orientamento tangente. Questo flag
     // serve SOLO al watchdog di performance per sapere se c'e' rendering continuo;
     // MainWindow lo spegne allo stop del path. Vedi render().
-    void setPathAnimating(bool animating) { m_pathAnimating = animating; }
+    void setPathAnimating(bool animating) {
+        m_pathAnimating = animating;
+        // Stop del path a handoff in corso: il blend va annullato, altrimenti
+        // un Departure successivo SENZA subentro riprenderebbe la scivolata
+        // da una vista catturata ormai stantia.
+        if (!animating) m_pathHandoffActive = false;
+    }
     bool isPathAnimating() const { return m_pathAnimating; }
 
     void startAnimationTimer();
@@ -550,6 +561,17 @@ private:
     QVector3D m_pathTarget;
     QVector3D m_pathUp;
     float m_pathRoll = 0.0f;
+
+    // --- Handoff camera al cambio path 3D<->4D (vedi beginPathHandoff) ---
+    float advancePathHandoff();      // avanza il blend, torna il fattore smoothstep
+    bool m_pathHandoffActive = false;
+    float m_pathHandoffK = 0.0f;      // 0..1, avanzato a ogni tick del nuovo path
+    QVector3D m_handoffPos;
+    QVector3D m_handoffTarget;
+    QVector3D m_handoffUp;
+    float m_handoffRoll = 0.0f;
+    QVector4D m_handoffObserver;
+    QVector4D m_handoffCam4D;
 
 
     // ==========================================================

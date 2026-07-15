@@ -2061,17 +2061,69 @@ void GLWidget::setRotation4D(float o, float p, float ps) {
     update();
 }
 
+void GLWidget::beginPathHandoff()
+{
+    m_handoffPos = m_cameraPos;
+    if (m_isPathFollowing) {
+        m_handoffTarget = m_pathTarget;
+        m_handoffUp     = m_pathUp;
+        m_handoffRoll   = m_pathRoll;
+    } else {
+        // Camera libera: ricostruiamo target/up con lo stesso modello del render()
+        float radYaw = m_cameraYaw * M_PI / 180.0f;
+        float radPitch = m_cameraPitch * M_PI / 180.0f;
+        QVector3D front(std::sin(radYaw) * std::cos(radPitch),
+                        std::sin(radPitch),
+                        -std::cos(radYaw) * std::cos(radPitch));
+        QMatrix4x4 rollMat;
+        rollMat.rotate(m_cameraRoll, 0.0f, 0.0f, 1.0f);
+        m_handoffTarget = m_cameraPos + front;
+        m_handoffUp     = rollMat.map(QVector3D(0.0f, 1.0f, 0.0f));
+        m_handoffRoll   = 0.0f;   // il roll libero e' gia' dentro l'up
+    }
+    m_handoffObserver = m_observerPos;
+    m_handoffCam4D    = m_cameraPos4D;
+    m_pathHandoffK = 0.0f;
+    m_pathHandoffActive = true;
+}
+
+float GLWidget::advancePathHandoff()
+{
+    m_pathHandoffK += 0.025f;          // ~1.2 s a un tick ogni 30 ms
+    if (m_pathHandoffK >= 1.0f) {
+        m_pathHandoffK = 1.0f;
+        m_pathHandoffActive = false;
+    }
+    float k = m_pathHandoffK;
+    return k * k * (3.0f - 2.0f * k);  // smoothstep
+}
+
 void GLWidget::setCameraPosAndDirection3D(const QVector3D& pos, const QVector3D& targetPoint, float roll)
 {
-    m_cameraPos = pos;
-    m_pathTarget = targetPoint;
-    m_isPathFollowing = true;
-
+    QVector3D finalPos = pos;
+    QVector3D finalTarget = targetPoint;
     // 1. RIPRISTINA L'UP VECTOR ORIGINALE
-    m_pathUp = QVector3D(0.0f, 0.0f, 1.0f);
-
+    QVector3D finalUp(0.0f, 0.0f, 1.0f);
     // 2. IL VERO FIX PER RHI: INVERTI IL ROLLIO
-    m_pathRoll = qRadiansToDegrees(roll);
+    float rollDeg = qRadiansToDegrees(roll);
+
+    // Handoff dal path 4D: nei primi tick la camera scivola dalla vista
+    // catturata al click a quella del path, invece di teletrasportarsi.
+    if (m_pathHandoffActive) {
+        float k = advancePathHandoff();
+        finalPos    = m_handoffPos    * (1.0f - k) + finalPos    * k;
+        finalTarget = m_handoffTarget * (1.0f - k) + finalTarget * k;
+        finalUp     = m_handoffUp     * (1.0f - k) + finalUp     * k;
+        if (finalUp.lengthSquared() > 1e-6f) finalUp.normalize();
+        else finalUp = QVector3D(0.0f, 0.0f, 1.0f);
+        rollDeg     = m_handoffRoll * (1.0f - k) + rollDeg * k;
+    }
+
+    m_cameraPos = finalPos;
+    m_pathTarget = finalTarget;
+    m_isPathFollowing = true;
+    m_pathUp = finalUp;
+    m_pathRoll = rollDeg;
 
     update();
 }
@@ -2082,10 +2134,9 @@ void GLWidget::setCameraFrom4DVectors(const QVector4D &pos4D, const QVector4D &t
     QVector4D safeObserverPos = pos4D;
     safeObserverPos.setW(pos4D.w() + 5.0f);
 
-    m_observerPos = safeObserverPos;
-
-    // Aggiorniamo l'engine per coerenza nei calcoli
-    m_cameraPos4D = pos4D;
+    // (assegnati in fondo: durante l'handoff dal path 3D anche osservatore e
+    // camera 4D vengono fusi, altrimenti la proiezione 4D->3D della superficie
+    // scatterebbe pur con la camera in blend)
 
     // 2. PROIEZIONE DELLA POSIZIONE
     QVector3D pos3D = projectPoint4Dto3D(pos4D);
@@ -2116,16 +2167,36 @@ void GLWidget::setCameraFrom4DVectors(const QVector4D &pos4D, const QVector4D &t
         m_lastValidUp = finalUp3D;
     }
 
-    m_pathUp = finalUp3D;
+    // 5b. HANDOFF dal path 3D: scivolata dalla vista catturata al click a
+    // quella del path (l'anti-flip sopra resta sul vettore puro del path).
+    QVector3D dispUp = finalUp3D;
+    float rollDeg = 0.0f;
+    QVector4D newObserver = safeObserverPos;
+    QVector4D newCam4D = pos4D;
+    if (m_pathHandoffActive) {
+        float k = advancePathHandoff();
+        pos3D    = m_handoffPos    * (1.0f - k) + pos3D    * k;
+        target3D = m_handoffTarget * (1.0f - k) + target3D * k;
+        dispUp   = m_handoffUp     * (1.0f - k) + dispUp   * k;
+        if (dispUp.lengthSquared() > 1e-6f) dispUp.normalize();
+        else dispUp = finalUp3D;
+        rollDeg     = m_handoffRoll * (1.0f - k);   // il 4D lavora a roll 0
+        newObserver = m_handoffObserver * (1.0f - k) + safeObserverPos * k;
+        newCam4D    = m_handoffCam4D    * (1.0f - k) + pos4D           * k;
+    }
+
+    m_pathUp = dispUp;
+    m_observerPos = newObserver;
+    m_cameraPos4D = newCam4D;
 
     // 6. APPLICAZIONE
     m_cameraPos = pos3D;
     m_pathTarget = target3D;
     m_isPathFollowing = true;
-    m_pathRoll = 0.0f;
+    m_pathRoll = rollDeg;
 
     m_view.setToIdentity();
-    m_view.lookAt(pos3D, target3D, finalUp3D);
+    m_view.lookAt(pos3D, target3D, dispUp);
 
     update();
 }

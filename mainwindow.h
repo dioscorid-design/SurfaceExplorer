@@ -133,11 +133,14 @@ private slots:
     void stopRotationMotion();   // ferma il moto GO (rotazioni superficie/4D)
     void onToggleViewClicked();    // toggle vista path 4D (pushView)
     void onToggleView3DClicked();  // toggle vista path 3D (pushView3D)
-    // I pulsanti Tangent/Center View hanno effetto solo mentre il rispettivo path
-    // anima (m_pathMode/m_pathMode3D sono letti nei tick dei timer). A path fermo
-    // il toggle non produce alcun cambiamento grafico, quindi ogni pulsante e'
-    // abilitato solo mentre il SUO path e' in movimento. Chiamato agli avvii/stop.
+    // I pulsanti Tangent/Center View rispecchiano i rispettivi Departure:
+    // attivi se il proprio path e' in corsa o i suoi campi sono compilati
+    // (pre-selezione della vista, anche per il subentro con handoff mentre
+    // l'altro path gira). Chiamato agli avvii/stop e a ogni modifica dei
+    // campi path (via checkPathFields/checkPath3DFields).
     void updateViewButtonsEnabled();
+    bool hasPath4DInput() const;   // >=2 campi path 4D compilati (gate Departure/View 4D)
+    bool hasPath3DInput() const;   // >=2 campi path 3D compilati (gate Departure/View 3D)
 
     // ==========================================================
     // SCRIPTING ENGINE
@@ -341,6 +344,11 @@ private:
     };
     CameraPathMode m_pathMode;     // modalita' vista del path 4D (pushView)
     CameraPathMode m_pathMode3D;   // modalita' vista del path 3D (pushView3D)
+    // Ultimo moto camera avviato ("rotation" | "path4D" | "path3D", "" = mai):
+    // con rotazioni e path entrambi compilati, applyStartSideEffects riavvia
+    // SOLO questo (la vecchia cascata faceva vincere sempre il path 3D). Al
+    // load di un record viene impostato dalla chiave JSON "activeMotion".
+    QString m_lastCameraMotion;
 
     bool m_masterStopped = false;
     // L'utente ha fermato il suono ESPLICITAMENTE (tasto Stop Sound): in tal caso
