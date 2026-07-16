@@ -223,6 +223,36 @@ private:
 };
 #endif
 
+#if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
+// QFileDialog ISTANZIATO (non lo static getSaveFileName) per poter impostare
+// setDefaultSuffix: cosi' il dialogo completa il nome con l'estensione PRIMA
+// del suo controllo di sovrascrittura. Con lo static il check avveniva sul
+// testo digitato: "Pippo" senza estensione non esiste -> nessun avviso, e il
+// ".json" aggiunto DOPO dal chiamante sovrascriveva Pippo.json in silenzio.
+// Stesso bug (e stesso fix) degli mp4 in videorecorder.cpp.
+static QString getSaveFileNameWithSuffix(QWidget* parent, const QString& title,
+                                         const QString& startPath, const QString& filter,
+                                         const QString& suffix)
+{
+    QFileDialog dlg(parent, title);
+    const QFileInfo fi(startPath);
+    if (fi.isDir()) {
+        dlg.setDirectory(startPath);
+    } else {
+        dlg.setDirectory(fi.absolutePath());
+        dlg.selectFile(fi.fileName());
+    }
+    dlg.setNameFilter(filter);
+    dlg.setAcceptMode(QFileDialog::AcceptSave);
+    dlg.setFileMode(QFileDialog::AnyFile);
+    dlg.setOption(QFileDialog::DontUseNativeDialog, true);
+    dlg.setDefaultSuffix(suffix);
+    if (dlg.exec() != QDialog::Accepted || dlg.selectedFiles().isEmpty())
+        return QString();
+    return dlg.selectedFiles().first();
+}
+#endif
+
 PresetSerializer::PresetSerializer(MainWindow *parent)
     : QObject(parent), m_mainWindow(parent)
 {
@@ -305,7 +335,7 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         }
         fileName = dialog.getSelectedPath();
 #else
-        fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface", startPath, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
+        fileName = getSaveFileNameWithSuffix(m_mainWindow, "Save Surface", startPath, "JSON Files (*.json)", "json");
 #endif
     }
 
@@ -689,7 +719,7 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         }
         fileName = dialog.getSelectedPath();
 #else
-        fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save File", startPath, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
+        fileName = getSaveFileNameWithSuffix(m_mainWindow, "Save File", startPath, "JSON Files (*.json)", "json");
 #endif
     }
 
@@ -1098,10 +1128,9 @@ void PresetSerializer::saveScript()
     }
     fileName = dialog.getSelectedPath();
 #else
-    QFileDialog::Options options = QFileDialog::DontUseNativeDialog;
-    if (isSurface) fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface Script", currentMem, "Surface Script (*.json)", nullptr, options);
-    else if (isSound) fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Sound Script", currentMem, "Sound Script (*.json)", nullptr, options);
-    else fileName = QFileDialog::getSaveFileName(m_mainWindow, "Save Texture Script", currentMem, "Texture Script (*.json)", nullptr, options);
+    if (isSurface) fileName = getSaveFileNameWithSuffix(m_mainWindow, "Save Surface Script", currentMem, "Surface Script (*.json)", "json");
+    else if (isSound) fileName = getSaveFileNameWithSuffix(m_mainWindow, "Save Sound Script", currentMem, "Sound Script (*.json)", "json");
+    else fileName = getSaveFileNameWithSuffix(m_mainWindow, "Save Texture Script", currentMem, "Texture Script (*.json)", "json");
 #endif
 
     resumeTimers();
@@ -1110,7 +1139,7 @@ void PresetSerializer::saveScript()
     if (!fileName.endsWith(".json", Qt::CaseInsensitive)) fileName += ".json";
 
     // NB: la conferma di sovrascrittura la dà GIA' il dialogo di salvataggio:
-    // su desktop il prompt "replace?" di QFileDialog::getSaveFileName, su mobile
+    // su desktop il prompt "replace?" di getSaveFileNameWithSuffix, su mobile
     // il bottone Save del MobileSaveDialog che diventa "Overwrite?" (vedi
     // MobileSaveDialog::onSaveClicked). Un QMessageBox manuale qui sarebbe un
     // secondo avviso ridondante ("sovrascrivere" dopo "rimpiazzare"), quindi non
@@ -1345,7 +1374,7 @@ void PresetSerializer::saveTextureAs(const QString &startDir, const QString &sou
 #else
     QString defaultSelection = effStartDir + "/";
     if (!defaultName.isEmpty()) defaultSelection += defaultName + ".json";
-    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Texture As...", defaultSelection, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
+    QString savePath = getSaveFileNameWithSuffix(m_mainWindow, "Save Texture As...", defaultSelection, "JSON Files (*.json)", "json");
 #endif
 
     if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
@@ -1389,7 +1418,7 @@ void PresetSerializer::saveSurfaceAs(const QString &startDir, const QString &sou
     }
     QString savePath = dialog.getSelectedPath();
 #else
-    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface As...", defaultSelection, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
+    QString savePath = getSaveFileNameWithSuffix(m_mainWindow, "Save Surface As...", defaultSelection, "JSON Files (*.json)", "json");
 #endif
 
     if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
@@ -1470,8 +1499,9 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
     }
 
 #else
-    // FIX DESKTOP: Usa la variabile "filter" calcolata sopra!
-    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Sound As...", defaultSelection, filter, nullptr, QFileDialog::DontUseNativeDialog);
+    // FIX DESKTOP: Usa la variabile "filter" calcolata sopra (e il suffisso
+    // atteso: json o l'estensione del media clonato).
+    QString savePath = getSaveFileNameWithSuffix(m_mainWindow, "Save Sound As...", defaultSelection, filter, expectedExt);
 #endif
 
     // Riprendiamo i timer dopo la chiusura della finestra
@@ -1578,7 +1608,7 @@ void PresetSerializer::saveMotionAs(const QString &startDir, const QString &sour
     }
     QString savePath = dialog.getSelectedPath();
 #else
-    QString savePath = QFileDialog::getSaveFileName(m_mainWindow, "Save Surface As...", defaultSelection, "JSON Files (*.json)", nullptr, QFileDialog::DontUseNativeDialog);
+    QString savePath = getSaveFileNameWithSuffix(m_mainWindow, "Save Record As...", defaultSelection, "JSON Files (*.json)", "json");
 #endif
 
     if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
