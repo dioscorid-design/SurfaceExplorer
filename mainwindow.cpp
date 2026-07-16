@@ -7647,6 +7647,15 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
         } else {
             ui->glWidget->setCameraPos(QVector3D(data.camX, data.camY, data.camZ));
             ui->glWidget->setRotationQuat(QQuaternion(data.rotW, data.rotX, data.rotY, data.rotZ));
+            // Il quaternione di un RECORD e' un'istantanea intenzionale (l'utente
+            // l'ha ruotato cosi' e l'ha salvato): senza questo mark, l'avvio del
+            // path in coda al load (sez. 6 -> onDepartureClicked, primo Departure
+            // perche' m_anyPathStartedOnce e' appena stato resettato) passava per
+            // neutralizeDefaultRotationForPath e AZZERAVA la rotazione salvata --
+            // il record ricaricato appariva identico a quello di partenza. Il ramo
+            // sopra (record vecchi senza camera3D) resta neutralizzabile: quel
+            // tilt 30/30 e' davvero cosmetico.
+            ui->glWidget->markUserRotated();
             ui->glWidget->setCameraYaw(data.camYaw);
             ui->glWidget->setCameraPitch(data.camPitch);
             ui->glWidget->setCameraRoll(data.camRoll);
