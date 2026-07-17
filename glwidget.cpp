@@ -97,7 +97,7 @@ GLWidget::GLWidget(QWidget *parent)
 
     // --- 4. TIMERS ---
     rotationTimer = new QTimer(this);
-    rotationTimer->setInterval(16);
+    rotationTimer->setInterval(kRotationTickMs);
     connect(rotationTimer, &QTimer::timeout, this, &GLWidget::updateRotation);
     rotationTimer->stop();
 
@@ -883,8 +883,30 @@ void GLWidget::rebuildBackgroundShader(bool isTextureMode, const QString &custom
 // ==========================================================
 
 void GLWidget::updateRotation() {
-    float speedMult3D = 2.0f;
-    float speedMult4D = 0.05f;
+    advanceRotationsBy(kRotationTickMs / 1000.0f);
+
+    // NB: la rotazione 4D NON cambia i dati CPU della mesh: la rotazione XW/YW/ZW
+    // e la proiezione 4D->3D avvengono nel VERTEX SHADER leggendo omega/phi/psi
+    // dall'UBO, che render() ricarica a OGNI frame (updateDynamicBuffer(m_ubo)).
+    // Settare meshNeedsUpdate qui forzava un re-upload INTEGRALE di VBO+IBO a ogni
+    // frame con dati IDENTICI: spreco puro che su iOS/Metal (memoria stretta +
+    // watchdog jetsam) accumula buffer transitori e fa killare l'app dopo qualche
+    // decina di secondi, specie su superfici dense (steps alti) in wireframe.
+    // Basta l'update() qui sotto: ridisegna col nuovo omega senza toccare la mesh.
+
+    emit rotationChanged();
+    update();
+}
+
+void GLWidget::advanceRotationsBy(float dtSeconds) {
+    // L'unita' di avanzamento e' il tick live di rotationTimer: le velocita'
+    // dei dock sono tarate su quello. Convertire dtSeconds in tick
+    // equivalenti garantisce che il recorder, passando il dt del suo frame
+    // virtuale (1/fps), avanzi esattamente alla velocita' vista a schermo.
+    float ticks = dtSeconds / (kRotationTickMs / 1000.0f);
+
+    float speedMult3D = 2.0f * ticks;
+    float speedMult4D = 0.05f * ticks;
 
     float dPrec = precessionSpeed * speedMult3D;
     float dNut  = nutationSpeed   * speedMult3D;
@@ -898,18 +920,6 @@ void GLWidget::updateRotation() {
     omega += omegaSpeed * speedMult4D;
     phi   += phiSpeed   * speedMult4D;
     psi   += psiSpeed   * speedMult4D;
-
-    // NB: la rotazione 4D NON cambia i dati CPU della mesh: la rotazione XW/YW/ZW
-    // e la proiezione 4D->3D avvengono nel VERTEX SHADER leggendo omega/phi/psi
-    // dall'UBO, che render() ricarica a OGNI frame (updateDynamicBuffer(m_ubo)).
-    // Settare meshNeedsUpdate qui forzava un re-upload INTEGRALE di VBO+IBO a ogni
-    // frame con dati IDENTICI: spreco puro che su iOS/Metal (memoria stretta +
-    // watchdog jetsam) accumula buffer transitori e fa killare l'app dopo qualche
-    // decina di secondi, specie su superfici dense (steps alti) in wireframe.
-    // Basta l'update() qui sotto: ridisegna col nuovo omega senza toccare la mesh.
-
-    emit rotationChanged();
-    update();
 }
 
 

@@ -126,6 +126,12 @@ private slots:
     void onDeparture3DClicked();
     void onPath3DTimerTick();
     void checkPath3DFields();
+    // Camera dei path al tempo t: unica implementazione, condivisa tra i tick
+    // live e il loop di registrazione (VideoRecorder passa il tempo virtuale
+    // del frame). Il video deve mostrare cio' che mostrerebbe lo schermo:
+    // niente copie locali di questa logica nel recorder.
+    void applyPath4DCameraAt(float t);
+    void applyPath3DCameraAt(float t);
     // Mutua esclusivita' GO / Departure 3D / Departure 4D: attivando uno di questi
     // tre moti gli altri due si spengono. Questi helper fermano gli "altri" senza
     // duplicare la logica di pulizia UI. Ognuno e' un no-op se il suo moto e' fermo.
@@ -141,6 +147,10 @@ private slots:
     void updateViewButtonsEnabled();
     bool hasPath4DInput() const;   // >=2 campi path 4D compilati (gate Departure/View 4D)
     bool hasPath3DInput() const;   // >=2 campi path 3D compilati (gate Departure/View 3D)
+    // Moto GO (rotazioni) davvero in corsa: timer attivo E tasto non su "GO".
+    // UNICO lettore autorizzato del testo di btnStart_2 come stato — master
+    // button e VideoRecorder passano da qui, mai confronti locali sul testo.
+    bool isRotationMotionRunning() const;
 
     // ==========================================================
     // SCRIPTING ENGINE
@@ -342,8 +352,8 @@ private:
         ModeTangential,
         ModeCentered
     };
-    CameraPathMode m_pathMode;     // modalita' vista del path 4D (pushView)
-    CameraPathMode m_pathMode3D;   // modalita' vista del path 3D (pushView3D)
+    CameraPathMode m_pathViewMode4D;     // modalita' vista del path 4D (pushView)
+    CameraPathMode m_pathViewMode3D;   // modalita' vista del path 3D (pushView3D)
     // Ultimo moto camera avviato ("rotation" | "path4D" | "path3D", "" = mai):
     // con rotazioni e path entrambi compilati, applyStartSideEffects riavvia
     // SOLO questo (la vecchia cascata faceva vincere sempre il path 3D). Al

@@ -2834,8 +2834,8 @@ MainWindow::MainWindow(QWidget *parent)
     ui->btnDeparture->setEnabled(false); connect(ui->btnDeparture, &QPushButton::clicked, this, &MainWindow::onDepartureClicked);
     ui->btnDeparture3D->setEnabled(false); connect(ui->btnDeparture3D, &QPushButton::clicked, this, &MainWindow::onDeparture3DClicked);
 
-    m_pathMode = ModeTangential;
-    m_pathMode3D = ModeTangential;
+    m_pathViewMode4D = ModeTangential;
+    m_pathViewMode3D = ModeTangential;
     // Enabled iniziale ai View: deciso da updateViewButtonsEnabled (campi path
     // vuoti all'avvio -> spenti, come il Departure; si accendono compilandoli).
     ui->pushView->setText("Tangent View"); ui->pushView->setEnabled(false); connect(ui->pushView, &QPushButton::clicked, this, &MainWindow::onToggleViewClicked);
@@ -5725,33 +5725,38 @@ void MainWindow::onPathTimerTick()
 {
     if (!pathTimer->isActive()) return;
 
-    // 1. SETUP BASE
-    float surfaceScale = ui->glWidget->getSurfaceScale();
-    float advanceStep = m_pathSpeed4D;
+    pathTimeT += m_pathSpeed4D;
+    applyPath4DCameraAt(pathTimeT);
+}
 
-    pathTimeT += advanceStep;
+void MainWindow::applyPath4DCameraAt(float t)
+{
+    // 1. SETUP BASE
     float dt = 0.01f;
 
     SurfaceEngine* engine = ui->glWidget->getEngine();
 
-    // 2. VALUTAZIONE POSIZIONE E TANGENTE
-    QVector4D p_prev = engine->evaluatePathPosition(pathTimeT - dt);
-    QVector4D p_curr = engine->evaluatePathPosition(pathTimeT);
-    QVector4D p_next = engine->evaluatePathPosition(pathTimeT + dt);
+    // 2. VALUTAZIONE POSIZIONE (la tangente serve solo in vista Tangent,
+    // quindi p_prev si valuta dentro quel ramo: una eval exprtk in meno
+    // per frame in vista Center)
+    QVector4D p_curr = engine->evaluatePathPosition(t);
+    QVector4D p_next = engine->evaluatePathPosition(t + dt);
 
-    QVector4D velocity = p_next - p_prev;
-    QVector4D V = (velocity.lengthSquared() > 1e-8f) ? velocity.normalized() : QVector4D(0, 1, 0, 0);
+    QVector4D V;
 
     // 3. RECUPERO ANGOLI (Alpha, Beta, Gamma)
-    float alpha = engine->evaluatePathAlpha(pathTimeT);
-    float beta  = engine->evaluatePathBeta(pathTimeT);
-    float gamma = engine->evaluatePathGamma(pathTimeT);
+    float alpha = engine->evaluatePathAlpha(t);
+    float beta  = engine->evaluatePathBeta(t);
+    float gamma = engine->evaluatePathGamma(t);
 
     // 4. CALCOLO BASE ORTONORMALE LOCALE (N1, N2, N3)
     QVector4D N1, N2, N3;
     QVector4D finalPos4D, finalTarget4D, finalUp4D;
 
-    if (m_pathMode == ModeTangential) {
+    if (m_pathViewMode4D == ModeTangential) {
+        QVector4D velocity = p_next - engine->evaluatePathPosition(t - dt);
+        V = (velocity.lengthSquared() > 1e-8f) ? velocity.normalized() : QVector4D(0, 1, 0, 0);
+
         QVector4D K(0.0f, 0.0f, 1.0f, 0.0f);
         N1 = K - V * QVector4D::dotProduct(K, V);
         if (N1.lengthSquared() > 1e-6f) N1.normalize();
@@ -5966,14 +5971,13 @@ void MainWindow::onPath3DTimerTick()
 {
     if (!pathTimer3D->isActive()) return;
 
-    // Recuperiamo la scala dinamicamente
-    float surfaceScale = ui->glWidget->getSurfaceScale();
+    pathTimeT3D += m_pathSpeed3D;
+    applyPath3DCameraAt(pathTimeT3D);
+}
 
-    float dt = m_pathSpeed3D;
-
-    pathTimeT3D += dt;
-
-    QVector4D rawData = ui->glWidget->getEngine()->evaluatePath3DPosition(pathTimeT3D);
+void MainWindow::applyPath3DCameraAt(float t)
+{
+    QVector4D rawData = ui->glWidget->getEngine()->evaluatePath3DPosition(t);
 
     // Scala la posizione (XYZ) ma NON il rollio (W)
     QVector3D currentPos = rawData.toVector3D();
@@ -5981,9 +5985,9 @@ void MainWindow::onPath3DTimerTick()
 
     QVector3D target;
 
-    if (m_pathMode3D == ModeTangential) {
+    if (m_pathViewMode3D == ModeTangential) {
         float delta = 0.1f;
-        QVector4D futureData = ui->glWidget->getEngine()->evaluatePath3DPosition(pathTimeT3D + delta);
+        QVector4D futureData = ui->glWidget->getEngine()->evaluatePath3DPosition(t + delta);
         target = futureData.toVector3D();
     } else {
         target = QVector3D(0, 0, 0);
@@ -6019,7 +6023,7 @@ void MainWindow::updateViewButtonsEnabled()
     // se il proprio path e' in corsa O i suoi campi sono compilati. Anche a
     // path ALTRUI in corsa il View resta attivo coi campi compilati: per il
     // subentro 3D<->4D (handoff) si deve poter pre-selezionare la vista con
-    // cui partira' l'altro path (m_pathMode/m_pathMode3D sono letti nei tick).
+    // cui partira' l'altro path (m_pathViewMode4D/m_pathViewMode3D sono letti nei tick).
     bool path4D = pathTimer && pathTimer->isActive();
     bool path3D = pathTimer3D && pathTimer3D->isActive();
     ui->pushView->setEnabled(path4D || hasPath4DInput());
@@ -6043,22 +6047,22 @@ void MainWindow::setNavControlsEnabled(bool enabled)
 
 void MainWindow::onToggleViewClicked()  // path 4D (pushView)
 {
-    if (m_pathMode == ModeTangential) {
-        m_pathMode = ModeCentered;
+    if (m_pathViewMode4D == ModeTangential) {
+        m_pathViewMode4D = ModeCentered;
         ui->pushView->setText("Center View");
     } else {
-        m_pathMode = ModeTangential;
+        m_pathViewMode4D = ModeTangential;
         ui->pushView->setText("Tangent View");
     }
 }
 
 void MainWindow::onToggleView3DClicked()  // path 3D (pushView3D)
 {
-    if (m_pathMode3D == ModeTangential) {
-        m_pathMode3D = ModeCentered;
+    if (m_pathViewMode3D == ModeTangential) {
+        m_pathViewMode3D = ModeCentered;
         ui->pushView3D->setText("Center View");
     } else {
-        m_pathMode3D = ModeTangential;
+        m_pathViewMode3D = ModeTangential;
         ui->pushView3D->setText("Tangent View");
     }
 }
@@ -7673,22 +7677,22 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
 
         if (root.contains("pathMode")) {
             CameraPathMode loaded = static_cast<CameraPathMode>(root["pathMode"].toInt());
-            m_pathMode = loaded;
+            m_pathViewMode4D = loaded;
             // I record nuovi salvano anche la vista del path 3D ("pathMode3D");
             // quelli col solo "pathMode" (formato storico) la applicano a
             // entrambe le modalita' per retrocompatibilita'.
-            m_pathMode3D = root.contains("pathMode3D")
+            m_pathViewMode3D = root.contains("pathMode3D")
                     ? static_cast<CameraPathMode>(root["pathMode3D"].toInt())
                     : loaded;
         } else {
             // Retrocompatibilità per i vecchi record salvati prima di questa modifica
-            m_pathMode = ModeTangential;
-            m_pathMode3D = ModeTangential;
+            m_pathViewMode4D = ModeTangential;
+            m_pathViewMode3D = ModeTangential;
         }
 
         // Aggiorniamo subito i testi dei pulsanti nella UI (ciascuno sulla sua modalita')
-        ui->pushView->setText(m_pathMode == ModeTangential ? "Tangent View" : "Center View");
-        ui->pushView3D->setText(m_pathMode3D == ModeTangential ? "Tangent View" : "Center View");
+        ui->pushView->setText(m_pathViewMode4D == ModeTangential ? "Tangent View" : "Center View");
+        ui->pushView3D->setText(m_pathViewMode3D == ModeTangential ? "Tangent View" : "Center View");
         // Abilitazione coerente con lo stato dei path (a load fermo -> disabilitati).
         updateViewButtonsEnabled();
 
@@ -10367,6 +10371,16 @@ void MainWindow::updateFlatPreviewButton() {
     }
 }
 
+// Moto GO (rotazioni superficie/4D) davvero in corsa: il timer attivo non
+// basta, perche' fermando il moto il timer puo' restare vivo col tasto
+// tornato su "GO". Quello stop oggi e' codificato SOLO nel testo del bottone:
+// questo predicato e' l'unico punto autorizzato a leggerlo.
+bool MainWindow::isRotationMotionRunning() const
+{
+    if (!ui->glWidget || !ui->glWidget->isAnimating()) return false;
+    return !(ui->btnStart_2 && ui->btnStart_2->text() == "GO");
+}
+
 void MainWindow::updateMasterButtonState()
 {
     if (!m_btnStart) return;
@@ -10378,12 +10392,7 @@ void MainWindow::updateMasterButtonState()
     if (!m_uiReady) return;
 
     // 1. Controllo Rotazioni 3D/4D
-    bool rotActive = false;
-    if (ui->glWidget) rotActive = ui->glWidget->isAnimating();
-    // Controllo incrociato: se il tasto singolo dice GO, l'utente l'ha fermato
-    if (ui->btnStart_2 && ui->btnStart_2->text() == "GO") {
-        rotActive = false;
-    }
+    bool rotActive = isRotationMotionRunning();
 
     // 2. Controllo Audio
     bool audioActive = false;

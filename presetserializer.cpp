@@ -858,10 +858,10 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     path3D["z"] = m_mainWindow->ui->lineZ_P3D->text();
     path3D["roll"] = m_mainWindow->ui->lineR_P3D->text();
     root["path3D"] = path3D;
-    // Vista corrente di ENTRAMBI i path: salvare solo m_pathMode (4D) faceva
-    // ripartire i record 3D sempre in Tangent (la vista 3D vive in m_pathMode3D).
-    root["pathMode"] = static_cast<int>(m_mainWindow->m_pathMode);
-    root["pathMode3D"] = static_cast<int>(m_mainWindow->m_pathMode3D);
+    // Vista corrente di ENTRAMBI i path: salvare solo m_pathViewMode4D (4D) faceva
+    // ripartire i record 3D sempre in Tangent (la vista 3D vive in m_pathViewMode3D).
+    root["pathMode"] = static_cast<int>(m_mainWindow->m_pathViewMode4D);
+    root["pathMode3D"] = static_cast<int>(m_mainWindow->m_pathViewMode3D);
     // Moto camera CORRENTE al salvataggio: al load riparte solo questo. Se al
     // momento del save nessun moto e' in corsa (l'utente spesso ferma la scena
     // prima di salvare) vale l'ULTIMO moto camera avviato in sessione

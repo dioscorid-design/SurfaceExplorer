@@ -316,6 +316,10 @@ void VideoRecorder::toggleRecord()
     bool wasPath4D = m_mainWindow->pathTimer->isActive();
     bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
     bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
+    // Moto GO davvero in corsa al REC: solo in quel caso il loop avanza le
+    // rotazioni (advanceRotationsBy), altrimenti posa statica come a schermo.
+    // Catturato PRIMA di pauseMotion, tramite l'unico predicato autorizzato.
+    bool rotationsWereRunning = m_mainWindow->isRotationMotionRunning();
 
     bool wasTimeAnimating = false;
     if (m_mainWindow->m_btnStart && m_mainWindow->m_btnStart->text().toUpper() == "STOP") {
@@ -577,7 +581,11 @@ void VideoRecorder::toggleRecord()
 
     int totalFrames = seconds * fps;
     float timeStep = 1.0f / (float)fps;
-    float fpsScale = 30.0f / (float)fps;
+    // Tick/secondo REALI dei timer path (l'intervallo e' in ms): il passo per
+    // frame deve riprodurre la velocita' vista a schermo. Il vecchio 30.0f
+    // nominale (vs 33.3 reali) rendeva i path ~11% piu' lenti nel video.
+    float fpsScale4D = (1000.0f / (float)m_mainWindow->pathTimer->interval()) / (float)fps;
+    float fpsScale3D = (1000.0f / (float)m_mainWindow->pathTimer3D->interval()) / (float)fps;
 
 #ifdef Q_OS_ANDROID
     // Android: Usa la cache interna dell'app in modo che FFmpeg (C nativo) abbia i permessi
@@ -595,30 +603,13 @@ void VideoRecorder::toggleRecord()
     // Recupero variabili per il loop
     float currentPathT = m_mainWindow->pathTimeT;
 
-    // Rotazioni 3D/4D: le VELOCITA' sopravvivono allo stop (il tasto GO/STOP
-    // ferma solo il timer), ma il loop di registrazione ricostruisce le
-    // rotazioni proprio dalle velocita' — quindi una rotazione FERMATA
-    // dall'utente girava comunque nel video. Se le rotazioni non erano in
-    // moto al REC, azzeriamo le velocita' locali: posa statica, come a
-    // schermo. Stesso controllo incrociato col testo del tasto usato da
-    // updateMasterButtonState (timer attivo ma tasto su "GO" = fermata).
-    bool rotationsWereRunning = wasAnimating;
-    if (m_mainWindow->ui->btnStart_2 && m_mainWindow->ui->btnStart_2->text() == "GO")
-        rotationsWereRunning = false;
-
-    float vNut   = rotationsWereRunning ? m_mainWindow->ui->glWidget->getNutationSpeed()   : 0.0f;
-    float vPrec  = rotationsWereRunning ? m_mainWindow->ui->glWidget->getPrecessionSpeed() : 0.0f;
-    float vSpin  = rotationsWereRunning ? m_mainWindow->ui->glWidget->getSpinSpeed()       : 0.0f;
-    float vOmega = rotationsWereRunning ? m_mainWindow->ui->glWidget->getOmegaSpeed()      : 0.0f;
-    float vPhi   = rotationsWereRunning ? m_mainWindow->ui->glWidget->getPhiSpeed()        : 0.0f;
-    float vPsi   = rotationsWereRunning ? m_mainWindow->ui->glWidget->getPsiSpeed()        : 0.0f;
-
+    // Posa 4D al momento del REC: il loop avanza omega/phi/psi reali
+    // (advanceRotationsBy), a fine registrazione lo schermo torna qui.
     float startOmega = m_mainWindow->ui->glWidget->getOmega();
     float startPhi   = m_mainWindow->ui->glWidget->getPhi();
     float startPsi   = m_mainWindow->ui->glWidget->getPsi();
 
-    float baseStep = m_mainWindow->m_pathSpeed4D;
-    float pathStep = baseStep * fpsScale;
+    float pathStep = m_mainWindow->m_pathSpeed4D * fpsScale4D;
 
     // UI Feedback
     m_mainWindow->m_statusLabel->clear();
@@ -633,7 +624,6 @@ void VideoRecorder::toggleRecord()
     m_mainWindow->ui->dock3D->setEnabled(false);
     m_mainWindow->ui->dock4D->setEnabled(false);
 
-    SurfaceEngine* engine = m_mainWindow->ui->glWidget->getEngine();
     int actualFramesRendered = 0;
 
 #if defined(Q_OS_IOS)
@@ -732,128 +722,19 @@ void VideoRecorder::toggleRecord()
         // ====================================================
 
         if (wasPath4D) {
-            float t = currentPathT + (i * pathStep);
-            float dt = 0.01f;
-
-            QVector4D p_curr = engine->evaluatePathPosition(t);
-            QVector4D p_next = engine->evaluatePathPosition(t + dt);
-
-            // --- FIX PATH 4D: CENTER vs TANGENT ---
-            QVector4D V, finalPos4D, finalTarget4D;
-
-            if (m_mainWindow->m_pathMode == MainWindow::ModeTangential) {
-                QVector4D velocity = p_next - engine->evaluatePathPosition(t - dt);
-                V = (velocity.lengthSquared() > 1e-8f) ? velocity.normalized() : QVector4D(0, 1, 0, 0);
-
-                finalPos4D = p_curr - V * 0.2f;
-                finalTarget4D = p_next;
-            }
-            else {
-                finalPos4D = p_curr;
-                finalTarget4D = QVector4D(0,0,0,0);
-                QVector4D viewDir = finalTarget4D - finalPos4D;
-                V = (viewDir.lengthSquared() > 1e-8f) ? viewDir.normalized() : QVector4D(0,0,-1,0);
-            }
-            // ---------------------------------------
-
-            float alpha = engine->evaluatePathAlpha(t);
-            float beta  = engine->evaluatePathBeta(t);
-            float gamma = engine->evaluatePathGamma(t);
-
-            QVector4D N1, N2, N3;
-            QVector4D K(0.0f, 0.0f, 1.0f, 0.0f);
-            N1 = K - V * QVector4D::dotProduct(K, V);
-            if (N1.lengthSquared() > 1e-6f) N1.normalize();
-            else N1 = QVector4D(0,1,0,0);
-
-            QVector3D v3 = V.toVector3D();
-            QVector3D n13 = N1.toVector3D();
-            QVector3D side3 = QVector3D::crossProduct(v3, n13);
-            if (side3.lengthSquared() > 1e-6f) {
-                N2 = QVector4D(side3, 0.0f).normalized();
-                N2 = N2 - V * QVector4D::dotProduct(N2, V) - N1 * QVector4D::dotProduct(N2, N1);
-                N2.normalize();
-            } else N2 = QVector4D(1,0,0,0);
-
-            float dx =  MainWindow::det3x3(V.y(), V.z(), V.w(),  N1.y(), N1.z(), N1.w(),  N2.y(), N2.z(), N2.w());
-            float dy = -MainWindow::det3x3(V.x(), V.z(), V.w(),  N1.x(), N1.z(), N1.w(),  N2.x(), N2.z(), N2.w());
-            float dz =  MainWindow::det3x3(V.x(), V.y(), V.w(),  N1.x(), N1.y(), N1.w(),  N2.x(), N2.y(), N2.w());
-            float dw = -MainWindow::det3x3(V.x(), V.y(), V.z(),  N1.x(), N1.y(), N1.z(),  N2.x(), N2.y(), N2.z());
-            N3 = QVector4D(dx, dy, dz, dw).normalized();
-
-            float ca = std::cos(alpha), sa = std::sin(alpha);
-            float cb = std::cos(beta),  sb = std::sin(beta);
-            float cg = std::cos(gamma), sg = std::sin(gamma);
-
-            float c1 = ca * cb;
-            float c2 = sa * cg - ca * sb * sg;
-            float c3 = sa * sg + ca * sb * cg;
-            QVector4D finalUp4D = N1 * c1 + N2 * c2 + N3 * c3;
-            finalUp4D.normalize();
-
-            // RIMOZIONE MOLTIPLICAZIONE ERRATA: Le coordinate rimangono incontaminate
-            float rotPhi   = -gamma;
-            float rotPsi   = -beta;
-            m_mainWindow->ui->glWidget->setRotation4D(0.0f, rotPhi, rotPsi);
-
-            auto transformCPU = [&](QVector4D v) {
-                if (std::abs(rotPhi) > 1e-6f) {
-                    float c = std::cos(rotPhi), s = std::sin(rotPhi);
-                    float y = v.y(), w = v.w();
-                    v.setY(y * c + w * s); v.setW(-y * s + w * c);
-                }
-                if (std::abs(rotPsi) > 1e-6f) {
-                    float c = std::cos(rotPsi), s = std::sin(rotPsi);
-                    float z = v.z(), w = v.w();
-                    v.setZ(z * c + w * s); v.setW(-z * s + w * c);
-                }
-                return v;
-            };
-
-            m_mainWindow->ui->glWidget->setCameraFrom4DVectors(transformCPU(finalPos4D), transformCPU(finalTarget4D), transformCPU(finalUp4D));
+            // Stessa identica camera del tick live: al recorder cambia solo
+            // il tempo. Niente copie locali di questa logica (divergevano:
+            // vista Center diversa, base 4D del Departure ignorata).
+            m_mainWindow->applyPath4DCameraAt(currentPathT + (i * pathStep));
         }
         else if (wasPath3D) {
-            float step3D = m_mainWindow->m_pathSpeed3D * fpsScale;
-            float t = m_mainWindow->pathTimeT3D + (i * step3D);
-
-            QVector4D raw = engine->evaluatePath3DPosition(t);
-            // RIMOZIONE MOLTIPLICAZIONE ERRATA
-            QVector3D curPos = raw.toVector3D();
-            float roll = raw.w();
-
-            // --- FIX PATH 3D: CENTER vs TANGENT ---
-            QVector3D target;
-
-            if (m_mainWindow->m_pathMode == MainWindow::ModeTangential) {
-                // Guarda avanti (Tangent)
-                QVector4D nextRaw = engine->evaluatePath3DPosition(t + 0.1f);
-                target = nextRaw.toVector3D(); // RIMOZIONE MOLTIPLICAZIONE ERRATA
-            } else {
-                // Guarda Origine (Center)
-                target = QVector3D(0.0f, 0.0f, 0.0f);
-            }
-            // --------------------------------------
-
-            m_mainWindow->ui->glWidget->setCameraPosAndDirection3D(curPos, target, roll);
+            float step3D = m_mainWindow->m_pathSpeed3D * fpsScale3D;
+            m_mainWindow->applyPath3DCameraAt(m_mainWindow->pathTimeT3D + (i * step3D));
         }
-        else {
-            // Animazione Standard
-            float newOmega = startOmega + (vOmega * currentTime);
-            float newPhi   = startPhi   + (vPhi   * currentTime);
-            float newPsi   = startPsi   + (vPsi   * currentTime);
-            m_mainWindow->ui->glWidget->setRotation4D(newOmega, newPhi, newPsi);
-
-            // ---> FIX 4: Moltiplicatore globale basato sul nuovo slider 3D <---
-            float timeFactor = m_mainWindow->m_pathSpeed3D / 0.01f;
-
-            float engineMult = 2.0f;
-            float ticksPerSec = 60.0f;
-
-            float frameMult = timeFactor * engineMult * (ticksPerSec / (float)fps);
-
-            if (std::abs(vNut) > 0.0001f || std::abs(vPrec) > 0.0001f || std::abs(vSpin) > 0.0001f) {
-                m_mainWindow->ui->glWidget->addObjectRotation(vPrec * frameMult, vNut * frameMult, vSpin * frameMult);
-            }
+        else if (rotationsWereRunning) {
+            // Stessa identica cinematica del tick live (advanceRotationsBy):
+            // al recorder cambia solo il dt, quello del frame virtuale.
+            m_mainWindow->ui->glWidget->advanceRotationsBy(timeStep);
         }
 
         m_mainWindow->ui->glWidget->setShaderTime(currentTime);
@@ -1323,7 +1204,7 @@ void VideoRecorder::toggleRecord()
     // ==============================================================
     // VERSIONE iOS (AVFoundation Nativo con Audio Multiplexing)
     // ==============================================================
-    m_mainWindow->m_statusLabel->setText("Assembling MP4 with Audio...");
+    m_mainWindow->m_statusLabel->setText("Generating MP4... please wait.");
     QApplication::processEvents();
 
     QString finalAudioFile = "";

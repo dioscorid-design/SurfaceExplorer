@@ -268,6 +268,12 @@ public:
     // ANIMATION & MOTION CONTROL
     // ==========================================================
     void addObjectRotation(float dPrecession, float dNutation, float dSpin);
+    // Avanza rotazioni oggetto (prec/nut/spin) e 4D (omega/phi/psi) di
+    // dtSeconds di tempo d'animazione, alle velocita' correnti. Unica
+    // implementazione: la usa il tick live (updateRotation, dt=16ms) e il
+    // loop di registrazione (dt del frame virtuale) — niente copie della
+    // cinematica nel recorder (vedi CLAUDE.md).
+    void advanceRotationsBy(float dtSeconds);
     void setNutationSpeed(float v) { nutationSpeed = v; }
     void setPrecessionSpeed(float v) { precessionSpeed = v; }
     void setSpinSpeed(float v) { spinSpeed = v; }
@@ -577,6 +583,11 @@ private:
     // ==========================================================
     // ANIMATION & MOTION STATE
     // ==========================================================
+    // Periodo del tick di rotationTimer: UNICA fonte, usata sia dal
+    // setInterval sia dalla conversione tempo->tick di advanceRotationsBy.
+    // Mai duplicarlo come letterale: se i due valori divergono, live e video
+    // ruotano a velocita' diverse (vedi CLAUDE.md).
+    static constexpr int kRotationTickMs = 16;
     QTimer* rotationTimer;
     QTimer* m_animTimer = nullptr;
     QElapsedTimer m_elapsedTimer;
