@@ -2534,7 +2534,13 @@ void GLWidget::endHiResCapture() {
 }
 
 QImage GLWidget::getFrameForVideo(int targetW, int targetH, bool useFbo) {
-    if (meshNeedsUpdate) updateSurfaceData();
+    // Mesh CUSTOM (flusso geodetico): i vertici correnti del motore sono la
+    // griglia appena caricata da setCustomMesh (che alza meshNeedsUpdate per
+    // il re-upload, fatto da render() durante il grab). computeMesh() qui la
+    // SOVRASCRIVEREBBE con la valutazione parametrica delle equazioni — per
+    // gli script metrici la display map, cioe' una lamina piatta nel video.
+    // Il ricalcolo CPU pre-grab serve solo alla mesh parametrica.
+    if (meshNeedsUpdate && !m_isCustomMesh) updateSurfaceData();
 
     // 1. Catturiamo il frame. grabFramebuffer() (QRhiWidget) esegue da sé un render
     //    SINCRONO e restituisce i PIXEL REALI del color buffer: non serve repaint()

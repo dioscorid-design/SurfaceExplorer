@@ -41,6 +41,27 @@
 #endif
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+#ifdef Q_OS_IOS
+// Sopprime il menu di modifica sul campo nome file: consuma i
+// QContextMenuEvent (long-press/fine lente del plugin iOS). Accettare
+// l'evento evita anche il callout di fallback del plugin (vivo su iPad).
+// Copia gemella in presetserializer.cpp (namespace anonimo, vedi commento la').
+namespace {
+class NoEditMenuFilter : public QObject {
+public:
+    using QObject::QObject;
+protected:
+    bool eventFilter(QObject* obj, QEvent* ev) override {
+        if (ev->type() == QEvent::ContextMenu) {
+            ev->accept();
+            return true;
+        }
+        return QObject::eventFilter(obj, ev);
+    }
+};
+} // namespace
+#endif
+
 class MobileVideoSaveDialog : public QDialog {
 public:
     QSpinBox* spinDuration;
@@ -132,6 +153,15 @@ public:
         nameLayout->addWidget(new QLabel("Name:", scrollContent));
         nameEdit = new QLineEdit("NewVideo", scrollContent);
         nameEdit->setStyleSheet("padding: 10px; font-size: 16px;");
+#ifdef Q_OS_IOS
+        // Come nel MobileSaveDialog dei preset: niente menu di modifica sul
+        // campo nome file (il long-press per posizionare il cursore lo faceva
+        // apparire bloccando la digitazione). La lente resta attiva. Il lavoro
+        // vero lo fa NoEditMenuFilter; l'hint resta come dichiarazione
+        // d'intento per il plugin.
+        nameEdit->setInputMethodHints(nameEdit->inputMethodHints() | Qt::ImhNoEditMenu);
+        nameEdit->installEventFilter(new NoEditMenuFilter(nameEdit));
+#endif
         nameLayout->addWidget(nameEdit);
         connect(nameEdit, &QLineEdit::returnPressed, nameEdit, &QLineEdit::clearFocus);
         scrollLayout->addLayout(nameLayout);
@@ -321,9 +351,15 @@ void VideoRecorder::toggleRecord()
     // Catturato PRIMA di pauseMotion, tramite l'unico predicato autorizzato.
     bool rotationsWereRunning = m_mainWindow->isRotationMotionRunning();
 
-    bool wasTimeAnimating = false;
-    if (m_mainWindow->m_btnStart && m_mainWindow->m_btnStart->text().toUpper() == "STOP") {
-        wasTimeAnimating = true;
+    // Stato VERO del clock geometria, non il testo del master button: il master
+    // dice "STOP" se QUALSIASI modulo e' in moto (es. solo sfondo animato), e
+    // con la geometria ferma il vecchio criterio la faceva RIPARTIRE a fine REC.
+    bool wasTimeAnimating = m_mainWindow->ui->glWidget->isSurfaceAnimating();
+    if (wasTimeAnimating) {
+        // Congela t durante i dialoghi di setup; riacceso prima del loop di
+        // registrazione (vedi sotto), cosi' il freeze per-modulo vede lo stato
+        // reale e la geometria in moto anima nel video invece di restare
+        // inchiodata al frame pre-REC.
         m_mainWindow->ui->glWidget->setSurfaceAnimating(false);
     }
 
@@ -360,7 +396,7 @@ void VideoRecorder::toggleRecord()
     m_mainWindow->ui->glWidget->pauseMotion();
 
     // Helper per ripristinare lo stato
-    auto restoreState = [this, wasAnimating, wasPath4D, wasPath3D, wasTimeAnimating, wasGeoAnimating, geoAnimTimer]() {
+    auto restoreState = [this, wasAnimating, wasPath4D, wasPath3D, wasTimeAnimating, wasGeoAnimating, geoAnimTimer, startGeoTime]() {
         if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
         if (wasPath4D) {
             m_mainWindow->pathTimer->start();
@@ -375,6 +411,10 @@ void VideoRecorder::toggleRecord()
             m_mainWindow->ui->glWidget->startAnimationTimer();
         }
         if (wasGeoAnimating && geoAnimTimer) {
+            // Il loop ha avanzato geoTime per i frame del video: lo schermo
+            // torna al tempo pre-REC, come rotazioni (setRotation4D in coda a
+            // toggleRecord) e path (il loop non muta pathTimeT/T3D).
+            m_mainWindow->setProperty("geoTime", startGeoTime);
             geoAnimTimer->start(); // Riavviamo l'asincronia per la normale visualizzazione
         }
     };
@@ -562,6 +602,16 @@ void VideoRecorder::toggleRecord()
 
         if (initialTimeOffset < 0.001f) initialTimeOffset = 0.001f;
 
+        // Fine dialoghi: il clock geometria torna allo stato che aveva al REC
+        // (spento sopra solo per congelare lo schermo durante il setup). Va
+        // riacceso PRIMA del freeze, che fotografa i moduli fermi dallo stato
+        // reale dei clock; i timer live restano comunque fermi (stopAllTimers),
+        // durante il REC il tempo lo detta il loop via virtual_time.
+        if (wasTimeAnimating) {
+            m_mainWindow->ui->glWidget->setSurfaceAnimating(true);
+            m_mainWindow->ui->glWidget->stopAllTimers();
+        }
+
         // Fotografa il tempo mostrato da ogni modulo PRIMA di attivare il tempo
         // virtuale e di toccare m_manualTime: i moduli col clock FERMO (es.
         // texture stoppata dal suo dock) resteranno su quel frame per tutto il
@@ -735,6 +785,15 @@ void VideoRecorder::toggleRecord()
             // Stessa identica cinematica del tick live (advanceRotationsBy):
             // al recorder cambia solo il dt, quello del frame virtuale.
             m_mainWindow->ui->glWidget->advanceRotationsBy(timeStep);
+        }
+
+        // Flusso geodetico: stessa identica logica del tick live
+        // (advanceGeodesicFlowBy), al recorder cambia solo il dt virtuale del
+        // frame. Prima il flusso restava CONGELATO nel video: il timer viene
+        // fermato all'avvio del REC e il loop non lo avanzava mai. Indipendente
+        // dai moti camera (a schermo convivono).
+        if (wasGeoAnimating) {
+            m_mainWindow->advanceGeodesicFlowBy(timeStep);
         }
 
         m_mainWindow->ui->glWidget->setShaderTime(currentTime);

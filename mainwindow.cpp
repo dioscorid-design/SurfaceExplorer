@@ -129,6 +129,19 @@ static const QRegularExpression kReTimeVar("\\b(t|iTime|u_time)\\b");
 // ==========================================
 // Filtro per Desktop: Blocca l'andata a capo nelle equazioni
 // ==========================================
+// Campi delle equazioni path camera (4D e 3D): l'Invio su questi campi, a
+// moto attivo, ricompila il path al volo (commitPathFieldOnEnter). Usato dai
+// filtri tastiera desktop e mobile, che consumano il Return.
+static bool isPathEquationField(const QString& objectName)
+{
+    static const QSet<QString> kPathFields = {
+        "lineX_P", "lineY_P", "lineZ_P", "lineP_P",
+        "lineAlpha_P", "lineBeta_P", "lineGamma_P",
+        "lineX_P3D", "lineY_P3D", "lineZ_P3D", "lineR_P3D"
+    };
+    return kPathFields.contains(objectName);
+}
+
 class DesktopInputFilter : public QObject {
 public:
     DesktopInputFilter(QObject* parent = nullptr) : QObject(parent) {}
@@ -148,6 +161,16 @@ protected:
                 // Enter NON deve eseguire. Lo consumiamo (niente a-capo) e basta.
                 if (on == "lineX" || on == "lineY" || on == "lineZ" || on == "lineP") {
                     if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
+                    return true;
+                }
+
+                // Campi path camera: a moto attivo l'Invio ricompila il path
+                // al volo (nuova costante/espressione senza stop+Departure).
+                if (isPathEquationField(on)) {
+                    if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
+                    if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
+                        mainWin->commitPathFieldOnEnter(on);
+                    }
                     return true;
                 }
 
@@ -436,6 +459,17 @@ protected:
 
                 if (obj->objectName() == "txtScriptEditor") {
                     return false;
+                }
+
+                // Campi path camera: a moto attivo l'Invio ricompila il path
+                // al volo, come nel filtro desktop.
+                if (isPathEquationField(obj->objectName())) {
+                    if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
+                    if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
+                        mainWin->commitPathFieldOnEnter(obj->objectName());
+                    }
+                    QGuiApplication::inputMethod()->hide();
+                    return true;
                 }
 
                 if (QWidget* w = qobject_cast<QWidget*>(obj)) {
@@ -2863,6 +2897,10 @@ MainWindow::MainWindow(QWidget *parent)
         connect(pathEdit, &QLineEdit::textChanged, this, &MainWindow::updateConstantsUIState);
     }
 
+    // (L'Invio sui campi path passa dai filtri tastiera desktop/mobile, che
+    // consumano il Return e chiamano commitPathFieldOnEnter: connettere qui
+    // returnPressed non servirebbe, il segnale non viene mai emesso.)
+
     connect(ui->speed3DSlider, &QSlider::valueChanged, this, [this](int val){ m_pathSpeed3D = val / 1000.0f; });
     connect(ui->speed4DSlider, &QSlider::valueChanged, this, [this](int val){ m_pathSpeed4D = val / 1000.0f; });
 
@@ -3723,19 +3761,30 @@ void MainWindow::updateConstraintState()
 }
 
 void MainWindow::updateConstantsUIState() {
-    QString activeText = "";
+    // Due nature di testo, due regole di match:
+    // - mathText: campi exprtk (equazioni, geodetica, path). Case-INSENSITIVE
+    //   come sempre: 'a' e 'A' sono la stessa costante.
+    // - glslText: codice shader (texture, sfondo, editor script GLSL). Nel
+    //   GLSL le costanti sono iniettate come 'float A..F' e 'S' (case-
+    //   sensitive): le minuscole a..f di uno shader NON sono mai le costanti,
+    //   e una lettera DICHIARATA come variabile locale (es. 'vec2 F =
+    //   fragCoord') e' la locale che ombreggia la costante, non un uso. Il
+    //   vecchio match unico case-insensitive accendeva gli slider a vuoto su
+    //   record senza costanti (float a/b/c/d/s locali negli shader).
+    QString mathText = "";
+    QString glslText = "";
     int currentTab = ui->tabModeSelector->currentIndex();
 
     // 1. RACCOLTA TESTO SPECIFICA PER TAB
     if (currentTab == 0) { // MODALITÀ PARAMETRICA
-        activeText = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
-                     ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
-                     ui->lineExplicitU->toPlainText() + " " + ui->lineExplicitV->toPlainText() + " " +
-                     ui->lineExplicitW->toPlainText() + " " + ui->lineU->toPlainText() + " " +
-                     ui->lineV->toPlainText() + " " + ui->lineW->toPlainText();
+        mathText = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
+                   ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
+                   ui->lineExplicitU->toPlainText() + " " + ui->lineExplicitV->toPlainText() + " " +
+                   ui->lineExplicitW->toPlainText() + " " + ui->lineU->toPlainText() + " " +
+                   ui->lineV->toPlainText() + " " + ui->lineW->toPlainText();
 
         if (ui->lnU) { // Campi Geodetici (Tab 0)
-            activeText += " " + ui->lnU->toPlainText() +
+            mathText += " " + ui->lnU->toPlainText() +
                     " " + ui->lnV->toPlainText() +
                     " " + ui->lnW->toPlainText() +
                     " " + ui->lndU->toPlainText() +
@@ -3744,35 +3793,44 @@ void MainWindow::updateConstantsUIState() {
                     " " + ui->lineConform->toPlainText();
         }
         // In parametrica aggiungiamo lo script della superficie se non siamo in Ray Marching
-        activeText += stripCodeComments(m_surfaceTextureCode);
+        glslText += stripCodeComments(m_surfaceTextureCode);
     }
     else { // MODALITÀ RAY MARCHING
-        activeText = stripCodeComments(ui->lineEquation->toPlainText()) + " " +
-                     stripCodeComments(ui->lineTexture->toPlainText()) + " " +
-                     stripCodeComments(ui->lineVariations->toPlainText());
+        // L'equazione implicita e' matematica utente (translateEquation);
+        // texture e variations sono snippet GLSL.
+        mathText = stripCodeComments(ui->lineEquation->toPlainText());
+        glslText += " " + stripCodeComments(ui->lineTexture->toPlainText()) +
+                    " " + stripCodeComments(ui->lineVariations->toPlainText());
     }
 
     // 2. AGGIUNGI CAMPI SEMPRE ATTIVI (Shared)
-    // I COMMENTI non contano come "uso" di una costante: il match qui sotto è
-    // case-insensitive e un commento italiano basta ad accendere uno slider a
-    // vuoto (es. "Se c'è il segmento" in una texture -> l'elisione c' viene
-    // presa per la costante C). Strip PER BLOCCO e non sull'insieme: i blocchi
-    // sono concatenati con spazi, e un commento di linea non terminato a fine
+    // I COMMENTI non contano come "uso" di una costante: un commento italiano
+    // basta ad accendere uno slider a vuoto (es. "Se c'è il segmento" in una
+    // texture -> l'elisione c' viene presa per la costante C nel match
+    // case-insensitive). Strip PER BLOCCO e non sull'insieme: i blocchi sono
+    // concatenati con spazi, e un commento di linea non terminato a fine
     // blocco inghiottirebbe l'inizio del blocco successivo (falso negativo:
     // costante vera creduta inutilizzata -> reset a 1).
-    activeText += " " + stripCodeComments(m_bgTextureCode); // Lo sfondo è comune
-    activeText += " " + stripCodeComments(ui->txtScriptEditor->toPlainText()); // L'editor mostra il codice della tab attuale
+    glslText += " " + stripCodeComments(m_bgTextureCode); // Lo sfondo è comune
+
+    // L'editor mostra il codice del modo corrente: matematica per gli script
+    // di superficie in parametrica (metrici, exprtk), GLSL in tutti gli altri
+    // casi (texture, sound, script ray marching).
+    if (m_currentScriptMode == ScriptModeSurface && currentTab == 0)
+        mathText += " " + stripCodeComments(ui->txtScriptEditor->toPlainText());
+    else
+        glslText += " " + stripCodeComments(ui->txtScriptEditor->toPlainText());
 
     // Anche i path camera 4D/3D valgono come "uso" di una costante: le loro
     // espressioni sono compilate su exprtk con A..F/s registrate
     // (m_pathSymbolTable in SurfaceEngine), quindi una costante citata solo da
     // un path deve restare sbloccata e NON essere resettata dal ramo !used.
-    activeText += " " + ui->lineX_P->text() + " " + ui->lineY_P->text() +
-                  " " + ui->lineZ_P->text() + " " + ui->lineP_P->text() +
-                  " " + ui->lineAlpha_P->text() + " " + ui->lineBeta_P->text() +
-                  " " + ui->lineGamma_P->text() +
-                  " " + ui->lineX_P3D->text() + " " + ui->lineY_P3D->text() +
-                  " " + ui->lineZ_P3D->text() + " " + ui->lineR_P3D->text();
+    mathText += " " + ui->lineX_P->text() + " " + ui->lineY_P->text() +
+                " " + ui->lineZ_P->text() + " " + ui->lineP_P->text() +
+                " " + ui->lineAlpha_P->text() + " " + ui->lineBeta_P->text() +
+                " " + ui->lineGamma_P->text() +
+                " " + ui->lineX_P3D->text() + " " + ui->lineY_P3D->text() +
+                " " + ui->lineZ_P3D->text() + " " + ui->lineR_P3D->text();
 
     // 3. LOGICA DI BLOCCO/SBLOCCO E RESET
     auto updateControl = [&](const QString& letter, QSlider* slider, QLineEdit* line) {
@@ -3785,8 +3843,25 @@ void MainWindow::updateConstantsUIState() {
         if (currentTab == 1 && letter == "S") {
             used = true;
         } else {
-            QRegularExpression re("\\b" + letter + "\\b", QRegularExpression::CaseInsensitiveOption);
-            used = activeText.contains(re);
+            QRegularExpression reMath("\\b" + letter + "\\b", QRegularExpression::CaseInsensitiveOption);
+            used = mathText.contains(reMath);
+
+            if (!used) {
+                // GLSL: conta solo la MAIUSCOLA (il case delle iniettate)...
+                QRegularExpression reGlsl("\\b" + letter + "\\b");
+                if (glslText.contains(reGlsl)) {
+                    // ...e solo se la lettera non e' dichiarata come variabile
+                    // dello shader, singola ("vec2 F = fragCoord") o in lista
+                    // ("float i = 0.0, S = 0.0"): li' e' la locale, non la
+                    // costante. Dichiarazioni con inizializzatori a chiamata
+                    // di funzione in lista sfuggono al pattern: al peggio lo
+                    // slider resta attivo (status quo), mai il contrario.
+                    QRegularExpression reDecl(
+                        "\\b(?:float|int|uint|bool|vec[234]|mat[234])\\s+"
+                        "(?:\\w+\\s*(?:=[^,;()]*)?,\\s*)*" + letter + "\\b");
+                    used = !glslText.contains(reDecl);
+                }
+            }
         }
 
         if (!used) {
@@ -3908,26 +3983,31 @@ void MainWindow::applyStartSideEffects()
     // cascata storica.
     // (validazione con la stessa soglia del tasto Departure, >=2 campi: il
     // vecchio check sul solo campo X negherebbe un path 4D con X vuota)
-    QString pick = m_lastCameraMotion;
-    if (pick == "rotation" && !hasAnyRotationSpeed()) pick.clear();
-    if (pick == "path4D" && !hasPath4DInput()) pick.clear();
-    if (pick == "path3D" && !hasPath3DInput()) pick.clear();
+    // Come per il suono qui sotto: se l'utente ha fermato ESPLICITAMENTE il
+    // moto camera (m_userStoppedCameraMotion), un commit di equazione che
+    // arriva qui via onStartClicked NON deve farlo ripartire.
+    if (!m_userStoppedCameraMotion) {
+        QString pick = m_lastCameraMotion;
+        if (pick == "rotation" && !hasAnyRotationSpeed()) pick.clear();
+        if (pick == "path4D" && !hasPath4DInput()) pick.clear();
+        if (pick == "path3D" && !hasPath3DInput()) pick.clear();
 
-    if (pick == "rotation") {
-        if (!ui->glWidget->isAnimating()) onStopClicked();
-    } else if (pick == "path4D") {
-        if (!pathTimer->isActive()) onDepartureClicked();
-    } else if (pick == "path3D") {
-        if (!pathTimer3D->isActive()) onDeparture3DClicked();
-    } else {
-        if (hasAnyRotationSpeed() && !ui->glWidget->isAnimating()) {
-            onStopClicked();
-        }
-        if (hasPath4D && !pathTimer->isActive()) {
-            onDepartureClicked();
-        }
-        if (hasPath3D && !pathTimer3D->isActive()) {
-            onDeparture3DClicked();
+        if (pick == "rotation") {
+            if (!ui->glWidget->isAnimating()) onStopClicked();
+        } else if (pick == "path4D") {
+            if (!pathTimer->isActive()) onDepartureClicked();
+        } else if (pick == "path3D") {
+            if (!pathTimer3D->isActive()) onDeparture3DClicked();
+        } else {
+            if (hasAnyRotationSpeed() && !ui->glWidget->isAnimating()) {
+                onStopClicked();
+            }
+            if (hasPath4D && !pathTimer->isActive()) {
+                onDepartureClicked();
+            }
+            if (hasPath3D && !pathTimer3D->isActive()) {
+                onDeparture3DClicked();
+            }
         }
     }
 
@@ -4833,6 +4913,7 @@ void MainWindow::onStartClicked()
         m_userStoppedSound = false;
         m_userStoppedTexClock = false;
         m_userStoppedBgClock = false;
+        m_userStoppedCameraMotion = false;
     }
 
     // ==========================================================
@@ -5548,6 +5629,7 @@ void MainWindow::onStopClicked() {
 
     if (isRunning) {
         ui->glWidget->pauseMotion();
+        m_userStoppedCameraMotion = true;
         if (ui->btnStart_2) ui->btnStart_2->setText("GO");
     } else {
         if (!hasAnyRotationSpeed()) return;
@@ -5557,6 +5639,7 @@ void MainWindow::onStopClicked() {
 
         ui->glWidget->resumeMotion();
         m_lastCameraMotion = "rotation";
+        m_userStoppedCameraMotion = false;
         if (ui->btnStart_2) ui->btnStart_2->setText("STOP");
     }
 
@@ -5623,38 +5706,31 @@ void MainWindow::onNavTimerTick()
     checkAndTriggerMeshUpdate();
 }
 
-void MainWindow::onDepartureClicked()
+void MainWindow::commitPathFieldOnEnter(const QString& fieldName)
 {
-    // CASO 1: VOGLIAMO FERMARE
-    if (pathTimer->isActive()) {
-        pathTimer->stop();
-        if (ui->glWidget) ui->glWidget->setPathAnimating(false);
-        updateViewButtonsEnabled();
-        ui->btnDeparture->setText("DEPARTURE");
-        checkPathFields();
-        updateMasterButtonState();
-        return;
+    // Invio su un campo path a moto ATTIVO: ricompila le equazioni al volo,
+    // cosi' una costante (o qualunque modifica all'espressione) entra subito
+    // senza fermare e far ripartire il path. Da fermo non fa nulla: la
+    // compilazione resta al Departure. I VALORI delle costanti sono gia' live
+    // (m_pathSymbolTable le lega per riferimento, vedi SurfaceEngine).
+    // NB: chiamata dai filtri tastiera (desktop e mobile), che consumano il
+    // Return prima che i QLineEdit possano emettere returnPressed.
+    if (fieldName.endsWith("_P3D")) {
+        if (pathTimer3D && pathTimer3D->isActive()) compilePath3DFromFields();
+    } else {
+        if (pathTimer && pathTimer->isActive()) compilePath4DFromFields();
     }
+}
 
-    // CASO 2: VOGLIAMO PARTIRE
-    // Mutua esclusivita': fermiamo il percorso 3D e il moto GO se attivi.
-    // Se stiamo SUBENTRANDO al path 3D, la camera fa l'handoff (scivolata
-    // continua invece del teletrasporto): vedi GLWidget::beginPathHandoff.
-    const bool handoffFrom3D = pathTimer3D->isActive();
-    if (pathTimer3D->isActive()) {
-        pathTimer3D->stop();
-        ui->btnDeparture3D->setText("DEPARTURE");
-    }
-    stopRotationMotion();
-
-    // Funzione helper per pulire l'input
+bool MainWindow::compilePath4DFromFields()
+{
+    // Pulizia input (campo vuoto = "0", virgola decimale tollerata)
     auto getSafeEq = [](QLineEdit* line) {
         QString t = line->text().trimmed();
         if (t.isEmpty()) return QString("0");
         return t.replace(",", ".");
     };
 
-    // Recupera equazioni pulite
     QString eqX = getSafeEq(ui->lineX_P);
     QString eqY = getSafeEq(ui->lineY_P);
     QString eqZ = getSafeEq(ui->lineZ_P);
@@ -5675,17 +5751,80 @@ void MainWindow::onDepartureClicked()
         {"Beta(t)", eqBeta},
         {"Gamma(t)", eqGamma}
     }, &syntaxWarned)) {
-        return; // Ferma l'avvio se c'è un errore matematico
+        return false;
     }
 
-    // Compila
     bool ok = ui->glWidget->getEngine()->compilePathEquations(eqX, eqY, eqZ, eqP, eqAlpha, eqBeta, eqGamma);
-
     if (!ok) {
         // Niente secondo popup se un warning di sintassi e' gia' comparso (stesso errore).
         if (!syntaxWarned)
             QMessageBox::warning(this, "Error", "Path 4D compilation error .\nCheck the syntax.");
+        return false;
+    }
+    return true;
+}
+
+bool MainWindow::compilePath3DFromFields()
+{
+    auto getSafeEq = [](QLineEdit* line) {
+        QString t = line->text().trimmed();
+        if (t.isEmpty()) return QString("0");
+        return t.replace(",", ".");
+    };
+
+    QString eqX = getSafeEq(ui->lineX_P3D);
+    QString eqY = getSafeEq(ui->lineY_P3D);
+    QString eqZ = getSafeEq(ui->lineZ_P3D);
+    QString eqR = getSafeEq(ui->lineR_P3D);
+
+    bool syntaxWarned = false;
+    if (!InputValidator::validateFieldList(this, {
+        {"X(t)", eqX},
+        {"Y(t)", eqY},
+        {"Z(t)", eqZ},
+        {"Roll(t)", eqR}
+    }, &syntaxWarned)) {
+        return false;
+    }
+
+    bool ok = ui->glWidget->getEngine()->compilePath3DEquations(eqX, eqY, eqZ, eqR);
+    if (!ok) {
+        // Niente secondo popup se l'utente e' gia' stato avvisato da un warning di
+        // sintassi (es. operatori consecutivi): sarebbe lo stesso errore due volte.
+        if (!syntaxWarned)
+            QMessageBox::warning(this, "Error", "3D path compilation error.\nCheck the syntax.");
+        return false;
+    }
+    return true;
+}
+
+void MainWindow::onDepartureClicked()
+{
+    // CASO 1: VOGLIAMO FERMARE
+    if (pathTimer->isActive()) {
+        pathTimer->stop();
+        m_userStoppedCameraMotion = true;
+        if (ui->glWidget) ui->glWidget->setPathAnimating(false);
+        updateViewButtonsEnabled();
+        ui->btnDeparture->setText("DEPARTURE");
+        checkPathFields();
+        updateMasterButtonState();
         return;
+    }
+
+    // CASO 2: VOGLIAMO PARTIRE
+    // Mutua esclusivita': fermiamo il percorso 3D e il moto GO se attivi.
+    // Se stiamo SUBENTRANDO al path 3D, la camera fa l'handoff (scivolata
+    // continua invece del teletrasporto): vedi GLWidget::beginPathHandoff.
+    const bool handoffFrom3D = pathTimer3D->isActive();
+    if (pathTimer3D->isActive()) {
+        pathTimer3D->stop();
+        ui->btnDeparture3D->setText("DEPARTURE");
+    }
+    stopRotationMotion();
+
+    if (!compilePath4DFromFields()) {
+        return; // Errore matematico o di compilazione: niente avvio
     }
 
     // Base 4D per le compensazioni del tick: solo il primo Departure parte da
@@ -5704,6 +5843,7 @@ void MainWindow::onDepartureClicked()
 
     pathTimer->start();
     m_lastCameraMotion = "path4D";
+    m_userStoppedCameraMotion = false;
     if (ui->glWidget) {
         ui->glWidget->setPathAnimating(true);
         // Solo il PRIMO Departure della sessione azzera la rotazione di default
@@ -5897,6 +6037,7 @@ void MainWindow::onDeparture3DClicked()
     // CASO 1: STOP
     if (pathTimer3D->isActive()) {
         pathTimer3D->stop();
+        m_userStoppedCameraMotion = true;
         if (ui->glWidget) ui->glWidget->setPathAnimating(false);
         updateViewButtonsEnabled();
         ui->btnDeparture3D->setText("DEPARTURE");
@@ -5916,40 +6057,15 @@ void MainWindow::onDeparture3DClicked()
     }
     stopRotationMotion();
 
-    auto getSafeEq = [](QLineEdit* line) {
-        QString t = line->text().trimmed();
-        if (t.isEmpty()) return QString("0");
-        return t.replace(",", ".");
-    };
-
-    QString eqX = getSafeEq(ui->lineX_P3D);
-    QString eqY = getSafeEq(ui->lineY_P3D);
-    QString eqZ = getSafeEq(ui->lineZ_P3D);
-    QString eqR = getSafeEq(ui->lineR_P3D);
-
-    bool syntaxWarned = false;
-    if (!InputValidator::validateFieldList(this, {
-    {"X(t)", eqX},
-        {"Y(t)", eqY},
-        {"Z(t)", eqZ},
-        {"Roll(t)", eqR}
-    }, &syntaxWarned)) {
-        return;
-    }
-
-    bool ok = ui->glWidget->getEngine()->compilePath3DEquations(eqX, eqY, eqZ, eqR);
-    if (!ok) {
-        // Niente secondo popup se l'utente e' gia' stato avvisato da un warning di
-        // sintassi (es. operatori consecutivi): sarebbe lo stesso errore due volte.
-        if (!syntaxWarned)
-            QMessageBox::warning(this, "Error", "3D path compilation error.\nCheck the syntax.");
-        return;
+    if (!compilePath3DFromFields()) {
+        return; // Errore matematico o di compilazione: niente avvio
     }
 
     if (handoffFrom4D && ui->glWidget) ui->glWidget->beginPathHandoff();
 
     pathTimer3D->start();
     m_lastCameraMotion = "path3D";
+    m_userStoppedCameraMotion = false;
     if (ui->glWidget) {
         ui->glWidget->setPathAnimating(true);
         // Solo il PRIMO Departure della sessione azzera la rotazione di default
@@ -9028,6 +9144,12 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     if (pathTimer->isActive()) onDepartureClicked();
     if (pathTimer3D->isActive()) onDeparture3DClicked();
 
+    // Gli stop qui sopra passano dai tasti e alzano m_userStoppedCameraMotion,
+    // ma sono stop PROGRAMMATICI di pre-caricamento: il nuovo preset/record
+    // decide da solo il proprio moto (activeMotion in applyMotionExample).
+    // Stesso riarmo dei flag gemelli (m_userStoppedSound & c.) al load.
+    m_userStoppedCameraMotion = false;
+
     // Rete di sicurezza: se un path fosse stato fermato altrove senza passare
     // dai tasti (timer già inattivo -> le due righe sopra non scattano), il
     // testo resterebbe congelato su "STOP" pur a tasto disabilitato. Al load
@@ -10996,12 +11118,7 @@ bool MainWindow::updateGeodesicMesh()
                     return;
             }
 
-            double currentT = this->property("geoTime").toDouble();
-            this->setProperty("geoTime", currentT + 0.015);
-
-            m_inGeoAnimTick = true;
-            bool meshOk = updateGeodesicMesh();
-            m_inGeoAnimTick = false;
+            bool meshOk = advanceGeodesicFlowBy(m_geoAnimTimer->interval() / 1000.0);
             if (!meshOk) {
                 if (this->property("geoErrorType").toString() == "singularity") {
                     InputValidator::showAnimatedGeodesicSingularityError(this);
@@ -11014,7 +11131,14 @@ bool MainWindow::updateGeodesicMesh()
     // dipende dallo stato logico "in moto", non dal TESTO del bottone: al primo
     // Start il bottone diventa "STOP" solo dopo updateGeodesicMesh, quindi qui
     // leggerlo darebbe ancora "START" e il timer non partirebbe mai.
-    if (hasTime && !m_masterStopped) {
+    // Il flusso appartiene al modulo Equations: se l'utente l'ha fermato col
+    // suo Stop (performEquationsStop), un ricalcolo mesh qualsiasi (slider
+    // costanti, navigazione) NON deve riavviarlo. Run del dock / master Start
+    // riarmano il flag prima di arrivare qui.
+    // Durante la registrazione il tempo lo detta il loop del recorder
+    // (advanceGeodesicFlowBy per frame): il timer asincrono resta fermo,
+    // altrimenti i suoi tick nei processEvents avanzerebbero geoTime due volte.
+    if (hasTime && !m_masterStopped && !m_userStoppedGeomClock && !m_isRecording) {
         if (!m_geoAnimTimer->isActive()) {
             m_geoAnimTimer->start();
             // Il bottone master deve riflettere subito il timer appena avviato,
@@ -11033,6 +11157,23 @@ bool MainWindow::updateGeodesicMesh()
     setProperty("geoErrorShown", false);
     m_geodesicErrorPending = false;
     return true;
+}
+
+bool MainWindow::advanceGeodesicFlowBy(double dtSeconds)
+{
+    // Stessa velocita' del tick live: 0.015 unita' di geoTime per tick
+    // nominale del timer (16 ms). Il tick passa il proprio intervallo e
+    // avanza esattamente di 0.015; il recorder passa il dt virtuale del
+    // frame (1/fps) e il video riproduce la velocita' vista a schermo.
+    const int intervalMs = (m_geoAnimTimer && m_geoAnimTimer->interval() > 0)
+                               ? m_geoAnimTimer->interval() : 16;
+    const double step = 0.015 * (dtSeconds * 1000.0 / intervalMs);
+    setProperty("geoTime", property("geoTime").toDouble() + step);
+
+    m_inGeoAnimTick = true;
+    bool meshOk = updateGeodesicMesh();
+    m_inGeoAnimTick = false;
+    return meshOk;
 }
 
 void MainWindow::checkAndTriggerMeshUpdate() {
@@ -11105,7 +11246,13 @@ void MainWindow::stopGeodesicAnimation()
 }
 
 bool MainWindow::isGeodesicMotionActive() const {
-    return m_geoAnimTimer && m_geoAnimTimer->isActive();
+    // Un tick in corso conta come moto attivo anche a timer FERMO: durante la
+    // registrazione il tempo lo detta il loop (advanceGeodesicFlowBy alza
+    // m_inGeoAnimTick) e il timer resta spento per contratto. Senza questo,
+    // updateGeodesicMesh nel REC saltava il disaccoppiamento active_* e
+    // leggeva i campi UI (vuoti/diversi negli script metrici): la superficie
+    // si appiattiva in una lamina solo in registrazione.
+    return m_inGeoAnimTick || (m_geoAnimTimer && m_geoAnimTimer->isActive());
 }
 
 bool MainWindow::hasGeodesicText() const {

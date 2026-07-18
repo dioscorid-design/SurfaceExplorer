@@ -28,6 +28,30 @@
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
 #include <QMessageBox>
 
+#ifdef Q_OS_IOS
+// Sopprime il menu di modifica sul campo nome file dei dialoghi di
+// salvataggio: consuma i QContextMenuEvent (long-press/fine lente del plugin
+// iOS). ACCETTARE l'evento e' essenziale: il fallback nativo del plugin
+// (callout UIMenuController, vivo su iPad) scatta solo se l'evento NON viene
+// accettato. ImhNoEditMenu da solo NON basta (provato su device 2026-07-18:
+// il plugin non consulta l'hint in questo percorso).
+// (namespace anonimo: una copia gemella vive in videorecorder.cpp)
+namespace {
+class NoEditMenuFilter : public QObject {
+public:
+    using QObject::QObject;
+protected:
+    bool eventFilter(QObject* obj, QEvent* ev) override {
+        if (ev->type() == QEvent::ContextMenu) {
+            ev->accept();
+            return true;
+        }
+        return QObject::eventFilter(obj, ev);
+    }
+};
+} // namespace
+#endif
+
 class MobileSaveDialog : public QDialog {
 public:
     // navFloor: cartella oltre la quale ".. (Up)" NON deve salire (tipicamente la
@@ -51,6 +75,16 @@ public:
         nameLayout->addWidget(new QLabel("Name:", this));
         nameEdit = new QLineEdit(defaultFileName, this);
         nameEdit->setStyleSheet("padding: 10px; font-size: 16px;");
+#ifdef Q_OS_IOS
+        // Niente menu di modifica sul campo nome file: il long-press per
+        // posizionare il cursore faceva apparire il menu, che poi bloccava la
+        // digitazione. Lente e posizionamento restano attivi (ImhNoTextHandles
+        // ucciderebbe anche quelli, NON usarlo). Il lavoro vero lo fa
+        // NoEditMenuFilter (l'hint da solo non basta, vedi commento della
+        // classe); l'hint resta come dichiarazione d'intento per il plugin.
+        nameEdit->setInputMethodHints(nameEdit->inputMethodHints() | Qt::ImhNoEditMenu);
+        nameEdit->installEventFilter(new NoEditMenuFilter(nameEdit));
+#endif
         nameLayout->addWidget(nameEdit);
         mainLayout->addLayout(nameLayout);
 

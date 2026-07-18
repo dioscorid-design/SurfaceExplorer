@@ -132,6 +132,18 @@ private slots:
     // niente copie locali di questa logica nel recorder.
     void applyPath4DCameraAt(float t);
     void applyPath3DCameraAt(float t);
+    // Avanzamento del flusso geodetico di dtSeconds: unica implementazione,
+    // condivisa tra il tick di m_geoAnimTimer e il loop di registrazione
+    // (VideoRecorder passa il dt virtuale del frame). Converte il dt nella
+    // stessa velocita' vista a schermo (0.015 unita' per tick nominale).
+    bool advanceGeodesicFlowBy(double dtSeconds);
+    // Compilazione delle equazioni path dai campi UI (pulizia input +
+    // validazione + popup d'errore): unica implementazione, usata dal
+    // Departure e dal commit live con Invio a path in corsa (nuova costante
+    // o espressione entra subito, senza stop/ripartenza; i VALORI delle
+    // costanti sono gia' live via symbol table per riferimento).
+    bool compilePath4DFromFields();
+    bool compilePath3DFromFields();
     // Mutua esclusivita' GO / Departure 3D / Departure 4D: attivando uno di questi
     // tre moti gli altri due si spengono. Questi helper fermano gli "altri" senza
     // duplicare la logica di pulizia UI. Ognuno e' un no-op se il suo moto e' fermo.
@@ -379,6 +391,13 @@ private:
     bool m_userStoppedBgClock   = false;
     bool m_userStoppedGeomClock = false;
 
+    // Moto CAMERA (path 4D/3D o rotazioni GO) fermato ESPLICITAMENTE: STOP su
+    // Departure, pausa del GO o master STOP. Senza questo flag un commit di
+    // equazione (Enter -> onStartClicked -> applyStartSideEffects) riavviava
+    // m_lastCameraMotion pur con tutto fermo a mano. Si riarma su master Start,
+    // avvio esplicito di un moto camera e load di preset/record (applyCommonData).
+    bool m_userStoppedCameraMotion = false;
+
     // Run del dock Equations (tab Parametric) senza animazione (nessun 't'):
     // dopo aver applicato la modifica grafica il tasto va DISABILITATO finché le
     // equazioni non vengono modificate di nuovo. true = già applicato, niente da
@@ -507,6 +526,10 @@ private:
     QStringList readActiveEquations() const;
     void commitUiFieldsDuringMotion();
     void commitFieldsOnEnter();
+    // Invio su un campo path (chiamata dai filtri tastiera desktop/mobile,
+    // che CONSUMANO il Return: returnPressed non arriva mai ai QLineEdit):
+    // a moto attivo ricompila le equazioni del path del campo al volo.
+    void commitPathFieldOnEnter(const QString& fieldName);
     bool updateGeodesicMesh();
     void checkAndTriggerMeshUpdate();
     void stopGeodesicAnimation();
