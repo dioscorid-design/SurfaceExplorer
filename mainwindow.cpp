@@ -2606,10 +2606,10 @@ MainWindow::MainWindow(QWidget *parent)
                     // (vedi setBackgroundTexture("background.png") al suo spegnimento), la
                     // texture di superficie parametrica e' uno shader custom applicato via
                     // loadCustomShader: se la superficie PRECEDENTE aveva una texture
-                    // procedurale, quello shader resta agganciato e la scacchiera default
-                    // caricata da generateTexture() (solo sampler) non lo sostituisce ->
-                    // riappare la vecchia texture senza animazione / coi colori falsati.
-                    // Azzeriamo il codice in memoria e ripristiniamo lo shader standard.
+                    // procedurale, quello shader resta agganciato -> riappare la vecchia
+                    // texture senza animazione / coi colori falsati. Azzeriamo il codice in
+                    // memoria e ripristiniamo lo shader standard prima di applicare la
+                    // default (applyDefaultCheckerShader piu' sotto).
                     // NB: il bug residuo era SOLO sulle parametriche (le implicite
                     // ricompilano la texture nello shader SDF a ogni Run).
                     m_surfaceTextureCode.clear();
@@ -2629,6 +2629,10 @@ MainWindow::MainWindow(QWidget *parent)
                     updateTextureUIState(true, true);
 
                     generateTexture();
+                    // Il visual della default e' lo shader procedurale, non l'immagine
+                    // appena caricata (vedi applyDefaultCheckerShader). Se la bake
+                    // fallisse resta lo shader standard -> fallback sull'immagine.
+                    applyDefaultCheckerShader();
                 }
 
                 if (ui->glWidget) ui->glWidget->rebuildShader();
@@ -2745,8 +2749,9 @@ MainWindow::MainWindow(QWidget *parent)
     ui->lblValLight->setText(QString::number(ui->lightSlider->value()) + " %");
     ui->speed3DSlider->setRange(1, 100); ui->speed3DSlider->setValue(10);
     ui->speed4DSlider->setRange(1, 100); ui->speed4DSlider->setValue(10);
+    ui->fovSlider->setRange(20, 110); ui->fovSlider->setValue(45);
 
-    UiStyleManager::setupBigSliders(ui->sliderR, ui->sliderG, ui->sliderB, ui->alphaSlider, ui->lightSlider, ui->speed3DSlider, ui->speed4DSlider);
+    UiStyleManager::setupBigSliders(ui->sliderR, ui->sliderG, ui->sliderB, ui->alphaSlider, ui->lightSlider, ui->speed3DSlider, ui->speed4DSlider, ui->fovSlider);
 
     // Color slot della texture (col1/col2). Surface NON è qui: è nella coppia
     // m_bgTargetGroup (Surface/Background). L'esclusività FRA i due gruppi è a mano.
@@ -2810,6 +2815,10 @@ MainWindow::MainWindow(QWidget *parent)
         float intensity = val / 100.0f;
         ui->glWidget->setLightIntensity(intensity);
         ui->lblValLight->setText(QString::number(val) + " %");
+    });
+
+    connect(ui->fovSlider, &QSlider::valueChanged, this, [this](int val){
+        applyCameraFov((float)val);
     });
 
     // Click su Color1/Color2. Gruppi indipendenti: scegliere quale tinta editare NON
@@ -7452,6 +7461,7 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
 
     // 11. Finalizzazione
     ui->glWidget->setProjectionMode(d.projectionMode);
+    applyCameraFov(d.cameraFov);
     updateProjectionButtonText();
 
     // Ripristino intelligente della Telecamera / Rotazione 3D
@@ -7920,7 +7930,10 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
                 ui->glWidget->loadCustomShader(texCode);
             } else {
                 m_isCustomMode = false;
-                if (imgPath.isEmpty()) generateTexture();
+                if (imgPath.isEmpty()) {
+                    generateTexture();
+                    applyDefaultCheckerShader();
+                }
                 ui->glWidget->rebuildShader();
             }
         }
@@ -7928,6 +7941,7 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
             m_isCustomMode = false;
             m_isImageMode = false;
             generateTexture();
+            applyDefaultCheckerShader();
             ui->glWidget->rebuildShader();
         }
 
@@ -8117,6 +8131,7 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
     else if (pathTimer3D->isActive()) onPath3DTimerTick();
 
     ui->glWidget->setProjectionMode(data.projectionMode);
+    applyCameraFov(data.cameraFov);
     updateProjectionButtonText();
 
     // 7. AVVIO AUTOMATICO GRAFICA
@@ -10368,8 +10383,8 @@ bool MainWindow::activeTextureUsesColorToken(const QString &token) const
         return ui->lineTexture->toPlainText().contains(token);
     }
 
-    // Parametrico: la scacchiera procedurale di default (generateTexture() in C++)
-    // non è uno script ma usa comunque ENTRAMBI m_texColor1/m_texColor2 -> entrambi
+    // Parametrico: la scacchiera procedurale di default (applyDefaultCheckerShader)
+    // non è uno script utente ma usa comunque ENTRAMBI u_col1/u_col2 -> entrambi
     // i picker servono, quindi true per qualunque token.
     if (!m_isCustomMode && !m_isImageMode) {
         return true;
@@ -10721,6 +10736,34 @@ void MainWindow::generateTexture()
     if (ui->glWidget) {
         ui->glWidget->loadTextureFromImage(img);
     }
+}
+
+void MainWindow::applyDefaultCheckerShader()
+{
+    // Scacchiera default PROCEDURALE (stessa resa del preset "Checkboard"), come
+    // gia' fatto per il default Ray Marching: l'immagine di generateTexture()
+    // campionata col filtro bilineare mostrava una riga di colore misto sulla
+    // chiusura UV delle superfici chiuse (i due bordi opposti della bitmap si
+    // mescolano), che il calcolo per-fragment non ha. L'immagine resta caricata
+    // nel sampler solo come feed `tex` per gli script che lo campionano.
+    // u_col1/u_col2 arrivano dall'UBO: i picker agiscono live, senza rigenerare.
+    static const char* kDefaultChecker =
+        "vec2 g = floor(vec2(u, v) * 8.0);\n"
+        "float c = mod(g.x + g.y, 2.0);\n"
+        "return mix(u_col1, u_col2, c);";
+
+    if (ui->glWidget) ui->glWidget->loadCustomShader(kDefaultChecker);
+}
+
+void MainWindow::applyCameraFov(float deg)
+{
+    if (ui->glWidget) ui->glWidget->setCameraFov(deg);
+
+    ui->lblFov3D->setText(QString("Fov %1°").arg(qRound(deg)));
+
+    bool old = ui->fovSlider->blockSignals(true);
+    ui->fovSlider->setValue(qRound(deg));
+    ui->fovSlider->blockSignals(old);
 }
 
 void MainWindow::toggleProjection()

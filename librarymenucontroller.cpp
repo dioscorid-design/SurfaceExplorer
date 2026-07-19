@@ -168,29 +168,21 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                 QString folderPath = refItem->data(0, Qt::UserRole + 10).toString();
 
                 if (senderTree == m_mainWindow->ui->treeSurfaces) {
-#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+                    // folderPath passato anche su desktop (come Texture/Sound):
+                    // il vecchio ramo senza argomento ripiegava sulla selezione
+                    // corrente e, in sua assenza, su lastFolder ("ultima usata").
                     contextMenu->addAction("Save Surface Here...", m_mainWindow, [this, folderPath, executeAction](){
                         executeAction([this, folderPath](){ m_mainWindow->saveSurfaceToFile(folderPath); });
                     });
-#else
-                    contextMenu->addAction("Save Surface Here...", m_mainWindow, [this, executeAction](){
-                        executeAction([this](){ m_mainWindow->saveSurfaceToFile(); });
-                    });
-#endif
                 } else if (senderTree == m_mainWindow->ui->treeTextures) {
                     contextMenu->addAction("Save Texture Here...", m_mainWindow, [this, folderPath, executeAction](){
                         executeAction([this, folderPath](){ m_mainWindow->m_presetSerializer->saveTextureAs(folderPath); });
                     });
                 } else if (senderTree == m_mainWindow->ui->treeMotions) {
-#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+                    // folderPath anche su desktop, vedi Save Surface Here sopra.
                     contextMenu->addAction("Save Record Here...", m_mainWindow, [this, folderPath, executeAction](){
                         executeAction([this, folderPath](){ m_mainWindow->m_presetSerializer->saveMotion(folderPath); });
                     });
-#else
-                    contextMenu->addAction("Save Record Here...", m_mainWindow, [this, executeAction](){
-                        executeAction([this](){ m_mainWindow->onSaveMotionClicked(); });
-                    });
-#endif
                 } else if (senderTree == m_mainWindow->ui->treeSounds) {
                     contextMenu->addAction("Save Sound Here...", m_mainWindow, [this, folderPath, executeAction](){
                         executeAction([this, folderPath](){ m_mainWindow->m_presetSerializer->saveSoundAs(folderPath, ""); });

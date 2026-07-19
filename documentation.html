@@ -231,6 +231,7 @@
                 <li><strong>Stereographic:</strong> A conformal projection that maps the geometry onto a sphere before projecting it onto the screen, producing a characteristic wide, curved distortion.</li>
                 <li><strong>Orthogonal:</strong> Flat, parallel projection without depth distortion. Ideal for technical visualization and exact proportional sizing.</li>
             </ul>
+            <p><strong>Field of View (Fov slider):</strong> The <strong>Fov</strong> slider in the <em>Path 3D</em> panel of the 3D dock controls the camera lens angle, from 20&deg; (telephoto) to 110&deg; (wide angle), with 45&deg; as the default. In <em>Perspective</em> and <em>Stereographic</em> modes a wider angle gives the scene more breathing room &mdash; especially useful when flying <em>inside</em> a surface with a camera path, where nearby walls loom much less at 60&ndash;70&deg;. In <em>Orthogonal</em> mode there is no perspective, so the slider simply scales the framed area, acting like a zoom. The value is saved in presets and Records (files created before this feature reload at the classic 45&deg;).</p>
             <div class="note">
                 <strong>Important:</strong> When using Perspective or Stereographic modes, if the surface moves too close to the camera (near-clipping plane), visual artifacts or "holes" may appear. If this happens, try switching the projection mode to <strong>Orthogonal</strong>.
             </div>
@@ -471,7 +472,7 @@ return vec3(r, g, 0.5);</pre>
             <p>Beyond internal shape morphing, you can animate the entire surface spatially using the dedicated controls in the <strong>3D</strong> and <strong>4D</strong> docks.</p>
             <ul class="feature-list">
                 <li><strong>Continuous Rotations:</strong> You can set the surface to spin continuously by adjusting the specific speed sliders. The 3D dock controls standard spatial rotations (Spin, Precession, Nutation), while the 4D dock controls complex hyperspace rotations (Omega, Phi, Psi).</li>
-                <li><strong>Path Following:</strong> In the 3D dock, you can activate the <strong>Path</strong> feature to automate the camera or the object's movement along the calculated parametric curves.</li>
+                <li><strong>Path Following:</strong> In the 3D dock, you can activate the <strong>Path</strong> feature to automate the camera or the object's movement along the calculated parametric curves. For fly-through paths that travel inside a surface, combine this with the <strong>Fov</strong> slider of the same panel: a wider lens angle keeps nearby walls from filling the screen (see <a href="#projection">Projection Modes</a>).</li>
                 <li><strong>Independent Speed Controls:</strong> Unlike the morphological time <code>t</code>, all spatial rotations and path movements have their own dedicated speed sliders within their respective docks, giving you complete and independent control over the object's physical motion.</li>
             </ul>
 

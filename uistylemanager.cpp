@@ -529,7 +529,7 @@ void UiStyleManager::setupRaymarchTabMobile(QWidget* equationsContainer) {
 #endif
 }
 
-void UiStyleManager::setupBigSliders(QSlider* r, QSlider* g, QSlider* b, QSlider* alpha, QSlider* light, QSlider* speed3D, QSlider* speed4D) {
+void UiStyleManager::setupBigSliders(QSlider* r, QSlider* g, QSlider* b, QSlider* alpha, QSlider* light, QSlider* speed3D, QSlider* speed4D, QSlider* fov) {
     QString baseStyle = R"(
         QSlider::groove:horizontal { border: 1px solid #999; height: 12px; border-radius: 6px; margin: 2px 0; }
         QSlider::handle:horizontal { background: white; border: 1px solid #5c5c5c; width: 30px; height: 30px; margin: -10px 0; border-radius: 15px; }
@@ -544,6 +544,7 @@ void UiStyleManager::setupBigSliders(QSlider* r, QSlider* g, QSlider* b, QSlider
     // Nuovi slider di velocità
     if(speed3D) speed3D->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #AAAAAA; }");
     if(speed4D) speed4D->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #AAAAAA; }");
+    if(fov) fov->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #AAAAAA; }");
 
     int minH = 40;
     if(r) r->setMinimumHeight(minH);
@@ -553,6 +554,7 @@ void UiStyleManager::setupBigSliders(QSlider* r, QSlider* g, QSlider* b, QSlider
     if(light) light->setMinimumHeight(minH);
     if(speed3D) speed3D->setMinimumHeight(minH);
     if(speed4D) speed4D->setMinimumHeight(minH);
+    if(fov) fov->setMinimumHeight(minH);
 }
 
 void UiStyleManager::applyInputFieldsStyle(const QList<QWidget*>& fields) {

@@ -257,6 +257,16 @@ private:
 };
 #endif
 
+// Cartella valida come punto di partenza di un dialog di salvataggio: esiste su
+// disco e NON e' una risorsa qrc. Il check startsWith(":") e' necessario perche'
+// QDir(":/...").exists() risponde true anche per le risorse (item builtin della
+// libreria), ma i dialog non possono navigarle: il QFileDialog ripiegherebbe in
+// silenzio sull'ultima cartella visitata.
+static bool isUsableStartDir(const QString &dir)
+{
+    return !dir.isEmpty() && !dir.startsWith(":") && QDir(dir).exists();
+}
+
 #if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
 // QFileDialog ISTANZIATO (non lo static getSaveFileName) per poter impostare
 // setDefaultSuffix: cosi' il dialogo completa il nome con l'estensione PRIMA
@@ -321,7 +331,7 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     } else {
         QString startPath = suggestedPath;
 
-        if (startPath.isEmpty() || !QDir(startPath).exists()) {
+        if (!isUsableStartDir(startPath)) {
             QTreeWidgetItem *selItem = m_mainWindow->getCurrentLibraryItem();
             if (selItem) {
                 if (selItem->data(0, Qt::UserRole + 10).isValid()) {
@@ -331,15 +341,16 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
                 }
             }
             // Se selezioni il NODO di categoria "Surfaces" (non una foglia) il
-            // path ricavato e' vuoto/non valido: cadi qui. Il fallback deve
-            // puntare a una cartella GARANTITA esistente, altrimenti su iOS il
-            // dialog apre una directory inesistente -> lista vuota + salvataggio
-            // fallito (su Android non capita perche' rootPath e' un percorso
-            // pubblico fisso sempre presente).
-            if (startPath.isEmpty() || !QDir(startPath).exists()) {
+            // path ricavato e' vuoto/non valido (o e' una risorsa ":/" di un
+            // item builtin): cadi qui. Il fallback deve puntare a una cartella
+            // GARANTITA esistente, altrimenti su iOS il dialog apre una
+            // directory inesistente -> lista vuota + salvataggio fallito (su
+            // Android non capita perche' rootPath e' un percorso pubblico fisso
+            // sempre presente).
+            if (!isUsableStartDir(startPath)) {
                 startPath = settings.value("lastFolder", rootPath + "/surfaces").toString();
             }
-            if (startPath.isEmpty() || !QDir(startPath).exists()) {
+            if (!isUsableStartDir(startPath)) {
                 startPath = rootPath + "/surfaces";
             }
         }
@@ -521,6 +532,7 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         root["renderMode"] = m_mainWindow->m_savedRenderMode;
     }
     root["projectionMode"] = (int)m_mainWindow->ui->glWidget->projectionMode;
+    root["cameraFov"] = (double)m_mainWindow->ui->glWidget->cameraFov();
 
     // Densità wireframe corrente (passi U/V): salviamo il numero di linee a schermo IN
     // QUESTO MOMENTO, non il default, così il reload riproduce l'aspetto scelto.
@@ -703,7 +715,7 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     } else {
         QString startPath = suggestedPath;
 
-        if (startPath.isEmpty() || !QDir(startPath).exists()) {
+        if (!isUsableStartDir(startPath)) {
             QTreeWidgetItem *selItem = m_mainWindow->getCurrentLibraryItem();
             if (selItem) {
                 if (selItem->data(0, Qt::UserRole + 10).isValid()) {
@@ -713,13 +725,14 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
                 }
             }
             // Selezionando il NODO di categoria (non una foglia) il path e'
-            // vuoto/non valido: il fallback deve puntare a una cartella GARANTITA
-            // esistente, altrimenti su iOS il dialog apre una dir inesistente ->
-            // lista vuota + salvataggio fallito (vedi saveSurface).
-            if (startPath.isEmpty() || !QDir(startPath).exists()) {
+            // vuoto/non valido (o risorsa ":/" di un item builtin): il fallback
+            // deve puntare a una cartella GARANTITA esistente, altrimenti su iOS
+            // il dialog apre una dir inesistente -> lista vuota + salvataggio
+            // fallito (vedi saveSurface).
+            if (!isUsableStartDir(startPath)) {
                 startPath = lastDir;
             }
-            if (startPath.isEmpty() || !QDir(startPath).exists()) {
+            if (!isUsableStartDir(startPath)) {
                 startPath = m_mainWindow->presetsRootPath() + "/records";
             }
         }
@@ -1072,6 +1085,7 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         root["renderMode"] = m_mainWindow->m_savedRenderMode;
     }
     root["projectionMode"] = m_mainWindow->ui->glWidget->projectionMode;
+    root["cameraFov"] = (double)m_mainWindow->ui->glWidget->cameraFov();
 
     // Densità wireframe corrente (passi U/V): come in saveSurface, salviamo le linee a
     // schermo in questo momento così il record le riproduce al reload.
@@ -1386,7 +1400,7 @@ void PresetSerializer::saveTextureAs(const QString &startDir, const QString &sou
     // il dialog aprirebbe una dir vuota e il salvataggio fallirebbe. Ricadiamo su
     // una cartella texture GARANTITA e la creiamo (vedi saveSurface/saveMotion).
     QString effStartDir = startDir;
-    if (effStartDir.isEmpty() || !QDir(effStartDir).exists())
+    if (!isUsableStartDir(effStartDir))
         effStartDir = m_mainWindow->presetsRootPath() + "/textures";
     if (!QDir(effStartDir).exists())
         QDir().mkpath(effStartDir);
@@ -1433,14 +1447,23 @@ void PresetSerializer::saveSurfaceAs(const QString &startDir, const QString &sou
     if (wasPath4D) m_mainWindow->pathTimer->stop();
     if (wasPath3D) m_mainWindow->pathTimer3D->stop();
 
-    QString defaultSelection = startDir + "/NewSurface.json";
-    if (!sourceFilePath.isEmpty()) defaultSelection = startDir + "/" + QFileInfo(sourceFilePath).fileName();
+    // startDir puo' essere inesistente o una risorsa ":/" (item builtin): il
+    // dialog ripiegherebbe sull'ultima cartella visitata. Fallback alla radice
+    // del tipo, garantita esistente (stessa guardia di saveTextureAs/saveSoundAs).
+    QString effStartDir = startDir;
+    if (!isUsableStartDir(effStartDir))
+        effStartDir = m_mainWindow->presetsRootPath() + "/surfaces";
+    if (!QDir(effStartDir).exists())
+        QDir().mkpath(effStartDir);
+
+    QString defaultSelection = effStartDir + "/NewSurface.json";
+    if (!sourceFilePath.isEmpty()) defaultSelection = effStartDir + "/" + QFileInfo(sourceFilePath).fileName();
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     QString baseName = QFileInfo(defaultSelection).completeBaseName();
     // navFloor = radice del tipo (surfaces): Up disponibile dalle sottocartelle,
     // fermo alla radice.
-    MobileSaveDialog dialog("Save Surface As...", startDir, baseName, m_mainWindow,
+    MobileSaveDialog dialog("Save Surface As...", effStartDir, baseName, m_mainWindow,
                             m_mainWindow->presetsRootPath() + "/surfaces");
 
     if (dialog.exec() != QDialog::Accepted) {
@@ -1474,7 +1497,7 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
     // dialog aprirebbe una dir vuota e il salvataggio fallirebbe. Ricadiamo su
     // una cartella sound GARANTITA e la creiamo (vedi saveSurface/saveMotion).
     QString effStartDir = startDir;
-    if (effStartDir.isEmpty() || !QDir(effStartDir).exists())
+    if (!isUsableStartDir(effStartDir))
         effStartDir = m_mainWindow->presetsRootPath() + "/sounds";
     if (!QDir(effStartDir).exists())
         QDir().mkpath(effStartDir);
@@ -1624,13 +1647,22 @@ void PresetSerializer::saveMotionAs(const QString &startDir, const QString &sour
     if (wasPath4D) m_mainWindow->pathTimer->stop();
     if (wasPath3D) m_mainWindow->pathTimer3D->stop();
 
-    QString defaultSelection = startDir + "/NewMotion.json";
-    if (!sourceFilePath.isEmpty()) defaultSelection = startDir + "/" + QFileInfo(sourceFilePath).fileName();
+    // startDir puo' essere inesistente o una risorsa ":/" (item builtin): il
+    // dialog ripiegherebbe sull'ultima cartella visitata. Fallback alla radice
+    // del tipo, garantita esistente (stessa guardia di saveTextureAs/saveSoundAs).
+    QString effStartDir = startDir;
+    if (!isUsableStartDir(effStartDir))
+        effStartDir = m_mainWindow->presetsRootPath() + "/records";
+    if (!QDir(effStartDir).exists())
+        QDir().mkpath(effStartDir);
+
+    QString defaultSelection = effStartDir + "/NewMotion.json";
+    if (!sourceFilePath.isEmpty()) defaultSelection = effStartDir + "/" + QFileInfo(sourceFilePath).fileName();
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     QString baseName = QFileInfo(defaultSelection).completeBaseName();
     // navFloor = radice del tipo (records): Up dalle sottocartelle, fermo alla radice.
-    MobileSaveDialog dialog("Save Record As...", startDir, baseName, m_mainWindow,
+    MobileSaveDialog dialog("Save Record As...", effStartDir, baseName, m_mainWindow,
                             m_mainWindow->presetsRootPath() + "/records");
 
     if (dialog.exec() != QDialog::Accepted) {

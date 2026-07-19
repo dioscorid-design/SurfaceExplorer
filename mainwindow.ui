@@ -579,10 +579,27 @@
           </property>
          </widget>
         </item>
-        <item row="6" column="1">
+        <item row="7" column="1">
          <widget class="QPushButton" name="btnDeparture3D">
           <property name="text">
            <string>DEPARTURE</string>
+          </property>
+         </widget>
+        </item>
+        <item row="6" column="0">
+         <widget class="QLabel" name="lblFov3D">
+          <property name="text">
+           <string>Fov 45°</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="6" column="1">
+         <widget class="QSlider" name="fovSlider">
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
           </property>
          </widget>
         </item>
@@ -609,7 +626,7 @@
         <item row="4" column="1">
          <widget class="QLineEdit" name="lineR_P3D"/>
         </item>
-        <item row="6" column="0">
+        <item row="7" column="0">
          <widget class="QPushButton" name="pushView3D">
           <property name="text">
            <string>Center View</string>

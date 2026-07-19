@@ -517,6 +517,10 @@ private:
     void applyAnimationState(bool animated, bool dockOnly = false);
     bool hasAnyRotationSpeed() const;
     void generateTexture();
+    void applyDefaultCheckerShader();
+    // Unico punto che applica il FOV 3D: GLWidget + slider + label sempre
+    // allineati (chiamato dallo slider E dai load di preset/record).
+    void applyCameraFov(float deg);
     void toggleProjection();
     bool applyBackgroundTextureIfNeeded();
 

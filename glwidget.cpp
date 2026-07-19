@@ -280,11 +280,11 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         const float nearPlane = camDist * 0.0025f;
         const float farPlane  = camDist * 25.0f;
         if (projectionMode == Ortho4D) {
-            float halfHeight = camDist * std::tan(45.0f * 0.5f * M_PI / 180.0f);
+            float halfHeight = camDist * std::tan(m_cameraFov * 0.5f * M_PI / 180.0f);
             float halfWidth = halfHeight * aspect;
             m_projection.ortho(-halfWidth, halfWidth, -halfHeight, halfHeight, nearPlane, farPlane);
         } else {
-            m_projection.perspective(45.0f, aspect, nearPlane, farPlane);
+            m_projection.perspective(m_cameraFov, aspect, nearPlane, farPlane);
         }
 
         m_view.setToIdentity();
@@ -1823,6 +1823,13 @@ bool GLWidget::loadCustomShader(const QString &customCode)
 
 void GLWidget::setShaderTime(float t) {
     m_manualTime = t;
+}
+
+void GLWidget::setCameraFov(float deg) {
+    // Clamp: sotto ~20° l'immagine è un teleobiettivo inutilizzabile negli
+    // interni, sopra ~110° la prospettiva rettilinea degenera ai bordi.
+    m_cameraFov = qBound(20.0f, deg, 110.0f);
+    update();
 }
 
 void GLWidget::setBackgroundColor(const QColor &c) {

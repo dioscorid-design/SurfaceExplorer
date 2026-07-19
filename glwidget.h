@@ -330,6 +330,10 @@ public:
     // UTILITIES
     // ==========================================================
     int projectionMode = 0;
+    // FOV verticale (gradi) dell'obiettivo 3D (slider Fov del dock Path 3D).
+    // Letto in render() -> vale identico per tick live e registrazione.
+    void setCameraFov(float deg);
+    float cameraFov() const { return m_cameraFov; }
     QImage getFrameForVideo(int targetW = -1, int targetH = -1, bool useFbo = false);
     // Cattura a risoluzione PIENA (vero "FBO"): fissa la dimensione in pixel del
     // color buffer offscreen di QRhiWidget alla risoluzione di export, così la
@@ -561,6 +565,7 @@ private:
     float m_cameraYaw;
     float m_cameraPitch;
     float m_cameraRoll = 0.0f;
+    float m_cameraFov = 45.0f; // gradi, vedi setCameraFov()
 
     bool m_isPathFollowing = false;   // MODALITA' camera tangent (persiste dopo stop)
     bool m_pathAnimating = false;     // path in animazione (solo per il watchdog)
