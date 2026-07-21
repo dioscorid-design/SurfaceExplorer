@@ -137,6 +137,13 @@ public:
     void setScriptCodeGLSL(const QString& code) { m_glslCode = code; }
     QString getScriptCodeGLSL() const { return m_glslCode; }
 
+    // Sezione opzionale //CUTOUT_BEGIN..//CUTOUT_END dello script (dock Script):
+    // corpo di bool cutHere(float u, float v), iniettato nel fragment shader per
+    // scartare (discard) le pareti interne nei punti di autointersezione. Vuoto =
+    // nessun taglio (retrocompatibile con ogni preset che non la definisce).
+    void setCutoutCodeGLSL(const QString& code) { m_cutoutCode = code; }
+    QString getCutoutCodeGLSL() const { return m_cutoutCode; }
+
 private:
 
     // ==========================================================
@@ -177,6 +184,7 @@ private:
     // SCRIPTING STATE
     // ==========================================================
     QString m_glslCode;
+    QString m_cutoutCode;
     bool m_useScriptMode = false;
 
     // ==========================================================

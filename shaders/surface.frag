@@ -47,6 +47,10 @@ layout(std140, binding = 0) uniform SceneUBO {
 // --- PLACEHOLDER PER CODICE TEXTURE CUSTOM ---
 %CUSTOM_CODE%
 
+// --- PLACEHOLDER PER TAGLIO PARETI INTERNE (script dock, sezione CUTOUT) ---
+// Fallback: nessun taglio (retrocompatibile con ogni preset che non la definisce).
+%CUTOUT_CODE%
+
 // --- MAIN (LOGICA DI ILLUMINAZIONE CALIBRATA) ---
 void main() {
 
@@ -55,6 +59,19 @@ void main() {
         FragColor = vec4(texColor, 1.0);
         return;
     }
+
+#ifdef HAS_CUTOUT
+    // Taglio pareti interne: stesso (u,v) usato da getRawPosition nel vertex,
+    // ricostruito qui dal texCoord normalizzato (v_texCoord.y è invertito nel
+    // vertex shader, vedi surface.vert). Iniettato SOLO se il preset definisce
+    // una sezione //CUTOUT_BEGIN (vedi createFragmentShaderSource): costo zero
+    // per ogni altra superficie, che non passa mai da questo branch.
+    float _cutU = mix(ubuf.u_min, ubuf.u_max, v_texCoord.x);
+    float _cutV = mix(ubuf.v_min, ubuf.v_max, 1.0 - v_texCoord.y);
+    if (cutHere(_cutU, _cutV)) {
+        discard;
+    }
+#endif
 
     // Scompattiamo i parametri matematici
     // Scompattiamo i parametri matematici

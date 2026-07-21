@@ -2725,6 +2725,7 @@ bool GLWidget::validateAndApplyParametricScript(const QString &scriptCodeGLSL)
 {
     // Salva lo stato attuale dello script per ripristinarlo se fallisce
     QString oldScript = engine->getScriptCodeGLSL();
+    QString oldCutout = engine->getCutoutCodeGLSL();
     bool oldScriptMode = engine->isScriptModeActive();
 
     // Applica temporaneamente per testare
@@ -2745,6 +2746,24 @@ bool GLWidget::validateAndApplyParametricScript(const QString &scriptCodeGLSL)
         m_lastCompilationError = "VERTEX (script): " + baker.errorMessage();
         // RIPRISTINO: rimettiamo lo stato di prima
         engine->setScriptCodeGLSL(oldScript);
+        engine->setCutoutCodeGLSL(oldCutout);
+        engine->setScriptMode(oldScriptMode);
+        return false;
+    }
+
+    // DRY RUN FRAGMENT: valida anche l'eventuale sezione CUTOUT (già impostata
+    // nell'engine da onRunScriptClicked prima di chiamare questa funzione).
+    QString fsSource = createFragmentShaderSource(m_customFragmentCode);
+    QShaderBaker fragBaker;
+    fragBaker.setSourceString(fsSource.toUtf8(), QShader::FragmentStage);
+    fragBaker.setGeneratedShaderVariants({QShader::StandardShader});
+    fragBaker.setGeneratedShaders({ {QShader::SpirvShader, QShaderVersion(100)} });
+
+    QShader fragShader = fragBaker.bake();
+    if (!fragShader.isValid()) {
+        m_lastCompilationError = "FRAGMENT (cutout): " + fragBaker.errorMessage();
+        engine->setScriptCodeGLSL(oldScript);
+        engine->setCutoutCodeGLSL(oldCutout);
         engine->setScriptMode(oldScriptMode);
         return false;
     }
@@ -3450,6 +3469,27 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
                        "vec4 tex = vec4(getCustomColor(v_texCoord), 1.0);");
     fullSource.replace("vec3 texColor = texture(textureSampler, v_texCoord).rgb;",
                        "vec3 texColor = getCustomColor(v_texCoord);");
+
+    // Taglio pareti interne (sezione //CUTOUT_BEGIN..//CUTOUT_END dello script
+    // dock Script): vuoto = nessun taglio. HAS_CUTOUT è iniettato SOLO quando
+    // serve davvero, così il branch discard in surface.frag (sotto #ifdef) non
+    // esiste nemmeno per le superfici senza cutout: costo zero, non solo "sempre
+    // false" (misurato: senza questo #ifdef erano comunque 4 istruzioni scalari
+    // extra per pixel su OGNI superficie parametrica, anche senza cutout).
+    QString cutoutBody = engine ? engine->getCutoutCodeGLSL() : QString();
+    QString cutoutCode;
+    bool hasCutout = !cutoutBody.trimmed().isEmpty();
+    if (!hasCutout) {
+        cutoutCode = "bool cutHere(float u, float v) { return false; }";
+    } else {
+        QString cutoutHelpers = generateGlslHelperVars(cutoutBody);
+        cutoutCode = "bool cutHere(float u, float v) {\n" + cutoutHelpers + cutoutBody + "\n}";
+    }
+    fullSource.replace("%CUTOUT_CODE%", cutoutCode);
+
+    if (hasCutout) {
+        fullSource.replace("#version 450", "#version 450\n#define HAS_CUTOUT\n");
+    }
 
     if (m_isCustomMesh) {
         fullSource.replace("#version 450", "#version 450\n#define CUSTOM_MESH\n");

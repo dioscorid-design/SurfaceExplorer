@@ -207,6 +207,16 @@ private slots:
 
 
 private:
+    // Estrae la sezione opzionale //CUTOUT_BEGIN..//CUTOUT_END da uno script
+    // parametrico (dock Script): la traduce con GlslTranslator e la rimuove dal
+    // testo restituito, cosi' NON finisce mai iniettata in getRawPosition() nel
+    // vertex shader (romperebbe la compilazione: due "return" di tipo diverso
+    // nella stessa funzione). Un solo punto per i due chiamanti che oggi
+    // rialimentano lo script parametrico (onRunScriptClicked e la ripresa da
+    // Master Start/dock Run): erano diventati due copie della stessa estrazione
+    // e la seconda non toglieva mai il cutout -> errore di compilazione.
+    QString extractCutoutSection(const QString &fullText, QString *outCutoutGlsl);
+
     // ==========================================================
     // CORE UI COMPONENTS
     // ==========================================================

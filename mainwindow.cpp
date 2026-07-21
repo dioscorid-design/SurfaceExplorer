@@ -4993,10 +4993,27 @@ void MainWindow::onStartClicked()
                 ? ui->txtScriptEditor->toPlainText()
                 : m_surfaceScriptText;
 
+        const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
+
+        // Sezione opzionale //CUTOUT_BEGIN..//CUTOUT_END (solo parametrico:
+        // il Ray Marching non usa getRawPosition, quindi non ha cutout).
+        // Stessa estrazione di onRunScriptClicked: qui era rimasta una copia
+        // che non la toglieva dal corpo, quindi il blocco CUTOUT finiva
+        // iniettato anche in getRawPosition() -> due "return" di tipo diverso
+        // nella stessa funzione -> errore di compilazione SOLO da Master Start
+        // (onRunScriptClicked, chiamato da Departure/altri percorsi, la toglieva
+        // già correttamente).
+        QString scriptForGlsl = currentScript;
+        if (!isImplicit) {
+            QString cutoutGlsl;
+            scriptForGlsl = extractCutoutSection(currentScript, &cutoutGlsl);
+            ui->glWidget->getEngine()->setCutoutCodeGLSL(cutoutGlsl);
+        }
+
         // Ri-valida lo script corrente prima di riprendere: se contiene un
         // errore non corretto NON facciamo ripartire il moto (come le equazioni).
         QString glslBody;
-        QString copy = currentScript;
+        QString copy = scriptForGlsl;
         QTextStream stream(&copy);
         while (!stream.atEnd()) {
             QString line = stream.readLine();
@@ -5005,7 +5022,6 @@ void MainWindow::onStartClicked()
         }
         glslBody = GlslTranslator::translateEquation(glslBody);
 
-        const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
         const bool ok = isImplicit
                 ? ui->glWidget->validateAndApplyImplicitScript(glslBody)
                 : ui->glWidget->validateAndApplyParametricScript(glslBody);
@@ -6381,6 +6397,21 @@ void MainWindow::onRunCurrentScript()
     updateScriptButtonText();
 }
 
+QString MainWindow::extractCutoutSection(const QString &fullText, QString *outCutoutGlsl)
+{
+    static const QRegularExpression cutoutRegex(
+        R"(//CUTOUT_BEGIN([\s\S]*?)//CUTOUT_END)");
+    QRegularExpressionMatch cutoutMatch = cutoutRegex.match(fullText);
+    if (!cutoutMatch.hasMatch()) {
+        if (outCutoutGlsl) outCutoutGlsl->clear();
+        return fullText;
+    }
+    if (outCutoutGlsl) *outCutoutGlsl = GlslTranslator::translateEquation(cutoutMatch.captured(1));
+    QString bodyWithoutCutout = fullText;
+    bodyWithoutCutout.remove(cutoutMatch.capturedStart(0), cutoutMatch.capturedLength(0));
+    return bodyWithoutCutout;
+}
+
 void MainWindow::onRunScriptClicked()
 {
     QString fullText = ui->txtScriptEditor->toPlainText();
@@ -6405,8 +6436,17 @@ void MainWindow::onRunScriptClicked()
     this->setProperty("rawSurfaceScript", fullText);
     parseAndApplyScriptParams(fullText, false);
 
+    // Sezione opzionale //CUTOUT_BEGIN..//CUTOUT_END: corpo di
+    // bool cutHere(float u, float v) per il taglio delle pareti interne nei
+    // punti di autointersezione (discard nel fragment). Va estratta PRIMA di
+    // costruire glslBody, altrimenti finirebbe iniettata anche in
+    // getRawPosition() nel vertex shader.
+    QString cutoutGlsl;
+    QString bodyWithoutCutout = extractCutoutSection(fullText, &cutoutGlsl);
+    ui->glWidget->getEngine()->setCutoutCodeGLSL(cutoutGlsl);
+
     QString glslBody;
-    QTextStream stream(&fullText);
+    QTextStream stream(&bodyWithoutCutout);
     while (!stream.atEnd()) {
         QString line = stream.readLine();
         if (line.contains(":=")) continue;
