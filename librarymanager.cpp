@@ -379,6 +379,10 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.projectionMode = root["projectionMode"].toInt();
         }
         d.cameraFov = (float)root["cameraFov"].toDouble(45.0);
+        // FOV indipendenti dei due path; i JSON vecchi (solo cameraFov) lo
+        // ereditano su entrambi.
+        d.fov3D = (float)root["fov3D"].toDouble(d.cameraFov);
+        d.fov4D = (float)root["fov4D"].toDouble(d.cameraFov);
 
         // Densità wireframe (opzionale): assente nei preset vecchi -> hasWireframe resta
         // false e il load applica il default. Il tag STEP_DEF=4 lato GLWidget clampa i valori.
@@ -580,6 +584,10 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.projectionMode = root["projectionMode"].toInt();
         }
         d.cameraFov = (float)root["cameraFov"].toDouble(45.0);
+        // FOV indipendenti dei due path; i JSON vecchi (solo cameraFov) lo
+        // ereditano su entrambi.
+        d.fov3D = (float)root["fov3D"].toDouble(d.cameraFov);
+        d.fov4D = (float)root["fov4D"].toDouble(d.cameraFov);
 
         // DENSITA' WIREFRAME. Veniva letta SOLO nel ramo Motion (sopra): il ramo
         // Surface la ignorava del tutto, quindi le superfici si ricaricavano SEMPRE

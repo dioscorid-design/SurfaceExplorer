@@ -136,7 +136,11 @@ struct LibraryItem {
     int renderMode = 0;
     int projectionMode = 1;
     // FOV 3D (gradi). 45 = default storico: i JSON senza chiave lo ripristinano.
+    // cameraFov = chiave legacy (unico FOV); fov3D/fov4D = FOV indipendenti dei
+    // due path (i JSON vecchi li ereditano da cameraFov in fase di load).
     float cameraFov = 45.0f;
+    float fov3D = 45.0f;
+    float fov4D = 45.0f;
 
     // Densità wireframe (passi campionamento U/V). hasWireframe=false => il preset non
     // la contiene (formato vecchio): il load usa il default (resetWireframeDensity).

@@ -31,7 +31,7 @@ public:
     static void setupDockScroll(QDockWidget* dock, bool isExamplesDock = false);
     static void compactForMobile(const QList<QWidget*>& containers);
     static void setupRaymarchTabMobile(QWidget* equationsContainer);
-    static void setupBigSliders(QSlider* r, QSlider* g, QSlider* b, QSlider* alpha, QSlider* light = nullptr, QSlider* speed3D = nullptr, QSlider* speed4D = nullptr, QSlider* fov = nullptr);
+    static void setupBigSliders(QSlider* r, QSlider* g, QSlider* b, QSlider* alpha, QSlider* light = nullptr, QSlider* speed3D = nullptr, QSlider* speed4D = nullptr, QSlider* fov = nullptr, QSlider* fov4D = nullptr);
     static void applyInputFieldsStyle(const QList<QWidget*>& fields);
     static void addScrollToDock(QDockWidget* dock);
     static void applyConstraintStyle(QPlainTextEdit* editor, ConstraintState state);

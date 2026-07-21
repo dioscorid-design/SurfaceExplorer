@@ -346,10 +346,8 @@ void VideoRecorder::toggleRecord()
     bool wasPath4D = m_mainWindow->pathTimer->isActive();
     bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
     bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
-    // Moto GO davvero in corsa al REC: solo in quel caso il loop avanza le
-    // rotazioni (advanceRotationsBy), altrimenti posa statica come a schermo.
-    // Catturato PRIMA di pauseMotion, tramite l'unico predicato autorizzato.
-    bool rotationsWereRunning = m_mainWindow->isRotationMotionRunning();
+    // NB: niente snapshot del moto GO — il loop legge isRotationMotionRunning()
+    // a ogni frame (stato vivo), cosi' GO/STOP premuti durante il REC agiscono.
 
     // Stato VERO del clock geometria, non il testo del master button: il master
     // dice "STOP" se QUALSIASI modulo e' in moto (es. solo sfondo animato), e
@@ -569,6 +567,16 @@ void VideoRecorder::toggleRecord()
     m_mainWindow->m_stopRecordingRequested = false;
     m_mainWindow->ui->glWidget->setUpdatesEnabled(false);
 
+    // I moti fermati per i dialoghi RIPARTONO qui, sotto il clock virtuale:
+    // timer attivi e stato VERO (bottoni, esclusivita', handler, predicati
+    // funzionano normalmente, e i comandi al volo durante il REC entrano nel
+    // video), ma i tick live sono no-op — con m_isRecording gia' true e il
+    // clock esterno attivo, ad avanzare il tempo e' SOLO il loop qui sotto.
+    m_mainWindow->ui->glWidget->setExternalClockActive(true);
+    if (wasPath4D) m_mainWindow->pathTimer->start();
+    if (wasPath3D) m_mainWindow->pathTimer3D->start();
+    if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
+
     // ---> BLOCCA LO SPEGNIMENTO DELLO SCHERMO <---
 #if defined(Q_OS_IOS)
     NativeVideoEncoder::setKeepScreenOn(true);
@@ -650,16 +658,12 @@ void VideoRecorder::toggleRecord()
         QDir().mkpath(m_mainWindow->m_recFolder);
     }
 
-    // Recupero variabili per il loop
-    float currentPathT = m_mainWindow->pathTimeT;
-
-    // Posa 4D al momento del REC: il loop avanza omega/phi/psi reali
-    // (advanceRotationsBy), a fine registrazione lo schermo torna qui.
-    float startOmega = m_mainWindow->ui->glWidget->getOmega();
-    float startPhi   = m_mainWindow->ui->glWidget->getPhi();
-    float startPsi   = m_mainWindow->ui->glWidget->getPsi();
-
-    float pathStep = m_mainWindow->m_pathSpeed4D * fpsScale4D;
+    // Il loop avanza direttamente le variabili di stato VERE (pathTimeT,
+    // pathTimeT3D, omega/phi/psi), con la stessa semantica del tick live
+    // (t += velocita' corrente): il recorder sostituisce l'OROLOGIO, non lo
+    // stato. Cosi' velocita' cambiate al volo entrano in modo continuo, il
+    // Reset (che azzera pathTimeT/T3D e la posa) agisce sul video come a
+    // schermo, e a fine REC il live prosegue da dove il video e' finito.
 
     // UI Feedback
     m_mainWindow->m_statusLabel->clear();
@@ -669,10 +673,17 @@ void VideoRecorder::toggleRecord()
     m_mainWindow->m_renderProgress->setFormat("%v / %m (%p%)");
     m_mainWindow->m_renderProgress->setAlignment(Qt::AlignCenter);
 
+    // Equations e Surfaces restano bloccati: cambiare superficie/equazioni a
+    // meta' REC invalida lo stato catturato prima del loop. I dock 3D/4D invece
+    // restano VIVI E FUNZIONANTI, toggle compresi (GO, Departure, Reset, FOV,
+    // velocita', vista): il loop non lavora su snapshot ma legge lo STATO VIVO
+    // a ogni frame — i timer dei moti restano attivi (i tick sono no-op
+    // durante il REC: guardia m_isRecording nei tick path, clock esterno nel
+    // rotationTimer) e ad avanzare il tempo e' solo il loop. Ogni comando al
+    // volo passa dagli handler NORMALI (esclusivita', handoff, testi bottone)
+    // ed entra nel video come a schermo.
     m_mainWindow->ui->dockEquations->setEnabled(false);
     m_mainWindow->ui->dockSurfaces->setEnabled(false);
-    m_mainWindow->ui->dock3D->setEnabled(false);
-    m_mainWindow->ui->dock4D->setEnabled(false);
 
     int actualFramesRendered = 0;
 
@@ -771,17 +782,20 @@ void VideoRecorder::toggleRecord()
 
         // ====================================================
 
-        if (wasPath4D) {
+        // STATO VIVO, non snapshot: i predicati sono quelli del tick live e i
+        // toggle (GO/Departure/Reset) agiscono a meta' REC come a schermo.
+        if (m_mainWindow->pathTimer->isActive()) {
             // Stessa identica camera del tick live: al recorder cambia solo
             // il tempo. Niente copie locali di questa logica (divergevano:
             // vista Center diversa, base 4D del Departure ignorata).
-            m_mainWindow->applyPath4DCameraAt(currentPathT + (i * pathStep));
+            m_mainWindow->pathTimeT += m_mainWindow->m_pathSpeed4D * fpsScale4D;
+            m_mainWindow->applyPath4DCameraAt(m_mainWindow->pathTimeT);
         }
-        else if (wasPath3D) {
-            float step3D = m_mainWindow->m_pathSpeed3D * fpsScale3D;
-            m_mainWindow->applyPath3DCameraAt(m_mainWindow->pathTimeT3D + (i * step3D));
+        else if (m_mainWindow->pathTimer3D->isActive()) {
+            m_mainWindow->pathTimeT3D += m_mainWindow->m_pathSpeed3D * fpsScale3D;
+            m_mainWindow->applyPath3DCameraAt(m_mainWindow->pathTimeT3D);
         }
-        else if (rotationsWereRunning) {
+        else if (m_mainWindow->isRotationMotionRunning()) {
             // Stessa identica cinematica del tick live (advanceRotationsBy):
             // al recorder cambia solo il dt, quello del frame virtuale.
             m_mainWindow->ui->glWidget->advanceRotationsBy(timeStep);
@@ -948,6 +962,10 @@ void VideoRecorder::toggleRecord()
     // 5. RIPRISTINO E PULIZIA
     // ==============================================================
     m_mainWindow->m_isRecording = false;
+    // Clock esterno spento INSIEME a m_isRecording: i timer dei moti (rimasti
+    // attivi per tutto il REC) riprendono ad avanzare live da qui, proseguendo
+    // dallo stato in cui il video e' finito.
+    m_mainWindow->ui->glWidget->setExternalClockActive(false);
     m_mainWindow->ui->glWidget->setRecordingActive(false); // riattiva il watchdog
 
     // Ripristina il color buffer alla dimensione a schermo (esce dalla cattura FBO).
@@ -992,12 +1010,21 @@ void VideoRecorder::toggleRecord()
 
     m_mainWindow->ui->dockEquations->setEnabled(true);
     m_mainWindow->ui->dockSurfaces->setEnabled(true);
-    m_mainWindow->ui->dock3D->setEnabled(true);
-    m_mainWindow->ui->dock4D->setEnabled(true);
 
-    restoreState();
-
-    m_mainWindow->ui->glWidget->setRotation4D(startOmega, startPhi, startPsi);
+    // FINE REC, modello "live-through": NESSUN ripristino dei moti — lo stato
+    // corrente (timer, testi bottone, pathTimeT/T3D, posa 4D, geoTime) e'
+    // quello che l'utente ha costruito coi comandi al volo, e lo schermo
+    // prosegue da dove il video e' finito (i timer non sono mai stati fermati:
+    // era fermo solo il loro OROLOGIO). restoreState resta per i soli percorsi
+    // di annullamento pre-loop, dove il ripristino completo e' ancora giusto.
+    // Qui si riavviano solo i clock live che il loop pilotava direttamente:
+    if (wasTimeAnimating) {
+        m_mainWindow->ui->glWidget->setSurfaceAnimating(true);
+        m_mainWindow->ui->glWidget->startAnimationTimer();
+    }
+    if (wasGeoAnimating && geoAnimTimer) {
+        geoAnimTimer->start(); // geoTime prosegue dal punto raggiunto nel video
+    }
     m_mainWindow->ui->glWidget->update();
 
     m_mainWindow->m_statusLabel->setText("Generating MP4... please wait.");

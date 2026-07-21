@@ -938,10 +938,27 @@
         <item row="6" column="2">
          <widget class="QLineEdit" name="lineBeta_P"/>
         </item>
-        <item row="9" column="2">
+        <item row="10" column="2">
          <widget class="QPushButton" name="btnDeparture">
           <property name="text">
            <string>DEPARTURE</string>
+          </property>
+         </widget>
+        </item>
+        <item row="9" column="0">
+         <widget class="QLabel" name="lblFov4D">
+          <property name="text">
+           <string>Fov 45°</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignmentFlag::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+        <item row="9" column="2">
+         <widget class="QSlider" name="fovSlider4D">
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
           </property>
          </widget>
         </item>
@@ -958,7 +975,7 @@
           </property>
          </widget>
         </item>
-        <item row="9" column="0">
+        <item row="10" column="0">
          <widget class="QPushButton" name="pushView">
           <property name="sizePolicy">
            <sizepolicy hsizetype="Minimum" vsizetype="Fixed">

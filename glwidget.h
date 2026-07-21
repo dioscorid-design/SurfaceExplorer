@@ -274,6 +274,12 @@ public:
     // loop di registrazione (dt del frame virtuale) — niente copie della
     // cinematica nel recorder (vedi CLAUDE.md).
     void advanceRotationsBy(float dtSeconds);
+    // Clock esterno (registrazione): con il flag attivo i tick live NON
+    // avanzano i moti — li avanza il loop del recorder col tempo virtuale del
+    // frame. Lo STATO pero' resta vero (rotationTimer attivo, isAnimating()
+    // sincero), cosi' bottoni, mutua esclusivita' e handler dei moti
+    // funzionano normalmente anche durante il REC.
+    void setExternalClockActive(bool on) { m_externalClockActive = on; }
     void setNutationSpeed(float v) { nutationSpeed = v; }
     void setPrecessionSpeed(float v) { precessionSpeed = v; }
     void setSpinSpeed(float v) { spinSpeed = v; }
@@ -566,6 +572,7 @@ private:
     float m_cameraPitch;
     float m_cameraRoll = 0.0f;
     float m_cameraFov = 45.0f; // gradi, vedi setCameraFov()
+    bool m_externalClockActive = false; // vedi setExternalClockActive()
 
     bool m_isPathFollowing = false;   // MODALITA' camera tangent (persiste dopo stop)
     bool m_pathAnimating = false;     // path in animazione (solo per il watchdog)

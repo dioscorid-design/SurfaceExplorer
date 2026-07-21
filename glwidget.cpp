@@ -883,6 +883,11 @@ void GLWidget::rebuildBackgroundShader(bool isTextureMode, const QString &custom
 // ==========================================================
 
 void GLWidget::updateRotation() {
+    // Clock esterno attivo (registrazione): il tick live e' un no-op, ad
+    // avanzare le rotazioni e' il loop del recorder (advanceRotationsBy col
+    // dt virtuale del frame). Il timer resta attivo apposta: e' lo STATO.
+    if (m_externalClockActive) return;
+
     advanceRotationsBy(kRotationTickMs / 1000.0f);
 
     // NB: la rotazione 4D NON cambia i dati CPU della mesh: la rotazione XW/YW/ZW
@@ -2275,6 +2280,13 @@ void GLWidget::resetTransformations()
     m_cameraYaw = 0.0f;
     m_cameraPitch = 0.0f;
     m_cameraRoll = 0.0f;
+
+    // FOV al default: il reset della vista annulla anche lo "zoom" del FOV di
+    // un path appena abbandonato (senza questo, dopo un path a FOV alto la
+    // superficie resettata apparirebbe rimpicciolita). Se un path e' ANCORA in
+    // corsa, il suo primo tick riapplica subito il proprio FOV (stesso schema
+    // della posa): il default vale solo per la vista libera.
+    m_cameraFov = 45.0f;
 
     // =======================================================
     // FIX 2: SALVAVITA PROIEZIONE 4D

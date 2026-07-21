@@ -354,6 +354,15 @@ private:
     float m_pathSpeed3D = 0.01f;
     float m_pathSpeed4D = 0.01f;
 
+    // FOV dei due path, INDIPENDENTI (slider nel dock 3D e nel dock 4D).
+    // Il FOV effettivo della proiezione e' applicato SOLO dentro
+    // applyPath3D/4DCameraAt (quindi anche nei video, che passano di li');
+    // fuori dalle path la proiezione resta al default 45 (lo zoom fuori
+    // path ha gia' i suoi comandi, e un reset non deve rimpicciolire la
+    // superficie). Persistiti come "fov3D"/"fov4D" (legacy: "cameraFov").
+    float m_fov3D = 45.0f;
+    float m_fov4D = 45.0f;
+
     // Orientamento 4D (omega/phi/psi) della superficie catturato all'avvio del
     // path 4D: il tick applica le compensazioni -gamma/-beta RELATIVE a questa
     // base, cosi' l'orientamento accumulato dal moto GO non viene azzerato a ogni
@@ -528,9 +537,17 @@ private:
     bool hasAnyRotationSpeed() const;
     void generateTexture();
     void applyDefaultCheckerShader();
-    // Unico punto che applica il FOV 3D: GLWidget + slider + label sempre
-    // allineati (chiamato dallo slider E dai load di preset/record).
-    void applyCameraFov(float deg);
+    // Unici punti che impostano i FOV dei path (m_fov3D/m_fov4D): slider +
+    // label del proprio dock sempre allineati (chiamati dagli slider E dai
+    // load di preset/record). Applicano il valore alla proiezione solo se il
+    // proprio path sta gia' guidando la camera; altrimenti lo fara' il primo
+    // tick di applyPath3D/4DCameraAt.
+    void applyPathFov3D(float deg);
+    void applyPathFov4D(float deg);
+    // Abilitazione slider FOV: ciascuno attivo solo con la propria path in
+    // corsa e proiezione non ortogonale. Chiamata da updateViewButtonsEnabled
+    // (start/stop path) e updateProjectionButtonText (cambi proiezione).
+    void updateFovSlidersEnabled();
     void toggleProjection();
     bool applyBackgroundTextureIfNeeded();
 

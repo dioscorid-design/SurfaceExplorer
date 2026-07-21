@@ -2750,8 +2750,9 @@ MainWindow::MainWindow(QWidget *parent)
     ui->speed3DSlider->setRange(1, 100); ui->speed3DSlider->setValue(10);
     ui->speed4DSlider->setRange(1, 100); ui->speed4DSlider->setValue(10);
     ui->fovSlider->setRange(20, 110); ui->fovSlider->setValue(45);
+    ui->fovSlider4D->setRange(20, 110); ui->fovSlider4D->setValue(45);
 
-    UiStyleManager::setupBigSliders(ui->sliderR, ui->sliderG, ui->sliderB, ui->alphaSlider, ui->lightSlider, ui->speed3DSlider, ui->speed4DSlider, ui->fovSlider);
+    UiStyleManager::setupBigSliders(ui->sliderR, ui->sliderG, ui->sliderB, ui->alphaSlider, ui->lightSlider, ui->speed3DSlider, ui->speed4DSlider, ui->fovSlider, ui->fovSlider4D);
 
     // Color slot della texture (col1/col2). Surface NON è qui: è nella coppia
     // m_bgTargetGroup (Surface/Background). L'esclusività FRA i due gruppi è a mano.
@@ -2818,7 +2819,10 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     connect(ui->fovSlider, &QSlider::valueChanged, this, [this](int val){
-        applyCameraFov((float)val);
+        applyPathFov3D((float)val);
+    });
+    connect(ui->fovSlider4D, &QSlider::valueChanged, this, [this](int val){
+        applyPathFov4D((float)val);
     });
 
     // Click su Color1/Color2. Gruppi indipendenti: scegliere quale tinta editare NON
@@ -4875,6 +4879,13 @@ MainWindow::CascadeConstants MainWindow::resolveCascadeConstants(bool restoreTex
 
 void MainWindow::onStartClicked()
 {
+    // Il master button (START/STOP globale, mai disabilitato) e i Run dei
+    // dock restano INERTI durante il REC: rilanciano equazioni e clock di
+    // TUTTI i moduli, uno stravolgimento che il loop non deve subire. I
+    // singoli moti restano invece comandabili al volo dai loro tasti
+    // (GO/Departure/Reset), che il loop legge a ogni frame.
+    if (m_isRecording) return;
+
     m_geodesicErrorPending = false;
     setProperty("geoErrorShown", false);   // riarma il popup geodetico per la nuova azione
     if (!property("rmApplyOnly").toBool())
@@ -5650,6 +5661,9 @@ void MainWindow::stopRotationMotion()
 }
 
 void MainWindow::onStopClicked() {
+    // NB: funziona anche DURANTE il REC — i timer restano attivi (tick no-op)
+    // e il loop legge lo stato vivo a ogni frame, quindi GO/STOP entrano nel
+    // video come a schermo.
     bool isRunning = ui->glWidget->isAnimating();
 
     if (isRunning) {
@@ -5825,6 +5839,9 @@ bool MainWindow::compilePath3DFromFields()
 
 void MainWindow::onDepartureClicked()
 {
+    // NB: funziona anche DURANTE il REC — i timer restano attivi (tick no-op)
+    // e il loop legge lo stato vivo a ogni frame (vedi onPathTimerTick).
+
     // CASO 1: VOGLIAMO FERMARE
     if (pathTimer->isActive()) {
         pathTimer->stop();
@@ -5889,6 +5906,10 @@ void MainWindow::onDepartureClicked()
 void MainWindow::onPathTimerTick()
 {
     if (!pathTimer->isActive()) return;
+    // Durante il REC il timer resta ATTIVO (lo stato deve restare vero per
+    // bottoni/esclusivita'/handler) ma il tempo lo avanza SOLO il loop del
+    // recorder, col dt virtuale del frame: il tick live e' un no-op.
+    if (m_isRecording) return;
 
     pathTimeT += m_pathSpeed4D;
     applyPath4DCameraAt(pathTimeT);
@@ -5896,6 +5917,12 @@ void MainWindow::onPathTimerTick()
 
 void MainWindow::applyPath4DCameraAt(float t)
 {
+    // FOV del path 4D: applicato qui (unica implementazione tick live +
+    // recorder) cosi' anche i video lo riproducono. Guard per non schedulare
+    // update() ridondanti a ogni tick.
+    if (ui->glWidget->cameraFov() != m_fov4D)
+        ui->glWidget->setCameraFov(m_fov4D);
+
     // 1. SETUP BASE
     float dt = 0.01f;
 
@@ -6059,6 +6086,9 @@ void MainWindow::checkPathFields()
 
 void MainWindow::onDeparture3DClicked()
 {
+    // NB: funziona anche DURANTE il REC — i timer restano attivi (tick no-op)
+    // e il loop legge lo stato vivo a ogni frame (vedi onPath3DTimerTick).
+
     // CASO 1: STOP
     if (pathTimer3D->isActive()) {
         pathTimer3D->stop();
@@ -6111,6 +6141,8 @@ void MainWindow::onDeparture3DClicked()
 void MainWindow::onPath3DTimerTick()
 {
     if (!pathTimer3D->isActive()) return;
+    // Vedi onPathTimerTick: durante il REC avanza solo il loop del recorder.
+    if (m_isRecording) return;
 
     pathTimeT3D += m_pathSpeed3D;
     applyPath3DCameraAt(pathTimeT3D);
@@ -6118,6 +6150,12 @@ void MainWindow::onPath3DTimerTick()
 
 void MainWindow::applyPath3DCameraAt(float t)
 {
+    // FOV del path 3D: applicato qui (unica implementazione tick live +
+    // recorder) cosi' anche i video lo riproducono. Guard per non schedulare
+    // update() ridondanti a ogni tick.
+    if (ui->glWidget->cameraFov() != m_fov3D)
+        ui->glWidget->setCameraFov(m_fov3D);
+
     QVector4D rawData = ui->glWidget->getEngine()->evaluatePath3DPosition(t);
 
     // Scala la posizione (XYZ) ma NON il rollio (W)
@@ -6169,6 +6207,15 @@ void MainWindow::updateViewButtonsEnabled()
     bool path3D = pathTimer3D && pathTimer3D->isActive();
     ui->pushView->setEnabled(path4D || hasPath4DInput());
     ui->pushView3D->setEnabled(path3D || hasPath3DInput());
+
+    // Gli slider FOV seguono lo stesso ciclo di vita dei path (questa funzione
+    // e' chiamata ovunque un path parta o si fermi); il fattore proiezione e'
+    // coperto dalla chiamata gemella in updateProjectionButtonText().
+    // NB: lo STOP di un path NON tocca il FOV: l'immagine si congela
+    // sull'ultimo fotogramma (posa E prospettiva). Il ritorno al default 45
+    // avviene in GLWidget::resetTransformations, cioe' solo quando la vista
+    // viene davvero resettata (Reset view, cambio tab, load).
+    updateFovSlidersEnabled();
 
     // Mentre un path qualsiasi controlla la telecamera, i tasti di spostamento a
     // click dei dock 3D/4D sono disabilitati. Chiamato ovunque si avvii/fermi un
@@ -7501,7 +7548,8 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
 
     // 11. Finalizzazione
     ui->glWidget->setProjectionMode(d.projectionMode);
-    applyCameraFov(d.cameraFov);
+    applyPathFov3D(d.fov3D);
+    applyPathFov4D(d.fov4D);
     updateProjectionButtonText();
 
     // Ripristino intelligente della Telecamera / Rotazione 3D
@@ -8167,11 +8215,14 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
     // secca (più visibile su mobile, dove il primo frame resta a schermo più a lungo).
     // Eseguendo subito un tick, la camera è già sul path prima del primo paint, così il
     // moto parte fluido dal punto iniziale della traiettoria.
+    // I FOV vanno caricati PRIMA del tick di sincronizzazione: e' il tick
+    // stesso (applyPath3D/4DCameraAt) ad applicare m_fov3D/4D alla proiezione.
+    applyPathFov3D(data.fov3D);
+    applyPathFov4D(data.fov4D);
     if (pathTimer->isActive()) onPathTimerTick();
     else if (pathTimer3D->isActive()) onPath3DTimerTick();
 
     ui->glWidget->setProjectionMode(data.projectionMode);
-    applyCameraFov(data.cameraFov);
     updateProjectionButtonText();
 
     // 7. AVVIO AUTOMATICO GRAFICA
@@ -10240,6 +10291,10 @@ void MainWindow::updateProjectionButtonText()
 
     // Aggiorna il NUOVO tasto sulla status bar
     if (m_btnProjection) { m_btnProjection->setText(txt); }
+
+    // Chiamata a ogni cambio di proiezione (toggle, load preset/record, init):
+    // in Ortho gli slider FOV si spengono.
+    updateFovSlidersEnabled();
 }
 
 void MainWindow::updateScriptButtonText() {
@@ -10795,15 +10850,46 @@ void MainWindow::applyDefaultCheckerShader()
     if (ui->glWidget) ui->glWidget->loadCustomShader(kDefaultChecker);
 }
 
-void MainWindow::applyCameraFov(float deg)
+void MainWindow::applyPathFov3D(float deg)
 {
-    if (ui->glWidget) ui->glWidget->setCameraFov(deg);
+    m_fov3D = qBound(20.0f, deg, 110.0f);
 
-    ui->lblFov3D->setText(QString("Fov %1°").arg(qRound(deg)));
-
+    ui->lblFov3D->setText(QString("Fov %1°").arg(qRound(m_fov3D)));
     bool old = ui->fovSlider->blockSignals(true);
-    ui->fovSlider->setValue(qRound(deg));
+    ui->fovSlider->setValue(qRound(m_fov3D));
     ui->fovSlider->blockSignals(old);
+
+    // Effetto immediato solo se il path 3D sta guidando la camera; da fermo
+    // la proiezione resta al default (il valore attende il prossimo avvio).
+    if (pathTimer3D && pathTimer3D->isActive() && ui->glWidget)
+        ui->glWidget->setCameraFov(m_fov3D);
+}
+
+void MainWindow::applyPathFov4D(float deg)
+{
+    m_fov4D = qBound(20.0f, deg, 110.0f);
+
+    ui->lblFov4D->setText(QString("Fov %1°").arg(qRound(m_fov4D)));
+    bool old = ui->fovSlider4D->blockSignals(true);
+    ui->fovSlider4D->setValue(qRound(m_fov4D));
+    ui->fovSlider4D->blockSignals(old);
+
+    if (pathTimer && pathTimer->isActive() && ui->glWidget)
+        ui->glWidget->setCameraFov(m_fov4D);
+}
+
+void MainWindow::updateFovSlidersEnabled()
+{
+    // Il FOV agisce solo mentre una path guida la camera, e non ha senso in
+    // proiezione ortogonale: ogni slider e' attivo con la SUA path in corsa
+    // (3D nel dock 3D, 4D nel dock 4D) e proiezione non-Ortho.
+    bool persp = ui->glWidget && (ui->glWidget->projectionMode != GLWidget::Ortho4D);
+    bool path4D = pathTimer && pathTimer->isActive();
+    bool path3D = pathTimer3D && pathTimer3D->isActive();
+    ui->fovSlider->setEnabled(persp && path3D);
+    ui->lblFov3D->setEnabled(persp && path3D);
+    ui->fovSlider4D->setEnabled(persp && path4D);
+    ui->lblFov4D->setEnabled(persp && path4D);
 }
 
 void MainWindow::toggleProjection()

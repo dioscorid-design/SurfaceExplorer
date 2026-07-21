@@ -532,7 +532,11 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         root["renderMode"] = m_mainWindow->m_savedRenderMode;
     }
     root["projectionMode"] = (int)m_mainWindow->ui->glWidget->projectionMode;
+    // cameraFov = chiave legacy (build vecchie: unico FOV, applicato sempre);
+    // fov3D/fov4D = FOV indipendenti dei due path (build nuove).
     root["cameraFov"] = (double)m_mainWindow->ui->glWidget->cameraFov();
+    root["fov3D"] = (double)m_mainWindow->m_fov3D;
+    root["fov4D"] = (double)m_mainWindow->m_fov4D;
 
     // Densità wireframe corrente (passi U/V): salviamo il numero di linee a schermo IN
     // QUESTO MOMENTO, non il default, così il reload riproduce l'aspetto scelto.
@@ -1085,7 +1089,11 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         root["renderMode"] = m_mainWindow->m_savedRenderMode;
     }
     root["projectionMode"] = m_mainWindow->ui->glWidget->projectionMode;
+    // cameraFov = chiave legacy (build vecchie: unico FOV, applicato sempre);
+    // fov3D/fov4D = FOV indipendenti dei due path (build nuove).
     root["cameraFov"] = (double)m_mainWindow->ui->glWidget->cameraFov();
+    root["fov3D"] = (double)m_mainWindow->m_fov3D;
+    root["fov4D"] = (double)m_mainWindow->m_fov4D;
 
     // Densità wireframe corrente (passi U/V): come in saveSurface, salviamo le linee a
     // schermo in questo momento così il record le riproduce al reload.
