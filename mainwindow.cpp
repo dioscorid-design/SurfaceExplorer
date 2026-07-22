@@ -4831,8 +4831,12 @@ void MainWindow::handleTextureSelection(int index)
     // disabilitato finché lo script non viene modificato. La scrittura dei campi
     // qui sopra è a segnali bloccati, quindi non passa da markRmTextureEdited:
     // allineiamo il flag qui. Con animazione resta Run/Stop.
-    if (isRM && !texAnim) {
-        m_rmTextureApplied = true;
+    if (isRM) {
+        // Statica: applicata subito (Run one-shot disabilitato finché non si edita).
+        // Animata: NON è un one-shot già consumato -> azzeriamo il flag, altrimenti
+        // resta ereditato true da una texture statica caricata prima e, allo Stop del
+        // clock (isTexVisuallyMoving=false), il tasto Run nasce disabilitato a torto.
+        m_rmTextureApplied = !texAnim;
     }
     updateMasterButtonState();
 
