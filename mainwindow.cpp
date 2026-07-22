@@ -1337,6 +1337,10 @@ MainWindow::MainWindow(QWidget *parent)
         if (ui->glWidget && ui->glWidget->getEngine()) {
             ui->glWidget->getEngine()->setScriptMode(false);
             ui->glWidget->getEngine()->setScriptCodeGLSL("");
+            // Azzera anche il cutout: senza, il //CUTOUT di uno script
+            // precedente restava iniettato e continuava a tagliare (vedi
+            // applyCommonData). Un nuovo Run script lo reimposta dal contenuto.
+            ui->glWidget->getEngine()->setCutoutCodeGLSL("");
         }
 
         // 3. Svuota l'editor visivamente (se aperto su Surface) e in memoria
@@ -9555,6 +9559,24 @@ void MainWindow::applyCommonData(const LibraryItem &d)
         preBody = GlslTranslator::translateEquation(preBody);
         ui->glWidget->getEngine()->setScriptCodeGLSL(preBody);
         ui->glWidget->getEngine()->setScriptMode(true);
+    }
+
+    // CUTOUT: riallinea SEMPRE la sezione //CUTOUT dello script del preset che
+    // stiamo caricando — o la azzera se il preset non e' uno script o non ha il
+    // blocco. Senza questo, il cutout di un preset script precedente (es. Klein
+    // 3D Racing) sopravviveva nel motore e continuava a fare discard su ogni
+    // superficie caricata dopo, tagliando strisce dove le sue cutHere(u,v)
+    // scattavano sulla nuova geometria (spariva solo riavviando, perche'
+    // m_cutoutCode ripartiva vuoto). NB: non passa da onRunScriptClicked, che
+    // e' l'unico altro punto che ripuliva il cutout.
+    if (ui->glWidget->getEngine()) {
+        QString cutoutGlsl;
+        // Il cutout esiste solo per il parametrico (il Ray Marching non usa
+        // getRawPosition): per gli script impliciti resta comunque azzerato.
+        if (isScript && !d.isImplicitMode && !d.scriptCode.isEmpty()) {
+            extractCutoutSection(d.scriptCode, &cutoutGlsl);
+        }
+        ui->glWidget->getEngine()->setCutoutCodeGLSL(cutoutGlsl);
     }
 
     bool oldTabSig = ui->tabModeSelector->blockSignals(true);
