@@ -16,6 +16,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QCheckBox>
+#include <QTabBar>
 #include <QTimer>
 #include <QScopeGuard>
 #include <QAction>
@@ -929,6 +930,10 @@ MainWindow::MainWindow(QWidget *parent)
     ui->tabWidget->addTab(ui->Sounds, "Sounds");
     ui->tabWidget->addTab(ui->Motions, "Records");
     ui->tabWidget->setCurrentIndex(0);
+    // Niente frecce di scorrimento sui tab Library: il cambio si fa cliccando
+    // la linguetta.
+    if (ui->tabWidget->tabBar())
+        ui->tabWidget->tabBar()->setUsesScrollButtons(false);
 
     UiStyleManager::setupDockScroll(ui->dockEquations, true);
     UiStyleManager::setupDockScroll(ui->dockRenders, true);
@@ -1269,6 +1274,14 @@ MainWindow::MainWindow(QWidget *parent)
     m_lastImplicitSteps = 400;
 
     // 2. PREPARA L'INTERFACCIA E LO SLIDER AL LORO STATO INIZIALE (Senza lanciare segnali!)
+    // Tab Parametric/Implicit a piena larghezza: due sole voci, ~meta' del dock
+    // ciascuna (il dock Equations ha larghezza fissa 400). min-width via
+    // stylesheet perche' col CSS globale setExpanding e' ignorato. Niente frecce
+    // di scorrimento: il cambio si fa cliccando la linguetta.
+    if (ui->tabModeSelector->tabBar())
+        ui->tabModeSelector->tabBar()->setUsesScrollButtons(false);
+    ui->tabModeSelector->setStyleSheet(
+        "QTabBar::tab { min-width: 175px; padding: 6px 0px; }");
     ui->tabModeSelector->setCurrentIndex(0);
     ui->glWidget->setEngineMode(GLWidget::ModeParametric);
 
@@ -3626,6 +3639,12 @@ void MainWindow::checkParametricDependency()
             ui->panelImplicit->setTabEnabled(0, false);
             ui->panelImplicit->setTabEnabled(1, false);
             if (ui->panelImplicit->count() > 2) ui->panelImplicit->setTabEnabled(2, false);
+
+            // Con tutti i tab spenti (es. superficie parametrica normale solo
+            // u,v) mostra COMUNQUE Constraints, non Geodesic Flow: cosi' non
+            // resta in vista il Conformal Factor con l'1.0 di default, inutile
+            // qui. Solo estetico: i tab restano tutti disabilitati.
+            ui->panelImplicit->setCurrentIndex(0);
         }
     }
 

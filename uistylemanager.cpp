@@ -75,6 +75,7 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
             padding-left: 5px;
             padding-top: 4px;
             border-bottom: 1px solid #111;
+            font-weight: bold;
         }
 
         /* --- PULSANTI 3D (RAISED) --- */

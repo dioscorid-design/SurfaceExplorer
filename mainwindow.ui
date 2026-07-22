@@ -86,7 +86,7 @@
     </size>
    </property>
    <property name="windowTitle">
-    <string>Renders</string>
+    <string>RENDERER</string>
    </property>
    <attribute name="dockWidgetArea">
     <number>4</number>
@@ -521,7 +521,7 @@
     </size>
    </property>
    <property name="windowTitle">
-    <string>3D View</string>
+    <string>3D VIEW</string>
    </property>
    <attribute name="dockWidgetArea">
     <number>4</number>
@@ -922,7 +922,7 @@
     </size>
    </property>
    <property name="windowTitle">
-    <string> 4D View</string>
+    <string>4D VIEW</string>
    </property>
    <attribute name="dockWidgetArea">
     <number>4</number>
@@ -1236,7 +1236,7 @@
     </size>
    </property>
    <property name="windowTitle">
-    <string>Library</string>
+    <string>LIBRARY</string>
    </property>
    <attribute name="dockWidgetArea">
     <number>4</number>
@@ -1416,7 +1416,7 @@
     </size>
    </property>
    <property name="windowTitle">
-    <string>Equations</string>
+    <string>EQUATIONS</string>
    </property>
    <attribute name="dockWidgetArea">
     <number>4</number>
@@ -1704,7 +1704,7 @@
                </sizepolicy>
               </property>
               <property name="currentIndex">
-               <number>2</number>
+               <number>0</number>
               </property>
               <widget class="QWidget" name="tabConstraints">
                <attribute name="title">
@@ -3010,7 +3010,7 @@
     </size>
    </property>
    <property name="windowTitle">
-    <string>Scripts</string>
+    <string>SCRIPTS</string>
    </property>
    <attribute name="dockWidgetArea">
     <number>4</number>
