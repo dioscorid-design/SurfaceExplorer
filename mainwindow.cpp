@@ -934,6 +934,11 @@ MainWindow::MainWindow(QWidget *parent)
     // la linguetta.
     if (ui->tabWidget->tabBar())
         ui->tabWidget->tabBar()->setUsesScrollButtons(false);
+    // Tab a piena larghezza: 4 tab su un dock bloccato a 400px. min-width fissa
+    // (come il dockEquations, che funziona) tarata sui 400: ~76px/tab riempie
+    // la barra. Col CSS globale setExpanding e' ignorato, la min-width no.
+    ui->tabWidget->setStyleSheet(
+        "QTabBar::tab { min-width: 76px; padding: 5px 10px; }");
 
     UiStyleManager::setupDockScroll(ui->dockEquations, true);
     UiStyleManager::setupDockScroll(ui->dockRenders, true);
@@ -1198,7 +1203,9 @@ MainWindow::MainWindow(QWidget *parent)
         QTimer::singleShot(100, dock, [this, dock]() {
             dock->setMinimumWidth(400);
 
-            if (dock == ui->dockEquations) {
+            // dockEquations e dockSurfaces (Library) bloccati a 400: non serve
+            // che si allarghino oltre. Cosi' i tab Library hanno larghezza nota.
+            if (dock == ui->dockEquations || dock == ui->dockSurfaces) {
                 dock->setMaximumWidth(400);
             } else {
                 dock->setMaximumWidth(16777215);
@@ -1208,8 +1215,8 @@ MainWindow::MainWindow(QWidget *parent)
             QTimer::singleShot(100, dock, [this, dock]() {
                 dock->setMinimumWidth(400);
 
-                if (dock == ui->dockEquations) {
-                    // Blocca l'espansione massima SOLO per il dockEquations
+                if (dock == ui->dockEquations || dock == ui->dockSurfaces) {
+                    // Blocca l'espansione massima per Equations e Library
                     dock->setMaximumWidth(400);
                 } else {
                     // Lascia gli altri liberi
