@@ -1290,6 +1290,15 @@ MainWindow::MainWindow(QWidget *parent)
     ui->tabModeSelector->setStyleSheet(
         "QTabBar::tab { min-width: 175px; padding: 6px 0px; }");
     ui->tabModeSelector->setCurrentIndex(0);
+    // Sotto-tab Constraints/Composition/Geodesic Flow (panelImplicit): stessa
+    // logica dei Parametric/Implicit, ma sono TRE voci sullo stesso dock da
+    // 400px, quindi min-width piu' piccola (~un terzo) per riempire la barra
+    // senza sforare e riattivare le frecce di scorrimento. min-width via
+    // stylesheet perche' col CSS globale setExpanding e' ignorato.
+    if (ui->panelImplicit->tabBar())
+        ui->panelImplicit->tabBar()->setUsesScrollButtons(false);
+    ui->panelImplicit->setStyleSheet(
+        "QTabBar::tab { min-width: 110px; padding: 6px 0px; }");
     ui->glWidget->setEngineMode(GLWidget::ModeParametric);
 
     ui->stepSlider->setRange(10, 1000);
