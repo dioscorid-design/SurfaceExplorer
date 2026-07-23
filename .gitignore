@@ -67,3 +67,7 @@ Thumbs.db
 # Recycle bin and exported renders created by the app at runtime
 presets/.trash/
 presets/renders/
+
+# Backup dei preset
+*.bak
+*.bak[0-9]*
