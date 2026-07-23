@@ -1,5 +1,5 @@
 {
-    "code": "// Calcola quanto pesa ogni asse (X, Y, Z) in base alla normale\nvec3 blend = abs(n_model);\nblend /= max(blend.x + blend.y + blend.z, 0.00001);\n\n// Genera pattern procedurali diversi per ogni piano di proiezione\nvec3 colX = vec3(sin(pModel.y * 30.0) * 0.5 + 0.5, 0.0, 0.0); // Strisce rosse sul piano YZ\nvec3 colY = vec3(0.0, sin(pModel.x * 30.0) * 0.5 + 0.5, 0.0); // Strisce verdi sul piano XZ\nvec3 colZ = vec3(0.0, 0.0, sin(pModel.x * 30.0) * 0.5 + 0.5); // Strisce blu sul piano XY\n\n// Miscela i pattern usando i pesi della normale\ntextureCol = colX * blend.x + colY * blend.y + colZ * blend.z;",
+    "code": "// Compute how much each axis (X, Y, Z) weighs based on the normal\nvec3 blend = abs(n_model);\nblend /= max(blend.x + blend.y + blend.z, 0.00001);\n\n// Generate different procedural patterns for each projection plane\nvec3 colX = vec3(sin(pModel.y * 30.0) * 0.5 + 0.5, 0.0, 0.0); // Red stripes on the YZ plane\nvec3 colY = vec3(0.0, sin(pModel.x * 30.0) * 0.5 + 0.5, 0.0); // Green stripes on the XZ plane\nvec3 colZ = vec3(0.0, 0.0, sin(pModel.x * 30.0) * 0.5 + 0.5); // Blue stripes on the XY plane\n\n// Blend the patterns using the normal weights\ntextureCol = colX * blend.x + colY * blend.y + colZ * blend.z;",
     "color1": "#33cc33",
     "color2": "#000000",
     "displacement": "",

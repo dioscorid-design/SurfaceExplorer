@@ -66,7 +66,7 @@
     "name": "N-Tours",
     "projectionMode": 1,
     "renderMode": 10,
-    "scriptCode": "// Numero di buchi determinato dalla costante A dell'interfaccia\nfloat numHoles = max(A, 1.0); \n\n// Coordinate polari sul piano XY dello spazio (variabile 'p' nello script editor)\nfloat r_polar = length(p.xy);\nfloat angle = atan(p.y, p.x);\n\n// Ripetizione angolare: piega lo spazio in base al numero dei buchi\nfloat angle_rep = mod(angle + 3.14159265 / numHoles, 6.2831853 / numHoles) - 3.14159265 / numHoles;\n\n// Distanza SDF dai cilindri sottraenti (centrati lungo l'anello D)\nfloat d_hole = sqrt(r_polar * r_polar + D * D - 2.0 * r_polar * D * cos(angle_rep)) - B;\n\n// Distanza SDF del toro principale\nfloat d_torus = length(vec2(r_polar - D, p.z)) - C;\n\n// Calcolo finale: Ritorna esplicitamente la sottrazione morbida usando smax\nreturn smax(d_torus, -d_hole, max(E, 0.01));\n",
+    "scriptCode": "// Number of holes set by the interface constant A\nfloat numHoles = max(A, 1.0); \n\n// Polar coordinates on the space XY plane (variable 'p' in the script editor)\nfloat r_polar = length(p.xy);\nfloat angle = atan(p.y, p.x);\n\n// Angular repetition: fold space based on the number of holes\nfloat angle_rep = mod(angle + 3.14159265 / numHoles, 6.2831853 / numHoles) - 3.14159265 / numHoles;\n\n// SDF distance from the subtracting cylinders (centered along ring D)\nfloat d_hole = sqrt(r_polar * r_polar + D * D - 2.0 * r_polar * D * cos(angle_rep)) - B;\n\n// SDF distance of the main torus\nfloat d_torus = length(vec2(r_polar - D, p.z)) - C;\n\n// Final step: explicitly return the smooth subtraction using smax\nreturn smax(d_torus, -d_hole, max(E, 0.01));\n",
     "showBorder": false,
     "steps": 489,
     "type": "surface",

@@ -1,0 +1,14 @@
+{
+    "code": "// Scale the grid (change the 5.0 to shrink/enlarge)\nvec3 p = pModel * 5.0;\n\n// Compute the line thickness\nvec3 grid = abs(fract(p - 0.5) - 0.5) / fwidth(p);\nfloat line = min(min(grid.x, grid.y), grid.z);\nfloat colorIntensity = 1.0 - min(line, 1.0);\n\n// Background = u_col2, neon lines = u_col1 (dock colors)\ntextureCol = mix(ubuf.u_col2, ubuf.u_col1, colorIntensity);",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "displacement": "",
+    "hasCustomColors": true,
+    "isImplicitMode": true,
+    "name": "Neon 3D Grid",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

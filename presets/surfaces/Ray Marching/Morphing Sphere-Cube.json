@@ -91,7 +91,7 @@
     "pathMode": 0,
     "projectionMode": 1,
     "renderMode": 10,
-    "scriptCode": "// --- MORPHING SFERA <-> CUBO (Modalità Implicit) ---\n// Usa lo slider A per ingrandire o rimpicciolire la figura\n\nfloat size = A > 0.0 ? A : 0.8;\n\n// Calcolo distanza per la Sfera\nfloat dSphere = length(p) - size;\n\n// Calcolo distanza per il Cubo (Box esatto)\nvec3 d = abs(p) - vec3(size);\nfloat dBox = length(max(d, 0.0)) + min(max(d.x, max(d.y, d.z)), 0.0);\n\n// Usiamo il tempo 't' per creare un fattore di interpolazione (da 0 a 1)\n// sin(t) va da -1 a 1, quindi lo rimappiamo\nfloat morphFactor = 0.5 + 0.5 * sin(t * 2.0);\n\n// Mixiamo le due forme!\nreturn mix(dSphere, dBox, morphFactor);\n",
+    "scriptCode": "// --- SPHERE <-> CUBE MORPHING (Implicit mode) ---\n// Use slider A to grow or shrink the shape\n\nfloat size = A > 0.0 ? A : 0.8;\n\n// Distance for the Sphere\nfloat dSphere = length(p) - size;\n\n// Distance for the Cube (exact Box)\nvec3 d = abs(p) - vec3(size);\nfloat dBox = length(max(d, 0.0)) + min(max(d.x, max(d.y, d.z)), 0.0);\n\n// Use time 't' to build an interpolation factor (from 0 to 1)\n// sin(t) ranges from -1 to 1, so we remap it\nfloat morphFactor = 0.5 + 0.5 * sin(t * 2.0);\n\n// Mix the two shapes!\nreturn mix(dSphere, dBox, morphFactor);\n",
     "showBorder": false,
     "speeds": {
         "nutation": 0,

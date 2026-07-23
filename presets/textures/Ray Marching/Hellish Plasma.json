@@ -1,5 +1,5 @@
 {
-    "code": "float timeVar = ubuf.u_time * 1.5;\n// Rumore pseudo-casuale da coordinate spaziali + tempo\nfloat noise = sin(pModel.x * 12.0 + timeVar) * cos(pModel.y * 15.0 - timeVar) * sin(pModel.z * 12.0);\nnoise = noise * 0.5 + 0.5; // Normalizza tra 0.0 e 1.0\n\n// Magma pilotato dai due colori del dock: u_col2 = cupo, u_col1 = acceso\ntextureCol = mix(ubuf.u_col2, ubuf.u_col1, noise);",
+    "code": "float timeVar = ubuf.u_time * 1.5;\n// Pseudo-random noise from spatial coordinates + time\nfloat noise = sin(pModel.x * 12.0 + timeVar) * cos(pModel.y * 15.0 - timeVar) * sin(pModel.z * 12.0);\nnoise = noise * 0.5 + 0.5; // Normalize between 0.0 and 1.0\n\n// Magma driven by the two dock colors: u_col2 = dark, u_col1 = bright\ntextureCol = mix(ubuf.u_col2, ubuf.u_col1, noise);",
     "color1": "#33cc33",
     "color2": "#000000",
     "displacement": "",

@@ -16,10 +16,10 @@
         "yaw": 0,
         "z": 4.000000953674316
     },
+    "cameraFov": 45,
     "colors": {
         "alpha": 1,
         "b": 0.20000000298023224,
-        "bordColor": "#33cc33",
         "g": 0.800000011920929,
         "r": 0.20000000298023224
     },
@@ -44,6 +44,8 @@
         "y": "V",
         "z": "W"
     },
+    "fov3D": 45,
+    "fov4D": 45,
     "geodesic": {
         "conform": "4.0 / ((1.0 - (U^2 + V^2 + W^2))^2)",
         "du": "u",
@@ -73,8 +75,7 @@
     "name": "Whiteney Umbrella",
     "projectionMode": 1,
     "renderMode": 1,
-    "showBorder": false,
-    "steps": 150,
+    "steps": 604,
     "type": "surface",
     "use4DLighting": false,
     "wireframe": {

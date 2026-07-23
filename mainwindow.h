@@ -345,10 +345,18 @@ private:
     // un path la telecamera segue il percorso e questi comandi non hanno senso.
     QVector<QPushButton*> m_navButtons;
 
-    QTimer *pathTimer;
+    // Inizializzati a nullptr: updateProjectionButtonText() (quindi
+    // updateFovSlidersEnabled) viene chiamata alla riga ~2182 del costruttore,
+    // ~700 righe PRIMA che pathTimer/pathTimer3D siano creati (~2875). Senza
+    // l'inizializzatore il puntatore raw contiene spazzatura (non 0x0): il
+    // guard "pathTimer &&" la considera valida e pathTimer->isActive() va in
+    // EXC_BAD_ACCESS dentro QBindingStorage::registerDependency — crash
+    // all'avvio, riprodotto SOLO su device iOS (il pattern di memoria dello
+    // stack del costruttore capitava innocuo su desktop).
+    QTimer *pathTimer = nullptr;
     float pathTimeT = 0.0f;
 
-    QTimer *pathTimer3D;
+    QTimer *pathTimer3D = nullptr;
     float pathTimeT3D = 0.0f;
 
     float m_pathSpeed3D = 0.01f;

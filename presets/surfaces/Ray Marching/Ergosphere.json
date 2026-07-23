@@ -67,7 +67,7 @@
     "name": "Ergosphere",
     "projectionMode": 1,
     "renderMode": 11,
-    "scriptCode": "// Ergosfera di Kerr. M = A, spin a = B (0 <= a <= M).\n// ESTERNA (trasparente) = limite statico; interna opaca (sotto) = orizzonte.\nfloat a = min(B, A);\nreturn kerrStaticLimitSDF(p, A, a);\n//INNER: kerrHorizonSDF(p, A, min(B, A))",
+    "scriptCode": "// Kerr ergosphere. M = A, spin a = B (0 <= a <= M).\n// OUTER (transparent) = static limit; inner opaque (below) = horizon.\nfloat a = min(B, A);\nreturn kerrStaticLimitSDF(p, A, a);\n//INNER: kerrHorizonSDF(p, A, min(B, A))",
     "showBorder": false,
     "steps": 300,
     "type": "surface",
