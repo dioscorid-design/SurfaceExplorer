@@ -193,57 +193,122 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             // dtMs enorme che inquinava l'EMA e faceva scattare un FALSO avviso
             // proprio allo start/stop di preset scorrevoli. Lo saltiamo.
             const bool justResumed = !m_wasAnimating;
-            if (m_frameClock.isValid() && !justResumed) {
+            // Finestra di grazia post-export: entro kPerfGraceMs dal ritorno live
+            // (m_perfGraceClock avviato in setRecordingActive(false)) scartiamo le
+            // misure — il transitorio di ripristino puo' durare piu' frame lenti
+            // su mobile e NON e' carico GPU. Scaduta la finestra, la fermiamo
+            // (invalidate) cosi' non ricade mai piu' in questo ramo.
+            constexpr qint64 kPerfGraceMs = 500;
+            const bool inGrace = m_perfGraceClock.isValid() &&
+                                 m_perfGraceClock.elapsed() < kPerfGraceMs;
+            if (!inGrace && m_perfGraceClock.isValid()) m_perfGraceClock.invalidate();
+            if (m_frameClock.isValid() && !justResumed && !inGrace) {
                 float dtMs = (float)m_frameClock.nsecsElapsed() / 1.0e6f;
-                // Un dtMs enorme (> ~2 s) durante l'animazione NON e' un frame lento:
-                // e' un buco da inattivita' (timer in pausa, finestra nascosta). Lo
-                // scartiamo del tutto invece di clamparlo-e-mediarlo nell'EMA.
-                if (dtMs <= 2000.0f) {
-                    // EMA: reattiva ma immune ai picchi isolati di un singolo frame.
-                    m_avgFrameMs = 0.85f * m_avgFrameMs + 0.15f * dtMs;
 
-                    // Soglia per piattaforma: su Android il watchdog del driver GPU
-                    // puo' uccidere l'app prima dell'avviso, quindi avvisiamo PRIMA
-                    // (2 fps); su desktop, dove non c'e' kill, scendiamo a ~1.5 fps.
+                // Soglia per piattaforma: su Android il watchdog del driver GPU
+                // puo' uccidere l'app prima dell'avviso, quindi avvisiamo PRIMA
+                // (2 fps); su desktop, dove non c'e' kill, scendiamo a ~1.5 fps.
 #if defined(Q_OS_ANDROID)
-                    constexpr float kSlowFrameMs = 500.0f;  // ~2 fps
+                constexpr float kSlowFrameMs = 500.0f;  // ~2 fps
 #else
-                    constexpr float kSlowFrameMs = 667.0f;  // ~1.5 fps
+                constexpr float kSlowFrameMs = 667.0f;  // ~1.5 fps
 #endif
-                    constexpr float kSlowDwellMs = 600.0f;  // sostenuto per >0.6 s
+                constexpr float kSlowDwellMs = 600.0f;  // sostenuto per >0.6 s
+                constexpr int   kSlowRunToWarn = 2;     // campioni lenti consecutivi minimi
+                                                        // per avvisare: e' il guard che
+                                                        // conserva l'immunita' ai picchi
+                                                        // isolati con l'EMA asimmetrica
+                // Oltre questo, un dtMs NON e' piu' classificabile come frame lento
+                // vs. buco da inattivita' guardando il solo valore: serve il contesto
+                // (isolato vs. sequenza). Vedi ramo "frame enorme" sotto.
+                constexpr float kHugeFrameMs   = 2000.0f;
+                constexpr int   kHugeRunToWarn = 3;      // N frame enormi consecutivi
+                                                         // = collasso reale, non un buco.
+                                                         // 3 (non 2): il ritorno da
+                                                         // app-in-background produce 1-2
+                                                         // frame enormi (ricompilazione/
+                                                         // riscaldamento), non 3+ di fila.
+
+                if (dtMs <= kHugeFrameMs) {
+                    m_hugeFrameRun = 0;  // frame "normale": interrompe una sequenza enorme
+                    m_slowFrameRun = (dtMs > kSlowFrameMs) ? m_slowFrameRun + 1 : 0;
+
+                    // EMA ASIMMETRICA: in salita (campione sopra soglia) peso 0.35,
+                    // cosi' un rallentamento vero viene agganciato in 2-3 frame e
+                    // l'avviso precede (o quasi) gli artefatti da budget GPU
+                    // (magenta/tremolii), invece di arrivare dopo ~5 s di media
+                    // pigra; in discesa resta 0.15 (recupero morbido). ATTENZIONE:
+                    // con 0.35 un SINGOLO picco fin quasi a 2 s porta l'EMA oltre
+                    // soglia da solo (0.35*2000 = 700 > kSlowFrameMs): l'immunita'
+                    // ai picchi isolati non la da' piu' l'aritmetica dell'EMA
+                    // (0.15*2000 = 300 la garantiva), la da' m_slowFrameRun nella
+                    // condizione di avviso (>= kSlowRunToWarn campioni lenti DI FILA).
+                    const float emaW = (dtMs > kSlowFrameMs) ? 0.35f : 0.15f;
+                    m_avgFrameMs = (1.0f - emaW) * m_avgFrameMs + emaW * dtMs;
 
                     if (m_avgFrameMs > kSlowFrameMs) {
                         m_slowAccumMs += dtMs;
-                        // Riarmo per PEGGIORAMENTO: compare la prima volta (level==0)
-                        // e poi solo se la media raddoppia rispetto a quando e'
-                        // apparso (+100%). Non tormenta ai cali lievi ma riavvisa se
-                        // la situazione degrada. m_perfWarnLevelMs==0 = armato.
+                        // UN SOLO avviso per scena: dopo il primo, m_perfWarnDismissed
+                        // (settato dal connect via acknowledgePerformanceWarning) zittisce
+                        // TUTTO — anche un ulteriore peggioramento — finche' non cambiano
+                        // le impostazioni. Il riarmo avviene SOLO al reale cambio
+                        // scena/effetti, in rebuildShader() (azzera dismissed e level).
+                        // Ne' lo stop/riavvio dei moti ne' l'oscillazione attorno alla
+                        // soglia riarmano: e' cio' che elimina il vecchio popup "random".
+                        // firstTime resta la condizione del PRIMO avviso di una scena.
                         const bool firstTime = (m_perfWarnLevelMs <= 0.0f);
-                        const bool worsened  = (m_avgFrameMs > m_perfWarnLevelMs * 2.0f);
-                        // Se l'utente ha gia' scelto "Keep going" (m_perfWarnDismissed),
-                        // NON riemettiamo: niente popup a raffica al peggiorare. Il flag
-                        // si riarma solo quando l'animazione si ferma (ramo !animating).
-                        if (!m_perfWarnDismissed && m_slowAccumMs >= kSlowDwellMs && (firstTime || worsened)) {
+                        if (!m_perfWarnDismissed && m_slowAccumMs >= kSlowDwellMs
+                            && m_slowFrameRun >= kSlowRunToWarn && firstTime) {
                             m_perfWarnLevelMs = m_avgFrameMs;  // livello mostrato
                             emit performanceWarning();
                         }
                     } else {
+                        // Tornati sopra soglia (fluidi): svuotiamo solo l'accumulo
+                        // di dwell. NON azzeriamo m_perfWarnLevelMs qui: una scena
+                        // che OSCILLA intorno alla soglia (fluida->lenta->fluida)
+                        // non deve riavvisare a ogni ricaduta. Il guard
+                        // !m_perfWarnDismissed sopra gia' zittisce dopo il primo
+                        // avviso; il livello si riarma solo al reale cambio scena
+                        // (rebuildShader azzera level e dismissed insieme).
                         m_slowAccumMs = 0.0f;
-                        // Tornati sopra soglia (fluidi): riarmiamo, cosi' un successivo
-                        // rallentamento (anche dopo un cambio di preset, senza passare
-                        // dallo stop) fa ricomparire l'avviso.
-                        m_perfWarnLevelMs = 0.0f;
                     }
-                } // chiude: if (dtMs <= 2000.0f)
+                } else {
+                    // dtMs ENORME (> 2 s). Un frame isolato di questa entita' e' un
+                    // buco da inattivita' (timer in pausa, finestra nascosta) e va
+                    // scartato — NON inquiniamo l'EMA con 5000 ms. MA una SEQUENZA di
+                    // frame enormi consecutivi NON e' inattivita': e' un collasso GPU
+                    // reale (caso iPad: RM + trasparenza a ~0.2 fps, ogni frame ~5 s).
+                    // Su desktop lo stesso record rende frame < 2 s e cade nel ramo
+                    // sopra, quindi li' l'avviso scattava gia'; su iPad TUTTI i frame
+                    // sforavano i 2 s e venivano scartati -> il watchdog restava muto.
+                    // Contiamo i consecutivi: al kHugeRunToWarn-esimo, e' collasso.
+                    // Un frame enorme e' comunque un campione LENTO: alimenta anche
+                    // m_slowFrameRun, cosi' le sequenze miste (1.8 s, 2.5 s, 1.8 s...)
+                    // non azzerano l'evidenza del ramo EMA a ogni sforamento dei 2 s.
+                    ++m_slowFrameRun;
+                    if (++m_hugeFrameRun >= kHugeRunToWarn) {
+                        const bool firstTime = (m_perfWarnLevelMs <= 0.0f);
+                        if (!m_perfWarnDismissed && firstTime) {
+                            m_perfWarnLevelMs = dtMs;  // livello indicativo (frame enorme)
+                            emit performanceWarning();
+                        }
+                    }
+                } // chiude: if (dtMs <= kHugeFrameMs) / else
             }
             m_wasAnimating = true;
         } else {
-            // Animazione ferma: azzeriamo gli accumulatori e riarmiamo (incluso il
-            // flag "Keep going": una NUOVA animazione potra' riavvisare una volta).
+            // Animazione ferma: azzeriamo SOLO gli accumulatori di misura, cosi'
+            // la prossima animazione riparte da uno stato pulito. NON riarmiamo
+            // m_perfWarnDismissed: fermare/riavviare la STESSA scena (o l'export
+            // che ferma+riavvia i timer) non deve far ricomparire il popup. Il
+            // riarmo avviene solo su reale cambio scena/effetti, in
+            // rebuildShader(). ("Un avviso per scena finche' non cambiano le
+            // impostazioni.")
             m_slowAccumMs = 0.0f;
             m_avgFrameMs = 16.0f;
             m_perfWarnLevelMs = 0.0f;
-            m_perfWarnDismissed = false;
+            m_slowFrameRun = 0;
+            m_hugeFrameRun = 0;
             m_wasAnimating = false;
         }
         m_frameClock.restart();
@@ -1740,7 +1805,52 @@ void GLWidget::rebuildShader()
     }
 
     meshNeedsUpdate = true;
+
+    // Riarmo del watchdog di performance: rebuildShader() e' l'imbuto di OGNI
+    // cambio che altera il peso GPU della scena (nuovo preset/superficie/record,
+    // Run script, toggle trasparenza/RM, parametri pesanti come steps). "Un
+    // avviso per scena, finche' non cambiano le impostazioni": qui le
+    // impostazioni sono cambiate, quindi un futuro rallentamento potra'
+    // riavvisare. NON riarmato dallo stop/riavvio dei moti (vedi ramo !animating
+    // in render(), da cui il reset del flag e' stato tolto apposta).
+    m_perfWarnDismissed = false;
+    m_perfWarnLevelMs = 0.0f;
+    // Misura FRESCA per la nuova scena: senza questo azzeramento l'EMA della
+    // scena PRECEDENTE sopravviveva al cambio di preset e faceva scattare a
+    // vuoto la conferma trasparenza (renderingUnderHeavyLoad) al primo tocco
+    // dell'alpha su un preset appena caricato. Se la scena nuova e' davvero
+    // pesante l'EMA risale in 2-3 frame (peso 0.35 in salita).
+    m_avgFrameMs = 16.0f;
+    m_slowAccumMs = 0.0f;
+    m_slowFrameRun = 0;
+    m_hugeFrameRun = 0;
+
     update();
+}
+
+void GLWidget::setRecordingActive(bool on)
+{
+    m_isRecording = on;
+    if (!on) {
+        // Ritorno dall'export: il transitorio di ripristino (endHiResCapture,
+        // resize dell'FBO alla dimensione a schermo, eventuale ricompilazione)
+        // produce alcuni frame lenti che NON sono carico GPU reale. Su desktop
+        // sono trascurabili, su mobile bastano a sforare il dwell e a far
+        // ricomparire il popup SUBITO DOPO la registrazione (fuori tempo massimo).
+        // Riarmiamo lo stato di MISURA e apriamo una finestra di grazia: entro
+        // kPerfGraceMs il watchdog scarta ogni misura, cosi' l'INTERO transitorio
+        // di ripristino (di durata variabile su mobile: puo' durare piu' frame,
+        // non solo il primo) non viene scambiato per un rallentamento reale. NON
+        // tocchiamo m_perfWarnDismissed: se avevamo gia' avvisato per questa scena
+        // PRIMA di registrare, resta zitto.
+        m_avgFrameMs = 16.0f;
+        m_slowAccumMs = 0.0f;
+        m_perfWarnLevelMs = 0.0f;
+        m_slowFrameRun = 0;
+        m_hugeFrameRun = 0;
+        m_wasAnimating = false;      // -> justResumed=true: salta comunque il 1o frame
+        m_perfGraceClock.start();    // apre la finestra di grazia post-export
+    }
 }
 
 

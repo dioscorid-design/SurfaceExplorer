@@ -167,6 +167,22 @@ public:
     // Chiamato dal popup di rallentamento quando l'utente sceglie "Keep going":
     // sopprime ogni ulteriore avviso finche' l'animazione non si ferma/riparte.
     void acknowledgePerformanceWarning() { m_perfWarnDismissed = true; }
+    // Riarma il watchdog dopo che era stato zittito senza passare da rebuildShader
+    // (es. la guardia displacement lo ha zittito disattivando la trasparenza; se
+    // l'utente riabbassa lo slider vogliamo che torni a vigilare). Azzera anche il
+    // livello mostrato cosi' un nuovo rallentamento riavvisa da capo.
+    void rearmPerformanceWarning() { m_perfWarnDismissed = false; m_perfWarnLevelMs = 0.0f; }
+    // true se un'animazione e' in corso e l'EMA del watchdog misura GIA' un
+    // carico pesante (~sotto i 6-7 fps). Usato dalla UI per chiedere conferma
+    // PRIMA di attivare effetti che moltiplicano il costo per pixel (ramo
+    // trasparente RM: ~4-12x l'opaco -> dal carico pesante si passerebbe
+    // dritti al collasso, che il watchdog fermerebbe solo DOPO il magenta).
+    // A riposo m_avgFrameMs vale 16 -> false: mai popup su scene fluide o ferme.
+    bool renderingUnderHeavyLoad() const { return m_avgFrameMs > 150.0f; }
+    // Displacement RM attualmente applicato: la UI lo legge PRIMA di un apply per
+    // capire se lo sta introducendo/cambiando (guardia trasparenza mobile: il
+    // displacement gira dentro map() e col ramo trasparente il costo esplode).
+    QString currentDisplacementCode() const { return m_displacementCode; }
     float getSurfaceScale() const { return m_surfaceScale; }
     void rebuildShader();
 
@@ -247,7 +263,9 @@ public:
     void setCameraRoll(float r) { m_cameraRoll = r; meshNeedsUpdate = true; update(); }
     // Attiva/disattiva la soppressione del watchdog di performance durante
     // l'esportazione video (vedi m_isRecording). Chiamato dal VideoRecorder.
-    void setRecordingActive(bool on) { m_isRecording = on; }
+    // Al ritorno live (on=false) riarma lo STATO DI MISURA del watchdog per non
+    // scambiare il transitorio di ripristino export per un rallentamento reale.
+    void setRecordingActive(bool on);
     QQuaternion getRotationQuat() const { return m_rotationQuat; }
     // setRotationQuat imposta la rotazione "di default" (load preset / stato iniziale):
     // azzera m_userRotatedManually perche' questa NON e' una rotazione dell'utente.
@@ -610,13 +628,28 @@ private:
     // QRhiWidget render() registra solo i comandi, la GPU li esegue dopo, quindi
     // il throughput reale si legge dal ritmo dei frame, non dall'encoding CPU).
     QElapsedTimer m_frameClock;          // delta dall'ultimo frame
+    QElapsedTimer m_perfGraceClock;      // finestra di grazia dopo l'export: entro
+                                         // kPerfGraceMs il watchdog scarta le misure
+                                         // (il transitorio di ripristino, di durata
+                                         // variabile su mobile, non e' carico GPU)
     float m_avgFrameMs = 16.0f;          // media mobile (EMA) dell'intervallo, ms
     float m_slowAccumMs = 0.0f;          // tempo accumulato sotto soglia
-    float m_perfWarnLevelMs = 0.0f;      // livello a cui e' apparso l'ultimo avviso
-                                         // (0 = armato); riappare se raddoppia (+100%)
-    bool m_perfWarnDismissed = false;    // l'utente ha scelto "Keep going": sopprime
-                                         // OGNI ulteriore avviso finche' l'animazione non
-                                         // si ferma/riparte (riarmo nel ramo !animating)
+    int   m_slowFrameRun = 0;            // campioni lenti (dt > kSlowFrameMs) consecutivi:
+                                         // con l'EMA asimmetrica (salita 0.35) un singolo
+                                         // picco fin quasi a 2 s porta la media oltre
+                                         // soglia da solo, quindi l'immunita' ai picchi
+                                         // isolati la garantisce QUESTO contatore
+                                         // (avviso solo con >= kSlowRunToWarn di fila)
+    int   m_hugeFrameRun = 0;            // frame consecutivi > kHugeFrameMs (>2 s): un
+                                         // frame isolato = buco da inattivita' (scartato),
+                                         // una SEQUENZA = collasso GPU reale (es. iPad a
+                                         // 0.2 fps con RM+trasparenza) -> va segnalata
+    float m_perfWarnLevelMs = 0.0f;      // livello del primo avviso (0 = armato per la
+                                         // scena corrente); riarmato solo da rebuildShader()
+    bool m_perfWarnDismissed = false;    // gia' avvisato per QUESTA scena: sopprime ogni
+                                         // ulteriore avviso finche' non cambiano le
+                                         // impostazioni (riarmo SOLO in rebuildShader(),
+                                         // NON su stop/riavvio moti ne' su oscillazione)
     bool m_wasAnimating = false;         // stato anim. al frame precedente: per saltare
                                          // il primo frame dopo lo start (transitorio)
 

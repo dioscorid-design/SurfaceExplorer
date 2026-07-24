@@ -256,6 +256,11 @@ private:
     // True mentre il popup di rallentamento e' a schermo: evita che segnali
     // performanceWarning gia' in coda aprano box sovrapposti (raffica).
     bool m_perfPopupActive = false;
+    // True mentre una guardia trasparenza (forceOpaqueForHeavyRM) sta mostrando
+    // il suo popup: fa scartare un performanceWarning gia' in coda (emesso sui
+    // primi frame trasparenti prima dell'ack) che altrimenti aprirebbe il box del
+    // watchdog SOPRA quello della guardia. Vedi il gestore di performanceWarning.
+    bool m_transparencyGuardActive = false;
     QHash<QLineEdit*, float> m_lastValidConst;
     QTimer* m_geoAnimTimer = nullptr;   // timer del flusso geodetico (creato al primo updateGeodesicMesh)
     bool m_geodesicErrorPending = false;
@@ -277,6 +282,36 @@ private:
     // (NON bloccante) compare UNA volta, al primo tocco dell'alpha su Gyroid / script
     // RM. Resettata per ogni nuova superficie (syncImplicitAlphaSlider newSurface=true).
     bool m_implicitWarnShown = false;
+    // Guardia "conferma trasparenza-su-scena-pesante gia' accettata" (tutte le
+    // piattaforme, MISURATA: scatta solo se renderingUnderHeavyLoad). Alzata solo
+    // se l'utente sceglie "Apply anyway" — un "Keep it opaque" NON la alza, cosi'
+    // un nuovo tentativo richiede di nuovo. Resettata per ogni nuova superficie
+    // (syncImplicitAlphaSlider newSurface=true).
+    bool m_alphaHeavyWarnShown = false;
+    // Anti-rientranza del box di conferma: i valueChanged della PRESA ancora in
+    // corso, consegnati nel loop annidato di exec(), non devono impilare altri box.
+    bool m_alphaHeavyPopupActive = false;
+    // "Keep it opaque" dato durante la presa corrente: i valueChanged residui dello
+    // stesso gesto vengono riassorbiti a 100 SENZA riaprire il box (falso positivo:
+    // finestra che permane/ricompare). Riarmata da una nuova presa (sliderPressed)
+    // o dal cambio superficie (syncImplicitAlphaSlider).
+    bool m_alphaHeavyDeclined = false;
+    // SOLO MOBILE (no-op su desktop): dopo un apply RM riuscito, se il displacement
+    // e' stato introdotto/cambiato mentre alpha<1 porta l'alpha a 1 (il costo arriva
+    // CON la texture: la conferma misurata non puo' prevederlo). prevDisp = valore
+    // di currentDisplacementCode() catturato PRIMA dell'apply.
+    void guardTransparencyOnDisplacementApply(const QString &prevDisp);
+    // SOLO MOBILE (no-op su desktop): guardia POST-LOAD, chiamata a fine
+    // applyCommonData quando lo STATO FINALE caricato e' RM + alpha<1 +
+    // displacement. Il load imposta alpha e displacement in modo PROGRAMMATICO
+    // (m_settingAlphaProgrammatic), quindi ne' la conferma misurata ne' la
+    // guardia interattiva scattano: e' la falla del "record con alpha<1 nel JSON".
+    // Porta alpha a 1, avvisa, zittisce il watchdog (come la guardia interattiva).
+    void guardTransparencyOnImplicitLoad();
+    // Corpo condiviso dalle due guardie displacement: porta alpha a 1 (opaco),
+    // zittisce il watchdog per questa scena (acknowledgePerformanceWarning) e
+    // mostra `message`. Presuppone il contesto gia' verificato dal chiamante.
+    void forceOpaqueForHeavyRM(const QString &message);
     // Alzata mentre impostiamo lo slider trasparenza DA CODICE (load preset,
     // resetTransparency): l'handler valueChanged distingue cosi' il set programmatico
     // dall'interazione utente e non fa scattare il blocco/popup sui load. Vedi setAlphaSliderProgrammatic.

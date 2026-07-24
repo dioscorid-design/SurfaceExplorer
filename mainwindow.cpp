@@ -2442,10 +2442,81 @@ MainWindow::MainWindow(QWidget *parent)
             if (warnImplicit) {
                 onAlphaSliderMovedWarnCheck();   // no return: l'alpha si applica sotto
             }
+            // CONFERMA MISURATA (tutte le piattaforme): se la GPU e' GIA' sotto
+            // carico pesante con la scena opaca (EMA del watchdog, significativa
+            // solo ad animazione in corso), il ramo trasparente (~4-12x il costo
+            // per pixel) porta quasi certamente al collasso, che il watchdog
+            // fermerebbe solo DOPO il magenta. Chiediamo QUI, prima che il primo
+            // frame trasparente venga renderizzato. Sulle scene fluide o ferme
+            // non scatta mai (renderingUnderHeavyLoad e' false a riposo).
+            if (isImplicitMode && !m_alphaHeavyWarnShown &&
+                ui->glWidget && ui->glWidget->renderingUnderHeavyLoad()) {
+                // Eventi della STESSA presa arrivati col box gia' aperto, o dopo
+                // un "Keep it opaque": riassorbiti a 100 senza riaprire nulla,
+                // altrimenti il drag ancora in corso impila/riapre il box in
+                // loop (finestra che "permane o ricompare"). Una nuova presa
+                // riarma via sliderPressed; il cambio superficie via sync.
+                if (m_alphaHeavyPopupActive || m_alphaHeavyDeclined) {
+                    m_settingAlphaProgrammatic = true;
+                    ui->alphaSlider->setValue(100);
+                    m_settingAlphaProgrammatic = false;
+                    return;
+                }
+                m_alphaHeavyPopupActive = true;
+                // Slider subito a 100 PRIMA del box modale: mentre e' aperto
+                // nessun frame trasparente parte (pattern di onAlphaSliderMovedIllCheck).
+                m_settingAlphaProgrammatic = true;
+                ui->alphaSlider->setValue(100);
+                m_settingAlphaProgrammatic = false;
+
+                QMessageBox box(this);
+                box.setIcon(QMessageBox::Warning);
+                box.setWindowTitle(tr("Transparency on a heavy scene"));
+                box.setText(tr("The GPU is already under heavy load with this "
+                               "animation."));
+                box.setInformativeText(tr("Transparency multiplies the per-pixel "
+                                          "cost of ray marching and would very "
+                                          "likely make rendering collapse (on "
+                                          "some devices it can freeze the "
+                                          "application).\n\n"
+                                          "You can apply it anyway at your own "
+                                          "risk, or keep the surface opaque."));
+                QPushButton *applyBtn  = box.addButton(tr("Apply anyway"), QMessageBox::AcceptRole);
+                QPushButton *opaqueBtn = box.addButton(tr("Keep it opaque"), QMessageBox::RejectRole);
+                box.setDefaultButton(opaqueBtn);
+                box.exec();
+                if (box.clickedButton() == applyBtn) {
+                    // Conferma data: applichiamo il valore richiesto in modo
+                    // programmatico (i check di questa invocazione sono gia'
+                    // stati fatti) e non richiediamo piu' per questa superficie.
+                    m_alphaHeavyWarnShown = true;
+                    m_settingAlphaProgrammatic = true;
+                    ui->alphaSlider->setValue(value);
+                    m_settingAlphaProgrammatic = false;
+                } else {
+                    // "Keep it opaque": vale per TUTTO il gesto in corso — gli
+                    // eventi residui della presa vengono riassorbiti sopra.
+                    m_alphaHeavyDeclined = true;
+                }
+                m_alphaHeavyPopupActive = false;
+                return;  // in entrambi i casi il set giusto e' gia' avvenuto sopra
+            }
         }
         alphaValue = static_cast<float>(value) / 100.0f;
         ui->lblAlphaVal->setText(QString::number(alphaValue, 'f', 2));
         ui->glWidget->setAlpha(alphaValue);
+    });
+
+    // Nuova presa dello slider trasparenza: il "Keep it opaque" dato durante la
+    // presa precedente valeva per QUEL gesto, non per sempre — riarma la conferma.
+    // Riarma anche il watchdog: se era stato zittito perche' avevamo disattivato
+    // la trasparenza (guardTransparencyOnDisplacementApply -> ack), toccare di
+    // nuovo lo slider e' l'atto esplicito dopo cui il watchdog deve tornare a
+    // vigilare (setAlpha fa solo update(), NON passa da rebuildShader che
+    // altrimenti lo riarmerebbe). E' il "a meno che non riporti alpha<1".
+    connect(ui->alphaSlider, &QSlider::sliderPressed, this, [this](){
+        m_alphaHeavyDeclined = false;
+        if (ui->glWidget) ui->glWidget->rearmPerformanceWarning();
     });
 
     connect(ui->chkBoxTexture, &QCheckBox::toggled, this, [this](bool checked){
@@ -2724,37 +2795,92 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     // Avviso di rallentamento: il GLWidget segnala quando il rendering resta
-    // sotto soglia troppo a lungo. Lasciamo all'utente la scelta tra continuare
-    // (a suo rischio) o fermare l'animazione per modificare i parametri.
+    // sotto soglia troppo a lungo. PRIMA fermiamo l'animazione, POI avvisiamo:
+    // col collasso in corso (frame da secondi) il popup modale restava sepolto
+    // dietro il rendering e l'utente non riusciva nemmeno a premere "Stop"
+    // (visto su iPhone: magenta + app di fatto inutilizzabile). Fermare subito
+    // libera GPU e GUI thread, la finestra appare ed e' reattiva; chi vuole fa
+    // ripartire tutto dal popup (equivale a un master Start).
     // QueuedConnection: il segnale parte dal thread di rendering del QRhiWidget,
     // il QMessageBox deve invece girare nel thread GUI.
     connect(ui->glWidget, &GLWidget::performanceWarning, this, [this]() {
-        // Un popup alla volta: eventuali segnali gia' in coda quando il box e' aperto
-        // (il rendering resta lento mentre l'utente legge) non devono aprirne altri.
-        if (m_perfPopupActive) return;
+        // Un popup alla volta: eventuali segnali gia' in coda quando il box e'
+        // aperto (peggioramenti misurati prima del nostro stop) non devono
+        // aprirne altri. E se il master e' gia' fermo (stop manuale arrivato
+        // prima della consegna del segnale in coda) l'avviso e' stantio.
+        //
+        // m_transparencyGuardActive: una guardia trasparenza (interattiva o
+        // post-load) sta gestendo il caso o ha il suo popup aperto. Il segnale
+        // del watchdog qui e' STANTIO — era stato emesso (QueuedConnection) sui
+        // primi frame trasparenti PRIMA che la guardia mettesse alpha a 1 e
+        // chiamasse acknowledgePerformanceWarning(); l'ack blocca le emissioni
+        // FUTURE ma non questa gia' in coda. Scartarlo evita il popup del
+        // watchdog SOPRA la finestra della guardia (la confusione segnalata).
+        if (m_perfPopupActive || m_masterStopped || m_transparencyGuardActive) return;
         m_perfPopupActive = true;
+
+        performMasterStop();
+
+        // Allo stop da collasso riportiamo anche la trasparenza a 1 (solo Ray
+        // Marching): il ramo trasparente e' il moltiplicatore di costo del
+        // marcher (MAX_FACES x 3 marchNextLayer per pixel), e con alpha<1 OGNI
+        // ridisegno (slider, drag, resize) restava da secondi anche a scena
+        // ferma — lo stop toglie il moto, non il costo per pixel. Opaco costa
+        // una frazione: l'interfaccia torna reattiva subito, popup compreso.
+        // setValue(100) passa dall'handler valueChanged (value==100: nessun
+        // check ill/warn) e riallinea slider, label e GLWidget in un colpo.
+        // Sul parametrico la trasparenza non e' il collo di bottiglia: non si
+        // tocca. Se l'utente sceglie "Restart animation" l'alpha ORIGINALE
+        // viene ripristinato prima del riavvio (prosegue a suo rischio con la
+        // scena identica a prima); con "Keep it stopped" resta opaco.
+        bool alphaReset = false;
+        int  alphaPrev  = 100;
+        const bool perfIsImplicit = (ui->tabModeSelector->currentIndex() == 1);
+        if (perfIsImplicit && ui->alphaSlider->value() < 100) {
+            alphaPrev = ui->alphaSlider->value();
+            ui->alphaSlider->setValue(100);
+            alphaReset = true;
+        }
 
         QMessageBox box(this);
         box.setIcon(QMessageBox::Warning);
-        box.setWindowTitle(tr("Rendering is slowing down"));
-        box.setText(tr("The animation is slowing down significantly."));
-        box.setInformativeText(tr("Pushing the complexity further (steps, effects, "
-                                  "resolution) may degrade the image or, on some "
-                                  "devices, freeze the application.\n\n"
-                                  "You can keep going at your own risk, or stop the "
-                                  "animation to adjust the parameters."));
-        QPushButton *continueBtn = box.addButton(tr("Keep going"), QMessageBox::AcceptRole);
-        QPushButton *stopBtn     = box.addButton(tr("Stop animation"), QMessageBox::RejectRole);
-        box.setDefaultButton(stopBtn);
+        box.setWindowTitle(tr("Animation stopped"));
+        box.setText(tr("The animation was stopped because rendering was "
+                       "slowing down dangerously."));
+        QString info = tr("Pushing the complexity further (steps, effects, "
+                          "resolution) may degrade the image or, on some "
+                          "devices, freeze the application.\n\n"
+                          "You can restart the animation at your own risk, "
+                          "or leave it stopped and reduce some parameters "
+                          "first.");
+        if (alphaReset)
+            info += tr("\n\nTransparency has been set to fully opaque to keep "
+                       "the app responsive while stopped. Restarting the "
+                       "animation restores your transparency setting.");
+        box.setInformativeText(info);
+        QPushButton *resumeBtn = box.addButton(tr("Restart animation"), QMessageBox::AcceptRole);
+        QPushButton *stayBtn   = box.addButton(tr("Keep it stopped"), QMessageBox::RejectRole);
+        box.setDefaultButton(stayBtn);
         box.exec();
-        if (box.clickedButton() == stopBtn) {
-            performMasterStop();
-        } else {
-            // "Keep going": l'utente accetta il rallentamento. Zittiamo il watchdog per
-            // questa animazione (niente altri popup finche' non la ferma/ricarica).
+        if (box.clickedButton() == resumeBtn) {
+            // Ripristina la trasparenza originale PRIMA del riavvio, cosi' la
+            // scena riparte identica a com'era. Set programmatico: il flag salta
+            // i check ill/warn dell'handler (gia' assolti quando l'utente aveva
+            // abbassato lo slider la prima volta).
+            if (alphaReset) {
+                m_settingAlphaProgrammatic = true;
+                ui->alphaSlider->setValue(alphaPrev);
+                m_settingAlphaProgrammatic = false;
+            }
+            // Riavvio = vero master Start (il gestore riconosce sender()==m_btnStart:
+            // riarma i flag user-stop e riparte il moto camera corrente).
+            if (m_btnStart) m_btnStart->click();
+            // L'utente e' avvisato e ha scelto di proseguire: zittiamo il watchdog
+            // per QUESTA animazione (niente popup a raffica sullo stesso
+            // rallentamento). DOPO il riavvio, non prima: da fermo il ramo
+            // !animating del watchdog azzererebbe subito il flag.
             if (ui->glWidget) ui->glWidget->acknowledgePerformanceWarning();
         }
-        Q_UNUSED(continueBtn);
         m_perfPopupActive = false;
     }, Qt::QueuedConnection);
 
@@ -3348,7 +3474,9 @@ void MainWindow::syncImplicitAlphaSlider(bool isImplicitMode, bool newSurface)
     if (newSurface) {
         if (!ui->alphaSlider->isEnabled()) ui->alphaSlider->setEnabled(true);
         m_implicitAlphaDisabled = false;
-        m_implicitWarnShown = false;   // riarma il popup di avviso per la nuova superficie
+        m_implicitWarnShown = false;    // riarma il popup di avviso per la nuova superficie
+        m_alphaHeavyWarnShown = false;  // riarma anche la conferma "scena pesante"
+        m_alphaHeavyDeclined = false;   // il "no" valeva per la superficie precedente
     }
 
     if (illImplicit) {
@@ -3404,6 +3532,94 @@ void MainWindow::onAlphaSliderMovedWarnCheck()
            "it is made of many layers stacked along each viewing ray, more than the "
            "renderer can blend here, so with transparency it may look clipped.\n\n"
            "The slider still works — this is just a heads-up."));
+}
+
+// SOLO MOBILE (no-op su desktop, dove trasparenza+displacement regge). Chiamata
+// DOPO un validateAndApplyImplicitShader riuscito, col displacement che era
+// applicato PRIMA: se l'apply lo ha INTRODOTTO o CAMBIATO mentre la trasparenza
+// e' attiva, l'alpha va a 1 in modo deterministico. Il displacement gira dentro
+// map() e il ramo trasparente lo moltiplica per MAX_FACES x 3 x passi: il
+// collasso arriva CON la texture, quindi la conferma misurata (EMA della scena
+// PRECEDENTE, ancora leggera) non puo' prevederlo. L'animazione/record CONTINUA,
+// opaca; riabbassando lo slider decide la conferma misurata coi dati veri.
+// Corpo condiviso: porta la scena a opaca e zittisce il watchdog, poi avvisa.
+// Il watchdog va zittito perche' opaco+texture-con-displacement su iPhone e'
+// comunque al limite -> senza, certi frame sforavano e faceva scattare un SECONDO
+// popup (sopra questo) o l'auto-stop, in modo intermittente. Il flag si riarma
+// quando l'utente riabbassa lo slider (sliderPressed -> rearmPerformanceWarning):
+// esattamente il "a meno che non riporti alpha<1".
+void MainWindow::forceOpaqueForHeavyRM(const QString &message)
+{
+    m_settingAlphaProgrammatic = true;
+    ui->alphaSlider->setValue(100);
+    m_settingAlphaProgrammatic = false;
+
+    if (ui->glWidget) ui->glWidget->acknowledgePerformanceWarning();
+
+    // Il QMessageBox modale fa girare l'event loop: un performanceWarning gia' in
+    // coda (emesso sui primi frame trasparenti prima dell'ack) verrebbe
+    // consegnato proprio ORA, aprendo il popup del watchdog SOPRA questo. Il flag
+    // fa scartare quel segnale stantio nel gestore di performanceWarning per
+    // tutta la durata del nostro box. Ripristinato dopo (nested guard-safe: il
+    // valore precedente non e' mai true perche' questa funzione non e' rientrante).
+    m_transparencyGuardActive = true;
+    QMessageBox::information(this, tr("Transparency turned off"), message);
+    m_transparencyGuardActive = false;
+}
+
+// SOLO MOBILE (no-op su desktop, dove trasparenza+displacement regge). Chiamata
+// DOPO un validateAndApplyImplicitShader riuscito, col displacement che era
+// applicato PRIMA: se l'apply lo ha INTRODOTTO o CAMBIATO mentre la trasparenza
+// e' attiva, l'alpha va a 1 in modo deterministico. Il displacement gira dentro
+// map() e il ramo trasparente lo moltiplica per MAX_FACES x 3 x passi: il
+// collasso arriva CON la texture, quindi la conferma misurata (EMA della scena
+// PRECEDENTE, ancora leggera) non puo' prevederlo. L'animazione/record CONTINUA,
+// opaca; riabbassando lo slider decide la conferma misurata coi dati veri.
+void MainWindow::guardTransparencyOnDisplacementApply(const QString &prevDisp)
+{
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    if (!ui->glWidget) return;
+    const QString newDisp = ui->glWidget->currentDisplacementCode().trimmed();
+    if (newDisp.isEmpty() || newDisp == prevDisp.trimmed()) return; // nessun displacement nuovo
+    if (ui->alphaSlider->value() >= 100) return;                    // trasparenza non attiva
+
+    forceOpaqueForHeavyRM(
+        tr("This texture carves relief into the surface (displacement). Combined "
+           "with transparency it would overload the GPU on this device, so the "
+           "surface has been set to fully opaque — the animation keeps "
+           "running.\n\n"
+           "Lower the transparency slider again to retry it: the app will check "
+           "the measured load first."));
+#else
+    Q_UNUSED(prevDisp);
+#endif
+}
+
+// SOLO MOBILE (no-op su desktop). Guardia POST-LOAD: chiamata a fine
+// applyCommonData. Chiude la falla del "record/preset con alpha<1 nel JSON +
+// displacement": al load alpha e displacement sono impostati programmaticamente,
+// quindi ne' la conferma misurata ne' la guardia interattiva scattano, e la
+// scena partirebbe trasparente+pesante lasciando come unica rete il watchdog
+// tardivo. Se lo STATO FINALE e' RM + alpha<1 + displacement presente -> opaco +
+// avviso, coerente con la guardia interattiva. NB: legge lo stato GIA' finale
+// (slider + widget), quindi va invocata DOPO che il load ha applicato tutto.
+void MainWindow::guardTransparencyOnImplicitLoad()
+{
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    if (!ui->glWidget) return;
+    const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
+    if (!isImplicit) return;
+    if (ui->alphaSlider->value() >= 100) return;                          // trasparenza non attiva
+    if (ui->glWidget->currentDisplacementCode().trimmed().isEmpty()) return; // niente displacement
+
+    forceOpaqueForHeavyRM(
+        tr("This surface was saved with transparency and a relief texture "
+           "(displacement). Together they would overload the GPU on this device, "
+           "so it has been loaded fully opaque — the animation keeps "
+           "running.\n\n"
+           "Lower the transparency slider to try transparency: the app will "
+           "check the measured load first."));
+#endif
 }
 
 void MainWindow::updateRenderState()
@@ -4704,6 +4920,13 @@ void MainWindow::handleTextureSelection(int index)
             m_isCustomMode = true;
         }
 
+        // Displacement applicato PRIMA di questa texture: catturato QUI, prima di
+        // setDisplacementCode qui sotto, altrimenti currentDisplacementCode()
+        // restituirebbe gia' il valore NUOVO e la guardia lo vedrebbe "invariato"
+        // (era il bug: il popup non compariva e restava il watchdog tardivo).
+        const QString prevDispApplied =
+            ui->glWidget ? ui->glWidget->currentDisplacementCode() : QString();
+
         ui->lineVariations->blockSignals(true);
         ui->lineVariations->setPlainText(data.displacementCode);
         ui->lineVariations->blockSignals(false);
@@ -4776,6 +4999,10 @@ void MainWindow::handleTextureSelection(int index)
 
             ui->glWidget->updateSurfaceData();
             ui->glWidget->update();
+
+            // Mobile: displacement nuovo + trasparenza attiva -> alpha a 1
+            // (vedi guardTransparencyOnDisplacementApply).
+            guardTransparencyOnDisplacementApply(prevDispApplied);
 
             // L'equazione implicita e' committata: risincronizza lo slider trasparenza
             // (campi a prodotto -> disabilitato + popup). Vedi syncImplicitAlphaSlider.
@@ -5193,12 +5420,19 @@ void MainWindow::onStartClicked()
 
         ui->glWidget->setTextureCode(texCode);
 
+        // Displacement applicato PRIMA di questo commit (guardia trasparenza mobile).
+        const QString prevDispApplied = ui->glWidget->currentDisplacementCode();
+
         // TEST E APPLICAZIONE
         bool success = ui->glWidget->validateAndApplyImplicitShader(implicitEqF, texCode, dispCode);
         if (!success) {
             InputValidator::showShaderCompilationError(this, "Syntax Error (Ray Marching)", ui->glWidget->getShaderError());
             return;
         }
+
+        // Mobile: displacement nuovo + trasparenza attiva -> alpha a 1
+        // (vedi guardTransparencyOnDisplacementApply).
+        guardTransparencyOnDisplacementApply(prevDispApplied);
 
         QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)", QRegularExpression::MultilineOption);
         QRegularExpressionMatch imgMatch = imgRe.match(texCode);
@@ -9910,6 +10144,11 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     applyModeDependentStepUI(d.isImplicitMode);
     this->setProperty("isPresetActive", true);
     updateMasterButtonState();
+
+    // Mobile: se lo stato appena caricato e' RM + trasparenza + displacement,
+    // forza opaco e avvisa (falla del record con alpha<1 nel JSON, che aggira i
+    // due preventivi interattivi). No-op su desktop e sugli altri casi.
+    guardTransparencyOnImplicitLoad();
 }
 
 QString MainWindow::presetsRootPath() const {
