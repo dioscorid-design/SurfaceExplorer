@@ -112,7 +112,6 @@
         <file>presets/surfaces/Parametric/Equations/Tubes/Otto_4D (Slider A).json</file>
         <file>presets/surfaces/Parametric/Equations/Tubes/Clover Tube.json</file>
         <file>presets/surfaces/Parametric/Equations/Tubes/Otto.json</file>
-        <file>presets/surfaces/Parametric/Equations/Tubes/Tubo Autointersecante.json.bak7</file>
         <file>presets/surfaces/Parametric/Equations/Tubes/Trefoil Tube.json</file>
         <file>presets/surfaces/Parametric/Equations/H2xR/H2xR Slice.json</file>
         <file>presets/surfaces/Parametric/Equations/H2xR/Hyperbolic Saddle.json</file>
@@ -252,11 +251,11 @@
         <file>presets/records/Ray Marching/N-torus Garland.json</file>
         <file>presets/records/Ray Marching/Ergosphere.json</file>
         <file>presets/records/Ray Marching/Gyroid Race.json</file>
+        <file>presets/records/Ray Marching/N-Torus Trefoil.json</file>
         <file>presets/records/Ray Marching/N-Tours.json</file>
         <file>presets/records/Ray Marching/Gyroid3.json</file>
         <file>presets/records/Ray Marching/Pseudo Lawson2.json</file>
         <file>presets/records/Ray Marching/Breathing Sphere.json</file>
-        <file>presets/records/Ray Marching/N-Torus Trifoil.json</file>
         <file>presets/records/Ray Marching/N-Torus2.json</file>
         <file>presets/records/Ray Marching/Deco Cube.json</file>
         <file>presets/records/Ray Marching/Gyroid.json</file>
