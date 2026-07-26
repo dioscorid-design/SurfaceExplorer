@@ -15,6 +15,8 @@
 #include <QDateTime>
 #include <QDir>
 #include <QProcess>
+#include <QSharedPointer>
+#include <QTimer>
 #include <QMessageBox>
 #include <QApplication>
 #include <QMediaPlayer>
@@ -109,8 +111,13 @@ public:
         form->addRow("FPS (24-120):", spinFps);
 
         comboRes = new QComboBox(scrollContent);
+        // "Current View Size" e non "Monitor Default": su mobile non c'e' un
+        // monitor, e la voce non e' comunque la risoluzione del display. E' la
+        // dimensione della SOLA vista 3D (glWidget->size() * devicePixelRatio,
+        // vedi la cattura FBO piu' sotto): esclude dock e barre, e sui telefoni
+        // il devicePixelRatio (tipicamente 3) la porta comunque nell'ordine del 2K.
         comboRes->addItems({
-            "Monitor Default (Current Size)",
+            "Current View Size",
             "1080p Full HD (1920x1080)",
             "1440p 2K (2560x1440)",
             "2160p 4K (3840x2160)"
@@ -747,7 +754,8 @@ void VideoRecorder::toggleRecord()
     // export UNA volta (non per-frame, per evitare flicker/ricostruzioni ripetute),
     // così ogni frame è renderizzato nativamente a piena risoluzione e
     // getFrameForVideo lo cattura senza upscale (fix wireframe sfocato).
-    // Per "Monitor Default" (target -1) usiamo la dimensione nativa del widget.
+    // Per la voce a dimensione corrente (target -1: "Current View Size" su mobile,
+    // "Monitor Default" su desktop) usiamo la dimensione nativa del widget.
     bool fboCapture = useFBO;
     if (fboCapture) {
         int capW = targetWidth, capH = targetHeight;
@@ -966,7 +974,8 @@ void VideoRecorder::toggleRecord()
     // attivi per tutto il REC) riprendono ad avanzare live da qui, proseguendo
     // dallo stato in cui il video e' finito.
     m_mainWindow->ui->glWidget->setExternalClockActive(false);
-    m_mainWindow->ui->glWidget->setRecordingActive(false); // riattiva il watchdog
+    // NB: il watchdog NON si riattiva qui. Resta sospeso per tutta la creazione
+    // del file: lo riaccende releaseWatchdogAfterEncoding() (vedi sotto).
 
     // Ripristina il color buffer alla dimensione a schermo (esce dalla cattura FBO).
     // Va fatto SEMPRE, anche su stop anticipato (il loop esce solo con break).
@@ -1017,6 +1026,7 @@ void VideoRecorder::toggleRecord()
     // prosegue da dove il video e' finito (i timer non sono mai stati fermati:
     // era fermo solo il loro OROLOGIO). restoreState resta per i soli percorsi
     // di annullamento pre-loop, dove il ripristino completo e' ancora giusto.
+    //
     // Qui si riavviano solo i clock live che il loop pilotava direttamente:
     if (wasTimeAnimating) {
         m_mainWindow->ui->glWidget->setSurfaceAnimating(true);
@@ -1026,6 +1036,51 @@ void VideoRecorder::toggleRecord()
         geoAnimTimer->start(); // geoTime prosegue dal punto raggiunto nel video
     }
     m_mainWindow->ui->glWidget->update();
+
+    // WATCHDOG SOSPESO FINO A FILE CREATO.
+    // La creazione del file (FFmpeg o AVFoundation) e' il momento di carico
+    // massimo della macchina: i frame resi nel frattempo sono lenti perche'
+    // l'encoder contende CPU/GPU/disco, non perche' la scena sia troppo pesante.
+    // Misurarli faceva comparire il popup di rallentamento proprio a fine
+    // registrazione sulle scene pesanti — un falso positivo, visto che la stessa
+    // scena in esecuzione normale non lo attiva mai. Su iPhone il popup usciva
+    // anche a moti FERMI: la prova che il carico e' dell'encoder, non
+    // dell'animazione. Quindi non si toccano i moti (ripartono qui sopra come
+    // sempre): si tiene solo il watchdog cieco finche' il file non e' chiuso.
+    // Da chiamare UNA volta al termine di OGNI percorso di encoding (pipe
+    // desktop, QProcess desktop/Android, nativo iOS), e precisamente DOPO la
+    // QMessageBox di esito: il dialogo e' MODALE, quindi blocca il thread finche'
+    // l'utente non lo chiude. Rilasciando prima, la finestra di grazia (500 ms)
+    // si consumava tutta a dialogo aperto e il primo frame reso dopo la chiusura
+    // veniva misurato — un dtMs pari a quanto era rimasto aperto l'avviso. Il
+    // popup ricompariva percio' DOPO il "Finished!". Rilasciando dopo, la grazia
+    // parte da quando la macchina ricomincia davvero a rendere.
+    // NB: catturata PER VALORE e copiabile — il ramo QProcess (desktop con audio
+    // e Android) e' asincrono: toggleRecord() ritorna prima che l'encoder finisca
+    // e la lambda sopravvive nelle connect(). Il flag "gia' riattivato" e' quindi
+    // uno shared_ptr e non una locale sullo stack, che a quel punto non esiste piu'.
+    auto watchdogReleased = QSharedPointer<bool>::create(false);
+    auto releaseWatchdogAfterEncoding = [this, watchdogReleased]() {
+        if (*watchdogReleased) return;
+        *watchdogReleased = true;
+        // Riattiva il watchdog. La finestra di grazia aperta qui dentro copre il
+        // transitorio successivo, ora che l'encoder non contende piu' la macchina.
+        m_mainWindow->ui->glWidget->setRecordingActive(false);
+    };
+
+    // RETE DI SICUREZZA: la sospensione dev'essere garantita TEMPORANEA. Nel ramo
+    // QProcess asincrono la riattivazione dipende da un segnale (finished /
+    // errorOccurred): se per qualunque motivo non arrivasse, il watchdog
+    // resterebbe cieco per il resto della sessione — cioe' disattivato anche
+    // fuori dalla registrazione, che e' esattamente cio' che non deve accadere.
+    // Questo timer chiude comunque la finestra; se il segnale arriva prima, il
+    // flag rende la chiamata un no-op. Molto generoso di proposito: e' l'ULTIMA
+    // difesa contro un watchdog cieco per sempre, non un limite di durata. Deve
+    // sopravvivere sia a un encoding lungo e lento, sia a una QMessageBox di esito
+    // lasciata aperta a lungo dall'utente (il rilascio avviene dopo di essa: se il
+    // timer scattasse a dialogo aperto, il frame post-chiusura tornerebbe misurato
+    // e il falso positivo si riaprirebbe).
+    QTimer::singleShot(30 * 60 * 1000, m_mainWindow->ui->glWidget, releaseWatchdogAfterEncoding);
 
     m_mainWindow->m_statusLabel->setText("Generating MP4... please wait.");
     m_mainWindow->m_renderProgress->setVisible(false);
@@ -1067,6 +1122,10 @@ void VideoRecorder::toggleRecord()
             QMessageBox::information(m_mainWindow, "Finished!", "Video successfully saved:\n" + userSelectedFile);
         else
             QMessageBox::warning(m_mainWindow, "Encoding Error", "FFmpeg failed.\n\n" + errLog);
+
+        // DOPO la modale (vedi nota "watchdog sospeso"): il dialogo e' bloccante,
+        // quindi la grazia deve partire da quando l'utente lo chiude.
+        releaseWatchdogAfterEncoding();
         return;
     }
 #endif
@@ -1178,18 +1237,23 @@ void VideoRecorder::toggleRecord()
     ffmpegProcess->setProcessEnvironment(env);
 #endif
 
-    connect(ffmpegProcess, &QProcess::errorOccurred, this, [this, ffmpegProcess](QProcess::ProcessError err){
+    connect(ffmpegProcess, &QProcess::errorOccurred, this, [this, ffmpegProcess, releaseWatchdogAfterEncoding](QProcess::ProcessError err){
         m_mainWindow->m_isProcessingVideo = false;
         m_mainWindow->m_statusLabel->clear();
         QString errorMsg = (err == QProcess::FailedToStart)
                                ? "The FFmpeg executable does not have permission to start or has been corrupted.\nOS Block: W^X Violation."
                                : "Error while running FFmpeg.";
         QMessageBox::critical(m_mainWindow, "Video Creation Error", errorMsg);
+
+        // DOPO la modale (vedi nota "watchdog sospeso"): il dialogo e' bloccante,
+        // quindi la grazia deve partire da quando l'utente lo chiude.
+        releaseWatchdogAfterEncoding();
+
         ffmpegProcess->deleteLater();
     });
 
     connect(ffmpegProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, [this, videoFileName, userSelectedFile, ffmpegProcess](int exitCode, QProcess::ExitStatus status){
+            this, [this, videoFileName, userSelectedFile, ffmpegProcess, releaseWatchdogAfterEncoding](int exitCode, QProcess::ExitStatus status){
                 m_mainWindow->m_isProcessingVideo = false;
                 m_mainWindow->m_statusLabel->clear();
 
@@ -1235,6 +1299,11 @@ void VideoRecorder::toggleRecord()
                                  "FFmpeg exited with an error.\nExit code: " + QString::number(exitCode) +
                                      "\n\nLog:\n" + log.right(500));
         }
+
+        // DOPO la modale (vedi nota "watchdog sospeso"): il dialogo e' bloccante,
+        // quindi la grazia deve partire da quando l'utente lo chiude.
+        releaseWatchdogAfterEncoding();
+
         ffmpegProcess->deleteLater();
     });
 
@@ -1248,6 +1317,7 @@ void VideoRecorder::toggleRecord()
         m_mainWindow->m_isProcessingVideo = false;
         m_mainWindow->m_statusLabel->clear();
         QMessageBox::critical(m_mainWindow, "Missing FFmpeg", "Cannot find static FFmpeg binary at:\n" + program);
+        releaseWatchdogAfterEncoding(); // dopo la modale, come gli altri percorsi
         return;
     }
 
@@ -1280,6 +1350,7 @@ void VideoRecorder::toggleRecord()
         m_mainWindow->m_isProcessingVideo = false;
         m_mainWindow->m_statusLabel->clear();
         QMessageBox::critical(m_mainWindow, "Missing FFmpeg", "Cannot find 'ffmpeg'.\nMake sure it is installed and in your PATH.");
+        releaseWatchdogAfterEncoding(); // dopo la modale, come gli altri percorsi
         return;
     }
 
@@ -1347,5 +1418,9 @@ void VideoRecorder::toggleRecord()
     } else {
         QMessageBox::warning(m_mainWindow, "Encoding Error", "Failed to assemble the video on iOS.");
     }
+
+    // DOPO la modale (vedi nota "watchdog sospeso"): il dialogo e' bloccante,
+    // quindi la grazia deve partire da quando l'utente lo chiude.
+    releaseWatchdogAfterEncoding();
 #endif
 }
