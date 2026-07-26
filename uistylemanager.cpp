@@ -2,6 +2,7 @@
 
 #include <QScrollArea>
 #include <QScroller>
+#include <QMargins>
 #include <QPushButton>
 #include <QPlainTextEdit>
 #include <QLabel>
@@ -587,6 +588,18 @@ void UiStyleManager::addScrollToDock(QDockWidget* dock) {
 
     // Se c'è già una scrollarea o il widget è nullo, ci fermiamo
     if (!innerWidget || qobject_cast<QScrollArea*>(innerWidget)) return;
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    // La scrollbar mobile e' larga 26px e trasparente: senza margine destro i
+    // controlli ancorati al bordo (bottoni di dock3D/dock4D) le finiscono sotto.
+    // Il margine va messo QUI e non nel .ui: compactForMobile azzera i margini
+    // di tutti i layout dei dock, e gira prima di questa funzione.
+    {
+        QMargins m = innerWidget->contentsMargins();
+        m.setRight(m.right() + 26);
+        innerWidget->setContentsMargins(m);
+    }
+#endif
 
     // Crea la nuova ScrollArea
     QScrollArea* scrollArea = new QScrollArea(dock);

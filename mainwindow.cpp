@@ -32,6 +32,7 @@
 #include <QStandardPaths>
 #include <QPlainTextEdit>
 #include <QScrollArea>
+#include <QMargins>
 #include <QScroller>
 #include <QScrollBar>
 #include <QSettings>
@@ -715,10 +716,14 @@ MainWindow::MainWindow(QWidget *parent)
 
         for (QDockWidget* dock : docks) {
             if (!dock->widget()) continue;
+            // Il margine destro e' quello che tiene i controlli fuori dalla
+            // scrollbar (vedi addScrollToDock): tocchiamo SOLO il bottom.
+            QMargins m = dock->widget()->contentsMargins();
             if (kbdHeight > 0) {
                 // Comprime solo il dock realmente visibile (quello su cui si digita).
                 if (!dock->isVisible()) continue;
-                dock->widget()->setContentsMargins(0, 0, 0, kbdHeight);
+                m.setBottom(kbdHeight);
+                dock->widget()->setContentsMargins(m);
 
                 // Trova il campo di testo su cui stiamo digitando
                 QWidget* fw = this->focusWidget();
@@ -740,7 +745,8 @@ MainWindow::MainWindow(QWidget *parent)
                 // Tastiera chiusa: ripristina SEMPRE il margine, anche se il dock non
                 // e' visibile in questo istante (vedi ramo iOS): condizionarlo a
                 // isVisible() lascia il dock dimezzato dopo un MobileSaveDialog.
-                dock->widget()->setContentsMargins(0, 0, 0, 0);
+                m.setBottom(0);
+                dock->widget()->setContentsMargins(m);
             }
         }
     });
