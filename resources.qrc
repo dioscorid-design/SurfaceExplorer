@@ -324,11 +324,13 @@
         <file>presets/records/t_motions/H2xR/Hyperbolic Elicoid.json</file>
         <file>presets/records/t_motions/S1xS1xR/Toric Wave.json</file>
         <file>presets/records/t_motions/S1xS1xR/Toroidal Spring.json</file>
+        <file>presets/records/Paths/Clifford Linked Tori.json</file>
         <file>presets/records/Paths/Klein Racing.json</file>
         <file>presets/records/Paths/Enneper.json</file>
         <file>presets/records/Paths/Tube.json</file>
         <file>presets/records/Paths/Mobius Racing.json</file>
         <file>presets/records/Paths/Clover.json</file>
+        <file>presets/records/Paths/Clifford Torus.json</file>
         <file>presets/records/Paths/Klein3D Racing.json</file>
         <file>presets/records/Paths/Klein Fire Racing.json</file>
         <file>presets/records/Paths/Warping Torus.json</file>

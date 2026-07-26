@@ -1,0 +1,134 @@
+{
+    "activeMotion": "path4D",
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "background": {
+        "code": "// --- POST-PROCESSING 2D: MONITOR CRT ---\n\n// gl_FragCoord.xy ci dà i pixel fisici dello schermo, indipendentemente \n// dalla rotazione della telecamera o dell'oggetto 3D!\n// Dividiamo per un valore indicativo per normalizzare le coordinate.\nvec2 screenUV = gl_FragCoord.xy / 800.0;\n\n// 1. SCANLINES (Righe orizzontali)\n// Usiamo lo slider 'A' per regolare al volo la fittezza delle righe (es. range 1-5)\nfloat scanlineDensity = 1000.0 + (A * 500.0);\nfloat scanline = sin(screenUV.y * scanlineDensity) * 0.1 + 0.9;\n\n// 2. FLICKER (Sfarfallio basato sul tempo)\n// Lo slider 'B' regola l'intensità dello sfarfallio\nfloat flicker = 1.0 - (0.05 * B * sin(t * 50.0));\n\n// 3. ABERRAZIONE CROMATICA SUI PIXEL DELL'OGGETTO\n// Invece di usare un colore solido, sfalsiamo u_col1 per creare l'effetto RGB separato\nvec3 col;\ncol.r = u_col1.r * 1.1; \ncol.g = u_col1.g * 0.9;\ncol.b = u_col1.b * 1.5; // Alziamo il blu per dare un look hi-tech\n\n// 4. BANDE DI SCORRIMENTO (Disturbo verticale)\n// Una banda scura che scorre dall'alto verso il basso\nfloat roll = fract(screenUV.y * 0.5 - t * 0.2);\nfloat distortionBand = smoothstep(0.4, 0.5, roll) - smoothstep(0.5, 0.6, roll);\n\n// Abbassiamo la luminosità dove passa la banda\ncol *= 1.0 - (distortionBand * 0.3);\n\n// 5. APPLICAZIONE DEI FILTRI 2D\nvec3 finalColor = col * scanline * flicker;\n\nreturn finalColor;",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#ff0000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 1,
+        "rot_x": 0,
+        "rot_y": 0,
+        "rot_z": 0,
+        "x": -1.0169377326965332,
+        "y": -0.005089081358164549,
+        "yaw": 0,
+        "z": -0.07130212336778641
+    },
+    "cameraFov": 103,
+    "colors": {
+        "alpha": 1,
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "fov3D": 45,
+    "fov4D": 103,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 0,
+        "uMin": 0,
+        "vMax": 0,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "name": "Clifford Linked Tori",
+    "observer4D": 4.999642848968506,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "sin(0.07)*sin(t)",
+        "x": "cos(0.07)*cos(t)",
+        "y": "cos(0.07)*sin(t)",
+        "z": "sin(0.07)*cos(t)"
+    },
+    "pathMode": 0,
+    "pathMode3D": 0,
+    "projectionMode": 2,
+    "renderMode": 1,
+    "scriptCode": "// --- CONFIGURAZIONE ---\nu_min := 0;\nu_max := 6.28318;\nv_min := 0;\nv_max := 12.56636;   // 4*PI: prima meta' = toro 1, seconda meta' = toro 2 (meridiano)\nsteps := 400;\n\n// --- DUE TORI DI CLIFFORD ORTOGONALI, VISTI DA FUORI ---\n// Versione SOTTILE per studiare come si intersecano. NB: non dichiarare\n// variabili chiamate PI, pi, tau: il traduttore le sostituisce col valore\n// numerico in tutto lo script.\n//\n// ASSE 1 = meridiano nel piano (x,y):  (cos u, sin u, 0, 0)\n// ASSE 2 = meridiano nel piano (x,z):  (cos u, 0, sin u, 0)\n//\n// COME SI INTERSECANO (misurato): i due assi sono grandi cerchi di S^3 che\n// condividono l'asse x, quindi si toccano ESATTAMENTE in due punti, i poli\n// (+1,0,0,0) e (-1,0,0,0). Altrove divergono, e la loro distanza angolare\n// cresce linearmente con u fino a 90 gradi a u = 90:\n//     u  =  0   15   30   45   60   90  120  150  180 gradi\n//    dist =  0   15   30   45   60   90   60   30    0 gradi\n// Ne segue che due tubi di raggio angolare R attorno a quegli assi si\n// compenetrano SOLO in due lenti attorno ai poli, e la lente si estende\n// in u fino a |sin u| = tan R. Con R = 12 gradi: +-12.27 gradi dai poli,\n// e il taglio vale l'8.7% di ciascun toro.\nfloat R = 0.2094395;     // 12 gradi\n\nfloat cR = cos(R);\nfloat sR = sin(R);\n\nfloat sel = step(6.28318, v);   // 0 = primo toro, 1 = secondo\n\n// --- CHIUSURA DEI DUE TUBI (il motivo delle \"alette\") ---\n// generateParametricGrid (surfaceengine.cpp:352-367) campiona j = 0..steps\n// INCLUSI, cioe' steps+1 = 401 vertici con passo v_max/steps. Con seam = 2*PI\n// un vertice cade ESATTAMENTE su seam, e la ripartizione risulta asimmetrica:\n//   ramo 1 -> vertici v < seam        : arriva a seam - passo, NON si chiude\n//   ramo 2 -> vertici v >= seam       : vv da 0 a seam, si chiude\n// Al ramo 1 manca un passo (1.8 gradi): il quad che dovrebbe richiuderlo\n// salta invece sull'altro toro, e questa e' la lamina larga fino a 8.1x il\n// raggio del tubo che appare come due alette triangolari attaccate al SOLO\n// tubo aperto (max a u = 270 gradi, secondo lobo a u = 90).\n// Fix: riscalare ogni ramo perche' copra 2*PI pieno con i vertici che ha.\nfloat passo = 12.56636 / 400.0;\nfloat f1 = 6.28318531 / (6.28318 - passo);   // ramo 1: recupera il passo mancante\nfloat f2 = 6.28318531 / 6.28318;             // ramo 2: gia' quasi esatto\nfloat vv = (v - 6.28318 * sel) * mix(f1, f2, sel);\n\n// Toro 1: cos R sul piano (x,y), sin R sul piano (z,w)\n// Toro 2: cos R sul piano (x,z), sin R sul piano (y,w)\nfloat a1 = cR * cos(u);\nfloat b1 = cR * sin(u);\nfloat c1 = sR * cos(vv);\nfloat d1 = sR * sin(vv);\n\n// NB: il validatore in inputvalidator.cpp pretende la forma letterale\n// del return con vec3 o vec4 aperto subito dopo: assegnare a una\n// variabile e restituirla viene RIFIUTATO. Inoltre conta le parentesi\n// su tutto il testo, COMMENTI INCLUSI: non scriverne di spaiate qui.\nreturn vec4(\n    a1,\n    mix(b1, c1, sel),\n    mix(c1, b1, sel),\n    d1\n);\n\n//CUTOUT_BEGIN\n// Taglio delle COMPENETRAZIONI: da ogni toro si rimuove la parte che sta\n// dentro il volume dell'altro. E' l'unione booleana dei due solidi.\n//\n// CRITERIO ESATTO, senza ricerca numerica: un punto sta DENTRO il toro di\n// raggio R attorno a un meridiano se la sua distanza angolare da quel\n// meridiano e' < R. Per il meridiano (x,z) vale acos(sqrt(x^2 + z^2)):\n//\n//     dentro il toro 2   <=>   sqrt(x^2 + z^2) > cos R\n//     dentro il toro 1   <=>   sqrt(x^2 + y^2) > cos R\n//\n// Niente scan ne' Newton come in Tube/Trefoil/Clover: gli assi sono grandi\n// cerchi e la distanza si scrive in forma chiusa. Verificato per ray casting\n// che la superficie risultante e' CHIUSA (criterio esatto: cambio di stato\n// dentro/fuori lungo la geodetica, non soglia sulla distanza).\nfloat Rc = 0.2094395;\nfloat cRc = cos(Rc);\nfloat sRc = sin(Rc);\n\nfloat selc = step(6.28318, v);\nfloat passoc = 12.56636 / 400.0;\nfloat fc1 = 6.28318531 / (6.28318 - passoc);\nfloat fc2 = 6.28318531 / 6.28318;\nfloat vvc = (v - 6.28318 * selc) * mix(fc1, fc2, selc);\n\n// ricostruisce il punto di QUESTO frammento, come nel corpo\nfloat aa = cRc * cos(u);\nfloat bb = cRc * sin(u);\nfloat cc = sRc * cos(vvc);\nfloat dd = sRc * sin(vvc);\n\nfloat px = aa;\nfloat py = mix(bb, cc, selc);\nfloat pz = mix(cc, bb, selc);\n\n// ogni ramo si testa contro l'ALTRO toro:\n// il ramo 1 contro il toro 2 (asse x,z), il ramo 2 contro il toro 1 (asse x,y)\nfloat radial = mix(sqrt(px * px + pz * pz), sqrt(px * px + py * py), selc);\n\nbool didCut = (radial > cRc);\n\n// --- QUAD DI GIUNZIONE fra i due tori ---\n// Con una sola griglia i due tori restano cuciti da una fila di quad che\n// unisce l'ultimo cerchio del ramo 1 al primo del ramo 2: superficie rigata\n// fra cerchi su piani diversi, ineliminabile nel vertex (collassarla la\n// sposta, la sdoppia o la trasforma in coni alti 4.7x il tubo).\n// Dopo il riscalamento sopra pero' i due vertici che la delimitano sono\n// RIDONDANTI -- valgono vv = 2*PI (ramo 1) e vv = 0 (ramo 2), cioe' cerchi\n// gia' presenti agli estremi opposti -- quindi scartarli non apre nulla:\n// i tubi restano chiusi. Prima del fix uno dei due era invece parete\n// portante, ed e' per questo che ogni guardia o bucava la superficie\n// (banda >= 1 cella: anello aperto sullo sfondo) o lasciava la lamina\n// (banda < mezza cella: striscia larga 0.22x il raggio).\n// Il quad occupa v in [seam - passo, seam], quindi la banda va centrata\n// su seam - passo/2, NON su seam.\n// I DUE VERTICI a cavallo (v = seam - passo, ramo 1 con vv = 2*PI; e\n// v = seam, ramo 2 con vv = 0) sono i cerchi che CHIUDONO i due tubi:\n// vanno PRESERVATI. La banda deve scartare solo cio' che sta\n// STRETTAMENTE FRA loro, altrimenti ogni tubo resta aperto di 1.8 gradi\n// e da dentro si vede lo sfondo attraverso una fenditura anulare\n// (era il caso con guard = 0.55*passo: scartava entrambi i vertici).\n// 0.49*passo copre il 98% del quad spurio lasciando i vertici fuori\n// banda con margine sicuro anche in float32; il residuo di lamina vale\n// 0.081x il raggio del tubo, invisibile.\nfloat centro = 6.28318 - passoc * 0.5;\nfloat guard = passoc * 0.49;\nif (abs(v - centro) < guard) { didCut = true; }\n\nreturn didCut;\n//CUTOUT_END",
+    "speeds": {
+        "nutation": 0.20000000298023224,
+        "omega": 0,
+        "path3D": 1,
+        "path4D": 11,
+        "phi": 0,
+        "precession": 0.20000000298023224,
+        "psi": 0,
+        "spin": 0.20000000298023224
+    },
+    "steps": 400,
+    "texture": {
+        "code": "//IMG:/Users/dioscorid/Projects/C/presets/textures/Images/8.png\n// =========================================================================\n// Title: Squished Coordinates\n// Author: pyBlob\n// Link: https://www.shadertoy.com/view/W3KcWd\n// \n// License: Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported\n//          (CC BY-NC-SA 3.0) - https://creativecommons.org/licenses/by-nc-sa/3.0/\n//\n// Note: Adapted and modified for the \"Surfaces Explorer\" engine.\n// =========================================================================\n\nvoid mainImage(out vec4 Q, vec2 U)\n{\n    float f = iResolution.y / 1.;\n    vec2 O = floor(iResolution.xy / 2.);\n    vec2 V = (U - O - .5) / f;\n    vec4 M = (abs(iMouse) - O.xyxy) / f;\n    float a = iTime / 5.;\n    float e = .5;\n    if (length(iMouse.zw) > 10.)\n    {\n        a = atan(M.y, M.x);\n        e = length(M.xy);\n    }\n    mat2 R = mat2(cos(a), sin(a), -sin(a), cos(a));\n    mat2 S = mat2(exp(-e), 0, 0, exp(e));\n    //V = R * S * transpose(R) * V;\n    float c2 = cos(a) * cos(a);\n    float s2 = sin(a) * sin(a);\n    V = mat2(c2*exp(-e) + s2*exp(e), -sin(2.*a)*sinh(e), -sin(2.*a)*sinh(e), c2*exp(e) + s2*exp(-e)) * V;\n    Q = vec4(1);\n    Q = mix(texture(iChannel0, V - .5, -abs(e)), Q, .6);\n    Q = mix(vec4(1, 0, 0, 1), Q, clamp(abs(V.x) * f * .7, 0., 1.));\n    Q = mix(vec4(1, 0, 0, 1), Q, clamp(abs(V.y) * f * .7, 0., 1.));\n    Q = mix(vec4(1, .5, 0, 1), Q, clamp(length(length(V) - .3) * f - 1., 0., 1.));\n}",
+        "col1": "#1c3664",
+        "col2": "#e28d57",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 180,
+        "zoom": 1.0000003576278687
+    },
+    "type": "motion",
+    "use4DLighting": true,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
+}
