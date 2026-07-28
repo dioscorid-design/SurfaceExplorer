@@ -81,21 +81,48 @@ vec4 rotateZW(vec4 p, float t) {
     return vec4(p.x, p.y, p.z*c + p.w*s, -p.z*s + p.w*c);
 }
 
+// --- STEREOGRAFICA SU IPERSFERA (S^3) ---
+// Unica implementazione: la usano sia project4D() (normali e derivate) sia il
+// calcolo della posizione finale in main(). Erano due copie identiche della
+// stessa formula, e una divergenza fra loro sfalserebbe le normali rispetto
+// alla geometria.
+//
+// Il raggio proiettato e' sqrt((1+w)/(1-w)) e deve CRESCERE all'infinito verso
+// l'antipode della camera. Il clamp storico agiva sul denominatore
+// (denom < 0.05 -> 0.05), quindi oltre w = 0.95 (18.2 gradi dall'antipode) il
+// raggio DECRESCEVA fino a 0: la calotta antipodale veniva ripiegata verso la
+// camera con le facce invertite, e il punto di fuga dei tunnel restava
+// scoperto (buco tondo sullo sfondo volando dentro una superficie che
+// circonda l'antipode). Qui il clamp e' MONOTONO e agisce sul risultato:
+// sotto w = 0.95 la formula e' algebricamente identica a quella storica,
+// quindi nessuna figura cambia aspetto; cambia solo cio' che prima era
+// ripiegato.
+//
+// Il tetto 12 non e' arbitrario: il far plane vale 25 * distanza della camera
+// (glwidget.cpp), e fra i preset in stereografica la camera piu' vicina e'
+// quella di Clifford Torus a 0.5, cioe' far plane 12.5. Con 12 nessun preset
+// della libreria puo' vedere la calotta antipodale sparire oltre il far plane,
+// che sarebbe l'unica regressione possibile rispetto al vecchio clamp (il
+// quale, ripiegando, teneva tutto entro 6.24 e quindi non tagliava mai).
+vec3 stereoS3(vec4 p) {
+    float r = length(p);
+    if (r < 0.0001) return vec3(0.0);
+
+    vec4 pNorm = p / r;
+    float sxy = length(pNorm.xyz);
+    float rad = min(sqrt((1.0 + pNorm.w) / max(1.0 - pNorm.w, 1.0e-6)), 12.0);
+    vec3 dir = (sxy > 1.0e-6) ? pNorm.xyz / sxy : vec3(0.0, 0.0, 1.0);
+
+    return dir * (r * rad);
+}
+
 // --- PROIEZIONE 4D -> 3D CON OSSERVATORE ---
 vec3 project4D(vec4 p) {
     if (ubuf.u_projMode == 0) {
         return p.xyz;
     }
     else if (ubuf.u_projMode == 2) {
-        // --- STEREOGRAFICA SU IPERSFERA (S^3) ---
-        float r = length(p);
-        if (r < 0.0001) return vec3(0.0);
-
-        vec4 pNorm = p / r;
-        float denom = 1.0 - pNorm.w;
-        if (denom < 0.05) denom = 0.05;
-
-        return pNorm.xyz * (r / denom);
+        return stereoS3(p);
     }
 
     vec4 obs = ubuf.u_observerPos;
@@ -359,15 +386,7 @@ void main() {
         finalPos3D = pRot.xyz;
     } else if (ubuf.u_projMode == 2) {
         // --- STEREOGRAFICA SU IPERSFERA (S^3) ---
-        float r = length(pRot);
-        if (r < 0.0001) {
-            finalPos3D = vec3(0.0);
-        } else {
-            vec4 pNorm = pRot / r;
-            float denom = 1.0 - pNorm.w;
-            if (denom < 0.05) denom = 0.05;
-            finalPos3D = pNorm.xyz * (r / denom);
-        }
+        finalPos3D = stereoS3(pRot);
     } else {
         // --- PROSPETTIVA CENTRALE ---
         float denom = obs.w - pRot.w;
