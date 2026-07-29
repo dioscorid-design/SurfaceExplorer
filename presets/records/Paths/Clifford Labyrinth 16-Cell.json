@@ -1,0 +1,134 @@
+{
+    "activeMotion": "path4D",
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "background": {
+        "code": "//IMG:/home/dioscorid/Projects/presets/textures/Images/8.png",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#ff0000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 1,
+        "rot_x": 0,
+        "rot_y": 0,
+        "rot_z": 0,
+        "x": -0.9480712413787842,
+        "y": -0.1172819435596466,
+        "yaw": 0,
+        "z": -0.35694441199302673
+    },
+    "cameraFov": 103,
+    "colors": {
+        "alpha": 1,
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 5,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "fov3D": 45,
+    "fov4D": 103,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 0,
+        "uMin": 0,
+        "vMax": 0,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "name": "Clifford Labyrinth 16-Cell",
+    "observer4D": 5.000002384185791,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "sin(t)*(((1+cos(2*t/3-5.235987756))/2)^4)/(sqrt((((1+cos(2*t/3-1.047197551))/2)^4)^2+(((1+cos(2*t/3-3.141592654))/2)^4)^2+(((1+cos(2*t/3-5.235987756))/2)^4)^2))",
+        "x": "cos(t)",
+        "y": "sin(t)*(((1+cos(2*t/3-1.047197551))/2)^4)/(sqrt((((1+cos(2*t/3-1.047197551))/2)^4)^2+(((1+cos(2*t/3-3.141592654))/2)^4)^2+(((1+cos(2*t/3-5.235987756))/2)^4)^2))",
+        "z": "sin(t)*(((1+cos(2*t/3-3.141592654))/2)^4)/(sqrt((((1+cos(2*t/3-1.047197551))/2)^4)^2+(((1+cos(2*t/3-3.141592654))/2)^4)^2+(((1+cos(2*t/3-5.235987756))/2)^4)^2))"
+    },
+    "pathMode": 0,
+    "pathMode3D": 0,
+    "projectionMode": 2,
+    "renderMode": 1,
+    "scriptCode": "// --- CONFIGURAZIONE ---\nu_min := 0;\nu_max := 6.28318531;\nv_min := 0;\nv_max := 37.69911184;   // 12*PI: sei rami da 2*PI ciascuno\nsteps := 600;           // 100 vertici per ramo\n\n// --- I 6 TORI DI CLIFFORD IN S^3: LO SCHELETRO DEL 16-CELL ---\n// Versione a sei tubi del labirinto a tre. NB: non dichiarare variabili\n// chiamate PI, pi, tau: il traduttore le sostituisce col valore numerico\n// in tutto lo script.\n//\n// A un raggio r < PI/4 (qui sullo slider A) le superfici x_i^2 + x_j^2 = cos^2 r sono SEI e non\n// tre: una per ciascuna coppia di indici. Sono i tubi attorno ai sei grandi\n// cerchi coordinati\n//     C12  C13  C14  C23  C24  C34\n// che si incontrano a tre a tre negli otto punti +-e1, +-e2, +-e3, +-e4:\n// e1 sta su C12, C13, C14, e cosi' via. Quegli otto punti sono i vertici e i\n// ventiquattro archi sono gli spigoli del 16-cell, il politopo a 4 dimensioni\n// duale dell'ipercubo: questa figura ne e' lo scheletro ispessito.\n// Due assi complementari (C12 e C34) non si toccano mai: distano 90 gradi\n// ovunque, quindi i loro tubi non si compenetrano.\n// --- APERTURA SULLO SLIDER F ---\n// F e' il raggio angolare dei tubi in passi di 4.5 gradi, cioe' PI/40, cosi'\n// il fondo scala dello slider coincide col limite della costruzione:\n//     F =  2.67 -> 12 gradi (il valore storico)\n//     F =  5    -> PI/8 = 22.5 gradi\n//     F = 10    -> PI/4 = 45 gradi, dove ogni tubo diventa meta' ipersfera e\n//                  ogni superficie coincide con quella dell'asse complementare.\n// Una tacca dello slider vale 0.045 gradi.\n// Sotto il raggio a cui il path si scosta dall'asse negli snodi (6.3 gradi\n// sui percorsi a tre e sei tubi, 2.5 sul doppio tubo) la camera esce dai tubi\n// in curva.\n// Sta su F e non su A o B perche' quelle due pilotano gia' lo sfondo CRT\n// (densita' delle scanline e sfarfallio): legarci il raggio farebbe cambiare\n// lo sfondo mentre si trascina lo slider. Il raggio entra solo nella posizione\n// dei vertici e nella soglia di taglio, mai nella macchina delle cuciture,\n// quindi si muove dal vivo senza rigenerare la mesh.\nfloat R = clamp(F, 0.05, 10.0) * 0.078539816;\nfloat cR = cos(R);\nfloat sR = sin(R);\n\nfloat s1 = step(6.28318531, v);\nfloat s2 = step(12.56637061, v);\nfloat s3 = step(18.84955592, v);\nfloat s4 = step(25.13274123, v);\nfloat s5 = step(31.41592654, v);\nfloat kk = s1 + s2 + s3 + s4 + s5;   // indice di ramo, da 0 a 5\n\n// --- CHIUSURA DEI TUBI ---\n// generateParametricGrid campiona j = 0..steps INCLUSI: le cinque cuciture\n// cadono esattamente sui vertici j = 100, 200, 300, 400, 500 (verificato in\n// float32), che step assegna al ramo successivo. I primi cinque rami\n// arrivano quindi solo a 2*PI - passo e NON si chiudono, l'ultimo tiene il\n// vertice finale e si chiude da solo: si riscala ogni ramo aperto perche'\n// copra 2*PI pieno con i vertici che ha.\nfloat passo = 37.69911184 / 600.0;\nfloat f01 = 6.28318531 / (6.28318531 - passo);\nfloat ff = mix(f01, 1.0, s5);\nfloat vv = (v - 6.28318531 * kk) * ff;\n\n// Ogni ramo mette cos R sul piano del proprio asse e sin R sui due indici\n// restanti: (a,b) girano lungo l'asse, (c,d) attorno al tubo.\nfloat a = cR * cos(u);\nfloat b = cR * sin(u);\nfloat c = sR * cos(vv);\nfloat d = sR * sin(vv);\n\n// Indicatori di ramo: kk e' un intero esatto (somma di step), quindi\n// max(0, 1 - |kk - n|) vale 1 sul ramo n e 0 su tutti gli altri. Con sei\n// rami questa forma resta leggibile dove sei mix() annidati non lo sarebbero.\nfloat I0 = max(0.0, 1.0 - abs(kk));         // C12\nfloat I1 = max(0.0, 1.0 - abs(kk - 1.0));   // C13\nfloat I2 = max(0.0, 1.0 - abs(kk - 2.0));   // C14\nfloat I3 = max(0.0, 1.0 - abs(kk - 3.0));   // C23\nfloat I4 = max(0.0, 1.0 - abs(kk - 4.0));   // C24\nfloat I5 = max(0.0, 1.0 - abs(kk - 5.0));   // C34\n\n// NB: il validatore in inputvalidator.cpp pretende la forma letterale del\n// return con vec3 o vec4 aperto subito dopo, e conta le parentesi su tutto\n// il testo, COMMENTI INCLUSI: non scriverne di spaiate qui.\nreturn vec4(\n    a * (I0 + I1 + I2) + c * (I3 + I4 + I5),\n    b * I0 + c * (I1 + I2) + a * (I3 + I4) + d * I5,\n    c * I0 + b * (I1 + I3) + d * (I2 + I4) + a * I5,\n    d * (I0 + I1 + I3) + b * (I2 + I4 + I5)\n);\n\n//CUTOUT_BEGIN\n// --- TAGLIO DELLE SOLE OSTRUZIONI INTERNE ---\n// Da ogni tubo si rimuove la parte che sta dentro gli altri cinque: quel che\n// resta e' il bordo dell'unione dei sei solidi, cioe' una superficie CHIUSA.\n// Ogni tubo viene reciso attorno ai quattro vertici che tocca (il tubo su Cij\n// passa per +-ei e +-ej), e li' si aprono i passaggi verso gli altri tubi.\n// Criterio esatto: un punto sta dentro il tubo attorno a Cij se la sua\n// distanza angolare da quel cerchio e' < R, cioe' se x_i^2 + x_j^2 > cos^2 R.\n// Sul proprio ramo la quantita' propria vale cos^2 R identicamente, quindi la\n// si azzera con (1 - indicatore) e si prende il massimo delle altre cinque.\n// stesso raggio del corpo, dallo stesso slider: se le due copie divergessero\n// il taglio non cadrebbe piu' sulla superficie che sta ritagliando\nfloat Rc = clamp(F, 0.05, 10.0) * 0.078539816;\nfloat cRc = cos(Rc);\nfloat sRc = sin(Rc);\nfloat lim = cRc * cRc;\n\nfloat t1 = step(6.28318531, v);\nfloat t2 = step(12.56637061, v);\nfloat t3 = step(18.84955592, v);\nfloat t4 = step(25.13274123, v);\nfloat t5 = step(31.41592654, v);\nfloat tk = t1 + t2 + t3 + t4 + t5;\n\nfloat passoc = 37.69911184 / 600.0;\nfloat fc01 = 6.28318531 / (6.28318531 - passoc);\nfloat fcc = mix(fc01, 1.0, t5);\nfloat vvc = (v - 6.28318531 * tk) * fcc;\n\nfloat aa = cRc * cos(u);\nfloat bb = cRc * sin(u);\nfloat cc = sRc * cos(vvc);\nfloat dd = sRc * sin(vvc);\n\nfloat J0 = max(0.0, 1.0 - abs(tk));\nfloat J1 = max(0.0, 1.0 - abs(tk - 1.0));\nfloat J2 = max(0.0, 1.0 - abs(tk - 2.0));\nfloat J3 = max(0.0, 1.0 - abs(tk - 3.0));\nfloat J4 = max(0.0, 1.0 - abs(tk - 4.0));\nfloat J5 = max(0.0, 1.0 - abs(tk - 5.0));\n\n// ricostruisce il punto di QUESTO frammento, come nel corpo\nfloat px = aa * (J0 + J1 + J2) + cc * (J3 + J4 + J5);\nfloat py = bb * J0 + cc * (J1 + J2) + aa * (J3 + J4) + dd * J5;\nfloat pz = cc * J0 + bb * (J1 + J3) + dd * (J2 + J4) + aa * J5;\nfloat pw = dd * (J0 + J1 + J3) + bb * (J2 + J4 + J5);\n\nfloat q12 = px * px + py * py;\nfloat q13 = px * px + pz * pz;\nfloat q14 = px * px + pw * pw;\nfloat q23 = py * py + pz * pz;\nfloat q24 = py * py + pw * pw;\nfloat q34 = pz * pz + pw * pw;\n\nfloat m1 = max(q12 * (1.0 - J0), q13 * (1.0 - J1));\nfloat m2 = max(q14 * (1.0 - J2), q23 * (1.0 - J3));\nfloat m3 = max(q24 * (1.0 - J4), q34 * (1.0 - J5));\nfloat altro = max(max(m1, m2), m3);\n\n// Il margine 0.0001 tiene i punti che stanno ESATTAMENTE sulle curve di\n// intersezione, dove la quantita' vale cos^2 R spaccato: sono i bordi lungo\n// cui i pezzi si saldano fra loro, e in float32 vanno tenuti.\nbool didCut = (altro > lim + 0.0001);\n\n// --- QUAD DI GIUNZIONE: cinque cuciture, a 2*PI, 4*PI, 6*PI, 8*PI, 10*PI ---\n// Ogni coppia di rami consecutivi resta cucita da una fila di quad che unisce\n// l'ultimo cerchio di un ramo al primo del successivo. Dopo il riscalamento i\n// due vertici che la delimitano sono ridondanti (cerchi gia' presenti agli\n// estremi opposti), quindi scartare cio' che sta STRETTAMENTE fra loro non\n// apre nulla. La banda va centrata su seam - passo/2, non su seam, e larga\n// 0.49*passo: oltre mezza cella si scarterebbero anche i cerchi che CHIUDONO\n// i tubi, e da dentro si vedrebbe lo sfondo per una fenditura anulare.\nfloat guard = passoc * 0.49;\nif (abs(v - (6.28318531 - passoc * 0.5)) < guard) { didCut = true; }\nif (abs(v - (12.56637061 - passoc * 0.5)) < guard) { didCut = true; }\nif (abs(v - (18.84955592 - passoc * 0.5)) < guard) { didCut = true; }\nif (abs(v - (25.13274123 - passoc * 0.5)) < guard) { didCut = true; }\nif (abs(v - (31.41592654 - passoc * 0.5)) < guard) { didCut = true; }\n\nreturn didCut;\n//CUTOUT_END",
+    "speeds": {
+        "nutation": 0.20000000298023224,
+        "omega": 0,
+        "path3D": 1,
+        "path4D": 11,
+        "phi": 0,
+        "precession": 0.20000000298023224,
+        "psi": 0,
+        "spin": 0.20000000298023224
+    },
+    "steps": 600,
+    "texture": {
+        "code": "//IMG:/home/dioscorid/Projects/presets/textures/Images/8.png\n// --- TEXTURE SCRIPT: OLOGRAFIA REATTIVA ---\n// Usa questo script nel dock Texture per un oggetto implicito\n\n// 1. Usiamo lo slider 'A' per controllare la densità della griglia (es. range 0-5)\nfloat gridDensity = 10.0 + (A * 15.0); \n\n// 2. Creiamo una griglia basata sulle coordinate UV della superficie\n// fract() crea il pattern ripetuto, sottraiamo 0.5 per centrare la cella\nvec2 grid = fract(uv * gridDensity) - 0.5; \n\n// 3. Calcoliamo la distanza dai bordi per disegnare le linee\nfloat lineDist = min(abs(grid.x), abs(grid.y));\n\n// 4. Animiamo lo spessore della linea con il tempo 't'\n// Lo slider 'B' può controllare la velocità della pulsazione\nfloat pulse = sin(t * (2.0 + B * 5.0));\nfloat thickness = 0.05 + 0.03;\n\n// 5. Creiamo un effetto \"Glow\" (bagliore) morbido ai bordi della linea\nfloat glow = smoothstep(thickness + 0.05, thickness, lineDist);\n\n// 6. Assegnazione dei colori usando le variabili iniettate dal tuo engine\n// Il fondo usa il colore secondario (u_col2), le linee il primario (u_col1) \"sparato\"\nvec3 baseColor = u_col2;                  // Spazio vuoto della griglia (Colore 2)\nvec3 neonColor = u_col1 * 1.5;           // Il colore UI, reso più luminoso\n\n// 7. Mixiamo i colori in base al calcolo del glow\nvec3 finalColor = mix(baseColor, neonColor, glow);\n\nreturn finalColor;",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 0.4323276877403259
+    },
+    "type": "motion",
+    "use4DLighting": true,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
+}
