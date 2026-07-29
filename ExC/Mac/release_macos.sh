@@ -49,10 +49,14 @@ for a in "$@"; do
 done
 
 # --- VERSIONE / TAG (letti da CMakeLists.txt, come nello script Linux) ---
-VERSION="$(grep -oE 'MACOSX_BUNDLE_SHORT_VERSION_STRING[[:space:]]+"[0-9.]+"' "$PROJECT_DIR/CMakeLists.txt" \
-           | grep -oE '[0-9]+\.[0-9]+' | head -1)"
-[ -n "$VERSION" ] || VERSION="$(grep -oE 'VERSION[[:space:]]+"[0-9.]+"' "$PROJECT_DIR/CMakeLists.txt" | grep -oE '[0-9.]+' | head -1)"
-[ -n "$VERSION" ] || { echo "ERRORE: versione non trovata in CMakeLists.txt"; exit 1; }
+# Unica fonte: project(SurfaceExplorer VERSION X.Y ...). I campi del bundle la
+# derivano da ${PROJECT_VERSION} e NON contengono piu' un numero, quindi qui non
+# si possono leggere. Il vecchio fallback generico su 'VERSION "[0-9.]+"' era
+# peggio che inutile: pescava MACOSX_BUNDLE_BUNDLE_VERSION "15", cioe' il BUILD
+# NUMBER, e produceva il tag v15 al posto di v1.2.
+VERSION="$(sed -nE 's/^project\(SurfaceExplorer[[:space:]]+VERSION[[:space:]]+([0-9]+\.[0-9]+).*/\1/p' \
+           "$PROJECT_DIR/CMakeLists.txt" | head -1)"
+[ -n "$VERSION" ] || { echo "ERRORE: versione non trovata in project(...) di CMakeLists.txt"; exit 1; }
 TAG="v$VERSION"
 ASSET_NAME="SurfaceExplorer-${TAG}-macos.dmg"               # nome versionato dell'asset su GitHub
 

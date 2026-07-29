@@ -43,10 +43,10 @@ $AppName    = "SurfaceExplorer"
 #  poi VERSION). Evita di generare uno zip con una versione sbagliata hardcoded.
 if (-not $Version) {
     $cmake = Join-Path $ProjectDir "CMakeLists.txt"
-    $m = Select-String -Path $cmake -Pattern 'MACOSX_BUNDLE_SHORT_VERSION_STRING\s+"([0-9.]+)"' | Select-Object -First 1
-    if (-not $m) {
-        $m = Select-String -Path $cmake -Pattern 'VERSION\s+"([0-9.]+)"' | Select-Object -First 1
-    }
+    # Unica fonte: project(SurfaceExplorer VERSION X.Y ...). I campi del bundle
+    # la derivano da ${PROJECT_VERSION}; il vecchio fallback su VERSION "..."
+    # pescava il BUILD NUMBER (v15 invece di v1.2).
+    $m = Select-String -Path $cmake -Pattern 'project\(SurfaceExplorer\s+VERSION\s+([0-9]+\.[0-9]+)' | Select-Object -First 1
     if ($m) { $Version = $m.Matches[0].Groups[1].Value }
     if (-not $Version) {
         Write-Error "Versione non trovata in CMakeLists.txt: passala con -Version X.Y"

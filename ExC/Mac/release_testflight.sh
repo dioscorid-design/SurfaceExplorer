@@ -86,7 +86,8 @@ fi
 CUR_BUILD="$(sed -nE 's/.*MACOSX_BUNDLE_BUNDLE_VERSION[[:space:]]+"([0-9]+)".*/\1/p' "$CMAKE" | head -1)"
 [ -n "$CUR_BUILD" ] || err "Build number non trovato in CMakeLists.txt (MACOSX_BUNDLE_BUNDLE_VERSION)."
 NEW_BUILD=$(( CUR_BUILD + 1 ))
-MARKETING="$(sed -nE 's/.*XCODE_ATTRIBUTE_MARKETING_VERSION[[:space:]]+"([0-9.]+)".*/\1/p' "$CMAKE" | head -1)"
+# Da project(...): MARKETING_VERSION ora vale "${PROJECT_VERSION}", non un numero.
+MARKETING="$(sed -nE 's/^project\(SurfaceExplorer[[:space:]]+VERSION[[:space:]]+([0-9]+\.[0-9]+).*/\1/p' "$CMAKE" | head -1)"
 MARKETING="${MARKETING:-?}"
 
 info "Versione marketing: $MARKETING  |  Build number: $CUR_BUILD -> $NEW_BUILD"

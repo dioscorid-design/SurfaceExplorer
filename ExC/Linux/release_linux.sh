@@ -54,10 +54,12 @@ for a in "$@"; do
 done
 
 # ============================ VERSIONE =====================================
-VERSION="$(grep -oE 'MACOSX_BUNDLE_SHORT_VERSION_STRING[[:space:]]+"[0-9.]+"' "$PROJECT_DIR/CMakeLists.txt" \
-           | grep -oE '[0-9]+\.[0-9]+' | head -1)"
-[ -n "$VERSION" ] || VERSION="$(grep -oE 'VERSION[[:space:]]+"[0-9.]+"' "$PROJECT_DIR/CMakeLists.txt" | grep -oE '[0-9.]+' | head -1)"
-[ -n "$VERSION" ] || err "Versione non trovata in CMakeLists.txt"
+# Unica fonte: project(SurfaceExplorer VERSION X.Y ...). I campi del bundle la
+# derivano da ${PROJECT_VERSION} e non contengono piu' un numero. Il vecchio
+# fallback su 'VERSION "[0-9.]+"' pescava il BUILD NUMBER (v15 invece di v1.2).
+VERSION="$(sed -nE 's/^project\(SurfaceExplorer[[:space:]]+VERSION[[:space:]]+([0-9]+\.[0-9]+).*/\1/p' \
+           "$PROJECT_DIR/CMakeLists.txt" | head -1)"
+[ -n "$VERSION" ] || err "Versione non trovata in project(...) di CMakeLists.txt"
 TAG="v$VERSION"
 OUTPUT="SurfaceExplorer-${TAG}-linux-x86_64.AppImage"
 msg "Versione: $VERSION   Tag: $TAG   Output: $OUTPUT"
