@@ -5,8 +5,12 @@
 # nato dal doverli modificare a mano uno per uno.
 #
 # Aggiorna:
-#   CMakeLists.txt : VERSION / MACOSX_BUNDLE_SHORT_VERSION_STRING / XCODE_..._MARKETING_VERSION
+#   CMakeLists.txt : project(SurfaceExplorer VERSION X.Y ...)  <- unico punto
 #   Info.plist     : CFBundleShortVersionString
+#
+# I campi del bundle (MACOSX_BUNDLE_SHORT_VERSION_STRING, XCODE_..._MARKETING_VERSION)
+# e la define APP_VERSION letta dal dialogo About derivano da ${PROJECT_VERSION}:
+# non contengono il numero e non vanno aggiornati.
 #
 # NON tocca il BUILD NUMBER (MACOSX_BUNDLE_BUNDLE_VERSION / CFBundleVersion): quello
 # si incrementa a parte, a ogni upload verso Apple (vedi RELEASE_GUIDE.md).
@@ -36,17 +40,18 @@ printf '%s' "$NEW" | grep -qE '^[0-9]+\.[0-9]+$' || err "Versione '$NEW' non val
 [ -f "$PLIST" ] || err "Info.plist non trovato in $PROJECT_DIR"
 
 # --- versione attuale (per il riepilogo) ---
-OLD="$(sed -nE 's/.*MACOSX_BUNDLE_SHORT_VERSION_STRING[[:space:]]+"([0-9.]+)".*/\1/p' "$CMAKE" | head -1)"
+OLD="$(sed -nE 's/^project\(SurfaceExplorer[[:space:]]+VERSION[[:space:]]+([0-9.]+).*/\1/p' "$CMAKE" | head -1)"
 OLD="${OLD:-?}"
 
 # --- 1. CMakeLists.txt (3 campi) ---------------------------------------------
 # NB: il primo pattern ancora 'VERSION' a inizio riga (dopo soli spazi) per NON
 # toccare cmake_minimum_required(VERSION ...) ne' i *_BUNDLE_VERSION (build number).
+# Dalla 1.2 il numero sta in UN SOLO punto: project(SurfaceExplorer VERSION X.Y ...).
+# I campi del bundle e la define APP_VERSION lo derivano da ${PROJECT_VERSION},
+# quindi qui non vanno piu' toccati (se li si tocca si rompe la derivazione).
 tmp="$(mktemp)"
 sed -E \
-  -e "s/^([[:space:]]*VERSION[[:space:]]+\")[0-9][0-9.]*(\")/\1${NEW}\2/" \
-  -e "s/(MACOSX_BUNDLE_SHORT_VERSION_STRING[[:space:]]+\")[0-9][0-9.]*(\")/\1${NEW}\2/" \
-  -e "s/(XCODE_ATTRIBUTE_MARKETING_VERSION[[:space:]]+\")[0-9][0-9.]*(\")/\1${NEW}\2/" \
+  -e "s/^(project\(SurfaceExplorer[[:space:]]+VERSION[[:space:]]+)[0-9][0-9.]*/\1${NEW}/" \
   "$CMAKE" > "$tmp" && mv "$tmp" "$CMAKE"
 
 # --- 2. Info.plist (valore sulla riga DOPO la chiave) ------------------------
@@ -59,18 +64,21 @@ awk -v v="$NEW" '
 
 # --- verifica che i 4 punti riportino ora la nuova versione ------------------
 check() { grep -qE "$1" "$2" || err "sostituzione fallita: $3 (pattern non trovato dopo l'edit)"; }
-check "^[[:space:]]*VERSION[[:space:]]+\"${NEW}\""                       "$CMAKE" "CMakeLists VERSION"
-check "MACOSX_BUNDLE_SHORT_VERSION_STRING[[:space:]]+\"${NEW}\""         "$CMAKE" "CMakeLists SHORT_VERSION_STRING"
-check "XCODE_ATTRIBUTE_MARKETING_VERSION[[:space:]]+\"${NEW}\""          "$CMAKE" "CMakeLists MARKETING_VERSION"
+check "^project\(SurfaceExplorer[[:space:]]+VERSION[[:space:]]+${NEW}[[:space:]]" "$CMAKE" "CMakeLists project(VERSION)"
+# La derivazione deve restare in piedi: se qualcuno rimette un numero letterale
+# in questi campi, il bump aggiornerebbe project() e loro resterebbero indietro.
+check 'MACOSX_BUNDLE_SHORT_VERSION_STRING[[:space:]]+"\$\{PROJECT_VERSION\}"' "$CMAKE" "SHORT_VERSION_STRING derivato da PROJECT_VERSION"
+check 'XCODE_ATTRIBUTE_MARKETING_VERSION[[:space:]]+"\$\{PROJECT_VERSION\}"'  "$CMAKE" "MARKETING_VERSION derivato da PROJECT_VERSION"
+check 'APP_VERSION="\$\{PROJECT_VERSION\}"'                                   "$CMAKE" "define APP_VERSION derivata da PROJECT_VERSION"
 grep -A1 'CFBundleShortVersionString' "$PLIST" | grep -qE "<string>${NEW}</string>" \
   || err "sostituzione fallita: Info.plist CFBundleShortVersionString"
 
 printf '\nVersione: %s -> %s   (aggiornati CMakeLists.txt + Info.plist)\n' "$OLD" "$NEW"
 
-# --- PROMEMORIA: la stringa mostrata dal dialogo About (mainwindow.cpp,
-# "Version X.Y" dentro QMessageBox::about) e' hardcoded e NON viene toccata da
-# questo script: va aggiornata a mano.
-printf '\nPROMEMORIA: aggiorna a mano "Version %s" nel dialogo About (mainwindow.cpp).\n' "$NEW"
+# --- Il dialogo About NON va piu' toccato: dalla 1.2 stampa APP_VERSION, che
+# arriva da project(... VERSION ...) nel CMakeLists via target_compile_definitions.
+# Se un giorno tornasse a mostrare un numero sbagliato, il colpevole e' un binario
+# stantio (ricompilare) oppure qualcuno che ha riscritto a mano quella stringa.
 
 # --- 3. commit (salvo --no-commit) -------------------------------------------
 if [ "$DO_COMMIT" -eq 1 ]; then

@@ -67,6 +67,14 @@
 #include <algorithm>
 #include <functional>
 
+// Versione marketing iniettata dal build (project(... VERSION ...) nel
+// CMakeLists -> target_compile_definitions). La guardia serve alle build che
+// non passano la define, es. il vecchio SurfaceExplorer.pro (qmake): senza,
+// il dialogo About non compilerebbe.
+#ifndef APP_VERSION
+#define APP_VERSION "dev"
+#endif
+
 #if defined(Q_OS_ANDROID)
 #include <QJniObject>
 #include <QCoreApplication>
@@ -1027,9 +1035,12 @@ MainWindow::MainWindow(QWidget *parent)
 
     ui->actionAbout->setMenuRole(QAction::AboutRole);
     connect(ui->actionAbout, &QAction::triggered, this, [this](){
+        // La versione arriva dal build (APP_VERSION, da project() nel
+        // CMakeLists): qui NON va mai scritta a mano, o resta indietro a ogni
+        // bump come e' successo fino alla 1.1.
         QMessageBox::about(this, "About Surface Explorer",
                            "<b>Surface Explorer</b><br>"
-                           "Version 1.1<br><br>"
+                           "Version " APP_VERSION "<br><br>"
                            "Developed by: <b>Gaetano Moschetti</b><br>"
                            "License: <b>GNU GPL v3</b><br><br>"
                            "This is free software: you are free to change and redistribute it "
