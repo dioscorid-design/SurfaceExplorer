@@ -909,6 +909,12 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     path3D["z"] = m_mainWindow->ui->lineZ_P3D->text();
     path3D["roll"] = m_mainWindow->ui->lineR_P3D->text();
     root["path3D"] = path3D;
+    // Suggerimento in sovrimpressione: non ha UI di editing, quindi si riscrive
+    // quello del record caricato (se assente la chiave non viene emessa).
+    if (!m_mainWindow->m_currentHintText.isEmpty()) {
+        root["hintText"] = m_mainWindow->m_currentHintText;
+        root["hintSeconds"] = (double)m_mainWindow->m_currentHintSeconds;
+    }
     // Vista corrente di ENTRAMBI i path: salvare solo m_pathViewMode4D (4D) faceva
     // ripartire i record 3D sempre in Tangent (la vista 3D vive in m_pathViewMode3D).
     root["pathMode"] = static_cast<int>(m_mainWindow->m_pathViewMode4D);
@@ -1006,11 +1012,16 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         codeToSave.remove(QRegularExpression(R"(^\s*//\s*(SOUND_BEGIN|SOUND_END).*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
         codeToSave = codeToSave.trimmed();
 
+        // Il tag //IMG: va SEMPRE ripulito prima: se l'immagine non e' piu' la
+        // texture attiva (l'utente ha caricato un procedurale sopra) un tag
+        // orfano finiva nel record e al reload la Library evidenziava la vecchia
+        // immagine invece dello script davvero in uso.
+        QRegularExpression imgRe(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption);
+        codeToSave.remove(imgRe);
+        codeToSave = codeToSave.trimmed();
+
         // Se c'è un'immagine, il tag //IMG: deve stare sempre alla riga 1!
         if (texEnabled && m_mainWindow->m_isImageMode && !m_mainWindow->m_currentTexturePath.isEmpty()) {
-            QRegularExpression imgRe(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption);
-            codeToSave.remove(imgRe);
-
             QString newCode = "//IMG:" + m_mainWindow->m_currentTexturePath + "\n";
             if (!audioCode.isEmpty()) newCode += audioCode + "\n\n";
             newCode += codeToSave;

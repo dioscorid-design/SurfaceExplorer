@@ -91,6 +91,11 @@ struct LibraryItem {
     QString path4D_x, path4D_y, path4D_z, path4D_w;
     QString path4D_alpha, path4D_beta, path4D_gamma;
 
+    // Messaggio in sovrimpressione mostrato al caricamento del record (chiavi
+    // JSON "hintText"/"hintSeconds"). Vuoto = nessun messaggio.
+    QString hintText;
+    float   hintSeconds = 6.0f;
+
     // ==========================================================
     // TEXTURES & BACKGROUNDS
     // ==========================================================

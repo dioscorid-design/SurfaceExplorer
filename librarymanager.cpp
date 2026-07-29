@@ -288,6 +288,11 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.path3D_z = p3["z"].toString();
             d.path3D_roll = p3["roll"].toString();
         }
+        // Messaggio opzionale in sovrimpressione (suggerimento d'uso del record).
+        if (root.contains("hintText")) {
+            d.hintText = root["hintText"].toString();
+            d.hintSeconds = (float)root["hintSeconds"].toDouble(6.0);
+        }
         if (root.contains("scriptCode")) {
             d.isScript = true;
             d.scriptCode = root["scriptCode"].toString();
@@ -472,6 +477,14 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
     else {
         // Controllo di sicurezza sul tipo
         if (jsonType == "custom_texture" || jsonType == "motion") { d.name = ""; return d; }
+
+        // Messaggio opzionale in sovrimpressione: stesse chiavi del ramo Motion.
+        // Serve anche qui, altrimenti le SUPERFICI (che passano da
+        // applySurfaceExample, non da applyMotionExample) non lo mostrerebbero.
+        if (root.contains("hintText")) {
+            d.hintText = root["hintText"].toString();
+            d.hintSeconds = (float)root["hintSeconds"].toDouble(6.0);
+        }
 
         // Caso 1: È uno SCRIPT
         if (root.contains("scriptCode")) {

@@ -226,6 +226,28 @@ private:
     QPushButton *m_btnProjection;
     QPushButton *m_btnRec;
     QLabel *m_statusLabel;
+    // Messaggio in sovrimpressione sulla scena (chiave "hintText" dei record).
+    // Figlia del glWidget, autonascosta a timer: NON entra nei video esportati,
+    // che vengono composti dal render offscreen.
+    QLabel *m_hintOverlay = nullptr;
+    QTimer *m_hintTimer = nullptr;
+    // Messaggio del record attualmente caricato: non c'e' UI per editarlo, va
+    // ricordato qui perche' un risalvataggio non lo perda.
+    QString m_currentHintText;
+    float   m_currentHintSeconds = 6.0f;
+
+    // Costanti DISCRETE dichiarate dallo script con "A := int(min,max);".
+    // Chiave = lettera maiuscola (A..F, S); assente = costante continua.
+    // Al rilascio dello slider / Enter nel campo il valore scatta all'intero
+    // piu' vicino dentro [min,max]. Vedi applyDiscreteConstants().
+    struct DiscreteRange { int lo; int hi; };
+    QHash<QString, DiscreteRange> m_discreteConsts;
+
+    // Minimi CONTINUI dichiarati con "F := min(0.3);": la costante resta
+    // frazionaria ma non scende sotto la soglia. Serve dove sotto un certo
+    // valore la figura degenera (i tubi di Clifford collassano sull'asse).
+    // Applicati insieme ai discreti, dagli stessi punti.
+    QHash<QString, float> m_minConsts;
     QProgressBar *m_renderProgress;
     QButtonGroup *m_colorGroup;
     QButtonGroup *m_modeGroup;
@@ -557,8 +579,23 @@ private:
     QString extractAndResolveImagePath(const QString& scriptCode);
     QString extractAudioDirectives(const QString& fullText);
     static QString cleanCodeForComparison(QString str);
+    // Decide se un item della libreria texture e' quello attivo. Unica sede del
+    // confronto: lo usano sia syncTextureTreeSelection sia la sincronizzazione
+    // al load di un record.
+    static bool textureItemMatchesCode(const LibraryItem &texItem, const QString &activeCode,
+                                       const QString &cleanedActiveCode);
 
     // --- UI State & Graphics ---
+    // Mostra un messaggio in sovrimpressione sulla scena per 'seconds' secondi
+    // (testo vuoto = nasconde subito).
+    void showSceneHint(const QString &text, float seconds);
+    void hideSceneHint();
+    void repositionSceneHint();
+    // Porta le costanti dichiarate discrete ("A := int(min,max);") all'intero
+    // piu' vicino nel loro range. Chiamata al RILASCIO dello slider e all'Enter
+    // nel campo, mai durante il trascinamento (renderebbe lo slider a scatti
+    // mentre lo si muove). Ritorna true se ha modificato qualcosa.
+    bool applyDiscreteConstants();
     void updateLayoutForMode(int mode);
     void setupSpeedControl(QPushButton* btnPlus, QPushButton* btnMinus, QLabel* label, std::function<void(float)> setter);
     void updateProjectionButtonText();

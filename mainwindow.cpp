@@ -7906,6 +7906,11 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
     });
 
     this->setProperty("isTextureModified", false);
+
+    // Suggerimento d'uso ("hintText"), come in applyMotionExample: le superfici
+    // passano da QUI e non da quella, quindi senza questa riga il messaggio
+    // comparirebbe solo sui record.
+    showSceneHint(d.hintText, d.hintSeconds);
 }
 
 void MainWindow::applyMotionExample(const LibraryItem &data)
@@ -8751,6 +8756,11 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
     });
 
     this->setProperty("isTextureModified", false);
+
+    // Suggerimento d'uso del record ("hintText"): mostrato in coda al load,
+    // quando la scena e' gia' quella nuova. Un record senza la chiave nasconde
+    // comunque il messaggio del record precedente.
+    showSceneHint(data.hintText, data.hintSeconds);
 }
 
 void MainWindow::deleteSelectedExample() {
@@ -10499,6 +10509,152 @@ QString MainWindow::cleanCodeForComparison(QString str) {
 }
 
  // --- UI State & Graphics ---
+
+void MainWindow::showSceneHint(const QString &text, float seconds)
+{
+    // Memorizzato anche se non c'e' scena da decorare: e' il messaggio del
+    // record corrente e va riscritto tale e quale a un eventuale risalvataggio.
+    m_currentHintText = text.trimmed();
+    m_currentHintSeconds = seconds;
+
+    if (!ui->glWidget) return;
+
+    if (m_currentHintText.isEmpty()) { hideSceneHint(); return; }
+
+    if (!m_hintOverlay) {
+        // Figlia del glWidget: sta SOPRA la scena senza toccare il render loop
+        // (e quindi senza finire nei frame esportati, composti offscreen).
+        m_hintOverlay = new QLabel(ui->glWidget);
+        m_hintOverlay->setObjectName("sceneHintOverlay");
+        m_hintOverlay->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        m_hintOverlay->setWordWrap(true);
+        // Testo SEMPLICE: un "\n" nel messaggio va a capo dove vogliamo noi,
+        // invece di lasciare la spezzatura alla larghezza della finestra (che
+        // tagliava "Slider / E" a meta'). Esplicito anche perche' l'auto-detect
+        // di Qt interpreterebbe come HTML un hintText che contenesse dei tag.
+        m_hintOverlay->setTextFormat(Qt::PlainText);
+        m_hintOverlay->setTextInteractionFlags(Qt::NoTextInteraction);
+        // Trasparente ai click: non deve rubare il mouse alla scena (rotazioni).
+        m_hintOverlay->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        m_hintOverlay->setStyleSheet(
+            "QLabel#sceneHintOverlay {"
+            "  color: #ffffff;"
+            "  background-color: rgba(0, 0, 0, 170);"
+            "  border: 1px solid rgba(255, 255, 255, 90);"
+            "  border-radius: 8px;"
+            "  padding: 10px 16px;"
+            "  font-size: 15px;"
+            "  font-weight: bold;"
+            "}");
+        // Riposiziona il messaggio quando la scena cambia dimensione. Filtro
+        // dedicato (non un eventFilter su MainWindow) per non intrecciarsi con
+        // i filtri gia' installati su tastiera/scroll mobile.
+        class HintResizeWatcher : public QObject {
+        public:
+            explicit HintResizeWatcher(MainWindow *w) : QObject(w), m_win(w) {}
+        protected:
+            bool eventFilter(QObject *obj, QEvent *ev) override {
+                if (ev->type() == QEvent::Resize) m_win->repositionSceneHint();
+                return QObject::eventFilter(obj, ev);
+            }
+        private:
+            MainWindow *m_win;
+        };
+        ui->glWidget->installEventFilter(new HintResizeWatcher(this));
+    }
+
+    if (!m_hintTimer) {
+        m_hintTimer = new QTimer(this);
+        m_hintTimer->setSingleShot(true);
+        connect(m_hintTimer, &QTimer::timeout, this, &MainWindow::hideSceneHint);
+    }
+
+    m_hintOverlay->setText(m_currentHintText);
+    repositionSceneHint();
+    m_hintOverlay->show();
+    m_hintOverlay->raise();
+
+    if (seconds > 0.0f) {
+        m_hintTimer->start(int(seconds * 1000.0f));
+    } else {
+        m_hintTimer->stop(); // 0 o negativo = resta finche' non lo nasconde qualcuno
+    }
+}
+
+bool MainWindow::applyDiscreteConstants()
+{
+    if (m_discreteConsts.isEmpty() && m_minConsts.isEmpty()) return false;
+
+    struct Row { const char* name; QLineEdit* line; QSlider* slider; };
+    const Row rows[] = {
+        { "A", ui->lineA, ui->aSlider }, { "B", ui->lineB, ui->bSlider },
+        { "C", ui->lineC, ui->cSlider }, { "D", ui->lineD, ui->dSlider },
+        { "E", ui->lineE, ui->eSlider }, { "F", ui->lineF, ui->fSlider },
+        { "S", ui->lineS, ui->sSlider },
+    };
+
+    bool changed = false;
+    for (const Row& r : rows) {
+        const QString key = QString::fromLatin1(r.name);
+        auto it    = m_discreteConsts.constFind(key);
+        auto itMin = m_minConsts.constFind(key);
+        const bool isDiscrete = (it != m_discreteConsts.constEnd());
+        const bool hasMin     = (itMin != m_minConsts.constEnd());
+        if (!isDiscrete && !hasMin) continue;
+
+        bool ok = false;
+        const float cur = r.line->text().trimmed().toFloat(&ok);
+        if (!ok) continue;   // espressione (es. "A*2"): non la tocchiamo
+
+        float target = cur;
+        if (isDiscrete) {
+            // Intero PIU' VICINO, poi dentro il range dichiarato.
+            target = float(qBound(it->lo, qRound(cur), it->hi));
+        }
+        if (hasMin && target < *itMin) {
+            target = *itMin;   // costante continua, solo la soglia inferiore
+        }
+
+        if (qFuzzyCompare(cur, target)) continue;
+        const int snapped = qRound(target * 100.0f);   // slider in centesimi
+
+        // Slider e campo sotto blockSignals: la cascata la fa il chiamante una
+        // volta sola, altrimenti ogni riga qui ne scatenerebbe una (e con essa
+        // un ricalcolo di mesh per ciascuna costante).
+        {
+            QSignalBlocker bl(r.line);
+            // 'g' evita lo zero decimale sugli interi (4, non 4.00) e tiene le
+            // frazioni dei minimi continui (0.3).
+            r.line->setText(QString::number(target, 'g', 6));
+        }
+        if (r.slider) {
+            QSignalBlocker bs(r.slider);
+            r.slider->setValue(snapped);   // gli slider costanti lavorano in centesimi
+        }
+        changed = true;
+    }
+    return changed;
+}
+
+void MainWindow::hideSceneHint()
+{
+    if (m_hintTimer) m_hintTimer->stop();
+    if (m_hintOverlay) m_hintOverlay->hide();
+}
+
+void MainWindow::repositionSceneHint()
+{
+    if (!m_hintOverlay || !ui->glWidget) return;
+
+    const int margin = 24;
+    const int maxW = qMax(160, int(ui->glWidget->width() * 0.8));
+
+    m_hintOverlay->setFixedWidth(qMin(maxW, m_hintOverlay->sizeHint().width()));
+    m_hintOverlay->adjustSize();
+
+    // In alto a sinistra: non copre l'oggetto, che sta al centro della scena.
+    m_hintOverlay->move(margin, margin);
+}
 
 void MainWindow::updateLayoutForMode(int mode)
 {
