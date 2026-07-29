@@ -100,7 +100,7 @@
     "pathMode": 0,
     "projectionMode": 1,
     "renderMode": 10,
-    "scriptCode": "// A: Numero massimo di buchi\nfloat numHoles = max(floor(A), 1.0); \n\n// Offset per mantenere la scultura perfettamente centrata\nfloat offset_u = (numHoles - 1.0) / 2.0;\n\n// Inizializzazioni\nfloat d_final = 10000.0; \n\n// --- DEFORMAZIONE TOPOLOGICA CONTINUA ---\nfloat anim_scale = 0.5 + 0.5 * cos(F * ubuf.u_time);\n\nfloat max_L = offset_u * max(D, 0.1);\nfloat current_L = max_L * anim_scale;\n\n// IL TRUCCO ANTISALTO: Scaliamo la morbidezza (E) insieme alla distanza. \n// Quando i tori si sovrappongono (anim_scale = 0), E diventa minuscolo (0.005).\n// Questo evita l'effetto \"palloncino\" e rimuove la necessità di usare 'if' che causano scatti.\nfloat current_E = max(E * anim_scale, 0.005); \n\nfor(int k = int(0.0); k < int(20.0); k++) {\n    float fk = float(k);\n    \n    if(fk < numHoles) { \n        // Posizione target teorica\n        float target_cx = (fk - offset_u) * max(D, 0.1);\n        \n        // Lo scivolamento fisico, ora fluido al 100%\n        float cx = clamp(target_cx, -current_L, current_L);\n        \n        vec3 p_ring = vec3(p.x - cx, p.y, p.z);\n        \n        // Geometria costante, nessuna variazione\n        float d_ring = length(vec2(length(p_ring.xy) - B, p_ring.z)) - C;\n        \n        if(k == int(0.0)) {\n            d_final = d_ring; // Base della scultura\n        } else {\n            // Fusione sempre attiva, ma proporzionale all'apertura!\n            d_final = -smax(-d_final, -d_ring, current_E);\n        }\n    }\n}\n\nreturn d_final;",
+    "scriptCode": "// A: Numero massimo di buchi\nA := int(1,10);   // A e' DISCRETA: lo slider scatta all'intero al rilascio\nfloat numHoles = max(floor(A + 0.5), 1.0); \n\n// Offset per mantenere la scultura perfettamente centrata\nfloat offset_u = (numHoles - 1.0) / 2.0;\n\n// Inizializzazioni\nfloat d_final = 10000.0; \n\n// --- DEFORMAZIONE TOPOLOGICA CONTINUA ---\nfloat anim_scale = 0.5 + 0.5 * cos(F * ubuf.u_time);\n\nfloat max_L = offset_u * max(D, 0.1);\nfloat current_L = max_L * anim_scale;\n\n// IL TRUCCO ANTISALTO: Scaliamo la morbidezza (E) insieme alla distanza. \n// Quando i tori si sovrappongono (anim_scale = 0), E diventa minuscolo (0.005).\n// Questo evita l'effetto \"palloncino\" e rimuove la necessità di usare 'if' che causano scatti.\nfloat current_E = max(E * anim_scale, 0.005); \n\nfor(int k = int(0.0); k < int(20.0); k++) {\n    float fk = float(k);\n    \n    if(fk < numHoles) { \n        // Posizione target teorica\n        float target_cx = (fk - offset_u) * max(D, 0.1);\n        \n        // Lo scivolamento fisico, ora fluido al 100%\n        float cx = clamp(target_cx, -current_L, current_L);\n        \n        vec3 p_ring = vec3(p.x - cx, p.y, p.z);\n        \n        // Geometria costante, nessuna variazione\n        float d_ring = length(vec2(length(p_ring.xy) - B, p_ring.z)) - C;\n        \n        if(k == int(0.0)) {\n            d_final = d_ring; // Base della scultura\n        } else {\n            // Fusione sempre attiva, ma proporzionale all'apertura!\n            d_final = -smax(-d_final, -d_ring, current_E);\n        }\n    }\n}\n\nreturn d_final;",
     "showBorder": false,
     "speeds": {
         "nutation": 0.4000000059604645,
@@ -125,5 +125,7 @@
         "zoom": 1
     },
     "type": "motion",
-    "use4DLighting": false
+    "use4DLighting": false,
+    "hintText": "Sliders A-F active on this shape",
+    "hintSeconds": 6
 }

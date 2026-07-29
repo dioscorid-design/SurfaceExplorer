@@ -24,7 +24,7 @@
         "r": 0.20000000298023224
     },
     "constants": {
-        "A": 3.7300000190734863,
+        "A": 4,
         "B": 1.1699999570846558,
         "C": 0.5199999809265137,
         "D": 1.7999999523162842,
@@ -70,12 +70,14 @@
     "name": "N-Torus2",
     "projectionMode": 1,
     "renderMode": 10,
-    "scriptCode": "// A: Number of holes (flower petals / lobes of the shape)\nfloat numHoles = max(floor(A), 1.0); \n\n// Initializations\nfloat d_final = 10000.0; \n\n// --- RADIAL TOPOLOGICAL DEFORMATION (static) ---\n// F replaces time: it was 0.5+0.5*cos(F*u_time), now F directly drives\n// the opening. F=1 => holes \"bloomed\" (full radius); F=0 => holes closed at the center.\nfloat anim_scale = F;\n\n// D acts as the max radius of the invisible ring the holes sit on\nfloat max_R = max(D, 0.1);\n// F makes the holes \"bloom\"/\"close\" toward the center\nfloat current_R = max_R * anim_scale;\n\n// Anti-jump trick: scale the smoothness together with the distance from the center\nfloat current_E = max(E * anim_scale, 0.005); \n\nfor(int k = int(0.0); k < int(20.0); k++) {\n    float fk = float(k);\n    \n    if(fk < numHoles) { \n        // Compute the angle for this specific hole (6.2831853 = 2 * Pi)\n        float angle = fk * 6.2831853 / numHoles;\n        \n        // Compute the X and Y coordinates using polar functions\n        float cx = current_R * cos(angle);\n        float cy = current_R * sin(angle);\n        \n        // Local coordinates for the current ring\n        vec3 p_ring = vec3(p.x - cx, p.y - cy, p.z);\n        \n        // Torus geometry unchanged (B = hole radius, C = tube thickness)\n        float d_ring = length(vec2(length(p_ring.xy) - B, p_ring.z)) - C;\n        \n        if(k == int(0.0)) {\n            d_final = d_ring; // First lobe\n        } else {\n            // Smooth union of all the lobes arranged radially\n            d_final = -smax(-d_final, -d_ring, current_E);\n        }\n    }\n}\n\nreturn d_final;",
+    "scriptCode": "// A: Number of holes (flower petals / lobes of the shape)\nA := int(1,10);   // A e' DISCRETA: lo slider scatta all'intero al rilascio\nfloat numHoles = max(floor(A + 0.5), 1.0); \n\n// Initializations\nfloat d_final = 10000.0; \n\n// --- RADIAL TOPOLOGICAL DEFORMATION (static) ---\n// F replaces time: it was 0.5+0.5*cos(F*u_time), now F directly drives\n// the opening. F=1 => holes \"bloomed\" (full radius); F=0 => holes closed at the center.\nfloat anim_scale = F;\n\n// D acts as the max radius of the invisible ring the holes sit on\nfloat max_R = max(D, 0.1);\n// F makes the holes \"bloom\"/\"close\" toward the center\nfloat current_R = max_R * anim_scale;\n\n// Anti-jump trick: scale the smoothness together with the distance from the center\nfloat current_E = max(E * anim_scale, 0.005); \n\nfor(int k = int(0.0); k < int(20.0); k++) {\n    float fk = float(k);\n    \n    if(fk < numHoles) { \n        // Compute the angle for this specific hole (6.2831853 = 2 * Pi)\n        float angle = fk * 6.2831853 / numHoles;\n        \n        // Compute the X and Y coordinates using polar functions\n        float cx = current_R * cos(angle);\n        float cy = current_R * sin(angle);\n        \n        // Local coordinates for the current ring\n        vec3 p_ring = vec3(p.x - cx, p.y - cy, p.z);\n        \n        // Torus geometry unchanged (B = hole radius, C = tube thickness)\n        float d_ring = length(vec2(length(p_ring.xy) - B, p_ring.z)) - C;\n        \n        if(k == int(0.0)) {\n            d_final = d_ring; // First lobe\n        } else {\n            // Smooth union of all the lobes arranged radially\n            d_final = -smax(-d_final, -d_ring, current_E);\n        }\n    }\n}\n\nreturn d_final;",
     "steps": 400,
     "type": "surface",
     "use4DLighting": false,
     "wireframe": {
         "uStep": 4,
         "vStep": 4
-    }
+    },
+    "hintText": "Sliders A-F active on this shape",
+    "hintSeconds": 6
 }

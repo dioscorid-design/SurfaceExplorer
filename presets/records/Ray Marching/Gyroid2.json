@@ -125,5 +125,7 @@
         "zoom": 1
     },
     "type": "motion",
-    "use4DLighting": true
+    "use4DLighting": true,
+    "hintText": "Sliders A-C active on this shape",
+    "hintSeconds": 6
 }

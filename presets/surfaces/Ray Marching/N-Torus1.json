@@ -67,9 +67,11 @@
     "name": "N-Torus1",
     "projectionMode": 1,
     "renderMode": 10,
-    "scriptCode": "// A: Number of holes\nfloat numHoles = max(floor(A), 1.0); \n\n// Compute the offset to keep the shape perfectly centered\nfloat offset_u = (numHoles - 1.0) / 2.0;\n\n// Initialize with an out-of-scale distance value\nfloat d_final = 10000.0; \n\n// We \"trick\" the program's auto-formatter using int(0.0) and int(20.0).\n// This way the GPU gets the exact data with no conversion errors.\nfor(int k = int(0.0); k < int(20.0); k++) {\n    \n    // Convert back to float safely for the spatial math\n    float fk = float(k);\n    \n    if(fk < numHoles) { \n        // Center on the X axis for this specific ring\n        float cx = (fk - offset_u) * max(D, 0.1);\n        \n        // Local coordinates\n        vec3 p_ring = vec3(p.x - cx, p.y, p.z);\n        \n        // Build the single torus (hole)\n        float d_ring = length(vec2(length(p_ring.xy) - B, p_ring.z)) - C;\n        \n        // Using int(0.0) here for the same reason, to avoid errors on ==\n        if(k == int(0.0)) {\n            d_final = d_ring; \n        } else {\n            d_final = -smax(-d_final, -d_ring, max(E, 0.01));\n        }\n    }\n}\n\nreturn d_final;\n",
+    "scriptCode": "// A: Number of holes\nA := int(1,10);   // A e' DISCRETA: lo slider scatta all'intero al rilascio\nfloat numHoles = max(floor(A + 0.5), 1.0); \n\n// Compute the offset to keep the shape perfectly centered\nfloat offset_u = (numHoles - 1.0) / 2.0;\n\n// Initialize with an out-of-scale distance value\nfloat d_final = 10000.0; \n\n// We \"trick\" the program's auto-formatter using int(0.0) and int(20.0).\n// This way the GPU gets the exact data with no conversion errors.\nfor(int k = int(0.0); k < int(20.0); k++) {\n    \n    // Convert back to float safely for the spatial math\n    float fk = float(k);\n    \n    if(fk < numHoles) { \n        // Center on the X axis for this specific ring\n        float cx = (fk - offset_u) * max(D, 0.1);\n        \n        // Local coordinates\n        vec3 p_ring = vec3(p.x - cx, p.y, p.z);\n        \n        // Build the single torus (hole)\n        float d_ring = length(vec2(length(p_ring.xy) - B, p_ring.z)) - C;\n        \n        // Using int(0.0) here for the same reason, to avoid errors on ==\n        if(k == int(0.0)) {\n            d_final = d_ring; \n        } else {\n            d_final = -smax(-d_final, -d_ring, max(E, 0.01));\n        }\n    }\n}\n\nreturn d_final;",
     "showBorder": false,
     "steps": 375,
     "type": "surface",
-    "use4DLighting": false
+    "use4DLighting": false,
+    "hintText": "Sliders A-E active on this shape",
+    "hintSeconds": 6
 }

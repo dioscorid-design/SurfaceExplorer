@@ -76,5 +76,7 @@
     "showBorder": false,
     "steps": 650,
     "type": "surface",
-    "use4DLighting": false
+    "use4DLighting": false,
+    "hintText": "Sliders A-C active on this shape",
+    "hintSeconds": 6
 }

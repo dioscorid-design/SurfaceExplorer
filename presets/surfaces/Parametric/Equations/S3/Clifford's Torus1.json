@@ -74,5 +74,7 @@
     "wireframe": {
         "uStep": 4,
         "vStep": 4
-    }
+    },
+    "hintText": "Slider A active on this shape",
+    "hintSeconds": 6
 }
