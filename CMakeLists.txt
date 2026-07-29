@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
-project(SurfaceExplorer LANGUAGES CXX)
+# La versione marketing sta QUI e in nessun altro punto del C++: da project()
+# viene propagata al bundle (sotto) e al codice come define APP_VERSION, che il
+# dialogo About stampa. Prima il numero era scritto a mano anche in
+# mainwindow.cpp e restava indietro a ogni bump (bump-version.sh non poteva
+# raggiungerlo e si limitava a stampare un promemoria).
+# Info.plist resta un file a parte, aggiornato da ExC/Mac/bump-version.sh.
+project(SurfaceExplorer VERSION 1.2 LANGUAGES CXX)
 
 if(WIN32)
     enable_language(RC)
@@ -130,6 +136,13 @@ target_link_libraries(SurfaceExplorer PRIVATE
     Qt6::Concurrent
 )
 
+# Versione marketing disponibile al C++ (la stampa il dialogo About). Definita
+# qui, FUORI dai rami di piattaforma, cosi' vale anche su Windows/Linux/Android
+# e non solo nel ramo APPLE dove stanno le proprieta' del bundle.
+target_compile_definitions(SurfaceExplorer PRIVATE
+    APP_VERSION="${PROJECT_VERSION}"
+)
+
 # =========================================================
 # CONFIGURAZIONE PIATTAFORMA (iOS Device vs macOS)
 # =========================================================
@@ -156,11 +169,11 @@ if (IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
         MACOSX_BUNDLE_BUNDLE_NAME "Surface Explorer"
         XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist"
-        VERSION "1.2"
+        VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_BUNDLE_VERSION "15"
-        MACOSX_BUNDLE_SHORT_VERSION_STRING "1.2"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
         XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "15"
-        XCODE_ATTRIBUTE_MARKETING_VERSION "1.2"
+        XCODE_ATTRIBUTE_MARKETING_VERSION "${PROJECT_VERSION}"
     )
 
     # --- App icon via Asset Catalog ---
