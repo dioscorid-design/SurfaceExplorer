@@ -1894,6 +1894,12 @@ MainWindow::MainWindow(QWidget *parent)
                 evaluateCascade(); // Aggiorna le altre caselle che dipendono da questo!
             }
         });
+        // Snap delle costanti discrete ("A := int(1,6)") al RILASCIO, non durante
+        // il trascinamento: agganciarlo a valueChanged farebbe scattare il cursore
+        // sotto il dito a ogni tacca, e rigenererebbe la mesh a ogni scatto.
+        connect(slider, &QSlider::sliderReleased, this, [this, evaluateCascade]() {
+            if (applyDiscreteConstants()) evaluateCascade();
+        });
     };
 
     connectSlider(ui->aSlider, ui->lineA); connectSlider(ui->bSlider, ui->lineB);
@@ -1903,6 +1909,9 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto connectLineEdit = [this, evaluateCascade](QLineEdit* line) {
         connect(line, &QLineEdit::editingFinished, this, [this, evaluateCascade]() {
+            // Prima lo snap delle costanti discrete: cosi' la cascata sotto parte
+            // gia' dal valore intero e non ricalcola due volte.
+            applyDiscreteConstants();
             evaluateCascade();                           // clamp + cascata + slider + push costanti
             if (m_meshDebounce) m_meshDebounce->stop();  // evita il doppio ridisegno asincrono
             commitFieldsOnEnter();                       // valida: se ok ridisegna, altrimenti vecchia immagine + popup
@@ -4356,23 +4365,8 @@ void MainWindow::syncTextureTreeSelection()
             if (vTex.isValid()) {
                 int idx = vTex.toInt();
                 const LibraryItem &texItem = m_libraryManager.getTexture(idx);
-                bool isMatch = false;
+                bool isMatch = textureItemMatchesCode(texItem, activeCode, cleanedActive);
 
-                if (texItem.isImage) {
-                    // MATCH ROBUSTO PER IMMAGINI (Usa il codice NON pulito)
-                    QString fileName = QFileInfo(texItem.filePath).fileName();
-                    if (!fileName.isEmpty() && activeCode.contains(fileName)) {
-                        isMatch = true;
-                    }
-                } else {
-                    // MATCH PROCEDURALE (Usa i codici PULITI)
-                    QString cleanLibCode =  cleanCodeForComparison(texItem.scriptCode);
-                    if (!cleanedActive.isEmpty() && cleanedActive == cleanLibCode) {
-                        isMatch = true;
-                    }
-                }
-
-                // IL TUO ULTIMO IF (Intatto e funzionante!)
                 if (isMatch) {
                     (*itTex)->setSelected(true);
                     ui->treeTextures->setCurrentItem(*itTex);
@@ -8703,20 +8697,7 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
             if (vTex.isValid()) {
                 int idx = vTex.toInt();
                 const LibraryItem &texItem = m_libraryManager.getTexture(idx);
-                bool isMatch = false;
-
-                if (texItem.isImage) {
-                    QString fileName = QFileInfo(texItem.filePath).fileName();
-                    if (!fileName.isEmpty() && activeCode.contains(fileName)) {
-                        isMatch = true; // È un'immagine, usa il codice sporco
-                    }
-                } else {
-                    QString cleanLibCode = cleanCodeForComparison(texItem.scriptCode);
-                    // Match solo se non è vuota (per evitare falsi positivi con le immagini)
-                    if (!cleanedActive.isEmpty() && cleanedActive == cleanLibCode) {
-                        isMatch = true; // È procedurale, usa il codice pulito
-                    }
-                }
+                bool isMatch = textureItemMatchesCode(texItem, activeCode, cleanedActive);
 
                 if (isMatch) {
                     (*itTex)->setSelected(true);
@@ -10338,7 +10319,51 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
     // Rimuoviamo i commenti prima di cercare le assegnazioni di costanti: altrimenti
     // un commento come "// A: numero di buchi" verrebbe interpretato come "A = ..."
     // e azzererebbe la costante (il testo non è valutabile -> evaluateSimple = 0).
-    QRegularExpressionMatchIterator i = re.globalMatch(stripCodeComments(scriptCode));
+    const QString cleanScript = stripCodeComments(scriptCode);
+
+    // --- COSTANTI DISCRETE: "A := int(1,6);" -------------------------------
+    // Dichiara che A assume solo valori interi fra 1 e 6. NON è un valore, quindi
+    // va riconosciuta PRIMA del ciclo sotto: quello passerebbe "int(1,6)" a
+    // evaluateSimple, che non conosce int() e restituirebbe 0 -> costante azzerata.
+    // Le lettere trovate qui vengono escluse dal ciclo (skipDiscrete).
+    QSet<QString> skipDiscrete;
+    {
+        // Azzerate SEMPRE: un preset senza direttive deve tornare a costanti
+        // continue e senza minimi, altrimenti quelli del preset precedente
+        // resterebbero attivi (stessa famiglia di bug del cutout che persisteva
+        // fra superfici).
+        m_discreteConsts.clear();
+        m_minConsts.clear();
+
+        QRegularExpression reInt(R"(\b([A-FS])\b\s*:=\s*int\s*\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)\s*;)",
+                                 QRegularExpression::CaseInsensitiveOption);
+        QRegularExpressionMatchIterator it = reInt.globalMatch(cleanScript);
+        while (it.hasNext()) {
+            QRegularExpressionMatch m = it.next();
+            const QString name = m.captured(1).toUpper();
+            int lo = m.captured(2).toInt();
+            int hi = m.captured(3).toInt();
+            if (lo > hi) std::swap(lo, hi);      // "int(6,1)" tollerato
+            m_discreteConsts.insert(name, { lo, hi });
+            skipDiscrete.insert(name);
+        }
+
+        // "F := min(0.3);" — soglia inferiore su una costante che resta CONTINUA
+        // (sotto quel valore la figura degenera). Come sopra: e' una dichiarazione,
+        // non un valore, quindi va consumata qui o evaluateSimple("min(0.3)")
+        // azzererebbe la costante.
+        QRegularExpression reMin(R"(\b([A-FS])\b\s*:=\s*min\s*\(\s*(-?[\d.]+)\s*\)\s*;)",
+                                 QRegularExpression::CaseInsensitiveOption);
+        QRegularExpressionMatchIterator itm = reMin.globalMatch(cleanScript);
+        while (itm.hasNext()) {
+            QRegularExpressionMatch m = itm.next();
+            const QString name = m.captured(1).toUpper();
+            m_minConsts.insert(name, m.captured(2).toFloat());
+            skipDiscrete.insert(name);
+        }
+    }
+
+    QRegularExpressionMatchIterator i = re.globalMatch(cleanScript);
 
     bool limitsChanged = false;
 
@@ -10346,6 +10371,10 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
         QRegularExpressionMatch match = i.next();
         QString varName = match.captured(1).toLower(); // es. "u_min"
         QString valStr  = match.captured(2);           // es. "-3.14" o "2*PI"
+
+        // "A := int(1,6);" e' una DICHIARAZIONE di dominio, gia' consumata sopra:
+        // qui va saltata, altrimenti evaluateSimple("int(1,6)") = 0 azzera A.
+        if (skipDiscrete.contains(varName.toUpper())) continue;
 
         // Usiamo il tuo parser per calcolare il valore (es. "2*PI" -> 6.28)
         float value = ExpressionParser::evaluateSimple(valStr);
@@ -10493,6 +10522,37 @@ QString MainWindow::extractAudioDirectives(const QString& fullText) {
     }
 
     return extractedSound.trimmed();
+}
+
+bool MainWindow::textureItemMatchesCode(const LibraryItem &texItem, const QString &activeCode,
+                                        const QString &cleanedActiveCode)
+{
+    if (texItem.isImage) {
+        // Un'immagine e' attiva SOLO se il suo file compare nel tag //IMG:, non
+        // in un punto qualsiasi del sorgente: uno script procedurale puo'
+        // trascinarsi un //IMG: orfano (o citare un nome file in un commento) e
+        // con un contains() sul testo intero l'albero evidenziava l'immagine al
+        // posto del procedurale davvero in uso.
+        QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)", QRegularExpression::MultilineOption);
+        QRegularExpressionMatch m = imgRe.match(activeCode);
+        if (!m.hasMatch()) return false;
+
+        // Il tag conta come immagine attiva solo se e' l'unico contenuto: se sotto
+        // c'e' del codice GLSL, a disegnare e' quello (il tag e' un residuo).
+        QString rest = activeCode;
+        rest.remove(imgRe);
+        if (!cleanCodeForComparison(rest).isEmpty()) return false;
+
+        QString activeImg = QFileInfo(m.captured(1).trimmed()).fileName();
+        QString libImg    = QFileInfo(texItem.filePath).fileName();
+        return !libImg.isEmpty() && !activeImg.isEmpty() &&
+               QString::compare(activeImg, libImg, Qt::CaseInsensitive) == 0;
+    }
+
+    // Procedurale: confronto sui codici puliti (cleanCodeForComparison toglie
+    // gia' il tag //IMG:, quindi un residuo non impedisce il match).
+    QString cleanLibCode = cleanCodeForComparison(texItem.scriptCode);
+    return !cleanedActiveCode.isEmpty() && cleanedActiveCode == cleanLibCode;
 }
 
 QString MainWindow::cleanCodeForComparison(QString str) {
