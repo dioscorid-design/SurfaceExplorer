@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/library">
+        <file>presets/surfaces/Octahedron Skeleton S2.json</file>
         <file>presets/surfaces/Ray Marching/ThickIso.json</file>
         <file>presets/surfaces/Ray Marching/Tangle Cube.json</file>
         <file>presets/surfaces/Ray Marching/Ding Dong.json</file>
@@ -66,6 +67,7 @@
         <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Helicoid.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Hyperbolic Paraboloid.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Hyperboloid.json</file>
+        <file>presets/surfaces/Parametric/Solid Wireframe/Hopf Tori over Parallels.json</file>
         <file>presets/surfaces/Parametric/Solid Wireframe/NewSurface.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Twisted Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Dynamic Clifford Torus.json</file>
@@ -281,7 +283,10 @@
         <file>presets/records/Rotations/Torus Knot.json</file>
         <file>presets/records/Solid Wireframe/Clifford Linked Tori.json</file>
         <file>presets/records/Solid Wireframe/Clifford Labyrinth 16-Cell.json</file>
+        <file>presets/records/Solid Wireframe/Clifford Linked Fibers.json</file>
         <file>presets/records/Solid Wireframe/Clifford Tori Labyrinth.json</file>
+        <file>presets/records/Solid Wireframe/Clifford Labyrinth 16-Cell Fibers.json</file>
+        <file>presets/records/Solid Wireframe/Clifford Tori Labyrinth Fibers.json</file>
         <file>presets/records/t_motions/Otto Tube.json</file>
         <file>presets/records/t_motions/Waves.json</file>
         <file>presets/records/t_motions/Otto.json</file>
@@ -360,6 +365,7 @@
         <file>presets/records/Static/S3_slice.json</file>
         <file>presets/records/Static/Veronese Surface.json</file>
         <file>presets/records/Static/H^2xR.json</file>
+        <file>presets/records/Static/Hopf Tori Gradient.json</file>
         <file>presets/sounds/CREDITS.txt</file>
         <file>presets/sounds/CREDITS.html</file>
         <file>presets/sounds/wav/321723__rhodesmas__deep-space-vibrations-ambience-loop.wav</file>
