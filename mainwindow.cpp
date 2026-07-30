@@ -80,6 +80,32 @@
 #include <QCoreApplication>
 #endif
 
+// Sceglie il FOV da applicare al caricamento di un preset/record.
+// Regola: 45 e' il DEFAULT, ma un file che ha salvato un valore diverso lo
+// mantiene. Le tre chiavi provengono dal JSON:
+//   cameraFov -> chiave storica "unico FOV, applicato sempre" (default 45)
+//   fov3D/fov4D -> i due FOV per-path delle build intermedie
+// Un file delle build intermedie puo' avere cameraFov = 45 (il FOV vivo al
+// momento del salvataggio, con i path fermi) ma fov3D/fov4D larghi: e' il caso
+// dei preset Clifford (103 gradi). Prendere solo cameraFov perderebbe la loro
+// inquadratura, percio' se cameraFov e' rimasto al default e uno dei due
+// per-path e' diverso, vince quest'ultimo.
+static float resolveSavedFov(float cameraFov, float fov3D, float fov4D)
+{
+    const float kDefault = 45.0f;
+    const float eps = 0.01f;
+
+    if (std::fabs(cameraFov - kDefault) > eps)
+        return cameraFov;                       // salvato esplicitamente: vince
+
+    if (std::fabs(fov4D - kDefault) > eps)
+        return fov4D;                           // build intermedia, path 4D
+    if (std::fabs(fov3D - kDefault) > eps)
+        return fov3D;                           // build intermedia, path 3D
+
+    return kDefault;
+}
+
 #if defined(Q_OS_ANDROID)
 void notifyAndroidMediaStore(const QString& filePath) {
     QJniEnvironment env;
@@ -1387,6 +1413,10 @@ MainWindow::MainWindow(QWidget *parent)
             // precedente restava iniettato e continuava a tagliare (vedi
             // applyCommonData). Un nuovo Run script lo reimposta dal contenuto.
             ui->glWidget->getEngine()->setCutoutCodeGLSL("");
+            // Stessa cosa per le parti multi-mesh: senza azzerarle, la
+            // superficie del tab successivo resterebbe spezzata nei rami
+            // dichiarati dallo script precedente.
+            ui->glWidget->getEngine()->clearMeshParts();
         }
 
         // 3. Svuota l'editor visivamente (se aperto su Surface) e in memoria
@@ -2934,10 +2964,18 @@ MainWindow::MainWindow(QWidget *parent)
     ui->lblValLight->setText(QString::number(ui->lightSlider->value()) + " %");
     ui->speed3DSlider->setRange(1, 100); ui->speed3DSlider->setValue(10);
     ui->speed4DSlider->setRange(1, 100); ui->speed4DSlider->setValue(10);
-    ui->fovSlider->setRange(20, 110); ui->fovSlider->setValue(45);
-    ui->fovSlider4D->setRange(20, 110); ui->fovSlider4D->setValue(45);
+    // FOV UNICO (dock renderer, sotto Light). Prima erano due slider separati nei
+    // dock 3D e 4D, attivi solo con la RISPETTIVA path in corsa: andavano in
+    // conflitto (due controlli sullo stesso m_cameraFov) e da fermo erano
+    // entrambi bloccati, quindi dopo un path a FOV largo non si poteva
+    // correggere l'inquadratura se non con Reset View. Questo e' l'unico
+    // controllo, non si blocca mai e agisce su TUTTO: path 3D/4D, rotazioni,
+    // t-motion e superfici statiche.
+    ui->fovSliderMain->setRange(20, 110);
+    ui->fovSliderMain->setValue(45);
+    ui->lblValFov->setText(QString::number(45) + QString::fromUtf8("°"));
 
-    UiStyleManager::setupBigSliders(ui->sliderR, ui->sliderG, ui->sliderB, ui->alphaSlider, ui->lightSlider, ui->speed3DSlider, ui->speed4DSlider, ui->fovSlider, ui->fovSlider4D);
+    UiStyleManager::setupBigSliders(ui->sliderR, ui->sliderG, ui->sliderB, ui->alphaSlider, ui->lightSlider, ui->speed3DSlider, ui->speed4DSlider, ui->fovSliderMain);
 
     // Color slot della texture (col1/col2). Surface NON è qui: è nella coppia
     // m_bgTargetGroup (Surface/Background). L'esclusività FRA i due gruppi è a mano.
@@ -3003,11 +3041,12 @@ MainWindow::MainWindow(QWidget *parent)
         ui->lblValLight->setText(QString::number(val) + " %");
     });
 
-    connect(ui->fovSlider, &QSlider::valueChanged, this, [this](int val){
-        applyPathFov3D((float)val);
-    });
-    connect(ui->fovSlider4D, &QSlider::valueChanged, this, [this](int val){
-        applyPathFov4D((float)val);
+    // FOV UNICO: agisce SEMPRE e subito, qualunque cosa stia guidando la camera
+    // (path 3D/4D, rotazioni, t-motion, o superficie ferma). Nessun gate: era il
+    // blocco "solo con la propria path in corsa" a rendere il valore non
+    // correggibile da fermo.
+    connect(ui->fovSliderMain, &QSlider::valueChanged, this, [this](int val){
+        applyCameraFov((float)val);
     });
 
     // Click su Color1/Color2. Gruppi indipendenti: scegliere quale tinta editare NON
@@ -5300,6 +5339,12 @@ void MainWindow::onStartClicked()
             QString cutoutGlsl;
             scriptForGlsl = extractCutoutSection(currentScript, &cutoutGlsl);
             ui->glWidget->getEngine()->setCutoutCodeGLSL(cutoutGlsl);
+
+            // Multi-mesh: come il cutout, va riallineato anche qui o la ripresa
+            // da Master Start perderebbe le parti dichiarate dallo script.
+            std::vector<MeshPart> meshParts;
+            scriptForGlsl = extractMeshSections(scriptForGlsl, &meshParts);
+            ui->glWidget->getEngine()->setMeshParts(meshParts);
         }
 
         // Ri-valida lo script corrente prima di riprendere: se contiene un
@@ -6205,11 +6250,11 @@ void MainWindow::onPathTimerTick()
 
 void MainWindow::applyPath4DCameraAt(float t)
 {
-    // FOV del path 4D: applicato qui (unica implementazione tick live +
-    // recorder) cosi' anche i video lo riproducono. Guard per non schedulare
-    // update() ridondanti a ogni tick.
-    if (ui->glWidget->cameraFov() != m_fov4D)
-        ui->glWidget->setCameraFov(m_fov4D);
+    // NB: il FOV NON si applica qui. Con lo slider unico del dock renderer il
+    // campo visivo e' gia' impostato su GLWidget e vale per tutto (path,
+    // rotazioni, superfici ferme); riapplicarlo a ogni tick sovrascriverebbe una
+    // regolazione fatta MENTRE il path e' in corsa. Il recorder non ne risente:
+    // legge lo stesso m_cameraFov vivo del tick live.
 
     // 1. SETUP BASE
     float dt = 0.01f;
@@ -6438,11 +6483,8 @@ void MainWindow::onPath3DTimerTick()
 
 void MainWindow::applyPath3DCameraAt(float t)
 {
-    // FOV del path 3D: applicato qui (unica implementazione tick live +
-    // recorder) cosi' anche i video lo riproducono. Guard per non schedulare
-    // update() ridondanti a ogni tick.
-    if (ui->glWidget->cameraFov() != m_fov3D)
-        ui->glWidget->setCameraFov(m_fov3D);
+    // NB: il FOV NON si applica qui: vedi la nota in applyPath4DCameraAt.
+    // Lo slider unico lo imposta una volta e vale per tutto.
 
     QVector4D rawData = ui->glWidget->getEngine()->evaluatePath3DPosition(t);
 
@@ -6503,7 +6545,6 @@ void MainWindow::updateViewButtonsEnabled()
     // sull'ultimo fotogramma (posa E prospettiva). Il ritorno al default 45
     // avviene in GLWidget::resetTransformations, cioe' solo quando la vista
     // viene davvero resettata (Reset view, cambio tab, load).
-    updateFovSlidersEnabled();
 
     // Mentre un path qualsiasi controlla la telecamera, i tasti di spostamento a
     // click dei dock 3D/4D sono disabilitati. Chiamato ovunque si avvii/fermi un
@@ -6747,6 +6788,123 @@ QString MainWindow::extractCutoutSection(const QString &fullText, QString *outCu
     return bodyWithoutCutout;
 }
 
+// ==========================================================
+// MULTI-MESH: sezioni //MESH_BEGIN..//MESH_END
+// ==========================================================
+// Sintassi (una sezione per parte di mesh, ripetibile):
+//
+//     //MESH_BEGIN
+//     u: 0, PI, 200          // uMin, uMax, passi in u
+//     v: 0, TAU, 100         // vMin, vMax, passi in v
+//     //MESH_END
+//
+// I passi sono opzionali e sono una PROPORZIONE, non un numero assoluto: la
+// risoluzione la governa lo slider Steps (vedi la memoria
+// slider-steps-governa-risoluzione-script). La parte col valore dichiarato piu'
+// alto prende esattamente il valore dello slider e le altre restano in
+// proporzione, cosi' i rapporti voluti (fra parti, e fra u e v) sono rispettati
+// su TUTTA la corsa dello slider. Senza passi, la parte segue lo slider su
+// entrambi gli assi.
+// Nell'esempio sopra: v ha metà dei passi di u a qualunque posizione dello
+// slider (200:100), non "esattamente 200 e 100".
+// Le espressioni ammettono PI/TAU e aritmetica semplice: sono valutate qui, non
+// nello shader, perche' servono al generatore di griglia sulla CPU.
+//
+// Nota: e' il traduttore GLSL a NON dover vedere queste righe, quindi la sezione
+// viene rimossa dal testo restituito (come per il CUTOUT).
+QString MainWindow::extractMeshSections(const QString &fullText, std::vector<MeshPart> *outParts)
+{
+    if (outParts) outParts->clear();
+
+    static const QRegularExpression meshRegex(
+        R"(//MESH_BEGIN([\s\S]*?)//MESH_END)");
+
+    // Valuta un'espressione numerica semplice con PI/TAU. Usa lo stesso parser
+    // ExprTk gia' impiegato per le equazioni, cosi' "PI/2" o "2*PI" funzionano.
+    auto evalNumber = [](QString s, bool *ok) -> double {
+        s = s.trimmed();
+        if (s.isEmpty()) { if (ok) *ok = false; return 0.0; }
+
+        // Le costanti: ExprTk conosce 'pi', non 'PI'/'TAU'.
+        s.replace(QRegularExpression("\\bTAU\\b", QRegularExpression::CaseInsensitiveOption), "(2*pi)");
+        s.replace(QRegularExpression("\\bPI\\b",  QRegularExpression::CaseInsensitiveOption), "pi");
+
+        exprtk::symbol_table<double> st;
+        st.add_constants();
+        exprtk::expression<double> expr;
+        expr.register_symbol_table(st);
+        exprtk::parser<double> parser;
+        if (!parser.compile(s.toStdString(), expr)) { if (ok) *ok = false; return 0.0; }
+        if (ok) *ok = true;
+        return expr.value();
+    };
+
+    QString remaining = fullText;
+    QRegularExpressionMatchIterator it = meshRegex.globalMatch(fullText);
+
+    std::vector<MeshPart> parts;
+    while (it.hasNext()) {
+        QRegularExpressionMatch m = it.next();
+        const QString body = m.captured(1);
+
+        MeshPart part;
+        bool sawAxis = false;
+
+        // Una riga per asse: "u: min, max[, steps]" / "v: min, max[, steps]".
+        static const QRegularExpression axisRegex(
+            R"((?im)^\s*([uv])\s*:\s*([^,]+),\s*([^,\n]+)(?:,\s*([^,\n]+))?\s*$)");
+        QRegularExpressionMatchIterator ax = axisRegex.globalMatch(body);
+        while (ax.hasNext()) {
+            QRegularExpressionMatch a = ax.next();
+            const QString axis = a.captured(1).toLower();
+
+            bool okMin = false, okMax = false;
+            const double lo = evalNumber(a.captured(2), &okMin);
+            const double hi = evalNumber(a.captured(3), &okMax);
+            if (!okMin || !okMax) continue;
+
+            int steps = -1;
+            if (!a.captured(4).isEmpty()) {
+                bool okStep = false;
+                const double sv = evalNumber(a.captured(4), &okStep);
+                if (okStep && sv >= 1.0) steps = (int)(sv + 0.5);
+            }
+
+            // I passi vanno in declaredU/declaredV, NON in numU/numV: sono una
+            // PROPORZIONE che resolveMeshParts riscala sullo slider Steps (che
+            // resta l'autorita' sulla risoluzione). Scriverli direttamente in
+            // numU/numV li rendeva un tetto, e oltre quel valore lo slider non
+            // faceva piu' nulla.
+            if (axis == "u") {
+                part.uMin = (float)lo; part.uMax = (float)hi;
+                if (steps > 0) part.declaredU = steps;
+            } else {
+                part.vMin = (float)lo; part.vMax = (float)hi;
+                if (steps > 0) part.declaredV = steps;
+            }
+            sawAxis = true;
+        }
+
+        // Una sezione senza assi validi non descrive nulla: la ignoriamo invece
+        // di generare una parte degenere (che sarebbe una superficie invisibile).
+        if (sawAxis) {
+            part.meshIndex = (int)parts.size();
+            parts.push_back(part);
+        }
+    }
+
+    // Rimuove le sezioni dal corpo (dalla fine, per non invalidare gli offset).
+    QList<QRegularExpressionMatch> matches;
+    QRegularExpressionMatchIterator it2 = meshRegex.globalMatch(fullText);
+    while (it2.hasNext()) matches.append(it2.next());
+    for (int k = matches.size() - 1; k >= 0; --k) {
+        remaining.remove(matches[k].capturedStart(0), matches[k].capturedLength(0));
+    }
+
+    if (outParts) *outParts = parts;
+    return remaining;
+}
+
 void MainWindow::onRunScriptClicked()
 {
     QString fullText = ui->txtScriptEditor->toPlainText();
@@ -6779,6 +6937,12 @@ void MainWindow::onRunScriptClicked()
     QString cutoutGlsl;
     QString bodyWithoutCutout = extractCutoutSection(fullText, &cutoutGlsl);
     ui->glWidget->getEngine()->setCutoutCodeGLSL(cutoutGlsl);
+
+    // Sezioni //MESH_BEGIN..//MESH_END (multi-mesh): stesso trattamento del
+    // cutout, vanno via dal corpo prima di costruire glslBody.
+    std::vector<MeshPart> meshParts;
+    bodyWithoutCutout = extractMeshSections(bodyWithoutCutout, &meshParts);
+    ui->glWidget->getEngine()->setMeshParts(meshParts);
 
     QString glslBody;
     QTextStream stream(&bodyWithoutCutout);
@@ -6871,6 +7035,14 @@ void MainWindow::runMetricScript(const QString& fullText)
 
     this->setProperty("rawSurfaceScript", fullText);
     m_surfaceScriptText = fullText;
+
+    // MULTI-MESH: uno script metrico produce una mesh CUSTOM (flusso geodetico),
+    // che non ha parti. Le parti di uno script multi-mesh precedente vanno
+    // azzerate qui: runMetricScript esce da onRunScriptClicked PRIMA
+    // dell'estrazione delle sezioni //MESH_BEGIN, quindi sopravviverebbero e un
+    // computeMesh() successivo spezzerebbe la superficie in rami inesistenti.
+    if (ui->glWidget->getEngine())
+        ui->glWidget->getEngine()->clearMeshParts();
 
     // Direttive := (limiti U/V/W, costanti A..F, steps). Al caricamento di un
     // preset NON vanno riapplicate: limiti/costanti/steps salvati (già
@@ -7836,8 +8008,12 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
 
     // 11. Finalizzazione
     ui->glWidget->setProjectionMode(d.projectionMode);
-    applyPathFov3D(d.fov3D);
-    applyPathFov4D(d.fov4D);
+    // FOV UNICO: 45 e' il default, ma un preset che ne salva uno diverso lo
+    // mantiene. La chiave letta e' `cameraFov` (default 45 in librarymanager);
+    // i file piu' vecchi che salvavano solo i FOV per-path ricadono su fov3D
+    // (a sua volta inizializzato da cameraFov in fase di parse), cosi' nessun
+    // preset esistente perde la propria inquadratura.
+    applyCameraFov(resolveSavedFov(d.cameraFov, d.fov3D, d.fov4D));
     updateProjectionButtonText();
 
     // Ripristino intelligente della Telecamera / Rotazione 3D
@@ -8508,10 +8684,9 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
     // secca (più visibile su mobile, dove il primo frame resta a schermo più a lungo).
     // Eseguendo subito un tick, la camera è già sul path prima del primo paint, così il
     // moto parte fluido dal punto iniziale della traiettoria.
-    // I FOV vanno caricati PRIMA del tick di sincronizzazione: e' il tick
-    // stesso (applyPath3D/4DCameraAt) ad applicare m_fov3D/4D alla proiezione.
-    applyPathFov3D(data.fov3D);
-    applyPathFov4D(data.fov4D);
+    // Il FOV va caricato PRIMA del tick di sincronizzazione, perche' il tick
+    // ridisegna gia' con la proiezione corrente.
+    applyCameraFov(resolveSavedFov(data.cameraFov, data.fov3D, data.fov4D));
     if (pathTimer->isActive()) onPathTimerTick();
     else if (pathTimer3D->isActive()) onPath3DTimerTick();
 
@@ -9854,10 +10029,16 @@ void MainWindow::applyCommonData(const LibraryItem &d)
         QString cutoutGlsl;
         // Il cutout esiste solo per il parametrico (il Ray Marching non usa
         // getRawPosition): per gli script impliciti resta comunque azzerato.
+        std::vector<MeshPart> meshParts;   // vuoto = una mesh sola
         if (isScript && !d.isImplicitMode && !d.scriptCode.isEmpty()) {
             extractCutoutSection(d.scriptCode, &cutoutGlsl);
+            // MULTI-MESH: identico ragionamento del cutout. Senza questo
+            // riallineamento le parti di un preset script precedente
+            // sopravviverebbero, spezzando in rami una superficie che non li ha.
+            extractMeshSections(d.scriptCode, &meshParts);
         }
         ui->glWidget->getEngine()->setCutoutCodeGLSL(cutoutGlsl);
+        ui->glWidget->getEngine()->setMeshParts(meshParts);
     }
 
     bool oldTabSig = ui->tabModeSelector->blockSignals(true);
@@ -10827,7 +11008,6 @@ void MainWindow::updateProjectionButtonText()
 
     // Chiamata a ogni cambio di proiezione (toggle, load preset/record, init):
     // in Ortho gli slider FOV si spengono.
-    updateFovSlidersEnabled();
 }
 
 void MainWindow::updateScriptButtonText() {
@@ -11383,46 +11563,37 @@ void MainWindow::applyDefaultCheckerShader()
     if (ui->glWidget) ui->glWidget->loadCustomShader(kDefaultChecker);
 }
 
-void MainWindow::applyPathFov3D(float deg)
+// FOV UNICO. Unico punto che imposta il campo visivo: aggiorna slider + etichetta
+// del dock renderer e applica SEMPRE il valore alla proiezione, senza condizioni.
+//
+// Prima c'erano applyPathFov3D/applyPathFov4D, una per dock, che applicavano il
+// valore SOLO se la rispettiva path era in corsa. Con entrambi i path fermi il
+// FOV non era piu' modificabile (gli slider erano anche disabilitati), quindi
+// dopo un path a FOV largo l'inquadratura restava tale fino a Reset View; e coi
+// due path attivi in sequenza i due slider si contendevano lo stesso
+// m_cameraFov. Un solo controllo, sempre attivo, elimina entrambi i problemi.
+//
+// m_fov3D/m_fov4D restano allineati al valore unico perche' PresetSerializer li
+// scrive ancora nel JSON (chiavi fov3D/fov4D): i file salvati da questa build
+// restano leggibili dalle build precedenti, che li usavano per i path.
+void MainWindow::applyCameraFov(float deg)
 {
-    m_fov3D = qBound(20.0f, deg, 110.0f);
+    const float v = qBound(20.0f, deg, 110.0f);
 
-    ui->lblFov3D->setText(QString("Fov %1°").arg(qRound(m_fov3D)));
-    bool old = ui->fovSlider->blockSignals(true);
-    ui->fovSlider->setValue(qRound(m_fov3D));
-    ui->fovSlider->blockSignals(old);
+    m_fov3D = v;
+    m_fov4D = v;
 
-    // Effetto immediato solo se il path 3D sta guidando la camera; da fermo
-    // la proiezione resta al default (il valore attende il prossimo avvio).
-    if (pathTimer3D && pathTimer3D->isActive() && ui->glWidget)
-        ui->glWidget->setCameraFov(m_fov3D);
-}
+    if (ui->lblValFov)
+        ui->lblValFov->setText(QString::number(qRound(v)) + QString::fromUtf8("°"));
 
-void MainWindow::applyPathFov4D(float deg)
-{
-    m_fov4D = qBound(20.0f, deg, 110.0f);
+    if (ui->fovSliderMain) {
+        bool old = ui->fovSliderMain->blockSignals(true);
+        ui->fovSliderMain->setValue(qRound(v));
+        ui->fovSliderMain->blockSignals(old);
+    }
 
-    ui->lblFov4D->setText(QString("Fov %1°").arg(qRound(m_fov4D)));
-    bool old = ui->fovSlider4D->blockSignals(true);
-    ui->fovSlider4D->setValue(qRound(m_fov4D));
-    ui->fovSlider4D->blockSignals(old);
-
-    if (pathTimer && pathTimer->isActive() && ui->glWidget)
-        ui->glWidget->setCameraFov(m_fov4D);
-}
-
-void MainWindow::updateFovSlidersEnabled()
-{
-    // Il FOV agisce solo mentre una path guida la camera, e non ha senso in
-    // proiezione ortogonale: ogni slider e' attivo con la SUA path in corsa
-    // (3D nel dock 3D, 4D nel dock 4D) e proiezione non-Ortho.
-    bool persp = ui->glWidget && (ui->glWidget->projectionMode != GLWidget::Ortho4D);
-    bool path4D = pathTimer && pathTimer->isActive();
-    bool path3D = pathTimer3D && pathTimer3D->isActive();
-    ui->fovSlider->setEnabled(persp && path3D);
-    ui->lblFov3D->setEnabled(persp && path3D);
-    ui->fovSlider4D->setEnabled(persp && path4D);
-    ui->lblFov4D->setEnabled(persp && path4D);
+    if (ui->glWidget)
+        ui->glWidget->setCameraFov(v);
 }
 
 void MainWindow::toggleProjection()

@@ -37,6 +37,10 @@
 // Densità wireframe di default (deve coincidere con l'init di wfStepU/wfStepV in glwidget.h).
 #define STEP_DEF 4
 
+// MULTI-MESH: blocchi UBO pre-allocati all'avvio. Le superfici a mesh singola ne
+// usano 1; il buffer cresce da solo se uno script dichiara piu' parti.
+static const int kInitialUboBlocks = 8;
+
 QString loadShaderSource(const QString& path) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -117,6 +121,105 @@ GLWidget::~GLWidget()
 // PROTECTED
 // ==========================================================
 
+// ==========================================================
+// MULTI-MESH: gestione dell'UBO ad array
+// ==========================================================
+
+// Garantisce che l'UBO contenga almeno partCount blocchi. Ritorna true se il
+// buffer e' stato (ri)creato: in quel caso i binding che lo referenziano puntano
+// a memoria liberata e vanno riagganciati (stessa trappola gia' documentata per
+// m_surfaceTexture nel render).
+bool GLWidget::ensureUboCapacity(int partCount)
+{
+    if (!rhi()) return false;
+
+    const int wanted = std::max(1, partCount);
+    if (m_ubo && wanted <= m_uboBlockCapacity) return false;
+
+    // Cresce con margine per non ricreare il buffer a ogni parte in piu'.
+    const int newCap = std::max(wanted, m_uboBlockCapacity * 2);
+
+    if (m_ubo) {
+        m_ubo->destroy();
+        delete m_ubo;
+        m_ubo = nullptr;
+    }
+
+    m_ubo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer,
+                             m_uboBlockStride * newCap);
+    m_ubo->create();
+    m_uboBlockCapacity = newCap;
+
+    // Riaggancia i binding al NUOVO buffer senza distruggere l'oggetto SRB: le
+    // pipeline ne tengono il puntatore, quindi un delete+new le lascerebbe con
+    // un riferimento pendente. Il layout non cambia, cambia solo la risorsa.
+    if (m_bindingsDyn) {
+        m_bindingsDyn->setBindings({
+            QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
+                0,
+                QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+                m_ubo, sizeof(UboData)),
+            QRhiShaderResourceBinding::sampledTexture(
+                1, QRhiShaderResourceBinding::FragmentStage,
+                m_bindingsDynTexture ? m_bindingsDynTexture : m_dummyTexture, m_sampler)
+        });
+        m_bindingsDyn->updateResources();
+    }
+
+    // Anche i binding statici (sfondo flat, ray marching) puntavano al vecchio UBO.
+    if (m_bindings) {
+        m_bindings->setBindings({
+            QRhiShaderResourceBinding::uniformBuffer(
+                0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, m_ubo),
+            QRhiShaderResourceBinding::sampledTexture(
+                1, QRhiShaderResourceBinding::FragmentStage,
+                m_surfaceTexture ? m_surfaceTexture : m_dummyTexture, m_sampler)
+        });
+        m_bindings->updateResources();
+    }
+
+    return true;
+}
+
+// Binding della superficie con dynamic offset sul blocco UBO. La dimensione
+// dichiarata e' sizeof(UboData) (la finestra visibile su un blocco), non lo
+// stride fra blocchi.
+void GLWidget::ensureDynamicBindings(QRhiTexture *tex)
+{
+    if (!rhi() || !m_ubo) return;
+    if (!tex) tex = m_dummyTexture;
+    if (!tex || !m_sampler) return;
+
+    // Niente da fare se il binding esiste gia' con la stessa texture.
+    if (m_bindingsDyn && m_bindingsDynTexture == tex) return;
+
+    const bool isNew = (m_bindingsDyn == nullptr);
+    if (isNew) {
+        m_bindingsDyn = rhi()->newShaderResourceBindings();
+    }
+
+    m_bindingsDyn->setBindings({
+        QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
+            0,
+            QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+            m_ubo, sizeof(UboData)),
+        QRhiShaderResourceBinding::sampledTexture(
+            1, QRhiShaderResourceBinding::FragmentStage, tex, m_sampler)
+    });
+
+    if (isNew) {
+        m_bindingsDyn->create();
+    } else {
+        // IMPORTANTE: updateResources() e non create(). Le pipeline tengono il
+        // PUNTATORE a questo oggetto: ricrearlo (delete + new) le lascerebbe con
+        // un puntatore pendente e obbligherebbe a ricostruirle tutte. Qui il
+        // layout non cambia (stessi tipi/binding), solo la risorsa allo slot 1.
+        m_bindingsDyn->updateResources();
+    }
+
+    m_bindingsDynTexture = tex;
+}
+
 void GLWidget::initialize(QRhiCommandBuffer *cb)
 {
     if (m_ubo) {
@@ -124,9 +227,16 @@ void GLWidget::initialize(QRhiCommandBuffer *cb)
     }
 
     // --- 1. CREAZIONE UBO (Uniform Buffer Object) ---
-    // Alloca memoria dinamica per la tua struct UboData
-    m_ubo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(UboData));
-    m_ubo->create();
+    // MULTI-MESH: l'UBO non contiene piu' un blocco solo ma un ARRAY di blocchi,
+    // uno per parte di mesh (i limiti u_min/u_max/v_min/v_max e u_meshIndex sono
+    // per-parte). Ogni draw call seleziona il suo blocco con un dynamic offset.
+    // Lo stride e' allineato secondo l'API grafica: ubufAlignment() vale 256 su
+    // Metal/Vulkan, quindi NON si puo' usare sizeof(UboData) come passo.
+    m_uboBlockStride = rhi()->ubufAlignment();
+    while (m_uboBlockStride < sizeof(UboData)) {
+        m_uboBlockStride += rhi()->ubufAlignment();
+    }
+    ensureUboCapacity(kInitialUboBlocks);
 
     // --- 2. CREAZIONE VBO E IBO ---
     // In RHI è meglio pre-allocare un buffer grande per evitare di ricrearlo a ogni frame.
@@ -158,6 +268,12 @@ void GLWidget::initialize(QRhiCommandBuffer *cb)
                                                   m_dummyTexture, m_sampler)
     });
     m_bindings->create();
+
+    // C. Binding della superficie con dynamic offset (multi-mesh). Va creato
+    // PRIMA di buildPipeline(): le pipeline parametriche si costruiscono su
+    // questo layout, e il layout dichiarato dalla pipeline deve combaciare con
+    // quello passato a setShaderResources al draw.
+    ensureDynamicBindings(m_dummyTexture);
 
     // Inizializzazioni di base dell'engine che avevi prima
     if (m_eqX.isEmpty()) {
@@ -347,7 +463,25 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         if (projectionMode == Ortho4D) {
             float halfHeight = camDist * std::tan(m_cameraFov * 0.5f * M_PI / 180.0f);
             float halfWidth = halfHeight * aspect;
-            m_projection.ortho(-halfWidth, halfWidth, -halfHeight, halfHeight, nearPlane, farPlane);
+            // NEAR SIMMETRICO IN ORTOGONALE (-far invece di nearPlane).
+            // In prospettiva la camera e' un punto e il cono si stringe verso di
+            // lei: cio' che sta prima del near e' poco o fuori campo. In
+            // ortogonale i raggi sono PARALLELI e il volume e' un box a sezione
+            // costante: tutto cio' che sta prima del near viene tagliato in
+            // pieno. Con una camera vicina alla superficie (i record di path la
+            // salvano DENTRO l'oggetto: Klein3D Racing a distanza 1.06) meta'
+            // figura ha z negativo e spariva, mentre lo stesso preset caricato
+            // dal ramo Surface (camera a 4.0) si vedeva intero.
+            // Estendendo il box all'indietro fino a -farPlane la camera si
+            // comporta come una lastra: nessun taglio, da qualunque distanza.
+            //
+            // COSTO SUL DEPTH BUFFER: in ortogonale z_ndc e' LINEARE in z_eye,
+            // quindi conta solo l'AMPIEZZA (far-near), non il rapporto far/near
+            // che governa il caso prospettico citato qui sopra. Raddoppiando
+            // l'ampiezza la risoluzione si dimezza: a camDist=4 si passa da
+            // 6.0e-06 a 1.2e-05 unita' per livello su depth a 24 bit. Margine
+            // ampio; il ramo prospettico resta invariato.
+            m_projection.ortho(-halfWidth, halfWidth, -halfHeight, halfHeight, -farPlane, farPlane);
         } else {
             m_projection.perspective(m_cameraFov, aspect, nearPlane, farPlane);
         }
@@ -467,8 +601,38 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     m_uboData.col2 = QVector3D(texRed2, texGreen2, texBlue2);
     m_uboData.useTexture = m_textureEnabled ? 1 : 0;
 
-    // Aggiornamento Buffer Principale
-    resourceUpdates->updateDynamicBuffer(m_ubo, 0, sizeof(UboData), &m_uboData);
+    // ==========================================================
+    // AGGIORNAMENTO BUFFER PRINCIPALE (multi-mesh)
+    // ==========================================================
+    // Scriviamo un blocco UBO per parte di mesh: tutto identico tranne i limiti
+    // del dominio (u_min/u_max/v_min/v_max) e u_meshIndex, che sono per-parte.
+    // Il blocco 0 resta quello "globale": lo usano lo sfondo in flat view e ogni
+    // draw che non appartiene a una parte, quindi il caso a mesh singola scrive
+    // esattamente cio' che scriveva prima.
+    const std::vector<MeshPart> &uboParts = engine->getMeshParts();
+    const int uboPartCount = (int)uboParts.size();
+
+    // Cresce l'UBO se lo script ha dichiarato piu' parti della capienza attuale.
+    // ensureUboCapacity riaggancia i binding in place (senza distruggerli),
+    // quindi le pipeline restano valide e non serve ricostruirle.
+    ensureUboCapacity(std::max(1, uboPartCount));
+    ensureDynamicBindings(m_surfaceTexture ? m_surfaceTexture : m_dummyTexture);
+
+    if (uboPartCount <= 1) {
+        // Mesh singola: un blocco solo, come da sempre.
+        resourceUpdates->updateDynamicBuffer(m_ubo, 0, sizeof(UboData), &m_uboData);
+    } else {
+        for (int k = 0; k < uboPartCount; ++k) {
+            UboData partUbo = m_uboData;
+            partUbo.u_min = uboParts[k].uMin;
+            partUbo.u_max = uboParts[k].uMax;
+            partUbo.v_min = uboParts[k].vMin;
+            partUbo.v_max = uboParts[k].vMax;
+            partUbo.u_meshIndex = (float)uboParts[k].meshIndex;
+            resourceUpdates->updateDynamicBuffer(m_ubo, k * m_uboBlockStride,
+                                                 sizeof(UboData), &partUbo);
+        }
+    }
 
     // =========================================================================
     // SCARICO TEXTURE (Superficie) — distruzione RHI nel contesto del frame.
@@ -491,6 +655,9 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 });
                 m_bindings->create();
             }
+            // Stesso problema sui binding con dynamic offset usati dalla
+            // superficie: puntavano alla texture appena distrutta.
+            ensureDynamicBindings(m_dummyTexture);
         }
         m_surfaceTextureNeedsClear = false;
     }
@@ -516,6 +683,10 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_surfaceTexture, m_sampler)
         });
         m_bindings->create();
+
+        // La superficie disegna dai binding con dynamic offset: senza questo
+        // aggiornamento la nuova texture non comparirebbe (resterebbe la dummy).
+        ensureDynamicBindings(m_surfaceTexture);
 
         m_surfaceTextureNeedsUpload = false;
     }
@@ -654,7 +825,11 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             } else if (m_pipelineOpaque && m_bgVbo) {
                 cb->setGraphicsPipeline(m_pipelineOpaque);
                 cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-                cb->setShaderResources(m_bindings);
+                // m_pipelineOpaque e' costruita sul layout con dynamic offset:
+                // anche questo draw (quad di anteprima, nessuna parte di mesh)
+                // deve passare un offset, e usa il blocco 0 = stato globale.
+                const QRhiCommandBuffer::DynamicOffset dynOfs0(0, 0);
+                cb->setShaderResources(m_bindingsDyn ? m_bindingsDyn : m_bindings, 1, &dynOfs0);
                 const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
                 cb->setVertexInput(0, 1, &vbufBinding);
                 cb->draw(6);
@@ -672,41 +847,105 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 }
             }
 
+            // MULTI-MESH: una draw call per parte, ognuna col proprio blocco UBO
+            // (dominio + u_meshIndex) selezionato via dynamic offset. Con una
+            // parte sola il loop fa un solo giro sul blocco 0: identico a prima.
+            QRhiShaderResourceBindings *srb = m_bindingsDyn ? m_bindingsDyn : m_bindings;
+            const std::vector<MeshPart> &parts = engine->getMeshParts();
+
             if (renderMode == 2) {
                 // Wireframe
                 if (m_wireframePipeline && m_wireframeIndexCount > 0) {
                     cb->setGraphicsPipeline(m_wireframePipeline);
                     cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-                    cb->setShaderResources(m_bindings);
                     const QRhiCommandBuffer::VertexInput vbufBinding(m_vbo, 0);
-                    cb->setVertexInput(0, 1, &vbufBinding, m_wireframeIbo, 0, QRhiCommandBuffer::IndexUInt32);
-                    cb->drawIndexed(m_wireframeIndexCount);
+
+                    if (m_wireframeRanges.size() <= 1) {
+                        const QRhiCommandBuffer::DynamicOffset ofs(0, 0);
+                        cb->setShaderResources(srb, 1, &ofs);
+                        cb->setVertexInput(0, 1, &vbufBinding, m_wireframeIbo, 0, QRhiCommandBuffer::IndexUInt32);
+                        cb->drawIndexed(m_wireframeIndexCount);
+                    } else {
+                        for (const WireframeRange &r : m_wireframeRanges) {
+                            if (r.indexCount <= 0) continue;
+                            const QRhiCommandBuffer::DynamicOffset ofs(0, r.meshIndex * m_uboBlockStride);
+                            cb->setShaderResources(srb, 1, &ofs);
+                            // Gli indici del wireframe sono ASSOLUTI: l'offset
+                            // della parte si applica all'index buffer (in byte),
+                            // non ai vertici.
+                            cb->setVertexInput(0, 1, &vbufBinding, m_wireframeIbo,
+                                               r.indexOffset * sizeof(unsigned int),
+                                               QRhiCommandBuffer::IndexUInt32);
+                            cb->drawIndexed(r.indexCount);
+                        }
+                    }
                 }
             } else {
                 // Solido
                 if (m_indexCount > 0 && m_vbo && m_ibo) {
                     cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
                     const QRhiCommandBuffer::VertexInput vbufBinding(m_vbo, 0);
+
+                    // Disegna una parte con la pipeline corrente. Gli indici sono
+                    // LOCALI alla parte, quindi il rebase sui vertici passa da
+                    // vertexOffset di drawIndexed; l'offset nell'index buffer e'
+                    // in byte.
+                    auto drawPart = [&](const MeshPart &p, quint32 ubOffset) {
+                        if (p.indexCount <= 0) return;
+                        const QRhiCommandBuffer::DynamicOffset ofs(0, ubOffset);
+                        cb->setShaderResources(m_bindingsDyn ? m_bindingsDyn : m_bindings, 1, &ofs);
+                        cb->setVertexInput(0, 1, &vbufBinding, m_ibo,
+                                           p.indexOffset * sizeof(unsigned int),
+                                           QRhiCommandBuffer::IndexUInt32);
+                        cb->drawIndexed(p.indexCount, 1, 0, p.vertexOffset);
+                    };
+
+                    // Mesh singola (o mesh custom senza parti): percorso storico,
+                    // un solo drawIndexed su tutto il buffer col blocco UBO 0.
+                    auto drawWhole = [&]() {
+                        const QRhiCommandBuffer::DynamicOffset ofs(0, 0);
+                        cb->setShaderResources(m_bindingsDyn ? m_bindingsDyn : m_bindings, 1, &ofs);
+                        cb->setVertexInput(0, 1, &vbufBinding, m_ibo, 0, QRhiCommandBuffer::IndexUInt32);
+                        cb->drawIndexed(m_indexCount);
+                    };
+
+                    const bool multi = (parts.size() > 1);
+
                     if (alpha < 0.99f) {
                         // Disegna solo se entrambe le pipeline di trasparenza sono valide.
                         // Dopo un errore di compilazione la pipeline pu\u00f2 essere nulla:
                         // passarla a Metal causa EXC_BAD_ACCESS.
                         if (m_pipelineTranspBack && m_pipelineTranspFront) {
+                            // ORDINE: TUTTE le facce posteriori (di tutte le
+                            // parti) prima di QUALSIASI faccia anteriore. Fare
+                            // back+front parte per parte fonderebbe la parte k+1
+                            // sopra il fronte della parte k, invertendo la
+                            // profondita' fra i rami (il fronte non scrive depth).
                             cb->setGraphicsPipeline(m_pipelineTranspBack);
-                            cb->setShaderResources(m_bindings);
-                            cb->setVertexInput(0, 1, &vbufBinding, m_ibo, 0, QRhiCommandBuffer::IndexUInt32);
-                            cb->drawIndexed(m_indexCount);
+                            if (multi) {
+                                for (const MeshPart &p : parts)
+                                    drawPart(p, p.meshIndex * m_uboBlockStride);
+                            } else {
+                                drawWhole();
+                            }
+
                             cb->setGraphicsPipeline(m_pipelineTranspFront);
-                            cb->setShaderResources(m_bindings);
-                            cb->setVertexInput(0, 1, &vbufBinding, m_ibo, 0, QRhiCommandBuffer::IndexUInt32);
-                            cb->drawIndexed(m_indexCount);
+                            if (multi) {
+                                for (const MeshPart &p : parts)
+                                    drawPart(p, p.meshIndex * m_uboBlockStride);
+                            } else {
+                                drawWhole();
+                            }
                         }
                     } else {
                         if (m_pipelineOpaque) {
                             cb->setGraphicsPipeline(m_pipelineOpaque);
-                            cb->setShaderResources(m_bindings);
-                            cb->setVertexInput(0, 1, &vbufBinding, m_ibo, 0, QRhiCommandBuffer::IndexUInt32);
-                            cb->drawIndexed(m_indexCount);
+                            if (multi) {
+                                for (const MeshPart &p : parts)
+                                    drawPart(p, p.meshIndex * m_uboBlockStride);
+                            } else {
+                                drawWhole();
+                            }
                         }
                     }
                 }
@@ -778,9 +1017,15 @@ void GLWidget::releaseResources()
         delete m_bindings;
         m_bindings = nullptr;
     }
+    if (m_bindingsDyn) {
+        delete m_bindingsDyn;
+        m_bindingsDyn = nullptr;
+        m_bindingsDynTexture = nullptr;
+    }
     if (m_ubo) {
         delete m_ubo;
         m_ubo = nullptr;
+        m_uboBlockCapacity = 0;
     }
     if (m_vbo) {
         delete m_vbo;
@@ -3354,7 +3599,8 @@ void GLWidget::buildWireframeGeometry() {
     // Zero indici è legittimo quando l'engine non ha ancora vertici (reset/init/
     // flat-view): la mesh arriva subito dopo e il wireframe si rigenera. Nessun
     // warning: era una diagnostica residua di un vecchio bug, ormai solo rumore.
-    m_wireframeIndices = GeometryBuilder::buildWireframe(engine.get(), wfStepU, wfStepV);
+    m_wireframeIndices = GeometryBuilder::buildWireframe(engine.get(), wfStepU, wfStepV,
+                                                         &m_wireframeRanges);
     m_wireframeIndexCount = m_wireframeIndices.size();
     wireframeNeedsUpdate = true;
 }
@@ -3631,6 +3877,9 @@ QString GLWidget::generateGlslHelperVars(const QString& sourceCode) {
     if (!sourceCode.contains(QRegularExpression("\\bfloat\\s+D\\b"))) vars += "    float D = ubuf.u_mathParams2.x;\n";
     if (!sourceCode.contains(QRegularExpression("\\bfloat\\s+E\\b"))) vars += "    float E = ubuf.u_mathParams2.y;\n";
     if (!sourceCode.contains(QRegularExpression("\\bfloat\\s+F\\b"))) vars += "    float F = ubuf.u_mathParams2.z;\n";
+    // MULTI-MESH: indice della parte in corso di disegno, per distinguere il ramo
+    // (0 se la superficie e' a mesh singola). Nome esposto allo script: mesh.
+    if (!sourceCode.contains(QRegularExpression("\\bfloat\\s+mesh\\b"))) vars += "    float mesh = ubuf.u_meshIndex;\n";
     return vars;
 }
 
@@ -3709,6 +3958,16 @@ void GLWidget::buildPipeline() {
     blend.srcAlpha = QRhiGraphicsPipeline::One;
     blend.dstAlpha = QRhiGraphicsPipeline::OneMinusSrcAlpha;
 
+    // MULTI-MESH: le pipeline della superficie devono essere costruite sul
+    // layout con DYNAMIC OFFSET, perche' e' quello che ricevono al draw (un
+    // blocco UBO per parte di mesh). Il layout dichiarato alla pipeline e quello
+    // passato a setShaderResources devono corrispondere, altrimenti il
+    // comportamento dipende dall'API grafica.
+    // Nota: le pipeline dello sfondo (m_bgPipeline) e del ray marching restano
+    // sul binding statico m_bindings, che non ha parti.
+    ensureDynamicBindings(m_surfaceTexture ? m_surfaceTexture : m_dummyTexture);
+    QRhiShaderResourceBindings *surfaceBindings = m_bindingsDyn ? m_bindingsDyn : m_bindings;
+
     // --- 1. PIPELINE OPACO (Klein perfetta, Bordi nascosti) ---
     m_pipelineOpaque = rhi()->newGraphicsPipeline();
     m_pipelineOpaque->setVertexInputLayout(inputLayout);
@@ -3719,7 +3978,7 @@ void GLWidget::buildPipeline() {
     m_pipelineOpaque->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
     m_pipelineOpaque->setCullMode(QRhiGraphicsPipeline::None); // DISEGNA TUTTO INSIEME
     m_pipelineOpaque->setTargetBlends({ blend });
-    m_pipelineOpaque->setShaderResourceBindings(m_bindings);
+    m_pipelineOpaque->setShaderResourceBindings(surfaceBindings);
     m_pipelineOpaque->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
 
     if (!m_pipelineOpaque->create()) {
@@ -3737,7 +3996,7 @@ void GLWidget::buildPipeline() {
     m_pipelineTranspBack->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
     m_pipelineTranspBack->setCullMode(QRhiGraphicsPipeline::Front); // NASCONDE IL FRONTE
     m_pipelineTranspBack->setTargetBlends({ blend });
-    m_pipelineTranspBack->setShaderResourceBindings(m_bindings);
+    m_pipelineTranspBack->setShaderResourceBindings(surfaceBindings);
     m_pipelineTranspBack->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
 
     if (!m_pipelineTranspBack->create()) {
@@ -3755,11 +4014,11 @@ void GLWidget::buildPipeline() {
     m_pipelineTranspFront->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
     m_pipelineTranspFront->setCullMode(QRhiGraphicsPipeline::Back); // NASCONDE IL RETRO
     m_pipelineTranspFront->setTargetBlends({ blend });
-    m_pipelineTranspFront->setShaderResourceBindings(m_bindings);
+    m_pipelineTranspFront->setShaderResourceBindings(surfaceBindings);
     m_pipelineTranspFront->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
 
     if (!m_pipelineTranspFront->create()) {
-        qWarning() << "buildPipeline: create() transpBack fallita.";
+        qWarning() << "buildPipeline: create() transpFront fallita.";
         delete m_pipelineTranspFront; m_pipelineTranspFront = nullptr;
     }
 
@@ -3779,11 +4038,11 @@ void GLWidget::buildPipeline() {
     m_wireframePipeline->setDepthWrite(true);
     m_wireframePipeline->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
     m_wireframePipeline->setTargetBlends({ blend });
-    m_wireframePipeline->setShaderResourceBindings(m_bindings);
+    m_wireframePipeline->setShaderResourceBindings(surfaceBindings);
     m_wireframePipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
 
     if (!m_wireframePipeline->create()) {
-        qWarning() << "buildPipeline: create() transpBack fallita.";
+        qWarning() << "buildPipeline: create() wireframe fallita.";
         delete m_wireframePipeline; m_wireframePipeline = nullptr;
     }
 }

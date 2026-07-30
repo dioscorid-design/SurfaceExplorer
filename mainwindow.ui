@@ -498,6 +498,36 @@
              </layout>
             </widget>
            </item>
+           <item>
+            <widget class="QLabel" name="lblFov">
+             <property name="text">
+              <string>Fov</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignmentFlag::AlignCenter</set>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QWidget" name="widgetFov" native="true">
+             <layout class="QHBoxLayout" name="horizontalLayoutFov">
+              <item>
+               <widget class="QLabel" name="lblValFov">
+                <property name="text">
+                 <string>45</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QSlider" name="fovSliderMain">
+                <property name="orientation">
+                 <enum>Qt::Orientation::Horizontal</enum>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
           </layout>
          </widget>
         </item>
@@ -577,23 +607,6 @@
          <widget class="QPushButton" name="btnDeparture3D">
           <property name="text">
            <string>DEPARTURE</string>
-          </property>
-         </widget>
-        </item>
-        <item row="6" column="0">
-         <widget class="QLabel" name="lblFov3D">
-          <property name="text">
-           <string>Fov 45°</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignCenter</set>
-          </property>
-         </widget>
-        </item>
-        <item row="6" column="1">
-         <widget class="QSlider" name="fovSlider">
-          <property name="orientation">
-           <enum>Qt::Orientation::Horizontal</enum>
           </property>
          </widget>
         </item>
@@ -936,23 +949,6 @@
          <widget class="QPushButton" name="btnDeparture">
           <property name="text">
            <string>DEPARTURE</string>
-          </property>
-         </widget>
-        </item>
-        <item row="9" column="0">
-         <widget class="QLabel" name="lblFov4D">
-          <property name="text">
-           <string>Fov 45°</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignmentFlag::AlignCenter</set>
-          </property>
-         </widget>
-        </item>
-        <item row="9" column="2">
-         <widget class="QSlider" name="fovSlider4D">
-          <property name="orientation">
-           <enum>Qt::Orientation::Horizontal</enum>
           </property>
          </widget>
         </item>

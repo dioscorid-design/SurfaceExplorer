@@ -217,6 +217,15 @@ private:
     // e la seconda non toglieva mai il cutout -> errore di compilazione.
     QString extractCutoutSection(const QString &fullText, QString *outCutoutGlsl);
 
+    // Estrae le sezioni ripetibili //MESH_BEGIN..//MESH_END (multi-mesh) e le
+    // rimuove dal testo restituito, per lo stesso motivo del cutout: non devono
+    // finire iniettate in getRawPosition(). Ogni sezione dichiara il dominio e
+    // la risoluzione di UNA parte di mesh; lo script distingue il ramo con
+    // u_meshIndex. Senza sezioni l'elenco resta vuoto = una mesh sola come
+    // sempre. Va chiamata negli STESSI punti dell'estrazione del cutout,
+    // altrimenti si ripete il bug "funziona da Run ma non da Master Start".
+    QString extractMeshSections(const QString &fullText, std::vector<MeshPart> *outParts);
+
     // ==========================================================
     // CORE UI COMPONENTS
     // ==========================================================
@@ -402,8 +411,8 @@ private:
     // un path la telecamera segue il percorso e questi comandi non hanno senso.
     QVector<QPushButton*> m_navButtons;
 
-    // Inizializzati a nullptr: updateProjectionButtonText() (quindi
-    // updateFovSlidersEnabled) viene chiamata alla riga ~2182 del costruttore,
+    // Inizializzati a nullptr: updateProjectionButtonText() viene chiamata
+    // alla riga ~2182 del costruttore,
     // ~700 righe PRIMA che pathTimer/pathTimer3D siano creati (~2875). Senza
     // l'inizializzatore il puntatore raw contiene spazzatura (non 0x0): il
     // guard "pathTimer &&" la considera valida e pathTimer->isActive() va in
@@ -617,17 +626,13 @@ private:
     bool hasAnyRotationSpeed() const;
     void generateTexture();
     void applyDefaultCheckerShader();
-    // Unici punti che impostano i FOV dei path (m_fov3D/m_fov4D): slider +
-    // label del proprio dock sempre allineati (chiamati dagli slider E dai
-    // load di preset/record). Applicano il valore alla proiezione solo se il
-    // proprio path sta gia' guidando la camera; altrimenti lo fara' il primo
-    // tick di applyPath3D/4DCameraAt.
-    void applyPathFov3D(float deg);
-    void applyPathFov4D(float deg);
-    // Abilitazione slider FOV: ciascuno attivo solo con la propria path in
-    // corsa e proiezione non ortogonale. Chiamata da updateViewButtonsEnabled
-    // (start/stop path) e updateProjectionButtonText (cambi proiezione).
-    void updateFovSlidersEnabled();
+    // FOV UNICO (slider nel dock renderer, sotto Light). Unico punto che imposta
+    // il campo visivo: allinea slider + etichetta e applica SEMPRE il valore
+    // alla proiezione, senza dipendere da quale moto stia guidando la camera.
+    // Sostituisce applyPathFov3D/applyPathFov4D, che agivano solo con la
+    // rispettiva path in corsa (da fermo il FOV era inerte e non correggibile,
+    // e i due slider si contendevano lo stesso m_cameraFov).
+    void applyCameraFov(float deg);
     void toggleProjection();
     bool applyBackgroundTextureIfNeeded();
 
