@@ -2,6 +2,7 @@
 #define GLWIDGET_H
 
 #include "surfaceengine.h"
+#include "geometrybuilder.h"   // WireframeRange (intervalli per parte di mesh)
 
 #include <QWidget>
 #include <QRhiWidget>
@@ -57,6 +58,18 @@ struct UboData {
     float y_max;
     float z_min;
     float z_max;
+    // MULTI-MESH: indice della parte in corso di disegno, esposto allo script
+    // come u_meshIndex per distinguere il ramo (es. quale toro di Clifford).
+    // E' float e non int per essere usabile direttamente nelle espressioni dello
+    // script senza conversioni. Vale 0 per le superfici a mesh singola.
+    float u_meshIndex;
+    // Coda di riserva. Gli offset di questa struct combaciano con il blocco
+    // SceneUBO degli shader: verificato con `qsb --dump` che u_min=372,
+    // z_max=416, u_meshIndex=420 su entrambi i lati (blocco shader = 424 byte).
+    // Lo spazio fra i blocchi NON e' sizeof(UboData): il passo e' m_uboBlockStride,
+    // ricavato da QRhi::ubufAlignment() (256 su Metal/Vulkan), quindi ogni blocco
+    // e' comunque allineato come richiede l'API.
+    float _pad0[3];
 };
 
 class GLWidget : public QRhiWidget
@@ -476,6 +489,9 @@ private:
     std::vector<unsigned int> m_wireframeIndices;
     bool wireframeNeedsUpdate = true;
     int m_wireframeIndexCount = 0;
+    // Un intervallo per parte di mesh: il wireframe condivide il VBO della
+    // superficie (indici assoluti) ma gli uniform del dominio sono per-parte.
+    std::vector<WireframeRange> m_wireframeRanges;
 
     QRhiGraphicsPipeline *m_pipelineOpaque = nullptr;
     QRhiGraphicsPipeline *m_pipelineTranspBack = nullptr;
@@ -484,6 +500,26 @@ private:
     QRhiBuffer *m_bgUbo = nullptr;
 
     UboData m_uboData;
+
+    // ==========================================================
+    // MULTI-MESH: UBO ad array + dynamic offset
+    // ==========================================================
+    // I limiti u_min/u_max/v_min/v_max e u_meshIndex sono per-parte, ma sono
+    // uniform: servono N blocchi nello stesso buffer, uno per parte, e ogni draw
+    // call ne seleziona uno con un dynamic offset. Alternativa scartata: N
+    // updateDynamicBuffer sullo stesso blocco, che serializzerebbe i draw.
+    //
+    // m_uboBlockStride e' allineato con QRhi::ubufAlignment(): NON e'
+    // sizeof(UboData) (su Metal/Vulkan l'allineamento minimo puo' essere 256).
+    quint32 m_uboBlockStride = 0;
+    int m_uboBlockCapacity = 0;   // quante parti entrano nel buffer attuale
+    // Binding con dynamic offset per la superficie multi-parte. Restano separati
+    // da m_bindings: quello serve ai percorsi che disegnano a offset 0 (sfondo
+    // flat, ray marching) e non deve cambiare comportamento.
+    QRhiShaderResourceBindings *m_bindingsDyn = nullptr;
+    QRhiTexture *m_bindingsDynTexture = nullptr;  // texture con cui e' stato creato
+    void ensureDynamicBindings(QRhiTexture *tex);
+    bool ensureUboCapacity(int partCount);
 
 
     // ==========================================================

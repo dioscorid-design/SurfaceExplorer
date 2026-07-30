@@ -25,6 +25,59 @@ struct CachedExpression {
     bool isValid = false;
 };
 
+// ==========================================================
+// MULTI-MESH: una superficie puo' essere composta da PIU' griglie indipendenti
+// ==========================================================
+// Ogni MeshPart e' una griglia parametrica autonoma, con dominio e risoluzione
+// propri. Il motivo di esistere: cucendo N rami in un'unica griglia il
+// generatore di indici collega SEMPRE j a j+1, quindi alla cucitura unisce
+// l'ultima riga di un ramo alla prima del ramo SUCCESSIVO — una "lamina di
+// giunzione" fra due superfici diverse, che va poi mascherata nel cutout con
+// una banda di guardia (e lascia un solco circolare). Con griglie separate
+// nessun quad puo' collegare due rami: il difetto sparisce alla radice.
+//
+// I vertici di TUTTE le parti vivono in un unico buffer contiguo (un solo
+// upload alla GPU); ogni parte sa dove inizia. Gli indici sono LOCALI alla
+// parte (partono da 0) e la draw call li rebasa con vertexOffset: cosi' una
+// parte puo' essere disegnata senza toccare le altre.
+struct MeshPart {
+    // Dominio parametrico coperto da questa parte. Finisce negli uniform
+    // u_min/u_max/v_min/v_max (per-draw): il cutout, che ricalcola il punto da
+    // (u,v), continua a funzionare senza modifiche allo script.
+    float uMin = 0.0f, uMax = 1.0f;
+    float vMin = 0.0f, vMax = 1.0f;
+
+    // Risoluzione EFFETTIVA di questa parte, cioe' quella con cui la griglia
+    // viene generata. NON e' il valore dichiarato nello script: e' quello
+    // riscalato dallo slider Steps (vedi resolveMeshParts).
+    int numU = 100, numV = 100;
+
+    // Risoluzione DICHIARATA dalla sezione //MESH_BEGIN, conservata a parte.
+    // Serve come PROPORZIONE, non come tetto: lo slider Steps governa la
+    // risoluzione (vedi la memoria slider-steps-governa-risoluzione-script), e i
+    // valori dichiarati dicono soltanto il rapporto fra le parti e fra u e v
+    // (es. "in v il doppio dei passi che in u", oppure "questa parte meta'
+    // dell'altra"). Va tenuta separata da numU/numV perche' il riscalamento
+    // deve partire SEMPRE dal valore originale: riscalare un valore gia'
+    // riscalato farebbe derivare la risoluzione a ogni movimento dello slider.
+    int declaredU = 0, declaredV = 0;   // 0 = non dichiarata
+
+    // Posizione nei buffer condivisi (in elementi, non byte).
+    int vertexOffset = 0;   // primo vertice nel buffer comune
+    int vertexCount  = 0;   // (numU+1)*(numV+1)
+    int indexOffset  = 0;   // primo indice nel buffer comune
+    int indexCount   = 0;   // numU*numV*6
+
+    // Chiusura rilevata su QUESTA parte (prima era globale sul dominio intero,
+    // quindi non sapeva chiudere i singoli rami).
+    bool uClosed = false;
+    bool vClosed = false;
+
+    // Indice progressivo, esposto allo script come uniform u_meshIndex per
+    // distinguere il ramo (es. quale toro di Clifford si sta generando).
+    int meshIndex = 0;
+};
+
 class SurfaceEngine
 {
 public:
@@ -52,6 +105,18 @@ public:
     bool isUClosed() const { return u_is_closed; }
     bool isVClosed() const { return v_is_closed; }
     bool isTwisted() const { return u_closes_twisted; }
+
+    // ==========================================================
+    // MULTI-MESH
+    // ==========================================================
+    // Le parti dichiarate dallo script con le sezioni //MESH_BEGIN..//MESH_END.
+    // Se lo script non ne dichiara nessuna, computeMesh() sintetizza UNA parte
+    // sul dominio corrente (uMin..uMax x vMin..vMax, numU x numV): il caso a
+    // mesh singola resta identico a prima, stessi vertici e stessi indici.
+    void setMeshParts(const std::vector<MeshPart>& parts) { m_declaredParts = parts; }
+    void clearMeshParts() { m_declaredParts.clear(); }
+    const std::vector<MeshPart>& getMeshParts() const { return m_meshParts; }
+    int getMeshPartCount() const { return (int)m_meshParts.size(); }
 
     // ==========================================================
     // EQUATIONS & CONSTRAINTS
@@ -156,6 +221,13 @@ private:
     bool v_is_closed = false;
     bool u_closes_twisted = false;
 
+    // Parti dichiarate dallo script (input) e parti effettivamente generate con
+    // gli offset nei buffer (output di generateParametricGrid). Sono distinte
+    // perche' le dichiarate sopravvivono a un cambio di risoluzione o dominio,
+    // mentre le generate vanno ricalcolate a ogni computeMesh().
+    std::vector<MeshPart> m_declaredParts;
+    std::vector<MeshPart> m_meshParts;
+
     // ==========================================================
     // EQUATIONS STATE
     // ==========================================================
@@ -228,6 +300,12 @@ private:
     // --- Mesh Generation & Analysis ---
     void generateParametricGrid();
     void detectMeshClosure();
+    // Chiusura di una singola parte: valuta le equazioni agli estremi del
+    // sotto-dominio della parte, non del dominio globale.
+    void detectPartClosure(MeshPart& part);
+    // Costruisce l'elenco di parti da generare: quelle dichiarate dallo script,
+    // oppure una parte sola sul dominio corrente (comportamento storico).
+    std::vector<MeshPart> resolveMeshParts() const;
 
     // --- Expression Parsing ---
     void compileSingleExpr(const QString &eqStr, CachedExpression &target, exprtk::parser<float> &parser);

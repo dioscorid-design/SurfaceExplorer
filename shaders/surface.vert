@@ -44,6 +44,20 @@ layout(std140, binding = 0) uniform SceneUBO {
     float v_min;
     float v_max;
     int u_hasExplicitW;
+    // Da qui in poi il blocco deve rispecchiare la coda di UboData (glwidget.h):
+    // std140 permette di dichiarare solo un PREFISSO del blocco, ma non di
+    // saltare campi in mezzo. u_meshIndex sta dopo i limiti x/y/z, quindi questi
+    // vanno dichiarati anche se il vertex shader non li usa.
+    int u_raySteps;
+    float x_min;
+    float x_max;
+    float y_min;
+    float y_max;
+    float z_min;
+    float z_max;
+    // MULTI-MESH: indice della parte in corso di disegno (0 se mesh singola).
+    // Permette allo script di distinguere il ramo.
+    float u_meshIndex;
 } ubuf;
 
 float sq(float x) { return x*x; }

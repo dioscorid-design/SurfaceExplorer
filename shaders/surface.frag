@@ -42,6 +42,17 @@ layout(std140, binding = 0) uniform SceneUBO {
     float v_min;
     float v_max;
     int u_hasExplicitW;
+    // Coda del blocco allineata a UboData (glwidget.h): std140 consente di
+    // dichiarare un prefisso, non di saltare campi intermedi.
+    int u_raySteps;
+    float x_min;
+    float x_max;
+    float y_min;
+    float y_max;
+    float z_min;
+    float z_max;
+    // MULTI-MESH: indice della parte in corso di disegno (0 se mesh singola).
+    float u_meshIndex;
 } ubuf;
 
 // --- PLACEHOLDER PER CODICE TEXTURE CUSTOM ---
