@@ -67,8 +67,9 @@
         <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Helicoid.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Hyperbolic Paraboloid.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Hyperboloid.json</file>
+        <file>presets/surfaces/Parametric/Solid Wireframe/Hopf Tori Mesh Colors.json</file>
         <file>presets/surfaces/Parametric/Solid Wireframe/Hopf Tori over Parallels.json</file>
-        <file>presets/surfaces/Parametric/Solid Wireframe/NewSurface.json</file>
+        <file>presets/surfaces/Parametric/Solid Wireframe/Clifford Labyrinth.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Twisted Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Dynamic Clifford Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Villarceau Circles.json</file>
