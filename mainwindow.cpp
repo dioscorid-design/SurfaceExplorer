@@ -2463,9 +2463,21 @@ MainWindow::MainWindow(QWidget *parent)
 
     ui->radioBasic->setChecked(true);
 
-    connect(ui->radioBasic, &QRadioButton::toggled, this, &MainWindow::updateRenderState);
-    connect(ui->radioPhong, &QRadioButton::toggled, this, &MainWindow::updateRenderState);
-    connect(ui->radioWF,    &QRadioButton::toggled, this, &MainWindow::updateRenderState);
+    // I radio sono DISPLAY (mostrano la modalita' della mesh selezionata) e
+    // COMANDO (l'utente li clicca). Solo il secondo caso deve scrivere una
+    // modalita' PROPRIA sulla parte attiva: quando e' syncAppearanceControls-
+    // ToActiveMesh a muoverli, m_syncingMeshControls e' vero e qui non si scrive
+    // nulla. Senza questa distinzione ogni updateRenderState (cambio tab,
+    // proiezione, load) riapplicava il valore a un destinatario variabile ed era
+    // la causa del wireframe che si propagava a tutte le mesh.
+    auto onRenderRadioToggled = [this](bool checked){
+        if (!checked) return;                 // interessa solo chi si accende
+        if (!m_syncingMeshControls) onUserRenderModeChosen();
+        updateRenderState();
+    };
+    connect(ui->radioBasic, &QRadioButton::toggled, this, onRenderRadioToggled);
+    connect(ui->radioPhong, &QRadioButton::toggled, this, onRenderRadioToggled);
+    connect(ui->radioWF,    &QRadioButton::toggled, this, onRenderRadioToggled);
 
     // Stato iniziale dei controlli densità Wireframe: al boot la modalità è Base, quindi
     // vanno disabilitati. updateRenderState (che li gestisce) non viene chiamato a tempo
@@ -2477,10 +2489,13 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(ui->radioWF, &QRadioButton::toggled, this, [this](bool checked){
         if (checked) {
-            ui->glWidget->setRenderMode(2);
-            // Il wireframe disabilita la texture DELLA SUPERFICIE. Se però il dock
-            // texture sta editando lo sfondo, la checkbox controlla il Background e
-            // non va disabilitata (sono funzioni indipendenti).
+            // NB: qui NON si chiama piu' setRenderMode(2). Questo handler scatta
+            // anche quando e' syncAppearanceControlsToActiveMesh a mostrare una
+            // mesh in wireframe, e forzare il GLOBALE a 2 propagava il wireframe
+            // a tutte le parti che ereditano (era una delle vie del bug).
+            // La modalita' la scrive onUserRenderModeChosen, sul destinatario
+            // giusto: la parte selezionata, o il globale se siamo su "All".
+            // Qui resta solo l'effetto collaterale sulla UI della texture.
             if (!ui->radioBackground->isChecked())
                 ui->chkBoxTexture->setEnabled(false);
         }
@@ -3734,6 +3749,9 @@ void MainWindow::updateRenderState()
         // Marching, dove il wireframe non esiste). Disabilitare il widget contenitore
         // disabilita anche i suoi figli. Senza Wireframe la densità non ha effetto, quindi
         // i controlli vanno in grigio.
+        // I radio MOSTRANO la mesh selezionata, quindi radioWF acceso significa
+        // "la mesh che sto guardando e' in wireframe": e' esattamente la
+        // condizione in cui i tasti densita' servono (agiscono su quella parte).
         bool wireframeDensityUsable = !isImplicitMode && ui->radioWF->isChecked();
         ui->uDensity->setEnabled(wireframeDensityUsable);
         ui->vDensity->setEnabled(wireframeDensityUsable);
@@ -3765,7 +3783,17 @@ void MainWindow::updateRenderState()
         }
 
     // 2. RECUPERA LO STATO AGGIORNATO
+    // 'mode' governa il GATING dell'interfaccia (texture, trasparenza, densita'
+    // wireframe): deve seguire cio' che l'utente sta guardando, cioe' la
+    // modalita' EFFICACE della mesh selezionata. Su "All" coincide con lo stato
+    // globale, quindi il comportamento storico non cambia.
+    // Restano invece su m_savedRenderMode le decisioni sullo stato GLOBALE
+    // (vedi 'isPhong' e il blocco che scrive nel motore piu' sotto).
     int mode = m_savedRenderMode;
+    if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0
+        && ui->glWidget->meshPartCount() > 1 && !isImplicitMode) {
+        mode = ui->glWidget->activeMeshEffectiveRenderMode();
+    }
     bool wantTexture = ui->chkBoxTexture->isChecked();
 
     if (ui->radioBackground) {
@@ -3818,7 +3846,12 @@ void MainWindow::updateRenderState()
     // preset wireframe con alpha salvato < 1 (setValue del load, poi questa
     // chiamata lo riporta a 1). A slider disabilitati nessun input utente da
     // preservare; uscendo dal wireframe restano ai default.
-    if (mode == 2) {
+    // Il reset riguarda lo stato GLOBALE, quindi si fa solo quando e' il
+    // globale a essere in wireframe (m_savedRenderMode), NON quando e'
+    // semplicemente la mesh selezionata a esserlo: li' le altre mesh sono
+    // ancora solide e azzerarne trasparenza e luce cancellerebbe l'aspetto
+    // per-mesh appena impostato.
+    if (mode == 2 && m_savedRenderMode == 2) {
         // Questi due sono reset AUTOMATICI del motore, non scelte dell'utente su
         // una singola mesh: vanno sullo stato globale. Senza il bypass, con una
         // mesh selezionata nello spinbox finivano scritti su QUELLA parte (che
@@ -3849,13 +3882,28 @@ void MainWindow::updateRenderState()
             // Modalità Ray Marching: Ascolta SOLO i radio button Shell/Solid dedicati
             ui->glWidget->setRenderMode(ui->radioShell->isChecked() ? 1 : 0);
         } else {
-            // Modalità Parametrica: Ascolta i radio button classici
-            if (ui->radioWF->isChecked()) {
-                ui->glWidget->setRenderMode(2);
-            } else if (ui->radioPhong->isChecked()) {
-                ui->glWidget->setRenderMode(1);
-            } else {
-                ui->glWidget->setRenderMode(0);
+            // Modalità Parametrica: Ascolta i radio button classici.
+            // NB: setRenderMode scrive SOLO lo stato GLOBALE, mai su una parte,
+            // anche se lo spinbox ha una mesh selezionata. Questa funzione gira
+            // a ogni cambio tab / proiezione / load: se scrivesse sulla parte
+            // attiva, il valore mostrato dai radio (che e' quello della mesh
+            // selezionata) verrebbe riapplicato a un destinatario diverso ogni
+            // volta, propagando il wireframe alle mesh che ereditano. La sola
+            // via che scrive una modalita' per-parte e' onUserRenderModeChosen,
+            // cioe' un click esplicito dell'utente.
+            //
+            // Quando una mesh e' selezionata i radio mostrano LEI, quindi non
+            // sono una fonte valida per il globale: lo lasciamo com'e'.
+            const bool showingPart =
+                (ui->glWidget->activeMeshPart() >= 0 && ui->glWidget->meshPartCount() > 1);
+            if (!showingPart) {
+                if (ui->radioWF->isChecked()) {
+                    ui->glWidget->setRenderMode(2);
+                } else if (ui->radioPhong->isChecked()) {
+                    ui->glWidget->setRenderMode(1);
+                } else {
+                    ui->glWidget->setRenderMode(0);
+                }
             }
         }
 
@@ -9943,6 +9991,19 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     ui->radioPhong->blockSignals(oldPho);
     ui->radioWF->blockSignals(oldWF);
 
+    // La modalita' GLOBALE del preset va scritta esplicitamente nel motore.
+    // Prima ci pensava updateRenderState rileggendo i radio, ma ora quella
+    // funzione non tratta piu' i radio come sorgente quando una mesh e'
+    // selezionata (mostrano LEI, non il globale). Il bypass copre il caso in cui
+    // il load avvenga con una parte gia' attiva: e' uno stato del preset, non
+    // una scelta dell'utente su quella parte.
+    if (ui->glWidget) {
+        const bool oldBypass = ui->glWidget->meshAppearanceBypass();
+        ui->glWidget->setMeshAppearanceBypass(true);
+        ui->glWidget->setRenderMode(m_savedRenderMode);
+        ui->glWidget->setMeshAppearanceBypass(oldBypass);
+    }
+
     // 2. Risoluzione e Limiti (Sovrascrive i default se il preset li contiene)
     bool oldStep = ui->stepSlider->blockSignals(true);
 
@@ -11763,9 +11824,17 @@ void MainWindow::applyPendingMeshAppearance()
         dst->colorB = src.colorB;
         dst->alpha = src.alpha;
         dst->lightIntensity = src.lightIntensity;
+        dst->renderMode = src.renderMode;
+        dst->hasCustomRenderMode = src.hasCustomRenderMode;
+        dst->wfStepU = src.wfStepU;
+        dst->wfStepV = src.wfStepV;
     }
     eng->syncPartAppearance();
     m_pendingMeshParts.clear();
+    // Le densita' wireframe per-parte appena caricate cambiano la GEOMETRIA
+    // delle linee, non solo un uniform: senza ricostruzione si vedrebbero
+    // ancora quelle della superficie precedente.
+    ui->glWidget->rebuildWireframeGeometry();
     ui->glWidget->update();
 }
 
@@ -11812,6 +11881,60 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
     if (p.lightIntensity >= 0.0f) {
         setNoSignal(ui->lightSlider, qRound(p.lightIntensity * 100.0f));
         ui->lblValLight->setText(QString::number(qRound(p.lightIntensity * 100.0f)) + " %");
+    }
+
+    // DISPLAY della modalita' di rendering: i radio mostrano quella EFFICACE
+    // della parte (la propria se dichiarata, altrimenti la globale). Siamo
+    // dentro la guardia m_syncingMeshControls, quindi il gestore dei radio
+    // riconosce questi setChecked come sincronizzazione e NON li riscrive sulla
+    // parte. In un QButtonGroup esclusivo setChecked(true) ne deseleziona un
+    // altro, che emette toggled(false): vanno bloccati i segnali di TUTTI i
+    // bottoni del gruppo, non solo di quello che si accende.
+    // In Ray Marching i radio classici non governano nulla: si lascia stare.
+    if (ui->tabModeSelector->currentIndex() != 1) {
+        const int eff = ui->glWidget->activeMeshEffectiveRenderMode();
+        QRadioButton *target = (eff == 2) ? ui->radioWF
+                             : (eff == 1) ? ui->radioPhong
+                                          : ui->radioBasic;
+        if (target && !target->isChecked()) {
+            const bool b0 = ui->radioBasic->blockSignals(true);
+            const bool b1 = ui->radioPhong->blockSignals(true);
+            const bool b2 = ui->radioWF->blockSignals(true);
+            target->setChecked(true);
+            ui->radioBasic->blockSignals(b0);
+            ui->radioPhong->blockSignals(b1);
+            ui->radioWF->blockSignals(b2);
+        }
+    }
+
+    // La densita' wireframe non ha widget di stato da riallineare: i tasti +/-
+    // sono incrementali e leggono il valore corrente della parte selezionata
+    // (vedi i loro gestori, che passano da GLWidget::*WireframeUDensity).
+}
+
+// L'utente ha cliccato un radio Base/Phong/Wireframe (non e' una
+// sincronizzazione). Se una mesh e' selezionata la scelta riguarda SOLO quella;
+// con "All" e' la modalita' globale, come da sempre.
+void MainWindow::onUserRenderModeChosen()
+{
+    if (!ui->glWidget) return;
+    if (ui->tabModeSelector->currentIndex() == 1) return;   // Ray Marching: non si applica
+
+    const int mode = ui->radioWF->isChecked()    ? 2
+                   : ui->radioPhong->isChecked() ? 1
+                                                 : 0;
+
+    const bool editingSingleMesh =
+        (ui->glWidget->activeMeshPart() >= 0 && ui->glWidget->meshPartCount() > 1);
+
+    if (editingSingleMesh) {
+        // Scrive la modalita' PROPRIA della parte. m_savedRenderMode (lo stato
+        // globale, quello che il preset salva e che le altre mesh ereditano)
+        // resta invariato: e' la ragione per cui ricaricare il preset non
+        // propaga piu' il wireframe a tutte le parti.
+        ui->glWidget->setActiveMeshRenderMode(mode);
+    } else {
+        m_savedRenderMode = mode;
     }
 }
 

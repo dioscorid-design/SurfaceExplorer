@@ -24,7 +24,10 @@ std::vector<unsigned int> GeometryBuilder::buildWireframe(const SurfaceEngine* e
     // l'offset della parte va sommato qui.
     const std::vector<MeshPart>& parts = engine->getMeshParts();
 
-    auto emitGrid = [&](int nU, int nV, int base) {
+    // I passi sono per-parte: pU/pV valgono quelli globali (sU/sV) quando la
+    // parte non ne dichiara di propri. Con un unico stride globale due mesh in
+    // wireframe non si potevano differenziare.
+    auto emitGrid = [&](int nU, int nV, int base, int pU, int pV) {
         int stride = nV + 1;
 
         auto addIndex = [&](int i, int j) {
@@ -35,14 +38,14 @@ std::vector<unsigned int> GeometryBuilder::buildWireframe(const SurfaceEngine* e
         };
 
         // Linee lungo U
-        for (int i = 0; i <= nU; i += sU) {
+        for (int i = 0; i <= nU; i += pU) {
             for (int j = 0; j < nV; ++j) {
                 addIndex(i, j);
                 addIndex(i, j + 1);
             }
         }
         // Linee lungo V
-        for (int j = 0; j <= nV; j += sV) {
+        for (int j = 0; j <= nV; j += pV) {
             for (int i = 0; i < nU; ++i) {
                 addIndex(i, j);
                 addIndex(i + 1, j);
@@ -50,9 +53,9 @@ std::vector<unsigned int> GeometryBuilder::buildWireframe(const SurfaceEngine* e
         }
     };
 
-    auto emitPart = [&](int nU, int nV, int base, int meshIndex) {
+    auto emitPart = [&](int nU, int nV, int base, int meshIndex, int pU, int pV) {
         const int before = (int)indices.size();
-        emitGrid(nU, nV, base);
+        emitGrid(nU, nV, base, pU, pV);
         if (outRanges) {
             WireframeRange r;
             r.indexOffset = before;
@@ -65,10 +68,13 @@ std::vector<unsigned int> GeometryBuilder::buildWireframe(const SurfaceEngine* e
     if (parts.empty()) {
         // Mesh senza parti dichiarate (es. custom mesh caricata direttamente):
         // comportamento storico, una griglia sola che parte da 0.
-        emitPart(engine->getNumU(), engine->getNumV(), 0, 0);
+        emitPart(engine->getNumU(), engine->getNumV(), 0, 0, sU, sV);
     } else {
         for (const MeshPart& p : parts) {
-            emitPart(p.numU, p.numV, p.vertexOffset, p.meshIndex);
+            // Passi propri della parte se dichiarati (> 0), altrimenti globali.
+            const int pU = (p.wfStepU > 0) ? p.wfStepU : sU;
+            const int pV = (p.wfStepV > 0) ? p.wfStepV : sV;
+            emitPart(p.numU, p.numV, p.vertexOffset, p.meshIndex, pU, pV);
         }
     }
 

@@ -415,6 +415,14 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
                 }
                 if (o.contains("alpha"))      mp.alpha = (float)o["alpha"].toDouble(-1.0);
                 if (o.contains("light"))      mp.lightIntensity = (float)o["light"].toDouble(-1.0);
+                // Modalita' propria: senza la chiave la parte eredita, quindi i
+                // preset salvati prima di questa feature restano identici.
+                if (o.contains("mode")) {
+                    mp.renderMode = o["mode"].toInt(0);
+                    mp.hasCustomRenderMode = true;
+                }
+                if (o.contains("wfU"))        mp.wfStepU = o["wfU"].toInt(0);
+                if (o.contains("wfV"))        mp.wfStepV = o["wfV"].toInt(0);
                 d.meshParts.push_back(mp);
             }
         }
@@ -649,6 +657,14 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
                 }
                 if (o.contains("alpha"))      mp.alpha = (float)o["alpha"].toDouble(-1.0);
                 if (o.contains("light"))      mp.lightIntensity = (float)o["light"].toDouble(-1.0);
+                // Modalita' propria: senza la chiave la parte eredita, quindi i
+                // preset salvati prima di questa feature restano identici.
+                if (o.contains("mode")) {
+                    mp.renderMode = o["mode"].toInt(0);
+                    mp.hasCustomRenderMode = true;
+                }
+                if (o.contains("wfU"))        mp.wfStepU = o["wfU"].toInt(0);
+                if (o.contains("wfV"))        mp.wfStepV = o["wfV"].toInt(0);
                 d.meshParts.push_back(mp);
             }
         }

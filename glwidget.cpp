@@ -870,8 +870,25 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             QRhiShaderResourceBindings *srb = m_bindingsDyn ? m_bindingsDyn : m_bindings;
             const std::vector<MeshPart> &parts = engine->getMeshParts();
 
-            if (renderMode == 2) {
-                // Wireframe
+            // Una parte e' in wireframe se la sua modalita' EFFICACE e' 2.
+            // Con parti che ereditano tutte, questo coincide col vecchio test
+            // globale renderMode == 2.
+            auto partIsWireframe = [&](const MeshPart &p) {
+                return p.effectiveRenderMode(renderMode) == 2;
+            };
+            bool anyWireframe = (renderMode == 2);
+            bool anySolid     = (renderMode != 2);
+            if (parts.size() > 1) {
+                anyWireframe = false;
+                anySolid     = false;
+                for (const MeshPart &p : parts) {
+                    if (partIsWireframe(p)) anyWireframe = true;
+                    else                    anySolid = true;
+                }
+            }
+
+            if (anyWireframe) {
+                // Wireframe: le parti in wireframe (tutte, nel caso globale).
                 if (m_wireframePipeline && m_wireframeIndexCount > 0) {
                     cb->setGraphicsPipeline(m_wireframePipeline);
                     cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
@@ -885,6 +902,12 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                     } else {
                         for (const WireframeRange &r : m_wireframeRanges) {
                             if (r.indexCount <= 0) continue;
+                            // Salta le parti che NON sono in wireframe: i loro
+                            // indici esistono comunque nel buffer (buildWireframe
+                            // genera un range per ogni parte), ma vanno disegnate
+                            // dal ramo solido.
+                            if (r.meshIndex >= 0 && r.meshIndex < (int)parts.size()
+                                && !partIsWireframe(parts[r.meshIndex])) continue;
                             const QRhiCommandBuffer::DynamicOffset ofs(0, r.meshIndex * m_uboBlockStride);
                             cb->setShaderResources(srb, 1, &ofs);
                             // Gli indici del wireframe sono ASSOLUTI: l'offset
@@ -897,7 +920,9 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                         }
                     }
                 }
-            } else {
+            }
+
+            if (anySolid) {
                 // Solido
                 if (m_indexCount > 0 && m_vbo && m_ibo) {
                     cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
@@ -935,6 +960,14 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                         return (p.alpha >= 0.0f) ? p.alpha : alpha;
                     };
                     if (multi) {
+                        // Le parti in wireframe sono gia' state disegnate dal
+                        // ramo sopra: qui vanno saltate, o comparirebbero anche
+                        // come solido (doppio disegno).
+                        std::vector<const MeshPart*> solidParts;
+                        solidParts.reserve(parts.size());
+                        for (const MeshPart &p : parts)
+                            if (!partIsWireframe(p)) solidParts.push_back(&p);
+
                         // ORDINE: prima tutte le parti OPACHE (scrivono depth),
                         // poi le trasparenti; e fra queste TUTTE le facce
                         // posteriori prima di QUALSIASI faccia anteriore. Fare
@@ -943,9 +976,9 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                         // profondita' fra i rami (il fronte non scrive depth).
                         if (m_pipelineOpaque) {
                             cb->setGraphicsPipeline(m_pipelineOpaque);
-                            for (const MeshPart &p : parts)
-                                if (partAlpha(p) >= 0.99f)
-                                    drawPart(p, p.meshIndex * m_uboBlockStride);
+                            for (const MeshPart *p : solidParts)
+                                if (partAlpha(*p) >= 0.99f)
+                                    drawPart(*p, p->meshIndex * m_uboBlockStride);
                         }
                         // TRASPARENTI ORDINATE PER PROFONDITA'.
                         // Il blending non e' commutativo e questo ramo non scrive
@@ -958,9 +991,9 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                         // corretto) ma copre il caso dei rami annidati o
                         // affiancati, che e' quello dei preset multi-mesh.
                         std::vector<const MeshPart*> transp;
-                        transp.reserve(parts.size());
-                        for (const MeshPart &p : parts)
-                            if (partAlpha(p) < 0.99f) transp.push_back(&p);
+                        transp.reserve(solidParts.size());
+                        for (const MeshPart *p : solidParts)
+                            if (partAlpha(*p) < 0.99f) transp.push_back(p);
 
                         if (transp.size() > 1) {
                             const std::vector<Vertex> &verts = engine->getVertices();
@@ -2059,17 +2092,74 @@ bool GLWidget::applyToActiveMeshPart(const std::function<void(MeshPart&)> &fn) {
     return true;
 }
 
+// SEPARAZIONE DISPLAY / COMANDO (il punto che rende stabile il wireframe
+// per-mesh). setRenderMode e' la via da cui passa updateRenderState, che gira a
+// ogni cambio tab, cambio proiezione, load e a ogni toggled dei radio: qui NON
+// si scrive mai su una parte, si scrive SOLO lo stato globale. I radio restano
+// un DISPLAY della mesh selezionata; la sorgente di una modalita' per-parte e'
+// soltanto setActiveMeshRenderMode, chiamata dal gestore dei radio quando e'
+// l'utente a muoverli.
+//
+// Il tentativo precedente falliva proprio qui: facendo scrivere questa funzione
+// sulla parte attiva, ogni updateRenderState riapplicava il valore a un
+// destinatario che dipendeva dallo stato del momento, e il wireframe si
+// propagava a tutte le parti che ereditano.
 void GLWidget::setRenderMode(int mode) {
-    // NB: la modalita' di rendering resta GLOBALE, non e' fra gli attributi
-    // per-mesh. I radio Base/Phong/Wireframe sono al tempo stesso il modo di
-    // MOSTRARE lo stato e la SORGENTE da cui updateRenderState lo rilegge; con
-    // un valore per-mesh le due cose confliggevano e ogni chiamata di
-    // updateRenderState (cambio proiezione, cambio tab, load...) riapplicava a
-    // un destinatario diverso, propagando il wireframe a tutte le parti che
-    // ereditano. Colore, trasparenza e luce restano per-mesh: sono uniform e
-    // non passano dai radio.
     this->renderMode = mode;
     update();
+}
+
+void GLWidget::setActiveMeshRenderMode(int mode) {
+    // Nessuna parte selezionata ("All") o bypass attivo: e' una scelta globale.
+    if (!applyToActiveMeshPart([mode](MeshPart &p){
+            p.renderMode = mode;
+            p.hasCustomRenderMode = true;
+        })) {
+        this->renderMode = mode;
+        update();
+    }
+    // La densita' wireframe dipende da quali parti sono in wireframe e con che
+    // stride: la geometria va ricostruita.
+    buildWireframeGeometry();
+    update();
+}
+
+void GLWidget::clearActiveMeshRenderMode() {
+    applyToActiveMeshPart([](MeshPart &p){
+        p.hasCustomRenderMode = false;
+        p.renderMode = 0;
+    });
+    buildWireframeGeometry();
+    update();
+}
+
+int GLWidget::activeMeshEffectiveRenderMode() const {
+    if (m_activeMeshPart < 0 || !engine) return renderMode;
+    const auto &parts = engine->getMeshParts();
+    if (m_activeMeshPart >= (int)parts.size()) return renderMode;
+    return parts[m_activeMeshPart].effectiveRenderMode(renderMode);
+}
+
+void GLWidget::setActiveMeshWireframeDensity(int uStep, int vStep) {
+    // 0 = eredita; altrimenti clamp come i tasti +/- globali.
+    const int u = (uStep <= 0) ? 0 : std::clamp(uStep, STEP_MIN, STEP_MAX);
+    const int v = (vStep <= 0) ? 0 : std::clamp(vStep, STEP_MIN, STEP_MAX);
+    if (!applyToActiveMeshPart([u,v](MeshPart &p){ p.wfStepU = u; p.wfStepV = v; })) {
+        // "All": e' la densita' globale, percorso storico.
+        setWireframeDensity(u > 0 ? u : wfStepU, v > 0 ? v : wfStepV);
+        return;
+    }
+    buildWireframeGeometry();
+    update();
+}
+
+void GLWidget::activeMeshWireframeDensity(int &uStep, int &vStep) const {
+    uStep = 0; vStep = 0;
+    if (m_activeMeshPart < 0 || !engine) return;
+    const auto &parts = engine->getMeshParts();
+    if (m_activeMeshPart >= (int)parts.size()) return;
+    uStep = parts[m_activeMeshPart].wfStepU;
+    vStep = parts[m_activeMeshPart].wfStepV;
 }
 
 void GLWidget::setColor(float r, float g, float b) {
@@ -2098,25 +2188,51 @@ void GLWidget::setLightIntensity(float intensity) {
     update();
 }
 
+// I tasti +/- della densita' agiscono sulla mesh SELEZIONATA se ce n'e' una,
+// altrimenti sullo stato globale (voce "All"): stesso schema di colore/alpha.
+// La parte parte dal valore che stava gia' usando (il proprio se dichiarato,
+// altrimenti il globale), cosi' il primo click non fa un salto.
+// NB: lo scambio U<->V e' storico e va conservato (il tasto "U" muove wfStepV).
+bool GLWidget::adjustActiveWireframeStep(bool isU, int delta) {
+    MeshPart *p = nullptr;
+    if (!m_meshAppearanceBypass && m_activeMeshPart >= 0 && engine)
+        p = engine->mutableMeshPart(m_activeMeshPart);
+    if (!p) return false;
+
+    int &partStep = isU ? p->wfStepV : p->wfStepU;
+    const int fallback = isU ? wfStepV : wfStepU;
+    const int cur = (partStep > 0) ? partStep : fallback;
+    partStep = std::clamp(cur + delta, STEP_MIN, STEP_MAX);
+
+    engine->syncPartAppearance();
+    buildWireframeGeometry();
+    update();
+    return true;
+}
+
 void GLWidget::increaseWireframeUDensity() {
+    if (adjustActiveWireframeStep(true, -1)) return;
     if (wfStepV > STEP_MIN) wfStepV--;
     buildWireframeGeometry();
     update();
 }
 
 void GLWidget::decreaseWireframeUDensity() {
+    if (adjustActiveWireframeStep(true, +1)) return;
     if (wfStepV < STEP_MAX) wfStepV++;
     buildWireframeGeometry();
     update();
 }
 
 void GLWidget::increaseWireframeVDensity() {
+    if (adjustActiveWireframeStep(false, -1)) return;
     if (wfStepU > STEP_MIN) wfStepU--;
     buildWireframeGeometry();
     update();
 }
 
 void GLWidget::decreaseWireframeVDensity() {
+    if (adjustActiveWireframeStep(false, +1)) return;
     if (wfStepU < STEP_MAX) wfStepU++;
     buildWireframeGeometry();
     update();

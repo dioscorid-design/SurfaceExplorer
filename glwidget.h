@@ -177,6 +177,20 @@ public:
     // di verita' per cio' che una parte "eredita": i radio dell'interfaccia NON
     // lo sono, perche' mostrano la modalita' della mesh selezionata.
     int globalRenderMode() const { return renderMode; }
+    // COMANDO esplicito dell'utente sulla mesh selezionata: e' l'UNICA via che
+    // scrive una modalita' PROPRIA su una parte. setRenderMode() (chiamata da
+    // updateRenderState a ogni cambio tab/proiezione/load) resta invece sempre
+    // GLOBALE: e' la separazione fra display e comando che rende stabile il
+    // wireframe per-mesh. Con "All" selezionato ricade sul globale.
+    void setActiveMeshRenderMode(int mode);
+    // Torna a ereditare dal globale (voce "Inherit" del selettore).
+    void clearActiveMeshRenderMode();
+    // Modalita' EFFICACE della parte selezionata (globale se "All"/eredita):
+    // e' cio' che i radio devono MOSTRARE.
+    int  activeMeshEffectiveRenderMode() const;
+    // Densita' wireframe della parte selezionata (0,0 = eredita dal globale).
+    void setActiveMeshWireframeDensity(int uStep, int vStep);
+    void activeMeshWireframeDensity(int &uStep, int &vStep) const;
     void setColor(float r, float g, float b);
     void setAlpha(float a);
     void setSpecularEnabled(bool enabled);
@@ -195,6 +209,10 @@ public:
     int getWireframeUStep() const { return wfStepU; }
     int getWireframeVStep() const { return wfStepV; }
     void setWireframeDensity(int uStep, int vStep);
+    // Ricostruisce la geometria delle linee. Serve dopo aver scritto densita'
+    // per-parte (che cambiano gli indici, non un uniform), p.es. al load di un
+    // preset. Innocua se la mesh non e' ancora pronta.
+    void rebuildWireframeGeometry() { buildWireframeGeometry(); update(); }
     // Chiamato dal popup di rallentamento quando l'utente sceglie "Keep going":
     // sopprime ogni ulteriore avviso finche' l'animazione non si ferma/riparte.
     void acknowledgePerformanceWarning() { m_perfWarnDismissed = true; }
@@ -602,6 +620,9 @@ private:
     int m_activeMeshPart = -1;
     bool m_meshAppearanceBypass = false;
     bool applyToActiveMeshPart(const std::function<void(MeshPart&)> &fn);
+    // Sposta di 'delta' il passo wireframe della parte selezionata. Ritorna
+    // false se non c'e' una parte attiva: il chiamante ricade sul globale.
+    bool adjustActiveWireframeStep(bool isU, int delta);
     // True quando lo script ray marching definisce la direttiva Inner:=
     // (seconda superficie opaca interna, es. orizzonte di Kerr). Settato in
     // createImplicitFragmentShader() e inviato alla GPU via u_dummyZero.y.

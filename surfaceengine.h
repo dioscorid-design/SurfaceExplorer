@@ -93,8 +93,26 @@ struct MeshPart {
     float alpha = -1.0f;          // < 0 = eredita
     float lightIntensity = -1.0f; // < 0 = eredita
 
+    // MODALITA' DI RENDERING PROPRIA (0 = Base, 1 = Phong, 2 = Wireframe).
+    // Qui la convenzione "negativo = eredita" NON si puo' esprimere col valore
+    // stesso, perche' 0 (Base) e' un valore LEGITTIMO che updateRenderState
+    // invia davvero: serve un flag separato. Vedi la nota su questo in
+    // GLWidget::setRenderMode.
+    int  renderMode = 0;
+    bool hasCustomRenderMode = false;
+
+    // Densita' wireframe propria (passi di campionamento U/V; meno passi = piu'
+    // linee). 0 = eredita dai wfStepU/wfStepV globali di GLWidget. Senza questi
+    // due campi due mesh in wireframe non si possono differenziare, perche'
+    // buildWireframe applicava un unico stride globale a tutte le parti.
+    int  wfStepU = 0;
+    int  wfStepV = 0;
 
     bool hasCustomColor() const { return colorR >= 0.0f; }
+    // Modalita' EFFICACE: la propria se dichiarata, altrimenti quella globale.
+    int  effectiveRenderMode(int globalMode) const {
+        return hasCustomRenderMode ? renderMode : globalMode;
+    }
 };
 
 class SurfaceEngine
@@ -157,6 +175,10 @@ public:
             m_declaredParts[k].colorB = m_meshParts[k].colorB;
             m_declaredParts[k].alpha = m_meshParts[k].alpha;
             m_declaredParts[k].lightIntensity = m_meshParts[k].lightIntensity;
+            m_declaredParts[k].renderMode = m_meshParts[k].renderMode;
+            m_declaredParts[k].hasCustomRenderMode = m_meshParts[k].hasCustomRenderMode;
+            m_declaredParts[k].wfStepU = m_meshParts[k].wfStepU;
+            m_declaredParts[k].wfStepV = m_meshParts[k].wfStepV;
         }
     }
 

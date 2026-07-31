@@ -565,6 +565,12 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
             }
             if (mp.alpha >= 0.0f)          { o["alpha"] = (double)mp.alpha; anyCustom = true; }
             if (mp.lightIntensity >= 0.0f) { o["light"] = (double)mp.lightIntensity; anyCustom = true; }
+            // Modalita' propria (0=Base, 1=Phong, 2=Wireframe): serve il flag,
+            // perche' 0 e' un valore legittimo e non si distingue da "eredita".
+            if (mp.hasCustomRenderMode)    { o["mode"] = mp.renderMode; anyCustom = true; }
+            // Densita' wireframe propria (0 = eredita dalla globale).
+            if (mp.wfStepU > 0)            { o["wfU"] = mp.wfStepU; anyCustom = true; }
+            if (mp.wfStepV > 0)            { o["wfV"] = mp.wfStepV; anyCustom = true; }
             meshArr.append(o);
         }
         if (anyCustom) root["meshParts"] = meshArr;
@@ -1157,6 +1163,12 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
             }
             if (mp.alpha >= 0.0f)          { o["alpha"] = (double)mp.alpha; anyCustom = true; }
             if (mp.lightIntensity >= 0.0f) { o["light"] = (double)mp.lightIntensity; anyCustom = true; }
+            // Modalita' propria (0=Base, 1=Phong, 2=Wireframe): serve il flag,
+            // perche' 0 e' un valore legittimo e non si distingue da "eredita".
+            if (mp.hasCustomRenderMode)    { o["mode"] = mp.renderMode; anyCustom = true; }
+            // Densita' wireframe propria (0 = eredita dalla globale).
+            if (mp.wfStepU > 0)            { o["wfU"] = mp.wfStepU; anyCustom = true; }
+            if (mp.wfStepV > 0)            { o["wfV"] = mp.wfStepV; anyCustom = true; }
             meshArr.append(o);
         }
         if (anyCustom) root["meshParts"] = meshArr;

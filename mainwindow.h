@@ -640,6 +640,12 @@ private:
     // funzionalita' resta invisibile dove non serve.
     void updateMeshSelectorRange();
     void syncAppearanceControlsToActiveMesh();
+    // COMANDO: l'utente ha cliccato un radio Base/Phong/Wireframe. E' l'unico
+    // punto che puo' scrivere una modalita' PROPRIA sulla mesh selezionata; con
+    // "All" agisce sul globale come da sempre. Tenuto separato dal DISPLAY (i
+    // radio mossi da syncAppearanceControlsToActiveMesh) perche' e' proprio la
+    // confusione fra i due ruoli che rendeva instabile il wireframe per-mesh.
+    void onUserRenderModeChosen();
     // Vera mentre syncAppearanceControlsToActiveMesh sta muovendo i controlli:
     // impedisce che i segnali di quei widget la facciano rientrare.
     bool m_syncingMeshControls = false;
