@@ -646,6 +646,12 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             if (mp.lightIntensity >= 0.0f)
                 partUbo.lightIntensity = mp.lightIntensity;
 
+            // MODALITA' PER-PARTE. Lo shader decide dal solo ubuf.u_renderMode
+            // se disegnare a colore piatto (wireframe/bordi) o illuminato:
+            // senza questa riga una mesh in wireframe con globale Phong veniva
+            // illuminata, e una mesh solida con globale wireframe usciva piatta.
+            partUbo.renderMode = mp.effectiveRenderMode(renderMode);
+
             resourceUpdates->updateDynamicBuffer(m_ubo, k * m_uboBlockStride,
                                                  sizeof(UboData), &partUbo);
         }
@@ -887,41 +893,14 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 }
             }
 
-            if (anyWireframe) {
-                // Wireframe: le parti in wireframe (tutte, nel caso globale).
-                if (m_wireframePipeline && m_wireframeIndexCount > 0) {
-                    cb->setGraphicsPipeline(m_wireframePipeline);
-                    cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-                    const QRhiCommandBuffer::VertexInput vbufBinding(m_vbo, 0);
-
-                    if (m_wireframeRanges.size() <= 1) {
-                        const QRhiCommandBuffer::DynamicOffset ofs(0, 0);
-                        cb->setShaderResources(srb, 1, &ofs);
-                        cb->setVertexInput(0, 1, &vbufBinding, m_wireframeIbo, 0, QRhiCommandBuffer::IndexUInt32);
-                        cb->drawIndexed(m_wireframeIndexCount);
-                    } else {
-                        for (const WireframeRange &r : m_wireframeRanges) {
-                            if (r.indexCount <= 0) continue;
-                            // Salta le parti che NON sono in wireframe: i loro
-                            // indici esistono comunque nel buffer (buildWireframe
-                            // genera un range per ogni parte), ma vanno disegnate
-                            // dal ramo solido.
-                            if (r.meshIndex >= 0 && r.meshIndex < (int)parts.size()
-                                && !partIsWireframe(parts[r.meshIndex])) continue;
-                            const QRhiCommandBuffer::DynamicOffset ofs(0, r.meshIndex * m_uboBlockStride);
-                            cb->setShaderResources(srb, 1, &ofs);
-                            // Gli indici del wireframe sono ASSOLUTI: l'offset
-                            // della parte si applica all'index buffer (in byte),
-                            // non ai vertici.
-                            cb->setVertexInput(0, 1, &vbufBinding, m_wireframeIbo,
-                                               r.indexOffset * sizeof(unsigned int),
-                                               QRhiCommandBuffer::IndexUInt32);
-                            cb->drawIndexed(r.indexCount);
-                        }
-                    }
-                }
-            }
-
+            // ORDINE: prima il SOLIDO, poi il WIREFRAME.
+            // La pipeline wireframe ha depthWrite = true (le linee devono
+            // occludersi fra loro), quindi disegnandola per PRIMA riempiva il
+            // depth buffer e le mesh solide TRASPARENTI disegnate dopo venivano
+            // scartate dal depth test: a mesh wireframe presente, una mesh
+            // trasparente dietro spariva del tutto. Il solido opaco scrive
+            // comunque depth, quindi il wireframe disegnato dopo resta
+            // correttamente occluso da cio' che gli sta davanti.
             if (anySolid) {
                 // Solido
                 if (m_indexCount > 0 && m_vbo && m_ibo) {
@@ -1043,6 +1022,41 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                         if (m_pipelineOpaque) {
                             cb->setGraphicsPipeline(m_pipelineOpaque);
                             drawWhole();
+                        }
+                    }
+                }
+            }
+
+            // WIREFRAME, dopo il solido (vedi la nota sull'ordine sopra).
+            if (anyWireframe) {
+                if (m_wireframePipeline && m_wireframeIndexCount > 0) {
+                    cb->setGraphicsPipeline(m_wireframePipeline);
+                    cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+                    const QRhiCommandBuffer::VertexInput vbufBinding(m_vbo, 0);
+
+                    if (m_wireframeRanges.size() <= 1) {
+                        const QRhiCommandBuffer::DynamicOffset ofs(0, 0);
+                        cb->setShaderResources(srb, 1, &ofs);
+                        cb->setVertexInput(0, 1, &vbufBinding, m_wireframeIbo, 0, QRhiCommandBuffer::IndexUInt32);
+                        cb->drawIndexed(m_wireframeIndexCount);
+                    } else {
+                        for (const WireframeRange &r : m_wireframeRanges) {
+                            if (r.indexCount <= 0) continue;
+                            // Salta le parti che NON sono in wireframe: i loro
+                            // indici esistono comunque nel buffer (buildWireframe
+                            // genera un range per ogni parte), ma vanno disegnate
+                            // dal ramo solido.
+                            if (r.meshIndex >= 0 && r.meshIndex < (int)parts.size()
+                                && !partIsWireframe(parts[r.meshIndex])) continue;
+                            const QRhiCommandBuffer::DynamicOffset ofs(0, r.meshIndex * m_uboBlockStride);
+                            cb->setShaderResources(srb, 1, &ofs);
+                            // Gli indici del wireframe sono ASSOLUTI: l'offset
+                            // della parte si applica all'index buffer (in byte),
+                            // non ai vertici.
+                            cb->setVertexInput(0, 1, &vbufBinding, m_wireframeIbo,
+                                               r.indexOffset * sizeof(unsigned int),
+                                               QRhiCommandBuffer::IndexUInt32);
+                            cb->drawIndexed(r.indexCount);
                         }
                     }
                 }
