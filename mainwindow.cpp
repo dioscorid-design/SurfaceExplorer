@@ -3096,6 +3096,13 @@ MainWindow::MainWindow(QWidget *parent)
         if (!ui->glWidget) return;
         ui->glWidget->setActiveMeshPart(val - 1);   // 0 = "All" -> -1
         syncAppearanceControlsToActiveMesh();
+        // syncAppearanceControlsToActiveMesh muove i radio a SEGNALI BLOCCATI
+        // (deve: il loro handler scriverebbe la modalita' sulla parte), quindi
+        // updateRenderState non gira da solo e il gating dei controlli resta
+        // fermo allo stato della mesh PRECEDENTE. Senza questa chiamata,
+        // selezionando una mesh in wireframe i tasti densita' U/V restavano
+        // grigi. Va DOPO il sync, cosi' rilegge i radio gia' aggiornati.
+        updateRenderState();
     });
 
     // Click su Color1/Color2. Gruppi indipendenti: scegliere quale tinta editare NON
@@ -11787,7 +11794,13 @@ void MainWindow::updateMeshSelectorRange()
     // Gli slider si riallineano solo se la selezione e' davvero cambiata: qui
     // si passa a ogni rigenerazione della griglia, e risincronizzarli sempre
     // li farebbe saltare sotto le dita mentre si edita una mesh.
-    if (moved) syncAppearanceControlsToActiveMesh();
+    // updateRenderState va chiamata DOPO il sync (che muove i radio a segnali
+    // bloccati, quindi non la fa girare da solo): e' lei ad abilitare i tasti
+    // densita' U/V in base ai radio appena aggiornati.
+    if (moved) {
+        syncAppearanceControlsToActiveMesh();
+        updateRenderState();
+    }
 
     // Il selettore resta SEMPRE abilitato. Disabilitarlo quando le parti sono
     // 0 o 1 lo rendeva irrecuperabile: basta una rigenerazione transitoria con
