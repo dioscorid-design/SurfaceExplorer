@@ -9920,6 +9920,7 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     // Ambito All/Mesh con cui il preset e' stato salvato: deciso qui, applicato
     // da applyPendingMeshAppearance quando le parti esistono.
     m_pendingMeshScopeAll = d.meshScopeAll;
+    m_meshScopePending = true;   // da consumare al primo meshPartsChanged
 
 
     // Reset dello stato d'errore geodetico: m_geodesicErrorPending è "appiccicoso"
@@ -11892,6 +11893,14 @@ void MainWindow::updateMeshSelectorRange()
 void MainWindow::applyPendingMeshScope()
 {
     if (!ui->glWidget || !ui->radioMeshAll || !ui->radioMeshOne) return;
+
+    // "PENDING" davvero: si applica UNA volta sola, al primo giro dopo il load.
+    // Il chiamante e' agganciato a meshPartsChanged, che scatta a OGNI
+    // rigenerazione della griglia (ogni cambio di costante): senza questo
+    // consumo, ogni movimento di uno slider riportava l'ambito allo stato del
+    // preset e riscriveva la parte attiva, annullando la scelta dell'utente.
+    if (!m_meshScopePending) return;
+    m_meshScopePending = false;
 
     const bool wantAll = m_pendingMeshScopeAll;
     {

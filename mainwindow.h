@@ -654,7 +654,12 @@ private:
     // rigenerazione della griglia.
     std::vector<MeshPart> m_pendingMeshParts;
     // Ambito All/Mesh letto dal preset, applicato quando le parti esistono.
+    // m_meshScopePending lo rende un'azione UNA-TANTUM: il punto di applicazione
+    // e' agganciato a meshPartsChanged, che scatta a ogni rigenerazione della
+    // griglia, e senza il consumo l'ambito veniva riportato allo stato del
+    // preset a ogni cambio di costante.
     bool m_pendingMeshScopeAll = false;
+    bool m_meshScopePending = false;
     void applyPendingMeshAppearance();
     // Ripristina l'ambito All/Mesh salvato col preset. Chiamata da
     // applyPendingMeshAppearance PRIMA dell'early-return, cosi' vale anche per i
