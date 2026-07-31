@@ -169,6 +169,19 @@ public:
     // scelta dell'utente su quella parte. Vedi MeshAppearanceBypass.
     void setMeshAppearanceBypass(bool on) { m_meshAppearanceBypass = on; }
     bool meshAppearanceBypass() const { return m_meshAppearanceBypass; }
+    // AMBITO "ALL": la superficie si comporta come UNA SOLA. L'aspetto proprio
+    // delle parti viene IGNORATO dal render (non cancellato), quindi colore,
+    // trasparenza, luce e wireframe globali valgono per tutte. Tornando su
+    // "Mesh" le differenze ricompaiono: i valori sono rimasti in MeshPart.
+    // NB: ricostruisce la geometria delle linee, perche' anche le DENSITA'
+    // per-parte vengono sospese (sono indici, non uniform).
+    void setMeshAppearanceUniform(bool on) {
+        if (m_meshAppearanceUniform == on) return;
+        m_meshAppearanceUniform = on;
+        buildWireframeGeometry();
+        update();
+    }
+    bool meshAppearanceUniform() const { return m_meshAppearanceUniform; }
     int activeMeshPart() const { return m_activeMeshPart; }
     int meshPartCount() const { return engine ? engine->getMeshPartCount() : 0; }
 
@@ -619,7 +632,17 @@ private:
     // (stato globale). Vedi setActiveMeshPart.
     int m_activeMeshPart = -1;
     bool m_meshAppearanceBypass = false;
+    // Vero in ambito "All": l'aspetto per-parte e' SOSPESO (ignorato dal render,
+    // non cancellato), cosi' la superficie si disegna come una sola e i valori
+    // per-mesh restano disponibili per quando si torna su "Mesh".
+    bool m_meshAppearanceUniform = false;
     bool applyToActiveMeshPart(const std::function<void(MeshPart&)> &fn);
+    // Modalita' con cui una parte va DISEGNATA: la sua se dichiarata, ma in
+    // ambito "All" (uniform) vince sempre il globale. Punto unico, cosi' render
+    // e partizione wireframe/solido non possono divergere.
+    int effectivePartRenderMode(const MeshPart &p) const {
+        return m_meshAppearanceUniform ? renderMode : p.effectiveRenderMode(renderMode);
+    }
     // Sposta di 'delta' il passo wireframe della parte selezionata. Ritorna
     // false se non c'e' una parte attiva: il chiamante ricade sul globale.
     bool adjustActiveWireframeStep(bool isU, int delta);

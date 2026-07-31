@@ -3102,6 +3102,12 @@ MainWindow::MainWindow(QWidget *parent)
         if (!ui->glWidget) return;
         const bool single = ui->radioMeshOne->isChecked();
         ui->spinMeshSel->setEnabled(single);
+        // In "All" la superficie si comporta come UNA SOLA: l'aspetto proprio
+        // delle parti viene SOSPESO (ignorato dal render, non cancellato), cosi'
+        // colore, trasparenza, luce e wireframe globali valgono per tutte.
+        // Premendo "Mesh" le differenze tornano da sole: i valori sono rimasti
+        // nelle MeshPart.
+        ui->glWidget->setMeshAppearanceUniform(!single);
         ui->glWidget->setActiveMeshPart(single ? ui->spinMeshSel->value() - 1 : -1);
         syncAppearanceControlsToActiveMesh();
         // Come per lo spinbox: il sync muove i radio a segnali bloccati, quindi
@@ -3114,6 +3120,11 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->radioMeshOne, &QRadioButton::toggled, this, [applyMeshScope](bool on){
         if (on) applyMeshScope();
     });
+    // Stato iniziale: radioMeshAll e' gia' checked nella .ui, quindi il suo
+    // toggled NON scatta qui (le connect sono appena state fatte). Senza questa
+    // chiamata l'ambito "All" sarebbe mostrato dai radio ma non applicato al
+    // motore, e le mesh partirebbero gia' differenziate.
+    applyMeshScope();
 
     connect(ui->spinMeshSel, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int val){
         if (!ui->glWidget) return;
@@ -11890,6 +11901,17 @@ void MainWindow::applyPendingMeshAppearance()
     }
     eng->syncPartAppearance();
     m_pendingMeshParts.clear();
+
+    // Il preset PORTA un aspetto per-mesh: va mostrato, quindi l'ambito passa a
+    // "Mesh". In "All" l'aspetto sarebbe sospeso e il preset si vedrebbe tutto
+    // di un colore, come se il salvataggio non avesse funzionato.
+    if (ui->radioMeshOne && !ui->radioMeshOne->isChecked()) {
+        QSignalBlocker b1(ui->radioMeshAll), b2(ui->radioMeshOne);
+        ui->radioMeshOne->setChecked(true);
+        ui->glWidget->setMeshAppearanceUniform(false);
+        ui->spinMeshSel->setEnabled(true);
+    }
+
     // Le densita' wireframe per-parte appena caricate cambiano la GEOMETRIA
     // delle linee, non solo un uniform: senza ricostruzione si vedrebbero
     // ancora quelle della superficie precedente.

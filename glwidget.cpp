@@ -639,18 +639,24 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             // forza deliberatamente ubuf.color a bianco per non sporcare le
             // texture che portano gia' il proprio colore (vedi il ramo
             // m_textureEnabled sopra), e scriverci sopra lo vanificherebbe.
-            if (mp.hasCustomColor() && !(m_textureEnabled && m_engineMode == ModeParametric))
-                partUbo.color = QVector3D(mp.colorR, mp.colorG, mp.colorB);
-            if (mp.alpha >= 0.0f)
-                partUbo.alpha = mp.alpha;
-            if (mp.lightIntensity >= 0.0f)
-                partUbo.lightIntensity = mp.lightIntensity;
+            // AMBITO "ALL" (m_meshAppearanceUniform): l'aspetto proprio viene
+            // IGNORATO e resta valido solo il globale, gia' in partUbo. La
+            // superficie si disegna come una sola; i valori per-parte non
+            // vengono toccati, quindi tornando su "Mesh" ricompaiono.
+            if (!m_meshAppearanceUniform) {
+                if (mp.hasCustomColor() && !(m_textureEnabled && m_engineMode == ModeParametric))
+                    partUbo.color = QVector3D(mp.colorR, mp.colorG, mp.colorB);
+                if (mp.alpha >= 0.0f)
+                    partUbo.alpha = mp.alpha;
+                if (mp.lightIntensity >= 0.0f)
+                    partUbo.lightIntensity = mp.lightIntensity;
+            }
 
             // MODALITA' PER-PARTE. Lo shader decide dal solo ubuf.u_renderMode
             // se disegnare a colore piatto (wireframe/bordi) o illuminato:
             // senza questa riga una mesh in wireframe con globale Phong veniva
             // illuminata, e una mesh solida con globale wireframe usciva piatta.
-            partUbo.renderMode = mp.effectiveRenderMode(renderMode);
+            partUbo.renderMode = effectivePartRenderMode(mp);
 
             resourceUpdates->updateDynamicBuffer(m_ubo, k * m_uboBlockStride,
                                                  sizeof(UboData), &partUbo);
@@ -880,7 +886,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             // Con parti che ereditano tutte, questo coincide col vecchio test
             // globale renderMode == 2.
             auto partIsWireframe = [&](const MeshPart &p) {
-                return p.effectiveRenderMode(renderMode) == 2;
+                return effectivePartRenderMode(p) == 2;
             };
             bool anyWireframe = (renderMode == 2);
             bool anySolid     = (renderMode != 2);
@@ -935,7 +941,12 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                     // Alpha EFFICACE di una parte: la sua, se dichiarata,
                     // altrimenti quella globale. Decide se va nel gruppo
                     // trasparente o in quello opaco.
+                    // In ambito "All" l'alpha per-parte e' sospeso: vale il
+                    // globale per tutte, o una mesh con alpha proprio finirebbe
+                    // nel gruppo sbagliato e la superficie non si comporterebbe
+                    // come una sola.
                     auto partAlpha = [&](const MeshPart &p) {
+                        if (m_meshAppearanceUniform) return alpha;
                         return (p.alpha >= 0.0f) ? p.alpha : alpha;
                     };
                     if (multi) {
@@ -3843,7 +3854,8 @@ void GLWidget::buildWireframeGeometry() {
     // flat-view): la mesh arriva subito dopo e il wireframe si rigenera. Nessun
     // warning: era una diagnostica residua di un vecchio bug, ormai solo rumore.
     m_wireframeIndices = GeometryBuilder::buildWireframe(engine.get(), wfStepU, wfStepV,
-                                                         &m_wireframeRanges);
+                                                         &m_wireframeRanges,
+                                                         m_meshAppearanceUniform);
     m_wireframeIndexCount = m_wireframeIndices.size();
     wireframeNeedsUpdate = true;
 }

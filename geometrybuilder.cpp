@@ -4,7 +4,8 @@
 #include <algorithm>
 
 std::vector<unsigned int> GeometryBuilder::buildWireframe(const SurfaceEngine* engine, int stepU, int stepV,
-                                                          std::vector<WireframeRange>* outRanges)
+                                                          std::vector<WireframeRange>* outRanges,
+                                                          bool uniform)
 {
     std::vector<unsigned int> indices;
     if (outRanges) outRanges->clear();
@@ -72,8 +73,11 @@ std::vector<unsigned int> GeometryBuilder::buildWireframe(const SurfaceEngine* e
     } else {
         for (const MeshPart& p : parts) {
             // Passi propri della parte se dichiarati (> 0), altrimenti globali.
-            const int pU = (p.wfStepU > 0) ? p.wfStepU : sU;
-            const int pV = (p.wfStepV > 0) ? p.wfStepV : sV;
+            // In ambito "All" (uniform) le densita' proprie sono SOSPESE: valgono
+            // i passi globali per tutte. I valori restano in MeshPart e tornano
+            // attivi passando su "Mesh".
+            const int pU = (!uniform && p.wfStepU > 0) ? p.wfStepU : sU;
+            const int pV = (!uniform && p.wfStepV > 0) ? p.wfStepV : sV;
             emitPart(p.numU, p.numV, p.vertexOffset, p.meshIndex, pU, pV);
         }
     }

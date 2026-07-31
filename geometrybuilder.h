@@ -21,8 +21,11 @@ class GeometryBuilder
 public:
     // Costruisce i dati raw per il buffer wireframe.
     // outRanges (opzionale) riceve un intervallo per parte di mesh.
+    // uniform = ambito "All": ignora le densita' PROPRIE delle parti e usa
+    // stepU/stepV per tutte, cosi' la superficie si disegna come una sola.
    static std::vector<unsigned int> buildWireframe(const SurfaceEngine* engine, int stepU, int stepV,
-                                                   std::vector<WireframeRange>* outRanges = nullptr);
+                                                   std::vector<WireframeRange>* outRanges = nullptr,
+                                                   bool uniform = false);
 };
 
 #endif // GEOMETRYBUILDER_H
