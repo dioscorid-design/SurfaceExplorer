@@ -3905,7 +3905,19 @@ void MainWindow::updateRenderState()
         ui->lightSlider->setValue(100);   // valueChanged aggiorna intensità e label
         if (ui->glWidget) ui->glWidget->setMeshAppearanceBypass(false);
     }
-    ui->panelTransp->setEnabled(mode != 2);
+    // Il FOV vive ORA dentro panelTransp (scelta di layout), ma NON deve
+    // seguirne l'abilitazione: disabilitare un contenitore disabilita tutti i
+    // figli, e il FOV deve restare sempre attivo (agisce sulla camera, non
+    // sull'aspetto della superficie; vedi la nota storica sullo slider unico).
+    // Percio' qui si disabilitano i figli che riguardano davvero la
+    // trasparenza/luce, non il groupbox.
+    const bool transpUsable = (mode != 2);
+    if (ui->lblTrans)         ui->lblTrans->setEnabled(transpUsable);
+    if (ui->panelSliderTrans) ui->panelSliderTrans->setEnabled(transpUsable);
+    if (ui->lblLight)         ui->lblLight->setEnabled(transpUsable);
+    if (ui->widget_2)         ui->widget_2->setEnabled(transpUsable);
+    // Il groupbox resta abilitato: lo spegnerebbe insieme al FOV.
+    ui->panelTransp->setEnabled(true);
 
     // Slider trasparenza su campo implicito mal condizionato (vedi syncImplicitAlphaSlider).
     syncImplicitAlphaSlider(isImplicitMode);
