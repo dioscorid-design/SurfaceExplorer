@@ -535,7 +535,23 @@
             <widget class="QWidget" name="widgetMeshSel" native="true">
              <layout class="QHBoxLayout" name="horizontalLayoutMeshSel">
               <item>
-               <widget class="QLabel" name="lblMeshSel">
+               <widget class="QRadioButton" name="radioMeshAll">
+                <property name="toolTip">
+                 <string>Colour, transparency and Light act on the whole surface (global state). Per-mesh settings are kept and come back when you switch to Mesh.</string>
+                </property>
+                <property name="text">
+                 <string>All</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QRadioButton" name="radioMeshOne">
+                <property name="toolTip">
+                 <string>Colour, transparency, Light and Solid/Wireframe act on the single mesh chosen with the spin box.</string>
+                </property>
                 <property name="text">
                  <string>Mesh</string>
                 </property>
@@ -544,16 +560,13 @@
               <item>
                <widget class="QSpinBox" name="spinMeshSel">
                 <property name="toolTip">
-                 <string>Which mesh the colour, transparency, Light and Solid/Wireframe controls act on. 0 = all meshes.</string>
-                </property>
-                <property name="specialValueText">
-                 <string>All</string>
+                 <string>Which mesh the colour, transparency, Light and Solid/Wireframe controls act on.</string>
                 </property>
                 <property name="minimum">
-                 <number>0</number>
+                 <number>1</number>
                 </property>
                 <property name="maximum">
-                 <number>0</number>
+                 <number>1</number>
                 </property>
                </widget>
               </item>

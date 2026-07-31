@@ -3092,9 +3092,33 @@ MainWindow::MainWindow(QWidget *parent)
         updateMeshSelectorRange();
     });
 
+    // ALL / MESH: due radio espliciti al posto della vecchia voce "All" nascosta
+    // dentro lo spinbox (che era il valore 0 con specialValueText). Li' non si
+    // capiva che 0 fosse uno stato diverso, e digitarlo veniva rifiutato perche'
+    // updateMeshSelectorRange riportava subito la selezione a 1.
+    // Passando ad All l'aspetto per-mesh NON si perde: resta nelle parti, e
+    // tornando su Mesh si ritrova (i valori vivono in MeshPart, non nei radio).
+    auto applyMeshScope = [this](){
+        if (!ui->glWidget) return;
+        const bool single = ui->radioMeshOne->isChecked();
+        ui->spinMeshSel->setEnabled(single);
+        ui->glWidget->setActiveMeshPart(single ? ui->spinMeshSel->value() - 1 : -1);
+        syncAppearanceControlsToActiveMesh();
+        // Come per lo spinbox: il sync muove i radio a segnali bloccati, quindi
+        // il gating (tasti densita' U/V) va aggiornato a mano.
+        updateRenderState();
+    };
+    connect(ui->radioMeshAll, &QRadioButton::toggled, this, [applyMeshScope](bool on){
+        if (on) applyMeshScope();
+    });
+    connect(ui->radioMeshOne, &QRadioButton::toggled, this, [applyMeshScope](bool on){
+        if (on) applyMeshScope();
+    });
+
     connect(ui->spinMeshSel, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int val){
         if (!ui->glWidget) return;
-        ui->glWidget->setActiveMeshPart(val - 1);   // 0 = "All" -> -1
+        if (!ui->radioMeshOne->isChecked()) return;   // in All lo spinbox e' inerte
+        ui->glWidget->setActiveMeshPart(val - 1);     // lo spinbox parte da 1
         syncAppearanceControlsToActiveMesh();
         // syncAppearanceControlsToActiveMesh muove i radio a SEGNALI BLOCCATI
         // (deve: il loro handler scriverebbe la modalita' sulla parte), quindi
@@ -11771,28 +11795,40 @@ void MainWindow::updateMeshSelectorRange()
     if (!ui->spinMeshSel || !ui->glWidget) return;
 
     const int n = ui->glWidget->meshPartCount();
-    const int maxSel = (n > 1) ? n : 0;   // con una parte sola non c'e' da scegliere
+    // Lo spinbox parte da 1 e sceglie SOLO quale mesh: "All" e' ora un radio a
+    // parte, non piu' il valore 0 (specialValueText). Con una parte sola resta
+    // 1..1: inerte ma coerente, e non serve piu' il caso speciale maxSel = 0.
+    const int maxSel = std::max(1, n);
 
     // Il valore da RIPRISTINARE non e' quello dello spinbox ma quello del
     // widget: setMaximum() clampa il valore da solo, e lo fa a segnali
     // bloccati, quindi una rigenerazione transitoria con una parte sola
-    // (maxSel = 0) azzerava lo spinbox SENZA che il gestore girasse mai.
+    // azzerava lo spinbox SENZA che il gestore girasse mai.
     // m_activeMeshPart restava all'indice vecchio: da li' in poi il numero
     // mostrato e la mesh realmente selezionata erano due cose diverse, e
     // tornare sul numero visualizzato non emetteva valueChanged perche' lo
     // spinbox ci era gia'. E' il "dopo qualche giro il campo si blocca".
-    // Valore da mostrare. Se la superficie e' multi-mesh e non c'e' ancora una
-    // selezione valida (caricamento appena avvenuto, che azzera a -1), si parte
-    // da 1 e NON da "All": scelta deliberata, perche' i comandi su "All" hanno
-    // ancora comportamenti da sistemare (il colore globale non raggiunge le mesh
-    // che ne hanno gia' uno proprio). Con 1 si lavora sempre su una mesh precisa.
-    int wanted = ui->glWidget->activeMeshPart() + 1;   // -1 ("All") -> 0
-    if (wanted <= 0 && maxSel > 0) wanted = 1;
+    // In "All" la parte attiva e' -1: li' il numero mostrato non va cambiato,
+    // resta quello a cui si tornera' passando a Mesh.
+    const int active = ui->glWidget->activeMeshPart();
+    int wanted = (active >= 0) ? active + 1 : ui->spinMeshSel->value();
 
     bool old = ui->spinMeshSel->blockSignals(true);
     ui->spinMeshSel->setMaximum(maxSel);
-    ui->spinMeshSel->setValue(qBound(0, wanted, maxSel));
+    ui->spinMeshSel->setValue(qBound(1, wanted, maxSel));
     ui->spinMeshSel->blockSignals(old);
+
+    // AMBITO "ALL": e' il radio a decidere, non il numero. La parte attiva resta
+    // -1 (i comandi vanno sul globale) e lo spinbox e' disabilitato ma conserva
+    // il suo valore, cosi' tornando su Mesh si ritrova la stessa selezione.
+    if (ui->radioMeshAll && ui->radioMeshAll->isChecked()) {
+        ui->glWidget->setActiveMeshPart(-1);
+        ui->spinMeshSel->setEnabled(false);
+        ui->radioMeshAll->setEnabled(true);
+        if (ui->radioMeshOne) ui->radioMeshOne->setEnabled(true);
+        return;
+    }
+    ui->spinMeshSel->setEnabled(true);
 
     // Riallinea SEMPRE il widget al valore che lo spinbox ha davvero adesso
     // (che puo' essere stato clampato qui sopra). Cosi' i due non possono
@@ -11812,17 +11848,17 @@ void MainWindow::updateMeshSelectorRange()
         updateRenderState();
     }
 
-    // Il selettore resta SEMPRE abilitato. Disabilitarlo quando le parti sono
-    // 0 o 1 lo rendeva irrecuperabile: basta una rigenerazione transitoria con
-    // una sola parte — un cambio tab (clearMeshParts svuota le dichiarate,
-    // quindi resolveMeshParts ne sintetizza una sola), un Run che fallisce la
-    // validazione prima di ri-estrarre le sezioni — e lo spinbox restava grigio
-    // per sempre, mostrando un numero che non si poteva piu' cambiare. E' il
-    // "a un certo punto si blocca" osservato mentre lo si usa.
-    // Il massimo a 0 basta gia' a impedire selezioni senza senso: con una mesh
-    // sola l'unica voce e' "All".
+    // I due radio restano SEMPRE abilitati, e lo spinbox lo e' ogni volta che
+    // l'ambito e' "Mesh". Disabilitarli in base al numero di parti li rendeva
+    // irrecuperabili: basta una rigenerazione transitoria con una sola parte —
+    // un cambio tab (clearMeshParts svuota le dichiarate, quindi
+    // resolveMeshParts ne sintetizza una sola), un Run che fallisce la
+    // validazione prima di ri-estrarre le sezioni — e restavano grigi per
+    // sempre. E' il "a un certo punto si blocca" osservato mentre lo si usa.
+    // Il massimo dello spinbox basta gia' a impedire selezioni senza senso.
     ui->spinMeshSel->setEnabled(true);
-    if (ui->lblMeshSel) ui->lblMeshSel->setEnabled(true);
+    if (ui->radioMeshAll) ui->radioMeshAll->setEnabled(true);
+    if (ui->radioMeshOne) ui->radioMeshOne->setEnabled(true);
 }
 
 // Porta gli slider (colore, trasparenza, Light) sui valori della parte
