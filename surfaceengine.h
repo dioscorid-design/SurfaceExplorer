@@ -150,7 +150,31 @@ public:
     // Se lo script non ne dichiara nessuna, computeMesh() sintetizza UNA parte
     // sul dominio corrente (uMin..uMax x vMin..vMax, numU x numV): il caso a
     // mesh singola resta identico a prima, stessi vertici e stessi indici.
-    void setMeshParts(const std::vector<MeshPart>& parts) { m_declaredParts = parts; }
+    // Le sezioni //MESH_BEGIN portano DOMINIO e RISOLUZIONE, non l'aspetto:
+    // colore, alpha, luce, modalita' e densita' wireframe sono scelte dell'utente
+    // (spinbox del dock renderer) o del preset, e vanno PRESERVATE quando lo
+    // script viene ri-estratto. Senza questo, ogni ri-parse azzerava l'aspetto
+    // di tutte le parti: muovendo una costante che rigenera la geometria (es. lo
+    // slider E dei tori di Hopf) le mesh tornavano tutte al colore globale.
+    // L'aspetto si conserva per INDICE: se lo script dichiara piu' parti di
+    // prima, quelle nuove partono con i valori di default (= eredita).
+    void setMeshParts(const std::vector<MeshPart>& parts) {
+        std::vector<MeshPart> next = parts;
+        const int n = std::min((int)next.size(), (int)m_declaredParts.size());
+        for (int k = 0; k < n; ++k) {
+            const MeshPart &old = m_declaredParts[k];
+            next[k].colorR = old.colorR;
+            next[k].colorG = old.colorG;
+            next[k].colorB = old.colorB;
+            next[k].alpha = old.alpha;
+            next[k].lightIntensity = old.lightIntensity;
+            next[k].renderMode = old.renderMode;
+            next[k].hasCustomRenderMode = old.hasCustomRenderMode;
+            next[k].wfStepU = old.wfStepU;
+            next[k].wfStepV = old.wfStepV;
+        }
+        m_declaredParts = std::move(next);
+    }
     void clearMeshParts() { m_declaredParts.clear(); }
     const std::vector<MeshPart>& getMeshParts() const { return m_meshParts; }
     int getMeshPartCount() const { return (int)m_meshParts.size(); }

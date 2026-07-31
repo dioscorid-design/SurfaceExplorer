@@ -10208,7 +10208,17 @@ void MainWindow::applyCommonData(const LibraryItem &d)
             dst.colorB = src.colorB;
             dst.alpha = src.alpha;
             dst.lightIntensity = src.lightIntensity;
+            dst.renderMode = src.renderMode;
+            dst.hasCustomRenderMode = src.hasCustomRenderMode;
+            dst.wfStepU = src.wfStepU;
+            dst.wfStepV = src.wfStepV;
         }
+        // setMeshParts preserva l'aspetto delle parti GIA' dichiarate (serve a non
+        // perderlo quando lo script viene ri-estratto a ogni cambio di costante).
+        // Qui pero' stiamo caricando un preset NUOVO: l'aspetto giusto e' quello
+        // appena fuso, non quello della superficie precedente. Svuotiamo prima,
+        // cosi' non c'e' nulla da preservare e vince il preset.
+        ui->glWidget->getEngine()->clearMeshParts();
         ui->glWidget->getEngine()->setMeshParts(meshParts);
     }
 
