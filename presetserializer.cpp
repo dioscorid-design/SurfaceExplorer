@@ -574,6 +574,16 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
             meshArr.append(o);
         }
         if (anyCustom) root["meshParts"] = meshArr;
+
+        // AMBITO All/Mesh al momento del salvataggio. Senza questa chiave il
+        // reload apriva sempre in "Mesh": una superficie messa tutta in
+        // wireframe da "All" salva renderMode = 2 (globale) e al reload le mesh
+        // senza modalita' propria lo EREDITAVANO, mostrandosi tutte wireframe
+        // ma in ambito Mesh, cioe' uno stato che l'utente non aveva scelto.
+        if (m_mainWindow->ui->radioMeshAll
+            && m_mainWindow->ui->radioMeshAll->isChecked()) {
+            root["meshScopeAll"] = true;
+        }
     }
 
     // 1. Salva Rotazione 4D
@@ -1172,6 +1182,16 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
             meshArr.append(o);
         }
         if (anyCustom) root["meshParts"] = meshArr;
+
+        // AMBITO All/Mesh al momento del salvataggio. Senza questa chiave il
+        // reload apriva sempre in "Mesh": una superficie messa tutta in
+        // wireframe da "All" salva renderMode = 2 (globale) e al reload le mesh
+        // senza modalita' propria lo EREDITAVANO, mostrandosi tutte wireframe
+        // ma in ambito Mesh, cioe' uno stato che l'utente non aveva scelto.
+        if (m_mainWindow->ui->radioMeshAll
+            && m_mainWindow->ui->radioMeshAll->isChecked()) {
+            root["meshScopeAll"] = true;
+        }
     }
 
     if (m_mainWindow->m_fileOps) {

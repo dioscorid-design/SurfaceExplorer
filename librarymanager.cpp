@@ -426,6 +426,9 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
                 d.meshParts.push_back(mp);
             }
         }
+        // Ambito All/Mesh salvato col preset (assente nei preset vecchi).
+        d.meshScopeAll = root.contains("meshScopeAll")
+                         && root["meshScopeAll"].toBool(false);
 
         if (root.contains("camera3D")) {
             d.hasCamera3D = true;
@@ -668,6 +671,9 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
                 d.meshParts.push_back(mp);
             }
         }
+        // Ambito All/Mesh salvato col preset (assente nei preset vecchi).
+        d.meshScopeAll = root.contains("meshScopeAll")
+                         && root["meshScopeAll"].toBool(false);
     }
 
     if (root.contains("camera3D")) {

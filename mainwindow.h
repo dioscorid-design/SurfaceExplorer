@@ -653,7 +653,13 @@ private:
     // non esistono ancora, quindi resta in sospeso qui e viene riversato dopo la
     // rigenerazione della griglia.
     std::vector<MeshPart> m_pendingMeshParts;
+    // Ambito All/Mesh letto dal preset, applicato quando le parti esistono.
+    bool m_pendingMeshScopeAll = false;
     void applyPendingMeshAppearance();
+    // Ripristina l'ambito All/Mesh salvato col preset. Chiamata da
+    // applyPendingMeshAppearance PRIMA dell'early-return, cosi' vale anche per i
+    // preset che non portano aspetto per-mesh.
+    void applyPendingMeshScope();
     void toggleProjection();
     bool applyBackgroundTextureIfNeeded();
 

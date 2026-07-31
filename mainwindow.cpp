@@ -9917,6 +9917,9 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     // subito dopo la rigenerazione. Va azzerato SEMPRE, anche quando il preset
     // non lo contiene, o l'aspetto del preset precedente sopravviverebbe.
     m_pendingMeshParts = d.meshParts;
+    // Ambito All/Mesh con cui il preset e' stato salvato: deciso qui, applicato
+    // da applyPendingMeshAppearance quando le parti esistono.
+    m_pendingMeshScopeAll = d.meshScopeAll;
 
 
     // Reset dello stato d'errore geodetico: m_geodesicErrorPending è "appiccicoso"
@@ -11879,9 +11882,40 @@ void MainWindow::updateMeshSelectorRange()
 // griglia e' stata generata: prima le parti non esistono. Se il preset non
 // portava nulla la lista e' vuota e non tocca niente, quindi le parti restano
 // a "eredita dal globale" come da sempre.
+// AMBITO All/Mesh: si ripristina quello con cui il preset e' stato SALVATO.
+// Forzare sempre "Mesh" era sbagliato: una superficie messa tutta in wireframe
+// da "All" salva renderMode = 2 (globale) e NESSUNA modalita' propria nelle
+// parti; riaprendola in "Mesh" quelle parti EREDITAVANO il wireframe globale e
+// si vedevano tutte wireframe, ma in un ambito che l'utente non aveva scelto.
+// Preset vecchi (nessuna chiave "meshScopeAll"): si apre in "Mesh", com'e'
+// sempre stato.
+void MainWindow::applyPendingMeshScope()
+{
+    if (!ui->glWidget || !ui->radioMeshAll || !ui->radioMeshOne) return;
+
+    const bool wantAll = m_pendingMeshScopeAll;
+    {
+        QSignalBlocker b1(ui->radioMeshAll), b2(ui->radioMeshOne);
+        if (wantAll) ui->radioMeshAll->setChecked(true);
+        else         ui->radioMeshOne->setChecked(true);
+    }
+    ui->glWidget->setMeshAppearanceUniform(wantAll);
+    ui->glWidget->setActiveMeshPart(wantAll ? -1 : ui->spinMeshSel->value() - 1);
+    ui->spinMeshSel->setEnabled(!wantAll);
+}
+
 void MainWindow::applyPendingMeshAppearance()
 {
-    if (m_pendingMeshParts.empty() || !ui->glWidget || !ui->glWidget->getEngine()) return;
+    if (!ui->glWidget || !ui->glWidget->getEngine()) return;
+
+    // L'AMBITO va ripristinato anche quando il preset NON porta aspetto
+    // per-mesh: una superficie salvata in "All" (tutta wireframe dal globale,
+    // nessun valore proprio nelle parti) non scrive la chiave "meshParts", e
+    // con l'early-return sotto sarebbe riaperta in "Mesh". Percio' sta qui,
+    // prima del return.
+    applyPendingMeshScope();
+
+    if (m_pendingMeshParts.empty()) return;
 
     SurfaceEngine *eng = ui->glWidget->getEngine();
     const int n = std::min((int)m_pendingMeshParts.size(), eng->getMeshPartCount());
@@ -11901,16 +11935,6 @@ void MainWindow::applyPendingMeshAppearance()
     }
     eng->syncPartAppearance();
     m_pendingMeshParts.clear();
-
-    // Il preset PORTA un aspetto per-mesh: va mostrato, quindi l'ambito passa a
-    // "Mesh". In "All" l'aspetto sarebbe sospeso e il preset si vedrebbe tutto
-    // di un colore, come se il salvataggio non avesse funzionato.
-    if (ui->radioMeshOne && !ui->radioMeshOne->isChecked()) {
-        QSignalBlocker b1(ui->radioMeshAll), b2(ui->radioMeshOne);
-        ui->radioMeshOne->setChecked(true);
-        ui->glWidget->setMeshAppearanceUniform(false);
-        ui->spinMeshSel->setEnabled(true);
-    }
 
     // Le densita' wireframe per-parte appena caricate cambiano la GEOMETRIA
     // delle linee, non solo un uniform: senza ricostruzione si vedrebbero

@@ -160,6 +160,10 @@ struct LibraryItem {
     // I valori negativi dentro MeshPart significano "eredita", quindi qui si
     // riempiono solo i campi realmente presenti nel JSON.
     std::vector<MeshPart> meshParts;
+    // Ambito All/Mesh al salvataggio (chiave "meshScopeAll"). Assente nei preset
+    // vecchi: li' si apre in "Mesh" se il preset porta un aspetto per-mesh,
+    // com'e' sempre stato.
+    bool meshScopeAll = false;
 
     bool hasLightingState = false;
     bool use4DLighting = false;
