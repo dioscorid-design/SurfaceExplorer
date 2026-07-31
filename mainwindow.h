@@ -640,6 +640,9 @@ private:
     // funzionalita' resta invisibile dove non serve.
     void updateMeshSelectorRange();
     void syncAppearanceControlsToActiveMesh();
+    // Porta i radio Base/Phong/Wireframe sulla modalita' indicata, a segnali
+    // bloccati (sono un DISPLAY: non devono scrivere nulla).
+    void syncRenderRadiosTo(int mode);
     // COMANDO: l'utente ha cliccato un radio Base/Phong/Wireframe. E' l'unico
     // punto che puo' scrivere una modalita' PROPRIA sulla mesh selezionata; con
     // "All" agisce sul globale come da sempre. Tenuto separato dal DISPLAY (i

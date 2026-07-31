@@ -11952,6 +11952,30 @@ void MainWindow::applyPendingMeshAppearance()
     ui->glWidget->update();
 }
 
+// DISPLAY dei radio Base/Phong/Wireframe: li porta sulla modalita' indicata
+// senza che i loro handler scrivano nulla. In un QButtonGroup esclusivo
+// setChecked(true) ne deseleziona un altro, che emette toggled(false): vanno
+// bloccati i segnali di TUTTI i bottoni del gruppo, non solo di quello che si
+// accende. In Ray Marching i radio classici non governano nulla: si lascia stare.
+void MainWindow::syncRenderRadiosTo(int mode)
+{
+    if (!ui->radioBasic || !ui->radioPhong || !ui->radioWF) return;
+    if (ui->tabModeSelector->currentIndex() == 1) return;
+
+    QRadioButton *target = (mode == 2) ? ui->radioWF
+                         : (mode == 1) ? ui->radioPhong
+                                       : ui->radioBasic;
+    if (!target || target->isChecked()) return;
+
+    const bool b0 = ui->radioBasic->blockSignals(true);
+    const bool b1 = ui->radioPhong->blockSignals(true);
+    const bool b2 = ui->radioWF->blockSignals(true);
+    target->setChecked(true);
+    ui->radioBasic->blockSignals(b0);
+    ui->radioPhong->blockSignals(b1);
+    ui->radioWF->blockSignals(b2);
+}
+
 void MainWindow::syncAppearanceControlsToActiveMesh()
 {
     if (!ui->glWidget || !ui->glWidget->getEngine()) return;
@@ -11966,7 +11990,20 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
 
     const int idx = ui->glWidget->activeMeshPart();
     const auto &parts = ui->glWidget->getEngine()->getMeshParts();
-    if (idx < 0 || idx >= (int)parts.size()) return;   // "All": lasciamo gli slider dove sono
+    if (idx < 0 || idx >= (int)parts.size()) {
+        // AMBITO "ALL". Gli slider (colore/alpha/luce) restano dove sono, ma i
+        // RADIO vanno riportati sulla modalita' GLOBALE, altrimenti continuano a
+        // mostrare quella della mesh selezionata prima.
+        // Perche' e' indispensabile: uscendo da "Mesh" la guardia showingPart di
+        // updateRenderState smette di valere, e quella funzione rilegge i radio
+        // come fossero il globale. Con i radio fermi sul display della mesh
+        // precedente il globale veniva SOVRASCRITTO con la modalita' di quella
+        // mesh: la sequenza All(wireframe) -> Mesh -> All perdeva il wireframe,
+        // perche' la mesh 0 ha mode = 1 (Phong) e quel valore finiva nel globale.
+        // Il colore non ne soffriva: non passa dai radio, va dritto al globale.
+        syncRenderRadiosTo(ui->glWidget->globalRenderMode());
+        return;
+    }
 
     const MeshPart &p = parts[idx];
 
@@ -12005,21 +12042,7 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
     // altro, che emette toggled(false): vanno bloccati i segnali di TUTTI i
     // bottoni del gruppo, non solo di quello che si accende.
     // In Ray Marching i radio classici non governano nulla: si lascia stare.
-    if (ui->tabModeSelector->currentIndex() != 1) {
-        const int eff = ui->glWidget->activeMeshEffectiveRenderMode();
-        QRadioButton *target = (eff == 2) ? ui->radioWF
-                             : (eff == 1) ? ui->radioPhong
-                                          : ui->radioBasic;
-        if (target && !target->isChecked()) {
-            const bool b0 = ui->radioBasic->blockSignals(true);
-            const bool b1 = ui->radioPhong->blockSignals(true);
-            const bool b2 = ui->radioWF->blockSignals(true);
-            target->setChecked(true);
-            ui->radioBasic->blockSignals(b0);
-            ui->radioPhong->blockSignals(b1);
-            ui->radioWF->blockSignals(b2);
-        }
-    }
+    syncRenderRadiosTo(ui->glWidget->activeMeshEffectiveRenderMode());
 
     // La densita' wireframe non ha widget di stato da riallineare: i tasti +/-
     // sono incrementali e leggono il valore corrente della parte selezionata
