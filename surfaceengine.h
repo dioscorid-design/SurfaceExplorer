@@ -5,6 +5,7 @@
 #include "geodesiccalculator.h"
 #include <rhi/qrhi.h>
 #include <vector>
+#include <algorithm>
 #include <QString>
 #include <QVector>
 #include <QVector3D>
@@ -76,6 +77,24 @@ struct MeshPart {
     // Indice progressivo, esposto allo script come uniform u_meshIndex per
     // distinguere il ramo (es. quale toro di Clifford si sta generando).
     int meshIndex = 0;
+
+    // ==========================================================
+    // ASPETTO PER-PARTE (colore, trasparenza, luce, solid/wireframe)
+    // ==========================================================
+    // Ogni parte puo' avere il proprio aspetto. La convenzione e' che un valore
+    // NEGATIVO significa "eredita dallo stato globale del renderer": cosi' una
+    // parte non configurata si disegna esattamente come prima, e i preset che
+    // non dichiarano nulla restano identici (nessuna regressione).
+    //
+    // Colore e alpha finiscono nei campi omonimi del blocco UBO, che e' gia'
+    // per-parte (dynamic offset): scriverli costa una assegnazione, non una
+    // modifica agli shader.
+    float colorR = -1.0f, colorG = -1.0f, colorB = -1.0f;
+    float alpha = -1.0f;          // < 0 = eredita
+    float lightIntensity = -1.0f; // < 0 = eredita
+
+
+    bool hasCustomColor() const { return colorR >= 0.0f; }
 };
 
 class SurfaceEngine
@@ -117,6 +136,29 @@ public:
     void clearMeshParts() { m_declaredParts.clear(); }
     const std::vector<MeshPart>& getMeshParts() const { return m_meshParts; }
     int getMeshPartCount() const { return (int)m_meshParts.size(); }
+
+    // Aspetto di una parte modificabile DAL VIVO, senza rigenerare la griglia:
+    // colore/alpha/luce finiscono nell'UBO, cioe'
+    // nulla che dipenda dai vertici. Scrive su ENTRAMBE le liste, perche' le
+    // dichiarate sopravvivono a un cambio di risoluzione o dominio mentre le
+    // generate sono quelle che il render legge: se aggiornassi solo le seconde,
+    // il primo computeMesh() riporterebbe l'aspetto ai valori dello script.
+    MeshPart* mutableMeshPart(int index) {
+        if (index < 0 || index >= (int)m_meshParts.size()) return nullptr;
+        return &m_meshParts[index];
+    }
+    // Ricopia l'aspetto dalle parti generate a quelle dichiarate, cosi' una
+    // modifica fatta dall'UI sopravvive alla prossima rigenerazione.
+    void syncPartAppearance() {
+        const int n = std::min((int)m_meshParts.size(), (int)m_declaredParts.size());
+        for (int k = 0; k < n; ++k) {
+            m_declaredParts[k].colorR = m_meshParts[k].colorR;
+            m_declaredParts[k].colorG = m_meshParts[k].colorG;
+            m_declaredParts[k].colorB = m_meshParts[k].colorB;
+            m_declaredParts[k].alpha = m_meshParts[k].alpha;
+            m_declaredParts[k].lightIntensity = m_meshParts[k].lightIntensity;
+        }
+    }
 
     // ==========================================================
     // EQUATIONS & CONSTRAINTS

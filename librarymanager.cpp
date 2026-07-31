@@ -1,4 +1,5 @@
 #include "librarymanager.h"
+#include <QJsonArray>
 #include <QDirIterator>
 #include <QUrl>
 #include <QDebug>
@@ -398,6 +399,26 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.wireframeVStep = wf["vStep"].toInt(4);
         }
 
+        // Aspetto per-mesh (opzionale). Ogni campo assente resta negativo, cioe'
+        // "eredita dallo stato globale": un preset che personalizza solo il
+        // colore di una parte non impone alpha o luce alle altre.
+        if (root.contains("meshParts")) {
+            const QJsonArray arr = root["meshParts"].toArray();
+            d.meshParts.reserve(arr.size());
+            for (const QJsonValue &v : arr) {
+                const QJsonObject o = v.toObject();
+                MeshPart mp;
+                if (o.contains("r")) {
+                    mp.colorR = (float)o["r"].toDouble(-1.0);
+                    mp.colorG = (float)o["g"].toDouble(-1.0);
+                    mp.colorB = (float)o["b"].toDouble(-1.0);
+                }
+                if (o.contains("alpha"))      mp.alpha = (float)o["alpha"].toDouble(-1.0);
+                if (o.contains("light"))      mp.lightIntensity = (float)o["light"].toDouble(-1.0);
+                d.meshParts.push_back(mp);
+            }
+        }
+
         if (root.contains("camera3D")) {
             d.hasCamera3D = true;
             QJsonObject cam = root["camera3D"].toObject();
@@ -610,6 +631,26 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.hasWireframe = true;
             d.wireframeUStep = wf["uStep"].toInt(4);
             d.wireframeVStep = wf["vStep"].toInt(4);
+        }
+
+        // Aspetto per-mesh (opzionale). Ogni campo assente resta negativo, cioe'
+        // "eredita dallo stato globale": un preset che personalizza solo il
+        // colore di una parte non impone alpha o luce alle altre.
+        if (root.contains("meshParts")) {
+            const QJsonArray arr = root["meshParts"].toArray();
+            d.meshParts.reserve(arr.size());
+            for (const QJsonValue &v : arr) {
+                const QJsonObject o = v.toObject();
+                MeshPart mp;
+                if (o.contains("r")) {
+                    mp.colorR = (float)o["r"].toDouble(-1.0);
+                    mp.colorG = (float)o["g"].toDouble(-1.0);
+                    mp.colorB = (float)o["b"].toDouble(-1.0);
+                }
+                if (o.contains("alpha"))      mp.alpha = (float)o["alpha"].toDouble(-1.0);
+                if (o.contains("light"))      mp.lightIntensity = (float)o["light"].toDouble(-1.0);
+                d.meshParts.push_back(mp);
+            }
         }
     }
 

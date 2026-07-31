@@ -11,6 +11,7 @@
 #include <rhi/qshaderbaker.h>
 #include <QTimer>
 #include <memory>
+#include <functional>
 #include <QMatrix4x4>
 #include <QMouseEvent>
 #include <QElapsedTimer>
@@ -158,7 +159,24 @@ public:
     void updateSurfaceData();
     void resetVisuals();
     void setProjectionMode(int mode);
+    // ASPETTO PER-MESH: se una parte e' selezionata con lo spinbox del dock
+    // renderer, setColor/setAlpha/setLightIntensity/setRenderMode scrivono su
+    // QUELLA parte invece che sullo stato globale (vedi glwidget.cpp).
+    void setActiveMeshPart(int index);
+    // Sospende temporaneamente il dirottamento sulla mesh attiva: i reset
+    // AUTOMATICI del motore (es. il ripristino di alpha/luce quando si entra in
+    // wireframe) devono agire sullo stato GLOBALE, non essere scambiati per una
+    // scelta dell'utente su quella parte. Vedi MeshAppearanceBypass.
+    void setMeshAppearanceBypass(bool on) { m_meshAppearanceBypass = on; }
+    bool meshAppearanceBypass() const { return m_meshAppearanceBypass; }
+    int activeMeshPart() const { return m_activeMeshPart; }
+    int meshPartCount() const { return engine ? engine->getMeshPartCount() : 0; }
+
     void setRenderMode(int mode);
+    // Modalita' di rendering GLOBALE (0=Base, 1=Phong, 2=Wireframe). E' la fonte
+    // di verita' per cio' che una parte "eredita": i radio dell'interfaccia NON
+    // lo sono, perche' mostrano la modalita' della mesh selezionata.
+    int globalRenderMode() const { return renderMode; }
     void setColor(float r, float g, float b);
     void setAlpha(float a);
     void setSpecularEnabled(bool enabled);
@@ -389,6 +407,15 @@ public:
 
 signals:
     void rotationChanged();
+    // Emesso dopo ogni rigenerazione della griglia, quando le parti di mesh
+    // possono essere cambiate (nuovo script, nuove sezioni //MESH_BEGIN).
+    // MainWindow lo usa per riallineare il selettore di mesh del dock renderer e
+    // per riversare l'aspetto per-mesh di un preset appena caricato. E' un
+    // segnale e non una chiamata diretta perche' updateSurfaceData() ha otto
+    // chiamanti sparsi (script, equazioni, cambio tab, load...): agganciarsi al
+    // punto in cui le parti NASCONO copre tutti i percorsi, incluso quello degli
+    // script, che non passa da checkAndTriggerMeshUpdate.
+    void meshPartsChanged();
     // Emesso quando il throughput di rendering resta basso (animazione che
     // rallenta sensibilmente) abbastanza a lungo da segnalare un carico GPU
     // eccessivo. MainWindow lo intercetta per avvisare l'utente. Vedi la logica
@@ -570,6 +597,11 @@ private:
     // RENDERING & TEXTURE STATE
     // ==========================================================
     int renderMode = 0;
+    // Indice della mesh su cui agiscono i controlli di aspetto; -1 = "All"
+    // (stato globale). Vedi setActiveMeshPart.
+    int m_activeMeshPart = -1;
+    bool m_meshAppearanceBypass = false;
+    bool applyToActiveMeshPart(const std::function<void(MeshPart&)> &fn);
     // True quando lo script ray marching definisce la direttiva Inner:=
     // (seconda superficie opaca interna, es. orizzonte di Kerr). Settato in
     // createImplicitFragmentShader() e inviato alla GPU via u_dummyZero.y.

@@ -2312,7 +2312,19 @@ MainWindow::MainWindow(QWidget *parent)
         // NON tocchiamo il Background: è indipendente. Se il dock texture sta
         // attualmente editando lo sfondo (radioBackground acceso) lasciamo invariati
         // editor, checkbox e picker: continuano a riferirsi allo sfondo.
-        m_savedRenderMode = id;
+        //
+        // m_savedRenderMode e' lo stato GLOBALE della superficie, quello che le
+        // mesh senza modalita' propria ereditano e che il preset salva. Quando
+        // si sta editando una SINGOLA mesh (spinbox diverso da "All") il click
+        // riguarda solo quella parte, non la superficie intera: registrarlo
+        // come globale lo faceva riapplicare a TUTTE le mesh al ricarico del
+        // preset (sequenza: seleziono 5, Phong, wireframe, ricarico -> tutto
+        // wireframe, perche' updateRenderState rileggeva m_savedRenderMode=2 e
+        // col bypass del load lo scriveva sul globale).
+        const bool editingSingleMesh =
+            ui->glWidget && ui->glWidget->activeMeshPart() >= 0;
+        if (!editingSingleMesh)
+            m_savedRenderMode = id;
 
         bool editingBackground = ui->radioBackground->isChecked();
 
@@ -3047,6 +3059,28 @@ MainWindow::MainWindow(QWidget *parent)
     // correggibile da fermo.
     connect(ui->fovSliderMain, &QSlider::valueChanged, this, [this](int val){
         applyCameraFov((float)val);
+    });
+
+    // ASPETTO PER-MESH: lo spinbox sceglie su quale parte agiscono i controlli
+    // gia' esistenti (colore, trasparenza, Light, Solid/Wireframe). Il valore 0
+    // mostra "All" e li riporta sullo stato globale, cioe' il comportamento di
+    // sempre; 1..N selezionano la parte k-1. Cambiando selezione riallineiamo i
+    // controlli ai valori di quella parte, cosi' gli slider mostrano cio' che
+    // stanno per modificare invece di un valore ereditato da un'altra mesh.
+    // Le parti di mesh nascono in GLWidget::updateSurfaceData, che ha molti
+    // chiamanti (script, equazioni, cambio tab, load di preset): agganciarsi al
+    // segnale invece che ai singoli chiamanti copre tutti i percorsi. In
+    // particolare il load di un preset SCRIPT non passa da
+    // checkAndTriggerMeshUpdate, dove l'aggancio precedente non scattava.
+    connect(ui->glWidget, &GLWidget::meshPartsChanged, this, [this](){
+        applyPendingMeshAppearance();
+        updateMeshSelectorRange();
+    });
+
+    connect(ui->spinMeshSel, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int val){
+        if (!ui->glWidget) return;
+        ui->glWidget->setActiveMeshPart(val - 1);   // 0 = "All" -> -1
+        syncAppearanceControlsToActiveMesh();
     });
 
     // Click su Color1/Color2. Gruppi indipendenti: scegliere quale tinta editare NON
@@ -3785,8 +3819,16 @@ void MainWindow::updateRenderState()
     // chiamata lo riporta a 1). A slider disabilitati nessun input utente da
     // preservare; uscendo dal wireframe restano ai default.
     if (mode == 2) {
+        // Questi due sono reset AUTOMATICI del motore, non scelte dell'utente su
+        // una singola mesh: vanno sullo stato globale. Senza il bypass, con una
+        // mesh selezionata nello spinbox finivano scritti su QUELLA parte (che
+        // smetteva di ereditare) e il giro di segnali che ne seguiva poteva
+        // inchiodare il selettore. Si manifestava solo TORNANDO in wireframe,
+        // perche' solo qui esiste questo ramo.
+        if (ui->glWidget) ui->glWidget->setMeshAppearanceBypass(true);
         resetTransparency();
         ui->lightSlider->setValue(100);   // valueChanged aggiorna intensità e label
+        if (ui->glWidget) ui->glWidget->setMeshAppearanceBypass(false);
     }
     ui->panelTransp->setEnabled(mode != 2);
 
@@ -7766,6 +7808,25 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
 
 void MainWindow::applySurfaceExample(const LibraryItem &d)
 {
+    // ASPETTO PER-MESH DURANTE IL LOAD.
+    // Per tutta la durata del caricamento i setter globali (colore, alpha, luce,
+    // renderMode del preset) NON devono essere dirottati sulla mesh selezionata:
+    // sono lo stato della superficie, non una scelta dell'utente su una parte.
+    // Senza questo, con una mesh ancora attiva dalla sessione precedente quella
+    // parte si prendeva i valori globali come propri (tornava verde e solida) e
+    // il renderMode finiva per propagarsi a tutte le mesh che ereditano.
+    // La selezione viene azzerata qui e reimpostata a 1 da
+    // updateMeshSelectorRange quando le parti della nuova superficie esistono.
+    if (ui->glWidget) {
+        ui->glWidget->setMeshAppearanceBypass(true);
+        ui->glWidget->setActiveMeshPart(-1);
+    }
+    struct MeshBypassGuard {
+        MainWindow *w;
+        ~MeshBypassGuard() { if (w->ui->glWidget) w->ui->glWidget->setMeshAppearanceBypass(false); }
+    } meshBypassGuard{this};
+
+
     InputValidator::resetGeodesicWarning();
 
     // Nuova superficie caricata: dimentica gli stop manuali dei clock del
@@ -8085,6 +8146,25 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
 
 void MainWindow::applyMotionExample(const LibraryItem &data)
 {
+    // ASPETTO PER-MESH DURANTE IL LOAD.
+    // Per tutta la durata del caricamento i setter globali (colore, alpha, luce,
+    // renderMode del preset) NON devono essere dirottati sulla mesh selezionata:
+    // sono lo stato della superficie, non una scelta dell'utente su una parte.
+    // Senza questo, con una mesh ancora attiva dalla sessione precedente quella
+    // parte si prendeva i valori globali come propri (tornava verde e solida) e
+    // il renderMode finiva per propagarsi a tutte le mesh che ereditano.
+    // La selezione viene azzerata qui e reimpostata a 1 da
+    // updateMeshSelectorRange quando le parti della nuova superficie esistono.
+    if (ui->glWidget) {
+        ui->glWidget->setMeshAppearanceBypass(true);
+        ui->glWidget->setActiveMeshPart(-1);
+    }
+    struct MeshBypassGuard {
+        MainWindow *w;
+        ~MeshBypassGuard() { if (w->ui->glWidget) w->ui->glWidget->setMeshAppearanceBypass(false); }
+    } meshBypassGuard{this};
+
+
     m_masterStopped = false;
     // Nuovo record caricato: dimentica un eventuale stop manuale del suono
     // precedente, cosi' l'audio del nuovo preset puo' partire. Idem per gli
@@ -9741,6 +9821,14 @@ void MainWindow::applyCommonData(const LibraryItem &d)
             ui->glWidget->resetWireframeDensity();
     }
 
+    // ASPETTO PER-MESH: qui le parti non esistono ancora (la griglia si genera
+    // piu' avanti, da checkAndTriggerMeshUpdate), percio' l'aspetto resta in
+    // sospeso e viene riversato sulle parti da applyPendingMeshAppearance()
+    // subito dopo la rigenerazione. Va azzerato SEMPRE, anche quando il preset
+    // non lo contiene, o l'aspetto del preset precedente sopravviverebbe.
+    m_pendingMeshParts = d.meshParts;
+
+
     // Reset dello stato d'errore geodetico: m_geodesicErrorPending è "appiccicoso"
     // (resettato solo da updateGeodesicMesh in caso di successo). Se il preset
     // precedente è degenerato in una singolarità il flag resta true e farebbe
@@ -10038,6 +10126,21 @@ void MainWindow::applyCommonData(const LibraryItem &d)
             extractMeshSections(d.scriptCode, &meshParts);
         }
         ui->glWidget->getEngine()->setCutoutCodeGLSL(cutoutGlsl);
+
+        // ASPETTO PER-MESH: le parti appena estratte dallo script portano solo
+        // dominio e risoluzione. Se il preset salva anche un aspetto (blocco
+        // "meshParts"), va fuso QUI, prima di consegnarle al motore: questa
+        // chiamata e' l'ultima che tocca le parti dichiarate, quindi scrivere
+        // l'aspetto dopo verrebbe sovrascritto al primo computeMesh().
+        for (int k = 0; k < (int)meshParts.size() && k < (int)m_pendingMeshParts.size(); ++k) {
+            const MeshPart &src = m_pendingMeshParts[k];
+            MeshPart &dst = meshParts[k];
+            dst.colorR = src.colorR;
+            dst.colorG = src.colorG;
+            dst.colorB = src.colorB;
+            dst.alpha = src.alpha;
+            dst.lightIntensity = src.lightIntensity;
+        }
         ui->glWidget->getEngine()->setMeshParts(meshParts);
     }
 
@@ -10338,6 +10441,7 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     // forza opaco e avvisa (falla del record con alpha<1 nel JSON, che aggira i
     // due preventivi interattivi). No-op su desktop e sugli altri casi.
     guardTransparencyOnImplicitLoad();
+
 }
 
 QString MainWindow::presetsRootPath() const {
@@ -11576,6 +11680,142 @@ void MainWindow::applyDefaultCheckerShader()
 // m_fov3D/m_fov4D restano allineati al valore unico perche' PresetSerializer li
 // scrive ancora nel JSON (chiavi fov3D/fov4D): i file salvati da questa build
 // restano leggibili dalle build precedenti, che li usavano per i path.
+// ==========================================================
+// ASPETTO PER-MESH: spinbox di selezione
+// ==========================================================
+// Riallinea il range dello spinbox al numero di parti della superficie corrente.
+// Va chiamata dopo ogni rigenerazione della mesh: con una superficie a mesh
+// singola il massimo resta 0, quindi lo spinbox mostra solo "All" e la
+// funzionalita' e' invisibile: nulla cambia per i preset che non usano il
+// multi-mesh.
+void MainWindow::updateMeshSelectorRange()
+{
+    if (!ui->spinMeshSel || !ui->glWidget) return;
+
+    const int n = ui->glWidget->meshPartCount();
+    const int maxSel = (n > 1) ? n : 0;   // con una parte sola non c'e' da scegliere
+
+    // Il valore da RIPRISTINARE non e' quello dello spinbox ma quello del
+    // widget: setMaximum() clampa il valore da solo, e lo fa a segnali
+    // bloccati, quindi una rigenerazione transitoria con una parte sola
+    // (maxSel = 0) azzerava lo spinbox SENZA che il gestore girasse mai.
+    // m_activeMeshPart restava all'indice vecchio: da li' in poi il numero
+    // mostrato e la mesh realmente selezionata erano due cose diverse, e
+    // tornare sul numero visualizzato non emetteva valueChanged perche' lo
+    // spinbox ci era gia'. E' il "dopo qualche giro il campo si blocca".
+    // Valore da mostrare. Se la superficie e' multi-mesh e non c'e' ancora una
+    // selezione valida (caricamento appena avvenuto, che azzera a -1), si parte
+    // da 1 e NON da "All": scelta deliberata, perche' i comandi su "All" hanno
+    // ancora comportamenti da sistemare (il colore globale non raggiunge le mesh
+    // che ne hanno gia' uno proprio). Con 1 si lavora sempre su una mesh precisa.
+    int wanted = ui->glWidget->activeMeshPart() + 1;   // -1 ("All") -> 0
+    if (wanted <= 0 && maxSel > 0) wanted = 1;
+
+    bool old = ui->spinMeshSel->blockSignals(true);
+    ui->spinMeshSel->setMaximum(maxSel);
+    ui->spinMeshSel->setValue(qBound(0, wanted, maxSel));
+    ui->spinMeshSel->blockSignals(old);
+
+    // Riallinea SEMPRE il widget al valore che lo spinbox ha davvero adesso
+    // (che puo' essere stato clampato qui sopra). Cosi' i due non possono
+    // divergere, qualunque cosa abbia fatto setMaximum.
+    const int now = ui->spinMeshSel->value() - 1;
+    const bool moved = (now != ui->glWidget->activeMeshPart());
+    ui->glWidget->setActiveMeshPart(now);
+
+    // Gli slider si riallineano solo se la selezione e' davvero cambiata: qui
+    // si passa a ogni rigenerazione della griglia, e risincronizzarli sempre
+    // li farebbe saltare sotto le dita mentre si edita una mesh.
+    if (moved) syncAppearanceControlsToActiveMesh();
+
+    // Il selettore resta SEMPRE abilitato. Disabilitarlo quando le parti sono
+    // 0 o 1 lo rendeva irrecuperabile: basta una rigenerazione transitoria con
+    // una sola parte — un cambio tab (clearMeshParts svuota le dichiarate,
+    // quindi resolveMeshParts ne sintetizza una sola), un Run che fallisce la
+    // validazione prima di ri-estrarre le sezioni — e lo spinbox restava grigio
+    // per sempre, mostrando un numero che non si poteva piu' cambiare. E' il
+    // "a un certo punto si blocca" osservato mentre lo si usa.
+    // Il massimo a 0 basta gia' a impedire selezioni senza senso: con una mesh
+    // sola l'unica voce e' "All".
+    ui->spinMeshSel->setEnabled(true);
+    if (ui->lblMeshSel) ui->lblMeshSel->setEnabled(true);
+}
+
+// Porta gli slider (colore, trasparenza, Light) sui valori della parte
+// selezionata, cosi' mostrano cio' che stanno per modificare. Una parte che
+// eredita (valori negativi) mostra lo stato globale.
+// Riversa sulle parti l'aspetto letto dal preset. Va chiamata DOPO che la
+// griglia e' stata generata: prima le parti non esistono. Se il preset non
+// portava nulla la lista e' vuota e non tocca niente, quindi le parti restano
+// a "eredita dal globale" come da sempre.
+void MainWindow::applyPendingMeshAppearance()
+{
+    if (m_pendingMeshParts.empty() || !ui->glWidget || !ui->glWidget->getEngine()) return;
+
+    SurfaceEngine *eng = ui->glWidget->getEngine();
+    const int n = std::min((int)m_pendingMeshParts.size(), eng->getMeshPartCount());
+    for (int k = 0; k < n; ++k) {
+        MeshPart *dst = eng->mutableMeshPart(k);
+        if (!dst) continue;
+        const MeshPart &src = m_pendingMeshParts[k];
+        dst->colorR = src.colorR;
+        dst->colorG = src.colorG;
+        dst->colorB = src.colorB;
+        dst->alpha = src.alpha;
+        dst->lightIntensity = src.lightIntensity;
+    }
+    eng->syncPartAppearance();
+    m_pendingMeshParts.clear();
+    ui->glWidget->update();
+}
+
+void MainWindow::syncAppearanceControlsToActiveMesh()
+{
+    if (!ui->glWidget || !ui->glWidget->getEngine()) return;
+
+    // Guardia di rientranza: questa funzione muove slider e radio, e quei
+    // widget possono a loro volta far ripartire il giro (updateRenderState ->
+    // setRenderMode -> ...). Senza la guardia un rientro riscriverebbe lo stato
+    // mentre lo stiamo leggendo, e il selettore smetterebbe di rispondere.
+    if (m_syncingMeshControls) return;
+    m_syncingMeshControls = true;
+    struct Guard { bool &f; ~Guard(){ f = false; } } guard{m_syncingMeshControls};
+
+    const int idx = ui->glWidget->activeMeshPart();
+    const auto &parts = ui->glWidget->getEngine()->getMeshParts();
+    if (idx < 0 || idx >= (int)parts.size()) return;   // "All": lasciamo gli slider dove sono
+
+    const MeshPart &p = parts[idx];
+
+    auto setNoSignal = [](QSlider *s, int v) {
+        if (!s) return;
+        bool old = s->blockSignals(true);
+        s->setValue(v);
+        s->blockSignals(old);
+    };
+
+    if (p.hasCustomColor()) {
+        setNoSignal(ui->sliderR, qRound(p.colorR * 255.0f));
+        setNoSignal(ui->sliderG, qRound(p.colorG * 255.0f));
+        setNoSignal(ui->sliderB, qRound(p.colorB * 255.0f));
+    }
+    // Alpha: oltre allo slider vanno aggiornati anche il membro e l'etichetta.
+    // setNoSignal blocca valueChanged (che e' la fonte unica di verita' e li
+    // aggiornerebbe), quindi senza queste due righe lo slider si muoveva ma il
+    // numero accanto restava quello di prima: la mesh 3 e' a 0.45 e il pannello
+    // continuava a mostrare 1.00.
+    if (p.alpha >= 0.0f) {
+        setNoSignal(ui->alphaSlider, qRound(p.alpha * 100.0f));
+        alphaValue = p.alpha;
+        ui->lblAlphaVal->setText(QString::number(p.alpha, 'f', 2));
+    }
+    if (p.lightIntensity >= 0.0f) {
+        setNoSignal(ui->lightSlider, qRound(p.lightIntensity * 100.0f));
+        ui->lblValLight->setText(QString::number(qRound(p.lightIntensity * 100.0f)) + " %");
+    }
+}
+
+
 void MainWindow::applyCameraFov(float deg)
 {
     const float v = qBound(20.0f, deg, 110.0f);

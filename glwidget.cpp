@@ -623,12 +623,29 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         resourceUpdates->updateDynamicBuffer(m_ubo, 0, sizeof(UboData), &m_uboData);
     } else {
         for (int k = 0; k < uboPartCount; ++k) {
+            const MeshPart &mp = uboParts[k];
             UboData partUbo = m_uboData;
-            partUbo.u_min = uboParts[k].uMin;
-            partUbo.u_max = uboParts[k].uMax;
-            partUbo.v_min = uboParts[k].vMin;
-            partUbo.v_max = uboParts[k].vMax;
-            partUbo.u_meshIndex = (float)uboParts[k].meshIndex;
+            partUbo.u_min = mp.uMin;
+            partUbo.u_max = mp.uMax;
+            partUbo.v_min = mp.vMin;
+            partUbo.v_max = mp.vMax;
+            partUbo.u_meshIndex = (float)mp.meshIndex;
+
+            // ASPETTO PER-PARTE. Un valore negativo significa "eredita dallo
+            // stato globale", che e' gia' in partUbo perche' copiato da
+            // m_uboData: percio' una parte non configurata resta identica a
+            // prima e nessun preset esistente cambia.
+            // Il colore NON si applica con una texture attiva: li' il motore
+            // forza deliberatamente ubuf.color a bianco per non sporcare le
+            // texture che portano gia' il proprio colore (vedi il ramo
+            // m_textureEnabled sopra), e scriverci sopra lo vanificherebbe.
+            if (mp.hasCustomColor() && !(m_textureEnabled && m_engineMode == ModeParametric))
+                partUbo.color = QVector3D(mp.colorR, mp.colorG, mp.colorB);
+            if (mp.alpha >= 0.0f)
+                partUbo.alpha = mp.alpha;
+            if (mp.lightIntensity >= 0.0f)
+                partUbo.lightIntensity = mp.lightIntensity;
+
             resourceUpdates->updateDynamicBuffer(m_ubo, k * m_uboBlockStride,
                                                  sizeof(UboData), &partUbo);
         }
@@ -911,41 +928,88 @@ void GLWidget::render(QRhiCommandBuffer *cb)
 
                     const bool multi = (parts.size() > 1);
 
-                    if (alpha < 0.99f) {
-                        // Disegna solo se entrambe le pipeline di trasparenza sono valide.
-                        // Dopo un errore di compilazione la pipeline pu\u00f2 essere nulla:
-                        // passarla a Metal causa EXC_BAD_ACCESS.
-                        if (m_pipelineTranspBack && m_pipelineTranspFront) {
-                            // ORDINE: TUTTE le facce posteriori (di tutte le
-                            // parti) prima di QUALSIASI faccia anteriore. Fare
-                            // back+front parte per parte fonderebbe la parte k+1
-                            // sopra il fronte della parte k, invertendo la
-                            // profondita' fra i rami (il fronte non scrive depth).
-                            cb->setGraphicsPipeline(m_pipelineTranspBack);
-                            if (multi) {
-                                for (const MeshPart &p : parts)
+                    // Alpha EFFICACE di una parte: la sua, se dichiarata,
+                    // altrimenti quella globale. Decide se va nel gruppo
+                    // trasparente o in quello opaco.
+                    auto partAlpha = [&](const MeshPart &p) {
+                        return (p.alpha >= 0.0f) ? p.alpha : alpha;
+                    };
+                    if (multi) {
+                        // ORDINE: prima tutte le parti OPACHE (scrivono depth),
+                        // poi le trasparenti; e fra queste TUTTE le facce
+                        // posteriori prima di QUALSIASI faccia anteriore. Fare
+                        // back+front parte per parte fonderebbe la parte k+1
+                        // sopra il fronte della parte k, invertendo la
+                        // profondita' fra i rami (il fronte non scrive depth).
+                        if (m_pipelineOpaque) {
+                            cb->setGraphicsPipeline(m_pipelineOpaque);
+                            for (const MeshPart &p : parts)
+                                if (partAlpha(p) >= 0.99f)
                                     drawPart(p, p.meshIndex * m_uboBlockStride);
-                            } else {
-                                drawWhole();
-                            }
+                        }
+                        // TRASPARENTI ORDINATE PER PROFONDITA'.
+                        // Il blending non e' commutativo e questo ramo non scrive
+                        // depth: disegnandole nell'ordine delle PARTI vinceva
+                        // l'ultima anche se stava dietro, e con tori annidati uno
+                        // interno sembrava coprire quello esterno.
+                        // La distanza si stima sul CENTROIDE dei vertici della
+                        // parte, portato in spazio vista: e' un'approssimazione
+                        // (due superfici compenetranti non hanno un ordine
+                        // corretto) ma copre il caso dei rami annidati o
+                        // affiancati, che e' quello dei preset multi-mesh.
+                        std::vector<const MeshPart*> transp;
+                        transp.reserve(parts.size());
+                        for (const MeshPart &p : parts)
+                            if (partAlpha(p) < 0.99f) transp.push_back(&p);
+
+                        if (transp.size() > 1) {
+                            const std::vector<Vertex> &verts = engine->getVertices();
+                            const QMatrix4x4 mvNow = m_view * m_model;
+                            auto depthOf = [&](const MeshPart *p) -> float {
+                                if (p->vertexCount <= 0) return 0.0f;
+                                QVector3D c(0.0f, 0.0f, 0.0f);
+                                const int step = std::max(1, p->vertexCount / 64);
+                                int n = 0;
+                                for (int i = 0; i < p->vertexCount; i += step) {
+                                    const int idx = p->vertexOffset + i;
+                                    if (idx < 0 || idx >= (int)verts.size()) continue;
+                                    c += verts[idx].position.toVector3D();
+                                    ++n;
+                                }
+                                if (n == 0) return 0.0f;
+                                c /= float(n);
+                                // La camera guarda lungo -z: piu' NEGATIVO = piu' lontano.
+                                return mvNow.map(c).z();
+                            };
+                            std::stable_sort(transp.begin(), transp.end(),
+                                             [&](const MeshPart *a, const MeshPart *b) {
+                                                 return depthOf(a) < depthOf(b);
+                                             });
+                        }
+
+                        // Disegna solo se entrambe le pipeline di trasparenza sono
+                        // valide: dopo un errore di compilazione una puo' essere
+                        // nulla, e passarla a Metal causa EXC_BAD_ACCESS.
+                        if (m_pipelineTranspBack && m_pipelineTranspFront) {
+                            cb->setGraphicsPipeline(m_pipelineTranspBack);
+                            for (const MeshPart *p : transp)
+                                drawPart(*p, p->meshIndex * m_uboBlockStride);
 
                             cb->setGraphicsPipeline(m_pipelineTranspFront);
-                            if (multi) {
-                                for (const MeshPart &p : parts)
-                                    drawPart(p, p.meshIndex * m_uboBlockStride);
-                            } else {
-                                drawWhole();
-                            }
+                            for (const MeshPart *p : transp)
+                                drawPart(*p, p->meshIndex * m_uboBlockStride);
+                        }
+                    } else if (alpha < 0.99f) {
+                        if (m_pipelineTranspBack && m_pipelineTranspFront) {
+                            cb->setGraphicsPipeline(m_pipelineTranspBack);
+                            drawWhole();
+                            cb->setGraphicsPipeline(m_pipelineTranspFront);
+                            drawWhole();
                         }
                     } else {
                         if (m_pipelineOpaque) {
                             cb->setGraphicsPipeline(m_pipelineOpaque);
-                            if (multi) {
-                                for (const MeshPart &p : parts)
-                                    drawPart(p, p.meshIndex * m_uboBlockStride);
-                            } else {
-                                drawWhole();
-                            }
+                            drawWhole();
                         }
                     }
                 }
@@ -1908,6 +1972,10 @@ void GLWidget::updateSurfaceData()
     // 2. Diciamo al Render Pass che i dati sono pronti per essere spediti alla GPU
     meshNeedsUpdate = true;
 
+    // Le parti possono essere cambiate di numero o essere state rigenerate:
+    // avvisa la UI (selettore di mesh + aspetto per-mesh in sospeso).
+    emit meshPartsChanged();
+
     // 3. Forza il ridisegno
     update();
 }
@@ -1957,12 +2025,55 @@ void GLWidget::setProjectionMode(int mode) {
     update();
 }
 
+// ==========================================================
+// ASPETTO PER-MESH
+// ==========================================================
+// m_activeMeshPart e' l'indice scelto con lo spinbox del dock renderer:
+// -1 (voce "All") = i controlli agiscono sullo stato GLOBALE, come da sempre;
+// >= 0 = agiscono solo su quella parte, che smette di ereditare.
+// Le superfici a mesh singola non ne risentono: lo spinbox resta su "All" e
+// nessuna parte dichiara un aspetto proprio, quindi il percorso e' invariato.
+void GLWidget::setActiveMeshPart(int index) {
+    const int n = engine ? engine->getMeshPartCount() : 0;
+    m_activeMeshPart = (index >= 0 && index < n) ? index : -1;
+    update();
+}
+
+// Applica una modifica di aspetto: alla parte attiva se ce n'e' una, altrimenti
+// allo stato globale. Ritorna true se ha scritto su una parte, cosi' i setter
+// sanno se devono anche aggiornare il proprio membro globale.
+bool GLWidget::applyToActiveMeshPart(const std::function<void(MeshPart&)> &fn) {
+    // Bypass: il chiamante sta eseguendo un reset automatico (non un comando
+    // dell'utente), quindi deve finire sullo stato globale anche se una mesh e'
+    // selezionata. Senza questo, entrando in wireframe il reset di alpha/luce
+    // veniva scritto sulla parte attiva, che smetteva di ereditare.
+    if (m_meshAppearanceBypass) return false;
+    if (m_activeMeshPart < 0 || !engine) return false;
+    MeshPart *p = engine->mutableMeshPart(m_activeMeshPart);
+    if (!p) return false;
+    fn(*p);
+    // L'aspetto va ricopiato sulle parti DICHIARATE, o la prossima
+    // rigenerazione della griglia lo riporterebbe ai valori dello script.
+    engine->syncPartAppearance();
+    update();
+    return true;
+}
+
 void GLWidget::setRenderMode(int mode) {
+    // NB: la modalita' di rendering resta GLOBALE, non e' fra gli attributi
+    // per-mesh. I radio Base/Phong/Wireframe sono al tempo stesso il modo di
+    // MOSTRARE lo stato e la SORGENTE da cui updateRenderState lo rilegge; con
+    // un valore per-mesh le due cose confliggevano e ogni chiamata di
+    // updateRenderState (cambio proiezione, cambio tab, load...) riapplicava a
+    // un destinatario diverso, propagando il wireframe a tutte le parti che
+    // ereditano. Colore, trasparenza e luce restano per-mesh: sono uniform e
+    // non passano dai radio.
     this->renderMode = mode;
     update();
 }
 
 void GLWidget::setColor(float r, float g, float b) {
+    if (applyToActiveMeshPart([r,g,b](MeshPart &p){ p.colorR=r; p.colorG=g; p.colorB=b; })) return;
     this->red = r;
     this->green = g;
     this->blue = b;
@@ -1971,6 +2082,7 @@ void GLWidget::setColor(float r, float g, float b) {
 }
 
 void GLWidget::setAlpha(float a) {
+    if (applyToActiveMeshPart([a](MeshPart &p){ p.alpha = a; })) return;
     this->alpha = a;
     update();
 }
@@ -1981,6 +2093,7 @@ void GLWidget::setSpecularEnabled(bool enabled) {
 }
 
 void GLWidget::setLightIntensity(float intensity) {
+    if (applyToActiveMeshPart([intensity](MeshPart &p){ p.lightIntensity = intensity; })) return;
     this->m_lightIntensity = intensity;
     update();
 }

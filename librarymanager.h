@@ -1,6 +1,7 @@
 #ifndef LIBRARYMANAGER_H
 #define LIBRARYMANAGER_H
 
+#include "surfaceengine.h"
 #include <QString>
 #include <QList>
 #include <QTreeWidget>
@@ -152,6 +153,13 @@ struct LibraryItem {
     bool hasWireframe = false;
     int wireframeUStep = 4;
     int wireframeVStep = 4;
+
+    // ASPETTO PER-MESH (multi-mesh): un elemento per parte, nell'ordine in cui
+    // lo script le dichiara. Assente nei preset che non lo personalizzano, e in
+    // quel caso ogni parte eredita dallo stato globale (comportamento storico).
+    // I valori negativi dentro MeshPart significano "eredita", quindi qui si
+    // riempiono solo i campi realmente presenti nel JSON.
+    std::vector<MeshPart> meshParts;
 
     bool hasLightingState = false;
     bool use4DLighting = false;

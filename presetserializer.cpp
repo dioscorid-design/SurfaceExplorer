@@ -9,6 +9,7 @@
 #include <QSettings>
 #include <QJsonObject>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QFile>
 #include <QFileInfo>
 #include <QStandardPaths>
@@ -544,6 +545,30 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     wireframe["uStep"] = m_mainWindow->ui->glWidget->getWireframeUStep();
     wireframe["vStep"] = m_mainWindow->ui->glWidget->getWireframeVStep();
     root["wireframe"] = wireframe;
+
+    // ASPETTO PER-MESH (multi-mesh): colore, trasparenza, luce e solid/wireframe
+    // scelti parte per parte con lo spinbox del dock renderer. Si salva SOLO cio'
+    // che e' stato personalizzato: una parte che eredita dallo stato globale non
+    // scrive nulla, e una superficie a mesh singola non produce affatto la
+    // chiave, quindi i preset esistenti restano invariati byte per byte.
+    if (m_mainWindow->ui->glWidget->getEngine()) {
+        const auto &mparts = m_mainWindow->ui->glWidget->getEngine()->getMeshParts();
+        QJsonArray meshArr;
+        bool anyCustom = false;
+        for (const MeshPart &mp : mparts) {
+            QJsonObject o;
+            if (mp.hasCustomColor()) {
+                o["r"] = (double)mp.colorR;
+                o["g"] = (double)mp.colorG;
+                o["b"] = (double)mp.colorB;
+                anyCustom = true;
+            }
+            if (mp.alpha >= 0.0f)          { o["alpha"] = (double)mp.alpha; anyCustom = true; }
+            if (mp.lightIntensity >= 0.0f) { o["light"] = (double)mp.lightIntensity; anyCustom = true; }
+            meshArr.append(o);
+        }
+        if (anyCustom) root["meshParts"] = meshArr;
+    }
 
     // 1. Salva Rotazione 4D
     QJsonObject angles;
@@ -1112,6 +1137,30 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     wireframe["uStep"] = m_mainWindow->ui->glWidget->getWireframeUStep();
     wireframe["vStep"] = m_mainWindow->ui->glWidget->getWireframeVStep();
     root["wireframe"] = wireframe;
+
+    // ASPETTO PER-MESH (multi-mesh): colore, trasparenza, luce e solid/wireframe
+    // scelti parte per parte con lo spinbox del dock renderer. Si salva SOLO cio'
+    // che e' stato personalizzato: una parte che eredita dallo stato globale non
+    // scrive nulla, e una superficie a mesh singola non produce affatto la
+    // chiave, quindi i preset esistenti restano invariati byte per byte.
+    if (m_mainWindow->ui->glWidget->getEngine()) {
+        const auto &mparts = m_mainWindow->ui->glWidget->getEngine()->getMeshParts();
+        QJsonArray meshArr;
+        bool anyCustom = false;
+        for (const MeshPart &mp : mparts) {
+            QJsonObject o;
+            if (mp.hasCustomColor()) {
+                o["r"] = (double)mp.colorR;
+                o["g"] = (double)mp.colorG;
+                o["b"] = (double)mp.colorB;
+                anyCustom = true;
+            }
+            if (mp.alpha >= 0.0f)          { o["alpha"] = (double)mp.alpha; anyCustom = true; }
+            if (mp.lightIntensity >= 0.0f) { o["light"] = (double)mp.lightIntensity; anyCustom = true; }
+            meshArr.append(o);
+        }
+        if (anyCustom) root["meshParts"] = meshArr;
+    }
 
     if (m_mainWindow->m_fileOps) {
         m_mainWindow->m_fileOps->backupBeforeOverwrite(fileName);

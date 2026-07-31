@@ -65,7 +65,7 @@
     </item>
    </layout>
   </widget>
-  <widget class="QStatusBar" name="statusbar"/>
+  <widget class="QStatusBar" name="statusbar" />
   <widget class="QDockWidget" name="dockRenders">
    <property name="sizePolicy">
     <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
@@ -116,15 +116,15 @@
         </property>
         <item>
          <widget class="QFrame" name="panelChoice">
-          <layout class="QGridLayout" name="gridLayout_13">
-           <item row="1" column="0">
+          <layout class="QHBoxLayout" name="horizontalLayout_4">
+           <item>
             <widget class="QRadioButton" name="radioSurface">
              <property name="text">
               <string>Surface</string>
              </property>
             </widget>
            </item>
-           <item row="1" column="2">
+           <item>
             <widget class="QRadioButton" name="radioBackground">
              <property name="text">
               <string>Background</string>
@@ -425,7 +425,7 @@
             <verstretch>0</verstretch>
            </sizepolicy>
           </property>
-          <layout class="QVBoxLayout" name="verticalLayout_11" stretch="0,0,0,0">
+          <layout class="QVBoxLayout" name="verticalLayout_11" stretch="0,0,0,0,0,0,0">
            <item>
             <widget class="QLabel" name="lblTrans">
              <property name="text">
@@ -498,7 +498,10 @@
              </layout>
             </widget>
            </item>
-           <item>
+           </layout>
+         </widget>
+        </item>
+       <item>
             <widget class="QLabel" name="lblFov">
              <property name="text">
               <string>Fov</string>
@@ -528,10 +531,36 @@
              </layout>
             </widget>
            </item>
+           <item>
+            <widget class="QWidget" name="widgetMeshSel" native="true">
+             <layout class="QHBoxLayout" name="horizontalLayoutMeshSel">
+              <item>
+               <widget class="QLabel" name="lblMeshSel">
+                <property name="text">
+                 <string>Mesh</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QSpinBox" name="spinMeshSel">
+                <property name="toolTip">
+                 <string>Which mesh the colour, transparency, Light and Solid/Wireframe controls act on. 0 = all meshes.</string>
+                </property>
+                <property name="specialValueText">
+                 <string>All</string>
+                </property>
+                <property name="minimum">
+                 <number>0</number>
+                </property>
+                <property name="maximum">
+                 <number>0</number>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
           </layout>
-         </widget>
-        </item>
-       </layout>
       </widget>
      </item>
     </layout>
@@ -572,7 +601,7 @@
          </widget>
         </item>
         <item row="3" column="1">
-         <widget class="QLineEdit" name="lineZ_P3D"/>
+         <widget class="QLineEdit" name="lineZ_P3D" />
         </item>
         <item row="2" column="0">
          <widget class="QLabel" name="lblY_P3D">
@@ -585,7 +614,7 @@
          </widget>
         </item>
         <item row="1" column="1">
-         <widget class="QLineEdit" name="lineX_P3D"/>
+         <widget class="QLineEdit" name="lineX_P3D" />
         </item>
         <item row="0" column="1">
          <widget class="QLabel" name="label3D">
@@ -631,7 +660,7 @@
          </widget>
         </item>
         <item row="4" column="1">
-         <widget class="QLineEdit" name="lineR_P3D"/>
+         <widget class="QLineEdit" name="lineR_P3D" />
         </item>
         <item row="7" column="0">
          <widget class="QPushButton" name="pushView3D">
@@ -641,7 +670,7 @@
          </widget>
         </item>
         <item row="2" column="1">
-         <widget class="QLineEdit" name="lineY_P3D"/>
+         <widget class="QLineEdit" name="lineY_P3D" />
         </item>
         <item row="5" column="0">
          <widget class="QLabel" name="lblSpeed3D">
@@ -943,7 +972,7 @@
        </property>
        <layout class="QGridLayout" name="gridLayout_4">
         <item row="6" column="2">
-         <widget class="QLineEdit" name="lineBeta_P"/>
+         <widget class="QLineEdit" name="lineBeta_P" />
         </item>
         <item row="10" column="2">
          <widget class="QPushButton" name="btnDeparture">
@@ -953,7 +982,7 @@
          </widget>
         </item>
         <item row="3" column="2">
-         <widget class="QLineEdit" name="lineZ_P"/>
+         <widget class="QLineEdit" name="lineZ_P" />
         </item>
         <item row="2" column="0">
          <widget class="QLabel" name="lblY_P">
@@ -1045,7 +1074,7 @@
          </widget>
         </item>
         <item row="5" column="2">
-         <widget class="QLineEdit" name="lineAlpha_P"/>
+         <widget class="QLineEdit" name="lineAlpha_P" />
         </item>
         <item row="7" column="0">
          <widget class="QLabel" name="lblP_P_2">
@@ -1058,16 +1087,16 @@
          </widget>
         </item>
         <item row="4" column="2">
-         <widget class="QLineEdit" name="lineP_P"/>
+         <widget class="QLineEdit" name="lineP_P" />
         </item>
         <item row="2" column="2">
-         <widget class="QLineEdit" name="lineY_P"/>
+         <widget class="QLineEdit" name="lineY_P" />
         </item>
         <item row="7" column="2">
-         <widget class="QLineEdit" name="lineGamma_P"/>
+         <widget class="QLineEdit" name="lineGamma_P" />
         </item>
         <item row="1" column="2">
-         <widget class="QLineEdit" name="lineX_P"/>
+         <widget class="QLineEdit" name="lineX_P" />
         </item>
         <item row="8" column="0">
          <widget class="QLabel" name="lblSpeed4D">
@@ -1725,13 +1754,13 @@
                     </widget>
                    </item>
                    <item row="2" column="2">
-                    <widget class="QPlainTextEdit" name="lineExplicitV"/>
+                    <widget class="QPlainTextEdit" name="lineExplicitV" />
                    </item>
                    <item row="1" column="2">
-                    <widget class="QPlainTextEdit" name="lineExplicitU"/>
+                    <widget class="QPlainTextEdit" name="lineExplicitU" />
                    </item>
                    <item row="3" column="2">
-                    <widget class="QPlainTextEdit" name="lineExplicitW"/>
+                    <widget class="QPlainTextEdit" name="lineExplicitW" />
                    </item>
                    <item row="3" column="0">
                     <widget class="QLabel" name="lblExplW">
@@ -1761,7 +1790,7 @@
                     </widget>
                    </item>
                    <item row="1" column="1">
-                    <widget class="QPlainTextEdit" name="lineU"/>
+                    <widget class="QPlainTextEdit" name="lineU" />
                    </item>
                    <item row="3" column="0">
                     <widget class="QLabel" name="label_4">
@@ -1771,10 +1800,10 @@
                     </widget>
                    </item>
                    <item row="3" column="1">
-                    <widget class="QPlainTextEdit" name="lineV"/>
+                    <widget class="QPlainTextEdit" name="lineV" />
                    </item>
                    <item row="5" column="1">
-                    <widget class="QPlainTextEdit" name="lineW"/>
+                    <widget class="QPlainTextEdit" name="lineW" />
                    </item>
                    <item row="5" column="0">
                     <widget class="QLabel" name="label_5">
@@ -2545,13 +2574,13 @@
                 </widget>
                </item>
                <item row="2" column="2">
-                <widget class="QLineEdit" name="lineZMin"/>
+                <widget class="QLineEdit" name="lineZMin" />
                </item>
                <item row="1" column="2">
-                <widget class="QLineEdit" name="lineYMin"/>
+                <widget class="QLineEdit" name="lineYMin" />
                </item>
                <item row="1" column="4">
-                <widget class="QLineEdit" name="lineYMax"/>
+                <widget class="QLineEdit" name="lineYMax" />
                </item>
                <item row="0" column="1">
                 <widget class="QLabel" name="lblXMin">
@@ -2574,7 +2603,7 @@
                 </widget>
                </item>
                <item row="0" column="2">
-                <widget class="QLineEdit" name="lineXMin"/>
+                <widget class="QLineEdit" name="lineXMin" />
                </item>
                <item row="2" column="1">
                 <widget class="QLabel" name="lblZMin">
@@ -2587,7 +2616,7 @@
                 </widget>
                </item>
                <item row="2" column="4">
-                <widget class="QLineEdit" name="lineZMax"/>
+                <widget class="QLineEdit" name="lineZMax" />
                </item>
               </layout>
              </widget>
@@ -3073,11 +3102,11 @@
     <property name="title">
      <string>Help</string>
     </property>
-    <addaction name="actionDocumentation"/>
-    <addaction name="actionQuit"/>
-    <addaction name="actionAbout"/>
+    <addaction name="actionDocumentation" />
+    <addaction name="actionQuit" />
+    <addaction name="actionAbout" />
    </widget>
-   <addaction name="menuHelp"/>
+   <addaction name="menuHelp" />
   </widget>
   <action name="actionDelete">
    <property name="text">
@@ -3160,6 +3189,6 @@
    <container>1</container>
   </customwidget>
  </customwidgets>
- <resources/>
- <connections/>
+ <resources />
+ <connections />
 </ui>

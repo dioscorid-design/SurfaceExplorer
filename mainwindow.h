@@ -633,6 +633,21 @@ private:
     // rispettiva path in corsa (da fermo il FOV era inerte e non correggibile,
     // e i due slider si contendevano lo stesso m_cameraFov).
     void applyCameraFov(float deg);
+
+    // ASPETTO PER-MESH (spinbox nel dock renderer). updateMeshSelectorRange va
+    // chiamata dopo ogni rigenerazione della mesh: con una superficie a mesh
+    // singola il massimo resta 0 e lo spinbox mostra solo "All", quindi la
+    // funzionalita' resta invisibile dove non serve.
+    void updateMeshSelectorRange();
+    void syncAppearanceControlsToActiveMesh();
+    // Vera mentre syncAppearanceControlsToActiveMesh sta muovendo i controlli:
+    // impedisce che i segnali di quei widget la facciano rientrare.
+    bool m_syncingMeshControls = false;
+    // Aspetto per-mesh letto da un preset: al momento di applyCommonData le parti
+    // non esistono ancora, quindi resta in sospeso qui e viene riversato dopo la
+    // rigenerazione della griglia.
+    std::vector<MeshPart> m_pendingMeshParts;
+    void applyPendingMeshAppearance();
     void toggleProjection();
     bool applyBackgroundTextureIfNeeded();
 
