@@ -267,6 +267,17 @@ private:
     // è manuale.
     QButtonGroup *m_bgTargetGroup;
 
+    // Coppia esclusiva All / Mesh (ambito dell'aspetto: tutta la superficie
+    // oppure la sola mesh scelta nello spinbox).
+    // Serve un QButtonGroup ESPLICITO: l'esclusivita' automatica dei
+    // QRadioButton vale solo fra fratelli con lo STESSO genitore, e nella .ui
+    // radioMeshOne e' finito dentro il contenitore groupMeshOne (insieme a
+    // spinMeshSel) mentre radioMeshAll e' rimasto in widgetMeshSel. Diversi
+    // genitori = due gruppi da uno: si potevano selezionare e deselezionare
+    // entrambi. Il gruppo li riunisce a prescindere da dove stanno nel layout,
+    // quindi il riquadro attorno a "Mesh" si puo' spostare liberamente.
+    QButtonGroup *m_meshScopeGroup = nullptr;
+
     // ==========================================================
     // MATHEMATICAL CONSTANTS & LIMITS
     // ==========================================================

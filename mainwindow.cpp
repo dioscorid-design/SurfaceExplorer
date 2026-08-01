@@ -3122,6 +3122,18 @@ MainWindow::MainWindow(QWidget *parent)
         // il gating (tasti densita' U/V) va aggiornato a mano.
         updateRenderState();
     };
+    // ESCLUSIVITA': i due radio NON sono fratelli (radioMeshOne sta dentro
+    // groupMeshOne, il riquadro che lo tiene insieme allo spinbox; radioMeshAll
+    // sta in widgetMeshSel). Qt rende esclusivi solo i radio con lo stesso
+    // genitore, quindi senza questo gruppo esplicito ognuno faceva storia a se':
+    // si potevano avere entrambi accesi, oppure entrambi spenti (un radio solo
+    // nel suo gruppo e' anche deselezionabile).
+    // Il gruppo li riunisce a prescindere dal layout: il riquadro attorno a
+    // "Mesh" resta libero di essere spostato o ridisegnato.
+    m_meshScopeGroup = new QButtonGroup(this);
+    m_meshScopeGroup->setExclusive(true);
+    m_meshScopeGroup->addButton(ui->radioMeshAll);
+    m_meshScopeGroup->addButton(ui->radioMeshOne);
     connect(ui->radioMeshAll, &QRadioButton::toggled, this, [applyMeshScope](bool on){
         if (on) applyMeshScope();
     });
@@ -11964,6 +11976,10 @@ void MainWindow::applyPendingMeshScope()
 
     const bool wantAll = m_pendingMeshScopeAll;
     {
+        // Si accende solo il radio voluto: l'altro lo spegne il QButtonGroup
+        // esclusivo (m_meshScopeGroup). I segnali vanno bloccati su ENTRAMBI,
+        // non solo su quello che si accende, perche' lo spegnimento
+        // automatico emette comunque toggled(false).
         QSignalBlocker b1(ui->radioMeshAll), b2(ui->radioMeshOne);
         if (wantAll) ui->radioMeshAll->setChecked(true);
         else         ui->radioMeshOne->setChecked(true);
