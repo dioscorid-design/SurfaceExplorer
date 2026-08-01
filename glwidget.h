@@ -190,6 +190,14 @@ public:
     // di verita' per cio' che una parte "eredita": i radio dell'interfaccia NON
     // lo sono, perche' mostrano la modalita' della mesh selezionata.
     int globalRenderMode() const { return renderMode; }
+    // Colore GLOBALE della superficie, come globalRenderMode: e' quello che una
+    // parte SENZA colore proprio sta mostrando, e quindi quello che i controlli
+    // devono visualizzare quando si seleziona una mesh che eredita.
+    void globalColor(float &r, float &g, float &b) const { r = red; g = green; b = blue; }
+    // Trasparenza e luce GLOBALI, stessa logica: sono i valori in vigore in
+    // ambito "All" e quelli che una parte senza valore proprio eredita.
+    float globalAlpha() const { return alpha; }
+    float globalLightIntensity() const { return m_lightIntensity; }
     // COMANDO esplicito dell'utente sulla mesh selezionata: e' l'UNICA via che
     // scrive una modalita' PROPRIA su una parte. setRenderMode() (chiamata da
     // updateRenderState a ogni cambio tab/proiezione/load) resta invece sempre

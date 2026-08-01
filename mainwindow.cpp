@@ -12175,25 +12175,6 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
     m_syncingMeshControls = true;
     struct Guard { bool &f; ~Guard(){ f = false; } } guard{m_syncingMeshControls};
 
-    const int idx = ui->glWidget->activeMeshPart();
-    const auto &parts = ui->glWidget->getEngine()->getMeshParts();
-    if (idx < 0 || idx >= (int)parts.size()) {
-        // AMBITO "ALL". Gli slider (colore/alpha/luce) restano dove sono, ma i
-        // RADIO vanno riportati sulla modalita' GLOBALE, altrimenti continuano a
-        // mostrare quella della mesh selezionata prima.
-        // Perche' e' indispensabile: uscendo da "Mesh" la guardia showingPart di
-        // updateRenderState smette di valere, e quella funzione rilegge i radio
-        // come fossero il globale. Con i radio fermi sul display della mesh
-        // precedente il globale veniva SOVRASCRITTO con la modalita' di quella
-        // mesh: la sequenza All(wireframe) -> Mesh -> All perdeva il wireframe,
-        // perche' la mesh 0 ha mode = 1 (Phong) e quel valore finiva nel globale.
-        // Il colore non ne soffriva: non passa dai radio, va dritto al globale.
-        syncRenderRadiosTo(ui->glWidget->globalRenderMode());
-        return;
-    }
-
-    const MeshPart &p = parts[idx];
-
     auto setNoSignal = [](QSlider *s, int v) {
         if (!s) return;
         bool old = s->blockSignals(true);
@@ -12201,25 +12182,78 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
         s->blockSignals(old);
     };
 
-    if (p.hasCustomColor()) {
-        setNoSignal(ui->sliderR, qRound(p.colorR * 255.0f));
-        setNoSignal(ui->sliderG, qRound(p.colorG * 255.0f));
-        setNoSignal(ui->sliderB, qRound(p.colorB * 255.0f));
+    // DISPLAY di colore / trasparenza / luce. Punto UNICO per i due ambiti: i
+    // valori da mostrare cambiano (globali in "All", della parte in "Mesh"), il
+    // modo di mostrarli no. Tenerlo unico e' cio' che impedisce ai due rami di
+    // divergere, che e' esattamente com'era nato questo bug.
+    // In tutti i casi gli slider si muovono a SEGNALI BLOCCATI, quindi le
+    // etichette numeriche vanno scritte a mano: l'unico che le aggiorna e'
+    // handleColorChange / i gestori valueChanged, che qui non scattano.
+    auto showAppearance = [&](float fr, float fg, float fb, float fa, float fl) {
+        const int r = qRound(fr * 255.0f);
+        const int g = qRound(fg * 255.0f);
+        const int b = qRound(fb * 255.0f);
+        setNoSignal(ui->sliderR, r);
+        setNoSignal(ui->sliderG, g);
+        setNoSignal(ui->sliderB, b);
+        ui->valR->setNum(r);
+        ui->valG->setNum(g);
+        ui->valB->setNum(b);
+
+        if (fa >= 0.0f) {
+            setNoSignal(ui->alphaSlider, qRound(fa * 100.0f));
+            alphaValue = fa;
+            ui->lblAlphaVal->setText(QString::number(fa, 'f', 2));
+        }
+        if (fl >= 0.0f) {
+            setNoSignal(ui->lightSlider, qRound(fl * 100.0f));
+            ui->lblValLight->setText(QString::number(qRound(fl * 100.0f)) + " %");
+        }
+        // NB: NON si tocca m_currentSurfaceColor. Quel membro e' il colore
+        // GLOBALE ed e' SALVATO nel preset (presetserializer, chiavi r/g/b e
+        // surfColor): scriverci il colore della mesh selezionata significherebbe
+        // che basta guardare la mesh 3 e salvare per portarsi via il suo rosso
+        // come colore globale della superficie. alphaValue invece si aggiorna
+        // perche' non finisce nel preset: e' solo lo stato corrente dello slider.
+    };
+
+    const int idx = ui->glWidget->activeMeshPart();
+    const auto &parts = ui->glWidget->getEngine()->getMeshParts();
+    if (idx < 0 || idx >= (int)parts.size()) {
+        // AMBITO "ALL": i comandi agiscono sullo stato GLOBALE, quindi i controlli
+        // devono mostrare QUELLO.
+        // Prima qui gli slider "restavano dove sono" e si riallineavano solo i
+        // radio: tornando da "Mesh" ad "All", colore, trasparenza e luce
+        // continuavano a mostrare i valori dell'ultima mesh guardata, mentre
+        // muoverli agiva sul globale. Il primo tocco faceva quindi saltare il
+        // globale al valore della mesh precedente.
+        // I RADIO restano indispensabili per un motivo in piu' (vedi 685100e):
+        // uscendo da "Mesh" la guardia showingPart di updateRenderState smette di
+        // valere, e quella funzione rilegge i radio come fossero il globale; se
+        // restassero sul display della mesh precedente, il globale verrebbe
+        // sovrascritto con la modalita' di quella mesh.
+        float gr, gg, gb;
+        ui->glWidget->globalColor(gr, gg, gb);
+        showAppearance(gr, gg, gb,
+                       ui->glWidget->globalAlpha(),
+                       ui->glWidget->globalLightIntensity());
+        syncRenderRadiosTo(ui->glWidget->globalRenderMode());
+        return;
     }
-    // Alpha: oltre allo slider vanno aggiornati anche il membro e l'etichetta.
-    // setNoSignal blocca valueChanged (che e' la fonte unica di verita' e li
-    // aggiornerebbe), quindi senza queste due righe lo slider si muoveva ma il
-    // numero accanto restava quello di prima: la mesh 3 e' a 0.45 e il pannello
-    // continuava a mostrare 1.00.
-    if (p.alpha >= 0.0f) {
-        setNoSignal(ui->alphaSlider, qRound(p.alpha * 100.0f));
-        alphaValue = p.alpha;
-        ui->lblAlphaVal->setText(QString::number(p.alpha, 'f', 2));
-    }
-    if (p.lightIntensity >= 0.0f) {
-        setNoSignal(ui->lightSlider, qRound(p.lightIntensity * 100.0f));
-        ui->lblValLight->setText(QString::number(qRound(p.lightIntensity * 100.0f)) + " %");
-    }
+
+    const MeshPart &p = parts[idx];
+
+    // AMBITO "MESH": si mostra il valore PROPRIO della parte se c'e', altrimenti
+    // quello globale, che e' cio' che la parte sta ereditando (stessa regola dei
+    // radio con effectiveRenderMode). Senza il ramo "eredita", selezionando una
+    // mesh senza valori propri i controlli restavano su quelli della mesh
+    // precedente, mostrando un aspetto che quella mesh non ha.
+    float fr = p.colorR, fg = p.colorG, fb = p.colorB;
+    if (!p.hasCustomColor()) ui->glWidget->globalColor(fr, fg, fb);
+    const float fa = (p.alpha >= 0.0f) ? p.alpha : ui->glWidget->globalAlpha();
+    const float fl = (p.lightIntensity >= 0.0f) ? p.lightIntensity
+                                                : ui->glWidget->globalLightIntensity();
+    showAppearance(fr, fg, fb, fa, fl);
 
     // DISPLAY della modalita' di rendering: i radio mostrano quella EFFICACE
     // della parte (la propria se dichiarata, altrimenti la globale). Siamo
