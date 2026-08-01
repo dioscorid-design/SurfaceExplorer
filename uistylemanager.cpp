@@ -294,14 +294,22 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
     // ==========================================================
     // 4. FIX: STILE CHECKBOX E RADIO BUTTON (Alto Contrasto e Pallino Solido)
     // ==========================================================
+// Il border-radius si applica al box BORDI COMPRESI, quindi per avere un
+// cerchio deve valere (width + 2*border) / 2. Il radio ACCESO ha un bordo piu'
+// spesso di quello spento (radioBorder contro i 2px fissi), percio' i due stati
+// hanno bisogno di due raggi diversi: con un raggio solo, quello acceso restava
+// un quadrato con gli angoli smussati. Su iOS si vedeva bene nel gruppo Multi
+// Mesh, con "All" acceso a forma di riquadro blu e "Mesh" spento tondo.
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     QString boxSize = "24px";
-    QString radioRadius = "14px";
+    QString radioRadius = "14px";        // (24 + 2*2) / 2
     QString radioBorder = "6px";
+    QString radioRadiusChecked = "18px"; // (24 + 2*6) / 2
 #else
     QString boxSize = "16px";
-    QString radioRadius = "10px";
+    QString radioRadius = "10px";        // (16 + 2*2) / 2
     QString radioBorder = "4px";
+    QString radioRadiusChecked = "12px"; // (16 + 2*4) / 2
 #endif
 
     QString formStyle = QString(R"(
@@ -352,6 +360,8 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
         QRadioButton::indicator:checked {
             background-color: #007ACC;
             border: %3 solid #222222;
+            /* Raggio proprio: il bordo qui e' piu' spesso, vedi la nota sopra. */
+            border-radius: %4;
             /* PNG trasparente per evitare collassi anche nello stato acceso */
             image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=");
         }
@@ -359,7 +369,7 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
             background-color: #2D2D30;
             border: 2px solid #444444;
         }
-    )").arg(boxSize, radioRadius, radioBorder);
+    )").arg(boxSize, radioRadius, radioBorder, radioRadiusChecked);
 
     // ==========================================================
     // 5. STILE ALBERI (QTreeView) SPECIFICO PER PIATTAFORMA

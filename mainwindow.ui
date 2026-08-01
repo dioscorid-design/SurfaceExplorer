@@ -552,11 +552,7 @@
            </item>
            <item>
             <widget class="QWidget" name="widgetMeshSel" native="true">
-             <layout class="QHBoxLayout" name="horizontalLayoutMeshSel">
-              <!-- Posizione dei due gruppi, senza stretch: il margine sinistro
-                   sposta "All" verso destra, quello destro a 0 lascia il
-                   gruppo "Mesh + selettore" spostato a sinistra. Lo spacing e'
-                   lo stacco fra i due. Sono i tre numeri da ritoccare. -->
+             <layout class="QHBoxLayout" name="horizontalLayoutMeshSel" stretch="1,2">
               <property name="spacing">
                <number>16</number>
               </property>
@@ -568,6 +564,12 @@
               </property>
               <item>
                <widget class="QRadioButton" name="radioMeshAll">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
                 <property name="toolTip">
                  <string>Colour, transparency and Light act on the whole surface (global state). Per-mesh settings are kept and come back when you switch to Mesh.</string>
                 </property>

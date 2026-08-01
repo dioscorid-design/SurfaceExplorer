@@ -48,6 +48,7 @@
 #include <QTextBrowser>
 #include <QDialog>
 #include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QEvent>
 #include <QMenu>
 #include <QContextMenuEvent>
@@ -3184,6 +3185,32 @@ MainWindow::MainWindow(QWidget *parent)
     };
     fitRadio(ui->radioMeshAll);
     fitRadio(ui->radioMeshOne);
+
+    // MARGINE SINISTRO (solo mobile). Va toccato SOLO quello: la distribuzione
+    // fra i due gruppi la fa lo stretch 1,2 della .ui (non si tocca, o "Mesh"
+    // torna sotto il campo come su desktop), e il rightMargin deve restare 0.
+    // Quello zero non e' un caso: e' cio' che tiene il gruppo "Mesh + frecce +
+    // campo" compattato a DESTRA, e quindi nettamente separato dal radio "All".
+    // Un margine simmetrico lo staccherebbe dal bordo destro e i due gruppi
+    // tornerebbero a somigliarsi.
+    // Il leftMargin invece e' 24px tarati sui widget piccoli del desktop: su
+    // mobile indicatori, font e tasti sono piu' grandi, la riga si riempie quasi
+    // tutta e quei 24px venivano mangiati dal layout, lasciando "All"
+    // appiccicato al bordo sinistro. Bastano pochi px in piu' per staccarlo,
+    // senza spostare nulla a destra.
+    if (auto* meshRow = qobject_cast<QHBoxLayout*>(ui->widgetMeshSel->layout())) {
+        const QMargins m = meshRow->contentsMargins();
+        meshRow->setContentsMargins(12, m.top(), 0, m.bottom());
+        // COMPATTAZIONE A DESTRA. Con lo stretch 1,2 le due celle si allargano,
+        // ma i widget dentro restano allineati a SINISTRA della propria cella:
+        // il gruppo "Mesh" galleggiava a meta' di una cella larga il doppio,
+        // invece di stare tutto a destra come prima. Il rightMargin a 0 da solo
+        // non basta a rimediare, perche' e' la cella a essere piu' larga del
+        // gruppo, non il margine a spingerlo dentro.
+        // Allineandolo a destra torna compatto contro il bordo e nettamente
+        // staccato da "All", che resta a sinistra nella sua cella.
+        meshRow->setAlignment(ui->groupMeshOne, Qt::AlignRight | Qt::AlignVCenter);
+    }
 #endif
 
     connect(ui->spinMeshSel, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int val){
