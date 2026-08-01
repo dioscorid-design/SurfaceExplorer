@@ -173,7 +173,7 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
             border: 1px solid #555;
             border-radius: 4px;
             color: #E0E0E0;
-            font-size: 20px;
+            font-size: 13px;
             font-weight: bold;
             padding: 0px;
             margin: 0px;
@@ -820,7 +820,11 @@ void UiStyleManager::installMobileSpinButtons(QSpinBox* spin)
     auto* row = new QWidget(parent);
     auto* rowLay = new QHBoxLayout(row);
     rowLay->setContentsMargins(0, 0, 0, 0);
-    rowLay->setSpacing(6);
+    rowLay->setSpacing(4);
+    // La riga non deve crescere in altezza oltre i tasti: e' il campo, con il
+    // suo padding, a spingerla in basso fin sopra l'etichetta sottostante.
+    spin->setMaximumHeight(32);
+    row->setMaximumHeight(32);
 
     auto makeArrow = [&](const QString& glyph) {
         auto* b = new QPushButton(glyph, row);
@@ -829,7 +833,10 @@ void UiStyleManager::installMobileSpinButtons(QSpinBox* spin)
         b->setAutoRepeat(true);              // tenere premuto scorre i valori
         b->setAutoRepeatDelay(400);
         b->setAutoRepeatInterval(120);
-        b->setFixedSize(46, 46);
+        // 32px: bersaglio ancora comodo al dito ma contenuto. A 46 la riga
+        // cresceva troppo in altezza e il tasto giu' finiva sopra l'etichetta
+        // del gruppo sottostante.
+        b->setFixedSize(32, 32);
         return b;
     };
     // Glifi triangolari: la forma della freccia la da' il carattere, cosi' non

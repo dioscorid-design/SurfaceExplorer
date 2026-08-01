@@ -29,7 +29,6 @@
 #endif
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-#include "uistylemanager.h"
 #include <QFormLayout>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -110,19 +109,6 @@ public:
         spinFps->setValue(defFps > 120 ? 120 : defFps);
         spinFps->setStyleSheet("padding: 8px; font-size: 16px;");
         form->addRow("FPS (24-120):", spinFps);
-
-#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
-        // Stesso trattamento del campo Mesh: tasti a forma di freccia e campo
-        // non editabile (vedi installMobileSpinButtons). Toccare il campo o le
-        // frecce native apriva tastierino e menu di modifica, senza uscita.
-        UiStyleManager::installMobileSpinButtons(spinDuration);
-        UiStyleManager::installMobileSpinButtons(spinFps);
-        // Senza tastiera il passo dei tasti e' l'unica granularita' disponibile:
-        // 1 secondo per volta sarebbe inutilizzabile. Tenere premuto accelera
-        // comunque (auto-repeat sui tasti). Il range NON e' stato toccato.
-        spinDuration->setSingleStep(5);
-        spinFps->setSingleStep(6);        // 24 -> 30 -> 36 ... 120
-#endif
 
         comboRes = new QComboBox(scrollContent);
         // "Current View Size" e non "Monitor Default": su mobile non c'e' un
