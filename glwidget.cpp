@@ -2158,6 +2158,31 @@ void GLWidget::clearActiveMeshRenderMode() {
     update();
 }
 
+// Rende PROPRIA di ogni parte la modalita' che sta ereditando dal globale. Non
+// cambia nulla di visibile: a ogni parte si scrive esattamente il valore che
+// effectiveRenderMode gia' restituiva per lei.
+// A cosa serve: dall'ambito "All" un click sui radio cambia il GLOBALE, e tutte
+// le parti senza modalita' propria lo seguono. Il preset "Hopf Tori Mesh Colors"
+// ha globale = Phong e solo due mesh con wireframe proprio: mettendo tutto in
+// wireframe da "All" le altre ereditavano il 2 e, tornando su "Mesh", la
+// superficie era interamente wireframe. I dati per-mesh non erano stati persi
+// (le due mesh avevano ancora il loro 2): era la BASE ereditata a essersi
+// spostata sotto di loro. Congelandola prima, l'aspetto misto sopravvive.
+void GLWidget::pinInheritedRenderModes() {
+    if (!engine) return;
+    const int n = engine->getMeshPartCount();
+    if (n <= 1) return;              // mesh singola: nessun aspetto per-parte in gioco
+    for (int k = 0; k < n; ++k) {
+        MeshPart *p = engine->mutableMeshPart(k);
+        if (!p || p->hasCustomRenderMode) continue;   // chi ha gia' la sua non si tocca
+        p->renderMode = renderMode;                   // = quello che stava ereditando
+        p->hasCustomRenderMode = true;
+    }
+    // Come in applyToActiveMeshPart: senza questo la prossima rigenerazione
+    // della griglia riporterebbe le parti ai valori dello script.
+    engine->syncPartAppearance();
+}
+
 int GLWidget::activeMeshEffectiveRenderMode() const {
     if (m_activeMeshPart < 0 || !engine) return renderMode;
     const auto &parts = engine->getMeshParts();

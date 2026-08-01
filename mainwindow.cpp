@@ -12147,6 +12147,26 @@ void MainWindow::onUserRenderModeChosen()
         // propaga piu' il wireframe a tutte le parti.
         ui->glWidget->setActiveMeshRenderMode(mode);
     } else {
+        // AMBITO "ALL": la scelta e' globale, come da sempre. Ma le parti che
+        // NON hanno una modalita' propria ereditano dal globale, quindi
+        // cambiarlo qui le trascina tutte, e l'aspetto misto impostato per-mesh
+        // sparisce appena si torna su "Mesh".
+        // Caso segnalato ("Hopf Tori Mesh Colors"): globale = Phong, due mesh
+        // con wireframe proprio. Wireframe da "All" -> le altre ereditano il
+        // wireframe -> tornando su "Mesh" e' tutto wireframe. I dati per-mesh
+        // non erano andati persi: si era spostata la BASE sotto di loro.
+        // Percio' PRIMA di muovere il globale si congela nelle parti la
+        // modalita' che stavano ereditando: chi non aveva nulla di suo se la
+        // prende com'e' (niente cambia a schermo), e resta li' quando il
+        // globale si sposta. Cosi' vale anche per il render mode il contratto
+        // gia' valido per colore e trasparenza, quello scritto nel tooltip di
+        // "All": le impostazioni per-mesh si ritrovano tornando su "Mesh".
+        // NB: va fatto solo se il globale cambia davvero. updateRenderState
+        // chiama i gestori dei radio anche per ragioni di sola UI, e congelare
+        // a vuoto renderebbe "propria" una modalita' che l'utente non ha mai
+        // scelto per quelle mesh (smetterebbero di seguire il globale).
+        if (mode != m_savedRenderMode)
+            ui->glWidget->pinInheritedRenderModes();
         m_savedRenderMode = mode;
     }
 }

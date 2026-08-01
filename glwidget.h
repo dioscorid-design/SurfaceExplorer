@@ -201,6 +201,13 @@ public:
     // Modalita' EFFICACE della parte selezionata (globale se "All"/eredita):
     // e' cio' che i radio devono MOSTRARE.
     int  activeMeshEffectiveRenderMode() const;
+    // Congela nelle parti che EREDITANO la modalita' globale attuale, rendendola
+    // loro (hasCustomRenderMode = true) senza cambiare cio' che si vede adesso.
+    // Serve prima di cambiare il globale dall'ambito "All": senza questo passo le
+    // parti che ereditano seguirebbero il nuovo globale e l'aspetto misto
+    // impostato per-mesh andrebbe perso. Chi ha gia' una modalita' propria non
+    // viene toccato. Vedi la nota in MainWindow::onUserRenderModeChosen.
+    void pinInheritedRenderModes();
     // Densita' wireframe della parte selezionata (0,0 = eredita dal globale).
     void setActiveMeshWireframeDensity(int uStep, int vStep);
     void activeMeshWireframeDensity(int &uStep, int &vStep) const;
