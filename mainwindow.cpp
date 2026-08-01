@@ -14,6 +14,7 @@
 #include "expressionparser.h"
 
 #include <QLineEdit>
+#include <QRadioButton>
 #include <QPushButton>
 #include <QCheckBox>
 #include <QTabBar>
@@ -3140,12 +3141,28 @@ MainWindow::MainWindow(QWidget *parent)
     // No-op su desktop.
     UiStyleManager::installMobileSpinButtons(ui->spinMeshSel);
 #if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
-    // I radio non devono cedere spazio: senza un minimo il testo "Mesh" veniva
-    // troncato in "Mes". Ora "Mesh" e il suo campo vivono nel riquadro
-    // groupMeshOne (vedi il .ui), che mostra a colpo d'occhio che sono
-    // collegati e tiene insieme il gruppo senza bisogno di stretch.
-    if (ui->radioMeshAll) ui->radioMeshAll->setMinimumWidth(70);
-    if (ui->radioMeshOne) ui->radioMeshOne->setMinimumWidth(70);
+    // I radio non devono cedere spazio: senza questo il testo "Mesh" veniva
+    // troncato in "Mes". Un minimo "a occhio" non basta — dipende dal font
+    // effettivo, che su mobile e' piu' grande — quindi lo calcoliamo dal testo
+    // reale: larghezza del testo + indicatore + margini dello stile, e lo
+    // imponiamo come minimo E come dimensione preferita, cosi' il layout non
+    // puo' comprimerli sotto quella soglia per far posto ai tasti.
+    // NB: si usa sizeHint(), non un calcolo a mano su fontMetrics +
+    // pixelMetric. Il QSS mobile ridefinisce sia la dimensione
+    // dell'indicatore (QRadioButton::indicator width/height) sia lo spacing,
+    // quindi i pixelMetric dello stile restituirebbero i valori di DEFAULT e
+    // non quelli realmente usati: il minimo risulterebbe troppo stretto e il
+    // testo continuerebbe a essere troncato. sizeHint tiene conto del foglio
+    // di stile applicato.
+    auto fitRadio = [](QRadioButton* rb) {
+        if (!rb) return;
+        rb->ensurePolished();                       // QSS applicato prima di misurare
+        const int w = rb->sizeHint().width() + 8;    // 8 = respiro
+        rb->setMinimumWidth(w);
+        rb->setSizePolicy(QSizePolicy::Fixed, rb->sizePolicy().verticalPolicy());
+    };
+    fitRadio(ui->radioMeshAll);
+    fitRadio(ui->radioMeshOne);
 #endif
 
     connect(ui->spinMeshSel, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int val){

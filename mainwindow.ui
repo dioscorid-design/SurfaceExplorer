@@ -110,7 +110,7 @@
          <verstretch>0</verstretch>
         </sizepolicy>
        </property>
-       <layout class="QVBoxLayout" name="verticalLayout_4" stretch="0,0,0,0,0,0,0,0">
+       <layout class="QVBoxLayout" name="verticalLayout_4" stretch="0,0,0,0,0,0">
         <property name="sizeConstraint">
          <enum>QLayout::SizeConstraint::SetMinimumSize</enum>
         </property>
@@ -425,7 +425,7 @@
             <verstretch>0</verstretch>
            </sizepolicy>
           </property>
-          <layout class="QVBoxLayout" name="verticalLayout_11" stretch="0,0,0,0">
+          <layout class="QVBoxLayout" name="verticalLayout_11" stretch="0,0,0,0,0,0">
            <item>
             <widget class="QLabel" name="lblTrans">
              <property name="text">
@@ -553,6 +553,19 @@
            <item>
             <widget class="QWidget" name="widgetMeshSel" native="true">
              <layout class="QHBoxLayout" name="horizontalLayoutMeshSel">
+              <!-- Posizione dei due gruppi, senza stretch: il margine sinistro
+                   sposta "All" verso destra, quello destro a 0 lascia il
+                   gruppo "Mesh + selettore" spostato a sinistra. Lo spacing e'
+                   lo stacco fra i due. Sono i tre numeri da ritoccare. -->
+              <property name="spacing">
+               <number>16</number>
+              </property>
+              <property name="leftMargin">
+               <number>24</number>
+              </property>
+              <property name="rightMargin">
+               <number>0</number>
+              </property>
               <item>
                <widget class="QRadioButton" name="radioMeshAll">
                 <property name="toolTip">
@@ -567,11 +580,11 @@
                </widget>
               </item>
               <item>
-               <widget class="QFrame" name="groupMeshOne">
-                <property name="frameShape">
-                 <enum>QFrame::Shape::StyledPanel</enum>
-                </property>
+               <widget class="QWidget" name="groupMeshOne" native="true">
                 <layout class="QHBoxLayout" name="horizontalLayoutMeshOne">
+                 <property name="spacing">
+                  <number>6</number>
+                 </property>
                  <property name="leftMargin">
                   <number>6</number>
                  </property>
@@ -583,9 +596,6 @@
                  </property>
                  <property name="bottomMargin">
                   <number>2</number>
-                 </property>
-                 <property name="spacing">
-                  <number>6</number>
                  </property>
                  <item>
                   <widget class="QRadioButton" name="radioMeshOne">
