@@ -19,6 +19,12 @@
 #include <QTextBrowser>
 #include <QPainter>
 #include <QPixmap>
+#include <QSpinBox>
+#include <QLineEdit>
+#include <QHBoxLayout>
+#include <QFormLayout>
+#include <QEvent>
+#include <functional>
 #include <QIcon>
 #include <QMenu>
 
@@ -151,42 +157,35 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
     )" // Chiude il primo blocco di testo
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-                                // --- FRECCE SPINBOX MOBILE ---
+                                // --- TASTI SPINBOX MOBILE ---
                                 // Su mobile i campi numerici non sono editabili
-                                // da tastiera (vedi il campo Mesh in
-                                // mainwindow.cpp): le frecce sono l'UNICO modo
-                                // di cambiare valore, e quelle native sono
-                                // troppo piccole per un dito. Le allarghiamo e
-                                // le rendiamo visibili.
+                                // da tastiera (vedi installMobileSpinButtons in
+                                // mainwindow.cpp): il valore si cambia SOLO coi
+                                // tasti, quindi devono essere bersagli veri.
+                                // Le frecce native del QSpinBox sono nascoste
+                                // (ButtonSymbols::NoButtons) e sostituite da due
+                                // QPushButton con proprieta' "spinArrow": qui
+                                // ricevono la forma di freccia, disegnata col
+                                // carattere triangolare del testo.
                                 R"(
-        QSpinBox::up-button, QSpinBox::down-button {
-            subcontrol-origin: border;
-            width: 34px;
+        QPushButton[spinArrow="true"] {
             background-color: #3E3E42;
             border: 1px solid #555;
+            border-radius: 4px;
+            color: #E0E0E0;
+            font-size: 20px;
+            font-weight: bold;
+            padding: 0px;
+            margin: 0px;
         }
-        QSpinBox::up-button   { subcontrol-position: top right; }
-        QSpinBox::down-button { subcontrol-position: bottom right; }
-        QSpinBox::up-button:pressed, QSpinBox::down-button:pressed {
+        QPushButton[spinArrow="true"]:pressed {
             background-color: #007ACC;
+            border-color: #007ACC;
         }
-        QSpinBox::up-arrow {
-            image: none;
-            width: 0; height: 0;
-            border-left: 7px solid transparent;
-            border-right: 7px solid transparent;
-            border-bottom: 9px solid #E0E0E0;
-        }
-        QSpinBox::down-arrow {
-            image: none;
-            width: 0; height: 0;
-            border-left: 7px solid transparent;
-            border-right: 7px solid transparent;
-            border-top: 9px solid #E0E0E0;
-        }
-        QSpinBox::up-button:disabled, QSpinBox::down-button:disabled {
+        QPushButton[spinArrow="true"]:disabled {
             background-color: #2D2D30;
             border-color: #444;
+            color: #666;
         }
         )"
                                 // --- STILE SCROLLBAR MOBILE ---
@@ -774,4 +773,120 @@ void UiStyleManager::styleMobileOverflowMenu(QMenu* menu) {
 
 void UiStyleManager::applyRecordButtonStyle(QPushButton* btn) {
     if (btn) btn->setStyleSheet("QPushButton { color: red; font-weight: bold; }");
+}
+
+// MOBILE: due QPushButton a forma di freccia al posto delle frecce native.
+//
+// Perche' non bastava stilare le frecce native: su iOS toccarle dava il focus al
+// QLineEdit interno dello spinbox, che apriva il tastierino numerico E il menu
+// di modifica, senza poterli chiudere (app bloccata). Gli hint di input
+// (ImhDigitsOnly) non risolvono: cambiano il tipo di campo per il text
+// responder del plugin ma non gli impediscono di prendere il focus.
+// Qui invece il campo diventa non editabile e senza focus, e il valore si
+// cambia con due bottoni veri, che col plugin non hanno alcun rapporto.
+void UiStyleManager::installMobileSpinButtons(QSpinBox* spin)
+{
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    if (!spin || spin->property("mobileSpinButtons").toBool()) return;
+    spin->setProperty("mobileSpinButtons", true);
+
+    // Il campo resta come sola casella del numero: niente frecce native.
+    spin->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    spin->setFocusPolicy(Qt::NoFocus);
+    spin->setAlignment(Qt::AlignCenter);
+    if (QLineEdit* le = spin->findChild<QLineEdit*>()) {
+        le->setReadOnly(true);
+        le->setFocusPolicy(Qt::NoFocus);
+        // Niente menu di modifica su un campo non editabile.
+        le->setContextMenuPolicy(Qt::PreventContextMenu);
+    }
+
+    QWidget* parent = spin->parentWidget();
+    if (!parent) return;
+    // Il layout che contiene lo spinbox NON e' per forza quello del parent
+    // widget: nel dialogo del recorder i campi stanno in un QFormLayout che e'
+    // annidato dentro il QVBoxLayout di scrollContent. Cerchiamo il layout che
+    // lo contiene davvero, o l'inserimento finirebbe nel posto sbagliato.
+    QLayout* lay = nullptr;
+    for (QLayout* cand : parent->findChildren<QLayout*>(QString(), Qt::FindChildrenRecursively)) {
+        if (cand->indexOf(spin) >= 0) { lay = cand; break; }
+    }
+    if (!lay && parent->layout() && parent->layout()->indexOf(spin) >= 0)
+        lay = parent->layout();
+    if (!lay) return;
+
+    // Lo spinbox viene sostituito, nella sua posizione, da una riga
+    // [ giu ] [ campo ] [ su ]: cosi' il numero resta centrato fra i due tasti.
+    auto* row = new QWidget(parent);
+    auto* rowLay = new QHBoxLayout(row);
+    rowLay->setContentsMargins(0, 0, 0, 0);
+    rowLay->setSpacing(6);
+
+    auto makeArrow = [&](const QString& glyph) {
+        auto* b = new QPushButton(glyph, row);
+        b->setProperty("spinArrow", true);   // aggancia il QSS mobile
+        b->setFocusPolicy(Qt::NoFocus);      // mai focus: nessuna tastiera
+        b->setAutoRepeat(true);              // tenere premuto scorre i valori
+        b->setAutoRepeatDelay(400);
+        b->setAutoRepeatInterval(120);
+        b->setFixedSize(46, 46);
+        return b;
+    };
+    // Glifi triangolari: la forma della freccia la da' il carattere, cosi' non
+    // servono icone da caricare ne' disegno custom.
+    QPushButton* btnDown = makeArrow(QString::fromUtf8("▼"));
+    QPushButton* btnUp   = makeArrow(QString::fromUtf8("▲"));
+
+    // Il campo si allarga un po': con i tasti fuori, la casella ha tutto lo
+    // spazio per il numero e lo mostra centrato.
+    spin->setMinimumWidth(72);
+
+    // Posizione originale, letta PRIMA di rimuovere lo spinbox dal layout.
+    const int boxIdx = lay->indexOf(spin);
+    int formRow = -1;
+    QFormLayout::ItemRole formRole = QFormLayout::FieldRole;
+    auto* form = qobject_cast<QFormLayout*>(lay);
+    if (form) form->getWidgetPosition(spin, &formRow, &formRole);
+
+    // Lo spinbox passa dentro la riga: addWidget lo riparenta e lo toglie da
+    // solo dal layout precedente.
+    rowLay->addWidget(btnDown);
+    rowLay->addWidget(spin, 1);
+    rowLay->addWidget(btnUp);
+
+    // La riga prende il posto che aveva lo spinbox.
+    if (auto* box = qobject_cast<QBoxLayout*>(lay)) {
+        box->insertWidget(boxIdx < 0 ? box->count() : boxIdx, row);
+    } else if (form && formRow >= 0) {
+        // In un QFormLayout lo spinbox e' il campo di una riga: si sostituisce
+        // il widget di quella riga, o la label resterebbe spaiata.
+        form->setWidget(formRow, formRole, row);
+    } else {
+        lay->addWidget(row);
+    }
+
+    QObject::connect(btnUp,   &QPushButton::clicked, spin, &QSpinBox::stepUp);
+    QObject::connect(btnDown, &QPushButton::clicked, spin, &QSpinBox::stepDown);
+
+    // I tasti seguono lo stato del campo: quando lo spinbox e' disabilitato
+    // (ambito "All" sul selettore Mesh) devono spegnersi con lui.
+    auto syncEnabled = [spin, btnUp, btnDown]() {
+        btnUp->setEnabled(spin->isEnabled());
+        btnDown->setEnabled(spin->isEnabled());
+    };
+    syncEnabled();
+    // enabledChange non e' un segnale: si osserva l'evento sul widget.
+    class EnabledWatcher : public QObject {
+    public:
+        EnabledWatcher(QObject* p, std::function<void()> f) : QObject(p), fn(std::move(f)) {}
+        bool eventFilter(QObject*, QEvent* e) override {
+            if (e->type() == QEvent::EnabledChange) fn();
+            return false;
+        }
+        std::function<void()> fn;
+    };
+    spin->installEventFilter(new EnabledWatcher(spin, syncEnabled));
+#else
+    Q_UNUSED(spin);
+#endif
 }

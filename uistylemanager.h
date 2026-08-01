@@ -14,6 +14,7 @@ class QVBoxLayout;
 class QTextBrowser;
 class QPushButton;
 class QMenu;
+class QSpinBox;
 
 class UiStyleManager
 {
@@ -36,6 +37,11 @@ public:
     static void addScrollToDock(QDockWidget* dock);
     static void applyConstraintStyle(QPlainTextEdit* editor, ConstraintState state);
     static void setupDocumentationDialog(QDialog* dialog, QVBoxLayout* layout, QTextBrowser* browser, QPushButton* closeBtn);
+    // MOBILE: sostituisce le frecce native di un QSpinBox con due QPushButton a
+    // forma di freccia, affiancati al campo. Su iOS il campo diventa anche non
+    // editabile da tastiera: toccarlo (frecce native comprese) apriva tastierino
+    // e menu di modifica senza poterli chiudere. No-op su desktop.
+    static void installMobileSpinButtons(QSpinBox* spin);
     static void styleMobileMenuButton(QPushButton* button);
     static void styleMobileOverflowMenu(QMenu* menu);
     static void applyRecordButtonStyle(QPushButton* btn);
