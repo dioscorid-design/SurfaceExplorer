@@ -951,6 +951,13 @@ MainWindow::MainWindow(QWidget *parent)
             if (!hasSelection(editor))
                 return;
         }
+        // Campi che hanno dichiarato "niente menu di modifica" (proprieta'
+        // noEditMenu): questo connect e' GLOBALE all'app e ripresenterebbe il
+        // menu anche sui campi numerici dei dialoghi, dove il NoEditMenuFilter
+        // blocca il QContextMenuEvent ma non questo percorso — che non passa da
+        // li'. E' la via per cui il menu ricompariva sui campi del recorder.
+        if (editor && editor->property("noEditMenu").toBool())
+            return;
         const QRect r = editor->inputMethodQuery(Qt::ImCursorRectangle).toRect();
         const QPoint gp = editor->mapToGlobal(r.center());
         QTimer::singleShot(0, editor, [editor, gp]() { iosPresentEditMenu(editor, gp); });
@@ -3132,6 +3139,13 @@ MainWindow::MainWindow(QWidget *parent)
     // toccarlo apriva tastierino e menu di modifica senza poterli chiudere).
     // No-op su desktop.
     UiStyleManager::installMobileSpinButtons(ui->spinMeshSel);
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    // I due radio non devono cedere spazio ai tasti: senza questo il testo
+    // "Mesh" veniva troncato in "Mes". Il minimo li tiene leggibili e il
+    // gruppo tasti+campo, che ha dimensioni fisse, occupa il resto.
+    if (ui->radioMeshAll) ui->radioMeshAll->setMinimumWidth(70);
+    if (ui->radioMeshOne) ui->radioMeshOne->setMinimumWidth(80);
+#endif
 
     connect(ui->spinMeshSel, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int val){
         if (!ui->glWidget) return;

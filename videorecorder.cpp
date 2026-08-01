@@ -124,6 +124,12 @@ public:
             if (QLineEdit* le = sb->findChild<QLineEdit*>()) {
                 le->setInputMethodHints(le->inputMethodHints() | Qt::ImhNoEditMenu);
                 le->installEventFilter(new NoEditMenuFilter(le));
+                // Il filtro copre il QContextMenuEvent, ma NON l'altra via da
+                // cui il menu arriva: il connect globale su
+                // QInputMethod::visibleChanged in mainwindow, che ripresenta il
+                // menu su qualunque editor con selezione quando la tastiera si
+                // chiude. Questa proprieta' lo fa desistere.
+                le->setProperty("noEditMenu", true);
             }
         }
 #endif
@@ -186,6 +192,8 @@ public:
         // d'intento per il plugin.
         nameEdit->setInputMethodHints(nameEdit->inputMethodHints() | Qt::ImhNoEditMenu);
         nameEdit->installEventFilter(new NoEditMenuFilter(nameEdit));
+        // Vedi sopra: il filtro non copre il connect globale su visibleChanged.
+        nameEdit->setProperty("noEditMenu", true);
 #endif
         nameLayout->addWidget(nameEdit);
         connect(nameEdit, &QLineEdit::returnPressed, nameEdit, &QLineEdit::clearFocus);

@@ -859,13 +859,14 @@ void UiStyleManager::installMobileSpinButtons(QSpinBox* spin)
 
     // Lo spinbox passa dentro la riga: addWidget lo riparenta e lo toglie da
     // solo dal layout precedente.
-    // Nessuno stretch sul campo (ha larghezza fissa) e uno stretch finale che
-    // assorbe lo spazio in piu': il gruppo tasti+campo resta compatto a
-    // sinistra invece di dilatarsi per tutta la riga.
+    // NIENTE stretch qui dentro: la riga deve occupare solo lo spazio che le
+    // serve e lasciare il resto agli altri widget della riga esterna (i radio
+    // All/Mesh). Uno stretch finale schiacciava proprio quelli, troncando
+    // l'etichetta "Mesh" in "Mes" e lasciando vuota la meta' destra.
+    // La compattezza la danno gia' le dimensioni fisse di tasti e campo.
     rowLay->addWidget(btnDown);
     rowLay->addWidget(spin);
     rowLay->addWidget(btnUp);
-    rowLay->addStretch(1);
 
     // La riga prende il posto che aveva lo spinbox.
     if (auto* box = qobject_cast<QBoxLayout*>(lay)) {

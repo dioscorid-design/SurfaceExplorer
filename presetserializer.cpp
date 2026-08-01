@@ -85,6 +85,10 @@ public:
         // classe); l'hint resta come dichiarazione d'intento per il plugin.
         nameEdit->setInputMethodHints(nameEdit->inputMethodHints() | Qt::ImhNoEditMenu);
         nameEdit->installEventFilter(new NoEditMenuFilter(nameEdit));
+        // Il filtro copre il QContextMenuEvent, ma NON il connect globale su
+        // QInputMethod::visibleChanged (mainwindow), che ripresenta il menu su
+        // qualunque editor con selezione alla chiusura della tastiera.
+        nameEdit->setProperty("noEditMenu", true);
 #endif
         nameLayout->addWidget(nameEdit);
         mainLayout->addLayout(nameLayout);
