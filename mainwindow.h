@@ -257,6 +257,20 @@ private:
     // valore la figura degenera (i tubi di Clifford collassano sull'asse).
     // Applicati insieme ai discreti, dagli stessi punti.
     QHash<QString, float> m_minConsts;
+
+    // MESH_VISIBLE := <espressione>;  (es. "MESH_VISIBLE := E;")
+    // Quante delle mesh dichiarate sono davvero A SCHERMO. Serve perche' un
+    // //CUTOUT puo' spegnerne una parte (nei tori di Hopf lo slider E ne accende
+    // da 1 a 9), ma il cutout e' GLSL eseguito sulla GPU: la CPU non puo' sapere
+    // quante ne sopravvivono senza rieseguirne la logica, ed e' proprio il tipo
+    // di duplicazione che va evitato. Percio' lo dichiara lo SCRIPT.
+    // Si tiene l'ESPRESSIONE, non il numero: dipende dalle costanti (qui E) e va
+    // rivalutata a ogni loro cambio. Vuota = nessuna direttiva, valgono tutte le
+    // mesh dichiarate (comportamento storico).
+    QString m_meshVisibleExpr;
+    // Valore corrente della direttiva, 0 = non dichiarata/non valutabile.
+    int meshVisibleCount() const;
+
     QProgressBar *m_renderProgress;
     QButtonGroup *m_colorGroup;
     QButtonGroup *m_modeGroup;

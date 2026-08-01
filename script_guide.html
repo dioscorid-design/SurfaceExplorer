@@ -247,6 +247,16 @@ return (mesh &gt; Ne - 0.5);
     so the slider stays continuous. Their vertices are still generated, though: at high grid counts keep
     <em>Steps</em> low.</p>
 
+    <p>When you do this, add <code>MESH_VISIBLE</code> so the <em>Mesh</em> spin box knows how many grids are
+    actually on screen:</p>
+    <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">E := int(1,6);
+MESH_VISIBLE := E;   // how many of the declared grids are visible</pre>
+    <p>The cutout runs on the GPU, so the interface cannot work out by itself how many grids survive it. Without
+    this line the spin box always reaches the declared maximum, and selecting a discarded grid would leave its
+    colour and transparency sliders acting on something that is not drawn. The value is an expression in the
+    constants, re-evaluated as the slider moves. Scripts that do not declare it are unaffected: the spin box keeps
+    covering every declared grid.</p>
+
     <p style="font-size: 18px; color: #007acc;"><b>Per-mesh appearance</b></p>
     <p>The <em>Multi Mesh</em> box in the <em>Renderer</em> dock chooses what the appearance controls act on.
     With <strong>All</strong> the surface behaves as a single one: colour, transparency, light and

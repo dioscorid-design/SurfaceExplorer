@@ -10862,6 +10862,17 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
             m_minConsts.insert(name, m.captured(2).toFloat());
             skipDiscrete.insert(name);
         }
+
+        // "MESH_VISIBLE := E;" — quante mesh sono davvero a schermo quando un
+        // //CUTOUT ne spegne una parte. Si conserva l'ESPRESSIONE: dipende dalle
+        // costanti e va rivalutata a ogni loro cambio (vedi meshVisibleCount).
+        // Azzerata sempre come le altre direttive, o quella del preset
+        // precedente resterebbe attiva su una superficie che non la dichiara.
+        m_meshVisibleExpr.clear();
+        QRegularExpression reMeshVis(R"(\bMESH_VISIBLE\b\s*:=\s*([^;]+);)",
+                                     QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch mv = reMeshVis.match(cleanScript);
+        if (mv.hasMatch()) m_meshVisibleExpr = mv.captured(1).trimmed();
     }
 
     QRegularExpressionMatchIterator i = re.globalMatch(cleanScript);
@@ -11899,16 +11910,89 @@ void MainWindow::applyDefaultCheckerShader()
 // ==========================================================
 // ASPETTO PER-MESH: spinbox di selezione
 // ==========================================================
+// Valuta la direttiva "MESH_VISIBLE := <espressione>;" con le costanti A..S
+// correnti. 0 = non dichiarata (o non valutabile): il chiamante usa allora tutte
+// le mesh dichiarate, cioe' il comportamento di sempre.
+// Si rivaluta ogni volta invece di memorizzare un numero perche' l'espressione
+// dipende dalle costanti: nei tori di Hopf e' "E", e deve seguire lo slider.
+int MainWindow::meshVisibleCount() const
+{
+    if (m_meshVisibleExpr.isEmpty()) return 0;
+
+    // const_cast: resolveCascadeConstants non e' const (aggiorna la cache
+    // m_lastValidConst dei valori buoni). Qui pero' e' l'unico effetto, e scrive
+    // lo stesso valore che i campi hanno gia': con restoreTextOnNegative = false
+    // non tocca la UI.
+    MainWindow *self = const_cast<MainWindow*>(this);
+    const CascadeConstants k = self->resolveCascadeConstants(false);
+
+    // ATTENZIONE, NON passare l'espressione a parseUIConstant cosi' com'e':
+    // ExprTk e' CASE-INSENSITIVE e add_constants() registra 'e' = numero di
+    // Nepero, che vince su add_constant("E", ...). "MESH_VISIBLE := E" veniva
+    // quindi valutato 2.71828 -> floor(+0.5) = 3 mesh invece di 5 (bug visto sui
+    // tori di Hopf con E = 5). Stessa famiglia della nota su PI/e/tau riservati
+    // nel traduttore.
+    // Percio' le lettere delle costanti si sostituiscono QUI col loro valore
+    // numerico, prima di dare il testo al parser: cosi' 'E' non arriva mai a
+    // ExprTk come simbolo. Le parentesi proteggono le espressioni composte
+    // (es. "E-1" con E negativo non diventa "--1").
+    QString expr = m_meshVisibleExpr;
+    const struct { const char* name; float val; } consts[] = {
+        {"A", k.a}, {"B", k.b}, {"C", k.c}, {"D", k.d},
+        {"E", k.e}, {"F", k.f}, {"S", k.s},
+    };
+    for (const auto& c : consts) {
+        const QRegularExpression re(QString("\\b%1\\b").arg(c.name),
+                                    QRegularExpression::CaseInsensitiveOption);
+        expr.replace(re, QString("(%1)").arg(c.val, 0, 'g', 9));
+    }
+
+    // E NEMMENO passarla a parseUIConstant per la valutazione: quella funzione
+    // comincia con replace(",", "."), una comodita' per chi scrive i decimali
+    // all'italiana in un CAMPO (dove c'e' un numero solo e non ci sono virgole
+    // separatrici). Qui invece le virgole separano gli ARGOMENTI, e quel replace
+    // trasforma min(max(E,1),6) in min(max(E.1).6): non compila, ok = false, e
+    // il chiamante leggeva "nessuna direttiva" tornando al conteggio dichiarato.
+    // E' il motivo per cui Clifford Labyrinth arrivava a 6 con E = 3, mentre i
+    // tori di Hopf funzionavano: "E" da sola non ha virgole.
+    // Stessa trappola della memoria sui campi dei path (mod/atan2/min/max rotte
+    // dal replace virgola->punto). Percio' qui ExprTk lo usiamo direttamente.
+    exprtk::symbol_table<double> st;
+    st.add_constants();          // pi, epsilon, inf: nessuna lettera A..F/S,
+                                 // che a questo punto sono gia' numeri.
+    exprtk::expression<double> compiled;
+    compiled.register_symbol_table(st);
+    exprtk::parser<double> parser;
+    if (!parser.compile(expr.toStdString(), compiled)) return 0;
+
+    // Arrotondamento allo stesso modo dello shader dei tori di Hopf
+    // (floor(x + 0.5)), cosi' UI e superficie contano le mesh nello stesso modo:
+    // e' la stessa cautela della memoria sulle costanti discrete, dove lo script
+    // e lo slider dovevano arrotondare uguale.
+    const int nVis = int(std::floor(float(compiled.value()) + 0.5f));
+    return nVis > 0 ? nVis : 0;
+}
+
 // Riallinea il range dello spinbox al numero di parti della superficie corrente.
 // Va chiamata dopo ogni rigenerazione della mesh: con una superficie a mesh
-// singola il massimo resta 0, quindi lo spinbox mostra solo "All" e la
-// funzionalita' e' invisibile: nulla cambia per i preset che non usano il
-// multi-mesh.
+// singola il massimo resta 1, quindi lo spinbox e' inerte e la funzionalita' e'
+// invisibile: nulla cambia per i preset che non usano il multi-mesh.
 void MainWindow::updateMeshSelectorRange()
 {
     if (!ui->spinMeshSel || !ui->glWidget) return;
 
-    const int n = ui->glWidget->meshPartCount();
+    int n = ui->glWidget->meshPartCount();
+    // MESH VISIBILI: un //CUTOUT puo' spegnere le mesh oltre un certo indice
+    // (tori di Hopf: lo slider E ne accende da 1 a 9 delle 9 dichiarate). Quelle
+    // spente esistono come geometria ma non si vedono, quindi selezionarle
+    // significava muovere slider che non cambiavano nulla a schermo.
+    // Il numero vivo lo DICHIARA lo script con "MESH_VISIBLE := E;": non e'
+    // deducibile qui, perche' il cutout e' GLSL eseguito sulla GPU e rifarne il
+    // conto in C++ sarebbe la solita logica duplicata che diverge.
+    // Senza direttiva nVis = 0 e vale il conteggio dichiarato, come da sempre.
+    const int nVis = meshVisibleCount();
+    if (nVis > 0) n = std::min(n, nVis);
+
     // Lo spinbox parte da 1 e sceglie SOLO quale mesh: "All" e' ora un radio a
     // parte, non piu' il valore 0 (specialValueText). Con una parte sola resta
     // 1..1: inerte ma coerente, e non serve piu' il caso speciale maxSel = 0.
