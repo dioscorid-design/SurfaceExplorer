@@ -195,6 +195,68 @@ return mat3(g11, 0.0, 0.0,
         ragged, reduce <code>v_max</code>. Families of curves often read best in <em>Wireframe</em> mode.</li>
     </ul>
 
+    <p style="font-size: 20px; color: #569cd6;"><b>3.2 Multi-Mesh Surfaces</b></p>
+    <p>A parametric script can build the surface from <strong>several independent grids</strong> instead of one.
+    Each grid is declared with a repeatable <code>//MESH_BEGIN … //MESH_END</code> block giving its own domain
+    and resolution:</p>
+    <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">//MESH_BEGIN
+u: 0, 2*pi, 200
+v: 0, 2*pi, 200
+//MESH_END
+//MESH_BEGIN
+u: 0, 2*pi, 200
+v: 0, 2*pi, 100
+//MESH_END</pre>
+    <p>The syntax is <code>u: min, max[, steps]</code> (same for <code>v</code>), with <code>pi</code>/<code>tau</code>
+    and arithmetic allowed. The step count is a <strong>proportion</strong>, not a ceiling: the Steps slider still
+    governs the real resolution, and the declared numbers only set the ratios between grids and between u and v.</p>
+    <p>Inside the script the variable <code>mesh</code> holds the index of the grid being generated
+    (<code>0, 1, 2 …</code>), so one body can produce every branch:</p>
+    <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">//MESH_BEGIN
+u: 0, 2*pi, 200
+v: 0, 2*pi, 200
+//MESH_END
+//MESH_BEGIN
+u: 0, 2*pi, 200
+v: 0, 2*pi, 200
+//MESH_END
+
+// Two nested tori: the tube radius depends on which grid we are on
+float r = 0.15 + 0.25 * mesh;
+return vec3((1.0 + r*cos(v)) * cos(u),
+            (1.0 + r*cos(v)) * sin(u),
+            r * sin(v));</pre>
+
+    <p style="font-size: 18px; color: #007acc;"><b>Why separate grids</b></p>
+    <p>Packing several branches into one grid forces the index generator to join the last row of a branch to the
+    first row of the next, leaving a visible sheet or groove that had to be masked at cutout time. Separate grids
+    make that impossible: no quad can bridge two of them, so the defect is gone at the root. It also removes the
+    closure rescaling and the guard bands those scripts needed.</p>
+
+    <p style="font-size: 18px; color: #007acc;"><b>Turning grids on and off from a slider</b></p>
+    <p>The <code>//MESH_BEGIN</code> blocks are <strong>static</strong>: they are read when the script runs, so a
+    constant cannot change how many grids exist. To drive the count from a slider, declare the maximum number of
+    grids and discard the extra ones in the cutout section, which also receives <code>mesh</code>:</p>
+    <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">E := int(1,6);   // how many branches to show
+
+//CUTOUT_BEGIN
+float Ne = clamp(floor(clamp(E, 1.0, 6.0) + 0.5), 1.0, 6.0);
+return (mesh &gt; Ne - 0.5);
+//CUTOUT_END</pre>
+    <p>The geometry is not rebuilt when the slider moves &mdash; the discarded grids are simply not drawn &mdash;
+    so the slider stays continuous. Their vertices are still generated, though: at high grid counts keep
+    <em>Steps</em> low.</p>
+
+    <p style="font-size: 18px; color: #007acc;"><b>Per-mesh appearance</b></p>
+    <p>The <em>Multi Mesh</em> box in the <em>Renderer</em> dock chooses what the appearance controls act on.
+    With <strong>All</strong> the surface behaves as a single one: colour, transparency, light and
+    Solid/Wireframe apply to every grid at once. With <strong>Mesh</strong> the spin box picks one grid and the
+    same controls &mdash; including its own wireframe line density &mdash; act only on it.</p>
+    <p>Per-mesh settings are <em>suspended</em>, not discarded, while <strong>All</strong> is active, so they come
+    back untouched on switching to <strong>Mesh</strong>. A grid that was never configured inherits the global
+    value, which is why existing presets are unaffected. Both the per-mesh appearance and the active scope are
+    saved with the preset.</p>
+
     <p style="font-size: 22px; color: #569cd6;"><b>4. Texture Scripts</b></p>
     <p>Texture scripts compute a color. Return a <code>vec4(r, g, b, a)</code> using the texture coordinates
     <code>u, v</code>; <code>t</code> / <code>iTime</code> are available for animated patterns. The result is
