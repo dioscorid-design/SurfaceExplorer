@@ -844,9 +844,11 @@ void UiStyleManager::installMobileSpinButtons(QSpinBox* spin)
     QPushButton* btnDown = makeArrow(QString::fromUtf8("▼"));
     QPushButton* btnUp   = makeArrow(QString::fromUtf8("▲"));
 
-    // Il campo si allarga un po': con i tasti fuori, la casella ha tutto lo
-    // spazio per il numero e lo mostra centrato.
-    spin->setMinimumWidth(72);
+    // Il campo mostra un numero di 1-2 cifre: non serve piu' largo di cosi'.
+    // Con una larghezza FISSA (non solo minima) il layout non puo' allargarlo
+    // per riempire lo spazio, che e' cio' che spingeva la riga oltre il gruppo
+    // e faceva finire il tasto giu' sopra l'etichetta sottostante.
+    spin->setFixedWidth(36);
 
     // Posizione originale, letta PRIMA di rimuovere lo spinbox dal layout.
     const int boxIdx = lay->indexOf(spin);
@@ -857,9 +859,13 @@ void UiStyleManager::installMobileSpinButtons(QSpinBox* spin)
 
     // Lo spinbox passa dentro la riga: addWidget lo riparenta e lo toglie da
     // solo dal layout precedente.
+    // Nessuno stretch sul campo (ha larghezza fissa) e uno stretch finale che
+    // assorbe lo spazio in piu': il gruppo tasti+campo resta compatto a
+    // sinistra invece di dilatarsi per tutta la riga.
     rowLay->addWidget(btnDown);
-    rowLay->addWidget(spin, 1);
+    rowLay->addWidget(spin);
     rowLay->addWidget(btnUp);
+    rowLay->addStretch(1);
 
     // La riga prende il posto che aveva lo spinbox.
     if (auto* box = qobject_cast<QBoxLayout*>(lay)) {
