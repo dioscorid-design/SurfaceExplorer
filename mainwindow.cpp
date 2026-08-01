@@ -3140,11 +3140,12 @@ MainWindow::MainWindow(QWidget *parent)
     // No-op su desktop.
     UiStyleManager::installMobileSpinButtons(ui->spinMeshSel);
 #if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
-    // I due radio non devono cedere spazio ai tasti: senza questo il testo
-    // "Mesh" veniva troncato in "Mes". Il minimo li tiene leggibili e il
-    // gruppo tasti+campo, che ha dimensioni fisse, occupa il resto.
+    // I radio non devono cedere spazio: senza un minimo il testo "Mesh" veniva
+    // troncato in "Mes". Ora "Mesh" e il suo campo vivono nel riquadro
+    // groupMeshOne (vedi il .ui), che mostra a colpo d'occhio che sono
+    // collegati e tiene insieme il gruppo senza bisogno di stretch.
     if (ui->radioMeshAll) ui->radioMeshAll->setMinimumWidth(70);
-    if (ui->radioMeshOne) ui->radioMeshOne->setMinimumWidth(80);
+    if (ui->radioMeshOne) ui->radioMeshOne->setMinimumWidth(70);
 #endif
 
     connect(ui->spinMeshSel, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int val){

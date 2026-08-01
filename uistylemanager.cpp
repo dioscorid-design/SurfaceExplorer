@@ -187,6 +187,13 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
             border-color: #444;
             color: #666;
         }
+        /* Riquadro che tiene insieme il radio "Mesh" e il suo selettore:
+           rende visibile che sono un gruppo solo, distinto da "All". */
+        QFrame#groupMeshOne {
+            border: 1px solid #4A4A4F;
+            border-radius: 6px;
+            background-color: #2A2A2E;
+        }
         )"
                                 // --- STILE SCROLLBAR MOBILE ---
                                 R"(
@@ -803,10 +810,10 @@ void UiStyleManager::installMobileSpinButtons(QSpinBox* spin)
 
     QWidget* parent = spin->parentWidget();
     if (!parent) return;
-    // Il layout che contiene lo spinbox NON e' per forza quello del parent
-    // widget: nel dialogo del recorder i campi stanno in un QFormLayout che e'
-    // annidato dentro il QVBoxLayout di scrollContent. Cerchiamo il layout che
-    // lo contiene davvero, o l'inserimento finirebbe nel posto sbagliato.
+    // Il layout che contiene lo spinbox non e' per forza quello restituito da
+    // parent->layout(): puo' essere annidato (es. un QFormLayout dentro un
+    // QVBoxLayout). Cerchiamo quello che lo contiene davvero, o l'inserimento
+    // finirebbe nel posto sbagliato.
     QLayout* lay = nullptr;
     for (QLayout* cand : parent->findChildren<QLayout*>(QString(), Qt::FindChildrenRecursively)) {
         if (cand->indexOf(spin) >= 0) { lay = cand; break; }
