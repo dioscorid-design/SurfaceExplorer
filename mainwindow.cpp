@@ -12291,6 +12291,34 @@ void MainWindow::onUserRenderModeChosen()
         // resta invariato: e' la ragione per cui ricaricare il preset non
         // propaga piu' il wireframe a tutte le parti.
         ui->glWidget->setActiveMeshRenderMode(mode);
+
+        // BASE/PHONG VALGONO PER TUTTA LA FIGURA, anche in ambito "Mesh".
+        // Non e' un'incoerenza con la riga sopra: sono due cose diverse che
+        // condividono gli stessi tre radio.
+        //  - WIREFRAME e' una proprieta' della singola griglia: lo shader lo
+        //    decide per parte (u_renderMode == 2 sul valore per-parte), quindi
+        //    puo' convivere con mesh solide accanto.
+        //  - BASE vs PHONG e' solo la SPECULARE, che nell'UBO e' un unico flag
+        //    globale (ubuf.useSpecular, da setSpecularEnabled): non esiste "una
+        //    mesh in Phong e una in Base", il modello di illuminazione e' uno
+        //    per tutta la figura.
+        // Prima m_savedRenderMode non veniva toccato qui, e siccome
+        // updateRenderState calcola isPhong proprio da lui, cliccare Phong con
+        // una mesh selezionata non accendeva nulla: il tasto sembrava morto.
+        // Percio' la scelta fra Base e Phong si scrive anche nel globale. Il
+        // Wireframe no: quello resta della sola parte, o si perderebbe l'aspetto
+        // misto (e cambierebbe il valore salvato nel preset).
+        if (mode != 2 && mode != m_savedRenderMode) {
+            // Stessa cautela del ramo "All" qui sotto: le parti che EREDITANO
+            // seguono il globale, quindi spostarlo le trascina. Il caso vero:
+            // globale in wireframe (mesh ereditanti disegnate a fil di ferro),
+            // scelgo Phong su UNA mesh -> il globale passa a 1 e tutte le
+            // ereditanti uscirebbero dal wireframe, che l'utente non ha chiesto.
+            // Congelando prima l'eredita', restano come sono e cambia solo
+            // l'illuminazione.
+            ui->glWidget->pinInheritedRenderModes();
+            m_savedRenderMode = mode;
+        }
     } else {
         // AMBITO "ALL": la scelta e' globale, come da sempre. Ma le parti che
         // NON hanno una modalita' propria ereditano dal globale, quindi
