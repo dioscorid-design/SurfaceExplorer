@@ -14,7 +14,6 @@
 #include "expressionparser.h"
 
 #include <QLineEdit>
-#include <QAbstractSpinBox>
 #include <QPushButton>
 #include <QCheckBox>
 #include <QTabBar>
@@ -903,18 +902,6 @@ MainWindow::MainWindow(QWidget *parent)
         Qt::InputMethodHints hints = Qt::ImhSensitiveData | Qt::ImhNoPredictiveText | Qt::ImhNoAutoUppercase;
         if (input->objectName() == "txtScriptEditor")
             hints |= Qt::ImhMultiLine;
-
-        // CAMPI NUMERICI: la tastiera deve restare quella NUMERICA per tutta la
-        // vita del campo. Questo ciclo raccoglie ogni QLineEdit, compreso quello
-        // INTERNO dei QSpinBox (findChildren scende nella gerarchia): senza hint
-        // numerico il campo veniva dichiarato di testo, e alla chiusura della
-        // modifica il plugin riapriva la tastiera alfabetica sopra il tastierino.
-        // ImhDigitsOnly da solo basta per gli interi; ImhFormattedNumbersOnly
-        // serve dove il valore ammette segno o separatore decimale.
-        if (qobject_cast<QAbstractSpinBox*>(input->parentWidget())) {
-            hints |= Qt::ImhDigitsOnly;
-            hints &= ~Qt::ImhMultiLine;
-        }
         input->setInputMethodHints(hints);
     }
 
