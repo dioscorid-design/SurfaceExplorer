@@ -3126,6 +3126,36 @@ MainWindow::MainWindow(QWidget *parent)
     // motore, e le mesh partirebbero gia' differenziate.
     applyMeshScope();
 
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    // MOBILE: il campo Mesh e' un intero 1..N che si sceglie con le frecce, e
+    // non ha alcun bisogno della tastiera. Lasciarlo editabile su iOS apriva il
+    // tastierino a ogni tocco (frecce comprese: premerle dava il focus al
+    // QLineEdit interno, che selezionava il numero e richiamava la tastiera)
+    // insieme al menu di modifica, e da li' non si usciva piu'.
+    //
+    // NB: NON si risolve con gli hint di input (ImhDigitsOnly): quelli
+    // cambiano il tipo di campo per il text responder del plugin senza
+    // impedirgli di prendere il focus, e il menu contestuale restava.
+    // L'unica leva efficace e' togliere il focus da tocco al campo interno:
+    // read-only + NoFocus sul QLineEdit e sul QSpinBox stesso. Le frecce
+    // continuano a funzionare (agiscono su stepBy, non sull'editor) e
+    // valueChanged parte come sempre.
+    if (ui->spinMeshSel) {
+        ui->spinMeshSel->setFocusPolicy(Qt::NoFocus);
+        // Le frecce mobile sono larghe 34px l'una (vedi uistylemanager): senza
+        // una larghezza minima il numero resterebbe schiacciato fra le due.
+        ui->spinMeshSel->setMinimumWidth(120);
+        if (QLineEdit* meshEdit = ui->spinMeshSel->findChild<QLineEdit*>()) {
+            meshEdit->setReadOnly(true);
+            meshEdit->setFocusPolicy(Qt::NoFocus);
+            // Niente menu di modifica su un campo non editabile: il
+            // QContextMenuEvent va ACCETTATO, o il callout di fallback del
+            // plugin scatta comunque (vale su iPad).
+            meshEdit->setContextMenuPolicy(Qt::PreventContextMenu);
+        }
+    }
+#endif
+
     connect(ui->spinMeshSel, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int val){
         if (!ui->glWidget) return;
         if (!ui->radioMeshOne->isChecked()) return;   // in All lo spinbox e' inerte

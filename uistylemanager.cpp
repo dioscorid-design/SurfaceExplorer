@@ -151,6 +151,44 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
     )" // Chiude il primo blocco di testo
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+                                // --- FRECCE SPINBOX MOBILE ---
+                                // Su mobile i campi numerici non sono editabili
+                                // da tastiera (vedi il campo Mesh in
+                                // mainwindow.cpp): le frecce sono l'UNICO modo
+                                // di cambiare valore, e quelle native sono
+                                // troppo piccole per un dito. Le allarghiamo e
+                                // le rendiamo visibili.
+                                R"(
+        QSpinBox::up-button, QSpinBox::down-button {
+            subcontrol-origin: border;
+            width: 34px;
+            background-color: #3E3E42;
+            border: 1px solid #555;
+        }
+        QSpinBox::up-button   { subcontrol-position: top right; }
+        QSpinBox::down-button { subcontrol-position: bottom right; }
+        QSpinBox::up-button:pressed, QSpinBox::down-button:pressed {
+            background-color: #007ACC;
+        }
+        QSpinBox::up-arrow {
+            image: none;
+            width: 0; height: 0;
+            border-left: 7px solid transparent;
+            border-right: 7px solid transparent;
+            border-bottom: 9px solid #E0E0E0;
+        }
+        QSpinBox::down-arrow {
+            image: none;
+            width: 0; height: 0;
+            border-left: 7px solid transparent;
+            border-right: 7px solid transparent;
+            border-top: 9px solid #E0E0E0;
+        }
+        QSpinBox::up-button:disabled, QSpinBox::down-button:disabled {
+            background-color: #2D2D30;
+            border-color: #444;
+        }
+        )"
                                 // --- STILE SCROLLBAR MOBILE ---
                                 R"(
         QScrollBar:vertical {

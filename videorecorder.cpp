@@ -110,6 +110,30 @@ public:
         spinFps->setStyleSheet("padding: 8px; font-size: 16px;");
         form->addRow("FPS (24-120):", spinFps);
 
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+        // Stesso trattamento del campo Mesh (vedi mainwindow.cpp): su mobile
+        // questi campi non sono editabili da tastiera. Toccarli apriva il
+        // tastierino numerico E il menu di modifica, e da li' non si usciva.
+        // Gli hint di input (ImhDigitsOnly) NON bastano: non impediscono al
+        // campo di prendere il focus. Il valore si sceglie con le frecce, che
+        // il QSS mobile allarga apposta.
+        for (QSpinBox* sb : { spinDuration, spinFps }) {
+            sb->setFocusPolicy(Qt::NoFocus);
+            sb->setMinimumWidth(140);
+            if (QLineEdit* le = sb->findChild<QLineEdit*>()) {
+                le->setReadOnly(true);
+                le->setFocusPolicy(Qt::NoFocus);
+                le->setContextMenuPolicy(Qt::PreventContextMenu);
+            }
+        }
+        // Senza tastiera il passo delle frecce diventa l'unica granularita'
+        // disponibile: 1 secondo per volta su un massimo di 86400 sarebbe
+        // inutilizzabile. Tenere premuto accelera comunque (auto-repeat), ma il
+        // passo va portato a una misura sensata per un video.
+        spinDuration->setSingleStep(5);
+        spinFps->setSingleStep(6);        // 24 -> 30 -> 36 ... 120
+#endif
+
         comboRes = new QComboBox(scrollContent);
         // "Current View Size" e non "Monitor Default": su mobile non c'e' un
         // monitor, e la voce non e' comunque la risoluzione del display. E' la
