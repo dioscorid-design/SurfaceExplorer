@@ -110,30 +110,6 @@ public:
         spinFps->setStyleSheet("padding: 8px; font-size: 16px;");
         form->addRow("FPS (24-120):", spinFps);
 
-#ifdef Q_OS_IOS
-        // Menu di modifica sui campi numerici: appariva al tocco e bloccava il
-        // dialogo (nessuno dei due si poteva chiudere). E' lo stesso problema
-        // gia' risolto sul campo nome file qui sotto, e la cura e' la stessa:
-        // NoEditMenuFilter consuma i QContextMenuEvent ACCETTANDOLI — accettare
-        // e' essenziale, il callout di fallback del plugin scatta solo su
-        // evento NON accettato. Va installato sul QLineEdit INTERNO dello
-        // spinbox, che e' il widget che riceve l'evento.
-        // Il resto del campo non si tocca: frecce native e digitazione restano
-        // quelle di sempre.
-        for (QSpinBox* sb : { spinDuration, spinFps }) {
-            if (QLineEdit* le = sb->findChild<QLineEdit*>()) {
-                le->setInputMethodHints(le->inputMethodHints() | Qt::ImhNoEditMenu);
-                le->installEventFilter(new NoEditMenuFilter(le));
-                // Il filtro copre il QContextMenuEvent, ma NON l'altra via da
-                // cui il menu arriva: il connect globale su
-                // QInputMethod::visibleChanged in mainwindow, che ripresenta il
-                // menu su qualunque editor con selezione quando la tastiera si
-                // chiude. Questa proprieta' lo fa desistere.
-                le->setProperty("noEditMenu", true);
-            }
-        }
-#endif
-
         comboRes = new QComboBox(scrollContent);
         // "Current View Size" e non "Monitor Default": su mobile non c'e' un
         // monitor, e la voce non e' comunque la risoluzione del display. E' la
@@ -192,8 +168,6 @@ public:
         // d'intento per il plugin.
         nameEdit->setInputMethodHints(nameEdit->inputMethodHints() | Qt::ImhNoEditMenu);
         nameEdit->installEventFilter(new NoEditMenuFilter(nameEdit));
-        // Vedi sopra: il filtro non copre il connect globale su visibleChanged.
-        nameEdit->setProperty("noEditMenu", true);
 #endif
         nameLayout->addWidget(nameEdit);
         connect(nameEdit, &QLineEdit::returnPressed, nameEdit, &QLineEdit::clearFocus);
