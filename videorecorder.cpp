@@ -110,6 +110,24 @@ public:
         spinFps->setStyleSheet("padding: 8px; font-size: 16px;");
         form->addRow("FPS (24-120):", spinFps);
 
+#ifdef Q_OS_IOS
+        // TASTIERA NUMERICA SOLTANTO. Senza hint il QLineEdit interno dello
+        // spinbox viene dichiarato di testo: appariva il tastierino numerico
+        // alla selezione e poi, chiusa la modifica, la tastiera alfabetica.
+        // Questo dialogo e' una finestra a se': NON riceve il giro di
+        // setInputMethodHints che MainWindow fa sui propri figli all'avvio,
+        // quindi gli hint vanno messi qui. Entrambi i campi sono interi
+        // positivi, percio' ImhDigitsOnly basta.
+        for (QSpinBox* sb : { spinDuration, spinFps }) {
+            if (QLineEdit* le = sb->findChild<QLineEdit*>()) {
+                le->setInputMethodHints(le->inputMethodHints()
+                                        | Qt::ImhDigitsOnly
+                                        | Qt::ImhNoPredictiveText
+                                        | Qt::ImhNoAutoUppercase);
+            }
+        }
+#endif
+
         comboRes = new QComboBox(scrollContent);
         // "Current View Size" e non "Monitor Default": su mobile non c'e' un
         // monitor, e la voce non e' comunque la risoluzione del display. E' la
