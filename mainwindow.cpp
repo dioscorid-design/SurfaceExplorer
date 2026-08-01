@@ -3132,6 +3132,15 @@ MainWindow::MainWindow(QWidget *parent)
     // toggled NON scatta qui (le connect sono appena state fatte). Senza questa
     // chiamata l'ambito "All" sarebbe mostrato dai radio ma non applicato al
     // motore, e le mesh partirebbero gia' differenziate.
+    //
+    // PRIMA pero' va allineato il renderMode del motore alla modalita'
+    // PARAMETRICA di partenza (Base, come radioBasic gia' selezionato sopra).
+    // Nel setup del Ray Marching il motore riceve setRenderMode(1) = Shell, che
+    // resta li' finche' nessuno lo cambia: applyMeshScope -> ...ToActiveMesh ->
+    // ramo "All" -> syncRenderRadiosTo(globalRenderMode()) lo leggeva come
+    // modalita' parametrica e accendeva PHONG, mentre il toro di default era
+    // ovviamente disegnato in Base. Radio e superficie non concordavano.
+    if (ui->glWidget) ui->glWidget->setRenderMode(m_savedRenderMode);
     applyMeshScope();
 
     // MOBILE: il campo Mesh e' un intero 1..N e non ha bisogno della tastiera.
