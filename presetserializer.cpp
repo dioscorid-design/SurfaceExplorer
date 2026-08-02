@@ -575,6 +575,32 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
             // Densita' wireframe propria (0 = eredita dalla globale).
             if (mp.wfStepU > 0)            { o["wfU"] = mp.wfStepU; anyCustom = true; }
             if (mp.wfStepV > 0)            { o["wfV"] = mp.wfStepV; anyCustom = true; }
+            // Texture procedurale propria. Come per "mode" serve il flag: una
+            // parte puo' voler la texture SPENTA mentre il globale la tiene
+            // accesa, e senza flag quel caso non si distingue da "eredita".
+            if (mp.hasCustomTexture) {
+                o["texCode"] = mp.textureCode;
+                o["texOn"]   = mp.textureEnabled;
+                anyCustom = true;
+            }
+            // Colori u_col1/u_col2 propri della parte (assenti = eredita).
+            if (mp.hasCustomTexColors()) {
+                o["texC1r"] = (double)mp.texCol1R;
+                o["texC1g"] = (double)mp.texCol1G;
+                o["texC1b"] = (double)mp.texCol1B;
+                o["texC2r"] = (double)mp.texCol2R;
+                o["texC2g"] = (double)mp.texCol2G;
+                o["texC2b"] = (double)mp.texCol2B;
+                anyCustom = true;
+            }
+            // Trasformazione 2D propria (zoom/pan/rotazione della texture).
+            if (mp.hasCustomTexTransform()) {
+                o["texZoom"] = (double)mp.texZoom;
+                o["texPanX"] = (double)mp.texPanX;
+                o["texPanY"] = (double)mp.texPanY;
+                o["texRot"]  = (double)mp.texRotation;
+                anyCustom = true;
+            }
             meshArr.append(o);
         }
         if (anyCustom) root["meshParts"] = meshArr;
@@ -1183,6 +1209,32 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
             // Densita' wireframe propria (0 = eredita dalla globale).
             if (mp.wfStepU > 0)            { o["wfU"] = mp.wfStepU; anyCustom = true; }
             if (mp.wfStepV > 0)            { o["wfV"] = mp.wfStepV; anyCustom = true; }
+            // Texture procedurale propria. Come per "mode" serve il flag: una
+            // parte puo' voler la texture SPENTA mentre il globale la tiene
+            // accesa, e senza flag quel caso non si distingue da "eredita".
+            if (mp.hasCustomTexture) {
+                o["texCode"] = mp.textureCode;
+                o["texOn"]   = mp.textureEnabled;
+                anyCustom = true;
+            }
+            // Colori u_col1/u_col2 propri della parte (assenti = eredita).
+            if (mp.hasCustomTexColors()) {
+                o["texC1r"] = (double)mp.texCol1R;
+                o["texC1g"] = (double)mp.texCol1G;
+                o["texC1b"] = (double)mp.texCol1B;
+                o["texC2r"] = (double)mp.texCol2R;
+                o["texC2g"] = (double)mp.texCol2G;
+                o["texC2b"] = (double)mp.texCol2B;
+                anyCustom = true;
+            }
+            // Trasformazione 2D propria (zoom/pan/rotazione della texture).
+            if (mp.hasCustomTexTransform()) {
+                o["texZoom"] = (double)mp.texZoom;
+                o["texPanX"] = (double)mp.texPanX;
+                o["texPanY"] = (double)mp.texPanY;
+                o["texRot"]  = (double)mp.texRotation;
+                anyCustom = true;
+            }
             meshArr.append(o);
         }
         if (anyCustom) root["meshParts"] = meshArr;

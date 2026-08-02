@@ -651,6 +651,11 @@ private:
     bool hasAnyRotationSpeed() const;
     void generateTexture();
     void applyDefaultCheckerShader();
+    // Scacchiera di default, condivisa fra texture globale e texture per-mesh.
+    QString defaultMeshTextureCode() const;
+    // Codice texture di superficie GLOBALE + quello delle mesh con texture
+    // propria accesa: e' cio' su cui va deciso se il clock texture deve girare.
+    QString allSurfaceTextureCode() const;
     // FOV UNICO (slider nel dock renderer, sotto Light). Unico punto che imposta
     // il campo visivo: allinea slider + etichetta e applica SEMPRE il valore
     // alla proiezione, senza dipendere da quale moto stia guidando la camera.

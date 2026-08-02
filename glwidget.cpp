@@ -650,6 +650,54 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                     partUbo.alpha = mp.alpha;
                 if (mp.lightIntensity >= 0.0f)
                     partUbo.lightIntensity = mp.lightIntensity;
+
+                // TEXTURE PROPRIA DELLA PARTE. Il codice e' gia' compilato nello
+                // shader come getCustomColor_<k> (vedi createFragmentShaderSource):
+                // qui basta accendere l'interruttore per questa parte, perche' il
+                // dispatcher sceglie la funzione da u_meshIndex.
+                // Il flag serve in ENTRAMBI i versi: una parte puo' volere la
+                // texture mentre il globale e' spento (accende), o restare in
+                // tinta unita mentre il globale e' acceso (spegne).
+                if (mp.hasCustomTexture) {
+                    partUbo.useTexture = mp.textureEnabled ? 1 : 0;
+
+                    // COLORE BASE A BIANCO SULLA PARTE TEXTURIZZATA.
+                    // Il fragment compone finalRGB = ubuf.color * texture: il
+                    // colore va quindi neutralizzato, o la texture esce
+                    // MOLTIPLICATA per la tinta della superficie (con un colore
+                    // scuro il risultato e' nero, e con la scacchiera meta'
+                    // celle si annullano -> la mesh sembra sparire).
+                    // Il ramo globale lo fa gia' piu' sopra, ma solo quando e'
+                    // m_textureEnabled GLOBALE ad essere acceso: una texture
+                    // per-mesh non passa di li'.
+                    // NB: si scrive DOPO il colore proprio della parte, cosi'
+                    // vince su di esso; il colore resta in MeshPart e ricompare
+                    // spegnendo la texture.
+                    if (mp.textureEnabled)
+                        partUbo.color = QVector3D(1.0f, 1.0f, 1.0f);
+
+                    // COLORI u_col1/u_col2 DELLA PARTE. Vivono nel blocco UBO,
+                    // quindi possono essere diversi per ogni mesh: senza questo
+                    // le parti condividevano i due slot globali e l'ultima
+                    // texture applicata riscriveva i colori di TUTTE le altre.
+                    if (mp.hasCustomTexColors()) {
+                        partUbo.col1 = QVector3D(mp.texCol1R, mp.texCol1G, mp.texCol1B);
+                        partUbo.col2 = QVector3D(mp.texCol2R, mp.texCol2G, mp.texCol2B);
+                    }
+
+                    // ZOOM / PAN / ROTAZIONE 2D PROPRI DELLA PARTE. Stessa
+                    // ragione dei colori: sono campi del blocco UBO, quindi
+                    // per-parte. Senza, la trasformazione fatta col mouse in
+                    // vista 2D su UNA texture veniva applicata a tutte.
+                    // NB: in vista 2D (m_isFlatView) si sta EDITANDO la texture
+                    // a schermo intero e li' comanda lo stato globale, altrimenti
+                    // trascinare non muoverebbe nulla.
+                    if (mp.hasCustomTexTransform() && !m_isFlatView) {
+                        partUbo.zoom = mp.texZoom;
+                        partUbo.center = QVector2D(mp.texPanX, mp.texPanY);
+                        partUbo.rotation = mp.texRotation;
+                    }
+                }
             }
 
             // MODALITA' PER-PARTE. Lo shader decide dal solo ubuf.u_renderMode
@@ -2134,6 +2182,70 @@ void GLWidget::setRenderMode(int mode) {
     update();
 }
 
+void GLWidget::setMeshAppearanceUniform(bool on) {
+    if (m_meshAppearanceUniform == on) return;
+    m_meshAppearanceUniform = on;
+    // Le densita' wireframe per-parte sono INDICI, non uniform: sospenderle
+    // richiede di ricostruire la geometria delle linee.
+    buildWireframeGeometry();
+    // Le texture per-mesh vivono nel CODICE del fragment shader: in "All" il
+    // dispatcher non deve esistere affatto, in "Mesh" si', quindi il passaggio
+    // fra i due ambiti e' un cambio di sorgente e va ricompilato.
+    rebuildShader();
+    update();
+}
+
+// TEXTURE PROCEDURALE DELLA PARTE ATTIVA. Come setActiveMeshRenderMode, e' la
+// via di COMANDO: ci passa solo l'utente che preme Run con una mesh selezionata.
+// In "All" (nessuna parte attiva) ricade sul comportamento di sempre, cioe'
+// texture globale della superficie: lo decide il chiamante, qui torniamo false.
+// rebuildShader e' necessario perche' il codice della texture vive DENTRO il
+// fragment shader (getCustomColor_<k>), non in una risorsa: cambiare lo script
+// di una mesh significa ricompilare, esattamente come per la texture globale.
+bool GLWidget::setActiveMeshTexture(const QString &code, bool enabled) {
+    const bool onPart = applyToActiveMeshPart([&](MeshPart &p){
+        p.textureCode = code;
+        p.textureEnabled = enabled;
+        p.hasCustomTexture = true;
+        // I colori correnti diventano PROPRI della parte: altrimenti restano
+        // condivisi con le altre mesh e la texture applicata dopo riscrive i
+        // colori di quelle di prima.
+        p.texCol1R = texRed1; p.texCol1G = texGreen1; p.texCol1B = texBlue1;
+        p.texCol2R = texRed2; p.texCol2G = texGreen2; p.texCol2B = texBlue2;
+    });
+    if (onPart) rebuildShader();
+    return onPart;
+}
+
+// Spegne la texture propria della parte attiva e la fa tornare a EREDITARE dal
+// globale (hasCustomTexture = false), che e' diverso da "texture spenta".
+bool GLWidget::clearActiveMeshTexture() {
+    const bool onPart = applyToActiveMeshPart([](MeshPart &p){
+        p.textureCode.clear();
+        p.textureEnabled = false;
+        p.hasCustomTexture = false;
+    });
+    if (onPart) rebuildShader();
+    return onPart;
+}
+
+// Codice della texture della parte attiva, per il DISPLAY nell'editor.
+// Vuoto se non ne ha una propria o se siamo in "All".
+QString GLWidget::activeMeshTextureCode() const {
+    if (m_activeMeshPart < 0 || !engine) return QString();
+    const std::vector<MeshPart> &parts = engine->getMeshParts();
+    if (m_activeMeshPart >= (int)parts.size()) return QString();
+    const MeshPart &p = parts[m_activeMeshPart];
+    return p.hasCustomTexture ? p.textureCode : QString();
+}
+
+bool GLWidget::activeMeshHasOwnTexture() const {
+    if (m_activeMeshPart < 0 || !engine) return false;
+    const std::vector<MeshPart> &parts = engine->getMeshParts();
+    if (m_activeMeshPart >= (int)parts.size()) return false;
+    return parts[m_activeMeshPart].hasCustomTexture;
+}
+
 void GLWidget::setActiveMeshRenderMode(int mode) {
     // Nessuna parte selezionata ("All") o bypass attivo: e' una scelta globale.
     if (!applyToActiveMeshPart([mode](MeshPart &p){
@@ -2610,10 +2722,43 @@ void GLWidget::setDisplacementCode(const QString& code) {
 // ==========================================================
 
 void GLWidget::setFlatView(bool active) {
+    const bool wasFlat = m_isFlatView;
     m_isFlatView = active;
 
     if (!m_isFlatView) {
+        // USCITA DALLA VISTA 2D con una mesh selezionata e texture propria:
+        // zoom/pan/rotazione appena regolati col mouse appartengono a QUELLA
+        // parte, non alla superficie intera. Riversarli qui e' cio' che impedisce
+        // a un ridimensionamento fatto su una texture di propagarsi a tutte le
+        // altre (e all'ambito All).
+        // Solo per la texture di SUPERFICIE (m_flatViewTarget 0): il target 1 e'
+        // lo sfondo, che ha i propri bg_zoom/bg_pan/bg_rot ed e' unico.
+        if (wasFlat && m_flatViewTarget == 0 && m_activeMeshPart >= 0 && engine) {
+            if (MeshPart *p = engine->mutableMeshPart(m_activeMeshPart)) {
+                if (p->hasCustomTexture) {
+                    p->texZoom = m_flatZoom;
+                    p->texPanX = m_flatPan.x();
+                    p->texPanY = m_flatPan.y();
+                    p->texRotation = m_flatRotation;
+                    engine->syncPartAppearance();
+                }
+            }
+        }
         buildWireframeGeometry();
+    }
+    else if (m_flatViewTarget == 0 && m_activeMeshPart >= 0 && engine) {
+        // INGRESSO in vista 2D: si edita la texture della parte selezionata,
+        // quindi si riparte dalla SUA trasformazione, non da quella globale
+        // (altrimenti la texture apparirebbe con lo zoom di un'altra mesh).
+        const std::vector<MeshPart> &parts = engine->getMeshParts();
+        if (m_activeMeshPart < (int)parts.size()) {
+            const MeshPart &p = parts[m_activeMeshPart];
+            if (p.hasCustomTexTransform()) {
+                m_flatZoom = p.texZoom;
+                m_flatPan = QVector2D(p.texPanX, p.texPanY);
+                m_flatRotation = p.texRotation;
+            }
+        }
     }
 
     meshNeedsUpdate = true;
@@ -3990,19 +4135,16 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
     return source;
 }
 
-QString GLWidget::createFragmentShaderSource(const QString &customLogic)
+// Corpo di UNA funzione texture procedurale, col nome che le viene dato.
+// Estratta da createFragmentShaderSource per poterla generare piu' volte nello
+// stesso shader (una per mesh con texture propria, vedi il dispatcher li'):
+// duplicare i tre rami di iniezione (Shadertoy / getCustomColor esterno / corpo
+// semplice) avrebbe creato due copie destinate a divergere, che in questo
+// progetto e' la famiglia di bug piu' ricorrente.
+// funcName e' il nome da generare; con "getCustomColor" il risultato e'
+// byte-identico a quello che la funzione produceva prima di questa estrazione.
+QString GLWidget::buildTextureFunction(const QString &customLogic, const QString &funcName)
 {
-    QString fragmentTemplate = loadShaderSource(":/shaders/surface.frag");
-    QString commonCode = loadShaderSource(":/shaders/common.glsl");
-
-    QRegularExpression versionRegex("^\\s*#version\\s+[0-9]+(\\s+es|\\s+core)?\\s*\n?");
-    fragmentTemplate.remove(versionRegex);
-
-    QString header = "#version 450\n";
-
-    // safePow (pow sicura per basi negative) è in common.glsl, iniettato qui sotto.
-    QString fullSource = header + "\n" + commonCode + "\n" + fragmentTemplate;
-
     QString safeLogic = customLogic;
     safeLogic.remove(QRegularExpression("//SOUND_BEGIN.*?//SOUND_END", QRegularExpression::DotMatchesEverythingOption));
     safeLogic.remove(QRegularExpression("#ifdef GL_ES[\\s\\S]*?#endif"));
@@ -4026,12 +4168,12 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
 
     QString codeToInject;
 
-    // DICHIARAZIONE FONDAMENTALE DELLA TEXTURE PER RHI
-    QString samplerDecl = "layout(binding=1) uniform sampler2D tex;\n";
-
+    // NB: la dichiarazione del sampler NON sta qui. E' una uniform di modulo e
+    // va emessa UNA volta sola: generandola per funzione, uno shader con piu'
+    // texture per-mesh la ridichiarerebbe N volte ("redefinition"). La emette
+    // createFragmentShaderSource prima di tutte le funzioni.
     if (customLogic.isEmpty()) {
-        codeToInject = samplerDecl +
-                       "vec3 getCustomColor(vec2 in_uv) {\n" +
+        codeToInject = "vec3 " + funcName + "(vec2 in_uv) {\n" +
                        helpers +
                        "\n    return texture(tex, uv).rgb;\n}";
     }
@@ -4078,15 +4220,52 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
         stLocalHelpers.remove("    vec3 u_col1 = ubuf.u_col1;\n");
         stLocalHelpers.remove("    vec3 u_col2 = ubuf.u_col2;\n");
 
-        codeToInject = samplerDecl + stHelpers + safeLogic + "\n"
-                                                             "vec3 getCustomColor(vec2 in_uv) {\n"
-                       + stLocalHelpers + initVars +
-                       "    vec2 _st_coord = uv * iResolution.xy;\n"
-                       "    _st_fragCoord = vec4(_st_coord, 0.0, 1.0);\n"
-                       "    vec4 fragColor_out;\n"
-                       "    mainImage(fragColor_out, _st_coord);\n"
-                       "    return fragColor_out.rgb;\n"
-                       "}\n";
+        QString stBody = stHelpers + safeLogic + "\n"
+                         "vec3 " + funcName + "(vec2 in_uv) {\n"
+                         + stLocalHelpers + initVars +
+                         "    vec2 _st_coord = uv * iResolution.xy;\n"
+                         "    _st_fragCoord = vec4(_st_coord, 0.0, 1.0);\n"
+                         "    vec4 fragColor_out;\n"
+                         "    mainImage(fragColor_out, _st_coord);\n"
+                         "    return fragColor_out.rgb;\n"
+                         "}\n";
+
+        // NOMI DI MODULO RESI UNICI PER FUNZIONE.
+        // Questo ramo dichiara a livello GLOBALE iResolution, iTime, iFrame,
+        // mainImage, _st_fragCoord...: con due mesh Shadertoy nello stesso
+        // shader quei simboli collidono ("redefinition") e la compilazione
+        // fallisce -> resta in piedi lo shader precedente, cioe' la texture
+        // nuova non compare e la vecchia sembra "congelarsi".
+        // Con funcName di default (texture globale) NON si rinomina nulla: il
+        // sorgente resta byte-identico a prima.
+        if (funcName != QLatin1String("getCustomColor")) {
+            // funcName e' "getCustomColor_<k>": il suffisso e' gia' "_<k>".
+            // NB: non anteporre un altro '_', o si otterrebbe "__<k>": i doppi
+            // underscore sono RISERVATI in GLSL e il compilatore puo' rifiutarli.
+            const QString sfx = QString(funcName).remove("getCustomColor");
+            static const char *kSyms[] = {
+                "iResolution", "iTime", "iTimeDelta", "iFrame", "iMouse",
+                "iDate", "_st_fragCoord", "mainImage", "u_col1", "u_col2"
+            };
+            for (const char *s : kSyms) {
+                // (?<!\.) esclude i CAMPI DELL'UBO: "ubuf.u_col1" e' un membro
+                // del blocco uniform e rinominarlo dà "no such field in
+                // structure 'ubuf'". Va rinominata solo la GLOBALE omonima che
+                // questo ramo dichiara, non l'accesso qualificato che la
+                // inizializza.
+                stBody.replace(QRegularExpression(QString("(?<!\\.)\\b%1\\b").arg(s)),
+                               QString(s) + sfx);
+            }
+            // Le #define iChannelN puntano al sampler `tex`, che e' unico e NON
+            // va rinominato: il replace sopra le ha gia' lasciate intatte
+            // (iChannel0..3 non sono nell'elenco), ma i loro nomi vanno resi
+            // unici come gli altri, o la seconda definizione collide.
+            for (int c = 0; c < 4; ++c) {
+                const QString ch = QString("iChannel%1").arg(c);
+                stBody.replace(QRegularExpression("\\b" + ch + "\\b"), ch + sfx);
+            }
+        }
+        codeToInject = stBody;
     }
     else if (safeLogic.contains("getCustomColor")) {
         QString extHelpers;
@@ -4096,14 +4275,18 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
 
         if (!safeLogic.contains(QRegularExpression("\\bvec3\\s+u_col1\\b"))) extHelpers += "#define u_col1 ubuf.u_col1\n";
         if (!safeLogic.contains(QRegularExpression("\\bvec3\\s+u_col2\\b"))) extHelpers += "#define u_col2 ubuf.u_col2\n";
-        codeToInject = samplerDecl + extHelpers + safeLogic;
+        // Qui il nome della funzione lo scrive l'UTENTE dentro lo script
+        // ("getCustomColor" letterale): per una texture per-mesh va rinominato,
+        // o le N definizioni collidono.
+        if (funcName != QLatin1String("getCustomColor"))
+            safeLogic.replace(QRegularExpression("\\bgetCustomColor\\b"), funcName);
+        codeToInject = extHelpers + safeLogic;
     }
     else {
         if (!safeLogic.contains("return")) {
             safeLogic += "\n    return vec3(u, v, 0.2); // Fallback\n";
         }
-        codeToInject = samplerDecl +
-                       "vec3 getCustomColor(vec2 in_uv) {\n"
+        codeToInject = "vec3 " + funcName + "(vec2 in_uv) {\n"
                        + helpers +
                        "    float u = uv.x;\n"
                        "    float v = uv.y;\n"
@@ -4111,12 +4294,111 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
                                      "}\n";
     }
 
+    return codeToInject;
+}
+
+QString GLWidget::createFragmentShaderSource(const QString &customLogic)
+{
+    QString fragmentTemplate = loadShaderSource(":/shaders/surface.frag");
+    QString commonCode = loadShaderSource(":/shaders/common.glsl");
+
+    QRegularExpression versionRegex("^\\s*#version\\s+[0-9]+(\\s+es|\\s+core)?\\s*\n?");
+    fragmentTemplate.remove(versionRegex);
+
+    QString header = "#version 450\n";
+
+    // safePow (pow sicura per basi negative) è in common.glsl, iniettato qui sotto.
+    QString fullSource = header + "\n" + commonCode + "\n" + fragmentTemplate;
+
+    // DICHIARAZIONE FONDAMENTALE DELLA TEXTURE PER RHI. Emessa QUI, una volta
+    // sola, prima di tutte le funzioni texture: e' una uniform di modulo e
+    // ridichiararla per funzione sarebbe un errore di compilazione.
+    QString codeToInject = "layout(binding=1) uniform sampler2D tex;\n";
+
+    // Texture GLOBALE della superficie: la funzione che il frag chiama sempre,
+    // identica a prima di questa modifica.
+    //
+    // ECCEZIONE, con texture per-mesh in gioco: se la superficie non ha MAI
+    // avuto una texture globale, customLogic e' vuoto e il ramo di default di
+    // buildTextureFunction genera `texture(tex, uv)`, cioe' campiona il
+    // sampler. Con nessuna immagine caricata li' c'e' m_dummyTexture, che e'
+    // 1x1 e non viene mai riempita -> NERO. Le mesh senza texture propria
+    // cadono su questa funzione e uscivano nere.
+    // In quel caso la neutralizziamo a bianco: bianco e' l'elemento neutro
+    // della composizione (finalRGB = ubuf.color * texture), quindi la parte si
+    // disegna col proprio colore, che e' esattamente "nessuna texture".
+    // AMBITO "ALL": la superficie si comporta come UNA SOLA, quindi vale solo
+    // la texture GLOBALE e le texture per-mesh sono SOSPESE (non cancellate:
+    // restano nelle MeshPart e tornano passando a "Mesh", come gia' avviene per
+    // colore/alpha/luce/wireframe). Percio' in All non si genera alcun
+    // dispatcher e ogni parte usa getCustomColor.
+    const bool perMeshTextures = !m_meshAppearanceUniform;
+
+    QString globalLogic = customLogic;
+    if (globalLogic.trimmed().isEmpty() && engine && perMeshTextures) {
+        for (const MeshPart &mp : engine->getMeshParts()) {
+            if (!mp.textureCode.trimmed().isEmpty()) {
+                globalLogic = QStringLiteral("return vec3(1.0);");
+                break;
+            }
+        }
+    }
+    codeToInject += buildTextureFunction(globalLogic, "getCustomColor");
+
+    // ==========================================================
+    // TEXTURE PER-MESH (procedurali)
+    // ==========================================================
+    // Ogni parte con codice proprio ottiene la sua getCustomColor_<k> nello
+    // STESSO shader, e un dispatcher sceglie su u_meshIndex. Non servono ne'
+    // binding ne' pipeline aggiuntive: le mesh gia' si distinguono per blocco
+    // UBO (dynamic offset), e u_meshIndex e' costante su tutto il draw di una
+    // parte, quindi il branch e' uniforme e non divergente.
+    // Le parti SENZA codice proprio cadono sul default, cioe' la texture
+    // globale: una superficie che non usa la feature genera esattamente lo
+    // shader di prima, dispatcher incluso ma con un solo ramo.
+    QString dispatch;
+    if (engine && perMeshTextures) {
+        const std::vector<MeshPart> &tparts = engine->getMeshParts();
+        for (size_t k = 0; k < tparts.size(); ++k) {
+            const QString code = tparts[k].textureCode.trimmed();
+            if (code.isEmpty()) continue;
+            const QString fn = QString("getCustomColor_%1").arg(k);
+            codeToInject += "\n" + buildTextureFunction(tparts[k].textureCode, fn);
+            // Confronto su float: u_meshIndex e' un indice piccolo esatto in
+            // float32, ma restiamo sulla soglia 0.5 come il resto del progetto.
+            dispatch += QString("    if (abs(ubuf.u_meshIndex - %1.0) < 0.5) return %2(in_uv);\n")
+                            .arg(k).arg(fn);
+        }
+    }
+
+    if (!dispatch.isEmpty()) {
+        codeToInject += "\nvec3 getMeshColor(vec2 in_uv) {\n"
+                        + dispatch +
+                        "    return getCustomColor(in_uv);\n"
+                        "}\n";
+    }
+
+    // Il frag chiama getMeshColor SOLO se esiste almeno una texture per-mesh;
+    // altrimenti resta la chiamata diretta di sempre.
+    const QString entryPoint = dispatch.isEmpty() ? QStringLiteral("getCustomColor")
+                                                  : QStringLiteral("getMeshColor");
+
     fullSource.replace("%CUSTOM_CODE%", codeToInject);
 
-    fullSource.replace("vec4 tex = texture(textureSampler, v_texCoord);",
-                       "vec4 tex = vec4(getCustomColor(v_texCoord), 1.0);");
-    fullSource.replace("vec3 texColor = texture(textureSampler, v_texCoord).rgb;",
-                       "vec3 texColor = getCustomColor(v_texCoord);");
+    // PUNTO D'INGRESSO DELLA TEXTURE NEL TEMPLATE.
+    // Il template chiama getCustomColor() direttamente (le vecchie
+    // `texture(textureSampler, ...)` non esistono piu' nel .frag): quando ci
+    // sono texture per-mesh dobbiamo dirottare quelle chiamate sul dispatcher.
+    // Si sostituisce SOLO la chiamata dentro main(), non la definizione delle
+    // funzioni appena generate, che vivono in codeToInject ed e' gia' stato
+    // inserito: il replace mirato sulle due forme letterali presenti nel
+    // template lascia intatte le definizioni.
+    if (entryPoint != QLatin1String("getCustomColor")) {
+        fullSource.replace("vec3 texColor = getCustomColor(v_texCoord);",
+                           "vec3 texColor = " + entryPoint + "(v_texCoord);");
+        fullSource.replace("vec4 tex = vec4(getCustomColor(v_texCoord), 1.0);",
+                           "vec4 tex = vec4(" + entryPoint + "(v_texCoord), 1.0);");
+    }
 
     // Taglio pareti interne (sezione //CUTOUT_BEGIN..//CUTOUT_END dello script
     // dock Script): vuoto = nessun taglio. HAS_CUTOUT è iniettato SOLO quando

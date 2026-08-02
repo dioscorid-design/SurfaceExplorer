@@ -175,12 +175,11 @@ public:
     // "Mesh" le differenze ricompaiono: i valori sono rimasti in MeshPart.
     // NB: ricostruisce la geometria delle linee, perche' anche le DENSITA'
     // per-parte vengono sospese (sono indici, non uniform).
-    void setMeshAppearanceUniform(bool on) {
-        if (m_meshAppearanceUniform == on) return;
-        m_meshAppearanceUniform = on;
-        buildWireframeGeometry();
-        update();
-    }
+    // NB2: ricompila anche lo SHADER, perche' in "All" le texture per-mesh sono
+    // sospese e il dispatcher su u_meshIndex non va nemmeno generato (vedi
+    // createFragmentShaderSource). Definita nel .cpp: rebuildShader non e'
+    // visibile a questo punto dell'header.
+    void setMeshAppearanceUniform(bool on);
     bool meshAppearanceUniform() const { return m_meshAppearanceUniform; }
     int activeMeshPart() const { return m_activeMeshPart; }
     int meshPartCount() const { return engine ? engine->getMeshPartCount() : 0; }
@@ -204,6 +203,13 @@ public:
     // GLOBALE: e' la separazione fra display e comando che rende stabile il
     // wireframe per-mesh. Con "All" selezionato ricade sul globale.
     void setActiveMeshRenderMode(int mode);
+
+    // TEXTURE PROCEDURALE PER-MESH. Ritornano true se hanno scritto su una
+    // parte; false in "All", dove il chiamante deve applicare al globale.
+    bool setActiveMeshTexture(const QString &code, bool enabled);
+    bool clearActiveMeshTexture();
+    QString activeMeshTextureCode() const;
+    bool activeMeshHasOwnTexture() const;
     // Torna a ereditare dal globale (voce "Inherit" del selettore).
     void clearActiveMeshRenderMode();
     // Modalita' EFFICACE della parte selezionata (globale se "All"/eredita):
@@ -281,6 +287,9 @@ public:
     void setBackgroundTexture(const QString &path);
     void setBackgroundTextureEnabled(bool enabled);
     bool isBackgroundTextureEnabled() const { return m_useBackgroundTexture; }
+    // Stato GLOBALE della texture di superficie (quello che le parti senza
+    // texture propria ereditano).
+    bool isTextureEnabled() const { return m_textureEnabled; }
     void loadBackgroundScript(const QString &scriptCode);
 
     void setTextureCode(const QString& code);
@@ -834,6 +843,9 @@ private:
     // --- Shader Generation & Compilation ---
     QString createVertexShaderSource(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq);
     QString createFragmentShaderSource(const QString &customCode);
+    // Genera UNA funzione texture procedurale col nome dato. Chiamata piu' volte
+    // nello stesso shader per le texture per-mesh (getCustomColor_<k>).
+    QString buildTextureFunction(const QString &customLogic, const QString &funcName);
     QString generateGlslHelperVars(const QString& sourceCode);
     QShader bakeShader(const QByteArray &source, QShader::Stage stage);
 

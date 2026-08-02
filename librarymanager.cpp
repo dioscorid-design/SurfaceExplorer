@@ -423,6 +423,28 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
                 }
                 if (o.contains("wfU"))        mp.wfStepU = o["wfU"].toInt(0);
                 if (o.contains("wfV"))        mp.wfStepV = o["wfV"].toInt(0);
+                // Texture procedurale propria: come "mode", la chiave assente
+                // lascia la parte a EREDITARE, quindi i preset salvati prima di
+                // questa feature restano identici.
+                if (o.contains("texCode")) {
+                    mp.textureCode = o["texCode"].toString();
+                    mp.textureEnabled = o["texOn"].toBool(true);
+                    mp.hasCustomTexture = true;
+                }
+                if (o.contains("texC1r")) {
+                    mp.texCol1R = (float)o["texC1r"].toDouble(-1.0);
+                    mp.texCol1G = (float)o["texC1g"].toDouble(-1.0);
+                    mp.texCol1B = (float)o["texC1b"].toDouble(-1.0);
+                    mp.texCol2R = (float)o["texC2r"].toDouble(-1.0);
+                    mp.texCol2G = (float)o["texC2g"].toDouble(-1.0);
+                    mp.texCol2B = (float)o["texC2b"].toDouble(-1.0);
+                }
+                if (o.contains("texZoom")) {
+                    mp.texZoom = (float)o["texZoom"].toDouble(-1.0);
+                    mp.texPanX = (float)o["texPanX"].toDouble(0.0);
+                    mp.texPanY = (float)o["texPanY"].toDouble(0.0);
+                    mp.texRotation = (float)o["texRot"].toDouble(0.0);
+                }
                 d.meshParts.push_back(mp);
             }
         }
@@ -668,6 +690,28 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
                 }
                 if (o.contains("wfU"))        mp.wfStepU = o["wfU"].toInt(0);
                 if (o.contains("wfV"))        mp.wfStepV = o["wfV"].toInt(0);
+                // Texture procedurale propria: come "mode", la chiave assente
+                // lascia la parte a EREDITARE, quindi i preset salvati prima di
+                // questa feature restano identici.
+                if (o.contains("texCode")) {
+                    mp.textureCode = o["texCode"].toString();
+                    mp.textureEnabled = o["texOn"].toBool(true);
+                    mp.hasCustomTexture = true;
+                }
+                if (o.contains("texC1r")) {
+                    mp.texCol1R = (float)o["texC1r"].toDouble(-1.0);
+                    mp.texCol1G = (float)o["texC1g"].toDouble(-1.0);
+                    mp.texCol1B = (float)o["texC1b"].toDouble(-1.0);
+                    mp.texCol2R = (float)o["texC2r"].toDouble(-1.0);
+                    mp.texCol2G = (float)o["texC2g"].toDouble(-1.0);
+                    mp.texCol2B = (float)o["texC2b"].toDouble(-1.0);
+                }
+                if (o.contains("texZoom")) {
+                    mp.texZoom = (float)o["texZoom"].toDouble(-1.0);
+                    mp.texPanX = (float)o["texPanX"].toDouble(0.0);
+                    mp.texPanY = (float)o["texPanY"].toDouble(0.0);
+                    mp.texRotation = (float)o["texRot"].toDouble(0.0);
+                }
                 d.meshParts.push_back(mp);
             }
         }

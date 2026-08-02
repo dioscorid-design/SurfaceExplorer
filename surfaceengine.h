@@ -108,7 +108,47 @@ struct MeshPart {
     int  wfStepU = 0;
     int  wfStepV = 0;
 
+    // TEXTURE PROCEDURALE PROPRIA (script GLSL della sola parte).
+    // Vuoto = eredita dallo stato globale, cioe' la texture della superficie se
+    // accesa e nessuna texture altrimenti: una parte non configurata si disegna
+    // esattamente come prima e i preset esistenti restano invariati.
+    // Il codice NON e' una risorsa GPU: viene compilato dentro l'UNICO fragment
+    // shader come getCustomColor_<k>(), scelto a run time su u_meshIndex (vedi
+    // GLWidget::createFragmentShaderSource). Percio' le texture per-mesh non
+    // costano ne' binding ne' pipeline in piu': solo codice nello stesso shader.
+    QString textureCode;
+    // Acceso/spento PROPRIO della parte. Come per renderMode, il solo valore non
+    // basta a esprimere "eredita": una parte puo' voler spegnere la texture
+    // mentre il globale la tiene accesa, e "spento" non si distingue da "non
+    // configurato". Serve percio' il flag esplicito.
+    bool textureEnabled = false;
+    bool hasCustomTexture = false;
+    // COLORI DELLA TEXTURE PROPRI DELLA PARTE (u_col1/u_col2 dello script).
+    // Sono per-parte perche' vivono nel blocco UBO: senza di essi due mesh con
+    // texture diverse condividevano i due slot globali, e l'ultima applicata
+    // riscriveva i colori di tutte le altre.
+    // Negativo = eredita i colori globali della texture di superficie.
+    float texCol1R = -1.0f, texCol1G = -1.0f, texCol1B = -1.0f;
+    float texCol2R = -1.0f, texCol2G = -1.0f, texCol2B = -1.0f;
+    bool hasCustomTexColors() const { return texCol1R >= 0.0f; }
+
+    // TRASFORMAZIONE 2D PROPRIA DELLA PARTE (zoom / pan / rotazione della
+    // texture, quelle che si regolano col mouse in vista 2D).
+    // Come i colori, finiscono nel blocco UBO e quindi possono differire fra le
+    // parti: senza, zoom e pan restavano i tre membri GLOBALI del widget e
+    // ridimensionare la texture di una mesh le ridimensionava TUTTE, compresa
+    // quella dell'ambito All.
+    // texZoom < 0 = eredita la trasformazione globale.
+    float texZoom = -1.0f;
+    float texPanX = 0.0f, texPanY = 0.0f;
+    float texRotation = 0.0f;
+    bool hasCustomTexTransform() const { return texZoom >= 0.0f; }
+
     bool hasCustomColor() const { return colorR >= 0.0f; }
+    // Texture EFFICACE: la propria se dichiarata, altrimenti quella globale.
+    bool effectiveTextureEnabled(bool globalOn) const {
+        return hasCustomTexture ? textureEnabled : globalOn;
+    }
     // Modalita' EFFICACE: la propria se dichiarata, altrimenti quella globale.
     int  effectiveRenderMode(int globalMode) const {
         return hasCustomRenderMode ? renderMode : globalMode;
@@ -172,6 +212,19 @@ public:
             next[k].hasCustomRenderMode = old.hasCustomRenderMode;
             next[k].wfStepU = old.wfStepU;
             next[k].wfStepV = old.wfStepV;
+            next[k].textureCode = old.textureCode;
+            next[k].textureEnabled = old.textureEnabled;
+            next[k].hasCustomTexture = old.hasCustomTexture;
+            next[k].texCol1R = old.texCol1R;
+            next[k].texCol1G = old.texCol1G;
+            next[k].texCol1B = old.texCol1B;
+            next[k].texCol2R = old.texCol2R;
+            next[k].texCol2G = old.texCol2G;
+            next[k].texCol2B = old.texCol2B;
+            next[k].texZoom = old.texZoom;
+            next[k].texPanX = old.texPanX;
+            next[k].texPanY = old.texPanY;
+            next[k].texRotation = old.texRotation;
         }
         m_declaredParts = std::move(next);
     }
@@ -203,6 +256,19 @@ public:
             m_declaredParts[k].hasCustomRenderMode = m_meshParts[k].hasCustomRenderMode;
             m_declaredParts[k].wfStepU = m_meshParts[k].wfStepU;
             m_declaredParts[k].wfStepV = m_meshParts[k].wfStepV;
+            m_declaredParts[k].textureCode = m_meshParts[k].textureCode;
+            m_declaredParts[k].textureEnabled = m_meshParts[k].textureEnabled;
+            m_declaredParts[k].hasCustomTexture = m_meshParts[k].hasCustomTexture;
+            m_declaredParts[k].texCol1R = m_meshParts[k].texCol1R;
+            m_declaredParts[k].texCol1G = m_meshParts[k].texCol1G;
+            m_declaredParts[k].texCol1B = m_meshParts[k].texCol1B;
+            m_declaredParts[k].texCol2R = m_meshParts[k].texCol2R;
+            m_declaredParts[k].texCol2G = m_meshParts[k].texCol2G;
+            m_declaredParts[k].texCol2B = m_meshParts[k].texCol2B;
+            m_declaredParts[k].texZoom = m_meshParts[k].texZoom;
+            m_declaredParts[k].texPanX = m_meshParts[k].texPanX;
+            m_declaredParts[k].texPanY = m_meshParts[k].texPanY;
+            m_declaredParts[k].texRotation = m_meshParts[k].texRotation;
         }
     }
 

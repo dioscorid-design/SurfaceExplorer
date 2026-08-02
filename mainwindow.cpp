@@ -2612,6 +2612,62 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     connect(ui->chkBoxTexture, &QCheckBox::toggled, this, [this](bool checked){
+        // ==========================================================
+        // TEXTURE DELLA SOLA MESH SELEZIONATA
+        // ==========================================================
+        // Con l'ambito su "Mesh" e una parte attiva, il checkbox accende o
+        // spegne la texture di QUELLA parte, come fanno colore/alpha/luce.
+        // Va PRIMA di tutto il resto: il ramo sotto scrive lo stato GLOBALE
+        // (setTextureEnabled + generateTexture), che finisce nell'UBO di ogni
+        // parte e texturizzava l'intera superficie -- oltre a far diventare
+        // bianche le mesh in wireframe, che venivano disegnate col colore
+        // della texture invece che col proprio.
+        // In "All" (nessuna parte attiva) si prosegue col percorso di sempre.
+        // Escluso il ramo Background (la texture di sfondo non e' per-mesh) e
+        // il Ray Marching, che non ha parti di mesh.
+        if (!ui->radioBackground->isChecked()
+            && ui->tabModeSelector->currentIndex() != 1
+            && ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
+
+            // Codice da usare per QUESTA parte: quello che ha gia' (riaccensione)
+            // oppure la scacchiera di default, cosi' accendere il checkbox
+            // produce sempre qualcosa di visibile come sulla superficie intera.
+            QString code = ui->glWidget->activeMeshTextureCode();
+            if (checked && code.trimmed().isEmpty())
+                code = defaultMeshTextureCode();
+
+            // COLORI DELLA TEXTURE ALLA GPU. La scacchiera di default e' tutta
+            // costruita su u_col1/u_col2 (mix dei due), che arrivano dall'UBO
+            // via setTextureColors: senza questa riga i due slot restano ai
+            // valori stantii del contesto precedente e, se coincidono, la
+            // scacchiera esce in TINTA UNITA (il caso "tutto bianco").
+            // Il ramo globale del checkbox fa lo stesso poco piu' sotto: qui
+            // serve perche' quel ramo non viene percorso.
+            if (checked) {
+                m_texColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
+                m_texColor2 = Qt::black;
+                ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
+            }
+
+            if (checked) ui->glWidget->setActiveMeshTexture(code, true);
+            else         ui->glWidget->setActiveMeshTexture(code, false);
+
+            // OROLOGIO DELLA TEXTURE. Accendere la texture di una mesh e' un
+            // avvio esplicito del modulo, come il Run: riarma un eventuale stop
+            // manuale e rivaluta se il clock serve. Il conto va fatto DOPO
+            // setActiveMeshTexture, perche' allSurfaceTextureCode() legge lo
+            // stato appena scritto sulla parte.
+            m_userStoppedTexClock = false;
+            ui->glWidget->setSurfaceTextureAnimating(
+                hasTimeVariable(allSurfaceTextureCode()));
+
+            // I picker Color 1/2 servono solo se lo script della parte li usa.
+            updateTextureUIState(checked, true);
+            updateFlatPreviewButton();
+            ui->glWidget->update();
+            return;
+        }
+
         if (ui->radioBackground->isChecked()) {
             ui->glWidget->setBackgroundTextureEnabled(checked);
             // Picker Colore solo se lo sfondo è acceso E usa quel colore (indipendenti).
@@ -3119,6 +3175,24 @@ MainWindow::MainWindow(QWidget *parent)
         ui->glWidget->setMeshAppearanceUniform(!single);
         ui->glWidget->setActiveMeshPart(single ? ui->spinMeshSel->value() - 1 : -1);
         syncAppearanceControlsToActiveMesh();
+
+        // OROLOGIO TEXTURE. Cambiare ambito cambia QUALI texture sono in gioco:
+        // in "All" quelle per-mesh sono sospese, quindi il clock va rivalutato o
+        // resterebbe acceso per una texture animata che nessuno sta piu'
+        // disegnando (e viceversa, spento tornando su "Mesh").
+        if (!m_userStoppedTexClock)
+            ui->glWidget->setSurfaceTextureAnimating(
+                hasTimeVariable(allSurfaceTextureCode()));
+
+        // In "All" il checkbox torna a mostrare lo stato GLOBALE della texture:
+        // in "Mesh" ci pensa syncAppearanceControlsToActiveMesh (display della
+        // parte), ma quella esce presto quando non c'e' parte attiva.
+        if (!single && !ui->radioBackground->isChecked()
+            && ui->tabModeSelector->currentIndex() != 1) {
+            const bool oldCb = ui->chkBoxTexture->blockSignals(true);
+            ui->chkBoxTexture->setChecked(ui->glWidget->isTextureEnabled());
+            ui->chkBoxTexture->blockSignals(oldCb);
+        }
         // Come per lo spinbox: il sync muove i radio a segnali bloccati, quindi
         // il gating (tasti densita' U/V) va aggiornato a mano.
         updateRenderState();
@@ -5315,7 +5389,7 @@ void MainWindow::handleTextureSelection(int index)
             texColorAnim = ui->lineTexture->toPlainText().contains(timeRegex);
             dispAnim     = ui->lineVariations->toPlainText().contains(timeRegex);
         } else {
-            texColorAnim = m_surfaceTextureCode.contains(timeRegex);
+            texColorAnim = allSurfaceTextureCode().contains(timeRegex);
         }
     }
     bool texAnim = texColorAnim || dispAnim;
@@ -7591,6 +7665,58 @@ void MainWindow::onApplyTextureScriptClicked()
         // --- RAMO B: SUPERFICIE ---
         if (!InputValidator::validateParametricScriptContext(this, code)) return;
 
+        // --- B0: TEXTURE DELLA SOLA MESH SELEZIONATA ---
+        // Con l'ambito su "Mesh" e una parte attiva la texture appartiene a
+        // QUELLA parte: stessa logica di colore/alpha/luce, che con una mesh
+        // selezionata scrivono sulla parte e non sul globale.
+        // In "All" (nessuna parte attiva) si prosegue col ramo di sempre, che
+        // applica la texture all'intera superficie.
+        // NB: le texture-IMMAGINE restano globali (una sola risorsa GPU sullo
+        // slot 1): qui si accetta solo il procedurale, come da progetto.
+        if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
+            if (!imgPath.isEmpty()) {
+                QMessageBox::information(this, "Texture per-mesh",
+                    "Le texture-immagine si applicano all'intera superficie.\n\n"
+                    "Per assegnare una texture a una singola mesh usa uno script "
+                    "procedurale, oppure passa all'ambito \"All\".");
+                return;
+            }
+            // La compilazione avviene dentro setActiveMeshTexture (il codice
+            // finisce nel fragment shader come getCustomColor_<k>): se lo shader
+            // non compila, rebuildShader lascia in piedi il precedente e la
+            // superficie non sparisce.
+            ui->glWidget->setActiveMeshTexture(code, true);
+            m_isCustomMode = hasCustomLogic;
+
+            // CHECKBOX "Texture" ACCESO. Applicare una texture a una mesh la
+            // ACCENDE su quella mesh, quindi il checkbox -- che di quello stato
+            // e' il display -- deve risultare selezionato, come fa il ramo
+            // globale poco piu' sotto.
+            // A SEGNALI BLOCCATI: il toggled rientrerebbe nel ramo per-mesh e
+            // riscriverebbe la parte (con il codice letto da activeMeshTextureCode,
+            // cioe' quello appena messo) facendo un secondo rebuildShader inutile.
+            if (!ui->chkBoxTexture->isChecked()) {
+                const bool oldCb = ui->chkBoxTexture->blockSignals(true);
+                ui->chkBoxTexture->setChecked(true);
+                ui->chkBoxTexture->blockSignals(oldCb);
+            }
+
+            // OROLOGIO DELLA TEXTURE. Il Run e' un avvio esplicito del modulo:
+            // riarma un eventuale stop manuale e rivaluta se il clock serve,
+            // guardando anche gli script per-mesh (allSurfaceTextureCode).
+            // Senza questo il ramo usciva dalla funzione PRIMA del blocco che
+            // governa l'animazione, e una texture con 't' restava ferma.
+            m_userStoppedTexClock = false;
+            ui->glWidget->setSurfaceTextureAnimating(
+                hasTimeVariable(allSurfaceTextureCode()));
+            updateMasterButtonState();
+
+            updateTextureUIState(true, true);
+            updateScriptButtonText();
+            ui->glWidget->update();
+            return;
+        }
+
         if (hasCustomLogic && ui->glWidget &&
                 !ui->glWidget->validateAndApplyParametricShader(code)) {
             InputValidator::showShaderCompilationError(this,
@@ -7709,7 +7835,7 @@ void MainWindow::onApplyTextureScriptClicked()
         if (ui->chkBoxTexture->isChecked()) {
             QString surfTexToCheck = (ui->tabModeSelector->currentIndex() == 1)
                     ? (ui->lineTexture->toPlainText() + ui->lineVariations->toPlainText())
-                    : m_surfaceTextureCode;
+                    : allSurfaceTextureCode();
             if (surfTexToCheck.contains(timeRegex)) surfTexNeedsAnim = true;
         }
         if (ui->glWidget) ui->glWidget->setSurfaceTextureAnimating(surfTexNeedsAnim);
@@ -9022,7 +9148,7 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
     // RIATTIVAZIONE ANIMAZIONI TEXTURE AL CARICAMENTO
     // =======================================================
     if (ui->glWidget) {
-        if (texEnabled && hasTimeVariable(m_surfaceTextureCode)) {
+        if (texEnabled && hasTimeVariable(allSurfaceTextureCode())) {
             ui->glWidget->setSurfaceTextureAnimating(true);
         }
         if (bgTexEnabled && hasTimeVariable(m_bgTextureCode)) {
@@ -11427,7 +11553,7 @@ void MainWindow::updateScriptButtonText() {
             } else {
                 texMoving = ui->glWidget->isSurfaceTextureAnimating()
                         && ui->chkBoxTexture->isChecked()
-                        && hasTimeVariable(m_surfaceTextureCode);
+                        && hasTimeVariable(allSurfaceTextureCode());
             }
         }
 
@@ -11756,7 +11882,7 @@ void MainWindow::updateMasterButtonState()
             isTexVisuallyMoving = texColorMoving || dispMoving;
         } else {
             bool texClockRunning = ui->glWidget->isSurfaceTextureAnimating();
-            bool texHasTime = isSurfTexActive && hasTimeVariable(m_surfaceTextureCode);
+            bool texHasTime = isSurfTexActive && hasTimeVariable(allSurfaceTextureCode());
             isTexVisuallyMoving = texClockRunning && texHasTime;
         }
 
@@ -11877,21 +12003,52 @@ void MainWindow::generateTexture()
     }
 }
 
-void MainWindow::applyDefaultCheckerShader()
+// Scacchiera default PROCEDURALE (stessa resa del preset "Checkboard"), come
+// gia' fatto per il default Ray Marching: l'immagine di generateTexture()
+// campionata col filtro bilineare mostrava una riga di colore misto sulla
+// chiusura UV delle superfici chiuse (i due bordi opposti della bitmap si
+// mescolano), che il calcolo per-fragment non ha. L'immagine resta caricata
+// nel sampler solo come feed `tex` per gli script che lo campionano.
+// u_col1/u_col2 arrivano dall'UBO: i picker agiscono live, senza rigenerare.
+// UNICO PUNTO: la usano sia la texture globale (applyDefaultCheckerShader) sia
+// quella per-mesh (checkbox con una parte selezionata). Due copie sarebbero
+// destinate a divergere.
+// Tutto il codice texture di SUPERFICIE che concorre all'animazione: quello
+// globale piu' quello delle singole mesh. Con le texture per-mesh il solo
+// m_surfaceTextureCode non basta piu': una parte con 't' nel proprio script
+// anima davvero (il suo codice e' compilato nel fragment), ma i punti che
+// decidono setSurfaceTextureAnimating guardavano solo il globale e trovavano
+// una stringa senza 't' -> clock spento e texture ferma.
+// UNICO PUNTO: sono cinque i posti che valutano l'animazione della texture;
+// correggerli uno per uno li avrebbe fatti divergere.
+QString MainWindow::allSurfaceTextureCode() const
 {
-    // Scacchiera default PROCEDURALE (stessa resa del preset "Checkboard"), come
-    // gia' fatto per il default Ray Marching: l'immagine di generateTexture()
-    // campionata col filtro bilineare mostrava una riga di colore misto sulla
-    // chiusura UV delle superfici chiuse (i due bordi opposti della bitmap si
-    // mescolano), che il calcolo per-fragment non ha. L'immagine resta caricata
-    // nel sampler solo come feed `tex` per gli script che lo campionano.
-    // u_col1/u_col2 arrivano dall'UBO: i picker agiscono live, senza rigenerare.
-    static const char* kDefaultChecker =
+    QString all = m_surfaceTextureCode;
+    // AMBITO "ALL": le texture per-mesh sono SOSPESE (lo shader non le compila
+    // nemmeno), quindi non devono far girare il clock: conta solo la globale.
+    if (ui->glWidget && ui->glWidget->getEngine()
+        && !ui->glWidget->meshAppearanceUniform()) {
+        for (const MeshPart &mp : ui->glWidget->getEngine()->getMeshParts()) {
+            // Solo le parti che la texture ce l'hanno DAVVERO accesa: una parte
+            // che la tiene spenta non deve far girare il clock.
+            if (mp.hasCustomTexture && mp.textureEnabled && !mp.textureCode.isEmpty())
+                all += "\n" + mp.textureCode;
+        }
+    }
+    return all;
+}
+
+QString MainWindow::defaultMeshTextureCode() const
+{
+    return QStringLiteral(
         "vec2 g = floor(vec2(u, v) * 8.0);\n"
         "float c = mod(g.x + g.y, 2.0);\n"
-        "return mix(u_col1, u_col2, c);";
+        "return mix(u_col1, u_col2, c);");
+}
 
-    if (ui->glWidget) ui->glWidget->loadCustomShader(kDefaultChecker);
+void MainWindow::applyDefaultCheckerShader()
+{
+    if (ui->glWidget) ui->glWidget->loadCustomShader(defaultMeshTextureCode());
 }
 
 // FOV UNICO. Unico punto che imposta il campo visivo: aggiorna slider + etichetta
@@ -12115,6 +12272,7 @@ void MainWindow::applyPendingMeshAppearance()
 
     SurfaceEngine *eng = ui->glWidget->getEngine();
     const int n = std::min((int)m_pendingMeshParts.size(), eng->getMeshPartCount());
+    bool anyTexture = false;
     for (int k = 0; k < n; ++k) {
         MeshPart *dst = eng->mutableMeshPart(k);
         if (!dst) continue;
@@ -12128,9 +12286,30 @@ void MainWindow::applyPendingMeshAppearance()
         dst->hasCustomRenderMode = src.hasCustomRenderMode;
         dst->wfStepU = src.wfStepU;
         dst->wfStepV = src.wfStepV;
+        dst->textureCode = src.textureCode;
+        dst->textureEnabled = src.textureEnabled;
+        dst->hasCustomTexture = src.hasCustomTexture;
+        dst->texCol1R = src.texCol1R;
+        dst->texCol1G = src.texCol1G;
+        dst->texCol1B = src.texCol1B;
+        dst->texCol2R = src.texCol2R;
+        dst->texCol2G = src.texCol2G;
+        dst->texCol2B = src.texCol2B;
+        dst->texZoom = src.texZoom;
+        dst->texPanX = src.texPanX;
+        dst->texPanY = src.texPanY;
+        dst->texRotation = src.texRotation;
+        if (src.hasCustomTexture) anyTexture = true;
     }
     eng->syncPartAppearance();
     m_pendingMeshParts.clear();
+
+    // Le texture per-mesh vivono DENTRO il fragment shader (getCustomColor_<k>):
+    // caricarle e' un cambio di CODICE, non di uniform, quindi senza ricompilare
+    // resterebbero quelle della superficie precedente. Si ricompila solo se il
+    // preset ne porta davvero almeno una: le superfici che non usano la feature
+    // non pagano nulla.
+    if (anyTexture) ui->glWidget->rebuildShader();
 
     // Le densita' wireframe per-parte appena caricate cambiano la GEOMETRIA
     // delle linee, non solo un uniform: senza ricostruzione si vedrebbero
@@ -12242,6 +12421,33 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
     }
 
     const MeshPart &p = parts[idx];
+
+    // EDITOR DELLA TEXTURE PER-MESH. Selezionando una parte che ha uno script
+    // proprio, l'editor lo mostra: e' lo stesso principio dei radio e degli
+    // slider, cioe' i controlli mostrano cio' che stanno per modificare.
+    // Si scrive SOLO se l'editor e' sul ramo texture di SUPERFICIE: sul ramo
+    // Background o sugli altri modi il campo appartiene a un altro modulo e
+    // sovrascriverlo farebbe perdere il testo all'utente.
+    // Una parte che NON ha texture propria non svuota l'editor: mostrerebbe
+    // vuoto qualcosa che invece eredita dalla texture globale, e un Run
+    // successivo cancellerebbe la texture della superficie.
+    if (m_currentScriptMode == ScriptModeTexture && !ui->radioBackground->isChecked()
+        && p.hasCustomTexture && !p.textureCode.isEmpty()) {
+        const bool oldTx = ui->txtScriptEditor->blockSignals(true);
+        ui->txtScriptEditor->setPlainText(p.textureCode);
+        ui->txtScriptEditor->blockSignals(oldTx);
+    }
+
+    // DISPLAY del checkbox Texture: mostra lo stato EFFICACE della parte (il
+    // proprio se dichiarato, altrimenti il globale che sta ereditando), come i
+    // radio Base/Phong/Wireframe. A segnali bloccati, o il toggled riscriverebbe
+    // sulla parte cio' che stiamo solo mostrando.
+    if (!ui->radioBackground->isChecked() && ui->tabModeSelector->currentIndex() != 1) {
+        const bool eff = p.effectiveTextureEnabled(ui->glWidget->isTextureEnabled());
+        const bool oldCb = ui->chkBoxTexture->blockSignals(true);
+        ui->chkBoxTexture->setChecked(eff);
+        ui->chkBoxTexture->blockSignals(oldCb);
+    }
 
     // AMBITO "MESH": si mostra il valore PROPRIO della parte se c'e', altrimenti
     // quello globale, che e' cio' che la parte sta ereditando (stessa regola dei
