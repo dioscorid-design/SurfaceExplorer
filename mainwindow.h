@@ -670,6 +670,9 @@ private:
     // funzionalita' resta invisibile dove non serve.
     void updateMeshSelectorRange();
     void syncAppearanceControlsToActiveMesh();
+    // Mostra nell'editor lo script della texture del destinatario corrente
+    // (fascia selezionata o globale in "All"). E' un DISPLAY: segnali bloccati.
+    void syncTextureEditorTo(const QString &text);
     // Porta i radio Base/Phong/Wireframe sulla modalita' indicata, a segnali
     // bloccati (sono un DISPLAY: non devono scrivere nulla).
     void syncRenderRadiosTo(int mode);

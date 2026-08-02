@@ -145,7 +145,21 @@ struct MeshPart {
     bool hasCustomTexTransform() const { return texZoom >= 0.0f; }
 
     bool hasCustomColor() const { return colorR >= 0.0f; }
+    // Texture EFFICACE di una parte in una superficie MULTI-MESH.
+    // Una parte MAI CONFIGURATA (hasCustomTexture == false) resta SENZA texture:
+    // NON eredita quella globale. E' la differenza con colore/alpha/luce, ed e'
+    // deliberata: applicare una texture in ambito "All" con altre fasce gia'
+    // texturizzate significa "questa e' la texture della superficie", non
+    // "riempi anche le fasce che ho lasciato apposta in tinta unita". Ereditando,
+    // una fascia lasciata volutamente nuda si texturizzava da sola.
+    // NB: vale solo in multi-mesh. Il caso a mesh singola non passa di qui (vedi
+    // il ramo uboPartCount <= 1 in GLWidget), quindi li' la texture globale
+    // continua a governare la superficie come da sempre.
+    bool effectiveTextureEnabledMulti() const {
+        return hasCustomTexture && textureEnabled;
+    }
     // Texture EFFICACE: la propria se dichiarata, altrimenti quella globale.
+    // Usata dal DISPLAY dei controlli e dal caso a mesh singola.
     bool effectiveTextureEnabled(bool globalOn) const {
         return hasCustomTexture ? textureEnabled : globalOn;
     }

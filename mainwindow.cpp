@@ -2643,9 +2643,22 @@ MainWindow::MainWindow(QWidget *parent)
             // scacchiera esce in TINTA UNITA (il caso "tutto bianco").
             // Il ramo globale del checkbox fa lo stesso poco piu' sotto: qui
             // serve perche' quel ramo non viene percorso.
+            // I colori di default valgono solo per una texture NUOVA. Se la
+            // parte ne aveva già di propri (riaccensione, o rientro su una mesh
+            // già texturizzata) vanno RIPRISTINATI i suoi: forzarli a
+            // verde/nero qui riscriveva i colori di una mesh già configurata
+            // solo perché la si era riselezionata.
             if (checked) {
-                m_texColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
-                m_texColor2 = Qt::black;
+                const auto &cparts = ui->glWidget->getEngine()->getMeshParts();
+                const int ci = ui->glWidget->activeMeshPart();
+                const MeshPart *cp = (ci >= 0 && ci < (int)cparts.size()) ? &cparts[ci] : nullptr;
+                if (cp && cp->hasCustomTexColors()) {
+                    m_texColor1 = QColor::fromRgbF(cp->texCol1R, cp->texCol1G, cp->texCol1B);
+                    m_texColor2 = QColor::fromRgbF(cp->texCol2R, cp->texCol2G, cp->texCol2B);
+                } else {
+                    m_texColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
+                    m_texColor2 = Qt::black;
+                }
                 ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
             }
 
@@ -4005,6 +4018,21 @@ void MainWindow::updateRenderState()
         } else {
             wantTexture = ui->chkBoxTexture->isChecked();
         }
+    }
+
+    // AMBITO "MESH": il checkbox Texture e' il DISPLAY della parte selezionata
+    // (vedi syncAppearanceControlsToActiveMesh, che lo mette sullo stato
+    // EFFICACE di quella mesh), NON un comando sul globale. Usarlo qui per
+    // setTextureEnabled accendeva la texture GLOBALE solo perche' si era
+    // selezionata una mesh texturizzata: tutte le parti che ereditano
+    // (hasCustomTexture == false) si ritrovavano useTexture = 1 e cadevano sulla
+    // getCustomColor globale, che con una texture per-mesh in gioco e'
+    // neutralizzata a vec3(1.0) -> uscivano BIANCHE.
+    // Il globale lo governa m_surfaceTextureState, che cambia solo quando si
+    // agisce davvero sulla texture di superficie (ambito All o Run globale).
+    if (!ui->radioBackground->isChecked() && ui->glWidget
+        && ui->glWidget->activeMeshPart() >= 0) {
+        wantTexture = m_surfaceTextureState;
     }
 
     // 3. LOGICA TEXTURE (Mantenendo il fix per il Background)
@@ -11648,6 +11676,21 @@ bool MainWindow::activeTextureUsesColorToken(const QString &token) const
         return ui->lineTexture->toPlainText().contains(token);
     }
 
+    // AMBITO "MESH": se la parte selezionata ha una texture PROPRIA, la verità
+    // è nel SUO codice, non in m_surfaceTextureCode (che è la texture globale
+    // della superficie). Leggere il globale qui era il motivo per cui i picker
+    // Color1/Color2 venivano abilitati/spenti in base allo script sbagliato:
+    // selezionando una mesh senza texture propria restavano quelli della mesh
+    // precedente, e da lì m_texColor1/2 finivano riscritti sulla parte
+    // sbagliata al primo tocco del checkbox.
+    if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
+        const QString partCode = ui->glWidget->activeMeshTextureCode();
+        if (!partCode.trimmed().isEmpty())
+            return partCode.contains(token);
+        // Nessuna texture propria: la parte EREDITA la globale, quindi si
+        // prosegue col ragionamento globale qui sotto.
+    }
+
     // Parametrico: la scacchiera procedurale di default (applyDefaultCheckerShader)
     // non è uno script utente ma usa comunque ENTRAMBI u_col1/u_col2 -> entrambi
     // i picker servono, quindi true per qualunque token.
@@ -11758,6 +11801,21 @@ void MainWindow::updateFlatPreviewButton() {
 
     // 2. Controllo attivazione fisica (Checkbox / Motore)
     bool isTexActive = bgMode ? ui->chkBoxTexture->isChecked() : m_surfaceTextureState;
+
+    // AMBITO "MESH": la texture puo' essere accesa sulla SOLA fascia
+    // selezionata, e in quel caso m_surfaceTextureState (che e' il flag GLOBALE
+    // della superficie) resta spento -- il ramo per-mesh del checkbox e del Run
+    // esce prima di scriverlo. Il tasto 2D risultava quindi disabilitato con una
+    // texture visibilissima a schermo: e' il "texture attiva ma 2D deselezionato".
+    // Qui conta la texture del destinatario corrente, cioe' quella della fascia.
+    // activeMeshHasOwnTexture() dice che la fascia ha uno script PROPRIO; il
+    // checkbox (che qui e' il display di quella fascia) dice se e' ACCESO.
+    // Servono entrambi: una fascia con la texture spenta non ha nulla da
+    // mostrare in 2D.
+    if (!bgMode && ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
+        isTexActive = ui->glWidget->activeMeshHasOwnTexture()
+                      && ui->chkBoxTexture->isChecked();
+    }
 
     // 3. Regola di abilitazione:
     // Deve essere aperta la tab Texture (isTextureScriptMode)
@@ -12342,6 +12400,23 @@ void MainWindow::syncRenderRadiosTo(int mode)
     ui->radioWF->blockSignals(b2);
 }
 
+// Mostra nell'editor script il testo della texture del destinatario corrente
+// (la fascia selezionata, o quella globale in "All").
+// A SEGNALI BLOCCATI: setPlainText emette textChanged, che marca lo script come
+// modificato e riaccende il tasto Run -- e' la trappola gia' nota di questo
+// progetto (i tasti Run riattivati da una texture incompatibile). Qui stiamo
+// solo MOSTRANDO, non modificando.
+// Non scrive se il testo e' gia' quello giusto: evita di spostare il cursore e
+// di azzerare l'undo mentre l'utente sta guardando lo stesso script.
+void MainWindow::syncTextureEditorTo(const QString &text)
+{
+    if (!ui->txtScriptEditor) return;
+    if (ui->txtScriptEditor->toPlainText() == text) return;
+    const bool oldTx = ui->txtScriptEditor->blockSignals(true);
+    ui->txtScriptEditor->setPlainText(text);
+    ui->txtScriptEditor->blockSignals(oldTx);
+}
+
 void MainWindow::syncAppearanceControlsToActiveMesh()
 {
     if (!ui->glWidget || !ui->glWidget->getEngine()) return;
@@ -12417,25 +12492,49 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
                        ui->glWidget->globalAlpha(),
                        ui->glWidget->globalLightIntensity());
         syncRenderRadiosTo(ui->glWidget->globalRenderMode());
+
+        // EDITOR: in "All" si comanda la texture GLOBALE, quindi va mostrato il
+        // suo script. Senza questo l'editor restava sul codice dell'ultima mesh
+        // guardata mentre l'ambito diceva "All": premere Run avrebbe applicato
+        // alla superficie intera uno script che apparteneva a una fascia.
+        // Stessa guardia del ramo "Mesh": si tocca l'editor solo quando mostra
+        // davvero la texture di SUPERFICIE.
+        if (m_currentScriptMode == ScriptModeTexture && !ui->radioBackground->isChecked())
+            syncTextureEditorTo(m_surfaceTextureScriptText);
         return;
     }
 
     const MeshPart &p = parts[idx];
 
-    // EDITOR DELLA TEXTURE PER-MESH. Selezionando una parte che ha uno script
-    // proprio, l'editor lo mostra: e' lo stesso principio dei radio e degli
-    // slider, cioe' i controlli mostrano cio' che stanno per modificare.
+    // EDITOR DELLA TEXTURE PER-MESH. Selezionando una parte, l'editor mostra il
+    // SUO script: e' lo stesso principio dei radio e degli slider, cioe' i
+    // controlli mostrano cio' che stanno per modificare.
     // Si scrive SOLO se l'editor e' sul ramo texture di SUPERFICIE: sul ramo
     // Background o sugli altri modi il campo appartiene a un altro modulo e
     // sovrascriverlo farebbe perdere il testo all'utente.
-    // Una parte che NON ha texture propria non svuota l'editor: mostrerebbe
-    // vuoto qualcosa che invece eredita dalla texture globale, e un Run
-    // successivo cancellerebbe la texture della superficie.
-    if (m_currentScriptMode == ScriptModeTexture && !ui->radioBackground->isChecked()
-        && p.hasCustomTexture && !p.textureCode.isEmpty()) {
-        const bool oldTx = ui->txtScriptEditor->blockSignals(true);
-        ui->txtScriptEditor->setPlainText(p.textureCode);
-        ui->txtScriptEditor->blockSignals(oldTx);
+    // Una parte SENZA texture propria SVUOTA l'editor. Prima lo si lasciava
+    // fermo, per non "cancellare la texture della superficie" con un Run: ma
+    // quel ragionamento valeva quando una fascia non configurata EREDITAVA la
+    // texture globale. Ora non la eredita piu' (vedi effectiveTextureEnabledMulti),
+    // quindi lasciare in vista lo script di un'altra fascia e' solo un
+    // disallineamento: l'editor mostrava una texture che quella fascia non ha,
+    // e un Run la applicava alla fascia sbagliata.
+    if (m_currentScriptMode == ScriptModeTexture && !ui->radioBackground->isChecked()) {
+        syncTextureEditorTo(p.hasCustomTexture ? p.textureCode : QString());
+    }
+
+    // COLORI u_col1/u_col2 DELLA PARTE nei picker. Come per il codice, i due
+    // membri globali m_texColor1/m_texColor2 sono ciò che gli slider editano e
+    // ciò che setActiveMeshTexture cattura nella parte al primo Run/checkbox:
+    // lasciarli fermi sui valori dell'ultima mesh guardata significa che
+    // tornando su una mesh già texturizzata le si riscrivono addosso i colori
+    // di un'altra (è il "la mesh perde il colore e diventa bianca", quando i
+    // due slot finiscono uguali e la scacchiera esce in tinta unita).
+    // Si allineano SOLO in lettura: nessuna scrittura sul motore, quindi la
+    // parte non viene toccata finché l'utente non muove davvero uno slider.
+    if (!ui->radioBackground->isChecked() && p.hasCustomTexColors()) {
+        m_texColor1 = QColor::fromRgbF(p.texCol1R, p.texCol1G, p.texCol1B);
+        m_texColor2 = QColor::fromRgbF(p.texCol2R, p.texCol2G, p.texCol2B);
     }
 
     // DISPLAY del checkbox Texture: mostra lo stato EFFICACE della parte (il
@@ -12443,10 +12542,32 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
     // radio Base/Phong/Wireframe. A segnali bloccati, o il toggled riscriverebbe
     // sulla parte cio' che stiamo solo mostrando.
     if (!ui->radioBackground->isChecked() && ui->tabModeSelector->currentIndex() != 1) {
-        const bool eff = p.effectiveTextureEnabled(ui->glWidget->isTextureEnabled());
+        // In MULTI-mesh una parte mai configurata NON eredita la texture
+        // globale (resta in tinta unita): il display deve dire la stessa cosa
+        // del render, o il checkbox risulterebbe acceso su una fascia che si
+        // disegna senza texture. Con una mesh sola vale la regola di sempre.
+        const bool multi = ui->glWidget->meshPartCount() > 1;
+        const bool eff = multi ? p.effectiveTextureEnabledMulti()
+                               : p.effectiveTextureEnabled(ui->glWidget->isTextureEnabled());
         const bool oldCb = ui->chkBoxTexture->blockSignals(true);
         ui->chkBoxTexture->setChecked(eff);
         ui->chkBoxTexture->blockSignals(oldCb);
+
+        // PICKER Color1/Color2 RIALLINEATI ALLA PARTE. Il checkbox qui sopra
+        // mostra gia' lo stato giusto, ma i due picker non venivano rivalutati
+        // da nessuno al cambio di mesh (questa funzione non chiamava
+        // updateTextureUIState): restavano accesi con i permessi della mesh
+        // PRECEDENTE, cioe' offrivano di editare i colori di una texture che
+        // sulla mesh selezionata non esiste.
+        // Il flag "reset a Color 1" e' false: qui si sta solo CAMBIANDO
+        // selezione, non applicando una texture nuova, quindi la scelta
+        // Color1/Color2 dell'utente non va spostata sotto le dita.
+        // Passa da updateTextureUIState (punto unico) invece di accendere i
+        // due radio a mano: e' la stessa funzione che gia' decide il gating in
+        // tutti gli altri contesti, e duplicarne la logica qui la farebbe
+        // divergere -- che e' esattamente come sono nati gli altri bug di
+        // questa famiglia.
+        updateTextureUIState(eff, false);
     }
 
     // AMBITO "MESH": si mostra il valore PROPRIO della parte se c'e', altrimenti

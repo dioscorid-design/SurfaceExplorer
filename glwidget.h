@@ -303,7 +303,16 @@ public:
     // ==========================================================
     void setFlatView(bool active);
     bool isFlatView() const { return m_isFlatView; }
-    void setFlatViewTarget(int target) { m_flatViewTarget = target; update(); }
+    // Passando da Superficie (0) a Sfondo (1) si abbandona l'editing della
+    // texture della parte attiva: va fissata prima, o resta nei membri globali.
+    // Tornando su Superficie si ricarica quella della parte.
+    void setFlatViewTarget(int target) {
+        if (target == m_flatViewTarget) { update(); return; }
+        commitFlatTransformToActivePart();
+        m_flatViewTarget = target;
+        loadFlatTransformFromActivePart();
+        update();
+    }
     float getFlatZoom() const;
     void setFlatZoom(float z);
     float getFlatRotation() const;
@@ -312,6 +321,13 @@ public:
     void rotateFlat90();
     QVector2D getFlatPan() const;
     void setFlatPan(float x, float y);
+
+    // Trasferimento della trasformazione 2D (zoom/pan/rotazione della texture)
+    // fra i membri globali e la parte di mesh attiva. Sono il perno del
+    // per-mesh: senza il commit la trasformazione resta globale e finisce nel
+    // blocco UBO di TUTTE le parti (e dell'ambito All).
+    void commitFlatTransformToActivePart();
+    void loadFlatTransformFromActivePart();
 
 
     // ==========================================================

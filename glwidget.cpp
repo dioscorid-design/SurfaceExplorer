@@ -644,8 +644,27 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             // superficie si disegna come una sola; i valori per-parte non
             // vengono toccati, quindi tornando su "Mesh" ricompaiono.
             if (!m_meshAppearanceUniform) {
-                if (mp.hasCustomColor() && !(m_textureEnabled && m_engineMode == ModeParametric))
-                    partUbo.color = QVector3D(mp.colorR, mp.colorG, mp.colorB);
+                // Questa parte finira' texturizzata? Serve PRIMA del colore: una
+                // parte SENZA texture deve riprendersi la propria tinta, mentre
+                // una texturizzata vuole il bianco neutro (finalRGB = color * tex).
+                const bool partTextured = mp.effectiveTextureEnabledMulti();
+
+                // COLORE DELLA PARTE. Il ramo globale poco sopra forza
+                // m_uboData.color a BIANCO quando la texture globale e' accesa,
+                // e ogni blocco parte da quella copia: una fascia senza texture
+                // si ritrovava quindi bianca invece che del proprio colore
+                // (o di quello globale). Il colore va soppresso solo se e'
+                // QUESTA parte ad essere texturizzata, non perche' lo e' la
+                // superficie.
+                if (!partTextured) {
+                    // Tinta piena: la propria se ce l'ha, altrimenti quella
+                    // globale REALE (red/green/blue), non il bianco neutro che
+                    // m_uboData porta quando la texture globale e' accesa.
+                    if (mp.hasCustomColor())
+                        partUbo.color = QVector3D(mp.colorR, mp.colorG, mp.colorB);
+                    else if (m_textureEnabled && m_engineMode == ModeParametric)
+                        partUbo.color = QVector3D(red, green, blue);
+                }
                 if (mp.alpha >= 0.0f)
                     partUbo.alpha = mp.alpha;
                 if (mp.lightIntensity >= 0.0f)
@@ -655,11 +674,18 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 // shader come getCustomColor_<k> (vedi createFragmentShaderSource):
                 // qui basta accendere l'interruttore per questa parte, perche' il
                 // dispatcher sceglie la funzione da u_meshIndex.
-                // Il flag serve in ENTRAMBI i versi: una parte puo' volere la
-                // texture mentre il globale e' spento (accende), o restare in
-                // tinta unita mentre il globale e' acceso (spegne).
+                //
+                // TEXTURE EFFICACE DELLA PARTE. Si scrive SEMPRE, anche quando
+                // la parte non ne ha una propria: in multi-mesh una fascia mai
+                // configurata deve restare SENZA texture, non ereditare quella
+                // globale (vedi effectiveTextureEnabledMulti). Prima qui si
+                // entrava solo con hasCustomTexture e le altre si tenevano lo
+                // useTexture globale copiato da m_uboData: applicando una
+                // texture in "All" le fasce lasciate apposta nude se la
+                // prendevano addosso.
+                partUbo.useTexture = partTextured ? 1 : 0;
+
                 if (mp.hasCustomTexture) {
-                    partUbo.useTexture = mp.textureEnabled ? 1 : 0;
 
                     // COLORE BASE A BIANCO SULLA PARTE TEXTURIZZATA.
                     // Il fragment compone finalRGB = ubuf.color * texture: il
@@ -673,7 +699,11 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                     // NB: si scrive DOPO il colore proprio della parte, cosi'
                     // vince su di esso; il colore resta in MeshPart e ricompare
                     // spegnendo la texture.
-                    if (mp.textureEnabled)
+                    // Stessa condizione usata per useTexture e per il colore
+                    // pieno qui sopra: il bianco neutro e la texture accesa
+                    // devono essere la STESSA decisione, o si torna al caso
+                    // "parte bianca senza texture".
+                    if (partTextured)
                         partUbo.color = QVector3D(1.0f, 1.0f, 1.0f);
 
                     // COLORI u_col1/u_col2 DELLA PARTE. Vivono nel blocco UBO,
@@ -685,18 +715,27 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                         partUbo.col2 = QVector3D(mp.texCol2R, mp.texCol2G, mp.texCol2B);
                     }
 
-                    // ZOOM / PAN / ROTAZIONE 2D PROPRI DELLA PARTE. Stessa
-                    // ragione dei colori: sono campi del blocco UBO, quindi
-                    // per-parte. Senza, la trasformazione fatta col mouse in
-                    // vista 2D su UNA texture veniva applicata a tutte.
-                    // NB: in vista 2D (m_isFlatView) si sta EDITANDO la texture
-                    // a schermo intero e li' comanda lo stato globale, altrimenti
-                    // trascinare non muoverebbe nulla.
-                    if (mp.hasCustomTexTransform() && !m_isFlatView) {
-                        partUbo.zoom = mp.texZoom;
-                        partUbo.center = QVector2D(mp.texPanX, mp.texPanY);
-                        partUbo.rotation = mp.texRotation;
-                    }
+                }
+
+                // ZOOM / PAN / ROTAZIONE 2D PROPRI DELLA PARTE. Stessa ragione
+                // dei colori: sono campi del blocco UBO, quindi per-parte.
+                // Senza, la trasformazione fatta col mouse in vista 2D su UNA
+                // texture veniva applicata a tutte.
+                // FUORI dal blocco hasCustomTexture: la trasformazione e' una
+                // proprieta' della PARTE, non dello script. Due fasce con LA
+                // STESSA texture devono poterla mostrare a scale diverse, e una
+                // fascia che eredita la texture globale deve avere comunque la
+                // propria inquadratura, altrimenti resta agganciata allo zoom
+                // globale e si ridimensiona insieme alle altre.
+                // In vista 2D (m_isFlatView) si edita a schermo intero la
+                // texture della SOLA parte attiva: quella deve seguire i membri
+                // globali che il mouse muove (o trascinare non muoverebbe
+                // nulla), mentre tutte le ALTRE restano ferme sulla propria.
+                const bool editingThisPart = m_isFlatView && (k == m_activeMeshPart);
+                if (mp.hasCustomTexTransform() && !editingThisPart) {
+                    partUbo.zoom = mp.texZoom;
+                    partUbo.center = QVector2D(mp.texPanX, mp.texPanY);
+                    partUbo.rotation = mp.texRotation;
                 }
             }
 
@@ -2141,7 +2180,21 @@ void GLWidget::setProjectionMode(int mode) {
 // nessuna parte dichiara un aspetto proprio, quindi il percorso e' invariato.
 void GLWidget::setActiveMeshPart(int index) {
     const int n = engine ? engine->getMeshPartCount() : 0;
-    m_activeMeshPart = (index >= 0 && index < n) ? index : -1;
+    const int next = (index >= 0 && index < n) ? index : -1;
+    if (next == m_activeMeshPart) { update(); return; }
+
+    // CAMBIO DI MESH MENTRE SI EDITA IN VISTA 2D: zoom/pan/rotazione correnti
+    // appartengono ancora alla parte che si sta lasciando. Vanno fissati PRIMA
+    // di spostare l'indice, o resterebbero nei membri globali e verrebbero
+    // riscritti sulla parte NUOVA (il ridimensionamento della mesh 1 si
+    // ritrovava sulla mesh 2, e da li' su tutte).
+    if (m_isFlatView) commitFlatTransformToActivePart();
+
+    m_activeMeshPart = next;
+
+    // ...e la vista 2D deve ora mostrare l'inquadratura della parte entrante.
+    if (m_isFlatView) loadFlatTransformFromActivePart();
+
     update();
 }
 
@@ -2721,44 +2774,60 @@ void GLWidget::setDisplacementCode(const QString& code) {
 // 2D FLAT VIEW
 // ==========================================================
 
+// Fissa sulla parte attiva zoom/pan/rotazione 2D correnti.
+// Va chiamata a OGNI modifica, non solo all'uscita dalla vista 2D: finche' la
+// trasformazione vive solo nei membri GLOBALI m_flatZoom/m_flatPan/m_flatRotation,
+// essa finisce nel blocco UBO di TUTTE le parti (vedi dove si riempie m_uboData),
+// quindi ridimensionare la texture di una mesh ridimensiona anche le altre.
+// Scrivendola subito nella parte, hasCustomTexTransform() diventa vero e il ramo
+// per-parte del loop UBO la rimette al suo posto.
+// NB: NON si richiede hasCustomTexture. Due mesh possono avere LA STESSA texture
+// e volerla a scale diverse: la trasformazione e' una proprieta' della parte, non
+// dello script. Con quel requisito una fascia senza texture propria restava
+// agganciata allo zoom globale e si ridimensionava insieme alle altre.
+// Solo per la texture di SUPERFICIE (m_flatViewTarget 0): il target 1 e' lo
+// sfondo, che ha i propri bg_zoom/bg_pan/bg_rot ed e' unico.
+void GLWidget::commitFlatTransformToActivePart() {
+    if (m_flatViewTarget != 0 || m_activeMeshPart < 0 || !engine) return;
+    MeshPart *p = engine->mutableMeshPart(m_activeMeshPart);
+    if (!p) return;
+    p->texZoom = m_flatZoom;
+    p->texPanX = m_flatPan.x();
+    p->texPanY = m_flatPan.y();
+    p->texRotation = m_flatRotation;
+    engine->syncPartAppearance();
+}
+
+// Carica nei membri globali la trasformazione della parte attiva, cosi' la vista
+// 2D parte dall'inquadratura di QUELLA mesh e non da quella dell'ultima toccata.
+// Una parte che non ne ha ancora una eredita quella corrente (non si azzera:
+// sarebbe un salto visivo a ogni cambio di fascia).
+void GLWidget::loadFlatTransformFromActivePart() {
+    if (m_flatViewTarget != 0 || m_activeMeshPart < 0 || !engine) return;
+    const std::vector<MeshPart> &parts = engine->getMeshParts();
+    if (m_activeMeshPart >= (int)parts.size()) return;
+    const MeshPart &p = parts[m_activeMeshPart];
+    if (p.hasCustomTexTransform()) {
+        m_flatZoom = p.texZoom;
+        m_flatPan = QVector2D(p.texPanX, p.texPanY);
+        m_flatRotation = p.texRotation;
+    }
+}
+
 void GLWidget::setFlatView(bool active) {
     const bool wasFlat = m_isFlatView;
     m_isFlatView = active;
 
     if (!m_isFlatView) {
-        // USCITA DALLA VISTA 2D con una mesh selezionata e texture propria:
-        // zoom/pan/rotazione appena regolati col mouse appartengono a QUELLA
-        // parte, non alla superficie intera. Riversarli qui e' cio' che impedisce
-        // a un ridimensionamento fatto su una texture di propagarsi a tutte le
-        // altre (e all'ambito All).
-        // Solo per la texture di SUPERFICIE (m_flatViewTarget 0): il target 1 e'
-        // lo sfondo, che ha i propri bg_zoom/bg_pan/bg_rot ed e' unico.
-        if (wasFlat && m_flatViewTarget == 0 && m_activeMeshPart >= 0 && engine) {
-            if (MeshPart *p = engine->mutableMeshPart(m_activeMeshPart)) {
-                if (p->hasCustomTexture) {
-                    p->texZoom = m_flatZoom;
-                    p->texPanX = m_flatPan.x();
-                    p->texPanY = m_flatPan.y();
-                    p->texRotation = m_flatRotation;
-                    engine->syncPartAppearance();
-                }
-            }
-        }
+        // USCITA DALLA VISTA 2D: fissa sulla parte quanto regolato col mouse.
+        if (wasFlat) commitFlatTransformToActivePart();
         buildWireframeGeometry();
     }
-    else if (m_flatViewTarget == 0 && m_activeMeshPart >= 0 && engine) {
+    else {
         // INGRESSO in vista 2D: si edita la texture della parte selezionata,
         // quindi si riparte dalla SUA trasformazione, non da quella globale
         // (altrimenti la texture apparirebbe con lo zoom di un'altra mesh).
-        const std::vector<MeshPart> &parts = engine->getMeshParts();
-        if (m_activeMeshPart < (int)parts.size()) {
-            const MeshPart &p = parts[m_activeMeshPart];
-            if (p.hasCustomTexTransform()) {
-                m_flatZoom = p.texZoom;
-                m_flatPan = QVector2D(p.texPanX, p.texPanY);
-                m_flatRotation = p.texRotation;
-            }
-        }
+        loadFlatTransformFromActivePart();
     }
 
     meshNeedsUpdate = true;
@@ -2777,6 +2846,7 @@ void GLWidget::setFlatZoom(float z) {
         setProperty("bg_zoom", std::clamp(z, 0.001f, 1000.0f));
     } else { // 0 = Superficie
         m_flatZoom = std::clamp(z, 0.001f, 1000.0f);
+        commitFlatTransformToActivePart();
     }
     update();
 }
@@ -2793,6 +2863,7 @@ void GLWidget::setFlatRotation(float angle) {
         setProperty("bg_rot", angle);
     } else {
         m_flatRotation = angle;
+        commitFlatTransformToActivePart();
     }
     update();
 }
@@ -2807,6 +2878,7 @@ void GLWidget::rotateFlat90() {
         setProperty("bg_rot", current + 90.0f);
     } else { // Superficie
         m_flatRotation += 90.0f;
+        commitFlatTransformToActivePart();
     }
     update();
 }
@@ -2823,6 +2895,7 @@ void GLWidget::setFlatPan(float x, float y) {
         setProperty("bg_pan", QVector2D(x, y));
     } else {
         m_flatPan = QVector2D(x, y);
+        commitFlatTransformToActivePart();
     }
     update();
 }
