@@ -2388,7 +2388,16 @@ MainWindow::MainWindow(QWidget *parent)
         if (checked) {
             // ENTRO in editing sfondo: salvo lo stato della checkbox texture, che
             // appartiene alla superficie, per ripristinarlo all'uscita.
-            if (m_savedRenderMode != 2) {
+            // SOLO in ambito "All": con una fascia selezionata il checkbox e' il
+            // DISPLAY di quella parte (vedi syncAppearanceControlsToActiveMesh),
+            // non lo stato della texture di superficie. Salvarlo qui accendeva
+            // m_surfaceTextureState pur non esistendo alcuna texture globale, e
+            // tornando su "All" updateRenderState ci accendeva la texture della
+            // superficie: colore forzato a bianco, dispatcher per-mesh sospeso e
+            // neutralizzato -> la superficie usciva NERA.
+            const bool showingMeshTex = ui->glWidget
+                                        && ui->glWidget->activeMeshPart() >= 0;
+            if (m_savedRenderMode != 2 && !showingMeshTex) {
                 m_surfaceTextureState = ui->chkBoxTexture->isChecked();
             }
 
@@ -2477,6 +2486,11 @@ MainWindow::MainWindow(QWidget *parent)
         onColorTargetChanged();
         updateFlatPreviewButton();
         updateRenderState();
+        // Entrando in Background il selettore All/Mesh non ha senso (lo sfondo
+        // non ha fasce): si disabilita e l'ambito torna ad "All", cosi' i
+        // comandi non restano dirottati su una mesh. Uscendo si riabilita da
+        // solo, se la superficie e' multi-mesh.
+        updateMeshScopeEnabled();
         syncTextureTreeSelection();
         updateScriptButtonText();
     });
@@ -2945,11 +2959,21 @@ MainWindow::MainWindow(QWidget *parent)
         }
 
         // 2. Controllo Texture Superficie (SOLO SE ABILITATA)
+        // MULTI-MESH: il modulo e' attivo, e il suo 't' va cercato, anche quando
+        // la texture ce l'ha solo una FASCIA. Qui si guardava m_surfaceTextureCode
+        // (la sola texture globale) con un gate sul checkbox / su
+        // m_surfaceTextureState: con l'animazione sulla fascia 1 e nessuna
+        // texture globale, needsAnim usciva falso e il ramo sotto chiamava
+        // applyAnimationState(false), fermando l'animazione.
+        // Si vedeva SOLO applicando in Background la texture di DEFAULT: le
+        // altre (script o immagine) portano un proprio codice e passano da
+        // percorsi che non ricalcolano needsAnim, mentre la default arriva qui.
         bool isSurfTexActive = ui->radioBackground->isChecked() ? m_surfaceTextureState : checked;
+        if (!isSurfTexActive) isSurfTexActive = anyMeshTextureActive();
         if (isSurfTexActive) {
             QString tex = (ui->tabModeSelector->currentIndex() == 1)
                     ? (ui->lineTexture->toPlainText() + ui->lineVariations->toPlainText())
-                    : m_surfaceTextureCode;
+                    : allSurfaceTextureCode();
             if (hasTimeVariable(tex)) needsAnim = true;
         }
 
@@ -3137,7 +3161,17 @@ MainWindow::MainWindow(QWidget *parent)
         else { // target = Surface
             // In Wireframe la texture è nascosta e le linee usano il COLORE SUPERFICIE.
             bool wireframeMode = ui->radioWF->isChecked();
-            if (!wireframeMode && m_surfaceTextureState && activeTextureUsesColors()) {
+            // TEXTURE ATTIVA SUL DESTINATARIO CORRENTE. Con una fascia
+            // selezionata conta la SUA texture: m_surfaceTextureState e' lo
+            // stato di quella GLOBALE e resta false se si e' texturizzata solo
+            // la fascia, quindi questo ramo non veniva mai preso e gli slider
+            // finivano a editare il colore della superficie invece dei due
+            // u_col1/u_col2 della texture -- "i picker non cambiano colore".
+            const bool texActiveHere =
+                (ui->glWidget && ui->glWidget->activeMeshPart() >= 0)
+                    ? ui->glWidget->activeMeshTextureActive()
+                    : m_surfaceTextureState;
+            if (!wireframeMode && texActiveHere && activeTextureUsesColors()) {
                 // Texture di superficie colorata: Color1/Color2 scelgono lo slot.
                 // AMBITO "MESH": i colori vanno nella PARTE, non nei due slot
                 // globali. Quelli appartengono alla texture di superficie, e
@@ -4054,8 +4088,15 @@ void MainWindow::updateRenderState()
     // neutralizzata a vec3(1.0) -> uscivano BIANCHE.
     // Il globale lo governa m_surfaceTextureState, che cambia solo quando si
     // agisce davvero sulla texture di superficie (ambito All o Run globale).
-    if (!ui->radioBackground->isChecked() && ui->glWidget
-        && ui->glWidget->activeMeshPart() >= 0) {
+    // VALE ANCHE IN "ALL" su una superficie MULTI-MESH: il checkbox puo' essere
+    // rimasto acceso come display di una fascia texturizzata, e tornando ad
+    // "All" la guardia sull'indice (>= 0) cadeva, riaccendendo la texture
+    // GLOBALE che non esiste. Con le texture per-mesh sospese, il dispatcher
+    // cade sulla getCustomColor globale -- neutralizzata -- e la superficie
+    // usciva NERA. Il checkbox resta un comando sul globale solo a mesh
+    // singola, dove non c'e' nessuna fascia di cui possa essere il display.
+    const bool multiMesh = ui->glWidget && ui->glWidget->meshPartCount() > 1;
+    if (!ui->radioBackground->isChecked() && ui->glWidget && multiMesh) {
         wantTexture = m_surfaceTextureState;
     }
 
@@ -4873,9 +4914,16 @@ void MainWindow::onColorTargetChanged()
     }
     else { // target = Surface
         bool wireframeMode = ui->radioWF->isChecked();
-        if (!wireframeMode && m_surfaceTextureState && activeTextureUsesColors()) {
+        // Stessa condizione di handleColorChange: il DISPLAY deve dire cio' che
+        // gli slider scriveranno. Con una fascia selezionata conta la texture
+        // di QUELLA, non lo stato della globale.
+        const bool texActiveHere =
+            (ui->glWidget && ui->glWidget->activeMeshPart() >= 0)
+                ? ui->glWidget->activeMeshTextureActive()
+                : m_surfaceTextureState;
+        if (!wireframeMode && texActiveHere && activeTextureUsesColors()) {
             target = ui->radioTexColor2->isChecked() ? m_texColor2 : m_texColor1;
-        } else if (!wireframeMode && m_surfaceTextureState) {
+        } else if (!wireframeMode && texActiveHere) {
             // Texture di superficie SENZA colori: copre la superficie, slider inerti.
             target = Qt::black;
             slidersEnabled = false;
@@ -5284,21 +5332,11 @@ void MainWindow::handleTextureSelection(int index)
 
         // --- LOGICA PARAMETRICA ---
         if (data.isImage) {
-            // TEXTURE-IMMAGINE SU UNA FASCIA: non e' supportata (l'immagine e'
-            // una risorsa GPU unica, non codice da compilare nel dispatcher
-            // per-mesh). Il Run dello script lo dice gia' con un avviso; da qui
-            // invece l'immagine finiva SILENZIOSAMENTE sulla superficie intera,
-            // sovrascrivendo la sua texture mentre l'utente credeva di agire
-            // sulla fascia selezionata. Stesso messaggio dell'altro percorso.
-            if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0
-                && !ui->radioBackground->isChecked()) {
-                QMessageBox::information(this, "Texture per-mesh",
-                    "Le texture-immagine si applicano all'intera superficie.\n\n"
-                    "Per assegnare una texture a una singola mesh usa uno script "
-                    "procedurale, oppure passa all'ambito \"All\".");
-                m_blockTextureGen = false;
-                return;
-            }
+            // NB: una texture-immagine si applica alla superficie INTERA, anche
+            // con una fascia selezionata: l'immagine e' una risorsa GPU unica,
+            // non codice da compilare nel dispatcher per-mesh. Qui non si
+            // avvisa: le immagini per-mesh sono un'estensione prevista, e un
+            // popup di rifiuto sarebbe solo da rimuovere.
             m_currentTexturePath = imgSrc;
             if (ui->glWidget) {
                 ui->glWidget->loadCustomShader("");
@@ -5541,7 +5579,20 @@ void MainWindow::handleTextureSelection(int index)
     // ==========================================
     const QRegularExpression& timeRegex = kReTimeVar;
     bool isRM = (ui->tabModeSelector->currentIndex() == 1);
-    bool isSurfTexActive = ui->chkBoxTexture->isChecked();
+    // STATO DELLA TEXTURE DI SUPERFICIE, non del checkbox: in Background quel
+    // widget e' il display dello SFONDO, e leggerlo qui faceva spegnere il clock
+    // della superficie appena si applicava una texture di sfondo statica (o la
+    // si disattivava). Il modulo superficie ha il proprio flag,
+    // m_surfaceTextureState, che il ramo Background non tocca.
+    const bool editingBg = ui->radioBackground && ui->radioBackground->isChecked();
+    // MODULO TEXTURE DI SUPERFICIE ATTIVO: conta la texture GLOBALE **o** quella
+    // di una qualunque fascia. Non basta m_surfaceTextureState (ne' il checkbox,
+    // che in Background e' il display dello sfondo): con la texture messa solo
+    // sulla fascia 1 quel flag e' false, il ramo veniva saltato e il clock della
+    // superficie spento -- l'animazione si fermava andando in Background.
+    const bool globalTexActive = editingBg ? m_surfaceTextureState
+                                           : ui->chkBoxTexture->isChecked();
+    bool isSurfTexActive = globalTexActive || anyMeshTextureActive();
 
     // MODULO TEXTURE: sia il COLORE che il DISPLACEMENT appartengono a questo
     // modulo e nello shader leggono lo STESSO orologio texture (dummyZero.x).
@@ -5568,7 +5619,10 @@ void MainWindow::handleTextureSelection(int index)
     if (ui->glWidget) {
         // Caricare una texture e' un avvio esplicito del modulo: riarma un
         // eventuale stop manuale del suo clock.
-        m_userStoppedTexClock = false;
+        // Solo se si sta agendo sulla SUPERFICIE: una texture di sfondo non e'
+        // un comando su questo modulo e non deve resuscitarne il clock fermato
+        // a mano.
+        if (!editingBg) m_userStoppedTexClock = false;
         // Unico orologio del modulo: colore + displacement insieme.
         ui->glWidget->setSurfaceTextureAnimating(texAnim);
         // L'SDF/geometria resta invariato: un caricamento di texture non lo accende
@@ -7842,10 +7896,10 @@ void MainWindow::onApplyTextureScriptClicked()
         // slot 1): qui si accetta solo il procedurale, come da progetto.
         if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
             if (!imgPath.isEmpty()) {
-                QMessageBox::information(this, "Texture per-mesh",
-                    "Le texture-immagine si applicano all'intera superficie.\n\n"
-                    "Per assegnare una texture a una singola mesh usa uno script "
-                    "procedurale, oppure passa all'ambito \"All\".");
+                QMessageBox::information(this, tr("Per-mesh texture"),
+                    tr("Image textures apply to the whole surface.\n\n"
+                       "To assign a texture to a single mesh use a procedural "
+                       "script, or switch to the \"All\" scope."));
                 return;
             }
             // La compilazione avviene dentro setActiveMeshTexture (il codice
@@ -12022,14 +12076,14 @@ void MainWindow::updateFlatPreviewButton() {
     // della superficie) resta spento -- il ramo per-mesh del checkbox e del Run
     // esce prima di scriverlo. Il tasto 2D risultava quindi disabilitato con una
     // texture visibilissima a schermo: e' il "texture attiva ma 2D deselezionato".
-    // Qui conta la texture del destinatario corrente, cioe' quella della fascia.
-    // activeMeshHasOwnTexture() dice che la fascia ha uno script PROPRIO; il
-    // checkbox (che qui e' il display di quella fascia) dice se e' ACCESO.
-    // Servono entrambi: una fascia con la texture spenta non ha nulla da
-    // mostrare in 2D.
+    // Qui conta la texture del destinatario corrente, cioe' quella della fascia:
+    // propria E accesa (una fascia con la texture spenta non ha nulla da
+    // mostrare in 2D). E' esattamente activeMeshTextureActive(), che legge lo
+    // stato REALE della parte; prima si ricostruiva la stessa condizione a mano
+    // combinando activeMeshHasOwnTexture() col checkbox, che di quello stato e'
+    // solo il display e puo' divergerne.
     if (!bgMode && ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
-        isTexActive = ui->glWidget->activeMeshHasOwnTexture()
-                      && ui->chkBoxTexture->isChecked();
+        isTexActive = ui->glWidget->activeMeshTextureActive();
     }
 
     // 3. Regola di abilitazione:
@@ -12144,7 +12198,11 @@ void MainWindow::updateMasterButtonState()
         }
 
         // B. Orologio della Texture di Superficie
+        // Come altrove: il modulo e' attivo anche se la texture ce l'ha solo una
+        // FASCIA, e nessuno dei due flag globali lo dice. Senza, il master
+        // considerava ferma una texture per-mesh in movimento.
         bool isSurfTexActive = ui->radioBackground->isChecked() ? m_surfaceTextureState : ui->chkBoxTexture->isChecked();
+        if (!isSurfTexActive) isSurfTexActive = anyMeshTextureActive();
         bool isTexVisuallyMoving;
         if (isRM) {
             // colore E displacement leggono lo STESSO orologio texture: entrambi
@@ -12226,9 +12284,18 @@ void MainWindow::applyAnimationState(bool animated, bool dockOnly) {
             // restava con il clock acceso (m_bgAnimating=true): poi, riattivando la
             // texture di sfondo, updateMasterButtonState lo vedeva "in moto" e il
             // master tornava su STOP facendo "ripartire tutto". Gate esplicito.
+            // MULTI-MESH: il modulo e' attivo anche se la texture ce l'ha solo
+            // una FASCIA. Ne' il checkbox (che in ambito Mesh e' il display
+            // della parte, e in Background quello dello sfondo) ne'
+            // m_surfaceTextureState (che e' la sola texture globale) lo dicono:
+            // con la texture animata sulla fascia 1 e nessuna globale, entrambi
+            // sono false e questo ricalcolo SPEGNEVA il clock. Bastava un click
+            // su un bottone che passa di qui -- ad esempio il toggle della
+            // texture di sfondo -- per fermare l'animazione della superficie.
             bool surfTexActive = ui->radioBackground->isChecked()
                                      ? m_surfaceTextureState
                                      : ui->chkBoxTexture->isChecked();
+            if (!surfTexActive) surfTexActive = anyMeshTextureActive();
             // Modulo attivo NON basta: se l'utente ha fermato il clock col suo
             // Stop (dock texture/script), il ricalcolo non deve riaccenderlo.
             // Senza questo gate, con path/rotazioni/t-motion in corso (master su
@@ -12294,6 +12361,22 @@ void MainWindow::generateTexture()
 // una stringa senza 't' -> clock spento e texture ferma.
 // UNICO PUNTO: sono cinque i posti che valutano l'animazione della texture;
 // correggerli uno per uno li avrebbe fatti divergere.
+// C'e' almeno una FASCIA con una texture propria e accesa?
+// Il modulo "texture di superficie" e' attivo anche in questo caso, e nessuno
+// dei flag globali lo dice: m_surfaceTextureState riguarda la sola texture
+// della superficie, e chkBoxTexture in ambito Mesh e' il display della parte
+// (in Background, dello sfondo). Punto unico: la stessa domanda serve al clock
+// e a chi decide se il modulo va considerato in moto.
+bool MainWindow::anyMeshTextureActive() const
+{
+    if (!ui->glWidget || !ui->glWidget->getEngine()) return false;
+    for (const MeshPart &mp : ui->glWidget->getEngine()->getMeshParts()) {
+        if (mp.hasCustomTexture && mp.textureEnabled && !mp.textureCode.isEmpty())
+            return true;
+    }
+    return false;
+}
+
 QString MainWindow::allSurfaceTextureCode() const
 {
     QString all = m_surfaceTextureCode;
@@ -12407,6 +12490,57 @@ int MainWindow::meshVisibleCount() const
 // Va chiamata dopo ogni rigenerazione della mesh: con una superficie a mesh
 // singola il massimo resta 1, quindi lo spinbox e' inerte e la funzionalita' e'
 // invisibile: nulla cambia per i preset che non usano il multi-mesh.
+// Il selettore All/Mesh ha senso solo dove esistono davvero piu' fasce E i
+// comandi agiscono sulla superficie. Punto UNICO, perche' i due casi che lo
+// disabilitano si erano gia' dimostrati facili da dimenticare:
+//  - SUPERFICIE A MESH SINGOLA. I preset non salvano "meshScopeAll", quindi
+//    applyPendingMeshScope apriva in "Mesh" anche una superficie normale: con
+//    la parte 0 attiva ogni comando veniva dirottato su di essa e sembrava che
+//    "non funzionasse niente" finche' non si sceglieva All a mano.
+//  - BACKGROUND. Li' si edita lo sfondo, che di fasce non ne ha: i controlli si
+//    spengono, ma la selezione NON si tocca -- uscendo si deve ritrovare
+//    l'ambito con cui si stava lavorando.
+bool MainWindow::meshScopeUsable() const
+{
+    if (!ui->glWidget || !ui->radioBackground) return false;
+    if (ui->radioBackground->isChecked()) return false;
+    return ui->glWidget->meshPartCount() > 1;
+}
+
+// Abilita/disabilita il gruppo All/Mesh.
+// L'ambito viene riportato ad "All" SOLO quando le fasce non esistono (mesh
+// singola): li' "Mesh" non ha significato e lasciare la parte 0 attiva
+// dirottava ogni comando su di essa.
+// In BACKGROUND invece si spengono solo i controlli: la selezione resta com'e'
+// e si ritrova uscendo. Lo sfondo ha i propri stati (bg_*) e non passa dai
+// setter per-mesh, quindi non c'e' nulla da proteggere azzerandola.
+void MainWindow::updateMeshScopeEnabled()
+{
+    if (!ui->radioMeshAll || !ui->radioMeshOne || !ui->spinMeshSel || !ui->glWidget) return;
+
+    const bool usable = meshScopeUsable();
+
+    ui->radioMeshAll->setEnabled(usable);
+    ui->radioMeshOne->setEnabled(usable);
+    ui->spinMeshSel->setEnabled(usable && ui->radioMeshOne->isChecked());
+
+    if (usable) return;
+
+    // BACKGROUND: i controlli sono gia' spenti qui sopra e basta cosi'. La
+    // selezione va LASCIATA com'era, per ritrovarla uscendo.
+    if (ui->radioBackground->isChecked()) return;
+
+    // MESH SINGOLA: qui "Mesh" non ha significato, quindi si torna ad "All".
+    // I valori per-parte NON si toccano (restano in MeshPart e ricompaiono se
+    // la superficie torna multi-mesh): cambia solo il destinatario dei comandi.
+    if (!ui->radioMeshAll->isChecked()) {
+        QSignalBlocker b1(ui->radioMeshAll), b2(ui->radioMeshOne);
+        ui->radioMeshAll->setChecked(true);
+    }
+    ui->glWidget->setMeshAppearanceUniform(true);
+    ui->glWidget->setActiveMeshPart(-1);
+}
+
 void MainWindow::updateMeshSelectorRange()
 {
     if (!ui->spinMeshSel || !ui->glWidget) return;
@@ -12459,6 +12593,7 @@ void MainWindow::updateMeshSelectorRange()
         // primo giro utile (una rigenerazione qualunque), riallineando gli
         // slider sotto le dita dell'utente.
         m_meshScopeJustApplied = false;
+        updateMeshScopeEnabled();
         return;
     }
     ui->spinMeshSel->setEnabled(true);
@@ -12492,17 +12627,15 @@ void MainWindow::updateMeshSelectorRange()
         updateRenderState();
     }
 
-    // I due radio restano SEMPRE abilitati, e lo spinbox lo e' ogni volta che
-    // l'ambito e' "Mesh". Disabilitarli in base al numero di parti li rendeva
-    // irrecuperabili: basta una rigenerazione transitoria con una sola parte —
-    // un cambio tab (clearMeshParts svuota le dichiarate, quindi
-    // resolveMeshParts ne sintetizza una sola), un Run che fallisce la
-    // validazione prima di ri-estrarre le sezioni — e restavano grigi per
-    // sempre. E' il "a un certo punto si blocca" osservato mentre lo si usa.
-    // Il massimo dello spinbox basta gia' a impedire selezioni senza senso.
-    ui->spinMeshSel->setEnabled(true);
-    if (ui->radioMeshAll) ui->radioMeshAll->setEnabled(true);
-    if (ui->radioMeshOne) ui->radioMeshOne->setEnabled(true);
+    // GATING del gruppo All/Mesh (mesh singola / Background -> disabilitato).
+    // Storicamente qui i radio si riabilitavano SEMPRE, perche' disabilitarli
+    // "in base al numero di parti" li aveva resi irrecuperabili: bastava una
+    // rigenerazione transitoria con una parte sola (cambio tab, un Run fallito
+    // prima di ri-estrarre le sezioni) e restavano grigi per sempre.
+    // Ora il gating e' recuperabile perche' NON e' one-shot: questa funzione
+    // gira a ogni meshPartsChanged, quindi appena le parti tornano il gruppo si
+    // riaccende da solo. La condizione vive in meshScopeUsable(), punto unico.
+    updateMeshScopeEnabled();
 }
 
 // Porta gli slider (colore, trasparenza, Light) sui valori della parte
@@ -12545,7 +12678,12 @@ void MainWindow::applyPendingMeshScope()
 
     m_meshScopePending = false;
 
-    const bool wantAll = m_pendingMeshScopeAll;
+    // Superficie a mesh SINGOLA (o Background attivo): l'ambito "Mesh" non ha
+    // senso. I preset non salvano "meshScopeAll", quindi senza questa riga una
+    // superficie normale si apriva in "Mesh" con la parte 0 attiva, e ogni
+    // comando finiva dirottato su di essa: sembrava che "non funzionasse
+    // niente" finche' non si sceglieva All a mano.
+    const bool wantAll = m_pendingMeshScopeAll || !meshScopeUsable();
     {
         // Si accende solo il radio voluto: l'altro lo spegne il QButtonGroup
         // esclusivo (m_meshScopeGroup). I segnali vanno bloccati su ENTRAMBI,
@@ -12753,6 +12891,15 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
         // davvero la texture di SUPERFICIE.
         if (m_currentScriptMode == ScriptModeTexture && !ui->radioBackground->isChecked())
             syncTextureEditorTo(m_surfaceTextureScriptText);
+
+        // FOCUS DEL DOCK LIBRARY, come nel ramo "Mesh": tornando su "All"
+        // l'albero deve evidenziare la texture di SUPERFICIE. L'aggancio stava
+        // solo nel ramo per-mesh, quindi passando ad "All" il focus restava
+        // sulla texture dell'ultima fascia guardata -- o si perdeva del tutto,
+        // perche' syncTextureTreeSelection deseleziona quando non trova
+        // corrispondenza.
+        if (!ui->radioBackground->isChecked())
+            syncTextureTreeSelection();
         return;
     }
 
@@ -12840,8 +12987,13 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
     float fr = p.colorR, fg = p.colorG, fb = p.colorB;
     if (!p.hasCustomColor()) ui->glWidget->globalColor(fr, fg, fb);
     const float fa = (p.alpha >= 0.0f) ? p.alpha : ui->glWidget->globalAlpha();
-    const float fl = (p.lightIntensity >= 0.0f) ? p.lightIntensity
-                                                : ui->glWidget->globalLightIntensity();
+    // LUCE: sempre il valore GLOBALE, anche in ambito "Mesh". Lo slider agisce
+    // sull'illuminazione della scena (come la speculare), non sulla fascia:
+    // il display deve dire cio' che lo slider scrivera'. Mostrare qui il
+    // lightIntensity della parte -- che i preset vecchi possono ancora avere --
+    // farebbe saltare lo slider al cambio di mesh su un valore che poi non e'
+    // quello che si va a modificare.
+    const float fl = ui->glWidget->globalLightIntensity();
     showAppearance(fr, fg, fb, fa, fl);
 
     // DISPLAY della modalita' di rendering: i radio mostrano quella EFFICACE

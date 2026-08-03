@@ -708,6 +708,14 @@ private:
     // applyPendingMeshAppearance PRIMA dell'early-return, cosi' vale anche per i
     // preset che non portano aspetto per-mesh.
     void applyPendingMeshScope();
+    // Il selettore All/Mesh e' utilizzabile solo con piu' fasce e fuori dal
+    // Background; updateMeshScopeEnabled applica il gating e, se non lo e',
+    // riporta l'ambito su "All".
+    bool meshScopeUsable() const;
+    // true se almeno una fascia ha una texture propria accesa: il modulo
+    // "texture di superficie" e' attivo anche senza texture globale.
+    bool anyMeshTextureActive() const;
+    void updateMeshScopeEnabled();
     void toggleProjection();
     bool applyBackgroundTextureIfNeeded();
 

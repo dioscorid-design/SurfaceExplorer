@@ -235,7 +235,10 @@ public:
     // colori della texture di superficie e di ogni altra fascia che li eredita.
     bool setActiveMeshTexColors(const QColor &c1, const QColor &c2);
     QString activeMeshTextureCode() const;
-    bool activeMeshHasOwnTexture() const;
+    // Texture EFFICACE della parte attiva (propria E accesa): e' cio' che il
+    // render disegna, quindi decide se gli slider colore editano u_col1/u_col2
+    // o la tinta della superficie, e se il tasto 2D ha qualcosa da mostrare.
+    bool activeMeshTextureActive() const;
     // Torna a ereditare dal globale (voce "Inherit" del selettore).
     void clearActiveMeshRenderMode();
     // Modalita' EFFICACE della parte selezionata (globale se "All"/eredita):

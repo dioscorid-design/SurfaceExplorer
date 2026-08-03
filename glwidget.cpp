@@ -682,8 +682,12 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 }
                 if (mp.alpha >= 0.0f)
                     partUbo.alpha = mp.alpha;
-                if (mp.lightIntensity >= 0.0f)
-                    partUbo.lightIntensity = mp.lightIntensity;
+                // LUCE: NON per-parte. E' l'illuminazione della scena (come la
+                // speculare) e vale per tutta la superficie, qualunque mesh sia
+                // selezionata: partUbo porta gia' il valore globale.
+                // Il campo lightIntensity resta in MeshPart per compatibilita'
+                // con i preset che lo hanno salvato -- viene letto e riscritto
+                // dalla persistenza -- ma non governa piu' il render.
 
                 // TEXTURE PROPRIA DELLA PARTE. Il codice e' gia' compilato nello
                 // shader come getCustomColor_<k> (vedi createFragmentShaderSource):
@@ -2360,11 +2364,15 @@ QString GLWidget::activeMeshTextureCode() const {
     return p.hasCustomTexture ? p.textureCode : QString();
 }
 
-bool GLWidget::activeMeshHasOwnTexture() const {
+// Texture EFFICACE della parte attiva: propria E accesa. E' cio' che il render
+// disegna davvero (vedi effectiveTextureEnabledMulti), quindi e' la condizione
+// giusta ovunque serva sapere se la fascia e' texturizzata: se gli slider colore
+// editano u_col1/u_col2 o la tinta, se il tasto 2D ha qualcosa da mostrare.
+bool GLWidget::activeMeshTextureActive() const {
     if (m_activeMeshPart < 0 || !engine) return false;
     const std::vector<MeshPart> &parts = engine->getMeshParts();
     if (m_activeMeshPart >= (int)parts.size()) return false;
-    return parts[m_activeMeshPart].hasCustomTexture;
+    return parts[m_activeMeshPart].effectiveTextureEnabledMulti();
 }
 
 void GLWidget::setActiveMeshRenderMode(int mode) {
@@ -2465,8 +2473,15 @@ void GLWidget::setSpecularEnabled(bool enabled) {
     update();
 }
 
+// INTENSITA' LUMINOSA: GLOBALE anche in ambito "Mesh".
+// E' una proprieta' dell'ILLUMINAZIONE della scena, non dell'aspetto di una
+// fascia: come la luce speculare, deve valere per tutta la superficie qualunque
+// mesh sia selezionata. Colore e trasparenza restano invece per-mesh (li' la
+// differenza fra le fasce e' il senso della feature).
+// I valori lightIntensity gia' presenti nelle MeshPart non vengono cancellati:
+// restano nei preset che li hanno salvati e il render continua a rispettarli;
+// semplicemente lo slider non ne scrive di nuovi.
 void GLWidget::setLightIntensity(float intensity) {
-    if (applyToActiveMeshPart([intensity](MeshPart &p){ p.lightIntensity = intensity; })) return;
     this->m_lightIntensity = intensity;
     update();
 }

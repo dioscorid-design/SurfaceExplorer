@@ -433,9 +433,20 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
             /* PNG trasparente per evitare collassi anche nello stato acceso */
             image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=");
         }
+        /* DISABILITATO. Il border-radius va RIPETUTO: ridefinendo qui 'border'
+           senza il raggio, Qt non lo eredita dalla regola base e l'indicatore
+           tornava QUADRATO -- un radio disabilitato sembrava una checkbox. */
         QRadioButton::indicator:disabled {
             background-color: #2D2D30;
             border: 2px solid #444444;
+            border-radius: %2;
+        }
+        /* Disabilitato ma ACCESO: mantiene il pallino (spento nei toni del
+           grigio) e il raggio dello stato checked, che ha bordo piu' spesso. */
+        QRadioButton::indicator:checked:disabled {
+            background-color: #4A4A4F;
+            border: %3 solid #2D2D30;
+            border-radius: %4;
         }
     )").arg(boxSize, radioRadius, radioBorder, radioRadiusChecked);
 
