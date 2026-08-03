@@ -1021,11 +1021,15 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
 
     if (m_mainWindow->ui->glWidget) {
         m_mainWindow->ui->glWidget->setFlatViewTarget(0);
-        texture["zoom"] = (double)m_mainWindow->ui->glWidget->getFlatZoom();
-        QVector2D pan = m_mainWindow->ui->glWidget->getFlatPan();
+        // Trasformazione GLOBALE, non il buffer di lavoro della vista 2D: se si
+        // salva dopo aver regolato la texture di una fascia, il preset deve
+        // portarsi via l'inquadratura della SUPERFICIE (quelle per-mesh viaggiano
+        // nel blocco "meshParts", chiavi texZoom/texPan*/texRot).
+        texture["zoom"] = (double)m_mainWindow->ui->glWidget->globalTexZoom();
+        QVector2D pan = m_mainWindow->ui->glWidget->globalTexPan();
         texture["pan_x"] = (double)pan.x();
         texture["pan_y"] = (double)pan.y();
-        texture["rotation"] = (double)m_mainWindow->ui->glWidget->getFlatRotation();
+        texture["rotation"] = (double)m_mainWindow->ui->glWidget->globalTexRotation();
     }
     texture["col1"] = m_mainWindow->m_texColor1.name();
     texture["col2"] = m_mainWindow->m_texColor2.name();

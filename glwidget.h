@@ -208,6 +208,13 @@ public:
     // parte; false in "All", dove il chiamante deve applicare al globale.
     bool setActiveMeshTexture(const QString &code, bool enabled);
     bool clearActiveMeshTexture();
+    // COLORI u_col1/u_col2 della parte selezionata. Stesso contratto degli altri
+    // setActiveMesh*: true se ha scritto su una parte, false in "All", dove il
+    // chiamante deve usare setTextureColors (che e' SEMPRE globale).
+    // Senza questa via, muovere gli slider colore su una fascia texturizzata
+    // passava da setTextureColors e riscriveva i due slot GLOBALI: cambiava i
+    // colori della texture di superficie e di ogni altra fascia che li eredita.
+    bool setActiveMeshTexColors(const QColor &c1, const QColor &c2);
     QString activeMeshTextureCode() const;
     bool activeMeshHasOwnTexture() const;
     // Torna a ereditare dal globale (voce "Inherit" del selettore).
@@ -321,6 +328,30 @@ public:
     void rotateFlat90();
     QVector2D getFlatPan() const;
     void setFlatPan(float x, float y);
+
+    // TRASFORMAZIONE 2D GLOBALE della texture di superficie, per la PERSISTENZA.
+    // I getFlat*() qui sopra espongono il buffer di lavoro della vista 2D (lo usa
+    // inputhandler per il trascinamento incrementale), che durante l'editing di
+    // una fascia contiene l'inquadratura di QUELLA. Il preset deve invece salvare
+    // quella della superficie, o riaprendolo l'ultima fascia toccata imporrebbe
+    // il proprio zoom a tutte le altre.
+    float globalTexZoom() const { return m_globalTexZoom; }
+    float globalTexRotation() const { return m_globalTexRotation; }
+    QVector2D globalTexPan() const { return m_globalTexPan; }
+    void setGlobalTexTransform(float zoom, const QVector2D &pan, float rotation) {
+        m_globalTexZoom = zoom;
+        m_globalTexPan = pan;
+        m_globalTexRotation = rotation;
+        // In ambito "All" il buffer di lavoro E' la trasformazione globale:
+        // tenerli allineati evita che il load di un preset lasci la vista 2D
+        // sull'inquadratura precedente.
+        if (m_activeMeshPart < 0) {
+            m_flatZoom = zoom;
+            m_flatPan = pan;
+            m_flatRotation = rotation;
+        }
+        update();
+    }
 
     // Trasferimento della trasformazione 2D (zoom/pan/rotazione della texture)
     // fra i membri globali e la parte di mesh attiva. Sono il perno del
@@ -718,9 +749,22 @@ private:
     // avviso "il rendering rallenta". Lo si disattiva mentre e' true.
     bool m_isRecording = false;
     int m_flatViewTarget = 0;
+    // BUFFER DI LAVORO della vista 2D: e' cio' che il mouse muove e cio' che il
+    // fragment legge per la parte in editing. NON e' la trasformazione globale:
+    // vedi m_globalTexZoom/Pan/Rotation qui sotto.
     float m_flatZoom = 1.0f;
     float m_flatRotation = 0.0f;
     QVector2D m_flatPan;
+    // TRASFORMAZIONE 2D GLOBALE della texture di superficie (ambito "All", e
+    // valore ereditato dalle parti che non ne hanno una propria).
+    // Vive separata dai tre membri qui sopra perche' quelli fanno DUE lavori:
+    // sono il buffer che il mouse muove in vista 2D, e finivano anche in
+    // m_uboData come stato globale. Manipolando la texture di UNA mesh li si
+    // sovrascriveva, e la trasformazione globale -- insieme a quella di ogni
+    // fascia che la eredita -- veniva trascinata dietro.
+    float m_globalTexZoom = 1.0f;
+    float m_globalTexRotation = 0.0f;
+    QVector2D m_globalTexPan;
 
 
     // ==========================================================
@@ -845,6 +889,12 @@ private:
         float flatZoom = 1.0f;
         float flatRotation = 0.0f;
         QVector2D flatPan = QVector2D(0.0f, 0.0f);
+        // Anche la trasformazione 2D GLOBALE e' per-vista, come il buffer di
+        // lavoro qui sopra: senza, passando da Parametric a Ray Marching
+        // l'inquadratura globale dell'una restava applicata all'altra.
+        float globalTexZoom = 1.0f;
+        float globalTexRotation = 0.0f;
+        QVector2D globalTexPan = QVector2D(0.0f, 0.0f);
     };
 
     // Array con i 2 slot di memoria (0 = Parametrico, 1 = Implicito)

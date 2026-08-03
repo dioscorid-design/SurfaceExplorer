@@ -20,6 +20,7 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QSpinBox>
+#include <QStyle>
 #include <QLineEdit>
 #include <QHBoxLayout>
 #include <QFormLayout>
@@ -129,6 +130,73 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
             font-size: %2;
         }
         QPlainTextEdit:focus, QLineEdit:focus { border: 2px solid #007ACC; }
+        /* Spazio a destra per le due frecce (18px = 16 + margine), o il numero
+           ci finisce sotto: il padding: 4px ereditato dalla regola condivisa
+           con QLineEdit non ne lascia abbastanza.
+           ESCLUSO il caso mobile: li' le frecce native non ci sono
+           (installMobileSpinButtons -> NoButtons + due QPushButton esterni) e
+           un padding a destra scentrerebbe il numero, che invece e' impostato
+           su AlignCenter. La proprieta' "mobileSpinButtons" la mette proprio
+           quella funzione; il ramo mobile la rimette a 0 subito sotto. */
+        QSpinBox { padding-right: 18px; }
+        QSpinBox[mobileSpinButtons="true"] { padding-right: 4px; }
+
+        /* --- FRECCE DEI QSPINBOX ---
+           La regola qui sopra mette QSpinBox insieme ai QLineEdit per dargli il
+           bordo incassato. Effetto collaterale di Qt: appena il QSS tocca il
+           border di uno spin box, il widget smette di essere disegnato dallo
+           stile NATIVO e passa al rendering via QSS; le sotto-parti up/down non
+           stilizzate spariscono e il campo si legge come una casella di testo
+           (era il caso del selettore Mesh, spinMeshSel). Vanno quindi disegnate
+           qui, o non si vedono.
+           I triangoli sono fatti coi bordi (box di lato zero + tre bordi
+           trasparenti): niente PNG da aggiungere al .qrc, che e' GENERATO da
+           update_resources.py e andrebbe tenuto in sincrono a mano.
+           NB: su mobile le frecce native sono nascoste apposta
+           (ButtonSymbols::NoButtons) e rimpiazzate da due QPushButton grandi in
+           installMobileSpinButtons(); li' queste regole non si applicano. */
+        QSpinBox::up-button, QSpinBox::down-button {
+            subcontrol-origin: border;
+            background-color: #3E3E42;
+            border: 1px solid #555;
+            border-radius: 2px;
+            width: 16px;
+            margin: 1px;
+        }
+        QSpinBox::up-button { subcontrol-position: top right; }
+        QSpinBox::down-button { subcontrol-position: bottom right; }
+        QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+            background-color: #55555A;
+        }
+        QSpinBox::up-button:pressed, QSpinBox::down-button:pressed {
+            background-color: #007ACC;
+            border-color: #007ACC;
+        }
+        /* Freccia disabilitata al limite del range: il grigio spento e' il
+           segnale che il valore non puo' salire/scendere oltre. */
+        QSpinBox::up-button:disabled, QSpinBox::up-button:off,
+        QSpinBox::down-button:disabled, QSpinBox::down-button:off {
+            background-color: #2D2D30;
+            border-color: #444;
+        }
+        QSpinBox::up-arrow {
+            width: 0px; height: 0px;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-bottom: 5px solid #E0E0E0;
+        }
+        QSpinBox::down-arrow {
+            width: 0px; height: 0px;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-top: 5px solid #E0E0E0;
+        }
+        QSpinBox::up-arrow:disabled, QSpinBox::up-arrow:off {
+            border-bottom-color: #666;
+        }
+        QSpinBox::down-arrow:disabled, QSpinBox::down-arrow:off {
+            border-top-color: #666;
+        }
 
         /* --- GROUP BOX --- */
         QGroupBox {
@@ -806,6 +874,13 @@ void UiStyleManager::installMobileSpinButtons(QSpinBox* spin)
 #if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
     if (!spin || spin->property("mobileSpinButtons").toBool()) return;
     spin->setProperty("mobileSpinButtons", true);
+    // Il QSS e' gia' stato applicato quando arriviamo qui: Qt non rivaluta i
+    // selettori su proprieta' da solo, va forzato. Serve alla regola
+    // QSpinBox[mobileSpinButtons="true"] che toglie il padding riservato alle
+    // frecce native (qui assenti), altrimenti il numero resta scentrato
+    // nonostante l'AlignCenter poco sotto.
+    spin->style()->unpolish(spin);
+    spin->style()->polish(spin);
 
     // Il campo resta come sola casella del numero: niente frecce native.
     spin->setButtonSymbols(QAbstractSpinBox::NoButtons);

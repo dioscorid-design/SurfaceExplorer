@@ -571,9 +571,24 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     m_uboData.useSpecular = m_isSpecularEnabled ? 1 : 0;
 
     m_uboData.isFlat = m_isFlatView ? 1 : 0;
-    m_uboData.zoom = m_flatZoom;
-    m_uboData.center = m_flatPan;
-    m_uboData.rotation = m_flatRotation;
+    // TRASFORMAZIONE 2D GLOBALE (non il buffer di lavoro della vista 2D): e' la
+    // base di OGNI blocco parte, quindi ci va lo stato globale, o l'inquadratura
+    // che il mouse sta dando alla fascia in editing si propagherebbe a tutte le
+    // fasce che ereditano e all'ambito "All".
+    // In vista 2D sulla SUPERFICIE fa eccezione cio' che si sta editando: li' il
+    // fragment deve seguire il mouse.
+    //  - con una FASCIA selezionata ci pensa il ramo editingThisPart del loop
+    //    per-parte piu' sotto, che scrive il buffer nel blocco di quella parte;
+    //  - con una mesh SOLA (nessuna parte dichiarata) quel loop non esiste;
+    //  - in ambito "ALL" (nessuna parte attiva) nessuna parte e' "in editing",
+    //    e il quad 2D disegna col blocco 0.
+    // Negli ultimi due casi il buffer va messo QUI, o trascinare non muove nulla.
+    const bool flatEditingGlobal = m_isFlatView && m_flatViewTarget == 0
+                                   && (!engine || engine->getMeshPartCount() <= 1
+                                       || m_activeMeshPart < 0);
+    m_uboData.zoom     = flatEditingGlobal ? m_flatZoom     : m_globalTexZoom;
+    m_uboData.center   = flatEditingGlobal ? m_flatPan      : m_globalTexPan;
+    m_uboData.rotation = flatEditingGlobal ? m_flatRotation : m_globalTexRotation;
 
     if (engine) {
         m_uboData.hasExplicitW = (!engine->getActiveExplicitEquation().isEmpty()) ? 1 : 0;
@@ -731,8 +746,19 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 // texture della SOLA parte attiva: quella deve seguire i membri
                 // globali che il mouse muove (o trascinare non muoverebbe
                 // nulla), mentre tutte le ALTRE restano ferme sulla propria.
-                const bool editingThisPart = m_isFlatView && (k == m_activeMeshPart);
-                if (mp.hasCustomTexTransform() && !editingThisPart) {
+                const bool editingThisPart = m_isFlatView && m_flatViewTarget == 0
+                                             && (k == m_activeMeshPart);
+                if (editingThisPart) {
+                    // BUFFER DI LAVORO, esplicito. Prima qui si lasciava stare,
+                    // contando sul fatto che partUbo (copia di m_uboData) gia'
+                    // portasse i membri che il mouse muove. Non e' piu' vero: in
+                    // m_uboData ora c'e' la trasformazione GLOBALE persistente,
+                    // che il mouse non tocca -- e la texture in editing restava
+                    // immobile al trascinamento.
+                    partUbo.zoom = m_flatZoom;
+                    partUbo.center = m_flatPan;
+                    partUbo.rotation = m_flatRotation;
+                } else if (mp.hasCustomTexTransform()) {
                     partUbo.zoom = mp.texZoom;
                     partUbo.center = QVector2D(mp.texPanX, mp.texPanY);
                     partUbo.rotation = mp.texRotation;
@@ -943,8 +969,24 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
                 // m_pipelineOpaque e' costruita sul layout con dynamic offset:
                 // anche questo draw (quad di anteprima, nessuna parte di mesh)
-                // deve passare un offset, e usa il blocco 0 = stato globale.
-                const QRhiCommandBuffer::DynamicOffset dynOfs0(0, 0);
+                // deve passare un offset.
+                // MULTI-MESH: la vista 2D edita la texture della mesh SELEZIONATA,
+                // quindi deve leggere il blocco UBO di QUELLA parte. Col blocco 0
+                // fisso, u_meshIndex valeva sempre 0 e il dispatcher mostrava la
+                // texture della mesh 1 mentre il dock script mostrava quella
+                // selezionata: stesso indice, due texture diverse a schermo.
+                // L'indice va CLAMPATO agli stessi limiti che usa
+                // commitFlatTransformToActivePart, o si disegna un blocco mentre
+                // il mouse ne scrive un altro e il trascinamento sembra non
+                // funzionare (il "a tratti" storico: capita quando l'indice
+                // attivo sopravvive a una rigenerazione con meno parti).
+                // Nota: con uboPartCount <= 1 e' scritto SOLO il blocco 0, quindi
+                // qualunque altro offset leggerebbe un blocco mai aggiornato.
+                const std::vector<MeshPart> &flatParts = engine->getMeshParts();
+                const int flatPart = (flatParts.size() > 1 && m_activeMeshPart >= 0
+                                      && m_activeMeshPart < (int)flatParts.size())
+                                     ? m_activeMeshPart : 0;
+                const QRhiCommandBuffer::DynamicOffset dynOfs0(0, flatPart * m_uboBlockStride);
                 cb->setShaderResources(m_bindingsDyn ? m_bindingsDyn : m_bindings, 1, &dynOfs0);
                 const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
                 cb->setVertexInput(0, 1, &vbufBinding);
@@ -1465,6 +1507,9 @@ void GLWidget::setEngineMode(EngineMode mode)
     m_viewStates[oldIndex].flatZoom     = m_flatZoom;
     m_viewStates[oldIndex].flatPan      = m_flatPan;
     m_viewStates[oldIndex].flatRotation = m_flatRotation;
+    m_viewStates[oldIndex].globalTexZoom     = m_globalTexZoom;
+    m_viewStates[oldIndex].globalTexPan      = m_globalTexPan;
+    m_viewStates[oldIndex].globalTexRotation = m_globalTexRotation;
 
     // 2. Cambia la modalità attiva
     m_engineMode = mode;
@@ -1479,6 +1524,9 @@ void GLWidget::setEngineMode(EngineMode mode)
     m_flatZoom     = m_viewStates[newIndex].flatZoom;
     m_flatPan      = m_viewStates[newIndex].flatPan;
     m_flatRotation = m_viewStates[newIndex].flatRotation;
+    m_globalTexZoom     = m_viewStates[newIndex].globalTexZoom;
+    m_globalTexPan      = m_viewStates[newIndex].globalTexPan;
+    m_globalTexRotation = m_viewStates[newIndex].globalTexRotation;
 
     update();
 }
@@ -2154,10 +2202,15 @@ void GLWidget::resetVisuals()
         setProperty("bg_pan", QVector2D(0.0f, 0.0f));
         setProperty("bg_rot", 0.0f);
 
-        // Azzera i parametri della superficie
+        // Azzera i parametri della superficie: sia il buffer di lavoro sia la
+        // trasformazione GLOBALE, o quest'ultima sopravviverebbe allo
+        // spegnimento della texture e tornerebbe applicata alla successiva.
         m_flatZoom = 1.0f;
         m_flatPan = QVector2D(0.0f, 0.0f);
         m_flatRotation = 0.0f;
+        m_globalTexZoom = 1.0f;
+        m_globalTexPan = QVector2D(0.0f, 0.0f);
+        m_globalTexRotation = 0.0f;
 
         update();
     }
@@ -2263,11 +2316,26 @@ bool GLWidget::setActiveMeshTexture(const QString &code, bool enabled) {
         // I colori correnti diventano PROPRI della parte: altrimenti restano
         // condivisi con le altre mesh e la texture applicata dopo riscrive i
         // colori di quelle di prima.
-        p.texCol1R = texRed1; p.texCol1G = texGreen1; p.texCol1B = texBlue1;
-        p.texCol2R = texRed2; p.texCol2G = texGreen2; p.texCol2B = texBlue2;
+        // Solo se la parte non ne ha GIA' di propri: chi la configura puo'
+        // averli appena scritti con setActiveMeshTexColors, e quelli devono
+        // vincere sui due slot globali (che appartengono alla superficie).
+        if (!p.hasCustomTexColors()) {
+            p.texCol1R = texRed1; p.texCol1G = texGreen1; p.texCol1B = texBlue1;
+            p.texCol2R = texRed2; p.texCol2G = texGreen2; p.texCol2B = texBlue2;
+        }
     });
     if (onPart) rebuildShader();
     return onPart;
+}
+
+// Colori u_col1/u_col2 PROPRI della parte attiva. Non tocca i due slot globali
+// (texRed1..texBlue2), che appartengono alla texture di SUPERFICIE.
+// Nessun rebuildShader: i colori vivono nel blocco UBO, non nel codice.
+bool GLWidget::setActiveMeshTexColors(const QColor &c1, const QColor &c2) {
+    return applyToActiveMeshPart([&](MeshPart &p){
+        p.texCol1R = c1.redF();   p.texCol1G = c1.greenF();   p.texCol1B = c1.blueF();
+        p.texCol2R = c2.redF();   p.texCol2G = c2.greenF();   p.texCol2B = c2.blueF();
+    });
 }
 
 // Spegne la texture propria della parte attiva e la fa tornare a EREDITARE dal
@@ -2774,13 +2842,15 @@ void GLWidget::setDisplacementCode(const QString& code) {
 // 2D FLAT VIEW
 // ==========================================================
 
-// Fissa sulla parte attiva zoom/pan/rotazione 2D correnti.
+// Fissa sul destinatario corrente zoom/pan/rotazione 2D.
 // Va chiamata a OGNI modifica, non solo all'uscita dalla vista 2D: finche' la
-// trasformazione vive solo nei membri GLOBALI m_flatZoom/m_flatPan/m_flatRotation,
-// essa finisce nel blocco UBO di TUTTE le parti (vedi dove si riempie m_uboData),
-// quindi ridimensionare la texture di una mesh ridimensiona anche le altre.
+// trasformazione vive solo nel buffer di lavoro (m_flatZoom/m_flatPan/
+// m_flatRotation) appartiene alla vista, non a cio' che si sta editando.
 // Scrivendola subito nella parte, hasCustomTexTransform() diventa vero e il ramo
 // per-parte del loop UBO la rimette al suo posto.
+// Il destinatario e' la parte attiva, o lo stato GLOBALE in ambito "All": sono i
+// due casi che il render sa disegnare (vedi flatEditingGlobal e il clamp del
+// quad 2D), e vanno tenuti allineati o il mouse scrive dove nessuno legge.
 // NB: NON si richiede hasCustomTexture. Due mesh possono avere LA STESSA texture
 // e volerla a scale diverse: la trasformazione e' una proprieta' della parte, non
 // dello script. Con quel requisito una fascia senza texture propria restava
@@ -2788,7 +2858,20 @@ void GLWidget::setDisplacementCode(const QString& code) {
 // Solo per la texture di SUPERFICIE (m_flatViewTarget 0): il target 1 e' lo
 // sfondo, che ha i propri bg_zoom/bg_pan/bg_rot ed e' unico.
 void GLWidget::commitFlatTransformToActivePart() {
-    if (m_flatViewTarget != 0 || m_activeMeshPart < 0 || !engine) return;
+    if (m_flatViewTarget != 0) return;
+
+    // AMBITO "ALL" (nessuna parte selezionata): si sta regolando la texture
+    // della SUPERFICIE, quindi la trasformazione appartiene allo stato globale.
+    // Senza questo ramo, in "All" il mouse muoveva solo il buffer di lavoro e
+    // l'inquadratura si perdeva uscendo dalla vista 2D.
+    if (m_activeMeshPart < 0) {
+        m_globalTexZoom = m_flatZoom;
+        m_globalTexPan = m_flatPan;
+        m_globalTexRotation = m_flatRotation;
+        return;
+    }
+
+    if (!engine) return;
     MeshPart *p = engine->mutableMeshPart(m_activeMeshPart);
     if (!p) return;
     p->texZoom = m_flatZoom;
@@ -2803,14 +2886,32 @@ void GLWidget::commitFlatTransformToActivePart() {
 // Una parte che non ne ha ancora una eredita quella corrente (non si azzera:
 // sarebbe un salto visivo a ogni cambio di fascia).
 void GLWidget::loadFlatTransformFromActivePart() {
-    if (m_flatViewTarget != 0 || m_activeMeshPart < 0 || !engine) return;
+    if (m_flatViewTarget != 0) return;
+
+    // AMBITO "ALL": il buffer di lavoro parte dalla trasformazione GLOBALE, che
+    // e' quella che si sta per regolare.
+    if (m_activeMeshPart < 0) {
+        m_flatZoom = m_globalTexZoom;
+        m_flatPan = m_globalTexPan;
+        m_flatRotation = m_globalTexRotation;
+        return;
+    }
+
+    if (!engine) return;
     const std::vector<MeshPart> &parts = engine->getMeshParts();
     if (m_activeMeshPart >= (int)parts.size()) return;
     const MeshPart &p = parts[m_activeMeshPart];
+    // Una parte senza trasformazione propria parte da quella GLOBALE, che e'
+    // esattamente cio' che sta ereditando e disegnando: cosi' il primo
+    // trascinamento non fa un salto.
     if (p.hasCustomTexTransform()) {
         m_flatZoom = p.texZoom;
         m_flatPan = QVector2D(p.texPanX, p.texPanY);
         m_flatRotation = p.texRotation;
+    } else {
+        m_flatZoom = m_globalTexZoom;
+        m_flatPan = m_globalTexPan;
+        m_flatRotation = m_globalTexRotation;
     }
 }
 
@@ -2834,6 +2935,11 @@ void GLWidget::setFlatView(bool active) {
     update();
 }
 
+// NB: i getter espongono il BUFFER DI LAVORO, non lo stato globale. Li usa
+// inputhandler per il trascinamento incrementale (legge, somma, riscrive) e
+// devono quindi riflettere cio' che il mouse sta muovendo sul destinatario
+// corrente. Per la persistenza esistono i globalTex*() (vedi glwidget.h), che
+// salvano l'inquadratura della texture di SUPERFICIE.
 float GLWidget::getFlatZoom() const {
     if (m_flatViewTarget == 1) {
         return property("bg_zoom").isValid() ? property("bg_zoom").toFloat() : 1.0f;

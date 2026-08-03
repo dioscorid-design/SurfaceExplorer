@@ -696,6 +696,13 @@ private:
     // preset a ogni cambio di costante.
     bool m_pendingMeshScopeAll = false;
     bool m_meshScopePending = false;
+    // Alzato da applyPendingMeshScope quando ha appena impostato la parte attiva
+    // del preset, consumato da updateMeshSelectorRange nello stesso giro.
+    // Serve perche' quei due girano in sequenza sullo stesso meshPartsChanged:
+    // il primo porta la parte attiva a 0, e il secondo trova percio' "moved"
+    // FALSO (spinbox 1 -> indice 0, gia' uguale) e salta il sync degli slider,
+    // che restano sul colore GLOBALE mentre la mesh 1 ne ha uno proprio.
+    bool m_meshScopeJustApplied = false;
     void applyPendingMeshAppearance();
     // Ripristina l'ambito All/Mesh salvato col preset. Chiamata da
     // applyPendingMeshAppearance PRIMA dell'early-return, cosi' vale anche per i

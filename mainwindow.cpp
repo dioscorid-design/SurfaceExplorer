@@ -2350,7 +2350,18 @@ MainWindow::MainWindow(QWidget *parent)
             ui->chkBoxTexture->blockSignals(oldBlock);
 
             updateTextureUIState(m_surfaceTextureState);
-            ui->glWidget->setTextureEnabled(m_surfaceTextureState && (id != 2));
+            // LO SPEGNIMENTO PER WIREFRAME RIGUARDA SOLO L'AMBITO "ALL".
+            // setTextureEnabled scrive m_textureEnabled, che e' lo stato GLOBALE
+            // della texture di superficie: mettendo in wireframe UNA fascia si
+            // spegneva la texture di tutta la superficie, e tornando su "All" il
+            // checkbox rileggeva quello stato e la texture risultava persa.
+            // Con una fascia selezionata la modalita' e' una proprieta' di
+            // QUELLA parte (la scrive onUserRenderModeChosen su MeshPart), e il
+            // render decide gia' da se' di non texturizzare una parte in
+            // wireframe: non c'e' nulla da spegnere sul globale.
+            const bool editingOneMesh = ui->glWidget && ui->glWidget->activeMeshPart() >= 0;
+            if (!editingOneMesh)
+                ui->glWidget->setTextureEnabled(m_surfaceTextureState && (id != 2));
 
             // In Wireframe gli slider editano il colore uniforme delle linee: il pallino
             // di lavoro va su "Surface". updateTextureUIState sopra ha già spento Color1/2
@@ -2659,7 +2670,11 @@ MainWindow::MainWindow(QWidget *parent)
                     m_texColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
                     m_texColor2 = Qt::black;
                 }
-                ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
+                // I due slot GLOBALI restano quelli della texture di superficie:
+                // qui si sta configurando una fascia. setActiveMeshTexture poco
+                // sotto cattura comunque i colori nella parte, e questa riga
+                // scrive gli stessi valori direttamente li'.
+                ui->glWidget->setActiveMeshTexColors(m_texColor1, m_texColor2);
             }
 
             if (checked) ui->glWidget->setActiveMeshTexture(code, true);
@@ -3124,9 +3139,18 @@ MainWindow::MainWindow(QWidget *parent)
             bool wireframeMode = ui->radioWF->isChecked();
             if (!wireframeMode && m_surfaceTextureState && activeTextureUsesColors()) {
                 // Texture di superficie colorata: Color1/Color2 scelgono lo slot.
+                // AMBITO "MESH": i colori vanno nella PARTE, non nei due slot
+                // globali. Quelli appartengono alla texture di superficie, e
+                // scriverli qui cambiava i colori di tutte le altre fasce che li
+                // ereditano (stesso difetto del caso Mandelbrot, ma sul percorso
+                // interattivo degli slider).
+                // I membri m_texColor1/2 si aggiornano comunque: sono cio' che i
+                // picker mostrano, e syncAppearanceControlsToActiveMesh li
+                // riallinea alla fascia a ogni cambio di selezione.
                 if (ui->radioTexColor2->isChecked()) m_texColor2 = newColor;
                 else m_texColor1 = newColor;
-                ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
+                if (!ui->glWidget->setActiveMeshTexColors(m_texColor1, m_texColor2))
+                    ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
                 if (!m_isCustomMode && !m_isImageMode) scheduleTextureGeneration();
             } else {
                 m_currentSurfaceColor = newColor;
@@ -4089,10 +4113,16 @@ void MainWindow::updateRenderState()
         // smetteva di ereditare) e il giro di segnali che ne seguiva poteva
         // inchiodare il selettore. Si manifestava solo TORNANDO in wireframe,
         // perche' solo qui esiste questo ramo.
+        // Si RIPRISTINA il valore precedente, non si spegne a forza: durante il
+        // load di un preset il bypass e' gia' acceso (MeshBypassGuard di
+        // applySurfaceExample), e updateRenderState passa di qui dentro quel
+        // periodo. Spegnendolo, il resto del load proseguiva SENZA protezione e
+        // il setColor del colore globale finiva scritto sulla parte attiva.
+        const bool oldBypass = ui->glWidget && ui->glWidget->meshAppearanceBypass();
         if (ui->glWidget) ui->glWidget->setMeshAppearanceBypass(true);
         resetTransparency();
         ui->lightSlider->setValue(100);   // valueChanged aggiorna intensità e label
-        if (ui->glWidget) ui->glWidget->setMeshAppearanceBypass(false);
+        if (ui->glWidget) ui->glWidget->setMeshAppearanceBypass(oldBypass);
     }
     // Il FOV vive ORA dentro panelTransp (scelta di layout), ma NON deve
     // seguirne l'abilitazione: disabilitare un contenitore disabilita tutti i
@@ -4118,7 +4148,24 @@ void MainWindow::updateRenderState()
         ui->glWidget->setSpecularEnabled(isPhong);
 
         // Blocca la texture della superficie SOLO in modalità Wireframe (mode == 2)
-        bool blockSurfaceTexture = (mode == 2);
+        // MA il wireframe di UNA FASCIA non deve spegnere la texture GLOBALE.
+        // 'mode' qui e' la modalita' EFFICACE della mesh selezionata (vedi dove
+        // viene calcolato): usarlo per setTextureEnabled, che scrive lo stato
+        // globale m_textureEnabled, faceva sparire la texture di tutta la
+        // superficie appena si metteva in wireframe una singola fascia --
+        // e tornando su "All" il checkbox rileggeva quello stato spento
+        // (applyMeshScope) e la texture risultava persa.
+        // E' lo stesso motivo per cui poco sopra 'wantTexture' viene riportato a
+        // m_surfaceTextureState quando una mesh e' selezionata: in quell'ambito i
+        // controlli MOSTRANO la parte, non comandano il globale.
+        // Il blocco resta pieno in ambito "All" e a mesh singola, dove 'mode' E'
+        // davvero la modalita' della superficie.
+        // Nessun rischio visivo: una parte in wireframe non si texturizza
+        // comunque, perche' il fragment esce a colore piatto sul suo
+        // u_renderMode per-parte (surface.frag, ramo u_renderMode == 2).
+        const bool editingOneMesh = ui->glWidget->activeMeshPart() >= 0
+                                    && ui->glWidget->meshPartCount() > 1;
+        bool blockSurfaceTexture = (mode == 2) && !editingOneMesh;
         ui->glWidget->setTextureEnabled(wantTexture && !blockSurfaceTexture);
 
         if (isImplicitMode) {
@@ -4724,7 +4771,25 @@ void MainWindow::syncTextureTreeSelection()
         if (ui->tabModeSelector->currentIndex() == 1) {
             activeCode = ui->lineTexture->toPlainText();
         } else {
+            // MULTI-MESH: con una fascia selezionata l'albero deve evidenziare
+            // la texture di QUELLA, non quella globale -- stessa regola con cui
+            // l'editor mostra p.textureCode (vedi
+            // syncAppearanceControlsToActiveMesh). Senza, il dock Library
+            // restava puntato sulla texture della superficie mentre editor,
+            // checkbox e render parlavano della fascia: il focus indicava una
+            // texture diversa da quella su cui si stava lavorando.
+            // Una fascia SENZA texture propria non eredita quella globale (vedi
+            // effectiveTextureEnabledMulti), quindi lascia il codice VUOTO e
+            // l'albero si limita a deselezionare: e' la stessa cosa che fa
+            // l'editor, che in quel caso si svuota.
             activeCode = m_surfaceTextureCode;
+            if (ui->glWidget && ui->glWidget->getEngine()) {
+                const int idx = ui->glWidget->activeMeshPart();
+                const auto &parts = ui->glWidget->getEngine()->getMeshParts();
+                if (idx >= 0 && idx < (int)parts.size())
+                    activeCode = parts[idx].hasCustomTexture ? parts[idx].textureCode
+                                                             : QString();
+            }
         }
     }
 
@@ -5185,15 +5250,25 @@ void MainWindow::handleTextureSelection(int index)
     // =====================================================================
     m_blockTextureGen = true;
 
-    if (data.hasCustomColors) {
-        m_texColor1 = QColor(data.color1);
-        m_texColor2 = QColor(data.color2);
-    } else {
-        m_texColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
-        m_texColor2 = Qt::black;
-    }
+    // I COLORI GLOBALI SI TOCCANO SOLO IN AMBITO "ALL". Con una fascia
+    // selezionata la texture andra' su QUELLA (vedi il ramo per-mesh piu'
+    // sotto), e i due slot globali sono quelli della texture di SUPERFICIE:
+    // sovrascriverli faceva uscire la texture globale coi colori di quella
+    // appena messa sulla fascia. I colori della fascia li cattura
+    // setActiveMeshTexture nella MeshPart.
+    const bool texGoesToMesh = ui->glWidget && ui->glWidget->activeMeshPart() >= 0
+                               && !ui->radioBackground->isChecked();
+    if (!texGoesToMesh) {
+        if (data.hasCustomColors) {
+            m_texColor1 = QColor(data.color1);
+            m_texColor2 = QColor(data.color2);
+        } else {
+            m_texColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
+            m_texColor2 = Qt::black;
+        }
 
-    if (ui->glWidget) ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
+        if (ui->glWidget) ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
+    }
 
     if (ui->radioTexColor1->isChecked() || ui->radioTexColor2->isChecked()) {
         onColorTargetChanged();
@@ -5209,6 +5284,21 @@ void MainWindow::handleTextureSelection(int index)
 
         // --- LOGICA PARAMETRICA ---
         if (data.isImage) {
+            // TEXTURE-IMMAGINE SU UNA FASCIA: non e' supportata (l'immagine e'
+            // una risorsa GPU unica, non codice da compilare nel dispatcher
+            // per-mesh). Il Run dello script lo dice gia' con un avviso; da qui
+            // invece l'immagine finiva SILENZIOSAMENTE sulla superficie intera,
+            // sovrascrivendo la sua texture mentre l'utente credeva di agire
+            // sulla fascia selezionata. Stesso messaggio dell'altro percorso.
+            if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0
+                && !ui->radioBackground->isChecked()) {
+                QMessageBox::information(this, "Texture per-mesh",
+                    "Le texture-immagine si applicano all'intera superficie.\n\n"
+                    "Per assegnare una texture a una singola mesh usa uno script "
+                    "procedurale, oppure passa all'ambito \"All\".");
+                m_blockTextureGen = false;
+                return;
+            }
             m_currentTexturePath = imgSrc;
             if (ui->glWidget) {
                 ui->glWidget->loadCustomShader("");
@@ -5259,6 +5349,55 @@ void MainWindow::handleTextureSelection(int index)
                 newCode = "//IMG:" + m_currentTexturePath + "\n" + newCode;
             } else {
                 m_isImageMode = false;
+            }
+
+            // AMBITO "MESH": la texture va sulla FASCIA selezionata, non sulla
+            // superficie. Questo ramo (applicazione dalla Library) non aveva la
+            // diramazione per-mesh che ha invece il Run dello script
+            // (onApplyTextureScriptClicked): scriveva sempre gli stati GLOBALI
+            // -- m_surfaceTextureCode, m_texColor1/2 e setTextureColors -- e
+            // quindi applicare una texture a una fascia cancellava quella della
+            // superficie. Tornando su "All" si trovava il codice della fascia al
+            // posto del proprio (clock fermo, perche' allSurfaceTextureCode()
+            // parte da m_surfaceTextureCode) e i suoi colori addosso.
+            if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
+                // I colori di QUESTA texture si scrivono direttamente nella
+                // parte: i due slot globali appartengono alla texture di
+                // SUPERFICIE e non vanno toccati (il blocco che li scrive piu'
+                // sopra e' saltato proprio per questo).
+                // Prima di setActiveMeshTexture, che li cattura dai globali solo
+                // se la parte non ne ha gia' di propri.
+                // Una texture SENZA colori propri riparte dai default, come fa il
+                // ramo globale: senza azzerarli, la fascia si terrebbe addosso i
+                // colori della texture che aveva prima.
+                ui->glWidget->setActiveMeshTexColors(
+                    data.hasCustomColors ? QColor(data.color1)
+                                         : QColor::fromRgbF(0.20f, 0.80f, 0.20f),
+                    data.hasCustomColors ? QColor(data.color2) : QColor(Qt::black));
+
+                ui->glWidget->setActiveMeshTexture(newCode, true);
+
+                if (!ui->chkBoxTexture->isChecked()) {
+                    const bool oldCb = ui->chkBoxTexture->blockSignals(true);
+                    ui->chkBoxTexture->setChecked(true);
+                    ui->chkBoxTexture->blockSignals(oldCb);
+                }
+
+                // Il clock guarda globale + parti accese: una texture animata
+                // messa su una fascia deve farlo ripartire, e una statica non
+                // deve fermare quella della superficie.
+                m_userStoppedTexClock = false;
+                ui->glWidget->setSurfaceTextureAnimating(
+                    hasTimeVariable(allSurfaceTextureCode()));
+                updateMasterButtonState();
+
+                syncTextureEditorTo(newCode);
+                updateTextureUIState(true, true);
+                updateFlatPreviewButton();
+                updateScriptButtonText();
+                m_blockTextureGen = false;
+                ui->glWidget->update();
+                return;
             }
 
             m_surfaceTextureCode = newCode;
@@ -8305,9 +8444,37 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
         if (surfCol.isValid()) {
             m_currentSurfaceColor = surfCol;
             if (ui->glWidget) {
+                // BYPASS OBBLIGATORIO: questo e' il colore GLOBALE del preset,
+                // non una scelta dell'utente su una fascia. Senza, setColor
+                // passa da applyToActiveMeshPart e, con una mesh gia'
+                // selezionata, lo scrive DENTRO quella parte: la fascia 1 si
+                // ritrovava come colore proprio il verde globale, e da li' in
+                // poi sia il render sia gli slider mostravano quello.
+                // Il MeshBypassGuard di inizio funzione qui non protegge piu':
+                // applyCommonData(), poco sopra, ha nel frattempo ripristinato
+                // il bypass al valore che aveva PRIMA del load (false), ed e'
+                // anche il punto in cui la parte attiva torna a 0. Percio' la
+                // protezione va rimessa esplicitamente attorno a questa riga.
+                const bool oldBypass = ui->glWidget->meshAppearanceBypass();
+                ui->glWidget->setMeshAppearanceBypass(true);
                 ui->glWidget->setColor(surfCol.redF(), surfCol.greenF(), surfCol.blueF());
+                ui->glWidget->setMeshAppearanceBypass(oldBypass);
             }
-            onColorTargetChanged();
+            // GLI SLIDER SI ALLINEANO SOLO SE NON C'E' UNA MESH SELEZIONATA.
+            // Qui si ripristina il colore GLOBALE della superficie, e
+            // onColorTargetChanged lo riversa sugli slider leggendo
+            // m_currentSurfaceColor -- senza mai guardare la mesh attiva.
+            // Ma applyCommonData(), appena sopra, ha gia' fatto girare il sync
+            // per-mesh, che aveva messo gli slider sul colore della fascia
+            // selezionata: questa chiamata arriva DOPO e lo sovrascriveva col
+            // globale. Era il disallineamento visibile gia' al primo
+            // caricamento (fascia 1 blu a schermo, slider sul verde globale).
+            // Il colore globale resta comunque impostato qui sopra: cambia solo
+            // CHI viene mostrato dagli slider, che devono dire la stessa cosa
+            // del render per la mesh che si sta guardando.
+            const bool showingMesh = ui->glWidget && ui->glWidget->activeMeshPart() >= 0;
+            if (showingMesh) syncAppearanceControlsToActiveMesh();
+            else             onColorTargetChanged();
         }
     }
 
@@ -8650,8 +8817,16 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
         QColor surfCol(data.color1);
         m_currentSurfaceColor = surfCol;
 
+        // Stesso trattamento del ramo superfici (applySurfaceExample): colore
+        // GLOBALE del preset, quindi bypass acceso perche' non finisca nella
+        // mesh selezionata, e slider allineati alla fascia se ce n'e' una.
+        const bool oldBypass = ui->glWidget->meshAppearanceBypass();
+        ui->glWidget->setMeshAppearanceBypass(true);
         ui->glWidget->setColor(surfCol.redF(), surfCol.greenF(), surfCol.blueF());
-        onColorTargetChanged();
+        ui->glWidget->setMeshAppearanceBypass(oldBypass);
+
+        if (ui->glWidget->activeMeshPart() >= 0) syncAppearanceControlsToActiveMesh();
+        else                                     onColorTargetChanged();
     }
 
     // Set PROGRAMMATICO (caricamento motion/preset): vedi nota in applySurfaceExample.
@@ -8882,9 +9057,12 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
     if (texEnabled) {
         int currentTarget = ui->radioBackground->isChecked() ? 1 : 0;
         ui->glWidget->setFlatViewTarget(0);
-        ui->glWidget->setFlatZoom(surfZoom);
-        ui->glWidget->setFlatPan(surfPanX, surfPanY);
-        ui->glWidget->setFlatRotation(surfRot);
+        // Trasformazione GLOBALE del preset: va nello stato globale, non nella
+        // fascia selezionata. I setFlat*() passano da
+        // commitFlatTransformToActivePart e, con una mesh attiva, l'avrebbero
+        // scritta come trasformazione PROPRIA di quella parte -- stesso schema
+        // del colore globale che finiva nella fascia.
+        ui->glWidget->setGlobalTexTransform(surfZoom, QVector2D(surfPanX, surfPanY), surfRot);
 
         if (!texCode.isEmpty()) {
             bool hasCustomLogic = texCode.contains("return") || texCode.contains("vec3") || texCode.contains("vec4") || texCode.contains("mainImage");
@@ -10175,6 +10353,24 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     m_pendingMeshScopeAll = d.meshScopeAll;
     m_meshScopePending = true;   // da consumare al primo meshPartsChanged
 
+    // SELEZIONE MESH AZZERATA AL LOAD. Una superficie nuova va presentata dalla
+    // sua prima mesh: lo spinbox conservava invece l'indice della superficie
+    // PRECEDENTE (es. si lasciava la mesh 4 e la successiva si apriva sulla 4,
+    // o su un indice clampato al suo numero di parti). Non e' lo stato del
+    // preset: e' residuo di quello prima.
+    // Va azzerato QUI e non in updateMeshSelectorRange, che al contrario deve
+    // PRESERVARE la selezione: gira a ogni rigenerazione della griglia (ogni
+    // movimento di costante) e resettare li' riporterebbe alla mesh 1 sotto le
+    // dita mentre si edita la mesh 4.
+    // Si scrive sullo spinbox e non su setActiveMeshPart perche' qui le parti
+    // non esistono ancora (la griglia si genera piu' avanti, da
+    // checkAndTriggerMeshUpdate): setActiveMeshPart clampa su getMeshPartCount()
+    // e l'indice finirebbe a -1. Lo spinbox e' comunque la fonte da cui
+    // applyPendingMeshScope rilegge la parte attiva quando le parti ci sono.
+    if (ui->spinMeshSel) {
+        QSignalBlocker bMesh(ui->spinMeshSel);
+        ui->spinMeshSel->setValue(1);
+    }
 
     // Reset dello stato d'errore geodetico: m_geodesicErrorPending è "appiccicoso"
     // (resettato solo da updateGeodesicMesh in caso di successo). Se il preset
@@ -10504,6 +10700,25 @@ void MainWindow::applyCommonData(const LibraryItem &d)
             dst.hasCustomRenderMode = src.hasCustomRenderMode;
             dst.wfStepU = src.wfStepU;
             dst.wfStepV = src.wfStepV;
+            // TEXTURE PER-MESH: vanno fuse QUI come tutto il resto. Mancavano, e
+            // il buco non si vede caricando un preset texturizzato (li'
+            // applyPendingMeshAppearance le riscrive tutte), ma caricandone uno
+            // SENZA texture dopo uno CHE LE HA: senza queste righe le parti
+            // uscivano da qui con hasCustomTexture ancora falso, e la texture
+            // della superficie precedente restava nel motore.
+            dst.textureCode = src.textureCode;
+            dst.textureEnabled = src.textureEnabled;
+            dst.hasCustomTexture = src.hasCustomTexture;
+            dst.texCol1R = src.texCol1R;
+            dst.texCol1G = src.texCol1G;
+            dst.texCol1B = src.texCol1B;
+            dst.texCol2R = src.texCol2R;
+            dst.texCol2G = src.texCol2G;
+            dst.texCol2B = src.texCol2B;
+            dst.texZoom = src.texZoom;
+            dst.texPanX = src.texPanX;
+            dst.texPanY = src.texPanY;
+            dst.texRotation = src.texRotation;
         }
         // setMeshParts preserva l'aspetto delle parti GIA' dichiarate (serve a non
         // perderlo quando lo script viene ri-estratto a ogni cambio di costante).
@@ -12239,6 +12454,11 @@ void MainWindow::updateMeshSelectorRange()
         ui->spinMeshSel->setEnabled(false);
         ui->radioMeshAll->setEnabled(true);
         if (ui->radioMeshOne) ui->radioMeshOne->setEnabled(true);
+        // In "All" non c'e' nessuna mesh da mostrare negli slider, ma il flag va
+        // consumato lo stesso: restando alzato forzerebbe un sync spurio al
+        // primo giro utile (una rigenerazione qualunque), riallineando gli
+        // slider sotto le dita dell'utente.
+        m_meshScopeJustApplied = false;
         return;
     }
     ui->spinMeshSel->setEnabled(true);
@@ -12256,7 +12476,18 @@ void MainWindow::updateMeshSelectorRange()
     // updateRenderState va chiamata DOPO il sync (che muove i radio a segnali
     // bloccati, quindi non la fa girare da solo): e' lei ad abilitare i tasti
     // densita' U/V in base ai radio appena aggiornati.
-    if (moved) {
+    //
+    // ECCEZIONE: subito dopo un LOAD. applyPendingMeshScope gira sullo stesso
+    // meshPartsChanged, appena prima di questa funzione, e porta gia' la parte
+    // attiva all'indice del preset; "moved" risulta quindi falso (spinbox 1 ->
+    // indice 0, dove la parte attiva gia' e') e il sync veniva saltato. Gli
+    // slider restavano sul colore GLOBALE mentre la mesh 1 disegnava il proprio:
+    // il disallineamento visibile GIA' al primo caricamento, senza cambio di
+    // preset. Il flag vale un giro solo, quindi non reintroduce il salto degli
+    // slider durante l'editing.
+    const bool justLoaded = m_meshScopeJustApplied;
+    m_meshScopeJustApplied = false;
+    if (moved || justLoaded) {
         syncAppearanceControlsToActiveMesh();
         updateRenderState();
     }
@@ -12298,6 +12529,20 @@ void MainWindow::applyPendingMeshScope()
     // consumo, ogni movimento di uno slider riportava l'ambito allo stato del
     // preset e riscriveva la parte attiva, annullando la scelta dell'utente.
     if (!m_meshScopePending) return;
+
+    // NON si consuma su una griglia che non e' ancora quella del preset.
+    // meshPartsChanged scatta anche PRIMA che le parti nuove esistano: durante
+    // il load arriva un giro con la superficie precedente ancora nel motore
+    // (l'unica parte sintetizzata da resolveMeshParts, perche' clearMeshParts ha
+    // gia' svuotato le dichiarate). Consumando li', il flag sarebbe gia' false
+    // al giro BUONO e setActiveMeshPart non verrebbe mai chiamato con l'indice
+    // del preset. Se il preset non porta aspetto per-mesh (m_pendingMeshParts
+    // vuoto) non c'e' nulla da attendere e vale il primo giro, come da sempre.
+    if (!m_pendingMeshParts.empty()
+        && ui->glWidget->getEngine()
+        && ui->glWidget->getEngine()->getMeshPartCount() < (int)m_pendingMeshParts.size())
+        return;
+
     m_meshScopePending = false;
 
     const bool wantAll = m_pendingMeshScopeAll;
@@ -12313,6 +12558,13 @@ void MainWindow::applyPendingMeshScope()
     ui->glWidget->setMeshAppearanceUniform(wantAll);
     ui->glWidget->setActiveMeshPart(wantAll ? -1 : ui->spinMeshSel->value() - 1);
     ui->spinMeshSel->setEnabled(!wantAll);
+
+    // Il sync degli slider tocca a updateMeshSelectorRange, che gira subito dopo
+    // sullo stesso meshPartsChanged. Li' pero' il sync e' condizionato a "moved"
+    // (la selezione e' cambiata), e la riga qui sopra ha GIA' portato la parte
+    // attiva al valore che quella funzione calcolera': moved risulta falso e gli
+    // slider non vengono mai riallineati alla mesh del preset.
+    m_meshScopeJustApplied = true;
 }
 
 void MainWindow::applyPendingMeshAppearance()
@@ -12522,6 +12774,16 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
     if (m_currentScriptMode == ScriptModeTexture && !ui->radioBackground->isChecked()) {
         syncTextureEditorTo(p.hasCustomTexture ? p.textureCode : QString());
     }
+
+    // FOCUS DEL DOCK LIBRARY (ramo Texture) SULLA FASCIA SELEZIONATA. Stessa
+    // ragione dell'editor qui sopra: i controlli devono indicare cio' su cui si
+    // sta lavorando. syncTextureTreeSelection aveva come soli chiamanti i cambi
+    // di modalita' (Base/Phong/WF e Surface/Background), quindi al cambio di
+    // mesh l'albero restava fermo sulla texture della fascia precedente -- o su
+    // quella globale. Non e' condizionata a ScriptModeTexture: l'albero e' un
+    // pannello a se', visibile qualunque cosa mostri l'editor.
+    if (!ui->radioBackground->isChecked())
+        syncTextureTreeSelection();
 
     // COLORI u_col1/u_col2 DELLA PARTE nei picker. Come per il codice, i due
     // membri globali m_texColor1/m_texColor2 sono ciò che gli slider editano e
