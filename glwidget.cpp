@@ -2272,7 +2272,7 @@ bool GLWidget::applyToActiveMeshPart(const std::function<void(MeshPart&)> &fn) {
 }
 
 // SEPARAZIONE DISPLAY / COMANDO (il punto che rende stabile il wireframe
-// per-mesh). setRenderMode e' la via da cui passa updateRenderState, che gira a
+// per-mesh). setGlobalRenderMode e' la via da cui passa updateRenderState, che gira a
 // ogni cambio tab, cambio proiezione, load e a ogni toggled dei radio: qui NON
 // si scrive mai su una parte, si scrive SOLO lo stato globale. I radio restano
 // un DISPLAY della mesh selezionata; la sorgente di una modalita' per-parte e'
@@ -2283,7 +2283,7 @@ bool GLWidget::applyToActiveMeshPart(const std::function<void(MeshPart&)> &fn) {
 // sulla parte attiva, ogni updateRenderState riapplicava il valore a un
 // destinatario che dipendeva dallo stato del momento, e il wireframe si
 // propagava a tutte le parti che ereditano.
-void GLWidget::setRenderMode(int mode) {
+void GLWidget::setGlobalRenderMode(int mode) {
     this->renderMode = mode;
     update();
 }
@@ -2635,7 +2635,7 @@ void GLWidget::loadTextureFromImage(const QImage &img) {
     update();
 }
 
-void GLWidget::setTextureEnabled(bool enable) {
+void GLWidget::setGlobalTextureEnabled(bool enable) {
     if (m_textureEnabled != enable) {
         m_textureEnabled = enable;
 
@@ -2649,7 +2649,7 @@ void GLWidget::setTextureEnabled(bool enable) {
     }
 }
 
-void GLWidget::setTextureColors(const QColor& c1, const QColor& c2)
+void GLWidget::setGlobalTextureColors(const QColor& c1, const QColor& c2)
 {
     texRed1 = c1.redF();
     texGreen1 = c1.greenF();
@@ -2674,7 +2674,7 @@ void GLWidget::clearTexture() {
     m_surfaceTextureNeedsClear = true;
 
     // Al prossimo frame tornerà tutto nero/colore base se disattiviamo m_textureEnabled
-    setTextureEnabled(false);
+    setGlobalTextureEnabled(false);
     update();
 }
 

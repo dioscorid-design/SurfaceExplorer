@@ -1469,7 +1469,7 @@ MainWindow::MainWindow(QWidget *parent)
         }
 
         // Spegniamo in modo incondizionato la texture dal motore per la superficie
-        if (ui->glWidget) ui->glWidget->setTextureEnabled(false);
+        if (ui->glWidget) ui->glWidget->setGlobalTextureEnabled(false);
         // ==========================================================
 
         // ==========================================================
@@ -1495,7 +1495,7 @@ MainWindow::MainWindow(QWidget *parent)
         if (ui->glWidget) {
             ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
             ui->glWidget->setColor(m_currentSurfaceColor.redF(), m_currentSurfaceColor.greenF(), m_currentSurfaceColor.blueF());
-            ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
+            ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
         }
 
         // Aggiorna gli slider colore della UI per allinearli ai valori appena resettati
@@ -2156,14 +2156,14 @@ MainWindow::MainWindow(QWidget *parent)
 
     // --- 0. Impostazioni di Default UI ---
     ui->radioShell->setChecked(true);      // Attiva "Shell" di default
-    ui->glWidget->setRenderMode(1);        // Diciamo subito al motore che siamo in modalità Shell (1)
+    ui->glWidget->setGlobalRenderMode(1);        // Diciamo subito al motore che siamo in modalità Shell (1)
 
     // --- Connessione dei Radio Button (Solid/Shell) ---
     auto updateImplicitRenderMode = [this]() {
         if (ui->glWidget) {
             // Se radioShell è attivo manda 1, altrimenti manda 0 (Solid)
             int mode = ui->radioShell->isChecked() ? 1 : 0;
-            ui->glWidget->setRenderMode(mode);
+            ui->glWidget->setGlobalRenderMode(mode);
         }
     };
     connect(ui->radioShell, &QRadioButton::toggled, this, updateImplicitRenderMode);
@@ -2351,7 +2351,7 @@ MainWindow::MainWindow(QWidget *parent)
 
             updateTextureUIState(m_surfaceTextureState);
             // LO SPEGNIMENTO PER WIREFRAME RIGUARDA SOLO L'AMBITO "ALL".
-            // setTextureEnabled scrive m_textureEnabled, che e' lo stato GLOBALE
+            // setGlobalTextureEnabled scrive m_textureEnabled, che e' lo stato GLOBALE
             // della texture di superficie: mettendo in wireframe UNA fascia si
             // spegneva la texture di tutta la superficie, e tornando su "All" il
             // checkbox rileggeva quello stato e la texture risultava persa.
@@ -2361,7 +2361,7 @@ MainWindow::MainWindow(QWidget *parent)
             // wireframe: non c'e' nulla da spegnere sul globale.
             const bool editingOneMesh = ui->glWidget && ui->glWidget->activeMeshPart() >= 0;
             if (!editingOneMesh)
-                ui->glWidget->setTextureEnabled(m_surfaceTextureState && (id != 2));
+                ui->glWidget->setGlobalTextureEnabled(m_surfaceTextureState && (id != 2));
 
             // In Wireframe gli slider editano il colore uniforme delle linee: il pallino
             // di lavoro va su "Surface". updateTextureUIState sopra ha già spento Color1/2
@@ -2467,7 +2467,7 @@ MainWindow::MainWindow(QWidget *parent)
             ui->chkBoxTexture->blockSignals(oldBlock);
 
             updateTextureUIState(m_surfaceTextureState);
-            ui->glWidget->setTextureEnabled(m_surfaceTextureState && (surfMode != 2));
+            ui->glWidget->setGlobalTextureEnabled(m_surfaceTextureState && (surfMode != 2));
 
             // Uscendo da Background torniamo a editare la superficie: updateTextureUIState
             // sopra ha già messo il target colore su Surface (selectSurfaceColorTarget).
@@ -2509,7 +2509,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(ui->radioWF, &QRadioButton::toggled, this, [this](bool checked){
         if (checked) {
-            // NB: qui NON si chiama piu' setRenderMode(2). Questo handler scatta
+            // NB: qui NON si chiama piu' setGlobalRenderMode(2). Questo handler scatta
             // anche quando e' syncAppearanceControlsToActiveMesh a mostrare una
             // mesh in wireframe, e forzare il GLOBALE a 2 propagava il wireframe
             // a tutte le parti che ereditano (era una delle vie del bug).
@@ -2629,7 +2629,7 @@ MainWindow::MainWindow(QWidget *parent)
         // Con l'ambito su "Mesh" e una parte attiva, il checkbox accende o
         // spegne la texture di QUELLA parte, come fanno colore/alpha/luce.
         // Va PRIMA di tutto il resto: il ramo sotto scrive lo stato GLOBALE
-        // (setTextureEnabled + generateTexture), che finisce nell'UBO di ogni
+        // (setGlobalTextureEnabled + generateTexture), che finisce nell'UBO di ogni
         // parte e texturizzava l'intera superficie -- oltre a far diventare
         // bianche le mesh in wireframe, che venivano disegnate col colore
         // della texture invece che col proprio.
@@ -2649,7 +2649,7 @@ MainWindow::MainWindow(QWidget *parent)
 
             // COLORI DELLA TEXTURE ALLA GPU. La scacchiera di default e' tutta
             // costruita su u_col1/u_col2 (mix dei due), che arrivano dall'UBO
-            // via setTextureColors: senza questa riga i due slot restano ai
+            // via setGlobalTextureColors: senza questa riga i due slot restano ai
             // valori stantii del contesto precedente e, se coincidono, la
             // scacchiera esce in TINTA UNITA (il caso "tutto bianco").
             // Il ramo globale del checkbox fa lo stesso poco piu' sotto: qui
@@ -2834,7 +2834,7 @@ MainWindow::MainWindow(QWidget *parent)
 
             m_surfaceTextureState = checked;
             updateTextureUIState(checked);
-            if (ui->glWidget) ui->glWidget->setTextureEnabled(checked);
+            if (ui->glWidget) ui->glWidget->setGlobalTextureEnabled(checked);
 
             if (!m_blockTextureGen && checked) {
                 // --- LOGICA RAY MARCHING (Tab 1) ---
@@ -2848,7 +2848,7 @@ MainWindow::MainWindow(QWidget *parent)
                         // l'UBO restavano stantii). Simmetrico al ramo parametrico.
                         m_texColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
                         m_texColor2 = Qt::black;
-                        if (ui->glWidget) ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
+                        if (ui->glWidget) ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
 
                         // Default RM = scacchiera PROCEDURALE pilotata da u_col1/u_col2
                         // (come il preset "Checkboard"): niente immagine, così i picker
@@ -2902,7 +2902,7 @@ MainWindow::MainWindow(QWidget *parent)
                     // Stesso reset del ramo Ray Marching.
                     m_texColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
                     m_texColor2 = Qt::black;
-                    if (ui->glWidget) ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
+                    if (ui->glWidget) ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
 
                     // Texture colorata appena attivata: il pallino dei Color va su Color 1
                     // (resetColorTargetToFirst); la tripla resta dov'è (gruppi indipendenti).
@@ -3150,7 +3150,7 @@ MainWindow::MainWindow(QWidget *parent)
                 if (ui->radioTexColor2->isChecked()) m_texColor2 = newColor;
                 else m_texColor1 = newColor;
                 if (!ui->glWidget->setActiveMeshTexColors(m_texColor1, m_texColor2))
-                    ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
+                    ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
                 if (!m_isCustomMode && !m_isImageMode) scheduleTextureGeneration();
             } else {
                 m_currentSurfaceColor = newColor;
@@ -3259,12 +3259,12 @@ MainWindow::MainWindow(QWidget *parent)
     //
     // PRIMA pero' va allineato il renderMode del motore alla modalita'
     // PARAMETRICA di partenza (Base, come radioBasic gia' selezionato sopra).
-    // Nel setup del Ray Marching il motore riceve setRenderMode(1) = Shell, che
+    // Nel setup del Ray Marching il motore riceve setGlobalRenderMode(1) = Shell, che
     // resta li' finche' nessuno lo cambia: applyMeshScope -> ...ToActiveMesh ->
     // ramo "All" -> syncRenderRadiosTo(globalRenderMode()) lo leggeva come
     // modalita' parametrica e accendeva PHONG, mentre il toro di default era
     // ovviamente disegnato in Base. Radio e superficie non concordavano.
-    if (ui->glWidget) ui->glWidget->setRenderMode(m_savedRenderMode);
+    if (ui->glWidget) ui->glWidget->setGlobalRenderMode(m_savedRenderMode);
     applyMeshScope();
 
     // MOBILE: il campo Mesh e' un intero 1..N e non ha bisogno della tastiera.
@@ -3586,7 +3586,7 @@ MainWindow::MainWindow(QWidget *parent)
     // 11. FINAL STARTUP CALLS
     // =========================================================================
     ui->chkBoxTexture->setChecked(false);
-    ui->glWidget->setTextureEnabled(false);
+    ui->glWidget->setGlobalTextureEnabled(false);
     updateTextureUIState(false);
 
     connectSidePanels();
@@ -4047,7 +4047,7 @@ void MainWindow::updateRenderState()
     // AMBITO "MESH": il checkbox Texture e' il DISPLAY della parte selezionata
     // (vedi syncAppearanceControlsToActiveMesh, che lo mette sullo stato
     // EFFICACE di quella mesh), NON un comando sul globale. Usarlo qui per
-    // setTextureEnabled accendeva la texture GLOBALE solo perche' si era
+    // setGlobalTextureEnabled accendeva la texture GLOBALE solo perche' si era
     // selezionata una mesh texturizzata: tutte le parti che ereditano
     // (hasCustomTexture == false) si ritrovavano useTexture = 1 e cadevano sulla
     // getCustomColor globale, che con una texture per-mesh in gioco e'
@@ -4150,7 +4150,7 @@ void MainWindow::updateRenderState()
         // Blocca la texture della superficie SOLO in modalità Wireframe (mode == 2)
         // MA il wireframe di UNA FASCIA non deve spegnere la texture GLOBALE.
         // 'mode' qui e' la modalita' EFFICACE della mesh selezionata (vedi dove
-        // viene calcolato): usarlo per setTextureEnabled, che scrive lo stato
+        // viene calcolato): usarlo per setGlobalTextureEnabled, che scrive lo stato
         // globale m_textureEnabled, faceva sparire la texture di tutta la
         // superficie appena si metteva in wireframe una singola fascia --
         // e tornando su "All" il checkbox rileggeva quello stato spento
@@ -4166,14 +4166,14 @@ void MainWindow::updateRenderState()
         const bool editingOneMesh = ui->glWidget->activeMeshPart() >= 0
                                     && ui->glWidget->meshPartCount() > 1;
         bool blockSurfaceTexture = (mode == 2) && !editingOneMesh;
-        ui->glWidget->setTextureEnabled(wantTexture && !blockSurfaceTexture);
+        ui->glWidget->setGlobalTextureEnabled(wantTexture && !blockSurfaceTexture);
 
         if (isImplicitMode) {
             // Modalità Ray Marching: Ascolta SOLO i radio button Shell/Solid dedicati
-            ui->glWidget->setRenderMode(ui->radioShell->isChecked() ? 1 : 0);
+            ui->glWidget->setGlobalRenderMode(ui->radioShell->isChecked() ? 1 : 0);
         } else {
             // Modalità Parametrica: Ascolta i radio button classici.
-            // NB: setRenderMode scrive SOLO lo stato GLOBALE, mai su una parte,
+            // NB: setGlobalRenderMode scrive SOLO lo stato GLOBALE, mai su una parte,
             // anche se lo spinbox ha una mesh selezionata. Questa funzione gira
             // a ogni cambio tab / proiezione / load: se scrivesse sulla parte
             // attiva, il valore mostrato dai radio (che e' quello della mesh
@@ -4188,11 +4188,11 @@ void MainWindow::updateRenderState()
                 (ui->glWidget->activeMeshPart() >= 0 && ui->glWidget->meshPartCount() > 1);
             if (!showingPart) {
                 if (ui->radioWF->isChecked()) {
-                    ui->glWidget->setRenderMode(2);
+                    ui->glWidget->setGlobalRenderMode(2);
                 } else if (ui->radioPhong->isChecked()) {
-                    ui->glWidget->setRenderMode(1);
+                    ui->glWidget->setGlobalRenderMode(1);
                 } else {
-                    ui->glWidget->setRenderMode(0);
+                    ui->glWidget->setGlobalRenderMode(0);
                 }
             }
         }
@@ -5267,7 +5267,7 @@ void MainWindow::handleTextureSelection(int index)
             m_texColor2 = Qt::black;
         }
 
-        if (ui->glWidget) ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
+        if (ui->glWidget) ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
     }
 
     if (ui->radioTexColor1->isChecked() || ui->radioTexColor2->isChecked()) {
@@ -5303,7 +5303,7 @@ void MainWindow::handleTextureSelection(int index)
             if (ui->glWidget) {
                 ui->glWidget->loadCustomShader("");
                 ui->glWidget->loadTextureFromFile(imgSrc);
-                ui->glWidget->setTextureEnabled(true);
+                ui->glWidget->setGlobalTextureEnabled(true);
                 ui->glWidget->rebuildShader();
 
                 m_isCustomMode = false;
@@ -5355,7 +5355,7 @@ void MainWindow::handleTextureSelection(int index)
             // superficie. Questo ramo (applicazione dalla Library) non aveva la
             // diramazione per-mesh che ha invece il Run dello script
             // (onApplyTextureScriptClicked): scriveva sempre gli stati GLOBALI
-            // -- m_surfaceTextureCode, m_texColor1/2 e setTextureColors -- e
+            // -- m_surfaceTextureCode, m_texColor1/2 e setGlobalTextureColors -- e
             // quindi applicare una texture a una fascia cancellava quella della
             // superficie. Tornando su "All" si trovava il codice della fascia al
             // posto del proprio (clock fermo, perche' allSurfaceTextureCode()
@@ -5495,7 +5495,7 @@ void MainWindow::handleTextureSelection(int index)
 
             // ---> LE RIGHE CRITICHE RIPRISTINATE: Sincronizziamo la memoria! <---
             ui->glWidget->setTextureCode(rmTexCode);
-            ui->glWidget->setTextureEnabled(true);
+            ui->glWidget->setGlobalTextureEnabled(true);
             m_surfaceTextureState = true;
 
             // La checkbox è stata attivata con blockSignals: il suo handler non
@@ -5511,7 +5511,7 @@ void MainWindow::handleTextureSelection(int index)
                 performMasterStop();
                 InputValidator::showShaderCompilationError(this, "Preset Shader Error", ui->glWidget->getShaderError());
                 ui->glWidget->setTextureCode("");
-                ui->glWidget->setTextureEnabled(false);
+                ui->glWidget->setGlobalTextureEnabled(false);
                 ui->glWidget->rebuildShader();
                 return; // Esce in sicurezza senza crashare
             }
@@ -5983,10 +5983,10 @@ void MainWindow::onStartClicked()
             bool oldState = ui->chkBoxTexture->blockSignals(true);
             ui->chkBoxTexture->setChecked(false);
             ui->chkBoxTexture->blockSignals(oldState);
-            ui->glWidget->setTextureEnabled(false);
+            ui->glWidget->setGlobalTextureEnabled(false);
             m_surfaceTextureState = false;
         } else {
-            ui->glWidget->setTextureEnabled(true);
+            ui->glWidget->setGlobalTextureEnabled(true);
             m_surfaceTextureState = true;
 
             if (!ui->chkBoxTexture->isChecked()) {
@@ -6028,9 +6028,9 @@ void MainWindow::onStartClicked()
         updateMasterButtonState();
 
         if (ui->radioShell->isChecked()) {
-            ui->glWidget->setRenderMode(1);
+            ui->glWidget->setGlobalRenderMode(1);
         } else {
-            ui->glWidget->setRenderMode(0);
+            ui->glWidget->setGlobalRenderMode(0);
         }
 
         ui->glWidget->rebuildShader();
@@ -7897,7 +7897,7 @@ void MainWindow::onApplyTextureScriptClicked()
             const bool wasBlocked = ui->chkBoxTexture->blockSignals(true);
             ui->chkBoxTexture->setChecked(true);
             ui->chkBoxTexture->blockSignals(wasBlocked);
-            ui->glWidget->setTextureEnabled(true);
+            ui->glWidget->setGlobalTextureEnabled(true);
             m_surfaceTextureState = true;
         }
 
@@ -7923,7 +7923,7 @@ void MainWindow::onApplyTextureScriptClicked()
             m_currentTexturePath = imgPath;
             if (ui->glWidget) {
                 ui->glWidget->loadCustomShader("");
-                ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
+                ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
                 ui->glWidget->loadTextureFromFile(imgPath);
             }
         } else {
@@ -7936,7 +7936,7 @@ void MainWindow::onApplyTextureScriptClicked()
         // 2. GESTIONE COMPILAZIONE SHADER
         if (hasCustomLogic) {
             if (ui->glWidget) {
-                ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
+                ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
 
                 if (imgPath.isEmpty()) {
                     generateTexture();
@@ -7963,7 +7963,7 @@ void MainWindow::onApplyTextureScriptClicked()
         } else {
             // m_isCustomMode è già false (impostato = hasCustomLogic più sopra).
             if (ui->glWidget) {
-                ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
+                ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
 
                 bool success = ui->glWidget->validateAndApplyParametricShader("");
                 if (!success) {
@@ -8387,7 +8387,7 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
     if (ui->glWidget) {
         ui->glWidget->setColor(defR, defG, defB);
         ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
-        ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
+        ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
     }
 
     // Set PROGRAMMATICO (caricamento preset): il flag evita che valueChanged scambi
@@ -8415,7 +8415,7 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
 
     // 4. Reset Engine Grafico (Spegne tutte le texture)
     if (ui->glWidget) {
-        ui->glWidget->setTextureEnabled(false);
+        ui->glWidget->setGlobalTextureEnabled(false);
         ui->glWidget->setBackgroundTextureEnabled(false);
 
         // Scarico effettivo della texture di superficie dalla GPU. Senza questo,
@@ -9016,7 +9016,7 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
     // ===================================================================
 
     m_surfaceTextureState = texEnabled;
-    ui->glWidget->setTextureEnabled(texEnabled);
+    ui->glWidget->setGlobalTextureEnabled(texEnabled);
     m_surfaceTextureScriptText = texCode;
     m_surfaceTextureCode = texCode;
 
@@ -9044,7 +9044,7 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
 
     m_bgTexColor1 = loadedBgCol1;
     m_bgTexColor2 = loadedBgCol2;
-    ui->glWidget->setTextureColors(m_texColor1, m_texColor2);
+    ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
 
     // Svuota forzatamente gli shader procedurali "incastrati" prima di caricare il nuovo!
     if (ui->glWidget) {
@@ -9332,7 +9332,7 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
         if (ui->glWidget) {
 
             // Applica lo shader personalizzato se presente
-            // (qui c'era 'ui->glWidget->setRenderMode(11);', rimosso: 11 come render
+            // (qui c'era 'ui->glWidget->setGlobalRenderMode(11);', rimosso: 11 come render
             // mode non e' interpretato dal motore — equivaleva a 0; la update() era
             // gia' coperta sotto. NB: il 11 SALVATO nei preset ray marching e' altra
             // cosa, vedi decodifica '>= 10' in applyCommonData.)
@@ -10495,7 +10495,7 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     if (ui->glWidget) {
         const bool oldBypass = ui->glWidget->meshAppearanceBypass();
         ui->glWidget->setMeshAppearanceBypass(true);
-        ui->glWidget->setRenderMode(m_savedRenderMode);
+        ui->glWidget->setGlobalRenderMode(m_savedRenderMode);
         ui->glWidget->setMeshAppearanceBypass(oldBypass);
     }
 
@@ -10893,10 +10893,10 @@ void MainWindow::applyCommonData(const LibraryItem &d)
             // Ripristina lo stile Shell o Solid
             if (isShell) {
                 ui->radioShell->setChecked(true);
-                if (ui->glWidget) ui->glWidget->setRenderMode(1);
+                if (ui->glWidget) ui->glWidget->setGlobalRenderMode(1);
             } else {
                 ui->radioSolid->setChecked(true);
-                if (ui->glWidget) ui->glWidget->setRenderMode(0);
+                if (ui->glWidget) ui->glWidget->setGlobalRenderMode(0);
             }
         } else {
             ui->tabModeSelector->setCurrentIndex(0); // Cambia al tab Parametric
@@ -12675,7 +12675,7 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
 
     // Guardia di rientranza: questa funzione muove slider e radio, e quei
     // widget possono a loro volta far ripartire il giro (updateRenderState ->
-    // setRenderMode -> ...). Senza la guardia un rientro riscriverebbe lo stato
+    // setGlobalRenderMode -> ...). Senza la guardia un rientro riscriverebbe lo stato
     // mentre lo stiamo leggendo, e il selettore smetterebbe di rispondere.
     if (m_syncingMeshControls) return;
     m_syncingMeshControls = true;

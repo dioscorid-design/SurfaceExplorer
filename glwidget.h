@@ -160,8 +160,27 @@ public:
     void resetVisuals();
     void setProjectionMode(int mode);
     // ASPETTO PER-MESH: se una parte e' selezionata con lo spinbox del dock
-    // renderer, setColor/setAlpha/setLightIntensity/setRenderMode scrivono su
-    // QUELLA parte invece che sullo stato globale (vedi glwidget.cpp).
+    // renderer, setColor/setAlpha/setLightIntensity scrivono su QUELLA parte
+    // invece che sullo stato globale (vedi applyToActiveMeshPart).
+    //
+    // I SETTER DI GLWIDGET SONO DI DUE FAMIGLIE, con contratti OPPOSTI. Sbagliare
+    // famiglia e' la radice di un'intera serie di bug (il colore del preset che
+    // finiva dentro una fascia, il wireframe di una fascia che spegneva la
+    // texture di tutta la superficie, i colori di una texture per-mesh addosso a
+    // quella globale). Il prefisso nel nome dice a quale appartengono:
+    //
+    //   setColor / setAlpha / setLightIntensity
+    //       DIROTTANO sulla parte attiva. Per scrivere davvero il globale (stato
+    //       del preset, reset automatici del motore) serve il BYPASS.
+    //   setGlobal* (setGlobalRenderMode / setGlobalTextureEnabled /
+    //   setGlobalTextureColors)
+    //       scrivono SEMPRE lo stato globale, qualunque mesh sia selezionata.
+    //       Chi sta agendo su una fascia NON deve chiamarli: esistono i
+    //       setActiveMesh* corrispondenti.
+    //   setActiveMesh* (setActiveMeshRenderMode / setActiveMeshTexture /
+    //   setActiveMeshTexColors / setActiveMeshWireframeDensity)
+    //       scrivono SOLO sulla parte; tornano false in "All", dove il chiamante
+    //       deve ricadere sul setGlobal* corrispondente.
     void setActiveMeshPart(int index);
     // Sospende temporaneamente il dirottamento sulla mesh attiva: i reset
     // AUTOMATICI del motore (es. il ripristino di alpha/luce quando si entra in
@@ -184,7 +203,7 @@ public:
     int activeMeshPart() const { return m_activeMeshPart; }
     int meshPartCount() const { return engine ? engine->getMeshPartCount() : 0; }
 
-    void setRenderMode(int mode);
+    void setGlobalRenderMode(int mode);
     // Modalita' di rendering GLOBALE (0=Base, 1=Phong, 2=Wireframe). E' la fonte
     // di verita' per cio' che una parte "eredita": i radio dell'interfaccia NON
     // lo sono, perche' mostrano la modalita' della mesh selezionata.
@@ -198,7 +217,7 @@ public:
     float globalAlpha() const { return alpha; }
     float globalLightIntensity() const { return m_lightIntensity; }
     // COMANDO esplicito dell'utente sulla mesh selezionata: e' l'UNICA via che
-    // scrive una modalita' PROPRIA su una parte. setRenderMode() (chiamata da
+    // scrive una modalita' PROPRIA su una parte. setGlobalRenderMode() (chiamata da
     // updateRenderState a ogni cambio tab/proiezione/load) resta invece sempre
     // GLOBALE: e' la separazione fra display e comando che rende stabile il
     // wireframe per-mesh. Con "All" selezionato ricade sul globale.
@@ -210,9 +229,9 @@ public:
     bool clearActiveMeshTexture();
     // COLORI u_col1/u_col2 della parte selezionata. Stesso contratto degli altri
     // setActiveMesh*: true se ha scritto su una parte, false in "All", dove il
-    // chiamante deve usare setTextureColors (che e' SEMPRE globale).
+    // chiamante deve usare setGlobalTextureColors (che e' SEMPRE globale).
     // Senza questa via, muovere gli slider colore su una fascia texturizzata
-    // passava da setTextureColors e riscriveva i due slot GLOBALI: cambiava i
+    // passava da setGlobalTextureColors e riscriveva i due slot GLOBALI: cambiava i
     // colori della texture di superficie e di ogni altra fascia che li eredita.
     bool setActiveMeshTexColors(const QColor &c1, const QColor &c2);
     QString activeMeshTextureCode() const;
@@ -282,8 +301,8 @@ public:
     // ==========================================================
     void loadTextureFromFile(const QString &filename);
     void loadTextureFromImage(const QImage &img);
-    void setTextureEnabled(bool enable);
-    void setTextureColors(const QColor& c1, const QColor& c2);
+    void setGlobalTextureEnabled(bool enable);
+    void setGlobalTextureColors(const QColor& c1, const QColor& c2);
     void clearTexture();
 
     void setScriptCheck(bool enabled);
