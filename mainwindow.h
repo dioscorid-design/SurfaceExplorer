@@ -508,6 +508,12 @@ private:
     bool m_userStoppedTexClock  = false;
     bool m_userStoppedBgClock   = false;
     bool m_userStoppedGeomClock = false;
+    // Stesso ruolo, per gli orologi delle SINGOLE mesh: alzato dallo Stop in
+    // ambito "Mesh", impedisce ai ricalcoli di applyAnimationState (commit di
+    // equazione, load, toggle sfondo) di riaccendere una fascia fermata a mano.
+    // Non distingue QUALE fascia: e' un gate sul ricalcolo di massa, non lo
+    // stato dei singoli orologi, che vivono in MeshPart::texAnimating.
+    bool m_userStoppedMeshTexClock = false;
 
     // Moto CAMERA (path 4D/3D o rotazioni GO) fermato ESPLICITAMENTE: STOP su
     // Departure, pausa del GO o master STOP. Senza questo flag un commit di
@@ -609,7 +615,9 @@ private:
     QString composeEquation(const QString &eq, const QString &uDef, const QString &vDef, const QString &wDef);
     void parseAndApplyScriptParams(const QString &scriptCode, bool restartAudio = true,
                                    bool onlyFillEmptyLimits = false);
-    bool hasTimeVariable(const QString& code);
+    // const: e' pura analisi del testo, non tocca stato. Serve tale ai lettori
+    // const che devono sapere se un codice e' animato (anyMeshTextureCodeAnimated).
+    bool hasTimeVariable(const QString& code) const;
     QString extractAndResolveImagePath(const QString& scriptCode);
     QString extractAudioDirectives(const QString& fullText);
     static QString cleanCodeForComparison(QString str);
@@ -715,6 +723,13 @@ private:
     // true se almeno una fascia ha una texture propria accesa: il modulo
     // "texture di superficie" e' attivo anche senza texture globale.
     bool anyMeshTextureActive() const;
+    // Almeno una fascia con texture accesa il cui codice usa il tempo: e' cio'
+    // che il master button deve considerare "in movimento" per le per-mesh.
+    bool anyMeshTextureCodeAnimated() const;
+    // Riaccende l'orologio di ogni fascia con texture propria ANIMATA (e spegne
+    // le altre): gesto simmetrico dello Stop in ambito "All", senza il quale le
+    // texture per-mesh non ripartono piu'.
+    void restartAnimatedMeshTextures();
     void updateMeshScopeEnabled();
     void toggleProjection();
     bool applyBackgroundTextureIfNeeded();

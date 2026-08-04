@@ -216,6 +216,12 @@ public:
     // ambito "All" e quelli che una parte senza valore proprio eredita.
     float globalAlpha() const { return alpha; }
     float globalLightIntensity() const { return m_lightIntensity; }
+    // COLORI u_col1/u_col2 della texture di SUPERFICIE. Sono i due slot globali,
+    // che il ramo per-mesh non tocca mai: restano quindi la fonte di verita' per
+    // ripristinare il DISPLAY tornando in ambito "All" dopo essere passati da una
+    // fascia (che sovrascrive i membri m_texColor1/2 di MainWindow coi propri).
+    QColor globalTexColor1() const { return QColor::fromRgbF(texRed1, texGreen1, texBlue1); }
+    QColor globalTexColor2() const { return QColor::fromRgbF(texRed2, texGreen2, texBlue2); }
     // COMANDO esplicito dell'utente sulla mesh selezionata: e' l'UNICA via che
     // scrive una modalita' PROPRIA su una parte. setGlobalRenderMode() (chiamata da
     // updateRenderState a ogni cambio tab/proiezione/load) resta invece sempre
@@ -226,7 +232,12 @@ public:
     // TEXTURE PROCEDURALE PER-MESH. Ritornano true se hanno scritto su una
     // parte; false in "All", dove il chiamante deve applicare al globale.
     bool setActiveMeshTexture(const QString &code, bool enabled);
-    bool clearActiveMeshTexture();
+    // Spegne/riaccende la texture della parte CONSERVANDO lo script: lo spegnimento
+    // NON deve passare da setActiveMeshTexture, che e' la via di COMANDO e
+    // riscriverebbe textureCode forzando hasCustomTexture=true (rimetterebbe "in
+    // vita" la texture che si sta togliendo). Usato dal wireframe, che la texture
+    // non la disegna, e dal checkbox. True se ha cambiato qualcosa.
+    bool setActiveMeshTextureEnabled(bool on);
     // COLORI u_col1/u_col2 della parte selezionata. Stesso contratto degli altri
     // setActiveMesh*: true se ha scritto su una parte, false in "All", dove il
     // chiamante deve usare setGlobalTextureColors (che e' SEMPRE globale).
@@ -234,7 +245,29 @@ public:
     // passava da setGlobalTextureColors e riscriveva i due slot GLOBALI: cambiava i
     // colori della texture di superficie e di ogni altra fascia che li eredita.
     bool setActiveMeshTexColors(const QColor &c1, const QColor &c2);
+    // Zoom/pan/rotazione 2D della parte attiva, da FUORI la vista 2D: la usa chi
+    // APPLICA una texture per darle l'inquadratura del suo preset, come il ramo
+    // globale fa con setFlatZoom/setFlatPan/setFlatRotation. True se ha scritto
+    // su una parte, false in "All".
+    bool setActiveMeshTexTransform(float zoom, const QVector2D &pan, float rotation);
+    // OROLOGIO TEXTURE PER-MESH (Stop/Run della sola parte selezionata).
+    // Contratto degli altri setActiveMesh*: true se ha scritto su una parte,
+    // false in "All", dove decide il chiamante.
+    bool setActiveMeshTextureAnimating(bool animating);
+    // Scrive l'orologio su TUTTE le parti (ambito "All" e master Start/Stop).
+    // ADOZIONE ESPLICITA: nessuna parte eredita il clock globale, o ne
+    // erediterebbe anche il freeze. Vedi la nota su timeTex in MeshPart.
+    void setAllMeshTexturesAnimating(bool animating);
+    // Stato dell'orologio della parte attiva: e' cio' che i tasti Run/Stop
+    // mostrano in ambito "Mesh".
+    bool isActiveMeshTextureAnimating() const;
+    // C'e' almeno una parte con texture propria, accesa e in movimento?
+    // Il master button la considera attivita' da fermare/riavviare.
+    bool anyMeshTextureAnimating() const;
     QString activeMeshTextureCode() const;
+    // Come sopra, ma vuoto se la texture della parte e' SPENTA (lo script resta
+    // conservato). E' cio' che l'editor deve mostrare: vedi la nota nel .cpp.
+    QString activeMeshEffectiveTextureCode() const;
     // Texture EFFICACE della parte attiva (propria E accesa): e' cio' che il
     // render disegna, quindi decide se gli slider colore editano u_col1/u_col2
     // o la tinta della superficie, e se il tasto 2D ha qualcosa da mostrare.

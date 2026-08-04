@@ -550,6 +550,19 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         if (m_bgAnimating)      m_timeBg   += dt;
     }
 
+    // OROLOGI PER-MESH DELLA TEXTURE. Stesso identico dt/vTime dei globali (il
+    // recorder passa il tempo virtuale del frame): il contratto del loop di
+    // registrazione vale anche qui, cioe' il frame i mostra cio' che lo schermo
+    // mostrerebbe al tempo equivalente. Ogni parte avanza SOLO col proprio flag,
+    // ed e' questo che permette di fermarne una sola.
+    if (engine) {
+        for (MeshPart &mp : engine->mutableMeshParts()) {
+            if (!mp.texAnimating) continue;
+            if (useVirtualTime) mp.timeTex = property("virtual_time").toFloat();
+            else                mp.timeTex += dt;
+        }
+    }
+
     // 3. INVIO DEI DATI ALLA GPU
     // In registrazione m_manualTime avanza per TUTTI (setShaderTime dal loop del
     // recorder): per i moduli fermi va neutralizzato col tempo totale congelato,
@@ -662,7 +675,20 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 // Questa parte finira' texturizzata? Serve PRIMA del colore: una
                 // parte SENZA texture deve riprendersi la propria tinta, mentre
                 // una texturizzata vuole il bianco neutro (finalRGB = color * tex).
-                const bool partTextured = mp.effectiveTextureEnabledMulti();
+                //
+                // IN WIREFRAME (o Bordi) LA TEXTURE NON SI APPLICA: il fragment
+                // esce subito con `FragColor = vec4(ubuf.color, alpha)` (vedi la
+                // guardia u_renderMode 2/5 in surface.frag), quindi ubuf.color
+                // NON e' un fattore da neutralizzare ma il colore FINALE delle
+                // linee. Trattare la parte come texturizzata la disegnava col
+                // bianco neutro: mettendo il wireframe su una mesh con texture,
+                // le linee diventavano bianche e il colore proprio spariva.
+                // Stesso criterio del render (effectivePartRenderMode), cosi' le
+                // due decisioni non possono divergere.
+                const int partMode = effectivePartRenderMode(mp);
+                const bool partFlatColored = (partMode == 2 || partMode == 5);
+                const bool partTextured = mp.effectiveTextureEnabledMulti()
+                                          && !partFlatColored;
 
                 // COLORE DELLA PARTE. Il ramo globale poco sopra forza
                 // m_uboData.color a BIANCO quando la texture globale e' accesa,
@@ -767,6 +793,20 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                     partUbo.center = QVector2D(mp.texPanX, mp.texPanY);
                     partUbo.rotation = mp.texRotation;
                 }
+
+                // OROLOGIO DELLA PARTE (dummyZero.x = tempo letto da ogni
+                // getCustomColor_<k>). Si scrive SEMPRE, mai per ereditarieta':
+                // il tempo e' un valore che scorre e che il globale puo'
+                // congelare, quindi una parte che copiasse m_timeTex si
+                // congelerebbe insieme a lui e non ripartirebbe piu' da sola.
+                // Vedi la nota su timeTex in MeshPart.
+                // In registrazione vale la stessa neutralizzazione del globale:
+                // m_manualTime avanza per tutti, e una parte ferma va tenuta al
+                // suo tempo congelato o animerebbe comunque nel video.
+                partUbo.dummyZero.setX(
+                    (useVirtualTime && m_vtFreezeValid && !mp.texAnimating)
+                        ? mp.timeTex
+                        : m_manualTime + mp.timeTex);
             }
 
             // MODALITA' PER-PARTE. Lo shader decide dal solo ubuf.u_renderMode
@@ -2332,6 +2372,31 @@ bool GLWidget::setActiveMeshTexture(const QString &code, bool enabled) {
     return onPart;
 }
 
+// OROLOGIO DELLA TEXTURE DELLA SOLA PARTE ATTIVA (Stop/Run per-mesh).
+// Il tempo NON si azzera: fermando e riavviando, l'animazione riprende da dove
+// era, come fa lo Stop globale.
+// Nessun rebuildShader: si muove solo un flag letto dal tick.
+bool GLWidget::setActiveMeshTextureAnimating(bool animating) {
+    const bool onPart = applyToActiveMeshPart([&](MeshPart &p){
+        p.texAnimating = animating;
+    });
+    if (onPart) update();
+    return onPart;
+}
+
+// OROLOGIO DI TUTTE LE PARTI (ambito "All", e master Start/Stop).
+// ADOZIONE ESPLICITA, non ereditarieta': lo stato si SCRIVE su ogni parte invece
+// di lasciare che le parti copino il clock globale. E' la differenza che fa
+// funzionare lo stop per-mesh -- una parte che ereditasse il tempo globale
+// erediterebbe anche il suo freeze, e dopo uno Stop in "All" non ripartirebbe
+// piu' da sola (e' l'errore per cui il primo tentativo fu revertato).
+void GLWidget::setAllMeshTexturesAnimating(bool animating) {
+    if (!engine) return;
+    for (MeshPart &mp : engine->mutableMeshParts()) mp.texAnimating = animating;
+    engine->syncPartAppearance();
+    update();
+}
+
 // Colori u_col1/u_col2 PROPRI della parte attiva. Non tocca i due slot globali
 // (texRed1..texBlue2), che appartengono alla texture di SUPERFICIE.
 // Nessun rebuildShader: i colori vivono nel blocco UBO, non nel codice.
@@ -2342,16 +2407,30 @@ bool GLWidget::setActiveMeshTexColors(const QColor &c1, const QColor &c2) {
     });
 }
 
-// Spegne la texture propria della parte attiva e la fa tornare a EREDITARE dal
-// globale (hasCustomTexture = false), che e' diverso da "texture spenta".
-bool GLWidget::clearActiveMeshTexture() {
-    const bool onPart = applyToActiveMeshPart([](MeshPart &p){
-        p.textureCode.clear();
-        p.textureEnabled = false;
-        p.hasCustomTexture = false;
+// SPEGNE la texture propria della parte attiva CONSERVANDO lo script:
+// hasCustomTexture resta true e textureCode intatto, quindi riaccendendo il
+// checkbox si ritrova la propria texture invece di doverla ricaricare.
+// NON usare setActiveMeshTexture per spegnere: e' la via di COMANDO e riscrive
+// textureCode forzando hasCustomTexture=true, cioe' riafferma la texture proprio
+// mentre la si toglie (l'editor continuava a mostrarne lo script).
+// Serve al wireframe, che la texture non la disegna
+// (il fragment esce prima, vedi la guardia u_renderMode 2/5 in surface.frag):
+// senza spegnerla, togliendo il wireframe la texture ricompariva da sola con
+// il checkbox che diceva il contrario.
+// Ritorna true se ha davvero cambiato qualcosa, cosi' il chiamante sa se
+// ricompilare e se aggiornare l'UI.
+bool GLWidget::setActiveMeshTextureEnabled(bool on) {
+    bool changed = false;
+    const bool onPart = applyToActiveMeshPart([&](MeshPart &p){
+        if (!p.hasCustomTexture || p.textureEnabled == on) return;
+        p.textureEnabled = on;
+        // Spegnendo si ferma anche il suo orologio: un clock acceso su una
+        // texture che nessuno disegna terrebbe il master su "STOP" a vuoto.
+        if (!on) p.texAnimating = false;
+        changed = true;
     });
-    if (onPart) rebuildShader();
-    return onPart;
+    if (onPart && changed) { rebuildShader(); update(); }
+    return onPart && changed;
 }
 
 // Codice della texture della parte attiva, per il DISPLAY nell'editor.
@@ -2362,6 +2441,44 @@ QString GLWidget::activeMeshTextureCode() const {
     if (m_activeMeshPart >= (int)parts.size()) return QString();
     const MeshPart &p = parts[m_activeMeshPart];
     return p.hasCustomTexture ? p.textureCode : QString();
+}
+
+// Codice della texture EFFICACE della parte attiva: quello che la mesh sta
+// davvero disegnando. Vuoto se la texture e' SPENTA, anche se lo script esiste
+// ancora (lo si conserva apposta: wireframe o checkbox tolto).
+// E' cio' che l'EDITOR deve mostrare: activeMeshTextureCode() guarda il solo
+// hasCustomTexture, quindi rimetteva in vista lo script di una texture spenta --
+// e un Run l'avrebbe riapplicata di soppiatto.
+QString GLWidget::activeMeshEffectiveTextureCode() const {
+    if (m_activeMeshPart < 0 || !engine) return QString();
+    const std::vector<MeshPart> &parts = engine->getMeshParts();
+    if (m_activeMeshPart >= (int)parts.size()) return QString();
+    const MeshPart &p = parts[m_activeMeshPart];
+    return p.effectiveTextureEnabledMulti() ? p.textureCode : QString();
+}
+
+// Orologio della parte attiva: e' cio' che i tasti Run/Stop devono MOSTRARE
+// quando l'ambito e' "Mesh", allo stesso modo in cui slider e radio mostrano
+// l'aspetto della parte. In "All" (nessuna parte attiva) torna false e decide
+// il chiamante, che li' guarda il clock globale.
+bool GLWidget::isActiveMeshTextureAnimating() const {
+    if (m_activeMeshPart < 0 || !engine) return false;
+    const std::vector<MeshPart> &parts = engine->getMeshParts();
+    if (m_activeMeshPart >= (int)parts.size()) return false;
+    return parts[m_activeMeshPart].texAnimating;
+}
+
+// C'e' almeno una parte con la texture in movimento? Serve al master button:
+// una texture per-mesh in moto e' attivita' a tutti gli effetti, e il master
+// deve poterla fermare e farla ripartire.
+bool GLWidget::anyMeshTextureAnimating() const {
+    if (!engine) return false;
+    for (const MeshPart &mp : engine->getMeshParts()) {
+        if (mp.texAnimating && mp.hasCustomTexture && mp.textureEnabled
+            && !mp.textureCode.isEmpty())
+            return true;
+    }
+    return false;
 }
 
 // Texture EFFICACE della parte attiva: propria E accesa. E' cio' che il render
@@ -2894,6 +3011,30 @@ void GLWidget::commitFlatTransformToActivePart() {
     p->texPanY = m_flatPan.y();
     p->texRotation = m_flatRotation;
     engine->syncPartAppearance();
+}
+
+// Trasformazione 2D della parte attiva, impostata da FUORI la vista 2D: serve a
+// chi APPLICA una texture per darle l'inquadratura salvata nel suo preset
+// (zoom/pan/rotation del JSON), come il ramo globale fa con setFlatZoom & C.
+// Senza, la fascia si teneva la manipolazione della texture PRECEDENTE e ogni
+// texture nuova nasceva gia' zoomata/ruotata.
+// Aggiorna anche il buffer di lavoro se la parte e' quella in editing 2D, o la
+// vista continuerebbe a mostrare la vecchia inquadratura.
+bool GLWidget::setActiveMeshTexTransform(float zoom, const QVector2D &pan, float rotation) {
+    const bool onPart = applyToActiveMeshPart([&](MeshPart &p){
+        p.texZoom = zoom;
+        p.texPanX = pan.x();
+        p.texPanY = pan.y();
+        p.texRotation = rotation;
+    });
+    if (!onPart) return false;
+    if (m_isFlatView && m_flatViewTarget == 0) {
+        m_flatZoom = zoom;
+        m_flatPan = pan;
+        m_flatRotation = rotation;
+    }
+    update();
+    return true;
 }
 
 // Carica nei membri globali la trasformazione della parte attiva, cosi' la vista
@@ -4469,12 +4610,54 @@ QString GLWidget::buildTextureFunction(const QString &customLogic, const QString
 
         if (!safeLogic.contains(QRegularExpression("\\bvec3\\s+u_col1\\b"))) extHelpers += "#define u_col1 ubuf.u_col1\n";
         if (!safeLogic.contains(QRegularExpression("\\bvec3\\s+u_col2\\b"))) extHelpers += "#define u_col2 ubuf.u_col2\n";
-        // Qui il nome della funzione lo scrive l'UTENTE dentro lo script
-        // ("getCustomColor" letterale): per una texture per-mesh va rinominato,
-        // o le N definizioni collidono.
-        if (funcName != QLatin1String("getCustomColor"))
-            safeLogic.replace(QRegularExpression("\\bgetCustomColor\\b"), funcName);
-        codeToInject = extHelpers + safeLogic;
+        // TRASFORMAZIONE 2D (zoom / pan / rotazione del mouse in vista flat).
+        // Questo ramo iniettava lo script dell'utente TALE E QUALE: gli helpers
+        // che calcolano 'uv' non venivano emessi, quindi la funzione riceveva
+        // in_uv GREZZO e la texture non rispondeva al mouse in 2D (caso
+        // "Animated Gradient", che dichiara getCustomColor(vec2 in_uv) invece di
+        // essere uno snippet su u/v -- il ramo snippet gli helpers ce li ha).
+        // Non si tocca il CORPO della funzione dell'utente: la si rinomina e le
+        // si mette davanti un wrapper col nome atteso, che trasforma le
+        // coordinate e la chiama. Cosi' vale per qualunque script di questa
+        // forma, presenti e futuri, e il codice utente resta intatto.
+        const QString innerName = funcName + "_user";
+        safeLogic.replace(QRegularExpression("\\bgetCustomColor\\b"), innerName);
+
+        // SOLO le righe della trasformazione, NON `helpers` intero: quello
+        // dichiara anche le LOCALI u_col1/u_col2, che qui sono #define -> si
+        // espanderebbero in `vec3 ubuf.u_col1 = ...` ("unexpected DOT") e lo
+        // shader non compilerebbe, facendo sparire la superficie. E' la trappola
+        // gia' nota del leak delle #define.
+        const QString uvTransform =
+            "    float _rad = radians(ubuf.u_rotation);\n"
+            "    float _c = cos(_rad); float _s = sin(_rad);\n"
+            "    vec2 _centered = in_uv - 0.5;\n"
+            "    vec2 _rot = vec2(_centered.x * _c - _centered.y * _s, _centered.x * _s + _centered.y * _c) + 0.5;\n"
+            "    float _scale = 1.0 / ubuf.u_zoom;\n"
+            "    vec2 _shift = ubuf.u_center * 0.5;\n"
+            "    vec2 uv = (_rot - 0.5) * _scale + 0.5 + _shift;\n";
+
+        QString wrapper = "vec3 " + funcName + "(vec2 in_uv) {\n"
+                        + uvTransform +
+                          "    return " + innerName + "(uv);\n"
+                          "}\n";
+        // CHIUSURA DELLO SCOPE DELLE MACRO. Le #define qui sopra NON hanno
+        // scope di funzione: valgono fino a fine file, quindi si espandono
+        // dentro le funzioni generate DOPO questa. Il caso rotto: texture
+        // globale su questo ramo (che definisce u_col1) + texture per-mesh sul
+        // ramo "corpo" (che dichiara `vec3 u_col1 = ubuf.u_col1;` come locale)
+        // -> la macro riscriveva la locale in `vec3 ubuf.u_col1 = ...`, cioe'
+        // "syntax error, unexpected DOT": lo shader non compilava e la
+        // superficie spariva TUTTA. Le rimuoviamo appena il codice che le usa
+        // e' stato emesso: dentro safeLogic hanno gia' fatto il loro lavoro.
+        QString undefs = "\n#undef iResolution\n#undef iTime\n";
+        if (extHelpers.contains("#define u_col1")) undefs += "#undef u_col1\n";
+        if (extHelpers.contains("#define u_col2")) undefs += "#undef u_col2\n";
+        // Ordine obbligato: la funzione dell'utente (rinominata) PRIMA, poi il
+        // wrapper che la chiama -- in GLSL non c'e' hoisting, una funzione va
+        // dichiarata prima dell'uso. Gli #undef restano ULTIMI, o le macro
+        // sparirebbero prima che il wrapper le abbia usate.
+        codeToInject = extHelpers + safeLogic + "\n" + wrapper + undefs;
     }
     else {
         if (!safeLogic.contains("return")) {

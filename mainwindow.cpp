@@ -2691,8 +2691,15 @@ MainWindow::MainWindow(QWidget *parent)
                 ui->glWidget->setActiveMeshTexColors(m_texColor1, m_texColor2);
             }
 
+            // ACCENSIONE: applica lo script alla parte (via di COMANDO).
+            // SPEGNIMENTO: si spegne soltanto, CONSERVANDO lo script --
+            // setActiveMeshTexture e' la via di comando e riscriverebbe
+            // textureCode forzando hasCustomTexture=true, cioe' rimetterebbe la
+            // texture "in vita" proprio mentre la si sta spegnendo: l'editor
+            // continuava a mostrarne lo script (il display guarda la texture
+            // EFFICACE, e quella restava dichiarata).
             if (checked) ui->glWidget->setActiveMeshTexture(code, true);
-            else         ui->glWidget->setActiveMeshTexture(code, false);
+            else         ui->glWidget->setActiveMeshTextureEnabled(false);
 
             // OROLOGIO DELLA TEXTURE. Accendere la texture di una mesh e' un
             // avvio esplicito del modulo, come il Run: riarma un eventuale stop
@@ -2703,9 +2710,31 @@ MainWindow::MainWindow(QWidget *parent)
             ui->glWidget->setSurfaceTextureAnimating(
                 hasTimeVariable(allSurfaceTextureCode()));
 
+            // OROLOGIO DELLA PARTE. Ogni fascia ha il PROPRIO clock: accendere
+            // solo quello globale (riga sopra) non la muove piu'. Senza questa
+            // riga, riaccendendo il checkbox la texture tornava FERMA.
+            // Solo se il suo script usa il tempo: una texture statica non deve
+            // lasciare acceso un orologio a vuoto.
+            if (checked) {
+                m_userStoppedMeshTexClock = false;   // comando esplicito
+                ui->glWidget->setActiveMeshTextureAnimating(hasTimeVariable(code));
+            }
+
             // I picker Color 1/2 servono solo se lo script della parte li usa.
             updateTextureUIState(checked, true);
             updateFlatPreviewButton();
+
+            // EDITOR E TASTI RIALLINEATI SUBITO. Questo ramo esce con return e
+            // non passava dal display per-mesh: spegnendo il checkbox l'editor
+            // restava con lo script della texture appena spenta, e si svuotava
+            // solo al PRIMO EVENTO SUCCESSIVO che risincronizza (il "giro di
+            // ritardo": serviva spegnere due volte perche' sparisse).
+            // syncAppearanceControlsToActiveMesh e' il punto unico del display
+            // per-mesh e decide da solo cosa mostrare, in base alla texture
+            // EFFICACE della parte.
+            syncAppearanceControlsToActiveMesh();
+            updateMasterButtonState();
+
             ui->glWidget->update();
             return;
         }
@@ -3251,9 +3280,14 @@ MainWindow::MainWindow(QWidget *parent)
         // in "All" quelle per-mesh sono sospese, quindi il clock va rivalutato o
         // resterebbe acceso per una texture animata che nessuno sta piu'
         // disegnando (e viceversa, spento tornando su "Mesh").
+        // Si guarda SOLO la texture di SUPERFICIE: e' quella che questo clock
+        // governa. Con allSurfaceTextureCode() (che aggrega anche le fasce),
+        // passare ad "All" con una texture per-mesh animata RIACCENDEVA il clock
+        // di superficie che l'utente aveva appena fermato -- e il tasto tornava
+        // su "Stop" da solo.
         if (!m_userStoppedTexClock)
             ui->glWidget->setSurfaceTextureAnimating(
-                hasTimeVariable(allSurfaceTextureCode()));
+                hasTimeVariable(m_surfaceTextureCode));
 
         // In "All" il checkbox torna a mostrare lo stato GLOBALE della texture:
         // in "Mesh" ci pensa syncAppearanceControlsToActiveMesh (display della
@@ -3267,6 +3301,14 @@ MainWindow::MainWindow(QWidget *parent)
         // Come per lo spinbox: il sync muove i radio a segnali bloccati, quindi
         // il gating (tasti densita' U/V) va aggiornato a mano.
         updateRenderState();
+
+        // TASTI RICALCOLATI PER ULTIMI. syncAppearanceControlsToActiveMesh (piu'
+        // sopra) li aggiorna gia', ma gira PRIMA che il clock texture venga
+        // rivalutato qui: leggeva quindi lo stato vecchio e il tasto restava
+        // quello dell'ambito precedente. Ordine: stato -> display, mai il
+        // contrario.
+        updateScriptButtonText();
+        updateMasterButtonState();
     };
     // ESCLUSIVITA': i due radio NON sono fratelli (radioMeshOne sta dentro
     // groupMeshOne, il riquadro che lo tiene insieme allo spinbox; radioMeshAll
@@ -4660,6 +4702,16 @@ void MainWindow::performMasterStop()
         ui->glWidget->setSurfaceAnimating(false);
         ui->glWidget->setSurfaceTextureAnimating(false);
         ui->glWidget->setBackgroundTextureAnimating(false);
+        // OROLOGI PER-MESH: hanno un flag PROPRIO in MeshPart, quindi spegnere i
+        // tre clock globali non li tocca. Senza questa riga il master fermava
+        // tutto tranne le texture delle fasce, che continuavano a girare: e
+        // siccome updateMasterButtonState le considera attivita' in moto, il
+        // tasto restava su "STOP" senza avere piu' nulla da fermare.
+        ui->glWidget->setAllMeshTexturesAnimating(false);
+        // Stop esplicito: alza il gate come gli altri stop, o il primo ricalcolo
+        // (commit di equazione, toggle sfondo) le riaccenderebbe. Lo riarma il
+        // master Start, che deve poter rimettere in moto qualunque cosa.
+        m_userStoppedMeshTexClock = true;
     }
 
     // Ferma il flusso geodetico
@@ -5408,10 +5460,33 @@ void MainWindow::handleTextureSelection(int index)
                 // Una texture SENZA colori propri riparte dai default, come fa il
                 // ramo globale: senza azzerarli, la fascia si terrebbe addosso i
                 // colori della texture che aveva prima.
-                ui->glWidget->setActiveMeshTexColors(
-                    data.hasCustomColors ? QColor(data.color1)
-                                         : QColor::fromRgbF(0.20f, 0.80f, 0.20f),
-                    data.hasCustomColors ? QColor(data.color2) : QColor(Qt::black));
+                const QColor meshTexC1 = data.hasCustomColors
+                        ? QColor(data.color1) : QColor::fromRgbF(0.20f, 0.80f, 0.20f);
+                const QColor meshTexC2 = data.hasCustomColors
+                        ? QColor(data.color2) : QColor(Qt::black);
+                ui->glWidget->setActiveMeshTexColors(meshTexC1, meshTexC2);
+
+                // DISPLAY DEGLI SLIDER COLORE. m_texColor1/2 non sono solo i due
+                // slot GLOBALI del motore: sono anche cio' che gli slider Color
+                // 1/2 MOSTRANO e modificano. Il blocco che li scrive piu' sopra
+                // e' saltato di proposito in ambito Mesh (per non sporcare la
+                // texture di SUPERFICIE), quindi restavano sui valori precedenti
+                // -- tipicamente il verde/nero della scacchiera di default -- pur
+                // avendo la fascia i colori della texture appena caricata.
+                // Qui si allinea il DISPLAY, non il motore: i colori della parte
+                // sono gia' stati scritti nella MeshPart dalla riga sopra.
+                m_texColor1 = meshTexC1;
+                m_texColor2 = meshTexC2;
+
+                // INQUADRATURA 2D DELLA TEXTURE APPENA APPLICATA (zoom/pan/
+                // rotazione salvati nel suo preset). Stesso criterio dei colori
+                // qui sopra, e stessa cosa che il ramo GLOBALE fa poco piu' sotto
+                // con setFlatZoom/setFlatPan/setFlatRotation: era l'unico dato
+                // della texture che il ramo per-mesh non applicava, e la fascia
+                // si teneva addosso la manipolazione 2D della texture PRECEDENTE
+                // -- ogni texture nuova nasceva gia' zoomata e ruotata.
+                ui->glWidget->setActiveMeshTexTransform(
+                    data.zoom, QVector2D(data.panX, data.panY), data.rotation);
 
                 ui->glWidget->setActiveMeshTexture(newCode, true);
 
@@ -5427,6 +5502,17 @@ void MainWindow::handleTextureSelection(int index)
                 m_userStoppedTexClock = false;
                 ui->glWidget->setSurfaceTextureAnimating(
                     hasTimeVariable(allSurfaceTextureCode()));
+                // OROLOGIO DELLA PARTE. Va acceso QUI: e' un campo suo, e senza
+                // questa riga una texture animata appena applicata alla fascia
+                // nascerebbe FERMA (il clock globale non la muove piu': ogni
+                // parte ha il proprio). Solo se il codice usa il tempo, cosi'
+                // una texture statica non lascia acceso un orologio inutile.
+                ui->glWidget->setActiveMeshTextureAnimating(hasTimeVariable(newCode));
+                // Applicare una texture e' un comando esplicito sulla fascia:
+                // riarma il gate, come m_userStoppedTexClock qui sopra per il
+                // globale. Senza, dopo uno Stop per-mesh ogni texture applicata
+                // dopo sarebbe nata ferma.
+                m_userStoppedMeshTexClock = false;
                 updateMasterButtonState();
 
                 syncTextureEditorTo(newCode);
@@ -5780,6 +5866,9 @@ void MainWindow::onStartClicked()
         m_userStoppedTexClock = false;
         m_userStoppedBgClock = false;
         m_userStoppedCameraMotion = false;
+        // Anche gli stop delle SINGOLE mesh: il master rimette in moto qualunque
+        // cosa, quindi riarma pure il gate che li protegge dai ricalcoli.
+        m_userStoppedMeshTexClock = false;
     }
 
     // ==========================================================
@@ -7122,6 +7211,13 @@ void MainWindow::onToggleScriptMode()
     if (m_currentScriptMode == ScriptModeSurface) m_surfaceScriptText = currentText;
     else if (m_currentScriptMode == ScriptModeTexture) {
         if (ui->radioBackground->isChecked()) m_bgTextureScriptText = currentText;
+        // AMBITO "MESH": l'editor mostra la texture della PARTE, che vive nella
+        // MeshPart. Salvarla in m_surfaceTextureScriptText (lo slot della texture
+        // di SUPERFICIE) lo sporcava col codice per-mesh: alla texture successiva
+        // ci si ritrovava i due script sommati nell'editor. Qui non si salva
+        // nulla -- la texture della parte e' gia' committata nella MeshPart da
+        // setActiveMeshTexture, e questo campo non ne e' il proprietario.
+        else if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0) { }
         // In Ray Marching la texture di SUPERFICIE ha l'editor svuotato di proposito
         // (si gestisce dal dock Equations): NON salvarlo, altrimenti sovrascriveremmo
         // m_surfaceTextureScriptText con il vuoto, perdendo il codice parametrico.
@@ -7141,6 +7237,21 @@ void MainWindow::onToggleScriptMode()
     } else if (m_currentScriptMode == ScriptModeTexture) {
         if (ui->radioBackground->isChecked()) {
             ui->txtScriptEditor->setPlainText(m_bgTextureScriptText);
+        } else if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
+            // AMBITO "MESH": va mostrata la texture della PARTE, non quella di
+            // superficie. Qui si caricava sempre m_surfaceTextureScriptText:
+            // con una texture messa su una mesh quello slot e' legittimamente
+            // vuoto (la texture sta nella MeshPart), e il tab Texture appariva
+            // VUOTO pur avendo la mesh la sua texture. Stesso criterio dei
+            // radio e degli slider: i controlli mostrano cio' che comandano.
+            // Texture EFFICACE, non solo "dichiarata": se la mesh ha la texture
+            // SPENTA (wireframe, o checkbox tolto) lo script resta conservato ma
+            // non va mostrato, o il tab si ripopolerebbe con una texture che
+            // quella mesh non sta disegnando. Stesso criterio di
+            // syncAppearanceControlsToActiveMesh: e' il motivo per cui deselezionando
+            // la texture dal tab Surface e poi passando a Texture lo script
+            // ricompariva ("resta al primo giro").
+            ui->txtScriptEditor->setPlainText(ui->glWidget->activeMeshEffectiveTextureCode());
         } else {
             ui->txtScriptEditor->setPlainText(m_surfaceTextureScriptText);
         }
@@ -7250,6 +7361,23 @@ void MainWindow::onRunCurrentScript()
 
     } else if (m_currentScriptMode == ScriptModeTexture) {
         if (ui->btnRunCurrentScript->text().startsWith("Stop")) {
+            // AMBITO "MESH": lo Stop ferma SOLO la texture della mesh
+            // selezionata, come colore/alpha/luce agiscono sulla sola parte.
+            // Non si tocca il clock globale ne' m_userStoppedTexClock: le altre
+            // mesh e la texture di superficie devono continuare a girare.
+            if (!ui->radioBackground->isChecked() && ui->glWidget
+                && ui->glWidget->activeMeshPart() >= 0) {
+                ui->glWidget->setActiveMeshTextureAnimating(false);
+                // Stop ESPLICITO su una fascia: protegge gli orologi per-mesh dai
+                // ricalcoli di applyAnimationState (commit di equazione, load,
+                // toggle sfondo), che altrimenti li riaccenderebbero tutti al
+                // primo giro. Lo riarma il master Start.
+                m_userStoppedMeshTexClock = true;
+                updateMasterButtonState();
+                updateScriptButtonText();
+                return;
+            }
+
             // Stop esplicito del clock texture/sfondo: il flag lo tiene fermo
             // anche attraverso i ricalcoli globali (vedi applyAnimationState).
             if (ui->radioBackground->isChecked()) m_userStoppedBgClock = true;
@@ -7257,15 +7385,51 @@ void MainWindow::onRunCurrentScript()
             if (ui->glWidget) {
                 if (ui->radioBackground->isChecked())
                     ui->glWidget->setBackgroundTextureAnimating(false);
-                else
+                else {
+                    // AMBITO "ALL": si ferma la texture di SUPERFICIE, che e'
+                    // quella che l'ambito All comanda. Le fasce hanno una
+                    // texture PROPRIA e un proprio orologio: fermarle da qui
+                    // (setAllMeshTexturesAnimating) significava che lo Stop in
+                    // All spegneva il moto delle mesh mentre il tasto continuava
+                    // a descrivere lo stato dell'altro ambito -- il "premo su
+                    // All e cambia il moto della mesh, non l'aspetto".
+                    // Il master resta la via per fermare TUTTO insieme.
                     ui->glWidget->setSurfaceTextureAnimating(false);
+                }
             }
             updateMasterButtonState();   // riallinea i pulsanti -> "Run ..."
             return;
         }
 
+        // RUN IN AMBITO "MESH" con la texture della parte gia' applicata: e' un
+        // riavvio dell'orologio della SOLA parte, non una riapplicazione dello
+        // script (che passerebbe da onApplyTextureScriptClicked e ricompilerebbe
+        // lo shader per tutti). Solo se lo script della parte e' animato: su una
+        // texture statica il Run resta la riapplicazione di sempre.
+        if (!ui->radioBackground->isChecked() && ui->glWidget
+            && ui->glWidget->activeMeshPart() >= 0
+            && !ui->glWidget->isActiveMeshTextureAnimating()
+            && ui->glWidget->activeMeshTextureActive()
+            && currentText.trimmed() == ui->glWidget->activeMeshTextureCode().trimmed()
+            && hasTimeVariable(ui->glWidget->activeMeshTextureCode())) {
+            ui->glWidget->setActiveMeshTextureAnimating(true);
+            // Riavvio esplicito di UNA fascia: il gate va riarmato, o resterebbe
+            // alzato per uno stop che l'utente ha appena annullato e terrebbe
+            // fuori dai ricalcoli anche le altre mesh.
+            m_userStoppedMeshTexClock = false;
+            updateMasterButtonState();
+            updateScriptButtonText();
+            return;
+        }
+
         if (ui->radioBackground->isChecked()) m_bgTextureScriptText = currentText;
-        else m_surfaceTextureScriptText = currentText;
+        // AMBITO "MESH": l'editor mostra la texture della PARTE, non quella di
+        // superficie. Salvarla in m_surfaceTextureScriptText sporcherebbe lo slot
+        // globale col codice per-mesh -- stesso difetto gia' corretto in
+        // onToggleScriptMode. La parte la committa onApplyTextureScriptClicked
+        // (ramo per-mesh) via setActiveMeshTexture: qui non c'e' nulla da salvare.
+        else if (!(ui->glWidget && ui->glWidget->activeMeshPart() >= 0))
+            m_surfaceTextureScriptText = currentText;
         onApplyTextureScriptClicked();
 
     } else if (m_currentScriptMode == ScriptModeSound) {
@@ -7816,6 +7980,12 @@ void MainWindow::onApplyTextureScriptClicked()
     this->setProperty("rawTextureScript", ui->txtScriptEditor->toPlainText());
     QString code = ui->txtScriptEditor->toPlainText();
 
+    // Codice applicato PRIMA di questa chiamata: serve piu' sotto per capire se
+    // lo script sta davvero cambiando (texture nuova) o se e' un semplice
+    // riavvio dello stesso (Run/Stop del dock). Va catturato QUI, perche' le due
+    // righe seguenti sovrascrivono gia' m_surfaceTextureCode.
+    const QString prevSurfaceTextureCode = m_surfaceTextureCode;
+
     if (!code.trimmed().isEmpty()) {
         if (ui->radioBackground->isChecked()) m_bgTextureCode = code;
         else m_surfaceTextureCode = code;
@@ -7930,6 +8100,10 @@ void MainWindow::onApplyTextureScriptClicked()
             m_userStoppedTexClock = false;
             ui->glWidget->setSurfaceTextureAnimating(
                 hasTimeVariable(allSurfaceTextureCode()));
+            // Orologio della PARTE: come nel ramo Library, va acceso qui o una
+            // texture animata appena applicata alla fascia nascerebbe ferma.
+            ui->glWidget->setActiveMeshTextureAnimating(hasTimeVariable(code));
+            m_userStoppedMeshTexClock = false;   // comando esplicito: riarma il gate
             updateMasterButtonState();
 
             updateTextureUIState(true, true);
@@ -8010,9 +8184,21 @@ void MainWindow::onApplyTextureScriptClicked()
                 }
 
                 ui->glWidget->setFlatViewTarget(0);
-                ui->glWidget->setFlatPan(0.0f, 0.0f);
-                ui->glWidget->setFlatZoom(1.0f);
-                ui->glWidget->setFlatRotation(0.0f);
+
+                // AZZERAMENTO DELL'INQUADRATURA 2D **SOLO SE LO SCRIPT CAMBIA**.
+                // Ripartire da zoom/pan/rotazione neutri ha senso per una texture
+                // NUOVA, non per un riavvio: il tasto Run/Stop del dock e' anche
+                // il modo per far ripartire l'animazione, e azzerando sempre
+                // cancellava le manipolazioni 2D dell'utente ad ogni Start.
+                // Il confronto e' col codice applicato PRIMA della chiamata
+                // (catturato in cima: m_surfaceTextureCode e' gia' stato
+                // sovrascritto), normalizzato come altrove per non contare
+                // spazi e commenti.
+                if (cleanCodeForComparison(code) != cleanCodeForComparison(prevSurfaceTextureCode)) {
+                    ui->glWidget->setFlatPan(0.0f, 0.0f);
+                    ui->glWidget->setFlatZoom(1.0f);
+                    ui->glWidget->setFlatRotation(0.0f);
+                }
             }
         } else {
             // m_isCustomMode è già false (impostato = hasCustomLogic più sopra).
@@ -8060,6 +8246,15 @@ void MainWindow::onApplyTextureScriptClicked()
             if (surfTexToCheck.contains(timeRegex)) surfTexNeedsAnim = true;
         }
         if (ui->glWidget) ui->glWidget->setSurfaceTextureAnimating(surfTexNeedsAnim);
+
+        // OROLOGI PER-MESH: **NON** si toccano da qui. Il Run in ambito "All"
+        // comanda la texture di SUPERFICIE; le fasce hanno il proprio script e
+        // il proprio orologio, governati dal Run con quella mesh selezionata.
+        // Riaccenderle qui faceva ripartire una fascia che l'utente aveva
+        // fermato apposta, mentre il tasto continuava a descrivere l'altro
+        // ambito. Il gesto simmetrico non serve piu': lo Stop in "All" non le
+        // spegne (vedi onRunCurrentScript), quindi non restano fermi per sempre.
+        // Per fermare/riavviare TUTTO insieme c'e' il master.
     }
     updateMasterButtonState();
 
@@ -8225,10 +8420,19 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         QString activeCode;
         if (ui->radioBackground->isChecked()) {
             activeCode = m_bgTextureCode;
+        } else if (ui->tabModeSelector->currentIndex() == 1) {
+            activeCode = ui->lineTexture->toPlainText();
+        } else if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0
+                   && ui->glWidget->activeMeshTextureActive()) {
+            // AMBITO "MESH": la texture in uso e' quella della FASCIA, non
+            // m_surfaceTextureCode (che e' la texture di SUPERFICIE e qui
+            // contiene altro, o niente). Leggendo lo slot sbagliato isMatch
+            // risultava sempre falso, il toggle veniva saltato e il PRIMO click
+            // ricaricava gia' resettando: sulla singola mesh mancava la fase di
+            // stop che c'e' sulla superficie intera.
+            activeCode = ui->glWidget->activeMeshTextureCode();
         } else {
-            activeCode = (ui->tabModeSelector->currentIndex() == 1)
-                    ? ui->lineTexture->toPlainText()
-                    : m_surfaceTextureCode;
+            activeCode = m_surfaceTextureCode;
         }
 
         // 2. Verifichiamo se la texture cliccata è già quella visualizzata
@@ -8273,16 +8477,60 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
                 // geometria/SDF NON va mai toccato da qui (lo governano dock
                 // Equations e master): è proprio quel coupling che faceva "partire
                 // la superficie" e bloccava i tasti.
-                if (ui->glWidget->isSurfaceTextureAnimating()) {
+                // Il toggle governa il MODULO texture, quindi anche gli orologi
+                // delle fasce: spegnere solo il globale lasciava le texture
+                // per-mesh in movimento sotto un tasto che diceva "fermo".
+                // TEXTURE STATICA: non c'e' NIENTE da fermare, quindi il toggle
+                // non ha senso e ogni click deve valere come "ricarica" (reset
+                // della manipolazione 2D). Senza questa distinzione il clock
+                // veniva acceso lo stesso dal ramo restart, e al click dopo la
+                // condizione qui sotto risultava vera: si finiva nel ramo stop,
+                // che non resetta -> il reset avveniva a click ALTERNI.
+                // Si guarda il CODICE (usa il tempo?), non lo stato del clock:
+                // e' l'unico dato che dice se c'e' un'animazione possibile.
+                const bool texIsAnimated =
+                    hasTimeVariable(allSurfaceTextureCode()) || anyMeshTextureCodeAnimated();
+
+                if (texIsAnimated
+                    && (ui->glWidget->isSurfaceTextureAnimating()
+                        || ui->glWidget->anyMeshTextureAnimating())) {
                     // Toggle-stop dell'utente: e' uno stop esplicito del modulo.
                     m_userStoppedTexClock = true;
                     ui->glWidget->setSurfaceTextureAnimating(false);
+                    ui->glWidget->setAllMeshTexturesAnimating(false);
+                    m_userStoppedMeshTexClock = true;
                 } else {
                     // NON azzeriamo m_masterStopped (come il ramo background sopra):
                     // il clock texture parte da solo, sbloccare lo stop globale
                     // farebbe ripartire la geometria ferma dopo un master STOP.
                     m_userStoppedTexClock = false;
-                    ui->glWidget->setSurfaceTextureAnimating(true);
+                    m_userStoppedMeshTexClock = false;
+                    // Il clock si accende solo se c'e' davvero un'animazione: su
+                    // una texture statica resterebbe acceso a vuoto, e per giunta
+                    // farebbe risultare "in moto" il modulo al click successivo.
+                    ui->glWidget->setSurfaceTextureAnimating(texIsAnimated);
+                    restartAnimatedMeshTextures();
+
+                    // RESET DELLA MANIPOLAZIONE 2D SUL RESTART. Ricaricare dalla
+                    // Library la texture gia' attiva e' l'unico gesto che puo'
+                    // significare "rivoglio questa texture com'e' nel preset":
+                    // senza, zoom/pan/rotazione fatti col mouse restavano e per
+                    // azzerarli bisognava caricare un'ALTRA texture e poi tornare
+                    // su questa.
+                    // Solo sul RESTART (secondo click), non sullo stop: fermare
+                    // l'animazione non deve spostare l'inquadratura. Lo Stop/Start
+                    // che lascia le modifiche intatte resta quello del dock Script.
+                    // Vale per la fascia selezionata E per la superficie intera:
+                    // setActiveMeshTexTransform scrive sulla parte attiva e
+                    // ritorna false in "All", dove tocca al ramo globale.
+                    if (!ui->glWidget->setActiveMeshTexTransform(
+                            data.zoom, QVector2D(data.panX, data.panY), data.rotation)) {
+                        // setGlobalTexTransform allinea da se' il buffer di
+                        // lavoro della vista 2D quando l'ambito e' "All".
+                        ui->glWidget->setGlobalTexTransform(
+                            data.zoom, QVector2D(data.panX, data.panY), data.rotation);
+                    }
+                    ui->glWidget->update();
                 }
             }
 
@@ -8371,6 +8619,7 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
     m_userStoppedGeomClock = false;
     m_userStoppedTexClock = false;
     m_userStoppedBgClock = false;
+    m_userStoppedMeshTexClock = false;
 
     // 1. Pulizia totale
     ui->glWidget->pauseMotion();
@@ -10773,6 +11022,16 @@ void MainWindow::applyCommonData(const LibraryItem &d)
             dst.texPanX = src.texPanX;
             dst.texPanY = src.texPanY;
             dst.texRotation = src.texRotation;
+            // OROLOGIO DELLA PARTE: **derivato dal codice**, non letto dal file.
+            // texAnimating e' stato di RUNTIME e non si salva (come il clock
+            // globale, che il load ricalcola da hasTimeVariable); restando al
+            // default false, ogni fascia texturizzata nasceva FERMA.
+            // Derivarlo invece di serializzarlo fa funzionare anche i preset
+            // salvati prima di questa feature.
+            dst.texAnimating = dst.hasCustomTexture && dst.textureEnabled
+                               && !dst.textureCode.isEmpty()
+                               && hasTimeVariable(dst.textureCode);
+            dst.timeTex = 0.0f;   // il preset riparte dall'inizio, non da un tempo ereditato
         }
         // setMeshParts preserva l'aspetto delle parti GIA' dichiarate (serve a non
         // perderlo quando lo script viene ri-estratto a ogni cambio di costante).
@@ -11363,7 +11622,7 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
     }
 }
 
-bool MainWindow::hasTimeVariable(const QString& code) {
+bool MainWindow::hasTimeVariable(const QString& code) const {
     // Commenti rimossi per evitare falsi positivi (es. "don't")
     QString cleaned = stripCodeComments(code);
 
@@ -11847,10 +12106,25 @@ void MainWindow::updateScriptButtonText() {
                 texMoving = ui->glWidget->isBackgroundTextureAnimating()
                         && ui->glWidget->isBackgroundTextureEnabled()
                         && hasTimeVariable(m_bgTextureCode);
+            } else if (ui->glWidget->activeMeshPart() >= 0) {
+                // AMBITO "MESH": il tasto mostra lo stato della PARTE, non quello
+                // globale -- stesso principio di editor, slider e radio, che
+                // mostrano cio' che stanno per comandare. Leggendo il clock
+                // globale il tasto direbbe "Stop" su una mesh gia' ferma (e
+                // viceversa), e il click successivo agirebbe al contrario.
+                texMoving = ui->glWidget->isActiveMeshTextureAnimating()
+                        && ui->glWidget->activeMeshTextureActive()
+                        && hasTimeVariable(ui->glWidget->activeMeshTextureCode());
             } else {
+                // AMBITO "ALL": il tasto comanda la texture di SUPERFICIE, quindi
+                // deve descrivere QUELLA. Si guarda m_surfaceTextureCode e non
+                // allSurfaceTextureCode(), che aggrega anche gli script delle
+                // fasce: con una texture animata su una mesh il tasto di "All"
+                // cambiava aspetto per un moto che non gli apparteneva (e
+                // viceversa restava fermo quando la sua era in movimento).
                 texMoving = ui->glWidget->isSurfaceTextureAnimating()
                         && ui->chkBoxTexture->isChecked()
-                        && hasTimeVariable(allSurfaceTextureCode());
+                        && hasTimeVariable(m_surfaceTextureCode);
             }
         }
 
@@ -12215,6 +12489,15 @@ void MainWindow::updateMasterButtonState()
             bool texClockRunning = ui->glWidget->isSurfaceTextureAnimating();
             bool texHasTime = isSurfTexActive && hasTimeVariable(allSurfaceTextureCode());
             isTexVisuallyMoving = texClockRunning && texHasTime;
+
+            // Una texture PER-MESH in movimento e' attivita' a tutti gli effetti,
+            // e il master deve poterla fermare: il suo clock e' quello della
+            // parte, che i due flag globali qui sopra non raccontano.
+            // anyMeshTextureAnimating() controlla gia' che la parte abbia una
+            // texture propria e accesa; qui resta da chiedere se quel codice usa
+            // il tempo, cioe' se c'e' davvero qualcosa in movimento da fermare.
+            if (!isTexVisuallyMoving && ui->glWidget->anyMeshTextureAnimating())
+                isTexVisuallyMoving = anyMeshTextureCodeAnimated();
         }
 
         // C. Orologio della Texture di Sfondo
@@ -12301,8 +12584,29 @@ void MainWindow::applyAnimationState(bool animated, bool dockOnly) {
             // Senza questo gate, con path/rotazioni/t-motion in corso (master su
             // STOP) bastava accendere lo sfondo o togglare la checkbox Texture
             // per far ripartire la texture fermata a mano.
-            ui->glWidget->setSurfaceTextureAnimating(
-                        effective && surfTexActive && !m_userStoppedTexClock);
+            const bool texClockOn = effective && surfTexActive && !m_userStoppedTexClock;
+            ui->glWidget->setSurfaceTextureAnimating(texClockOn);
+            // OROLOGI PER-MESH: si SCRIVONO tutti (adozione esplicita), mai per
+            // ereditarieta' -- una parte che copiasse il clock globale ne
+            // copierebbe anche il freeze e non ripartirebbe piu' da sola.
+            // Il gate serve perche' qui non ci passa solo il master: anche il
+            // commit di un'equazione, il load di un record, il toggle dello
+            // sfondo. Senza, il primo di quei ricalcoli riaccendeva le mesh
+            // fermate a mano. Lo riarma il master Start (onStartClicked).
+            // La riaccensione e' PER PARTE: una fascia con texture statica non
+            // deve restare con l'orologio acceso a vuoto.
+            // Le fasce hanno il PROPRIO script e il proprio orologio, quindi non
+            // seguono ne' texClockOn (che riguarda la texture di SUPERFICIE) ne'
+            // 'animated' (che descrive la GEOMETRIA): ognuna riparte se il SUO
+            // codice usa il tempo, e questo lo decide restartAnimatedMeshTextures.
+            // Legandole a quei due valori, caricare un record con superficie
+            // statica le spegneva tutte -- le texture per-mesh nascevano ferme.
+            // L'unico gate e' il master: m_masterStopped ferma tutto, e il master
+            // Start riarma m_userStoppedMeshTexClock passando di qui.
+            if (!m_userStoppedMeshTexClock) {
+                if (!m_masterStopped) restartAnimatedMeshTextures();
+                else                  ui->glWidget->setAllMeshTexturesAnimating(false);
+            }
             ui->glWidget->setBackgroundTextureAnimating(
                         effective && ui->glWidget->isBackgroundTextureEnabled()
                                   && !m_userStoppedBgClock);
@@ -12375,6 +12679,49 @@ bool MainWindow::anyMeshTextureActive() const
             return true;
     }
     return false;
+}
+
+// La fascia ha una texture PROPRIA, accesa e ANIMATA? Punto unico: e' la stessa
+// domanda che serve a sapere se il master deve considerarla in moto e a decidere
+// quali orologi riaccendere. Scritta due volte, le due copie erano destinate a
+// divergere -- e' il modo in cui sono nati piu' bug di questo progetto.
+static bool meshTextureAnimated(const MeshPart &mp,
+                                const std::function<bool(const QString&)> &hasTime)
+{
+    return mp.hasCustomTexture && mp.textureEnabled
+           && !mp.textureCode.isEmpty() && hasTime(mp.textureCode);
+}
+
+// C'e' almeno una FASCIA la cui texture, oltre a essere accesa, usa il tempo?
+// Distinta da allSurfaceTextureCode(), che in ambito "All" esclude apposta le
+// texture per-mesh (li' lo shader non le compila): al master serve invece
+// sapere se una parte ha qualcosa in movimento, qualunque sia l'ambito.
+bool MainWindow::anyMeshTextureCodeAnimated() const
+{
+    if (!ui->glWidget || !ui->glWidget->getEngine()) return false;
+    auto hasTime = [this](const QString &c){ return hasTimeVariable(c); };
+    for (const MeshPart &mp : ui->glWidget->getEngine()->getMeshParts()) {
+        if (meshTextureAnimated(mp, hasTime)) return true;
+    }
+    return false;
+}
+
+// Riaccende l'orologio di OGNI fascia che ha una texture propria, accesa e
+// ANIMATA; spegne quello delle altre. E' il gesto simmetrico dello Stop in
+// ambito "All" (setAllMeshTexturesAnimating(false)): senza, le texture per-mesh
+// restavano ferme per sempre, perche' il Run globale riaccendeva solo il clock
+// della superficie.
+// Si decide parte per parte invece di scrivere "true" a tutte: una fascia con
+// texture statica non deve restare con l'orologio acceso a vuoto.
+void MainWindow::restartAnimatedMeshTextures()
+{
+    if (!ui->glWidget || !ui->glWidget->getEngine()) return;
+    auto hasTime = [this](const QString &c){ return hasTimeVariable(c); };
+    for (MeshPart &mp : ui->glWidget->getEngine()->mutableMeshParts()) {
+        mp.texAnimating = meshTextureAnimated(mp, hasTime);
+    }
+    ui->glWidget->getEngine()->syncPartAppearance();
+    ui->glWidget->update();
 }
 
 QString MainWindow::allSurfaceTextureCode() const
@@ -12747,6 +13094,16 @@ void MainWindow::applyPendingMeshAppearance()
         dst->texPanX = src.texPanX;
         dst->texPanY = src.texPanY;
         dst->texRotation = src.texRotation;
+        // OROLOGIO DELLA PARTE: **derivato dal codice**, non letto dal file.
+        // texAnimating e' stato di RUNTIME e non viene serializzato (come il
+        // clock globale, che il load ricalcola da hasTimeVariable): restando al
+        // default false, ogni fascia texturizzata nasceva FERMA al caricamento
+        // di un record. Derivarlo invece di salvarlo fa funzionare anche i
+        // record salvati prima di questa feature.
+        dst->texAnimating = dst->hasCustomTexture && dst->textureEnabled
+                            && !dst->textureCode.isEmpty()
+                            && hasTimeVariable(dst->textureCode);
+        dst->timeTex = 0.0f;   // il record riparte dall'inizio
         if (src.hasCustomTexture) anyTexture = true;
     }
     eng->syncPartAppearance();
@@ -12801,6 +13158,22 @@ void MainWindow::syncRenderRadiosTo(int mode)
 void MainWindow::syncTextureEditorTo(const QString &text)
 {
     if (!ui->txtScriptEditor) return;
+
+
+    // LA GUARDIA STA QUI, NON NEI CHIAMANTI. txtScriptEditor e' UN SOLO widget
+    // condiviso dai tre moduli (Surface / Texture / Sound) e commutato da
+    // m_currentScriptMode: scriverci mentre mostra un altro modulo significa
+    // sovrascrivere il testo di quel modulo. E' il bug per cui applicare una
+    // texture a una mesh mentre si guarda il tab Surface piazzava il codice
+    // della texture sopra lo script della superficie (il ramo per-mesh del load
+    // Library chiamava questa funzione senza condizione, mentre i due chiamanti
+    // di syncAppearanceControlsToActiveMesh la avevano).
+    // Nota: qui si SCRIVE SOLO NEL WIDGET; lo stato dei moduli non viene
+    // toccato, quindi lo script di superficie non era mai andato perso davvero
+    // -- restava in m_surfaceScriptText e tornava visibile commutando modulo.
+    if (m_currentScriptMode != ScriptModeTexture) return;
+    if (ui->radioBackground && ui->radioBackground->isChecked()) return;
+
     if (ui->txtScriptEditor->toPlainText() == text) return;
     const bool oldTx = ui->txtScriptEditor->blockSignals(true);
     ui->txtScriptEditor->setPlainText(text);
@@ -12887,10 +13260,9 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
         // suo script. Senza questo l'editor restava sul codice dell'ultima mesh
         // guardata mentre l'ambito diceva "All": premere Run avrebbe applicato
         // alla superficie intera uno script che apparteneva a una fascia.
-        // Stessa guardia del ramo "Mesh": si tocca l'editor solo quando mostra
-        // davvero la texture di SUPERFICIE.
-        if (m_currentScriptMode == ScriptModeTexture && !ui->radioBackground->isChecked())
-            syncTextureEditorTo(m_surfaceTextureScriptText);
+        // La guardia "solo se l'editor mostra davvero la texture di SUPERFICIE"
+        // e' dentro syncTextureEditorTo: vale per ogni chiamante.
+        syncTextureEditorTo(m_surfaceTextureScriptText);
 
         // FOCUS DEL DOCK LIBRARY, come nel ramo "Mesh": tornando su "All"
         // l'albero deve evidenziare la texture di SUPERFICIE. L'aggancio stava
@@ -12900,6 +13272,33 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
         // corrispondenza.
         if (!ui->radioBackground->isChecked())
             syncTextureTreeSelection();
+
+        // COLORI DELLA TEXTURE DI SUPERFICIE RIPRISTINATI NEI PICKER.
+        // Simmetrico al ramo "Mesh", che scrive in m_texColor1/2 i colori della
+        // FASCIA: tornando su "All" quei membri contengono ancora quelli, e gli
+        // slider mostravano i colori dell'ultima mesh guardata invece dei propri.
+        // La fonte di verita' sono i due slot GLOBALI del motore (texRed1..
+        // texBlue2), che il ramo per-mesh non tocca mai.
+        // Solo in LETTURA, come nel ramo "Mesh": nessuna scrittura sul motore.
+        if (!ui->radioBackground->isChecked() && ui->glWidget) {
+            m_texColor1 = ui->glWidget->globalTexColor1();
+            m_texColor2 = ui->glWidget->globalTexColor2();
+        }
+
+        // TASTI Run/Stop DEL DOCK SCRIPT, come in fondo al ramo "Mesh": il tasto
+        // texture descrive l'ambito corrente, quindi tornando su "All" va
+        // ricalcolato sulla texture di SUPERFICIE. Questo ramo esce con return e
+        // la chiamata mancava: i tasti restavano fermi all'ultimo stato
+        // calcolato per la MESH -- il tasto di "All" diceva "Stop" (stato della
+        // fascia in movimento) anche con la texture di superficie ferma.
+        updateScriptButtonText();
+
+        // SLIDER R/G/B SUL TARGET GIUSTO, come in fondo al ramo "Mesh": anche qui
+        // showAppearance() ha appena scritto negli slider il colore SOLIDO, e con
+        // una texture colorata attiva devono invece mostrare u_col1/u_col2.
+        // Questo ramo esce con return, quindi la chiamata va ripetuta: senza,
+        // bastava passare da "All" per perdere l'allineamento.
+        onColorTargetChanged();
         return;
     }
 
@@ -12908,9 +13307,10 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
     // EDITOR DELLA TEXTURE PER-MESH. Selezionando una parte, l'editor mostra il
     // SUO script: e' lo stesso principio dei radio e degli slider, cioe' i
     // controlli mostrano cio' che stanno per modificare.
-    // Si scrive SOLO se l'editor e' sul ramo texture di SUPERFICIE: sul ramo
-    // Background o sugli altri modi il campo appartiene a un altro modulo e
-    // sovrascriverlo farebbe perdere il testo all'utente.
+    // Si scrive SOLO se l'editor e' sul ramo texture di SUPERFICIE (guardia
+    // dentro syncTextureEditorTo): sul ramo Background o sugli altri modi il
+    // campo appartiene a un altro modulo e sovrascriverlo farebbe perdere il
+    // testo all'utente.
     // Una parte SENZA texture propria SVUOTA l'editor. Prima lo si lasciava
     // fermo, per non "cancellare la texture della superficie" con un Run: ma
     // quel ragionamento valeva quando una fascia non configurata EREDITAVA la
@@ -12918,9 +13318,12 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
     // quindi lasciare in vista lo script di un'altra fascia e' solo un
     // disallineamento: l'editor mostrava una texture che quella fascia non ha,
     // e un Run la applicava alla fascia sbagliata.
-    if (m_currentScriptMode == ScriptModeTexture && !ui->radioBackground->isChecked()) {
-        syncTextureEditorTo(p.hasCustomTexture ? p.textureCode : QString());
-    }
+    // Si guarda la texture EFFICACE (propria E accesa), non il solo
+    // hasCustomTexture: in wireframe la texture viene SPENTA conservando lo
+    // script, e mostrarlo lo stesso rimetterebbe in vista una texture che quella
+    // mesh non sta disegnando -- col Run che la riapplicherebbe di soppiatto.
+    // Lo script non e' perso: riaccendendo il checkbox torna, editor compreso.
+    syncTextureEditorTo(p.effectiveTextureEnabledMulti() ? p.textureCode : QString());
 
     // FOCUS DEL DOCK LIBRARY (ramo Texture) SULLA FASCIA SELEZIONATA. Stessa
     // ragione dell'editor qui sopra: i controlli devono indicare cio' su cui si
@@ -13009,6 +13412,30 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
     // La densita' wireframe non ha widget di stato da riallineare: i tasti +/-
     // sono incrementali e leggono il valore corrente della parte selezionata
     // (vedi i loro gestori, che passano da GLWidget::*WireframeUDensity).
+
+    // TASTI Run/Stop DEL DOCK SCRIPT. Stessa ragione di editor, slider, radio e
+    // picker qui sopra: in ambito "Mesh" il tasto texture parla della PARTE
+    // selezionata (vedi updateScriptButtonText), quindi cambiare mesh ne cambia
+    // lo stato. Nessuno lo ricalcolava al cambio di selezione: passando su una
+    // fascia in wireframe i tasti si spegnevano -- corretto per QUELLA fascia --
+    // e tornando su quella texturizzata restavano spenti, perche' erano fermi
+    // all'ultimo stato calcolato. Si "riparavano" solo al primo evento che
+    // ricalcola i tasti (applicare un'altra texture, o digitare un carattere:
+    // isModified). E' lo stesso difetto gia' corretto poco sopra per i picker
+    // Color1/Color2, che al cambio di mesh restavano coi permessi della mesh
+    // precedente.
+    updateScriptButtonText();
+
+    // SLIDER R/G/B SUL TARGET GIUSTO. **ULTIMA COSA**, e l'ordine e' il punto:
+    // showAppearance() qui sopra scrive negli slider il colore della SUPERFICIE
+    // (o della parte), sovrascrivendo l'allineamento ai colori della TEXTURE che
+    // updateTextureUIState aveva gia' fatto poco prima. Risultato: cambiando mesh
+    // (o passando per "All") e tornando indietro, gli slider mostravano il colore
+    // solido invece dei col1/col2 della texture.
+    // onColorTargetChanged e' il punto unico che sceglie COSA gli slider devono
+    // mostrare (colore superficie, u_col1/u_col2, o nulla in wireframe): chiamarla
+    // per ultima fa vincere quella decisione su tutto il resto.
+    onColorTargetChanged();
 }
 
 // L'utente ha cliccato un radio Base/Phong/Wireframe (non e' una
@@ -13032,6 +13459,28 @@ void MainWindow::onUserRenderModeChosen()
         // resta invariato: e' la ragione per cui ricaricare il preset non
         // propaga piu' il wireframe a tutte le parti.
         ui->glWidget->setActiveMeshRenderMode(mode);
+
+        // WIREFRAME => TEXTURE SPENTA SU QUESTA MESH. In wireframe la texture
+        // non si disegna (il fragment esce prima con colore piatto), quindi
+        // lasciarla "accesa" descriveva uno stato che a schermo non esisteva:
+        // togliendo il wireframe ricompariva da sola, e per giunta col checkbox
+        // deselezionato -- display e realta' che dicevano il contrario.
+        // Si SPEGNE conservando lo script (setActiveMeshTextureEnabled):
+        // riaccendendo il checkbox si ritrova la propria texture invece di
+        // doverla ricaricare. Non si riaccende da se' uscendo dal wireframe:
+        // e' l'utente a decidere quando rimetterla.
+        if (mode == 2) ui->glWidget->setActiveMeshTextureEnabled(false);
+
+        // DISPLAY RIALLINEATO A OGNI CAMBIO DI MODALITA', non solo entrando in
+        // wireframe: uscendone (mode 0/1) la texture resta spenta, e senza
+        // questo giro l'editor continuava a mostrare lo script di prima mentre
+        // la mesh tornava in tinta unita.
+        // syncAppearanceControlsToActiveMesh e' il punto unico del display
+        // per-mesh: svuota/riempie l'editor, allinea checkbox, picker e tasti.
+        syncAppearanceControlsToActiveMesh();
+        // Il clock della parte puo' essersi fermato: il master va rivalutato, o
+        // resterebbe su "STOP" per un'animazione che non c'e' piu'.
+        updateMasterButtonState();
 
         // BASE/PHONG VALGONO PER TUTTA LA FIGURA, anche in ambito "Mesh".
         // Non e' un'incoerenza con la riga sopra: sono due cose diverse che

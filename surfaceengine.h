@@ -144,6 +144,22 @@ struct MeshPart {
     float texRotation = 0.0f;
     bool hasCustomTexTransform() const { return texZoom >= 0.0f; }
 
+    // OROLOGIO DELLA TEXTURE, PROPRIO DELLA PARTE.
+    // Qui NON si usa la convenzione "negativo = eredita" degli altri campi, e la
+    // differenza e' sostanziale: un colore ereditato e' una COSTANTE, mentre il
+    // tempo e' un valore che SCORRE e che il globale puo' CONGELARE. Una parte
+    // che eredita m_timeTex eredita anche il suo freeze: dopo uno Stop in ambito
+    // "All" non si riusciva piu' a far ripartire la singola mesh, perche'
+    // continuava a copiare un tempo globale fermo. E' il motivo per cui il primo
+    // tentativo di stop per-mesh fu revertato.
+    // Percio' ADOZIONE ESPLICITA: ogni parte ha SEMPRE il suo tempo e il suo
+    // flag, e i comandi in ambito "All" li scrivono su tutte le parti (vedi
+    // GLWidget::setAllMeshTexturesAnimating). Nessuno eredita, nessuno si
+    // congela per riflesso.
+    // Il tempo NON si azzera allo stop: riprende da dov'era, come il clock globale.
+    float timeTex = 0.0f;
+    bool  texAnimating = false;
+
     bool hasCustomColor() const { return colorR >= 0.0f; }
     // Texture EFFICACE di una parte in una superficie MULTI-MESH.
     // Una parte MAI CONFIGURATA (hasCustomTexture == false) resta SENZA texture:
@@ -239,6 +255,11 @@ public:
             next[k].texPanX = old.texPanX;
             next[k].texPanY = old.texPanY;
             next[k].texRotation = old.texRotation;
+            // Orologio della parte: si conserva come il resto dell'aspetto. Il
+            // TEMPO in particolare, o una rigenerazione della griglia (un tocco
+            // allo slider Steps) farebbe saltare indietro l'animazione.
+            next[k].timeTex = old.timeTex;
+            next[k].texAnimating = old.texAnimating;
         }
         m_declaredParts = std::move(next);
     }
@@ -256,6 +277,14 @@ public:
         if (index < 0 || index >= (int)m_meshParts.size()) return nullptr;
         return &m_meshParts[index];
     }
+    // Lista modificabile, per i campi che vanno aggiornati a OGNI frame su tutte
+    // le parti (l'orologio texture della parte): passare da mutableMeshPart in un
+    // ciclo costerebbe un controllo di validita' per parte a ogni frame.
+    // NB: chi la usa per modificare l'ASPETTO deve poi chiamare
+    // syncPartAppearance(), o la prossima rigenerazione riporta i valori dello
+    // script. Il tempo che avanza nel tick e' esente: si risincronizza da se' al
+    // frame dopo, e sincronizzarlo a ogni frame sarebbe lavoro inutile.
+    std::vector<MeshPart>& mutableMeshParts() { return m_meshParts; }
     // Ricopia l'aspetto dalle parti generate a quelle dichiarate, cosi' una
     // modifica fatta dall'UI sopravvive alla prossima rigenerazione.
     void syncPartAppearance() {
@@ -283,6 +312,8 @@ public:
             m_declaredParts[k].texPanX = m_meshParts[k].texPanX;
             m_declaredParts[k].texPanY = m_meshParts[k].texPanY;
             m_declaredParts[k].texRotation = m_meshParts[k].texRotation;
+            m_declaredParts[k].timeTex = m_meshParts[k].timeTex;
+            m_declaredParts[k].texAnimating = m_meshParts[k].texAnimating;
         }
     }
 
