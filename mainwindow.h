@@ -312,6 +312,9 @@ private:
     // True mentre il popup di rallentamento e' a schermo: evita che segnali
     // performanceWarning gia' in coda aprano box sovrapposti (raffica).
     bool m_perfPopupActive = false;
+    // Stessa ragione: buildPipeline puo' fallire piu' volte di fila (un tentativo
+    // per ricostruzione) e senza guardia si aprirebbe un popup per ciascuno.
+    bool m_shaderErrorPopupActive = false;
     // True mentre una guardia trasparenza (forceOpaqueForHeavyRM) sta mostrando
     // il suo popup: fa scartare un performanceWarning gia' in coda (emesso sui
     // primi frame trasparenti prima dell'ack) che altrimenti aprirebbe il box del

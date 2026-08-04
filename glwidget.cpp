@@ -16,6 +16,7 @@
 #include <QDir>
 #include <QTextStream>
 #include <QRegularExpression>
+#include <QSet>
 #include <QCoreApplication>
 #include <QPainter>
 #include <QLinearGradient>
@@ -4599,6 +4600,92 @@ QString GLWidget::buildTextureFunction(const QString &customLogic, const QString
                 const QString ch = QString("iChannel%1").arg(c);
                 stBody.replace(QRegularExpression("\\b" + ch + "\\b"), ch + sfx);
             }
+
+            // SIMBOLI DICHIARATI DALLO SCRIPT (#define e funzioni).
+            // Finora si rinominavano solo i simboli NOTI (iTime, mainImage...),
+            // ma uno script Shadertoy dichiara anche i propri: due mesh con lo
+            // STESSO script davano "'#define' : Macro redefined" o la
+            // ridefinizione di una funzione -> lo shader non compilava,
+            // rebuildShader lasciava in piedi il precedente e **la superficie
+            // spariva**. Stesso effetto fra script DIVERSI che condividono un
+            // nome, e fra i preset in libreria ce ne sono gia' parecchi
+            // (map, palette, rot, noise, wave, calcNormal...).
+            // Si raccolgono i nomi DICHIARATI e si rinominano ovunque: una
+            // sostituzione cieca su nomi corti (N, R, g...) colpirebbe anche
+            // parole altrui, quindi si parte sempre dalla DICHIARAZIONE.
+            QSet<QString> declared;
+            // #define NOME  /  #define NOME(args)
+            QRegularExpression reDef(R"(^[ \t]*#define[ \t]+(\w+))",
+                                     QRegularExpression::MultilineOption);
+            auto itD = reDef.globalMatch(stBody);
+            while (itD.hasNext()) declared.insert(itD.next().captured(1));
+            // tipo NOME(  a inizio riga: definizione o prototipo di funzione
+            QRegularExpression reFn(
+                R"(^[ \t]*(?:const[ \t]+)?(?:float|vec2|vec3|vec4|int|uint|void|mat2|mat3|mat4|bool)[ \t]+(\w+)[ \t]*\()",
+                QRegularExpression::MultilineOption);
+            auto itF = reFn.globalMatch(stBody);
+            while (itF.hasNext()) declared.insert(itF.next().captured(1));
+            // VARIABILI GLOBALI: "float NOME = ...;" / "const int NOME = ...;"
+            // a livello di modulo. Diverse dalle funzioni per il '=' al posto
+            // della parentesi. Diversi preset le usano come pannello di
+            // impostazioni in testa allo script (ZGESize, MAX_STEPS, scale...).
+            // I CAMPI DI STRUCT hanno la stessa forma ("float distance;") ma NON
+            // vanno rinominati: sono nomi qualificati (v.distance) e toccarli da'
+            // "no such field in structure". Si cerca percio' sul testo ripulito
+            // dai corpi delle struct.
+            QString bodyNoStructs = stBody;
+            bodyNoStructs.replace(
+                QRegularExpression(R"(struct[ \t]+\w+[ \t]*\{[^}]*\})",
+                                   QRegularExpression::DotMatchesEverythingOption),
+                QString());
+            QRegularExpression reVar(
+                R"(^[ \t]*(?:const[ \t]+)?(?:float|vec2|vec3|vec4|int|uint|mat2|mat3|mat4|bool)[ \t]+(\w+)[ \t]*(?:=|;))",
+                QRegularExpression::MultilineOption);
+            auto itV = reVar.globalMatch(bodyNoStructs);
+            while (itV.hasNext()) declared.insert(itV.next().captured(1));
+            // STRUCT: il nome del tipo collide come qualunque altro simbolo.
+            QRegularExpression reSt(R"(^[ \t]*struct[ \t]+(\w+))",
+                                    QRegularExpression::MultilineOption);
+            auto itS = reSt.globalMatch(stBody);
+            QSet<QString> userTypes;
+            while (itS.hasNext()) {
+                const QString ty = itS.next().captured(1);
+                declared.insert(ty);
+                userTypes.insert(ty);
+            }
+            // FUNZIONI CHE RITORNANO UN TIPO STRUCT ("sVoronoi voronoi(...)"):
+            // reFn cerca solo i tipi base, quindi queste sfuggivano e restavano
+            // col nome originale -> "overloaded functions must have the same
+            // return type" (il tipo di ritorno era stato rinominato, il nome no).
+            for (const QString &ty : userTypes) {
+                QRegularExpression reFnU(
+                    QString(R"(^[ \t]*%1[ \t]+(\w+)[ \t]*\()").arg(QRegularExpression::escape(ty)),
+                    QRegularExpression::MultilineOption);
+                auto itU = reFnU.globalMatch(stBody);
+                while (itU.hasNext()) declared.insert(itU.next().captured(1));
+            }
+
+            for (const QString &name : declared) {
+                // GIA' RINOMINATI DAI DUE PASSAGGI SOPRA: la raccolta avviene
+                // DOPO, quindi qui "mainImage" si presenta gia' come
+                // "mainImage_<k>". Senza questo controllo verrebbe suffissato una
+                // seconda volta ("mainImage_1_1") e la chiamata dal wrapper non
+                // troverebbe piu' la funzione: "no matching overloaded function".
+                if (name.endsWith(sfx)) continue;
+                if (name.startsWith("iChannel")) continue;
+                bool known = false;
+                for (const char *s : kSyms)
+                    if (name == QLatin1String(s)) { known = true; break; }
+                if (known) continue;
+                // main non esiste in questo ramo (il corpo e' mainImage), ma
+                // se comparisse rinominarlo romperebbe l'entry point.
+                if (name == QLatin1String("main")) continue;
+                // (?<!\.) come sopra: mai toccare un accesso qualificato
+                // (ubuf.qualcosa, o un campo di struct omonimo).
+                stBody.replace(QRegularExpression(
+                                   QString("(?<!\\.)\\b%1\\b").arg(QRegularExpression::escape(name))),
+                               name + sfx);
+            }
         }
         codeToInject = stBody;
     }
@@ -4853,6 +4940,11 @@ QShader GLWidget::bakeShader(const QByteArray &source, QShader::Stage stage)
     QShader shader = baker.bake();
     if (!shader.isValid()) {
         qWarning() << "SHADER ERROR (" << (stage == QShader::VertexStage ? "VERT" : "FRAG") << "):" << baker.errorMessage();
+        // L'errore va CONSERVATO, non solo loggato: buildPipeline lo usa per
+        // avvisare l'utente. Senza, un fallimento qui faceva sparire la
+        // superficie in silenzio (le pipeline vengono azzerate) e l'unica
+        // traccia era una riga sulla console, che l'utente non vede.
+        m_lastCompilationError = baker.errorMessage();
     }
     return shader;
 }
@@ -4860,11 +4952,10 @@ QShader GLWidget::bakeShader(const QByteArray &source, QShader::Stage stage)
 // --- Pipeline & Resource Initialization ---
 
 void GLWidget::buildPipeline() {
-    // Pulisce preventivamente se esiste già
-    if (m_pipelineOpaque) {
-        delete m_pipelineOpaque;
-        m_pipelineOpaque = nullptr;
-    }
+    // NB: le pipeline VECCHIE non si distruggono qui. Prima si compilano gli
+    // shader: se non sono validi si esce lasciandole in piedi, e a schermo resta
+    // l'ultima immagine buona invece del vuoto (vedi il controllo di validita').
+    // La distruzione avviene solo quando c'e' un rimpiazzo pronto.
 
     // --- Layout, shader e blend (variabili locali, usate da tutte le pipeline) ---
     QRhiVertexInputLayout inputLayout;
@@ -4882,13 +4973,47 @@ void GLWidget::buildPipeline() {
 
     if (!vs.isValid() || !fs.isValid()) {
         qWarning() << "buildPipeline: shader non valido, pipeline non costruite.";
-        auto clearPipe = [](QRhiGraphicsPipeline *&p){ if (p) { delete p; p = nullptr; } };
-        clearPipe(m_pipelineOpaque);
-        clearPipe(m_pipelineTranspBack);
-        clearPipe(m_pipelineTranspFront);
-        clearPipe(m_wireframePipeline);
+
+        // SI TENGONO LE PIPELINE PRECEDENTI: a schermo resta l'ULTIMA IMMAGINE
+        // VALIDA invece del vuoto. Prima qui si distruggevano, e una texture che
+        // non compila faceva sparire tutta la superficie -- perdendo anche il
+        // lavoro fatto fino a quel momento. Lo shader nuovo semplicemente non
+        // entra in vigore: e' il comportamento meno distruttivo, ed e' anche
+        // quello che il resto del codice gia' assume altrove ("rebuildShader
+        // lascia in piedi il precedente").
+        // Se non esistono pipeline precedenti (fallimento al primo build) non
+        // c'e' nulla da salvare e restano nulle, come prima.
+
+        // UN SOLO AVVISO per errore. Il popup desktop e' MODALE (box.exec() gira
+        // un event loop annidato): i segnali emessi nel frattempo verrebbero
+        // consegnati DENTRO quel loop, ognuno aprendo un altro popup sopra il
+        // precedente -- la raffica che rendeva l'app inutilizzabile. La guardia
+        // lato ricevente non basta proprio per questo: va zittita la SORGENTE.
+        // Il flag si riarma da solo appena uno shader torna valido (piu' sotto),
+        // cosi' un errore successivo viene di nuovo segnalato.
+        if (!m_shaderErrorReported) {
+            m_shaderErrorReported = true;
+            emit shaderCompilationFailed(m_lastCompilationError);
+        }
         return;
     }
+
+    // Shader valido: si riarma l'avviso, cosi' il prossimo errore (una texture
+    // diversa, applicata piu' tardi) viene segnalato di nuovo.
+    m_shaderErrorReported = false;
+
+    // ORA si liberano le pipeline precedenti: il rimpiazzo e' garantito, perche'
+    // gli shader hanno compilato. Farlo in cima alla funzione (com'era) le
+    // distruggeva anche quando il build falliva, ed e' cio' che faceva sparire
+    // la superficie.
+    // Tutte e quattro: prima le tre trasparenti/wireframe venivano riassegnate
+    // senza delete, contando sulla pulizia in cima. Spostata quella, vanno
+    // liberate qui o si perderebbero (leak a ogni rebuild).
+    auto freePipe = [](QRhiGraphicsPipeline *&p){ if (p) { delete p; p = nullptr; } };
+    freePipe(m_pipelineOpaque);
+    freePipe(m_pipelineTranspBack);
+    freePipe(m_pipelineTranspFront);
+    freePipe(m_wireframePipeline);
 
     QRhiGraphicsPipeline::TargetBlend blend;
     blend.enable   = true;

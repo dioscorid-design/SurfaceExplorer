@@ -3032,6 +3032,44 @@ MainWindow::MainWindow(QWidget *parent)
     // ripartire tutto dal popup (equivale a un master Start).
     // QueuedConnection: il segnale parte dal thread di rendering del QRhiWidget,
     // il QMessageBox deve invece girare nel thread GUI.
+    // SHADER CHE NON COMPILA: la superficie SPARISCE (buildPipeline azzera le
+    // pipeline) e finora l'unica traccia era un qWarning sulla console, che
+    // l'utente non vede -- restava solo lo schermo vuoto, senza spiegazione.
+    // Caso tipico: due texture per-mesh i cui script dichiarano lo stesso
+    // simbolo. Il generatore rinomina per-mesh le forme note (#define, funzioni,
+    // globali, struct), ma uno script NUOVO puo' sempre introdurne una non
+    // prevista: qui l'utente almeno legge QUALE simbolo e' in conflitto.
+    connect(ui->glWidget, &GLWidget::shaderCompilationFailed, this,
+            [this](const QString &err) {
+        // Un popup alla volta. La sorgente ne emette gia' UNO solo per errore
+        // (m_shaderErrorReported in GLWidget), ma la guardia resta come rete:
+        // il segnale e' Queued e il box e' asincrono, quindi due errori diversi
+        // in rapida successione potrebbero comunque accavallarsi.
+        if (m_shaderErrorPopupActive) return;
+        m_shaderErrorPopupActive = true;
+
+        const QString msg = QStringLiteral(
+            "The shader could not be compiled, so the surface was not updated: "
+            "what you see is the last valid image.\n\n"
+            "If you have just applied a texture to a mesh, its script may declare "
+            "a symbol (a function, a #define, a global variable) with the same name "
+            "as another mesh's texture.\n\n"
+            "To recover, turn that texture off on the mesh, or load a different "
+            "one.\n\n")
+            + (err.trimmed().isEmpty() ? QString() : err.trimmed());
+
+        // BOX ASINCRONO, non exec(): un QMessageBox modale gira un event loop
+        // ANNIDATO, e i segnali consegnati li' dentro riaprivano il popup sopra
+        // se stesso -- la raffica che ha reso necessaria l'uscita forzata.
+        // open() ritorna subito e l'applicazione resta utilizzabile.
+        auto *box = new QMessageBox(QMessageBox::Warning, "Shader Compilation Failed",
+                                    msg, QMessageBox::Ok, this);
+        box->setAttribute(Qt::WA_DeleteOnClose);
+        connect(box, &QDialog::finished, this,
+                [this](int){ m_shaderErrorPopupActive = false; });
+        box->open();
+    }, Qt::QueuedConnection);
+
     connect(ui->glWidget, &GLWidget::performanceWarning, this, [this]() {
         // Un popup alla volta: eventuali segnali gia' in coda quando il box e'
         // aperto (peggioramenti misurati prima del nostro stop) non devono
@@ -5384,11 +5422,38 @@ void MainWindow::handleTextureSelection(int index)
 
         // --- LOGICA PARAMETRICA ---
         if (data.isImage) {
-            // NB: una texture-immagine si applica alla superficie INTERA, anche
-            // con una fascia selezionata: l'immagine e' una risorsa GPU unica,
-            // non codice da compilare nel dispatcher per-mesh. Qui non si
-            // avvisa: le immagini per-mesh sono un'estensione prevista, e un
-            // popup di rifiuto sarebbe solo da rimuovere.
+            // IMMAGINE CON UNA FASCIA SELEZIONATA: si applica comunque alla
+            // superficie INTERA. L'immagine e' una risorsa GPU unica (un solo
+            // sampler sullo slot 1), non codice da compilare nel dispatcher
+            // per-mesh: non esiste un modo per darne una DIVERSA a ogni fascia.
+            // Senza avviso l'utente vedeva l'immagine comparire su tutta la
+            // superficie e non capiva perche' la mesh selezionata fosse stata
+            // ignorata. La via per un effetto per-mesh e' un'altra: gli script
+            // di "Animated Images", che campionano l'immagine gia' caricata
+            // (iChannel0) e possono deformarla in modo diverso su ogni fascia.
+            // AVVISO ASINCRONO, MAI QMessageBox::information (che e' modale).
+            // Un modale qui gira un event loop ANNIDATO nel mezzo della funzione:
+            // mentre e' aperto l'app continua a processare eventi, e il resto del
+            // caricamento prosegue poi su uno stato che nel frattempo puo' essere
+            // cambiato. E' la stessa trappola dei popup a raffica dello shader.
+            // Si mostra DOPO aver applicato l'immagine (in coda all'evento), cosi'
+            // il flusso non viene interrotto a meta'.
+            if (texGoesToMesh) {
+                QMetaObject::invokeMethod(this, [this]{
+                    auto *box = new QMessageBox(QMessageBox::Information,
+                        tr("Per-mesh texture"),
+                        tr("Image textures always apply to the whole surface: the image "
+                           "is a single GPU resource, so a mesh cannot have one of its own. "
+                           "It has been loaded for the whole surface.\n\n"
+                           "A mesh that already has its own texture keeps showing that one. "
+                           "To bring the image onto a single mesh, apply one of the scripts "
+                           "in Procedurals > Animated Images: they sample the loaded image "
+                           "and can deform it differently on each mesh."),
+                        QMessageBox::Ok, this);
+                    box->setAttribute(Qt::WA_DeleteOnClose);
+                    box->open();
+                }, Qt::QueuedConnection);
+            }
             m_currentTexturePath = imgSrc;
             if (ui->glWidget) {
                 ui->glWidget->loadCustomShader("");
@@ -8065,13 +8130,17 @@ void MainWindow::onApplyTextureScriptClicked()
         // NB: le texture-IMMAGINE restano globali (una sola risorsa GPU sullo
         // slot 1): qui si accetta solo il procedurale, come da progetto.
         if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
-            if (!imgPath.isEmpty()) {
-                QMessageBox::information(this, tr("Per-mesh texture"),
-                    tr("Image textures apply to the whole surface.\n\n"
-                       "To assign a texture to a single mesh use a procedural "
-                       "script, or switch to the \"All\" scope."));
-                return;
-            }
+            // NB: qui NON si rifiuta piu' lo script che porta un tag //IMG:.
+            // Con la sola immagine il tasto Run e' gia' disabilitato
+            // (updateScriptButtonText toglie il tag da codeOnly, quindi
+            // hasGLSLCode e' falso): l'unico modo di arrivare qui era uno script
+            // PROCEDURALE a cui il ramo Library antepone "//IMG:<path>" quando
+            // un'immagine e' gia' caricata (~5503). Quello script si applica
+            // benissimo alla fascia -- la riga sotto lo fa -- e rifiutarlo
+            // bloccava un'operazione legittima per via di un tag che riguarda
+            // l'immagine GLOBALE, non la mesh.
+            // L'avviso sulle immagini per-mesh resta dove serve davvero: sul
+            // click di un'immagine nella Library.
             // La compilazione avviene dentro setActiveMeshTexture (il codice
             // finisce nel fragment shader come getCustomColor_<k>): se lo shader
             // non compila, rebuildShader lascia in piedi il precedente e la

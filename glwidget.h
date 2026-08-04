@@ -564,6 +564,13 @@ public:
 
 signals:
     void rotationChanged();
+    // Il fragment shader non compila e le pipeline sono state azzerate: a schermo
+    // la superficie SPARISCE. Senza questo segnale l'unica traccia era un
+    // qWarning sulla console, invisibile all'utente, che vedeva solo il vuoto.
+    // Il caso tipico sono due texture per-mesh i cui script dichiarano lo stesso
+    // simbolo (vedi la rinomina in buildTextureFunction): il generatore copre le
+    // forme note, ma uno script NUOVO puo' sempre introdurne una non prevista.
+    void shaderCompilationFailed(const QString &error);
     // Emesso dopo ogni rigenerazione della griglia, quando le parti di mesh
     // possono essere cambiate (nuovo script, nuove sezioni //MESH_BEGIN).
     // MainWindow lo usa per riallineare il selettore di mesh del dock renderer e
@@ -663,6 +670,11 @@ private:
     QRhiBuffer *m_ibo = nullptr;
     QRhiBuffer *m_ubo = nullptr;
 
+    // Avviso di shader non compilato gia' emesso: impedisce la RAFFICA di popup.
+    // buildPipeline puo' fallire a ogni frame, e il popup desktop e' modale
+    // (event loop annidato), quindi ogni segnale in coda ne aprirebbe un altro
+    // sopra il precedente. Si riarma appena uno shader torna valido.
+    bool m_shaderErrorReported = false;
     QRhiTexture *m_dummyTexture = nullptr;
     QRhiSampler *m_sampler = nullptr;
 
