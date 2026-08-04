@@ -1,6 +1,5 @@
 <RCC>
     <qresource prefix="/library">
-        <file>presets/surfaces/Octahedron Skeleton S2.json</file>
         <file>presets/surfaces/Ray Marching/ThickIso.json</file>
         <file>presets/surfaces/Ray Marching/Tangle Cube.json</file>
         <file>presets/surfaces/Ray Marching/Ding Dong.json</file>
@@ -67,6 +66,7 @@
         <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Helicoid.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Hyperbolic Paraboloid.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Hyperboloid.json</file>
+        <file>presets/surfaces/Parametric/Solid Wireframe/Octahedron Bands.json</file>
         <file>presets/surfaces/Parametric/Solid Wireframe/Hopf Tori Mesh Colors.json</file>
         <file>presets/surfaces/Parametric/Solid Wireframe/Hopf Tori over Parallels.json</file>
         <file>presets/surfaces/Parametric/Solid Wireframe/Clifford Labyrinth.json</file>
@@ -364,6 +364,7 @@
         <file>presets/records/Static/Oloid.json</file>
         <file>presets/records/Static/Klein Bottle.json</file>
         <file>presets/records/Static/S3_slice.json</file>
+        <file>presets/records/Static/Hopf Parallel.json</file>
         <file>presets/records/Static/Veronese Surface.json</file>
         <file>presets/records/Static/H^2xR.json</file>
         <file>presets/records/Static/Hopf Tori Gradient.json</file>

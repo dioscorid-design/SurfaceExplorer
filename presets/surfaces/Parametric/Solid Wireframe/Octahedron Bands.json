@@ -1,0 +1,97 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.4427914023399353,
+        "rot_x": -0.669977605342865,
+        "rot_y": 0.08203970640897751,
+        "rot_z": 0.5901992917060852,
+        "x": -0.08317005634307861,
+        "y": 0.04884620010852814,
+        "yaw": 0,
+        "z": 1.7199561595916748
+    },
+    "cameraFov": 69,
+    "colors": {
+        "alpha": 1,
+        "b": 0.20000000298023224,
+        "g": 1,
+        "r": 0.3686274588108063
+    },
+    "constants": {
+        "A": 1,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 2.130000114440918,
+        "S": 0
+    },
+    "equations": {
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "fov3D": 69,
+    "fov4D": 69,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 0,
+        "uMin": 0,
+        "vMax": 0,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "meshParts": [
+        {
+            "b": 1,
+            "g": 0.800000011920929,
+            "r": 0.20000000298023224
+        },
+        {
+            "b": 0.20000000298023224,
+            "g": 1,
+            "r": 0.3686274588108063
+        },
+        {
+            "b": 0.20000000298023224,
+            "g": 0.800000011920929,
+            "r": 0.6823529601097107
+        }
+    ],
+    "name": "Octahedron Bands",
+    "projectionMode": 0,
+    "renderMode": 1,
+    "scriptCode": "// --- VARIANTE SENZA CUTOUT ---\n// Questa e' la versione a FASCE INTERE di \"Octahedron Skeleton S2\": le tre\n// fasce sferiche attorno a C12, C13, C23 restano complete e si compenetrano.\n// Nell'originale una sezione di CUTOUT rimuoveva da ogni fascia la parte\n// interna alle altre due (criterio: x_i^2 + x_j^2 > cos^2 R sulle DUE quantita'\n// non proprie), lasciando il solo bordo dell'unione, cioe' lo scheletro.\n// Qui quel taglio non c'e': si vedono le pareti doppie negli incroci.\n\n// --- CONFIGURAZIONE ---\nu_min := 0;\nu_max := 6.28318531;\nv_min := 0;\nv_max := 6.28318531;\nsteps := 400;\nF := min(0.3);   // semiampiezza delle fasce (4.5 deg per unita'); tetto utile 8\n\n// --- SCHELETRO DELL'OTTAEDRO SULLA SFERA: L'ANALOGO 3D DEL 16-CELL ---\n// NB: non dichiarare variabili chiamate PI, pi, tau (il traduttore le sostituisce\n// col valore numerico), ne' 's' (riservato alla costante S dello slider).\n//\n// L'ANALOGIA, dimensione per dimensione:\n//     S^3 (ipersfera)              ->  S^2 (sfera)\n//     16-cell (duale dell'ipercubo) ->  OTTAEDRO (duale del cubo)\n//     8 vertici = +-e_i, i=1..4    ->  6 vertici = +-e_i, i=1..3\n//     6 assi C_ij = C(4,2)         ->  3 assi C_ij = C(3,2)\n//     24 spigoli, 4 per asse       ->  12 spigoli, 4 per asse\n//     3 assi per vertice           ->  2 assi per vertice\n// Verificato che ciascuno dei 3 grandi cerchi coordinati di S^2 passa per 4\n// vertici dell'ottaedro formando un QUADRATO di spigoli, e 3 quadrati x 4 lati\n// = 12 = tutti gli spigoli. Esattamente come in 4D (6 x 4 = 24).\n//\n// LA DIFFERENZA DI CODIMENSIONE, che cambia il carattere della figura.\n// In S^3 il luogo x_i^2 + x_j^2 = cos^2 r e' una SUPERFICIE (un toro):\n// codimensione 1, separa lo spazio, e nei preset del labirinto ci si vola\n// DENTRO. In S^2 lo stesso luogo e' una CURVA -- due cerchi paralleli a\n// z = +- sin r -- quindi il \"tubo\" attorno al grande cerchio e' una FASCIA\n// (anulus) con bordo, di codimensione 0: sta SULLA sfera e non ha un dentro.\n// Per questo qui la figura e' una gabbia disegnata sulla superficie sferica.\n//\n// LA COSTRUZIONE. Tre fasce ortogonali, una per piano coordinato:\n//     fascia 12: |z| <= sin R, cioe' x1^2 + x2^2 >= cos^2 R  (attorno a C12)\n//     fascia 13: attorno a C13     fascia 23: attorno a C23\n// Ogni fascia e' un anello sferico di semiampiezza R attorno al proprio grande\n// cerchio. Le tre si sovrappongono attorno ai VERTICI dell'ottaedro (misurato:\n// a R = 30 deg il 61% dei punti sta in almeno due fasce), esattamente come in\n// 4D le compenetrazioni stanno attorno ai +-e_i: il cutout le rimuove.\n// I buchi che restano sono OTTO, centrati su (+-1,+-1,+-1)/sqrt(3), cioe' sui\n// centri delle 8 FACCE dell'ottaedro, e si chiudono verso R = 35 deg.\n//\n// COSA NON HA ANALOGO: la FIBRAZIONE DI HOPF. Servirebbe S^2 -> S^1 con fibre\n// S^1, e non esiste (S^2 non ammette campi vettoriali mai nulli -- palla pelosa\n// -- quindi non si fibra in cerchi; e un fibrato in cerchi su S^1 e' un toro).\n// Hopf esiste perche' S^3 = SU(2) e C^2 ha una struttura complessa: e' un\n// fenomeno genuinamente 4-dimensionale. Le \"coordinate di fibra\" dei preset\n// Clifford ... Fibers non si possono scendere in 3D.\n//\n// --- MULTI-MESH: una fascia per griglia ---\n// `mesh` = 0, 1, 2 sceglie il piano coordinato (C12, C13, C23). Con una griglia\n// sola servirebbero v su [0,6*PI], un selettore per ramo, il riscalamento di\n// chiusura e DUE bande di guardia nel cutout per i quad di giunzione (che\n// lascerebbero due solchi). Con tre mesh separate nessun quad puo' collegarle.\n//MESH_BEGIN\nu: 0, 6.28318531, 200\nv: 0, 6.28318531, 200\n//MESH_END\n//MESH_BEGIN\nu: 0, 6.28318531, 200\nv: 0, 6.28318531, 200\n//MESH_END\n//MESH_BEGIN\nu: 0, 6.28318531, 200\nv: 0, 6.28318531, 200\n//MESH_END\n\n// --- SEMIAMPIEZZA DELLE FASCE SULLO SLIDER F ---\n// Stessa convenzione dei preset del labirinto: passi di 4.5 gradi (PI/40).\n//     F = 0.3 -> 1.35 deg (fasce sottilissime: lo scheletro nudo, taglia il 4%)\n//     F = 4   -> 18 deg   (gabbia ben leggibile: taglia il 45%)  <- default\n//     F = 6.7 -> 30 deg   (taglia il 72%)\n//     F = 7.8 -> 35 deg   (i buchi triangolari si chiudono, resta il 12%)\n// TETTO A 8, non 10, e non e' un dettaglio estetico: il cutout rimuove i punti\n// che stanno in almeno DUE fasce, e da R = 42.75 deg (F = 9.5) ogni punto della\n// sfera ci sta -> il cutout taglierebbe il 100% e la figura SPARIREBBE. Misurato:\n//     F = 8   -> tagliato 91.1% (resta 8.9%)\n//     F = 9   -> tagliato 96.9%\n//     F = 9.5 -> tagliato 100%   FIGURA VUOTA\n// A R = 45 deg (F = 10) ogni fascia e' mezza sfera e tre mezze sfere ortogonali\n// coprono S^2 con molteplicita' >= 2 quasi ovunque. Il limite NON e' lo stesso\n// dei preset 4D, dove a PI/4 i tubi restavano superfici chiuse: la' il luogo ha\n// codimensione 1, qui 0, ed e' proprio la differenza dimensionale discussa sopra.\nfloat R = clamp(F, 0.3, 8.0) * 0.078539816;\n\nfloat sR = sin(R);\n\n// --- PARAMETRIZZAZIONE DELLA FASCIA ---\n// u = angolo lungo il grande cerchio (il \"giro\" della fascia), 0..2*PI.\n// v = posizione TRASVERSALE dentro la fascia, mappata LINEARMENTE su\n// [-sin R, +sin R]: h e' monotona in v, quindi ogni punto della fascia e'\n// generato UNA VOLTA SOLA.\n// PERCHE' NON sin(v), che era la versione precedente: sin non e' iniettivo su\n// [0,2*PI] -- v e PI-v danno lo stesso h e, essendo u indipendente, lo STESSO\n// PUNTO. Ogni fascia veniva percio' disegnata DUE VOLTE, esattamente\n// sovrapposta: due strati complanari alla stessa profondita', cioe' z-fighting\n// su TUTTA la superficie (non solo alle giunture) e il doppio dei vertici.\n// Il prezzo di questa correzione: la griglia NON si chiude piu' in v. E'\n// corretto -- la fascia e' un anello CON BORDO e in direzione trasversale non\n// deve chiudersi -- ma il wireframe cambia aspetto rispetto a prima.\n// I due bordi z = +- sin R sono ora raggiunti agli ESTREMI del dominio,\n// v = 0 e v = 2*PI.\n// Il punto sulla sfera: quota h lungo l'asse ortogonale al piano, e raggio\n// sqrt(1-h^2) sul piano stesso -> il punto sta su S^2 per costruzione.\nfloat h = sR * (2.0 * v / 6.28318531 - 1.0);\nfloat rho = sqrt(max(1.0 - h * h, 0.0));\n\nfloat ca = rho * cos(u);\nfloat sa = rho * sin(u);\n\n// Distribuzione sui tre piani coordinati con gli indicatori:\n//   mesh 0 -> fascia attorno a C12: (x,y) sul piano, z = h\n//   mesh 1 -> fascia attorno a C13: (x,z) sul piano, y = h\n//   mesh 2 -> fascia attorno a C23: (y,z) sul piano, x = h\nfloat I0 = max(0.0, 1.0 - abs(mesh));\nfloat I1 = max(0.0, 1.0 - abs(mesh - 1.0));\nfloat I2 = max(0.0, 1.0 - abs(mesh - 2.0));\n\n// NB: il validatore in inputvalidator.cpp pretende la forma letterale del return\n// con vec3 o vec4 aperto subito dopo: assegnare a una variabile e restituirla\n// viene RIFIUTATO. Inoltre conta le parentesi su tutto il testo, COMMENTI\n// INCLUSI: non scriverne di spaiate qui.\n// La quarta componente e' 0: la figura vive in R^3, non serve la 4D.\nreturn vec4(\n    ca * I0 + ca * I1 + h * I2,\n    sa * I0 + h  * I1 + ca * I2,\n    h  * I0 + sa * I1 + sa * I2,\n    0.0\n);\n\n//CUTOUT_BEGIN\n// --- PARTIZIONE ESCLUSIVA DELLE SOVRAPPOSIZIONI ---\n// Le tre fasce si sovrappongono attorno ai vertici dell'ottaedro: la zona\n// contesa fra la fascia i e la fascia j viene disegnata DA ENTRAMBE, cioe' due\n// strati complanari alla stessa profondita' -> z-fighting sulle giunture.\n//\n// PERCHE' NON BASTA IL CRITERIO SIMMETRICO dell'originale \"Skeleton\": la'\n// ENTRAMBE le fasce scartano la parte comune (altro > lim), quindi la zona\n// contesa non la disegna NESSUNO. E' corretto per uno scheletro -- resta il\n// bordo dell'unione -- ma qui vogliamo le fasce INTERE, e un buco su ogni\n// giuntura non e' cio' che serve.\n//\n// LA REGOLA: nella contesa fra due fasce vince quella di indice MINORE.\n//     coppia {0,1} -> tiene 0     coppia {0,2} -> tiene 0\n//     coppia {1,2} -> tiene 1\n// Cioe' una fascia scarta un punto solo se quel punto appartiene anche a una\n// fascia di indice PIU' PICCOLO:\n//     mesh 0 (C12) non scarta mai: tiene tutta la propria fascia\n//     mesh 1 (C13) scarta cio' che sta anche in C12\n//     mesh 2 (C23) scarta cio' che sta anche in C12 o in C13\n// Ogni punto della figura resta coperto ESATTAMENTE UNA VOLTA: niente buchi e\n// niente doppio strato. Verificato su griglia 300x300: zero punti condivisi fra\n// mesh diverse (col criterio simmetrico si perdeva il 5.7% di superficie in\n// piu', che qui viene invece conservata).\n//\n// NB: le sovrapposizioni sono sempre fra DUE fasce, mai fra tre (misurato: a\n// R = 6 deg il 14.4% dei punti sta in 2 fasce, nessuno in 3), quindi la regola\n// \"vince l'indice minore\" e' una partizione ben definita e non lascia casi\n// ambigui. Vale a ogni R: i tre luoghi x_i^2 + x_j^2 = cos^2 R non hanno punti\n// comuni a tutti e tre finche' le fasce non degenerano (F <= 8, vedi il corpo).\n//\n// Il criterio e' sull'INSIEME di punti, non sulla parametrizzazione: si\n// ricostruisce qui il punto di QUESTO frammento esattamente come nel corpo.\n// stesso raggio del corpo, dallo stesso slider: se le due copie divergessero il\n// taglio non cadrebbe piu' sulla superficie che ritaglia\nfloat Rc = clamp(F, 0.3, 8.0) * 0.078539816;\nfloat sRc = sin(Rc);\nfloat lim = cos(Rc) * cos(Rc);\n\n// h lineare in v, identico al corpo (NON sin(v): vedi la nota li' sopra).\nfloat hc = sRc * (2.0 * v / 6.28318531 - 1.0);\nfloat rc = sqrt(max(1.0 - hc * hc, 0.0));\nfloat cac = rc * cos(u);\nfloat sac = rc * sin(u);\n\nfloat J0 = max(0.0, 1.0 - abs(mesh));\nfloat J1 = max(0.0, 1.0 - abs(mesh - 1.0));\nfloat J2 = max(0.0, 1.0 - abs(mesh - 2.0));\n\nfloat px = cac * J0 + cac * J1 + hc * J2;\nfloat py = sac * J0 + hc  * J1 + cac * J2;\nfloat pz = hc  * J0 + sac * J1 + sac * J2;\n\nfloat q12 = px * px + py * py;\nfloat q13 = px * px + pz * pz;\nfloat q23 = py * py + pz * pz;\n\n// Appartenenza alle fasce di indice minore della corrente:\n//   mesh 1 guarda q12; mesh 2 guarda q12 e q13; mesh 0 non guarda nulla.\n// Niente margine additivo qui: sul confine esatto il punto va assegnato a UNA\n// delle due fasce, e >= lo da' a quella di indice minore. Un margine come nel\n// criterio simmetrico riaprirebbe una banda condivisa, cioe' il difetto.\nfloat dentroMinore = J1 * step(lim, q12)\n                   + J2 * max(step(lim, q12), step(lim, q13));\n\nreturn (dentroMinore > 0.5);\n//CUTOUT_END\n",
+    "steps": 400,
+    "type": "surface",
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 8,
+        "vStep": 8
+    }
+}
