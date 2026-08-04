@@ -315,6 +315,13 @@ private:
     // Stessa ragione: buildPipeline puo' fallire piu' volte di fila (un tentativo
     // per ricostruzione) e senza guardia si aprirebbe un popup per ciascuno.
     bool m_shaderErrorPopupActive = false;
+    // Avviso "le immagini non possono essere per-mesh" gia' mostrato in questa
+    // sessione. Spiega un LIMITE dell'architettura (l'immagine e' una risorsa
+    // GPU unica), non un errore: e' un'informazione che non cambia, quindi va
+    // detta una volta. Legarlo invece allo stato -- mostrarlo solo quando
+    // l'immagine cambia davvero -- si era rivelato fragile: m_currentTexturePath
+    // ha una ventina di punti di scrittura e azzeramento sparsi.
+    bool m_perMeshImageWarningShown = false;
     // True mentre una guardia trasparenza (forceOpaqueForHeavyRM) sta mostrando
     // il suo popup: fa scartare un performanceWarning gia' in coda (emesso sui
     // primi frame trasparenti prima dell'ack) che altrimenti aprirebbe il box del

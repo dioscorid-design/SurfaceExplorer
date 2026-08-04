@@ -5438,7 +5438,13 @@ void MainWindow::handleTextureSelection(int index)
             // cambiato. E' la stessa trappola dei popup a raffica dello shader.
             // Si mostra DOPO aver applicato l'immagine (in coda all'evento), cosi'
             // il flusso non viene interrotto a meta'.
-            if (texGoesToMesh) {
+            // UNA VOLTA PER SESSIONE: l'avviso spiega come funzionano le
+            // immagini in multi-mesh, non segnala un errore. Ripeterlo a ogni
+            // cambio di immagine e' solo attrito, tanto piu' che il flusso
+            // corretto (immagine globale + script di "Animated Images" sulle
+            // fasce) una volta capito si usa di continuo.
+            if (texGoesToMesh && !m_perMeshImageWarningShown) {
+                m_perMeshImageWarningShown = true;
                 QMetaObject::invokeMethod(this, [this]{
                     auto *box = new QMessageBox(QMessageBox::Information,
                         tr("Per-mesh texture"),
@@ -5448,7 +5454,8 @@ void MainWindow::handleTextureSelection(int index)
                            "A mesh that already has its own texture keeps showing that one. "
                            "To bring the image onto a single mesh, apply one of the scripts "
                            "in Procedurals > Animated Images: they sample the loaded image "
-                           "and can deform it differently on each mesh."),
+                           "and can deform it differently on each mesh.\n\n"
+                           "(Shown once per session.)"),
                         QMessageBox::Ok, this);
                     box->setAttribute(Qt::WA_DeleteOnClose);
                     box->open();
