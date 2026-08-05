@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Surface Explorer &mdash; Script Dock &amp; Advanced Scripting</title>
+
+    <style>
+        body { background-color: #1e1e1e; color: #d4d4d4;
+               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        p, li, td, th { color: #d4d4d4; }
+        strong { color: #007acc; }
+        code { background-color: #101010; color: #ce9178;
+               font-family: 'Consolas', 'Courier New', monospace; }
+        pre  { background-color: #101010; color: #dcdcaa; }
+        a { color: #569cd6; }
+    </style>
+</head>
+<body>
+
+<table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 24px; color: #ffffff; margin: 0;"><b>Script Dock &amp; Advanced Scripting</b></p></td></tr></table>
+<hr>
+<p style="font-size: 15px; margin-bottom: 20px;"><a href="doc_animation.html">&larr; Animation &amp; Video</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_library-management.html">Library, Presets &amp; Saving Your Work &rarr;</a></p>
+<hr>
+<p>For expert users, the <strong>Script</strong> dock provides a powerful GLSL code editor to bypass the standard equations and directly program the GPU for surfaces, textures, and sounds.</p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Script Buttons</b></p></td></tr></table>
+            <p>The Script dock features several action buttons to compile and apply your code depending on your current goal:</p>
+            <ul>
+                <li><strong>Run Script:</strong> Compiles the code to define the geometry of a surface. The engine intelligently detects the script's nature: it can handle <strong>Parametric surfaces</strong> (using <code>u, v, w</code>) or <strong>Implicit surfaces</strong> for Ray Marching (using <code>x, y, z</code> and distance functions). Special configuration variables like <code>u_min</code>, <code>A</code>, <code>B</code> can be declared at the top to <strong>seed</strong> the matching UI fields and sliders. These directives act as defaults: they only fill in values that have not yet been set in the dock&mdash;they never overwrite a value you already entered there. (The <code>steps</code> directive is the exception: it is not applied at all &mdash; resolution is always driven by the Steps slider.) See <a href="doc_geodesic.html">Geodesic Flow</a> for the precedence rule when a surface is driven by both the script and the Equations dock.</li>
+                <li><strong>Apply Texture Script:</strong> Applies the GLSL code as a procedural texture. It will be mapped onto the 3D surface or the 2D background, depending on which target is currently active in the <em>Renderer</em> dock.</li>
+                <li><strong>Run Sound / Stop Sound:</strong> Parses the script for <code>//SYNTH:</code> or <code>//MUSIC:</code> directives and executes the audio engine. The button toggles to "Stop Sound" during playback and can be clicked again to halt the audio.</li>
+                <li><strong>Save Script:</strong> Prompts you to save the current editor content as a new Surface, Texture, or Sound preset in your Library.</li>
+            </ul>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Script Language Reference</b></p></td></tr></table>
+            <p>Scripts are GLSL code pre-processed by the application's internal translator, which adds math
+            shorthand (<code>^</code> powers, <code>%</code> modulo, <code>pi</code>/<code>tau</code> constants),
+            UI directives (<code>u_min := -3.0;</code>) and a few strict rules (such as automatic integer-to-float
+            conversion). <strong>For the complete syntax, available variables, helper functions and examples,
+            read the dedicated guide: <a href="script_guide.html">GLSL Script Writing Guide</a>.</strong></p>
+
+<hr>
+<p style="font-size: 15px; margin-top: 30px;"><a href="doc_animation.html">&larr; Animation &amp; Video</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_library-management.html">Library, Presets &amp; Saving Your Work &rarr;</a></p>
+
+</body>
+</html>

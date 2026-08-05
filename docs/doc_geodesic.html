@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Surface Explorer &mdash; Geodesic Flow &amp; Non-Euclidean Geometries</title>
+
+    <style>
+        body { background-color: #1e1e1e; color: #d4d4d4;
+               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        p, li, td, th { color: #d4d4d4; }
+        strong { color: #007acc; }
+        code { background-color: #101010; color: #ce9178;
+               font-family: 'Consolas', 'Courier New', monospace; }
+        pre  { background-color: #101010; color: #dcdcaa; }
+        a { color: #569cd6; }
+    </style>
+</head>
+<body>
+
+<table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 24px; color: #ffffff; margin: 0;"><b>Geodesic Flow &amp; Non-Euclidean Geometries</b></p></td></tr></table>
+<hr>
+<p style="font-size: 15px; margin-bottom: 20px;"><a href="doc_equations.html">&larr; Parametric Equations</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_raymarching.html">Implicit Surfaces (Ray Marching) &rarr;</a></p>
+<hr>
+<p>Surface Explorer 4D includes an advanced <strong>Geodesic Flow</strong> engine. Instead of defining a surface explicitly, this mode generates geometry by simulating the physical paths of particles (geodesics) traveling through a curved space.</p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Geometric & Numerical Mechanism</b></p></td></tr></table>
+            <p>The system evaluates the parametric equations of the ambient space to automatically compute the <strong>Metric Tensor</strong> (<code>g<sub>ij</sub></code>) and the <strong>Christoffel Symbols</strong> (<code>&Gamma;<sup>k</sup><sub>ij</sub></code>). These symbols describe the intrinsic curvature of the space. All numerical computations are performed on the GPU via a dedicated compute shader (<code>geodesic.glsl</code>), which uses a highly stable <strong>4th-Order Runge-Kutta (RK4)</strong> integration to solve the geodesic differential equations in real-time.</p>
+            <ul>
+                <li><strong>Parameter <code>u</code>:</strong> Acts as the generator for the family of geodesics (e.g., varying the starting position or the initial velocity vector).</li>
+                <li><strong>Parameter <code>v</code>:</strong> Acts as the "time" or the distance traveled along the geodesic path.</li>
+                <li><strong>Initial Conditions:</strong> The UI allows you to specify the starting coordinates (<code>U, V, W</code>) and the initial velocity vectors (<code>dU, dV, dW</code>).</li>
+            </ul>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>The Conformal Factor (&Lambda;) & Hyperbolic Spaces</b></p></td></tr></table>
+            <p>For advanced topologies, you can inject a <strong>Conformal Factor</strong> (&Lambda;). This mathematically scales the metric tensor isotropically, allowing you to simulate non-Euclidean geometries completely inside a standard 3D Euclidean space (R<sup>3</sup>).</p>
+            <p>A prime example is the <strong>Poincar&eacute; Ball</strong> model of hyperbolic geometry. By defining the ambient space simply as the interior of a standard 3D solid sphere, and applying a conformal factor that approaches infinity at the boundary&mdash;such as <code>1 / (1 - r<sup>2</sup>)<sup>2</sup></code>&mdash;the geodesics are naturally forced to curve sharply inward. The RK4 integrator will trace the classic circular arcs characteristic of hyperbolic space without requiring explicit parametric definitions for those curves.</p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Script &amp; Equations: who decides</b></p></td></tr></table>
+            <p>A geometry can be driven by <strong>both</strong> the Script dock and the Equations dock at the same time. A common case is a <strong>metric-tensor script</strong> (one that ends with <code>return mat3(...)</code> to define the metric <code>g<sub>ij</sub></code> directly) whose initial conditions are also present in the Geodesic Flow fields. When the two panels disagree, the rule is simple:</p>
+            <p style="text-align: center;"><strong>The Equations dock always wins.</strong></p>
+            <p>A script's <code>:=</code> directives&mdash;the limits (<code>u_min</code>, <code>u_max</code>, &hellip;), the constants (<code>A</code>&hellip;<code>F</code>, <code>S</code>), and the geodesic initial conditions (<code>U</code>, <code>V</code>, <code>W</code>, <code>dU</code>, <code>dV</code>, <code>dW</code>, <code>Conform</code>)&mdash;only <strong>fill in fields that are still empty</strong>. They never overwrite a value already present in the dock, whether you press <strong>Run</strong> from the Equations dock or from the Script dock, and whether you are loading a preset or running manually. As a result both <strong>Run</strong> buttons produce the same surface and the same animation, and edits you make in the dock after loading are never reverted by re-running the script.</p>
+            <p>The directives therefore behave as <strong>defaults / first-load seeds</strong>: a freshly written script with empty dock fields still populates them on its first Run. To change a value that is already filled, edit the corresponding field in the Equations dock&mdash;the panels are not auto-synced back into the script source.</p>
+            <p><strong>Note on <code>steps</code>:</strong> a <code>steps := N;</code> line in a script is <em>not</em> applied to the resolution. The mesh resolution is governed exclusively by the <strong>Steps</strong> slider (seeded from the preset's saved value when you load it). This lets you drag the slider freely without a re-run snapping it back to the scripted number; the directive is kept in the source only as a note of the author's intended value.</p>
+
+            <div class="note">
+                <strong>Technical Note:</strong> Because geodesic integration calculates multiple micro-steps per vertex using RK4, extremely high grid resolutions combined with steep conformal gradients may impact your CPU's performance. The engine includes an automatic singularity detection system that will safely halt the calculation if a geodesic escapes to infinity or hits a mathematical pole.
+            </div>
+
+            <div class="note" style="border-left-color: #ff4444;">
+                <strong>Warning:</strong> The numerical integration may fail if the input data is incorrect, physically impossible, or pushes the curve outside the valid domain. If the engine encounters a mathematical singularity, the generation will be safely aborted. Always carefully review your starting coordinates, vectors, and conformal factor.
+            </div>
+
+<hr>
+<p style="font-size: 15px; margin-top: 30px;"><a href="doc_equations.html">&larr; Parametric Equations</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_raymarching.html">Implicit Surfaces (Ray Marching) &rarr;</a></p>
+
+</body>
+</html>

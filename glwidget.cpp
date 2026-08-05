@@ -255,8 +255,8 @@ void GLWidget::initialize(QRhiCommandBuffer *cb)
     m_wireframeIbo->create();
 
     // --- 3. CREAZIONE TEXTURE E BINDINGS ---
-    // A. Creiamo la texture "tappabuchi"
-    createDummyTexture();
+    // A. Creiamo la texture "tappabuchi" (scacchiera: serve il cb per l'upload)
+    createDummyTexture(cb);
 
     // B. Colleghiamo l'UBO al binding 0 e la TEXTURE al binding 1
     m_bindings = rhi()->newShaderResourceBindings();
@@ -629,6 +629,16 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     m_uboData.col1 = QVector3D(texRed1, texGreen1, texBlue1);
     m_uboData.col2 = QVector3D(texRed2, texGreen2, texBlue2);
     m_uboData.useTexture = m_textureEnabled ? 1 : 0;
+
+    // NESSUNA IMMAGINE nello slot sampler: gli script che campionano iChannel0
+    // (famiglia "Animated Images") cadono sulla scacchiera procedurale invece
+    // che sui pixel della texture tappabuchi. m_surfaceTexture e' la texture
+    // dell'immagine caricata: nullo = non c'e' immagine.
+    // Conta l'immagine dell'UTENTE, non "esiste una texture": generateTexture()
+    // carica la scacchiera di default per la stessa via, quindi m_surfaceTexture
+    // resta popolata anche senza alcuna immagine e il fallback non sarebbe mai
+    // scattato (era il motivo per cui gli slider colore sembravano inerti).
+    m_uboData.u_noImage = m_hasUserImage ? 0 : 1;
 
     // ==========================================================
     // AGGIORNAMENTO BUFFER PRINCIPALE (multi-mesh)
@@ -2752,11 +2762,22 @@ void GLWidget::loadTextureFromFile(const QString &f) {
     QImage img(f);
     if (!img.isNull()) {
         loadTextureFromImage(img);
+        // Immagine VERA dell'utente (da file). Distinta dalla scacchiera che
+        // MainWindow::generateTexture() disegna su CPU e carica dalla stessa
+        // via: quella e' un default procedurale, non un'immagine, e non deve
+        // spegnere il fallback di iChannel0 (vedi m_hasUserImage).
+        m_hasUserImage = true;
     }
 }
 
 void GLWidget::loadTextureFromImage(const QImage &img) {
     if (img.isNull()) return;
+
+    // Caricamento da QImage: e' la via della scacchiera generata. Chi carica
+    // un'immagine dell'utente passa da loadTextureFromFile, che rialza il flag
+    // subito dopo. Azzerarlo qui evita che una scacchiera generata DOPO
+    // un'immagine continui a spacciarsi per quella.
+    m_hasUserImage = false;
 
     // 1. RHI richiede formati precisi (RGBA8888)
     m_pendingSurfaceImage = img.convertToFormat(QImage::Format_RGBA8888).flipped(Qt::Orientations(Qt::Vertical));
@@ -2799,6 +2820,9 @@ void GLWidget::clearTexture() {
     // Svuota l'immagine in attesa
     m_pendingSurfaceImage = QImage();
     m_surfaceTextureNeedsUpload = false;
+    // Non c'e' piu' un'immagine dell'utente: gli script che campionano
+    // iChannel0 devono tornare alla scacchiera procedurale.
+    m_hasUserImage = false;
 
     // Distruzione effettiva dell'oggetto RHI rinviata al render loop: svuotare solo
     // m_pendingSurfaceImage NON bastava (m_surfaceTexture restava residente sulla GPU
@@ -4509,9 +4533,13 @@ QString GLWidget::buildTextureFunction(const QString &customLogic, const QString
     // texture per-mesh la ridichiarerebbe N volte ("redefinition"). La emette
     // createFragmentShaderSource prima di tutte le funzioni.
     if (customLogic.isEmpty()) {
+        // _st_sampleTex e non texture(tex, uv): senza immagine caricata questo
+        // ramo campionava la texture tappabuchi, cioe' un colore piatto. Ora
+        // cade sulla scacchiera procedurale mix(u_col1,u_col2), coerente col
+        // ramo Shadertoy e con gli slider Color 1/2 che la governano.
         codeToInject = "vec3 " + funcName + "(vec2 in_uv) {\n" +
                        helpers +
-                       "\n    return texture(tex, uv).rgb;\n}";
+                       "\n    return _st_sampleTex(uv).rgb;\n}";
     }
     else if (safeLogic.contains("mainImage")) {
         // Supporto Shadertoy
@@ -4522,6 +4550,20 @@ QString GLWidget::buildTextureFunction(const QString &customLogic, const QString
         // così la texture in vista 2D non rispondeva al mouse. La rimappiamo su una
         // variabile globale che impostiamo al fragCoord trasformato prima di mainImage.
         safeLogic.replace(QRegularExpression("\\bgl_FragCoord\\b"), "_st_fragCoord");
+
+        // FALLBACK "NESSUNA IMMAGINE": le chiamate texture(iChannelN, uv[, bias])
+        // passano da _st_sampleTex, che senza immagine caricata restituisce una
+        // scacchiera mix(u_col1,u_col2) invece dei pixel della texture tappabuchi
+        // (che darebbero una mesh piatta e monocroma). Si riscrive la CHIAMATA,
+        // come qui sopra per gl_FragCoord, e non si tocca il #define iChannelN:
+        // una "#define texture(...)" di modulo verrebbe raccolta dal rinominatore
+        // per-mesh piu' sotto (reDef legge OGNI #define) e finirebbe rinominata,
+        // rompendo lo shader. Il terzo argomento (bias di mip, usato da "Squished
+        // Coordinates") sopravvive alla sostituzione, quindi _st_sampleTex e'
+        // OVERLOADED anche a 2 parametri: senza, quella chiamata non compilerebbe.
+        safeLogic.replace(
+            QRegularExpression(R"(\btexture\s*\(\s*iChannel[0-3]\s*,)"),
+            "_st_sampleTex(");
 
         QString stHelpers = "vec3 iResolution;\n"
                             "float iTime;\n"
@@ -4778,6 +4820,34 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
     // sola, prima di tutte le funzioni texture: e' una uniform di modulo e
     // ridichiararla per funzione sarebbe un errore di compilazione.
     QString codeToInject = "layout(binding=1) uniform sampler2D tex;\n";
+
+    // FALLBACK "NESSUNA IMMAGINE" PER iChannel0.
+    // Gli script che campionano iChannel0 (famiglia "Animated Images": rimostrano
+    // l'immagine caricata deformandola) senza alcuna immagine leggevano la texture
+    // tappabuchi. Ora, quando u_noImage vale 1, restituiamo una SCACCHIERA
+    // PROCEDURALE costruita su u_col1/u_col2: identica per aspetto e per contratto
+    // alla scacchiera di default (defaultMeshTextureCode in MainWindow), quindi i
+    // picker Color1/Color2 agiscono davvero invece di essere decorativi.
+    // Si intercetta la CHIAMATA texture(), non il sampler: i preset la usano sia a
+    // 2 argomenti sia a 3 (Squished Coordinates passa il bias di mip), e una macro
+    // variadica copre entrambe le arita' senza toccarne il corpo.
+    // Il define e' emesso una sola volta a livello di modulo, come il sampler.
+    codeToInject +=
+        "vec4 _st_sampleTex(vec2 uv) {\n"
+        "    if (ubuf.u_noImage != 0) {\n"
+        "        vec2 g = floor(uv * 8.0);\n"
+        "        float c = mod(g.x + g.y, 2.0);\n"
+        "        return vec4(mix(ubuf.u_col1, ubuf.u_col2, c), 1.0);\n"
+        "    }\n"
+        "    return texture(tex, uv);\n"
+        "}\n"
+        // Overload col bias di mip: alcuni preset Shadertoy chiamano
+        // texture(iChannel0, uv, bias) e la riscrittura conserva il terzo
+        // argomento. Sul fallback procedurale il bias non ha senso e si ignora.
+        "vec4 _st_sampleTex(vec2 uv, float bias) {\n"
+        "    if (ubuf.u_noImage != 0) return _st_sampleTex(uv);\n"
+        "    return texture(tex, uv, bias);\n"
+        "}\n";
 
     // Texture GLOBALE della superficie: la funzione che il frag chiama sempre,
     // identica a prima di questa modifica.
@@ -5133,12 +5203,55 @@ void GLWidget::initBackgroundShader() {
 
 // --- Texture Utilities ---
 
-void GLWidget::createDummyTexture() {
+void GLWidget::createDummyTexture(QRhiCommandBuffer *cb) {
     if (!rhi()) return;
 
-    // Crea un'immagine minuscola (1x1 pixel) per tappare il buco
-    m_dummyTexture = rhi()->newTexture(QRhiTexture::RGBA8, QSize(1, 1), 1);
+    // Texture "tappabuchi" per lo slot sampler quando nessuna immagine e'
+    // caricata. Era 1x1 e non veniva MAI riempita: il contenuto restava
+    // indefinito (in pratica zeri = NERO OPACO). Finche' serviva solo a
+    // occupare il binding non dava fastidio, ma gli script che campionano
+    // iChannel0 davvero -- quelli di "Animated Images", che rimostrano
+    // l'immagine caricata -- leggevano quel nero e la mesh diventava nera,
+    // senza alcun errore.
+    // Ora e' una SCACCHIERA vera: e' il fallback che l'utente si aspetta e
+    // dice a colpo d'occhio "nessuna immagine caricata".
+    // Nota: NON e' il rimedio del caso "mesh senza texture propria" (vedi
+    // createFragmentShaderSource), che si risolve nel codice generato con
+    // `return vec3(1.0)` e non dipende dal contenuto di questa texture.
+    // Colori: il VERDE di default del progetto (0.20, 0.80, 0.20 -> 51,204,51,
+    // lo stesso di m_currentSurfaceColor/m_texColor1 in MainWindow) e il nero
+    // di m_texColor2. Cosi' il fallback ha l'aspetto di casa invece del
+    // bianco/nero generico.
+    const int kDummySize = 64;   // 8 celle da 8 px
+    const int kDummyCell = 8;
+    QImage checker(kDummySize, kDummySize, QImage::Format_RGBA8888);
+    for (int y = 0; y < kDummySize; ++y) {
+        QRgb *row = reinterpret_cast<QRgb *>(checker.scanLine(y));
+        for (int x = 0; x < kDummySize; ++x) {
+            const bool light = ((x / kDummyCell) + (y / kDummyCell)) % 2 == 0;
+            row[x] = light ? qRgba(51, 204, 51, 255) : qRgba(0, 0, 0, 255);
+        }
+    }
+
+    m_dummyTexture = rhi()->newTexture(QRhiTexture::RGBA8, checker.size(), 1);
     m_dummyTexture->create();
+
+    // L'upload va accodato in un batch e sottomesso: create() alloca soltanto.
+    // Senza questo la scacchiera resterebbe scritta solo lato CPU e la texture
+    // continuerebbe a leggere nero, cioe' il bug di partenza.
+    // Il command buffer arriva da initialize(cb): QRhiWidget non espone alcun
+    // commandBuffer(), l'unico modo di sottomettere e' passarlo qui.
+    if (cb) {
+        QRhiResourceUpdateBatch *batch = rhi()->nextResourceUpdateBatch();
+        // Variante QImage (non puntatore+size): QImage e' implicitly shared e
+        // viene tenuta per valore dalla descrizione, quindi i pixel restano
+        // validi anche se 'checker' e' locale a questa funzione.
+        batch->uploadTexture(m_dummyTexture,
+                             QRhiTextureUploadDescription(
+                                 QRhiTextureUploadEntry(0, 0,
+                                     QRhiTextureSubresourceUploadDescription(checker))));
+        cb->resourceUpdate(batch);
+    }
 
     // Crea le regole di lettura per l'immagine
     m_sampler = rhi()->newSampler(QRhiSampler::Linear,

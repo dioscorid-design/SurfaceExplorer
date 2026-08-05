@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Surface Explorer &mdash; Rendering &amp; Textures</title>
+
+    <style>
+        body { background-color: #1e1e1e; color: #d4d4d4;
+               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        p, li, td, th { color: #d4d4d4; }
+        strong { color: #007acc; }
+        code { background-color: #101010; color: #ce9178;
+               font-family: 'Consolas', 'Courier New', monospace; }
+        pre  { background-color: #101010; color: #dcdcaa; }
+        a { color: #569cd6; }
+    </style>
+</head>
+<body>
+
+<table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 24px; color: #ffffff; margin: 0;"><b>Rendering &amp; Textures</b></p></td></tr></table>
+<hr>
+<p style="font-size: 15px; margin-bottom: 20px;"><a href="doc_raymarching.html">&larr; Implicit Surfaces (Ray Marching)</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_audio.html">Sounds &amp; Audio &rarr;</a></p>
+<hr>
+<p>The Renderer dock is organized around <strong>three independent choices</strong>: the <em>rendering style</em> of the surface, the <em>edit target</em> that the colors and textures act upon, and &mdash; on multi-mesh surfaces &mdash; the <em>scope</em> those controls apply to.</p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Rendering Style (Surface)</b></p></td></tr></table>
+            <p>This selects how the surface itself is drawn. The three modes are mutually exclusive:</p>
+            <ul>
+                <li><strong>Base:</strong> Flat color (fast).</li>
+                <li><strong>Phong:</strong> Realistic specular lighting.</li>
+                <li><strong>WireFrame:</strong> Displays the polygonal grid. The overall fineness of that grid is set by <strong>Steps</strong> in the Equations dock (more steps &rarr; denser wireframe). When this mode is active, the <strong>Density u</strong> and <strong>Density v</strong> controls also become enabled: they do <em>not</em> add resolution, they only <strong>rebalance the two families of coordinate lines</strong> relative to each other. This is useful when the surface shape stretches one parameter far more than the other (long tubes, thin ribbons), leaving the U-lines and V-lines looking visually mismatched &mdash; you can thin out the crowded family or thicken the sparse one to even out the appearance, without changing the geometry. They are greyed out in any other mode (and in Ray Marching, where wireframe is not available).</li>
+            </ul>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Multi Mesh (All / Mesh)</b></p></td></tr></table>
+            <p>A surface built from several independent grids (see <em>Multi-Mesh Surfaces</em> in the Script Guide) can be styled grid by grid. The <strong>Multi Mesh</strong> box decides the <em>scope</em> of the appearance controls &mdash; colour, transparency, Light and the Solid/Phong/WireFrame choice:</p>
+            <ul>
+                <li><strong>All:</strong> the surface behaves as a single one. Every control applies to all the grids at once, whatever they were set to individually.</li>
+                <li><strong>Mesh:</strong> the spin box next to it picks one grid, and the same controls act only on that one &mdash; including its own <strong>Density u / Density v</strong>, so two grids can be drawn as wireframe with different line spacing.</li>
+            </ul>
+            <p>Switching to <strong>All</strong> does not erase what you set per grid: those values are only suspended, and they come back exactly as they were when you switch to <strong>Mesh</strong>. A grid you never touched simply follows the global settings, so surfaces made of a single mesh &mdash; and every preset built before this feature &mdash; behave as they always did. Both the per-mesh appearance and the active scope are stored in the preset.</p>
+            <p><em>Note: a per-mesh colour has no effect while a texture is active on the surface, because the texture carries its own colours (see the <code>u_col1</code> token in the Script Guide).</em></p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Edit Target (Surface / Background)</b></p></td></tr></table>
+            <p>This pair of buttons is a single exclusive choice that decides <em>what</em> the color sliders, the Texture checkbox and the Library textures act upon. Switching the target never changes the rendering style above &mdash; the two are completely separate axes.</p>
+            <ul>
+                <li><strong>Surface:</strong> Colors and textures are applied to the 3D/4D surface itself. This is the default.</li>
+                <li><strong>Background:</strong> Everything is redirected to the 2D interactive environment drawn behind the objects. While this target is active, images and procedural effects stay fully interactive &mdash; you can pan, zoom and rotate them with the mouse, just like the 3D camera. The surface is <em>not</em> hidden: only the editing focus moves to the background, so you can keep Surface one click away.</li>
+            </ul>
+            <p><em>Note: If no background image is explicitly loaded, a fallback procedural Deep Space gradient will be automatically generated to ensure a sleek presentation.</em></p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Applying Textures (Surface vs. Background)</b></p></td></tr></table>
+            <p>Textures (both procedural scripts and static images) follow whichever edit target is selected:</p>
+            <ul>
+                <li><strong>Surface Textures:</strong> With the <em>Surface</em> target selected, applying a texture from the Library (or activating the Texture checkbox) wraps the selected image or script directly onto the geometry of the 3D/4D surface. This works in both the <em>Base</em> and <em>Phong</em> rendering styles; in <em>WireFrame</em> the surface texture is hidden and the sliders edit the line color instead.</li>
+                <li><strong>Background Textures:</strong> With the <em>Background</em> target selected, any texture you load or procedural script you run is applied to the 2D background behind the surface, where it remains fully interactive (pan, zoom, rotate).</li>
+            </ul>
+            <p>When a colored procedural texture is active, the <strong>Color 1</strong> and <strong>Color 2</strong> buttons appear and let the sliders edit the two tint slots of that texture. In the Surface target, picking Color 1, Color 2 or Surface is a single mutually-exclusive choice of what the sliders control; in the Background target, Color 1/Color 2 instead drive the two background-texture colors.</p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Procedural Textures (GLSL)</b></p></td></tr></table>
+            <p>Besides loading images (PNG/JPG), you can write custom GLSL scripts to generate mathematical textures in real-time.</p>
+            <pre>
+// Example Texture Script
+float r = sin(u * 10.0);
+float g = cos(v * 10.0);
+return vec3(r, g, 0.5);</pre>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Putting an Image on a Single Mesh (Animated Images)</b></p></td></tr></table>
+            <p>Procedural textures can be given to one grid at a time, but <strong>images behave differently</strong>: an image is a single graphics resource shared by the whole surface, not code that can be duplicated per grid. Loading one from the Library therefore always covers the entire surface, even when the Multi&nbsp;Mesh scope is set to <em>Mesh</em>. The application says so with a one-off notice the first time it happens.</p>
+            <p>The way to bring an image onto a single grid is the <strong>Animated Images</strong> folder, under <em>Textures &gt; Procedurals</em> in the Library. These are procedural scripts &mdash; so they <em>do</em> apply per mesh &mdash; that redisplay the image already loaded rather than generating a pattern of their own. Two steps:</p>
+            <ol>
+                <li>With the scope on <strong>All</strong>, load the image from <em>Textures &gt; Images</em> as usual.</li>
+                <li>Switch to <strong>Mesh</strong>, select a grid, and apply one of the <em>Animated Images</em> presets.</li>
+            </ol>
+            <p>Repeat the second step on each grid that should display the image. Every grid keeps its own framing and its own movement, and the ones you leave alone stay in plain colour &mdash; so the same photograph can drift on one branch of a surface and rotate on another. A grid that already carries a texture of its own keeps showing that one.</p>
+            <p><strong>Choosing the preset.</strong> <em>Still Image</em> shows the picture motionless and is the one to use for a simple per-mesh image. <em>Drifting</em>, <em>Rotating</em>, <em>Breathing</em>, <em>Shearing</em> and <em>Squished</em> animate it in different ways &mdash; sliding, turning, pulsing, slanting and stretching respectively. Each script carries a short block of parameters (speed, amount) at the top of its code, so the effect can be tuned in the Script dock without rewriting anything.</p>
+
+<hr>
+<p style="font-size: 15px; margin-top: 30px;"><a href="doc_raymarching.html">&larr; Implicit Surfaces (Ray Marching)</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_audio.html">Sounds &amp; Audio &rarr;</a></p>
+
+</body>
+</html>

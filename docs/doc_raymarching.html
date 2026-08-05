@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Surface Explorer &mdash; Implicit Surfaces (Ray Marching)</title>
+
+    <style>
+        body { background-color: #1e1e1e; color: #d4d4d4;
+               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        p, li, td, th { color: #d4d4d4; }
+        strong { color: #007acc; }
+        code { background-color: #101010; color: #ce9178;
+               font-family: 'Consolas', 'Courier New', monospace; }
+        pre  { background-color: #101010; color: #dcdcaa; }
+        a { color: #569cd6; }
+    </style>
+</head>
+<body>
+
+<table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 24px; color: #ffffff; margin: 0;"><b>Implicit Surfaces (Ray Marching)</b></p></td></tr></table>
+<hr>
+<p style="font-size: 15px; margin-bottom: 20px;"><a href="doc_geodesic.html">&larr; Geodesic Flow &amp; Non-Euclidean Geometries</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_rendering.html">Rendering &amp; Textures &rarr;</a></p>
+<hr>
+<p>In addition to parametric surfaces, Surface Explorer 4D supports <strong>Implicit Surfaces</strong> defined by mathematical equations in the form of <code>f(x, y, z) = 0</code> (e.g., <code>x^2 + y^2 + z^2 = 1</code>). These are rendered using an advanced graphics technique called <strong>Ray Marching</strong>.</p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>How it Works</b></p></td></tr></table>
+            <p>Instead of generating a grid of polygons (vertices and faces) on the CPU, the Ray Marching engine shoots rays from the virtual camera into the 3D space to find the exact point where the mathematical formula equals zero. This allows for mathematically perfect curves, infinite repeating structures, and complex boolean operations (additions, subtractions, and intersections of shapes) that would be impossible with standard geometry.</p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Key Settings</b></p></td></tr></table>
+            <ul>
+                <li><strong>Equation:</strong> The main formula. Use the variables <code>x, y, z</code>. Example: <code>x^2 + y^2 + z^2 - 1.0 = 0.0</code> (the <code>= 0.0</code> part is handled automatically if you omit it).</li>
+                <li><strong>Displacement / Variations:</strong> You can inject GLSL code here to distort the space or add bumps to the surface before it is evaluated.</li>
+                <li><strong>Ray Steps:</strong> Defines the maximum number of steps a ray can take to find the surface. Higher values (e.g., 200-500) improve rendering accuracy but reduce performance (framerate).</li>
+                <li><strong>Step Relax (S):</strong> A safety multiplier for the ray step size. If you see visual artifacts, "holes," or ghosting on highly distorted or fractal shapes, lower this value (e.g., to 0.4 or 0.2) to force the rays to advance more cautiously.</li>
+                <li><strong>Spatial Limits (Bounding Box):</strong> Since implicit surfaces can easily extend to infinity, you can set X, Y, and Z Min/Max values to cut the shape inside an invisible bounding box.</li>
+                <li><strong>Solid vs Shell:</strong> <em>Solid</em> mode fills the inside of the object, while <em>Shell</em> mode renders it as a hollow, infinitely thin surface.</li>
+            </ul>
+
+            <h3 id="rm-artifacts">Troubleshooting Visual Artifacts</h3>
+            <p>When exploring arbitrary implicit equations, you might encounter visual artifacts such as infinite "blades", floating planes, or holes in the geometry. This happens because some mathematical functions grow too fast, causing the ray to "overshoot" and completely jump past the surface.</p>
+
+            <div class="note">
+                <h4 style="margin-top: 0;">The Scale Factor Trick (0.1 Multiplier)</h4>
+                <p>If your surface looks broken or has external artifacts, the standard mathematical practice is to multiply the entire equation by a small scale factor (Lipschitz bound). <br><br>
+                <strong>Example:</strong> Change <code>x^2 + y^2 + z^2 + 2*x*y*z - 1.0</code> to <code>0.1 * (x^2 + y^2 + z^2 + 2*x*y*z - 1.0)</code>.</p>
+                <p style="margin-bottom: 0;">This artificially reduces the steepness of the function, forcing the ray to take smaller, safer steps without altering the actual shape of your object.</p>
+            </div>
+
+            <p><strong>Shell vs. Solid Stability:</strong> These artifacts are especially prominent in <strong>Shell</strong> mode. Because the shell has a fixed, microscopic thickness, a fast-traveling ray can easily jump right through it without detecting a hit. If you don't specifically need the hollow shell effect, switching to <strong>Solid</strong> mode provides a much more robust and stable rendering. If you must use Shell mode, using the <code>0.1</code> multiplier or lowering the <strong>Step Relax (S)</strong> slider is highly recommended.</p>
+
+            <div class="note">
+                <strong>Limitations:</strong> Because Ray Marching does not use traditional polygons, the <strong>Wireframe</strong> rendering mode is disabled. Additionally, implicit surfaces in this software are strictly evaluated in 3D space (X, Y, Z); therefore, 4D hyperspatial rotations (Omega, Phi, Psi) and the P coordinate are not applicable.
+            </div>
+
+<hr>
+<p style="font-size: 15px; margin-top: 30px;"><a href="doc_geodesic.html">&larr; Geodesic Flow &amp; Non-Euclidean Geometries</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_rendering.html">Rendering &amp; Textures &rarr;</a></p>
+
+</body>
+</html>

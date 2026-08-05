@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Surface Explorer &mdash; Projection Modes</title>
+
+    <style>
+        body { background-color: #1e1e1e; color: #d4d4d4;
+               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        p, li, td, th { color: #d4d4d4; }
+        strong { color: #007acc; }
+        code { background-color: #101010; color: #ce9178;
+               font-family: 'Consolas', 'Courier New', monospace; }
+        pre  { background-color: #101010; color: #dcdcaa; }
+        a { color: #569cd6; }
+    </style>
+</head>
+<body>
+
+<table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 24px; color: #ffffff; margin: 0;"><b>Projection Modes</b></p></td></tr></table>
+<hr>
+<p style="font-size: 15px; margin-bottom: 20px;"><a href="doc_interaction.html">&larr; Interaction &amp; Navigation</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_dimensions.html">The 4th Dimension &rarr;</a></p>
+<hr>
+<p>Surface Explorer 4D offers different projection methods to map geometry onto your screen. You can cycle through these modes using the dedicated button in the bottom status bar:</p>
+            <ul>
+                <li><strong>Perspective:</strong> Standard 3D perspective projection with depth perception.</li>
+                <li><strong>Stereographic:</strong> A conformal projection that maps the geometry onto a sphere before projecting it onto the screen, producing a characteristic wide, curved distortion.</li>
+                <li><strong>Orthogonal:</strong> Flat, parallel projection without depth distortion. Ideal for technical visualization and exact proportional sizing.</li>
+            </ul>
+            <p><strong>Field of View (Fov slider):</strong> The <strong>Fov</strong> slider sits in the <em>Renderer</em> dock, right below <em>Light</em>, and controls the camera lens angle from 20&deg; (telephoto) to 110&deg; (wide angle), with 45&deg; as the default. It is the single control for the field of view: it is never disabled and applies to whatever is driving the camera &mdash; 3D and 4D camera paths, rotations, t-motions, and surfaces standing still. In <em>Perspective</em> and <em>Stereographic</em> modes a wider angle gives the scene more breathing room &mdash; especially useful when flying <em>inside</em> a surface with a camera path, where nearby walls loom much less at 60&ndash;70&deg;. In <em>Orthogonal</em> mode there is no perspective, so the slider simply scales the framed area, acting like a zoom. The value is saved in presets and Records: a file that stored a different angle reloads with it, and anything else opens at the standard 45&deg;.</p>
+            <div class="note">
+                <strong>Important:</strong> When using Perspective or Stereographic modes, if the surface moves too close to the camera (near-clipping plane), visual artifacts or "holes" may appear. If this happens, try switching the projection mode to <strong>Orthogonal</strong>.
+                <br><br>
+                In <strong>Stereographic</strong> mode there is a second, different case: a surface passing close to the projection pole gets a rippled rim, and 4D rotations can move it onto the pole. See <em>4D Rotations</em> in <a href="doc_dimensions.html">The 4th Dimension</a> for which rotations to prefer.
+            </div>
+
+<hr>
+<p style="font-size: 15px; margin-top: 30px;"><a href="doc_interaction.html">&larr; Interaction &amp; Navigation</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_dimensions.html">The 4th Dimension &rarr;</a></p>
+
+</body>
+</html>

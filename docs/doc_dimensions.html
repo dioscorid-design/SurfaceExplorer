@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Surface Explorer &mdash; The 4th Dimension</title>
+
+    <style>
+        body { background-color: #1e1e1e; color: #d4d4d4;
+               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        p, li, td, th { color: #d4d4d4; }
+        strong { color: #007acc; }
+        code { background-color: #101010; color: #ce9178;
+               font-family: 'Consolas', 'Courier New', monospace; }
+        pre  { background-color: #101010; color: #dcdcaa; }
+        a { color: #569cd6; }
+    </style>
+</head>
+<body>
+
+<table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 24px; color: #ffffff; margin: 0;"><b>The 4th Dimension</b></p></td></tr></table>
+<hr>
+<p style="font-size: 15px; margin-bottom: 20px;"><a href="doc_projection.html">&larr; Projection Modes</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_equations.html">Parametric Equations &rarr;</a></p>
+<hr>
+<p>Surface Explorer calculates geometry in R4 (X, Y, Z, P) and projects it into R3 for visualization.</p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>4D Rotations</b></p></td></tr></table>
+            <p>In addition to classic 3D rotations, three hyperspatial rotations involving the P axis are available:</p>
+            <ul>
+                <li><strong>Omega (X-P):</strong> Rotates the X plane onto the P axis.</li>
+                <li><strong>Phi (Y-P):</strong> Rotates the Y plane onto the P axis.</li>
+                <li><strong>Psi (Z-P):</strong> Rotates the Z plane onto the P axis.</li>
+            </ul>
+            <div class="note">
+                <strong>4D rotations in Stereographic mode:</strong> stereographic projection sends the pole P&nbsp;=&nbsp;+1 to infinity, so a surface passing near that pole is drawn at a huge distance. The engine caps that distance to keep the geometry inside the far plane, which flattens the affected vertices onto a single sphere and shows up as a <em>rippled or serrated rim</em>.
+                <br><br>
+                If your surface comes close to the pole, prefer <strong>Psi</strong> for continuous rotation and avoid <strong>Omega</strong> and <strong>Phi</strong>: those two mix a spatial coordinate with P and can push part of the surface <em>onto</em> the pole, while Psi often leaves the maximum P untouched. Raising <strong>Steps</strong> makes the ripple finer but never removes it, because the affected region is an area of the domain rather than a few isolated vertices. Switching to <strong>Perspective</strong> or <strong>Orthogonal</strong> avoids the effect entirely, since neither projection has a pole at infinity.
+            </div>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Lighting Modes (3D vs 4D)</b></p></td></tr></table>
+            <p>To seamlessly switch between classic 3D lighting and advanced 4D lighting, simply change the active motion dock:</p>
+            <ul>
+                <li><strong>3D Lighting (3D Motion Dock):</strong> When the <strong>3D Motion</strong> dock is active, the engine uses standard 3D lighting. It ignores 4D depth, lighting the object as if it were a standard 3D shape and preserving classic shadows and volumes.</li>
+                <li><strong>4D Lighting (4D Motion Dock):</strong> When the <strong>4D Motion</strong> dock is opened, hyperspatial lighting takes over. You can cycle through the different 4D lighting models by clicking the dedicated <strong>Lighting Button</strong> inside the dock:
+                    <ul>
+                        <li><strong>Directional Lighting:</strong> Simulates a global "4D Sun" with parallel rays from infinity, providing even, studio-like illumination across the hyper-surface.</li>
+                        <li><strong>Observer:</strong> Simulates a "light" positioned at the 4D observation point, dynamically brightening or darkening the surface based on its proximity in the 4th dimension while preserving 3D volume.</li>
+                        <li><strong>Slice:</strong> Highlights the intersection with the current 3D observation hyperplane (useful for cross-sections) with soft volumetric transitions.</li>
+                    </ul>
+                </li>
+            </ul>
+
+<hr>
+<p style="font-size: 15px; margin-top: 30px;"><a href="doc_projection.html">&larr; Projection Modes</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_equations.html">Parametric Equations &rarr;</a></p>
+
+</body>
+</html>

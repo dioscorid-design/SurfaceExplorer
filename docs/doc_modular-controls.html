@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Surface Explorer &mdash; Modular Activation &amp; Master Controls</title>
+
+    <style>
+        body { background-color: #1e1e1e; color: #d4d4d4;
+               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        p, li, td, th { color: #d4d4d4; }
+        strong { color: #007acc; }
+        code { background-color: #101010; color: #ce9178;
+               font-family: 'Consolas', 'Courier New', monospace; }
+        pre  { background-color: #101010; color: #dcdcaa; }
+        a { color: #569cd6; }
+    </style>
+</head>
+<body>
+
+<table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 24px; color: #ffffff; margin: 0;"><b>Modular Activation &amp; Master Controls</b></p></td></tr></table>
+<hr>
+<p style="font-size: 15px; margin-bottom: 20px;"><a href="doc_library-management.html">&larr; Library, Presets &amp; Saving Your Work</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_acknowledgments.html">Acknowledgments &amp; Third-Party Code &rarr;</a></p>
+<hr>
+<p>Surface Explorer features a modular control system designed for maximum flexibility. This allows users to control individual components independently or use a global command to synchronize the entire environment.</p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Individual Component Controls</b></p></td></tr></table>
+            <p>Each functional module has its own dedicated activation and deactivation methods:</p>
+            <ul>
+                <li><strong>Surfaces & t_Motions:</strong> These can be activated using the <strong>Run</strong> button in the <em>Equations Dock</em> (which applies the equations and starts their <code>t</code> animation without touching the other modules), the <strong>Run Parametric</strong> or <strong>Run Implicit</strong> buttons in the <em>Script Dock</em>, or by loading a <strong>Preset</strong>.</li>
+                <li><strong>Textures:</strong> Managed primarily through the <em>Render Dock</em> and the <em>Script Dock</em>. Textures can also be created directly from the <em>Ray Marching</em> tab of the <em>Equations Dock</em>.
+                    <ul>
+                        <li><strong>Activation:</strong> Use the <strong>Run Parametric Texture</strong> or <strong>Run Background Texture</strong> buttons in the <em>Script Dock</em>, or the <strong>Run</strong> button in the <em>Ray Marching</em> tab of the <em>Equations Dock</em>. The selection between modes (Base/Phong for geometry vs. Background for environment) is handled in the <em>Render Dock</em>.</li>
+                        <li><strong>Deactivation:</strong> Use the <strong>checkbox</strong> located in the <em>Render Dock</em> to disable active textures.</li>
+                    </ul>
+                </li>
+                <li><strong>Audio (Sounds):</strong> Sound scripts are triggered by clicking <strong>Run Sound</strong> in the <em>Script Dock</em> or through <strong>Presets</strong>. To halt playback, use the <strong>Stop Sound</strong> button in the <em>Script Dock</em> or the global <strong>STOP</strong> button.</li>
+            </ul>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>START-STOP</b></p></td></tr></table>
+            <p>The master <strong>START-STOP</strong> button in the Status Bar provides synchronized control over the entire scene:</p>
+            <ul>
+                <li><strong>Global START:</strong> Simultaneously triggers <strong>all</strong> loaded modules — parametric equations and their <code>t</code> animations included (e.g., starting geometric animations and audio playback at once). If the equations module is the only one loaded, START activates that module alone.</li>
+                <li><strong>Global STOP:</strong> Immediately deactivates all currently running components across all modules.</li>
+                <li><strong>Individual Controls:</strong> Each animation component can also be started or stopped independently using the local <strong>Run</strong> (such as the <strong>Run</strong> button in the <em>Equations Dock</em> for parametric equations), <strong>Stop</strong>, <strong>Departure</strong>, and <strong>Stop</strong> buttons found in their respective panels, or by clicking the corresponding item directly in the <em>Library Dock</em>. The local buttons act only on their own module, while the master button acts on all of them.</li>
+            </ul>
+
+<hr>
+<p style="font-size: 15px; margin-top: 30px;"><a href="doc_library-management.html">&larr; Library, Presets &amp; Saving Your Work</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_acknowledgments.html">Acknowledgments &amp; Third-Party Code &rarr;</a></p>
+
+</body>
+</html>

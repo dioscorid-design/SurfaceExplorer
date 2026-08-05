@@ -12,7 +12,7 @@
     pre-processes your code with an internal <strong>translator</strong> that adds math-friendly shortcuts
     and a few strict rules. This guide covers everything you need to write working scripts.</p>
 
-    <p style="font-size: 22px; color: #569cd6;"><b>1. How a Script Is Compiled</b></p>
+    <p style="font-size: 14px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 22px; color: #ffffff; margin: 0;"><b>1. How a Script Is Compiled</b></p></td></tr></table>
     <p>Your code becomes the <em>body of a GLSL function</em> running on the GPU. Before compilation:</p>
     <ul>
         <li>Lines containing <code>:=</code> are treated as <strong>UI directives</strong>: they are removed from the code and applied to the interface (sliders, limits). See section 5.</li>
@@ -20,12 +20,12 @@
         <li>The code is wrapped in a function and compiled. If compilation fails, an error dialog shows the GLSL compiler message.</li>
     </ul>
 
-    <p style="font-size: 22px; color: #569cd6;"><b>2. Ray Marching Scripts (Implicit Surfaces)</b></p>
+    <p style="font-size: 14px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 22px; color: #ffffff; margin: 0;"><b>2. Ray Marching Scripts (Implicit Surfaces)</b></p></td></tr></table>
     <p>The script must <strong>return a float</strong>: the value of your implicit function at point <code>p</code>.
     Negative inside the object, positive outside, zero on the surface. For best rendering quality, return a
     <em>signed distance</em> (SDF) whenever possible.</p>
 
-    <p style="font-size: 18px; color: #007acc;"><b>Variables available</b></p>
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Variables available</b></p></td></tr></table>
     <table border="1" cellspacing="0" cellpadding="6">
         <tr><th>Variable</th><th>Type</th><th>Meaning</th></tr>
         <tr><td><code>p</code></td><td>vec3</td><td>The 3D point being evaluated</td></tr>
@@ -35,7 +35,7 @@
         <tr><td><code>S</code> / <code>s</code></td><td>float</td><td><strong>Reserved in Ray Marching:</strong> acts as Step Relax for the ray marcher. Do not use it as a free constant here.</td></tr>
     </table>
 
-    <p style="font-size: 18px; color: #007acc;"><b>Minimal example</b></p>
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Minimal example</b></p></td></tr></table>
     <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">steps := 400;
 A := 1.5;
 
@@ -43,7 +43,7 @@ A := 1.5;
 float d = length(p) - A * (1.0 + 0.1 * sin(t));
 return d;</pre>
 
-    <p style="font-size: 18px; color: #007acc;"><b>Combining shapes (smooth blend)</b></p>
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Combining shapes (smooth blend)</b></p></td></tr></table>
     <p>Build composite objects from several SDFs. Use <code>min</code> for a hard union and the built-in
     <code>smax</code> (see section&nbsp;7) for smooth blends. Here two spheres merge and separate over time,
     with a soft &quot;metaball&quot; neck:</p>
@@ -58,7 +58,7 @@ float s2 = length(p - vec3( gap, 0.0, 0.0)) - A;
 // Smooth union = -smax(-a, -b, k)
 return -smax(-s1, -s2, B);</pre>
 
-    <p style="font-size: 22px; color: #569cd6;"><b>3. Parametric Scripts</b></p>
+    <p style="font-size: 14px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 22px; color: #ffffff; margin: 0;"><b>3. Parametric Scripts</b></p></td></tr></table>
     <p>The script must <strong>return a vec3 or vec4</strong>: the position of the surface point for the
     parameters <code>u, v</code> (and <code>w</code> in 4D; the fourth component of a vec4 is the 4D coordinate).
     The parameter ranges come from the U/V/W limits in the UI, or from directives.</p>
@@ -70,7 +70,7 @@ return vec3(B * sin(v) * cos(u),
             B * sin(v) * sin(u),
             B * cos(v));</pre>
 
-    <p style="font-size: 18px; color: #007acc;"><b>Animating a parametric surface</b></p>
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Animating a parametric surface</b></p></td></tr></table>
     <p>Just like Ray Marching and textures, a parametric script animates as soon as <code>t</code>
     (or <code>iTime</code>, in seconds) appears anywhere in it &mdash; no extra switch is needed. Here a
     torus breathes and ripples over time:</p>
@@ -86,7 +86,7 @@ return vec3((R + r*cos(v)) * cos(u),
             (R + r*cos(v)) * sin(u),
             r * sin(v));</pre>
 
-    <p style="font-size: 18px; color: #007acc;"><b>Animating in 4D</b></p>
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Animating in 4D</b></p></td></tr></table>
     <p>Return a <code>vec4</code>: the fourth component is the 4D coordinate <code>w</code>, projected to 3D
     by the app. Driving it with <code>t</code> produces a wave that sweeps through the fourth dimension &mdash;
     combine it with a 4D rotation from the Equations dock to see the shape morph:</p>
@@ -106,7 +106,7 @@ return vec4(u,
         animate.
     </div>
 
-    <p style="font-size: 20px; color: #569cd6;"><b>3.1 Metric Tensor Scripts (Geodesic Flow)</b></p>
+    <p style="font-size: 12px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="8" cellspacing="0" bgcolor="#1c3347"><tr><td><p style="font-size: 20px; color: #9cdcfe; margin: 0;"><b>3.1 Metric Tensor Scripts (Geodesic Flow)</b></p></td></tr></table>
     <p>Instead of deriving the metric from a parametric surface, you can define the metric tensor
     <code>g<sub>ij</sub>(U, V, W)</code> directly: a script run from the <em>Parametric</em> tab that
     <strong>returns a mat3</strong> (the symmetric matrix of the metric) is treated as a metric script.
@@ -145,7 +145,7 @@ return mat3(f, 0, 0,
         <li>For a 2D metric simply set the third row/column to <code>0, 0, 1</code>.</li>
     </ul>
 
-    <p style="font-size: 18px; color: #569cd6;"><b>Reading the picture (and avoiding artifacts)</b></p>
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Reading the picture (and avoiding artifacts)</b></p></td></tr></table>
     <p>A fully self-contained example: the spatial part of the Kruskal metric in coordinates
     <code>(U,V,W) = (r, &theta;, &phi;)</code>, with a <em>cone</em> of geodesics falling inward from
     <code>r = 4</code> (each value of <code>u</code> shoots in a slightly different angular direction):</p>
@@ -195,7 +195,41 @@ return mat3(g11, 0.0, 0.0,
         ragged, reduce <code>v_max</code>. Families of curves often read best in <em>Wireframe</em> mode.</li>
     </ul>
 
-    <p style="font-size: 20px; color: #569cd6;"><b>3.2 Multi-Mesh Surfaces</b></p>
+    <p style="font-size: 12px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="8" cellspacing="0" bgcolor="#1c3347"><tr><td><p style="font-size: 20px; color: #9cdcfe; margin: 0;"><b>3.2 Cutout: Discarding Parts of the Surface</b></p></td></tr></table>
+    <p>A script may end with an optional <code>//CUTOUT_BEGIN … //CUTOUT_END</code> section that decides,
+    <strong>point by point</strong>, which parts of the surface are drawn. The body returns a boolean: <code>true</code>
+    means <em>discard this point</em>.</p>
+    <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">//CUTOUT_BEGIN
+// Drop a quarter of the domain: a wedge is carved out of the surface
+return (u &lt; pi/2.0 &amp;&amp; v &lt; pi/2.0);
+//CUTOUT_END</pre>
+
+    <p>The section receives the same <code>u, v</code> used to build the geometry, plus the constants
+    <code>A..F</code>, <code>s</code> and <code>mesh</code>. It runs <strong>per pixel on the GPU</strong>, at
+    display time: the mesh is not rebuilt and no vertex is removed, the discarded fragments are simply never
+    drawn. Two consequences follow, and they are the whole point of the feature:</p>
+    <ul>
+        <li><strong>It is free to animate.</strong> A cutout driven by a constant follows the slider continuously,
+        with no rebuild and no pause &mdash; that is why it is the way to switch grids on and off from a slider
+        (next section).</li>
+        <li><strong>It cuts, it does not close.</strong> The removed region leaves an open rim, not a lid: you are
+        looking at the inside of a shell. With <em>Base</em> or <em>Phong</em> shading the far wall is visible
+        through the opening.</li>
+    </ul>
+
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>What it is really for</b></p></td></tr></table>
+    <p>The original purpose is <strong>self-intersecting surfaces</strong>. Where a tube passes through itself the
+    inner walls are buried inside the solid: they cannot be seen, but they are still drawn, and they produce the
+    stray highlights and hard seams that show up at the crossings. A cutout removes exactly those hidden strips,
+    keeping the visible skin intact. The condition is usually a distance test written in the surface's own
+    parameters, so it follows the shape as the constants move.</p>
+    <div style="background-color: #2a2a00; padding: 10px; margin-top: 8px;">
+        <strong>Note:</strong> the cutout belongs to the <em>parametric</em> mode. It is a section of the surface
+        script (Script dock), not of a texture script, and it is saved with the preset like the rest of the code.
+        A script with no cutout section pays nothing for the feature: the test is not even compiled into the shader.
+    </div>
+
+    <p style="font-size: 12px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="8" cellspacing="0" bgcolor="#1c3347"><tr><td><p style="font-size: 20px; color: #9cdcfe; margin: 0;"><b>3.3 Multi-Mesh Surfaces</b></p></td></tr></table>
     <p>A parametric script can build the surface from <strong>several independent grids</strong> instead of one.
     Each grid is declared with a repeatable <code>//MESH_BEGIN … //MESH_END</code> block giving its own domain
     and resolution:</p>
@@ -227,16 +261,16 @@ return vec3((1.0 + r*cos(v)) * cos(u),
             (1.0 + r*cos(v)) * sin(u),
             r * sin(v));</pre>
 
-    <p style="font-size: 18px; color: #007acc;"><b>Why separate grids</b></p>
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Why separate grids</b></p></td></tr></table>
     <p>Packing several branches into one grid forces the index generator to join the last row of a branch to the
     first row of the next, leaving a visible sheet or groove that had to be masked at cutout time. Separate grids
     make that impossible: no quad can bridge two of them, so the defect is gone at the root. It also removes the
     closure rescaling and the guard bands those scripts needed.</p>
 
-    <p style="font-size: 18px; color: #007acc;"><b>Turning grids on and off from a slider</b></p>
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Turning grids on and off from a slider</b></p></td></tr></table>
     <p>The <code>//MESH_BEGIN</code> blocks are <strong>static</strong>: they are read when the script runs, so a
     constant cannot change how many grids exist. To drive the count from a slider, declare the maximum number of
-    grids and discard the extra ones in the cutout section, which also receives <code>mesh</code>:</p>
+    grids and discard the extra ones in the cutout section (3.2), which also receives <code>mesh</code>:</p>
     <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">E := int(1,6);   // how many branches to show
 
 //CUTOUT_BEGIN
@@ -257,7 +291,7 @@ MESH_VISIBLE := E;   // how many of the declared grids are visible</pre>
     constants, re-evaluated as the slider moves. Scripts that do not declare it are unaffected: the spin box keeps
     covering every declared grid.</p>
 
-    <p style="font-size: 18px; color: #007acc;"><b>Per-mesh appearance</b></p>
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Per-mesh appearance</b></p></td></tr></table>
     <p>The <em>Multi Mesh</em> box in the <em>Renderer</em> dock chooses what the appearance controls act on.
     With <strong>All</strong> the surface behaves as a single one: colour, transparency, light and
     Solid/Wireframe apply to every grid at once. With <strong>Mesh</strong> the spin box picks one grid and the
@@ -267,7 +301,7 @@ MESH_VISIBLE := E;   // how many of the declared grids are visible</pre>
     value, which is why existing presets are unaffected. Both the per-mesh appearance and the active scope are
     saved with the preset.</p>
 
-    <p style="font-size: 22px; color: #569cd6;"><b>4. Texture Scripts</b></p>
+    <p style="font-size: 14px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 22px; color: #ffffff; margin: 0;"><b>4. Texture Scripts</b></p></td></tr></table>
     <p>Texture scripts compute a color. Return a <code>vec4(r, g, b, a)</code> using the texture coordinates
     <code>u, v</code>; <code>t</code> / <code>iTime</code> are available for animated patterns. The result is
     mapped onto the surface or the background depending on the active target in the <em>Renderer</em> dock.</p>
@@ -275,7 +309,7 @@ MESH_VISIBLE := E;   // how many of the declared grids are visible</pre>
 float c = mod(floor(u * 10.0) + floor(v * 10.0) + t, 2.0);
 return vec4(vec3(c), 1.0);</pre>
 
-    <p style="font-size: 18px; color: #007acc;"><b>Using the Renderer color pickers</b></p>
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Using the Renderer color pickers</b></p></td></tr></table>
     <p>Two ready-made colors are available as <code>vec3 u_col1</code> and <code>vec3 u_col2</code>: they mirror
     the <em>Color&nbsp;1 / Color&nbsp;2</em> pickers in the <em>Renderer</em> dock. Reference either token in a
     texture script and its picker lights up, so you can recolor the texture live without editing code. A texture
@@ -287,7 +321,35 @@ return vec4(mix(u_col1, u_col2, w), 1.0);</pre>
     <p>To use an image file instead of code, the directive <code>//IMG: path/to/image.png</code> is injected
     automatically when you load an image from the Library.</p>
 
-    <p style="font-size: 22px; color: #569cd6;"><b>5. UI Directives ( := )</b></p>
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Images on a single mesh: <em>Animated Images</em></b></p></td></tr></table>
+    <p>An image is a <strong>single GPU resource</strong> &mdash; one sampler slot &mdash; not code compiled into the
+    per-mesh dispatcher. So a grid cannot own an image of its own: loading one from the Library always applies it to
+    the <em>whole</em> surface, whatever the Multi&nbsp;Mesh scope says.</p>
+    <p>The presets in <em>Textures &gt; Procedurals &gt; Animated Images</em> get around this from the other side.
+    They are ordinary per-mesh texture scripts &mdash; so they do land on the selected grid &mdash; and they simply
+    <strong>resample the image already loaded</strong>, reading it through <code>iChannel0</code>. The workflow is
+    two steps:</p>
+    <ol>
+        <li>with the scope on <strong>All</strong>, load the image (<em>Textures &gt; Images</em>);</li>
+        <li>switch to <strong>Mesh</strong>, pick a grid and apply one of the <em>Animated Images</em> scripts.</li>
+    </ol>
+    <p>Repeat step 2 on every grid that should show the image: each one gets its own framing and its own motion,
+    while the grids you leave alone stay in flat colour. <em>Still Image</em> is the static case (identity matrix,
+    no animation); <em>Drifting</em>, <em>Rotating</em>, <em>Breathing</em>, <em>Shearing</em> and <em>Squished</em>
+    are the same script with a different time-dependent 2&times;2 matrix applied to the texture coordinates &mdash;
+    so they double as a starting point for writing your own.</p>
+    <div style="background-color: #2a2a00; padding: 10px; margin-top: 8px;">
+        <strong>Two rules of the Shadertoy branch</strong>, which these scripts follow and yours should too:
+        the sliders <code>A..F</code> and <code>t</code> are <em>not</em> usable inside <code>mainImage()</code>
+        (the engine declares them as locals of <code>getCustomColor()</code>, so you would get
+        <code>'A' : undeclared identifier</code> &mdash; use <code>iTime</code> and plain literals instead); and
+        declare nothing at module level (no <code>const</code>, no globals, no helper functions). Two meshes running
+        the same script would put two copies of those declarations in one shader &mdash; <code>redefinition</code>,
+        and the surface disappears. Keep every parameter inside <code>mainImage</code>, where the scope is
+        per-function and each mesh gets its own copy.
+    </div>
+
+    <p style="font-size: 14px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 22px; color: #ffffff; margin: 0;"><b>5. UI Directives ( := )</b></p></td></tr></table>
     <p>A line of the form <code>name := value;</code> is <strong>not</strong> compiled: it is removed from the
     code and applied to the interface. The value may be an expression like <code>2*pi</code>.</p>
     <table border="1" cellspacing="0" cellpadding="6">
@@ -306,7 +368,7 @@ return vec4(mix(u_col1, u_col2, w), 1.0);</pre>
         and does not touch the sliders.
     </div>
 
-    <p style="font-size: 22px; color: #569cd6;"><b>6. The Translator: Math Shorthand and Its Rules</b></p>
+    <p style="font-size: 14px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 22px; color: #ffffff; margin: 0;"><b>6. The Translator: Math Shorthand and Its Rules</b></p></td></tr></table>
     <p>The translator rewrites your whole script before compiling. What you can write:</p>
     <table border="1" cellspacing="0" cellpadding="6">
         <tr><th>You write</th><th>It becomes</th><th>Notes</th></tr>
@@ -332,7 +394,7 @@ return vec4(mix(u_col1, u_col2, w), 1.0);</pre>
         The same applies to array indices and any integer comparison.
     </div>
 
-    <p style="font-size: 22px; color: #569cd6;"><b>7. Built-in Helper Functions (Ray Marching)</b></p>
+    <p style="font-size: 14px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 22px; color: #ffffff; margin: 0;"><b>7. Built-in Helper Functions (Ray Marching)</b></p></td></tr></table>
     <p>These functions are pre-defined and available inside Ray Marching and texture code:</p>
     <table border="1" cellspacing="0" cellpadding="6">
         <tr><th>Function</th><th>Description</th></tr>
@@ -343,7 +405,7 @@ return vec4(mix(u_col1, u_col2, w), 1.0);</pre>
         <tr><td><code>NoiseW(x, y, z, octaves, lacunarity, gain)</code></td><td>Fractal (FBM) noise for organic detail</td></tr>
     </table>
 
-    <p style="font-size: 22px; color: #569cd6;"><b>8. Sound and Music Directives</b></p>
+    <p style="font-size: 14px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 22px; color: #ffffff; margin: 0;"><b>8. Sound and Music Directives</b></p></td></tr></table>
     <p>Scripts can also drive the audio engine with comment directives (these are real directives, kept in comments on purpose):</p>
     <ul>
         <li><code>//MUSIC: path/to/file.mp3</code> — streams a background music track.</li>
@@ -351,7 +413,7 @@ return vec4(mix(u_col1, u_col2, w), 1.0);</pre>
     </ul>
     <p>They are usually injected automatically by single-clicking a sound in the Library.</p>
 
-    <p style="font-size: 22px; color: #569cd6;"><b>9. Tips</b></p>
+    <p style="font-size: 14px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 22px; color: #ffffff; margin: 0;"><b>9. Tips</b></p></td></tr></table>
     <ul>
         <li>Include <code>t</code> anywhere in the script to enable the animation system automatically.</li>
         <li>In Ray Marching, if the surface shows artifacts or "onion rings", lower the <code>S</code> (Step Relax) slider or increase <code>steps</code>.</li>

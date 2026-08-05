@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Surface Explorer &mdash; Library, Presets &amp; Saving Your Work</title>
+
+    <style>
+        body { background-color: #1e1e1e; color: #d4d4d4;
+               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        p, li, td, th { color: #d4d4d4; }
+        strong { color: #007acc; }
+        code { background-color: #101010; color: #ce9178;
+               font-family: 'Consolas', 'Courier New', monospace; }
+        pre  { background-color: #101010; color: #dcdcaa; }
+        a { color: #569cd6; }
+    </style>
+</head>
+<body>
+
+<table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 24px; color: #ffffff; margin: 0;"><b>Library, Presets &amp; Saving Your Work</b></p></td></tr></table>
+<hr>
+<p style="font-size: 15px; margin-bottom: 20px;"><a href="doc_scripting.html">&larr; Script Dock &amp; Advanced Scripting</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_modular-controls.html">Modular Activation &amp; Master Controls &rarr;</a></p>
+<hr>
+<p>The <strong>Library</strong> dock is the nerve center for managing your creations. The library system allows you to organize your work into four main tabs, each designed to store a specific type of file. Understanding what is encapsulated in each category is crucial for organizing your presets in a modular way.</p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>1. Surfaces (*.json)</b></p></td></tr></table>
+            <p>Saving a Surface captures the mathematical definition and the base visual style of your 3D/4D object. It is ideal for storing pure geometry without linking it to a specific animation or texture.</p>
+            <ul>
+                <li><strong>What it saves:</strong> The essential geometric elements such as parametric and implicit equations, custom GLSL surface scripts, explicit constraints (U, V, W), mathematical constants (A-F, S), U/V/W limits, grid resolution (Steps), 4D rotation state, and lighting configuration. It also stores the visual style of the object: the base surface color, its transparency, the render mode (Base/Phong/Wireframe) with the wireframe line density, and the framing &mdash; the 3D camera position and orientation, the projection mode and the field of view.</li>
+                <li><strong>Multi-mesh surfaces:</strong> When a script builds several meshes (<code>//MESH_BEGIN</code>), the per-mesh appearance you set with the <em>Mesh</em> selector in the Renderer dock is saved as well: color, transparency, light intensity, render mode and wireframe density, part by part. Only the parts you actually customized are written; a part left inheriting the global style stays that way on reload, together with the All/Mesh scope active when you saved.</li>
+                <li><strong>What it ignores:</strong> Textures, the background (both its color and any background texture), 3D/4D paths, and animation speeds. A Surface always loads over the default dark gray background; to store a scene complete with textures and background, save a <em>Record</em> instead.</li>
+            </ul>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>2. Textures (*.json)</b></p></td></tr></table>
+            <p>Saving a Texture isolates the visual pattern or image. It can be applied interchangeably to the object's surface or the background.</p>
+            <ul>
+                <li><strong>What it saves:</strong> The GLSL texture scripts or the absolute path of the loaded image, the two active colors in the interface (Color 1 and Color 2), and 2D transformations applied via mouse or 2D View (Zoom, Pan X/Y, Rotation).</li>
+                <li><strong>What it ignores:</strong> The 3D geometry it is mapped onto. You can safely load a saved texture onto any new surface.</li>
+            </ul>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>3. Sounds (*.json, *.mp3, *.wav, *.ogg)</b></p></td></tr></table>
+            <p>The Sounds tab stores audio configurations, which can be procedural mathematical synths or based on external files.</p>
+            <ul>
+                <li><strong>What it saves:</strong> Purely procedural audio scripts (using the <code>//SYNTH:</code> directive) or absolute paths to local audio files (<code>//MUSIC:</code> directive).</li>
+                <li><strong>How to use it:</strong> By right-clicking a sound in the tree and selecting <em>"Add to Current Script"</em> (or simply by single-clicking the item), the audio directive will be automatically injected into the active script, seamlessly merging the sound with your graphics.</li>
+            </ul>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>4. Records / Motions (*.json)</b></p></td></tr></table>
+            <p>A Record save is an <strong>absolute and complete snapshot</strong> of your entire workspace. It is the most powerful format, designed for animations and final renders.</p>
+            <ul>
+                <li><strong>What it saves:</strong> <em>Absolutely everything.</em> The surface geometry in a complete composite form, customized colors, applied textures (both surface and background), active sounds, all mathematical constants, 4D lighting configuration, 3D/4D path tracking data, and all continuous rotation speeds (Spin, Nutation, Precession, Omega, Phi, Psi).</li>
+                <li><strong>Camera and Observer:</strong> It perfectly immortalizes the exact position of the 3D camera (the zoom and orbital rotation you set with the mouse) and the distance of the 4D Observer (P+/P-). When you reopen a Record, the framing and audio will resume exactly as you left them, while the animation restarts from the beginning.</li>
+            </ul>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Workflow & Organization</b></p></td></tr></table>
+            <ul>
+                <li><strong>Smart Saving:</strong> By clicking the <strong>Save</strong> button in the Script dock, the program will automatically understand whether you are working on a Surface, a Texture, or a Sound based on the "Mode" button, and will prompt you with the correct format.</li>
+                <li><strong>Context Menu:</strong> By right-clicking in an empty spot within the Library tree, you can use <em>"Save ... Here"</em> to save a new file directly into that specific folder. You can also create folders, copy, cut, paste, and delete items directly from the interface via the context menu.</li>
+                <li><strong>Drag & Drop:</strong> You can drag files and folders between the various branches to reorganize your collection; the file system will physically update in real-time.</li>
+            </ul>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Factory Presets</b></p></td></tr></table>
+            <p>The application includes a built-in library of presets to help you get started. To ensure the software remains lightweight and fast to download, the media files within these presets are carefully managed:</p>
+            <ul>
+                <li><strong>Textures:</strong> The included texture presets consist primarily of procedural JSON scripts. While standard image files are perfectly supported and included, their number is strictly limited to avoid bloating the application's overall file size.</li>
+                <li><strong>Sounds:</strong> Similarly, sound presets rely mostly on procedural audio scripts. A select few standard audio files (such as .wav) are included, but they are also kept to a minimum to conserve space and maintain high performance.</li>
+            </ul>
+
+<hr>
+<p style="font-size: 15px; margin-top: 30px;"><a href="doc_scripting.html">&larr; Script Dock &amp; Advanced Scripting</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_modular-controls.html">Modular Activation &amp; Master Controls &rarr;</a></p>
+
+</body>
+</html>

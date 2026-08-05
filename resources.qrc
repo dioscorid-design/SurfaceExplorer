@@ -69,6 +69,7 @@
         <file>presets/surfaces/Parametric/Solid Wireframe/Octahedron Bands.json</file>
         <file>presets/surfaces/Parametric/Solid Wireframe/Hopf Tori Mesh Colors.json</file>
         <file>presets/surfaces/Parametric/Solid Wireframe/Hopf Tori over Parallels.json</file>
+        <file>presets/surfaces/Parametric/Solid Wireframe/NewSurface.json</file>
         <file>presets/surfaces/Parametric/Solid Wireframe/Clifford Labyrinth.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Twisted Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Dynamic Clifford Torus.json</file>
@@ -243,6 +244,12 @@
         <file>presets/textures/Procedurals/Shadertoy/Riemann Peaks.json</file>
         <file>presets/textures/Procedurals/Shadertoy/Squished Coordinates.json</file>
         <file>presets/textures/Procedurals/Shadertoy/Sun with Stars.json</file>
+        <file>presets/textures/Procedurals/Animated Images/Breathing Image.json</file>
+        <file>presets/textures/Procedurals/Animated Images/Shearing Image.json</file>
+        <file>presets/textures/Procedurals/Animated Images/Drifting Image.json</file>
+        <file>presets/textures/Procedurals/Animated Images/Rotating Image.json</file>
+        <file>presets/textures/Procedurals/Animated Images/Still Image.json</file>
+        <file>presets/textures/Procedurals/Animated Images/Squished Image.json</file>
         <file>presets/records/Geodesic Flow/H^3/Poincare's Slice.json</file>
         <file>presets/records/Geodesic Flow/H^3/Hyperboloid2.json</file>
         <file>presets/records/Geodesic Flow/H^3/Hyperboloid1.json</file>
@@ -287,7 +294,9 @@
         <file>presets/records/Solid Wireframe/Clifford Linked Fibers.json</file>
         <file>presets/records/Solid Wireframe/Clifford Tori Labyrinth.json</file>
         <file>presets/records/Solid Wireframe/Clifford Labyrinth 16-Cell Fibers.json</file>
+        <file>presets/records/Solid Wireframe/1.json</file>
         <file>presets/records/Solid Wireframe/Clifford Tori Labyrinth Fibers.json</file>
+        <file>presets/records/Solid Wireframe/NewMotion.json</file>
         <file>presets/records/t_motions/Otto Tube.json</file>
         <file>presets/records/t_motions/Waves.json</file>
         <file>presets/records/t_motions/Otto.json</file>
@@ -396,8 +405,24 @@
     <qresource prefix="/">
         <file>icon.png</file>
         <file>background.png</file>
-        <file>documentation.html</file>
-        <file>script_guide.html</file>
+        <file>docs/documentation.html</file>
+        <file>docs/script_guide.html</file>
+        <file>docs/doc_intro.html</file>
+        <file>docs/doc_quickstart.html</file>
+        <file>docs/doc_interface.html</file>
+        <file>docs/doc_interaction.html</file>
+        <file>docs/doc_projection.html</file>
+        <file>docs/doc_dimensions.html</file>
+        <file>docs/doc_equations.html</file>
+        <file>docs/doc_geodesic.html</file>
+        <file>docs/doc_raymarching.html</file>
+        <file>docs/doc_rendering.html</file>
+        <file>docs/doc_audio.html</file>
+        <file>docs/doc_animation.html</file>
+        <file>docs/doc_scripting.html</file>
+        <file>docs/doc_library-management.html</file>
+        <file>docs/doc_modular-controls.html</file>
+        <file>docs/doc_acknowledgments.html</file>
         <file>shaders/surface.frag</file>
         <file>shaders/common.glsl</file>
         <file>shaders/geodesic.glsl</file>

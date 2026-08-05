@@ -659,6 +659,10 @@ private:
     // u_col1 (es. "Xor") non deve lasciare attivo il picker di col2, che non avrebbe
     // effetto. activeTextureUsesColors() resta la OR delle due (true se almeno una).
     bool activeTextureUsesColorToken(const QString &token) const;
+    // true se lo script campiona iChannel0 (Animated Images) MA nessuna immagine
+    // e' caricata: in quel caso mostra la scacchiera procedurale di fallback,
+    // che usa u_col1/u_col2, quindi i picker colore vanno accesi.
+    bool samplesImageWithoutOne(const QString &code) const;
     // true se la texture attiva (superficie/sfondo, parametrico o ray marching)
     // ha del codice salvabile: rispecchia la selezione dei campi di
     // PresetSerializer::saveTexture(). Pilota l'abilitazione del tasto Save.

@@ -46,10 +46,28 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS resources.qrc)
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/resources.qrc" _qrc_content)
 if(NOT _qrc_content MATCHES "script_guide\\.html")
     message(FATAL_ERROR
-        "resources.qrc non contiene <file>script_guide.html</file>: il link "
+        "resources.qrc non contiene <file>docs/script_guide.html</file>: il link "
         "'GLSL Script Writing Guide' nella documentazione sarebbe morto. "
-        "Rimettilo nel blocco <qresource prefix=\"/\"> accanto a documentation.html.")
+        "Rigenera il .qrc con update_resources.py (STATIC_FILES).")
 endif()
+
+# Stessa guardia per i capitoli del manuale: documentation.html è ormai solo
+# l'INDICE, e ogni voce punta a un doc_*.html. Se uno di questi non finisce nel
+# .qrc la sua voce di indice apre una pagina vuota, senza alcun errore visibile.
+# La lista sta in update_resources.py (DOC_CHAPTERS): tenerle allineate.
+set(_doc_chapters
+    intro quickstart interface interaction projection dimensions equations
+    geodesic raymarching rendering audio animation scripting
+    library-management modular-controls acknowledgments)
+foreach(_chap IN LISTS _doc_chapters)
+    if(NOT _qrc_content MATCHES "doc_${_chap}\\.html")
+        message(FATAL_ERROR
+            "resources.qrc non contiene <file>doc_${_chap}.html</file>: la voce "
+            "corrispondente nell'indice della documentazione aprirebbe una pagina "
+            "vuota. Rigenera il .qrc con update_resources.py.")
+    endif()
+endforeach()
+unset(_doc_chapters)
 unset(_qrc_content)
 
 qt_add_executable(SurfaceExplorer
@@ -89,7 +107,7 @@ qt_add_executable(SurfaceExplorer
     shaders/surface.frag
     shaders/surface.vert
 
-    documentation.html
+    docs/documentation.html
     synthesizer.h
     synthesizer.cpp
     update_resources.py
@@ -119,7 +137,7 @@ qt_add_executable(SurfaceExplorer
 
 )
 
-set_source_files_properties(documentation.html PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+set_source_files_properties(docs/documentation.html PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 set_source_files_properties(icon.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 
 # 🔹 Collega le librerie Qt
@@ -220,7 +238,7 @@ elseif (APPLE)
     )
 
 # Copia documentation.html dentro l'app (risorsa)
-    set_source_files_properties(documentation.html PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    set_source_files_properties(docs/documentation.html PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 
 elseif (UNIX AND NOT ANDROID)
     # Impostiamo il nome dell'eseguibile finale (tutto minuscolo per standard Linux)

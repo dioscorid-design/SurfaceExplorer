@@ -1103,7 +1103,7 @@ MainWindow::MainWindow(QWidget *parent)
             " h2 { font-size: 22px; }"
             " h3 { font-size: 19px; }"
             " h4 { font-size: 18px; }");
-        browser->setSource(QUrl("qrc:/documentation.html"));
+        browser->setSource(QUrl("qrc:/docs/documentation.html"));
 
         QPushButton* closeBtn = new QPushButton("Close", docDialog);
 
@@ -1116,15 +1116,16 @@ MainWindow::MainWindow(QWidget *parent)
             }
         });
 
-        // 2. Cambiamo automaticamente il testo del bottone leggendo la pagina corrente
+        // 2. Cambiamo automaticamente il testo del bottone leggendo la pagina corrente.
+        // La regola e' posizionale, non un elenco di pagine: l'INDICE
+        // (documentation.html) e' l'unica pagina senza un "indietro" possibile,
+        // quindi li' il tasto chiude; ovunque altro torna alla pagina precedente.
+        // Con l'elenco per nome ogni capitolo aggiunto al manuale nasceva con
+        // "Close" e usciva dalla finestra invece di tornare all'indice.
         connect(browser, &QTextBrowser::sourceChanged, docDialog, [closeBtn](const QUrl &src) {
             const QString page = src.toString();
-            if (page.endsWith("CREDITS.html", Qt::CaseInsensitive) ||
-                page.endsWith("script_guide.html", Qt::CaseInsensitive)) {
-                closeBtn->setText("Back");
-            } else {
-                closeBtn->setText("Close");
-            }
+            const bool isIndex = page.endsWith("documentation.html", Qt::CaseInsensitive);
+            closeBtn->setText(isIndex ? "Close" : "Back");
         });
 
         layout->addWidget(browser);
@@ -8534,80 +8535,61 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             isMatch = false;
         }
 
-        // 3. LOGICA DI TOGGLE (Stop/Restart) STRUTTURALE
+        // 3. RICARICA DEL PRESET GIA' ATTIVO (nessun toggle)
+        // Cliccare nella Library una texture gia' caricata significa SEMPRE
+        // "rivoglio questa texture com'e' nel preset": si riavvia l'animazione e
+        // si azzera la manipolazione 2D. Prima il primo click fermava l'orologio
+        // e solo il secondo rigenerava; fermare l'animazione ha gia' i suoi tasti
+        // dedicati (dock Script e master), quindi lo stop qui era solo un passo
+        // in piu' prima del gesto utile.
         if (isMatch && ui->chkBoxTexture->isChecked()) {
             bool isBg = ui->radioBackground->isChecked();
 
             if (isBg) {
-                if (ui->glWidget->isBackgroundTextureAnimating()) {
-                    // Toggle-stop dell'utente: e' uno stop esplicito del modulo.
-                    m_userStoppedBgClock = true;
-                    ui->glWidget->setBackgroundTextureAnimating(false);
-                } else {
-                    m_userStoppedBgClock = false;
-                    ui->glWidget->setBackgroundTextureAnimating(true);
-                }
+                m_userStoppedBgClock = false;
+                ui->glWidget->setBackgroundTextureAnimating(true);
             } else {
-                // Toggle del MODULO TEXTURE: colore E displacement condividono lo
-                // stesso orologio texture, quindi basta invertire quello. Il clock
-                // geometria/SDF NON va mai toccato da qui (lo governano dock
+                // Ricarica del MODULO TEXTURE: colore E displacement condividono
+                // lo stesso orologio texture, quindi basta riaccendere quello. Il
+                // clock geometria/SDF NON va mai toccato da qui (lo governano dock
                 // Equations e master): è proprio quel coupling che faceva "partire
                 // la superficie" e bloccava i tasti.
-                // Il toggle governa il MODULO texture, quindi anche gli orologi
-                // delle fasce: spegnere solo il globale lasciava le texture
-                // per-mesh in movimento sotto un tasto che diceva "fermo".
-                // TEXTURE STATICA: non c'e' NIENTE da fermare, quindi il toggle
-                // non ha senso e ogni click deve valere come "ricarica" (reset
-                // della manipolazione 2D). Senza questa distinzione il clock
-                // veniva acceso lo stesso dal ramo restart, e al click dopo la
-                // condizione qui sotto risultava vera: si finiva nel ramo stop,
-                // che non resetta -> il reset avveniva a click ALTERNI.
+                // La ricarica governa il MODULO texture, quindi anche gli orologi
+                // delle fasce: riaccendere solo il globale lascerebbe le texture
+                // per-mesh ferme sotto un tasto che dice "in moto".
                 // Si guarda il CODICE (usa il tempo?), non lo stato del clock:
                 // e' l'unico dato che dice se c'e' un'animazione possibile.
                 const bool texIsAnimated =
                     hasTimeVariable(allSurfaceTextureCode()) || anyMeshTextureCodeAnimated();
 
-                if (texIsAnimated
-                    && (ui->glWidget->isSurfaceTextureAnimating()
-                        || ui->glWidget->anyMeshTextureAnimating())) {
-                    // Toggle-stop dell'utente: e' uno stop esplicito del modulo.
-                    m_userStoppedTexClock = true;
-                    ui->glWidget->setSurfaceTextureAnimating(false);
-                    ui->glWidget->setAllMeshTexturesAnimating(false);
-                    m_userStoppedMeshTexClock = true;
-                } else {
-                    // NON azzeriamo m_masterStopped (come il ramo background sopra):
-                    // il clock texture parte da solo, sbloccare lo stop globale
-                    // farebbe ripartire la geometria ferma dopo un master STOP.
-                    m_userStoppedTexClock = false;
-                    m_userStoppedMeshTexClock = false;
-                    // Il clock si accende solo se c'e' davvero un'animazione: su
-                    // una texture statica resterebbe acceso a vuoto, e per giunta
-                    // farebbe risultare "in moto" il modulo al click successivo.
-                    ui->glWidget->setSurfaceTextureAnimating(texIsAnimated);
-                    restartAnimatedMeshTextures();
+                // NON azzeriamo m_masterStopped (come il ramo background sopra):
+                // il clock texture parte da solo, sbloccare lo stop globale
+                // farebbe ripartire la geometria ferma dopo un master STOP.
+                m_userStoppedTexClock = false;
+                m_userStoppedMeshTexClock = false;
+                // Il clock si accende solo se c'e' davvero un'animazione: su
+                // una texture statica resterebbe acceso a vuoto.
+                ui->glWidget->setSurfaceTextureAnimating(texIsAnimated);
+                restartAnimatedMeshTextures();
 
-                    // RESET DELLA MANIPOLAZIONE 2D SUL RESTART. Ricaricare dalla
-                    // Library la texture gia' attiva e' l'unico gesto che puo'
-                    // significare "rivoglio questa texture com'e' nel preset":
-                    // senza, zoom/pan/rotazione fatti col mouse restavano e per
-                    // azzerarli bisognava caricare un'ALTRA texture e poi tornare
-                    // su questa.
-                    // Solo sul RESTART (secondo click), non sullo stop: fermare
-                    // l'animazione non deve spostare l'inquadratura. Lo Stop/Start
-                    // che lascia le modifiche intatte resta quello del dock Script.
-                    // Vale per la fascia selezionata E per la superficie intera:
-                    // setActiveMeshTexTransform scrive sulla parte attiva e
-                    // ritorna false in "All", dove tocca al ramo globale.
-                    if (!ui->glWidget->setActiveMeshTexTransform(
-                            data.zoom, QVector2D(data.panX, data.panY), data.rotation)) {
-                        // setGlobalTexTransform allinea da se' il buffer di
-                        // lavoro della vista 2D quando l'ambito e' "All".
-                        ui->glWidget->setGlobalTexTransform(
-                            data.zoom, QVector2D(data.panX, data.panY), data.rotation);
-                    }
-                    ui->glWidget->update();
+                // RESET DELLA MANIPOLAZIONE 2D. Ricaricare dalla Library la
+                // texture gia' attiva e' l'unico gesto che puo' significare
+                // "rivoglio questa texture com'e' nel preset": senza, zoom/pan/
+                // rotazione fatti col mouse restavano e per azzerarli bisognava
+                // caricare un'ALTRA texture e poi tornare su questa.
+                // Lo Stop/Start che lascia le modifiche intatte resta quello del
+                // dock Script e del master.
+                // Vale per la fascia selezionata E per la superficie intera:
+                // setActiveMeshTexTransform scrive sulla parte attiva e
+                // ritorna false in "All", dove tocca al ramo globale.
+                if (!ui->glWidget->setActiveMeshTexTransform(
+                        data.zoom, QVector2D(data.panX, data.panY), data.rotation)) {
+                    // setGlobalTexTransform allinea da se' il buffer di
+                    // lavoro della vista 2D quando l'ambito e' "All".
+                    ui->glWidget->setGlobalTexTransform(
+                        data.zoom, QVector2D(data.panX, data.panY), data.rotation);
                 }
+                ui->glWidget->update();
             }
 
             updateMasterButtonState();
@@ -8643,22 +8625,14 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         const LibraryItem &data = m_libraryManager.getMotion(index);
 
         if (!data.name.isEmpty()) {
-            QString activeMotion = this->property("activeMotionPath").toString();
-            bool isPresetIntact = this->property("isPresetActive").toBool();
-
-            // LOGICA DI TOGGLE (Stop/Restart)
-            if (activeMotion == data.filePath && isPresetIntact) {
-                if (m_btnStart && m_btnStart->text().toUpper() == "STOP") {
-                    // 1. Se l'animazione è in corso, la mettiamo in pausa
-                    m_btnStart->click();
-                } else {
-                    // 2. Se è in pausa, forziamo il riavvio DALL'INIZIO ricaricando il preset
-                    applyMotionExample(data);
-                }
-                return;
-            }
-
-            // Altrimenti, registra il nuovo record e forza un riavvio pulito
+            // NESSUN TOGGLE: cliccare un record nella Library significa sempre
+            // "riparti da questo preset dall'inizio", anche se e' gia' quello
+            // attivo e in movimento. Prima il primo click lo metteva in pausa
+            // (m_btnStart->click()) e solo il secondo ricaricava; per fermare il
+            // moto ci sono gia' i tasti dedicati (START/STOP e master), quindi
+            // la pausa qui era solo un passo in piu' prima del gesto utile.
+            // Non serve fermare prima: applyMotionExample apre con lo STOP TOTALE
+            // (pauseMotion, stopAll, path timer fermati, pathTimeT azzerato).
             this->setProperty("activeMotionPath", data.filePath);
             applyMotionExample(data);
         }
@@ -10141,21 +10115,23 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
         // Usiamo la pulizia per confrontare il codice in memoria con quello della libreria
         isAlreadyPresent = (cleanAudioCode(m_soundScriptText) == cleanAudioCode(soundData.scriptCode));
     }
-    // 3. IL RESTO RIMANE ESATTAMENTE UGUALE
+    // 3. SUONO GIA' CARICATO: il click lo RIGENERA (nessun toggle)
+    // Cliccare nella Library un suono gia' presente significa sempre "risuona
+    // questo preset dall'inizio". Prima il primo click lo fermava e solo il
+    // secondo lo faceva ripartire; per fermarlo ci sono gia' i tasti dedicati
+    // (Run/Stop Sound del dock Script e master), quindi lo stop qui era solo un
+    // passo in piu' prima del gesto utile.
     if (isAlreadyPresent) {
+        // stopAll PRIMA del riavvio: riparte dall'inizio, e serve anche perche'
+        // onRunSoundClicked e' a sua volta un toggle (col tasto su "Stop Sound"
+        // fermerebbe invece di risuonare). La memoria dello script resta intatta.
         if (m_audioController && m_audioController->isPlaying()) {
-            // Ferma l'audio ma LASCIA intatta la memoria (così START funzionerà!)
             m_audioController->stopAll();
-
-            // Sincronizza l'interfaccia
             if (m_currentScriptMode == ScriptModeSound) {
                 ui->btnRunCurrentScript->setText("Run Sound");
             }
-            updateMasterButtonState();
-        } else {
-            // Se era fermo, lo facciamo ripartire usando il suo metodo nativo
-            onRunSoundClicked();
         }
+        onRunSoundClicked();
         return;
     }
 
@@ -12305,7 +12281,7 @@ bool MainWindow::activeTextureUsesColorToken(const QString &token) const
     if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
         const QString partCode = ui->glWidget->activeMeshTextureCode();
         if (!partCode.trimmed().isEmpty())
-            return partCode.contains(token);
+            return partCode.contains(token) || samplesImageWithoutOne(partCode);
         // Nessuna texture propria: la parte EREDITA la globale, quindi si
         // prosegue col ragionamento globale qui sotto.
     }
@@ -12317,7 +12293,23 @@ bool MainWindow::activeTextureUsesColorToken(const QString &token) const
         return true;
     }
 
-    return m_surfaceTextureCode.contains(token);
+    return m_surfaceTextureCode.contains(token) || samplesImageWithoutOne(m_surfaceTextureCode);
+}
+
+// Uno script che campiona iChannel0 (famiglia "Animated Images": rimostra
+// l'immagine caricata deformandola) NON nomina u_col1/u_col2, quindi i picker
+// colore restano spenti -- ed e' giusto, una fotografia non ha due tinte da
+// editare. Ma SENZA immagine caricata quegli script mostrano la scacchiera
+// procedurale di fallback (vedi _st_sampleTex in createFragmentShaderSource),
+// che su u_col1/u_col2 e' costruita: in quel caso i picker servono davvero e
+// muoverli cambia la scacchiera. Appena si carica un'immagine il fallback
+// sparisce e i picker tornano spenti da soli.
+bool MainWindow::samplesImageWithoutOne(const QString &code) const
+{
+    if (!code.contains("iChannel")) return false;
+    // m_isImageMode e' il modo "immagine caricata" del ramo parametrico; il path
+    // e' la verifica che ci sia davvero un file dietro.
+    return !(m_isImageMode && !m_currentTexturePath.isEmpty());
 }
 
 bool MainWindow::hasSavableTexture() const

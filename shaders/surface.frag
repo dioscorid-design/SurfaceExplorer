@@ -53,6 +53,8 @@ layout(std140, binding = 0) uniform SceneUBO {
     float z_max;
     // MULTI-MESH: indice della parte in corso di disegno (0 se mesh singola).
     float u_meshIndex;
+    // 1 = nessuna immagine caricata: vedi _st_sampleChannel0 piu' sotto.
+    int u_noImage;
 } ubuf;
 
 // --- PLACEHOLDER PER CODICE TEXTURE CUSTOM ---

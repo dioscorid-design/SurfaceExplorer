@@ -64,13 +64,21 @@ struct UboData {
     // E' float e non int per essere usabile direttamente nelle espressioni dello
     // script senza conversioni. Vale 0 per le superfici a mesh singola.
     float u_meshIndex;
+    // 1 = nessuna immagine caricata nello slot sampler (c'e' solo la texture
+    // "tappabuchi"). Gli script che campionano iChannel0 -- gli "Animated
+    // Images" -- usano questo flag per cadere su una SCACCHIERA PROCEDURALE
+    // mix(u_col1,u_col2) invece dei pixel del fallback: cosi' i picker Color1/2
+    // agiscono davvero. Con un'immagine caricata vale 0 e non cambia nulla.
+    // Occupa il primo slot dell'ex _pad0 (la coda di riserva), quindi il blocco
+    // non cresce e gli offset precedenti restano tutti invariati.
+    int u_noImage;
     // Coda di riserva. Gli offset di questa struct combaciano con il blocco
     // SceneUBO degli shader: verificato con `qsb --dump` che u_min=372,
     // z_max=416, u_meshIndex=420 su entrambi i lati (blocco shader = 424 byte).
     // Lo spazio fra i blocchi NON e' sizeof(UboData): il passo e' m_uboBlockStride,
     // ricavato da QRhi::ubufAlignment() (256 su Metal/Vulkan), quindi ogni blocco
     // e' comunque allineato come richiede l'API.
-    float _pad0[3];
+    float _pad0[2];
 };
 
 class GLWidget : public QRhiWidget
@@ -641,6 +649,13 @@ private:
     // TEXTURE
     // ==========================================================
     QRhiTexture *m_surfaceTexture = nullptr;
+    // true SOLO se m_surfaceTexture contiene un'immagine caricata dall'utente
+    // (loadTextureFromFile). NON basta guardare m_surfaceTexture != nullptr:
+    // MainWindow::generateTexture() ci mette anche la scacchiera di default,
+    // disegnata su CPU, che e' un fallback e non un'immagine. Governa u_noImage,
+    // cioe' se gli script che campionano iChannel0 cadono sulla scacchiera
+    // procedurale (colori vivi da u_col1/u_col2) o leggono la texture.
+    bool m_hasUserImage = false;
     QImage m_pendingSurfaceImage;
     bool m_surfaceTextureNeedsUpload = false;
     // Richiesta di scarico della texture di superficie dalla GPU: la distruzione
@@ -987,7 +1002,8 @@ private:
     void initBackgroundShader();
 
     // --- Texture Utilities ---
-    void createDummyTexture();
+    // cb: necessario per sottomettere l'upload della scacchiera di fallback.
+    void createDummyTexture(QRhiCommandBuffer *cb);
 
     // --- Math & Projections ---
     QVector3D projectPoint4Dto3D(const QVector4D& point4D);

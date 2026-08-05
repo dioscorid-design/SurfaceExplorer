@@ -23,16 +23,30 @@ RESOURCE_GROUPS = {
 }
 
 # 3. File singoli principali da includere SEMPRE nel prefisso "/"
-# NB: script_guide.html è la guida linkata da documentation.html
-# (qrc:/script_guide.html): ometterla da questa lista uccide il link.
-# È già successo più volte: c'è una guardia in CMakeLists che fa fallire
-# il build se manca dal .qrc.
+# NB: tutta la documentazione sta in docs/ e conserva quel prefisso anche nel
+# .qrc (qrc:/docs/...), cosi' i link relativi fra le pagine funzionano identici
+# su disco e da risorsa. L'indice risale a ../icon.png = qrc:/icon.png.
+# docs/script_guide.html è la guida linkata dalla documentazione: ometterla da
+# questa lista uccide il link. È già successo più volte: c'è una guardia in
+# CMakeLists che fa fallire il build se manca dal .qrc.
 STATIC_FILES = [
     "icon.png",
     "background.png",
-    "documentation.html",
-    "script_guide.html",
+    "docs/documentation.html",
+    "docs/script_guide.html",
 ]
+
+# Capitoli del manuale: documentation.html è solo l'indice, il testo sta in una
+# pagina per capitolo (docs/doc_*.html). Sono linkati dall'indice e fra loro,
+# quindi valgono esattamente come script_guide.html: se ne manca uno il link
+# muore. Tenere allineata la lista gemella in CMakeLists.txt (_doc_chapters).
+DOC_CHAPTERS = [
+    "intro", "quickstart", "interface", "interaction", "projection",
+    "dimensions", "equations", "geodesic", "raymarching", "rendering",
+    "audio", "animation", "scripting", "library-management",
+    "modular-controls", "acknowledgments",
+]
+STATIC_FILES += [f"docs/doc_{name}.html" for name in DOC_CHAPTERS]
 
 def generate_qrc():
     base_dir = os.path.dirname(os.path.abspath(__file__))

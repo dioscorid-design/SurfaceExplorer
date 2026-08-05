@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Surface Explorer &mdash; Sounds &amp; Audio</title>
+
+    <style>
+        body { background-color: #1e1e1e; color: #d4d4d4;
+               font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        p, li, td, th { color: #d4d4d4; }
+        strong { color: #007acc; }
+        code { background-color: #101010; color: #ce9178;
+               font-family: 'Consolas', 'Courier New', monospace; }
+        pre  { background-color: #101010; color: #dcdcaa; }
+        a { color: #569cd6; }
+    </style>
+</head>
+<body>
+
+<table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 24px; color: #ffffff; margin: 0;"><b>Sounds &amp; Audio</b></p></td></tr></table>
+<hr>
+<p style="font-size: 15px; margin-bottom: 20px;"><a href="doc_rendering.html">&larr; Rendering &amp; Textures</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_animation.html">Animation &amp; Video &rarr;</a></p>
+<hr>
+<p>Surface Explorer 4D features a dedicated audio engine that supports both physical audio tracks and procedural synthesizers, allowing you to combine breathtaking visuals with dynamic soundscapes.</p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Supported Formats</b></p></td></tr></table>
+            <p>The library recognizes two types of audio elements within the <strong>Sounds</strong> tab:</p>
+            <ul>
+                <li><strong>Physical Audio (Music):</strong> Standard <code>.mp3</code>, <code>.wav</code>, and <code>.ogg</code> files. These are automatically labeled with an <code>[AUDIO]</code> tag in the Library tree so you can easily distinguish them.</li>
+                <li><strong>Procedural Audio (Synth):</strong> <code>.json</code> files containing mathematical formulas or script code designed to generate sound waves dynamically using the internal synthesizer.</li>
+            </ul>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>How to Use Audio in Scripts</b></p></td></tr></table>
+            <p>Audio tracks and synths are directly integrated into your visual scripts. To apply a sound to your current visual creation:</p>
+            <ol>
+                <li>Open the <strong>Sounds</strong> tab in the Library panel.</li>
+                <li><strong>Single-click</strong> any audio file or procedural preset in the tree.</li>
+                <li>The software will automatically clean up any previous audio directives, inject the new sound at the top of your current script Editor, and start playing it instantly!</li>
+                <li>To stop playback, <strong>single-click the same file again</strong>.</li>
+            </ol>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Script Directives</b></p></td></tr></table>
+            <p>Behind the scenes, clicking an item injects one of these special directives into your code:</p>
+            <ul>
+                <li><code>//MUSIC: path/to/file.mp3</code> - Tells the media player to stream the background music track.</li>
+                <li><code>//SYNTH: formula</code> - Feeds the mathematical formula to the internal synthesizer to generate procedural sounds.</li>
+            </ul>
+
+<hr>
+<p style="font-size: 15px; margin-top: 30px;"><a href="doc_rendering.html">&larr; Rendering &amp; Textures</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_animation.html">Animation &amp; Video &rarr;</a></p>
+
+</body>
+</html>
