@@ -1486,6 +1486,34 @@ MainWindow::MainWindow(QWidget *parent)
         }
 
         // 2. Resetta i colori al default per evitare "sanguinamenti" dai record precedenti
+        //
+        // I reset che seguono (colore, e piu' sopra alpha/luce/wireframe) sono lo
+        // stato della SUPERFICIE DI DEFAULT, non un comando dell'utente su una
+        // parte: vanno scritti sullo stato globale. Senza il bypass, con una mesh
+        // ancora selezionata dal preset multi-mesh precedente (es. "Hopf Tori Mesh
+        // Colors"), setColor passa da applyToActiveMeshPart e il verde finisce
+        // DENTRO la MeshPart invece che nei membri globali: la sfera di default
+        // lampeggiava verde e tornava subito al colore del preset (giallo).
+        // NB: clearMeshParts() piu' sopra svuota solo m_declaredParts; m_meshParts
+        // (cio' che mutableMeshPart legge) sopravvive, quindi la parte attiva e'
+        // ancora valida qui. Stesso schema del load superficie (~8654).
+        // Il BYPASS si accende PRIMA di lasciare la mesh, ma la selezione si
+        // molla DOPO aver riscritto i colori globali (piu' sotto). Ordine
+        // obbligato: mentre la superficie multi-mesh e' a schermo ogni parte
+        // disegna dal proprio MeshPart e i membri globali red/green/blue non
+        // vengono mai esercitati, quindi restano su un valore stantio (il loro
+        // inizializzatore e' bianco, glwidget.h:809). setActiveMeshPart chiama
+        // update(): mollando la selezione per prima, il repaint che ne segue
+        // trova la sfera di default -- che e' a mesh singola e disegna dai
+        // globali -- ancora BIANCA, ed e' il lampo bianco al caricamento.
+        // Col bypass acceso setColor scrive gia' sui globali anche a mesh
+        // attiva, quindi si puo' sistemare il colore e solo allora deselezionare.
+        if (ui->glWidget) ui->glWidget->setMeshAppearanceBypass(true);
+        struct MeshBypassGuard {
+            MainWindow *w;
+            ~MeshBypassGuard() { if (w->ui->glWidget) w->ui->glWidget->setMeshAppearanceBypass(false); }
+        } meshBypassGuard{this};
+
         m_currentBackgroundColor = QColor::fromRgbF(0.3f, 0.3f, 0.3f);
         m_currentSurfaceColor = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
         m_texColor1 = m_currentSurfaceColor;
@@ -1497,6 +1525,24 @@ MainWindow::MainWindow(QWidget *parent)
             ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
             ui->glWidget->setColor(m_currentSurfaceColor.redF(), m_currentSurfaceColor.greenF(), m_currentSurfaceColor.blueF());
             ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
+            // Globali ora coerenti: si puo' lasciare la mesh senza esporre un
+            // frame col colore stantio.
+            ui->glWidget->setActiveMeshPart(-1);
+
+            // AMBITO "ALL" SUBITO, non a fine giro. La superficie di destinazione
+            // e' a mesh singola, quindi l'ambito DEVE finire su "All": ci arrivava
+            // gia', ma tardi, per via di updateMeshScopeEnabled (~12981) che gira
+            // da updateMeshSelectorRange sull'onda di meshPartsChanged, cioe' DOPO
+            // che la sfera e' stata compilata e disegnata. setMeshAppearanceUniform
+            // fa buildWireframeGeometry() + rebuildShader(), e rebuildShader
+            // DISTRUGGE le pipeline: si pagava una SECONDA compilazione dello
+            // shader a sfera gia' a schermo. Da qui il transitorio visibile solo
+            // venendo da una superficie multi-mesh (da mesh singola l'ambito e'
+            // gia' "All" e il setter esce subito per il early-return su ==).
+            // Portandolo qui la ricompilazione avviene PRIMA del rebuildShader
+            // del ramo Ray Marching, che quindi la assorbe: una sola compilazione.
+            // La chiamata tardiva resta e diventa un no-op (stesso valore).
+            ui->glWidget->setMeshAppearanceUniform(true);
         }
 
         // Aggiorna gli slider colore della UI per allinearli ai valori appena resettati
@@ -12404,10 +12450,23 @@ void MainWindow::updateFlatPreviewButton() {
     bool bgMode = ui->radioBackground->isChecked();
 
     // 1. Gestione del Testo
-    if (bgMode) {
-        ui->btnFlatPreview->setText("2D Background");
-    } else {
-        ui->btnFlatPreview->setText("2D Surface");
+    //
+    // IL TASTO E' UN TOGGLE E IL TESTO DESCRIVE DOVE SI VA, NON DOVE SI E':
+    // in vista 3D dice "2D ..." (dove porta), in vista 2D dice "3D View" (per
+    // tornare). Quindi con la vista 2D ATTIVA il testo non si tocca: e' il
+    // gestore toggled a scriverlo (~3621) ed e' l'unico che sa dove si sta
+    // andando. Senza questa guardia ogni chiamata a questa funzione mentre si
+    // e' in 2D riportava l'etichetta a "2D ...", pur restando in vista 2D:
+    // succedeva fermando l'animazione della texture, perche' quel ramo chiama
+    // updateScriptButtonText (~7496) che finisce qui (~12286). Il tasto diceva
+    // "2D" mentre la texture era gia' in 2D, e per uscirne serviva premerlo due
+    // volte. Stesso giro per il checkbox texture e per i cambi di ambito.
+    if (!ui->btnFlatPreview->isChecked()) {
+        if (bgMode) {
+            ui->btnFlatPreview->setText("2D Background");
+        } else {
+            ui->btnFlatPreview->setText("2D Surface");
+        }
     }
 
     // 2. Controllo attivazione fisica (Checkbox / Motore)
