@@ -1,10 +1,12 @@
 <RCC>
     <qresource prefix="/library">
+        <file>presets/surfaces/Ray Marching/Sphere and Six Tori Merge.json</file>
         <file>presets/surfaces/Ray Marching/ThickIso.json</file>
         <file>presets/surfaces/Ray Marching/Tangle Cube.json</file>
         <file>presets/surfaces/Ray Marching/Ding Dong.json</file>
         <file>presets/surfaces/Ray Marching/Morphing Sphere-Cube.json</file>
         <file>presets/surfaces/Ray Marching/Ergosphere.json</file>
+        <file>presets/surfaces/Ray Marching/Sphere and Three Tori Merge.json</file>
         <file>presets/surfaces/Ray Marching/KleinIso.json</file>
         <file>presets/surfaces/Ray Marching/Bitorus.json</file>
         <file>presets/surfaces/Ray Marching/Filament Cube.json</file>
@@ -32,9 +34,12 @@
         <file>presets/surfaces/Ray Marching/Monkey Saddle.json</file>
         <file>presets/surfaces/Ray Marching/Ortho Circle.json</file>
         <file>presets/surfaces/Ray Marching/DuplinCyclides.json</file>
+        <file>presets/surfaces/Ray Marching/Pulsing Sphere and Six Tori.json</file>
         <file>presets/surfaces/Ray Marching/Hyperbolic Paraboloid.json</file>
         <file>presets/surfaces/Ray Marching/Lidinoid.json</file>
         <file>presets/surfaces/Ray Marching/Round Cube.json</file>
+        <file>presets/surfaces/Ray Marching/Sphere and Torus Merge.json</file>
+        <file>presets/surfaces/Ray Marching/Sphere with Two Handles.json</file>
         <file>presets/surfaces/Ray Marching/Holes.json</file>
         <file>presets/surfaces/Ray Marching/Gyroid1.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Whiteney Umbrella.json</file>
@@ -78,6 +83,7 @@
         <file>presets/surfaces/Parametric/Equations/S3/Trefoil Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Wavy Cliffod Torus.json</file>
+        <file>presets/surfaces/Parametric/Equations/S3/Hopf Ribbon over Spiral.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Ellipsoid.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Clifford's Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Clifford's Torus1.json</file>
@@ -280,6 +286,7 @@
         <file>presets/records/Ray Marching/Torus.json</file>
         <file>presets/records/Ray Marching/Gyroid alien.json</file>
         <file>presets/records/Ray Marching/Pseudo Lawson.json</file>
+        <file>presets/records/Ray Marching/Pulsing Sphere and Six Tori.json</file>
         <file>presets/records/Ray Marching/Gyroid1.json</file>
         <file>presets/records/Rotations/Hopf Deformation.json</file>
         <file>presets/records/Rotations/HYbrid hyperbolic.json</file>
@@ -297,6 +304,10 @@
         <file>presets/records/Solid Wireframe/1.json</file>
         <file>presets/records/Solid Wireframe/Clifford Tori Labyrinth Fibers.json</file>
         <file>presets/records/Solid Wireframe/NewMotion.json</file>
+        <file>presets/records/Solid Wireframe/Multi Mesh/Clifford Linked Fibers.json</file>
+        <file>presets/records/Solid Wireframe/Multi Mesh/Clifford Labyrinth 16-Cell Fibers.json</file>
+        <file>presets/records/Solid Wireframe/Multi Mesh/Clifford 16-Cell Rotation.json</file>
+        <file>presets/records/Solid Wireframe/Multi Mesh/Clifford Tori Labyrinth Fibers.json</file>
         <file>presets/records/t_motions/Otto Tube.json</file>
         <file>presets/records/t_motions/Waves.json</file>
         <file>presets/records/t_motions/Otto.json</file>

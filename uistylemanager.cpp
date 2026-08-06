@@ -72,6 +72,19 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
             font-size: %1;
         }
 
+        /* --- TOOLTIP ---
+           QToolTip e' una finestra a se' e NON eredita dal QWidget qui sopra:
+           senza questa regola restava col tema CHIARO di sistema, e nella
+           Library (dove ogni item ha come tooltip il path del file) compariva
+           come un rettangolo bianco largo e sottile in mezzo all'interfaccia
+           scura. Stessa palette del resto dell'app. */
+        QToolTip {
+            background-color: #3E3E42;
+            color: #F0F0F0;
+            border: 1px solid #454545;
+            padding: 4px 6px;
+        }
+
         /* --- DOCK WIDGETS --- */
         QDockWidget {
             border: 1px solid #454545;
