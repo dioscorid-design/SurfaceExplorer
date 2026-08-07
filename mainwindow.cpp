@@ -10991,6 +10991,23 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     ui->lineF->setText(QString::number(d.f, 'g', 6));
     ui->lineS->setText(QString::number(d.s, 'g', 6));
 
+    // Costanti discrete dichiarate dal PRESET ("discreteConstants": {"A":[2,6]}).
+    // Vanno adottate QUI, a campi appena scritti e segnali ancora bloccati:
+    // applyDiscreteConstants() legge i QLineEdit e li riscrive con l'intero piu'
+    // vicino, quindi deve girare dopo il ripristino dei valori.
+    // Azzerata SEMPRE per prima: un preset che non le dichiara deve tornare a
+    // costanti continue, altrimenti quelle del preset precedente resterebbero
+    // attive (stessa famiglia di bug del cutout che persisteva fra superfici).
+    // Per i preset CON script la mappa viene poi ricostruita dalle direttive :=
+    // in parseAndApplyScriptParams: le due strade non si pestano i piedi perche'
+    // quella parte azzera a sua volta prima di leggere.
+    m_discreteConsts.clear();
+    for (auto it = d.discreteConstants.constBegin();
+         it != d.discreteConstants.constEnd(); ++it) {
+        m_discreteConsts.insert(it.key(), { it->first, it->second });
+    }
+    if (!m_discreteConsts.isEmpty()) applyDiscreteConstants();
+
     ui->aSlider->blockSignals(false); ui->lineA->blockSignals(false);
     ui->bSlider->blockSignals(false); ui->lineB->blockSignals(false);
     ui->cSlider->blockSignals(false); ui->lineC->blockSignals(false);
@@ -10999,7 +11016,22 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     ui->fSlider->blockSignals(false); ui->lineF->blockSignals(false);
     ui->sSlider->blockSignals(false); ui->lineS->blockSignals(false);
 
-    ui->glWidget->setEquationConstants(d.a, d.b, d.c, d.d, d.e, d.f, d.s);
+    // Le costanti spinte alla GPU devono essere quelle EVENTUALMENTE snappate
+    // sopra, o la superficie nascerebbe con A=3.47 mentre il campo mostra 3.
+    // Si rilegge SOLO dai campi che lo snap ha davvero toccato: gli altri
+    // possono contenere espressioni ("A*2", risolte piu' tardi dalla cascata) e
+    // un toFloat() su quelle restituirebbe 0, azzerando la costante.
+    auto snapped = [this](const QString& key, QLineEdit* line, float fallback) {
+        if (!m_discreteConsts.contains(key)) return fallback;
+        bool ok = false;
+        const float v = line->text().trimmed().toFloat(&ok);
+        return ok ? v : fallback;
+    };
+    ui->glWidget->setEquationConstants(
+        snapped("A", ui->lineA, d.a), snapped("B", ui->lineB, d.b),
+        snapped("C", ui->lineC, d.c), snapped("D", ui->lineD, d.d),
+        snapped("E", ui->lineE, d.e), snapped("F", ui->lineF, d.f),
+        snapped("S", ui->lineS, d.s));
 
     // --- CARICAMENTO FLUSSO GEODETICO ---
     // 1. Blocchiamo i segnali per evitare l'auto-cancellazione da parte di checkParametricDependency()

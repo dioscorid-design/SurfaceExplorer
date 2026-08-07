@@ -986,6 +986,18 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         root["hintText"] = m_mainWindow->m_currentHintText;
         root["hintSeconds"] = (double)m_mainWindow->m_currentHintSeconds;
     }
+    // Costanti discrete SENZA script: stessa semantica di "A := int(2,6);" ma
+    // dichiarata dal preset, perche' le direttive := vivono solo nello scriptCode
+    // e un preset con le equazioni nel dock Equations non ne ha uno. Emessa solo
+    // se c'e' qualcosa da dire, cosi' i preset esistenti non cambiano di un byte.
+    if (!m_mainWindow->m_discreteConsts.isEmpty()) {
+        QJsonObject disc;
+        for (auto it = m_mainWindow->m_discreteConsts.constBegin();
+             it != m_mainWindow->m_discreteConsts.constEnd(); ++it) {
+            disc[it.key()] = QJsonArray{ it->lo, it->hi };
+        }
+        root["discreteConstants"] = disc;
+    }
     // Vista corrente di ENTRAMBI i path: salvare solo m_pathViewMode4D (4D) faceva
     // ripartire i record 3D sempre in Tangent (la vista 3D vive in m_pathViewMode3D).
     root["pathMode"] = static_cast<int>(m_mainWindow->m_pathViewMode4D);

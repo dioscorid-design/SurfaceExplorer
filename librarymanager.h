@@ -4,6 +4,8 @@
 #include "surfaceengine.h"
 #include <QString>
 #include <QList>
+#include <QHash>
+#include <QPair>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QJsonObject>
@@ -96,6 +98,13 @@ struct LibraryItem {
     // JSON "hintText"/"hintSeconds"). Vuoto = nessun messaggio.
     QString hintText;
     float   hintSeconds = 6.0f;
+
+    // Costanti discrete dichiarate dal PRESET (chiave JSON "discreteConstants",
+    // es. {"A": [2,6]}): la costante assume solo valori interi nel range e il
+    // campo scatta all'intero piu' vicino. Equivale a "A := int(2,6);" nello
+    // script, ma vale anche per i preset che lo script non ce l'hanno (equazioni
+    // scritte nel dock Equations). Vuota = tutte le costanti continue.
+    QHash<QString, QPair<int,int>> discreteConstants;
 
     // ==========================================================
     // TEXTURES & BACKGROUNDS

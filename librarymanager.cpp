@@ -7,6 +7,27 @@
 #include <QColor>
 #include <QRegularExpression>
 
+// "discreteConstants": {"A": [2,6]} — la costante A assume solo i valori interi
+// da 2 a 6 e il campo scatta all'intero piu' vicino quando l'utente rilascia lo
+// slider o preme Enter. E' l'equivalente della direttiva "A := int(2,6);", ma
+// dichiarato dal PRESET: le direttive := si leggono solo dallo scriptCode
+// (parseAndApplyScriptParams), quindi un preset con le equazioni nel dock
+// Equations e nessuno script non avrebbe modo di dichiararle.
+// Chiave assente o malformata = nessuna costante discreta (tutte continue).
+static void parseDiscreteConstants(const QJsonObject& root, LibraryItem& d)
+{
+    if (!root.contains("discreteConstants")) return;
+    const QJsonObject disc = root["discreteConstants"].toObject();
+    for (auto it = disc.constBegin(); it != disc.constEnd(); ++it) {
+        const QJsonArray range = it.value().toArray();
+        if (range.size() != 2) continue;             // ignora voci malformate
+        int lo = range[0].toInt();
+        int hi = range[1].toInt();
+        if (lo > hi) std::swap(lo, hi);              // "[6,2]" tollerato
+        d.discreteConstants.insert(it.key().toUpper(), qMakePair(lo, hi));
+    }
+}
+
 LibraryManager::LibraryManager() {}
 
 void LibraryManager::clear()
@@ -294,6 +315,7 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.hintText = root["hintText"].toString();
             d.hintSeconds = (float)root["hintSeconds"].toDouble(6.0);
         }
+        parseDiscreteConstants(root, d);
         if (root.contains("scriptCode")) {
             d.isScript = true;
             d.scriptCode = root["scriptCode"].toString();
@@ -539,6 +561,7 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.hintText = root["hintText"].toString();
             d.hintSeconds = (float)root["hintSeconds"].toDouble(6.0);
         }
+        parseDiscreteConstants(root, d);
 
         // Caso 1: È uno SCRIPT
         if (root.contains("scriptCode")) {
