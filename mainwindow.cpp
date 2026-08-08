@@ -8484,6 +8484,15 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
     // alberi (texture/motion/sound), perche' la nuova superficie riparte da uno
     // stato pulito. Cliccare una texture/motion/sound invece LASCIA evidenziata
     // la superficie caricata (ognuno di questi conserva la propria selezione).
+    //
+    // ECCEZIONE: i RECORD. Texture e suoni si applicano SOPRA la superficie
+    // corrente, quindi lasciarla evidenziata e' corretto; un record invece la
+    // SOSTITUISCE (applyMotionExample ricarica equazioni, costanti e camera).
+    // Senza questo ramo l'item della superficie precedente restava evidenziato
+    // pur non essendo piu' a schermo: stessa selezione ingannevole gia' corretta
+    // per le texture incompatibili (vedi il clearSelection del treeSurfaces piu'
+    // sopra). blockSignals evita di ri-emettere itemClicked, che ricaricherebbe
+    // la superficie appena sostituita dal record.
     if (QTreeWidget *src = qobject_cast<QTreeWidget*>(sender())) {
         if (src == ui->treeSurfaces) {
             for (QTreeWidget *tree : { ui->treeTextures, ui->treeMotions, ui->treeSounds }) {
@@ -8494,6 +8503,11 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
                     tree->blockSignals(b);
                 }
             }
+        } else if (src == ui->treeMotions && ui->treeSurfaces) {
+            bool b = ui->treeSurfaces->blockSignals(true);
+            ui->treeSurfaces->clearSelection();
+            ui->treeSurfaces->setCurrentItem(nullptr);
+            ui->treeSurfaces->blockSignals(b);
         }
     }
 
