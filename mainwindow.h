@@ -73,6 +73,20 @@ private slots:
     // superficie implicita la cui trasparenza puo' degradare (Gyroid, script RM).
     void onAlphaSliderMovedWarnCheck();
     void applyModeDependentStepUI(bool isImplicit);
+    // Pulizia totale + superficie di default della modalita' indicata (0 =
+    // parametrico, 1 = ray marching). Gestore di tabModeSelector::currentChanged,
+    // richiamato anche dal clic sulla linguetta GIA' attiva ("ricomincia da
+    // capo"): unica sede del reset di modalita', mai duplicarne il contenuto.
+    void applyModeTabReset(int index);
+    // Un edit dell'utente su un modulo che definisce la scena: alza m_sceneDirty
+    // e, se il campo toccato appartiene a un dock diverso da quello che ha
+    // prodotto la superficie a schermo, mostra UNA VOLTA l'avviso non bloccante
+    // che consiglia di resettare prima. `source` e' il campo editato.
+    void noteSceneEdited(QWidget *source = nullptr);
+    bool hasUnsavedWork() const;
+    // Save / Don't save / Cancel prima di un'azione che scarta il lavoro.
+    // false = l'utente ha annullato: il chiamante NON deve procedere.
+    bool confirmDiscardUnsavedWork();
     void checkParametricDependency();
     void updateConstraintState();
     void updateConstantsUIState();
@@ -531,6 +545,46 @@ private:
     // m_lastCameraMotion pur con tutto fermo a mano. Si riarma su master Start,
     // avvio esplicito di un moto camera e load di preset/record (applyCommonData).
     bool m_userStoppedCameraMotion = false;
+
+    // LAVORO NON SALVATO. true dal primo edit dell'utente su un qualunque modulo
+    // che definisce la scena (equazioni, equazione implicita, script, texture,
+    // costanti); torna false a ogni load di preset/record e dopo un salvataggio
+    // o un reset. Governa l'avviso "vuoi salvare?" del reset di modalita'.
+    // Distinto da isPresetActive, che dice "a schermo c'e' un preset intatto" ed
+    // e' usato altrove (salvataggio) con semantica sua.
+    bool m_sceneDirty = false;
+
+    // QUALE DOCK DEFINISCE LA SUPERFICIE A SCHERMO. Stato ESPLICITO, non
+    // dedotto: la versione precedente lo indovinava a ogni battitura guardando
+    // se i campi erano pieni ("default a schermo" + "script non vuoto"), e
+    // la deduzione si sfasava dalla realta' in entrambi i versi -- m_surfaceScriptText
+    // non veniva mai svuotato da un Run delle equazioni (avviso a sproposito),
+    // e chi costruiva nel dock Script partendo dal default lasciava il flag di
+    // default acceso per sempre (avviso mai piu' mostrato).
+    //
+    // Cambia SOLO al load di preset/record e al reset di modalita'. Il Run NON
+    // la sposta: all'altro dock non ci si arriva in stato scrivibile senza aver
+    // gia' visto l'avviso, e farla trasferire dal Run generava ereditarieta' di
+    // impostazioni fra i due moduli.
+    enum SurfaceOrigin {
+        OriginDefault,     // toro/sfera di partenza: nessun dock e' "impegnato"
+        OriginEquations,   // dock Equations (x/y/z/p o equazione implicita)
+        OriginScript       // dock Script (script di superficie o metrico)
+    };
+    SurfaceOrigin m_surfaceOrigin = OriginDefault;
+
+    // AVVISO "un altro dock e' gia' carico": mostrato una volta per SITUAZIONE,
+    // non a ogni tasto premuto. La situazione e' la coppia (dock in cui scrivo,
+    // dock sorgente): una coppia diversa e' un conflitto diverso e merita il suo
+    // avviso. Riarmato dal reset e da ogni nuovo load.
+    // OriginDefault = nessun avviso ancora mostrato.
+    SurfaceOrigin m_warnedEditedDock = OriginDefault;
+    SurfaceOrigin m_warnedOrigin     = OriginDefault;
+
+    // true per tutta la durata di applyCommonData: i campi li sta riempiendo il
+    // preset, non l'utente. noteSceneEdited esce subito, cosi' un load non
+    // sporca la scena ne' fa scattare avvisi.
+    bool m_populatingFields = false;
 
     // Run del dock Equations (tab Parametric) senza animazione (nessun 't'):
     // dopo aver applicato la modifica grafica il tasto va DISABILITATO finché le

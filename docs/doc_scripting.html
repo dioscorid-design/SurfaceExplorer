@@ -32,6 +32,11 @@
                 <li><strong>Save Script:</strong> Prompts you to save the current editor content as a new Surface, Texture, or Sound preset in your Library.</li>
             </ul>
 
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>One surface, one dock</b></p></td></tr></table>
+            <p>A surface is defined <strong>either</strong> in the Equations dock <strong>or</strong> by a surface script &mdash; not by both at once. The two are alternative sources for the same geometry, and this holds in Ray Marching exactly as it does for parametric surfaces: an implicit surface can come from the <em>Equation</em> field or from a script returning a distance function, but only one of them is in force.</p>
+            <p>So if the surface on screen comes from one dock and you start typing in the other, the two do not combine: what you type may not take effect, or may mix with the state already loaded. The application says so with a message the first time you do it. To work from a clean state, click the tab of the current mode (<strong>Parametric</strong> or <strong>Implicit</strong>): it clears everything and restores the default surface, and you can then write wherever you prefer.</p>
+            <p>This is a different situation from a <strong>metric-tensor script</strong>, where the Script and Equations docks legitimately describe two different things at the same time &mdash; the metric on one side, the initial conditions on the other. That case is covered in <a href="doc_geodesic.html">Geodesic Flow</a>, together with the rule that decides which value wins.</p>
+
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Script Language Reference</b></p></td></tr></table>
             <p>Scripts are GLSL code pre-processed by the application's internal translator, which adds math
             shorthand (<code>^</code> powers, <code>%</code> modulo, <code>pi</code>/<code>tau</code> constants),

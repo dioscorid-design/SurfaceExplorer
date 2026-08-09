@@ -202,6 +202,21 @@ protected:
                     return true;
                 }
 
+                // LIMITI U/V/W: come i campi equazione, l'Invio NON esegue --
+                // i limiti entrano in vigore solo al Run. Senza questa uscita
+                // cadrebbero nel ramo generico in fondo, che chiama
+                // commitFieldsOnEnter() -> onStartClicked(): un Run a tutti gli
+                // effetti, che applicava i limiti nuovi alla superficie VECCHIA
+                // (e, con le equazioni gia' modificate, le committava pure).
+                // Togliere le connect editingFinished/returnPressed non bastava:
+                // il percorso vero passa di qui.
+                if (on == "uMinEdit" || on == "uMaxEdit" ||
+                    on == "vMinEdit" || on == "vMaxEdit" ||
+                    on == "wMinEdit" || on == "wMaxEdit") {
+                    if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
+                    return true;
+                }
+
                 // Campi path camera: a moto attivo l'Invio ricompila il path
                 // al volo (nuova costante/espressione senza stop+Departure).
                 if (isPathEquationField(on)) {
@@ -1362,440 +1377,28 @@ MainWindow::MainWindow(QWidget *parent)
     ui->lblSteps->setText("Steps=");
 
     // 3. SOLO ORA COLLEGA IL SEGNALE DEL CAMBIO TAB
-    connect(ui->tabModeSelector, &QTabWidget::currentChanged, this, [this](int index) {
-        ui->stepSlider->blockSignals(true);
+    // 3. SOLO ORA COLLEGA IL SEGNALE DEL CAMBIO TAB
+    connect(ui->tabModeSelector, &QTabWidget::currentChanged,
+            this, &MainWindow::applyModeTabReset);
 
-        auto resetExtraFields = [this]() {
-            bool oldU = ui->lineU->blockSignals(true);
-            ui->lineU->clear(); ui->lineV->clear(); ui->lineW->clear();
-            ui->lineExplicitU->clear(); ui->lineExplicitV->clear(); ui->lineExplicitW->clear();
-
-            if (ui->lnU) {
-                ui->lnU->clear(); ui->lnV->clear(); ui->lnW->clear();
-                ui->lndU->clear(); ui->lndV->clear(); ui->lndW->clear();
-                ui->lineConform->clear();
-            }
-            ui->lineU->blockSignals(oldU);
-        };
-
-        resetExtraFields();
-
-        // ==========================================================
-        // RESET PATH CAMERA (4D e 3D) AL CAMBIO TAB
-        // ==========================================================
-        // Il cambio tab carica la superficie di default, quindi nessun residuo
-        // del path del preset precedente deve sopravvivere. Lo stop passa dai
-        // TASTI (onDeparture*Clicked): testo riportato a "DEPARTURE",
-        // setPathAnimating(false), master button riallineato. Il ramo Ray
-        // Marching fermava i timer con pathTimer->stop() diretto: il tasto
-        // restava su STOP e campi/tempo/flag del path sopravvivevano al tab.
-        if (pathTimer->isActive()) onDepartureClicked();
-        if (pathTimer3D->isActive()) onDeparture3DClicked();
-
-        // Campi svuotati a segnali VIVI: textChanged -> checkPath(3D)Fields
-        // disabilita i tasti Departure ora che i campi sono vuoti.
-        ui->lineX_P->clear(); ui->lineY_P->clear(); ui->lineZ_P->clear();
-        ui->lineP_P->clear();
-        ui->lineAlpha_P->clear(); ui->lineBeta_P->clear(); ui->lineGamma_P->clear();
-        ui->lineX_P3D->clear(); ui->lineY_P3D->clear(); ui->lineZ_P3D->clear();
-        ui->lineR_P3D->clear();
-
-        // Stato di sessione dei path azzerato, come al load di un record
-        // (vedi applyMotionExample): un futuro Departure riparte da t=0 e
-        // da orientamento neutro.
-        pathTimeT = 0.0f;
-        pathTimeT3D = 0.0f;
-        m_path4DStartedOnce = false;
-        m_anyPathStartedOnce = false;
-
-        // ==========================================================
-        // AGGIORNAMENTO UI E PULIZIA MOTORE SCRIPT AL CAMBIO TAB
-        // ==========================================================
-        // 1. Aggiorna dinamicamente i nomi sui bottoni del dock script
-        updateScriptButtonText();
-
-        // 2. Spegne la modalità script per evitare che il codice parametrico
-        // finisca nel Ray Marching (e causi il crash "unexpected EQUAL")
-        if (ui->glWidget && ui->glWidget->getEngine()) {
-            ui->glWidget->getEngine()->setScriptMode(false);
-            ui->glWidget->getEngine()->setScriptCodeGLSL("");
-            // Azzera anche il cutout: senza, il //CUTOUT di uno script
-            // precedente restava iniettato e continuava a tagliare (vedi
-            // applyCommonData). Un nuovo Run script lo reimposta dal contenuto.
-            ui->glWidget->getEngine()->setCutoutCodeGLSL("");
-            // Stessa cosa per le parti multi-mesh: senza azzerarle, la
-            // superficie del tab successivo resterebbe spezzata nei rami
-            // dichiarati dallo script precedente.
-            ui->glWidget->getEngine()->clearMeshParts();
-        }
-
-        // 3. Svuota l'editor visivamente (se aperto su Surface) e in memoria
-        if (m_currentScriptMode == ScriptModeSurface) {
-            ui->txtScriptEditor->blockSignals(true);
-            ui->txtScriptEditor->clear();
-            ui->txtScriptEditor->blockSignals(false);
-        }
-        // Se il dock Script e' aperto sulla texture di SUPERFICIE, l'editor va
-        // allineato al nuovo tab: in Ray Marching la texture di superficie non si
-        // scrive qui (si gestisce dal dock Equations) -> editor svuotato; tornando
-        // in Parametrico -> ripristinato da m_surfaceTextureScriptText. Il codice
-        // resta sempre nella variabile membro, l'editor ne e' solo la vista.
-        else if (m_currentScriptMode == ScriptModeTexture && !ui->radioBackground->isChecked()) {
-            ui->txtScriptEditor->blockSignals(true);
-            if (index == 1) ui->txtScriptEditor->clear();                      // -> Ray Marching
-            else            ui->txtScriptEditor->setPlainText(m_surfaceTextureScriptText); // -> Parametrico
-            ui->txtScriptEditor->blockSignals(false);
-            // Ricalcola lo stato dei pulsanti con l'editor ora corretto.
-            updateScriptButtonText();
-        }
-        m_surfaceScriptText.clear();
-        exitMetricScriptMode();
-        // ==========================================================
-
-        // ==========================================================
-        // GESTIONE STATI TEXTURE
-        // ==========================================================
-        m_surfaceTextureState = false;
-        m_isCustomMode = false;
-        m_isImageMode = false;
-        m_blockTextureGen = false;
-        m_currentTexturePath.clear();
-        m_surfaceTextureCode.clear();
-
-        // Modifichiamo la UI solo se NON stiamo guardando il Background
-        if (!ui->radioBackground->isChecked()) {
-            bool oldBlock = ui->chkBoxTexture->blockSignals(true);
-            ui->chkBoxTexture->setChecked(false);
-            ui->chkBoxTexture->blockSignals(oldBlock);
-        }
-
-        // Spegniamo in modo incondizionato la texture dal motore per la superficie
-        if (ui->glWidget) ui->glWidget->setGlobalTextureEnabled(false);
-        // ==========================================================
-
-        // ==========================================================
-        // RESET AUDIO E COLORI
-        // ==========================================================
-        // 1. Ferma l'audio per QUALSIASI cambio tab
-        if (m_audioController) {
-            m_audioController->stopAll();
-        }
-        m_soundScriptText.clear();
-        if (ui->btnRunCurrentScript && ui->btnRunCurrentScript->text() == "Stop Sound") {
-            ui->btnRunCurrentScript->setText("Run Sound");
-        }
-
-        // 2. Resetta i colori al default per evitare "sanguinamenti" dai record precedenti
-        //
-        // I reset che seguono (colore, e piu' sopra alpha/luce/wireframe) sono lo
-        // stato della SUPERFICIE DI DEFAULT, non un comando dell'utente su una
-        // parte: vanno scritti sullo stato globale. Senza il bypass, con una mesh
-        // ancora selezionata dal preset multi-mesh precedente (es. "Hopf Tori Mesh
-        // Colors"), setColor passa da applyToActiveMeshPart e il verde finisce
-        // DENTRO la MeshPart invece che nei membri globali: la sfera di default
-        // lampeggiava verde e tornava subito al colore del preset (giallo).
-        // NB: clearMeshParts() piu' sopra svuota solo m_declaredParts; m_meshParts
-        // (cio' che mutableMeshPart legge) sopravvive, quindi la parte attiva e'
-        // ancora valida qui. Stesso schema del load superficie (~8654).
-        // Il BYPASS si accende PRIMA di lasciare la mesh, ma la selezione si
-        // molla DOPO aver riscritto i colori globali (piu' sotto). Ordine
-        // obbligato: mentre la superficie multi-mesh e' a schermo ogni parte
-        // disegna dal proprio MeshPart e i membri globali red/green/blue non
-        // vengono mai esercitati, quindi restano su un valore stantio (il loro
-        // inizializzatore e' bianco, glwidget.h:809). setActiveMeshPart chiama
-        // update(): mollando la selezione per prima, il repaint che ne segue
-        // trova la sfera di default -- che e' a mesh singola e disegna dai
-        // globali -- ancora BIANCA, ed e' il lampo bianco al caricamento.
-        // Col bypass acceso setColor scrive gia' sui globali anche a mesh
-        // attiva, quindi si puo' sistemare il colore e solo allora deselezionare.
-        if (ui->glWidget) ui->glWidget->setMeshAppearanceBypass(true);
-        struct MeshBypassGuard {
-            MainWindow *w;
-            ~MeshBypassGuard() { if (w->ui->glWidget) w->ui->glWidget->setMeshAppearanceBypass(false); }
-        } meshBypassGuard{this};
-
-        m_currentBackgroundColor = QColor::fromRgbF(0.3f, 0.3f, 0.3f);
-        m_currentSurfaceColor = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
-        m_texColor1 = m_currentSurfaceColor;
-        m_texColor2 = Qt::black;
-        m_bgTexColor1 = QColor::fromRgbF(0.2f, 0.2f, 0.8f);
-        m_bgTexColor2 = Qt::black;
-
-        if (ui->glWidget) {
-            ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
-            ui->glWidget->setColor(m_currentSurfaceColor.redF(), m_currentSurfaceColor.greenF(), m_currentSurfaceColor.blueF());
-            ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
-            // Globali ora coerenti: si puo' lasciare la mesh senza esporre un
-            // frame col colore stantio.
-            ui->glWidget->setActiveMeshPart(-1);
-
-            // AMBITO "ALL" SUBITO, non a fine giro. La superficie di destinazione
-            // e' a mesh singola, quindi l'ambito DEVE finire su "All": ci arrivava
-            // gia', ma tardi, per via di updateMeshScopeEnabled (~12981) che gira
-            // da updateMeshSelectorRange sull'onda di meshPartsChanged, cioe' DOPO
-            // che la sfera e' stata compilata e disegnata. setMeshAppearanceUniform
-            // fa buildWireframeGeometry() + rebuildShader(), e rebuildShader
-            // DISTRUGGE le pipeline: si pagava una SECONDA compilazione dello
-            // shader a sfera gia' a schermo. Da qui il transitorio visibile solo
-            // venendo da una superficie multi-mesh (da mesh singola l'ambito e'
-            // gia' "All" e il setter esce subito per il early-return su ==).
-            // Portandolo qui la ricompilazione avviene PRIMA del rebuildShader
-            // del ramo Ray Marching, che quindi la assorbe: una sola compilazione.
-            // La chiamata tardiva resta e diventa un no-op (stesso valore).
-            ui->glWidget->setMeshAppearanceUniform(true);
-        }
-
-        // Aggiorna gli slider colore della UI per allinearli ai valori appena resettati
-        onColorTargetChanged();
-
-        // La superficie di default (toro/sfera) e' opaca: la trasparenza della
-        // superficie precedente non deve sopravvivere al cambio tab.
-        resetTransparency();
-
-        // Cambio tab -> superficie di default (sfera/toro): la densità wireframe torna al
-        // default, come trasparenza e luminosità. (Il ripristino della densità SALVATA
-        // avviene solo caricando un preset che la contiene, in applyCommonData.)
-        if (ui->glWidget) ui->glWidget->resetWireframeDensity();
-
-        // Anche la LUMINOSITA' (intensità luce direzionale) non deve sopravvivere
-        // al cambio tab: senza questo reset la superficie di default eredita la
-        // luminosità della superficie/preset precedente. Vale per il cambio tab
-        // manuale E per quello forzato dal caricamento di una texture incompatibile
-        // (che passa anch'esso da qui via setCurrentIndex). setValue da solo non
-        // riemette valueChanged se il valore è già 100, quindi applichiamo anche
-        // direttamente intensità e label.
-        {
-            bool oldLight = ui->lightSlider->blockSignals(true);
-            ui->lightSlider->setValue(100);
-            ui->lightSlider->blockSignals(oldLight);
-            ui->lblValLight->setText("100 %");
-            if (ui->glWidget) ui->glWidget->setLightIntensity(1.0f);
-        }
-        // ==========================================================
-
-        if (index == 1) { // --- PASSAGGIO A IMPLICIT (RAY MARCHING) ---
-            ui->lineEquation->setPlainText("x*x + y*y + z*z - 1.0");
-            ui->lineTexture->setPlainText("vec3(0.5, 0.5, 0.5)"); // Grigio neutro o il tuo default
-            ui->lineVariations->setPlainText("0.0");
-
-            m_lastParametricSteps = ui->stepSlider->value();
-
-            // 1. SALVA IN MEMORIA IL VALORE PARAMETRICO DELLA S
-            m_lastParametricS = ui->lineS->text().toDouble();
-
-            // 2. Ferma tutte le animazioni (i path camera sono già stati
-            // fermati e ripuliti nel blocco RESET PATH CAMERA più sopra)
-            if (ui->glWidget->isAnimating()) ui->glWidget->pauseMotion();
-            ui->glWidget->setSurfaceAnimating(false);
-            ui->glWidget->stopAnimationTimer();
-
-            // 4. Azzera Texture e Rilievi (Ritorna alla forma nuda)
-            ui->lineTexture->blockSignals(true);
-            ui->lineTexture->clear();
-            ui->lineTexture->blockSignals(false);
-            ui->glWidget->setTextureCode("");
-
-            ui->lineVariations->blockSignals(true);
-            ui->lineVariations->clear();
-            ui->lineVariations->blockSignals(false);
-            ui->glWidget->setDisplacementCode("");
-
-            ui->glWidget->setBackgroundTextureEnabled(false);
-                        m_bgTextureCode = "";
-                        m_bgTextureScriptText = "";
-
-            // 5. Ripristina l'equazione di default
-            ui->lineEquation->blockSignals(true);
-            QString eq = ui->lineEquation->toPlainText().trimmed();
-            if (eq.isEmpty() || !eq.contains("=")) {
-                ui->lineEquation->setPlainText("x^2 + y^2 + z^2 = 1.0");
-            }
-            ui->lineEquation->blockSignals(false);
-
-            // ==========================================================
-            // ADATTAMENTO SLIDER "S" IN "STEP RELAX" (MEMORIA SEPARATA)
-            // ==========================================================
-            ui->lblS->setText("Step Relax");
-            ui->sSlider->setMinimum(0);
-
-            // Protezione di sicurezza per la memoria implicita
-            if (m_lastImplicitS <= 0.0) {
-                m_lastImplicitS = 0.4;
-            }
-
-            // Allarghiamo dinamicamente lo slider se la memoria aveva un valore alto
-            if (m_lastImplicitS > 1.0) {
-                ui->sSlider->setMaximum(m_lastImplicitS * 100);
-            } else {
-                ui->sSlider->setMaximum(100);
-            }
-
-            // RIPRISTINA NELLA UI IL VALORE IMPLICITO SALVATO!
-            ui->lineS->setText(QString::number(m_lastImplicitS));
-            // Forza l'aggiornamento dello slider (e quindi della GPU)
-            ui->sSlider->setValue(m_lastImplicitS * 100);
-            // ==========================================================
-
-            // --- SETUP MODALITA' RAY MARCHING (Originale) ---
-            ui->glWidget->setEngineMode(GLWidget::ModeImplicit);
-
-            ui->lblSteps->setText("Ray Steps=");
-
-            ui->stepSlider->setValue(m_lastImplicitSteps);
-
-            // Aggiornamento forzato manuale della UI ignorando il blocco segnali
-            ui->lineSteps->setText(QString::number(m_lastImplicitSteps));
-            ui->glWidget->setRaySteps(m_lastImplicitSteps);
-
-            // Reset Limiti Spaziali per non tagliare la superficie di default
-            ui->lineXMin->clear(); ui->lineXMax->clear();
-            ui->lineYMin->clear(); ui->lineYMax->clear();
-            ui->lineZMin->clear(); ui->lineZMax->clear();
-            if (ui->glWidget) {
-                ui->glWidget->setRangeX(-1000.0f, 1000.0f);
-                ui->glWidget->setRangeY(-1000.0f, 1000.0f);
-                ui->glWidget->setRangeZ(-1000.0f, 1000.0f);
-
-                // Reset completo della vista, come già fa il ramo Parametrico:
-                // in particolare spegne m_isPathFollowing, che dopo un record
-                // col path resterebbe acceso e la view continuerebbe il lookAt
-                // su m_pathTarget/m_pathUp stantii -> la sfera di default
-                // compariva spostata/inclinata. La distanza viene comunque
-                // forzata a 4.0 subito sotto (il salvavita zoom di
-                // resetTransformations da solo non basta).
-                ui->glWidget->resetTransformations();
-
-                // Distanza camera alla standard (4.0): la sfera di default ha
-                // raggio 1 e va vista da qui. Senza questo reset la camera resta a
-                // quella del RECORD RM caricato prima (resetTransformations PRESERVA
-                // la distanza corrente se >= 2.5, "salvavita zoom"), quindi la sfera
-                // appariva RIMPICCIOLITA e la sua dimensione dipendeva dal camera3D.z
-                // del record (es. N-Tours z=11.12). Stato persistente: ne' Run ne'
-                // cambi tab successivi la ripristinavano.
-                ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
-                ui->glWidget->setCameraYaw(0.0f);
-                ui->glWidget->setCameraPitch(0.0f);
-                ui->glWidget->setCameraRoll(0.0f);
-
-                // FIX 3: Compilazione e invio della sfera alla GPU
-                QString implicitEqF = "(x^2 + y^2 + z^2) - (1.0)";
-                ui->glWidget->setImplicitEquation(implicitEqF);
-                ui->glWidget->validateAndApplyImplicitShader(implicitEqF, "", "");
-                ui->glWidget->rebuildShader();
-            }
-        }
-        else { // --- PASSAGGIO A PARAMETRIC (TAB 0) ---
-            m_lastImplicitSteps = ui->stepSlider->value();
-            m_lastImplicitS = ui->lineS->text().toDouble();
-
-            // 1. STOP E RESET FISICO
-            // onStopClicked è un toggle: senza la guardia, con moto in pausa e
-            // velocità impostate farebbe RIPARTIRE le rotazioni. (I path camera
-            // sono già stati fermati nel blocco RESET PATH CAMERA più sopra.)
-            if (ui->glWidget->isAnimating()) onStopClicked();
-            ui->glWidget->resetTransformations();
-            // Distanza camera alla standard (4.0): il salvavita zoom di
-            // resetTransformations PRESERVA una distanza >= 2.5 (es. quella
-            // della camera del path/record appena abbandonato) e il toro di
-            // default apparirebbe da li'. Stesso riallineamento che il ramo
-            // Ray Marching fa per la sfera di default.
-            ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
-            ui->glWidget->resetTime();
-            ui->glWidget->setSurfaceAnimating(false);
-            if (m_btnStart) m_btnStart->setText("START");
-
-            // Azzera anche le velocità reali del motore, non solo le etichette
-            ui->glWidget->setNutationSpeed(0.0f); ui->glWidget->setPrecessionSpeed(0.0f); ui->glWidget->setSpinSpeed(0.0f);
-            ui->glWidget->setOmegaSpeed(0.0f); ui->glWidget->setPhiSpeed(0.0f); ui->glWidget->setPsiSpeed(0.0f);
-            ui->lblNutVal->setText("0.00"); ui->lblPrecVal->setText("0.00"); ui->lblSpinVal->setText("0.00");
-            ui->lblOmegaVal->setText("0.00"); ui->lblPhiVal->setText("0.00"); ui->lblPsiVal->setText("0.00");
-
-            // 2. RESET ILLUMINAZIONE E RENDER MODE (Fix Bug persistenza)
-            // Riportiamo tutto al modello "Basic" (Lambert) senza specolarità
-            m_savedRenderMode = 0;
-            if (ui->radioBasic) ui->radioBasic->setChecked(true);
-            ui->glWidget->setSpecularEnabled(false); // Spegne Phong residuo
-
-            // Spegniamo categoricamente l'illuminazione 4D (non usata nel reset RM)
-            ui->glWidget->set4DLighting(false);
-            m_lightingMode4D = 0;
-            if (ui->btnLightMode) ui->btnLightMode->setText("Directional Lighting");
-            ui->glWidget->setLightingMode4D(0);
-
-            // 3. RESET SFONDO E LIMITI
-            ui->glWidget->setBackgroundTextureEnabled(false);
-            m_bgTextureCode = "";
-            m_bgTextureScriptText = "";
-            // Esco dall'editing sfondo: riporto il target sulla superficie. radioSurface
-            // e radioBackground sono esclusivi, ma li tocco a segnali bloccati perché
-            // il ripristino del dock è già gestito esplicitamente qui intorno (non
-            // voglio far girare anche l'handler toggled di radioBackground).
-            if (ui->radioBackground && ui->radioBackground->isChecked()) {
-                bool oldBgBlock = ui->radioBackground->blockSignals(true);
-                bool oldSurfBlock = ui->radioSurface->blockSignals(true);
-                ui->radioSurface->setChecked(true);
-                ui->radioSurface->blockSignals(oldSurfBlock);
-                ui->radioBackground->blockSignals(oldBgBlock);
-                ui->radioSurface->setEnabled(true);
-            }
-            ui->chkBoxTexture->setText("Texture");
-            ui->chkBoxTexture->setChecked(m_surfaceTextureState);
-
-            ui->uMinEdit->setText("0");
-            ui->uMaxEdit->setText("6.28318");
-            ui->vMinEdit->setText("0");
-            ui->vMaxEdit->setText("6.28318");
-            ui->wMinEdit->setText("0");
-            ui->wMaxEdit->setText("1");
-            updateULimits(); updateVLimits(); updateWLimits();
-
-            // 4. RIPRISTINO GEOMETRIA TORO
-            ui->lineX->setPlainText("(0.8 + 0.3*cos(v))*cos(u)");
-            ui->lineY->setPlainText("(0.8 + 0.3*cos(v))*sin(u)");
-            ui->lineZ->setPlainText("0.3*sin(v)");
-            ui->lineP->setPlainText("0.0");
-            ui->glWidget->setParametricEquations(ui->lineX->toPlainText(), ui->lineY->toPlainText(),
-                                                 ui->lineZ->toPlainText(), ui->lineP->toPlainText());
-
-            // 5. CONFIGURAZIONE ENGINE PARAMETRICO
-            ui->lblS->setText("s=");
-            ui->sSlider->setMinimum(-1000);
-            ui->sSlider->setMaximum(1000);
-            ui->lineS->setText(QString::number(m_lastParametricS));
-            ui->sSlider->setValue(m_lastParametricS * 100);
-
-            ui->glWidget->setEngineMode(GLWidget::ModeParametric);
-            ui->lblSteps->setText("Steps=");
-
-            ui->stepSlider->setValue(m_lastParametricSteps);
-            // FIX 4: Aggiornamento forzato manuale del testo
-            ui->lineSteps->setText(QString::number(m_lastParametricSteps));
-            ui->glWidget->setResolution(m_lastParametricSteps);
-
-            ui->glWidget->updateSurfaceData();
-            ui->glWidget->addObjectRotation(30.0f, 30.0f, 0.0f);
-
-            onStopClicked();
-        }
-
-        updateRenderState();
-        checkParametricDependency();
-        ui->glWidget->update();
-        updateScriptButtonText();
-        ui->stepSlider->blockSignals(false);
-
-        // Il cambio tab ripristina e RENDERIZZA la superficie di default del tab di
-        // destinazione (toro o sfera): non c'è nulla da applicare, quindi i Run
-        // "one-shot" tornano DISABILITATI. La scrittura delle equazioni di default
-        // qui sopra (es. lineEquation a riga ~1048, segnali non bloccati) aveva
-        // azzerato i flag via textChanged: li riasseriamo e riallineamo i tasti.
-        // Anche la texture parte azzerata (campi vuoti dopo il reset): il Run
-        // texture sarà comunque disabilitato dal controllo campi-vuoti.
-        m_parametricApplied = true;
-        m_implicitApplied = true;
-        m_rmTextureApplied = true;
-        updateMasterButtonState();
-    });
+    // RESET SULLA LINGUETTA GIA' ATTIVA. currentChanged non scatta se l'indice
+    // non cambia, quindi ricliccare il tab in cui sei gia' non faceva nulla.
+    // Ora vale come "ricomincia da capo in questa modalita'": la stessa pulizia
+    // totale del cambio tab (superficie di default, script/texture/path azzerati,
+    // camera, zoom e limiti di spazio ripristinati) senza dover passare
+    // dall'altra modalita' e tornare indietro. Riusa lo STESSO percorso, non una
+    // copia: e' quello gia' validato dall'uso quotidiano, e i residui della
+    // superficie precedente sono la causa storica delle deformazioni.
+    if (ui->tabModeSelector->tabBar()) {
+        connect(ui->tabModeSelector->tabBar(), &QTabBar::tabBarClicked,
+                this, [this](int index) {
+            if (index < 0 || index != ui->tabModeSelector->currentIndex()) return;
+            // Lavoro non salvato: si chiede prima di buttarlo via. Su Cancel non
+            // si resetta (qui il tab non cambia, quindi basta uscire).
+            if (!confirmDiscardUnsavedWork()) return;
+            applyModeTabReset(index);
+        });
+    }
 
     ui->lineX->setPlainText("(0.8 + 0.3*cos(v))*cos(u)");
     ui->lineY->setPlainText("(0.8 + 0.3*cos(v))*sin(u)");
@@ -2092,6 +1695,11 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto markUserEdit = [this]() {
         this->setProperty("isPresetActive", false);
+        // Lavoro dell'utente da proteggere: il reset chiedera' se salvarlo.
+        // Il campo va riportato QUAL E': questa lambda serve 13 widget diversi e
+        // passava sempre lineX, cosi' un edit alle composizioni (U/V/W) o ai
+        // vincoli espliciti veniva contato come "sto scrivendo le equazioni".
+        noteSceneEdited(qobject_cast<QWidget*>(sender()));
         // Le equazioni sono cambiate: il Run parametrico "one-shot" (senza 't')
         // torna eseguibile. updateMasterButtonState() riabilita il tasto.
         m_parametricApplied = false;
@@ -2120,6 +1728,7 @@ MainWindow::MainWindow(QWidget *parent)
     // (lineTexture) o di displacement (lineVariations) lo riabilita.
     auto markRmTextureEdited = [this]() {
         m_rmTextureApplied = false;
+        noteSceneEdited(ui->lineTexture);
         updateMasterButtonState();
     };
     connect(ui->lineTexture, &QPlainTextEdit::textChanged, this, markRmTextureEdited);
@@ -2128,6 +1737,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->txtScriptEditor, &QPlainTextEdit::textChanged, this, [this](){
         updateScriptButtonText();
         updateConstantsUIState();
+        noteSceneEdited(ui->txtScriptEditor);
         // Mantiene allineato il tasto Save texture (hasSavableTexture legge l'editor
         // in modalità script texture parametrico/sfondo).
         updateMasterButtonState();
@@ -2172,6 +1782,7 @@ MainWindow::MainWindow(QWidget *parent)
     // texture, non della geometria (coerente con geomAnimated in onStartClicked).
     connect(ui->lineEquation, &QPlainTextEdit::textChanged, this, [this]() {
         m_implicitApplied = false;
+        noteSceneEdited(ui->lineEquation);
         updateMasterButtonState();
     });
 
@@ -2295,24 +1906,15 @@ MainWindow::MainWindow(QWidget *parent)
     connectSpaceLimit(ui->lineYMin, ui->lineYMax, &GLWidget::setRangeY, "Y");
     connectSpaceLimit(ui->lineZMin, ui->lineZMax, &GLWidget::setRangeZ, "Z");
 
-    auto connectParametricLimit = [this](QLineEdit* minEdit, QLineEdit* maxEdit,
-            bool (MainWindow::*updateFunc)()) {
-        auto apply = [this, updateFunc]() {
-            if ((this->*updateFunc)()) {                   // applica solo se min < max
-                if (m_meshDebounce) m_meshDebounce->start();
-            }
-        };
-        // editingFinished: copre Enter su desktop e perdita di focus su mobile.
-        connect(minEdit, &QLineEdit::editingFinished, this, apply);
-        connect(maxEdit, &QLineEdit::editingFinished, this, apply);
-        // returnPressed: trigger "forte" su desktop, innocuo su mobile (evento consumato dal filtro).
-        connect(minEdit, &QLineEdit::returnPressed,   this, apply);
-        connect(maxEdit, &QLineEdit::returnPressed,   this, apply);
-    };
-
-    connectParametricLimit(ui->uMinEdit, ui->uMaxEdit, &MainWindow::updateULimits);
-    connectParametricLimit(ui->vMinEdit, ui->vMaxEdit, &MainWindow::updateVLimits);
-    connectParametricLimit(ui->wMinEdit, ui->wMaxEdit, &MainWindow::updateWLimits);
+    // LIMITI U/V/W: si applicano SOLO al Run (dock Equations o master), MAI con
+    // l'Invio da tastiera. Prima editingFinished/returnPressed chiamavano
+    // updateU/V/WLimits, che fanno setRange* e fanno ripartire il debounce della
+    // mesh: premuto PRIMA del Run, il limite nuovo finiva sulla superficie
+    // VECCHIA, ridisegnandola. Nessuna connect qui: onStartClicked legge i campi,
+    // li valida (popup sui limiti impossibili) e chiama lui setRangeU/V/W
+    // (~6681), cosi' i limiti entrano in vigore INSIEME alle equazioni.
+    // updateU/V/WLimits resta in uso dai percorsi di load/commit, dove
+    // l'applicazione immediata e' corretta.
 
     connect(ui->btnTextureCode, &QPushButton::clicked, this, [this]() {
         onRunRaymarchTextureClicked();
@@ -3859,8 +3461,603 @@ MainWindow::MainWindow(QWidget *parent)
     m_parametricApplied = true;
     m_implicitApplied = true;
     m_rmTextureApplied = true;
+    // All'avvio a schermo c'e' la superficie di default (toro/sfera): i campi
+    // sono pieni ma non sono lavoro dell'utente, come dopo un reset.
+    m_surfaceOrigin = OriginDefault;
     m_uiReady = true;   // sblocca updateMasterButtonState: la UI è completa
     updateMasterButtonState();
+}
+
+// =============================================================================
+// LAVORO NON SALVATO E CONFLITTO FRA DOCK
+// =============================================================================
+// Un edit dell'utente su un modulo qualsiasi (equazioni, equazione implicita,
+// script, texture) segna la scena come "sporca": il reset di modalita' chiedera'
+// se salvare prima di buttare via tutto.
+//
+// `source` e' il campo che ha ricevuto l'edit: serve al SECONDO avviso, quello
+// che segnala di stare scrivendo su un dock mentre la superficie a schermo
+// arriva da un altro. E' la situazione in cui i due si contendono la scena e il
+// risultato sorprende (il vecchio vince, o si mescolano stati incompatibili):
+// il consiglio e' resettare prima. L'avviso NON blocca: si limita a informare, e
+// compare una volta sola per situazione -- la coppia (dock scritto, sorgente)
+// in m_warnedEditedDock/m_warnedOrigin -- non a ogni tasto premuto.
+void MainWindow::noteSceneEdited(QWidget *source)
+{
+    // Edit programmatici del boot e del caricamento di un preset: non sono
+    // lavoro dell'utente e non devono mai far comparire avvisi.
+    if (!m_uiReady || m_populatingFields) return;
+
+    m_sceneDirty = true;
+
+    if (!source) return;
+
+    // DOVE STA SCRIVENDO L'UTENTE. txtScriptEditor e' UN widget per tre moduli:
+    // conta come dock Script solo quando mostra lo script di SUPERFICIE --
+    // scrivere una texture o un suono non contende la scena alle equazioni.
+    SurfaceOrigin editedDock;
+    if (source == ui->lineX || source == ui->lineY || source == ui->lineZ
+     || source == ui->lineP || source == ui->lineEquation) {
+        editedDock = OriginEquations;
+    } else if (source == ui->txtScriptEditor
+            && m_currentScriptMode == ScriptModeSurface) {
+        editedDock = OriginScript;
+    } else {
+        return;   // campo che non definisce la superficie: nessun conflitto
+    }
+
+    // Nessun conflitto se la superficie e' quella di DEFAULT (nessun dock e'
+    // impegnato: i suoi campi sono pieni, ma non sono lavoro da difendere) o se
+    // si sta scrivendo proprio nel dock che l'ha prodotta.
+    if (m_surfaceOrigin == OriginDefault) return;
+    if (m_surfaceOrigin == editedDock)    return;
+
+    // Gia' avvisato per QUESTA situazione: una coppia (dock scritto, sorgente)
+    // diversa e' un conflitto diverso e merita il suo avviso.
+    if (m_warnedEditedDock == editedDock && m_warnedOrigin == m_surfaceOrigin) return;
+    m_warnedEditedDock = editedDock;
+    m_warnedOrigin     = m_surfaceOrigin;
+
+    const QString loadedWhat = (m_surfaceOrigin == OriginScript)
+                             ? QStringLiteral("a SCRIPT")
+                             : QStringLiteral("the EQUATIONS panel");
+
+    QMessageBox::information(this, "Another module is loaded",
+        "The surface on screen comes from " + loadedWhat + ", so what you are "
+        "typing here may not take effect, or may mix with what is already loaded."
+        "\n\nTo start from a clean state, click the tab of the current mode "
+        "(Parametric or Implicit): it clears everything and restores the default "
+        "surface.");
+}
+
+// L'utente ha lavoro non salvato da proteggere.
+bool MainWindow::hasUnsavedWork() const
+{
+    return m_sceneDirty;
+}
+
+// Chiede cosa fare del lavoro non salvato prima di un'azione distruttiva.
+// Ritorna false se l'utente annulla: il chiamante deve fermarsi.
+bool MainWindow::confirmDiscardUnsavedWork()
+{
+    if (!hasUnsavedWork()) return true;
+
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Warning);
+    box.setWindowTitle("Unsaved work");
+    box.setText("The current surface has unsaved changes.");
+    box.setInformativeText("Resetting will discard them. Do you want to save first?");
+    QPushButton *saveBtn    = box.addButton("Save",       QMessageBox::AcceptRole);
+    QPushButton *discardBtn = box.addButton("Don't save", QMessageBox::DestructiveRole);
+    box.addButton("Cancel", QMessageBox::RejectRole);
+    box.setDefaultButton(saveBtn);
+    box.exec();
+
+    if (box.clickedButton() == discardBtn) return true;
+
+    if (box.clickedButton() == saveBtn) {
+        // Il dialogo di salvataggio puo' essere annullato: in quel caso NON si
+        // procede col reset, o si perderebbe proprio il lavoro che si voleva
+        // salvare. m_sceneDirty resta true finche' il file non e' scritto, ed e'
+        // saveSurface a portarlo a false; qui lo si usa come esito.
+        saveSurfaceToFile();
+        return !m_sceneDirty;
+    }
+
+    return false;   // Cancel (o chiusura della finestra)
+}
+
+// Pulizia totale + superficie di default della modalita' `index` (0 =
+// parametrico, 1 = ray marching). Era la lambda di currentChanged: estratta
+// perche' ha un secondo chiamante, il clic sulla linguetta GIA' attiva, che la
+// usa come "ricomincia da capo". Il corpo non e' stato modificato -- e' il
+// percorso di reset gia' in produzione, e deve restare in una sede sola.
+void MainWindow::applyModeTabReset(int index)
+{
+    // RESET IN CORSO: i campi (equazioni di default, limiti, editor) li riempie
+    // questa funzione, non l'utente. Senza guardia quelle scritture -- fatte a
+    // segnali VIVI -- passano da noteSceneEdited e, finche' m_surfaceScriptText
+    // non e' ancora stato svuotato, sembrano "l'utente scrive nelle equazioni
+    // con uno script caricato": l'avviso compariva durante il reset stesso.
+    // Stessa guardia RAII del caricamento preset (applyCommonData).
+    m_populatingFields = true;
+    struct ResetGuard {
+        MainWindow *w;
+        ~ResetGuard() { w->m_populatingFields = false; }
+    } resetGuard{this};
+
+    ui->stepSlider->blockSignals(true);
+
+    auto resetExtraFields = [this]() {
+        bool oldU = ui->lineU->blockSignals(true);
+        ui->lineU->clear(); ui->lineV->clear(); ui->lineW->clear();
+        ui->lineExplicitU->clear(); ui->lineExplicitV->clear(); ui->lineExplicitW->clear();
+
+        if (ui->lnU) {
+            ui->lnU->clear(); ui->lnV->clear(); ui->lnW->clear();
+            ui->lndU->clear(); ui->lndV->clear(); ui->lndW->clear();
+            ui->lineConform->clear();
+        }
+        ui->lineU->blockSignals(oldU);
+    };
+
+    resetExtraFields();
+
+    // ==========================================================
+    // RESET PATH CAMERA (4D e 3D) AL CAMBIO TAB
+    // ==========================================================
+    // Il cambio tab carica la superficie di default, quindi nessun residuo
+    // del path del preset precedente deve sopravvivere. Lo stop passa dai
+    // TASTI (onDeparture*Clicked): testo riportato a "DEPARTURE",
+    // setPathAnimating(false), master button riallineato. Il ramo Ray
+    // Marching fermava i timer con pathTimer->stop() diretto: il tasto
+    // restava su STOP e campi/tempo/flag del path sopravvivevano al tab.
+    if (pathTimer->isActive()) onDepartureClicked();
+    if (pathTimer3D->isActive()) onDeparture3DClicked();
+
+    // Campi svuotati a segnali VIVI: textChanged -> checkPath(3D)Fields
+    // disabilita i tasti Departure ora che i campi sono vuoti.
+    ui->lineX_P->clear(); ui->lineY_P->clear(); ui->lineZ_P->clear();
+    ui->lineP_P->clear();
+    ui->lineAlpha_P->clear(); ui->lineBeta_P->clear(); ui->lineGamma_P->clear();
+    ui->lineX_P3D->clear(); ui->lineY_P3D->clear(); ui->lineZ_P3D->clear();
+    ui->lineR_P3D->clear();
+
+    // Stato di sessione dei path azzerato, come al load di un record
+    // (vedi applyMotionExample): un futuro Departure riparte da t=0 e
+    // da orientamento neutro.
+    pathTimeT = 0.0f;
+    pathTimeT3D = 0.0f;
+    m_path4DStartedOnce = false;
+    m_anyPathStartedOnce = false;
+
+    // ==========================================================
+    // AGGIORNAMENTO UI E PULIZIA MOTORE SCRIPT AL CAMBIO TAB
+    // ==========================================================
+    // 1. Aggiorna dinamicamente i nomi sui bottoni del dock script
+    updateScriptButtonText();
+
+    // 2. Spegne la modalità script per evitare che il codice parametrico
+    // finisca nel Ray Marching (e causi il crash "unexpected EQUAL")
+    if (ui->glWidget && ui->glWidget->getEngine()) {
+        ui->glWidget->getEngine()->setScriptMode(false);
+        ui->glWidget->getEngine()->setScriptCodeGLSL("");
+        // Azzera anche il cutout: senza, il //CUTOUT di uno script
+        // precedente restava iniettato e continuava a tagliare (vedi
+        // applyCommonData). Un nuovo Run script lo reimposta dal contenuto.
+        ui->glWidget->getEngine()->setCutoutCodeGLSL("");
+        // Stessa cosa per le parti multi-mesh: senza azzerarle, la
+        // superficie del tab successivo resterebbe spezzata nei rami
+        // dichiarati dallo script precedente.
+        ui->glWidget->getEngine()->clearMeshParts();
+    }
+
+    // 3. Svuota l'editor visivamente (se aperto su Surface) e in memoria
+    if (m_currentScriptMode == ScriptModeSurface) {
+        ui->txtScriptEditor->blockSignals(true);
+        ui->txtScriptEditor->clear();
+        ui->txtScriptEditor->blockSignals(false);
+    }
+    // Se il dock Script e' aperto sulla texture di SUPERFICIE, l'editor va
+    // allineato al nuovo tab: in Ray Marching la texture di superficie non si
+    // scrive qui (si gestisce dal dock Equations) -> editor svuotato; tornando
+    // in Parametrico -> ripristinato da m_surfaceTextureScriptText. Il codice
+    // resta sempre nella variabile membro, l'editor ne e' solo la vista.
+    else if (m_currentScriptMode == ScriptModeTexture && !ui->radioBackground->isChecked()) {
+        ui->txtScriptEditor->blockSignals(true);
+        if (index == 1) ui->txtScriptEditor->clear();                      // -> Ray Marching
+        else            ui->txtScriptEditor->setPlainText(m_surfaceTextureScriptText); // -> Parametrico
+        ui->txtScriptEditor->blockSignals(false);
+        // Ricalcola lo stato dei pulsanti con l'editor ora corretto.
+        updateScriptButtonText();
+    }
+    m_surfaceScriptText.clear();
+    exitMetricScriptMode();
+    // ==========================================================
+
+    // ==========================================================
+    // GESTIONE STATI TEXTURE
+    // ==========================================================
+    m_surfaceTextureState = false;
+    m_isCustomMode = false;
+    m_isImageMode = false;
+    m_blockTextureGen = false;
+    m_currentTexturePath.clear();
+    m_surfaceTextureCode.clear();
+
+    // Modifichiamo la UI solo se NON stiamo guardando il Background
+    if (!ui->radioBackground->isChecked()) {
+        bool oldBlock = ui->chkBoxTexture->blockSignals(true);
+        ui->chkBoxTexture->setChecked(false);
+        ui->chkBoxTexture->blockSignals(oldBlock);
+    }
+
+    // Spegniamo in modo incondizionato la texture dal motore per la superficie
+    if (ui->glWidget) ui->glWidget->setGlobalTextureEnabled(false);
+    // ==========================================================
+
+    // ==========================================================
+    // RESET AUDIO E COLORI
+    // ==========================================================
+    // 1. Ferma l'audio per QUALSIASI cambio tab
+    if (m_audioController) {
+        m_audioController->stopAll();
+    }
+    m_soundScriptText.clear();
+    if (ui->btnRunCurrentScript && ui->btnRunCurrentScript->text() == "Stop Sound") {
+        ui->btnRunCurrentScript->setText("Run Sound");
+    }
+
+    // 2. Resetta i colori al default per evitare "sanguinamenti" dai record precedenti
+    //
+    // I reset che seguono (colore, e piu' sopra alpha/luce/wireframe) sono lo
+    // stato della SUPERFICIE DI DEFAULT, non un comando dell'utente su una
+    // parte: vanno scritti sullo stato globale. Senza il bypass, con una mesh
+    // ancora selezionata dal preset multi-mesh precedente (es. "Hopf Tori Mesh
+    // Colors"), setColor passa da applyToActiveMeshPart e il verde finisce
+    // DENTRO la MeshPart invece che nei membri globali: la sfera di default
+    // lampeggiava verde e tornava subito al colore del preset (giallo).
+    // NB: clearMeshParts() piu' sopra svuota solo m_declaredParts; m_meshParts
+    // (cio' che mutableMeshPart legge) sopravvive, quindi la parte attiva e'
+    // ancora valida qui. Stesso schema del load superficie (~8654).
+    // Il BYPASS si accende PRIMA di lasciare la mesh, ma la selezione si
+    // molla DOPO aver riscritto i colori globali (piu' sotto). Ordine
+    // obbligato: mentre la superficie multi-mesh e' a schermo ogni parte
+    // disegna dal proprio MeshPart e i membri globali red/green/blue non
+    // vengono mai esercitati, quindi restano su un valore stantio (il loro
+    // inizializzatore e' bianco, glwidget.h:809). setActiveMeshPart chiama
+    // update(): mollando la selezione per prima, il repaint che ne segue
+    // trova la sfera di default -- che e' a mesh singola e disegna dai
+    // globali -- ancora BIANCA, ed e' il lampo bianco al caricamento.
+    // Col bypass acceso setColor scrive gia' sui globali anche a mesh
+    // attiva, quindi si puo' sistemare il colore e solo allora deselezionare.
+    if (ui->glWidget) ui->glWidget->setMeshAppearanceBypass(true);
+    struct MeshBypassGuard {
+        MainWindow *w;
+        ~MeshBypassGuard() { if (w->ui->glWidget) w->ui->glWidget->setMeshAppearanceBypass(false); }
+    } meshBypassGuard{this};
+
+    m_currentBackgroundColor = QColor::fromRgbF(0.3f, 0.3f, 0.3f);
+    m_currentSurfaceColor = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
+    m_texColor1 = m_currentSurfaceColor;
+    m_texColor2 = Qt::black;
+    m_bgTexColor1 = QColor::fromRgbF(0.2f, 0.2f, 0.8f);
+    m_bgTexColor2 = Qt::black;
+
+    if (ui->glWidget) {
+        ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
+        ui->glWidget->setColor(m_currentSurfaceColor.redF(), m_currentSurfaceColor.greenF(), m_currentSurfaceColor.blueF());
+        ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
+        // Globali ora coerenti: si puo' lasciare la mesh senza esporre un
+        // frame col colore stantio.
+        ui->glWidget->setActiveMeshPart(-1);
+
+        // AMBITO "ALL" SUBITO, non a fine giro. La superficie di destinazione
+        // e' a mesh singola, quindi l'ambito DEVE finire su "All": ci arrivava
+        // gia', ma tardi, per via di updateMeshScopeEnabled (~12981) che gira
+        // da updateMeshSelectorRange sull'onda di meshPartsChanged, cioe' DOPO
+        // che la sfera e' stata compilata e disegnata. setMeshAppearanceUniform
+        // fa buildWireframeGeometry() + rebuildShader(), e rebuildShader
+        // DISTRUGGE le pipeline: si pagava una SECONDA compilazione dello
+        // shader a sfera gia' a schermo. Da qui il transitorio visibile solo
+        // venendo da una superficie multi-mesh (da mesh singola l'ambito e'
+        // gia' "All" e il setter esce subito per il early-return su ==).
+        // Portandolo qui la ricompilazione avviene PRIMA del rebuildShader
+        // del ramo Ray Marching, che quindi la assorbe: una sola compilazione.
+        // La chiamata tardiva resta e diventa un no-op (stesso valore).
+        ui->glWidget->setMeshAppearanceUniform(true);
+    }
+
+    // Aggiorna gli slider colore della UI per allinearli ai valori appena resettati
+    onColorTargetChanged();
+
+    // La superficie di default (toro/sfera) e' opaca: la trasparenza della
+    // superficie precedente non deve sopravvivere al cambio tab.
+    resetTransparency();
+
+    // Cambio tab -> superficie di default (sfera/toro): la densità wireframe torna al
+    // default, come trasparenza e luminosità. (Il ripristino della densità SALVATA
+    // avviene solo caricando un preset che la contiene, in applyCommonData.)
+    if (ui->glWidget) ui->glWidget->resetWireframeDensity();
+
+    // Anche la LUMINOSITA' (intensità luce direzionale) non deve sopravvivere
+    // al cambio tab: senza questo reset la superficie di default eredita la
+    // luminosità della superficie/preset precedente. Vale per il cambio tab
+    // manuale E per quello forzato dal caricamento di una texture incompatibile
+    // (che passa anch'esso da qui via setCurrentIndex). setValue da solo non
+    // riemette valueChanged se il valore è già 100, quindi applichiamo anche
+    // direttamente intensità e label.
+    {
+        bool oldLight = ui->lightSlider->blockSignals(true);
+        ui->lightSlider->setValue(100);
+        ui->lightSlider->blockSignals(oldLight);
+        ui->lblValLight->setText("100 %");
+        if (ui->glWidget) ui->glWidget->setLightIntensity(1.0f);
+    }
+    // ==========================================================
+
+    if (index == 1) { // --- PASSAGGIO A IMPLICIT (RAY MARCHING) ---
+        ui->lineEquation->setPlainText("x*x + y*y + z*z - 1.0");
+        ui->lineTexture->setPlainText("vec3(0.5, 0.5, 0.5)"); // Grigio neutro o il tuo default
+        ui->lineVariations->setPlainText("0.0");
+
+        m_lastParametricSteps = ui->stepSlider->value();
+
+        // 1. SALVA IN MEMORIA IL VALORE PARAMETRICO DELLA S
+        m_lastParametricS = ui->lineS->text().toDouble();
+
+        // 2. Ferma tutte le animazioni (i path camera sono già stati
+        // fermati e ripuliti nel blocco RESET PATH CAMERA più sopra)
+        if (ui->glWidget->isAnimating()) ui->glWidget->pauseMotion();
+        ui->glWidget->setSurfaceAnimating(false);
+        ui->glWidget->stopAnimationTimer();
+
+        // 4. Azzera Texture e Rilievi (Ritorna alla forma nuda)
+        ui->lineTexture->blockSignals(true);
+        ui->lineTexture->clear();
+        ui->lineTexture->blockSignals(false);
+        ui->glWidget->setTextureCode("");
+
+        ui->lineVariations->blockSignals(true);
+        ui->lineVariations->clear();
+        ui->lineVariations->blockSignals(false);
+        ui->glWidget->setDisplacementCode("");
+
+        ui->glWidget->setBackgroundTextureEnabled(false);
+                    m_bgTextureCode = "";
+                    m_bgTextureScriptText = "";
+
+        // 5. Ripristina l'equazione di default
+        ui->lineEquation->blockSignals(true);
+        QString eq = ui->lineEquation->toPlainText().trimmed();
+        if (eq.isEmpty() || !eq.contains("=")) {
+            ui->lineEquation->setPlainText("x^2 + y^2 + z^2 = 1.0");
+        }
+        ui->lineEquation->blockSignals(false);
+
+        // ==========================================================
+        // ADATTAMENTO SLIDER "S" IN "STEP RELAX" (MEMORIA SEPARATA)
+        // ==========================================================
+        ui->lblS->setText("Step Relax");
+        ui->sSlider->setMinimum(0);
+
+        // Protezione di sicurezza per la memoria implicita
+        if (m_lastImplicitS <= 0.0) {
+            m_lastImplicitS = 0.4;
+        }
+
+        // Allarghiamo dinamicamente lo slider se la memoria aveva un valore alto
+        if (m_lastImplicitS > 1.0) {
+            ui->sSlider->setMaximum(m_lastImplicitS * 100);
+        } else {
+            ui->sSlider->setMaximum(100);
+        }
+
+        // RIPRISTINA NELLA UI IL VALORE IMPLICITO SALVATO!
+        ui->lineS->setText(QString::number(m_lastImplicitS));
+        // Forza l'aggiornamento dello slider (e quindi della GPU)
+        ui->sSlider->setValue(m_lastImplicitS * 100);
+        // ==========================================================
+
+        // --- SETUP MODALITA' RAY MARCHING (Originale) ---
+        ui->glWidget->setEngineMode(GLWidget::ModeImplicit);
+
+        ui->lblSteps->setText("Ray Steps=");
+
+        ui->stepSlider->setValue(m_lastImplicitSteps);
+
+        // Aggiornamento forzato manuale della UI ignorando il blocco segnali
+        ui->lineSteps->setText(QString::number(m_lastImplicitSteps));
+        ui->glWidget->setRaySteps(m_lastImplicitSteps);
+
+        // Reset Limiti Spaziali per non tagliare la superficie di default
+        ui->lineXMin->clear(); ui->lineXMax->clear();
+        ui->lineYMin->clear(); ui->lineYMax->clear();
+        ui->lineZMin->clear(); ui->lineZMax->clear();
+        if (ui->glWidget) {
+            ui->glWidget->setRangeX(-1000.0f, 1000.0f);
+            ui->glWidget->setRangeY(-1000.0f, 1000.0f);
+            ui->glWidget->setRangeZ(-1000.0f, 1000.0f);
+
+            // Reset completo della vista, come già fa il ramo Parametrico:
+            // in particolare spegne m_isPathFollowing, che dopo un record
+            // col path resterebbe acceso e la view continuerebbe il lookAt
+            // su m_pathTarget/m_pathUp stantii -> la sfera di default
+            // compariva spostata/inclinata. La distanza viene comunque
+            // forzata a 4.0 subito sotto (il salvavita zoom di
+            // resetTransformations da solo non basta).
+            ui->glWidget->resetTransformations();
+
+            // Distanza camera alla standard (4.0): la sfera di default ha
+            // raggio 1 e va vista da qui. Senza questo reset la camera resta a
+            // quella del RECORD RM caricato prima (resetTransformations PRESERVA
+            // la distanza corrente se >= 2.5, "salvavita zoom"), quindi la sfera
+            // appariva RIMPICCIOLITA e la sua dimensione dipendeva dal camera3D.z
+            // del record (es. N-Tours z=11.12). Stato persistente: ne' Run ne'
+            // cambi tab successivi la ripristinavano.
+            ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
+            ui->glWidget->setCameraYaw(0.0f);
+            ui->glWidget->setCameraPitch(0.0f);
+            ui->glWidget->setCameraRoll(0.0f);
+
+            // FIX 3: Compilazione e invio della sfera alla GPU
+            QString implicitEqF = "(x^2 + y^2 + z^2) - (1.0)";
+            ui->glWidget->setImplicitEquation(implicitEqF);
+            ui->glWidget->validateAndApplyImplicitShader(implicitEqF, "", "");
+            ui->glWidget->rebuildShader();
+        }
+    }
+    else { // --- PASSAGGIO A PARAMETRIC (TAB 0) ---
+        m_lastImplicitSteps = ui->stepSlider->value();
+        m_lastImplicitS = ui->lineS->text().toDouble();
+
+        // 1. STOP E RESET FISICO
+        // onStopClicked è un toggle: senza la guardia, con moto in pausa e
+        // velocità impostate farebbe RIPARTIRE le rotazioni. (I path camera
+        // sono già stati fermati nel blocco RESET PATH CAMERA più sopra.)
+        if (ui->glWidget->isAnimating()) onStopClicked();
+        ui->glWidget->resetTransformations();
+        // Distanza camera alla standard (4.0): il salvavita zoom di
+        // resetTransformations PRESERVA una distanza >= 2.5 (es. quella
+        // della camera del path/record appena abbandonato) e il toro di
+        // default apparirebbe da li'. Stesso riallineamento che il ramo
+        // Ray Marching fa per la sfera di default.
+        ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
+        ui->glWidget->resetTime();
+        ui->glWidget->setSurfaceAnimating(false);
+        if (m_btnStart) m_btnStart->setText("START");
+
+        // Azzera anche le velocità reali del motore, non solo le etichette
+        ui->glWidget->setNutationSpeed(0.0f); ui->glWidget->setPrecessionSpeed(0.0f); ui->glWidget->setSpinSpeed(0.0f);
+        ui->glWidget->setOmegaSpeed(0.0f); ui->glWidget->setPhiSpeed(0.0f); ui->glWidget->setPsiSpeed(0.0f);
+        ui->lblNutVal->setText("0.00"); ui->lblPrecVal->setText("0.00"); ui->lblSpinVal->setText("0.00");
+        ui->lblOmegaVal->setText("0.00"); ui->lblPhiVal->setText("0.00"); ui->lblPsiVal->setText("0.00");
+
+        // 2. RESET ILLUMINAZIONE E RENDER MODE (Fix Bug persistenza)
+        // Riportiamo tutto al modello "Basic" (Lambert) senza specolarità
+        m_savedRenderMode = 0;
+        if (ui->radioBasic) ui->radioBasic->setChecked(true);
+        ui->glWidget->setSpecularEnabled(false); // Spegne Phong residuo
+
+        // Spegniamo categoricamente l'illuminazione 4D (non usata nel reset RM)
+        ui->glWidget->set4DLighting(false);
+        m_lightingMode4D = 0;
+        if (ui->btnLightMode) ui->btnLightMode->setText("Directional Lighting");
+        ui->glWidget->setLightingMode4D(0);
+
+        // 3. RESET SFONDO E LIMITI
+        ui->glWidget->setBackgroundTextureEnabled(false);
+        m_bgTextureCode = "";
+        m_bgTextureScriptText = "";
+        // Esco dall'editing sfondo: riporto il target sulla superficie. radioSurface
+        // e radioBackground sono esclusivi, ma li tocco a segnali bloccati perché
+        // il ripristino del dock è già gestito esplicitamente qui intorno (non
+        // voglio far girare anche l'handler toggled di radioBackground).
+        if (ui->radioBackground && ui->radioBackground->isChecked()) {
+            bool oldBgBlock = ui->radioBackground->blockSignals(true);
+            bool oldSurfBlock = ui->radioSurface->blockSignals(true);
+            ui->radioSurface->setChecked(true);
+            ui->radioSurface->blockSignals(oldSurfBlock);
+            ui->radioBackground->blockSignals(oldBgBlock);
+            ui->radioSurface->setEnabled(true);
+        }
+        ui->chkBoxTexture->setText("Texture");
+        ui->chkBoxTexture->setChecked(m_surfaceTextureState);
+
+        ui->uMinEdit->setText("0");
+        ui->uMaxEdit->setText("6.28318");
+        ui->vMinEdit->setText("0");
+        ui->vMaxEdit->setText("6.28318");
+        ui->wMinEdit->setText("0");
+        ui->wMaxEdit->setText("1");
+        updateULimits(); updateVLimits(); updateWLimits();
+
+        // 4. RIPRISTINO GEOMETRIA TORO
+        ui->lineX->setPlainText("(0.8 + 0.3*cos(v))*cos(u)");
+        ui->lineY->setPlainText("(0.8 + 0.3*cos(v))*sin(u)");
+        ui->lineZ->setPlainText("0.3*sin(v)");
+        ui->lineP->setPlainText("0.0");
+        ui->glWidget->setParametricEquations(ui->lineX->toPlainText(), ui->lineY->toPlainText(),
+                                             ui->lineZ->toPlainText(), ui->lineP->toPlainText());
+
+        // 5. CONFIGURAZIONE ENGINE PARAMETRICO
+        ui->lblS->setText("s=");
+        ui->sSlider->setMinimum(-1000);
+        ui->sSlider->setMaximum(1000);
+        ui->lineS->setText(QString::number(m_lastParametricS));
+        ui->sSlider->setValue(m_lastParametricS * 100);
+
+        ui->glWidget->setEngineMode(GLWidget::ModeParametric);
+        ui->lblSteps->setText("Steps=");
+
+        ui->stepSlider->setValue(m_lastParametricSteps);
+        // FIX 4: Aggiornamento forzato manuale del testo
+        ui->lineSteps->setText(QString::number(m_lastParametricSteps));
+        ui->glWidget->setResolution(m_lastParametricSteps);
+
+        ui->glWidget->updateSurfaceData();
+        ui->glWidget->addObjectRotation(30.0f, 30.0f, 0.0f);
+
+        onStopClicked();
+    }
+
+    // PROIEZIONE al default (1 = prospettica, come il costruttore ~1911).
+    // Non la tocca nessuno degli altri reset: `resetTransformations` azzera le
+    // rotazioni 4D e la camera, ma projectionMode e' stato di RENDERING, non una
+    // trasformazione. Senza questa riga, dopo un preset in ortogonale la
+    // superficie di default restava ortogonale -- e in ortogonale project4D
+    // scarta la quarta coordinata (`return p.xyz`, surface.vert ~135), quindi le
+    // superfici 4D apparivano schiacciate senza motivo visibile.
+    if (ui->glWidget) ui->glWidget->setProjectionMode(1);
+    updateProjectionButtonText();
+
+    updateRenderState();
+    checkParametricDependency();
+    ui->glWidget->update();
+    updateScriptButtonText();
+    ui->stepSlider->blockSignals(false);
+
+    // Il cambio tab ripristina e RENDERIZZA la superficie di default del tab di
+    // destinazione (toro o sfera): non c'è nulla da applicare, quindi i Run
+    // "one-shot" tornano DISABILITATI. La scrittura delle equazioni di default
+    // qui sopra (es. lineEquation a riga ~1048, segnali non bloccati) aveva
+    // azzerato i flag via textChanged: li riasseriamo e riallineamo i tasti.
+    // Anche la texture parte azzerata (campi vuoti dopo il reset): il Run
+    // texture sarà comunque disabilitato dal controllo campi-vuoti.
+    m_parametricApplied = true;
+    m_implicitApplied = true;
+    m_rmTextureApplied = true;
+    updateMasterButtonState();
+
+    // L'avviso in sovrimpressione ("Slider A attivo su questa forma") descrive
+    // il preset che se ne e' appena andato: se il reset arriva prima che il suo
+    // timer scada, resterebbe a schermo sopra la superficie di DEFAULT, dove non
+    // significa piu' nulla. showSceneHint("") lo nasconde e azzera anche
+    // m_currentHintText -- hideSceneHint() da solo lascerebbe il testo in
+    // memoria, pronto a finire in un eventuale risalvataggio.
+    showSceneHint(QString(), 0.0f);
+
+    // Scena azzerata: non c'e' piu' lavoro da proteggere, e la situazione che
+    // aveva fatto scattare l'avviso "un altro modulo e' carico" non esiste piu'.
+    // Ultimo, dopo tutti gli svuotamenti di campi qui sopra: quelli passano da
+    // noteSceneEdited e rimetterebbero m_sceneDirty a true. La sorgente torna al
+    // default: qui e nel load di un preset sono le due sole sedi che la cambiano.
+    m_sceneDirty = false;
+    m_warnedEditedDock = OriginDefault;
+    m_warnedOrigin     = OriginDefault;
+    m_surfaceOrigin    = OriginDefault;
+
+    // A schermo c'e' ora la superficie di DEFAULT (toro/sfera), che non e' un
+    // item di libreria: lasciare evidenziato il preset caricato prima sarebbe
+    // ingannevole, indica una superficie che non c'e' piu'. Stessa deselezione
+    // (e stessa motivazione) del load di una texture incompatibile, ~5451.
+    // Segnali bloccati: itemClicked ricaricherebbe il preset appena scartato.
+    if (ui->treeSurfaces) {
+        bool bSurf = ui->treeSurfaces->blockSignals(true);
+        ui->treeSurfaces->clearSelection();
+        ui->treeSurfaces->setCurrentItem(nullptr);
+        ui->treeSurfaces->blockSignals(bSurf);
+    }
 }
 
 
@@ -10708,6 +10905,17 @@ void MainWindow::setTextureLibraryGrayed(bool grayed)
 
 void MainWindow::applyCommonData(const LibraryItem &d)
 {
+    // CARICAMENTO IN CORSO: i campi vengono riempiti dal preset, non dall'utente.
+    // Senza questa guardia noteSceneEdited scambiava quelle scritture per lavoro
+    // manuale e faceva comparire l'avviso "un altro modulo e' carico" DURANTE il
+    // load (l'avviso e' modale: azzerare i flag in coda arrivava troppo tardi).
+    // RAII: il flag cade anche sui return anticipati piu' sotto.
+    m_populatingFields = true;
+    struct LoadGuard {
+        MainWindow *w;
+        ~LoadGuard() { w->m_populatingFields = false; }
+    } loadGuard{this};
+
     // ==========================================================
     // 1. RESET GLOBALE PRE-CARICAMENTO E UI
     // ==========================================================
@@ -11477,6 +11685,19 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     // gestore currentChanged (che normalmente lo fa) non è scattato.
     applyModeDependentStepUI(d.isImplicitMode);
     this->setProperty("isPresetActive", true);
+
+    // Il preset appena caricato e' su file: non c'e' lavoro da proteggere finche'
+    // l'utente non lo modifica. Azzerato QUI, in coda: durante il load i campi si
+    // riempiono a segnali vivi e hanno gia' fatto scattare noteSceneEdited.
+    // Riarmato anche l'avviso cross-dock: la situazione e' cambiata.
+    m_sceneDirty = false;
+    m_warnedEditedDock = OriginDefault;
+    m_warnedOrigin     = OriginDefault;
+    // A schermo c'e' il preset, non il default: la superficie ora "appartiene"
+    // al dock da cui il preset la definisce. E' l'unico punto, con il reset di
+    // modalita', in cui la sorgente cambia -- il Run non la sposta.
+    m_surfaceOrigin = isScript ? OriginScript : OriginEquations;
+
     updateMasterButtonState();
 
     // Mobile: se lo stato appena caricato e' RM + trasparenza + displacement,
