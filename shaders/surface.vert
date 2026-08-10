@@ -58,6 +58,13 @@ layout(std140, binding = 0) uniform SceneUBO {
     // MULTI-MESH: indice della parte in corso di disegno (0 se mesh singola).
     // Permette allo script di distinguere il ramo.
     float u_meshIndex;
+    // NON USATO QUI, ma il blocco deve combaciare campo per campo con quello del
+    // fragment: Adreno rifiuta il link con "Uniform ubuf type mismatch with other
+    // stage" se i due stage dichiarano lo stesso binding con code diverse, e
+    // fallivano TUTTE le pipeline (schermo vuoto su Android, desktop ok perche'
+    // li' il prefisso std140 e' tollerato). Ultimo campo di UboData: aggiungerlo
+    // non sposta nessun offset.
+    int u_noImage;
 } ubuf;
 
 float sq(float x) { return x*x; }
