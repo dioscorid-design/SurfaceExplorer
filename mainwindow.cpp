@@ -6618,17 +6618,24 @@ void MainWindow::onStartClicked()
             ui->lineConform->blockSignals(oldBlock);
         }
 
-        // 2. Controllo Geometria Euclidea delegato al Validator
-        bool isPreset = this->property("isPresetActive").toBool();
-        if ((sender() == m_btnStart || runDockOnly) && !isPreset) {
-            InputValidator::validateGeodesicConformalFactor(
-                        this,
-                        ui->lineX->toPlainText(), ui->lineY->toPlainText(),
-                        ui->lineZ->toPlainText(), ui->lineP->toPlainText(),
-                        ui->lineConform->toPlainText(),
-                        true
-                        );
-        }
+        // 2. Controllo Geometria Euclidea (avviso "metrica piatta") DISATTIVATO.
+        // Scattava quando una coordinata era costante e il fattore conforme non
+        // dipendeva da U/V/W (tipicamente Lambda = 1): un caso legittimo e
+        // frequente, quindi l'avviso risultava invadente invece che utile.
+        // Il validatore e' INTATTO (InputValidator::validateGeodesicConformalFactor,
+        // con il suo "disabilita per questa sessione" e resetGeodesicWarning):
+        // per riattivarlo basta ripristinare questa chiamata. Se un giorno torna,
+        // conviene prima restringere la condizione ai casi davvero sospetti.
+//        bool isPreset = this->property("isPresetActive").toBool();
+//        if ((sender() == m_btnStart || runDockOnly) && !isPreset) {
+//            InputValidator::validateGeodesicConformalFactor(
+//                        this,
+//                        ui->lineX->toPlainText(), ui->lineY->toPlainText(),
+//                        ui->lineZ->toPlainText(), ui->lineP->toPlainText(),
+//                        ui->lineConform->toPlainText(),
+//                        true
+//                        );
+//        }
 
         if (!InputValidator::validateFieldList(this, {
             {"x(U,V,W)",         ui->lineX->toPlainText()},
