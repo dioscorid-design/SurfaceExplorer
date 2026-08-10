@@ -9305,6 +9305,20 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
 
 void MainWindow::applyMotionExample(const LibraryItem &data)
 {
+    // CARICAMENTO IN CORSO: i campi li riempie (e li svuota) il record, non
+    // l'utente. Stessa guardia RAII di applyCommonData, che pero' parte solo piu'
+    // sotto: i clear() dei rami parametrico/implicito qui in mezzo -- lineEquation,
+    // lineX/Y/Z/P, lineTexture -- avvengono a segnali VIVI, quindi passavano da
+    // noteSceneEdited mentre m_surfaceOrigin era ancora quella del preset
+    // PRECEDENTE. Caricando un record da equazioni dopo uno script, lo svuotamento
+    // di lineEquation veniva letto come "l'utente scrive nelle equazioni con uno
+    // script in vigore" e il popup compariva sul solo caricamento.
+    m_populatingFields = true;
+    struct MotionLoadGuard {
+        MainWindow *w;
+        ~MotionLoadGuard() { w->m_populatingFields = false; }
+    } motionLoadGuard{this};
+
     // ASPETTO PER-MESH DURANTE IL LOAD.
     // Per tutta la durata del caricamento i setter globali (colore, alpha, luce,
     // renderMode del preset) NON devono essere dirottati sulla mesh selezionata:
@@ -10949,11 +10963,17 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     // manuale e faceva comparire l'avviso "un altro modulo e' carico" DURANTE il
     // load (l'avviso e' modale: azzerare i flag in coda arrivava troppo tardi).
     // RAII: il flag cade anche sui return anticipati piu' sotto.
+    // RIPRISTINO del valore precedente, non "false": applyMotionExample chiama
+    // questa funzione avendo gia' alzato la guardia, e un azzeramento secco la
+    // spegnerebbe a meta' del caricamento del record, lasciando scoperte le
+    // scritture che vengono dopo.
+    const bool wasPopulating = m_populatingFields;
     m_populatingFields = true;
     struct LoadGuard {
         MainWindow *w;
-        ~LoadGuard() { w->m_populatingFields = false; }
-    } loadGuard{this};
+        bool prev;
+        ~LoadGuard() { w->m_populatingFields = prev; }
+    } loadGuard{this, wasPopulating};
 
     // ==========================================================
     // 1. RESET GLOBALE PRE-CARICAMENTO E UI
