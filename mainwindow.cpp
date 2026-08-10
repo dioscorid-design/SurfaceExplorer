@@ -3507,9 +3507,11 @@ void MainWindow::noteSceneEdited(QWidget *source)
     }
 
     // Nessun conflitto se la superficie e' quella di DEFAULT (nessun dock e'
-    // impegnato: i suoi campi sono pieni, ma non sono lavoro da difendere) o se
-    // si sta scrivendo proprio nel dock che l'ha prodotta.
+    // impegnato: i suoi campi sono pieni, ma non sono lavoro da difendere), se
+    // si sta scrivendo proprio nel dock che l'ha prodotta, o se e' una superficie
+    // METRICA, che vive legittimamente in tutti e due i dock.
     if (m_surfaceOrigin == OriginDefault) return;
+    if (m_surfaceOrigin == OriginBoth)    return;
     if (m_surfaceOrigin == editedDock)    return;
 
     // Gia' avvisato per QUESTA situazione: una coppia (dock scritto, sorgente)
@@ -6662,8 +6664,21 @@ void MainWindow::onStartClicked()
             return;
         }
 
-        applyAnimationState(hasTimeVariable(geoEqs), runDockOnly);
+        const bool geoAnimated = hasTimeVariable(geoEqs);
+        applyAnimationState(geoAnimated, runDockOnly);
         if (!runDockOnly) applyStartSideEffects();
+
+        // Run "one-shot" del flusso geodetico, come nei rami parametrico (~6888) e
+        // Ray Marching (~6506): applicata la mesh e senza 't' da animare non c'e'
+        // piu' nulla da rieseguire, quindi il tasto si spegne finche' l'utente non
+        // tocca di nuovo equazioni o condizioni iniziali. Questo ramo esce col
+        // return qui sotto e non raggiungeva il blocco in fondo alla funzione: il
+        // flag restava false e il Run del dock Equations rimaneva acceso per sempre.
+        if (!geoAnimated) {
+            m_parametricApplied = true;
+            updateMasterButtonState();
+        }
+
         ui->glWidget->update();
         return;
     }
@@ -8110,6 +8125,15 @@ void MainWindow::runMetricScript(const QString& fullText)
     }
     m_metricScriptBody = body;
 
+    // Da qui la superficie e' METRICA: vive in tutti e due i dock (la g_ij qui,
+    // carta e condizioni iniziali del flusso geodetico nelle Equations). Va detto
+    // anche per lo script scritto a mano, non solo per i preset: altrimenti resta
+    // OriginScript e i Run del dock Equations restano spenti, lasciando le
+    // condizioni iniziali modificabili ma non applicabili.
+    // NB: e' la sola eccezione alla regola "il Run non sposta la sorgente" --
+    // qui non trasferisce la superficie a un altro dock, ne riconosce la natura.
+    m_surfaceOrigin = OriginBoth;
+
     // La modalità script di superficie va spenta: la mesh arriva dal
     // calcolatore geodetico, non dal vertex shader parametrico.
     if (ui->glWidget && ui->glWidget->getEngine() &&
@@ -8288,6 +8312,14 @@ void MainWindow::exitMetricScriptMode()
 {
     if (m_metricScriptBody.isEmpty()) return;
     m_metricScriptBody.clear();
+    // La superficie non e' piu' metrica: OriginBoth (i due dock che collaborano)
+    // non descrive piu' la situazione. Chi arriva da un load o da un reset
+    // riassegna la sorgente per conto suo subito dopo; qui si ricade sul dock che
+    // possiede la superficie adesso, cosi' i Run tornano al gate normale.
+    if (m_surfaceOrigin == OriginBoth) {
+        m_surfaceOrigin = m_surfaceScriptText.trimmed().isEmpty()
+                        ? OriginEquations : OriginScript;
+    }
     checkParametricDependency();
 }
 
@@ -11696,7 +11728,17 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     // A schermo c'e' il preset, non il default: la superficie ora "appartiene"
     // al dock da cui il preset la definisce. E' l'unico punto, con il reset di
     // modalita', in cui la sorgente cambia -- il Run non la sposta.
-    m_surfaceOrigin = isScript ? OriginScript : OriginEquations;
+    // Uno script METRICO (return mat3) non "appartiene" al solo dock Script: la
+    // metrica sta li', ma carta e condizioni iniziali del flusso geodetico stanno
+    // nelle Equations, e il preset riempie legittimamente entrambi -- vedi i
+    // preset di Black Hole e i record di Rotations. Marcarlo OriginScript faceva
+    // scattare l'avviso di conflitto sul semplice caricamento. Stesso criterio
+    // gia' usato per il routing della mesh geodetica (~riga 9930).
+    static const QRegularExpression kMetricReturnRe(R"(\breturn\s+mat3\s*\()");
+    const bool isMetricPreset = isScript && d.scriptCode.contains(kMetricReturnRe);
+    m_surfaceOrigin = isMetricPreset ? OriginBoth
+                    : isScript       ? OriginScript
+                                     : OriginEquations;
 
     updateMasterButtonState();
 
@@ -12844,7 +12886,15 @@ void MainWindow::updateMasterButtonState()
         // gestita da lì: il dock Equations non è in uso e i suoi tasti Run/Stop
         // (entrambi i tab) vanno DISABILITATI. Il controllo del modulo passa al
         // tasto Run del dock Script (btnRunCurrentScript).
-        bool surfaceFromScript = !m_surfaceScriptText.trimmed().isEmpty();
+        // ECCEZIONE, gli script METRICI (OriginBoth): lo script definisce la
+        // metrica, ma carta e condizioni iniziali del flusso geodetico stanno nel
+        // dock Equations (cfr. updateConstantsUIState, che per questo tiene vivo
+        // il tab Geodesic Flow). Trattarli come "superficie da script" spegneva i
+        // Run del dock Equations per sempre: si potevano cambiare le condizioni
+        // iniziali senza avere un modo per applicarle. Ogni dock abilita il
+        // proprio tasto -- lo script il suo, le equazioni i loro.
+        bool surfaceFromScript = !m_surfaceScriptText.trimmed().isEmpty()
+                              && m_surfaceOrigin != OriginBoth;
 
         if (ui->btnRunParametric) {
             ui->btnRunParametric->setText((eqModuleMoving && !surfaceFromScript) ? "Stop" : "Run");

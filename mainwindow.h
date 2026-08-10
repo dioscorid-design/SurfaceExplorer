@@ -569,7 +569,14 @@ private:
     enum SurfaceOrigin {
         OriginDefault,     // toro/sfera di partenza: nessun dock e' "impegnato"
         OriginEquations,   // dock Equations (x/y/z/p o equazione implicita)
-        OriginScript       // dock Script (script di superficie o metrico)
+        OriginScript,      // dock Script (script di superficie)
+        // SCRIPT METRICO (return mat3): i due dock non si contendono la scena,
+        // la descrivono INSIEME -- la metrica g_ij nello script, la carta e le
+        // condizioni iniziali del flusso geodetico nelle Equations (vedi
+        // doc_geodesic, "Script & Equations: who decides"). Un preset del genere
+        // popola legittimamente entrambi i dock, quindi non deve mai generare
+        // l'avviso di conflitto: e' compatibile con qualunque dock si scriva.
+        OriginBoth
     };
     SurfaceOrigin m_surfaceOrigin = OriginDefault;
 
