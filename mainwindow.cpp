@@ -5691,8 +5691,15 @@ void MainWindow::handleTextureSelection(int index)
             // fasce) una volta capito si usa di continuo.
             if (texGoesToMesh && !m_perMeshImageWarningShown) {
                 m_perMeshImageWarningShown = true;
+                // FORMA STATICA come gli altri ~24 avvisi dell'app: e' quella che
+                // su iOS si dimensiona da se'. Costruire il box a mano e aprirlo
+                // con open() lo lasciava senza dimensione decisa e su iPad
+                // occupava TUTTO il display. Qui non serve il box asincrono --
+                // siamo gia' differiti dall'invokeMethod in coda all'evento,
+                // quindi il caricamento dell'immagine e' concluso e nessun flusso
+                // viene interrotto a meta'.
                 QMetaObject::invokeMethod(this, [this]{
-                    auto *box = new QMessageBox(QMessageBox::Information,
+                    QMessageBox::information(this,
                         tr("Per-mesh texture"),
                         tr("Image textures always apply to the whole surface: the image "
                            "is a single GPU resource, so a mesh cannot have one of its own. "
@@ -5701,10 +5708,7 @@ void MainWindow::handleTextureSelection(int index)
                            "To bring the image onto a single mesh, apply one of the scripts "
                            "in Procedurals > Animated Images: they sample the loaded image "
                            "and can deform it differently on each mesh.\n\n"
-                           "(Shown once per session.)"),
-                        QMessageBox::Ok, this);
-                    box->setAttribute(Qt::WA_DeleteOnClose);
-                    box->open();
+                           "(Shown once per session.)"));
                 }, Qt::QueuedConnection);
             }
             m_currentTexturePath = imgSrc;

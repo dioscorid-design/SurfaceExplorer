@@ -484,6 +484,31 @@ void UiStyleManager::applyDarkTheme(QMainWindow* window) {
 
     // 6. Applica tutti gli stili combinati alla finestra
     window->setStyleSheet(darkStyle + formStyle + treeStyle);
+
+    // AVVISI (QMessageBox): foglio sull'APPLICAZIONE, non sulla finestra, cosi'
+    // vale anche per i box costruiti senza parent. Solo COLORI: nessun vincolo
+    // di larghezza, perche' una min-width in QSS su iOS diventa la dimensione
+    // della finestra e il box si espande a tutto schermo.
+    qApp->setStyleSheet(R"(
+        QMessageBox {
+            background-color: #2D2D30;
+            color: #F0F0F0;
+        }
+        QMessageBox QLabel {
+            background-color: transparent;
+            color: #F0F0F0;
+        }
+        QMessageBox QPushButton {
+            background-color: #3E3E42;
+            color: #F0F0F0;
+            border: 1px solid #454545;
+            padding: 6px 18px;
+            min-width: 70px;
+        }
+        QMessageBox QPushButton:hover {
+            background-color: #4E4E52;
+        }
+    )");
 }
 
 void UiStyleManager::applyPlatformStyle(QMainWindow* window) {
