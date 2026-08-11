@@ -683,6 +683,11 @@ private:
     float parseUIConstant(const QString &exprStr, float A, float B, float C, float D, float E, float F, float S, bool* ok = nullptr);
     struct CascadeConstants { float a, b, c, d, e, f, s; };
     CascadeConstants resolveCascadeConstants(bool restoreTextOnNegative);
+    // Limiti U/V/W: come parseMath ma con A..F/S registrate, cosi' "2*A" o
+    // "pi/B" sono limiti validi. Risolve la cascata delle costanti a ogni
+    // chiamata (i limiti stanno a valle: B puo' dipendere da A, e uMax da
+    // entrambe). Usare SEMPRE questa e mai parseMath sui sei campi limite.
+    float parseLimitField(const QString &text, bool *ok = nullptr);
     QString composeEquation(const QString &eq, const QString &uDef, const QString &vDef, const QString &wDef);
     void parseAndApplyScriptParams(const QString &scriptCode, bool restartAudio = true,
                                    bool onlyFillEmptyLimits = false);
@@ -819,6 +824,9 @@ private:
     // che CONSUMANO il Return: returnPressed non arriva mai ai QLineEdit):
     // a moto attivo ricompila le equazioni del path del campo al volo.
     void commitPathFieldOnEnter(const QString& fieldName);
+    // Stessa provenienza (filtri tastiera): l'Invio su un limite U/V/W applica
+    // subito il nuovo dominio, senza toccare le equazioni in sospeso.
+    void commitLimitFieldOnEnter(const QString& fieldName);
     bool updateGeodesicMesh();
     void checkAndTriggerMeshUpdate();
     void stopGeodesicAnimation();

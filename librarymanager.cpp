@@ -326,6 +326,12 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.vMin=l["vMin"].toDouble(); d.vMax=l["vMax"].toDouble();
             d.wMin=l["wMin"].toDouble(); d.wMax=l["wMax"].toDouble();
 
+            // Formule dei limiti (assenti nei record fino alla v1): se ci sono
+            // vincono sul numero, che resta il fallback.
+            d.uMinExpr=l["uMinExpr"].toString(); d.uMaxExpr=l["uMaxExpr"].toString();
+            d.vMinExpr=l["vMinExpr"].toString(); d.vMaxExpr=l["vMaxExpr"].toString();
+            d.wMinExpr=l["wMinExpr"].toString(); d.wMaxExpr=l["wMaxExpr"].toString();
+
             d.xMin=l["xMin"].toDouble(-1000.0); d.xMax=l["xMax"].toDouble(1000.0);
             d.yMin=l["yMin"].toDouble(-1000.0); d.yMax=l["yMax"].toDouble(1000.0);
             d.zMin=l["zMin"].toDouble(-1000.0); d.zMax=l["zMax"].toDouble(1000.0);
@@ -625,6 +631,12 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.uMin=l["uMin"].toDouble(); d.uMax=l["uMax"].toDouble();
             d.vMin=l["vMin"].toDouble(); d.vMax=l["vMax"].toDouble();
             d.wMin=l["wMin"].toDouble(); d.wMax=l["wMax"].toDouble();
+
+            // Formule dei limiti (assenti nei record fino alla v1): se ci sono
+            // vincono sul numero, che resta il fallback.
+            d.uMinExpr=l["uMinExpr"].toString(); d.uMaxExpr=l["uMaxExpr"].toString();
+            d.vMinExpr=l["vMinExpr"].toString(); d.vMaxExpr=l["vMaxExpr"].toString();
+            d.wMinExpr=l["wMinExpr"].toString(); d.wMaxExpr=l["wMaxExpr"].toString();
 
             d.xMin=l["xMin"].toDouble(-1000.0); d.xMax=l["xMax"].toDouble(1000.0);
             d.yMin=l["yMin"].toDouble(-1000.0); d.yMax=l["yMax"].toDouble(1000.0);

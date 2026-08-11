@@ -5,6 +5,7 @@
 #include <QString>
 
 class MainWindow;
+class QJsonObject;
 
 class PresetSerializer : public QObject
 {
@@ -24,6 +25,12 @@ public:
     void saveMotionAs(const QString &startDir, const QString &sourceFilePath = "");
 
 private:
+    // Scrive i sei limiti parametrici in `limits`: sempre la chiave numerica
+    // (uMin/uMax/...), piu' la gemella "...Expr" con il testo grezzo quando
+    // l'utente ha scritto una formula anziche' un numero. Unica implementazione:
+    // i tre save (surface/motion/script) devono restare allineati.
+    void writeParametricLimits(QJsonObject &limits);
+
     MainWindow *m_mainWindow;
 };
 

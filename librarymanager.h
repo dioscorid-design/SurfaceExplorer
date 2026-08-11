@@ -70,6 +70,14 @@ struct LibraryItem {
     float uMin = 0.0f, uMax = 0.0f;
     float vMin = 0.0f, vMax = 0.0f;
     float wMin = 0.0f, wMax = 0.0f;
+    // Forma TESTUALE dei limiti, quando l'utente ha scritto un'espressione
+    // ("2*A", "pi/B"). Vuota sui record vecchi e su quelli con limiti numerici:
+    // in tal caso vale il float qui sopra. Le chiavi numeriche uMin/uMax/...
+    // restano sempre scritte, cosi' i lettori precedenti continuano a leggere
+    // un preset nuovo senza vedere formule che non saprebbero valutare.
+    QString uMinExpr, uMaxExpr;
+    QString vMinExpr, vMaxExpr;
+    QString wMinExpr, wMaxExpr;
     float a = 0.0f, b = 0.0f, c = 0.0f, d = 0.0f, e = 0.0f, f = 0.0f, s = 0.0f;
 
     // ==========================================================

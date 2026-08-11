@@ -494,12 +494,7 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     root["constants"] = constants;
 
     QJsonObject limits;
-    limits["uMin"] = m_mainWindow->parseMath(m_mainWindow->ui->uMinEdit->text());
-    limits["uMax"] = m_mainWindow->parseMath(m_mainWindow->ui->uMaxEdit->text());
-    limits["vMin"] = m_mainWindow->parseMath(m_mainWindow->ui->vMinEdit->text());
-    limits["vMax"] = m_mainWindow->parseMath(m_mainWindow->ui->vMaxEdit->text());
-    limits["wMin"] = m_mainWindow->parseMath(m_mainWindow->ui->wMinEdit->text());
-    limits["wMax"] = m_mainWindow->parseMath(m_mainWindow->ui->wMaxEdit->text());
+    writeParametricLimits(limits);
 
     auto getSpaceLimit = [&](QLineEdit* edit, float defVal) {
         if (edit->text().trimmed().isEmpty()) return defVal;
@@ -660,6 +655,12 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         QJsonDocument doc(root);
         file.write(doc.toJson());
         file.close();
+
+        // Il lavoro e' su disco: non c'e' piu' niente da proteggere. Lo legge
+        // confirmDiscardUnsavedWork per capire se il "Save" e' andato a buon
+        // fine o se l'utente ha annullato il dialogo (i return anticipati qui
+        // sopra lasciano il flag a true, e il reset viene giustamente sospeso).
+        m_mainWindow->m_sceneDirty = false;
 
         QTimer::singleShot(100, m_mainWindow, [this, fileName]() {
             m_mainWindow->refreshAndSelectPreset(m_mainWindow->ui->treeSurfaces, fileName);
@@ -936,12 +937,7 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     root["constants"] = constants;
 
     QJsonObject limits;
-    limits["uMin"] = m_mainWindow->parseMath(m_mainWindow->ui->uMinEdit->text());
-    limits["uMax"] = m_mainWindow->parseMath(m_mainWindow->ui->uMaxEdit->text());
-    limits["vMin"] = m_mainWindow->parseMath(m_mainWindow->ui->vMinEdit->text());
-    limits["vMax"] = m_mainWindow->parseMath(m_mainWindow->ui->vMaxEdit->text());
-    limits["wMin"] = m_mainWindow->parseMath(m_mainWindow->ui->wMinEdit->text());
-    limits["wMax"] = m_mainWindow->parseMath(m_mainWindow->ui->wMaxEdit->text());
+    writeParametricLimits(limits);
 
     auto getSpaceLimit = [&](QLineEdit* edit, float defVal) {
         if (edit->text().trimmed().isEmpty()) return defVal;
@@ -1380,12 +1376,7 @@ void PresetSerializer::saveScript()
         root["steps"] = m_mainWindow->ui->stepSlider->value();
 
         QJsonObject limits;
-        limits["uMin"] = m_mainWindow->parseMath(m_mainWindow->ui->uMinEdit->text());
-        limits["uMax"] = m_mainWindow->parseMath(m_mainWindow->ui->uMaxEdit->text());
-        limits["vMin"] = m_mainWindow->parseMath(m_mainWindow->ui->vMinEdit->text());
-        limits["vMax"] = m_mainWindow->parseMath(m_mainWindow->ui->vMaxEdit->text());
-        limits["wMin"] = m_mainWindow->parseMath(m_mainWindow->ui->wMinEdit->text());
-        limits["wMax"] = m_mainWindow->parseMath(m_mainWindow->ui->wMaxEdit->text());
+        writeParametricLimits(limits);
 
         // Helper per i limiti di spazio (come in saveSurface)
         auto getSpaceLimit = [&](QLineEdit* edit, float defVal) {
@@ -1859,4 +1850,39 @@ void PresetSerializer::saveMotionAs(const QString &startDir, const QString &sour
     QSettings().setValue("lastMotionDir", QFileInfo(savePath).absolutePath());
 
     saveMotion(savePath);
+}
+
+// ==========================================================
+// LIMITI PARAMETRICI U/V/W
+// ==========================================================
+
+void PresetSerializer::writeParametricLimits(QJsonObject &limits)
+{
+    // Doppia scrittura per ogni limite:
+    //  - chiave numerica: sempre presente, e' cio' che leggono i record e i
+    //    lettori precedenti a questa versione;
+    //  - chiave "...Expr": solo se il campo contiene davvero un'espressione,
+    //    cosi' un limite scritto "2*A" sopravvive al giro salva/ricarica
+    //    invece di congelarsi nel numero che valeva al momento del salvataggio.
+    struct Field { const char* key; QLineEdit* edit; };
+    const Field fields[] = {
+        { "uMin", m_mainWindow->ui->uMinEdit }, { "uMax", m_mainWindow->ui->uMaxEdit },
+        { "vMin", m_mainWindow->ui->vMinEdit }, { "vMax", m_mainWindow->ui->vMaxEdit },
+        { "wMin", m_mainWindow->ui->wMinEdit }, { "wMax", m_mainWindow->ui->wMaxEdit },
+    };
+
+    for (const Field &f : fields) {
+        const QString raw = f.edit->text().trimmed();
+        limits[f.key] = m_mainWindow->parseLimitField(raw);
+
+        // Un numero puro non e' una formula: niente chiave Expr, cosi' i preset
+        // senza costanti restano byte-identici a prima.
+        bool isPlainNumber = false;
+        QString normalized = raw;
+        normalized.replace(',', '.');
+        normalized.toFloat(&isPlainNumber);
+
+        if (!raw.isEmpty() && !isPlainNumber)
+            limits[QString(f.key) + "Expr"] = raw;
+    }
 }

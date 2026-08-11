@@ -202,18 +202,20 @@ protected:
                     return true;
                 }
 
-                // LIMITI U/V/W: come i campi equazione, l'Invio NON esegue --
-                // i limiti entrano in vigore solo al Run. Senza questa uscita
-                // cadrebbero nel ramo generico in fondo, che chiama
-                // commitFieldsOnEnter() -> onStartClicked(): un Run a tutti gli
-                // effetti, che applicava i limiti nuovi alla superficie VECCHIA
-                // (e, con le equazioni gia' modificate, le committava pure).
-                // Togliere le connect editingFinished/returnPressed non bastava:
-                // il percorso vero passa di qui.
+                // LIMITI U/V/W: l'Invio li applica subito, come ogni altro
+                // parametro non-equazione. Solo le EQUAZIONI restano legate al
+                // Run (sopra), perche' cambiare forma a meta' digitazione non
+                // ha senso; l'estensione del dominio invece si regola dal vivo.
+                // NON si passa da commitFieldsOnEnter: quella strada rifa' un
+                // Run intero, e committerebbe anche equazioni modificate ma non
+                // ancora confermate. Qui si tocca il solo dominio.
                 if (on == "uMinEdit" || on == "uMaxEdit" ||
                     on == "vMinEdit" || on == "vMaxEdit" ||
                     on == "wMinEdit" || on == "wMaxEdit") {
                     if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
+                    if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
+                        mainWin->commitLimitFieldOnEnter(on);
+                    }
                     return true;
                 }
 
@@ -520,6 +522,21 @@ protected:
                     if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
                     if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
                         mainWin->commitPathFieldOnEnter(obj->objectName());
+                    }
+                    QGuiApplication::inputMethod()->hide();
+                    return true;
+                }
+
+                // Limiti U/V/W: applicazione immediata del dominio, come nel
+                // filtro desktop. Senza questo ramo cadrebbero nel generico qui
+                // sotto (commitUiFieldsDuringMotion), che e' un'altra cosa.
+                const QString limitName = obj->objectName();
+                if (limitName == "uMinEdit" || limitName == "uMaxEdit" ||
+                    limitName == "vMinEdit" || limitName == "vMaxEdit" ||
+                    limitName == "wMinEdit" || limitName == "wMaxEdit") {
+                    if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
+                    if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
+                        mainWin->commitLimitFieldOnEnter(limitName);
                     }
                     QGuiApplication::inputMethod()->hide();
                     return true;
@@ -1906,15 +1923,12 @@ MainWindow::MainWindow(QWidget *parent)
     connectSpaceLimit(ui->lineYMin, ui->lineYMax, &GLWidget::setRangeY, "Y");
     connectSpaceLimit(ui->lineZMin, ui->lineZMax, &GLWidget::setRangeZ, "Z");
 
-    // LIMITI U/V/W: si applicano SOLO al Run (dock Equations o master), MAI con
-    // l'Invio da tastiera. Prima editingFinished/returnPressed chiamavano
-    // updateU/V/WLimits, che fanno setRange* e fanno ripartire il debounce della
-    // mesh: premuto PRIMA del Run, il limite nuovo finiva sulla superficie
-    // VECCHIA, ridisegnandola. Nessuna connect qui: onStartClicked legge i campi,
-    // li valida (popup sui limiti impossibili) e chiama lui setRangeU/V/W
-    // (~6681), cosi' i limiti entrano in vigore INSIEME alle equazioni.
-    // updateU/V/WLimits resta in uso dai percorsi di load/commit, dove
-    // l'applicazione immediata e' corretta.
+    // LIMITI U/V/W: si applicano all'Invio (come ogni parametro non-equazione)
+    // e al Run. Nessuna connect editingFinished/returnPressed qui: il Return
+    // non arriva mai ai QLineEdit, lo consumano prima i filtri tastiera
+    // (desktop ~213 e mobile), che chiamano commitLimitFieldOnEnter.
+    // onStartClicked continua a leggere e validare i campi per conto suo, cosi'
+    // al Run i limiti entrano in vigore insieme alle equazioni.
 
     connect(ui->btnTextureCode, &QPushButton::clicked, this, [this]() {
         onRunRaymarchTextureClicked();
@@ -3189,6 +3203,17 @@ MainWindow::MainWindow(QWidget *parent)
     // (L'Invio sui campi path passa dai filtri tastiera desktop/mobile, che
     // consumano il Return e chiamano commitPathFieldOnEnter: connettere qui
     // returnPressed non servirebbe, il segnale non viene mai emesso.)
+
+    // Stessa ragione per i limiti U/V/W, che ammettono A..F/S: scrivere "2*A"
+    // in uMax sblocca subito slider e casella di A. Qui SOLO lo stato dell'UI
+    // delle costanti: l'applicazione del limite avviene all'Invio (filtri
+    // tastiera -> commitLimitFieldOnEnter) e al Run, non su textChanged --
+    // altrimenti la mesh si rigenererebbe a ogni carattere digitato.
+    for (QLineEdit* limitEdit : { ui->uMinEdit, ui->uMaxEdit,
+                                  ui->vMinEdit, ui->vMaxEdit,
+                                  ui->wMinEdit, ui->wMaxEdit }) {
+        connect(limitEdit, &QLineEdit::textChanged, this, &MainWindow::updateConstantsUIState);
+    }
 
     connect(ui->speed3DSlider, &QSlider::valueChanged, this, [this](int val){ m_pathSpeed3D = val / 1000.0f; });
     connect(ui->speed4DSlider, &QSlider::valueChanged, this, [this](int val){ m_pathSpeed4D = val / 1000.0f; });
@@ -4905,6 +4930,14 @@ void MainWindow::updateConstantsUIState() {
     // espressioni sono compilate su exprtk con A..F/s registrate
     // (m_pathSymbolTable in SurfaceEngine), quindi una costante citata solo da
     // un path deve restare sbloccata e NON essere resettata dal ramo !used.
+    // Anche i limiti U/V/W valgono come "uso": sono valutati da parseLimitField
+    // con A..F/S registrate, quindi "uMax = 2*A" deve tenere A sbloccata (e
+    // soprattutto NON farla resettare a 1 dal ramo !used, che cambierebbe
+    // l'estensione della superficie di sorpresa).
+    mathText += " " + ui->uMinEdit->text() + " " + ui->uMaxEdit->text() +
+                " " + ui->vMinEdit->text() + " " + ui->vMaxEdit->text() +
+                " " + ui->wMinEdit->text() + " " + ui->wMaxEdit->text();
+
     mathText += " " + ui->lineX_P->text() + " " + ui->lineY_P->text() +
                 " " + ui->lineZ_P->text() + " " + ui->lineP_P->text() +
                 " " + ui->lineAlpha_P->text() + " " + ui->lineBeta_P->text() +
@@ -6072,8 +6105,8 @@ void MainWindow::handleTextureSelection(int index)
 // ==========================================================
 
 bool MainWindow::updateULimits() {
-    float lo = parseMath(ui->uMinEdit->text());
-    float hi = parseMath(ui->uMaxEdit->text());
+    float lo = parseLimitField(ui->uMinEdit->text());
+    float hi = parseLimitField(ui->uMaxEdit->text());
     if (lo >= hi) return false;            // limiti impossibili: non applicare né ridisegnare
     uMin = lo; uMax = hi;
     if (ui->glWidget) ui->glWidget->setRangeU(uMin, uMax);
@@ -6081,8 +6114,8 @@ bool MainWindow::updateULimits() {
 }
 
 bool MainWindow::updateVLimits() {
-    float lo = parseMath(ui->vMinEdit->text());
-    float hi = parseMath(ui->vMaxEdit->text());
+    float lo = parseLimitField(ui->vMinEdit->text());
+    float hi = parseLimitField(ui->vMaxEdit->text());
     if (lo >= hi) return false;            // limiti impossibili: non applicare né ridisegnare
     vMin = lo; vMax = hi;
     if (ui->glWidget) ui->glWidget->setRangeV(vMin, vMax);
@@ -6090,8 +6123,8 @@ bool MainWindow::updateVLimits() {
 }
 
 bool MainWindow::updateWLimits() {
-    float lo = parseMath(ui->wMinEdit->text());
-    float hi = parseMath(ui->wMaxEdit->text());
+    float lo = parseLimitField(ui->wMinEdit->text());
+    float hi = parseLimitField(ui->wMaxEdit->text());
     if (lo >= hi) return false;            // limiti impossibili: non applicare né ridisegnare
     wMin = lo; wMax = hi;
     if (ui->glWidget) ui->glWidget->setRangeW(wMin, wMax);
@@ -6582,7 +6615,7 @@ void MainWindow::onStartClicked()
     };
 
     QVector<float> limitValues;
-    auto parseFn = [this](const QString& s, bool* ok) { return this->parseMath(s, ok); };
+    auto parseFn = [this](const QString& s, bool* ok) { return this->parseLimitField(s, ok); };
     if (!InputValidator::validateAndParseLimits(this, limitFields, parseFn, limitValues)) return;
 
     float uMin = limitValues[0], uMax = limitValues[1];
@@ -7048,6 +7081,89 @@ void MainWindow::commitPathFieldOnEnter(const QString& fieldName)
         if (pathTimer3D && pathTimer3D->isActive()) compilePath3DFromFields();
     } else {
         if (pathTimer && pathTimer->isActive()) compilePath4DFromFields();
+    }
+}
+
+void MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
+{
+    // Invio su un limite U/V/W: applica SUBITO il nuovo dominio. I limiti sono
+    // un parametro come gli altri (colore, steps, costanti); solo le equazioni
+    // aspettano il Run. Deliberatamente NON passiamo da commitFieldsOnEnter:
+    // quella strada rifa' un Run intero e committerebbe anche equazioni
+    // modificate ma non confermate.
+    // NB: chiamata dai filtri tastiera, che consumano il Return prima che il
+    // QLineEdit possa emettere returnPressed.
+
+    // Il campo appena editato deve essere valutabile: se contiene una formula
+    // rotta ("2*", "2*Z") o una costante spenta, avvisiamo e NON applichiamo,
+    // lasciando in vista la superficie valida precedente.
+    QLineEdit* edited = nullptr;
+    QString axisLabel;
+    if      (fieldName == "uMinEdit") { edited = ui->uMinEdit; axisLabel = "U min"; }
+    else if (fieldName == "uMaxEdit") { edited = ui->uMaxEdit; axisLabel = "U max"; }
+    else if (fieldName == "vMinEdit") { edited = ui->vMinEdit; axisLabel = "V min"; }
+    else if (fieldName == "vMaxEdit") { edited = ui->vMaxEdit; axisLabel = "V max"; }
+    else if (fieldName == "wMinEdit") { edited = ui->wMinEdit; axisLabel = "W min"; }
+    else if (fieldName == "wMaxEdit") { edited = ui->wMaxEdit; axisLabel = "W max"; }
+    if (!edited) return;
+
+    // Campo disabilitato (es. W in Composition, svuotato apposta): niente da fare.
+    if (!edited->isEnabled()) return;
+
+    bool ok = false;
+    parseLimitField(edited->text(), &ok);
+    if (!ok) {
+        if (!m_constantPopupActive) {
+            m_constantPopupActive = true;
+            InputValidator::showInvalidLimitError(this, axisLabel, edited->text());
+            edited->setFocus();
+            edited->selectAll();
+            m_constantPopupActive = false;
+        }
+        return;
+    }
+
+    // updateU/V/WLimits rifiutano da sole i limiti impossibili (min >= max)
+    // restituendo false, senza applicare nulla: in quel caso il popup lo
+    // mostriamo qui, una volta sola, sull'asse effettivamente incoerente.
+    bool applied = true;
+    if      (fieldName.startsWith("u")) applied = updateULimits();
+    else if (fieldName.startsWith("v")) applied = updateVLimits();
+    else                                applied = updateWLimits();
+
+    if (!applied) {
+        if (!m_constantPopupActive) {
+            m_constantPopupActive = true;
+            InputValidator::showInvalidLimitError(this, axisLabel, edited->text());
+            edited->setFocus();
+            edited->selectAll();
+            m_constantPopupActive = false;
+        }
+        return;
+    }
+
+    // Il dominio e' cambiato: la mesh va RICALCOLATA sulle equazioni CORRENTI
+    // (quelle gia' attive, non quelle eventualmente in corso di modifica).
+    // setRange* da solo non basta: aggiorna il dominio e alza meshNeedsUpdate,
+    // ma quel flag governa il solo re-upload alla GPU dei vertici che l'engine
+    // ha GIA' in pancia (glwidget ~970). Senza updateSurfaceData() si ricarica
+    // la mesh vecchia e a schermo non cambia nulla: e' updateSurfaceData() a
+    // rigenerare i vertici sul nuovo dominio (stessa chiamata che fa il Run).
+    if (ui->glWidget) {
+        ui->glWidget->updateSurfaceData();
+
+        // Stesso controllo del Run: un dominio degenere collassa la mesh, e
+        // senza avviso la superficie sparirebbe senza spiegazione.
+        if (!ui->glWidget->getEngine()->isMeshValid()) {
+            if (!property("collapseErrorShown").toBool()) {
+                setProperty("collapseErrorShown", true);
+                InputValidator::showMathematicalCollapseError(this);
+            }
+            return;
+        }
+        setProperty("collapseErrorShown", false);
+
+        ui->glWidget->update();
     }
 }
 
@@ -11199,17 +11315,21 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     ui->glWidget->setResolution(d.steps);
     ui->glWidget->setRaySteps(d.steps);
 
-    auto setLim = [](QLineEdit* line, float val) {
-        line->setText(QString::number(val, 'g', 12));
+    // La formula, se il record ne ha una, vince sul numero: e' l'originale
+    // scritto dall'utente, mentre il float e' la sua valutazione al momento
+    // del salvataggio (e non seguirebbe piu' le costanti). Record vecchi:
+    // expr vuota -> si usa il numero, come prima.
+    auto setLim = [](QLineEdit* line, float val, const QString& expr) {
+        line->setText(expr.isEmpty() ? QString::number(val, 'g', 12) : expr);
         line->setCursorPosition(0); // Riporta il cursore a sinistra
     };
 
-    setLim(ui->uMinEdit, d.uMin);
-    setLim(ui->uMaxEdit, d.uMax);
-    setLim(ui->vMinEdit, d.vMin);
-    setLim(ui->vMaxEdit, d.vMax);
-    setLim(ui->wMinEdit, d.wMin);
-    setLim(ui->wMaxEdit, d.wMax);
+    setLim(ui->uMinEdit, d.uMin, d.uMinExpr);
+    setLim(ui->uMaxEdit, d.uMax, d.uMaxExpr);
+    setLim(ui->vMinEdit, d.vMin, d.vMinExpr);
+    setLim(ui->vMaxEdit, d.vMax, d.vMaxExpr);
+    setLim(ui->wMinEdit, d.wMin, d.wMinExpr);
+    setLim(ui->wMaxEdit, d.wMax, d.wMaxExpr);
 
     updateULimits();
     updateVLimits();
@@ -11855,6 +11975,20 @@ float MainWindow::parseMath(const QString &text, bool *ok)
     float v = ExpressionParser::evaluateSimple(clean, parseOk);
     if (ok) *ok = parseOk;
     return parseOk ? v : 0.0f;
+}
+
+float MainWindow::parseLimitField(const QString &text, bool *ok)
+{
+    // I limiti ammettono le costanti A..F/S oltre a pi/e/tau. Non passiamo da
+    // parseMath: la sua symbol table non conosce le costanti e un "2*A"
+    // cadrebbe nel fallback toFloat() -> 0.0 silenzioso (il limite diventa 0
+    // e, peggio, viene salvato 0 nel preset).
+    //
+    // restoreTextOnNegative=false: qui stiamo solo LEGGENDO un limite, non
+    // editando le costanti; riscrivere i campi A..F da dentro la lettura di
+    // uMax sarebbe un effetto collaterale a sorpresa.
+    const CascadeConstants k = resolveCascadeConstants(false);
+    return parseUIConstant(text, k.a, k.b, k.c, k.d, k.e, k.f, k.s, ok);
 }
 
 float MainWindow::parseUIConstant(const QString &exprStr, float A, float B, float C, float D, float E, float F, float S, bool* ok)
@@ -14131,7 +14265,7 @@ void MainWindow::commitUiFieldsDuringMotion() {
         {ui->vMinEdit, true}, {ui->vMaxEdit, true},
     };
     QVector<float> dummy;
-    auto parseFn = [this](const QString& s, bool* ok) { return this->parseMath(s, ok); };
+    auto parseFn = [this](const QString& s, bool* ok) { return this->parseLimitField(s, ok); };
     if (!InputValidator::validateAndParseLimits(this, limitFields, parseFn, dummy)) {
         return;  // popup mostrato dal validator, niente dry-run
     }
@@ -14234,7 +14368,7 @@ bool MainWindow::updateGeodesicMesh()
             continue;
         }
         bool ok = false;
-        float v = parseMath(field.edit->text(), &ok);
+        float v = parseLimitField(field.edit->text(), &ok);
         if (!ok) { allOk = false; break; }
         limitValues.append(v);
     }
