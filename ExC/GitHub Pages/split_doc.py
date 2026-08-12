@@ -1,6 +1,20 @@
 #!/usr/bin/env python3
 """Divide documentation.html in una pagina per capitolo + indice.
 
+!!! NON PIU' ESEGUIBILE COSI' COM'E' !!!
+Serviva un documentation.html MONOLITICO, con un <section id="..."> per
+capitolo. Quel file non esiste piu': lo script ha sovrascritto il proprio
+sorgente con l'indice generato, e nella storia di git non e' mai stato
+committato (la prima versione tracciata e' gia' quella spezzata). Rilanciandolo
+oggi si ferma subito con "sezione mancante: intro", senza scrivere nulla.
+
+Conservato perche' documenta COME sono state prodotte le pagine e quali
+vincoli rispettano. Per riusarlo servirebbe prima ricostruire il monolite
+concatenando i doc_*.html dentro <section id="...">.
+
+Le pagine oggi si modificano a mano, una per una. Attenzione: sono servite sia
+dal sito GitHub Pages sia, come risorse qrc, dal manuale dentro l'app.
+
 Il visualizzatore e' un QTextBrowser (mainwindow.cpp:1095): niente flexbox,
 niente rem, niente border-left. La gerarchia visiva usa solo cio' che il
 motore rich text di Qt disegna davvero (verificato a schermo):
