@@ -12,7 +12,7 @@ repository.
 
 Per generare l'anteprima:
 
-    ./tools/make-preview.sh presets/renders/3-torus.mp4 3-torus 12
+    ./"ExC/GitHub Pages/make-preview.sh" presets/renders/3-torus.mp4 3-torus 12
 
 Argomenti: file sorgente, nome di uscita, secondo iniziale (default 5) e durata
 (default 5). Produce `<nome>.mp4` e `<nome>-poster.jpg` qui dentro. Poi si copia

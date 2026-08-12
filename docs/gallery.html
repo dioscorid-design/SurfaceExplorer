@@ -121,22 +121,48 @@
 
     <!--
         HOW TO ADD AN IMAGE
+        ===================
         1. Drop the file into docs/media/
-        2. Copy one <figure> block below, change src, caption and subtitle
+        2. Copy the template below into the right section, remove the comment
+           markers, and change file name, title and subtitle
         3. Commit and push: the site rebuilds on its own
 
         Keep images under ~1 MB each: PNG for flat-shaded surfaces and
         wireframes, JPEG (quality ~85) for anything with gradients or textures.
         A width of 1600 px is plenty — the grid never shows them larger.
+
+        Several figures in a row need one <div class="gallery"> around them:
+        that is what lays them out on a grid.
+
+        ----- TEMPLATE, copy from here -----
+
+        <div class="gallery">
+
+            <figure>
+                <img src="media/NAME.png" alt="DESCRIPTION" loading="lazy">
+                <figcaption>
+                    TITLE
+                    <span class="sub">preset name, or what makes it interesting</span>
+                </figcaption>
+            </figure>
+
+        </div>
+
+        ----- to here -----
     -->
 
     <h2>Parametric surfaces</h2>
     <p class="section-note">Equation-driven geometries, including 4D shapes projected down to three dimensions.</p>
 
     <div class="empty">
-        No images yet. Drop screenshots into <code>docs/media/</code> and add a
-        <code>&lt;figure&gt;</code> block in this file &mdash; the template is in the
-        HTML comment just above.
+        No images yet.
+        <p style="margin-top:10px; font-size:14px;">
+            <strong>To add one:</strong> save the screenshot into
+            <code>docs/media/</code> (PNG for flat shading and wireframes, JPEG for
+            gradients and textures, under ~1 MB). Then copy a
+            <code>&lt;figure&gt;</code> block in this file &mdash; the template is in
+            the HTML comment just above &mdash; change file name and caption, and push.
+        </p>
     </div>
 
     <h2>Implicit surfaces</h2>

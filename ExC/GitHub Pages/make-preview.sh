@@ -3,9 +3,9 @@
 # make-preview.sh — genera l'anteprima per docs/videos.html a partire da un
 # export dell'app.
 #
-#   ./tools/make-preview.sh <video> <nome> [secondo-iniziale] [durata]
+#   ./"ExC/GitHub Pages/make-preview.sh" <video> <nome> [secondo-iniziale] [durata]
 #
-#   ./tools/make-preview.sh presets/renders/3-torus.mp4 3-torus 12
+#   ./"ExC/GitHub Pages/make-preview.sh" presets/renders/3-torus.mp4 3-torus 12
 #
 # Produce docs/media/<nome>.mp4 (clip muta, in loop sulla pagina) e
 # docs/media/<nome>-poster.jpg (fermo immagine mostrato mentre carica).
@@ -45,7 +45,8 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
 fi
 
 # Radice del repo, così lo script funziona da qualunque cartella.
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Lo script sta in ExC/GitHub Pages/, quindi la radice è due livelli sopra.
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUTDIR="$ROOT/docs/media"
 mkdir -p "$OUTDIR"
 
