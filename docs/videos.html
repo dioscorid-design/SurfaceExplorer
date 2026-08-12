@@ -65,8 +65,8 @@
         .clip p { margin: 0; font-size: 14.5px; }
         .clip .specs { color: var(--muted); font-size: 13px; margin-top: 8px; }
 
-        /* Il video sta in un contenitore posizionato: il badge "guarda in HD"
-           gli va sopra, in basso a destra, senza spostare il layout. */
+        /* The video sits in a positioned container so the preview tag can be
+           laid over it without disturbing the layout. */
         .clip .frame { position: relative; line-height: 0; }
         .clip .frame .preview-tag {
             position: absolute;
@@ -207,7 +207,7 @@
         No videos yet.
         <p style="margin-top:10px; font-size:14px;">
             <strong>To add one:</strong> run
-            <code>docs/tools/make-preview.sh &lt;video&gt; &lt;nome&gt; &lt;secondo&gt;</code>
+            <code>docs/tools/make-preview.sh &lt;video&gt; &lt;name&gt; &lt;start-second&gt;</code>
             &mdash; it writes the clip and its poster into <code>docs/media/</code>.
             Upload the full video to YouTube, uncomment the template block in this
             file (see the HTML comment above) and fill in name and link. Then

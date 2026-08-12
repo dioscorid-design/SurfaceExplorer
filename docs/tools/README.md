@@ -1,111 +1,111 @@
 # docs/tools
 
-Strumenti per il sito https://dioscorid-design.github.io/SurfaceExplorer/
+Tooling for the site at https://dioscorid-design.github.io/SurfaceExplorer/
 
 ---
 
-## Come si pubblica (leggere prima di tutto)
+## How publishing works (read this first)
 
-**Il sito E' il repository.** GitHub Pages serve solo file **committati e
-pushati**: non esiste un pannello dove caricarli. Un file che sta solo sul disco
-non esiste per il sito — la pagina lo cerca e riceve 404.
+**The site IS the repository.** GitHub Pages serves only files that are
+**committed and pushed**: there is no upload panel. A file sitting on your disk
+does not exist as far as the site is concerned — the page asks for it and gets a
+404.
 
-Quindi ogni pubblicazione ha sempre questi quattro passi:
+So every publication takes these four steps:
 
-    1. il file va in docs/media/
-    2. il blocco HTML va nella pagina (docs/gallery.html o docs/videos.html)
-    3. git add del FILE **e** della PAGINA        <-- il passo che si dimentica
+    1. put the file in docs/media/
+    2. add the HTML block to the page (docs/gallery.html or docs/videos.html)
+    3. git add the FILE **and** the PAGE          <-- the step people forget
     4. git commit && git push
 
-Saltare il passo 3 e' l'errore tipico: la pagina online mostra un'immagine rotta
-o un video che non parte, mentre in locale sembra tutto a posto.
+Skipping step 3 is the classic mistake: the published page shows a broken image
+or a video that will not play, while everything looks fine locally.
 
-Dopo il push il sito si ricostruisce da solo (~1 minuto). Verifica:
+The site rebuilds itself after a push (about a minute). To check:
 
-    curl -o /dev/null -w "%{http_code}\n" https://dioscorid-design.github.io/SurfaceExplorer/media/NOME.mp4
+    curl -o /dev/null -w "%{http_code}\n" https://dioscorid-design.github.io/SurfaceExplorer/media/NAME.mp4
 
-### Aggiungere un'immagine
+### Adding an image
 
-    1. salvala in docs/media/ (PNG per tinte piatte e wireframe, JPEG q~85 per
-       gradienti e texture; larghezza 1600 px basta, sotto ~1 MB)
-    2. in docs/gallery.html copia il blocco <figure> dal template (sta in un
-       commento HTML in cima), cambia nome file e didascalia
-    3. git add docs/media/NOME.png docs/gallery.html
+    1. save it into docs/media/ (PNG for flat shading and wireframes, JPEG q~85
+       for gradients and textures; 1600 px wide is plenty, keep under ~1 MB)
+    2. in docs/gallery.html copy the <figure> block from the template (it is in
+       an HTML comment at the top), then change file name and caption
+    3. git add docs/media/NAME.png docs/gallery.html
     4. git commit && git push
 
-### Aggiungere un video
+### Adding a video
 
-    1. ./docs/tools/make-preview.sh <sorgente> <nome> <secondo-iniziale>
-       -> scrive docs/media/<nome>.mp4 e <nome>-poster.jpg
-    2. carica il video INTERO su YouTube e copiane il link
-    3. in docs/videos.html scommenta il blocco template, metti nome e link
-    4. git add docs/media/<nome>.mp4 docs/media/<nome>-poster.jpg docs/videos.html
+    1. ./docs/tools/make-preview.sh <video> <name> <start-second>
+       -> writes docs/media/<name>.mp4 and <name>-poster.jpg
+    2. upload the FULL video to YouTube and copy its link
+    3. in docs/videos.html uncomment the template block, fill in name and link
+    4. git add docs/media/<name>.mp4 docs/media/<name>-poster.jpg docs/videos.html
     5. git commit && git push
 
-### Cosa si committa e cosa no
+### What to commit and what not to
 
-Il criterio e' il **peso**, non il tipo di file: cio' che entra nella storia di
-git non ne esce piu' — resta anche se lo cancelli, e chi clona se lo scarica.
+The criterion is **weight**, not file type: whatever enters git history stays
+there — it survives deletion, and everyone who clones downloads it.
 
-| file | in repo? |
+| file | in the repo? |
 |---|---|
-| screenshot PNG/JPEG (~0.5 MB) | si', e' il suo scopo |
-| anteprima 1080p24 di 5 s (~1 MB) | si' |
-| export originale 1080p60 (22 MB) | **mai** — resta in `presets/renders/`, non tracciato |
-| video completo | no — va su YouTube, linkato dalla pagina |
+| screenshot PNG/JPEG (~0.5 MB) | yes, that is the point |
+| 5 s preview at 1080p24 (~1 MB) | yes |
+| original 1080p60 export (22 MB) | **never** — keep it in `presets/renders/`, untracked |
+| full-length video | no — upload to YouTube and link it from the page |
 
 ---
 
 ## make-preview.sh
 
-Genera l'anteprima video per `docs/videos.html`:
+Builds the preview clip for `docs/videos.html`:
 
     ./docs/tools/make-preview.sh presets/renders/3-torus.mp4 3-torus 12
 
-Argomenti: file sorgente, nome di uscita, secondo iniziale (default 5), durata
-(default 5). Scrive `docs/media/<nome>.mp4` e `docs/media/<nome>-poster.jpg`.
+Arguments: source file, output name, start second (default 5), duration
+(default 5). Writes `docs/media/<name>.mp4` and `docs/media/<name>-poster.jpg`.
 
-Taglia la clip, la porta a 1080p24 con crf 26, toglie l'audio ed estrae il
-poster. Non tocca le pagine ne' git: il blocco HTML e i `git add` restano da
-fare a mano (vedi sopra).
+It trims the clip, scales it to 1080p24 at crf 26, strips the audio and grabs
+the poster frame. It touches neither the pages nor git: the HTML block and the
+`git add` are still yours to do (see above).
 
-Pesi misurati su un export reale da 30 s 1080p60 (22 MB), tagliando 5 secondi:
-1080p24 crf 26 = 0.95 MB, crf 30 = 0.63 MB, 720p24 = 0.41 MB. E' la **durata** a
-decidere il peso, non la risoluzione: conviene restare a 1080p e semmai
-accorciare.
+Sizes measured on a real 30 s 1080p60 export (22 MB), taking 5 seconds out of
+it: 1080p24 crf 26 = 0.95 MB, crf 30 = 0.63 MB, 720p24 = 0.41 MB. **Duration**
+drives the size, not resolution: stay at 1080p and shorten the clip instead.
 
 ---
 
-## Modificare le pagine del manuale
+## Editing the manual pages
 
-Si modificano **a mano**, una per una: non c'e' piu' un generatore.
+They are edited **by hand**, one at a time: there is no generator any more.
 
-Sono servite sia dal sito sia, come risorse qrc, dal manuale dentro l'app, dove
-il visualizzatore e' un `QTextBrowser`. Quel motore ignora gran parte del CSS
-(niente flexbox, niente `border-left`): la gerarchia visiva usa bande realizzate
-con tabelle `bgcolor`, `<hr>` e `font-size` inline. Vedi il commento in
+They are served both by the site and, as qrc resources, by the manual inside the
+application, where the viewer is a `QTextBrowser`. That engine ignores most CSS
+(no flexbox, no `border-left`): the visual hierarchy relies on bands built from
+`bgcolor` tables, `<hr>` and inline `font-size`. See the comment at
 `mainwindow.cpp:1129`.
 
-Aggiungendo o togliendo un capitolo vanno aggiornati anche `CMakeLists.txt`
-(`_doc_chapters`) e `update_resources.py` (`DOC_CHAPTERS`): entrambi hanno una
-guardia che fa fallire il build se una pagina manca dal `.qrc`.
+Adding or removing a chapter also means updating `CMakeLists.txt`
+(`_doc_chapters`) and `update_resources.py` (`DOC_CHAPTERS`): both carry a guard
+that fails the build when a page is missing from the `.qrc`.
 
 ---
 
-## Struttura
+## Layout
 
-    docs/            il SITO pubblicato
-      *.html         le pagine
-      media/         immagini e anteprime video servite al browser
-      tools/         questi script
+    docs/            the published SITE
+      *.html         the pages
+      media/         images and video previews served to the browser
+      tools/         these scripts
 
-GitHub Pages e' configurato su branch `v1`, cartella `/docs`, e in modalita'
-"deploy from a branch" accetta **solo** `/` o `/docs`: nessun altro percorso e'
-ammesso (l'API risponde *"Must be one of the following: /, /docs"*). Per questo
-`docs/` non si puo' rinominare e `media/` non si puo' spostare fuori: il sito
-smetterebbe di essere pubblicato.
+GitHub Pages is configured on branch `v1`, folder `/docs`, and in "deploy from a
+branch" mode it accepts **only** `/` or `/docs` — no other path is allowed (the
+API answers *"Must be one of the following: /, /docs"*). That is why `docs/`
+cannot be renamed and `media/` cannot be moved out: the site would stop being
+published.
 
-Conseguenza di stare dentro `docs/`: **anche questa cartella viene pubblicata**.
-`https://.../SurfaceExplorer/tools/make-preview.sh` e' raggiungibile. Non e' un
-problema — e' uno script gia' pubblico nel repo, senza credenziali — ma va
-saputo: qui dentro non vanno chiavi ne' file privati.
+One consequence of living inside `docs/`: **this folder is published too**.
+`https://.../SurfaceExplorer/tools/make-preview.sh` is reachable. That is not a
+problem — it is a script already public in the repository, with no credentials —
+but it is worth knowing: no keys or private files in here.
