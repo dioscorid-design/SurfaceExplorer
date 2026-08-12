@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Surface Explorer &mdash; 4D surface visualizer</title>
+    <meta name="description" content="An interactive 4D surface visualizer built with Qt 6 and OpenGL: parametric geometries, custom GLSL scripting, ray marching and audio synthesis.">
+
+    <style>
+        :root {
+            --bg: #1e1e1e;
+            --fg: #d4d4d4;
+            --accent: #33cc33;
+            --link: #569cd6;
+            --blue: #007acc;
+            --panel: #252526;
+            --border: #3a3a3a;
+            --muted: #888;
+        }
+        * { box-sizing: border-box; }
+        body {
+            background-color: var(--bg);
+            color: var(--fg);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0 20px 60px;
+            line-height: 1.6;
+        }
+        .wrap { max-width: 880px; margin: 0 auto; }
+        header { text-align: center; padding: 48px 0 8px; }
+        header img { width: 120px; height: 120px; }
+        h1 {
+            color: var(--accent);
+            font-size: 34px;
+            margin: 18px 0 6px;
+            letter-spacing: 0.5px;
+        }
+        .tagline { color: var(--fg); font-size: 18px; margin: 0 0 4px; }
+        .version { color: var(--muted); font-size: 14px; margin: 0; }
+        hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+        h2 {
+            color: var(--blue);
+            font-size: 21px;
+            margin: 36px 0 12px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 6px;
+        }
+        a { color: var(--link); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        .cta { text-align: center; margin: 28px 0 8px; }
+        .btn {
+            display: inline-block;
+            background: var(--accent);
+            color: #10240f;
+            font-weight: bold;
+            font-size: 17px;
+            padding: 13px 30px;
+            border-radius: 6px;
+            margin: 6px;
+        }
+        .btn:hover { background: #46e046; text-decoration: none; }
+        .btn.secondary {
+            background: transparent;
+            color: var(--link);
+            border: 1px solid var(--border);
+        }
+        .btn.secondary:hover { border-color: var(--link); background: var(--panel); }
+        .platform-note { color: var(--muted); font-size: 13px; margin-top: 10px; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+            margin-top: 18px;
+        }
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 16px 18px;
+        }
+        .card h3 { color: var(--accent); font-size: 16px; margin: 0 0 8px; }
+        .card p { margin: 0; font-size: 14.5px; }
+
+        ul.docs { list-style: none; padding: 0; margin: 16px 0 0; }
+        ul.docs li {
+            padding: 9px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 16px;
+        }
+        ul.docs li:last-child { border-bottom: none; }
+        ul.docs .desc { color: var(--muted); font-size: 14px; }
+
+        code {
+            background-color: #101010;
+            color: #ce9178;
+            font-family: 'Consolas', 'Courier New', monospace;
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-size: 14px;
+        }
+        footer {
+            text-align: center;
+            color: var(--muted);
+            font-size: 13px;
+            margin-top: 48px;
+        }
+    </style>
+</head>
+<body>
+<div class="wrap">
+
+    <header>
+        <img src="icon.png" alt="Surface Explorer icon">
+        <h1>Surface Explorer</h1>
+        <p class="tagline">An interactive 4D surface visualizer</p>
+        <p class="version">Version 1.2 &mdash; Qt 6 &amp; OpenGL</p>
+    </header>
+
+    <div class="cta">
+        <a class="btn" href="https://github.com/dioscorid-design/SurfaceExplorer/releases/latest">Download for macOS</a>
+        <a class="btn secondary" href="https://github.com/dioscorid-design/SurfaceExplorer">View on GitHub</a>
+        <p class="platform-note">Windows and Linux builds are attached to earlier releases.</p>
+    </div>
+
+    <hr>
+
+    <h2>What it does</h2>
+    <p>
+        Surface Explorer renders parametric and implicit surfaces in real time, including
+        geometries that live in four dimensions and are projected down to three. Shapes can be
+        typed in as equations, written as GLSL scripts, or picked from a bundled library of
+        presets &mdash; from Clifford tori and Hopf fibrations to Calabi&ndash;Yau sections and
+        non-Euclidean geodesic flows.
+    </p>
+
+    <div class="grid">
+        <div class="card">
+            <h3>Parametric &amp; implicit</h3>
+            <p>Equation-driven surfaces, plus implicit shapes rendered by ray marching with
+            procedural displacement.</p>
+        </div>
+        <div class="card">
+            <h3>The fourth dimension</h3>
+            <p>4D rotations and stereographic projection, with the projection angle under
+            direct control.</p>
+        </div>
+        <div class="card">
+            <h3>Scripting</h3>
+            <p>Write surfaces, textures and sounds in GLSL. Constants A&ndash;F drive the
+            geometry from sliders.</p>
+        </div>
+        <div class="card">
+            <h3>Motion &amp; video</h3>
+            <p>Camera paths, object and 4D rotations, geodesic flows, and video export of the
+            whole scene.</p>
+        </div>
+    </div>
+
+    <h2>Documentation</h2>
+    <ul class="docs">
+        <li>
+            <a href="documentation.html">User Manual</a>
+            <span class="desc">&mdash; sixteen chapters, from first launch to advanced scripting</span>
+        </li>
+        <li>
+            <a href="script_guide.html">Script Guide</a>
+            <span class="desc">&mdash; reference for the scripting language</span>
+        </li>
+        <li>
+            <a href="doc_quickstart.html">Quick Start</a>
+            <span class="desc">&mdash; what to do at the first launch</span>
+        </li>
+        <li>
+            <a href="doc_raymarching.html">Implicit Surfaces</a>
+            <span class="desc">&mdash; ray marching, displacement and textures</span>
+        </li>
+        <li>
+            <a href="doc_geodesic.html">Geodesic Flow</a>
+            <span class="desc">&mdash; non-Euclidean geometries and metric tensors</span>
+        </li>
+    </ul>
+
+    <h2>Building from source</h2>
+    <p>
+        The project builds with CMake and Qt 6. Clone the repository and configure it against
+        your Qt installation:
+    </p>
+    <p>
+        <code>git clone https://github.com/dioscorid-design/SurfaceExplorer.git</code>
+    </p>
+    <p>
+        Full build notes and third-party credits are in the
+        <a href="doc_acknowledgments.html">Acknowledgments</a> chapter.
+    </p>
+
+    <hr>
+
+    <footer>
+        <p>Surface Explorer 4D &mdash; Developed by Gaetano Moschetti &mdash; GNU GPL v3</p>
+        <p>&copy; 2026 Dioscorid. All rights reserved.</p>
+    </footer>
+
+</div>
+</body>
+</html>
