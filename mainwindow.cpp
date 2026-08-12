@@ -1206,6 +1206,13 @@ MainWindow::MainWindow(QWidget *parent)
     m_btnStart->setFont(fontBold);
     connect(m_btnStart, &QPushButton::clicked, this, &MainWindow::onStartClicked);
 
+    m_btnNew = new QPushButton("NEW", this);
+    m_btnNew->setFlat(true);
+    m_btnNew->setFont(fontBold);
+    m_btnNew->setToolTip("Empty scene: clears every field and the view.\n"
+                         "Unlike re-clicking the active tab, it loads no default surface.");
+    connect(m_btnNew, &QPushButton::clicked, this, &MainWindow::onNewSceneClicked);
+
     m_btnResetView = new QPushButton("RESET", this);
     m_btnResetView->setFlat(true);
     m_btnResetView->setFont(fontBold);
@@ -1232,6 +1239,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_renderProgress->setFixedWidth(150);
 
     ui->statusbar->addWidget(m_btnStart);
+    ui->statusbar->addWidget(m_btnNew);
     ui->statusbar->addWidget(m_btnResetView);
     ui->statusbar->addWidget(m_btnProjection);
     ui->statusbar->addWidget(m_btnRec);
@@ -1721,6 +1729,8 @@ MainWindow::MainWindow(QWidget *parent)
         // torna eseguibile. updateMasterButtonState() riabilita il tasto.
         m_parametricApplied = false;
         updateMasterButtonState();
+
+        dropSurfaceLibrarySelection();
     };
     connect(ui->lineX, &QPlainTextEdit::textChanged, this, markUserEdit);
     connect(ui->lineY, &QPlainTextEdit::textChanged, this, markUserEdit);
@@ -1801,6 +1811,8 @@ MainWindow::MainWindow(QWidget *parent)
         m_implicitApplied = false;
         noteSceneEdited(ui->lineEquation);
         updateMasterButtonState();
+
+        dropSurfaceLibrarySelection();
     });
 
     if (ui->lnU) {
@@ -3553,8 +3565,28 @@ void MainWindow::noteSceneEdited(QWidget *source)
         "The surface on screen comes from " + loadedWhat + ", so what you are "
         "typing here may not take effect, or may mix with what is already loaded."
         "\n\nTo start from a clean state, click the tab of the current mode "
-        "(Parametric or Implicit): it clears everything and restores the default "
-        "surface.");
+        "(Parametric or Implicit) to restore the default surface, or press NEW "
+        "on the status bar to clear everything and leave the scene empty.");
+}
+
+// L'utente ha riscritto a mano la geometria: il preset evidenziato nel dock
+// Library non descrive piu' cio' che si vede, e lasciarlo selezionato indica una
+// superficie che non c'e' piu'. Si deseleziona all'EDIT e non al Run perche' e'
+// l'edit il momento in cui il legame col preset si rompe -- e perche' il Run non
+// passa da un punto unico (onStartClicked ha 31 uscite).
+// Le guardie escludono le scritture PROGRAMMATICHE (reset, load di un preset,
+// boot): li' i campi li riempie l'app, e il load la selezione la imposta di
+// proposito.
+void MainWindow::dropSurfaceLibrarySelection()
+{
+    if (m_populatingFields || !m_uiReady) return;
+    if (!ui->treeSurfaces || !ui->treeSurfaces->currentItem()) return;
+
+    // Segnali bloccati: itemClicked ricaricherebbe il preset appena abbandonato.
+    bool b = ui->treeSurfaces->blockSignals(true);
+    ui->treeSurfaces->clearSelection();
+    ui->treeSurfaces->setCurrentItem(nullptr);
+    ui->treeSurfaces->blockSignals(b);
 }
 
 // L'utente ha lavoro non salvato da proteggere.
@@ -3601,6 +3633,14 @@ bool MainWindow::confirmDiscardUnsavedWork()
 // percorso di reset gia' in produzione, e deve restare in una sede sola.
 void MainWindow::applyModeTabReset(int index)
 {
+    resetScene(index, /*loadDefaultSurface=*/true);
+}
+
+// Corpo del reset, parametrizzato sulla superficie finale (vedi mainwindow.h).
+// Con loadDefaultSurface=false la pulizia e' IDENTICA ma non si scrive nessuna
+// equazione e non si compila nulla: resta la scena vuota del tasto New.
+void MainWindow::resetScene(int index, bool loadDefaultSurface)
+{
     // RESET IN CORSO: i campi (equazioni di default, limiti, editor) li riempie
     // questa funzione, non l'utente. Senza guardia quelle scritture -- fatte a
     // segnali VIVI -- passano da noteSceneEdited e, finche' m_surfaceScriptText
@@ -3614,6 +3654,17 @@ void MainWindow::applyModeTabReset(int index)
     } resetGuard{this};
 
     ui->stepSlider->blockSignals(true);
+
+    // FLUSSO GEODETICO fermato PRIMA di svuotare i campi. E' un moto come le
+    // rotazioni e i path (fermati poco piu' sotto) ma non veniva mai spento dal
+    // reset: il suo timer continuava a girare su una scena azzerata, chiamava
+    // updateGeodesicMesh e la validazione dei limiti -- ora vuoti -- faceva
+    // comparire il popup "Minimum values must be strictly less than Maximum"
+    // subito dopo il reset, senza che l'utente avesse premuto niente.
+    // Va fermato prima dello svuotamento: un tick che passasse fra clear() e
+    // stop() troverebbe gia' i campi vuoti.
+    if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
+    m_geodesicErrorPending = false;
 
     auto resetExtraFields = [this]() {
         bool oldU = ui->lineU->blockSignals(true);
@@ -3680,7 +3731,23 @@ void MainWindow::applyModeTabReset(int index)
     }
 
     // 3. Svuota l'editor visivamente (se aperto su Surface) e in memoria
-    if (m_currentScriptMode == ScriptModeSurface) {
+    //
+    // SCENA VUOTA: l'editor si svuota SEMPRE, qualunque modulo stia mostrando,
+    // e con lui gli slot di testo dei moduli. Il ramo per-modalita' qui sotto
+    // serve al cambio tab, dove il codice texture deve SOPRAVVIVERE (l'editor
+    // e' solo la sua vista, e tornando in parametrico lo si ritrova): per NEW
+    // quella conservazione e' esattamente cio' che non si vuole -- l'editor
+    // restava pieno dello script texture della superficie appena buttata via.
+    if (!loadDefaultSurface) {
+        ui->txtScriptEditor->blockSignals(true);
+        ui->txtScriptEditor->clear();
+        ui->txtScriptEditor->blockSignals(false);
+        m_surfaceTextureScriptText.clear();
+        m_bgTextureScriptText.clear();
+        m_soundScriptText.clear();
+        updateScriptButtonText();
+    }
+    else if (m_currentScriptMode == ScriptModeSurface) {
         ui->txtScriptEditor->blockSignals(true);
         ui->txtScriptEditor->clear();
         ui->txtScriptEditor->blockSignals(false);
@@ -3824,9 +3891,11 @@ void MainWindow::applyModeTabReset(int index)
     // ==========================================================
 
     if (index == 1) { // --- PASSAGGIO A IMPLICIT (RAY MARCHING) ---
-        ui->lineEquation->setPlainText("x*x + y*y + z*z - 1.0");
-        ui->lineTexture->setPlainText("vec3(0.5, 0.5, 0.5)"); // Grigio neutro o il tuo default
-        ui->lineVariations->setPlainText("0.0");
+        if (loadDefaultSurface) {
+            ui->lineEquation->setPlainText("x*x + y*y + z*z - 1.0");
+            ui->lineTexture->setPlainText("vec3(0.5, 0.5, 0.5)"); // Grigio neutro o il tuo default
+            ui->lineVariations->setPlainText("0.0");
+        }
 
         m_lastParametricSteps = ui->stepSlider->value();
 
@@ -3855,12 +3924,25 @@ void MainWindow::applyModeTabReset(int index)
                     m_bgTextureScriptText = "";
 
         // 5. Ripristina l'equazione di default
-        ui->lineEquation->blockSignals(true);
-        QString eq = ui->lineEquation->toPlainText().trimmed();
-        if (eq.isEmpty() || !eq.contains("=")) {
-            ui->lineEquation->setPlainText("x^2 + y^2 + z^2 = 1.0");
+        // Scena vuota: il campo resta VUOTO. Questo blocco esiste per garantire
+        // che a schermo ci sia sempre qualcosa di valido, che e' esattamente
+        // cio' che New non vuole.
+        if (loadDefaultSurface) {
+            ui->lineEquation->blockSignals(true);
+            QString eq = ui->lineEquation->toPlainText().trimmed();
+            if (eq.isEmpty() || !eq.contains("=")) {
+                ui->lineEquation->setPlainText("x^2 + y^2 + z^2 = 1.0");
+            }
+            ui->lineEquation->blockSignals(false);
+        } else {
+            // SCENA VUOTA: il campo dell'equazione implicita e' l'unico che
+            // questo ramo non svuota mai (texture e variations lo sono gia' piu'
+            // sopra), perche' storicamente serviva a garantire che a schermo ci
+            // fosse sempre qualcosa di valido.
+            ui->lineEquation->blockSignals(true);
+            ui->lineEquation->clear();
+            ui->lineEquation->blockSignals(false);
         }
-        ui->lineEquation->blockSignals(false);
 
         // ==========================================================
         // ADATTAMENTO SLIDER "S" IN "STEP RELAX" (MEMORIA SEPARATA)
@@ -3928,7 +4010,20 @@ void MainWindow::applyModeTabReset(int index)
             ui->glWidget->setCameraRoll(0.0f);
 
             // FIX 3: Compilazione e invio della sfera alla GPU
-            QString implicitEqF = "(x^2 + y^2 + z^2) - (1.0)";
+            //
+            // Scena vuota: in Ray Marching non esiste una mesh da azzerare (il
+            // gate m_indexCount non governa questo ramo), quindi l'unico modo di
+            // non far vedere NIENTE e' dare al marcher un campo che non venga mai
+            // intersecato. Non si puo' passare "": createImplicitFragmentShader
+            // ha un fallback (~4077) che sostituisce la stringa vuota proprio con
+            // la sfera, e otterremmo l'opposto della scena vuota. Una costante
+            // positiva e' sempre > epsilon a ogni passo -> nessun hit, sfondo
+            // pulito, e lo shader compila (se non compilasse, il ripristino di
+            // emergenza in validateAndApplyImplicitShader rimetterebbe a schermo
+            // l'equazione PRECEDENTE).
+            const QString implicitEqF = loadDefaultSurface
+                                      ? QStringLiteral("(x^2 + y^2 + z^2) - (1.0)")
+                                      : QLatin1String(kEmptyImplicitField);
             ui->glWidget->setImplicitEquation(implicitEqF);
             ui->glWidget->validateAndApplyImplicitShader(implicitEqF, "", "");
             ui->glWidget->rebuildShader();
@@ -3991,6 +4086,10 @@ void MainWindow::applyModeTabReset(int index)
         ui->chkBoxTexture->setText("Texture");
         ui->chkBoxTexture->setChecked(m_surfaceTextureState);
 
+        // I limiti tornano ai valori di default in ENTRAMBI i casi: sono il
+        // dominio di lavoro, non la superficie. A campi vuoti servono comunque
+        // sensati, perche' il primo Run dell'utente li legge cosi' come sono
+        // (i limiti si applicano solo al Run, mai con Invio).
         ui->uMinEdit->setText("0");
         ui->uMaxEdit->setText("6.28318");
         ui->vMinEdit->setText("0");
@@ -4000,12 +4099,30 @@ void MainWindow::applyModeTabReset(int index)
         updateULimits(); updateVLimits(); updateWLimits();
 
         // 4. RIPRISTINO GEOMETRIA TORO
-        ui->lineX->setPlainText("(0.8 + 0.3*cos(v))*cos(u)");
-        ui->lineY->setPlainText("(0.8 + 0.3*cos(v))*sin(u)");
-        ui->lineZ->setPlainText("0.3*sin(v)");
-        ui->lineP->setPlainText("0.0");
-        ui->glWidget->setParametricEquations(ui->lineX->toPlainText(), ui->lineY->toPlainText(),
-                                             ui->lineZ->toPlainText(), ui->lineP->toPlainText());
+        if (loadDefaultSurface) {
+            ui->lineX->setPlainText("(0.8 + 0.3*cos(v))*cos(u)");
+            ui->lineY->setPlainText("(0.8 + 0.3*cos(v))*sin(u)");
+            ui->lineZ->setPlainText("0.3*sin(v)");
+            ui->lineP->setPlainText("0.0");
+            ui->glWidget->setParametricEquations(ui->lineX->toPlainText(), ui->lineY->toPlainText(),
+                                                 ui->lineZ->toPlainText(), ui->lineP->toPlainText());
+        } else {
+            // SCENA VUOTA. Non basta passare equazioni vuote a
+            // setParametricEquations: createVertexShaderSource le traduce in
+            // "0.0" (~4440), quindi lo shader compila benissimo e la griglia
+            // viene generata lo stesso -- tutti i vertici collassati
+            // nell'origine, cioe' un blob al centro invece del nulla.
+            // La mesh si svuota alla sorgente: clear() lascia vertici e indici
+            // vuoti e il ramo "mesh vuota" di render() azzera m_indexCount.
+            ui->lineX->clear(); ui->lineY->clear();
+            ui->lineZ->clear(); ui->lineP->clear();
+            // Anche le equazioni del MOTORE, non solo i campi: restando quelle
+            // della superficie precedente, il primo updateSurfaceData() di
+            // chiunque (o un semplice cambio di risoluzione) la farebbe
+            // RIAPPARIRE dal nulla.
+            ui->glWidget->setParametricEquations("", "", "", "");
+            ui->glWidget->clearSceneGeometry();
+        }
 
         // 5. CONFIGURAZIONE ENGINE PARAMETRICO
         ui->lblS->setText("s=");
@@ -4022,8 +4139,19 @@ void MainWindow::applyModeTabReset(int index)
         ui->lineSteps->setText(QString::number(m_lastParametricSteps));
         ui->glWidget->setResolution(m_lastParametricSteps);
 
-        ui->glWidget->updateSurfaceData();
-        ui->glWidget->addObjectRotation(30.0f, 30.0f, 0.0f);
+        if (loadDefaultSurface) {
+            ui->glWidget->updateSurfaceData();
+            // Inclinazione di cortesia con cui il toro di default si presenta.
+            ui->glWidget->addObjectRotation(30.0f, 30.0f, 0.0f);
+        } else {
+            // Niente updateSurfaceData(): chiama computeMesh(), che rigenererebbe
+            // la griglia. Lo svuotamento si ripete QUI, in fondo al ramo: fra il
+            // clear() piu' sopra e questo punto passano setEngineMode e
+            // setResolution, e l'ultima parola sulla geometria deve restare a
+            // "vuota" -- il ramo `loadDefaultSurface` simmetrico fa lo stesso con
+            // updateSurfaceData().
+            ui->glWidget->clearSceneGeometry();
+        }
 
         onStopClicked();
     }
@@ -4038,6 +4166,16 @@ void MainWindow::applyModeTabReset(int index)
     if (ui->glWidget) ui->glWidget->setProjectionMode(1);
     updateProjectionButtonText();
 
+    // FOV al default (45°, come il costruttore ~2857). Nessun percorso di reset
+    // lo riportava indietro: e' l'unico controllo di camera che sopravviveva sia
+    // al cambio tab sia al tasto NEW, cosi' la superficie di default (o la scena
+    // vuota) si presentava con l'inquadratura del preset appena abbandonato --
+    // e su un preset con FOV stretto la differenza e' vistosa.
+    // Vale per entrambi i rami: e' stato di CAMERA, come projectionMode qui
+    // sopra e come il setCameraPos(0,0,4) dei due rami. applyCameraFov allinea
+    // in un colpo membri (m_fov3D/m_fov4D), label, slider e motore.
+    applyCameraFov(45.0f);
+
     updateRenderState();
     checkParametricDependency();
     ui->glWidget->update();
@@ -4051,6 +4189,12 @@ void MainWindow::applyModeTabReset(int index)
     // azzerato i flag via textChanged: li riasseriamo e riallineamo i tasti.
     // Anche la texture parte azzerata (campi vuoti dopo il reset): il Run
     // texture sarà comunque disabilitato dal controllo campi-vuoti.
+    //
+    // SCENA VUOTA: i flag valgono lo stesso, ma per un'altra ragione. Qui non
+    // c'e' "nulla da applicare" perche' non c'e' NIENTE, punto: i campi sono
+    // vuoti e il Run resta spento finche' l'utente non scrive qualcosa -- e in
+    // quel momento textChanged azzera il flag e il tasto si riaccende da solo,
+    // che e' esattamente il comportamento voluto.
     m_parametricApplied = true;
     m_implicitApplied = true;
     m_rmTextureApplied = true;
@@ -4074,16 +4218,33 @@ void MainWindow::applyModeTabReset(int index)
     m_warnedOrigin     = OriginDefault;
     m_surfaceOrigin    = OriginDefault;
 
-    // A schermo c'e' ora la superficie di DEFAULT (toro/sfera), che non e' un
-    // item di libreria: lasciare evidenziato il preset caricato prima sarebbe
-    // ingannevole, indica una superficie che non c'e' piu'. Stessa deselezione
-    // (e stessa motivazione) del load di una texture incompatibile, ~5451.
+    // A schermo c'e' ora la superficie di DEFAULT (toro/sfera) o il NULLA: in
+    // nessuno dei due casi un item di libreria descrive cio' che si vede, e
+    // lasciarne uno evidenziato indica una superficie che non c'e' piu'. Stessa
+    // deselezione (e stessa motivazione) del load di una texture incompatibile,
+    // ~5451, estesa a tutti e quattro i rami.
+    // La deselezione deve togliere anche il CURRENT item, non solo la
+    // selezione: il current sopravvive a clearSelection() e si ripresenta come
+    // riga evidenziata appena il ramo viene riaperto.
+    // Va fatto su tutti e quattro anche perche' refreshRepositories (~11197)
+    // SALVA la selezione corrente e la RIPRISTINA dopo aver ricostruito gli
+    // alberi: il file-system watcher puo' farlo scattare in qualsiasi momento,
+    // e quello che qui resta selezionato tornerebbe fuori da solo.
+    // Rami richiusi per la stessa ragione: le cartelle aperte descrivono
+    // l'esplorazione che ha portato alla superficie appena scartata. Si fa QUI
+    // e non nel gate della scena vuota, che gira di continuo e richiuderebbe le
+    // cartelle sotto le dita dell'utente: il reset e' un evento singolo.
+    // Stessa scelta gia' fatta per il ramo Texture in wireframe
+    // (setTextureLibraryGrayed): si chiude entrando, non si riapre uscendo.
     // Segnali bloccati: itemClicked ricaricherebbe il preset appena scartato.
-    if (ui->treeSurfaces) {
-        bool bSurf = ui->treeSurfaces->blockSignals(true);
-        ui->treeSurfaces->clearSelection();
-        ui->treeSurfaces->setCurrentItem(nullptr);
-        ui->treeSurfaces->blockSignals(bSurf);
+    for (QTreeWidget *tree : { ui->treeSurfaces, ui->treeTextures,
+                               ui->treeMotions,  ui->treeSounds }) {
+        if (!tree) continue;
+        bool b = tree->blockSignals(true);
+        tree->clearSelection();
+        tree->setCurrentItem(nullptr);
+        tree->collapseAll();
+        tree->blockSignals(b);
     }
 }
 
@@ -4591,6 +4752,166 @@ void MainWindow::updateRenderState()
 
         ui->glWidget->update();
     }
+
+    // ==========================================================
+    // SCENA VUOTA (tasto NEW): controlli di RESA in grigio
+    // ==========================================================
+    // I comandi legati al CONTENUTO si spengono gia' da soli a campi vuoti --
+    // i Run del dock Equations via i flag "applied", Run/Save script via
+    // hasGLSLCode, Run/Save texture via i controlli campi-vuoti, gli slider
+    // A..F/S via updateConstantsUIState. Restano accesi solo quelli di RESA,
+    // che non hanno mai avuto un gate sull'esistenza di una superficie perche'
+    // fino a ora una superficie c'era sempre: agirebbero sul nulla.
+    // Le eccezioni sono volute: COLORE e TEXTURE dello SFONDO restano usabili,
+    // perche' lo sfondo esiste anche senza superficie ed e' l'unica cosa che
+    // si puo' ancora comporre a scena vuota.
+    // Ultimo blocco della funzione: sovrascrive di proposito le decisioni prese
+    // qui sopra, che presuppongono tutte una superficie a schermo.
+    applyEmptySceneGating();
+}
+
+// Gate dei controlli di RESA sulla scena vuota. Sede unica, chiamata sia da
+// updateRenderState (che decide tutto il resto dell'aspetto) sia da
+// updateMasterButtonState: il Run NON passa da updateRenderState -- onStartClicked
+// ha 31 uscite e nessuna la richiama -- quindi senza il secondo chiamante i
+// controlli restavano grigi anche dopo aver ricostruito una superficie, e
+// l'unico modo di riaverli era cambiare tab.
+void MainWindow::applyEmptySceneGating()
+{
+    if (isSceneEmpty()) {
+        // Trasparenza e luce: gli STESSI figli che il ramo wireframe disabilita
+        // qui sopra. Si agisce sui figli e non sul groupbox panelTransp perche'
+        // quello si porterebbe dietro anche il FOV, che ha una regola sua (piu'
+        // sotto: a scena vuota si spegne anche lui, ma va detto esplicitamente).
+        if (ui->lblTrans)         ui->lblTrans->setEnabled(false);
+        if (ui->panelSliderTrans) ui->panelSliderTrans->setEnabled(false);
+        if (ui->lblLight)         ui->lblLight->setEnabled(false);
+        if (ui->widget_2)         ui->widget_2->setEnabled(false);
+
+        ui->uDensity->setEnabled(false);
+        ui->vDensity->setEnabled(false);
+
+        // Texture: chkBoxTexture e' UN SOLO widget per due destinatari -- vale
+        // per la superficie o per lo SFONDO a seconda di radioSurface/
+        // radioBackground (cambia solo l'etichetta, ~2085). Spegnerlo sempre
+        // bloccava anche la texture di sfondo, che a scena vuota deve restare
+        // usabile: lo sfondo esiste anche senza superficie ed e' l'unica cosa
+        // che si puo' ancora comporre. Stessa ragione per il ramo Library.
+        const bool editingBackground = ui->radioBackground && ui->radioBackground->isChecked();
+        ui->chkBoxTexture->setEnabled(editingBackground);
+        if (ui->treeTextures) ui->treeTextures->setEnabled(editingBackground);
+
+        // Risoluzione/passi: nulla da campionare.
+        ui->stepSlider->setEnabled(false);
+        ui->lineSteps->setEnabled(false);
+
+        // Modo di resa della SUPERFICIE: non c'e' superficie da rendere.
+        // (radioShell/radioSolid sono gli equivalenti del ramo Ray Marching.)
+        if (ui->radioBasic)  ui->radioBasic->setEnabled(false);
+        if (ui->radioPhong)  ui->radioPhong->setEnabled(false);
+        if (ui->radioWF)     ui->radioWF->setEnabled(false);
+        if (ui->radioShell)  ui->radioShell->setEnabled(false);
+        if (ui->radioSolid)  ui->radioSolid->setEnabled(false);
+
+        // Ambito multi-mesh: le parti non esistono piu'. Senza questo, restava
+        // selezionabile la mesh di una superficie che non c'e' -- e i comandi
+        // di aspetto sarebbero finiti dentro un MeshPart fantasma.
+        if (ui->radioMeshAll) ui->radioMeshAll->setEnabled(false);
+        if (ui->radioMeshOne) ui->radioMeshOne->setEnabled(false);
+        if (ui->spinMeshSel)  ui->spinMeshSel->setEnabled(false);
+        if (ui->panelMultiMesh) ui->panelMultiMesh->setEnabled(false);
+
+        // Picker Color1/Color2: dipendono dalla texture ATTIVA (quali token
+        // u_col1/u_col2 referenzia). A scena vuota la texture di superficie e'
+        // spenta, quindi updateTextureUIState li spegne da se': va solo
+        // CHIAMATA, perche' il reset non la invocava mai e i due radio
+        // restavano accesi com'erano sotto il preset precedente.
+        // In editing sfondo decide lo stato della texture di background, che
+        // resta legittimamente componibile.
+        updateTextureUIState(editingBackground && ui->chkBoxTexture->isChecked());
+
+        // Slider RGB: NON si toccano da qui. La loro sede unica e'
+        // onColorTargetChanged, che gira anche dopo questo gate e li
+        // riaccenderebbe: il caso "scena vuota" e' dentro di lei, insieme alle
+        // altre ragioni per cui possono essere inerti (texture senza colori).
+        onColorTargetChanged();
+
+        // FOV: agisce sulla camera, non sulla superficie, ed e' per questo che
+        // il ramo wireframe lo lascia sempre attivo. Ma a scena VUOTA non c'e'
+        // nulla da inquadrare, e il criterio qui e' "si spegne tutto tranne lo
+        // sfondo": inquadrare il nulla non e' un'eccezione che vale la pena.
+        if (ui->fovSliderMain) ui->fovSliderMain->setEnabled(false);
+        if (ui->lblFov)        ui->lblFov->setEnabled(false);
+        if (ui->lblValFov)     ui->lblValFov->setEnabled(false);
+
+        m_emptySceneGated = true;
+    }
+    else if (m_emptySceneGated) {
+        // La scena e' tornata piena (primo Run dopo un NEW): si riaccende SOLO
+        // cio' che questo gate aveva spento, e solo la prima volta -- da qui in
+        // poi comandano di nuovo le regole normali (wireframe, ray marching,
+        // ambito mesh), che questo blocco non deve piu' scavalcare.
+        // Trasparenza, luce e densita' non si toccano: dipendono dal render mode
+        // e li rimette a posto updateRenderState, che gira a ogni cambio di
+        // modalita'. Qui basta togliere il blocco su cio' che nessun altro
+        // riaccenderebbe.
+        m_emptySceneGated = false;
+
+        ui->stepSlider->setEnabled(true);
+        ui->lineSteps->setEnabled(true);
+
+        // Modo di resa: si riaccende solo cio' che la modalita' corrente
+        // ammette. radioWF non esiste in Ray Marching e radioShell/radioSolid
+        // non esistono in parametrico: la scelta la rifa' updateRenderState
+        // (che gestisce anche il ripristino forzato se si veniva da wireframe),
+        // qui basta togliere il blocco.
+        const bool isRM = (ui->tabModeSelector->currentIndex() == 1);
+        if (ui->radioBasic)  ui->radioBasic->setEnabled(true);
+        if (ui->radioPhong)  ui->radioPhong->setEnabled(true);
+        if (ui->radioWF)     ui->radioWF->setEnabled(!isRM);
+        if (ui->radioShell)  ui->radioShell->setEnabled(true);
+        if (ui->radioSolid)  ui->radioSolid->setEnabled(true);
+
+        // Ambito multi-mesh: lo stato giusto lo conosce updateMeshScopeEnabled
+        // (dipende da quante parti ha la superficie appena costruita), che ha
+        // gia' la sua logica di "usable". Qui si toglie solo il blocco del
+        // pannello e si lascia decidere a lei.
+        if (ui->panelMultiMesh) ui->panelMultiMesh->setEnabled(true);
+        updateMeshScopeEnabled();
+
+        // Slider RGB: li rimette onColorTargetChanged, che sa se il target e'
+        // superficie, sfondo o una texture senza colori (in quel caso restano
+        // spenti di proposito).
+        onColorTargetChanged();
+
+        // FOV di nuovo utile: c'e' qualcosa da inquadrare.
+        if (ui->fovSliderMain) ui->fovSliderMain->setEnabled(true);
+        if (ui->lblFov)        ui->lblFov->setEnabled(true);
+        if (ui->lblValFov)     ui->lblValFov->setEnabled(true);
+
+        // Trasparenza, luce, densita' e texture le rimette a posto
+        // updateRenderState secondo le regole normali. NON la si chiama da qui:
+        // e' lei a chiamare questa funzione, e si avviterebbe. Quando il gate si
+        // apre dal Run (via updateMasterButtonState) la si invoca dal chiamante.
+    }
+}
+
+// Scena vuota = nessuna geometria a schermo. Non guarda i campi della UI (che
+// l'utente puo' aver gia' ricominciato a riempire) ma cio' che il motore ha
+// davvero da disegnare: in parametrico la mesh, in ray marching l'equazione
+// implicita. E' la stessa condizione che il tasto NEW produce via
+// resetScene(..., false).
+bool MainWindow::isSceneEmpty() const
+{
+    if (!ui->glWidget) return false;
+
+    if (ui->tabModeSelector->currentIndex() == 1) {
+        const QString eq = ui->glWidget->implicitEquation().trimmed();
+        return eq.isEmpty() || eq == QLatin1String(kEmptyImplicitField);
+    }
+
+    const SurfaceEngine *e = ui->glWidget->getEngine();
+    return !e || e->getIndices().empty();
 }
 
 void MainWindow::checkParametricDependency()
@@ -5302,6 +5623,14 @@ void MainWindow::onColorTargetChanged()
         }
     }
 
+    // SCENA VUOTA (tasto NEW): non c'e' superficie da colorare. Lo SFONDO si',
+    // quindi il blocco vale solo quando il target e' la superficie. Il controllo
+    // sta qui, che e' la sede unica dello stato di questi slider: metterlo solo
+    // in applyEmptySceneGating non bastava, perche' questa funzione gira DOPO
+    // (la chiamano il reset stesso, i cambi di target, updateMasterButtonState)
+    // e li riaccendeva.
+    if (!ui->radioBackground->isChecked() && isSceneEmpty()) slidersEnabled = false;
+
     ui->sliderR->setEnabled(slidersEnabled);
     ui->sliderG->setEnabled(slidersEnabled);
     ui->sliderB->setEnabled(slidersEnabled);
@@ -5327,7 +5656,10 @@ void MainWindow::onColorTargetChanged()
     // sovrascriverlo.
     if (!ui->radioBackground->isChecked()) {
         bool wireframeSurface = (m_savedRenderMode == 2);
-        ui->chkBoxTexture->setEnabled(!wireframeSurface);
+        // Scena vuota (tasto NEW): niente superficie da texturizzare. Come per
+        // gli slider RGB qui sopra, il caso va aggiunto DOVE lo stato si decide:
+        // questa funzione gira anche dopo applyEmptySceneGating e lo riaccendeva.
+        ui->chkBoxTexture->setEnabled(!wireframeSurface && !isSceneEmpty());
     }
 }
 
@@ -7010,6 +7342,17 @@ void MainWindow::onStopClicked() {
     update4DButtonState();
 }
 
+// Tasto NEW: scena vuota. Riusa il percorso di reset gia' in produzione
+// (resetScene) con loadDefaultSurface=false, quindi la pulizia e' per
+// costruzione la stessa del cambio tab: nessuna seconda copia da tenere
+// allineata. Resta sul tab corrente -- New svuota la scena, non cambia
+// modalita' -- e passa dalla conferma come il riclic sulla linguetta attiva.
+void MainWindow::onNewSceneClicked()
+{
+    if (!confirmDiscardUnsavedWork()) return;
+    resetScene(ui->tabModeSelector->currentIndex(), /*loadDefaultSurface=*/false);
+}
+
 void MainWindow::onResetViewClicked()
 {
     // Il reset deve comportarsi come per le rotazioni: se un path e' in corso,
@@ -7099,12 +7442,15 @@ void MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
     // lasciando in vista la superficie valida precedente.
     QLineEdit* edited = nullptr;
     QString axisLabel;
-    if      (fieldName == "uMinEdit") { edited = ui->uMinEdit; axisLabel = "U min"; }
-    else if (fieldName == "uMaxEdit") { edited = ui->uMaxEdit; axisLabel = "U max"; }
-    else if (fieldName == "vMinEdit") { edited = ui->vMinEdit; axisLabel = "V min"; }
-    else if (fieldName == "vMaxEdit") { edited = ui->vMaxEdit; axisLabel = "V max"; }
-    else if (fieldName == "wMinEdit") { edited = ui->wMinEdit; axisLabel = "W min"; }
-    else if (fieldName == "wMaxEdit") { edited = ui->wMaxEdit; axisLabel = "W max"; }
+    // Etichette MINUSCOLE: sono i parametri del dominio (u, v, w). Le maiuscole
+    // U/V/W nel progetto sono le variabili di COMPOSIZIONE, un'altra cosa:
+    // nominarle qui indicava all'utente il campo sbagliato.
+    if      (fieldName == "uMinEdit") { edited = ui->uMinEdit; axisLabel = "u min"; }
+    else if (fieldName == "uMaxEdit") { edited = ui->uMaxEdit; axisLabel = "u max"; }
+    else if (fieldName == "vMinEdit") { edited = ui->vMinEdit; axisLabel = "v min"; }
+    else if (fieldName == "vMaxEdit") { edited = ui->vMaxEdit; axisLabel = "v max"; }
+    else if (fieldName == "wMinEdit") { edited = ui->wMinEdit; axisLabel = "w min"; }
+    else if (fieldName == "wMaxEdit") { edited = ui->wMaxEdit; axisLabel = "w max"; }
     if (!edited) return;
 
     // Campo disabilitato (es. W in Composition, svuotato apposta): niente da fare.
@@ -7112,10 +7458,15 @@ void MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
 
     bool ok = false;
     parseLimitField(edited->text(), &ok);
-    if (!ok) {
+    // Il campo vuoto PASSA il parse (parseUIConstant: vuoto -> ok, 0.0), quindi
+    // qui non si ferma: lo intercetta il ramo min>=max piu' sotto. Lo segnaliamo
+    // comunque con emptyMeansNoLimit=false, cosi' il messaggio parla di dominio
+    // mancante e non di numero illeggibile.
+    if (!ok || edited->text().trimmed().isEmpty()) {
         if (!m_constantPopupActive) {
             m_constantPopupActive = true;
-            InputValidator::showInvalidLimitError(this, axisLabel, edited->text());
+            InputValidator::showInvalidLimitError(this, axisLabel, edited->text(),
+                                                  /*emptyMeansNoLimit=*/false);
             edited->setFocus();
             edited->selectAll();
             m_constantPopupActive = false;
@@ -7134,7 +7485,11 @@ void MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
     if (!applied) {
         if (!m_constantPopupActive) {
             m_constantPopupActive = true;
-            InputValidator::showInvalidLimitError(this, axisLabel, edited->text());
+            // Qui il numero e' LEGGIBILE: updateU/V/WLimits ha rifiutato perche'
+            // min >= max. Il messaggio "non e' un numero valido" era fuorviante,
+            // mostrava il valore appena scritto come se fosse illeggibile.
+            const QChar axis = axisLabel.isEmpty() ? QChar('u') : axisLabel.at(0);
+            InputValidator::showLimitOrderError(this, axis);
             edited->setFocus();
             edited->selectAll();
             m_constantPopupActive = false;
@@ -12995,6 +13350,16 @@ void MainWindow::updateMasterButtonState()
     // finale del costruttore (dopo m_uiReady=true) fa il primo allineamento.
     if (!m_uiReady) return;
 
+    // Uscita dalla SCENA VUOTA. Questa funzione gira dopo ogni Run, mentre
+    // updateRenderState no (onStartClicked ha 31 uscite e nessuna la chiama):
+    // e' il punto in cui accorgersi che la superficie e' tornata. Il gate si
+    // apre da solo; l'aspetto (trasparenza, luce, densita', texture) lo
+    // ricalcola updateRenderState, che qui si puo' chiamare senza avvitarsi.
+    if (m_emptySceneGated && !isSceneEmpty()) {
+        applyEmptySceneGating();   // sgancia il gate e riaccende Steps
+        updateRenderState();       // rimette il resto secondo le regole normali
+    }
+
     // 1. Controllo Rotazioni 3D/4D
     bool rotActive = isRotationMotionRunning();
 
@@ -13460,6 +13825,11 @@ bool MainWindow::meshScopeUsable() const
 {
     if (!ui->glWidget || !ui->radioBackground) return false;
     if (ui->radioBackground->isChecked()) return false;
+    // Scena vuota (tasto NEW): non ci sono parti da selezionare. Il controllo
+    // sta QUI e non solo in applyEmptySceneGating perche' updateMeshSelectorRange
+    // riabilita i radio All/Mesh per conto suo (~13813) sull'onda di
+    // meshPartsChanged: gaterebbe il gate.
+    if (isSceneEmpty()) return false;
     return ui->glWidget->meshPartCount() > 1;
 }
 

@@ -78,15 +78,36 @@ private slots:
     // richiamato anche dal clic sulla linguetta GIA' attiva ("ricomincia da
     // capo"): unica sede del reset di modalita', mai duplicarne il contenuto.
     void applyModeTabReset(int index);
+    // Il corpo di applyModeTabReset, parametrizzato sulla superficie finale.
+    // loadDefaultSurface = true  -> comportamento storico (toro/sfera a schermo);
+    //                    = false -> SCENA VUOTA: stessa identica pulizia, ma i
+    //                      campi restano vuoti e non si compila/carica nulla
+    //                      (tasto New). La configurazione di MODALITA' (engine
+    //                      mode, label e range di S/Steps) e il reset della VISTA
+    //                      girano in entrambi i casi: senza, la scena vuota
+    //                      resterebbe con slider etichettati e tarati sull'altra
+    //                      modalita'. Unica sede del reset: mai duplicarne il
+    //                      contenuto in un secondo percorso.
+    void resetScene(int index, bool loadDefaultSurface);
     // Un edit dell'utente su un modulo che definisce la scena: alza m_sceneDirty
     // e, se il campo toccato appartiene a un dock diverso da quello che ha
     // prodotto la superficie a schermo, mostra UNA VOLTA l'avviso non bloccante
     // che consiglia di resettare prima. `source` e' il campo editato.
     void noteSceneEdited(QWidget *source = nullptr);
     bool hasUnsavedWork() const;
+    // Toglie l'evidenziazione del preset nel dock Library quando l'utente
+    // riscrive la geometria a mano. No-op durante le scritture programmatiche.
+    void dropSurfaceLibrarySelection();
     // Save / Don't save / Cancel prima di un'azione che scarta il lavoro.
     // false = l'utente ha annullato: il chiamante NON deve procedere.
     bool confirmDiscardUnsavedWork();
+    // true quando il motore non ha niente da disegnare (stato prodotto dal
+    // tasto NEW). Guarda il MOTORE, non i campi della UI: l'utente puo' aver
+    // gia' ricominciato a scrivere senza aver ancora premuto Run.
+    bool isSceneEmpty() const;
+    // Applica (o toglie) il blocco dei controlli di resa sulla scena vuota.
+    // Sede unica: la chiamano updateRenderState e updateMasterButtonState.
+    void applyEmptySceneGating();
     void checkParametricDependency();
     void updateConstraintState();
     void updateConstantsUIState();
@@ -133,6 +154,10 @@ private slots:
     void onStartClicked();
     void onStopClicked();
     void onResetViewClicked();
+    // Tasto NEW della status bar: scena vuota (campi e schermo). Stessa pulizia
+    // del reset di modalita', ma senza superficie di default e senza cambiare
+    // tab. Chiede conferma se c'e' lavoro non salvato.
+    void onNewSceneClicked();
     void onNavTimerTick();
     void onDepartureClicked();
     void onPathTimerTick();
@@ -244,7 +269,22 @@ private:
     // CORE UI COMPONENTS
     // ==========================================================
     Ui::MainWindow *ui;
+    // Campo implicito della scena vuota in Ray Marching: una costante positiva
+    // non viene mai intersecata dal marcher (niente hit, solo sfondo). Non si
+    // puo' usare la stringa vuota: createImplicitFragmentShader la sostituisce
+    // con la sfera di default. Costante condivisa fra chi la SCRIVE (resetScene)
+    // e chi la RICONOSCE (isSceneEmpty): separarle romperebbe il gate in
+    // silenzio.
+    static constexpr const char *kEmptyImplicitField = "1.0";
+
+    // true finche' il blocco "scena vuota" e' applicato ai controlli di resa.
+    // Serve a riaccenderli UNA sola volta quando la superficie torna: senza,
+    // il ramo di riabilitazione girerebbe a ogni giro e scavalcherebbe le
+    // regole normali (wireframe, ray marching, ambito mesh).
+    bool m_emptySceneGated = false;
+
     QPushButton *m_btnStart;
+    QPushButton *m_btnNew;
     QPushButton *m_btnResetView;
     QPushButton *m_btnProjection;
     QPushButton *m_btnRec;

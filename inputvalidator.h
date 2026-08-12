@@ -45,7 +45,16 @@ public:
     static void showShaderCompilationError(QWidget* parent, const QString& title, const QString& errorLog);
     static void showInvalidConstantError(QWidget* parent, const QString& name, const QString& text);
     static void showInvalidStepsError(QWidget* parent, const QString& text);
-    static void showInvalidLimitError(QWidget* parent, const QString& name, const QString& text);
+    // emptyMeansNoLimit distingue i due contesti, che hanno regole OPPOSTE sul
+    // campo vuoto: nei limiti spaziali X/Y/Z del Ray Marching vuoto = nessun
+    // taglio (lecito), nei limiti u/v/w del parametrico il dominio DEVE essere
+    // dichiarato. Lo stesso messaggio li serviva entrambi e consigliava di
+    // lasciare il campo vuoto anche dove il vuoto e' proprio l'errore.
+    static void showInvalidLimitError(QWidget* parent, const QString& name, const QString& text,
+                                      bool emptyMeansNoLimit = true);
+    // Limiti leggibili ma incoerenti (min >= max) su un singolo asse: caso
+    // diverso dal numero illeggibile, e va detto all'utente in modo diverso.
+    static void showLimitOrderError(QWidget* parent, QChar axis);
 
     // Validazione specifica per il dock script (Parametrico)
     static bool validateParametricScriptContext(QWidget* parent, const QString& texCode);

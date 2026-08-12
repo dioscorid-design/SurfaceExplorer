@@ -160,11 +160,31 @@ public:
 
     SurfaceEngine* getEngine() const { return engine.get(); }
 
+    // Campo implicito attualmente compilato nel ray marcher.
+    QString implicitEquation() const { return m_eqImplicitF; }
+
 
     // ==========================================================
     // RENDERING & VISUALS
     // ==========================================================
     void updateSurfaceData();
+    // SCENA VUOTA: svuota la geometria e la sua ombra wireframe, senza
+    // ricalcolare nulla. updateSurfaceData() non va bene qui -- chiama
+    // computeMesh(), che rigenererebbe la griglia parametrica dalle equazioni.
+    // Il wireframe va azzerato INSIEME alla mesh e non prima: e' costruito da
+    // engine (buildWireframe), quindi un buildWireframeGeometry() chiamato
+    // mentre la mesh vecchia e' ancora in pancia -- come fa
+    // resetWireframeDensity() piu' a monte nel reset -- lo ripopola con le
+    // linee della superficie che stiamo buttando via, e a schermo restano.
+    void clearSceneGeometry() {
+        if (engine) engine->clear();
+        m_wireframeIndices.clear();
+        m_wireframeRanges.clear();
+        m_wireframeIndexCount = 0;
+        meshNeedsUpdate = true;
+        wireframeNeedsUpdate = true;
+        update();
+    }
     void resetVisuals();
     void setProjectionMode(int mode);
     // ASPETTO PER-MESH: se una parte e' selezionata con lo spinbox del dock

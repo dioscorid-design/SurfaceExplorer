@@ -972,7 +972,14 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             const auto& indices = engine->getIndices();
 
             if (vertices.empty() || indices.empty()) {
-                qWarning() << "ATTENZIONE: Stai inviando una mesh vuota alla GPU!";
+                // MESH VUOTA = NIENTE DA DISEGNARE. m_indexCount va azzerato:
+                // senza, conserva il conteggio della mesh PRECEDENTE mentre
+                // VBO/IBO contengono ancora i suoi dati, e il draw piu' sotto
+                // (gate `m_indexCount > 0`) ridisegna la superficie vecchia.
+                // Finora era latente perche' ogni percorso produceva subito
+                // un'altra mesh; serve per la scena vuota, che deve poter
+                // disegnare NIENTE di proposito.
+                m_indexCount = 0;
             } else {
                 int vSize = vertices.size() * sizeof(Vertex);
                 int iSize = indices.size() * sizeof(unsigned int);
@@ -994,6 +1001,17 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 m_indexCount = indices.size();
             }
             meshNeedsUpdate = false;
+        }
+
+        // Stesso trattamento del solido: a indici vuoti il ramo di upload non
+        // gira, quindi m_wireframeIndexCount/m_wireframeRanges resterebbero
+        // quelli della mesh precedente e le sue LINEE sopravvivrebbero alla
+        // scena vuota (il ramo wireframe ha un gate suo, non coperto da
+        // m_indexCount).
+        if (wireframeNeedsUpdate && m_wireframeIndices.empty()) {
+            m_wireframeIndexCount = 0;
+            m_wireframeRanges.clear();
+            wireframeNeedsUpdate = false;
         }
 
         if (wireframeNeedsUpdate && !m_wireframeIndices.empty()) {

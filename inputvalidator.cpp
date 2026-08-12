@@ -311,12 +311,38 @@ void InputValidator::showInvalidStepsError(QWidget* parent, const QString& text)
                                   "Please enter a whole number (e.g. 100).").arg(text.trimmed()));
 }
 
-void InputValidator::showInvalidLimitError(QWidget* parent, const QString& name, const QString& text)
+void InputValidator::showInvalidLimitError(QWidget* parent, const QString& name, const QString& text,
+                                           bool emptyMeansNoLimit)
 {
+    const QString trimmed = text.trimmed();
+
+    // Campo VUOTO nel parametrico: non e' un "numero non valido" ma un dominio
+    // non dichiarato. Mostrare la stringa vuota fra virgolette ("") e suggerire
+    // di lasciarla vuota era la coppia peggiore: descriveva come errore di
+    // sintassi cio' che e' un dato mancante, e consigliava di rifare l'errore.
+    if (trimmed.isEmpty() && !emptyMeansNoLimit) {
+        notify(parent, QMessageBox::Critical, "Missing Limit",
+                              QString("The %1 limit is empty.\n\n"
+                                      "Parametric surfaces need an explicit range: enter a number "
+                                      "(e.g. 0, 6.28318) or an expression using the constants.")
+                                  .arg(name));
+        return;
+    }
+
+    const QString tail = emptyMeansNoLimit
+                       ? QStringLiteral("Please enter a number (e.g. -10, 2.5) or leave it empty for no limit.")
+                       : QStringLiteral("Please enter a number (e.g. 0, 6.28318) or an expression using the constants.");
+
     notify(parent, QMessageBox::Critical, "Invalid Limit",
-                          QString("The %1 limit is not a valid number:\n\n    \"%2\"\n\n"
-                                  "Please enter a number (e.g. -10, 2.5) or leave it empty for no limit.")
-                              .arg(name, text.trimmed()));
+                          QString("The %1 limit is not a valid number:\n\n    \"%2\"\n\n%3")
+                              .arg(name, trimmed, tail));
+}
+
+void InputValidator::showLimitOrderError(QWidget* parent, QChar axis)
+{
+    notify(parent, QMessageBox::Critical, "Invalid Limits",
+                          QString("The %1 minimum must be strictly less than the %1 maximum.\n\n"
+                                  "Check the %1 min and %1 max fields.").arg(axis));
 }
 
 bool InputValidator::validateParametricScriptContext(QWidget* parent, const QString& texCode)
@@ -516,15 +542,32 @@ bool InputValidator::validateAndParseLimits(QWidget* parent, const QVector<Limit
     outValues.reserve(fields.size());
 
     bool parseOk = true;
+    // Campo attivo ma VUOTO: va segnalato a parte. parseLimitField lo accetta
+    // (stringa vuota -> ok=true, valore 0.0), quindi arriverebbe a
+    // validateLimits come 0 e finirebbe nel ramo "min >= max" -- l'utente si
+    // vedeva un errore sul confronto dei limiti mentre il problema e' che non
+    // li ha ancora scritti. Sono due situazioni diverse e meritano due messaggi.
+    bool anyEmpty = false;
     for (const auto& f : fields) {
         if (!f.active) {
             outValues.append(0.0f);  // valore segnaposto, non verrà usato
             continue;
         }
+        if (f.edit->text().trimmed().isEmpty()) anyEmpty = true;
         bool ok = false;
         float v = parse(f.edit->text(), &ok);
         outValues.append(v);
         if (!ok) parseOk = false;
+    }
+
+    if (anyEmpty) {
+        notify(parent, QMessageBox::Critical, "Missing Limits",
+                              "The parameter range is not set: one or more min/max fields are empty.\n\n"
+                              "Fill in the limits of the parameters used by your equations "
+                              "(for example u from 0 to 6.28318) and run again.");
+        // NB: nel testo le variabili vanno MINUSCOLE (u, v, w): le maiuscole
+        // U/V/W sono le variabili di composizione, un'altra cosa.
+        return false;
     }
 
     if (!parseOk) {
