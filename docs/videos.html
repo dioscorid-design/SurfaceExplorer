@@ -65,6 +65,37 @@
         .clip p { margin: 0; font-size: 14.5px; }
         .clip .specs { color: var(--muted); font-size: 13px; margin-top: 8px; }
 
+        /* Il video sta in un contenitore posizionato: il badge "guarda in HD"
+           gli va sopra, in basso a destra, senza spostare il layout. */
+        .clip .frame { position: relative; line-height: 0; }
+        .clip .frame .preview-tag {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.62);
+            color: var(--fg);
+            font-size: 11.5px;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+            padding: 3px 9px;
+            border-radius: 3px;
+            line-height: 1.5;
+            pointer-events: none;
+        }
+        .watch-hd {
+            display: inline-block;
+            margin-top: 12px;
+            background: #c4302b;
+            color: #fff;
+            font-size: 14px;
+            font-weight: bold;
+            padding: 8px 16px;
+            border-radius: 4px;
+            text-decoration: none;
+        }
+        .watch-hd:hover { background: #e03a34; text-decoration: none; }
+        .watch-hd .yt { font-size: 12px; opacity: 0.85; font-weight: normal; }
+
         .empty {
             background: var(--panel);
             border: 1px dashed var(--border);
@@ -118,35 +149,72 @@
 
     <!--
         HOW TO ADD A VIDEO
-        1. Compress it for the web first — a 1080p60 export is far too heavy to
-           commit. This is what turned the clip below from 22 MB into 3 MB:
+        ==================
+        The pattern here is a SHORT SILENT PREVIEW that loops on the page, with a
+        button to the full-length version on YouTube. A 5-second 1080p24 preview
+        costs under 1 MB, so it can live in the repository without weighing it
+        down, while the long high-resolution cut is hosted by YouTube for free.
 
-           ffmpeg -i input.mp4 -vf "scale=1280:-2" -c:v libx264 -crf 26 \
-                  -preset slow -movflags +faststart -an output.mp4
+        1. Produce the preview. The helper script does both files at once:
 
-           Then grab a poster frame (shown while the video loads):
+               tools/make-preview.sh input.mp4 3-torus 12
 
-           ffmpeg -i output.mp4 -ss 3 -vframes 1 -q:v 3 output-poster.jpg
+           (arguments: source file, output name, start second — 5 s by default)
 
-        2. Put both files in docs/media/ and copy a <div class="clip"> block.
+           Or by hand:
 
-        Keep each clip under ~5 MB. Anything longer than a minute belongs on
-        YouTube or as a release asset instead — see the note at the bottom.
+               ffmpeg -ss 12 -t 5 -i input.mp4 -vf "scale=1920:-2,fps=24" \
+                      -c:v libx264 -crf 26 -preset slow -movflags +faststart \
+                      -an docs/media/3-torus.mp4
+
+               ffmpeg -i docs/media/3-torus.mp4 -vframes 1 -q:v 3 \
+                      docs/media/3-torus-poster.jpg
+
+        2. Upload the full video to YouTube and copy its URL.
+
+        3. Copy the block below, remove the comment markers, and fill in the
+           file name, the title, the description and the YouTube link.
+
+        Reference sizes measured on a real 30 s 1080p60 export (22 MB):
+            1080p24 crf 26 → 0.95 MB   ← recommended
+            1080p24 crf 30 → 0.63 MB
+             720p24 crf 26 → 0.41 MB
+        Resolution costs little; DURATION is what drives the size. Staying at
+        1080p keeps the geometric detail that makes these renders worth showing.
+
+        ----- TEMPLATE, copy from here -----
+
+        <div class="clip">
+            <div class="frame">
+                <video src="media/NAME.mp4" poster="media/NAME-poster.jpg"
+                       loop muted autoplay playsinline preload="metadata"></video>
+                <span class="preview-tag">Preview &middot; 5 s</span>
+            </div>
+            <div class="meta">
+                <h2>TITLE</h2>
+                <p>One or two sentences on what the surface is and what the camera does.</p>
+                <a class="watch-hd" href="https://youtu.be/VIDEO_ID">
+                    Watch in HD <span class="yt">on YouTube</span>
+                </a>
+                <p class="specs">Preview 1080p &middot; full version 4 min</p>
+            </div>
+        </div>
+
+        ----- to here -----
     -->
 
     <div class="empty">
-        No videos yet. Compress a clip as described in the HTML comment above, drop
-        it into <code>docs/media/</code> and add a <code>&lt;div class="clip"&gt;</code>
-        block here.
+        No videos yet. Follow the instructions in the HTML comment above: a short
+        looping preview goes in <code>docs/media/</code>, and the full version is
+        linked from YouTube.
     </div>
 
     <div class="note">
-        <strong>Longer videos.</strong> Clips on this page are served directly by GitHub
-        Pages, which suits short loops but not long recordings: the whole file is
-        downloaded rather than streamed. A full-length video is better published on
-        YouTube and embedded here, or attached to a
-        <a href="https://github.com/dioscorid-design/SurfaceExplorer/releases">release</a>,
-        where the file does not weigh on the repository.
+        <strong>Why previews.</strong> The clips on this page are short silent loops
+        served directly by GitHub Pages, which suits a few seconds of video but not a
+        long recording: the file is downloaded whole rather than streamed. Each preview
+        links to the full-length, high-resolution version on YouTube, so the page stays
+        light and the complete render is still one click away.
     </div>
 
     <footer>
