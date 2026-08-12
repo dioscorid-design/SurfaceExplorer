@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Gallery &mdash; Surface Explorer</title>
+    <meta name="description" content="Images of surfaces rendered with Surface Explorer: parametric geometries, implicit surfaces, 4D projections and procedural textures.">
+
+    <style>
+        :root {
+            --bg: #1e1e1e;
+            --fg: #d4d4d4;
+            --accent: #33cc33;
+            --link: #569cd6;
+            --blue: #007acc;
+            --panel: #252526;
+            --border: #3a3a3a;
+            --muted: #888;
+        }
+        * { box-sizing: border-box; }
+        body {
+            background-color: var(--bg);
+            color: var(--fg);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0 20px 60px;
+            line-height: 1.6;
+        }
+        .wrap { max-width: 1100px; margin: 0 auto; }
+
+        nav {
+            padding: 18px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 15px;
+        }
+        nav a { color: var(--link); text-decoration: none; margin-right: 18px; }
+        nav a:hover { text-decoration: underline; }
+        nav a.here { color: var(--accent); font-weight: bold; }
+
+        header { text-align: center; padding: 40px 0 10px; }
+        h1 { color: var(--accent); font-size: 30px; margin: 0 0 8px; }
+        header p { color: var(--muted); margin: 0; font-size: 16px; }
+
+        h2 {
+            color: var(--blue);
+            font-size: 20px;
+            margin: 40px 0 4px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 6px;
+        }
+        .section-note { color: var(--muted); font-size: 14.5px; margin: 0 0 18px; }
+
+        .gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 18px;
+        }
+        figure {
+            margin: 0;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        figure img {
+            display: block;
+            width: 100%;
+            height: auto;
+            background: #101010;
+        }
+        figcaption {
+            padding: 11px 14px;
+            font-size: 14px;
+            color: var(--fg);
+        }
+        figcaption .sub { display: block; color: var(--muted); font-size: 13px; }
+
+        .empty {
+            background: var(--panel);
+            border: 1px dashed var(--border);
+            border-radius: 6px;
+            padding: 28px;
+            text-align: center;
+            color: var(--muted);
+            font-size: 15px;
+        }
+        .empty code {
+            background-color: #101010;
+            color: #ce9178;
+            font-family: 'Consolas', 'Courier New', monospace;
+            padding: 1px 5px;
+            border-radius: 3px;
+        }
+
+        a { color: var(--link); }
+        footer {
+            text-align: center;
+            color: var(--muted);
+            font-size: 13px;
+            margin-top: 52px;
+            border-top: 1px solid var(--border);
+            padding-top: 20px;
+        }
+    </style>
+</head>
+<body>
+<div class="wrap">
+
+    <nav>
+        <a href="index.html">Home</a>
+        <a href="gallery.html" class="here">Gallery</a>
+        <a href="videos.html">Videos</a>
+        <a href="documentation.html">User Manual</a>
+        <a href="script_guide.html">Script Guide</a>
+    </nav>
+
+    <header>
+        <h1>Gallery</h1>
+        <p>Surfaces rendered in real time with Surface Explorer</p>
+    </header>
+
+    <!--
+        HOW TO ADD AN IMAGE
+        1. Drop the file into docs/media/
+        2. Copy one <figure> block below, change src, caption and subtitle
+        3. Commit and push: the site rebuilds on its own
+
+        Keep images under ~1 MB each: PNG for flat-shaded surfaces and
+        wireframes, JPEG (quality ~85) for anything with gradients or textures.
+        A width of 1600 px is plenty — the grid never shows them larger.
+    -->
+
+    <h2>Parametric surfaces</h2>
+    <p class="section-note">Equation-driven geometries, including 4D shapes projected down to three dimensions.</p>
+
+    <div class="empty">
+        No images yet. Drop screenshots into <code>docs/media/</code> and add a
+        <code>&lt;figure&gt;</code> block in this file &mdash; the template is in the
+        HTML comment just above.
+    </div>
+
+    <h2>Implicit surfaces</h2>
+    <p class="section-note">Shapes defined by an equation and rendered by ray marching, with procedural displacement and textures.</p>
+
+    <div class="empty">
+        No images yet.
+    </div>
+
+    <h2>Textures</h2>
+    <p class="section-note">Procedural materials written in GLSL and applied per mesh.</p>
+
+    <div class="empty">
+        No images yet.
+    </div>
+
+    <footer>
+        <p>Surface Explorer 4D &mdash; Developed by Gaetano Moschetti &mdash; GNU GPL v3</p>
+        <p>&copy; 2026 Dioscorid. All rights reserved.</p>
+    </footer>
+
+</div>
+</body>
+</html>

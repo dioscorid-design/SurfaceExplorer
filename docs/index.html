@@ -27,6 +27,16 @@
             line-height: 1.6;
         }
         .wrap { max-width: 880px; margin: 0 auto; }
+
+        nav {
+            padding: 18px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 15px;
+        }
+        nav a { color: var(--link); text-decoration: none; margin-right: 18px; }
+        nav a:hover { text-decoration: underline; }
+        nav a.here { color: var(--accent); font-weight: bold; }
+
         header { text-align: center; padding: 48px 0 8px; }
         header img { width: 120px; height: 120px; }
         h1 {
@@ -111,6 +121,14 @@
 <body>
 <div class="wrap">
 
+    <nav>
+        <a href="index.html" class="here">Home</a>
+        <a href="gallery.html">Gallery</a>
+        <a href="videos.html">Videos</a>
+        <a href="documentation.html">User Manual</a>
+        <a href="script_guide.html">Script Guide</a>
+    </nav>
+
     <header>
         <img src="icon.png" alt="Surface Explorer icon">
         <h1>Surface Explorer</h1>
@@ -167,6 +185,18 @@
         <li>
             <a href="script_guide.html">Script Guide</a>
             <span class="desc">&mdash; reference for the scripting language</span>
+        </li>
+    </ul>
+
+    <h2>See it in action</h2>
+    <ul class="docs">
+        <li>
+            <a href="gallery.html">Gallery</a>
+            <span class="desc">&mdash; images of surfaces rendered with the application</span>
+        </li>
+        <li>
+            <a href="videos.html">Videos</a>
+            <span class="desc">&mdash; camera paths, rotations and animated surfaces</span>
         </li>
     </ul>
 

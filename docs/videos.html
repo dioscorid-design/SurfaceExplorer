@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Videos &mdash; Surface Explorer</title>
+    <meta name="description" content="Videos recorded with Surface Explorer: camera paths, 4D rotations, geodesic flows and animated surfaces.">
+
+    <style>
+        :root {
+            --bg: #1e1e1e;
+            --fg: #d4d4d4;
+            --accent: #33cc33;
+            --link: #569cd6;
+            --blue: #007acc;
+            --panel: #252526;
+            --border: #3a3a3a;
+            --muted: #888;
+        }
+        * { box-sizing: border-box; }
+        body {
+            background-color: var(--bg);
+            color: var(--fg);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0 20px 60px;
+            line-height: 1.6;
+        }
+        .wrap { max-width: 1000px; margin: 0 auto; }
+
+        nav {
+            padding: 18px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 15px;
+        }
+        nav a { color: var(--link); text-decoration: none; margin-right: 18px; }
+        nav a:hover { text-decoration: underline; }
+        nav a.here { color: var(--accent); font-weight: bold; }
+
+        header { text-align: center; padding: 40px 0 10px; }
+        h1 { color: var(--accent); font-size: 30px; margin: 0 0 8px; }
+        header p { color: var(--muted); margin: 0; font-size: 16px; }
+
+        .clip {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+            margin: 34px 0;
+        }
+        .clip video {
+            display: block;
+            width: 100%;
+            height: auto;
+            background: #101010;
+        }
+        .clip .meta { padding: 14px 18px 16px; }
+        .clip h2 {
+            color: var(--accent);
+            font-size: 18px;
+            margin: 0 0 6px;
+            border: none;
+            padding: 0;
+        }
+        .clip p { margin: 0; font-size: 14.5px; }
+        .clip .specs { color: var(--muted); font-size: 13px; margin-top: 8px; }
+
+        .empty {
+            background: var(--panel);
+            border: 1px dashed var(--border);
+            border-radius: 6px;
+            padding: 28px;
+            text-align: center;
+            color: var(--muted);
+            font-size: 15px;
+        }
+        code {
+            background-color: #101010;
+            color: #ce9178;
+            font-family: 'Consolas', 'Courier New', monospace;
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-size: 13.5px;
+        }
+        a { color: var(--link); }
+        .note {
+            background: var(--panel);
+            border-left: 3px solid var(--blue);
+            padding: 12px 16px;
+            font-size: 14px;
+            margin: 30px 0 0;
+        }
+        footer {
+            text-align: center;
+            color: var(--muted);
+            font-size: 13px;
+            margin-top: 52px;
+            border-top: 1px solid var(--border);
+            padding-top: 20px;
+        }
+    </style>
+</head>
+<body>
+<div class="wrap">
+
+    <nav>
+        <a href="index.html">Home</a>
+        <a href="gallery.html">Gallery</a>
+        <a href="videos.html" class="here">Videos</a>
+        <a href="documentation.html">User Manual</a>
+        <a href="script_guide.html">Script Guide</a>
+    </nav>
+
+    <header>
+        <h1>Videos</h1>
+        <p>Recorded from the application with the built-in video export</p>
+    </header>
+
+    <!--
+        HOW TO ADD A VIDEO
+        1. Compress it for the web first — a 1080p60 export is far too heavy to
+           commit. This is what turned the clip below from 22 MB into 3 MB:
+
+           ffmpeg -i input.mp4 -vf "scale=1280:-2" -c:v libx264 -crf 26 \
+                  -preset slow -movflags +faststart -an output.mp4
+
+           Then grab a poster frame (shown while the video loads):
+
+           ffmpeg -i output.mp4 -ss 3 -vframes 1 -q:v 3 output-poster.jpg
+
+        2. Put both files in docs/media/ and copy a <div class="clip"> block.
+
+        Keep each clip under ~5 MB. Anything longer than a minute belongs on
+        YouTube or as a release asset instead — see the note at the bottom.
+    -->
+
+    <div class="empty">
+        No videos yet. Compress a clip as described in the HTML comment above, drop
+        it into <code>docs/media/</code> and add a <code>&lt;div class="clip"&gt;</code>
+        block here.
+    </div>
+
+    <div class="note">
+        <strong>Longer videos.</strong> Clips on this page are served directly by GitHub
+        Pages, which suits short loops but not long recordings: the whole file is
+        downloaded rather than streamed. A full-length video is better published on
+        YouTube and embedded here, or attached to a
+        <a href="https://github.com/dioscorid-design/SurfaceExplorer/releases">release</a>,
+        where the file does not weigh on the repository.
+    </div>
+
+    <footer>
+        <p>Surface Explorer 4D &mdash; Developed by Gaetano Moschetti &mdash; GNU GPL v3</p>
+        <p>&copy; 2026 Dioscorid. All rights reserved.</p>
+    </footer>
+
+</div>
+</body>
+</html>
