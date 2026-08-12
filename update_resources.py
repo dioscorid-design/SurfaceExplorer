@@ -34,6 +34,11 @@ STATIC_FILES = [
     "background.png",
     "docs/documentation.html",
     "docs/script_guide.html",
+    # Crediti audio: esiste anche in presets/sounds/ (prefisso /library), ma la
+    # copia qui e' quella linkata da doc_acknowledgments.html. Il link e'
+    # relativo, quindi risolve a qrc:/docs/CREDITS.html nell'app e a
+    # /CREDITS.html sul sito pubblicato: un solo href valido in entrambi.
+    "docs/CREDITS.html",
 ]
 
 # Capitoli del manuale: documentation.html è solo l'indice, il testo sta in una
