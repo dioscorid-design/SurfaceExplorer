@@ -209,8 +209,11 @@
             <strong>To add one:</strong> run
             <code>docs/tools/make-preview.sh &lt;video&gt; &lt;nome&gt; &lt;secondo&gt;</code>
             &mdash; it writes the clip and its poster into <code>docs/media/</code>.
-            Then upload the full video to YouTube, uncomment the template block in
-            this file (see the HTML comment above), fill in name and link, and push.
+            Upload the full video to YouTube, uncomment the template block in this
+            file (see the HTML comment above) and fill in name and link. Then
+            <strong>commit the media files together with this page</strong> and push:
+            GitHub Pages only serves what is committed, so a clip left uncommitted
+            gives a 404. Full instructions in <code>docs/tools/README.md</code>.
         </p>
     </div>
 
