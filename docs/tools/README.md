@@ -55,6 +55,24 @@ there — it survives deletion, and everyone who clones downloads it.
 | original 1080p60 export (22 MB) | **never** — keep it in `presets/renders/`, untracked |
 | full-length video | no — upload to YouTube and link it from the page |
 
+Two guards enforce this, so it does not rest on remembering:
+
+- `presets/renders/` is in `.gitignore`, so the application's raw exports
+  cannot be staged even with `git add -A`.
+- a **pre-commit hook** rejects any commit containing a file over 5 MB, which
+  covers the gap between the two — typically a preview that came out heavier
+  than intended. Nothing is lost when it fires: the files stay on disk and
+  staged, and `git commit --no-verify` goes through anyway when you really mean
+  it.
+
+The hook lives in `.git/hooks/pre-commit`, which git does not track, so **a
+fresh clone starts without it**. Reinstall with:
+
+    cp docs/tools/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+Above that there is GitHub's own limit: pushes carrying a file over 100 MB are
+rejected outright, with a warning between 50 and 100 MB.
+
 ---
 
 ## make-preview.sh
