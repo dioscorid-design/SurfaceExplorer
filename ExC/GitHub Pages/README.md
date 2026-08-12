@@ -17,15 +17,27 @@ Taglia la clip, la porta a 1080p24 con crf 26, toglie l'audio ed estrae il
 poster. Non tocca le pagine ne' git: il blocco HTML va aggiunto a mano
 (il template sta in un commento dentro `videos.html`).
 
-## split_doc.py
+## Le pagine del manuale si modificano a mano
 
-**Non piu' eseguibile.** Generava i 16 `doc_*.html` piu' l'indice a partire da
-un `documentation.html` monolitico con `<section id="...">`. Quel sorgente non
-esiste piu' — lo script ha sovrascritto il proprio input — e non e' mai stato
-committato. Oggi si ferma con "sezione mancante: intro".
+C'era uno `split_doc.py` che generava i 16 `doc_*.html` piu' l'indice da un
+`documentation.html` monolitico con `<section id="...">`. **Rimosso nel commit
+che aggiunge questa riga**: aveva sovrascritto il proprio sorgente con l'indice
+generato, il monolite non era mai stato committato, e rilanciarlo si fermava con
+"sezione mancante: intro". Restava solo una trappola per chi ci fosse ricascato.
 
-Conservato come documentazione del formato e dei vincoli delle pagine. Le
-pagine si modificano a mano.
+Se un giorno servisse rigenerarle, va prima ricostruito il monolite
+concatenando i `doc_*.html` dentro `<section id="...">`; lo script e'
+recuperabile con `git show 78026aa:"ExC/GitHub Pages/split_doc.py"`.
+
+Vincoli da rispettare modificando le pagine: sono servite sia dal sito sia,
+come risorse qrc, dal manuale dentro l'app, dove il visualizzatore e' un
+`QTextBrowser`. Quel motore ignora gran parte del CSS (niente flexbox, niente
+`border-left`): la gerarchia visiva usa bande realizzate con tabelle `bgcolor`,
+`<hr>` e `font-size` inline. Vedi il commento in `mainwindow.cpp:1129`.
+
+L'elenco ordinato dei capitoli e' in `CMakeLists.txt` (`_doc_chapters`) e in
+`update_resources.py` (`DOC_CHAPTERS`), entrambi con una guardia che fa fallire
+il build se una pagina manca dal `.qrc`.
 
 ## Perche' docs/media/ non sta qui
 
