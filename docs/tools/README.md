@@ -1,4 +1,4 @@
-# ExC/GitHub Pages
+# docs/tools
 
 Strumenti per il sito https://dioscorid-design.github.io/SurfaceExplorer/
 
@@ -8,7 +8,7 @@ Qui stanno solo gli **script**. Il sito vero e' `docs/`, nella radice del repo.
 
 Genera l'anteprima video per `docs/videos.html`:
 
-    ./"ExC/GitHub Pages/make-preview.sh" presets/renders/3-torus.mp4 3-torus 12
+    ./docs/tools/make-preview.sh presets/renders/3-torus.mp4 3-torus 12
 
 Argomenti: file sorgente, nome di uscita, secondo iniziale (default 5), durata
 (default 5). Scrive `docs/media/<nome>.mp4` e `docs/media/<nome>-poster.jpg`.
@@ -39,17 +39,24 @@ L'elenco ordinato dei capitoli e' in `CMakeLists.txt` (`_doc_chapters`) e in
 `update_resources.py` (`DOC_CHAPTERS`), entrambi con una guardia che fa fallire
 il build se una pagina manca dal `.qrc`.
 
-## Perche' docs/media/ non sta qui
+## Struttura
 
-GitHub Pages e' configurato su branch `v1`, cartella `/docs`: **tutto e solo
-quello che sta in `docs/` viene pubblicato**. Le immagini e i video devono
-stare li' dentro o il browser non li trova (404) e le pagine si rompono.
+    docs/            il SITO pubblicato
+      *.html         le pagine
+      media/         immagini e anteprime video servite al browser
+      tools/         questi script
 
-Quindi la divisione e':
+GitHub Pages e' configurato su branch `v1`, cartella `/docs`, e in modalita'
+"deploy from a branch" accetta **solo** `/` o `/docs`: nessun altro percorso e'
+ammesso (l'API risponde *"Must be one of the following: /, /docs"*). Per questo
+`docs/` non si puo' rinominare e `media/` non si puo' spostare fuori: il sito
+smetterebbe di essere pubblicato.
 
-    docs/                  il SITO (pagine + media serviti al browser)
-    ExC/GitHub Pages/      gli STRUMENTI che lo producono (non pubblicati)
+Conseguenza di stare dentro `docs/`: **anche questa cartella viene pubblicata**.
+`https://.../SurfaceExplorer/tools/make-preview.sh` e' raggiungibile. Non e' un
+problema — e' uno script gia' pubblico nel repo, senza credenziali — ma va
+saputo: qui dentro non vanno chiavi ne' file privati.
 
 I sorgenti pesanti da cui si ricavano le anteprime (`presets/renders/`) restano
-fuori da entrambe: non sono committati, e non devono esserlo — un export
-1080p60 di 30 s pesa 22 MB e resterebbe per sempre nella storia di git.
+fuori: non sono committati, e non devono esserlo — un export 1080p60 di 30 s
+pesa 22 MB e resterebbe per sempre nella storia di git.
