@@ -1430,11 +1430,36 @@ MainWindow::MainWindow(QWidget *parent)
     if (ui->tabModeSelector->tabBar()) {
         connect(ui->tabModeSelector->tabBar(), &QTabBar::tabBarClicked,
                 this, [this](int index) {
-            if (index < 0 || index != ui->tabModeSelector->currentIndex()) return;
-            // Lavoro non salvato: si chiede prima di buttarlo via. Su Cancel non
-            // si resetta (qui il tab non cambia, quindi basta uscire).
-            if (!confirmDiscardUnsavedWork()) return;
-            applyModeTabReset(index);
+            if (index < 0) return;
+
+            if (index == ui->tabModeSelector->currentIndex()) {
+                // Riclic sulla linguetta attiva = "ricomincia da capo".
+                // Lavoro non salvato: si chiede prima di buttarlo via. Su Cancel
+                // non si resetta (qui il tab non cambia, quindi basta uscire).
+                if (!confirmDiscardUnsavedWork()) return;
+                applyModeTabReset(index);
+                return;
+            }
+
+            // CAMBIO DI MODALITA' VERO. Anche questo distrugge la scena, via
+            // currentChanged -> applyModeTabReset, e finora non chiedeva nulla:
+            // un tocco sulla linguetta sbagliata buttava via il lavoro. La
+            // conferma va CHIESTA QUI, perche' currentChanged scatta a tab gia'
+            // cambiato e da li' non si potrebbe piu' rifiutare.
+            // tabBarClicked non permette di annullare il cambio (Qt lo esegue
+            // subito dopo), quindi su Cancel si lascia cambiare la linguetta e
+            // si dice ad applyModeTabReset di NON resettare, riportando poi il
+            // tab dov'era: la scena resta intatta.
+            if (!confirmDiscardUnsavedWork()) {
+                const int back = ui->tabModeSelector->currentIndex();
+                m_suppressNextModeTabReset = true;
+                QTimer::singleShot(0, this, [this, back]() {
+                    bool b = ui->tabModeSelector->blockSignals(true);
+                    ui->tabModeSelector->setCurrentIndex(back);
+                    ui->tabModeSelector->blockSignals(b);
+                    m_suppressNextModeTabReset = false;
+                });
+            }
         });
     }
 
@@ -3646,6 +3671,12 @@ bool MainWindow::confirmDiscardUnsavedWork()
 // percorso di reset gia' in produzione, e deve restare in una sede sola.
 void MainWindow::applyModeTabReset(int index)
 {
+    // Cambio di modalita' annullato dall'utente nel dialogo del lavoro non
+    // salvato: la linguetta e' gia' cambiata (Qt non permette di fermarla da
+    // tabBarClicked) e sta per tornare indietro da sola, ma la scena non va
+    // toccata. Vedi m_suppressNextModeTabReset.
+    if (m_suppressNextModeTabReset) return;
+
     resetScene(index, /*loadDefaultSurface=*/true);
 }
 
@@ -4249,14 +4280,27 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // cartelle sotto le dita dell'utente: il reset e' un evento singolo.
     // Stessa scelta gia' fatta per il ramo Texture in wireframe
     // (setTextureLibraryGrayed): si chiude entrando, non si riapre uscendo.
+    // ECCEZIONE: il cambio tab automatico di una texture incompatibile arriva
+    // qui per la stessa strada (setCurrentIndex -> applyModeTabReset), ma li'
+    // l'utente non sta scartando niente: sta CARICANDO una texture. Due
+    // differenze, entrambe rette da m_texModeSwitchInProgress:
+    //  - i rami NON si richiudono, o l'albero gli si chiude sotto le dita;
+    //  - il ramo TEXTURE non si deseleziona, perche' l'item evidenziato e'
+    //    proprio quello che si sta caricando (questa funzione gira PRIMA che
+    //    la texture venga applicata, quindi la selezione la si cancellerebbe
+    //    e basta, senza che nessuno la rimetta).
+    // Il treeSurfaces invece si deseleziona anche in quel caso: la superficie
+    // precedente e' stata sostituita dalla default, quindi il suo item non
+    // descrive piu' cio' che si vede.
     // Segnali bloccati: itemClicked ricaricherebbe il preset appena scartato.
     for (QTreeWidget *tree : { ui->treeSurfaces, ui->treeTextures,
                                ui->treeMotions,  ui->treeSounds }) {
         if (!tree) continue;
+        if (m_texModeSwitchInProgress && tree == ui->treeTextures) continue;
         bool b = tree->blockSignals(true);
         tree->clearSelection();
         tree->setCurrentItem(nullptr);
-        tree->collapseAll();
+        if (!m_texModeSwitchInProgress) tree->collapseAll();
         tree->blockSignals(b);
     }
 }
@@ -5887,8 +5931,36 @@ void MainWindow::handleTextureSelection(int index)
     bool modeSwitched = false;
 
     if (texIsImplicit != currentIsImplicit) {
-        // A. Cambia automaticamente il pannello (Tab)
-        ui->tabModeSelector->setCurrentIndex(texIsImplicit ? 1 : 0);
+        // A0. Questa texture non e' applicabile alla superficie corrente: per
+        // mostrarla si cambia modalita', e il cambio DISTRUGGE la scena (il
+        // setCurrentIndex qui sotto fa scattare applyModeTabReset). E' l'unico
+        // percorso in cui l'utente perde il lavoro senza averlo chiesto --
+        // clicca una texture, non un reset -- quindi qui si chiede conferma.
+        // Va fatto PRIMA di toccare qualunque cosa: currentChanged scatta a tab
+        // gia' cambiato e da li' non si potrebbe piu' dire di no.
+        if (!confirmDiscardUnsavedWork()) {
+            // Annullato: la scena resta com'era, ma nell'albero e' rimasto
+            // evidenziato l'item appena cliccato (la selezione la fa il click,
+            // prima di arrivare qui). Si rimette il focus sulla texture
+            // realmente in vigore, o si deseleziona se non ce n'e' nessuna.
+            syncTextureTreeSelection();
+            return;
+        }
+
+        // A. Cambia automaticamente il pannello (Tab).
+        // Il setCurrentIndex fa scattare applyModeTabReset -> resetScene, che
+        // fra le altre cose RICHIUDE i rami della Library. Li' e' voluto (si
+        // sta scartando una superficie), qui no: l'utente ha appena cliccato
+        // una texture e vedrebbe l'albero chiudersi sotto le dita, perdendo
+        // l'evidenziazione dell'item scelto. Il flag lo segnala a resetScene.
+        {
+            m_texModeSwitchInProgress = true;
+            struct TexSwitchGuard {
+                MainWindow *w;
+                ~TexSwitchGuard() { w->m_texModeSwitchInProgress = false; }
+            } texSwitchGuard{this};
+            ui->tabModeSelector->setCurrentIndex(texIsImplicit ? 1 : 0);
+        }
 
         // B. Imposta una Superficie di Default sicura e azzera il resto.
         // I setPlainText/clear qui sotto NON devono emettere textChanged: quei
