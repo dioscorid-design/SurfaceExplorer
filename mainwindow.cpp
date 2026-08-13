@@ -6648,6 +6648,29 @@ void MainWindow::onStartClicked()
     // ==========================================================
     ui->glWidget->setFocus();
 
+    // --- VALIDAZIONE EQUAZIONI PARAMETRICHE ---
+    // Servono almeno 3 dei 4 campi X/Y/Z/P (vedi hasParametricEquationInput).
+    // Il tasto Run del dock e' gia' spento in questo caso, ma il master START
+    // non si disabilita mai: senza questo controllo costruiva una superficie
+    // degenere sui campi rimasti da quella precedente, senza dire perche'.
+    // Si controlla solo il ramo PARAMETRICO e solo se la superficie non viene
+    // da uno script (che i campi X/Y/Z/P non li usa affatto) ne' da una
+    // metrica; il ramo Ray Marching ha la sua equazione in lineEquation.
+    {
+        const bool isParametricTab = (ui->tabModeSelector->currentIndex() == 0);
+        const bool fromScript = !m_surfaceScriptText.trimmed().isEmpty()
+                             && m_surfaceOrigin != OriginBoth;
+        if (isParametricTab && !fromScript && !m_populatingFields
+            && !hasParametricEquationInput()) {
+            if (!m_constantPopupActive) {
+                m_constantPopupActive = true;
+                InputValidator::showIncompleteEquationsError(this);
+                m_constantPopupActive = false;
+            }
+            return;
+        }
+    }
+
     // --- VALIDAZIONE COSTANTI (parametriche e implicite) ---
     if (m_constantPopupActive)
             return;
@@ -7924,6 +7947,26 @@ void MainWindow::applyPath4DCameraAt(float t)
 
     // 5. Invio finale
     ui->glWidget->setCameraFrom4DVectors(rotPos, rotTarget, rotUp);
+}
+
+// Equazioni parametriche sufficienti a definire una superficie: almeno TRE dei
+// quattro campi X/Y/Z/P non vuoti. Stessa idea della soglia >=2 di
+// hasPath4DInput, tarata sui dati: fra le superfici parametriche in libreria
+// nessuna ha 1 o 2 campi pieni -- sono 4 campi (la gran parte) o 3 (P vuoto,
+// che e' legittimo: le superfici puramente 3D non usano la quarta coordinata).
+// Con meno di tre non c'e' una superficie da disegnare, e premere Run
+// costruiva una forma degenere sui campi rimasti dalla superficie precedente.
+// NB: le superfici da SCRIPT hanno tutti e quattro i campi vuoti e non passano
+// di qui -- il tasto Run parametrico e' gia' spento per loro
+// (surfaceFromScript in updateMasterButtonState).
+bool MainWindow::hasParametricEquationInput() const
+{
+    int filled = 0;
+    if (ui->lineX && !ui->lineX->toPlainText().trimmed().isEmpty()) filled++;
+    if (ui->lineY && !ui->lineY->toPlainText().trimmed().isEmpty()) filled++;
+    if (ui->lineZ && !ui->lineZ->toPlainText().trimmed().isEmpty()) filled++;
+    if (ui->lineP && !ui->lineP->toPlainText().trimmed().isEmpty()) filled++;
+    return filled >= 3;
 }
 
 bool MainWindow::hasPath4DInput() const
@@ -13541,7 +13584,14 @@ void MainWindow::updateMasterButtonState()
             // contiene 't' (t-motion) il Run da fermo NON è un no-op, serve a
             // RIAVVIARE l'animazione del modulo (es. dopo un master STOP), quindi
             // resta abilitato. Sempre disabilitato se la superficie è da script.
-            ui->btnRunParametric->setEnabled(!surfaceFromScript &&
+            // Servono almeno 3 dei 4 campi X/Y/Z/P: con meno non c'e' una
+            // superficie da costruire e il Run produrrebbe una forma degenere
+            // sui campi rimasti da quella precedente. Stessa protezione che il
+            // tasto DEPARTURE ha da sempre sui campi dei path (hasPath4DInput).
+            // Non si applica a moto in corso (li' il tasto e' "Stop") ne' alle
+            // superfici da script, gia' escluse da surfaceFromScript.
+            const bool eqInputOk = eqModuleMoving || hasParametricEquationInput();
+            ui->btnRunParametric->setEnabled(!surfaceFromScript && eqInputOk &&
                                              (eqModuleMoving || !m_parametricApplied || geomHasTime));
         }
         if (ui->btnImplicit) {

@@ -345,6 +345,15 @@ void InputValidator::showLimitOrderError(QWidget* parent, QChar axis)
                                   "Check the %1 min and %1 max fields.").arg(axis));
 }
 
+void InputValidator::showIncompleteEquationsError(QWidget* parent)
+{
+    notify(parent, QMessageBox::Warning, "Incomplete Equations",
+                          "A parametric surface needs at least three of the four "
+                          "equation fields (X, Y, Z, P).\n\n"
+                          "Fill in the missing ones, then press Run. Leaving P empty "
+                          "is fine for purely 3D surfaces.");
+}
+
 bool InputValidator::validateParametricScriptContext(QWidget* parent, const QString& texCode)
 {
     QString cleanCode = texCode;

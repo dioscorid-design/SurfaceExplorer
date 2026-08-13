@@ -55,6 +55,11 @@ public:
     // Limiti leggibili ma incoerenti (min >= max) su un singolo asse: caso
     // diverso dal numero illeggibile, e va detto all'utente in modo diverso.
     static void showLimitOrderError(QWidget* parent, QChar axis);
+    // Meno di 3 campi fra X/Y/Z/P compilati al Run/START parametrico: non c'e'
+    // una superficie da costruire. Il Run del dock si limita a restare spento,
+    // ma il master START non si disabilita mai e deve spiegare perche' non fa
+    // nulla, invece di disegnare una forma degenere.
+    static void showIncompleteEquationsError(QWidget* parent);
 
     // Validazione specifica per il dock script (Parametrico)
     static bool validateParametricScriptContext(QWidget* parent, const QString& texCode);

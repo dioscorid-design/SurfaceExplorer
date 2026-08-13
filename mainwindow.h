@@ -196,6 +196,10 @@ private slots:
     // l'altro path gira). Chiamato agli avvii/stop e a ogni modifica dei
     // campi path (via checkPathFields/checkPath3DFields).
     void updateViewButtonsEnabled();
+    // >=3 dei 4 campi X/Y/Z/P compilati: sotto quella soglia non c'e' una
+    // superficie da costruire. Gate del Run parametrico e del master START,
+    // omologo di hasPath4DInput per il tasto Departure.
+    bool hasParametricEquationInput() const;
     bool hasPath4DInput() const;   // >=2 campi path 4D compilati (gate Departure/View 4D)
     bool hasPath3DInput() const;   // >=2 campi path 3D compilati (gate Departure/View 3D)
     // Moto GO (rotazioni) davvero in corsa: timer attivo E tasto non su "GO".
