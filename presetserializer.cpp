@@ -639,6 +639,17 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         root["camera3D"] = camera3D;
     }
 
+    // 3. Suggerimento in sovrimpressione ("Slider A: ...", vedi showSceneHint).
+    // Non ha UI di editing, quindi si riscrive quello della superficie
+    // caricata: senza questo, ogni Save su un preset che ne aveva uno lo
+    // perdeva, perche' il load lo legge (LibraryManager) ma il save lo
+    // scartava. Stessa forma di saveMotion: chiave assente se non c'e' nulla
+    // da dire, cosi' i preset che non lo usano non cambiano di un byte.
+    if (!m_mainWindow->m_currentHintText.isEmpty()) {
+        root["hintText"] = m_mainWindow->m_currentHintText;
+        root["hintSeconds"] = (double)m_mainWindow->m_currentHintSeconds;
+    }
+
     QDir().mkpath(QFileInfo(fileName).absolutePath()); // 1. Crea la cartella se manca
     QFile file(fileName);
 
