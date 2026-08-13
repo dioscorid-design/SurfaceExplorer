@@ -1206,11 +1206,20 @@ MainWindow::MainWindow(QWidget *parent)
     m_btnStart->setFont(fontBold);
     connect(m_btnStart, &QPushButton::clicked, this, &MainWindow::onStartClicked);
 
-    m_btnNew = new QPushButton("NEW", this);
-    m_btnNew->setFlat(true);
-    m_btnNew->setFont(fontBold);
-    m_btnNew->setToolTip("Empty scene: clears every field and the view.\n"
-                         "Unlike re-clicking the active tab, it loads no default surface.");
+    // NEW vive nel dock EQUATIONS, non nella status bar: undici tasti in fila
+    // non ci stavano sui telefoni e l'ultimo (Library) finiva fuori schermo.
+    // Sta su una riga propria in fondo al pannello, sotto le costanti e il
+    // campo Steps, quindi e' comune a Parametric e Implicit - come la scena
+    // vuota che produce, che non appartiene a nessuna delle due modalita'.
+    // Definito nel .ui come btnNewScene (posizione, testo, tooltip, flat e
+    // sizePolicy Expanding, che gli da' la larghezza piena del dock).
+    // Non si puo' mettere sotto la sola fila di linguette restando comune
+    // alle due: tutto cio' che sta li' dentro appartiene alla singola PAGINA
+    // del QTabWidget, quindi servirebbe un tasto per tab. Scartato anche
+    // setCornerWidget (angolo destro della barra linguette): per liberare
+    // l'angolo servivano linguette piu' strette, e restava un vuoto
+    // antiestetico fra "Implicit" e il tasto.
+    m_btnNew = ui->btnNewScene;
     connect(m_btnNew, &QPushButton::clicked, this, &MainWindow::onNewSceneClicked);
 
     m_btnResetView = new QPushButton("RESET", this);
@@ -1239,12 +1248,16 @@ MainWindow::MainWindow(QWidget *parent)
     m_renderProgress->setFixedWidth(150);
 
     ui->statusbar->addWidget(m_btnStart);
-    ui->statusbar->addWidget(m_btnNew);
     ui->statusbar->addWidget(m_btnResetView);
     ui->statusbar->addWidget(m_btnProjection);
     ui->statusbar->addWidget(m_btnRec);
     ui->statusbar->addWidget(m_renderProgress);
-    ui->statusbar->addWidget(m_statusLabel, 1);
+    // m_statusLabel SENZA fattore di stretch: con stretch 1 rivendicava tutto
+    // lo spazio residuo della barra, e i tasti dock (permanent widget, che il
+    // layout non comprime) venivano spinti fuori schermo sui telefoni. Il
+    // label non mostra mai testo: e' solo il bersaglio di clear() e
+    // setStyleSheet(), quindi non gli serve larghezza propria.
+    ui->statusbar->addWidget(m_statusLabel);
 
     // Lambda helper apertura dock
     auto closeAllDocks = [this](){

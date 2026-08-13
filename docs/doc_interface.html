@@ -36,7 +36,6 @@
             <p>Alongside the dock buttons, the status bar carries the commands that act on the whole scene:</p>
             <ul>
                 <li><strong>START / STOP:</strong> master switch for every animated module (geometry, textures, background, sound, camera paths).</li>
-                <li><strong>NEW:</strong> empties the scene completely — see below.</li>
                 <li><strong>RESET:</strong> restores the camera to its default framing. It does not touch the surface.</li>
                 <li><strong>Projection:</strong> cycles between Perspective, Orthogonal and Wide.</li>
                 <li><strong>REC:</strong> starts and stops video recording.</li>
@@ -45,7 +44,7 @@
             <h3>Starting over: NEW vs. the mode tabs</h3>
             <p>There are two ways to clear your work, and they do different things.</p>
             <ul>
-                <li><strong>NEW</strong> empties <em>everything</em>: all fields, the script editor, and the viewport, which goes black. No surface is loaded in its place. It stays in the mode you are already in, and the controls that act on a surface (render mode, colors, transparency, light, resolution, mesh selector) are greyed out until you build something. Only the <strong>background</strong> colour and texture stay available, since the background exists even without a surface. If you have unsaved work, NEW asks before discarding it.</li>
+                <li><strong>NEW</strong>, at the bottom of the <strong>Equations</strong> dock below the constants and the Steps field, empties <em>everything</em>: all fields, the script editor, and the viewport, which goes black. No surface is loaded in its place. It stays in the mode you are already in, and the controls that act on a surface (render mode, colors, transparency, light, resolution, mesh selector) are greyed out until you build something. Only the <strong>background</strong> colour and texture stay available, since the background exists even without a surface. If you have unsaved work, NEW asks before discarding it.</li>
                 <li><strong>Clicking the tab of the mode you are already in</strong> (<strong>Parametric</strong> or <strong>Implicit</strong>) also clears everything, but then <em>restores the default surface</em> of that mode — the torus in Parametric, the sphere in Ray Marching. That is its only purpose: to put a known, working surface back on screen.</li>
             </ul>
             <div class="note">
