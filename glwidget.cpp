@@ -1431,6 +1431,9 @@ void GLWidget::wheelEvent(QWheelEvent *event)
 
     event->accept();
 
+    // Zoom col mouse: e' l'utente che cambia la vista.
+    emit userMovedView();
+
     update();
 }
 
@@ -1445,9 +1448,15 @@ bool GLWidget::event(QEvent *e)
 }
 
 void GLWidget::mouseReleaseEvent(QMouseEvent *event) {
+    // Trascinamento vero (non un clic secco): l'utente ha ruotato/spostato la
+    // vista a mano. Letto PRIMA di handleMouseRelease, che riarma il flag.
+    const bool dragged = m_inputHandler && !m_inputHandler->wasClickWithoutDrag();
+
     if (m_inputHandler) {
         m_inputHandler->handleMouseRelease(event);
     }
+
+    if (dragged) emit userMovedView();
 
     // Usiamo QRhiWidget invece di QOpenGLWidget
     return QRhiWidget::mouseReleaseEvent(event);

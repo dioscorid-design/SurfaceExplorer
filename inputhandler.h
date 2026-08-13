@@ -22,6 +22,10 @@ public:
     void handleMouseRelease(QMouseEvent* event);
     void handleWheel(QWheelEvent* event);
     bool handleTouch(QEvent* event);
+    // true = fra press e release il mouse non si e' mosso (clic secco), quindi
+    // l'utente NON ha trascinato la vista. Usato da GLWidget per distinguere il
+    // trascinamento dal semplice clic prima di segnalare userMovedView().
+    bool wasClickWithoutDrag() const { return m_isClickCandidate; }
 
 private:
     GLWidget* m_glWidget;

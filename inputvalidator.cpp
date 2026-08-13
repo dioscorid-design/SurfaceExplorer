@@ -5,6 +5,7 @@
 
 static bool geodesicWarningDisabledForCurrentLoad = false;
 bool InputValidator::s_boxActive = false;
+quint64 InputValidator::s_errorCount = 0;
 
 bool InputValidator::validateImplicitEquation(QWidget* parent, const QString& rawEq)
 {
@@ -707,6 +708,10 @@ void InputValidator::showNegativeConstantError(QWidget* parent, const QString& n
 void InputValidator::notify(QWidget* parent, QMessageBox::Icon icon,
                             const QString& title, const QString& text)
 {
+    // Solo gli errori veri: un Information e' un avviso, non un fallimento.
+    if (icon == QMessageBox::Critical || icon == QMessageBox::Warning)
+        ++s_errorCount;
+
 #if defined(Q_OS_ANDROID)
     // Evita di impilare due modali (è proprio questo che fa crashare Android)
     if (s_boxActive) return;

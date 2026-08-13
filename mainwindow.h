@@ -101,6 +101,16 @@ private slots:
     // Save / Don't save / Cancel prima di un'azione che scarta il lavoro.
     // false = l'utente ha annullato: il chiamante NON deve procedere.
     bool confirmDiscardUnsavedWork();
+    // Unico punto da cui si mostra un errore di compilazione all'utente.
+    void showShaderError(const QString &title, const QString &errorLog);
+    // Lavoro dell'utente sui controlli che NON passano dai campi testuali:
+    // aspetto (Renderer), rotazioni 3D/4D, path e camera. A differenza delle
+    // equazioni questi agiscono subito sulla scena -- non c'e' un Run da
+    // attendere -- quindi marcano lavoro gia' applicato e da proteggere.
+    void noteSceneControlUsed();
+    // Collega in blocco i controlli dei dock a noteSceneControlUsed().
+    void wireSceneControlsDirtyTracking();
+
     // true quando il motore non ha niente da disegnare (stato prodotto dal
     // tasto NEW). Guarda il MOTORE, non i campi della UI: l'utente puo' aver
     // gia' ricominciato a scrivere senza aver ancora premuto Run.
@@ -611,6 +621,45 @@ private:
     // Distinto da isPresetActive, che dice "a schermo c'e' un preset intatto" ed
     // e' usato altrove (salvataggio) con semantica sua.
     bool m_sceneDirty = false;
+
+    // UN RUN E' RIUSCITO DA QUANDO LA SCENA E' PULITA. E' la condizione che dice
+    // se a schermo c'e' lavoro dell'utente: solo un Run riuscito porta i campi
+    // sulla scena. Alzato in coda a onStartClicked quando il Run non ha prodotto
+    // errori, azzerato dove la scena torna pulita (reset di modalita', load di
+    // preset/record), insieme a m_sceneDirty.
+    //
+    // Governa l'avviso "vuoi salvare?": si chiede solo se la scena e' sporca E
+    // un Run e' riuscito. Cosi' spariscono i due casi in cui l'avviso offriva di
+    // salvare il nulla -- equazioni che danno errore, e testo scritto e mai
+    // eseguito -- senza toccare il lavoro valido.
+    //
+    // Volutamente PER-SCENA e non per-campo: la versione precedente
+    // (m_editsNeverRun, "c'e' un edit pendente") nascondeva anche il lavoro gia'
+    // applicato appena si iniziava a scrivere in un altro campo.
+    bool m_runEverSucceeded = false;
+
+    // ULTIMO ITEM DELLA LIBRARY EFFETTIVAMENTE CARICATO (superficie o record).
+    // Serve a rimettere il focus dov'era quando l'utente ANNULLA il caricamento
+    // di un preset: senza, l'albero resta deselezionato e non indica piu' nulla.
+    // Puo' vivere in un albero diverso da quello cliccato (una superficie mentre
+    // si clicca un record), per questo si risale a `previous->treeWidget()`.
+    // Azzerato dove gli alberi vengono ricostruiti (refreshLibrary): non essendo
+    // QTreeWidgetItem un QObject, nessun QPointer lo azzera da solo e il
+    // puntatore resterebbe pendente.
+    QTreeWidgetItem *m_lastLoadedLibraryItem = nullptr;
+
+    // Marca m_runEverSucceeded all'uscita dello scope, se durante la sua vita
+    // nessun errore e' stato mostrato all'utente. Da istanziare in cima a OGNI
+    // funzione che applica la superficie (onStartClicked, onRunCurrentScript):
+    // funziona qualunque sia l'uscita presa, e quelle funzioni ne hanno decine.
+    // NB: dichiarata fuori dalle sezioni slot -- moc rifiuta le struct li'.
+    struct RunOutcomeGuard {
+        MainWindow *w;
+        quint64 before;
+        bool armed;
+        explicit RunOutcomeGuard(MainWindow *mw, bool arm = true);
+        ~RunOutcomeGuard();
+    };
 
     // QUALE DOCK DEFINISCE LA SUPERFICIE A SCHERMO. Stato ESPLICITO, non
     // dedotto: la versione precedente lo indovinava a ogni battitura guardando

@@ -613,6 +613,11 @@ signals:
     // eccessivo. MainWindow lo intercetta per avvisare l'utente. Vedi la logica
     // di misura intervallo-frame in render().
     void performanceWarning();
+    // L'UTENTE ha mosso la scena col mouse: trascinamento (rilascio) o rotella.
+    // Distinto da rotationChanged(), che viene emesso a ogni frame anche dal moto
+    // AUTOMATICO (advanceRotationsBy) e quindi non distingue chi ha mosso cosa.
+    // MainWindow lo usa per marcare il lavoro non salvato.
+    void userMovedView();
 
 protected:
     void initialize(QRhiCommandBuffer *cb) override;

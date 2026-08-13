@@ -30,6 +30,7 @@
 #include <QTreeWidgetItem>
 #include <QButtonGroup>
 #include <QAbstractButton>
+#include <QSlider>
 #include <QStandardPaths>
 #include <QPlainTextEdit>
 #include <QScrollArea>
@@ -3539,6 +3540,10 @@ MainWindow::MainWindow(QWidget *parent)
     // All'avvio a schermo c'e' la superficie di default (toro/sfera): i campi
     // sono pieni ma non sono lavoro dell'utente, come dopo un reset.
     m_surfaceOrigin = OriginDefault;
+    // Tracciamento del lavoro sui controlli dei dock (Renderer, 3D, 4D).
+    // PRIMA di m_uiReady: i segnali emessi durante il setup trovano la guardia
+    // di noteSceneControlUsed ancora chiusa e non sporcano la scena.
+    wireSceneControlsDirtyTracking();
     m_uiReady = true;   // sblocca updateMasterButtonState: la UI è completa
     updateMasterButtonState();
 }
@@ -3625,12 +3630,198 @@ void MainWindow::dropSurfaceLibrarySelection()
     ui->treeSurfaces->clearSelection();
     ui->treeSurfaces->setCurrentItem(nullptr);
     ui->treeSurfaces->blockSignals(b);
+
+    // Il legame col preset e' rotto: dimenticarlo, o annullando il caricamento
+    // di un altro preset lo si rimetterebbe in evidenza (vedi
+    // onExampleItemClicked), indicando una superficie che non c'e' piu'.
+    m_lastLoadedLibraryItem = nullptr;
 }
 
 // L'utente ha lavoro non salvato da proteggere.
+//
+// Si protegge il lavoro che E' ANDATO A SCHERMO, non il testo nei campi. La
+// domanda decisiva e' quindi "un Run e' mai riuscito da quando la scena e'
+// pulita?": se si', a schermo c'e' roba dell'utente e va difesa -- anche se in
+// quel momento ci sono edit non ancora eseguiti, perche' altrimenti un edit
+// pendente nasconderebbe tutto il lavoro gia' applicato (regressione: X
+// eseguito + Y in scrittura -> nessun avviso, X perso).
+//
+// Il solo caso in cui NON c'e' nulla da difendere e' quindi: scena sporca ma
+// nessun Run mai riuscito. Copre entrambi i casi segnalati -- equazioni che
+// danno errore (il Run fallisce, niente va a schermo) e testo scritto e mai
+// eseguito -- senza sacrificare il lavoro valido.
+//
+// NB: cio' che non passa da noteSceneEdited (colori, slider, rotazioni, path)
+// non alza m_sceneDirty e non e' mai stato protetto, ne' prima ne' ora.
 bool MainWindow::hasUnsavedWork() const
 {
-    return m_sceneDirty;
+    if (!m_sceneDirty)   return false;
+    return m_runEverSucceeded;
+}
+
+// UNICO punto da cui si mostra un errore di compilazione all'utente (~18
+// chiamanti). L'esito del Run NON si marca qui: lo deduce RunOutcomeGuard dal
+// contatore di InputValidator, che intercetta anche gli errori dei validatori
+// -- i quali fermano l'equazione prima di compilare e non passerebbero mai da
+// questa funzione.
+void MainWindow::showShaderError(const QString &title, const QString &errorLog)
+{
+    InputValidator::showShaderCompilationError(this, title, errorLog);
+}
+
+// Lavoro sui controlli dei dock (Renderer, 3D, 4D): aspetto, rotazioni, path,
+// camera. Questi agiscono SUBITO sulla scena, senza passare da un Run: cio' che
+// si vede e' gia' il risultato, quindi -- a differenza del testo nei campi --
+// e' lavoro applicato e va protetto dall'avviso "vuoi salvare?".
+// Percio' alza anche m_runEverSucceeded, che significa "a schermo c'e' roba
+// dell'utente": senza, muovere solo gli slider senza mai premere Run non
+// verrebbe difeso.
+void MainWindow::noteSceneControlUsed()
+{
+    // Stesse guardie di noteSceneEdited: le scritture programmatiche del boot,
+    // del load di un preset e del reset non sono lavoro dell'utente.
+    if (!m_uiReady || m_populatingFields) return;
+
+    m_sceneDirty       = true;
+    m_runEverSucceeded = true;
+}
+
+// Collega in blocco i controlli dei dock. In un punto solo, e per elenco di
+// widget, perche' modificare a mano le ~40 connect esistenti significherebbe
+// dimenticarne qualcuna e sporcare lambda che fanno altro.
+// Criterio (scelto con l'utente): gli slider marcano al RILASCIO, non a ogni
+// valueChanged -- durante il trascinamento arrivano centinaia di segnali, e un
+// tocco accidentale non deve sporcare la scena per sempre.
+void MainWindow::wireSceneControlsDirtyTracking()
+{
+    const auto mark = [this]() { noteSceneControlUsed(); };
+
+    // --- DOCK RENDERER: aspetto, tutto salvato nel preset ---
+    const QList<QSlider*> sliders = {
+        ui->sliderR, ui->sliderG, ui->sliderB,   // colore superficie
+        ui->alphaSlider,                          // trasparenza
+        ui->lightSlider,                          // intensita' luce
+        ui->fovSliderMain,                        // FOV
+        ui->speed3DSlider, ui->speed4DSlider,     // velocita' path 3D/4D
+        // Risoluzione: UN solo slider per due significati -- Steps nel
+        // parametrico, Ray/Relax Steps nell'implicito (vedi il ramo su
+        // tabModeSelector in onStepSliderChanged). Cambia la geometria a
+        // schermo ed e' persistito nel preset.
+        ui->stepSlider
+    };
+    for (QSlider *s : sliders) {
+        if (s) connect(s, &QSlider::sliderReleased, this, mark);
+    }
+
+    // Modalita' di resa e wireframe: sono toggle, marcano al cambio.
+    const QList<QAbstractButton*> toggles = {
+        ui->radioBasic, ui->radioPhong, ui->radioWF,
+        ui->radioShell, ui->radioSolid
+    };
+    for (QAbstractButton *b : toggles) {
+        if (b) connect(b, &QAbstractButton::toggled, this, [this](bool on) {
+            if (on) noteSceneControlUsed();   // solo chi si accende, non chi si spegne
+        });
+    }
+
+    // --- DOCK 3D e 4D: rotazioni, traslazioni, densita' wireframe ---
+    // Tasti a scatto: ogni pressione sposta la scena, quindi marcano al clic.
+    const QList<QAbstractButton*> steppers = {
+        // rotazioni oggetto 3D
+        ui->btnSpinPlus,       ui->btnSpinMinus,
+        ui->btnPrecessionPlus, ui->btnPrecessionMinus,
+        ui->btnNutationPlus,   ui->btnNutationMinus,
+        ui->btnRollLeft,       ui->btnRollRight,
+        // rotazioni 4D
+        ui->btnOmegaPlus, ui->btnOmegaMinus, ui->btnOmegaAhead, ui->btnOmegaRear,
+        ui->btnPhiPlus,   ui->btnPhiMinus,   ui->btnPhiAhead,   ui->btnPhiRear,
+        ui->btnPsiPlus,   ui->btnPsiMinus,   ui->btnPsiAhead,   ui->btnPsiRear,
+        // traslazioni / camera
+        ui->btnXPlus, ui->btnXMinus, ui->btnYPlus, ui->btnYMinus,
+        ui->btnZPlus, ui->btnZMinus, ui->btnPPlus, ui->btnPMinus,
+        ui->btnUp,    ui->btnDown,   ui->btnLeft,  ui->btnRight,
+        ui->btnForward, ui->btnBackward,
+        // densita' wireframe (persistita nei preset)
+        ui->btnWireUPlus, ui->btnWireUMinus,
+        ui->btnWireVPlus, ui->btnWireVMinus
+    };
+    for (QAbstractButton *b : steppers) {
+        if (b) connect(b, &QAbstractButton::clicked, this, mark);
+    }
+
+    // Tasti che cambiano la scena con un clic: luce 4D (Directional/Observer/
+    // Slice, salvata nel preset) e partenza dei path.
+    const QList<QAbstractButton*> sceneButtons = {
+        ui->btnLightMode,
+        ui->btnDeparture, ui->btnDeparture3D
+    };
+    for (QAbstractButton *b : sceneButtons) {
+        if (b) connect(b, &QAbstractButton::clicked, this, mark);
+    }
+
+    // --- PATH 3D e 4D: le curve si scrivono in campi di testo dedicati ---
+    // Non passano da noteSceneEdited, che copre solo i campi della SUPERFICIE.
+    // textEdited e non textChanged: scatta solo per la digitazione dell'utente,
+    // mai per i riempimenti programmatici del load (guardia in piu' oltre a
+    // m_populatingFields).
+    const QList<QLineEdit*> textFields = {
+        ui->lineX_P, ui->lineY_P, ui->lineZ_P, ui->lineP_P,          // path 4D
+        ui->lineAlpha_P, ui->lineBeta_P, ui->lineGamma_P,            // angoli 4D
+        ui->lineX_P3D, ui->lineY_P3D, ui->lineZ_P3D, ui->lineR_P3D,  // path 3D
+        ui->lineSteps                                                // Steps digitato
+    };
+    for (QLineEdit *e : textFields) {
+        if (e) connect(e, &QLineEdit::textEdited, this, mark);
+    }
+
+    // Texture: la checkbox di attivazione e la scelta del colore bersaglio.
+    // Il CODICE della texture (lineTexture/lineVariations) passa gia' da
+    // noteSceneEdited via markRmTextureEdited.
+    if (ui->chkBoxTexture)
+        connect(ui->chkBoxTexture, &QAbstractButton::toggled, this, mark);
+
+    // --- COSTANTI A..F e S ---
+    // A..F sporcano la scena di rimbalzo, perche' compaiono nelle equazioni; S
+    // no: in Ray Marching e' "Step Relax" (lblS rietichettato, vedi
+    // applyModeDependentStepUI) e non tocca alcun campo testuale. Collegati
+    // tutti e sette per uniformita' -- al rilascio, come gli altri slider.
+    const QList<QSlider*> constantSliders = {
+        ui->aSlider, ui->bSlider, ui->cSlider,
+        ui->dSlider, ui->eSlider, ui->fSlider,
+        ui->sSlider
+    };
+    for (QSlider *s : constantSliders) {
+        if (s) connect(s, &QSlider::sliderReleased, this, mark);
+    }
+    const QList<QLineEdit*> constantFields = {
+        ui->lineA, ui->lineB, ui->lineC,
+        ui->lineD, ui->lineE, ui->lineF,
+        ui->lineS
+    };
+    for (QLineEdit *e : constantFields) {
+        if (e) connect(e, &QLineEdit::textEdited, this, mark);
+    }
+
+    // --- MOUSE SULLA VISTA: rotazione trascinando, zoom con la rotella ---
+    // Segnale dedicato: rotationChanged() non va bene, lo emette a ogni frame
+    // anche il moto automatico e sporcherebbe la scena da solo.
+    if (ui->glWidget)
+        connect(ui->glWidget, &GLWidget::userMovedView, this, mark);
+}
+
+MainWindow::RunOutcomeGuard::RunOutcomeGuard(MainWindow *mw, bool arm)
+    : w(mw), before(InputValidator::errorCount()), armed(arm)
+{
+}
+
+// Nessun errore mostrato durante il Run = cio' che l'utente ha scritto e'
+// andato a schermo. Il flag si ALZA soltanto: il contatore e' globale e conta
+// anche gli errori di moduli estranei alla superficie (audio, sfondo), che non
+// devono togliere la protezione al lavoro gia' applicato.
+MainWindow::RunOutcomeGuard::~RunOutcomeGuard()
+{
+    if (armed && InputValidator::errorCount() == before)
+        w->m_runEverSucceeded = true;
 }
 
 // Chiede cosa fare del lavoro non salvato prima di un'azione distruttiva.
@@ -4261,6 +4452,9 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     m_warnedEditedDock = OriginDefault;
     m_warnedOrigin     = OriginDefault;
     m_surfaceOrigin    = OriginDefault;
+    // A schermo c'e' una superficie valida: l'eventuale errore di compilazione
+    // che aveva preceduto il reset non vale piu'.
+    m_runEverSucceeded = false;
 
     // A schermo c'e' ora la superficie di DEFAULT (toro/sfera) o il NULLA: in
     // nessuno dei due casi un item di libreria descrive cio' che si vede, e
@@ -6405,7 +6599,7 @@ void MainWindow::handleTextureSelection(int index)
 
             if (!success) {
                 performMasterStop();
-                InputValidator::showShaderCompilationError(this, "Preset Shader Error", ui->glWidget->getShaderError());
+                showShaderError("Preset Shader Error", ui->glWidget->getShaderError());
                 ui->glWidget->setTextureCode("");
                 ui->glWidget->setGlobalTextureEnabled(false);
                 ui->glWidget->rebuildShader();
@@ -6589,6 +6783,20 @@ void MainWindow::onStartClicked()
     // singoli moti restano invece comandabili al volo dai loro tasti
     // (GO/Departure/Reset), che il loop legge a ogni frame.
     if (m_isRecording) return;
+
+    // ESITO DEL RUN. Non basta guardare gli errori di COMPILAZIONE: un'equazione
+    // mal posta viene quasi sempre fermata prima, dai validatori (parentesi,
+    // costanti, limiti, variabili), che mostrano il loro popup e fanno return
+    // senza mai arrivare a compilare. Invece di marcare a mano 31 uscite e una
+    // dozzina di validatori, si confronta il CONTATORE degli errori mostrati:
+    // se non e' cresciuto, il Run e' filato liscio e cio' che l'utente ha
+    // scritto e' andato a schermo. RunOutcomeGuard lo rileva all'uscita,
+    // qualunque essa sia.
+    //
+    // Il flag si ALZA soltanto: un errore non lo abbassa mai. Lo stato "pulito"
+    // lo ristabiliscono solo il reset di modalita' e il load di un preset, che
+    // azzerano anche m_sceneDirty.
+    RunOutcomeGuard runOutcomeGuard(this);
 
     m_geodesicErrorPending = false;
     setProperty("geoErrorShown", false);   // riarma il popup geodetico per la nuova azione
@@ -6774,8 +6982,7 @@ void MainWindow::onStartClicked()
                 : ui->glWidget->validateAndApplyParametricScript(glslBody);
 
         if (!ok) {
-            InputValidator::showShaderCompilationError(this,
-                                                       "Script Compilation Error", ui->glWidget->getShaderError());
+            showShaderError("Script Compilation Error", ui->glWidget->getShaderError());
             return;
         }
 
@@ -6789,8 +6996,7 @@ void MainWindow::onStartClicked()
 
             // Validazione compilazione GLSL completa per texture+displacement
             if (!ui->glWidget->validateAndApplyTextureDisplacement(texCode, dispCode)) {
-                InputValidator::showShaderCompilationError(this,
-                                                           "Texture/Displacement Compilation Error",
+                showShaderError("Texture/Displacement Compilation Error",
                                                            ui->glWidget->getShaderError());
                 return;
             }
@@ -6804,8 +7010,7 @@ void MainWindow::onStartClicked()
                         || texSrc.contains("vec4") || texSrc.contains("mainImage");
                 if (texHasLogic) {
                     if (!ui->glWidget->validateAndApplyParametricShader(texSrc)) {
-                        InputValidator::showShaderCompilationError(this,
-                                                                   "Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
+                        showShaderError("Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
                         return;
                     }
                     m_surfaceTextureCode = texSrc; // applicata e valida: committa
@@ -6822,8 +7027,7 @@ void MainWindow::onStartClicked()
             if (!soundSrc.trimmed().isEmpty()) {
                 QString audioErr;
                 if (!m_audioController->validateScript(soundSrc, &audioErr)) {
-                    InputValidator::showShaderCompilationError(this,
-                                                               "Syntax Error (Sound Script)",
+                    showShaderError("Syntax Error (Sound Script)",
                                                                audioErr.isEmpty() ? "Audio shader compilation failed." : audioErr);
                     return;
                 }
@@ -6892,7 +7096,7 @@ void MainWindow::onStartClicked()
         // TEST E APPLICAZIONE
         bool success = ui->glWidget->validateAndApplyImplicitShader(implicitEqF, texCode, dispCode);
         if (!success) {
-            InputValidator::showShaderCompilationError(this, "Syntax Error (Ray Marching)", ui->glWidget->getShaderError());
+            showShaderError("Syntax Error (Ray Marching)", ui->glWidget->getShaderError());
             return;
         }
 
@@ -7339,8 +7543,7 @@ void MainWindow::onStartClicked()
     if (isSurfTexEnabled && wasCustomTexture && !currentScript.isEmpty()) {
 
         if (!ui->glWidget->loadCustomShader(currentScript)) {
-            InputValidator::showShaderCompilationError(this,
-                                                       "Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
+            showShaderError("Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
             return;
         }
     }
@@ -7351,8 +7554,7 @@ void MainWindow::onStartClicked()
                 || bgSrc.contains("vec4") || bgSrc.contains("mainImage");
         if (bgHasLogic) {
             if (!ui->glWidget->validateAndApplyBackgroundShader(bgSrc)) {
-                InputValidator::showShaderCompilationError(this,
-                                                           "Syntax Error (Background Texture)", ui->glWidget->getShaderError());
+                showShaderError("Syntax Error (Background Texture)", ui->glWidget->getShaderError());
                 return;
             }
             m_bgTextureCode = bgSrc; // valida: committa
@@ -8230,6 +8432,14 @@ void MainWindow::onToggleScriptMode()
 
 void MainWindow::onRunCurrentScript()
 {
+    // Il Run del dock Script applica la superficie tanto quanto quello del dock
+    // Equations, ma NON passa da onStartClicked: senza questo guard un Run
+    // riuscito qui non marcava nulla, e il reset buttava via lo script senza
+    // chiedere niente. Armato solo per lo script di SUPERFICIE -- un Run di
+    // texture o suono non porta a schermo la geometria (stesso criterio di
+    // noteSceneEdited, che conta txtScriptEditor come dock Script solo qui).
+    RunOutcomeGuard runOutcomeGuard(this, m_currentScriptMode == ScriptModeSurface);
+
     // 1. Estrae il testo correntemente scritto nell'editor
     QString currentText = ui->txtScriptEditor->toPlainText();
 
@@ -8288,8 +8498,7 @@ void MainWindow::onRunCurrentScript()
 
             // 2. SECONDA LINEA DI DIFESA: dry-run del fragment implicito.
             if (!ui->glWidget->validateAndApplyImplicitScript(glslBody)) {
-                InputValidator::showShaderCompilationError(this,
-                                                           "Script Compilation Error",
+                showShaderError("Script Compilation Error",
                                                            ui->glWidget->getShaderError());
 
                 return;
@@ -8618,8 +8827,7 @@ void MainWindow::onRunScriptClicked()
 
     // 2. SECONDA LINEA DI DIFESA: dry-run del vertex shader script
     if (!ui->glWidget->validateAndApplyParametricScript(glslBody)) {
-        InputValidator::showShaderCompilationError(this,
-                                                   "Script Compilation Error",
+        showShaderError("Script Compilation Error",
                                                    ui->glWidget->getShaderError());
 
         return;
@@ -9015,8 +9223,7 @@ void MainWindow::onApplyTextureScriptClicked()
         if (hasCustomLogic || imgPath.isEmpty()) {
             // Dry-run del fragment shader prima di toccare la pipeline
             if (!ui->glWidget->validateAndApplyBackgroundShader(code)) {
-                InputValidator::showShaderCompilationError(this,
-                                                           "Background Shader Error",
+                showShaderError("Background Shader Error",
                                                            ui->glWidget->getShaderError());
                 return;
             }
@@ -9098,8 +9305,7 @@ void MainWindow::onApplyTextureScriptClicked()
 
         if (hasCustomLogic && ui->glWidget &&
                 !ui->glWidget->validateAndApplyParametricShader(code)) {
-            InputValidator::showShaderCompilationError(this,
-                                                       "Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
+            showShaderError("Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
             return;
         }
 
@@ -9158,7 +9364,7 @@ void MainWindow::onApplyTextureScriptClicked()
                 bool success = ui->glWidget->validateAndApplyParametricShader(code);
 
                 if (!success) {
-                    InputValidator::showShaderCompilationError(this, "Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
+                    showShaderError("Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
                     return;
                 }
 
@@ -9191,7 +9397,7 @@ void MainWindow::onApplyTextureScriptClicked()
 
                 bool success = ui->glWidget->validateAndApplyParametricShader("");
                 if (!success) {
-                    InputValidator::showShaderCompilationError(this, "GLSL Reset Error", ui->glWidget->getShaderError());
+                    showShaderError("GLSL Reset Error", ui->glWidget->getShaderError());
                     return;
                 }
             }
@@ -9315,8 +9521,7 @@ void MainWindow::onRunSoundClicked()
 
     QString audioErr;
     if (!m_audioController->playFromScript(codeToAnalyze, &audioErr)) {
-        InputValidator::showShaderCompilationError(this,
-                                                   "Syntax Error (Sound Script)",
+        showShaderError("Syntax Error (Sound Script)",
                                                    audioErr.isEmpty() ? "Audio shader compilation failed." : audioErr);
         updateMasterButtonState();
         return;
@@ -9354,6 +9559,59 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
     // per le texture incompatibili (vedi il clearSelection del treeSurfaces piu'
     // sopra). blockSignals evita di ri-emettere itemClicked, che ricaricherebbe
     // la superficie appena sostituita dal record.
+    // CONFERMA PRIMA DI SOSTITUIRE LA SCENA.
+    // Superfici e record la SOSTITUISCONO (un record ricarica equazioni,
+    // costanti e camera): sono distruttivi quanto NEW o il cambio di modalita',
+    // ma molto piu' frequenti, ed erano l'unico percorso distruttivo che non
+    // chiedeva nulla. Texture e suoni si applicano SOPRA la scena e non entrano
+    // qui. La domanda va fatta PRIMA dell'azzeramento incrociato degli alberi
+    // qui sotto: su Cancel non deve cambiare niente, nemmeno le evidenziazioni.
+    {
+        QTreeWidget *src = qobject_cast<QTreeWidget*>(sender());
+        const bool replacesScene = (src == ui->treeSurfaces || src == ui->treeMotions);
+        // Solo le FOGLIE caricano qualcosa: sulle cartelle il click apre il ramo
+        // e non tocca la scena, quindi non deve chiedere nulla.
+        const bool isLeaf = (item && item->childCount() == 0);
+
+        if (replacesScene && isLeaf) {
+            // L'item cliccato risulta gia' selezionato quando arriviamo qui (la
+            // selezione la fa il click). Se l'utente annulla, va rimesso in
+            // evidenza il preset REALMENTE a schermo -- non basta deselezionare,
+            // o l'albero resta senza focus e non indica piu' nulla.
+            //
+            // Ma solo se quel preset descrive ancora cio' che si vede: appena si
+            // riscrive la geometria a mano, dropSurfaceLibrarySelection() toglie
+            // l'evidenziazione di proposito (il legame col preset e' rotto), e
+            // resuscitarla al Cancel indicherebbe una superficie che non c'e'
+            // piu'. Il test e' la selezione VIVA nell'albero d'origine, non la
+            // memoria storica di m_lastLoadedLibraryItem.
+            QTreeWidgetItem *previous = m_lastLoadedLibraryItem;
+
+            if (!confirmDiscardUnsavedWork()) {
+                bool b = src->blockSignals(true);
+                src->clearSelection();
+                // Il preset in vigore puo' stare in un ALTRO albero (una
+                // superficie mentre si clicca un record): si rievidenzia dove
+                // vive davvero, altrimenti solo si deseleziona.
+                if (previous) {
+                    if (QTreeWidget *owner = previous->treeWidget()) {
+                        bool b2 = (owner == src) ? false : owner->blockSignals(true);
+                        previous->setSelected(true);
+                        owner->setCurrentItem(previous);
+                        if (owner != src) owner->blockSignals(b2);
+                    }
+                } else {
+                    src->setCurrentItem(nullptr);
+                }
+                src->blockSignals(b);
+                return;
+            }
+
+            // Confermato: da qui in poi il preset caricato e' quello cliccato.
+            m_lastLoadedLibraryItem = item;
+        }
+    }
+
     if (QTreeWidget *src = qobject_cast<QTreeWidget*>(sender())) {
         if (src == ui->treeSurfaces) {
             for (QTreeWidget *tree : { ui->treeTextures, ui->treeMotions, ui->treeSounds }) {
@@ -9399,6 +9657,8 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         const LibraryItem &data = byPath ? *byPath : m_libraryManager.getSurface(index);
 
         if (!data.name.isEmpty()) {
+            // La conferma "vuoi salvare?" e' gia' stata chiesta in cima alla
+            // funzione, prima di toccare qualunque stato.
             lastSurfacePath = data.filePath;
             applySurfaceExample(data);
         }
@@ -9554,6 +9814,8 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             // la pausa qui era solo un passo in piu' prima del gesto utile.
             // Non serve fermare prima: applyMotionExample apre con lo STOP TOTALE
             // (pauseMotion, stopAll, path timer fermati, pathTimeT azzerato).
+            // La conferma "vuoi salvare?" e' gia' stata chiesta in cima alla
+            // funzione, prima di toccare qualunque stato.
             this->setProperty("activeMotionPath", data.filePath);
             applyMotionExample(data);
         }
@@ -10657,8 +10919,7 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
         QString audioErr;
         bool audioOk = m_audioController->playFromScript(m_soundScriptText, &audioErr);
         if (!audioOk) {
-            InputValidator::showShaderCompilationError(this,
-                                                       "Syntax Error (Sound Script)",
+            showShaderError("Syntax Error (Sound Script)",
                                                        audioErr.isEmpty() ? "Audio shader compilation failed." : audioErr);
             // niente return: animazione gia' avviata resta attiva, l'audio no
         }
@@ -11428,6 +11689,10 @@ void MainWindow::refreshRepositories()
     ui->treeMotions->clear();
     ui->treeSounds->clear();
     m_libraryManager.clear();
+    // Gli item appena distrutti: il puntatore all'ultimo preset caricato
+    // resterebbe pendente (QTreeWidgetItem non e' un QObject, niente QPointer
+    // che lo azzeri da solo).
+    m_lastLoadedLibraryItem = nullptr;
 
     // 5. CARICAMENTO DAL FILE SYSTEM
     QSettings settings;
@@ -12381,6 +12646,9 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     m_sceneDirty = false;
     m_warnedEditedDock = OriginDefault;
     m_warnedOrigin     = OriginDefault;
+    // Il preset caricato ha compilato: azzera l'esito fallito di un Run
+    // precedente, altrimenti il lavoro fatto DOPO il load resterebbe senza avviso.
+    m_runEverSucceeded = false;
     // A schermo c'e' il preset, non il default: la superficie ora "appartiene"
     // al dock da cui il preset la definisce. E' l'unico punto, con il reset di
     // modalita', in cui la sorgente cambia -- il Run non la sposta.
@@ -14717,8 +14985,7 @@ bool MainWindow::applyBackgroundTextureIfNeeded() {
             || bgSrc.contains("vec4") || bgSrc.contains("mainImage");
     if (bgHasLogic) {
         if (!ui->glWidget->validateAndApplyBackgroundShader(bgSrc)) {
-            InputValidator::showShaderCompilationError(this,
-                "Syntax Error (Background Texture)", ui->glWidget->getShaderError());
+            showShaderError("Syntax Error (Background Texture)", ui->glWidget->getShaderError());
             return false;
         }
         m_bgTextureCode = bgSrc; // applicata e valida: committa
@@ -15033,7 +15300,7 @@ bool MainWindow::updateGeodesicMesh()
             m_geodesicErrorPending = true;
             if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
             setProperty("geoErrorShown", true);
-            InputValidator::showShaderCompilationError(this, "Geodesic Shader Error", shaderError);
+            showShaderError("Geodesic Shader Error", shaderError);
             this->setProperty("geoErrorType", "syntax");
         } else {
             m_geodesicErrorPending = true;

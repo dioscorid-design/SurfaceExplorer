@@ -82,10 +82,18 @@ public:
     static void showNegativeConstantError(QWidget* parent, const QString& name);
 
 
+    // Quanti errori (Critical/Warning) sono stati mostrati all'utente da sempre.
+    // Serve a capire se un'azione e' fallita SENZA dover marcare a mano ogni
+    // singolo validatore: si legge il contatore prima e dopo, e se e' cresciuto
+    // l'utente ha visto almeno un errore. Copre anche i validatori aggiunti in
+    // futuro, che passano tutti da notify().
+    static quint64 errorCount() { return s_errorCount; }
+
 private:
     static void notify(QWidget* parent, QMessageBox::Icon icon,
                        const QString& title, const QString& text);
     static bool s_boxActive;
+    static quint64 s_errorCount;
 };
 
 #endif // INPUTVALIDATOR_H
