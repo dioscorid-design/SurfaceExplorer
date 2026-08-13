@@ -7582,6 +7582,28 @@ void MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
         return;
     }
 
+    // EQUAZIONI IN CORSO DI SCRITTURA: il limite resta REGISTRATO (updateU/V/W
+    // Limits qui sopra ha gia' scritto i membri e il dominio dell'engine, e al
+    // prossimo Run vale) ma NON si ridisegna. Ridisegnando si vedrebbe la
+    // superficie VECCHIA tagliata dai limiti NUOVI: un'immagine che non
+    // corrisponde a niente: ne' a cio' che c'era, ne' a cio' che si sta
+    // scrivendo. Meglio lasciare in vista quella vecchia INTERA finche' il Run
+    // non applica le equazioni nuove.
+    // Non si fa il Run qui: committerebbe equazioni a meta' digitazione (X
+    // aggiornata, Y e Z ancora vecchie) e i Run impliciti hanno gia' prodotto
+    // riavvii indebiti di audio e clock.
+    // m_parametricApplied = "i campi equazione non sono stati toccati dopo
+    // l'ultimo Run" (markUserEdit ~1759: X/Y/Z/P, composizioni U/V/W e vincoli
+    // espliciti). Si guarda solo lui e non m_implicitApplied perche' u/v/w sono
+    // il dominio PARAMETRICO: in Ray Marching l'estensione della scena la danno
+    // i limiti spaziali, non questi campi.
+    if (!m_parametricApplied) {
+        // Il tasto Run e' gia' acceso (le equazioni sono sporche): e' lui a
+        // dire che c'e' qualcosa in attesa di essere applicato.
+        updateMasterButtonState();
+        return;
+    }
+
     // Il dominio e' cambiato: la mesh va RICALCOLATA sulle equazioni CORRENTI
     // (quelle gia' attive, non quelle eventualmente in corso di modifica).
     // setRange* da solo non basta: aggiorna il dominio e alza meshNeedsUpdate,
