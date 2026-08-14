@@ -1529,6 +1529,31 @@
          <enum>QLayout::SizeConstraint::SetMinimumSize</enum>
         </property>
         <item>
+         <widget class="QPushButton" name="btnNewScene">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="font">
+           <font>
+            <bold>true</bold>
+           </font>
+          </property>
+          <property name="toolTip">
+           <string>Empty scene: clears every field and the view.
+Unlike re-clicking the active tab, it loads no default surface.</string>
+          </property>
+          <property name="text">
+           <string>NEW</string>
+          </property>
+          <property name="flat">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
          <widget class="QTabWidget" name="tabModeSelector">
           <property name="currentIndex">
            <number>0</number>
@@ -3078,31 +3103,6 @@
             </widget>
            </item>
           </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QPushButton" name="btnNewScene">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="font">
-           <font>
-            <bold>true</bold>
-           </font>
-          </property>
-          <property name="toolTip">
-           <string>Empty scene: clears every field and the view.
-Unlike re-clicking the active tab, it loads no default surface.</string>
-          </property>
-          <property name="text">
-           <string>NEW</string>
-          </property>
-          <property name="flat">
-           <bool>true</bool>
-          </property>
          </widget>
         </item>
        </layout>

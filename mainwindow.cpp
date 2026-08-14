@@ -1209,17 +1209,20 @@ MainWindow::MainWindow(QWidget *parent)
 
     // NEW vive nel dock EQUATIONS, non nella status bar: undici tasti in fila
     // non ci stavano sui telefoni e l'ultimo (Library) finiva fuori schermo.
-    // Sta su una riga propria in fondo al pannello, sotto le costanti e il
-    // campo Steps, quindi e' comune a Parametric e Implicit - come la scena
-    // vuota che produce, che non appartiene a nessuna delle due modalita'.
+    // Sta su una riga propria SOPRA il QTabWidget, quindi e' comune a
+    // Parametric e Implicit - come la scena vuota che produce, che non
+    // appartiene a nessuna delle due modalita'.
+    // Sotto il tab widget NON va: l'ultimo elemento della pagina Parametric
+    // sono i limiti U/V/W e il primo elemento dopo il tab sono le costanti
+    // A..F, quindi il tasto finiva incastrato fra i due gruppi invece che
+    // accanto alle linguette.
     // Definito nel .ui come btnNewScene (posizione, testo, tooltip, flat e
     // sizePolicy Expanding, che gli da' la larghezza piena del dock).
-    // Non si puo' mettere sotto la sola fila di linguette restando comune
-    // alle due: tutto cio' che sta li' dentro appartiene alla singola PAGINA
-    // del QTabWidget, quindi servirebbe un tasto per tab. Scartato anche
-    // setCornerWidget (angolo destro della barra linguette): per liberare
-    // l'angolo servivano linguette piu' strette, e restava un vuoto
-    // antiestetico fra "Implicit" e il tasto.
+    // NB: e' FRATELLO del QTabWidget dentro verticalLayout_9, non figlio di
+    // una sua pagina: dentro le pagine servirebbe un tasto per tab. Per la
+    // stessa ragione non si usa setCornerWidget (angolo destro della barra
+    // linguette): per liberare l'angolo servivano linguette piu' strette, e
+    // restava un vuoto antiestetico fra "Implicit" e il tasto.
     m_btnNew = ui->btnNewScene;
     connect(m_btnNew, &QPushButton::clicked, this, &MainWindow::onNewSceneClicked);
 
