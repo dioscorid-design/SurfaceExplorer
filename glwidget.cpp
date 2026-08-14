@@ -1440,6 +1440,13 @@ void GLWidget::wheelEvent(QWheelEvent *event)
 bool GLWidget::event(QEvent *e)
 {
     if (m_inputHandler && m_inputHandler->handleTouch(e)) {
+        // Touch: e' l'utente che cambia la vista, esattamente come la rotellina
+        // e il trascinamento col mouse qui sopra. Il tocco non ha un "release"
+        // da cui dedurlo (il pinch non ne ha affatto), quindi e' l'handler a
+        // dire se la vista si e' davvero mossa -- il tap secco e il tocco sotto
+        // la deadzone non contano. Senza questo, su mobile ne' la rotazione ne'
+        // lo zoom sporcavano la scena: nessun avviso "vuoi salvare?".
+        if (m_inputHandler->takeTouchMovedView()) emit userMovedView();
         return true;
     }
 

@@ -40,6 +40,18 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
     int dx = event->position().x() - m_lastMousePos.x();
     int dy = event->position().y() - m_lastMousePos.y();
 
+    // DEADZONE, PRIMA DEL RAMO DI VISTA: superati 5 px col sinistro premuto non
+    // e' piu' un clic secco ma un trascinamento. Viveva DENTRO il ramo 2D, e in
+    // 3D/4D quindi non veniva mai spenta: al release wasClickWithoutDrag()
+    // rispondeva "clic" anche dopo aver ruotato l'oggetto, e GLWidget non
+    // emetteva userMovedView() -- cioe' ruotare col mouse non sporcava la scena
+    // e l'avviso "vuoi salvare?" non compariva (lo zoom si', perche' la
+    // rotellina emette il segnale direttamente).
+    if (event->buttons() & Qt::LeftButton) {
+        if ((event->pos() - m_pressPos).manhattanLength() > 5)
+            m_isClickCandidate = false;
+    }
+
     // =========================================================
     // --- GESTIONE VISTA 2D (FLAT) ---
     // =========================================================
@@ -47,11 +59,6 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
 
         // TASTO SINISTRO: ROTAZIONE CONTINUA
         if (event->buttons() & Qt::LeftButton) {
-            int dist = (event->pos() - m_pressPos).manhattanLength();
-            if (dist > 5) {
-                m_isClickCandidate = false;
-            }
-
             if (!m_isClickCandidate) {
                 float sensitivity = 0.5f;
                 m_glWidget->addFlatRotation(dx * sensitivity);
@@ -157,12 +164,16 @@ bool InputHandler::handleTouch(QEvent* e)
                 float sensitivity = 0.5f;
                 // Usa lo spostamento orizzontale (dx) per ruotare, come fa il click sinistro del mouse
                 m_glWidget->addFlatRotation(dx * sensitivity);
+                m_touchMovedView = true;
             }
         } else if (!m_glWidget->isPathAnimating()) {
             // Modalità 3D/4D: Rotazione standard dell'oggetto (bloccata durante un path)
             float rotSens = 0.3f;
             m_glWidget->markUserRotated();
             m_glWidget->addObjectRotation(dx * rotSens, dy * rotSens, 0.0f);
+            // Oltre la deadzone e' un trascinamento vero, non un tap: la vista
+            // e' stata mossa dall'utente.
+            if (!m_isClickCandidate) m_touchMovedView = true;
         }
         m_lastTouchPos = currentPos;
     }
@@ -181,9 +192,11 @@ bool InputHandler::handleTouch(QEvent* e)
                 // Moltiplicatore per rendere lo zoom scalare (es. 0.005 è la sensibilità)
                 float zoomFactor = 1.0f + (deltaDist * 0.005f);
                 m_glWidget->setFlatZoom(currentZoom * zoomFactor);
+                m_touchMovedView = true;
             } else if (!m_glWidget->isPathAnimating()) {
                 // Modalità 3D: ZOOM della camera (bloccato durante un path)
                 m_glWidget->zoomCamera(deltaDist * 0.05f);
+                m_touchMovedView = true;
             }
         }
         m_lastPinchDist = currentDist;
