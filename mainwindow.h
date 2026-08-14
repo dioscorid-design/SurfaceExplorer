@@ -101,6 +101,19 @@ private slots:
     // Save / Don't save / Cancel prima di un'azione che scarta il lavoro.
     // false = l'utente ha annullato: il chiamante NON deve procedere.
     bool confirmDiscardUnsavedWork();
+    // Come sopra, ma per i moduli che NON sostituiscono la scena: caricare una
+    // texture o un suono scarta solo il lavoro di QUEL modulo. Il dialogo di
+    // salvataggio punta al ramo del tipo (textures/ o sounds/), non alla radice
+    // dell'albero: qui non c'e' nessuna scelta da fare su cosa salvare.
+    bool confirmDiscardUnsavedTexture();
+    bool confirmDiscardUnsavedSound();
+    // Conferma per le azioni che azzerano TUTTO (reset di modalita', NEW, load
+    // di una superficie o di un record): chiede, uno alla volta, per ogni modulo
+    // che ha lavoro non salvato -- scena, texture, suono. Ogni dialogo apre il
+    // salvataggio dove serve: la radice dell'albero per la scena, il ramo del
+    // tipo per texture e suono. false appena l'utente annulla UNO qualunque dei
+    // dialoghi: il chiamante non deve procedere.
+    bool confirmDiscardAllUnsaved();
     // Unico punto da cui si mostra un errore di compilazione all'utente.
     void showShaderError(const QString &title, const QString &errorLog);
     // Lavoro dell'utente sui controlli che NON passano dai campi testuali:
@@ -637,6 +650,17 @@ private:
     // (m_editsNeverRun, "c'e' un edit pendente") nascondeva anche il lavoro gia'
     // applicato appena si iniziava a scrivere in un altro campo.
     bool m_runEverSucceeded = false;
+
+    // LAVORO NON SALVATO DEI MODULI TEXTURE e SOUND, tracciato a parte da
+    // m_sceneDirty. Servono distinti perche' m_sceneDirty e' un flag di SCENA:
+    // si alza anche scrivendo le equazioni, e usarlo qui farebbe chiedere "vuoi
+    // salvare la texture?" a chi ha solo toccato la superficie. Ognuno protegge
+    // il proprio ramo, e il dialogo di salvataggio punta a quel ramo soltanto.
+    // Alzati dagli edit dell'utente sui rispettivi campi (stessi punti che gia'
+    // li intercettano per i tasti Run), azzerati dal load di un preset del tipo,
+    // dal suo salvataggio e dal reset.
+    bool m_textureDirty = false;
+    bool m_soundDirty   = false;
 
     // ULTIMO ITEM DELLA LIBRARY EFFETTIVAMENTE CARICATO (superficie o record).
     // Serve a rimettere il focus dov'era quando l'utente ANNULLA il caricamento

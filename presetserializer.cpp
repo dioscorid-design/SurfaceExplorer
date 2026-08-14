@@ -772,6 +772,9 @@ void PresetSerializer::saveTexture(const QString &path)
         // Il lavoro e' su disco: come in saveSurface, lo legge
         // confirmDiscardUnsavedWork per sapere se il "Save" e' riuscito.
         m_mainWindow->m_sceneDirty = false;
+        // Flag del MODULO texture: lo legge confirmDiscardUnsavedTexture, che
+        // protegge il solo ramo texture e non lo stato di scena.
+        m_mainWindow->m_textureDirty = false;
 
         // Refresh visivo + selezione del file appena salvato nella libreria
         QTimer::singleShot(100, m_mainWindow, [this, path]() {
@@ -1559,6 +1562,9 @@ void PresetSerializer::saveSound(const QString &filePath)
         // Il lavoro e' su disco: come in saveSurface, lo legge
         // confirmDiscardUnsavedWork per sapere se il "Save" e' riuscito.
         m_mainWindow->m_sceneDirty = false;
+        // Flag del MODULO sound: lo legge confirmDiscardUnsavedSound, che
+        // protegge il solo ramo sound e non lo stato di scena.
+        m_mainWindow->m_soundDirty = false;
     }
 
     // 6. Aggiorniamo la UI per riflettere eventuali modifiche (es. orario di ultima modifica)

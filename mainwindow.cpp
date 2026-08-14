@@ -1435,9 +1435,10 @@ MainWindow::MainWindow(QWidget *parent)
 
             if (index == ui->tabModeSelector->currentIndex()) {
                 // Riclic sulla linguetta attiva = "ricomincia da capo".
-                // Lavoro non salvato: si chiede prima di buttarlo via. Su Cancel
-                // non si resetta (qui il tab non cambia, quindi basta uscire).
-                if (!confirmDiscardUnsavedWork()) return;
+                // Lavoro non salvato: si chiede prima di buttarlo via, per OGNI
+                // modulo sporco (il reset azzera anche texture e suono). Su
+                // Cancel non si resetta (qui il tab non cambia, basta uscire).
+                if (!confirmDiscardAllUnsaved()) return;
                 applyModeTabReset(index);
                 return;
             }
@@ -1451,7 +1452,7 @@ MainWindow::MainWindow(QWidget *parent)
             // subito dopo), quindi su Cancel si lascia cambiare la linguetta e
             // si dice ad applyModeTabReset di NON resettare, riportando poi il
             // tab dov'era: la scena resta intatta.
-            if (!confirmDiscardUnsavedWork()) {
+            if (!confirmDiscardAllUnsaved()) {
                 const int back = ui->tabModeSelector->currentIndex();
                 m_suppressNextModeTabReset = true;
                 QTimer::singleShot(0, this, [this, back]() {
@@ -1795,6 +1796,11 @@ MainWindow::MainWindow(QWidget *parent)
     auto markRmTextureEdited = [this]() {
         m_rmTextureApplied = false;
         noteSceneEdited(ui->lineTexture);
+        // Lavoro non salvato del MODULO texture: lo protegge
+        // confirmDiscardUnsavedTexture quando se ne carica un'altra. Stesse
+        // guardie di noteSceneEdited: le scritture del boot, del load e del
+        // reset non sono lavoro dell'utente.
+        if (m_uiReady && !m_populatingFields) m_textureDirty = true;
         updateMasterButtonState();
     };
     connect(ui->lineTexture, &QPlainTextEdit::textChanged, this, markRmTextureEdited);
@@ -1804,6 +1810,13 @@ MainWindow::MainWindow(QWidget *parent)
         updateScriptButtonText();
         updateConstantsUIState();
         noteSceneEdited(ui->txtScriptEditor);
+        // txtScriptEditor e' UN widget per tre moduli: il lavoro appartiene a
+        // quello che sta mostrando. Cosi' scrivere una texture non fa chiedere
+        // di salvare un suono, e viceversa.
+        if (m_uiReady && !m_populatingFields) {
+            if (m_currentScriptMode == ScriptModeTexture)    m_textureDirty = true;
+            else if (m_currentScriptMode == ScriptModeSound) m_soundDirty   = true;
+        }
         // Mantiene allineato il tasto Save texture (hasSavableTexture legge l'editor
         // in modalità script texture parametrico/sfondo).
         updateMasterButtonState();
@@ -3824,6 +3837,104 @@ MainWindow::RunOutcomeGuard::~RunOutcomeGuard()
         w->m_runEverSucceeded = true;
 }
 
+// Conferma per il modulo TEXTURE. Caricare un'altra texture non tocca la
+// superficie: si scarta solo il lavoro fatto sulla texture, quindi si protegge
+// m_textureDirty e non m_sceneDirty (che si alza anche scrivendo le equazioni,
+// e qui chiederebbe di salvare una texture che l'utente non ha toccato).
+//
+// A differenza di confirmDiscardUnsavedWork il dialogo NON parte dalla radice
+// dell'albero: il tipo e' gia' deciso, quindi si punta al ramo textures/ --
+// saveTextureAs ci arriva con la sua cartella garantita e propone come nome
+// quello del preset in vigore.
+bool MainWindow::confirmDiscardUnsavedTexture()
+{
+    if (!m_textureDirty) return true;
+
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Warning);
+    box.setWindowTitle("Unsaved texture");
+    box.setText("The current texture has unsaved changes.");
+    box.setInformativeText("They will be discarded. Do you want to save it first?");
+    QPushButton *saveBtn    = box.addButton("Save",       QMessageBox::AcceptRole);
+    QPushButton *discardBtn = box.addButton("Don't save", QMessageBox::DestructiveRole);
+    box.addButton("Cancel", QMessageBox::RejectRole);
+    box.setDefaultButton(saveBtn);
+    box.exec();
+
+    if (box.clickedButton() == discardBtn) return true;
+
+    if (box.clickedButton() == saveBtn) {
+        // Cartella di partenza: l'ultima usata per le texture, con fallback al
+        // ramo del tipo (stessa logica di onSaveTextureClicked).
+        QSettings settings;
+        QString startDir = settings.value("lastCustomTexDir").toString();
+        if (startDir.isEmpty() || startDir.contains("build", Qt::CaseInsensitive)
+            || !QDir(startDir).exists()) {
+            startDir = presetsRootPath() + "/textures";
+        }
+        // Il dialogo puo' essere annullato: in quel caso NON si procede, o si
+        // perderebbe proprio il lavoro che si voleva salvare. saveTexture porta
+        // m_textureDirty a false solo se il file e' finito su disco: e' l'esito.
+        m_presetSerializer->saveTextureAs(startDir, m_currentTexturePresetPath);
+        return !m_textureDirty;
+    }
+
+    return false;   // Cancel (o chiusura della finestra)
+}
+
+// Conferma per il modulo SOUND. Stesso criterio della texture: si protegge solo
+// il lavoro del modulo, e il dialogo punta al ramo sounds/.
+bool MainWindow::confirmDiscardUnsavedSound()
+{
+    if (!m_soundDirty) return true;
+
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Warning);
+    box.setWindowTitle("Unsaved sound");
+    box.setText("The current sound has unsaved changes.");
+    box.setInformativeText("They will be discarded. Do you want to save it first?");
+    QPushButton *saveBtn    = box.addButton("Save",       QMessageBox::AcceptRole);
+    QPushButton *discardBtn = box.addButton("Don't save", QMessageBox::DestructiveRole);
+    box.addButton("Cancel", QMessageBox::RejectRole);
+    box.setDefaultButton(saveBtn);
+    box.exec();
+
+    if (box.clickedButton() == discardBtn) return true;
+
+    if (box.clickedButton() == saveBtn) {
+        QSettings settings;
+        QString startDir = settings.value("pathSounds",
+                                          presetsRootPath() + "/sounds").toString();
+        // Come per la texture: saveSound porta m_soundDirty a false solo a
+        // scrittura avvenuta, quindi lo si legge come esito del dialogo.
+        m_presetSerializer->saveSoundAs(startDir, "");
+        return !m_soundDirty;
+    }
+
+    return false;   // Cancel (o chiusura della finestra)
+}
+
+// Conferma per le azioni che azzerano TUTTO: reset di modalita' (riclic sulla
+// linguetta o cambio vero), NEW, load di una superficie o di un record, cambio
+// di modalita' forzato da una texture incompatibile. Tutte queste riscrivono
+// anche texture e suono, non solo la superficie: chiedere del solo m_sceneDirty
+// lasciava buttare via senza avviso il lavoro fatto su quei due moduli.
+//
+// Si chiede modulo per modulo, cosi' ogni dialogo di salvataggio punta dove
+// serve (radice dell'albero per la scena, ramo del tipo per texture e suono) e
+// l'utente puo' salvarne uno e scartare l'altro. Chi non ha lavoro non salvato
+// non fa comparire nulla: le conferme escono subito sul proprio flag.
+//
+// Ordine: prima la scena, che e' il lavoro "grosso" e quello che l'utente si
+// aspetta di veder difeso per primo.
+bool MainWindow::confirmDiscardAllUnsaved()
+{
+    if (!confirmDiscardUnsavedWork())    return false;
+    if (!confirmDiscardUnsavedTexture()) return false;
+    if (!confirmDiscardUnsavedSound())   return false;
+    return true;
+}
+
 // Chiede cosa fare del lavoro non salvato prima di un'azione distruttiva.
 // Ritorna false se l'utente annulla: il chiamante deve fermarsi.
 bool MainWindow::confirmDiscardUnsavedWork()
@@ -4493,6 +4604,10 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // noteSceneEdited e rimetterebbero m_sceneDirty a true. La sorgente torna al
     // default: qui e nel load di un preset sono le due sole sedi che la cambiano.
     m_sceneDirty = false;
+    // Il reset svuota anche texture e suono (codice, campi e stato, piu' sopra):
+    // niente lavoro di quei moduli da proteggere.
+    m_textureDirty = false;
+    m_soundDirty   = false;
     m_warnedEditedDock = OriginDefault;
     m_warnedOrigin     = OriginDefault;
     m_surfaceOrigin    = OriginDefault;
@@ -5979,6 +6094,12 @@ void MainWindow::handleTextureSelection(int index)
     // (stessa logica dei record). Vuoto solo se non è stata caricata nessuna texture.
     m_currentTexturePresetPath = data.filePath;
 
+    // A schermo c'e' ora una texture di libreria, non lavoro dell'utente: non
+    // c'e' piu' niente da proteggere. La conferma per la texture PRECEDENTE e'
+    // gia' stata chiesta dal chiamante (onExampleItemClicked), prima di
+    // arrivare qui.
+    m_textureDirty = false;
+
     static int lastTextureIndex = -1;
     static bool lastWasBg = false;
     bool isBg = ui->radioBackground->isChecked();
@@ -6176,7 +6297,12 @@ void MainWindow::handleTextureSelection(int index)
         // clicca una texture, non un reset -- quindi qui si chiede conferma.
         // Va fatto PRIMA di toccare qualunque cosa: currentChanged scatta a tab
         // gia' cambiato e da li' non si potrebbe piu' dire di no.
-        if (!confirmDiscardUnsavedWork()) {
+        //
+        // Scena e SUONO, non la texture: la conferma per la texture l'ha gia'
+        // chiesta onExampleItemClicked prima di arrivare qui (e qui la texture
+        // e' proprio cio' che si sta caricando, quindi non c'e' piu' niente di
+        // suo da difendere). Il reset che segue azzera invece anche il suono.
+        if (!confirmDiscardUnsavedWork() || !confirmDiscardUnsavedSound()) {
             // Annullato: la scena resta com'era, ma nell'albero e' rimasto
             // evidenziato l'item appena cliccato (la selezione la fa il click,
             // prima di arrivare qui). Si rimette il focus sulla texture
@@ -7703,7 +7829,7 @@ void MainWindow::onStopClicked() {
 // modalita' -- e passa dalla conferma come il riclic sulla linguetta attiva.
 void MainWindow::onNewSceneClicked()
 {
-    if (!confirmDiscardUnsavedWork()) return;
+    if (!confirmDiscardAllUnsaved()) return;
     resetScene(ui->tabModeSelector->currentIndex(), /*loadDefaultSurface=*/false);
 }
 
@@ -9607,15 +9733,36 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
     // Superfici e record la SOSTITUISCONO (un record ricarica equazioni,
     // costanti e camera): sono distruttivi quanto NEW o il cambio di modalita',
     // ma molto piu' frequenti, ed erano l'unico percorso distruttivo che non
-    // chiedeva nulla. Texture e suoni si applicano SOPRA la scena e non entrano
-    // qui. La domanda va fatta PRIMA dell'azzeramento incrociato degli alberi
-    // qui sotto: su Cancel non deve cambiare niente, nemmeno le evidenziazioni.
+    // chiedeva nulla. La domanda va fatta PRIMA dell'azzeramento incrociato
+    // degli alberi qui sotto: su Cancel non deve cambiare niente, nemmeno le
+    // evidenziazioni.
+    //
+    // Superfici e record riscrivono anche texture e suono, quindi la conferma
+    // e' quella COMPLETA (confirmDiscardAllUnsaved): chiede per ogni modulo
+    // sporco, uno alla volta, ognuno col salvataggio puntato dove serve.
+    //
+    // Le TEXTURE si applicano sopra la scena e non la sostituiscono, ma
+    // scartano il lavoro fatto sulla texture corrente: hanno una conferma loro,
+    // che protegge il solo modulo (m_textureDirty) e apre il salvataggio sul
+    // ramo textures/ anziche' sulla radice dell'albero. Stessa cosa per i
+    // suoni, in onSoundItemClicked (albero servito da un altro slot).
     {
         QTreeWidget *src = qobject_cast<QTreeWidget*>(sender());
         const bool replacesScene = (src == ui->treeSurfaces || src == ui->treeMotions);
         // Solo le FOGLIE caricano qualcosa: sulle cartelle il click apre il ramo
         // e non tocca la scena, quindi non deve chiedere nulla.
         const bool isLeaf = (item && item->childCount() == 0);
+
+        if (src == ui->treeTextures && isLeaf) {
+            if (!confirmDiscardUnsavedTexture()) {
+                // Annullato: l'item cliccato e' gia' selezionato (la selezione
+                // la fa il click) e indicherebbe una texture che non e' stata
+                // caricata. Si rimette il focus su quella realmente in vigore,
+                // con la stessa funzione usata dal load di texture incompatibili.
+                syncTextureTreeSelection();
+                return;
+            }
+        }
 
         if (replacesScene && isLeaf) {
             // L'item cliccato risulta gia' selezionato quando arriviamo qui (la
@@ -9631,7 +9778,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             // memoria storica di m_lastLoadedLibraryItem.
             QTreeWidgetItem *previous = m_lastLoadedLibraryItem;
 
-            if (!confirmDiscardUnsavedWork()) {
+            if (!confirmDiscardAllUnsaved()) {
                 bool b = src->blockSignals(true);
                 src->clearSelection();
                 // Il preset in vigore puo' stare in un ALTRO albero (una
@@ -11375,6 +11522,14 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
         return;
     }
 
+    // Da qui in poi il suono corrente viene SOSTITUITO: si chiede prima cosa
+    // fare del lavoro non salvato, come per superfici e record. La domanda
+    // arriva dopo il ramo "suono gia' caricato" qui sopra, che si limita a
+    // rigenerarlo e non scarta nulla, e prima di qualunque modifica di stato:
+    // su Cancel non deve cambiare niente. Il dialogo di salvataggio punta al
+    // ramo sounds/, non a tutto l'albero: il tipo e' gia' deciso.
+    if (!confirmDiscardUnsavedSound()) return;
+
     // PULIZIA ASSOLUTA: Rimuove l'audio da eventuali vecchi caricamenti spuri
     QRegularExpression reMusic(R"(^\s*//MUSIC:.*$\n?)", QRegularExpression::MultilineOption);
     QRegularExpression reProc(R"(//SOUND_BEGIN.*?//SOUND_END\n?)", QRegularExpression::DotMatchesEverythingOption);
@@ -11386,6 +11541,12 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
 
     // AGGIORNAMENTO MEMORIA AUDIO
     m_soundScriptText = audioSnippet;
+
+    // A schermo c'e' ora un suono di libreria, non lavoro dell'utente: niente
+    // piu' da proteggere. La conferma per il suono PRECEDENTE e' gia' stata
+    // chiesta qui sopra. (La scrittura nell'editor piu' sotto e' programmatica
+    // ma a segnali BLOCCATI, quindi non rialza il flag.)
+    m_soundDirty = false;
 
     if (ui->radioBackground->isChecked()) {
         m_bgTextureCode = (m_soundScriptText + "\n\n" + m_bgTextureScriptText.trimmed()).trimmed();
@@ -12688,6 +12849,11 @@ void MainWindow::applyCommonData(const LibraryItem &d)
     // riempiono a segnali vivi e hanno gia' fatto scattare noteSceneEdited.
     // Riarmato anche l'avviso cross-dock: la situazione e' cambiata.
     m_sceneDirty = false;
+    // Un preset porta con se' anche texture e suono: i loro campi sono stati
+    // riscritti dal load, quindi il lavoro precedente su quei moduli non e' piu'
+    // a schermo e non c'e' piu' niente da proteggere.
+    m_textureDirty = false;
+    m_soundDirty   = false;
     m_warnedEditedDock = OriginDefault;
     m_warnedOrigin     = OriginDefault;
     // Il preset caricato ha compilato: azzera l'esito fallito di un Run
