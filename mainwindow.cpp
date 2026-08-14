@@ -3833,8 +3833,8 @@ bool MainWindow::confirmDiscardUnsavedWork()
     QMessageBox box(this);
     box.setIcon(QMessageBox::Warning);
     box.setWindowTitle("Unsaved work");
-    box.setText("The current surface has unsaved changes.");
-    box.setInformativeText("Resetting will discard them. Do you want to save first?");
+    box.setText("The current scene has unsaved changes.");
+    box.setInformativeText("They will be discarded. Do you want to save first?");
     QPushButton *saveBtn    = box.addButton("Save",       QMessageBox::AcceptRole);
     QPushButton *discardBtn = box.addButton("Don't save", QMessageBox::DestructiveRole);
     box.addButton("Cancel", QMessageBox::RejectRole);
@@ -3844,12 +3844,16 @@ bool MainWindow::confirmDiscardUnsavedWork()
     if (box.clickedButton() == discardBtn) return true;
 
     if (box.clickedButton() == saveBtn) {
-        // Il dialogo di salvataggio puo' essere annullato: in quel caso NON si
-        // procede col reset, o si perderebbe proprio il lavoro che si voleva
-        // salvare. m_sceneDirty resta true finche' il file non e' scritto, ed e'
-        // saveSurface a portarlo a false; qui lo si usa come esito.
-        saveSurfaceToFile();
-        return !m_sceneDirty;
+        // NON saveSurfaceToFile: da qui non si sa che cosa l'utente consideri il
+        // suo lavoro (superficie? texture? l'intera scena con rotazioni e path,
+        // che vive solo nei record?), e aprire d'ufficio il ramo surfaces col
+        // nome "NewSurface" gli faceva perdere in silenzio tutto cio' che quel
+        // ramo non salva. Il dialogo parte dalla radice, senza nome: sceglie lui.
+        //
+        // Il dialogo puo' essere annullato: in quel caso NON si procede, o si
+        // perderebbe proprio il lavoro che si voleva salvare. L'esito e' vero
+        // solo se il file e' finito su disco.
+        return m_presetSerializer->saveUnsavedWorkInteractive();
     }
 
     return false;   // Cancel (o chiusura della finestra)
@@ -4125,6 +4129,54 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     }
     // ==========================================================
 
+    // ==========================================================
+    // RESET ROTAZIONI (oggetto 3D + 4D) -- COMUNE AI DUE RAMI
+    // ==========================================================
+    // Le rotazioni non appartengono a una modalita': girano identiche in
+    // parametrico e in ray marching (le 4D comprese, vedi il master button in
+    // RM). Questo azzeramento pero' viveva DENTRO il solo ramo parametrico:
+    // ripristinando la superficie di default IMPLICITA le velocita' del preset
+    // precedente sopravvivevano nel motore, i campi del dock 3D restavano sui
+    // vecchi valori e il tasto GO/STOP restava su "STOP" -- la sfera di default
+    // appariva giusta, ma con lo stato di rotazione di cio' che era stato
+    // appena buttato via.
+    //
+    // Ordine obbligato: PRIMA di entrare nei rami. Il ramo parametrico chiude
+    // con onStopClicked(), che e' un toggle e con velocita' gia' a zero esce
+    // subito (hasAnyRotationSpeed falso) limitandosi a riallineare i master
+    // button: il comportamento di quel ramo non cambia.
+    //
+    // onStopClicked e' un toggle anche qui: si chiama solo se il moto e'
+    // davvero in corso, altrimenti con le velocita' ancora vive lo FAREBBE
+    // PARTIRE invece di fermarlo.
+    if (ui->glWidget && ui->glWidget->isAnimating()) onStopClicked();
+
+    // Velocita' reali del motore, non solo le etichette.
+    if (ui->glWidget) {
+        ui->glWidget->setNutationSpeed(0.0f);
+        ui->glWidget->setPrecessionSpeed(0.0f);
+        ui->glWidget->setSpinSpeed(0.0f);
+        ui->glWidget->setOmegaSpeed(0.0f);
+        ui->glWidget->setPhiSpeed(0.0f);
+        ui->glWidget->setPsiSpeed(0.0f);
+    }
+    ui->lblNutVal->setText("0.00"); ui->lblPrecVal->setText("0.00"); ui->lblSpinVal->setText("0.00");
+    ui->lblOmegaVal->setText("0.00"); ui->lblPhiVal->setText("0.00"); ui->lblPsiVal->setText("0.00");
+
+    // Il tasto delle rotazioni torna a "GO": con le velocita' azzerate un
+    // "STOP" residuo descriverebbe un moto che non esiste piu'. Lo stop
+    // manuale del contesto precedente si dimentica, come gli altri clock al
+    // caricamento di una nuova superficie: qui la scena e' nuova di zecca.
+    if (ui->btnStart_2) ui->btnStart_2->setText("GO");
+    m_userStoppedCameraMotion = false;
+
+    // Animazione del tempo (t): stesso discorso: non e' stato di modalita'.
+    if (ui->glWidget) {
+        ui->glWidget->resetTime();
+        ui->glWidget->setSurfaceAnimating(false);
+    }
+    if (m_btnStart) m_btnStart->setText("START");
+
     if (index == 1) { // --- PASSAGGIO A IMPLICIT (RAY MARCHING) ---
         if (loadDefaultSurface) {
             ui->lineEquation->setPlainText("x*x + y*y + z*z - 1.0");
@@ -4137,10 +4189,8 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         // 1. SALVA IN MEMORIA IL VALORE PARAMETRICO DELLA S
         m_lastParametricS = ui->lineS->text().toDouble();
 
-        // 2. Ferma tutte le animazioni (i path camera sono già stati
-        // fermati e ripuliti nel blocco RESET PATH CAMERA più sopra)
-        if (ui->glWidget->isAnimating()) ui->glWidget->pauseMotion();
-        ui->glWidget->setSurfaceAnimating(false);
+        // 2. Ferma il timer dell'animazione shader (rotazioni, tempo e path
+        // camera sono già stati fermati nei blocchi comuni più sopra).
         ui->glWidget->stopAnimationTimer();
 
         // 4. Azzera Texture e Rilievi (Ritorna alla forma nuda)
@@ -4268,11 +4318,9 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         m_lastImplicitSteps = ui->stepSlider->value();
         m_lastImplicitS = ui->lineS->text().toDouble();
 
-        // 1. STOP E RESET FISICO
-        // onStopClicked è un toggle: senza la guardia, con moto in pausa e
-        // velocità impostate farebbe RIPARTIRE le rotazioni. (I path camera
-        // sono già stati fermati nel blocco RESET PATH CAMERA più sopra.)
-        if (ui->glWidget->isAnimating()) onStopClicked();
+        // 1. RESET FISICO (lo stop delle rotazioni e del tempo e' gia' stato
+        // fatto nel blocco comune ai due rami, qui sopra; i path camera nel
+        // blocco RESET PATH CAMERA piu' su).
         ui->glWidget->resetTransformations();
         // Distanza camera alla standard (4.0): il salvavita zoom di
         // resetTransformations PRESERVA una distanza >= 2.5 (es. quella
@@ -4280,15 +4328,6 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         // default apparirebbe da li'. Stesso riallineamento che il ramo
         // Ray Marching fa per la sfera di default.
         ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
-        ui->glWidget->resetTime();
-        ui->glWidget->setSurfaceAnimating(false);
-        if (m_btnStart) m_btnStart->setText("START");
-
-        // Azzera anche le velocità reali del motore, non solo le etichette
-        ui->glWidget->setNutationSpeed(0.0f); ui->glWidget->setPrecessionSpeed(0.0f); ui->glWidget->setSpinSpeed(0.0f);
-        ui->glWidget->setOmegaSpeed(0.0f); ui->glWidget->setPhiSpeed(0.0f); ui->glWidget->setPsiSpeed(0.0f);
-        ui->lblNutVal->setText("0.00"); ui->lblPrecVal->setText("0.00"); ui->lblSpinVal->setText("0.00");
-        ui->lblOmegaVal->setText("0.00"); ui->lblPhiVal->setText("0.00"); ui->lblPsiVal->setText("0.00");
 
         // 2. RESET ILLUMINAZIONE E RENDER MODE (Fix Bug persistenza)
         // Riportiamo tutto al modello "Basic" (Lambert) senza specolarità
@@ -4434,6 +4473,11 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     m_implicitApplied = true;
     m_rmTextureApplied = true;
     updateMasterButtonState();
+    // Le rotazioni sono state azzerate (blocco comune ai due rami): il dock 4D
+    // va riallineato qui, dopo che anche resetTransformations ha riportato a
+    // zero gli angoli omega/phi/psi che questa funzione legge. Prima non
+    // veniva chiamata affatto da nessun percorso di reset.
+    update4DButtonState();
 
     // L'avviso in sovrimpressione ("Slider A attivo su questa forma") descrive
     // il preset che se ne e' appena andato: se il reset arriva prima che il suo
