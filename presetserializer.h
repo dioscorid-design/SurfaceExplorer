@@ -24,6 +24,12 @@ public:
     void saveSurfaceAs(const QString &startDir, const QString &sourceFilePath = "");
     void saveMotionAs(const QString &startDir, const QString &sourceFilePath = "");
 
+    // Salvataggio chiesto dall'avviso "vuoi salvare?": dialogo aperto sulla
+    // RADICE dei preset e senza nome di default, perche' e' l'utente a dover
+    // scegliere il ramo (= che cosa salvare). Ritorna true solo se il file e'
+    // finito davvero su disco. Vedi il commento sull'implementazione.
+    bool saveUnsavedWorkInteractive();
+
 private:
     // Scrive i sei limiti parametrici in `limits`: sempre la chiave numerica
     // (uMin/uMax/...), piu' la gemella "...Expr" con il testo grezzo quando

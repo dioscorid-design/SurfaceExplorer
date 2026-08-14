@@ -769,6 +769,10 @@ void PresetSerializer::saveTexture(const QString &path)
 
         m_mainWindow->m_currentTexturePresetPath = path;
 
+        // Il lavoro e' su disco: come in saveSurface, lo legge
+        // confirmDiscardUnsavedWork per sapere se il "Save" e' riuscito.
+        m_mainWindow->m_sceneDirty = false;
+
         // Refresh visivo + selezione del file appena salvato nella libreria
         QTimer::singleShot(100, m_mainWindow, [this, path]() {
             m_mainWindow->refreshAndSelectPreset(m_mainWindow->ui->treeTextures, path);
@@ -1288,6 +1292,10 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         file.write(doc.toJson());
         file.close();
 
+        // Il lavoro e' su disco: come in saveSurface, lo legge
+        // confirmDiscardUnsavedWork per sapere se il "Save" e' riuscito.
+        m_mainWindow->m_sceneDirty = false;
+
         QTimer::singleShot(100, m_mainWindow, [this, fileName]() {
             m_mainWindow->refreshAndSelectPreset(m_mainWindow->ui->treeMotions, fileName);
         });
@@ -1547,6 +1555,10 @@ void PresetSerializer::saveSound(const QString &filePath)
         QJsonDocument doc(root);
         outFile.write(doc.toJson());
         outFile.close();
+
+        // Il lavoro e' su disco: come in saveSurface, lo legge
+        // confirmDiscardUnsavedWork per sapere se il "Save" e' riuscito.
+        m_mainWindow->m_sceneDirty = false;
     }
 
     // 6. Aggiorniamo la UI per riflettere eventuali modifiche (es. orario di ultima modifica)
@@ -1861,6 +1873,119 @@ void PresetSerializer::saveMotionAs(const QString &startDir, const QString &sour
     QSettings().setValue("lastMotionDir", QFileInfo(savePath).absolutePath());
 
     saveMotion(savePath);
+}
+
+// ==========================================================
+// SALVATAGGIO DALL'AVVISO "VUOI SALVARE?"
+// ==========================================================
+
+// Salvataggio del lavoro non salvato prima di un'azione distruttiva (apertura di
+// un altro preset, ripristino della superficie di default, New, cambio di
+// modalita').
+//
+// Qui NON si sa che cosa l'utente consideri il suo lavoro: puo' essere la
+// superficie, ma anche la texture, il suono o l'intera scena con rotazioni,
+// camera e path -- che vivono SOLO nel record. Per questo il dialogo non parte
+// dal ramo delle superfici con "NewSurface" gia' scritto (era un suggerimento
+// sbagliato: chi aveva lavorato su texture e rotazioni le perdeva comunque,
+// perche' il ramo surfaces non le salva), ma dalla RADICE dei preset e senza
+// nome di default: la scelta del ramo -- Surfaces, Textures, Sounds, Records --
+// e' la scelta di che cosa salvare, e la fa l'utente.
+//
+// Il ramo scelto decide poi il formato: si delega al save del tipo giusto, che
+// e' anche quello che sa rifiutare le collocazioni sbagliate. Nessuna copia
+// della logica di scrittura.
+bool PresetSerializer::saveUnsavedWorkInteractive()
+{
+    bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
+    bool wasPath4D = m_mainWindow->pathTimer->isActive();
+    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
+
+    if (wasAnimating) m_mainWindow->ui->glWidget->pauseMotion();
+    if (wasPath4D) m_mainWindow->pathTimer->stop();
+    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
+
+    const auto resumeMotion = [&]() {
+        if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
+        if (wasPath4D) m_mainWindow->pathTimer->start();
+        if (wasPath3D) m_mainWindow->pathTimer3D->start();
+    };
+
+    // Radice reale della libreria: la cartella che CONTIENE i quattro rami.
+    QString root = m_mainWindow->presetsRootPath();
+    if (root.isEmpty()) {
+#if defined(Q_OS_ANDROID)
+        root = "/storage/emulated/0/Documents/SurfaceExplorer_Presets";
+#else
+        root = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
+               + "/SurfaceExplorer_Presets";
+#endif
+    }
+    if (!QDir(root).exists()) QDir().mkpath(root);
+
+    // I quattro rami devono esistere, altrimenti il dialogo si apre su una
+    // radice semivuota e il ramo che serve non e' nemmeno raggiungibile (prima
+    // scrittura su iOS: il container puo' non averli ancora).
+    for (const QString &branch : { QStringLiteral("surfaces"), QStringLiteral("textures"),
+                                   QStringLiteral("sounds"),   QStringLiteral("records") }) {
+        if (!QDir(root + "/" + branch).exists()) QDir().mkpath(root + "/" + branch);
+    }
+
+    QString savePath;
+    // Ciclo: se l'utente si ferma sulla radice (nessun ramo scelto) il file non
+    // apparterrebbe a nessun tipo e nessun save lo accetterebbe. Invece di
+    // fallire in silenzio si spiega il problema e si riapre il dialogo dov'era.
+    for (;;) {
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+        // navFloor = la radice: da qui si scende nei rami e non si sale oltre.
+        MobileSaveDialog dialog("Save Work", root, QString(), m_mainWindow, root);
+        if (dialog.exec() != QDialog::Accepted) { resumeMotion(); return false; }
+        savePath = dialog.getSelectedPath();
+#else
+        // Cartella di partenza SENZA nome preselezionato: niente "NewSurface".
+        savePath = getSaveFileNameWithSuffix(m_mainWindow, "Save Work", root + "/",
+                                             "JSON Files (*.json)", "json");
+#endif
+        if (savePath.isEmpty()) { resumeMotion(); return false; }
+        if (!savePath.endsWith(".json", Qt::CaseInsensitive)) savePath += ".json";
+
+        const QString absDir = QFileInfo(savePath).absolutePath() + "/";
+        if (absDir.contains("/surfaces/", Qt::CaseInsensitive) ||
+            absDir.contains("/textures/", Qt::CaseInsensitive) ||
+            absDir.contains("/sounds/",   Qt::CaseInsensitive) ||
+            absDir.contains("/records/",  Qt::CaseInsensitive))
+            break;
+
+        QMessageBox::warning(m_mainWindow, "Choose a branch",
+                             "Pick one of the four library branches first:\n\n"
+                             "• Surfaces — the surface alone (no textures, no rotations)\n"
+                             "• Textures — the texture preset alone\n"
+                             "• Sounds — the sound script alone\n"
+                             "• Records — the whole scene: surface, texture, rotations, camera and paths");
+    }
+
+    resumeMotion();
+
+    // Il ramo decide il formato. saveSurface/saveMotion riaprirebbero un loro
+    // dialogo se ricevessero una cartella: qui il percorso e' gia' un .json,
+    // quindi lo prendono cosi' com'e' e scrivono.
+    const QString absDir = QFileInfo(savePath).absolutePath() + "/";
+    if (absDir.contains("/records/", Qt::CaseInsensitive)) {
+        QSettings().setValue("lastMotionDir", QFileInfo(savePath).absolutePath());
+        saveMotion(savePath);
+    } else if (absDir.contains("/textures/", Qt::CaseInsensitive)) {
+        QSettings().setValue("lastCustomTexDir", QFileInfo(savePath).absolutePath());
+        saveTexture(savePath);
+    } else if (absDir.contains("/sounds/", Qt::CaseInsensitive)) {
+        saveSound(savePath);
+    } else {
+        saveSurface(savePath);
+    }
+
+    // Esito reale: i save azzerano m_sceneDirty solo se il file e' finito su
+    // disco. Un rifiuto ("Save Blocked") o un errore di scrittura lo lasciano a
+    // true, e il chiamante sospende giustamente l'azione distruttiva.
+    return !m_mainWindow->m_sceneDirty;
 }
 
 // ==========================================================
