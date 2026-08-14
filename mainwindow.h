@@ -49,6 +49,18 @@ class MainWindow : public QMainWindow
     friend class MobileInputFilter;
 
 public:
+    // CHE COSA sta per essere perso: decide sia quando chiedere sia dove il
+    // dialogo di salvataggio si apre. Vedi confirmDiscardUnsaved.
+    // NB: dichiarato QUI, non accanto alla funzione che lo usa: quella vive in
+    // una sezione slot, dove moc rifiuta le dichiarazioni di tipo (stesso
+    // motivo di RunOutcomeGuard), e un tipo usato in una firma deve comunque
+    // essere gia' noto al compilatore in quel punto.
+    enum DiscardScope {
+        ScopeScene,     // tutta la scena (altro preset, default, NEW, cambio modalita')
+        ScopeTexture,   // la sola texture (se ne sta caricando un'altra)
+        ScopeSound      // il solo suono
+    };
+
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
@@ -100,20 +112,12 @@ private slots:
     void dropSurfaceLibrarySelection();
     // Save / Don't save / Cancel prima di un'azione che scarta il lavoro.
     // false = l'utente ha annullato: il chiamante NON deve procedere.
-    bool confirmDiscardUnsavedWork();
-    // Come sopra, ma per i moduli che NON sostituiscono la scena: caricare una
-    // texture o un suono scarta solo il lavoro di QUEL modulo. Il dialogo di
-    // salvataggio punta al ramo del tipo (textures/ o sounds/), non alla radice
-    // dell'albero: qui non c'e' nessuna scelta da fare su cosa salvare.
-    bool confirmDiscardUnsavedTexture();
-    bool confirmDiscardUnsavedSound();
-    // Conferma per le azioni che azzerano TUTTO (reset di modalita', NEW, load
-    // di una superficie o di un record): chiede, uno alla volta, per ogni modulo
-    // che ha lavoro non salvato -- scena, texture, suono. Ogni dialogo apre il
-    // salvataggio dove serve: la radice dell'albero per la scena, il ramo del
-    // tipo per texture e suono. false appena l'utente annulla UNO qualunque dei
-    // dialoghi: il chiamante non deve procedere.
-    bool confirmDiscardAllUnsaved();
+    // UNICA conferma per il lavoro non salvato. Con ScopeScene elenca tutto
+    // cio' che e' sporco (scena, texture, suono) e salva una volta sola dalla
+    // radice dell'albero, dove "records" tiene insieme l'intera scena; con
+    // ScopeTexture/ScopeSound guarda il solo flag di quel modulo e punta
+    // diritto al suo ramo. false se l'utente annulla: non si procede.
+    bool confirmDiscardUnsaved(DiscardScope scope);
     // Unico punto da cui si mostra un errore di compilazione all'utente.
     void showShaderError(const QString &title, const QString &errorLog);
     // Lavoro dell'utente sui controlli che NON passano dai campi testuali:
@@ -661,6 +665,14 @@ private:
     // dal suo salvataggio e dal reset.
     bool m_textureDirty = false;
     bool m_soundDirty   = false;
+
+    // Salvataggio in corso DENTRO la conferma "vuoi salvare?": la libreria si
+    // aggiorna ma il focus non si sposta sul file salvato, perche' subito dopo
+    // viene caricato un altro preset ed e' QUELLO che si sta guardando. Lo
+    // legge refreshAndSelectPreset, che i writer chiamano a 100ms -- cioe' a
+    // caricamento gia' avvenuto. Rilasciato con lo stesso ritardo, dopo che
+    // quei timer sono scattati.
+    bool m_suppressSelectAfterSave = false;
 
     // ULTIMO ITEM DELLA LIBRARY EFFETTIVAMENTE CARICATO (superficie o record).
     // Serve a rimettere il focus dov'era quando l'utente ANNULLA il caricamento

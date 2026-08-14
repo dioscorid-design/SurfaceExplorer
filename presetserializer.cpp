@@ -570,32 +570,15 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
             // Densita' wireframe propria (0 = eredita dalla globale).
             if (mp.wfStepU > 0)            { o["wfU"] = mp.wfStepU; anyCustom = true; }
             if (mp.wfStepV > 0)            { o["wfV"] = mp.wfStepV; anyCustom = true; }
-            // Texture procedurale propria. Come per "mode" serve il flag: una
-            // parte puo' voler la texture SPENTA mentre il globale la tiene
-            // accesa, e senza flag quel caso non si distingue da "eredita".
-            if (mp.hasCustomTexture) {
-                o["texCode"] = mp.textureCode;
-                o["texOn"]   = mp.textureEnabled;
-                anyCustom = true;
-            }
-            // Colori u_col1/u_col2 propri della parte (assenti = eredita).
-            if (mp.hasCustomTexColors()) {
-                o["texC1r"] = (double)mp.texCol1R;
-                o["texC1g"] = (double)mp.texCol1G;
-                o["texC1b"] = (double)mp.texCol1B;
-                o["texC2r"] = (double)mp.texCol2R;
-                o["texC2g"] = (double)mp.texCol2G;
-                o["texC2b"] = (double)mp.texCol2B;
-                anyCustom = true;
-            }
-            // Trasformazione 2D propria (zoom/pan/rotazione della texture).
-            if (mp.hasCustomTexTransform()) {
-                o["texZoom"] = (double)mp.texZoom;
-                o["texPanX"] = (double)mp.texPanX;
-                o["texPanY"] = (double)mp.texPanY;
-                o["texRot"]  = (double)mp.texRotation;
-                anyCustom = true;
-            }
+            // NIENTE TEXTURE, per nessuna parte: codice, accensione, colori
+            // u_col1/u_col2 e trasformazione 2D restano fuori.
+            // Il ramo surfaces/ non salva la texture -- e' la regola generale
+            // del tipo, e infatti la texture GLOBALE non compare da nessuna
+            // parte in questa funzione. Le multi-mesh la disattendevano
+            // scrivendo texCode/texOn/texC*/texZoom&c. dentro "meshParts":
+            // la stessa superficie si riapriva con le fasce texturizzate se
+            // multi-mesh e nuda se a mesh singola. Per conservare la texture
+            // c'e' il ramo records/, che salva l'intera scena.
             meshArr.append(o);
         }
         if (anyCustom) root["meshParts"] = meshArr;
@@ -668,7 +651,7 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         file.close();
 
         // Il lavoro e' su disco: non c'e' piu' niente da proteggere. Lo legge
-        // confirmDiscardUnsavedWork per capire se il "Save" e' andato a buon
+        // confirmDiscardUnsaved per capire se il "Save" e' andato a buon
         // fine o se l'utente ha annullato il dialogo (i return anticipati qui
         // sopra lasciano il flag a true, e il reset viene giustamente sospeso).
         m_mainWindow->m_sceneDirty = false;
@@ -769,11 +752,13 @@ void PresetSerializer::saveTexture(const QString &path)
 
         m_mainWindow->m_currentTexturePresetPath = path;
 
-        // Il lavoro e' su disco: come in saveSurface, lo legge
-        // confirmDiscardUnsavedWork per sapere se il "Save" e' riuscito.
-        m_mainWindow->m_sceneDirty = false;
-        // Flag del MODULO texture: lo legge confirmDiscardUnsavedTexture, che
-        // protegge il solo ramo texture e non lo stato di scena.
+        // Il lavoro e' su disco: lo legge confirmDiscardUnsavedTexture per
+        // sapere se il "Save" e' riuscito.
+        //
+        // SOLO il flag del modulo: un file texture non contiene le equazioni,
+        // quindi azzerare anche m_sceneDirty dichiarerebbe salvato un lavoro
+        // sulla superficie che non e' stato scritto da nessuna parte -- e il
+        // reset successivo lo butterebbe via senza chiedere niente.
         m_mainWindow->m_textureDirty = false;
 
         // Refresh visivo + selezione del file appena salvato nella libreria
@@ -809,6 +794,8 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     } else {
         QString startPath = suggestedPath;
 
+        const QString recordsRoot = m_mainWindow->presetsRootPath() + "/records";
+
         if (!isUsableStartDir(startPath)) {
             QTreeWidgetItem *selItem = m_mainWindow->getCurrentLibraryItem();
             if (selItem) {
@@ -827,8 +814,22 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
                 startPath = lastDir;
             }
             if (!isUsableStartDir(startPath)) {
-                startPath = m_mainWindow->presetsRootPath() + "/records";
+                startPath = recordsRoot;
             }
+        }
+
+        // Un record si salva SOLO sotto records/: il tipo e' gia' deciso, non
+        // c'e' nessuna scelta di ramo da offrire. Le due sorgenti qui sopra
+        // possono pero' puntare altrove -- getCurrentLibraryItem() legge la
+        // selezione di QUALUNQUE albero (con una superficie selezionata il
+        // dialogo si apriva in surfaces/) e "lastMotionDir" e' una cartella
+        // ricordata che puo' non esistere piu' o essere stata spostata. In
+        // entrambi i casi il salvataggio sarebbe poi finito nel blocco
+        // "Save Blocked" piu' sotto, che rifiuta i percorsi fuori ramo.
+        {
+            const QString canon = QDir(startPath).absolutePath();
+            if (!canon.startsWith(QDir(recordsRoot).absolutePath(), Qt::CaseInsensitive))
+                startPath = recordsRoot;
         }
 
         // Garantiamo che la cartella di partenza esista davvero (prima scrittura
@@ -1296,8 +1297,16 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         file.close();
 
         // Il lavoro e' su disco: come in saveSurface, lo legge
-        // confirmDiscardUnsavedWork per sapere se il "Save" e' riuscito.
-        m_mainWindow->m_sceneDirty = false;
+        // confirmDiscardUnsaved per sapere se il "Save" e' riuscito.
+        //
+        // TUTTI E TRE i flag: un record contiene l'intera scena -- superficie,
+        // texture, suono, camera e rotazioni -- quindi salvandolo e' su disco
+        // anche il lavoro dei moduli. Azzerando il solo m_sceneDirty l'avviso
+        // sarebbe ricomparso subito dopo per una texture gia' salvata dentro il
+        // record.
+        m_mainWindow->m_sceneDirty   = false;
+        m_mainWindow->m_textureDirty = false;
+        m_mainWindow->m_soundDirty   = false;
 
         QTimer::singleShot(100, m_mainWindow, [this, fileName]() {
             m_mainWindow->refreshAndSelectPreset(m_mainWindow->ui->treeMotions, fileName);
@@ -1340,6 +1349,21 @@ void PresetSerializer::saveScript()
         if (isSurface) currentMem = settings.value("pathSurfaces", rootPath + "/surfaces").toString();
         else if (isSound) currentMem = settings.value("pathSounds", rootPath + "/sounds").toString();
         else currentMem = settings.value("pathTextures", rootPath + "/textures").toString();
+    }
+
+    // Il tipo e' gia' deciso, quindi il dialogo deve aprirsi NEL SUO RAMO. La
+    // cartella ricordata e' per-tipo e di norma ci sta gia' dentro, ma puo'
+    // essere stata spostata (o venire da una versione precedente che
+    // condivideva la chiave): fuori ramo il salvataggio verrebbe poi rifiutato
+    // dal blocco "Save Blocked" di saveTexture/saveSound.
+    {
+        const QString typeRoot = m_mainWindow->presetsRootPath()
+                               + (isSurface ? "/surfaces" : (isSound ? "/sounds" : "/textures"));
+        if (!QDir(currentMem).absolutePath().startsWith(QDir(typeRoot).absolutePath(),
+                                                        Qt::CaseInsensitive)) {
+            currentMem = typeRoot;
+            if (!QDir(currentMem).exists()) QDir().mkpath(currentMem);
+        }
     }
 
     QString fileName;
@@ -1559,11 +1583,9 @@ void PresetSerializer::saveSound(const QString &filePath)
         outFile.write(doc.toJson());
         outFile.close();
 
-        // Il lavoro e' su disco: come in saveSurface, lo legge
-        // confirmDiscardUnsavedWork per sapere se il "Save" e' riuscito.
-        m_mainWindow->m_sceneDirty = false;
-        // Flag del MODULO sound: lo legge confirmDiscardUnsavedSound, che
-        // protegge il solo ramo sound e non lo stato di scena.
+        // Il lavoro e' su disco: lo legge confirmDiscardUnsavedSound per sapere
+        // se il "Save" e' riuscito. SOLO il flag del modulo, per la stessa
+        // ragione di saveTexture: un file sound non contiene la superficie.
         m_mainWindow->m_soundDirty = false;
     }
 
@@ -1780,6 +1802,7 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
             if (QFile::exists(savePath)) QFile::remove(savePath);
             if (QFile::copy(sourceFilePath, savePath)) {
                 QFile::setPermissions(savePath, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadGroup);
+                m_mainWindow->m_soundDirty = false;   // su disco: vedi il ramo "da zero"
             }
         }
     } else if (!sourceFilePath.isEmpty()) {
@@ -1798,6 +1821,7 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
                 if (outFile.open(QIODevice::WriteOnly)) {
                     outFile.write(QJsonDocument(root).toJson());
                     outFile.close();
+                    m_mainWindow->m_soundDirty = false;   // su disco: vedi il ramo "da zero"
                 }
             }
         }
@@ -1821,6 +1845,14 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
             QJsonDocument doc(root);
             outFile.write(doc.toJson());
             outFile.close();
+
+            // Il lavoro sul suono e' su disco. Senza questo, la conferma
+            // "vuoi salvare?" -- che legge !m_soundDirty come esito -- credeva
+            // che il salvataggio fosse FALLITO: il popup si ripresentava al
+            // caricamento successivo anche senza nuove modifiche, e l'azione
+            // in corso veniva sospesa. saveSound (l'altro writer del tipo) lo
+            // azzerava gia'; qui mancava in tutti e tre i rami.
+            m_mainWindow->m_soundDirty = false;
         }
     }
 
@@ -1944,6 +1976,9 @@ bool PresetSerializer::saveUnsavedWorkInteractive()
     for (;;) {
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
         // navFloor = la radice: da qui si scende nei rami e non si sale oltre.
+        // NON si parte dal ramo gia' deciso (es. records/ quando e' sporca
+        // l'intera scena): da un record si puo' voler salvare la SOLA
+        // superficie, e col floor sul ramo surfaces/ sarebbe irraggiungibile.
         MobileSaveDialog dialog("Save Work", root, QString(), m_mainWindow, root);
         if (dialog.exec() != QDialog::Accepted) { resumeMotion(); return false; }
         savePath = dialog.getSelectedPath();
@@ -1979,18 +2014,23 @@ bool PresetSerializer::saveUnsavedWorkInteractive()
     if (absDir.contains("/records/", Qt::CaseInsensitive)) {
         QSettings().setValue("lastMotionDir", QFileInfo(savePath).absolutePath());
         saveMotion(savePath);
-    } else if (absDir.contains("/textures/", Qt::CaseInsensitive)) {
+        // Esito: saveMotion/saveSurface azzerano m_sceneDirty solo se il file e'
+        // finito su disco. Un rifiuto ("Save Blocked") o un errore di scrittura
+        // lo lasciano a true, e il chiamante sospende l'azione distruttiva.
+        return !m_mainWindow->m_sceneDirty;
+    }
+    if (absDir.contains("/textures/", Qt::CaseInsensitive)) {
         QSettings().setValue("lastCustomTexDir", QFileInfo(savePath).absolutePath());
         saveTexture(savePath);
-    } else if (absDir.contains("/sounds/", Qt::CaseInsensitive)) {
-        saveSound(savePath);
-    } else {
-        saveSurface(savePath);
+        // saveTexture NON tocca m_sceneDirty (un file texture non contiene le
+        // equazioni): l'esito si legge dal flag del suo modulo.
+        return !m_mainWindow->m_textureDirty;
     }
-
-    // Esito reale: i save azzerano m_sceneDirty solo se il file e' finito su
-    // disco. Un rifiuto ("Save Blocked") o un errore di scrittura lo lasciano a
-    // true, e il chiamante sospende giustamente l'azione distruttiva.
+    if (absDir.contains("/sounds/", Qt::CaseInsensitive)) {
+        saveSound(savePath);
+        return !m_mainWindow->m_soundDirty;   // come sopra, per il suono
+    }
+    saveSurface(savePath);
     return !m_mainWindow->m_sceneDirty;
 }
 
