@@ -6029,8 +6029,47 @@ void MainWindow::onColorTargetChanged()
             target = Qt::black;
             slidersEnabled = false;
         } else {
-            // Nessuna texture colorata (o wireframe): si edita il colore superficie/linee.
-            target = m_currentSurfaceColor;
+            // Nessuna texture colorata (o wireframe): si edita il colore
+            // superficie/linee.
+            //
+            // Il colore da MOSTRARE e' quello dell'ambito corrente, non il
+            // membro globale. m_currentSurfaceColor non e' una fonte di verita'
+            // affidabile per il display: handleColorChange ci scrive dentro
+            // anche mentre si sta colorando una MESH (il setColor instrada poi
+            // il valore nella parte), quindi resta contaminato dal colore
+            // dell'ultima fascia toccata.
+            // Effetto senza questo ramo: colorata una mesh e tornati ad "All",
+            // la superficie restava verde ma gli slider mostravano il colore
+            // della mesh -- e al primo spostamento "All" saltava a quel colore.
+            // Lo stesso passando da "All" a "Mesh": showAppearance aveva gia'
+            // mostrato il colore giusto della parte, e questa funzione -- che
+            // gira per ultima -- lo sovrascriveva col globale.
+            const int mi = ui->glWidget ? ui->glWidget->activeMeshPart() : -1;
+            bool shown = false;
+            if (mi >= 0 && ui->glWidget->getEngine()) {
+                const auto &mparts = ui->glWidget->getEngine()->getMeshParts();
+                if (mi < (int)mparts.size()) {
+                    const MeshPart &mp = mparts[mi];
+                    // Una parte senza colore proprio EREDITA il globale: si
+                    // mostra quello, come fa syncAppearanceControlsToActiveMesh.
+                    if (mp.hasCustomColor()) {
+                        target = QColor::fromRgbF(mp.colorR, mp.colorG, mp.colorB);
+                        shown = true;
+                    }
+                }
+            }
+            if (!shown) {
+                // Ambito "All", o parte che eredita: il colore e' quello
+                // GLOBALE del motore -- non m_currentSurfaceColor, che puo'
+                // essere stantio per la ragione detta sopra.
+                if (ui->glWidget) {
+                    float gr, gg, gb;
+                    ui->glWidget->globalColor(gr, gg, gb);
+                    target = QColor::fromRgbF(gr, gg, gb);
+                } else {
+                    target = m_currentSurfaceColor;
+                }
+            }
         }
     }
 
