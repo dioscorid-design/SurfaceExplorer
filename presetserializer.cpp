@@ -307,6 +307,25 @@ PresetSerializer::PresetSerializer(MainWindow *parent)
 {
 }
 
+// COLORE GLOBALE DELLA SUPERFICIE, letto dal MOTORE.
+//
+// Non si usa m_currentSurfaceColor: quel membro non e' una fonte di verita' per
+// il globale, perche' handleColorChange ci scrive dentro anche mentre si sta
+// colorando una MESH (il setColor successivo instrada il valore nella parte, ma
+// il membro resta con il colore della fascia). Salvandolo come colore globale,
+// una superficie multi-mesh con una sola fascia colorata si riapriva TUTTA di
+// quel colore.
+//
+// Il motore invece tiene i due stati separati: red/green/blue restano il colore
+// globale qualunque cosa si faccia sulle parti, che vivono nei loro MeshPart.
+QColor PresetSerializer::globalSurfaceColor() const
+{
+    if (!m_mainWindow->ui->glWidget) return m_mainWindow->m_currentSurfaceColor;
+    float r = 0.0f, g = 0.0f, b = 0.0f;
+    m_mainWindow->ui->glWidget->globalColor(r, g, b);
+    return QColor::fromRgbF(r, g, b);
+}
+
 void PresetSerializer::saveSurface(const QString &suggestedPath)
 {
     bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
@@ -513,9 +532,12 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     root["steps"] = m_mainWindow->ui->stepSlider->value();
 
     QJsonObject colors;
-    colors["r"] = m_mainWindow->m_currentSurfaceColor.redF();
-    colors["g"] = m_mainWindow->m_currentSurfaceColor.greenF();
-    colors["b"] = m_mainWindow->m_currentSurfaceColor.blueF();
+    {
+        const QColor gc = globalSurfaceColor();
+        colors["r"] = gc.redF();
+        colors["g"] = gc.greenF();
+        colors["b"] = gc.blueF();
+    }
     // Trasparenza: senza questo, una superficie trasparente (es. ergosfera con
     // limite statico trasparente + orizzonte interno) si risalvava OPACA perche'
     // l'alpha non finiva mai nel JSON. Il reader la legge gia' da col["alpha"].
@@ -975,7 +997,7 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     root["steps"] = m_mainWindow->ui->stepSlider->value();
 
     QJsonObject colors;
-    colors["surfColor"] = m_mainWindow->m_currentSurfaceColor.name();
+    colors["surfColor"] = globalSurfaceColor().name();
     colors["alpha"] = m_mainWindow->ui->alphaSlider->value() / 100.0;
     root["colors"] = colors;
 
@@ -1031,7 +1053,15 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
 
     bool isLookingAtBackground = m_mainWindow->ui->radioBackground->isChecked();
 
-    if (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeTexture) {
+    // L'editor si travasa nei membri della texture di SUPERFICIE solo se sta
+    // davvero mostrando quella. Con una MESH selezionata mostra lo script della
+    // FASCIA (vedi syncAppearanceControlsToActiveMesh), e copiarlo qui faceva
+    // diventare la texture di quella fascia la texture di superficie del
+    // preset. Le texture per-mesh viaggiano nel blocco "meshParts".
+    const bool showingMeshTexture = m_mainWindow->ui->glWidget
+                                 && m_mainWindow->ui->glWidget->activeMeshPart() >= 0;
+    if (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeTexture
+        && !showingMeshTexture) {
         QString currentEditorText = m_mainWindow->ui->txtScriptEditor->toPlainText();
         if (isLookingAtBackground) {
             m_mainWindow->m_bgTextureCode = currentEditorText;
@@ -1043,7 +1073,16 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     }
 
     QJsonObject texture;
-    bool texEnabled = isLookingAtBackground ? m_mainWindow->m_surfaceTextureState : m_mainWindow->ui->chkBoxTexture->isChecked();
+    // Accensione della texture di SUPERFICIE. Il checkbox non va bene con una
+    // mesh selezionata: li' mostra lo stato EFFICACE della fascia, quindi una
+    // fascia senza texture faceva salvare "spenta" una texture di superficie
+    // accesa (e viceversa). In ambito "Mesh" si legge lo stato globale dal
+    // motore, che il percorso per-mesh non tocca.
+    bool texEnabled = isLookingAtBackground
+                        ? m_mainWindow->m_surfaceTextureState
+                        : (showingMeshTexture
+                             ? m_mainWindow->ui->glWidget->isTextureEnabled()
+                             : m_mainWindow->ui->chkBoxTexture->isChecked());
     texture["enabled"] = texEnabled;
 
     if (m_mainWindow->ui->glWidget) {
@@ -1058,8 +1097,21 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         texture["pan_y"] = (double)pan.y();
         texture["rotation"] = (double)m_mainWindow->ui->glWidget->globalTexRotation();
     }
-    texture["col1"] = m_mainWindow->m_texColor1.name();
-    texture["col2"] = m_mainWindow->m_texColor2.name();
+    // COLORI u_col1/u_col2 DAL MOTORE, non dai membri m_texColor1/2. Stessa
+    // ragione dello zoom/pan/rotazione qui sopra, e dello stesso difetto gia'
+    // corretto per il colore solido (globalSurfaceColor): quei due membri sono
+    // cio' che i PICKER mostrano, e syncAppearanceControlsToActiveMesh li
+    // riallinea alla FASCIA selezionata a ogni cambio di mesh. Salvandoli, i
+    // colori dell'ultima fascia guardata diventavano quelli della texture di
+    // SUPERFICIE. I due slot globali del motore (texRed1..texBlue2) non
+    // vengono mai toccati dal percorso per-mesh.
+    if (m_mainWindow->ui->glWidget) {
+        texture["col1"] = m_mainWindow->ui->glWidget->globalTexColor1().name();
+        texture["col2"] = m_mainWindow->ui->glWidget->globalTexColor2().name();
+    } else {
+        texture["col1"] = m_mainWindow->m_texColor1.name();
+        texture["col2"] = m_mainWindow->m_texColor2.name();
+    }
 
     // --- REINIEZIONE DELL'AUDIO E GESTIONE IMMAGINI ---
     QString audioCode = m_mainWindow->m_soundScriptText.trimmed();
@@ -1472,7 +1524,7 @@ void PresetSerializer::saveScript()
         // modalità Script tornava sempre verde. Stesso formato di saveSurface, così
         // il parser (colors.surfColor) lo ripristina identico.
         QJsonObject colors;
-        colors["surfColor"] = m_mainWindow->m_currentSurfaceColor.name();
+        colors["surfColor"] = globalSurfaceColor().name();
         colors["alpha"] = m_mainWindow->ui->alphaSlider->value() / 100.0;
         root["colors"] = colors;
     }

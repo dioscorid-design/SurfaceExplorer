@@ -3,6 +3,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QColor>
 
 class MainWindow;
 class QJsonObject;
@@ -36,6 +37,11 @@ private:
     // l'utente ha scritto una formula anziche' un numero. Unica implementazione:
     // i tre save (surface/motion/script) devono restare allineati.
     void writeParametricLimits(QJsonObject &limits);
+
+    // Colore GLOBALE della superficie letto dal motore, mai da
+    // m_currentSurfaceColor (che resta contaminato dal colore dell'ultima mesh
+    // toccata). Vedi il commento sull'implementazione.
+    QColor globalSurfaceColor() const;
 
     MainWindow *m_mainWindow;
 };
