@@ -229,13 +229,27 @@ mkdir -p "$(dirname "$ARCHIVE_PATH")"
 
 info "Archiviazione (xcodebuild archive) — può richiedere PARECCHI minuti."
 info "NON interrompere anche se sembra ferma."
+# Archive SENZA FIRMA, di proposito.
+#
+# Con CODE_SIGN_STYLE=Automatic, xcodebuild pretende un certificato "Mac
+# Development" valido per il team — che e' cosa diversa da "Apple Development"
+# per iOS, e diversa ancora dai certificati di DISTRIBUZIONE. L'archive
+# fallirebbe prima ancora di compilare, con:
+#   No signing certificate "Mac Development" found
+#
+# Firmare qui sarebbe comunque inutile: subito dopo macdeployqt riscrive il
+# bundle e INVALIDA la firma, e il passo 5-bis rifirma tutto da capo con
+# "Apple Distribution". Quindi saltiamo del tutto la firma in questa fase e
+# lasciamo che sia la rifirma a fare l'unico lavoro che conta.
 xcodebuild archive \
   -project "$XCODEPROJ" \
   -scheme "$SCHEME" \
   -configuration Release \
   -destination 'generic/platform=macOS' \
   -archivePath "$ARCHIVE_PATH" \
-  CODE_SIGN_STYLE=Automatic \
+  CODE_SIGN_IDENTITY="" \
+  CODE_SIGNING_REQUIRED=NO \
+  CODE_SIGNING_ALLOWED=NO \
   | tail -40
 XC_STATUS=${PIPESTATUS[0]}
 [ "$XC_STATUS" -eq 0 ] || err "xcodebuild archive fallito (exit $XC_STATUS)."
@@ -290,8 +304,15 @@ if [ -n "$SIGN_ID" ]; then
     || err "La firma non supera la verifica dopo macdeployqt."
   ok "Bundle rifirmato e verificato."
 else
-  info "ATTENZIONE: nessun certificato \"Apple Distribution\": bundle NON rifirmato."
-  info "  Distribute App fallira'. Crea il certificato e rilancia."
+  # L'archive e' stato creato SENZA firma di proposito (vedi sopra): se non
+  # possiamo rifirmare qui, il bundle resta non firmato e Distribute App
+  # fallisce. Meglio dirlo forte adesso che lasciar credere sia tutto pronto.
+  info "ATTENZIONE: nessun certificato \"Apple Distribution\": bundle NON firmato."
+  info "  L'archivio esiste ed e' ispezionabile, ma NON e' distribuibile."
+  info "  Crea i due certificati e rilancia lo script:"
+  info "    https://developer.apple.com/account/resources/certificates"
+  info "      - Apple Distribution          (firma l'app)"
+  info "      - Mac Installer Distribution  (firma il .pkg)"
 fi
 
 # Verifica anti-stantìo + controllo che la sandbox sia davvero attiva: se manca,
