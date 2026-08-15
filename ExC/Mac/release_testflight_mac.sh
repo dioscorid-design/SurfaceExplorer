@@ -291,12 +291,22 @@ SIGN_ID="$(security find-identity -v -p codesigning 2>/dev/null \
             | grep '"Apple Distribution' | head -1 | sed -E 's/.*"(.*)"$/\1/')"
 if [ -n "$SIGN_ID" ]; then
   info "Rifirma dopo macdeployqt ($SIGN_ID) ..."
-  find "$APP_IN_ARCHIVE/Contents/Frameworks" "$APP_IN_ARCHIVE/Contents/PlugIns" \
-       \( -name "*.framework" -o -name "*.dylib" \) -print0 2>/dev/null \
-    | while IFS= read -r -d '' item; do
-        codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$item" >/dev/null 2>&1 || true
-      done
-  codesign --force --timestamp --options runtime \
+
+  # NIENTE unlock-keychain qui: senza -p diventa INTERATTIVO e si pianta ad
+  # aspettare la password sul terminale, con l'input nascosto — sembra un
+  # blocco dello script. Il portachiavi "login" e' comunque gia' sbloccato
+  # dall'accesso all'utente, quindi non serve.
+  #
+  # Al primo popup del portachiavi rispondere "Consenti sempre" (Always Allow):
+  # con "Consenti" l'autorizzazione vale per UNA firma sola. Per non vederlo
+  # affatto, una volta per tutte:
+  #   security set-key-partition-list -S apple-tool:,apple:,codesign: \
+  #     -k <password-login> ~/Library/Keychains/login.keychain-db
+
+  # --deep firma l'intero albero (framework, plugin, helper) in UNA passata,
+  # invece di un codesign per file: molto piu' rapido e, soprattutto, un solo
+  # accesso alla chiave. Gli entitlements valgono per l'eseguibile principale.
+  codesign --force --deep --timestamp --options runtime \
            --entitlements "$PROJECT_DIR/ExC/Mac/macos_appstore.entitlements" \
            --sign "$SIGN_ID" "$APP_IN_ARCHIVE" \
     || err "Rifirma dell'app fallita."
