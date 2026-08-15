@@ -357,8 +357,14 @@ B=build/macos-appstore/Release/SurfaceExplorer.app/Contents/Info.plist
 ```
 
 ### "Upload Symbols Failed" (warning, NON bloccante)
-Compare accanto all'errore sopra e spaventa, ma riguarda solo i dSYM per i crash report
-simbolicati. Clicca **Done**: se non ci sono errori rossi, l'upload del binario è riuscito.
+Riguarda solo i dSYM per i crash report simbolicati. Clicca **Done**: se non ci sono errori
+**rossi**, l'upload del binario è riuscito.
+
+Su **macOS** non è uno solo ma una **lunga serie**, ed è normale: `macdeployqt` incorpora
+decine di framework Qt e per ognuno manca il dSYM. Le voci `for the A` sono i binari dentro
+`QtCore.framework/Versions/**A**/` e simili. Conseguenza pratica: i crash *dentro i
+framework Qt* non saranno simbolicati — non il codice dell'app, e non qualcosa che si
+debugghi da un crash report. Ignorabile.
 
 ### macOS: "No signing certificate 'Mac App Distribution' found"
 Mancano i certificati del canale App Store: quelli di iOS e del DMG **non valgono**.
