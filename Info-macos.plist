@@ -34,12 +34,15 @@
 
 	<!-- OBBLIGATORIA sul Mac App Store: senza, la distribuzione fallisce con
 	     "The product archive is invalid. The Info.plist must contain a
-	     LSApplicationCategoryType key". Accetta UN SOLO valore, e NON e' la
-	     categoria mostrata nello Store: quella (primaria + secondaria) si
-	     imposta sulla scheda prodotto di App Store Connect, che in caso di
-	     discordanza vince su questa. -->
+	     LSApplicationCategoryType key".
+
+	     Accetta UN SOLO valore e NON e' la categoria mostrata nello Store:
+	     quella (primaria + secondaria) si imposta in "Informazioni sull'app" su
+	     App Store Connect, per ogni piattaforma, e in caso di discordanza vince
+	     su questa. Qui teniamo la PRIMARIA scelta li': Education, con Graphics &
+	     Design come secondaria (su entrambe le piattaforme). -->
 	<key>LSApplicationCategoryType</key>
-	<string>public.app-category.graphics-design</string>
+	<string>public.app-category.education</string>
 
 	<!-- Deve combaciare con MACOSX_DEPLOYMENT_TARGET del progetto Xcode (13,
 	     ereditato da Qt 6.10). Dichiararne uno PIU' BASSO fa installare l'app su
