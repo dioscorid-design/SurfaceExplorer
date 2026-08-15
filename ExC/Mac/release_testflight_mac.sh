@@ -2,6 +2,8 @@
 #
 # release_testflight_mac.sh - Prepara e archivia una nuova build macOS per TestFlight.
 #
+# Guida completa (iOS + macOS): ExC/docs/GUIDA_rilascio_build_ios_macos.md
+#
 # Gemello di release_testflight.sh (che resta la versione iOS, invariata). Stessa
 # struttura e stessi passi; cambia solo cio' che e' davvero specifico del Mac:
 #   - qt-cmake della toolchain macos invece di ios
@@ -89,6 +91,18 @@ done
 [ -f "$PLIST" ] || err "Info.plist non trovato in $PROJECT_DIR"
 command -v xcodebuild >/dev/null || err "xcodebuild non trovato (installa Xcode + command line tools)."
 [ -x "$QT_CMAKE" ] || err "qt-cmake macOS non trovato/eseguibile: $QT_CMAKE"
+
+# qt-cmake e' un wrapper che fa `exec cmake`: senza cmake nel PATH muore con
+# "exec: cmake: not found" al passo 4, a bump gia' fatto e committato.
+# Su questa macchina cmake NON e' nel PATH (arriva con Qt, non con Xcode):
+# ce lo mettiamo noi, senza toccare l'ambiente dell'utente.
+if ! command -v cmake >/dev/null; then
+  QT_CMAKE_BIN="$HOME/Qt/Tools/CMake/CMake.app/Contents/bin"
+  [ -x "$QT_CMAKE_BIN/cmake" ] \
+    || err "cmake non trovato: ne' nel PATH ne' in $QT_CMAKE_BIN (installalo da Qt Maintenance Tool)."
+  export PATH="$QT_CMAKE_BIN:$PATH"
+  info "cmake non era nel PATH: uso quello di Qt ($QT_CMAKE_BIN)."
+fi
 [ -f "$PROJECT_DIR/ExC/Mac/macos_appstore.entitlements" ] \
   || err "Entitlements sandbox non trovati: ExC/Mac/macos_appstore.entitlements"
 

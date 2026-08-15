@@ -1,9 +1,14 @@
-# Guida: correggere un bug e ricaricare una nuova build su App Store Connect
+# Guida: correggere un bug e ricaricare una nuova build su App Store Connect (iOS e macOS)
 
 Procedura passo-passo per quando trovi un bug (su TestFlight o altrove), lo correggi nel
 codice, e devi far arrivare la build aggiornata ai tester/App Store. Scritta dopo il primo
 giro di rilascio della 3.0, che ha incontrato alcuni intoppi — sono documentati qui sotto
 insieme alla soluzione, per non doverli ridiagnosticare da zero.
+
+**Vale per entrambe le piattaforme.** Il flusso è lo stesso: bump del build number →
+pulizia → rigenerazione del progetto Xcode → archive → upload dall'Organizer. Dove iOS e
+macOS divergono è segnalato con **iOS** / **macOS**; il resto è identico. La differenza
+sostanziale è solo lo script da lanciare e la destinazione dell'archive.
 
 ---
 
@@ -12,13 +17,56 @@ insieme alla soluzione, per non doverli ridiagnosticare da zero.
 | Cosa | Percorso |
 |---|---|
 | Repo sorgente | `/Users/dioscorid/Projects/C/SurfaceExplorer` |
-| Progetto Xcode iOS (generato) | `/Users/dioscorid/Projects/C/SurfaceExplorer/build/ios-appstore/SurfaceExplorer.xcodeproj` |
-| qt-cmake (per rigenerare il progetto) | `/Users/dioscorid/Qt/6.10.1/ios/bin/qt-cmake` |
-| Bundle ID | `com.dioscorid.surfaceexplorer` |
+| Progetto Xcode **iOS** (generato) | `build/ios-appstore/SurfaceExplorer.xcodeproj` |
+| Progetto Xcode **macOS** (generato) | `build/macos-appstore/SurfaceExplorer.xcodeproj` |
+| qt-cmake **iOS** | `/Users/dioscorid/Qt/6.10.1/ios/bin/qt-cmake` |
+| qt-cmake **macOS** | `/Users/dioscorid/Qt/6.10.1/macos/bin/qt-cmake` |
+| Bundle ID (lo stesso per iOS e macOS) | `com.dioscorid.surfaceexplorer` |
 | Team | GAETANO MOSCHETTI (AJ655XKJR8) |
 | Apple ID developer | adenio@libero.it |
 | App su App Store Connect | Surface Explorer — App ID 6787015297 |
 | Gruppo TestFlight | Internal Testers |
+
+### Script per piattaforma
+
+| Piattaforma | Script |
+|---|---|
+| iOS | `ExC/Mac/release_testflight.sh` |
+| macOS | `ExC/Mac/release_testflight_mac.sh` |
+
+Fanno le stesse cose; cambiano toolchain, destinazione dell'archive e cartella di build.
+Non confonderli: lanciare quello iOS per una release macOS produce un archivio della
+piattaforma sbagliata, che App Store Connect rifiuta.
+
+### Prerequisiti specifici di macOS (una volta sola)
+
+Il Mac ha un canale di distribuzione diverso da iOS, e richiede **certificati propri**:
+
+| Certificato | A cosa serve |
+|---|---|
+| **Apple Distribution** | firma l'app |
+| **Mac Installer Distribution** | firma il `.pkg` |
+
+Si creano su
+[developer.apple.com → Certificates](https://developer.apple.com/account/resources/certificates),
+si scaricano e si installano con doppio clic. I certificati usati per iOS
+(*Apple Development*) e per il DMG fuori dallo Store (*Developer ID Application*) **non**
+sono accettati da App Store Connect.
+
+Inoltre, sempre una volta sola: su App Store Connect la **piattaforma macOS va abilitata**
+sulla stessa app. Bundle id identico non basta — se la piattaforma non c'è, l'upload viene
+rifiutato.
+
+> **Sandbox.** La build macOS per lo Store è sandboxed: gli entitlements stanno in
+> `ExC/Mac/macos_appstore.entitlements` e il CMakeLists li aggancia al progetto Xcode
+> (`XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS`), così è Xcode a firmare sandboxed durante
+> l'archive. Sono volutamente distinti da `macos_release.entitlements`, che serve al DMG
+> Developer ID e contiene permessi che l'App Store rifiuta.
+>
+> È per la sandbox che l'export video su macOS **non usa più ffmpeg**: un'app sandboxed non
+> può lanciare eseguibili esterni al bundle. Al suo posto c'è l'encoder nativo
+> `nativevideoencoder_mac.mm` (AVFoundation). Se l'export video si rompe solo nella build
+> dello Store e non in locale, è lì che bisogna guardare.
 
 ---
 
@@ -35,20 +83,29 @@ Per iterare rapidamente SENZA rifare tutto il giro Xcode/App Store Connect ogni 
 
 Solo quando sei soddisfatto del fix, procedi al packaging per App Store Connect.
 
-## VIA RAPIDA — script `release_testflight.sh` (automatizza i passi 3–5)
+## VIA RAPIDA — script `release_testflight*.sh` (automatizza i passi 3–5)
 
-Lo script `ExC/Mac/release_testflight.sh` esegue in un colpo solo: incremento del build
-number, commit, pulizia cache Xcode, rigenerazione pulita del progetto e `xcodebuild
-archive`. Al termine apre l'Organizer per l'upload manuale (passo 6).
+Lo script esegue in un colpo solo: incremento del build number, commit, pulizia cache
+Xcode, rigenerazione pulita del progetto e `xcodebuild archive`. Al termine apre
+l'Organizer per l'upload manuale (passo 6).
 
 ```bash
 cd /Users/dioscorid/Projects/C/SurfaceExplorer
-./ExC/Mac/release_testflight.sh                 # bump +1, commit, clean, rigenera, archivia, apri Organizer
-# opzioni:
+
+./ExC/Mac/release_testflight.sh        # iOS
+./ExC/Mac/release_testflight_mac.sh    # macOS
+
+# opzioni (identiche per entrambi):
 #   --no-commit    applica il bump ma non committa
 #   --no-archive   solo bump + clean + rigenera, poi apre il progetto (Archive a mano)
 #   --help
 ```
+
+> **Il build number è condiviso fra le due piattaforme**: i campi bumpati
+> (`MACOSX_BUNDLE_BUNDLE_VERSION`, `XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION`,
+> `CFBundleVersion`) sono gli stessi. Non è un problema — App Store Connect tiene i numeri
+> distinti per piattaforma — ma spiega perché il numero "salta" dopo un rilascio sull'altra
+> piattaforma. Non c'è bisogno di riallinearlo.
 
 Dettagli:
 - **Build number auto-incrementale**: legge il valore corrente da CMakeLists.txt e fa +1,
@@ -73,12 +130,17 @@ restano comunque manuali (6–8).
 Apple non accetta due upload con lo stesso build number, anche se il precedente
 non è mai stato pubblicato. Ad ogni ricarica, incrementa di 1.
 
-Apri **CMakeLists.txt**, sezione `if (IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")`, e cambia
-DUE numeri (devono essere uguali tra loro):
+Apri **CMakeLists.txt** e cambia i numeri nel ramo della piattaforma che stai rilasciando —
+`if (IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")` per iOS, `elseif (APPLE)` per macOS. In
+ciascun ramo sono DUE, e devono restare uguali tra loro:
 ```cmake
-MACOSX_BUNDLE_BUNDLE_VERSION "N"          # <- incrementa
+MACOSX_BUNDLE_BUNDLE_VERSION "N"             # <- incrementa
 XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "N"  # <- incrementa (stesso valore)
 ```
+> Da quando esiste anche il ramo macOS, in tutto il file queste chiavi compaiono
+> **quattro** volte (due per ramo). Gli script le allineano tutte; a mano, tienile
+> allineate anche tu — un valore rimasto indietro produce un archivio con un build number
+> diverso da quello che credi di star caricando.
 Poi apri **Info.plist** e cambia lo stesso numero:
 ```xml
 <key>CFBundleVersion</key>
@@ -109,26 +171,44 @@ che PASSA la validazione ma non contiene i tuoi fix.
 #     dà "no matches found" e non esegue. Con find, cache già pulita = nessun output.)
 find ~/Library/Developer/Xcode/DerivedData -maxdepth 1 -name 'SurfaceExplorer-*' -exec rm -rf {} +
 
-# 2. Cancella la cartella del progetto iOS generato
+# 2. Cancella la cartella del progetto generato + 3. rigenera con qt-cmake
+#    (NON usare cmake generico: serve il toolchain della piattaforma giusta)
+
+# --- iOS ---
 rm -rf build/ios-appstore
+/Users/dioscorid/Qt/6.10.1/ios/bin/qt-cmake -S . -B build/ios-appstore -G Xcode
 
-# 3. Rigenera da zero con qt-cmake (NON usare cmake generico: serve il toolchain iOS)
-
-
+# --- macOS ---
+rm -rf build/macos-appstore
+export PATH="$HOME/Qt/Tools/CMake/CMake.app/Contents/bin:$PATH"   # vedi nota sotto
+/Users/dioscorid/Qt/6.10.1/macos/bin/qt-cmake -S . -B build/macos-appstore -G Xcode
 ```
-Verifica che i valori siano quelli attesi:
+
+> ⚠️ **`qt-cmake` ha bisogno di `cmake` nel PATH.** È un wrapper che fa `exec cmake`, e su
+> questa macchina `cmake` non è nel PATH (arriva con Qt, non con Xcode): senza l'`export`
+> qui sopra muore con `exec: cmake: not found`. Gli script lo gestiscono da soli; a mano
+> serve ricordarsene.
+
+Verifica che i valori siano quelli attesi (sostituisci la cartella con quella della
+piattaforma):
 ```bash
-grep -h "MARKETING_VERSION\|CURRENT_PROJECT_VERSION\|PRODUCT_BUNDLE_IDENTIFIER" \
-  build/ios-appstore/SurfaceExplorer.xcodeproj/project.pbxproj | sort -u
+grep -h "MARKETING_VERSION\|CURRENT_PROJECT_VERSION\|PRODUCT_BUNDLE_IDENTIFIER\|CODE_SIGN_ENTITLEMENTS" \
+  build/macos-appstore/SurfaceExplorer.xcodeproj/project.pbxproj | sort -u
 ```
+Su **macOS** devono comparire anche `DEVELOPMENT_TEAM`, `CODE_SIGN_STYLE = Automatic` e
+`CODE_SIGN_ENTITLEMENTS` che punta a `macos_appstore.entitlements`. Se mancano, l'archive
+gira ma la firma automatica fallisce: controlla il ramo `elseif (APPLE)` del CMakeLists.
 
 ## 5. Apri Xcode e archivia
 
 ```bash
-open /Users/dioscorid/Projects/C/SurfaceExplorer/build/ios-appstore/SurfaceExplorer.xcodeproj
+open build/ios-appstore/SurfaceExplorer.xcodeproj      # iOS
+open build/macos-appstore/SurfaceExplorer.xcodeproj    # macOS
 ```
-1. In alto, seleziona la destinazione **"Any iOS Device (arm64)"** (NON un simulatore:
-   con un simulatore selezionato "Archive" resta disabilitato).
+1. In alto, seleziona la destinazione:
+   - **iOS** → **"Any iOS Device (arm64)"** (NON un simulatore: con un simulatore
+     selezionato "Archive" resta disabilitato).
+   - **macOS** → **"My Mac"**.
 2. Verifica **Signing & Capabilities** del target SurfaceExplorer: Team = GAETANO MOSCHETTI,
    "Automatically manage signing" spuntato. Se vedi errori tipo "No Account for Team" o
    "No profiles found", vedi la sezione Troubleshooting sotto.
@@ -147,6 +227,11 @@ Nell'Organizer, con l'archivio nuovo selezionato:
 4. Lascia **"Upload your app's symbols"** attivo (per crash report leggibili) → Next
 5. **Automatically manage signing** → Next
 6. **Upload**
+
+Su **macOS** è qui che Xcode fa da sé i passi che altrimenti sarebbero manuali: incorpora i
+framework Qt (l'equivalente di `macdeployqt`), firma con gli entitlements sandbox e
+costruisce il `.pkg`. Non serve preparare nulla a mano — a patto che i due certificati del
+canale App Store siano installati (vedi *Prerequisiti specifici di macOS* al passo 0).
 
 Se compare **"Upload completed with warnings" / "Upload Symbols Failed"**: è un warning
 NON bloccante sui file dSYM, capitato regolarmente con questo progetto Qt/CMake. Clicca
@@ -169,10 +254,20 @@ non è mai stato necessario finora.)
 ## 8. Assegna la build al gruppo tester e reinstalla
 
 1. Tab **TestFlight** → gruppo **Internal Testers** → tab **Build** → assegna/seleziona
-   la nuova build (di solito è automatico se è l'unica "pronta").
-2. Sul device (iPad 11 / iPhone 16e): apri l'app **TestFlight** → dovrebbe mostrare
-   l'aggiornamento disponibile → **Update**.
+   la nuova build (di solito è automatico se è l'unica "pronta"). Le build iOS e macOS
+   compaiono in **sezioni separate** per piattaforma.
+2. Installa:
+   - **iOS** — sul device (iPad 11 / iPhone 16e): apri **TestFlight** → aggiornamento
+     disponibile → **Update**.
+   - **macOS** — apri **TestFlight per Mac**. ⚠️ Non è preinstallato come su iOS: va
+     scaricato una volta dal Mac App Store. Se non lo trovi sul Mac non è un errore di
+     configurazione, semplicemente non c'è ancora.
 3. Apri Surface Explorer e verifica che il fix sia presente.
+
+   Su **macOS**, in più: è la prima volta che l'app gira **sandboxed**, condizione che in
+   locale non si riproduce. Vale la pena provare esplicitamente
+   **l'export video** (con audio e senza) e il **salvataggio/caricamento dei preset**, cioè
+   i due percorsi che toccano il filesystem e che la sandbox può bloccare.
 
 ---
 
@@ -209,6 +304,28 @@ BIN="$ARCHIVE/Products/Applications/SurfaceExplorer.app/SurfaceExplorer"
 stat -f "%Sm" -t "%Y-%m-%d %H:%M:%S" "$BIN"   # deve essere DOPO l'ultima modifica ai sorgenti
 strings "$BIN" | grep "<una stringa univoca del tuo fix più recente>"   # deve trovarla
 ```
+
+### macOS: "No signing certificate 'Mac App Distribution' found"
+Mancano i certificati del canale App Store: quelli di iOS e del DMG **non valgono**.
+Verifica cosa hai:
+```bash
+security find-identity -v -p codesigning        # deve elencare "Apple Distribution"
+security find-identity -v | grep -i installer   # deve elencare "Mac Installer Distribution"
+```
+Se non compaiono, creali su
+[developer.apple.com → Certificates](https://developer.apple.com/account/resources/certificates)
+e installali con doppio clic. Vedi *Prerequisiti specifici di macOS* al passo 0.
+
+### macOS: l'upload viene rifiutato benché il bundle id sia giusto
+Sulla stessa app di App Store Connect la **piattaforma macOS va abilitata esplicitamente**:
+stesso bundle id non basta. Va aggiunta dalla pagina dell'app.
+
+### macOS: "Library not loaded ... different Team IDs" durante la firma
+Il bundle non ha i framework Qt incorporati e punta a `~/Qt/...`, che ha il Team ID di Qt.
+Sembra un problema di sandbox ed è invece un bundle non deployato. Con il flusso di questa
+guida non capita — è Xcode a incorporarli durante *Distribute App*. Se lo vedi, stai
+firmando a mano un `.app` costruito con la build normale: usa lo script, oppure lancia
+`macdeployqt` prima di firmare.
 
 ### ITMS-90683: Missing purpose string in Info.plist
 Se il codice referenzia API camera/microfono (anche solo simbolicamente, es. tramite un
@@ -263,7 +380,10 @@ che restituisce "Resolved 0 endpoints"). La sottomissione non parte nemmeno. Sol
 ```bash
 # === VIA RAPIDA: script (fa bump + clean + rigenera + archivia, poi apre l'Organizer) ===
 cd /Users/dioscorid/Projects/C/SurfaceExplorer
-./ExC/Mac/release_testflight.sh
+
+./ExC/Mac/release_testflight.sh        # iOS
+./ExC/Mac/release_testflight_mac.sh    # macOS
+
 # poi in Organizer: Distribute App > App Store Connect > Upload; quindi Export Compliance
 # e assegnazione al gruppo "Internal Testers" (passi 7–8).
 ```
@@ -276,10 +396,19 @@ cd /Users/dioscorid/Projects/C/SurfaceExplorer
 git add -A && git commit -m "Fix <descrizione>; build number -> N" && git push origin v1
 
 find ~/Library/Developer/Xcode/DerivedData -maxdepth 1 -name 'SurfaceExplorer-*' -exec rm -rf {} +
+
+# --- iOS ---
 rm -rf build/ios-appstore
 /Users/dioscorid/Qt/6.10.1/ios/bin/qt-cmake -S . -B build/ios-appstore -G Xcode
-
 open build/ios-appstore/SurfaceExplorer.xcodeproj
 # -> in Xcode: destinazione "Any iOS Device (arm64)", Product > Archive,
+#    poi Distribute App > App Store Connect > Upload
+
+# --- macOS ---
+rm -rf build/macos-appstore
+export PATH="$HOME/Qt/Tools/CMake/CMake.app/Contents/bin:$PATH"   # qt-cmake esegue `cmake`
+/Users/dioscorid/Qt/6.10.1/macos/bin/qt-cmake -S . -B build/macos-appstore -G Xcode
+open build/macos-appstore/SurfaceExplorer.xcodeproj
+# -> in Xcode: destinazione "My Mac", Product > Archive,
 #    poi Distribute App > App Store Connect > Upload
 ```

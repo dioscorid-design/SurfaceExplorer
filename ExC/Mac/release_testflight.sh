@@ -2,7 +2,7 @@
 #
 # release_testflight.sh - Prepara e archivia una nuova build iOS per TestFlight.
 #
-# Automatizza i passi 3-5 della guida ExC/docs/GUIDA_rilascio_build_ios.md:
+# Automatizza i passi 3-5 della guida ExC/docs/GUIDA_rilascio_build_ios_macos.md:
 #   1. Incrementa il BUILD NUMBER (+1) in TUTTI i punti coerenti:
 #        CMakeLists.txt : MACOSX_BUNDLE_BUNDLE_VERSION, XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION
 #        Info.plist     : CFBundleVersion
@@ -31,7 +31,7 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Configurazione (allineata a ExC/docs/GUIDA_rilascio_build_ios.md)
+# Configurazione (allineata a ExC/docs/GUIDA_rilascio_build_ios_macos.md)
 # ---------------------------------------------------------------------------
 PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"      # lo script vive in ExC/Mac/
 CMAKE="$PROJECT_DIR/CMakeLists.txt"
@@ -201,7 +201,7 @@ cat <<'STEPS'
     4. Automatically manage signing -> Next -> Upload.
        (Un warning "Upload Symbols Failed" sui dSYM è NON bloccante: Done e prosegui.)
     5. Poi: attendi l'elaborazione, gestisci Export Compliance ("Nessuno degli algoritmi"),
-       assegna la build al gruppo "Internal Testers". Vedi ExC/docs/GUIDA_rilascio_build_ios.md
+       assegna la build al gruppo "Internal Testers". Vedi ExC/docs/GUIDA_rilascio_build_ios_macos.md
        passi 7-8.
 STEPS
 open -a Xcode "$ARCHIVE_PATH"

@@ -14,6 +14,18 @@ e integrarla nel desktop. Riassume il processo e gli strumenti per piattaforma:
 > esclusa da `.gitignore`). I comandi qui sotto assumono di lanciarli dalla **root
 > del progetto**, es. `./ExC/Linux/release_linux.sh`.
 
+> 📱 **App Store / TestFlight** è un canale a parte, con certificati e procedura propri —
+> non è coperto da questa guida:
+>
+> | Script | Piattaforma |
+> |---|---|
+> | [`Mac/release_testflight.sh`](../Mac/release_testflight.sh) | iOS |
+> | [`Mac/release_testflight_mac.sh`](../Mac/release_testflight_mac.sh) | macOS |
+>
+> Procedura completa: [`GUIDA_rilascio_build_ios_macos.md`](GUIDA_rilascio_build_ios_macos.md).
+> Nota che `release_macos.sh` (DMG Developer ID, qui sopra) e il canale App Store
+> **coesistono**: entitlements e certificati sono diversi e non vanno mescolati.
+
 ---
 
 ## 🆕 Promemoria: cosa cambiare per una NUOVA versione
