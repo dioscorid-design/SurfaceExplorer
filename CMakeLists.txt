@@ -240,6 +240,32 @@ elseif (APPLE)
 # Copia documentation.html dentro l'app (risorsa)
     set_source_files_properties(docs/documentation.html PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 
+    # --- CANALE MAC APP STORE (xcodebuild archive) ---
+    # Serve SOLO al generatore Xcode, usato da release_testflight_mac.sh: la
+    # build normale (Ninja/Makefile, DMG Developer ID) ignora questi attributi
+    # e non cambia comportamento.
+    #
+    # Gli stessi valori esistono nel ramo iOS qui sopra, ma erano CHIUSI dentro
+    # if(IOS): senza duplicarli qui, l'archive macOS non troverebbe team ne'
+    # bundle version e fallirebbe la firma automatica.
+    set(CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "AJ655XKJR8")
+    set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic")
+    set(CMAKE_XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.dioscorid.surfaceexplorer")
+
+    set_target_properties(SurfaceExplorer PROPERTIES
+        # Build number e versione marketing: stessi campi che il bump di
+        # release_testflight_mac.sh tiene allineati con Info.plist.
+        MACOSX_BUNDLE_BUNDLE_VERSION "15"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "15"
+        XCODE_ATTRIBUTE_MARKETING_VERSION "${PROJECT_VERSION}"
+
+        # Sandbox: obbligatoria sull'App Store. Xcode firma con questi
+        # entitlements durante l'archive, senza passare da codesign a mano.
+        XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS
+            "${CMAKE_CURRENT_SOURCE_DIR}/ExC/Mac/macos_appstore.entitlements"
+    )
+
 elseif (UNIX AND NOT ANDROID)
     # Impostiamo il nome dell'eseguibile finale (tutto minuscolo per standard Linux)
     set_target_properties(SurfaceExplorer PROPERTIES OUTPUT_NAME "surface-explorer")
