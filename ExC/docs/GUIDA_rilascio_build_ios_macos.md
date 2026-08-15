@@ -305,6 +305,34 @@ stat -f "%Sm" -t "%Y-%m-%d %H:%M:%S" "$BIN"   # deve essere DOPO l'ultima modifi
 strings "$BIN" | grep "<una stringa univoca del tuo fix più recente>"   # deve trovarla
 ```
 
+### macOS: "The product archive is invalid. The Info.plist must contain a LSApplicationCategoryType key"
+Compare in **Distribute App**, dopo un archive riuscito. La chiave è obbligatoria solo sul
+Mac App Store (iOS non la richiede), quindi non si era mai vista.
+
+È già risolta: il ramo macOS usa un plist proprio, **`Info-macos.plist`**, che la contiene.
+`Info.plist` resta quello iOS e per il Mac non è utilizzabile — dichiara
+`LSRequiresIPhoneOS=true` e porta chiavi UIKit (`UILaunchScreen`, orientamenti, status bar)
+prive di senso su Mac.
+
+> ⚠️ **Ora i plist da tenere allineati sono DUE.** `release_testflight_mac.sh` bumpa
+> entrambi; a mano, ricordarsi del secondo file.
+
+La categoria nel plist accetta **un solo valore** e **non** è quella mostrata nello Store:
+le categorie primaria e secondaria si impostano sulla scheda prodotto di App Store Connect
+e in caso di discordanza vincono su questa. Si possono quindi tenere categorie diverse fra
+iOS e macOS (es. Education su iOS, Graphics & Design su macOS).
+
+Per verificare che il bundle prodotto sia a posto:
+```bash
+B=build/macos-appstore/Release/SurfaceExplorer.app/Contents/Info.plist
+/usr/libexec/PlistBuddy -c 'Print LSApplicationCategoryType' "$B"   # deve esserci
+/usr/libexec/PlistBuddy -c 'Print LSRequiresIPhoneOS' "$B"          # deve dare errore
+```
+
+### "Upload Symbols Failed" (warning, NON bloccante)
+Compare accanto all'errore sopra e spaventa, ma riguarda solo i dSYM per i crash report
+simbolicati. Clicca **Done**: se non ci sono errori rossi, l'upload del binario è riuscito.
+
 ### macOS: "No signing certificate 'Mac App Distribution' found"
 Mancano i certificati del canale App Store: quelli di iOS e del DMG **non valgono**.
 Verifica cosa hai:

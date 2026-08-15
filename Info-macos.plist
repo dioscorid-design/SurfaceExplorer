@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	Info.plist della build macOS. Distinto da Info.plist (iOS) perche' quello
+	dichiara LSRequiresIPhoneOS=true e porta chiavi UIKit (UILaunchScreen,
+	UIRequiresFullScreen, UIStatusBarHidden, orientamenti) che su Mac non hanno
+	senso — e "app che gira solo su iPhone" in un bundle macOS e' una
+	contraddizione che l'App Store puo' respingere.
+
+	ATTENZIONE: CFBundleVersion va tenuto allineato con i campi build number del
+	ramo macOS del CMakeLists. Lo fa ExC/Mac/release_testflight_mac.sh; a mano,
+	ricordarsi che ORA I FILE DA AGGIORNARE SONO DUE.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>Surface Explorer</string>
+	<key>CFBundleExecutable</key>
+	<string>SurfaceExplorer</string>
+	<key>CFBundleIconFile</key>
+	<string>icon.icns</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.dioscorid.surfaceexplorer</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Surface Explorer</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.2</string>
+	<key>CFBundleVersion</key>
+	<string>20</string>
+
+	<!-- OBBLIGATORIA sul Mac App Store: senza, la distribuzione fallisce con
+	     "The product archive is invalid. The Info.plist must contain a
+	     LSApplicationCategoryType key". Accetta UN SOLO valore, e NON e' la
+	     categoria mostrata nello Store: quella (primaria + secondaria) si
+	     imposta sulla scheda prodotto di App Store Connect, che in caso di
+	     discordanza vince su questa. -->
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.graphics-design</string>
+
+	<!-- Deve combaciare con MACOSX_DEPLOYMENT_TARGET del progetto Xcode (13,
+	     ereditato da Qt 6.10). Dichiararne uno PIU' BASSO fa installare l'app su
+	     sistemi dove non parte; verificarlo con:
+	       grep -o "MACOSX_DEPLOYMENT_TARGET = [^;]*" \
+	         build/macos-appstore/SurfaceExplorer.xcodeproj/project.pbxproj | sort -u -->
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+
+	<key>NSHighResolutionCapable</key>
+	<true/>
+
+	<!-- Le purpose string restano: un framework multimediale linkato dichiara
+	     queste capability, e senza le chiavi Apple respinge la build
+	     (ITMS-90683). Vale su macOS come su iOS. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Surface Explorer does not use the camera. This permission is requested only because a linked multimedia framework declares this capability.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Surface Explorer does not use the microphone. This permission is requested only because a linked multimedia framework declares this capability.</string>
+</dict>
+</plist>

@@ -188,9 +188,9 @@ if (IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
         XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist"
         VERSION "${PROJECT_VERSION}"
-        MACOSX_BUNDLE_BUNDLE_VERSION "19"
+        MACOSX_BUNDLE_BUNDLE_VERSION "20"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
-        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "19"
+        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "20"
         XCODE_ATTRIBUTE_MARKETING_VERSION "${PROJECT_VERSION}"
     )
 
@@ -218,8 +218,12 @@ elseif (APPLE)
     set_target_properties(SurfaceExplorer PROPERTIES
         MACOSX_BUNDLE TRUE
 
-        # 0. FORZIAMO L'USO DEL PLIST PERSONALIZZATO
-        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist"
+        # 0. PLIST DEDICATO AL MAC — non Info.plist, che e' quello iOS.
+        # Quello dichiara LSRequiresIPhoneOS=true e porta chiavi UIKit
+        # (UILaunchScreen, orientamenti, status bar) prive di senso qui; in piu'
+        # gli manca LSApplicationCategoryType, obbligatoria sul Mac App Store:
+        # senza, Distribute App fallisce con "The product archive is invalid".
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info-macos.plist"
 
         # 1. Nome nella BARRA DEI MENU (Accanto alla Mela )
         MACOSX_BUNDLE_BUNDLE_NAME "Surface Explorer"
@@ -255,9 +259,9 @@ elseif (APPLE)
     set_target_properties(SurfaceExplorer PROPERTIES
         # Build number e versione marketing: stessi campi che il bump di
         # release_testflight_mac.sh tiene allineati con Info.plist.
-        MACOSX_BUNDLE_BUNDLE_VERSION "19"
+        MACOSX_BUNDLE_BUNDLE_VERSION "20"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
-        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "19"
+        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "20"
         XCODE_ATTRIBUTE_MARKETING_VERSION "${PROJECT_VERSION}"
 
         # Sandbox: obbligatoria sull'App Store. Xcode firma con questi

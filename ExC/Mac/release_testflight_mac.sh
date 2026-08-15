@@ -55,7 +55,11 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"      # lo script vive in ExC/Mac/
 CMAKE="$PROJECT_DIR/CMakeLists.txt"
-PLIST="$PROJECT_DIR/Info.plist"
+# Il Mac ha un plist PROPRIO: Info.plist e' quello iOS (LSRequiresIPhoneOS,
+# chiavi UIKit) e non e' valido per il Mac App Store. Bumpiamo entrambi, cosi'
+# i due bundle non divergono mai sul build number.
+PLIST="$PROJECT_DIR/Info-macos.plist"
+PLIST_IOS="$PROJECT_DIR/Info.plist"
 BUILD_DIR="$PROJECT_DIR/build/macos-appstore"
 XCODEPROJ="$BUILD_DIR/SurfaceExplorer.xcodeproj"
 SCHEME="SurfaceExplorer"
@@ -88,7 +92,14 @@ done
 # ---------------------------------------------------------------------------
 [ "$(uname)" = "Darwin" ] || err "Questo script gira solo su macOS."
 [ -f "$CMAKE" ] || err "CMakeLists.txt non trovato in $PROJECT_DIR"
-[ -f "$PLIST" ] || err "Info.plist non trovato in $PROJECT_DIR"
+[ -f "$PLIST" ] || err "Info-macos.plist non trovato in $PROJECT_DIR"
+[ -f "$PLIST_IOS" ] || err "Info.plist non trovato in $PROJECT_DIR"
+
+# LSApplicationCategoryType e' obbligatoria sul Mac App Store: senza, l'archive
+# riesce ma Distribute App fallisce a meta' con "The product archive is
+# invalid" — dopo parecchi minuti di compilazione. Meglio fermarsi ORA.
+grep -q "LSApplicationCategoryType" "$PLIST" \
+  || err "Info-macos.plist non contiene LSApplicationCategoryType: la distribuzione fallirebbe."
 command -v xcodebuild >/dev/null || err "xcodebuild non trovato (installa Xcode + command line tools)."
 [ -x "$QT_CMAKE" ] || err "qt-cmake macOS non trovato/eseguibile: $QT_CMAKE"
 
@@ -142,30 +153,35 @@ sed -E \
   -e "s/(XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION[[:space:]]+\")[0-9]+(\")/\1${NEW_BUILD}\2/" \
   "$CMAKE" > "$tmp" && mv "$tmp" "$CMAKE"
 
-# --- Info.plist: <string> sulla riga DOPO la chiave CFBundleVersion ---
-tmp="$(mktemp)"
-awk -v v="$NEW_BUILD" '
-  f && /<string>[0-9]+<\/string>/ { sub(/<string>[0-9]+<\/string>/, "<string>" v "</string>"); f=0 }
-  /<key>CFBundleVersion<\/key>/ { f=1 }
-  { print }
-' "$PLIST" > "$tmp" && mv "$tmp" "$PLIST"
+# --- Plist: <string> sulla riga DOPO la chiave CFBundleVersion ---
+# Entrambi i file: quello macOS (che verra' archiviato) e quello iOS, cosi' i due
+# bundle non divergono e il prossimo rilascio iOS riparte dal numero giusto.
+for p in "$PLIST" "$PLIST_IOS"; do
+  tmp="$(mktemp)"
+  awk -v v="$NEW_BUILD" '
+    f && /<string>[0-9]+<\/string>/ { sub(/<string>[0-9]+<\/string>/, "<string>" v "</string>"); f=0 }
+    /<key>CFBundleVersion<\/key>/ { f=1 }
+    { print }
+  ' "$p" > "$tmp" && mv "$tmp" "$p"
+done
 
 # --- Verifica coerenza: TUTTE le occorrenze, non solo la prima ---
 BAD="$(grep -E 'MACOSX_BUNDLE_BUNDLE_VERSION[[:space:]]+"[0-9]+"|XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION[[:space:]]+"[0-9]+"' "$CMAKE" \
         | grep -vE "\"${NEW_BUILD}\"" || true)"
 [ -z "$BAD" ] || err "Bump incoerente in CMakeLists.txt, righe rimaste indietro:\n$BAD"
-P1="$(awk '/<key>CFBundleVersion<\/key>/{getline; gsub(/[^0-9]/,""); print; exit}' "$PLIST")"
-[ "$P1" = "$NEW_BUILD" ] || err "Bump incoerente: Info.plist($P1), atteso $NEW_BUILD."
-ok "Build number aggiornato a $NEW_BUILD (CMakeLists + Info.plist)."
-
-# Info.plist deve restare un plist valido (una copia-cartella lo puo' corrompere).
-plutil -lint "$PLIST" >/dev/null || err "Info.plist non valido dopo il bump (plutil -lint fallito)."
+for p in "$PLIST" "$PLIST_IOS"; do
+  P1="$(awk '/<key>CFBundleVersion<\/key>/{getline; gsub(/[^0-9]/,""); print; exit}' "$p")"
+  [ "$P1" = "$NEW_BUILD" ] || err "Bump incoerente: $(basename "$p") ha $P1, atteso $NEW_BUILD."
+  # I plist devono restare validi (una copia-cartella li puo' corrompere).
+  plutil -lint "$p" >/dev/null || err "$(basename "$p") non valido dopo il bump (plutil -lint fallito)."
+done
+ok "Build number aggiornato a $NEW_BUILD (CMakeLists + Info-macos.plist + Info.plist)."
 
 # ---------------------------------------------------------------------------
 # 2. Commit del bump
 # ---------------------------------------------------------------------------
 if [ "$DO_COMMIT" -eq 1 ]; then
-  git add "$CMAKE" "$PLIST"
+  git add "$CMAKE" "$PLIST" "$PLIST_IOS"
   git commit -m "macOS: build number -> $NEW_BUILD (TestFlight)" >/dev/null
   ok "Commit del bump creato."
   info "Ricorda di fare 'git push origin $GIT_BRANCH' quando vuoi."
