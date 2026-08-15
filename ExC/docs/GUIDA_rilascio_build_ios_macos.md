@@ -228,10 +228,13 @@ Nell'Organizer, con l'archivio nuovo selezionato:
 5. **Automatically manage signing** → Next
 6. **Upload**
 
-Su **macOS** è qui che Xcode fa da sé i passi che altrimenti sarebbero manuali: incorpora i
-framework Qt (l'equivalente di `macdeployqt`), firma con gli entitlements sandbox e
-costruisce il `.pkg`. Non serve preparare nulla a mano — a patto che i due certificati del
-canale App Store siano installati (vedi *Prerequisiti specifici di macOS* al passo 0).
+Su **macOS** Xcode firma e costruisce il `.pkg`, ma ⚠️ **non incorpora Qt**: non ne sa
+nulla. `macdeployqt` va eseguito sull'app dentro l'`.xcarchive` *prima* di distribuire —
+lo fa `release_testflight_mac.sh` (passo 5-bis), che poi rifirma il bundle. Se archivi a
+mano da Xcode, devi farlo tu: vedi il troubleshooting *"l'app crasha all'avvio"*.
+
+Servono comunque i due certificati del canale App Store (vedi *Prerequisiti specifici di
+macOS* al passo 0).
 
 Se compare **"Upload completed with warnings" / "Upload Symbols Failed"**: è un warning
 NON bloccante sui file dSYM, capitato regolarmente con questo progetto Qt/CMake. Clicca
@@ -303,6 +306,30 @@ ARCHIVE=$(ls -dt ~/Library/Developer/Xcode/Archives/*/*.xcarchive | head -1)
 BIN="$ARCHIVE/Products/Applications/SurfaceExplorer.app/SurfaceExplorer"
 stat -f "%Sm" -t "%Y-%m-%d %H:%M:%S" "$BIN"   # deve essere DOPO l'ultima modifica ai sorgenti
 strings "$BIN" | grep "<una stringa univoca del tuo fix più recente>"   # deve trovarla
+```
+
+### macOS: l'app installata da TestFlight CRASHA all'avvio (SIGABRT)
+Sintomo: si chiude subito, senza finestre. Nel report (`~/Library/Logs/DiagnosticReports/`,
+anche in `Retired/`) lo stack è:
+```
+QMessageLogger::fatal  <-  QGuiApplicationPrivate::createPlatformIntegration  <-  abort()
+```
+Causa: **il bundle non contiene Qt.** Xcode archivia il binario così com'è, con
+`Contents/Frameworks` e `Contents/PlugIns` vuote e l'rpath che punta a
+`~/Qt/6.10.1/macos/lib`. Sulla macchina di sviluppo i *framework* si trovano lo stesso e
+sembra tutto a posto, ma i *plugin* no: senza il plugin di piattaforma **cocoa** Qt chiama
+`qFatal` e abortisce. Su un altro Mac non parte affatto.
+
+Su iOS non capita perché lì Qt è **statico**; su macOS è dinamico e va incorporato.
+
+Risolto nello script (passo 5-bis): `macdeployqt` sull'app dentro l'`.xcarchive`, poi
+rifirma — `macdeployqt` modifica il bundle e invalida la firma di Xcode. Verifica:
+```bash
+A="<archivio>.xcarchive/Products/Applications/SurfaceExplorer.app"
+ls "$A/Contents/Frameworks/QtCore.framework"            # deve esistere
+ls "$A/Contents/PlugIns/platforms/libqcocoa.dylib"      # deve esistere
+otool -l "$A/Contents/MacOS/SurfaceExplorer" | grep -A2 LC_RPATH | grep path
+#   -> @executable_path/../Frameworks  (NON ~/Qt/...)
 ```
 
 ### macOS: "The product archive is invalid. The Info.plist must contain a LSApplicationCategoryType key"

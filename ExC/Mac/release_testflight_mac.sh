@@ -64,6 +64,9 @@ BUILD_DIR="$PROJECT_DIR/build/macos-appstore"
 XCODEPROJ="$BUILD_DIR/SurfaceExplorer.xcodeproj"
 SCHEME="SurfaceExplorer"
 QT_CMAKE="$HOME/Qt/6.10.1/macos/bin/qt-cmake"
+# Su macOS Qt e' DINAMICO: framework e plugin vanno incorporati nel bundle a
+# mano, dopo l'archive. Xcode non lo fa (non sa nulla di Qt).
+MACDEPLOYQT="$HOME/Qt/6.10.1/macos/bin/macdeployqt"
 GIT_BRANCH="v1"
 ARCHIVE_DIR="$HOME/Library/Developer/Xcode/Archives"
 
@@ -102,6 +105,7 @@ grep -q "LSApplicationCategoryType" "$PLIST" \
   || err "Info-macos.plist non contiene LSApplicationCategoryType: la distribuzione fallirebbe."
 command -v xcodebuild >/dev/null || err "xcodebuild non trovato (installa Xcode + command line tools)."
 [ -x "$QT_CMAKE" ] || err "qt-cmake macOS non trovato/eseguibile: $QT_CMAKE"
+[ -x "$MACDEPLOYQT" ] || err "macdeployqt non trovato/eseguibile: $MACDEPLOYQT"
 
 # qt-cmake e' un wrapper che fa `exec cmake`: senza cmake nel PATH muore con
 # "exec: cmake: not found" al passo 4, a bump gia' fatto e committato.
@@ -237,6 +241,58 @@ XC_STATUS=${PIPESTATUS[0]}
 [ "$XC_STATUS" -eq 0 ] || err "xcodebuild archive fallito (exit $XC_STATUS)."
 [ -d "$ARCHIVE_PATH" ] || err "Archivio non prodotto: $ARCHIVE_PATH"
 ok "Archivio creato: $ARCHIVE_PATH"
+
+# ---------------------------------------------------------------------------
+# 5-bis. macdeployqt sull'app DENTRO l'archivio (PASSO OBBLIGATORIO)
+# ---------------------------------------------------------------------------
+# Xcode non sa nulla di Qt: archivia il binario cosi' com'e', con
+# Contents/Frameworks e Contents/PlugIns VUOTE e un rpath che punta a
+# ~/Qt/6.10.1/macos/lib. Sulla macchina di sviluppo i framework si trovano lo
+# stesso e sembra tutto a posto, ma i PLUGIN no: manca il plugin di piattaforma
+# "cocoa", QGuiApplicationPrivate::createPlatformIntegration() fallisce e Qt
+# chiama qFatal -> l'app ABORTISCE all'avvio (SIGABRT). Su un altro Mac non
+# partirebbe affatto.
+#
+# Su iOS il problema non esiste perche' li' Qt e' statico; su macOS i framework
+# sono dinamici e vanno incorporati a mano, qui.
+APP_IN_ARCHIVE="$ARCHIVE_PATH/Products/Applications/$SCHEME.app"
+[ -d "$APP_IN_ARCHIVE" ] || err "App non trovata nell'archivio: $APP_IN_ARCHIVE"
+
+info "macdeployqt: incorporo framework e plugin Qt nell'app archiviata ..."
+"$MACDEPLOYQT" "$APP_IN_ARCHIVE" -verbose=1 >/dev/null 2>&1 \
+  || err "macdeployqt fallito su $APP_IN_ARCHIVE"
+
+# Verifica che abbia davvero fatto il lavoro: senza il plugin di piattaforma
+# l'app crasha all'avvio, ed e' un errore che si scopre solo DOPO l'upload e
+# l'installazione da TestFlight — cioe' nel modo piu' lento possibile.
+[ -d "$APP_IN_ARCHIVE/Contents/Frameworks/QtCore.framework" ] \
+  || err "macdeployqt non ha incorporato i framework Qt (Contents/Frameworks incompleta)."
+[ -f "$APP_IN_ARCHIVE/Contents/PlugIns/platforms/libqcocoa.dylib" ] \
+  || err "manca il plugin di piattaforma cocoa: l'app abortirebbe all'avvio."
+ok "Framework e plugin Qt incorporati."
+
+# Rifirma: macdeployqt ha modificato il bundle e invalidato la firma di Xcode.
+# Firma dall'interno verso l'esterno; gli entitlements vanno solo sull'app.
+SIGN_ID="$(security find-identity -v -p codesigning 2>/dev/null \
+            | grep '"Apple Distribution' | head -1 | sed -E 's/.*"(.*)"$/\1/')"
+if [ -n "$SIGN_ID" ]; then
+  info "Rifirma dopo macdeployqt ($SIGN_ID) ..."
+  find "$APP_IN_ARCHIVE/Contents/Frameworks" "$APP_IN_ARCHIVE/Contents/PlugIns" \
+       \( -name "*.framework" -o -name "*.dylib" \) -print0 2>/dev/null \
+    | while IFS= read -r -d '' item; do
+        codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$item" >/dev/null 2>&1 || true
+      done
+  codesign --force --timestamp --options runtime \
+           --entitlements "$PROJECT_DIR/ExC/Mac/macos_appstore.entitlements" \
+           --sign "$SIGN_ID" "$APP_IN_ARCHIVE" \
+    || err "Rifirma dell'app fallita."
+  codesign --verify --deep --strict "$APP_IN_ARCHIVE" \
+    || err "La firma non supera la verifica dopo macdeployqt."
+  ok "Bundle rifirmato e verificato."
+else
+  info "ATTENZIONE: nessun certificato \"Apple Distribution\": bundle NON rifirmato."
+  info "  Distribute App fallira'. Crea il certificato e rilancia."
+fi
 
 # Verifica anti-stantìo + controllo che la sandbox sia davvero attiva: se manca,
 # l'App Store rifiuta il pacchetto, ed e' molto meglio accorgersene qui.
