@@ -313,3 +313,22 @@ if(IOS)
     get_filename_component(QT_FRAMEWORK_DIR "${QT_CORE_LOC}" DIRECTORY)
     get_filename_component(QT_LIB_DIR "${QT_FRAMEWORK_DIR}" DIRECTORY)
 endif()
+
+# --- CONFIGURAZIONE NATIVA PER REGISTRAZIONE VIDEO SU macOS ---
+# L'encoder AVFoundation sostituisce ffmpeg su TUTTO macOS (non solo nella build
+# App Store): sotto sandbox non si possono lanciare eseguibili esterni al bundle,
+# e ffmpeg-kit-full-gpl non e' incorporabile (GPL incompatibile con l'App Store).
+if(APPLE AND NOT IOS)
+    target_sources(SurfaceExplorer PRIVATE
+        nativevideoencoder.h
+        nativevideoencoder_mac.mm
+    )
+
+    target_link_libraries(SurfaceExplorer PRIVATE
+        "-framework AVFoundation"
+        "-framework CoreVideo"
+        "-framework CoreMedia"
+        "-framework Foundation"
+        "-framework VideoToolbox"
+    )
+endif()

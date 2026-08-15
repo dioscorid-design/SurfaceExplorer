@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+	Entitlements per il canale MAC APP STORE.
+
+	Distinto da macos_release.entitlements (canale DMG / Developer ID), che NON
+	va toccato: la distribuzione diretta resta valida e usa permessi diversi.
+
+	NB: qui NON compaiono allow-jit, allow-unsigned-executable-memory e
+	disable-library-validation. L'App Store li rifiuta, e verificato sul campo
+	non servono: disable-library-validation stava li' solo per la build di
+	SVILUPPO, che carica i framework Qt da ~/Qt (Team ID diverso dal nostro).
+	Con i framework incorporati nel bundle da macdeployqt il problema sparisce.
+
+	Perche' bastano questi tre:
+	  app-sandbox                  obbligatorio sull'App Store
+	  files.user-selected.rw       l'utente sceglie dove salvare video e preset
+	                               tramite pannello di sistema (Powerbox)
+	  assets.movies.read-write     cartella Filmati, destinazione naturale
+	                               dell'export video
+
+	L'export video NON richiede altro: dopo il passaggio all'encoder nativo
+	AVFoundation (nativevideoencoder_mac.mm) non lanciamo piu' processi esterni,
+	che la sandbox vieterebbe comunque.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<key>com.apple.security.assets.movies.read-write</key>
+	<true/>
+</dict>
+</plist>

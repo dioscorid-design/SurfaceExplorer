@@ -620,11 +620,24 @@ void VideoRecorder::toggleRecord()
         // Fine dialoghi: il clock geometria torna allo stato che aveva al REC
         // (spento sopra solo per congelare lo schermo durante il setup). Va
         // riacceso PRIMA del freeze, che fotografa i moduli fermi dallo stato
-        // reale dei clock; i timer live restano comunque fermi (stopAllTimers),
-        // durante il REC il tempo lo detta il loop via virtual_time.
+        // reale dei clock; il clock shader live resta comunque fermo, durante
+        // il REC il tempo lo detta il loop via virtual_time.
         if (wasTimeAnimating) {
             m_mainWindow->ui->glWidget->setSurfaceAnimating(true);
-            m_mainWindow->ui->glWidget->stopAllTimers();
+            // Qui c'era stopAllTimers(), che spegneva ANCHE rotationTimer.
+            // Quel timer non e' solo un clock: e' lo STATO letto da
+            // isRotationMotionRunning(), il predicato con cui il loop decide se
+            // chiamare advanceRotationsBy. Spento, le rotazioni non avanzavano
+            // piu' — superficie immobile nel video E a schermo — ma SOLO sui
+            // preset con geometria animata (t nelle equazioni), perche' solo
+            // quelli entrano in questo ramo: da qui l'intermittenza "stesso
+            // preset, a volte si muove e a volte no".
+            //
+            // Il clock shader live e' gia' fermo da stopAllTimers() a inizio
+            // funzione e non e' stato riacceso: non serve rifermarlo qui.
+            // (Non usiamo stopAnimationTimer(): riscriverebbe m_manualTime
+            // dall'elapsed reale, e beginVirtualTimeFreeze() lo legge subito
+            // sotto per congelare i moduli fermi.)
         }
 
         // Fotografa il tempo mostrato da ogni modulo PRIMA di attivare il tempo
@@ -661,9 +674,24 @@ void VideoRecorder::toggleRecord()
 
     QString timeStamp = QDateTime::currentDateTime().toString("yyyy-MM-dd_HH-mm-ss");
     m_mainWindow->m_recFolder = targetPath + "/Temp_Render_" + timeStamp;
+#if defined(Q_OS_MACOS)
+    // macOS: la cartella la creiamo SOLO se serve davvero (colonna sonora
+    // procedurale). I frame non passano piu' dal disco — vanno dal QImage
+    // direttamente nell'encoder — quindi su clip muta resterebbe una cartella
+    // vuota per tutto l'export. La crea, quando serve, ensureRecFolder().
+#else
     if (!QDir(m_mainWindow->m_recFolder).exists()) {
         QDir().mkpath(m_mainWindow->m_recFolder);
     }
+#endif
+
+    // Crea la cartella temporanea al primo uso reale. Su macOS l'unico uso e' la
+    // colonna sonora; altrove la cartella e' gia' stata creata qui sopra e questa
+    // e' una no-op difensiva.
+    auto ensureRecFolder = [this]() {
+        if (!QDir(m_mainWindow->m_recFolder).exists())
+            QDir().mkpath(m_mainWindow->m_recFolder);
+    };
 
     // Il loop avanza direttamente le variabili di stato VERE (pathTimeT,
     // pathTimeT3D, omega/phi/psi), con la stessa semantica del tick live
@@ -729,7 +757,81 @@ void VideoRecorder::toggleRecord()
         }
     }
 
+#if defined(Q_OS_MACOS)
+    // macOS: MAI la pipe. L'encoder nativo AVFoundation (nativevideoencoder_mac.mm)
+    // prende il posto di ffmpeg su TUTTO macOS, con o senza audio: sotto sandbox
+    // App Store non si possono lanciare eseguibili fuori dal bundle, e tenere due
+    // strade (ffmpeg per il DMG, nativa per lo Store) lascerebbe proprio il ramo
+    // dello Store come il meno collaudato. Il percorso e' lo stesso della pipe —
+    // frame in memoria, niente file su disco — solo con l'encoder in-process.
+    // L'audio si muxa alla chiusura, in NativeVideoEncoder::end().
+    const bool usePipe = false;
+    const bool useNativeMac = true;
+    bool nativeMacStarted = false;   // begin() riuscito: da chiudere a fine loop
+    int nativeW = 0, nativeH = 0;    // fissate al primo frame, come per la pipe
+
+    // --- COLONNA SONORA PRODOTTA PRIMA DEL LOOP (obbligatorio, non un'ottimizzazione) ---
+    // AVAssetWriter bilancia l'interleaving fra TUTTI gli input dichiarati: una
+    // traccia audio dichiarata e lasciata vuota blocca readyForMoreMediaData del
+    // VIDEO al primo frame, e l'export va in deadlock. L'audio quindi deve poter
+    // entrare INSIEME ai frame, il che vuol dire averlo pronto prima di begin().
+    // Si puo' fare: il bouncing offline dipende solo dalla durata, non dai frame.
+    QString macAudioFile;
+    if (willHaveAudio) {
+        QString preCode = m_mainWindow->m_surfaceScriptText + "\n" +
+                          m_mainWindow->m_surfaceTextureCode + "\n" +
+                          m_mainWindow->m_bgTextureCode + "\n" +
+                          m_mainWindow->m_soundScriptText;
+        if (preCode.trimmed().isEmpty())
+            preCode = m_mainWindow->ui->txtScriptEditor->toPlainText();
+
+        if (preCode.contains("mainSound") && m_mainWindow->m_audioController) {
+            // Audio procedurale: lo renderizziamo alla durata NOMINALE richiesta.
+            // Se l'utente ferma il REC prima, il taglio alla durata reale lo fa
+            // NativeVideoEncoder::end(), che riceve actualSeconds.
+            ensureRecFolder();
+            const QString rawPath = m_mainWindow->m_recFolder + "/soundtrack.raw";
+            const int nominalSecs = (int)ceil((double)totalFrames / (double)fps);
+            if (m_mainWindow->m_audioController->saveSynthToRawFile(rawPath, nominalSecs)) {
+                // L'encoder legge via AVAsset: serve un contenitore, non il raw.
+                // Stessa intestazione WAV (44.1k, stereo, float32) del ramo iOS.
+                const QString wavPath = m_mainWindow->m_recFolder + "/soundtrack.wav";
+                QFile rawFile(rawPath);
+                QFile wavFile(wavPath);
+                if (rawFile.open(QIODevice::ReadOnly) && wavFile.open(QIODevice::WriteOnly)) {
+                    QByteArray rawData = rawFile.readAll();
+                    QDataStream out(&wavFile);
+                    out.setByteOrder(QDataStream::LittleEndian);
+                    out.writeRawData("RIFF", 4);
+                    out << (quint32)(36 + rawData.size());
+                    out.writeRawData("WAVE", 4);
+                    out.writeRawData("fmt ", 4);
+                    out << (quint32)16 << (quint16)3 << (quint16)2 << (quint32)44100;
+                    out << (quint32)(44100 * 2 * 4) << (quint16)(2 * 4) << (quint16)32;
+                    out.writeRawData("data", 4);
+                    out << (quint32)rawData.size();
+                    wavFile.write(rawData);
+                    rawFile.close();
+                    wavFile.close();
+                    macAudioFile = wavPath;
+                }
+            }
+        } else {
+            // File esterno (//MUSIC:): gia' un contenitore, si usa com'e'.
+            QRegularExpression musicRe(R"(^\s*//MUSIC:\s*(.*)$)", QRegularExpression::MultilineOption);
+            QRegularExpressionMatch m = musicRe.match(preCode);
+            if (m.hasMatch()) {
+                const QString p = m.captured(1).trimmed();
+                if (QFile::exists(p)) macAudioFile = p;
+            }
+        }
+    }
+    // Se la preparazione e' fallita, la clip esce muta: meglio che in deadlock.
+    const bool macWithAudio = !macAudioFile.isEmpty();
+#else
     const bool usePipe = !willHaveAudio;
+    const bool useNativeMac = false;
+#endif
     QProcess *pipeProcess = nullptr; // valorizzato al primo frame (serve W/H note)
     int pipeW = 0, pipeH = 0;
 
@@ -891,6 +993,44 @@ void VideoRecorder::toggleRecord()
         }
 #elif !defined(Q_OS_ANDROID)
         // --- DESKTOP ---
+#if defined(Q_OS_MACOS)
+        if (useNativeMac) {
+            // Encoder nativo: il frame va dal QImage al CVPixelBuffer, senza
+            // passare dal disco. Stessa disciplina della pipe: al 1o frame
+            // fissiamo W/H (pari) e apriamo l'encoder, poi ogni frame deve
+            // avere quelle dimensioni.
+            if (frame.width() % 2 != 0)  frame = frame.copy(0, 0, frame.width() - 1, frame.height());
+            if (frame.height() % 2 != 0) frame = frame.copy(0, 0, frame.width(), frame.height() - 1);
+
+            if (!nativeMacStarted) {
+                nativeW = frame.width();
+                nativeH = frame.height();
+                // macAudioFile e' la colonna sonora GIA' PRONTA su disco (viene
+                // preparata sopra, prima del loop): l'encoder la versa insieme
+                // ai frame. Passare qui un file inesistente, o dichiarare la
+                // traccia e non riempirla, manda l'export in deadlock.
+                // Il limite di durata e' quello nominale; end() rifinisce con
+                // la durata reale, che uno stop anticipato rende piu' corta.
+                const double nominalSecs = (double)totalFrames / (double)fps;
+                if (NativeVideoEncoder::begin(userSelectedFile, fps, nativeW, nativeH,
+                                              macAudioFile, nominalSecs)) {
+                    nativeMacStarted = true;
+                } else {
+                    // Interrompiamo pulito: il messaggio lo diamo dopo il loop,
+                    // leggendo NativeVideoEncoder::lastError().
+                    m_mainWindow->m_stopRecordingRequested = true;
+                }
+            }
+
+            if (nativeMacStarted && frame.width() == nativeW && frame.height() == nativeH) {
+                if (!NativeVideoEncoder::appendFrame(frame)) {
+                    // Encoder rotto a meta' clip (disco pieno, ...): fermiamo
+                    // qui invece di accumulare frame in un writer morto.
+                    m_mainWindow->m_stopRecordingRequested = true;
+                }
+            }
+        } else
+#endif
         if (usePipe) {
             // Frame raw direttamente nello stdin di FFmpeg: niente file su disco.
             // Le dimensioni devono restare costanti per tutta la clip -> al 1° frame
@@ -1153,6 +1293,7 @@ void VideoRecorder::toggleRecord()
     // Gate wasSoundPlaying su entrambi gli scenari (stesso criterio di
     // willHaveAudio): suono fermato dall'utente prima del REC = clip muta.
     if (wasSoundPlaying && currentCode.contains("mainSound") && m_mainWindow->m_audioController) {
+        ensureRecFolder();   // primo (e su macOS unico) uso reale della cartella
         audioFile = m_mainWindow->m_recFolder + "/soundtrack.raw";
 
         // Bouncing Offline (Molto più veloce del tempo reale)
@@ -1172,6 +1313,13 @@ void VideoRecorder::toggleRecord()
         }
     }
 
+// Da qui alla fine del blocco: SOLO le piattaforme che usano ffmpeg (Windows,
+// Linux, Android). Su iOS e macOS l'encoder e' AVFoundation e questi argomenti
+// non servono a nessuno: tenerli fuori dalla guardia li faceva compilare come
+// codice morto, con il rischio (tipico di questo file) che qualcuno li creda
+// ancora in uso. La preparazione dell'audio sopra, invece, e' COMUNE a tutti.
+#if !defined(Q_OS_IOS) && !defined(Q_OS_MACOS)
+
 #if defined(Q_OS_ANDROID)
     // ANDROID: FFmpeg scrive in un file temporaneo isolato
     QString videoFileName = m_mainWindow->m_recFolder + "/temp_video.mp4";
@@ -1180,12 +1328,8 @@ void VideoRecorder::toggleRecord()
     QString videoFileName = userSelectedFile;
 #endif
 
-#if defined(Q_OS_IOS)
-    QString inputPattern = m_mainWindow->m_recFolder + "/frame_%05d.bmp";
-#else
     // Diciamo a FFmpeg di leggere i file in base alla scelta che abbiamo fatto
     QString inputPattern = m_mainWindow->m_recFolder + (usePng ? "/frame_%05d.png" : "/frame_%05d.bmp");
-#endif
 
     QStringList arguments;
 
@@ -1223,7 +1367,6 @@ void VideoRecorder::toggleRecord()
 
     arguments << videoFileName;
 
-#if !defined(Q_OS_IOS)
     // ==============================================================
     // 6. GENERAZIONE VIDEO (FFMPEG VIA QPROCESS PER DESKTOP E ANDROID)
     // ==============================================================
@@ -1355,11 +1498,16 @@ void VideoRecorder::toggleRecord()
     }
 
     ffmpegProcess->start(program, arguments);
-#endif
+#endif // Q_OS_ANDROID / Desktop
 
-#elif defined(Q_OS_IOS)
+#else // Q_OS_IOS || Q_OS_MACOS
     // ==============================================================
-    // VERSIONE iOS (AVFoundation Nativo con Audio Multiplexing)
+    // VERSIONE APPLE (AVFoundation Nativo con Audio Multiplexing)
+    // iOS: i frame sono su disco (.raw), l'encoder li legge in createMP4.
+    // macOS: i frame sono GIA' dentro l'encoder (appendFrame nel loop), qui
+    //        resta solo da muxare l'audio e chiudere il file.
+    // La preparazione dell'audio (raw -> WAV) e' identica sulle due: sta qui
+    // una volta sola, non duplicata per piattaforma.
     // ==============================================================
     m_mainWindow->m_statusLabel->setText("Generating MP4... please wait.");
     QApplication::processEvents();
@@ -1401,22 +1549,50 @@ void VideoRecorder::toggleRecord()
     // Usa il percorso scelto dall'utente tramite la finestra di dialogo
     QString finalSafePath = userSelectedFile;
 
+    bool success = false;
+    QString failDetail;
+
+#if defined(Q_OS_IOS)
     // Le dimensioni (già pari) sono quelle catturate al primo frame RAW scritto.
     int videoW = iosFrameW;
     int videoH = iosFrameH;
 
     // Passiamo finalAudioFile alla funzione iOS
-    bool success = (videoW > 0 && videoH > 0) &&
-                   NativeVideoEncoder::createMP4(m_mainWindow->m_recFolder, finalSafePath, fps, videoW, videoH, finalAudioFile);
+    success = (videoW > 0 && videoH > 0) &&
+              NativeVideoEncoder::createMP4(m_mainWindow->m_recFolder, finalSafePath, fps, videoW, videoH, finalAudioFile);
+#else
+    // macOS: qui non resta nulla da assemblare. Video E audio sono gia' dentro
+    // l'encoder, versati insieme durante il loop (l'audio DEVE avanzare coi
+    // frame, vedi nativevideoencoder.h); end() chiude solo il contenitore,
+    // tagliando l'audio alla durata realmente renderizzata.
+    // finalAudioFile qui non si usa: e' il percorso del ramo iOS, che assembla
+    // a posteriori dai .raw su disco.
+    m_mainWindow->m_isProcessingVideo = true;
+    if (nativeMacStarted) {
+        success = NativeVideoEncoder::end();
+        if (!success) failDetail = NativeVideoEncoder::lastError();
+    } else {
+        // begin() non e' mai riuscito (o zero frame): niente da chiudere.
+        failDetail = NativeVideoEncoder::lastError();
+        if (failDetail.isEmpty()) failDetail = "The video encoder did not start.";
+    }
+    m_mainWindow->m_isProcessingVideo = false;
+#endif
 
     m_mainWindow->m_statusLabel->clear();
 
     if (success) {
         QDir tempDir(m_mainWindow->m_recFolder);
         if (tempDir.exists()) tempDir.removeRecursively();
-        QMessageBox::information(m_mainWindow, "Finished!", "Video successfully generated on iOS!\nSaved as: " + finalSafePath);
+        QMessageBox::information(m_mainWindow, "Finished!", "Video successfully saved:\n" + finalSafePath);
     } else {
-        QMessageBox::warning(m_mainWindow, "Encoding Error", "Failed to assemble the video on iOS.");
+        // La cartella temp (audio di lavoro) va via comunque: su macOS non
+        // contiene frame, su iOS i .raw non servono piu'.
+        QDir tempDir(m_mainWindow->m_recFolder);
+        if (tempDir.exists()) tempDir.removeRecursively();
+        QMessageBox::warning(m_mainWindow, "Encoding Error",
+                             failDetail.isEmpty() ? QString("Failed to assemble the video.")
+                                                  : QString("Failed to assemble the video.\n\n") + failDetail);
     }
 
     // DOPO la modale (vedi nota "watchdog sospeso"): il dialogo e' bloccante,
