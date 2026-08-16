@@ -2810,6 +2810,29 @@ MainWindow::MainWindow(QWidget *parent)
         box->open();
     }, Qt::QueuedConnection);
 
+    // IMMAGINE DI TEXTURE NON DECODIFICABILE.
+    // Il file c'e' ed e' leggibile (validato prima del caricamento) ma Qt non ne
+    // ricava pixel: formato non supportato o file corrotto. Prima
+    // loadTextureFromFile usciva in silenzio e a schermo restava la texture
+    // PRECEDENTE, che sembrava "la texture di default del preset": nessun
+    // indizio della causa. Box asincrono per gli stessi motivi del segnale
+    // gemello qui sopra (niente event loop annidato).
+    connect(ui->glWidget, &GLWidget::textureImageLoadFailed, this,
+            [this](const QString &path) {
+        if (m_textureImageErrorPopupActive) return;
+        m_textureImageErrorPopupActive = true;
+
+        auto *box = new QMessageBox(QMessageBox::Warning, "Image Not Loaded",
+            "This image could not be loaded, so the previous texture is still "
+            "showing:\n\n" + path + "\n\nThe file exists but is not a readable "
+            "image: it may be corrupted, or in a format that is not supported.",
+            QMessageBox::Ok, this);
+        box->setAttribute(Qt::WA_DeleteOnClose);
+        connect(box, &QDialog::finished, this,
+                [this](int){ m_textureImageErrorPopupActive = false; });
+        box->open();
+    }, Qt::QueuedConnection);
+
     connect(ui->glWidget, &GLWidget::performanceWarning, this, [this]() {
         // Un popup alla volta: eventuali segnali gia' in coda quando il box e'
         // aperto (peggioramenti misurati prima del nostro stop) non devono

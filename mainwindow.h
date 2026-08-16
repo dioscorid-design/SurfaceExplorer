@@ -400,6 +400,9 @@ private:
     // Stessa ragione: buildPipeline puo' fallire piu' volte di fila (un tentativo
     // per ricostruzione) e senza guardia si aprirebbe un popup per ciascuno.
     bool m_shaderErrorPopupActive = false;
+    // Stessa ragione, per l'immagine di texture non decodificabile: un preset
+    // puo' innescare piu' caricamenti in sequenza (superficie e sfondo).
+    bool m_textureImageErrorPopupActive = false;
     // Avviso "le immagini non possono essere per-mesh" gia' mostrato in questa
     // sessione. Spiega un LIMITE dell'architettura (l'immagine e' una risorsa
     // GPU unica), non un errore: e' un'informazione che non cambia, quindi va

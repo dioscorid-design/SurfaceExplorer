@@ -599,6 +599,13 @@ signals:
     // simbolo (vedi la rinomina in buildTextureFunction): il generatore copre le
     // forme note, ma uno script NUOVO puo' sempre introdurne una non prevista.
     void shaderCompilationFailed(const QString &error);
+    // Un'immagine di texture non si e' potuta CARICARE: il file esiste ed e'
+    // leggibile (chi chiama lo verifica prima), ma Qt non ne ricava pixel —
+    // formato non supportato o file corrotto. Senza questo segnale
+    // loadTextureFromFile usciva in SILENZIO, lasciando a schermo la texture
+    // precedente: all'utente sembrava che il preset avesse una texture
+    // "sbagliata" o "di default", senza alcun indizio del perche'.
+    void textureImageLoadFailed(const QString &path);
     // Emesso dopo ogni rigenerazione della griglia, quando le parti di mesh
     // possono essere cambiate (nuovo script, nuove sezioni //MESH_BEGIN).
     // MainWindow lo usa per riallineare il selettore di mesh del dock renderer e

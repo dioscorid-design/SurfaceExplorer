@@ -2801,6 +2801,15 @@ void GLWidget::loadTextureFromFile(const QString &f) {
         // via: quella e' un default procedurale, non un'immagine, e non deve
         // spegnere il fallback di iChannel0 (vedi m_hasUserImage).
         m_hasUserImage = true;
+    } else {
+        // Prima qui non c'era nulla: si usciva in silenzio e a schermo restava
+        // la texture PRECEDENTE, che l'utente leggeva come "il preset ha la
+        // texture di default". Il percorso e' gia' stato validato da chi
+        // chiama (isReadableFile + Smart Path Resolver), quindi arrivare qui
+        // significa che il file si apre ma non contiene un'immagine valida:
+        // formato non supportato, o file corrotto.
+        qWarning() << "GLWidget: immagine non decodificabile:" << f;
+        emit textureImageLoadFailed(f);
     }
 }
 
