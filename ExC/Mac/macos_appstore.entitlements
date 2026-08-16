@@ -12,12 +12,20 @@
 	SVILUPPO, che carica i framework Qt da ~/Qt (Team ID diverso dal nostro).
 	Con i framework incorporati nel bundle da macdeployqt il problema sparisce.
 
-	Perche' bastano questi tre:
+	Perche' bastano questi quattro:
 	  app-sandbox                  obbligatorio sull'App Store
 	  files.user-selected.rw       l'utente sceglie dove salvare video e preset
 	                               tramite pannello di sistema (Powerbox)
 	  assets.movies.read-write     cartella Filmati, destinazione naturale
 	                               dell'export video
+	  files.bookmarks.app-scope    la libreria vive in ~/Documents/presets, e sotto
+	                               sandbox DOCUMENTS non e' redirezionata verso la
+	                               cartella vera (a differenza di Desktop, Movies,
+	                               Pictures...): il percorso salvato in QSettings
+	                               veniva risolto DENTRO il container, vuoto ->
+	                               libreria vuota a ogni riapertura. Il bookmark
+	                               rende persistente l'autorizzazione del Powerbox.
+	                               Vedi securitybookmark.mm.
 
 	L'export video NON richiede altro: dopo il passaggio all'encoder nativo
 	AVFoundation (nativevideoencoder_mac.mm) non lanciamo piu' processi esterni,
@@ -30,6 +38,8 @@
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
 	<key>com.apple.security.assets.movies.read-write</key>
+	<true/>
+	<key>com.apple.security.files.bookmarks.app-scope</key>
 	<true/>
 </dict>
 </plist>

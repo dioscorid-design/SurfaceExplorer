@@ -362,3 +362,15 @@ if(APPLE AND NOT IOS)
         "-framework VideoToolbox"
     )
 endif()
+
+# --- SECURITY-SCOPED BOOKMARK (solo canale App Store, ma compilato ovunque) ---
+# Il .mm ha una sezione macOS e un fallback no-op per le altre piattaforme,
+# cosi' i punti di chiamata non hanno #ifdef. Fuori da Apple va forzato a C++,
+# altrimenti il compilatore lo tratta come Objective-C++ e non compila.
+target_sources(SurfaceExplorer PRIVATE
+    securitybookmark.h
+    securitybookmark.mm
+)
+if(NOT APPLE)
+    set_source_files_properties(securitybookmark.mm PROPERTIES LANGUAGE CXX)
+endif()

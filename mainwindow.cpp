@@ -10,6 +10,7 @@
 #include "libraryfileoperations.h"
 #include "librarydragdrophandler.h"
 #include "audiocontroller.h"
+#include "securitybookmark.h"
 #include "inputvalidator.h"
 #include "expressionparser.h"
 
@@ -1377,7 +1378,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(btnEx, &QPushButton::clicked, this, [this, safeOpenDock](){
         QSettings settings;
         QString root = settings.value("libraryRootPath").toString();
-        if (root.isEmpty() || !QDir(root).exists()) setupDefaultFolders();
+        if (root.isEmpty() || !SecurityBookmark::isAccessible(root)) setupDefaultFolders();
         safeOpenDock(ui->dockSurfaces);
     });
     ui->statusbar->addPermanentWidget(btnEx);
@@ -3455,6 +3456,53 @@ MainWindow::MainWindow(QWidget *parent)
 
     connectSidePanels();
     switchToMainMode();
+
+    // ACCESSO ALLA LIBRERIA, UNA VOLTA PER TUTTA LA SESSIONE.
+    // Non basta riaprirlo dentro refreshRepositories: la libreria contiene anche
+    // FILE ESTERNI referenziati per percorso assoluto dai preset — i .wav/.mp3
+    // dei suoni (//MUSIC:) e le immagini delle texture (//IMG:). Chi li carica
+    // decide con QFile::exists() / QDirIterator, che sotto sandbox falliscono
+    // esattamente come gli alberi vuoti: il record si apriva EVIDENZIANDO il
+    // suono o l'immagine in libreria, ma senza attivarli (audio muto, texture
+    // sostituita da quella di default). Aprendo lo scope qui, prima di ogni
+    // caricamento, tutti quei punti trovano i file senza doverlo sapere.
+    // No-op fuori dalla sandbox.
+#if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)
+    SecurityBookmark::restore(QSettings().value("libraryRootPath").toString());
+#endif
+
+    // LIBRERIA NON RAGGIUNGIBILE: dirlo, invece di mostrare quattro alberi vuoti.
+    // E' il caso in cui la cartella e' stata scelta in passato (esiste un
+    // bookmark) ma l'autorizzazione non si risolve piu'. Prima il fallimento era
+    // MUTO: i gate QDir::exists() saltavano il caricamento in silenzio e il
+    // sintomo ("libreria vuota") non suggeriva in alcun modo la causa. I file
+    // NON sono persi: manca solo il permesso di raggiungerli.
+    // needsAuthorization e' sempre false fuori dalla sandbox: su DMG, Windows e
+    // Linux questo blocco non si attiva mai.
+#if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)
+    {
+        const QString libRoot = QSettings().value("libraryRootPath").toString();
+        if (SecurityBookmark::needsAuthorization(libRoot)) {
+            const auto answer = QMessageBox::question(this, "Library Not Accessible",
+                "Your library folder can no longer be opened:\n\n" + libRoot + "\n\n"
+                "Your presets are still there — only the permission to access them "
+                "was lost (it can happen after the folder is moved or the system is "
+                "updated).\n\nDo you want to select the folder again?",
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+
+            if (answer == QMessageBox::Yes) {
+                const QString picked = QFileDialog::getExistingDirectory(this,
+                    "Select Your Presets Folder", QDir::homePath());
+                if (!picked.isEmpty()) {
+                    const QString clean = QDir::cleanPath(picked);
+                    QSettings().setValue("libraryRootPath", clean);
+                    SecurityBookmark::save(clean);
+                }
+            }
+        }
+    }
+#endif
+
     refreshRepositories();
     updateWatcherPaths();
 
@@ -11336,6 +11384,7 @@ void MainWindow::onAddRepositoryClicked(LibraryType /*type*/)
 
     QDir().mkpath(finalPath);
     settings.setValue("libraryRootPath", finalPath);
+    SecurityBookmark::save(finalPath);   // vedi setupDefaultFolders
 
     settings.remove("pathSurfaces");
     settings.remove("pathTextures");
@@ -11647,9 +11696,13 @@ void MainWindow::setupDefaultFolders()
     bool mkpathResult = QDir().mkpath(rootPath);
     settings.setValue("libraryRootPath", rootPath);
 #else
-    // Su Desktop leggiamo la memoria e mostriamo il popup se manca
+    // Su Desktop leggiamo la memoria e mostriamo il popup se manca.
+    // isAccessible (non QDir::exists) perche' sotto sandbox la cartella puo'
+    // esistere e non essere raggiungibile: risolve prima il bookmark, e chiede
+    // all'utente solo se non c'e' piu' nulla da riaprire. Fuori dalla sandbox
+    // equivale esattamente al vecchio exists().
     rootPath = settings.value("libraryRootPath").toString();
-    if (rootPath.isEmpty() || !QDir(rootPath).exists()) {
+    if (rootPath.isEmpty() || !SecurityBookmark::isAccessible(rootPath)) {
         QMessageBox::information(this, "Welcome to Surface Explorer",
                                  "Choose a location to install your Library.\n"
                                  "A 'Presets' folder will be automatically created there.");
@@ -11666,6 +11719,11 @@ void MainWindow::setupDefaultFolders()
 
         QDir().mkpath(rootPath);
         settings.setValue("libraryRootPath", rootPath);
+        // Bookmark SUBITO dopo il pannello di sistema: e' l'unico momento in cui
+        // sotto sandbox abbiamo il diritto su questa cartella. Senza, al prossimo
+        // avvio il percorso verrebbe risolto dentro il container (vuoto) e la
+        // libreria tornerebbe vuota. No-op fuori dalla sandbox.
+        SecurityBookmark::save(rootPath);
     }
 #endif
 
@@ -11960,6 +12018,13 @@ void MainWindow::refreshRepositories()
     QString pathRec  = settings.value("pathRecords",  rootPath + "/records").toString();
     QString pathSnd  = settings.value("pathSounds",   rootPath + "/sounds").toString();
 
+    // Riapre l'accesso alla radice PRIMA di leggere i rami: sotto sandbox, senza
+    // questo, i quattro exists() qui sotto sono tutti falsi (il percorso viene
+    // risolto nella Documents PRIVATA del container) e la libreria appare vuota
+    // senza alcun errore. Bastano la radice e i figli ne ereditano l'accesso.
+    // No-op fuori dalla sandbox.
+    if (!rootPath.isEmpty()) SecurityBookmark::restore(rootPath);
+
     if (QDir(pathSurf).exists()) m_libraryManager.loadFromDirectory(pathSurf, ui->treeSurfaces, LibraryType::Surface);
     if (QDir(pathTex).exists())  m_libraryManager.loadFromDirectory(pathTex,  ui->treeTextures, LibraryType::Texture);
     if (QDir(pathRec).exists())  m_libraryManager.loadFromDirectory(pathRec,  ui->treeMotions,  LibraryType::Motion);
@@ -12053,6 +12118,11 @@ void MainWindow::updateWatcherPaths()
     QSettings settings;
 
     QString rootPath = presetsRootPath();
+
+    // Come in refreshRepositories: senza accesso, addDirsToWatcher esce subito
+    // sul suo QDir::exists() e NIENTE viene sorvegliato, quindi le modifiche
+    // fatte da Finder non aggiornerebbero piu' la libreria. No-op fuori sandbox.
+    if (!rootPath.isEmpty()) SecurityBookmark::restore(rootPath);
 
     addDirsToWatcher(settings.value("pathSurfaces", rootPath + "/surfaces").toString());
     addDirsToWatcher(settings.value("pathTextures", rootPath + "/textures").toString());
@@ -13253,6 +13323,19 @@ bool MainWindow::hasTimeVariable(const QString& code) const {
     return cleaned.contains(kReTimeVar);
 }
 
+// Un file e' utilizzabile solo se si riesce davvero ad APRIRLO. QFile::exists()
+// non basta: sotto sandbox i metadati di un file fuori dallo scope autorizzato
+// restano visibili (exists() = true) mentre la lettura fallisce. La differenza
+// e' invisibile finche' non si prova ad aprirlo.
+static bool isReadableFile(const QString& path)
+{
+    if (path.isEmpty()) return false;
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return false;
+    f.close();
+    return true;
+}
+
 QString MainWindow::extractAndResolveImagePath(const QString& scriptCode) {
     QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)", QRegularExpression::MultilineOption);
     QRegularExpressionMatch imgMatch = imgRe.match(scriptCode);
@@ -13260,7 +13343,14 @@ QString MainWindow::extractAndResolveImagePath(const QString& scriptCode) {
     if (!imgMatch.hasMatch()) return ""; // Nessun tag immagine trovato
 
     QString imgPath = imgMatch.captured(1).trimmed();
-    if (QFile::exists(imgPath)) return imgPath; // Trovata al percorso originale!
+    // LEGGIBILE, non solo esistente. Sotto sandbox un file PUO' esistere ed
+    // essere illeggibile: e' il caso dei preset che citano una vecchia copia
+    // della libreria fuori dalla cartella autorizzata (es. una cartella di
+    // lavoro del progetto). Con il solo exists() il percorso veniva accettato,
+    // lo Smart Path Resolver NON entrava in funzione e l'immagine finiva nel
+    // fallback grigio -- mentre la stessa immagine, citata da un record iOS con
+    // percorso inesistente, veniva ritrovata correttamente per nome.
+    if (isReadableFile(imgPath)) return imgPath; // Trovata al percorso originale!
 
     // --- SMART PATH RESOLVER (Ricerca automatica) ---
     QString fileName = QFileInfo(imgPath).fileName();
@@ -13284,8 +13374,9 @@ QString MainWindow::extractAudioDirectives(const QString& fullText) {
         QRegularExpressionMatch match = musicIt.next();
         QString rawPath = match.captured(1).trimmed();
 
-        // A. Controlliamo se il file esiste al percorso originale
-        if (QFile::exists(rawPath)) {
+        // A. Il file e' LEGGIBILE al percorso originale? (non basta che esista:
+        // vedi extractAndResolveImagePath per il perche')
+        if (isReadableFile(rawPath)) {
             extractedSound += "//MUSIC: " + rawPath + "\n";
         } else {
             // B. Se il percorso è rotto, cerchiamo il file nella cartella Sounds locale
