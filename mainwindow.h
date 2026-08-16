@@ -494,13 +494,17 @@ private:
     bool m_isImageMode = false;
     bool m_surfaceTextureState = false;
     bool m_blockTextureGen = false;
-    // Alzato SOLO durante il cambio tab automatico provocato da una texture
-    // incompatibile col modo corrente (parametrica su RM o viceversa). Quel
-    // setCurrentIndex fa scattare applyModeTabReset -> resetScene, che richiude
-    // i rami della Library: giusto quando l'utente scarta una superficie (tasto
-    // NEW, riclic sulla linguetta), sbagliato qui, dove sta CARICANDO una
-    // texture e l'albero si chiuderebbe sotto le sue dita perdendo il focus
-    // sull'item appena scelto.
+    // Alzato durante un cambio tab AUTOMATICO, cioe' deciso dal preset che si
+    // sta caricando e non dall'utente. Due casi, stessa ragione:
+    //  - una texture incompatibile col modo corrente (parametrica su RM o
+    //    viceversa), che per essere mostrata impone il cambio;
+    //  - un RECORD di modo opposto a quello a schermo (applyMotionExample
+    //    forza il tab in base a data.isImplicitMode).
+    // Quel setCurrentIndex fa scattare applyModeTabReset -> resetScene, che
+    // richiude i rami della Library e ne azzera la selezione: giusto quando
+    // l'utente scarta una superficie (tasto NEW, riclic sulla linguetta),
+    // sbagliato qui, dove sta CARICANDO qualcosa e l'albero gli si chiuderebbe
+    // sotto le dita perdendo il focus sull'item appena scelto.
     bool m_texModeSwitchInProgress = false;
     // Alzato quando l'utente ANNULLA il cambio di modalita' dal dialogo del
     // lavoro non salvato: tabBarClicked non puo' impedire a Qt di cambiare

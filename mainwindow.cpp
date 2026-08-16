@@ -4069,11 +4069,23 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // non e' ancora stato svuotato, sembrano "l'utente scrive nelle equazioni
     // con uno script caricato": l'avviso compariva durante il reset stesso.
     // Stessa guardia RAII del caricamento preset (applyCommonData).
+    //
+    // RIPRISTINO del valore precedente, non "false" -- identica scelta (e
+    // identica ragione) di LoadGuard in applyCommonData ~12241. resetScene puo'
+    // girare ANNIDATA dentro un caricamento gia' in corso: applyMotionExample
+    // forza la linguetta quando il record e' di modo opposto a quello a schermo,
+    // e quel setCurrentIndex arriva qui. Azzerando il flag di netto, l'uscita da
+    // questo reset lo spegneva anche per il chiamante, e tutto il resto del load
+    // -- campi, colori, slider, camera -- proseguiva SENZA guardia: passava da
+    // noteSceneControlUsed, che alza m_sceneDirty e m_runEverSucceeded. Risultato:
+    // il popup "vuoi salvare?" al preset successivo, per modifiche mai fatte.
+    const bool wasPopulating = m_populatingFields;
     m_populatingFields = true;
     struct ResetGuard {
         MainWindow *w;
-        ~ResetGuard() { w->m_populatingFields = false; }
-    } resetGuard{this};
+        bool prev;
+        ~ResetGuard() { w->m_populatingFields = prev; }
+    } resetGuard{this, wasPopulating};
 
     ui->stepSlider->blockSignals(true);
 
@@ -4705,23 +4717,32 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // cartelle sotto le dita dell'utente: il reset e' un evento singolo.
     // Stessa scelta gia' fatta per il ramo Texture in wireframe
     // (setTextureLibraryGrayed): si chiude entrando, non si riapre uscendo.
-    // ECCEZIONE: il cambio tab automatico di una texture incompatibile arriva
-    // qui per la stessa strada (setCurrentIndex -> applyModeTabReset), ma li'
-    // l'utente non sta scartando niente: sta CARICANDO una texture. Due
-    // differenze, entrambe rette da m_texModeSwitchInProgress:
+    // ECCEZIONE: il cambio tab AUTOMATICO arriva qui per la stessa strada
+    // (setCurrentIndex -> applyModeTabReset), ma li' l'utente non sta scartando
+    // niente: sta CARICANDO qualcosa che ha imposto il cambio di modalita' --
+    // una texture incompatibile, oppure un record di modo opposto a quello a
+    // schermo. Due differenze, entrambe rette da m_texModeSwitchInProgress:
     //  - i rami NON si richiudono, o l'albero gli si chiude sotto le dita;
-    //  - il ramo TEXTURE non si deseleziona, perche' l'item evidenziato e'
-    //    proprio quello che si sta caricando (questa funzione gira PRIMA che
-    //    la texture venga applicata, quindi la selezione la si cancellerebbe
-    //    e basta, senza che nessuno la rimetta).
-    // Il treeSurfaces invece si deseleziona anche in quel caso: la superficie
+    //  - il ramo DI PROVENIENZA non si deseleziona, perche' l'item evidenziato
+    //    e' proprio quello che si sta caricando (questa funzione gira PRIMA che
+    //    il preset venga applicato, quindi la selezione la si cancellerebbe e
+    //    basta, senza che nessuno la rimetta).
+    // Quale sia il ramo di provenienza lo dice l'albero che possiede l'item
+    // cliccato: texture -> treeTextures, record -> treeMotions. Non si tiene
+    // fermo l'intero set, perche' gli altri rami vanno deselezionati davvero.
+    // Il treeSurfaces si deseleziona anche in questi casi: la superficie
     // precedente e' stata sostituita dalla default, quindi il suo item non
     // descrive piu' cio' che si vede.
     // Segnali bloccati: itemClicked ricaricherebbe il preset appena scartato.
+    QTreeWidget *keepFocus = nullptr;
+    if (m_texModeSwitchInProgress && m_lastLoadedLibraryItem)
+        keepFocus = m_lastLoadedLibraryItem->treeWidget();
+
     for (QTreeWidget *tree : { ui->treeSurfaces, ui->treeTextures,
                                ui->treeMotions,  ui->treeSounds }) {
         if (!tree) continue;
         if (m_texModeSwitchInProgress && tree == ui->treeTextures) continue;
+        if (tree == keepFocus && tree != ui->treeSurfaces) continue;
         bool b = tree->blockSignals(true);
         tree->clearSelection();
         tree->setCurrentItem(nullptr);
@@ -10589,6 +10610,22 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
 
     // Le superfici implicite da script sono gestite da applyCommonData: non sovrascrivere.
     bool isImplicitScript = isImplicit && !data.scriptCode.isEmpty();
+
+    // Il tab forzato qui sotto e' un cambio di modalita' a tutti gli effetti:
+    // se il record e' di modo opposto a quello a schermo, il setCurrentIndex fa
+    // scattare applyModeTabReset -> resetScene, che RICHIUDE i rami della
+    // Library e ne azzera la selezione. Il risultato era che caricando un
+    // record RM con un Parametric a video (e viceversa) l'albero Record si
+    // chiudeva e il record appena scelto perdeva il focus. Qui l'utente non sta
+    // scartando niente, sta CARICANDO: stesso flag e stessa guardia RAII del
+    // cambio tab provocato da una texture incompatibile (~6434).
+    // Alzato attorno a ENTRAMBI i rami: il tab da forzare dipende dal record,
+    // non da quale ramo dell'if si prende.
+    m_texModeSwitchInProgress = true;
+    struct ModeSwitchGuard {
+        MainWindow *w;
+        ~ModeSwitchGuard() { w->m_texModeSwitchInProgress = false; }
+    } modeSwitchGuard{this};
 
     if (isImplicit) {
         ui->tabModeSelector->setCurrentIndex(1); // Forza Tab Ray Marching
