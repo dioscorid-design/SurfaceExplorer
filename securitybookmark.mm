@@ -92,7 +92,24 @@ bool restore(const QString& path)
     if (activeUrls().contains(clean)) return true;   // gia' aperto
 
     const QByteArray stored = QSettings().value(settingsKey(clean)).toByteArray();
-    if (stored.isEmpty()) return false;
+    if (stored.isEmpty()) {
+        // Nessun bookmark per QUESTO percorso: si prova con un ANTENATO.
+        // Sotto sandbox il diritto nasce da cio' che l'utente ha indicato nel
+        // pannello di sistema, e le sottocartelle create dal codice (la
+        // "presets" sotto la cartella scelta, i quattro rami sotto di essa)
+        // non hanno un bookmark proprio. Aprendo lo scope del genitore, i
+        // figli ereditano l'accesso: e' lo stesso motivo per cui in
+        // refreshRepositories basta riaprire la radice.
+        QDir up(clean);
+        while (up.cdUp()) {
+            const QString parent = QDir::cleanPath(up.absolutePath());
+            if (parent == QLatin1String("/") || parent.isEmpty()) break;
+            if (activeUrls().contains(parent)) return true;
+            if (!QSettings().value(settingsKey(parent)).toByteArray().isEmpty())
+                return restore(parent);
+        }
+        return false;
+    }
 
     @autoreleasepool {
         BOOL stale = NO;

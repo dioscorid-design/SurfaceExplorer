@@ -3491,6 +3491,61 @@ MainWindow::MainWindow(QWidget *parent)
     // caricamento, tutti quei punti trovano i file senza doverlo sapere.
     // No-op fuori dalla sandbox.
 #if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)
+    // RADICE DI SISTEMA SALVATA PER ERRORE: si BUTTA, non si corregge.
+    //
+    // Una versione precedente del dialogo di recupero salvava la cartella
+    // scelta GREZZA, senza scendere in "presets": chi ha indicato ~/Documents
+    // si e' ritrovato surfaces/textures/records/sounds sparsi direttamente li'.
+    // Quel valore resta in QSettings e va tolto, altrimenti i quattro rami
+    // vengono ricreati a ogni avvio.
+    //
+    // NON si prova a "riparare" la radice inventando <cartella>/presets: sotto
+    // sandbox una cartella CREATA DAL CODICE non e' raggiungibile ai riavvii.
+    // Un security-scoped bookmark autorizza solo cio' che l'UTENTE ha indicato
+    // in un pannello di sistema (Powerbox); su una cartella mai scelta il
+    // bookmark si salva ma non concede nulla, e all'avvio dopo compariva
+    // "Your library folder can no longer be opened" -- un messaggio da
+    // diagnostica, incomprensibile a chi installa l'app per la prima volta.
+    // Peggio: ~/Documents sotto sandbox NON e' quella reale, e' la Documents
+    // PRIVATA e vuota del container (Desktop e Downloads sono symlink,
+    // Documents no), quindi quella radice non avrebbe mai mostrato nulla.
+    //
+    // Azzerando la chiave si torna esattamente al comportamento del DMG e del
+    // primo avvio: nessun popup d'errore, e alla prima apertura del dock
+    // Library parte setupDefaultFolders, che CHIEDE dove installare i preset
+    // con un pannello di sistema -- l'unico gesto che sotto sandbox concede
+    // davvero l'accesso, e che rende la cartella scelta valida per sempre.
+    {
+        QSettings settings;
+        const QString cleanRoot = QDir::cleanPath(settings.value("libraryRootPath").toString());
+
+        // Home REALE dell'utente, non quella del container: si ricava dal
+        // percorso stesso (/Users/<nome>), perche' QStandardPaths sotto sandbox
+        // risponde con i percorsi redirezionati e non darebbe mai riscontro.
+        QStringList systemDirs;
+        const QRegularExpression userRe(QStringLiteral("^(/Users/[^/]+)"));
+        const auto m = userRe.match(cleanRoot);
+        if (m.hasMatch()) {
+            const QString home = m.captured(1);
+            systemDirs << home
+                       << home + "/Documents"
+                       << home + "/Desktop"
+                       << home + "/Downloads";
+        }
+
+        if (!cleanRoot.isEmpty() && systemDirs.contains(cleanRoot)) {
+            qWarning() << "Libreria: radice di sistema" << cleanRoot
+                       << "-- scartata, si tornera' a chiedere la cartella.";
+            settings.remove("libraryRootPath");
+            // Puntavano ai rami sparsi: se restassero, scavalcherebbero la
+            // scelta successiva (sono lette con default rootPath+"/ramo").
+            settings.remove("pathSurfaces");
+            settings.remove("pathTextures");
+            settings.remove("pathRecords");
+            settings.remove("pathSounds");
+        }
+    }
+
     SecurityBookmark::restore(QSettings().value("libraryRootPath").toString());
 #endif
 
@@ -3517,7 +3572,48 @@ MainWindow::MainWindow(QWidget *parent)
                 const QString picked = QFileDialog::getExistingDirectory(this,
                     "Select Your Presets Folder", QDir::homePath());
                 if (!picked.isEmpty()) {
-                    const QString clean = QDir::cleanPath(picked);
+                    QString clean = QDir::cleanPath(picked);
+
+                    // La cartella scelta qui e' la RADICE DELLA LIBRERIA, quella
+                    // che contiene i quattro rami -- non il posto in cui creare
+                    // la libreria. Salvandola grezza, i rami surfaces/textures/
+                    // records/sounds venivano creati DIRETTAMENTE nella cartella
+                    // scelta (setupDefaultFolders li appende a libraryRootPath),
+                    // sparpagliandoli in ~/Documents invece di raccoglierli sotto
+                    // "presets". Gli altri tre punti che scrivono libraryRootPath
+                    // appendono tutti una sottocartella: questo era l'unico che
+                    // non lo faceva.
+                    //
+                    // Due casi da distinguere, perche' qui l'utente puo'
+                    // ragionevolmente indicare l'una o l'altra cosa:
+                    //  - ha scelto la radice della libreria vera e propria (c'e'
+                    //    gia' dentro almeno uno dei quattro rami): si prende
+                    //    com'e', altrimenti si creerebbe un "presets/presets";
+                    //  - ha scelto la cartella che la CONTIENE: si scende nella
+                    //    sottocartella dei preset, riusandola se c'e' gia'.
+                    //
+                    // Il nome va letto DA DISCO, non indovinato: i due punti che
+                    // la creano non concordano -- onAddRepositoryClicked scrive
+                    // "Presets", setupDefaultFolders "presets" -- e su APFS
+                    // (non case-sensitive) QDir::exists("Presets") risponde true
+                    // anche quando la cartella si chiama "presets". Chiedendo per
+                    // nome si finirebbe col salvare un percorso con la maiuscola
+                    // sbagliata: innocuo per il filesystem, ma il bookmark di
+                    // sandbox e i confronti fra stringhe di percorso non
+                    // perdonano. entryList restituisce il nome REALE.
+                    const QDir pickedDir(clean);
+                    const bool isLibraryRoot =
+                           pickedDir.exists("surfaces") || pickedDir.exists("textures")
+                        || pickedDir.exists("records")  || pickedDir.exists("sounds");
+                    if (!isLibraryRoot) {
+                        QString sub = "presets";
+                        const QStringList hits = pickedDir.entryList(
+                            QStringList() << "presets", QDir::Dirs | QDir::NoDotAndDotDot);
+                        if (!hits.isEmpty()) sub = hits.first();   // nome reale su disco
+                        clean += "/" + sub;
+                    }
+
+                    QDir().mkpath(clean);
                     QSettings().setValue("libraryRootPath", clean);
                     SecurityBookmark::save(clean);
                 }
@@ -11762,12 +11858,22 @@ void MainWindow::setupDefaultFolders()
     // all'utente solo se non c'e' piu' nulla da riaprire. Fuori dalla sandbox
     // equivale esattamente al vecchio exists().
     rootPath = settings.value("libraryRootPath").toString();
+    // NB: una radice salvata pari a una cartella di sistema (~/Documents e
+    // simili) e' gia' stata corretta all'avvio, in showEvent: qui arriva
+    // sempre un percorso sensato. Vedi il commento esteso li'.
     if (rootPath.isEmpty() || !SecurityBookmark::isAccessible(rootPath)) {
         QMessageBox::information(this, "Welcome to Surface Explorer",
                                  "Choose a location to install your Library.\n"
                                  "A 'Presets' folder will be automatically created there.");
 
-        QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+        // Cartella di PARTENZA del pannello: la home, non DocumentsLocation.
+        // Sotto sandbox quest'ultima e' la Documents PRIVATA del container --
+        // vuota e senza rapporto con la ~/Documents che l'utente conosce --
+        // quindi il pannello si apriva su una cartella vuota e spaesante.
+        // La home reale il Powerbox la mostra correttamente. Fuori dalla
+        // sandbox le due coincidono di fatto, e la home resta una partenza
+        // sensata per scegliere dove installare la libreria.
+        QString defaultPath = QDir::homePath();
         QString selectedPath = QFileDialog::getExistingDirectory(this, "Select Master Folder", defaultPath);
 
         if (selectedPath.isEmpty()) {
@@ -11783,6 +11889,14 @@ void MainWindow::setupDefaultFolders()
         // sotto sandbox abbiamo il diritto su questa cartella. Senza, al prossimo
         // avvio il percorso verrebbe risolto dentro il container (vuoto) e la
         // libreria tornerebbe vuota. No-op fuori dalla sandbox.
+        //
+        // Si bookmarka ANCHE la cartella che l'utente ha realmente indicato nel
+        // pannello, non solo la "presets" creata da noi qui dentro: sotto
+        // sandbox il diritto nasce dalla SCELTA dell'utente, e una sottocartella
+        // creata dal codice puo' non essere coperta. Avendo il bookmark del
+        // genitore, i figli ne ereditano l'accesso e il ramo resta raggiungibile
+        // anche se quello della sottocartella non si risolve.
+        if (!selectedPath.isEmpty()) SecurityBookmark::save(selectedPath);
         SecurityBookmark::save(rootPath);
     }
 #endif
