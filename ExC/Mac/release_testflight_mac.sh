@@ -241,6 +241,14 @@ info "NON interrompere anche se sembra ferma."
 # bundle e INVALIDA la firma, e il passo 5-bis rifirma tutto da capo con
 # "Apple Distribution". Quindi saltiamo del tutto la firma in questa fase e
 # lasciamo che sia la rifirma a fare l'unico lavoro che conta.
+#
+# Log COMPLETO su file: `| tail -40` da solo buttava via proprio le righe utili.
+# Gli errori di xcodebuild compaiono a meta' log, mentre le ultime 40 righe
+# contengono solo "** ARCHIVE FAILED **" e l'elenco dei comandi falliti: il
+# messaggio che dice COSA fare non si vedeva mai. Stesso difetto (e stessa cura)
+# dello script iOS.
+XC_LOG="$(mktemp -t surfexp-archive-mac)"
+set +e
 xcodebuild archive \
   -project "$XCODEPROJ" \
   -scheme "$SCHEME" \
@@ -250,9 +258,22 @@ xcodebuild archive \
   CODE_SIGN_IDENTITY="" \
   CODE_SIGNING_REQUIRED=NO \
   CODE_SIGNING_ALLOWED=NO \
-  | tail -40
-XC_STATUS=${PIPESTATUS[0]}
-[ "$XC_STATUS" -eq 0 ] || err "xcodebuild archive fallito (exit $XC_STATUS)."
+  > "$XC_LOG" 2>&1
+XC_STATUS=$?
+set -e
+
+if [ "$XC_STATUS" -ne 0 ]; then
+  printf '\033[31m--- errori riportati da xcodebuild ---\033[0m\n'
+  if grep -qE "error:" "$XC_LOG"; then
+    grep -E "error:" "$XC_LOG" | sort -u | sed 's/^/  /'
+  else
+    tail -40 "$XC_LOG" | sed 's/^/  /'
+  fi
+  printf '\033[31m--------------------------------------\033[0m\n'
+  info "Log completo: $XC_LOG"
+  err "xcodebuild archive fallito (exit $XC_STATUS)."
+fi
+rm -f "$XC_LOG"
 [ -d "$ARCHIVE_PATH" ] || err "Archivio non prodotto: $ARCHIVE_PATH"
 ok "Archivio creato: $ARCHIVE_PATH"
 

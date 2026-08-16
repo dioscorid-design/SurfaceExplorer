@@ -170,6 +170,13 @@ mkdir -p "$(dirname "$ARCHIVE_PATH")"
 
 info "Archiviazione (xcodebuild archive) — può richiedere PARECCHI minuti (Qt statico)."
 info "NON interrompere anche se sembra ferma."
+
+# Log COMPLETO su file: `| tail -40` da solo buttava via proprio le righe utili.
+# Gli errori di firma di xcodebuild compaiono a meta' log (riga ~47 su ~624) e
+# le ultime 40 righe contengono solo "** ARCHIVE FAILED **" e l'elenco dei
+# comandi falliti: il messaggio che dice COSA fare non si vedeva mai.
+XC_LOG="$(mktemp -t surfexp-archive)"
+set +e
 xcodebuild archive \
   -project "$XCODEPROJ" \
   -scheme "$SCHEME" \
@@ -177,10 +184,41 @@ xcodebuild archive \
   -destination 'generic/platform=iOS' \
   -archivePath "$ARCHIVE_PATH" \
   CODE_SIGN_STYLE=Automatic \
-  | tail -40
-# NB: pipe a tail = tanto output; l'exit status di xcodebuild va letto via PIPESTATUS.
-XC_STATUS=${PIPESTATUS[0]}
-[ "$XC_STATUS" -eq 0 ] || err "xcodebuild archive fallito (exit $XC_STATUS). Se è un problema di firma/profili, vedi Troubleshooting nella guida."
+  -allowProvisioningUpdates \
+  > "$XC_LOG" 2>&1
+XC_STATUS=$?
+set -e
+
+if [ "$XC_STATUS" -ne 0 ]; then
+  printf '\033[31m--- errori riportati da xcodebuild ---\033[0m\n'
+  # Le righe "error:" sono la diagnosi vera; se non ce ne fossero si mostra
+  # comunque la coda del log per non restare senza informazioni.
+  if grep -qE "error:" "$XC_LOG"; then
+    grep -E "error:" "$XC_LOG" | sort -u | sed 's/^/  /'
+  else
+    tail -40 "$XC_LOG" | sed 's/^/  /'
+  fi
+  printf '\033[31m--------------------------------------\033[0m\n'
+  info "Log completo: $XC_LOG"
+  # Firma/profili: e' il modo tipico in cui fallisce, e la causa e' quasi sempre
+  # il DEVELOPMENT_TEAM di CMakeLists.txt che non e' quello dei profili installati.
+  if grep -q "No Account for Team\|No profiles for" "$XC_LOG"; then
+    info "Sembra un problema di FIRMA. Team richiesto dal progetto:"
+    grep -h "DEVELOPMENT_TEAM" "$XCODEPROJ/project.pbxproj" | sort -u | sed 's/^/    /'
+    info "Team dei profili installati:"
+    for f in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"/*.mobileprovision; do
+      [ -e "$f" ] || continue
+      security cms -D -i "$f" 2>/dev/null > "$XC_LOG.pp" || continue
+      printf '    %s  (%s)\n' \
+        "$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$XC_LOG.pp" 2>/dev/null)" \
+        "$(/usr/libexec/PlistBuddy -c 'Print :Name' "$XC_LOG.pp" 2>/dev/null)"
+    done | sort -u
+    rm -f "$XC_LOG.pp"
+    info "Se non coincidono, allinea DEVELOPMENT_TEAM in CMakeLists.txt (due punti: ramo iOS e ramo macOS)."
+  fi
+  err "xcodebuild archive fallito (exit $XC_STATUS)."
+fi
+rm -f "$XC_LOG"
 [ -d "$ARCHIVE_PATH" ] || err "Archivio non prodotto: $ARCHIVE_PATH"
 ok "Archivio creato: $ARCHIVE_PATH"
 

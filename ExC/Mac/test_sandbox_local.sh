@@ -59,6 +59,15 @@ find_container() {
   local p
   p="$(ls -td "$HOME/Library/Containers"/*/Data/Library/Preferences/"$BUNDLE_ID".plist 2>/dev/null | head -1)"
   [ -n "$p" ] && echo "${p%%/Data/Library/Preferences/*}"
+  # `return 0` OBBLIGATORIO: senza, quando il container NON esiste il test
+  # precedente e' l'ultimo comando della funzione e ne diventa lo stato di
+  # uscita (1). Con `set -e` questo abortiva l'INTERO script dentro la
+  # sostituzione di comando `CONTAINER="$(find_container)"`, e lo faceva in
+  # SILENZIO: exit 1, nessun messaggio, nemmeno una riga di log. Si presenta
+  # solo a container assente -- cioe' dopo un --reset o su una macchina
+  # pulita: esattamente il caso della PRIMA installazione che questo script
+  # serve a provare.
+  return 0
 }
 CONTAINER="$(find_container)"
 CONTAINER="${CONTAINER:-$HOME/Library/Containers/$BUNDLE_ID}"
@@ -192,7 +201,30 @@ fi
 # risolvibili) si manifesta come SIGABRT immediato e sembra un crash dell'APP:
 # meglio scoprirlo qui, con il messaggio del linker in chiaro, che davanti a un
 # report di crash da interpretare.
-DYLD_ERR="$(DYLD_PRINT_LIBRARIES=0 "$APP/Contents/MacOS/SurfaceExplorer" --version 2>&1 >/dev/null | grep -i "Library not loaded" | head -1 || true)"
+#
+# ATTENZIONE — questo controllo NON deve far partire l'applicazione. L'app non
+# interpreta alcun argomento (main.cpp non guarda argv): passarle `--version`
+# non la faceva uscire, la AVVIAVA, e restava viva in `app.exec()`. Con lo
+# stdout rediretto la sua finestra passava inosservata dietro a quella lanciata
+# subito dopo da `open`, cosi' chiudendo l'app "se ne riapriva una seconda":
+# in realta' era la PRIMA, mai chiusa. (Il sospetto era caduto su `open -n`,
+# vedi il commento al passo 5: quello e' un problema diverso e reale, ma il
+# doppione nasceva QUI.)
+#
+# Si sfrutta invece il fatto che dyld risolve le librerie PRIMA di entrare in
+# main(): se manca un framework il processo muore subito, senza mai creare una
+# QApplication. DYLD_PRINT_LIBRARIES=1 stampa cio' che carica e rende esplicito
+# l'errore; il processo viene comunque terminato appena dyld ha finito, cosi'
+# nessuna finestra puo' comparire nemmeno se l'avvio andasse a buon fine.
+DYLD_LOG="$(mktemp)"
+DYLD_PRINT_LIBRARIES=1 "$APP/Contents/MacOS/SurfaceExplorer" >/dev/null 2>"$DYLD_LOG" &
+DYLD_PID=$!
+# Il tempo di risolvere le librerie: se sopravvive, il link e' a posto.
+sleep 2
+kill -9 "$DYLD_PID" 2>/dev/null || true
+wait "$DYLD_PID" 2>/dev/null || true
+DYLD_ERR="$(grep -i "Library not loaded\|different Team IDs\|code signature" "$DYLD_LOG" | head -1 || true)"
+rm -f "$DYLD_LOG"
 if [ -n "$DYLD_ERR" ]; then
   err "Il bundle non si avvia: $DYLD_ERR
   Cancella $BUILD_DIR e rilancia lo script per rifare il confezionamento da zero."
