@@ -173,7 +173,16 @@ if (IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
         EXCLUDE Qt6::QFFmpegMediaPlugin
     )
     # 1. FORZATURA GLOBALE DELLA FIRMA (Ferma il bulldozer di CMake)
-    set(CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "AJ655XKJR8")
+    # TEAM: deve essere quello dei PROFILI DI PROVISIONING installati, non
+    # quello del certificato "Apple Development". Sono due team diversi:
+    #   BAPKX72394 = Apple Distribution GAETANO MOSCHETTI -> e' il team dei
+    #                profili (compreso "iOS Team Store Provisioning Profile"),
+    #                l'unico con cui si puo' archiviare per TestFlight;
+    #   AJ655XKJR8 = Apple Development adenio@libero.it -> team SENZA alcun
+    #                profilo per questo bundle id.
+    # Con AJ655XKJR8 l'archive fallisce con "No Account for Team" +
+    # "No profiles for 'com.dioscorid.surfaceexplorer' were found".
+    set(CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "BAPKX72394")
     set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic")
     set(CMAKE_XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.dioscorid.surfaceexplorer")
     # 2. Architettura e Versione
@@ -188,9 +197,9 @@ if (IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
         XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist"
         VERSION "${PROJECT_VERSION}"
-        MACOSX_BUNDLE_BUNDLE_VERSION "30"
+        MACOSX_BUNDLE_BUNDLE_VERSION "31"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
-        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "30"
+        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "31"
         XCODE_ATTRIBUTE_MARKETING_VERSION "${PROJECT_VERSION}"
     )
 
@@ -252,16 +261,18 @@ elseif (APPLE)
     # Gli stessi valori esistono nel ramo iOS qui sopra, ma erano CHIUSI dentro
     # if(IOS): senza duplicarli qui, l'archive macOS non troverebbe team ne'
     # bundle version e fallirebbe la firma automatica.
-    set(CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "AJ655XKJR8")
+    # Stesso team del ramo iOS: quello dei profili installati (vedi il commento
+    # esteso li' sopra). Se cambia, va cambiato in ENTRAMBI i punti.
+    set(CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "BAPKX72394")
     set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic")
     set(CMAKE_XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.dioscorid.surfaceexplorer")
 
     set_target_properties(SurfaceExplorer PROPERTIES
         # Build number e versione marketing: stessi campi che il bump di
         # release_testflight_mac.sh tiene allineati con Info.plist.
-        MACOSX_BUNDLE_BUNDLE_VERSION "30"
+        MACOSX_BUNDLE_BUNDLE_VERSION "31"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
-        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "30"
+        XCODE_ATTRIBUTE_CURRENT_PROJECT_VERSION "31"
         XCODE_ATTRIBUTE_MARKETING_VERSION "${PROJECT_VERSION}"
 
         # Sandbox: obbligatoria sull'App Store. Xcode firma con questi
