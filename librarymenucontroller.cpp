@@ -326,6 +326,27 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
             m_mainWindow->refreshRepositories();
         });
     });
+
+    // SPOSTARE LA LIBRERIA: unico punto da cui questo comando e' raggiungibile.
+    //
+    // onAddRepositoryClicked esisteva ed era connessa a actionSelectFolder, ma
+    // quell'azione non e' mai stata aggiunta a un menu (l'unico e' menuHelp:
+    // Documentation/Quit/About), quindi era CODICE MORTO: non c'era modo di
+    // cambiare la cartella della libreria.
+    // "Restore Factory Presets" non copre il caso -- chiede la cartella solo se
+    // la radice manca o e' irraggiungibile; con una libreria valida reinstalla i
+    // preset dove sono e non sposta niente.
+    // Va qui e non in un tasto: e' un'operazione rara, e il menu contestuale della
+    // libreria e' dove si guarda quando si ha a che fare con le cartelle.
+    contextMenu->addAction("Change Library Folder...", m_mainWindow, [this, senderTree, executeAction](){
+        executeAction([this, senderTree](){
+            LibraryType t = LibraryType::Surface;
+            if (senderTree == m_mainWindow->ui->treeTextures)     t = LibraryType::Texture;
+            else if (senderTree == m_mainWindow->ui->treeMotions) t = LibraryType::Motion;
+            else if (senderTree == m_mainWindow->ui->treeSounds)  t = LibraryType::Sound;
+            m_mainWindow->onAddRepositoryClicked(t);
+        });
+    });
 #endif
 
     bool wasTimeAnimating = false;
