@@ -1386,11 +1386,11 @@ MainWindow::MainWindow(QWidget *parent)
     // tasto aggiunto piu' avanti finirebbe fuori dal nastro. btnEq segna dove
     // iniziano i tasti dock: li' va lo stacco che prima nasceva dalla differenza
     // fra addWidget e addPermanentWidget.
-    // m_renderProgress e m_statusLabel restano FUORI dal nastro: sono indicatori
-    // transitori della registrazione, non comandi da scorrere. Dentro, i 150px
-    // fissi della progress bar e il testo "Generating MP4..." del label
-    // allargavano il nastro proprio mentre si registra, spingendo i tasti fuori
-    // dal viewport e tagliandone le scritte. No-op su desktop.
+    // m_renderProgress e m_statusLabel sono passati come INDICATORI: entrano nel
+    // nastro subito dopo REC, il tasto a cui appartengono. Tenuti fuori dal
+    // nastro finivano in coda alla barra - visivamente all'estrema destra, dopo
+    // Library - perche' il nastro ha stretch 1 e si prende tutto lo spazio
+    // residuo. No-op su desktop.
     StatusBarScroller::install(ui->statusbar, btnEq,
                                { m_renderProgress, m_statusLabel });
 

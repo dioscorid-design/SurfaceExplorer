@@ -38,22 +38,27 @@ public:
     // veniva dal fatto che gli uni erano addWidget e gli altri
     // addPermanentWidget; dentro un QHBoxLayout quella distinzione non esiste
     // piu' e i tasti si accalcano tutti a sinistra sugli schermi larghi (iPad),
-    // dove nulla eccede e quindi non c'e' scorrimento. Qui il layout riceve uno
-    // stretch in quel punto, che riproduce lo stacco di prima. children() da
-    // solo non basta a ricavarlo: non dice quali widget fossero permanent.
-    // Passare nullptr = nessuno stacco, fila unica compatta.
+    // dove nulla eccede e quindi non c'e' scorrimento. Qui il layout riceve in
+    // quel punto uno spazio fisso PIU' uno stretch: il fisso tiene i due gruppi
+    // distinti anche sul telefono (dove lo stretch, senza spazio da distribuire,
+    // vale zero), lo stretch riapre lo stacco pieno sugli schermi larghi.
+    // children() da solo non basta a ricavare il punto: non dice quali widget
+    // fossero permanent. Passare nullptr = nessuno stacco, fila unica compatta.
     //
-    // `keepOutside` = widget che NON entrano nel nastro e restano figli diretti
-    // della barra. Serve per la barra di avanzamento del rendering: e' un
-    // indicatore transitorio, non un comando da scorrere, e dentro al nastro i
-    // suoi 150px fissi comparivano all'avvio della registrazione allargando il
-    // nastro e spingendo i tasti fuori dal viewport - le scritte risultavano
-    // tagliate. Fuori dal nastro si prende il suo spazio dalla barra, che e'
-    // quello che faceva prima.
+    // `indicators` = widget che chiudono il gruppo dei comandi di scena: entrano
+    // nel nastro DOPO l'ultimo comando (REC) e PRIMA di firstPermanent,
+    // qualunque sia il loro posto nell'ordine di costruzione. Serve per la barra
+    // di avanzamento del rendering, che appartiene a REC e deve comparire
+    // accanto a lui. Tenuta fuori dal nastro finiva in coda alla barra, cioe'
+    // all'estrema destra dopo Library: il nastro ha stretch 1 e si mangia lo
+    // spazio residuo, quindi "subito dopo il nastro" e' visivamente in fondo,
+    // non dopo REC. Dentro il nastro invece la posizione e' quella giusta, e
+    // l'allargamento che causa (150px) non e' piu' un problema: il nastro deve
+    // eccedere il viewport, e' proprio quello che lo rende scorrevole.
     // No-op su desktop: li' i tasti ci stanno e la barra resta quella nativa.
     static void install(QStatusBar* bar,
                         QWidget* firstPermanent = nullptr,
-                        const QList<QWidget*>& keepOutside = {});
+                        const QList<QWidget*>& indicators = {});
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;

@@ -3,6 +3,8 @@
 #include <QApplication>
 #include <QEvent>
 #include <QHBoxLayout>
+#include <QLayout>
+#include <QMetaObject>
 #include <QMouseEvent>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -12,6 +14,12 @@
 #include <QSizeGrip>
 #include <QWidget>
 
+namespace {
+// Stacco fisso fra comandi di scena e tasti dock. Tenuto stretto: su un telefono
+// ogni pixel del nastro e' spazio di lettura, e basta poco perche' la fila si
+// legga come due gruppi invece che uno.
+constexpr int kGroupGap = 20;
+}
 
 StatusBarScroller::StatusBarScroller(QObject* parent)
     : QObject(parent)
@@ -19,7 +27,7 @@ StatusBarScroller::StatusBarScroller(QObject* parent)
 }
 
 void StatusBarScroller::install(QStatusBar* bar, QWidget* firstPermanent,
-                                const QList<QWidget*>& keepOutside)
+                                const QList<QWidget*>& indicators)
 {
 #if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
     if (!bar) return;
@@ -48,9 +56,17 @@ void StatusBarScroller::install(QStatusBar* bar, QWidget* firstPermanent,
     for (QObject* child : children) {
         QWidget* w = qobject_cast<QWidget*>(child);
         if (!w || qobject_cast<QSizeGrip*>(w)) continue;
-        if (keepOutside.contains(w)) continue;   // resta figlio della barra
+        if (indicators.contains(w)) continue;   // riaggiunti sotto, in coda ai normali
         if (w == firstPermanent) afterMarker = true;
         (afterMarker ? permanents : normals).append(w);
+    }
+    // Gli indicatori chiudono il gruppo dei comandi di scena: entrano DOPO REC e
+    // PRIMA di Equations. Nell'ordine di children() la barra di avanzamento
+    // compare prima dei tasti dock ma il label puo' trovarsi altrove, e in ogni
+    // caso il punto giusto e' quello logico (fine dei comandi scena), non quello
+    // di costruzione: quindi si estraggono sopra e si riaccodano qui.
+    for (QWidget* w : indicators) {
+        if (w && w->parentWidget() == bar) normals.append(w);
     }
     QList<QWidget*> items = normals;
     items.append(permanents);
@@ -69,9 +85,17 @@ void StatusBarScroller::install(QStatusBar* bar, QWidget* firstPermanent,
     for (QWidget* w : items) {
         const bool wasVisible = !w->isHidden();
         bar->removeWidget(w);
-        // Lo stacco fra comandi scena e tasti dock: uno stretch al posto della
-        // separazione che prima davano addWidget vs addPermanentWidget.
-        if (w == firstPermanent) stripLayout->addStretch(1);
+        // Lo stacco fra comandi scena e tasti dock, in due pezzi:
+        // - uno spazio FISSO, che sopravvive anche sul telefono. Lo stretch da
+        //   solo non basta: quando i tasti eccedono il viewport non c'e' spazio
+        //   da distribuire, lo stretch vale zero e REC finisce appiccicato a
+        //   Equations - i due gruppi si leggevano come una fila sola.
+        // - lo stretch, che sugli schermi larghi (iPad, desktop) riapre lo stacco
+        //   pieno di prima, ancorando i tasti dock a destra.
+        if (w == firstPermanent) {
+            stripLayout->addSpacing(kGroupGap);
+            stripLayout->addStretch(1);
+        }
         stripLayout->addWidget(w);
         w->setVisible(wasVisible);
     }
@@ -93,15 +117,9 @@ void StatusBarScroller::install(QStatusBar* bar, QWidget* firstPermanent,
     area->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     area->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     area->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    // Larghezza minima, altrimenti durante la registrazione il nastro viene
-    // schiacciato: la barra di avanzamento (150px fissi) e l'avviso "Generating
-    // MP4..." hanno dimensione fissa, il nastro e' Expanding e cede tutto lui.
-    // Misurato senza minimo, su una barra da 420px: il nastro scendeva a 88px,
-    // una finestrella da due tasti. Il minimo e' tenuto basso di proposito: piu'
-    // in alto (240 provato) su un telefono la somma nastro + 150px di progress
-    // bar + avviso eccede la barra e i widget si SOVRAPPONGONO. Cosi' invece
-    // durante la registrazione il nastro si accorcia ma resta scorrevole - tutti
-    // i tasti restano raggiungibili - e gli indicatori hanno il loro posto.
+    // Il nastro e' l'unico widget della barra: si prende tutta la larghezza e
+    // non ha piu' nulla con cui contenderla (la barra di avanzamento sta DENTRO
+    // di lui). Il minimo resta come rete di sicurezza per barre strettissime.
     area->setMinimumWidth(120);
     // Il viewport deve essere alto quanto il nastro, altrimenti la status bar
     // taglia i tasti invece di scorrerli.
@@ -111,23 +129,13 @@ void StatusBarScroller::install(QStatusBar* bar, QWidget* firstPermanent,
 
     bar->addWidget(area, 1);
 
-    // I widget esclusi vanno RIAGGIUNTI dopo il nastro: erano gia' nella barra,
-    // ma il nastro e' stato accodato dopo di loro e senza questo giro la barra
-    // di avanzamento comparirebbe a sinistra dei tasti.
+    // Il nastro cambia larghezza naturale quando la barra di avanzamento si
+    // mostra o si nasconde (150px che entrano ed escono dal layout). Senza
+    // risincronizzare, sugli schermi larghi il nastro resterebbe alla vecchia
+    // larghezza: a fine registrazione i tasti dock non tornerebbero ancorati a
+    // destra. Il Resize del viewport non scatta - la barra non cambia
+    // dimensione - quindi serve seguire gli indicatori stessi.
     //
-    // addWidget, NON addPermanentWidget: il nastro ha stretch 1 e si prende lo
-    // spazio residuo, quindi un widget accodato dopo di lui nello stesso gruppo
-    // si posiziona SUBITO DOPO IL NASTRO - cioe' dopo REC, dove la barra di
-    // avanzamento e l'avviso stavano prima del nastro. Come permanent invece
-    // finivano all'estrema destra, dopo Library.
-    for (QWidget* w : keepOutside) {
-        if (!w || w->parentWidget() != bar) continue;
-        const bool wasVisible = !w->isHidden();
-        bar->removeWidget(w);
-        bar->addWidget(w);
-        w->setVisible(wasVisible);
-    }
-
     // LARGHEZZA DEL NASTRO, i due regimi:
     // - i tasti NON ci stanno (telefono): il nastro tiene la sua larghezza
     //   naturale, eccede il viewport ed e' quell'eccedenza a permettere lo
@@ -143,6 +151,9 @@ void StatusBarScroller::install(QStatusBar* bar, QWidget* firstPermanent,
     sizer->m_strip = strip;
     sizer->m_area  = area;
     area->viewport()->installEventFilter(sizer);
+    for (QWidget* w : indicators) {
+        if (w) w->installEventFilter(sizer);
+    }
     sizer->syncStripWidth();
 
     StatusBarScroller* filter = new StatusBarScroller(area);
@@ -174,6 +185,10 @@ void StatusBarScroller::install(QStatusBar* bar, QWidget* firstPermanent,
 void StatusBarScroller::syncStripWidth()
 {
     if (!m_strip || !m_area) return;
+    // Il layout va riattivato a mano: il nastro ha larghezza imposta da qui, non
+    // dal padre, quindi Qt non lo ricalcola da solo e sizeHint() resterebbe
+    // quello di prima che la barra di avanzamento comparisse.
+    if (QLayout* l = m_strip->layout()) l->activate();
     const int natural  = m_strip->sizeHint().width();
     const int viewport = m_area->viewport()->width();
     m_strip->resize(qMax(natural, viewport), m_strip->height());
@@ -183,9 +198,25 @@ bool StatusBarScroller::eventFilter(QObject* watched, QEvent* event)
 {
     Q_UNUSED(watched);
 
-    // Istanza sizer: si occupa solo di riadattare il nastro al viewport.
+    // Istanza sizer: si occupa solo di riadattare il nastro al viewport. Ascolta
+    // il Resize del viewport (rotazione schermo, split view) e lo Show/Hide degli
+    // indicatori, che entrando e uscendo cambiano la larghezza naturale del
+    // nastro senza toccare quella della barra.
     if (m_strip) {
-        if (event->type() == QEvent::Resize) syncStripWidth();
+        switch (event->type()) {
+        case QEvent::Resize:
+        case QEvent::Show:
+        case QEvent::Hide:
+            // Lo Show arriva PRIMA che il layout del nastro abbia ricalcolato lo
+            // sizeHint, quindi una sync immediata leggerebbe la larghezza vecchia
+            // e la barra di avanzamento resterebbe schiacciata a zero. Rimandata
+            // al giro d'eventi successivo, quando il layout e' aggiornato.
+            QMetaObject::invokeMethod(this, [this]{ syncStripWidth(); },
+                                      Qt::QueuedConnection);
+            break;
+        default:
+            break;
+        }
         return false;
     }
 
