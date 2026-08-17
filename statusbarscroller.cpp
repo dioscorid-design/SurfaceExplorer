@@ -1,7 +1,6 @@
 #include "statusbarscroller.h"
 
 #include <QApplication>
-#include <QCoreApplication>
 #include <QEvent>
 #include <QHBoxLayout>
 #include <QMouseEvent>
@@ -13,7 +12,6 @@
 #include <QSizeGrip>
 #include <QWidget>
 
-#include <algorithm>
 
 StatusBarScroller::StatusBarScroller(QObject* parent)
     : QObject(parent)
@@ -33,31 +31,30 @@ void StatusBarScroller::install(QStatusBar* bar, QWidget* firstPermanent,
     // da children() (= costruzione) la zona scorrevole finiva in mezzo ai tasti
     // dock invece che dopo REC.
     //
-    // L'ordine NON si puo' leggere da bar->layout(): QStatusBar avvolge ogni
-    // widget in un item privato che non e' un QWidgetItem, quindi itemAt(i)
-    // ->widget() torna SEMPRE nullptr e la raccolta resta vuota (sintomo: il
-    // nastro non viene creato affatto e la barra non scorre piu'). Verificato
-    // con una sonda: layout()->count() vede gli item ma nessun widget.
-    // Si parte quindi da children() e si ordina per posizione x reale, che
-    // riflette gia' la divisione fra widget normali e permanent.
-    QList<QWidget*> items;
+    // L'ordine NON si puo' leggere da bar->layout(): il layout privato di
+    // QStatusBar non espone i suoi widget come QLayoutItem con widget(), quindi
+    // la raccolta resta VUOTA, items.isEmpty() scatta e install() esce senza
+    // fare nulla - la barra torna quella nativa e non scorre affatto. Misurato
+    // con una sonda: zero widget utili raccolti (era il bug "non scorre piu'").
+    // Si parte quindi da children() e si spezza su firstPermanent, che segna
+    // dove iniziano i tasti dock: prima i comandi di scena, poi i dock. NON si
+    // ordina per posizione x: install() gira nel costruttore, a finestra non
+    // ancora mostrata, dove le x valgono zero e l'ordinamento lascerebbe intatto
+    // proprio l'ordine di costruzione che si vuole correggere. Il marcatore
+    // invece e' deterministico e non dipende dal layout.
+    QList<QWidget*> normals, permanents;
+    bool afterMarker = false;
     const QList<QObject*> children = bar->children();
     for (QObject* child : children) {
         QWidget* w = qobject_cast<QWidget*>(child);
         if (!w || qobject_cast<QSizeGrip*>(w)) continue;
         if (keepOutside.contains(w)) continue;   // resta figlio della barra
-        items.append(w);
+        if (w == firstPermanent) afterMarker = true;
+        (afterMarker ? permanents : normals).append(w);
     }
+    QList<QWidget*> items = normals;
+    items.append(permanents);
     if (items.isEmpty()) return;
-
-    // La barra deve aver gia' disposto i figli perche' le x siano significative.
-    bar->ensurePolished();
-    QCoreApplication::sendPostedEvents(bar, QEvent::LayoutRequest);
-    if (QLayout* bl = bar->layout()) bl->activate();
-    std::stable_sort(items.begin(), items.end(),
-                     [](const QWidget* a, const QWidget* b) {
-                         return a->x() < b->x();
-                     });
 
     QWidget* strip = new QWidget(bar);
     QHBoxLayout* stripLayout = new QHBoxLayout(strip);
