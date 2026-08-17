@@ -125,6 +125,8 @@ qt_add_executable(SurfaceExplorer
     librarydragdrophandler.cpp
     audiocontroller.h
     audiocontroller.cpp
+    statusbarscroller.h
+    statusbarscroller.cpp
     icon.icns
     $<$<PLATFORM_ID:Windows>:${CMAKE_CURRENT_SOURCE_DIR}/app.rc>
     $<$<PLATFORM_ID:iOS>:${CMAKE_CURRENT_SOURCE_DIR}/Assets.xcassets>

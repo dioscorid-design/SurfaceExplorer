@@ -5,6 +5,7 @@
 #include "uistylemanager.h"
 #include "glsltranslator.h"
 #include "videorecorder.h"
+#include "statusbarscroller.h"
 #include "librarymenucontroller.h"
 #include "presetserializer.h"
 #include "libraryfileoperations.h"
@@ -1208,23 +1209,19 @@ MainWindow::MainWindow(QWidget *parent)
     m_btnStart->setFont(fontBold);
     connect(m_btnStart, &QPushButton::clicked, this, &MainWindow::onStartClicked);
 
-    // NEW vive nel dock EQUATIONS, non nella status bar: undici tasti in fila
-    // non ci stavano sui telefoni e l'ultimo (Library) finiva fuori schermo.
-    // Sta su una riga propria SOPRA il QTabWidget, quindi e' comune a
-    // Parametric e Implicit - come la scena vuota che produce, che non
-    // appartiene a nessuna delle due modalita'.
-    // Sotto il tab widget NON va: l'ultimo elemento della pagina Parametric
-    // sono i limiti U/V/W e il primo elemento dopo il tab sono le costanti
-    // A..F, quindi il tasto finiva incastrato fra i due gruppi invece che
-    // accanto alle linguette.
-    // Definito nel .ui come btnNewScene (posizione, testo, tooltip, flat e
-    // sizePolicy Expanding, che gli da' la larghezza piena del dock).
-    // NB: e' FRATELLO del QTabWidget dentro verticalLayout_9, non figlio di
-    // una sua pagina: dentro le pagine servirebbe un tasto per tab. Per la
-    // stessa ragione non si usa setCornerWidget (angolo destro della barra
-    // linguette): per liberare l'angolo servivano linguette piu' strette, e
-    // restava un vuoto antiestetico fra "Implicit" e il tasto.
-    m_btnNew = ui->btnNewScene;
+    // NEW sta nella status bar, fra START e RESET: e' la sua posizione naturale,
+    // accanto agli altri comandi che agiscono sulla scena intera, e non
+    // appartiene a nessuna delle due modalita' - come la scena vuota che
+    // produce. Ci era gia' stato in passato, ma con undici tasti in fila gli
+    // ultimi (Library per ultimo) finivano FUORI SCHERMO sui telefoni, e da li'
+    // era passato prima in fondo al dock Equations, poi sopra le linguette.
+    // Ora la barra scorre col dito su mobile (StatusBarScroller, in fondo a
+    // questa sezione), quindi il vincolo che lo aveva esiliato non c'e' piu'.
+    m_btnNew = new QPushButton("NEW", this);
+    m_btnNew->setFlat(true);
+    m_btnNew->setFont(fontBold);
+    m_btnNew->setToolTip("Empty scene: clears every field and the view.\n"
+                         "Unlike re-clicking the active tab, it loads no default surface.");
     connect(m_btnNew, &QPushButton::clicked, this, &MainWindow::onNewSceneClicked);
 
     m_btnResetView = new QPushButton("RESET", this);
@@ -1253,6 +1250,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_renderProgress->setFixedWidth(150);
 
     ui->statusbar->addWidget(m_btnStart);
+    ui->statusbar->addWidget(m_btnNew);
     ui->statusbar->addWidget(m_btnResetView);
     ui->statusbar->addWidget(m_btnProjection);
     ui->statusbar->addWidget(m_btnRec);
@@ -1382,6 +1380,19 @@ MainWindow::MainWindow(QWidget *parent)
         safeOpenDock(ui->dockSurfaces);
     });
     ui->statusbar->addPermanentWidget(btnEx);
+
+    // MOBILE: da qui in poi la barra scorre col dito. Va chiamata DOPO l'ultimo
+    // addPermanentWidget - riparenta i widget gia' presenti, quindi qualsiasi
+    // tasto aggiunto piu' avanti finirebbe fuori dal nastro. btnEq segna dove
+    // iniziano i tasti dock: li' va lo stacco che prima nasceva dalla differenza
+    // fra addWidget e addPermanentWidget.
+    // m_renderProgress e m_statusLabel restano FUORI dal nastro: sono indicatori
+    // transitori della registrazione, non comandi da scorrere. Dentro, i 150px
+    // fissi della progress bar e il testo "Generating MP4..." del label
+    // allargavano il nastro proprio mentre si registra, spingendo i tasti fuori
+    // dal viewport e tagliandone le scritte. No-op su desktop.
+    StatusBarScroller::install(ui->statusbar, btnEq,
+                               { m_renderProgress, m_statusLabel });
 
     // =========================================================================
     // 6. EQUATIONS, CONSTANTS & PARAMETERS
