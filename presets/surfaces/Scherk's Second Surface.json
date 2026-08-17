@@ -1,0 +1,83 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.21483585238456726,
+        "rot_x": 0.6032834053039551,
+        "rot_y": 0.7634637951850891,
+        "rot_z": 0.0837722197175026,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 3.0799994468688965
+    },
+    "cameraFov": 69,
+    "colors": {
+        "alpha": 1,
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 1,
+        "B": 0.11999999731779099,
+        "C": 0.3499999940395355,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "fov3D": 69,
+    "fov4D": 69,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "hintSeconds": 8,
+    "hintText": "B: tube radius (max 0.15, above it the strands overlap)  |  C: minor radius of the supporting torus",
+    "isImplicitMode": false,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 0,
+        "uMin": 0,
+        "vMax": 0,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "meshScopeAll": true,
+    "name": "Scherk's Second Surface",
+    "projectionMode": 1,
+    "renderMode": 0,
+    "scriptCode": "// --- DOMINIO ---\n// Dichiarato qui, non solo nel JSON: senza queste direttive i campi dei limiti\n// arrivavano a 0/0 e updateULimits() scartava il range impossibile lasciando nel\n// motore quello del preset caricato PRIMA -- se stretto, il nodo appariva tagliato.\nu_min := 0;\nu_max := 6.28318;   // 2*PI: un giro completo del parametro, il nodo si richiude\nv_min := 0;\nv_max := 6.28318;   // sezione circolare del tubo\n\n// NODO TORICO (p,q) = (3,4), ispessito in un tubo.\n// La curva centrale sta sul toro di raggi R = 1 e r = C: compie p giri attorno\n// all'asse e q giri attorno al tubo prima di richiudersi. p e q sono primi fra\n// loro, quindi e' UN solo anello chiuso, e con entrambi > 1 e' un vero nodo.\n//\n// B = raggio del tubo. La curva si avvicina a se stessa fino a 0.307, quindi\n// oltre B = 0.153 i rami si compenetrano.\n// C = raggio r del toro di supporto.\n//\n// FRAME DAL TORO, NON DI FRENET.\n// Il frame di Frenet ruota attorno alla curva in modo brusco dove la curvatura\n// e' minima: su questo nodo la normale saltava di 25 gradi a u = pi/4, 3pi/4,\n// 5pi/4, 7pi/4 (i minimi di curvatura, 0.0439), e il tubo mostrava li' quattro\n// STROZZATURE -- torsioni improvvise della sezione, non difetti geometrici.\n// Qui la normale si prende invece dalla SUPERFICIE DEL TORO su cui la curva\n// vive: e' definita ovunque, non dipende dalla derivata seconda e non ha nulla\n// da cui scattare. Salto massimo misurato: 0.9 gradi contro 24.74.\n\nfloat pw = 3.0;          // giri attorno all'asse\nfloat qw = 4.0;          // giri attorno al tubo\nfloat R  = 1.0;\nfloat rr = C;            // raggio del toro di supporto\n\nfloat ang = pw * u;      // posizione angolare attorno all'asse\nfloat rad = R + rr * cos(qw * u);\n\n// Punto sulla curva\nvec3 P0 = vec3(rad * cos(ang), rad * sin(ang), rr * sin(qw * u));\n\n// Tangente analitica (derivata esatta, niente differenze finite)\nvec3 T = vec3(\n    -rr * qw * sin(qw * u) * cos(ang) - rad * pw * sin(ang),\n    -rr * qw * sin(qw * u) * sin(ang) + rad * pw * cos(ang),\n     rr * qw * cos(qw * u));\nT = normalize(T);\n\n// Normale della superficie del toro nel punto: dal centro del tubo verso P0.\n// Il centro del tubo e' il punto del cerchio guida alla stessa posizione\n// angolare, a distanza R dall'asse.\nvec3 axis   = vec3(cos(ang), sin(ang), 0.0);\nvec3 center = R * axis;\nvec3 Nn     = normalize(P0 - center);\n\n// Ortogonalizza rispetto alla tangente (Gram-Schmidt) e completa il frame\nNn = normalize(Nn - dot(Nn, T) * T);\nvec3 Bn = cross(T, Nn);\n\n// Sezione circolare di raggio B nel piano normale\nreturn vec4(P0 + B * (cos(v) * Nn + sin(v) * Bn), 0.0);\n",
+    "steps": 555,
+    "type": "surface",
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
+}
