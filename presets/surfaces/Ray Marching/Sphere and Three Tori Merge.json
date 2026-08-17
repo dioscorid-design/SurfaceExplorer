@@ -1,0 +1,72 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.6361656785011292,
+        "rot_x": 0.4044340252876282,
+        "rot_y": 0.22544045746326447,
+        "rot_z": 0.6171734929084778,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 5.500006675720215
+    },
+    "colors": {
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 1.0,
+        "B": 0.45,
+        "C": 0.15,
+        "D": 2.0,
+        "E": 1.0,
+        "F": 1.0,
+        "S": 0.1
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.0",
+        "x": "(0.8 + 0.3*cos(v))*cos(u)",
+        "y": "(0.8 + 0.3*cos(v))*sin(u)",
+        "z": "0.3*sin(v)"
+    },
+    "implicitEquation": "min( sqrt(x*x + y*y + z*z) - A, min( sqrt((sqrt((x-D)*(x-D) + y*y) - B)*(sqrt((x-D)*(x-D) + y*y) - B) + z*z) - C, min( sqrt((sqrt((y-D)*(y-D) + z*z) - B)*(sqrt((y-D)*(y-D) + z*z) - B) + x*x) - C, sqrt((sqrt((z-D)*(z-D) + x*x) - B)*(sqrt((z-D)*(z-D) + x*x) - B) + y*y) - C ) ) ) = 0",
+    "isImplicitMode": true,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0.10000000149011612,
+        "wMin": 0,
+        "xMax": 3.0,
+        "xMin": -3.0,
+        "yMax": 3.0,
+        "yMin": -3.0,
+        "zMax": 3.0,
+        "zMin": -3.0
+    },
+    "name": "Sphere and Three Tori Merge",
+    "projectionMode": 1,
+    "renderMode": 10,
+    "showBorder": false,
+    "steps": 400,
+    "type": "surface",
+    "use4DLighting": false,
+    "hintText": "Slider D: move the three tori (X, Y, Z axes).\nD > 1.60  separate    D = 1.60  they touch    D < 1.60  merged",
+    "hintSeconds": 9
+}

@@ -1,0 +1,92 @@
+{
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.5834814310073853,
+        "rot_x": 0.06072807312011719,
+        "rot_y": 0.809805691242218,
+        "rot_z": -0.008735835552215576,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 3.3400001525878906
+    },
+    "cameraFov": 69,
+    "colors": {
+        "alpha": 1,
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 3,
+        "B": 5,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "fov3D": 69,
+    "fov4D": 69,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 0,
+        "uMin": 0,
+        "vMax": 0,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "name": "Brieskorn-Pham",
+    "projectionMode": 1,
+    "renderMode": 0,
+    "scriptCode": "//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n\n// Superficie di Brieskorn-Pham:  z1^a + z2^b = 1,  con z1,z2 complessi.\n// Generalizza la sezione di Calabi-Yau: li' i due esponenti erano UGUALI (la\n// quintica di Fermat, a = b = n), qui sono INDIPENDENTI e governati da due\n// slider distinti. Con a != b la figura perde la simmetria di scambio fra le\n// due coordinate complesse e cambia genere: e' una famiglia topologicamente\n// diversa, non una deformazione della stessa forma.\n//\n// Per ogni coppia di radici (k1 di ordine a, k2 di ordine b) c'e' una patch:\n//   z1 = e^(2 pi i k1/a) * (cos w)^(2/a)\n//   z2 = e^(2 pi i k2/b) * (sin w)^(2/b)     con w = u + i v\n//\n// SUPERFICIE 4D VERA: Im(z2) esce come componente w del vec4, quindi proiezione\n// e rotazioni 4D restano all'interfaccia (come nel preset \"Calabi-Yau\", non\n// nella variante \"3D\" che mescola la quarta coordinata dentro lo script).\n//\n// GRIGLIE STATICHE: si leggono al Run, quindi dichiariamo il massimo 49 = 7x7 e\n// scartiamo le eccedenti nel cutout. Gli indici restano in base 7 SEMPRE:\n// k1 = mesh % 7, k2 = mesh / 7. Sopravvivono le patch con k1 < a E k2 < b.\n\nA := int(2,7);          // esponente di z1: slider a scatti interi\nB := int(2,7);          // esponente di z2: slider a scatti interi\nMESH_VISIBLE := A*B;    // quante griglie sopravvivono al cutout\n\n// clamp: protegge la geometria se lo slider esce dal dominio dichiarato.\n// Va replicato IDENTICO nel blocco CUTOUT, o le patch vive non coincidono.\nfloat na = clamp(floor(A + 0.5), 2.0, 7.0);\nfloat nb = clamp(floor(B + 0.5), 2.0, 7.0);\n\nfloat k1 = mod(float(mesh), 7.0);\nfloat k2 = floor(float(mesh) / 7.0);\n\nfloat pa = 2.0 / na;\nfloat pb = 2.0 / nb;\n\n// w = u + i v;  cos(w) e sin(w) complessi\nvec2 cw = vec2( cos(u) * cosh(v), -sin(u) * sinh(v));\nvec2 sw = vec2( sin(u) * cosh(v),  cos(u) * sinh(v));\n\n// Potenza complessa in forma polare. Sul dominio dichiarato Re(cos w) e\n// Re(sin w) restano POSITIVE: l'argomento sta in (-pi/2, pi/2), lontano dal\n// salto di atan, quindi niente taglio di ramo ne' cuciture fra patch.\nfloat rc = safePow(length(cw), pa);\nfloat tc = pa * atan(cw.y, cw.x);\nfloat rs = safePow(length(sw), pb);\nfloat ts = pb * atan(sw.y, sw.x);\n\n// Radici dell'unita': e^(2 pi i k1/a) e e^(2 pi i k2/b) -- ordini DIVERSI.\nfloat t1 = 2.0 * pi * k1 / na;\nfloat t2 = 2.0 * pi * k2 / nb;\n\nvec2 z1 = rc * vec2(cos(tc + t1), sin(tc + t1));\nvec2 z2 = rs * vec2(cos(ts + t2), sin(ts + t2));\n\n// (Re z1, Re z2, Im z1) in R^3 + Im z2 come quarta coordinata.\n// Lo slider C scala la quarta dimensione: a C=0 la figura collassa in R^3\n// (utile per confrontarla con la vista 3D), a C=1 e' la superficie 4D piena.\nreturn vec4(z1.x, z2.x, z1.y, C * z2.y);\n\n//CUTOUT_BEGIN\n// Scarta le patch il cui indice sfora l'esponente scelto. I due limiti sono\n// DIVERSI (a per le righe, b per le colonne): e' qui che la griglia smette di\n// essere quadrata come nella quintica.\nfloat ca = clamp(floor(A + 0.5), 2.0, 7.0);\nfloat cb = clamp(floor(B + 0.5), 2.0, 7.0);\nreturn (mod(float(mesh), 7.0) > ca - 0.5) || (floor(float(mesh) / 7.0) > cb - 0.5);\n//CUTOUT_END\n",
+    "steps": 160,
+    "type": "surface",
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    },
+    "discreteConstants": {
+        "A": [
+            2,
+            7
+        ],
+        "B": [
+            2,
+            7
+        ]
+    },
+    "hintText": "Slider A: exponent of z1 (2-7). Slider B: exponent of z2. Slider C: 4th dimension scale",
+    "hintSeconds": 8
+}

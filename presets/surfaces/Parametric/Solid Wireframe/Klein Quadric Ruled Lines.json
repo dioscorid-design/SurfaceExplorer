@@ -1,0 +1,125 @@
+{
+    "angles": {
+        "omega": 9.999999747378752e-05,
+        "phi": 9.999999747378752e-05,
+        "psi": 9.999999747378752e-05
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.4612818956375122,
+        "rot_x": 0.4005368947982788,
+        "rot_y": 0.738064706325531,
+        "rot_z": -0.28644323348999023,
+        "x": 0,
+        "y": 0,
+        "yaw": 0,
+        "z": 8.620002746582031
+    },
+    "cameraFov": 45,
+    "colors": {
+        "alpha": 1,
+        "b": 0.20000000298023224,
+        "g": 0.7568627595901489,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 1.100000023841858,
+        "B": 2.490000009536743,
+        "C": 0.18000000715255737,
+        "D": 20,
+        "E": 2,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "fov3D": 45,
+    "fov4D": 45,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
+    "lightIntensity": 0.97,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 0,
+        "uMin": 0,
+        "vMax": 0,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "meshParts": [
+        {
+            "b": 0.20000000298023224,
+            "g": 0.7568627595901489,
+            "r": 0.20000000298023224
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        }
+    ],
+    "name": "Klein Quadric Ruled Lines",
+    "projectionMode": 1,
+    "renderMode": 1,
+    "scriptCode": "// --- RETTE DELLA QUADRICA DI KLEIN COME TUBI ---\n// La quadrica di Klein (l'ipersuperficie di Plucker in P^5 che parametrizza le\n// rette di P^3) intersecata con un P^3 generico da' una quadrica LISCIA in 3D:\n// verificato che la forma di Klein ha rango 6, e che 200 sezioni con P^3 casuale\n// danno 200/200 rango 4. Qui si rende quella sezione nella sua forma piu'\n// leggibile: l'iperboloide a una falda x^2 + y^2 - z^2 = A^2, che e' RIGATO —\n// contiene due schiere di rette, ed e' proprio quella doppia rigatura l'oggetto\n// che la quadrica di Klein parametrizza.\n//\n// LA RETTA. Schiera sheet = +1 o -1, angolo a, parametro L lungo la retta:\n//     P(a, L) = (A cos a - sheet L sin a,  A sin a + sheet L cos a,  L)\n// Sta sulla quadrica per costruzione: x^2 + y^2 - z^2 = A^2 + L^2 - L^2 = A^2,\n// per OGNI a, L, sheet (errore max misurato 3.6e-15).\n//\n// PROPRIETA' MOSTRATA. Le rette della STESSA schiera sono SGHEMBE: distanza\n// minima misurata 1.155 (N=4), 0.756 (N=6), 0.562 (N=8), 0.372 (N=12),\n// 0.279 (N=16), 0.223 (N=20) -> i tubi restano disgiunti finche' C sta sotto la\n// meta' di quel valore. Le due schiere OPPOSTE invece SI INCONTRANO (distanza\n// minima misurata 7e-4, cioe' zero a meno del campionamento): accendendo\n// entrambe con E si vede la maglia dei punti di incidenza, che e' il contenuto\n// geometrico della quadrica di Klein.\n//\n// IL FRAME DEL TUBO. La retta e' DIRITTA, quindi il frame non torce ed e' in\n// forma chiusa (nessuna ortogonalizzazione nello shader):\n//     d  = (-sheet sin a, sheet cos a, 1)/sqrt(2)     direzione\n//     n1 = (cos a, sin a, 0)                  gia' ORTOGONALE a d\n//     n2 = d x n1 = (-sin a, cos a, -sheet)/sqrt(2)\n// Verificato ortonormale a 1.9e-16, e |S - retta| = C a 3.1e-16.\n//\n// --- MULTI-MESH: un tubo per retta ---\n// Venti sezioni //MESH_BEGIN, una per retta: griglie separate, quindi nessun\n// quad puo' collegare due rette (la cucitura in una griglia unica creerebbe una\n// lamina di giunzione fra tubi diversi). `mesh` = 0..19 indicizza la retta.\n// u corre lungo la retta (pochi passi: e' diritta), v attorno al tubo.\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n//MESH_BEGIN\nu: -1, 1, 8\nv: 0, 6.28318531, 40\n//MESH_END\n\n// D = numero di rette per schiera, INTERA: lo slider scatta all'intero al\n// rilascio. La direttiva := si legge SOLO dallo scriptCode.\nD := int(1,20);\n\nfloat N = clamp(floor(D + 0.5), 1.0, 20.0);\n\n// Le sezioni mesh sono testo statico: sono sempre 20. Le copie oltre N si\n// collassano in un punto invece di essere disegnate.\nfloat live = step(mesh, N - 0.5);\n\n// SCHIERA: E < 0.5 -> solo sheet=+1. E >= 0.5 -> le due schiere alternate\n// (mesh pari sheet=+1, mesh dispari sheet=-1), che si INCONTRANO: e' la maglia della\n// doppia rigatura. Con due schiere le rette per schiera sono N/2.\nfloat both = step(0.5, E);\nfloat sheet = mix(1.0, 1.0 - 2.0 * mod(mesh, 2.0), both);\n\n// Indice della retta DENTRO la propria schiera, e quante ce ne sono.\nfloat idx = mix(mesh, floor(mesh * 0.5), both);\nfloat cnt = mix(N, ceil(N * 0.5), both);\n\nfloat a = 6.28318531 * idx / cnt;\n\n// L lungo la retta: u in [-1,1] riscalato da B (mezza altezza del tratto).\nfloat L = B * u;\n\n// Punto sulla retta e frame costante (forma chiusa).\nfloat ca = cos(a);\nfloat sa = sin(a);\nfloat k = 0.70710678;   // 1/sqrt(2)\n\nfloat px = (A * ca - sheet * L * sa) * live;\nfloat py = (A * sa + sheet * L * ca) * live;\nfloat pz = (L) * live;\n\n// n1 = (cos a, sin a, 0);  n2 = (-sin a, cos a, -sheet)/sqrt(2)\nfloat cv = cos(v);\nfloat sv = sin(v);\n\nfloat nx = cv * ca + sv * (-sa * k);\nfloat ny = cv * sa + sv * ( ca * k);\nfloat nz =           sv * (-sheet  * k);\n\n// Il corpo diventa il body di vec4 getRawPosition(...): il return DEVE essere\n// vec4, con la quarta componente (coordinata 4D) a 0 per una superficie in R^3.\nreturn vec4(\n    px + C * nx * live,\n    py + C * ny * live,\n    pz + C * nz * live,\n    0.0\n);\n",
+    "steps": 200,
+    "type": "surface",
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
+}

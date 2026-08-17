@@ -1,0 +1,134 @@
+{
+    "activeMotion": "path3D",
+    "angles": {
+        "omega": 9.999999747378752e-05,
+        "phi": 9.999999747378752e-05,
+        "psi": 9.999999747378752e-05
+    },
+    "background": {
+        "code": "",
+        "col1": "#3333cc",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": false,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 1,
+        "rot_x": 0,
+        "rot_y": 0,
+        "rot_z": 0,
+        "x": 0.9718939065933228,
+        "y": -0.23541919887065887,
+        "yaw": 0,
+        "z": 0
+    },
+    "cameraFov": 97,
+    "colors": {
+        "alpha": 1,
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1,
+        "B": 0.30000001192092896,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0",
+        "x": "(1 + A*cos(v)*cos(u/3) - B*sin(v)*sin(u/3))*cos(u)",
+        "y": "(1 + A*cos(v)*cos(u/3) - B*sin(v)*sin(u/3))*sin(u)",
+        "z": "A*cos(v)*sin(u/3) + B*sin(v)*cos(u/3)"
+    },
+    "fov3D": 97,
+    "fov4D": 97,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 18.84955596923828,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "meshScopeAll": true,
+    "name": "Twisted Torus Racing",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "cos(t)",
+        "y": "sin(t)",
+        "z": "0"
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "pathMode3D": 0,
+    "projectionMode": 1,
+    "renderMode": 1,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 12,
+        "path4D": 1,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 381,
+    "texture": {
+        "code": "// Imposta lo zoom/scala iniziale\nvec2 z = (uv - 0.5) * 3.0; \n\n// Costante complessa C (Modifica questi valori per cambiare la forma!)\n// Valori interessanti: \n// vec2(-0.7, 0.27015)\n// vec2(0.285, 0.01)\n// vec2(-0.8, 0.156)\nvec2 c = vec2(0.285, 0.01); \n\nint iter = 0;\nint maxIter = 100;\n\n// Iterazione Julia standard: Z = Z^2 + C\nfor(iter = 0; iter < maxIter; iter++) {\n    float x = (z.x * z.x - z.y * z.y) + c.x;\n    float y = (2.0 * z.x * z.y) + c.y;\n    z = vec2(x, y);\n    \n    // Se esce dal raggio 2 (distanza quadrata 4), è fuori dall'insieme\n    if (dot(z, z) > 4.0) break;\n}\n\n// Colorazione\nif (iter == maxIter) {\n    // Interno dell'insieme: un colore scuro ma morbido (es. indaco scuro)\n    return vec3(0.2, 0.15, 0.3); \n} else {\n    // Esterno: Gradiente Pastello\n    float tit = float(iter) / 20.0; // Divisore più basso = bande più fitte\n    \n    // Generazione colori base (Ciclo RGB morbido)\n    float r = 0.5 + 0.5 * cos(tit + 0.0);\n    float g = 0.5 + 0.5 * cos(tit + 2.09); // 2.09 è circa 2*PI/3\n    float b = 0.5 + 0.5 * cos(tit + 4.18); // 4.18 è circa 4*PI/3\n    \n    vec3 color = vec3(r, g, b);\n    \n    // TRUCCO PASTELLO: \n    // Mixiamo il colore con il bianco (vec3(1.0)) al 50%\n    return mix(color, vec3(1.0), 0.5);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
+}

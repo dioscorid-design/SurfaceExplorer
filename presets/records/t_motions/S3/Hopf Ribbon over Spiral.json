@@ -1,0 +1,135 @@
+{
+    "activeMotion": "rotation",
+    "angles": {
+        "omega": 44.71450424194336,
+        "phi": 44.978458404541016,
+        "psi": 44.978458404541016
+    },
+    "background": {
+        "code": "// Cyclic noise 2D nimitz (@stormoid) 2026\n// https://www.shadertoy.com/view/fcjXzh\n\n//The MIT License\n//Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n\n/*\n    Quick implementation of what I call \"cyclic noise\" in it's simplest 2D form\n    For people who want to play with it! Let me know what you make :)\n    \n    The rotation matrix angle can be changed for various flow style. \n    From more organic, to more \"electric\", included a couple to show the difference.\n*/\n\nfloat cyclic2D(vec2 p)\n{\n    mat2 m2 = mat2(0.97367, 0.22798, -0.22798, 0.97367)*1.5;\n    //mat2 m2 = mat2(0.88233, 0.47063, -0.47063, 0.88233)*1.5;\n    float result = 0.;\n    float z = .95;\n    float distort = 2.1;\n    float dstAmount = 0.09;\n    for(int i = 0; i < 9; i++)\n    {\n\t\tp += sin(p.yx*distort + iTime*0.27*pow(distort,1.35))*dstAmount;\n        result += abs(dot(cos(p), sin(p))*z);\n        z *= 0.65;\n        distort *= 1.35;\n        p = p*m2;\n    }\n    return result;\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 p = (gl_FragCoord.xy - 0.5*iResolution.xy)/iResolution.y + iTime*0.015;\n\n    vec3 col = vec3(sin(vec3(1.15,1.65,2.25)*cyclic2D(p*4.3) + 4.2))*0.5+0.5;\n    fragColor = vec4(.05/(col*col+0.05), 1);\n}",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": -0.478679358959198,
+        "rot_x": 0.766417920589447,
+        "rot_y": 0.02536720037460327,
+        "rot_z": -0.42758142948150635,
+        "x": -0.1131700649857521,
+        "y": 0.03384639322757721,
+        "yaw": 0,
+        "z": 2.679969310760498
+    },
+    "cameraFov": 55,
+    "colors": {
+        "alpha": 1,
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 2,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0.3499999940395355
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "fov3D": 55,
+    "fov4D": 55,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 0,
+        "uMin": 0,
+        "vMax": 0,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "meshScopeAll": true,
+    "name": "Hopf Ribbon over Spiral",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "pathMode3D": 0,
+    "projectionMode": 1,
+    "renderMode": 1,
+    "scriptCode": "// --- CONFIGURAZIONE ---\n// v e' NORMALIZZATO in [0,1]: il dominio vero (phi in [0, PI/A]) dipende da A,\n// e i limiti delle sezioni MESH_BEGIN sono valutati sulla CPU da ExprTk SENZA\n// le costanti degli slider (extractMeshSections, mainwindow.cpp ~7630): scrivere\n// \"v: 0, PI/A\" non compilerebbe. Il riscalamento si fa qui sotto nello shader.\nu_min := 0;\nu_max := 6.28318531;\nv_min := 0;\nv_max := 1;\nsteps := 400;\n\n// --- FIBRE DI HOPF SOPRA LA SPIRALE theta = A*phi ---\n// Stessa fibrazione h: S^3 -> S^2 dei preset \"Hopf Tori over Parallels\", ma la\n// curva di base non e' piu' un parallelo theta = cost: e' la SPIRALE\n// LOXODROMICA theta = A*phi, che scende dal polo nord al polo sud avvolgendosi\n// attorno all'asse. Il sollevamento di quella curva e' la superficie.\n//\n// IL SOLLEVAMENTO. Con la convenzione dei tori di Hopf (r = theta/2, cioe'\n// |z1| = cos r e |z2| = sin r), il punto sopra (theta, phi) con parametro di\n// fibra u e'\n//     z1 = cos(r) e^{i(phi + u)}      z2 = sin(r) e^{i u}      r = theta/2\n// Sostituendo theta = A*phi si ottiene r = A*phi/2. Verificato che e' un vero\n// sollevamento: h e' costante lungo u a 1e-16, e la base ricostruita da h ha\n// esattamente theta = A*phi e phi_base = phi.\n//\n// PERCHE' phi SI FERMA A PI/A (e non a 2*PI). Sulla sfera la colatitudine vive\n// in [0, PI]: theta = A*phi esce da quel range appena phi > PI/A. Lasciando\n// correre phi fino a 2*PI la curva NON prosegue, RIPASSA: a A = 2 i punti\n// phi = 0 e phi = PI danno r = 0 e r = PI, cioe' (cos r, sin r) = (1,0) e\n// (-1,0) -- la STESSA fibra C12 percorsa due volte. Misurato: distanza minima\n// fra punti non adiacenti = 0.0000, cioe' la superficie si autointerseca.\n// Con phi in [0, PI/A] la curva percorre i due poli UNA volta e la superficie\n// e' EMBEDDED per ogni A (distanza minima fra punti non adiacenti ~0.03-0.06,\n// verificata per A = 0.5, 1, 2, 4).\n//\n// CONSEGUENZA: NON e' un toro, e' un ANULUS (cilindro).\n// Il dominio e' [0, PI/A] x S^1 e i due bordi sono le due FIBRE POLARI:\n//     phi = 0     -> |z2| = 0 -> il grande cerchio C12 = {(cos u, sin u, 0, 0)}\n//     phi = PI/A  -> |z1| = 0 -> il grande cerchio C34 = {(0, 0, cos u, sin u)}\n// (verificato: |z1| e |z2| valgono 1 e 0 sui rispettivi bordi).\n// La superficie e' quindi un NASTRO che collega le due fibre di Hopf polari,\n// avvolgendosi attorno all'asse tante volte quanto dice A. I tori di Hopf sopra\n// i paralleli sono invece CHIUSI perche' un parallelo e' una curva chiusa; una\n// spirale che va da polo a polo e' un ARCO, e il suo sollevamento ha bordo.\n// Ogni linea v = cost e' ancora una FIBRA, cioe' un grande cerchio di S^3\n// (misurato: centro nell'origine a 2.5e-3, raggio 1.000000) -- in stereografica\n// un cerchio di Villarceau. Il wireframe lungo u le mostra direttamente.\n//\n// A NON DEVE ESSERE INTERO. La chiusura in phi (che richiederebbe A pari) qui\n// non serve: il dominio si ferma a PI/A e non fa il giro completo, quindi A puo'\n// essere qualunque reale > 0 e la superficie resta regolare. A grande = spirale\n// piu' avvolta = nastro piu' attorcigliato.\n//\n// NORMALIZZAZIONE. Nello shader si usa v in [0,1] con phi = v*PI/A: allora\n//     r = A*phi/2 = v*PI/2\n// e r NON dipende piu' da A. E' il motivo per cui il nastro ha sempre gli stessi\n// due bordi (r va da 0 a PI/2 qualunque sia A): A cambia SOLO di quanto la\n// superficie si avvolge, non dove comincia e finisce.\n//\n// --- ROTAZIONE 4D FISSA (evita il clamp della stereografica) ---\n// Il bordo C34 passa per il polo di proiezione w = +1: li' stereoS3 satura\n// (rad = min(sqrt((1+w)/(1-w)), 12)) e il bordo uscirebbe tagliato -- e' il\n// limite noto documentato nei preset dei tori di Hopf. Misurato: max w = 1.000000\n// e l'1.62% dei vertici oltre 0.95.\n// Una rotazione rigida FISSA nel piano (x1, x4) di 0.6 rad porta il massimo a\n// w = 0.825 e i vertici oltre 0.95 a ZERO: il nastro si vede intero.\n// Deve mescolare x1 (o x2) con x4: una rotazione in (x3, x4) NON basta, perche'\n// C34 e' un cerchio proprio in quel piano e resta comunque a w = 1 (verificato:\n// 0.9998). La rotazione e' un'isometria di S^3, quindi non deforma nulla.\n//MESH_BEGIN\nu: 0, 6.28318531, 400\nv: 0, 1, 400\n//MESH_END\n\n// --- ANIMAZIONE: A E' ORA UNA FUNZIONE DI t ---\n// Nel preset statico l'avvolgimento della spirale era governato dallo slider A.\n// Qui A diventa una SINUSOIDE del tempo: il nastro si avvolge e si svolge in\n// modo continuo, passando da poco attorcigliato a molto attorcigliato.\n//\n//     Aa(t) = Amid + Aamp * sin(S * t)\n//\n// SCELTA DEGLI ESTREMI. Aa compare come phi = v*PI/Aa: e' un DIVISORE, quindi\n// il comportamento non e' simmetrico attorno al valore medio. Oscillare fra 0.6\n// e 3.4 (Amid = 2, Aamp = 1.4) da' un intervallo utile in entrambi i sensi:\n//   Aa = 0.6 -> la spirale fa poco piu' di mezzo giro, nastro quasi disteso\n//   Aa = 3.4 -> circa tre giri e mezzo, nastro strettamente avvolto\n//\n// PERCHE' Aamp NON ARRIVA A Amid. Con Aamp = Amid la sinusoide toccherebbe\n// Aa = 0 e phi = v*PI/Aa esploderebbe: nell'istante del minimo la superficie\n// degenererebbe (il max(...,0.05) la salverebbe dalla divisione per zero, ma\n// con un salto brusco a 60+ giri di avvolgimento in un solo frame). Tenendo\n// Aamp = 0.7*Amid il minimo resta 0.6, ben dentro il regime regolare gia'\n// verificato nel preset statico (A = 0.5 ... 4 tutti embedded).\n//\n// LA VELOCITA' E' SULLO SLIDER S, non cablata: S = 0 congela l'animazione sul\n// valore medio Aa = 2, che e' esattamente la configurazione del preset statico\n// di partenza. Gli slider B..F restano liberi.\nfloat Amid = 2.0;\nfloat Aamp = 1.4;\nfloat Aa = max(Amid + Aamp * sin(S * t), 0.05);\n\n// v normalizzato -> angolo vero sulla base. r non dipende da A (vedi sopra).\nfloat phi = v * 3.14159265 / Aa;\nfloat r   = v * 1.57079633;\n\nfloat cr = cos(r);\nfloat sr = sin(r);\n\n// Sollevamento di Hopf: u corre LUNGO LA FIBRA, v lungo la spirale di base.\nfloat q1 = cr * cos(phi + u);\nfloat q2 = cr * sin(phi + u);\nfloat q3 = sr * cos(u);\nfloat q4 = sr * sin(u);\n\n// Rotazione fissa nel piano (x1, x4): allontana il bordo C34 dal polo w = 1.\nfloat ca = 0.82533561;   // cos(0.6)\nfloat sa = 0.56464247;   // sin(0.6)\n\nreturn vec4(\n    ca * q1 - sa * q4,\n    q2,\n    q3,\n    sa * q1 + ca * q4\n);\n",
+    "speeds": {
+        "nutation": 0.20000000298023224,
+        "omega": 0.20000000298023224,
+        "path3D": 11,
+        "path4D": 1,
+        "phi": 0.20000000298023224,
+        "precession": 0.20000000298023224,
+        "psi": 0.20000000298023224,
+        "spin": 0.20000000298023224
+    },
+    "steps": 400,
+    "texture": {
+        "code": "// --- TEXTURE SCRIPT: OLOGRAFIA REATTIVA ---\n// Usa questo script nel dock Texture per un oggetto implicito\n\n// 1. Usiamo lo slider 'A' per controllare la densità della griglia (es. range 0-5)\nfloat gridDensity = 10.0 + (A * 15.0); \n\n// 2. Creiamo una griglia basata sulle coordinate UV della superficie\n// fract() crea il pattern ripetuto, sottraiamo 0.5 per centrare la cella\nvec2 grid = fract(uv * gridDensity) - 0.5; \n\n// 3. Calcoliamo la distanza dai bordi per disegnare le linee\nfloat lineDist = min(abs(grid.x), abs(grid.y));\n\n// 4. Animiamo lo spessore della linea con il tempo 't'\n// Lo slider 'B' può controllare la velocità della pulsazione\nfloat pulse = sin(t * (2.0 + B * 5.0));\nfloat thickness = 0.05 + 0.03;\n\n// 5. Creiamo un effetto \"Glow\" (bagliore) morbido ai bordi della linea\nfloat glow = smoothstep(thickness + 0.05, thickness, lineDist);\n\n// 6. Assegnazione dei colori usando le variabili iniettate dal tuo engine\n// Il fondo usa il colore secondario (u_col2), le linee il primario (u_col1) \"sparato\"\nvec3 baseColor = u_col2;                  // Spazio vuoto della griglia (Colore 2)\nvec3 neonColor = u_col1 * 1.5;           // Il colore UI, reso più luminoso\n\n// 7. Mixiamo i colori in base al calcolo del glow\nvec3 finalColor = mix(baseColor, neonColor, glow);\n\nreturn finalColor;",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 8,
+        "vStep": 8
+    }
+}

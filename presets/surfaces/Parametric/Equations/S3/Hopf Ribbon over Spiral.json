@@ -1,0 +1,81 @@
+{
+    "angles": {
+        "omega": 0.39600008726119995,
+        "phi": 0.6600002646446228,
+        "psi": 0.6600002646446228
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 0.24160553514957428,
+        "rot_x": 0.4909913241863251,
+        "rot_y": -0.4144931435585022,
+        "rot_z": 0.7271518111228943,
+        "x": -0.333170086145401,
+        "y": 0.3488461971282959,
+        "yaw": 0,
+        "z": 1.639969825744629
+    },
+    "cameraFov": 103,
+    "colors": {
+        "alpha": 1,
+        "b": 0.20000000298023224,
+        "g": 0.800000011920929,
+        "r": 0.20000000298023224
+    },
+    "constants": {
+        "A": 2,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "fov3D": 103,
+    "fov4D": 103,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 0,
+        "uMin": 0,
+        "vMax": 0,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "meshScopeAll": true,
+    "name": "Hopf Ribbon over Spiral",
+    "projectionMode": 1,
+    "renderMode": 1,
+    "scriptCode": "// --- CONFIGURAZIONE ---\n// v e' NORMALIZZATO in [0,1]: il dominio vero (phi in [0, PI/A]) dipende da A,\n// e i limiti delle sezioni MESH_BEGIN sono valutati sulla CPU da ExprTk SENZA\n// le costanti degli slider (extractMeshSections, mainwindow.cpp ~7630): scrivere\n// \"v: 0, PI/A\" non compilerebbe. Il riscalamento si fa qui sotto nello shader.\nu_min := 0;\nu_max := 6.28318531;\nv_min := 0;\nv_max := 1;\nsteps := 400;\n\n// --- FIBRE DI HOPF SOPRA LA SPIRALE theta = A*phi ---\n// Stessa fibrazione h: S^3 -> S^2 dei preset \"Hopf Tori over Parallels\", ma la\n// curva di base non e' piu' un parallelo theta = cost: e' la SPIRALE\n// LOXODROMICA theta = A*phi, che scende dal polo nord al polo sud avvolgendosi\n// attorno all'asse. Il sollevamento di quella curva e' la superficie.\n//\n// IL SOLLEVAMENTO. Con la convenzione dei tori di Hopf (r = theta/2, cioe'\n// |z1| = cos r e |z2| = sin r), il punto sopra (theta, phi) con parametro di\n// fibra u e'\n//     z1 = cos(r) e^{i(phi + u)}      z2 = sin(r) e^{i u}      r = theta/2\n// Sostituendo theta = A*phi si ottiene r = A*phi/2. Verificato che e' un vero\n// sollevamento: h e' costante lungo u a 1e-16, e la base ricostruita da h ha\n// esattamente theta = A*phi e phi_base = phi.\n//\n// PERCHE' phi SI FERMA A PI/A (e non a 2*PI). Sulla sfera la colatitudine vive\n// in [0, PI]: theta = A*phi esce da quel range appena phi > PI/A. Lasciando\n// correre phi fino a 2*PI la curva NON prosegue, RIPASSA: a A = 2 i punti\n// phi = 0 e phi = PI danno r = 0 e r = PI, cioe' (cos r, sin r) = (1,0) e\n// (-1,0) -- la STESSA fibra C12 percorsa due volte. Misurato: distanza minima\n// fra punti non adiacenti = 0.0000, cioe' la superficie si autointerseca.\n// Con phi in [0, PI/A] la curva percorre i due poli UNA volta e la superficie\n// e' EMBEDDED per ogni A (distanza minima fra punti non adiacenti ~0.03-0.06,\n// verificata per A = 0.5, 1, 2, 4).\n//\n// CONSEGUENZA: NON e' un toro, e' un ANULUS (cilindro).\n// Il dominio e' [0, PI/A] x S^1 e i due bordi sono le due FIBRE POLARI:\n//     phi = 0     -> |z2| = 0 -> il grande cerchio C12 = {(cos u, sin u, 0, 0)}\n//     phi = PI/A  -> |z1| = 0 -> il grande cerchio C34 = {(0, 0, cos u, sin u)}\n// (verificato: |z1| e |z2| valgono 1 e 0 sui rispettivi bordi).\n// La superficie e' quindi un NASTRO che collega le due fibre di Hopf polari,\n// avvolgendosi attorno all'asse tante volte quanto dice A. I tori di Hopf sopra\n// i paralleli sono invece CHIUSI perche' un parallelo e' una curva chiusa; una\n// spirale che va da polo a polo e' un ARCO, e il suo sollevamento ha bordo.\n// Ogni linea v = cost e' ancora una FIBRA, cioe' un grande cerchio di S^3\n// (misurato: centro nell'origine a 2.5e-3, raggio 1.000000) -- in stereografica\n// un cerchio di Villarceau. Il wireframe lungo u le mostra direttamente.\n//\n// A NON DEVE ESSERE INTERO. La chiusura in phi (che richiederebbe A pari) qui\n// non serve: il dominio si ferma a PI/A e non fa il giro completo, quindi A puo'\n// essere qualunque reale > 0 e la superficie resta regolare. A grande = spirale\n// piu' avvolta = nastro piu' attorcigliato.\n//\n// NORMALIZZAZIONE. Nello shader si usa v in [0,1] con phi = v*PI/A: allora\n//     r = A*phi/2 = v*PI/2\n// e r NON dipende piu' da A. E' il motivo per cui il nastro ha sempre gli stessi\n// due bordi (r va da 0 a PI/2 qualunque sia A): A cambia SOLO di quanto la\n// superficie si avvolge, non dove comincia e finisce.\n//\n// --- ROTAZIONE 4D FISSA (evita il clamp della stereografica) ---\n// Il bordo C34 passa per il polo di proiezione w = +1: li' stereoS3 satura\n// (rad = min(sqrt((1+w)/(1-w)), 12)) e il bordo uscirebbe tagliato -- e' il\n// limite noto documentato nei preset dei tori di Hopf. Misurato: max w = 1.000000\n// e l'1.62% dei vertici oltre 0.95.\n// Una rotazione rigida FISSA nel piano (x1, x4) di 0.6 rad porta il massimo a\n// w = 0.825 e i vertici oltre 0.95 a ZERO: il nastro si vede intero.\n// Deve mescolare x1 (o x2) con x4: una rotazione in (x3, x4) NON basta, perche'\n// C34 e' un cerchio proprio in quel piano e resta comunque a w = 1 (verificato:\n// 0.9998). La rotazione e' un'isometria di S^3, quindi non deforma nulla.\n//MESH_BEGIN\nu: 0, 6.28318531, 400\nv: 0, 1, 400\n//MESH_END\n\n// A = quanto la spirale si avvolge (giri attorno all'asse fra i due poli).\nfloat Aa = max(A, 0.05);\n\n// v normalizzato -> angolo vero sulla base. r non dipende da A (vedi sopra).\nfloat phi = v * 3.14159265 / Aa;\nfloat r   = v * 1.57079633;\n\nfloat cr = cos(r);\nfloat sr = sin(r);\n\n// Sollevamento di Hopf: u corre LUNGO LA FIBRA, v lungo la spirale di base.\nfloat q1 = cr * cos(phi + u);\nfloat q2 = cr * sin(phi + u);\nfloat q3 = sr * cos(u);\nfloat q4 = sr * sin(u);\n\n// Rotazione fissa nel piano (x1, x4): allontana il bordo C34 dal polo w = 1.\nfloat ca = 0.82533561;   // cos(0.6)\nfloat sa = 0.56464247;   // sin(0.6)\n\nreturn vec4(\n    ca * q1 - sa * q4,\n    q2,\n    q3,\n    sa * q1 + ca * q4\n);\n",
+    "steps": 400,
+    "type": "surface",
+    "use4DLighting": true,
+    "wireframe": {
+        "uStep": 8,
+        "vStep": 8
+    }
+}
