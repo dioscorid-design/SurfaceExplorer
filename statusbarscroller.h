@@ -24,6 +24,14 @@ class QScrollArea;
 // in una selezione sbagliata; qui avvierebbe una registrazione. Per questo il
 // filtro consuma il release quando il dito si e' mosso oltre startDragDistance:
 // trascinare scorre e basta, il click scatta solo se il dito e' rimasto fermo.
+//
+// IL SEGUITO DELLA TRAPPOLA: quel release consumato e' ANCHE l'evento con cui Qt
+// rimette su il tasto premuto. Toglierlo lo lascia disegnato scuro
+// (QPushButton:pressed), quindi il filtro deve fare setDown(false) a mano prima
+// di consumarlo. Si vede solo quando il dito si solleva SOPRA il tasto da cui e'
+// partito: durante il trascinamento Qt segue il dito da solo - esce dai bordi e
+// il tasto va su, rientra e torna giu' - percio' sollevando altrove il tasto e'
+// gia' su e il difetto non compare. Da qui l'apparente casualita'.
 class StatusBarScroller : public QObject
 {
     Q_OBJECT

@@ -825,6 +825,13 @@ private:
     void setTextureLibraryGrayed(bool grayed);
     void applyCommonData(const LibraryItem &data);
     QString presetsRootPath() const;
+    // Data la cartella che l'utente ha indicato in un pannello, restituisce la
+    // RADICE DELLA LIBRERIA: quella cartella stessa se e' gia' una radice (dentro
+    // c'e' almeno uno dei quattro rami), altrimenti la sottocartella dei preset.
+    // Unico punto che decide se appendere: senza, indicare una libreria esistente
+    // la duplicava dentro se' stessa (presets/presets). Vedi il corpo per il
+    // perche' il nome della sottocartella va letto DA DISCO.
+    static QString resolveLibraryRoot(const QString &pickedDir);
     bool resolveNeedsCopy(const QString& src, const QString& dst,
                           bool forceRestore, bool isDeleted, int* overwriteState);
 

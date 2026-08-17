@@ -336,18 +336,53 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     if (wasPath4D) m_mainWindow->pathTimer->stop();
     if (wasPath3D) m_mainWindow->pathTimer3D->stop();
 
-    QSettings settings("Repository");
-    QSettings globalSettings;
-    QString rootPath = globalSettings.value("libraryRootPath").toString();
+    // UN SOLO dominio di preferenze. Qui c'era `QSettings settings("Repository")`:
+    // quel costruttore prende l'ORGANIZATION NAME, non un gruppo, quindi scriveva
+    // in un dominio separato -- e "lastFolder" (piu' sotto) finiva la' dentro,
+    // mentre saveSurfaceAs scrive la stessa chiave nel dominio globale. Due chiavi
+    // omonime in due domini: vinceva quella salvata per ultima, e il dialogo Save
+    // ripartiva da una cartella apparentemente casuale.
+    QSettings settings;
+    QString rootPath = settings.value("libraryRootPath").toString();
 
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    // Mobile: la radice si ricalcola dal sistema a ogni chiamata, non passa da
+    // QSettings, quindi qui un fallback e' corretto e non puo' sbagliare posto.
     if (rootPath.isEmpty()) {
 #if defined(Q_OS_ANDROID)
-        // Su Android forziamo la cartella Download pubblica bypassando la sandbox di Qt
+        // Cartella Download pubblica, bypassando la sandbox di Qt
         rootPath = "/storage/emulated/0/Documents/SurfaceExplorer_Presets";
 #else
         rootPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/SurfaceExplorer_Presets";
 #endif
     }
+#else
+    // DESKTOP: radice vuota NON si indovina in silenzio.
+    //
+    // Qui si ricadeva su <Documents>/SurfaceExplorer_Presets: mkpath, open e write
+    // riuscivano, m_sceneDirty veniva azzerato e l'utente riceveva la conferma di
+    // un salvataggio che non avrebbe trovato dove lo cercava. E' il meccanismo che
+    // ha prodotto due librerie in posti diversi (una su Download, una su
+    // Documents) con le modifiche che finivano in quella sbagliata: una radice
+    // scelta QUI, di nascosto, non e' la stessa che il resto dell'app usa.
+    //
+    // La libreria si installa da un punto solo -- setupDefaultFolders -- che
+    // chiede dove. Fuori sandbox, se l'utente non sceglie, usa la cartella
+    // predefinita dichiarandola; SOTTO sandbox rinuncia (nessun fallback e'
+    // utilizzabile la'), quindi al ritorno la radice puo' essere ancora vuota: in
+    // quel caso non si scrive da nessuna parte e si ripristina lo stato del moto,
+    // come per il dialogo annullato piu' sotto.
+    if (rootPath.isEmpty()) {
+        m_mainWindow->setupDefaultFolders();
+        rootPath = QSettings().value("libraryRootPath").toString();
+        if (rootPath.isEmpty()) {
+            if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
+            if (wasPath4D) m_mainWindow->pathTimer->start();
+            if (wasPath3D) m_mainWindow->pathTimer3D->start();
+            return;
+        }
+    }
+#endif
 
     QString fileName;
     if (!suggestedPath.isEmpty() && suggestedPath.endsWith(".json", Qt::CaseInsensitive)) {

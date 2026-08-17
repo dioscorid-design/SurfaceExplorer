@@ -1,5 +1,6 @@
 #include "statusbarscroller.h"
 
+#include <QAbstractButton>
 #include <QApplication>
 #include <QEvent>
 #include <QHBoxLayout>
@@ -196,8 +197,6 @@ void StatusBarScroller::syncStripWidth()
 
 bool StatusBarScroller::eventFilter(QObject* watched, QEvent* event)
 {
-    Q_UNUSED(watched);
-
     // Istanza sizer: si occupa solo di riadattare il nastro al viewport. Ascolta
     // il Resize del viewport (rotazione schermo, split view) e lo Show/Hide degli
     // indicatori, che entrando e uscendo cambiano la larghezza naturale del
@@ -241,7 +240,37 @@ bool StatusBarScroller::eventFilter(QObject* watched, QEvent* event)
         m_dragging   = false;
         // Il dito ha trascinato: consumiamo il release, cosi' il tasto sotto non
         // emette clicked(). Senza questo, scorrere la barra avvia START o REC.
-        if (wasDragging) return true;
+        if (wasDragging) {
+            // ...ma il release consumato e' ANCHE l'evento con cui Qt avrebbe
+            // rimesso su il tasto: togliendolo, resta disegnato scuro
+            // (QPushButton:pressed). Va quindi tirato su a mano, QUI.
+            //
+            // Perche' proprio al release e non prima: durante il trascinamento
+            // Qt gestisce gia' lo stato da solo, seguendo il dito. Un MouseMove
+            // che ESCE dai bordi del tasto lo tira su; uno che RIENTRA lo rimette
+            // giu'. Quindi tirarlo su al primo move oltre soglia non serve a
+            // nulla: se il dito torna sul tasto di partenza - o non se n'e' mai
+            // andato, con uno scorrimento breve - Qt lo rimette giu' dopo, e il
+            // release consumato lo lascia li'. E' esattamente il caso in cui il
+            // difetto si vedeva: si parte da un tasto e si solleva il dito ancora
+            // sopra quello stesso tasto. Sollevando altrove il tasto era gia' su
+            // per conto suo, ed e' per questo che il difetto sembrava capitare
+            // "a volte".
+            //
+            // setDown(false) e non click(): il tasto torna su senza emettere
+            // clicked(), che e' proprio cio' che il trascinamento non deve fare.
+            // Su un tasto checkable non tocca lo stato di spunta.
+            //
+            // Si risale i parentWidget() perche' su un tasto composito l'evento
+            // puo' arrivare da un figlio mentre il premuto e' l'antenato.
+            for (QWidget* w = qobject_cast<QWidget*>(watched); w; w = w->parentWidget()) {
+                if (QAbstractButton* b = qobject_cast<QAbstractButton*>(w)) {
+                    if (b->isDown()) b->setDown(false);
+                    break;
+                }
+            }
+            return true;
+        }
         break;
     }
     default:

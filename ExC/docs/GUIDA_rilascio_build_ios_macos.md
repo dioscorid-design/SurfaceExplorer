@@ -31,8 +31,8 @@ sostanziale è solo lo script da lanciare e la destinazione dell'archive.
 
 | Piattaforma | Script |
 |---|---|
-| iOS | `ExC/Mac/release_testflight.sh` |
-| macOS | `ExC/Mac/release_testflight_mac.sh` |
+| iOS | `./ExC/Mac/release_testflight.sh` |
+| macOS | `./ExC/Mac/release_testflight_mac.sh` |
 
 Fanno le stesse cose; cambiano toolchain, destinazione dell'archive e cartella di build.
 Non confonderli: lanciare quello iOS per una release macOS produce un archivio della

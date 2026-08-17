@@ -236,11 +236,26 @@ fi
 # Il container e' dove la sandbox confina QSettings, le preferenze e i bookmark.
 # Cancellarlo riporta l'app allo stato "mai aperta": e' l'unico modo di riprovare
 # il primo avvio, ed e' cio' che distingue il caso che funziona da quello rotto.
+#
+# SI SVUOTA "Data/", NON SI CANCELLA LA CARTELLA DEL CONTAINER.
+# `rm -rf "$CONTAINER"` non puo' funzionare: dentro c'e'
+# .com.apple.containermanagerd.metadata.plist, che appartiene al sistema e non e'
+# rimovibile ("Operation not permitted") nemmeno dal proprietario della home.
+# Il rm usciva quindi con stato 1 e, con `set -euo pipefail`, ABORTIVA lo script
+# subito prima del lancio: l'app non si apriva affatto e il test sembrava
+# "non partito" senza un errore che lo spiegasse.
+# Svuotare Data/ ottiene comunque lo stato "mai aperta": li' dentro stanno
+# preferenze, bookmark e le cartelle create dall'app.
 if [ "$DO_RESET" -eq 1 ]; then
-  if [ -d "$CONTAINER" ]; then
-    info "Azzero il container sandbox: $CONTAINER"
-    rm -rf "$CONTAINER"
+  if [ -d "$CONTAINER/Data" ]; then
+    info "Azzero il contenuto del container: $CONTAINER/Data"
+    # -mindepth 1: svuota senza rimuovere Data/ stessa (che il sistema ricrea
+    # con i suoi permessi). I 2>/dev/null || true coprono i pochi file
+    # protetti: non impediscono il reset e non devono fermare lo script.
+    find "$CONTAINER/Data" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
     ok "Container azzerato: il prossimo avvio e' una PRIMA installazione."
+  elif [ -d "$CONTAINER" ]; then
+    info "Container presente ma senza Data/: l'app risulta gia' mai aperta."
   else
     info "Nessun container da azzerare (l'app risulta gia' mai aperta)."
   fi

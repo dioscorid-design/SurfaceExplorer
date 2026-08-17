@@ -2799,22 +2799,47 @@ MainWindow::MainWindow(QWidget *parent)
         if (m_shaderErrorPopupActive) return;
         m_shaderErrorPopupActive = true;
 
-        const QString msg = QStringLiteral(
-            "The shader could not be compiled, so the surface was not updated: "
-            "what you see is the last valid image.\n\n"
-            "If you have just applied a texture to a mesh, its script may declare "
-            "a symbol (a function, a #define, a global variable) with the same name "
-            "as another mesh's texture.\n\n"
-            "To recover, turn that texture off on the mesh, or load a different "
-            "one.\n\n")
-            + (err.trimmed().isEmpty() ? QString() : err.trimmed());
-
         // BOX ASINCRONO, non exec(): un QMessageBox modale gira un event loop
         // ANNIDATO, e i segnali consegnati li' dentro riaprivano il popup sopra
         // se stesso -- la raffica che ha reso necessaria l'uscita forzata.
         // open() ritorna subito e l'applicazione resta utilizzabile.
-        auto *box = new QMessageBox(QMessageBox::Warning, "Shader Compilation Failed",
-                                    msg, QMessageBox::Ok, this);
+        auto *box = new QMessageBox(this);
+        box->setIcon(QMessageBox::Warning);
+        box->setWindowTitle(tr("Shader Compilation Failed"));
+
+        // TESTO CORTO in setText, RESTO in setInformativeText: QMessageBox tratta
+        // il testo principale come un titolo e NON lo manda a capo, allargando la
+        // finestra quanto serve a contenerlo su una riga. Con la spiegazione
+        // intera li' dentro il box arrivava a occupare tutto lo schermo (visto su
+        // iPhone). L'informativeText invece va a capo da solo: e' lo stesso
+        // schema del box "Transparency on a heavy scene", che infatti si e'
+        // sempre visto di dimensioni normali.
+        const QString detail = err.trimmed();
+
+        // Una RISORSA di shader mancante non e' un errore dell'utente: il testo
+        // sulle texture in conflitto sarebbe una spiegazione falsa, e manderebbe
+        // a cercare un problema inesistente nei propri script. bakeShader in quel
+        // caso confeziona gia' il messaggio giusto (riconoscibile dal prefisso),
+        // che qui si mostra al posto di quello standard.
+        if (detail.startsWith(QLatin1String("Internal error:"))) {
+            box->setText(tr("The application is missing part of its built-in data."));
+            box->setInformativeText(detail);
+        } else {
+            box->setText(tr("The surface was not updated: what you see is the "
+                            "last valid image."));
+            box->setInformativeText(
+                tr("The shader could not be compiled.\n\n"
+                   "If you have just applied a texture to a mesh, its script may "
+                   "declare a symbol (a function, a #define, a global variable) "
+                   "with the same name as another mesh's texture.\n\n"
+                   "To recover, turn that texture off on the mesh, or load a "
+                   "different one."));
+            // Il log del compilatore e' lungo e a righe fisse: sta nei dettagli,
+            // dove ha una sua area con scorrimento invece di allargare il box.
+            if (!detail.isEmpty()) box->setDetailedText(detail);
+        }
+
+        box->setStandardButtons(QMessageBox::Ok);
         box->setAttribute(Qt::WA_DeleteOnClose);
         connect(box, &QDialog::finished, this,
                 [this](int){ m_shaderErrorPopupActive = false; });
@@ -3571,61 +3596,57 @@ MainWindow::MainWindow(QWidget *parent)
 #if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)
     {
         const QString libRoot = QSettings().value("libraryRootPath").toString();
+
+        // SOLO il caso "autorizzazione persa" (sandbox / App Store): la cartella
+        // c'e' e i preset sono al loro posto, manca il permesso di raggiungerli.
+        // Senza questo dialogo la libreria resterebbe vuota senza spiegazione, e
+        // nessun altro punto lo direbbe.
+        //
+        // NON si avvisa qui della cartella SPARITA (radice configurata, cartella
+        // inesistente): sarebbe un popup di troppo, perche' subito dopo arriva
+        // comunque quello di setupDefaultFolders che chiede dove installare la
+        // libreria -- due finestre in fila per la stessa decisione. Il secondo
+        // basta da solo.
         if (SecurityBookmark::needsAuthorization(libRoot)) {
-            const auto answer = QMessageBox::question(this, "Library Not Accessible",
-                "Your library folder can no longer be opened:\n\n" + libRoot + "\n\n"
+            // Testo breve in setText, resto in informativeText: il testo
+            // principale di QMessageBox e' un TITOLO e non va a capo, quindi il
+            // box si allarga fino a contenere su UNA riga la piu' lunga di
+            // quelle logiche. Attenzione: le righe che qui sotto sembrano corte
+            // sono letterali C++ ADIACENTI, che il compilatore concatena in
+            // un'unica riga senza \n -- misurata 823 pt, da cui un box di 983 pt.
+            // L'informativeText invece manda a capo da solo.
+            QMessageBox box(this);
+            box.setIcon(QMessageBox::Question);
+            box.setWindowTitle("Library Not Accessible");
+            box.setText("Your library folder can no longer be opened.");
+            box.setInformativeText(
+                libRoot + "\n\n"
                 "Your presets are still there — only the permission to access them "
                 "was lost (it can happen after the folder is moved or the system is "
-                "updated).\n\nDo you want to select the folder again?",
-                QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+                "updated).\n\nDo you want to select the folder again?");
+            box.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+            box.setDefaultButton(QMessageBox::Yes);
+            const auto answer = box.exec();
 
             if (answer == QMessageBox::Yes) {
                 const QString picked = QFileDialog::getExistingDirectory(this,
                     "Select Your Presets Folder", QDir::homePath());
                 if (!picked.isEmpty()) {
-                    QString clean = QDir::cleanPath(picked);
-
-                    // La cartella scelta qui e' la RADICE DELLA LIBRERIA, quella
-                    // che contiene i quattro rami -- non il posto in cui creare
-                    // la libreria. Salvandola grezza, i rami surfaces/textures/
-                    // records/sounds venivano creati DIRETTAMENTE nella cartella
-                    // scelta (setupDefaultFolders li appende a libraryRootPath),
-                    // sparpagliandoli in ~/Documents invece di raccoglierli sotto
-                    // "presets". Gli altri tre punti che scrivono libraryRootPath
-                    // appendono tutti una sottocartella: questo era l'unico che
-                    // non lo faceva.
-                    //
-                    // Due casi da distinguere, perche' qui l'utente puo'
-                    // ragionevolmente indicare l'una o l'altra cosa:
-                    //  - ha scelto la radice della libreria vera e propria (c'e'
-                    //    gia' dentro almeno uno dei quattro rami): si prende
-                    //    com'e', altrimenti si creerebbe un "presets/presets";
-                    //  - ha scelto la cartella che la CONTIENE: si scende nella
-                    //    sottocartella dei preset, riusandola se c'e' gia'.
-                    //
-                    // Il nome va letto DA DISCO, non indovinato: i due punti che
-                    // la creano non concordano -- onAddRepositoryClicked scrive
-                    // "Presets", setupDefaultFolders "presets" -- e su APFS
-                    // (non case-sensitive) QDir::exists("Presets") risponde true
-                    // anche quando la cartella si chiama "presets". Chiedendo per
-                    // nome si finirebbe col salvare un percorso con la maiuscola
-                    // sbagliata: innocuo per il filesystem, ma il bookmark di
-                    // sandbox e i confronti fra stringhe di percorso non
-                    // perdonano. entryList restituisce il nome REALE.
-                    const QDir pickedDir(clean);
-                    const bool isLibraryRoot =
-                           pickedDir.exists("surfaces") || pickedDir.exists("textures")
-                        || pickedDir.exists("records")  || pickedDir.exists("sounds");
-                    if (!isLibraryRoot) {
-                        QString sub = "presets";
-                        const QStringList hits = pickedDir.entryList(
-                            QStringList() << "presets", QDir::Dirs | QDir::NoDotAndDotDot);
-                        if (!hits.isEmpty()) sub = hits.first();   // nome reale su disco
-                        clean += "/" + sub;
-                    }
+                    // La cartella indicata qui e' la RADICE DELLA LIBRERIA, non il
+                    // posto in cui crearla: questo era l'unico dei punti che
+                    // scrivono libraryRootPath a salvare il percorso GREZZO, e i
+                    // rami surfaces/textures/records/sounds finivano sparsi
+                    // direttamente nella cartella scelta. La stessa decisione
+                    // (prendere com'e' o scendere in "presets") vale per tutti e
+                    // tre i punti: sta in resolveLibraryRoot.
+                    const QString clean = resolveLibraryRoot(picked);
 
                     QDir().mkpath(clean);
-                    QSettings().setValue("libraryRootPath", clean);
+                    {   // sync() esplicito: vedi setupDefaultFolders (cfprefsd)
+                        QSettings s;
+                        s.setValue("libraryRootPath", clean);
+                        s.sync();
+                    }
                     SecurityBookmark::save(clean);
                 }
             }
@@ -3807,12 +3828,19 @@ void MainWindow::noteSceneEdited(QWidget *source)
                              ? QStringLiteral("a SCRIPT")
                              : QStringLiteral("the EQUATIONS panel");
 
-    QMessageBox::information(this, "Another module is loaded",
-        "The surface on screen comes from " + loadedWhat + ", so what you are "
-        "typing here may not take effect, or may mix with what is already loaded."
+    // Vedi sopra: il testo principale non va a capo, il corpo sta
+    // nell'informativeText o il box invade tutto lo schermo.
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Information);
+    box.setWindowTitle(tr("Another module is loaded"));
+    box.setText("The surface on screen comes from " + loadedWhat + ".");
+    box.setInformativeText(
+        "What you are typing here may not take effect, or may mix with what is "
+        "already loaded."
         "\n\nTo start from a clean state, click the tab of the current mode "
         "(Parametric or Implicit) to restore the default surface, or press NEW "
         "on the status bar to clear everything and leave the scene empty.");
+    box.exec();
 }
 
 // L'utente ha riscritto a mano la geometria: il preset evidenziato nel dock
@@ -5017,13 +5045,20 @@ void MainWindow::onAlphaSliderMovedIllCheck(int /*value*/)
     if (!m_implicitAlphaDisabled) {
         m_implicitAlphaDisabled = true;   // guardia PRIMA del popup modale (anti-doppio)
         ui->alphaSlider->setEnabled(false);
-        QMessageBox::information(
-            this, tr("Transparency unavailable"),
-            tr("This surface is defined by a product of several factors "
+        // Testo breve in setText, dettaglio in informativeText (che va a capo):
+        // il testo principale non viene mandato a capo e allargherebbe il box
+        // oltre la larghezza dello schermo.
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Information);
+        box.setWindowTitle(tr("Transparency unavailable"));
+        box.setText(tr("This surface will stay opaque."));
+        box.setInformativeText(
+            tr("It is defined by a product of several factors "
                "(e.g. linked tori). True transparency cannot be computed "
                "reliably on such fields — with transparency the surface would "
                "disappear instead of turning translucent.\n\n"
-               "It will stay opaque. The transparency slider is disabled."));
+               "The transparency slider is disabled."));
+        box.exec();
     }
 }
 
@@ -5036,12 +5071,18 @@ void MainWindow::onAlphaSliderMovedWarnCheck()
 {
     if (m_implicitWarnShown) return;
     m_implicitWarnShown = true;   // guardia PRIMA del popup modale (anti-doppio)
-    QMessageBox::information(
-        this, tr("Transparency may not render correctly"),
-        tr("On this device, transparency may not render correctly on this surface: "
-           "it is made of many layers stacked along each viewing ray, more than the "
-           "renderer can blend here, so with transparency it may look clipped.\n\n"
+    // Vedi sopra: il testo principale non va a capo, il corpo sta
+    // nell'informativeText o il box invade tutto lo schermo.
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Information);
+    box.setWindowTitle(tr("Transparency may not render correctly"));
+    box.setText(tr("Transparency may not render correctly here."));
+    box.setInformativeText(
+        tr("On this device, this surface is made of many layers stacked along each "
+           "viewing ray, more than the renderer can blend here, so with "
+           "transparency it may look clipped.\n\n"
            "The slider still works — this is just a heads-up."));
+    box.exec();
 }
 
 // SOLO MOBILE (no-op su desktop, dove trasparenza+displacement regge). Chiamata
@@ -6754,16 +6795,23 @@ void MainWindow::handleTextureSelection(int index)
                 // quindi il caricamento dell'immagine e' concluso e nessun flusso
                 // viene interrotto a meta'.
                 QMetaObject::invokeMethod(this, [this]{
-                    QMessageBox::information(this,
-                        tr("Per-mesh texture"),
-                        tr("Image textures always apply to the whole surface: the image "
-                           "is a single GPU resource, so a mesh cannot have one of its own. "
-                           "It has been loaded for the whole surface.\n\n"
+                    // Frase breve in setText, resto in informativeText: il testo
+                    // principale di QMessageBox e' un TITOLO e non va a capo, quindi
+                    // il box si allarga fino a contenerlo su una riga (misurato:
+                    // 1586pt contro gli ~844 dello schermo -> a tutto schermo).
+                    QMessageBox box(this);
+                    box.setIcon(QMessageBox::Information);
+                    box.setWindowTitle(tr("Per-mesh texture"));
+                    box.setText(tr("Image textures always apply to the whole surface."));
+                    box.setInformativeText(
+                        tr("The image is a single GPU resource, so a mesh cannot have one "
+                           "of its own. It has been loaded for the whole surface.\n\n"
                            "A mesh that already has its own texture keeps showing that one. "
                            "To bring the image onto a single mesh, apply one of the scripts "
                            "in Procedurals > Animated Images: they sample the loaded image "
                            "and can deform it differently on each mesh.\n\n"
                            "(Shown once per session.)"));
+                    box.exec();
                 }, Qt::QueuedConnection);
             }
             m_currentTexturePath = imgSrc;
@@ -11038,9 +11086,17 @@ void MainWindow::applyMotionExample(const LibraryItem &data)
 
     QString imgPath = extractAndResolveImagePath(texCode);
     if (imgPath.startsWith("NOT_FOUND|")) {
-        QMessageBox::warning(this, "Record Image Not Found",
-                             "The image used in this record was not found at:\n\n" +
-                             imgPath.split("|").last() + "\n\nThe animation will be loaded without this texture.");
+        // Il percorso sta su una riga tutta sua e NON ha spazi dove spezzarsi:
+        // nel testo principale (che non va a capo) allargherebbe il box quanto
+        // e' lungo. Nell'informativeText il resto del testo va a capo e il
+        // percorso resta l'unica riga lunga, non la somma di tutte.
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Warning);
+        box.setWindowTitle("Record Image Not Found");
+        box.setText("The image used in this record was not found.");
+        box.setInformativeText(imgPath.split("|").last() +
+                               "\n\nThe animation will be loaded without this texture.");
+        box.exec();
         imgPath = "";
         texCode = "";
     }
@@ -11547,10 +11603,15 @@ void MainWindow::onAddRepositoryClicked(LibraryType /*type*/)
     if (selectedPath.isEmpty()) return;
 
     selectedPath = QDir::cleanPath(selectedPath);
-    QString finalPath = selectedPath + "/Presets";
+    // Come in setupDefaultFolders: se la cartella indicata e' GIA' una radice di
+    // libreria si prende com'e'. Qui si appendeva "/Presets" -- con la maiuscola,
+    // divergente dal "presets" dell'altro punto: su APFS il filesystem perdona,
+    // i bookmark di sandbox e i confronti fra percorsi no.
+    QString finalPath = resolveLibraryRoot(selectedPath);
 
     QDir().mkpath(finalPath);
     settings.setValue("libraryRootPath", finalPath);
+    settings.sync();                     // vedi setupDefaultFolders: cfprefsd
     SecurityBookmark::save(finalPath);   // vedi setupDefaultFolders
 
     settings.remove("pathSurfaces");
@@ -11626,8 +11687,19 @@ void MainWindow::onSyncPresetsClicked()
     // 2. PERCORSO DINAMICO (La chiave per iOS!)
     QString rootPath = presetsRootPath();
 
-    if (rootPath.isEmpty()) {
-        setupDefaultFolders();
+    // VIA DI RIENTRO dopo un pannello annullato: questo tasto e' l'unico modo di
+    // installare la libreria quando non c'e', quindi deve CHIEDERE la cartella.
+    //
+    // Non basta il controllo su isEmpty(): la radice puo' essere valorizzata e
+    // puntare a una cartella che non esiste piu' (annullamento precedente,
+    // cartella spostata o cancellata, disco scollegato). In quel caso si cadeva
+    // sui mkpath qui sotto, che la ricreavano dal nulla in un posto che l'utente
+    // non aveva scelto -- e sotto sandbox non sarebbe stata nemmeno autorizzata.
+    // isAccessible (non QDir::exists) perche' sotto sandbox una cartella puo'
+    // esistere e non essere raggiungibile: fuori dalla sandbox e' esattamente
+    // QDir::exists().
+    if (rootPath.isEmpty() || !SecurityBookmark::isAccessible(rootPath)) {
+        setupDefaultFolders();   // chiede la cartella, installa e fa il refresh
         return;
     }
 
@@ -11870,32 +11942,83 @@ void MainWindow::setupDefaultFolders()
     // equivale esattamente al vecchio exists().
     rootPath = settings.value("libraryRootPath").toString();
     // NB: una radice salvata pari a una cartella di sistema (~/Documents e
-    // simili) e' gia' stata corretta all'avvio, in showEvent: qui arriva
+    // simili) e' gia' stata corretta all'avvio, nel COSTRUTTORE (non in
+    // showEvent, come diceva questo commento): qui arriva
     // sempre un percorso sensato. Vedi il commento esteso li'.
     if (rootPath.isEmpty() || !SecurityBookmark::isAccessible(rootPath)) {
         QMessageBox::information(this, "Welcome to Surface Explorer",
                                  "Choose a location to install your Library.\n"
                                  "A 'Presets' folder will be automatically created there.");
 
-        // Cartella di PARTENZA del pannello: la home, non DocumentsLocation.
-        // Sotto sandbox quest'ultima e' la Documents PRIVATA del container --
-        // vuota e senza rapporto con la ~/Documents che l'utente conosce --
-        // quindi il pannello si apriva su una cartella vuota e spaesante.
-        // La home reale il Powerbox la mostra correttamente. Fuori dalla
-        // sandbox le due coincidono di fatto, e la home resta una partenza
-        // sensata per scegliere dove installare la libreria.
+        // Cartella di PARTENZA del pannello: la home, MAI
+        // QStandardPaths::DocumentsLocation. Sotto sandbox quest'ultima e' la
+        // Documents PRIVATA del container -- vuota e senza rapporto con la
+        // ~/Documents che l'utente conosce -- quindi il pannello si apriva su una
+        // cartella vuota e spaesante. La home reale il Powerbox la mostra
+        // correttamente, ed e' anche la base della destinazione predefinita se
+        // l'utente non sceglie (vedi sotto): le due cose restano coerenti.
         QString defaultPath = QDir::homePath();
         QString selectedPath = QFileDialog::getExistingDirectory(this, "Select Master Folder", defaultPath);
 
+        // PANNELLO CHIUSO SENZA SCEGLIERE: non si installa nulla, su NESSUN canale.
+        //
+        // Nessun fallback e' difendibile, e sotto sandbox non ne esiste uno che
+        // funzioni: qualunque cartella l'app scelga da se' e' o non autorizzata
+        // (fuori dal container il bookmark si salva ma non concede nulla) o
+        // invisibile all'utente. E nell'invisibile ci si finiva senza volerlo:
+        // sotto sandbox QDir::homePath() NON e' /Users/<nome> ma la home del
+        // container, quindi il vecchio fallback installava la libreria in
+        // .../Containers/<UUID>/Data/SurfaceExplorer_Presets -- popolata e
+        // funzionante, ma introvabile dal Finder e impossibile da riempire coi
+        // propri preset (MISURATO sul bundle sandboxed).
+        //
+        // Anche fuori dalla sandbox il fallback faceva danni: creava
+        // ~/SurfaceExplorer_Presets in silenzio e la registrava come radice, da
+        // cui le "librerie fantasma" e i salvataggi che finivano in una cartella
+        // mentre l'utente ne guardava un'altra.
+        //
+        // Un solo comportamento su DMG e App Store: si dice che non e' stato
+        // installato niente e come rimediare. La libreria resta vuota -- stato
+        // legittimo e reversibile, non un guasto.
         if (selectedPath.isEmpty()) {
-            rootPath = defaultPath + "/SurfaceExplorer_Presets";
-        } else {
-            selectedPath = QDir::cleanPath(selectedPath);
-            rootPath = selectedPath + "/presets";
+            QMessageBox box(this);
+            box.setIcon(QMessageBox::Information);
+            box.setWindowTitle("Library Not Installed");
+            box.setText("No folder was selected, so nothing was installed.");
+            box.setInformativeText(
+                "Your library is empty for now — nothing has been created or changed.\n\n"
+                "To install the presets, click 'Restore Factory Presets' in the Library "
+                "panel: it will ask you where to keep them.");
+            box.exec();
+            return;
         }
+
+        // La cartella indicata puo' essere GIA' la radice della libreria: in quel
+        // caso si prende com'e', altrimenti si scende nella sottocartella dei
+        // preset. Appendere sempre "/presets" creava una libreria annidata dentro
+        // quella esistente. Unico punto che decide: resolveLibraryRoot.
+        rootPath = resolveLibraryRoot(selectedPath);
+        selectedPath = QDir::cleanPath(selectedPath);
 
         QDir().mkpath(rootPath);
         settings.setValue("libraryRootPath", rootPath);
+        // FLUSH IMMEDIATO, non alla distruzione dell'oggetto.
+        //
+        // Misurato: senza questo la radice appena scelta non sopravviveva alla
+        // sessione -- all'avvio dopo `libraryRootPath` risultava assente, il gate
+        // qui sotto la leggeva vuota e l'utente si ritrovava la domanda "dove
+        // installo la libreria" a ogni apertura, con i preset regolarmente
+        // presenti su disco. Su macOS le preferenze passano da cfprefsd, che
+        // decide LUI quando scrivere: il valore resta in memoria e una
+        // terminazione che non lo aspetta lo perde. sync() lo forza subito, ed e'
+        // il momento giusto per farlo -- l'utente ha appena scelto la cartella e
+        // tutto il resto (creazione rami, estrazione risorse) dipende da questo
+        // valore.
+        settings.sync();
+        if (settings.status() != QSettings::NoError) {
+            qWarning() << "Libreria: impossibile salvare la radice" << rootPath
+                       << "-- status" << settings.status();
+        }
         // Bookmark SUBITO dopo il pannello di sistema: e' l'unico momento in cui
         // sotto sandbox abbiamo il diritto su questa cartella. Senza, al prossimo
         // avvio il percorso verrebbe risolto dentro il container (vuoto) e la
@@ -13205,6 +13328,42 @@ QString MainWindow::presetsRootPath() const {
 #else
     return QSettings().value("libraryRootPath").toString();
 #endif
+}
+
+// RADICE DELLA LIBRERIA da una cartella indicata dall'utente in un pannello.
+//
+// Chi sceglie puo' ragionevolmente indicare due cose diverse, e questa funzione
+// e' l'UNICO punto che decide quale delle due ha in mano:
+//  - la radice della libreria vera e propria (dentro c'e' gia' almeno uno dei
+//    quattro rami): si prende COM'E'. Appendere qui creava "presets/presets",
+//    con i preset di fabbrica installati nel livello annidato e i rami
+//    originali lasciati vuoti -- la libreria che l'utente guardava non era
+//    quella che l'app usava;
+//  - la cartella che la CONTIENE: si scende nella sottocartella dei preset,
+//    riusandola se esiste gia'.
+//
+// Il nome della sottocartella si legge DA DISCO con entryList, non si indovina:
+// i due punti che la creano non concordano ("Presets" in onAddRepositoryClicked,
+// "presets" in setupDefaultFolders) e su APFS -- non case-sensitive --
+// QDir::exists("Presets") risponde true anche per "presets". Chiedendo per nome
+// si salverebbe un percorso con la maiuscola sbagliata: innocuo per il
+// filesystem, non per i bookmark di sandbox ne' per i confronti fra stringhe.
+QString MainWindow::resolveLibraryRoot(const QString &pickedDir)
+{
+    const QString clean = QDir::cleanPath(pickedDir);
+    if (clean.isEmpty()) return clean;
+
+    const QDir dir(clean);
+    const bool isLibraryRoot =
+           dir.exists("surfaces") || dir.exists("textures")
+        || dir.exists("records")  || dir.exists("sounds");
+    if (isLibraryRoot) return clean;
+
+    QString sub = QStringLiteral("presets");
+    const QStringList hits = dir.entryList(QStringList() << QStringLiteral("presets"),
+                                           QDir::Dirs | QDir::NoDotAndDotDot);
+    if (!hits.isEmpty()) sub = hits.first();   // nome reale su disco
+    return clean + "/" + sub;
 }
 
 bool MainWindow::resolveNeedsCopy(const QString& src, const QString& dst,

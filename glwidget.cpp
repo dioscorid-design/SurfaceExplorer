@@ -42,10 +42,26 @@
 // usano 1; il buffer cresce da solo se uno script dichiara piu' parti.
 static const int kInitialUboBlocks = 8;
 
+// Ultima risorsa di shader NON caricabile dal .qrc. Vuota = tutto bene.
+// Serve a distinguere due guasti che a valle si presentano identici (shader non
+// valido, pipeline non costruite, schermo vuoto) ma hanno cause opposte:
+//   - lo script dell'utente non compila     -> il baker riporta l'errore GLSL;
+//   - la RISORSA non c'e' proprio nel binario -> il baker riceve sorgente VUOTO
+//     e fallisce con errorMessage() VUOTO, senza dire perche'.
+// Nel secondo caso l'avviso all'utente parlava di conflitti fra texture - una
+// spiegazione plausibile ma FALSA, che manda a cercare nella direzione sbagliata
+// (successo davvero: build Xcode col qrc_resources_CMAKE_.cpp della sola
+// configurazione Debug a 0 byte, mentre da Qt Creator andava tutto).
+QString g_lastMissingShaderResource;
+
 QString loadShaderSource(const QString& path) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         qWarning() << "Errore caricamento shader:" << path;
+        // Si ricorda QUALE risorsa manca: e' l'informazione che rende
+        // riconoscibile un binario costruito male, e a valle non e' piu'
+        // ricavabile (il sorgente vuoto e' indistinguibile da un altro vuoto).
+        g_lastMissingShaderResource = path;
         return "";
     }
     QTextStream in(&file);
@@ -5058,6 +5074,25 @@ QShader GLWidget::bakeShader(const QByteArray &source, QShader::Stage stage)
         // superficie in silenzio (le pipeline vengono azzerate) e l'unica
         // traccia era una riga sulla console, che l'utente non vede.
         m_lastCompilationError = baker.errorMessage();
+
+        // RISORSA MANCANTE, non errore dell'utente. Se un loadShaderSource e'
+        // fallito, il sorgente passato al baker e' vuoto o monco: il fallimento
+        // NON viene dallo script, e l'avviso standard ("una texture dichiara un
+        // simbolo gia' usato") sarebbe una spiegazione falsa. Qui si sostituisce
+        // con la causa vera, che e' un guasto di BUILD e non qualcosa che
+        // l'utente possa correggere dall'interfaccia.
+        // Il segno distintivo e' proprio errorMessage() VUOTO: il compilatore non
+        // ha nulla da dire perche' non ha ricevuto codice.
+        if (!g_lastMissingShaderResource.isEmpty()) {
+            m_lastCompilationError =
+                QStringLiteral("Internal error: the built-in shader resource \"%1\" is "
+                               "missing from the application bundle, so no shader code "
+                               "could be compiled.\n"
+                               "This is a packaging problem, not a problem with your "
+                               "surface or texture: reinstalling the application should "
+                               "fix it.")
+                    .arg(g_lastMissingShaderResource);
+        }
     }
     return shader;
 }
@@ -5078,6 +5113,13 @@ void GLWidget::buildPipeline() {
         { 0, 1, QRhiVertexInputAttribute::Float4, offsetof(Vertex, normal)   },
         { 0, 2, QRhiVertexInputAttribute::Float2, offsetof(Vertex, texCoord) }
     });
+
+    // Si riparte da zero: la traccia vale per QUESTO giro di build, altrimenti
+    // una risorsa mancante letta una volta continuerebbe a spiegare come
+    // "bundle rotto" ogni errore successivo, compresi quelli veri dell'utente.
+    // Va azzerata PRIMA di generare i sorgenti, che e' cio' che rilegge le
+    // risorse dal .qrc.
+    g_lastMissingShaderResource.clear();
 
     QString vsSource = createVertexShaderSource(m_eqX, m_eqY, m_eqZ, m_eqW);
     QString fsSource = createFragmentShaderSource(m_customFragmentCode);
