@@ -1,6 +1,5 @@
 <RCC>
     <qresource prefix="/library">
-        <file>presets/surfaces/Scherk's Second Surface.json</file>
         <file>presets/surfaces/Ray Marching/Sphere and Six Tori Merge.json</file>
         <file>presets/surfaces/Ray Marching/ThickIso.json</file>
         <file>presets/surfaces/Ray Marching/Tangle Cube.json</file>
@@ -93,13 +92,14 @@
         <file>presets/surfaces/Parametric/Equations/S3/Clifford's Torus1.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Non-orientable/Roman Surface.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Non-orientable/Klein Bottle.json</file>
+        <file>presets/surfaces/Parametric/Equations/NIL/Twisted Nil Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Heisenberg Plane.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Cuspid Koranyi Sphere.json</file>
-        <file>presets/surfaces/Parametric/Equations/NIL/Cone Distorsion.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/NIL Helicoid.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Heisenberg Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Wave Cylinder.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Koranyi Sphere.json</file>
+        <file>presets/surfaces/Parametric/Equations/NIL/Berestovskii Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/H3/Enneper.json</file>
         <file>presets/surfaces/Parametric/Equations/H3/Mobius Band.json</file>
         <file>presets/surfaces/Parametric/Equations/H3/Sphere.json</file>
@@ -145,6 +145,7 @@
         <file>presets/surfaces/Parametric/Equations/R3/Ennepper.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Kuen.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Riemann Surface.json</file>
+        <file>presets/surfaces/Parametric/Equations/R3/Scherk's Second Surface.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Traxial Hexatorus.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Shell_1.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Tube_4D.json</file>
@@ -152,7 +153,6 @@
         <file>presets/surfaces/Parametric/Equations/R3/Sevenfold Twisted Elliptic Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Helix.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Hyperbolic Helicoid.json</file>
-        <file>presets/surfaces/Parametric/Equations/R3/NIL Sphere1.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Jeener-Klein N-Bottle.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Oloid.json</file>
@@ -173,7 +173,6 @@
         <file>presets/surfaces/Parametric/Equations/R3/Pseudo Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Undersea.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Richmond Polar.json</file>
-        <file>presets/surfaces/Parametric/Equations/R3/Nil Sphere2.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Toupie.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Helicoid.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Dini's Spiral.json</file>
