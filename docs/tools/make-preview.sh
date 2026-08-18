@@ -3,12 +3,17 @@
 # make-preview.sh — builds the preview clip for docs/videos.html out of an
 # export produced by the application.
 #
-#   ./docs/tools/make-preview.sh <video> <name> [start-second] [duration]
+#   ./docs/tools/make-preview.sh <video> <name> [start-second] [duration] [subfolder]
 #
-#   ./docs/tools/make-preview.sh presets/renders/3-torus.mp4 3-torus 12
+#   ./docs/tools/make-preview.sh 3-torus.mp4 3-torus 12
 #
-# Writes docs/media/<name>.mp4 (silent clip, looped on the page) and
-# docs/media/<name>-poster.jpg (still frame shown while it loads).
+# The source may be a path (absolute or relative) or just the file name: a bare
+# name is looked up in ../presets/renders, where the application writes its
+# exports.
+#
+# Writes docs/media/Videos/<name>.mp4 (silent clip) and
+# docs/media/Videos/<name>-poster.jpg (still frame shown while it loads).
+# The fifth argument overrides the subfolder (default: Videos).
 #
 # Remember: the files must be COMMITTED to appear on the site. GitHub Pages
 # serves only what is in the repository — see docs/tools/README.md.
@@ -45,8 +50,20 @@ NAME="$2"
 START="${3:-5}"
 DUR="${4:-5}"
 
+# CARTELLA DEGLI EXPORT: i render prodotti dall'applicazione stanno in
+# C/presets/renders, cioe' FUORI dal repository (un livello sopra). Se $SRC non
+# esiste come scritto, lo si cerca li' prima di arrendersi: cosi' basta il nome
+# del file, senza percorso, da qualunque cartella si lanci lo script.
+# L'uscita invece resta sempre dentro docs/ (vedi OUTDIR piu' sotto): GitHub
+# Pages serve solo quello che sta li'.
+RENDERS="$(cd "$(dirname "$0")/../../.." && pwd)/presets/renders"
+if [ ! -f "$SRC" ] && [ -f "$RENDERS/$SRC" ]; then
+    SRC="$RENDERS/$SRC"
+fi
+
 if [ ! -f "$SRC" ]; then
     echo "Error: '$SRC' does not exist." >&2
+    echo "       Neither as given, nor in $RENDERS" >&2
     exit 1
 fi
 
@@ -58,7 +75,13 @@ fi
 # Repository root, so the script works from any directory.
 # It lives in docs/tools/, so the root is two levels up.
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-OUTDIR="$ROOT/docs/media"
+# SOTTOCARTELLA: docs/media e' diviso per tipo (Videos, Gallery/Parametric,
+# Gallery/Implicit, Gallery/Textures). I video vanno in Videos; il quinto
+# argomento permette di scriverne altrove senza modificare lo script.
+# L'uscita resta comunque DENTRO docs/: GitHub Pages serve solo quello che sta
+# li', quindi scrivere fuori significherebbe 404 sul sito.
+SUBDIR="${5:-Videos}"
+OUTDIR="$ROOT/docs/media/$SUBDIR"
 mkdir -p "$OUTDIR"
 
 OUT="$OUTDIR/$NAME.mp4"
@@ -93,8 +116,8 @@ SIZE=$(awk -v b="$(wc -c < "$OUT")" 'BEGIN { printf "%.2f", b/1048576 }')
 
 echo
 echo "Created:"
-echo "  docs/media/$NAME.mp4          ($SIZE MB)"
-echo "  docs/media/$NAME-poster.jpg"
+echo "  docs/media/$SUBDIR/$NAME.mp4          ($SIZE MB)"
+echo "  docs/media/$SUBDIR/$NAME-poster.jpg"
 echo
 if awk -v s="$SIZE" 'BEGIN { exit !(s > 5) }'; then
     echo "WARNING: over 5 MB. Shorten the clip (duration argument) or raise the"

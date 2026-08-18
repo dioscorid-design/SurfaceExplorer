@@ -13,7 +13,7 @@ does not exist as far as the site is concerned — the page asks for it and gets
 
 So every publication takes these four steps:
 
-    1. put the file in docs/media/
+    1. put the file in the right subfolder of docs/media/
     2. add the HTML block to the page (docs/gallery.html or docs/videos.html)
     3. git add the FILE **and** the PAGE          <-- the step people forget
     4. git commit && git push
@@ -23,24 +23,25 @@ or a video that will not play, while everything looks fine locally.
 
 The site rebuilds itself after a push (about a minute). To check:
 
-    curl -o /dev/null -w "%{http_code}\n" https://dioscorid-design.github.io/SurfaceExplorer/media/NAME.mp4
+    curl -o /dev/null -w "%{http_code}\n" https://dioscorid-design.github.io/SurfaceExplorer/media/Videos/NAME.mp4
 
 ### Adding an image
 
-    1. save it into docs/media/ (PNG for flat shading and wireframes, JPEG q~85
+    1. save it into docs/media/Gallery/<Parametric|Implicit|Textures>/
+       (PNG for flat shading and wireframes, JPEG q~85
        for gradients and textures; 1600 px wide is plenty, keep under ~1 MB)
     2. in docs/gallery.html copy the <figure> block from the template (it is in
        an HTML comment at the top), then change file name and caption
-    3. git add docs/media/NAME.png docs/gallery.html
+    3. git add docs/media/Gallery/<sezione>/NAME.png docs/gallery.html
     4. git commit && git push
 
 ### Adding a video
 
     1. ./docs/tools/make-preview.sh <video> <name> <start-second>
-       -> writes docs/media/<name>.mp4 and <name>-poster.jpg
+       -> writes docs/media/Videos/<name>.mp4 and <name>-poster.jpg
     2. upload the FULL video to YouTube and copy its link
     3. in docs/videos.html uncomment the template block, fill in name and link
-    4. git add docs/media/<name>.mp4 docs/media/<name>-poster.jpg docs/videos.html
+    4. git add docs/media/Videos/<name>.mp4 docs/media/Videos/<name>-poster.jpg docs/videos.html
     5. git commit && git push
 
 ### What to commit and what not to
@@ -82,7 +83,13 @@ Builds the preview clip for `docs/videos.html`:
     ./docs/tools/make-preview.sh presets/renders/3-torus.mp4 3-torus 12
 
 Arguments: source file, output name, start second (default 5), duration
-(default 5). Writes `docs/media/<name>.mp4` and `docs/media/<name>-poster.jpg`.
+(default 5). Writes `docs/media/Videos/<name>.mp4` and the matching poster.
+
+The source may be a full path or just the file name: a bare name is looked up in
+`../presets/renders` (outside the repository), where the application writes its
+exports. The OUTPUT always stays inside `docs/` — GitHub Pages serves nothing
+else.
+A fifth argument overrides the subfolder (default `Videos`).
 
 It trims the clip, scales it to 1080p24 at crf 26, strips the audio and grabs
 the poster frame. It touches neither the pages nor git: the HTML block and the
@@ -115,6 +122,11 @@ that fails the build when a page is missing from the `.qrc`.
     docs/            the published SITE
       *.html         the pages
       media/         images and video previews served to the browser
+        Gallery/       still images, one folder per gallery section
+          Parametric/  equation-driven surfaces
+          Implicit/    ray-marched surfaces
+          Textures/    procedural materials
+        Videos/        preview clips and their posters
       tools/         these scripts
 
 GitHub Pages is configured on branch `v1`, folder `/docs`, and in "deploy from a

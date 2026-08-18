@@ -165,10 +165,10 @@
 
                ffmpeg -ss 12 -t 5 -i input.mp4 -vf "scale=1920:-2,fps=24" \
                       -c:v libx264 -crf 26 -preset slow -movflags +faststart \
-                      -an docs/media/3-torus.mp4
+                      -an docs/media/Videos/brieskorn-pham-3-5.mp4
 
-               ffmpeg -i docs/media/3-torus.mp4 -vframes 1 -q:v 3 \
-                      docs/media/3-torus-poster.jpg
+               ffmpeg -i docs/media/Videos/brieskorn-pham-3-5.mp4 -vframes 1 -q:v 3 \
+                      docs/media/Videos/brieskorn-pham-3-5-poster.jpg
 
         2. Upload the full video to YouTube and copy its URL.
 
@@ -186,8 +186,8 @@
 
         <div class="clip">
             <div class="frame">
-                <video src="media/NAME.mp4" poster="media/NAME-poster.jpg"
-                       loop muted autoplay playsinline preload="metadata"></video>
+                <video src="media/Videos/NAME.mp4" poster="media/Videos/NAME-poster.jpg"
+                       controls muted playsinline preload="metadata"></video>
                 <span class="preview-tag">Preview &middot; 5 s</span>
             </div>
             <div class="meta">
@@ -203,18 +203,22 @@
         ----- to here -----
     -->
 
-    <div class="empty">
-        No videos yet.
-        <p style="margin-top:10px; font-size:14px;">
-            <strong>To add one:</strong> run
-            <code>docs/tools/make-preview.sh &lt;video&gt; &lt;name&gt; &lt;start-second&gt;</code>
-            &mdash; it writes the clip and its poster into <code>docs/media/</code>.
-            Upload the full video to YouTube, uncomment the template block in this
-            file (see the HTML comment above) and fill in name and link. Then
-            <strong>commit the media files together with this page</strong> and push:
-            GitHub Pages only serves what is committed, so a clip left uncommitted
-            gives a 404. Full instructions in <code>docs/tools/README.md</code>.
-        </p>
+    <div class="clip">
+        <div class="frame">
+            <video src="media/Videos/brieskorn-pham-3-5.mp4" poster="media/Videos/brieskorn-pham-3-5-poster.jpg"
+                   controls muted playsinline preload="metadata"></video>
+            <span class="preview-tag">Preview &middot; 3 s</span>
+        </div>
+        <div class="meta">
+            <h2>bieskorn-pham-3-5</h2>
+            <!-- Quando il video integrale e' su YouTube, togli i marcatori di
+                 commento qui sotto e incolla il link al posto di VIDEO_ID.
+            <a class="watch-hd" href="https://youtu.be/VIDEO_ID">
+                Watch in HD <span class="yt">on YouTube</span>
+            </a>
+            -->
+            <p class="specs">Preview 1080p &middot; full version 30 s</p>
+        </div>
     </div>
 
     <div class="note">

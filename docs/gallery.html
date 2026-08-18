@@ -67,7 +67,10 @@
             width: 100%;
             height: auto;
             background: #101010;
+            cursor: zoom-in;
+            transition: opacity .15s;
         }
+        figure a:hover img { opacity: .85; }
         figcaption {
             padding: 11px 14px;
             font-size: 14px;
@@ -122,7 +125,8 @@
     <!--
         HOW TO ADD AN IMAGE
         ===================
-        1. Drop the file into docs/media/
+        1. Drop the file into the right subfolder of docs/media/Gallery/
+           (Parametric, Implicit or Textures)
         2. Copy the template below into the right section, remove the comment
            markers, and change file name, title and subtitle
         3. Commit and push: the site rebuilds on its own
@@ -139,7 +143,9 @@
         <div class="gallery">
 
             <figure>
-                <img src="media/NAME.png" alt="DESCRIPTION" loading="lazy">
+                <a href="media/Gallery/Parametric/NAME.png" target="_blank" rel="noopener">
+                    <img src="media/Gallery/Parametric/NAME.png" alt="DESCRIPTION" loading="lazy">
+                </a>
                 <figcaption>
                     TITLE
                     <span class="sub">preset name, or what makes it interesting</span>
@@ -154,18 +160,17 @@
     <h2>Parametric surfaces</h2>
     <p class="section-note">Equation-driven geometries, including 4D shapes projected down to three dimensions.</p>
 
-    <div class="empty">
-        No images yet.
-        <p style="margin-top:10px; font-size:14px;">
-            <strong>To add one:</strong> save the screenshot into
-            <code>docs/media/</code> (PNG for flat shading and wireframes, JPEG for
-            gradients and textures, under ~1 MB). Copy a
-            <code>&lt;figure&gt;</code> block in this file &mdash; the template is in
-            the HTML comment just above &mdash; and change file name and caption. Then
-            <strong>commit the image together with this page</strong> and push:
-            GitHub Pages only serves what is committed, so an image left uncommitted
-            gives a 404. Full instructions in <code>docs/tools/README.md</code>.
-        </p>
+    <div class="gallery">
+
+        <figure>
+            <a href="media/Gallery/Parametric/brieskorn-pham-3-5.jpg" target="_blank" rel="noopener">
+                <img src="media/Gallery/Parametric/brieskorn-pham-3-5.jpg" alt="Surface rendered with Surface Explorer" loading="lazy">
+            </a>
+            <figcaption>
+                Brieskorn_Pham (3,5)
+            </figcaption>
+        </figure>
+
     </div>
 
     <h2>Implicit surfaces</h2>
