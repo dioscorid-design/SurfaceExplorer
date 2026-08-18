@@ -42,6 +42,8 @@
         "y": "A * sin(U) * cos(V)",
         "z": "A * sin(U) * sin(V) * cos(W)"
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A and B active on this shape",
     "lightIntensity": 1,
     "lightingMode": 1,
     "limits": {

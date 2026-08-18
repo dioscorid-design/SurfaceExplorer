@@ -55,6 +55,8 @@
         "v0": "",
         "w0": ""
     },
+    "hintSeconds": 8,
+    "hintText": "Sliders A and B active: semi-axes of the elliptic section. C = 1/7: one full twist over seven loops, so the surface closes",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
@@ -74,7 +76,7 @@
         "zMin": -1000
     },
     "meshScopeAll": true,
-    "name": "Twisted Elliptic Torus1",
+    "name": "Sevenfold Twisted Elliptic Torus",
     "projectionMode": 1,
     "renderMode": 0,
     "steps": 300,
@@ -83,7 +85,5 @@
     "wireframe": {
         "uStep": 4,
         "vStep": 4
-    },
-    "hintText": "A, B: ellipse semi-axes  |  C: set it to 1/n for the torus to close up  |  D: torus radius",
-    "hintSeconds": 8
+    }
 }

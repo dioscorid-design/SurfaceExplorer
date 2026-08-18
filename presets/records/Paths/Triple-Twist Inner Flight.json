@@ -1,4 +1,5 @@
 {
+    "activeMotion": "path3D",
     "angles": {
         "omega": 0,
         "phi": 0,
@@ -16,7 +17,7 @@
         "yaw": 0,
         "z": 3.399998426437378
     },
-    "cameraFov": 69,
+    "cameraFov": 90,
     "colors": {
         "alpha": 1,
         "b": 0.20000000298023224,
@@ -44,7 +45,7 @@
         "y": "(1 + A*cos(v)*cos(u/3) - B*sin(v)*sin(u/3))*sin(u)",
         "z": "A*cos(v)*sin(u/3) + B*sin(v)*cos(u/3)"
     },
-    "fov3D": 69,
+    "fov3D": 90,
     "fov4D": 69,
     "geodesic": {
         "conform": "1.0",
@@ -55,6 +56,8 @@
         "v0": "",
         "w0": ""
     },
+    "hintSeconds": 8,
+    "hintText": "Sliders A and B active on this shape",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
@@ -73,11 +76,38 @@
         "zMin": -1000
     },
     "meshScopeAll": true,
-    "name": "NewSurface",
+    "name": "Triple-Twist Inner Flight",
+    "path3D": {
+        "roll": "",
+        "x": "cos(t)",
+        "y": "sin(t)",
+        "z": "0"
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "pathMode3D": 0,
     "projectionMode": 1,
     "renderMode": 1,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 12,
+        "path4D": 0,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
     "steps": 381,
-    "type": "surface",
+    "type": "motion",
     "use4DLighting": false,
     "wireframe": {
         "uStep": 4,

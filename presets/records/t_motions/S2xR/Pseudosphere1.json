@@ -53,6 +53,8 @@
         "y": "A*sin(U)/cosh(V)",
         "z": "B*(V-tanh(V))"
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A, B and D active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

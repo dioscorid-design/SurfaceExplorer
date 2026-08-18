@@ -42,6 +42,8 @@
         "y": "A*(sin(u)*cos(v)/(-2.0*sqrt(0.321667-0.311667*((pow(cos(u),4)+pow(sin(u),4))*pow(cos(v),4)+pow(sin(v),4)))*cos((acos(-(-0.156833+0.374*((pow(cos(u),4)+pow(sin(u),4))*pow(cos(v),4)+pow(sin(v),4))-0.218167*((pow(cos(u),6)+pow(sin(u),6))*pow(cos(v),6)+pow(sin(v),6))-1.221*pow(cos(u),2)*pow(cos(v),4)*pow(sin(u),2)*pow(sin(v),2))/pow(0.321667-0.311667*((pow(cos(u),4)+pow(sin(u),4))*pow(cos(v),4)+pow(sin(v),4)), 1.5))-3.14159)/3.0)+0.8)) * (1.0-0.4*NoiseW(6.0*cos(u)*cos(v), 6.0*sin(u)*cos(v), 6.0*sin(v), 4, 2.0, 0.5))",
         "z": "A*(sin(v)/(-2.0*sqrt(0.321667-0.311667*((pow(cos(u),4)+pow(sin(u),4))*pow(cos(v),4)+pow(sin(v),4)))*cos((acos(-(-0.156833+0.374*((pow(cos(u),4)+pow(sin(u),4))*pow(cos(v),4)+pow(sin(v),4))-0.218167*((pow(cos(u),6)+pow(sin(u),6))*pow(cos(v),6)+pow(sin(v),6))-1.221*pow(cos(u),2)*pow(cos(v),4)*pow(sin(u),2)*pow(sin(v),2))/pow(0.321667-0.311667*((pow(cos(u),4)+pow(sin(u),4))*pow(cos(v),4)+pow(sin(v),4)), 1.5))-3.14159)/3.0)+0.8)) * (1.0-0.4*NoiseW(6.0*cos(u)*cos(v), 6.0*sin(u)*cos(v), 6.0*sin(v), 4, 2.0, 0.5))"
     },
+    "hintSeconds": 6,
+    "hintText": "Slider A active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

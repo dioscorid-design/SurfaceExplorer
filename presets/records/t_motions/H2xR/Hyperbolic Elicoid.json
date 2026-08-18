@@ -53,6 +53,8 @@
         "y": "A * tanh(U/2) * sin(V)",
         "z": "B * W"
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A-D active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

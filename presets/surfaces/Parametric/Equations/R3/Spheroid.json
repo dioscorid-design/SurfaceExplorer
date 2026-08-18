@@ -42,6 +42,8 @@
         "y": "A*(cos(u)*sin(v)+cos((sin(u)+1)*2*pi))",
         "z": "4*A*sin(u)"
     },
+    "hintSeconds": 6,
+    "hintText": "Slider A active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

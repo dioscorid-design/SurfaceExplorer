@@ -42,6 +42,8 @@
         "y": "A*(cos(u) * sin(v) * pow(pow(abs(cos(u/4.0)), 0.5) + pow(abs(sin(u/4.0)), 0.5), -10.0/3.0) * pow(pow(abs(cos(5.0*v/4.0)), 1.7) + pow(abs(sin(5.0*v/4.0)), 1.7), -10.0))",
         "z": "A*(sin(u) * pow(pow(abs(cos(u/4.0)), 0.5) + pow(abs(sin(u/4.0)), 0.5), -10.0/3.0))"
     },
+    "hintSeconds": 6,
+    "hintText": "Slider A active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

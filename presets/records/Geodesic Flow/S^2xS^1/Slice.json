@@ -65,6 +65,8 @@
         "v0": "pi/2",
         "w0": "u"
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A and B active on this shape",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

@@ -42,6 +42,8 @@
         "y": "A*u*sin(v)",
         "z": "A*(w*v+(1/2)*u*u*sin(2*v))"
     },
+    "hintSeconds": 6,
+    "hintText": "Slider A active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

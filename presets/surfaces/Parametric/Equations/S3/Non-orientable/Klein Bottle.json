@@ -22,6 +22,8 @@
         "y": "A * sin(u) * cos(v)",
         "z": "A * cos(B*u) * sin(v)"
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A and B active on this shape",
     "lightingMode": 0,
     "limits": {
         "uMax": 6.2831854820251465,

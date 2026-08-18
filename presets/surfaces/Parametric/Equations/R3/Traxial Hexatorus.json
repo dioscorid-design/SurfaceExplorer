@@ -42,6 +42,8 @@
         "y": "A*(sin(u+2*pi/3)/(sqrt(2)+cos(v+2*pi/3)))",
         "z": "A*(cos(u-2*pi/3)/(sqrt(2)+cos(v-2*pi/3)))"
     },
+    "hintSeconds": 6,
+    "hintText": "Slider A active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

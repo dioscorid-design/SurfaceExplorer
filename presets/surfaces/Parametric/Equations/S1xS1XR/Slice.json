@@ -42,6 +42,8 @@
         "y": "A*(B+C*cos(u))*sin(v)",
         "z": "A*C*sin(u)"
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A-C active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

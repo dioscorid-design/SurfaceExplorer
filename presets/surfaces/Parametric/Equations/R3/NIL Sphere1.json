@@ -42,6 +42,8 @@
         "y": "A * (abs(v) < 0.0001 ? 1.0 : (2.0 * sin(v/2.0) / v)) * sin(u)",
         "z": "A * (abs(v) < 0.0001 ? 0.0 : (v - sin(v)) / (2.0 * v * v))"
     },
+    "hintSeconds": 6,
+    "hintText": "Slider A active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

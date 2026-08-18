@@ -53,6 +53,8 @@
         "y": "v* A * sin(u)",
         "z": "(1 - abs(v)) * A * sin(w)"
     },
+    "hintSeconds": 6,
+    "hintText": "Slider A active on this shape",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

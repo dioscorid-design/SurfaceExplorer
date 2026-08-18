@@ -42,6 +42,8 @@
         "y": "A*u*sin(v)",
         "z": "A*exp(-u*u)*(sin(2*pi*u)-u*cos(3*v))"
     },
+    "hintSeconds": 6,
+    "hintText": "Slider A active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

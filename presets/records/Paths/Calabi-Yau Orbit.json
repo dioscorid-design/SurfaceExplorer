@@ -72,7 +72,7 @@
         "w0": ""
     },
     "hintSeconds": 8,
-    "hintText": "Camera orbits the quintic (A=5) on a tilted circle, always clear of the surface",
+    "hintText": "Sliders A and B active on this shape",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
@@ -101,54 +101,30 @@
             "texCode": "vec2 g = floor(vec2(u, v) * 8.0);\nfloat c = mod(g.x + g.y, 2.0);\nreturn mix(u_col1, u_col2, c);",
             "texOn": true
         },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        }
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {}
     ],
     "meshScopeAll": true,
     "name": "Calabi-Yau Orbit",
@@ -172,7 +148,7 @@
     "pathMode3D": 1,
     "projectionMode": 1,
     "renderMode": 0,
-    "scriptCode": "//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n\n// Calabi-Yau: sezione 2D della quintica di Fermat, grado n scelto dallo slider.\n//   z1^n + z2^n = 1,  con z1,z2 complessi\n// Per ogni coppia di radici n-esime dell'unita' (k1,k2) c'e' una patch:\n//   z1 = e^(2 pi i k1/n) * (cos w)^(2/n)\n//   z2 = e^(2 pi i k2/n) * (sin w)^(2/n)     con w = u + i v\n// Con n = 5 e' la figura canonica delle illustrazioni sulla teoria delle stringhe.\n//\n// GRADO INTERO: le griglie sono STATICHE (si leggono al Run), quindi ne dichiariamo\n// il massimo -- 25 = 5x5 -- e scartiamo le eccedenti nel cutout. Gli indici\n// restano in base 5 SEMPRE: k1 = mesh % 5, k2 = mesh / 5. Sopravvivono le patch\n// con ENTRAMBI gli indici < n, non le prime n*n in ordine.\n//\n// VERSIONE 3D: la quarta dimensione e' proiettata QUI dentro, mescolata nella\n// z dall'angolo B (0.785 = pi/4 e' l'inquadratura canonica). La componente w\n// del vec4 resta 0, quindi la figura non dipende dalle rotazioni 4D.\n\nA := int(2,5);          // grado della quintica: slider a scatti interi\nMESH_VISIBLE := A*A;    // quante griglie sopravvivono al cutout\n\nfloat n  = clamp(floor(A + 0.5), 2.0, 5.0);\nfloat k1 = mod(float(mesh), 5.0);\nfloat k2 = floor(float(mesh) / 5.0);\nfloat p  = 2.0 / n;\n\n// w = u + i v;  cos(w) e sin(w) complessi\nvec2 cw = vec2( cos(u) * cosh(v), -sin(u) * sinh(v));\nvec2 sw = vec2( sin(u) * cosh(v),  cos(u) * sinh(v));\n\n// Potenza complessa in forma polare. Sul dominio dichiarato Re(cos w) e\n// Re(sin w) restano POSITIVE: l'argomento sta in (-pi/2, pi/2), lontano dal\n// salto di atan, quindi niente taglio di ramo ne' cuciture fra patch.\nfloat rc = safePow(length(cw), p);\nfloat tc = p * atan(cw.y, cw.x);\nfloat rs = safePow(length(sw), p);\nfloat ts = p * atan(sw.y, sw.x);\n\n// Radici n-esime dell'unita': e^(2 pi i k/n)\nfloat a1 = 2.0 * pi * k1 / n;\nfloat a2 = 2.0 * pi * k2 / n;\n\nvec2 z1 = rc * vec2(cos(tc + a1), sin(tc + a1));\nvec2 z2 = rs * vec2(cos(ts + a2), sin(ts + a2));\n\n// R^4 -> R^3: le due parti reali, le immaginarie mescolate dall'angolo B\nreturn vec4(z1.x,\n            z2.x,\n            cos(B) * z1.y + sin(B) * z2.y,\n            0.0);\n\n//CUTOUT_BEGIN\n// Scarta le patch il cui indice di riga o colonna sfora il grado n scelto.\nfloat nc = clamp(floor(A + 0.5), 2.0, 5.0);\nreturn (mod(float(mesh), 5.0) > nc - 0.5) || (floor(float(mesh) / 5.0) > nc - 0.5);\n//CUTOUT_END\n",
+    "scriptCode": "//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n//MESH_BEGIN\nu: 0, pi/2, 40\nv: -1, 1, 40\n//MESH_END\n\n// Calabi-Yau: sezione 2D della quintica di Fermat, grado n scelto dallo slider.\n//   z1^n + z2^n = 1,  con z1,z2 complessi\n// Per ogni coppia di radici n-esime dell'unita' (k1,k2) c'e' una patch:\n//   z1 = e^(2 pi i k1/n) * (cos w)^(2/n)\n//   z2 = e^(2 pi i k2/n) * (sin w)^(2/n)     con w = u + i v\n// Con n = 5 e' la figura canonica delle illustrazioni sulla teoria delle stringhe.\n//\n// GRADO INTERO: le griglie sono STATICHE (si leggono al Run), quindi ne dichiariamo\n// il massimo -- 25 = 5x5 -- e scartiamo le eccedenti nel cutout. Gli indici\n// NON sono in base 5 fissa: si calcolano sulla griglia viva (k1 = mesh % n,\n// k2 = mesh / n), cosi' le patch superstiti sono le prime n*n e il contatore\n// delle mesh non offre mai numeri che puntano a patch scartate.\n//\n// VERSIONE 3D: la quarta dimensione e' proiettata QUI dentro, mescolata nella\n// z dall'angolo B (0.785 = pi/4 e' l'inquadratura canonica). La componente w\n// del vec4 resta 0, quindi la figura non dipende dalle rotazioni 4D.\n\nA := int(2,5);          // grado della quintica: slider a scatti interi\nMESH_VISIBLE := A*A;    // quante griglie sopravvivono al cutout\n\nfloat n  = clamp(floor(A + 0.5), 2.0, 5.0);\n// NUMERAZIONE COMPATTA: gli indici si calcolano sulla griglia VIVA (n x n),\n// non sulla base fissa 5. Cosi' le patch superstiti sono le PRIME n*n in ordine\n// di mesh, e il contatore dell'interfaccia (che mappa numero -> mesh come\n// value()-1) punta sempre a una patch che si vede davvero.\n// Con la vecchia base 5 le vive erano 0,1,2, 5,6,7, 10... e dal quarto numero in\n// poi il selettore cadeva su patch scartate dal cutout: slider inerti.\n// Le COPPIE (k1,k2) disegnate sono le stesse di prima: cambia l'indice che le\n// porta, non la figura.\nfloat k1 = mod(float(mesh), n);\nfloat k2 = floor(float(mesh) / n);\nfloat p  = 2.0 / n;\n\n// w = u + i v;  cos(w) e sin(w) complessi\nvec2 cw = vec2( cos(u) * cosh(v), -sin(u) * sinh(v));\nvec2 sw = vec2( sin(u) * cosh(v),  cos(u) * sinh(v));\n\n// Potenza complessa in forma polare. Sul dominio dichiarato Re(cos w) e\n// Re(sin w) restano POSITIVE: l'argomento sta in (-pi/2, pi/2), lontano dal\n// salto di atan, quindi niente taglio di ramo ne' cuciture fra patch.\nfloat rc = safePow(length(cw), p);\nfloat tc = p * atan(cw.y, cw.x);\nfloat rs = safePow(length(sw), p);\nfloat ts = p * atan(sw.y, sw.x);\n\n// Radici n-esime dell'unita': e^(2 pi i k/n)\nfloat a1 = 2.0 * pi * k1 / n;\nfloat a2 = 2.0 * pi * k2 / n;\n\nvec2 z1 = rc * vec2(cos(tc + a1), sin(tc + a1));\nvec2 z2 = rs * vec2(cos(ts + a2), sin(ts + a2));\n\n// R^4 -> R^3: le due parti reali, le immaginarie mescolate dall'angolo B\nreturn vec4(z1.x,\n            z2.x,\n            cos(B) * z1.y + sin(B) * z2.y,\n            0.0);\n\n//CUTOUT_BEGIN\n// Scarta le patch il cui indice di riga o colonna sfora il grado n scelto.\n// Scarta la CODA: con la numerazione compatta del corpo le patch vive sono le\n// prime nc*nc, quindi basta un confronto sull'indice. Il clamp resta replicato\n// identico al corpo (n), o le patch vive non coincidono.\nfloat nc = clamp(floor(A + 0.5), 2.0, 5.0);\nreturn float(mesh) > nc * nc - 0.5;\n//CUTOUT_END\n",
     "speeds": {
         "nutation": 0,
         "omega": 0,

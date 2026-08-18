@@ -42,6 +42,8 @@
         "y": "A*(1-v/(2*pi))*sin(3*v)*(1+cos(u))+C*sin(3*v)",
         "z": "B*v/(2*pi)+A*(1-v/(2*pi))*sin(u)"
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A-C active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

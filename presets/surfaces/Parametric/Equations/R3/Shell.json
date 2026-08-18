@@ -42,6 +42,8 @@
         "y": "2*A*(-1+exp(u/(6*pi)))*sin(u)*cos(v/2)*cos(v/2)",
         "z": "A*(1-exp(u/(3*pi))-sin(v)+exp(u/(6*pi))*sin(v))"
     },
+    "hintSeconds": 6,
+    "hintText": "Slider A active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

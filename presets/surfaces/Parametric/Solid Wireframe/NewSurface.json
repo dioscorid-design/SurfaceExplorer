@@ -50,7 +50,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Slider E: how many Hopf tori (1-9)",
+    "hintText": "Slider E active on this shape",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

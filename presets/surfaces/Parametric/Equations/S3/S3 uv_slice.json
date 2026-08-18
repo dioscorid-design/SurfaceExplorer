@@ -1,6 +1,4 @@
 {
-    "name": "S3 uv_slice",
-    "type": "motion",
     "colors": {
         "b": 0.20000000298023224,
         "g": 0.800000011920929,
@@ -24,6 +22,8 @@
         "y": "A * cos(w)*sin(u) * cos(v)",
         "z": "A * cos(w) * sin(v)"
     },
+    "hintSeconds": 6,
+    "hintText": "Slider A active on this shape",
     "lightingMode": 1,
     "limits": {
         "uMax": 6.2831854820251465,
@@ -33,9 +33,11 @@
         "wMax": 1.559999942779541,
         "wMin": -1.5700000524520874
     },
+    "name": "S3 uv_slice",
     "projectionMode": 1,
     "renderMode": 0,
     "showBorder": true,
     "steps": 750,
+    "type": "motion",
     "use4DLighting": false
 }

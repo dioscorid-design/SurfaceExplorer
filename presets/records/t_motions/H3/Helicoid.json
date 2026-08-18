@@ -53,6 +53,8 @@
         "y": "V * tanh(sqrt(U^2+V^2+W^2)/2) / (sqrt(U^2+V^2+W^2) + 0.00001)",
         "z": "W * tanh(sqrt(U^2+V^2+W^2)/2) / (sqrt(U^2+V^2+W^2) + 0.00001)"
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A, C and D active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

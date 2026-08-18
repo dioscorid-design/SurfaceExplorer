@@ -53,6 +53,8 @@
         "y": "V * exp(-E * sin(t * C))",
         "z": "W + E * sin(t * C)"
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A, C and E active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

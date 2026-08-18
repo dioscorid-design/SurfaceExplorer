@@ -62,6 +62,8 @@
         "v0": "",
         "w0": ""
     },
+    "hintSeconds": 6,
+    "hintText": "Slider A active on this shape",
     "isImplicitMode": false,
     "lightIntensity": 1.49,
     "lightingMode": 1,

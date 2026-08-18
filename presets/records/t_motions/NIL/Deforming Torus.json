@@ -53,6 +53,8 @@
         "y": "A*(V + D * cos(t))",
         "z": "A*(W + 0.5 * (C * sin(t) * V - D * cos(t) * U))"
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A-D active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

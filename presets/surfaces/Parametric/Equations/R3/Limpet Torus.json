@@ -42,6 +42,8 @@
         "y": "A*sin(u) / (sqrt(2.0) + sin(v))",
         "z": "A / (sqrt(2.0) + cos(v))"
     },
+    "hintSeconds": 6,
+    "hintText": "Slider A active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

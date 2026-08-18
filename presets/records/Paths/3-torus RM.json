@@ -65,6 +65,8 @@
         "v0": "",
         "w0": ""
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A-C active on this shape",
     "implicitEquation": "// Controlled by Script",
     "isImplicitMode": true,
     "lightIntensity": 1,

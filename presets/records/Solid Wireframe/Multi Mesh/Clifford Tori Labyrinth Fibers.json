@@ -66,7 +66,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Slider F active; wireframe lines along v are the Hopf fibers",
+    "hintText": "Slider F active on this shape",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

@@ -55,6 +55,8 @@
         "v0": "",
         "w0": ""
     },
+    "hintSeconds": 8,
+    "hintText": "Sliders A and B active: semi-axes of the elliptic section. C = 1.5: one and a half twists, so the surface closes with reversed orientation (one side only)",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
@@ -73,7 +75,7 @@
         "zMin": -1000
     },
     "meshScopeAll": true,
-    "name": "Twisted Elliptic Torus",
+    "name": "Non-orientable Twisted Elliptic Torus",
     "projectionMode": 1,
     "renderMode": 0,
     "steps": 300,
@@ -82,7 +84,5 @@
     "wireframe": {
         "uStep": 4,
         "vStep": 4
-    },
-    "hintText": "A, B: ellipse semi-axes  |  C: half-turns of the ellipse per lap (integer = two-sided, half-integer = Mobius)  |  D: torus radius",
-    "hintSeconds": 8
+    }
 }

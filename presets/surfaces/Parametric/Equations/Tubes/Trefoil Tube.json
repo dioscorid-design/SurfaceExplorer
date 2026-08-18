@@ -45,6 +45,8 @@
         "v0": "",
         "w0": ""
     },
+    "hintSeconds": 6,
+    "hintText": "No sliders on this shape: amplitude and tube radius are fixed in the script",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

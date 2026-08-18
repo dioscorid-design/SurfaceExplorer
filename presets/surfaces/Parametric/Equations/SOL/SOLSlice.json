@@ -42,6 +42,8 @@
         "y": "A*exp(-B*w)*v",
         "z": "A*w"
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A and B active on this shape",
     "lightIntensity": 1,
     "lightingMode": 1,
     "limits": {

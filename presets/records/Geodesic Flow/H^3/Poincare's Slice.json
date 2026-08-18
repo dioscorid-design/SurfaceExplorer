@@ -62,6 +62,8 @@
         "v0": "0.5*sin(u)",
         "w0": "A*sin(B*u)"
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A-C active on this shape",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

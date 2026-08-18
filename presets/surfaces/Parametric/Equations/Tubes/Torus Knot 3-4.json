@@ -49,6 +49,8 @@
         "v0": "",
         "w0": ""
     },
+    "hintSeconds": 8,
+    "hintText": "Sliders B and C active on this shape",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
@@ -77,7 +79,5 @@
     "wireframe": {
         "uStep": 4,
         "vStep": 4
-    },
-    "hintText": "B: tube radius (max 0.15, above it the strands overlap)  |  C: minor radius of the supporting torus",
-    "hintSeconds": 8
+    }
 }

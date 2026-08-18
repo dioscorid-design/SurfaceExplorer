@@ -42,6 +42,8 @@
         "y": "V * exp(-W)",
         "z": "W"
     },
+    "hintSeconds": 6,
+    "hintText": "Slider A active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

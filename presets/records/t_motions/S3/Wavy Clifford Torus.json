@@ -53,6 +53,8 @@
         "y": "A * sqrt(0.5 + 0.4 * cos(3.0*u + 2.0*v - 2.0*t)) * sin(u)",
         "z": "A * sqrt(0.5 - 0.4 * cos(3.0*u + 2.0*v - 2.0*t)) * cos(v)"
     },
+    "hintSeconds": 6,
+    "hintText": "Slider A active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

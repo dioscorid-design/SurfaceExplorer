@@ -42,6 +42,8 @@
         "y": "(A + B*sin(v)*cos(u/2))*sin(u)",
         "z": "B*sin(v)*sin(u/2)"
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A and B active on this shape",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

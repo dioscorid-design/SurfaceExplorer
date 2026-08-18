@@ -53,6 +53,8 @@
         "y": "A*sin(V)*sin(U)",
         "z": "A * cos(V) * cos(t) - B * W * sin(t)"
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A-E active on this shape",
     "lightIntensity": 1,
     "lightingMode": 2,
     "limits": {

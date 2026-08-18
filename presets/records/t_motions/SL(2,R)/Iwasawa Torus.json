@@ -62,6 +62,8 @@
         "v0": "",
         "w0": ""
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A-D active on this shape",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 1,
