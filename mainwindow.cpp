@@ -5890,13 +5890,26 @@ void MainWindow::updateConstantsUIState() {
     // costante vera creduta inutilizzata -> reset a 1).
     glslText += " " + stripCodeComments(m_bgTextureCode); // Lo sfondo è comune
 
-    // L'editor mostra il codice del modo corrente: matematica per gli script
-    // di superficie in parametrica (metrici, exprtk), GLSL in tutti gli altri
-    // casi (texture, sound, script ray marching).
-    if (m_currentScriptMode == ScriptModeSurface && currentTab == 0)
-        mathText += " " + stripCodeComments(ui->txtScriptEditor->toPlainText());
-    else
-        glslText += " " + stripCodeComments(ui->txtScriptEditor->toPlainText());
+    // L'EDITOR E' SEMPRE GLSL. Vale per tutti e tre i modi dello script
+    // (superficie, texture, sound) e per entrambe le tab: lo script di
+    // superficie in parametrica e' GLSL con "return vec4(...)", quello in ray
+    // marching e' GLSL implicito, e gli script metrici restituiscono mat3.
+    // Non esiste uno script d'editor in sintassi exprtk.
+    //
+    // Perche' la distinzione conta: mathText matcha CASE-INSENSITIVE e non
+    // riconosce le dichiarazioni locali. Mandandoci il GLSL, una 'a' minuscola
+    // dello shader ("float a = 3.0;" nei tubi) accendeva lo slider A a vuoto:
+    // sbloccato ma inerte, perche' nessuna costante e' davvero usata. Riguardava
+    // 12 preset (Trefoil Tube, Clover Tube, i Clifford Labyrinth, i record
+    // Clover/Trefoil/Tube). E' la stessa famiglia di falsi positivi descritta
+    // sopra per gli shader; la protezione non arrivava fin qui.
+    //
+    // In glslText il match e' case-sensitive (le costanti sono iniettate come
+    // "float A..F") ed esclude le lettere dichiarate come variabili locali:
+    // coerente con generateGlslHelperVars(), che davanti a "float A" non
+    // inietta affatto la costante, quindi li' A e' la locale e lo slider non ha
+    // modo di influenzarla.
+    glslText += " " + stripCodeComments(ui->txtScriptEditor->toPlainText());
 
     // Anche i path camera 4D/3D valgono come "uso" di una costante: le loro
     // espressioni sono compilate su exprtk con A..F/s registrate
