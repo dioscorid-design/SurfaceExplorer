@@ -3,7 +3,7 @@
 # make-preview.sh — builds the preview clip for docs/videos.html out of an
 # export produced by the application.
 #
-#   ./docs/tools/make-preview.sh <video> <name> [start-second] [duration] [subfolder]
+#   ./docs/tools/make-preview.sh <video> <name> [start-second] [duration] [subfolder] [gamma]
 #
 #   ./docs/tools/make-preview.sh 3-torus.mp4 3-torus 12
 #
@@ -13,7 +13,8 @@
 #
 # Writes docs/media/Videos/<name>.mp4 (silent clip) and
 # docs/media/Videos/<name>-poster.jpg (still frame shown while it loads).
-# The fifth argument overrides the subfolder (default: Videos).
+# The fifth argument overrides the subfolder (default: Videos), the sixth the
+# gamma (default: 1.35; 1.0 leaves the image untouched).
 #
 # Remember: the files must be COMMITTED to appear on the site. GitHub Pages
 # serves only what is in the repository — see docs/tools/README.md.
@@ -29,6 +30,18 @@
 #
 #   -an strips the audio: previews autoplay, and browsers block autoplay with
 #   sound (besides being unpleasant).
+#
+#   eq=gamma lifts the midtones. The scenes are dark by construction (the
+#   Brieskorn-Pham clip averages 37/255) and sit inside an equally dark page, so
+#   the wireframe is hard to read — the file itself is fine, spanning the full
+#   scale from 0 to 253. At 1.35 the average reaches 57 and the mesh becomes
+#   legible, at a cost of about a megabyte on the heaviest clip. Site preview
+#   only: the export and the YouTube version are untouched.
+#
+#   The colour tags (bt709, range tv) are written explicitly: left unset, each
+#   browser guesses, and Safari and Chrome do not guess alike. Note that x264
+#   ignores -color_primaries/-color_trc for the bitstream — if ffprobe still
+#   reports "unknown", rewrite them with the h264_metadata bitstream filter.
 #
 set -euo pipefail
 
@@ -81,6 +94,18 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 # L'uscita resta comunque DENTRO docs/: GitHub Pages serve solo quello che sta
 # li', quindi scrivere fuori significherebbe 404 sul sito.
 SUBDIR="${5:-Videos}"
+
+# GAMMA DEL PREVIEW. Le scene sono scure per costruzione (il Brieskorn-Pham ha
+# luminanza media 37/255) e dentro una pagina altrettanto scura si leggono male.
+# 1.35 porta quella media a ~57 -- il wireframe diventa distinguibile -- senza
+# bruciare le alte luci (YHIGH da 83 a 112, nessun collasso a 255).
+# L'effetto e' contenuto: costa circa 1 MB sul clip piu' pesante, ed e' una
+# preferenza, non una correzione -- il file originale usa gia' tutta la scala
+# (luma 0-253), non e' difettoso. Sesto argomento per disattivarla: 1.0 lascia
+# l'immagine esattamente com'e'.
+# Riguarda SOLO i preview del sito: sorgente e versione YouTube non si toccano.
+GAMMA="${6:-1.35}"
+
 OUTDIR="$ROOT/docs/media/$SUBDIR"
 mkdir -p "$OUTDIR"
 
@@ -102,9 +127,19 @@ fi
 echo "Source : $SRC"
 echo "Trim   : from ${START}s for ${DUR}s"
 
+# TAG DI COLORE ESPLICITI. Senza, ffprobe riporta color_range/colorspace/
+# color_trc = "unknown" e ogni browser decide da se' come interpretare i valori:
+# lo stesso file puo' apparire piu' scuro o piu' slavato a seconda del motore
+# (Safari e Chrome non concordano). I flag NON ricodificano il colore ne'
+# schiariscono l'immagine -- dichiarano soltanto come vanno letti i pixel, che e'
+# esattamente cio' che mancava.
+#   -color_range tv : luma 16-235, la convenzione del video (il sorgente e' gia' cosi')
+#   bt709           : lo spazio standard per HD, quello in cui l'app renderizza
 ffmpeg -y -loglevel error -ss "$START" -t "$DUR" -i "$SRC" \
-       -vf "scale=1920:-2,fps=24" \
+       -vf "scale=1920:-2,fps=24,eq=gamma=$GAMMA" \
        -c:v libx264 -crf 26 -preset slow \
+       -color_range tv -colorspace bt709 \
+       -color_primaries bt709 -color_trc bt709 \
        -movflags +faststart -an "$OUT"
 
 # Poster taken from the FIRST frame of the already-trimmed clip, so the still

@@ -80,7 +80,7 @@ rejected outright, with a warning between 50 and 100 MB.
 
 Builds the preview clip for `docs/videos.html`:
 
-    ./docs/tools/make-preview.sh presets/renders/3-torus.mp4 3-torus 12
+    ./docs/tools/make-preview.sh "../presets/renders/3-torus.mp4" 3-torus 12
 
 Arguments: source file, output name, start second (default 5), duration
 (default 5). Writes `docs/media/Videos/<name>.mp4` and the matching poster.
