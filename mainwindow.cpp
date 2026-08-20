@@ -3636,14 +3636,21 @@ MainWindow::MainWindow(QWidget *parent)
                 const QString picked = QFileDialog::getExistingDirectory(this,
                     "Select Your Presets Folder", QDir::homePath());
                 if (!picked.isEmpty()) {
-                    // La cartella indicata qui e' la RADICE DELLA LIBRERIA, non il
-                    // posto in cui crearla: questo era l'unico dei punti che
-                    // scrivono libraryRootPath a salvare il percorso GREZZO, e i
-                    // rami surfaces/textures/records/sounds finivano sparsi
-                    // direttamente nella cartella scelta. La stessa decisione
-                    // (prendere com'e' o scendere in "presets") vale per tutti e
-                    // tre i punti: sta in resolveLibraryRoot.
-                    const QString clean = resolveLibraryRoot(picked);
+                    // RECUPERO, NON INSTALLAZIONE: qui la libreria esiste gia' e
+                    // l'utente la sta ri-indicando perche' l'autorizzazione e'
+                    // scaduta. Si passa comunque da resolveLibraryRoot per i suoi
+                    // casi 1 e 2 (la cartella e' gia' una libreria -> si prende
+                    // com'e'; ne contiene una in "presets" -> si scende), ma NON
+                    // si deve creare un livello nuovo: appendere "/presets" a una
+                    // libreria che non viene riconosciuta -- perche' i rami sono
+                    // temporaneamente irraggiungibili, che e' esattamente la
+                    // situazione qui -- punterebbe la radice a una sottocartella
+                    // vuota e i preset resterebbero fuori dall'albero.
+                    QString clean = resolveLibraryRoot(picked);
+                    if (clean != QDir::cleanPath(picked)
+                        && !QDir(clean).exists()) {
+                        clean = QDir::cleanPath(picked);
+                    }
 
                     QDir().mkpath(clean);
                     {   // sync() esplicito: vedi setupDefaultFolders (cfprefsd)
@@ -12158,10 +12165,44 @@ void MainWindow::setupDefaultFolders()
             }
         }
 
-        // La cartella indicata puo' essere GIA' la radice della libreria: in quel
-        // caso si prende com'e', altrimenti si scende nella sottocartella dei
-        // preset. Appendere sempre "/presets" creava una libreria annidata dentro
-        // quella esistente. Unico punto che decide: resolveLibraryRoot.
+        // CARTELLA CHE E' GIA' UNA LIBRERIA: si avverte prima di adottarla.
+        //
+        // E' l'unico caso in cui NON si crea la sottocartella "presets": i
+        // quattro rami ci sono gia', appendere un livello produrrebbe una
+        // libreria annidata dentro quella esistente -- il difetto che la regola
+        // ha sempre dovuto impedire.
+        // Ma la differenza va DETTA: negli altri casi l'utente ottiene una
+        // "presets" nuova, qui invece l'applicazione si insedia in una cartella
+        // che contiene gia' del lavoro, e i preset di fabbrica mancanti vengono
+        // installati li' dentro. Senza avviso, chi sceglie una cartella per
+        // sbaglio non ha modo di accorgersene prima che sia fatta.
+        if (dirIsLibraryRoot(QDir(QDir::cleanPath(selectedPath)))) {
+            QMessageBox box(this);
+            box.setIcon(QMessageBox::Warning);
+            box.setWindowTitle("Folder Already Contains a Library");
+            box.setText("This folder already contains a library.");
+            box.setInformativeText(
+                QDir::cleanPath(selectedPath) + "\n\n"
+                "It will be used as it is: no \"presets\" folder will be created "
+                "inside it, and the presets already there are kept. Any factory "
+                "preset that is missing will be added.\n\n"
+                "Do you want to use this folder?");
+            box.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
+            box.button(QMessageBox::Ok)->setText("Use This Library");
+            box.button(QMessageBox::Cancel)->setText("Choose Another");
+            box.setDefaultButton(QMessageBox::Ok);
+            if (box.exec() != QMessageBox::Ok) {
+                selectedPath = QFileDialog::getExistingDirectory(this, "Select Master Folder",
+                                                                 selectedPath);
+                if (selectedPath.isEmpty()) return;   // come la rinuncia qui sopra
+            }
+        }
+
+        // DOVE FINISCE LA LIBRERIA. Unico punto che decide: resolveLibraryRoot.
+        //  - cartella che e' gia' una libreria -> si prende com'e' (vedi sopra);
+        //  - cartella che ne contiene una in "presets" -> si scende li';
+        //  - qualunque altra -> si crea "<scelta>/presets" e la libreria va li',
+        //    invece di rovesciare i quattro rami nella cartella indicata.
         rootPath = resolveLibraryRoot(selectedPath);
         selectedPath = QDir::cleanPath(selectedPath);
 
@@ -13702,9 +13743,25 @@ QString MainWindow::resolveLibraryRoot(const QString &pickedDir)
         // si adotta. Si ricade sulla cartella scelta, qui sotto.
     }
 
-    // 3. Nessuna libreria in vista: la libreria si installa NELLA cartella che
-    //    l'utente ha indicato. I quattro rami li crea setupDefaultFolders.
-    return clean;
+    // 3. Nessuna libreria in vista: si crea una sottocartella "presets" e la
+    //    libreria va li' dentro. I quattro rami li crea setupDefaultFolders.
+    //
+    // I RAMI NON VANNO SPARSI NELLA CARTELLA SCELTA. Prima si restituiva
+    // `clean`, quindi scegliendo ~/Projects si ottenevano ~/Projects/surfaces,
+    // /textures, /records, /sounds -- quattro cartelle dal nome generico
+    // rovesciate in una cartella di lavoro, senza niente che le tenesse insieme
+    // ne' le riconducesse a questa applicazione. MISURATO scegliendo ~/Projects.
+    //
+    // La regola precedente ("la libreria si installa NELLA cartella indicata")
+    // nasceva per impedire le librerie ANNIDATE (presets dentro presets), ma
+    // quel rischio riguardava i comandi che CAMBIANO cartella -- e quelli oggi
+    // non passano piu' di qui: "Change Library Folder..." scrive la radice e
+    // basta (non chiama setupDefaultFolders e rifiuta le cartelle che non sono
+    // gia' librerie), "Change Folder for <Ramo>..." scrive una sola chiave.
+    // Restano i due punti che INSTALLANO davvero, dove creare il contenitore e'
+    // la cosa giusta. I casi 1 e 2 qui sopra continuano a coprire l'annidamento:
+    // una cartella che e' gia' una libreria si prende com'e'.
+    return clean + QStringLiteral("/presets");
 }
 
 bool MainWindow::resolveNeedsCopy(const QString& src, const QString& dst,
