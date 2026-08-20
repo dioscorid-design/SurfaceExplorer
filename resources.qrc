@@ -1,6 +1,5 @@
 <RCC>
     <qresource prefix="/library">
-        <file>presets/surfaces/Scherk's Second Surface.json</file>
         <file>presets/surfaces/Ray Marching/Sphere and Six Tori Merge.json</file>
         <file>presets/surfaces/Ray Marching/ThickIso.json</file>
         <file>presets/surfaces/Ray Marching/Tangle Cube.json</file>
