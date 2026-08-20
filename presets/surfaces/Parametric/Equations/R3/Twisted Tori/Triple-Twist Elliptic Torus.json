@@ -1,22 +1,22 @@
 {
     "angles": {
-        "omega": 9.999999747378752e-05,
-        "phi": 9.999999747378752e-05,
-        "psi": 9.999999747378752e-05
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
     },
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": 0.1675415188074112,
-        "rot_x": 0.1950480341911316,
-        "rot_y": 0.36194226145744324,
-        "rot_z": 0.8960378170013428,
+        "rot_w": -0.7886541485786438,
+        "rot_x": 0.36316993832588196,
+        "rot_y": 0.10416474938392639,
+        "rot_z": -0.48505881428718567,
         "x": 0,
         "y": 0,
         "yaw": 0,
-        "z": 25.580032348632812
+        "z": 3.399998426437378
     },
-    "cameraFov": 45,
+    "cameraFov": 69,
     "colors": {
         "alpha": 1,
         "b": 0.20000000298023224,
@@ -24,8 +24,8 @@
         "r": 0.20000000298023224
     },
     "constants": {
-        "A": 1,
-        "B": 1,
+        "A": 0.800000011920929,
+        "B": 0.20000000298023224,
         "C": 1,
         "D": 1,
         "E": 1,
@@ -39,15 +39,15 @@
         "explicitU": "",
         "explicitV": "",
         "explicitW": "",
-        "p": "",
-        "x": "log((1+u^2+2*u*cos(v))/(1+u^2-2*u*cos(v)))",
-        "y": "log((1+u^2-2*u*sin(v))/(1+u^2+2*u*sin(v)))",
-        "z": "2*atan((2*u^2*sin(2*v))/(u^4-1))"
+        "p": "0",
+        "x": "(1 + A*cos(v)*cos(u/3) - B*sin(v)*sin(u/3))*cos(u)",
+        "y": "(1 + A*cos(v)*cos(u/3) - B*sin(v)*sin(u/3))*sin(u)",
+        "z": "A*cos(v)*sin(u/3) + B*sin(v)*cos(u/3)"
     },
-    "fov3D": 45,
-    "fov4D": 45,
+    "fov3D": 69,
+    "fov4D": 69,
     "geodesic": {
-        "conform": "",
+        "conform": "1.0",
         "du": "",
         "dv": "",
         "dw": "",
@@ -55,14 +55,15 @@
         "v0": "",
         "w0": ""
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A and B active: semi-axes of the elliptic section. The section turns 120 degrees per loop and closes after three loops",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {
-        "uMax": 0.9900000095367432,
+        "uMax": 18.84955596923828,
         "uMin": 0,
         "vMax": 6.2831854820251465,
-        "vMaxExpr": "tau",
         "vMin": 0,
         "wMax": 0,
         "wMin": 0,
@@ -74,10 +75,10 @@
         "zMin": -1000
     },
     "meshScopeAll": true,
-    "name": "Scherk's Second Surface",
+    "name": "Triple-Twist Elliptic Torus",
     "projectionMode": 1,
-    "renderMode": 0,
-    "steps": 1000,
+    "renderMode": 1,
+    "steps": 381,
     "type": "surface",
     "use4DLighting": false,
     "wireframe": {

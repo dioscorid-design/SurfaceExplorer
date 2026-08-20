@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/library">
+        <file>presets/surfaces/Scherk's Second Surface.json</file>
         <file>presets/surfaces/Ray Marching/Sphere and Six Tori Merge.json</file>
         <file>presets/surfaces/Ray Marching/ThickIso.json</file>
         <file>presets/surfaces/Ray Marching/Tangle Cube.json</file>
@@ -95,6 +96,7 @@
         <file>presets/surfaces/Parametric/Equations/NIL/Twisted Nil Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Heisenberg Plane.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Cuspid Koranyi Sphere.json</file>
+        <file>presets/surfaces/Parametric/Equations/NIL/Cone Distorsion.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/NIL Helicoid.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Heisenberg Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Wave Cylinder.json</file>
@@ -153,6 +155,7 @@
         <file>presets/surfaces/Parametric/Equations/R3/Sevenfold Twisted Elliptic Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Helix.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Hyperbolic Helicoid.json</file>
+        <file>presets/surfaces/Parametric/Equations/R3/NIL Sphere1.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Jeener-Klein N-Bottle.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Oloid.json</file>
@@ -173,6 +176,7 @@
         <file>presets/surfaces/Parametric/Equations/R3/Pseudo Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Undersea.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Richmond Polar.json</file>
+        <file>presets/surfaces/Parametric/Equations/R3/Nil Sphere2.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Toupie.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Helicoid.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Dini's Spiral.json</file>
@@ -184,9 +188,15 @@
         <file>presets/surfaces/Parametric/Equations/R3/Pseudo Catenoid.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Limpet Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Hopf Torus over Spherical Cycloid.json</file>
+        <file>presets/surfaces/Parametric/Equations/R3/Twisted Tori/Non-orientable Twisted Elliptic Torus.json</file>
+        <file>presets/surfaces/Parametric/Equations/R3/Twisted Tori/Sevenfold Twisted Elliptic Torus.json</file>
+        <file>presets/surfaces/Parametric/Equations/R3/Twisted Tori/Triple-Twist Elliptic Torus.json</file>
         <file>presets/surfaces/Parametric/Multimesh/Calabi-Yau 3D.json</file>
         <file>presets/surfaces/Parametric/Multimesh/Calabi-Yau.json</file>
         <file>presets/surfaces/Parametric/Multimesh/Brieskorn-Pham.json</file>
+        <file>presets/textures/New Images/2k_earth_daymap.jpg</file>
+        <file>presets/textures/New Images/2k_mercury.jpg</file>
+        <file>presets/textures/New Images/2k_mars.jpg</file>
         <file>presets/textures/Ray Marching/Hellish Plasma.json</file>
         <file>presets/textures/Ray Marching/Holografic Scan.json</file>
         <file>presets/textures/Ray Marching/Porous Bone.json</file>
@@ -309,9 +319,10 @@
         <file>presets/records/Rotations/Kerr Spin Animated.json</file>
         <file>presets/records/Rotations/Dynamical Clifford Torus.json</file>
         <file>presets/records/Rotations/Wormhole.json</file>
+        <file>presets/records/Rotations/Hyperbolic Enneper.json</file>
         <file>presets/records/Rotations/Kerr Black Hole.json</file>
+        <file>presets/records/Rotations/Brieskorn-Pham (3,5).json</file>
         <file>presets/records/Rotations/Ellipsoid.json</file>
-        <file>presets/records/Rotations/Brieskorn-Pham.json</file>
         <file>presets/records/Rotations/Torus Knot.json</file>
         <file>presets/records/Solid Wireframe/Clifford Linked Tori.json</file>
         <file>presets/records/Solid Wireframe/Clifford Labyrinth 16-Cell.json</file>
@@ -380,6 +391,7 @@
         <file>presets/records/Paths/Tube.json</file>
         <file>presets/records/Paths/Mobius Racing.json</file>
         <file>presets/records/Paths/Clover.json</file>
+        <file>presets/records/Paths/Cuspid Koranyi Sphere.json</file>
         <file>presets/records/Paths/Clifford Torus.json</file>
         <file>presets/records/Paths/Twisted Torus Racing.json</file>
         <file>presets/records/Paths/3-torus RM.json</file>

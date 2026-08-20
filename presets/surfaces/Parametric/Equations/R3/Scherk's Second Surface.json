@@ -7,14 +7,14 @@
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": 0.1675415188074112,
-        "rot_x": 0.1950480341911316,
-        "rot_y": 0.36194226145744324,
-        "rot_z": 0.8960378170013428,
+        "rot_w": -0.3076968789100647,
+        "rot_x": 0.9297264814376831,
+        "rot_y": -0.053364098072052,
+        "rot_z": 0.19515015184879303,
         "x": 0,
         "y": 0,
         "yaw": 0,
-        "z": 25.580032348632812
+        "z": 26.440011978149414
     },
     "cameraFov": 45,
     "colors": {
@@ -77,7 +77,7 @@
     "name": "Scherk's Second Surface",
     "projectionMode": 1,
     "renderMode": 0,
-    "steps": 1000,
+    "steps": 934,
     "type": "surface",
     "use4DLighting": false,
     "wireframe": {

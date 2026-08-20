@@ -23,8 +23,8 @@
         "rot_x": 0,
         "rot_y": 0,
         "rot_z": 0,
-        "x": 0.4770842492580414,
-        "y": 1.3200948238372803,
+        "x": 2.9796805381774902,
+        "y": 1.12156081199646,
         "yaw": 0,
         "z": 0
     },
@@ -34,13 +34,19 @@
         "surfColor": "#33cc33"
     },
     "constants": {
-        "A": 6,
+        "A": 5,
         "B": 1.5399999618530273,
         "C": 0.5199999809265137,
         "D": 4.019999980926514,
         "E": 1.440000057220459,
         "F": 0.5199999809265137,
         "S": 0.20000000298023224
+    },
+    "discreteConstants": {
+        "A": [
+            1,
+            10
+        ]
     },
     "equations": {
         "defU": "",
@@ -55,7 +61,7 @@
         "z": ""
     },
     "fov3D": 84,
-    "fov4D": 45,
+    "fov4D": 84,
     "geodesic": {
         "conform": "1.0",
         "du": "",
@@ -65,6 +71,8 @@
         "v0": "",
         "w0": ""
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A-F active on this shape",
     "implicitEquation": "// Controlled by Script",
     "isImplicitMode": true,
     "lightIntensity": 1,
@@ -83,6 +91,7 @@
         "zMax": 1000,
         "zMin": -1000
     },
+    "meshScopeAll": true,
     "name": "N-torus Garland",
     "observer4D": 4,
     "path3D": {
@@ -132,7 +141,5 @@
     "wireframe": {
         "uStep": 4,
         "vStep": 4
-    },
-    "hintText": "Sliders A-F active on this shape",
-    "hintSeconds": 6
+    }
 }
