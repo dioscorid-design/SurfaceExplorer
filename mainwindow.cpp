@@ -11602,9 +11602,13 @@ void MainWindow::onUndoDelete() {
 // una radice di libreria se contiene almeno uno dei quattro rami.
 static bool dirIsLibraryRoot(const QDir &dir);
 
-void MainWindow::onAddRepositoryClicked()
+void MainWindow::onAddRepositoryClicked(bool wasRotating, bool wasPath4D,
+                                        bool wasPath3D, bool wasTimeAnimating)
 {
 #if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    // Su mobile la funzione esce subito: lo stato dei moti non serve a nessuno.
+    Q_UNUSED(wasRotating); Q_UNUSED(wasPath4D);
+    Q_UNUSED(wasPath3D);   Q_UNUSED(wasTimeAnimating);
     QMessageBox::information(this, "Library Management",
                              "On iPhone and iPad your library is managed automatically by the system.\n"
                              "Open the iOS 'Files' app to organize your folders and presets.");
@@ -11692,9 +11696,11 @@ void MainWindow::onAddRepositoryClicked()
     // NB: non e' questo il rimedio al blocco su cartella iCloud -- quello era
     // una read() sospesa sui file non scaricati, impedita alla fonte da
     // isDatalessFile (librarymanager.cpp). Qui si toglie solo fragilita'.
-    QTimer::singleShot(0, this, [this]() {
-        refreshRepositories();
-        updateWatcherPaths();
+    // I moti li rimette a posto refreshLibraryPreservingMotion, DOPO il rebuild:
+    // il ripristino in fondo a showMenu gira prima di questo singleShot, e per
+    // giunta su flag che la rientranza ha falsato.
+    QTimer::singleShot(0, this, [this, wasRotating, wasPath4D, wasPath3D, wasTimeAnimating]() {
+        refreshLibraryPreservingMotion(wasRotating, wasPath4D, wasPath3D, wasTimeAnimating);
     });
 #endif
 }
@@ -12522,6 +12528,51 @@ void MainWindow::refreshAndSelectPreset(QTreeWidget *tree, const QString &path)
         }
         ++it;
     }
+}
+
+// RILETTURA DELLA LIBRERIA CHE NON SPEGNE I MOTI.
+//
+// IL BUG: dopo "Change Folder for <Ramo>..." e "Change Library Folder..." i moti
+// restavano fermi, col tasto master che continuava a mostrare "STOP". Tutte le
+// altre voci del menu li ripristinavano correttamente.
+//
+// PERCHE' SOLO QUELLE DUE: sono le uniche che chiamano refreshRepositories(),
+// che ricostruisce i quattro alberi -- e il rebuild fa riemettere
+// customContextMenuRequested, RIENTRANDO in showMenu (misurato: 4 rientri di
+// fila, uno per albero).
+//
+// PERCHE' LA RIENTRANZA DISTRUGGE LO STATO: showMenu ferma i moti in cima, ne
+// salva lo stato in variabili LOCALI e ripristina in fondo. Ma quello stato non
+// e' una copia indipendente: GLWidget::isAnimating() E' rotationTimer->isActive()
+// (glwidget.h), cioe' si LEGGE DAI TIMER. Il rientro esegue la stessa cattura
+// quando i timer sono gia' stati fermati dalla chiamata esterna, quindi registra
+// "fermo" -- e al suo ritorno non riaccende niente. Lo stato vero e' perso.
+// Vedi [[rotationtimer-e-stato-non-solo-clock]]: qui un QTimer e' insieme clock
+// e flag di stato.
+//
+// IL RIMEDIO: le due voci catturano lo stato PRIMA (in showMenu, dove i moti
+// girano ancora) e lo passano qui; questa funzione rilegge la libreria e poi
+// rimette i moti come stavano. Il ripristino avviene DOPO il rebuild, quindi
+// nessun rientro puo' piu' interporsi fra la lettura e il ripristino.
+//
+// NON si e' usata una guardia di rientranza in showMenu: gia' provata e
+// revertita il 2026-08-19 -- nei log sembrava risolvere, nell'uso reale i moti
+// restavano fermi e in piu' il menu contestuale non si riapriva.
+void MainWindow::refreshLibraryPreservingMotion(bool wasRotating, bool wasPath4D,
+                                                bool wasPath3D, bool wasTimeAnimating)
+{
+    refreshRepositories();
+    updateWatcherPaths();
+
+    // Stesso ordine del ripristino in fondo a showMenu, per non introdurre una
+    // seconda versione della stessa sequenza.
+    if (wasTimeAnimating) {
+        ui->glWidget->setSurfaceAnimating(true);
+        ui->glWidget->startAnimationTimer();
+    }
+    if (wasPath4D)  pathTimer->start();
+    if (wasPath3D)  pathTimer3D->start();
+    if (wasRotating) ui->glWidget->resumeMotion();
 }
 
 void MainWindow::updateWatcherPaths()

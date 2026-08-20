@@ -57,6 +57,23 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     QTreeWidget* safeTree = senderTree;
     QTreeWidgetItem* safeRefItem = refItem;
 
+    // STATO DEI MOTI CATTURATO QUI, non piu' in basso.
+    //
+    // Serve alle due voci che cambiano cartella: sono le uniche a ricostruire gli
+    // alberi, e il rebuild rientra in showMenu (vedi
+    // MainWindow::refreshLibraryPreservingMotion per il meccanismo completo).
+    // Va letto ORA perche' i moti girano ancora: piu' sotto showMenu li ferma, e
+    // da quel punto in poi isAnimating()/isActive() direbbero "fermo" anche
+    // quando l'utente li aveva accesi -- e' proprio cosi' che il rientro
+    // perdeva lo stato.
+    // Le altre voci non ne hanno bisogno: non ricostruiscono gli alberi, quindi
+    // il ripristino in fondo a showMenu basta.
+    const bool motionRotating = m_mainWindow->ui->glWidget->isAnimating();
+    const bool motionPath4D   = m_mainWindow->pathTimer->isActive();
+    const bool motionPath3D   = m_mainWindow->pathTimer3D->isActive();
+    const bool motionTimeAnim = m_mainWindow->m_btnStart
+                             && m_mainWindow->m_btnStart->text().toUpper() == "STOP";
+
     std::function<void()> pendingAction = nullptr;
 
     auto executeAction = [&pendingAction](std::function<void()> func) {
@@ -322,8 +339,11 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     else if (senderTree == m_mainWindow->ui->treeSounds)  branchLabel = "Sounds";
 
     // Nascondiamo l'apertura cartella Workspace su Mobile per evitare problemi di file system
-    contextMenu->addAction(QString("Change Folder for %1...").arg(branchLabel), m_mainWindow, [this, senderTree, executeAction](){
-        executeAction([this, senderTree](){
+    contextMenu->addAction(QString("Change Folder for %1...").arg(branchLabel), m_mainWindow,
+                           [this, senderTree, executeAction,
+                            motionRotating, motionPath4D, motionPath3D, motionTimeAnim](){
+        executeAction([this, senderTree,
+                       motionRotating, motionPath4D, motionPath3D, motionTimeAnim](){
             QSettings settings;
             QString rootPath = settings.value("libraryRootPath").toString();
             QString key;
@@ -346,8 +366,14 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
             // dentro contextMenu->exec(), con sopra il loop del pannello nativo,
             // e rileggere la libreria qui terrebbe il menu vivo per tutta la
             // scansione. Fuori dal menu il lavoro gira dal loop principale.
-            QTimer::singleShot(0, m_mainWindow, [this]() {
-                m_mainWindow->refreshRepositories();
+            //
+            // I moti li rimette a posto refreshLibraryPreservingMotion, DOPO il
+            // rebuild: il ripristino in fondo a showMenu gira prima di questo
+            // singleShot e per giunta su flag che la rientranza ha falsato.
+            QTimer::singleShot(0, m_mainWindow,
+                               [this, motionRotating, motionPath4D, motionPath3D, motionTimeAnim]() {
+                m_mainWindow->refreshLibraryPreservingMotion(motionRotating, motionPath4D,
+                                                            motionPath3D, motionTimeAnim);
             });
         });
     });
@@ -373,8 +399,15 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     // senderTree per passarlo a onAddRepositoryClicked, che lo IGNORAVA (la
     // firma era `onAddRepositoryClicked(LibraryType /*type*/)`): codice che
     // non faceva nulla ma faceva sembrare il comando selettivo per ramo.
-    contextMenu->addAction("Change Library Folder...", m_mainWindow, [this, executeAction](){
-        executeAction([this](){ m_mainWindow->onAddRepositoryClicked(); });
+    contextMenu->addAction("Change Library Folder...", m_mainWindow,
+                           [this, executeAction,
+                            motionRotating, motionPath4D, motionPath3D, motionTimeAnim](){
+        executeAction([this, motionRotating, motionPath4D, motionPath3D, motionTimeAnim](){
+            // Lo stato dei moti viaggia fino alla rilettura: vedi
+            // MainWindow::refreshLibraryPreservingMotion.
+            m_mainWindow->onAddRepositoryClicked(motionRotating, motionPath4D,
+                                                 motionPath3D, motionTimeAnim);
+        });
     });
 #endif
 

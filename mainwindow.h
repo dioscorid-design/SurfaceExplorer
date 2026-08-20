@@ -254,7 +254,12 @@ private slots:
     void applyMotionExample(const LibraryItem &data);
     void deleteSelectedExample();
     void onUndoDelete();
-    void onAddRepositoryClicked();
+    // I quattro bool sono lo stato dei moti PRIMA che showMenu li fermasse: la
+    // voce di menu lo cattura e lo passa, perche' dopo lo stop non e' piu'
+    // leggibile (vedi refreshLibraryPreservingMotion). I default false valgono
+    // per l'altro chiamante, actionSelectFolder, che non ferma nulla.
+    void onAddRepositoryClicked(bool wasRotating = false, bool wasPath4D = false,
+                                bool wasPath3D = false, bool wasTimeAnimating = false);
     void onCreateFolderClicked();
     void onSyncPresetsClicked();
 
@@ -819,6 +824,16 @@ private:
     // --- Library & File I/O ---
     void syncResourcesToFolder(const QString &resourcePath, const QString &diskPath, bool forceRestore = false, int *overwriteState = nullptr);
     void refreshRepositories();
+
+    // RILETTURA DELLA LIBRERIA CHE NON SPEGNE I MOTI.
+    //
+    // Da usare al posto di refreshRepositories() nelle voci di menu che cambiano
+    // cartella. Rilegge la libreria e poi RIMETTE i moti come stavano PRIMA che
+    // showMenu li fermasse -- stato che il chiamante deve catturare prima, e
+    // passare qui, perche' a quel punto i timer sono gia' fermi e non lo direbbero
+    // piu'. Vedi la spiegazione estesa in librarymenucontroller.cpp.
+    void refreshLibraryPreservingMotion(bool wasRotating, bool wasPath4D,
+                                        bool wasPath3D, bool wasTimeAnimating);
     void refreshAndSelectPreset(QTreeWidget *tree, const QString &path);
     void updateWatcherPaths();
     void copyPath(QString src, QString dst);
