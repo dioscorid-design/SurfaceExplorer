@@ -12458,6 +12458,19 @@ void MainWindow::syncResourcesToFolder(const QString &resourcePath, const QStrin
 
 void MainWindow::refreshRepositories()
 {
+    // REBUILD IN CORSO: vedi libraryRebuildInProgress() in mainwindow.h.
+    // Ricostruire gli alberi fa riemettere customContextMenuRequested e rientra
+    // in showMenu; con questo flag alzato quel rientro non tocca i moti, quindi
+    // non puo' spegnerli leggendone lo stato da timer gia' fermi.
+    // Struct con distruttore invece di un decremento a fine funzione: qui sotto
+    // ci sono piu' vie d'uscita, e una sola dimenticata lascerebbe il flag
+    // alzato per sempre -- da quel momento il menu non fermerebbe piu' i moti.
+    struct RebuildGuard {
+        int &d;
+        explicit RebuildGuard(int &depth) : d(depth) { ++d; }
+        ~RebuildGuard() { --d; }
+    } rebuildGuard(m_libraryRebuildDepth);
+
     if (m_fsWatcher) m_fsWatcher->blockSignals(true);
 
     // 0. Blocchiamo i segnali della UI per non innescare eventi a catena durante la pulizia

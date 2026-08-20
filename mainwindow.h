@@ -412,6 +412,11 @@ private:
     // far ripartire refreshRepositories molte volte di fila sulla stessa
     // cartella. Si riarma quando la libreria torna completa.
     bool m_datalessWarningShown = false;
+    // Profondita', non un bool: refreshRepositories puo' annidarsi (il rebuild
+    // riemette segnali che ne innescano un altro), e un bool verrebbe azzerato
+    // dal primo a uscire lasciando scoperti i livelli ancora aperti.
+    // Vedi libraryRebuildInProgress().
+    int m_libraryRebuildDepth = 0;
     // Avviso "le immagini non possono essere per-mesh" gia' mostrato in questa
     // sessione. Spiega un LIMITE dell'architettura (l'immagine e' una risorsa
     // GPU unica), non un errore: e' un'informazione che non cambia, quindi va
@@ -834,6 +839,20 @@ private:
     // piu'. Vedi la spiegazione estesa in librarymenucontroller.cpp.
     void refreshLibraryPreservingMotion(bool wasRotating, bool wasPath4D,
                                         bool wasPath3D, bool wasTimeAnimating);
+
+    // "E' in corso una ricostruzione degli alberi della libreria."
+    //
+    // Il rebuild fa riemettere customContextMenuRequested e RIENTRA in
+    // showMenu, che ferma i moti, ne legge lo stato e lo ripristina in fondo.
+    // Ma quella lettura avviene a timer GIA' fermi -- li ha fermati la
+    // chiamata esterna -- quindi il rientro registra "fermo" e alla sua uscita
+    // spegne moti che l'utente aveva acceso.
+    // Con questo flag showMenu non tocca affatto i moti durante un rebuild: ne'
+    // li ferma ne' li ripristina, quindi non puo' falsarli. Chi ha avviato il
+    // rebuild sa qual era lo stato vero e lo rimette lui.
+    // NON e' la guardia di rientranza tentata (e revertita) il 2026-08-19:
+    // quella impediva l'APERTURA del menu, che qui resta intatta.
+    bool libraryRebuildInProgress() const { return m_libraryRebuildDepth > 0; }
     void refreshAndSelectPreset(QTreeWidget *tree, const QString &path);
     void updateWatcherPaths();
     void copyPath(QString src, QString dst);

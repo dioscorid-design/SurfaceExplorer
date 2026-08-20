@@ -411,20 +411,40 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     });
 #endif
 
+    // MOTI: NON SI TOCCANO DURANTE UNA RICOSTRUZIONE DELLA LIBRERIA.
+    //
+    // Il rebuild degli alberi riemette customContextMenuRequested e rientra qui
+    // (misurato: 4 rientri, uno per albero). Quel rientro leggerebbe lo stato
+    // dei moti da timer GIA' fermi -- li ha fermati la chiamata esterna --
+    // registrando "fermo", e in fondo alla funzione spegnerebbe moti che
+    // l'utente aveva acceso. E' il bug che ricompariva: non basta ripristinare
+    // dopo il rebuild, perche' il rientro puo' arrivare anche PIU' TARDI,
+    // dall'fsSyncTimer del QFileSystemWatcher (500 ms dopo il cambio cartella,
+    // e chiama refreshRepositories direttamente).
+    // Qui si salta stop e ripristino in blocco: chi ha avviato il rebuild
+    // conosce lo stato vero e lo rimette lui.
+    const bool skipMotionHandling = m_mainWindow->libraryRebuildInProgress();
+
     bool wasTimeAnimating = false;
-    if (m_mainWindow->m_btnStart && m_mainWindow->m_btnStart->text().toUpper() == "STOP") {
-        wasTimeAnimating = true;
-        m_mainWindow->ui->glWidget->setSurfaceAnimating(false);
-        m_mainWindow->ui->glWidget->stopAnimationTimer();
+    bool wasPath4D = false;
+    bool wasPath3D = false;
+    bool wasRotating = false;
+
+    if (!skipMotionHandling) {
+        if (m_mainWindow->m_btnStart && m_mainWindow->m_btnStart->text().toUpper() == "STOP") {
+            wasTimeAnimating = true;
+            m_mainWindow->ui->glWidget->setSurfaceAnimating(false);
+            m_mainWindow->ui->glWidget->stopAnimationTimer();
+        }
+
+        wasPath4D = m_mainWindow->pathTimer->isActive();
+        wasPath3D = m_mainWindow->pathTimer3D->isActive();
+        wasRotating = m_mainWindow->ui->glWidget->isAnimating();
+
+        if (wasPath4D) m_mainWindow->pathTimer->stop();
+        if (wasPath3D) m_mainWindow->pathTimer3D->stop();
+        if (wasRotating) m_mainWindow->ui->glWidget->pauseMotion();
     }
-
-    bool wasPath4D = m_mainWindow->pathTimer->isActive();
-    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
-    bool wasRotating = m_mainWindow->ui->glWidget->isAnimating();
-
-    if (wasPath4D) m_mainWindow->pathTimer->stop();
-    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
-    if (wasRotating) m_mainWindow->ui->glWidget->pauseMotion();
 
 // --- ESECUZIONE MENU ---
 #if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
