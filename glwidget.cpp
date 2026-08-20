@@ -3438,6 +3438,48 @@ void GLWidget::zoomCamera(float delta) {
     update();
 }
 
+// YAW/PITCH EFFETTIVI: vedi il commento esteso in glwidget.h.
+//
+// Fuori dalla modalita' path i campi grezzi sono gia' la verita'. Dentro, la
+// direzione di vista e' (m_pathTarget - m_cameraPos) e va convertita INVERTENDO
+// esattamente la formula con cui paintGL costruisce "front":
+//     front = ( sin(yaw)cos(pitch), sin(pitch), -cos(yaw)cos(pitch) )
+// da cui  pitch = asin(front.y)  e  yaw = atan2(front.x, -front.z).
+// Le due formule vanno tenute allineate: se cambia "front" in paintGL, cambia
+// anche qui.
+static void effectiveYawPitch(bool pathMode, const QVector3D &camPos,
+                              const QVector3D &pathTarget,
+                              float rawYaw, float rawPitch,
+                              float *outYaw, float *outPitch)
+{
+    if (!pathMode) { *outYaw = rawYaw; *outPitch = rawPitch; return; }
+
+    const QVector3D d = pathTarget - camPos;
+    // Target coincidente con la camera: direzione indefinita, si tengono i
+    // valori grezzi invece di produrre NaN.
+    if (d.lengthSquared() < 1e-12f) { *outYaw = rawYaw; *outPitch = rawPitch; return; }
+
+    const QVector3D f = d.normalized();
+    *outPitch = qRadiansToDegrees(std::asin(qBound(-1.0f, f.y(), 1.0f)));
+    *outYaw   = qRadiansToDegrees(std::atan2(f.x(), -f.z()));
+}
+
+float GLWidget::getEffectiveCameraYaw() const
+{
+    float y, p;
+    effectiveYawPitch(m_isPathFollowing, m_cameraPos, m_pathTarget,
+                      m_cameraYaw, m_cameraPitch, &y, &p);
+    return y;
+}
+
+float GLWidget::getEffectiveCameraPitch() const
+{
+    float y, p;
+    effectiveYawPitch(m_isPathFollowing, m_cameraPos, m_pathTarget,
+                      m_cameraYaw, m_cameraPitch, &y, &p);
+    return p;
+}
+
 void GLWidget::addCameraRotation(float dYaw, float dPitch) {
     m_cameraYaw += dYaw;
     m_cameraPitch += dPitch;

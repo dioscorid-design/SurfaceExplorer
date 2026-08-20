@@ -672,8 +672,13 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         camera3D["rot_y"] = (double)rot.y();
         camera3D["rot_z"] = (double)rot.z();
 
-        camera3D["yaw"] = (double)m_mainWindow->ui->glWidget->getCameraYaw();
-        camera3D["pitch"] = (double)m_mainWindow->ui->glWidget->getCameraPitch();
+        // EFFETTIVI, non i campi grezzi: in modalita' path la vista passa da
+        // lookAt(pos, pathTarget) e m_cameraYaw/m_cameraPitch restano al valore
+        // di prima (di norma 0). Salvare quelli dava un record con la posizione
+        // giusta e la direzione sbagliata -- al reload il soggetto usciva
+        // dall'inquadratura. Vedi getEffectiveCameraYaw in glwidget.h.
+        camera3D["yaw"] = (double)m_mainWindow->ui->glWidget->getEffectiveCameraYaw();
+        camera3D["pitch"] = (double)m_mainWindow->ui->glWidget->getEffectiveCameraPitch();
         camera3D["roll"] = (double)m_mainWindow->ui->glWidget->getCameraRoll();
 
         root["camera3D"] = camera3D;
@@ -1253,8 +1258,13 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         camera3D["rot_y"] = (double)rot.y();
         camera3D["rot_z"] = (double)rot.z();
 
-        camera3D["yaw"] = (double)m_mainWindow->ui->glWidget->getCameraYaw();
-        camera3D["pitch"] = (double)m_mainWindow->ui->glWidget->getCameraPitch();
+        // EFFETTIVI, non i campi grezzi: in modalita' path la vista passa da
+        // lookAt(pos, pathTarget) e m_cameraYaw/m_cameraPitch restano al valore
+        // di prima (di norma 0). Salvare quelli dava un record con la posizione
+        // giusta e la direzione sbagliata -- al reload il soggetto usciva
+        // dall'inquadratura. Vedi getEffectiveCameraYaw in glwidget.h.
+        camera3D["yaw"] = (double)m_mainWindow->ui->glWidget->getEffectiveCameraYaw();
+        camera3D["pitch"] = (double)m_mainWindow->ui->glWidget->getEffectiveCameraPitch();
         camera3D["roll"] = (double)m_mainWindow->ui->glWidget->getCameraRoll();
 
         root["camera3D"] = camera3D;

@@ -473,6 +473,26 @@ public:
     float getCameraYaw() const { return m_cameraYaw; }
     float getCameraPitch() const { return m_cameraPitch; }
     float getCameraRoll() const { return m_cameraRoll; }
+
+    // YAW/PITCH EFFETTIVI, cioe' quelli che descrivono DAVVERO la direzione di
+    // vista in questo istante.
+    //
+    // Servono al SALVATAGGIO. In modalita' path la vista non passa da
+    // m_cameraYaw/m_cameraPitch: paintGL usa lookAt(m_cameraPos, m_pathTarget),
+    // e quei due campi restano al valore che avevano prima -- tipicamente 0.
+    // Salvare i campi grezzi produceva quindi un record con la posizione giusta
+    // e la direzione sbagliata: al ricaricamento, con il path non riavviato, la
+    // vista ricadeva su front=(0,0,-1) e il soggetto usciva dall'inquadratura.
+    // MISURATO sul record "Calabi-Yau Orbit": camera in (2.19, 0.20, 1.89) con
+    // yaw=pitch=0 -- 130.8 gradi di scarto dalla direzione che inquadra
+    // l'origine, soggetto spostato a sinistra e in parte fuori campo.
+    //
+    // ATTENZIONE: m_isPathFollowing e' la MODALITA', non "il path sta
+    // animando", e PERSISTE dopo lo stop del path (la spegne solo
+    // resetTransformations). E' proprio questo a rendere il caso frequente:
+    // basta aver usato un path, fermarlo, avviare le rotazioni e salvare.
+    float getEffectiveCameraYaw() const;
+    float getEffectiveCameraPitch() const;
     void setCameraPos(const QVector3D& pos) { m_cameraPos = pos; meshNeedsUpdate = true; update(); }
     void setCameraYaw(float y) { m_cameraYaw = y; meshNeedsUpdate = true; update(); }
     void setCameraPitch(float p) { m_cameraPitch = p; meshNeedsUpdate = true; update(); }
