@@ -354,7 +354,17 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
             else { key = "pathSurfaces"; currentPath = settings.value(key, rootPath + "/Surfaces").toString(); }
 
             QString dir = QFileDialog::getExistingDirectory(m_mainWindow, "Select Workspace Folder", currentPath);
-            if (dir.isEmpty()) return;
+            // ANNULLATO: i moti vanno rimessi qui. showMenu li ha fermati e li
+            // ripristina in fondo, ma quel ripristino gira PRIMA della
+            // singleShot in coda a questa voce; uscendo di qui la singleShot non
+            // viene mai schedulata e nessuno li riaccende. Stessa ragione della
+            // lambda restoreMotion in onAddRepositoryClicked, che ha il commento
+            // esteso.
+            if (dir.isEmpty()) {
+                m_mainWindow->restoreMotionState(motionRotating, motionPath4D,
+                                                 motionPath3D, motionTimeAnim);
+                return;
+            }
 
             settings.setValue(key, QDir::cleanPath(dir));
             settings.remove("repoPathsSurfaces"); settings.remove("repoPathsTextures");

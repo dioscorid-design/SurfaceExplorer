@@ -840,6 +840,13 @@ private:
     void refreshLibraryPreservingMotion(bool wasRotating, bool wasPath4D,
                                         bool wasPath3D, bool wasTimeAnimating);
 
+    // Rimette i moti come erano, SENZA ricostruire la libreria. Per le uscite
+    // anticipate delle voci di menu (dialogo annullato, cartella rifiutata):
+    // li' non e' cambiato nulla, ma showMenu li ha gia' fermati e il suo
+    // ripristino gira prima della singleShot che non verra' mai schedulata.
+    void restoreMotionState(bool wasRotating, bool wasPath4D,
+                            bool wasPath3D, bool wasTimeAnimating);
+
     // "E' in corso una ricostruzione degli alberi della libreria."
     //
     // Il rebuild fa riemettere customContextMenuRequested e RIENTRA in

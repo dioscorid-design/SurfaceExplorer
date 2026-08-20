@@ -11635,10 +11635,26 @@ void MainWindow::onAddRepositoryClicked(bool wasRotating, bool wasPath4D,
     // Titolo: "Select Location for Presets Folder" prometteva la cosa sbagliata
     // -- suggeriva di indicare DOVE creare una cartella, mentre qui si indica LA
     // cartella della libreria, che deve gia' esistere e contenere i quattro rami.
+    // RIPRISTINO DEI MOTI SU OGNI USCITA ANTICIPATA.
+    //
+    // Quando questa funzione arriva in fondo, i moti li rimette
+    // refreshLibraryPreservingMotion dalla singleShot in coda. Ma ogni "return"
+    // qui in mezzo -- dialogo annullato, cartella non valida, avviso rifiutato
+    // -- salta quella singleShot, e i moti restano fermi: showMenu li ha gia'
+    // fermati e non ha modo di sapere che l'azione non e' arrivata in fondo.
+    // MISURATO: record in movimento, "Change Library Folder..." poi Annulla ->
+    // tutto fermo, e ripartiva solo riaprendo e richiudendo il menu (la seconda
+    // apertura rilegge il tasto master, ancora su "STOP", e in chiusura
+    // riaccende).
+    // La lambda va chiamata PRIMA di ogni return di questa funzione.
+    auto restoreMotion = [this, wasRotating, wasPath4D, wasPath3D, wasTimeAnimating]() {
+        restoreMotionState(wasRotating, wasPath4D, wasPath3D, wasTimeAnimating);
+    };
+
     QString selectedPath = QFileDialog::getExistingDirectory(this, "Select Your Library Folder", currentRoot,
                                                              QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
 
-    if (selectedPath.isEmpty()) return;
+    if (selectedPath.isEmpty()) { restoreMotion(); return; }
 
     // LA CARTELLA DEVE ESSERE UNA RADICE DI LIBRERIA, altrimenti non si fa nulla.
     //
@@ -11662,6 +11678,7 @@ void MainWindow::onAddRepositoryClicked(bool wasRotating, bool wasPath4D,
             "folders. Choose the folder that contains them — not one of them.\n\n"
             "Nothing has been changed: your library still points to its current folder.");
         box.exec();
+        restoreMotion();          // uscita anticipata: vedi restoreMotion
         return;
     }
 
@@ -11688,7 +11705,8 @@ void MainWindow::onAddRepositoryClicked(bool wasRotating, bool wasPath4D,
         // Predefinito su Ok, al contrario del primo avvio: qui l'utente ha
         // indicato una libreria che esiste gia' e sa cosa contiene -- il piu'
         // delle volte e' esattamente quella che vuole.
-        if (box.exec() != QMessageBox::Ok) return;   // radice attuale intatta
+        // uscita anticipata: vedi restoreMotion
+        if (box.exec() != QMessageBox::Ok) { restoreMotion(); return; }   // radice attuale intatta
     }
 
     // LA CARTELLA SELEZIONATA E' LA RADICE. Punto. Nessuna trasformazione del
@@ -12689,12 +12707,14 @@ void MainWindow::refreshAndSelectPreset(QTreeWidget *tree, const QString &path)
 // NON si e' usata una guardia di rientranza in showMenu: gia' provata e
 // revertita il 2026-08-19 -- nei log sembrava risolvere, nell'uso reale i moti
 // restavano fermi e in piu' il menu contestuale non si riapriva.
-void MainWindow::refreshLibraryPreservingMotion(bool wasRotating, bool wasPath4D,
-                                                bool wasPath3D, bool wasTimeAnimating)
+// RIMETTE I MOTI COME ERANO. Unica implementazione della sequenza: la usano sia
+// il percorso completo (refreshLibraryPreservingMotion) sia le uscite anticipate
+// delle voci di menu, che devono ripristinare SENZA ricostruire la libreria --
+// annullando un dialogo non e' cambiato niente, e un rebuild sarebbe lavoro
+// inutile su una libreria che puo' essere grande.
+void MainWindow::restoreMotionState(bool wasRotating, bool wasPath4D,
+                                    bool wasPath3D, bool wasTimeAnimating)
 {
-    refreshRepositories();
-    updateWatcherPaths();
-
     // Stesso ordine del ripristino in fondo a showMenu, per non introdurre una
     // seconda versione della stessa sequenza.
     if (wasTimeAnimating) {
@@ -12704,6 +12724,14 @@ void MainWindow::refreshLibraryPreservingMotion(bool wasRotating, bool wasPath4D
     if (wasPath4D)  pathTimer->start();
     if (wasPath3D)  pathTimer3D->start();
     if (wasRotating) ui->glWidget->resumeMotion();
+}
+
+void MainWindow::refreshLibraryPreservingMotion(bool wasRotating, bool wasPath4D,
+                                                bool wasPath3D, bool wasTimeAnimating)
+{
+    refreshRepositories();
+    updateWatcherPaths();
+    restoreMotionState(wasRotating, wasPath4D, wasPath3D, wasTimeAnimating);
 }
 
 void MainWindow::updateWatcherPaths()
