@@ -90,6 +90,13 @@ const LibraryItem* LibraryManager::getSurfaceByPath(const QString &filePath) con
     return nullptr;
 }
 
+const LibraryItem* LibraryManager::getMotionByPath(const QString &filePath) const {
+    for (const LibraryItem &it : m_motions) {
+        if (it.filePath == filePath) return &it;
+    }
+    return nullptr;
+}
+
 const LibraryItem& LibraryManager::getTexture(int index) const {
     if (index >= 0 && index < m_textures.size()) return m_textures[index];
     static LibraryItem dummy; return dummy;

@@ -226,6 +226,13 @@ public:
     // Ritorna nullptr se non trovato.
     const LibraryItem* getSurfaceByPath(const QString &filePath) const;
 
+    // Stesso ruolo di getSurfaceByPath per il ramo RECORD. Mancava, quindi il
+    // click su un record risolveva ancora per indice posizionale: dopo un
+    // refresh (salvataggio o modifica da Finder) la lista m_motions e'
+    // ricostruita e l'ordine puo' cambiare, ma il nodo dell'albero conserva
+    // l'indice VECCHIO -> si caricava un record diverso da quello cliccato.
+    const LibraryItem* getMotionByPath(const QString &filePath) const;
+
     // PRESET SALTATI perche' non materializzati su questo disco (segnaposto di
     // iCloud o di un altro file provider): leggerli bloccherebbe il thread della
     // UI a tempo indeterminato. Vedi isDatalessFile in librarymanager.cpp.

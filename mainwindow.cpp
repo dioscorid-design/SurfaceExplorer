@@ -10312,7 +10312,18 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
     QVariant vMot = item->data(0, Qt::UserRole + 2);
     if (vMot.isValid()) {
         int index = vMot.toInt();
-        const LibraryItem &data = m_libraryManager.getMotion(index);
+
+        // Come nel ramo SURFACES qui sopra: l'indice posizionale e' fragile.
+        // Dopo un refresh (salvataggio, o modifica della cartella da Finder) la
+        // lista m_motions viene ricostruita e l'ordine puo' cambiare, mentre il
+        // nodo dell'albero conserva l'indice VECCHIO -> si caricava un record
+        // diverso da quello cliccato. Il tooltip del nodo porta sempre il
+        // filePath univoco: si cerca per quello, con fallback all'indice se il
+        // tooltip fosse vuoto.
+        const QString nodePath = item->toolTip(0);
+        const LibraryItem *byPath = nodePath.isEmpty() ? nullptr
+                                    : m_libraryManager.getMotionByPath(nodePath);
+        const LibraryItem &data = byPath ? *byPath : m_libraryManager.getMotion(index);
 
         if (!data.name.isEmpty()) {
             // NESSUN TOGGLE: cliccare un record nella Library significa sempre
@@ -10332,7 +10343,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
     }
 }
 
-void MainWindow::applySurfaceExample(const LibraryItem &d)
+void MainWindow::applySurfaceExample(LibraryItem d)
 {
     // ASPETTO PER-MESH DURANTE IL LOAD.
     // Per tutta la durata del caricamento i setter globali (colore, alpha, luce,
@@ -10699,7 +10710,7 @@ void MainWindow::applySurfaceExample(const LibraryItem &d)
     showSceneHint(d.hintText, d.hintSeconds);
 }
 
-void MainWindow::applyMotionExample(const LibraryItem &data)
+void MainWindow::applyMotionExample(LibraryItem data)
 {
     // CARICAMENTO IN CORSO: i campi li riempie (e li svuota) il record, non
     // l'utente. Stessa guardia RAII di applyCommonData, che pero' parte solo piu'
@@ -12817,7 +12828,7 @@ void MainWindow::setTextureLibraryGrayed(bool grayed)
     }
 }
 
-void MainWindow::applyCommonData(const LibraryItem &d)
+void MainWindow::applyCommonData(LibraryItem d)
 {
     // CARICAMENTO IN CORSO: i campi vengono riempiti dal preset, non dall'utente.
     // Senza questa guardia noteSceneEdited scambiava quelle scritture per lavoro

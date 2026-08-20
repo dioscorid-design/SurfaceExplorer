@@ -250,8 +250,20 @@ private slots:
     // LIBRARY & WORKSPACE MANAGEMENT
     // ==========================================================
     void onExampleItemClicked(QTreeWidgetItem *item, int column);
-    void applySurfaceExample(const LibraryItem &data);
-    void applyMotionExample(const LibraryItem &data);
+    // PER VALORE, NON PER RIFERIMENTO -- e non e' una svista.
+    // L'argomento e' un elemento di m_surfaces/m_motions dentro LibraryManager.
+    // Queste funzioni aprono un QMessageBox (immagine del record non trovata):
+    // il suo exec() fa girare il ciclo di eventi, e li' possono scattare i timer
+    // che chiamano refreshRepositories() -> m_libraryManager.clear() distrugge
+    // la lista mentre l'argomento la sta ancora leggendo. Con un riferimento,
+    // tutto cio' che viene letto DOPO il popup (FOV, proiezione, velocita',
+    // angoli iniziali, hasPath4D/3D) arriva da memoria liberata: la scena si
+    // carica con l'inquadratura e il moto di un ALTRO record. La copia rende il
+    // caricamento indipendente da quante volte la libreria si ricostruisce nel
+    // frattempo. Il costo e' una copia di stringhe per caricamento: irrilevante
+    // rispetto a ricostruire mesh e shader.
+    void applySurfaceExample(LibraryItem data);
+    void applyMotionExample(LibraryItem data);
     void deleteSelectedExample();
     void onUndoDelete();
     // I quattro bool sono lo stato dei moti PRIMA che showMenu li fermasse: la
@@ -868,7 +880,9 @@ private:
     // dock Library. Usato per riflettere che in surface-wireframe la texture non e'
     // applicabile. Idempotente sul colore; il collasso e' one-shot (non riespande).
     void setTextureLibraryGrayed(bool grayed);
-    void applyCommonData(const LibraryItem &data);
+    // Per valore come applySurfaceExample/applyMotionExample: e' chiamata da
+    // entrambe e ne condivide il rischio (vedi il commento la' sopra).
+    void applyCommonData(LibraryItem data);
     QString presetsRootPath() const;
     // Data la cartella che l'utente ha indicato in un pannello, restituisce la
     // RADICE DELLA LIBRERIA: quella cartella stessa se e' gia' una radice (dentro
