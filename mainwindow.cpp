@@ -11179,7 +11179,16 @@ void MainWindow::applyMotionExample(LibraryItem data)
                     generateTexture();
                 }
 
-                ui->glWidget->loadCustomShader(texCode);
+                // Solo PARAMETRICO: in ray marching loadCustomShader non serve
+                // e non funziona -- scrive m_customFragmentCode, che la
+                // pipeline implicita non legge (quella usa m_textureCode, che
+                // qui e' gia' stato impostato piu' sopra). Il codice di una
+                // texture RM usa pModel/n_model, assenti nel vertex
+                // parametrico, quindi la compilazione fallisce sempre. Stessa
+                // guardia, stessa ragione, del ramo script piu' sotto.
+                if (!isImplicit) {
+                    ui->glWidget->loadCustomShader(texCode);
+                }
             } else {
                 m_isCustomMode = false;
                 if (imgPath.isEmpty()) {
@@ -11430,7 +11439,26 @@ void MainWindow::applyMotionExample(LibraryItem data)
             // mode non e' interpretato dal motore — equivaleva a 0; la update() era
             // gia' coperta sotto. NB: il 11 SALVATO nei preset ray marching e' altra
             // cosa, vedi decodifica '>= 10' in applyCommonData.)
-            if (texEnabled && m_isCustomMode && !m_surfaceTextureCode.isEmpty()) {
+            // !isImplicit: loadCustomShader e' il canale PARAMETRICO e in ray
+            // marching non ha alcun effetto utile -- nemmeno quando riesce.
+            // Scrive m_customFragmentCode, che la pipeline implicita non legge:
+            // quella si costruisce da createImplicitFragmentShader() sopra
+            // m_textureCode, popolato altrove (setTextureCode /
+            // validateAndApplyImplicitShader). Sono due canali separati.
+            //
+            // Senza questa guardia la condizione decideva solo sul TESTO della
+            // texture: m_isCustomMode e' true appena il codice contiene
+            // "return"/"vec3"/"vec4"/"mainImage", cosa vera per quasi ogni
+            // texture procedurale. Cosi' un record RM da script finiva per far
+            // compilare il proprio scriptCode -- una SDF che opera su 'p' --
+            // dentro getRawPosition() del vertex parametrico, dove 'p' non
+            // esiste: "ERROR: 'p' : undeclared identifier", una compilazione
+            // GLSL completa buttata a ogni caricamento e il log inquinato da
+            // errori che sembrano gravi e non lo sono (il codice viene
+            // rifiutato e la superficie si vede lo stesso). Misurati 11 record
+            // su 142 gia' affetti; ogni nuovo record RM da script con texture
+            // attiva sarebbe nato con lo stesso difetto.
+            if (!isImplicit && texEnabled && m_isCustomMode && !m_surfaceTextureCode.isEmpty()) {
                 ui->glWidget->loadCustomShader(m_surfaceTextureCode);
             }
 
