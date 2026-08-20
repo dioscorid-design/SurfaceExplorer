@@ -3653,58 +3653,6 @@ MainWindow::MainWindow(QWidget *parent)
     }
 #endif
 
-    // VIA D'USCITA: una radice che non risponde non deve impedire l'AVVIO.
-    //
-    // Se la cartella salvata in libraryRootPath e' irraggiungibile,
-    // refreshRepositories/updateWatcherPaths qui sotto la scandagliano comunque,
-    // e su una cartella protetta da TCC quella scansione puo' non tornare mai:
-    // l'app si pianta PRIMA di mostrare la finestra. Ed e' uno stato senza
-    // uscita, perche' la radice e' gia' su disco e ogni riavvio ci ricasca --
-    // l'unico rimedio era riscrivere la chiave da terminale. MISURATO dopo aver
-    // puntato la libreria a ~/Documents/presets dal canale DMG.
-    // Qui la radice si verifica PRIMA di usarla, con una domanda a basso costo
-    // (exists sulla sola radice, non una scansione ricorsiva dei quattro rami):
-    // se non risponde si parte con gli alberi vuoti e lo si dice, invece di non
-    // partire affatto. La libreria si rimette a posto da "Change Library
-    // Folder...", ad app aperta.
-    // La radice VUOTA non e' questo caso: e' il primo avvio, che ha gia' il suo
-    // percorso (setupDefaultFolders chiede dove installare).
-#if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)
-    {
-        const QString libRoot = QSettings().value("libraryRootPath").toString();
-        if (!libRoot.isEmpty() && !QDir(libRoot).exists()) {
-            qWarning() << "Libreria: radice non raggiungibile" << libRoot
-                       << "-- si parte con la libreria vuota.";
-            QSettings s;
-            s.remove("libraryRootPath");
-            // Come nello scarto della radice di sistema piu' sopra: se
-            // restassero, queste chiavi scavalcherebbero la scelta successiva.
-            s.remove("pathSurfaces");
-            s.remove("pathTextures");
-            s.remove("pathRecords");
-            s.remove("pathSounds");
-            s.sync();
-
-            // Avviso RINVIATO: qui siamo ancora nel costruttore, la finestra non
-            // e' visibile e un box modale ora bloccherebbe l'avvio -- proprio
-            // cio' che questo blocco serve a evitare.
-            QTimer::singleShot(0, this, [this, libRoot]() {
-                QMessageBox box(this);
-                box.setIcon(QMessageBox::Warning);
-                box.setWindowTitle("Library Not Found");
-                box.setText("Your library folder could not be opened.");
-                box.setInformativeText(
-                    libRoot + "\n\n"
-                    "Surface Explorer started with an empty library so you can keep "
-                    "working. Your presets are not lost: use \"Change Library "
-                    "Folder...\" in the library's right-click menu to point to them "
-                    "again.");
-                box.exec();
-            });
-        }
-    }
-#endif
-
     refreshRepositories();
     updateWatcherPaths();
 
@@ -11733,16 +11681,17 @@ void MainWindow::onAddRepositoryClicked()
     //
     // RILETTURA RINVIATA A MENU CHIUSO (singleShot(0)): questa funzione parte da
     // una voce del menu contestuale della libreria, che su desktop viene
-    // eseguita DENTRO contextMenu->exec() -- un event loop annidato. Il pannello
-    // nativo di scelta cartella (NSOpenPanel) ne apre un altro sopra.
-    // refreshRepositories/updateWatcherPaths scandagliano poi la cartella appena
-    // indicata, e se e' protetta da TCC (Documents, Desktop, Downloads) macOS
-    // deve emettere il pannello di autorizzazione proprio mentre siamo in fondo
-    // a quella pila di loop: l'app si pianta e serve l'uscita forzata.
-    // MISURATO puntando la libreria a ~/Documents/presets dal canale DMG.
-    // Con il rinvio, i due lavori girano a menu chiuso e a pila smontata, dal
-    // loop principale, dove il pannello di TCC puo' comparire normalmente.
-    // Stesso schema gia' usato dal ramo mobile in librarymenucontroller.cpp.
+    // eseguita DENTRO contextMenu->exec() -- un event loop annidato, con sopra
+    // quello del pannello nativo di scelta cartella. Rileggere l'intera libreria
+    // in fondo a quella pila significa tenere il menu vivo per tutta la durata
+    // della scansione, e qualunque finestra di sistema debba comparire nel
+    // frattempo (autorizzazioni, avvisi) arriva in uno stato annidato.
+    // Con il rinvio i due lavori girano a menu chiuso e a pila smontata, dal
+    // loop principale. Stesso schema gia' usato dal ramo mobile in
+    // librarymenucontroller.cpp.
+    // NB: non e' questo il rimedio al blocco su cartella iCloud -- quello era
+    // una read() sospesa sui file non scaricati, impedita alla fonte da
+    // isDatalessFile (librarymanager.cpp). Qui si toglie solo fragilita'.
     QTimer::singleShot(0, this, [this]() {
         refreshRepositories();
         updateWatcherPaths();

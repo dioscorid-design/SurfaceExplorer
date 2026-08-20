@@ -343,11 +343,9 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
 
             // RINVIO A MENU CHIUSO: stessa ragione di onAddRepositoryClicked
             // (mainwindow.cpp), che ha il commento esteso. In breve: siamo
-            // dentro contextMenu->exec() e il pannello nativo ne ha aperto un
-            // altro sopra; se la cartella scelta e' protetta da TCC
-            // (Documents/Desktop/Downloads) la scansione qui sotto fa emergere
-            // il pannello di autorizzazione in fondo a quella pila di loop e
-            // l'app si pianta. Fuori dal menu, il loop principale lo gestisce.
+            // dentro contextMenu->exec(), con sopra il loop del pannello nativo,
+            // e rileggere la libreria qui terrebbe il menu vivo per tutta la
+            // scansione. Fuori dal menu il lavoro gira dal loop principale.
             QTimer::singleShot(0, m_mainWindow, [this]() {
                 m_mainWindow->refreshRepositories();
             });
