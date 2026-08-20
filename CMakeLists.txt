@@ -225,6 +225,40 @@ if (IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
     )
 
 elseif (APPLE)
+    # BUNDLE ID DIVERSO PER I DUE CANALI MACOS.
+    #
+    # DMG (Developer ID) e App Store escono dallo STESSO target e finivano con lo
+    # stesso identificatore: per launchd, il Dock e TCC erano LA STESSA
+    # applicazione, pur essendo due bundle distinti in /Applications.
+    # Conseguenze MISURATE con le due installate insieme:
+    #  - condividevano il file di preferenze, quindi NON potevano puntare a
+    #    librerie diverse: l'ultima che scriveva libraryRootPath vinceva, e
+    #    l'altra si ritrovava la libreria cambiata sotto i piedi;
+    #  - il Dock non riusciva a portare avanti la seconda: cliccando l'icona il
+    #    sistema considerava l'app gia' in esecuzione e non attivava nulla --
+    #    sembrava che "non si aprisse", mentre il processo era vivo e sano
+    #    (sample: fermo in mach_msg dentro il run loop, cioe' inattivo).
+    #
+    # SI RINOMINA IL CANALE DMG, non l'altro: l'id dell'App Store e' l'identita'
+    # registrata su App Store Connect e legata alle build gia' su TestFlight;
+    # cambiarlo richiederebbe un nuovo record e un nuovo provisioning. Il DMG lo
+    # distribuisce l'utente per conto proprio, quindi un id nuovo non rompe
+    # nulla a valle (chi aggiorna ritrova le preferenze azzerate: la libreria si
+    # ripunta da "Change Library Folder...").
+    #
+    # IL DISCRIMINANTE E' IL GENERATORE, che e' gia' cio' che separa i due
+    # canali: il Mac App Store passa da `xcodebuild` col generatore Xcode
+    # (release_testflight_mac.sh), il DMG dalla build normale Ninja/Makefile
+    # (release_macos.sh, che firma build/Desktop_Qt_6_10-Release). Non si e'
+    # usata una option() perche' andrebbe ricordata a ogni configure manuale: e'
+    # esattamente il tipo di passo che si dimentica, e il sintomo tornerebbe
+    # silenzioso.
+    if (CMAKE_GENERATOR STREQUAL "Xcode")
+        set(SE_MACOS_BUNDLE_ID "com.dioscorid.surfaceexplorer")        # App Store
+    else()
+        set(SE_MACOS_BUNDLE_ID "com.dioscorid.surfaceexplorer.dmg")    # Developer ID
+    endif()
+
     # --- CONFIGURAZIONE NOME APP MACOS ---
     set_target_properties(SurfaceExplorer PROPERTIES
         MACOSX_BUNDLE TRUE
@@ -245,8 +279,8 @@ elseif (APPLE)
         # 3. Nome del file fisico (.app)
         OUTPUT_NAME "SurfaceExplorer"
 
-        # 4. Identificativo univoco
-        MACOSX_BUNDLE_GUI_IDENTIFIER "com.dioscorid.surfaceexplorer"
+        # 4. Identificativo univoco (diverso fra DMG e App Store: vedi sopra)
+        MACOSX_BUNDLE_GUI_IDENTIFIER "${SE_MACOS_BUNDLE_ID}"
 
         # 5. Icona (TUTTO MINUSCOLO!)
         MACOSX_BUNDLE_ICON_FILE "icon.icns"
@@ -267,7 +301,10 @@ elseif (APPLE)
     # esteso li' sopra). Se cambia, va cambiato in ENTRAMBI i punti.
     set(CMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "BAPKX72394")
     set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic")
-    set(CMAKE_XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.dioscorid.surfaceexplorer")
+    # Dalla stessa variabile del bundle id qui sopra, non da una seconda
+    # costante: sotto Xcode vale "com.dioscorid.surfaceexplorer" (l'identita'
+    # registrata su App Store Connect), e i due punti non possono divergere.
+    set(CMAKE_XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${SE_MACOS_BUNDLE_ID}")
 
     set_target_properties(SurfaceExplorer PROPERTIES
         # Build number e versione marketing: stessi campi che il bump di

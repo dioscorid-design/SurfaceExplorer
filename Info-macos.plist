@@ -19,8 +19,15 @@
 	<string>SurfaceExplorer</string>
 	<key>CFBundleIconFile</key>
 	<string>icon.icns</string>
+	<!-- SEGNAPOSTO, non un valore fisso: CMake lo sostituisce con
+	     MACOSX_BUNDLE_GUI_IDENTIFIER, che vale "com.dioscorid.surfaceexplorer"
+	     per il canale App Store e "...surfaceexplorer.dmg" per il DMG (vedi
+	     CMakeLists.txt, blocco elseif(APPLE)).
+	     Scritto a mano com'era, vinceva sul valore di CMake e le due app
+	     tornavano ad avere lo stesso identificatore -- cioe' a essere la stessa
+	     applicazione per launchd, il Dock e TCC. -->
 	<key>CFBundleIdentifier</key>
-	<string>com.dioscorid.surfaceexplorer</string>
+	<string>${MACOSX_BUNDLE_GUI_IDENTIFIER}</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
