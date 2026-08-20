@@ -37,9 +37,19 @@
 # libreria -- lo script te lo ricorda ma non lo fa da se', perche' li' dentro
 # c'e' il tuo lavoro.
 #
+# A QUALE APP SI APPLICA: a TUTTE quelle del canale DMG.
+# Non azzera "un'applicazione" ma un CANALE: le preferenze cancellate qui sono
+# condivise da qualunque bundle con id "...surfaceexplorer.dmg", ovunque si
+# trovi -- /Applications, build/Desktop_Qt_6_10-Release,
+# build/Desktop_Qt_6_10-Debug. Tutti leggono lo stesso libraryRootPath, quindi
+# NON serve installare il DMG per provare una modifica: basta lanciare il
+# binario appena compilato con --app.
+#
 # USO
-#   ./ExC/Mac/reset_dmg_state.sh          azzera e basta
-#   ./ExC/Mac/reset_dmg_state.sh --run    azzera e lancia /Applications/SurfaceExplorer.app
+#   ./ExC/Mac/reset_dmg_state.sh                     azzera e basta
+#   ./ExC/Mac/reset_dmg_state.sh --run               azzera e lancia /Applications
+#   ./ExC/Mac/reset_dmg_state.sh --run --app build/Desktop_Qt_6_10-Release/SurfaceExplorer.app
+#                                                    azzera e lancia quel bundle
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
@@ -54,12 +64,31 @@ warn() { printf '\033[33m!\033[0m %s\n' "$1"; }
 err()  { printf '\033[31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
 
 DO_RUN=0
-[ "${1:-}" = "--run" ] && DO_RUN=1
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --run) DO_RUN=1 ;;
+    # Percorso di un .app da lanciare al posto di quello in /Applications: le
+    # preferenze sono le stesse per ogni bundle con id "...dmg", quindi si puo'
+    # provare il binario appena compilato senza installarlo.
+    --app) shift; [ -n "${1:-}" ] || err "--app richiede un percorso"; APP="$1" ;;
+    *) err "argomento sconosciuto: $1 (usa --run, --app <percorso.app>)" ;;
+  esac
+  shift
+done
 
 # L'app DEVE essere chiusa: se gira, cfprefsd riscrive le preferenze alla
 # chiusura e il reset viene annullato senza che si veda nulla.
-if pgrep -f "$APP/Contents/MacOS/SurfaceExplorer" >/dev/null 2>&1; then
-  err "Surface Explorer (DMG) e' in esecuzione: chiudila prima, o le preferenze verranno riscritte alla chiusura."
+#
+# Si cercano TUTTI i binari del canale, non solo quello in /Applications:
+# queste preferenze sono condivise da qualunque bundle con id "...dmg" --
+# /Applications, build/Desktop_Qt_6_10-Release, build/Desktop_Qt_6_10-Debug --
+# quindi il reset si applica a tutti e tre e uno qualsiasi di essi, se in
+# esecuzione, puo' annullarlo. Guardare solo /Applications lasciava passare
+# proprio il caso di chi prova il binario appena compilato.
+RUNNING="$(pgrep -fl "SurfaceExplorer.app/Contents/MacOS/SurfaceExplorer" 2>/dev/null || true)"
+if [ -n "$RUNNING" ]; then
+  printf '\033[31m✗ Surface Explorer e in esecuzione:\033[0m\n%s\n' "$RUNNING" >&2
+  err "Chiudila prima: alla chiusura cfprefsd riscriverebbe le preferenze e il reset sarebbe annullato."
 fi
 
 info "Radice attuale della libreria:"
@@ -104,5 +133,10 @@ echo
 if [ "$DO_RUN" -eq 1 ]; then
   [ -d "$APP" ] || err "App non trovata: $APP"
   info "Avvio $APP ..."
+  # Data del binario: il test piu' frequente e' su una modifica appena fatta, e
+  # firmare un bundle NON lo ricompila (release_macos.sh firma cio' che trova).
+  # Vedere qui una data vecchia evita di attribuire al codice un comportamento
+  # che viene semplicemente da un binario precedente -- e' gia' successo.
+  info "Binario del $(stat -f '%Sm' "$APP/Contents/MacOS/SurfaceExplorer")"
   open "$APP"
 fi
