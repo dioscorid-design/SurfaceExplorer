@@ -1,5 +1,10 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+
+#ifdef Q_OS_MACOS
+#include <sys/xattr.h>   // getxattr: vedi dirIsCloudSynced
+#endif
+
 #include "surfaceengine.h"
 #include "expressionparser.h"
 #include "uistylemanager.h"
@@ -11601,6 +11606,9 @@ void MainWindow::onUndoDelete() {
 // Definizione accanto a resolveLibraryRoot, in fondo al file: una cartella e'
 // una radice di libreria se contiene almeno uno dei quattro rami.
 static bool dirIsLibraryRoot(const QDir &dir);
+// Definita accanto a dirIsLibraryRoot, in fondo al file: dice se la cartella
+// vive dentro iCloud Drive o un altro servizio di sincronizzazione.
+static bool dirIsCloudSynced(const QString &path);
 
 void MainWindow::onAddRepositoryClicked(bool wasRotating, bool wasPath4D,
                                         bool wasPath3D, bool wasTimeAnimating)
@@ -11648,6 +11656,32 @@ void MainWindow::onAddRepositoryClicked(bool wasRotating, bool wasPath4D,
             "Nothing has been changed: your library still points to its current folder.");
         box.exec();
         return;
+    }
+
+    // CARTELLA SINCRONIZZATA: si avvisa, ma il testo e' diverso da quello del
+    // primo avvio. Li' la libreria si sta per CREARE e il consiglio e' scegliere
+    // altrove; qui esiste gia' in quella cartella, quindi il punto non e' dove
+    // metterla ma sapere che i suoi preset possono sparire dal disco -- e che
+    // l'avviso "N preset non caricati" avra' quell'origine.
+    if (dirIsCloudSynced(selectedPath)) {
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Warning);
+        box.setWindowTitle("Library Synced to the Cloud");
+        box.setText("This library is stored in a folder synced to iCloud Drive.");
+        box.setInformativeText(
+            QDir::cleanPath(selectedPath) + "\n\n"
+            "macOS may remove the local copies of these presets to free up space. "
+            "Those that are not on this Mac cannot be opened, and Surface Explorer "
+            "will report them as missing until they are downloaded again "
+            "(in Finder: right-click → Download Now).\n\n"
+            "Do you want to use this folder anyway?");
+        box.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
+        box.button(QMessageBox::Ok)->setText("Use This Folder");
+        box.setDefaultButton(QMessageBox::Ok);
+        // Predefinito su Ok, al contrario del primo avvio: qui l'utente ha
+        // indicato una libreria che esiste gia' e sa cosa contiene -- il piu'
+        // delle volte e' esattamente quella che vuole.
+        if (box.exec() != QMessageBox::Ok) return;   // radice attuale intatta
     }
 
     // LA CARTELLA SELEZIONATA E' LA RADICE. Punto. Nessuna trasformazione del
@@ -12079,6 +12113,49 @@ void MainWindow::setupDefaultFolders()
                 "panel: it will ask you where to keep them.");
             box.exec();
             return;
+        }
+
+        // CARTELLA SINCRONIZZATA: si avvisa PRIMA di installarci la libreria.
+        //
+        // E' il punto in cui il problema nasce, e l'unico in cui costa un solo
+        // messaggio: dopo, una libreria dentro iCloud produce l'avviso "N preset
+        // non caricati" a ogni avvio, e l'utente non ha piu' modo di collegarlo
+        // alla scelta fatta settimane prima.
+        // Il caso non e' raro: il pannello si apre sulla home e "Documenti" e' la
+        // scelta naturale, ma con "Scrivania e Documenti in iCloud" -- attiva per
+        // impostazione predefinita quando si abilita iCloud Drive -- quella
+        // cartella E' iCloud. I preset appena installati restano leggibili
+        // finche' il sistema non li rimuove per fare spazio; da li' in poi non lo
+        // sono piu'.
+        // Si AVVISA e si lascia decidere: la cartella puo' essere quella giusta
+        // per chi vuole la libreria su piu' Mac ed e' disposto a tenerla
+        // scaricata. Imporre un rifiuto sarebbe sbagliato.
+        if (dirIsCloudSynced(selectedPath)) {
+            QMessageBox box(this);
+            box.setIcon(QMessageBox::Warning);
+            box.setWindowTitle("Folder Synced to the Cloud");
+            box.setText("This folder is synced to iCloud Drive.");
+            box.setInformativeText(
+                QDir::cleanPath(selectedPath) + "\n\n"
+                "Your presets would be uploaded to the cloud, and macOS may later "
+                "remove the local copies to free up space. When that happens they "
+                "cannot be opened until they are downloaded again, and Surface "
+                "Explorer will report them as missing.\n\n"
+                "Choose a folder outside iCloud Drive, Desktop and Documents to "
+                "avoid it — or keep this one, if you want the library on several "
+                "Macs and will keep the files downloaded.");
+            box.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
+            box.button(QMessageBox::Ok)->setText("Use This Folder");
+            box.button(QMessageBox::Cancel)->setText("Choose Another");
+            box.setDefaultButton(QMessageBox::Cancel);
+            if (box.exec() != QMessageBox::Ok) {
+                // Si torna al pannello, dalla stessa cartella: cosi' l'utente
+                // vede dove si trovava e puo' spostarsi, invece di ripartire
+                // dalla home e dover ritrovare la strada.
+                selectedPath = QFileDialog::getExistingDirectory(this, "Select Master Folder",
+                                                                 selectedPath);
+                if (selectedPath.isEmpty()) return;   // come la rinuncia qui sopra
+            }
         }
 
         // La cartella indicata puo' essere GIA' la radice della libreria: in quel
@@ -13540,6 +13617,53 @@ QString MainWindow::presetsRootPath() const {
 // filesystem, non per i bookmark di sandbox ne' per i confronti fra stringhe.
 // Definita qui (accanto a resolveLibraryRoot, che la usa) ma dichiarata piu'
 // sopra: la usa anche onAddRepositoryClicked, che nel file viene prima.
+// CARTELLA DENTRO UN SERVIZIO DI SINCRONIZZAZIONE (iCloud Drive, Dropbox...)?
+//
+// Serve a dirlo PRIMA di installarci la libreria. Una libreria che vive li'
+// funziona finche' i file restano sul disco, ma il servizio li rimuove quando
+// serve spazio ("evict") lasciando dei segnaposto: da quel momento i preset non
+// sono leggibili senza riscaricarli, e isDatalessFile li salta per non bloccare
+// l'applicazione (vedi librarymanager.cpp). MISURATO su una libreria in
+// ~/Documents con iCloud attivo: 55 file smaterializzati sono diventati 204 e
+// poi 434 nel giro di un'ora, senza alcuna azione dell'utente.
+//
+// Attenzione: l'attributo sta SOLO sulla radice del dominio sincronizzato
+// (~/Documents, ~/Desktop), NON sulle sottocartelle -- verificato con xattr:
+// ~/Documents lo porta, ~/Documents/presets no. Va quindi risalita la catena
+// dei genitori, altrimenti la cartella che l'utente sceglie davvero (una
+// sottocartella) risulterebbe sempre "locale" e l'avviso non comparirebbe mai.
+//
+// Fuori da macOS non si fa nulla: il caso e' quello di iCloud Drive e dei
+// file provider di sistema.
+static bool dirIsCloudSynced(const QString &path)
+{
+#ifdef Q_OS_MACOS
+    // Si risale la catena come STRINGA, non con QDir::cdUp(): su un percorso che
+    // non esiste ancora cdUp() fallisce e la risalita si fermerebbe al primo
+    // passo. MISURATO: ~/Documents/presets/nonesiste/ancora veniva dato per
+    // "locale" pur essendo dentro Documents -- ed e' proprio il caso del primo
+    // avvio, dove l'utente indica una cartella da creare.
+    QString candidate = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+    while (!candidate.isEmpty() && candidate != QLatin1String("/")) {
+        // getxattr con size 0 chiede solo se l'attributo c'e': niente buffer e
+        // nessuna lettura del valore, che non ci interessa. Su un percorso
+        // inesistente fallisce e basta, quindi non serve un exists() a monte.
+        const QByteArray raw = QFile::encodeName(candidate);
+        if (::getxattr(raw.constData(), "com.apple.file-provider-domain-id",
+                       nullptr, 0, 0, 0) >= 0)
+            return true;
+
+        const int slash = candidate.lastIndexOf(QLatin1Char('/'));
+        if (slash <= 0) break;
+        candidate.truncate(slash);
+    }
+    return false;
+#else
+    Q_UNUSED(path);
+    return false;
+#endif
+}
+
 static bool dirIsLibraryRoot(const QDir &dir)
 {
     if (!dir.exists()) return false;
