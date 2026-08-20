@@ -253,7 +253,17 @@ elseif (APPLE)
     # usata una option() perche' andrebbe ricordata a ogni configure manuale: e'
     # esattamente il tipo di passo che si dimentica, e il sintomo tornerebbe
     # silenzioso.
-    if (CMAKE_GENERATOR STREQUAL "Xcode")
+    # ECCEZIONE: SE_APPSTORE_ID forza l'identita' App Store anche senza Xcode.
+    # Serve a test_sandbox_local.sh, che compila con Ninja/Makefile ma firma con
+    # gli entitlements dell'App Store per provare la sandbox in locale: quella
+    # build DEVE avere l'id App Store, altrimenti simula il canale sbagliato.
+    # MISURATO senza questa eccezione: l'app di test nasceva con l'id "...dmg",
+    # quindi --reset azzerava il container e il dominio dell'App Store mentre
+    # l'app leggeva e scriveva quelli del DMG -- il reset sembrava non
+    # funzionare e la libreria si riapriva sul percorso precedente. In piu' i
+    # due bundle con lo stesso id (test e /Applications) si contendevano
+    # l'attivazione, da cui l'icona nel Dock sostituita da un'altra copia.
+    if (CMAKE_GENERATOR STREQUAL "Xcode" OR SE_APPSTORE_ID)
         set(SE_MACOS_BUNDLE_ID "com.dioscorid.surfaceexplorer")        # App Store
     else()
         set(SE_MACOS_BUNDLE_ID "com.dioscorid.surfaceexplorer.dmg")    # Developer ID

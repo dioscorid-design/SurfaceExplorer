@@ -108,15 +108,45 @@ cd "$PROJECT_DIR"
 # ---------------------------------------------------------------------------
 # 1. Compilazione (Debug: la Release la gestisce l'utente)
 # ---------------------------------------------------------------------------
+# -DSE_APPSTORE_ID=ON: questa build simula il canale APP STORE, quindi deve
+# avere il suo bundle id. Senza, CMakeLists le darebbe quello del DMG
+# ("...surfaceexplorer.dmg"), perche' il discriminante normale e' il generatore
+# e qui non si usa Xcode. Conseguenze MISURATE: --reset azzerava container e
+# dominio dell'App Store mentre l'app leggeva e scriveva quelli del DMG (il
+# reset "non funzionava" e la libreria si riapriva sul percorso precedente), e
+# i due bundle con lo stesso id -- questo e quello in /Applications -- si
+# contendevano l'attivazione, da cui l'icona nel Dock sostituita da un'altra.
+#
+# Si riconfigura anche a cache ESISTENTE se l'id memorizzato e' quello del DMG:
+# una cache creata prima di questa correzione continuerebbe a produrre l'id
+# sbagliato per sempre, e il sintomo tornerebbe senza spiegazione.
+NEEDS_CONFIG=0
 if [ ! -f "$BUILD_DIR/CMakeCache.txt" ]; then
-  info "Prima configurazione in $BUILD_DIR ..."
-  "$QT_CMAKE" -S "$PROJECT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Debug >/dev/null
+  NEEDS_CONFIG=1
+elif ! grep -q "^SE_APPSTORE_ID:BOOL=ON" "$BUILD_DIR/CMakeCache.txt" 2>/dev/null; then
+  info "Cache senza SE_APPSTORE_ID (bundle id del DMG): riconfiguro."
+  NEEDS_CONFIG=1
+fi
+
+if [ "$NEEDS_CONFIG" -eq 1 ]; then
+  info "Configurazione in $BUILD_DIR ..."
+  "$QT_CMAKE" -S "$PROJECT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Debug \
+              -DSE_APPSTORE_ID=ON >/dev/null
 fi
 
 info "Compilazione ..."
 cmake --build "$BUILD_DIR" --parallel 2>&1 | grep -E "error|Error" && err "Compilazione fallita." || true
 [ -d "$APP" ] || err "Bundle non prodotto: $APP"
 ok "Compilato."
+
+# L'ID DEVE ESSERE QUELLO DELL'APP STORE, o tutto il test e' falsato: il
+# container e le preferenze che --reset azzera sono quelli di $BUNDLE_ID, e con
+# un id diverso l'app ne userebbe altri -- il reset non avrebbe effetto visibile
+# e la libreria si riaprirebbe sul percorso precedente. E' successo, quindi si
+# controlla invece di darlo per scontato.
+BUILT_ID="$(plutil -extract CFBundleIdentifier raw "$APP/Contents/Info.plist" 2>/dev/null || echo '')"
+[ "$BUILT_ID" = "$BUNDLE_ID" ] || err \
+  "Bundle id sbagliato: '$BUILT_ID' invece di '$BUNDLE_ID'. La cache in $BUILD_DIR e' stantia: cancellala e rilancia."
 
 # ---------------------------------------------------------------------------
 # 2. Framework Qt dentro il bundle
