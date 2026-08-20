@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QSurfaceFormat>
 #include <QIcon>
+#include <QSettings>
 #include "mainwindow.h"
 
 int main(int argc, char *argv[])
@@ -66,7 +67,40 @@ int main(int argc, char *argv[])
     app.setWindowIcon(QIcon(":/icon.png"));
     app.setDesktopFileName("SurfaceExplorer");
     QCoreApplication::setOrganizationName("Dioscorid");
+
+    // NOME DIVERSO PER I DUE CANALI MACOS, altrimenti le preferenze restano in
+    // comune anche con bundle id distinti.
+    //
+    // QSettings su macOS NON guarda il CFBundleIdentifier: costruisce il dominio
+    // da organizationName + applicationName. Con gli stessi due valori, DMG e
+    // App Store scrivono entrambi su com.dioscorid.SurfaceExplorer.plist --
+    // quindi NON possono puntare a librerie diverse: l'ultima che scrive
+    // libraryRootPath vince e l'altra si ritrova la libreria cambiata sotto i
+    // piedi (MISURATO con le due installate insieme).
+    // Separare il bundle id in CMakeLists non basta: risolve Dock e TCC, non
+    // questo. Serve che il nome differisca qui.
+    //
+    // Il discriminante e' lo stesso di CMakeLists (canale DMG vs App Store), ma
+    // qui va letto a RUNTIME dal bundle: il preprocessore non sa da quale
+    // generatore si sta compilando.
+#if defined(Q_OS_MACOS)
+    {
+        // Il suffisso ".dmg" nell'id lo mette CMakeLists al solo canale
+        // Developer ID: e' l'unica cosa che distingue i due bundle a runtime.
+        // Si legge dall'Info.plist del bundle (main.cpp e' C++ puro, niente
+        // NSBundle); fuori da un bundle il file non c'e' e la stringa resta
+        // vuota, quindi si ricade sul nome storico.
+        const QSettings bundleInfo(QCoreApplication::applicationDirPath()
+                                   + QStringLiteral("/../Info.plist"),
+                                   QSettings::NativeFormat);
+        const QString id = bundleInfo.value(QStringLiteral("CFBundleIdentifier")).toString();
+        QCoreApplication::setApplicationName(id.endsWith(QLatin1String(".dmg"))
+                                             ? QStringLiteral("SurfaceExplorer-dmg")
+                                             : QStringLiteral("SurfaceExplorer"));
+    }
+#else
     QCoreApplication::setApplicationName("SurfaceExplorer");
+#endif
 
     MainWindow w;
 
