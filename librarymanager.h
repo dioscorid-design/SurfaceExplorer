@@ -226,6 +226,13 @@ public:
     // Ritorna nullptr se non trovato.
     const LibraryItem* getSurfaceByPath(const QString &filePath) const;
 
+    // PRESET SALTATI perche' non materializzati su questo disco (segnaposto di
+    // iCloud o di un altro file provider): leggerli bloccherebbe il thread della
+    // UI a tempo indeterminato. Vedi isDatalessFile in librarymanager.cpp.
+    // Serve a MainWindow per dire quanti e quali, invece di lasciare una
+    // libreria incompleta e inspiegata. Azzerata da clear().
+    const QStringList& skippedDataless() const { return m_skippedDataless; }
+
     // ==========================================================
     // FILE OPERATIONS & BACKUP
     // ==========================================================
@@ -241,6 +248,8 @@ private:
     QList<LibraryItem> m_textures;
     QList<LibraryItem> m_motions;
     QList<LibraryItem> m_sounds;
+
+    QStringList m_skippedDataless;   // vedi skippedDataless()
 
     // ==========================================================
     // PRIVATE HELPERS

@@ -62,5 +62,26 @@
 	<string>Surface Explorer does not use the camera. This permission is requested only because a linked multimedia framework declares this capability.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Surface Explorer does not use the microphone. This permission is requested only because a linked multimedia framework declares this capability.</string>
+
+	<!-- CARTELLE PROTETTE DA TCC. Servono al canale DMG/Developer ID, che gira
+	     NON sandboxed ma NON e' esente da TCC: Documents, Desktop e Downloads
+	     sono protette per QUALUNQUE app, sandbox o no.
+	     Senza queste chiavi macOS non ha un testo da mostrare nel pannello di
+	     autorizzazione, e a seconda della versione nega l'accesso senza
+	     chiedere nulla -- che e' il caso peggiore: l'app resta in attesa di una
+	     risposta che non arrivera' mai.
+	     MISURATO: con la libreria spostata in ~/Documents/presets tramite
+	     "Change Library Folder...", l'app si e' piantata e non ripartiva piu'
+	     (la radice era gia' stata scritta, quindi ogni avvio ritentava la
+	     stessa scansione). Sbloccata solo riscrivendo libraryRootPath da
+	     terminale.
+	     Il canale App Store non ne ha bisogno: li' l'accesso passa dal Powerbox
+	     e dai security bookmark (vedi securitybookmark.mm). -->
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Surface Explorer needs access to this folder to open the presets library you keep there.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Surface Explorer needs access to this folder to open the presets library you keep there.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Surface Explorer needs access to this folder to open the presets library you keep there.</string>
 </dict>
 </plist>

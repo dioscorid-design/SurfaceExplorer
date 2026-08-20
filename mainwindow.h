@@ -254,7 +254,7 @@ private slots:
     void applyMotionExample(const LibraryItem &data);
     void deleteSelectedExample();
     void onUndoDelete();
-    void onAddRepositoryClicked(LibraryType type);
+    void onAddRepositoryClicked();
     void onCreateFolderClicked();
     void onSyncPresetsClicked();
 
@@ -403,6 +403,10 @@ private:
     // Stessa ragione, per l'immagine di texture non decodificabile: un preset
     // puo' innescare piu' caricamenti in sequenza (superficie e sfondo).
     bool m_textureImageErrorPopupActive = false;
+    // Stessa ragione, per i preset non scaricati da iCloud: il fsWatcher puo'
+    // far ripartire refreshRepositories molte volte di fila sulla stessa
+    // cartella. Si riarma quando la libreria torna completa.
+    bool m_datalessWarningShown = false;
     // Avviso "le immagini non possono essere per-mesh" gia' mostrato in questa
     // sessione. Spiega un LIMITE dell'architettura (l'immagine e' una risorsa
     // GPU unica), non un errore: e' un'informazione che non cambia, quindi va

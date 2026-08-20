@@ -304,8 +304,25 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     contextMenu->addSeparator();
 
 #if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)
+    // NOMI DELLE DUE VOCI: dicono la SCALA su cui operano.
+    //
+    // Erano "Open Workspace Folder..." e "Change Library Folder...": affiancate,
+    // sembravano due varianti della stessa cosa, e non lo sono affatto -- la
+    // prima cambia UN RAMO (quello dell'albero da cui si apre il menu), la
+    // seconda cambia TUTTA la libreria e ignora l'albero. Chi le leggeva
+    // sceglieva la seconda aspettandosi la prima, finendo per puntare la radice
+    // della libreria a un ramo.
+    // Ora la prima porta il nome del ramo corrente ("Change Folder for
+    // Records...") e la seconda dice esplicitamente che vale per tutto
+    // ("Change Library Folder..."): la differenza si vede dai nomi, senza
+    // doverla scoprire per tentativi.
+    QString branchLabel = "Surfaces";
+    if (senderTree == m_mainWindow->ui->treeTextures)     branchLabel = "Textures";
+    else if (senderTree == m_mainWindow->ui->treeMotions) branchLabel = "Records";
+    else if (senderTree == m_mainWindow->ui->treeSounds)  branchLabel = "Sounds";
+
     // Nascondiamo l'apertura cartella Workspace su Mobile per evitare problemi di file system
-    contextMenu->addAction("Open Workspace Folder...", m_mainWindow, [this, senderTree, executeAction](){
+    contextMenu->addAction(QString("Change Folder for %1...").arg(branchLabel), m_mainWindow, [this, senderTree, executeAction](){
         executeAction([this, senderTree](){
             QSettings settings;
             QString rootPath = settings.value("libraryRootPath").toString();
@@ -323,7 +340,17 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
             settings.remove("repoPathsSurfaces"); settings.remove("repoPathsTextures");
             settings.remove("repoPathsMotions"); settings.remove("repoPathsSounds");
             settings.remove("repositoryPaths");
-            m_mainWindow->refreshRepositories();
+
+            // RINVIO A MENU CHIUSO: stessa ragione di onAddRepositoryClicked
+            // (mainwindow.cpp), che ha il commento esteso. In breve: siamo
+            // dentro contextMenu->exec() e il pannello nativo ne ha aperto un
+            // altro sopra; se la cartella scelta e' protetta da TCC
+            // (Documents/Desktop/Downloads) la scansione qui sotto fa emergere
+            // il pannello di autorizzazione in fondo a quella pila di loop e
+            // l'app si pianta. Fuori dal menu, il loop principale lo gestisce.
+            QTimer::singleShot(0, m_mainWindow, [this]() {
+                m_mainWindow->refreshRepositories();
+            });
         });
     });
 
@@ -338,14 +365,18 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     // preset dove sono e non sposta niente.
     // Va qui e non in un tasto: e' un'operazione rara, e il menu contestuale della
     // libreria e' dove si guarda quando si ha a che fare con le cartelle.
-    contextMenu->addAction("Change Library Folder...", m_mainWindow, [this, senderTree, executeAction](){
-        executeAction([this, senderTree](){
-            LibraryType t = LibraryType::Surface;
-            if (senderTree == m_mainWindow->ui->treeTextures)     t = LibraryType::Texture;
-            else if (senderTree == m_mainWindow->ui->treeMotions) t = LibraryType::Motion;
-            else if (senderTree == m_mainWindow->ui->treeSounds)  t = LibraryType::Sound;
-            m_mainWindow->onAddRepositoryClicked(t);
-        });
+    //
+    // Separatore: e' l'unica voce del menu che agisce su TUTTA la libreria
+    // invece che sul ramo corrente, e stava attaccata a quella per-ramo.
+    contextMenu->addSeparator();
+
+    // senderTree NON si cattura: questo comando e' globale e non guarda da quale
+    // albero e' stato aperto il menu. Qui si calcolava un LibraryType dal
+    // senderTree per passarlo a onAddRepositoryClicked, che lo IGNORAVA (la
+    // firma era `onAddRepositoryClicked(LibraryType /*type*/)`): codice che
+    // non faceva nulla ma faceva sembrare il comando selettivo per ramo.
+    contextMenu->addAction("Change Library Folder...", m_mainWindow, [this, executeAction](){
+        executeAction([this](){ m_mainWindow->onAddRepositoryClicked(); });
     });
 #endif
 

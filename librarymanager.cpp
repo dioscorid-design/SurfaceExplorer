@@ -7,6 +7,42 @@
 #include <QColor>
 #include <QRegularExpression>
 
+#ifndef Q_OS_WIN
+#include <sys/stat.h>
+#endif
+
+// FILE "DATALESS": esiste, ha una dimensione, ma NON ha contenuto su questo
+// disco -- e' un segnaposto di un file provider (iCloud Drive, "Desktop e
+// Documenti" sincronizzati, Dropbox...). Aprirlo e leggerlo NON fallisce: il
+// kernel sospende la read() e chiede il download al provider. Se il provider non
+// risponde -- offline, rete lenta, demone bloccato -- quella read() NON RITORNA
+// MAI, e siccome la libreria si carica dal thread della UI l'intera applicazione
+// resta piantata, senza errore e senza finestra.
+//
+// MISURATO (sample su processo bloccato): puntando la libreria a
+// ~/Documents/presets, cartella sincronizzata da iCloud, tutti i 2534 campioni
+// erano fermi nello stesso punto -- parseJson -> QIODevice::readAll -> read().
+// 66 dei preset erano dataless. Peggio: la radice era gia' stata salvata, quindi
+// ogni riavvio ripeteva la stessa lettura e l'app non si riapriva piu'.
+//
+// La domanda giusta NON e' exists() ne' isReadable(): entrambe rispondono true.
+// L'unica che distingue e' quanti blocchi occupa il file DAVVERO: st_blocks == 0
+// con st_size > 0 significa "nessun dato qui, va scaricato".
+// Volutamente basata su stat() e non su NSURLUbiquitousItemDownloadingStatusKey:
+// vale per QUALUNQUE file provider, non solo iCloud, e non lega questo file a
+// Foundation.
+static bool isDatalessFile(const QString &path)
+{
+#ifdef Q_OS_WIN
+    Q_UNUSED(path);
+    return false;              // nessun equivalente: OneDrive espone i segnaposto come reparse point
+#else
+    struct stat st;
+    if (::stat(path.toUtf8().constData(), &st) != 0) return false;
+    return st.st_size > 0 && st.st_blocks == 0;
+#endif
+}
+
 // "discreteConstants": {"A": [2,6]} — la costante A assume solo i valori interi
 // da 2 a 6 e il campo scatta all'intero piu' vicino quando l'utente rilascia lo
 // slider o preme Enter. E' l'equivalente della direttiva "A := int(2,6);", ma
@@ -36,6 +72,10 @@ void LibraryManager::clear()
     m_textures.clear();
     m_motions.clear();
     m_sounds.clear();
+    // Senza questo si accumulerebbe a ogni refresh: refreshRepositories chiama
+    // clear() e poi ricarica i quattro rami, quindi il conteggio mostrato
+    // all'utente crescerebbe a ogni giro sugli stessi file.
+    m_skippedDataless.clear();
 }
 
 const LibraryItem& LibraryManager::getSurface(int index) const {
@@ -125,6 +165,18 @@ void LibraryManager::loadFromDirectory(const QString &dirPath, QTreeWidget *tree
 
         // --- B. GESTIONE FILE (Se è un file valido) ---
         if (!validExtensions.contains(fileInfo.suffix(), Qt::CaseInsensitive)) {
+            continue;
+        }
+
+        // NON MATERIALIZZATO: si salta PRIMA di qualunque apertura. Vale per
+        // tutti i tipi, non solo i JSON: un .wav o un .png in iCloud blocca la
+        // lettura esattamente allo stesso modo. Vedi isDatalessFile in cima al
+        // file per il perche' una read() qui non tornerebbe mai.
+        // Si contano per poterlo DIRE all'utente: saltarli in silenzio
+        // riprodurrebbe il vecchio sintomo "la libreria e' incompleta e non si
+        // capisce perche'".
+        if (isDatalessFile(rawFullPath)) {
+            m_skippedDataless.append(rawFullPath);
             continue;
         }
 
@@ -249,6 +301,11 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
     d.filePath = filePath;
     d.type = type;
     d.name = QFileInfo(filePath).baseName();
+
+    // Seconda guardia, oltre a quella in loadFromDirectory: parseJson e' privata
+    // ma resta l'unico punto che legge davvero, e un domani potrebbe essere
+    // chiamata da un percorso che non passa dal filtro. Il costo e' una stat().
+    if (isDatalessFile(filePath)) { d.name = ""; return d; }
 
     QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) return d;

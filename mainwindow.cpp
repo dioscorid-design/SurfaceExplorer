@@ -1078,13 +1078,12 @@ MainWindow::MainWindow(QWidget *parent)
     // =========================================================================
     connect(ui->actionSave, &QAction::triggered, this, [this](){ saveSurfaceToFile(); });
     connect(ui->actionDelete, &QAction::triggered, this, &MainWindow::deleteSelectedExample);
+    // Il comando e' GLOBALE: non dipende dalla linguetta aperta. Qui si ricavava
+    // un LibraryType dal tab corrente per passarlo a onAddRepositoryClicked, che
+    // lo ignorava -- vedi la voce "Change Library Folder..." in
+    // librarymenucontroller, dove c'era lo stesso calcolo inutile.
     connect(ui->actionSelectFolder, &QAction::triggered, this, [this](){
-        QWidget* currentTab = ui->tabWidget->currentWidget();
-        LibraryType currentType = LibraryType::Surface;
-        if (currentTab == ui->Texture) currentType = LibraryType::Texture;
-        else if (currentTab == ui->Motions) currentType = LibraryType::Motion;
-        else if (currentTab->objectName().contains("Sound", Qt::CaseInsensitive)) currentType = LibraryType::Sound;
-        onAddRepositoryClicked(currentType);
+        onAddRepositoryClicked();
     });
 
 #if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
@@ -3650,6 +3649,58 @@ MainWindow::MainWindow(QWidget *parent)
                     SecurityBookmark::save(clean);
                 }
             }
+        }
+    }
+#endif
+
+    // VIA D'USCITA: una radice che non risponde non deve impedire l'AVVIO.
+    //
+    // Se la cartella salvata in libraryRootPath e' irraggiungibile,
+    // refreshRepositories/updateWatcherPaths qui sotto la scandagliano comunque,
+    // e su una cartella protetta da TCC quella scansione puo' non tornare mai:
+    // l'app si pianta PRIMA di mostrare la finestra. Ed e' uno stato senza
+    // uscita, perche' la radice e' gia' su disco e ogni riavvio ci ricasca --
+    // l'unico rimedio era riscrivere la chiave da terminale. MISURATO dopo aver
+    // puntato la libreria a ~/Documents/presets dal canale DMG.
+    // Qui la radice si verifica PRIMA di usarla, con una domanda a basso costo
+    // (exists sulla sola radice, non una scansione ricorsiva dei quattro rami):
+    // se non risponde si parte con gli alberi vuoti e lo si dice, invece di non
+    // partire affatto. La libreria si rimette a posto da "Change Library
+    // Folder...", ad app aperta.
+    // La radice VUOTA non e' questo caso: e' il primo avvio, che ha gia' il suo
+    // percorso (setupDefaultFolders chiede dove installare).
+#if !defined(Q_OS_IOS) && !defined(Q_OS_ANDROID)
+    {
+        const QString libRoot = QSettings().value("libraryRootPath").toString();
+        if (!libRoot.isEmpty() && !QDir(libRoot).exists()) {
+            qWarning() << "Libreria: radice non raggiungibile" << libRoot
+                       << "-- si parte con la libreria vuota.";
+            QSettings s;
+            s.remove("libraryRootPath");
+            // Come nello scarto della radice di sistema piu' sopra: se
+            // restassero, queste chiavi scavalcherebbero la scelta successiva.
+            s.remove("pathSurfaces");
+            s.remove("pathTextures");
+            s.remove("pathRecords");
+            s.remove("pathSounds");
+            s.sync();
+
+            // Avviso RINVIATO: qui siamo ancora nel costruttore, la finestra non
+            // e' visibile e un box modale ora bloccherebbe l'avvio -- proprio
+            // cio' che questo blocco serve a evitare.
+            QTimer::singleShot(0, this, [this, libRoot]() {
+                QMessageBox box(this);
+                box.setIcon(QMessageBox::Warning);
+                box.setWindowTitle("Library Not Found");
+                box.setText("Your library folder could not be opened.");
+                box.setInformativeText(
+                    libRoot + "\n\n"
+                    "Surface Explorer started with an empty library so you can keep "
+                    "working. Your presets are not lost: use \"Change Library "
+                    "Folder...\" in the library's right-click menu to point to them "
+                    "again.");
+                box.exec();
+            });
         }
     }
 #endif
@@ -11599,7 +11650,11 @@ void MainWindow::onUndoDelete() {
     m_fileOps->undoDelete();
 }
 
-void MainWindow::onAddRepositoryClicked(LibraryType /*type*/)
+// Definizione accanto a resolveLibraryRoot, in fondo al file: una cartella e'
+// una radice di libreria se contiene almeno uno dei quattro rami.
+static bool dirIsLibraryRoot(const QDir &dir);
+
+void MainWindow::onAddRepositoryClicked()
 {
 #if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
     QMessageBox::information(this, "Library Management",
@@ -11610,29 +11665,88 @@ void MainWindow::onAddRepositoryClicked(LibraryType /*type*/)
     QSettings settings;
     QString currentRoot = settings.value("libraryRootPath", QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)).toString();
 
-    QString selectedPath = QFileDialog::getExistingDirectory(this, "Select Location for Presets Folder", currentRoot,
+    // Titolo: "Select Location for Presets Folder" prometteva la cosa sbagliata
+    // -- suggeriva di indicare DOVE creare una cartella, mentre qui si indica LA
+    // cartella della libreria, che deve gia' esistere e contenere i quattro rami.
+    QString selectedPath = QFileDialog::getExistingDirectory(this, "Select Your Library Folder", currentRoot,
                                                              QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
 
     if (selectedPath.isEmpty()) return;
 
-    selectedPath = QDir::cleanPath(selectedPath);
-    // Come in setupDefaultFolders: se la cartella indicata e' GIA' una radice di
-    // libreria si prende com'e'. Qui si appendeva "/Presets" -- con la maiuscola,
-    // divergente dal "presets" dell'altro punto: su APFS il filesystem perdona,
-    // i bookmark di sandbox e i confronti fra percorsi no.
-    QString finalPath = resolveLibraryRoot(selectedPath);
+    // LA CARTELLA DEVE ESSERE UNA RADICE DI LIBRERIA, altrimenti non si fa nulla.
+    //
+    // Questo comando non installa e non crea: punta e basta. Quindi l'unica
+    // cartella sensata e' una che contenga gia' almeno uno dei quattro rami.
+    // Senza questo controllo si poteva eleggere a radice una cartella qualsiasi
+    // -- compreso un RAMO della libreria stessa: refreshRepositories cerca poi
+    // i rami come radice+"/records" ecc., che li' dentro non esistono, e la
+    // libreria appariva VUOTA senza dire perche'. MISURATO scegliendo
+    // .../presets/records: quattro alberi vuoti e nessun messaggio.
+    // Si avvisa e si esce lasciando la radice attuale INTATTA: nessuna
+    // cartella creata, nessun preset installato, niente da disfare.
+    if (!dirIsLibraryRoot(QDir(QDir::cleanPath(selectedPath)))) {
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Warning);
+        box.setWindowTitle("Not a Library Folder");
+        box.setText("This folder is not a library.");
+        box.setInformativeText(
+            QDir::cleanPath(selectedPath) + "\n\n"
+            "A library folder contains the surfaces, textures, records and sounds "
+            "folders. Choose the folder that contains them — not one of them.\n\n"
+            "Nothing has been changed: your library still points to its current folder.");
+        box.exec();
+        return;
+    }
 
-    QDir().mkpath(finalPath);
-    settings.setValue("libraryRootPath", finalPath);
+    // LA CARTELLA SELEZIONATA E' LA RADICE. Punto. Nessuna trasformazione del
+    // percorso: la libreria punta esattamente a quello che l'utente ha indicato,
+    // sia essa uguale o diversa dalla radice attuale.
+    //
+    // Qui si passava da resolveLibraryRoot, che e' fatta per il PRIMO AVVIO --
+    // dove la domanda "dove installo la libreria?" e' legittima e la risposta
+    // puo' ragionevolmente essere una sottocartella. Ma questo comando fa
+    // un'altra cosa: SPOSTA il puntatore su una libreria che gia' esiste, e
+    // l'utente che sceglie una cartella si aspetta quella, non una sua figlia.
+    // MISURATO, due varianti dello stesso danno: scegliendo .../presets/records
+    // la radice e' finita prima in records/presets (vecchia resolveLibraryRoot,
+    // che scendeva in una "presets" qualsiasi) e poi in records/records
+    // (nuova: restituisce records, ma setupDefaultFolders ci crea dentro i
+    // quattro rami e uno si chiama "records"). In entrambi i casi la libreria
+    // mostrava preset di fabbrica appena reinstallati e il lavoro dell'utente,
+    // rimasto un livello sopra, spariva dall'albero.
+    selectedPath = QDir::cleanPath(selectedPath);
+
+    QDir().mkpath(selectedPath);
+    settings.setValue("libraryRootPath", selectedPath);
     settings.sync();                     // vedi setupDefaultFolders: cfprefsd
-    SecurityBookmark::save(finalPath);   // vedi setupDefaultFolders
+    SecurityBookmark::save(selectedPath);   // vedi setupDefaultFolders
 
     settings.remove("pathSurfaces");
     settings.remove("pathTextures");
     settings.remove("pathRecords");
     settings.remove("pathSounds");
 
-    setupDefaultFolders();
+    // NON setupDefaultFolders(): creerebbe i quattro rami dentro la cartella
+    // scelta e ci reinstallerebbe i preset di fabbrica -- cioe' esattamente il
+    // livello di troppo che questo comando non deve produrre. Qui la libreria
+    // esiste gia': si punta e si rilegge, senza scrivere niente sul disco.
+    //
+    // RILETTURA RINVIATA A MENU CHIUSO (singleShot(0)): questa funzione parte da
+    // una voce del menu contestuale della libreria, che su desktop viene
+    // eseguita DENTRO contextMenu->exec() -- un event loop annidato. Il pannello
+    // nativo di scelta cartella (NSOpenPanel) ne apre un altro sopra.
+    // refreshRepositories/updateWatcherPaths scandagliano poi la cartella appena
+    // indicata, e se e' protetta da TCC (Documents, Desktop, Downloads) macOS
+    // deve emettere il pannello di autorizzazione proprio mentre siamo in fondo
+    // a quella pila di loop: l'app si pianta e serve l'uscita forzata.
+    // MISURATO puntando la libreria a ~/Documents/presets dal canale DMG.
+    // Con il rinvio, i due lavori girano a menu chiuso e a pila smontata, dal
+    // loop principale, dove il pannello di TCC puo' comparire normalmente.
+    // Stesso schema gia' usato dal ramo mobile in librarymenucontroller.cpp.
+    QTimer::singleShot(0, this, [this]() {
+        refreshRepositories();
+        updateWatcherPaths();
+    });
 #endif
 }
 
@@ -11959,9 +12073,15 @@ void MainWindow::setupDefaultFolders()
     // showEvent, come diceva questo commento): qui arriva
     // sempre un percorso sensato. Vedi il commento esteso li'.
     if (rootPath.isEmpty() || !SecurityBookmark::isAccessible(rootPath)) {
+        // Il testo diceva "A 'Presets' folder will be automatically created
+        // there": non e' piu' vero e prometteva la cosa sbagliata. La libreria
+        // si installa NELLA cartella indicata (vedi resolveLibraryRoot), quindi
+        // il messaggio deve dire esattamente questo -- chi sceglie deve poter
+        // prevedere dove finiranno i file.
         QMessageBox::information(this, "Welcome to Surface Explorer",
-                                 "Choose a location to install your Library.\n"
-                                 "A 'Presets' folder will be automatically created there.");
+                                 "Choose the folder for your Library.\n"
+                                 "The surfaces, textures, records and sounds folders "
+                                 "will be created inside it.");
 
         // Cartella di PARTENZA del pannello: la home, MAI
         // QStandardPaths::DocumentsLocation. Sotto sandbox quest'ultima e' la
@@ -12350,6 +12470,44 @@ void MainWindow::refreshRepositories()
     if (QDir(pathTex).exists())  m_libraryManager.loadFromDirectory(pathTex,  ui->treeTextures, LibraryType::Texture);
     if (QDir(pathRec).exists())  m_libraryManager.loadFromDirectory(pathRec,  ui->treeMotions,  LibraryType::Motion);
     if (QDir(pathSnd).exists())  m_libraryManager.loadFromDirectory(pathSnd,  ui->treeSounds,   LibraryType::Sound);
+
+    // PRESET SOLO IN CLOUD: dirlo, invece di mostrare una libreria incompleta.
+    // Sono i file che loadFromDirectory ha saltato perche' non materializzati su
+    // questo disco (vedi isDatalessFile in librarymanager.cpp): leggerli
+    // bloccherebbe l'applicazione. Saltarli in silenzio riprodurrebbe pero' il
+    // sintomo storico "mancano dei preset e non si capisce perche'".
+    //
+    // Avviso RINVIATO e NON ripetuto:
+    //  - singleShot perche' refreshRepositories parte anche dal costruttore
+    //    (finestra non ancora visibile) e dal fsWatcher, dentro la gestione di
+    //    un evento: un box modale qui bloccherebbe il chiamante;
+    //  - il flag perche' il watcher puo' far ripartire il refresh molte volte
+    //    di fila sulla stessa cartella, e ne uscirebbe una raffica di popup.
+    //    Si riarma da solo quando la libreria torna completa.
+    {
+        const int skipped = m_libraryManager.skippedDataless().size();
+        if (skipped > 0 && !m_datalessWarningShown) {
+            m_datalessWarningShown = true;
+            const QString sample = m_libraryManager.skippedDataless().first();
+            QTimer::singleShot(0, this, [this, skipped, sample]() {
+                QMessageBox box(this);
+                box.setIcon(QMessageBox::Warning);
+                box.setWindowTitle("Presets Only in the Cloud");
+                box.setText(QString("%1 presets could not be loaded.").arg(skipped));
+                box.setInformativeText(
+                    "They are stored in a synced folder (iCloud Drive or similar) and "
+                    "their contents have not been downloaded to this Mac, so opening "
+                    "them would freeze the application.\n\n"
+                    "In Finder, open the library folder and download the files (right-click "
+                    "→ Download Now), or move your library to a folder that is not synced.\n\n"
+                    "First one skipped:\n" + sample);
+                box.exec();
+            });
+        }
+        else if (skipped == 0) {
+            m_datalessWarningShown = false;
+        }
+    }
 
     // 6. RIPRISTINO STATO ESPANSIONE E SELEZIONE
     auto restoreState = [&](QTreeWidget* tree, const QSet<QString>& expSet, const QSet<QString>& selSet) {
@@ -13352,8 +13510,27 @@ QString MainWindow::presetsRootPath() const {
 //    con i preset di fabbrica installati nel livello annidato e i rami
 //    originali lasciati vuoti -- la libreria che l'utente guardava non era
 //    quella che l'app usava;
-//  - la cartella che la CONTIENE: si scende nella sottocartella dei preset,
-//    riusandola se esiste gia'.
+//  - la cartella che la CONTIENE: si scende in "presets" SOLO se quella
+//    sottocartella e' a sua volta una radice valida (vedi sotto).
+//
+// LA CARTELLA SCELTA VINCE, SEMPRE, tranne in un caso preciso.
+// Qui si scendeva in una qualunque sottocartella di nome "presets" senza
+// verificare che cosa fosse: bastava che esistesse. Una cartella di lavoro, un
+// residuo, un backup -- diventava la radice della libreria pur non essendo
+// stata scelta da nessuno. Con la radice dirottata, setupDefaultFolders creava
+// li' i quattro rami e syncResourcesToFolder ci reinstallava i preset di
+// fabbrica: la libreria risultava piena ma difforme da quella che l'utente
+// vedeva nel Finder, allo stesso percorso. MISURATO: scegliendo una cartella
+// che conteneva una "presets" residua, la libreria e' finita in
+// .../presets/records/presets -- annidata dentro un RAMO della libreria vera.
+// Ora si scende solo in una "presets" che e' gia' una libreria: nel caso
+// legittimo (l'utente indica il contenitore di una libreria esistente) il
+// comportamento non cambia, in tutti gli altri la cartella scelta si prende
+// com'e'.
+//
+// Il test dei rami e' CASE-INSENSITIVE: con il confronto esatto una libreria
+// con "Surfaces" maiuscolo non veniva riconosciuta come radice e finiva
+// annidata: proprio il caso che questa funzione deve impedire.
 //
 // Il nome della sottocartella si legge DA DISCO con entryList, non si indovina:
 // i due punti che la creano non concordano ("Presets" in onAddRepositoryClicked,
@@ -13361,22 +13538,49 @@ QString MainWindow::presetsRootPath() const {
 // QDir::exists("Presets") risponde true anche per "presets". Chiedendo per nome
 // si salverebbe un percorso con la maiuscola sbagliata: innocuo per il
 // filesystem, non per i bookmark di sandbox ne' per i confronti fra stringhe.
+// Definita qui (accanto a resolveLibraryRoot, che la usa) ma dichiarata piu'
+// sopra: la usa anche onAddRepositoryClicked, che nel file viene prima.
+static bool dirIsLibraryRoot(const QDir &dir)
+{
+    if (!dir.exists()) return false;
+
+    // entryList (non exists("surfaces")): il confronto va fatto sui nomi REALI
+    // su disco, per riconoscere anche i rami con la maiuscola.
+    const QStringList entries = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    static const QStringList branches = {
+        QStringLiteral("surfaces"), QStringLiteral("textures"),
+        QStringLiteral("records"),  QStringLiteral("sounds")
+    };
+    for (const QString &entry : entries) {
+        if (branches.contains(entry.toLower())) return true;
+    }
+    return false;
+}
+
 QString MainWindow::resolveLibraryRoot(const QString &pickedDir)
 {
     const QString clean = QDir::cleanPath(pickedDir);
     if (clean.isEmpty()) return clean;
 
     const QDir dir(clean);
-    const bool isLibraryRoot =
-           dir.exists("surfaces") || dir.exists("textures")
-        || dir.exists("records")  || dir.exists("sounds");
-    if (isLibraryRoot) return clean;
 
-    QString sub = QStringLiteral("presets");
+    // 1. La cartella scelta E' GIA' una libreria: si prende com'e'.
+    if (dirIsLibraryRoot(dir)) return clean;
+
+    // 2. Dentro c'e' una "presets" che e' A SUA VOLTA una libreria: e' il caso
+    //    legittimo del contenitore, si scende. Il nome viene dal disco.
     const QStringList hits = dir.entryList(QStringList() << QStringLiteral("presets"),
                                            QDir::Dirs | QDir::NoDotAndDotDot);
-    if (!hits.isEmpty()) sub = hits.first();   // nome reale su disco
-    return clean + "/" + sub;
+    if (!hits.isEmpty()) {
+        const QString candidate = clean + "/" + hits.first();
+        if (dirIsLibraryRoot(QDir(candidate))) return candidate;
+        // Esiste ma NON e' una libreria: non e' stata scelta da nessuno e non
+        // si adotta. Si ricade sulla cartella scelta, qui sotto.
+    }
+
+    // 3. Nessuna libreria in vista: la libreria si installa NELLA cartella che
+    //    l'utente ha indicato. I quattro rami li crea setupDefaultFolders.
+    return clean;
 }
 
 bool MainWindow::resolveNeedsCopy(const QString& src, const QString& dst,
