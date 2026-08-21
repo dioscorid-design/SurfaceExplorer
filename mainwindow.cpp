@@ -6440,6 +6440,20 @@ void MainWindow::handleTextureSelection(int index)
             ui->glWidget->setBackgroundTexture(bgImgSrc);
             m_bgTextureCode = "//IMG:" + bgImgSrc;
 
+            // L'immagine SOSTITUISCE la procedurale: va azzerato anche lo slot
+            // dello script, non solo il codice attivo. Senza questo il vecchio
+            // script sopravviveva in m_bgTextureScriptText e i punti che lo
+            // rileggono -- onRunScriptClicked (~8051), il ramo A di
+            // onApplyTextureScriptClicked (~9706) e applyBackgroundTextureIfNeeded
+            // -- lo riapplicavano al primo Run / Stop-Start, facendo tornare la
+            // procedurale mentre in Library restava evidenziata l'immagine.
+            // Nessuno di quei tre puo' accorgersene da solo: il residuo NON
+            // contiene il tag //IMG:, e' lo script vecchio puro, quindi ogni
+            // guardia basata sul testo lo scambia per codice da applicare.
+            // Stesso trattamento del ramo "texture implicita incompatibile" piu'
+            // sotto, che azzera gia' questa coppia.
+            m_bgTextureScriptText.clear();
+
             if (ui->glWidget) {
                 ui->glWidget->setProperty("bg_zoom", data.zoom);
                 ui->glWidget->setProperty("bg_pan", QVector2D(data.panX, data.panY));
@@ -6851,6 +6865,14 @@ void MainWindow::handleTextureSelection(int index)
                 // legge questo codice per decidere se accendere i picker Colore
                 // (un'immagine "//IMG:" non usa u_col1/u_col2 -> picker spenti).
                 m_surfaceTextureCode = "//IMG:" + imgSrc;
+
+                // Come per lo sfondo: l'immagine sostituisce la procedurale,
+                // quindi lo slot dello script va svuotato. Qui il residuo era
+                // LATENTE -- non si vedeva subito, si manifestava al primo Run
+                // del dock texture (ramo B di onApplyTextureScriptClicked,
+                // ~9794), che riapplicava la vecchia procedurale lasciando
+                // l'immagine evidenziata in Library.
+                m_surfaceTextureScriptText.clear();
 
                 if (!ui->chkBoxTexture->isChecked()) {
                     bool old = ui->chkBoxTexture->blockSignals(true);
