@@ -11135,6 +11135,101 @@ void MainWindow::applyMotionExample(LibraryItem data)
     bgCode.remove(cleanMusicRe); bgCode.remove(cleanBlockRe); bgCode = bgCode.trimmed();
     // ===================================================================
 
+    // Immagini mancanti citate dal record: raccolte qui (sfondo) e piu' sotto
+    // (superficie) per un avviso UNICO -- lo stesso file puo' comparire in
+    // entrambi i rami.
+    QStringList missingImages;
+    bool bgLostImageKeptScript = false;
+
+    // IMMAGINE DI SFONDO MANCANTE: stesso trattamento del ramo SUPERFICIE
+    // (~11145), che avvisa e riparte dalla texture di default. Qui mancava del
+    // tutto: il NOT_FOUND| veniva testato piu' sotto solo per decidere cosa
+    // applicare, mai per avvisare, e bgCode restava intatto col tag //IMG:
+    // dentro. Il risultato era lo sfondo PRECEDENTE ancora a schermo (fermo, se
+    // era animato) e lo script dell'immagine mancante nell'editor; la default
+    // compariva solo se prima non c'era alcuna texture.
+    //
+    // QUI e non piu' sotto: bgCode viene copiato subito dopo in
+    // m_bgTextureScriptText / m_bgTextureCode e da li' nell'editor, quindi il
+    // tag va tolto PRIMA o ricomparirebbe a schermo.
+    //
+    // Due casi, perche' lo sfondo puo' avere il tag //IMG: INSIEME a uno script
+    // procedurale (il mix che il ramo Library compone anteponendo il tag,
+    // ~6542: sono 5 record in libreria):
+    //   - solo immagine   -> si azzera tutto, torna la default;
+    //   - immagine+script -> si toglie il solo tag e lo script resta, che e'
+    //     valido e rende identico (campiona la scacchiera procedurale al posto
+    //     della foto, come gli "Animated Images" che usano iChannel0 senza tag).
+    if (bgTexEnabled && !bgCode.isEmpty()
+        && extractAndResolveImagePath(bgCode).startsWith("NOT_FOUND|")) {
+        const QString missing = extractAndResolveImagePath(bgCode).split("|").last();
+        const bool bgKeepsScript = bgCode.contains("return") || bgCode.contains("vec3")
+                                || bgCode.contains("vec4")   || bgCode.contains("mainImage");
+
+        // L'avviso NON parte da qui: superficie e sfondo possono citare LA
+        // STESSA immagine mancante (es. Clifford Tori Labyrinth) e l'utente
+        // vedrebbe due popup per un solo file. Il percorso si accumula e il
+        // ramo superficie, piu' sotto, emette un avviso unico.
+        missingImages << missing;
+        bgLostImageKeptScript = bgKeepsScript;
+
+        bgCode.remove(QRegularExpression(R"(^\s*//IMG:.*$\n?)",
+                                         QRegularExpression::MultilineOption));
+        bgCode = bgCode.trimmed();
+        if (!bgKeepsScript) bgCode.clear();
+    }
+
+    QString imgPath = extractAndResolveImagePath(texCode);
+    const bool surfaceLostImage = imgPath.startsWith("NOT_FOUND|");
+    bool surfaceLostImageKeptScript = false;
+    if (surfaceLostImage) {
+        missingImages << imgPath.split("|").last();
+        imgPath = "";
+
+        // Manca l'IMMAGINE, non lo script: se texCode porta anche codice
+        // procedurale (il mix che il ramo Library compone anteponendo il tag
+        // //IMG: a uno script, ~6542) si toglie il SOLO tag e lo script resta.
+        // Prima qui si faceva texCode = "" e con esso spariva anche lo script:
+        // in Clifford Tori Labyrinth la superficie ha il tag PIU' l'olografia
+        // reattiva, e l'immagine mancante la degradava alla scacchiera di
+        // default -- una texture valida buttata via per un file che non
+        // c'entrava. Lo script sopravvive e rende: campiona la scacchiera
+        // procedurale al posto della foto.
+        surfaceLostImageKeptScript = texCode.contains("return") || texCode.contains("vec3")
+                                  || texCode.contains("vec4")   || texCode.contains("mainImage");
+        texCode.remove(QRegularExpression(R"(^\s*//IMG:.*$\n?)",
+                                          QRegularExpression::MultilineOption));
+        texCode = texCode.trimmed();
+        if (!surfaceLostImageKeptScript) texCode.clear();
+    }
+
+    // AVVISO UNICO per le immagini mancanti del record, superficie e sfondo
+    // insieme: prima ogni ramo apriva il proprio popup e un record che cita lo
+    // stesso file in entrambi (es. Clifford Tori Labyrinth) ne mostrava due.
+    // I duplicati si tolgono: e' lo stesso file, va nominato una volta.
+    missingImages.removeDuplicates();
+    if (!missingImages.isEmpty()) {
+        // I percorsi stanno su righe tutte loro e NON hanno spazi dove
+        // spezzarsi: nel testo principale (che non va a capo) allargherebbero
+        // il box quanto sono lunghi. Nell'informativeText il resto del testo va
+        // a capo e i percorsi restano le uniche righe lunghe.
+        const bool many = missingImages.size() > 1;
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Warning);
+        box.setWindowTitle("Record Image Not Found");
+        box.setText(many ? "Some images used in this record were not found."
+                         : "The image used in this record was not found.");
+        // Se DOVUNQUE l'immagine mancante lascia in piedi uno script, si dice
+        // che il record parte lo stesso con la sua texture procedurale: e' il
+        // caso in cui non si perde nulla se non la foto.
+        const bool someScriptSurvives = bgLostImageKeptScript || surfaceLostImageKeptScript;
+        box.setInformativeText(missingImages.join("\n") +
+                               (someScriptSurvives
+                                    ? "\n\nThe procedural texture will be loaded without it."
+                                    : "\n\nThe animation will be loaded without it."));
+        box.exec();
+    }
+
     m_surfaceTextureState = texEnabled;
     ui->glWidget->setGlobalTextureEnabled(texEnabled);
     m_surfaceTextureScriptText = texCode;
@@ -11153,22 +11248,6 @@ void MainWindow::applyMotionExample(LibraryItem data)
         ui->txtScriptEditor->setPlainText(m_soundScriptText);
     }
 
-    QString imgPath = extractAndResolveImagePath(texCode);
-    if (imgPath.startsWith("NOT_FOUND|")) {
-        // Il percorso sta su una riga tutta sua e NON ha spazi dove spezzarsi:
-        // nel testo principale (che non va a capo) allargherebbe il box quanto
-        // e' lungo. Nell'informativeText il resto del testo va a capo e il
-        // percorso resta l'unica riga lunga, non la somma di tutte.
-        QMessageBox box(this);
-        box.setIcon(QMessageBox::Warning);
-        box.setWindowTitle("Record Image Not Found");
-        box.setText("The image used in this record was not found.");
-        box.setInformativeText(imgPath.split("|").last() +
-                               "\n\nThe animation will be loaded without this texture.");
-        box.exec();
-        imgPath = "";
-        texCode = "";
-    }
 
     m_bgTexColor1 = loadedBgCol1;
     m_bgTexColor2 = loadedBgCol2;
@@ -11269,6 +11348,22 @@ void MainWindow::applyMotionExample(LibraryItem data)
         bool bgHasCustomLogic = bgCode.contains("return") || bgCode.contains("vec3") || bgCode.contains("vec4") || bgCode.contains("mainImage");
         if (bgHasCustomLogic || bgImgPath.isEmpty() || bgImgPath.startsWith("NOT_FOUND|")) {
             ui->glWidget->loadBackgroundScript(bgCode);
+        }
+    }
+    else if (bgTexEnabled) {
+        // bgTexEnabled ma NIENTE codice: lo sfondo va riportato alla texture di
+        // DEFAULT. Senza questo ramo non si entrava affatto nel blocco sopra e
+        // nessuno toccava lo sfondo, che restava quello del record PRECEDENTE
+        // -- visibile caricando un record la cui immagine di sfondo non esiste
+        // piu' (bgCode svuotato qui sopra): primo record della sessione ->
+        // default, altrimenti lo sfondo di quello prima.
+        // clearBackgroundScript() spegne m_bgIsScript e rimette la pipeline
+        // immagine, poi si carica la texture di default.
+        if (ui->glWidget) {
+            ui->glWidget->setProperty("bg_zoom", 1.0f);
+            ui->glWidget->setProperty("bg_pan", QVector2D(0.0f, 0.0f));
+            ui->glWidget->setProperty("bg_rot", 0.0f);
+            ui->glWidget->setBackgroundTexture("background.png");
         }
     }
 
