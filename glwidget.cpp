@@ -3851,9 +3851,30 @@ bool GLWidget::validateAndApplyParametricShader(const QString &customLogic)
         }
     }
 
-    // 2. DRY RUN VERTEX (NUOVO!) - testa le equazioni x/y/z/w correnti
-    QString vsSource = createVertexShaderSource(m_eqX, m_eqY, m_eqZ, m_eqW);
-    {
+    // 2. DRY RUN VERTEX - testa le equazioni x/y/z/w correnti.
+    //
+    // SOLO IN MODO PARAMETRICO. In ray marching la geometria non passa da
+    // questo vertex (la pipeline implicita e' un full-screen quad + SDF nel
+    // fragment, vedi buildImplicitPipeline), quindi validarlo qui e' lavoro
+    // buttato -- e per giunta FALLISCE SEMPRE: createVertexShaderSource, se
+    // engine->isScriptModeActive(), inietta getScriptCodeGLSL() dentro
+    // getRawPosition(). Su una superficie implicita da script quel codice e'
+    // una SDF che opera su 'p', variabile che nel vertex parametrico non
+    // esiste -> "ERROR: 'p' : undeclared identifier".
+    //
+    // NB: il fallimento NON dipende dall'argomento customLogic, che qui non
+    // viene nemmeno usato. Per questo le guardie !isImplicit sui chiamanti
+    // (applyMotionExample) non bastavano: fallivano anche le chiamate con
+    // stringa vuota e quelle di applyDefaultCheckerShader, il cui codice e'
+    // parametrico pulito. La guardia giusta sta qui, sul dry-run.
+    //
+    // NON spegnere invece lo script mode nel motore: m_useScriptMode vuol dire
+    // "la superficie viene da uno script", non "siamo in parametrico", e la
+    // pipeline IMPLICITA lo legge -- createImplicitFragmentShader() ci inietta
+    // la SDF e la direttiva //INNER:. Azzerarlo farebbe sparire le superfici RM
+    // da script.
+    if (m_engineMode == ModeParametric) {
+        QString vsSource = createVertexShaderSource(m_eqX, m_eqY, m_eqZ, m_eqW);
         QShaderBaker baker;
         baker.setSourceString(vsSource.toUtf8(), QShader::VertexStage);
         baker.setGeneratedShaderVariants({QShader::StandardShader});
