@@ -818,15 +818,10 @@ private:
     // ==========================================================
     // GEODESIC FLOW STATE
     // ==========================================================
-    QString m_eqLambda = "1.0";
-    QString m_initU = "u", m_initV = "0", m_initW = "0";
-    QString m_eqDu = "0", m_eqDv = "1", m_eqDw = "0";
+    // Il flusso geodetico si calcola in geodesiccalculator + compute shader:
+    // qui resta solo la mappa delle costanti. (Undici campi relitto di una
+    // vecchia versione rimossi in 2026-08: nessuno li leggeva piu'.)
     QMap<QString, float> m_constants;
-
-    int m_numU_geo = 100;
-    int m_numV_geo = 200;
-    float m_vMin_geo = -5.0f;
-    float m_vMax_geo = 5.0f;
 
 
     // ==========================================================
