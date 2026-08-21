@@ -16,7 +16,9 @@ public:
     explicit AudioController(MainWindow *parent);
 
     void stopAll();
-    void playMusic(const QString &filePath);
+    // Ritorna false se il file non esiste/non e' leggibile, cosi' chi chiama
+    // puo' avvisare invece di restare muto senza spiegazioni.
+    bool playMusic(const QString &filePath);
 
     // Analizza un testo, trova i tag e suona
     bool playFromScript(const QString &scriptCode, QString *outError = nullptr);

@@ -6,6 +6,7 @@
 #include <QRegularExpression>
 #include <QUrl>
 #include <QFile>
+#include <QFileInfo>
 #include <QDebug>
 
 AudioController::AudioController(MainWindow *parent)
@@ -20,9 +21,15 @@ AudioController::AudioController(MainWindow *parent)
     m_synth = new Synthesizer(m_mainWindow);
 }
 
-void AudioController::playMusic(const QString &filePath)
+bool AudioController::playMusic(const QString &filePath)
 {
-    if (!QFile::exists(filePath)) return;
+    // File assente: si torna false e sara' il chiamante ad avvisare. Prima qui
+    // c'era un return muto e il record partiva silenzioso senza dire nulla --
+    // a differenza delle IMMAGINI mancanti, che hanno sempre avuto il loro
+    // popup. Non basta exists(): sotto sandbox un file puo' esistere ed essere
+    // illeggibile (stessa ragione di extractAndResolveImagePath).
+    QFileInfo fi(filePath);
+    if (!fi.exists() || !fi.isFile() || !fi.isReadable()) return false;
 
     if (m_player->playbackState() == QMediaPlayer::PlayingState) {
         m_player->stop();
@@ -31,6 +38,7 @@ void AudioController::playMusic(const QString &filePath)
     m_player->setSource(QUrl::fromLocalFile(filePath));
     m_player->setLoops(QMediaPlayer::Infinite);
     m_player->play();
+    return true;
 }
 
 void AudioController::stopAll()
@@ -68,7 +76,16 @@ bool AudioController::playFromScript(const QString &scriptCode, QString *outErro
         QString newMusicPath = musicMatch.captured(1).trimmed();
         QString currentPlaying = (m_player->playbackState() == QMediaPlayer::PlayingState) ? m_player->source().toLocalFile() : "";
         if (currentPlaying != newMusicPath) {
-            playMusic(newMusicPath);
+            if (!playMusic(newMusicPath)) {
+                // File audio mancante: non e' un errore di SINTASSI, quindi si
+                // distingue col prefisso, che il chiamante riconosce per
+                // mostrare l'avviso giusto (e non un "Syntax Error").
+                if (outError) *outError = "MISSING_FILE|" + newMusicPath;
+                if (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeSound) {
+                    m_mainWindow->ui->btnRunCurrentScript->setText("Run Sound");
+                }
+                return false;
+            }
         }
         if (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeSound) {
             m_mainWindow->ui->btnRunCurrentScript->setText("Stop Sound");

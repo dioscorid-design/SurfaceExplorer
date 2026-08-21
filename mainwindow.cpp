@@ -10026,8 +10026,20 @@ void MainWindow::onRunSoundClicked()
 
     QString audioErr;
     if (!m_audioController->playFromScript(codeToAnalyze, &audioErr)) {
-        showShaderError("Syntax Error (Sound Script)",
-                                                   audioErr.isEmpty() ? "Audio shader compilation failed." : audioErr);
+        // File audio mancante: non e' un errore di sintassi e non va mostrato
+        // come tale (senza questo ramo il popup diceva "Syntax Error" con
+        // dentro il marcatore MISSING_FILE| grezzo).
+        if (audioErr.startsWith("MISSING_FILE|")) {
+            QMessageBox box(this);
+            box.setIcon(QMessageBox::Warning);
+            box.setWindowTitle("Sound File Not Found");
+            box.setText("The sound file was not found.");
+            box.setInformativeText(audioErr.section('|', 1));
+            box.exec();
+        } else {
+            showShaderError("Syntax Error (Sound Script)",
+                                                       audioErr.isEmpty() ? "Audio shader compilation failed." : audioErr);
+        }
         updateMasterButtonState();
         return;
     }
@@ -11513,8 +11525,26 @@ void MainWindow::applyMotionExample(LibraryItem data)
         QString audioErr;
         bool audioOk = m_audioController->playFromScript(m_soundScriptText, &audioErr);
         if (!audioOk) {
-            showShaderError("Syntax Error (Sound Script)",
-                                                       audioErr.isEmpty() ? "Audio shader compilation failed." : audioErr);
+            if (audioErr.startsWith("MISSING_FILE|")) {
+                // FILE AUDIO MANCANTE. Prima il record partiva muto e basta:
+                // playMusic faceva un return silenzioso sul file inesistente,
+                // mentre le IMMAGINI mancanti hanno sempre avuto il loro avviso.
+                // Il record si carica lo stesso, senza suono -- come prima --
+                // ma ora l'utente sa perche'.
+                // Percorso nell'informativeText: sta su una riga tutta sua e
+                // non ha spazi dove spezzarsi (stessa ragione dell'avviso
+                // immagini).
+                QMessageBox box(this);
+                box.setIcon(QMessageBox::Warning);
+                box.setWindowTitle("Record Sound Not Found");
+                box.setText("The sound file used in this record was not found.");
+                box.setInformativeText(audioErr.section('|', 1) +
+                                       "\n\nThe animation will be loaded without sound.");
+                box.exec();
+            } else {
+                showShaderError("Syntax Error (Sound Script)",
+                                                           audioErr.isEmpty() ? "Audio shader compilation failed." : audioErr);
+            }
             // niente return: animazione gia' avviata resta attiva, l'audio no
         }
         if (m_currentScriptMode == ScriptModeSound) {
