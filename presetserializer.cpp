@@ -1192,7 +1192,34 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         implicitTex.remove(QRegularExpression(R"(^\s*//\s*(SOUND_BEGIN|SOUND_END).*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
 
         if (!audioCode.isEmpty()) {
-            implicitTex = audioCode + "\n\n" + implicitTex.trimmed();
+            // IL TAG //IMG: RESTA ALLA RIGA 1, l'audio va SOTTO. Stessa regola
+            // del ramo parametrico qui sotto ("il tag //IMG: deve stare sempre
+            // alla riga 1!"): i due rami serializzano lo stesso campo e devono
+            // produrre lo stesso ordine, o un lettore che assume l'uno sbaglia
+            // sull'altro.
+            //
+            // Prima l'audio veniva anteposto e basta, seppellendo il tag decine
+            // di righe piu' sotto (in un record col synth: riga 171). Non si
+            // rompeva nulla perche' ogni lettore ripulisce l'audio PRIMA di
+            // cercare il tag, e la regex e' MultilineOption -- ma la garanzia
+            // stava tutta in quella convenzione, non nel formato.
+            //
+            // Il codice grafico e' gia' senza tag audio (ripuliti qui sopra),
+            // quindi l'unico //IMG: che si puo' incontrare e' quello vero.
+            const QRegularExpression imgFirstRe(R"(^\s*//IMG:.*$)",
+                                                QRegularExpression::MultilineOption);
+            const QRegularExpressionMatch imgFirst = imgFirstRe.match(implicitTex);
+            if (imgFirst.hasMatch()) {
+                const QString tag = imgFirst.captured(0).trimmed();
+                const QString rest = implicitTex.mid(imgFirst.capturedEnd(0)).trimmed();
+                // "\n" singolo dopo il blocco audio, non doppio: al load la
+                // rimozione dell'audio lascerebbe altrimenti una riga vuota fra
+                // tag e script, e il campo tornerebbe a schermo diverso da come
+                // era stato salvato (round-trip non stabile).
+                implicitTex = tag + "\n" + audioCode + "\n" + rest;
+            } else {
+                implicitTex = audioCode + "\n\n" + implicitTex.trimmed();
+            }
         }
         texture["code"] = implicitTex;
         texture["displacement"] = m_mainWindow->ui->lineVariations->toPlainText();

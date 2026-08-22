@@ -912,6 +912,21 @@ private:
     bool hasTimeVariable(const QString& code) const;
     QString extractAndResolveImagePath(const QString& scriptCode);
     QString extractAudioDirectives(const QString& fullText);
+
+    // Immagini citate da un record e non piu' trovabili su disco. La scansione
+    // gira PRIMA che applyMotionExample tocchi qualunque cosa, cosi' il popup
+    // si apre sulla scena del record PRECEDENTE ancora intatta invece che su
+    // una mezza scena nuova (vedi il commento in cima ad applyMotionExample).
+    struct MissingImageScan {
+        QStringList paths;              // percorsi mancanti, senza duplicati
+        bool surfaceKeptScript = false; // la texture superficie perde la sola foto: lo script resta
+        bool bgKeptScript = false;      // idem per lo sfondo
+        bool surfaceMissing = false;
+        bool bgMissing = false;
+    };
+    // Sola lettura di data e del suo JSON: non modifica nulla, quindi puo'
+    // girare prima del caricamento vero.
+    MissingImageScan scanRecordForMissingImages(const LibraryItem &data);
     static QString cleanCodeForComparison(QString str);
     // Decide se un item della libreria texture e' quello attivo. Unica sede del
     // confronto: lo usano sia syncTextureTreeSelection sia la sincronizzazione

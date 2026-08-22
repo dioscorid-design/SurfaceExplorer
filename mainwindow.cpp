@@ -7049,23 +7049,40 @@ void MainWindow::handleTextureSelection(int index)
         ui->lineVariations->blockSignals(false);
         if (ui->glWidget) ui->glWidget->setDisplacementCode(data.displacementCode);
 
-        // Backup per retrocompatibilità coi vecchi preset
+        // Codice della texture in ARRIVO (scriptCode e' il fallback dei vecchi
+        // preset, che non avevano textureCode). Serve al solo ramo PROCEDURALE:
+        // il ramo immagine qui sotto lo sovrascrive per intero col triplanar.
         QString rmTexCode = data.textureCode.isEmpty() ? data.scriptCode : data.textureCode;
 
         // 2. Iniezione automatica del Triplanar Mapping per le immagini pure!
         if (data.isImage) {
-            // Se l'immagine non ha già uno script personalizzato, generiamo noi il Triplanar!
-            if (rmTexCode.trimmed().isEmpty()) {
-                rmTexCode = "vec3 blend = abs(n_model);\n"
-                            "blend /= max(blend.x + blend.y + blend.z, 0.00001);\n"
-                            "float scale = 0.5;\n"
-                            "vec3 cX = texture(tex, pModel.yz * scale).rgb;\n"
-                            "vec3 cY = texture(tex, pModel.xz * scale).rgb;\n"
-                            "vec3 cZ = texture(tex, pModel.xy * scale).rgb;\n"
-                            "textureCol = cX * blend.x + cY * blend.y + cZ * blend.z;";
-            }
-            // Aggiungiamo il tag in cima per dire al motore di caricare il file fisico
-            rmTexCode = "//IMG:" + data.filePath + "\n" + rmTexCode;
+            // L'IMMAGINE SOSTITUISCE LA PROCEDURALE, non ci si somma. rmTexCode
+            // qui descrive la texture in ARRIVO (per una PNG di libreria e'
+            // vuoto), mai quella gia' in lineTexture: senza questa riga il campo
+            // conservava lo script RM PRECEDENTE e il tag //IMG: gli finiva
+            // semplicemente davanti. Il risultato lo si vedeva nel dock
+            // Equations -- immagine in cima, vecchio script morto a seguire --
+            // e finiva tale e quale dentro i record salvati, perche' il ramo
+            // implicito del serializzatore dumpa lineTexture cosi' com'e'.
+            // Stesso trattamento che i rami parametrico (~6875) e sfondo (~6455)
+            // riservano gia' ai loro slot script.
+            //
+            // Il Triplanar Mapping non e' un default "se manca altro": e' LO
+            // script che campiona l'immagine, senza il quale non si vedrebbe
+            // nulla. Va quindi imposto, non messo in un ramo condizionale che
+            // ora non potrebbe mai essere falso.
+            rmTexCode = "vec3 blend = abs(n_model);\n"
+                        "blend /= max(blend.x + blend.y + blend.z, 0.00001);\n"
+                        "float scale = 0.5;\n"
+                        "vec3 cX = texture(tex, pModel.yz * scale).rgb;\n"
+                        "vec3 cY = texture(tex, pModel.xz * scale).rgb;\n"
+                        "vec3 cZ = texture(tex, pModel.xy * scale).rgb;\n"
+                        "textureCol = cX * blend.x + cY * blend.y + cZ * blend.z;";
+            // Tag in cima: dice al motore quale file caricare. imgSrc e non
+            // data.filePath, come nel caricamento GPU poche righe sopra: per una
+            // texture-immagine salvata come JSON filePath e' il .json, e il tag
+            // avrebbe puntato a quello invece che alla PNG.
+            rmTexCode = "//IMG:" + imgSrc + "\n" + rmTexCode;
         }
 
         ui->lineTexture->blockSignals(true);
@@ -10746,6 +10763,46 @@ void MainWindow::applySurfaceExample(LibraryItem d)
 
 void MainWindow::applyMotionExample(LibraryItem data)
 {
+    // IMMAGINI MANCANTI: SI CHIEDE PRIMA DI TOCCARE LA SCENA.
+    // L'avviso stava in mezzo alla funzione (dopo il caricamento di texture e
+    // sfondo), quindi il popup si apriva su una scena IBRIDA: geometria,
+    // equazioni, camera e tab erano gia' quelli del record NUOVO, mentre le
+    // texture -- che si applicano piu' sotto -- erano ancora quelle del record
+    // PRECEDENTE. exec() e' modale e rientra nel ciclo di eventi: la finestra si
+    // ridisegna, e l'utente vedeva quel mezzo record finche' non premeva OK.
+    //
+    // Qui non e' stato modificato ancora nulla: si guardano solo data e il JSON
+    // (extractAndResolveImagePath legge il disco e non tocca lo stato), si
+    // avvisa, e solo al ritorno da exec() parte il caricamento vero. Sullo
+    // schermo resta il record precedente, intatto, per tutta la durata del
+    // popup.
+    //
+    // L'esito della scansione viene passato al codice piu' sotto (che deve
+    // comunque togliere il tag //IMG: da texCode/bgCode) invece di essere
+    // ricalcolato: la scansione e' UNA, il popup e' UNO.
+    const MissingImageScan missingScan = scanRecordForMissingImages(data);
+    if (!missingScan.paths.isEmpty()) {
+        // I percorsi stanno su righe tutte loro e NON hanno spazi dove
+        // spezzarsi: nel testo principale (che non va a capo) allargherebbero
+        // il box quanto sono lunghi. Nell'informativeText il resto del testo va
+        // a capo e i percorsi restano le uniche righe lunghe.
+        const bool many = missingScan.paths.size() > 1;
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Warning);
+        box.setWindowTitle("Record Image Not Found");
+        box.setText(many ? "Some images used in this record were not found."
+                         : "The image used in this record was not found.");
+        // Se DOVUNQUE l'immagine mancante lascia in piedi uno script, si dice
+        // che il record parte lo stesso con la sua texture procedurale: e' il
+        // caso in cui non si perde nulla se non la foto.
+        const bool someScriptSurvives = missingScan.bgKeptScript || missingScan.surfaceKeptScript;
+        box.setInformativeText(missingScan.paths.join("\n") +
+                               (someScriptSurvives
+                                    ? "\n\nThe procedural texture will be loaded without it."
+                                    : "\n\nThe animation will be loaded without it."));
+        box.exec();
+    }
+
     // CARICAMENTO IN CORSO: i campi li riempie (e li svuota) il record, non
     // l'utente. Stessa guardia RAII di applyCommonData, che pero' parte solo piu'
     // sotto: i clear() dei rami parametrico/implicito qui in mezzo -- lineEquation,
@@ -11135,99 +11192,58 @@ void MainWindow::applyMotionExample(LibraryItem data)
     bgCode.remove(cleanMusicRe); bgCode.remove(cleanBlockRe); bgCode = bgCode.trimmed();
     // ===================================================================
 
-    // Immagini mancanti citate dal record: raccolte qui (sfondo) e piu' sotto
-    // (superficie) per un avviso UNICO -- lo stesso file puo' comparire in
-    // entrambi i rami.
-    QStringList missingImages;
-    bool bgLostImageKeptScript = false;
-
-    // IMMAGINE DI SFONDO MANCANTE: stesso trattamento del ramo SUPERFICIE
-    // (~11145), che avvisa e riparte dalla texture di default. Qui mancava del
-    // tutto: il NOT_FOUND| veniva testato piu' sotto solo per decidere cosa
-    // applicare, mai per avvisare, e bgCode restava intatto col tag //IMG:
-    // dentro. Il risultato era lo sfondo PRECEDENTE ancora a schermo (fermo, se
-    // era animato) e lo script dell'immagine mancante nell'editor; la default
-    // compariva solo se prima non c'era alcuna texture.
+    // IMMAGINI MANCANTI: l'avviso e' GIA' STATO DATO in cima alla funzione, su
+    // scena ancora intatta (scanRecordForMissingImages). Qui resta il solo
+    // lavoro sul codice, che va fatto per forza a questo punto: bgCode/texCode
+    // vengono copiati subito sotto in m_*TextureScriptText / m_*TextureCode e da
+    // li' finiscono nell'editor, quindi il tag //IMG: va tolto PRIMA o
+    // ricomparirebbe a schermo.
     //
-    // QUI e non piu' sotto: bgCode viene copiato subito dopo in
-    // m_bgTextureScriptText / m_bgTextureCode e da li' nell'editor, quindi il
-    // tag va tolto PRIMA o ricomparirebbe a schermo.
+    // Nessun ricontrollo del disco: si riusa l'esito della scansione, cosi' i
+    // due punti non possono divergere.
     //
-    // Due casi, perche' lo sfondo puo' avere il tag //IMG: INSIEME a uno script
-    // procedurale (il mix che il ramo Library compone anteponendo il tag,
-    // ~6542: sono 5 record in libreria):
-    //   - solo immagine   -> si azzera tutto, torna la default;
+    // Due casi per ciascun ramo, perche' il codice puo' avere il tag //IMG:
+    // INSIEME a uno script procedurale (il mix che il ramo Library compone
+    // anteponendo il tag, ~6542):
+    //   - solo immagine   -> si azzera tutto, torna la texture di default;
     //   - immagine+script -> si toglie il solo tag e lo script resta, che e'
     //     valido e rende identico (campiona la scacchiera procedurale al posto
     //     della foto, come gli "Animated Images" che usano iChannel0 senza tag).
-    if (bgTexEnabled && !bgCode.isEmpty()
-        && extractAndResolveImagePath(bgCode).startsWith("NOT_FOUND|")) {
-        const QString missing = extractAndResolveImagePath(bgCode).split("|").last();
-        const bool bgKeepsScript = bgCode.contains("return") || bgCode.contains("vec3")
-                                || bgCode.contains("vec4")   || bgCode.contains("mainImage");
+    const QRegularExpression imgTagRe(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption);
 
-        // L'avviso NON parte da qui: superficie e sfondo possono citare LA
-        // STESSA immagine mancante (es. Clifford Tori Labyrinth) e l'utente
-        // vedrebbe due popup per un solo file. Il percorso si accumula e il
-        // ramo superficie, piu' sotto, emette un avviso unico.
-        missingImages << missing;
-        bgLostImageKeptScript = bgKeepsScript;
-
-        bgCode.remove(QRegularExpression(R"(^\s*//IMG:.*$\n?)",
-                                         QRegularExpression::MultilineOption));
+    if (missingScan.bgMissing) {
+        bgCode.remove(imgTagRe);
         bgCode = bgCode.trimmed();
-        if (!bgKeepsScript) bgCode.clear();
+        if (!missingScan.bgKeptScript) bgCode.clear();
+    }
+
+    // RAY MARCHING: la texture di superficie non vive in texCode (svuotato piu'
+    // sopra) ma nel campo dedicato lineTexture, quindi il tag //IMG: morto va
+    // tolto DI LI'. Senza questo, il record si caricava mostrando nell'editor
+    // un //IMG: che punta a un file inesistente, e ogni Run successivo tornava
+    // a cercarlo.
+    if (missingScan.surfaceMissing && isImplicit) {
+        QString rmTex = ui->lineTexture->toPlainText();
+        rmTex.remove(imgTagRe);
+        rmTex = rmTex.trimmed();
+        // Stessa euristica dei due rami sotto: se resta solo il tag, non c'e'
+        // nessuno script da salvare e il campo va svuotato del tutto.
+        if (!missingScan.surfaceKeptScript) rmTex.clear();
+        bool rmBlock = ui->lineTexture->blockSignals(true);
+        ui->lineTexture->setPlainText(rmTex);
+        ui->lineTexture->blockSignals(rmBlock);
+        if (ui->glWidget) ui->glWidget->setTextureCode(rmTex);
     }
 
     QString imgPath = extractAndResolveImagePath(texCode);
-    const bool surfaceLostImage = imgPath.startsWith("NOT_FOUND|");
-    bool surfaceLostImageKeptScript = false;
-    if (surfaceLostImage) {
-        missingImages << imgPath.split("|").last();
+    if (missingScan.surfaceMissing) {
+        // Il percorso non si usa: l'immagine non c'e' piu'. Piu' sotto un
+        // imgPath vuoto e' proprio il segnale che manda la superficie sulla
+        // texture di default.
         imgPath = "";
-
-        // Manca l'IMMAGINE, non lo script: se texCode porta anche codice
-        // procedurale (il mix che il ramo Library compone anteponendo il tag
-        // //IMG: a uno script, ~6542) si toglie il SOLO tag e lo script resta.
-        // Prima qui si faceva texCode = "" e con esso spariva anche lo script:
-        // in Clifford Tori Labyrinth la superficie ha il tag PIU' l'olografia
-        // reattiva, e l'immagine mancante la degradava alla scacchiera di
-        // default -- una texture valida buttata via per un file che non
-        // c'entrava. Lo script sopravvive e rende: campiona la scacchiera
-        // procedurale al posto della foto.
-        surfaceLostImageKeptScript = texCode.contains("return") || texCode.contains("vec3")
-                                  || texCode.contains("vec4")   || texCode.contains("mainImage");
-        texCode.remove(QRegularExpression(R"(^\s*//IMG:.*$\n?)",
-                                          QRegularExpression::MultilineOption));
+        texCode.remove(imgTagRe);
         texCode = texCode.trimmed();
-        if (!surfaceLostImageKeptScript) texCode.clear();
-    }
-
-    // AVVISO UNICO per le immagini mancanti del record, superficie e sfondo
-    // insieme: prima ogni ramo apriva il proprio popup e un record che cita lo
-    // stesso file in entrambi (es. Clifford Tori Labyrinth) ne mostrava due.
-    // I duplicati si tolgono: e' lo stesso file, va nominato una volta.
-    missingImages.removeDuplicates();
-    if (!missingImages.isEmpty()) {
-        // I percorsi stanno su righe tutte loro e NON hanno spazi dove
-        // spezzarsi: nel testo principale (che non va a capo) allargherebbero
-        // il box quanto sono lunghi. Nell'informativeText il resto del testo va
-        // a capo e i percorsi restano le uniche righe lunghe.
-        const bool many = missingImages.size() > 1;
-        QMessageBox box(this);
-        box.setIcon(QMessageBox::Warning);
-        box.setWindowTitle("Record Image Not Found");
-        box.setText(many ? "Some images used in this record were not found."
-                         : "The image used in this record was not found.");
-        // Se DOVUNQUE l'immagine mancante lascia in piedi uno script, si dice
-        // che il record parte lo stesso con la sua texture procedurale: e' il
-        // caso in cui non si perde nulla se non la foto.
-        const bool someScriptSurvives = bgLostImageKeptScript || surfaceLostImageKeptScript;
-        box.setInformativeText(missingImages.join("\n") +
-                               (someScriptSurvives
-                                    ? "\n\nThe procedural texture will be loaded without it."
-                                    : "\n\nThe animation will be loaded without it."));
-        box.exec();
+        if (!missingScan.surfaceKeptScript) texCode.clear();
     }
 
     m_surfaceTextureState = texEnabled;
@@ -11612,6 +11628,29 @@ void MainWindow::applyMotionExample(LibraryItem data)
             ui->glWidget->setBackgroundTextureAnimating(true);
         }
     }
+
+    // RUN "ONE-SHOT" DELLA TEXTURE RAY MARCHING: il record e' appena stato
+    // applicato e renderizzato, quindi non c'e' nulla da rieseguire -> il tasto
+    // deve nascere DISABILITATO, come dopo il caricamento di una texture dalla
+    // Library (~7214) e come all'avvio/reset (~3774, ~4815).
+    //
+    // Serve una riasserzione esplicita perche' il load SPORCA il flag: la
+    // ripulitura dell'audio poco sopra (~11182) riscrive lineTexture a segnali
+    // VIVI, quindi passa da markRmTextureEdited che mette m_rmTextureApplied a
+    // false. La guardia m_populatingFields li' protegge il solo m_textureDirty,
+    // non questo flag. Risultato: caricando un record RM il Run nasceva acceso
+    // pur non avendo niente da applicare.
+    //
+    // In RM la texture NON vive in m_surfaceTextureCode (svuotato a ~11060) ma
+    // nei campi dedicati: l'animazione va cercata li', come fa il ramo Library.
+    // Con una texture animata il flag resta false -- il tasto e' un Run/Stop
+    // legittimo, non un one-shot gia' consumato.
+    if (isImplicit) {
+        const bool rmTexAnim = hasTimeVariable(ui->lineTexture->toPlainText())
+                               || hasTimeVariable(ui->lineVariations->toPlainText());
+        m_rmTextureApplied = !rmTexAnim;
+    }
+
     updateMasterButtonState();
     // =======================================================
 
@@ -14368,6 +14407,101 @@ QString MainWindow::extractAndResolveImagePath(const QString& scriptCode) {
     if (it.hasNext()) return it.next(); // Ritrovata nella nuova cartella!
 
     return "NOT_FOUND|" + imgPath; // Restituisce un flag per far gestire l'errore a chi l'ha chiamata
+}
+
+// Scansione delle immagini mancanti di un record, PRIMA di caricarlo.
+//
+// Esiste per un motivo solo: l'avviso deve poter partire quando a schermo c'e'
+// ancora il record PRECEDENTE, e per farlo serve conoscere i percorsi senza aver
+// modificato nulla. Ricalcola quindi texCode/bgCode come fa applyMotionExample
+// (stessa priorita' data -> JSON, stessa pulizia dei blocchi audio), ma sulle
+// proprie copie locali: qui non si tocca ne' la UI ne' il glWidget. NON si
+// replica invece lo svuotamento di texCode che il caricamento fa in Ray
+// Marching: li' serve a non innescare la pipeline parametrica, qui renderebbe
+// cieca la scansione proprio sui record implicit (vedi sotto).
+//
+// Il risultato viene passato al caricamento, che deve comunque togliere il tag
+// //IMG: dal codice: la scansione e' UNA e l'avviso e' UNO.
+MainWindow::MissingImageScan MainWindow::scanRecordForMissingImages(const LibraryItem &data)
+{
+    MissingImageScan scan;
+
+    bool texEnabled = data.textureEnabled;
+    QString texCode = data.textureCode;
+    bool bgTexEnabled = data.bgTextureEnabled;
+    QString bgCode = data.bgTextureCode;
+
+    // Il JSON ha la precedenza su data, esattamente come nel caricamento.
+    QFile file(data.filePath);
+    if (file.open(QIODevice::ReadOnly)) {
+        const QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+
+        if (root.contains("texture")) {
+            const QJsonObject tex = root["texture"].toObject();
+            if (tex.contains("enabled")) texEnabled = tex["enabled"].toBool();
+            if (tex.contains("code")) {
+                // ANCHE in Ray Marching, dove il codice va nei campi dedicati
+                // (lineTexture) invece che in texCode: la texture RM PUO'
+                // portare un tag //IMG:, perche' il ramo Library lo antepone
+                // allo script triplanare quando la si sceglie da un'immagine.
+                // Svuotare qui il codice in RM rendeva la scansione cieca
+                // proprio sui record implicit: l'immagine mancava, la
+                // superficie si caricava senza, e nessun avviso lo diceva.
+                texCode = tex["code"].toString();
+            }
+        }
+
+        if (root.contains("background")) {
+            const QJsonObject bg = root["background"].toObject();
+            if (bg.contains("enabled")) bgTexEnabled = bg["enabled"].toBool();
+            if (bg.contains("code")) bgCode = bg["code"].toString();
+        }
+    }
+
+    // Le direttive audio vengono tolte dai codici grafici prima del controllo,
+    // come nel caricamento: un //MUSIC: in mezzo non c'entra con le immagini,
+    // ma la pulizia cambia il trimmed() e quindi l'esito degli isEmpty() qui
+    // sotto.
+    const QRegularExpression cleanMusicRe(R"(^\s*//MUSIC:.*$\n?)", QRegularExpression::MultilineOption);
+    const QRegularExpression cleanBlockRe(R"(//SOUND_BEGIN.*?//SOUND_END\n?)",
+                                          QRegularExpression::DotMatchesEverythingOption);
+    texCode.remove(cleanMusicRe); texCode.remove(cleanBlockRe); texCode = texCode.trimmed();
+    bgCode.remove(cleanMusicRe);  bgCode.remove(cleanBlockRe);  bgCode = bgCode.trimmed();
+
+    // Manca l'IMMAGINE, non lo script: se il codice porta anche logica
+    // procedurale (il mix che il ramo Library compone anteponendo il tag //IMG:
+    // a uno script) sopravvive lo script, che rende comunque -- campiona la
+    // scacchiera procedurale al posto della foto. Stessa euristica usata dal
+    // caricamento per decidere se azzerare il codice o togliere il solo tag.
+    auto keepsScript = [](const QString &code) {
+        return code.contains("return") || code.contains("vec3")
+            || code.contains("vec4")   || code.contains("mainImage");
+    };
+
+    if (bgTexEnabled && !bgCode.isEmpty()) {
+        const QString bgImg = extractAndResolveImagePath(bgCode);
+        if (bgImg.startsWith("NOT_FOUND|")) {
+            scan.bgMissing = true;
+            scan.bgKeptScript = keepsScript(bgCode);
+            scan.paths << bgImg.split("|").last();
+        }
+    }
+
+    // La superficie non e' filtrata da texEnabled: il controllo del caricamento
+    // guarda il solo texCode, e cambiarlo qui vorrebbe dire avvisare per un
+    // record e non per l'altro.
+    Q_UNUSED(texEnabled);
+    const QString texImg = extractAndResolveImagePath(texCode);
+    if (texImg.startsWith("NOT_FOUND|")) {
+        scan.surfaceMissing = true;
+        scan.surfaceKeptScript = keepsScript(texCode);
+        scan.paths << texImg.split("|").last();
+    }
+
+    // Lo STESSO file puo' essere citato da superficie e sfondo (es. Clifford
+    // Tori Labyrinth): va nominato una volta sola.
+    scan.paths.removeDuplicates();
+    return scan;
 }
 
 QString MainWindow::extractAudioDirectives(const QString& fullText) {
