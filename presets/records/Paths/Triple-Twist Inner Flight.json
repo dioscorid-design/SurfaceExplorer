@@ -1,28 +1,37 @@
 {
     "activeMotion": "path3D",
     "angles": {
-        "omega": 0,
-        "phi": 0,
-        "psi": 0
+        "omega": 9.999999747378752e-05,
+        "phi": 9.999999747378752e-05,
+        "psi": 9.999999747378752e-05
+    },
+    "background": {
+        "code": "",
+        "col1": "#3333cc",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": false,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
     },
     "camera3D": {
-        "pitch": 0,
+        "pitch": -71.61001586914062,
         "roll": 0,
-        "rot_w": -0.7886541485786438,
-        "rot_x": 0.36316993832588196,
-        "rot_y": 0.10416474938392639,
-        "rot_z": -0.48505881428718567,
-        "x": 0,
-        "y": 0,
-        "yaw": 0,
-        "z": 3.399998426437378
+        "rot_w": 1,
+        "rot_x": 0,
+        "rot_y": 0,
+        "rot_z": 0,
+        "x": -0.9635136723518372,
+        "y": -0.26765918731689453,
+        "yaw": 90,
+        "z": 0
     },
-    "cameraFov": 90,
+    "cameraFov": 62,
     "colors": {
         "alpha": 1,
-        "b": 0.20000000298023224,
-        "g": 0.800000011920929,
-        "r": 0.20000000298023224
+        "surfColor": "#33cc33"
     },
     "constants": {
         "A": 0.800000011920929,
@@ -45,8 +54,8 @@
         "y": "(1 + A*cos(v)*cos(u/3) - B*sin(v)*sin(u/3))*sin(u)",
         "z": "A*cos(v)*sin(u/3) + B*sin(v)*cos(u/3)"
     },
-    "fov3D": 90,
-    "fov4D": 69,
+    "fov3D": 62,
+    "fov4D": 62,
     "geodesic": {
         "conform": "1.0",
         "du": "",
@@ -77,6 +86,7 @@
     },
     "meshScopeAll": true,
     "name": "Triple-Twist Inner Flight",
+    "observer4D": 4,
     "path3D": {
         "roll": "",
         "x": "cos(t)",
@@ -99,14 +109,24 @@
     "speeds": {
         "nutation": 0,
         "omega": 0,
-        "path3D": 12,
-        "path4D": 0,
+        "path3D": 27,
+        "path4D": 1,
         "phi": 0,
         "precession": 0,
         "psi": 0,
         "spin": 0
     },
     "steps": 381,
+    "texture": {
+        "code": "//IMG:/Users/dioscorid/Projects/C/presets/textures/Images/15.png\n// PARAMETRI\nfloat density = 10.0;\n\n// [FIX] Usa i colori del pannello laterale\nvec3 c1 = u_col1;\nvec3 c2 = u_col2;\n\nfloat freq = density * 0.05;\n\n// Coordinate scalate\n// Moltiplichiamo per 25.0 invece di 512*0.05 per semplicità\nfloat xx = u * 25.0; \nfloat yy = v * 25.0;\n\n// --- FORMULA PLASMA ---\nfloat v1 = sin(xx + yy);\nfloat v2 = sin((xx * sin(yy/2.0)) + (yy * cos(xx/3.0)));\n\nfloat cx = xx + 0.5 * sin(yy/5.0);\nfloat cy = yy + 0.5 * cos(xx/3.0);\nfloat v3 = sin(sqrt(100.0 * (cx*cx + cy*cy) + 1.0));\n\nfloat vf = (v1 + v2 + v3) / 3.0;\n\n// [FIX] Rinominato 'tit' in 'plasmaVal' per evitare conflitti\nfloat plasmaVal = vf * 0.5 + 0.5;\n\nreturn mix(c1, c2, plasmaVal);",
+        "col1": "#fd784a",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 0.3269021213054657
+    },
     "type": "motion",
     "use4DLighting": false,
     "wireframe": {

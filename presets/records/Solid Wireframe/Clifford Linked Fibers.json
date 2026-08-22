@@ -17,16 +17,16 @@
         "zoom": 1
     },
     "camera3D": {
-        "pitch": 0,
+        "pitch": 6.67302174406359e-06,
         "roll": 0,
         "rot_w": 1,
         "rot_x": 0,
         "rot_y": 0,
         "rot_z": 0,
-        "x": 0.9324631094932556,
-        "y": -0.34244221448898315,
-        "yaw": 0,
-        "z": 0.06537927687168121
+        "x": -0.8839895725250244,
+        "y": -2.7216835007948248e-08,
+        "yaw": 41.231849670410156,
+        "z": -0.5084893107414246
     },
     "cameraFov": 103,
     "colors": {
@@ -39,7 +39,7 @@
         "C": 1,
         "D": 1,
         "E": 1,
-        "F": 2.67,
+        "F": 2.6700000762939453,
         "S": 0
     },
     "equations": {
@@ -54,7 +54,7 @@
         "y": "",
         "z": ""
     },
-    "fov3D": 45,
+    "fov3D": 103,
     "fov4D": 103,
     "geodesic": {
         "conform": "1.0",
@@ -71,9 +71,9 @@
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {
-        "uMax": 6.28318531,
+        "uMax": 0,
         "uMin": 0,
-        "vMax": 6.28318531,
+        "vMax": 0,
         "vMin": 0,
         "wMax": 0,
         "wMin": 0,
@@ -84,8 +84,9 @@
         "zMax": 1000,
         "zMin": -1000
     },
+    "meshScopeAll": true,
     "name": "Clifford Linked Fibers",
-    "observer4D": 4.9754109382629395,
+    "observer4D": 5,
     "path3D": {
         "roll": "",
         "x": "",

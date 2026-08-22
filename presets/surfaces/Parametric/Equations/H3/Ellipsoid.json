@@ -16,6 +16,7 @@
         "yaw": 0,
         "z": 4
     },
+    "cameraFov": 45,
     "colors": {
         "alpha": 1,
         "b": 0.20000000298023224,
@@ -43,6 +44,8 @@
         "y": "A*tanh(W/2) * sin(V) * sin(U)",
         "z": "A*tanh(W/2) * cos(V)"
     },
+    "fov3D": 45,
+    "fov4D": 45,
     "geodesic": {
         "conform": "1.0",
         "du": "",
@@ -71,11 +74,15 @@
         "zMax": 1000,
         "zMin": -1000
     },
-    "name": "Hellipsoid",
+    "meshScopeAll": true,
+    "name": "Ellipsoid",
     "projectionMode": 1,
     "renderMode": 1,
-    "showBorder": false,
     "steps": 553,
     "type": "surface",
-    "use4DLighting": true
+    "use4DLighting": true,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
 }

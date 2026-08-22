@@ -7,15 +7,16 @@
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": 0.34543678164482117,
-        "rot_x": -0.034140679985284805,
-        "rot_y": 0.9268127679824829,
-        "rot_z": -0.14326946437358856,
+        "rot_w": 0.2728087604045868,
+        "rot_x": -0.03210778534412384,
+        "rot_y": 0.955940842628479,
+        "rot_z": -0.10354569554328918,
         "x": 0,
         "y": 0,
         "yaw": 0,
         "z": 4
     },
+    "cameraFov": 45,
     "colors": {
         "alpha": 1,
         "b": 0.20000000298023224,
@@ -43,6 +44,8 @@
         "y": "A*(((sin(v+0.00001)-(v+0.00001)*cos(v+0.00001))/((v+0.00001)*(v+0.00001)))*sin(u)-((cos(v+0.00001)-1+(v+0.00001)*sin(v+0.00001))/((v+0.00001)*(v+0.00001)))*cos(u))",
         "z": "A*(2*(v+0.00001)-sin(2*(v+0.00001)))/(2*(v+0.00001)*(v+0.00001))"
     },
+    "fov3D": 45,
+    "fov4D": 45,
     "geodesic": {
         "conform": "1.0",
         "du": "",
@@ -71,10 +74,10 @@
         "zMax": 1000,
         "zMin": -1000
     },
-    "name": "Nil Sphere2",
+    "meshScopeAll": true,
+    "name": "Nil Geodesic Sphere",
     "projectionMode": 1,
     "renderMode": 1,
-    "showBorder": false,
     "steps": 1000,
     "type": "surface",
     "use4DLighting": false,

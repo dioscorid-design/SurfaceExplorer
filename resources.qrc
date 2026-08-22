@@ -92,8 +92,8 @@
         <file>presets/surfaces/Parametric/Equations/S3/Clifford's Torus1.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Non-orientable/Roman Surface.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Non-orientable/Klein Bottle.json</file>
-        <file>presets/surfaces/Parametric/Equations/NIL/Twisted Nil Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Heisenberg Plane.json</file>
+        <file>presets/surfaces/Parametric/Equations/NIL/Nil Geodesic Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Cuspid Koranyi Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Cone Distorsion.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/NIL Helicoid.json</file>
@@ -105,8 +105,8 @@
         <file>presets/surfaces/Parametric/Equations/H3/Mobius Band.json</file>
         <file>presets/surfaces/Parametric/Equations/H3/Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/H3/Slice.json</file>
-        <file>presets/surfaces/Parametric/Equations/H3/Hellipsoid.json</file>
         <file>presets/surfaces/Parametric/Equations/H3/Torus.json</file>
+        <file>presets/surfaces/Parametric/Equations/H3/Ellipsoid.json</file>
         <file>presets/surfaces/Parametric/Equations/H3/Helicoid.json</file>
         <file>presets/surfaces/Parametric/Equations/S2xR/Elicoid.json</file>
         <file>presets/surfaces/Parametric/Equations/S2xR/Torus.json</file>
@@ -154,7 +154,6 @@
         <file>presets/surfaces/Parametric/Equations/R3/Sevenfold Twisted Elliptic Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Helix.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Hyperbolic Helicoid.json</file>
-        <file>presets/surfaces/Parametric/Equations/R3/NIL Sphere1.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Jeener-Klein N-Bottle.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Oloid.json</file>
@@ -175,7 +174,6 @@
         <file>presets/surfaces/Parametric/Equations/R3/Pseudo Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Undersea.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Richmond Polar.json</file>
-        <file>presets/surfaces/Parametric/Equations/R3/Nil Sphere2.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Toupie.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Helicoid.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Dini's Spiral.json</file>
@@ -322,6 +320,7 @@
         <file>presets/records/Rotations/Kerr Black Hole.json</file>
         <file>presets/records/Rotations/Brieskorn-Pham (3,5).json</file>
         <file>presets/records/Rotations/Ellipsoid.json</file>
+        <file>presets/records/Rotations/Calabi_Yau.json</file>
         <file>presets/records/Rotations/Torus Knot.json</file>
         <file>presets/records/Solid Wireframe/Clifford Linked Tori.json</file>
         <file>presets/records/Solid Wireframe/Clifford Labyrinth 16-Cell.json</file>
@@ -338,9 +337,7 @@
         <file>presets/records/t_motions/Otto Tube.json</file>
         <file>presets/records/t_motions/Waves.json</file>
         <file>presets/records/t_motions/Otto.json</file>
-        <file>presets/records/t_motions/3D/Nil Sphere1.json</file>
         <file>presets/records/t_motions/3D/Modular Torus.json</file>
-        <file>presets/records/t_motions/3D/Nil Sphere.json</file>
         <file>presets/records/t_motions/3D/Dynamic Mobius Band.json</file>
         <file>presets/records/t_motions/S3/Hopf.json</file>
         <file>presets/records/t_motions/S3/Hopf Torus Breathing Cycloid 4D.json</file>
@@ -356,8 +353,10 @@
         <file>presets/records/t_motions/S^2xS^1/Sliding Spring.json</file>
         <file>presets/records/t_motions/S^2xS^1/Loxodrome.json</file>
         <file>presets/records/t_motions/S^2xS^1/Pulsing Torus.json</file>
+        <file>presets/records/t_motions/NIL/Twisteded Geodesic Sphere.json</file>
         <file>presets/records/t_motions/NIL/Geodetic Elicoid.json</file>
         <file>presets/records/t_motions/NIL/Deforming Torus.json</file>
+        <file>presets/records/t_motions/NIL/Geodesic Sphere.json</file>
         <file>presets/records/t_motions/H3/Enneper.json</file>
         <file>presets/records/t_motions/H3/Mobius Band.json</file>
         <file>presets/records/t_motions/H3/Catenoid.json</file>
@@ -365,9 +364,9 @@
         <file>presets/records/t_motions/H3/Torus.json</file>
         <file>presets/records/t_motions/H3/Helicoid.json</file>
         <file>presets/records/t_motions/S2xR/Waving Helicoid.json</file>
+        <file>presets/records/t_motions/S2xR/Pulsating Torus.json</file>
         <file>presets/records/t_motions/S2xR/Revolving Helicoid.json</file>
         <file>presets/records/t_motions/S2xR/Slice.json</file>
-        <file>presets/records/t_motions/S2xR/Torus1.json</file>
         <file>presets/records/t_motions/S2xR/Pseudosphere2.json</file>
         <file>presets/records/t_motions/S2xR/Pseudosphere1.json</file>
         <file>presets/records/t_motions/S2xR/Torus.json</file>
