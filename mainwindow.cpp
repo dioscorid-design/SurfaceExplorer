@@ -58,6 +58,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QEvent>
+#include <QCloseEvent>
 #include <QMenu>
 #include <QContextMenuEvent>
 #include <QPointer>
@@ -3804,6 +3805,10 @@ void MainWindow::noteSceneEdited(QWidget *source)
     if (!m_uiReady || m_populatingFields) return;
 
     m_sceneDirty = true;
+    // Lavoro sui campi della superficie: da qui in poi c'e' anche roba che un
+    // file di surfaces/ salva, quindi la scena non e' piu' sporca per i soli
+    // moduli.
+    m_sceneDirtyOnlyByModules = false;
 
     if (!source) return;
 
@@ -3918,6 +3923,30 @@ void MainWindow::showShaderError(const QString &title, const QString &errorLog)
 // Percio' alza anche m_runEverSucceeded, che significa "a schermo c'e' roba
 // dell'utente": senza, muovere solo gli slider senza mai premere Run non
 // verrebbe difeso.
+// DOVE finiscono i tre slider RGB in questo momento. Deve restare allineata a
+// handleColorChange (~3007), che e' la sede della decisione vera: qui si
+// riproducono solo le sue condizioni per sapere QUALE lavoro si sta facendo.
+//
+// Il ramo Background e quello Surface hanno la stessa forma -- texture attiva
+// sul destinatario corrente E texture che usa i colori -- ma guardano flag
+// diversi: lo sfondo la checkbox, la superficie lo stato della parte attiva
+// (o quello globale se non ce n'e' una selezionata).
+bool MainWindow::colorSlidersTargetTexture() const
+{
+    if (ui->radioBackground->isChecked())
+        return ui->chkBoxTexture->isChecked() && activeTextureUsesColors();
+
+    // In Wireframe la texture e' nascosta e le linee usano il COLORE
+    // SUPERFICIE: gli slider tornano a essere lavoro di scena.
+    if (ui->radioWF->isChecked()) return false;
+
+    const bool texActiveHere =
+        (ui->glWidget && ui->glWidget->activeMeshPart() >= 0)
+            ? ui->glWidget->activeMeshTextureActive()
+            : m_surfaceTextureState;
+    return texActiveHere && activeTextureUsesColors();
+}
+
 void MainWindow::noteSceneControlUsed()
 {
     // Stesse guardie di noteSceneEdited: le scritture programmatiche del boot,
@@ -3926,6 +3955,11 @@ void MainWindow::noteSceneControlUsed()
 
     m_sceneDirty       = true;
     m_runEverSucceeded = true;
+    // Un controllo di scena (colore, rotazioni, slider...) e' lavoro che anche
+    // una SUPERFICIE salva: la sporcatura non e' piu' attribuibile ai soli
+    // moduli. I due load di libreria, che sono lavoro di modulo, rialzano il
+    // flag subito dopo aver chiamato questa funzione.
+    m_sceneDirtyOnlyByModules = false;
 }
 
 // Collega in blocco i controlli dei dock. In un punto solo, e per elenco di
@@ -3939,8 +3973,29 @@ void MainWindow::wireSceneControlsDirtyTracking()
     const auto mark = [this]() { noteSceneControlUsed(); };
 
     // --- DOCK RENDERER: aspetto, tutto salvato nel preset ---
+    // COLORE: gli slider RGB sono UN solo terzetto per due destinatari -- il
+    // colore della superficie oppure una delle due tinte della TEXTURE, secondo
+    // lo stato dei radio (vedi handleColorChange ~3007). Il lavoro va marcato
+    // sul modulo che si sta davvero editando: cambiare il colore di una texture
+    // non e' salvato da un file di surfaces/, e marcarlo come lavoro di scena
+    // faceva uscire un popup il cui salvataggio non avrebbe conservato quel
+    // colore (segnalato dall'utente: "aggiungo la texture e ne cambio il
+    // colore" -> popup inutile, la texture non viene ricaricata comunque).
+    // Sono percio' esclusi dall'elenco `sliders` qui sotto e cablati a parte.
+    const QList<QSlider*> colorSliders = { ui->sliderR, ui->sliderG, ui->sliderB };
+    for (QSlider *s : colorSliders) {
+        if (s) connect(s, &QSlider::sliderReleased, this, [this]() {
+            if (colorSlidersTargetTexture()) {
+                // Stesse guardie di noteSceneControlUsed, che qui non passa.
+                if (!m_uiReady || m_populatingFields) return;
+                m_textureDirty = true;
+            } else {
+                noteSceneControlUsed();
+            }
+        });
+    }
+
     const QList<QSlider*> sliders = {
-        ui->sliderR, ui->sliderG, ui->sliderB,   // colore superficie
         ui->alphaSlider,                          // trasparenza
         ui->lightSlider,                          // intensita' luce
         ui->fovSliderMain,                        // FOV
@@ -4016,11 +4071,37 @@ void MainWindow::wireSceneControlsDirtyTracking()
         if (e) connect(e, &QLineEdit::textEdited, this, mark);
     }
 
-    // Texture: la checkbox di attivazione e la scelta del colore bersaglio.
-    // Il CODICE della texture (lineTexture/lineVariations) passa gia' da
-    // noteSceneEdited via markRmTextureEdited.
-    if (ui->chkBoxTexture)
-        connect(ui->chkBoxTexture, &QAbstractButton::toggled, this, mark);
+    // Texture: la checkbox di attivazione.
+    //
+    // Marca il MODULO TEXTURE, non la scena. Era cablata su `mark`
+    // (noteSceneControlUsed -> m_sceneDirty) ed e' l'unico motivo per cui
+    // accendere una texture su una SUPERFICIE faceva uscire il popup "vuoi
+    // salvare la scena?": un file di surfaces/ non contiene le texture, quindi
+    // quel salvataggio non avrebbe conservato nulla di cio' che si stava
+    // perdendo. Era l'unico controllo a sporcare la scena in quel percorso.
+    //
+    // E' la stessa correzione gia' fatta per il CODICE della texture
+    // (lineTexture/lineVariations in markRmTextureEdited, ~1830): quei campi
+    // alzano m_textureDirty proprio perche' "sono campi del modulo TEXTURE, non
+    // della geometria". La checkbox era rimasta indietro.
+    //
+    // m_textureDirty e non m_sceneDirty vale anche per lo SFONDO: chkBoxTexture
+    // e' UN widget per due destinatari (superficie o background secondo
+    // radioSurface/radioBackground), ed entrambi sono lavoro del modulo texture.
+    //
+    // Il popup sui RECORD non si perde: chi carica una texture da libreria
+    // marca la scena per conto suo (onExampleItemClicked ~10402), ed e' quella
+    // marcatura -- non la checkbox -- a proteggere il record.
+    if (ui->chkBoxTexture) {
+        connect(ui->chkBoxTexture, &QAbstractButton::toggled, this, [this]() {
+            // Stesse guardie di noteSceneEdited/noteSceneControlUsed: le
+            // accensioni programmatiche del load e del reset non sono lavoro
+            // dell'utente. (Molte di quelle scritture sono gia' a segnali
+            // bloccati, ma non tutte: la guardia resta la difesa vera.)
+            if (!m_uiReady || m_populatingFields) return;
+            m_textureDirty = true;
+        });
+    }
 
     // --- COSTANTI A..F e S ---
     // A..F sporcano la scena di rimbalzo, perche' compaiono nelle equazioni; S
@@ -4142,9 +4223,21 @@ bool MainWindow::confirmDiscardUnsaved(DiscardScope scope)
     }
 
     // --- Scena intera: si difende tutto cio' che e' sporco, con un popup solo ---
-    const bool dirtyScene = hasUnsavedWork();
-    const bool dirtyTex   = m_textureDirty;
-    const bool dirtySnd   = m_soundDirty;
+    //
+    // Il popup deve parlare solo di cio' che il file di destinazione salva.
+    // Caricando una SUPERFICIE, texture e suoni non vengono conservati: se la
+    // scena e' sporca SOLTANTO per loro non c'e' nulla da proporre, e chiedere
+    // proponeva un salvataggio che non salvava il lavoro in questione.
+    //
+    // Il discrimine e' m_sceneDirtyOnlyByModules e NON la sola destinazione:
+    // guardare il ramo cliccato spegneva il popup anche quando la geometria
+    // era stata modificata davvero (tentativo precedente, scartato). Appena si
+    // tocca la geometria il flag cade e il popup torna a uscire.
+    const bool surfaceTarget = (scope == ScopeSurface);
+    const bool dirtyScene = hasUnsavedWork()
+                            && !(surfaceTarget && m_sceneDirtyOnlyByModules);
+    const bool dirtyTex   = m_textureDirty && !surfaceTarget;
+    const bool dirtySnd   = m_soundDirty   && !surfaceTarget;
     if (!dirtyScene && !dirtyTex && !dirtySnd) return true;
 
     // Elenco leggibile di cio' che si sta per perdere: senza, l'avviso e'
@@ -4838,6 +4931,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // niente lavoro di quei moduli da proteggere.
     m_textureDirty = false;
     m_soundDirty   = false;
+    m_sceneDirtyOnlyByModules = false;
     m_warnedEditedDock = OriginDefault;
     m_warnedOrigin     = OriginDefault;
     m_surfaceOrigin    = OriginDefault;
@@ -8914,7 +9008,6 @@ void MainWindow::onToggleScriptMode()
 
     // 2. Passa alla modalità successiva (0 -> 1 -> 2 -> 0)
     m_currentScriptMode = static_cast<ScriptMode>((m_currentScriptMode + 1) % 3);
-
     // 3. Ripristina il testo senza innescare eventi indesiderati
     ui->txtScriptEditor->blockSignals(true);
 
@@ -10147,7 +10240,13 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             // memoria storica di m_lastLoadedLibraryItem.
             QTreeWidgetItem *previous = m_lastLoadedLibraryItem;
 
-            if (!confirmDiscardUnsaved(ScopeScene)) {
+            // Lo scope dice COSA salvera' il file di destinazione: una
+            // superficie non conserva texture ne' suoni (ScopeSurface), un
+            // record li contiene tutti (ScopeScene). La soppressione vera la
+            // decide comunque m_sceneDirtyOnlyByModules dentro la conferma:
+            // qui si dichiara solo dove si sta andando.
+            if (!confirmDiscardUnsaved(src == ui->treeSurfaces ? ScopeSurface
+                                                               : ScopeScene)) {
                 bool b = src->blockSignals(true);
                 src->clearSelection();
                 // Il preset in vigore puo' stare in un ALTRO albero (una
@@ -10348,6 +10447,28 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         // Caricare una texture tocca SOLO il modulo texture.
 
         handleTextureSelection(index);
+
+        // La texture a schermo ora e' diversa da quella del record caricato: la
+        // SCENA e' cambiata rispetto al file su disco, e chiudendo o cambiando
+        // preset quella differenza si perde. Il record la salva, quindi va
+        // protetta.
+        //
+        // m_sceneDirty e NON m_textureDirty: la texture viene dalla libreria ed
+        // e' gia' su disco -- non c'e' un file texture da salvare. Cio' che si
+        // perde e' la SCENA che la usa, e l'unico file che la conserva e' il
+        // record.
+        //
+        // noteSceneControlUsed() e non "m_sceneDirty = true": alza anche
+        // m_runEverSucceeded, che hasUnsavedWork() pretende. Senza, caricare una
+        // texture su una scena appena aperta (nessun Run riuscito) non farebbe
+        // uscire il popup lo stesso.
+        noteSceneControlUsed();
+        // ...ma la scena e' sporca per il solo MODULO texture, che un record
+        // salva e una SUPERFICIE no: senza questa distinzione, caricare poi una
+        // superficie faceva uscire un popup il cui salvataggio non avrebbe
+        // conservato la texture. Lo legge confirmDiscardUnsaved con
+        // ScopeSurface. DOPO la chiamata qui sopra, che azzera il flag.
+        m_sceneDirtyOnlyByModules = true;
 
         // FIX 2: Rimosso il blocco if/else che forzava setSurfaceTextureAnimating(true).
         // handleTextureSelection() sa già calcolare perfettamente se serve l'animazione
@@ -12249,6 +12370,18 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
     // ma a segnali BLOCCATI, quindi non rialza il flag.)
     m_soundDirty = false;
 
+    // Simmetrico al load di una texture da libreria (onExampleItemClicked):
+    // stessa motivazione, stessa scelta di flag. Il suono viene dalla libreria
+    // ed e' gia' su disco; cio' che si perde e' la SCENA che lo usa, e l'unico
+    // file che la conserva e' il record.
+    //
+    // Dopo l'azzeramento qui sopra, mai prima. E dopo il ramo
+    // "isAlreadyPresent", che esce prima e non sostituisce nulla: ricliccare il
+    // suono gia' in vigore lo risuona soltanto, e non e' una modifica.
+    noteSceneControlUsed();
+    // Come per la texture: lavoro del solo modulo, salvabile in un record.
+    m_sceneDirtyOnlyByModules = true;
+
     if (ui->radioBackground->isChecked()) {
         m_bgTextureCode = (m_soundScriptText + "\n\n" + m_bgTextureScriptText.trimmed()).trimmed();
         m_surfaceTextureCode = m_surfaceTextureScriptText.trimmed();
@@ -13883,6 +14016,7 @@ void MainWindow::applyCommonData(LibraryItem d)
     // a schermo e non c'e' piu' niente da proteggere.
     m_textureDirty = false;
     m_soundDirty   = false;
+    m_sceneDirtyOnlyByModules = false;
     m_warnedEditedDock = OriginDefault;
     m_warnedOrigin     = OriginDefault;
     // Il preset caricato ha compilato: azzera l'esito fallito di un Run
@@ -17070,6 +17204,42 @@ bool MainWindow::geodesicFieldsAreFinite(const QStringList& exprs,
 // PROTECTED
 // ==========================================
 
+
+// Chiusura dell'applicazione. Era l'unico percorso distruttivo rimasto senza
+// avviso: da qui la scena, la texture e il suono modificati sparivano senza
+// domande, mentre load di un preset, NEW, reset e cambio di modalita' chiedono
+// tutti conferma.
+//
+// Passa dalla stessa confirmDiscardUnsaved(ScopeScene) degli altri percorsi:
+// il popup elenca cio' che e' sporco e, su "Save", apre il salvataggio dalla
+// radice dell'albero. Nessun flag va riletto qui -- la decisione sta in
+// hasUnsavedWork(): duplicarla farebbe divergere questo percorso dagli altri.
+//
+// Cancel (o la chiusura del popup) -> event->ignore(): la finestra resta
+// aperta. Vale anche per il quit dal menu/Cmd-Q, che passa comunque da qui.
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+    // Registrazione in corso: chiudere adesso lascerebbe il file video
+    // troncato e l'encoder a meta'. Si chiede prima di fermare REC.
+    if (m_isRecording) {
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Warning);
+        box.setWindowTitle("Recording in progress");
+        box.setText("A video is being recorded.");
+        box.setInformativeText("Stop the recording before quitting.");
+        box.addButton("OK", QMessageBox::AcceptRole);
+        box.exec();
+        event->ignore();
+        return;
+    }
+
+    if (!confirmDiscardUnsaved(ScopeScene)) {
+        event->ignore();
+        return;
+    }
+
+    QMainWindow::closeEvent(event);
+}
 
 void MainWindow::changeEvent(QEvent* event)
 {

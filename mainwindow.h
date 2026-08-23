@@ -56,7 +56,13 @@ public:
     // motivo di RunOutcomeGuard), e un tipo usato in una firma deve comunque
     // essere gia' noto al compilatore in quel punto.
     enum DiscardScope {
-        ScopeScene,     // tutta la scena (altro preset, default, NEW, cambio modalita')
+        ScopeScene,     // tutta la scena (record, default, NEW, cambio modalita')
+        // Destinazione SUPERFICIE: un file di surfaces/ salva la sola
+        // geometria. Se la scena e' sporca soltanto per texture/suoni caricati
+        // (m_sceneDirtyOnlyByModules) non c'e' niente che quel file possa
+        // conservare, e il popup non esce. Se invece e' stata toccata anche la
+        // geometria, il popup esce come sempre.
+        ScopeSurface,
         ScopeTexture,   // la sola texture (se ne sta caricando un'altra)
         ScopeSound      // il solo suono
     };
@@ -699,6 +705,20 @@ private:
     bool m_textureDirty = false;
     bool m_soundDirty   = false;
 
+    // La scena e' sporca SOLO per via di texture/suono caricati da libreria.
+    //
+    // Serve perche' quel lavoro e' salvabile in un RECORD (che contiene
+    // texture, suono, camera e rotazioni) ma NON in una SUPERFICIE (un file di
+    // surfaces/ ha la sola geometria). Senza distinguerlo, caricare una texture
+    // e poi cliccare una superficie faceva uscire un popup che proponeva un
+    // salvataggio incapace di conservare cio' che si stava perdendo.
+    //
+    // Alzato insieme a m_sceneDirty dai load di libreria; ABBASSATO da
+    // qualunque modifica che tocchi davvero la geometria (noteSceneEdited /
+    // noteSceneControlUsed), perche' da quel momento c'e' anche lavoro che una
+    // superficie salva. Azzerato con gli altri flag dal load e dal reset.
+    bool m_sceneDirtyOnlyByModules = false;
+
     // Salvataggio in corso DENTRO la conferma "vuoi salvare?": la libreria si
     // aggiorna ma il focus non si sposta sul file salvato, perche' subito dopo
     // viene caricato un altro preset ed e' QUELLO che si sta guardando. Lo
@@ -951,6 +971,12 @@ private:
     void updateScriptButtonText();
     void updateTextureUIState(bool isTextureOn, bool resetColorTargetToFirst = false);
     bool activeTextureUsesColors() const;
+    // true quando gli slider RGB stanno editando un colore della TEXTURE
+    // (sfondo o superficie) e non il colore della superficie stessa. Replica la
+    // scelta di destinatario fatta da handleColorChange: serve a marcare il
+    // lavoro sul modulo giusto -- un colore di texture non e' salvato da un
+    // file di surfaces/, quindi non deve far uscire il popup della scena.
+    bool colorSlidersTargetTexture() const;
     // Granulari: la texture attiva referenzia u_col1 / u_col2 (token = "u_col1"/"u_col2").
     // Servono per abilitare i due picker INDIPENDENTEMENTE: una texture che usa solo
     // u_col1 (es. "Xor") non deve lasciare attivo il picker di col2, che non avrebbe
@@ -1077,6 +1103,12 @@ private:
 
 
 protected:
+    // Chiusura della finestra: ultimo percorso distruttivo che non chiedeva
+    // niente. Passa dalla stessa confirmDiscardUnsaved(ScopeScene) di tutti
+    // gli altri -- se l'utente annulla, l'evento viene ignorato e l'app resta
+    // aperta. Non duplicare qui la logica dei flag: la decisione sta tutta in
+    // hasUnsavedWork().
+    void closeEvent(QCloseEvent* event) override;
     void changeEvent(QEvent* event) override;
     void hideEvent(QHideEvent* event) override;
     void showEvent(QShowEvent* event) override;
