@@ -3805,10 +3805,6 @@ void MainWindow::noteSceneEdited(QWidget *source)
     if (!m_uiReady || m_populatingFields) return;
 
     m_sceneDirty = true;
-    // Lavoro sui campi della superficie: da qui in poi c'e' anche roba che un
-    // file di surfaces/ salva, quindi la scena non e' piu' sporca per i soli
-    // moduli.
-    m_sceneDirtyOnlyByModules = false;
 
     if (!source) return;
 
@@ -3955,11 +3951,6 @@ void MainWindow::noteSceneControlUsed()
 
     m_sceneDirty       = true;
     m_runEverSucceeded = true;
-    // Un controllo di scena (colore, rotazioni, slider...) e' lavoro che anche
-    // una SUPERFICIE salva: la sporcatura non e' piu' attribuibile ai soli
-    // moduli. I due load di libreria, che sono lavoro di modulo, rialzano il
-    // flag subito dopo aver chiamato questa funzione.
-    m_sceneDirtyOnlyByModules = false;
 }
 
 // Collega in blocco i controlli dei dock. In un punto solo, e per elenco di
@@ -4224,20 +4215,9 @@ bool MainWindow::confirmDiscardUnsaved(DiscardScope scope)
 
     // --- Scena intera: si difende tutto cio' che e' sporco, con un popup solo ---
     //
-    // Il popup deve parlare solo di cio' che il file di destinazione salva.
-    // Caricando una SUPERFICIE, texture e suoni non vengono conservati: se la
-    // scena e' sporca SOLTANTO per loro non c'e' nulla da proporre, e chiedere
-    // proponeva un salvataggio che non salvava il lavoro in questione.
-    //
-    // Il discrimine e' m_sceneDirtyOnlyByModules e NON la sola destinazione:
-    // guardare il ramo cliccato spegneva il popup anche quando la geometria
-    // era stata modificata davvero (tentativo precedente, scartato). Appena si
-    // tocca la geometria il flag cade e il popup torna a uscire.
-    const bool surfaceTarget = (scope == ScopeSurface);
-    const bool dirtyScene = hasUnsavedWork()
-                            && !(surfaceTarget && m_sceneDirtyOnlyByModules);
-    const bool dirtyTex   = m_textureDirty && !surfaceTarget;
-    const bool dirtySnd   = m_soundDirty   && !surfaceTarget;
+    const bool dirtyScene = hasUnsavedWork();
+    const bool dirtyTex   = m_textureDirty;
+    const bool dirtySnd   = m_soundDirty;
     if (!dirtyScene && !dirtyTex && !dirtySnd) return true;
 
     // Elenco leggibile di cio' che si sta per perdere: senza, l'avviso e'
@@ -4931,7 +4911,6 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // niente lavoro di quei moduli da proteggere.
     m_textureDirty = false;
     m_soundDirty   = false;
-    m_sceneDirtyOnlyByModules = false;
     m_warnedEditedDock = OriginDefault;
     m_warnedOrigin     = OriginDefault;
     m_surfaceOrigin    = OriginDefault;
@@ -10240,13 +10219,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             // memoria storica di m_lastLoadedLibraryItem.
             QTreeWidgetItem *previous = m_lastLoadedLibraryItem;
 
-            // Lo scope dice COSA salvera' il file di destinazione: una
-            // superficie non conserva texture ne' suoni (ScopeSurface), un
-            // record li contiene tutti (ScopeScene). La soppressione vera la
-            // decide comunque m_sceneDirtyOnlyByModules dentro la conferma:
-            // qui si dichiara solo dove si sta andando.
-            if (!confirmDiscardUnsaved(src == ui->treeSurfaces ? ScopeSurface
-                                                               : ScopeScene)) {
+            if (!confirmDiscardUnsaved(ScopeScene)) {
                 bool b = src->blockSignals(true);
                 src->clearSelection();
                 // Il preset in vigore puo' stare in un ALTRO albero (una
@@ -10463,12 +10436,6 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         // texture su una scena appena aperta (nessun Run riuscito) non farebbe
         // uscire il popup lo stesso.
         noteSceneControlUsed();
-        // ...ma la scena e' sporca per il solo MODULO texture, che un record
-        // salva e una SUPERFICIE no: senza questa distinzione, caricare poi una
-        // superficie faceva uscire un popup il cui salvataggio non avrebbe
-        // conservato la texture. Lo legge confirmDiscardUnsaved con
-        // ScopeSurface. DOPO la chiamata qui sopra, che azzera il flag.
-        m_sceneDirtyOnlyByModules = true;
 
         // FIX 2: Rimosso il blocco if/else che forzava setSurfaceTextureAnimating(true).
         // handleTextureSelection() sa già calcolare perfettamente se serve l'animazione
@@ -12379,8 +12346,6 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
     // "isAlreadyPresent", che esce prima e non sostituisce nulla: ricliccare il
     // suono gia' in vigore lo risuona soltanto, e non e' una modifica.
     noteSceneControlUsed();
-    // Come per la texture: lavoro del solo modulo, salvabile in un record.
-    m_sceneDirtyOnlyByModules = true;
 
     if (ui->radioBackground->isChecked()) {
         m_bgTextureCode = (m_soundScriptText + "\n\n" + m_bgTextureScriptText.trimmed()).trimmed();
@@ -14016,7 +13981,6 @@ void MainWindow::applyCommonData(LibraryItem d)
     // a schermo e non c'e' piu' niente da proteggere.
     m_textureDirty = false;
     m_soundDirty   = false;
-    m_sceneDirtyOnlyByModules = false;
     m_warnedEditedDock = OriginDefault;
     m_warnedOrigin     = OriginDefault;
     // Il preset caricato ha compilato: azzera l'esito fallito di un Run
@@ -17214,6 +17178,11 @@ bool MainWindow::geodesicFieldsAreFinite(const QStringList& exprs,
 // il popup elenca cio' che e' sporco e, su "Save", apre il salvataggio dalla
 // radice dell'albero. Nessun flag va riletto qui -- la decisione sta in
 // hasUnsavedWork(): duplicarla farebbe divergere questo percorso dagli altri.
+//
+// Vale anche quando l'unica cosa fatta e' applicare una texture da libreria: la
+// scena che la usa si perde comunque, e il salvataggio proposto -- dalla
+// radice, ramo records/ -- la conserva per intero. Il ramo di destinazione non
+// c'entra: e' il RECORD a rendere salvabile quel lavoro, non la superficie.
 //
 // Cancel (o la chiusura del popup) -> event->ignore(): la finestra resta
 // aperta. Vale anche per il quit dal menu/Cmd-Q, che passa comunque da qui.
