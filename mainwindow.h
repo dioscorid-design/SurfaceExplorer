@@ -883,6 +883,12 @@ private:
     // Per valore come applySurfaceExample/applyMotionExample: e' chiamata da
     // entrambe e ne condivide il rischio (vedi il commento la' sopra).
     void applyCommonData(LibraryItem data);
+    // Shell/Solid del Ray Marching: UNICA implementazione condivisa fra i due
+    // rami di load (equazione implicita e script implicito) e il reset alla
+    // sfera di default. I due rami avevano il ripristino solo nel ramo
+    // EQUAZIONE, e siccome quasi tutti i record RM sono da SCRIPT i radio non
+    // si resettavano mai caricando un record; resetScene non lo faceva affatto.
+    void applyImplicitShellMode(bool shell);
     QString presetsRootPath() const;
     // Data la cartella che l'utente ha indicato in un pannello, restituisce la
     // RADICE DELLA LIBRERIA: quella cartella stessa se e' gia' una radice (dentro

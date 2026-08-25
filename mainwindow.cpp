@@ -4190,6 +4190,9 @@ bool MainWindow::confirmDiscardUnsaved(DiscardScope scope)
         QPushButton *discardBtn = box.addButton("Don't save", QMessageBox::DestructiveRole);
         box.addButton("Cancel", QMessageBox::RejectRole);
         box.setDefaultButton(saveBtn);
+        // "Don't save" chiede 109px contro i 108 imposti dal foglio globale:
+        // sforava di UN pixel e si perdeva la "D".
+        UiStyleManager::widenMessageBoxButtons(&box);
         box.exec();
 
         if (box.clickedButton() == discardBtn) return true;
@@ -4244,6 +4247,8 @@ bool MainWindow::confirmDiscardUnsaved(DiscardScope scope)
     QPushButton *discardBtn = box.addButton("Don't save", QMessageBox::DestructiveRole);
     box.addButton("Cancel", QMessageBox::RejectRole);
     box.setDefaultButton(saveBtn);
+    // Come sopra: "Don't save" non ci sta nei 108px di default.
+    UiStyleManager::widenMessageBoxButtons(&box);
     box.exec();
 
     if (box.clickedButton() == discardBtn) return true;
@@ -4725,6 +4730,14 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
                                       : QLatin1String(kEmptyImplicitField);
             ui->glWidget->setImplicitEquation(implicitEqF);
             ui->glWidget->validateAndApplyImplicitShader(implicitEqF, "", "");
+
+            // Shell/Solid tornano al default di avvio (Shell, vedi il setup a
+            // ~1926). Senza questo il reset alla sfera di default ereditava lo
+            // stile dell'ultimo preset/record RM caricato: i radio restavano
+            // dov'erano e il motore pure. Stessa implementazione condivisa dei
+            // due rami di load.
+            applyImplicitShellMode(true);
+
             ui->glWidget->rebuildShader();
         }
     }
@@ -13140,6 +13153,27 @@ void MainWindow::setTextureLibraryGrayed(bool grayed)
     }
 }
 
+// Shell/Solid del Ray Marching. UNICA implementazione: la chiamano entrambi i
+// rami implicit di applyCommonData (equazione E script) e il reset alla sfera di
+// default in resetScene. Prima esisteva solo dentro il ramo EQUAZIONE: siccome i
+// record RM sono quasi tutti da SCRIPT, caricare un record (o la sfera di
+// default) lasciava i radio e il motore sullo stato del preset precedente.
+// I radio sono esclusivi e il loro toggled riscrive comunque il globalRenderMode:
+// li muoviamo a segnali bloccati e scriviamo noi il motore, per non far girare
+// l'handler durante un load.
+void MainWindow::applyImplicitShellMode(bool shell)
+{
+    if (ui->radioShell && ui->radioSolid) {
+        const bool oldShell = ui->radioShell->blockSignals(true);
+        const bool oldSolid = ui->radioSolid->blockSignals(true);
+        if (shell) ui->radioShell->setChecked(true);
+        else       ui->radioSolid->setChecked(true);
+        ui->radioShell->blockSignals(oldShell);
+        ui->radioSolid->blockSignals(oldSolid);
+    }
+    if (ui->glWidget) ui->glWidget->setGlobalRenderMode(shell ? 1 : 0);
+}
+
 void MainWindow::applyCommonData(LibraryItem d)
 {
     // CARICAMENTO IN CORSO: i campi vengono riempiti dal preset, non dall'utente.
@@ -13769,6 +13803,12 @@ void MainWindow::applyCommonData(LibraryItem d)
         exitMetricScriptMode();
 
         if (d.isImplicitMode) {
+            // Shell/Solid anche qui: e' lo stesso stato salvato nel renderMode
+            // composito (>= 10 = Shell), decodificato in isShell piu' sopra.
+            // Mancava solo in questo ramo, ed e' il ramo di quasi tutti i
+            // record RM (equazione = "// Controlled by Script").
+            applyImplicitShellMode(isShell);
+
             parseAndApplyScriptParams(d.scriptCode);
 
             QString glslBody;
@@ -13840,14 +13880,9 @@ void MainWindow::applyCommonData(LibraryItem d)
             ui->lineEquation->setPlainText(d.implicitEq);
             ui->glWidget->setImplicitEquation(d.implicitEq);
 
-            // Ripristina lo stile Shell o Solid
-            if (isShell) {
-                ui->radioShell->setChecked(true);
-                if (ui->glWidget) ui->glWidget->setGlobalRenderMode(1);
-            } else {
-                ui->radioSolid->setChecked(true);
-                if (ui->glWidget) ui->glWidget->setGlobalRenderMode(0);
-            }
+            // Ripristina lo stile Shell o Solid (implementazione condivisa
+            // col ramo script e con resetScene).
+            applyImplicitShellMode(isShell);
         } else {
             ui->tabModeSelector->setCurrentIndex(0); // Cambia al tab Parametric
             ui->glWidget->setEngineMode(GLWidget::ModeParametric);
