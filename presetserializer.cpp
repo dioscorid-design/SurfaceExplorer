@@ -3,6 +3,7 @@
 #include "ui_mainwindow.h"
 #include "libraryfileoperations.h"
 #include "audiocontroller.h"
+#include "uistylemanager.h"
 
 #include <QFileDialog>
 #include <QInputDialog>
@@ -1172,6 +1173,14 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         QPushButton *withBtn    = box.addButton("Keep the sound", QMessageBox::ActionRole);
         box.addButton(QMessageBox::Cancel);
         box.setDefaultButton(withoutBtn);
+
+        // Tasti larghi: "Save without sound" chiede 169px a 15pt contro i 108
+        // imposti dal foglio globale, e veniva tagliata alle due estremita'.
+        // 140 perche' e' l'etichetta piu' lunga dell'app (soglia misurata 135).
+        // Anche su Android: l'app e' sempre in landscape, quindi un box piu'
+        // largo non e' un problema.
+        UiStyleManager::widenMessageBoxButtons(&box, 140);
+
         box.exec();
 
         if (box.clickedButton() == withoutBtn) {

@@ -15,6 +15,7 @@ class QTextBrowser;
 class QPushButton;
 class QMenu;
 class QSpinBox;
+class QMessageBox;
 
 class UiStyleManager
 {
@@ -45,6 +46,13 @@ public:
     static void styleMobileMenuButton(QPushButton* button);
     static void styleMobileOverflowMenu(QMenu* menu);
     static void applyRecordButtonStyle(QPushButton* btn);
+
+    // Allarga i tasti di un QMessageBox con etichette-frase ("Save without
+    // sound", "Don't save"): lo stile globale ne fissa la larghezza a 108px e
+    // il testo piu' lungo viene TAGLIATO. Chiamare PRIMA di exec().
+    // minWidth e' il valore CSS min-width, non la larghezza finale del tasto
+    // (che vale minWidth + il padding del foglio globale, 18*2).
+    static void widenMessageBoxButtons(QMessageBox* box, int minWidth = 100);
 };
 
 #endif // UISTYLEMANAGER_H

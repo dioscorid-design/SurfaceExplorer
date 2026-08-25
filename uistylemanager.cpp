@@ -15,6 +15,7 @@
 #include <QStyleFactory>
 #include <QWidget>
 #include <QDialog>
+#include <QMessageBox>
 #include <QVBoxLayout>
 #include <QTextBrowser>
 #include <QPainter>
@@ -1044,4 +1045,36 @@ void UiStyleManager::installMobileSpinButtons(QSpinBox* spin)
 #else
     Q_UNUSED(spin);
 #endif
+}
+
+// Allarga i tasti di un QMessageBox con etichette-frase.
+//
+// PERCHE' SERVE: il foglio globale dei QMessageBox (applyDarkTheme, ~501) ha
+// `padding: 6px 18px; min-width: 70px`. Quel min-width NON si comporta da
+// minimo: una volta che il QSS governa la geometria del tasto, diventa la
+// larghezza EFFETTIVA e UNIFORME di tutti i tasti del box -- 70 + 18*2 = 108px
+// -- indipendente dal testo. Le etichette corte (OK/Yes/No/Cancel) ci stanno e
+// il difetto non si vede; una etichetta-frase viene TAGLIATA, e siccome il
+// testo e' centrato si perde da ENTRAMBI i lati ("ave without soun").
+//
+// Misurato (sonda offscreen, WA_DontShowOnScreen + show(), confrontando
+// sizeHint().width() con width() di ogni tasto):
+//   "Save without sound"  chiede 169px a 15pt  -> tagliato di 61
+//   "Don't save"          chiede 109px a 15pt  -> tagliato di 1 (la "D")
+//
+// IL VALORE VA MISURATO COL FONT VERO: il foglio globale impone font-size 15pt
+// su macOS (~59), 12pt altrove. Con il font di default di Qt le soglie
+// risultano piu' basse e il fix sembra funzionare quando non funziona.
+//
+// Perche' un default di 100 e non la soglia esatta: "Don't save" sfora di UN
+// pixel, un margine troppo fragile per affidarci al numero minimo (basta un
+// font di sistema diverso a rimetterlo sotto). 100 da' tasti da 138px, con
+// spazio vero. Chi ha etichette piu' lunghe passa un valore maggiore.
+//
+// NON usare setMinimumWidth() sui QPushButton: quando il QSS governa la
+// geometria del tasto e' il foglio di stile ad avere l'ultima parola.
+void UiStyleManager::widenMessageBoxButtons(QMessageBox* box, int minWidth)
+{
+    if (!box) return;
+    box->setStyleSheet(QString("QPushButton { min-width: %1px; }").arg(minWidth));
 }
