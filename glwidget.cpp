@@ -3226,6 +3226,14 @@ void GLWidget::rotateFlat90() {
         m_flatRotation += 90.0f;
         commitFlatTransformToActivePart();
     }
+
+    // Rotazione voluta dall'utente (clic secco o tap in 2D), e la rotazione e'
+    // contenuto del file texture. Il segnale va emesso QUI e non dai chiamanti:
+    // il clic secco non passa da mouseReleaseEvent (che emette solo dopo un
+    // trascinamento) ne' dal ramo touch (takeTouchMovedView esclude il tap),
+    // quindi restava l'unica trasformazione 2D che non marcava nulla.
+    emit userMovedView();
+
     update();
 }
 

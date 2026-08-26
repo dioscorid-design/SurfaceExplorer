@@ -2661,7 +2661,16 @@ MainWindow::MainWindow(QWidget *parent)
                             "    textureCol = ubuf.u_col2;\n"
                             "}";
 
-                        ui->lineTexture->setPlainText(defaultRM);
+                        // A segnali bloccati: questa e' la texture DI DEFAULT che
+                        // l'accensione della checkbox fa comparire, non codice
+                        // scritto dall'utente. Senza il blocco, markRmTextureEdited
+                        // (~1830) alzava m_textureDirty e il cambio texture
+                        // successivo chiedeva di salvare una default mai toccata.
+                        {
+                            const bool obTex = ui->lineTexture->blockSignals(true);
+                            ui->lineTexture->setPlainText(defaultRM);
+                            ui->lineTexture->blockSignals(obTex);
+                        }
                         if (ui->glWidget) ui->glWidget->setTextureCode(defaultRM);
 
                         // Texture procedurale, non immagine.
@@ -4076,37 +4085,34 @@ void MainWindow::wireSceneControlsDirtyTracking()
     // alzano m_textureDirty proprio perche' "sono campi del modulo TEXTURE, non
     // della geometria". La checkbox era rimasta indietro.
     //
-    // m_textureDirty e non m_sceneDirty vale anche per lo SFONDO: chkBoxTexture
-    // e' UN widget per due destinatari (superficie o background secondo
-    // radioSurface/radioBackground), ed entrambi sono lavoro del modulo texture.
+    // chkBoxTexture e' UN widget per due destinatari (superficie o background
+    // secondo radioSurface/radioBackground). Non marca piu' alcun flag: e' un
+    // comando di VISIBILITA', non un edit (vedi il corpo della lambda).
     //
     // Il popup sui RECORD non si perde: chi carica una texture da libreria
     // marca la scena per conto suo (onExampleItemClicked ~10402), ed e' quella
     // marcatura -- non la checkbox -- a proteggere il record.
     if (ui->chkBoxTexture) {
-        connect(ui->chkBoxTexture, &QAbstractButton::toggled, this, [this](bool on) {
+        connect(ui->chkBoxTexture, &QAbstractButton::toggled, this, [this]() {
             // Stesse guardie di noteSceneEdited/noteSceneControlUsed: le
             // accensioni programmatiche del load e del reset non sono lavoro
             // dell'utente. (Molte di quelle scritture sono gia' a segnali
             // bloccati, ma non tutte: la guardia resta la difesa vera.)
             if (!m_uiReady || m_populatingFields) return;
-            // SOLO l'accensione e' lavoro da proteggere. SPEGNERE la checkbox
-            // toglie la texture dalla vista: non produce niente da salvare (il
-            // codice resta in memoria solo per poterla riaccendere).
-            // Marcando anche lo spegnimento, la sequenza "carico una texture ->
-            // la tolgo con la checkbox -> ne carico un'altra" faceva uscire il
-            // popup "Unsaved texture" su un lavoro che non esiste: segnalato
-            // dall'utente, indistintamente su superficie e su sfondo.
-            if (!on) {
-                // Tolta la texture: l'albero Library non deve piu' indicarla.
-                // syncTextureTreeSelection legge la checkbox e in questo stato
-                // si limita a deselezionare.
-                syncTextureTreeSelection();
-                return;
-            }
-            m_textureDirty = true;
-            // Riaccesa: torna a schermo la texture in memoria, e l'albero deve
-            // tornare a evidenziarla.
+            // La checkbox MOSTRA o NASCONDE una texture: non ne scrive nessuna.
+            // Spegnendola si toglie dalla vista (il codice resta in memoria solo
+            // per poterla riaccendere); accendendola compare la default o quella
+            // gia' in memoria. In nessuno dei due casi c'e' lavoro dell'utente da
+            // proteggere, quindi il flag non si tocca: marcarlo faceva uscire il
+            // popup "Unsaved texture" al cambio texture successivo, su una
+            // texture mai toccata -- segnalato dall'utente in entrambi i versi
+            // del toggle, su superficie e su sfondo.
+            // Il lavoro VERO resta protetto da chi lo produce: gli editor
+            // (~1830/1846) e gli slider colore della texture (~3982).
+            //
+            // L'albero Library va risincronizzato in tutti e due i casi: spenta
+            // non deve indicare nulla, riaccesa torna a evidenziare la texture
+            // che e' di nuovo a schermo.
             syncTextureTreeSelection();
         });
     }
@@ -4136,8 +4142,25 @@ void MainWindow::wireSceneControlsDirtyTracking()
     // --- MOUSE SULLA VISTA: rotazione trascinando, zoom con la rotella ---
     // Segnale dedicato: rotationChanged() non va bene, lo emette a ogni frame
     // anche il moto automatico e sporcherebbe la scena da solo.
-    if (ui->glWidget)
-        connect(ui->glWidget, &GLWidget::userMovedView, this, mark);
+    //
+    // In vista 2D (dock Script, editing piatto della texture) il mouse NON
+    // muove la scena: zoom, pan e rotazione sono la trasformazione della
+    // TEXTURE, ed e' saveTexture a scriverli su file (zoom/pan_x/pan_y/rotation,
+    // ~790). Marcare la scena li' lasciava il modulo texture non protetto: si
+    // trasformava la texture in 2D, si cambiava texture e il lavoro spariva
+    // senza che venisse chiesto nulla. Stesso criterio degli altri controlli
+    // del modulo (editor ~1830, slider colore ~3991).
+    if (ui->glWidget) {
+        connect(ui->glWidget, &GLWidget::userMovedView, this, [this, mark]() {
+            if (ui->glWidget && ui->glWidget->isFlatView()) {
+                // Stesse guardie di noteSceneControlUsed, che qui non passa.
+                if (!m_uiReady || m_populatingFields) return;
+                m_textureDirty = true;
+                return;
+            }
+            mark();
+        });
+    }
 }
 
 MainWindow::RunOutcomeGuard::RunOutcomeGuard(MainWindow *mw, bool arm)
