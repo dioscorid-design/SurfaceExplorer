@@ -4084,13 +4084,30 @@ void MainWindow::wireSceneControlsDirtyTracking()
     // marca la scena per conto suo (onExampleItemClicked ~10402), ed e' quella
     // marcatura -- non la checkbox -- a proteggere il record.
     if (ui->chkBoxTexture) {
-        connect(ui->chkBoxTexture, &QAbstractButton::toggled, this, [this]() {
+        connect(ui->chkBoxTexture, &QAbstractButton::toggled, this, [this](bool on) {
             // Stesse guardie di noteSceneEdited/noteSceneControlUsed: le
             // accensioni programmatiche del load e del reset non sono lavoro
             // dell'utente. (Molte di quelle scritture sono gia' a segnali
             // bloccati, ma non tutte: la guardia resta la difesa vera.)
             if (!m_uiReady || m_populatingFields) return;
+            // SOLO l'accensione e' lavoro da proteggere. SPEGNERE la checkbox
+            // toglie la texture dalla vista: non produce niente da salvare (il
+            // codice resta in memoria solo per poterla riaccendere).
+            // Marcando anche lo spegnimento, la sequenza "carico una texture ->
+            // la tolgo con la checkbox -> ne carico un'altra" faceva uscire il
+            // popup "Unsaved texture" su un lavoro che non esiste: segnalato
+            // dall'utente, indistintamente su superficie e su sfondo.
+            if (!on) {
+                // Tolta la texture: l'albero Library non deve piu' indicarla.
+                // syncTextureTreeSelection legge la checkbox e in questo stato
+                // si limita a deselezionare.
+                syncTextureTreeSelection();
+                return;
+            }
             m_textureDirty = true;
+            // Riaccesa: torna a schermo la texture in memoria, e l'albero deve
+            // tornare a evidenziarla.
+            syncTextureTreeSelection();
         });
     }
 
@@ -6255,6 +6272,15 @@ void MainWindow::syncTextureTreeSelection()
     // SINCRONIZZA L'ALBERO TEXTURE AL CAMBIO MODALITÀ
     ui->treeTextures->clearSelection();
     QTreeWidgetItemIterator itTex(ui->treeTextures);
+
+    // Texture SPENTA dalla checkbox: a schermo non c'e' alcuna texture, quindi
+    // l'albero non deve indicarne una. Il codice resta in memoria (per poterla
+    // riaccendere), ma non e' piu' "cio' che si vede": senza questo controllo il
+    // dock Library restava puntato sulla texture appena tolta -- segnalato
+    // dall'utente, su superficie e su sfondo allo stesso modo.
+    // clearSelection() e' gia' stato fatto qui sopra: uscendo ora l'albero
+    // resta pulito.
+    if (!ui->chkBoxTexture->isChecked()) return;
 
     QString activeCode;
     if (ui->radioBackground->isChecked()) {
