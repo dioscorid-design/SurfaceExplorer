@@ -4471,7 +4471,37 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
             QString extHelpers = "#define iResolution vec3(1.0, 1.0, 1.0)\n#define iTime ubuf.u_time\n";
             if (!safeCode.contains(QRegularExpression("\\bvec3\\s+u_col1\\b"))) extHelpers += "#define u_col1 ubuf.u_col1\n";
             if (!safeCode.contains(QRegularExpression("\\bvec3\\s+u_col2\\b"))) extHelpers += "#define u_col2 ubuf.u_col2\n";
+
+            // TRASFORMAZIONE 2D anche qui. Iniettando lo script tale e quale la
+            // funzione riceveva v_texCoord GREZZO: zoom, pan e rotazione del
+            // mouse non toccavano la texture di SFONDO (caso "Animated
+            // Gradient"). E' lo stesso difetto gia' corretto per la texture di
+            // SUPERFICIE in buildTextureFunction, dove il rimedio e' identico:
+            // si rinomina la funzione dell'utente e le si mette davanti un
+            // wrapper col nome atteso, che trasforma le coordinate e la chiama.
+            // Il corpo del codice utente non si tocca.
+            //
+            // Le due trappole di quel fix valgono anche qui: NON passare
+            // `helpers` intero al wrapper (dichiara le locali u_col1/u_col2, che
+            // in questo ramo sono #define -> "unexpected DOT"), e ordine
+            // obbligato -- funzione utente PRIMA, wrapper dopo, perche' in GLSL
+            // non c'e' hoisting.
+            safeCode.replace(QRegularExpression("\\bgetCustomColor\\b"), "getCustomColor_user");
+
+            const QString uvTransform =
+                "    float _rad = radians(ubuf.u_rotation);\n"
+                "    float _c = cos(_rad); float _s = sin(_rad);\n"
+                "    vec2 _centered = in_uv - 0.5;\n"
+                "    vec2 _rot = vec2(_centered.x * _c - _centered.y * _s, _centered.x * _s + _centered.y * _c) + 0.5;\n"
+                "    float _scale = 1.0 / ubuf.u_zoom;\n"
+                "    vec2 _shift = ubuf.u_center * 0.5;\n"
+                "    vec2 uv = (_rot - 0.5) * _scale + 0.5 + _shift;\n";
+
             dynamicBody = extHelpers + safeCode + "\n"
+                          "vec3 getCustomColor(vec2 in_uv) {\n"
+                          + uvTransform +
+                          "    return getCustomColor_user(uv);\n"
+                          "}\n"
                           "void main() {\n"
                           "  out_FragColor = vec4(getCustomColor(v_texCoord), ubuf.alpha);\n"
                           "}\n";
