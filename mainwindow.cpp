@@ -6296,20 +6296,41 @@ void MainWindow::syncTextureTreeSelection()
     ui->treeTextures->clearSelection();
     QTreeWidgetItemIterator itTex(ui->treeTextures);
 
-    // Texture SPENTA dalla checkbox: a schermo non c'e' alcuna texture, quindi
-    // l'albero non deve indicarne una. Il codice resta in memoria (per poterla
-    // riaccendere), ma non e' piu' "cio' che si vede": senza questo controllo il
-    // dock Library restava puntato sulla texture appena tolta -- segnalato
-    // dall'utente, su superficie e su sfondo allo stesso modo.
+    // Texture SPENTA: a schermo non c'e' alcuna texture, quindi l'albero non
+    // deve indicarne una. Il codice resta in memoria (per poterla riaccendere),
+    // ma non e' piu' "cio' che si vede": senza questo controllo il dock Library
+    // restava puntato sulla texture appena tolta -- segnalato dall'utente, su
+    // superficie e su sfondo allo stesso modo.
+    //
+    // LO STATO SI LEGGE DAL MODELLO, NON DA chkBoxTexture. Prima c'era qui un
+    // "if (!ui->chkBoxTexture->isChecked()) return;" unico per tutti i rami, e
+    // il checkbox e' un DISPLAY: in ambito "Mesh" lo scrive
+    // syncAppearanceControlsToActiveMesh, che lo fa DOPO aver chiamato questa
+    // funzione. Cambiando mesh il gate leggeva quindi lo stato della fascia
+    // PRECEDENTE: passando da una mesh in wireframe (che lascia il checkbox
+    // spento, perche' il wireframe SPEGNE la texture conservando lo script) a
+    // una texturizzata, l'albero veniva pulito e si usciva dal return prima di
+    // ricercare -- la texture subito dopo un wireframe perdeva il focus.
+    // E' la firma del "giro di ritardo": si riparava al primo evento successivo
+    // che ripassava di qui. Leggendo la texture EFFICACE dal modello la
+    // funzione non dipende piu' dall'ordine delle chiamate.
+    // Regola generale gia' fissata per l'editor: ogni punto che mostra una
+    // texture legge quella EFFICACE, mai quella "dichiarata" ne' il widget.
+    //
     // clearSelection() e' gia' stato fatto qui sopra: uscendo ora l'albero
     // resta pulito.
-    if (!ui->chkBoxTexture->isChecked()) return;
-
     QString activeCode;
     if (ui->radioBackground->isChecked()) {
+        // SFONDO: non ha un flag di modello (nessun m_bgTextureState) -- il
+        // checkbox e' la sua unica memoria, e in questo ramo e' un COMANDO, non
+        // il display di una fascia. Qui leggerlo resta corretto.
+        if (!ui->chkBoxTexture->isChecked()) return;
         activeCode = m_bgTextureCode;
     } else {
         if (ui->tabModeSelector->currentIndex() == 1) {
+            // RAY MARCHING: nessuna fascia, la texture e' quella di superficie e
+            // il checkbox ne e' il comando diretto.
+            if (!ui->chkBoxTexture->isChecked()) return;
             activeCode = ui->lineTexture->toPlainText();
         } else {
             // MULTI-MESH: con una fascia selezionata l'albero deve evidenziare
@@ -6323,14 +6344,40 @@ void MainWindow::syncTextureTreeSelection()
             // effectiveTextureEnabledMulti), quindi lascia il codice VUOTO e
             // l'albero si limita a deselezionare: e' la stessa cosa che fa
             // l'editor, che in quel caso si svuota.
+            // AMBITO "ALL": stato GLOBALE. In WIREFRAME globale la texture non
+            // si disegna (surface.frag esce a colore piatto), quindi l'albero
+            // non deve indicarne nessuna. Il vecchio gate lo otteneva di
+            // rimbalzo -- il ramo wireframe del radio forza il checkbox a false
+            // (~2098) senza toccare m_surfaceTextureState -- e leggendo il
+            // modello quella condizione va riscritta ESPLICITA, o passando in
+            // wireframe da "All" l'albero resterebbe puntato sulla texture.
+            // La modalita' si legge dal motore, non dai radio, per la stessa
+            // ragione: i radio sono display e in ambito "Mesh" mostrano la
+            // fascia, non il globale.
+            const bool wireframeAll =
+                ui->glWidget && ui->glWidget->globalRenderMode() == 2;
+            bool on = m_surfaceTextureState && !wireframeAll;
             activeCode = m_surfaceTextureCode;
             if (ui->glWidget && ui->glWidget->getEngine()) {
                 const int idx = ui->glWidget->activeMeshPart();
                 const auto &parts = ui->glWidget->getEngine()->getMeshParts();
-                if (idx >= 0 && idx < (int)parts.size())
-                    activeCode = parts[idx].hasCustomTexture ? parts[idx].textureCode
-                                                             : QString();
+                if (idx >= 0 && idx < (int)parts.size()) {
+                    // Stessa coppia di regole del display del checkbox: in
+                    // multi-mesh una fascia mai configurata NON eredita la
+                    // texture globale; a mesh singola vale l'eredita' di sempre.
+                    // Qui NON serve escludere il wireframe a mano: applicandolo
+                    // a una fascia la sua texture viene SPENTA (textureEnabled =
+                    // false, script conservato), quindi lo stato efficace e' gia'
+                    // falso -- ed e' esattamente il caso che questo fix risolve.
+                    const MeshPart &p = parts[idx];
+                    const bool multi = ui->glWidget->meshPartCount() > 1;
+                    on = multi ? p.effectiveTextureEnabledMulti()
+                               : p.effectiveTextureEnabled(m_surfaceTextureState
+                                                           && !wireframeAll);
+                    activeCode = p.hasCustomTexture ? p.textureCode : QString();
+                }
             }
+            if (!on) return;
         }
     }
 
