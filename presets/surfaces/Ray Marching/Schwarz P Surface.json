@@ -7,23 +7,25 @@
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": -0.797131359577179,
-        "rot_x": 0.4467568099498749,
-        "rot_y": -0.39458510279655457,
-        "rot_z": -0.09639733284711838,
+        "rot_w": -0.7317731380462646,
+        "rot_x": 0.4127952754497528,
+        "rot_y": -0.519954264163971,
+        "rot_z": -0.15412932634353638,
         "x": 0,
         "y": 0,
         "yaw": 0,
-        "z": 12.399999618530273
+        "z": 40.140018463134766
     },
+    "cameraFov": 45,
     "colors": {
+        "alpha": 1,
         "b": 0.20000000298023224,
         "g": 0.800000011920929,
         "r": 0.20000000298023224
     },
     "constants": {
-        "A": 0.4300000071525574,
-        "B": 0.41999998688697815,
+        "A": 1,
+        "B": 1,
         "C": 1,
         "D": 1,
         "E": 1,
@@ -42,6 +44,17 @@
         "y": "(0.8 + 0.3*cos(v))*sin(u)",
         "z": "0.3*sin(v)"
     },
+    "fov3D": 45,
+    "fov4D": 45,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
     "implicitEquation": "cos(x)+cos(y)+cos(z)=0",
     "isImplicitMode": true,
     "lightIntensity": 1,
@@ -51,20 +64,24 @@
         "uMin": 0,
         "vMax": 6.2831854820251465,
         "vMin": 0,
-        "wMax": 0.10000000149011612,
+        "wMax": 0,
         "wMin": 0,
-        "xMax": 4,
-        "xMin": -4,
-        "yMax": 4,
-        "yMin": -4,
-        "zMax": 4,
-        "zMin": -4
+        "xMax": 10,
+        "xMin": -10,
+        "yMax": 10,
+        "yMin": -10,
+        "zMax": 10,
+        "zMin": -10
     },
-    "name": "Schwarz",
+    "meshScopeAll": true,
+    "name": "Schwarz P Surface",
     "projectionMode": 1,
     "renderMode": 10,
-    "showBorder": false,
     "steps": 1000,
     "type": "surface",
-    "use4DLighting": false
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
 }

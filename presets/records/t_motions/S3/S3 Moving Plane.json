@@ -1,9 +1,9 @@
 {
     "activeMotion": "rotation",
     "angles": {
-        "omega": 332.0707702636719,
-        "phi": 332.0707702636719,
-        "psi": 332.0907897949219
+        "omega": 510.3847351074219,
+        "phi": 510.3847351074219,
+        "psi": 510.4047546386719
     },
     "background": {
         "code": "//IMG:/Users/dioscorid/Projects/C/presets/textures/New Images/2k_mercury.jpg",
@@ -14,15 +14,15 @@
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
-        "zoom": 2.0113577842712402
+        "zoom": 1
     },
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": -0.502007246017456,
-        "rot_x": -0.5257945656776428,
-        "rot_y": 0.23421907424926758,
-        "rot_z": 0.6455000042915344,
+        "rot_w": 0.3273624777793884,
+        "rot_x": 0.42333701252937317,
+        "rot_y": -0.6966501474380493,
+        "rot_z": -0.4778056740760803,
         "x": 0,
         "y": 0,
         "yaw": 0,
@@ -85,7 +85,7 @@
         "zMin": -1000
     },
     "meshScopeAll": true,
-    "name": "Villarceau Circles",
+    "name": "S3 Moving Plane",
     "observer4D": 4,
     "path3D": {
         "roll": "",

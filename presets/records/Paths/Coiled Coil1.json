@@ -6,28 +6,29 @@
         "psi": 0
     },
     "background": {
-        "code": "",
+        "code": "// Cyclic noise 2D nimitz (@stormoid) 2026\n// https://www.shadertoy.com/view/fcjXzh\n\n//The MIT License\n//Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n\n/*\n    Quick implementation of what I call \"cyclic noise\" in it's simplest 2D form\n    For people who want to play with it! Let me know what you make :)\n    \n    The rotation matrix angle can be changed for various flow style. \n    From more organic, to more \"electric\", included a couple to show the difference.\n*/\n\nfloat cyclic2D(vec2 p)\n{\n    mat2 m2 = mat2(0.97367, 0.22798, -0.22798, 0.97367)*1.5;\n    //mat2 m2 = mat2(0.88233, 0.47063, -0.47063, 0.88233)*1.5;\n    float result = 0.;\n    float z = .95;\n    float distort = 2.1;\n    float dstAmount = 0.09;\n    for(int i = 0; i < 9; i++)\n    {\n\t\tp += sin(p.yx*distort + iTime*0.27*pow(distort,1.35))*dstAmount;\n        result += abs(dot(cos(p), sin(p))*z);\n        z *= 0.65;\n        distort *= 1.35;\n        p = p*m2;\n    }\n    return result;\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 p = (gl_FragCoord.xy - 0.5*iResolution.xy)/iResolution.y + iTime*0.015;\n\n    vec3 col = vec3(sin(vec3(1.15,1.65,2.25)*cyclic2D(p*4.3) + 4.2))*0.5+0.5;\n    fragColor = vec4(.05/(col*col+0.05), 1);\n}",
         "col1": "#33cc33",
         "col2": "#000000",
         "color": "#4d4d4c",
-        "enabled": false,
+        "enabled": true,
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
         "zoom": 1
     },
     "camera3D": {
-        "pitch": 0,
+        "pitch": -8.934956550598145,
         "roll": 0,
         "rot_w": 0.8076176047325134,
         "rot_x": 0.32487398386001587,
         "rot_y": 0.43503570556640625,
         "rot_z": -0.23011833429336548,
-        "x": 2.4341635704040527,
-        "y": 0.5699983835220337,
-        "yaw": 0,
+        "x": 2.4696707725524902,
+        "y": 0.38828396797180176,
+        "yaw": -90,
         "z": 0
     },
+    "cameraFov": 45,
     "colors": {
         "alpha": 0.66,
         "surfColor": "#33cc33"
@@ -53,6 +54,8 @@
         "y": "(A + (B+C*cos(W))*cos(V)) * sin(U)",
         "z": "(B+C*cos(W))*sin(V)"
     },
+    "fov3D": 45,
+    "fov4D": 45,
     "geodesic": {
         "conform": "1.0",
         "du": "",
@@ -81,8 +84,9 @@
         "zMax": 1000,
         "zMin": -1000
     },
+    "meshScopeAll": true,
     "name": "Coiled Coil1",
-    "observer4D": 5.45556116104126,
+    "observer4D": 5.350417137145996,
     "path3D": {
         "roll": "",
         "x": "",

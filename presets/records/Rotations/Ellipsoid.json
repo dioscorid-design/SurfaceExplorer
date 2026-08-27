@@ -1,19 +1,20 @@
 {
+    "activeMotion": "rotation",
     "angles": {
-        "omega": 490.8746337890625,
-        "phi": 327.6585998535156,
-        "psi": 328.0589904785156
+        "omega": 581.5206298828125,
+        "phi": 388.0709533691406,
+        "psi": 388.4713439941406
     },
     "background": {
-        "code": "// --- PARAMETRI ---\nvec3 c1 = u_col1; // Colore 1 dall'interfaccia\nvec3 c2 = u_col2; // Colore 2 dall'interfaccia\n\n// Parametri Marmo\nfloat density = 10.0;\nfloat turbulence = 4.0;\n\n// Coordinate scalate (u, v sono disponibili grazie a common.glsl)\nvec2 p = vec2(u, v) * 4.0;\n\n// --- CALCOLO TURBOLENZA ---\nfloat tVal = 0.0;\nfloat amp = 1.0;\nfloat freq = 1.0;\n\nfor(int i = 0; i < 3; i++) {\n    // [FIX] Usa 'sys_noise' invece di 'noise'\n    tVal += sys_noise(p * freq) * amp;\n    amp *= 0.5;\n    freq *= 2.0;\n}\n\n// --- FORMULA MARMO ---\n// Distorce le linee diagonali (x + y) con il rumore\nfloat xyValue = p.x + p.y + (tVal * turbulence);\n\n// Crea le venature usando il seno\nfloat val = sin(xyValue * density);\n\n// Mappa da [-1, 1] a [0, 1] per il mix\nfloat mixFactor = (val + 1.0) * 0.5;\n\n// Interpolazione finale tra i due colori scelti\nreturn mix(c1, c2, mixFactor);",
+        "code": "float k = smoothstep(0.0, 1.0, v + 0.1 * sin(6.2831 * u + t));\nreturn mix(u_col1, u_col2, k);",
         "col1": "#33cc33",
         "col2": "#000000",
         "color": "#4d4d4d",
         "enabled": true,
         "pan_x": 0,
         "pan_y": 0,
-        "rotation": 0,
-        "zoom": 1
+        "rotation": 151.5,
+        "zoom": 1.3225001096725464
     },
     "camera3D": {
         "pitch": 0,
@@ -27,16 +28,16 @@
         "yaw": 0,
         "z": 4
     },
+    "cameraFov": 45,
     "colors": {
         "alpha": 1,
-        "bordColor": "#33cc33",
         "surfColor": "#33cc33"
     },
     "constants": {
         "A": 1.1299999952316284,
         "B": 1.3899999856948853,
-        "C": 1.100000023841858,
-        "D": 0.800000011920929,
+        "C": 1,
+        "D": 1,
         "E": 1,
         "F": 1,
         "S": 0
@@ -53,8 +54,20 @@
         "y": "A * sin(U) * cos(V)",
         "z": "A * sin(U) * sin(V) * cos(W)"
     },
+    "fov3D": 45,
+    "fov4D": 45,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
     "hintSeconds": 6,
     "hintText": "Sliders A and B active on this shape",
+    "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 1,
     "limits": {
@@ -63,8 +76,15 @@
         "vMax": 6.28318977355957,
         "vMin": 0,
         "wMax": 0,
-        "wMin": 0
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
     },
+    "meshScopeAll": true,
     "name": "Ellipsoid",
     "observer4D": 4,
     "path3D": {
@@ -83,9 +103,9 @@
         "z": ""
     },
     "pathMode": 0,
+    "pathMode3D": 0,
     "projectionMode": 1,
     "renderMode": 1,
-    "showBorder": false,
     "speeds": {
         "nutation": 0,
         "omega": 0.30000001192092896,
@@ -98,7 +118,7 @@
     },
     "steps": 308,
     "texture": {
-        "code": "//MUSIC: /home/dioscorid/Projects/Presets/Sounds/wav/723963__badwolf23__spatial-audio-4.wav\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    // Normalizzazione coordinate (0..1)\n    vec2 uv = fragCoord/iResolution.xy;\n\n    // --- 1. CONFIGURAZIONE COLORI ---\n    vec3 colBackground = vec3(0.0, 0.5, 0.9); // Sfondo Azzurro\n    \n    // Gradiente Verticale dei segmenti\n    vec3 colBasso      = vec3(1.0, 1.0, 0.0); // Giallo Intenso (Basso)\n    vec3 colAlto       = vec3(1.0, 0.4, 0.0); // Arancio Intenso (Alto)\n\n    // --- 2. CALCOLO COLORE GRADIENTE ---\n    // Mescola il colore dal basso verso l'alto basandosi sull'altezza (uv.y)\n    vec3 coloreSegmento = mix(colBasso, colAlto, uv.y);\n\n    // --- 3. GEOMETRIA (RIGHE) ---\n    float densita = 200.0; \n    float spessore = 0.5; \n\n    // Crea il pattern a righe\n    float pattern = sin(uv.x * densita);\n    float maskSegmenti = smoothstep(spessore, spessore + 0.02, pattern);\n\n    // --- 4. COMBINAZIONE FINALE ---\n    // Se c'è il segmento (maskSegmenti = 1), usa 'coloreSegmento' (Giallo->Arancio)\n    // Altrimenti usa 'colBackground' (Azzurro)\n    vec3 finalColor = mix(colBackground, coloreSegmento, maskSegmenti);\n\n    fragColor = vec4(finalColor, 1.0);\n}",
+        "code": "//MUSIC: /Users/dioscorid/Projects/C/presets/sounds/wav/723963__badwolf23__spatial-audio-4.wav\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    // Normalizzazione coordinate (0..1)\n    vec2 uv = fragCoord/iResolution.xy;\n\n    // --- 1. CONFIGURAZIONE COLORI ---\n    vec3 colBackground = vec3(0.0, 0.5, 0.9); // Sfondo Azzurro\n    \n    // Gradiente Verticale dei segmenti\n    vec3 colBasso      = vec3(1.0, 1.0, 0.0); // Giallo Intenso (Basso)\n    vec3 colAlto       = vec3(1.0, 0.4, 0.0); // Arancio Intenso (Alto)\n\n    // --- 2. CALCOLO COLORE GRADIENTE ---\n    // Mescola il colore dal basso verso l'alto basandosi sull'altezza (uv.y)\n    vec3 coloreSegmento = mix(colBasso, colAlto, uv.y);\n\n    // --- 3. GEOMETRIA (RIGHE) ---\n    float densita = 200.0; \n    float spessore = 0.5; \n\n    // Crea il pattern a righe\n    float pattern = sin(uv.x * densita);\n    float maskSegmenti = smoothstep(spessore, spessore + 0.02, pattern);\n\n    // --- 4. COMBINAZIONE FINALE ---\n    // Se c'è il segmento (maskSegmenti = 1), usa 'coloreSegmento' (Giallo->Arancio)\n    // Altrimenti usa 'colBackground' (Azzurro)\n    vec3 finalColor = mix(colBackground, coloreSegmento, maskSegmenti);\n\n    fragColor = vec4(finalColor, 1.0);\n}",
         "col1": "#33cc33",
         "col2": "#000000",
         "enabled": true,
@@ -108,5 +128,9 @@
         "zoom": 1
     },
     "type": "motion",
-    "use4DLighting": true
+    "use4DLighting": true,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
 }

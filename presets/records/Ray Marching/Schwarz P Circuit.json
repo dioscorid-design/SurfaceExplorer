@@ -6,7 +6,7 @@
         "psi": 0
     },
     "background": {
-        "code": "//IMG:/Users/dioscorid/Projects/C/presets/textures/New Images/2k_makemake_fictional.jpg",
+        "code": "//IMG:/Users/dioscorid/Projects/C/presets/textures/New Images/2k_mercury.jpg",
         "col1": "#33cc33",
         "col2": "#000000",
         "color": "#4d4d4d",
@@ -17,18 +17,18 @@
         "zoom": 1
     },
     "camera3D": {
-        "pitch": 66.8409423828125,
+        "pitch": 63.16236114501953,
         "roll": 0,
         "rot_w": 1,
         "rot_x": 0,
         "rot_y": 0,
         "rot_z": 0,
-        "x": 2.4747719764709473,
-        "y": -5.785486698150635,
-        "yaw": -90,
-        "z": 0
+        "x": -3.1247544288635254,
+        "y": 2.6348278522491455,
+        "yaw": 2.805494785308838,
+        "z": 3.075853109359741
     },
-    "cameraFov": 45,
+    "cameraFov": 75,
     "colors": {
         "alpha": 1,
         "surfColor": "#33cc33"
@@ -40,7 +40,7 @@
         "D": 1,
         "E": 1,
         "F": 1,
-        "S": 0.10000000149011612
+        "S": 0.11999999731779099
     },
     "equations": {
         "defU": "",
@@ -54,8 +54,8 @@
         "y": "(0.8 + 0.3*cos(v))*sin(u)",
         "z": "0.3*sin(v)"
     },
-    "fov3D": 45,
-    "fov4D": 45,
+    "fov3D": 75,
+    "fov4D": 75,
     "geodesic": {
         "conform": "1.0",
         "du": "",
@@ -65,7 +65,9 @@
         "v0": "",
         "w0": ""
     },
-    "implicitEquation": "cos(x)+cos(y)+cos(z)-NoiseW(x,y,z,(1),(2),(0)) = 0.0",
+    "hintSeconds": 7,
+    "hintText": "Eight-node circuit through the Schwarz P channels",
+    "implicitEquation": "cos(x)+cos(y)+cos(z)=0",
     "isImplicitMode": true,
     "lightIntensity": 1,
     "lightingMode": 0,
@@ -76,21 +78,21 @@
         "vMin": 0,
         "wMax": 0,
         "wMin": 0,
-        "xMax": 4,
-        "xMin": -4,
-        "yMax": 4,
-        "yMin": -4,
-        "zMax": 4,
-        "zMin": -4
+        "xMax": 12,
+        "xMin": -12,
+        "yMax": 12,
+        "yMin": -12,
+        "zMax": 12,
+        "zMin": -12
     },
     "meshScopeAll": true,
-    "name": "CellNoiseSchwarz",
+    "name": "Schwarz P Circuit",
     "observer4D": 4,
     "path3D": {
-        "roll": "t",
-        "x": "8*(1+cos(t))",
-        "y": "8*sin(t)",
-        "z": ""
+        "roll": "",
+        "x": "pi*tanh(3.2*(-sin(t)))",
+        "y": "pi*tanh(3.2*(-cos(t)))",
+        "z": "pi*tanh(3.2*(-cos(2*t)))"
     },
     "path4D": {
         "alpha": "",
@@ -102,13 +104,13 @@
         "z": ""
     },
     "pathMode": 0,
-    "pathMode3D": 1,
+    "pathMode3D": 0,
     "projectionMode": 1,
     "renderMode": 10,
     "speeds": {
         "nutation": 0,
         "omega": 0,
-        "path3D": 10,
+        "path3D": 6,
         "path4D": 0,
         "phi": 0,
         "precession": 0,
@@ -117,9 +119,9 @@
     },
     "steps": 1000,
     "texture": {
-        "code": "// Scala la griglia (modifica il 5.0 per rimpicciolire/ingrandire)\nvec3 p = pModel * 5.0;\n\n// Calcola lo spessore delle linee\nvec3 grid = abs(fract(p - 0.5) - 0.5) / fwidth(p);\nfloat line = min(min(grid.x, grid.y), grid.z);\nfloat colorIntensity = 1.0 - min(line, 1.0);\n\n// Sfondo = u_col2, linee neon = u_col1 (colori del dock)\ntextureCol = mix(ubuf.u_col2, ubuf.u_col1, colorIntensity);",
-        "col1": "#ffcc33",
-        "col2": "#0000ff",
+        "code": "//IMG:/Users/dioscorid/Projects/C/presets/textures/New Images/2k_makemake_fictional.jpg\nvec3 blend = abs(n_model);\nblend /= max(blend.x + blend.y + blend.z, 0.00001);\nfloat scale = 0.5;\nvec3 cX = texture(tex, pModel.yz * scale).rgb;\nvec3 cY = texture(tex, pModel.xz * scale).rgb;\nvec3 cZ = texture(tex, pModel.xy * scale).rgb;\ntextureCol = cX * blend.x + cY * blend.y + cZ * blend.z;",
+        "col1": "#33cc33",
+        "col2": "#000000",
         "displacement": "",
         "enabled": true,
         "pan_x": 0,

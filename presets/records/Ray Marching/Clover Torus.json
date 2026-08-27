@@ -17,15 +17,15 @@
         "zoom": 1
     },
     "camera3D": {
-        "pitch": 0,
+        "pitch": 17.62798309326172,
         "roll": 0,
         "rot_w": 1,
         "rot_x": 0,
         "rot_y": 0,
         "rot_z": 0,
-        "x": 2.407808542251587,
-        "y": 0.4830755591392517,
-        "yaw": 0,
+        "x": 1.7577861547470093,
+        "y": 0.9901682138442993,
+        "yaw": -90,
         "z": 0
     },
     "cameraFov": 79,
@@ -42,6 +42,12 @@
         "F": 0.7200000286102295,
         "S": 0.20000000298023224
     },
+    "discreteConstants": {
+        "A": [
+            1,
+            10
+        ]
+    },
     "equations": {
         "defU": "",
         "defV": "",
@@ -55,7 +61,7 @@
         "z": ""
     },
     "fov3D": 79,
-    "fov4D": 45,
+    "fov4D": 79,
     "geodesic": {
         "conform": "1.0",
         "du": "",
@@ -65,6 +71,8 @@
         "v0": "",
         "w0": ""
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders A-F active on this shape",
     "implicitEquation": "// Controlled by Script",
     "isImplicitMode": true,
     "lightIntensity": 1.21,
@@ -83,7 +91,8 @@
         "zMax": 1000,
         "zMin": -1000
     },
-    "name": "N-Torus Trifoil",
+    "meshScopeAll": true,
+    "name": "Clover Torus",
     "observer4D": 4,
     "path3D": {
         "roll": "",
@@ -132,7 +141,5 @@
     "wireframe": {
         "uStep": 4,
         "vStep": 4
-    },
-    "hintText": "Sliders A-F active on this shape",
-    "hintSeconds": 6
+    }
 }

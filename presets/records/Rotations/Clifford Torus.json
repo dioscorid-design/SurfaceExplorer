@@ -1,0 +1,134 @@
+{
+    "activeMotion": "rotation",
+    "angles": {
+        "omega": 72.35689544677734,
+        "phi": 0,
+        "psi": 0
+    },
+    "background": {
+        "code": "// --- POST-PROCESSING 2D: MONITOR CRT ---\n\n// gl_FragCoord.xy ci dà i pixel fisici dello schermo, indipendentemente \n// dalla rotazione della telecamera o dell'oggetto 3D!\n// Dividiamo per un valore indicativo per normalizzare le coordinate.\nvec2 screenUV = gl_FragCoord.xy / 800.0;\n\n// 1. SCANLINES (Righe orizzontali)\n// Usiamo lo slider 'A' per regolare al volo la fittezza delle righe (es. range 1-5)\nfloat scanlineDensity = 1000.0 + (A * 500.0);\nfloat scanline = sin(screenUV.y * scanlineDensity) * 0.1 + 0.9;\n\n// 2. FLICKER (Sfarfallio basato sul tempo)\n// Lo slider 'B' regola l'intensità dello sfarfallio\nfloat flicker = 1.0 - (0.05 * B * sin(t * 50.0));\n\n// 3. ABERRAZIONE CROMATICA SUI PIXEL DELL'OGGETTO\n// Invece di usare un colore solido, sfalsiamo u_col1 per creare l'effetto RGB separato\nvec3 col;\ncol.r = u_col1.r * 1.1; \ncol.g = u_col1.g * 0.9;\ncol.b = u_col1.b * 1.5; // Alziamo il blu per dare un look hi-tech\n\n// 4. BANDE DI SCORRIMENTO (Disturbo verticale)\n// Una banda scura che scorre dall'alto verso il basso\nfloat roll = fract(screenUV.y * 0.5 - t * 0.2);\nfloat distortionBand = smoothstep(0.4, 0.5, roll) - smoothstep(0.5, 0.6, roll);\n\n// Abbassiamo la luminosità dove passa la banda\ncol *= 1.0 - (distortionBand * 0.3);\n\n// 5. APPLICAZIONE DEI FILTRI 2D\nvec3 finalColor = col * scanline * flicker;\n\nreturn finalColor;",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#989699",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": -6.889644622802734,
+        "roll": 0,
+        "rot_w": -0.809043288230896,
+        "rot_x": -0.4162106513977051,
+        "rot_y": -0.3085850179195404,
+        "rot_z": 0.27747592329978943,
+        "x": -0.9248329401016235,
+        "y": 0.34496548771858215,
+        "yaw": 18.901254653930664,
+        "z": 2.7010228633880615
+    },
+    "cameraFov": 110,
+    "colors": {
+        "alpha": 1,
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 1,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "pi/4",
+        "p": "sin(w)*sin(v+u)",
+        "x": "cos(w)*cos(u)",
+        "y": "cos(w)*sin(u)",
+        "z": "sin(w)*cos(v+u)"
+    },
+    "fov3D": 110,
+    "fov4D": 110,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "isImplicitMode": false,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.283180236816406,
+        "uMin": 0,
+        "vMax": 6.283180236816406,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "meshScopeAll": true,
+    "name": "Clifford Torus",
+    "observer4D": 5.225142955780029,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "t",
+        "beta": "",
+        "gamma": "",
+        "w": "sin(0.7)*sin(t)",
+        "x": "cos(0.7)*cos(t)",
+        "y": "cos(0.7)*sin(t)",
+        "z": "sin(0.7)*cos(t)"
+    },
+    "pathMode": 1,
+    "pathMode3D": 0,
+    "projectionMode": 2,
+    "renderMode": 1,
+    "speeds": {
+        "nutation": 0.20000000298023224,
+        "omega": 0.10000000149011612,
+        "path3D": 20,
+        "path4D": 21,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0.10000000149011612
+    },
+    "steps": 720,
+    "texture": {
+        "code": "// --- TEXTURE SCRIPT: OLOGRAFIA REATTIVA ---\n// Usa questo script nel dock Texture per un oggetto implicito\n\n// 1. Usiamo lo slider 'A' per controllare la densità della griglia (es. range 0-5)\nfloat gridDensity = 10.0 + (A * 15.0); \n\n// 2. Creiamo una griglia basata sulle coordinate UV della superficie\n// fract() crea il pattern ripetuto, sottraiamo 0.5 per centrare la cella\nvec2 grid = fract(uv * gridDensity) - 0.5; \n\n// 3. Calcoliamo la distanza dai bordi per disegnare le linee\nfloat lineDist = min(abs(grid.x), abs(grid.y));\n\n// 4. Animiamo lo spessore della linea con il tempo 't'\n// Lo slider 'B' può controllare la velocità della pulsazione\nfloat pulse = sin(t * (2.0 + B * 5.0));\nfloat thickness = 0.05 + 0.03;\n\n// 5. Creiamo un effetto \"Glow\" (bagliore) morbido ai bordi della linea\nfloat glow = smoothstep(thickness + 0.05, thickness, lineDist);\n\n// 6. Assegnazione dei colori usando le variabili iniettate dal tuo engine\n// Il fondo usa il colore secondario (u_col2), le linee il primario (u_col1) \"sparato\"\nvec3 baseColor = u_col2;                  // Spazio vuoto della griglia (Colore 2)\nvec3 neonColor = u_col1 * 1.5;           // Il colore UI, reso più luminoso\n\n// 7. Mixiamo i colori in base al calcolo del glow\nvec3 finalColor = mix(baseColor, neonColor, glow);\n\nreturn finalColor;",
+        "col1": "#c8cc76",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
+}

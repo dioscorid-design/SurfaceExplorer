@@ -71,7 +71,7 @@
         "zMax": 1000,
         "zMin": -1000
     },
-    "name": "Villarceau Circles",
+    "name": "S3 Moving Plane",
     "projectionMode": 1,
     "renderMode": 2,
     "showBorder": false,

@@ -6,27 +6,27 @@
         "psi": 0
     },
     "background": {
-        "code": "",
-        "col1": "#3333cc",
+        "code": "// Parametri\nvec2 c = (uv - 0.5) * 3.0 - vec2(0.7, 0.0);\nvec2 z = vec2(0.0);\n\nfloat iter = 0.0;\nfloat maxIter = 100.0;\n\n// Ciclo principale del Mandelbrot\nfor(float i = 0.0; i < maxIter; i++) {\n    // Formula: Z = Z^2 + C\n    float x = (z.x * z.x - z.y * z.y) + c.x;\n    float y = (2.0 * z.x * z.y) + c.y;\n\n    // Controllo di fuga (modulo > 2, quindi modulo^2 > 4)\n    if((x * x + y * y) > 4.0) break;\n\n    z.x = x;\n    z.y = y;\n    iter++;\n}\n\n// Colorazione\nfloat tit = iter / maxIter;\n\n// Smoothing della sfumatura\ntit = pow(tit, 0.5);\n\n// Se il punto è all'interno del set (non è fuggito), colora di nero\nif (iter >= maxIter - 0.5) return vec3(0.0);\n\n// Altrimenti interpola tra i due colori definiti nell'interfaccia (u_col2 e u_col1)\nreturn mix(u_col2, u_col1, tit);",
+        "col1": "#33cc33",
         "col2": "#000000",
         "color": "#4d4d4d",
-        "enabled": false,
+        "enabled": true,
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
         "zoom": 1
     },
     "camera3D": {
-        "pitch": 0,
+        "pitch": 9.258514404296875,
         "roll": 0,
         "rot_w": 1,
         "rot_x": 0,
         "rot_y": 0,
         "rot_z": 0,
-        "x": 1.5451387166976929,
-        "y": -0.987960934638977,
-        "yaw": 0,
-        "z": -2.3930187225341797
+        "x": -0.3033909201622009,
+        "y": -0.30361655354499817,
+        "yaw": 170.62521362304688,
+        "z": -1.8376548290252686
     },
     "cameraFov": 45,
     "colors": {
@@ -101,30 +101,54 @@
             "texCode": "vec2 g = floor(vec2(u, v) * 8.0);\nfloat c = mod(g.x + g.y, 2.0);\nreturn mix(u_col1, u_col2, c);",
             "texOn": true
         },
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {},
-        {}
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        },
+        {
+        }
     ],
     "meshScopeAll": true,
     "name": "Calabi-Yau Tunnel",

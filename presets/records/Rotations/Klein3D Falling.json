@@ -1,0 +1,136 @@
+{
+    "activeMotion": "rotation",
+    "angles": {
+        "omega": 9.999999747378752e-05,
+        "phi": 9.999999747378752e-05,
+        "psi": 9.999999747378752e-05
+    },
+    "background": {
+        "code": "// =========================================================================\n// Title: Rotating Image  (matrice di ROTAZIONE)\n//\n// Famiglia \"Animated Images\": l'immagine caricata (ambito \"All\") viene\n// campionata via iChannel0 e trasformata da una matrice 2x2 che dipende dal\n// tempo. La matrice agisce sulle COORDINATE del piano della texture, percio'\n// e' 2x2: mappa (x,y) in (x',y').\n//\n// DUE VINCOLI DEL RAMO SHADERTOY di questo motore:\n//  1. gli slider A..F e t NON sono usabili qui: il motore li dichiara come\n//     variabili LOCALI di getCustomColor(), mentre mainImage() e' una\n//     funzione a se' -> \"'A' : undeclared identifier\";\n//  2. niente dichiarazioni a livello di MODULO (const, funzioni, #define):\n//     con due mesh che usano questo script il fragment ne conterrebbe due\n//     copie -> \"redefinition\", e la superficie sparirebbe.\n// Percio' i parametri stanno DENTRO mainImage: li' lo scope e' per-funzione\n// e ogni mesh ha la sua copia.\n// =========================================================================\n//\n// MATRICE DI ROTAZIONE: l'immagine gira attorno al proprio centro senza\n// deformarsi. E' una matrice ORTOGONALE (determinante 1, colonne unitarie e\n// perpendicolari): conserva lunghezze e angoli, quindi non stira nulla.\n\nvoid mainImage(out vec4 Q, vec2 U)\n{\n    // --- PARAMETRI (modificabili qui) ---\n    float speed = 0.12;   // velocita' di rotazione\n\n    // Coordinata centrata: nel ramo Shadertoy iResolution vale 1024,\n    // quindi V va circa in [-0.5, 0.5].\n    vec2 V = U / iResolution.xy - 0.5;\n\n    // Matrice di rotazione di angolo a.\n    float a = iTime * speed;\n    float c = cos(a), s = sin(a);\n    mat2 M = mat2( c, s,\n                  -s, c);\n    V = M * V;\n\n    // Campionamento diretto, senza bias di mip: l'immagine resta nitida.\n    // +0.5 riporta la coordinata in [0,1].\n    Q = texture(iChannel0, V + 0.5);\n}\n",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": -22.925518035888672,
+        "roll": 0,
+        "rot_w": -0.20134443044662476,
+        "rot_x": 0.7149298191070557,
+        "rot_y": 0.473397433757782,
+        "rot_z": 0.473530113697052,
+        "x": 0.7382631897926331,
+        "y": 0.31286847591400146,
+        "yaw": -93.62605285644531,
+        "z": -0.046784624457359314
+    },
+    "cameraFov": 110,
+    "colors": {
+        "alpha": 1,
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 0.4699999988079071,
+        "B": 0.30000001192092896,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0",
+        "x": "A*((2 + cos(v/2)*sin(u) - sin(v/2)*sin(2*u))*cos(v))",
+        "y": "A*((2 + cos(v/2)*sin(u) - sin(v/2)*sin(2*u))*sin(v))",
+        "z": "A*(sin(v/2)*sin(u) + cos(v/2)*sin(2*u))"
+    },
+    "fov3D": 110,
+    "fov4D": 110,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "hintSeconds": 6,
+    "hintText": "Slider A active on this shape",
+    "isImplicitMode": false,
+    "lightIntensity": 1.5,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.283180236816406,
+        "uMin": 0,
+        "vMax": 6.283180236816406,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "meshScopeAll": true,
+    "name": "Klein3D Falling",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "A*(2+B*cos(t/2))*cos(t)",
+        "y": "A*(2+B*cos(t/2))*sin(t)",
+        "z": "A*sin(t/2)/2"
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "pathMode3D": 1,
+    "projectionMode": 1,
+    "renderMode": 1,
+    "speeds": {
+        "nutation": 0.30000001192092896,
+        "omega": 0,
+        "path3D": 12,
+        "path4D": 10,
+        "phi": 0,
+        "precession": 0.20000000298023224,
+        "psi": 0,
+        "spin": 0.20000000298023224
+    },
+    "steps": 851,
+    "texture": {
+        "code": "// 1. FUNZIONI DI SUPPORTO (Noise & Random)\nfloat random (in vec2 st) {\n    return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);\n}\n\nfloat noise (in vec2 st) {\n    vec2 i = floor(st);\n    vec2 f = fract(st);\n    vec2 u = f * f * (3.0 - 2.0 * f);\n    float a = random(i);\n    float b = random(i + vec2(1.0, 0.0));\n    float c = random(i + vec2(0.0, 1.0));\n    float d = random(i + vec2(1.0, 1.0));\n    return mix(a, b, u.x) + (c - a)* u.y * (1.0 - u.x) + (d - b) * u.x * u.y;\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = fragCoord.xy / iResolution.xy;\n    float u = uv.x;\n    float v = uv.y;\n\n    float scale = 4.0;\n    int octaves = 5;\n    float cloudCover = 0.0; \n\n    float u_fix = abs(u * 2.0 - 1.0);\n    float v_fix = abs(v * 2.0 - 1.0);\n    vec2 st = vec2(u_fix, v_fix) * scale;\n\n    float value = 0.0;\n    float amplitude = 0.5;\n    float totalAmplitude = 0.0;\n\n    for (int i = 0; i < 5; i++) {\n        if (i >= octaves) break; \n        value += amplitude * noise(st);\n        st *= 2.0;       \n        totalAmplitude += amplitude;\n        amplitude *= 0.5; \n    }\n    \n    value /= totalAmplitude;\n    float n = smoothstep(cloudCover + 0.2, cloudCover + 0.8, value);\n\n    // FIX: Leggiamo i colori direttamente dal buffer UBO bypassando il conflitto!\n    vec3 color = mix(ubuf.u_col1, ubuf.u_col2, n);\n    \n    fragColor = vec4(color, 1.0);\n}",
+        "col1": "#97ab7c",
+        "col2": "#b61c16",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 0.21494339406490326
+    },
+    "type": "motion",
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
+}
