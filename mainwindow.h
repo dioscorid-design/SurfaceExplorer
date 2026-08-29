@@ -538,6 +538,14 @@ private:
     // applyModeTabReset di non resettare nulla; subito dopo il tab torna
     // dov'era. Senza, "Cancel" avrebbe comunque distrutto la scena.
     bool m_suppressNextModeTabReset = false;
+
+    // Riclic sulla linguetta GIA' ATTIVA ("ricomincia da capo"), distinto dal
+    // cambio di modalita' vero. resetScene riceve solo l'indice di arrivo e non
+    // puo' dedurlo: senza questo flag, tornare in Parametrico ripristinava
+    // nell'editor lo script della texture appena azzerata, perche' il ramo di
+    // allineamento non sa che questa volta la texture non sopravvive.
+    bool m_sameTabRestart = false;
+
     QString lastTextureFolder;
     QString m_currentTexturePath;
     QString m_currentTexturePresetPath;

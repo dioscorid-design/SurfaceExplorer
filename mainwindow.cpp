@@ -1459,7 +1459,12 @@ MainWindow::MainWindow(QWidget *parent)
                 // modulo sporco (il reset azzera anche texture e suono). Su
                 // Cancel non si resetta (qui il tab non cambia, basta uscire).
                 if (!confirmDiscardUnsaved(ScopeScene)) return;
+                // "Ricomincia da capo": a differenza del cambio di modalita',
+                // qui la texture non sopravvive, quindi il suo script non va
+                // ripristinato nell'editor. Vedi m_sameTabRestart.
+                m_sameTabRestart = true;
                 applyModeTabReset(index);
+                m_sameTabRestart = false;
                 return;
             }
 
@@ -2608,20 +2613,21 @@ MainWindow::MainWindow(QWidget *parent)
 
                 // MOSTRA IL WARNING SOLO SE C'È VERO CODICE *E* L'UTENTE LO HA MODIFICATO MANUALMENTE
                 if (hasCode && isModified) {
-                    auto reply = QMessageBox::warning(this, "Warning",
-                                                      "If not saved, disabling the texture will permanently clear your current scripts.\n"
-                                                      "Any custom code entered may be lost. Do you want to proceed?",
-                                                      QMessageBox::Yes | QMessageBox::No);
-
-                    if (reply == QMessageBox::No) {
-                        // Se l'utente clicca NO, ripristiniamo il check senza scatenare loop
+                    // Stesso popup di ogni altra uscita senza salvare (Save /
+                    // Don't save / Cancel): prima era un Si'/No che poteva solo
+                    // buttare via il lavoro. Uniformita' dell'interfaccia, e in
+                    // piu' qui si puo' finalmente salvare invece di perdere tutto.
+                    if (!confirmDiscardUnsaved(ScopeTexture)) {
+                        // Cancel: ripristiniamo il check senza scatenare loop
                         bool oldBlock = ui->chkBoxTexture->blockSignals(true);
                         ui->chkBoxTexture->setChecked(true);
                         ui->chkBoxTexture->blockSignals(oldBlock);
                         return; // Interrompe l'operazione
                     }
 
-                    // Se l'utente clicca SI, cancelliamo fisicamente tutto
+                    // Save o Don't save: in entrambi i casi si prosegue e si
+                    // azzera. Dopo Save il codice e' su disco, quindi non si
+                    // perde nulla; dopo Don't save la perdita e' voluta.
                     clearTextureMemory();
                 } else {
                     // Nessun codice scritto a mano da proteggere (es. texture solo
@@ -4457,12 +4463,25 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // resta sempre nella variabile membro, l'editor ne e' solo la vista.
     else if (m_currentScriptMode == ScriptModeTexture && !ui->radioBackground->isChecked()) {
         ui->txtScriptEditor->blockSignals(true);
-        if (index == 1) ui->txtScriptEditor->clear();                      // -> Ray Marching
+        // m_sameTabRestart: riclic sulla linguetta attiva. Non e' un cambio di
+        // modalita' ma un "ricomincia da capo", e la texture viene azzerata
+        // poco piu' sotto -- ripristinarne lo script lascerebbe il dock Script
+        // pieno del codice di una texture ormai spenta. Lo slot di testo si
+        // svuota con lei, o il prossimo allineamento lo ripescherebbe.
+        if (index == 1 || m_sameTabRestart) {
+            ui->txtScriptEditor->clear();                                  // -> Ray Marching, o ripartenza
+            if (m_sameTabRestart) m_surfaceTextureScriptText.clear();
+        }
         else            ui->txtScriptEditor->setPlainText(m_surfaceTextureScriptText); // -> Parametrico
         ui->txtScriptEditor->blockSignals(false);
         // Ricalcola lo stato dei pulsanti con l'editor ora corretto.
         updateScriptButtonText();
     }
+    // Ripartenza col dock aperto su un ALTRO modulo (superficie, sfondo, suono)
+    // o chiuso: i rami sopra non passano di qui, ma la texture viene azzerata
+    // lo stesso. Lo slot va svuotato comunque, o riaprendo il dock in Texture
+    // si ritroverebbe lo script della texture spenta.
+    if (m_sameTabRestart) m_surfaceTextureScriptText.clear();
     m_surfaceScriptText.clear();
     exitMetricScriptMode();
     // ==========================================================
@@ -4666,6 +4685,33 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         ui->glWidget->setBackgroundTextureEnabled(false);
                     m_bgTextureCode = "";
                     m_bgTextureScriptText = "";
+
+        // Slot di testo della texture di SUPERFICIE, simmetrico a quello dello
+        // sfondo qui sopra. Il reset l'ha appena azzerata (m_surfaceTextureCode
+        // e setTextureCode("")), quindi il suo script non deve sopravviverle:
+        // restando pieno, ogni successivo allineamento dell'editor
+        // (syncTextureEditorTo, che legge proprio questo slot) lo ripescava e
+        // il dock Script tornava sporco col codice della texture spenta.
+        // Il ripristino "tornando in Parametrico" vale per il cambio tab SENZA
+        // reset, dove la texture sopravvive davvero.
+        m_surfaceTextureScriptText.clear();
+
+        // Esco dall'editing sfondo: riporto il target sulla superficie. Lo
+        // faceva SOLO il ramo parametrico qui sotto, quindi arrivando alla
+        // sfera RM di default col radio su Background quello restava
+        // selezionato -- e con lui il dock Renderer puntato su uno sfondo
+        // appena spento. Stessa implementazione dell'altro ramo: esclusivi ma
+        // toccati a segnali bloccati, perche' il ripristino del dock e' gia'
+        // gestito esplicitamente qui intorno e l'handler toggled non va fatto
+        // girare.
+        if (ui->radioBackground && ui->radioBackground->isChecked()) {
+            bool oldBgBlock = ui->radioBackground->blockSignals(true);
+            bool oldSurfBlock = ui->radioSurface->blockSignals(true);
+            ui->radioSurface->setChecked(true);
+            ui->radioSurface->blockSignals(oldSurfBlock);
+            ui->radioBackground->blockSignals(oldBgBlock);
+            ui->radioSurface->setEnabled(true);
+        }
 
         // 5. Ripristina l'equazione di default
         // Scena vuota: il campo resta VUOTO. Questo blocco esiste per garantire
