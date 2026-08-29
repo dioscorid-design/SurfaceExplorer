@@ -1489,11 +1489,28 @@ void PresetSerializer::saveScript()
     // essere stata spostata (o venire da una versione precedente che
     // condivideva la chiave): fuori ramo il salvataggio verrebbe poi rifiutato
     // dal blocco "Save Blocked" di saveTexture/saveSound.
+    //
+    // Il ramo NON si ricava appendendo il nome a presetsRootPath(): "Change
+    // Folder for Textures/Sounds/Surfaces" puo' portare un ramo FUORI dalla
+    // radice, e le chiavi pathTextures/pathSounds/pathSurfaces sono la sede
+    // autorevole di dov'e' finito. Con il solo percorso costruito a mano, un
+    // ramo spostato risultava sempre "fuori ramo" e il dialogo veniva dirottato
+    // su una cartella che nella libreria non e' piu' quel ramo.
     {
-        const QString typeRoot = m_mainWindow->presetsRootPath()
-                               + (isSurface ? "/surfaces" : (isSound ? "/sounds" : "/textures"));
-        if (!QDir(currentMem).absolutePath().startsWith(QDir(typeRoot).absolutePath(),
-                                                        Qt::CaseInsensitive)) {
+        const QString rootFallback = m_mainWindow->presetsRootPath();
+        const QString typeKey  = isSurface ? "pathSurfaces" : (isSound ? "pathSounds" : "pathTextures");
+        const QString typeName = isSurface ? "/surfaces"    : (isSound ? "/sounds"    : "/textures");
+        QString typeRoot = settings.value(typeKey, rootFallback + typeName).toString();
+        if (typeRoot.isEmpty()) typeRoot = rootFallback + typeName;
+
+        // Appartenenza al ramo: dentro la cartella del ramo, non "il testo
+        // comincia per". Senza il separatore ".../textures2" passerebbe per
+        // ".../textures".
+        const QString memAbs  = QDir(currentMem).absolutePath();
+        const QString rootAbs = QDir(typeRoot).absolutePath();
+        const bool inBranch = (memAbs.compare(rootAbs, Qt::CaseInsensitive) == 0)
+                           || memAbs.startsWith(rootAbs + "/", Qt::CaseInsensitive);
+        if (!inBranch) {
             currentMem = typeRoot;
             if (!QDir(currentMem).exists()) QDir().mkpath(currentMem);
         }
@@ -1648,6 +1665,20 @@ void PresetSerializer::saveScript()
         bool isSurf = (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeSurface);
         bool isSnd  = (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeSound);
         QString safeSettingsKey = isSurf ? "lastFolder" : (isSnd ? "lastSoundDir" : "lastCustomTexDir");
+
+        // Il lavoro e' su disco: senza azzerare il flag del modulo, la conferma
+        // "vuoi salvare?" -- che legge !m_textureDirty / !m_soundDirty come
+        // esito del Save -- credeva che il salvataggio non fosse mai avvenuto,
+        // e il popup tornava al caricamento successivo anche senza nuove
+        // modifiche. Stesso buco gia' corretto in saveSoundAs; qui mancava per
+        // tutti e tre i modi. Si azzera SOLO il flag del modulo salvato: un
+        // file texture o sound non contiene le equazioni, quindi toccare
+        // m_sceneDirty dichiarerebbe salvato un lavoro sulla superficie mai
+        // scritto da nessuna parte. Per lo script di SUPERFICIE, invece, il
+        // file e' la scena: si azzera m_sceneDirty come fa saveSurface.
+        if (isSurf)      m_mainWindow->m_sceneDirty   = false;
+        else if (isSnd)  m_mainWindow->m_soundDirty   = false;
+        else             m_mainWindow->m_textureDirty = false;
 
         QSettings().setValue(safeSettingsKey, QFileInfo(fileName).absolutePath());
 
@@ -1832,8 +1863,13 @@ void PresetSerializer::saveSurfaceAs(const QString &startDir, const QString &sou
     if (savePath.isEmpty()) return;
     if (!savePath.endsWith(".json", Qt::CaseInsensitive)) savePath += ".json";
 
-    QSettings().setValue("lastFolder", QFileInfo(savePath).absolutePath());
-
+    // NIENTE setValue("lastFolder") QUI. saveSurface applica il blocco "Save
+    // Blocked" (una superficie statica non puo' finire in records/textures/
+    // sounds) e puo' rifiutare questo percorso -- ma la memoria era gia' stata
+    // scritta, quindi restava puntata a una cartella di un ALTRO ramo. Da li'
+    // il dialogo di saveScript si apriva sull'ultimo percorso invece che nel
+    // ramo del tipo che si sta salvando. Ora la memoria la scrive saveSurface,
+    // DOPO la validazione: solo un salvataggio accettato la aggiorna.
     saveSurface(savePath);
 }
 
