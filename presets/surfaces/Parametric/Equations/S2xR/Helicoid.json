@@ -1,42 +1,48 @@
 {
     "angles": {
-        "omega": 0,
-        "phi": 0,
-        "psi": 0
+        "omega": 0.6800996661186218,
+        "phi": -0.2799000144004822,
+        "psi": -1.3998990058898926
     },
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": -0.1820015162229538,
-        "rot_x": -0.19499418139457703,
-        "rot_y": -0.0019441195763647556,
-        "rot_z": -0.9637680053710938,
-        "x": 0,
-        "y": 0,
+        "rot_w": 0.5408461689949036,
+        "rot_x": -0.08023247867822647,
+        "rot_y": -0.5132128596305847,
+        "rot_z": -0.6615594029426575,
+        "x": -0.3999999165534973,
+        "y": -3.3499979972839355,
         "yaw": 0,
-        "z": 3.0105905532836914
+        "z": 13.59999942779541
     },
     "cameraFov": 45,
     "colors": {
-        "alpha": 0.91,
+        "alpha": 1,
         "b": 0.20000000298023224,
         "g": 0.800000011920929,
         "r": 0.20000000298023224
     },
     "constants": {
-        "A": 0.699999988079071,
+        "A": 2,
         "B": 1,
-        "C": 1,
+        "C": 0.5,
         "D": 1,
         "E": 1,
         "F": 1,
         "S": 0
     },
     "equations": {
-        "p": "",
-        "x": "",
-        "y": "",
-        "z": ""
+        "defU": "u ",
+        "defV": "v",
+        "defW": "C * u ",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "B * W ",
+        "x": "A*sin(V)*cos(U)",
+        "y": "A*sin(V)*sin(U)",
+        "z": "A * cos(V) "
     },
     "fov3D": 45,
     "fov4D": 45,
@@ -50,14 +56,14 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Slider A active on this shape",
+    "hintText": "Sliders A-C active on this shape",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {
-        "uMax": 0,
+        "uMax": 12.5600004196167,
         "uMin": 0,
-        "vMax": 0,
+        "vMax": 3.1410000324249268,
         "vMin": 0,
         "wMax": 0,
         "wMin": 0,
@@ -69,11 +75,10 @@
         "zMin": -1000
     },
     "meshScopeAll": true,
-    "name": "Clifford's Torus",
-    "projectionMode": 1,
-    "renderMode": 0,
-    "scriptCode": "\n\nu_min := 0;\nu_max := 6.28318;\nv_min := 0;\nv_max := 6.28318;\nA := 0.7;\n\nfloat x = cos(u);\nfloat y = sin(u);\nfloat z = cos(v);\nfloat p = sin(v);   \nreturn vec4(x, y, z, p) * A;   ",
-    "steps": 100,
+    "name": "Helicoid",
+    "projectionMode": 0,
+    "renderMode": 1,
+    "steps": 158,
     "type": "surface",
     "use4DLighting": false,
     "wireframe": {

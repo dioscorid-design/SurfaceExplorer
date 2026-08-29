@@ -1,9 +1,9 @@
 {
     "activeMotion": "rotation",
     "angles": {
-        "omega": 318.2593078613281,
-        "phi": 318.5495910644531,
-        "psi": 318.4595031738281
+        "omega": 356.6101379394531,
+        "phi": 356.9004211425781,
+        "psi": 356.8103332519531
     },
     "background": {
         "code": "// =========================================================================\n// PRESET SHADER: Infinite Zoom (tension)\n// Author: CriticalMammal\n// Original Link: https://www.shadertoy.com/view/4ssBzS\n// License: Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported\n// =========================================================================\n// This shader generates an animated, interference-based infinite zoom pattern.\n// Integrated into SurfaceExplorer. Distributed under CC BY-NC-SA 3.0 terms.\n// =========================================================================\n\nconst int numWaves = 8;\nconst float numFreqs = 10.0;\nconst float meanFreq = 4.0;\nconst float stdDev = 1.5;\nconst float period = .32 * 4.;\nconst float ln2 = log(2.0);\nconst float mean = meanFreq * .69314718;\n\nfloat wavething(int n, float x){\n    float l = ln2 * float(n) + log(x);\n    l -= mean;\n    return exp(-l * l / stdDev) / 2.0;\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord)\n{\n    vec2 textureUV = fragCoord / iResolution.xy;\n    float pi = 4.0 * atan(1.0);\n\tfloat pi2 = 2.5 * pi;\n    \n    // oscillate numStripes based on time\n    float max = 1.;\n    float min = .23;\n    float oscilationRange = (max - min)/2.0;\n    float oscilationOffset = oscilationRange + min;\n    float numStripes = oscilationOffset + sin(iTime / period) * oscilationRange;\n    \n    // oscillate pi values for additional movement\n    max = 4.25 * atan(1.0);\n    min = 3.0 * atan(1.0);\n    oscilationRange = (max - min)/2.0;\n    oscilationOffset = oscilationRange + min;\n    pi = oscilationOffset + sin(iTime / period * 0.1) * oscilationRange;\n    pi2 = 2.5 * pi;\n    \n    \n    vec2 xy = pi2 * numStripes\n        * (2.0 * fragCoord.xy / iResolution.y - vec2(iResolution.x / iResolution.y, 1.0));\n    //xy -= pi2 * numStripes * (2.0 * iMouse.xy / iResolution.y - vec2(iResolution.x / iResolution.y, 1.0));\n    \n    // oscillate position offset based on time (sloppy, can be done much cleaner)\n    vec2 xyCalc = pi2 * numStripes * (2.0 * vec2(0.0) / iResolution.y - vec2(iResolution.x / iResolution.y, 1.0));\n    float xCalc = xyCalc.x;\n    float yCalc = xyCalc.y;\n    \n    max = xCalc * -0.025;\n    min = xCalc * 0.025;\n    oscilationRange = (max - min)/2.0;\n    oscilationOffset = oscilationRange + min;\n    float xVal = oscilationOffset + sin(iTime / 1.) * oscilationRange;\n    \n    max = yCalc * -0.025;\n    min = yCalc * 0.025;\n    oscilationRange = (max - min)/2.0;\n    oscilationOffset = oscilationRange + min;\n    float yVal = oscilationOffset + sin(iTime / .5) * oscilationRange;\n    \n    xy.x -= xVal;\n    xy.y -= yVal;\n    \n    // pattern calculations\n    float scale = exp2(-fract(iTime / period));\n    float sum1 = 0.0;\n    for(int n = 0; n < int(numFreqs); n++)\n    {\n        sum1 += wavething(n, scale);\n    }\n    float sum2 = 0.0;\n    for(int n = 0; n < numWaves; n++)\n    {\n        float theta = pi * float(n) / float(numWaves);\n        vec2 waveVec = vec2(cos(theta), sin(theta));\n        float phase = dot(xy, waveVec);\n        for(int k = 0; k < int(numFreqs); k++){\n            sum2 += cos(phase * scale * exp2(float(k))) * wavething(k, scale);\n        }\n    }\n    \n    // overal rgb tint\n    float rTint = 0.00;\n    float gTint = 0.75;\n    float bTint = 0.75;\n    fragColor = vec4(rTint, gTint, bTint, 1.0);\n    \n    // main zoom pattern rgb\n    float rVal = sum2 / sum1 * sin(iTime / period * .5);\n    float gVal = sum2 / sum1 * cos(iTime / period * .5);\n    float bVal = sum2 / sum1 * cos(iTime / period * .5);\n\tfragColor += vec4(rVal, gVal, bVal, 1.0);\n    \n    // the intensity of the rgb vals (just used to tone stuff down)\n    float rIntensity = 0.3;\n    float gIntensity = 0.3;\n    float bIntensity = 0.4;\n    fragColor = vec4(fragColor.r * rIntensity, fragColor.g * gIntensity, fragColor.b * bIntensity, 1.0);\n    \n    // apply texture to specific colors\n    float rTexAmt = 0.25;\n    float gTexAmt = 0.0;\n    float bTexAmt = 0.0;\n    vec3 col = texture(iChannel0, textureUV).rgb;\n    col.r *= fragColor.r * rTexAmt;\n    col.g *= fragColor.g * gTexAmt;\n    col.b *= fragColor.b * bTexAmt;\n    fragColor += vec4(col, 1.0);\n    \n    // apply vignette\n    float vignette = distance(textureUV, vec2(0.5));\n    vignette = mix(1.5, -0.5, vignette);\n    fragColor *= vignette;\n}",
@@ -26,7 +26,7 @@
         "x": 0,
         "y": 0,
         "yaw": 0,
-        "z": 21.760013580322266
+        "z": 22.060014724731445
     },
     "cameraFov": 45,
     "colors": {
@@ -34,7 +34,7 @@
         "surfColor": "#33cc33"
     },
     "constants": {
-        "A": 1.0,
+        "A": 1.2000000476837158,
         "B": 1.2000000476837158,
         "C": 1,
         "D": 2,
@@ -49,10 +49,10 @@
         "explicitU": "",
         "explicitV": "",
         "explicitW": "",
-        "p": "exp(-B*W)*cos(U)",
-        "x": "exp(B*W)*cos(U) + V*exp(B*W)*sin(U)",
-        "y": "V*exp(B*W)*cos(U) - exp(B*W)*sin(U)",
-        "z": "exp(-B*W)*sin(U)"
+        "p": "A*(exp(-B*W)*cos(U)-V*exp(B*W)*sin(U))",
+        "x": "A*exp(B*W)*cos(U)",
+        "y": "A*exp(B*W)*sin(U)",
+        "z": "A*(exp(-B*W)*sin(U)+V*exp(B*W)*cos(U))"
     },
     "fov3D": 45,
     "fov4D": 45,
@@ -85,7 +85,7 @@
         "zMin": -1000
     },
     "meshScopeAll": true,
-    "name": "Wormhole BTZ",
+    "name": "pippo",
     "observer4D": 4,
     "path3D": {
         "roll": "",

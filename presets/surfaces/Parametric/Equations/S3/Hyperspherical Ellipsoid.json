@@ -1,31 +1,31 @@
 {
     "angles": {
-        "omega": 0,
-        "phi": 0,
-        "psi": 0
+        "omega": 0.4200998842716217,
+        "phi": 0.3900999128818512,
+        "psi": 0.4200998842716217
     },
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": -0.1820015162229538,
-        "rot_x": -0.19499418139457703,
-        "rot_y": -0.0019441195763647556,
-        "rot_z": -0.9637680053710938,
+        "rot_w": 0.04751785844564438,
+        "rot_x": -0.3873305320739746,
+        "rot_y": 0.7688724994659424,
+        "rot_z": 0.5065099596977234,
         "x": 0,
         "y": 0,
         "yaw": 0,
-        "z": 3.0105905532836914
+        "z": 4
     },
     "cameraFov": 45,
     "colors": {
-        "alpha": 0.91,
+        "alpha": 1,
         "b": 0.20000000298023224,
         "g": 0.800000011920929,
         "r": 0.20000000298023224
     },
     "constants": {
-        "A": 0.699999988079071,
-        "B": 1,
+        "A": 1.1299999952316284,
+        "B": 1.3899999856948853,
         "C": 1,
         "D": 1,
         "E": 1,
@@ -33,10 +33,16 @@
         "S": 0
     },
     "equations": {
-        "p": "",
-        "x": "",
-        "y": "",
-        "z": ""
+        "defU": "B*cos(v)+pi/2",
+        "defV": "B*2*sin(u)*sin(v)+pi/2",
+        "defW": "B*3*cos(u)*sin(v)+pi",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "A * sin(U) * sin(V) * sin(W)",
+        "x": "A * cos(U)",
+        "y": "A * sin(U) * cos(V)",
+        "z": "A * sin(U) * sin(V) * cos(W)"
     },
     "fov3D": 45,
     "fov4D": 45,
@@ -50,14 +56,14 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Slider A active on this shape",
+    "hintText": "Sliders A and B active on this shape",
     "isImplicitMode": false,
     "lightIntensity": 1,
-    "lightingMode": 0,
+    "lightingMode": 1,
     "limits": {
-        "uMax": 0,
+        "uMax": 3.141590118408203,
         "uMin": 0,
-        "vMax": 0,
+        "vMax": 6.28318977355957,
         "vMin": 0,
         "wMax": 0,
         "wMin": 0,
@@ -69,13 +75,12 @@
         "zMin": -1000
     },
     "meshScopeAll": true,
-    "name": "Clifford's Torus",
+    "name": "Hyperspherical Ellipsoid",
     "projectionMode": 1,
-    "renderMode": 0,
-    "scriptCode": "\n\nu_min := 0;\nu_max := 6.28318;\nv_min := 0;\nv_max := 6.28318;\nA := 0.7;\n\nfloat x = cos(u);\nfloat y = sin(u);\nfloat z = cos(v);\nfloat p = sin(v);   \nreturn vec4(x, y, z, p) * A;   ",
-    "steps": 100,
+    "renderMode": 1,
+    "steps": 308,
     "type": "surface",
-    "use4DLighting": false,
+    "use4DLighting": true,
     "wireframe": {
         "uStep": 4,
         "vStep": 4

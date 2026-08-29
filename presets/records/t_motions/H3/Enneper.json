@@ -1,12 +1,13 @@
 {
+    "activeMotion": "none",
     "angles": {
         "omega": 9.999999747378752e-05,
         "phi": 9.999999747378752e-05,
         "psi": 9.999999747378752e-05
     },
     "background": {
-        "code": "//IMG:/home/dioscorid/Projects/presets/textures/Images/7.png",
-        "col1": "#3333cc",
+        "code": "// =========================================================================\n// Title: Winds of Io (High Quality - Optimized)\n// Author: Procedural Volumetrics for Surfaces Explorer\n// License: MIT\n// =========================================================================\n\nconst mat3 m3 = mat3( 0.33338, 0.56034, -0.71817, \n                     -0.87887, 0.32651, -0.15323, \n                      0.15162, 0.69596,  0.61339 ) * 1.93;\n\nfloat hash(float n) { return fract(sin(n) * 43758.5453123); }\n\nfloat noise(in vec3 x) {\n    vec3 i = floor(x);\n    vec3 f = fract(x);\n    f = f * f * (3.0 - 2.0 * f);\n    float n = i.x + i.y * 157.0 + 113.0 * i.z;\n    \n    return mix(\n        mix(mix(hash(n +   0.0), hash(n +   1.0), f.x),\n            mix(hash(n + 157.0), hash(n + 158.0), f.x), f.y),\n        mix(mix(hash(n + 113.0), hash(n + 114.0), f.x),\n            mix(hash(n + 270.0), hash(n + 271.0), f.x), f.y), f.z);\n}\n\n// TORNATO AL MASSIMO DETTAGLIO: 4 Ottave di FBM per avere i \"ciuffi\"\nfloat fbm(in vec3 q) {\n    float f = 0.0;\n    float weight = 0.5;\n    for (int i = 0; i < 4; i++) { \n        f += weight * noise(q);\n        q = m3 * q;\n        weight *= 0.5;\n    }\n    return f;\n}\n\n// Scultura della forma intatta\nfloat map(in vec3 p) {\n    float heightProfile = 1.0 - abs(p.y - 0.5); \n    if (heightProfile <= 0.0) return 0.0; \n    \n    vec3 q = p;\n    q.z -= iTime * 0.2; \n    \n    vec3 warp = vec3(fbm(q * 0.5), fbm(q * 0.5 + 13.3), 0.0);\n    float n = fbm(q * 1.5 + warp);\n    \n    float density = (n - 0.45) * heightProfile * 2.0;\n    return max(0.0, density);\n}\n\n// RAYMARCHING INTELLIGENTE\nvec4 renderClouds(in vec3 ro, in vec3 rd) {\n    vec4 sum = vec4(0.0);\n    float t = 0.0;\n    \n    vec3 lightDir = normalize(vec3(0.8, 0.4, -0.3)); \n    vec3 sunCol = vec3(1.0, 0.55, 0.1);               \n    vec3 ambCol = vec3(0.4, 0.15, 0.05);               \n    \n    // 35 passi: il perfetto equilibrio tra fluidità e profondità volumetrica\n    for(int i = 0; i < 35; i++) { \n        if(sum.a > 0.98) break;\n        \n        vec3 pos = ro + t * rd;\n        float den = map(pos);\n        \n        if(den > 0.01) {\n            // IL TRUCCO DELLE OMBRE: Misuriamo la densità poco più in là verso il sole\n            // Se la densità diminuisce (cioè usciamo dalla nuvola), significa che quella parte è esposta alla luce!\n            float denVersoIlSole = map(pos + lightDir * 0.3);\n            \n            // Calcoliamo la differenza per generare ombre perfette senza cicli extra\n            float dif = clamp((den - denVersoIlSole) * 4.0, 0.0, 1.0);\n            \n            // Effetto Powder per schiarire i bordi\n            float powder = 1.0 - exp(-den * 3.0);\n            \n            vec3 lighting = ambCol + sunCol * (dif + 0.1) * powder * 1.5;\n            \n            vec4 col = vec4(lighting, den);\n            col.a *= 0.5; // Morbidezza originale\n            col.rgb *= col.a; \n            \n            sum += col * (1.0 - sum.a);\n        }\n        \n        t += max(0.05, 0.12 * (1.0 - den));\n    }\n    \n    return clamp(sum, 0.0, 1.0);\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord ) {\n    // FIX: Usa fragCoord (che contiene le trasformazioni del tuo motore) invece di gl_FragCoord\n    vec2 p = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;\n    \n    vec3 ro = vec3(0.0, 0.2, iTime * 0.5); \n    vec3 rd = normalize(vec3(p.x, p.y + 0.2, 1.0)); \n    \n    vec3 skyColor = mix(vec3(0.3, 0.1, 0.05), vec3(0.9, 0.4, 0.1), clamp(rd.y + 0.1, 0.0, 1.0));\n    \n    vec4 clouds = renderClouds(ro, rd);\n    vec3 finalColor = mix(skyColor, clouds.rgb, clouds.a);\n    \n    float distanceFog = 1.0 - exp(-0.02 * clouds.a);\n    finalColor = mix(finalColor, skyColor, distanceFog);\n    \n    finalColor = smoothstep(0.0, 1.0, finalColor);\n    \n    // FIX: Usa fragCoord anche per la vignettatura\n    vec2 q = fragCoord / iResolution.xy;\n    float vig = max(0.0, 16.0 * q.x * q.y * (1.0 - q.x) * (1.0 - q.y));\n    finalColor *= pow(vig, 0.15) * 0.7 + 0.3;\n    \n    fragColor = vec4(finalColor, 1.0);\n}",
+        "col1": "#33cc33",
         "col2": "#000000",
         "color": "#4d4d4d",
         "enabled": true,
@@ -27,18 +28,18 @@
         "yaw": 0,
         "z": 4
     },
+    "cameraFov": 45,
     "colors": {
-        "alpha": 1,
-        "bordColor": "#33cc33",
+        "alpha": 0.88,
         "surfColor": "#33cc33"
     },
     "constants": {
-        "A": 4.760000228881836,
-        "B": 3.2200000286102295,
+        "A": 1,
+        "B": 1,
         "C": 1.7200000286102295,
         "D": 2.180000066757202,
-        "E": 0,
-        "F": 0,
+        "E": 1,
+        "F": 1,
         "S": 0
     },
     "equations": {
@@ -53,8 +54,20 @@
         "y": "V * tanh(sqrt(U^2+V^2+W^2)/2) / (sqrt(U^2+V^2+W^2) + 0.00001)",
         "z": "W * tanh(sqrt(U^2+V^2+W^2)/2) / (sqrt(U^2+V^2+W^2) + 0.00001)"
     },
+    "fov3D": 45,
+    "fov4D": 45,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
     "hintSeconds": 6,
     "hintText": "Sliders C and D active on this shape",
+    "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 2,
     "limits": {
@@ -63,8 +76,15 @@
         "vMax": 2,
         "vMin": -2,
         "wMax": 0,
-        "wMin": 0
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
     },
+    "meshScopeAll": true,
     "name": "Enneper",
     "observer4D": 4,
     "path3D": {
@@ -83,9 +103,9 @@
         "z": ""
     },
     "pathMode": 0,
+    "pathMode3D": 0,
     "projectionMode": 1,
     "renderMode": 0,
-    "showBorder": false,
     "speeds": {
         "nutation": 0,
         "omega": 0,
@@ -98,7 +118,7 @@
     },
     "steps": 101,
     "texture": {
-        "code": "//MUSIC: /home/dioscorid/Projects/Presets/Sounds/wav/3322__jovica__dronetail-52.wav\n\n// --- PARAMETRI ---\n// Imposta nel dock: Rosso (c1) e Bianco (c2) per l'effetto classico\nvec3 c1 = u_col1;\nvec3 c2 = u_col2;\n\n// --- CONFIGURAZIONE SPIRALE ---\n// Coils: Quante strisce vedi in una sezione trasversale del tubo\nfloat coils = 6.0;\n\n// Twists: Quanti giri completi fa la spirale lungo tutto il toro\n// Deve essere un numero intero per evitare che la texture si tagli alla giunzione\nfloat twists = 40.0;\n\n// --- CALCOLO ---\n// La magia è sommare U e V moltiplicati.\n// (u * twists) spinge la texture lungo il percorso\n// (v * coils) avvolge la texture attorno al tubo\n// Sommando i due si ottiene una linea diagonale (elica/spirale)\nfloat pos = (u * twists) + (v * coils);\n\n// --- CREAZIONE STRISCE NETTE ---\n// fract(pos) crea un dente di sega da 0.0 a 1.0 ripetuto\n// step(0.5, ...) taglia di netto il valore: sotto 0.5 è 0, sopra è 1.\nfloat stripe = step(0.5, fract(pos));\n\n// Restituisce il colore (senza sfumature)\nreturn mix(c1, c2, stripe);",
+        "code": "//IMG:/Users/dioscorid/Projects/C/presets/textures/Images/14.png\n//MUSIC: /Users/dioscorid/Projects/C/presets/sounds/wav/3322__jovica__dronetail-52.wav",
         "col1": "#33cc33",
         "col2": "#000000",
         "enabled": true,
@@ -108,5 +128,9 @@
         "zoom": 1
     },
     "type": "motion",
-    "use4DLighting": false
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
 }

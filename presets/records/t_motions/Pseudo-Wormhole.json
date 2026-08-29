@@ -34,7 +34,7 @@
         "surfColor": "#33cc33"
     },
     "constants": {
-        "A": 1.0,
+        "A": 1.2000000476837158,
         "B": 1.2000000476837158,
         "C": 1,
         "D": 2,
@@ -49,10 +49,10 @@
         "explicitU": "",
         "explicitV": "",
         "explicitW": "",
-        "p": "exp(-B*W)*cos(U)",
-        "x": "exp(B*W)*cos(U) + V*exp(B*W)*sin(U)",
-        "y": "V*exp(B*W)*cos(U) - exp(B*W)*sin(U)",
-        "z": "exp(-B*W)*sin(U)"
+        "p": "A*(exp(-B*W)*cos(U)-V*exp(B*W)*sin(U))",
+        "x": "A*exp(B*W)*cos(U)",
+        "y": "A*exp(B*W)*sin(U)",
+        "z": "A*(exp(-B*W)*sin(U)+V*exp(B*W)*cos(U))"
     },
     "fov3D": 45,
     "fov4D": 45,
@@ -85,7 +85,7 @@
         "zMin": -1000
     },
     "meshScopeAll": true,
-    "name": "Wormhole BTZ",
+    "name": "Pseudo-Wormhole",
     "observer4D": 4,
     "path3D": {
         "roll": "",

@@ -33,7 +33,7 @@
         "surfColor": "#33cc33"
     },
     "constants": {
-        "A": 0.10000000149011612,
+        "A": 1.0,
         "B": 0.6899999976158142,
         "C": 1,
         "D": 1,
@@ -48,10 +48,10 @@
         "explicitU": "",
         "explicitV": "",
         "explicitW": "",
-        "p": "A*(exp(-B*W)*cos(U)-V*exp(B*W)*sin(U))",
-        "x": "A*exp(B*W)*cos(U)",
-        "y": "A*exp(B*W)*sin(U)",
-        "z": "A*(exp(-B*W)*sin(U)+V*exp(B*W)*cos(U))"
+        "p": "exp(-B*W)*cos(U)",
+        "x": "exp(B*W)*cos(U) + V*exp(B*W)*sin(U)",
+        "y": "V*exp(B*W)*cos(U) - exp(B*W)*sin(U)",
+        "z": "exp(-B*W)*sin(U)"
     },
     "hintSeconds": 6,
     "hintText": "Sliders A, B and D active on this shape",

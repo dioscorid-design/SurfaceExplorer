@@ -7,15 +7,16 @@
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": 0.08931571990251541,
-        "rot_x": -0.11845294386148453,
-        "rot_y": -0.933169424533844,
-        "rot_z": -0.32739341259002686,
+        "rot_w": 0.06393568962812424,
+        "rot_x": -0.08919632434844971,
+        "rot_y": -0.8631207346916199,
+        "rot_z": -0.49292898178100586,
         "x": 0,
         "y": 0,
         "yaw": 0,
         "z": 25.60000228881836
     },
+    "cameraFov": 45,
     "colors": {
         "alpha": 0.84,
         "b": 0.20000000298023224,
@@ -43,6 +44,8 @@
         "y": "(A + (B+C*cos(W))*cos(V)) * sin(U)",
         "z": "(B+C*cos(W))*sin(V)"
     },
+    "fov3D": 45,
+    "fov4D": 45,
     "geodesic": {
         "conform": "1.0",
         "du": "",
@@ -71,10 +74,10 @@
         "zMax": 1000,
         "zMin": -1000
     },
+    "meshScopeAll": true,
     "name": "Torus Knot",
     "projectionMode": 1,
     "renderMode": 1,
-    "showBorder": false,
     "steps": 582,
     "type": "surface",
     "use4DLighting": true,
