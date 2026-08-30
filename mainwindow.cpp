@@ -1795,15 +1795,14 @@ MainWindow::MainWindow(QWidget *parent)
         m_parametricApplied = false;
         updateMasterButtonState();
 
-        // NIENTE dropSurfaceLibrarySelection(): l'evidenziazione in libreria
-        // RESTA anche dopo aver modificato le equazioni. Prima cadeva al primo
-        // carattere, e solo sul ramo Superfici -- texture, suoni e record non
-        // l'hanno mai fatto: un'asimmetria nata dall'aggiunta fatta da un lato
-        // solo. Serve a ricordare su quale preset si sta lavorando, che e' la
-        // ragione per cui la si guarda. Effetto collaterale utile: annullando
-        // il caricamento di un altro preset (Cancel sul popup del lavoro non
-        // salvato, ~10407) c'e' sempre un item da rievidenziare, e l'albero non
-        // resta spoglio.
+        // L'evidenziazione del preset in libreria RESTA anche dopo aver
+        // modificato le equazioni. Prima cadeva al primo carattere, e solo sul
+        // ramo Superfici -- texture, suoni e record non l'hanno mai fatto:
+        // un'asimmetria nata dall'aggiunta fatta da un lato solo. Serve a
+        // ricordare su quale preset si sta lavorando, che e' la ragione per cui
+        // la si guarda. Effetto collaterale utile: annullando il caricamento di
+        // un altro preset (Cancel sul popup del lavoro non salvato, ~10407)
+        // c'e' sempre un item da rievidenziare, e l'albero non resta spoglio.
     };
     connect(ui->lineX, &QPlainTextEdit::textChanged, this, markUserEdit);
     connect(ui->lineY, &QPlainTextEdit::textChanged, this, markUserEdit);
@@ -3876,31 +3875,6 @@ void MainWindow::noteSceneEdited(QWidget *source)
         "(Parametric or Implicit) to restore the default surface, or press NEW "
         "on the status bar to clear everything and leave the scene empty.");
     box.exec();
-}
-
-// L'utente ha riscritto a mano la geometria: il preset evidenziato nel dock
-// Library non descrive piu' cio' che si vede, e lasciarlo selezionato indica una
-// superficie che non c'e' piu'. Si deseleziona all'EDIT e non al Run perche' e'
-// l'edit il momento in cui il legame col preset si rompe -- e perche' il Run non
-// passa da un punto unico (onStartClicked ha 31 uscite).
-// Le guardie escludono le scritture PROGRAMMATICHE (reset, load di un preset,
-// boot): li' i campi li riempie l'app, e il load la selezione la imposta di
-// proposito.
-void MainWindow::dropSurfaceLibrarySelection()
-{
-    if (m_populatingFields || !m_uiReady) return;
-    if (!ui->treeSurfaces || !ui->treeSurfaces->currentItem()) return;
-
-    // Segnali bloccati: itemClicked ricaricherebbe il preset appena abbandonato.
-    bool b = ui->treeSurfaces->blockSignals(true);
-    ui->treeSurfaces->clearSelection();
-    ui->treeSurfaces->setCurrentItem(nullptr);
-    ui->treeSurfaces->blockSignals(b);
-
-    // Il legame col preset e' rotto: dimenticarlo, o annullando il caricamento
-    // di un altro preset lo si rimetterebbe in evidenza (vedi
-    // onExampleItemClicked), indicando una superficie che non c'e' piu'.
-    m_lastLoadedLibraryItem = nullptr;
 }
 
 // L'utente ha lavoro non salvato da proteggere.

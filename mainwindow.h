@@ -107,9 +107,6 @@ private slots:
     // che consiglia di resettare prima. `source` e' il campo editato.
     void noteSceneEdited(QWidget *source = nullptr);
     bool hasUnsavedWork() const;
-    // Toglie l'evidenziazione del preset nel dock Library quando l'utente
-    // riscrive la geometria a mano. No-op durante le scritture programmatiche.
-    void dropSurfaceLibrarySelection();
     // Save / Don't save / Cancel prima di un'azione che scarta il lavoro.
     // false = l'utente ha annullato: il chiamante NON deve procedere.
     // UNICA conferma per il lavoro non salvato. Con ScopeScene elenca tutto
