@@ -2614,6 +2614,20 @@ MainWindow::MainWindow(QWidget *parent)
                             ui->glWidget->clearTexture();
                         }
                     }
+                    // TRASFORMAZIONE 2D: va azzerata insieme al codice. Zoom/pan/
+                    // rotazione sono di MODULO, non della singola texture: restando
+                    // in piedi, la scacchiera di default che ricompare alla
+                    // riaccensione veniva disegnata attraverso l'inquadratura della
+                    // texture precedente. Col record "Dynamic Mobius Band" (che salva
+                    // zoom 9.36 per il proprio Shadertoy) la default si vedeva come un
+                    // quadrato 2x2 invece che come la griglia 8x8; con uno zoom < 1
+                    // salvato altrove appariva invece rimpicciolita. Stesso motivo per
+                    // cui qui si azzerano gia' i colori texture nei due rami piu' sotto.
+                    // setGlobalTexTransform allinea da se' anche il buffer di lavoro
+                    // della vista 2D (in ambito "All"), che e' cio' che lo shader legge.
+                    if (ui->glWidget)
+                        ui->glWidget->setGlobalTexTransform(1.0f, QVector2D(0.0f, 0.0f), 0.0f);
+
                     // Codice perso/azzerato: lo stato "modificato" non ha più senso.
                     this->setProperty("isTextureModified", false);
                 };
@@ -11604,6 +11618,14 @@ void MainWindow::applyMotionExample(LibraryItem data)
         m_isImageMode = false;
         m_currentTexturePath.clear();
         m_surfaceTextureCode.clear();
+
+        // Preset SENZA texture: la trasformazione 2D va riportata a neutra come
+        // il codice qui sopra. Il ramo texEnabled la imposta sempre (riga con
+        // setGlobalTexTransform), questo la lasciava invece stantia: caricando un
+        // record senza texture dopo uno con zoom salvato, la scacchiera di
+        // default accesa a mano appariva ingrandita. Gemello del reset in
+        // clearTextureMemory (spegnimento del checkbox).
+        ui->glWidget->setGlobalTexTransform(1.0f, QVector2D(0.0f, 0.0f), 0.0f);
     }
 
     // --- APPLICAZIONE TEXTURE BACKGROUND ---
