@@ -1078,7 +1078,12 @@ private:
     // Stessa provenienza (filtri tastiera): l'Invio su un limite U/V/W applica
     // subito il nuovo dominio, senza toccare le equazioni in sospeso.
     void commitLimitFieldOnEnter(const QString& fieldName);
-    bool updateGeodesicMesh();
+    // useAppliedLimits: legge il dominio GIA' APPLICATO dall'engine invece dei
+    // campi UI. Serve al tick del moto (advanceGeodesicFlowBy), che gira di
+    // continuo su un record animato: rileggendo il testo dei campi raccoglieva
+    // le cifre a meta' digitazione e il limite si applicava senza attendere
+    // l'Invio. I percorsi interattivi (Run, Invio sui limiti) leggono i campi.
+    bool updateGeodesicMesh(bool useAppliedLimits = false);
     void checkAndTriggerMeshUpdate();
     void stopGeodesicAnimation();
     bool isGeodesicMotionActive() const;

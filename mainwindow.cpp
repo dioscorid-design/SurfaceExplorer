@@ -1795,7 +1795,15 @@ MainWindow::MainWindow(QWidget *parent)
         m_parametricApplied = false;
         updateMasterButtonState();
 
-        dropSurfaceLibrarySelection();
+        // NIENTE dropSurfaceLibrarySelection(): l'evidenziazione in libreria
+        // RESTA anche dopo aver modificato le equazioni. Prima cadeva al primo
+        // carattere, e solo sul ramo Superfici -- texture, suoni e record non
+        // l'hanno mai fatto: un'asimmetria nata dall'aggiunta fatta da un lato
+        // solo. Serve a ricordare su quale preset si sta lavorando, che e' la
+        // ragione per cui la si guarda. Effetto collaterale utile: annullando
+        // il caricamento di un altro preset (Cancel sul popup del lavoro non
+        // salvato, ~10407) c'e' sempre un item da rievidenziare, e l'albero non
+        // resta spoglio.
     };
     connect(ui->lineX, &QPlainTextEdit::textChanged, this, markUserEdit);
     connect(ui->lineY, &QPlainTextEdit::textChanged, this, markUserEdit);
@@ -1898,7 +1906,7 @@ MainWindow::MainWindow(QWidget *parent)
         noteSceneEdited(ui->lineEquation);
         updateMasterButtonState();
 
-        dropSurfaceLibrarySelection();
+        // Come nel ramo parametrico qui sopra: l'evidenziazione resta.
     });
 
     if (ui->lnU) {
@@ -8572,7 +8580,30 @@ void MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
     // espliciti). Si guarda solo lui e non m_implicitApplied perche' u/v/w sono
     // il dominio PARAMETRICO: in Ray Marching l'estensione della scena la danno
     // i limiti spaziali, non questi campi.
-    if (!m_parametricApplied) {
+    // FLUSSO GEODETICO attivo? Serve a DUE decisioni qui sotto, quindi si
+    // calcola una volta sola. Stessa identica guardia di
+    // checkAndTriggerMeshUpdate (~17240), incluso metricScriptActive: con uno
+    // script metrico la mappa X/Y/Z/P puo' non citare U/V/W e il solo
+    // upperCount non basterebbe a riconoscere il caso.
+    const QString mainEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " "
+                          + ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText();
+    const int upperCount = (mainEqs.contains(kReUpperU) ? 1 : 0)
+                         + (mainEqs.contains(kReUpperV) ? 1 : 0)
+                         + (mainEqs.contains(kReUpperW) ? 1 : 0);
+    const bool metricScriptActive = !m_metricScriptBody.trimmed().isEmpty();
+    const bool geodesicActive = (upperCount > 0 || metricScriptActive)
+                              && hasGeodesicText()
+                              && ui->tabModeSelector->currentIndex() == 0;
+
+    // m_parametricApplied parla dei campi X/Y/Z/P: nel flusso geodetico quelli
+    // sono la sola mappa di visualizzazione e NON definiscono la superficie,
+    // quindi qui il flag non e' il criterio giusto. Di piu': i sette campi del
+    // flusso (conforme, condizioni iniziali, direzioni) sono agganciati a
+    // markUserEdit, che lo azzera -- e il ramo geodetico del Run lo rialza solo
+    // se il flusso NON e' animato. Su un preset geodetico con 't' restava
+    // percio' false per sempre e l'Invio sui limiti non ridisegnava mai nulla:
+    // i limiti risultavano "senza alcun effetto".
+    if (!m_parametricApplied && !geodesicActive) {
         // Il tasto Run e' gia' acceso (le equazioni sono sporche): e' lui a
         // dire che c'e' qualcosa in attesa di essere applicato.
         updateMasterButtonState();
@@ -8587,6 +8618,20 @@ void MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
     // la mesh vecchia e a schermo non cambia nulla: e' updateSurfaceData() a
     // rigenerare i vertici sul nuovo dominio (stessa chiamata che fa il Run).
     if (ui->glWidget) {
+        // FLUSSO GEODETICO: la superficie NON viene dalle equazioni X/Y/Z/P --
+        // quelle sono la sola mappa di visualizzazione (di norma x=U,y=V,z=W) --
+        // ma dall'integrazione delle geodetiche. updateSurfaceData() rigenera la
+        // mesh PARAMETRICA, cioe' valuta quella mappa su un dominio senza aver
+        // integrato nulla: la superficie collassava in una LAMINA a ogni modifica
+        // dei limiti. Il ricalcolo geodetico ha il suo imbuto, updateGeodesicMesh(),
+        // ed e' quello che chiama il Run (~8096). La condizione e' gia' stata
+        // calcolata sopra, perche' governa anche la guardia m_parametricApplied.
+        if (geodesicActive) {
+            updateGeodesicMesh();   // calcola, valida e ridisegna da solo
+            ui->glWidget->update();
+            return;
+        }
+
         ui->glWidget->updateSurfaceData();
 
         // Stesso controllo del Run: un dominio degenere collassa la mesh, e
@@ -10366,12 +10411,13 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             // evidenza il preset REALMENTE a schermo -- non basta deselezionare,
             // o l'albero resta senza focus e non indica piu' nulla.
             //
-            // Ma solo se quel preset descrive ancora cio' che si vede: appena si
-            // riscrive la geometria a mano, dropSurfaceLibrarySelection() toglie
-            // l'evidenziazione di proposito (il legame col preset e' rotto), e
-            // resuscitarla al Cancel indicherebbe una superficie che non c'e'
-            // piu'. Il test e' la selezione VIVA nell'albero d'origine, non la
-            // memoria storica di m_lastLoadedLibraryItem.
+            // Il test e' la selezione VIVA nell'albero d'origine, non la memoria
+            // storica di m_lastLoadedLibraryItem: quest'ultima sopravvive anche
+            // a un preset non piu' a schermo.
+            // (Storico: l'evidenziazione cadeva alla prima modifica delle
+            // equazioni, quindi qui poteva non esserci nulla da rievidenziare.
+            // Ora RESTA -- si veda markUserEdit ~1798 -- e questo ramo trova
+            // sempre l'item giusto.)
             QTreeWidgetItem *previous = m_lastLoadedLibraryItem;
 
             if (!confirmDiscardUnsaved(ScopeScene)) {
@@ -16903,7 +16949,7 @@ void MainWindow::commitFieldsOnEnter() {
     setProperty("rmApplyOnly", false);
 }
 
-bool MainWindow::updateGeodesicMesh()
+bool MainWindow::updateGeodesicMesh(bool useAppliedLimits)
 {
     // Resettiamo il flag degli errori per questa esecuzione
     this->setProperty("geoErrorType", "none");
@@ -16947,6 +16993,18 @@ bool MainWindow::updateGeodesicMesh()
 
     float uMin = limitValues[0], uMax = limitValues[1];
     float vMin = limitValues[2], vMax = limitValues[3];
+
+    // MOTO IN CORSO: il dominio e' quello GIA' APPLICATO, non il testo dei
+    // campi. Questa funzione gira a ogni tick del timer su un record animato,
+    // e leggendo i campi raccoglieva le cifre a meta' digitazione: il limite
+    // entrava in vigore al primo carattere, senza attendere l'Invio. I campi
+    // restano la sorgente per i percorsi interattivi (Run, Invio sui limiti),
+    // che passano da updateU/VLimits e quindi aggiornano proprio questi valori.
+    if (useAppliedLimits && ui->glWidget && ui->glWidget->getEngine()) {
+        const auto *eng = ui->glWidget->getEngine();
+        uMin = eng->getUMin(); uMax = eng->getUMax();
+        vMin = eng->getVMin(); vMax = eng->getVMax();
+    }
 
     int steps = ui->stepSlider->value();
     int safeSteps = std::min(steps, 500);  // Limite fisico per le geodetiche
@@ -17181,7 +17239,10 @@ bool MainWindow::advanceGeodesicFlowBy(double dtSeconds)
     setProperty("geoTime", property("geoTime").toDouble() + step);
 
     m_inGeoAnimTick = true;
-    bool meshOk = updateGeodesicMesh();
+    // useAppliedLimits: il tick del moto NON deve raccogliere il testo dei campi
+    // a meta' digitazione (vedi updateGeodesicMesh). Il dominio cambia quando
+    // l'utente conferma con l'Invio, non mentre scrive.
+    bool meshOk = updateGeodesicMesh(/*useAppliedLimits=*/true);
     m_inGeoAnimTick = false;
     return meshOk;
 }
