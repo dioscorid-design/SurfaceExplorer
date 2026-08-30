@@ -72,7 +72,8 @@
         "zMax": 1000,
         "zMin": -1000
     },
-    "name": "Whiteney Umbrella",
+    "meshScopeAll": true,
+    "name": "Whitney Umbrella",
     "projectionMode": 1,
     "renderMode": 1,
     "steps": 604,

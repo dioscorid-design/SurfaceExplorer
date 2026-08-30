@@ -7,16 +7,18 @@
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": 0.9367488622665405,
-        "rot_x": -0.08584486693143845,
-        "rot_y": -0.3382173478603363,
-        "rot_z": -0.027226373553276062,
+        "rot_w": 0.7913514375686646,
+        "rot_x": 0.48200294375419617,
+        "rot_y": 0.3297940194606781,
+        "rot_z": -0.18075357377529144,
         "x": 0,
         "y": 0,
         "yaw": 0,
         "z": 20.79999542236328
     },
+    "cameraFov": 45,
     "colors": {
+        "alpha": 1,
         "b": 0.20000000298023224,
         "g": 0.800000011920929,
         "r": 0.20000000298023224
@@ -25,25 +27,37 @@
         "A": 1.2000000476837158,
         "B": 1.100000023841858,
         "C": 1,
-        "D": 2,
-        "E": 0,
-        "F": 0,
+        "D": 1,
+        "E": 1,
+        "F": 1,
         "S": 0
     },
     "equations": {
-        "defU": "u\n",
+        "defU": "u",
         "defV": "C*cos(u)",
         "defW": "v",
         "explicitU": "",
         "explicitV": "",
         "explicitW": "",
-        "p": "A*(exp(-B*W)*cos(U)-V*exp(B*W)*sin(U))",
-        "x": "A*exp(B*W)*cos(U)",
-        "y": "A*exp(B*W)*sin(U)",
-        "z": "A*(exp(-B*W)*sin(U)+V*exp(B*W)*cos(U))"
+        "p": "A*exp(-B*W)*cos(U)",
+        "x": "A*(exp(B*W)*cos(U) + V*exp(B*W)*sin(U))",
+        "y": "A*(V*exp(B*W)*cos(U) - exp(B*W)*sin(U))",
+        "z": "A*exp(-B*W)*sin(U)"
+    },
+    "fov3D": 45,
+    "fov4D": 45,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
     },
     "hintSeconds": 6,
     "hintText": "Sliders A-C active on this shape",
+    "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 1,
     "limits": {
@@ -52,13 +66,23 @@
         "vMax": 1.5,
         "vMin": -1.5,
         "wMax": 0,
-        "wMin": 0
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
     },
+    "meshScopeAll": true,
     "name": "Wormhole BTZ",
     "projectionMode": 0,
     "renderMode": 1,
-    "showBorder": false,
     "steps": 111,
     "type": "surface",
-    "use4DLighting": false
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
 }

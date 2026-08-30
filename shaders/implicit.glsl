@@ -174,8 +174,9 @@ float kerrRprime(float r, float M, float a) {
 // 1/(r-r_+): l'integrando ~ 1/sqrt(r-r_+) e' una singolarita' INTEGRABILE che il
 // trapezio uniforme cattura male. Cambio di variabile r = r_+ + s^2 (dr = 2s ds):
 // sqrt(g_rr)*2s -> finito alla gola => integrando REGOLARE, niente epsilon.
-// Verificato contro Flamm esatto a a = 0 (z = 2 sqrt(2M(r-2M))): errore < 0.4%
-// uniforme con N = 128. A a = 0 e' l'imbuto di Flamm; a a -> M il collo diventa
+// Verificato contro Flamm esatto a a = 0 (z = 2 sqrt(2M(r-2M))): errore < 1e-4 %
+// con N = 128 (e gia' a N = 16), una volta incluso f(0) nel primo trapezio --
+// vedi sotto. A a = 0 e' l'imbuto di Flamm; a a -> M il collo diventa
 // infinito (z grande gia' vicino a r_+ = M): troncare il dominio dall'alto.
 // UNA SOLA falda (r >= r_+): per Kerr non esiste la bocca speculare a z < 0
 // (vedi nota in kerrGrr e docs/kerr-regione-r-negativo.md).
@@ -190,15 +191,30 @@ float kerrEmbedZ(float U, float M, float a) {
 
     // Integrando in s: f(s) = sqrt(g_rr - R'^2) * (dr/ds), con dr/ds = 2s.
     // A s = 0 NON e' zero: g_rr ~ 1/s^2 e f(0) = 2 r_+ / sqrt(r_+ - r_-) (finito).
-    // Lo valutiamo a s = ds (gia' regolare grazie al cambio variabile) e usiamo
-    // quel valore anche come estremo sinistro: evita il caso speciale su r_-.
+    // Il primo sotto-intervallo [0, ds] USA questo valore analitico: trattarlo
+    // come zero (com'era prima) perde ~0.5*f(0)*ds e degrada la convergenza da
+    // ordine 2 a ordine 1 -- l'errore contro Flamm restava 0.39% a N=128 e
+    // dimezzava soltanto raddoppiando N. Con f(0) esatto l'errore e' < 1e-4 %
+    // gia' a N=16.
     float integrand_prev;
     {
         float r0  = Umin + ds * ds;
         float rp0 = kerrRprime(r0, M, a);
         integrand_prev = sqrt(max(kerrGrr(r0, M, a) - rp0 * rp0, 0.0)) * 2.0 * ds;
     }
-    float acc = 0.5 * integrand_prev * ds;   // primo sotto-intervallo [0, ds]
+    // f(0) = 2 r_+ / sqrt(r_+ - r_-), con r_+ - r_- = 2 sqrt(M^2 - a^2).
+    // CASO ESTREMALE a = M: r_+ = r_-, la differenza va a zero e f(0) diverge
+    // (la singolarita' cambia natura e non e' piu' integrabile allo stesso
+    // modo). Li' ripieghiamo sul campione gia' calcolato, e in ogni caso non
+    // superiamo mai f(ds): l'integrando decresce verso la gola, quindi un f(0)
+    // sopra il campione sarebbe comunque spurio.
+    float f0;
+    {
+        float sep = 2.0 * sqrt(max(M * M - a * a, 0.0));   // r_+ - r_-
+        f0 = (sep > 1e-6) ? (2.0 * Umin / sqrt(sep)) : integrand_prev;
+        f0 = min(f0, integrand_prev);
+    }
+    float acc = 0.5 * (f0 + integrand_prev) * ds;   // primo sotto-intervallo [0, ds]
     for (int i = 2; i <= N; ++i) {
         float s  = ds * float(i);
         float r  = Umin + s * s;

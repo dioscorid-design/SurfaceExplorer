@@ -1,16 +1,28 @@
 {
+    "activeMotion": "rotation",
     "angles": {
         "omega": 0,
         "phi": 0,
         "psi": 0
     },
+    "background": {
+        "code": "",
+        "col1": "#3333cc",
+        "col2": "#000000",
+        "color": "#c3c69a",
+        "enabled": false,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": -0.9417683482170105,
-        "rot_x": -0.07311868667602539,
-        "rot_y": 0.2028273493051529,
-        "rot_z": 0.25804442167282104,
+        "rot_w": -0.44429582357406616,
+        "rot_x": -0.4903669059276581,
+        "rot_y": -0.4269580841064453,
+        "rot_z": 0.6163182258605957,
         "x": 0,
         "y": 0,
         "yaw": 0,
@@ -19,18 +31,22 @@
     "cameraFov": 45,
     "colors": {
         "alpha": 1,
-        "b": 0.2078431397676468,
-        "g": 0.7490196228027344,
-        "r": 0.20392157137393951
+        "surfColor": "#34bf35"
     },
     "constants": {
         "A": 1.455399990081787,
         "B": 1,
         "C": 1,
-        "D": 0.7300000190734863,
+        "D": 0.75,
         "E": 5,
         "F": 1,
         "S": 0
+    },
+    "discreteConstants": {
+        "E": [
+            2,
+            12
+        ]
     },
     "equations": {
         "defU": "",
@@ -76,10 +92,48 @@
     },
     "meshScopeAll": true,
     "name": "Spherical Cycloid Tube",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "pathMode3D": 0,
     "projectionMode": 1,
     "renderMode": 1,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 10,
+        "path4D": 10,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
     "steps": 800,
-    "type": "surface",
+    "texture": {
+        "code": "//IMG:/Users/dioscorid/Projects/C/presets/textures/New Images/2k_makemake_fictional.jpg\n// --- PARAMETRI ---\nfloat scale = 50.0; // Densità degli anelli (più alto = più cerchi)\nvec2 center = vec2(0.5, 0.5); // Centro dei cerchi (0.5, 0.5 è il centro della texture)\n\n// --- LOGICA ---\n// 1. Calcola la distanza del pixel corrente (u, v) dal centro\nfloat dist = distance(vec2(u, v), center);\n\n// 2. Crea l'onda sinusoidale basata sulla distanza\n// Moltiplichiamo per 'scale' per aumentare la frequenza\nfloat val = sin(dist * scale);\n\n// 3. Mappiamo il risultato da -1..1 a 0..1 per il mix\nfloat tit = (val + 1.0) * 0.5;\n\n// 4. Mix finale\nreturn mix(u_col1, u_col2, tit);",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 8.137060165405273
+    },
+    "type": "motion",
     "use4DLighting": false,
     "wireframe": {
         "uStep": 4,

@@ -7,15 +7,16 @@
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": 0.3874051868915558,
-        "rot_x": 0.38880985975265503,
-        "rot_y": 0.7857088446617126,
-        "rot_z": 0.28531694412231445,
+        "rot_w": -0.803359866142273,
+        "rot_x": 0.2523902654647827,
+        "rot_y": -0.45386195182800293,
+        "rot_z": -0.2914128005504608,
         "x": 0,
         "y": 0,
         "yaw": 0,
-        "z": 4
+        "z": 7.179996967315674
     },
+    "cameraFov": 45,
     "colors": {
         "alpha": 1,
         "b": 0.20000000298023224,
@@ -24,7 +25,7 @@
     },
     "constants": {
         "A": 0.699999988079071,
-        "B": 0.699999988079071,
+        "B": 1,
         "C": 0.9700000286102295,
         "D": 1,
         "E": 1,
@@ -32,17 +33,19 @@
         "S": 0
     },
     "equations": {
-        "defU": "u\n",
+        "defU": "u",
         "defV": "C * sin(v)",
         "defW": "C * cos(v)",
         "explicitU": "",
         "explicitV": "",
         "explicitW": "",
-        "p": "A*(exp(-B*W)*cos(U)-V*exp(B*W)*sin(U))",
-        "x": "A*exp(B*W)*cos(U)",
-        "y": "A*exp(B*W)*sin(U)",
-        "z": "A*(exp(-B*W)*sin(U)+V*exp(B*W)*cos(U))"
+        "p": "A*(V*exp(W)*sin(U) + exp(-W)*cos(U))",
+        "x": "A*exp(W)*cos(U)",
+        "y": "A*(V*exp(W)*cos(U) - exp(-W)*sin(U))",
+        "z": "A*exp(W)*sin(U)"
     },
+    "fov3D": 45,
+    "fov4D": 45,
     "geodesic": {
         "conform": "1.0",
         "du": "",
@@ -71,10 +74,10 @@
         "zMax": 1000,
         "zMin": -1000
     },
+    "meshScopeAll": true,
     "name": "Iwasawa Torus",
     "projectionMode": 1,
     "renderMode": 1,
-    "showBorder": false,
     "steps": 347,
     "type": "surface",
     "use4DLighting": false,

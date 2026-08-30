@@ -16,7 +16,9 @@
         "yaw": 0,
         "z": 10
     },
+    "cameraFov": 45,
     "colors": {
+        "alpha": 1,
         "b": 0.20000000298023224,
         "g": 0.800000011920929,
         "r": 0.20000000298023224
@@ -42,10 +44,12 @@
         "y": "V",
         "z": "W"
     },
+    "fov3D": 45,
+    "fov4D": 45,
     "geodesic": {
         "conform": "1.0",
-        "du": "-sin(u)",
-        "dv": "cos(u)",
+        "du": "-A*sin(u)",
+        "dv": "A*cos(u)",
         "dw": "0.3",
         "u0": "A*cos(u)",
         "v0": "A*sin(u)",
@@ -60,7 +64,7 @@
         "uMax": 12.566370964050293,
         "uMin": 0,
         "vMax": 1.5,
-        "vMin": -1.5,
+        "vMin": 0,
         "wMax": 0,
         "wMin": 0,
         "xMax": 1000,
@@ -70,11 +74,15 @@
         "zMax": 1000,
         "zMin": -1000
     },
+    "meshScopeAll": true,
     "name": "Tangent Developable of a Helix",
     "projectionMode": 1,
     "renderMode": 1,
-    "showBorder": false,
     "steps": 100,
     "type": "surface",
-    "use4DLighting": false
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
 }

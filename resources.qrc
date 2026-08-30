@@ -42,8 +42,8 @@
         <file>presets/surfaces/Ray Marching/Sphere with Two Handles.json</file>
         <file>presets/surfaces/Ray Marching/Holes.json</file>
         <file>presets/surfaces/Ray Marching/Gyroid1.json</file>
-        <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Whiteney Umbrella.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Twisted Torus Ribbon.json</file>
+        <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Whitney Umbrella.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Mobius Strip.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Tri-Twisted Ribbon.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Plucker Conoid.json</file>
@@ -51,8 +51,9 @@
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Hyperboloid.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/S^2xS^1/Twisted Antipodal Ribbon.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/S^2xS^1/Toroidal Resonance Orbit.json</file>
-        <file>presets/surfaces/Parametric/Geodesic Flow/S^3/Hopf Fibrations.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/S^3/Hyperbolic Flow.json</file>
+        <file>presets/surfaces/Parametric/Geodesic Flow/S^3/Great Circle Sweep (closed).json</file>
+        <file>presets/surfaces/Parametric/Geodesic Flow/S^3/Great Circle Sweep.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/S^3/Toroidal Knot.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/S^3/Spherical Funnell.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/S^3/Wobbling Ribbon.json</file>
@@ -123,8 +124,8 @@
         <file>presets/surfaces/Parametric/Equations/SL(2,R)/Iwasawa Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/SL(2,R)/Anti-de Sitter Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/Tubes/Self-Intersecting Tube.json</file>
-        <file>presets/surfaces/Parametric/Equations/Tubes/Otto_4D (Slider A).json</file>
         <file>presets/surfaces/Parametric/Equations/Tubes/Clover Tube.json</file>
+        <file>presets/surfaces/Parametric/Equations/Tubes/Otto 4D lift.json</file>
         <file>presets/surfaces/Parametric/Equations/Tubes/Otto.json</file>
         <file>presets/surfaces/Parametric/Equations/Tubes/Tubo Autointersecante.json.bak7</file>
         <file>presets/surfaces/Parametric/Equations/Tubes/Spherical Cycloid Tube.json</file>
@@ -388,11 +389,11 @@
         <file>presets/records/t_motions/S2xR/Compressing Helicoid.json</file>
         <file>presets/records/t_motions/SOL/Sphere.json</file>
         <file>presets/records/t_motions/SOL/Torus.json</file>
+        <file>presets/records/t_motions/SL(2,R)/Asymptotic Vortex.json</file>
         <file>presets/records/t_motions/SL(2,R)/Wormhole BTZ.json</file>
         <file>presets/records/t_motions/SL(2,R)/Iwasawa Torus.json</file>
         <file>presets/records/t_motions/SL(2,R)/Anti-de Sitter Torus.json</file>
         <file>presets/records/t_motions/SL(2,R)/Horocycle Flux.json</file>
-        <file>presets/records/t_motions/SL(2,R)/Asintotic Vortex.json</file>
         <file>presets/records/t_motions/H2xR/Rotating Pringles.json</file>
         <file>presets/records/t_motions/H2xR/Waving Tractroid.json</file>
         <file>presets/records/t_motions/H2xR/Flutter of Wings.json</file>
@@ -441,6 +442,7 @@
         <file>presets/records/Static/Veronese Surface.json</file>
         <file>presets/records/Static/Symmetrized Double Enneper.json</file>
         <file>presets/records/Static/H^2xR.json</file>
+        <file>presets/records/Static/Spherical Cycloid Tube.json</file>
         <file>presets/sounds/wav/321723__rhodesmas__deep-space-vibrations-ambience-loop.wav</file>
         <file>presets/sounds/wav/723963__badwolf23__spatial-audio-4.wav</file>
         <file>presets/sounds/wav/3322__jovica__dronetail-52.wav</file>
