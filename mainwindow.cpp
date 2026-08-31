@@ -718,6 +718,23 @@ protected:
     }
 };
 
+// SONDE DEL COMMIT GEODETICO (spente). Mettere a 1 per stampare chi committa un
+// campo, da dove arrivano le equazioni e se lo snapshot active_* esiste.
+// Servono a riconoscere la regressione classica di questa zona: se ricompare
+// "le equazioni si applicano senza il Run" oppure "il campo confermato con
+// l'Invio non ha effetto", la riga da leggere e' snapshot=0 (snapshot mai
+// preso -> in passato si ricadeva sui campi UI) o un ABORT. freezeMap=1
+// significa X/Y/Z/P congelate sull'ultimo Run, freezeFlow=0 che i 7 campi del
+// flusso sono letti dal vivo: e' il comportamento corretto per un commit di
+// singolo campo a moto fermo.
+// NB: il progetto non usa qDebug altrove, per questo sono dietro una macro.
+#define SE_GEO_COMMIT_PROBE 0
+#if SE_GEO_COMMIT_PROBE
+#  define SE_GEO_PROBE(...) qDebug("GEO_PROBE " __VA_ARGS__)
+#else
+#  define SE_GEO_PROBE(...) do {} while (0)
+#endif
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
@@ -1540,7 +1557,12 @@ MainWindow::MainWindow(QWidget *parent)
             // deve congelare il ricalcolo, altrimenti riportare una costante
             // al valore buono lascia la mesh bloccata sull'ultimo stato.
             m_geodesicErrorPending = false;
-            checkAndTriggerMeshUpdate();
+            // useAppliedEquations: questo debounce lo fanno partire lo slider
+            // Steps e le costanti, che NON sono un Run. Senza il flag il ramo
+            // geodetico rileggeva X/Y/Z/P dai campi e applicava equazioni
+            // modificate e non confermate -- lo stesso difetto che avevano i
+            // limiti: bastava muovere Steps per committarle di straforo.
+            checkAndTriggerMeshUpdate(/*useAppliedEquations=*/true);
         });
     }
 
@@ -1693,7 +1715,9 @@ MainWindow::MainWindow(QWidget *parent)
             applyDiscreteConstants();
             evaluateCascade();                           // clamp + cascata + slider + push costanti
             if (m_meshDebounce) m_meshDebounce->stop();  // evita il doppio ridisegno asincrono
-            commitFieldsOnEnter();                       // valida: se ok ridisegna, altrimenti vecchia immagine + popup
+            SE_GEO_PROBE("costante editingFinished -> commitFieldsOnEnter");
+            const bool okConst = commitFieldsOnEnter();  // valida: se ok ridisegna, altrimenti vecchia immagine + popup
+            SE_GEO_PROBE("costante esito applied=%d", int(okConst));
         });
     };
 
@@ -8088,6 +8112,20 @@ void MainWindow::onStartClicked()
         if (ui->chkBoxTexture->isChecked()) geoEqs += " " + m_surfaceTextureCode;
         if (ui->radioBackground->isChecked() || ui->glWidget->isBackgroundTextureEnabled()) geoEqs += " " + m_bgTextureCode;
 
+        // SNAPSHOT DELLE EQUAZIONI APPLICATE. Qui, non solo nel prologo di
+        // onStartClicked (~7579): quello e' dietro `runDockOnly || masterStart`,
+        // cioe' dipende dal sender(), e i percorsi che applicano senza tasto
+        // (Invio su un campo equazione, ~3790) lo saltavano. Le active_* di
+        // conseguenza restavano assenti o STANTIE, e chi legge lo snapshot
+        // (l'Invio sui limiti e sui 7 campi del flusso) ricadeva sui campi UI:
+        // il bug si vedeva a intermittenza, "dopo qualche tentativo" -- cioe'
+        // dopo il primo click su Run che aggiornava lo snapshot.
+        // Questo e' il punto in cui le equazioni geodetiche vengono APPLICATE
+        // davvero: validate qui sopra e subito passate a updateGeodesicMesh.
+        snapshotActiveEquations();
+        SE_GEO_PROBE("RUN geodetico: snapshot aggiornato X=%s",
+                     qPrintable(ui->lineX->toPlainText().simplified()));
+
         // updateGeodesicMesh() calcola, verifica e restituisce false se i dati sono corrotti
         if (!updateGeodesicMesh()) {
             if (this->property("geoErrorType").toString() == "singularity"
@@ -8448,8 +8486,9 @@ void MainWindow::onResetViewClicked()
         ui->glWidget->setPathAnimating(true);
     }
 
-    // Aggiorna in sicurezza la mesh
-    checkAndTriggerMeshUpdate();
+    // Aggiorna in sicurezza la mesh. useAppliedEquations: il ripristino di un
+    // path non e' un Run e non deve applicare equazioni in sospeso.
+    checkAndTriggerMeshUpdate(/*useAppliedEquations=*/true);
 
     // Sincronizza il pulsante principale (che rimarrà su STOP se la superficie,
     // le rotazioni o un path stanno andando)
@@ -8464,7 +8503,8 @@ void MainWindow::onNavTimerTick()
         ui->glWidget->virtualMove(static_cast<GLWidget::MoveDir>(action), m_pathSpeed3D, m_pathSpeed4D);
     }
 
-    checkAndTriggerMeshUpdate();
+    // useAppliedEquations: navigare non e' un Run.
+    checkAndTriggerMeshUpdate(/*useAppliedEquations=*/true);
 }
 
 void MainWindow::commitPathFieldOnEnter(const QString& fieldName)
@@ -8483,8 +8523,13 @@ void MainWindow::commitPathFieldOnEnter(const QString& fieldName)
     }
 }
 
-void MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
+// Ritorna true se il limite e' stato APPLICATO (false = rifiutato: numero non
+// valido, min>=max, snapshot assente). Nessun chiamante attuale usa l'esito --
+// l'Invio non ha nulla da decidere -- ma resta l'informazione corretta per chi
+// dovesse incatenare altre azioni al successo del commit.
+bool MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
 {
+
     // Invio su un limite U/V/W: applica SUBITO il nuovo dominio. I limiti sono
     // un parametro come gli altri (colore, steps, costanti); solo le equazioni
     // aspettano il Run. Deliberatamente NON passiamo da commitFieldsOnEnter:
@@ -8507,10 +8552,10 @@ void MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
     else if (fieldName == "vMaxEdit") { edited = ui->vMaxEdit; axisLabel = "v max"; }
     else if (fieldName == "wMinEdit") { edited = ui->wMinEdit; axisLabel = "w min"; }
     else if (fieldName == "wMaxEdit") { edited = ui->wMaxEdit; axisLabel = "w max"; }
-    if (!edited) return;
+    if (!edited) return false;
 
     // Campo disabilitato (es. W in Composition, svuotato apposta): niente da fare.
-    if (!edited->isEnabled()) return;
+    if (!edited->isEnabled()) return false;
 
     bool ok = false;
     parseLimitField(edited->text(), &ok);
@@ -8527,7 +8572,7 @@ void MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
             edited->selectAll();
             m_constantPopupActive = false;
         }
-        return;
+        return false;
     }
 
     // updateU/V/WLimits rifiutano da sole i limiti impossibili (min >= max)
@@ -8550,7 +8595,7 @@ void MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
             edited->selectAll();
             m_constantPopupActive = false;
         }
-        return;
+        return false;
     }
 
     // EQUAZIONI IN CORSO DI SCRITTURA: il limite resta REGISTRATO (updateU/V/W
@@ -8595,7 +8640,10 @@ void MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
         // Il tasto Run e' gia' acceso (le equazioni sono sporche): e' lui a
         // dire che c'e' qualcosa in attesa di essere applicato.
         updateMasterButtonState();
-        return;
+        // Il limite e' comunque REGISTRATO nell'engine (updateU/V/WLimits qui
+        // sopra) e vale al prossimo Run: per il chiamante e' un successo, il
+        // testo va marcato confermato. Manca solo il ridisegno, di proposito.
+        return true;
     }
 
     // Il dominio e' cambiato: la mesh va RICALCOLATA sulle equazioni CORRENTI
@@ -8615,9 +8663,17 @@ void MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
         // ed e' quello che chiama il Run (~8096). La condizione e' gia' stata
         // calcolata sopra, perche' governa anche la guardia m_parametricApplied.
         if (geodesicActive) {
-            updateGeodesicMesh();   // calcola, valida e ridisegna da solo
+            // useAppliedEquations: l'Invio su un limite applica SOLO il dominio.
+            // Senza questo flag, a flusso FERMO updateGeodesicMesh rilegge il
+            // testo dei campi X/Y/Z/P (e carta/condizioni iniziali) e committa
+            // equazioni modificate ma non ancora confermate col Run -- che nel
+            // frattempo resta acceso, senza piu' niente da applicare.
+            // A flusso in moto il disaccoppiamento c'era gia' (isRunning).
+            const bool meshOk =
+                updateGeodesicMesh(/*useAppliedLimits=*/false,
+                                   /*useAppliedEquations=*/true);
             ui->glWidget->update();
-            return;
+            return meshOk;
         }
 
         ui->glWidget->updateSurfaceData();
@@ -8629,12 +8685,13 @@ void MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
                 setProperty("collapseErrorShown", true);
                 InputValidator::showMathematicalCollapseError(this);
             }
-            return;
+            return false;
         }
         setProperty("collapseErrorShown", false);
 
         ui->glWidget->update();
     }
+    return true;
 }
 
 bool MainWindow::compilePath4DFromFields()
@@ -16909,17 +16966,18 @@ void MainWindow::commitUiFieldsDuringMotion() {
         }
     }
 
-void MainWindow::commitFieldsOnEnter() {
+// Ritorna true se la modifica e' stata APPLICATA (vedi commitLimitFieldOnEnter).
+bool MainWindow::commitFieldsOnEnter() {
     m_geodesicErrorPending = false;
 
     // In moto: usa la logica live già esistente.
     if (m_btnStart && m_btnStart->text().toUpper() == "STOP") {
         commitUiFieldsDuringMotion();
-        return;
+        return true;
     }
 
     // A superficie ferma: applica solo nel tab parametrico.
-    if (ui->tabModeSelector->currentIndex() != 0) return;
+    if (ui->tabModeSelector->currentIndex() != 0) return false;
 
     // Stesso routing di checkAndTriggerMeshUpdate: geodetico vs standard.
     QString mainEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
@@ -16929,13 +16987,20 @@ void MainWindow::commitFieldsOnEnter() {
                      (mainEqs.contains(kReUpperW) ? 1 : 0);
 
     if ((upperCount > 0) && hasGeodesicText()) {
-        if (!updateGeodesicMesh()
+        // useAppliedEquations: qui arrivano l'Invio e l'uscita dai 7 campi del
+        // flusso (u/v/w iniziali, du/dv/dw, fattore conforme). Quei campi vanno
+        // applicati -- sono la superficie -- ma X/Y/Z/P no: sono la mappa di
+        // visualizzazione e aspettano il Run. Senza il flag venivano committate
+        // anche loro, col Run che restava acceso a vuoto.
+        const bool meshOk = updateGeodesicMesh(/*useAppliedLimits=*/false,
+                                               /*useAppliedEquations=*/true);
+        if (!meshOk
                 && property("geoErrorType").toString() == "singularity"
                 && !property("geoErrorShown").toBool()) {
             setProperty("geoErrorShown", true);
             InputValidator::showGeodesicSingularityError(this);
         }
-        return;
+        return meshOk;
     }
 
     // Standard / composition / constraint: applica equazioni, composizioni e
@@ -16943,9 +17008,10 @@ void MainWindow::commitFieldsOnEnter() {
     setProperty("rmApplyOnly", true);
     onStartClicked();                 // sender != m_btnStart -> niente toggle START/STOP
     setProperty("rmApplyOnly", false);
+    return true;
 }
 
-bool MainWindow::updateGeodesicMesh(bool useAppliedLimits)
+bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquations)
 {
     // Resettiamo il flag degli errori per questa esecuzione
     this->setProperty("geoErrorType", "none");
@@ -17022,23 +17088,64 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits)
         this->setProperty("isInitialLoad", false);
     }
 
-    // --- LOGICA DI DISACCOPPIAMENTO PER IL MOTO CORRENTE ---
-    bool isRunning = isGeodesicMotionActive();
+    // --- LOGICA DI DISACCOPPIAMENTO ---
+    // Due gruppi di campi, due regole diverse.
+    //
+    // A MOTO ATTIVO (isRunning) vale la vecchia regola per TUTTI: il tick gira
+    // di continuo e leggere i campi raccoglierebbe le cifre a meta' digitazione.
+    //
+    // A MOTO FERMO con useAppliedEquations (Invio su un SINGOLO campo: limiti
+    // u/v/w, i 7 campi del flusso, costanti A..F/S):
+    //  - X/Y/Z/P sono la MAPPA DI VISUALIZZAZIONE e appartengono al dock
+    //    Equations: si applicano SOLO col Run. Vanno presi dallo snapshot,
+    //    altrimenti il commit di un limite committa di straforo equazioni
+    //    modificate e non confermate -- il bug per cui il tasto Run restava
+    //    acceso senza piu' niente da applicare.
+    //  - I 7 campi del flusso (u/v/w iniziali, du/dv/dw, fattore conforme)
+    //    DEFINISCONO la superficie geodetica e sono proprio quelli che l'utente
+    //    sta confermando: vanno letti DAL VIVO, altrimenti il campo appena
+    //    modificato non avrebbe alcun effetto.
+    const bool motionRunning = isGeodesicMotionActive();
+    const bool freezeMapEqs  = motionRunning || useAppliedEquations;   // X/Y/Z/P
+    const bool freezeFlowEqs = motionRunning;                          // i 7 campi
 
-    QString rawX = (isRunning && this->property("active_lineX").isValid()) ? this->property("active_lineX").toString() : ui->lineX->toPlainText();
-    QString rawY = (isRunning && this->property("active_lineY").isValid()) ? this->property("active_lineY").toString() : ui->lineY->toPlainText();
-    QString rawZ = (isRunning && this->property("active_lineZ").isValid()) ? this->property("active_lineZ").toString() : ui->lineZ->toPlainText();
-    QString rawP = (isRunning && this->property("active_lineP").isValid()) ? this->property("active_lineP").toString() : ui->lineP->toPlainText();
+    // Snapshot mancante (mai fatto un Run: preset appena caricato da script
+    // metrico, avvio a freddo). Ripiegare sui campi qui rimetterebbe in gioco
+    // proprio le equazioni non confermate: meglio non ridisegnare affatto. Il
+    // chiamante interattivo ha gia' REGISTRATO la sua modifica (limiti scritti
+    // nell'engine, campi del flusso nella UI) e al prossimo Run vale tutto.
+    SE_GEO_PROBE("updateGeodesicMesh useAppliedEqs=%d motion=%d snapshot=%d "
+                 "freezeMap=%d freezeFlow=%d",
+                 int(useAppliedEquations), int(motionRunning),
+                 int(this->property("active_lineX").isValid()),
+                 int(freezeMapEqs), int(freezeFlowEqs));
 
-    QString rawU = (isRunning && this->property("active_lnU").isValid()) ? this->property("active_lnU").toString() : (ui->lnU ? ui->lnU->toPlainText() : "");
-    QString rawV = (isRunning && this->property("active_lnV").isValid()) ? this->property("active_lnV").toString() : (ui->lnV ? ui->lnV->toPlainText() : "");
-    QString rawW = (isRunning && this->property("active_lnW").isValid()) ? this->property("active_lnW").toString() : (ui->lnW ? ui->lnW->toPlainText() : "");
+    if (useAppliedEquations && !this->property("active_lineX").isValid()) {
+        SE_GEO_PROBE("ABORT: snapshot assente, non ridisegno "
+                     "(il campo resta registrato, vale al prossimo Run)");
+        return false;
+    }
 
-    QString rawDU = (isRunning && this->property("active_lndU").isValid()) ? this->property("active_lndU").toString() : (ui->lndU ? ui->lndU->toPlainText() : "");
-    QString rawDV = (isRunning && this->property("active_lndV").isValid()) ? this->property("active_lndV").toString() : (ui->lndV ? ui->lndV->toPlainText() : "");
-    QString rawDW = (isRunning && this->property("active_lndW").isValid()) ? this->property("active_lndW").toString() : (ui->lndW ? ui->lndW->toPlainText() : "");
+    auto pick = [this](bool frozen, const char* prop, QPlainTextEdit* edit) -> QString {
+        if (frozen && this->property(prop).isValid())
+            return this->property(prop).toString();
+        return edit ? edit->toPlainText() : QString();
+    };
 
-    QString rawConf = (isRunning && this->property("active_lineConform").isValid()) ? this->property("active_lineConform").toString() : (ui->lineConform ? ui->lineConform->toPlainText() : "");
+    QString rawX = pick(freezeMapEqs, "active_lineX", ui->lineX);
+    QString rawY = pick(freezeMapEqs, "active_lineY", ui->lineY);
+    QString rawZ = pick(freezeMapEqs, "active_lineZ", ui->lineZ);
+    QString rawP = pick(freezeMapEqs, "active_lineP", ui->lineP);
+
+    QString rawU = pick(freezeFlowEqs, "active_lnU", ui->lnU);
+    QString rawV = pick(freezeFlowEqs, "active_lnV", ui->lnV);
+    QString rawW = pick(freezeFlowEqs, "active_lnW", ui->lnW);
+
+    QString rawDU = pick(freezeFlowEqs, "active_lndU", ui->lndU);
+    QString rawDV = pick(freezeFlowEqs, "active_lndV", ui->lndV);
+    QString rawDW = pick(freezeFlowEqs, "active_lndW", ui->lndW);
+
+    QString rawConf = pick(freezeFlowEqs, "active_lineConform", ui->lineConform);
     // --- FINE LOGICA DI DISACCOPPIAMENTO ---
 
     QRegularExpression varRegex("\\b(u|v|w|U|V|W|x|y|z|t|iTime|u_time)\\b");
@@ -17243,7 +17350,7 @@ bool MainWindow::advanceGeodesicFlowBy(double dtSeconds)
     return meshOk;
 }
 
-void MainWindow::checkAndTriggerMeshUpdate() {
+void MainWindow::checkAndTriggerMeshUpdate(bool useAppliedEquations) {
     if (!ui->glWidget) return;
 
     // Ray marching (tab implicito): la superficie è calcolata per pixel dallo
@@ -17278,7 +17385,8 @@ void MainWindow::checkAndTriggerMeshUpdate() {
     if ((upperCount > 0 || metricScriptActive) && geoHasText && (ui->tabModeSelector->currentIndex() == 0)) {
         if (m_geodesicErrorPending) return;
 
-        bool success = updateGeodesicMesh();
+        bool success = updateGeodesicMesh(/*useAppliedLimits=*/false,
+                                          useAppliedEquations);
         if (!success) {
             // Allinea il percorso Script al percorso dock (onStartClicked): se il
             // flusso è degenerato in una singolarità, l'avviso va mostrato anche

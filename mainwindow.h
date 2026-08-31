@@ -1067,21 +1067,37 @@ private:
     void restoreActiveEquations(const QStringList &saved);
     QStringList readActiveEquations() const;
     void commitUiFieldsDuringMotion();
-    void commitFieldsOnEnter();
+    // Ritornano true se la modifica e' stata APPLICATA, false se rifiutata
+    // (limite non valido, min>=max, snapshot assente, singolarita').
+    // L'aggiornamento avviene SOLO all'Invio o al Run: cambiare campo senza
+    // Invio non applica nulla, per nessun tipo di campo. Vedi il commento in
+    // mainwindow.cpp sopra commitLimitFieldOnEnter.
+    bool commitFieldsOnEnter();
     // Invio su un campo path (chiamata dai filtri tastiera desktop/mobile,
     // che CONSUMANO il Return: returnPressed non arriva mai ai QLineEdit):
     // a moto attivo ricompila le equazioni del path del campo al volo.
     void commitPathFieldOnEnter(const QString& fieldName);
     // Stessa provenienza (filtri tastiera): l'Invio su un limite U/V/W applica
     // subito il nuovo dominio, senza toccare le equazioni in sospeso.
-    void commitLimitFieldOnEnter(const QString& fieldName);
+    bool commitLimitFieldOnEnter(const QString& fieldName);
     // useAppliedLimits: legge il dominio GIA' APPLICATO dall'engine invece dei
     // campi UI. Serve al tick del moto (advanceGeodesicFlowBy), che gira di
     // continuo su un record animato: rileggendo il testo dei campi raccoglieva
     // le cifre a meta' digitazione e il limite si applicava senza attendere
     // l'Invio. I percorsi interattivi (Run, Invio sui limiti) leggono i campi.
-    bool updateGeodesicMesh(bool useAppliedLimits = false);
-    void checkAndTriggerMeshUpdate();
+    // useAppliedEquations: usa le equazioni GIA' APPLICATE (snapshot active_*)
+    // invece del testo dei campi, anche a moto FERMO. Serve all'Invio sui
+    // limiti: quello deve applicare SOLO il dominio, mai equazioni modificate e
+    // non ancora confermate col Run. A moto attivo il disaccoppiamento c'e'
+    // gia'; questo flag lo estende al caso fermo.
+    bool updateGeodesicMesh(bool useAppliedLimits = false, bool useAppliedEquations = false);
+    // useAppliedEquations: nel ramo geodetico usa le equazioni X/Y/Z/P
+    // dell'ultimo Run (snapshot active_*) invece del testo dei campi. Lo
+    // passano i chiamanti che NON sono un Run -- debounce di Steps e costanti,
+    // navigazione, ripristino path -- perche' un ricalcolo innescato da loro
+    // non deve applicare equazioni ancora in corso di scrittura. I Run veri
+    // (runMetricScript, load preset) lo lasciano a false.
+    void checkAndTriggerMeshUpdate(bool useAppliedEquations = false);
     void stopGeodesicAnimation();
     bool isGeodesicMotionActive() const;
     bool hasGeodesicText() const;
