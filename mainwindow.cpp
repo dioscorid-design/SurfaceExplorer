@@ -2078,52 +2078,29 @@ MainWindow::MainWindow(QWidget *parent)
     ui->lineYMin->clear(); ui->lineYMax->clear();
     ui->lineZMin->clear(); ui->lineZMax->clear();
 
-    auto connectSpaceLimit = [this](QLineEdit* minEdit, QLineEdit* maxEdit,
-            void (GLWidget::*setLimitFunc)(float, float),
-            const QString& axis) {
-        auto applyLimits = [this, minEdit, maxEdit, setLimitFunc, axis](bool notify) {
-            // helper: campo vuoto -> usa il default (nessun taglio); non valido -> popup + stop
-            auto readField = [this, notify, axis](QLineEdit* edit, float def, const QString& side, bool* good) -> float {
-                *good = true;
-                if (edit->text().trimmed().isEmpty()) return def;   // vuoto = nessun limite
-                bool ok = false;
-                float v = parseMath(edit->text(), &ok);
-                if (!ok) {
-                    *good = false;
-                    if (notify && !m_constantPopupActive) {
-                        m_constantPopupActive = true;
-                        InputValidator::showInvalidLimitError(this, axis + " " + side, edit->text());
-                        edit->setFocus();
-                        edit->selectAll();
-                        m_constantPopupActive = false;
-                    }
-                    return def;
-                }
-                return v;
-            };
+    // LIMITI SPAZIALI X/Y/Z: si applicano al RUN, non all'Invio -- stessa regola
+    // dei limiti u/v/w e delle equazioni. Sono il taglio della scena in Ray
+    // Marching, cioe' parte della definizione di cio' che si vede, e come tali
+    // vanno confermati insieme all'equazione implicita. Niente connect su
+    // editingFinished qui: l'applicazione passa da applySpaceLimits(), che il
+    // ramo Ray Marching di onStartClicked chiama a ogni Run.
+    // Le modifiche dell'utente riaccendono il Run one-shot, come per ogni altro
+    // campo del modulo (vedi le connect textEdited piu' sotto).
+    applySpaceLimits(/*notify=*/false);   // allineamento iniziale, silenzioso
 
-            bool okMin = true, okMax = true;
-            float minVal = readField(minEdit, -1000.0f, "min", &okMin);
-            if (!okMin) return;                       // non applichiamo limiti non validi
-            float maxVal = readField(maxEdit,  1000.0f, "max", &okMax);
-            if (!okMax) return;
-
-            if (minVal >= maxVal) return;             // range impossibile: non applicare
-
-            if (ui->glWidget) {
-                (ui->glWidget->*setLimitFunc)(minVal, maxVal);
-            }
-        };
-
-        connect(minEdit, &QLineEdit::editingFinished, this, [applyLimits]() { applyLimits(true); });
-        connect(maxEdit, &QLineEdit::editingFinished, this, [applyLimits]() { applyLimits(true); });
-
-        applyLimits(false);   // chiamata iniziale silenziosa
-    };
-
-    connectSpaceLimit(ui->lineXMin, ui->lineXMax, &GLWidget::setRangeX, "X");
-    connectSpaceLimit(ui->lineYMin, ui->lineYMax, &GLWidget::setRangeY, "Y");
-    connectSpaceLimit(ui->lineZMin, ui->lineZMax, &GLWidget::setRangeZ, "Z");
+    for (QLineEdit* spaceEdit : { ui->lineXMin, ui->lineXMax,
+                                  ui->lineYMin, ui->lineYMax,
+                                  ui->lineZMin, ui->lineZMax }) {
+        connect(spaceEdit, &QLineEdit::textEdited, this, [this](const QString&) {
+            if (!m_uiReady || m_populatingFields) return;
+            noteSceneEdited(qobject_cast<QWidget*>(sender()));
+            // Il tasto Run del tab Ray Marching torna eseguibile: c'e' un taglio
+            // nuovo da applicare. E' l'omologo di m_parametricApplied per il
+            // ramo implicito.
+            m_implicitApplied = false;
+            updateMasterButtonState();
+        });
+    }
 
     // LIMITI U/V/W: il dominio fa parte della definizione della superficie e
     // segue la stessa regola delle equazioni -- a superficie FERMA aspetta il
@@ -7607,6 +7584,67 @@ void MainWindow::handleTextureSelection(int index)
 // EQUATIONS & MATHEMATICS
 // ==========================================================
 
+bool MainWindow::applySpaceLimits(bool notify)
+{
+    if (!ui->glWidget) return true;
+
+    // Campo vuoto = nessun taglio su quel lato: si usa il default largo, non un
+    // errore. Un campo NON valutabile invece ferma tutto: applicare gli assi
+    // buoni e saltare quello rotto darebbe un taglio a meta', senza dire perche'.
+    auto readField = [this, notify](QLineEdit* edit, float def, const QString& axis,
+                                    const QString& side, bool* good) -> float {
+        *good = true;
+        if (edit->text().trimmed().isEmpty()) return def;
+        bool ok = false;
+        const float v = parseMath(edit->text(), &ok);
+        if (!ok) {
+            *good = false;
+            if (notify && !m_constantPopupActive) {
+                m_constantPopupActive = true;
+                InputValidator::showInvalidLimitError(this, axis + " " + side, edit->text());
+                edit->setFocus();
+                edit->selectAll();
+                m_constantPopupActive = false;
+            }
+            return def;
+        }
+        return v;
+    };
+
+    struct Axis {
+        QLineEdit* lo;
+        QLineEdit* hi;
+        void (GLWidget::*setter)(float, float);
+        const char* name;
+    };
+    const Axis axes[] = {
+        { ui->lineXMin, ui->lineXMax, &GLWidget::setRangeX, "X" },
+        { ui->lineYMin, ui->lineYMax, &GLWidget::setRangeY, "Y" },
+        { ui->lineZMin, ui->lineZMax, &GLWidget::setRangeZ, "Z" },
+    };
+
+    // DUE PASSATE: prima si legge e valida tutto, poi si applica. Cosi' un
+    // errore sull'asse Z non lascia X e Y gia' tagliati con la scena in uno
+    // stato intermedio che nessun campo descrive.
+    float lo[3], hi[3];
+    for (int i = 0; i < 3; ++i) {
+        bool okLo = true, okHi = true;
+        lo[i] = readField(axes[i].lo, -1000.0f, axes[i].name, "min", &okLo);
+        if (!okLo) return false;
+        hi[i] = readField(axes[i].hi,  1000.0f, axes[i].name, "max", &okHi);
+        if (!okHi) return false;
+
+        // Intervallo impossibile: si lascia l'asse com'e' (nessun taglio nuovo),
+        // senza popup -- e' lo stesso trattamento che aveva prima.
+        if (lo[i] >= hi[i]) { lo[i] = -1000.0f; hi[i] = 1000.0f; }
+    }
+
+    for (int i = 0; i < 3; ++i) {
+        (ui->glWidget->*axes[i].setter)(lo[i], hi[i]);
+    }
+    return true;
+}
+
 bool MainWindow::updateULimits() {
     float lo = parseLimitField(ui->uMinEdit->text());
     float hi = parseLimitField(ui->uMaxEdit->text());
@@ -7947,6 +7985,14 @@ void MainWindow::onStartClicked()
     // MODALITÀ IMPLICITA (RAY MARCHING)
     // ==========================================================
     if (ui->tabModeSelector->currentIndex() == 1) {
+
+        // 0. LIMITI SPAZIALI X/Y/Z. Si applicano QUI, al Run, insieme
+        // all'equazione: sono il taglio della scena, parte di cio' che il Run
+        // porta a schermo. Prima entravano da soli all'uscita dal campo, unico
+        // pezzo del modulo a non passare dal Run.
+        // Un campo illeggibile ferma il Run come un errore di sintassi: il
+        // popup lo mostra applySpaceLimits, e la scena resta quella valida.
+        if (!applySpaceLimits(/*notify=*/true)) return;
 
         // 1. Lettura e validazione equazione
         QString rawEq = ui->lineEquation->toPlainText().trimmed();

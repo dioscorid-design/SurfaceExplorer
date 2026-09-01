@@ -168,6 +168,13 @@ private slots:
     // ==========================================================
     // EQUATIONS & MATHEMATICS
     // ==========================================================
+    // LIMITI SPAZIALI X/Y/Z (Ray Marching): legge i sei campi, valida e applica
+    // il taglio della scena. Chiamata dal RUN, come per ogni altra modifica del
+    // modulo equazioni -- non dall'Invio. notify=true mostra il popup sul primo
+    // campo illeggibile; false applica in silenzio (chiamate di inizializzazione).
+    // Ritorna false se un campo non e' valutabile: in quel caso NON si applica
+    // nulla e il Run si ferma, come per un'equazione con errore di sintassi.
+    bool applySpaceLimits(bool notify);
     bool updateULimits();
     bool updateVLimits();
     bool updateWLimits();
