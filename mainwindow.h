@@ -386,6 +386,15 @@ private:
     QString m_currentHintText;
     float   m_currentHintSeconds = 6.0f;
 
+    // Messaggio della TEXTURE caricata, tenuto SEPARATO da quello della scena.
+    // I due vivono in file diversi (il .json della texture e quello della
+    // superficie/record) e non devono mischiarsi: caricare una texture con hint
+    // non deve far finire quel testo nel preset della superficie al primo Save,
+    // ne' viceversa. Come per la scena non c'e' UI di editing, quindi si ricorda
+    // qui perche' un risalvataggio della texture non lo perda.
+    QString m_currentTextureHintText;
+    float   m_currentTextureHintSeconds = 6.0f;
+
     // Costanti DISCRETE dichiarate dallo script con "A := int(min,max);".
     // Chiave = lettera maiuscola (A..F, S); assente = costante continua.
     // Al rilascio dello slider / Enter nel campo il valore scatta all'intero

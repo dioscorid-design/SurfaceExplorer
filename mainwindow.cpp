@@ -7576,6 +7576,26 @@ void MainWindow::handleTextureSelection(int index)
 
     onColorTargetChanged();
 
+    // SUGGERIMENTO IN SOVRIMPRESSIONE della texture, in coda come per superfici
+    // (applySurfaceExample) e record (applyMotionExample). Serve soprattutto
+    // alle texture che usano le costanti A..F/S: gli slider si sbloccano da
+    // soli -- updateConstantsUIState le trova nel codice -- ma niente dice a
+    // COSA servano in questa texture, e l'utente si trova uno slider acceso
+    // senza sapere cosa muove.
+    // Qui e non nei singoli rami: la funzione non ha uscite anticipate, quindi
+    // questo punto vale per parametrica, ray marching, sfondo e per-mesh.
+    // SOLO se la texture ne ha uno. showSceneHint("") azzererebbe anche
+    // m_currentHintText, che e' il messaggio della SCENA: PresetSerializer lo
+    // riscrive nel preset di superficie e nel record (~694, ~1063), quindi
+    // caricare una texture senza hint su una superficie che ne ha uno lo
+    // cancellerebbe, e il primo Save lo perderebbe dal file. Il messaggio della
+    // texture e' un'aggiunta, non un sostituto.
+    m_currentTextureHintText    = data.hintText.trimmed();
+    m_currentTextureHintSeconds = data.hintSeconds;
+    if (!m_currentTextureHintText.isEmpty()) {
+        showSceneHint(data.hintText, data.hintSeconds);
+    }
+
     this->setProperty("isTextureModified", false);
 }
 

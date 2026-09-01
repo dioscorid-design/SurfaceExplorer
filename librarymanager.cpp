@@ -584,6 +584,15 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
         if (root.contains("isImplicitMode")) {
             d.isImplicitMode = root["isImplicitMode"].toBool();
         }
+        // Messaggio opzionale in sovrimpressione, stesse chiavi dei rami Motion e
+        // Surface. Serve alle texture che usano le costanti A..F/S: gli slider si
+        // sbloccano da soli (updateConstantsUIState legge il codice), ma nulla
+        // dice a COSA servono in QUESTA texture -- l'hint e' il posto dove
+        // scriverlo, com'e' gia' per le superfici.
+        if (root.contains("hintText")) {
+            d.hintText = root["hintText"].toString();
+            d.hintSeconds = (float)root["hintSeconds"].toDouble(6.0);
+        }
         if (root.contains("displacement")) {
             d.displacementCode = root["displacement"].toString();
         }

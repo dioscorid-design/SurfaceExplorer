@@ -798,6 +798,17 @@ void PresetSerializer::saveTexture(const QString &path)
     root["type"] = "custom_texture";
     root["name"] = QFileInfo(path).baseName();
 
+    // Suggerimento in sovrimpressione della texture (tipicamente: a cosa serve
+    // la costante A..F/S che questo script usa). Non ha UI di editing, quindi si
+    // riscrive quello della texture caricata: senza, ogni Save su una texture
+    // che ne aveva uno lo perderebbe -- lo stesso difetto gia' corretto per le
+    // superfici (~694). Chiave assente se non c'e' nulla da dire, cosi' le
+    // texture che non lo usano non cambiano di un byte.
+    if (!m_mainWindow->m_currentTextureHintText.isEmpty()) {
+        root["hintText"] = m_mainWindow->m_currentTextureHintText;
+        root["hintSeconds"] = (double)m_mainWindow->m_currentTextureHintSeconds;
+    }
+
     if (m_mainWindow->m_fileOps) {
         m_mainWindow->m_fileOps->backupBeforeOverwrite(path);
     }
