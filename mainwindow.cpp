@@ -8461,6 +8461,20 @@ void MainWindow::onStartClicked()
     // flag one-shot del Run. Leggere i campi qui rimetteva in gioco il 't' non
     // confermato -- i tasti passavano a Stop per un'animazione che non era
     // partita.
+    // SOLO i campi del modulo EQUAZIONI. Gli script di texture e sfondo
+    // (m_surfaceTextureCode, m_bgTextureCode) NON vanno inclusi: il loro 't'
+    // anima il proprio modulo, che ha i suoi clock (setSurfaceTextureAnimating /
+    // setBackgroundTextureAnimating), non la geometria.
+    // Includendoli, un record con texture o sfondo animati -- es. "Coiled Coil"
+    // in records/Paths, che li ha entrambi con iTime -- accendeva al load il
+    // clock della GEOMETRIA per un tempo che non le appartiene. Il clock restava
+    // acceso ma inerte finche' le equazioni erano statiche; appena l'utente
+    // scriveva una 't', isEquationModuleMoving lo trovava gia' acceso e i tasti
+    // Run e master passavano a "Stop" senza che l'animazione fosse partita --
+    // serviva Stop+Run. La superficie omonima, senza texture animate, non
+    // accendeva quel clock e infatti si comportava correttamente.
+    // E' la stessa regola gia' applicata al ramo Ray Marching poco sopra e a
+    // isEquationModuleMoving: ogni modulo guarda il proprio tempo.
     QString rawEqsForT = eqField("active_lineX", ui->lineX) + " " +
             eqField("active_lineY", ui->lineY) + " " +
             eqField("active_lineZ", ui->lineZ) + " " +
@@ -8471,8 +8485,7 @@ void MainWindow::onStartClicked()
                          ui->lineU->toPlainText() + " " +
                          ui->lineV->toPlainText() + " " +
                          ui->lineW->toPlainText() + " " +
-                         m_surfaceTextureCode + " " +
-            m_bgTextureCode;
+                         m_surfaceScriptText;
 
     bool isSurfTexEnabled = ui->radioBackground->isChecked() ? m_surfaceTextureState : ui->chkBoxTexture->isChecked();
     if (isSurfTexEnabled && wasCustomTexture && !currentScript.isEmpty()) {
@@ -17219,7 +17232,14 @@ void MainWindow::restoreActiveEquations(const QStringList &saved) {
 }
 
 void MainWindow::commitUiFieldsDuringMotion() {
-    if (!m_btnStart || m_btnStart->text().toUpper() != "STOP") return;
+    // Questa funzione applica AL VOLO le equazioni della geometria: ha senso
+    // solo se e' il MODULO EQUAZIONI a essere in moto. Guardare il master
+    // button (su STOP anche per un path camera, una rotazione o l'audio, con la
+    // geometria ferma) la faceva girare su una superficie STATICA, committando
+    // equazioni che dovevano attendere il Run -- vedi il commento in
+    // commitFieldsOnEnter. Il ramo generico del filtro mobile la chiama
+    // direttamente, quindi la guardia deve stare anche qui.
+    if (!isEquationModuleMoving()) return;
     m_geodesicErrorPending = false;
 
     QString mainEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
@@ -17277,8 +17297,24 @@ void MainWindow::commitUiFieldsDuringMotion() {
 bool MainWindow::commitFieldsOnEnter() {
     m_geodesicErrorPending = false;
 
-    // In moto: usa la logica live già esistente.
-    if (m_btnStart && m_btnStart->text().toUpper() == "STOP") {
+    // MODULO EQUAZIONI in moto: usa la logica live già esistente, che applica al
+    // volo senza fermare l'animazione.
+    //
+    // Si guarda il MODULO EQUAZIONI, non il master button. Il master va su STOP
+    // per QUALUNQUE cosa si muova -- clock della texture o dello sfondo, path
+    // camera, rotazioni, audio -- anche con la GEOMETRIA FERMA. In quel caso si
+    // finiva nel ramo live, che chiama onStartClicked SENZA rmApplyOnly, quindi
+    // senza il congelamento delle equazioni sullo snapshot.
+    // Basta un path camera in corsa, o una texture animata, perche' il master
+    // dica STOP: da li' si finiva nel ramo live e la t appena scritta veniva
+    // committata al primo Invio, senza Run.
+    // E' lo stesso difetto gia' corretto per il commit di servizio e per
+    // l'avvio del flusso geodetico: qualcosa entra senza un Run, e lo stato dei
+    // tasti descrive una realta' diversa da quella a schermo. La radice comune
+    // e' usare il master button come se dicesse "la geometria e' in moto".
+    // A geometria ferma si prosegue sotto, dove il commit passa da rmApplyOnly
+    // e le equazioni restano in attesa del Run.
+    if (isEquationModuleMoving()) {
         commitUiFieldsDuringMotion();
         return true;
     }
