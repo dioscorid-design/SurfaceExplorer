@@ -11,6 +11,7 @@
 #include <rhi/qshaderbaker.h>
 #include <QTimer>
 #include <memory>
+#include <limits>
 #include <functional>
 #include <QMatrix4x4>
 #include <QMouseEvent>
@@ -155,7 +156,16 @@ public:
     void setRangeZ(float min, float max);
     void setResolution(int n);
     void setRaySteps(int steps);
-    bool setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool tolerateTruncated = false);
+    // uMin/uMax/vMin/vMax: il DOMINIO su cui la griglia e' stata integrata. Serve
+    // ad ancorare le coordinate texture al dominio invece che agli indici di
+    // griglia: senza, restringere l'intervallo ri-stira la texture sulla
+    // superficie accorciata invece di tagliarla. Default NaN = "non passato":
+    // si ricade sulle UV normalizzate di sempre.
+    bool setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool tolerateTruncated = false,
+                       float uMin = std::numeric_limits<float>::quiet_NaN(),
+                       float uMax = std::numeric_limits<float>::quiet_NaN(),
+                       float vMin = std::numeric_limits<float>::quiet_NaN(),
+                       float vMax = std::numeric_limits<float>::quiet_NaN());
     const QMap<QString, float>& getConstantsMap() const { return m_constants; }
 
     SurfaceEngine* getEngine() const { return engine.get(); }
@@ -804,6 +814,27 @@ private:
     int m_raySteps = 100;
     float m_surfaceScale = 2.0f;
     bool m_isCustomMesh = false;
+
+    // DOMINIO DI RIFERIMENTO delle coordinate texture della mesh geodetica.
+    // Le texCoord sono la frazione di QUESTO dominio, non dell'intervallo
+    // corrente: e' cio' che tiene la texture ancorata alla geometria quando si
+    // restringe l'intervallo (la si vede TAGLIATA, non compressa). Fissato al
+    // primo calcolo dopo un load/reset (m_uvRefValid=false) e tenuto fermo
+    // finche' non se ne carica un altro, cosi' il preset conserva l'aspetto con
+    // cui e' stato salvato.
+    bool  m_uvRefValid = false;
+    float m_uvRefUMin = 0.0f, m_uvRefUSpan = 1.0f;
+    float m_uvRefVMin = 0.0f, m_uvRefVSpan = 1.0f;
+
+public:
+    // Riarma il dominio di riferimento delle texCoord geodetiche: il prossimo
+    // calcolo lo rifissa sull'intervallo corrente. La chiamano i percorsi che
+    // stabiliscono un nuovo "stato di partenza" -- load di preset/record e
+    // reset di modalita' -- MAI un semplice cambio di limiti, che e' proprio il
+    // caso in cui il riferimento deve restare fermo.
+    void resetGeodesicUvReference() { m_uvRefValid = false; }
+
+private:
 
 
     // ==========================================================

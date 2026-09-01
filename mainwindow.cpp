@@ -189,6 +189,27 @@ static bool isPathEquationField(const QString& objectName)
     return kPathFields.contains(objectName);
 }
 
+// Campi del modulo EQUAZIONI (tab Parametric) che definiscono la superficie:
+// equazioni principali, composizioni U/V/W, vincoli espliciti e flusso
+// geodetico (condizioni iniziali, direzioni, fattore conforme). Su questi
+// l'Invio NON applica nulla -- si limita a togliere il focus -- perche' la
+// superficie si ricostruisce solo col Run: applicare a meta' digitazione
+// mostrerebbe una forma che non corrisponde a cio' che si sta scrivendo (X
+// aggiornata, Y e Z ancora vecchie). Restano fuori i parametri che non
+// ridefiniscono la superficie -- costanti A..F/S e Steps -- che l'Invio
+// applica subito. I limiti u/v/w aspettano anch'essi il Run ma hanno un ramo
+// proprio nei filtri (commitLimitFieldOnEnter: validano e restano in attesa).
+static bool isDeferredEquationField(const QString& objectName)
+{
+    static const QSet<QString> kEquationFields = {
+        "lineX", "lineY", "lineZ", "lineP",
+        "lineU", "lineV", "lineW",
+        "lineExplicitU", "lineExplicitV", "lineExplicitW",
+        "lnU", "lnV", "lnW", "lndU", "lndV", "lndW", "lineConform"
+    };
+    return kEquationFields.contains(objectName);
+}
+
 class DesktopInputFilter : public QObject {
 public:
     DesktopInputFilter(QObject* parent = nullptr) : QObject(parent) {}
@@ -204,17 +225,32 @@ protected:
                     return false;
                 }
 
-                // Campi equazione principali del tab parametrico:
-                // Enter NON deve eseguire. Lo consumiamo (niente a-capo) e basta.
-                if (on == "lineX" || on == "lineY" || on == "lineZ" || on == "lineP") {
+                // Campi del modulo equazioni (principali, composizioni, vincoli,
+                // flusso geodetico). Due regimi, ed e' la stessa regola per
+                // TUTTI i campi del modulo, limiti u/v/w compresi:
+                //  - superficie FERMA: l'Invio non esegue nulla, si aspetta il
+                //    Run. Applicare a meta' digitazione mostrerebbe una forma
+                //    che non corrisponde a cio' che si sta scrivendo (X
+                //    aggiornata, Y e Z ancora vecchie).
+                //  - superficie IN MOTO: il modulo e' gia' avviato e il tasto
+                //    e' "Stop", quindi un Run da premere non c'e'; l'Invio
+                //    applica al volo (commitUiFieldsDuringMotion), senza il
+                //    giro Stop+Run che spezzerebbe l'animazione.
+                if (isDeferredEquationField(on)) {
                     if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
+                    if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
+                        if (mainWin->isEquationModuleMoving())
+                            mainWin->commitUiFieldsDuringMotion();
+                    }
                     return true;
                 }
 
-                // LIMITI U/V/W: l'Invio li applica subito, come ogni altro
-                // parametro non-equazione. Solo le EQUAZIONI restano legate al
-                // Run (sopra), perche' cambiare forma a meta' digitazione non
-                // ha senso; l'estensione del dominio invece si regola dal vivo.
+                // LIMITI U/V/W: hanno un ramo proprio ma seguono la stessa
+                // regola dei campi qui sopra -- a superficie ferma il dominio
+                // aspetta il Run, in moto entra subito. Il ramo separato serve
+                // perche' commitLimitFieldOnEnter, oltre ad applicare, VALIDA il
+                // numero (popup su valore illeggibile o min>=max) e registra il
+                // dominio nell'engine anche quando non si ridisegna.
                 // NON si passa da commitFieldsOnEnter: quella strada rifa' un
                 // Run intero, e committerebbe anche equazioni modificate ma non
                 // ancora confermate. Qui si tocca il solo dominio.
@@ -525,6 +561,20 @@ protected:
                     return false;
                 }
 
+                // Campi del modulo equazioni: stessi due regimi del filtro
+                // desktop -- fermo aspettano il Run, in moto l'Invio applica al
+                // volo. Il ramo generico qui sotto chiamerebbe comunque
+                // commitUiFieldsDuringMotion, ma senza distinguere i due casi.
+                if (isDeferredEquationField(obj->objectName())) {
+                    if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
+                    if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
+                        if (mainWin->isEquationModuleMoving())
+                            mainWin->commitUiFieldsDuringMotion();
+                    }
+                    QGuiApplication::inputMethod()->hide();
+                    return true;
+                }
+
                 // Campi path camera: a moto attivo l'Invio ricompila il path
                 // al volo, come nel filtro desktop.
                 if (isPathEquationField(obj->objectName())) {
@@ -536,9 +586,11 @@ protected:
                     return true;
                 }
 
-                // Limiti U/V/W: applicazione immediata del dominio, come nel
-                // filtro desktop. Senza questo ramo cadrebbero nel generico qui
-                // sotto (commitUiFieldsDuringMotion), che e' un'altra cosa.
+                // Limiti U/V/W: stessa regola e stesso ramo del filtro desktop
+                // (validazione + registrazione del dominio; a schermo subito
+                // solo se la superficie e' in moto). Senza questo ramo
+                // cadrebbero nel generico qui sotto (commitUiFieldsDuringMotion),
+                // che e' un'altra cosa.
                 const QString limitName = obj->objectName();
                 if (limitName == "uMinEdit" || limitName == "uMaxEdit" ||
                     limitName == "vMinEdit" || limitName == "vMaxEdit" ||
@@ -1563,6 +1615,27 @@ MainWindow::MainWindow(QWidget *parent)
             // modificate e non confermate -- lo stesso difetto che avevano i
             // limiti: bastava muovere Steps per committarle di straforo.
             checkAndTriggerMeshUpdate(/*useAppliedEquations=*/true);
+
+            // Nel FLUSSO GEODETICO la chiamata qui sopra ha appena applicato i 7
+            // campi del flusso letti dal vivo: a schermo c'e' gia' il risultato e
+            // il Run non ha piu' niente da fare. Va spento, o resterebbe acceso a
+            // invitare a un'azione senza effetto (il valore della costante entra
+            // dallo slider e dall'Invio, non dal Run). Stesso ragionamento del
+            // commit in commitFieldsOnEnter.
+            // Solo nel ramo geodetico: nel ramo parametrico standard le equazioni
+            // NON vengono applicate da questo percorso (le congela
+            // useAppliedEquations), quindi li' il Run ha ancora il suo lavoro.
+            //
+            // E solo se la MAPPA X/Y/Z/P e' quella gia' applicata: useAppliedEquations
+            // la congela sullo snapshot, quindi una sua modifica NON e' andata a
+            // schermo e il Run resta l'unico modo di applicarla. Spegnerlo qui
+            // (perche' nel frattempo si e' toccato uno slider) lascerebbe la
+            // modifica irraggiungibile.
+            if (isGeodesicRoutingActive() && !m_geodesicErrorPending
+                    && mapEquationsMatchSnapshot()) {
+                m_parametricApplied = true;
+            }
+            updateMasterButtonState();
         });
     }
 
@@ -2052,12 +2125,19 @@ MainWindow::MainWindow(QWidget *parent)
     connectSpaceLimit(ui->lineYMin, ui->lineYMax, &GLWidget::setRangeY, "Y");
     connectSpaceLimit(ui->lineZMin, ui->lineZMax, &GLWidget::setRangeZ, "Z");
 
-    // LIMITI U/V/W: si applicano all'Invio (come ogni parametro non-equazione)
-    // e al Run. Nessuna connect editingFinished/returnPressed qui: il Return
-    // non arriva mai ai QLineEdit, lo consumano prima i filtri tastiera
-    // (desktop ~213 e mobile), che chiamano commitLimitFieldOnEnter.
-    // onStartClicked continua a leggere e validare i campi per conto suo, cosi'
-    // al Run i limiti entrano in vigore insieme alle equazioni.
+    // LIMITI U/V/W: il dominio fa parte della definizione della superficie e
+    // segue la stessa regola delle equazioni -- a superficie FERMA aspetta il
+    // Run, IN MOTO entra subito (li' un Run da premere non c'e': il tasto e'
+    // "Stop"). La conferma del campo -- Invio o uscita -- passa da
+    // commitLimitFieldOnEnter, che valida il numero e registra il dominio
+    // nell'engine in entrambi i casi; le connect stanno piu' avanti, insieme a
+    // quelle che riaccendono il Run. Il Return non arriva mai ai QLineEdit --
+    // lo consumano prima i filtri tastiera (desktop e mobile) -- percio'
+    // l'Invio passa di li'. onStartClicked rilegge e valida i campi per conto
+    // suo, cosi' al Run i limiti entrano in vigore insieme alle equazioni.
+    //
+    // I LIMITI SPAZIALI X/Y/Z qui sopra restano invece immediati: sono un
+    // taglio della VISTA in Ray Marching, non il dominio dei parametri.
 
     connect(ui->btnTextureCode, &QPushButton::clicked, this, [this]() {
         onRunRaymarchTextureClicked();
@@ -3407,13 +3487,50 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Stessa ragione per i limiti U/V/W, che ammettono A..F/S: scrivere "2*A"
     // in uMax sblocca subito slider e casella di A. Qui SOLO lo stato dell'UI
-    // delle costanti: l'applicazione del limite avviene all'Invio (filtri
-    // tastiera -> commitLimitFieldOnEnter) e al Run, non su textChanged --
-    // altrimenti la mesh si rigenererebbe a ogni carattere digitato.
+    // delle costanti: il limite si applica alla conferma del campo (Invio o
+    // uscita), mai su textChanged -- altrimenti la mesh si rigenererebbe a ogni
+    // carattere digitato.
     for (QLineEdit* limitEdit : { ui->uMinEdit, ui->uMaxEdit,
                                   ui->vMinEdit, ui->vMaxEdit,
                                   ui->wMinEdit, ui->wMaxEdit }) {
         connect(limitEdit, &QLineEdit::textChanged, this, &MainWindow::updateConstantsUIState);
+
+        // Il dominio fa parte della definizione della superficie: toccarlo
+        // riaccende il Run one-shot, esattamente come toccare X/Y/Z/P
+        // (markUserEdit). Senza questo, cambiando i SOLI limiti il tasto
+        // restava spento e non c'era piu' alcun modo di applicarli, ora che
+        // non si applicano piu' da soli all'Invio.
+        connect(limitEdit, &QLineEdit::textEdited, this, [this](const QString&) {
+            if (!m_uiReady || m_populatingFields) return;
+            QWidget* w = qobject_cast<QWidget*>(sender());
+            noteSceneEdited(w);
+            m_parametricApplied = false;
+            // Modifica DELL'UTENTE in attesa di conferma. textEdited (non
+            // textChanged) scatta solo per la digitazione: i setText di preset,
+            // reset e cambio tab non lo emettono, e non devono far validare
+            // nulla all'uscita dal campo.
+            if (w) w->setProperty("userEditPending", true);
+            updateMasterButtonState();
+        });
+
+        // Conferma del campo al CAMBIO DI FOCUS, non solo con l'Invio: valida
+        // il numero (popup se illeggibile o min>=max) e registra il dominio --
+        // che entra a schermo subito se la superficie e' in moto, al Run se e'
+        // ferma. L'Invio arriva qui dai filtri tastiera, che consumano il
+        // Return prima che QLineEdit emetta returnPressed; editingFinished
+        // copre chi si limita a cliccare altrove.
+        connect(limitEdit, &QLineEdit::editingFinished, this, [this, limitEdit]() {
+            if (!m_uiReady || m_populatingFields) return;
+            // Solo se c'e' una digitazione da confermare. Qt emette
+            // editingFinished a ogni perdita di focus -- anche entrando e
+            // uscendo da un campo senza toccarlo, e anche subito dopo il
+            // clearFocus() del filtro tastiera sull'Invio: senza questa
+            // guardia il campo verrebbe validato (e il popup mostrato) due
+            // volte, o per un testo che l'utente non ha mai scritto.
+            if (!limitEdit->property("userEditPending").toBool()) return;
+            limitEdit->setProperty("userEditPending", false);
+            commitLimitFieldOnEnter(limitEdit->objectName());
+        });
     }
 
     connect(ui->speed3DSlider, &QSlider::valueChanged, this, [this](int val){ m_pathSpeed3D = val / 1000.0f; });
@@ -4376,6 +4493,11 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         bool prev;
         ~ResetGuard() { w->m_populatingFields = prev; }
     } resetGuard{this, wasPopulating};
+
+    // Scena nuova: la scala della texture geodetica si rifissa al primo calcolo
+    // (vedi setCustomMesh). Come al load di un preset -- e a differenza di un
+    // semplice cambio di limiti, dove il riferimento deve restare fermo.
+    if (ui->glWidget) ui->glWidget->resetGeodesicUvReference();
 
     ui->stepSlider->blockSignals(true);
 
@@ -8181,14 +8303,38 @@ void MainWindow::onStartClicked()
     ui->glWidget->setScriptCheck(false);
 
     // 2. EQUATIONS E CONSTRAINTS
+    //
+    // COMMIT DI SERVIZIO (rmApplyOnly): ci arrivano l'Invio su una costante e
+    // l'uscita dal suo campo, cioe' percorsi che NON sono un Run. Le equazioni
+    // vanno prese dallo SNAPSHOT dell'ultimo Run, non dai campi: lo stesso
+    // disaccoppiamento che il ramo geodetico ottiene con useAppliedEquations.
+    //
+    // Senza, scrivere 't' in un'equazione e poi confermare una costante
+    // committava anche quel 't': entrava nella mesh e nello shader mentre il
+    // clock restava fermo (applyOnly non lo accende). La superficie non si
+    // muoveva -- l'utente vedeva "la costante entra, t no" -- ma i tasti
+    // leggevano il testo dei campi e passavano a Stop, e per far partire
+    // davvero l'animazione serviva Stop+Start. E' il difetto gemello di quello
+    // corretto nel flusso geodetico.
+    //
+    // Snapshot assente (mai fatto un Run in questa scena): si ricade sui campi,
+    // che e' il comportamento storico -- non c'e' un "gia' applicato" da usare.
+    const bool serviceCommit = this->property("rmApplyOnly").toBool()
+                            && this->property("active_lineX").isValid();
+    auto eqField = [this, serviceCommit](const char* prop, QPlainTextEdit* edit) -> QString {
+        if (serviceCommit && this->property(prop).isValid())
+            return this->property(prop).toString();
+        return edit->toPlainText();
+    };
+
     QString defU = ui->lineU->toPlainText();
     QString defV = ui->lineV->toPlainText();
     QString defW = ui->lineW->toPlainText();
 
-    QString rawX = composeEquation(ui->lineX->toPlainText(), defU, defV, defW);
-    QString rawY = composeEquation(ui->lineY->toPlainText(), defU, defV, defW);
-    QString rawZ = composeEquation(ui->lineZ->toPlainText(), defU, defV, defW);
-    QString rawP = composeEquation(ui->lineP->toPlainText(), defU, defV, defW);
+    QString rawX = composeEquation(eqField("active_lineX", ui->lineX), defU, defV, defW);
+    QString rawY = composeEquation(eqField("active_lineY", ui->lineY), defU, defV, defW);
+    QString rawZ = composeEquation(eqField("active_lineZ", ui->lineZ), defU, defV, defW);
+    QString rawP = composeEquation(eqField("active_lineP", ui->lineP), defU, defV, defW);
 
     QString xEq = GlslTranslator::translateEquation(rawX);
     QString yEq = GlslTranslator::translateEquation(rawY);
@@ -8310,10 +8456,15 @@ void MainWindow::onStartClicked()
     ui->glWidget->setRangeV(vMin, vMax);
     ui->glWidget->setRangeW(wMin, wMax);
 
-    QString rawEqsForT = ui->lineX->toPlainText() + " " +
-            ui->lineY->toPlainText() + " " +
-            ui->lineZ->toPlainText() + " " +
-            ui->lineP->toPlainText() + " " +
+    // Le STESSE equazioni appena applicate (congelate sullo snapshot se questo e'
+    // un commit di servizio): e' su questo testo che si decidono il clock e il
+    // flag one-shot del Run. Leggere i campi qui rimetteva in gioco il 't' non
+    // confermato -- i tasti passavano a Stop per un'animazione che non era
+    // partita.
+    QString rawEqsForT = eqField("active_lineX", ui->lineX) + " " +
+            eqField("active_lineY", ui->lineY) + " " +
+            eqField("active_lineZ", ui->lineZ) + " " +
+            eqField("active_lineP", ui->lineP) + " " +
             ui->lineExplicitU->toPlainText() + " " +
                          ui->lineExplicitV->toPlainText() + " " +
                          ui->lineExplicitW->toPlainText() + " " +
@@ -8368,7 +8519,16 @@ void MainWindow::onStartClicked()
     // la modifica grafica è ormai applicata e non c'è nulla da rieseguire finché
     // l'utente non cambia di nuovo le equazioni -> disabilitiamo il tasto. Con
     // animazione il tasto resta Run/Stop (gestito da updateMasterButtonState).
-    if (!hasTimeVariable(rawEqsForT)) {
+    // Il Run one-shot si spegne solo se a schermo c'e' DAVVERO tutto quello che
+    // l'utente ha scritto. In un commit di servizio le equazioni sono state
+    // congelate sullo snapshot (vedi eqField): se i campi divergono, la
+    // modifica NON e' stata applicata e il Run le serve ancora -- spegnerlo la
+    // renderebbe irraggiungibile. mapEquationsMatchSnapshot e' la stessa
+    // guardia usata dal ramo geodetico.
+    // Fuori dai commit di servizio (Run veri) le equazioni vengono dai campi e
+    // la condizione e' sempre vera: comportamento invariato.
+    const bool everythingApplied = !serviceCommit || mapEquationsMatchSnapshot();
+    if (!hasTimeVariable(rawEqsForT) && everythingApplied) {
         m_parametricApplied = true;
         updateMasterButtonState();
     }
@@ -8523,23 +8683,30 @@ void MainWindow::commitPathFieldOnEnter(const QString& fieldName)
     }
 }
 
-// Ritorna true se il limite e' stato APPLICATO (false = rifiutato: numero non
-// valido, min>=max, snapshot assente). Nessun chiamante attuale usa l'esito --
-// l'Invio non ha nulla da decidere -- ma resta l'informazione corretta per chi
-// dovesse incatenare altre azioni al successo del commit.
+// Ritorna true se il limite e' stato ACCETTATO (false = rifiutato: numero non
+// valido o min>=max). Il limite accettato viene REGISTRATO subito nell'engine;
+// a schermo entra subito se la superficie e' in moto (la mesh viene rigenerata
+// qui: nessun tick lo farebbe), al Run se e' ferma. Vedi il blocco finale.
 bool MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
 {
-
-    // Invio su un limite U/V/W: applica SUBITO il nuovo dominio. I limiti sono
-    // un parametro come gli altri (colore, steps, costanti); solo le equazioni
-    // aspettano il Run. Deliberatamente NON passiamo da commitFieldsOnEnter:
-    // quella strada rifa' un Run intero e committerebbe anche equazioni
-    // modificate ma non confermate.
-    // NB: chiamata dai filtri tastiera, che consumano il Return prima che il
-    // QLineEdit possa emettere returnPressed.
+    // Limite u/v/w confermato (Invio o uscita dal campo): si VALIDA e si
+    // REGISTRA nell'engine, ma a superficie ferma non si ridisegna. I limiti
+    // sono parte della definizione della superficie come X/Y/Z/P, composizioni,
+    // vincoli e flusso geodetico: il modulo equazioni aspetta il Run, cosi' il
+    // dominio nuovo entra in vigore INSIEME alle equazioni nuove e non si vede
+    // mai la superficie vecchia tagliata dai limiti nuovi (un'immagine che non
+    // corrisponde ne' a cio' che c'era ne' a cio' che si sta scrivendo).
+    // A superficie IN MOTO il ridisegno non si aspetta: lo porta il tick.
+    // Restano fuori da questa regola i soli parametri che non ridefiniscono la
+    // superficie -- costanti A..F/S e Steps -- che si applicano all'Invio.
+    // Deliberatamente NON si passa da commitFieldsOnEnter: quella strada rifa'
+    // un Run intero e committerebbe anche le equazioni in corso di scrittura.
+    // NB: chiamata dai filtri tastiera (che consumano il Return prima che il
+    // QLineEdit possa emettere returnPressed) e da editingFinished, cosi' anche
+    // il solo cambio di focus conferma il campo: l'Invio non e' obbligatorio.
 
     // Il campo appena editato deve essere valutabile: se contiene una formula
-    // rotta ("2*", "2*Z") o una costante spenta, avvisiamo e NON applichiamo,
+    // rotta ("2*", "2*Z") o una costante spenta, avvisiamo e NON registriamo,
     // lasciando in vista la superficie valida precedente.
     QLineEdit* edited = nullptr;
     QString axisLabel;
@@ -8557,16 +8724,23 @@ bool MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
     // Campo disabilitato (es. W in Composition, svuotato apposta): niente da fare.
     if (!edited->isEnabled()) return false;
 
+    // Conferma consumata: l'Invio arriva qui dai filtri tastiera e fa
+    // clearFocus(), che emette subito anche editingFinished. Azzerando ora il
+    // flag, il secondo passaggio esce prima di rivalidare e il popup d'errore
+    // resta uno solo.
+    edited->setProperty("userEditPending", false);
+
+    const QString currentText = edited->text();
     bool ok = false;
-    parseLimitField(edited->text(), &ok);
+    parseLimitField(currentText, &ok);
     // Il campo vuoto PASSA il parse (parseUIConstant: vuoto -> ok, 0.0), quindi
     // qui non si ferma: lo intercetta il ramo min>=max piu' sotto. Lo segnaliamo
     // comunque con emptyMeansNoLimit=false, cosi' il messaggio parla di dominio
     // mancante e non di numero illeggibile.
-    if (!ok || edited->text().trimmed().isEmpty()) {
+    if (!ok || currentText.trimmed().isEmpty()) {
         if (!m_constantPopupActive) {
             m_constantPopupActive = true;
-            InputValidator::showInvalidLimitError(this, axisLabel, edited->text(),
+            InputValidator::showInvalidLimitError(this, axisLabel, currentText,
                                                   /*emptyMeansNoLimit=*/false);
             edited->setFocus();
             edited->selectAll();
@@ -8575,9 +8749,23 @@ bool MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
         return false;
     }
 
-    // updateU/V/WLimits rifiutano da sole i limiti impossibili (min >= max)
-    // restituendo false, senza applicare nulla: in quel caso il popup lo
-    // mostriamo qui, una volta sola, sull'asse effettivamente incoerente.
+    // Coerenza dell'ASSE e REGISTRAZIONE del dominio. updateU/V/WLimits rifiuta
+    // da sola i limiti impossibili (min >= max) restituendo false senza toccare
+    // nulla; se accetta, scrive i membri uMin/uMax... e il dominio dell'engine
+    // (setRangeU/V/W).
+    //
+    // La registrazione va fatta ORA, non al Run, e il motivo e' il caso animato:
+    // a superficie in moto per 't' il tasto e' "Stop" -- non c'e' nessun Run da
+    // premere -- e il tick rigenera la mesh dal dominio DELL'ENGINE. Lasciando
+    // il dominio vecchio la superficie restava identica: si riducevano gli
+    // intervalli e non cambiava niente. Registrare non e' "applicare a meta'
+    // digitazione": il dominio e' un intervallo numerico, non un'espressione da
+    // comporre con le altre, e non puo' trovarsi in uno stato incoerente come
+    // una X aggiornata con Y e Z ancora vecchie.
+    //
+    // Cio' che resta legato al Run e' il RIDISEGNO a superficie ferma (vedi
+    // sotto): li' ridisegnare mostrerebbe la superficie VECCHIA tagliata dai
+    // limiti NUOVI, un'immagine che non corrisponde a niente.
     bool applied = true;
     if      (fieldName.startsWith("u")) applied = updateULimits();
     else if (fieldName.startsWith("v")) applied = updateVLimits();
@@ -8598,99 +8786,51 @@ bool MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
         return false;
     }
 
-    // EQUAZIONI IN CORSO DI SCRITTURA: il limite resta REGISTRATO (updateU/V/W
-    // Limits qui sopra ha gia' scritto i membri e il dominio dell'engine, e al
-    // prossimo Run vale) ma NON si ridisegna. Ridisegnando si vedrebbe la
-    // superficie VECCHIA tagliata dai limiti NUOVI: un'immagine che non
-    // corrisponde a niente: ne' a cio' che c'era, ne' a cio' che si sta
-    // scrivendo. Meglio lasciare in vista quella vecchia INTERA finche' il Run
-    // non applica le equazioni nuove.
-    // Non si fa il Run qui: committerebbe equazioni a meta' digitazione (X
-    // aggiornata, Y e Z ancora vecchie) e i Run impliciti hanno gia' prodotto
-    // riavvii indebiti di audio e clock.
-    // m_parametricApplied = "i campi equazione non sono stati toccati dopo
-    // l'ultimo Run" (markUserEdit ~1759: X/Y/Z/P, composizioni U/V/W e vincoli
-    // espliciti). Si guarda solo lui e non m_implicitApplied perche' u/v/w sono
-    // il dominio PARAMETRICO: in Ray Marching l'estensione della scena la danno
-    // i limiti spaziali, non questi campi.
-    // FLUSSO GEODETICO attivo? Serve a DUE decisioni qui sotto, quindi si
-    // calcola una volta sola. Stessa identica guardia di
-    // checkAndTriggerMeshUpdate (~17240), incluso metricScriptActive: con uno
-    // script metrico la mappa X/Y/Z/P puo' non citare U/V/W e il solo
-    // upperCount non basterebbe a riconoscere il caso.
-    const QString mainEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " "
-                          + ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText();
-    const int upperCount = (mainEqs.contains(kReUpperU) ? 1 : 0)
-                         + (mainEqs.contains(kReUpperV) ? 1 : 0)
-                         + (mainEqs.contains(kReUpperW) ? 1 : 0);
-    const bool metricScriptActive = !m_metricScriptBody.trimmed().isEmpty();
-    const bool geodesicActive = (upperCount > 0 || metricScriptActive)
-                              && hasGeodesicText()
-                              && ui->tabModeSelector->currentIndex() == 0;
+    // SUPERFICIE IN MOTO (geometria animata da 't' o flusso geodetico in corsa):
+    // qui il dominio va anche RIGENERATO subito, perche' nessun tick lo fara'.
+    // L'animazione da 't' della parametrica vive nel VERTEX SHADER (glwidget
+    // manda m_uboData.time alla GPU a ogni frame): la mesh CPU non viene
+    // ricalcolata, e il dominio u/v e' invece campionato da computeMesh() sulla
+    // CPU. setRangeU/V/W qui sopra alza meshNeedsUpdate, ma quel flag governa
+    // solo il RE-UPLOAD alla GPU dei vertici che l'engine ha gia' in pancia:
+    // senza updateSurfaceData() si ricarica la mesh VECCHIA e a schermo non
+    // cambia niente -- e' esattamente il "riduco gli intervalli e la superficie
+    // non cambia" che si vedeva.
+    // Non c'e' il problema di coerenza che consiglia di aspettare il Run a
+    // superficie ferma: la forma a schermo e' quella delle equazioni GIA'
+    // applicate (le modifiche in corso di scrittura aspettano il Run come
+    // sempre), e qui se ne cambia il solo dominio.
+    const bool geodesicActive = isGeodesicRoutingActive();
 
-    // m_parametricApplied parla dei campi X/Y/Z/P: nel flusso geodetico quelli
-    // sono la sola mappa di visualizzazione e NON definiscono la superficie,
-    // quindi qui il flag non e' il criterio giusto. Di piu': i sette campi del
-    // flusso (conforme, condizioni iniziali, direzioni) sono agganciati a
-    // markUserEdit, che lo azzera -- e il ramo geodetico del Run lo rialza solo
-    // se il flusso NON e' animato. Su un preset geodetico con 't' restava
-    // percio' false per sempre e l'Invio sui limiti non ridisegnava mai nulla:
-    // i limiti risultavano "senza alcun effetto".
-    if (!m_parametricApplied && !geodesicActive) {
-        // Il tasto Run e' gia' acceso (le equazioni sono sporche): e' lui a
-        // dire che c'e' qualcosa in attesa di essere applicato.
+    const bool geomMoving = ui->glWidget && ui->glWidget->isSurfaceAnimating();
+    const bool geoFlowMoving = (m_geoAnimTimer && m_geoAnimTimer->isActive());
+    if (geomMoving || geoFlowMoving) {
+        if (ui->glWidget) {
+            if (geodesicActive) {
+                // Flusso geodetico: la mesh NON viene dalle equazioni X/Y/Z/P
+                // (sola mappa di visualizzazione) ma dall'integrazione, che ha
+                // il suo imbuto. updateSurfaceData() la valuterebbe come mesh
+                // parametrica, collassandola in una LAMINA.
+                // useAppliedEquations: si applica SOLO il dominio; equazioni e
+                // condizioni iniziali modificate restano in attesa del Run.
+                updateGeodesicMesh(/*useAppliedLimits=*/false,
+                                   /*useAppliedEquations=*/true);
+            } else {
+                ui->glWidget->updateSurfaceData();
+            }
+            ui->glWidget->update();
+        }
         updateMasterButtonState();
-        // Il limite e' comunque REGISTRATO nell'engine (updateU/V/WLimits qui
-        // sopra) e vale al prossimo Run: per il chiamante e' un successo, il
-        // testo va marcato confermato. Manca solo il ridisegno, di proposito.
         return true;
     }
 
-    // Il dominio e' cambiato: la mesh va RICALCOLATA sulle equazioni CORRENTI
-    // (quelle gia' attive, non quelle eventualmente in corso di modifica).
-    // setRange* da solo non basta: aggiorna il dominio e alza meshNeedsUpdate,
-    // ma quel flag governa il solo re-upload alla GPU dei vertici che l'engine
-    // ha GIA' in pancia (glwidget ~970). Senza updateSurfaceData() si ricarica
-    // la mesh vecchia e a schermo non cambia nulla: e' updateSurfaceData() a
-    // rigenerare i vertici sul nuovo dominio (stessa chiamata che fa il Run).
-    if (ui->glWidget) {
-        // FLUSSO GEODETICO: la superficie NON viene dalle equazioni X/Y/Z/P --
-        // quelle sono la sola mappa di visualizzazione (di norma x=U,y=V,z=W) --
-        // ma dall'integrazione delle geodetiche. updateSurfaceData() rigenera la
-        // mesh PARAMETRICA, cioe' valuta quella mappa su un dominio senza aver
-        // integrato nulla: la superficie collassava in una LAMINA a ogni modifica
-        // dei limiti. Il ricalcolo geodetico ha il suo imbuto, updateGeodesicMesh(),
-        // ed e' quello che chiama il Run (~8096). La condizione e' gia' stata
-        // calcolata sopra, perche' governa anche la guardia m_parametricApplied.
-        if (geodesicActive) {
-            // useAppliedEquations: l'Invio su un limite applica SOLO il dominio.
-            // Senza questo flag, a flusso FERMO updateGeodesicMesh rilegge il
-            // testo dei campi X/Y/Z/P (e carta/condizioni iniziali) e committa
-            // equazioni modificate ma non ancora confermate col Run -- che nel
-            // frattempo resta acceso, senza piu' niente da applicare.
-            // A flusso in moto il disaccoppiamento c'era gia' (isRunning).
-            const bool meshOk =
-                updateGeodesicMesh(/*useAppliedLimits=*/false,
-                                   /*useAppliedEquations=*/true);
-            ui->glWidget->update();
-            return meshOk;
-        }
-
-        ui->glWidget->updateSurfaceData();
-
-        // Stesso controllo del Run: un dominio degenere collassa la mesh, e
-        // senza avviso la superficie sparirebbe senza spiegazione.
-        if (!ui->glWidget->getEngine()->isMeshValid()) {
-            if (!property("collapseErrorShown").toBool()) {
-                setProperty("collapseErrorShown", true);
-                InputValidator::showMathematicalCollapseError(this);
-            }
-            return false;
-        }
-        setProperty("collapseErrorShown", false);
-
-        ui->glWidget->update();
-    }
+    // SUPERFICIE FERMA: il limite e' REGISTRATO e vale al prossimo Run, ma non
+    // si ridisegna. Il tasto Run e' gia' acceso (il textEdited del campo ha
+    // azzerato m_parametricApplied al primo carattere) ed e' lui a dire che c'e'
+    // qualcosa in attesa; qui si riallinea comunque lo stato dei tasti, perche'
+    // il dominio appena completato puo' aver chiuso l'ultima casella mancante
+    // del gate (hasCompleteParametricInput).
+    updateMasterButtonState();
     return true;
 }
 
@@ -9009,6 +9149,90 @@ bool MainWindow::hasParametricEquationInput() const
     if (ui->lineZ && !ui->lineZ->toPlainText().trimmed().isEmpty()) filled++;
     if (ui->lineP && !ui->lineP->toPlainText().trimmed().isEmpty()) filled++;
     return filled >= 3;
+}
+
+// Gate del TASTO RUN del dock Equations: tutti i campi che servono davvero
+// alla superficie che si sta scrivendo sono compilati. E' piu' severo di
+// hasParametricEquationInput (che guarda i soli X/Y/Z/P ed e' la validazione
+// del master START, con il suo popup dedicato): qui si aggiungono il dominio e
+// i campi del TAB ATTIVO del pannello, perche' con quelli incompleti il Run
+// non ha niente di sensato da costruire e il tasto deve restare spento invece
+// di produrre una mesh degenere. Il tasto e' cosi' anche un indicatore di
+// completezza: si accende quando c'e' tutto.
+//
+// Nessun popup qui: e' un predicato di UI, chiamato di continuo da
+// updateMasterButtonState a ogni carattere digitato.
+bool MainWindow::hasCompleteParametricInput()
+{
+    // 1. Equazioni principali: la soglia storica (>=3 di X/Y/Z/P).
+    if (!hasParametricEquationInput()) return false;
+
+    // 2. DOMINIO: i limiti dei parametri effettivamente in uso devono essere
+    //    compilati e coerenti. Si guarda isEnabled(), che checkParametricDependency
+    //    ha gia' allineato all'uso reale di u/v/w (un asse spento -- es. w in
+    //    Composition -- non fa testo). I limiti non si applicano piu' da soli
+    //    all'Invio: se sono incompleti, il Run costruirebbe sul dominio vecchio.
+    auto axisOk = [this](QLineEdit* lo, QLineEdit* hi) -> bool {
+        if (!lo || !hi || !lo->isEnabled() || !hi->isEnabled()) return true;  // asse non in uso
+        const QString loTxt = lo->text().trimmed();
+        const QString hiTxt = hi->text().trimmed();
+        if (loTxt.isEmpty() || hiTxt.isEmpty()) return false;
+        bool okLo = false, okHi = false;
+        const float a = parseLimitField(loTxt, &okLo);
+        const float b = parseLimitField(hiTxt, &okHi);
+        if (!okLo || !okHi) return false;
+        return a < b;
+    };
+    if (!axisOk(ui->uMinEdit, ui->uMaxEdit)) return false;
+    if (!axisOk(ui->vMinEdit, ui->vMaxEdit)) return false;
+    if (!axisOk(ui->wMinEdit, ui->wMaxEdit)) return false;
+
+    // 3. Campi del TAB ATTIVO del pannello. Si guarda il tab CORRENTE e solo se
+    //    e' abilitato: checkParametricDependency spegne i tab che non c'entrano
+    //    con le equazioni scritte, e un tab spento non ha campi da pretendere.
+    if (ui->panelImplicit) {
+        const int tab = ui->panelImplicit->currentIndex();
+        if (ui->panelImplicit->isTabEnabled(tab)) {
+            if (tab == 1) {
+                // COMPOSITION: ogni variabile maiuscola citata dalle equazioni
+                // dev'essere definita. Un campo abilitato e vuoto e' una U senza
+                // definizione: la superficie non e' scrivibile.
+                for (QPlainTextEdit* e : { ui->lineU, ui->lineV, ui->lineW }) {
+                    if (e && e->isEnabled() && e->toPlainText().trimmed().isEmpty())
+                        return false;
+                }
+            }
+            else if (tab == 2 && ui->lnU) {
+                // GEODESIC FLOW: serve una DIREZIONE iniziale non nulla, cioe'
+                // almeno uno fra du/dv/dw compilato. Con tutte e tre a zero non
+                // c'e' geodetica da integrare e il Run non produce nulla.
+                //
+                // NON si pretendono tutti e sei i campi compilati: un campo
+                // vuoto vale ZERO, che e' una condizione iniziale legittima e
+                // usatissima (22 dei 37 preset geodetici di fabbrica lasciano
+                // vuoto w0, o du/dv/dw non usati). Pretenderli avrebbe spento
+                // il Run su piu' di meta' della libreria.
+                // Il punto di partenza u0/v0/w0 puo' quindi essere tutto vuoto:
+                // e' l'origine, un punto come un altro. Il fattore conforme
+                // (lineConform) ha un default di 1.0 e non si pretende.
+                bool anyDir = false;
+                for (QPlainTextEdit* e : { ui->lndU, ui->lndV, ui->lndW }) {
+                    if (!e || !e->isEnabled()) continue;
+                    const QString txt = e->toPlainText().trimmed();
+                    // "0" esplicito conta come non-direzione, esattamente come
+                    // il campo vuoto: entrambi danno componente nulla.
+                    if (!txt.isEmpty() && txt != "0" && txt != "0.0") anyDir = true;
+                }
+                if (!anyDir) return false;
+            }
+            // tab == 0 (CONSTRAINTS): i vincoli sono FACOLTATIVI e mutuamente
+            // esclusivi (scriverne uno svuota gli altri due: vedi il blocco
+            // "Mutua esclusione dei vincoli" nel costruttore): pretenderli
+            // compilati spegnerebbe il Run su ogni normale superficie u,v.
+        }
+    }
+
+    return true;
 }
 
 bool MainWindow::hasPath4DInput() const
@@ -13440,6 +13664,12 @@ void MainWindow::applyCommonData(LibraryItem d)
 
     this->setProperty("isInitialLoad", true);
 
+    // Nuovo stato di partenza: la scala della texture geodetica va rifissata sul
+    // dominio di QUESTO preset, cosi' si apre con l'aspetto con cui e' stato
+    // salvato. Da qui in poi il riferimento resta fermo, e modificare i limiti
+    // taglia la texture invece di comprimerla (vedi setCustomMesh).
+    if (ui->glWidget) ui->glWidget->resetGeodesicUvReference();
+
     onStopClicked();
 
     if (m_statusLabel) {
@@ -13699,6 +13929,12 @@ void MainWindow::applyCommonData(LibraryItem d)
     auto setLim = [&shortestFloat](QLineEdit* line, float val, const QString& expr) {
         line->setText(expr.isEmpty() ? shortestFloat(val) : expr);
         line->setCursorPosition(0); // Riporta il cursore a sinistra
+        // Testo scritto dal PRESET, non dall'utente: nessuna conferma pendente.
+        // Senza questo, un preset caricato mentre un limite era in attesa di
+        // conferma farebbe validare all'uscita dal campo un testo che l'utente
+        // non ha mai scritto (e su un dominio 0/0 -- caso vivo -- uscirebbe un
+        // popup d'errore a sproposito).
+        line->setProperty("userEditPending", false);
     };
 
     setLim(ui->uMinEdit, d.uMin, d.uMinExpr);
@@ -15626,6 +15862,73 @@ void MainWindow::updateFlatPreviewButton() {
 // basta, perche' fermando il moto il timer puo' restare vivo col tasto
 // tornato su "GO". Quello stop oggi e' codificato SOLO nel testo del bottone:
 // questo predicato e' l'unico punto autorizzato a leggerlo.
+// Il MODULO EQUAZIONI e' in moto: la geometria e' animata da 't' con il suo
+// orologio acceso, oppure il flusso geodetico sta integrando. E' esattamente il
+// criterio con cui il tasto Run del dock diventa "Stop" -- e NON e' il master
+// button, che va su STOP anche quando si muovono solo rotazioni, path, texture
+// o audio, con la geometria ferma.
+// Sede unica: la usano updateMasterButtonState (testo e abilitazione dei Run) e
+// i filtri tastiera (l'Invio applica al volo solo a modulo in moto).
+bool MainWindow::mapEquationsMatchSnapshot() const
+{
+    // Nessuno snapshot: non c'e' un "gia' applicato" con cui confrontarsi.
+    if (!property("active_lineX").isValid()) return false;
+
+    return property("active_lineX").toString() == ui->lineX->toPlainText()
+        && property("active_lineY").toString() == ui->lineY->toPlainText()
+        && property("active_lineZ").toString() == ui->lineZ->toPlainText()
+        && property("active_lineP").toString() == ui->lineP->toPlainText();
+}
+
+bool MainWindow::isGeodesicRoutingActive() const
+{
+    if (ui->tabModeSelector->currentIndex() != 0) return false;
+    if (!hasGeodesicText()) return false;
+
+    const QString mainEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " "
+                          + ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText();
+    const int upperCount = (mainEqs.contains(kReUpperU) ? 1 : 0)
+                         + (mainEqs.contains(kReUpperV) ? 1 : 0)
+                         + (mainEqs.contains(kReUpperW) ? 1 : 0);
+    // Con uno script METRICO la mappa X/Y/Z/P puo' legittimamente non citare
+    // U/V/W (resta la carta identita'): il solo upperCount non riconoscerebbe
+    // il caso.
+    const bool metricScriptActive = !m_metricScriptBody.trimmed().isEmpty();
+    return upperCount > 0 || metricScriptActive;
+}
+
+bool MainWindow::isEquationModuleMoving() const
+{
+    if (!ui->glWidget) return false;
+
+    // Flusso geodetico: l'integrazione e' moto a prescindere da 't'.
+    if (m_geoAnimTimer && m_geoAnimTimer->isActive()) return true;
+
+    // Geometria animata da 't': serve sia l'orologio acceso sia un 't' che lo
+    // usi -- un clock acceso su equazioni statiche non muove niente.
+    if (!ui->glWidget->isSurfaceAnimating()) return false;
+
+    QString mainEq;
+    if (ui->tabModeSelector->currentIndex() == 1) {
+        // NB: lineVariations (displacement) e' del MODULO TEXTURE, non della
+        // geometria: includerlo farebbe credere al dock Equations che la
+        // geometria sia in moto ogni volta che la texture anima il displacement.
+        mainEq = ui->lineEquation->toPlainText() + " " + m_surfaceScriptText;
+    } else {
+        mainEq = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
+                ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
+                ui->lineU->toPlainText() + " " + ui->lineV->toPlainText() + " " + ui->lineW->toPlainText() + " " +
+                ui->lineExplicitU->toPlainText() + " " + ui->lineExplicitV->toPlainText() + " " + ui->lineExplicitW->toPlainText() + " " +
+                m_surfaceScriptText;
+        if (ui->lnU) {
+            mainEq += " " + ui->lnU->toPlainText() + " " + ui->lnV->toPlainText() + " " + ui->lnW->toPlainText() +
+                    " " + ui->lndU->toPlainText() + " " + ui->lndV->toPlainText() + " " + ui->lndW->toPlainText() +
+                    " " + ui->lineConform->toPlainText();
+        }
+    }
+    return hasTimeVariable(mainEq);
+}
+
 bool MainWindow::isRotationMotionRunning() const
 {
     if (!ui->glWidget || !ui->glWidget->isAnimating()) return false;
@@ -15696,13 +15999,14 @@ void MainWindow::updateMasterButtonState()
         }
 
         bool geomHasTime = hasTimeVariable(mainEq);
-        bool geoFlowRunning = (m_geoAnimTimer && m_geoAnimTimer->isActive());
         bool isGeomVisuallyMoving = geomClockRunning && geomHasTime;
 
         // Il tasto Run del dock Equations riflette SOLO il modulo equazioni:
         // mostra "Stop" se la geometria o il flusso geodetico sono in moto.
         // Il tasto parametrico e quello implicito condividono lo stesso stato.
-        bool eqModuleMoving = isGeomVisuallyMoving || geoFlowRunning;
+        // Stessa definizione usata dai filtri tastiera per decidere se l'Invio
+        // applica al volo: una sede sola (isEquationModuleMoving).
+        const bool eqModuleMoving = isEquationModuleMoving();
 
         // Se la superficie è definita da uno SCRIPT (dock Script), la geometria è
         // gestita da lì: il dock Equations non è in uso e i suoi tasti Run/Stop
@@ -15732,7 +16036,10 @@ void MainWindow::updateMasterButtonState()
             // tasto DEPARTURE ha da sempre sui campi dei path (hasPath4DInput).
             // Non si applica a moto in corso (li' il tasto e' "Stop") ne' alle
             // superfici da script, gia' escluse da surfaceFromScript.
-            const bool eqInputOk = eqModuleMoving || hasParametricEquationInput();
+            // Gate completo: equazioni, dominio e campi del tab attivo (vedi
+            // hasCompleteParametricInput). A moto in corso il tasto e' "Stop" e
+            // non si valuta l'input: fermare dev'essere sempre possibile.
+            const bool eqInputOk = eqModuleMoving || hasCompleteParametricInput();
             ui->btnRunParametric->setEnabled(!surfaceFromScript && eqInputOk &&
                                              (eqModuleMoving || !m_parametricApplied || geomHasTime));
         }
@@ -17000,6 +17307,28 @@ bool MainWindow::commitFieldsOnEnter() {
             setProperty("geoErrorShown", true);
             InputValidator::showGeodesicSingularityError(this);
         }
+
+        // I 7 campi del flusso sono stati letti DAL VIVO e applicati qui sopra
+        // (useAppliedEquations congela le sole X/Y/Z/P, che sono la mappa di
+        // visualizzazione): a schermo c'e' gia' il risultato, quindi il Run non
+        // ha piu' niente da applicare e va SPENTO.
+        // Senza questo, scrivere una costante in un campo del flusso lasciava il
+        // tasto acceso per sempre: markUserEdit lo riaccende a ogni carattere --
+        // giustamente, perche' il testo e' cambiato -- ma nessuno lo rispegneva,
+        // dato che il ramo geodetico del Run rialza m_parametricApplied solo a
+        // flusso NON animato e qui il Run non viene premuto affatto. Il tasto
+        // finiva per invitare a un'azione che non produce nulla: il valore della
+        // costante entra gia' dallo slider e dall'Invio, che passano di qui.
+        // Solo sul successo: se la mesh e' stata rifiutata (singolarita') la
+        // modifica NON e' a schermo e il Run resta la via per riprovare.
+        // Stessa condizione del debounce di costanti/Steps: si spegne il Run solo
+        // se la mappa X/Y/Z/P e' quella gia' applicata. Se l'utente l'ha
+        // modificata, useAppliedEquations l'ha congelata sullo snapshot -- non e'
+        // a schermo -- e il Run le serve ancora.
+        if (meshOk && mapEquationsMatchSnapshot()) {
+            m_parametricApplied = true;
+            updateMasterButtonState();
+        }
         return meshOk;
     }
 
@@ -17247,7 +17576,11 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
     }
 
     // 4. APPLICHIAMO IMMEDIATAMENTE IL RISULTATO (grid non vuota: verificato sopra)
-    if (!ui->glWidget->setCustomMesh(grid, !m_metricScriptBody.trimmed().isEmpty())) {
+    // uMin/uMax/vMin/vMax: il dominio appena integrato. Ancora le coordinate
+    // texture al dominio invece che agli indici di griglia, cosi' restringere
+    // l'intervallo TAGLIA la texture invece di comprimerla (vedi setCustomMesh).
+    if (!ui->glWidget->setCustomMesh(grid, !m_metricScriptBody.trimmed().isEmpty(),
+                                     uMin, uMax, vMin, vMax)) {
         m_geodesicErrorPending = true;
         if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
         this->setProperty("geoErrorType", "singularity");
@@ -17309,8 +17642,26 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
     // Durante la registrazione il tempo lo detta il loop del recorder
     // (advanceGeodesicFlowBy per frame): il timer asincrono resta fermo,
     // altrimenti i suoi tick nei processEvents avanzerebbero geoTime due volte.
+    // useAppliedEquations distingue i RUN veri (false: master Start, Run del dock,
+    // avvio del flusso) dai ricalcoli DI SERVIZIO (true: debounce di costanti e
+    // Steps, Invio su un singolo campo, commit di un limite). Solo un Run puo'
+    // AVVIARE il flusso: un ricalcolo di servizio lo mantiene se gia' in corsa,
+    // ma non lo fa partire.
+    // Senza questa condizione bastava scrivere 't' in un campo del flusso e poi
+    // muovere uno slider: il ricalcolo del debounce rileggeva i 7 campi dal vivo
+    // (freezeFlow=0), vedeva il 't' appena scritto e faceva partire il timer da
+    // solo. I tasti passavano a "Stop" -- il master pure -- senza che l'utente
+    // avesse premuto Run, e per l'utente l'animazione non era partita affatto:
+    // era partito il timer, non l'attesa applicazione delle equazioni.
+    const bool runCanStartFlow = !useAppliedEquations;
     if (hasTime && !m_masterStopped && !m_userStoppedGeomClock && !m_isRecording) {
-        if (!m_geoAnimTimer->isActive()) {
+        // Il flusso puo' ESSERE AVVIATO solo da un Run vero. La condizione va
+        // QUI, sull'avvio, e non sull'if esterno: messa la' faceva cadere nel
+        // ramo else ogni ricalcolo di servizio, che FERMA un timer gia' in
+        // corsa -- il moto si arrestava modificando un limite ad animazione
+        // avviata. Un ricalcolo di servizio non avvia e non ferma: lascia il
+        // flusso com'e'.
+        if (!m_geoAnimTimer->isActive() && runCanStartFlow) {
             m_geoAnimTimer->start();
             // Il bottone master deve riflettere subito il timer appena avviato,
             // senza dipendere dal fatto che un chiamante a valle richiami

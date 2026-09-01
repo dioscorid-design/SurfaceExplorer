@@ -1537,7 +1537,7 @@
            <attribute name="title">
             <string>Parametric</string>
            </attribute>
-           <layout class="QVBoxLayout" name="verticalLayout_22" stretch="0,3,2,1">
+           <layout class="QVBoxLayout" name="verticalLayout_22" stretch="0,3,2,1,0">
             <item>
              <widget class="QLabel" name="lblEqPar">
               <property name="sizePolicy">
@@ -1773,13 +1773,6 @@
                    </widget>
                   </item>
                  </layout>
-                </widget>
-               </item>
-               <item>
-                <widget class="QPushButton" name="btnRunParametric">
-                 <property name="text">
-                  <string>Run</string>
-                 </property>
                 </widget>
                </item>
               </layout>
@@ -2365,6 +2358,13 @@
                 </widget>
                </item>
               </layout>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btnRunParametric">
+              <property name="text">
+               <string>Run</string>
+              </property>
              </widget>
             </item>
            </layout>

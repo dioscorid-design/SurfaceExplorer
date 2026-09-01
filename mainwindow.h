@@ -224,8 +224,43 @@ private slots:
     // superficie da costruire. Gate del Run parametrico e del master START,
     // omologo di hasPath4DInput per il tasto Departure.
     bool hasParametricEquationInput() const;
+    // Gate del tasto RUN del dock Equations: oltre a >=3 campi X/Y/Z/P pretende
+    // il dominio (limiti degli assi IN USO, compilati e con min<max) e i campi
+    // obbligatori del tab attivo del pannello (Composition: le definizioni
+    // delle maiuscole citate; Geodesic Flow: almeno una direzione iniziale non
+    // nulla). I vincoli sono facoltativi e non entrano nel conto, e un campo
+    // vuoto vale zero: non si pretende di riempire tutto. Nessun popup: e' un
+    // predicato di UI chiamato a ogni carattere.
+    // NON const: legge i limiti con parseLimitField, che risolve la cascata
+    // delle costanti A..F/S e non e' un metodo const.
+    bool hasCompleteParametricInput();
     bool hasPath4DInput() const;   // >=2 campi path 4D compilati (gate Departure/View 4D)
     bool hasPath3DInput() const;   // >=2 campi path 3D compilati (gate Departure/View 3D)
+    // Il MODULO EQUAZIONI e' in moto: geometria animata da 't' col suo orologio
+    // acceso, oppure flusso geodetico in corsa. E' il criterio con cui il tasto
+    // Run del dock diventa "Stop", ed e' cosa diversa dal master button, che e'
+    // su STOP anche se si muovono solo rotazioni, path, texture o audio.
+    // UNICO lettore autorizzato di questo stato: lo usano updateMasterButtonState
+    // (testo/abilitazione dei Run) e i filtri tastiera (l'Invio applica al volo
+    // solo a modulo in moto). Mai ricostruirlo a mano: e' la stessa famiglia di
+    // bug delle copie di stato live nel recorder.
+    bool isEquationModuleMoving() const;
+    // Routing GEODETICO attivo: le equazioni citano U/V/W maiuscole (o c'e' uno
+    // script metrico, che rende la mappa X/Y/Z/P libera di non citarle), i campi
+    // del flusso sono compilati e siamo nel tab Parametric. E' la condizione con
+    // cui updateGeodesicMesh sostituisce la mesh parametrica: la stessa che
+    // decidono checkAndTriggerMeshUpdate, commitFieldsOnEnter,
+    // commitUiFieldsDuringMotion e commitLimitFieldOnEnter, che la ricostruivano
+    // ognuno per conto proprio (con metricScriptActive incluso in alcuni e non in
+    // altri). Sede unica, cosi' non divergono.
+    bool isGeodesicRoutingActive() const;
+    // Le equazioni X/Y/Z/P a schermo sono ancora quelle dell'ultimo Run
+    // (snapshot active_*)? Serve ai percorsi che applicano i campi del flusso
+    // dal vivo (Invio su una costante, slider Steps/costanti) per decidere se
+    // possono spegnere il tasto Run: possono solo se la MAPPA non ha modifiche
+    // in sospeso, perche' quelle il Run le deve ancora applicare.
+    // Snapshot assente = mai fatto un Run: non si puo' affermare che coincidano.
+    bool mapEquationsMatchSnapshot() const;
     // Moto GO (rotazioni) davvero in corsa: timer attivo E tasto non su "GO".
     // UNICO lettore autorizzato del testo di btnStart_2 come stato — master
     // button e VideoRecorder passano da qui, mai confronti locali sul testo.

@@ -1951,7 +1951,8 @@ void GLWidget::setRaySteps(int steps) {
     update();           // Richiede un nuovo fotogramma
 }
 
-bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool tolerateTruncated)
+bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool tolerateTruncated,
+                             float uMin, float uMax, float vMin, float vMax)
 {
     bool wasCustom = m_isCustomMesh; // Salviamo lo stato precedente
     m_isCustomMesh = true;
@@ -2064,6 +2065,25 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
 
+    // Il chiamante ha passato un dominio utilizzabile? (NaN = non passato, e un
+    // intervallo degenere non darebbe una scala sensata.)
+    const bool domainUV = !std::isnan(uMin) && !std::isnan(uMax)
+                       && !std::isnan(vMin) && !std::isnan(vMax)
+                       && (uMax - uMin) != 0.0f && (vMax - vMin) != 0.0f;
+
+    // Primo calcolo dopo un load/reset: e' questo intervallo a definire la
+    // scala della texture, e da qui in poi resta fermo. Cosi' il preset si apre
+    // con l'aspetto con cui e' stato salvato (texCoord 0..1 esatte, come prima
+    // di questa modifica) e sono le MODIFICHE SUCCESSIVE dell'intervallo a
+    // tagliare la texture invece di comprimerla.
+    if (domainUV && !m_uvRefValid) {
+        m_uvRefUMin  = uMin;
+        m_uvRefUSpan = uMax - uMin;
+        m_uvRefVMin  = vMin;
+        m_uvRefVSpan = vMax - vMin;
+        m_uvRefValid = true;
+    }
+
     // Costruzione Vertici e Normali
     for (int i = 0; i <= numU; ++i) {
         for (int j = 0; j <= numV; ++j) {
@@ -2121,7 +2141,44 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
             }
 
             v.normal = QVector4D(normal, 0.0f);
-            v.texCoord = QVector2D((float)i / numU, (float)j / numV);
+
+            // COORDINATE TEXTURE ANCORATE AL DOMINIO, non agli indici di
+            // griglia. Con (i/numU, j/numV) la texture si ri-STIRA ogni volta
+            // che cambia l'intervallo: numU/numV vengono dallo slider Steps e
+            // restano gli stessi, cosi' la stessa immagine finiva spalmata su
+            // un arco piu' corto, a frequenza spaziale piu' alta. Su una
+            // texture molto dettagliata la compressione porta il pattern sotto
+            // il passo di campionamento dei pixel e la superficie collassa
+            // verso il nero (aliasing) -- il "dimezzo l'intervallo e cambia
+            // l'aspetto della texture".
+            //
+            // Ancorandole al dominio, l'unita' di texture corrisponde a
+            // un'unita' del parametro: restringendo l'intervallo la texture
+            // resta alla stessa scala e si vede la porzione corrispondente,
+            // cioe' viene TAGLIATA invece che compressa.
+            //
+            // NB per il flusso geodetico: v non e' una coordinata della
+            // superficie ma il parametro affine lungo la geodetica, e vMin/vMax
+            // sono la lunghezza d'arco percorsa. Ancorare li' e' proprio cio'
+            // che rende la texture solidale alla geometria mentre l'arco si
+            // accorcia.
+            //
+            // Senza limiti validi (chiamante che non li passa) si ricade sulle
+            // UV normalizzate storiche: nessun preset cambia aspetto.
+            if (domainUV && m_uvRefValid) {
+                // Frazione del dominio di RIFERIMENTO, non dell'intervallo
+                // corrente: la texture resta ancorata alla geometria e
+                // restringendo l'intervallo se ne vede la porzione
+                // corrispondente. La convenzione "in_uv sta in [0,1]" e'
+                // preservata sul dominio di riferimento -- rotazione, zoom e
+                // pan della trasformazione 2D continuano a girare attorno a
+                // 0.5 come sempre, e il cutout (che ricostruisce u,v con
+                // mix(u_min,u_max,texCoord)) resta coerente.
+                v.texCoord = QVector2D((uMin + (float)i / numU * (uMax - uMin) - m_uvRefUMin) / m_uvRefUSpan,
+                                       (vMin + (float)j / numV * (vMax - vMin) - m_uvRefVMin) / m_uvRefVSpan);
+            } else {
+                v.texCoord = QVector2D((float)i / numU, (float)j / numV);
+            }
             vertices.push_back(v);
         }
     }
