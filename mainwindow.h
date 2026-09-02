@@ -396,6 +396,13 @@ private:
     // qui perche' un risalvataggio della texture non lo perda.
     QString m_currentTextureHintText;
     float   m_currentTextureHintSeconds = 6.0f;
+    // I due messaggi uniti, come li vede l'utente: la scena e la texture possono
+    // nominare costanti diverse e vanno mostrati ENTRAMBI. Sede unica, cosi' non
+    // si torna a farne vincere uno solo. Vuoto = niente da mostrare.
+    QString composedHintText() const;
+    // Ridisegna l'overlay dalla coppia corrente senza modificare i due testi.
+    // Lo usa il caricamento di una texture, che cambia solo il proprio.
+    void refreshSceneHint(float seconds);
 
     // Costanti DISCRETE dichiarate dallo script con "A := int(min,max);".
     // Chiave = lettera maiuscola (A..F, S); assente = costante continua.

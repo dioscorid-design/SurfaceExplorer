@@ -327,6 +327,109 @@ QColor PresetSerializer::globalSurfaceColor() const
     return QColor::fromRgbF(r, g, b);
 }
 
+// ==========================================================
+// DIALOGO DELL'HINT (suggerimento in sovrimpressione)
+// ==========================================================
+//
+// L'hintText e' l'unico contenuto di una scena senza UI di editing: si poteva
+// solo EREDITARE dal preset caricato, mai correggere dall'app. Da li' il difetto
+// classico: si sposta una costante (es. il rilievo passa da A a F) e il
+// messaggio continua a nominare quella vecchia, perche' nessuno lo riscrive.
+// L'unico rimedio era editare il JSON a mano.
+//
+// Il campo appare quindi QUI, al salvataggio, invece che stabilmente
+// nell'interfaccia: e' il momento in cui si sta gia' descrivendo la scena, e non
+// costa spazio nel resto dell'app.
+//
+// Precompilato con l'hint corrente: chi non deve cambiare nulla conferma e
+// basta, e soprattutto un preset che gia' aveva un messaggio non lo perde per
+// il solo fatto di essere risalvato (era il difetto gemello, gia' corretto nei
+// serializzatori: la chiave veniva letta al load ma scartata al save).
+// Campo VUOTO = nessun hint: e' cosi' che se ne toglie uno.
+//
+// Ritorna false se l'utente annulla: il salvataggio va abortito, non salvato
+// senza hint.
+// textureHint: secondo campo, per i soli RECORD. Una scena registrata ha due
+// sorgenti di costanti indipendenti -- la superficie (o il suo script) e la
+// texture -- e servono due messaggi: con uno solo, quello del rilievo occupava
+// il campo della scena e la superficie restava senza spiegazione, con due slider
+// accesi e uno solo descritto. nullptr = tipo a messaggio singolo (superficie,
+// texture), che mostra il solo campo principale.
+// Un dialogo unico e non due in fila: e' un solo salvataggio, e merita una sola
+// finestra da confermare.
+static bool askSceneHint(QWidget* parent, QString* hintText, const QString& what,
+                         QString* textureHint = nullptr)
+{
+    if (!hintText) return true;
+
+    QDialog dlg(parent);
+    dlg.setWindowTitle(QString("Hint for this %1").arg(what));
+
+    QVBoxLayout* lay = new QVBoxLayout(&dlg);
+
+    QLabel* info = new QLabel(
+        QString("Optional message shown over the scene when this %1 is loaded.\n"
+                "Typically it says which slider does what "
+                "(e.g. \"Slider F: relief frequency\").\n"
+                "Leave it empty for no message.").arg(what), &dlg);
+    info->setWordWrap(true);
+    lay->addWidget(info);
+
+    // Etichette solo quando i campi sono due: con uno solo sarebbero rumore.
+    if (textureHint) lay->addWidget(new QLabel("Surface:", &dlg));
+
+    QLineEdit* edit = new QLineEdit(*hintText, &dlg);
+    edit->setStyleSheet("padding: 8px;");
+    edit->selectAll();
+#ifdef Q_OS_IOS
+    // Stesse guardie del campo nome di MobileSaveDialog: senza, il long-press
+    // apre il menu di modifica e poi blocca la digitazione.
+    edit->setInputMethodHints(edit->inputMethodHints() | Qt::ImhNoEditMenu);
+    edit->setProperty("noEditMenu", true);
+#endif
+    lay->addWidget(edit);
+
+    // Secondo campo: il messaggio della TEXTURE di questa scena. Precompilato
+    // come il primo, cosi' un record risalvato non lo perde.
+    QLineEdit* texEdit = nullptr;
+    if (textureHint) {
+        lay->addWidget(new QLabel("Texture:", &dlg));
+
+        texEdit = new QLineEdit(*textureHint, &dlg);
+        texEdit->setStyleSheet("padding: 8px;");
+#ifdef Q_OS_IOS
+        texEdit->setInputMethodHints(texEdit->inputMethodHints() | Qt::ImhNoEditMenu);
+        texEdit->setProperty("noEditMenu", true);
+#endif
+        lay->addWidget(texEdit);
+    }
+
+    QHBoxLayout* btns = new QHBoxLayout();
+    QPushButton* cancel = new QPushButton("Cancel", &dlg);
+    QPushButton* ok     = new QPushButton("Save", &dlg);
+    // Come in MobileSaveDialog: senza questo l'Invio nel campo di testo
+    // chiuderebbe il dialogo invece di confermare la riga.
+    cancel->setAutoDefault(false);
+    ok->setAutoDefault(false);
+    ok->setDefault(true);
+    cancel->setStyleSheet("padding: 8px 18px;");
+    ok->setStyleSheet("padding: 8px 18px; font-weight: bold;");
+    btns->addStretch();
+    btns->addWidget(cancel);
+    btns->addWidget(ok);
+    lay->addLayout(btns);
+
+    QObject::connect(cancel, &QPushButton::clicked, &dlg, &QDialog::reject);
+    QObject::connect(ok,     &QPushButton::clicked, &dlg, &QDialog::accept);
+
+    dlg.setMinimumWidth(420);
+    if (dlg.exec() != QDialog::Accepted) return false;
+
+    *hintText = edit->text().trimmed();
+    if (textureHint && texEdit) *textureHint = texEdit->text().trimmed();
+    return true;
+}
+
 void PresetSerializer::saveSurface(const QString &suggestedPath)
 {
     bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
@@ -460,6 +563,11 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
                              "Operation not allowed.\n\nStatic surfaces must reside in 'Surfaces'.\nIf you want to save the global scene (which contains this surface), use the 'Save Motion' command.");
         return;
     }
+
+    // HINT della scena, come per record e texture (vedi askSceneHint): dopo la
+    // scelta del percorso e dopo il blocco di validazione, prima della scrittura.
+    if (!askSceneHint(m_mainWindow, &m_mainWindow->m_currentHintText, "surface"))
+        return;
 
     QFileInfo fileInfo(fileName);
     settings.setValue("lastFolder", fileInfo.absolutePath());
@@ -738,6 +846,14 @@ void PresetSerializer::saveTexture(const QString &path)
         return;
     }
 
+    // HINT della texture: stesso trattamento del record (vedi askSceneHint), ma
+    // sulla variabile della TEXTURE, che ha una chiave sua. Sono due messaggi
+    // indipendenti proprio perche' possono nominare costanti diverse: la texture
+    // d'origine dice la sua (es. "Slider A"), il record che la riusa puo' averla
+    // spostata su un'altra costante e dire la propria.
+    if (!askSceneHint(m_mainWindow, &m_mainWindow->m_currentTextureHintText, "texture"))
+        return;
+
     QJsonObject root;
 
     QString currentCode;
@@ -960,6 +1076,14 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         return;
     }
 
+    // HINT della scena: si chiede DOPO che percorso e nome sono decisi e dopo il
+    // blocco di validazione, cosi' non si compila un messaggio per un
+    // salvataggio che verra' rifiutato o annullato. Cancel qui annulla il
+    // salvataggio: e' l'ultima conferma prima della scrittura.
+    if (!askSceneHint(m_mainWindow, &m_mainWindow->m_currentHintText, "record",
+                      &m_mainWindow->m_currentTextureHintText))
+        return;
+
     QString saveFolder = QFileInfo(fileName).absolutePath();
     settings.setValue("lastMotionDir", saveFolder);
 
@@ -1069,11 +1193,22 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     path3D["z"] = m_mainWindow->ui->lineZ_P3D->text();
     path3D["roll"] = m_mainWindow->ui->lineR_P3D->text();
     root["path3D"] = path3D;
-    // Suggerimento in sovrimpressione: non ha UI di editing, quindi si riscrive
-    // quello del record caricato (se assente la chiave non viene emessa).
+    // Suggerimenti in sovrimpressione. Il record ne porta DUE, perche' la scena
+    // che cattura ha due sorgenti di costanti indipendenti: la SUPERFICIE (o il
+    // suo script) e la TEXTURE. Con una chiave sola il messaggio del rilievo
+    // finiva nel campo della scena e quello della superficie non aveva dove
+    // stare: si vedeva un solo slider spiegato su due accesi.
+    // "hintText" resta il messaggio della scena (compatibilita' coi record
+    // esistenti, che hanno solo quello); "textureHintText" e' il secondo.
+    // Chiave assente se non c'e' nulla da dire: i record che non li usano non
+    // cambiano di un byte.
     if (!m_mainWindow->m_currentHintText.isEmpty()) {
         root["hintText"] = m_mainWindow->m_currentHintText;
         root["hintSeconds"] = (double)m_mainWindow->m_currentHintSeconds;
+    }
+    if (!m_mainWindow->m_currentTextureHintText.isEmpty()) {
+        root["textureHintText"] = m_mainWindow->m_currentTextureHintText;
+        root["textureHintSeconds"] = (double)m_mainWindow->m_currentTextureHintSeconds;
     }
     // Costanti discrete SENZA script: stessa semantica di "A := int(2,6);" ma
     // dichiarata dal preset, perche' le direttive := vivono solo nello scriptCode

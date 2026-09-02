@@ -5135,6 +5135,10 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // significa piu' nulla. showSceneHint("") lo nasconde e azzera anche
     // m_currentHintText -- hideSceneHint() da solo lascerebbe il testo in
     // memoria, pronto a finire in un eventuale risalvataggio.
+    // Anche quello della TEXTURE: ora i due si compongono a schermo
+    // (composedHintText), quindi lasciarlo qui lo farebbe sopravvivere al reset
+    // e riapparire sotto il messaggio del preset successivo.
+    m_currentTextureHintText.clear();
     showSceneHint(QString(), 0.0f);
 
     // Scena azzerata: non c'e' piu' lavoro da proteggere, e la situazione che
@@ -7602,16 +7606,42 @@ void MainWindow::handleTextureSelection(int index)
     // senza sapere cosa muove.
     // Qui e non nei singoli rami: la funzione non ha uscite anticipate, quindi
     // questo punto vale per parametrica, ray marching, sfondo e per-mesh.
-    // SOLO se la texture ne ha uno. showSceneHint("") azzererebbe anche
-    // m_currentHintText, che e' il messaggio della SCENA: PresetSerializer lo
-    // riscrive nel preset di superficie e nel record (~694, ~1063), quindi
-    // caricare una texture senza hint su una superficie che ne ha uno lo
-    // cancellerebbe, e il primo Save lo perderebbe dal file. Il messaggio della
-    // texture e' un'aggiunta, non un sostituto.
+    // Il messaggio della texture e' un'AGGIUNTA, non un sostituto: si somma a
+    // quello della scena in composedHintText(). Non si passa il testo della
+    // texture a showSceneHint -- quella scrive m_currentHintText, cioe' il
+    // messaggio della SCENA, che PresetSerializer riscrive nel preset di
+    // superficie e nel record: il testo della texture ci finirebbe dentro e al
+    // primo Save diventerebbe l'hint della superficie.
+    // Si aggiorna quindi la sola variabile della texture e si ridisegna
+    // l'overlay con la coppia. Anche a hint VUOTO: la texture precedente puo'
+    // averne lasciato uno, che ora va tolto da schermo.
     m_currentTextureHintText    = data.hintText.trimmed();
     m_currentTextureHintSeconds = data.hintSeconds;
-    if (!m_currentTextureHintText.isEmpty()) {
-        showSceneHint(data.hintText, data.hintSeconds);
+    refreshSceneHint(m_currentTextureHintText.isEmpty() ? m_currentHintSeconds
+                                                        : data.hintSeconds);
+
+    // SLIDER DELLE COSTANTI: vanno ricalcolati sul codice APPENA caricato.
+    // In Ray Marching updateConstantsUIState legge lineTexture/lineVariations,
+    // che qui sopra sono stati riempiti con blockSignals(true) -- necessario per
+    // non sporcare la scena e non far scattare i watchdog -- e quindi SENZA
+    // emettere il textChanged a cui e' agganciato il ricalcolo.
+    // Il risultato era che gli slider restavano quelli della texture PRECEDENTE:
+    // caricando su un record con rilievo su E una texture che usa F, restava
+    // abilitato E (che non compare piu' in nessun codice, quindi muoverlo non
+    // faceva nulla) mentre F, la costante realmente usata, era bloccato.
+    // L'hint diceva gia' la cosa giusta -- viene dal file della texture nuova --
+    // e questo rendeva l'incoerenza ancora piu' evidente.
+    updateConstantsUIState();
+
+    // updateConstantsUIState riporta a 1 le costanti non piu' usate, ma lo fa
+    // con blockSignals: il valore nuovo non arriverebbe alla GPU. Si spingono
+    // quindi le costanti come le legge ora la UI, altrimenti la vecchia (es. E,
+    // lasciata a 4.17 dal record) resterebbe in vigore nell'UBO pur essendo
+    // sparita dallo shader.
+    {
+        const CascadeConstants kc = resolveCascadeConstants(true);
+        if (ui->glWidget)
+            ui->glWidget->setEquationConstants(kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s);
     }
 
     this->setProperty("isTextureModified", false);
@@ -12511,6 +12541,14 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // Suggerimento d'uso del record ("hintText"): mostrato in coda al load,
     // quando la scena e' gia' quella nuova. Un record senza la chiave nasconde
     // comunque il messaggio del record precedente.
+    //
+    // Il record porta ENTRAMBI i messaggi: il suo e quello della sua texture.
+    // Va assegnato anche quando e' VUOTO, per scacciare il messaggio della
+    // texture caricata a mano prima del record: quella se n'e' andata insieme
+    // alla scena. Il record applica la texture INLINE (non passa da
+    // handleTextureSelection), quindi qui non lo azzera nessun altro.
+    m_currentTextureHintText    = data.textureHintText.trimmed();
+    m_currentTextureHintSeconds = data.textureHintSeconds;
     showSceneHint(data.hintText, data.hintSeconds);
 }
 
@@ -15340,6 +15378,58 @@ QString MainWindow::cleanCodeForComparison(QString str) {
 
  // --- UI State & Graphics ---
 
+// I due messaggi in sovrimpressione, uniti in quello che si vede a schermo.
+//
+// Sono TENUTI SEPARATI in memoria e nei file (m_currentHintText nel preset di
+// superficie/record, m_currentTextureHintText in quello della texture) perche'
+// descrivono cose diverse e possono nominare COSTANTI diverse: la texture
+// d'origine dice la sua ("Slider A: relief frequency"), e un record che la
+// riusa puo' aver spostato quel rilievo su un'altra costante per non
+// confliggere con la superficie, quindi deve poter dire "Slider F".
+//
+// A schermo pero' vanno mostrati ENTRAMBI: prima si sostituivano a vicenda --
+// showSceneHint scriveva l'overlay col solo messaggio della scena -- e vinceva
+// l'ultimo che parlava (l'ordine di caricamento decideva quale). Un record con
+// costanti sia sulla superficie sia sulla texture ne mostrava percio' solo una,
+// lasciando l'altro slider acceso senza spiegazione.
+//
+// Uno dei due vuoto (il caso normale) da' esattamente il messaggio di prima,
+// senza separatore.
+// Ridisegna l'overlay dalla coppia corrente di messaggi, SENZA toccarli.
+// Serve a chi cambia uno solo dei due (il caricamento di una texture): passare
+// da showSceneHint travaserebbe il testo della texture in m_currentHintText,
+// che e' il messaggio della SCENA e finisce nel preset di superficie/record.
+void MainWindow::refreshSceneHint(float seconds)
+{
+    if (!ui->glWidget) return;
+
+    if (composedHintText().isEmpty()) { hideSceneHint(); return; }
+
+    // showSceneHint costruisce l'overlay e riavvia il timer: la si richiama con
+    // il messaggio della SCENA invariato, cosi' nessuna variabile cambia valore
+    // e la composizione la rifa' lei leggendo entrambe.
+    showSceneHint(m_currentHintText, seconds);
+}
+
+QString MainWindow::composedHintText() const
+{
+    const QString scene = m_currentHintText.trimmed();
+    const QString tex   = m_currentTextureHintText.trimmed();
+
+    if (scene.isEmpty()) return tex;
+    if (tex.isEmpty())   return scene;
+    // Identici: succede quando un record ha ereditato il testo della texture da
+    // cui e' nato. Mostrarlo due volte sarebbe solo rumore.
+    if (scene == tex)    return scene;
+
+    // Due messaggi insieme: senza dire di CHI e' ciascuno, l'utente vede due
+    // slider spiegati ma non sa quale agisce sulla forma e quale sul disegno --
+    // ed e' proprio la confusione che i due campi separati devono togliere.
+    // Le etichette si mettono solo qui, quando i messaggi sono davvero due: con
+    // uno solo sarebbero un'intestazione inutile su una riga sola.
+    return "Surface - " + scene + "\nTexture - " + tex;
+}
+
 void MainWindow::showSceneHint(const QString &text, float seconds)
 {
     // Memorizzato anche se non c'e' scena da decorare: e' il messaggio del
@@ -15349,7 +15439,7 @@ void MainWindow::showSceneHint(const QString &text, float seconds)
 
     if (!ui->glWidget) return;
 
-    if (m_currentHintText.isEmpty()) { hideSceneHint(); return; }
+    if (composedHintText().isEmpty()) { hideSceneHint(); return; }
 
     if (!m_hintOverlay) {
         // Figlia del glWidget: sta SOPRA la scena senza toccare il render loop
@@ -15399,7 +15489,7 @@ void MainWindow::showSceneHint(const QString &text, float seconds)
         connect(m_hintTimer, &QTimer::timeout, this, &MainWindow::hideSceneHint);
     }
 
-    m_hintOverlay->setText(m_currentHintText);
+    m_hintOverlay->setText(composedHintText());
     repositionSceneHint();
     m_hintOverlay->show();
     m_hintOverlay->raise();

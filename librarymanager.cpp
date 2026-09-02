@@ -374,10 +374,18 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.path3D_z = p3["z"].toString();
             d.path3D_roll = p3["roll"].toString();
         }
-        // Messaggio opzionale in sovrimpressione (suggerimento d'uso del record).
+        // Messaggi opzionali in sovrimpressione (suggerimenti d'uso del record).
+        // Sono DUE: quello della scena e quello della sua texture, perche' le
+        // due possono usare costanti diverse e vanno spiegate entrambe. I record
+        // salvati prima hanno solo "hintText": la seconda chiave resta assente e
+        // il campo vuoto, cioe' il comportamento di prima.
         if (root.contains("hintText")) {
             d.hintText = root["hintText"].toString();
             d.hintSeconds = (float)root["hintSeconds"].toDouble(6.0);
+        }
+        if (root.contains("textureHintText")) {
+            d.textureHintText = root["textureHintText"].toString();
+            d.textureHintSeconds = (float)root["textureHintSeconds"].toDouble(6.0);
         }
         parseDiscreteConstants(root, d);
         if (root.contains("scriptCode")) {

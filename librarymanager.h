@@ -107,6 +107,15 @@ struct LibraryItem {
     QString hintText;
     float   hintSeconds = 6.0f;
 
+    // Secondo messaggio, quello della TEXTURE della scena (chiavi
+    // "textureHintText"/"textureHintSeconds"), usato dai soli record: la scena
+    // che catturano ha due sorgenti di costanti indipendenti -- la superficie e
+    // la texture -- e con un campo solo il messaggio dell'una scacciava quello
+    // dell'altra. I due si mostrano insieme (MainWindow::composedHintText).
+    // Vuoto = la texture non ha nulla da dire.
+    QString textureHintText;
+    float   textureHintSeconds = 6.0f;
+
     // Costanti discrete dichiarate dal PRESET (chiave JSON "discreteConstants",
     // es. {"A": [2,6]}): la costante assume solo valori interi nel range e il
     // campo scatta all'intero piu' vicino. Equivale a "A := int(2,6);" nello
