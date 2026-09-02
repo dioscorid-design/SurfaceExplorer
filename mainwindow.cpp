@@ -10979,6 +10979,18 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         if (isMatch && ui->chkBoxTexture->isChecked()) {
             bool isBg = ui->radioBackground->isChecked();
 
+            // RIAVVIO DALL'INIZIO. Ricliccare il preset gia' attivo lo fa
+            // ripartire da capo: e' la regola della Library, che superfici,
+            // suoni e record seguono gia' (il loro ramo ricarica il preset e con
+            // esso azzera l'orologio). Le texture avevano un ramo dedicato --
+            // serve a non riapplicare il codice e a resettare la manipolazione
+            // 2D -- che pero' l'orologio non lo toccava: il click non produceva
+            // alcun effetto visibile su una texture animata.
+            // Si azzera il SOLO clock interessato -- superficie o sfondo, che
+            // sono separati: la geometria non la riguarda questo gesto
+            // (resetTime() fermerebbe anche quella).
+            ui->glWidget->resetTextureTime(/*background=*/isBg);
+
             if (isBg) {
                 m_userStoppedBgClock = false;
                 ui->glWidget->setBackgroundTextureAnimating(true);
@@ -10993,8 +11005,20 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
                 // per-mesh ferme sotto un tasto che dice "in moto".
                 // Si guarda il CODICE (usa il tempo?), non lo stato del clock:
                 // e' l'unico dato che dice se c'e' un'animazione possibile.
-                const bool texIsAnimated =
-                    hasTimeVariable(allSurfaceTextureCode()) || anyMeshTextureCodeAnimated();
+                //
+                // In RAY MARCHING il codice sta in lineTexture/lineVariations,
+                // NON in allSurfaceTextureCode() (che raccoglie la globale
+                // parametrica e le per-mesh). Leggendo solo quella, su una
+                // texture RM animata texIsAnimated risultava sempre false e il
+                // riclic la FERMAVA invece di riavviarla -- e restava ferma,
+                // perche' ogni click successivo ricadeva qui e rispegneva il
+                // clock. E' la stessa distinzione che fa handleTextureSelection
+                // (~7548) per decidere l'orologio al caricamento.
+                const bool isRMTex = (ui->tabModeSelector->currentIndex() == 1);
+                const bool texIsAnimated = isRMTex
+                    ? (ui->lineTexture->toPlainText().contains(kReTimeVar)
+                       || ui->lineVariations->toPlainText().contains(kReTimeVar))
+                    : (hasTimeVariable(allSurfaceTextureCode()) || anyMeshTextureCodeAnimated());
 
                 // NON azzeriamo m_masterStopped (come il ramo background sopra):
                 // il clock texture parte da solo, sbloccare lo stop globale
@@ -16375,7 +16399,20 @@ void MainWindow::applyAnimationState(bool animated, bool dockOnly) {
             // Senza questo gate, con path/rotazioni/t-motion in corso (master su
             // STOP) bastava accendere lo sfondo o togglare la checkbox Texture
             // per far ripartire la texture fermata a mano.
-            const bool texClockOn = effective && surfTexActive && !m_userStoppedTexClock;
+            // NB: si guarda m_masterStopped, NON 'effective'. 'animated' descrive
+            // la sola GEOMETRIA: da quando rawEqsForT ha smesso (giustamente) di
+            // includere gli script di texture e sfondo, il 't' della texture non
+            // vi compare piu', e legare il clock TEXTURE a 'effective' lo rendeva
+            // ostaggio del tempo di un ALTRO modulo.
+            // Sintomo: record con superficie E texture animate, master Stop, poi
+            // Start -> la superficie ripartiva e la texture no, ogni volta che
+            // 'animated' arrivava false (es. commit con rmApplyOnly, che lo forza
+            // a false, o una superficie statica con texture animata).
+            // Ogni modulo guarda il PROPRIO tempo: qui decidono l'attivita' del
+            // modulo texture (surfTexActive), il suo stop manuale e il master.
+            const bool texHasTime = hasTimeVariable(allSurfaceTextureCode());
+            const bool texClockOn = !m_masterStopped && texHasTime
+                                    && surfTexActive && !m_userStoppedTexClock;
             ui->glWidget->setSurfaceTextureAnimating(texClockOn);
             // OROLOGI PER-MESH: si SCRIVONO tutti (adozione esplicita), mai per
             // ereditarieta' -- una parte che copiasse il clock globale ne
@@ -16398,8 +16435,12 @@ void MainWindow::applyAnimationState(bool animated, bool dockOnly) {
                 if (!m_masterStopped) restartAnimatedMeshTextures();
                 else                  ui->glWidget->setAllMeshTexturesAnimating(false);
             }
+            // Stessa regola per lo SFONDO: il suo 't' e' in m_bgTextureCode, che
+            // rawEqsForT (e quindi 'animated') non contiene piu'. Legarlo a
+            // 'effective' lo faceva dipendere dal tempo della geometria.
             ui->glWidget->setBackgroundTextureAnimating(
-                        effective && ui->glWidget->isBackgroundTextureEnabled()
+                        !m_masterStopped && hasTimeVariable(m_bgTextureCode)
+                                  && ui->glWidget->isBackgroundTextureEnabled()
                                   && !m_userStoppedBgClock);
         }
     }

@@ -3784,6 +3784,34 @@ void GLWidget::resetTime() {
     update();
 }
 
+// Riavvia dall'inizio il SOLO orologio indicato. Per la texture di SUPERFICIE
+// colore e displacement leggono lo stesso clock (dummyZero.x), quindi basta
+// azzerare m_timeTex; lo SFONDO ha il suo (m_timeBg).
+// Non si passa da resetTime(): quella azzera anche m_manualTime e m_timeGeom,
+// cioe' la geometria, che un click sulla texture non riguarda -- fermerebbe la
+// superficie animata insieme alla texture.
+void GLWidget::resetTextureTime(bool background) {
+    if (background) {
+        m_timeBg = 0.0f;
+    } else {
+        m_timeTex = 0.0f;
+        // Anche gli orologi PER-MESH: appartengono allo stesso modulo texture e
+        // il riclic lo riavvia tutto (il chiamante rilancia gia' le loro
+        // animazioni con restartAnimatedMeshTextures). Lasciarli avanti
+        // ripartirebbe la globale da zero e le fasce da meta' ciclo.
+        if (engine) {
+            for (MeshPart &mp : engine->mutableMeshParts())
+                mp.timeTex = 0.0f;
+        }
+    }
+    // NIENTE m_surfaceTimer.restart() qui: quel timer produce il dt CONDIVISO da
+    // tutti e tre gli orologi (geometria, texture, sfondo), e ribasarlo farebbe
+    // perdere a geometria e sfondo la frazione di tempo gia' trascorsa dal loro
+    // ultimo tick. Il reset cade fra due tick, quindi il primo dt dopo di esso e'
+    // quello normale di un frame: la texture riparte da ~0 senza scatti.
+    update();
+}
+
 void GLWidget::setSurfaceAnimating(bool animating) {
     m_surfaceAnimating = animating;
     if (animating && m_animTimer && !m_animTimer->isActive()) {

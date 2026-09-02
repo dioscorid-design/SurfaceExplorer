@@ -580,6 +580,13 @@ public:
     void stopAnimationTimer();
     void stopAllTimers();
     void resetTime();
+    // Azzera il SOLO orologio della texture: quello di SUPERFICIE (colore +
+    // displacement, che nello shader leggono lo stesso clock) o quello dello
+    // SFONDO, che e' separato. Serve al riclic in Library sulla texture gia'
+    // attiva: come per superfici, suoni e record, ricliccare riavvia il preset
+    // dall'inizio. resetTime() non va bene, azzererebbe TUTTI gli orologi --
+    // geometria compresa -- che quel gesto non riguarda.
+    void resetTextureTime(bool background = false);
     void setSurfaceAnimating(bool animating);
     bool isSurfaceAnimating() const { return m_surfaceAnimating; }
 
