@@ -275,10 +275,23 @@ protected:
                 }
 
                 if (QWidget* w = qobject_cast<QWidget*>(obj)) {
+                    MainWindow* mainWin = qobject_cast<MainWindow*>(parent());
+
+                    // UN SOLO COMMIT PER INVIO. clearFocus() emette subito
+                    // editingFinished, e per i campi COSTANTE quell'handler
+                    // chiama gia' commitFieldsOnEnter. Chiamandolo di nuovo qui
+                    // sotto, onStartClicked girava due volte e ogni validatore
+                    // al suo interno mostrava il suo popup due volte di fila
+                    // (equazioni incomplete, sintassi, parentesi, uso di W...):
+                    // leggono i campi dal vivo, quindi la seconda passata
+                    // ritrovava lo stesso testo sbagliato. Si confronta il
+                    // contatore attorno al clearFocus(): se e' cambiato, il
+                    // commit e' gia' avvenuto e qui non si ripete.
+                    const quint64 before = mainWin ? mainWin->commitOnEnterCount() : 0;
                     w->clearFocus();
 
                     // Applica i campi modificati (sia in moto che a superficie ferma)
-                    if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
+                    if (mainWin && mainWin->commitOnEnterCount() == before) {
                         mainWin->commitFieldsOnEnter();
                     }
                     return true;
@@ -604,10 +617,16 @@ protected:
                 }
 
                 if (QWidget* w = qobject_cast<QWidget*>(obj)) {
+                    MainWindow* mainWin = qobject_cast<MainWindow*>(parent());
+
+                    // UN SOLO COMMIT PER INVIO, come nel filtro desktop:
+                    // clearFocus() emette editingFinished, che per i campi
+                    // costante commtta gia'. Vedi commitOnEnterCount.
+                    const quint64 before = mainWin ? mainWin->commitOnEnterCount() : 0;
                     w->clearFocus();
 
                     // Notifica a MainWindow di applicare i campi modificati
-                    if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
+                    if (mainWin && mainWin->commitOnEnterCount() == before) {
                         mainWin->commitUiFieldsDuringMotion();
                     }
 
@@ -775,10 +794,12 @@ protected:
 // Servono a riconoscere la regressione classica di questa zona: se ricompare
 // "le equazioni si applicano senza il Run" oppure "il campo confermato con
 // l'Invio non ha effetto", la riga da leggere e' snapshot=0 (snapshot mai
-// preso -> in passato si ricadeva sui campi UI) o un ABORT. freezeMap=1
-// significa X/Y/Z/P congelate sull'ultimo Run, freezeFlow=0 che i 7 campi del
-// flusso sono letti dal vivo: e' il comportamento corretto per un commit di
-// singolo campo a moto fermo.
+// preso -> in passato si ricadeva sui campi UI) o un ABORT.
+// Su un commit di servizio (Invio su una costante, slider) ci si aspetta ORA
+// freezeMap=1 E freezeFlow=1: sia la mappa X/Y/Z/P sia i 7 campi del flusso
+// sono congelati sull'ultimo Run. Un freezeFlow=0 con useAppliedEqs=1 e' la
+// regressione da cui nasceva il disallineamento fra geodetiche e parametriche
+// (la costante entrava senza premere Run).
 // NB: il progetto non usa qDebug altrove, per questo sono dietro una macro.
 #define SE_GEO_COMMIT_PROBE 0
 #if SE_GEO_COMMIT_PROBE
@@ -1616,25 +1637,13 @@ MainWindow::MainWindow(QWidget *parent)
             // limiti: bastava muovere Steps per committarle di straforo.
             checkAndTriggerMeshUpdate(/*useAppliedEquations=*/true);
 
-            // Nel FLUSSO GEODETICO la chiamata qui sopra ha appena applicato i 7
-            // campi del flusso letti dal vivo: a schermo c'e' gia' il risultato e
-            // il Run non ha piu' niente da fare. Va spento, o resterebbe acceso a
-            // invitare a un'azione senza effetto (il valore della costante entra
-            // dallo slider e dall'Invio, non dal Run). Stesso ragionamento del
-            // commit in commitFieldsOnEnter.
-            // Solo nel ramo geodetico: nel ramo parametrico standard le equazioni
-            // NON vengono applicate da questo percorso (le congela
-            // useAppliedEquations), quindi li' il Run ha ancora il suo lavoro.
-            //
-            // E solo se la MAPPA X/Y/Z/P e' quella gia' applicata: useAppliedEquations
-            // la congela sullo snapshot, quindi una sua modifica NON e' andata a
-            // schermo e il Run resta l'unico modo di applicarla. Spegnerlo qui
-            // (perche' nel frattempo si e' toccato uno slider) lascerebbe la
-            // modifica irraggiungibile.
-            if (isGeodesicRoutingActive() && !m_geodesicErrorPending
-                    && mapEquationsMatchSnapshot()) {
-                m_parametricApplied = true;
-            }
+            // Il Run NON si spegne qui, in nessuno dei due rami. Questo percorso
+            // (slider costanti, slider Steps) non applica equazioni: le congela
+            // tutte sullo snapshot -- la mappa X/Y/Z/P e, dal disallineamento
+            // corretto, anche i 7 campi del flusso geodetico. Se l'utente ha
+            // scritto qualcosa in quei campi la modifica e' ancora in attesa, e
+            // il Run e' l'unico modo di applicarla: spegnerlo la renderebbe
+            // irraggiungibile. Solo un Run vero rialza m_parametricApplied.
             updateMasterButtonState();
         });
     }
@@ -1849,7 +1858,14 @@ MainWindow::MainWindow(QWidget *parent)
                     ui->lineSteps->setText(QString::number(ui->stepSlider->value()));
                     ui->lineSteps->blockSignals(oldL);
                     ui->lineSteps->selectAll();
-                    m_constantPopupActive = false;
+                    // Reset RIMANDATO a fine ciclo di eventi, come gli altri
+                    // popup di questo modulo. Oggi qui si arriva una volta sola
+                    // (i filtri tastiera consumano il Return, quindi dei due
+                    // trigger collegati -- editingFinished e returnPressed --
+                    // ne scatta uno), ma il reset sincrono rende il doppione
+                    // dipendente da quel dettaglio: basterebbe un percorso che
+                    // lascia passare il Return per vedere due box in fila.
+                    QTimer::singleShot(0, this, [this]{ m_constantPopupActive = false; });
                 }
                 return;
             }
@@ -3504,8 +3520,10 @@ MainWindow::MainWindow(QWidget *parent)
             // clearFocus() del filtro tastiera sull'Invio: senza questa
             // guardia il campo verrebbe validato (e il popup mostrato) due
             // volte, o per un testo che l'utente non ha mai scritto.
-            if (!limitEdit->property("userEditPending").toBool()) return;
-            limitEdit->setProperty("userEditPending", false);
+            // Il controllo-e-consuma del flag sta dentro commitLimitFieldOnEnter,
+            // sede unica: farlo anche qui lo consumerebbe prima, e la chiamata
+            // del filtro tastiera che segue il clearFocus() tornerebbe a
+            // rivalidare (due popup per un solo Invio).
             commitLimitFieldOnEnter(limitEdit->objectName());
         });
     }
@@ -7823,7 +7841,18 @@ void MainWindow::onStartClicked()
             if (!m_constantPopupActive) {
                 m_constantPopupActive = true;
                 InputValidator::showIncompleteEquationsError(this);
-                m_constantPopupActive = false;
+                // Reset RIMANDATO a fine ciclo di eventi, come per il popup di
+                // costante non valida poco sopra. Un solo Invio su un campo
+                // costante porta qui DUE volte: il filtro tastiera fa
+                // clearFocus(), che emette editingFinished -> commitFieldsOnEnter
+                // -> onStartClicked (primo popup), e al ritorno il filtro chiama
+                // di nuovo commitFieldsOnEnter -> onStartClicked. Azzerando il
+                // flag qui, in modo sincrono, la seconda passata lo trovava
+                // false e mostrava un secondo box: chiuso il primo, ne compariva
+                // un altro identico. La condizione (meno di 3 campi X/Y/Z/P
+                // compilati) e' la stessa in entrambe le passate, quindi il
+                // doppione era sistematico.
+                QTimer::singleShot(0, this, [this]{ m_constantPopupActive = false; });
             }
             return;
         }
@@ -8803,10 +8832,23 @@ bool MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
     // Campo disabilitato (es. W in Composition, svuotato apposta): niente da fare.
     if (!edited->isEnabled()) return false;
 
-    // Conferma consumata: l'Invio arriva qui dai filtri tastiera e fa
-    // clearFocus(), che emette subito anche editingFinished. Azzerando ora il
-    // flag, il secondo passaggio esce prima di rivalidare e il popup d'errore
-    // resta uno solo.
+    // CONFERMA UNICA. Il flag userEditPending dice che c'e' una digitazione
+    // dell'utente in attesa: qui si CONTROLLA e si consuma, in questo ordine.
+    // Chi arriva secondo lo trova gia' consumato ed esce senza rivalidare.
+    //
+    // Serve perche' un solo Invio produce DUE chiamate: il filtro tastiera fa
+    // prima w->clearFocus(), che emette subito editingFinished -- il cui
+    // handler chiama gia' questa funzione -- e solo al ritorno il filtro
+    // chiama a sua volta commitLimitFieldOnEnter. Limitandosi ad azzerare il
+    // flag senza leggerlo, la seconda chiamata rivalidava lo stesso testo
+    // sbagliato: su desktop notify() e' un exec() bloccante senza guardia
+    // s_boxActive, quindi si vedevano due popup in fila (chiuso il primo,
+    // compariva il secondo). Stesso effetto sul setFocus() del ramo d'errore
+    // qui sotto, che alla chiusura del box fa perdere di nuovo il focus.
+    //
+    // Il ramo Android di notify() non salva: li' s_boxActive scarta il secondo
+    // box, ma la seconda validazione girava comunque.
+    if (!edited->property("userEditPending").toBool()) return false;
     edited->setProperty("userEditPending", false);
 
     const QString currentText = edited->text();
@@ -17298,6 +17340,13 @@ void MainWindow::restoreActiveEquations(const QStringList &saved) {
 }
 
 void MainWindow::commitUiFieldsDuringMotion() {
+    // Conta come commit da Invio: il ramo generico del filtro mobile chiama
+    // QUESTA, non commitFieldsOnEnter, e va contata sullo stesso contatore --
+    // altrimenti il confronto attorno al clearFocus() non la vedrebbe e il
+    // doppione resterebbe (qui i popup sono quelli di validateAndParseLimits e
+    // di tutto onStartClicked).
+    ++m_commitOnEnterCount;
+
     // Questa funzione applica AL VOLO le equazioni della geometria: ha senso
     // solo se e' il MODULO EQUAZIONI a essere in moto. Guardare il master
     // button (su STOP anche per un path camera, una rotazione o l'audio, con la
@@ -17361,6 +17410,11 @@ void MainWindow::commitUiFieldsDuringMotion() {
 
 // Ritorna true se la modifica e' stata APPLICATA (vedi commitLimitFieldOnEnter).
 bool MainWindow::commitFieldsOnEnter() {
+    // Contatore dei commit: i filtri tastiera lo confrontano prima e dopo il
+    // loro w->clearFocus() per non chiamare due volte per un solo Invio (vedi
+    // commitOnEnterCount in mainwindow.h e il ramo generico dei filtri).
+    ++m_commitOnEnterCount;
+
     m_geodesicErrorPending = false;
 
     // MODULO EQUAZIONI in moto: usa la logica live già esistente, che applica al
@@ -17396,11 +17450,13 @@ bool MainWindow::commitFieldsOnEnter() {
                      (mainEqs.contains(kReUpperW) ? 1 : 0);
 
     if ((upperCount > 0) && hasGeodesicText()) {
-        // useAppliedEquations: qui arrivano l'Invio e l'uscita dai 7 campi del
-        // flusso (u/v/w iniziali, du/dv/dw, fattore conforme). Quei campi vanno
-        // applicati -- sono la superficie -- ma X/Y/Z/P no: sono la mappa di
-        // visualizzazione e aspettano il Run. Senza il flag venivano committate
-        // anche loro, col Run che restava acceso a vuoto.
+        // useAppliedEquations: qui arriva l'Invio sulle COSTANTI A..F/S, che non
+        // e' un Run. Si aggiorna il VALORE delle costanti sulla superficie gia'
+        // applicata; tutte le equazioni -- la mappa X/Y/Z/P e i 7 campi del
+        // flusso -- restano congelate sullo snapshot e aspettano il Run,
+        // esattamente come nella parametrica standard.
+        // (L'Invio sui 7 campi del flusso non passa piu' di qui a superficie
+        // ferma: il filtro tastiera li tratta come campi differiti.)
         const bool meshOk = updateGeodesicMesh(/*useAppliedLimits=*/false,
                                                /*useAppliedEquations=*/true);
         if (!meshOk
@@ -17410,27 +17466,10 @@ bool MainWindow::commitFieldsOnEnter() {
             InputValidator::showGeodesicSingularityError(this);
         }
 
-        // I 7 campi del flusso sono stati letti DAL VIVO e applicati qui sopra
-        // (useAppliedEquations congela le sole X/Y/Z/P, che sono la mappa di
-        // visualizzazione): a schermo c'e' gia' il risultato, quindi il Run non
-        // ha piu' niente da applicare e va SPENTO.
-        // Senza questo, scrivere una costante in un campo del flusso lasciava il
-        // tasto acceso per sempre: markUserEdit lo riaccende a ogni carattere --
-        // giustamente, perche' il testo e' cambiato -- ma nessuno lo rispegneva,
-        // dato che il ramo geodetico del Run rialza m_parametricApplied solo a
-        // flusso NON animato e qui il Run non viene premuto affatto. Il tasto
-        // finiva per invitare a un'azione che non produce nulla: il valore della
-        // costante entra gia' dallo slider e dall'Invio, che passano di qui.
-        // Solo sul successo: se la mesh e' stata rifiutata (singolarita') la
-        // modifica NON e' a schermo e il Run resta la via per riprovare.
-        // Stessa condizione del debounce di costanti/Steps: si spegne il Run solo
-        // se la mappa X/Y/Z/P e' quella gia' applicata. Se l'utente l'ha
-        // modificata, useAppliedEquations l'ha congelata sullo snapshot -- non e'
-        // a schermo -- e il Run le serve ancora.
-        if (meshOk && mapEquationsMatchSnapshot()) {
-            m_parametricApplied = true;
-            updateMasterButtonState();
-        }
+        // Il Run NON si spegne qui: questo percorso non ha applicato alcuna
+        // equazione (le congela tutte), quindi se ce n'e' una in sospeso il Run
+        // e' l'unico modo di applicarla. Lo rialza solo un Run vero.
+        updateMasterButtonState();
         return meshOk;
     }
 
@@ -17520,25 +17559,33 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
     }
 
     // --- LOGICA DI DISACCOPPIAMENTO ---
-    // Due gruppi di campi, due regole diverse.
+    // Due gruppi di campi, stessa regola: a schermo ci va solo cio' che e' gia'
+    // stato confermato con un Run.
     //
-    // A MOTO ATTIVO (isRunning) vale la vecchia regola per TUTTI: il tick gira
-    // di continuo e leggere i campi raccoglierebbe le cifre a meta' digitazione.
+    // A MOTO ATTIVO (isRunning) si congela TUTTO: il tick gira di continuo e
+    // leggere i campi raccoglierebbe le cifre a meta' digitazione.
     //
-    // A MOTO FERMO con useAppliedEquations (Invio su un SINGOLO campo: limiti
-    // u/v/w, i 7 campi del flusso, costanti A..F/S):
+    // A MOTO FERMO con useAppliedEquations (percorsi che NON sono un Run:
+    // costanti A..F/S da slider o Invio, slider Steps, limiti u/v/w, ripristino
+    // path, navigazione) si congela di nuovo TUTTO:
     //  - X/Y/Z/P sono la MAPPA DI VISUALIZZAZIONE e appartengono al dock
     //    Equations: si applicano SOLO col Run. Vanno presi dallo snapshot,
     //    altrimenti il commit di un limite committa di straforo equazioni
     //    modificate e non confermate -- il bug per cui il tasto Run restava
     //    acceso senza piu' niente da applicare.
     //  - I 7 campi del flusso (u/v/w iniziali, du/dv/dw, fattore conforme)
-    //    DEFINISCONO la superficie geodetica e sono proprio quelli che l'utente
-    //    sta confermando: vanno letti DAL VIVO, altrimenti il campo appena
-    //    modificato non avrebbe alcun effetto.
+    //    DEFINISCONO la superficie geodetica, ma anche loro aspettano il Run,
+    //    esattamente come le equazioni della parametrica standard. Prima erano
+    //    letti DAL VIVO qui, e da li' nasceva il disallineamento: scritta una
+    //    costante nuova in un campo del flusso, bastava muovere lo slider di
+    //    quella costante (o dare Invio sul suo campo) perche' la modifica
+    //    entrasse senza Run -- mentre nella parametrica standard restava in
+    //    attesa. L'Invio sui 7 campi non passa piu' di qui a moto fermo: il
+    //    filtro tastiera li tratta come campi differiti (isDeferredEquationField)
+    //    e a superficie ferma non esegue nulla.
     const bool motionRunning = isGeodesicMotionActive();
     const bool freezeMapEqs  = motionRunning || useAppliedEquations;   // X/Y/Z/P
-    const bool freezeFlowEqs = motionRunning;                          // i 7 campi
+    const bool freezeFlowEqs = motionRunning || useAppliedEquations;   // i 7 campi
 
     // Snapshot mancante (mai fatto un Run: preset appena caricato da script
     // metrico, avvio a freddo). Ripiegare sui campi qui rimetterebbe in gioco
@@ -17750,11 +17797,13 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
     // AVVIARE il flusso: un ricalcolo di servizio lo mantiene se gia' in corsa,
     // ma non lo fa partire.
     // Senza questa condizione bastava scrivere 't' in un campo del flusso e poi
-    // muovere uno slider: il ricalcolo del debounce rileggeva i 7 campi dal vivo
-    // (freezeFlow=0), vedeva il 't' appena scritto e faceva partire il timer da
-    // solo. I tasti passavano a "Stop" -- il master pure -- senza che l'utente
-    // avesse premuto Run, e per l'utente l'animazione non era partita affatto:
-    // era partito il timer, non l'attesa applicazione delle equazioni.
+    // muovere uno slider: il ricalcolo del debounce rileggeva allora i 7 campi
+    // dal vivo, vedeva il 't' appena scritto e faceva partire il timer da solo.
+    // I tasti passavano a "Stop" -- il master pure -- senza che l'utente avesse
+    // premuto Run, e per l'utente l'animazione non era partita affatto: era
+    // partito il timer, non l'attesa applicazione delle equazioni. Oggi anche i
+    // 7 campi sono congelati sui ricalcoli di servizio, quindi un 't' non
+    // confermato non arriva nemmeno fin qui: la guardia resta come rete.
     const bool runCanStartFlow = !useAppliedEquations;
     if (hasTime && !m_masterStopped && !m_userStoppedGeomClock && !m_isRecording) {
         // Il flusso puo' ESSERE AVVIATO solo da un Run vero. La condizione va

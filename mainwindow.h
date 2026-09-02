@@ -262,10 +262,10 @@ private slots:
     // altri). Sede unica, cosi' non divergono.
     bool isGeodesicRoutingActive() const;
     // Le equazioni X/Y/Z/P a schermo sono ancora quelle dell'ultimo Run
-    // (snapshot active_*)? Serve ai percorsi che applicano i campi del flusso
-    // dal vivo (Invio su una costante, slider Steps/costanti) per decidere se
-    // possono spegnere il tasto Run: possono solo se la MAPPA non ha modifiche
-    // in sospeso, perche' quelle il Run le deve ancora applicare.
+    // (snapshot active_*)? Serve al COMMIT DI SERVIZIO del ramo parametrico
+    // standard (rmApplyOnly: Invio o uscita da una costante) per decidere se
+    // puo' spegnere il tasto Run one-shot: puo' solo se la MAPPA non ha
+    // modifiche in sospeso, perche' quelle il Run le deve ancora applicare.
     // Snapshot assente = mai fatto un Run: non si puo' affermare che coincidano.
     bool mapEquationsMatchSnapshot() const;
     // Moto GO (rotazioni) davvero in corsa: timer attivo E tasto non su "GO".
@@ -381,8 +381,10 @@ private:
     // che vengono composti dal render offscreen.
     QLabel *m_hintOverlay = nullptr;
     QTimer *m_hintTimer = nullptr;
-    // Messaggio del record attualmente caricato: non c'e' UI per editarlo, va
-    // ricordato qui perche' un risalvataggio non lo perda.
+    // Messaggio del record attualmente caricato: va ricordato qui perche' un
+    // risalvataggio non lo perda. Si edita dal dialogo che compare al
+    // salvataggio (askSceneHint in presetserializer.cpp): non ha un campo fisso
+    // nell'interfaccia, che per un messaggio occasionale sarebbe ingombro.
     QString m_currentHintText;
     float   m_currentHintSeconds = 6.0f;
 
@@ -1124,6 +1126,20 @@ private:
     // Invio non applica nulla, per nessun tipo di campo. Vedi il commento in
     // mainwindow.cpp sopra commitLimitFieldOnEnter.
     bool commitFieldsOnEnter();
+    // Quante volte commitFieldsOnEnter ha girato. I filtri tastiera lo leggono
+    // PRIMA di w->clearFocus() e dopo: se e' cambiato, il clearFocus() ha gia'
+    // fatto scattare editingFinished -- il cui handler (costanti) chiama gia'
+    // commitFieldsOnEnter -- e il filtro NON deve chiamarlo una seconda volta.
+    // Senza questo onStartClicked girava due volte per un solo Invio, e OGNI
+    // validatore al suo interno (sintassi, parentesi, identificatori, uso di W,
+    // campi incompleti...) mostrava il suo popup DUE volte di fila.
+    // Un contatore e non un flag a tempo: i popup sono exec() con un loop di
+    // eventi annidato, che consumerebbe un QTimer::singleShot(0) mentre il box
+    // e' ancora aperto: al ritorno la guardia sarebbe gia' scaduta.
+    quint64 m_commitOnEnterCount = 0;
+public:
+    quint64 commitOnEnterCount() const { return m_commitOnEnterCount; }
+private:
     // Invio su un campo path (chiamata dai filtri tastiera desktop/mobile,
     // che CONSUMANO il Return: returnPressed non arriva mai ai QLineEdit):
     // a moto attivo ricompila le equazioni del path del campo al volo.
