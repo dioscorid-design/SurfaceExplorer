@@ -5774,7 +5774,13 @@ void MainWindow::applyEmptySceneGating()
         // che si puo' ancora comporre. Stessa ragione per il ramo Library.
         const bool editingBackground = ui->radioBackground && ui->radioBackground->isChecked();
         ui->chkBoxTexture->setEnabled(editingBackground);
-        if (ui->treeTextures) ui->treeTextures->setEnabled(editingBackground);
+        // Il ramo Texture della Library resta USABILE anche senza superficie e
+        // fuori da Background: cliccare una texture a scena vuota ricostruisce
+        // la superficie di DEFAULT del tab corrente e ce la applica sopra (vedi
+        // ensureSurfaceForTexture, chiamata dal click). Il checkbox qui sopra
+        // invece resta legato allo sfondo: e' il display di uno stato, non un
+        // comando che possa creare una superficie.
+        if (ui->treeTextures) ui->treeTextures->setEnabled(true);
 
         // Risoluzione/passi: nulla da campionare.
         ui->stepSlider->setEnabled(false);
@@ -5876,6 +5882,30 @@ void MainWindow::applyEmptySceneGating()
 // davvero da disegnare: in parametrico la mesh, in ray marching l'equazione
 // implicita. E' la stessa condizione che il tasto NEW produce via
 // resetScene(..., false).
+// Scena vuota + click su una texture: si ricostruisce la superficie di DEFAULT
+// del tab corrente (sfera in Ray Marching, superficie parametrica di avvio in
+// Parametric) cosi' la texture ha su cosa apparire. Senza, il click non
+// produceva nulla di visibile e il ramo Texture della Library restava
+// disabilitato apposta per non offrire un gesto inerte -- ma cosi' da una scena
+// vuota non c'era modo di ripartire da una texture.
+//
+// Si passa da resetScene(..., loadDefaultSurface=true), cioe' lo STESSO percorso
+// del cambio tab e del reset: nessuna seconda copia della costruzione di default
+// da tenere allineata. Non e' un ramo nuovo, e' quello gia' in produzione.
+//
+// Ritorna true se ha ricostruito qualcosa: il chiamante lo usa per sapere che la
+// scena e' cambiata sotto i piedi e deve rileggerla.
+bool MainWindow::ensureSurfaceForTexture()
+{
+    if (!isSceneEmpty()) return false;
+    // In editing SFONDO non serve: lo sfondo esiste anche senza superficie ed e'
+    // proprio il caso che a scena vuota resta componibile.
+    if (ui->radioBackground && ui->radioBackground->isChecked()) return false;
+
+    resetScene(ui->tabModeSelector->currentIndex(), /*loadDefaultSurface=*/true);
+    return true;
+}
+
 bool MainWindow::isSceneEmpty() const
 {
     if (!ui->glWidget) return false;
@@ -6159,6 +6189,64 @@ void MainWindow::updateConstraintState()
 
         ui->glWidget->getEngine()->setConstraintMode(SurfaceEngine::ConstraintW);
     }
+}
+
+// Le costanti che NON appartengono alla superficie: non citate dalle equazioni
+// (o dall'equazione implicita in RM), ne' dai campi geodetici, dai limiti u/v/w
+// o dai path camera. Sono quelle che un caricamento di texture puo' riportare al
+// default senza deformare nulla di cio' che e' gia' a schermo.
+//
+// Il criterio e' lo STESSO di updateConstantsUIState -- mathText, match
+// case-insensitive sui campi exprtk, commenti esclusi -- perche' li' una
+// costante citata da un limite o da un path e' "usata" e non va toccata: la
+// stessa ragione vale qui, dove il rischio non e' uno slider spento a torto ma
+// una superficie che cambia forma da sola.
+QSet<QString> MainWindow::constantsNotUsedBySurface() const
+{
+    QString mathText;
+
+    if (ui->tabModeSelector->currentIndex() == 0) {
+        mathText = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
+                   ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
+                   ui->lineExplicitU->toPlainText() + " " + ui->lineExplicitV->toPlainText() + " " +
+                   ui->lineExplicitW->toPlainText() + " " + ui->lineU->toPlainText() + " " +
+                   ui->lineV->toPlainText() + " " + ui->lineW->toPlainText();
+        if (ui->lnU) {
+            mathText += " " + ui->lnU->toPlainText() + " " + ui->lnV->toPlainText() +
+                        " " + ui->lnW->toPlainText() + " " + ui->lndU->toPlainText() +
+                        " " + ui->lndV->toPlainText() + " " + ui->lndW->toPlainText() +
+                        " " + ui->lineConform->toPlainText();
+        }
+        // Lo SCRIPT della superficie parametrica e' GLSL, ma e' comunque della
+        // SUPERFICIE: una costante che vi compare non va resettata.
+        mathText += " " + stripCodeComments(m_surfaceScriptText);
+    } else {
+        mathText = stripCodeComments(ui->lineEquation->toPlainText());
+        // Idem per lo script implicito in Ray Marching.
+        mathText += " " + stripCodeComments(m_surfaceScriptText);
+    }
+
+    // Limiti e path: valutati con A..F/S registrate, quindi contano come uso.
+    mathText += " " + ui->uMinEdit->text() + " " + ui->uMaxEdit->text() +
+                " " + ui->vMinEdit->text() + " " + ui->vMaxEdit->text() +
+                " " + ui->wMinEdit->text() + " " + ui->wMaxEdit->text();
+    mathText += " " + ui->lineX_P->text() + " " + ui->lineY_P->text() +
+                " " + ui->lineZ_P->text() + " " + ui->lineP_P->text() +
+                " " + ui->lineAlpha_P->text() + " " + ui->lineBeta_P->text() +
+                " " + ui->lineGamma_P->text() +
+                " " + ui->lineX_P3D->text() + " " + ui->lineY_P3D->text() +
+                " " + ui->lineZ_P3D->text() + " " + ui->lineR_P3D->text();
+
+    QSet<QString> free;
+    for (const QString &letter : { QStringLiteral("A"), QStringLiteral("B"),
+                                   QStringLiteral("C"), QStringLiteral("D"),
+                                   QStringLiteral("E"), QStringLiteral("F"),
+                                   QStringLiteral("S") }) {
+        QRegularExpression re("\\b" + letter + "\\b",
+                              QRegularExpression::CaseInsensitiveOption);
+        if (!mathText.contains(re)) free.insert(letter);
+    }
+    return free;
 }
 
 void MainWindow::updateConstantsUIState() {
@@ -7619,6 +7707,41 @@ void MainWindow::handleTextureSelection(int index)
     m_currentTextureHintSeconds = data.hintSeconds;
     refreshSceneHint(m_currentTextureHintText.isEmpty() ? m_currentHintSeconds
                                                         : data.hintSeconds);
+
+    // VALORI DELLE COSTANTI: una texture caricata deve apparire com'e' stata
+    // salvata, non com'e' rimasta quella precedente. I preset di texture NON
+    // salvano i valori delle costanti (le chiavi sono code/color/zoom/pan/
+    // rotation/hint), quindi non c'e' un valore "del preset" da ripristinare:
+    // si torna al DEFAULT (A..F = 1, S = 0).
+    // Senza, caricando Psychedelic Vortex, muovendo A e B, e poi caricando
+    // Reactive Holography -- che usa le stesse due lettere -- la texture nuova
+    // partiva gia' alterata dai valori della vecchia: updateConstantsUIState
+    // riporta a 1 le sole costanti CADUTE IN DISUSO, e quelle usate da entrambe
+    // non lo sono.
+    // SOLO le costanti che la SUPERFICIE non usa: quelle condivise appartengono
+    // anche a lei, e resettarle le cambierebbe la forma sotto gli occhi --
+    // effetto peggiore del bug che si sta correggendo. Stesso spirito del reset
+    // di zoom/pan/rotazione sul riclic: si azzera cio' che e' della texture.
+    {
+        const QSet<QString> freeConsts = constantsNotUsedBySurface();
+        auto resetConst = [this](const QString &letter, QSlider *sl, QLineEdit *ln) {
+            const bool isS = (letter == QLatin1String("S"));
+            QSignalBlocker bs(sl), bl(ln);
+            ln->setText(isS ? QStringLiteral("0") : QStringLiteral("1"));
+            sl->setValue(isS ? 0 : 100);
+        };
+        if (freeConsts.contains("A")) resetConst("A", ui->aSlider, ui->lineA);
+        if (freeConsts.contains("B")) resetConst("B", ui->bSlider, ui->lineB);
+        if (freeConsts.contains("C")) resetConst("C", ui->cSlider, ui->lineC);
+        if (freeConsts.contains("D")) resetConst("D", ui->dSlider, ui->lineD);
+        if (freeConsts.contains("E")) resetConst("E", ui->eSlider, ui->lineE);
+        if (freeConsts.contains("F")) resetConst("F", ui->fSlider, ui->lineF);
+        // S in Ray Marching e' lo Step Relax del ray marcher, non una costante
+        // libera: resettarlo congela i raggi (vedi la guardia in
+        // updateConstantsUIState). Si tocca solo in parametrica.
+        if (freeConsts.contains("S") && ui->tabModeSelector->currentIndex() != 1)
+            resetConst("S", ui->sSlider, ui->lineS);
+    }
 
     // SLIDER DELLE COSTANTI: vanno ricalcolati sul codice APPENA caricato.
     // In Ray Marching updateConstantsUIState legge lineTexture/lineVariations,
@@ -10823,6 +10946,13 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
                 syncTextureTreeSelection();
                 return;
             }
+
+            // SCENA VUOTA (dopo NEW): si ricostruisce la superficie di default
+            // del tab, cosi' la texture che si sta per caricare ha su cosa
+            // apparire. Va fatto QUI, prima di leggere lo stato della scena piu'
+            // sotto (isMatch, chkBoxTexture, ambito mesh): quel codice
+            // presuppone una superficie, e su scena vuota deciderebbe sul nulla.
+            ensureSurfaceForTexture();
         }
 
         if (replacesScene && isLeaf) {

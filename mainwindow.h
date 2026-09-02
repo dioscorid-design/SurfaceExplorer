@@ -129,6 +129,14 @@ private slots:
     // tasto NEW). Guarda il MOTORE, non i campi della UI: l'utente puo' aver
     // gia' ricominciato a scrivere senza aver ancora premuto Run.
     bool isSceneEmpty() const;
+    // Le costanti A..F/S che la SUPERFICIE non usa (equazioni, geodetica,
+    // script, limiti, path): quelle che un caricamento di texture puo'
+    // riportare al default senza cambiare la forma a schermo.
+    QSet<QString> constantsNotUsedBySurface() const;
+    // Scena vuota + click su una texture: ricostruisce la superficie di DEFAULT
+    // del tab corrente (percorso resetScene, lo stesso del cambio tab) cosi' la
+    // texture ha su cosa apparire. Ritorna true se ha ricostruito.
+    bool ensureSurfaceForTexture();
     // Applica (o toglie) il blocco dei controlli di resa sulla scena vuota.
     // Sede unica: la chiamano updateRenderState e updateMasterButtonState.
     void applyEmptySceneGating();
