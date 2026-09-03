@@ -309,6 +309,29 @@ MESH_VISIBLE := E;   // how many of the declared grids are visible</pre>
 float c = mod(floor(u * 10.0) + floor(v * 10.0) + t, 2.0);
 return vec4(vec3(c), 1.0);</pre>
 
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Using the constant sliders</b></p></td></tr></table>
+    <p>The sliders <code>A..F</code> and <code>S</code> are available in texture scripts just as they are in the
+    equations: name one in the code and its slider unlocks by itself, ready to drive the pattern live. In Ray
+    Marching this holds for both fields &mdash; <em>Texture Code</em> (the color) and <em>3D Variation</em>
+    (the relief).</p>
+    <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">// Slider A scales the pattern and its speed
+float w = 0.5 + 0.5 * sin(6.0*A*u + 4.0*A*v + 2.0*A*t);
+return vec4(mix(u_col1, u_col2, w), 1.0);</pre>
+    <p>The one exception is the <strong>Shadertoy</strong> form: a script built around
+    <code>mainImage()</code> cannot reach them, because that function sits outside the scope where the engine
+    declares the constants. See the box at the end of this section.</p>
+
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Telling the user what a slider does</b></p></td></tr></table>
+    <p>A slider that unlocks on its own says nothing about <em>what</em> it changes in that particular texture.
+    When you save a texture the app offers an optional <strong>hint</strong>: a short message shown over the scene
+    the next time the texture is loaded. One line per slider is the usual form, and the field takes more than one
+    line &mdash; press Enter to break it:</p>
+    <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">Slider F: relief density
+Slider E: energy scale and speed</pre>
+    <p>Surfaces and records carry a hint of their own; a texture's message is added to the scene's rather than
+    replacing it, so loading a texture never overwrites what the surface had to say. Leave the field empty for
+    no message. The hint is never recorded into exported videos.</p>
+
     <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Using the Renderer color pickers</b></p></td></tr></table>
     <p>Two ready-made colors are available as <code>vec3 u_col1</code> and <code>vec3 u_col2</code>: they mirror
     the <em>Color&nbsp;1 / Color&nbsp;2</em> pickers in the <em>Renderer</em> dock. Reference either token in a
@@ -341,8 +364,9 @@ return vec4(mix(u_col1, u_col2, w), 1.0);</pre>
     <div style="background-color: #2a2a00; padding: 10px; margin-top: 8px;">
         <strong>Two rules of the Shadertoy branch</strong>, which these scripts follow and yours should too:
         the sliders <code>A..F</code> and <code>t</code> are <em>not</em> usable inside <code>mainImage()</code>
-        (the engine declares them as locals of <code>getCustomColor()</code>, so you would get
-        <code>'A' : undeclared identifier</code> &mdash; use <code>iTime</code> and plain literals instead); and
+        &mdash; unlike every other texture form, where they are &mdash; because the engine declares them as
+        locals of <code>getCustomColor()</code> and <code>mainImage</code> is a separate function, so you would
+        get <code>'A' : undeclared identifier</code>; use <code>iTime</code> and plain literals instead. And
         declare nothing at module level (no <code>const</code>, no globals, no helper functions). Two meshes running
         the same script would put two copies of those declarations in one shader &mdash; <code>redefinition</code>,
         and the surface disappears. Keep every parameter inside <code>mainImage</code>, where the scope is

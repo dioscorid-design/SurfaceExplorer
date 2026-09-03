@@ -1016,6 +1016,18 @@ private:
     // --- UI State & Graphics ---
     // Mostra un messaggio in sovrimpressione sulla scena per 'seconds' secondi
     // (testo vuoto = nasconde subito).
+    // RICERCA NELLA DOCUMENTAZIONE. Cerca `needle` in TUTTE le pagine del
+    // manuale (:/docs/*.html), non nella sola pagina aperta: il manuale e'
+    // spezzato in 17 file e un Ctrl+F locale non troverebbe cio' che sta
+    // altrove. Restituisce un elenco di pagine con un frammento di contesto,
+    // gia' ordinato per numero di occorrenze.
+    struct DocHit {
+        QString file;      // "qrc:/docs/doc_raymarching.html"
+        QString title;     // dal <title> della pagina
+        QString context;   // frase attorno alla prima occorrenza
+        int     count = 0; // occorrenze nella pagina
+    };
+    QVector<DocHit> searchDocumentation(const QString &needle) const;
     void showSceneHint(const QString &text, float seconds);
     void hideSceneHint();
     void repositionSceneHint();

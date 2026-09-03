@@ -25,13 +25,22 @@ RESOURCE_GROUPS = {
 # 3. File singoli principali da includere SEMPRE nel prefisso "/"
 # NB: tutta la documentazione sta in docs/ e conserva quel prefisso anche nel
 # .qrc (qrc:/docs/...), cosi' i link relativi fra le pagine funzionano identici
-# su disco e da risorsa. L'indice risale a ../icon.png = qrc:/icon.png.
+# su disco e da risorsa.
 # docs/script_guide.html è la guida linkata dalla documentazione: ometterla da
 # questa lista uccide il link. È già successo più volte: c'è una guardia in
 # CMakeLists che fa fallire il build se manca dal .qrc.
 STATIC_FILES = [
     "icon.png",
     "background.png",
+    # Logo in cima a documentation.html. La pagina lo cita RELATIVO a se stessa,
+    # cioe' qrc:/docs/... nell'app e docs/... sul sito: serve quindi una copia
+    # sotto docs/, non basta quella in radice (che resta l'icona della
+    # finestra). Prima l'indice risaliva a "../icon.png"; il commit della
+    # copertina per GitHub Pages ha tolto il "../" -- giusto per il sito, dove
+    # la home sta dentro docs/ -- e da allora nell'app il logo non si vedeva.
+    # E' l'icona gia' RIDOTTA a 220px, non l'originale da 512: QTextBrowser
+    # scala senza interpolazione di qualita' e il logo usciva frastagliato.
+    "docs/icon_doc.png",
     "docs/documentation.html",
     "docs/script_guide.html",
     # Crediti audio: esiste anche in presets/sounds/ (prefisso /library), ma la

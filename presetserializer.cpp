@@ -22,6 +22,7 @@
 #include <QHBoxLayout>
 #include <QListWidget>
 #include <QLineEdit>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QLabel>
 #include <QDir>
@@ -378,8 +379,17 @@ static bool askSceneHint(QWidget* parent, QString* hintText, const QString& what
     // Etichette solo quando i campi sono due: con uno solo sarebbero rumore.
     if (textureHint) lay->addWidget(new QLabel("Surface:", &dlg));
 
-    QLineEdit* edit = new QLineEdit(*hintText, &dlg);
+    // QPlainTextEdit e non QLineEdit: il messaggio puo' andare A CAPO, e
+    // showSceneHint lo rende con setTextFormat(PlainText) proprio perche' un
+    // '\n' spezzi la riga dove vuole l'autore invece che sulla larghezza della
+    // finestra. Con un campo a riga singola quell'a capo non era digitabile:
+    // l'Invio confermava il dialogo (era il tasto di default) e il testo
+    // restava una riga sola.
+    QPlainTextEdit* edit = new QPlainTextEdit(*hintText, &dlg);
     edit->setStyleSheet("padding: 8px;");
+    // Due righe di altezza: quanto basta a far vedere che l'a capo si puo'
+    // fare, senza rubare spazio al dialogo.
+    edit->setFixedHeight(edit->fontMetrics().lineSpacing() * 3 + 16);
     edit->selectAll();
 #ifdef Q_OS_IOS
     // Stesse guardie del campo nome di MobileSaveDialog: senza, il long-press
@@ -391,12 +401,13 @@ static bool askSceneHint(QWidget* parent, QString* hintText, const QString& what
 
     // Secondo campo: il messaggio della TEXTURE di questa scena. Precompilato
     // come il primo, cosi' un record risalvato non lo perde.
-    QLineEdit* texEdit = nullptr;
+    QPlainTextEdit* texEdit = nullptr;
     if (textureHint) {
         lay->addWidget(new QLabel("Texture:", &dlg));
 
-        texEdit = new QLineEdit(*textureHint, &dlg);
+        texEdit = new QPlainTextEdit(*textureHint, &dlg);
         texEdit->setStyleSheet("padding: 8px;");
+        texEdit->setFixedHeight(texEdit->fontMetrics().lineSpacing() * 3 + 16);
 #ifdef Q_OS_IOS
         texEdit->setInputMethodHints(texEdit->inputMethodHints() | Qt::ImhNoEditMenu);
         texEdit->setProperty("noEditMenu", true);
@@ -407,11 +418,13 @@ static bool askSceneHint(QWidget* parent, QString* hintText, const QString& what
     QHBoxLayout* btns = new QHBoxLayout();
     QPushButton* cancel = new QPushButton("Cancel", &dlg);
     QPushButton* ok     = new QPushButton("Save", &dlg);
-    // Come in MobileSaveDialog: senza questo l'Invio nel campo di testo
-    // chiuderebbe il dialogo invece di confermare la riga.
+    // NESSUN tasto di default: l'Invio deve andare A CAPO nel messaggio, non
+    // confermare il dialogo. Con setDefault(true) su Save il testo non poteva
+    // avere piu' di una riga. Si conferma col tasto Save (o Cmd+Invio, che
+    // QDialog accetta comunque).
     cancel->setAutoDefault(false);
     ok->setAutoDefault(false);
-    ok->setDefault(true);
+    ok->setDefault(false);
     cancel->setStyleSheet("padding: 8px 18px;");
     ok->setStyleSheet("padding: 8px 18px; font-weight: bold;");
     btns->addStretch();
@@ -425,8 +438,8 @@ static bool askSceneHint(QWidget* parent, QString* hintText, const QString& what
     dlg.setMinimumWidth(420);
     if (dlg.exec() != QDialog::Accepted) return false;
 
-    *hintText = edit->text().trimmed();
-    if (textureHint && texEdit) *textureHint = texEdit->text().trimmed();
+    *hintText = edit->toPlainText().trimmed();
+    if (textureHint && texEdit) *textureHint = texEdit->toPlainText().trimmed();
     return true;
 }
 

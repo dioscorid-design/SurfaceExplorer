@@ -48,6 +48,8 @@
 #include <QMessageBox>
 #include <QRegularExpression>
 #include <QDirIterator>
+#include <QTextDocumentFragment>
+#include <QListWidget>
 #include <QInputDialog>
 #include <QDateTime>
 #include <QDir>
@@ -1235,15 +1237,69 @@ MainWindow::MainWindow(QWidget *parent)
             " h4 { font-size: 18px; }");
         browser->setSource(QUrl("qrc:/docs/documentation.html"));
 
+        // --- RICERCA NELL'INTERO MANUALE ---
+        // Campo SEMPRE VISIBILE in cima al dialogo. Il manuale e' spezzato in
+        // 17 pagine, quindi il Ctrl+F del browser (che vede solo quella aperta)
+        // non basta: qui si cerca in tutte e si presenta l'elenco delle pagine
+        // che contengono il termine.
+        QLineEdit* searchEdit = new QLineEdit(docDialog);
+        searchEdit->setPlaceholderText("Search the manual\xE2\x80\xA6");
+        searchEdit->setClearButtonEnabled(true);
+#ifdef Q_OS_IOS
+        // Stesse guardie degli altri campi su iOS: senza, il long-press apre il
+        // menu di modifica e poi blocca la digitazione.
+        searchEdit->setInputMethodHints(searchEdit->inputMethodHints() | Qt::ImhNoEditMenu);
+        searchEdit->setProperty("noEditMenu", true);
+#endif
+
+        // I risultati stanno in un widget SEPARATO che si alterna al browser,
+        // invece di essere disegnati dentro la pagina: cosi' la cronologia del
+        // QTextBrowser (e quindi il tasto Back) non si sporca di pagine
+        // sintetiche che non esistono nel manuale.
+        QListWidget* results = new QListWidget(docDialog);
+        results->setWordWrap(true);
+        // Una riga separa una voce dall'altra: ogni risultato occupa due righe
+        // (titolo + contesto) e senza uno stacco visivo il contesto di una voce
+        // e il titolo della successiva si leggono come un blocco solo.
+        // Il bordo va sull'item, non su voci finte inserite nella lista: quelle
+        // sarebbero navigabili con le frecce e romperebbero il conteggio.
+        // NB: Qt ignora in silenzio i selettori :first / :last sugli item delle
+        // viste (verificato: con tre voci disegna tre bordi), quindi l'ultima
+        // riga chiude l'elenco. Cade al fondo dell'ultima voce, non nel vuoto
+        // sotto, e fa da chiusura: nessun ritocco necessario.
+        results->setStyleSheet(
+            "QListWidget { border: none; }"
+            " QListWidget::item {"
+            "   border-bottom: 1px solid #3a3a3a;"
+            "   padding: 10px 6px;"
+            " }"
+            " QListWidget::item:selected { background-color: #094771; color: white; }");
+        results->hide();
+
         QPushButton* closeBtn = new QPushButton("Close", docDialog);
 
         // 1. Decidiamo cosa fa il click: chiude la finestra o torna indietro?
-        connect(closeBtn, &QPushButton::clicked, docDialog, [browser, docDialog, closeBtn]() {
-            if (closeBtn->text() == "Back") {
-                browser->backward(); // Torna alla pagina precedente della cronologia
-            } else {
-                docDialog->accept(); // Chiude la finestra normalmente
+        connect(closeBtn, &QPushButton::clicked, docDialog,
+                [browser, docDialog, closeBtn, results, searchEdit]() {
+            if (closeBtn->text() != "Back") {
+                docDialog->accept();     // Chiude la finestra normalmente
+                return;
             }
+            // Elenco dei risultati a schermo: si torna al manuale svuotando la
+            // ricerca (il textChanged rimette in vista il browser).
+            if (results->isVisible()) {
+                searchEdit->clear();
+                return;
+            }
+            // Pagina aperta DA un risultato: il passo indietro naturale e'
+            // l'elenco, non la pagina precedente della cronologia -- che qui
+            // sarebbe quella da cui si era partiti prima di cercare.
+            if (!searchEdit->text().trimmed().isEmpty() && results->count() > 0) {
+                browser->hide();
+                results->show();
+                return;
+            }
+            browser->backward();         // Torna alla pagina precedente della cronologia
         });
 
         // 2. Cambiamo automaticamente il testo del bottone leggendo la pagina corrente.
@@ -1252,13 +1308,112 @@ MainWindow::MainWindow(QWidget *parent)
         // quindi li' il tasto chiude; ovunque altro torna alla pagina precedente.
         // Con l'elenco per nome ogni capitolo aggiunto al manuale nasceva con
         // "Close" e usciva dalla finestra invece di tornare all'indice.
-        connect(browser, &QTextBrowser::sourceChanged, docDialog, [closeBtn](const QUrl &src) {
+        connect(browser, &QTextBrowser::sourceChanged, docDialog,
+                [closeBtn, searchEdit](const QUrl &src) {
             const QString page = src.toString();
             const bool isIndex = page.endsWith("documentation.html", Qt::CaseInsensitive);
-            closeBtn->setText(isIndex ? "Close" : "Back");
+            // Con una ricerca in corso l'indice NON e' un vicolo cieco: da li'
+            // si torna comunque all'elenco dei risultati, quindi il tasto resta
+            // "Back" anche sulla pagina che di norma chiude.
+            const bool searching = !searchEdit->text().trimmed().isEmpty();
+            closeBtn->setText((isIndex && !searching) ? "Close" : "Back");
         });
 
+        // 3. La ricerca gira mentre si digita, ma con un debounce: la scansione
+        // e' su ~128 KB di testo e a ogni carattere sarebbe lavoro sprecato.
+        QTimer* searchDebounce = new QTimer(docDialog);
+        searchDebounce->setSingleShot(true);
+        searchDebounce->setInterval(200);
+
+        auto runSearch = [this, searchEdit, results, browser, closeBtn]() {
+            const QString term = searchEdit->text().trimmed();
+
+            // Campo svuotato: si torna al manuale, esattamente dov'era.
+            if (term.isEmpty()) {
+                results->hide();
+                browser->show();
+                return;
+            }
+
+            results->clear();
+            const QVector<DocHit> hits = searchDocumentation(term);
+
+            if (hits.isEmpty()) {
+                QListWidgetItem* none = new QListWidgetItem(
+                    QString("No match for \u201C%1\u201D").arg(term), results);
+                // Voce informativa, non cliccabile.
+                none->setFlags(Qt::NoItemFlags);
+            } else {
+                for (const DocHit &h : hits) {
+                    QListWidgetItem* item = new QListWidgetItem(
+                        QString("%1  (%2)\n%3").arg(h.title).arg(h.count).arg(h.context),
+                        results);
+                    item->setData(Qt::UserRole, h.file);
+                }
+            }
+
+            browser->hide();
+            results->show();
+            // Con i risultati a schermo il tasto deve riportare al manuale, non
+            // chiudere la finestra: la regola posizionale sul solo indice non
+            // copre questo stato, che pagina del manuale non e'.
+            closeBtn->setText("Back");
+        };
+
+        connect(searchDebounce, &QTimer::timeout, docDialog, runSearch);
+        connect(searchEdit, &QLineEdit::textChanged, docDialog,
+                [searchDebounce](const QString&) { searchDebounce->start(); });
+        // Invio: cerca subito, senza aspettare il debounce.
+        connect(searchEdit, &QLineEdit::returnPressed, docDialog, [searchDebounce, runSearch]() {
+            searchDebounce->stop();
+            runSearch();
+        });
+
+        // 4. Click su un risultato: apre la pagina ed EVIDENZIA il termine.
+        // L'evidenziazione passa da ExtraSelection e non da tag iniettati nel
+        // documento: il motore rich text di Qt ignora gran parte del CSS (per
+        // questo il font e' forzato con setDefaultStyleSheet qui sopra) e
+        // manipolare l'HTML sporcherebbe la pagina caricata dal .qrc.
+        connect(results, &QListWidget::itemClicked, docDialog,
+                [browser, results, searchEdit](QListWidgetItem* item) {
+            if (!item) return;
+            const QString file = item->data(Qt::UserRole).toString();
+            if (file.isEmpty()) return;   // riga "nessun risultato"
+
+            results->hide();
+            browser->show();
+            browser->setSource(QUrl(file));
+
+            const QString term = searchEdit->text().trimmed();
+            if (term.isEmpty()) return;
+
+            QList<QTextEdit::ExtraSelection> sels;
+            QTextCursor cur(browser->document());
+            QTextCharFormat fmt;
+            fmt.setBackground(QColor("#7a5c00"));   // ocra: leggibile sul tema scuro
+            fmt.setForeground(QColor("#ffffff"));
+            while (true) {
+                cur = browser->document()->find(term, cur, QTextDocument::FindCaseSensitively
+                                                            & QTextDocument::FindFlags());
+                if (cur.isNull()) break;
+                QTextEdit::ExtraSelection sel;
+                sel.cursor = cur;
+                sel.format = fmt;
+                sels.append(sel);
+            }
+            browser->setExtraSelections(sels);
+
+            // Porta la vista sulla prima occorrenza, o la pagina si aprirebbe
+            // in cima lasciando all'utente il compito di cercarla a occhio.
+            if (!sels.isEmpty()) {
+                browser->setTextCursor(sels.first().cursor);
+                browser->ensureCursorVisible();
+            }
+        });
+
+        layout->addWidget(searchEdit);
         layout->addWidget(browser);
+        layout->addWidget(results);
         layout->addWidget(closeBtn);
 
         // Deleghiamo tutta l'estetica a UiStyleManager!
@@ -15582,6 +15737,81 @@ QString MainWindow::composedHintText() const
     // Le etichette si mettono solo qui, quando i messaggi sono davvero due: con
     // uno solo sarebbero un'intestazione inutile su una riga sola.
     return "Surface - " + scene + "\nTexture - " + tex;
+}
+
+QVector<MainWindow::DocHit> MainWindow::searchDocumentation(const QString &needle) const
+{
+    QVector<DocHit> hits;
+    const QString term = needle.trimmed();
+    if (term.isEmpty()) return hits;
+
+    // Le pagine si ENUMERANO dal .qrc invece di elencarle a mano: il manuale
+    // cresce (17 file oggi) e una lista scritta qui nascerebbe incompleta al
+    // primo capitolo aggiunto -- lo stesso motivo per cui il tasto Close/Back
+    // usa una regola posizionale e non un elenco di pagine.
+    QDirIterator it(":/docs", {"*.html"}, QDir::Files);
+    while (it.hasNext()) {
+        const QString path = it.next();
+
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+        const QString html = QString::fromUtf8(f.readAll());
+
+        // Si cerca nel TESTO, non nell'HTML: cercando nel sorgente un termine
+        // come "color" comparirebbe in ogni attributo di stile, e i risultati
+        // sarebbero quasi tutti falsi. toPlainText() risolve anche le entita'
+        // (&mdash;, &amp;) che altrimenti spezzerebbero le parole.
+        const QString text = QTextDocumentFragment::fromHtml(html).toPlainText();
+
+        int count = 0;
+        int first = -1;
+        int from = 0;
+        while (true) {
+            const int at = text.indexOf(term, from, Qt::CaseInsensitive);
+            if (at < 0) break;
+            if (first < 0) first = at;
+            ++count;
+            from = at + term.length();
+        }
+        if (!count) continue;
+
+        DocHit h;
+        h.file  = "qrc" + path;   // QDirIterator da ":/docs/...", il browser vuole "qrc:/docs/..."
+        h.count = count;
+
+        // Titolo della pagina: e' l'etichetta che l'utente riconosce. Il <title>
+        // porta il prefisso del prodotto ("Surface Explorer - X"), che ripetuto
+        // su ogni riga sarebbe rumore: si tiene la parte dopo il separatore.
+        QRegularExpression titleRe("<title>(.*?)</title>",
+                                   QRegularExpression::DotMatchesEverythingOption
+                                   | QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch tm = titleRe.match(html);
+        if (tm.hasMatch()) {
+            h.title = QTextDocumentFragment::fromHtml(tm.captured(1)).toPlainText().trimmed();
+            const int sep = h.title.indexOf(QRegularExpression("\\s+[-\\x{2013}\\x{2014}]\\s+"));
+            if (sep > 0) h.title = h.title.mid(sep).trimmed();
+            h.title.remove(QRegularExpression("^[-\\x{2013}\\x{2014}]\\s*"));
+        }
+        if (h.title.isEmpty()) h.title = QFileInfo(path).baseName();
+
+        // Frammento di contesto attorno alla PRIMA occorrenza, cosi' si capisce
+        // se la pagina parla davvero di cio' che si cerca prima di aprirla.
+        const int ctxStart = qMax(0, first - 60);
+        const int ctxEnd   = qMin(text.length(), first + term.length() + 90);
+        h.context = text.mid(ctxStart, ctxEnd - ctxStart).simplified();
+        if (ctxStart > 0)            h.context.prepend(QString::fromUtf8("\xE2\x80\xA6 "));
+        if (ctxEnd < text.length())  h.context.append(QString::fromUtf8(" \xE2\x80\xA6"));
+
+        hits.append(h);
+    }
+
+    // Piu' occorrenze = pagina piu' pertinente; a parita', ordine alfabetico
+    // per un elenco stabile fra una ricerca e l'altra.
+    std::sort(hits.begin(), hits.end(), [](const DocHit &a, const DocHit &b) {
+        if (a.count != b.count) return a.count > b.count;
+        return a.title.localeAwareCompare(b.title) < 0;
+    });
+    return hits;
 }
 
 void MainWindow::showSceneHint(const QString &text, float seconds)

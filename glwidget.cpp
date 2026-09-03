@@ -4383,7 +4383,27 @@ QString GLWidget::createImplicitFragmentShader()
     if (m_textureEnabled) {
         QString texCodeRemapped = m_textureCode;
         texCodeRemapped.replace("ubuf.u_time", "ubuf.u_dummyZero.x");
+        // COSTANTI A..F/S anche nel COLORE. Il template le dichiara come LOCALI
+        // di map() (~31) e mapInner() (~75), ma questo codice finisce in
+        // shadeSurface(), un'altra funzione: da li' non erano visibili e uno
+        // script colore che citava 'A' NON COMPILAVA ("'A' : undeclared
+        // identifier"), lasciando in piedi lo shader precedente. Il
+        // DISPLACEMENT non aveva il problema perche' viene iniettato dentro
+        // map(), dove le locali ci sono gia' -- l'asimmetria fra i due campi
+        // del modulo texture RM era solo un effetto del punto di iniezione.
+        // Si dichiarano QUI, nello scope del wrapper, come si fa gia' per t e
+        // iTime: nessun simbolo globale, nessuna #define, e uno script che
+        // dichiarasse una propria 'float A' la ombreggerebbe in uno scope
+        // interno senza conflitto (oggi quello script non compila affatto).
         QString texWrap = "{\n  float t = ubuf.u_dummyZero.x;\n  float iTime = ubuf.u_dummyZero.x;\n"
+                          "  float A = ubuf.u_mathParams.x;\n"
+                          "  float B = ubuf.u_mathParams.y;\n"
+                          "  float C = ubuf.u_mathParams.z;\n"
+                          "  float S = ubuf.u_mathParams.w;\n"
+                          "  float s = ubuf.u_mathParams.w;\n"
+                          "  float D = ubuf.u_mathParams2.x;\n"
+                          "  float E = ubuf.u_mathParams2.y;\n"
+                          "  float F = ubuf.u_mathParams2.z;\n"
                           + texCodeRemapped + "\n}\n";
         finalSource.replace("%TEXTURE_CODE%", texWrap);
 
