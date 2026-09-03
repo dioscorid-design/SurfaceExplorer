@@ -125,5 +125,7 @@
     "type": "motion",
     "use4DLighting": false,
     "hintText": "Sliders A-C active on this shape",
-    "hintSeconds": 6
+    "hintSeconds": 6,
+    "textureHintText": "Sliders A and B drive both the shape and its texture (mass and spin)",
+    "textureHintSeconds": 6.0
 }

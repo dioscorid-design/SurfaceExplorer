@@ -64,6 +64,7 @@
         "uMax": 6.2831854820251465,
         "uMin": 0,
         "vMax": 3.1415927410125732,
+        "vMaxExpr": "pi",
         "vMin": 0,
         "wMax": 0,
         "wMin": 0,
@@ -75,7 +76,7 @@
         "zMin": -1000
     },
     "meshScopeAll": true,
-    "name": "Great Circle Sweep",
+    "name": "Small Sphere Escape",
     "projectionMode": 1,
     "renderMode": 1,
     "steps": 461,

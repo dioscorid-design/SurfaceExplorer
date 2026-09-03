@@ -18,17 +18,17 @@
     },
     "cameraFov": 103,
     "colors": {
-        "alpha": 0.5,
-        "b": 0.20000000298023224,
-        "g": 0.800000011920929,
-        "r": 0.20000000298023224
+        "alpha": 1,
+        "b": 0.250980406999588,
+        "g": 0.9490196108818054,
+        "r": 1
     },
     "constants": {
         "A": 1,
         "B": 1,
         "C": 1,
         "D": 1,
-        "E": 3,
+        "E": 5,
         "F": 1,
         "S": 0
     },
@@ -68,11 +68,64 @@
         "zMax": 1000,
         "zMin": -1000
     },
-    "name": "Hopf Tori over Parallels",
+    "meshParts": [
+        {
+            "alpha": 0.44999998807907104,
+            "b": 0.25,
+            "g": 0.949999988079071,
+            "mode": 0,
+            "r": 0.15000000596046448
+        },
+        {
+            "alpha": 1,
+            "b": 0.10196078568696976,
+            "g": 0.45098039507865906,
+            "mode": 1,
+            "r": 1
+        },
+        {
+            "alpha": 0.44999998807907104,
+            "b": 0.10000000149011612,
+            "g": 0.44999998807907104,
+            "mode": 1,
+            "r": 1
+        },
+        {
+            "alpha": 0.30000001192092896,
+            "b": 1,
+            "g": 0.550000011920929,
+            "mode": 2,
+            "r": 0.3499999940395355,
+            "wfU": 6,
+            "wfV": 5
+        },
+        {
+            "alpha": 0.30000001192092896,
+            "b": 1,
+            "g": 0.550000011920929,
+            "mode": 2,
+            "r": 0.3499999940395355,
+            "wfU": 2,
+            "wfV": 2
+        },
+        {
+            "mode": 1
+        },
+        {
+            "mode": 1
+        },
+        {
+            "mode": 1
+        },
+        {
+            "mode": 1
+        }
+    ],
+    "name": "Hopf Tori Mesh Colors",
     "projectionMode": 2,
-    "renderMode": 1,
+    "renderMode": 2,
     "scriptCode": "// --- CONFIGURAZIONE ---\nu_min := 0;\nu_max := 6.28318531;\nv_min := 0;\nv_max := 6.28318531;\nsteps := 600;\nE := int(1,9);   // E e' DISCRETA: quanti tori di Hopf mostrare (1..9)\n\n// Quante delle 9 mesh dichiarate sono davvero a schermo: le altre le spegne il\n// CUTOUT in fondo (mesh > Ne). Il selettore \"Mesh\" del dock renderer si ferma a\n// questo numero, cosi' non si puo' selezionare un toro invisibile e muoverne gli\n// slider a vuoto. Senza questa riga il selettore arriverebbe a 9 sempre.\nMESH_VISIBLE := E;\n\n// --- TORI DI HOPF SOPRA I PARALLELI DELLA 2-SFERA BASE ---\n// NB: non dichiarare variabili chiamate PI, pi, tau: il traduttore le\n// sostituisce col valore numerico in tutto lo script.\n//\n// LA COSTRUZIONE. Fibrazione di Hopf h: S^3 -> S^2. Leggendo q = (x1,x2,x3,x4)\n// come coppia di complessi z1 = x1 + i x2, z2 = x3 + i x4:\n//\n//     h(q) = ( 2 Re(z1 conj z2), 2 Im(z1 conj z2), |z1|^2 - |z2|^2 )\n//\n// I DUE POLI (0,0,0,+-1) hanno z1 = 0, quindi h = (0,0,-1): stanno sulla STESSA\n// fibra, quella sopra il POLO SUD della base. Quella fibra e' il grande cerchio\n//     C34 = { (0, 0, cos s, sin s) }\n// che infatti passa per (0,0,0,+1) a s = +PI/2 e per (0,0,0,-1) a s = -PI/2.\n// La fibra sopra il polo NORD e' il cerchio complementare C12 = {(cos s,sin s,0,0)}.\n//\n// SOLLEVAMENTO DI UN PARALLELO. Il parallelo della base a colatitudine theta\n// (theta = 0 polo nord, PI/2 equatore, PI polo sud) ha preimmagine il toro\n//     x1^2 + x2^2 = cos^2(theta/2)      x3^2 + x4^2 = sin^2(theta/2)\n// perche' la terza componente di h vale |z1|^2 - |z2|^2 = cos(2r) con r = theta/2.\n// Dunque il legame fra il parallelo della base e il raggio del toro e'\n//\n//     r = theta / 2         (verificato: h e' costante lungo la fibra a 4e-16)\n//\n// E L'EQUATORE DA' IL TORO DI CLIFFORD. A theta = PI/2 si ha r = PI/4, cioe'\n//     |z1| = |z2| = 1/sqrt(2)\n// che e' esattamente il toro di Clifford: l'unico toro di Hopf EQUIDISTANTE\n// dalle due fibre polari C12 e C34, e quello che divide S^3 in due tori solidi\n// congruenti (decomposizione di Heegaard). Verificato per sollevamento diretto:\n// |(x1,x2)| - cos(PI/4) = 1.1e-16 sull'intera griglia.\n//\n// LE FAMIGLIE SULLO SLIDER E. Ogni valore di E mostra ESATTAMENTE E tori, e la\n// regola e' semplice: E DISPARI include l'equatore (il toro di Clifford), E PARI\n// no; il resto sono COPPIE simmetriche rispetto all'equatore (r e PI/2 - r).\n//\n//   E = 1 -> PI/4                                     (solo l'equatore)\n//   E = 2 -> PI/8, 3PI/8                              (1 coppia)\n//   E = 3 -> PI/4 + la coppia di E=2                  (equatore + 1 coppia)\n//   E = 4 -> PI/12, PI/6 + simmetrici                 (2 coppie)\n//   E = 5 -> PI/4 + le coppie di E=4                  (equatore + 2 coppie)\n//   E = 6 -> PI/16, PI/8, 3PI/16 + simmetrici         (3 coppie)\n//   E = 7 -> PI/4 + le coppie di E=6                  (equatore + 3 coppie)\n//   E = 8 -> PI/20, PI/10, 3PI/20, PI/5 + simmetrici  (4 coppie)\n//   E = 9 -> PI/4 + le coppie di E=8                  (equatore + 4 coppie)\n// In gradi: E=6 da' 11.25/22.5/33.75 e i simmetrici, E=8 da' 9/18/27/36.\n//\n// FORMULA CHIUSA (verificata per E = 1..9): con m = floor(E/2) coppie, la\n// famiglia base e'\n//     r_k = k * PI / (4 (m+1))      k = 1..m\n// e ogni r_k porta con se' il simmetrico PI/2 - r_k. Con m+1 al denominatore i\n// raggi base restano SEMPRE sotto PI/4 (il massimo e' m/(4(m+1)) < 1/4), quindi\n// nessun simmetrico cade sull'equatore: mai due mesh sovrapposte.\n// Le coppie sono equispaziate fra la fibra polare e l'equatore: a E = 4 i\n// paralleli base stanno a 1/3 e 2/3 della strada, a E = 6 a 1/4, 2/4, 3/4.\n//\n// ORDINE DELLE MESH: mesh 0 e' l'equatore quando esiste (E dispari), poi le\n// coppie in ordine, base e simmetrico alternati. Cosi' E = 1 mostra il caso\n// fondamentale e non un toro laterale, e alzando E i tori si AGGIUNGONO senza\n// che quelli gia' presenti cambino posto... con l'eccezione voluta dalla\n// specifica: passando da un E pari al successivo dispari si aggiunge l'equatore,\n// mentre passando da dispari a pari cambia TUTTA la famiglia (il denominatore\n// 4(m+1) cresce), quindi i tori si ridistribuiscono. E' inevitabile: le famiglie\n// pari e dispari hanno spaziature diverse. Essendo tori di\n// Hopf a r distinto sono ANNIDATI e DISGIUNTI (distanza minima 0.39): nessuna\n// compenetrazione da rimuovere.\n// CONVENZIONE DI r: qui r e' l'angolo tale che |z1| = cos r, |z2| = sin r,\n// cioe' la distanza dalla fibra C12 (polo NORD). La distanza dalla fibra C34\n// (quella dei due poli (0,0,0,+-1)) e' quindi PI/2 - r: 67.5, 45, 22.5 deg.\n// Il toro a r = PI/8 e' percio' quello STRETTO attorno a C12 e LARGO attorno a\n// C34; a 3PI/8 e' il viceversa; a PI/4 e' a 45 deg da entrambe.\n//\n// RELAZIONE COL LABIRINTO DI CLIFFORD. E' la STESSA costruzione dei preset\n// \"Clifford Labyrinth\", semplificata: la' ci sono 6 tubi, uno per ogni COPPIA DI\n// INDICI {i,j}, tutti allo STESSO raggio, attorno ai 6 grandi cerchi C_ij; qui\n// c'e' UNA SOLA coppia di poli -- un solo asse, la fibra C34 -- e sono i RAGGI a\n// variare. Verificato che l'insieme di punti coincide con quello del tubo del\n// labirinto attorno a C34 (1600 punti su 1600). Conseguenza importante: nel\n// labirinto i tubi CONDIVIDONO un indice e si compenetrano, per cui il cutout\n// deve rimuovere le pareti interne; qui i tori sono concentrici e disgiunti,\n// quindi il cutout non ha nulla da tagliare e serve solo allo slider E.\n//\n// --- NOTA SULLE ROTAZIONI 4D (limite noto, accettato) ---\n// Con le rotazioni omega (XW) e phi (YW) il bordo mostra increspature che\n// alzando gli steps si attenuano ma non scompaiono. NON e' un difetto della\n// superficie ne' della mesh: e' il CAP della stereografica.\n// stereoS3 calcola rad = min(sqrt((1+w)/(1-w)), 12): vicino a w = 1 il raggio\n// vero tende a infinito e il min appoggia tutti quei vertici sulla stessa sfera\n// di raggio 12, appiattendo la geometria -> profilo tagliato.\n// Perche' proprio omega e phi: mescolano un x del fattore GRANDE con w, che sta\n// nel PICCOLO, e cos^2 r + sin^2 r = 1 esatto -> il polo di proiezione viene\n// RAGGIUNTO (misurato w = 1.000000). psi (ZW) invece mescola x3 e x4, entrambi\n// nel fattore piccolo: la combinazione vale sin r * sin(u - t), limitata da\n// sin r, e w resta a 0.707 a ogni angolo -> con psi il difetto NON compare.\n// Gli steps non bastano perche' la zona oltre soglia e' un'AREA del dominio: la\n// frazione di vertici clampati resta ~0.44% a qualunque risoluzione.\n// Non e' aggirabile nello script: i due fattori hanno angoli indipendenti, quindi\n// |(x1,x4)| = 1 per QUALSIASI r, e una pre-rotazione (rigida) non cambia nulla.\n// PER RUOTARE SENZA ARTEFATTI: usare psi.\n// --- COSTO A E ALTI ---\n// Le nove mesh esistono sempre; quelle oltre E vengono scartate dal cutout, ma i\n// loro vertici sono comunque generati. I passi dichiarati qui sotto sono una\n// PROPORZIONE riscalata dallo slider Steps, quindi il conto e' 9*(S+1)^2 vertici\n// con lo slider a S: 364k a 200, 3.3M a 600, 9.0M a 1000. Sui dispositivi con\n// watchdog GPU conviene tenere Steps basso quando si alza E.\n//\n// --- MULTI-MESH: un toro per griglia ---\n// Tre mesh indipendenti, `mesh` = 0, 1, 2 sceglie il parallelo. Con una griglia\n// sola servirebbero v su [0,6*PI], un selettore per ramo, il riscalamento di\n// chiusura e DUE bande di guardia nel cutout per scartare i quad di giunzione\n// (che lascerebbero due solchi circolari). Nulla di tutto questo serve piu':\n// nessun quad puo' collegare due mesh separate.\n//MESH_BEGIN\nu: 0, 6.28318531, 200\nv: 0, 6.28318531, 200\n//MESH_END\n//MESH_BEGIN\nu: 0, 6.28318531, 200\nv: 0, 6.28318531, 200\n//MESH_END\n//MESH_BEGIN\nu: 0, 6.28318531, 200\nv: 0, 6.28318531, 200\n//MESH_END\n//MESH_BEGIN\nu: 0, 6.28318531, 200\nv: 0, 6.28318531, 200\n//MESH_END\n//MESH_BEGIN\nu: 0, 6.28318531, 200\nv: 0, 6.28318531, 200\n//MESH_END\n//MESH_BEGIN\nu: 0, 6.28318531, 200\nv: 0, 6.28318531, 200\n//MESH_END\n//MESH_BEGIN\nu: 0, 6.28318531, 200\nv: 0, 6.28318531, 200\n//MESH_END\n//MESH_BEGIN\nu: 0, 6.28318531, 200\nv: 0, 6.28318531, 200\n//MESH_END\n//MESH_BEGIN\nu: 0, 6.28318531, 200\nv: 0, 6.28318531, 200\n//MESH_END\n\n// --- RAGGIO DI QUESTA MESH: FORMULA CHIUSA ---\n// Niente elenco di indicatori: con 5 mesh (e 9 nello step successivo) una catena\n// di I_k diventerebbe illeggibile e va riscritta a ogni ampliamento. Qui il\n// raggio si ricava da (mesh, E) in forma chiusa, senza if/else.\n// PI/4 = 0.78539816, PI/2 = 1.57079633.\nfloat Ne = clamp(floor(clamp(E, 1.0, 9.0) + 0.5), 1.0, 9.0);\n\nfloat mm  = floor(Ne * 0.5);          // numero di COPPIE simmetriche\nfloat odd = Ne - 2.0 * mm;            // 1 se E e' dispari: c'e' l'equatore\n\n// isEq vale 1 SOLO sulla mesh 0 quando E e' dispari (l'equatore sta la').\nfloat isEq = odd * (1.0 - step(0.5, mesh));\n\n// Indice dentro l'elenco delle coppie: salta la mesh dell'equatore se c'e'.\nfloat j  = mesh - odd;\nfloat kk = floor(j * 0.5) + 1.0;      // quale coppia, 1..mm\nfloat sg = j - 2.0 * floor(j * 0.5);  // 0 = raggio base, 1 = simmetrico\n\n// Raggio base della coppia kk, e il suo simmetrico rispetto all'equatore.\n// NB: PI/2 e' scritto 2*P4 e NON 1.57079633. Le due costanti troncate non sono\n// esattamente l'una il doppio dell'altra (differiscono di 1e-8), e i due membri\n// di una coppia simmetrica ne uscivano diversi di 1.27e-08: sotto l'epsilon di\n// float32, quindi invisibile, ma con 2*P4 la simmetria e' esatta al bit e non\n// dipende dalla precisione della GPU.\nfloat P4 = 0.78539816;\nfloat rb = kk * P4 / (mm + 1.0);\nfloat rp = mix(rb, 2.0 * P4 - rb, sg);\n\n// L'equatore vince sulla mesh 0 (dove j sarebbe negativo e rp non significativo).\nfloat r = mix(rp, P4, isEq);\n\n// theta = 2r e' la colatitudine del parallelo sulla 2-sfera base (r = theta/2,\n// vedi sopra): non serve al calcolo, la teniamo solo come promemoria.\n\nfloat cr = cos(r);\nfloat sr = sin(r);\n\n// --- PARAMETRIZZAZIONE PER FIBRE ---\n// Sollevamento del parallelo (theta, phi) con parametro di fibra sfib:\n//     z1 = cos(r) e^{i(phi+sfib)}      z2 = sin(r) e^{i sfib}\n// Qui u = sfib corre LUNGO LA FIBRA (grande cerchio di S^3, cerchio di Villarceau\n// visto in stereografica) e v = phi corre lungo il parallelo della base.\n// DIFFERENZA DAI PRESET DEL LABIRINTO (verificata, non e' una sfumatura).\n// Nel labirinto la parametrizzazione e' (cR cos u, cR sin u, sR cos v, sR sin v):\n// u e v sono i due cerchi FATTORI del toro, e sono cerchi PICCOLI (raggi cos r e\n// sin r, non 1). Lungo ENTRAMBE quelle direzioni la mappa di Hopf VARIA -- lo\n// spread misurato e' 1.414, il massimo possibile -- quindi nel labirinto NESSUNA\n// linea coordinata e' una fibra: le fibre sono le DIAGONALI (1,1) di quella\n// griglia.\n// Qui invece la sostituzione phi -> phi + sfib \"raddrizza\" le diagonali sulle\n// linee u = cost: l'INSIEME di punti e' identico (1600 punti su 1600 coincidono\n// col tubo del labirinto attorno a C34), ma la griglia e' ruotata di modo che\n// u corra lungo la fibra. Conseguenza visibile: le linee del wireframe a v\n// costante SONO le fibre di Hopf -- grandi cerchi di S^3 (centro nell'origine,\n// raggio 1.000000), cerchi di Villarceau in stereografica -- e si vede che due\n// fibre distinte sono ALLACCIATE (linking number 1).\n// Se si vuole la griglia \"da labirinto\" basta togliere il + sfib dalle prime due\n// componenti: la superficie non cambia, cambia solo come la si percorre.\n// NB: la variabile NON si puo' chiamare 's': quel nome e' riservato alla\n// costante S dello slider, che il motore inietta come `float s` in ogni script\n// (glwidget.cpp, generateGlslHelperVars) -> \"'s' : redefinition\".\nfloat sfib = u;\nfloat phi = v;\n\n// NB: il validatore in inputvalidator.cpp pretende la forma letterale del\n// return con vec3 o vec4 aperto subito dopo: assegnare a una variabile e\n// restituirla viene RIFIUTATO. Inoltre conta le parentesi su tutto il testo,\n// COMMENTI INCLUSI: non scriverne di spaiate qui.\nreturn vec4(\n    cr * cos(phi + sfib),\n    cr * sin(phi + sfib),\n    sr * cos(sfib),\n    sr * sin(sfib)\n);\n\n//CUTOUT_BEGIN\n// --- SOLO IL CONTEGGIO (slider E) ---\n// I tre tori di Hopf hanno r distinto, quindi sono annidati e DISGIUNTI: non\n// c'e' nessuna compenetrazione da rimuovere e qui non serve il criterio\n// geometrico dei labirinti di Clifford (q > lim). L'unico compito e' spegnere\n// le mesh oltre E, cosi' lo slider resta continuo senza rigenerare la geometria.\n// E vale anche da CONTEGGIO: mostra esattamente E tori (vedi le famiglie in\n// testa allo script), le altre mesh vengono scartate qui.\nfloat Ne = clamp(floor(clamp(E, 1.0, 9.0) + 0.5), 1.0, 9.0);\n\nreturn (mesh > Ne - 0.5);\n//CUTOUT_END\n",
-    "steps": 600,
+    "steps": 505,
     "type": "surface",
     "use4DLighting": true,
     "wireframe": {

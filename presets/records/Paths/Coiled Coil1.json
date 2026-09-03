@@ -118,7 +118,7 @@
     },
     "steps": 895,
     "texture": {
-        "code": "// --- TEXTURE SCRIPT: OLOGRAFIA REATTIVA ---\n// Usa questo script nel dock Texture per un oggetto implicito\n\n// 1. Usiamo lo slider 'A' per controllare la densità della griglia (es. range 0-5)\nfloat gridDensity = 10.0 + (A * 15.0); \n\n// 2. Creiamo una griglia basata sulle coordinate UV della superficie\n// fract() crea il pattern ripetuto, sottraiamo 0.5 per centrare la cella\nvec2 grid = fract(uv * gridDensity) - 0.5; \n\n// 3. Calcoliamo la distanza dai bordi per disegnare le linee\nfloat lineDist = min(abs(grid.x), abs(grid.y));\n\n// 4. Animiamo lo spessore della linea con il tempo 't'\n// Lo slider 'B' può controllare la velocità della pulsazione\nfloat pulse = sin(t * (2.0 + B * 5.0));\nfloat thickness = 0.05 + 0.03;\n\n// 5. Creiamo un effetto \"Glow\" (bagliore) morbido ai bordi della linea\nfloat glow = smoothstep(thickness + 0.05, thickness, lineDist);\n\n// 6. Assegnazione dei colori usando le variabili iniettate dal tuo engine\n// Il fondo usa il colore secondario (u_col2), le linee il primario (u_col1) \"sparato\"\nvec3 baseColor = u_col2;                  // Spazio vuoto della griglia (Colore 2)\nvec3 neonColor = u_col1 * 1.5;           // Il colore UI, reso più luminoso\n\n// 7. Mixiamo i colori in base al calcolo del glow\nvec3 finalColor = mix(baseColor, neonColor, glow);\n\nreturn finalColor;",
+        "code": "// --- TEXTURE SCRIPT: OLOGRAFIA REATTIVA ---\n// Usa questo script nel dock Texture per un oggetto implicito\n\n// 1. Usiamo lo slider 'A' per controllare la densità della griglia (es. range 0-5)\nfloat gridDensity = 10.0 + (D * 15.0); \n\n// 2. Creiamo una griglia basata sulle coordinate UV della superficie\n// fract() crea il pattern ripetuto, sottraiamo 0.5 per centrare la cella\nvec2 grid = fract(uv * gridDensity) - 0.5; \n\n// 3. Calcoliamo la distanza dai bordi per disegnare le linee\nfloat lineDist = min(abs(grid.x), abs(grid.y));\n\n// 4. Spessore della linea\nfloat thickness = 0.05 + 0.03;\n\n// 5. Creiamo un effetto \"Glow\" (bagliore) morbido ai bordi della linea\nfloat glow = smoothstep(thickness + 0.05, thickness, lineDist);\n\n// 6. Assegnazione dei colori usando le variabili iniettate dal tuo engine\n// Il fondo usa il colore secondario (u_col2), le linee il primario (u_col1) \"sparato\"\nvec3 baseColor = u_col2;                  // Spazio vuoto della griglia (Colore 2)\nvec3 neonColor = u_col1 * 1.5;           // Il colore UI, reso più luminoso\n\n// 7. Mixiamo i colori in base al calcolo del glow\nvec3 finalColor = mix(baseColor, neonColor, glow);\n\nreturn finalColor;",
         "col1": "#33cc33",
         "col2": "#000000",
         "enabled": true,
@@ -132,5 +132,7 @@
     "wireframe": {
         "uStep": 4,
         "vStep": 4
-    }
+    },
+    "textureHintText": "Slider D: texture grid density",
+    "textureHintSeconds": 6.0
 }

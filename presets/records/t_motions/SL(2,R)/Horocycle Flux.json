@@ -54,7 +54,7 @@
         "z": "exp(-B*W)*sin(U)"
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A, B and D active on this shape",
+    "hintText": "Sliders B and D active on this shape",
     "lightIntensity": 1,
     "lightingMode": 1,
     "limits": {
