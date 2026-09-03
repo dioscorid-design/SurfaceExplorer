@@ -1256,6 +1256,23 @@ MainWindow::MainWindow(QWidget *parent)
         // invece di essere disegnati dentro la pagina: cosi' la cronologia del
         // QTextBrowser (e quindi il tasto Back) non si sporca di pagine
         // sintetiche che non esistono nel manuale.
+        // Pagina da cui e' partita la ricerca: uscendo dai risultati si torna
+        // LI', non sulla pagina che un risultato aveva aperto. Senza, il
+        // browser restava dov'era e serviva un secondo Back per l'indice --
+        // che per l'utente e' un passo indietro di troppo, per giunta verso una
+        // pagina appena abbandonata.
+        // QString* e non QString: le lambda che lo usano sono copiate per
+        // valore e devono condividere lo stesso stato.
+        QString* originPage = new QString(QStringLiteral("qrc:/docs/documentation.html"));
+        // Pagina aperta DA un risultato: serve a riconoscere se ci si trova
+        // ancora li' o se da li' si e' seguito un altro link. Nel secondo caso
+        // il passo indietro e' quel link, non l'elenco -- saltarlo perderebbe
+        // un passo di navigazione che l'utente ha fatto.
+        QString* resultPage = new QString();
+        QObject::connect(docDialog, &QObject::destroyed, [originPage, resultPage]() {
+            delete originPage; delete resultPage;
+        });
+
         QListWidget* results = new QListWidget(docDialog);
         results->setWordWrap(true);
         // Una riga separa una voce dall'altra: ogni risultato occupa due righe
@@ -1280,21 +1297,50 @@ MainWindow::MainWindow(QWidget *parent)
 
         // 1. Decidiamo cosa fa il click: chiude la finestra o torna indietro?
         connect(closeBtn, &QPushButton::clicked, docDialog,
-                [browser, docDialog, closeBtn, results, searchEdit]() {
+                [browser, docDialog, closeBtn, results, searchEdit, originPage, resultPage]() {
             if (closeBtn->text() != "Back") {
                 docDialog->accept();     // Chiude la finestra normalmente
                 return;
             }
             // Elenco dei risultati a schermo: si torna al manuale svuotando la
-            // ricerca (il textChanged rimette in vista il browser).
+            // ricerca. Si agisce SUBITO invece di aspettare che il textChanged
+            // faccia scattare il debounce (200 ms): con lo svuotamento affidato
+            // al timer il click restava senza effetto visibile per un attimo, e
+            // un secondo click nel frattempo cadeva in un ramo sbagliato.
             if (results->isVisible()) {
                 searchEdit->clear();
+                results->hide();
+                browser->show();
+                // Si RITORNA alla pagina da cui la ricerca era partita. Senza,
+                // il browser restava sulla pagina aperta da un risultato e
+                // serviva un secondo Back per uscirne -- verso una pagina che
+                // l'utente aveva appena lasciato.
+                //
+                // Con backward() e non setSource(): il primo CONSUMA la
+                // cronologia, il secondo ci aggiunge una voce. Usando setSource
+                // il Back seguente ripercorreva le pagine viste durante la
+                // ricerca, riportando di nuovo su quella del risultato -- lo
+                // stesso giro di troppo, spostato un passo piu' in la'.
+                // Il ciclo ha un tetto: una cronologia inattesa non deve poter
+                // bloccare il dialogo in un giro infinito.
+                for (int guard = 0; guard < 32; ++guard) {
+                    if (browser->source().toString() == *originPage) break;
+                    if (!browser->isBackwardAvailable()) break;
+                    browser->backward();
+                }
+                const bool isIndex = browser->source().toString()
+                                        .endsWith("documentation.html", Qt::CaseInsensitive);
+                closeBtn->setText(isIndex ? "Close" : "Back");
                 return;
             }
-            // Pagina aperta DA un risultato: il passo indietro naturale e'
-            // l'elenco, non la pagina precedente della cronologia -- che qui
-            // sarebbe quella da cui si era partiti prima di cercare.
-            if (!searchEdit->text().trimmed().isEmpty() && results->count() > 0) {
+            // SI E' ANCORA sulla pagina aperta dal risultato: il passo indietro
+            // naturale e' l'elenco, non la pagina precedente della cronologia --
+            // che qui sarebbe quella da cui si era partiti prima di cercare.
+            // Il confronto con resultPage e' necessario: senza, bastava che una
+            // ricerca fosse attiva e ogni Back saltava all'elenco anche dopo
+            // aver seguito altri link da quella pagina, perdendoli.
+            if (!searchEdit->text().trimmed().isEmpty() && results->count() > 0
+                    && browser->source().toString() == *resultPage) {
                 browser->hide();
                 results->show();
                 return;
@@ -1325,13 +1371,27 @@ MainWindow::MainWindow(QWidget *parent)
         searchDebounce->setSingleShot(true);
         searchDebounce->setInterval(200);
 
-        auto runSearch = [this, searchEdit, results, browser, closeBtn]() {
+        auto runSearch = [this, searchEdit, results, browser, closeBtn, originPage]() {
             const QString term = searchEdit->text().trimmed();
 
+            // Si registra la pagina di partenza al PRIMO carattere, cioe' quando
+            // i risultati non sono ancora in vista: dopo, il browser mostra gia'
+            // una pagina aperta da un risultato e registrarla la scambierebbe
+            // per l'origine.
+            if (!results->isVisible() && !browser->source().toString().isEmpty())
+                *originPage = browser->source().toString();
+
             // Campo svuotato: si torna al manuale, esattamente dov'era.
+            // Il tasto va RIALLINEATO alla pagina in vista: restando su "Back"
+            // dopo che i risultati sono spariti finiva nel ramo della cronologia,
+            // e sull'indice -- che una cronologia non ce l'ha -- non faceva
+            // nulla. Il tasto sembrava morto.
             if (term.isEmpty()) {
                 results->hide();
                 browser->show();
+                const bool isIndex = browser->source().toString()
+                                        .endsWith("documentation.html", Qt::CaseInsensitive);
+                closeBtn->setText(isIndex ? "Close" : "Back");
                 return;
             }
 
@@ -1375,7 +1435,7 @@ MainWindow::MainWindow(QWidget *parent)
         // questo il font e' forzato con setDefaultStyleSheet qui sopra) e
         // manipolare l'HTML sporcherebbe la pagina caricata dal .qrc.
         connect(results, &QListWidget::itemClicked, docDialog,
-                [browser, results, searchEdit](QListWidgetItem* item) {
+                [browser, results, searchEdit, resultPage](QListWidgetItem* item) {
             if (!item) return;
             const QString file = item->data(Qt::UserRole).toString();
             if (file.isEmpty()) return;   // riga "nessun risultato"
@@ -1383,6 +1443,7 @@ MainWindow::MainWindow(QWidget *parent)
             results->hide();
             browser->show();
             browser->setSource(QUrl(file));
+            *resultPage = file;   // da qui il Back torna all'elenco
 
             const QString term = searchEdit->text().trimmed();
             if (term.isEmpty()) return;
@@ -1417,7 +1478,7 @@ MainWindow::MainWindow(QWidget *parent)
         layout->addWidget(closeBtn);
 
         // Deleghiamo tutta l'estetica a UiStyleManager!
-        UiStyleManager::setupDocumentationDialog(docDialog, layout, browser, closeBtn);
+        UiStyleManager::setupDocumentationDialog(docDialog, layout, browser, closeBtn, searchEdit);
 
         // 1. Trova il bottone PRIMA di aprire il dialog e salva la sua posizione reale
         QPoint originalPos;

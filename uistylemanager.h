@@ -12,6 +12,7 @@ class QPlainTextEdit;
 class QDialog;
 class QVBoxLayout;
 class QTextBrowser;
+class QLineEdit;
 class QPushButton;
 class QMenu;
 class QSpinBox;
@@ -37,7 +38,11 @@ public:
     static void applyInputFieldsStyle(const QList<QWidget*>& fields);
     static void addScrollToDock(QDockWidget* dock);
     static void applyConstraintStyle(QPlainTextEdit* editor, ConstraintState state);
-    static void setupDocumentationDialog(QDialog* dialog, QVBoxLayout* layout, QTextBrowser* browser, QPushButton* closeBtn);
+    // searchEdit: il campo di ricerca in cima al dialogo. Passa di qui perche'
+    // su mobile va allargato (l'altezza di default e' pensata per il mouse, non
+    // per un dito) e questa e' la sede unica della distinzione desktop/mobile.
+    static void setupDocumentationDialog(QDialog* dialog, QVBoxLayout* layout, QTextBrowser* browser, QPushButton* closeBtn,
+                                         QLineEdit* searchEdit = nullptr);
     // MOBILE: sostituisce le frecce native di un QSpinBox con due QPushButton a
     // forma di freccia, affiancati al campo. Su iOS il campo diventa anche non
     // editabile da tastiera: toccarlo (frecce native comprese) apriva tastierino

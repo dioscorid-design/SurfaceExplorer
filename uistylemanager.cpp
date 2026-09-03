@@ -806,11 +806,28 @@ void UiStyleManager::applyConstraintStyle(QPlainTextEdit* editor, ConstraintStat
     }
 }
 
-void UiStyleManager::setupDocumentationDialog(QDialog* dialog, QVBoxLayout* layout, QTextBrowser* browser, QPushButton* closeBtn) {
+void UiStyleManager::setupDocumentationDialog(QDialog* dialog, QVBoxLayout* layout, QTextBrowser* browser, QPushButton* closeBtn,
+                                              QLineEdit* searchEdit) {
     if (!dialog || !layout || !browser || !closeBtn) return;
 
     // Stile del pulsante di chiusura
     closeBtn->setStyleSheet("padding: 12px; font-weight: bold; font-size: 16px; background-color: #333; color: white;");
+
+    // CAMPO DI RICERCA. L'altezza di default e' tarata sul mouse: su un
+    // telefono il campo risulta stretto e scomodo da centrare col dito, e la
+    // tastiera di sistema ne copre buona parte. Si allarga come si fa per gli
+    // altri campi mobili (setMinimumHeight, cfr. i campi dei dock), con il font
+    // ingrandito in proporzione. Su desktop resta com'e'.
+    if (searchEdit) {
+        searchEdit->setStyleSheet("padding: 8px; font-size: 15px;");
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+        searchEdit->setMinimumHeight(52);   // ~30% in piu' dell'altezza di default
+        QFont sf = searchEdit->font();
+        sf.setPointSize(sf.pointSize() + 3);   // come browser e dock su mobile
+        searchEdit->setFont(sf);
+        searchEdit->setStyleSheet("padding: 12px; font-size: 18px;");
+#endif
+    }
 
 #if defined(Q_OS_IOS)
     // --- COMPORTAMENTO iOS ---
