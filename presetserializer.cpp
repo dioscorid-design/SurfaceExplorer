@@ -1469,7 +1469,29 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     QJsonObject background;
     background["color"] = m_mainWindow->m_currentBackgroundColor.name();
     background["enabled"] = m_mainWindow->ui->glWidget->isBackgroundTextureEnabled();
-    background["code"] = m_mainWindow->m_bgTextureCode;
+    // Il tag //IMG: dello SFONDO va ricostruito qui, come fa il ramo della texture
+    // di superficie piu' sopra. m_bgTextureCode da solo non basta: gli script della
+    // famiglia "Animated Images" campionano l'immagine da iChannel0, e il tag che
+    // dice QUALE si perde ai Run/commit che riscrivono quel campo. Senza, il record
+    // salvava lo script "nudo" e al reload lo sfondo prendeva l'immagine rimasta in
+    // memoria dal record aperto prima. La fonte affidabile e' m_currentBgTexturePath.
+    {
+        QString bgCode = m_mainWindow->m_bgTextureCode;
+        const QRegularExpression bgImgRe(R"(^\s*//IMG:.*$\n?)",
+                                         QRegularExpression::MultilineOption);
+        bgCode.remove(bgImgRe);            // via i tag vecchi/orfani
+        bgCode = bgCode.trimmed();
+        if (!m_mainWindow->m_currentBgTexturePath.isEmpty()) {
+            // Il "\n" solo se sotto c'e' davvero del codice: un'immagine PURA
+            // (tag e basta) deve restare identica a com'era salvata prima del fix,
+            // senza newline in coda -- e' la forma su cui il focus in Library fa
+            // match esatto (textureItemMatchesCode: tag come UNICO contenuto).
+            bgCode = bgCode.isEmpty()
+                       ? "//IMG:" + m_mainWindow->m_currentBgTexturePath
+                       : "//IMG:" + m_mainWindow->m_currentBgTexturePath + "\n" + bgCode;
+        }
+        background["code"] = bgCode;
+    }
     background["col1"] = m_mainWindow->m_bgTexColor1.name();
     background["col2"] = m_mainWindow->m_bgTexColor2.name();
 

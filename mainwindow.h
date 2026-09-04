@@ -613,6 +613,12 @@ private:
 
     QString lastTextureFolder;
     QString m_currentTexturePath;
+    // Percorso dell'immagine di SFONDO attiva. Gemello di m_currentTexturePath
+    // (che vale per la superficie): senza, il ramo background non aveva modo di
+    // sapere QUALE immagine campiona iChannel0 e salvava gli script della
+    // famiglia "Animated Images" senza il tag //IMG:, cosi' al reload lo sfondo
+    // usciva con l'immagine rimasta in memoria dal record precedente.
+    QString m_currentBgTexturePath;
     QString m_currentTexturePresetPath;
     QString m_surfaceTextureCode;
     QString m_bgTextureCode;

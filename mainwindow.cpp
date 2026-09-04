@@ -7130,6 +7130,11 @@ void MainWindow::handleTextureSelection(int index)
             QString bgImgSrc = data.imagePath.isEmpty() ? data.filePath : data.imagePath;
             ui->glWidget->setBackgroundTexture(bgImgSrc);
             m_bgTextureCode = "//IMG:" + bgImgSrc;
+            // Gemello di m_currentTexturePath: e' l'UNICO stato che sopravvive a un
+            // Run/commit dello script. Il tag dentro m_bgTextureCode viene riscritto
+            // da piu' punti (onRunScriptClicked, il commit del suono, ecc.) e li' si
+            // perdeva; il salvataggio lo ripesca da qui.
+            m_currentBgTexturePath = bgImgSrc;
 
             // L'immagine SOSTITUISCE la procedurale: va azzerato anche lo slot
             // dello script, non solo il codice attivo. Senza questo il vecchio
@@ -7179,6 +7184,7 @@ void MainWindow::handleTextureSelection(int index)
                 QString safeDefault = "";
                 m_bgTextureCode = safeDefault;
                 m_bgTextureScriptText = safeDefault;
+                m_currentBgTexturePath.clear();   // niente piu' immagine di sfondo
 
                 if (m_currentScriptMode == ScriptModeTexture) {
                     ui->txtScriptEditor->blockSignals(true);
@@ -7217,15 +7223,32 @@ void MainWindow::handleTextureSelection(int index)
             // CARICAMENTO TEXTURE PROCEDURALE 2D
             QString newCode = data.scriptCode;
 
-            // 1. Controlliamo se c'era già un'immagine di sfondo attiva nell'editor.
+            // 1. Controlliamo se c'era già un'immagine di sfondo attiva.
             // Questo permette di mixare immagini e codice procedurale al primo clic.
-            QString currentEditorText = ui->txtScriptEditor->toPlainText();
+            // FONTE PRIMARIA m_bgTextureCode, l'editor solo come ripiego: l'editor
+            // riceve il tag //IMG: soltanto quando m_currentScriptMode ==
+            // ScriptModeTexture (vedi il ramo data.isImage qui sopra), quindi
+            // arrivando da un'altra modalita' il tag non era mai stato scritto li'
+            // e il mix immagine+procedurale lo perdeva. m_bgTextureCode invece ce
+            // l'ha sempre. Il ripiego sull'editor resta per l'unico caso che
+            // m_bgTextureCode non vede: un tag incollato a mano dall'utente.
+            // NB: la conservazione del tag nel RECORD non dipende da qui, ma da
+            // m_currentBgTexturePath (vedi PresetSerializer, ramo background).
             QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)", QRegularExpression::MultilineOption);
-            QRegularExpressionMatch imgMatch = imgRe.match(currentEditorText);
+            QRegularExpressionMatch imgMatch = imgRe.match(m_bgTextureCode);
+            if (!imgMatch.hasMatch())
+                imgMatch = imgRe.match(ui->txtScriptEditor->toPlainText());
 
             if (imgMatch.hasMatch() && !newCode.contains("//IMG:")) {
                 newCode = "//IMG:" + imgMatch.captured(1).trimmed() + "\n" + newCode;
             }
+
+            // Lo stato deve seguire il codice: se dopo il mix il tag NON c'e'
+            // (nessuna immagine attiva da ereditare), il percorso va dimenticato,
+            // o il salvataggio ricucirebbe sullo sfondo l'immagine di un record
+            // precedente che qui non c'entra piu' nulla.
+            if (!newCode.contains("//IMG:"))
+                m_currentBgTexturePath.clear();
 
             m_bgTextureCode = newCode;
             m_bgTextureScriptText = newCode;
@@ -10875,6 +10898,13 @@ void MainWindow::onApplyTextureScriptClicked()
             }
         }
 
+        // Lo stato del percorso segue SEMPRE il codice appena applicato: qui
+        // passa anche il Run dell'editor, che non e' un caricamento di record e
+        // quindi salta l'azzeramento in applyMotionExample. Senza, un record
+        // senza sfondo si portava dietro l'immagine del record precedente e il
+        // salvataggio gliela scriveva come //IMG: (visto su Paths/Clover).
+        m_currentBgTexturePath = imgPath;
+
         m_bgTextureCode = code;
         updateRenderState();
         if (ui->glWidget) ui->glWidget->update();
@@ -12552,6 +12582,15 @@ void MainWindow::applyMotionExample(LibraryItem data)
     ui->glWidget->setBackgroundTextureEnabled(bgTexEnabled);
     m_bgTextureCode = bgCode;
 
+    // Il percorso dell'immagine di sfondo riparte SEMPRE da zero a ogni record e
+    // lo rivalorizza piu' sotto solo chi ne trova davvero una. Azzerarlo dentro i
+    // rami non basta: con lo sfondo DISABILITATO (bgTexEnabled == false) non si
+    // entra ne' nell'if ne' nell'else-if, il percorso del record precedente
+    // sopravvive e al salvataggio gli veniva cucito addosso un //IMG: altrui.
+    // Visto davvero: Paths/Clover, senza sfondo, si e' preso l'8.png del record
+    // aperto prima.
+    m_currentBgTexturePath.clear();
+
     if (bgTexEnabled && !bgCode.isEmpty()) {
         if (ui->glWidget) {
             ui->glWidget->setProperty("bg_col1", QVector3D(m_bgTexColor1.redF(), m_bgTexColor1.greenF(), m_bgTexColor1.blueF()));
@@ -12564,6 +12603,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
         QString bgImgPath = extractAndResolveImagePath(bgCode);
         if (!bgImgPath.isEmpty() && !bgImgPath.startsWith("NOT_FOUND|")) {
             ui->glWidget->setBackgroundTexture(bgImgPath);
+            // Ricorda l'immagine caricata: al prossimo salvataggio il tag //IMG:
+            // viene riscritto da qui, cosi' un record aperto e risalvato non perde
+            // lo sfondo (vedi PresetSerializer, ramo background).
+            m_currentBgTexturePath = bgImgPath;
         }
 
         bool bgHasCustomLogic = bgCode.contains("return") || bgCode.contains("vec3") || bgCode.contains("vec4") || bgCode.contains("mainImage");
