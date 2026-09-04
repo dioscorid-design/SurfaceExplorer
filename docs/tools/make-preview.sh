@@ -5,7 +5,7 @@
 #
 #   ./docs/tools/make-preview.sh <video> <name> [start-second] [duration] [subfolder] [gamma]
 #
-#   ./docs/tools/make-preview.sh 3-torus.mp4 3-torus 12
+#   ./docs/tools/make-preview.sh "3-torus.mp4" 3-torus 12
 #
 # The source may be a path (absolute or relative) or just the file name: a bare
 # name is looked up in ../presets/renders, where the application writes its
