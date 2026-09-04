@@ -12103,6 +12103,13 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     bool texEnabled = data.textureEnabled;
     QString texCode = data.textureCode;
+    // Codice della texture RAY MARCHING, tenuto a parte perche' il ramo
+    // implicito qui sotto AZZERA texCode (per non innescare la pipeline
+    // parametrica) e con esso spariva l'unica sorgente da cui si estrae il tag
+    // //IMG:. Risultato: il record salvava l'immagine ma al caricamento non la
+    // caricava mai, e il triplanar campionava la texture tappabuchi -- a schermo
+    // sembrava la texture di default.
+    QString rmTexCodeForImage;
     bool bgTexEnabled = data.bgTextureEnabled;
     QString bgCode = data.bgTextureCode;
 
@@ -12136,6 +12143,11 @@ void MainWindow::applyMotionExample(LibraryItem data)
                     ui->lineTexture->setPlainText(rawCode);
                     ui->lineTexture->blockSignals(false);
                     if (ui->glWidget) ui->glWidget->setTextureCode(rawCode);
+
+                    // L'IMMAGINE si estrae da QUI, prima dello svuotamento:
+                    // sotto, imgPath viene ricavato da texCode, che in questo
+                    // ramo e' gia' vuoto.
+                    rmTexCodeForImage = rawCode;
 
                     // FONDAMENTALE: svuotiamo texCode per evitare che inneschi la pipeline Parametrica più giù
                     texCode = "";
@@ -12314,7 +12326,11 @@ void MainWindow::applyMotionExample(LibraryItem data)
         if (ui->glWidget) ui->glWidget->setTextureCode(rmTex);
     }
 
-    QString imgPath = extractAndResolveImagePath(texCode);
+    // In Ray Marching texCode e' vuoto per costruzione (vedi sopra): l'immagine
+    // si cerca nel codice RM conservato a parte. Lo Smart Path Resolver dentro
+    // extractAndResolveImagePath vale per entrambi i rami.
+    QString imgPath = extractAndResolveImagePath(
+        texCode.isEmpty() ? rmTexCodeForImage : texCode);
     if (missingScan.surfaceMissing) {
         // Il percorso non si usa: l'immagine non c'e' piu'. Piu' sotto un
         // imgPath vuoto e' proprio il segnale che manda la superficie sulla
@@ -12365,6 +12381,20 @@ void MainWindow::applyMotionExample(LibraryItem data)
         // scritta come trasformazione PROPRIA di quella parte -- stesso schema
         // del colore globale che finiva nella fascia.
         ui->glWidget->setGlobalTexTransform(surfZoom, QVector2D(surfPanX, surfPanY), surfRot);
+
+        // RAY MARCHING: qui texCode e' vuoto per costruzione, quindi il blocco
+        // parametrico sotto non gira -- ed e' giusto, la sua pipeline (script
+        // custom, checkbox, editor) e' gia' stata percorsa dal ramo implicito.
+        // Restava fuori pero' anche il CARICAMENTO DELL'IMMAGINE, che serve a
+        // entrambi i modi: lo shader triplanar del record campiona il sampler
+        // `tex`, e senza questa riga nessuno lo riempiva -- restava la texture
+        // tappabuchi, che a schermo sembra la texture di default.
+        if (texCode.isEmpty() && !imgPath.isEmpty() && !rmTexCodeForImage.isEmpty()) {
+            ui->glWidget->loadTextureFromFile(imgPath);
+            m_isImageMode = true;
+            m_currentTexturePath = imgPath;
+            ui->glWidget->rebuildShader();   // il sampler e' cambiato
+        }
 
         if (!texCode.isEmpty()) {
             bool hasCustomLogic = texCode.contains("return") || texCode.contains("vec3") || texCode.contains("vec4") || texCode.contains("mainImage");
@@ -15717,9 +15747,26 @@ bool MainWindow::textureItemMatchesCode(const LibraryItem &texItem, const QStrin
 
         // Il tag conta come immagine attiva solo se e' l'unico contenuto: se sotto
         // c'e' del codice GLSL, a disegnare e' quello (il tag e' un residuo).
+        //
+        // ECCEZIONE, il TRIPLANAR: in Ray Marching un'immagine non e' mai un tag
+        // nudo. L'app le antepone sempre lo script che la campiona (~7747), che
+        // e' generato dal motore e non scritto dall'utente: senza, l'immagine
+        // non si vedrebbe affatto. Trattarlo come "codice sotto il tag" faceva
+        // scartare OGNI immagine ray marching, che restava senza focus in
+        // libreria -- il tag c'era, l'immagine si vedeva, ma l'albero non la
+        // evidenziava mai.
+        // Si riconosce dalla FIRMA (le tre proiezioni triplanari su pModel) e
+        // non dal testo esatto: cosi' un ritocco di spaziatura o di 'scale' nel
+        // generatore non rimette in piedi il difetto.
         QString rest = activeCode;
         rest.remove(imgRe);
-        if (!cleanCodeForComparison(rest).isEmpty()) return false;
+        const QString restClean = cleanCodeForComparison(rest);
+        const bool isGeneratedTriplanar =
+                restClean.contains("texture(tex,pModel.yz") &&
+                restClean.contains("texture(tex,pModel.xz") &&
+                restClean.contains("texture(tex,pModel.xy") &&
+                restClean.contains("textureCol=cX*blend.x");
+        if (!restClean.isEmpty() && !isGeneratedTriplanar) return false;
 
         QString activeImg = QFileInfo(m.captured(1).trimmed()).fileName();
         QString libImg    = QFileInfo(texItem.filePath).fileName();

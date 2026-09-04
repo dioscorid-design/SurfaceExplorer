@@ -310,16 +310,28 @@ float c = mod(floor(u * 10.0) + floor(v * 10.0) + t, 2.0);
 return vec4(vec3(c), 1.0);</pre>
 
     <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Using the constant sliders</b></p></td></tr></table>
-    <p>The sliders <code>A..F</code> and <code>S</code> are available in texture scripts just as they are in the
-    equations: name one in the code and its slider unlocks by itself, ready to drive the pattern live. In Ray
-    Marching this holds for both fields &mdash; <em>Texture Code</em> (the color) and <em>3D Variation</em>
-    (the relief).</p>
+    <p>The sliders <code>A..F</code> and <code>S</code> are the natural way to parametrise a
+    <strong>Ray Marching</strong> texture: name one in the code and its slider unlocks by itself, ready to
+    reshape the surface live. This holds for both fields &mdash; <em>Texture Code</em> (the colour) and
+    <em>3D Variation</em> (the relief).</p>
     <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">// Slider A scales the pattern and its speed
 float w = 0.5 + 0.5 * sin(6.0*A*u + 4.0*A*v + 2.0*A*t);
 return vec4(mix(u_col1, u_col2, w), 1.0);</pre>
-    <p>The one exception is the <strong>Shadertoy</strong> form: a script built around
-    <code>mainImage()</code> cannot reach them, because that function sits outside the scope where the engine
-    declares the constants. See the box at the end of this section.</p>
+
+    <div style="background-color: #2a2a00; padding: 10px; margin-top: 8px;">
+        <strong>In a procedural texture the constants work, but are best left alone.</strong> The seven
+        sliders are a single set shared by the whole scene: the same <code>A</code> reaches the equations,
+        the surface texture and the background at once. A procedural texture can be applied to either the
+        surface or the background &mdash; many in the library are used both ways &mdash; so a constant it
+        claims may already mean something else elsewhere in the same scene, and one slider would then drive
+        two unrelated things. Reach for the <em>2D panel</em> (zoom, pan, rotation) and the <em>Color 1/2</em>
+        pickers first, and edit the numbers in the script for anything finer. Ray Marching textures are the
+        exception that has no such clash: they belong to the surface and cannot be a background.
+    </div>
+
+    <p>Constants are altogether out of reach in the <strong>Shadertoy</strong> form: a script built around
+    <code>mainImage()</code> cannot see them, because that function sits outside the scope where the engine
+    declares them. See the box at the end of this section.</p>
 
     <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Telling the user what a slider does</b></p></td></tr></table>
     <p>A slider that unlocks on its own says nothing about <em>what</em> it changes in that particular texture.
@@ -331,6 +343,9 @@ Slider E: energy scale and speed</pre>
     <p>Surfaces and records carry a hint of their own; a texture's message is added to the scene's rather than
     replacing it, so loading a texture never overwrites what the surface had to say. Leave the field empty for
     no message. The hint is never recorded into exported videos.</p>
+    <p>Since the sliders belong to Ray Marching textures, that is where the hint earns its place. The
+    procedural textures in the library carry none: what they expose is the 2D panel and the two colour
+    pickers, and the values worth changing are commented in the script itself.</p>
 
     <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Using the Renderer color pickers</b></p></td></tr></table>
     <p>Two ready-made colors are available as <code>vec3 u_col1</code> and <code>vec3 u_col2</code>: they mirror
