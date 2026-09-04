@@ -124,7 +124,28 @@ else
 fi
 
 # 7b. trova (o crea) la release del tag
-RID="$(gh_api "$API/releases/tags/$TAG" | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d.get("id",""))')"
+# La risposta si legge in due passi, non in pipe diretta a python: una risposta
+# VUOTA o non-JSON (rete che cade, 5xx di GitHub, proxy che intercetta) faceva
+# morire json.load con un traceback, e lo script si fermava DOPO aver costruito
+# e notarizzato il DMG -- il lavoro lungo buttato per un intoppo di un secondo.
+# Con un retry e un parse tollerante il caso si risolve da solo.
+RID=""
+for attempt in 1 2 3; do
+  RESP="$(gh_api "$API/releases/tags/$TAG" || true)"
+  RID="$(printf '%s' "$RESP" | python3 -c '
+import json,sys
+try:
+    d=json.load(sys.stdin)
+except Exception:
+    sys.exit(0)                      # risposta non-JSON: RID vuoto, si riprova
+print(d.get("id","") if isinstance(d,dict) else "")
+')"
+  [ -n "$RID" ] && break
+  # 404 = la release non esiste ancora: non e' un errore di rete, si crea sotto
+  printf '%s' "$RESP" | grep -q '"status": *"404"' && break
+  echo ">>>   risposta non valida dall'\''API (tentativo $attempt/3), riprovo..."
+  sleep 3
+done
 if [ -z "$RID" ]; then
   echo ">>> Creo la release per $TAG"
   RID="$(gh_api -X POST "$API/releases" -d "{\"tag_name\":\"$TAG\",\"name\":\"Surface Explorer $TAG\",\"draft\":false}" \
