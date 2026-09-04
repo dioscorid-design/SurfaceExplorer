@@ -43,7 +43,7 @@
         "z": "0.3*sin(v)"
     },
     "hintSeconds": 6,
-    "hintText": "Slider B: size of the handles; C: how smoothly they merge into the sphere",
+    "hintText": "Slider A: sphere radius\nSlider B: size of the handles; C: how smoothly they merge into the sphere",
     "implicitEquation": "min( sqrt(x*x + y*y + z*z) - A, min( sqrt((sqrt(y*y + z*z) - B)*(sqrt(y*y + z*z) - B) + x*x) - C, sqrt((sqrt(x*x + z*z) - B)*(sqrt(x*x + z*z) - B) + y*y) - C ) ) = 0",
     "isImplicitMode": true,
     "lightIntensity": 1,

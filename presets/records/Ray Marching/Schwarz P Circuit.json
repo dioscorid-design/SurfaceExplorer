@@ -17,16 +17,16 @@
         "zoom": 1
     },
     "camera3D": {
-        "pitch": 63.16236114501953,
+        "pitch": -1.164091944694519,
         "roll": 0,
         "rot_w": 1,
         "rot_x": 0,
         "rot_y": 0,
         "rot_z": 0,
-        "x": -3.1247544288635254,
-        "y": 2.6348278522491455,
-        "yaw": 2.805494785308838,
-        "z": 3.075853109359741
+        "x": 3.09525990486145,
+        "y": -3.0405826568603516,
+        "yaw": -0.7771191000938416,
+        "z": 1.5846613645553589
     },
     "cameraFov": 75,
     "colors": {
@@ -65,8 +65,6 @@
         "v0": "",
         "w0": ""
     },
-    "hintSeconds": 7,
-    "hintText": "Eight-node circuit through the Schwarz P channels",
     "implicitEquation": "cos(x)+cos(y)+cos(z)=0",
     "isImplicitMode": true,
     "lightIntensity": 1,

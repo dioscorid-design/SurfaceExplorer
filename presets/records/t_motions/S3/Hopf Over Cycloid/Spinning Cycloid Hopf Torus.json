@@ -69,7 +69,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A-D and S active: the cycloid swings about the axis",
+    "hintText": "Sliders A-D active: the cycloid swings about the Hopf fibre",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

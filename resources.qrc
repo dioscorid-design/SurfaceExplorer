@@ -1,44 +1,41 @@
 <RCC>
     <qresource prefix="/library">
-        <file>presets/surfaces/Ray Marching/Sphere and Six Tori Merge.json</file>
         <file>presets/surfaces/Ray Marching/ThickIso.json</file>
         <file>presets/surfaces/Ray Marching/Tangle Cube.json</file>
         <file>presets/surfaces/Ray Marching/Ding Dong.json</file>
         <file>presets/surfaces/Ray Marching/Morphing Sphere-Cube.json</file>
         <file>presets/surfaces/Ray Marching/Ergosphere.json</file>
-        <file>presets/surfaces/Ray Marching/Sphere and Three Tori Merge.json</file>
         <file>presets/surfaces/Ray Marching/KleinIso.json</file>
         <file>presets/surfaces/Ray Marching/Bitorus.json</file>
         <file>presets/surfaces/Ray Marching/Filament Cube.json</file>
-        <file>presets/surfaces/Ray Marching/N-Tours.json</file>
+        <file>presets/surfaces/Ray Marching/Torus Rosette.json</file>
         <file>presets/surfaces/Ray Marching/Schwarz P Surface.json</file>
         <file>presets/surfaces/Ray Marching/Whitney Umbrella.json</file>
         <file>presets/surfaces/Ray Marching/Cross Cap.json</file>
+        <file>presets/surfaces/Ray Marching/Pierced Torus.json</file>
         <file>presets/surfaces/Ray Marching/Steiner Surface.json</file>
         <file>presets/surfaces/Ray Marching/Sphere.json</file>
-        <file>presets/surfaces/Ray Marching/N-Torus2.json</file>
         <file>presets/surfaces/Ray Marching/Deco Cube.json</file>
         <file>presets/surfaces/Ray Marching/Cayley Cubic.json</file>
         <file>presets/surfaces/Ray Marching/Pseudo Duplin.json</file>
         <file>presets/surfaces/Ray Marching/Gyroid.json</file>
         <file>presets/surfaces/Ray Marching/Blobs.json</file>
-        <file>presets/surfaces/Ray Marching/N-torus3.json</file>
         <file>presets/surfaces/Ray Marching/DifferenceSpheres.json</file>
         <file>presets/surfaces/Ray Marching/CellNoiseSchwarz.json</file>
         <file>presets/surfaces/Ray Marching/Chmutov.json</file>
         <file>presets/surfaces/Ray Marching/Chain.json</file>
-        <file>presets/surfaces/Ray Marching/N-Torus1.json</file>
         <file>presets/surfaces/Ray Marching/Torus.json</file>
         <file>presets/surfaces/Ray Marching/Pseudo Torus.json</file>
+        <file>presets/surfaces/Ray Marching/Sphere and Tori Merge.json</file>
         <file>presets/surfaces/Ray Marching/Ellipsoid.json</file>
         <file>presets/surfaces/Ray Marching/Monkey Saddle.json</file>
         <file>presets/surfaces/Ray Marching/Ortho Circle.json</file>
         <file>presets/surfaces/Ray Marching/DuplinCyclides.json</file>
         <file>presets/surfaces/Ray Marching/Pulsing Sphere and Six Tori.json</file>
         <file>presets/surfaces/Ray Marching/Hyperbolic Paraboloid.json</file>
+        <file>presets/surfaces/Ray Marching/Torus Chain.json</file>
         <file>presets/surfaces/Ray Marching/Lidinoid.json</file>
         <file>presets/surfaces/Ray Marching/Round Cube.json</file>
-        <file>presets/surfaces/Ray Marching/Sphere and Torus Merge.json</file>
         <file>presets/surfaces/Ray Marching/Sphere with Two Handles.json</file>
         <file>presets/surfaces/Ray Marching/Holes.json</file>
         <file>presets/surfaces/Ray Marching/Gyroid1.json</file>
@@ -223,39 +220,36 @@
         <file>presets/textures/New-Images/2k_ceres_fictional.jpg</file>
         <file>presets/textures/New-Images/2k_eris_fictional.jpg</file>
         <file>presets/textures/New-Images/2k_neptune.jpg</file>
-        <file>presets/textures/Procedurals/Mandelbrot2.json</file>
-        <file>presets/textures/Procedurals/procedural.json</file>
         <file>presets/textures/Procedurals/Animated Gradient.json</file>
         <file>presets/textures/Procedurals/Animated Checkboard.json</file>
+        <file>presets/textures/Procedurals/Linear Gradient.json</file>
         <file>presets/textures/Procedurals/Static Holography.json</file>
         <file>presets/textures/Procedurals/Porous Bone.json</file>
         <file>presets/textures/Procedurals/Shadertoy Style.json</file>
-        <file>presets/textures/Procedurals/Plasma1.json</file>
+        <file>presets/textures/Procedurals/Mandelbrot Orbit Trap.json</file>
+        <file>presets/textures/Procedurals/Soft Clouds.json</file>
         <file>presets/textures/Procedurals/Rainbow.json</file>
-        <file>presets/textures/Procedurals/Clouds1.json</file>
         <file>presets/textures/Procedurals/Noise.json</file>
         <file>presets/textures/Procedurals/Mandelbrot.json</file>
         <file>presets/textures/Procedurals/Monitor CRT.json</file>
+        <file>presets/textures/Procedurals/Wavy Gradient.json</file>
         <file>presets/textures/Procedurals/Xor.json</file>
         <file>presets/textures/Procedurals/Julia.json</file>
         <file>presets/textures/Procedurals/Rainbow1.json</file>
-        <file>presets/textures/Procedurals/Gradient2.json</file>
-        <file>presets/textures/Procedurals/Gradient1.json</file>
+        <file>presets/textures/Procedurals/Rising Smoke.json</file>
         <file>presets/textures/Procedurals/Marble.json</file>
         <file>presets/textures/Procedurals/Rings.json</file>
-        <file>presets/textures/Procedurals/Clouds.json</file>
         <file>presets/textures/Procedurals/Plasma.json</file>
         <file>presets/textures/Procedurals/Row.json</file>
         <file>presets/textures/Procedurals/Winds of Venus.json</file>
-        <file>presets/textures/Procedurals/Gradient.json</file>
         <file>presets/textures/Procedurals/Wood.json</file>
-        <file>presets/textures/Procedurals/Clouds2.json</file>
         <file>presets/textures/Procedurals/Psychedelic Vortex.json</file>
         <file>presets/textures/Procedurals/Rows.json</file>
         <file>presets/textures/Procedurals/Checkboard.json</file>
+        <file>presets/textures/Procedurals/Warped Clouds.json</file>
         <file>presets/textures/Procedurals/Reactive Holography.json</file>
+        <file>presets/textures/Procedurals/Mandelbrot Solid Core.json</file>
         <file>presets/textures/Procedurals/Venus Canopy Light.json</file>
-        <file>presets/textures/Procedurals/Mandelbrot1.json</file>
         <file>presets/textures/Procedurals/Stripes.json</file>
         <file>presets/textures/Procedurals/Shadertoy/Raymarching Basic.json</file>
         <file>presets/textures/Procedurals/Shadertoy/tm tiedie.json</file>
@@ -286,14 +280,12 @@
         <file>presets/records/Geodesic Flow/H^3/Hyperboloid2.json</file>
         <file>presets/records/Geodesic Flow/H^3/Hyperboloid1.json</file>
         <file>presets/records/Geodesic Flow/H^3/Hyperboloid.json</file>
-        <file>presets/records/Geodesic Flow/H^3/NewMotion.json</file>
         <file>presets/records/Geodesic Flow/S^2xS^1/Slice.json</file>
         <file>presets/records/Geodesic Flow/R^3/Hyperboloid.json</file>
         <file>presets/records/Ray Marching/Morphing Sphere-Cube.json</file>
         <file>presets/records/Ray Marching/N-torus Garland.json</file>
         <file>presets/records/Ray Marching/Ergosphere.json</file>
         <file>presets/records/Ray Marching/Gyroid Race.json</file>
-        <file>presets/records/Ray Marching/pippo.json</file>
         <file>presets/records/Ray Marching/Genus 3 Bowel.json</file>
         <file>presets/records/Ray Marching/Breathing Sphere.json</file>
         <file>presets/records/Ray Marching/Sphere-Tori Merging.json</file>

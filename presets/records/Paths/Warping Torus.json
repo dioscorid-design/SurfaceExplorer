@@ -6,7 +6,7 @@
         "psi": 9.999999747378752e-05
     },
     "background": {
-        "code": "// Default Background Image",
+        "code": "",
         "col1": "#3333cc",
         "col2": "#000000",
         "color": "#4d4d4d",

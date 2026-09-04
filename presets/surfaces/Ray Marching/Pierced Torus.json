@@ -16,7 +16,9 @@
         "yaw": 0,
         "z": 11.120001792907715
     },
+    "cameraFov": 45,
     "colors": {
+        "alpha": 1,
         "b": 0.20000000298023224,
         "g": 0.800000011920929,
         "r": 0.20000000298023224
@@ -36,6 +38,8 @@
         "y": "",
         "z": ""
     },
+    "fov3D": 45,
+    "fov4D": 45,
     "geodesic": {
         "conform": "1.0",
         "du": "",
@@ -45,6 +49,8 @@
         "v0": "",
         "w0": ""
     },
+    "hintSeconds": 6,
+    "hintText": "Slider A: number of holes bored through the ring\nB: hole radius   C: tube thickness   D: ring radius   E: how smoothly the holes cut in",
     "implicitEquation": "// Controlled by Script",
     "isImplicitMode": true,
     "lightIntensity": 1,
@@ -63,14 +69,16 @@
         "zMax": 1000,
         "zMin": -1000
     },
-    "name": "N-Tours",
+    "meshScopeAll": true,
+    "name": "Pierced Torus",
     "projectionMode": 1,
     "renderMode": 10,
     "scriptCode": "// Number of holes set by the interface constant A\nfloat numHoles = max(A, 1.0); \n\n// Polar coordinates on the space XY plane (variable 'p' in the script editor)\nfloat r_polar = length(p.xy);\nfloat angle = atan(p.y, p.x);\n\n// Angular repetition: fold space based on the number of holes\nfloat angle_rep = mod(angle + 3.14159265 / numHoles, 6.2831853 / numHoles) - 3.14159265 / numHoles;\n\n// SDF distance from the subtracting cylinders (centered along ring D)\nfloat d_hole = sqrt(r_polar * r_polar + D * D - 2.0 * r_polar * D * cos(angle_rep)) - B;\n\n// SDF distance of the main torus\nfloat d_torus = length(vec2(r_polar - D, p.z)) - C;\n\n// Final step: explicitly return the smooth subtraction using smax\nreturn smax(d_torus, -d_hole, max(E, 0.01));\n",
-    "showBorder": false,
     "steps": 489,
     "type": "surface",
     "use4DLighting": false,
-    "hintText": "Sliders A-E active on this shape",
-    "hintSeconds": 6
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
 }
