@@ -325,13 +325,25 @@ return vec4(mix(u_col1, u_col2, w), 1.0);</pre>
         surface or the background &mdash; many in the library are used both ways &mdash; so a constant it
         claims may already mean something else elsewhere in the same scene, and one slider would then drive
         two unrelated things. Reach for the <em>2D panel</em> (zoom, pan, rotation) and the <em>Color 1/2</em>
-        pickers first, and edit the numbers in the script for anything finer. Ray Marching textures are the
-        exception that has no such clash: they belong to the surface and cannot be a background.
+        pickers first, and edit the numbers in the script for anything finer. Ray Marching textures are freer &mdash; they belong to the
+        surface and cannot be a background &mdash; but they are not exempt either: the constants they
+        claim are the same ones the implicit equation uses, so the two can still meet on the same
+        letter.
     </div>
 
     <p>Constants are altogether out of reach in the <strong>Shadertoy</strong> form: a script built around
     <code>mainImage()</code> cannot see them, because that function sits outside the scope where the engine
     declares them. See the box at the end of this section.</p>
+
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>When two modules want the same letter</b></p></td></tr></table>
+    <p>The app watches for this. Applying a texture &mdash; to the surface or to the background &mdash;
+    that claims a constant already used elsewhere in the scene raises a short notice naming the
+    letters, and telling you which ones are still free. Nothing is rejected: sharing a slider can be
+    exactly what you want, so the notice offers <em>Apply anyway</em> and that is the default. To
+    give the texture a slider of its own instead, edit its script to use one of the free letters and
+    load it again.</p>
+    <p>The presets that ship with the app never clash, so the notice only appears once you start
+    combining a surface and a texture written apart from each other.</p>
 
     <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Telling the user what a slider does</b></p></td></tr></table>
     <p>A slider that unlocks on its own says nothing about <em>what</em> it changes in that particular texture.

@@ -68,6 +68,14 @@ public:
     static bool validateImplicitScriptReturn(QWidget* parent, const QString& cleanCode);
     static void showMetricMissingConditionsInfo(QWidget* parent);
     static void showMetricAmbiguousConstantWarning(QWidget* parent, const QStringList& names);
+    // Stessa famiglia del precedente, per l'altro caso di costante contesa: una
+    // texture che rivendica una lettera gia' usata dalla SUPERFICIE. Non e' un
+    // errore -- si puo' volere che un solo slider muova entrambe -- quindi
+    // l'avviso e' informativo e non blocca il caricamento: dice quali lettere
+    // sono in conflitto e come liberarle. Ritorna false se l'utente sceglie di
+    // annullare l'applicazione della texture.
+    static bool showTextureConstantClashWarning(QWidget* parent, const QStringList& names,
+                                                const QStringList& freeLetters);
     static bool validateParentheses(QWidget* parent, const QString& cleanCode);
 
     // Validatore generico di sintassi.

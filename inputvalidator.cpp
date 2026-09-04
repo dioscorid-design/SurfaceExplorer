@@ -1,6 +1,7 @@
 #include "inputvalidator.h"
 #include <QRegularExpression>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QSet>
 
 static bool geodesicWarningDisabledForCurrentLoad = false;
@@ -464,6 +465,50 @@ void InputValidator::showMetricAmbiguousConstantWarning(QWidget* parent, const Q
                    "Use a different free constant for the initial conditions "
                    "(B..F are unused if the metric only uses A).")
            .arg(plural, list, names.size() > 1 ? "" : "s"));
+}
+
+bool InputValidator::showTextureConstantClashWarning(QWidget* parent, const QStringList& names,
+                                                     const QStringList& freeLetters)
+{
+    if (names.isEmpty()) return true;
+
+    const QString list   = names.join(", ");
+    const bool    many   = names.size() > 1;
+    const QString isAre  = many ? "are" : "is";
+    const QString sPl    = many ? "s"   : "";
+    const QString them   = many ? "them" : "it";
+
+    QString free = freeLetters.isEmpty()
+            ? QStringLiteral("none are free: every constant is already in use")
+            : freeLetters.join(", ") + QStringLiteral(" are still free");
+
+    // NON e' un errore: unire una superficie e una texture che si contendono la
+    // stessa lettera puo' essere voluto (un solo slider che muove entrambe).
+    // Per questo si CHIEDE invece di rifiutare, e il pulsante di default e'
+    // quello che applica: chi non legge ottiene il comportamento di prima.
+    // Il testo dice quali lettere sono libere, cosi' la via d'uscita e' concreta
+    // e non un consiglio generico.
+    QMessageBox box(parent);
+    box.setIcon(QMessageBox::Warning);
+    box.setWindowTitle("Shared Constant");
+    box.setText(QString("The constant%1 %2 %3 already in use elsewhere in this scene.")
+                .arg(sPl, list, isAre));
+    box.setInformativeText(
+        QString("Each constant A-F is a single global slider shared by the surface, its "
+                "texture and the background, so moving %1 will change two of them at once.\n\n"
+                "Apply anyway if that is what you want. Otherwise edit the script to use a "
+                "free letter (%2), then load it again.")
+        .arg(them, free));
+
+    QPushButton* apply  = box.addButton("Apply anyway", QMessageBox::AcceptRole);
+    QPushButton* cancel = box.addButton("Cancel", QMessageBox::RejectRole);
+    box.setDefaultButton(apply);
+    Q_UNUSED(cancel);
+
+    // Conta come avviso mostrato, come ogni altro popup di questa classe.
+    ++s_errorCount;
+    box.exec();
+    return box.clickedButton() == apply;
 }
 
 bool InputValidator::validateImplicitScriptReturn(QWidget* parent, const QString& cleanCode)

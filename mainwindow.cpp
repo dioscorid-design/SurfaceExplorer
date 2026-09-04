@@ -47,6 +47,7 @@
 #include <QSettings>
 #include <QMessageBox>
 #include <QRegularExpression>
+#include <QSet>
 #include <QDirIterator>
 #include <QTextDocumentFragment>
 #include <QListWidget>
@@ -7067,6 +7068,23 @@ void MainWindow::handleTextureSelection(int index)
     // 1. Recupera i dati
     const LibraryItem &data = m_libraryManager.getTexture(index);
 
+    // COSTANTE CONTESA: si chiede PRIMA di toccare qualunque stato. La texture
+    // in arrivo puo' rivendicare una lettera A..F gia' usata dalla superficie, e
+    // quello slider ne muoverebbe due insieme. Non e' un errore -- puo' essere
+    // voluto -- quindi e' una domanda, non un rifiuto; annullando si esce senza
+    // aver modificato nulla, che e' la ragione per cui il controllo sta qui in
+    // cima e non a meta' funzione.
+    // Vale anche per lo SFONDO: legge lo stesso mathParams della superficie e
+    // della texture, quindi una lettera contesa muove due cose insieme
+    // esattamente come sul modulo di superficie.
+    {
+        const QString incomingTex = data.textureCode.isEmpty() ? data.scriptCode
+                                                               : data.textureCode;
+        if (!confirmTextureConstantClash(incomingTex, data.displacementCode,
+                                         ui->radioBackground->isChecked()))
+            return;
+    }
+
     // Ricorda il file della texture caricata: serve come nome di default in salvataggio
     // (stessa logica dei record). Vuoto solo se non è stata caricata nessuna texture.
     m_currentTexturePresetPath = data.filePath;
@@ -10605,6 +10623,76 @@ void MainWindow::runMetricScript(const QString& fullText)
 // nei campi al Run) sia le modifiche fatte a mano nel dock. Sta in
 // updateGeodesicMesh, l'imbuto unico di ogni ricalcolo geodetico; una firma
 // dell'ultima configurazione evita di ripetere il popup a ogni frame o slider.
+bool MainWindow::confirmTextureConstantClash(const QString& texCode, const QString& dispCode,
+                                            bool forBackground)
+{
+    // Le costanti citate da un blocco di codice GLSL. Stesso criterio di
+    // updateConstantsUIState: match CASE-SENSITIVE (le iniettate sono maiuscole,
+    // salvo 's') e una lettera DICHIARATA come variabile locale non conta --
+    // "float S = 512.0" e' la locale dello script, non lo slider.
+    auto constantsIn = [](const QString& raw) {
+        const QString code = stripCodeComments(raw);
+        QSet<QString> out;
+        for (const QChar c : QStringLiteral("ABCDEF")) {
+            const QString L(c);
+            const QRegularExpression use("(?<![A-Za-z0-9_.])" + L + "(?![A-Za-z0-9_])");
+            if (!code.contains(use)) continue;
+            const QRegularExpression decl(
+                "\\b(?:float|int|uint|bool|vec[234]|mat[234])\\s+"
+                "(?:\\w+\\s*(?:=[^,;()]*)?,\\s*)*" + L + "\\b");
+            if (!code.contains(decl)) out.insert(L);
+        }
+        return out;
+    };
+
+    // Codice della SUPERFICIE: equazione implicita o script, secondo il tab
+    // attivo. In parametrica sono le equazioni X/Y/Z/P con composizioni e
+    // vincoli.
+    QString surfaceCode;
+    if (ui->tabModeSelector->currentIndex() == 1) {
+        surfaceCode = ui->lineEquation->toPlainText() + " " + m_surfaceScriptText;
+    } else {
+        surfaceCode = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
+                      ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
+                      ui->lineU->toPlainText() + " " + ui->lineV->toPlainText() + " " +
+                      ui->lineW->toPlainText() + " " +
+                      ui->lineExplicitU->toPlainText() + " " +
+                      ui->lineExplicitV->toPlainText() + " " +
+                      ui->lineExplicitW->toPlainText() + " " + m_surfaceScriptText;
+    }
+
+    // Chi e' gia' in scena, cioe' contro cosa si confronta la texture in arrivo.
+    // I tre moduli (superficie, texture, sfondo) leggono lo STESSO mathParams:
+    // il modulo che si sta sostituendo va pero' escluso, o si segnalerebbe un
+    // conflitto con se stesso -- ricaricare la stessa texture darebbe l'avviso.
+    QSet<QString> inScene = constantsIn(surfaceCode);
+    if (forBackground) {
+        // Sfondo in arrivo: contano superficie e texture di superficie.
+        inScene.unite(constantsIn(m_surfaceTextureCode));
+    } else {
+        // Texture in arrivo: contano superficie e sfondo.
+        inScene.unite(constantsIn(m_bgTextureCode));
+    }
+    if (inScene.isEmpty()) return true;              // niente da contendere
+
+    const QSet<QString> tex = constantsIn(texCode + "\n" + dispCode);
+    QSet<QString> clash = tex;
+    clash.intersect(inScene);
+    if (clash.isEmpty()) return true;                // caso normale: nessun conflitto
+
+    // Lettere ancora libere: ne' la superficie ne' la texture le usano. E' la
+    // via d'uscita concreta da suggerire, invece di un generico "usane un'altra".
+    QStringList free;
+    for (const QChar c : QStringLiteral("ABCDEF")) {
+        const QString L(c);
+        if (!inScene.contains(L) && !tex.contains(L)) free << L;
+    }
+
+    QStringList names(clash.begin(), clash.end());
+    std::sort(names.begin(), names.end());
+    return InputValidator::showTextureConstantClashWarning(this, names, free);
+}
+
 void MainWindow::checkMetricConstantAmbiguity()
 {
     if (m_metricScriptBody.trimmed().isEmpty()) {

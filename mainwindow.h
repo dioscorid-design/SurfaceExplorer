@@ -632,6 +632,20 @@ private:
     // animazione o a ogni tweak di slider con la stessa configurazione.
     QString m_lastAmbiguousConstSig;
     void checkMetricConstantAmbiguity();
+    // COSTANTE CONTESA fra superficie e texture. Le sette costanti A..F/S sono
+    // un solo set globale (un unico mathParams nell'UBO): se la texture che si
+    // sta applicando rivendica una lettera gia' usata dalla superficie, quello
+    // slider ne muove due insieme -- es. la massa del buco nero e la densita'
+    // delle scanline. Non e' un errore (puo' essere voluto), quindi si CHIEDE:
+    // false = l'utente ha annullato, la texture non va applicata.
+    // La libreria di fabbrica non ha conflitti: il caso nasce quando l'utente
+    // unisce una superficie e una texture scritte separatamente.
+    // forBackground: la texture in arrivo va sullo SFONDO. Cambia solo CONTRO
+    // COSA si confronta -- sfondo vs (superficie + texture), texture vs
+    // (superficie + sfondo) -- perche' i tre moduli leggono lo stesso
+    // mathParams e ogni coppia puo' contendersi una lettera.
+    bool confirmTextureConstantClash(const QString& texCode, const QString& dispCode,
+                                     bool forBackground);
     // Mappa di visualizzazione (embedding) di uno script metrico. Salva i campi
     // x/y/z/p in root solo se sono una mappa custom (non la carta identità);
     // applica al load reimpostando i campi. Vuoto = identità, non serializzato.
