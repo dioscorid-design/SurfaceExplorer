@@ -3,7 +3,6 @@
         <file>presets/surfaces/Ray Marching/ThickIso.json</file>
         <file>presets/surfaces/Ray Marching/Tangle Cube.json</file>
         <file>presets/surfaces/Ray Marching/Ding Dong.json</file>
-        <file>presets/surfaces/Ray Marching/Morphing Sphere-Cube.json</file>
         <file>presets/surfaces/Ray Marching/Ergosphere.json</file>
         <file>presets/surfaces/Ray Marching/KleinIso.json</file>
         <file>presets/surfaces/Ray Marching/Bitorus.json</file>
@@ -39,13 +38,13 @@
         <file>presets/surfaces/Ray Marching/Sphere with Two Handles.json</file>
         <file>presets/surfaces/Ray Marching/Holes.json</file>
         <file>presets/surfaces/Ray Marching/Gyroid1.json</file>
+        <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Poincare's Hyperboloid.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Twisted Torus Ribbon.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Whitney Umbrella.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Mobius Strip.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Tri-Twisted Ribbon.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Plucker Conoid.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Hyperbolic Paraboloid.json</file>
-        <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Hyperboloid.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/S^2xS^1/Twisted Antipodal Ribbon.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/S^2xS^1/Toroidal Resonance Orbit.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/S^3/Hyperbolic Flow.json</file>
@@ -63,11 +62,11 @@
         <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Mobius Strip.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Conoid.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Tri-Twisted Ribbon.json</file>
+        <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Hyperbolic Hyperboloid.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Tangent Developable of a Trefoil Knot.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Plucker Conoid.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Helicoid.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Hyperbolic Paraboloid.json</file>
-        <file>presets/surfaces/Parametric/Geodesic Flow/R^3/Hyperboloid.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Hyperspherical Ellipsoid.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Twisted Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Dynamic Clifford Torus.json</file>
@@ -82,13 +81,13 @@
         <file>presets/surfaces/Parametric/Equations/S3/Non-orientable/Roman Surface.json</file>
         <file>presets/surfaces/Parametric/Equations/S3/Non-orientable/Klein Bottle.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Heisenberg Plane.json</file>
-        <file>presets/surfaces/Parametric/Equations/NIL/Nil Geodesic Sphere.json</file>
+        <file>presets/surfaces/Parametric/Equations/NIL/Twisted Helicoid.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Cuspid Koranyi Sphere.json</file>
-        <file>presets/surfaces/Parametric/Equations/NIL/NIL Helicoid.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Heisenberg Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Wave Cylinder.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Koranyi Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/NIL/Berestovskii Sphere.json</file>
+        <file>presets/surfaces/Parametric/Equations/NIL/Geodesic Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/H3/Enneper.json</file>
         <file>presets/surfaces/Parametric/Equations/H3/Mobius Band.json</file>
         <file>presets/surfaces/Parametric/Equations/H3/Sphere.json</file>
@@ -108,7 +107,7 @@
         <file>presets/surfaces/Parametric/Equations/Non-orientable/Veronese Surface.json</file>
         <file>presets/surfaces/Parametric/Equations/SOL/Sphere.json</file>
         <file>presets/surfaces/Parametric/Equations/SOL/Torus.json</file>
-        <file>presets/surfaces/Parametric/Equations/SOL/SOLSlice.json</file>
+        <file>presets/surfaces/Parametric/Equations/SOL/Hyperbolic Shear Sheet.json</file>
         <file>presets/surfaces/Parametric/Equations/SL(2,R)/Wormhole BTZ.json</file>
         <file>presets/surfaces/Parametric/Equations/SL(2,R)/Iwasawa Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/SL(2,R)/Anti-de Sitter Torus.json</file>
@@ -120,7 +119,7 @@
         <file>presets/surfaces/Parametric/Equations/Tubes/Spherical Cycloid Tube.json</file>
         <file>presets/surfaces/Parametric/Equations/Tubes/Torus Knot 3-4.json</file>
         <file>presets/surfaces/Parametric/Equations/Tubes/Trefoil Tube.json</file>
-        <file>presets/surfaces/Parametric/Equations/H2xR/H2xR Slice.json</file>
+        <file>presets/surfaces/Parametric/Equations/H2xR/Tractricoid.json</file>
         <file>presets/surfaces/Parametric/Equations/H2xR/Hyperbolic Saddle.json</file>
         <file>presets/surfaces/Parametric/Equations/S1xS1XR/Warped Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/S1xS1XR/Sloped Torus.json</file>
@@ -130,12 +129,12 @@
         <file>presets/surfaces/Parametric/Equations/S2xS1/Loxodrome.json</file>
         <file>presets/surfaces/Parametric/Equations/S2xS1/Toric Wave.json</file>
         <file>presets/surfaces/Parametric/Equations/S2xS1/Klein Bottle 4D Radial.json</file>
-        <file>presets/surfaces/Parametric/Equations/R3/Ennepper.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Kuen.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Riemann Surface.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Scherk's Second Surface.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Traxial Hexatorus.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Shell_1.json</file>
+        <file>presets/surfaces/Parametric/Equations/R3/Enneper.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Tube_4D.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Fresnel.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Helix.json</file>
@@ -156,6 +155,7 @@
         <file>presets/surfaces/Parametric/Equations/R3/Shell.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Cone Distorsion.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Torus.json</file>
+        <file>presets/surfaces/Parametric/Equations/R3/Hyperbolic Hyperboloid.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Pseudo Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Undersea.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Richmond Polar.json</file>
@@ -166,7 +166,6 @@
         <file>presets/surfaces/Parametric/Equations/R3/Drop.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Toroid.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Paraboloid.json</file>
-        <file>presets/surfaces/Parametric/Equations/R3/Hyperboloid.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Pseudo Catenoid.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Limpet Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Hopf Torus over Spherical Cycloid.json</file>
@@ -187,60 +186,53 @@
         <file>presets/textures/New Images/2k_mars.jpg</file>
         <file>presets/textures/New Images/2k_venus_surface.jpg</file>
         <file>presets/textures/Ray Marching/Hellish Plasma.json</file>
+        <file>presets/textures/Ray Marching/Fluid Iridescence.json</file>
         <file>presets/textures/Ray Marching/Holografic Scan.json</file>
         <file>presets/textures/Ray Marching/Porous Bone.json</file>
         <file>presets/textures/Ray Marching/Animated Psychedelic Waves.json</file>
         <file>presets/textures/Ray Marching/Fractal Noise FBm.json</file>
         <file>presets/textures/Ray Marching/Texture 3D.json</file>
         <file>presets/textures/Ray Marching/Hello World.json</file>
-        <file>presets/textures/Ray Marching/Animated Iridescence.json</file>
         <file>presets/textures/Ray Marching/Fractal Noise.json</file>
         <file>presets/textures/Ray Marching/Porous Deep.json</file>
-        <file>presets/textures/Ray Marching/Animated Iridescence1.json</file>
-        <file>presets/textures/Ray Marching/Cyclic Noise1.json</file>
+        <file>presets/textures/Ray Marching/Spectral Cyclic Noise.json</file>
+        <file>presets/textures/Ray Marching/Veined Cyclic Noise.json</file>
+        <file>presets/textures/Ray Marching/Normal Iridescence.json</file>
         <file>presets/textures/Ray Marching/Cut Glass.json</file>
-        <file>presets/textures/Ray Marching/Cyclic Noise2.json</file>
         <file>presets/textures/Ray Marching/Triplanar Stripes.json</file>
         <file>presets/textures/Ray Marching/Neon 3D Grid.json</file>
         <file>presets/textures/Ray Marching/Limestone.json</file>
         <file>presets/textures/Ray Marching/Spreading Waves.json</file>
-        <file>presets/textures/Ray Marching/Cyclic Noise.json</file>
         <file>presets/textures/Ray Marching/Checkboard.json</file>
+        <file>presets/textures/Ray Marching/Two-Color Cyclic Noise.json</file>
         <file>presets/textures/Images/8.png</file>
         <file>presets/textures/Images/14.png</file>
         <file>presets/textures/Images/15.png</file>
         <file>presets/textures/Images/4.jpg</file>
         <file>presets/textures/Images/7.png</file>
         <file>presets/textures/Images/2.png</file>
-        <file>presets/textures/New-Images/2k_moon.jpg</file>
-        <file>presets/textures/New-Images/2k_haumea_fictional.jpg</file>
-        <file>presets/textures/New-Images/2k_jupiter.jpg</file>
-        <file>presets/textures/New-Images/2k_earth_daymap.jpg</file>
-        <file>presets/textures/New-Images/2k_saturn.jpg</file>
-        <file>presets/textures/New-Images/2k_ceres_fictional.jpg</file>
-        <file>presets/textures/New-Images/2k_eris_fictional.jpg</file>
-        <file>presets/textures/New-Images/2k_neptune.jpg</file>
         <file>presets/textures/Procedurals/Animated Gradient.json</file>
         <file>presets/textures/Procedurals/Animated Checkboard.json</file>
         <file>presets/textures/Procedurals/Linear Gradient.json</file>
         <file>presets/textures/Procedurals/Static Holography.json</file>
         <file>presets/textures/Procedurals/Porous Bone.json</file>
+        <file>presets/textures/Procedurals/Barber Stripe.json</file>
         <file>presets/textures/Procedurals/Shadertoy Style.json</file>
         <file>presets/textures/Procedurals/Mandelbrot Orbit Trap.json</file>
         <file>presets/textures/Procedurals/Soft Clouds.json</file>
-        <file>presets/textures/Procedurals/Rainbow.json</file>
+        <file>presets/textures/Procedurals/Shifting Rainbow.json</file>
+        <file>presets/textures/Procedurals/Rainbow Grid.json</file>
         <file>presets/textures/Procedurals/Noise.json</file>
         <file>presets/textures/Procedurals/Mandelbrot.json</file>
         <file>presets/textures/Procedurals/Monitor CRT.json</file>
         <file>presets/textures/Procedurals/Wavy Gradient.json</file>
         <file>presets/textures/Procedurals/Xor.json</file>
         <file>presets/textures/Procedurals/Julia.json</file>
-        <file>presets/textures/Procedurals/Rainbow1.json</file>
         <file>presets/textures/Procedurals/Rising Smoke.json</file>
+        <file>presets/textures/Procedurals/Ergosphere Band.json</file>
         <file>presets/textures/Procedurals/Marble.json</file>
         <file>presets/textures/Procedurals/Rings.json</file>
         <file>presets/textures/Procedurals/Plasma.json</file>
-        <file>presets/textures/Procedurals/Row.json</file>
         <file>presets/textures/Procedurals/Winds of Venus.json</file>
         <file>presets/textures/Procedurals/Wood.json</file>
         <file>presets/textures/Procedurals/Psychedelic Vortex.json</file>
@@ -277,13 +269,14 @@
         <file>presets/textures/Procedurals/Animated Images/Still Image.json</file>
         <file>presets/textures/Procedurals/Animated Images/Squished Image.json</file>
         <file>presets/records/Geodesic Flow/H^3/Poincare's Slice.json</file>
-        <file>presets/records/Geodesic Flow/H^3/Hyperboloid2.json</file>
-        <file>presets/records/Geodesic Flow/H^3/Hyperboloid1.json</file>
-        <file>presets/records/Geodesic Flow/H^3/Hyperboloid.json</file>
-        <file>presets/records/Geodesic Flow/S^2xS^1/Slice.json</file>
-        <file>presets/records/Geodesic Flow/R^3/Hyperboloid.json</file>
+        <file>presets/records/Geodesic Flow/H^3/Breathing Hyperboloid.json</file>
+        <file>presets/records/Geodesic Flow/H^3/Pulsing Hyperboloid.json</file>
+        <file>presets/records/Geodesic Flow/H^3/Spinning Hyperboloid.json</file>
+        <file>presets/records/Geodesic Flow/S^2xS^1/Helical Slice.json</file>
+        <file>presets/records/Geodesic Flow/R^3/Ruled Hyperboloid.json</file>
+        <file>presets/records/Ray Marching/Morphing Rosette.json</file>
         <file>presets/records/Ray Marching/Morphing Sphere-Cube.json</file>
-        <file>presets/records/Ray Marching/N-torus Garland.json</file>
+        <file>presets/records/Ray Marching/Morphing Chain.json</file>
         <file>presets/records/Ray Marching/Ergosphere.json</file>
         <file>presets/records/Ray Marching/Gyroid Race.json</file>
         <file>presets/records/Ray Marching/Genus 3 Bowel.json</file>
@@ -292,24 +285,22 @@
         <file>presets/records/Ray Marching/Deco Cube.json</file>
         <file>presets/records/Ray Marching/Gyroid.json</file>
         <file>presets/records/Ray Marching/Blobs.json</file>
-        <file>presets/records/Ray Marching/3-Torus.json</file>
+        <file>presets/records/Ray Marching/Approaching Torus.json</file>
         <file>presets/records/Ray Marching/Inside Gyroid.json</file>
+        <file>presets/records/Ray Marching/Genus 3 Pulse.json</file>
         <file>presets/records/Ray Marching/CellNoiseSchwarz.json</file>
-        <file>presets/records/Ray Marching/Bitorus Morphing.json</file>
+        <file>presets/records/Ray Marching/Torus Tunnel.json</file>
         <file>presets/records/Ray Marching/Metaball.json</file>
         <file>presets/records/Ray Marching/Torus.json</file>
-        <file>presets/records/Ray Marching/Merging Tori.json</file>
-        <file>presets/records/Ray Marching/Clover Torus.json</file>
         <file>presets/records/Ray Marching/Gyroid alien.json</file>
         <file>presets/records/Ray Marching/Blistered Gyroid.json</file>
         <file>presets/records/Ray Marching/Schwarz P Circuit.json</file>
-        <file>presets/records/Ray Marching/3-Torus Morphing.json</file>
         <file>presets/records/Ray Marching/Pseudo Lawson.json</file>
+        <file>presets/records/Ray Marching/Torus Chain.json</file>
         <file>presets/records/Ray Marching/Morphing Sphere-Hyperboloid.json</file>
-        <file>presets/records/Ray Marching/4-Torus Morphing.json</file>
         <file>presets/records/Rotations/Enneper.json</file>
         <file>presets/records/Rotations/Hopf Deformation.json</file>
-        <file>presets/records/Rotations/HYbrid hyperbolic.json</file>
+        <file>presets/records/Rotations/Hybrid Hyperbolic.json</file>
         <file>presets/records/Rotations/Kerr Spin Animated.json</file>
         <file>presets/records/Rotations/Dynamical Clifford Torus.json</file>
         <file>presets/records/Rotations/Wormhole.json</file>
@@ -321,35 +312,32 @@
         <file>presets/records/Rotations/Klein3D Falling.json</file>
         <file>presets/records/Rotations/Small Sphere Escape.json</file>
         <file>presets/records/Rotations/Torus Knot.json</file>
-        <file>presets/records/Solid Wireframe/Clifford Labyrinth 2-Tube.json</file>
-        <file>presets/records/Solid Wireframe/Clifford Labyrinth 3-Tube.json</file>
-        <file>presets/records/Solid Wireframe/Clifford Labyrinth 6-Tubes.json</file>
+        <file>presets/records/Solid Wireframe/Clifford Labyrinth.json</file>
         <file>presets/records/Solid Wireframe/Multi Mesh/Hopf Tori.json</file>
+        <file>presets/records/Solid Wireframe/Multi Mesh/Clifford Labyrinth Fibers.json</file>
         <file>presets/records/Solid Wireframe/Multi Mesh/Hopf Parallel.json</file>
         <file>presets/records/Solid Wireframe/Multi Mesh/Brieskorn-Pham (3,5).json</file>
+        <file>presets/records/Solid Wireframe/Multi Mesh/Calabi Yau.json</file>
         <file>presets/records/Solid Wireframe/Multi Mesh/Villarceau Tubes Drift N20.json</file>
-        <file>presets/records/Solid Wireframe/Multi Mesh/Clifford Labyrinth 2-Tubes Fibers.json</file>
-        <file>presets/records/Solid Wireframe/Multi Mesh/Clifford Labyrinth 6-Tubes Fibers.json</file>
         <file>presets/records/Solid Wireframe/Multi Mesh/Clifford Labyrinth 3-Tubes Fibers.json</file>
-        <file>presets/records/Solid Wireframe/Multi Mesh/Calabi_Yau.json</file>
         <file>presets/records/Solid Wireframe/Multi Mesh/Clifford 6-Tubes Rotation.json</file>
         <file>presets/records/Solid Wireframe/Multi Mesh/Hopf Tori 4D Rotation.json</file>
-        <file>presets/records/t_motions/Otto Tube.json</file>
+        <file>presets/records/t_motions/Figure-Eight Knot Tube.json</file>
         <file>presets/records/t_motions/Waves.json</file>
+        <file>presets/records/t_motions/Figure-Eight Knot.json</file>
         <file>presets/records/t_motions/Pseudo-Iwasawa Torus.json</file>
-        <file>presets/records/t_motions/Otto.json</file>
         <file>presets/records/t_motions/Pseudo-Wormhole.json</file>
-        <file>presets/records/t_motions/3D/Modular Torus.json</file>
+        <file>presets/records/t_motions/3D/Modulated Torus.json</file>
         <file>presets/records/t_motions/3D/Dynamic Mobius Band.json</file>
         <file>presets/records/t_motions/S3/Hopf.json</file>
         <file>presets/records/t_motions/S3/Pulsing Klein Bottle.json</file>
         <file>presets/records/t_motions/S3/Topological wave.json</file>
-        <file>presets/records/t_motions/S3/S3 Slice.json</file>
         <file>presets/records/t_motions/S3/Wavy Clifford Torus.json</file>
+        <file>presets/records/t_motions/S3/Rippling Sphere.json</file>
         <file>presets/records/t_motions/S3/S3 Moving Plane.json</file>
-        <file>presets/records/t_motions/S3/Hyperspheric Loxodrome.json</file>
         <file>presets/records/t_motions/S3/Hopf Ribbon over Spiral.json</file>
         <file>presets/records/t_motions/S3/Ellipsoid.json</file>
+        <file>presets/records/t_motions/S3/Clifford Drift.json</file>
         <file>presets/records/t_motions/S3/Venus 4D Transit.json</file>
         <file>presets/records/t_motions/S3/Hopf Over Cycloid/Spinning Cycloid Hopf Torus.json</file>
         <file>presets/records/t_motions/S3/Hopf Over Cycloid/Hopf Torus Breathing Cycloid 4D.json</file>
@@ -358,8 +346,8 @@
         <file>presets/records/t_motions/S^2xS^1/Sliding Spring.json</file>
         <file>presets/records/t_motions/S^2xS^1/Loxodrome.json</file>
         <file>presets/records/t_motions/S^2xS^1/Pulsing Torus.json</file>
+        <file>presets/records/t_motions/NIL/Geodesic Helicoid.json</file>
         <file>presets/records/t_motions/NIL/Twisted Geodesic Sphere.json</file>
-        <file>presets/records/t_motions/NIL/Geodetic Elicoid.json</file>
         <file>presets/records/t_motions/NIL/Deforming Torus.json</file>
         <file>presets/records/t_motions/NIL/Geodesic Sphere.json</file>
         <file>presets/records/t_motions/H3/Enneper.json</file>
@@ -375,59 +363,53 @@
         <file>presets/records/t_motions/S2xR/Compressing Helicoid.json</file>
         <file>presets/records/t_motions/SOL/Sphere.json</file>
         <file>presets/records/t_motions/SOL/Torus.json</file>
-        <file>presets/records/t_motions/SL(2,R)/Asymptotic Vortex.json</file>
         <file>presets/records/t_motions/SL(2,R)/Wormhole BTZ.json</file>
         <file>presets/records/t_motions/SL(2,R)/Iwasawa Torus.json</file>
+        <file>presets/records/t_motions/SL(2,R)/Spinning Vortex.json</file>
         <file>presets/records/t_motions/SL(2,R)/Anti-de Sitter Torus.json</file>
         <file>presets/records/t_motions/SL(2,R)/Horocycle Flux.json</file>
         <file>presets/records/t_motions/H2xR/Rotating Pringles.json</file>
         <file>presets/records/t_motions/H2xR/Waving Tractroid.json</file>
         <file>presets/records/t_motions/H2xR/Flutter of Wings.json</file>
+        <file>presets/records/t_motions/H2xR/Oscillating Poincare Helicoid.json</file>
         <file>presets/records/t_motions/H2xR/Spinning Tractroid.json</file>
-        <file>presets/records/t_motions/H2xR/Hyperbolic Elicoid.json</file>
         <file>presets/records/t_motions/S1xS1xR/Toric Wave.json</file>
         <file>presets/records/t_motions/S1xS1xR/Toroidal Spring.json</file>
         <file>presets/records/Paths/Jeener Core Flight.json</file>
         <file>presets/records/Paths/Klein Racing.json</file>
         <file>presets/records/Paths/Enneper.json</file>
+        <file>presets/records/Paths/Cytherean Coil.json</file>
         <file>presets/records/Paths/Triple-Twist Inner Flight.json</file>
-        <file>presets/records/Paths/Tube.json</file>
+        <file>presets/records/Paths/Figure-Eight Tube.json</file>
         <file>presets/records/Paths/Mobius Racing.json</file>
         <file>presets/records/Paths/Clover.json</file>
         <file>presets/records/Paths/Cuspid Koranyi Sphere.json</file>
         <file>presets/records/Paths/Clifford Torus.json</file>
-        <file>presets/records/Paths/8-Tube.json</file>
+        <file>presets/records/Paths/Projective Plain Racing.json</file>
         <file>presets/records/Paths/Klein3D Racing.json</file>
         <file>presets/records/Paths/Klein Fire Racing.json</file>
         <file>presets/records/Paths/Warping Torus.json</file>
         <file>presets/records/Paths/Poincare’s Catenoid.json</file>
-        <file>presets/records/Paths/Coiled Coil1.json</file>
-        <file>presets/records/Paths/Tube.json.bak7</file>
         <file>presets/records/Paths/Heisenberg Sphere.json</file>
         <file>presets/records/Paths/Calabi-Yau Tunnel.json</file>
         <file>presets/records/Paths/Coiled Coil.json</file>
-        <file>presets/records/Paths/Tube.json.bak</file>
-        <file>presets/records/Paths/P2.json</file>
         <file>presets/records/Paths/Trefoil.json</file>
         <file>presets/records/Paths/Calabi-Yau Orbit.json</file>
+        <file>presets/records/Wireframe/Helical Flow.json</file>
         <file>presets/records/Wireframe/Roman Surface.json</file>
-        <file>presets/records/Wireframe/Mobius Strip.json</file>
-        <file>presets/records/Wireframe/Hyperbolic flow.json</file>
-        <file>presets/records/Wireframe/Villarceau Circles.json</file>
+        <file>presets/records/Wireframe/Hyperbolic Mobius Band.json</file>
         <file>presets/records/Wireframe/Pseudo-Iwasawa Torus.json</file>
         <file>presets/records/Wireframe/Ellipsoid.json</file>
         <file>presets/records/Wireframe/Boy Surface.json</file>
         <file>presets/records/Static/Enneper.json</file>
-        <file>presets/records/Static/S3_slice1.json</file>
         <file>presets/records/Static/Fresnel.json</file>
         <file>presets/records/Static/Kerr.json</file>
-        <file>presets/records/Static/Klein Bottle_copy1.json</file>
         <file>presets/records/Static/Oloid.json</file>
         <file>presets/records/Static/Klein Bottle.json</file>
-        <file>presets/records/Static/S3_slice.json</file>
+        <file>presets/records/Static/Tractricoid.json</file>
         <file>presets/records/Static/Veronese Surface.json</file>
         <file>presets/records/Static/Symmetrized Double Enneper.json</file>
-        <file>presets/records/Static/H^2xR.json</file>
+        <file>presets/records/Static/Winding Clifford Torus.json</file>
         <file>presets/records/Static/Spherical Cycloid Tube.json</file>
         <file>presets/sounds/wav/321723__rhodesmas__deep-space-vibrations-ambience-loop.wav</file>
         <file>presets/sounds/wav/723963__badwolf23__spatial-audio-4.wav</file>
