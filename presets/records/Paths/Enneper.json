@@ -130,5 +130,7 @@
     "wireframe": {
         "uStep": 4,
         "vStep": 4
-    }
+    },
+    "hintText": "Slider A: radius of the circle the camera flies",
+    "hintSeconds": 6.0
 }

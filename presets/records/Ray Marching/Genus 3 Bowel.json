@@ -17,18 +17,18 @@
         "zoom": 1
     },
     "camera3D": {
-        "pitch": 30.247291564941406,
+        "pitch": 10.576445579528809,
         "roll": 0,
         "rot_w": 1,
         "rot_x": 0,
         "rot_y": 0,
         "rot_z": 0,
-        "x": -0.46315231919288635,
-        "y": 0.9257119297981262,
+        "x": -0.30085277557373047,
+        "y": 0.9976680278778076,
         "yaw": 90,
         "z": 0
     },
-    "cameraFov": 26,
+    "cameraFov": 25,
     "colors": {
         "alpha": 1,
         "surfColor": "#33cc33"
@@ -38,8 +38,8 @@
         "B": 0.30000001192092896,
         "C": 0.30000001192092896,
         "D": 1,
-        "E": 1,
-        "F": 1,
+        "E": 0.10000000149011612,
+        "F": 1.2999999523162842,
         "S": 0.10000000149011612
     },
     "equations": {
@@ -54,8 +54,8 @@
         "y": "",
         "z": ""
     },
-    "fov3D": 26,
-    "fov4D": 26,
+    "fov3D": 25,
+    "fov4D": 25,
     "geodesic": {
         "conform": "1.0",
         "du": "",
@@ -66,10 +66,10 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A-C active on this shape",
+    "hintText": "Sliders A-C active on this shape.",
     "implicitEquation": "// Controlled by Script",
     "isImplicitMode": true,
-    "lightIntensity": 1,
+    "lightIntensity": 1.25,
     "lightingMode": 0,
     "limits": {
         "uMax": 6.2831854820251465,
@@ -111,7 +111,7 @@
     "speeds": {
         "nutation": 0,
         "omega": 0,
-        "path3D": 29,
+        "path3D": 19,
         "path4D": 0,
         "phi": 0,
         "precession": 0,
@@ -130,6 +130,8 @@
         "rotation": 0,
         "zoom": 1
     },
+    "textureHintSeconds": 6,
+    "textureHintText": "slider E ripple frequency and speed.",
     "type": "motion",
     "use4DLighting": false,
     "wireframe": {

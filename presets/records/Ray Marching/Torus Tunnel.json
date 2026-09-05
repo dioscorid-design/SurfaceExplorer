@@ -1,0 +1,145 @@
+{
+    "activeMotion": "path3D",
+    "angles": {
+        "omega": 0,
+        "phi": 0,
+        "psi": 0
+    },
+    "background": {
+        "code": "",
+        "col1": "#3333cc",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": false,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 0,
+        "roll": 0,
+        "rot_w": 1,
+        "rot_x": 0,
+        "rot_y": 0,
+        "rot_z": 0,
+        "x": 2.9796805381774902,
+        "y": 1.12156081199646,
+        "yaw": 0,
+        "z": 0
+    },
+    "cameraFov": 84,
+    "colors": {
+        "alpha": 1,
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 5,
+        "B": 1.5399999618530273,
+        "C": 0.5199999809265137,
+        "D": 4.019999980926514,
+        "E": 1.440000057220459,
+        "F": 0.5199999809265137,
+        "S": 0.20000000298023224
+    },
+    "discreteConstants": {
+        "A": [
+            1,
+            10
+        ]
+    },
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "fov3D": 84,
+    "fov4D": 84,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "hintSeconds": 6,
+    "hintText": "Sliders A-F active on this shape",
+    "implicitEquation": "// Controlled by Script",
+    "isImplicitMode": true,
+    "lightIntensity": 1,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0.10000000149011612,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "meshScopeAll": true,
+    "name": "Torus Tunnel",
+    "observer4D": 4,
+    "path3D": {
+        "roll": "",
+        "x": "(2.5+1.1*cos(2.5*t))*cos(t)",
+        "y": "(2.5+1.1*cos(2.5*t))*sin(t)",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "",
+        "beta": "",
+        "gamma": "",
+        "w": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "pathMode": 0,
+    "pathMode3D": 0,
+    "projectionMode": 1,
+    "renderMode": 10,
+    "scriptCode": "// A: Numero di buchi (petali del fiore / lobi della figura)\nA := int(1,10);   // A e' DISCRETA: lo slider scatta all'intero al rilascio\nfloat numHoles = max(floor(A + 0.5), 1.0); \n\n// Inizializzazioni\nfloat d_final = 10000.0; \n\n// --- DEFORMAZIONE TOPOLOGICA RADIALE (statica) ---\n// F sostituisce il tempo: era 0.5+0.5*cos(F*u_time), ora F pilota direttamente\n// l'apertura. F=1 => fori \"sbocciati\" (raggio pieno); F=0 => fori chiusi al centro.\nfloat anim_scale = F;\n\n// D funge da raggio massimo dell'anello invisibile su cui poggiano i fori\nfloat max_R = max(D, 0.1);\n// F fa \"sbocciare\"/\"chiudere\" i fori verso il centro\nfloat current_R = max_R * anim_scale;\n\n// Il trucco anti-salto: scaliamo la morbidezza insieme alla distanza dal centro\nfloat current_E = max(E * anim_scale, 0.005); \n\nfor(int k = int(0.0); k < int(20.0); k++) {\n    float fk = float(k);\n    \n    if(fk < numHoles) { \n        // Calcoliamo l'angolo per questo specifico buco (6.2831853 = 2 * Pi)\n        float angle = fk * 6.2831853 / numHoles;\n        \n        // Calcoliamo le coordinate X e Y usando le funzioni polari\n        float cx = current_R * cos(angle);\n        float cy = current_R * sin(angle);\n        \n        // Coordinate locali per l'anello corrente\n        vec3 p_ring = vec3(p.x - cx, p.y - cy, p.z);\n        \n        // Geometria del toro intatta (B = raggio buco, C = spessore tubo)\n        float d_ring = length(vec2(length(p_ring.xy) - B, p_ring.z)) - C;\n        \n        if(k == int(0.0)) {\n            d_final = d_ring; // Primo lobo\n        } else {\n            // Unione fluida di tutti i lobi disposti a raggiera\n            d_final = -smax(-d_final, -d_ring, current_E);\n        }\n    }\n}\n\nreturn d_final;",
+    "speeds": {
+        "nutation": 0,
+        "omega": 0,
+        "path3D": 6,
+        "path4D": 0,
+        "phi": 0,
+        "precession": 0,
+        "psi": 0,
+        "spin": 0
+    },
+    "steps": 786,
+    "texture": {
+        "code": "// Limestone / Calcare chiaro - Ray Marching STATICA (niente ubuf.u_time)\n// FILOSOFIA (v2): il calcare ha colore quasi UNIFORME. Le zone scure NON sono\n// roccia di colore diverso: sono OMBRE delle irregolarita'. Il chiaroscuro vero\n// lo fanno gia' le normali del displacement (calcNormal su map() perturbato) e\n// l'ambient occlusion del motore. Qui la texture resta chiara e uniforme e si\n// limita ad ACCOMPAGNARE l'ombra nelle cavita', senza dipingere crepe finte.\n// Gira DENTRO shadeSurface() -> niente definizioni di funzioni, tutto inline.\n// In scope: pModel, n_model. Colori dock: u_col1 = roccia, u_col2 = fondo cavita'.\n\n// --- fBm di CAVITA': STESSO campo del displacement (scala 6.0), cosi' lo scuro\n//     cromatico cade ESATTAMENTE dove la geometria e' incavata -> l'ombra propria\n//     e l'occlusione coincidono con la depressione fisica.\nvec3 cp = pModel * 6.0;\n\nfloat cav  = 0.0;\nfloat camp = 0.5;\nfloat cnrm = 0.0;\n\nfor (int oct = 0; oct < 4; oct++) {\n    vec3 ip = floor(cp);\n    vec3 fr = fract(cp);\n    vec3 w  = fr * fr * (3.0 - 2.0 * fr);\n\n    float h000 = fract(sin(dot(ip + vec3(0.0, 0.0, 0.0), vec3(127.1, 311.7, 74.7))) * 43758.5453);\n    float h100 = fract(sin(dot(ip + vec3(1.0, 0.0, 0.0), vec3(127.1, 311.7, 74.7))) * 43758.5453);\n    float h010 = fract(sin(dot(ip + vec3(0.0, 1.0, 0.0), vec3(127.1, 311.7, 74.7))) * 43758.5453);\n    float h110 = fract(sin(dot(ip + vec3(1.0, 1.0, 0.0), vec3(127.1, 311.7, 74.7))) * 43758.5453);\n    float h001 = fract(sin(dot(ip + vec3(0.0, 0.0, 1.0), vec3(127.1, 311.7, 74.7))) * 43758.5453);\n    float h101 = fract(sin(dot(ip + vec3(1.0, 0.0, 1.0), vec3(127.1, 311.7, 74.7))) * 43758.5453);\n    float h011 = fract(sin(dot(ip + vec3(0.0, 1.0, 1.0), vec3(127.1, 311.7, 74.7))) * 43758.5453);\n    float h111 = fract(sin(dot(ip + vec3(1.0, 1.0, 1.0), vec3(127.1, 311.7, 74.7))) * 43758.5453);\n\n    float z0 = mix(mix(h000, h100, w.x), mix(h010, h110, w.x), w.y);\n    float z1 = mix(mix(h001, h101, w.x), mix(h011, h111, w.x), w.y);\n    float vn = mix(z0, z1, w.z);\n\n    cav  += camp * vn;\n    cnrm += camp;\n    cp   *= 2.05;   // stessa lacunarita' del displacement\n    camp *= 0.5;\n}\ncav /= cnrm;   // ~[0,1]. cav < 0.5 = cavita' (il displacement spinge in dentro).\n\n// occlusione cromatica: solo nelle cavita' piu' profonde, dolce.\n// (il chiaroscuro forte lo fa gia' la luce/AO del motore: qui solo un rinforzo)\nfloat ambientOcc = smoothstep(0.55, 0.20, cav);   // 1 nel fondo, 0 sulle creste\n\n// --- MICRO-GRANA ad alta frequenza: variazione di TONO, non di colore ---\nvec3 gp = floor(pModel * 44.0);\nfloat grain = fract(sin(dot(gp, vec3(12.99, 78.23, 37.71))) * 43758.5453);\ngrain = (grain - 0.5) * 0.06;   // +/-3%, appena percettibile\n\n// --- COLORE: roccia quasi uniforme (u_col1), leggerissima variazione di tono.\nfloat tone = 1.0 + grain;\nvec3 rock = ubuf.u_col1 * tone;\n\n// accompagna l'ombra nelle cavita' verso u_col2 (fondo scuro), in modo contenuto:\n// il grosso dello scuro arriva da luce+AO, questo evita che le cavita' schiariscano\n// troppo per via del solo termine ambient.\nrock = mix(rock, ubuf.u_col2, ambientOcc * 0.35);\n\ntextureCol = rock;",
+        "col1": "#aba86e",
+        "col2": "#4a4438",
+        "displacement": "// Rilievi (displacement) per Limestone v2 - STATICO (niente t / u_time)\n// E' QUESTO che crea le vere ombre: perturba d_surf -> il motore ricalcola le\n// normali (calcNormal su map()) e l'AO su questo campo, quindi la luce radente\n// scava chiaroscuro reale nelle irregolarita'. Colore cromatico tenuto uniforme.\n// Gira DENTRO map(). In scope: d_surf, p, pModel. Convenzione: d_surf -= amp*campo.\n\n// 4 ottave di value-noise 3D: creste larghe + dettaglio fine.\nvec3 dp = pModel * 6.0;\n\nfloat dnz  = 0.0;\nfloat damp = 0.5;\nfloat dnrm = 0.0;\n\nfor (int doct = 0; doct < 4; doct++) {\n    vec3 ip = floor(dp);\n    vec3 fr = fract(dp);\n    vec3 w  = fr * fr * (3.0 - 2.0 * fr);\n\n    float h000 = fract(sin(dot(ip + vec3(0.0, 0.0, 0.0), vec3(127.1, 311.7, 74.7))) * 43758.5453);\n    float h100 = fract(sin(dot(ip + vec3(1.0, 0.0, 0.0), vec3(127.1, 311.7, 74.7))) * 43758.5453);\n    float h010 = fract(sin(dot(ip + vec3(0.0, 1.0, 0.0), vec3(127.1, 311.7, 74.7))) * 43758.5453);\n    float h110 = fract(sin(dot(ip + vec3(1.0, 1.0, 0.0), vec3(127.1, 311.7, 74.7))) * 43758.5453);\n    float h001 = fract(sin(dot(ip + vec3(0.0, 0.0, 1.0), vec3(127.1, 311.7, 74.7))) * 43758.5453);\n    float h101 = fract(sin(dot(ip + vec3(1.0, 0.0, 1.0), vec3(127.1, 311.7, 74.7))) * 43758.5453);\n    float h011 = fract(sin(dot(ip + vec3(0.0, 1.0, 1.0), vec3(127.1, 311.7, 74.7))) * 43758.5453);\n    float h111 = fract(sin(dot(ip + vec3(1.0, 1.0, 1.0), vec3(127.1, 311.7, 74.7))) * 43758.5453);\n\n    float z0 = mix(mix(h000, h100, w.x), mix(h010, h110, w.x), w.y);\n    float z1 = mix(mix(h001, h101, w.x), mix(h011, h111, w.x), w.y);\n    float vn = mix(z0, z1, w.z);\n\n    dnz  += damp * vn;\n    dnrm += damp;\n    dp   *= 2.05;\n    damp *= 0.5;\n}\ndnz /= dnrm;          // ~[0,1]. Coincide col campo 'cav' del colore (stessa scala).\ndnz  = dnz - 0.5;     // centra: creste in fuori, cavita' in dentro\n\n// Ampiezza: piu' alta della v1 (0.035 -> 0.055) per ombre piu' incise, ma sotto\n// la soglia in cui il ray marching \"buca\" la superficie. Alza con prudenza.\nd_surf -= 0.055 * dnz;\n",
+        "enabled": true,
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
+}

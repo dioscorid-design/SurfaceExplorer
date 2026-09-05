@@ -113,9 +113,9 @@
     },
     "steps": 200,
     "texture": {
-        "code": "float aSpin = min(B, A);\nfloat rPlus = A + sqrt(max(A*A - aSpin*aSpin, 0.0));\nfloat vMax = 4.0;\nfloat r = rPlus + (1.0 - in_uv.y) * vMax;\nfloat rErgo = 2.0 * A;\nfloat darkBand = smoothstep(rErgo + 0.04, rErgo - 0.04, r);\nfloat shade = mix(1.0, 0.45, darkBand);\nreturn u_col1 * shade;",
+        "code": "// Ergosphere band for the Kerr metric.\n// Paints the surface by RADIUS, reconstructed from the v coordinate: the\n// horizon sits at r+ = M + sqrt(M^2 - a^2) and the band marks the static\n// limit r_ergo = 2M, the boundary of the ergosphere.\n//   A = M    (mass: sets the horizon and the band radius)\n//   B = a    (spin, clamped to A: a > M has no horizon)\n// Both dock colors are picker-driven: u_col1 outside the band, u_col2 inside.\nfloat aSpin = min(B, A);\nfloat rPlus = A + sqrt(max(A*A - aSpin*aSpin, 0.0));\nfloat vMax = 4.0;\nfloat r = rPlus + (1.0 - in_uv.y) * vMax;\nfloat rErgo = 2.0 * A;\nfloat darkBand = smoothstep(rErgo + 0.04, rErgo - 0.04, r);\nreturn mix(u_col1, u_col2, darkBand);",
         "col1": "#ff1d1a",
-        "col2": "#786200",
+        "col2": "#730d0c",
         "enabled": true,
         "pan_x": 0,
         "pan_y": 0,

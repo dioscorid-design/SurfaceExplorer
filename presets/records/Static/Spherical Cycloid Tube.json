@@ -72,7 +72,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A (axis tilt), C (tube radius), D (cusps near 0.20, loops above), E (petals)",
+    "hintText": "Sliders A (axis tilt), C (tube radius), D (cusps near 0.20, loops above), E (petals), F (overall scale)",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

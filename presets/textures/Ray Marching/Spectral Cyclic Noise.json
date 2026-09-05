@@ -1,0 +1,16 @@
+{
+    "code": "// Cyclic Noise (Ray Marching)\n// Inspired by \"Cyclic noise 2D\" by nimitz (@stormoid) - https://www.shadertoy.com/view/fcjXzh (MIT)\n// Brings the core of cyclic noise into 3D and uses it to COLOR the ray-marched\n// surface: assigns textureCol starting from the hit point pModel.\n//\n// Engine variables available in this block (Ray Marching tab):\n//   pModel       = hit point on the surface (vec3, model space)\n//   n_model      = surface normal at the hit point (vec3)\n//   textureCol   = color to assign (already initialized to ubuf.color)\n//   ubuf.u_time  = animated time; ubuf.u_col1 / ubuf.u_col2 = dock colors\n// NB: no mainImage, no return, no gl_FragCoord in this tab.\n\n// --- Cyclic noise 3D: iterated loop of |dot(cos,sin)| with distortion and rotation ---\nfloat result = 0.0;\nfloat z = 0.95;\nfloat distort = 2.1 * E;   // slider E: pattern scale\nfloat dstAmount = 0.10 * F;   // slider F: distortion\nfloat wsum = 0.0;\n\n// rotation matrix (the 2D original used a mat2 ~13deg *1.5)\nmat3 m2 = mat3(\n    0.97367,  0.22798, 0.0,\n   -0.22798,  0.97367, 0.0,\n    0.0,      0.0,     1.0) * 1.5;\n\n// coordinates: the point on the surface + slight temporal scroll\nvec3 p = pModel * 2.3 + vec3(0.0, 0.0, ubuf.u_time * 0.05);\n\nfor (int i = 0; i < 8; i++) {\n    p += sin(p.yzx * distort + ubuf.u_time * 0.27 * pow(distort, 1.35)) * dstAmount;\n    result += abs(dot(cos(p), sin(p.zxy)) * z);\n    wsum   += z;\n    z       *= 0.65;\n    distort *= 1.35;\n    p        = m2 * p;\n}\nfloat ncyc = result / wsum;   // ~[0,1]\n\n// chromatic bands as in the original (sin of three phase-shifted frequencies)\nvec3 flow = sin(vec3(1.15, 1.65, 2.25) * ncyc * 6.2 + 4.2) * 0.5 + 0.5;\n\n// mix the two dock colors following the noise flow\nvec3 cyclicCol = mix(ubuf.u_col2, ubuf.u_col1, flow);\n\n// edge sheen (fresnel) from the normal: lights the flow ridges\nfloat fres = pow(1.0 - abs(n_model.z), 2.0);\ncyclicCol += ubuf.u_col1 * fres * 0.25 * ncyc;\n\ntextureCol = cyclicCol;",
+    "color1": "#93cc88",
+    "color2": "#3c4597",
+    "displacement": "",
+    "hasCustomColors": true,
+    "isImplicitMode": true,
+    "name": "Spectral Cyclic Noise",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1,
+    "hintText": "Slider E: scale of the noise (1 = default, higher = finer)\nSlider F: how much the pattern is distorted\nColours 1 and 2 drive the colour bands",
+    "hintSeconds": 6.0
+}

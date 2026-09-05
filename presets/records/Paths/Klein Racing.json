@@ -1,8 +1,9 @@
 {
+    "activeMotion": "path4D",
     "angles": {
         "omega": 0,
         "phi": 0,
-        "psi": 60.73651885986328
+        "psi": 1.482000708580017
     },
     "background": {
         "code": "",
@@ -16,20 +17,20 @@
         "zoom": 1
     },
     "camera3D": {
-        "pitch": 0,
+        "pitch": -79.83573150634766,
         "roll": 0,
         "rot_w": 1,
         "rot_x": 0,
         "rot_y": 0,
         "rot_z": 0,
-        "x": -0.22530536353588104,
-        "y": 0.7932447195053101,
-        "yaw": 0,
+        "x": -0.7520856261253357,
+        "y": 0.338181734085083,
+        "yaw": -90,
         "z": 0
     },
+    "cameraFov": 45,
     "colors": {
         "alpha": 1,
-        "bordColor": "#33cc33",
         "surfColor": "#33cc33"
     },
     "constants": {
@@ -53,6 +54,8 @@
         "y": "(1 + 0.3*cos(v))*sin(u)",
         "z": "0.3*sin(v)*cos(u/2)"
     },
+    "fov3D": 45,
+    "fov4D": 45,
     "geodesic": {
         "conform": "1.0",
         "du": "",
@@ -79,6 +82,7 @@
         "zMax": 1000,
         "zMin": -1000
     },
+    "meshScopeAll": true,
     "name": "Klein Racing",
     "observer4D": 5,
     "path3D": {
@@ -97,9 +101,9 @@
         "z": ""
     },
     "pathMode": 0,
+    "pathMode3D": 0,
     "projectionMode": 1,
     "renderMode": 0,
-    "showBorder": false,
     "speeds": {
         "nutation": 0,
         "omega": 0,
@@ -122,5 +126,9 @@
         "zoom": 1
     },
     "type": "motion",
-    "use4DLighting": true
+    "use4DLighting": true,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
 }

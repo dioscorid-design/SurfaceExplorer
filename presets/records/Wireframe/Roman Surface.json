@@ -79,7 +79,7 @@
         "zMax": 1000,
         "zMin": -1000
     },
-    "name": "Rotation-Roman Surface",
+    "name": "Roman Surface",
     "observer4D": 4,
     "path3D": {
         "roll": "",

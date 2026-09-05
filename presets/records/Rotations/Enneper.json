@@ -19,14 +19,14 @@
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": 0.8654078245162964,
-        "rot_x": -0.29070454835891724,
-        "rot_y": -0.28854045271873474,
-        "rot_z": -0.2886251211166382,
+        "rot_w": 0.9499057531356812,
+        "rot_x": 0.18115690350532532,
+        "rot_y": 0.1800757497549057,
+        "rot_z": 0.1800946593284607,
         "x": 0,
         "y": 0,
         "yaw": 0,
-        "z": 3.264965534210205
+        "z": 3.9249649047851562
     },
     "cameraFov": 45,
     "colors": {
@@ -34,7 +34,7 @@
         "surfColor": "#33cc33"
     },
     "constants": {
-        "A": 2.5,
+        "A": 0.800000011920929,
         "B": 1,
         "C": 1,
         "D": 1,
@@ -43,16 +43,16 @@
         "S": 0
     },
     "equations": {
-        "defU": "u - (u^3)/3 + u * (v^2)",
-        "defV": "v - (v^3)/3 + (u^2) * v",
-        "defW": "(u^2) - (v^2)\n",
+        "defU": "",
+        "defV": "",
+        "defW": "",
         "explicitU": "",
         "explicitV": "",
         "explicitW": "",
-        "p": "0.5",
-        "x": "U * tanh(sqrt(U^2+V^2+W^2)/2) / (sqrt(U^2+V^2+W^2) + 0.00001)",
-        "y": "V * tanh(sqrt(U^2+V^2+W^2)/2) / (sqrt(U^2+V^2+W^2) + 0.00001)",
-        "z": "W * tanh(sqrt(U^2+V^2+W^2)/2) / (sqrt(U^2+V^2+W^2) + 0.00001)"
+        "p": "0.0",
+        "x": "A*(u*cos(v)-(u*u*u)/3.0*cos(3*v))",
+        "y": "A*(-u*sin(v)-(u*u*u)/3.0*sin(3*v))",
+        "z": "A*u*u*cos(2*v)"
     },
     "fov3D": 45,
     "fov4D": 45,
@@ -65,14 +65,16 @@
         "v0": "",
         "w0": ""
     },
+    "hintSeconds": 6,
+    "hintText": "Slider A active on this shape",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 2,
     "limits": {
-        "uMax": 2,
-        "uMin": -2,
-        "vMax": 2,
-        "vMin": -2,
+        "uMax": 1.2000000476837158,
+        "uMin": 0,
+        "vMax": 3.141590118408203,
+        "vMin": -3.141590118408203,
         "wMax": 0,
         "wMin": 0,
         "xMax": 1000,
@@ -114,7 +116,7 @@
         "psi": 0,
         "spin": 0.20000000298023224
     },
-    "steps": 648,
+    "steps": 241,
     "texture": {
         "code": "// --- PARAMETRI ---\nfloat zoom = 1.0;       // Collegato alla densità/zoom dell'UI\nvec2 center = vec2(-0.5, 0.0); // Centro del frattale\nint max_iter = 100;     // Qualità del dettaglio\n\n// --- MAPPATURA COORDINATE ---\n// Trasformiamo u,v (0.0 - 1.0) nel piano complesso\n// Moltiplichiamo per 3.0 per avere un'inquadratura iniziale classica.\n// Dividiamo per 'zoom' per ingrandire.\nvec2 c = (vec2(u, v) - 0.5) * (3.0 / zoom) + center;\n\n// --- LOGICA MANDELBROT (Z = Z^2 + C) ---\nvec2 z = vec2(0.0);\nint iter = 0;\n\nfor (int i = 0; i < 100; i++) { // Loop fisso per GLSL (usa max_iter per il break)\n    if (i >= max_iter) break;\n    \n    // Ottimizzazione: se la distanza al quadrato > 4, è scappato\n    if (dot(z, z) > 4.0) break;\n\n    // Calcolo numero complesso: (x + iy)^2 + c\n    // Parte Reale: x^2 - y^2 + cx\n    // Parte Immaginaria: 2xy + cy\n    float x = (z.x * z.x - z.y * z.y) + c.x;\n    float y = (2.0 * z.x * z.y) + c.y;\n    \n    z = vec2(x, y);\n    iter++;\n}\n\n// --- COLORAZIONE ---\n// Normalizziamo le iterazioni tra 0.0 e 1.0\nfloat tit = float(iter) / float(max_iter);\n\n// Usiamo una radice quadrata (pow 0.5) per rendere il gradiente più visibile\n// e meno \"tutto nero\" ai bordi.\ntit = sqrt(tit);\n\n// Mix tra i colori dell'utente\n// tit=0 (esterno immediato) -> Colore 1\n// tit=1 (interno insieme)   -> Colore 2\nreturn mix(u_col1, u_col2, tit);",
         "col1": "#1c3664",
