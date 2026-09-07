@@ -70,7 +70,7 @@
         "zMax": 2,
         "zMin": -2
     },
-    "name": "Pseudo Duplin",
+    "name": "Pseudo Dupin",
     "projectionMode": 1,
     "renderMode": 10,
     "showBorder": false,

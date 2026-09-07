@@ -158,26 +158,17 @@
             "texRot": 0,
             "texZoom": 1
         },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        }
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {}
     ],
-    "name": "Villarceau Tubes Drift N20",
+    "name": "Villarceau Tubes Drift",
     "observer4D": 4,
     "path3D": {
         "roll": "",

@@ -14,8 +14,9 @@
         "x": 0.6500000953674316,
         "y": 0,
         "yaw": 0,
-        "z": 6.399999618530273
+        "z": 4.037312030792236
     },
+    "cameraFov": 45,
     "colors": {
         "alpha": 0.81,
         "b": 0.20000000298023224,
@@ -43,6 +44,8 @@
         "y": "A*sin(V)*sin(U)",
         "z": "A*cos(V)"
     },
+    "fov3D": 45,
+    "fov4D": 45,
     "geodesic": {
         "conform": "1.0",
         "du": "",
@@ -71,10 +74,10 @@
         "zMax": 1000,
         "zMin": -1000
     },
+    "meshScopeAll": true,
     "name": "Torus",
     "projectionMode": 2,
     "renderMode": 1,
-    "showBorder": false,
     "steps": 100,
     "type": "surface",
     "use4DLighting": true,

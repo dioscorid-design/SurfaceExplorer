@@ -70,7 +70,7 @@
         "zMax": 1000,
         "zMin": -1000
     },
-    "name": "KleinIso",
+    "name": "Klein Quartic",
     "projectionMode": 1,
     "renderMode": 10,
     "showBorder": false,

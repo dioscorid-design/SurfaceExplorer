@@ -64,7 +64,7 @@
         "zMax": 7,
         "zMin": -7
     },
-    "name": "Gyroid1",
+    "name": "Scalable Gyroid",
     "projectionMode": 1,
     "renderMode": 10,
     "scriptCode": "A := 3.0;\nreturn B*(sin(A*x)*cos(A*y) + sin(A*y)*cos(A*z) + sin(A*z)*cos(A*x));",

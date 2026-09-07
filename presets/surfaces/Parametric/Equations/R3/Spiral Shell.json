@@ -72,7 +72,7 @@
         "zMax": 1000,
         "zMin": -1000
     },
-    "name": "Shell_1",
+    "name": "Spiral Shell",
     "projectionMode": 1,
     "renderMode": 1,
     "showBorder": false,

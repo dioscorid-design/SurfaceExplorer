@@ -7,15 +7,16 @@
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": 0.1931268572807312,
-        "rot_x": 0.18210983276367188,
-        "rot_y": 0.8616611361503601,
-        "rot_z": 0.4325253367424011,
+        "rot_w": -0.2488628327846527,
+        "rot_x": 0.6735790967941284,
+        "rot_y": 0.593296229839325,
+        "rot_z": 0.3638105094432831,
         "x": -0.050000011920928955,
         "y": 0.050000011920928955,
         "yaw": 0,
         "z": 2.7600009441375732
     },
+    "cameraFov": 45,
     "colors": {
         "alpha": 1,
         "b": 0.20000000298023224,
@@ -43,6 +44,8 @@
         "y": "V",
         "z": "W"
     },
+    "fov3D": 45,
+    "fov4D": 45,
     "geodesic": {
         "conform": "4.0 / ((1.0 - (U^2 + V^2 + W^2))^2)",
         "du": "cos(u) * cos(10*u) - sin(u) * sin(10*u)",
@@ -58,8 +61,8 @@
     "limits": {
         "uMax": 6.2831854820251465,
         "uMin": 0,
-        "vMax": 0.20000000298023224,
-        "vMin": -0.20000000298023224,
+        "vMax": 0.25,
+        "vMin": -0.25,
         "wMax": 0,
         "wMin": 0,
         "xMax": 1000,
@@ -69,11 +72,15 @@
         "zMax": 1000,
         "zMin": -1000
     },
+    "meshScopeAll": true,
     "name": "Twisted Torus Ribbon",
     "projectionMode": 1,
     "renderMode": 1,
-    "showBorder": false,
     "steps": 633,
     "type": "surface",
-    "use4DLighting": false
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
 }

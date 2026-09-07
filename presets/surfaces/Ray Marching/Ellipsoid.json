@@ -7,16 +7,18 @@
     "camera3D": {
         "pitch": 0,
         "roll": 0,
-        "rot_w": 0.1392824798822403,
-        "rot_x": 0.7663270235061646,
-        "rot_y": 0.6032233834266663,
-        "rot_z": 0.17165352404117584,
+        "rot_w": 0.06023743376135826,
+        "rot_x": 0.7469074130058289,
+        "rot_y": 0.5188308358192444,
+        "rot_z": 0.41147929430007935,
         "x": 0,
         "y": 0,
         "yaw": 0,
         "z": 4
     },
+    "cameraFov": 45,
     "colors": {
+        "alpha": 1,
         "b": 0.20000000298023224,
         "g": 0.800000011920929,
         "r": 0.20000000298023224
@@ -42,6 +44,17 @@
         "y": "(0.8 + 0.3*cos(v))*sin(u)",
         "z": "0.3*sin(v)"
     },
+    "fov3D": 45,
+    "fov4D": 45,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
     "implicitEquation": "x^2 + y^2 + 3*z^2 = 1.0",
     "isImplicitMode": true,
     "lightIntensity": 1,
@@ -51,7 +64,7 @@
         "uMin": 0,
         "vMax": 6.2831854820251465,
         "vMin": 0,
-        "wMax": 0.10000000149011612,
+        "wMax": 0,
         "wMin": 0,
         "xMax": 1000,
         "xMin": -1000,
@@ -60,11 +73,15 @@
         "zMax": 1000,
         "zMin": -1000
     },
+    "meshScopeAll": true,
     "name": "Ellipsoid",
     "projectionMode": 1,
     "renderMode": 10,
-    "showBorder": false,
     "steps": 400,
     "type": "surface",
-    "use4DLighting": false
+    "use4DLighting": false,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
 }
