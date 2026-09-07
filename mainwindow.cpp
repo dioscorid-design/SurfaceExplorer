@@ -11507,12 +11507,11 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
                 // riaccendono la texture di superficie e quelle di TUTTE le
                 // parti: cliccare nella Library la texture della mesh corrente
                 // faceva partire le animazioni di tutte le altre.
-                // NESSUNA guardia su m_masterStopped, al contrario del ramo che
-                // APPLICA una texture nuova (~7690): li' il click configura la
-                // fascia e far ripartire l'orologio sarebbe un effetto
-                // collaterale, qui il click E' il comando "riavvia questa
-                // texture". E' la stessa scelta del Run per-mesh del dock Script
-                // (~10200), che accende la fascia senza consultare il master.
+                // NESSUNA guardia su m_masterStopped: cliccare una texture in
+                // ambito Mesh e' un comando esplicito su quella fascia, e parte
+                // subito anche a scena ferma. Stessa scelta del ramo che APPLICA
+                // una texture nuova (~7690) e del Run per-mesh del dock Script
+                // (~10200): i tre gesti per-mesh si comportano allo stesso modo.
                 // Stesso criterio di meshTextureAnimated: texture propria,
                 // ACCESA e che usa il tempo. activeMeshTextureCode() da solo
                 // ignora textureEnabled e accenderebbe un orologio a vuoto su
