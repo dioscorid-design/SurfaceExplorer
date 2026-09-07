@@ -3477,7 +3477,15 @@ MainWindow::MainWindow(QWidget *parent)
         // passare ad "All" con una texture per-mesh animata RIACCENDEVA il clock
         // di superficie che l'utente aveva appena fermato -- e il tasto tornava
         // su "Stop" da solo.
-        if (!m_userStoppedTexClock)
+        // ...e MAI dopo un master Stop. Il gate storico e' m_userStoppedTexClock,
+        // che pero' registra il solo Stop del DOCK: performMasterStop alza
+        // m_masterStopped (e m_userStoppedMeshTexClock per le fasce), non
+        // quello. Cosi' bastava cambiare ambito per far ripartire la texture di
+        // superficie a scena ferma -- e il master, che la contava come attivita'
+        // in moto, tornava a dire STOP senza che si muovesse nient'altro.
+        // Stessa regola di applyAnimationState: il master e' il gate di ogni
+        // riaccensione, qualunque sia il modulo.
+        if (!m_userStoppedTexClock && !m_masterStopped)
             ui->glWidget->setSurfaceTextureAnimating(
                 hasTimeVariable(m_surfaceTextureCode));
 
@@ -16978,7 +16986,19 @@ void MainWindow::updateMasterButtonState()
             // anyMeshTextureAnimating() controlla gia' che la parte abbia una
             // texture propria e accesa; qui resta da chiedere se quel codice usa
             // il tempo, cioe' se c'e' davvero qualcosa in movimento da fermare.
-            if (!isTexVisuallyMoving && ui->glWidget->anyMeshTextureAnimating())
+            // ...ma SOLO in ambito "Mesh". In "All" l'aspetto per-mesh e'
+            // SOSPESO: il render non disegna nemmeno le texture delle fasce
+            // (tutto il blocco per-parte e' dentro !m_meshAppearanceUniform),
+            // quindi il loro orologio, che continua a girare, non muove NULLA a
+            // schermo. Contandolo, il master diceva STOP su una scena ferma --
+            // e restava li' anche tornando su "Mesh". E' la stessa distinzione
+            // che fa allSurfaceTextureCode(), che in "All" esclude apposta le
+            // per-mesh. NB: il predicato resta globale per chi deve RIACCENDERE
+            // gli orologi (applyAnimationState, onStartClicked): quelli devono
+            // vedere le fasce anche da "All", o tornando su "Mesh" sarebbero
+            // ferme. Qui la domanda e' un'altra: si vede qualcosa muoversi?
+            if (!isTexVisuallyMoving && !ui->glWidget->meshAppearanceUniform()
+                && ui->glWidget->anyMeshTextureAnimating())
                 isTexVisuallyMoving = anyMeshTextureCodeAnimated();
         }
 
