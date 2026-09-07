@@ -71,6 +71,6 @@
     "steps": 100,
     "type": "surface",
     "use4DLighting": false,
-    "hintText": "Sliders A and B active on this shape",
+    "hintText": "Sliders\nA: size\nB: pitch of the spiral",
     "hintSeconds": 6
 }

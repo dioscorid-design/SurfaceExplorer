@@ -53,8 +53,8 @@
         "v0": "",
         "w0": ""
     },
-    "hintSeconds": 6,
-    "hintText": "Sliders A-E active on this shape",
+    "hintSeconds": 7,
+    "hintText": "Sliders\nA: waist radius\nB: flare width\nC: number of twists   D: reach of the twist\nE: size",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

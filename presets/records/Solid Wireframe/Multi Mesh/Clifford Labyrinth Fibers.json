@@ -71,8 +71,8 @@
         "v0": "",
         "w0": ""
     },
-    "hintSeconds": 6,
-    "hintText": "Slider E: number of tubes (1 to 6)\nSlider F: radius of the tubes\nThe camera path runs through three of them, whatever E is set to.",
+    "hintSeconds": 8,
+    "hintText": "Sliders\nE: how many tubes\nF: tube radiuss\nThe camera path runs through three of them, whatever E is set to.",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

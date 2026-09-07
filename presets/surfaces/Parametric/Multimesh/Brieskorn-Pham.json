@@ -60,7 +60,7 @@
         "w0": ""
     },
     "hintSeconds": 8,
-    "hintText": "Sliders A-C active on this shape",
+    "hintText": "Sliders\nA and B: the two exponents of the Brieskorn-Pham surface (2 to 7)\nC: fold of the fourth coordinate",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

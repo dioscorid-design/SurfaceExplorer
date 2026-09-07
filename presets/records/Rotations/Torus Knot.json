@@ -63,7 +63,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A-C active on this shape",
+    "hintText": "Sliders\nA: ring radius\nB: tube radius\nC: radius of its cross-section",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

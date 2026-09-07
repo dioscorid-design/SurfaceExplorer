@@ -66,7 +66,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A-C active on this shape",
+    "hintText": "Sliders\nA: ring radius\nB: tube radius\nC: how softly they merge",
     "implicitEquation": "// Controlled by Script",
     "isImplicitMode": true,
     "lightIntensity": 1,

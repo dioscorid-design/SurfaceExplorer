@@ -55,8 +55,8 @@
         "v0": "",
         "w0": ""
     },
-    "hintSeconds": 6,
-    "hintText": "Sliders A (axis tilt), C (tube radius), D (cusps near 0.20, loops above), E (petals), F (overall scale)",
+    "hintSeconds": 8,
+    "hintText": "Sliders\nA: tilt of the axis   C: tube radius\nD: cusps near 0.20, loops above   E: number of petals\nF: overall scale",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

@@ -43,7 +43,7 @@
         "z": "sin(u)*(A-B*NoiseW(((1+(1.0/2.0)*cos(u))*cos(v))*4.0, ((1+(1.0/2.0)*cos(u))*sin(v))*4.0, ((1.0/2.0)*sin(u))*4.0, 5.0, 2.0, 0.5))"
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A and B active on this shape",
+    "hintText": "Sliders\nA: ring radius\nB: depth of the noise that eats into it",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

@@ -63,7 +63,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Slider A active on this shape",
+    "hintText": "Slider A: radius of the sphere",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

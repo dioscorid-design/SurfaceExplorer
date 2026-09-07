@@ -65,8 +65,8 @@
         "v0": "",
         "w0": ""
     },
-    "hintSeconds": 6,
-    "hintText": "Sliders A-C active on this shape",
+    "hintSeconds": 7,
+    "hintText": "Sliders\nA: frequency of the gyroid\nB: thickness of the shell\nC: safety factor of the ray marcher",
     "implicitEquation": "// Controlled by Script",
     "isImplicitMode": true,
     "lightIntensity": 1,

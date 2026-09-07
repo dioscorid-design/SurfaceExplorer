@@ -55,8 +55,8 @@
         "v0": "",
         "w0": ""
     },
-    "hintSeconds": 6,
-    "hintText": "Pulsing sphere: radius = A + E*sin(F*t)\nB, C and D shape the six tori it merges with",
+    "hintSeconds": 9,
+    "hintText": "Sliders\nA: radius of the sphere   E: depth of the pulse   F: speed of the pulse\nB, C and D: radii and spacing of the tori",
     "implicitEquation": "min( sqrt(x*x + y*y + z*z) - (A + E*sin(F*t)), min( sqrt((sqrt((abs(x)-D)*(abs(x)-D) + y*y) - B)*(sqrt((abs(x)-D)*(abs(x)-D) + y*y) - B) + z*z) - C, min( sqrt((sqrt((abs(y)-D)*(abs(y)-D) + z*z) - B)*(sqrt((abs(y)-D)*(abs(y)-D) + z*z) - B) + x*x) - C, sqrt((sqrt((abs(z)-D)*(abs(z)-D) + x*x) - B)*(sqrt((abs(z)-D)*(abs(z)-D) + x*x) - B) + y*y) - C ) ) ) = 0",
     "isImplicitMode": true,
     "lightIntensity": 1,

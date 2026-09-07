@@ -66,7 +66,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A and B active on this shape",
+    "hintText": "Sliders\nA: radius of the sphere\nB: frequency of the wave running over it",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 1,

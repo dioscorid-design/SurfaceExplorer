@@ -126,6 +126,6 @@
     },
     "type": "motion",
     "use4DLighting": false,
-    "hintText": "Sliders A and B active on this shape",
+    "hintText": "Sliders\nA: radius of the sphere\nB: depth of the pulse",
     "hintSeconds": 6
 }

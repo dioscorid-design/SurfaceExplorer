@@ -63,7 +63,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A, C, D and E active on this shape",
+    "hintText": "Sliders\nA: size\nC: where the slice is taken\nD and E: the two drift speeds",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

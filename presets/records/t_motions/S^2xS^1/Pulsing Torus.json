@@ -54,7 +54,7 @@
         "z": "B*sin(V)*cos(W)"
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A and B active on this shape",
+    "hintText": "Sliders\nA: ring radius\nB: tube radius",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

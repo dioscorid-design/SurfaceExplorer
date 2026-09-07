@@ -76,6 +76,6 @@
         "uStep": 4,
         "vStep": 4
     },
-    "hintText": "Sliders A-C active on this shape",
+    "hintText": "Sliders\nA: ring radius\nB: tube radius\nC: how softly they merge",
     "hintSeconds": 6
 }

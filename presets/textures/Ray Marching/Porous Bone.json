@@ -11,6 +11,6 @@
     "rotation": 0,
     "type": "custom_texture",
     "zoom": 1,
-    "hintText": "Slider E: density of the pores (1 = default, higher = finer)\nSlider F: how much they fill the surface",
-    "hintSeconds": 6.0
+    "hintText": "Sliders\nE: density of the pores (1 = default, higher = finer)\nF: how much they fill the surface",
+    "hintSeconds": 7
 }

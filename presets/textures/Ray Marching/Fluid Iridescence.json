@@ -5,7 +5,7 @@
     "displacement": "// Compute a 3D relief\nfloat rilievo = sin(pModel.x * 20.0*F) * sin(pModel.y * 20.0*F) * sin(pModel.z * 20.0*F);\n\n// Subtract it from the surface (expanding it and creating the bumps)\nd_surf -= rilievo * 0.05;",
     "hasCustomColors": true,
     "hintSeconds": 6,
-    "hintText": "Slider F: relief density\nSlider E: energy scale and speed",
+    "hintText": "Sliders\nF: relief density\nE: energy scale and speed",
     "isImplicitMode": true,
     "name": "Fluid Iridescence",
     "pan_x": 0,

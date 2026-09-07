@@ -53,7 +53,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A-C active on this shape",
+    "hintText": "Sliders\nA and B: windings of the wave\nC: radius of the sphere",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

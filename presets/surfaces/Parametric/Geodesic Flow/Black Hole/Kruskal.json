@@ -77,6 +77,6 @@
     "steps": 100,
     "type": "surface",
     "use4DLighting": false,
-    "hintText": "Slider A active on this shape",
+    "hintText": "Slider A: mass of the black hole",
     "hintSeconds": 6
 }

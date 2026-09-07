@@ -71,8 +71,8 @@
         "v0": "",
         "w0": ""
     },
-    "hintSeconds": 6,
-    "hintText": "Sliders A-F active on this shape",
+    "hintSeconds": 9,
+    "hintText": "Sliders\nA: how many holes\nB: hole radius   C: rim thickness\nD: spacing   E: how softly they merge\nF: how far they open",
     "implicitEquation": "// Controlled by Script",
     "isImplicitMode": true,
     "lightIntensity": 1,

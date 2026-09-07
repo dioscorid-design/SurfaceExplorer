@@ -54,7 +54,7 @@
         "z": "A * cos(w) * sin(v)"
     },
     "hintSeconds": 6,
-    "hintText": "Slider A active on this shape",
+    "hintText": "Slider A: radius of the sphere",
     "lightIntensity": 1,
     "lightingMode": 1,
     "limits": {

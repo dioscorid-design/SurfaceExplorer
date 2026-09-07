@@ -53,7 +53,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A and B active on this shape",
+    "hintText": "Sliders\nA: waist radius\nB: how far the surface is stretched along its axis",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

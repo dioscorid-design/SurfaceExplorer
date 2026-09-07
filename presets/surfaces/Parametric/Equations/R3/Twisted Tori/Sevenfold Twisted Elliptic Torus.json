@@ -55,8 +55,8 @@
         "v0": "",
         "w0": ""
     },
-    "hintSeconds": 8,
-    "hintText": "Sliders A and B active: semi-axes of the elliptic section. C = 1/7: one full twist over seven loops, so the surface closes",
+    "hintSeconds": 9,
+    "hintText": "Sliders\nA and B active: semi-axes of the elliptic section. C = 1/7: one full twist over seven loops, so the surface closes",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

@@ -54,6 +54,6 @@
     "steps": 300,
     "type": "surface",
     "use4DLighting": false,
-    "hintText": "Sliders A-C active on this shape",
-    "hintSeconds": 6
+    "hintText": "Sliders\nA: k, the order of the Enneper surface\nB: size\nC: separation of the two sheets",
+    "hintSeconds": 7
 }

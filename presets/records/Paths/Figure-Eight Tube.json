@@ -132,6 +132,6 @@
         "uStep": 4,
         "vStep": 4
     },
-    "hintText": "Slider A: size of the figure-eight the camera flies",
-    "hintSeconds": 6.0
+    "hintText": "Slider A: size-eight the camera flies",
+    "hintSeconds": 6
 }

@@ -43,7 +43,7 @@
         "z": "4*A*sin(u)"
     },
     "hintSeconds": 6,
-    "hintText": "Slider A active on this shape",
+    "hintText": "Slider A: size",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

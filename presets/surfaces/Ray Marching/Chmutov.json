@@ -67,6 +67,6 @@
     "steps": 940,
     "type": "surface",
     "use4DLighting": false,
-    "hintText": "Slider A active on this shape",
+    "hintText": "Slider A: step scale of the marcher (shape unchanged)",
     "hintSeconds": 6
 }

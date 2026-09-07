@@ -11,6 +11,6 @@
     "rotation": 0,
     "type": "custom_texture",
     "zoom": 1,
-    "hintText": "Slider E: scale of the noise (1 = default, higher = finer)\nSlider F: how much the pattern is distorted\nColours 1 and 2 drive the colour bands",
-    "hintSeconds": 6.0
+    "hintText": "Sliders\nE: scale of the noise\nF: distortion",
+    "hintSeconds": 6
 }

@@ -56,7 +56,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A-C active on this shape",
+    "hintText": "Sliders\nA: size\nB: ring radius\nC: tube radius",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

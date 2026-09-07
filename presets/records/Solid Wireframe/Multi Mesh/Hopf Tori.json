@@ -71,8 +71,8 @@
         "v0": "",
         "w0": ""
     },
-    "hintSeconds": 8,
-    "hintText": "Slider E active on this shape",
+    "hintSeconds": 6,
+    "hintText": "Slider E: how many tori",
     "isImplicitMode": false,
     "lightIntensity": 1.49,
     "lightingMode": 0,

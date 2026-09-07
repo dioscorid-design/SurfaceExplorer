@@ -66,7 +66,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A (size) and B (transit speed) active on this shape",
+    "hintText": "Sliders\nA: radius of the sphere\nB: speed of the transit",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 1,

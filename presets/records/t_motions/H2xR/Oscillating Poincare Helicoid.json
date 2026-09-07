@@ -53,8 +53,8 @@
         "y": "A * tanh(U/2) * sin(V)",
         "z": "B * W"
     },
-    "hintSeconds": 6,
-    "hintText": "Sliders A-D active on this shape",
+    "hintSeconds": 9,
+    "hintText": "Sliders\nA: size in the Poincare disc\nB: height of the surface\nC: how much it twists\nD: how far it swings back and forth",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

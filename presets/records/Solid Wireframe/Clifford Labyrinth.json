@@ -72,7 +72,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Slider E: number of tubes (1 to 6)\nSlider F: radius of the tubes\n\nSteps must stay a multiple of 60",
+    "hintText": "Sliders\nE: how many tubes\nF: tube radiuss\nSteps must stay a multiple of 60",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

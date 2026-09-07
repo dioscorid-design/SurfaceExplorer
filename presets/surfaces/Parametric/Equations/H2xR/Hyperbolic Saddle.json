@@ -43,7 +43,7 @@
         "z": "B * W"
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A-C active on this shape",
+    "hintText": "Sliders\nA: size\nB: height of the saddle\nC: how much it twists",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

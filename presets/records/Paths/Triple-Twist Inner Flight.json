@@ -65,8 +65,8 @@
         "v0": "",
         "w0": ""
     },
-    "hintSeconds": 8,
-    "hintText": "Sliders A and B active on this shape",
+    "hintSeconds": 6,
+    "hintText": "Sliders\nA and B: the two half-widths of the band",
     "isImplicitMode": false,
     "lightIntensity": 1.63,
     "lightingMode": 0,

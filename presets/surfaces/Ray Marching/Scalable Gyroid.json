@@ -72,6 +72,6 @@
     "steps": 424,
     "type": "surface",
     "use4DLighting": false,
-    "hintText": "Sliders A and B active on this shape",
+    "hintText": "Sliders\nA: frequency of the gyroid\nB: step scale of the ray marcher",
     "hintSeconds": 6
 }

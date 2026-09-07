@@ -63,7 +63,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Slider A active on this shape",
+    "hintText": "Slider A: radius of the starting circle",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

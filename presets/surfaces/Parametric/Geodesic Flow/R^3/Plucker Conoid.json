@@ -52,7 +52,7 @@
         "w0": "A*sin(2*u)"
     },
     "hintSeconds": 6,
-    "hintText": "Slider A active on this shape",
+    "hintText": "Slider A: height of the starting curve",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

@@ -49,8 +49,8 @@
         "v0": "",
         "w0": ""
     },
-    "hintSeconds": 9,
-    "hintText": "Slider E: how many tori, one more at every step (1 to 6)\nThey fill the half-axes in turn: +X, -X, +Y, -Y, +Z, -Z\nSlider D: move them.  D > 1.60 separate   D = 1.60 they touch   D < 1.60 merged\nA: sphere radius   B, C: torus radii",
+    "hintSeconds": 6,
+    "hintText": "Sliders\nE: how many tori\nA: sphere radius   B, C: torus radii",
     "implicitEquation": "// Controlled by Script",
     "isImplicitMode": true,
     "lightIntensity": 1,

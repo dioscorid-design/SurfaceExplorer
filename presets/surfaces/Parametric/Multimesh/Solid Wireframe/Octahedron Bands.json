@@ -50,7 +50,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Slider F active on this shape",
+    "hintText": "Slider F: width of the bands",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

@@ -66,7 +66,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Slider A active on this shape",
+    "hintText": "Slider A: size",
     "implicitEquation": "// Controlled by Script",
     "isImplicitMode": true,
     "lightIntensity": 1,
@@ -131,7 +131,7 @@
         "zoom": 1
     },
     "textureHintSeconds": 6,
-    "textureHintText": "Slider F: relief density\nSlider E: energy scale and speed",
+    "textureHintText": "Sliders\nF: relief density\nE: energy scale and speed",
     "type": "motion",
     "use4DLighting": false,
     "wireframe": {

@@ -65,8 +65,8 @@
         "v0": "",
         "w0": ""
     },
-    "hintSeconds": 6,
-    "hintText": "Sliders A-C active on this shape.",
+    "hintSeconds": 7,
+    "hintText": "Sliders\nA: radius of the two rings\nB: radius of their tubes\nC: how softly they merge",
     "implicitEquation": "// Controlled by Script",
     "isImplicitMode": true,
     "lightIntensity": 1.25,
@@ -131,7 +131,7 @@
         "zoom": 1
     },
     "textureHintSeconds": 6,
-    "textureHintText": "slider E ripple frequency and speed.",
+    "textureHintText": "Sliders\nF: relief density\nE: energy scale and speed",
     "type": "motion",
     "use4DLighting": false,
     "wireframe": {

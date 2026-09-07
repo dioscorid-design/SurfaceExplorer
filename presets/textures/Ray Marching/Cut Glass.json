@@ -11,6 +11,6 @@
     "rotation": 0,
     "type": "custom_texture",
     "zoom": 1,
-    "hintText": "Slider E: density of the facets (1 = default, higher = finer)\nSlider F: depth of the cuts",
-    "hintSeconds": 6.0
+    "hintText": "Sliders\nE: density of the facets (1 = default, higher = finer)\nF: depth of the cuts",
+    "hintSeconds": 7
 }

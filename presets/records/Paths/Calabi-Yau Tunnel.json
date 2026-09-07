@@ -71,8 +71,8 @@
         "v0": "",
         "w0": ""
     },
-    "hintSeconds": 8,
-    "hintText": "Sliders A and B active on this shape",
+    "hintSeconds": 6,
+    "hintText": "Sliders\nA: degree of the quintic (2 to 5)\nB: angle of the projection",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
@@ -101,54 +101,30 @@
             "texCode": "vec2 g = floor(vec2(u, v) * 8.0);\nfloat c = mod(g.x + g.y, 2.0);\nreturn mix(u_col1, u_col2, c);",
             "texOn": false
         },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        },
-        {
-        }
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {},
+        {}
     ],
     "meshScopeAll": true,
     "name": "Calabi-Yau Tunnel",

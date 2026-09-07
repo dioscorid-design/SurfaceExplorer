@@ -53,8 +53,8 @@
         "y": "A * sin(U) * sin(V)",
         "z": "B * cos(W) * cos(V)"
     },
-    "hintSeconds": 6,
-    "hintText": "Sliders A, B, D and E active on this shape",
+    "hintSeconds": 8,
+    "hintText": "Sliders\nA and B: the radii of the two circles the torus is built from\nD and E: the two drift speeds",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

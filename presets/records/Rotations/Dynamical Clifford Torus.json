@@ -62,8 +62,8 @@
         "v0": "",
         "w0": ""
     },
-    "hintSeconds": 6,
-    "hintText": "Sliders A-E active on this shape",
+    "hintSeconds": 9,
+    "hintText": "Sliders\nA and B: the radii of the two circles the torus is built from\nC: where it sits between them\nD and E: the two rotation speeds",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

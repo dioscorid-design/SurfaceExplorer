@@ -66,7 +66,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A, B and D active on this shape",
+    "hintText": "Sliders\nA: waist radius\nB: stretch along the axis\nD: speed of the spin",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

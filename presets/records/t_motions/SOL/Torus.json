@@ -65,8 +65,8 @@
         "v0": "",
         "w0": ""
     },
-    "hintSeconds": 6,
-    "hintText": "Sliders A and B: ring radius and tube radius\nSlider E: how far the Sol deformation goes\nSlider C: speed of the cycle",
+    "hintSeconds": 8,
+    "hintText": "Sliders\nA and B: ring radius and tube radius\nE: how far the Sol deformation goes\nC: speed of the cycle",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

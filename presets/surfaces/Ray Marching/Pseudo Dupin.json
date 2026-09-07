@@ -77,6 +77,6 @@
     "steps": 650,
     "type": "surface",
     "use4DLighting": false,
-    "hintText": "Sliders A-C active on this shape",
-    "hintSeconds": 6
+    "hintText": "Sliders\nA: how much the figure twists about its axis\nB: how far it is stretched\nC: step scale of the ray marcher",
+    "hintSeconds": 8
 }

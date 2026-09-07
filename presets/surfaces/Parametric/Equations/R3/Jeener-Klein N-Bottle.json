@@ -62,7 +62,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Slider A active on this shape (number of bottles, integer)",
+    "hintText": "Slider A: number of necks on the bottle",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

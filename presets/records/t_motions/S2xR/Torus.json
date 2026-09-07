@@ -63,7 +63,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A-C active on this shape",
+    "hintText": "Sliders\nA: radius of the sphere\nB: height along R\nC: tube radius",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

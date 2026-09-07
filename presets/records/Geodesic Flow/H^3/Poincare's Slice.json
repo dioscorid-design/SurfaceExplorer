@@ -65,8 +65,8 @@
         "v0": "0.5*sin(u)",
         "w0": "A*sin(B*u)"
     },
-    "hintSeconds": 6,
-    "hintText": "Sliders A-C active on this shape",
+    "hintSeconds": 8,
+    "hintText": "Sliders\nA: amplitude of the starting curve\nB: how many waves it makes\nC: how fast the geodesics twist",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

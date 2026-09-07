@@ -132,5 +132,5 @@
         "vStep": 4
     },
     "hintText": "Slider A: radius of the circle the camera flies",
-    "hintSeconds": 6.0
+    "hintSeconds": 6
 }

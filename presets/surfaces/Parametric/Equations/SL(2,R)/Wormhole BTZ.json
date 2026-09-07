@@ -56,7 +56,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A-C active on this shape",
+    "hintText": "Sliders\nA: size\nB: strength of the hyperbolic shear\nC: how far the throat opens",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 1,

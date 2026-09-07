@@ -77,6 +77,6 @@
     "steps": 200,
     "type": "surface",
     "use4DLighting": false,
-    "hintText": "Sliders A and B active on this shape",
+    "hintText": "Sliders\nA: mass of the black hole\nB: spin (capped at the mass)",
     "hintSeconds": 6
 }

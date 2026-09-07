@@ -54,7 +54,7 @@
         "z": "A*(W + 0.5 * (C * sin(t) * V - D * cos(t) * U))"
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A-D active on this shape",
+    "hintText": "Sliders\nA: ring radius\nB: tube radius\nC and D: reach of the twist",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

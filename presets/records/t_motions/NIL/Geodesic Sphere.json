@@ -66,7 +66,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A and C active on this shape",
+    "hintText": "Sliders\nA: size of the sphere\nC: speed of the turn",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

@@ -43,7 +43,7 @@
         "z": "A*exp(-u*u)*(sin(C*pi*(u)/3)-u*cos(B*v))/5"
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A-C active on this shape",
+    "hintText": "Sliders\nA: height of the waves\nB: how many ripples across\nC: how many along",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

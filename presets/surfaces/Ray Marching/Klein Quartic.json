@@ -77,6 +77,6 @@
     "steps": 772,
     "type": "surface",
     "use4DLighting": false,
-    "hintText": "Sliders A-E active on this shape",
-    "hintSeconds": 6
+    "hintText": "Sliders\nA: weight of the quartic\nB, C and D: the coefficients that shape it\nE: cutting level",
+    "hintSeconds": 7
 }

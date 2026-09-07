@@ -54,7 +54,7 @@
         "z": "exp(-B*W)*sin(U)"
     },
     "hintSeconds": 6,
-    "hintText": "Sliders B and D active on this shape",
+    "hintText": "Sliders\nB: strength of the horocyclic shear\nD: speed of the flow",
     "lightIntensity": 1,
     "lightingMode": 1,
     "limits": {

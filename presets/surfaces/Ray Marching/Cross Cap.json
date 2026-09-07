@@ -67,6 +67,6 @@
     "steps": 676,
     "type": "surface",
     "use4DLighting": false,
-    "hintText": "Sliders A and E active on this shape",
+    "hintText": "Sliders\nA: weight of the equation\nE: cutting level",
     "hintSeconds": 6
 }

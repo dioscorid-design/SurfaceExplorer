@@ -135,6 +135,6 @@
     },
     "hintText": "",
     "hintSeconds": 6,
-    "textureHintText": "Slider E: pattern scale\nSlider F: distortion",
+    "textureHintText": "Sliders\nE: pattern scale\nF: distortion",
     "textureHintSeconds": 6
 }

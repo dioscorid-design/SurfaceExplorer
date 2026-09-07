@@ -43,7 +43,7 @@
         "z": "B*v/(2*pi)+A*(1-v/(2*pi))*sin(u)"
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A-C active on this shape",
+    "hintText": "Sliders\nA: thickness of the body\nB: height it climbs\nC: radius of the coil",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

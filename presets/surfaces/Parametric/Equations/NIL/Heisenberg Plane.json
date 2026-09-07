@@ -43,7 +43,7 @@
         "z": "W + A * U * V"
     },
     "hintSeconds": 6,
-    "hintText": "Slider A active on this shape",
+    "hintText": "Slider A: strength of the twist",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

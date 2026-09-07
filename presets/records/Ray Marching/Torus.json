@@ -116,6 +116,6 @@
     },
     "type": "motion",
     "use4DLighting": false,
-    "hintText": "Sliders A and B active on this shape",
+    "hintText": "Sliders\nA: ring radius\nB: tube radius",
     "hintSeconds": 6
 }

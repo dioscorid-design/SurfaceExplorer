@@ -56,7 +56,7 @@
         "w0": "0.3*u"
     },
     "hintSeconds": 6,
-    "hintText": "Slider A active on this shape",
+    "hintText": "Slider A: radius of the helix",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

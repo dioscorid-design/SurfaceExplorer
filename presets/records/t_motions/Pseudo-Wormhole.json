@@ -65,8 +65,8 @@
         "v0": "",
         "w0": ""
     },
-    "hintSeconds": 6,
-    "hintText": "Sliders A-D active on this shape",
+    "hintSeconds": 8,
+    "hintText": "Sliders\nA: size\nB: strength of the Iwasawa shear\nC: how far the throat opens   D: speed of the drift",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 1,

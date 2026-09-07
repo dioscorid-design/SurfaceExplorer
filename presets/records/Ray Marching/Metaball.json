@@ -126,6 +126,6 @@
     },
     "type": "motion",
     "use4DLighting": false,
-    "hintText": "Slider A active on this shape",
+    "hintText": "Slider A: strength of the blobs",
     "hintSeconds": 6
 }

@@ -124,8 +124,8 @@
     },
     "type": "motion",
     "use4DLighting": false,
-    "hintText": "Sliders A-C active on this shape",
+    "hintText": "Sliders\nA: mass of the black hole\nB: its maximum spin\nC: speed of the spin cycle",
     "hintSeconds": 6,
-    "textureHintText": "Sliders A and B drive both the shape and its texture (mass and spin)",
-    "textureHintSeconds": 6.0
+    "textureHintText": "Sliders\nA and B drive both the shape and its texture (mass and spin)",
+    "textureHintSeconds": 6
 }

@@ -63,7 +63,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A, C, D and E active on this shape",
+    "hintText": "Sliders\nA: size\nE: pitch\nC and D: reach of the twist",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

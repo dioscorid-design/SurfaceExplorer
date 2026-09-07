@@ -54,7 +54,7 @@
         "z": "W * tanh(sqrt(U^2+V^2+W^2)/2) / (sqrt(U^2+V^2+W^2) + 0.00001)"
     },
     "hintSeconds": 6,
-    "hintText": "Sliders A-C active on this shape",
+    "hintText": "Sliders\nA: radius of the sphere\nB and C: travel through the ball",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

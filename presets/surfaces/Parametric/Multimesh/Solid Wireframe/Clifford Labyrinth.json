@@ -50,7 +50,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders E and F active on this shape",
+    "hintText": "Sliders\nE: how many tubes\nF: tube radiuss",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
