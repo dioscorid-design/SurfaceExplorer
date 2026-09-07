@@ -2494,9 +2494,37 @@ bool GLWidget::setActiveMeshTexture(const QString &code, bool enabled) {
 // Il tempo NON si azzera: fermando e riavviando, l'animazione riprende da dove
 // era, come fa lo Stop globale.
 // Nessun rebuildShader: si muove solo un flag letto dal tick.
+// Il flag da solo NON basta: se m_animTimer e' fermo (dopo un master Stop, che
+// spegne tutti i clock) nessun tick avanza mp.timeTex e la fascia resta
+// immobile pur risultando "in moto". Lo stesso riavvio che fanno i tre setter
+// globali -- setSurface/Background/SurfaceTextureAnimating -- vale quindi anche
+// per le parti: e' l'unico modo perche' il Run per-mesh del dock Script e il
+// riclic sulla texture della fascia nella Library rimettano in moto la sola
+// mesh selezionata con la scena per il resto ferma.
 bool GLWidget::setActiveMeshTextureAnimating(bool animating) {
     const bool onPart = applyToActiveMeshPart([&](MeshPart &p){
         p.texAnimating = animating;
+    });
+    if (onPart && animating) ensureTextureClockRunning();
+    if (onPart) update();
+    return onPart;
+}
+
+// Vedi la nota nell'header: gli orologi per-mesh non passano dai setter globali,
+// quindi il timer dei tick va riacceso esplicitamente.
+void GLWidget::ensureTextureClockRunning() {
+    if (m_animTimer && !m_animTimer->isActive()) {
+        m_surfaceTimer.restart();   // azzera la base del dt: niente salti
+        m_animTimer->start();
+    }
+}
+
+// AZZERA l'orologio della SOLA parte attiva. E' il gemello per-mesh di
+// resetTextureTime: il riclic sulla texture di UNA fascia la fa ripartire da
+// capo senza toccare il clock globale ne' quelli delle altre fasce.
+bool GLWidget::resetActiveMeshTextureTime() {
+    const bool onPart = applyToActiveMeshPart([](MeshPart &p){
+        p.timeTex = 0.0f;
     });
     if (onPart) update();
     return onPart;
@@ -2512,6 +2540,7 @@ void GLWidget::setAllMeshTexturesAnimating(bool animating) {
     if (!engine) return;
     for (MeshPart &mp : engine->mutableMeshParts()) mp.texAnimating = animating;
     engine->syncPartAppearance();
+    if (animating) ensureTextureClockRunning();
     update();
 }
 

@@ -292,6 +292,17 @@ public:
     // Contratto degli altri setActiveMesh*: true se ha scritto su una parte,
     // false in "All", dove decide il chiamante.
     bool setActiveMeshTextureAnimating(bool animating);
+    // Azzera l'orologio della SOLA parte attiva (riclic sulla texture della
+    // fascia dalla Library). Contratto degli altri setActiveMesh*: true se ha
+    // scritto su una parte, false in "All".
+    bool resetActiveMeshTextureTime();
+    // Riavvia, se fermo, il timer che produce i tick di animazione (m_animTimer).
+    // I tre setter globali (setSurface/SurfaceTexture/BackgroundTextureAnimating)
+    // lo fanno da se' quando ACCENDONO; gli orologi PER-MESH vivono nelle
+    // MeshPart e vengono scritti anche da fuori (restartAnimatedMeshTextures),
+    // quindi hanno bisogno di questa via esplicita: un flag alzato con
+    // m_animTimer fermo dice "in moto" senza che nulla si muova.
+    void ensureTextureClockRunning();
     // Scrive l'orologio su TUTTE le parti (ambito "All" e master Start/Stop).
     // ADOZIONE ESPLICITA: nessuna parte eredita il clock globale, o ne
     // erediterebbe anche il freeze. Vedi la nota su timeTex in MeshPart.

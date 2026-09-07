@@ -7685,13 +7685,30 @@ void MainWindow::handleTextureSelection(int index)
                 // messa su una fascia deve farlo ripartire, e una statica non
                 // deve fermare quella della superficie.
                 m_userStoppedTexClock = false;
+                // ...ma NON durante un master STOP. Riaccendere qui il solo
+                // clock texture lasciava lo stato incoerente: geometria,
+                // rotazioni e path restavano fermi (nessuno li riaccende, e
+                // m_masterStopped non si azzera), mentre updateMasterButtonState
+                // contava la texture in moto e scriveva "STOP" sul master. Da
+                // li' il tasto non ripartiva piu' al primo click -- eseguiva uno
+                // stop -- e la scena sembrava bloccata senza via d'uscita.
+                // Stessa guardia della riga in onStartClicked che ricalcola
+                // questo clock dopo un commit di equazione.
                 ui->glWidget->setSurfaceTextureAnimating(
-                    hasTimeVariable(allSurfaceTextureCode()));
+                    hasTimeVariable(allSurfaceTextureCode()) && !m_masterStopped);
                 // OROLOGIO DELLA PARTE. Va acceso QUI: e' un campo suo, e senza
                 // questa riga una texture animata appena applicata alla fascia
                 // nascerebbe FERMA (il clock globale non la muove piu': ogni
                 // parte ha il proprio). Solo se il codice usa il tempo, cosi'
                 // una texture statica non lascia acceso un orologio inutile.
+                // NESSUNA guardia sul master STOP. Applicare una texture animata
+                // a una fascia e' un comando esplicito su quella fascia: parte
+                // subito, come gia' fanno il riclic sulla texture attiva e il Run
+                // per-mesh del dock Script (~10200). Con la guardia, a master
+                // fermo la texture nasceva FERMA e serviva un SECONDO click --
+                // quello che entrava nel ramo riclic -- per vederla partire.
+                // La scena resta ferma: si muove solo la fascia, e il master
+                // torna a dire STOP perche' qualcosa e' davvero in moto.
                 ui->glWidget->setActiveMeshTextureAnimating(hasTimeVariable(newCode));
                 // Applicare una texture e' un comando esplicito sulla fascia:
                 // riarma il gate, come m_userStoppedTexClock qui sopra per il
@@ -7899,10 +7916,14 @@ void MainWindow::handleTextureSelection(int index)
         }
     }
     bool texAnim = texColorAnim || dispAnim;
-    // NB: NON azzeriamo m_masterStopped. Il clock texture (setSurfaceTextureAnimating)
-    // parte da solo nel GLWidget e non e' gated dallo stop globale, quindi la texture
-    // si anima comunque; azzerare il flag resusciterebbe la GEOMETRIA ferma dopo un
-    // master STOP (vedi nota in onTreeItemClicked, sezione texture).
+    // NB: NON azzeriamo m_masterStopped: resusciterebbe la GEOMETRIA ferma dopo
+    // un master STOP (vedi nota in onTreeItemClicked, sezione texture) e, dopo
+    // uno stop del watchdog, disfarebbe il "Keep it stopped" appena scelto.
+    // Proprio per questo il clock texture non va acceso finche' quel flag e'
+    // alzato: e' l'unico modulo che ripartirebbe: la scena resterebbe ferma
+    // mentre updateMasterButtonState, contando la texture in moto, scrive
+    // "STOP" sul master -- che a quel punto non riparte piu' al primo click.
+    // La guardia e' applicata sotto, dove il clock viene impostato.
 
     if (ui->glWidget) {
         // Caricare una texture e' un avvio esplicito del modulo: riarma un
@@ -7912,7 +7933,10 @@ void MainWindow::handleTextureSelection(int index)
         // a mano.
         if (!editingBg) m_userStoppedTexClock = false;
         // Unico orologio del modulo: colore + displacement insieme.
-        ui->glWidget->setSurfaceTextureAnimating(texAnim);
+        // Fermo se il master e' fermo (vedi nota sopra): con la scena bloccata
+        // dal watchdog, una texture animata caricata dopo "Keep it stopped"
+        // sarebbe l'unica cosa in moto e falserebbe lo stato del master.
+        ui->glWidget->setSurfaceTextureAnimating(texAnim && !m_masterStopped);
         // L'SDF/geometria resta invariato: un caricamento di texture non lo accende
         // né lo spegne (lo governano il dock Equations e il master).
     }
@@ -8428,8 +8452,18 @@ void MainWindow::onStartClicked()
 
         const bool applyOnly = this->property("rmApplyOnly").toBool();
 
+        // Il 't' delle texture PER-MESH non e' in nessuno di questi tre slot: il
+        // codice di una fascia vive in MeshPart::textureCode, che
+        // m_surfaceTextureCode (la texture di SUPERFICIE) non contiene. Con la
+        // scena animata dalle sole fasce -- superficie senza 't', nessuna
+        // texture globale, come Clifford 6-tubes -- la condizione era falsa, il
+        // master Start NON chiamava applyAnimationState e le texture restavano
+        // ferme mentre rotazioni e path ripartivano. Stessa distinzione che
+        // allSurfaceTextureCode() documenta: per le fasce si guarda
+        // anyMeshTextureCodeAnimated().
         if (!applyOnly &&
-                hasTimeVariable(currentScript + "\n" + m_surfaceTextureCode + "\n" + m_bgTextureCode)) {
+                (hasTimeVariable(currentScript + "\n" + m_surfaceTextureCode + "\n" + m_bgTextureCode)
+                 || anyMeshTextureCodeAnimated())) {
             applyAnimationState(true, runDockOnly);
         }
 
@@ -11453,11 +11487,46 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             // Si azzera il SOLO clock interessato -- superficie o sfondo, che
             // sono separati: la geometria non la riguarda questo gesto
             // (resetTime() fermerebbe anche quella).
-            ui->glWidget->resetTextureTime(/*background=*/isBg);
+            // AMBITO "MESH": il gesto riguarda la SOLA fascia selezionata, quindi
+            // nemmeno l'azzeramento puo' essere globale -- resetTextureTime
+            // rimette a zero anche il clock di superficie e quello di TUTTE le
+            // altre parti, che questo click non tocca.
+            const bool onMeshScope = !isBg && ui->glWidget
+                                     && ui->glWidget->activeMeshPart() >= 0;
+            if (onMeshScope) ui->glWidget->resetActiveMeshTextureTime();
+            else             ui->glWidget->resetTextureTime(/*background=*/isBg);
 
             if (isBg) {
                 m_userStoppedBgClock = false;
                 ui->glWidget->setBackgroundTextureAnimating(true);
+            } else if (onMeshScope) {
+                // RICLIC IN AMBITO "MESH": stessa portata del Run/Stop del dock
+                // Script in questo ambito -- riguarda l'orologio della SOLA
+                // fascia selezionata. Il ramo globale qui sotto passa invece da
+                // setSurfaceTextureAnimating + restartAnimatedMeshTextures, che
+                // riaccendono la texture di superficie e quelle di TUTTE le
+                // parti: cliccare nella Library la texture della mesh corrente
+                // faceva partire le animazioni di tutte le altre.
+                // NESSUNA guardia su m_masterStopped, al contrario del ramo che
+                // APPLICA una texture nuova (~7690): li' il click configura la
+                // fascia e far ripartire l'orologio sarebbe un effetto
+                // collaterale, qui il click E' il comando "riavvia questa
+                // texture". E' la stessa scelta del Run per-mesh del dock Script
+                // (~10200), che accende la fascia senza consultare il master.
+                // Stesso criterio di meshTextureAnimated: texture propria,
+                // ACCESA e che usa il tempo. activeMeshTextureCode() da solo
+                // ignora textureEnabled e accenderebbe un orologio a vuoto su
+                // una fascia con la texture spenta (script conservato).
+                m_userStoppedMeshTexClock = false;
+                ui->glWidget->setActiveMeshTextureAnimating(
+                    ui->glWidget->activeMeshTextureActive()
+                    && hasTimeVariable(ui->glWidget->activeMeshTextureCode()));
+
+                // RESET DELLA MANIPOLAZIONE 2D della sola fascia, come fa il
+                // ramo globale per la superficie.
+                ui->glWidget->setActiveMeshTexTransform(
+                    data.zoom, QVector2D(data.panX, data.panY), data.rotation);
+                ui->glWidget->update();
             } else {
                 // Ricarica del MODULO TEXTURE: colore E displacement condividono
                 // lo stesso orologio texture, quindi basta riaccendere quello. Il
@@ -17148,10 +17217,19 @@ void MainWindow::restartAnimatedMeshTextures()
 {
     if (!ui->glWidget || !ui->glWidget->getEngine()) return;
     auto hasTime = [this](const QString &c){ return hasTimeVariable(c); };
+    bool anyOn = false;
     for (MeshPart &mp : ui->glWidget->getEngine()->mutableMeshParts()) {
         mp.texAnimating = meshTextureAnimated(mp, hasTime);
+        if (mp.texAnimating) anyOn = true;
     }
     ui->glWidget->getEngine()->syncPartAppearance();
+    // Il timer dei tick lo riavviano da se' solo i tre setter GLOBALI, e solo
+    // quando accendono qualcosa: con la texture animata nelle sole FASCE (la
+    // superficie statica, o senza texture propria) setSurfaceTextureAnimating
+    // riceve false e il timer resta fermo. I flag qui sopra dicevano allora "in
+    // moto" senza che nulla si muovesse: al master Start ripartiva tutto tranne
+    // le texture.
+    if (anyOn) ui->glWidget->ensureTextureClockRunning();
     ui->glWidget->update();
 }
 
