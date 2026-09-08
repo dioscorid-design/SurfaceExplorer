@@ -2567,7 +2567,21 @@ MainWindow::MainWindow(QWidget *parent)
             // radioSurface non viene più disabilitato entrando in Background,
             // quindi qui non c'è nulla da riabilitare.
 
-            // Ripristino la checkbox al valore della superficie e la sua etichetta.
+            // Ripristino la checkbox e la sua etichetta.
+            // AMBITO "MESH": il checkbox e' il DISPLAY della fascia, non lo
+            // stato della texture GLOBALE (entrando in Background la selezione
+            // della parte viene lasciata com'era apposta, vedi
+            // updateMeshScopeEnabled, quindi uscendo siamo ancora su quella
+            // fascia). Ripristinando m_surfaceTextureState si riaccendeva il
+            // checkbox su una fascia a cui la texture era appena stata TOLTA.
+            // Stesso criterio del ramo di ingresso, che per questo non salva
+            // m_surfaceTextureState quando showingMeshTex.
+            const bool onMeshScope = ui->glWidget
+                                     && ui->glWidget->activeMeshPart() >= 0;
+            const bool texOn = onMeshScope
+                                   ? ui->glWidget->activeMeshTextureActive()
+                                   : m_surfaceTextureState;
+
             int surfMode = m_savedRenderMode;
             ui->chkBoxTexture->setText("Texture");
             bool oldBlock = ui->chkBoxTexture->blockSignals(true);
@@ -2576,11 +2590,15 @@ MainWindow::MainWindow(QWidget *parent)
                 ui->chkBoxTexture->setEnabled(false);
             } else {
                 ui->chkBoxTexture->setEnabled(true);
-                ui->chkBoxTexture->setChecked(m_surfaceTextureState);
+                ui->chkBoxTexture->setChecked(texOn);
             }
             ui->chkBoxTexture->blockSignals(oldBlock);
 
-            updateTextureUIState(m_surfaceTextureState);
+            updateTextureUIState(texOn);
+            // Questo resta sul GLOBALE anche in ambito Mesh: e' lo stato della
+            // texture di SUPERFICIE nel motore, che l'ambito non cambia -- la
+            // fascia ha il proprio interruttore in MeshPart. Solo il DISPLAY
+            // qui sopra segue la parte.
             ui->glWidget->setGlobalTextureEnabled(m_surfaceTextureState && (surfMode != 2));
 
             // Uscendo da Background torniamo a editare la superficie: updateTextureUIState
