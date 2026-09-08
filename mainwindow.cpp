@@ -8849,8 +8849,18 @@ void MainWindow::onStartClicked()
                 ui->lineConform->toPlainText() + " " +
                 m_metricScriptBody;   // t può vivere nel corpo della metrica g_ij(U,V,W,t)
 
-        if (ui->chkBoxTexture->isChecked()) geoEqs += " " + m_surfaceTextureCode;
-        if (ui->radioBackground->isChecked() || ui->glWidget->isBackgroundTextureEnabled()) geoEqs += " " + m_bgTextureCode;
+        // TEXTURE E SFONDO: servono a decidere se il ricalcolo va FATTO (i loro
+        // clock vanno ripristinati anche quando la sola geometria e' statica),
+        // ma NON entrano in geoEqs -- che e' il tempo della GEOMETRIA, cioe'
+        // l'argomento di applyAnimationState da cui esce setSurfaceAnimating.
+        // Mescolandoli, un record geodetico con texture o sfondo animati (Kerr
+        // Black Hole, Kruskal Wormhole) accendeva il clock della superficie a
+        // vuoto: dopo uno Stop/Start il tasto del dock Script diceva "Stop
+        // Parametric" su uno script statico, senza nulla da fermare.
+        // Stessa correzione degli altri tre chiamanti.
+        QString otherModulesForT;
+        if (ui->chkBoxTexture->isChecked()) otherModulesForT += " " + m_surfaceTextureCode;
+        if (ui->radioBackground->isChecked() || ui->glWidget->isBackgroundTextureEnabled()) otherModulesForT += " " + m_bgTextureCode;
 
         // SNAPSHOT DELLE EQUAZIONI APPLICATE. Qui, non solo nel prologo di
         // onStartClicked (~7579): quello e' dietro `runDockOnly || masterStart`,
@@ -8876,8 +8886,14 @@ void MainWindow::onStartClicked()
             return;
         }
 
+        // Condizione LARGA (serve il ricalcolo?), argomento STRETTO (la
+        // geometria e' animata?): vedi la nota su otherModulesForT qui sopra.
+        // Se nessuno dei due usa il tempo la chiamata si puo' saltare, ma
+        // quando la usa un modulo qualsiasi va fatta, o i clock di texture e
+        // sfondo non verrebbero ricalcolati affatto.
         const bool geoAnimated = hasTimeVariable(geoEqs);
-        applyAnimationState(geoAnimated, runDockOnly);
+        if (geoAnimated || hasTimeVariable(otherModulesForT))
+            applyAnimationState(geoAnimated, runDockOnly);
         if (!runDockOnly) applyStartSideEffects();
 
         // Run "one-shot" del flusso geodetico, come nei rami parametrico (~6888) e
