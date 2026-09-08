@@ -8524,10 +8524,26 @@ void MainWindow::onStartClicked()
         // ferme mentre rotazioni e path ripartivano. Stessa distinzione che
         // allSurfaceTextureCode() documenta: per le fasce si guarda
         // anyMeshTextureCodeAnimated().
-        if (!applyOnly &&
-                (hasTimeVariable(currentScript + "\n" + m_surfaceTextureCode + "\n" + m_bgTextureCode)
-                 || anyMeshTextureCodeAnimated())) {
-            applyAnimationState(true, runDockOnly);
+        // DUE DOMANDE DISTINTE, e vanno tenute separate.
+        // 1. SERVE il ricalcolo? Si', se un modulo QUALSIASI usa il tempo:
+        //    geometria, texture di superficie, sfondo o una fascia. Senza,
+        //    applyAnimationState non viene chiamata e i clock di texture e
+        //    sfondo non ripartono affatto (era il bug del master Start che non
+        //    riaccendeva le texture per-mesh).
+        // 2. La GEOMETRIA e' animata? Solo se lo script usa il tempo. Questo, e
+        //    nient'altro, e' l'argomento di applyAnimationState: da li' esce
+        //    setSurfaceAnimating. Passando 'true' perche' si muove un ALTRO
+        //    modulo si accendeva il clock della superficie a vuoto, e il tasto
+        //    del dock Script diceva "Stop Parametric" su uno script statico --
+        //    con nulla da fermare. Bastava uno sfondo animato (Calabi Yau).
+        //    I clock degli altri moduli non si perdono: applyAnimationState li
+        //    ricalcola da se' dai rispettivi codici ("ogni modulo guarda il
+        //    PROPRIO tempo"). Stessa correzione fatta nel load dei record.
+        const bool geomHasTime = hasTimeVariable(currentScript);
+        const bool otherHasTime = hasTimeVariable(m_surfaceTextureCode + "\n" + m_bgTextureCode)
+                                  || anyMeshTextureCodeAnimated();
+        if (!applyOnly && (geomHasTime || otherHasTime)) {
+            applyAnimationState(geomHasTime, runDockOnly);
         }
 
         if (!applyOnly && !runDockOnly) {
@@ -10551,8 +10567,20 @@ void MainWindow::onRunScriptClicked()
     bool oldZ = ui->lineZ->blockSignals(true); ui->lineZ->clear(); ui->lineZ->blockSignals(oldZ);
     bool oldP = ui->lineP->blockSignals(true); ui->lineP->clear(); ui->lineP->blockSignals(oldP);
 
-    ui->lineExplicitU->clear(); ui->lineExplicitV->clear(); ui->lineExplicitW->clear();
-    ui->lineU->clear(); ui->lineV->clear(); ui->lineW->clear();
+    // A SEGNALI BLOCCATI come le quattro righe qui sopra. Questi sei clear sono
+    // pulizia PROGRAMMATICA (lo script prende il posto delle equazioni), non un
+    // edit dell'utente: lasciando vivi i segnali, il textChanged di
+    // lineExplicitU arrivava a noteSceneEdited e marcava la scena come
+    // MODIFICATA. Da li' il popup "vuoi salvare?" all'uscita dopo un semplice
+    // Stop/Start, senza che l'utente avesse toccato nulla (visto su Villarceau
+    // Tubes Drift: il master Start passa da onRunScriptClicked).
+    {
+        const QSignalBlocker bEU(ui->lineExplicitU), bEV(ui->lineExplicitV),
+                             bEW(ui->lineExplicitW);
+        const QSignalBlocker bU(ui->lineU), bV(ui->lineV), bW(ui->lineW);
+        ui->lineExplicitU->clear(); ui->lineExplicitV->clear(); ui->lineExplicitW->clear();
+        ui->lineU->clear(); ui->lineV->clear(); ui->lineW->clear();
+    }
 
     if (ui->glWidget) {
         ui->glWidget->setParametricEquations("0", "0", "0", "0");
@@ -12953,8 +12981,15 @@ void MainWindow::applyMotionExample(LibraryItem data)
         // La mesh geodetica è già stata generata e texturizzata da applyCommonData
         // (blocco texture più sopra). Solo refresh visivo, niente recompute mesh.
         if (ui->glWidget) ui->glWidget->update();
-        QString scriptToCheck = m_surfaceScriptText + " " + m_surfaceTextureCode + " " + m_bgTextureCode;
-        applyAnimationState(hasTimeVariable(scriptToCheck));
+        // L'argomento e' "la GEOMETRIA e' animata": e' il valore da cui
+        // applyAnimationState decide setSurfaceAnimating. Sommarci texture e
+        // sfondo faceva accendere il clock della superficie per il 't' di un
+        // ALTRO modulo -- basta uno sfondo animato (Calabi Yau) e il tasto del
+        // dock Script diceva "Stop Parametric" su uno script statico, che
+        // premuto rieseguiva lo stesso script senza cambiare nulla.
+        // I clock di texture e sfondo NON si perdono: applyAnimationState li
+        // ricalcola da se' dai rispettivi codici, ognuno col proprio tempo.
+        applyAnimationState(hasTimeVariable(m_surfaceScriptText));
     } else {
         if (ui->glWidget) {
 
@@ -12992,8 +13027,9 @@ void MainWindow::applyMotionExample(LibraryItem data)
             ui->glWidget->update();
         }
 
-        QString scriptToCheck = m_surfaceScriptText + " " + m_surfaceTextureCode + " " + m_bgTextureCode;
-        applyAnimationState(hasTimeVariable(scriptToCheck));
+        // Come il ramo metrico qui sopra: l'argomento e' il tempo della sola
+        // GEOMETRIA, non la somma dei tre moduli.
+        applyAnimationState(hasTimeVariable(m_surfaceScriptText));
     }
 
     // =======================================================
