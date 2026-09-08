@@ -16325,6 +16325,17 @@ void MainWindow::showSceneHint(const QString &text, float seconds)
             bool m_swallowRelease = false;
         };
         ui->glWidget->installEventFilter(new HintResizeWatcher(this));
+
+        // CHIUSURA COL TOCCO (iOS/Android). Il filtro qui sopra copre il mouse,
+        // ma su mobile il gesto viene consumato da InputHandler::handleTouch e
+        // nessun evento di mouse viene mai sintetizzato: il tocco arriva solo
+        // da questo segnale, emesso da GLWidget::event sul TouchBegin.
+        connect(ui->glWidget, &GLWidget::scenePressedAt, this,
+                [this](const QPoint &pos) {
+            if (m_hintOverlay && m_hintOverlay->isVisible()
+                && m_hintOverlay->geometry().contains(pos))
+                hideSceneHint();
+        });
     }
 
     if (!m_hintTimer) {

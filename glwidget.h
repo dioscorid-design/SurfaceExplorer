@@ -640,6 +640,12 @@ public:
 
 signals:
     void rotationChanged();
+    // L'utente ha toccato/cliccato la scena in quel punto (coordinate locali al
+    // widget). Serve a MainWindow per chiudere il messaggio in sovrimpressione
+    // quando il tocco cade dentro il suo riquadro: su iOS il gesto passa TUTTO
+    // da handleTouch, che consuma l'evento e ritorna true, quindi ne' la QLabel
+    // ne' un eventFilter sul widget vedono mai un evento di mouse.
+    void scenePressedAt(const QPoint &pos);
     // Il fragment shader non compila e le pipeline sono state azzerate: a schermo
     // la superficie SPARISCE. Senza questo segnale l'unica traccia era un
     // qWarning sulla console, invisibile all'utente, che vedeva solo il vuoto.

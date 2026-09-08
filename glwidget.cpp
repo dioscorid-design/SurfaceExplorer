@@ -1455,6 +1455,18 @@ void GLWidget::wheelEvent(QWheelEvent *event)
 
 bool GLWidget::event(QEvent *e)
 {
+    // INIZIO DI UN TOCCO: lo si segnala PRIMA di handleTouch, che consuma
+    // l'evento e ritorna true -- da li' in poi nessun evento di mouse viene
+    // sintetizzato, quindi su iOS un eventFilter non vedrebbe mai il tocco.
+    // Chi ascolta decide se il punto lo riguarda (vedi il messaggio in
+    // sovrimpressione in MainWindow); il gesto prosegue comunque normalmente,
+    // cosi' rotazione e pinch restano quelli di sempre.
+    if (e->type() == QEvent::TouchBegin) {
+        auto *te = static_cast<QTouchEvent *>(e);
+        if (!te->points().isEmpty())
+            emit scenePressedAt(te->points().first().position().toPoint());
+    }
+
     if (m_inputHandler && m_inputHandler->handleTouch(e)) {
         // Touch: e' l'utente che cambia la vista, esattamente come la rotellina
         // e il trascinamento col mouse qui sopra. Il tocco non ha un "release"
