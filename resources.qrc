@@ -328,9 +328,7 @@
         <file>presets/records/Solid Wireframe/Multi Mesh/Clifford Labyrinth 3-Tubes Fibers.json</file>
         <file>presets/records/Solid Wireframe/Multi Mesh/Clifford 6-Tubes Rotation.json</file>
         <file>presets/records/Solid Wireframe/Multi Mesh/Hopf Tori 4D Rotation.json</file>
-        <file>presets/records/t_motions/Figure-Eight Knot Tube.json</file>
         <file>presets/records/t_motions/Waves.json</file>
-        <file>presets/records/t_motions/Figure-Eight Knot.json</file>
         <file>presets/records/t_motions/Pseudo-Iwasawa Torus.json</file>
         <file>presets/records/t_motions/Pseudo-Wormhole.json</file>
         <file>presets/records/t_motions/3D/Modulated Torus.json</file>
@@ -374,6 +372,8 @@
         <file>presets/records/t_motions/SL(2,R)/Spinning Vortex.json</file>
         <file>presets/records/t_motions/SL(2,R)/Anti-de Sitter Torus.json</file>
         <file>presets/records/t_motions/SL(2,R)/Horocycle Flux.json</file>
+        <file>presets/records/t_motions/Tubes/Figure-Eight Knot Tube.json</file>
+        <file>presets/records/t_motions/Tubes/Figure-Eight Knot.json</file>
         <file>presets/records/t_motions/H2xR/Rotating Pringles.json</file>
         <file>presets/records/t_motions/H2xR/Waving Tractroid.json</file>
         <file>presets/records/t_motions/H2xR/Flutter of Wings.json</file>
