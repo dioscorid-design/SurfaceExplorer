@@ -2484,7 +2484,19 @@ MainWindow::MainWindow(QWidget *parent)
             }
 
             if (m_currentScriptMode == ScriptModeTexture) {
-                m_surfaceTextureScriptText = ui->txtScriptEditor->toPlainText();
+                // L'editor si salva nello slot della texture di SUPERFICIE solo
+                // se e' davvero quella che sta mostrando. In ambito "Mesh"
+                // mostra lo script della FASCIA (vedi onToggleScriptMode, che
+                // legge activeMeshEffectiveTextureCode): salvarlo qui sporcava
+                // m_surfaceTextureScriptText col codice della parte, e siccome
+                // l'uscita da Background rimette quello slot nell'editor, il
+                // primo Run successivo lo travasava anche in
+                // m_surfaceTextureCode -- la texture globale si trasformava in
+                // quella della mesh. La fascia e' gia' committata nella
+                // MeshPart da setActiveMeshTexture: qui non c'e' nulla da
+                // salvare, esattamente come per il checkbox due righe sopra.
+                if (!showingMeshTex)
+                    m_surfaceTextureScriptText = ui->txtScriptEditor->toPlainText();
                 bool oldBlock = ui->txtScriptEditor->blockSignals(true);
                 ui->txtScriptEditor->setPlainText(m_bgTextureScriptText);
                 ui->txtScriptEditor->blockSignals(oldBlock);
@@ -2534,8 +2546,19 @@ MainWindow::MainWindow(QWidget *parent)
             // solo "non sto più editando lo sfondo".
             if (m_currentScriptMode == ScriptModeTexture) {
                 m_bgTextureScriptText = ui->txtScriptEditor->toPlainText();
+                // USCENDO da Background si torna a cio' che il dock mostrava
+                // PRIMA: in ambito "Mesh" e' lo script della FASCIA, non lo slot
+                // globale (che appartiene alla texture di superficie). Rimettere
+                // quello lasciava sotto gli occhi -- e sotto il tasto Run -- il
+                // codice sbagliato per la parte selezionata. Stesso criterio di
+                // onToggleScriptMode, che per l'ambito Mesh legge la texture
+                // EFFICACE della parte.
+                const QString backToEditor =
+                    (ui->glWidget && ui->glWidget->activeMeshPart() >= 0)
+                        ? ui->glWidget->activeMeshEffectiveTextureCode()
+                        : m_surfaceTextureScriptText;
                 bool oldBlock = ui->txtScriptEditor->blockSignals(true);
-                ui->txtScriptEditor->setPlainText(m_surfaceTextureScriptText);
+                ui->txtScriptEditor->setPlainText(backToEditor);
                 ui->txtScriptEditor->blockSignals(oldBlock);
                 ui->btnRunCurrentScript->setText("Run Surface Texture");
                 updateScriptButtonText();
@@ -6547,6 +6570,20 @@ void MainWindow::updateConstantsUIState() {
     // inietta affatto la costante, quindi li' A e' la locale e lo slider non ha
     // modo di influenzarla.
     glslText += " " + stripCodeComments(ui->txtScriptEditor->toPlainText());
+
+    // LO SCRIPT DELLA SUPERFICIE, dal suo slot stabile e non dall'editor.
+    // L'editor mostra UN modulo per volta (superficie, texture o suono) e in
+    // ambito Mesh la texture della fascia: appena mostra altro, lo script
+    // parametrico spariva da questo testo e le costanti citate SOLO li'
+    // finivano nel ramo !used, che non si limita a bloccarle -- SCRIVE 1 nel
+    // campo. Su Clifford 6-Tubes, dove E (quanti tubi) e F (raggio) vivono solo
+    // nello script, bastava passare alla tab Texture o selezionare una mesh per
+    // ritrovarsi E=1, F=1: un tubo solo e raggio degenere, cioe' la superficie
+    // "collassata" -- e un salvataggio in quello stato scriveva i valori
+    // sbagliati nel record.
+    // m_surfaceScriptText e' lo stesso slot che onStartClicked usa come sorgente
+    // dello script, quindi non dipende da quale modulo l'editor stia mostrando.
+    glslText += " " + stripCodeComments(m_surfaceScriptText);
 
     // Anche i path camera 4D/3D valgono come "uso" di una costante: le loro
     // espressioni sono compilate su exprtk con A..F/s registrate
