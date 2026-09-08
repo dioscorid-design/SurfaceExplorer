@@ -16260,15 +16260,26 @@ void MainWindow::showSceneHint(const QString &text, float seconds)
         // di Qt interpreterebbe come HTML un hintText che contenesse dei tag.
         m_hintOverlay->setTextFormat(Qt::PlainText);
         m_hintOverlay->setTextInteractionFlags(Qt::NoTextInteraction);
-        // Trasparente ai click: non deve rubare il mouse alla scena (rotazioni).
+        // CHIUSURA AL CLICK / TOCCO. L'overlay resta TRASPARENTE al mouse e la
+        // chiusura si intercetta sul glWidget (vedi il filtro poco sotto):
+        // installare il filtro sulla QLabel funziona su desktop ma NON su iOS,
+        // dove una widget figlia di una superficie RHI/OpenGL non riceve il
+        // mouse sintetizzato dal tocco. Il glWidget invece i click li riceve
+        // sempre -- e' lui a gestire rotazioni e pan -- quindi si guarda li' se
+        // il punto premuto cade dentro il rettangolo del messaggio.
         m_hintOverlay->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        m_hintOverlay->setCursor(Qt::PointingHandCursor);
         m_hintOverlay->setStyleSheet(
             "QLabel#sceneHintOverlay {"
             "  color: #ffffff;"
             "  background-color: rgba(0, 0, 0, 170);"
             "  border: 1px solid rgba(255, 255, 255, 90);"
             "  border-radius: 8px;"
-            "  padding: 10px 16px;"
+            // Padding verticale contenuto: l'altezza la calcola heightForWidth()
+            // sul testo riflussato (vedi repositionSceneHint), quindi ogni pixel
+            // qui sopra e sotto si aggiunge a quello -- con 10px il riquadro
+            // mostrava una fascia vuota sopra e sotto le righe.
+            "  padding: 6px 16px;"
             "  font-size: 15px;"
             "  font-weight: bold;"
             "}");
@@ -16281,10 +16292,37 @@ void MainWindow::showSceneHint(const QString &text, float seconds)
         protected:
             bool eventFilter(QObject *obj, QEvent *ev) override {
                 if (ev->type() == QEvent::Resize) m_win->repositionSceneHint();
+
+                // CLICK/TOCCO SUL MESSAGGIO -> lo chiude. Si intercetta qui e
+                // non sulla QLabel per la ragione detta sopra (iOS). Si
+                // consuma solo il premere DENTRO il riquadro: fuori l'evento
+                // prosegue e la scena ruota come sempre.
+                if (ev->type() == QEvent::MouseButtonPress
+                    && m_win->m_hintOverlay && m_win->m_hintOverlay->isVisible()) {
+                    auto *me = static_cast<QMouseEvent *>(ev);
+                    if (m_win->m_hintOverlay->geometry().contains(me->position().toPoint())) {
+                        m_win->hideSceneHint();
+                        m_swallowRelease = true;
+                        return true;   // non arriva a rotazioni/pan
+                    }
+                }
+
+                // ...e si mangia anche il RELEASE di quel click. Consumare il
+                // solo press lascia l'InputHandler senza l'inizio del gesto:
+                // al release wasClickWithoutDrag() legge uno stato mai
+                // inizializzato, GLWidget conclude "trascinamento vero" ed
+                // emette userMovedView -> la scena passa per MODIFICATA e al
+                // load successivo compariva "vuoi salvare?" per un semplice
+                // click sul messaggio.
+                if (ev->type() == QEvent::MouseButtonRelease && m_swallowRelease) {
+                    m_swallowRelease = false;
+                    return true;
+                }
                 return QObject::eventFilter(obj, ev);
             }
         private:
             MainWindow *m_win;
+            bool m_swallowRelease = false;
         };
         ui->glWidget->installEventFilter(new HintResizeWatcher(this));
     }
@@ -16375,8 +16413,41 @@ void MainWindow::repositionSceneHint()
     const int margin = 24;
     const int maxW = qMax(160, int(ui->glWidget->width() * 0.8));
 
-    m_hintOverlay->setFixedWidth(qMin(maxW, m_hintOverlay->sizeHint().width()));
-    m_hintOverlay->adjustSize();
+    // PRIMA DI MISURARE: togliere i vincoli della chiamata PRECEDENTE. Le
+    // setFixedWidth/setFixedHeight qui sotto fissano minimum == maximum, e
+    // restano appiccicati al widget: al messaggio successivo sizeHint() e
+    // heightForWidth() venivano calcolati su una label ancora bloccata alle
+    // dimensioni del messaggio VECCHIO, quindi un hint corto ereditava il
+    // riquadro di uno lungo (enorme rispetto al suo testo).
+    m_hintOverlay->setMinimumSize(0, 0);
+    m_hintOverlay->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+
+    // LARGHEZZA. sizeHint() di una QLabel con wordWrap misura il testo su UNA
+    // riga: e' il massimo utile, e va limitato allo spazio disponibile.
+    // (Un tentativo di dimensionare sulla RIGA PIU' LUNGA con QFontMetrics e'
+    // stato scartato: sui desktop e su iPad produceva riquadri enormi.)
+    const int w = qMin(maxW, m_hintOverlay->sizeHint().width());
+    m_hintOverlay->setFixedWidth(w);
+
+    // ALTEZZA. adjustSize() da solo NON basta con il wordWrap: a larghezza
+    // fissata continua a usare l'altezza del sizeHint (una riga o poco piu'),
+    // quindi un messaggio lungo veniva TAGLIATO -- si vedeva su iPhone, dove
+    // maxW e' stretto e gli hint multi-riga ("Sliders\nE: ...\nF: ...")
+    // occupano parecchie righe. heightForWidth() e' il meccanismo previsto da
+    // Qt proprio per questo: chiede alla label quanto e' alta ALLA LARGHEZZA
+    // che le abbiamo imposto, contenuti riflussati.
+    // heightForWidth() vuole la larghezza TOTALE del widget e restituisce
+    // un'altezza che COMPRENDE GIA' i margini del contenuto (il padding del
+    // foglio di stile). Sottrarli in ingresso e riaggiungerli in uscita --
+    // come faceva la prima versione di questo fix -- li contava DUE volte, e
+    // il riquadro mostrava una fascia vuota sopra e sotto il testo.
+    int h = m_hintOverlay->heightForWidth(w);
+    if (h <= 0) h = m_hintOverlay->sizeHint().height();   // wordWrap disattivo
+
+    // Non superare l'altezza della scena: meglio un messaggio fitto in alto che
+    // uno che esce dal fondo (e sul telefono in orizzontale ci sta poco).
+    const int maxH = qMax(48, ui->glWidget->height() - 2 * margin);
+    m_hintOverlay->setFixedHeight(qMin(h, maxH));
 
     // In alto a sinistra: non copre l'oggetto, che sta al centro della scena.
     m_hintOverlay->move(margin, margin);
