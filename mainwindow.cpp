@@ -7748,17 +7748,15 @@ void MainWindow::handleTextureSelection(int index)
                 // messa su una fascia deve farlo ripartire, e una statica non
                 // deve fermare quella della superficie.
                 m_userStoppedTexClock = false;
-                // ...ma NON durante un master STOP. Riaccendere qui il solo
-                // clock texture lasciava lo stato incoerente: geometria,
-                // rotazioni e path restavano fermi (nessuno li riaccende, e
-                // m_masterStopped non si azzera), mentre updateMasterButtonState
-                // contava la texture in moto e scriveva "STOP" sul master. Da
-                // li' il tasto non ripartiva piu' al primo click -- eseguiva uno
-                // stop -- e la scena sembrava bloccata senza via d'uscita.
-                // Stessa guardia della riga in onStartClicked che ricalcola
-                // questo clock dopo un commit di equazione.
+                // NESSUNA guardia sul master STOP, come la riga gemella del ramo
+                // globale (~8002) e come l'orologio della parte qui sotto:
+                // applicare una texture e' un comando esplicito sul modulo, e il
+                // modulo parte -- anche a scena ferma. Con la guardia il clock
+                // globale restava spento e una texture animata applicata mentre
+                // il master era fermo nasceva FERMA: serviva un secondo click.
+                // Il master torna a "STOP" perche' c'e' davvero qualcosa in moto.
                 ui->glWidget->setSurfaceTextureAnimating(
-                    hasTimeVariable(allSurfaceTextureCode()) && !m_masterStopped);
+                    hasTimeVariable(allSurfaceTextureCode()));
                 // OROLOGIO DELLA PARTE. Va acceso QUI: e' un campo suo, e senza
                 // questa riga una texture animata appena applicata alla fascia
                 // nascerebbe FERMA (il clock globale non la muove piu': ogni
@@ -7982,11 +7980,9 @@ void MainWindow::handleTextureSelection(int index)
     // NB: NON azzeriamo m_masterStopped: resusciterebbe la GEOMETRIA ferma dopo
     // un master STOP (vedi nota in onTreeItemClicked, sezione texture) e, dopo
     // uno stop del watchdog, disfarebbe il "Keep it stopped" appena scelto.
-    // Proprio per questo il clock texture non va acceso finche' quel flag e'
-    // alzato: e' l'unico modulo che ripartirebbe: la scena resterebbe ferma
-    // mentre updateMasterButtonState, contando la texture in moto, scrive
-    // "STOP" sul master -- che a quel punto non riparte piu' al primo click.
-    // La guardia e' applicata sotto, dove il clock viene impostato.
+    // Il clock della TEXTURE invece si accende: vedi la nota sotto, dove viene
+    // impostato. Sono due cose diverse -- lo stop globale e l'orologio di un
+    // singolo modulo -- e vanno tenute separate.
 
     if (ui->glWidget) {
         // Caricare una texture e' un avvio esplicito del modulo: riarma un
@@ -7996,10 +7992,22 @@ void MainWindow::handleTextureSelection(int index)
         // a mano.
         if (!editingBg) m_userStoppedTexClock = false;
         // Unico orologio del modulo: colore + displacement insieme.
-        // Fermo se il master e' fermo (vedi nota sopra): con la scena bloccata
-        // dal watchdog, una texture animata caricata dopo "Keep it stopped"
-        // sarebbe l'unica cosa in moto e falserebbe lo stato del master.
-        ui->glWidget->setSurfaceTextureAnimating(texAnim && !m_masterStopped);
+        // NESSUNA guardia sul master STOP. Caricare una texture animata e' un
+        // comando ESPLICITO su questo modulo: parte subito anche a scena ferma,
+        // esattamente come il ramo per-mesh (~7770), il riclic sulla texture
+        // gia' attiva (~11660) e il Run per-mesh del dock Script (~10200). Con
+        // la guardia la texture nasceva FERMA e serviva un SECONDO click --
+        // quello che entrava nel ramo riclic -- per vederla partire.
+        // La scena resta ferma: geometria, rotazioni e path non li riaccende
+        // nessuno. Il master torna a dire "STOP" perche' qualcosa e' DAVVERO in
+        // moto, quindi il primo click ha di nuovo qualcosa da fermare: lo stato
+        // e' coerente, ed e' il caso che la vecchia guardia voleva evitare.
+        // Vale anche dopo un "Keep it stopped" del watchdog: sostituire la
+        // texture pesante con una animata piu' leggera e' proprio il gesto che
+        // l'utente sta chiedendo. Se anche la nuova e' troppo pesante il
+        // watchdog riscatta -- rebuildShader() lo riarma (glwidget ~389) e il
+        // caricamento di una texture ci passa.
+        ui->glWidget->setSurfaceTextureAnimating(texAnim);
         // L'SDF/geometria resta invariato: un caricamento di texture non lo accende
         // né lo spegne (lo governano il dock Equations e il master).
     }
