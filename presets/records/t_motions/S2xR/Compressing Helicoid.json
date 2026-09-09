@@ -63,7 +63,7 @@
         "w0": ""
     },
     "hintSeconds": 7,
-    "hintText": "Sliders\nA: radius of the sphere\nB: height along R\nC: pitch   D: how much it compresses",
+    "hintText": "Sliders\nA: radius of the sphere\nB: height along R\nC: pitch\nD: how much it compresses",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

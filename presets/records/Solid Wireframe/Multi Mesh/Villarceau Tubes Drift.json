@@ -72,7 +72,7 @@
         "w0": ""
     },
     "hintSeconds": 8,
-    "hintText": "Sliders\nA: ring radius\nB: tilt of the cutting plane\nC: tube radiuss   D: how many to draw\nE: speed of the drift",
+    "hintText": "Sliders\nA: ring radius\nB: tilt of the cutting plane\nC: tube radiuss\nD: how many to draw\nE: speed of the drift",
     "isImplicitMode": false,
     "lightIntensity": 1.01,
     "lightingMode": 0,

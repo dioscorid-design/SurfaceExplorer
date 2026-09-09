@@ -50,7 +50,7 @@
         "w0": ""
     },
     "hintSeconds": 8,
-    "hintText": "Sliders\nA: how many holes\nB: hole radius   C: tube thickness   D: ring radius   E: how softly they cut in",
+    "hintText": "Sliders\nA: how many holes\nB: hole radius\nC: tube thickness\nD: ring radius\nE: how softly they cut in",
     "implicitEquation": "// Controlled by Script",
     "isImplicitMode": true,
     "lightIntensity": 1,

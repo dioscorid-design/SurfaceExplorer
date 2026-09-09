@@ -50,7 +50,7 @@
         "w0": ""
     },
     "hintSeconds": 8,
-    "hintText": "Sliders\nA: how many tori\nB: torus radius   C: tube thickness   D: spacing along the row   E: how softly they fuse",
+    "hintText": "Sliders\nA: how many tori\nB: torus radius\nC: tube thickness\nD: spacing along the row\nE: how softly they fuse",
     "implicitEquation": "// Controlled by Script",
     "isImplicitMode": true,
     "lightIntensity": 1,

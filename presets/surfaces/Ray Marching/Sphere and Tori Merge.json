@@ -50,7 +50,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders\nE: how many tori\nA: sphere radius   B, C: torus radii",
+    "hintText": "Sliders\nE: how many tori\nA: sphere radius\nB, C: torus radii",
     "implicitEquation": "// Controlled by Script",
     "isImplicitMode": true,
     "lightIntensity": 1,

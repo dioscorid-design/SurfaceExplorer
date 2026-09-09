@@ -50,7 +50,7 @@
         "w0": ""
     },
     "hintSeconds": 9,
-    "hintText": "Sliders\nA: quadric radius\nB: length of the lines\nC: tube thickness   D: how many to draw\nE: one family of lines or both",
+    "hintText": "Sliders\nA: quadric radius\nB: length of the lines\nC: tube thickness\nD: how many to draw\nE: one family of lines or both",
     "isImplicitMode": false,
     "lightIntensity": 0.97,
     "lightingMode": 0,

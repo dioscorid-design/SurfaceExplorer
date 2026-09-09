@@ -66,7 +66,7 @@
         "w0": ""
     },
     "hintSeconds": 8,
-    "hintText": "Sliders\nA: size\nB: strength of the Iwasawa shear\nC: how far the throat opens   D: speed of the drift",
+    "hintText": "Sliders\nA: size\nB: strength of the Iwasawa shear\nC: how far the throat opens\nD: speed of the drift",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 1,

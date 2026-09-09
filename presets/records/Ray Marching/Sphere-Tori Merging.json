@@ -66,7 +66,7 @@
         "w0": ""
     },
     "hintSeconds": 9,
-    "hintText": "Sliders\nA: sphere radius   E: depth of the pulse   F: its speed\nB: ring radius\nC: tube thickness\nD: distance from centre",
+    "hintText": "Sliders\nA: sphere radius\nE: depth of the pulse\nF: its speed\nB: ring radius\nC: tube thickness\nD: distance from centre",
     "implicitEquation": "min( sqrt(x*x + y*y + z*z) - (A + E*sin(F*t)), min( sqrt((sqrt((abs(x)-D)*(abs(x)-D) + y*y) - B)*(sqrt((abs(x)-D)*(abs(x)-D) + y*y) - B) + z*z) - C, min( sqrt((sqrt((abs(y)-D)*(abs(y)-D) + z*z) - B)*(sqrt((abs(y)-D)*(abs(y)-D) + z*z) - B) + x*x) - C, sqrt((sqrt((abs(z)-D)*(abs(z)-D) + x*x) - B)*(sqrt((abs(z)-D)*(abs(z)-D) + x*x) - B) + y*y) - C ) ) ) = 0",
     "isImplicitMode": true,
     "lightIntensity": 1,

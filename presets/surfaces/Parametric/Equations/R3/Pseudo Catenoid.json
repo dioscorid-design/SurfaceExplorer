@@ -54,7 +54,7 @@
         "w0": ""
     },
     "hintSeconds": 7,
-    "hintText": "Sliders\nA: waist radius\nB: flare width\nC: number of twists   D: reach of the twist\nE: size",
+    "hintText": "Sliders\nA: waist radius\nB: flare width\nC: number of twists\nD: reach of the twist\nE: size",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

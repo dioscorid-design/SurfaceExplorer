@@ -69,7 +69,7 @@
         "w0": ""
     },
     "hintSeconds": 7,
-    "hintText": "Sliders\nA: size\nB: petals of the cycloid\nC: how far it opens   D: depth of the breathing",
+    "hintText": "Sliders\nA: size\nB: petals of the cycloid\nC: how far it opens\nD: depth of the breathing",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

@@ -72,7 +72,7 @@
         "w0": ""
     },
     "hintSeconds": 9,
-    "hintText": "Sliders\nA: how many holes\nB: hole radius   C: rim thickness\nD: spacing   E: how softly they merge\nF: speed of the morphing",
+    "hintText": "Sliders\nA: how many holes\nB: hole radius\nC: rim thickness\nD: spacing\nE: how softly they merge\nF: speed of the morphing",
     "implicitEquation": "// Controlled by Script",
     "isImplicitMode": true,
     "lightIntensity": 1,

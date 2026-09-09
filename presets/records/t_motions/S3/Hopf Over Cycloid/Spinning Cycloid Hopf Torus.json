@@ -69,7 +69,7 @@
         "w0": ""
     },
     "hintSeconds": 8,
-    "hintText": "Sliders\nA: size\nB: petals of the cycloid\nC: how far it opens   D: how far it swings about the Hopf fibre",
+    "hintText": "Sliders\nA: size\nB: petals of the cycloid\nC: how far it opens\nD: how far it swings about the Hopf fibre",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

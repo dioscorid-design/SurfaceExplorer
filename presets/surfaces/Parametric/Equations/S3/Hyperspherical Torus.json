@@ -56,7 +56,7 @@
         "w0": ""
     },
     "hintSeconds": 7,
-    "hintText": "Sliders\nA: radius of the sphere\nB: tube radius\nC: distance from the pole   D: how much is drawn",
+    "hintText": "Sliders\nA: radius of the sphere\nB: tube radius\nC: distance from the pole\nD: how much is drawn",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,

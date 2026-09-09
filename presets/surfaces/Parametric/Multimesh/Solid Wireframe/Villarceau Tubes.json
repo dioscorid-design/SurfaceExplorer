@@ -50,7 +50,7 @@
         "w0": ""
     },
     "hintSeconds": 7,
-    "hintText": "Sliders\nA: ring radius\nB: tilt of the cutting plane\nC: tube radiuss   D: how many to draw",
+    "hintText": "Sliders\nA: ring radius\nB: tilt of the cutting plane\nC: tube radiuss\nD: how many to draw",
     "isImplicitMode": false,
     "lightIntensity": 0.94,
     "lightingMode": 0,

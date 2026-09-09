@@ -50,7 +50,7 @@
         "w0": ""
     },
     "hintSeconds": 9,
-    "hintText": "Sliders\nA: how many tori\nF: opens the rosette\nB: torus radius   C: tube thickness   D: ring radius   E: how softly they fuse",
+    "hintText": "Sliders\nA: how many tori\nF: opens the rosette\nB: torus radius\nC: tube thickness\nD: ring radius\nE: how softly they fuse",
     "implicitEquation": "// Controlled by Script",
     "isImplicitMode": true,
     "lightIntensity": 1,
