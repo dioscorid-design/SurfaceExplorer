@@ -397,6 +397,20 @@ std::vector<MeshPart> SurfaceEngine::resolveMeshParts() const
         MeshPart& p = parts[k];
         p.meshIndex = k;
 
+        // AMBITO "ALL" CON UN DOMINIO PROPRIO: vale per TUTTE le parti, al
+        // posto del loro. E' il gemello di cio' che m_meshAppearanceUniform fa
+        // per colore e texture -- i valori per-parte non vengono cancellati, solo
+        // SOSPESI: tornando a "Mesh" ogni parte ritrova il suo dominio, perche'
+        // questa funzione lavora su una COPIA di m_declaredParts e non scrive
+        // mai nell'originale.
+        // Senza dominio di All (il caso di sempre) non si tocca nulla e ogni
+        // parte usa il proprio: e' cosi' che "passando ad All la figura torna
+        // intera" -- intera secondo lo script, finche' in All non si taglia.
+        if (m_meshScopeAll && m_hasAllDomain) {
+            p.uMin = m_allUMin; p.uMax = m_allUMax;
+            p.vMin = m_allVMin; p.vMax = m_allVMax;
+        }
+
         // Una parte senza risoluzione dichiarata segue lo slider su entrambi gli
         // assi (comportamento naturale: "come la superficie intera").
         if (declMax <= 0) {

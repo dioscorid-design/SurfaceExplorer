@@ -2465,6 +2465,15 @@ void GLWidget::setGlobalRenderMode(int mode) {
 void GLWidget::setMeshAppearanceUniform(bool on) {
     if (m_meshAppearanceUniform == on) return;
     m_meshAppearanceUniform = on;
+
+    // L'engine deve conoscere l'ambito: il DOMINIO, a differenza di colore e
+    // texture, non e' un uniform che il render puo' sostituire al volo -- genera
+    // i VERTICI sulla CPU. resolveMeshParts legge questo flag per decidere se
+    // applicare il dominio di "All" o quello delle singole parti, e la griglia
+    // va quindi rigenerata a ogni passaggio fra i due ambiti.
+    // La rigenerazione si paga solo quando serve davvero: updateSurfaceData e'
+    // chiamata piu' sotto, dopo che il flag e' stato propagato.
+    if (engine) engine->setMeshScopeAll(on);
     // Le densita' wireframe per-parte sono INDICI, non uniform: sospenderle
     // richiede di ricostruire la geometria delle linee.
     buildWireframeGeometry();
@@ -2472,7 +2481,44 @@ void GLWidget::setMeshAppearanceUniform(bool on) {
     // dispatcher non deve esistere affatto, in "Mesh" si', quindi il passaggio
     // fra i due ambiti e' un cambio di sorgente e va ricompilato.
     rebuildShader();
+
+    // GRIGLIA RIGENERATA: se un dominio di "All" e' in gioco -- o lo era e si
+    // sta tornando a "Mesh" -- i vertici delle parti cambiano, e nessun altro
+    // lo farebbe (buildWireframeGeometry e rebuildShader non toccano la mesh).
+    // Si rigenera solo quando c'e' davvero un dominio di All da applicare o da
+    // sospendere: senza, il cambio di ambito resta a costo zero com'era.
+    if (engine && engine->hasAllDomain() && engine->getMeshPartCount() > 1)
+        updateSurfaceData();
+
     update();
+}
+
+// DOMINIO DELL'AMBITO "ALL". Gemello di setActiveMeshDomain, ma scrive nel
+// dominio di All invece che nella parte selezionata: da qui passa il taglio
+// fatto coi campi u/v quando l'ambito e' "All", e vale per tutte le mesh
+// insieme senza cancellare i tagli delle singole (vedi SurfaceEngine::setAllDomain).
+bool GLWidget::setAllMeshDomain(float uMin, float uMax, float vMin, float vMax) {
+    if (!engine) return false;
+    if (!(uMin < uMax) || !(vMin < vMax)) return false;
+    engine->setAllDomain(uMin, uMax, vMin, vMax);
+    updateSurfaceData();
+    return true;
+}
+
+// Dominio da MOSTRARE nei campi in ambito "All": quello di All se c'e', altrimenti
+// quello della prima parte -- cioe' cio' che la figura sta disegnando adesso.
+// false se non c'e' nessuna parte (scena vuota): i campi restano vuoti.
+bool GLWidget::allMeshDomain(float &uMin, float &uMax, float &vMin, float &vMax) const {
+    if (!engine) return false;
+    if (engine->hasAllDomain()) {
+        engine->allDomain(uMin, uMax, vMin, vMax);
+        return true;
+    }
+    const auto &parts = engine->getMeshParts();
+    if (parts.empty()) return false;
+    uMin = parts[0].uMin; uMax = parts[0].uMax;
+    vMin = parts[0].vMin; vMax = parts[0].vMax;
+    return true;
 }
 
 // TEXTURE PROCEDURALE DELLA PARTE ATTIVA. Come setActiveMeshRenderMode, e' la
@@ -2727,6 +2773,59 @@ void GLWidget::activeMeshWireframeDensity(int &uStep, int &vStep) const {
     if (m_activeMeshPart >= (int)parts.size()) return;
     uStep = parts[m_activeMeshPart].wfStepU;
     vStep = parts[m_activeMeshPart].wfStepV;
+}
+
+// DOMINIO DELLA PARTE ATTIVA. Vedi la nota estesa in glwidget.h: qui il punto
+// da tenere a mente e' che NON si passa da applyToActiveMeshPart, per due
+// ragioni distinte.
+//  1. Quella funzione chiama syncPartAppearance(), che ricopia l'aspetto nelle
+//     parti DICHIARATE. Il dominio non e' in quella lista ed e' voluto (lo
+//     script resta l'autorita'), quindi passare di li' non servirebbe a nulla.
+//  2. Il dominio genera i VERTICI: cambiarlo richiede computeMesh(), non il
+//     solo re-upload dell'UBO. Gli altri setter per-mesh scrivono uniform e si
+//     accontentano di update().
+bool GLWidget::setActiveMeshDomain(float uMin, float uMax, float vMin, float vMax) {
+    if (m_activeMeshPart < 0 || !engine) return false;
+    MeshPart *p = engine->mutableMeshPart(m_activeMeshPart);
+    if (!p) return false;
+
+    // Intervallo impossibile: non si applica nulla. Stessa regola di
+    // updateULimits/updateVLimits per i limiti globali, che rifiutano min>=max
+    // senza toccare il dominio in vigore.
+    if (!(uMin < uMax) || !(vMin < vMax)) return false;
+
+    p->uMin = uMin; p->uMax = uMax;
+    p->vMin = vMin; p->vMax = vMax;
+
+    // ...E ANCHE NELLA PARTE DICHIARATA, o la riga qui sopra non sopravvive.
+    // generateParametricGrid riparte sempre da resolveMeshParts(), che
+    // ricostruisce m_meshParts da m_declaredParts: scrivendo nella sola lista
+    // generata, updateSurfaceData() qui sotto -- chiamato proprio per rendere
+    // visibile la modifica -- la cancellerebbe prima di generare un vertice, e
+    // a schermo non cambierebbe nulla.
+    // Le due liste restano comunque distinte su tutto il resto: setMeshParts
+    // (cioe' il Run dello script) non preserva il dominio, quindi le sezioni
+    // //MESH_BEGIN continuano a essere l'autorita' e riscrivono queste
+    // modifiche al primo Run.
+    engine->setDeclaredPartDomain(m_activeMeshPart, uMin, uMax, vMin, vMax);
+
+    // Rigenerazione della griglia: updateSurfaceData() rifa' i vertici di TUTTE
+    // le parti (computeMesh) e riemette meshPartsChanged, che e' cio' che
+    // riallinea il selettore e i campi. La chiusura per-parte viene ricalcolata
+    // li' dentro: un dominio ridotto puo' aprire una cucitura prima saldata, ed
+    // e' corretto che accada -- la parte non e' piu' chiusa.
+    updateSurfaceData();
+    return true;
+}
+
+bool GLWidget::activeMeshDomain(float &uMin, float &uMax, float &vMin, float &vMax) const {
+    if (m_activeMeshPart < 0 || !engine) return false;
+    const auto &parts = engine->getMeshParts();
+    if (m_activeMeshPart >= (int)parts.size()) return false;
+    const MeshPart &p = parts[m_activeMeshPart];
+    uMin = p.uMin; uMax = p.uMax;
+    vMin = p.vMin; vMax = p.vMax;
+    return true;
 }
 
 void GLWidget::setColor(float r, float g, float b) {

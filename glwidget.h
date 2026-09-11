@@ -336,6 +336,31 @@ public:
     // Densita' wireframe della parte selezionata (0,0 = eredita dal globale).
     void setActiveMeshWireframeDensity(int uStep, int vStep);
     void activeMeshWireframeDensity(int &uStep, int &vStep) const;
+
+    // DOMINIO PARAMETRICO DELLA PARTE SELEZIONATA (u_min/u_max/v_min/v_max).
+    // A differenza di colore, texture e densita' wireframe, il dominio NON e'
+    // "aspetto": e' cio' da cui i vertici vengono generati, quindi cambiarlo
+    // impone di rifare la griglia (updateSurfaceData), non solo di riscrivere
+    // l'UBO. Per questo non passa da applyToActiveMeshPart.
+    //
+    // L'ALTRA DIFFERENZA, ed e' quella che conta: il dominio NON viene
+    // ricopiato nelle parti DICHIARATE (syncPartAppearance non lo tocca, ed e'
+    // deliberato). Lo script resta percio' l'autorita': un Run di
+    // //MESH_BEGIN riscrive i domini e cancella queste modifiche, esattamente
+    // come lo slider Steps convive con la direttiva "steps :=" dichiarata.
+    // Il contrario -- preservarlo come si fa con l'aspetto -- farebbe sembrare
+    // rotto il Run: si modifica la sezione //MESH_BEGIN e non cambia nulla.
+    // Ritorna false se non c'e' una parte attiva ("All") o se i limiti sono
+    // incoerenti (min >= max), cosi' il chiamante sa che non ha applicato.
+    bool setActiveMeshDomain(float uMin, float uMax, float vMin, float vMax);
+    // Gemelli per l'ambito "All": il dominio vale per tutte le mesh insieme e
+    // SOSPENDE quelli per-parte senza cancellarli (come m_meshAppearanceUniform
+    // fa per colore e texture). Vedi SurfaceEngine::setAllDomain.
+    bool setAllMeshDomain(float uMin, float uMax, float vMin, float vMax);
+    bool allMeshDomain(float &uMin, float &uMax, float &vMin, float &vMax) const;
+    // Dominio della parte selezionata, per il DISPLAY dei campi. false se non
+    // c'e' parte attiva: i campi vanno allora svuotati e disabilitati.
+    bool activeMeshDomain(float &uMin, float &uMax, float &vMin, float &vMax) const;
     void setColor(float r, float g, float b);
     void setAlpha(float a);
     void setSpecularEnabled(bool enabled);

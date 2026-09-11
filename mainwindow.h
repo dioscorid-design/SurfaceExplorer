@@ -1194,6 +1194,21 @@ private:
     // Stessa provenienza (filtri tastiera): l'Invio su un limite U/V/W applica
     // subito il nuovo dominio, senza toccare le equazioni in sospeso.
     bool commitLimitFieldOnEnter(const QString& fieldName);
+    // GEMELLO PER-MESH del precedente: i quattro campi u/v del pannello Multi
+    // Mesh scrivono il dominio della SOLA parte selezionata.
+    // Due differenze deliberate rispetto ai limiti globali:
+    //  - si applica SEMPRE subito (niente attesa del Run). I limiti globali
+    //    aspettano perche' fanno parte della definizione della superficie
+    //    INSIEME a equazioni e vincoli, e applicarli da soli mostrerebbe la
+    //    superficie vecchia tagliata dai limiti nuovi. Qui non c'e' quella
+    //    coppia: le equazioni sono gia' applicate e si cambia il dominio di una
+    //    sola parte, esattamente come il colore o la densita' wireframe.
+    //  - non tocca m_parametricApplied: il Run dello script RISCRIVE questi
+    //    domini (lo script e' l'autorita'), quindi accendere il Run come
+    //    "modifica da applicare" indicherebbe il contrario di cio' che accade.
+    bool commitMeshLimitFieldOnEnter(const QString& fieldName);
+    // Display dei quattro campi u/v per-mesh sul dominio della parte attiva.
+    void syncMeshLimitFields();
     // useAppliedLimits: legge il dominio GIA' APPLICATO dall'engine invece dei
     // campi UI. Serve al tick del moto (advanceGeodesicFlowBy), che gira di
     // continuo su un record animato: rileggendo il testo dei campi raccoglieva

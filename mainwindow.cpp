@@ -267,6 +267,19 @@ protected:
                     return true;
                 }
 
+                // Limiti PER-MESH: ramo proprio per la stessa ragione dei
+                // globali qui sopra (il commit valida e avvisa), ma con la
+                // funzione gemella -- questi scrivono il dominio della sola
+                // parte selezionata, non quello della superficie.
+                if (on == "meshUMinEdit" || on == "meshUMaxEdit" ||
+                    on == "meshVMinEdit" || on == "meshVMaxEdit") {
+                    if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
+                    if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
+                        mainWin->commitMeshLimitFieldOnEnter(on);
+                    }
+                    return true;
+                }
+
                 // Campi path camera: a moto attivo l'Invio ricompila il path
                 // al volo (nuova costante/espressione senza stop+Departure).
                 if (isPathEquationField(on)) {
@@ -614,6 +627,17 @@ protected:
                     if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
                     if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
                         mainWin->commitLimitFieldOnEnter(limitName);
+                    }
+                    QGuiApplication::inputMethod()->hide();
+                    return true;
+                }
+
+                // Limiti PER-MESH: stesso ramo del filtro desktop.
+                if (limitName == "meshUMinEdit" || limitName == "meshUMaxEdit" ||
+                    limitName == "meshVMinEdit" || limitName == "meshVMaxEdit") {
+                    if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
+                    if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
+                        mainWin->commitMeshLimitFieldOnEnter(limitName);
                     }
                     QGuiApplication::inputMethod()->hide();
                     return true;
@@ -3550,6 +3574,22 @@ MainWindow::MainWindow(QWidget *parent)
         // contrario.
         updateScriptButtonText();
         updateMasterButtonState();
+
+        // GATING DEI LIMITI PER-MESH. I quattro campi u/v sono attivi solo in
+        // ambito "Mesh" (in "All" non c'e' una parte a cui riferirli), e quel
+        // gating vive in updateMeshScopeEnabled. Senza questa chiamata il
+        // cambio di ambito non lo aggiornava: gli altri controlli per-mesh sono
+        // sempre abilitati e cambiano solo DESTINATARIO, quindi finora nessuno
+        // aveva bisogno di rivalutare il gating al click sui radio -- il giro
+        // passava solo da meshPartsChanged, che al solo cambio di ambito non
+        // scatta. I campi restavano percio' spenti e vuoti fino alla prima
+        // rigenerazione della griglia.
+        // Va per ULTIMA: legge i radio, che sono gia' nello stato finale.
+        updateMeshScopeEnabled();
+        // ...e il gating appena calcolato ha potuto RIABILITARE i campi, che
+        // pero' sono ancora vuoti: updateMeshScopeEnabled li riempie solo
+        // quando li spegne. Il display tocca a questa.
+        syncMeshLimitFields();
     };
     // ESCLUSIVITA': i due radio NON sono fratelli (radioMeshOne sta dentro
     // groupMeshOne, il riquadro che lo tiene insieme allo spinbox; radioMeshAll
@@ -3791,6 +3831,37 @@ MainWindow::MainWindow(QWidget *parent)
             // del filtro tastiera che segue il clearFocus() tornerebbe a
             // rivalidare (due popup per un solo Invio).
             commitLimitFieldOnEnter(limitEdit->objectName());
+        });
+    }
+
+    // LIMITI PER-MESH (pannello Multi Mesh). Stesso cablaggio dei limiti
+    // globali qui sopra -- textEdited per registrare la digitazione in attesa,
+    // editingFinished per confermarla -- ma con due assenze deliberate:
+    //  - updateConstantsUIState: questi campi accettano gli stessi A..F/S, ma
+    //    lo sblocco delle costanti lo decidono gia' i campi globali e le
+    //    equazioni. Agganciarli qui non aggiungerebbe nulla e farebbe girare
+    //    il ricalcolo a ogni carattere.
+    //  - m_parametricApplied / updateMasterButtonState: il Run dello script
+    //    RISCRIVE questi domini, quindi accendere il tasto Run come se ci
+    //    fosse qualcosa "da applicare" direbbe il contrario del vero. Il
+    //    dominio per-mesh si applica da se' alla conferma del campo.
+    for (QLineEdit* meshLimitEdit : { ui->meshUMinEdit, ui->meshUMaxEdit,
+                                      ui->meshVMinEdit, ui->meshVMaxEdit }) {
+        if (!meshLimitEdit) continue;
+
+        connect(meshLimitEdit, &QLineEdit::textEdited, this, [this](const QString&) {
+            if (!m_uiReady || m_populatingFields) return;
+            QWidget* w = qobject_cast<QWidget*>(sender());
+            // La scena e' cambiata come per ogni altro comando di aspetto
+            // per-mesh: il dominio di una fascia fa parte di cio' che il
+            // record salva.
+            noteSceneEdited(w);
+            if (w) w->setProperty("userEditPending", true);
+        });
+
+        connect(meshLimitEdit, &QLineEdit::editingFinished, this, [this, meshLimitEdit]() {
+            if (!m_uiReady || m_populatingFields) return;
+            commitMeshLimitFieldOnEnter(meshLimitEdit->objectName());
         });
     }
 
@@ -4835,6 +4906,9 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         // superficie del tab successivo resterebbe spezzata nei rami
         // dichiarati dallo script precedente.
         ui->glWidget->getEngine()->clearMeshParts();
+        // ...e il taglio dell'ambito "All", che altrimenti resterebbe in vigore
+        // sulla superficie nuova.
+        ui->glWidget->getEngine()->clearAllDomain();
     }
 
     // 3. Svuota l'editor visivamente (se aperto su Surface) e in memoria
@@ -9500,6 +9574,146 @@ bool MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
     // del gate (hasCompleteParametricInput).
     updateMasterButtonState();
     return true;
+}
+
+// Limite u/v della MESH SELEZIONATA confermato (Invio o uscita dal campo).
+// Gemello di commitLimitFieldOnEnter: stessa validazione, stessi popup, stesso
+// meccanismo userEditPending contro il doppio commit di un solo Invio.
+//
+// LA DIFFERENZA CHE CONTA: qui si applica SEMPRE subito, mentre i limiti
+// globali a superficie ferma aspettano il Run. Il motivo di quell'attesa e' la
+// coerenza fra dominio ed equazioni -- ridisegnare mostrerebbe la superficie
+// VECCHIA tagliata dai limiti NUOVI. Qui quel rischio non c'e': le equazioni (o
+// lo script) sono gia' applicate e si sta cambiando il dominio di una sola
+// parte, esattamente come si cambia il suo colore o la sua densita' wireframe.
+// Non applicarlo subito, oltretutto, lo renderebbe inutilizzabile: il Run dello
+// script RISCRIVE i domini per-mesh dalle sezioni //MESH_BEGIN, quindi un
+// dominio "in attesa del Run" verrebbe cancellato proprio da cio' che lo
+// dovrebbe applicare.
+bool MainWindow::commitMeshLimitFieldOnEnter(const QString& fieldName)
+{
+    if (!ui->glWidget) return false;
+
+    QLineEdit* edited = nullptr;
+    if      (fieldName == "meshUMinEdit") edited = ui->meshUMinEdit;
+    else if (fieldName == "meshUMaxEdit") edited = ui->meshUMaxEdit;
+    else if (fieldName == "meshVMinEdit") edited = ui->meshVMinEdit;
+    else if (fieldName == "meshVMaxEdit") edited = ui->meshVMaxEdit;
+    if (!edited) return false;
+
+    // Campo spento (ambito "All", mesh singola, Ray Marching): niente da fare.
+    if (!edited->isEnabled()) return false;
+
+    // CONFERMA UNICA, come nei limiti globali: un solo Invio produce DUE
+    // chiamate (il filtro tastiera fa clearFocus(), che emette subito
+    // editingFinished, e poi chiama a sua volta il commit). Il flag si
+    // CONTROLLA e si consuma qui, in questo ordine: chi arriva secondo lo
+    // trova gia' consumato ed esce senza rivalidare, o si vedrebbero due
+    // popup in fila per un solo errore.
+    if (!edited->property("userEditPending").toBool()) return false;
+    edited->setProperty("userEditPending", false);
+
+    // AMBITO: in "Mesh" si scrive nella parte selezionata, in "All" nel dominio
+    // di All (che vale per tutte le mesh e sospende i tagli per-parte senza
+    // cancellarli). Si parte sempre dal dominio IN VIGORE per quell'ambito,
+    // cosi' i tre campi non editati restano quelli che sono.
+    const bool editingAll = (ui->glWidget->activeMeshPart() < 0);
+    float uLo = 0.0f, uHi = 0.0f, vLo = 0.0f, vHi = 0.0f;
+    const bool haveDomain = editingAll
+                          ? ui->glWidget->allMeshDomain(uLo, uHi, vLo, vHi)
+                          : ui->glWidget->activeMeshDomain(uLo, uHi, vLo, vHi);
+    if (!haveDomain) return false;
+
+    // Il campo appena editato deve essere leggibile. Gli altri tre NON si
+    // rileggono dai widget: si parte dal dominio in vigore nella parte, cosi'
+    // un campo lasciato a meta' da un'altra digitazione non entra nel commit.
+    const QString currentText = edited->text();
+    bool ok = false;
+    const float value = parseLimitField(currentText, &ok);
+    if (!ok || currentText.trimmed().isEmpty()) {
+        if (!m_constantPopupActive) {
+            m_constantPopupActive = true;
+            // Etichetta con il NUMERO della mesh: col pannello Multi Mesh
+            // aperto su piu' fasce, "u min" da solo non direbbe quale.
+            const QString axisLabel =
+                QString("mesh %1 %2").arg(ui->spinMeshSel->value())
+                                     .arg(fieldName.contains("UMin") ? "u min"
+                                        : fieldName.contains("UMax") ? "u max"
+                                        : fieldName.contains("VMin") ? "v min" : "v max");
+            InputValidator::showInvalidLimitError(this, axisLabel, currentText,
+                                                  /*emptyMeansNoLimit=*/false);
+            edited->setFocus();
+            edited->selectAll();
+            m_constantPopupActive = false;
+        }
+        return false;
+    }
+
+    if      (fieldName == "meshUMinEdit") uLo = value;
+    else if (fieldName == "meshUMaxEdit") uHi = value;
+    else if (fieldName == "meshVMinEdit") vLo = value;
+    else                                  vHi = value;
+
+    // Entrambi i setter rifiutano da se' i limiti impossibili (min >= max)
+    // senza toccare nulla, come updateU/V/WLimits per i globali.
+    const bool applied = editingAll
+                       ? ui->glWidget->setAllMeshDomain(uLo, uHi, vLo, vHi)
+                       : ui->glWidget->setActiveMeshDomain(uLo, uHi, vLo, vHi);
+    if (!applied) {
+        if (!m_constantPopupActive) {
+            m_constantPopupActive = true;
+            InputValidator::showLimitOrderError(this, fieldName.contains('U') ? QChar('u')
+                                                                              : QChar('v'));
+            edited->setFocus();
+            edited->selectAll();
+            m_constantPopupActive = false;
+        }
+        // Il campo mostra un valore che NON e' stato applicato: si riallinea al
+        // dominio vero della parte, o resterebbe a mentire fino al prossimo
+        // cambio di selezione.
+        syncMeshLimitFields();
+        return false;
+    }
+
+    // Applicato. setActiveMeshDomain ha gia' rigenerato la griglia (e riemesso
+    // meshPartsChanged, che ripassa da qui a riallineare i campi): non serve
+    // altro. Il master non va rivalutato -- nessun clock e' cambiato.
+    return true;
+}
+
+// Porta i quattro campi u/v del pannello Multi Mesh sul dominio della parte
+// selezionata. A segnali bloccati: questi setText sono DISPLAY, e senza il
+// blocco il textEdited li segnerebbe come digitazione in attesa (userEditPending),
+// facendo validare all'uscita dal campo un testo che l'utente non ha scritto.
+void MainWindow::syncMeshLimitFields()
+{
+    if (!ui->glWidget || !ui->meshUMinEdit) return;
+
+    // LA FONTE DIPENDE DALL'AMBITO, come per ogni altro controllo per-mesh: i
+    // campi mostrano cio' che stanno per modificare. In "Mesh" e' il dominio
+    // della parte scelta; in "All" quello di All -- se c'e' un taglio, quello,
+    // altrimenti il dominio che la figura sta disegnando adesso (la prima
+    // parte), cosi' il campo non e' mai vuoto su una superficie visibile.
+    float uLo = 0.0f, uHi = 0.0f, vLo = 0.0f, vHi = 0.0f;
+    const bool hasPart = (ui->glWidget->activeMeshPart() >= 0)
+                       ? ui->glWidget->activeMeshDomain(uLo, uHi, vLo, vHi)
+                       : ui->glWidget->allMeshDomain(uLo, uHi, vLo, vHi);
+
+    auto show = [](QLineEdit *e, bool on, float v) {
+        if (!e) return;
+        QSignalBlocker b(e);
+        // 'g' con 12 cifre come i limiti globali (mainwindow.cpp ~1807): un
+        // 6.28318531 dello script non deve tornare indietro arrotondato.
+        e->setText(on ? QString::number(v, 'g', 12) : QString());
+        // La digitazione eventualmente in sospeso su questo campo non vale
+        // piu': il testo l'ha appena riscritto il programma.
+        e->setProperty("userEditPending", false);
+    };
+
+    show(ui->meshUMinEdit, hasPart, uLo);
+    show(ui->meshUMaxEdit, hasPart, uHi);
+    show(ui->meshVMinEdit, hasPart, vLo);
+    show(ui->meshVMaxEdit, hasPart, vHi);
 }
 
 bool MainWindow::compilePath4DFromFields()
@@ -14600,6 +14814,22 @@ void MainWindow::applyCommonData(LibraryItem d)
     // subito dopo la rigenerazione. Va azzerato SEMPRE, anche quando il preset
     // non lo contiene, o l'aspetto del preset precedente sopravviverebbe.
     m_pendingMeshParts = d.meshParts;
+
+    // DOMINIO DELL'AMBITO "ALL" del preset. Si applica SUBITO all'engine, non
+    // differito come l'aspetto per-mesh: quello deve attendere che le parti
+    // esistano (vive dentro le MeshPart), mentre questo e' un campo dell'engine
+    // e le parti lo leggono quando vengono generate -- che avviene dopo.
+    // Va scritto SEMPRE, anche quando il preset non ne ha uno: in quel caso si
+    // azzera, o il taglio di All della superficie PRECEDENTE sopravviverebbe e
+    // taglierebbe quella nuova (lo stesso difetto del cutout che restava
+    // iniettato fra un preset e l'altro).
+    if (ui->glWidget && ui->glWidget->getEngine()) {
+        if (d.hasAllDomain)
+            ui->glWidget->getEngine()->setAllDomain(d.allUMin, d.allUMax,
+                                                    d.allVMin, d.allVMax);
+        else
+            ui->glWidget->getEngine()->clearAllDomain();
+    }
     // Ambito All/Mesh con cui il preset e' stato salvato: deciso qui, applicato
     // da applyPendingMeshAppearance quando le parti esistono.
     m_pendingMeshScopeAll = d.meshScopeAll;
@@ -15061,13 +15291,34 @@ void MainWindow::applyCommonData(LibraryItem d)
                                && !dst.textureCode.isEmpty()
                                && hasTimeVariable(dst.textureCode);
             dst.timeTex = 0.0f;   // il preset riparte dall'inizio, non da un tempo ereditato
+
+            // DOMINIO PROPRIO salvato nel preset. Va fuso QUI come il resto
+            // dell'aspetto: le parti appena estratte dallo script portano il
+            // dominio DICHIARATO, e senza questa fusione il taglio scelto
+            // dall'utente non verrebbe mai riapplicato al caricamento.
+            // Il flag si copia con i valori: e' lui a far sopravvivere il
+            // dominio ai successivi START/Run (vedi setMeshParts).
+            if (src.hasCustomDomain) {
+                dst.uMin = src.uMin;
+                dst.uMax = src.uMax;
+                dst.vMin = src.vMin;
+                dst.vMax = src.vMax;
+                dst.hasCustomDomain = true;
+            }
         }
         // setMeshParts preserva l'aspetto delle parti GIA' dichiarate (serve a non
         // perderlo quando lo script viene ri-estratto a ogni cambio di costante).
         // Qui pero' stiamo caricando un preset NUOVO: l'aspetto giusto e' quello
         // appena fuso, non quello della superficie precedente. Svuotiamo prima,
         // cosi' non c'e' nulla da preservare e vince il preset.
-        ui->glWidget->getEngine()->clearMeshParts();
+        //
+        // clearALLMeshParts, non clearMeshParts: va svuotata anche la lista
+        // GENERATA. Quella sopravvive fino al primo computeMesh(), che qui non
+        // e' immediato (arriva piu' tardi da checkAndTriggerMeshUpdate), e in
+        // quella finestra il render legge ancora le parti della superficie
+        // precedente. Con un dominio scelto a mano il residuo si vedeva: una
+        // singola mesh restava tagliata mentre le altre tornavano intere.
+        ui->glWidget->getEngine()->clearAllMeshParts();
         ui->glWidget->getEngine()->setMeshParts(meshParts);
     }
 
@@ -17601,6 +17852,25 @@ void MainWindow::updateMeshScopeEnabled()
     ui->radioMeshOne->setEnabled(usable);
     ui->spinMeshSel->setEnabled(usable && ui->radioMeshOne->isChecked());
 
+    // LIMITI PER-MESH: attivi in ENTRAMBI gli ambiti su una superficie
+    // multi-mesh. In "Mesh" tagliano la parte scelta, in "All" tagliano tutte
+    // le mesh insieme sospendendo -- senza cancellarli -- i tagli per-parte,
+    // esattamente come colore, trasparenza e texture si comportano nei due
+    // ambiti. Il dominio di "All" e' un livello suo (SurfaceEngine::setAllDomain),
+    // indipendente dai limiti del dock Equations: quelli valgono per le
+    // superfici a mesh singola e vengono riscritti dalle direttive "u_min :="
+    // a ogni Run, quindi non potevano reggere un taglio dell'utente.
+    const bool meshLimitsUsable = usable;
+    for (QLineEdit* e : { ui->meshUMinEdit, ui->meshUMaxEdit,
+                          ui->meshVMinEdit, ui->meshVMaxEdit }) {
+        if (!e) continue;
+        e->setEnabled(meshLimitsUsable);
+        if (!meshLimitsUsable) {
+            QSignalBlocker b(e);
+            e->clear();
+        }
+    }
+
     if (usable) return;
 
     // BACKGROUND: i controlli sono gia' spenti qui sopra e basta cosi'. La
@@ -18128,6 +18398,13 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
     // quello che si va a modificare.
     const float fl = ui->glWidget->globalLightIntensity();
     showAppearance(fr, fg, fb, fa, fl);
+
+    // LIMITI u/v DELLA PARTE nei quattro campi del pannello Multi Mesh. Stessa
+    // regola di editor, slider e radio qui sopra: i controlli mostrano cio' che
+    // stanno per modificare. Il ramo "All" non ha bisogno del gemello -- li'
+    // updateMeshScopeEnabled li svuota e li spegne, perche' non esiste una
+    // parte a cui riferirli.
+    syncMeshLimitFields();
 
     // DISPLAY della modalita' di rendering: i radio mostrano quella EFFICACE
     // della parte (la propria se dichiarata, altrimenti la globale). Siamo

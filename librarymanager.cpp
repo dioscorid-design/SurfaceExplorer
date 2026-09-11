@@ -523,6 +523,17 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
                 }
                 if (o.contains("wfU"))        mp.wfStepU = o["wfU"].toInt(0);
                 if (o.contains("wfV"))        mp.wfStepV = o["wfV"].toInt(0);
+                // Dominio proprio della parte (campi u/v del pannello Multi
+                // Mesh). Chiave assente = la parte usa il dominio dichiarato
+                // dalla sezione //MESH_BEGIN, quindi i preset salvati prima di
+                // questa feature restano identici.
+                if (o.contains("uMin")) {
+                    mp.uMin = (float)o["uMin"].toDouble(0.0);
+                    mp.uMax = (float)o["uMax"].toDouble(0.0);
+                    mp.vMin = (float)o["vMin"].toDouble(0.0);
+                    mp.vMax = (float)o["vMax"].toDouble(0.0);
+                    mp.hasCustomDomain = true;
+                }
                 // Texture procedurale propria: come "mode", la chiave assente
                 // lascia la parte a EREDITARE, quindi i preset salvati prima di
                 // questa feature restano identici.
@@ -551,6 +562,15 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
         // Ambito All/Mesh salvato col preset (assente nei preset vecchi).
         d.meshScopeAll = root.contains("meshScopeAll")
                          && root["meshScopeAll"].toBool(false);
+
+        // Dominio dell'ambito "All" (assente nei preset che non l'hanno usato).
+        if (root.contains("allUMin")) {
+            d.hasAllDomain = true;
+            d.allUMin = (float)root["allUMin"].toDouble(0.0);
+            d.allUMax = (float)root["allUMax"].toDouble(0.0);
+            d.allVMin = (float)root["allVMin"].toDouble(0.0);
+            d.allVMax = (float)root["allVMax"].toDouble(0.0);
+        }
 
         if (root.contains("camera3D")) {
             d.hasCamera3D = true;
@@ -806,6 +826,17 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
                 }
                 if (o.contains("wfU"))        mp.wfStepU = o["wfU"].toInt(0);
                 if (o.contains("wfV"))        mp.wfStepV = o["wfV"].toInt(0);
+                // Dominio proprio della parte (campi u/v del pannello Multi
+                // Mesh). Chiave assente = la parte usa il dominio dichiarato
+                // dalla sezione //MESH_BEGIN, quindi i preset salvati prima di
+                // questa feature restano identici.
+                if (o.contains("uMin")) {
+                    mp.uMin = (float)o["uMin"].toDouble(0.0);
+                    mp.uMax = (float)o["uMax"].toDouble(0.0);
+                    mp.vMin = (float)o["vMin"].toDouble(0.0);
+                    mp.vMax = (float)o["vMax"].toDouble(0.0);
+                    mp.hasCustomDomain = true;
+                }
                 // Texture procedurale propria: come "mode", la chiave assente
                 // lascia la parte a EREDITARE, quindi i preset salvati prima di
                 // questa feature restano identici.
@@ -834,6 +865,15 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
         // Ambito All/Mesh salvato col preset (assente nei preset vecchi).
         d.meshScopeAll = root.contains("meshScopeAll")
                          && root["meshScopeAll"].toBool(false);
+
+        // Dominio dell'ambito "All" (assente nei preset che non l'hanno usato).
+        if (root.contains("allUMin")) {
+            d.hasAllDomain = true;
+            d.allUMin = (float)root["allUMin"].toDouble(0.0);
+            d.allUMax = (float)root["allUMax"].toDouble(0.0);
+            d.allVMin = (float)root["allVMin"].toDouble(0.0);
+            d.allVMax = (float)root["allVMax"].toDouble(0.0);
+        }
     }
 
     if (root.contains("camera3D")) {

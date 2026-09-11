@@ -749,6 +749,17 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
             // Densita' wireframe propria (0 = eredita dalla globale).
             if (mp.wfStepU > 0)            { o["wfU"] = mp.wfStepU; anyCustom = true; }
             if (mp.wfStepV > 0)            { o["wfV"] = mp.wfStepV; anyCustom = true; }
+            // DOMINIO PROPRIO della parte (campi u/v del pannello Multi Mesh).
+            // Si scrive SOLO se scelto dall'utente: quello dichiarato dalle
+            // sezioni //MESH_BEGIN vive gia' nello scriptCode e riscriverlo qui
+            // lo congelerebbe, rendendo inerte ogni modifica futura allo script.
+            if (mp.hasCustomDomain) {
+                o["uMin"] = (double)mp.uMin;
+                o["uMax"] = (double)mp.uMax;
+                o["vMin"] = (double)mp.vMin;
+                o["vMax"] = (double)mp.vMax;
+                anyCustom = true;
+            }
             // NIENTE TEXTURE, per nessuna parte: codice, accensione, colori
             // u_col1/u_col2 e trasformazione 2D restano fuori.
             // Il ramo surfaces/ non salva la texture -- e' la regola generale
@@ -770,6 +781,22 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         if (m_mainWindow->ui->radioMeshAll
             && m_mainWindow->ui->radioMeshAll->isChecked()) {
             root["meshScopeAll"] = true;
+        }
+
+        // DOMINIO DELL'AMBITO "ALL": il taglio che vale per tutte le mesh
+        // insieme. Sta in RADICE e non dentro "meshParts" perche' non
+        // appartiene a nessuna parte -- e' il livello che le sospende tutte.
+        // Si scrive solo se impostato: i preset che non l'hanno mai usato non
+        // producono la chiave e restano invariati.
+        if (auto *eng = m_mainWindow->ui->glWidget->getEngine()) {
+            if (eng->hasAllDomain()) {
+                float aU0, aU1, aV0, aV1;
+                eng->allDomain(aU0, aU1, aV0, aV1);
+                root["allUMin"] = (double)aU0;
+                root["allUMax"] = (double)aU1;
+                root["allVMin"] = (double)aV0;
+                root["allVMax"] = (double)aV1;
+            }
         }
     }
 
@@ -1580,6 +1607,15 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
                 o["texRot"]  = (double)mp.texRotation;
                 anyCustom = true;
             }
+            // Dominio proprio della parte: stessa regola del ramo surfaces --
+            // solo se scelto dall'utente, mai quello dichiarato dallo script.
+            if (mp.hasCustomDomain) {
+                o["uMin"] = (double)mp.uMin;
+                o["uMax"] = (double)mp.uMax;
+                o["vMin"] = (double)mp.vMin;
+                o["vMax"] = (double)mp.vMax;
+                anyCustom = true;
+            }
             meshArr.append(o);
         }
         if (anyCustom) root["meshParts"] = meshArr;
@@ -1592,6 +1628,22 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         if (m_mainWindow->ui->radioMeshAll
             && m_mainWindow->ui->radioMeshAll->isChecked()) {
             root["meshScopeAll"] = true;
+        }
+
+        // DOMINIO DELL'AMBITO "ALL": il taglio che vale per tutte le mesh
+        // insieme. Sta in RADICE e non dentro "meshParts" perche' non
+        // appartiene a nessuna parte -- e' il livello che le sospende tutte.
+        // Si scrive solo se impostato: i preset che non l'hanno mai usato non
+        // producono la chiave e restano invariati.
+        if (auto *eng = m_mainWindow->ui->glWidget->getEngine()) {
+            if (eng->hasAllDomain()) {
+                float aU0, aU1, aV0, aV1;
+                eng->allDomain(aU0, aU1, aV0, aV1);
+                root["allUMin"] = (double)aU0;
+                root["allUMax"] = (double)aU1;
+                root["allVMin"] = (double)aV0;
+                root["allVMax"] = (double)aV1;
+            }
         }
     }
 

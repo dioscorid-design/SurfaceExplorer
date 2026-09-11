@@ -190,6 +190,11 @@ struct LibraryItem {
     // vecchi: li' si apre in "Mesh" se il preset porta un aspetto per-mesh,
     // com'e' sempre stato.
     bool meshScopeAll = false;
+    // Dominio dell'ambito "All" (chiavi allUMin/allUMax/allVMin/allVMax):
+    // il taglio che vale per tutte le mesh insieme, indipendente da quelli
+    // per-parte. Assente nei preset che non l'hanno mai impostato.
+    bool  hasAllDomain = false;
+    float allUMin = 0.0f, allUMax = 0.0f, allVMin = 0.0f, allVMax = 0.0f;
 
     bool hasLightingState = false;
     bool use4DLighting = false;

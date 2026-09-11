@@ -269,8 +269,10 @@ return vec3((1.0 + r*cos(v)) * cos(u),
 
     <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Turning grids on and off from a slider</b></p></td></tr></table>
     <p>The <code>//MESH_BEGIN</code> blocks are <strong>static</strong>: they are read when the script runs, so a
-    constant cannot change how many grids exist. To drive the count from a slider, declare the maximum number of
-    grids and discard the extra ones in the cutout section (3.2), which also receives <code>mesh</code>:</p>
+    constant cannot change how many grids exist. (Their domains, on the other hand, can be edited live from the
+    Renderer dock &mdash; see <em>Per-mesh domain from the interface</em> below.) To drive the count from a slider,
+    declare the maximum number of grids and discard the extra ones in the cutout section (3.2), which also
+    receives <code>mesh</code>:</p>
     <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">E := int(1,6);   // how many branches to show
 
 //CUTOUT_BEGIN
@@ -300,6 +302,19 @@ MESH_VISIBLE := E;   // how many of the declared grids are visible</pre>
     back untouched on switching to <strong>Mesh</strong>. A grid that was never configured inherits the global
     value, which is why existing presets are unaffected. Both the per-mesh appearance and the active scope are
     saved with the preset.</p>
+
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Per-mesh domain from the interface</b></p></td></tr></table>
+    <p>The same box carries four fields &mdash; <code>u_a</code>, <code>u_b</code>, <code>v_a</code>,
+    <code>v_b</code> &mdash; that set the <em>domain</em> of a grid without editing the script. In
+    <strong>Mesh</strong> they cut the selected grid alone; in <strong>All</strong> they drive a domain of their
+    own that applies to every grid and suspends the individual ones, which return untouched when you switch back.
+    They accept the same expressions as the U/V limits of the Equations dock and apply on Enter, rebuilding the
+    grid at once.</p>
+    <p><strong>A domain typed there overrides the one declared here.</strong> It survives Master START, both Run
+    buttons, an Enter in the equation fields and a reload, and it is stored in the preset. The consequence is that
+    such a grid stops following its own <code>//MESH_BEGIN</code> section &mdash; editing the section no longer
+    moves it, until you type the declared values back into the fields. This mirrors how the <em>Steps</em>
+    slider already overrides a declared <code>steps :=</code>.</p>
 
     <p style="font-size: 14px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="10" cellspacing="0" bgcolor="#0d3a5c"><tr><td><p style="font-size: 22px; color: #ffffff; margin: 0;"><b>4. Texture Scripts</b></p></td></tr></table>
     <p>Texture scripts compute a color. Return a <code>vec4(r, g, b, a)</code> using the texture coordinates

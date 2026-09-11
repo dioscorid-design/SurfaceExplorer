@@ -48,6 +48,15 @@ struct MeshPart {
     float uMin = 0.0f, uMax = 1.0f;
     float vMin = 0.0f, vMax = 1.0f;
 
+    // true = il dominio qui sopra e' stato scelto DALL'UTENTE (campi u/v del
+    // pannello Multi Mesh), non dichiarato dalla sezione //MESH_BEGIN. Serve a
+    // distinguere i due casi in setMeshParts, che preserva solo il primo: senza
+    // il flag, anche il dominio dichiarato dallo script verrebbe congelato alla
+    // prima estrazione e le modifiche successive allo script non avrebbero piu'
+    // effetto. Si salva nel preset (chiavi uMin/uMax/vMin/vMax dentro
+    // "meshParts"); la sua assenza nei preset esistenti li lascia identici.
+    bool hasCustomDomain = false;
+
     // Risoluzione EFFETTIVA di questa parte, cioe' quella con cui la griglia
     // viene generata. NON e' il valore dichiarato nello script: e' quello
     // riscalato dallo slider Steps (vedi resolveMeshParts).
@@ -260,10 +269,88 @@ public:
             // allo slider Steps) farebbe saltare indietro l'animazione.
             next[k].timeTex = old.timeTex;
             next[k].texAnimating = old.texAnimating;
+
+            // DOMINIO SCELTO A MANO (campi u/v del pannello Multi Mesh).
+            // Si preserva come l'aspetto, ed e' una scelta DELIBERATA maturata
+            // sul campo: la prima versione lasciava vincere lo script, cosi' che
+            // le sezioni //MESH_BEGIN restassero l'unica autorita' sul dominio.
+            // In pratica era inservibile, perche' i punti che riestraggono le
+            // sezioni e ripassano di qui sono QUATTRO, non solo il Run:
+            //   onRunScriptClicked   (Run del dock Script)
+            //   applyCommonData      (caricamento di un preset)
+            //   onStartClicked       (Master START, Run del dock Equations, Implicit)
+            //   commitFieldsOnEnter  (un semplice INVIO su un campo equazioni)
+            // Il taglio spariva quindi al primo START, e un dominio salvato nel
+            // preset si sarebbe autodistrutto al primo giro: peggio del non
+            // salvarlo affatto.
+            // Il prezzo, accettato: modificando una sezione //MESH_BEGIN nello
+            // script non se ne vede l'effetto finche' il dominio di quella mesh
+            // non viene riportato ai valori dichiarati. E' lo stesso attrito che
+            // esiste gia' fra lo slider Steps e la direttiva "steps :=".
+            // hasCustomDomain distingue "scelto dall'utente" da "viene dallo
+            // script": senza il flag, il dominio dichiarato di una parte verrebbe
+            // scambiato per una scelta e congelato per sempre.
+            if (old.hasCustomDomain) {
+                next[k].uMin = old.uMin;
+                next[k].uMax = old.uMax;
+                next[k].vMin = old.vMin;
+                next[k].vMax = old.vMax;
+                next[k].hasCustomDomain = true;
+            }
         }
         m_declaredParts = std::move(next);
     }
     void clearMeshParts() { m_declaredParts.clear(); }
+
+    // ==========================================================
+    // DOMINIO DELL'AMBITO "ALL" (multi-mesh)
+    // ==========================================================
+    // Un secondo dominio, indipendente da quelli per-parte, che vale quando
+    // l'ambito e' "All". Serve a dare al dominio lo stesso comportamento che
+    // colore, trasparenza e texture hanno gia': i due ambiti coesistono, e
+    // passare dall'uno all'altro SOSPENDE l'altro senza cancellarlo. Si
+    // restringono due mesh, si passa ad All e la figura torna intera (o com'era
+    // stata lasciata in All); si taglia in All; si torna a Mesh e i tagli
+    // per-parte sono ancora li'.
+    //
+    // NON si riusa il dominio globale uMin/uMax dell'engine: quello e' il
+    // dominio dei campi del dock Equations, che parseAndApplyScriptParams
+    // riscrive a ogni Run dalle direttive "u_min :=". Scriverci il taglio di
+    // All significherebbe vederlo sparire al primo Run -- lo stesso difetto per
+    // cui il dominio per-parte ha dovuto avere hasCustomDomain.
+    //
+    // Flag separato dal valore per la solita ragione: "nessun taglio in All"
+    // non si puo' esprimere con un numero, perche' ogni intervallo e' legittimo.
+    // Senza taglio le parti usano il PROPRIO dominio (dichiarato o scelto a
+    // mano), che e' il comportamento di sempre.
+    void setAllDomain(float uMin, float uMax, float vMin, float vMax) {
+        m_allUMin = uMin; m_allUMax = uMax;
+        m_allVMin = vMin; m_allVMax = vMax;
+        m_hasAllDomain = true;
+    }
+    void clearAllDomain() { m_hasAllDomain = false; }
+    bool hasAllDomain() const { return m_hasAllDomain; }
+    void allDomain(float &uMin, float &uMax, float &vMin, float &vMax) const {
+        uMin = m_allUMin; uMax = m_allUMax;
+        vMin = m_allVMin; vMax = m_allVMax;
+    }
+
+    // L'ambito corrente, che l'engine da solo non conoscerebbe: lo scrive
+    // GLWidget::setMeshAppearanceUniform. resolveMeshParts lo legge per sapere
+    // se applicare il dominio di All o quello delle singole parti.
+    void setMeshScopeAll(bool on) { m_meshScopeAll = on; }
+    bool meshScopeAll() const { return m_meshScopeAll; }
+
+    // Svuota ANCHE le parti generate. clearMeshParts() da sola lascia in piedi
+    // m_meshParts, che sopravvive fino al primo computeMesh(): al caricamento di
+    // un preset quella rigenerazione non e' immediata (arriva piu' tardi da
+    // checkAndTriggerMeshUpdate), e in quella finestra le parti della superficie
+    // PRECEDENTE sono ancora quelle che il render legge e che mutableMeshPart
+    // restituisce. Con un dominio scelto a mano il residuo si vede: una singola
+    // mesh -- quella attiva al salvataggio -- resta tagliata mentre le altre
+    // tornano intere, un fantasma che non corrisponde ne' al preset caricato ne'
+    // a quello precedente.
+    void clearAllMeshParts() { m_declaredParts.clear(); m_meshParts.clear(); }
     const std::vector<MeshPart>& getMeshParts() const { return m_meshParts; }
     int getMeshPartCount() const { return (int)m_meshParts.size(); }
 
@@ -285,6 +372,35 @@ public:
     // script. Il tempo che avanza nel tick e' esente: si risincronizza da se' al
     // frame dopo, e sincronizzarlo a ogni frame sarebbe lavoro inutile.
     std::vector<MeshPart>& mutableMeshParts() { return m_meshParts; }
+
+    // DOMINIO DI UNA PARTE DICHIARATA. E' l'unico campo che l'interfaccia deve
+    // poter scrivere DIRETTAMENTE nelle parti dichiarate, e la ragione e' che
+    // il dominio non e' aspetto: generateParametricGrid riparte SEMPRE da
+    // resolveMeshParts(), che ricostruisce m_meshParts da m_declaredParts.
+    // Scrivere il dominio nella sola lista generata (mutableMeshPart) non
+    // sopravvive dunque nemmeno un frame: la rigenerazione che serve a rendere
+    // visibile la modifica e' anche cio' che la cancella, e a schermo non
+    // cambia niente.
+    //
+    // Perche' non passare da syncPartAppearance, che gia' fa questo lavoro per
+    // colore, texture e wireframe: quella gira a OGNI modifica di aspetto e
+    // ricopia l'intero blocco. Il dominio deve restare fuori da quel blocco,
+    // perche' setMeshParts (il Run dello script) NON lo preserva: e' cosi' che
+    // le sezioni //MESH_BEGIN restano l'autorita' sul dominio. Un accessore
+    // separato tiene le due cose distinte.
+    void setDeclaredPartDomain(int index, float uMin, float uMax,
+                               float vMin, float vMax) {
+        if (index < 0 || index >= (int)m_declaredParts.size()) return;
+        m_declaredParts[index].uMin = uMin;
+        m_declaredParts[index].uMax = uMax;
+        m_declaredParts[index].vMin = vMin;
+        m_declaredParts[index].vMax = vMax;
+        // Da qui passa SOLO la scelta dell'utente (setActiveMeshDomain): il
+        // flag marca la parte come "dominio proprio", cosi' setMeshParts lo
+        // preserva quando lo script viene riestratto. Le parti che arrivano
+        // dallo script non toccano questa funzione e restano senza flag.
+        m_declaredParts[index].hasCustomDomain = true;
+    }
     // Ricopia l'aspetto dalle parti generate a quelle dichiarate, cosi' una
     // modifica fatta dall'UI sopravvive alla prossima rigenerazione.
     void syncPartAppearance() {
@@ -426,6 +542,12 @@ private:
     // mentre le generate vanno ricalcolate a ogni computeMesh().
     std::vector<MeshPart> m_declaredParts;
     std::vector<MeshPart> m_meshParts;
+
+    // Dominio dell'ambito "All" e ambito corrente (vedi setAllDomain).
+    float m_allUMin = 0.0f, m_allUMax = 1.0f;
+    float m_allVMin = 0.0f, m_allVMax = 1.0f;
+    bool  m_hasAllDomain = false;
+    bool  m_meshScopeAll = true;
 
     // ==========================================================
     // EQUATIONS STATE
