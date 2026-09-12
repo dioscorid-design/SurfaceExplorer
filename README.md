@@ -20,19 +20,7 @@ Surface Explorer 1.1 is built on the Qt RHI architecture and adds two major rend
 
 ## ⚠️ Known Issues
 
-**Windows — Geodesic Flow on equation-defined surfaces.** Presets that drive the **Geodesic Flow** solver from a metric written in the Equations panel currently have rendering problems on Windows. The application may stop responding and be closed by the system — Windows reports this as *"SurfaceExplorer.exe stopped interacting with Windows"*, which is a hang rather than a crash. The same presets behave correctly on macOS and Linux.
-
-The bundled presets affected are:
-
-* `Parametric / Geodesic Flow / Black Hole / Kerr`
-* `Parametric / Geodesic Flow / Black Hole / Kruskal`
-* `Records / Rotations / Kerr Black Hole`
-* `Records / Rotations / Kerr Spin Animated`
-* `Records / Rotations / Kruskal Wormhole`
-* `Records / Rotations / Wormhole`
-* `Records / Static / Kerr`
-
-They are kept in the library because they are fully functional on the other platforms.
+**Windows / Direct3D.** Presets that drive the **Geodesic Flow** solver from a metric written in the Equations panel may not render correctly on the Direct3D backend: the application can stop responding and be closed by the system. They work as expected on the other platforms.
 
 ## 📦 Releases
 You don't need to compile the project to try it! Check out the **[Latest Releases](https://github.com/dioscorid-design/SurfaceExplorer/releases)** for portable, standalone binaries:
