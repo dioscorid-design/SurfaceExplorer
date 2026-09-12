@@ -23,16 +23,7 @@ You don't need to compile the project to try it! Check out the **[Latest Release
 
 * **macOS**: Download `SurfaceExplorer.dmg`, open it, and drag the app to your Applications folder. The app is signed with an Apple Developer ID and notarized, so it opens normally on first launch — no Gatekeeper workaround needed.
 * **Windows**: Download `SurfaceExplorer-win64.zip`, extract, and run `SurfaceExplorer.exe`.
-* **Linux**: Download `SurfaceExplorer-*-linux-x86_64.AppImage` — a self-contained binary that bundles Qt, so it runs on any x86_64 distribution with no installation. Make it executable and launch it:
-  ```bash
-  chmod +x SurfaceExplorer-*-linux-x86_64.AppImage
-  ./SurfaceExplorer-*-linux-x86_64.AppImage
-  ```
-  To add it to your applications menu (icon + launcher), download `install-linux.sh` into the same folder and run it:
-  ```bash
-  chmod +x install-linux.sh
-  ./install-linux.sh            # integrates into the menu; re-run to update, --uninstall to remove
-  ```
+* **Linux**: Download `SurfaceExplorer-*-linux-x86_64.AppImage` — a self-contained binary that bundles Qt, so it runs on any x86_64 distribution with no installation. Every release page carries the exact commands to make it executable and, with `install-linux.sh`, to add it to your applications menu.
 
 ## 🛠️ Build from Source
 To compile Surface Explorer manually, ensure you have **Qt 6.10.2** and **CMake** installed:

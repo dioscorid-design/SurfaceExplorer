@@ -324,6 +324,80 @@ upload_asset() {
 upload_asset "$DIST_DIR/$OUTPUT"        "application/octet-stream"
 [ -f "$SCRIPT_DIR/install-linux.sh" ] && upload_asset "$SCRIPT_DIR/install-linux.sh" "application/x-shellscript"
 
+# 4d. scrive le istruzioni Linux NEL TESTO della release.
+# Stavano nel README, ma chi scarica atterra qui e il README non lo apre mai (il
+# bottone del sito punta a /releases/latest): il sintomo era l'AppImage che, senza
+# bit exec, il desktop passa a un gestore di immagini disco invece di eseguirla.
+# Il blocco e' delimitato da marcatori HTML (invisibili nel render): se c'e' gia'
+# viene SOSTITUITO - cosi' il nome file segue la versione - altrimenti accodato.
+# Il testo scritto a mano intorno non viene mai toccato.
+# NON fatale: gli asset sono gia' caricati, non si butta via una release per questo.
+msg "Aggiorno le istruzioni Linux nel testo della release ..."
+if ! BODY_STATUS="$(API="$API" RID="$RID" TOKEN="$TOKEN" OUTPUT="$OUTPUT" python3 - <<'PY'
+import json, os, subprocess, sys
+
+API, RID, TOKEN, OUTPUT = (os.environ[k] for k in ("API", "RID", "TOKEN", "OUTPUT"))
+BEGIN, END = "<!-- linux-install:begin -->", "<!-- linux-install:end -->"
+
+block = f"""{BEGIN}
+### Linux
+
+The AppImage is a self-contained binary that bundles Qt, so it runs on any x86_64
+distribution with no installation. A downloaded file carries no permissions: make
+it executable first, or the desktop may hand it to a disk-image tool instead of
+launching it.
+
+```bash
+chmod +x {OUTPUT}
+./{OUTPUT}
+```
+
+To add it to your applications menu (icon + launcher), download `install-linux.sh`
+into the same folder and run it:
+
+```bash
+chmod +x install-linux.sh
+./install-linux.sh            # re-run to update, --uninstall to remove
+```
+{END}"""
+
+
+def api(method, payload=None):
+    cmd = ["curl", "-s", "--max-time", "60",
+           "-H", f"Authorization: token {TOKEN}",
+           "-H", "Accept: application/vnd.github+json",
+           "-X", method, f"{API}/releases/{RID}"]
+    if payload is not None:
+        cmd += ["-d", json.dumps(payload)]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    return json.loads(r.stdout)
+
+
+body = api("GET").get("body") or ""
+
+if BEGIN in body and END in body:
+    head, rest = body.split(BEGIN, 1)
+    tail = rest.split(END, 1)[1]
+    new, what = head + block + tail, "sostituito"
+elif body.strip():
+    new, what = body.rstrip() + "\n\n" + block, "accodato"
+else:
+    new, what = block, "creato"
+
+if new == body:
+    print("gia' aggiornato")
+    sys.exit(0)
+
+if api("PATCH", {"body": new}).get("body") != new:
+    sys.exit(1)
+print(what)
+PY
+)"; then
+  printf '\033[1;33mATTENZIONE:\033[0m istruzioni Linux NON scritte nel testo della release (gli asset sono caricati).\n' >&2
+  BODY_STATUS="non aggiornato"
+fi
+msg "  -> blocco istruzioni: $BODY_STATUS"
+
 cat <<EOF
 
 === RELEASE $TAG PUBBLICATA ===
