@@ -342,22 +342,23 @@ BEGIN, END = "<!-- linux-install:begin -->", "<!-- linux-install:end -->"
 block = f"""{BEGIN}
 ### Linux
 
-The AppImage is a self-contained binary that bundles Qt, so it runs on any x86_64
-distribution with no installation. A downloaded file carries no permissions: make
-it executable first, or the desktop may hand it to a disk-image tool instead of
-launching it.
+Download both `{OUTPUT}` and `install-linux.sh` into the same folder, then run:
+
+```bash
+bash install-linux.sh
+```
+
+It copies the AppImage to `~/Applications`, makes it executable and adds it to your
+applications menu with its icon, so from then on you launch it like any other app.
+Re-run it to update, `bash install-linux.sh --uninstall` to remove. No root needed.
+
+**To run the AppImage directly instead**, make it executable first. A downloaded file
+carries no permissions, and without this your desktop may hand it to a disk-image
+tool instead of launching it:
 
 ```bash
 chmod +x {OUTPUT}
 ./{OUTPUT}
-```
-
-To add it to your applications menu (icon + launcher), download `install-linux.sh`
-into the same folder and run it:
-
-```bash
-chmod +x install-linux.sh
-./install-linux.sh            # re-run to update, --uninstall to remove
 ```
 {END}"""
 
