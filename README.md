@@ -26,7 +26,7 @@ Surface Explorer 1.1 is built on the Qt RHI architecture and adds two major rend
 You don't need to compile the project to try it! Check out the **[Latest Releases](https://github.com/dioscorid-design/SurfaceExplorer/releases)** for portable, standalone binaries:
 
 * **macOS**: Download `SurfaceExplorer.dmg`, open it, and drag the app to your Applications folder. The app is signed with an Apple Developer ID and notarized, so it opens normally on first launch — no Gatekeeper workaround needed.
-* **Windows**: Download `SurfaceExplorer-win64.zip`, extract, and run `SurfaceExplorer.exe`.
+* **Windows**: Download `SurfaceExplorer-*-windows-x64.zip`, extract, and run `SurfaceExplorer.exe`.
 * **Linux**: Download `SurfaceExplorer-*-linux-x86_64.AppImage` — a self-contained binary that bundles Qt, so it runs on any x86_64 distribution with no installation. Every release page carries the exact commands to make it executable and, with `install-linux.sh`, to add it to your applications menu.
 
 ## 🛠️ Build from Source
