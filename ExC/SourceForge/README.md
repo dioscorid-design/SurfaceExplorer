@@ -4,12 +4,10 @@ A high-performance multi-backend 4D surface visualizer built with Qt 6 and Qt RH
 
 ## Which file do I need?
 
-| File | Platform |
-| --- | --- |
-| `SurfaceExplorer.dmg` | macOS 12.0+ (Universal) |
-| `SurfaceExplorer-1.2-windows-x64.zip` | Windows 10/11, 64-bit |
-| `SurfaceExplorer-v1.2-linux-x86_64.AppImage` | Linux, any x86_64 distribution |
-| `install-linux.sh` | Optional, Linux only — adds the AppImage to your applications menu |
+* **macOS** 12.0+ (Universal) — `SurfaceExplorer.dmg`
+* **Windows** 10/11, 64-bit — `SurfaceExplorer-1.2-windows-x64.zip`
+* **Linux**, any x86_64 distribution — `SurfaceExplorer-v1.2-linux-x86_64.AppImage`
+* **Linux, optional** — `install-linux.sh`, adds the AppImage to your applications menu
 
 An iOS build is available on the [App Store](https://apps.apple.com/app/id6787015297).
 
@@ -56,5 +54,5 @@ responding and be closed by the system. They work as expected on the other platf
 
 ## Source and bug reports
 
-* Source code — <https://github.com/dioscorid-design/SurfaceExplorer>
-* Bug reports — <https://github.com/dioscorid-design/SurfaceExplorer/issues>
+* Source code — [github.com/dioscorid-design/SurfaceExplorer](https://github.com/dioscorid-design/SurfaceExplorer)
+* Bug reports — [github.com/dioscorid-design/SurfaceExplorer/issues](https://github.com/dioscorid-design/SurfaceExplorer/issues)
