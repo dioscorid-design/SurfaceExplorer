@@ -310,13 +310,13 @@
         <file>presets/records/Rotations/Clifford Torus.json</file>
         <file>presets/records/Rotations/Hyperbolic Enneper.json</file>
         <file>presets/records/Rotations/Kerr Black Hole.json</file>
-        <file>presets/records/Rotations/Dini’s Surface.json</file>
+        <file>presets/records/Rotations/Dini's Surface.json</file>
         <file>presets/records/Rotations/Ellipsoid.json</file>
         <file>presets/records/Rotations/Twisted Torus.json</file>
         <file>presets/records/Rotations/Klein3D Falling.json</file>
         <file>presets/records/Rotations/Kruskal Wormhole.json</file>
         <file>presets/records/Rotations/Small Sphere Escape.json</file>
-        <file>presets/records/Rotations/Scherk’s Second Surface.json</file>
+        <file>presets/records/Rotations/Scherk's Second Surface.json</file>
         <file>presets/records/Rotations/Torus Knot.json</file>
         <file>presets/records/Rotations/Boy Surface.json</file>
         <file>presets/records/Solid Wireframe/Clifford Labyrinth.json</file>
@@ -397,7 +397,7 @@
         <file>presets/records/Paths/Klein3D Racing.json</file>
         <file>presets/records/Paths/Klein Fire Racing.json</file>
         <file>presets/records/Paths/Warping Torus.json</file>
-        <file>presets/records/Paths/Poincare’s Catenoid.json</file>
+        <file>presets/records/Paths/Poincare's Catenoid.json</file>
         <file>presets/records/Paths/Heisenberg Sphere.json</file>
         <file>presets/records/Paths/Calabi-Yau Tunnel.json</file>
         <file>presets/records/Paths/Coiled Coil.json</file>
