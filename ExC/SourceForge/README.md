@@ -6,7 +6,7 @@ A high-performance multi-backend 4D surface visualizer built with Qt 6 and Qt RH
 
 | File | Platform |
 | --- | --- |
-| `SurfaceExplorer-v1.2-macos.dmg` | macOS 12.0+ (Universal) |
+| `SurfaceExplorer.dmg` | macOS 12.0+ (Universal) |
 | `SurfaceExplorer-1.2-windows-x64.zip` | Windows 10/11, 64-bit |
 | `SurfaceExplorer-v1.2-linux-x86_64.AppImage` | Linux, any x86_64 distribution |
 | `install-linux.sh` | Optional, Linux only — adds the AppImage to your applications menu |
