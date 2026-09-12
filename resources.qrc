@@ -172,7 +172,9 @@
         <file>presets/surfaces/Parametric/Equations/R3/Twisted Tori/Non-orientable Twisted Elliptic Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Twisted Tori/Sevenfold Twisted Elliptic Torus.json</file>
         <file>presets/surfaces/Parametric/Equations/R3/Twisted Tori/Triple-Twist Elliptic Torus.json</file>
+        <file>presets/surfaces/Parametric/Multimesh/Hopf Tori.json</file>
         <file>presets/surfaces/Parametric/Multimesh/Calabi-Yau 3D.json</file>
+        <file>presets/surfaces/Parametric/Multimesh/Hopf Half Tori.json</file>
         <file>presets/surfaces/Parametric/Multimesh/Calabi-Yau.json</file>
         <file>presets/surfaces/Parametric/Multimesh/Brieskorn-Pham.json</file>
         <file>presets/surfaces/Parametric/Multimesh/Solid Wireframe/Octahedron Bands.json</file>
@@ -320,6 +322,7 @@
         <file>presets/records/Rotations/Boy Surface.json</file>
         <file>presets/records/Solid Wireframe/Clifford Labyrinth.json</file>
         <file>presets/records/Solid Wireframe/Multi Mesh/Hopf Tori.json</file>
+        <file>presets/records/Solid Wireframe/Multi Mesh/Hopf Half Tori.json</file>
         <file>presets/records/Solid Wireframe/Multi Mesh/Villarceau Tubes Drift.json</file>
         <file>presets/records/Solid Wireframe/Multi Mesh/Clifford Labyrinth Fibers.json</file>
         <file>presets/records/Solid Wireframe/Multi Mesh/Hopf Parallel.json</file>
@@ -389,10 +392,8 @@
         <file>presets/records/Paths/Figure-Eight Tube.json</file>
         <file>presets/records/Paths/Pseudosphere.json</file>
         <file>presets/records/Paths/Mobius Racing.json</file>
-        <file>presets/records/Paths/Sol Tours.json</file>
         <file>presets/records/Paths/Clover.json</file>
         <file>presets/records/Paths/Cuspid Koranyi Sphere.json</file>
-        <file>presets/records/Paths/Clifford Torus.json</file>
         <file>presets/records/Paths/Projective Plain Racing.json</file>
         <file>presets/records/Paths/Klein3D Racing.json</file>
         <file>presets/records/Paths/Klein Fire Racing.json</file>
@@ -401,6 +402,7 @@
         <file>presets/records/Paths/Heisenberg Sphere.json</file>
         <file>presets/records/Paths/Calabi-Yau Tunnel.json</file>
         <file>presets/records/Paths/Coiled Coil.json</file>
+        <file>presets/records/Paths/Sol Torus.json</file>
         <file>presets/records/Paths/Trefoil.json</file>
         <file>presets/records/Paths/Calabi-Yau Orbit.json</file>
         <file>presets/records/Wireframe/Helical Flow.json</file>
@@ -409,6 +411,7 @@
         <file>presets/records/Wireframe/Pseudo-Iwasawa Torus.json</file>
         <file>presets/records/Wireframe/Ellipsoid.json</file>
         <file>presets/records/Wireframe/Boy Surface.json</file>
+        <file>presets/records/Static/Hopf Tori.json</file>
         <file>presets/records/Static/Enneper.json</file>
         <file>presets/records/Static/Fresnel.json</file>
         <file>presets/records/Static/Kerr.json</file>

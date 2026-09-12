@@ -17,7 +17,11 @@ in fondo, al paragrafo "Perché serve azzerare".
 Chiudi prima l'applicazione (tutte le versioni aperte). Poi, in blocco:
 
 ```bash
-# 1. trova il container e mostra lo stato attuale (se stampa libraryRootPath, non e' prima apertu
+# 1. trova il container e mostra lo stato attuale
+#    (se stampa libraryRootPath, NON e' prima apertura: prosegui col punto 2)
+PLIST=$(ls -d "$HOME/Library/Containers"/*/Data/Library/Preferences/com.dioscorid.surfaceexplorer.plist 2>/dev/null | head -1)
+CONTAINER=$(dirname "$(dirname "$(dirname "$(dirname "$PLIST")")")")
+plutil -p "$PLIST" | grep -i libraryRoot
 
 # 2. azzera (= stato di prima installazione)
 find "$CONTAINER/Data" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null
