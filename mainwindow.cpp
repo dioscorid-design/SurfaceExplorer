@@ -1234,7 +1234,12 @@ MainWindow::MainWindow(QWidget *parent)
                            "<b>Surface Explorer</b><br>"
                            "Version " APP_VERSION "<br><br>"
                            "Developed by: <b>Gaetano Moschetti</b><br>"
-                           "License: <b>GNU GPL v3</b><br><br>"
+                           "License: <b>GNU GPL v3</b><br>"
+                           // L'URL e' scritto per esteso anche come testo del link:
+                           // se il message box non apre i link esterni resta
+                           // comunque leggibile e selezionabile.
+                           "Website: <a href=\"https://dioscorid-design.github.io/SurfaceExplorer/\">"
+                           "dioscorid-design.github.io/SurfaceExplorer</a><br><br>"
                            "This is free software: you are free to change and redistribute it "
                            "under the terms of the GNU General Public License as published by "
                            "the Free Software Foundation.<br><br>"

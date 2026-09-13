@@ -5,8 +5,9 @@
 # nato dal doverli modificare a mano uno per uno.
 #
 # Aggiorna:
-#   CMakeLists.txt : project(SurfaceExplorer VERSION X.Y ...)  <- unico punto
-#   Info.plist     : CFBundleShortVersionString
+#   CMakeLists.txt   : project(SurfaceExplorer VERSION X.Y ...)  <- unico punto
+#   Info.plist       : CFBundleShortVersionString
+#   Info-macos.plist : CFBundleShortVersionString  (bundle macOS App Store)
 #
 # I campi del bundle (MACOSX_BUNDLE_SHORT_VERSION_STRING, XCODE_..._MARKETING_VERSION)
 # e la define APP_VERSION letta dal dialogo About derivano da ${PROJECT_VERSION}:
@@ -27,6 +28,7 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 CMAKE="$PROJECT_DIR/CMakeLists.txt"
 PLIST="$PROJECT_DIR/Info.plist"
+PLIST_MAC="$PROJECT_DIR/Info-macos.plist"   # bundle macOS App Store (CMakeLists:281)
 
 err() { printf 'ERRORE: %s\n' "$*" >&2; exit 1; }
 
@@ -38,6 +40,7 @@ DO_COMMIT=1
 printf '%s' "$NEW" | grep -qE '^[0-9]+\.[0-9]+$' || err "Versione '$NEW' non valida: attesa X.Y (es. 1.1)"
 [ -f "$CMAKE" ] || err "CMakeLists.txt non trovato in $PROJECT_DIR"
 [ -f "$PLIST" ] || err "Info.plist non trovato in $PROJECT_DIR"
+[ -f "$PLIST_MAC" ] || err "Info-macos.plist non trovato in $PROJECT_DIR"
 
 # --- versione attuale (per il riepilogo) ---
 OLD="$(sed -nE 's/^project\(SurfaceExplorer[[:space:]]+VERSION[[:space:]]+([0-9.]+).*/\1/p' "$CMAKE" | head -1)"
@@ -54,13 +57,24 @@ sed -E \
   -e "s/^(project\(SurfaceExplorer[[:space:]]+VERSION[[:space:]]+)[0-9][0-9.]*/\1${NEW}/" \
   "$CMAKE" > "$tmp" && mv "$tmp" "$CMAKE"
 
-# --- 2. Info.plist (valore sulla riga DOPO la chiave) ------------------------
-tmp="$(mktemp)"
-awk -v v="$NEW" '
-  f && /<string>[0-9][0-9.]*<\/string>/ { sub(/<string>[0-9][0-9.]*<\/string>/, "<string>" v "</string>"); f=0 }
-  /CFBundleShortVersionString/ { f=1 }
-  { print }
-' "$PLIST" > "$tmp" && mv "$tmp" "$PLIST"
+# --- 2. i DUE plist (valore sulla riga DOPO la chiave) -----------------------
+# Info.plist       -> bundle iOS / macOS diretto
+# Info-macos.plist -> bundle macOS App Store (CMakeLists:281)
+# Vanno aggiornati ENTRAMBI: fino alla 1.2 questo script toccava solo il primo,
+# e la build per Apple sarebbe partita con la versione vecchia mentre tutto il
+# resto era gia' bumpato — proprio il disallineamento che deve impedire.
+# (release_testflight_mac.sh, che gestisce il BUILD NUMBER, li tocca gia' tutti.)
+bump_plist() {
+  local f="$1" tmp
+  tmp="$(mktemp)"
+  awk -v v="$NEW" '
+    f && /<string>[0-9][0-9.]*<\/string>/ { sub(/<string>[0-9][0-9.]*<\/string>/, "<string>" v "</string>"); f=0 }
+    /CFBundleShortVersionString/ { f=1 }
+    { print }
+  ' "$f" > "$tmp" && mv "$tmp" "$f"
+}
+bump_plist "$PLIST"
+bump_plist "$PLIST_MAC"
 
 # --- verifica che i 4 punti riportino ora la nuova versione ------------------
 check() { grep -qE "$1" "$2" || err "sostituzione fallita: $3 (pattern non trovato dopo l'edit)"; }
@@ -70,10 +84,12 @@ check "^project\(SurfaceExplorer[[:space:]]+VERSION[[:space:]]+${NEW}[[:space:]]
 check 'MACOSX_BUNDLE_SHORT_VERSION_STRING[[:space:]]+"\$\{PROJECT_VERSION\}"' "$CMAKE" "SHORT_VERSION_STRING derivato da PROJECT_VERSION"
 check 'XCODE_ATTRIBUTE_MARKETING_VERSION[[:space:]]+"\$\{PROJECT_VERSION\}"'  "$CMAKE" "MARKETING_VERSION derivato da PROJECT_VERSION"
 check 'APP_VERSION="\$\{PROJECT_VERSION\}"'                                   "$CMAKE" "define APP_VERSION derivata da PROJECT_VERSION"
-grep -A1 'CFBundleShortVersionString' "$PLIST" | grep -qE "<string>${NEW}</string>" \
-  || err "sostituzione fallita: Info.plist CFBundleShortVersionString"
+for p in "$PLIST" "$PLIST_MAC"; do
+  grep -A1 'CFBundleShortVersionString' "$p" | grep -qE "<string>${NEW}</string>" \
+    || err "sostituzione fallita: $(basename "$p") CFBundleShortVersionString"
+done
 
-printf '\nVersione: %s -> %s   (aggiornati CMakeLists.txt + Info.plist)\n' "$OLD" "$NEW"
+printf '\nVersione: %s -> %s   (CMakeLists.txt + Info.plist + Info-macos.plist)\n' "$OLD" "$NEW"
 
 # --- Il dialogo About NON va piu' toccato: dalla 1.2 stampa APP_VERSION, che
 # arriva da project(... VERSION ...) nel CMakeLists via target_compile_definitions.
@@ -82,7 +98,7 @@ printf '\nVersione: %s -> %s   (aggiornati CMakeLists.txt + Info.plist)\n' "$OLD
 
 # --- 3. commit (salvo --no-commit) -------------------------------------------
 if [ "$DO_COMMIT" -eq 1 ]; then
-  ( cd "$PROJECT_DIR" && git add CMakeLists.txt Info.plist \
+  ( cd "$PROJECT_DIR" && git add CMakeLists.txt Info.plist Info-macos.plist \
       && git commit -m "Bump versione $NEW" )
   printf '\nCommit creato. Ricorda di: git push\n'
 else
