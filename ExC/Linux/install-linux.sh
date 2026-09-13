@@ -21,9 +21,11 @@ WM_CLASS="SurfaceExplorer"                       # deve combaciare con StartupWM
 INSTALL_DIR="${HOME}/Applications"              # dove vive l'AppImage
 TARGET_APPIMAGE="${INSTALL_DIR}/${WM_CLASS}.AppImage"   # nome fisso => Exec stabile tra le versioni
 DESKTOP_DIR="${HOME}/.local/share/applications"
-ICON_DIR="${HOME}/.local/share/icons/hicolor/256x256/apps"
+# Radice del tema icone: ogni PNG va nella cartella della PROPRIA dimensione.
+# Prima qui c'era una cartella sola, cablata a 256x256, e ci finiva dentro
+# un'icona da 64px: il desktop la ingrandiva 4 volte e appariva sfocata.
+ICON_BASE="${HOME}/.local/share/icons/hicolor"
 DESKTOP_FILE="${DESKTOP_DIR}/${APP_ID}.desktop"
-ICON_FILE="${ICON_DIR}/${APP_ID}.png"
 
 msg()  { printf '>>> %s\n' "$*"; }
 err()  { printf 'ERRORE: %s\n' "$*" >&2; exit 1; }
@@ -33,7 +35,10 @@ usage() { sed -n '3,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
 # --- Disinstallazione -------------------------------------------------------
 uninstall() {
   msg "Rimuovo l'integrazione desktop di ${APP_NAME}..."
-  rm -f "$DESKTOP_FILE" "$ICON_FILE"
+  rm -f "$DESKTOP_FILE"
+  # Le icone stanno in piu' cartelle, una per dimensione: vanno rimosse tutte,
+  # altrimenti la disinstallazione ne lascia in giro otto su nove.
+  rm -f "$ICON_BASE"/*/apps/"${APP_ID}.png"
   if [ -f "$TARGET_APPIMAGE" ]; then
     printf '    Rimuovo anche %s ? [s/N] ' "$TARGET_APPIMAGE"
     read -r ans
@@ -82,17 +87,33 @@ extract_icon() {
   tmp="$(mktemp -d)"
   # trap per pulire la cartella temporanea in ogni caso
   trap 'rm -rf "$tmp"' RETURN
-  ( cd "$tmp" && "$src" --appimage-extract .DirIcon >/dev/null 2>&1 ) || true
-  if [ -f "$tmp/squashfs-root/.DirIcon" ]; then
-    install -Dm644 "$tmp/squashfs-root/.DirIcon" "$ICON_FILE"
+  # L'AppImage contiene il set completo (16..512): CMakeLists lo installa in
+  # usr/share/icons/hicolor. Ogni PNG va copiata nella cartella del tema che
+  # corrisponde alla sua dimensione REALE, letta dal percorso di origine.
+  # NON si usa .DirIcon: e' la miniatura da 64px della AppImage, e finiva nella
+  # cartella 256x256 -- il desktop la ingrandiva 4 volte e appariva sfocata.
+  local png dir n=0
+  ( cd "$tmp" && "$src" --appimage-extract 'usr/share/icons/hicolor/*' >/dev/null 2>&1 ) || true
+  for png in "$tmp"/squashfs-root/usr/share/icons/hicolor/*/apps/*.png; do
+    [ -f "$png" ] || continue
+    dir="$(basename "$(dirname "$(dirname "$png")")")"      # es. 256x256
+    case "$dir" in
+      [0-9]*x[0-9]*)
+        install -Dm644 "$png" "${ICON_BASE}/${dir}/apps/${APP_ID}.png" && n=$((n+1)) ;;
+    esac
+  done
+  if [ "$n" -gt 0 ]; then
+    msg "Icone installate: $n dimensioni sotto ${ICON_BASE}"
     return 0
   fi
-  # fallback: prova una PNG qualsiasi dentro usr/share/icons
-  ( cd "$tmp" && "$src" --appimage-extract 'usr/share/icons/*' >/dev/null 2>&1 ) || true
-  local png
-  png="$(find "$tmp/squashfs-root" -name '*.png' 2>/dev/null | head -1 || true)"
-  if [ -n "$png" ]; then
-    install -Dm644 "$png" "$ICON_FILE"
+
+  # Ripiego: .DirIcon, collocata in 64x64 che e' la sua dimensione abituale.
+  # Una cartella piccola al massimo fa rimpicciolire l'immagine, e rimpicciolire
+  # non sfoca; il contrario si', ed e' il difetto che questa funzione elimina.
+  ( cd "$tmp" && "$src" --appimage-extract .DirIcon >/dev/null 2>&1 ) || true
+  if [ -e "$tmp/squashfs-root/.DirIcon" ]; then
+    install -Dm644 "$tmp/squashfs-root/.DirIcon" "${ICON_BASE}/64x64/apps/${APP_ID}.png"
+    msg "Icone del tema non trovate: uso .DirIcon come ripiego (64x64)."
     return 0
   fi
   return 1
@@ -119,10 +140,8 @@ else
   chmod +x "$TARGET_APPIMAGE"
 fi
 
-# 2. Icona
-mkdir -p "$ICON_DIR"
+# 2. Icone (tutte le dimensioni presenti nell'AppImage; extract_icon riferisce)
 if extract_icon "$TARGET_APPIMAGE"; then
-  msg "Icona installata in $ICON_FILE"
   ICON_VALUE="$APP_ID"
 else
   msg "Icona non estratta: uso un'icona generica di sistema."
