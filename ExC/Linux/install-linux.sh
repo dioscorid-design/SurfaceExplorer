@@ -90,8 +90,9 @@ extract_icon() {
   # L'AppImage contiene il set completo (16..512): CMakeLists lo installa in
   # usr/share/icons/hicolor. Ogni PNG va copiata nella cartella del tema che
   # corrisponde alla sua dimensione REALE, letta dal percorso di origine.
-  # NON si usa .DirIcon: e' la miniatura da 64px della AppImage, e finiva nella
-  # cartella 256x256 -- il desktop la ingrandiva 4 volte e appariva sfocata.
+  # Prima si installava UNA sola PNG -- la prima restituita da find, quindi di
+  # dimensione casuale (16, 64, ...) -- e sempre nella cartella 256x256: il
+  # desktop la ingrandiva e l'icona appariva sfocata.
   local png dir n=0
   ( cd "$tmp" && "$src" --appimage-extract 'usr/share/icons/hicolor/*' >/dev/null 2>&1 ) || true
   for png in "$tmp"/squashfs-root/usr/share/icons/hicolor/*/apps/*.png; do
@@ -107,13 +108,24 @@ extract_icon() {
     return 0
   fi
 
-  # Ripiego: .DirIcon, collocata in 64x64 che e' la sua dimensione abituale.
-  # Una cartella piccola al massimo fa rimpicciolire l'immagine, e rimpicciolire
-  # non sfoca; il contrario si', ed e' il difetto che questa funzione elimina.
+  # Ripiego: .DirIcon. Nell'AppImage e' un symlink (-> surface-explorer.png, che
+  # a sua volta puo' puntare altrove) e --appimage-extract estrae solo il
+  # collegamento, non il bersaglio: senza risolverlo resta appeso e [ -e ]
+  # fallisce sempre. Si estraggono i bersagli uno a uno, fino a tre livelli.
+  local icon="$tmp/squashfs-root/.DirIcon" cur hop w
   ( cd "$tmp" && "$src" --appimage-extract .DirIcon >/dev/null 2>&1 ) || true
-  if [ -e "$tmp/squashfs-root/.DirIcon" ]; then
-    install -Dm644 "$tmp/squashfs-root/.DirIcon" "${ICON_BASE}/64x64/apps/${APP_ID}.png"
-    msg "Icone del tema non trovate: uso .DirIcon come ripiego (64x64)."
+  cur="$icon"
+  for hop in 1 2 3; do
+    { [ -L "$cur" ] && [ ! -e "$cur" ]; } || break
+    cur="$tmp/squashfs-root/$(readlink "$cur")"
+    ( cd "$tmp" && "$src" --appimage-extract "${cur#"$tmp"/squashfs-root/}" >/dev/null 2>&1 ) || true
+  done
+  if [ -e "$icon" ]; then
+    # nella cartella della dimensione REALE, letta dall'header PNG (IHDR, big-endian)
+    w="$(od -An -tu1 -j16 -N4 "$icon" 2>/dev/null | awk '{print $1*16777216 + $2*65536 + $3*256 + $4}')"
+    case "$w" in ''|*[!0-9]*|0) w=64 ;; esac
+    install -Dm644 "$icon" "${ICON_BASE}/${w}x${w}/apps/${APP_ID}.png"
+    msg "Icone del tema non trovate: uso .DirIcon come ripiego (${w}x${w})."
     return 0
   fi
   return 1
