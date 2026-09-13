@@ -249,12 +249,47 @@ else
   msg "Tag $TAG gia' presente sul remoto (lo uso cosi' com'e')"
 fi
 
-# 4b. trova (o crea) la release del tag
-RID="$(gh_api "$API/releases/tags/$TAG" | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d.get("id",""))')"
+# Legge un campo da una risposta JSON tollerando corpi vuoti o non-JSON: in quel
+# caso stampa la stringa vuota invece di morire con un traceback.
+json_field() {  # $1 = nome del campo ; JSON su stdin
+  python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+print(d.get(sys.argv[1], "") if isinstance(d, dict) else "")
+' "$1"
+}
+
+# 4b. trova (o crea) la release del tag.
+# Sulla v1.3 e' successo davvero: il POST di creazione era andato a buon fine su
+# GitHub, ma il corpo della risposta e' tornato vuoto e json.load e' morto con un
+# traceback, uccidendo lo script DOPO la build -- release creata e senza asset.
+# Da qui due scelte: lettura tollerante con retry, e soprattutto NON fidarsi della
+# risposta al POST. La creazione puo' riuscire anche se il corpo non arriva,
+# quindi la fonte di verita' e' rileggere la release del tag.
+RID=""
+for attempt in 1 2 3; do
+  RESP="$(gh_api "$API/releases/tags/$TAG" || true)"
+  RID="$(printf '%s' "$RESP" | json_field id)"
+  [ -n "$RID" ] && break
+  # 404: la release non esiste ancora. Non e' un intoppo di rete, si crea sotto.
+  printf '%s' "$RESP" | grep -q '"status": *"404"' && break
+  msg "  risposta non valida dall'API (tentativo $attempt/3), riprovo..."
+  sleep 3
+done
+
 if [ -z "$RID" ]; then
   msg "Creo la release per $TAG"
-  RID="$(gh_api -X POST "$API/releases" -d "{\"tag_name\":\"$TAG\",\"name\":\"Surface Explorer $TAG\",\"draft\":false}" \
-         | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')"
+  gh_api -X POST "$API/releases" \
+    -d "{\"tag_name\":\"$TAG\",\"name\":\"Surface Explorer $TAG\",\"draft\":false}" >/dev/null || true
+  for attempt in 1 2 3; do
+    RID="$(gh_api "$API/releases/tags/$TAG" | json_field id)"
+    [ -n "$RID" ] && break
+    msg "  release non ancora leggibile (tentativo $attempt/3), riprovo..."
+    sleep 3
+  done
 fi
 [ -n "$RID" ] || err "Impossibile ottenere/creare la release."
 msg "Release id: $RID"

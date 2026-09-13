@@ -148,8 +148,26 @@ print(d.get("id","") if isinstance(d,dict) else "")
 done
 if [ -z "$RID" ]; then
   echo ">>> Creo la release per $TAG"
-  RID="$(gh_api -X POST "$API/releases" -d "{\"tag_name\":\"$TAG\",\"name\":\"Surface Explorer $TAG\",\"draft\":false}" \
-         | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')"
+  # Anche qui NON ci si fida della risposta al POST: la lettura sopra era gia'
+  # stata resa tollerante, ma questa riga era rimasta una pipe diretta a
+  # json.load. Sulla v1.3 e' esplosa proprio qui nello script Linux, con la
+  # release creata su GitHub e lo script morto nel leggerne la risposta.
+  # La creazione puo' riuscire anche se il corpo non arriva: si rilegge il tag.
+  gh_api -X POST "$API/releases" \
+    -d "{\"tag_name\":\"$TAG\",\"name\":\"Surface Explorer $TAG\",\"draft\":false}" >/dev/null || true
+  for attempt in 1 2 3; do
+    RID="$(gh_api "$API/releases/tags/$TAG" | python3 -c '
+import json,sys
+try:
+    d=json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+print(d.get("id","") if isinstance(d,dict) else "")
+')"
+    [ -n "$RID" ] && break
+    echo ">>>   release non ancora leggibile (tentativo $attempt/3), riprovo..."
+    sleep 3
+  done
 fi
 [ -n "$RID" ] || { echo "ERRORE: impossibile ottenere/creare la release."; exit 1; }
 echo ">>> Release id: $RID"
