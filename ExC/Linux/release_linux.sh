@@ -404,4 +404,11 @@ cat <<EOF
 === RELEASE $TAG PUBBLICATA ===
   https://github.com/$REPO/releases/tag/$TAG
 Asset caricati: $OUTPUT e install-linux.sh
+
+SourceForge si aggiorna DA SE': un webhook sull'evento 'release' copia gli
+asset in sourceforge.net/projects/surface-explorer/files/ con questi stessi
+nomi. NON ricaricarli a mano e non usare la "import form": faresti doppioni.
+  Verifica dopo qualche minuto: https://sourceforge.net/projects/surface-explorer/files/
+  Il README mostrato li' e' ExC/SourceForge/README.md, scritto con wildcard
+  (SurfaceExplorer-*-...): NON va aggiornato a ogni versione.
 EOF

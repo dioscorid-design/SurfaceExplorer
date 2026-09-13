@@ -1,12 +1,12 @@
-# Surface Explorer 1.2
+# Surface Explorer
 
 A high-performance multi-backend 4D surface visualizer built with Qt 6 and Qt RHI.
 
 ## Which file do I need?
 
-* **macOS** 12.0+ (Universal) — `SurfaceExplorer.dmg`
-* **Windows** 10/11, 64-bit — `SurfaceExplorer-1.2-windows-x64.zip`
-* **Linux**, any x86_64 distribution — `SurfaceExplorer-v1.2-linux-x86_64.AppImage`
+* **macOS** 12.0+ (Universal) — `SurfaceExplorer*.dmg`
+* **Windows** 10/11, 64-bit — `SurfaceExplorer-*-windows-x64.zip`
+* **Linux**, any x86_64 distribution — `SurfaceExplorer-*-linux-x86_64.AppImage`
 * **Linux, optional** — `install-linux.sh`, adds the AppImage to your applications menu
 
 An iOS build is available on the [App Store](https://apps.apple.com/app/id6787015297).
@@ -38,8 +38,9 @@ to update, `bash install-linux.sh --uninstall` to remove. No root required.
 no permissions, and without this step your desktop may hand it to a disk-image tool instead
 of launching it:
 
-    chmod +x SurfaceExplorer-v1.2-linux-x86_64.AppImage
-    ./SurfaceExplorer-v1.2-linux-x86_64.AppImage
+    chmod +x SurfaceExplorer-*-linux-x86_64.AppImage
+
+Then double-click it, or launch it from the terminal by its full name.
 
 ## Requirements
 
@@ -49,8 +50,8 @@ of launching it:
 ## Known issues
 
 **Windows / Direct3D.** Presets that drive the Geodesic Flow solver from a metric written in
-the Equations panel may not render correctly on the Direct3D backend: the application can stop
-responding and be closed by the system. They work as expected on the other platforms.
+the Equations panel may fail to render correctly on the Direct3D backend: the application can
+stop responding and be closed by the system. They work as expected on the other platforms.
 
 ## Source and bug reports
 
