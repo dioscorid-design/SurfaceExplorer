@@ -25,7 +25,7 @@
         <file>presets/surfaces/Ray Marching/Thick Schwarz.json</file>
         <file>presets/surfaces/Ray Marching/Torus.json</file>
         <file>presets/surfaces/Ray Marching/Pseudo Torus.json</file>
-        <file>presets/surfaces/Ray Marching/Klein Quartic.json</file>
+        <file>presets/surfaces/Ray Marching/Implicit Klein Bottle.json</file>
         <file>presets/surfaces/Ray Marching/Sphere and Tori Merge.json</file>
         <file>presets/surfaces/Ray Marching/Ellipsoid.json</file>
         <file>presets/surfaces/Ray Marching/Monkey Saddle.json</file>
@@ -293,7 +293,7 @@
         <file>presets/records/Ray Marching/Torus Tunnel.json</file>
         <file>presets/records/Ray Marching/Metaball.json</file>
         <file>presets/records/Ray Marching/Torus.json</file>
-        <file>presets/records/Ray Marching/Klein Quartic.json</file>
+        <file>presets/records/Ray Marching/Implicit Klein Bottle.json</file>
         <file>presets/records/Ray Marching/Gyroid alien.json</file>
         <file>presets/records/Ray Marching/Blistered Gyroid.json</file>
         <file>presets/records/Ray Marching/Schwarz P Circuit.json</file>
@@ -393,7 +393,7 @@
         <file>presets/records/Paths/Mobius Racing.json</file>
         <file>presets/records/Paths/Clover.json</file>
         <file>presets/records/Paths/Cuspid Koranyi Sphere.json</file>
-        <file>presets/records/Paths/Projective Plain Racing.json</file>
+        <file>presets/records/Paths/Projective Plane Racing.json</file>
         <file>presets/records/Paths/Klein3D Racing.json</file>
         <file>presets/records/Paths/Klein Fire Racing.json</file>
         <file>presets/records/Paths/Warping Torus.json</file>

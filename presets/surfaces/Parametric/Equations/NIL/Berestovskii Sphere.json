@@ -43,7 +43,7 @@
         "z": "A * (abs(v) < 0.0001 ? 0.0 : (v - sin(v)) / (2.0 * v * v))"
     },
     "hintSeconds": 9,
-    "hintText": "Slider A: overall scale\nThe Nil sphere of revolution: points at fixed sub-Riemannian distance, closing with a cusp at the poles",
+    "hintText": "Slider A: overall scale\nThe Nil sphere of revolution: points at fixed sub-Riemannian distance, closing in a conical dimple at each pole",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

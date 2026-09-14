@@ -70,13 +70,13 @@
         "zMax": 1000,
         "zMin": -1000
     },
-    "name": "Klein Quartic",
+    "name": "Implicit Klein Bottle",
     "projectionMode": 1,
     "renderMode": 10,
     "showBorder": false,
     "steps": 772,
     "type": "surface",
     "use4DLighting": false,
-    "hintText": "Sliders\nA: weight of the quartic\nB, C and D: the coefficients that shape it\nE: cutting level",
+    "hintText": "Sliders\nA: weight of the polynomial\nB, C and D: the coefficients that shape it\nE: cutting level",
     "hintSeconds": 7
 }

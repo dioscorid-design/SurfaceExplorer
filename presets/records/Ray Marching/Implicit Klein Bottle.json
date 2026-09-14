@@ -66,7 +66,7 @@
         "w0": ""
     },
     "hintSeconds": 7,
-    "hintText": "Sliders\nA: weight of the quartic\nB, C and D: the coefficients that shape it\nE: cutting level",
+    "hintText": "Sliders\nA: weight of the polynomial\nB, C and D: the coefficients that shape it\nE: cutting level",
     "implicitEquation": "A * ( (x*x+y*y+z*z+2.0*y-B) * ((x*x+y*y+z*z-2.0*y-B)*(x*x+y*y+z*z-2.0*y-B) - C*z*z) + D*x*z*(x*x+y*y+z*z-2.0*y-B) ) + E = 0.0",
     "isImplicitMode": true,
     "lightIntensity": 1,
@@ -86,7 +86,7 @@
         "zMin": -1000
     },
     "meshScopeAll": true,
-    "name": "Klein Quartic",
+    "name": "Implicit Klein Bottle",
     "observer4D": 4,
     "path3D": {
         "roll": "",
