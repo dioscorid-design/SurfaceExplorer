@@ -24,7 +24,9 @@ public:
     using ParseFn = std::function<float(const QString&, bool*)>;
 
     // Controlli per la modalità Ray Marching (Implicita)
-    static bool validateImplicitEquation(QWidget* parent, const QString& rawEq);
+    // allowP: sotto-tab Cross Section (equazione a 4 variabili x,y,z,p).
+    // Default false: il tab 3D continua a vietare 'p' come sempre.
+    static bool validateImplicitEquation(QWidget* parent, const QString& rawEq, bool allowP = false);
     static bool validateImplicitScriptContext(QWidget* parent, const QString& texCode);
 
     // Controlli per la modalità Parametrica

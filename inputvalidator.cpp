@@ -8,7 +8,7 @@ static bool geodesicWarningDisabledForCurrentLoad = false;
 bool InputValidator::s_boxActive = false;
 quint64 InputValidator::s_errorCount = 0;
 
-bool InputValidator::validateImplicitEquation(QWidget* parent, const QString& rawEq)
+bool InputValidator::validateImplicitEquation(QWidget* parent, const QString& rawEq, bool allowP)
 {
     if (rawEq.count("=") > 1) {
         notify (parent, QMessageBox::Warning, "Syntax Error", "Use only one '=' sign (e.g., x^2 + y^2 = 1)");
@@ -21,8 +21,11 @@ bool InputValidator::validateImplicitEquation(QWidget* parent, const QString& ra
         testEq += " = 0.0"; // Simuliamo la correzione automatica per il controllo
     }
 
-    if (testEq.contains(QRegularExpression("\\bu\\b|\\bv\\b|\\bw\\b|\\bp\\b"))) {
-        notify(parent, QMessageBox::Critical, "Invalid Variables", "Use only x, y, and z in Ray Marching.");
+    const QString forbidden = allowP ? "\\bu\\b|\\bv\\b|\\bw\\b" : "\\bu\\b|\\bv\\b|\\bw\\b|\\bp\\b";
+    if (testEq.contains(QRegularExpression(forbidden))) {
+        notify(parent, QMessageBox::Critical, "Invalid Variables",
+              allowP ? "Use only x, y, z, and p in Ray Marching Cross Section."
+                     : "Use only x, y, and z in Ray Marching.");
         return false;
     }
 

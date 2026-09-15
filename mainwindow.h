@@ -982,6 +982,12 @@ private:
     // EQUAZIONE, e siccome quasi tutti i record RM sono da SCRIPT i radio non
     // si resettavano mai caricando un record; resetScene non lo faceva affatto.
     void applyImplicitShellMode(bool shell);
+    // Superficie di default del sotto-tab Cross Section (T^3, 3-toro): stessa
+    // idea della sfera di default per il tab 3D, ma per l'equazione a 4
+    // variabili (x,y,z,p). Riusata sia da resetScene (arrivo su Implicit) sia
+    // dal cambio di sotto-tab (3D <-> Cross Section) — vedi CLAUDE.md, mai
+    // duplicare logica live: unica implementazione condivisa.
+    void loadCrossSectionDefaultSurface();
     QString presetsRootPath() const;
     // Data la cartella che l'utente ha indicato in un pannello, restituisce la
     // RADICE DELLA LIBRERIA: quella cartella stessa se e' gia' una radice (dentro

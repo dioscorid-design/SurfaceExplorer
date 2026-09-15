@@ -1776,6 +1776,30 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->tabModeSelector, &QTabWidget::currentChanged,
             this, &MainWindow::applyModeTabReset);
 
+    // Cambio di sotto-tab dentro Implicit (3D <-> Cross Section). Limiti/Run/
+    // Variations restano gli stessi (condivisi), ma le costanti A/B/C e
+    // l'equazione mostrata sono specifiche del sotto-tab: qui si mostra solo
+    // il default del sotto-tab appena aperto. Nessun reset di camera/texture/
+    // animazione: la superficie di default non ne ha (vedi
+    // loadCrossSectionDefaultSurface).
+    if (ui->subTabImplicit) {
+        connect(ui->subTabImplicit, &QTabWidget::currentChanged, this, [this](int subIndex) {
+            if (subIndex == 1) {
+                loadCrossSectionDefaultSurface();
+            } else if (subIndex == 0) {
+                ui->lineEquation->blockSignals(true);
+                ui->lineEquation->setPlainText("x^2 + y^2 + z^2 = 1.0");
+                ui->lineEquation->blockSignals(false);
+                if (ui->glWidget) {
+                    const QString sphereEq = QStringLiteral("(x^2 + y^2 + z^2) - (1.0)");
+                    ui->glWidget->validateAndApplyImplicitShader(sphereEq, "", "", /*useCrossSection=*/false);
+                }
+                applyImplicitShellMode(true);
+                if (ui->glWidget) ui->glWidget->rebuildShader();
+            }
+        });
+    }
+
     // RESET SULLA LINGUETTA GIA' ATTIVA. currentChanged non scatta se l'indice
     // non cambia, quindi ricliccare il tab in cui sei gia' non faceva nulla.
     // Ora vale come "ricomincia da capo in questa modalita'": la stessa pulizia
@@ -2255,6 +2279,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->lineEquation, &QPlainTextEdit::textChanged, this, &MainWindow::updateConstantsUIState);
     connect(ui->lineTexture, &QPlainTextEdit::textChanged, this, &MainWindow::updateConstantsUIState);
     connect(ui->lineVariations, &QPlainTextEdit::textChanged, this, &MainWindow::updateConstantsUIState);
+    connect(ui->lineEquationCrossSection, &QPlainTextEdit::textChanged, this, &MainWindow::updateConstantsUIState);
 
     // Run "one-shot" del tab Ray Marching: modificare l'EQUAZIONE implicita lo
     // riabilita. Solo lineEquation -> texture e displacement sono del modulo
@@ -2265,6 +2290,14 @@ MainWindow::MainWindow(QWidget *parent)
         updateMasterButtonState();
 
         // Come nel ramo parametrico qui sopra: l'evidenziazione resta.
+    });
+
+    // Stessa cosa per il sotto-tab Cross Section (equazione a 4 variabili):
+    // editor distinto, ma stesso contratto Run "one-shot" del tab 3D.
+    connect(ui->lineEquationCrossSection, &QPlainTextEdit::textChanged, this, [this]() {
+        m_implicitApplied = false;
+        noteSceneEdited(ui->lineEquationCrossSection);
+        updateMasterButtonState();
     });
 
     if (ui->lnU) {
@@ -4267,6 +4300,7 @@ MainWindow::MainWindow(QWidget *parent)
     EnterApplyFilter* equationEnterFilter = new EnterApplyFilter(this);
     equationEnterFilter->onEnter = [this]() { onStartClicked(); };
     ui->lineEquation->installEventFilter(equationEnterFilter);
+    ui->lineEquationCrossSection->installEventFilter(equationEnterFilter);
 
     // Run del dock Equations: applica le equazioni parametriche senza passare
     // dal tasto master START/STOP della status bar
@@ -4327,7 +4361,8 @@ void MainWindow::noteSceneEdited(QWidget *source)
     // scrivere una texture o un suono non contende la scena alle equazioni.
     SurfaceOrigin editedDock;
     if (source == ui->lineX || source == ui->lineY || source == ui->lineZ
-     || source == ui->lineP || source == ui->lineEquation) {
+     || source == ui->lineP || source == ui->lineEquation
+     || source == ui->lineEquationCrossSection) {
         editedDock = OriginEquations;
     } else if (source == ui->txtScriptEditor
             && m_currentScriptMode == ScriptModeSurface) {
@@ -5307,6 +5342,14 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
             applyImplicitShellMode(true);
 
             ui->glWidget->rebuildShader();
+
+            // Sotto-tab Cross Section: stessa idea, superficie di default
+            // propria (T^3). Sovrascrive quanto appena fatto sopra per il
+            // sotto-tab 3D SOLO se e' Cross Section quello attivo.
+            if (loadDefaultSurface && ui->subTabImplicit
+                && ui->subTabImplicit->currentIndex() == 1) {
+                loadCrossSectionDefaultSurface();
+            }
         }
     }
     else { // --- PASSAGGIO A PARAMETRIC (TAB 0) ---
@@ -6631,8 +6674,14 @@ void MainWindow::updateConstantsUIState() {
     }
     else { // MODALITÀ RAY MARCHING
         // L'equazione implicita e' matematica utente (translateEquation);
-        // texture e variations sono snippet GLSL.
-        mathText = stripCodeComments(ui->lineEquation->toPlainText());
+        // texture e variations sono snippet GLSL. Sorgente dell'equazione
+        // dipende dal sotto-tab attivo (3D vs Cross Section, stato separato
+        // — vedi CLAUDE.md), altrimenti le costanti usate SOLO nell'equazione
+        // Cross Section (es. A/B/C del T^3) risultavano "non usate" e
+        // updateControl le azzerava/disabilitava a vuoto.
+        const bool crossSectionActive = ui->subTabImplicit && ui->subTabImplicit->currentIndex() == 1;
+        mathText = stripCodeComments(crossSectionActive ? ui->lineEquationCrossSection->toPlainText()
+                                                         : ui->lineEquation->toPlainText());
         glslText += " " + stripCodeComments(ui->lineTexture->toPlainText()) +
                     " " + stripCodeComments(ui->lineVariations->toPlainText());
     }
@@ -8653,13 +8702,20 @@ void MainWindow::onStartClicked()
         // popup lo mostra applySpaceLimits, e la scena resta quella valida.
         if (!applySpaceLimits(/*notify=*/true)) return;
 
-        // 1. Lettura e validazione equazione
-        QString rawEq = ui->lineEquation->toPlainText().trimmed();
+        // 1. Lettura e validazione equazione. Sorgente (editor/radio) dipende
+        // dal sotto-tab attivo: "3D" (3 variabili x,y,z) o "Cross Section"
+        // (4 variabili x,y,z,p) — vedi CLAUDE.md, i due sotto-tab hanno stato
+        // separato, limiti/Run/Variations restano condivisi.
+        const bool crossSectionActive = (ui->subTabImplicit->currentIndex() == 1);
+        QPlainTextEdit *eqEditor = crossSectionActive ? ui->lineEquationCrossSection : ui->lineEquation;
+
+        QString rawEq = eqEditor->toPlainText().trimmed();
         if (rawEq.isEmpty()) return;
 
-        if (!InputValidator::validateImplicitEquation(this, rawEq)) return;
-        if (!InputValidator::validateExpressionSyntax(this, rawEq, "Implicit Equation")) return;
-        if (!InputValidator::validateIdentifiers(this, rawEq, "Implicit Equation")) return;
+        const QString eqFieldLabel = crossSectionActive ? "Cross Section Equation" : "Implicit Equation";
+        if (!InputValidator::validateImplicitEquation(this, rawEq, /*allowP=*/crossSectionActive)) return;
+        if (!InputValidator::validateExpressionSyntax(this, rawEq, eqFieldLabel)) return;
+        if (!InputValidator::validateIdentifiers(this, rawEq, eqFieldLabel)) return;
 
         QString implicitEqF;
         if (rawEq.contains("=")) {
@@ -8668,9 +8724,9 @@ void MainWindow::onStartClicked()
         } else {
             // Aggiungiamo silenziosamente "= 0.0" se l'utente lo ha omesso, senza fastidiosi popup
             QString correctedEq = rawEq + " = 0.0";
-            ui->lineEquation->blockSignals(true);
-            ui->lineEquation->setPlainText(correctedEq);
-            ui->lineEquation->blockSignals(false);
+            eqEditor->blockSignals(true);
+            eqEditor->setPlainText(correctedEq);
+            eqEditor->blockSignals(false);
 
             implicitEqF = QString("(%1) - (0.0)").arg(rawEq);
         }
@@ -8691,7 +8747,8 @@ void MainWindow::onStartClicked()
         const QString prevDispApplied = ui->glWidget->currentDisplacementCode();
 
         // TEST E APPLICAZIONE
-        bool success = ui->glWidget->validateAndApplyImplicitShader(implicitEqF, texCode, dispCode);
+        bool success = ui->glWidget->validateAndApplyImplicitShader(implicitEqF, texCode, dispCode,
+                                                                     crossSectionActive);
         if (!success) {
             showShaderError("Syntax Error (Ray Marching)", ui->glWidget->getShaderError());
             return;
@@ -8766,7 +8823,8 @@ void MainWindow::onStartClicked()
         }
         updateMasterButtonState();
 
-        if (ui->radioShell->isChecked()) {
+        QRadioButton *shellRadio = crossSectionActive ? ui->radioShellCrossSection : ui->radioShell;
+        if (shellRadio->isChecked()) {
             ui->glWidget->setGlobalRenderMode(1);
         } else {
             ui->glWidget->setGlobalRenderMode(0);
@@ -14737,6 +14795,88 @@ void MainWindow::applyImplicitShellMode(bool shell)
         ui->radioSolid->blockSignals(oldSolid);
     }
     if (ui->glWidget) ui->glWidget->setGlobalRenderMode(shell ? 1 : 0);
+}
+
+void MainWindow::loadCrossSectionDefaultSurface()
+{
+    // T^3 (3-toro, toro-di-tori): S=x^2+y^2+z^2+A^2, M=S+p^2+B^2-C^2,
+    // (M^2 + 4(A^2-B^2)(x^2+y^2) - 4B^2(z^2+A^2))^2 = 16A^2(x^2+y^2)(M-2B^2)^2
+    // A p=0 NON si riduce al toro 2D standard: e' la sezione dell'oggetto 4D
+    // nel suo riferimento (rotazioni 4D non ancora agganciate, vedi CLAUDE.md).
+    // Moltiplicata per 0.1 (fuori parentesi) per evitare artefatti di
+    // precisione del ray marcher sui valori grandi che l'espressione elevata
+    // al quadrato/quarta potenza produce.
+    static const QString kT3Equation =
+        "0.1*(((x*x+y*y+z*z+p*p+A*A+B*B-C*C)^2 + 4*(A*A-B*B)*(x*x+y*y) - 4*B*B*(z*z+A*A))^2 "
+        "- 16*A*A*(x*x+y*y)*(x*x+y*y+z*z+p*p+A*A-B*B-C*C)^2)";
+
+    if (ui->lineEquationCrossSection) {
+        ui->lineEquationCrossSection->blockSignals(true);
+        ui->lineEquationCrossSection->setPlainText(kT3Equation);
+        ui->lineEquationCrossSection->blockSignals(false);
+    }
+
+    // Costanti di default del T^3: A=raggio esterno, B=raggio intermedio,
+    // C=raggio tubo (A>B>C, condizione di non degenerazione). D/E/F/S non
+    // sono usate da questa equazione: restano quelle correnti.
+    const float valA = 0.9f, valB = 0.3f, valC = 0.2f;
+    const float valD = ui->lineD ? ui->lineD->text().toFloat() : 1.0f;
+    const float valE = ui->lineE ? ui->lineE->text().toFloat() : 1.0f;
+    const float valF = ui->lineF ? ui->lineF->text().toFloat() : 1.0f;
+    const float valS = ui->lineS ? ui->lineS->text().toFloat() : 0.1f;
+
+    auto setConstField = [](QLineEdit *edit, QSlider *slider, float v) {
+        if (edit) {
+            const bool old = edit->blockSignals(true);
+            edit->setText(QString::number(v));
+            edit->blockSignals(old);
+        }
+        if (slider) {
+            const bool old = slider->blockSignals(true);
+            const int intVal = static_cast<int>(v * 100.0f);
+            // Il range dello slider e' governato a runtime da setSmartSlider
+            // (si allarga quando l'utente digita valori grandi) e puo' essere
+            // rimasto piu' stretto del valore che vogliamo mostrare qui —
+            // senza un setRange esplicito, setValue lo clamperebbe in
+            // silenzio, apparendo "bloccato". Garantiamo che il valore
+            // target ci stia sempre dentro.
+            int newMin = std::min(slider->minimum(), intVal);
+            int newMax = std::max(slider->maximum(), intVal);
+            slider->setRange(newMin, newMax);
+            slider->setValue(intVal);
+            slider->blockSignals(old);
+        }
+    };
+    setConstField(ui->lineA, ui->aSlider, valA);
+    setConstField(ui->lineB, ui->bSlider, valB);
+    setConstField(ui->lineC, ui->cSlider, valC);
+
+    if (ui->glWidget) {
+        ui->glWidget->setEquationConstants(valA, valB, valC, valD, valE, valF, valS);
+    }
+
+    // Shell/Solid del sotto-tab Cross Section tornano al default (Shell),
+    // stesso principio di applyImplicitShellMode ma sui radio dedicati.
+    if (ui->radioShellCrossSection && ui->radioSolidCrossSection) {
+        const bool oldShell = ui->radioShellCrossSection->blockSignals(true);
+        const bool oldSolid = ui->radioSolidCrossSection->blockSignals(true);
+        ui->radioShellCrossSection->setChecked(true);
+        ui->radioShellCrossSection->blockSignals(oldShell);
+        ui->radioSolidCrossSection->blockSignals(oldSolid);
+    }
+
+    if (ui->glWidget) {
+        ui->glWidget->validateAndApplyImplicitShader(kT3Equation, "", "", /*useCrossSection=*/true);
+        ui->glWidget->setGlobalRenderMode(1); // Shell
+        ui->glWidget->rebuildShader();
+    }
+
+    // Gli slider A/B/C sono stati scritti sopra con blockSignals (niente
+    // textChanged), quindi updateConstantsUIState non ha mai visto che il T^3
+    // le usa: senza questa chiamata esplicita restavano nello stato
+    // enable/disable ereditato dalla sfera precedente (dove A/B/C non
+    // comparivano affatto) -- valore giusto, slider bloccato.
+    updateConstantsUIState();
 }
 
 void MainWindow::applyCommonData(LibraryItem d)

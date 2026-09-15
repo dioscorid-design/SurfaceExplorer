@@ -657,7 +657,8 @@ public:
     void endHiResCapture();
     QString getShaderError() const { return m_lastCompilationError; }
     bool validateAndApplyParametricShader(const QString &customLogic);
-    bool validateAndApplyImplicitShader(const QString &eqF, const QString &texCode, const QString &dispCode);
+    bool validateAndApplyImplicitShader(const QString &eqF, const QString &texCode, const QString &dispCode,
+                                        bool useCrossSection = false);
       bool validateAndApplyImplicitScript(const QString &scriptCodeGLSL);
     bool validateAndApplyBackgroundShader(const QString &scriptCode);
     bool validateAndApplyParametricScript(const QString &scriptCodeGLSL);
@@ -890,6 +891,18 @@ private:
     // IMPLICIT EQUATIONS STATE
     // ==========================================================
     QString m_eqImplicitF = "x*x + y*y + z*z - 1.0";
+    // Equazione a 4 variabili (x,y,z,p) del sotto-tab Cross Section. Stato
+    // separato da m_eqImplicitF: i due sotto-tab (3D / Cross Section) non si
+    // sovrascrivono a vicenda. p e' sempre valutata a 0.0 per ora (nessuna
+    // rotazione 4D applicata) — vedi createImplicitFragmentShader().
+    // Default: 3-toro T^3 (toro-di-tori, S=x^2+y^2+z^2+A^2, M=S+p^2+B^2-C^2),
+    // A=raggio esterno, B=raggio intermedio, C=raggio tubo. A p=0 NON si
+    // riduce al toro 2D standard: e' proprio l'oggetto 4D nel suo riferimento.
+    QString m_eqCrossSectionF =
+        "((x*x+y*y+z*z+p*p+A*A+B*B-C*C)^2 + 4*(A*A-B*B)*(x*x+y*y) - 4*B*B*(z*z+A*A))^2 "
+        "- 16*A*A*(x*x+y*y)*(x*x+y*y+z*z+p*p+A*A-B*B-C*C)^2";
+    // Quale delle due equazioni sopra e' quella attiva nello shader compilato.
+    bool m_implicitUsesCrossSection = false;
 
     QString createImplicitFragmentShader();
     QString createBackgroundFragmentShader(bool isTextureMode, const QString &customCode);

@@ -4125,15 +4125,22 @@ bool GLWidget::validateAndApplyParametricShader(const QString &customLogic)
     return true;
 }
 
-bool GLWidget::validateAndApplyImplicitShader(const QString &eqF, const QString &texCode, const QString &dispCode)
+bool GLWidget::validateAndApplyImplicitShader(const QString &eqF, const QString &texCode, const QString &dispCode,
+                                              bool useCrossSection)
 {
     // Salvataggio di emergenza dei vecchi parametri funzionanti
-    QString oldEq = m_eqImplicitF;
+    QString oldEq = useCrossSection ? m_eqCrossSectionF : m_eqImplicitF;
     QString oldTex = m_textureCode;
     QString oldDisp = m_displacementCode;
+    bool oldUsesCrossSection = m_implicitUsesCrossSection;
 
     // Prepariamo i nuovi parametri per generare lo shader
-    m_eqImplicitF = eqF;
+    if (useCrossSection) {
+        m_eqCrossSectionF = eqF;
+    } else {
+        m_eqImplicitF = eqF;
+    }
+    m_implicitUsesCrossSection = useCrossSection;
     m_textureCode = texCode;
     m_displacementCode = dispCode;
 
@@ -4150,7 +4157,12 @@ bool GLWidget::validateAndApplyImplicitShader(const QString &eqF, const QString 
         m_lastCompilationError = baker.errorMessage();
 
         // RIPRISTINO: Se la compilazione fallisce, rimettiamo tutto a posto!
-        m_eqImplicitF = oldEq;
+        if (useCrossSection) {
+            m_eqCrossSectionF = oldEq;
+        } else {
+            m_eqImplicitF = oldEq;
+        }
+        m_implicitUsesCrossSection = oldUsesCrossSection;
         m_textureCode = oldTex;
         m_displacementCode = oldDisp;
         return false;
@@ -4405,7 +4417,8 @@ void GLWidget::buildImplicitPipeline()
 
 QString GLWidget::createImplicitFragmentShader()
 {
-    QString safeEqF = GlslTranslator::translateEquation(m_eqImplicitF);
+    const QString &activeEqF = m_implicitUsesCrossSection ? m_eqCrossSectionF : m_eqImplicitF;
+    QString safeEqF = GlslTranslator::translateEquation(activeEqF);
 
     // Per garantire la compatibilità con script stile Shadertoy:
     safeEqF.replace(QRegularExpression("\\biTime\\b"), "t");
@@ -4473,7 +4486,15 @@ QString GLWidget::createImplicitFragmentShader()
                            "    float D = ubuf.u_mathParams2.x;\n"
                            "    float E = ubuf.u_mathParams2.y;\n"
                            "    float F = ubuf.u_mathParams2.z;\n"
-                           "    float x = p.x; float y = p.y; float z = p.z;\n";
+                           "    float x = pos.x; float y = pos.y; float z = pos.z;\n";
+    if (m_implicitUsesCrossSection) {
+        // Cross Section: 4a variabile dell'equazione (x,y,z,p). Fissa a 0.0
+        // finche' le rotazioni 4D non sono agganciate: la sezione e' sempre
+        // quella nel riferimento della superficie non ruotata (vedi CLAUDE.md
+        // sul contratto camera/rotazioni condivise tra live e recorder — stesso
+        // principio si applichera' qui quando p seguira' la rotazione).
+        injectedVars += "    float p = 0.0;\n";
+    }
 
     // Default: nessuna seconda superficie. Lo stub ritorna 1e9 (mai colpito) e
     // il flag resta false, così il main() segue il cammino storico opaco.
@@ -4502,13 +4523,13 @@ QString GLWidget::createImplicitFragmentShader()
         }
 
         // Creiamo una funzione indipendente con il codice custom (esterna)
-        QString newFunction = "float getCustomImplicit(vec3 p) {\n" + injectedVars + customCode + "\n}\n\n";
+        QString newFunction = "float getCustomImplicit(vec3 pos) {\n" + injectedVars + customCode + "\n}\n\n";
 
         // 1. Dichiariamo la nostra funzione custom ESATTAMENTE prima della funzione map standard
-        finalSource.replace("float map(vec3 p) {", newFunction + "float map(vec3 p) {");
+        finalSource.replace("float map(vec3 pos) {", newFunction + "float map(vec3 pos) {");
 
         // 2. Sostituiamo il placeholder in map() delegando il calcolo alla nostra funzione
-        finalSource.replace("%IMPLICIT_EQ%", "getCustomImplicit(p)");
+        finalSource.replace("%IMPLICIT_EQ%", "getCustomImplicit(pos)");
 
     } else {
         // Modalità classica: UI LineEdit (Singola Riga)
@@ -4519,6 +4540,13 @@ QString GLWidget::createImplicitFragmentShader()
     // Iniettiamo l'espressione del campo interno (o lo stub 1e9). Le variabili
     // x,y,z,A,B,... sono già dichiarate nel corpo di mapInner() nel template.
     finalSource.replace("%INNER_MAP%", innerExpr);
+
+    // 4a variabile (x,y,z,p) del sotto-tab Cross Section: dichiarata SOLO
+    // quando l'equazione attiva e' quella a 4 variabili, cosi' il tab 3D non
+    // vede mai 'p' nello scope (equazione a 3 variabili, come da contratto).
+    // Fissa a 0.0 finche' le rotazioni 4D non sono agganciate.
+    finalSource.replace("%CROSS_SECTION_P%",
+                        m_implicitUsesCrossSection ? QStringLiteral("float p = 0.0;") : QString());
 
     if (m_textureEnabled) {
         QString texCodeRemapped = m_textureCode;

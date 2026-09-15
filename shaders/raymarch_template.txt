@@ -25,20 +25,21 @@ float smax(float a, float b, float k) {
 }
 
 // --- EQUAZIONE IMPLICITA 3D ---
-float map(vec3 p) {
-    float x = p.x; float y = p.y; float z = p.z;
+float map(vec3 pos) {
+    float x = pos.x; float y = pos.y; float z = pos.z;
     float t = ubuf.u_time;
     float A = ubuf.u_mathParams.x; float B = ubuf.u_mathParams.y;
     float C = ubuf.u_mathParams.z; float S = ubuf.u_mathParams.w;
     float D = ubuf.u_mathParams2.x; float E = ubuf.u_mathParams2.y;
     float F = ubuf.u_mathParams2.z;
+    %CROSS_SECTION_P%
 
     // 1. Calcola la distanza matematica pura dalla tua equazione
     float d_surf = float( %IMPLICIT_EQ% );
 
     // INIEZIONE RILIEVI PROCEDURALI DALLA UI +++
     // Creiamo un alias pModel per comodità dell'utente
-    vec3 pModel = p;
+    vec3 pModel = pos;
 
     // Qui verrà inserito il codice del box "Rilievi"
     %DISPLACEMENT_CODE%
@@ -57,7 +58,7 @@ float map(vec3 p) {
     vec3 bCenter = (bMax + bMin) * 0.5;
     vec3 bHalf = (bMax - bMin) * 0.5;
 
-    vec3 q = abs(p - bCenter) - bHalf;
+    vec3 q = abs(pos - bCenter) - bHalf;
     float d_box = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
 
     // Ritorna l'intersezione tra la forma (piena o a guscio) e il cubo di taglio
@@ -69,8 +70,8 @@ float map(vec3 p) {
 // (C++ setta ubuf.u_dummyZero.y = 1.0). Altrimenti %INNER_MAP% e' uno stub
 // che ritorna 1e9 e questa funzione non viene mai chiamata dal main().
 // Applica lo STESSO bounding-box di map() per coerenza del cubo di taglio.
-float mapInner(vec3 p) {
-    float x = p.x; float y = p.y; float z = p.z;
+float mapInner(vec3 pos) {
+    float x = pos.x; float y = pos.y; float z = pos.z;
     float t = ubuf.u_time;
     float A = ubuf.u_mathParams.x; float B = ubuf.u_mathParams.y;
     float C = ubuf.u_mathParams.z; float S = ubuf.u_mathParams.w;
@@ -83,27 +84,27 @@ float mapInner(vec3 p) {
     vec3 bMax = vec3(ubuf.x_max, ubuf.y_max, ubuf.z_max);
     vec3 bCenter = (bMax + bMin) * 0.5;
     vec3 bHalf = (bMax - bMin) * 0.5;
-    vec3 q = abs(p - bCenter) - bHalf;
+    vec3 q = abs(pos - bCenter) - bHalf;
     float d_box = length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
     return smax(d_surf, d_box, 0.02);
 }
 
 // --- CALCOLO NORMALI 3D ---
-vec3 calcNormal(vec3 p) {
+vec3 calcNormal(vec3 pos) {
     vec2 e = vec2(0.005, 0.0);
     return normalize(vec3(
-        map(p + e.xyy) - map(p - e.xyy),
-        map(p + e.yxy) - map(p - e.yxy),
-        map(p + e.yyx) - map(p - e.yyx)
+        map(pos + e.xyy) - map(pos - e.xyy),
+        map(pos + e.yxy) - map(pos - e.yxy),
+        map(pos + e.yyx) - map(pos - e.yyx)
     ));
 }
 
-vec3 calcNormalInner(vec3 p) {
+vec3 calcNormalInner(vec3 pos) {
     vec2 e = vec2(0.005, 0.0);
     return normalize(vec3(
-        mapInner(p + e.xyy) - mapInner(p - e.xyy),
-        mapInner(p + e.yxy) - mapInner(p - e.yxy),
-        mapInner(p + e.yyx) - mapInner(p - e.yyx)
+        mapInner(pos + e.xyy) - mapInner(pos - e.xyy),
+        mapInner(pos + e.yxy) - mapInner(pos - e.yxy),
+        mapInner(pos + e.yyx) - mapInner(pos - e.yyx)
     ));
 }
 
