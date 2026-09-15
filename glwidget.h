@@ -899,8 +899,8 @@ private:
     // A=raggio esterno, B=raggio intermedio, C=raggio tubo. A p=0 NON si
     // riduce al toro 2D standard: e' proprio l'oggetto 4D nel suo riferimento.
     QString m_eqCrossSectionF =
-        "((x*x+y*y+z*z+p*p+A*A+B*B-C*C)^2 + 4*(A*A-B*B)*(x*x+y*y) - 4*B*B*(z*z+A*A))^2 "
-        "- 16*A*A*(x*x+y*y)*(x*x+y*y+z*z+p*p+A*A-B*B-C*C)^2";
+        "0.1*(((x*x+y*y+z*z+p*p+A*A+B*B-C*C)^2 + 4*(A*A-B*B)*(x*x+y*y) - 4*B*B*(z*z+A*A))^2 "
+        "- 16*A*A*(x*x+y*y)*(x*x+y*y+z*z+p*p+A*A-B*B-C*C)^2)";
     // Quale delle due equazioni sopra e' quella attiva nello shader compilato.
     bool m_implicitUsesCrossSection = false;
 

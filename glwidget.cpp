@@ -4487,14 +4487,6 @@ QString GLWidget::createImplicitFragmentShader()
                            "    float E = ubuf.u_mathParams2.y;\n"
                            "    float F = ubuf.u_mathParams2.z;\n"
                            "    float x = pos.x; float y = pos.y; float z = pos.z;\n";
-    if (m_implicitUsesCrossSection) {
-        // Cross Section: 4a variabile dell'equazione (x,y,z,p). Fissa a 0.0
-        // finche' le rotazioni 4D non sono agganciate: la sezione e' sempre
-        // quella nel riferimento della superficie non ruotata (vedi CLAUDE.md
-        // sul contratto camera/rotazioni condivise tra live e recorder — stesso
-        // principio si applichera' qui quando p seguira' la rotazione).
-        injectedVars += "    float p = 0.0;\n";
-    }
 
     // Default: nessuna seconda superficie. Lo stub ritorna 1e9 (mai colpito) e
     // il flag resta false, così il main() segue il cammino storico opaco.
