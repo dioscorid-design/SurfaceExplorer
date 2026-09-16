@@ -603,6 +603,12 @@ private:
     // applyModeTabReset di non resettare nulla; subito dopo il tab torna
     // dov'era. Senza, "Cancel" avrebbe comunque distrutto la scena.
     bool m_suppressNextModeTabReset = false;
+    // Gemello del precedente per il sotto-tab implicito (3D <-> Cross Section):
+    // il cambio di sotto-tab carica la superficie di default e butta via la
+    // scena esattamente come il cambio di modalita', quindi la conferma del
+    // lavoro non salvato passa dallo stesso schema. Vedi il connect su
+    // subTabImplicit->tabBar().
+    bool m_suppressNextSubTabReset = false;
 
     // Riclic sulla linguetta GIA' ATTIVA ("ricomincia da capo"), distinto dal
     // cambio di modalita' vero. resetScene riceve solo l'indice di arrivo e non

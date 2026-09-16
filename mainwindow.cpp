@@ -1786,7 +1786,44 @@ MainWindow::MainWindow(QWidget *parent)
     // Nessun reset di camera/texture/animazione: le superfici di default non ne
     // hanno (vedi loadCrossSectionDefaultSurface).
     if (ui->subTabImplicit) {
+        // LAVORO NON SALVATO, come per il cambio di modalita' (tabModeSelector
+        // qui sopra). Cambiare sotto-tab carica la superficie di DEFAULT e
+        // riporta ai default i controlli condivisi: e' una distruzione di scena
+        // quanto il passaggio Parametric <-> Implicit, e finora non chiedeva
+        // nulla -- un tocco sulla linguetta sbagliata buttava via il lavoro.
+        // Stesso schema, per le stesse ragioni: la conferma va su tabBarClicked
+        // perche' currentChanged scatta a linguetta GIA' cambiata e da li' non
+        // si potrebbe piu' rifiutare; tabBarClicked non permette di annullare il
+        // cambio (Qt lo esegue subito dopo), quindi su Cancel si lascia cambiare
+        // la linguetta, si dice all'handler di NON resettare e si riporta il
+        // sotto-tab dov'era.
+        if (ui->subTabImplicit->tabBar()) {
+            connect(ui->subTabImplicit->tabBar(), &QTabBar::tabBarClicked,
+                    this, [this](int index) {
+                if (index < 0) return;
+                // Riclic sulla linguetta gia' attiva: currentChanged non scatta,
+                // quindi non si distrugge niente e non c'e' nulla da confermare.
+                if (index == ui->subTabImplicit->currentIndex()) return;
+
+                if (!confirmDiscardUnsaved(ScopeScene)) {
+                    const int back = ui->subTabImplicit->currentIndex();
+                    m_suppressNextSubTabReset = true;
+                    QTimer::singleShot(0, this, [this, back]() {
+                        bool b = ui->subTabImplicit->blockSignals(true);
+                        ui->subTabImplicit->setCurrentIndex(back);
+                        ui->subTabImplicit->blockSignals(b);
+                        m_suppressNextSubTabReset = false;
+                    });
+                }
+            });
+        }
+
         connect(ui->subTabImplicit, &QTabWidget::currentChanged, this, [this](int subIndex) {
+            // Cambio rifiutato nel dialogo del lavoro non salvato: la linguetta
+            // e' gia' cambiata e sta per tornare indietro da sola, ma la scena
+            // non va toccata. Gemello di m_suppressNextModeTabReset.
+            if (m_suppressNextSubTabReset) return;
+
             // Limiti condivisi al default in ENTRAMBE le direzioni, prima di
             // scrivere la superficie: cosi' il Run che segue non trova un box
             // stantio addosso alla forma appena caricata.
