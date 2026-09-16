@@ -5949,17 +5949,31 @@ void MainWindow::updateRenderState()
         ui->vDensity->setEnabled(wireframeDensityUsable);
 
         // --- 1. DISATTIVAZIONE ROTAZIONI 4D ---
+        // Omega/Phi/Psi vivono nel dock 3D insieme a Spin/Precessione/Nutazione.
+        // Erano spenti in TUTTA la modalita' implicita perche' li' non avevano
+        // effetto: lo shader ray marching non leggeva omega/phi/psi.
+        //
+        // Ora il sotto-tab CROSS SECTION li usa: l'equazione ha 4 variabili
+        // (x,y,z,p) e la rotazione 4D decide quale sezione dell'ipersuperficie
+        // si vede (vedi %CROSS_SECTION_P% in createImplicitFragmentShader).
+        // Quindi restano spenti solo dove continuano a non avere effetto: il
+        // sotto-tab "3D", la cui equazione e' a 3 variabili e non ha un p da
+        // ruotare, e la modalita' parametrica non e' implicita affatto.
+        const bool crossSectionActive = isImplicitMode && ui->subTabImplicit
+                                        && ui->subTabImplicit->currentIndex() == 1;
+        const bool rot4DUsable = !isImplicitMode || crossSectionActive;
+
         // Omega (W-X)
-        ui->btnOmegaMinus->setEnabled(!isImplicitMode);
-        ui->btnOmegaPlus->setEnabled(!isImplicitMode);
+        ui->btnOmegaMinus->setEnabled(rot4DUsable);
+        ui->btnOmegaPlus->setEnabled(rot4DUsable);
 
         // Phi (W-Y)
-        ui->btnPhiMinus->setEnabled(!isImplicitMode);
-        ui->btnPhiPlus->setEnabled(!isImplicitMode);
+        ui->btnPhiMinus->setEnabled(rot4DUsable);
+        ui->btnPhiPlus->setEnabled(rot4DUsable);
 
         // Psi (W-Z)
-        ui->btnPsiMinus->setEnabled(!isImplicitMode);
-        ui->btnPsiPlus->setEnabled(!isImplicitMode);
+        ui->btnPsiMinus->setEnabled(rot4DUsable);
+        ui->btnPsiPlus->setEnabled(rot4DUsable);
 
         // --- 3. DISATTIVAZIONE PANNELLO 4D ---
         if (ui->dockWidgetContents_3) {
@@ -15010,6 +15024,12 @@ void MainWindow::applyImplicitSubTabReset(int subIndex)
     m_warnedEditedDock = OriginDefault;
     m_warnedOrigin     = OriginDefault;
     m_surfaceOrigin    = OriginDefault;
+
+    // GATING DEI CONTROLLI. I tasti Omega/Phi/Psi (dock 3D) sono abilitati nel
+    // sotto-tab Cross Section e spenti nel "3D", quindi il loro stato dipende da
+    // QUALE sotto-tab e' attivo: senza questa chiamata restavano com'erano fino
+    // al primo evento che per altri motivi faceva girare updateRenderState.
+    updateRenderState();
 }
 
 void MainWindow::resetImplicitSharedFields()
