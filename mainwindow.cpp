@@ -15179,10 +15179,34 @@ void MainWindow::loadCrossSectionDefaultSurface()
     const float valD = ui->lineD ? ui->lineD->text().toFloat() : 1.0f;
     const float valE = ui->lineE ? ui->lineE->text().toFloat() : 1.0f;
     const float valF = ui->lineF ? ui->lineF->text().toFloat() : 1.0f;
-    // S in Ray Marching e' lo STEP RELAX (non una costante dell'equazione):
-    // resetImplicitSharedFields l'ha appena riportata a 0.4, e la rileggiamo da
-    // li'. Il fallback e' lo stesso default, non un valore arbitrario.
-    const float valS = ui->lineS ? ui->lineS->text().toFloat() : 0.4f;
+    // STEP RELAX a 0.7 (il default condiviso e' 0.4, appena scritto da
+    // resetImplicitSharedFields). Il T^3 e' stratificato e con passi piu' lunghi
+    // la marcia arriva piu' a fondo a parita' di Ray Steps. Vale SOLO per questo
+    // sotto-tab: il controllo e' uno per entrambi, quindi si scrive qui DOPO il
+    // reset, e tornando al 3D il reset lo riporta a 0.4.
+    // PRIMA della lettura di valS qui sotto: in Ray Marching lineS/sSlider NON e'
+    // la costante S dell'equazione ma proprio lo Step Relax, e finisce allo
+    // shader attraverso setEquationConstants (u_mathParams.w). Scrivendolo dopo,
+    // il motore avrebbe continuato a marciare con 0.4.
+    const double kCrossSectionStepRelax = 0.7;
+    m_lastImplicitS = kCrossSectionStepRelax;
+    if (ui->lineS) {
+        const bool old = ui->lineS->blockSignals(true);
+        ui->lineS->setText(QString::number(kCrossSectionStepRelax));
+        ui->lineS->blockSignals(old);
+    }
+    if (ui->sSlider) {
+        const bool old = ui->sSlider->blockSignals(true);
+        ui->sSlider->setMinimum(0);
+        ui->sSlider->setMaximum(100);          // Step Relax: 0..1
+        ui->sSlider->setValue(static_cast<int>(kCrossSectionStepRelax * 100));
+        ui->sSlider->blockSignals(old);
+    }
+
+    // S = lo Step Relax appena scritto qui sopra. Il fallback e' lo stesso
+    // valore, non un numero arbitrario.
+    const float valS = ui->lineS ? ui->lineS->text().toFloat()
+                                 : (float)kCrossSectionStepRelax;
 
     setConstantField(ui->lineA, ui->aSlider, valA);
     setConstantField(ui->lineB, ui->bSlider, valB);
