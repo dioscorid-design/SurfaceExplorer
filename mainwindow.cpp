@@ -15084,6 +15084,26 @@ void MainWindow::resetImplicitSharedFields()
         ui->sSlider->blockSignals(old);
     }
 
+    // VISTA: zoom, pan e orientamento della camera. Come i limiti e le manopole
+    // del marcher e' stato GLOBALE, non per-sotto-tab, quindi aprendo l'altro
+    // sotto-tab la sua superficie di default si presentava con l'inquadratura
+    // lasciata dalla precedente -- tipicamente uno zoom di rotella, che nessun
+    // altro percorso qui azzerava.
+    //
+    // setCameraPos(0,0,4) DOPO resetTransformations, non al posto suo: quel
+    // reset PRESERVA deliberatamente una distanza >= 2.5 (il "salvavita zoom",
+    // per non risucchiare la camera dentro la figura), quindi da solo lascerebbe
+    // in piedi proprio lo zoom che vogliamo togliere. E' lo stesso accoppiamento
+    // dei due rami di resetScene.
+    if (ui->glWidget) {
+        ui->glWidget->resetTransformations();
+        ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
+    }
+    // FOV al default: resetTransformations riporta il campo visivo del MOTORE a
+    // 45, ma slider ed etichetta della UI restano dov'erano. applyCameraFov
+    // allinea in un colpo membri, label, slider e motore.
+    applyCameraFov(45.0f);
+
     const int kDefaultRaySteps = 400;
     m_lastImplicitSteps = kDefaultRaySteps;   // memoria allineata a cio' che si vede
     if (ui->stepSlider) {
