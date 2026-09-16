@@ -1824,6 +1824,23 @@ MainWindow::MainWindow(QWidget *parent)
             // non va toccata. Gemello di m_suppressNextModeTabReset.
             if (m_suppressNextSubTabReset) return;
 
+            // RESET IN CORSO: i campi qui sotto (equazione di default, limiti,
+            // costanti, Step Relax/Ray Steps) li riempie questo handler, non
+            // l'utente. Senza guardia quelle scritture passano da
+            // noteSceneEdited e RISPORCANO la scena appena resettata: il popup
+            // del lavoro non salvato ricompariva a ogni cambio successivo anche
+            // senza che l'utente avesse toccato niente. Stessa guardia RAII di
+            // resetScene e del caricamento preset, e stesso ripristino del
+            // valore precedente invece di un "false" secco (questo handler puo'
+            // girare annidato dentro un reset gia' in corso).
+            const bool wasPopulating = m_populatingFields;
+            m_populatingFields = true;
+            struct SubTabGuard {
+                MainWindow *w;
+                bool prev;
+                ~SubTabGuard() { w->m_populatingFields = prev; }
+            } subTabGuard{this, wasPopulating};
+
             // Limiti condivisi al default in ENTRAMBE le direzioni, prima di
             // scrivere la superficie: cosi' il Run che segue non trova un box
             // stantio addosso alla forma appena caricata.
@@ -1881,6 +1898,24 @@ MainWindow::MainWindow(QWidget *parent)
                 // (A/B/C abilitate) su un'equazione che non le usa.
                 updateConstantsUIState();
             }
+
+            // A schermo c'e' la superficie di DEFAULT del sotto-tab appena
+            // aperto: non c'e' piu' lavoro dell'utente da proteggere. Senza
+            // questo azzeramento il primo cambio "sporco" rendeva permanente il
+            // popup -- l'utente confermava di buttare via il lavoro, ma il flag
+            // restava alzato e ogni cambio successivo richiedeva conferma di
+            // nuovo, per una scena che nessuno aveva piu' toccato.
+            // Ultimo, dopo tutte le scritture qui sopra, per lo stesso motivo
+            // per cui resetScene lo fa in fondo (quelle passano da
+            // noteSceneEdited e rimetterebbero m_sceneDirty a true).
+            // NB: texture e suono NON si azzerano qui -- a differenza di
+            // resetScene questo handler non li svuota, quindi il loro lavoro
+            // resta da proteggere ed e' giusto che il prossimo popup lo elenchi.
+            m_sceneDirty = false;
+            m_runEverSucceeded = false;
+            m_warnedEditedDock = OriginDefault;
+            m_warnedOrigin     = OriginDefault;
+            m_surfaceOrigin    = OriginDefault;
         });
     }
 
