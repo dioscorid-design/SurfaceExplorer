@@ -999,6 +999,10 @@ private:
     // Limiti X/Y/Z (condivisi fra i due sotto-tab impliciti) riportati al default
     // "nessun taglio". Chiamata dal cambio di sotto-tab.
     void resetImplicitSharedFields();
+    // Cambio di sotto-tab implicito (3D <-> Cross Section). Chiamata sia dal
+    // cambio vero (currentChanged) sia dal riclic sulla linguetta gia' attiva,
+    // che currentChanged non emette: stesso ruolo di applyModeTabReset.
+    void applyImplicitSubTabReset(int subIndex);
     // Scrive una costante (campo + slider) a segnali bloccati.
     void setConstantField(QLineEdit *edit, QSlider *slider, float v);
     QString presetsRootPath() const;

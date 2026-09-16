@@ -1801,9 +1801,21 @@ MainWindow::MainWindow(QWidget *parent)
             connect(ui->subTabImplicit->tabBar(), &QTabBar::tabBarClicked,
                     this, [this](int index) {
                 if (index < 0) return;
-                // Riclic sulla linguetta gia' attiva: currentChanged non scatta,
-                // quindi non si distrugge niente e non c'e' nulla da confermare.
-                if (index == ui->subTabImplicit->currentIndex()) return;
+
+                if (index == ui->subTabImplicit->currentIndex()) {
+                    // RICLIC SULLA LINGUETTA GIA' ATTIVA = "ricomincia da capo",
+                    // esattamente come per il tab principale. currentChanged non
+                    // scatta se l'indice non cambia, quindi senza questo ramo
+                    // ricliccare il sotto-tab in cui sei gia' non faceva nulla:
+                    // dopo un New lo schermo restava vuoto e la superficie di
+                    // default compariva solo premendo la linguetta NON attiva --
+                    // mentre Parametric/Implicit la ricaricano in entrambi i casi.
+                    // Su Cancel non si resetta (qui la linguetta non cambia,
+                    // basta uscire).
+                    if (!confirmDiscardUnsaved(ScopeScene)) return;
+                    applyImplicitSubTabReset(index);
+                    return;
+                }
 
                 if (!confirmDiscardUnsaved(ScopeScene)) {
                     const int back = ui->subTabImplicit->currentIndex();
@@ -1818,105 +1830,8 @@ MainWindow::MainWindow(QWidget *parent)
             });
         }
 
-        connect(ui->subTabImplicit, &QTabWidget::currentChanged, this, [this](int subIndex) {
-            // Cambio rifiutato nel dialogo del lavoro non salvato: la linguetta
-            // e' gia' cambiata e sta per tornare indietro da sola, ma la scena
-            // non va toccata. Gemello di m_suppressNextModeTabReset.
-            if (m_suppressNextSubTabReset) return;
-
-            // RESET IN CORSO: i campi qui sotto (equazione di default, limiti,
-            // costanti, Step Relax/Ray Steps) li riempie questo handler, non
-            // l'utente. Senza guardia quelle scritture passano da
-            // noteSceneEdited e RISPORCANO la scena appena resettata: il popup
-            // del lavoro non salvato ricompariva a ogni cambio successivo anche
-            // senza che l'utente avesse toccato niente. Stessa guardia RAII di
-            // resetScene e del caricamento preset, e stesso ripristino del
-            // valore precedente invece di un "false" secco (questo handler puo'
-            // girare annidato dentro un reset gia' in corso).
-            const bool wasPopulating = m_populatingFields;
-            m_populatingFields = true;
-            struct SubTabGuard {
-                MainWindow *w;
-                bool prev;
-                ~SubTabGuard() { w->m_populatingFields = prev; }
-            } subTabGuard{this, wasPopulating};
-
-            // Limiti condivisi al default in ENTRAMBE le direzioni, prima di
-            // scrivere la superficie: cosi' il Run che segue non trova un box
-            // stantio addosso alla forma appena caricata.
-            resetImplicitSharedFields();
-
-            if (subIndex == 1) {
-                // loadCrossSectionDefaultSurface scrive da se' A/B/C (0.9/0.3/0.2),
-                // la trasparenza e la posa del T^3.
-                loadCrossSectionDefaultSurface();
-            } else if (subIndex == 0) {
-                ui->lineEquation->blockSignals(true);
-                ui->lineEquation->setPlainText("x^2 + y^2 + z^2 = 1.0");
-                ui->lineEquation->blockSignals(false);
-
-                // COSTANTI al default di avvio (1). La sfera non le usa, ma sono
-                // condivise: tornando dal Cross Section resterebbero i valori del
-                // T^3 (A=0.9 B=0.3 C=0.2) su tutti gli slider, pronti a deformare
-                // la prima equazione che l'utente scrive qui. Simmetrico a quanto
-                // il ramo Cross Section fa con i suoi.
-                setConstantField(ui->lineA, ui->aSlider, 1.0f);
-                setConstantField(ui->lineB, ui->bSlider, 1.0f);
-                setConstantField(ui->lineC, ui->cSlider, 1.0f);
-                if (ui->glWidget) {
-                    const float valD = ui->lineD ? ui->lineD->text().toFloat() : 1.0f;
-                    const float valE = ui->lineE ? ui->lineE->text().toFloat() : 1.0f;
-                    const float valF = ui->lineF ? ui->lineF->text().toFloat() : 1.0f;
-                    // S = Step Relax in Ray Marching (vedi resetImplicitSharedFields,
-                    // che l'ha appena riportata a 0.4): la rileggiamo da li'.
-                    const float valS = ui->lineS ? ui->lineS->text().toFloat() : 0.4f;
-                    ui->glWidget->setEquationConstants(1.0f, 1.0f, 1.0f, valD, valE, valF, valS);
-                }
-
-                // Trasparenza e posa: il Cross Section le porta a 75 e 30/30, e
-                // sono stato GLOBALE, non per-sotto-tab. Senza questo la sfera
-                // ereditava l'aspetto del T^3. m_settingAlphaProgrammatic per lo
-                // stesso motivo spiegato in loadCrossSectionDefaultSurface.
-                if (ui->alphaSlider) {
-                    m_settingAlphaProgrammatic = true;
-                    ui->alphaSlider->setValue(100);
-                    m_settingAlphaProgrammatic = false;
-                    if (ui->glWidget) ui->glWidget->setAlpha(1.0f);
-                }
-                if (ui->glWidget) ui->glWidget->setRotationQuat(QQuaternion());
-
-                if (ui->glWidget) {
-                    const QString sphereEq = QStringLiteral("(x^2 + y^2 + z^2) - (1.0)");
-                    ui->glWidget->validateAndApplyImplicitShader(sphereEq, "", "", /*useCrossSection=*/false);
-                }
-                applyImplicitShellMode(true);
-                if (ui->glWidget) ui->glWidget->rebuildShader();
-
-                // Gli slider sono stati scritti a segnali bloccati, quindi
-                // updateConstantsUIState non ha visto nulla: senza questa chiamata
-                // resterebbero nello stato enable/disable ereditato dal T^3
-                // (A/B/C abilitate) su un'equazione che non le usa.
-                updateConstantsUIState();
-            }
-
-            // A schermo c'e' la superficie di DEFAULT del sotto-tab appena
-            // aperto: non c'e' piu' lavoro dell'utente da proteggere. Senza
-            // questo azzeramento il primo cambio "sporco" rendeva permanente il
-            // popup -- l'utente confermava di buttare via il lavoro, ma il flag
-            // restava alzato e ogni cambio successivo richiedeva conferma di
-            // nuovo, per una scena che nessuno aveva piu' toccato.
-            // Ultimo, dopo tutte le scritture qui sopra, per lo stesso motivo
-            // per cui resetScene lo fa in fondo (quelle passano da
-            // noteSceneEdited e rimetterebbero m_sceneDirty a true).
-            // NB: texture e suono NON si azzerano qui -- a differenza di
-            // resetScene questo handler non li svuota, quindi il loro lavoro
-            // resta da proteggere ed e' giusto che il prossimo popup lo elenchi.
-            m_sceneDirty = false;
-            m_runEverSucceeded = false;
-            m_warnedEditedDock = OriginDefault;
-            m_warnedOrigin     = OriginDefault;
-            m_surfaceOrigin    = OriginDefault;
-        });
+        connect(ui->subTabImplicit, &QTabWidget::currentChanged,
+                this, &MainWindow::applyImplicitSubTabReset);
     }
 
     // RESET SULLA LINGUETTA GIA' ATTIVA. currentChanged non scatta se l'indice
@@ -14991,6 +14906,112 @@ void MainWindow::setConstantField(QLineEdit *edit, QSlider *slider, float v)
 // (loadCrossSectionDefaultSurface scrive subito le sue), e scriverle due volte
 // farebbe lampeggiare valori diversi. Questa funzione porta a casa la parte
 // davvero comune — i limiti — piu' le costanti che il chiamante non imposta.
+// Cambio di sotto-tab implicito (3D <-> Cross Section): carica la superficie di
+// default del sotto-tab richiesto e riporta ai default i controlli condivisi.
+// E' un METODO e non una lambda nel connect perche' serve da due punti, come
+// applyModeTabReset per il tab principale: il cambio vero (currentChanged) e il
+// RICLIC sulla linguetta gia' attiva, che currentChanged non emette affatto.
+void MainWindow::applyImplicitSubTabReset(int subIndex)
+{
+    // Cambio rifiutato nel dialogo del lavoro non salvato: la linguetta
+    // e' gia' cambiata e sta per tornare indietro da sola, ma la scena
+    // non va toccata. Gemello di m_suppressNextModeTabReset.
+    if (m_suppressNextSubTabReset) return;
+
+    // RESET IN CORSO: i campi qui sotto (equazione di default, limiti,
+    // costanti, Step Relax/Ray Steps) li riempie questo handler, non
+    // l'utente. Senza guardia quelle scritture passano da
+    // noteSceneEdited e RISPORCANO la scena appena resettata: il popup
+    // del lavoro non salvato ricompariva a ogni cambio successivo anche
+    // senza che l'utente avesse toccato niente. Stessa guardia RAII di
+    // resetScene e del caricamento preset, e stesso ripristino del
+    // valore precedente invece di un "false" secco (questo handler puo'
+    // girare annidato dentro un reset gia' in corso).
+    const bool wasPopulating = m_populatingFields;
+    m_populatingFields = true;
+    struct SubTabGuard {
+        MainWindow *w;
+        bool prev;
+        ~SubTabGuard() { w->m_populatingFields = prev; }
+    } subTabGuard{this, wasPopulating};
+
+    // Limiti condivisi al default in ENTRAMBE le direzioni, prima di
+    // scrivere la superficie: cosi' il Run che segue non trova un box
+    // stantio addosso alla forma appena caricata.
+    resetImplicitSharedFields();
+
+    if (subIndex == 1) {
+        // loadCrossSectionDefaultSurface scrive da se' A/B/C (0.9/0.3/0.2),
+        // la trasparenza e la posa del T^3.
+        loadCrossSectionDefaultSurface();
+    } else if (subIndex == 0) {
+        ui->lineEquation->blockSignals(true);
+        ui->lineEquation->setPlainText("x^2 + y^2 + z^2 = 1.0");
+        ui->lineEquation->blockSignals(false);
+
+        // COSTANTI al default di avvio (1). La sfera non le usa, ma sono
+        // condivise: tornando dal Cross Section resterebbero i valori del
+        // T^3 (A=0.9 B=0.3 C=0.2) su tutti gli slider, pronti a deformare
+        // la prima equazione che l'utente scrive qui. Simmetrico a quanto
+        // il ramo Cross Section fa con i suoi.
+        setConstantField(ui->lineA, ui->aSlider, 1.0f);
+        setConstantField(ui->lineB, ui->bSlider, 1.0f);
+        setConstantField(ui->lineC, ui->cSlider, 1.0f);
+        if (ui->glWidget) {
+            const float valD = ui->lineD ? ui->lineD->text().toFloat() : 1.0f;
+            const float valE = ui->lineE ? ui->lineE->text().toFloat() : 1.0f;
+            const float valF = ui->lineF ? ui->lineF->text().toFloat() : 1.0f;
+            // S = Step Relax in Ray Marching (vedi resetImplicitSharedFields,
+            // che l'ha appena riportata a 0.4): la rileggiamo da li'.
+            const float valS = ui->lineS ? ui->lineS->text().toFloat() : 0.4f;
+            ui->glWidget->setEquationConstants(1.0f, 1.0f, 1.0f, valD, valE, valF, valS);
+        }
+
+        // Trasparenza e posa: il Cross Section le porta a 75 e 30/30, e
+        // sono stato GLOBALE, non per-sotto-tab. Senza questo la sfera
+        // ereditava l'aspetto del T^3. m_settingAlphaProgrammatic per lo
+        // stesso motivo spiegato in loadCrossSectionDefaultSurface.
+        if (ui->alphaSlider) {
+            m_settingAlphaProgrammatic = true;
+            ui->alphaSlider->setValue(100);
+            m_settingAlphaProgrammatic = false;
+            if (ui->glWidget) ui->glWidget->setAlpha(1.0f);
+        }
+        if (ui->glWidget) ui->glWidget->setRotationQuat(QQuaternion());
+
+        if (ui->glWidget) {
+            const QString sphereEq = QStringLiteral("(x^2 + y^2 + z^2) - (1.0)");
+            ui->glWidget->validateAndApplyImplicitShader(sphereEq, "", "", /*useCrossSection=*/false);
+        }
+        applyImplicitShellMode(true);
+        if (ui->glWidget) ui->glWidget->rebuildShader();
+
+        // Gli slider sono stati scritti a segnali bloccati, quindi
+        // updateConstantsUIState non ha visto nulla: senza questa chiamata
+        // resterebbero nello stato enable/disable ereditato dal T^3
+        // (A/B/C abilitate) su un'equazione che non le usa.
+        updateConstantsUIState();
+    }
+
+    // A schermo c'e' la superficie di DEFAULT del sotto-tab appena
+    // aperto: non c'e' piu' lavoro dell'utente da proteggere. Senza
+    // questo azzeramento il primo cambio "sporco" rendeva permanente il
+    // popup -- l'utente confermava di buttare via il lavoro, ma il flag
+    // restava alzato e ogni cambio successivo richiedeva conferma di
+    // nuovo, per una scena che nessuno aveva piu' toccato.
+    // Ultimo, dopo tutte le scritture qui sopra, per lo stesso motivo
+    // per cui resetScene lo fa in fondo (quelle passano da
+    // noteSceneEdited e rimetterebbero m_sceneDirty a true).
+    // NB: texture e suono NON si azzerano qui -- a differenza di
+    // resetScene questo handler non li svuota, quindi il loro lavoro
+    // resta da proteggere ed e' giusto che il prossimo popup lo elenchi.
+    m_sceneDirty = false;
+    m_runEverSucceeded = false;
+    m_warnedEditedDock = OriginDefault;
+    m_warnedOrigin     = OriginDefault;
+    m_surfaceOrigin    = OriginDefault;
+}
+
 void MainWindow::resetImplicitSharedFields()
 {
     // Limiti spaziali: campi VUOTI = nessun taglio, che e' il default di avvio
