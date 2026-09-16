@@ -2787,6 +2787,18 @@ MainWindow::MainWindow(QWidget *parent)
             if (warnImplicit) {
                 onAlphaSliderMovedWarnCheck();   // no return: l'alpha si applica sotto
             }
+            // TEXTURE COLORE PESANTE + trasparenza: controllo STATICO sul codice,
+            // che non dipende da una misura. La conferma misurata qui sotto guarda
+            // l'EMA del watchdog, che a scena FERMA (o appena caricata) e' pulita:
+            // proprio il caso in cui l'utente abbassa lo slider su una texture a
+            // noise e il primo frame trasparente sfora subito il budget GPU. Lo
+            // stimatore conta loop/noise/trascendenti nel codice, quindi risponde
+            // ancora prima che un frame sia stato disegnato.
+            // Nessun return: la guardia riporta lei l'alpha a 100 se interviene.
+            if (isImplicitMode) {
+                guardTransparencyOnHeavyTexture();
+                if (ui->alphaSlider->value() >= 100) return;   // guardia intervenuta
+            }
             // CONFERMA MISURATA (tutte le piattaforme): se la GPU e' GIA' sotto
             // carico pesante con la scena opaca (EMA del watchdog, significativa
             // solo ad animazione in corso), il ramo trasparente (~4-12x il costo
@@ -5909,6 +5921,77 @@ void MainWindow::guardTransparencyOnDisplacementApply(const QString &prevDisp)
 // tardivo. Se lo STATO FINALE e' RM + alpha<1 + displacement presente -> opaco +
 // avviso, coerente con la guardia interattiva. NB: legge lo stato GIA' finale
 // (slider + widget), quindi va invocata DOPO che il load ha applicato tutto.
+// Costo indicativo di uno script GLSL. Non misura nulla: conta i costrutti che
+// dominano il tempo di un fragment shader, con pesi grossolani ma stabili. Serve
+// a dire "questo codice e' caro" prima di renderizzarlo, non a predire ms.
+// I commenti sono esclusi: un preambolo lungo non e' lavoro per la GPU.
+int MainWindow::glslCostScore(const QString &code)
+{
+    QString c = code;
+    c.remove(QRegularExpression("//[^\n]*"));
+    c.remove(QRegularExpression("/\\*.*?\\*/", QRegularExpression::DotMatchesEverythingOption));
+    if (c.trimmed().isEmpty()) return 0;
+
+    auto count = [&c](const QString &pattern) {
+        return (int)c.count(QRegularExpression(pattern));
+    };
+    int score = c.length() / 100;                       // dimensione grezza
+    score += 12 * count("\\bfor\\s*\\(");               // i loop dominano
+    score += 12 * count("\\bwhile\\s*\\(");
+    score +=  6 * count("\\b(noise|fbm|hash|voronoi|worley|turbulence)\\w*\\s*\\(");
+    score +=  4 * count("\\bpow\\s*\\(");
+    score +=  3 * count("\\b(sin|cos|tan|exp|log|sqrt|atan|asin|acos)\\s*\\(");
+    return score;
+}
+
+// TRASPARENZA + TEXTURE COLORE PESANTE (Ray Marching), su TUTTE le piattaforme.
+//
+// Nel ramo trasparente il codice colore dell'utente non gira una volta per
+// pixel: gira DUE volte per faccia (entrata e uscita) per un massimo di
+// MAX_FACES facce, cioe' fino a 16 esecuzioni per pixel su desktop e 8 su
+// mobile — sopra alle 3 marchNextLayer per faccia che gia' costano
+// MAX_LAYER_STEPS passi l'una. Con una texture a noise/loop (Porous Bone,
+// Fractal Noise FBm) il frame sfora il budget GPU per pixel, lo scheduler
+// aborta i tile e si vedono i blocchi MAGENTA.
+//
+// Perche' una GUARDIA e non il watchdog: il watchdog misura il throughput e
+// avvisa DOPO qualche frame lento. Qui il PRIMO frame e' gia' oltre budget, e
+// mentre la GPU e' in quello stato l'interfaccia non risponde — l'avviso
+// arriverebbe tardi e su una finestra bloccata. L'unica difesa efficace e'
+// non entrare affatto nella combinazione.
+//
+// A differenza delle due guardie sul displacement, questa NON e' limitata a
+// mobile: il caso e' stato osservato su Mac, dove MAX_FACES vale 8 (il doppio
+// di mobile) e quindi il moltiplicatore e' il PIU' ALTO di tutte le piattaforme.
+void MainWindow::guardTransparencyOnHeavyTexture()
+{
+    if (!ui->glWidget) return;
+    if (ui->tabModeSelector->currentIndex() != 1) return;   // solo Ray Marching
+    if (!ui->alphaSlider || ui->alphaSlider->value() >= 100) return;  // non trasparente
+    if (!ui->chkBoxTexture || !ui->chkBoxTexture->isChecked()) return;
+
+    // Soglia empirica, tarata sui punteggi dei preset di fabbrica:
+    //   0-17  Hello World, Checkboard, Neon 3D Grid, Texture 3D, Cut Glass...
+    //   36-41 Two-Color / Spectral / Veined Cyclic Noise   <- tutte con un loop
+    //   50-100 Fractal Noise FBm, Limestone, Porous Deep, Porous Bone
+    // A 36 la separazione cade dove cade davvero il costo: da qui in su c'e'
+    // sempre un LOOP nel codice colore, ed e' il loop a moltiplicarsi per le 16
+    // esecuzioni per pixel del ramo trasparente. Le tre "Cyclic Noise" hanno lo
+    // stesso profilo (1 loop, 3-4 trascendenti) e vanno trattate allo stesso
+    // modo: una soglia a 40 ne avrebbe separate due praticamente identiche.
+    // Restano libere 13 texture su 20, cioe' tutte quelle senza loop.
+    constexpr int kHeavyTextureScore = 36;
+    const int score = glslCostScore(allSurfaceTextureCode());
+    if (score < kHeavyTextureScore) return;
+
+    forceOpaqueForHeavyRM(
+        tr("This texture is expensive to compute, and with transparency the "
+           "surface is drawn several times per pixel — together they would "
+           "overload the GPU, so the surface has been set to fully opaque.\n\n"
+           "Lower the transparency slider again to retry it: the app will check "
+           "the measured load first."));
+}
+
 void MainWindow::guardTransparencyOnImplicitLoad()
 {
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
@@ -8127,6 +8210,12 @@ void MainWindow::handleTextureSelection(int index)
                 ui->glWidget->rebuildShader();
                 return; // Esce in sicurezza senza crashare
             }
+
+            // Texture COLORE pesante su superficie trasparente: nel ramo
+            // trasparente il colore gira fino a 16 volte per pixel e il frame
+            // sfora il budget GPU (blocchi magenta). Va deciso QUI, prima che il
+            // primo frame venga renderizzato.
+            guardTransparencyOnHeavyTexture();
 
             // ---> COMPILAZIONE FINALE RIPRISTINATA <---
             ui->glWidget->rebuildShader();
