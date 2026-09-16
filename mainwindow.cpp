@@ -15109,7 +15109,7 @@ void MainWindow::loadCrossSectionDefaultSurface()
     // precisione del ray marcher sui valori grandi che l'espressione elevata
     // al quadrato/quarta potenza produce.
     static const QString kT3Equation =
-        "0.1*(((x*x+y*y+z*z+p*p+A*A+B*B-C*C)^2 + 4*(A*A-B*B)*(x*x+y*y) - 4*B*B*(z*z+A*A))^2 "
+        "0.01*(((x*x+y*y+z*z+p*p+A*A+B*B-C*C)^2 + 4*(A*A-B*B)*(x*x+y*y) - 4*B*B*(z*z+A*A))^2 "
         "- 16*A*A*(x*x+y*y)*(x*x+y*y+z*z+p*p+A*A-B*B-C*C)^2)";
 
     if (ui->lineEquationCrossSection) {
@@ -15142,6 +15142,26 @@ void MainWindow::loadCrossSectionDefaultSurface()
     // entrambe le coppie di radio e scrive il motore: non serve piu' una copia
     // locale per i radio dedicati, ed e' la stessa via del sotto-tab 3D.
     applyImplicitShellMode(true);
+
+    // RAY STEPS a 600 (il default condiviso e' 400, vedi resetImplicitSharedFields
+    // che ha appena girato): il T^3 e' una quartica di quartiche stratificata, con
+    // piu' falde lungo ogni raggio, e a 400 passi i tratti piu' interni si
+    // troncano. Vale SOLO per questo sotto-tab: il controllo e' condiviso, quindi
+    // lo si scrive qui DOPO il reset, e tornando al sotto-tab 3D il reset lo
+    // riporta a 400. Memoria allineata a cio' che si vede, come fa il reset.
+    const int kCrossSectionRaySteps = 600;
+    m_lastImplicitSteps = kCrossSectionRaySteps;
+    if (ui->stepSlider) {
+        const bool old = ui->stepSlider->blockSignals(true);
+        ui->stepSlider->setValue(kCrossSectionRaySteps);
+        ui->stepSlider->blockSignals(old);
+    }
+    if (ui->lineSteps) {
+        const bool old = ui->lineSteps->blockSignals(true);
+        ui->lineSteps->setText(QString::number(kCrossSectionRaySteps));
+        ui->lineSteps->blockSignals(old);
+    }
+    if (ui->glWidget) ui->glWidget->setRaySteps(kCrossSectionRaySteps);
 
     if (ui->glWidget) {
         ui->glWidget->validateAndApplyImplicitShader(kT3Equation, "", "", /*useCrossSection=*/true);

@@ -893,13 +893,17 @@ private:
     QString m_eqImplicitF = "x*x + y*y + z*z - 1.0";
     // Equazione a 4 variabili (x,y,z,p) del sotto-tab Cross Section. Stato
     // separato da m_eqImplicitF: i due sotto-tab (3D / Cross Section) non si
-    // sovrascrivono a vicenda. p e' sempre valutata a 0.0 per ora (nessuna
-    // rotazione 4D applicata) — vedi createImplicitFragmentShader().
+    // sovrascrivono a vicenda. p e' la quarta coordinata del punto nel
+    // riferimento della superficie, ricavata applicando la rotazione 4D INVERSA
+    // al punto (x,y,z,0) della camera — vedi createImplicitFragmentShader().
     // Default: 3-toro T^3 (toro-di-tori, S=x^2+y^2+z^2+A^2, M=S+p^2+B^2-C^2),
     // A=raggio esterno, B=raggio intermedio, C=raggio tubo. A p=0 NON si
     // riduce al toro 2D standard: e' proprio l'oggetto 4D nel suo riferimento.
+    // DEVE combaciare con kT3Equation in MainWindow::loadCrossSectionDefaultSurface
+    // (fattore di scala compreso): sono due copie della stessa equazione, e una
+    // che resta indietro e' un default incoerente con cio' che l'utente vede.
     QString m_eqCrossSectionF =
-        "0.1*(((x*x+y*y+z*z+p*p+A*A+B*B-C*C)^2 + 4*(A*A-B*B)*(x*x+y*y) - 4*B*B*(z*z+A*A))^2 "
+        "0.01*(((x*x+y*y+z*z+p*p+A*A+B*B-C*C)^2 + 4*(A*A-B*B)*(x*x+y*y) - 4*B*B*(z*z+A*A))^2 "
         "- 16*A*A*(x*x+y*y)*(x*x+y*y+z*z+p*p+A*A-B*B-C*C)^2)";
     // Quale delle due equazioni sopra e' quella attiva nello shader compilato.
     bool m_implicitUsesCrossSection = false;
