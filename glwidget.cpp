@@ -328,33 +328,6 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         const bool animating = !m_isRecording &&
                                (isAnimating() || m_surfaceAnimating ||
                                 m_pathAnimating || m_texAnimating);
-
-        // DIAGNOSTICA TEMPORANEA (magenta senza watchdog). Stampa lo stato a ogni
-        // frame lento, ANCHE quando la misura e' disabilitata: serve a capire se
-        // il watchdog tace perche' non misura (animating false) o perche' misura
-        // e non supera le soglie. Da togliere una volta chiuso il caso.
-        {
-            static QElapsedTimer dbgClock;
-            if (!dbgClock.isValid()) dbgClock.start();
-            const float dbgDt = (float)dbgClock.nsecsElapsed() / 1.0e6f;
-            dbgClock.restart();
-            if (dbgDt > 200.0f) {
-                qDebug().nospace()
-                    << "[perf] dt=" << dbgDt << "ms"
-                    << " animating=" << animating
-                    << " (rot=" << isAnimating()
-                    << " surf=" << m_surfaceAnimating
-                    << " path=" << m_pathAnimating
-                    << " tex=" << m_texAnimating
-                    << " rec=" << m_isRecording << ")"
-                    << " ema=" << m_avgFrameMs
-                    << " slowRun=" << m_slowFrameRun
-                    << " hugeRun=" << m_hugeFrameRun
-                    << " dwell=" << m_slowAccumMs
-                    << " warned=" << m_perfWarnDismissed
-                    << " level=" << m_perfWarnLevelMs;
-            }
-        }
         if (animating) {
             // Il PRIMO frame dopo l'avvio (o ri-avvio) dell'animazione non e' una
             // misura valida: l'intervallo dal frame precedente include il tempo da
