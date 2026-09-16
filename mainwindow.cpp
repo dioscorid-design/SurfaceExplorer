@@ -5976,8 +5976,52 @@ void MainWindow::updateRenderState()
         ui->btnPsiPlus->setEnabled(rot4DUsable);
 
         // --- 3. DISATTIVAZIONE PANNELLO 4D ---
+        // Il pannello contiene DUE famiglie di controlli con destini diversi in
+        // Ray Marching:
+        //  - path 4D e SPOSTAMENTI dell'osservatore (btnXPlus, btnPPlus, ...):
+        //    scrivono m_cameraPos4D / m_observerPos, che il template ray
+        //    marching NON legge (u_observerPos e u_cameraPos4D sono dichiarati
+        //    nell'UBO ma non usati da nessuna riga dello shader). Restano spenti:
+        //    accenderli darebbe tasti che non fanno nulla;
+        //  - ROTAZIONI 4D della camera (btnOmegaAhead/Rear e i gemelli Phi/Psi):
+        //    scrivono omega/phi/psi, cioe' ESATTAMENTE lo stato che il sotto-tab
+        //    Cross Section usa per decidere quale sezione dell'ipersuperficie si
+        //    vede. Sono i gemelli "a scatto" dei tasti Omega/Phi/Psi del dock 3D,
+        //    gia' abilitati sopra con rot4DUsable.
+        // NB: in Qt un figlio NON si riattiva dentro un padre disabilitato --
+        // isEnabled() resta false comunque (verificato). Quindi NON si puo'
+        // spegnere dockWidgetContents_3 a blocco e riaccendere le rotazioni
+        // dopo: il contenitore va lasciato abilitato e si spengono i singoli
+        // controlli che non hanno effetto.
         if (ui->dockWidgetContents_3) {
-            ui->dockWidgetContents_3->setEnabled(!isImplicitMode);
+            ui->dockWidgetContents_3->setEnabled(true);
+        }
+        // Path 4D: non ha effetto in Ray Marching (il template non legge
+        // u_observerPos/u_cameraPos4D). Spento a blocco, e' un pannello a se'.
+        if (ui->panelPath) {
+            ui->panelPath->setEnabled(!isImplicitMode);
+        }
+        // Navigazione 4D: contenitore ACCESO, si spengono i singoli tasti di
+        // SPOSTAMENTO dell'osservatore, che scrivono m_cameraPos4D/m_observerPos
+        // -- stato che lo shader ray marching non usa.
+        // btnLightMode incluso: il suo modo si applica solo quando is4DActive()
+        // e' vero (glwidget ~600), cosa che in Ray Marching non accade -- sarebbe
+        // un tasto cliccabile senza effetto, come gli spostamenti.
+        for (QPushButton *b : { ui->btnXPlus, ui->btnXMinus,
+                                ui->btnYPlus, ui->btnYMinus,
+                                ui->btnZPlus, ui->btnZMinus,
+                                ui->btnPPlus, ui->btnPMinus,
+                                ui->btnLightMode }) {
+            if (b) b->setEnabled(!isImplicitMode);
+        }
+        // ROTAZIONI 4D della camera: scrivono omega/phi/psi, cioe' lo stato che
+        // il sotto-tab Cross Section usa per scegliere la sezione. Sono i
+        // gemelli "a scatto" dei tasti Omega/Phi/Psi del dock 3D, e seguono lo
+        // stesso gate (rot4DUsable).
+        for (QPushButton *b : { ui->btnOmegaAhead, ui->btnOmegaRear,
+                                ui->btnPhiAhead,   ui->btnPhiRear,
+                                ui->btnPsiAhead,   ui->btnPsiRear }) {
+            if (b) b->setEnabled(rot4DUsable);
         }
 
         if (isImplicitMode) {
