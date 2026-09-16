@@ -4541,9 +4541,43 @@ QString GLWidget::createImplicitFragmentShader()
     // 4a variabile (x,y,z,p) del sotto-tab Cross Section: dichiarata SOLO
     // quando l'equazione attiva e' quella a 4 variabili, cosi' il tab 3D non
     // vede mai 'p' nello scope (equazione a 3 variabili, come da contratto).
-    // Fissa a 0.0 finche' le rotazioni 4D non sono agganciate.
+    //
+    // ROTAZIONI 4D. La telecamera vive SEMPRE nel piano p=0 del riferimento
+    // MONDO: ogni punto che il ray marcher visita e' (x, y, z, 0). La superficie
+    // ha un suo riferimento (O, x', y', z', p'), inizialmente coincidente con
+    // quello della camera; ruotarla in 4D significa che il piano di sezione,
+    // LETTO NEL RIFERIMENTO DELLA SUPERFICIE, non e' piu' p'=0 ma un piano
+    // obliquo -- ed e' per questo che la sezione cambia forma.
+    //
+    // Quindi qui si applica la rotazione INVERSA: si porta il punto del mondo
+    // dentro il riferimento della superficie, e la si valuta li'. E' l'opposto
+    // del ramo parametrico (surface.vert ~222), dove la superficie e' GENERATA
+    // in 4D e i suoi punti si trasformano in avanti; la stessa rotazione, letta
+    // dal lato opposto. Con omega=phi=psi=0 le due terne coincidono e p' resta
+    // 0: il comportamento storico e' esattamente il caso particolare.
+    //
+    // L'inversa di R = RzW(psi)*RyW(phi)*RxW(omega) (l'ordine in cui il vertex
+    // shader le applica al punto) e' RxW(-omega)*RyW(-phi)*RzW(-psi): ordine
+    // rovesciato e angoli negati. Le matrici sono ortogonali, quindi l'inversa
+    // e' anche la trasposta -- verificato numericamente.
+    //
+    // NB: e' una rotazione attorno all'ORIGINE, come richiesto: nessuna
+    // traslazione entra qui, le due terne condividono O per costruzione.
+    static const QString kCrossSectionRot = QStringLiteral(
+        "    vec4 q4 = vec4(pos, 0.0);\n"
+        "    {\n"
+        "        float co, si;\n"
+        "        co = cos(-ubuf.u_psi);   si = sin(-ubuf.u_psi);\n"
+        "        q4 = vec4(q4.x, q4.y, q4.z*co + q4.w*si, -q4.z*si + q4.w*co);\n"
+        "        co = cos(-ubuf.u_phi);   si = sin(-ubuf.u_phi);\n"
+        "        q4 = vec4(q4.x, q4.y*co + q4.w*si, q4.z, -q4.y*si + q4.w*co);\n"
+        "        co = cos(-ubuf.u_omega); si = sin(-ubuf.u_omega);\n"
+        "        q4 = vec4(q4.x*co + q4.w*si, q4.y, q4.z, -q4.x*si + q4.w*co);\n"
+        "    }\n"
+        "    x = q4.x; y = q4.y; z = q4.z;\n"
+        "    float p = q4.w;\n");
     finalSource.replace("%CROSS_SECTION_P%",
-                        m_implicitUsesCrossSection ? QStringLiteral("float p = 0.0;") : QString());
+                        m_implicitUsesCrossSection ? kCrossSectionRot : QString());
 
     if (m_textureEnabled) {
         QString texCodeRemapped = m_textureCode;
