@@ -558,9 +558,7 @@ private:
     static int glslCostScore(const QString &code);
     // Trasparenza + texture COLORE pesante in Ray Marching: il codice colore gira
     // 2 volte per faccia x MAX_FACES per pixel. Vale su TUTTE le piattaforme.
-    // codeOverride: codice colore da valutare quando non e' ancora stato scritto
-    // nello stato (es. subito dopo un caricamento). Vuoto = legge lo stato.
-    void guardTransparencyOnHeavyTexture(const QString &codeOverride = QString());
+    void guardTransparencyOnHeavyTexture();
     // Corpo condiviso dalle due guardie displacement: porta alpha a 1 (opaco),
     // zittisce il watchdog per questa scena (acknowledgePerformanceWarning) e
     // mostra `message`. Presuppone il contesto gia' verificato dal chiamante.
