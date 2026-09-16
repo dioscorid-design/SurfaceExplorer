@@ -87,9 +87,21 @@ float rawField(vec3 pos) {
 // uno stesso passo per non ricalcolarlo 4 volte su punti quasi coincidenti.
 // 0.0 = "non preparato": map() se lo calcola da se'. Vedi il ramo Shell in map().
 float g_shellGradLen = 0.0;
+// Valore di rawField nel punto per cui g_shellGradLen e' stato preparato, e il
+// punto stesso. Il marcher calcola rawField(pModel) per il gradiente e map()
+// lo ricalcolerebbe identico un istante dopo: memorizzandolo si risparmia una
+// valutazione per passo (7 -> 6). Valido SOLO per quel punto esatto: map()
+// confronta e in caso di mismatch ricalcola.
+float g_shellBaseVal = 0.0;
+vec3  g_shellBasePos = vec3(1e30);
 
 float map(vec3 pos) {
-    float d_surf = rawField(pos);
+    // Il marcher ha gia' valutato il campo in questo punto per preparare il
+    // gradiente del guscio: riusiamo quel valore invece di ricalcolarlo. Il
+    // confronto e' esatto perche' e' lo STESSO vec3 passato dal loop, non una
+    // ricostruzione; qualunque altro punto (i 3 vicini, calcNormal, la
+    // bisezione) non combacia e ricade sul calcolo normale.
+    float d_surf = (pos == g_shellBasePos) ? g_shellBaseVal : rawField(pos);
 
     // --- LOGICA GUSCIO (SHELL) ---
     // u_renderMode == 1 -> l'oggetto pieno diventa un guscio vuoto.
@@ -252,6 +264,8 @@ bool marchField(vec3 rayPos, vec3 rayDir, bool useInner, float tStart, out vec3 
                            rawField(pModel + eg.yxy) - v0,
                            rawField(pModel + eg.yyx) - v0);
             g_shellGradLen = max(length(gg) / eg.x, 1e-4);
+            g_shellBaseVal = v0;          // map(pModel) lo riusa: 7 -> 6 per passo
+            g_shellBasePos = pModel;
         }
 
         float val = useInner ? mapInner(pModel) : map(pModel);
@@ -289,6 +303,7 @@ bool marchField(vec3 rayPos, vec3 rayDir, bool useInner, float tStart, out vec3 
     // trasparente) lavora su punti diversi: lasciarlo acceso gli darebbe il
     // gradiente di un altro punto e deformerebbe il guscio. 0.0 = "ricalcolalo".
     g_shellGradLen = 0.0;
+    g_shellBasePos = vec3(1e30);
     pHit = pModel;
     return hit;
 }
@@ -348,6 +363,8 @@ bool marchNextLayer(vec3 rayPos, vec3 rayDir, float tStart, out vec3 pHit) {
                            rawField(pp + eg.yxy) - v0,
                            rawField(pp + eg.yyx) - v0);
             g_shellGradLen = max(length(gg) / eg.x, 1e-4);
+            g_shellBaseVal = v0;
+            g_shellBasePos = pp;
         }
         vec3 grad = vec3(map(pp + e.xyy) - vPrev,
                          map(pp + e.yxy) - vPrev,
@@ -369,6 +386,7 @@ bool marchNextLayer(vec3 rayPos, vec3 rayDir, float tStart, out vec3 pHit) {
             // valutato col gradiente di un altro punto e l'intersezione cadrebbe
             // nel posto sbagliato. Da qui in poi map() se lo ricalcola.
             g_shellGradLen = 0.0;
+            g_shellBasePos = vec3(1e30);
             // iterazioni di bisezione iniettate dal C++: 24 su desktop/iOS (precisione
             // piena), ridotte su Android per alleggerire il ramo trasparente. A 12
             // iterazioni l'intervallo si dimezza 2^12 volte: errore < passo/4096,
@@ -385,6 +403,7 @@ bool marchNextLayer(vec3 rayPos, vec3 rayDir, float tStart, out vec3 pHit) {
         vPrev = v;
     }
     g_shellGradLen = 0.0;   // vedi marchField: vale solo dentro il loop
+    g_shellBasePos = vec3(1e30);
     pHit = rayPos + rayDir * tStart;
     return false;
 }
