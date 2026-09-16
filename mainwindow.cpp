@@ -2796,7 +2796,7 @@ MainWindow::MainWindow(QWidget *parent)
             // ancora prima che un frame sia stato disegnato.
             // Nessun return: la guardia riporta lei l'alpha a 100 se interviene.
             if (isImplicitMode) {
-                guardTransparencyOnHeavyTexture();
+                guardTransparencyOnHeavyTexture();   // legge lo stato corrente
                 if (ui->alphaSlider->value() >= 100) return;   // guardia intervenuta
             }
             // CONFERMA MISURATA (tutte le piattaforme): se la GPU e' GIA' sotto
@@ -5963,7 +5963,7 @@ int MainWindow::glslCostScore(const QString &code)
 // A differenza delle due guardie sul displacement, questa NON e' limitata a
 // mobile: il caso e' stato osservato su Mac, dove MAX_FACES vale 8 (il doppio
 // di mobile) e quindi il moltiplicatore e' il PIU' ALTO di tutte le piattaforme.
-void MainWindow::guardTransparencyOnHeavyTexture()
+void MainWindow::guardTransparencyOnHeavyTexture(const QString &codeOverride)
 {
     if (!ui->glWidget) return;
     if (ui->tabModeSelector->currentIndex() != 1) return;   // solo Ray Marching
@@ -5981,7 +5981,14 @@ void MainWindow::guardTransparencyOnHeavyTexture()
     // modo: una soglia a 40 ne avrebbe separate due praticamente identiche.
     // Restano libere 13 texture su 20, cioe' tutte quelle senza loop.
     constexpr int kHeavyTextureScore = 36;
-    const int score = glslCostScore(allSurfaceTextureCode());
+    // codeOverride quando il chiamante ha in mano il codice ma non l'ha ancora
+    // scritto nello stato: il ramo implicito del caricamento texture applica
+    // rmTexCode allo shader SENZA passare da m_surfaceTextureCode, quindi
+    // allSurfaceTextureCode() li' restituirebbe la texture PRECEDENTE (spesso
+    // vuota) e la guardia non scatterebbe mai -- che e' esattamente il buco per
+    // cui il magenta partiva lo stesso.
+    const QString code = codeOverride.isEmpty() ? allSurfaceTextureCode() : codeOverride;
+    const int score = glslCostScore(code);
     if (score < kHeavyTextureScore) return;
 
     forceOpaqueForHeavyRM(
@@ -8186,6 +8193,16 @@ void MainWindow::handleTextureSelection(int index)
             ui->chkBoxTexture->setChecked(true);
             ui->chkBoxTexture->blockSignals(oldBlock);
 
+            // TEXTURE COLORE PESANTE + TRASPARENZA: deciso PRIMA di dare il
+            // codice al motore. Messa dopo validateAndApplyImplicitShader la
+            // guardia arrivava troppo tardi: lo shader pesante era gia' compilato
+            // e applicato, e bastava un frame disegnato prima che l'alpha
+            // tornasse a 100 perche' il magenta partisse lo stesso. Qui l'alpha
+            // e' gia' opaca quando lo shader entra in scena.
+            // rmTexCode esplicito: questo ramo NON scrive m_surfaceTextureCode,
+            // quindi allSurfaceTextureCode() restituirebbe la texture PRECEDENTE.
+            guardTransparencyOnHeavyTexture(rmTexCode);
+
             // ---> LE RIGHE CRITICHE RIPRISTINATE: Sincronizziamo la memoria! <---
             ui->glWidget->setTextureCode(rmTexCode);
             ui->glWidget->setGlobalTextureEnabled(true);
@@ -8211,11 +8228,6 @@ void MainWindow::handleTextureSelection(int index)
                 return; // Esce in sicurezza senza crashare
             }
 
-            // Texture COLORE pesante su superficie trasparente: nel ramo
-            // trasparente il colore gira fino a 16 volte per pixel e il frame
-            // sfora il budget GPU (blocchi magenta). Va deciso QUI, prima che il
-            // primo frame venga renderizzato.
-            guardTransparencyOnHeavyTexture();
 
             // ---> COMPILAZIONE FINALE RIPRISTINATA <---
             ui->glWidget->rebuildShader();
