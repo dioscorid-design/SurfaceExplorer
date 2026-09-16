@@ -83,6 +83,11 @@ float rawField(vec3 pos) {
     return d_surf;
 }
 
+// Gradiente del campo nel punto corrente del marcher, condiviso dalle map() di
+// uno stesso passo per non ricalcolarlo 4 volte su punti quasi coincidenti.
+// 0.0 = "non preparato": map() se lo calcola da se'. Vedi il ramo Shell in map().
+float g_shellGradLen = 0.0;
+
 float map(vec3 pos) {
     float d_surf = rawField(pos);
 
@@ -108,11 +113,29 @@ float map(vec3 pos) {
     // tutte le equazioni. Il clamp del gradiente evita la divisione per ~0 nei punti
     // critici (dove grad si annulla e la stima non ha senso).
     if (ubuf.u_renderMode == 1) {
-        vec2 e = vec2(0.001, 0.0);
-        vec3 grad = vec3(rawField(pos + e.xyy) - d_surf,
-                         rawField(pos + e.yxy) - d_surf,
-                         rawField(pos + e.yyx) - d_surf);
-        float gradLen = max(length(grad) / e.x, 1e-4);
+        // COSTO. Il gradiente qui e' la sola ragione per cui Shell costa piu' di
+        // Solid: 3 rawField in piu' per ogni map(). Siccome marchField chiama
+        // map() 4 volte per passo (valore + 3 vicini a e=0.001), i gradienti
+        // calcolati erano 4, su punti quasi coincidenti — 16 valutazioni del
+        // campo per passo contro le 4 di Solid.
+        //
+        // g_shellGradLen e' il gradiente del passo CORRENTE, calcolato una volta
+        // sola dal marcher e condiviso dalle 4 chiamate: 7 valutazioni per passo
+        // invece di 16. Misurato sul T^3: su una distanza di 0.001 il |grad|
+        // cambia del 2% (99° percentile), che sullo spessore 0.01 vale 0.0002
+        // unita' — sotto la soglia di hit del marcher, quindi invisibile.
+        //
+        // Vale 0.0 quando nessuno l'ha preparato (calcNormal, calcAO, le passate
+        // che non vengono dal loop): li' si ricalcola come prima, perche' e' il
+        // valore corretto e quelle chiamate sono poche.
+        float gradLen = g_shellGradLen;
+        if (gradLen <= 0.0) {
+            vec2 e = vec2(0.001, 0.0);
+            vec3 grad = vec3(rawField(pos + e.xyy) - d_surf,
+                             rawField(pos + e.yxy) - d_surf,
+                             rawField(pos + e.yyx) - d_surf);
+            gradLen = max(length(grad) / e.x, 1e-4);
+        }
         d_surf = (abs(d_surf) / gradLen - SHELL_THICKNESS) * gradLen;
     }
 
@@ -217,6 +240,20 @@ bool marchField(vec3 rayPos, vec3 rayDir, bool useInner, float tStart, out vec3 
         if (i >= ubuf.u_raySteps) break;
         pModel = rayPos + rayDir * t_dist;
 
+        // GUSCIO: un solo gradiente del campo grezzo per passo, condiviso dalle 4
+        // map() qui sotto (vedi g_shellGradLen). Costa 3 rawField, cioe' quanto
+        // costava PRIMA una sola delle 4 map(): il ramo Shell passa da 16 a 7
+        // valutazioni del campo per passo. Fuori da Shell non si calcola nulla e
+        // il costo resta identico al comportamento storico.
+        if (ubuf.u_renderMode == 1 && !useInner) {
+            vec2 eg = vec2(0.001, 0.0);
+            float v0 = rawField(pModel);
+            vec3 gg = vec3(rawField(pModel + eg.xyy) - v0,
+                           rawField(pModel + eg.yxy) - v0,
+                           rawField(pModel + eg.yyx) - v0);
+            g_shellGradLen = max(length(gg) / eg.x, 1e-4);
+        }
+
         float val = useInner ? mapInner(pModel) : map(pModel);
 
         // GRADIENTE FORWARD (non centrale): il gradiente serve a NORMALIZZARE il
@@ -247,6 +284,11 @@ bool marchField(vec3 rayPos, vec3 rayDir, bool useInner, float tStart, out vec3 
         if(t_dist > 50.0) break;
         t_dist += clamp(abs(d) * stepRelax, 0.0001, 0.5);
     }
+    // Il gradiente condiviso vale solo dentro questo loop, per il punto del passo
+    // corrente. Chi viene dopo (calcNormal sul punto colpito, calcAO, la passata
+    // trasparente) lavora su punti diversi: lasciarlo acceso gli darebbe il
+    // gradiente di un altro punto e deformerebbe il guscio. 0.0 = "ricalcolalo".
+    g_shellGradLen = 0.0;
     pHit = pModel;
     return hit;
 }
@@ -296,6 +338,17 @@ bool marchNextLayer(vec3 rayPos, vec3 rayDir, float tStart, out vec3 pHit) {
         // precisione sub-pixel, percio' il punto d'intersezione finale e' invariato.
         vec2 e = vec2(0.002, 0.0);
         vec3 pp = rayPos + rayDir * t;
+        // GUSCIO: stesso gradiente condiviso di marchField, e qui pesa di piu' --
+        // questo loop e' chiamato MAX_FACES x 3 volte per pixel nel ramo
+        // trasparente, ed e' il moltiplicatore di costo dominante dello shader.
+        if (ubuf.u_renderMode == 1) {
+            vec2 eg = vec2(0.001, 0.0);
+            float v0 = rawField(pp);
+            vec3 gg = vec3(rawField(pp + eg.xyy) - v0,
+                           rawField(pp + eg.yxy) - v0,
+                           rawField(pp + eg.yyx) - v0);
+            g_shellGradLen = max(length(gg) / eg.x, 1e-4);
+        }
         vec3 grad = vec3(map(pp + e.xyy) - vPrev,
                          map(pp + e.yxy) - vPrev,
                          map(pp + e.yyx) - vPrev);
@@ -311,6 +364,11 @@ bool marchNextLayer(vec3 rayPos, vec3 rayDir, float tStart, out vec3 pHit) {
             // bisezione robusta: segno di riferimento FISSO all'estremo 'a'.
             float a = t, b = tNextS;
             float sPrev = sign(vPrev);
+            // La bisezione campiona punti LONTANI da quello per cui il gradiente
+            // condiviso e' stato preparato: qui va spento, o il guscio verrebbe
+            // valutato col gradiente di un altro punto e l'intersezione cadrebbe
+            // nel posto sbagliato. Da qui in poi map() se lo ricalcola.
+            g_shellGradLen = 0.0;
             // iterazioni di bisezione iniettate dal C++: 24 su desktop/iOS (precisione
             // piena), ridotte su Android per alleggerire il ramo trasparente. A 12
             // iterazioni l'intervallo si dimezza 2^12 volte: errore < passo/4096,
@@ -326,6 +384,7 @@ bool marchNextLayer(vec3 rayPos, vec3 rayDir, float tStart, out vec3 pHit) {
         t     = tNextS;
         vPrev = v;
     }
+    g_shellGradLen = 0.0;   // vedi marchField: vale solo dentro il loop
     pHit = rayPos + rayDir * tStart;
     return false;
 }
