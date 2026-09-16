@@ -55,9 +55,29 @@ float rawField(vec3 pos) {
     // INIEZIONE RILIEVI PROCEDURALI DALLA UI +++
     // Creiamo un alias pModel per comodità dell'utente
     vec3 pModel = pos;
+    // ALIAS 'p' = punto 3D per il codice DISPLACEMENT, che viene iniettato qui
+    // sotto. Era il nome del parametro di questa funzione prima che il sotto-tab
+    // Cross Section lo rinominasse in 'pos'; senza, un displacement che usa 'p'
+    // (pattern documentato nella guida script) non compila e la superficie
+    // sparisce. Stesso alias di getCustomImplicit e mapInner.
+    //
+    // IN UNO SCOPE ANNIDATO, non qui: in Cross Section 'p' e' gia' la QUARTA
+    // VARIABILE scalare dell'equazione (dichiarata dal segnaposto della sezione
+    // 4D piu' sopra -- NB: non si scrive qui il nome di quel segnaposto, il
+    // replace del C++ lo sostituirebbe dentro questo commento e lo spezzerebbe,
+    // lasciando testo libero come codice), e due 'p' nello stesso scope sono
+    // una ridefinizione -> errore di
+    // compilazione su OGNI superficie Cross Section con displacement. Il blocco
+    // { } fa shadowing: dentro, 'p' e' il punto 3D (quello che il displacement
+    // si aspetta); fuori, la 'p' scalare resta intatta per l'equazione.
+    // Le modifiche del displacement a d_surf attraversano lo scope: d_surf e'
+    // dichiarata fuori, quindi "d_surf -= ..." agisce davvero.
+    {
+        vec3 p = pos;
 
     // Qui verrà inserito il codice del box "Rilievi"
     %DISPLACEMENT_CODE%
+    }
     // ++++++++++++++++++++++++++++++++++++++++++++++
 
     return d_surf;
