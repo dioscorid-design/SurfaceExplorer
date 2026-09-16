@@ -5996,10 +5996,21 @@ void MainWindow::updateRenderState()
         if (ui->dockWidgetContents_3) {
             ui->dockWidgetContents_3->setEnabled(true);
         }
-        // Path 4D: non ha effetto in Ray Marching (il template non legge
-        // u_observerPos/u_cameraPos4D). Spento a blocco, e' un pannello a se'.
+        // Path 4D: le sue EQUAZIONI non hanno effetto in Ray Marching (il
+        // template non legge u_observerPos/u_cameraPos4D), ma lo slider di
+        // VELOCITA' che vive in questo stesso pannello serve eccome: e' la
+        // manopola con cui si dosano i tasti P+/P- della sezione (obsSpeed =
+        // speed4D * kObs4DSpeedMul). Quindi il pannello resta abilitato e si
+        // spengono i soli campi del path, come per panelNav4D.
         if (ui->panelPath) {
-            ui->panelPath->setEnabled(!isImplicitMode);
+            ui->panelPath->setEnabled(true);
+        }
+        for (QWidget *w : { (QWidget*)ui->lineX_P,  (QWidget*)ui->lineY_P,
+                            (QWidget*)ui->lineZ_P,  (QWidget*)ui->lineP_P,
+                            (QWidget*)ui->lineAlpha_P, (QWidget*)ui->lineBeta_P,
+                            (QWidget*)ui->lineGamma_P,
+                            (QWidget*)ui->btnDeparture, (QWidget*)ui->pushView }) {
+            if (w) w->setEnabled(!isImplicitMode);
         }
         // Navigazione 4D: contenitore ACCESO, si spengono i singoli tasti di
         // SPOSTAMENTO dell'osservatore, che scrivono m_cameraPos4D/m_observerPos

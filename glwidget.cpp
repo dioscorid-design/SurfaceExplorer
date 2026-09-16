@@ -3782,6 +3782,17 @@ void GLWidget::virtualMove(MoveDir dir, float speed3D, float speed4D)
     float rotSpeed  = speed4D * 2.0f;   // Rotazioni 4D (Omega, Phi, Psi)
     float obsSpeed  = speed4D * 5.0f;   // Spostamento 4D lineare (X+, P-, ecc.)
 
+    // QUOTA DEL PIANO DI SEZIONE (Cross Section): passo 10 volte piu' fine dello
+    // spostamento 4D parametrico. Il moltiplicatore 5 di obsSpeed e' tarato sulla
+    // scala della SCENA, dove si attraversano unita' intere; qui si muove la
+    // quota di un taglio la cui estensione utile e' piccola -- sul T^3 di default
+    // circa +-0.2 -- e con 5 anche il minimo dello slider (0.005/tick) copre il
+    // 2.5% dell'intervallo a ogni scatto: si salta l'oggetto invece di esplorarlo.
+    // Con 0.5: minimo 0.12% a scatto (controllo fine), default 1.25%, massimo
+    // 12.5% (attraversa in 8 scatti, veloce ma senza saltare).
+    const float kSectionPMul = 0.5f;
+    float sectionSpeed = speed4D * kSectionPMul;
+
     bool updateNeeded = true;
 
     float radYaw = m_cameraYaw * M_PI / 180.0f;
@@ -3830,12 +3841,12 @@ void GLWidget::virtualMove(MoveDir dir, float speed3D, float speed4D)
         // l'osservatore 4D: li' u_observerPos non e' letta dal template, mentre
         // la quota decide quale fetta dell'ipersuperficie si vede. In
         // parametrico restano quelli storici.
-        if (m_engineMode == ModeImplicit) { m_crossSectionP += obsSpeed; break; }
+        if (m_engineMode == ModeImplicit) { m_crossSectionP += sectionSpeed; break; }
         m_cameraPos4D.setW(m_cameraPos4D.w() + obsSpeed);
         m_observerPos.setW(m_observerPos.w() + obsSpeed);
         break;
     case ObsMovePNeg:
-        if (m_engineMode == ModeImplicit) { m_crossSectionP -= obsSpeed; break; }
+        if (m_engineMode == ModeImplicit) { m_crossSectionP -= sectionSpeed; break; }
         m_cameraPos4D.setW(m_cameraPos4D.w() - obsSpeed);
         m_observerPos.setW(m_observerPos.w() - obsSpeed);
         break;
