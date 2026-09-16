@@ -289,39 +289,14 @@ bool marchField(vec3 rayPos, vec3 rayDir, bool useInner, float tStart, out vec3 
                    map(pModel + e.yxy) - val,
                    map(pModel + e.yyx) - val);
 
-        // DUE USI DEL GRADIENTE, DUE CLAMP DIVERSI.
-        //
-        // Il clamp a 0.2 nasce come salvavita del PASSO: dove il gradiente si
-        // annulla (punti critici del campo) la stima val/|grad| esplode e il
-        // marcher farebbe un salto enorme oltre la superficie. Per il passo e'
-        // giusto e resta.
-        //
-        // Per il TEST DI HIT invece falsifica il risultato: se |grad| vero e'
-        // molto sotto 0.2, dividere per 0.2 restituisce una distanza molto piu'
-        // PICCOLA del vero, che cade sotto hitThreshold e ferma il marcher NEL
-        // VUOTO. Misurato sul T^3 di default, su un raggio verso la zona fra i
-        // due tori: |grad| vero 0.011, clampato 0.2 (18x), distanza stimata
-        // 0.0037 contro 0.067 reali -> falso hit a 0.165 unita' dalla
-        // superficie. Quei falsi hit riempiono lo spazio fra i tubi e si vedono
-        // come una SALDATURA che non esiste nel campo (verificato: la sezione ha
-        // i tubi separati). Il ramo trasparente non la mostrava mai perche' usa
-        // marchNextLayer, che cerca il CAMBIO DI SEGNO e non puo' fermarsi dove
-        // il campo non ha attraversato lo zero.
-        //
-        // dHit usa il gradiente vero (solo protetto dallo zero); dStep resta
-        // quella storica, col salvavita.
-        float gradRaw = length(grad) / e.x;
-        float dHit  = val / max(gradRaw, 1e-6);
-        float dStep = val / max(gradRaw, 0.2);
-        d = dStep;
+        float gradLen = length(grad) / e.x;
+        gradLen = max(gradLen, 0.2);
+        d = val / gradLen;
 
         float hitThreshold = max(0.0005, 0.001 * t_dist);
-        // Il segno di val dice se siamo DENTRO: un hit legittimo o e' a distanza
-        // sub-soglia, o e' gia' oltre la superficie (val <= 0). Entrambe le
-        // condizioni sono vere solo vicino alla superficie vera.
-        if(abs(dHit) < hitThreshold || val <= 0.0) { hit = true; break; }
+        if(abs(d) < hitThreshold) { hit = true; break; }
         if(t_dist > 50.0) break;
-        t_dist += clamp(abs(dStep) * stepRelax, 0.0001, 0.5);
+        t_dist += clamp(abs(d) * stepRelax, 0.0001, 0.5);
     }
     // Il gradiente condiviso vale solo dentro questo loop, per il punto del passo
     // corrente. Chi viene dopo (calcNormal sul punto colpito, calcAO, la passata
