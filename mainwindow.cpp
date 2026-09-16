@@ -3223,7 +3223,7 @@ MainWindow::MainWindow(QWidget *parent)
         if (ui->tabModeSelector->currentIndex() == 1) { // Ray Marching
             // Solo l'SDF (lineEquation/script) è geometria; il displacement
             // (lineVariations) è del modulo texture ed è controllato al punto 2.
-            QString eq = ui->lineEquation->toPlainText() + " " + m_surfaceScriptText;
+            QString eq = activeImplicitEquationText() + " " + m_surfaceScriptText;
             if (hasTimeVariable(eq)) needsAnim = true;
         } else { // Parametrica
             // Includere i campi Composition (lineU/lineV/lineW) e i vincoli espliciti:
@@ -6670,7 +6670,13 @@ QSet<QString> MainWindow::constantsNotUsedBySurface() const
         // SUPERFICIE: una costante che vi compare non va resettata.
         mathText += " " + stripCodeComments(m_surfaceScriptText);
     } else {
-        mathText = stripCodeComments(ui->lineEquation->toPlainText());
+        // Sotto-tab ATTIVO, non lineEquation fisso: il criterio dev'essere lo
+        // STESSO di updateConstantsUIState (vedi il commento sopra), che legge
+        // gia' l'equazione del sotto-tab a schermo. Divergendo, le costanti usate
+        // solo dal Cross Section (A/B/C del T^3) risultavano "non usate dalla
+        // superficie" e un caricamento di texture le riportava al default,
+        // deformando la superficie 4D a schermo.
+        mathText = stripCodeComments(activeImplicitEquationText());
         // Idem per lo script implicito in Ray Marching.
         mathText += " " + stripCodeComments(m_surfaceScriptText);
     }
@@ -6740,9 +6746,7 @@ void MainWindow::updateConstantsUIState() {
         // — vedi CLAUDE.md), altrimenti le costanti usate SOLO nell'equazione
         // Cross Section (es. A/B/C del T^3) risultavano "non usate" e
         // updateControl le azzerava/disabilitava a vuoto.
-        const bool crossSectionActive = ui->subTabImplicit && ui->subTabImplicit->currentIndex() == 1;
-        mathText = stripCodeComments(crossSectionActive ? ui->lineEquationCrossSection->toPlainText()
-                                                         : ui->lineEquation->toPlainText());
+        mathText = stripCodeComments(activeImplicitEquationText());
         glslText += " " + stripCodeComments(ui->lineTexture->toPlainText()) +
                     " " + stripCodeComments(ui->lineVariations->toPlainText());
     }
@@ -8071,8 +8075,21 @@ void MainWindow::handleTextureSelection(int index)
         ui->lineTexture->blockSignals(false);
 
         if (ui->glWidget) {
-            // 1. Preparazione dell'equazione (per darla in pasto al validatore)
-            QString rawEq = ui->lineEquation->toPlainText().trimmed();
+            // 1. Preparazione dell'equazione (per darla in pasto al validatore).
+            // La sorgente dipende dal sotto-tab implicito ATTIVO, come nel Run
+            // (onStartClicked): "3D" ha lineEquation, "Cross Section" ha
+            // lineEquationCrossSection. Leggendo sempre lineEquation, applicare
+            // una texture RM mentre si e' in Cross Section ricompilava lo shader
+            // con la SFERA del sotto-tab 3D -- la superficie 4D spariva e la
+            // texture finiva su una sfera che l'utente non aveva chiesto.
+            // Il flag va passato anche a validateAndApplyImplicitShader piu'
+            // sotto: senza, il suo default false toglie 'p' dallo scope e
+            // l'equazione a 4 variabili non compilerebbe nemmeno.
+            const bool crossSectionActive = ui->subTabImplicit
+                                            && ui->subTabImplicit->currentIndex() == 1;
+            QPlainTextEdit *eqEditor = crossSectionActive ? ui->lineEquationCrossSection
+                                                          : ui->lineEquation;
+            QString rawEq = eqEditor->toPlainText().trimmed();
             QString implicitEqF;
             if (rawEq.contains("=")) {
                 QStringList parts = rawEq.split("=");
@@ -8098,7 +8115,9 @@ void MainWindow::handleTextureSelection(int index)
             updateTextureUIState(true, true);
 
             // 3. Validazione reale
-            bool success = ui->glWidget->validateAndApplyImplicitShader(implicitEqF, rmTexCode, data.displacementCode);
+            bool success = ui->glWidget->validateAndApplyImplicitShader(implicitEqF, rmTexCode,
+                                                                        data.displacementCode,
+                                                                        crossSectionActive);
 
             if (!success) {
                 performMasterStop();
@@ -11155,7 +11174,7 @@ bool MainWindow::confirmTextureConstantClash(const QString& texCode, const QStri
     // vincoli.
     QString surfaceCode;
     if (ui->tabModeSelector->currentIndex() == 1) {
-        surfaceCode = ui->lineEquation->toPlainText() + " " + m_surfaceScriptText;
+        surfaceCode = activeImplicitEquationText() + " " + m_surfaceScriptText;
     } else {
         surfaceCode = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
                       ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
@@ -14870,6 +14889,21 @@ void MainWindow::applyImplicitShellMode(bool shell)
 // coppia non e' quella su cui l'utente ha cliccato. Le due coppie sono comunque
 // tenute allineate da applyImplicitShellMode e dagli handler dei radio, quindi in
 // pratica concordano: questa funzione e' la garanzia che concordino sempre.
+// Equazione implicita del sotto-tab ATTIVO. I due sotto-tab hanno editor
+// separati (lineEquation / lineEquationCrossSection) ma un solo motore: ogni
+// punto che chiede "qual e' l'equazione a schermo?" deve passare da qui.
+// Leggere ui->lineEquation fisso era il difetto che faceva applicare le texture
+// RM alla sfera del 3D mentre si era in Cross Section, e che rendeva invisibile
+// al rilevamento dell'animazione una 't' scritta nell'equazione 4D.
+QString MainWindow::activeImplicitEquationText() const
+{
+    const bool crossSectionActive = ui->subTabImplicit
+                                    && ui->subTabImplicit->currentIndex() == 1;
+    if (crossSectionActive && ui->lineEquationCrossSection)
+        return ui->lineEquationCrossSection->toPlainText();
+    return ui->lineEquation ? ui->lineEquation->toPlainText() : QString();
+}
+
 bool MainWindow::implicitShellSelected() const
 {
     const bool crossSectionActive = ui->subTabImplicit
@@ -17773,7 +17807,7 @@ bool MainWindow::isEquationModuleMoving() const
         // NB: lineVariations (displacement) e' del MODULO TEXTURE, non della
         // geometria: includerlo farebbe credere al dock Equations che la
         // geometria sia in moto ogni volta che la texture anima il displacement.
-        mainEq = ui->lineEquation->toPlainText() + " " + m_surfaceScriptText;
+        mainEq = activeImplicitEquationText() + " " + m_surfaceScriptText;
     } else {
         mainEq = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
                 ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
@@ -17844,7 +17878,7 @@ void MainWindow::updateMasterButtonState()
             // geometria: NON va incluso qui, altrimenti il tasto Equations crede
             // che la geometria sia in moto e resta bloccato su "Stop" finché la
             // texture anima il displacement.
-            mainEq = ui->lineEquation->toPlainText() + " " + m_surfaceScriptText;
+            mainEq = activeImplicitEquationText() + " " + m_surfaceScriptText;
         } else {
             mainEq = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
                     ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
