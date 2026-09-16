@@ -1813,7 +1813,9 @@ MainWindow::MainWindow(QWidget *parent)
                     const float valD = ui->lineD ? ui->lineD->text().toFloat() : 1.0f;
                     const float valE = ui->lineE ? ui->lineE->text().toFloat() : 1.0f;
                     const float valF = ui->lineF ? ui->lineF->text().toFloat() : 1.0f;
-                    const float valS = ui->lineS ? ui->lineS->text().toFloat() : 0.0f;
+                    // S = Step Relax in Ray Marching (vedi resetImplicitSharedFields,
+                    // che l'ha appena riportata a 0.4): la rileggiamo da li'.
+                    const float valS = ui->lineS ? ui->lineS->text().toFloat() : 0.4f;
                     ui->glWidget->setEquationConstants(1.0f, 1.0f, 1.0f, valD, valE, valF, valS);
                 }
 
@@ -14936,6 +14938,52 @@ void MainWindow::resetImplicitSharedFields()
         ui->glWidget->setRangeY(-1000.0f, 1000.0f);
         ui->glWidget->setRangeZ(-1000.0f, 1000.0f);
     }
+
+    // STEP RELAX e RAY STEPS: sono le due manopole del MARCHER, non della
+    // superficie, e come i limiti hanno una sola istanza fisica condivisa fra i
+    // due sotto-tab. Vanno riportate al default insieme alla superficie perche'
+    // governano se e come la si vede: uno Step Relax basso lasciato dall'altro
+    // sotto-tab rallenta la marcia fino a far apparire la forma incompleta, e
+    // pochi Ray Steps la troncano a mezz'aria. I valori sono i default di avvio:
+    // Step Relax 0.4 e Ray Steps 400 (vedi l'inizializzazione della memoria).
+    //
+    // Ray Steps usa la COSTANTE 400, non m_lastImplicitSteps: quella variabile e'
+    // la memoria del valore corrente, aggiornata quando si esce verso Parametric
+    // (resetScene), quindi dopo un giro in Parametric conterrebbe il valore che
+    // l'utente aveva impostato -- e riscriverlo non sarebbe un reset. Stessa
+    // ragione per cui lo Step Relax scrive 0.4 esplicito e ALLINEA la memoria.
+    //
+    // Attenzione al doppio ruolo di S: in Ray Marching "lineS"/"sSlider" NON e'
+    // la costante S delle equazioni, e' lo Step Relax (lblS viene rietichettato,
+    // e lo shader lo legge da u_mathParams.w). Per questo si scrive qui e non
+    // insieme ad A..F.
+    m_lastImplicitS = 0.4;
+    if (ui->lineS) {
+        const bool old = ui->lineS->blockSignals(true);
+        ui->lineS->setText(QString::number(m_lastImplicitS));
+        ui->lineS->blockSignals(old);
+    }
+    if (ui->sSlider) {
+        const bool old = ui->sSlider->blockSignals(true);
+        ui->sSlider->setMinimum(0);
+        ui->sSlider->setMaximum(100);          // Step Relax: 0..1 (vedi setSmartSlider)
+        ui->sSlider->setValue(static_cast<int>(m_lastImplicitS * 100));
+        ui->sSlider->blockSignals(old);
+    }
+
+    const int kDefaultRaySteps = 400;
+    m_lastImplicitSteps = kDefaultRaySteps;   // memoria allineata a cio' che si vede
+    if (ui->stepSlider) {
+        const bool old = ui->stepSlider->blockSignals(true);
+        ui->stepSlider->setValue(kDefaultRaySteps);
+        ui->stepSlider->blockSignals(old);
+    }
+    if (ui->lineSteps) {
+        const bool old = ui->lineSteps->blockSignals(true);
+        ui->lineSteps->setText(QString::number(kDefaultRaySteps));
+        ui->lineSteps->blockSignals(old);
+    }
+    if (ui->glWidget) ui->glWidget->setRaySteps(kDefaultRaySteps);
 }
 
 void MainWindow::loadCrossSectionDefaultSurface()
@@ -14964,7 +15012,10 @@ void MainWindow::loadCrossSectionDefaultSurface()
     const float valD = ui->lineD ? ui->lineD->text().toFloat() : 1.0f;
     const float valE = ui->lineE ? ui->lineE->text().toFloat() : 1.0f;
     const float valF = ui->lineF ? ui->lineF->text().toFloat() : 1.0f;
-    const float valS = ui->lineS ? ui->lineS->text().toFloat() : 0.1f;
+    // S in Ray Marching e' lo STEP RELAX (non una costante dell'equazione):
+    // resetImplicitSharedFields l'ha appena riportata a 0.4, e la rileggiamo da
+    // li'. Il fallback e' lo stesso default, non un valore arbitrario.
+    const float valS = ui->lineS ? ui->lineS->text().toFloat() : 0.4f;
 
     setConstantField(ui->lineA, ui->aSlider, valA);
     setConstantField(ui->lineB, ui->bSlider, valB);
