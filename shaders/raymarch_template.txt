@@ -115,6 +115,13 @@ float map(vec3 pos) {
 // che ritorna 1e9 e questa funzione non viene mai chiamata dal main().
 // Applica lo STESSO bounding-box di map() per coerenza del cubo di taglio.
 float mapInner(vec3 pos) {
+    // ALIAS 'p' = punto 3D, per le espressioni della direttiva //INNER: degli
+    // script ray marching (es. Ergosphere: kerrHorizonSDF(p, A, ...)). Era il
+    // nome del PARAMETRO di questa funzione prima che il sotto-tab Cross Section
+    // lo rinominasse in 'pos'; senza l'alias quelle espressioni non compilano
+    // ("'p' : undeclared identifier") e la superficie sparisce. Stesso alias, e
+    // stessa ragione, di getCustomImplicit in createImplicitFragmentShader.
+    vec3 p = pos;
     float x = pos.x; float y = pos.y; float z = pos.z;
     float t = ubuf.u_time;
     float A = ubuf.u_mathParams.x; float B = ubuf.u_mathParams.y;

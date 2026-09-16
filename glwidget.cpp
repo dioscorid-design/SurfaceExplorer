@@ -4514,8 +4514,23 @@ QString GLWidget::createImplicitFragmentShader()
             m_raymarchHasInner = true;
         }
 
-        // Creiamo una funzione indipendente con il codice custom (esterna)
-        QString newFunction = "float getCustomImplicit(vec3 pos) {\n" + injectedVars + customCode + "\n}\n\n";
+        // Creiamo una funzione indipendente con il codice custom (esterna).
+        //
+        // ALIAS 'p' = PUNTO 3D. Gli script ray marching esistenti usano 'p' per il
+        // punto (length(p), p*scale, ...): era il NOME DEL PARAMETRO di questa
+        // funzione, "float getCustomImplicit(vec3 p)", finche' il sotto-tab Cross
+        // Section non l'ha rinominato in 'pos' per liberare 'p' come quarta
+        // variabile scalare. Il rename ha lasciato gli script senza 'p':
+        // "'p' : undeclared identifier", lo shader NON compila, resta in piedi
+        // quello precedente e la superficie SPARISCE senza alcun errore visibile
+        // (regressione su Blistered Gyroid, Breathing Sphere e ogni altro record
+        // RM da script che nomina 'p').
+        //
+        // L'alias vive SOLO qui dentro, dove 'p' ha sempre significato "punto 3D".
+        // Non collide con la 'p' scalare del Cross Section, che e' una locale di
+        // rawField(): funzioni diverse, scope diversi.
+        QString newFunction = "float getCustomImplicit(vec3 pos) {\n"
+                              "    vec3 p = pos;\n" + injectedVars + customCode + "\n}\n\n";
 
         // 1. Dichiariamo la nostra funzione custom ESATTAMENTE prima di rawField,
         // che e' dove vive %IMPLICIT_EQ%. L'ancora era "float map(vec3 pos) {" finche'
