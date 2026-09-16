@@ -15050,9 +15050,43 @@ void MainWindow::applyImplicitSubTabReset(int subIndex)
     // Ultimo, dopo tutte le scritture qui sopra, per lo stesso motivo
     // per cui resetScene lo fa in fondo (quelle passano da
     // noteSceneEdited e rimetterebbero m_sceneDirty a true).
-    // NB: texture e suono NON si azzerano qui -- a differenza di
-    // resetScene questo handler non li svuota, quindi il loro lavoro
-    // resta da proteggere ed e' giusto che il prossimo popup lo elenchi.
+    // NB: il SUONO non si azzera qui -- a differenza di resetScene questo
+    // handler non lo svuota, quindi il suo lavoro resta da proteggere ed e'
+    // giusto che il prossimo popup lo elenchi. La TEXTURE invece SI', ed e'
+    // gestita appena sopra: va svuotata davvero perche' i due rami la tolgono
+    // gia' dal motore.
+    // TEXTURE SPENTA ANCHE NELLA UI. I due rami qui sopra chiamano
+    // validateAndApplyImplicitShader con texCode vuoto, che azzera
+    // m_textureCode nel motore: a schermo la texture sparisce davvero. Ma
+    // checkbox, editor e flag di stato restavano com'erano, e il dock Renderer
+    // mostrava "Texture" spuntata su una superficie che non ne ha piu' --
+    // in entrambe le direzioni, 3D -> Cross Section e viceversa.
+    // Le superfici di default non hanno texture, quindi svuotarla e' corretto:
+    // va solo allineato cio' che la UI dichiara. Stesso trattamento (e stesso
+    // ordine) del ramo texture di resetScene.
+    m_surfaceTextureState = false;
+    m_isCustomMode = false;
+    m_isImageMode = false;
+    m_currentTexturePath.clear();
+    m_surfaceTextureCode.clear();
+    m_surfaceTextureScriptText.clear();
+
+    ui->lineTexture->blockSignals(true);
+    ui->lineTexture->clear();
+    ui->lineTexture->blockSignals(false);
+
+    // Solo se i controlli stanno MOSTRANDO la superficie: in ambito Background
+    // il checkbox e' il display dello sfondo, che questo reset non tocca.
+    if (!ui->radioBackground->isChecked()) {
+        const bool oldBlock = ui->chkBoxTexture->blockSignals(true);
+        ui->chkBoxTexture->setChecked(false);
+        ui->chkBoxTexture->blockSignals(oldBlock);
+    }
+    if (ui->glWidget) {
+        ui->glWidget->setGlobalTextureEnabled(false);
+        ui->glWidget->clearTexture();   // sgancia anche l'eventuale immagine
+    }
+
     m_sceneDirty = false;
     m_runEverSucceeded = false;
     m_warnedEditedDock = OriginDefault;
