@@ -135,13 +135,6 @@ float map(vec3 pos) {
 // che ritorna 1e9 e questa funzione non viene mai chiamata dal main().
 // Applica lo STESSO bounding-box di map() per coerenza del cubo di taglio.
 float mapInner(vec3 pos) {
-    // ALIAS 'p' = punto 3D, per le espressioni della direttiva //INNER: degli
-    // script ray marching (es. Ergosphere: kerrHorizonSDF(p, A, ...)). Era il
-    // nome del PARAMETRO di questa funzione prima che il sotto-tab Cross Section
-    // lo rinominasse in 'pos'; senza l'alias quelle espressioni non compilano
-    // ("'p' : undeclared identifier") e la superficie sparisce. Stesso alias, e
-    // stessa ragione, di getCustomImplicit in createImplicitFragmentShader.
-    vec3 p = pos;
     float x = pos.x; float y = pos.y; float z = pos.z;
     float t = ubuf.u_time;
     float A = ubuf.u_mathParams.x; float B = ubuf.u_mathParams.y;
@@ -149,7 +142,22 @@ float mapInner(vec3 pos) {
     float D = ubuf.u_mathParams2.x; float E = ubuf.u_mathParams2.y;
     float F = ubuf.u_mathParams2.z;
 
-    float d_surf = float( %INNER_MAP% );
+    // ALIAS 'p' = punto 3D, per le espressioni della direttiva //INNER: degli
+    // script ray marching (es. Ergosphere: kerrHorizonSDF(p, A, ...)). Era il
+    // nome del PARAMETRO di questa funzione prima che il sotto-tab Cross Section
+    // lo rinominasse in 'pos'; senza l'alias quelle espressioni non compilano
+    // ("'p' : undeclared identifier") e la superficie sparisce.
+    // REGOLA UNICA: l'alias del punto 3D vive SEMPRE in un blocco { } proprio,
+    // che avvolge il codice utente. Qui un blocco non servirebbe (mapInner non
+    // ospita la variabile scalare della sezione 4D, quindi non c'e' collisione
+    // possibile), ma tenerlo uguale a rawField -- dove il blocco e'
+    // OBBLIGATORIO -- toglie il dubbio su quale delle due forme sia quella
+    // giusta da copiare la prossima volta.
+    float d_surf;
+    {
+        vec3 p = pos;
+        d_surf = float( %INNER_MAP% );
+    }
 
     vec3 bMin = vec3(ubuf.x_min, ubuf.y_min, ubuf.z_min);
     vec3 bMax = vec3(ubuf.x_max, ubuf.y_max, ubuf.z_max);
