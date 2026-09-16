@@ -990,6 +990,11 @@ private:
     // dal cambio di sotto-tab (3D <-> Cross Section) — vedi CLAUDE.md, mai
     // duplicare logica live: unica implementazione condivisa.
     void loadCrossSectionDefaultSurface();
+    // Limiti X/Y/Z (condivisi fra i due sotto-tab impliciti) riportati al default
+    // "nessun taglio". Chiamata dal cambio di sotto-tab.
+    void resetImplicitSharedFields();
+    // Scrive una costante (campo + slider) a segnali bloccati.
+    void setConstantField(QLineEdit *edit, QSlider *slider, float v);
     QString presetsRootPath() const;
     // Data la cartella che l'utente ha indicato in un pannello, restituisce la
     // RADICE DELLA LIBRERIA: quella cartella stessa se e' gia' una radice (dentro
