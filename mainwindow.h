@@ -553,12 +553,6 @@ private:
     // guardia interattiva scattano: e' la falla del "record con alpha<1 nel JSON".
     // Porta alpha a 1, avvisa, zittisce il watchdog (come la guardia interattiva).
     void guardTransparencyOnImplicitLoad();
-    // Costo indicativo di uno script GLSL (loop, funzioni trascendenti, noise).
-    // Serve alle guardie che impediscono combinazioni fuori budget GPU.
-    static int glslCostScore(const QString &code);
-    // Trasparenza + texture COLORE pesante in Ray Marching: il codice colore gira
-    // 2 volte per faccia x MAX_FACES per pixel. Vale su TUTTE le piattaforme.
-    void guardTransparencyOnHeavyTexture();
     // Corpo condiviso dalle due guardie displacement: porta alpha a 1 (opaco),
     // zittisce il watchdog per questa scena (acknowledgePerformanceWarning) e
     // mostra `message`. Presuppone il contesto gia' verificato dal chiamante.
