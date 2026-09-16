@@ -6004,15 +6004,29 @@ void MainWindow::updateRenderState()
         // Navigazione 4D: contenitore ACCESO, si spengono i singoli tasti di
         // SPOSTAMENTO dell'osservatore, che scrivono m_cameraPos4D/m_observerPos
         // -- stato che lo shader ray marching non usa.
-        // btnLightMode incluso: il suo modo si applica solo quando is4DActive()
-        // e' vero (glwidget ~600), cosa che in Ray Marching non accade -- sarebbe
-        // un tasto cliccabile senza effetto, come gli spostamenti.
+        // SPOSTAMENTI X/Y/Z dell'osservatore: restano spenti in Ray Marching.
+        // Non perche' siano concettualmente fuori luogo, ma perche' sarebbero un
+        // DOPPIO spostamento: la posizione 3D della telecamera e' gia' quella
+        // della matrice di vista (rayPos = inverse(u_mvMatrix) * origine, nel
+        // main() del template), e sommare anche u_observerPos.xyz muoverebbe la
+        // scena due volte. Per muoversi in 3D ci sono i controlli del dock 3D.
+        // btnLightMode idem: il suo modo si applica solo quando is4DActive() e'
+        // vero (glwidget ~600), cosa che in Ray Marching non accade.
         for (QPushButton *b : { ui->btnXPlus, ui->btnXMinus,
                                 ui->btnYPlus, ui->btnYMinus,
                                 ui->btnZPlus, ui->btnZMinus,
-                                ui->btnPPlus, ui->btnPMinus,
                                 ui->btnLightMode }) {
             if (b) b->setEnabled(!isImplicitMode);
+        }
+        // TRASLAZIONE LUNGO P: il caso opposto, ed e' il controllo piu'
+        // importante del Cross Section dopo le rotazioni. Muove la QUOTA del
+        // piano di sezione (u_observerPos.w, letta da %CROSS_SECTION_P%), cioe'
+        // fa scorrere la sezione lungo la quarta dimensione: le rotazioni
+        // cambiano l'INCLINAZIONE del taglio, questa cambia DOVE taglia. La
+        // quarta coordinata e' anche l'unica che la matrice di vista non
+        // rappresenta, quindi qui non c'e' il doppio spostamento degli altri assi.
+        for (QPushButton *b : { ui->btnPPlus, ui->btnPMinus }) {
+            if (b) b->setEnabled(rot4DUsable);
         }
         // ROTAZIONI 4D della camera: scrivono omega/phi/psi, cioe' lo stato che
         // il sotto-tab Cross Section usa per scegliere la sezione. Sono i

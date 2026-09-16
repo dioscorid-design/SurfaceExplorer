@@ -498,6 +498,9 @@ public:
     bool is4DActive() const;
 
     void setRotation4D(float o, float p, float ps);
+    // Sposta la quota del piano di sezione (Cross Section). Cumulativo.
+    void moveCrossSectionP(float delta) { m_crossSectionP += delta; update(); }
+    float crossSectionP() const { return m_crossSectionP; }
     float getOmega() const { return omega; }
     float getPhi() const { return phi; }
     float getPsi() const { return psi; }
@@ -1007,6 +1010,12 @@ private:
     QVector3D m_cameraPos;
     QVector4D m_cameraPos4D = QVector4D(0.0f, 0.0f, 4.0f, 4.0f);
     QVector4D m_observerPos = QVector4D(0.0f, 0.0f, 0.0f, 4.0f);
+    // QUOTA DEL PIANO DI SEZIONE (sotto-tab Cross Section): il valore di p a cui
+    // si taglia l'ipersuperficie. Stato PROPRIO e non m_observerPos.w, che e' la
+    // DISTANZA dell'osservatore 4D per la proiezione parametrica e parte da 4.0:
+    // usarla come quota farebbe nascere la sezione fuori dall'oggetto (schermo
+    // vuoto). I tasti P+/P- del dock 4D scrivono questa.
+    float m_crossSectionP = 0.0f;
 
     float m_cameraYaw;
     float m_cameraPitch;

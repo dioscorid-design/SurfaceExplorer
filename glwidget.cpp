@@ -595,6 +595,11 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // .y = flag "seconda superficie interna" (Inner:= nello script ray marching).
     // .x resta l'orologio texture; .y/.z/.w erano liberi (azzerati a inizio frame).
     m_uboData.dummyZero.setY(m_raymarchHasInner ? 1.0f : 0.0f);
+    // .z = quota del piano di sezione (Cross Section). Si riusa dummyZero invece
+    // di aggiungere un campo all'UBO: un campo nuovo andrebbe dichiarato in
+    // ENTRAMBI gli shader o Adreno rifiuta il link (vedi CLAUDE.md), e qui basta
+    // una componente gia' presente e inutilizzata.
+    m_uboData.dummyZero.setZ(m_crossSectionP);
     m_uboData.projMode = projectionMode;
     m_uboData.renderMode = renderMode;
     m_uboData.lightingMode = is4DActive() ? m_lightingMode4D : 0;
@@ -3744,6 +3749,10 @@ void GLWidget::resetTransformations()
 
     m_observerPos = QVector4D(0.0f, 0.0f, 0.0f, current4DZoom);
     m_cameraPos4D = QVector4D(0.0f, 0.0f, 0.0f, current4DZoom);
+    // Quota del piano di sezione: azzerata davvero (a differenza di w, che e'
+    // una DISTANZA e ha il salvavita zoom qui sopra). p=0 e' la sezione centrale,
+    // quella da cui ogni superficie Cross Section deve ripartire.
+    m_crossSectionP = 0.0f;
 
     // Reset dei vettori di mira
     m_pathTarget = QVector3D(0.0f, 0.0f, 0.0f);
@@ -3817,10 +3826,16 @@ void GLWidget::virtualMove(MoveDir dir, float speed3D, float speed4D)
         break;
 
     case ObsMovePPos:
+        // In RAY MARCHING i tasti P muovono la QUOTA DEL PIANO DI SEZIONE, non
+        // l'osservatore 4D: li' u_observerPos non e' letta dal template, mentre
+        // la quota decide quale fetta dell'ipersuperficie si vede. In
+        // parametrico restano quelli storici.
+        if (m_engineMode == ModeImplicit) { m_crossSectionP += obsSpeed; break; }
         m_cameraPos4D.setW(m_cameraPos4D.w() + obsSpeed);
         m_observerPos.setW(m_observerPos.w() + obsSpeed);
         break;
     case ObsMovePNeg:
+        if (m_engineMode == ModeImplicit) { m_crossSectionP -= obsSpeed; break; }
         m_cameraPos4D.setW(m_cameraPos4D.w() - obsSpeed);
         m_observerPos.setW(m_observerPos.w() - obsSpeed);
         break;
@@ -4576,10 +4591,29 @@ QString GLWidget::createImplicitFragmentShader()
     // rovesciato e angoli negati. Le matrici sono ortogonali, quindi l'inversa
     // e' anche la trasposta -- verificato numericamente.
     //
-    // NB: e' una rotazione attorno all'ORIGINE, come richiesto: nessuna
-    // traslazione entra qui, le due terne condividono O per costruzione.
+    // TRASLAZIONE LUNGO p (la quota del piano di sezione). Il punto che il
+    // marcher visita e' (x, y, z, p0), dove p0 NON e' piu' fisso a 0 ma la
+    // quarta coordinata dell'osservatore -- quella che i tasti P+/P- del dock 4D
+    // muovono (ObsMovePPos/Neg -> m_observerPos.w, gia' caricata nell'UBO).
+    //
+    // E' la traslazione che da' senso alla feature: ruotando si cambia
+    // l'INCLINAZIONE del piano di sezione, spostando p si cambia la sua QUOTA,
+    // cioe' si scorre l'ipersuperficie da un capo all'altro vedendo la sezione
+    // trasformarsi. Senza, si vede sempre e solo la fetta centrale.
+    //
+    // La traslazione si applica PRIMA della rotazione inversa: p0 e' misurato
+    // nel riferimento MONDO (e' dove sta l'osservatore), e va portato dentro il
+    // riferimento della superficie insieme a x, y, z.
+    //
+    // x, y, z dell'osservatore NON entrano qui: in 3D la posizione della
+    // telecamera e' gia' governata dalla matrice di vista (m_cameraPos, il
+    // rayPos del marcher), e sommarli una seconda volta sposterebbe la scena due
+    // volte. La quarta coordinata e' l'unica che la matrice di vista non
+    // rappresenta, ed e' l'unica che serve qui.
+    //
+    // La rotazione resta attorno all'ORIGINE: le due terne condividono O.
     static const QString kCrossSectionRot = QStringLiteral(
-        "    vec4 q4 = vec4(pos, 0.0);\n"
+        "    vec4 q4 = vec4(pos, ubuf.u_dummyZero.z);\n"
         "    {\n"
         "        float co, si;\n"
         "        co = cos(-ubuf.u_psi);   si = sin(-ubuf.u_psi);\n"
