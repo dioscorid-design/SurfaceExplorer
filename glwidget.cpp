@@ -317,17 +317,8 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         // scrittura su disco tra i frame): gli intervalli sono lentissimi per
         // costruzione, non per carico GPU. Saltiamo il watchdog per non dare un
         // falso avviso "il rendering rallenta" durante la registrazione.
-        // m_texAnimating incluso: il clock della TEXTURE avvia m_animTimer e
-        // produce frame continui esattamente come gli altri tre, ma non era fra i
-        // flag guardati qui. Una texture ray marching pesante e animata faceva
-        // quindi collassare il frame rate SENZA che il watchdog misurasse nulla:
-        // si vedevano i blocchi magenta (budget GPU per pixel sforato, vedi il
-        // commento su MAX_FACES in createImplicitFragmentShader) e nessun avviso.
-        // E' il caso peggiore proprio perche' la geometria puo' essere ferma:
-        // tutto il costo sta nel colore, che gli altri tre flag non descrivono.
         const bool animating = !m_isRecording &&
-                               (isAnimating() || m_surfaceAnimating ||
-                                m_pathAnimating || m_texAnimating);
+                               (isAnimating() || m_surfaceAnimating || m_pathAnimating);
         if (animating) {
             // Il PRIMO frame dopo l'avvio (o ri-avvio) dell'animazione non e' una
             // misura valida: l'intervallo dal frame precedente include il tempo da
