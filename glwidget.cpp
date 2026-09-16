@@ -4517,10 +4517,15 @@ QString GLWidget::createImplicitFragmentShader()
         // Creiamo una funzione indipendente con il codice custom (esterna)
         QString newFunction = "float getCustomImplicit(vec3 pos) {\n" + injectedVars + customCode + "\n}\n\n";
 
-        // 1. Dichiariamo la nostra funzione custom ESATTAMENTE prima della funzione map standard
-        finalSource.replace("float map(vec3 pos) {", newFunction + "float map(vec3 pos) {");
+        // 1. Dichiariamo la nostra funzione custom ESATTAMENTE prima di rawField,
+        // che e' dove vive %IMPLICIT_EQ%. L'ancora era "float map(vec3 pos) {" finche'
+        // il placeholder stava in map(); ora rawField() e' stata estratta SOPRA map()
+        // (serve a map() per campionare il gradiente del campo nel guscio, e GLSL non
+        // ammette ricorsione). Ancorarsi ancora a map() metterebbe la definizione DOPO
+        // il suo uso -> "getCustomImplicit : no matching function", shader non compilato.
+        finalSource.replace("float rawField(vec3 pos) {", newFunction + "float rawField(vec3 pos) {");
 
-        // 2. Sostituiamo il placeholder in map() delegando il calcolo alla nostra funzione
+        // 2. Sostituiamo il placeholder in rawField() delegando il calcolo alla nostra funzione
         finalSource.replace("%IMPLICIT_EQ%", "getCustomImplicit(pos)");
 
     } else {

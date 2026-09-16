@@ -982,6 +982,8 @@ private:
     // EQUAZIONE, e siccome quasi tutti i record RM sono da SCRIPT i radio non
     // si resettavano mai caricando un record; resetScene non lo faceva affatto.
     void applyImplicitShellMode(bool shell);
+    // Shell/Solid del sotto-tab implicito ATTIVO (3D o Cross Section).
+    bool implicitShellSelected() const;
     // Superficie di default del sotto-tab Cross Section (T^3, 3-toro): stessa
     // idea della sfera di default per il tab 3D, ma per l'equazione a 4
     // variabili (x,y,z,p). Riusata sia da resetScene (arrivo su Implicit) sia

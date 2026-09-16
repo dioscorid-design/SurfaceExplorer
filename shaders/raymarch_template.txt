@@ -18,6 +18,17 @@ layout(std140, binding=0) uniform SceneUBO {
 
 layout(binding=1) uniform sampler2D tex;
 
+// Semi-spessore del guscio (modalita' Shell), in unita' di scena: la banda va da
+// -SHELL_THICKNESS a +SHELL_THICKNESS attorno alla superficie, quindi il guscio e'
+// spesso 0.01. E' una DISTANZA vera, non un valore di campo: vedi la
+// normalizzazione col gradiente in map().
+// Perche' 0.005 e non 0.01: il codice storico faceva abs(d_surf) - 0.01 sul campo
+// GREZZO, e sulla sfera unitaria (|grad| = 2) quel valore corrispondeva a un
+// semi-spessore geometrico di 0.005. Tenendo 0.005 qui, il guscio delle superfici
+// 3D gia' esistenti resta identico a prima; cambia solo dove il campo non e'
+// normalizzato, che e' esattamente il caso che stiamo correggendo.
+const float SHELL_THICKNESS = 0.005;
+
 // --- FUNZIONE PER INTERSEZIONI MORBIDE (SMOOTH MAX) ---
 float smax(float a, float b, float k) {
     float h = clamp(0.5 + 0.5 * (a - b) / k, 0.0, 1.0);
@@ -25,7 +36,11 @@ float smax(float a, float b, float k) {
 }
 
 // --- EQUAZIONE IMPLICITA 3D ---
-float map(vec3 pos) {
+// CAMPO GREZZO: l'equazione dell'utente + il displacement, SENZA guscio e senza
+// bounding box. Estratta da map() perche' il guscio ha bisogno del GRADIENTE del
+// campo (vedi map() qui sotto) e GLSL non ammette ricorsione: map() non puo'
+// campionare se stessa. Chi vuole il campo puro chiama questa.
+float rawField(vec3 pos) {
     float x = pos.x; float y = pos.y; float z = pos.z;
     float t = ubuf.u_time;
     float A = ubuf.u_mathParams.x; float B = ubuf.u_mathParams.y;
@@ -45,11 +60,40 @@ float map(vec3 pos) {
     %DISPLACEMENT_CODE%
     // ++++++++++++++++++++++++++++++++++++++++++++++
 
-    // --- NUOVA LOGICA GUSCIO (SHELL) ---
-    // Se u_renderMode è 1 (oppure scegli tu il numero associato nel menu della tua UI)
-    // trasformiamo l'oggetto solido in un guscio vuoto con spessore 0.01
+    return d_surf;
+}
+
+float map(vec3 pos) {
+    float d_surf = rawField(pos);
+
+    // --- LOGICA GUSCIO (SHELL) ---
+    // u_renderMode == 1 -> l'oggetto pieno diventa un guscio vuoto.
+    //
+    // PERCHE' IL CAMPO VA NORMALIZZATO PRIMA. Lo spessore e' una distanza in
+    // unita' di scena, ma d_surf e' il valore GREZZO dell'equazione, che non ha
+    // unita' di lunghezza: quanto vale a un dato punto dipende da come l'utente
+    // ha scritto l'equazione, non da quanto si e' lontani dalla superficie.
+    // Un semplice abs(d_surf) - spessore quindi produce un guscio il cui spessore
+    // reale e' spessore/|grad| — cioe' arbitrario. Sulla sfera (|grad| ~ 2) va per
+    // combinazione; sulle equazioni 4D del sotto-tab Cross Section (quartiche di
+    // quartiche, |grad| ~ 0.04) il guscio diventava piu' spesso del solido stesso
+    // e lo inghiottiva: Shell e Solid si vedevano IDENTICI perche' la banda del
+    // guscio copriva tutto l'interno e il raggio colpiva lo stesso bordo esterno.
+    // Misurato sul T^3 di default (A=.9 B=.3 C=.2): |d_surf| dentro il solido non
+    // superava 0.030, contro una soglia guscio di 0.01 -> nessuna cavita' residua.
+    //
+    // Dividendo per |grad| il campo diventa una stima di distanza al primo ordine
+    // (passo di Newton), la stessa che il marcher usa gia' per dimensionare i passi
+    // (vedi marchField): lo spessore torna a essere una lunghezza vera e uguale per
+    // tutte le equazioni. Il clamp del gradiente evita la divisione per ~0 nei punti
+    // critici (dove grad si annulla e la stima non ha senso).
     if (ubuf.u_renderMode == 1) {
-        d_surf = abs(d_surf) - 0.01;
+        vec2 e = vec2(0.001, 0.0);
+        vec3 grad = vec3(rawField(pos + e.xyy) - d_surf,
+                         rawField(pos + e.yxy) - d_surf,
+                         rawField(pos + e.yyx) - d_surf);
+        float gradLen = max(length(grad) / e.x, 1e-4);
+        d_surf = (abs(d_surf) / gradLen - SHELL_THICKNESS) * gradLen;
     }
 
     // 2. Bounding Box SDF (Il cubo di taglio)

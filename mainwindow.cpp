@@ -2331,15 +2331,24 @@ MainWindow::MainWindow(QWidget *parent)
     ui->glWidget->setGlobalRenderMode(1);        // Diciamo subito al motore che siamo in modalità Shell (1)
 
     // --- Connessione dei Radio Button (Solid/Shell) ---
-    auto updateImplicitRenderMode = [this]() {
-        if (ui->glWidget) {
-            // Se radioShell è attivo manda 1, altrimenti manda 0 (Solid)
-            int mode = ui->radioShell->isChecked() ? 1 : 0;
-            ui->glWidget->setGlobalRenderMode(mode);
-        }
+    // Un click su una delle due coppie (sotto-tab "3D" o "Cross Section") comanda
+    // il motore E riallinea l'altra coppia: lo stato Shell/Solid e' uno solo, i
+    // radio sono duplicati solo perche' i pannelli sono due. applyImplicitShellMode
+    // fa entrambe le cose a segnali bloccati, quindi non rientra qui in cascata.
+    // Prima erano collegati SOLO radioShell/radioSolid: nel sotto-tab Cross Section
+    // cliccare Shell/Solid non faceva assolutamente nulla (il cambiamento si vedeva
+    // al massimo passando dal Run, che leggeva la coppia giusta).
+    auto updateImplicitRenderMode = [this](bool checked) {
+        if (!checked) return;   // solo chi si accende, non chi si spegne
+        applyImplicitShellMode(sender() == ui->radioShell
+                               || sender() == ui->radioShellCrossSection);
     };
     connect(ui->radioShell, &QRadioButton::toggled, this, updateImplicitRenderMode);
     connect(ui->radioSolid, &QRadioButton::toggled, this, updateImplicitRenderMode);
+    if (ui->radioShellCrossSection)
+        connect(ui->radioShellCrossSection, &QRadioButton::toggled, this, updateImplicitRenderMode);
+    if (ui->radioSolidCrossSection)
+        connect(ui->radioSolidCrossSection, &QRadioButton::toggled, this, updateImplicitRenderMode);
 
 
     // --- 1. Equazioni Implicite di Default (Solo 3D) ---
@@ -6085,8 +6094,12 @@ void MainWindow::updateRenderState()
         ui->glWidget->setGlobalTextureEnabled(wantTexture && !blockSurfaceTexture);
 
         if (isImplicitMode) {
-            // Modalità Ray Marching: Ascolta SOLO i radio button Shell/Solid dedicati
-            ui->glWidget->setGlobalRenderMode(ui->radioShell->isChecked() ? 1 : 0);
+            // Modalità Ray Marching: Ascolta SOLO i radio button Shell/Solid dedicati,
+            // quelli del sotto-tab ATTIVO (3D o Cross Section). Leggere qui
+            // ui->radioShell fisso significava che ogni cambio tab/proiezione/load
+            // riscriveva il render mode con lo stato del sotto-tab 3D, cancellando
+            // la scelta fatta in Cross Section anche dopo un Run.
+            ui->glWidget->setGlobalRenderMode(implicitShellSelected() ? 1 : 0);
         } else {
             // Modalità Parametrica: Ascolta i radio button classici.
             // NB: setGlobalRenderMode scrive SOLO lo stato GLOBALE, mai su una parte,
@@ -8823,12 +8836,7 @@ void MainWindow::onStartClicked()
         }
         updateMasterButtonState();
 
-        QRadioButton *shellRadio = crossSectionActive ? ui->radioShellCrossSection : ui->radioShell;
-        if (shellRadio->isChecked()) {
-            ui->glWidget->setGlobalRenderMode(1);
-        } else {
-            ui->glWidget->setGlobalRenderMode(0);
-        }
+        ui->glWidget->setGlobalRenderMode(implicitShellSelected() ? 1 : 0);
 
         ui->glWidget->rebuildShader();
         if (!applyOnly && !runDockOnly) {
@@ -14786,15 +14794,42 @@ void MainWindow::setTextureLibraryGrayed(bool grayed)
 // l'handler durante un load.
 void MainWindow::applyImplicitShellMode(bool shell)
 {
-    if (ui->radioShell && ui->radioSolid) {
-        const bool oldShell = ui->radioShell->blockSignals(true);
-        const bool oldSolid = ui->radioSolid->blockSignals(true);
-        if (shell) ui->radioShell->setChecked(true);
-        else       ui->radioSolid->setChecked(true);
-        ui->radioShell->blockSignals(oldShell);
-        ui->radioSolid->blockSignals(oldSolid);
-    }
+    // ENTRAMBE le coppie di radio (sotto-tab "3D" e "Cross Section"). Lo stato
+    // Shell/Solid e' UNO SOLO — il render mode del motore e' globale, e il preset
+    // lo salva in un solo campo (renderMode composito, >= 10 = Shell) — mentre i
+    // radio sono duplicati solo perche' i due sotto-tab hanno pannelli separati.
+    // Tenendoli allineati qui, passare da un sotto-tab all'altro non fa mai
+    // comparire una selezione che contraddice cio' che si vede a schermo.
+    auto setPair = [shell](QRadioButton *shellRadio, QRadioButton *solidRadio) {
+        if (!shellRadio || !solidRadio) return;
+        const bool oldShell = shellRadio->blockSignals(true);
+        const bool oldSolid = solidRadio->blockSignals(true);
+        if (shell) shellRadio->setChecked(true);
+        else       solidRadio->setChecked(true);
+        shellRadio->blockSignals(oldShell);
+        solidRadio->blockSignals(oldSolid);
+    };
+    setPair(ui->radioShell, ui->radioSolid);
+    setPair(ui->radioShellCrossSection, ui->radioSolidCrossSection);
+
     if (ui->glWidget) ui->glWidget->setGlobalRenderMode(shell ? 1 : 0);
+}
+
+// Shell/Solid come lo vede l'utente ADESSO: legge la coppia di radio del
+// sotto-tab implicito attivo. Esiste perche' i punti che devono sapere "siamo in
+// guscio?" (updateRenderState a ogni cambio tab/proiezione/load, il Run) non
+// possono leggere ui->radioShell in modo fisso: nel sotto-tab Cross Section quella
+// coppia non e' quella su cui l'utente ha cliccato. Le due coppie sono comunque
+// tenute allineate da applyImplicitShellMode e dagli handler dei radio, quindi in
+// pratica concordano: questa funzione e' la garanzia che concordino sempre.
+bool MainWindow::implicitShellSelected() const
+{
+    const bool crossSectionActive = ui->subTabImplicit
+                                    && ui->subTabImplicit->currentIndex() == 1;
+    QRadioButton *shellRadio = crossSectionActive ? ui->radioShellCrossSection
+                                                  : ui->radioShell;
+    if (!shellRadio) shellRadio = ui->radioShell;
+    return shellRadio && shellRadio->isChecked();
 }
 
 void MainWindow::loadCrossSectionDefaultSurface()
@@ -14855,20 +14890,54 @@ void MainWindow::loadCrossSectionDefaultSurface()
         ui->glWidget->setEquationConstants(valA, valB, valC, valD, valE, valF, valS);
     }
 
-    // Shell/Solid del sotto-tab Cross Section tornano al default (Shell),
-    // stesso principio di applyImplicitShellMode ma sui radio dedicati.
-    if (ui->radioShellCrossSection && ui->radioSolidCrossSection) {
-        const bool oldShell = ui->radioShellCrossSection->blockSignals(true);
-        const bool oldSolid = ui->radioSolidCrossSection->blockSignals(true);
-        ui->radioShellCrossSection->setChecked(true);
-        ui->radioShellCrossSection->blockSignals(oldShell);
-        ui->radioSolidCrossSection->blockSignals(oldSolid);
-    }
+    // Shell/Solid tornano al default (Shell). applyImplicitShellMode muove
+    // entrambe le coppie di radio e scrive il motore: non serve piu' una copia
+    // locale per i radio dedicati, ed e' la stessa via del sotto-tab 3D.
+    applyImplicitShellMode(true);
 
     if (ui->glWidget) {
         ui->glWidget->validateAndApplyImplicitShader(kT3Equation, "", "", /*useCrossSection=*/true);
-        ui->glWidget->setGlobalRenderMode(1); // Shell
         ui->glWidget->rebuildShader();
+    }
+
+    // TRASPARENZA 75% (slider a 75 = alpha 0.75). Il T^3 e' una superficie
+    // stratificata: a sezione piena le falde esterne nascondono quelle interne e
+    // del 3-toro si vede solo il guscio piu' esterno. Un filo di trasparenza fa
+    // leggere la struttura al primo colpo d'occhio.
+    // m_settingAlphaProgrammatic: obbligatorio. L'handler valueChanged sotto i 100
+    // tratta il movimento come INTERAZIONE UTENTE e puo' rimettere l'alpha a 100 e
+    // aprire popup (campo a prodotto, avviso Android, conferma "scena pesante");
+    // qui non c'e' nessun utente che muove nulla, e' il default della superficie.
+    if (ui->alphaSlider) {
+        m_settingAlphaProgrammatic = true;
+        ui->alphaSlider->setValue(75);
+        m_settingAlphaProgrammatic = false;
+        if (ui->glWidget) ui->glWidget->setAlpha(0.75f);
+    }
+
+    // Inclinazione di cortesia, LA STESSA del toro parametrico di default
+    // (resetScene ramo parametrico, e gli altri tre punti che la ripetono):
+    // 30 deg di precessione + 30 di nutazione. Vale anche in ray marching perche'
+    // m_rotationQuat entra in m_model, che il marcher usa per portare il raggio
+    // nello spazio del modello (inverse(u_mvMatrix)) -- e' la stessa posa, non una
+    // copia della logica.
+    // NB: e' una rotazione 3D dell'OGGETTO, non una rotazione 4D: non cambia il
+    // piano di sezione p=0 (p resta fissa a 0.0 nello shader, vedi CLAUDE.md e il
+    // TODO rotazioni 4D), quindi la superficie mostrata e' la stessa, solo posata
+    // ad angolo invece che frontale.
+    //
+    // ASSOLUTA, non addObjectRotation. Il toro parametrico puo' permettersi di
+    // ACCUMULARE 30/30 perche' resetScene ha appena chiamato resetTransformations()
+    // (quaternione a identita') un attimo prima. Questa funzione invece e' chiamata
+    // anche dall'handler currentChanged di subTabImplicit, che NON azzera nulla:
+    // accumulando, ogni andata e ritorno 3D <-> Cross Section avrebbe aggiunto altri
+    // 30 gradi (30, 60, 90...) e la superficie si sarebbe presentata ogni volta piu'
+    // storta. Costruiamo la stessa posa con lo stesso ordine di composizione di
+    // addObjectRotation (Y * X * Z) e la IMPOSTIAMO.
+    if (ui->glWidget) {
+        const QQuaternion yRot = QQuaternion::fromAxisAndAngle(0.0f, 1.0f, 0.0f, 30.0f);
+        const QQuaternion xRot = QQuaternion::fromAxisAndAngle(1.0f, 0.0f, 0.0f, 30.0f);
+        ui->glWidget->setRotationQuat(yRot * xRot);
     }
 
     // Gli slider A/B/C sono stati scritti sopra con blockSignals (niente
