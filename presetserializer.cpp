@@ -1504,11 +1504,13 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     speeds["phi"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getPhiSpeed() : 0.0;
     speeds["psi"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getPsiSpeed() : 0.0;
     speeds["path3D"] = m_mainWindow->ui->speed3DSlider->value();
-    // path4D resta azzerato in TUTTO il ray marching, Cross Section compreso: il
-    // template non legge u_cameraPos4D/u_observerPos, quindi il path 4D non ha
-    // alcun effetto li' (vedi updateRenderState, che per questo ne tiene spenti i
-    // controlli). Non e' una svista: e' l'unico pezzo di 4D che davvero non serve.
-    speeds["path4D"] = isImplicit ? 0 : m_mainWindow->ui->speed4DSlider->value();
+    // path4D: azzerato nel sotto-tab 3D, salvato nel Cross Section. Li' il path
+    // 4D ha effetto -- non attraverso u_cameraPos4D/u_observerPos, che il
+    // template davvero non legge, ma perche' applyPath4DCameraAt scrive
+    // setRotation4D (lo stato che %CROSS_SECTION_P% usa per scegliere la
+    // sezione) e setCameraFrom4DVectors (la camera 3D del marcher). Stesso
+    // criterio di angoli e velocita' 4D qui sopra.
+    speeds["path4D"] = keep4DAngles ? m_mainWindow->ui->speed4DSlider->value() : 0;
     root["speeds"] = speeds;
 
     QJsonObject angles;

@@ -6133,21 +6133,39 @@ void MainWindow::updateRenderState()
         if (ui->dockWidgetContents_3) {
             ui->dockWidgetContents_3->setEnabled(true);
         }
-        // Path 4D: le sue EQUAZIONI non hanno effetto in Ray Marching (il
-        // template non legge u_observerPos/u_cameraPos4D), ma lo slider di
-        // VELOCITA' che vive in questo stesso pannello serve eccome: e' la
-        // manopola con cui si dosano i tasti P+/P- della sezione (obsSpeed =
-        // speed4D * kObs4DSpeedMul). Quindi il pannello resta abilitato e si
-        // spengono i soli campi del path, come per panelNav4D.
+        // Path 4D: ATTIVO nel sotto-tab Cross Section, spento nel "3D".
+        //
+        // Nel sotto-tab 3D le equazioni del path non hanno effetto, ed e' la
+        // ragione per cui erano spente ovunque in ray marching: quel path
+        // muoverebbe l'osservatore 4D (u_observerPos/u_cameraPos4D), che il
+        // template non legge.
+        //
+        // Nel Cross Section invece funzionano gia', senza una riga di logica
+        // nuova, perche' applyPath4DCameraAt NON passa da quegli uniform. Scrive
+        // due cose che il ray marcher usa entrambe:
+        //  - setRotation4D(omega, phi, psi): e' lo stato che %CROSS_SECTION_P%
+        //    legge per decidere quale sezione dell'ipersuperficie si vede, quindi
+        //    lungo il path la sezione cambia;
+        //  - setCameraFrom4DVectors(...): proietta la posa 4D in una camera 3D
+        //    (projectPoint4Dto3D), cioe' proprio la matrice di vista da cui il
+        //    marcher ricava il raggio (inverse(u_mvMatrix)).
+        // In pratica il path muove la camera nello spazio 4D e la sezione segue:
+        // la stessa semantica del ramo parametrico, dalla stessa funzione
+        // condivisa fra tick live e loop di registrazione (CLAUDE.md).
+        //
+        // Lo slider di VELOCITA' del pannello resta abilitato in entrambi i
+        // sotto-tab anche a path spento: e' la manopola con cui si dosano i tasti
+        // P+/P- della sezione (obsSpeed = speed4D * kObs4DSpeedMul).
         if (ui->panelPath) {
             ui->panelPath->setEnabled(true);
         }
+        const bool path4DUsable = !isImplicitMode || crossSectionActive;
         for (QWidget *w : { (QWidget*)ui->lineX_P,  (QWidget*)ui->lineY_P,
                             (QWidget*)ui->lineZ_P,  (QWidget*)ui->lineP_P,
                             (QWidget*)ui->lineAlpha_P, (QWidget*)ui->lineBeta_P,
                             (QWidget*)ui->lineGamma_P,
                             (QWidget*)ui->btnDeparture, (QWidget*)ui->pushView }) {
-            if (w) w->setEnabled(!isImplicitMode);
+            if (w) w->setEnabled(path4DUsable);
         }
         // Navigazione 4D: contenitore ACCESO, si spengono i singoli tasti di
         // SPOSTAMENTO dell'osservatore, che scrivono m_cameraPos4D/m_observerPos
