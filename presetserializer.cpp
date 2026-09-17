@@ -594,6 +594,17 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     root["isImplicitMode"] = isImplicit;
     if (isImplicit) {
         root["implicitEquation"] = m_mainWindow->ui->lineEquation->toPlainText();
+        // I due sotto-tab impliciti hanno editor SEPARATI (vedi CLAUDE.md).
+        // Salvare solo lineEquation scriveva l'equazione del ramo 3D anche
+        // quando la superficie visibile era quella del Cross Section: al
+        // ricaricamento compariva la sfera di default. Scriviamo entrambi i rami
+        // piu' il flag di quale era attivo, cosi' il load sa cosa ripristinare.
+        const bool crossSectionActive = m_mainWindow->ui->subTabImplicit
+                                        && m_mainWindow->ui->subTabImplicit->currentIndex() == 1;
+        root["implicitUsesCrossSection"] = crossSectionActive;
+        if (m_mainWindow->ui->lineEquationCrossSection)
+            root["crossSectionEquation"] =
+                m_mainWindow->ui->lineEquationCrossSection->toPlainText();
     }
 
     QString eqX = m_mainWindow->ui->lineX->toPlainText().trimmed();
@@ -802,10 +813,24 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
 
     // 1. Salva Rotazione 4D
     QJsonObject angles;
-    angles["omega"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getOmega();
-    angles["phi"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getPhi();
-    angles["psi"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getPsi();
+    // AZZERATE IN RAY MARCHING SOLO FUORI DAL CROSS SECTION. Lo zero secco
+    // risale a quando il ray marching non leggeva affatto omega/phi/psi: salvarli
+    // sarebbe stato rumore. Nel sotto-tab Cross Section invece quei tre angoli
+    // sono lo STATO PRINCIPALE della superficie -- decidono quale sezione
+    // dell'ipersuperficie 4D si vede (li usa %CROSS_SECTION_P% in
+    // createImplicitFragmentShader) -- e azzerarli riportava ogni superficie
+    // salvata alla sezione frontale, perdendo l'inquadratura 4D scelta.
+    const bool keep4DAngles = !isImplicit || (m_mainWindow->ui->subTabImplicit
+                              && m_mainWindow->ui->subTabImplicit->currentIndex() == 1);
+    angles["omega"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getOmega() : 0.0;
+    angles["phi"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getPhi() : 0.0;
+    angles["psi"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getPsi() : 0.0;
     root["angles"] = angles;
+    // TRASLAZIONE DEL PIANO DI SEZIONE lungo p: l'altra meta' dello stato 4D del
+    // Cross Section (u_dummyZero.z nello shader). Non era salvata affatto, quindi
+    // una superficie sezionata a p != 0 si ricaricava sempre a p = 0.
+    if (keep4DAngles && isImplicit)
+        root["crossSectionP"] = (double)m_mainWindow->ui->glWidget->crossSectionP();
 
     // 2. Salva Telecamera 3D
     if (m_mainWindow->ui->glWidget) {
@@ -1136,6 +1161,15 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     root["isImplicitMode"] = isImplicit;
     if (isImplicit) {
         root["implicitEquation"] = m_mainWindow->ui->lineEquation->toPlainText();
+        // Stessa ragione del salvataggio superficie qui sopra: i due sotto-tab
+        // impliciti hanno editor separati, e un record girato in Cross Section
+        // si ricaricava con la sfera di default del ramo 3D.
+        const bool crossSectionActive = m_mainWindow->ui->subTabImplicit
+                                        && m_mainWindow->ui->subTabImplicit->currentIndex() == 1;
+        root["implicitUsesCrossSection"] = crossSectionActive;
+        if (m_mainWindow->ui->lineEquationCrossSection)
+            root["crossSectionEquation"] =
+                m_mainWindow->ui->lineEquationCrossSection->toPlainText();
     }
 
     QJsonObject equations;
@@ -1450,22 +1484,51 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     }
     root["texture"] = texture;
 
+    // STATO 4D DA PRESERVARE: in ray marching omega/phi/psi (angoli E velocita')
+    // venivano azzerati di default, perche' l'RM non li leggeva affatto. Il
+    // sotto-tab CROSS SECTION invece li usa come stato principale: decidono quale
+    // sezione dell'ipersuperficie 4D si vede (%CROSS_SECTION_P% in
+    // createImplicitFragmentShader) e, se in moto, come quella sezione evolve nel
+    // tempo -- che in un record e' esattamente cio' che si sta registrando.
+    // Definita QUI, prima di 'speeds': serve a entrambi i blocchi.
+    const bool keep4DAngles = !isImplicit || (m_mainWindow->ui->subTabImplicit
+                              && m_mainWindow->ui->subTabImplicit->currentIndex() == 1);
+
     QJsonObject speeds;
     speeds["nutation"] = (double)m_mainWindow->ui->glWidget->getNutationSpeed();
     speeds["precession"] = (double)m_mainWindow->ui->glWidget->getPrecessionSpeed();
     speeds["spin"] = (double)m_mainWindow->ui->glWidget->getSpinSpeed();
-    speeds["omega"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getOmegaSpeed();
-    speeds["phi"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getPhiSpeed();
-    speeds["psi"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getPsiSpeed();
+    // VELOCITA' 4D: nel Cross Section sono il MOTO del record (le rotazioni 4D del
+    // dock 3D). Azzerarle salvava un record fermo al posto di quello registrato.
+    speeds["omega"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getOmegaSpeed() : 0.0;
+    speeds["phi"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getPhiSpeed() : 0.0;
+    speeds["psi"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getPsiSpeed() : 0.0;
     speeds["path3D"] = m_mainWindow->ui->speed3DSlider->value();
+    // path4D resta azzerato in TUTTO il ray marching, Cross Section compreso: il
+    // template non legge u_cameraPos4D/u_observerPos, quindi il path 4D non ha
+    // alcun effetto li' (vedi updateRenderState, che per questo ne tiene spenti i
+    // controlli). Non e' una svista: e' l'unico pezzo di 4D che davvero non serve.
     speeds["path4D"] = isImplicit ? 0 : m_mainWindow->ui->speed4DSlider->value();
     root["speeds"] = speeds;
 
     QJsonObject angles;
-    angles["omega"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getOmega();
-    angles["phi"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getPhi();
-    angles["psi"] = isImplicit ? 0.0 : (double)m_mainWindow->ui->glWidget->getPsi();
+    // AZZERATE IN RAY MARCHING SOLO FUORI DAL CROSS SECTION. Lo zero secco
+    // risale a quando il ray marching non leggeva affatto omega/phi/psi: salvarli
+    // sarebbe stato rumore. Nel sotto-tab Cross Section invece quei tre angoli
+    // sono lo STATO PRINCIPALE della superficie -- decidono quale sezione
+    // dell'ipersuperficie 4D si vede (li usa %CROSS_SECTION_P% in
+    // createImplicitFragmentShader) -- e azzerarli riportava ogni superficie
+    // salvata alla sezione frontale, perdendo l'inquadratura 4D scelta.
+    // keep4DAngles e' gia' definita sopra il blocco 'speeds': stesso criterio.
+    angles["omega"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getOmega() : 0.0;
+    angles["phi"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getPhi() : 0.0;
+    angles["psi"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getPsi() : 0.0;
     root["angles"] = angles;
+    // TRASLAZIONE DEL PIANO DI SEZIONE lungo p: l'altra meta' dello stato 4D del
+    // Cross Section (u_dummyZero.z nello shader). Non era salvata affatto, quindi
+    // una superficie sezionata a p != 0 si ricaricava sempre a p = 0.
+    if (keep4DAngles && isImplicit)
+        root["crossSectionP"] = (double)m_mainWindow->ui->glWidget->crossSectionP();
 
     if (m_mainWindow->ui->glWidget) {
         QJsonObject camera3D;

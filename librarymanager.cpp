@@ -356,6 +356,12 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
         if (root.contains("isImplicitMode")) {
             d.isImplicitMode = root["isImplicitMode"].toBool();
             d.implicitEq = root["implicitEquation"].toString();
+            // Sotto-tab implicito attivo al salvataggio. Chiavi assenti nei
+            // record precedenti al Cross Section -> false/vuoto, cioe' il ramo
+            // 3D di sempre.
+            d.usesCrossSection = root["implicitUsesCrossSection"].toBool();
+            d.crossSectionEq = root["crossSectionEquation"].toString();
+            d.crossSectionP = (float)root["crossSectionP"].toDouble(0.0);
         }
         if (root.contains("path4D")) {
             QJsonObject p4 = root["path4D"].toObject();
@@ -725,6 +731,12 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
         if (root.contains("isImplicitMode")) {
             d.isImplicitMode = root["isImplicitMode"].toBool();
             d.implicitEq = root["implicitEquation"].toString();
+            // Sotto-tab implicito attivo al salvataggio. Chiavi assenti nei
+            // record precedenti al Cross Section -> false/vuoto, cioe' il ramo
+            // 3D di sempre.
+            d.usesCrossSection = root["implicitUsesCrossSection"].toBool();
+            d.crossSectionEq = root["crossSectionEquation"].toString();
+            d.crossSectionP = (float)root["crossSectionP"].toDouble(0.0);
         }
         // Lettura parametri comuni (Limiti, step, costanti...)
         if (root.contains("limits")) {

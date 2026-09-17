@@ -58,6 +58,15 @@ struct LibraryItem {
     // ==========================================================
     bool isImplicitMode = false;
     QString implicitEq;
+    // Sotto-tab implicito attivo al salvataggio: false = "3D" (equazione a 3
+    // variabili in implicitEq), true = "Cross Section" (equazione a 4 variabili
+    // x,y,z,p in crossSectionEq). I due sotto-tab hanno editor e stato separati
+    // (vedi CLAUDE.md): senza questi due campi il salvataggio scriveva SEMPRE
+    // l'editor 3D, e una superficie Cross Section si ricaricava come la sfera di
+    // default. Assenti nei record piu' vecchi -> false, cioe' il ramo 3D di
+    // sempre: la compatibilita' e' preservata.
+    bool usesCrossSection = false;
+    QString crossSectionEq;
 
     float xMin = -1.0f, xMax = 1.0f;
     float yMin = -1.0f, yMax = 1.0f;
@@ -97,6 +106,10 @@ struct LibraryItem {
 
     bool  restoreAngles = false;
     float startOmega = 0.0f, startPhi = 0.0f, startPsi = 0.0f;
+    // Traslazione del piano di sezione lungo p (solo Cross Section): insieme a
+    // omega/phi/psi definisce QUALE sezione dell'ipersuperficie 4D si vede.
+    // Assente nei record piu' vecchi -> 0, la sezione centrale di sempre.
+    float crossSectionP = 0.0f;
 
     QString path3D_x, path3D_y, path3D_z, path3D_roll;
     QString path4D_x, path4D_y, path4D_z, path4D_w;

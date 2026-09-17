@@ -402,6 +402,11 @@ public:
     // capire se lo sta introducendo/cambiando (guardia trasparenza mobile: il
     // displacement gira dentro map() e col ramo trasparente il costo esplode).
     QString currentDisplacementCode() const { return m_displacementCode; }
+    // Texture RM attualmente applicata. Serve a ricommittare lo shader senza
+    // perderla: validateAndApplyImplicitShader prende equazione, texture e
+    // displacement insieme, quindi chi ricommitta la sola equazione (es. il load
+    // di una superficie Cross Section) deve poter ripassare le altre due com'erano.
+    QString currentTextureCode() const { return m_textureCode; }
     float getSurfaceScale() const { return m_surfaceScale; }
     void rebuildShader();
 
@@ -501,6 +506,10 @@ public:
     // Sposta la quota del piano di sezione (Cross Section). Cumulativo.
     void moveCrossSectionP(float delta) { m_crossSectionP += delta; update(); }
     float crossSectionP() const { return m_crossSectionP; }
+    // Valore ASSOLUTO, per il caricamento di un preset: moveCrossSectionP e'
+    // incrementale (i tasti di spostamento) e non puo' ripristinare una posizione
+    // salvata senza conoscere quella corrente.
+    void setCrossSectionP(float p) { m_crossSectionP = p; update(); }
     float getOmega() const { return omega; }
     float getPhi() const { return phi; }
     float getPsi() const { return psi; }

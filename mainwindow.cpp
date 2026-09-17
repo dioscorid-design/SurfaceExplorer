@@ -5770,6 +5770,15 @@ void MainWindow::syncImplicitAlphaSlider(bool isImplicitMode, bool newSurface)
         m_implicitWarnShown = false;    // riarma il popup di avviso per la nuova superficie
         m_alphaHeavyWarnShown = false;  // riarma anche la conferma "scena pesante"
         m_alphaHeavyDeclined = false;   // il "no" valeva per la superficie precedente
+        // Anche la guardia displacement-su-trasparenza riparte pulita: il suo
+        // "gia' chiesto" era legato alla superficie precedente, e lo stesso
+        // displacement su una superficie nuova e' un caso nuovo da valutare.
+        // NON mentre la guardia e' in corso: nel ramo libreria questa funzione e'
+        // chiamata (newSurface=true) POCHE RIGHE DOPO la guardia, sullo stesso
+        // commit. Azzerare li' avrebbe buttato via il "gia' chiesto" appena
+        // scritto, e il commit seguente avrebbe riaperto il box: e' la raffica
+        // senza fine da cui veniamo.
+        if (!m_heavyTexGuardActive) m_heavyTexGuardAskedFor.clear();
     }
 
     if (illImplicit) {
@@ -5926,6 +5935,134 @@ void MainWindow::guardTransparencyOnImplicitLoad()
            "Lower the transparency slider to try transparency: the app will "
            "check the measured load first."));
 #endif
+}
+
+// TUTTE LE PIATTAFORME, desktop COMPRESO (a differenza delle due guardie qui
+// sopra). Chiamata DOPO un validateAndApplyImplicitShader riuscito, quando la
+// texture RM appena committata e' finita su una scena gia' trasparente. Dopo e
+// non prima: cosi' agisce sullo stato davvero applicato, e un apply fallito (che
+// lascia la scena precedente) non fa comparire nessun popup.
+//
+// PERCHE' SERVE ANCHE SU DESKTOP. Il caso che la motiva e' il Cross Section di
+// default: loadCrossSectionDefaultSurface si porta da solo ad alpha 0.75 e Ray
+// Steps 600 su un'equazione T^3 (quartica di quartiche in x,y,z,p). Quell'alpha
+// e' scritto con m_settingAlphaProgrammatic, quindi NON passa dalla conferma
+// misurata dell'handler valueChanged: quando arriva la texture la scena e' gia'
+// nel ramo trasparente senza che nessuna guardia l'abbia mai vista. Il costo per
+// pixel del ramo trasparente e' MAX_FACES(8 desktop) x 3 marchNextLayer x fino a
+// MAX_LAYER_STEPS passi x 4 map(): una texture RM non banale dentro map() lo
+// moltiplica ancora, e il salto da "fluido" a "GPU fault" non passa per una zona
+// grigia misurabile. Il watchdog lavora su una EMA e richiede animazione in
+// corso: arriva sempre DOPO il magenta, quando c'e' ancora un'app a cui parlare.
+// Per questo la guardia e' PREVENTIVA (prima del commit) e non misurata.
+//
+// Fa le tre cose insieme, come da richiesta: ferma il moto, ripristina l'opaco e
+// chiede se ripristinarli. Ritorna true se l'utente sceglie di proseguire
+// trasparente (chi chiama ha gia' applicato la texture: qui si decide solo il
+// destino di alpha e moto).
+bool MainWindow::guardTransparencyOnHeavyTextureApply(const QString &newDispCode)
+{
+    if (!ui->glWidget || !ui->alphaSlider) return true;
+    if (m_heavyTexGuardActive) return true;                       // box gia' aperto: non impilare
+    if (ui->tabModeSelector->currentIndex() != 1) return true;    // solo Ray Marching
+    if (ui->alphaSlider->value() >= 100) return true;             // scena gia' opaca: nulla da fare
+
+    // IL CRITERIO E' IL DISPLACEMENT, non la texture. %DISPLACEMENT_CODE% e'
+    // iniettato in rawField() e quindi valutato dentro ogni map() del marcher
+    // (MAX_FACES x 3 x MAX_LAYER_STEPS x 4 per pixel sul ramo trasparente);
+    // %TEXTURE_CODE% vive nello shading finale e costa una valutazione per pixel.
+    // Senza displacement non c'e' nessun moltiplicatore da temere, per quanto
+    // elaborata sia la texture di colore: era il bug del "popup anche con una
+    // texture leggera". Commenti tolti col filtro delle validazioni del commit.
+    const QString disp = stripCodeComments(newDispCode).trimmed();
+    if (disp.isEmpty()) return true;
+
+    // GIA' CHIESTO per questo displacement: non si richiede, qualunque sia stata
+    // la risposta. E' la fine del popup "a raffica": con "Restore" l'alpha torna
+    // <1 e il commit successivo -- che il riavvio stesso puo' innescare --
+    // ritrovava condizioni identiche e riapriva il box all'infinito. Il confronto
+    // sul CODICE riarma da solo quando cambia davvero il displacement.
+    if (disp == m_heavyTexGuardAskedFor) return true;
+    m_heavyTexGuardAskedFor = disp;
+
+    // Stato da ripristinare se l'utente sceglie di proseguire.
+    const int alphaPrev = ui->alphaSlider->value();
+    const bool wasMoving = !m_masterStopped;
+
+    // STOP PRIMA del box: il moto va tolto mentre la finestra e' aperta,
+    // altrimenti la scena continua a marciare trasparente+texturizzata proprio
+    // nei secondi in cui l'utente legge (ed e' li' che si blocca).
+    if (wasMoving) performMasterStop();
+
+    // Opaco PRIMA del box, per lo stesso motivo: lo stop toglie il moto, non il
+    // costo per pixel: con alpha<1 ogni singolo ridisegno (il box stesso, un
+    // resize) resta da secondi. Set programmatico: i check dell'handler sono
+    // fuori luogo qui, la decisione la prende questo box.
+    m_settingAlphaProgrammatic = true;
+    ui->alphaSlider->setValue(100);
+    m_settingAlphaProgrammatic = false;
+
+    // Il watchdog va zittito e il suo eventuale segnale gia' in coda scartato:
+    // stesso motivo documentato in forceOpaqueForHeavyRM (il box modale fa girare
+    // l'event loop e aprirebbe il popup del watchdog SOPRA questo).
+    ui->glWidget->acknowledgePerformanceWarning();
+    m_transparencyGuardActive = true;
+    m_heavyTexGuardActive = true;
+
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Warning);
+    box.setWindowTitle(tr("Relief texture on a transparent surface"));
+    box.setText(tr("This texture carves relief into the surface "
+                   "(displacement), and the surface is currently transparent."));
+    QString info = tr("The relief is computed at every step of every ray, and "
+                      "transparency multiplies the number of those steps: "
+                      "together they can make rendering collapse and freeze the "
+                      "application, on desktop too.\n\n"
+                      "The surface has been set to fully opaque");
+    if (wasMoving)
+        info += tr(" and the animation has been stopped");
+    info += tr(" so you can see the result safely.\n\n");
+    info += wasMoving
+        ? tr("You can restore transparency and restart the animation at your "
+             "own risk, or keep the surface opaque and stopped.")
+        : tr("You can restore transparency at your own risk, or keep the "
+             "surface opaque.");
+    box.setInformativeText(info);
+    QPushButton *restoreBtn = box.addButton(wasMoving ? tr("Restore and restart")
+                                                      : tr("Restore transparency"),
+                                            QMessageBox::AcceptRole);
+    QPushButton *keepBtn    = box.addButton(wasMoving ? tr("Keep it opaque and stopped")
+                                                      : tr("Keep it opaque"),
+                                            QMessageBox::RejectRole);
+    box.setDefaultButton(keepBtn);
+    box.exec();
+    const bool restore = (box.clickedButton() == restoreBtn);
+
+    m_transparencyGuardActive = false;
+
+    if (restore) {
+        // Trasparenza PRIMA del riavvio, cosi' la scena riparte come l'utente
+        // l'aveva lasciata. Programmatico: i check sono gia' stati assolti qui.
+        m_settingAlphaProgrammatic = true;
+        ui->alphaSlider->setValue(alphaPrev);
+        m_settingAlphaProgrammatic = false;
+        // Riavvio = vero master Start, come fa il gestore di performanceWarning:
+        // onStartClicked riconosce sender()==m_btnStart e riarma i flag user-stop.
+        if (wasMoving && m_btnStart) m_btnStart->click();
+        // L'utente e' avvisato e prosegue: il watchdog resta zittito per QUESTA
+        // scena (niente popup a raffica sullo stesso rallentamento). Si riarma
+        // alla prossima presa dello slider o al prossimo rebuildShader.
+        ui->glWidget->acknowledgePerformanceWarning();
+    }
+
+    // ULTIMA RIGA, non subito dopo exec(): il flag deve coprire anche il ramo
+    // "restore" qui sopra. m_btnStart->click() rientra in onStartClicked, che
+    // puo' ricommittare lo shader e ripassare di qui, e nel percorso libreria
+    // syncImplicitAlphaSlider(newSurface=true) gira poche righe dopo il ritorno e
+    // azzererebbe il "gia' chiesto" appena scritto (e' gated proprio da questo
+    // flag). Abbassarlo dopo exec() lo rendeva cieco esattamente dove serviva.
+    m_heavyTexGuardActive = false;
+    return restore;
 }
 
 void MainWindow::updateRenderState()
@@ -8201,15 +8338,40 @@ void MainWindow::handleTextureSelection(int index)
             ui->glWidget->rebuildShader();
 
             ui->glWidget->updateSurfaceData();
-            ui->glWidget->update();
 
             // Mobile: displacement nuovo + trasparenza attiva -> alpha a 1
             // (vedi guardTransparencyOnDisplacementApply).
             guardTransparencyOnDisplacementApply(prevDispApplied);
 
+            // TUTTE le piattaforme: displacement calato su una scena trasparente
+            // -> stop del moto + opaco + popup. E' il percorso del caso
+            // segnalato: texture di libreria CON RILIEVO sul Cross Section di
+            // default, che e' gia' ad alpha 0.75 + Ray Steps 600 senza che
+            // nessuna guardia l'abbia visto. Il displacement viaggia insieme alla
+            // texture (data.displacementCode, passato all'apply qui sopra) ed e'
+            // lui il moltiplicatore: vedi guardTransparencyOnHeavyTextureApply.
+            //
+            // PRIMA della update() qui sotto, non dopo: e' il punto dell'ordine
+            // che conta. La guardia deve poter portare l'alpha a 1 mentre il
+            // primo frame trasparente+texturizzato non e' ancora partito -- ed e'
+            // proprio quel frame che puo' far collassare la GPU. update() e'
+            // asincrona (accoda un paintGL), ma il box modale della guardia fa
+            // girare l'event loop: accodare prima significherebbe disegnarlo.
             // L'equazione implicita e' committata: risincronizza lo slider trasparenza
             // (campi a prodotto -> disabilitato + popup). Vedi syncImplicitAlphaSlider.
+            //
+            // PRIMA della guardia qui sotto, non dopo. Due motivi, entrambi
+            // necessari: (1) con newSurface=true questa chiamata RIARMA i flag
+            // "gia' chiesto" (compreso quello della guardia), quindi eseguirla
+            // dopo cancellava la memoria appena scritta e il commit successivo
+            // riapriva il box -- la raffica senza fine; (2) e' lei a portare lo
+            // slider allo stato definitivo della nuova superficie, ed e' quello
+            // stato che la guardia deve valutare per decidere se chiedere.
             syncImplicitAlphaSlider(true, true);
+
+            guardTransparencyOnHeavyTextureApply(data.displacementCode);
+
+            ui->glWidget->update();
         }
     }
 
@@ -8906,6 +9068,14 @@ void MainWindow::onStartClicked()
         // Mobile: displacement nuovo + trasparenza attiva -> alpha a 1
         // (vedi guardTransparencyOnDisplacementApply).
         guardTransparencyOnDisplacementApply(prevDispApplied);
+
+        // TUTTE le piattaforme: displacement su scena trasparente -> stop del
+        // moto + opaco + popup che chiede se ripristinarli. E' il caso del Cross
+        // Section di default (alpha 0.75 programmatico), dove nessuna delle
+        // guardie sopra puo' scattare: quelle sono #if mobile. Va DOPO l'apply
+        // riuscito: agisce sullo stato davvero applicato, e se l'apply fallisce
+        // non c'e' nulla di pesante da cui difendersi.
+        guardTransparencyOnHeavyTextureApply(dispCode);
 
         QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)", QRegularExpression::MultilineOption);
         QRegularExpressionMatch imgMatch = imgRe.match(texCode);
@@ -12339,6 +12509,47 @@ void MainWindow::applySurfaceExample(LibraryItem d)
 
     updateRenderState();
 
+    // SOTTO-TAB IMPLICITO E SUA EQUAZIONE: ripristinati PRIMA di applyCommonData,
+    // non dopo (dove sta il resto del ramo implicito, piu' sotto). Ordine
+    // OBBLIGATORIO: applyCommonData chiude con checkParametricDependency() ->
+    // updateConstantsUIState(), che giudica quali costanti sono "usate" leggendo
+    // l'equazione del sotto-tab ATTIVO (activeImplicitEquationText). Il ramo
+    // "non usata" non si limita a bloccare la costante: le SCRIVE 1 (S a 0).
+    // Spostando la linguetta dopo, quel giudizio vedeva ancora l'editor 3D, le
+    // A/B/C del T^3 risultavano assenti e tornavano a 1 -> superficie deformata.
+    // Stessa firma dei bug gia' noti su questo punto (costanti resettate da
+    // preset metrico, costanti del path): chi riempie campi che contano come
+    // "uso" deve farlo PRIMA del giudizio finale.
+    // Il COMMIT al motore resta piu' sotto, insieme al resto del ramo implicito:
+    // qui si prepara solo cio' che il giudizio sulle costanti deve poter leggere.
+    const QString csEqPre = d.crossSectionEq.trimmed();
+    const bool loadCrossSection = d.isImplicitMode && d.usesCrossSection && !csEqPre.isEmpty();
+    if (loadCrossSection) {
+        if (ui->lineEquationCrossSection) {
+            ui->lineEquationCrossSection->blockSignals(true);
+            ui->lineEquationCrossSection->setPlainText(csEqPre);
+            ui->lineEquationCrossSection->blockSignals(false);
+        }
+        // blockSignals OBBLIGATORIO: currentChanged e' connesso a
+        // applyImplicitSubTabReset, che carica la superficie di DEFAULT del
+        // sotto-tab e riporta ai default i controlli condivisi. Qui la linguetta
+        // segue il preset, non e' l'utente che cambia sotto-tab.
+        if (ui->subTabImplicit) {
+            const bool ob = ui->subTabImplicit->blockSignals(true);
+            ui->subTabImplicit->setCurrentIndex(1);
+            ui->subTabImplicit->blockSignals(ob);
+        }
+    } else if (d.isImplicitMode && ui->subTabImplicit
+               && ui->subTabImplicit->currentIndex() != 0) {
+        // Superficie RM del ramo 3D caricata mentre siamo sul Cross Section: la
+        // linguetta torna al 3D, e anche qui PRIMA del giudizio sulle costanti,
+        // che altrimenti leggerebbe l'equazione 4D rimasta a schermo e sbaglierebbe
+        // nel verso opposto (costanti del 3D date per non usate).
+        const bool ob = ui->subTabImplicit->blockSignals(true);
+        ui->subTabImplicit->setCurrentIndex(0);
+        ui->subTabImplicit->blockSignals(ob);
+    }
+
     // 5. CARICAMENTO DATI (Equazioni, Colori, ecc.)
     applyCommonData(d);
 
@@ -12403,11 +12614,52 @@ void MainWindow::applySurfaceExample(LibraryItem d)
         ui->lineEquation->setPlainText(eqToLoad);
         ui->lineEquation->blockSignals(false);
 
+        // Editor 4D e linguetta sono gia' stati ripristinati PRIMA di
+        // applyCommonData (vedi la nota li': il giudizio sulle costanti in coda
+        // ad applyCommonData deve poterli leggere, o resetta a 1 le costanti del
+        // T^3). Qui resta il COMMIT al motore, che usa csEqPre/loadCrossSection
+        // calcolati la'.
+        const QString &csEq = csEqPre;
+
         if (ui->glWidget) {
-            ui->glWidget->setImplicitEquation(eqToLoad);
+            if (loadCrossSection) {
+                // Il ramo Cross Section NON passa da setImplicitEquation (che e'
+                // per definizione il ramo 3D e riporta il motore la'): serve il
+                // commit completo, che e' l'unico a impostare m_eqCrossSectionF e
+                // il flag di ramo. Forma "f - 0.0" come gli altri call site.
+                QString csF = csEq.contains("=")
+                    ? QString("(%1) - (%2)").arg(csEq.section('=', 0, 0).trimmed(),
+                                                 csEq.section('=', 1).trimmed())
+                    : QString("(%1) - (0.0)").arg(csEq);
+                if (ui->glWidget->validateAndApplyImplicitShader(
+                        csF, ui->glWidget->currentTextureCode(),
+                        ui->glWidget->currentDisplacementCode(), /*useCrossSection=*/true)) {
+                    ui->glWidget->rebuildShader();
+                } else {
+                    // L'equazione 4D del file non compila (record manomesso, o
+                    // salvato da una versione con una sintassi diversa): il
+                    // commit ha gia' ripristinato da se' lo stato precedente.
+                    // Ripieghiamo sul ramo 3D invece di lasciare la linguetta su
+                    // Cross Section con un'equazione che il motore non ha preso.
+                    if (ui->subTabImplicit) {
+                        const bool ob = ui->subTabImplicit->blockSignals(true);
+                        ui->subTabImplicit->setCurrentIndex(0);
+                        ui->subTabImplicit->blockSignals(ob);
+                    }
+                    ui->glWidget->setImplicitEquation(eqToLoad);
+                }
+            } else {
+                ui->glWidget->setImplicitEquation(eqToLoad);
+            }
+            // La linguetta e' stata mossa con blockSignals, quindi
+            // applyImplicitSubTabReset non ha girato (ed e' voluto: resetterebbe
+            // la scena). Ma updateRenderState vive di li' per il ramo implicito:
+            // senza questa chiamata le rotazioni 4D restavano spente su una
+            // superficie Cross Section caricata, che invece le usa.
+            updateRenderState();
             // L'equazione e' appena stata committata: ora isImplicitIllConditioned()
             // riflette il campo nuovo. updateRenderState() sopra ha girato PRIMA di
-            // questo setImplicitEquation, quindi risincronizziamo lo slider qui.
+            // questo commit, quindi risincronizziamo lo slider qui.
             syncImplicitAlphaSlider(true, true);
         }
     }
@@ -12438,6 +12690,13 @@ void MainWindow::applySurfaceExample(LibraryItem d)
 
     // UNICO E DEFINITIVO invio alla GPU per la posizione della telecamera!
     ui->glWidget->setRotation4D(startOmega, startPhi, startPsi);
+
+    // TRASLAZIONE DEL PIANO DI SEZIONE lungo p: l'altra meta' dello stato 4D del
+    // Cross Section, insieme ai tre angoli qui sopra. Va impostata SEMPRE (anche
+    // a 0) e non solo quando il preset la porta: e' stato appiccicoso del motore,
+    // e senza l'azzeramento esplicito una superficie caricata dopo averne
+    // sezionata un'altra ereditava la p della precedente.
+    if (ui->glWidget) ui->glWidget->setCrossSectionP(d.isImplicitMode ? d.crossSectionP : 0.0f);
 
     ui->lblOmegaVal->setText("0.00");
     ui->lblPhiVal->setText("0.00");
@@ -12739,8 +12998,65 @@ void MainWindow::applyMotionExample(LibraryItem data)
             ui->lineEquation->setPlainText(eqToLoad);
             ui->lineEquation->blockSignals(false);
 
+            // SOTTO-TAB CROSS SECTION: stesso trattamento del ramo superfici
+            // (applySurfaceExample). Senza, un record girato in Cross Section si
+            // ricaricava con la SFERA del ramo 3D: qui si scriveva solo
+            // lineEquation, e nel JSON quella chiave contiene l'equazione del
+            // sotto-tab 3D, non la 4D.
+            // Siamo PRIMA di applyCommonData (riga ~13051), quindi il giudizio
+            // sulle costanti in coda a quella funzione (checkParametricDependency
+            // -> updateConstantsUIState, che legge il sotto-tab ATTIVO) vedra' gia'
+            // l'equazione 4D: e' cio' che tiene A/B/C "usate" invece di riscriverle
+            // a 1. Stessa ragione per cui i campi path sono riempiti prima.
+            const QString csEq = data.crossSectionEq.trimmed();
+            const bool loadCrossSection = data.usesCrossSection && !csEq.isEmpty();
+            if (loadCrossSection && ui->lineEquationCrossSection) {
+                ui->lineEquationCrossSection->blockSignals(true);
+                ui->lineEquationCrossSection->setPlainText(csEq);
+                ui->lineEquationCrossSection->blockSignals(false);
+            }
+            // blockSignals: currentChanged e' connesso a applyImplicitSubTabReset,
+            // che caricherebbe la superficie di DEFAULT del sotto-tab buttando via
+            // il record appena caricato.
+            if (ui->subTabImplicit) {
+                const bool ob = ui->subTabImplicit->blockSignals(true);
+                ui->subTabImplicit->setCurrentIndex(loadCrossSection ? 1 : 0);
+                ui->subTabImplicit->blockSignals(ob);
+            }
+
             if (ui->glWidget) {
-                ui->glWidget->setImplicitEquation(eqToLoad);
+                if (loadCrossSection) {
+                    // Il Cross Section NON passa da setImplicitEquation (che e' per
+                    // definizione il ramo 3D e riporterebbe il motore la'): serve il
+                    // commit completo, l'unico che imposta m_eqCrossSectionF e il
+                    // flag di ramo.
+                    QString csF = csEq.contains("=")
+                        ? QString("(%1) - (%2)").arg(csEq.section('=', 0, 0).trimmed(),
+                                                     csEq.section('=', 1).trimmed())
+                        : QString("(%1) - (0.0)").arg(csEq);
+                    if (ui->glWidget->validateAndApplyImplicitShader(
+                            csF, ui->glWidget->currentTextureCode(),
+                            ui->glWidget->currentDisplacementCode(),
+                            /*useCrossSection=*/true)) {
+                        ui->glWidget->rebuildShader();
+                    } else {
+                        // Equazione 4D che non compila: il commit ha gia' ripristinato
+                        // da se' lo stato precedente. Ripieghiamo sul ramo 3D.
+                        if (ui->subTabImplicit) {
+                            const bool ob2 = ui->subTabImplicit->blockSignals(true);
+                            ui->subTabImplicit->setCurrentIndex(0);
+                            ui->subTabImplicit->blockSignals(ob2);
+                        }
+                        ui->glWidget->setImplicitEquation(eqToLoad);
+                    }
+                } else {
+                    ui->glWidget->setImplicitEquation(eqToLoad);
+                }
+                // La linguetta e' stata mossa a segnali bloccati, quindi
+                // applyImplicitSubTabReset non ha girato (ed e' voluto). Ma
+                // updateRenderState vive di li' per il ramo implicito: senza, le
+                // rotazioni 4D restano spente su un record Cross Section, che le usa.
+                updateRenderState();
                 // Equazione appena committata: risincronizza lo slider trasparenza
                 // (campi a prodotto -> disabilitato + popup). Vedi syncImplicitAlphaSlider.
                 syncImplicitAlphaSlider(true, true);
@@ -13278,9 +13594,18 @@ void MainWindow::applyMotionExample(LibraryItem data)
     ui->glWidget->setPrecessionSpeed(data.speedPrec);
     ui->glWidget->setSpinSpeed(data.speedSpin);
 
-    float spdOmega = isImplicit ? 0.0f : data.speedOmega;
-    float spdPhi   = isImplicit ? 0.0f : data.speedPhi;
-    float spdPsi   = isImplicit ? 0.0f : data.speedPsi;
+    // VELOCITA' 4D (le rotazioni 4D del dock 3D): azzerate in ray marching SOLO
+    // fuori dal Cross Section, dove non avrebbero effetto. Nel Cross Section sono
+    // il MOTO del record -- fanno evolvere nel tempo la sezione
+    // dell'ipersuperficie mostrata -- quindi azzerarle ricaricava un record FERMO
+    // al posto di quello registrato. Stesso criterio del salvataggio
+    // (keep4DAngles in presetserializer.cpp) e degli angoli statici piu' sotto:
+    // le due meta' devono concordare, o lo stato si perde comunque da un lato.
+    const bool keep4DSpeeds = !isImplicit || (ui->subTabImplicit
+                              && ui->subTabImplicit->currentIndex() == 1);
+    float spdOmega = keep4DSpeeds ? data.speedOmega : 0.0f;
+    float spdPhi   = keep4DSpeeds ? data.speedPhi   : 0.0f;
+    float spdPsi   = keep4DSpeeds ? data.speedPsi   : 0.0f;
 
     ui->glWidget->setOmegaSpeed(spdOmega);
     ui->glWidget->setPhiSpeed(spdPhi);
@@ -13320,12 +13645,28 @@ void MainWindow::applyMotionExample(LibraryItem data)
     ui->lblPsiVal->setText(QString::number(spdPsi, 'f', 2));
 
     if (data.restoreAngles) {
-        // FIX: Anche gli angoli statici vengono azzerati in Ray Marching
-        float stOmega = isImplicit ? 0.0f : data.startOmega;
-        float stPhi   = isImplicit ? 0.0f : data.startPhi;
-        float stPsi   = isImplicit ? 0.0f : data.startPsi;
+        // Angoli statici azzerati in Ray Marching SOLO fuori dal Cross Section.
+        // Lo zero secco risale a quando il ray marching non leggeva affatto
+        // omega/phi/psi. Nel sotto-tab Cross Section quei tre angoli sono lo STATO
+        // PRINCIPALE della superficie -- decidono QUALE sezione dell'ipersuperficie
+        // 4D si vede (li usa %CROSS_SECTION_P%) -- e azzerarli riportava ogni
+        // record alla sezione frontale, perdendo l'inquadratura registrata.
+        // Stesso criterio del salvataggio (keep4DAngles in presetserializer.cpp):
+        // le due meta' devono concordare, o si perde comunque.
+        const bool keep4DAngles = !isImplicit || (ui->subTabImplicit
+                                  && ui->subTabImplicit->currentIndex() == 1);
+        float stOmega = keep4DAngles ? data.startOmega : 0.0f;
+        float stPhi   = keep4DAngles ? data.startPhi   : 0.0f;
+        float stPsi   = keep4DAngles ? data.startPsi   : 0.0f;
         ui->glWidget->setRotation4D(stOmega, stPhi, stPsi);
     }
+
+    // TRASLAZIONE DEL PIANO DI SEZIONE lungo p: l'altra meta' dello stato 4D del
+    // Cross Section, insieme ai tre angoli qui sopra. Fuori da restoreAngles: e'
+    // stato APPICCICOSO del motore, quindi va scritta SEMPRE (anche a 0), o un
+    // record caricato dopo averne visto un altro sezionato eredita la p precedente.
+    if (ui->glWidget)
+        ui->glWidget->setCrossSectionP(isImplicit ? data.crossSectionP : 0.0f);
 
     ui->glWidget->update();
 
@@ -13334,12 +13675,14 @@ void MainWindow::applyMotionExample(LibraryItem data)
         return !t.isEmpty() && t != "0" && t != "0.0";
     };
 
-    // In Ray Marching le rotazioni 4D (omega/phi/psi) sono disabilitate e qui
-    // sopra vengono già azzerate (spdOmega/spdPhi/spdPsi). hasRotation deve
-    // guardare le velocità EFFETTIVE applicate al motore, non quelle grezze del
-    // record: altrimenti un preset RM con omega/phi/psi salvati faceva partire il
-    // rotationTimer (isAnimating()==true) pur senza alcuna rotazione visibile,
-    // tenendo il master bloccato su STOP anche a tutto fermo.
+    // In Ray Marching FUORI dal Cross Section le rotazioni 4D (omega/phi/psi) non
+    // hanno effetto e qui sopra vengono azzerate (spdOmega/spdPhi/spdPsi).
+    // hasRotation deve guardare le velocità EFFETTIVE applicate al motore, non
+    // quelle grezze del record: altrimenti un preset RM con omega/phi/psi salvati
+    // faceva partire il rotationTimer (isAnimating()==true) pur senza alcuna
+    // rotazione visibile, tenendo il master bloccato su STOP anche a tutto fermo.
+    // Leggendo le effettive, il ramo si adatta da solo al Cross Section, dove
+    // quelle velocità NON vengono azzerate e il moto deve davvero ripartire.
     bool hasRotation = (std::abs(data.speedPrec) > 0.001f ||
                         std::abs(data.speedNut)  > 0.001f ||
                         std::abs(data.speedSpin) > 0.001f ||
@@ -15035,132 +15378,31 @@ void MainWindow::applyImplicitSubTabReset(int subIndex)
     // non va toccata. Gemello di m_suppressNextModeTabReset.
     if (m_suppressNextSubTabReset) return;
 
-    // RESET IN CORSO: i campi qui sotto (equazione di default, limiti,
-    // costanti, Step Relax/Ray Steps) li riempie questo handler, non
-    // l'utente. Senza guardia quelle scritture passano da
-    // noteSceneEdited e RISPORCANO la scena appena resettata: il popup
-    // del lavoro non salvato ricompariva a ogni cambio successivo anche
-    // senza che l'utente avesse toccato niente. Stessa guardia RAII di
-    // resetScene e del caricamento preset, e stesso ripristino del
-    // valore precedente invece di un "false" secco (questo handler puo'
-    // girare annidato dentro un reset gia' in corso).
-    const bool wasPopulating = m_populatingFields;
-    m_populatingFields = true;
-    struct SubTabGuard {
-        MainWindow *w;
-        bool prev;
-        ~SubTabGuard() { w->m_populatingFields = prev; }
-    } subTabGuard{this, wasPopulating};
+    // DELEGA A resetScene, la stessa che usa il tab principale
+    // (applyModeTabReset). Prima questa funzione REPLICAVA a mano la pulizia,
+    // e la replica era per forza di cose parziale: nata per il passaggio fra
+    // due superfici di DEFAULT (che non hanno moto, suono, sfondo ne' script),
+    // si e' rivelata incompleta appena ci si e' arrivati da un RECORD. Ogni
+    // residuo scoperto -- path, rotazioni, velocita' 4D, texture di superficie,
+    // suono, sfondo, colore di sfondo, script, modalita' del motore -- era un
+    // pezzo in piu' da aggiungere, senza mai sapere quale fosse l'ultimo.
+    //
+    // resetScene(1, true) fa gia' tutto, SOTTO-TAB COMPRESO: il suo ramo
+    // implicito legge subTabImplicit e sceglie da se' fra la sfera del "3D" e
+    // il T^3 del Cross Section (chiamando loadCrossSectionDefaultSurface).
+    // L'unica cosa che non fa e' riportare al default i controlli CONDIVISI fra
+    // i due sotto-tab -- limiti X/Y/Z, costanti, Step Relax, Ray Steps -- che
+    // qui vanno azzerati perche' cambiare sotto-tab cambia superficie:
+    // resetImplicitSharedFields se ne occupa PRIMA, cosi' la superficie di
+    // default non trova addosso il box o le costanti dell'altro sotto-tab.
+    //
+    // subIndex non serve piu': la linguetta e' GIA' cambiata quando questo
+    // handler gira (currentChanged), e resetScene la rilegge da subTabImplicit.
+    // Resta nella firma perche' e' la signature dello slot.
+    Q_UNUSED(subIndex);
 
-    // Limiti condivisi al default in ENTRAMBE le direzioni, prima di
-    // scrivere la superficie: cosi' il Run che segue non trova un box
-    // stantio addosso alla forma appena caricata.
     resetImplicitSharedFields();
-
-    if (subIndex == 1) {
-        // loadCrossSectionDefaultSurface scrive da se' A/B/C (0.9/0.3/0.2),
-        // la trasparenza e la posa del T^3.
-        loadCrossSectionDefaultSurface();
-    } else if (subIndex == 0) {
-        ui->lineEquation->blockSignals(true);
-        ui->lineEquation->setPlainText("x^2 + y^2 + z^2 = 1.0");
-        ui->lineEquation->blockSignals(false);
-
-        // COSTANTI al default di avvio (1). La sfera non le usa, ma sono
-        // condivise: tornando dal Cross Section resterebbero i valori del
-        // T^3 (A=0.9 B=0.3 C=0.2) su tutti gli slider, pronti a deformare
-        // la prima equazione che l'utente scrive qui. Simmetrico a quanto
-        // il ramo Cross Section fa con i suoi.
-        setConstantField(ui->lineA, ui->aSlider, 1.0f);
-        setConstantField(ui->lineB, ui->bSlider, 1.0f);
-        setConstantField(ui->lineC, ui->cSlider, 1.0f);
-        if (ui->glWidget) {
-            const float valD = ui->lineD ? ui->lineD->text().toFloat() : 1.0f;
-            const float valE = ui->lineE ? ui->lineE->text().toFloat() : 1.0f;
-            const float valF = ui->lineF ? ui->lineF->text().toFloat() : 1.0f;
-            // S = Step Relax in Ray Marching (vedi resetImplicitSharedFields,
-            // che l'ha appena riportata a 0.4): la rileggiamo da li'.
-            const float valS = ui->lineS ? ui->lineS->text().toFloat() : 0.4f;
-            ui->glWidget->setEquationConstants(1.0f, 1.0f, 1.0f, valD, valE, valF, valS);
-        }
-
-        // Trasparenza e posa: il Cross Section le porta a 75 e 30/30, e
-        // sono stato GLOBALE, non per-sotto-tab. Senza questo la sfera
-        // ereditava l'aspetto del T^3. m_settingAlphaProgrammatic per lo
-        // stesso motivo spiegato in loadCrossSectionDefaultSurface.
-        if (ui->alphaSlider) {
-            m_settingAlphaProgrammatic = true;
-            ui->alphaSlider->setValue(100);
-            m_settingAlphaProgrammatic = false;
-            if (ui->glWidget) ui->glWidget->setAlpha(1.0f);
-        }
-        if (ui->glWidget) ui->glWidget->setRotationQuat(QQuaternion());
-
-        if (ui->glWidget) {
-            const QString sphereEq = QStringLiteral("(x^2 + y^2 + z^2) - (1.0)");
-            ui->glWidget->validateAndApplyImplicitShader(sphereEq, "", "", /*useCrossSection=*/false);
-        }
-        applyImplicitShellMode(true);
-        if (ui->glWidget) ui->glWidget->rebuildShader();
-
-        // Gli slider sono stati scritti a segnali bloccati, quindi
-        // updateConstantsUIState non ha visto nulla: senza questa chiamata
-        // resterebbero nello stato enable/disable ereditato dal T^3
-        // (A/B/C abilitate) su un'equazione che non le usa.
-        updateConstantsUIState();
-    }
-
-    // A schermo c'e' la superficie di DEFAULT del sotto-tab appena
-    // aperto: non c'e' piu' lavoro dell'utente da proteggere. Senza
-    // questo azzeramento il primo cambio "sporco" rendeva permanente il
-    // popup -- l'utente confermava di buttare via il lavoro, ma il flag
-    // restava alzato e ogni cambio successivo richiedeva conferma di
-    // nuovo, per una scena che nessuno aveva piu' toccato.
-    // Ultimo, dopo tutte le scritture qui sopra, per lo stesso motivo
-    // per cui resetScene lo fa in fondo (quelle passano da
-    // noteSceneEdited e rimetterebbero m_sceneDirty a true).
-    // NB: il SUONO non si azzera qui -- a differenza di resetScene questo
-    // handler non lo svuota, quindi il suo lavoro resta da proteggere ed e'
-    // giusto che il prossimo popup lo elenchi. La TEXTURE invece SI', ed e'
-    // gestita appena sopra: va svuotata davvero perche' i due rami la tolgono
-    // gia' dal motore.
-    // TEXTURE SPENTA ANCHE NELLA UI. I due rami qui sopra chiamano
-    // validateAndApplyImplicitShader con texCode vuoto, che azzera
-    // m_textureCode nel motore: a schermo la texture sparisce davvero. Ma
-    // checkbox, editor e flag di stato restavano com'erano, e il dock Renderer
-    // mostrava "Texture" spuntata su una superficie che non ne ha piu' --
-    // in entrambe le direzioni, 3D -> Cross Section e viceversa.
-    // Le superfici di default non hanno texture, quindi svuotarla e' corretto:
-    // va solo allineato cio' che la UI dichiara. Stesso trattamento (e stesso
-    // ordine) del ramo texture di resetScene.
-    m_surfaceTextureState = false;
-    m_isCustomMode = false;
-    m_isImageMode = false;
-    m_currentTexturePath.clear();
-    m_surfaceTextureCode.clear();
-    m_surfaceTextureScriptText.clear();
-
-    ui->lineTexture->blockSignals(true);
-    ui->lineTexture->clear();
-    ui->lineTexture->blockSignals(false);
-
-    // Solo se i controlli stanno MOSTRANDO la superficie: in ambito Background
-    // il checkbox e' il display dello sfondo, che questo reset non tocca.
-    if (!ui->radioBackground->isChecked()) {
-        const bool oldBlock = ui->chkBoxTexture->blockSignals(true);
-        ui->chkBoxTexture->setChecked(false);
-        ui->chkBoxTexture->blockSignals(oldBlock);
-    }
-    if (ui->glWidget) {
-        ui->glWidget->setGlobalTextureEnabled(false);
-        ui->glWidget->clearTexture();   // sgancia anche l'eventuale immagine
-    }
-
-    m_sceneDirty = false;
-    m_runEverSucceeded = false;
-    m_warnedEditedDock = OriginDefault;
-    m_warnedOrigin     = OriginDefault;
-    m_surfaceOrigin    = OriginDefault;
+    resetScene(1, /*loadDefaultSurface=*/true);
 
     // GATING DEI CONTROLLI. I tasti Omega/Phi/Psi (dock 3D) sono abilitati nel
     // sotto-tab Cross Section e spenti nel "3D", quindi il loro stato dipende da
@@ -15260,9 +15502,11 @@ void MainWindow::loadCrossSectionDefaultSurface()
 {
     // T^3 (3-toro, toro-di-tori): S=x^2+y^2+z^2+A^2, M=S+p^2+B^2-C^2,
     // (M^2 + 4(A^2-B^2)(x^2+y^2) - 4B^2(z^2+A^2))^2 = 16A^2(x^2+y^2)(M-2B^2)^2
-    // A p=0 NON si riduce al toro 2D standard: e' la sezione dell'oggetto 4D
-    // nel suo riferimento (rotazioni 4D non ancora agganciate, vedi CLAUDE.md).
-    // Moltiplicata per 0.1 (fuori parentesi) per evitare artefatti di
+    // A p=0 NON si riduce al toro 2D standard: e' la sezione dell'oggetto 4D nel
+    // suo riferimento. Le rotazioni 4D sono agganciate (vedi %CROSS_SECTION_P%) e
+    // questa superficie parte con omega != 0: la sezione di default non e' quella
+    // centrale, e' l'inquadratura scelta piu' sotto.
+    // Moltiplicata per 0.01 (fuori parentesi) per evitare artefatti di
     // precisione del ray marcher sui valori grandi che l'espressione elevata
     // al quadrato/quarta potenza produce.
     static const QString kT3Equation =
@@ -15278,7 +15522,9 @@ void MainWindow::loadCrossSectionDefaultSurface()
     // Costanti di default del T^3: A=raggio esterno, B=raggio intermedio,
     // C=raggio tubo (A>B>C, condizione di non degenerazione). D/E/F/S non
     // sono usate da questa equazione: restano quelle correnti.
-    const float valA = 0.9f, valB = 0.3f, valC = 0.2f;
+    // B a 0.4 (era 0.3): valori del preset "T3_1" salvato dall'utente, che e'
+    // questa stessa superficie con l'inquadratura 4D scelta come default.
+    const float valA = 0.9f, valB = 0.4f, valC = 0.2f;
     const float valD = ui->lineD ? ui->lineD->text().toFloat() : 1.0f;
     const float valE = ui->lineE ? ui->lineE->text().toFloat() : 1.0f;
     const float valF = ui->lineF ? ui->lineF->text().toFloat() : 1.0f;
@@ -15324,13 +15570,30 @@ void MainWindow::loadCrossSectionDefaultSurface()
     // locale per i radio dedicati, ed e' la stessa via del sotto-tab 3D.
     applyImplicitShellMode(true);
 
-    // RAY STEPS a 600 (il default condiviso e' 400, vedi resetImplicitSharedFields
-    // che ha appena girato): il T^3 e' una quartica di quartiche stratificata, con
-    // piu' falde lungo ogni raggio, e a 400 passi i tratti piu' interni si
-    // troncano. Vale SOLO per questo sotto-tab: il controllo e' condiviso, quindi
-    // lo si scrive qui DOPO il reset, e tornando al sotto-tab 3D il reset lo
-    // riporta a 400. Memoria allineata a cio' che si vede, come fa il reset.
-    const int kCrossSectionRaySteps = 600;
+    // RAY STEPS a 350. Erano 600 finche' questa superficie partiva TRASPARENTE:
+    // li' il raggio attraversa TUTTE le falde del T^3 e i passi si accumulano. Da
+    // quando parte OPACA si ferma alla prima falda colpita.
+    //
+    // Il valore e' MISURATO, non stimato: simulando il loop di marchField (stesso
+    // stepRelax 0.7, stesso max(gradLen,0.2), stesso clamp del passo a 0.5, con la
+    // rotazione 4D e la p di questa posa) su una griglia 161x161 di raggi, alla
+    // posa di default servono al massimo 315 passi; mediana 60, p99 193. 350 e'
+    // quel massimo piu' un filo di margine: nessun raggio troncato.
+    //
+    // NB: e' un TETTO, non un costo. Il loop esce al primo hit (la mediana sta a
+    // 60), quindi alzarlo non rallenta i pixel facili e abbassarlo sotto il
+    // massimo non fa risparmiare: toglie solo i raggi radenti sui bordi delle
+    // anse, che sono esattamente quelli che ne hanno bisogno (a 250 se ne
+    // perderebbero 8 su 7882, a 200 sessantuno). Per questo non si scende oltre.
+    //
+    // Due casi che richiedono di rialzarlo: rimettere la TRASPARENZA, e lo ZOOM
+    // ravvicinato (a camera z=2.6 il peggiore sale a 357, a z=2.0 a 486) -- ma lo
+    // zoom e' una scelta dell'utente, che ha lo slider per rimediare, mentre
+    // l'apertura deve solo essere corretta e leggera.
+    // La riga resta esplicita invece di affidarsi al reset condiviso (400): se
+    // quel default cambiasse, questa superficie mantiene il valore tarato su di
+    // lei, e m_lastImplicitSteps resta allineata a cio' che si vede.
+    const int kCrossSectionRaySteps = 350;
     m_lastImplicitSteps = kCrossSectionRaySteps;
     if (ui->stepSlider) {
         const bool old = ui->stepSlider->blockSignals(true);
@@ -15349,44 +15612,50 @@ void MainWindow::loadCrossSectionDefaultSurface()
         ui->glWidget->rebuildShader();
     }
 
-    // TRASPARENZA 75% (slider a 75 = alpha 0.75). Il T^3 e' una superficie
-    // stratificata: a sezione piena le falde esterne nascondono quelle interne e
-    // del 3-toro si vede solo il guscio piu' esterno. Un filo di trasparenza fa
-    // leggere la struttura al primo colpo d'occhio.
-    // m_settingAlphaProgrammatic: obbligatorio. L'handler valueChanged sotto i 100
-    // tratta il movimento come INTERAZIONE UTENTE e puo' rimettere l'alpha a 100 e
-    // aprire popup (campo a prodotto, avviso Android, conferma "scena pesante");
-    // qui non c'e' nessun utente che muove nulla, e' il default della superficie.
+    // OPACA (slider a 100). Fino al 2026-09-17 questa superficie partiva ad alpha
+    // 0.75 per far leggere la stratificazione del T^3, ma era il "peccato
+    // originale" della modalita': l'unica superficie di default che nasceva
+    // trasparente, per giunta su una quartica di quartiche a 600 Ray Steps. Il
+    // ramo trasparente del marcher costa MAX_FACES x 3 marchNextLayer x
+    // MAX_LAYER_STEPS x 4 map() per pixel, e siccome l'alpha era scritta in modo
+    // PROGRAMMATICO non passava da nessuna delle guardie: una texture con rilievo
+    // calata qui sopra portava al collasso della GPU (schermo magenta, app
+    // bloccata anche su desktop) prima che il watchdog potesse accorgersene.
+    // L'inquadratura 4D qui sotto rende leggibile la struttura senza trasparenza.
+    // m_settingAlphaProgrammatic resta comunque alzato: e' il contratto di questo
+    // slider per le scritture non-utente (vedi setAlphaSliderProgrammatic).
     if (ui->alphaSlider) {
         m_settingAlphaProgrammatic = true;
-        ui->alphaSlider->setValue(75);
+        ui->alphaSlider->setValue(100);
         m_settingAlphaProgrammatic = false;
-        if (ui->glWidget) ui->glWidget->setAlpha(0.75f);
+        if (ui->glWidget) ui->glWidget->setAlpha(1.0f);
     }
 
-    // Inclinazione di cortesia, LA STESSA del toro parametrico di default
-    // (resetScene ramo parametrico, e gli altri tre punti che la ripetono):
-    // 30 deg di precessione + 30 di nutazione. Vale anche in ray marching perche'
-    // m_rotationQuat entra in m_model, che il marcher usa per portare il raggio
-    // nello spazio del modello (inverse(u_mvMatrix)) -- e' la stessa posa, non una
-    // copia della logica.
-    // NB: e' una rotazione 3D dell'OGGETTO, non una rotazione 4D: non cambia il
-    // piano di sezione p=0 (p resta fissa a 0.0 nello shader, vedi CLAUDE.md e il
-    // TODO rotazioni 4D), quindi la superficie mostrata e' la stessa, solo posata
-    // ad angolo invece che frontale.
+    // POSA DEL PRESET "T3_1" (salvato dall'utente, 2026-09-17). Sostituisce
+    // l'inclinazione di cortesia 30/30 del toro parametrico: quella mostrava la
+    // sezione frontale, che senza trasparenza si legge male perche' le falde
+    // esterne nascondono le interne. Questa inquadratura apre il 3-toro sulle sue
+    // anse e ne rende visibile la struttura a superficie PIENA, che e' cio' che
+    // permette di togliere la trasparenza qui sopra.
     //
-    // ASSOLUTA, non addObjectRotation. Il toro parametrico puo' permettersi di
-    // ACCUMULARE 30/30 perche' resetScene ha appena chiamato resetTransformations()
-    // (quaternione a identita') un attimo prima. Questa funzione invece e' chiamata
-    // anche dall'handler currentChanged di subTabImplicit, che NON azzera nulla:
-    // accumulando, ogni andata e ritorno 3D <-> Cross Section avrebbe aggiunto altri
-    // 30 gradi (30, 60, 90...) e la superficie si sarebbe presentata ogni volta piu'
-    // storta. Costruiamo la stessa posa con lo stesso ordine di composizione di
-    // addObjectRotation (Y * X * Z) e la IMPOSTIAMO.
+    // Sono TRE pezzi di stato distinti e servono tutti e tre insieme:
+    //  - il quaternione 3D dell'OGGETTO (m_rotationQuat -> m_model): l'angolo da
+    //    cui si guarda;
+    //  - la rotazione 4D omega (W-X): decide QUALE sezione dell'ipersuperficie il
+    //    piano della camera taglia (vedi %CROSS_SECTION_P%);
+    //  - la traslazione p del piano di sezione: quanto lontano dal centro taglia.
+    // Valori presi dal JSON del preset (camera3D.rot_*, angles.omega, crossSectionP).
+    //
+    // ASSOLUTI, non incrementali (setRotationQuat / setRotation4D / setCrossSectionP,
+    // nessun addObjectRotation o moveCrossSectionP): questa funzione e' chiamata
+    // anche dall'handler currentChanged di subTabImplicit, che NON azzera nulla, e
+    // accumulando ogni andata e ritorno 3D <-> Cross Section avrebbe spostato la
+    // superficie un po' piu' in la' ogni volta.
     if (ui->glWidget) {
-        const QQuaternion yRot = QQuaternion::fromAxisAndAngle(0.0f, 1.0f, 0.0f, 30.0f);
-        const QQuaternion xRot = QQuaternion::fromAxisAndAngle(1.0f, 0.0f, 0.0f, 30.0f);
-        ui->glWidget->setRotationQuat(yRot * xRot);
+        ui->glWidget->setRotationQuat(QQuaternion(0.46578074f, -0.23254406f,
+                                                  0.32567424f, 0.78924501f));
+        ui->glWidget->setRotation4D(0.50000006f, 0.0f, 0.0f);
+        ui->glWidget->setCrossSectionP(0.015f);
     }
 
     // Gli slider A/B/C sono stati scritti sopra con blockSignals (niente

@@ -1687,7 +1687,21 @@ bool GLWidget::setParametricEquations(const QString &xEq, const QString &yEq,
 
 void GLWidget::setImplicitEquation(const QString &eqF)
 {
-    if (m_eqImplicitF == eqF) return;
+    // L'equazione qui e' quella del sotto-tab 3D (3 variabili): impostarla
+    // significa che il ramo attivo torna a essere il 3D. Senza questa riga
+    // m_implicitUsesCrossSection restava APPICCICATO a true dopo una visita al
+    // Cross Section, e createImplicitFragmentShader continuava a leggere
+    // m_eqCrossSectionF: ogni superficie RM caricata da qui veniva disegnata con
+    // l'equazione 4D della sessione precedente -- "quasi tutte rotte" finche' non
+    // si riavviava l'app (che e' l'unica cosa che azzerava il flag).
+    // NB: sta PRIMA del confronto qui sotto. Se l'equazione coincide con quella
+    // 3D gia' in memoria la funzione esce subito, ma il ramo da riportare al 3D
+    // va corretto lo stesso -- anzi, e' proprio il caso in cui serve di piu':
+    // caricare due volte la stessa superficie 3D dopo il Cross Section.
+    const bool branchChanged = m_implicitUsesCrossSection;
+    m_implicitUsesCrossSection = false;
+
+    if (m_eqImplicitF == eqF && !branchChanged) return;
 
     m_eqImplicitF = eqF;
     detectImplicitConditioning(eqF);

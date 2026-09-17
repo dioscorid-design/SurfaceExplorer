@@ -557,6 +557,35 @@ private:
     // zittisce il watchdog per questa scena (acknowledgePerformanceWarning) e
     // mostra `message`. Presuppone il contesto gia' verificato dal chiamante.
     void forceOpaqueForHeavyRM(const QString &message);
+    // TUTTE LE PIATTAFORME (desktop compreso). Guardia sul commit RM quando la
+    // scena e' gia' trasparente e il codice appena applicato porta un
+    // DISPLACEMENT: e' il displacement il moltiplicatore, non la texture di
+    // colore. Nel template (raymarch_template.txt) %DISPLACEMENT_CODE% e'
+    // iniettato in rawField(), quindi gira dentro OGNI map() del marcher --
+    // MAX_FACES x 3 marchNextLayer x MAX_LAYER_STEPS x 4 map() per pixel sul ramo
+    // trasparente; %TEXTURE_CODE% sta invece nello shading finale e costa UNA
+    // valutazione per pixel, trasparenza o meno. Una texture di colore, per
+    // quanto elaborata, non giustifica di fermare la scena.
+    // Copre la falla del Cross Section di default, che parte da solo ad alpha
+    // 0.75 + Ray Steps 600 (set PROGRAMMATICO, quindi ne' la conferma misurata
+    // dell'alpha slider ne' le guardie displacement mobile, che sono #if mobile,
+    // lo vedono mai): il collasso e' istantaneo e il watchdog, che lavora su una
+    // EMA, puo' solo constatarlo DOPO il magenta.
+    // Ferma il moto, porta alpha a 1 e CHIEDE: ripristinare trasparenza+moto a
+    // proprio rischio, oppure restare opaco e fermo. Torna true se l'utente ha
+    // scelto di proseguire trasparente (o se la guardia non si applicava).
+    bool guardTransparencyOnHeavyTextureApply(const QString &newDispCode);
+    // Anti-rientranza di guardTransparencyOnHeavyTextureApply: il suo box e'
+    // modale e fa girare l'event loop (un commit puo' rientrare da li').
+    bool m_heavyTexGuardActive = false;
+    // Displacement per cui la guardia ha GIA' chiesto, qualunque sia stata la
+    // risposta. Senza, il box si riapriva a raffica senza fine: scegliendo
+    // "Restore" l'alpha torna <1 e il commit successivo (che il riavvio stesso
+    // puo' innescare) ritrova le identiche condizioni e richiede. Confrontare il
+    // CODICE e non un bool rende il riarmo automatico e preciso: un displacement
+    // davvero diverso richiede, ricompilare la stessa scena no. Vuota = mai
+    // chiesto. Vedi guardTransparencyOnHeavyTextureApply.
+    QString m_heavyTexGuardAskedFor;
     // Alzata mentre impostiamo lo slider trasparenza DA CODICE (load preset,
     // resetTransparency): l'handler valueChanged distingue cosi' il set programmatico
     // dall'interazione utente e non fa scattare il blocco/popup sui load. Vedi setAlphaSliderProgrammatic.
