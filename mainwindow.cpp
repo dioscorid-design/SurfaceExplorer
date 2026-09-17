@@ -5252,6 +5252,29 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
             ui->lineVariations->setPlainText("0.0");
         }
 
+        // ILLUMINAZIONE AL DEFAULT (Basic, niente speculare, niente 4D).
+        // Il ramo PARAMETRICO qui sotto lo faceva gia'; questo no, e il modello
+        // restava quello della scena precedente: arrivando in Ray Marching da una
+        // superficie in Phong, le due superfici di default (sfera del sotto-tab
+        // 3D e T^3 del Cross Section) si presentavano in Phong -- ereditando un
+        // aspetto che nessuno aveva scelto per loro. Bug preesistente al Cross
+        // Section, che si limitava a raddoppiarne le occorrenze.
+        //
+        // Il motore va scritto ESPLICITAMENTE, non solo muovendo il radio:
+        // setChecked(true) su un radio GIA' selezionato non emette toggled, e
+        // l'handler onRenderRadioToggled -- che e' quello che riscrive il motore
+        // -- non girerebbe. E' il caso "ero gia' in Basic ma con lo speculare
+        // acceso da un preset".
+        m_savedRenderMode = 0;
+        if (ui->radioBasic) ui->radioBasic->setChecked(true);
+        if (ui->glWidget) {
+            ui->glWidget->setSpecularEnabled(false);   // spegne il Phong residuo
+            ui->glWidget->set4DLighting(false);        // non usata in ray marching
+            ui->glWidget->setLightingMode4D(0);
+        }
+        m_lightingMode4D = 0;
+        if (ui->btnLightMode) ui->btnLightMode->setText("Directional Lighting");
+
         m_lastParametricSteps = ui->stepSlider->value();
 
         // 1. SALVA IN MEMORIA IL VALORE PARAMETRICO DELLA S
