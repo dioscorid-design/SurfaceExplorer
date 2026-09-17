@@ -55,6 +55,11 @@ layout(std140, binding = 0) uniform SceneUBO {
     float u_meshIndex;
     // 1 = nessuna immagine caricata: vedi _st_sampleChannel0 piu' sotto.
     int u_noImage;
+    // Luce di riempimento dall'osservatore, 0 = spenta. Dichiarata qui per far
+    // combaciare il blocco col vertex (regola Adreno): il ramo PARAMETRICO usa
+    // gia' abs(dot(N,L)), quindi non ha il problema delle facce non illuminate
+    // che questa luce risolve nel ray marching, e non la somma.
+    float u_fillLight;
 } ubuf;
 
 // --- PLACEHOLDER PER CODICE TEXTURE CUSTOM ---

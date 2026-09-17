@@ -661,6 +661,10 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // scattato (era il motivo per cui gli slider colore sembravano inerti).
     m_uboData.u_noImage = m_hasUserImage ? 0 : 1;
 
+    // Luce di riempimento dall'osservatore: 0 (default) = termine nullo nello
+    // shader, immagine identica a quella storica. Vedi u_fillLight in UboData.
+    m_uboData.u_fillLight = m_fillLight;
+
     // ==========================================================
     // AGGIORNAMENTO BUFFER PRINCIPALE (multi-mesh)
     // ==========================================================
@@ -2877,6 +2881,11 @@ void GLWidget::setSpecularEnabled(bool enabled) {
 // semplicemente lo slider non ne scrive di nuovi.
 void GLWidget::setLightIntensity(float intensity) {
     this->m_lightIntensity = intensity;
+    update();
+}
+
+void GLWidget::setFillLight(float v) {
+    m_fillLight = v;
     update();
 }
 

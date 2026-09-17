@@ -73,13 +73,28 @@ struct UboData {
     // Occupa il primo slot dell'ex _pad0 (la coda di riserva), quindi il blocco
     // non cresce e gli offset precedenti restano tutti invariati.
     int u_noImage;
+    // LUCE DI RIEMPIMENTO dall'osservatore (headlight), 0 = spenta.
+    // Le due luci principali sono quasi opposte fra loro (dot = -0.79) e lasciano
+    // scoperto un anello di direzioni perpendicolari a entrambe: misurato, il
+    // 17.4% delle facce viste DI FRONTE non riceve luce diffusa e resta col solo
+    // ambiente. Si nota lungo i path, dove la camera entra in tubi e cavita' e
+    // quelle pareti restano nere -- e lo slider Light non le salva, perche'
+    // MOLTIPLICA la luce totale (tre volte quasi-zero resta quasi-zero).
+    // Regolabile dall'utente invece che fissa: ogni riempimento SEMPRE attivo
+    // che abbiamo provato (two-sided, headlight fissa, luci ancorate al mondo)
+    // migliorava i path peggiorando le superfici ferme. A 0 lo shader somma un
+    // termine nullo, quindi il default e' identico al comportamento storico e
+    // paga solo chi decide di accenderla.
+    // Occupa il secondo slot dell'ex _pad0: il blocco non cresce e nessun offset
+    // si sposta.
+    float u_fillLight;
     // Coda di riserva. Gli offset di questa struct combaciano con il blocco
     // SceneUBO degli shader: verificato con `qsb --dump` che u_min=372,
     // z_max=416, u_meshIndex=420 su entrambi i lati (blocco shader = 424 byte).
     // Lo spazio fra i blocchi NON e' sizeof(UboData): il passo e' m_uboBlockStride,
     // ricavato da QRhi::ubufAlignment() (256 su Metal/Vulkan), quindi ogni blocco
     // e' comunque allineato come richiede l'API.
-    float _pad0[2];
+    float _pad0[1];
 };
 
 class GLWidget : public QRhiWidget
@@ -365,6 +380,11 @@ public:
     void setAlpha(float a);
     void setSpecularEnabled(bool enabled);
     void setLightIntensity(float intensity);
+    // Luce di riempimento dall'osservatore (0 = spenta, default). Vedi
+    // u_fillLight in UboData per il perche'. GLOBALE, non per-mesh: e' una
+    // proprieta' dell'illuminazione della scena, non dell'aspetto di una parte.
+    void setFillLight(float v);
+    float fillLight() const { return m_fillLight; }
     void increaseWireframeUDensity();
     void decreaseWireframeUDensity();
     void increaseWireframeVDensity();
@@ -964,6 +984,8 @@ private:
     float alpha = 0.5f;
     float red = 1, green = 1, blue = 1;
     float m_lightIntensity = 1.0f;
+    // 0 = spenta: il default riproduce esattamente l'illuminazione storica.
+    float m_fillLight = 0.0f;
 
     float texRed1 = 1.0f, texGreen1 = 1.0f, texBlue1 = 1.0f;
     float texRed2 = 0.0f, texGreen2 = 0.0f, texBlue2 = 0.0f;

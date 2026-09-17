@@ -14,6 +14,13 @@ layout(std140, binding=0) uniform SceneUBO {
     int useSpecular; float u_min; float u_max; float v_min;
     float v_max; int u_hasExplicitW; int u_raySteps; float x_min;
     float x_max; float y_min; float y_max; float z_min; float z_max;
+    // I tre campi finali di UboData, nell'ORDINE ESATTO della struct C++: std140
+    // non consente di saltarne uno, e il ray marching ha bisogno dell'ultimo
+    // (u_fillLight). u_meshIndex e u_noImage non servono qui -- questo e' un
+    // fragment a se', non ha il vertex gemello con cui combaciare (la regola
+    // Adreno vale fra i due stage di surface.vert/frag) -- ma vanno dichiarati
+    // lo stesso o u_fillLight leggerebbe l'offset sbagliato.
+    float u_meshIndex; int u_noImage; float u_fillLight;
 } ubuf;
 
 layout(binding=1) uniform sampler2D tex;
@@ -457,8 +464,47 @@ vec3 shadeSurface(vec3 pModel, vec3 rayDir, bool useInner, bool withAO) {
 
     float diffMain = max(dot(n_model, mainLight_model), 0.0);
     float diffBack = max(dot(n_model, backLight_model), 0.0) * 0.4;
+
+    // LUCE DI RIEMPIMENTO dall'osservatore, regolata dall'utente (0 = spenta).
+    //
+    // Le due luci qui sopra sono quasi opposte fra loro (dot = -0.79) e lasciano
+    // scoperto un anello di direzioni perpendicolari a entrambe: misurato, il
+    // 17.4% delle facce viste DI FRONTE non riceve luce diffusa e resta col solo
+    // ambiente (0.15*ao, che in una cavita' crolla). Non sono facce viste da
+    // dietro: sono guardate di fronte, solo orientate dove la luce non arriva.
+    // Si nota lungo i path, che portano la camera dentro tubi e cavita', e lo
+    // slider Light non le salva perche' MOLTIPLICA la luce totale: tre volte
+    // quasi-zero resta quasi-zero.
+    //
+    // viewDir_model e' la direzione verso l'osservatore, quindi questa luce
+    // illumina per costruzione cio' che si sta guardando: e' il riempimento piu'
+    // efficace dentro una cavita'.
+    //
+    // REGOLABILE e non fissa: ogni riempimento SEMPRE attivo provato prima
+    // (abs() two-sided, headlight fissa, luci ancorate al mondo) migliorava i
+    // path ma peggiorava le superfici ferme -- coperta corta. A u_fillLight = 0,
+    // che e' il default, questo termine e' esattamente zero e l'immagine e'
+    // identica a quella storica: paga solo chi decide di accenderla, quando gli
+    // serve. NB: NON moltiplicato per ao -- serve proprio dove l'occlusione e'
+    // alta, cioe' dentro le cavita'.
+    //
+    // FORMULA "WRAP" (half-lambert) invece del solo max(dot,0). Con la headlight
+    // pura le facce quasi PERPENDICOLARI alla vista hanno dot ~ 0.05 e restavano
+    // nere anche con lo slider al massimo: misurato, 0.06 su 1 -- e' il motivo
+    // per cui serviva spingere il cursore a fondo senza ottenere nulla. Il
+    // fattore si compone di due parti:
+    //   0.65 * (dot+1)/2  -> la parte DIREZIONALE, che conserva il modellato
+    //                        (le facce rivolte all'osservatore restano piu'
+    //                        chiare di quelle di taglio);
+    //   + 0.35            -> una parte COSTANTE, che prende anche le facce
+    //                        radenti e le stacca dal nero (0.06 -> 0.70).
+    // Il fondo non si alza mai "a tradimento" perche' tutto e' moltiplicato per
+    // u_fillLight, che a zero annulla anche la costante.
+    float fillWrap = 0.65 * (dot(n_model, viewDir_model) * 0.5 + 0.5) + 0.35;
+    float diffFill = fillWrap * ubuf.u_fillLight;
+
     float ambient  = 0.15 * ao;
-    float totalLight = diffMain + diffBack + ambient;
+    float totalLight = diffMain + diffBack + diffFill + ambient;
 
     vec3 textureCol = ubuf.color;
     %TEXTURE_CODE%

@@ -65,6 +65,10 @@ layout(std140, binding = 0) uniform SceneUBO {
     // li' il prefisso std140 e' tollerato). Ultimo campo di UboData: aggiungerlo
     // non sposta nessun offset.
     int u_noImage;
+    // NON USATO QUI (la luce di riempimento e' un termine del fragment), ma il
+    // blocco deve combaciare campo per campo con quello del fragment: vedi la
+    // nota su u_noImage qui sopra. Ultimo campo di UboData.
+    float u_fillLight;
 } ubuf;
 
 float sq(float x) { return x*x; }

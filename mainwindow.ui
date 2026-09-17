@@ -499,6 +499,42 @@
             </widget>
            </item>
            <item>
+            <widget class="QLabel" name="lblFill">
+             <property name="text">
+              <string>Fill Light</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignmentFlag::AlignCenter</set>
+             </property>
+             <property name="toolTip">
+              <string>Extra light coming from the viewer. Lifts surfaces that face away from the two main lights — typically the walls seen from inside a tube or a cavity along a camera path, which stay black however high you push Light. Zero by default: at zero nothing changes.</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QWidget" name="widgetFill" native="true">
+             <layout class="QHBoxLayout" name="horizontalLayoutFill">
+              <item>
+               <widget class="QLabel" name="lblValFill">
+                <property name="text">
+                 <string>0.00</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QSlider" name="fillLightSlider">
+                <property name="orientation">
+                 <enum>Qt::Orientation::Horizontal</enum>
+                </property>
+                <property name="toolTip">
+                 <string>Extra light coming from the viewer. Lifts surfaces that face away from the two main lights — typically the walls seen from inside a tube or a cavity along a camera path, which stay black however high you push Light. Zero by default: at zero nothing changes.</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
             <widget class="QLabel" name="lblFov">
              <property name="text">
               <string>Fov</string>

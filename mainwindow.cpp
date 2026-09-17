@@ -3571,6 +3571,36 @@ MainWindow::MainWindow(QWidget *parent)
         ui->lblValLight->setText(QString::number(val) + " %");
     });
 
+    // LUCE DI RIEMPIMENTO (Fill Light): luce dall'osservatore, SOLO Ray Marching.
+    // Serve dove le due luci principali non arrivano -- le pareti viste da dentro
+    // un tubo o una cavita' lungo un path, che restano nere per quanto si alzi
+    // Light (che moltiplica, quindi su un valore quasi nullo non ha presa).
+    // Scala 0..100 = 0.00..1.20. Il tetto era 0.50 e si e' rivelato basso: su
+    // certe geometrie bisognava portare il cursore a fondo senza riuscire a
+    // schiarire l'ombra, perche' le facce quasi PERPENDICOLARI alla vista sono
+    // quelle che la headlight prende meno (vedi la formula "wrap" nel template,
+    // che le recupera). Con 1.20 il cursore ha margine anche in quei casi e
+    // resta comunque una regolazione fine nella prima meta' della corsa.
+    // DEFAULT 0: a zero il termine nello shader e' esattamente zero e l'immagine
+    // e' identica a prima. E' la ragione per cui questa luce e' un controllo e
+    // non una costante -- vedi u_fillLight in glwidget.h.
+    ui->fillLightSlider->setRange(0, 100);
+    ui->fillLightSlider->setValue(0);
+    ui->lblValFill->setText("0.00");
+    // Stesso aspetto degli altri slider grandi. Copiato da lightSlider (che
+    // setupBigSliders ha appena stilizzato) invece di allungare la firma di
+    // quella funzione a dieci parametri: e' lo stesso stile, senza toccare una
+    // API usata anche altrove.
+    if (ui->lightSlider) {
+        ui->fillLightSlider->setStyleSheet(ui->lightSlider->styleSheet());
+        ui->fillLightSlider->setMinimumHeight(ui->lightSlider->minimumHeight());
+    }
+    connect(ui->fillLightSlider, &QSlider::valueChanged, this, [this](int val){
+        const float v = val * 0.012f;          // 0..100 -> 0.00..1.20
+        ui->glWidget->setFillLight(v);
+        ui->lblValFill->setText(QString::number(v, 'f', 2));
+    });
+
     // FOV UNICO: agisce SEMPRE e subito, qualunque cosa stia guidando la camera
     // (path 3D/4D, rotazioni, t-motion, o superficie ferma). Nessun gate: era il
     // blocco "solo con la propria path in corsa" a rendere il valore non
