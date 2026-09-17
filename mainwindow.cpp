@@ -2405,6 +2405,15 @@ MainWindow::MainWindow(QWidget *parent)
     if (ui->shellThicknessSlider) {
         ui->shellThicknessSlider->setRange(0, 100);
         ui->shellThicknessSlider->setValue(0);          // 0.005 = comportamento storico
+        // Stesso aspetto degli altri slider grandi: l'handle e' 30px con
+        // margin -10px, quindi senza questo stile (e senza l'altezza minima nel
+        // .ui) il disco viene TAGLIATO dal bordo del widget.
+        ui->shellThicknessSlider->setStyleSheet(
+            "QSlider::groove:horizontal { border: 1px solid #999; height: 12px;"
+            " border-radius: 6px; margin: 2px 0; background: #AAAAAA; }"
+            "QSlider::handle:horizontal { background: white; border: 1px solid #5c5c5c;"
+            " width: 30px; height: 30px; margin: -10px 0; border-radius: 15px; }");
+        ui->shellThicknessSlider->setMinimumHeight(40);
         if (ui->lblValShellThickness)
             ui->lblValShellThickness->setText(QString::number(kShellThickMin, 'f', 3));
         connect(ui->shellThicknessSlider, &QSlider::valueChanged, this,

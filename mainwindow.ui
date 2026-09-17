@@ -2658,52 +2658,7 @@
                      </layout>
                     </widget>
                    </item>
-                   <item>
-                    <widget class="QWidget" name="panelShellThickness" native="true">
-                     <property name="sizePolicy">
-                      <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-                       <horstretch>0</horstretch>
-                       <verstretch>0</verstretch>
-                      </sizepolicy>
-                     </property>
-                     <property name="maximumSize">
-                      <size>
-                       <width>16777215</width>
-                       <height>40</height>
-                      </size>
-                     </property>
-                     <layout class="QHBoxLayout" name="horizontalLayoutShellThickness">
-                      <item>
-                       <widget class="QLabel" name="lblShellThickness">
-                        <property name="text">
-                         <string>Thickness</string>
-                        </property>
-                        <property name="toolTip">
-                         <string>Wall thickness of the shell, in scene units. Surfaces whose equation is scaled down (a small factor in front of it) used to get a much thicker wall than the ones written at natural scale; now the thickness is a real length and you set it here.</string>
-                        </property>
-                       </widget>
-                      </item>
-                      <item>
-                       <widget class="QLabel" name="lblValShellThickness">
-                        <property name="text">
-                         <string>0.005</string>
-                        </property>
-                       </widget>
-                      </item>
-                      <item>
-                       <widget class="QSlider" name="shellThicknessSlider">
-                        <property name="orientation">
-                         <enum>Qt::Orientation::Horizontal</enum>
-                        </property>
-                        <property name="toolTip">
-                         <string>Wall thickness of the shell, in scene units. Surfaces whose equation is scaled down (a small factor in front of it) used to get a much thicker wall than the ones written at natural scale; now the thickness is a real length and you set it here.</string>
-                        </property>
-                       </widget>
-                      </item>
-                     </layout>
-                    </widget>
-                   </item>
-                  </layout>
+                   </layout>
                  </widget>
                 </item>
                </layout>
@@ -2887,6 +2842,39 @@
              </widget>
             </item>
             <item>
+                    <widget class="QWidget" name="panelShellThickness" native="true">
+                     <property name="sizePolicy"><sizepolicy hsizetype="Preferred" vsizetype="Fixed"><horstretch>0</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="minimumSize"><size><width>0</width><height>46</height></size></property><property name="maximumSize"><size><width>16777215</width><height>50</height></size></property><layout class="QHBoxLayout" name="horizontalLayoutShellThickness">
+                      <property name="bottomMargin"><number>1</number></property><property name="rightMargin"><number>6</number></property><property name="topMargin"><number>1</number></property><property name="leftMargin"><number>4</number></property><item>
+                       <widget class="QLabel" name="lblShellThickness">
+                        <property name="text">
+                         <string>Thickness</string>
+                        </property>
+                        <property name="toolTip">
+                         <string>Wall thickness of the shell, in scene units. Surfaces whose equation is scaled down (a small factor in front of it) used to get a much thicker wall than the ones written at natural scale; now the thickness is a real length and you set it here.</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QLabel" name="lblValShellThickness">
+                        <property name="minimumSize"><size><width>46</width><height>0</height></size></property><property name="text">
+                         <string>0.005</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QSlider" name="shellThicknessSlider">
+                        <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="minimumSize"><size><width>140</width><height>40</height></size></property><property name="orientation">
+                         <enum>Qt::Orientation::Horizontal</enum>
+                        </property>
+                        <property name="toolTip">
+                         <string>Wall thickness of the shell, in scene units. Surfaces whose equation is scaled down (a small factor in front of it) used to get a much thicker wall than the ones written at natural scale; now the thickness is a real length and you set it here.</string>
+                        </property>
+                       </widget>
+                      </item>
+                     </layout>
+                    </widget>
+                   </item>
+                  <item>
              <widget class="QPushButton" name="btnImplicit">
               <property name="text">
                <string>Run</string>
