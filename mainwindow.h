@@ -1023,6 +1023,12 @@ private:
     // Da usare ovunque serva "l'equazione a schermo": leggere ui->lineEquation
     // fisso ignora il Cross Section.
     QString activeImplicitEquationText() const;
+    // Porta motore, slider ed etichetta allo spessore di guscio indicato. Lo
+    // slider ha una curva QUADRATICA (piu' risoluzione sui valori sottili),
+    // quindi posizionarlo richiede la funzione inversa: sta qui, in un solo
+    // posto, invece di essere ricalcolata a ogni punto di caricamento.
+    // A segnali bloccati: il valore arriva da un preset, non dall'utente.
+    void setShellThicknessUI(float thickness);
     // Superficie di default del sotto-tab Cross Section (T^3, 3-toro): stessa
     // idea della sfera di default per il tab 3D, ma per l'equazione a 4
     // variabili (x,y,z,p). Riusata sia da resetScene (arrivo su Implicit) sia

@@ -69,6 +69,9 @@ layout(std140, binding = 0) uniform SceneUBO {
     // blocco deve combaciare campo per campo con quello del fragment: vedi la
     // nota su u_noImage qui sopra. Ultimo campo di UboData.
     float u_fillLight;
+    // NON USATA QUI (il guscio e' solo del ray marching), ma il blocco deve
+    // combaciare col fragment. Ultimo campo di UboData.
+    float u_shellThickness;
 } ubuf;
 
 float sq(float x) { return x*x; }

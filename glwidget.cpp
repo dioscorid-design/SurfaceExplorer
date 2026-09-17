@@ -665,6 +665,10 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // shader, immagine identica a quella storica. Vedi u_fillLight in UboData.
     m_uboData.u_fillLight = m_fillLight;
 
+    // Spessore del guscio (modalita' Shell): uniform, non entra nel sorgente
+    // dello shader, quindi cambiarlo non richiede una ricompilazione.
+    m_uboData.u_shellThickness = m_shellThickness;
+
     // ==========================================================
     // AGGIORNAMENTO BUFFER PRINCIPALE (multi-mesh)
     // ==========================================================
@@ -2886,6 +2890,11 @@ void GLWidget::setLightIntensity(float intensity) {
 
 void GLWidget::setFillLight(float v) {
     m_fillLight = v;
+    update();
+}
+
+void GLWidget::setShellThickness(float v) {
+    m_shellThickness = v;
     update();
 }
 

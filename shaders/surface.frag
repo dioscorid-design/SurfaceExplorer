@@ -60,6 +60,9 @@ layout(std140, binding = 0) uniform SceneUBO {
     // gia' abs(dot(N,L)), quindi non ha il problema delle facce non illuminate
     // che questa luce risolve nel ray marching, e non la somma.
     float u_fillLight;
+    // Spessore del guscio: usato solo dal ray marching, dichiarato qui per
+    // tenere i due blocchi identici campo per campo.
+    float u_shellThickness;
 } ubuf;
 
 // --- PLACEHOLDER PER CODICE TEXTURE CUSTOM ---

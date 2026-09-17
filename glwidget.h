@@ -88,13 +88,26 @@ struct UboData {
     // Occupa il secondo slot dell'ex _pad0: il blocco non cresce e nessun offset
     // si sposta.
     float u_fillLight;
-    // Coda di riserva. Gli offset di questa struct combaciano con il blocco
-    // SceneUBO degli shader: verificato con `qsb --dump` che u_min=372,
-    // z_max=416, u_meshIndex=420 su entrambi i lati (blocco shader = 424 byte).
+    // SPESSORE DEL GUSCIO (modalita' Shell), in unita' di scena. 0.005 = il
+    // valore storico della sfera unitaria. Era una costante nello shader: da
+    // quando il campo e' normalizzato col gradiente lo spessore e' una LUNGHEZZA
+    // VERA e non dipende piu' da come e' scritta l'equazione -- corretto, ma
+    // prima valeva 0.01/|grad| e le superfici con un fattore di scala davanti
+    // (es. A*(...) con A=0.1) avevano gusci 20-50 volte piu' spessi (misurato:
+    // Ding Dong 0.23, Steiner 0.47). Con una costante unica quelle superfici si
+    // presentano assottigliate. E' quindi un parametro della SCENA, regolabile e
+    // salvato nei preset. Occupa l'ultimo slot di riserva di _pad0.
+    float u_shellThickness;
+    // La coda di riserva (_pad0) e' ESAURITA: i suoi due slot sono diventati
+    // u_fillLight e u_shellThickness. Un campo nuovo fara' quindi CRESCERE il
+    // blocco -- va aggiunto in coda (std140 non consente di saltare campi, e un
+    // inserimento intermedio sposta tutti gli offset successivi) e dichiarato in
+    // ENTRAMBI gli shader parametrici, vedi CLAUDE.md.
+    // Gli offset di questa struct combaciano con il blocco SceneUBO degli shader:
+    // verificato che u_min=372, z_max=416, u_meshIndex=420.
     // Lo spazio fra i blocchi NON e' sizeof(UboData): il passo e' m_uboBlockStride,
     // ricavato da QRhi::ubufAlignment() (256 su Metal/Vulkan), quindi ogni blocco
     // e' comunque allineato come richiede l'API.
-    float _pad0[1];
 };
 
 class GLWidget : public QRhiWidget
@@ -385,6 +398,10 @@ public:
     // proprieta' dell'illuminazione della scena, non dell'aspetto di una parte.
     void setFillLight(float v);
     float fillLight() const { return m_fillLight; }
+    // Spessore del guscio (modalita' Shell). Vedi u_shellThickness in UboData.
+    // Serve un rebuildShader? No: e' un uniform, non entra nel sorgente.
+    void setShellThickness(float v);
+    float shellThickness() const { return m_shellThickness; }
     void increaseWireframeUDensity();
     void decreaseWireframeUDensity();
     void increaseWireframeVDensity();
@@ -986,6 +1003,8 @@ private:
     float m_lightIntensity = 1.0f;
     // 0 = spenta: il default riproduce esattamente l'illuminazione storica.
     float m_fillLight = 0.0f;
+    // 0.005 = il guscio storico della sfera unitaria (dove |grad| = 2).
+    float m_shellThickness = 0.005f;
 
     float texRed1 = 1.0f, texGreen1 = 1.0f, texBlue1 = 1.0f;
     float texRed2 = 0.0f, texGreen2 = 0.0f, texBlue2 = 0.0f;

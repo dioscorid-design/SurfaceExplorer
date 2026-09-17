@@ -20,7 +20,7 @@ layout(std140, binding=0) uniform SceneUBO {
     // fragment a se', non ha il vertex gemello con cui combaciare (la regola
     // Adreno vale fra i due stage di surface.vert/frag) -- ma vanno dichiarati
     // lo stesso o u_fillLight leggerebbe l'offset sbagliato.
-    float u_meshIndex; int u_noImage; float u_fillLight;
+    float u_meshIndex; int u_noImage; float u_fillLight; float u_shellThickness;
 } ubuf;
 
 layout(binding=1) uniform sampler2D tex;
@@ -34,7 +34,18 @@ layout(binding=1) uniform sampler2D tex;
 // semi-spessore geometrico di 0.005. Tenendo 0.005 qui, il guscio delle superfici
 // 3D gia' esistenti resta identico a prima; cambia solo dove il campo non e'
 // normalizzato, che e' esattamente il caso che stiamo correggendo.
-const float SHELL_THICKNESS = 0.005;
+// Regolabile dalla UI (slider Thickness, sotto i radio Shell/Solid) invece che
+// costante. Normalizzare il campo col gradiente ha reso lo spessore una LUNGHEZZA
+// VERA, uguale per tutte le equazioni -- ed e' corretto -- ma prima dipendeva da
+// come l'equazione era scritta: valeva 0.01/|grad|, quindi le superfici con un
+// fattore di scala davanti (es. "A*(...)" con A=0.1) avevano gusci molto piu'
+// spessi. Misurato: Ding Dong 0.23 e Steiner 0.47 contro lo 0.01 fisso di ora,
+// cioe' 20-50 volte tanto. Con la costante quelle superfici si presentavano
+// assottigliate e la trasparenza le attraversava quasi del tutto.
+// Un default unico non puo' andare bene per tutte (|grad| varia di due ordini di
+// grandezza fra un'equazione e l'altra), quindi lo spessore e' un parametro della
+// SCENA, salvato nei preset. 0.005 = il valore storico della sfera unitaria.
+#define SHELL_THICKNESS ubuf.u_shellThickness
 
 // --- FUNZIONE PER INTERSEZIONI MORBIDE (SMOOTH MAX) ---
 float smax(float a, float b, float k) {

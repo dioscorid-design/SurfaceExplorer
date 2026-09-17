@@ -65,6 +65,9 @@ struct LibraryItem {
     // l'editor 3D, e una superficie Cross Section si ricaricava come la sfera di
     // default. Assenti nei record piu' vecchi -> false, cioe' il ramo 3D di
     // sempre: la compatibilita' e' preservata.
+    // Spessore del guscio (modalita' Shell). Assente nei preset precedenti allo
+    // slider -> 0.005, il valore storico della sfera unitaria.
+    float shellThickness = 0.005f;
     bool usesCrossSection = false;
     QString crossSectionEq;
 

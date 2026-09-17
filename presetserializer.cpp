@@ -718,6 +718,11 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     if (isImplicit) {
         int shellState = m_mainWindow->ui->radioShell->isChecked() ? 10 : 0;
         root["renderMode"] = m_mainWindow->m_savedRenderMode + shellState;
+        // SPESSORE DEL GUSCIO: dipende da come e' scritta l'equazione (le
+        // superfici con un fattore di scala davanti ne vogliono uno molto
+        // maggiore), quindi e' un parametro della superficie e va col preset.
+        // Assente nei file piu' vecchi -> 0.005, il valore storico.
+        root["shellThickness"] = (double)m_mainWindow->ui->glWidget->shellThickness();
     } else {
         root["renderMode"] = m_mainWindow->m_savedRenderMode;
     }
@@ -1604,6 +1609,11 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     if (isImplicit) {
         int shellState = m_mainWindow->ui->radioShell->isChecked() ? 10 : 0;
         root["renderMode"] = m_mainWindow->m_savedRenderMode + shellState;
+        // SPESSORE DEL GUSCIO: dipende da come e' scritta l'equazione (le
+        // superfici con un fattore di scala davanti ne vogliono uno molto
+        // maggiore), quindi e' un parametro della superficie e va col preset.
+        // Assente nei file piu' vecchi -> 0.005, il valore storico.
+        root["shellThickness"] = (double)m_mainWindow->ui->glWidget->shellThickness();
     } else {
         root["renderMode"] = m_mainWindow->m_savedRenderMode;
     }

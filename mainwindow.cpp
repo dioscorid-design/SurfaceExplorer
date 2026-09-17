@@ -2384,6 +2384,39 @@ MainWindow::MainWindow(QWidget *parent)
     if (ui->radioSolidCrossSection)
         connect(ui->radioSolidCrossSection, &QRadioButton::toggled, this, updateImplicitRenderMode);
 
+    // SPESSORE DEL GUSCIO (Shell). Scala 0..100 -> 0.005..0.30, non lineare:
+    // quadratica, cosi' la prima meta' della corsa copre i valori sottili (dove
+    // serve precisione) e la seconda arriva ai gusci spessi.
+    //
+    // Perche' e' un controllo e non una costante: normalizzare il campo col
+    // gradiente ha reso lo spessore una LUNGHEZZA VERA, uguale per tutte le
+    // equazioni. E' corretto, ma prima valeva 0.01/|grad|, quindi dipendeva da
+    // come l'equazione era scritta: le superfici con un fattore di scala davanti
+    // avevano gusci molto piu' spessi. Misurato, per tornare all'aspetto storico
+    // servono 0.10 a Ding Dong (|grad| 0.096) e 0.26 a Steiner (|grad| 0.039),
+    // mentre la sfera e il T^3 del Cross Section stanno bene a 0.005: due ordini
+    // di grandezza di differenza, nessun default unico puo' accontentarle tutte.
+    // Il tetto 0.30 copre Steiner con margine.
+    const double kShellThickMin = 0.005, kShellThickMax = 0.30;
+    auto shellThickFromSlider = [=](int v) {
+        const double f = v / 100.0;
+        return kShellThickMin + (kShellThickMax - kShellThickMin) * f * f;
+    };
+    if (ui->shellThicknessSlider) {
+        ui->shellThicknessSlider->setRange(0, 100);
+        ui->shellThicknessSlider->setValue(0);          // 0.005 = comportamento storico
+        if (ui->lblValShellThickness)
+            ui->lblValShellThickness->setText(QString::number(kShellThickMin, 'f', 3));
+        connect(ui->shellThicknessSlider, &QSlider::valueChanged, this,
+                [this, shellThickFromSlider](int v) {
+            const double t = shellThickFromSlider(v);
+            if (ui->glWidget) ui->glWidget->setShellThickness((float)t);
+            if (ui->lblValShellThickness)
+                ui->lblValShellThickness->setText(QString::number(t, 'f', 3));
+            noteSceneEdited(ui->shellThicknessSlider);
+        });
+    }
+
 
     // --- 1. Equazioni Implicite di Default (Solo 3D) ---
     ui->lineEquation->setPlainText("x^2 + y^2 + z^2 = 1.0");
@@ -6427,6 +6460,7 @@ void MainWindow::updateRenderState()
             ui->glWidget->setGlobalRenderMode(implicitShellSelected() ? 1 : 0);
         } else {
             // Modalità Parametrica: Ascolta i radio button classici.
+            // (il gating dello slider Thickness e' in fondo a questa funzione)
             // NB: setGlobalRenderMode scrive SOLO lo stato GLOBALE, mai su una parte,
             // anche se lo spinbox ha una mesh selezionata. Questa funzione gira
             // a ogni cambio tab / proiezione / load: se scrivesse sulla parte
@@ -6466,6 +6500,16 @@ void MainWindow::updateRenderState()
     // Le eccezioni sono volute: COLORE e TEXTURE dello SFONDO restano usabili,
     // perche' lo sfondo esiste anche senza superficie ed e' l'unica cosa che
     // si puo' ancora comporre a scena vuota.
+    // SPESSORE DEL GUSCIO: ha senso solo in Ray Marching e solo con Shell
+    // selezionato -- in Solid non c'e' nessun guscio di cui regolare la parete, e
+    // nel parametrico la modalita' non esiste affatto. Il contenitore intero
+    // (etichetta, valore, slider) cosi' il numero non resta leggibile accanto a
+    // uno slider spento.
+    if (ui->panelShellThickness) {
+        const bool shellUsable = isImplicitMode && implicitShellSelected();
+        ui->panelShellThickness->setEnabled(shellUsable);
+    }
+
     // Ultimo blocco della funzione: sovrascrive di proposito le decisioni prese
     // qui sopra, che presuppongono tutte una superficie a schermo.
     applyEmptySceneGating();
@@ -15387,6 +15431,28 @@ QString MainWindow::activeImplicitEquationText() const
     return ui->lineEquation ? ui->lineEquation->toPlainText() : QString();
 }
 
+// Spessore del guscio: motore + slider + etichetta in un colpo. La curva dello
+// slider e' quadratica (0..100 -> 0.005..0.30), quindi la posizione si ricava
+// invertendola: f = sqrt((t - min) / (max - min)). Tenerla qui evita che ogni
+// chiamante se la riscriva -- ed e' la stessa curva definita nel connect dello
+// slider, che resta l'unico punto in cui i due estremi sono scritti.
+void MainWindow::setShellThicknessUI(float thickness)
+{
+    const double kMin = 0.005, kMax = 0.30;
+    const double t = qBound(kMin, (double)thickness, kMax);
+
+    if (ui->glWidget) ui->glWidget->setShellThickness((float)t);
+
+    if (ui->shellThicknessSlider) {
+        const double f = std::sqrt((t - kMin) / (kMax - kMin));
+        const bool old = ui->shellThicknessSlider->blockSignals(true);
+        ui->shellThicknessSlider->setValue(qRound(f * 100.0));
+        ui->shellThicknessSlider->blockSignals(old);
+    }
+    if (ui->lblValShellThickness)
+        ui->lblValShellThickness->setText(QString::number(t, 'f', 3));
+}
+
 bool MainWindow::implicitShellSelected() const
 {
     const bool crossSectionActive = ui->subTabImplicit
@@ -15484,6 +15550,13 @@ void MainWindow::applyImplicitSubTabReset(int subIndex)
 
 void MainWindow::resetImplicitSharedFields()
 {
+    // SPESSORE DEL GUSCIO al default (0.005). E' condiviso fra i due sotto-tab
+    // come i limiti e le manopole del marcher: senza, una superficie di default
+    // erediterebbe lo spessore tarato su quella precedente -- e su un'equazione
+    // scritta a scala naturale un guscio da 0.26 (il valore che serve a Steiner)
+    // inghiottirebbe l'intero oggetto.
+    setShellThicknessUI(0.005f);
+
     // Limiti spaziali: campi VUOTI = nessun taglio, che e' il default di avvio
     // (vedi il costruttore e il ramo implicito di resetScene, stessa scrittura).
     // A segnali bloccati: textEdited qui significherebbe "l'utente ha modificato
@@ -15925,6 +15998,13 @@ void MainWindow::applyCommonData(LibraryItem d)
         } else {
             isShell = false;
         }
+
+        // SPESSORE DEL GUSCIO. Il motore riceve il valore vero; lo slider si
+        // posiziona con la funzione INVERSA della sua curva quadratica, o
+        // mostrerebbe una posizione che non corrisponde al valore applicato.
+        // Preset senza la chiave -> 0.005 (il parser mette gia' quel default),
+        // cioe' l'aspetto con cui sono stati salvati.
+        setShellThicknessUI(d.shellThickness);
     }
 
     if (ui->radioBackground->isChecked()) {

@@ -359,6 +359,7 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             // Sotto-tab implicito attivo al salvataggio. Chiavi assenti nei
             // record precedenti al Cross Section -> false/vuoto, cioe' il ramo
             // 3D di sempre.
+            d.shellThickness = (float)root["shellThickness"].toDouble(0.005);
             d.usesCrossSection = root["implicitUsesCrossSection"].toBool();
             d.crossSectionEq = root["crossSectionEquation"].toString();
             d.crossSectionP = (float)root["crossSectionP"].toDouble(0.0);
@@ -734,6 +735,7 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             // Sotto-tab implicito attivo al salvataggio. Chiavi assenti nei
             // record precedenti al Cross Section -> false/vuoto, cioe' il ramo
             // 3D di sempre.
+            d.shellThickness = (float)root["shellThickness"].toDouble(0.005);
             d.usesCrossSection = root["implicitUsesCrossSection"].toBool();
             d.crossSectionEq = root["crossSectionEquation"].toString();
             d.crossSectionP = (float)root["crossSectionP"].toDouble(0.0);
