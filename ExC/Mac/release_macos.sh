@@ -58,7 +58,13 @@ VERSION="$(sed -nE 's/^project\(SurfaceExplorer[[:space:]]+VERSION[[:space:]]+([
            "$PROJECT_DIR/CMakeLists.txt" | head -1)"
 [ -n "$VERSION" ] || { echo "ERRORE: versione non trovata in project(...) di CMakeLists.txt"; exit 1; }
 TAG="v$VERSION"
-ASSET_NAME="SurfaceExplorer-${TAG}-macos.dmg"               # nome versionato dell'asset su GitHub
+# Nome versionato dell'asset su GitHub. Calcolato QUI dal tag di VERSIONE, prima
+# dell'eventuale dirottamento su una pre-release (vedi 7a-pre): il file si chiama
+# sempre "...-v1.3-macos.dmg" anche quando finisce sulla release "v1.3-beta".
+# E' voluto ed e' coerente con l'AppImage Linux, che sulla beta si chiama gia'
+# SurfaceExplorer-v1.3-linux-x86_64.AppImage: il nome porta la VERSIONE del
+# binario, non il nome della release che lo ospita.
+ASSET_NAME="SurfaceExplorer-${TAG}-macos.dmg"
 
 if [ ! -d "$APP_PATH" ]; then
   echo "ERRORE: $APP_PATH non trovato. Compila prima il progetto (macdeployqt incluso)."
@@ -113,6 +119,41 @@ TOKEN="${GH_TOKEN:-}"
 [ -n "$TOKEN" ] || { echo "ERRORE: nessun token GitHub (imposta GH_TOKEN, oppure 'gh auth login', oppure configura git credential.helper store)."; exit 1; }
 API="https://api.github.com/repos/$REPO"
 gh_api() { curl -s -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github+json" "$@"; }
+
+# 7a-pre. PRE-RELEASE APERTA: se esiste gia' su GitHub una release marcata
+# pre-release il cui tag COMINCIA col tag di questa versione (es. "v1.3-beta",
+# "v1.3-rc1"), si carica LI' invece di creare "v1.3".
+#
+# Perche': il tag viene da CMakeLists.txt, che contiene solo X.Y e non sa nulla
+# del suffisso. Caricando col tag secco lo script CREAVA una release "v1.3"
+# nuova accanto alla "v1.3 (beta)" ancora aperta, e il .dmg finiva in una
+# release che nessuno stava usando (successo il 2026-09-17).
+#
+# Solo PRE-RELEASE: una release definitiva con lo stesso prefisso non dirotta
+# nulla, altrimenti pubblicare la 1.3 finale rimanderebbe per sempre gli upload
+# alla beta. Se ce n'e' piu' d'una si prende la piu' RECENTE.
+# Fallisce in modo innocuo: senza rete o senza risposta valida, TAG resta quello
+# derivato dalla versione e il comportamento e' quello di prima.
+PRERELEASE_TAG="$(gh_api "$API/releases?per_page=100" | python3 -c '
+import json,sys
+try:
+    rels = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+if not isinstance(rels, list): sys.exit(0)
+base = sys.argv[1]
+cand = [r for r in rels
+        if r.get("prerelease") and isinstance(r.get("tag_name"), str)
+        and r["tag_name"].startswith(base) and r["tag_name"] != base]
+cand.sort(key=lambda r: r.get("created_at",""), reverse=True)
+print(cand[0]["tag_name"] if cand else "")
+' "$TAG" 2>/dev/null || true)"
+
+if [ -n "$PRERELEASE_TAG" ]; then
+  echo ">>> Trovata pre-release aperta per $TAG: carico su '$PRERELEASE_TAG'"
+  echo ">>>   (per pubblicare sul tag secco $TAG, chiudi prima la pre-release su GitHub)"
+  TAG="$PRERELEASE_TAG"
+fi
 
 # 7a. assicura il tag vX.Y su origin (lo crea su HEAD se manca; NON sposta uno esistente)
 if ! git -C "$PROJECT_DIR" ls-remote --tags origin "$TAG" | grep -q "$TAG"; then
