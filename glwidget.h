@@ -108,6 +108,24 @@ struct UboData {
     // Lo spazio fra i blocchi NON e' sizeof(UboData): il passo e' m_uboBlockStride,
     // ricavato da QRhi::ubufAlignment() (256 su Metal/Vulkan), quindi ogni blocco
     // e' comunque allineato come richiede l'API.
+
+    // MARCHER DEL RAY MARCHING: 0 = sphere tracing storico, 1 = ibrido (avvicina
+    // con lo sphere tracing, poi localizza la superficie col cambio di segno).
+    // L'ibrido elimina le "saldature" (falsi hit nel vuoto dal clamp del
+    // gradiente) sulle equazioni di grado alto -- indispensabile sul T^3 del
+    // Cross Section, dove il 22% degli hit era falso -- ma introduce difetti sui
+    // bordi di alcune superfici 3D, quindi la scelta resta dell'utente (radio
+    // nel dock Ray Marching) e si salva nel preset.
+    //
+    // PRIMO CAMPO OLTRE LA FINE DEL BLOCCO STORICO: la riserva _pad0 era
+    // esaurita, quindi il blocco CRESCE. Va in coda (std140 non consente di
+    // saltare campi) e dichiarato in ENTRAMBI gli shader parametrici -- Adreno
+    // rifiuta il link se un solo stage lo dichiara e su Android si vede schermo
+    // vuoto senza alcun errore. Vedi CLAUDE.md.
+    float u_marcherMode;
+    // padding esplicito: std140 allinea la struct a vec4 (16 byte). Senza, il
+    // compilatore C++ e lo shader potrebbero non concordare sulla dimensione.
+    float _pad1[3];
 };
 
 class GLWidget : public QRhiWidget
@@ -402,6 +420,11 @@ public:
     // Serve un rebuildShader? No: e' un uniform, non entra nel sorgente.
     void setShellThickness(float v);
     float shellThickness() const { return m_shellThickness; }
+    // MARCHER del ray marching: false = sphere tracing storico, true = ibrido
+    // (elimina le saldature sulle equazioni di grado alto, vedi u_marcherMode).
+    // E' un uniform: cambiarlo NON richiede di ricompilare lo shader.
+    void setHybridMarcher(bool on);
+    bool hybridMarcher() const { return m_hybridMarcher; }
     void increaseWireframeUDensity();
     void decreaseWireframeUDensity();
     void increaseWireframeVDensity();
@@ -1005,6 +1028,12 @@ private:
     float m_fillLight = 0.0f;
     // 0.005 = il guscio storico della sfera unitaria (dove |grad| = 2).
     float m_shellThickness = 0.005f;
+    // MARCHER: false = sphere tracing storico. Default conservativo, cosi' ogni
+    // superficie che non chiede esplicitamente l'ibrido si disegna come sempre
+    // (i record 3D esistenti, che con l'ibrido mostravano difetti sui bordi).
+    // Il T^3 del Cross Section lo accende da loadCrossSectionDefaultSurface, e i
+    // preset lo portano nella chiave "hybridMarcher".
+    bool m_hybridMarcher = false;
 
     float texRed1 = 1.0f, texGreen1 = 1.0f, texBlue1 = 1.0f;
     float texRed2 = 0.0f, texGreen2 = 0.0f, texBlue2 = 0.0f;

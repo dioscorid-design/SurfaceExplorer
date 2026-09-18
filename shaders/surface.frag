@@ -63,6 +63,10 @@ layout(std140, binding = 0) uniform SceneUBO {
     // Spessore del guscio: usato solo dal ray marching, dichiarato qui per
     // tenere i due blocchi identici campo per campo.
     float u_shellThickness;
+    // Scelta del marcher (0 = sphere tracing storico, 1 = ibrido): usata solo
+    // dal ray marching, dichiarata qui per tenere i due blocchi identici campo
+    // per campo (regola Adreno, vedi CLAUDE.md).
+    float u_marcherMode;
 } ubuf;
 
 // --- PLACEHOLDER PER CODICE TEXTURE CUSTOM ---

@@ -21,6 +21,8 @@ layout(std140, binding=0) uniform SceneUBO {
     // Adreno vale fra i due stage di surface.vert/frag) -- ma vanno dichiarati
     // lo stesso o u_fillLight leggerebbe l'offset sbagliato.
     float u_meshIndex; int u_noImage; float u_fillLight; float u_shellThickness;
+    // Scelta del marcher: 0 = sphere tracing storico, 1 = ibrido (vedi main()).
+    float u_marcherMode;
 } ubuf;
 
 layout(binding=1) uniform sampler2D tex;
@@ -258,10 +260,34 @@ float calcAO(vec3 pos, vec3 nor) {
 // (mapInner) a seconda di useInner. E' la copia ESATTA del loop storico:
 // per la passata 1 (useInner=false) il risultato e' identico al comportamento
 // precedente. tStart permette alla passata 2 di ripartire oltre il primo hit.
-bool marchField(vec3 rayPos, vec3 rayDir, bool useInner, float tStart, out vec3 pHit) {
+//
+// tReached (out) = la distanza a cui il loop si e' fermato, che serve al ramo
+// opaco per ripartire da li' con la ricerca a cambio di segno (vedi il marcher
+// ibrido in main()). Non cambia nulla per chi la ignora: e' solo un valore in
+// piu' in uscita, il loop e il criterio di hit restano identici.
+//
+// leftScene (out) = il loop e' finito perche' il raggio e' USCITO dalla scena
+// (t > 50), non perche' ha esaurito u_raySteps. Serve al marcher ibrido per
+// distinguere due non-hit che si somigliano ma costano in modo opposto:
+// "sono volato via, non c'e' niente da cercare" (la grande maggioranza dei
+// pixel: sfondo) contro "mi sono arreso a meta' scena" (pochi raggi difficili,
+// dove la superficie puo' essere ancora davanti). Vedi main().
+//
+// crossedSign / tBeforeCross (out) = il campo ha cambiato segno fra due passi
+// consecutivi: il marcher ha SCAVALCATO una superficie senza accorgersene, e
+// tBeforeCross e' l'ultimo t certamente prima di essa. Vedi il test nel loop.
+bool marchField(vec3 rayPos, vec3 rayDir, bool useInner, float tStart, out vec3 pHit,
+                out float tReached, out bool leftScene,
+                out bool crossedSign, out float tBeforeCross) {
     float t_dist = tStart;
     float d = 0.0;
     bool hit = false;
+    leftScene = false;
+    crossedSign = false;
+    tBeforeCross = tStart;
+    // valore e t del passo precedente, per rilevare lo scavalcamento
+    float valPrev = 0.0;
+    float tPrev = tStart;
     vec3 pModel = rayPos + rayDir * t_dist;
 
     float stepRelax = (ubuf.u_mathParams.w > 0.001) ? ubuf.u_mathParams.w : 0.4;
@@ -311,9 +337,45 @@ bool marchField(vec3 rayPos, vec3 rayDir, bool useInner, float tStart, out vec3 
         gradLen = max(gradLen, 0.2);
         d = val / gradLen;
 
+        // SCAVALCAMENTO. Se il campo ha cambiato SEGNO fra il passo precedente e
+        // questo, una superficie e' stata attraversata NEL MEZZO senza che la
+        // soglia di hit scattasse: i passi erano troppo lunghi (stima di distanza
+        // sbagliata su campi molto anisotropi o a prodotto). Lo segnaliamo col t
+        // del passo PRECEDENTE, che e' l'ultimo punto certamente prima della
+        // superficie: il marcher ibrido riparte da li' e trova il crossing vero.
+        //
+        // Senza questo, su campi-prodotto lo sphere-tracing salta interi pezzi di
+        // oggetto e poi esce dalla scena: MISURATO sul preset "Chain" (6 tori
+        // moltiplicati), 5 raggi su 1681 scavalcano la superficie a t~20 in 101
+        // passi su 400 e finiscono a t>50 -- indistinguibili, senza questo test,
+        // da un raggio di sfondo, con 5 pixel di buco nella superficie.
+        // E' lo stesso difetto che il ramo trasparente documenta piu' sotto
+        // ("puo' OVERSHOOTARE la faccia frontale"): qui lo si rileva invece di
+        // subirlo, e costa un confronto su valori che il loop ha gia'.
+        //
+        // SOLO PER IL CAMPO PRINCIPALE (!useInner). Uscire dal loop qui lascia
+        // hit=false, e chi chiama deve saper ripartire da tBeforeCross: lo fa il
+        // marcher ibrido del campo principale, NON la passata sul campo interno
+        // (mapInner), che userebbe quel false come "nessuna superficie interna" e
+        // perderebbe l'orizzonte dell'ergosfera di Kerr dove oggi lo trova.
+        //
+        // E SOLO IN MODALITA' IBRIDA (u_marcherMode > 0.5): nel cammino storico
+        // questa uscita anticipata cambierebbe il risultato -- il marcher storico
+        // DEVE poter dichiarare il proprio hit anche dopo un cambio di segno, che
+        // e' il caso dei raggi che entrano nel solido. Con il radio su "storico"
+        // il loop e' quindi identico bit per bit a prima.
+        if(ubuf.u_marcherMode > 0.5 && !useInner
+           && i > 0 && val * valPrev <= 0.0 && val != valPrev) {
+            crossedSign = true;
+            tBeforeCross = tPrev;
+            break;
+        }
+
         float hitThreshold = max(0.0005, 0.001 * t_dist);
         if(abs(d) < hitThreshold) { hit = true; break; }
-        if(t_dist > 50.0) break;
+        if(t_dist > 50.0) { leftScene = true; break; }
+        tPrev = t_dist;
+        valPrev = val;
         t_dist += clamp(abs(d) * stepRelax, 0.0001, 0.5);
     }
     // Il gradiente condiviso vale solo dentro questo loop, per il punto del passo
@@ -323,6 +385,7 @@ bool marchField(vec3 rayPos, vec3 rayDir, bool useInner, float tStart, out vec3 
     g_shellGradLen = 0.0;
     g_shellBasePos = vec3(1e30);
     pHit = pModel;
+    tReached = t_dist;
     return hit;
 }
 
@@ -626,9 +689,113 @@ void main() {
     // NEAR CLIPPING PLANE: Ignora i primissimi istanti del raggio
     float tNear = 0.3;
 
-    // === PASSATA 1: superficie principale (map) — comportamento storico ===
+    // === PASSATA 1: superficie principale (map) — MARCHER IBRIDO ===
+    //
+    // PERCHE' NON BASTA marchField. Il suo test di hit e' abs(val/gradLen) con
+    // gradLen CLAMPATO a 0.2. Il clamp e' il salvavita del PASSO (dove il
+    // gradiente si annulla la stima esplode e il marcher scavalca la superficie),
+    // ma applicato anche al TEST falsifica la distanza: dove |grad| vero e' molto
+    // sotto 0.2, dividere per 0.2 restituisce una distanza molto PIU' PICCOLA del
+    // vero e il marcher dichiara un hit NEL VUOTO. Sono le "saldature": blob di
+    // superficie fantasma che uniscono parti separate (visibilissime fra i tubi
+    // del T^3 nel sotto-tab Cross Section).
+    //
+    // Il sintomo diagnostico: l'artefatto c'e' in OPACO e sparisce appena si
+    // attiva un filo di trasparenza, perche' il ramo trasparente usa
+    // marchNextLayer (cambio di segno) che non puo' fermarsi dove il campo non ha
+    // mai attraversato lo zero -- immune per costruzione.
+    //
+    // MISURATO sul T^3 alla posa di default, griglia 161x161 (25921 raggi):
+    //   - marchField: 1768 hit su 8105 (22%) sono FALSI, a 0.104 unita' di media
+    //     dalla superficie vera (la parete del guscio e' spessa 0.005: 20x fuori);
+    //   - sui 5315 pixel dove i due marcher divergono, marchField atterra a 0.047
+    //     di media (max 0.154) e SEMPRE davanti alla superficie, 5315 casi su 5315;
+    //   - marchNextLayer atterra a 0.00500 in Shell (esattamente lo spessore della
+    //     parete) e 0.00000 in Solid, e non perde NEMMENO UN pixel che marchField
+    //     trovi (0 hit solo-marchField legittimi).
+    //
+    // PERCHE' IBRIDO E NON marchNextLayer PURO. Il puro e' corretto ma costa 7.7x
+    // in Shell / 6.8x in Solid: il suo passo e' cappato a CAP=0.05, quindi striscia
+    // per tutta la distanza a vuoto dal near plane all'oggetto (995 passi mediani
+    // contro 126). Lo sphere-tracing quel vuoto lo copre a balzi da 0.5.
+    // Qui si usano entrambi per cio' in cui sono bravi:
+    //   1. marchField per AVVICINARSI (passi lunghi). Il punto dove si ferma e'
+    //      inaffidabile, e non lo usiamo come hit: ci serve solo il suo t.
+    //   2. marchNextLayer dall'ultimo tratto: copre poca distanza, costa poco, e
+    //      localizza lo zero vero per bisezione.
+    // Costo misurato: 1.77x in Shell, 1.66x in Solid, con risultato IDENTICO al
+    // marcher puro (0 pixel persi, 0 in piu', stessa distanza dalla superficie).
+    //
+    // NB: non serve alcun backoff prima di ripartire (misurato: 0.0, 0.05, 0.2 e
+    // 0.4 danno lo stesso risultato identico), perche' marchNextLayer parte
+    // valutando il campo a tRestart e ne cerca il cambio di segno: se
+    // l'avvicinamento si e' fermato GIA' dentro il solido, il primo crossing che
+    // trova e' l'uscita, cioe' comunque una faccia reale.
+    //
+    // TENTATIVI PRECEDENTI, da non rifare (sono in memoria, entrambi revertati):
+    // (a) usare il gradiente vero nel test + "val <= 0.0" come hit: mangiava
+    //     superficie legittima sui raggi tangenti; (b) togliere il "* gradLen" dal
+    //     guscio: bucava la lamina sottile (anelli e sabbiatura dentro i tubi).
+    // Entrambi passavano i test numerici e fallivano a schermo: qui la differenza
+    // e' che non si tocca la stima di distanza, si cambia CHI decide l'hit.
+    // SCELTA DELL'UTENTE (radio nel dock Ray Marching, salvata nel preset):
+    // u_marcherMode 0 = sphere tracing storico, 1 = ibrido. A 0 il cammino e'
+    // identico bit per bit a prima dell'introduzione dell'ibrido -- e' il default
+    // per i record 3D esistenti, che con l'ibrido mostravano difetti sui bordi.
+    bool useHybrid = (ubuf.u_marcherMode > 0.5);
+
     vec3 pModel;
-    bool hit = marchField(rayPos, rayDir, false, tNear, pModel);
+    float tApproach;
+    bool leftScene, crossedSign;
+    float tBeforeCross;
+    bool approached = marchField(rayPos, rayDir, false, tNear, pModel, tApproach,
+                                 leftScene, crossedSign, tBeforeCross);
+
+    // I TRE ESITI DELL'AVVICINAMENTO. Distinguerli e' cio' che rende l'ibrido
+    // conveniente: due non-hit che si somigliano hanno costi opposti.
+    //
+    //  1. HA CONVERGIUTO: il suo t e' vicino alla superficie. Si riparte da li'
+    //     e la ricerca a cambio di segno copre pochissima distanza -> costa poco.
+    //
+    //  2. HA SCAVALCATO una superficie (crossedSign): i passi erano troppo lunghi
+    //     e il campo ha cambiato segno nel mezzo. Si riparte da tBeforeCross,
+    //     l'ultimo t certamente prima della superficie. E' il caso dei
+    //     campi-prodotto (preset "Chain"), dove senza questo ramo il raggio
+    //     scavalca l'oggetto e poi esce dalla scena, indistinguibile dallo sfondo.
+    //
+    //  3. E' USCITO DALLA SCENA (leftScene, t>50) senza mai cambiare segno: il
+    //     raggio e' davvero volato via. E' SFONDO e non c'e' nulla da cercare: si
+    //     chiude qui, senza seconda marcia. E' il caso della MAGGIORANZA dei pixel
+    //     (misurati 17774 raggi su 25921, il 69%, alla posa di default del T^3),
+    //     ed e' esattamente il motivo per cui l'ibrido resta a 1.7x: se anche
+    //     questi rifacessero la marcia da tNear il costo salirebbe a 8.5x, PEGGIO
+    //     del marcher puro (misurato).
+    //     NB: "uscito" da solo NON basta a concludere che sia sfondo -- e' per
+    //     questo che il caso 2 viene prima e va rilevato dentro il loop.
+    //
+    //  4. HA ESAURITO u_raySteps restando nella scena: si e' arreso a meta'
+    //     strada e la superficie puo' essere ancora DAVANTI. Qui tApproach non
+    //     e' un punto di partenza valido, quindi si rifa' la marcia da tNear,
+    //     pagando il costo pieno. Sono pochi raggi (42-48 su 25921 sul T^3),
+    //     quindi non spostano il conto.
+    bool rayEscaped = (!approached && leftScene && !crossedSign);
+
+    bool hit;
+    if (!useHybrid) {
+        // --- CAMMINO STORICO: l'hit e' quello di marchField, come sempre. ---
+        // pModel e' gia' il punto di stop del marcher: nessuna seconda passata.
+        hit = approached;
+    } else if (rayEscaped) {
+        hit = false;
+        pModel = rayPos + rayDir * tNear;   // valore definito per i rami sotto
+    } else {
+        // L'hit lo dichiara la ricerca a cambio di segno: e' l'unica immune ai
+        // falsi hit del clamp (vedi sopra).
+        float tRestart = tNear;
+        if (approached)        tRestart = tApproach;
+        else if (crossedSign)  tRestart = tBeforeCross;
+        hit = marchNextLayer(rayPos, rayDir, tRestart, pModel);
+    }
 
     bool hasInner = (ubuf.u_dummyZero.y > 0.5);
 
@@ -747,7 +914,14 @@ void main() {
 
     // === PASSATA 2: campo interno (mapInner) — opaco, sullo sfondo ===
     vec3 pInner;
-    bool hitInner = marchField(rayPos, rayDir, true, tInnerStart, pInner);
+    // Le uscite diagnostiche non servono al campo interno (nessun marcher ibrido
+    // qui: mapInner e' un campo distinto, e la direttiva //INNER: non ha mostrato
+    // saldature). Si dichiarano solo per la firma.
+    float tInnerReached, tInnerCross;
+    bool innerLeftScene, innerCrossed;
+    bool hitInner = marchField(rayPos, rayDir, true, tInnerStart, pInner,
+                               tInnerReached, innerLeftScene,
+                               innerCrossed, tInnerCross);
 
     if (hitInner) {
         vec3 innerRGB = shadeSurface(pInner, rayDir, true);

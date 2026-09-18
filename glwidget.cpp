@@ -669,6 +669,10 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // dello shader, quindi cambiarlo non richiede una ricompilazione.
     m_uboData.u_shellThickness = m_shellThickness;
 
+    // Scelta del marcher (radio Ray Marching): come lo spessore, e' un uniform,
+    // quindi il cambio e' immediato senza ricompilare lo shader.
+    m_uboData.u_marcherMode = m_hybridMarcher ? 1.0f : 0.0f;
+
     // ==========================================================
     // AGGIORNAMENTO BUFFER PRINCIPALE (multi-mesh)
     // ==========================================================
@@ -2895,6 +2899,11 @@ void GLWidget::setFillLight(float v) {
 
 void GLWidget::setShellThickness(float v) {
     m_shellThickness = v;
+    update();
+}
+
+void GLWidget::setHybridMarcher(bool on) {
+    m_hybridMarcher = on;
     update();
 }
 

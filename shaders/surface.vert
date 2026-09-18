@@ -72,6 +72,9 @@ layout(std140, binding = 0) uniform SceneUBO {
     // NON USATA QUI (il guscio e' solo del ray marching), ma il blocco deve
     // combaciare col fragment. Ultimo campo di UboData.
     float u_shellThickness;
+    // NON USATA QUI (la scelta del marcher e' solo del ray marching), ma il
+    // blocco deve combaciare col fragment. Ultimo campo di UboData.
+    float u_marcherMode;
 } ubuf;
 
 float sq(float x) { return x*x; }
