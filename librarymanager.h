@@ -68,8 +68,17 @@ struct LibraryItem {
     // Spessore del guscio (modalita' Shell). Assente nei preset precedenti allo
     // slider -> 0.005, il valore storico della sfera unitaria.
     float shellThickness = 0.005f;
+    // Luce di riempimento dall'osservatore (dock Renderer), 0 = spenta.
+    // Assente nei preset precedenti allo slider -> 0, cioe' l'illuminazione
+    // storica: quei preset si riaprono esattamente come sono stati salvati.
+    float fillLight = 0.0f;
     bool usesCrossSection = false;
     QString crossSectionEq;
+    // MARCHER del ray marching: false = sphere tracing storico ("Fast"), true =
+    // ibrido ("Precise", elimina le saldature sulle equazioni di grado alto).
+    // Assente nei record precedenti ai radio -> il default NON e' una costante:
+    // lo decide il sotto-tab salvato (vedi la lettura in librarymanager.cpp).
+    bool hybridMarcher = false;
 
     float xMin = -1.0f, xMax = 1.0f;
     float yMin = -1.0f, yMax = 1.0f;

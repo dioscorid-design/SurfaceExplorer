@@ -363,6 +363,20 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.usesCrossSection = root["implicitUsesCrossSection"].toBool();
             d.crossSectionEq = root["crossSectionEquation"].toString();
             d.crossSectionP = (float)root["crossSectionP"].toDouble(0.0);
+            // MARCHER. Chiave assente nei record precedenti ai radio: il default
+            // dipende dal SOTTO-TAB, e non e' un vezzo di compatibilita'.
+            //  - record 3D -> "Fast" (sphere tracing storico): sono decine, si
+            //    disegnano bene cosi', e il marcher preciso introduce difetti sui
+            //    bordi di alcuni (misurato: Chain perde 4 pixel su 1681).
+            //  - record Cross Section -> "Precise": quelle superfici sono 4D di
+            //    grado alto, dove il marcher storico produce le "saldature" (sul
+            //    T^3 il 22% degli hit era falso, a 0.10 unita' dalla superficie).
+            //    Senza questo default andrebbero riaperti e risalvati uno per uno
+            //    per vederli corretti.
+            // Chi ha la chiave usa il proprio valore, in entrambi i sotto-tab.
+            d.hybridMarcher = root.contains("hybridMarcher")
+                              ? root["hybridMarcher"].toBool()
+                              : d.usesCrossSection;
         }
         if (root.contains("path4D")) {
             QJsonObject p4 = root["path4D"].toObject();
@@ -476,6 +490,8 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
         if (root.contains("lightingMode")) {
             d.lightingMode = root["lightingMode"].toInt();
         }
+        // Luce di riempimento: chiave assente -> 0 (spenta), il valore storico.
+        d.fillLight = (float)root["fillLight"].toDouble(0.0);
         if (root.contains("lightIntensity")) {
             d.lightIntensity = root["lightIntensity"].toDouble(1.0);
         }
@@ -739,6 +755,20 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.usesCrossSection = root["implicitUsesCrossSection"].toBool();
             d.crossSectionEq = root["crossSectionEquation"].toString();
             d.crossSectionP = (float)root["crossSectionP"].toDouble(0.0);
+            // MARCHER. Chiave assente nei record precedenti ai radio: il default
+            // dipende dal SOTTO-TAB, e non e' un vezzo di compatibilita'.
+            //  - record 3D -> "Fast" (sphere tracing storico): sono decine, si
+            //    disegnano bene cosi', e il marcher preciso introduce difetti sui
+            //    bordi di alcuni (misurato: Chain perde 4 pixel su 1681).
+            //  - record Cross Section -> "Precise": quelle superfici sono 4D di
+            //    grado alto, dove il marcher storico produce le "saldature" (sul
+            //    T^3 il 22% degli hit era falso, a 0.10 unita' dalla superficie).
+            //    Senza questo default andrebbero riaperti e risalvati uno per uno
+            //    per vederli corretti.
+            // Chi ha la chiave usa il proprio valore, in entrambi i sotto-tab.
+            d.hybridMarcher = root.contains("hybridMarcher")
+                              ? root["hybridMarcher"].toBool()
+                              : d.usesCrossSection;
         }
         // Lettura parametri comuni (Limiti, step, costanti...)
         if (root.contains("limits")) {
@@ -785,6 +815,8 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
         if (root.contains("lightingMode")) {
             d.lightingMode = root["lightingMode"].toInt();
         }
+        // Luce di riempimento: chiave assente -> 0 (spenta), il valore storico.
+        d.fillLight = (float)root["fillLight"].toDouble(0.0);
         if (root.contains("lightIntensity")) {
             d.lightIntensity = root["lightIntensity"].toDouble(1.0);
         }
