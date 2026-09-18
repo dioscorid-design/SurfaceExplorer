@@ -30,6 +30,8 @@
                 <li><strong>Phi (Y-P):</strong> Rotates the Y plane onto the P axis.</li>
                 <li><strong>Psi (Z-P):</strong> Rotates the Z plane onto the P axis.</li>
             </ul>
+            <p>The three of them act on parametric surfaces, which are generated in 4D and then projected, and on the implicit surfaces of the <strong>Cross Section</strong> sub-tab, where they tilt the plane that slices a 4D surface &mdash; see <a href="doc_raymarching.html">Implicit Surfaces (Ray Marching)</a>. Implicit surfaces written in the <strong>3D</strong> sub-tab have no fourth coordinate, so the rotations do not apply to them.</p>
+
             <div class="note">
                 <strong>4D rotations in Stereographic mode:</strong> stereographic projection sends the pole P&nbsp;=&nbsp;+1 to infinity, so a surface passing near that pole is drawn at a huge distance. The engine caps that distance to keep the geometry inside the far plane, which flattens the affected vertices onto a single sphere and shows up as a <em>rippled or serrated rim</em>.
                 <br><br>

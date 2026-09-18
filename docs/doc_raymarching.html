@@ -23,6 +23,26 @@
 <hr>
 <p>In addition to parametric surfaces, Surface Explorer 4D supports <strong>Implicit Surfaces</strong> defined by mathematical equations in the form of <code>f(x, y, z) = 0</code> (e.g., <code>x^2 + y^2 + z^2 = 1</code>). These are rendered using an advanced graphics technique called <strong>Ray Marching</strong>.</p>
 
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>The two sub-tabs: 3D and Cross Section</b></p></td></tr></table>
+            <p>The Implicit tab holds two sub-tabs, each with its own equation editor:</p>
+            <ul>
+                <li><strong>3D</strong> &mdash; the ordinary case, an equation in <code>x, y, z</code>. This is what the rest of this page describes.</li>
+                <li><strong>Cross Section</strong> &mdash; an equation in <strong>four</strong> variables, <code>x, y, z, p</code>. The surface it defines lives in 4D space, and what you see on screen is the three-dimensional slice the camera cuts through it.</li>
+            </ul>
+            <p>Switching sub-tab loads that sub-tab's default surface and resets the controls the two share &mdash; spatial limits, constants, Step Relax and Ray Steps &mdash; because they belong to the surface you were looking at, not to the new one. Clicking the sub-tab you are already on reloads its default surface, which is the quickest way back to a known state.</p>
+
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Cross Section: slicing a 4D surface</b></p></td></tr></table>
+            <p>Write an equation in <code>x, y, z, p</code> and the app renders the slice of it that lies in the observer's three-dimensional space. Two groups of controls decide <em>which</em> slice:</p>
+            <ul>
+                <li><strong>Omega, Phi, Psi</strong> (4D dock, and the Omega/Phi/Psi keys in the 3D dock) &mdash; rotate the surface in 4D, which changes the <em>inclination</em> of the cutting plane. The slice changes shape as you turn, often dramatically: a single 4D surface has a whole family of three-dimensional sections. The <strong>Speed 4D</strong> slider animates the rotation.</li>
+                <li><strong>P+ / P&minus;</strong> (4D dock) &mdash; move the plane along the fourth coordinate, changing its <em>height</em> rather than its tilt. This is what lets you scan the hypersurface from one end to the other and watch the section appear, grow, split and vanish. Without it you would only ever see the central slice.</li>
+            </ul>
+            <p>The <strong>4D camera path</strong> works here too, so the slicing plane can be flown along a trajectory instead of moved by hand.</p>
+            <p>The surface that opens with the sub-tab is the <strong>3-torus</strong> (a torus of tori), the 4D analogue of the ordinary torus. Sliders <strong>A</strong>, <strong>B</strong> and <strong>C</strong> are its outer, middle and tube radii; it needs A &gt; B &gt; C to stay non-degenerate.</p>
+            <div class="note">
+                <p style="margin: 0;"><strong>Why the fourth variable is optional:</strong> the two sub-tabs keep separate equations on purpose. An equation in <code>x, y, z</code> alone behaves in <em>Cross Section</em> exactly as it does in <em>3D</em> &mdash; no slicing happens because nothing depends on <code>p</code>. The variable <code>p</code> exists only in this sub-tab's editor, so an equation written for the 3D one can never accidentally refer to it.</p>
+            </div>
+
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>How it Works</b></p></td></tr></table>
             <p>Instead of generating a grid of polygons (vertices and faces) on the CPU, the Ray Marching engine shoots rays from the virtual camera into the 3D space to find the exact point where the mathematical formula equals zero. This allows for mathematically perfect curves, infinite repeating structures, and complex boolean operations (additions, subtractions, and intersections of shapes) that would be impossible with standard geometry.</p>
 
@@ -34,7 +54,8 @@
                 <li><strong>Step Relax (S):</strong> A safety multiplier for the ray step size. If you see visual artifacts, "holes," or ghosting on highly distorted or fractal shapes, lower this value (e.g., to 0.4 or 0.2) to force the rays to advance more cautiously.</li>
                 <li><strong>Spatial Limits (Bounding Box):</strong> Since implicit surfaces can easily extend to infinity, you can set X, Y, and Z Min/Max values to cut the shape inside an invisible bounding box. The limits follow the same rule as the equation: on a still surface they are applied when you press <strong>Run</strong>, so you can fill in all six fields and see the result once; while the surface is animating there is no Run to press &mdash; the button reads Stop &mdash; so pressing Enter in a field applies it straight away, without interrupting the motion.</li>
                 <li><strong>Constant sliders (A&ndash;F):</strong> Name a constant anywhere in the equation, in <em>3D Variation</em> or in <em>Texture Code</em> and its slider unlocks by itself, ready to reshape or recolor the object live. When you save, the app offers a short <strong>hint</strong> &mdash; a message shown over the scene on loading &mdash; which is where to say what each slider actually does (<code>Slider F: relief density</code>). Textures written in the Shadertoy form (<code>mainImage()</code>) are the one place the constants cannot be reached. The seven sliders are one set shared by the surface, its texture and the background, so a letter claimed here may already mean something else in the same scene; the app says so when it happens, and lets you apply anyway or pick a free letter &mdash; see the <a href="script_guide.html">Scripting Guide</a>.</li>
-                <li><strong>Solid vs Shell:</strong> <em>Solid</em> mode fills the inside of the object, while <em>Shell</em> mode renders it as a hollow, infinitely thin surface.</li>
+                <li><strong>Solid vs Shell:</strong> <em>Solid</em> mode fills the inside of the object, while <em>Shell</em> mode renders it as a hollow shell.</li>
+                <li><strong>Shell Thickness:</strong> The wall thickness of the shell, in scene units (0.005 to 0.30). It only has an effect in <em>Shell</em> mode, so the slider greys out in <em>Solid</em>. The thickness is a real length, the same for every equation: surfaces written with a small scale factor in front (<code>0.1 * (&hellip;)</code>) used to get a wall tens of times thicker than the ones written at natural scale, and they now start out thinner than before &mdash; if one looks too delicate, raise this slider. The value travels with the surface when you save it.</li>
             </ul>
 
             <h3 id="rm-artifacts">Troubleshooting Visual Artifacts</h3>
@@ -49,8 +70,18 @@
 
             <p><strong>Shell vs. Solid Stability:</strong> These artifacts are especially prominent in <strong>Shell</strong> mode. Because the shell has a fixed, microscopic thickness, a fast-traveling ray can easily jump right through it without detecting a hit. If you don't specifically need the hollow shell effect, switching to <strong>Solid</strong> mode provides a much more robust and stable rendering. If you must use Shell mode, using the <code>0.1</code> multiplier or lowering the <strong>Step Relax (S)</strong> slider is highly recommended.</p>
 
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>The marcher: Fast and Precise</b></p></td></tr></table>
+            <p>These two radio buttons choose <em>how</em> the rays look for the surface. They matter most on equations of high degree &mdash; quartics, products of several factors, the 4D sections of <em>Cross Section</em>.</p>
+            <ul>
+                <li><strong>Fast</strong> &mdash; sphere tracing, the method every surface has always used. It estimates how far the surface is from the value of the equation and jumps ahead by that much. Quick, and right almost everywhere.</li>
+                <li><strong>Precise</strong> &mdash; finds the surface by where the equation <em>changes sign</em>, then narrows it down by bisection. It cannot report a hit in empty space, because the equation has to actually cross zero.</li>
+            </ul>
+            <p>The symptom that calls for <strong>Precise</strong> is a false <strong>weld</strong>: a blob of surface joining parts that should be separate, or a thick spur growing out of the object. It appears because the distance estimate <em>Fast</em> relies on becomes unreliable where the equation's gradient nearly vanishes, and the ray stops short of the surface &mdash; in mid-air. A good way to confirm it is to lower the transparency slider a little: the weld disappears at once, because transparency uses a different method. If it does, <em>Precise</em> will remove it on the opaque surface too.</p>
+            <p>The cost is roughly 70% more work on the surfaces that need it, and a few percent elsewhere. On a handful of 3D surfaces <em>Precise</em> can also nibble the odd pixel along grazing edges, which is why <em>Fast</em> remains the default: surfaces saved before this choice existed keep the look they were saved with, and only the <em>Cross Section</em> ones open on <em>Precise</em>, where the welds were unmistakable. The choice is saved with the surface.</p>
+            <p>With <em>Precise</em> the <strong>Ray Steps</strong> and <strong>Step Relax</strong> sliders grey out: neither has any effect on what you see, because the hit is decided by the sign change and refined by bisection rather than by the size of the steps. Their values are kept, and come back into play the moment you return to <em>Fast</em>.</p>
+
             <div class="note">
-                <strong>Limitations:</strong> Because Ray Marching does not use traditional polygons, the <strong>Wireframe</strong> rendering mode is disabled. Additionally, implicit surfaces in this software are strictly evaluated in 3D space (X, Y, Z); therefore, 4D hyperspatial rotations (Omega, Phi, Psi) and the P coordinate are not applicable.
+                <strong>Limitations:</strong> Because Ray Marching does not use traditional polygons, the <strong>Wireframe</strong> rendering mode is disabled. In the <strong>3D</strong> sub-tab the equation is evaluated in three variables (<code>x, y, z</code>), so 4D hyperspatial rotations (Omega, Phi, Psi) and the P coordinate do not apply there &mdash; for those, use the <strong>Cross Section</strong> sub-tab described below.
             </div>
 
 <hr>
