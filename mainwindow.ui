@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version='1.0' encoding='UTF-8'?>
 <ui version="4.0">
  <class>MainWindow</class>
  <widget class="QMainWindow" name="MainWindow">
@@ -65,7 +65,7 @@
     </item>
    </layout>
   </widget>
-  <widget class="QStatusBar" name="statusbar"/>
+  <widget class="QStatusBar" name="statusbar" />
   <widget class="QDockWidget" name="dockRenders">
    <property name="sizePolicy">
     <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
@@ -471,7 +471,7 @@
            <item>
             <widget class="QLabel" name="lblLight">
              <property name="text">
-              <string>Light</string>
+              <string>Light Intensity</string>
              </property>
              <property name="alignment">
               <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -501,13 +501,13 @@
            <item>
             <widget class="QLabel" name="lblFill">
              <property name="text">
-              <string>Fill Light</string>
+              <string>Headlight</string>
              </property>
              <property name="alignment">
               <set>Qt::AlignmentFlag::AlignCenter</set>
              </property>
              <property name="toolTip">
-              <string>Extra light coming from the viewer. Lifts surfaces that face away from the two main lights — typically the walls seen from inside a tube or a cavity along a camera path, which stay black however high you push Light. Zero by default: at zero nothing changes.</string>
+              <string>Extra light coming from the viewer. Lifts surfaces that face away from the two main lights — typically the walls seen from inside a tube or a cavity along a camera path, which stay black however high you push Light Intensity. Zero by default: at zero nothing changes.</string>
              </property>
             </widget>
            </item>
@@ -527,7 +527,7 @@
                  <enum>Qt::Orientation::Horizontal</enum>
                 </property>
                 <property name="toolTip">
-                 <string>Extra light coming from the viewer. Lifts surfaces that face away from the two main lights — typically the walls seen from inside a tube or a cavity along a camera path, which stay black however high you push Light. Zero by default: at zero nothing changes.</string>
+                 <string>Extra light coming from the viewer. Lifts surfaces that face away from the two main lights — typically the walls seen from inside a tube or a cavity along a camera path, which stay black however high you push Light Intensity. Zero by default: at zero nothing changes.</string>
                 </property>
                </widget>
               </item>
@@ -896,7 +896,7 @@
          </widget>
         </item>
         <item row="3" column="1">
-         <widget class="QLineEdit" name="lineZ_P3D"/>
+         <widget class="QLineEdit" name="lineZ_P3D" />
         </item>
         <item row="2" column="0">
          <widget class="QLabel" name="lblY_P3D">
@@ -909,7 +909,7 @@
          </widget>
         </item>
         <item row="1" column="1">
-         <widget class="QLineEdit" name="lineX_P3D"/>
+         <widget class="QLineEdit" name="lineX_P3D" />
         </item>
         <item row="0" column="1">
          <widget class="QLabel" name="label3D">
@@ -955,7 +955,7 @@
          </widget>
         </item>
         <item row="4" column="1">
-         <widget class="QLineEdit" name="lineR_P3D"/>
+         <widget class="QLineEdit" name="lineR_P3D" />
         </item>
         <item row="7" column="0">
          <widget class="QPushButton" name="pushView3D">
@@ -965,7 +965,7 @@
          </widget>
         </item>
         <item row="2" column="1">
-         <widget class="QLineEdit" name="lineY_P3D"/>
+         <widget class="QLineEdit" name="lineY_P3D" />
         </item>
         <item row="5" column="0">
          <widget class="QLabel" name="lblSpeed3D">
@@ -1267,7 +1267,7 @@
        </property>
        <layout class="QGridLayout" name="gridLayout_4">
         <item row="6" column="2">
-         <widget class="QLineEdit" name="lineBeta_P"/>
+         <widget class="QLineEdit" name="lineBeta_P" />
         </item>
         <item row="10" column="2">
          <widget class="QPushButton" name="btnDeparture">
@@ -1277,7 +1277,7 @@
          </widget>
         </item>
         <item row="3" column="2">
-         <widget class="QLineEdit" name="lineZ_P"/>
+         <widget class="QLineEdit" name="lineZ_P" />
         </item>
         <item row="2" column="0">
          <widget class="QLabel" name="lblY_P">
@@ -1369,7 +1369,7 @@
          </widget>
         </item>
         <item row="5" column="2">
-         <widget class="QLineEdit" name="lineAlpha_P"/>
+         <widget class="QLineEdit" name="lineAlpha_P" />
         </item>
         <item row="7" column="0">
          <widget class="QLabel" name="lblP_P_2">
@@ -1382,16 +1382,16 @@
          </widget>
         </item>
         <item row="4" column="2">
-         <widget class="QLineEdit" name="lineP_P"/>
+         <widget class="QLineEdit" name="lineP_P" />
         </item>
         <item row="2" column="2">
-         <widget class="QLineEdit" name="lineY_P"/>
+         <widget class="QLineEdit" name="lineY_P" />
         </item>
         <item row="7" column="2">
-         <widget class="QLineEdit" name="lineGamma_P"/>
+         <widget class="QLineEdit" name="lineGamma_P" />
         </item>
         <item row="1" column="2">
-         <widget class="QLineEdit" name="lineX_P"/>
+         <widget class="QLineEdit" name="lineX_P" />
         </item>
         <item row="8" column="0">
          <widget class="QLabel" name="lblSpeed4D">
@@ -2020,13 +2020,13 @@
                     </widget>
                    </item>
                    <item row="2" column="2">
-                    <widget class="QPlainTextEdit" name="lineExplicitV"/>
+                    <widget class="QPlainTextEdit" name="lineExplicitV" />
                    </item>
                    <item row="1" column="2">
-                    <widget class="QPlainTextEdit" name="lineExplicitU"/>
+                    <widget class="QPlainTextEdit" name="lineExplicitU" />
                    </item>
                    <item row="3" column="2">
-                    <widget class="QPlainTextEdit" name="lineExplicitW"/>
+                    <widget class="QPlainTextEdit" name="lineExplicitW" />
                    </item>
                    <item row="3" column="0">
                     <widget class="QLabel" name="lblExplW">
@@ -2056,7 +2056,7 @@
                     </widget>
                    </item>
                    <item row="1" column="1">
-                    <widget class="QPlainTextEdit" name="lineU"/>
+                    <widget class="QPlainTextEdit" name="lineU" />
                    </item>
                    <item row="3" column="0">
                     <widget class="QLabel" name="label_4">
@@ -2066,10 +2066,10 @@
                     </widget>
                    </item>
                    <item row="3" column="1">
-                    <widget class="QPlainTextEdit" name="lineV"/>
+                    <widget class="QPlainTextEdit" name="lineV" />
                    </item>
                    <item row="5" column="1">
-                    <widget class="QPlainTextEdit" name="lineW"/>
+                    <widget class="QPlainTextEdit" name="lineW" />
                    </item>
                    <item row="5" column="0">
                     <widget class="QLabel" name="label_5">
@@ -2626,38 +2626,6 @@
                      </property>
                     </widget>
                    </item>
-                   <item>
-                    <widget class="QWidget" name="panelRadio" native="true">
-                     <property name="sizePolicy">
-                      <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-                       <horstretch>0</horstretch>
-                       <verstretch>0</verstretch>
-                      </sizepolicy>
-                     </property>
-                     <property name="maximumSize">
-                      <size>
-                       <width>16777215</width>
-                       <height>40</height>
-                      </size>
-                     </property>
-                     <layout class="QHBoxLayout" name="horizontalLayout_5">
-                      <item>
-                       <widget class="QRadioButton" name="radioShell">
-                        <property name="text">
-                         <string>Shell</string>
-                        </property>
-                       </widget>
-                      </item>
-                      <item>
-                       <widget class="QRadioButton" name="radioSolid">
-                        <property name="text">
-                         <string>Solid</string>
-                        </property>
-                       </widget>
-                      </item>
-                     </layout>
-                    </widget>
-                   </item>
                    </layout>
                  </widget>
                 </item>
@@ -2699,46 +2667,24 @@
                      </property>
                     </widget>
                    </item>
-                   <item>
-                    <widget class="QWidget" name="panelRadioCrossSection" native="true">
-                     <property name="sizePolicy">
-                      <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-                       <horstretch>0</horstretch>
-                       <verstretch>0</verstretch>
-                      </sizepolicy>
-                     </property>
-                     <property name="maximumSize">
-                      <size>
-                       <width>16777215</width>
-                       <height>40</height>
-                      </size>
-                     </property>
-                     <layout class="QHBoxLayout" name="horizontalLayout_crossSectionRadio">
-                      <item>
-                       <widget class="QRadioButton" name="radioShellCrossSection">
-                        <property name="text">
-                         <string>Shell</string>
-                        </property>
-                       </widget>
-                      </item>
-                      <item>
-                       <widget class="QRadioButton" name="radioSolidCrossSection">
-                        <property name="text">
-                         <string>Solid</string>
-                        </property>
-                       </widget>
-                      </item>
-                     </layout>
-                    </widget>
-                   </item>
-                  </layout>
+                   </layout>
                  </widget>
                 </item>
                </layout>
               </widget>
              </widget>
             </item>
-            <item>
+            <item><widget class="QFrame" name="panelRenderControls" native="true">
+ <property name="sizePolicy"><sizepolicy hsizetype="Preferred" vsizetype="Fixed"><horstretch>0</horstretch><verstretch>0</verstretch></sizepolicy></property>
+ <property name="frameShape"><enum>QFrame::Shape::StyledPanel</enum></property>
+ <layout class="QGridLayout" name="gridRenderControls">
+ <property name="leftMargin"><number>4</number></property>
+ <property name="topMargin"><number>2</number></property>
+ <property name="rightMargin"><number>6</number></property>
+ <property name="bottomMargin"><number>2</number></property>
+ <property name="horizontalSpacing"><number>6</number></property>
+ <property name="verticalSpacing"><number>2</number></property>
+<item row="0" column="0"><widget class="QRadioButton" name="radioShell"><property name="text"><string>Shell</string></property><property name="sizePolicy"><sizepolicy hsizetype="Preferred" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property></widget></item><item row="0" column="1"><widget class="QRadioButton" name="radioSolid"><property name="text"><string>Solid</string></property><property name="sizePolicy"><sizepolicy hsizetype="Preferred" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property></widget></item><item row="1" column="0"><widget class="QRadioButton" name="radioMarcherFast"><property name="text"><string>Fast</string></property><property name="toolTip"><string>Sphere tracing: the fastest marcher, and the one every surface has always used. On equations of high degree it can report a hit in empty space, which shows up as a false "weld" joining parts that are actually separate.</string></property><property name="sizePolicy"><sizepolicy hsizetype="Preferred" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property></widget></item><item row="1" column="1"><widget class="QRadioButton" name="radioMarcherPrecise"><property name="text"><string>Precise</string></property><property name="toolTip"><string>Finds the surface by where the field changes sign, so it cannot hit empty space: this removes the false welds on equations of high degree (4D cross sections, products of several factors). Costs about 70% more on those surfaces, and on a few 3D ones it can nibble the odd pixel along grazing edges.</string></property><property name="sizePolicy"><sizepolicy hsizetype="Preferred" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property></widget></item><item row="2" column="0"><widget class="QLabel" name="lblShellThickness"><property name="text"><string>Shell Thickness</string></property><property name="toolTip"><string>Wall thickness of the shell, in scene units. Surfaces whose equation is scaled down (a small factor in front of it) used to get a much thicker wall than the ones written at natural scale; now the thickness is a real length and you set it here.</string></property></widget></item><item row="2" column="1"><widget class="QSlider" name="shellThicknessSlider"><property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="minimumSize"><size><width>120</width><height>40</height></size></property><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="toolTip"><string>Wall thickness of the shell, in scene units. Surfaces whose equation is scaled down (a small factor in front of it) used to get a much thicker wall than the ones written at natural scale; now the thickness is a real length and you set it here.</string></property></widget></item></layout></widget></item><item>
              <widget class="QFrame" name="panelLimits">
               <property name="maximumSize">
                <size>
@@ -2794,13 +2740,13 @@
                 </widget>
                </item>
                <item row="2" column="2">
-                <widget class="QLineEdit" name="lineZMin"/>
+                <widget class="QLineEdit" name="lineZMin" />
                </item>
                <item row="1" column="2">
-                <widget class="QLineEdit" name="lineYMin"/>
+                <widget class="QLineEdit" name="lineYMin" />
                </item>
                <item row="1" column="4">
-                <widget class="QLineEdit" name="lineYMax"/>
+                <widget class="QLineEdit" name="lineYMax" />
                </item>
                <item row="0" column="1">
                 <widget class="QLabel" name="lblXMin">
@@ -2823,7 +2769,7 @@
                 </widget>
                </item>
                <item row="0" column="2">
-                <widget class="QLineEdit" name="lineXMin"/>
+                <widget class="QLineEdit" name="lineXMin" />
                </item>
                <item row="2" column="1">
                 <widget class="QLabel" name="lblZMin">
@@ -2836,45 +2782,12 @@
                 </widget>
                </item>
                <item row="2" column="4">
-                <widget class="QLineEdit" name="lineZMax"/>
+                <widget class="QLineEdit" name="lineZMax" />
                </item>
               </layout>
              </widget>
             </item>
             <item>
-                    <widget class="QWidget" name="panelShellThickness" native="true">
-                     <property name="sizePolicy"><sizepolicy hsizetype="Preferred" vsizetype="Fixed"><horstretch>0</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="minimumSize"><size><width>0</width><height>46</height></size></property><property name="maximumSize"><size><width>16777215</width><height>50</height></size></property><layout class="QHBoxLayout" name="horizontalLayoutShellThickness">
-                      <property name="bottomMargin"><number>1</number></property><property name="rightMargin"><number>6</number></property><property name="topMargin"><number>1</number></property><property name="leftMargin"><number>4</number></property><item>
-                       <widget class="QLabel" name="lblShellThickness">
-                        <property name="text">
-                         <string>Thickness</string>
-                        </property>
-                        <property name="toolTip">
-                         <string>Wall thickness of the shell, in scene units. Surfaces whose equation is scaled down (a small factor in front of it) used to get a much thicker wall than the ones written at natural scale; now the thickness is a real length and you set it here.</string>
-                        </property>
-                       </widget>
-                      </item>
-                      <item>
-                       <widget class="QLabel" name="lblValShellThickness">
-                        <property name="minimumSize"><size><width>46</width><height>0</height></size></property><property name="text">
-                         <string>0.005</string>
-                        </property>
-                       </widget>
-                      </item>
-                      <item>
-                       <widget class="QSlider" name="shellThicknessSlider">
-                        <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="minimumSize"><size><width>140</width><height>40</height></size></property><property name="orientation">
-                         <enum>Qt::Orientation::Horizontal</enum>
-                        </property>
-                        <property name="toolTip">
-                         <string>Wall thickness of the shell, in scene units. Surfaces whose equation is scaled down (a small factor in front of it) used to get a much thicker wall than the ones written at natural scale; now the thickness is a real length and you set it here.</string>
-                        </property>
-                       </widget>
-                      </item>
-                     </layout>
-                    </widget>
-                   </item>
-                  <item>
              <widget class="QPushButton" name="btnImplicit">
               <property name="text">
                <string>Run</string>
@@ -3482,11 +3395,11 @@
     <property name="title">
      <string>Help</string>
     </property>
-    <addaction name="actionDocumentation"/>
-    <addaction name="actionQuit"/>
-    <addaction name="actionAbout"/>
+    <addaction name="actionDocumentation" />
+    <addaction name="actionQuit" />
+    <addaction name="actionAbout" />
    </widget>
-   <addaction name="menuHelp"/>
+   <addaction name="menuHelp" />
   </widget>
   <action name="actionDelete">
    <property name="text">
@@ -3569,6 +3482,6 @@
    <container>1</container>
   </customwidget>
  </customwidgets>
- <resources/>
- <connections/>
+ <resources />
+ <connections />
 </ui>

@@ -459,6 +459,17 @@ private:
     // quindi il riquadro attorno a "Mesh" si puo' spostare liberamente.
     QButtonGroup *m_meshScopeGroup = nullptr;
 
+    // Le DUE coppie dei controlli di resa: Shell/Solid e Fast/Precise.
+    // Servono gruppi ESPLICITI per il motivo OPPOSTO a m_meshScopeGroup qui
+    // sopra: non genitori diversi da riunire, ma lo STESSO genitore da separare.
+    // I quattro radio vivono nella griglia gridRenderControls (che li allinea in
+    // colonne condivise), quindi sono fratelli -- e l'esclusivita' automatica
+    // dei QRadioButton li tratta come UN UNICO gruppo da quattro: accendere
+    // "Precise" spegneva "Shell". Finche' stavano in due pannelli separati i
+    // pannelli facevano da gruppi impliciti e il problema non si vedeva.
+    QButtonGroup *m_shellSolidGroup = nullptr;
+    QButtonGroup *m_marcherGroup = nullptr;
+
     // ==========================================================
     // MATHEMATICAL CONSTANTS & LIMITS
     // ==========================================================
@@ -1029,6 +1040,10 @@ private:
     // posto, invece di essere ricalcolata a ogni punto di caricamento.
     // A segnali bloccati: il valore arriva da un preset, non dall'utente.
     void setShellThicknessUI(float thickness);
+    // Radio Fast/Precise del marcher: scrive motore e radio a segnali bloccati.
+    void setMarcherUI(bool precise);
+    // Luce di riempimento: motore + slider + etichetta, a segnali bloccati.
+    void setFillLightUI(float v);
     // Superficie di default del sotto-tab Cross Section (T^3, 3-toro): stessa
     // idea della sfera di default per il tab 3D, ma per l'equazione a 4
     // variabili (x,y,z,p). Riusata sia da resetScene (arrivo su Implicit) sia

@@ -648,7 +648,7 @@ void UiStyleManager::setupRaymarchTabMobile(QWidget* equationsContainer) {
     auto* lblEq        = equationsContainer->findChild<QLabel*>("lblEq");
     auto* lbl3DTexture = equationsContainer->findChild<QLabel*>("lbl3DTexture");
     auto* lbl2DTexture = equationsContainer->findChild<QLabel*>("lbl2DTexture");
-    auto* panelRadio   = equationsContainer->findChild<QWidget*>("panelRadio");
+    auto* renderCtrls  = equationsContainer->findChild<QWidget*>("panelRenderControls");
     auto* lineEquation = equationsContainer->findChild<QPlainTextEdit*>("lineEquation");
     auto* lineTexture  = equationsContainer->findChild<QPlainTextEdit*>("lineTexture");
     auto* lineVars     = equationsContainer->findChild<QPlainTextEdit*>("lineVariations");
@@ -663,15 +663,16 @@ void UiStyleManager::setupRaymarchTabMobile(QWidget* equationsContainer) {
         lbl->setContentsMargins(0, 0, 0, 0);
     }
 
-    // 2. Pannello radio Shell/Solid: più basso e compatto.
-    if (panelRadio) {
-        panelRadio->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-        panelRadio->setMinimumHeight(30);
-        panelRadio->setMaximumHeight(30);
-        if (panelRadio->layout()) {
-            panelRadio->layout()->setContentsMargins(0, 0, 0, 0);
-            panelRadio->layout()->setSpacing(0);
-        }
+    // 2. Controlli di resa (Shell/Solid, Fast/Precise, Shell Thickness):
+    // compatti sul mobile. Sono in una GRIGLIA (gridRenderControls) che li
+    // allinea in due colonne condivise dalle due coppie di radio; qui si
+    // stringono solo i margini, senza toccare le dimensioni dei figli o
+    // l'allineamento salterebbe. Vive in panelRenderControls, comune ai due
+    // sotto-tab: findChild e' ricorsivo e lo trova se il container lo contiene.
+    if (renderCtrls) {
+        renderCtrls->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        if (renderCtrls->layout())
+            renderCtrls->layout()->setContentsMargins(2, 1, 2, 1);
     }
 
     // 3. Editor più alti: equazione stretta, texture molto più ampie.
@@ -681,10 +682,12 @@ void UiStyleManager::setupRaymarchTabMobile(QWidget* equationsContainer) {
 
     // 4. Ribilanciamo gli stretch ereditati dal .ui, altrimenti label e radio
     //    si riprendono lo spazio verticale a scapito degli editor.
+    // verticalLayout_24 contiene ORA solo lineEquation: lblEq non e' mai stato
+    // suo figlio e panelRadio e' stato spostato in panelRenderControls. Gli
+    // indici 0 e 2 di prima non esistono piu' (Qt li ignora in silenzio), quindi
+    // resta il solo stretch dell'editor.
     if (auto* vl24 = equationsContainer->findChild<QVBoxLayout*>("verticalLayout_24")) {
-        vl24->setStretch(0, 0);   // lblEq
-        vl24->setStretch(1, 1);   // lineEquation
-        vl24->setStretch(2, 0);   // panelRadio
+        vl24->setStretch(0, 1);   // lineEquation
     }
     if (auto* vl26 = equationsContainer->findChild<QVBoxLayout*>("verticalLayout_26")) {
         vl26->setStretch(0, 0);   // lbl3DTexture

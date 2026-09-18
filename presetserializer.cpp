@@ -714,15 +714,27 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
 
     root["lightingMode"] = m_mainWindow->m_lightingMode4D;
     root["lightIntensity"] = m_mainWindow->ui->lightSlider->value() / 100.0;
+    // Luce di riempimento (dock Renderer). Senza questa riga lo slider non
+    // tornava mai indietro: il valore restava quello della scena precedente.
+    root["fillLight"] = (double)m_mainWindow->ui->glWidget->fillLight();
     root["use4DLighting"] = m_mainWindow->ui->glWidget->is4DActive();
     if (isImplicit) {
-        int shellState = m_mainWindow->ui->radioShell->isChecked() ? 10 : 0;
+        // Shell/Solid via implicitShellSelected(): il punto unico che legge lo
+        // stato. Prima leggeva ui->radioShell diretto, che era la coppia del
+        // sotto-tab "3D": salvando dal Cross Section registrava il valore
+        // sbagliato. Ora la coppia e' una sola, ma passare dall'helper resta la
+        // via giusta (e' lui che i gate e il Run consultano).
+        int shellState = m_mainWindow->implicitShellSelected() ? 10 : 0;
         root["renderMode"] = m_mainWindow->m_savedRenderMode + shellState;
         // SPESSORE DEL GUSCIO: dipende da come e' scritta l'equazione (le
         // superfici con un fattore di scala davanti ne vogliono uno molto
         // maggiore), quindi e' un parametro della superficie e va col preset.
         // Assente nei file piu' vecchi -> 0.005, il valore storico.
         root["shellThickness"] = (double)m_mainWindow->ui->glWidget->shellThickness();
+        // MARCHER: quale dei due radio (Fast/Precise) era attivo. Assente nei
+        // record vecchi, dove il reader lo deduce dal sotto-tab -- vedi
+        // librarymanager.cpp.
+        root["hybridMarcher"] = m_mainWindow->ui->glWidget->hybridMarcher();
     } else {
         root["renderMode"] = m_mainWindow->m_savedRenderMode;
     }
@@ -1605,15 +1617,27 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     root["background"] = background;
     root["lightingMode"] = m_mainWindow->m_lightingMode4D;
     root["lightIntensity"] = m_mainWindow->ui->lightSlider->value() / 100.0;
+    // Luce di riempimento (dock Renderer). Senza questa riga lo slider non
+    // tornava mai indietro: il valore restava quello della scena precedente.
+    root["fillLight"] = (double)m_mainWindow->ui->glWidget->fillLight();
     root["use4DLighting"] = m_mainWindow->ui->glWidget->is4DActive();
     if (isImplicit) {
-        int shellState = m_mainWindow->ui->radioShell->isChecked() ? 10 : 0;
+        // Shell/Solid via implicitShellSelected(): il punto unico che legge lo
+        // stato. Prima leggeva ui->radioShell diretto, che era la coppia del
+        // sotto-tab "3D": salvando dal Cross Section registrava il valore
+        // sbagliato. Ora la coppia e' una sola, ma passare dall'helper resta la
+        // via giusta (e' lui che i gate e il Run consultano).
+        int shellState = m_mainWindow->implicitShellSelected() ? 10 : 0;
         root["renderMode"] = m_mainWindow->m_savedRenderMode + shellState;
         // SPESSORE DEL GUSCIO: dipende da come e' scritta l'equazione (le
         // superfici con un fattore di scala davanti ne vogliono uno molto
         // maggiore), quindi e' un parametro della superficie e va col preset.
         // Assente nei file piu' vecchi -> 0.005, il valore storico.
         root["shellThickness"] = (double)m_mainWindow->ui->glWidget->shellThickness();
+        // MARCHER: quale dei due radio (Fast/Precise) era attivo. Assente nei
+        // record vecchi, dove il reader lo deduce dal sotto-tab -- vedi
+        // librarymanager.cpp.
+        root["hybridMarcher"] = m_mainWindow->ui->glWidget->hybridMarcher();
     } else {
         root["renderMode"] = m_mainWindow->m_savedRenderMode;
     }

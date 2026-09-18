@@ -2361,28 +2361,75 @@ MainWindow::MainWindow(QWidget *parent)
     // ---------------------------------------------------
 
     // --- 0. Impostazioni di Default UI ---
+    // DUE GRUPPI ESCLUSIVI SEPARATI. I quattro radio (Shell/Solid e Fast/Precise)
+    // sono fratelli nella griglia gridRenderControls, e l'esclusivita' automatica
+    // dei QRadioButton vale fra TUTTI i fratelli con lo stesso genitore: senza
+    // questi gruppi accendere "Precise" spegneva "Shell". Vanno creati PRIMA dei
+    // setChecked e dei connect qui sotto.
+    m_shellSolidGroup = new QButtonGroup(this);
+    m_shellSolidGroup->setExclusive(true);
+    m_shellSolidGroup->addButton(ui->radioShell);
+    m_shellSolidGroup->addButton(ui->radioSolid);
+
+    m_marcherGroup = new QButtonGroup(this);
+    m_marcherGroup->setExclusive(true);
+    m_marcherGroup->addButton(ui->radioMarcherFast);
+    m_marcherGroup->addButton(ui->radioMarcherPrecise);
+
     ui->radioShell->setChecked(true);      // Attiva "Shell" di default
     ui->glWidget->setGlobalRenderMode(1);        // Diciamo subito al motore che siamo in modalità Shell (1)
 
     // --- Connessione dei Radio Button (Solid/Shell) ---
-    // Un click su una delle due coppie (sotto-tab "3D" o "Cross Section") comanda
-    // il motore E riallinea l'altra coppia: lo stato Shell/Solid e' uno solo, i
-    // radio sono duplicati solo perche' i pannelli sono due. applyImplicitShellMode
-    // fa entrambe le cose a segnali bloccati, quindi non rientra qui in cascata.
-    // Prima erano collegati SOLO radioShell/radioSolid: nel sotto-tab Cross Section
-    // cliccare Shell/Solid non faceva assolutamente nulla (il cambiamento si vedeva
-    // al massimo passando dal Run, che leggeva la coppia giusta).
+    // UNA SOLA COPPIA, in panelRenderControls: il widget comune ai due sotto-tab
+    // ("3D" e "Cross Section"), insieme a Thickness e ai radio del marcher.
+    //
+    // Prima i radio erano DUPLICATI, uno per pannello equazione, perche' i
+    // pannelli sono due — ma lo stato Shell/Solid e' sempre stato UNO SOLO (il
+    // render mode del motore e' globale, e il preset lo salva in un solo campo).
+    // Quella duplicazione ha prodotto una serie di bug: i radio del Cross Section
+    // inizialmente non erano nemmeno collegati (cliccarli non faceva nulla), e il
+    // serializer leggeva la coppia del 3D anche salvando dal Cross Section.
+    // Con un'unica coppia il problema non esiste piu': niente da riallineare.
     auto updateImplicitRenderMode = [this](bool checked) {
         if (!checked) return;   // solo chi si accende, non chi si spegne
-        applyImplicitShellMode(sender() == ui->radioShell
-                               || sender() == ui->radioShellCrossSection);
+        applyImplicitShellMode(sender() == ui->radioShell);
+        // Il pannello Thickness ha senso solo con Shell (in Solid non c'e' guscio
+        // di cui regolare la parete): il gate vive in updateRenderState, che va
+        // richiamata qui o il pannello resterebbe come era fino al prossimo
+        // evento che la fa girare. applyImplicitShellMode non la chiama da se'
+        // perche' e' usata anche durante i load, dove gira comunque alla fine.
+        updateRenderState();
     };
     connect(ui->radioShell, &QRadioButton::toggled, this, updateImplicitRenderMode);
     connect(ui->radioSolid, &QRadioButton::toggled, this, updateImplicitRenderMode);
-    if (ui->radioShellCrossSection)
-        connect(ui->radioShellCrossSection, &QRadioButton::toggled, this, updateImplicitRenderMode);
-    if (ui->radioSolidCrossSection)
-        connect(ui->radioSolidCrossSection, &QRadioButton::toggled, this, updateImplicitRenderMode);
+
+    // --- MARCHER: Fast (sphere tracing storico) / Precise (ibrido) ---
+    // "Fast" di default: e' il comportamento di sempre, e ogni superficie che non
+    // chiede esplicitamente il Precise si disegna come prima. Il T^3 del Cross
+    // Section accende Precise da loadCrossSectionDefaultSurface, e i preset se lo
+    // portano dietro (chiave "hybridMarcher").
+    //
+    // UNA SOLA COPPIA, nella zona comune ai due sotto-tab (come il Thickness):
+    // la scelta del marcher non dipende dal sotto-tab, quindi non serve il
+    // doppione con il riallineamento che Shell/Solid richiede.
+    if (ui->radioMarcherFast) ui->radioMarcherFast->setChecked(true);
+    auto updateMarcherMode = [this](bool checked) {
+        if (!checked) return;                 // solo chi si accende
+        const bool precise = (sender() == ui->radioMarcherPrecise);
+        if (ui->glWidget) ui->glWidget->setHybridMarcher(precise);
+        // E' un uniform: nessun rebuildShader, il cambio si vede al frame dopo.
+        // Gating degli slider che in Precise non hanno effetto: Ray Steps lo
+        // rifa' updateRenderState, lo Step Relax updateConstantsUIState (unico
+        // proprietario dello slider S). Senza queste due chiamate resterebbero
+        // com'erano fino al prossimo evento che le fa girare.
+        updateRenderState();
+        updateConstantsUIState();
+        noteSceneEdited(ui->radioMarcherPrecise);
+    };
+    if (ui->radioMarcherFast)
+        connect(ui->radioMarcherFast, &QRadioButton::toggled, this, updateMarcherMode);
+    if (ui->radioMarcherPrecise)
+        connect(ui->radioMarcherPrecise, &QRadioButton::toggled, this, updateMarcherMode);
 
     // SPESSORE DEL GUSCIO (Shell). Scala 0..100 -> 0.005..0.30, non lineare:
     // quadratica, cosi' la prima meta' della corsa copre i valori sottili (dove
@@ -2414,14 +2461,10 @@ MainWindow::MainWindow(QWidget *parent)
             "QSlider::handle:horizontal { background: white; border: 1px solid #5c5c5c;"
             " width: 30px; height: 30px; margin: -10px 0; border-radius: 15px; }");
         ui->shellThicknessSlider->setMinimumHeight(40);
-        if (ui->lblValShellThickness)
-            ui->lblValShellThickness->setText(QString::number(kShellThickMin, 'f', 3));
         connect(ui->shellThicknessSlider, &QSlider::valueChanged, this,
                 [this, shellThickFromSlider](int v) {
             const double t = shellThickFromSlider(v);
             if (ui->glWidget) ui->glWidget->setShellThickness((float)t);
-            if (ui->lblValShellThickness)
-                ui->lblValShellThickness->setText(QString::number(t, 'f', 3));
             noteSceneEdited(ui->shellThicknessSlider);
         });
     }
@@ -5234,6 +5277,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         bool oldLight = ui->lightSlider->blockSignals(true);
         ui->lightSlider->setValue(100);
         ui->lightSlider->blockSignals(oldLight);
+        setFillLightUI(0.0f);   // come la luce principale: torna al default
         ui->lblValLight->setText("100 %");
         if (ui->glWidget) ui->glWidget->setLightIntensity(1.0f);
     }
@@ -6461,11 +6505,12 @@ void MainWindow::updateRenderState()
         ui->glWidget->setGlobalTextureEnabled(wantTexture && !blockSurfaceTexture);
 
         if (isImplicitMode) {
-            // Modalità Ray Marching: Ascolta SOLO i radio button Shell/Solid dedicati,
-            // quelli del sotto-tab ATTIVO (3D o Cross Section). Leggere qui
-            // ui->radioShell fisso significava che ogni cambio tab/proiezione/load
-            // riscriveva il render mode con lo stato del sotto-tab 3D, cancellando
-            // la scelta fatta in Cross Section anche dopo un Run.
+            // Modalità Ray Marching: il render mode viene dai radio Shell/Solid
+            // (panelRenderControls, comune ai due sotto-tab). Si passa
+            // dall'helper e non da ui->radioShell diretto perche' quello e' il
+            // punto unico di lettura -- quando i radio erano duplicati per
+            // sotto-tab, leggerne uno fisso qui cancellava a ogni cambio
+            // tab/proiezione/load la scelta fatta nell'altro.
             ui->glWidget->setGlobalRenderMode(implicitShellSelected() ? 1 : 0);
         } else {
             // Modalità Parametrica: Ascolta i radio button classici.
@@ -6514,9 +6559,61 @@ void MainWindow::updateRenderState()
     // nel parametrico la modalita' non esiste affatto. Il contenitore intero
     // (etichetta, valore, slider) cosi' il numero non resta leggibile accanto a
     // uno slider spento.
-    if (ui->panelShellThickness) {
+    // Etichetta E slider: il pannello contenitore non esiste piu' (i tre
+    // controlli vivono nella griglia gridRenderControls, che li allinea in
+    // colonne condivise), quindi si disabilitano i due widget direttamente --
+    // cosi' il testo non resta leggibile accanto a uno slider spento.
+    {
         const bool shellUsable = isImplicitMode && implicitShellSelected();
-        ui->panelShellThickness->setEnabled(shellUsable);
+        if (ui->lblShellThickness)    ui->lblShellThickness->setEnabled(shellUsable);
+        if (ui->shellThicknessSlider) ui->shellThicknessSlider->setEnabled(shellUsable);
+    }
+
+    // FILL LIGHT: solo in Ray Marching. Lo shader parametrico DICHIARA
+    // u_fillLight (il blocco UBO deve combaciare campo per campo col fragment,
+    // regola Adreno) ma non lo usa, e non per una dimenticanza: il ramo
+    // parametrico illumina con abs(dot(N,L)) -- two-sided, quindi la faccia
+    // interna di un tubo e' gia' illuminata quanto l'esterna -- e alza il
+    // risultato con un fondo fisso (0.3 + 0.7*diff), per cui nessuna faccia
+    // scende sotto il 30%. Non ha le zone nere che questa luce va a recuperare:
+    // nel ray marching una faccia radente misurava 0.06 su 1.
+    // Sommarci un riempimento schiarirebbe tutto invece di recuperare le ombre,
+    // appiattendo il modellato. Quindi il controllo si SPEGNE qui, invece di
+    // restare acceso senza fare nulla.
+    if (ui->lblFill)    ui->lblFill->setEnabled(isImplicitMode);
+    if (ui->widgetFill) ui->widgetFill->setEnabled(isImplicitMode);
+
+    // RAY STEPS col marcher "Precise": DISABILITATO, perche' non ha alcun effetto
+    // su cio' che si vede. E' il tetto dello sphere tracing, che in Precise serve
+    // solo ad AVVICINARSI: se si esaurisce, il marcher ricade sulla marcia completa
+    // da tNear e trova comunque la superficie.
+    //
+    // MISURATO sul T^3 (griglia 121x121, zoom da z=4 a z=1.2): il tetto interno di
+    // marchNextLayer (2000 su desktop/iOS, 600 su Android) non viene MAI raggiunto
+    // -- massimo 1791 passi allo zoom piu' estremo -- e col tetto a 600 la
+    // superficie e' IDENTICA (0 pixel persi). I passi sono limitati dalla GEOMETRIA
+    // (50 unita' di scena, passo cappato a 0.05), non da una manopola: non esiste
+    // una scena in cui questo slider serva col marcher preciso.
+    //
+    // Il VALORE non si tocca: resta quello del preset, e tornando su Fast riprende
+    // effetto immediatamente.
+    //
+    // Lo Step Relax (slider della costante S) ha il gate gemello in
+    // updateConstantsUIState (cerca "stepRelaxInert"): la' e' l'unico proprietario
+    // di quello slider e lo riaccenderebbe a ogni textChanged dell'equazione.
+    {
+        const bool preciseMarcher = isImplicitMode && ui->glWidget
+                                    && ui->glWidget->hybridMarcher();
+        if (preciseMarcher) {
+            ui->stepSlider->setEnabled(false);
+            ui->lineSteps->setEnabled(false);
+        } else if (isImplicitMode) {
+            // Fast: lo slider torna utile. Riaccenderlo qui e' necessario perche'
+            // nessun altro lo fa tornando da Precise (applyEmptySceneGating gira
+            // solo all'uscita dalla scena vuota).
+            ui->stepSlider->setEnabled(true);
+            ui->lineSteps->setEnabled(true);
+        }
     }
 
     // Ultimo blocco della funzione: sovrascrive di proposito le decisioni prese
@@ -6566,12 +6663,16 @@ void MainWindow::applyEmptySceneGating()
         ui->lineSteps->setEnabled(false);
 
         // Modo di resa della SUPERFICIE: non c'e' superficie da rendere.
-        // (radioShell/radioSolid sono gli equivalenti del ramo Ray Marching.)
+        // (radioShell/radioSolid sono gli equivalenti del ramo Ray Marching, e
+        // vivono in panelRenderControls insieme a Thickness e ai radio marcher.)
         if (ui->radioBasic)  ui->radioBasic->setEnabled(false);
         if (ui->radioPhong)  ui->radioPhong->setEnabled(false);
         if (ui->radioWF)     ui->radioWF->setEnabled(false);
         if (ui->radioShell)  ui->radioShell->setEnabled(false);
         if (ui->radioSolid)  ui->radioSolid->setEnabled(false);
+        // Scelta del marcher: come Shell/Solid, riguarda solo il ray marching.
+        if (ui->radioMarcherFast)    ui->radioMarcherFast->setEnabled(false);
+        if (ui->radioMarcherPrecise) ui->radioMarcherPrecise->setEnabled(false);
 
         // Ambito multi-mesh: le parti non esistono piu'. Senza questo, restava
         // selezionabile la mesh di una superficie che non c'e' -- e i comandi
@@ -6631,6 +6732,14 @@ void MainWindow::applyEmptySceneGating()
         if (ui->radioWF)     ui->radioWF->setEnabled(!isRM);
         if (ui->radioShell)  ui->radioShell->setEnabled(true);
         if (ui->radioSolid)  ui->radioSolid->setEnabled(true);
+        // Scelta del marcher: SOLO in Ray Marching (nel ramo parametrico non c'e'
+        // marcher). radioWF qui sopra usa la stessa condizione, al contrario.
+        if (ui->radioMarcherFast)    ui->radioMarcherFast->setEnabled(isRM);
+        if (ui->radioMarcherPrecise) ui->radioMarcherPrecise->setEnabled(isRM);
+        // NB: il gate di Ray Steps col marcher Precise NON va qui. Questo ramo
+        // gira una volta sola, all'uscita dalla scena vuota (m_emptySceneGated
+        // viene azzerato sopra): con una superficie gia' carica non passa mai.
+        // Vive in updateRenderState, che gira a ogni cambio di stato.
 
         // Ambito multi-mesh: lo stato giusto lo conosce updateMeshScopeEnabled
         // (dipende da quante parti ha la superficie appena costruita), che ha
@@ -7153,6 +7262,11 @@ void MainWindow::updateConstantsUIState() {
         // FIX FONDAMENTALE: In Ray Marching (tab 1), "S" funge da Step Relax!
         // Deve rimanere sempre attivo e NON deve mai essere resettato a 0,
         // altrimenti i raggi si congelano causando glitch grafici e cerchi concentrici.
+        //
+        // NB: col marcher "Precise" lo Step Relax viene DISABILITATO piu' sotto
+        // (governa solo la fase di avvicinamento, che non decide piu' l'hit), ma
+        // il suo VALORE resta quello che e': qui "used = true" serve proprio a
+        // non azzerarlo. Disabilitare != resettare.
         if (currentTab == 1 && letter == "S") {
             used = true;
         } else {
@@ -7196,8 +7310,20 @@ void MainWindow::updateConstantsUIState() {
             slider->blockSignals(oldS);
             line->blockSignals(oldL);
         } else {
-            slider->setEnabled(true);
-            line->setEnabled(true);
+            // STEP RELAX col marcher "Precise": abilitato NO, valore SI'.
+            // In Ray Marching questo slider e' lo Step Relax, e col marcher
+            // preciso non ha effetto su cio' che si vede (governa i passi
+            // dell'avvicinamento, mentre l'hit lo decidono cambio-di-segno e
+            // bisezione). Il gate vive QUI e non solo in updateRenderState
+            // perche' questa funzione e' l'unica proprietaria dello slider: gira
+            // a ogni textChanged dell'equazione e lo riaccenderebbe comunque,
+            // vanificando un gate messo altrove. Il VALORE non si tocca (vedi
+            // "used = true" per S piu' sopra): tornando su Fast riprende effetto.
+            const bool stepRelaxInert = (currentTab == 1 && letter == "S"
+                                         && ui->glWidget
+                                         && ui->glWidget->hybridMarcher());
+            slider->setEnabled(!stepRelaxInert);
+            line->setEnabled(!stepRelaxInert);
         }
     };
 
@@ -12602,6 +12728,9 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // alla GPU cosi' la trasparenza del preset si applica sempre.
     if (ui->glWidget) ui->glWidget->setAlpha(d.alpha);
     ui->lightSlider->setValue(d.lightIntensity * 100);
+    // Luce di riempimento: preset senza la chiave -> 0 (il parser mette gia'
+    // quel default), cioe' l'illuminazione con cui sono stati salvati.
+    setFillLightUI(d.fillLight);
 
     onColorTargetChanged();
 
@@ -13736,6 +13865,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     ui->glWidget->setPsiSpeed(spdPsi);
 
     ui->lightSlider->setValue(data.lightIntensity * 100);
+    setFillLightUI(data.fillLight);
 
     int savedMode = (data.lightingMode != -1) ? data.lightingMode : 0;
     bool want4D = false;
@@ -15397,34 +15527,24 @@ void MainWindow::setTextureLibraryGrayed(bool grayed)
 // l'handler durante un load.
 void MainWindow::applyImplicitShellMode(bool shell)
 {
-    // ENTRAMBE le coppie di radio (sotto-tab "3D" e "Cross Section"). Lo stato
-    // Shell/Solid e' UNO SOLO — il render mode del motore e' globale, e il preset
-    // lo salva in un solo campo (renderMode composito, >= 10 = Shell) — mentre i
-    // radio sono duplicati solo perche' i due sotto-tab hanno pannelli separati.
-    // Tenendoli allineati qui, passare da un sotto-tab all'altro non fa mai
-    // comparire una selezione che contraddice cio' che si vede a schermo.
-    auto setPair = [shell](QRadioButton *shellRadio, QRadioButton *solidRadio) {
-        if (!shellRadio || !solidRadio) return;
-        const bool oldShell = shellRadio->blockSignals(true);
-        const bool oldSolid = solidRadio->blockSignals(true);
-        if (shell) shellRadio->setChecked(true);
-        else       solidRadio->setChecked(true);
-        shellRadio->blockSignals(oldShell);
-        solidRadio->blockSignals(oldSolid);
-    };
-    setPair(ui->radioShell, ui->radioSolid);
-    setPair(ui->radioShellCrossSection, ui->radioSolidCrossSection);
+    // UNA SOLA coppia di radio, in panelRenderControls (widget comune ai due
+    // sotto-tab). Lo stato Shell/Solid e' sempre stato UNO SOLO — il render mode
+    // del motore e' globale e il preset lo salva in un solo campo (renderMode
+    // composito, >= 10 = Shell) — e da quando i radio non sono piu' duplicati per
+    // sotto-tab non c'e' nulla da riallineare: la selezione non puo' contraddire
+    // cio' che si vede.
+    if (ui->radioShell && ui->radioSolid) {
+        const bool oldShell = ui->radioShell->blockSignals(true);
+        const bool oldSolid = ui->radioSolid->blockSignals(true);
+        if (shell) ui->radioShell->setChecked(true);
+        else       ui->radioSolid->setChecked(true);
+        ui->radioShell->blockSignals(oldShell);
+        ui->radioSolid->blockSignals(oldSolid);
+    }
 
     if (ui->glWidget) ui->glWidget->setGlobalRenderMode(shell ? 1 : 0);
 }
 
-// Shell/Solid come lo vede l'utente ADESSO: legge la coppia di radio del
-// sotto-tab implicito attivo. Esiste perche' i punti che devono sapere "siamo in
-// guscio?" (updateRenderState a ogni cambio tab/proiezione/load, il Run) non
-// possono leggere ui->radioShell in modo fisso: nel sotto-tab Cross Section quella
-// coppia non e' quella su cui l'utente ha cliccato. Le due coppie sono comunque
-// tenute allineate da applyImplicitShellMode e dagli handler dei radio, quindi in
-// pratica concordano: questa funzione e' la garanzia che concordino sempre.
 // Equazione implicita del sotto-tab ATTIVO. I due sotto-tab hanno editor
 // separati (lineEquation / lineEquationCrossSection) ma un solo motore: ogni
 // punto che chiede "qual e' l'equazione a schermo?" deve passare da qui.
@@ -15440,7 +15560,7 @@ QString MainWindow::activeImplicitEquationText() const
     return ui->lineEquation ? ui->lineEquation->toPlainText() : QString();
 }
 
-// Spessore del guscio: motore + slider + etichetta in un colpo. La curva dello
+// Spessore del guscio: motore + posizione dello slider in un colpo. La curva dello
 // slider e' quadratica (0..100 -> 0.005..0.30), quindi la posizione si ricava
 // invertendola: f = sqrt((t - min) / (max - min)). Tenerla qui evita che ogni
 // chiamante se la riscriva -- ed e' la stessa curva definita nel connect dello
@@ -15458,18 +15578,62 @@ void MainWindow::setShellThicknessUI(float thickness)
         ui->shellThicknessSlider->setValue(qRound(f * 100.0));
         ui->shellThicknessSlider->blockSignals(old);
     }
-    if (ui->lblValShellThickness)
-        ui->lblValShellThickness->setText(QString::number(t, 'f', 3));
+}
+
+// LUCE DI RIEMPIMENTO (dock Renderer): motore + slider + etichetta in un colpo.
+// La conversione dello slider non e' l'identita' (0..100 -> 0.00..1.20, fattore
+// 0.012), quindi ogni chiamante che scrivesse i widget a mano dovrebbe
+// ripeterla -- ed e' la ragione per cui questa funzione esiste, come la gemella
+// setShellThicknessUI.
+//
+// A SEGNALI BLOCCATI: serve dal caricamento di un preset e dai reset, dove la
+// scrittura NON deve passare per l'handler dello slider (che la scambierebbe per
+// una modifica dell'utente). Il motore lo scriviamo qui, esplicitamente, perche'
+// setValue non emette valueChanged quando il valore coincide con quello corrente
+// -- due preset di fila con la stessa luce lascerebbero la GPU non aggiornata.
+void MainWindow::setFillLightUI(float v)
+{
+    const float val = qBound(0.0f, v, 1.20f);
+    if (ui->glWidget) ui->glWidget->setFillLight(val);
+    if (ui->fillLightSlider) {
+        const bool old = ui->fillLightSlider->blockSignals(true);
+        ui->fillLightSlider->setValue(qRound(val / 0.012f));
+        ui->fillLightSlider->blockSignals(old);
+    }
+    if (ui->lblValFill) ui->lblValFill->setText(QString::number(val, 'f', 2));
+}
+
+// MARCHER (radio Fast/Precise): scrive il motore E i radio, a segnali bloccati.
+// Gemella di setShellThicknessUI: serve dal caricamento di un preset e dai reset,
+// dove la scrittura NON deve passare per l'handler dei radio (che la scambierebbe
+// per una modifica dell'utente e accenderebbe l'avviso "lavoro non salvato").
+void MainWindow::setMarcherUI(bool precise)
+{
+    if (ui->glWidget) ui->glWidget->setHybridMarcher(precise);
+
+    // ENTRAMBI bloccati, come fa applyImplicitShellMode: l'esclusivita' spegne
+    // l'altro radio, e se i suoi segnali non sono bloccati il suo toggled(false)
+    // parte comunque (l'handler lo scarta con "solo chi si accende", ma il
+    // pattern del progetto e' bloccare la coppia e scrivere il motore qui).
+    QRadioButton *fast = ui->radioMarcherFast;
+    QRadioButton *prec = ui->radioMarcherPrecise;
+    if (fast && prec) {
+        const bool oldFast = fast->blockSignals(true);
+        const bool oldPrec = prec->blockSignals(true);
+        if (precise) prec->setChecked(true);
+        else         fast->setChecked(true);
+        fast->blockSignals(oldFast);
+        prec->blockSignals(oldPrec);
+    }
 }
 
 bool MainWindow::implicitShellSelected() const
 {
-    const bool crossSectionActive = ui->subTabImplicit
-                                    && ui->subTabImplicit->currentIndex() == 1;
-    QRadioButton *shellRadio = crossSectionActive ? ui->radioShellCrossSection
-                                                  : ui->radioShell;
-    if (!shellRadio) shellRadio = ui->radioShell;
-    return shellRadio && shellRadio->isChecked();
+    // UNA sola coppia di radio (panelRenderControls, comune ai due sotto-tab):
+    // non c'e' piu' da scegliere quale leggere in base al sotto-tab attivo.
+    // Questa funzione resta perche' la chiamano updateRenderState, il Run e il
+    // serializer, e perche' e' il punto unico in cui si legge lo stato.
+    return ui->radioShell && ui->radioShell->isChecked();
 }
 
 // Scrive una costante (campo di testo + slider) senza far girare gli handler.
@@ -15565,6 +15729,12 @@ void MainWindow::resetImplicitSharedFields()
     // scritta a scala naturale un guscio da 0.26 (il valore che serve a Steiner)
     // inghiottirebbe l'intero oggetto.
     setShellThicknessUI(0.005f);
+
+    // MARCHER: "Fast" (sphere tracing storico) e' il default condiviso, come per
+    // ogni altra manopola qui. Il sotto-tab Cross Section lo rialza a "Precise"
+    // subito dopo, in loadCrossSectionDefaultSurface: stessa sequenza dello Step
+    // Relax, che qui torna a 0.4 e li' viene riscritto a 0.7.
+    setMarcherUI(false);
 
     // Limiti spaziali: campi VUOTI = nessun taglio, che e' il default di avvio
     // (vedi il costruttore e il ramo implicito di resetScene, stessa scrittura).
@@ -15722,6 +15892,20 @@ void MainWindow::loadCrossSectionDefaultSurface()
     // entrambe le coppie di radio e scrive il motore: non serve piu' una copia
     // locale per i radio dedicati, ed e' la stessa via del sotto-tab 3D.
     applyImplicitShellMode(true);
+
+    // MARCHER "Precise" (ibrido). Come lo Step Relax qui sopra, e' un default
+    // specifico di QUESTA superficie, scritto DOPO resetImplicitSharedFields che
+    // riporta la manopola condivisa a "Fast".
+    //
+    // Non e' una preferenza: il T^3 e' una quartica di quartiche, |grad| ~ 0.013
+    // contro il clamp 0.2 del marcher storico, che quindi falsifica la stima di
+    // distanza su OGNI raggio. Misurato sulla posa di default (griglia 161x161):
+    // 1768 hit su 8105 sono FALSI, a 0.104 unita' di media dalla superficie, e
+    // riempiono lo spazio fra i tubi -- e' la "saldatura" che si vedeva in Solid
+    // e in Shell, e che spariva appena si accendeva un filo di trasparenza
+    // (il ramo trasparente usa un altro marcher, immune per costruzione).
+    // Con "Precise" i falsi hit sono ZERO e nessun pixel di superficie si perde.
+    setMarcherUI(true);
 
     // RAY STEPS a 350. Erano 600 finche' questa superficie partiva TRASPARENTE:
     // li' il raggio attraversa TUTTE le falde del T^3 e i passi si accumulano. Da
@@ -16014,6 +16198,11 @@ void MainWindow::applyCommonData(LibraryItem d)
         // Preset senza la chiave -> 0.005 (il parser mette gia' quel default),
         // cioe' l'aspetto con cui sono stati salvati.
         setShellThicknessUI(d.shellThickness);
+
+        // MARCHER (Fast/Precise). Per i record senza la chiave il parser ha gia'
+        // deciso in base al sotto-tab (3D -> Fast, Cross Section -> Precise), cosi'
+        // i record esistenti non vanno risalvati uno per uno: vedi librarymanager.
+        setMarcherUI(d.hybridMarcher);
     }
 
     if (ui->radioBackground->isChecked()) {
