@@ -1561,8 +1561,6 @@ MainWindow::MainWindow(QWidget *parent)
     m_btnNew = new QPushButton("NEW", this);
     m_btnNew->setFlat(true);
     m_btnNew->setFont(fontBold);
-    m_btnNew->setToolTip("Empty scene: clears every field and the view.\n"
-                         "Unlike re-clicking the active tab, it loads no default surface.");
     connect(m_btnNew, &QPushButton::clicked, this, &MainWindow::onNewSceneClicked);
 
     m_btnResetView = new QPushButton("RESET", this);
