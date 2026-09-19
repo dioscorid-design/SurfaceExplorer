@@ -219,6 +219,16 @@ public:
     // Campo implicito attualmente compilato nel ray marcher.
     QString implicitEquation() const { return m_eqImplicitF; }
 
+    // Equazione APPLICATA del ramo davvero attivo nel marcher: nel Cross Section
+    // il campo compilato e' m_eqCrossSectionF, e implicitEquation() (che torna
+    // sempre quella del sotto-tab 3D) descriverebbe una superficie che a schermo
+    // non c'e'. Serve a chi deve giudicare lo STATO della scena e non puo'
+    // leggere i campi UI, che possono contenere testo non ancora confermato
+    // (vedi MainWindow::isSceneEmpty).
+    QString activeImplicitEquation() const {
+        return m_implicitUsesCrossSection ? m_eqCrossSectionF : m_eqImplicitF;
+    }
+
 
     // ==========================================================
     // RENDERING & VISUALS

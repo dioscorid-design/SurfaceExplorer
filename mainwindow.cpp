@@ -5440,6 +5440,16 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
             ui->lineEquation->blockSignals(true);
             ui->lineEquation->clear();
             ui->lineEquation->blockSignals(false);
+
+            // ENTRAMBI i sotto-tab: il Cross Section ha il proprio campo, e non
+            // svuotarlo lasciava a schermo un New "a meta'" -- superficie
+            // sparita ma equazione ancora scritta, al contrario di quanto fanno
+            // il ramo parametrico e il sotto-tab 3D.
+            if (ui->lineEquationCrossSection) {
+                ui->lineEquationCrossSection->blockSignals(true);
+                ui->lineEquationCrossSection->clear();
+                ui->lineEquationCrossSection->blockSignals(false);
+            }
         }
 
         // ==========================================================
@@ -5537,9 +5547,28 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
             // Sotto-tab Cross Section: stessa idea, superficie di default
             // propria (T^3). Sovrascrive quanto appena fatto sopra per il
             // sotto-tab 3D SOLO se e' Cross Section quello attivo.
-            if (loadDefaultSurface && ui->subTabImplicit
-                && ui->subTabImplicit->currentIndex() == 1) {
+            const bool crossSectionActive = ui->subTabImplicit
+                                            && ui->subTabImplicit->currentIndex() == 1;
+            if (loadDefaultSurface && crossSectionActive) {
                 loadCrossSectionDefaultSurface();
+            }
+            // SCENA VUOTA dal Cross Section: il campo vuoto va applicato al SUO
+            // ramo. setImplicitEquation() qui sopra riporta il marcher al ramo
+            // 3D (lo fa apposta, vedi la sua nota), e le due righe sopra
+            // agiscono entrambe sul solo ramo 3D. Senza questo blocco il New
+            // lasciava m_eqCrossSectionF INTATTO, con dentro l'equazione
+            // precedente: a schermo la scena era vuota (coerente: il ramo vivo
+            // era il 3D col campo vuoto), ma lo STATO era incoerente -- sotto-tab
+            // Cross Section attivo e marcher sull'altro ramo.
+            // Si autocorreggeva al primo Invio, che passa useCrossSection=true:
+            // il guasto viveva nella finestra fra il New e quel commit, dove
+            // chiunque LEGGA il ramo attivo (p.es. isSceneEmpty) trovava il 3D
+            // mentre l'utente era nel Cross Section.
+            else if (!loadDefaultSurface && crossSectionActive) {
+                ui->glWidget->validateAndApplyImplicitShader(
+                            QLatin1String(kEmptyImplicitField), "", "",
+                            /*useCrossSection=*/true);
+                ui->glWidget->rebuildShader();
             }
         }
     }
@@ -6808,7 +6837,14 @@ bool MainWindow::isSceneEmpty() const
     if (!ui->glWidget) return false;
 
     if (ui->tabModeSelector->currentIndex() == 1) {
-        const QString eq = ui->glWidget->implicitEquation().trimmed();
+        // Il ramo ATTIVO nel marcher, non sempre quello del sotto-tab 3D: nel
+        // Cross Section il campo compilato e' m_eqCrossSectionF, e leggere
+        // implicitEquation() giudicava la scena su un'equazione che a schermo
+        // non c'e'. Dopo un New nel Cross Section la scena restava percio'
+        // "vuota" anche a superficie ripristinata, e il gate non si sganciava
+        // piu': i controlli del tab Render (Basic/Phong, wireframe, texture)
+        // rimanevano disabilitati finche' non si cambiava modalita'.
+        const QString eq = ui->glWidget->activeImplicitEquation().trimmed();
         return eq.isEmpty() || eq == QLatin1String(kEmptyImplicitField);
     }
 
