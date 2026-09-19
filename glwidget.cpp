@@ -4507,8 +4507,17 @@ QString GLWidget::createImplicitFragmentShader()
     // Per garantire la compatibilità con script stile Shadertoy:
     safeEqF.replace(QRegularExpression("\\biTime\\b"), "t");
 
-    // Fallback di sicurezza se la stringa è vuota
-    if (safeEqF.trimmed().isEmpty()) safeEqF = "x*x + y*y + z*z - 1.0";
+    // Fallback di sicurezza se la stringa e' vuota: un campo COSTANTE POSITIVO,
+    // che il marcher non interseca mai -> scena vuota.
+    // Era "x*x + y*y + z*z - 1.0", cioe' una SFERA: "niente" diventava una
+    // superficie che nessuno aveva chiesto. In Cross Section si vedeva bene,
+    // perche' quella sfera passa anche da %CROSS_SECTION_P% e veniva mostrata
+    // come sezione ruotata in 4D -- una forma irriconoscibile comparsa dal
+    // nulla. Il fallback deve essere NEUTRO: se non c'e' equazione non c'e'
+    // superficie. Stesso valore che resetScene usa per la scena vuota
+    // (MainWindow::kEmptyImplicitField), tenuto in sincrono a mano perche'
+    // GLWidget non include mainwindow.h.
+    if (safeEqF.trimmed().isEmpty()) safeEqF = "1.0";
 
     QString templateSource = loadShaderSource(":/shaders/raymarch_template.txt");
     templateSource.remove(QRegularExpression("^\\s*#version\\s+450\\s*\n?"));

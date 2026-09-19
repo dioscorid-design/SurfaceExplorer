@@ -27,6 +27,9 @@ public:
     // allowP: sotto-tab Cross Section (equazione a 4 variabili x,y,z,p).
     // Default false: il tab 3D continua a vietare 'p' come sempre.
     static bool validateImplicitEquation(QWidget* parent, const QString& rawEq, bool allowP = false);
+    // Campo equazione vuoto al Run/Invio: avvisa invece di uscire in silenzio
+    // lasciando a schermo la superficie precedente. Per svuotare c'e' NEW.
+    static void notifyEmptyImplicitEquation(QWidget* parent, bool crossSection);
     static bool validateImplicitScriptContext(QWidget* parent, const QString& texCode);
 
     // Controlli per la modalità Parametrica

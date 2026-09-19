@@ -8,6 +8,16 @@ static bool geodesicWarningDisabledForCurrentLoad = false;
 bool InputValidator::s_boxActive = false;
 quint64 InputValidator::s_errorCount = 0;
 
+void InputValidator::notifyEmptyImplicitEquation(QWidget* parent, bool crossSection)
+{
+    notify(parent, QMessageBox::Warning, "No Equation",
+           crossSection
+             ? "Type an equation in x, y, z and p before running.\n\n"
+               "The surface on screen is the previous one: use NEW to clear the scene."
+             : "Type an equation in x, y and z before running.\n\n"
+               "The surface on screen is the previous one: use NEW to clear the scene.");
+}
+
 bool InputValidator::validateImplicitEquation(QWidget* parent, const QString& rawEq, bool allowP)
 {
     if (rawEq.count("=") > 1) {
@@ -26,6 +36,38 @@ bool InputValidator::validateImplicitEquation(QWidget* parent, const QString& ra
         notify(parent, QMessageBox::Critical, "Invalid Variables",
               allowP ? "Use only x, y, z, and p in Ray Marching Cross Section."
                      : "Use only x, y, and z in Ray Marching.");
+        return false;
+    }
+
+    // ALMENO DUE fra x, y, z. Un campo che ne usa meno non definisce una
+    // superficie nello spazio: "1 = 0" non ha soluzioni (schermo vuoto, nessun
+    // errore), e anche "x = 0" o "x^2 = 1" descrivono piani infiniti che il
+    // marcher mostra come fondali piatti dentro il box dei limiti -- tutti casi
+    // che l'utente scambia per un preset rotto invece che per un'equazione
+    // degenere.
+    // La soglia e' DUE, non tre: superfici legittime di rivoluzione o estruse
+    // (p.es. il cilindro x^2 + y^2 = 1) usano due sole variabili e devono
+    // passare.
+    // Si conta sul testo SENZA commenti: un "// x y z" in coda non deve valere
+    // come uso delle variabili. La 'p' del Cross Section non entra nel conto --
+    // e' la coordinata della sezione, non una delle tre dello spazio: con la sola
+    // p l'equazione non definisce comunque una superficie visibile.
+    QString mathOnly = rawEq;
+    mathOnly.remove(QRegularExpression("/\\*.*?\\*/", QRegularExpression::DotMatchesEverythingOption));
+    mathOnly.remove(QRegularExpression("//[^\n]*"));
+    int spatialVars = 0;
+    for (const char *v : { "x", "y", "z" }) {
+        if (mathOnly.contains(QRegularExpression(QString("\\b%1\\b").arg(v))))
+            ++spatialVars;
+    }
+    if (spatialVars < 2) {
+        notify(parent, QMessageBox::Critical, "Not a Surface",
+               allowP ? "The equation must use at least two of x, y and z.\n\n"
+                        "With fewer it does not define a surface to intersect: "
+                        "the section comes out empty or flat."
+                      : "The equation must use at least two of x, y and z.\n\n"
+                        "With fewer it does not define a surface to intersect: "
+                        "nothing appears, or you get an infinite plane.");
         return false;
     }
 

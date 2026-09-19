@@ -7201,6 +7201,9 @@ void MainWindow::updateConstantsUIState() {
     //   record senza costanti (float a/b/c/d/s locali negli shader).
     QString mathText = "";
     QString glslText = "";
+    // Ray Marching con il campo equazione CANCELLATO: il ramo !used disabilita
+    // le costanti ma NON le resetta (vedi la nota dov'e' usata).
+    bool equationFieldIsEmpty = false;
     int currentTab = ui->tabModeSelector->currentIndex();
 
     // 1. RACCOLTA TESTO SPECIFICA PER TAB
@@ -7231,6 +7234,14 @@ void MainWindow::updateConstantsUIState() {
         // Cross Section (es. A/B/C del T^3) risultavano "non usate" e
         // updateControl le azzerava/disabilitava a vuoto.
         mathText = stripCodeComments(activeImplicitEquationText());
+        // Equazione CANCELLATA: lo si registra PRIMA di concatenare limiti e
+        // campi path, che renderebbero mathText non vuoto anche senza
+        // equazione. Serve al ramo !used piu' sotto, che senza questo
+        // riscriveva le costanti a 1 su una superficie ancora a schermo.
+        // Solo in Ray Marching: qui l'equazione e' UNA, e vuota vuol dire
+        // "non c'e' niente da cui dedurre". In parametrico le equazioni sono
+        // molte e svuotarne una non ha lo stesso significato.
+        equationFieldIsEmpty = mathText.trimmed().isEmpty();
         glslText += " " + stripCodeComments(ui->lineTexture->toPlainText()) +
                     " " + stripCodeComments(ui->lineVariations->toPlainText());
     }
@@ -7340,13 +7351,29 @@ void MainWindow::updateConstantsUIState() {
             bool oldS = slider->blockSignals(true);
             bool oldL = line->blockSignals(true);
 
-            // RESET: S a 0.0, le altre (A-F) a 1.0
-            if (letter == "S") {
-                line->setText("0");
-                slider->setValue(0);
-            } else {
-                line->setText("1");
-                slider->setValue(100);
+            // CAMPO EQUAZIONE VUOTO: si DISABILITA ma non si resetta. "Nessuna
+            // costante citata" qui non vuol dire "nessuna costante serve": vuol
+            // dire che non c'e' ancora un'equazione da cui dedurlo, e il valore
+            // corrente e' l'unica informazione buona che abbiamo.
+            // Sintomo: caricata la default del Cross Section (T^3, che vive su
+            // A=0.9 B=0.4 C=0.2) e cancellata l'equazione, il textChanged
+            // arrivava qui e riscriveva A=B=C=1 -- valori per cui il T^3
+            // DEGENERA (serve A>B>C). Nessun rebuildShader, perche' le costanti
+            // sono uniform: la superficie a schermo cambiava forma da sola,
+            // restando quella "deformata" anche dopo il popup di equazione
+            // mancante. In 3D non si notava: la sfera di default non usa
+            // costanti, quindi non c'era niente da rovinare.
+            // Il reset resta per il caso vero -- equazione presente che NON cita
+            // quella costante.
+            if (!equationFieldIsEmpty) {
+                // RESET: S a 0.0, le altre (A-F) a 1.0
+                if (letter == "S") {
+                    line->setText("0");
+                    slider->setValue(0);
+                } else {
+                    line->setText("1");
+                    slider->setValue(100);
+                }
             }
 
             slider->setEnabled(false);
@@ -9337,7 +9364,20 @@ void MainWindow::onStartClicked()
         QPlainTextEdit *eqEditor = crossSectionActive ? ui->lineEquationCrossSection : ui->lineEquation;
 
         QString rawEq = eqEditor->toPlainText().trimmed();
-        if (rawEq.isEmpty()) return;
+        // CAMPO VUOTO: si avvisa e si esce, non si esce in silenzio. Il return
+        // muto lasciava a schermo la superficie PRECEDENTE senza dire nulla --
+        // l'utente cancellava l'equazione, premeva Invio e vedeva la scena di
+        // prima, senza capire se il Run fosse andato o no. In Cross Section era
+        // anche peggio: il campo vuoto arriva al fallback di
+        // createImplicitFragmentShader (glwidget ~4511), che sostituisce la
+        // stringa vuota con la sfera -- e quella sfera, passando da
+        // %CROSS_SECTION_P%, veniva mostrata come sezione ruotata in 4D, cioe'
+        // una superficie che nessuno aveva chiesto.
+        // Per svuotare la scena c'e' NEW, che e' esplicito.
+        if (rawEq.isEmpty()) {
+            InputValidator::notifyEmptyImplicitEquation(this, crossSectionActive);
+            return;
+        }
 
         const QString eqFieldLabel = crossSectionActive ? "Cross Section Equation" : "Implicit Equation";
         if (!InputValidator::validateImplicitEquation(this, rawEq, /*allowP=*/crossSectionActive)) return;
@@ -10978,6 +11018,38 @@ void MainWindow::setNavControlsEnabled(bool enabled)
     // Tasti di spostamento a click dei dock 3D/4D (X±, Y±, left/right, roll, ...).
     for (QPushButton* btn : m_navButtons) {
         if (btn) btn->setEnabled(enabled);
+    }
+
+    // RIACCENSIONE NON INCONDIZIONATA. Questa funzione spegne i tasti mentre un
+    // path guida la telecamera e li riaccende quando finisce, ma 'enabled=true'
+    // significa "il path non comanda piu'", NON "tutti questi tasti hanno
+    // senso adesso": in Ray Marching gli spostamenti X/Y/Z dell'osservatore
+    // restano spenti in ogni caso (scrivono u_observerPos, che il template del
+    // marcher non legge, e sarebbero un doppio spostamento rispetto alla
+    // matrice di vista -- vedi updateRenderState).
+    // Senza questo ripristino bastava DIGITARE in un campo path per riaccenderli:
+    // textChanged -> checkPathFields -> updateViewButtonsEnabled ->
+    // setNavControlsEnabled(true), e i tasti tornavano attivi a sproposito.
+    // I vincoli di modalita' li decide updateRenderState, con gli STESSI due
+    // gate usati la': gli spostamenti dell'osservatore sono sempre spenti in
+    // Ray Marching, mentre P+/P- e le rotazioni 4D dipendono da rot4DUsable
+    // (accesi nel solo sotto-tab Cross Section, dove governano quota e
+    // inclinazione del piano di sezione).
+    if (enabled && ui->tabModeSelector->currentIndex() == 1) {
+        for (QPushButton *b : { ui->btnXPlus, ui->btnXMinus,
+                                ui->btnYPlus, ui->btnYMinus,
+                                ui->btnZPlus, ui->btnZMinus,
+                                ui->btnLightMode }) {
+            if (b) b->setEnabled(false);
+        }
+        const bool rot4DUsable = ui->subTabImplicit
+                                 && ui->subTabImplicit->currentIndex() == 1;
+        for (QPushButton *b : { ui->btnPPlus,      ui->btnPMinus,
+                                ui->btnOmegaAhead, ui->btnOmegaRear,
+                                ui->btnPhiAhead,   ui->btnPhiRear,
+                                ui->btnPsiAhead,   ui->btnPsiRear }) {
+            if (b) b->setEnabled(rot4DUsable);
+        }
     }
 }
 
