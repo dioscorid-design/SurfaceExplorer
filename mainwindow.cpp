@@ -4456,7 +4456,16 @@ MainWindow::MainWindow(QWidget *parent)
 #endif
 
     EnterApplyFilter* equationEnterFilter = new EnterApplyFilter(this);
-    equationEnterFilter->onEnter = [this]() { onStartClicked(); };
+    // Il flag marca QUESTA via d'ingresso (Invio su un campo equazione), che
+    // altrimenti onStartClicked non potrebbe distinguere dalle chiamate
+    // programmatiche: entrambe arrivano senza sender(). Serve a riarmare il
+    // clock della geometria come fa il Run. Ripristinato sempre, anche sulle
+    // molte uscite anticipate di onStartClicked (validazioni, popup).
+    equationEnterFilter->onEnter = [this]() {
+        m_commitFromEnterKey = true;
+        const auto reset = qScopeGuard([this]{ m_commitFromEnterKey = false; });
+        onStartClicked();
+    };
     ui->lineEquation->installEventFilter(equationEnterFilter);
     ui->lineEquationCrossSection->installEventFilter(equationEnterFilter);
 
@@ -8998,6 +9007,27 @@ void MainWindow::onStartClicked()
         // il modulo geometria, quindi riarmano lo stop manuale del suo clock.
         m_userStoppedGeomClock = false;
         snapshotActiveEquations();
+    }
+
+    // COMMIT DA INVIO su un campo equazione. Arriva qui dalla lambda del filtro
+    // (EnterApplyFilter -> onStartClicked()), quindi SENZA sender(): non e' ne'
+    // runDockOnly ne' masterStart, e non passava dal riarmo qui sopra. Ma
+    // premere Invio su un'equazione e' un'intenzione di ESEGUIRE esattamente
+    // come premere Run: dopo uno Stop del dock, l'Invio applicava la nuova
+    // equazione lasciando il clock spento -- la superficie restava ferma e il
+    // tasto su Run/START, e serviva un Run esplicito per ripartire. Le due vie
+    // d'ingresso devono equivalersi.
+    // Si riarma SOLO il clock della geometria: un commit di equazione non e' un
+    // master Start, quindi non tocca suono, texture, sfondo e moti camera (vedi
+    // il blocco 'masterStart' qui sotto, che resta l'unico a governarli).
+    // SERVE IL FLAG ESPLICITO, non "assenza di sender": onStartClicked() e'
+    // chiamato programmaticamente anche da altri percorsi senza sender -- p.es.
+    // handleTextureSelection al cambio scheda (~8730) -- e riarmare li'
+    // riaccenderebbe la geometria che l'utente aveva fermato, che e' la
+    // regressione nota "caricare una texture dalla libreria fa ripartire la
+    // scena".
+    if (m_commitFromEnterKey) {
+        m_userStoppedGeomClock = false;
     }
     // Solo un vero master Start riarma il riavvio automatico del suono (un Run di
     // dock o un commit di equazione NON deve riaccendere un suono fermato a mano).

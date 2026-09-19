@@ -789,6 +789,13 @@ private:
     bool m_userStoppedTexClock  = false;
     bool m_userStoppedBgClock   = false;
     bool m_userStoppedGeomClock = false;
+    // Vero SOLO mentre onStartClicked() gira per un Invio su un campo equazione
+    // (EnterApplyFilter). Quell'ingresso non ha sender(), quindi e'
+    // indistinguibile dalle chiamate programmatiche -- p.es. quella al cambio
+    // scheda in handleTextureSelection -- che invece NON devono riarmare nulla.
+    // Serve a dare all'Invio lo stesso diritto del Run di riaccendere il clock
+    // della geometria fermato a mano, e a nessun altro percorso.
+    bool m_commitFromEnterKey = false;
     // Stesso ruolo, per gli orologi delle SINGOLE mesh: alzato dallo Stop in
     // ambito "Mesh", impedisce ai ricalcoli di applyAnimationState (commit di
     // equazione, load, toggle sfondo) di riaccendere una fascia fermata a mano.

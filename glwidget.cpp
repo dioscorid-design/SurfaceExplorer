@@ -3984,6 +3984,23 @@ void GLWidget::stopAllTimers() {
 void GLWidget::resetTime() {
     m_manualTime = 0.00001f;
     m_surfaceTimer.restart();
+    // ANCHE la base di m_manualTime, non solo quella del dt. m_elapsedTimer
+    // misura dall'AVVIO DELL'APP (start() una sola volta nel costruttore, poi
+    // restart() solo in startAnimationTimer): senza questo restart il primo
+    // stopAnimationTimer() successivo -- che fa
+    // m_manualTime = m_elapsedTimer.elapsed() -- RESUSCITAVA il tempo appena
+    // azzerato qui, riportandolo a decine di secondi.
+    // Sintomo (solo Ray Marching, dalla SECONDA volta in poi): ricaricata la
+    // superficie di default e rimessa una 't' nell'equazione, la sfera nasceva
+    // gia' a t=43 invece che a t~0. Con x^2+y^2+t*z^2=1 il semiasse z vale
+    // 1/sqrt(t): a t~0 si contrae in fretta (il moto atteso), a t=43 e' gia' un
+    // disco schiacciato che evolve in modo impercettibile -- sembrava
+    // "appiattita e ferma", e non lo era.
+    // La PRIMA volta funzionava perche' m_animTimer non era ancora mai partito
+    // e la guardia di stopAnimationTimer() lasciava m_manualTime intatto.
+    // L'ordine in resetScene (resetTime() e, piu' sotto, stopAnimationTimer())
+    // resta quello che e': la base va azzerata qui, alla sorgente.
+    m_elapsedTimer.restart();
     m_lastRealTime = 0.0f;
     m_timeGeom = 0.0f;
     m_timeTex = 0.0f;
