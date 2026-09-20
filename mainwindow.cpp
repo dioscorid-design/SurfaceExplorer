@@ -4642,6 +4642,22 @@ void MainWindow::noteSceneControlUsed()
     m_runEverSucceeded = true;
 }
 
+// Gemello di noteSceneControlUsed per i comandi di VISTA (trascinamento del
+// mouse, rotella, tasti di camera). Unica differenza: a SCENA VUOTA non marca
+// nulla.
+// Dopo un NEW non c'e' niente da proteggere, e ruotare il nulla non e' lavoro:
+// marcando comunque, l'app chiedeva "vuoi salvare?" al caricamento successivo o
+// alla chiusura, su una scena in cui l'utente non aveva messo nulla.
+// NON si puo' mettere la guardia dentro noteSceneControlUsed: da li' passano
+// anche il load di una texture e di un suono dalla libreria (~12799, ~14963),
+// che sono lavoro VERO anche senza superficie -- comporre una texture su scena
+// vuota e perderla senza avviso sarebbe il bug opposto.
+void MainWindow::noteViewControlUsed()
+{
+    if (isSceneEmpty()) return;
+    noteSceneControlUsed();
+}
+
 // Collega in blocco i controlli dei dock. In un punto solo, e per elenco di
 // widget, perche' modificare a mano le ~40 connect esistenti significherebbe
 // dimenticarne qualcuna e sporcare lambda che fanno altro.
@@ -4831,14 +4847,17 @@ void MainWindow::wireSceneControlsDirtyTracking()
     // senza che venisse chiesto nulla. Stesso criterio degli altri controlli
     // del modulo (editor ~1830, slider colore ~3991).
     if (ui->glWidget) {
-        connect(ui->glWidget, &GLWidget::userMovedView, this, [this, mark]() {
+        connect(ui->glWidget, &GLWidget::userMovedView, this, [this]() {
             if (ui->glWidget && ui->glWidget->isFlatView()) {
                 // Stesse guardie di noteSceneControlUsed, che qui non passa.
                 if (!m_uiReady || m_populatingFields) return;
                 m_textureDirty = true;
                 return;
             }
-            mark();
+            // noteViewControlUsed e non mark(): muovere la vista di una scena
+            // VUOTA (dopo NEW) non e' lavoro da proteggere, e faceva comparire
+            // "vuoi salvare?" su una scena in cui non c'era nulla.
+            noteViewControlUsed();
         });
     }
 }
@@ -5814,6 +5833,13 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         if (!m_texModeSwitchInProgress) tree->collapseAll();
         tree->blockSignals(b);
     }
+
+    // Nuovo zero dei campi del dock 4D. In coda a TUTTO: questa funzione serve
+    // il cambio tab, il riclic sulla linguetta e il tasto NEW, e in ognuno dei
+    // tre la scena e' appena diventata un'altra -- compresa la superficie di
+    // default del Cross Section, che nasce con una sua inquadratura
+    // (omega=0.5, P=0.015) che va presa come riferimento, non mostrata.
+    resetNav4DBaseline();
 }
 
 
@@ -10113,6 +10139,9 @@ void MainWindow::onResetViewClicked()
     // Sincronizza il pulsante principale (che rimarrà su STOP se la superficie,
     // le rotazioni o un path stanno andando)
     updateMasterButtonState();
+
+    // Reset view: lo stato 4D appena azzerato diventa il nuovo zero dei campi.
+    resetNav4DBaseline();
 }
 
 void MainWindow::onNavTimerTick()
@@ -10123,8 +10152,77 @@ void MainWindow::onNavTimerTick()
         ui->glWidget->virtualMove(static_cast<GLWidget::MoveDir>(action), m_pathSpeed3D, m_pathSpeed4D);
     }
 
+    updateNav4DReadout();
+
     // useAppliedEquations: navigare non e' un Run.
     checkAndTriggerMeshUpdate(/*useAppliedEquations=*/true);
+}
+
+// Readout numerico dei tasti a scatto del dock 4D: i tasti non davano alcun
+// riscontro, quindi dopo qualche click non c'era modo di sapere il valore
+// corrente ne' di tornare a una posizione nota.
+//
+// IL DOCK SERVE DUE MODALITA' CON SEMANTICHE DIVERSE, e le label devono seguire
+// quella attiva, non una sola delle due:
+//  - PARAMETRICO: X/Y/Z/P muovono l'OSSERVATORE 4D (m_observerPos, che il ramo
+//    parametrico legge davvero). Nota che la sua W parte da 4.0, non da 0: e'
+//    la distanza di default della camera 4D, e mostrare "0.00" li' sarebbe una
+//    bugia.
+//  - RAY MARCHING: X/Y/Z sono spenti (scriverebbero uno stato che il template
+//    del marcher non legge, vedi updateRenderState) e P muove invece la QUOTA
+//    DEL PIANO DI SEZIONE (m_crossSectionP). Le label X/Y/Z mostrano percio'
+//    un trattino: il valore esiste nel motore ma non descrive nulla di cio' che
+//    si vede, e un numero che non cambia mai premendo il tasto confonde.
+// Omega/Phi/Psi sono gli stessi angoli nei due modi, quindi non si ramificano.
+void MainWindow::updateNav4DReadout()
+{
+    if (!ui->glWidget) return;
+
+    const bool isImplicitMode = (ui->tabModeSelector->currentIndex() == 1);
+    const QVector4D obs = ui->glWidget->observerPos();
+
+    // Sempre una DIFFERENZA rispetto alla baseline: i campi dicono di quanto
+    // l'utente ha mosso i tasti, non dove si trova la camera. Il segno si
+    // mostra esplicitamente ('+' incluso) perche' un delta senza segno si
+    // confonde con una posizione.
+    auto fmt = [](float v) {
+        // -0.00 e' matematicamente corretto ma si legge come un errore.
+        if (qAbs(v) < 0.005f) v = 0.0f;
+        return QString::asprintf("%+.2f", v);
+    };
+
+    if (ui->lblXVal4D) ui->lblXVal4D->setText(fmt(obs.x() - m_nav4DBaseObs.x()));
+    if (ui->lblYVal4D) ui->lblYVal4D->setText(fmt(obs.y() - m_nav4DBaseObs.y()));
+    if (ui->lblZVal4D) ui->lblZVal4D->setText(fmt(obs.z() - m_nav4DBaseObs.z()));
+
+    // P: quota della sezione in Ray Marching, quarta coordinata (distanza) della
+    // camera 4D in parametrico. Due grandezze distinte, ma entrambe mostrate
+    // come variazione, quindi qui la differenza e' solo nella sorgente.
+    if (ui->lblPVal4D) {
+        const float delta = isImplicitMode
+                          ? ui->glWidget->crossSectionP() - m_nav4DBaseCsP
+                          : obs.w() - m_nav4DBaseObs.w();
+        ui->lblPVal4D->setText(fmt(delta));
+    }
+
+    if (ui->lblOmegaVal4D) ui->lblOmegaVal4D->setText(fmt(ui->glWidget->getOmega() - m_nav4DBaseOmega));
+    if (ui->lblPhiVal4D)   ui->lblPhiVal4D->setText(fmt(ui->glWidget->getPhi()   - m_nav4DBasePhi));
+    if (ui->lblPsiVal4D)   ui->lblPsiVal4D->setText(fmt(ui->glWidget->getPsi()   - m_nav4DBasePsi));
+}
+
+// Fotografa lo stato 4D corrente come nuovo zero dei campi, e li riallinea.
+// Dopo questa chiamata il dock mostra sette "+0.00" qualunque sia lo stato
+// reale del motore: e' il comportamento voluto anche sui preset, dove
+// l'inquadratura salvata diventa il riferimento da cui l'utente si muove.
+void MainWindow::resetNav4DBaseline()
+{
+    if (!ui->glWidget) return;
+    m_nav4DBaseObs   = ui->glWidget->observerPos();
+    m_nav4DBaseCsP   = ui->glWidget->crossSectionP();
+    m_nav4DBaseOmega = ui->glWidget->getOmega();
+    m_nav4DBasePhi   = ui->glWidget->getPhi();
+    m_nav4DBasePsi   = ui->glWidget->getPsi();
+    updateNav4DReadout();
 }
 
 void MainWindow::commitPathFieldOnEnter(const QString& fieldName)
@@ -10742,6 +10840,8 @@ void MainWindow::applyPath4DCameraAt(float t)
 
     // 5. Invio finale
     ui->glWidget->setCameraFrom4DVectors(rotPos, rotTarget, rotUp);
+
+    updateNav4DReadout();
 }
 
 // Equazioni parametriche sufficienti a definire una superficie: almeno TRE dei
@@ -13204,6 +13304,11 @@ void MainWindow::applySurfaceExample(LibraryItem d)
 
     this->setProperty("isTextureModified", false);
 
+    // La superficie caricata diventa il RIFERIMENTO dei campi del dock 4D: da
+    // qui l'utente misura di quanto si e' mosso. In coda perche'
+    // setRotation4D/setCrossSectionP scrivono lo stato poco sopra.
+    resetNav4DBaseline();
+
     // Suggerimento d'uso ("hintText"), come in applyMotionExample: le superfici
     // passano da QUI e non da quella, quindi senza questa riga il messaggio
     // comparirebbe solo sui record.
@@ -14425,6 +14530,11 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // handleTextureSelection), quindi qui non lo azzera nessun altro.
     m_currentTextureHintText    = data.textureHintText.trimmed();
     m_currentTextureHintSeconds = data.textureHintSeconds;
+
+    // Il record caricato diventa il riferimento dei campi del dock 4D, come per
+    // le superfici. In coda: setRotation4D/setCrossSectionP scrivono poco sopra.
+    resetNav4DBaseline();
+
     showSceneHint(data.hintText, data.hintSeconds);
 }
 

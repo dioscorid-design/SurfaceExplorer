@@ -643,6 +643,11 @@ public:
     // Marcato dalla rotazione manuale (mouse/touch) via InputHandler.
     void markUserRotated() { m_userRotatedManually = true; }
     float getObserverPos4D() const { return m_observerPos.w(); }
+    // Posizione COMPLETA dell'osservatore 4D. I tasti X/Y/Z/P del dock 4D la
+    // scrivono in modalita' parametrica (in Ray Marching X/Y/Z sono spenti e P
+    // muove invece la quota della sezione, m_crossSectionP): serve al readout
+    // numerico del dock, che deve mostrare il valore giusto in ENTRAMBI i modi.
+    QVector4D observerPos() const { return m_observerPos; }
     void setObserverPos4D(float pos) { m_observerPos.setW(pos); m_cameraPos4D.setW(pos); meshNeedsUpdate = true; update(); }
 
 

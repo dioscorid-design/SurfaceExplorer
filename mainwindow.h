@@ -122,6 +122,9 @@ private slots:
     // equazioni questi agiscono subito sulla scena -- non c'e' un Run da
     // attendere -- quindi marcano lavoro gia' applicato e da proteggere.
     void noteSceneControlUsed();
+    // Come sopra, ma per i comandi di VISTA: a scena vuota non marca nulla.
+    // Vedi il corpo per il motivo per cui la guardia non sta nel gemello.
+    void noteViewControlUsed();
     // Collega in blocco i controlli dei dock a noteSceneControlUsed().
     void wireSceneControlsDirtyTracking();
 
@@ -198,6 +201,21 @@ private slots:
     // tab. Chiede conferma se c'e' lavoro non salvato.
     void onNewSceneClicked();
     void onNavTimerTick();
+    // Readout numerico dei 7 tasti a scatto del dock 4D (X, Y, Z, P, Omega,
+    // Phi, Psi). Mostra la VARIAZIONE rispetto a un riferimento, non il valore
+    // assoluto del motore: e' cio' che serve a chi preme i tasti ("di quanto mi
+    // sono mosso"), e evita di esporre numeri che sembrano sporchi ma non lo
+    // sono -- la P parametrica e' una DISTANZA di camera che parte da 4.0, il
+    // T^3 del Cross Section nasce con omega=0.5 e P=0.015 di inquadratura.
+    // UNA SOLA funzione, chiamata da ogni punto che tocca quello stato (tasti
+    // nav, path 4D, load/reset di scena), cosi' un nuovo percorso non rischia
+    // di dimenticare l'aggiornamento -- non e' un timer a se stante.
+    void updateNav4DReadout();
+    // Fotografa lo stato 4D corrente come nuovo ZERO dei campi. Si chiama dove
+    // la scena cambia per una scelta dell'utente che non sia premere i tasti:
+    // load di preset/record (il preset diventa il riferimento), reset, New,
+    // cambio tab/sotto-tab.
+    void resetNav4DBaseline();
     void onDepartureClicked();
     void onPathTimerTick();
     void checkPathFields();
@@ -796,6 +814,19 @@ private:
     // Serve a dare all'Invio lo stesso diritto del Run di riaccendere il clock
     // della geometria fermato a mano, e a nessun altro percorso.
     bool m_commitFromEnterKey = false;
+
+    // ZERO dei campi numerici del dock 4D: lo stato 4D fotografato all'ultimo
+    // cambio di scena. I campi mostrano (stato corrente - questa baseline),
+    // cioe' di quanto l'utente ha mosso i tasti da allora. Vedi
+    // resetNav4DBaseline / updateNav4DReadout.
+    // Il default di m_nav4DBaseObs.w e' 4.0 come quello di GLWidget::m_observerPos:
+    // cosi' all'avvio, prima di qualunque reset, il campo P parametrico mostra
+    // gia' 0.00 invece della distanza di camera.
+    QVector4D m_nav4DBaseObs   = QVector4D(0.0f, 0.0f, 0.0f, 4.0f);
+    float     m_nav4DBaseCsP   = 0.0f;
+    float     m_nav4DBaseOmega = 0.0f;
+    float     m_nav4DBasePhi   = 0.0f;
+    float     m_nav4DBasePsi   = 0.0f;
     // Stesso ruolo, per gli orologi delle SINGOLE mesh: alzato dallo Stop in
     // ambito "Mesh", impedisce ai ricalcoli di applyAnimationState (commit di
     // equazione, load, toggle sfondo) di riaccendere una fascia fermata a mano.
