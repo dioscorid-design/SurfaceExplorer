@@ -5725,6 +5725,58 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // in un colpo membri (m_fov3D/m_fov4D), label, slider e motore.
     applyCameraFov(45.0f);
 
+    // COSTANTI A..F/S al DEFAULT (A..F = 1, S = 0). Erano l'ultimo stato della
+    // scena precedente a sopravvivere sia al cambio tab sia al tasto NEW: la
+    // superficie di default (o la scena vuota) nasceva con gli A..F del preset
+    // appena buttato via, e su una forma che le usa il primo Run partiva gia'
+    // deformato -- senza che niente a schermo dicesse perche'.
+    //
+    // NON si delega a updateConstantsUIState (chiamata poco sotto da
+    // checkParametricDependency): quella resetta le sole costanti CADUTE IN
+    // DISUSO, e in Ray Marching a campo equazione VUOTO -- cioe' proprio il caso
+    // del tasto NEW -- si ferma apposta a disabilitarle senza toccarne i valori
+    // (vedi equationFieldIsEmpty). Stesso schema del load di una texture
+    // (~8864), ma qui incondizionato: non c'e' nessuna superficie da rispettare.
+    //
+    // La S e' l'eccezione: in Ray Marching quel campo e' lo Step Relax del
+    // marcher, e i due rami sopra l'hanno GIA' riscritto col valore di
+    // modalita' (m_lastImplicitS / m_lastParametricS). Qui si riporta al
+    // default la sola memoria PARAMETRICA e, se siamo in parametrico, il campo:
+    // lo Step Relax non e' una costante e non va azzerato (azzerarlo congela i
+    // raggi, vedi la guardia in updateConstantsUIState).
+    {
+        auto resetConst = [](QSlider *sl, QLineEdit *ln, const char *txt, int v) {
+            QSignalBlocker bs(sl), bl(ln);
+            ln->setText(QLatin1String(txt));
+            sl->setValue(v);
+        };
+        resetConst(ui->aSlider, ui->lineA, "1", 100);
+        resetConst(ui->bSlider, ui->lineB, "1", 100);
+        resetConst(ui->cSlider, ui->lineC, "1", 100);
+        resetConst(ui->dSlider, ui->lineD, "1", 100);
+        resetConst(ui->eSlider, ui->lineE, "1", 100);
+        resetConst(ui->fSlider, ui->lineF, "1", 100);
+
+        m_lastParametricS = 0.0;
+        if (index != 1) resetConst(ui->sSlider, ui->lineS, "0", 0);
+
+        // Direttive di script sulle costanti ("A := int(2,6);", "F := min(0.3);"):
+        // appartengono allo script appena scartato. Restando in vigore, gli
+        // slider della scena nuova continuerebbero a scattare sugli interi (o a
+        // non scendere sotto una soglia) di una superficie che non c'e' piu'.
+        m_discreteConsts.clear();
+        m_minConsts.clear();
+
+        // I valori appena riscritti vanno anche al motore: i campi sono stati
+        // toccati a segnali BLOCCATI (obbligatorio: siamo dentro un reset, e
+        // quei textChanged ricompilerebbero e sporcherebbero la scena), quindi
+        // nessuno spingerebbe le costanti nell'UBO e nello shader resterebbero
+        // in vigore quelle vecchie.
+        const CascadeConstants kc = resolveCascadeConstants(false);
+        if (ui->glWidget)
+            ui->glWidget->setEquationConstants(kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s);
+    }
+
     updateRenderState();
     checkParametricDependency();
     ui->glWidget->update();
