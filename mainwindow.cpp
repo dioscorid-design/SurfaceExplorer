@@ -26,6 +26,7 @@
 #include <QCheckBox>
 #include <QTabBar>
 #include <QTimer>
+#include <QToolTip>
 #include <QScopeGuard>
 #include <QAction>
 #include <QJsonObject>
@@ -151,6 +152,52 @@ static constexpr double kAliasEdgeFraction = 0.15;
 
 static inline bool isMeshSafeValue(double val) {
     return std::isfinite(val) && std::abs(val) <= kMaxRenderableMagnitude;
+}
+
+// Avviso sui controlli che il marcher Precise rende inerti (Ray Steps e Step
+// Relax). Un widget DISABILITATO non riceve gli eventi del mouse e quindi non
+// mostrerebbe il tooltip: serve WA_AlwaysShowToolTips, o il testo non si
+// vedrebbe proprio nel caso in cui serve.
+//
+// SUBITO, non dopo i ~700ms di Qt: l'attesa standard serve a non coprire di
+// avvisi chi sta solo attraversando la UI col mouse, ma qui il controllo e'
+// grigio e la domanda ("perche' non funziona?") e' gia' in testa a chi ci
+// passa sopra. Il tooltip lo mostra quindi questo filtro al primo Enter,
+// invece di lasciarlo al timer interno.
+class InertHintFilter : public QObject {
+public:
+    using QObject::QObject;
+protected:
+    bool eventFilter(QObject *obj, QEvent *ev) override {
+        if (ev->type() == QEvent::Enter) {
+            if (QWidget *w = qobject_cast<QWidget*>(obj)) {
+                const QString tip = w->toolTip();
+                // Solo finche' il controllo e' inerte: tolto il tooltip (torno
+                // su Fast) questo filtro non ha piu' nulla da mostrare.
+                if (!tip.isEmpty())
+                    QToolTip::showText(w->mapToGlobal(w->rect().center()), tip, w);
+            }
+        }
+        return QObject::eventFilter(obj, ev);
+    }
+};
+
+// Il testo si TOGLIE quando il controllo torna vivo: un tooltip rimasto appeso
+// a uno slider funzionante direbbe il falso. Per questo la funzione prende il
+// flag invece di essere chiamata solo nel ramo "spento".
+static void setInertControlHint(QWidget *w, bool inert)
+{
+    if (!w) return;
+    w->setAttribute(Qt::WA_AlwaysShowToolTips, inert);
+    w->setToolTip(inert ? QObject::tr("Sliders disabled with Precise selected")
+                        : QString());
+
+    // Un filtro per widget, installato una volta sola: la proprieta' fa da
+    // marcatore, altrimenti ogni giro di updateRenderState ne aggiungerebbe uno.
+    if (inert && !w->property("inertHintFilter").toBool()) {
+        w->installEventFilter(new InertHintFilter(w));   // parent = w: muore con lui
+        w->setProperty("inertHintFilter", true);
+    }
 }
 
 // Rimuove i commenti di linea e di blocco dal codice (GLSL o equazioni)
@@ -5620,6 +5667,20 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
             // due rami di load.
             applyImplicitShellMode(true);
 
+            // Marcher: torna a Fast, il default di avvio (~2413). Stessa ragione
+            // di Shell/Solid qui sopra -- senza, il reset ereditava il marcher
+            // dell'ultimo preset caricato -- e stessa regola del tasto New:
+            // azzerare tutto, nessuna eccezione. Conta anche per gli slider:
+            // Ray Steps e Step Relax sono inerti con Precise (vedi il gate in
+            // updateRenderState e "stepRelaxInert" in updateConstantsUIState),
+            // quindi un reset che lasciasse Precise acceso consegnerebbe una
+            // scena nuova con due controlli spenti senza una ragione visibile.
+            // I radio sono a segnali vivi: setChecked fa girare updateMarcherMode,
+            // che allinea il motore e rifa' il gating. Si passa da li' invece di
+            // scrivere setHybridMarcher a mano per non duplicare quella logica.
+            if (ui->radioMarcherFast && !ui->radioMarcherFast->isChecked())
+                ui->radioMarcherFast->setChecked(true);
+
             ui->glWidget->rebuildShader();
 
             // Sotto-tab Cross Section: stessa idea, superficie di default
@@ -6754,6 +6815,12 @@ void MainWindow::updateRenderState()
             ui->stepSlider->setEnabled(true);
             ui->lineSteps->setEnabled(true);
         }
+        // Perche' sono grigi: senza una parola, lo slider spento sembra un guasto
+        // (e' il motivo per cui l'utente l'ha segnalato come bug). Il testo si
+        // attacca e si toglie insieme al gate, cosi' non resta appeso a un
+        // controllo tornato vivo.
+        setInertControlHint(ui->stepSlider, preciseMarcher);
+        setInertControlHint(ui->lineSteps,  preciseMarcher);
     }
 
     // Ultimo blocco della funzione: sovrascrive di proposito le decisioni prese
@@ -7498,6 +7565,10 @@ void MainWindow::updateConstantsUIState() {
                                          && ui->glWidget->hybridMarcher());
             slider->setEnabled(!stepRelaxInert);
             line->setEnabled(!stepRelaxInert);
+            // Stesso avviso del gate gemello di Ray Steps in updateRenderState:
+            // spento senza spiegazione, lo slider sembra rotto.
+            setInertControlHint(slider, stepRelaxInert);
+            setInertControlHint(line,   stepRelaxInert);
         }
     };
 
