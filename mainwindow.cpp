@@ -10313,9 +10313,27 @@ void MainWindow::onNavTimerTick()
 {
     if (activeNavActions.isEmpty()) return;
 
+    // Stato 4D PRIMA degli scatti di questo tick. La differenza col dopo e'
+    // quanto hanno prodotto i tasti -- e solo loro, perche' fra queste due
+    // righe non gira nient'altro: le rotazioni automatiche avanzano nel tick di
+    // rotationTimer, il path nel suo. E' il motivo per cui la misura si prende
+    // qui e non in updateNav4DReadout, dove i due contributi sarebbero gia'
+    // sommati e indistinguibili.
+    const QVector4D obsBefore = ui->glWidget->observerPos();
+    const float csPBefore   = ui->glWidget->crossSectionP();
+    const float omegaBefore = ui->glWidget->getOmega();
+    const float phiBefore   = ui->glWidget->getPhi();
+    const float psiBefore   = ui->glWidget->getPsi();
+
     for (int action : activeNavActions) {
         ui->glWidget->virtualMove(static_cast<GLWidget::MoveDir>(action), m_pathSpeed3D, m_pathSpeed4D);
     }
+
+    m_nav4DDeltaObs   += ui->glWidget->observerPos() - obsBefore;
+    m_nav4DDeltaCsP   += ui->glWidget->crossSectionP() - csPBefore;
+    m_nav4DDeltaOmega += ui->glWidget->getOmega() - omegaBefore;
+    m_nav4DDeltaPhi   += ui->glWidget->getPhi()   - phiBefore;
+    m_nav4DDeltaPsi   += ui->glWidget->getPsi()   - psiBefore;
 
     updateNav4DReadout();
 
@@ -10344,49 +10362,45 @@ void MainWindow::updateNav4DReadout()
     if (!ui->glWidget) return;
 
     const bool isImplicitMode = (ui->tabModeSelector->currentIndex() == 1);
-    const QVector4D obs = ui->glWidget->observerPos();
 
-    // Sempre una DIFFERENZA rispetto alla baseline: i campi dicono di quanto
-    // l'utente ha mosso i tasti, non dove si trova la camera. Il segno si
-    // mostra esplicitamente ('+' incluso) perche' un delta senza segno si
-    // confonde con una posizione.
+    // Il segno si mostra esplicitamente ('+' incluso) perche' un delta senza
+    // segno si confonde con una posizione.
     auto fmt = [](float v) {
         // -0.00 e' matematicamente corretto ma si legge come un errore.
         if (qAbs(v) < 0.005f) v = 0.0f;
         return QString::asprintf("%+.2f", v);
     };
 
-    if (ui->lblXVal4D) ui->lblXVal4D->setText(fmt(obs.x() - m_nav4DBaseObs.x()));
-    if (ui->lblYVal4D) ui->lblYVal4D->setText(fmt(obs.y() - m_nav4DBaseObs.y()));
-    if (ui->lblZVal4D) ui->lblZVal4D->setText(fmt(obs.z() - m_nav4DBaseObs.z()));
+    if (ui->lblXVal4D) ui->lblXVal4D->setText(fmt(m_nav4DDeltaObs.x()));
+    if (ui->lblYVal4D) ui->lblYVal4D->setText(fmt(m_nav4DDeltaObs.y()));
+    if (ui->lblZVal4D) ui->lblZVal4D->setText(fmt(m_nav4DDeltaObs.z()));
 
     // P: quota della sezione in Ray Marching, quarta coordinata (distanza) della
-    // camera 4D in parametrico. Due grandezze distinte, ma entrambe mostrate
-    // come variazione, quindi qui la differenza e' solo nella sorgente.
-    if (ui->lblPVal4D) {
-        const float delta = isImplicitMode
-                          ? ui->glWidget->crossSectionP() - m_nav4DBaseCsP
-                          : obs.w() - m_nav4DBaseObs.w();
-        ui->lblPVal4D->setText(fmt(delta));
-    }
+    // camera 4D in parametrico. Due grandezze distinte, due accumulatori: lo
+    // stesso tasto muove l'una o l'altra secondo il modo, e passando da un modo
+    // all'altro il campo deve mostrare gli scatti dati IN QUEL modo.
+    if (ui->lblPVal4D)
+        ui->lblPVal4D->setText(fmt(isImplicitMode ? m_nav4DDeltaCsP
+                                                  : m_nav4DDeltaObs.w()));
 
-    if (ui->lblOmegaVal4D) ui->lblOmegaVal4D->setText(fmt(ui->glWidget->getOmega() - m_nav4DBaseOmega));
-    if (ui->lblPhiVal4D)   ui->lblPhiVal4D->setText(fmt(ui->glWidget->getPhi()   - m_nav4DBasePhi));
-    if (ui->lblPsiVal4D)   ui->lblPsiVal4D->setText(fmt(ui->glWidget->getPsi()   - m_nav4DBasePsi));
+    if (ui->lblOmegaVal4D) ui->lblOmegaVal4D->setText(fmt(m_nav4DDeltaOmega));
+    if (ui->lblPhiVal4D)   ui->lblPhiVal4D->setText(fmt(m_nav4DDeltaPhi));
+    if (ui->lblPsiVal4D)   ui->lblPsiVal4D->setText(fmt(m_nav4DDeltaPsi));
 }
 
-// Fotografa lo stato 4D corrente come nuovo zero dei campi, e li riallinea.
-// Dopo questa chiamata il dock mostra sette "+0.00" qualunque sia lo stato
-// reale del motore: e' il comportamento voluto anche sui preset, dove
-// l'inquadratura salvata diventa il riferimento da cui l'utente si muove.
+// Azzera il conto degli scatti: il dock torna a sette "+0.00" qualunque sia lo
+// stato reale del motore. E' il comportamento voluto anche sui preset, dove
+// l'inquadratura salvata e' il punto da cui l'utente inizia a muoversi.
+// (Il nome parla ancora di "baseline" per continuita' coi ~4 punti che la
+// chiamano -- cambio scena, load di superfici e record, tasto RESET.)
 void MainWindow::resetNav4DBaseline()
 {
     if (!ui->glWidget) return;
-    m_nav4DBaseObs   = ui->glWidget->observerPos();
-    m_nav4DBaseCsP   = ui->glWidget->crossSectionP();
-    m_nav4DBaseOmega = ui->glWidget->getOmega();
-    m_nav4DBasePhi   = ui->glWidget->getPhi();
-    m_nav4DBasePsi   = ui->glWidget->getPsi();
+    m_nav4DDeltaObs   = QVector4D(0.0f, 0.0f, 0.0f, 0.0f);
+    m_nav4DDeltaCsP   = 0.0f;
+    m_nav4DDeltaOmega = 0.0f;
+    m_nav4DDeltaPhi   = 0.0f;
+    m_nav4DDeltaPsi   = 0.0f;
     updateNav4DReadout();
 }
 

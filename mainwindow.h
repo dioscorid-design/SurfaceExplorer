@@ -815,18 +815,22 @@ private:
     // della geometria fermato a mano, e a nessun altro percorso.
     bool m_commitFromEnterKey = false;
 
-    // ZERO dei campi numerici del dock 4D: lo stato 4D fotografato all'ultimo
-    // cambio di scena. I campi mostrano (stato corrente - questa baseline),
-    // cioe' di quanto l'utente ha mosso i tasti da allora. Vedi
-    // resetNav4DBaseline / updateNav4DReadout.
-    // Il default di m_nav4DBaseObs.w e' 4.0 come quello di GLWidget::m_observerPos:
-    // cosi' all'avvio, prima di qualunque reset, il campo P parametrico mostra
-    // gia' 0.00 invece della distanza di camera.
-    QVector4D m_nav4DBaseObs   = QVector4D(0.0f, 0.0f, 0.0f, 4.0f);
-    float     m_nav4DBaseCsP   = 0.0f;
-    float     m_nav4DBaseOmega = 0.0f;
-    float     m_nav4DBasePhi   = 0.0f;
-    float     m_nav4DBasePsi   = 0.0f;
+    // Campi numerici del dock 4D: quanto l'utente ha mosso COI TASTI da
+    // resetNav4DBaseline in poi. Si ACCUMULA qui a ogni scatto, invece di
+    // dedurlo per differenza da una fotografia dello stato 4D.
+    // La differenza non funzionava: omega/phi/psi avanzano anche da soli
+    // (GLWidget::advanceRotationsBy, rotazioni 4D in corsa) e la stessa camera
+    // e' mossa dal path, quindi "stato corrente - baseline" conteneva pure il
+    // moto automatico. Bastava premere un tasto qualsiasi perche' il campo di
+    // omega saltasse di colpo a tutta la rotazione accumulata nel frattempo --
+    // un numero che l'utente non aveva prodotto.
+    // Accumulando solo gli scatti, ogni campo riporta i suoi e nient'altro, e
+    // i moti automatici non lo toccano.
+    QVector4D m_nav4DDeltaObs = QVector4D(0.0f, 0.0f, 0.0f, 0.0f); // X/Y/Z, e W = P parametrico
+    float     m_nav4DDeltaCsP   = 0.0f;   // P in Ray Marching (quota della sezione)
+    float     m_nav4DDeltaOmega = 0.0f;
+    float     m_nav4DDeltaPhi   = 0.0f;
+    float     m_nav4DDeltaPsi   = 0.0f;
     // Stesso ruolo, per gli orologi delle SINGOLE mesh: alzato dallo Stop in
     // ambito "Mesh", impedisce ai ricalcoli di applyAnimationState (commit di
     // equazione, load, toggle sfondo) di riaccendere una fascia fermata a mano.
