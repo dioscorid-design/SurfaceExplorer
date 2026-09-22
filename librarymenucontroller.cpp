@@ -48,10 +48,19 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     QTreeWidgetItem* refItem = itemUnderMouse ? itemUnderMouse : (selectedItems.isEmpty() ? nullptr : selectedItems.first());
 
     QMenu *contextMenu = new QMenu(m_mainWindow);
+    // Il ramo :disabled NON e' decorativo. Il QSS fissa 'color: #ffffff' per
+    // tutto il menu, e senza una regola propria una voce disabilitata resta
+    // BIANCA: indistinguibile da una attiva, quindi sembra che il comando sia
+    // cliccabile e non faccia nulla (Qt non emette triggered su un'azione
+    // disabilitata). Stessa famiglia di trappole del QSS globale sui tab.
+    // ':selected:disabled' serve perche' la voce si evidenzia comunque al
+    // passaggio del mouse: senza, tornerebbe bianca proprio mentre la si punta.
     contextMenu->setStyleSheet(
         "QMenu { background-color: #2b2b2b; color: #ffffff; border: 1px solid #3a3a3a; }"
         "QMenu::item { padding: 5px 20px; }"
         "QMenu::item:selected { background-color: #3a3a3a; }"
+        "QMenu::item:disabled { color: #6e6e6e; }"
+        "QMenu::item:selected:disabled { color: #6e6e6e; background-color: #2b2b2b; }"
         );
 
     QTreeWidget* safeTree = senderTree;
@@ -150,6 +159,30 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                 contextMenu->addAction("Save Record As...", m_mainWindow, [this, path, executeAction](){
                     executeAction([this, path](){ m_mainWindow->m_presetSerializer->saveMotionAs(QFileInfo(path).absolutePath(), path); });
                 });
+
+                // SYNC FOCUSED TEXTURE: solo sul record CARICATO, e solo se la sua
+                // texture di libreria e' stata modificata dopo il salvataggio.
+                // Il record cliccato puo' non essere quello in scena (la selezione
+                // dell'albero segue il click), e agire su un altro significherebbe
+                // aggiornare una scena che l'utente non sta guardando.
+                // Voce sempre PRESENTE ma disabilitata quando non farebbe nulla:
+                // farla sparire lascerebbe intendere che la funzione non esista.
+                {
+                    const bool isLoaded = !m_mainWindow->currentRecordPath().isEmpty()
+                                          && QFileInfo(m_mainWindow->currentRecordPath()) == QFileInfo(path);
+                    const bool hasUpdate = isLoaded && m_mainWindow->focusedTextureLibraryItem() != nullptr;
+
+                    QAction *actSync = contextMenu->addAction("Sync Focused Texture", m_mainWindow, [this, executeAction](){
+                        executeAction([this](){ m_mainWindow->syncFocusedTextureFromLibrary(); });
+                    });
+                    actSync->setEnabled(hasUpdate);
+                    actSync->setToolTip(!isLoaded
+                        ? QStringLiteral("Available on the record currently loaded in the scene.")
+                        : (hasUpdate
+                           ? QStringLiteral("Bring in the updated code of this record's texture, keeping its colors and constants.")
+                           : QStringLiteral("This record's texture already matches the library.")));
+                    contextMenu->setToolTipsVisible(true);
+                }
                 contextMenu->addAction("Copy Record", m_mainWindow, [this, refItem, executeAction](){
                     executeAction([this, refItem](){ m_mainWindow->m_fileOps->performCopy(refItem); });
                 });

@@ -677,6 +677,25 @@ private:
 
     QString lastTextureFolder;
     QString m_currentTexturePath;
+    // NOME della texture di libreria attualmente in uso, salvato nel record
+    // come texture["libName"] e riletto per ritrovarla nell'albero.
+    // Serve perche' il focus in libreria si decide per UGUAGLIANZA DEL CODICE
+    // (textureItemMatchesCode): un record porta la sua copia del sorgente, e
+    // BASTA ritoccare la texture in libreria -- aggiungere uno slider, correggere
+    // un commento -- perche' i record che la usano non la riconoscano piu'.
+    // E' lo stesso schema con cui le texture IMMAGINE non hanno mai avuto il
+    // problema: li' il confronto passa dal nome file nel tag //IMG:, che
+    // sopravvive a qualunque modifica del codice attorno.
+    // Vuoto = texture scritta a mano (non viene da libreria): in quel caso
+    // l'unico aggancio possibile resta il codice.
+    QString m_currentTextureLibName;
+
+    // File del RECORD attualmente in scena. Serve a "Sync Focused Texture", che
+    // deve agire solo quando il click destro cade sul record caricato: la
+    // selezione dell'albero non basta, segue il click e non dice cosa c'e'
+    // davvero a schermo. Vuoto = nessun record caricato (scena costruita a mano,
+    // superficie sola, o dopo un NEW).
+    QString m_currentRecordPath;
     // Percorso dell'immagine di SFONDO attiva. Gemello di m_currentTexturePath
     // (che vale per la superficie): senza, il ramo background non aveva modo di
     // sapere QUALE immagine campiona iChannel0 e salvava gli script della
@@ -1151,6 +1170,27 @@ private:
     // al load di un record.
     static bool textureItemMatchesCode(const LibraryItem &texItem, const QString &activeCode,
                                        const QString &cleanedActiveCode);
+
+    // Scansione dell'albero texture e selezione della voce corrispondente.
+    // Unica sede: prima cerca per CODICE su tutte le voci, poi ripiega sul nome
+    // di libreria (m_currentTextureLibName). Vedi il commento sulla definizione.
+    void selectTextureTreeItemFor(QTreeWidgetItemIterator &itTex,
+                                  const QString &activeCode,
+                                  const QString &cleanedActive);
+
+public:
+    // "Sync Focused Texture" (menu contestuale dei record): riporta nella scena
+    // il codice aggiornato della texture di libreria da cui il record proviene,
+    // lasciando intatti colori, costanti, zoom e pan -- cio' che ricaricare la
+    // texture dal dock sovrascriverebbe. Non salva: il record va risalvato.
+    bool syncFocusedTextureFromLibrary();
+    // Voce di libreria da sincronizzare, o nullptr se non c'e' nulla da fare
+    // (texture non da libreria, voce sparita, codice gia' uguale). Il menu la
+    // usa per decidere se abilitare la voce.
+    const LibraryItem *focusedTextureLibraryItem() const;
+    // File del record in scena: il menu confronta con quello cliccato.
+    QString currentRecordPath() const { return m_currentRecordPath; }
+private:
 
     // --- UI State & Graphics ---
     // Mostra un messaggio in sovrimpressione sulla scena per 'seconds' secondi

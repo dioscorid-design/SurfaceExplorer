@@ -2303,7 +2303,17 @@ MainWindow::MainWindow(QWidget *parent)
         // confirmDiscardUnsaved(ScopeScene), che lo elenca nel popup. Stesse
         // guardie di noteSceneEdited: le scritture del boot, del load e del
         // reset non sono lavoro dell'utente.
-        if (m_uiReady && !m_populatingFields) m_textureDirty = true;
+        if (m_uiReady && !m_populatingFields) {
+            m_textureDirty = true;
+            // Il codice non e' piu' quello della voce di libreria da cui veniva:
+            // il nome salvato nel record punterebbe a una texture diversa da
+            // quella a schermo. Si azzera, e il record torna ad agganciarsi per
+            // codice come ha sempre fatto. Stesse guardie della riga sopra: le
+            // scritture del load e del reset non sono modifiche dell'utente, e
+            // senza di esse questo cancellerebbe il nome appena impostato da
+            // handleTextureSelection (textChanged scatta anche sui setPlainText).
+            m_currentTextureLibName.clear();
+        }
         updateMasterButtonState();
     };
     connect(ui->lineTexture, &QPlainTextEdit::textChanged, this, markRmTextureEdited);
@@ -5075,6 +5085,10 @@ void MainWindow::applyModeTabReset(int index)
 // equazione e non si compila nulla: resta la scena vuota del tasto New.
 void MainWindow::resetScene(int index, bool loadDefaultSurface)
 {
+    // NEW, cambio tab, riclic sulla linguetta: la scena non e' piu' il record
+    // che era caricato (vedi m_currentRecordPath).
+    m_currentRecordPath.clear();
+
     // RESET IN CORSO: i campi (equazioni di default, limiti, editor) li riempie
     // questa funzione, non l'utente. Senza guardia quelle scritture -- fatte a
     // segnali VIVI -- passano da noteSceneEdited e, finche' m_surfaceScriptText
@@ -7848,27 +7862,205 @@ void MainWindow::syncTextureTreeSelection()
 
     QString cleanedActive =  cleanCodeForComparison(activeCode);
 
-    // Usiamo activeCode.trimmed()! Così se è un'immagine entra comunque nel ciclo.
-    if (!activeCode.trimmed().isEmpty()) {
-        while (*itTex) {
-            QVariant vTex = (*itTex)->data(0, Qt::UserRole + 1);
-            if (vTex.isValid()) {
-                int idx = vTex.toInt();
-                const LibraryItem &texItem = m_libraryManager.getTexture(idx);
-                bool isMatch = textureItemMatchesCode(texItem, activeCode, cleanedActive);
+    selectTextureTreeItemFor(itTex, activeCode, cleanedActive);
+}
 
-                if (isMatch) {
-                    (*itTex)->setSelected(true);
-                    ui->treeTextures->setCurrentItem(*itTex);
-                    QTreeWidgetItem* parent = (*itTex)->parent();
-                    while(parent) { parent->setExpanded(true); parent = parent->parent(); }
-                    ui->treeTextures->scrollToItem(*itTex);
-                    break;
-                }
-            }
-            ++itTex;
-        }
+// Sceglie e seleziona nell'albero la voce che corrisponde alla texture attiva.
+// UNICA SEDE della scansione: la usano sia syncTextureTreeSelection sia la
+// sincronizzazione al load di un record, che prima avevano due copie dello
+// stesso ciclo -- destinate a divergere alla prima correzione (e infatti la
+// correzione qui sotto andava fatta due volte).
+//
+// DUE PASSATE, e l'ordine conta: prima il CODICE su tutto l'albero, poi il
+// NOME. Fermarsi alla prima voce che risponde rendeva l'esito casuale quando
+// DUE voci rivendicano lo stesso record per criteri diversi -- una col codice
+// identico, una col nome salvato ma codice cambiato: vinceva quella incontrata
+// prima, cioe' l'ordine alfabetico ("Stripes" batte "Stripes v2", e si finiva
+// sulla texture sbagliata).
+// Vince il CODICE perche' e' quello che il record DISEGNA: evidenziare altro
+// significherebbe indicare una voce che, se cliccata, darebbe un'altra resa.
+// Il NOME serve al caso per cui e' stato introdotto -- codice modificato in
+// libreria -- dove nessun codice combacia piu'.
+// "Sync Focused Texture": riporta nel record il codice AGGIORNATO della sua
+// texture di libreria, senza toccare nient'altro.
+//
+// PERCHE' NON BASTA RICARICARE LA TEXTURE DAL DOCK. Quel percorso
+// (handleTextureSelection) applica il preset INTERO: sovrascrive i colori
+// (~8508) e rimette le costanti A-F del preset (~9052, quelle non usate dalla
+// superficie). Chi aveva scelto i propri colori o tarato uno slider li perdeva,
+// e l'unica alternativa era copiare lo script a mano nell'editor.
+// Qui si aggiorna il SOLO codice -- piu' il displacement, che e' parte della
+// stessa texture -- e restano: col1/col2, costanti, zoom, pan, rotation.
+//
+// NON SALVA. La scena risulta modificata e l'avviso di lavoro non salvato fa il
+// suo corso: vedere il risultato prima di scrivere sul file e' il punto, visto
+// che una texture che ha ACQUISITO uno slider usera' il valore che quella
+// costante ha NEL RECORD, non quello con cui la texture e' stata pensata.
+bool MainWindow::syncFocusedTextureFromLibrary()
+{
+    const LibraryItem *lib = focusedTextureLibraryItem();
+    if (!lib) return false;
+
+    const QString newCode = lib->textureCode.isEmpty() ? lib->scriptCode : lib->textureCode;
+    if (newCode.trimmed().isEmpty()) return false;
+
+    // Costante contesa: stessa domanda del caricamento normale. Il codice nuovo
+    // puo' rivendicare una lettera che la superficie sta gia' usando, e quello
+    // slider ne muoverebbe due insieme. Annullando non si tocca nulla.
+    if (!confirmTextureConstantClash(newCode, lib->displacementCode,
+                                     ui->radioBackground && ui->radioBackground->isChecked()))
+        return false;
+
+    const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
+
+    // blockSignals: questo codice VIENE dalla libreria, non e' una digitazione.
+    // Senza, textChanged azzererebbe m_currentTextureLibName (~2315) e il record
+    // perderebbe proprio l'ancora che ha permesso di trovare la texture.
+    if (isImplicit && ui->lineTexture) {
+        ui->lineTexture->blockSignals(true);
+        ui->lineTexture->setPlainText(newCode);
+        ui->lineTexture->blockSignals(false);
+    } else {
+        syncTextureEditorTo(newCode);
     }
+
+    // m_surfaceTextureCode va aggiornato in ENTRAMBI i rami, non nel solo
+    // parametrico: e' lo slot da cui handleTextureSelection legge activeCode per
+    // decidere se la texture cliccata e' gia' quella attiva (isMatch, ~13060).
+    // Scrivendo in Ray Marching il solo lineTexture, quello slot restava col
+    // codice PRE-sync: ricaricando poi la texture dalla libreria il confronto
+    // cadeva sul testo vecchio e l'esito era incoerente -- colori del preset ma
+    // densita' rimasta quella sincronizzata.
+    // m_surfaceTextureScriptText segue, come nel caricamento normale (~8870):
+    // e' il testo del modulo, da cui l'editor si ricostruisce cambiando scheda.
+    m_surfaceTextureCode = newCode;
+    m_surfaceTextureScriptText = newCode;
+
+    // m_currentTexturePresetPath NON si tocca, ed e' una scelta.
+    // Quel campo dice "la scena mostra QUEL preset per intero", ed e' una delle
+    // condizioni con cui handleTextureSelection decide che una texture cliccata
+    // e' gia' quella attiva (isMatch). Dopo un Sync pero' la scena ha il CODICE
+    // del preset e i COLORI del record: non e' lo stesso stato. Allineandolo,
+    // isMatch diventava vero e cliccare quella voce in libreria non applicava
+    // piu' nulla -- restavano i colori del record, con il preset che sembrava
+    // caricato a meta'.
+    // Lasciandolo com'e', il click resta un caricamento vero e porta il preset
+    // completo, colori compresi.
+
+    if (ui->lineVariations) {
+        ui->lineVariations->blockSignals(true);
+        ui->lineVariations->setPlainText(lib->displacementCode);
+        ui->lineVariations->blockSignals(false);
+    }
+
+    if (ui->glWidget) {
+        ui->glWidget->setDisplacementCode(lib->displacementCode);
+        ui->glWidget->setTextureCode(newCode);
+        ui->glWidget->rebuildShader();
+        ui->glWidget->update();
+    }
+
+    // Il messaggio della texture puo' essere cambiato insieme al codice: se ora
+    // nomina uno slider, e' l'informazione che serve subito dopo.
+    // Si mostra il SOLO messaggio della texture, e solo se c'e': refreshSceneHint
+    // passa da composedHintText, che rimette a schermo anche quello della SCENA
+    // -- gia' visto al caricamento del record e nel frattempo scomparso. Qui non
+    // e' cambiata la scena, e' cambiata la texture.
+    // NB: non si passa da showSceneHint, che SCRIVE m_currentHintText -- il
+    // messaggio della SCENA, riscritto poi nel preset: il testo della texture
+    // diventerebbe quello della superficie al primo salvataggio.
+    m_currentTextureHintText = lib->hintText.trimmed();
+    if (!m_currentTextureHintText.isEmpty()) {
+        const QString savedScene = m_currentHintText;
+        m_currentHintText.clear();               // solo per questa chiamata
+        refreshSceneHint(lib->hintSeconds > 0 ? lib->hintSeconds : m_currentHintSeconds);
+        m_currentHintText = savedScene;
+    }
+
+    // Lavoro non salvato: il record sul disco ha ancora il codice vecchio.
+    m_textureDirty = true;
+    updateMasterButtonState();
+    syncTextureTreeSelection();
+    return true;
+}
+
+// Voce di libreria da cui viene la texture della scena, e SOLO se c'e' davvero
+// qualcosa da aggiornare: serve sia al comando sia al gate della voce di menu,
+// che deve restare spenta quando non farebbe nulla.
+// nullptr se: la texture non viene da libreria (nessun libName -- scritta a
+// mano, o record salvato prima che il campo esistesse), la voce non esiste piu'
+// (rinominata o cancellata), oppure il codice e' gia' identico.
+const LibraryItem *MainWindow::focusedTextureLibraryItem() const
+{
+    if (m_currentTextureLibName.isEmpty()) return nullptr;
+    if (!ui->treeTextures) return nullptr;
+
+    const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
+    const QString activeCode = isImplicit && ui->lineTexture
+                             ? ui->lineTexture->toPlainText()
+                             : m_surfaceTextureCode;
+    const QString cleanedActive = cleanCodeForComparison(activeCode);
+    // Il DISPLACEMENT fa parte della texture quanto il colore, e va confrontato
+    // anche lui: una texture il cui solo rilievo e' cambiato ha eccome qualcosa
+    // da sincronizzare, ma guardando il solo codice colore la voce sarebbe
+    // rimasta spenta -- e il comando, che il displacement lo aggiorna gia',
+    // sarebbe risultato irraggiungibile proprio nel caso che lo richiede.
+    const QString cleanedActiveDisp = cleanCodeForComparison(
+        ui->lineVariations ? ui->lineVariations->toPlainText() : QString());
+
+    QTreeWidgetItemIterator it(ui->treeTextures);
+    while (*it) {
+        QVariant v = (*it)->data(0, Qt::UserRole + 1);
+        if (v.isValid()) {
+            const LibraryItem &item = m_libraryManager.getTexture(v.toInt());
+            if (QString::compare(m_currentTextureLibName, item.name.trimmed(),
+                                 Qt::CaseInsensitive) == 0) {
+                const QString libCode = item.textureCode.isEmpty() ? item.scriptCode
+                                                                   : item.textureCode;
+                // Gia' allineati (codice E rilievo): niente da sincronizzare.
+                if (cleanCodeForComparison(libCode) == cleanedActive
+                    && cleanCodeForComparison(item.displacementCode) == cleanedActiveDisp)
+                    return nullptr;
+                return &item;
+            }
+        }
+        ++it;
+    }
+    return nullptr;
+}
+
+void MainWindow::selectTextureTreeItemFor(QTreeWidgetItemIterator &itTex,
+                                          const QString &activeCode,
+                                          const QString &cleanedActive)
+{
+    // activeCode.trimmed(): cosi' anche un'immagine (solo tag //IMG:) entra.
+    if (activeCode.trimmed().isEmpty()) return;
+
+    QTreeWidgetItem *byCode = nullptr;
+    QTreeWidgetItem *byName = nullptr;
+    while (*itTex) {
+        QVariant vTex = (*itTex)->data(0, Qt::UserRole + 1);
+        if (vTex.isValid()) {
+            const LibraryItem &texItem = m_libraryManager.getTexture(vTex.toInt());
+            if (!byCode && textureItemMatchesCode(texItem, activeCode, cleanedActive))
+                byCode = *itTex;
+            if (!byName && !m_currentTextureLibName.isEmpty()
+                && QString::compare(m_currentTextureLibName, texItem.name.trimmed(),
+                                    Qt::CaseInsensitive) == 0)
+                byName = *itTex;
+            if (byCode) break;   // il codice vince: inutile cercare oltre
+        }
+        ++itTex;
+    }
+
+    QTreeWidgetItem *hit = byCode ? byCode : byName;
+    if (!hit) return;
+
+    hit->setSelected(true);
+    ui->treeTextures->setCurrentItem(hit);
+    for (QTreeWidgetItem *parent = hit->parent(); parent; parent = parent->parent())
+        parent->setExpanded(true);
+    ui->treeTextures->scrollToItem(hit);
 }
 
 void MainWindow::uncheckInExclusiveGroup(QAbstractButton *btn)
@@ -9007,6 +9199,12 @@ void MainWindow::handleTextureSelection(int index)
     // averne lasciato uno, che ora va tolto da schermo.
     m_currentTextureHintText    = data.hintText.trimmed();
     m_currentTextureHintSeconds = data.hintSeconds;
+
+    // Nome della texture da cui veniamo: finisce nel record e lo riaggancia a
+    // QUESTA voce di libreria anche dopo che il suo codice e' stato modificato
+    // (vedi m_currentTextureLibName). Si scrive qui, dove si scrive l'hint:
+    // stesso ciclo di vita, stessa provenienza.
+    m_currentTextureLibName = data.name.trimmed();
     refreshSceneHint(m_currentTextureHintText.isEmpty() ? m_currentHintSeconds
                                                         : data.hintSeconds);
 
@@ -12883,6 +13081,16 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             isMatch = (!fileName.isEmpty() && activeCode.contains(fileName));
         } else {
             isMatch = (cleanCodeForComparison(activeCode) == cleanCodeForComparison(data.scriptCode));
+            // Il DISPLACEMENT distingue due texture quanto il colore: due preset
+            // possono avere lo stesso codice di colore e rilievi diversi, e
+            // guardando il solo colore l'app concludeva "e' gia' quella attiva",
+            // entrava nel ramo del ri-click e NON ricaricava nulla -- ne' rilievo
+            // ne' colori. Stessa ragione del confronto su m_currentTexturePresetPath
+            // qui sotto, che copre il caso gemello dello zoom.
+            if (isMatch && ui->lineVariations
+                && cleanCodeForComparison(ui->lineVariations->toPlainText())
+                   != cleanCodeForComparison(data.displacementCode))
+                isMatch = false;
         }
         // Se il file preset è diverso da quello attualmente caricato, non è mai un match
         // (es. due preset con lo stesso codice ma zoom/rotazione diversi)
@@ -13093,6 +13301,10 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
 
 void MainWindow::applySurfaceExample(LibraryItem d)
 {
+    // La scena non e' piu' un record: caricando una SUPERFICIE l'ancora del
+    // record caricato non vale piu' (vedi m_currentRecordPath).
+    m_currentRecordPath.clear();
+
     // ASPETTO PER-MESH DURANTE IL LOAD.
     // Per tutta la durata del caricamento i setter globali (colore, alpha, luce,
     // renderMode del preset) NON devono essere dirottati sulla mesh selezionata:
@@ -13840,6 +14052,18 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // 3. Dati Comuni (Surface)
     applyCommonData(data);
 
+    // Record che da qui in poi E' la scena. Lo legge "Sync Focused Texture" per
+    // sapere se il click destro e' caduto sul record caricato: la selezione
+    // dell'albero segue il click e non direbbe cosa c'e' davvero a schermo.
+    //
+    // DOPO applyCommonData, non prima: il caricamento passa da applyModeTabReset
+    // -> resetScene (vedi ~13864), che azzera questo campo perche' un cambio tab
+    // o un NEW devono farlo. Scrivendolo in cima veniva quindi cancellato dal
+    // reset del caricamento stesso, e il comando restava disabilitato su ogni
+    // record -- la voce appariva cliccabile ma Qt non emette nulla su un'azione
+    // disabilitata.
+    m_currentRecordPath = data.filePath;
+
     // 3b. Colori
     if (data.hasCustomColors && !data.color1.isEmpty()) {
         QColor surfCol(data.color1);
@@ -13904,6 +14128,13 @@ void MainWindow::applyMotionExample(LibraryItem data)
         if (root.contains("texture")) {
             QJsonObject tex = root["texture"].toObject();
             if (tex.contains("enabled")) texEnabled = tex["enabled"].toBool();
+
+            // NOME della texture di libreria: e' cio' che permette all'albero di
+            // ritrovarla anche se il suo codice e' stato modificato dopo il
+            // salvataggio del record (vedi m_currentTextureLibName). I record
+            // piu' vecchi non hanno il campo: resta vuoto e il focus si decide
+            // per codice, come ha sempre fatto.
+            m_currentTextureLibName = tex.value("libName").toString().trimmed();
 
             // 1. CARICAMENTO TEXTURE 2D (Energia/Colore)
             if (tex.contains("code")) {
@@ -14711,32 +14942,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     QString cleanedActive = cleanCodeForComparison(activeCode);
 
-    // Usiamo activeCode.trimmed()! Così se è un'immagine entra comunque nel ciclo.
-    if (!activeCode.trimmed().isEmpty()) {
-        while (*itTex) {
-            QVariant vTex = (*itTex)->data(0, Qt::UserRole + 1);
-            if (vTex.isValid()) {
-                int idx = vTex.toInt();
-                const LibraryItem &texItem = m_libraryManager.getTexture(idx);
-                bool isMatch = textureItemMatchesCode(texItem, activeCode, cleanedActive);
-
-                if (isMatch) {
-                    (*itTex)->setSelected(true);
-                    ui->treeTextures->setCurrentItem(*itTex);
-
-                    QTreeWidgetItem* parent = (*itTex)->parent();
-                    while(parent) {
-                        parent->setExpanded(true);
-                        parent = parent->parent();
-                    }
-
-                    ui->treeTextures->scrollToItem(*itTex);
-                    break;
-                }
-            }
-            ++itTex;
-        }
-    }
+    selectTextureTreeItemFor(itTex, activeCode, cleanedActive);
 
     updateScriptButtonText();
 
@@ -18113,6 +18319,12 @@ bool MainWindow::textureItemMatchesCode(const LibraryItem &texItem, const QStrin
         return !libImg.isEmpty() && !activeImg.isEmpty() &&
                QString::compare(activeImg, libImg, Qt::CaseInsensitive) == 0;
     }
+
+    // NB: il confronto per NOME (libName) NON sta qui. Deve valere solo quando
+    // NESSUNA voce combacia per codice, e una funzione che guarda un item alla
+    // volta non puo' saperlo: rispondendo "si" sulla prima voce col nome giusto
+    // faceva vincere l'ordine alfabetico sul criterio. Il fallback sul nome vive
+    // percio' nel chiamante, che scorre l'albero in due passate.
 
     // Procedurale: confronto sui codici puliti (cleanCodeForComparison toglie
     // gia' il tag //IMG:, quindi un residuo non impedisce il match).

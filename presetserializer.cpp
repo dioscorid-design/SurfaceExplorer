@@ -1499,6 +1499,22 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
 
         texture["code"] = codeToSave.trimmed();
     }
+
+    // NOME della voce di libreria da cui viene questa texture. Il focus
+    // nell'albero si decide per uguaglianza del CODICE, e il record ne porta una
+    // copia: ritoccare la texture in libreria (uno slider in piu', un commento
+    // corretto) faceva perdere il focus a tutti i record che la usavano. Col
+    // nome il legame sopravvive alla modifica.
+    // FUORI dall'if: i due rami sopra sono Ray Marching e parametrico, e il
+    // campo serve a entrambi. Scritto dentro il solo ramo parametrico non
+    // compariva mai nei record RM -- cioe' proprio dove serviva.
+    // Si scrive solo se c'e': una texture scritta a mano non ha un nome di
+    // libreria, e un campo vuoto direbbe il falso. I record SENZA questo campo
+    // (tutti quelli gia' salvati) restano validi: il lettore ricade sul
+    // confronto per codice, che e' la strada di sempre.
+    if (!m_mainWindow->m_currentTextureLibName.isEmpty())
+        texture["libName"] = m_mainWindow->m_currentTextureLibName;
+
     root["texture"] = texture;
 
     // STATO 4D DA PRESERVARE: in ray marching omega/phi/psi (angoli E velocita')
