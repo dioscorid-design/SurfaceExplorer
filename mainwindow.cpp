@@ -327,8 +327,10 @@ protected:
                     return true;
                 }
 
-                // Campi path camera: a moto attivo l'Invio ricompila il path
-                // al volo (nuova costante/espressione senza stop+Departure).
+                // Campi path camera: l'Invio AVVIA il path se e' fermo e i campi
+                // lo definiscono, lo ricompila al volo se e' gia' in corsa, e lo
+                // ferma se i campi sono stati svuotati (vedi
+                // commitPathFieldOnEnter, che tiene i tre casi in un punto solo).
                 if (isPathEquationField(on)) {
                     if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
                     if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
@@ -651,8 +653,8 @@ protected:
                     return true;
                 }
 
-                // Campi path camera: a moto attivo l'Invio ricompila il path
-                // al volo, come nel filtro desktop.
+                // Campi path camera: avvia / ricompila / ferma secondo lo stato,
+                // come nel filtro desktop.
                 if (isPathEquationField(obj->objectName())) {
                     if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
                     if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
@@ -4004,14 +4006,14 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->lineZ_P, &QLineEdit::textChanged, this, &MainWindow::checkPathFields);
     connect(ui->lineP_P, &QLineEdit::textChanged, this, &MainWindow::checkPathFields);
 
-    connect(ui->lineAlpha_P, &QLineEdit::textChanged, this, &MainWindow::checkPathFields);
-    connect(ui->lineBeta_P,  &QLineEdit::textChanged, this, &MainWindow::checkPathFields);
-    connect(ui->lineGamma_P, &QLineEdit::textChanged, this, &MainWindow::checkPathFields);
+    // Alpha/Beta/Gamma NON sono connessi: non accendono il Departure (solo le
+    // COORDINATE lo fanno, vedi hasPath4DInput), quindi il loro textChanged
+    // ricalcolerebbe sempre lo stesso esito. Collegarli direbbe il contrario.
 
     connect(ui->lineX_P3D, &QLineEdit::textChanged, this, &MainWindow::checkPath3DFields);
     connect(ui->lineY_P3D, &QLineEdit::textChanged, this, &MainWindow::checkPath3DFields);
     connect(ui->lineZ_P3D, &QLineEdit::textChanged, this, &MainWindow::checkPath3DFields);
-    connect(ui->lineR_P3D, &QLineEdit::textChanged, this, &MainWindow::checkPath3DFields);
+    // lineR_P3D (rollio) idem: fuori dal gate, vedi hasPath3DInput.
 
     // Le espressioni dei path possono usare le costanti A..F/S: scrivere una
     // costante in un campo path deve sbloccarne l'edit come nelle equazioni.
@@ -6503,9 +6505,23 @@ void MainWindow::updateRenderState()
         for (QWidget *w : { (QWidget*)ui->lineX_P,  (QWidget*)ui->lineY_P,
                             (QWidget*)ui->lineZ_P,  (QWidget*)ui->lineP_P,
                             (QWidget*)ui->lineAlpha_P, (QWidget*)ui->lineBeta_P,
-                            (QWidget*)ui->lineGamma_P,
-                            (QWidget*)ui->btnDeparture, (QWidget*)ui->pushView }) {
+                            (QWidget*)ui->lineGamma_P }) {
             if (w) w->setEnabled(path4DUsable);
+        }
+
+        // DEPARTURE e VIEW hanno DUE condizioni, non una: il modo deve
+        // permettere il path 4D (path4DUsable) E i campi devono definirlo.
+        // Accendendoli qui insieme ai campi si scriveva la sola prima: passando
+        // da parametrico a Cross Section il tasto si accendeva anche a campi
+        // vuoti, sovrascrivendo l'ultimo checkPathFields.
+        // Non si duplica la seconda condizione: la decidono checkPathFields e
+        // updateViewButtonsEnabled, che sanno anche del path IN CORSA (a timer
+        // attivo il tasto resta acceso per poterlo fermare).
+        if (!path4DUsable) {
+            if (ui->btnDeparture) ui->btnDeparture->setEnabled(false);
+            if (ui->pushView)     ui->pushView->setEnabled(false);
+        } else {
+            checkPathFields();   // accende Departure e, di seguito, i View
         }
         // Navigazione 4D: contenitore ACCESO, si spengono i singoli tasti di
         // SPOSTAMENTO dell'osservatore, che scrivono m_cameraPos4D/m_observerPos
@@ -7675,7 +7691,7 @@ void MainWindow::applyStartSideEffects()
     // in sequenza e la mutua esclusivita' faceva vincere sempre il path 3D.
     // Se l'indicazione non e' piu' onorabile (campi svuotati) si torna alla
     // cascata storica.
-    // (validazione con la stessa soglia del tasto Departure, >=2 campi: il
+    // (validazione con la stessa soglia del tasto Departure, >=1 campo: il
     // vecchio check sul solo campo X negherebbe un path 4D con X vuota)
     // Come per il suono qui sotto: se l'utente ha fermato ESPLICITAMENTE il
     // moto camera (m_userStoppedCameraMotion), un commit di equazione che
@@ -10378,15 +10394,51 @@ void MainWindow::commitPathFieldOnEnter(const QString& fieldName)
 {
     // Invio su un campo path a moto ATTIVO: ricompila le equazioni al volo,
     // cosi' una costante (o qualunque modifica all'espressione) entra subito
-    // senza fermare e far ripartire il path. Da fermo non fa nulla: la
-    // compilazione resta al Departure. I VALORI delle costanti sono gia' live
+    // senza fermare e far ripartire il path. I VALORI delle costanti sono gia' live
     // (m_pathSymbolTable le lega per riferimento, vedi SurfaceEngine).
     // NB: chiamata dai filtri tastiera (desktop e mobile), che consumano il
     // Return prima che i QLineEdit possano emettere returnPressed.
+    //
+    // CAMPI SVUOTATI: l'Invio FERMA il path invece di ricompilarlo. Cancellare
+    // tutti i campi e confermare e' il modo naturale di dire "basta": senza
+    // questo ramo il path continuava a correre sull'ultima compilazione valida,
+    // con il tasto su STOP e il master su Stop, su una definizione che a schermo
+    // non esisteva piu'. Si passa da onDeparture*Clicked a timer ATTIVO, cioe'
+    // dal suo ramo di arresto: ferma il timer, riporta il tasto a DEPARTURE e
+    // riallinea Departure (che ora si spegne, campi vuoti) e master (che torna
+    // su Start). Rifare quei passaggi a mano qui significherebbe due copie che
+    // divergono al primo cambiamento.
+    // PATH FERMO e campi validi: l'Invio AVVIA, come il tasto. Scritta
+    // un'equazione, confermarla e vederla partire e' il gesto naturale, e ora
+    // che basta una coordinata sola il giro "scrivo, poi vado col mouse sul
+    // tasto" e' quasi sempre superfluo.
+    // Si passa da onDeparture*Clicked a timer INATTIVO, cioe' dal suo ramo di
+    // avvio: compila (e in caso d'errore non parte, col suo popup), applica la
+    // mutua esclusivita' con l'altro path e col moto GO, fa l'handoff di camera
+    // 3D<->4D, porta il tasto su STOP e il master su Stop. Tutte cose che
+    // rifatte qui a mano sarebbero una seconda copia destinata a divergere.
+    //
+    // Riassunto dei tre casi, per lato:
+    //   campi vuoti + path in corsa -> ferma      (ramo STOP)
+    //   campi validi + path in corsa -> ricompila al volo
+    //   campi validi + path fermo    -> avvia     (ramo DEPARTURE)
+    //   campi vuoti  + path fermo    -> niente
     if (fieldName.endsWith("_P3D")) {
-        if (pathTimer3D && pathTimer3D->isActive()) compilePath3DFromFields();
+        if (!pathTimer3D) return;
+        if (pathTimer3D->isActive()) {
+            if (!hasPath3DInput()) onDeparture3DClicked();
+            else                   compilePath3DFromFields();
+        } else if (hasPath3DInput()) {
+            onDeparture3DClicked();
+        }
     } else {
-        if (pathTimer && pathTimer->isActive()) compilePath4DFromFields();
+        if (!pathTimer) return;
+        if (pathTimer->isActive()) {
+            if (!hasPath4DInput()) onDepartureClicked();
+            else                   compilePath4DFromFields();
+        } else if (hasPath4DInput()) {
+            onDepartureClicked();
+        }
     }
 }
 
@@ -10990,7 +11042,12 @@ void MainWindow::applyPath4DCameraAt(float t)
     // 5. Invio finale
     ui->glWidget->setCameraFrom4DVectors(rotPos, rotTarget, rotUp);
 
-    updateNav4DReadout();
+    // NB: qui NON si aggiorna il readout del dock 4D. I campi misurano quanto
+    // l'utente ha mosso con i TASTI a scatto: il path (e le rotazioni) muovono
+    // la stessa camera, e riscrivere i campi mentre corrono faceva ballare sette
+    // numeri che l'utente non stava toccando, perdendo per giunta il conto degli
+    // scatti dati. L'unico aggiornamento sta in onNavTimerTick, il tick dei
+    // tasti premuti.
 }
 
 // Equazioni parametriche sufficienti a definire una superficie: almeno TRE dei
@@ -11097,6 +11154,19 @@ bool MainWindow::hasCompleteParametricInput()
     return true;
 }
 
+// UNA COORDINATA BASTA, MA DEVE ESSERE UNA COORDINATA.
+// Un path con la sola X e' legittimo: gli altri assi valgono 0 (campo vuoto ->
+// "0", vedi compilePath4DFromFields) e il moto corre lungo un asse solo, che e'
+// il caso piu' semplice da scrivere a mano. La vecchia soglia >=2 lo negava
+// senza dire perche'.
+//
+// Gli ANGOLI (Alpha/Beta/Gamma) non contano ai fini dell'accensione. Da soli
+// lasciano X=Y=Z=P=0: la camera resta ferma nell'ORIGINE, che e' anche il punto
+// guardato -- in Center View il target e' (0,0,0), in Tangent View e' la
+// posizione a t+delta, cioe' ancora l'origine. Direzione di vista nulla, matrice
+// di vista degenere: a schermo la superficie sembra sparita, mentre in realta'
+// si e' dentro di essa senza una direzione in cui guardare. Un orientamento non
+// definisce un percorso; serve qualcosa che muova il PUNTO.
 bool MainWindow::hasPath4DInput() const
 {
     int filled = 0;
@@ -11105,16 +11175,17 @@ bool MainWindow::hasPath4DInput() const
     if (!ui->lineZ_P->text().trimmed().isEmpty()) filled++;
     if (!ui->lineP_P->text().trimmed().isEmpty()) filled++;
 
-    // --- AGGIUNTA VARIABILI ANGOLARI ---
-    if (!ui->lineAlpha_P->text().trimmed().isEmpty()) filled++;
-    if (!ui->lineBeta_P->text().trimmed().isEmpty()) filled++;
-    if (!ui->lineGamma_P->text().trimmed().isEmpty()) filled++;
-
-    return filled >= 2;
+    return filled >= 1;
 }
 
 void MainWindow::checkPathFields()
 {
+    // I timer nascono a META' del costruttore (~3986), ma updateRenderState --
+    // che ora chiama questa funzione -- e' raggiungibile gia' da prima: senza
+    // questa guardia l'app crashava all'avvio sul primo isActive().
+    // updateViewButtonsEnabled si protegge gia' da se'.
+    if (!pathTimer || !ui->btnDeparture) return;
+
     if (pathTimer->isActive()) {
         ui->btnDeparture->setEnabled(true);
     } else {
@@ -11211,19 +11282,25 @@ void MainWindow::applyPath3DCameraAt(float t)
     ui->glWidget->setCameraPosAndDirection3D(currentPos, target, currentRoll);
 }
 
+// Una coordinata basta, e R(t) non e' una coordinata: e' il ROLLIO, che ruota
+// attorno alla direzione di vista. Col solo R la camera resta nell'origine a
+// guardare l'origine, e il rollio non ha nemmeno un asse su cui agire -- vedi
+// la nota estesa su hasPath4DInput.
 bool MainWindow::hasPath3DInput() const
 {
     int filled = 0;
     if (!ui->lineX_P3D->text().trimmed().isEmpty()) filled++;
     if (!ui->lineY_P3D->text().trimmed().isEmpty()) filled++;
     if (!ui->lineZ_P3D->text().trimmed().isEmpty()) filled++;
-    if (!ui->lineR_P3D->text().trimmed().isEmpty()) filled++;
 
-    return filled >= 2;
+    return filled >= 1;
 }
 
 void MainWindow::checkPath3DFields()
 {
+    // Stessa guardia di checkPathFields: timer non ancora costruiti all'avvio.
+    if (!pathTimer3D || !ui->btnDeparture3D) return;
+
     if (pathTimer3D->isActive()) {
         ui->btnDeparture3D->setEnabled(true);
     } else {
