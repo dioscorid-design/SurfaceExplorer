@@ -884,6 +884,32 @@ protected:
 #  define SE_GEO_PROBE(...) do {} while (0)
 #endif
 
+// TRACCIA DELLA TEXTURE. Stessa forma della sonda geodetica qui sopra, stessa
+// ragione (il progetto non usa qDebug altrove) e stesso uso: si accende a mano
+// mettendo 1, si rimette a 0 appena il caso e' chiuso.
+//
+// Serve al caso in cui EDITOR e SCHERMO dicono cose diverse: li' non c'e' alcun
+// errore da leggere, e l'unico modo di capire quale dei tre canali (m_textureCode
+// per il Ray Marching, m_customFragmentCode per il parametrico globale,
+// MeshPart::textureCode per le fasce) sia rimasto indietro e' stamparli TUTTI
+// nello stesso istante, insieme a F -- che nei Wireframe moltiplica la densita'
+// e da solo spiega rese diverse a parita' di codice.
+// Da qui in avanti va stampata la STESSA riga in ogni punto della sequenza: il
+// guasto si vede nel DIVERGERE di due campi, non nel valore di uno solo.
+//
+// A 1 stampa, a 0 e' inerte (le chiamate restano, non costano nulla). Ha gia'
+// pagato una volta: e' cosi' che si e' visto che i tre canali texture erano
+// SEMPRE allineati e che a divergere era F -- azzerata a 1 al primo
+// caricamento di un record perche' la texture che la usa non era ancora nei
+// campi quando le costanti venivano giudicate (vedi "costanti-rigiudicate" in
+// applyMotionExample).
+#define SE_TEX_PROBE 0
+#if SE_TEX_PROBE
+#  define SE_TEXP(tag) dumpTextureState(tag)
+#else
+#  define SE_TEXP(tag) do {} while (0)
+#endif
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
@@ -2305,14 +2331,31 @@ MainWindow::MainWindow(QWidget *parent)
         // reset non sono lavoro dell'utente.
         if (m_uiReady && !m_populatingFields) {
             m_textureDirty = true;
-            // Il codice non e' piu' quello della voce di libreria da cui veniva:
-            // il nome salvato nel record punterebbe a una texture diversa da
-            // quella a schermo. Si azzera, e il record torna ad agganciarsi per
-            // codice come ha sempre fatto. Stesse guardie della riga sopra: le
-            // scritture del load e del reset non sono modifiche dell'utente, e
-            // senza di esse questo cancellerebbe il nome appena impostato da
-            // handleTextureSelection (textChanged scatta anche sui setPlainText).
-            m_currentTextureLibName.clear();
+            // IL NOME NON SI AZZERA PIU' QUI, ed e' il punto di questo blocco.
+            //
+            // Prima si azzerava, col ragionamento "il codice non e' piu' quello
+            // della voce, quindi il nome punterebbe a una texture diversa da
+            // quella a schermo". Ma libName non vuol dire "il codice e' identico
+            // a quella voce": vuol dire **da quale voce questa texture VIENE**.
+            // Sono due cose diverse, e la prima si ricalcola quando serve
+            // confrontando i codici -- e' esattamente cio' che fa
+            // focusedTextureLibraryItem.
+            //
+            // Azzerandolo si distruggeva il legame proprio nel caso per cui e'
+            // stato introdotto. Sequenza misurata: Sync (allinea), poi ritocco a
+            // mano della densita' nell'editor -> qui il nome si azzerava -> il
+            // salvataggio omette libName (lo scrive solo se non vuoto,
+            // presetserializer ~1516) -> il record ricaricato non ha piu'
+            // l'ancora, e "Sync Focused Texture" resta GRIGIO per sempre benche'
+            // il disallineamento ci sia (record 6.0 contro libreria 12.0).
+            // Cioe': la voce si spegneva appena si creava il lavoro che le
+            // compete.
+            //
+            // Tenerlo non fa danni: un codice divergente lo vede il gate, che
+            // confronta i due testi e abilita la voce; e se davvero non c'entra
+            // piu' nulla, il focus nell'albero ricade sul match per CODICE, che
+            // ha sempre la precedenza sul nome (selectTextureTreeItemFor: due
+            // passate, prima il codice).
         }
         updateMasterButtonState();
     };
@@ -7896,8 +7939,120 @@ void MainWindow::syncTextureTreeSelection()
 // suo corso: vedere il risultato prima di scrivere sul file e' il punto, visto
 // che una texture che ha ACQUISITO uno slider usera' il valore che quella
 // costante ha NEL RECORD, non quello con cui la texture e' stata pensata.
+// SONDA: stato COMPLETO della texture in una riga sola (vedi SE_TEX_PROBE).
+//
+// Perche' una riga sola e perche' tutti i campi insieme: il guasto di questa
+// famiglia non e' un valore sbagliato, e' DUE valori che dovrebbero coincidere e
+// non coincidono (l'editor dice una cosa, lo schermo ne mostra un'altra). Con
+// una stampa per campo, sparsa, quella divergenza non si vede; con la stessa
+// riga ripetuta nei punti della sequenza si legge in colonna e salta all'occhio
+// quale passo ha spostato cosa.
+//
+// Del codice si stampa la sola DENSITY e una firma breve, non lo script: negli
+// script Wireframe la densita' e' esattamente cio' che distingue un preset
+// dall'altro, e uno script intero per riga renderebbe il log illeggibile.
+void MainWindow::dumpTextureState(const char *tag) const
+{
+#if SE_TEX_PROBE
+    // "DENSITY = <numero>": il coefficiente scritto nel codice. E' il dato che
+    // distingue le due texture di prova (6.0 contro 12.0), e da solo non basta
+    // -- va letto INSIEME a F, che lo moltiplica.
+    auto densityOf = [](const QString &code) -> QString {
+        static const QRegularExpression re(
+            R"(DENSITY\s*=\s*([0-9]*\.?[0-9]+))");
+        const QRegularExpressionMatch m = re.match(code);
+        return m.hasMatch() ? m.captured(1) : QStringLiteral("-");
+    };
+    // RILIEVO: il moltiplicatore dentro il displacement (es. "pModel.x * 60.0*F"
+    // -> 60.0). E' cio' che distingue le due versioni del displacement nei
+    // preset di prova, come DENSITY fa per il colore.
+    auto reliefOf = [](const QString &code) -> QString {
+        static const QRegularExpression re(
+            R"(pModel\.[xyz]\s*\*\s*([0-9]*\.?[0-9]+))");
+        const QRegularExpressionMatch m = re.match(code);
+        return m.hasMatch() ? m.captured(1) : QStringLiteral("-");
+    };
+    // Firma: lunghezza + hash. Due codici con la stessa DENSITY ma diversi per
+    // altro (colori, displacement) restano distinguibili senza stampare nulla
+    // di lungo.
+    auto sigOf = [](const QString &code) -> QString {
+        if (code.isEmpty()) return QStringLiteral("vuoto");
+        return QString("%1/%2").arg(code.length())
+               .arg(qHash(code) & 0xffff, 4, 16, QLatin1Char('0'));
+    };
+
+    const GLWidget *g = ui->glWidget;
+    const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
+    const int meshIdx = g ? g->activeMeshPart() : -1;
+
+    // Codice della FASCIA attiva, quando l'ambito e' "Mesh": e' il terzo canale,
+    // quello che ne' m_textureCode ne' m_customFragmentCode rappresentano.
+    QString meshCode;
+    if (g && g->getEngine() && meshIdx >= 0) {
+        const auto &parts = g->getEngine()->getMeshParts();
+        if (meshIdx < (int)parts.size() && parts[meshIdx].hasCustomTexture)
+            meshCode = parts[meshIdx].textureCode;
+    }
+
+    const QString editorText = (m_currentScriptMode == ScriptModeTexture && ui->txtScriptEditor)
+                             ? ui->txtScriptEditor->toPlainText() : QString();
+    const QString lineTexText = ui->lineTexture ? ui->lineTexture->toPlainText() : QString();
+    const QString dispFieldText = ui->lineVariations ? ui->lineVariations->toPlainText() : QString();
+    const QString dispEngine = g ? g->currentDisplacementCode() : QString();
+
+    qDebug().noquote() << QString(
+        "TEXP %1 | mode=%2 mesh=%3/%4 | F=%5 | "
+        "RM(m_textureCode) D=%6 %7 | PARAM(m_customFragmentCode) D=%8 %9 | "
+        "MESH D=%10 %11 | lineTexture D=%12 %13 | editor D=%14 %15 | "
+        "surfCode D=%16 %17 | texEnabled=%18 chk=%19 libName='%20' | "
+        "COL m_texColor1=%21 m_texColor2=%22 gpu1=%23 gpu2=%24 | "
+        "GATE focused=%25 recPath='%26' | "
+        "DISP campo R=%27 %28 | motore R=%29 %30")
+        .arg(QString::fromUtf8(tag), -28)
+        .arg(isImplicit ? "RM" : "PAR")
+        .arg(meshIdx).arg(g ? g->meshPartCount() : 0)
+        .arg(ui->lineF ? ui->lineF->text() : QString("?"))
+        .arg(densityOf(g ? g->currentTextureCode() : QString()))
+        .arg(sigOf(g ? g->currentTextureCode() : QString()))
+        .arg(densityOf(g ? g->currentParametricTextureCode() : QString()))
+        .arg(sigOf(g ? g->currentParametricTextureCode() : QString()))
+        .arg(densityOf(meshCode)).arg(sigOf(meshCode))
+        .arg(densityOf(lineTexText)).arg(sigOf(lineTexText))
+        .arg(densityOf(editorText)).arg(sigOf(editorText))
+        .arg(densityOf(m_surfaceTextureCode)).arg(sigOf(m_surfaceTextureCode))
+        .arg(g && g->isTextureEnabled() ? 1 : 0)
+        .arg(ui->chkBoxTexture && ui->chkBoxTexture->isChecked() ? 1 : 0)
+        .arg(m_currentTextureLibName)
+        // COLORI. Due livelli, e vanno letti insieme: m_texColor1/2 sono cio'
+        // che la UI crede (e che il salvataggio scriverebbe), gpu1/gpu2 cio'
+        // che il motore sta davvero usando per u_col1/u_col2. Se divergono, il
+        // guasto e' fra i due; se coincidono ma sono il colore sbagliato, il
+        // guasto e' a monte, in chi li ha scritti.
+        .arg(m_texColor1.name(), m_texColor2.name())
+        .arg(ui->glWidget ? ui->glWidget->globalTexColor1().name() : QString("?"),
+             ui->glWidget ? ui->glWidget->globalTexColor2().name() : QString("?"))
+        // GATE della voce di menu: esattamente cio' che il menu contestuale
+        // valuta per decidere se abilitare "Sync Focused Texture". Stamparlo
+        // qui evita di dedurlo: se e' 0 quando il disallineamento c'e', il
+        // guasto e' dentro focusedTextureLibraryItem; se e' 1 ma la voce resta
+        // grigia, il guasto e' nell'altra condizione (isLoaded/recPath).
+        .arg(focusedTextureLibraryItem() ? 1 : 0)
+        .arg(QFileInfo(m_currentRecordPath).fileName())
+        // DISPLACEMENT, due livelli come i colori: il CAMPO (lineVariations, cio'
+        // che l'utente legge) e il MOTORE (m_displacementCode, cio' che si
+        // disegna). Se divergono, il guasto e' fra i due; se il campo mostra un
+        // rilievo e il preset ne ha un altro, il guasto e' in chi lo applica.
+        .arg(reliefOf(dispFieldText), sigOf(dispFieldText))
+        .arg(reliefOf(dispEngine), sigOf(dispEngine));
+#else
+    Q_UNUSED(tag);
+#endif
+}
+
 bool MainWindow::syncFocusedTextureFromLibrary()
 {
+    SE_TEXP("sync:PRIMA");
+
     const LibraryItem *lib = focusedTextureLibraryItem();
     if (!lib) return false;
 
@@ -7933,8 +8088,17 @@ bool MainWindow::syncFocusedTextureFromLibrary()
     // densita' rimasta quella sincronizzata.
     // m_surfaceTextureScriptText segue, come nel caricamento normale (~8870):
     // e' il testo del modulo, da cui l'editor si ricostruisce cambiando scheda.
-    m_surfaceTextureCode = newCode;
-    m_surfaceTextureScriptText = newCode;
+    // ...ma NON in ambito "Mesh". Li' i due slot sono quelli della texture di
+    // SUPERFICIE, e la texture che si sta sincronizzando e' quella della FASCIA:
+    // scriverli faceva quello che gia' faceva il ramo Library prima del suo fix
+    // (~8797) -- la texture globale si ritrovava addosso il codice della fascia,
+    // e tornando su "All" compariva al posto del proprio.
+    const bool syncGoesToMesh = !isImplicit && ui->glWidget
+                                && ui->glWidget->activeMeshPart() >= 0;
+    if (!syncGoesToMesh) {
+        m_surfaceTextureCode = newCode;
+        m_surfaceTextureScriptText = newCode;
+    }
 
     // m_currentTexturePresetPath NON si tocca, ed e' una scelta.
     // Quel campo dice "la scena mostra QUEL preset per intero", ed e' una delle
@@ -7953,11 +8117,105 @@ bool MainWindow::syncFocusedTextureFromLibrary()
         ui->lineVariations->blockSignals(false);
     }
 
+    // APPLICAZIONE AL MOTORE: due vie diverse, e sbagliarle NON da' errori --
+    // da' una scena che continua a disegnare il codice VECCHIO mentre l'editor
+    // mostra quello nuovo.
+    //
+    // setTextureCode() scrive m_textureCode, che finisce SOLO in
+    // createImplicitFragmentShader: e' la via del Ray Marching. Il fragment
+    // PARAMETRICO non lo legge mai -- li' il codice della texture globale sta
+    // in m_customFragmentCode (validateAndApplyParametricShader) e quello delle
+    // fasce in MeshPart::textureCode (setActiveMeshTexture). Chiamando
+    // setTextureCode su una superficie parametrica si aggiornava un campo che
+    // nessuno di quei due shader guarda: rebuildShader ricompilava con
+    // m_customFragmentCode invariato e la figura restava identica.
+    // E' il sintomo riferito: l'editor diceva "density 12.0", lo schermo
+    // continuava a disegnare la 6.0 del record.
     if (ui->glWidget) {
         ui->glWidget->setDisplacementCode(lib->displacementCode);
-        ui->glWidget->setTextureCode(newCode);
-        ui->glWidget->rebuildShader();
+
+        if (isImplicit) {
+            ui->glWidget->setTextureCode(newCode);
+            ui->glWidget->rebuildShader();
+        } else if (syncGoesToMesh) {
+            // AMBITO "MESH": la texture da aggiornare e' quella della FASCIA, la
+            // stessa che focusedTextureLibraryItem ha confrontato per decidere
+            // che c'era qualcosa da sincronizzare (legge p.textureCode).
+            // Scrivere qui gli slot GLOBALI lascerebbe la fascia col codice
+            // vecchio, cioe' di nuovo editor e schermo in disaccordo.
+            // enabled=true: se la voce di menu e' arrivata fin qui la texture e'
+            // quella che la fascia sta disegnando, quindi e' gia' accesa.
+            // setActiveMeshTexture fa da se' il rebuildShader.
+            ui->glWidget->setActiveMeshTexture(newCode, true);
+        } else {
+            // AMBITO "ALL" (o mesh singola): la via del Run/della Library, cioe'
+            // la compilazione vera del fragment parametrico. Se lo shader non
+            // compila NON si tocca nulla -- resta in piedi il precedente --, si
+            // dice perche', e si esce senza sporcare la scena: il codice puo'
+            // essere stato modificato in libreria in un modo che qui non regge
+            // (una costante contesa risolta in altro modo, un'altra direttiva).
+            if (!ui->glWidget->validateAndApplyParametricShader(newCode)) {
+                showShaderError("Syntax Error (Parametric Texture)",
+                                ui->glWidget->getShaderError());
+                return false;
+            }
+        }
+
+        // L'OROLOGIO SEGUE IL CODICE. Il codice aggiornato puo' aver ACQUISITO
+        // o PERSO la variabile t: lasciando il clock com'era, una texture
+        // diventata animata restava ferma (e una diventata statica teneva
+        // acceso un orologio che non muove piu' nulla, col master su "STOP" a
+        // vuoto). Nessuna guardia sul master, come nei due percorsi gemelli:
+        // il Sync e' un comando esplicito sul modulo texture.
+        m_userStoppedTexClock = false;
+        if (isImplicit) {
+            // In RM il codice della texture sta in lineTexture/lineVariations,
+            // NON in allSurfaceTextureCode() (che raccoglie la globale
+            // parametrica e le per-mesh): leggendo quella, una texture RM
+            // animata risultava sempre statica e il Sync la lasciava ferma.
+            // Stessa distinzione che fa il riclic della Library (~13254).
+            ui->glWidget->setSurfaceTextureAnimating(
+                hasTimeVariable(ui->lineTexture ? ui->lineTexture->toPlainText() : QString())
+                || hasTimeVariable(ui->lineVariations ? ui->lineVariations->toPlainText() : QString()));
+        } else {
+            ui->glWidget->setSurfaceTextureAnimating(
+                hasTimeVariable(allSurfaceTextureCode()));
+            if (syncGoesToMesh) {
+                ui->glWidget->setActiveMeshTextureAnimating(hasTimeVariable(newCode));
+                m_userStoppedMeshTexClock = false;
+            }
+        }
+
         ui->glWidget->update();
+    }
+
+    // GLI SLIDER SEGUONO IL CODICE, come l'orologio qui sopra.
+    //
+    // E' IL CASO PER CUI IL COMANDO ESISTE: una texture aggiornata in libreria
+    // che ha ACQUISITO uno slider (o che ne ha perso uno). Il codice nuovo e'
+    // stato scritto nei campi a blockSignals -- e deve esserlo, o textChanged
+    // azzererebbe m_currentTextureLibName -- ma quel blocco ferma anche
+    // updateConstantsUIState, che e' l'unico punto che decide quali costanti
+    // sono "usate" e quindi quali slider sono accesi.
+    // Senza questa chiamata il Sync portava a schermo una texture che usa F
+    // lasciando lo slider F SPENTO e inerte: il comando sembrava non aver
+    // funzionato, e la densita' restava quella di prima perche' nessuno
+    // spingeva il valore nel motore.
+    //
+    // Va DOPO la scrittura dei campi: updateConstantsUIState giudica leggendoli
+    // (in RM lineTexture + lineVariations, ~7464), quindi chiamarla prima la
+    // farebbe decidere sul codice VECCHIO -- e' lo stesso errore d'ordine del
+    // caricamento record.
+    updateConstantsUIState();
+    // Le costanti appena sbloccate vanno anche SPINTE nel motore: sono uniform,
+    // non serve ricompilare, ma la GPU ha ancora i valori di prima. Si rileggono
+    // dai campi come sono ADESSO (resolveCascadeConstants), che e' cio' che fa
+    // gia' la coda di handleTextureSelection (~9430) dopo lo stesso genere di
+    // cambio.
+    {
+        const CascadeConstants kc = resolveCascadeConstants(true);
+        if (ui->glWidget)
+            ui->glWidget->setEquationConstants(kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s);
     }
 
     // Il messaggio della texture puo' essere cambiato insieme al codice: se ora
@@ -7981,6 +8239,8 @@ bool MainWindow::syncFocusedTextureFromLibrary()
     m_textureDirty = true;
     updateMasterButtonState();
     syncTextureTreeSelection();
+
+    SE_TEXP("sync:DOPO");
     return true;
 }
 
@@ -8048,12 +8308,35 @@ void MainWindow::selectTextureTreeItemFor(QTreeWidgetItemIterator &itTex,
                 && QString::compare(m_currentTextureLibName, texItem.name.trimmed(),
                                     Qt::CaseInsensitive) == 0)
                 byName = *itTex;
-            if (byCode) break;   // il codice vince: inutile cercare oltre
+            // NESSUN break anticipato sul codice. Prima si usciva appena una
+            // voce rispondeva per codice, e questo IMPEDIVA di scoprire che piu'
+            // avanti nell'albero c'era la voce col NOME esatto del record.
         }
         ++itTex;
     }
 
-    QTreeWidgetItem *hit = byCode ? byCode : byName;
+    // IL NOME VINCE SUL CODICE, quando c'e'. E' il contrario di quanto valeva
+    // prima, ed e' il punto di questa modifica.
+    //
+    // "Il codice vince" ha una buona ragione -- il codice e' cio' che si DISEGNA,
+    // e indicare una voce che renderebbe diversamente sarebbe una bugia -- ma
+    // vale solo fra voci che il nome NON distingue. Quando il record porta un
+    // libName e quella voce esiste, e' l'informazione piu' precisa che abbiamo:
+    // dice da quale voce la texture VIENE, mentre il codice, da solo, non
+    // distingue due preset che lo condividono.
+    //
+    // Caso misurato: "Fluid Iridescence" e "Fluid Iridescence TEST" hanno lo
+    // STESSO codice colore e differiscono per il solo displacement. Il record
+    // puntava (correttamente) a TEST, ma l'albero evidenziava Fluid Iridescence
+    // -- la prima incontrata nella scansione. Cliccando la voce evidenziata si
+    // caricava una texture DIVERSA da quella del record, e il disallineamento
+    // che ne seguiva sembrava un bug del Sync: in realta' era il focus a
+    // indicare la voce sbagliata.
+    //
+    // Il fallback sul codice resta per i record SENZA libName (tutti quelli
+    // salvati prima che il campo esistesse) e per quando la voce col nome e'
+    // stata rinominata o cancellata.
+    QTreeWidgetItem *hit = byName ? byName : byCode;
     if (!hit) return;
 
     hit->setSelected(true);
@@ -8230,6 +8513,8 @@ void MainWindow::scheduleTextureGeneration()
 
 void MainWindow::handleTextureSelection(int index)
 {
+    SE_TEXP("libTex:ENTRATA");
+
     // 1. Recupera i dati
     const LibraryItem &data = m_libraryManager.getTexture(index);
 
@@ -8666,10 +8951,14 @@ void MainWindow::handleTextureSelection(int index)
 
         if (ui->glWidget) ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
     }
+    // Qui i colori del PRESET sono appena stati scritti. Se piu' avanti nella
+    // sequenza risultano diversi, qualcuno li ha sovrascritti DOPO.
+    SE_TEXP("libTex:colori-del-preset");
 
     if (ui->radioTexColor1->isChecked() || ui->radioTexColor2->isChecked()) {
         onColorTargetChanged();
     }
+    SE_TEXP("libTex:post-onColorTargetChanged");
 
     // Path dell'IMMAGINE da caricare: per un file immagine diretto e' filePath;
     // per una texture-immagine salvata come JSON e' imagePath (estratto dal tag
@@ -8938,10 +9227,21 @@ void MainWindow::handleTextureSelection(int index)
         const QString prevDispApplied =
             ui->glWidget ? ui->glWidget->currentDisplacementCode() : QString();
 
+        SE_TEXP("libTex:RM-pre-displacement");
+#if SE_TEX_PROBE
+        // Cosa dice il PRESET, che nessun altro campo della sonda mostra: se qui
+        // il rilievo e' gia' quello vecchio, il guasto e' a monte (parsing,
+        // indice della libreria, voce cliccata), non in chi lo applica.
+        qDebug().noquote() << QString("TEXP   preset.displacementCode = %1 (len %2) | preset='%3'")
+                              .arg(data.displacementCode.left(60).replace('\n', ' '))
+                              .arg(data.displacementCode.length())
+                              .arg(QFileInfo(data.filePath).fileName());
+#endif
         ui->lineVariations->blockSignals(true);
         ui->lineVariations->setPlainText(data.displacementCode);
         ui->lineVariations->blockSignals(false);
         if (ui->glWidget) ui->glWidget->setDisplacementCode(data.displacementCode);
+        SE_TEXP("libTex:RM-post-displacement");
 
         // Codice della texture in ARRIVO (scriptCode e' il fallback dei vecchi
         // preset, che non avevano textureCode). Serve al solo ramo PROCEDURALE:
@@ -9037,6 +9337,7 @@ void MainWindow::handleTextureSelection(int index)
                 return; // Esce in sicurezza senza crashare
             }
 
+            SE_TEXP("libTex:RM-pre-rebuild");
             // ---> COMPILAZIONE FINALE RIPRISTINATA <---
             ui->glWidget->rebuildShader();
 
@@ -9178,7 +9479,9 @@ void MainWindow::handleTextureSelection(int index)
         ui->btnRunCurrentScript->setEnabled(false);
     }
 
+    SE_TEXP("libTex:pre-onColorTargetChanged-finale");
     onColorTargetChanged();
+    SE_TEXP("libTex:post-onColorTargetChanged-finale");
 
     // SUGGERIMENTO IN SOVRIMPRESSIONE della texture, in coda come per superfici
     // (applySurfaceExample) e record (applyMotionExample). Serve soprattutto
@@ -9268,6 +9571,8 @@ void MainWindow::handleTextureSelection(int index)
     }
 
     this->setProperty("isTextureModified", false);
+
+    SE_TEXP("libTex:USCITA");
 }
 
 
@@ -13107,6 +13412,23 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             isMatch = false;
         }
 
+#if SE_TEX_PROBE
+        // VERDETTO del gate con i pezzi del confronto: dice se si andra' nel
+        // ramo ri-click (che non riapplica codice e displacement) o nel
+        // caricamento pieno, e su quale dei quattro criteri si e' deciso.
+        qDebug().noquote() << QString(
+            "TEXP   isMatch=%1 | codice uguale=%2 | disp uguale=%3 | "
+            "presetPath uguale=%4 | chk=%5 | preset='%6'")
+            .arg(isMatch)
+            .arg(cleanCodeForComparison(activeCode) == cleanCodeForComparison(data.scriptCode))
+            .arg(ui->lineVariations
+                 && cleanCodeForComparison(ui->lineVariations->toPlainText())
+                    == cleanCodeForComparison(data.displacementCode))
+            .arg(data.filePath == m_currentTexturePresetPath)
+            .arg(ui->chkBoxTexture && ui->chkBoxTexture->isChecked())
+            .arg(QFileInfo(data.filePath).fileName());
+#endif
+
         // 3. RICARICA DEL PRESET GIA' ATTIVO (nessun toggle)
         // Cliccare nella Library una texture gia' caricata significa SEMPRE
         // "rivoglio questa texture com'e' nel preset": si riavvia l'animazione e
@@ -13115,6 +13437,11 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         // dedicati (dock Script e master), quindi lo stop qui era solo un passo
         // in piu' prima del gesto utile.
         if (isMatch && ui->chkBoxTexture->isChecked()) {
+            // RAMO RI-CLICK: NON riapplica codice ne' displacement (per scelta:
+            // sono gia' quelli). Se ci si entra quando in realta' il preset ha
+            // un displacement DIVERSO, il rilievo resta quello di prima -- ed e'
+            // il sospetto da verificare in questo giro.
+            SE_TEXP("libTex:RAMO-RICLIC(isMatch)");
             bool isBg = ui->radioBackground->isChecked();
 
             // RIAVVIO DALL'INIZIO. Ricliccare il preset gia' attivo lo fa
@@ -13135,6 +13462,48 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
                                      && ui->glWidget->activeMeshPart() >= 0;
             if (onMeshScope) ui->glWidget->resetActiveMeshTextureTime();
             else             ui->glWidget->resetTextureTime(/*background=*/isBg);
+
+            // COLORI DEL PRESET, RIAPPLICATI. Questo ramo dichiara di fare
+            // "rivoglio questa texture com'e' nel preset" -- e lo faceva per il
+            // clock e per la manipolazione 2D, ma NON per i colori: li lasciava
+            // com'erano, dando per scontato che una texture "gia' attiva" avesse
+            // gia' addosso i propri.
+            //
+            // Non e' piu' vero da quando esiste "Sync Focused Texture", che
+            // crea di proposito uno stato misto: CODICE del preset + COLORI del
+            // record. Li' il codice combacia, isMatch e' vero, e il ri-click --
+            // l'unico gesto con cui si possono rivolere i colori originali --
+            // non li riportava: la texture continuava a mostrarsi con la tinta
+            // del record (verde del preset -> arancio del record, nel caso
+            // segnalato). E' lo stesso motivo per cui il Sync NON allinea
+            // m_currentTexturePresetPath: il click deve restare un caricamento
+            // vero. Mancava solo che lo fosse anche per i colori.
+            //
+            // Stessi valori e stesso default del ramo che applica una texture
+            // NUOVA (~8829): un preset senza colori propri riparte dal
+            // verde/nero, o si terrebbe addosso quelli di prima.
+            // In ambito "Mesh" si scrivono nella PARTE, non nei due slot
+            // globali, che appartengono alla texture di superficie.
+            if (!isBg) {
+                const QColor presetC1 = data.hasCustomColors
+                        ? QColor(data.color1) : QColor::fromRgbF(0.20f, 0.80f, 0.20f);
+                const QColor presetC2 = data.hasCustomColors
+                        ? QColor(data.color2) : QColor(Qt::black);
+                if (onMeshScope) {
+                    ui->glWidget->setActiveMeshTexColors(presetC1, presetC2);
+                } else if (ui->glWidget) {
+                    ui->glWidget->setGlobalTextureColors(presetC1, presetC2);
+                }
+                // DISPLAY degli slider: m_texColor1/2 sono anche cio' che i
+                // cursori Color 1/2 mostrano e scrivono, in entrambi gli ambiti
+                // (vedi la nota gemella nel ramo per-mesh dell'applicazione).
+                m_texColor1 = presetC1;
+                m_texColor2 = presetC2;
+                onColorTargetChanged();
+                // I colori sono uniform (blocco UBO): non serve ricompilare, ma
+                // un frame va chiesto -- setActiveMeshTexColors non lo fa da se'.
+                if (ui->glWidget) ui->glWidget->update();
+            }
 
             if (isBg) {
                 m_userStoppedBgClock = false;
@@ -13769,6 +14138,8 @@ void MainWindow::applySurfaceExample(LibraryItem d)
 
 void MainWindow::applyMotionExample(LibraryItem data)
 {
+    SE_TEXP("record:ENTRATA");
+
     // IMMAGINI MANCANTI: SI CHIEDE PRIMA DI TOCCARE LA SCENA.
     // L'avviso stava in mezzo alla funzione (dopo il caricamento di texture e
     // sfondo), quindi il popup si apriva su una scena IBRIDA: geometria,
@@ -14022,12 +14393,16 @@ void MainWindow::applyMotionExample(LibraryItem data)
         }
     }
 
+    SE_TEXP("record:pre-reset-shader");
+
     // Reset sicuro di default per disinnescare vecchi shader bloccati
     if (ui->glWidget) {
         ui->glWidget->clearTexture();
         ui->glWidget->loadCustomShader("");
         ui->glWidget->setTextureCode(0);
     }
+
+    SE_TEXP("record:post-reset-shader");
 
     // 2. RIEMPI CAMPI TESTO PATH — PRIMA di applyCommonData: la sua
     // updateConstantsUIState/checkParametricDependency finale giudica le
@@ -14050,7 +14425,12 @@ void MainWindow::applyMotionExample(LibraryItem data)
     checkPath3DFields();
 
     // 3. Dati Comuni (Surface)
+    // NB per la sonda: e' applyCommonData a portare F (e le altre costanti) dal
+    // JSON ai campi e all'UBO. Se F cambia fra queste due righe, la resa cambia
+    // anche a codice texture IDENTICO.
+    SE_TEXP("record:pre-applyCommonData");
     applyCommonData(data);
+    SE_TEXP("record:post-applyCommonData");
 
     // Record che da qui in poi E' la scena. Lo legge "Sync Focused Texture" per
     // sapere se il click destro e' caduto sul record caricato: la selezione
@@ -14146,6 +14526,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
                     ui->lineTexture->setPlainText(rawCode);
                     ui->lineTexture->blockSignals(false);
                     if (ui->glWidget) ui->glWidget->setTextureCode(rawCode);
+                    SE_TEXP("common:RM-texture-del-record");
 
                     // L'IMMAGINE si estrae da QUI, prima dello svuotamento:
                     // sotto, imgPath viene ricavato da texCode, che in questo
@@ -14348,6 +14729,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
     ui->glWidget->setGlobalTextureEnabled(texEnabled);
     m_surfaceTextureScriptText = texCode;
     m_surfaceTextureCode = texCode;
+    // In RM e' QUESTA riga a rimettere in vigore la texture: createImplicitFragmentShader
+    // inietta il codice solo se m_textureEnabled, e setGlobalTextureEnabled e'
+    // l'unico punto (con setTextureCode) che invalida m_pipelineImplicit.
+    SE_TEXP("common:texture-riabilitata");
 
     m_bgTextureScriptText = bgCode;
     m_bgTextureCode = bgCode;
@@ -14362,6 +14747,55 @@ void MainWindow::applyMotionExample(LibraryItem data)
         ui->txtScriptEditor->setPlainText(m_soundScriptText);
     }
 
+
+    // COSTANTI USATE SOLO DALLA TEXTURE: si rigiudicano QUI, non prima.
+    //
+    // applyCommonData chiude con checkParametricDependency ->
+    // updateConstantsUIState, che decide quali costanti sono "usate" leggendo,
+    // in Ray Marching, lineTexture e lineVariations (~7464). Ma la texture del
+    // record entra in quei campi DOPO, nel blocco JSON qui sopra: alla prima
+    // valutazione erano ancora VUOTI, quindi una costante citata solo dalla
+    // texture risultava inutilizzata e il ramo !used non si limita a
+    // disabilitarla -- le SCRIVE 1 nel campo (~7592).
+    //
+    // Sintomo, e perche' non si vedeva subito: il guasto colpisce solo il PRIMO
+    // caricamento. Al secondo, lineTexture contiene ancora la texture
+    // PRECEDENTE, che di solito cita le stesse costanti, e il reset non scatta
+    // -- lo stesso record rendeva quindi in due modi diversi a seconda di cosa
+    // ci fosse in scena prima. Misurato su "Wireframe Rec" (F=3 nel JSON, la
+    // texture ne moltiplica la densita'): primo load F=1 -> densita' 6, secondo
+    // load F=3 -> densita' 18, stesso file.
+    //
+    // Si rivaluta e si RIscrivono i valori del JSON: rivalutare da solo non
+    // basta, perche' il campo contiene gia' l'1 scritto dal reset. A segnali
+    // bloccati come il blocco costanti di applyCommonData, e spingendo poi il
+    // risultato nell'UBO -- le costanti sono uniform, quindi non serve
+    // ricompilare, ma senza questa riga la GPU resterebbe sull'1.
+    if (isImplicit) {
+        updateConstantsUIState();
+
+        auto restoreConst = [](QLineEdit *line, QSlider *slider, float v) {
+            if (!line || !slider) return;
+            const bool bl = line->blockSignals(true);
+            const bool bs = slider->blockSignals(true);
+            line->setText(QString::number(v, 'g', 6));
+            slider->setRange(0, std::max(1000, static_cast<int>(v * 100.0f)));
+            slider->setValue(static_cast<int>(v * 100.0f));
+            line->blockSignals(bl);
+            slider->blockSignals(bs);
+        };
+        restoreConst(ui->lineA, ui->aSlider, data.a);
+        restoreConst(ui->lineB, ui->bSlider, data.b);
+        restoreConst(ui->lineC, ui->cSlider, data.c);
+        restoreConst(ui->lineD, ui->dSlider, data.d);
+        restoreConst(ui->lineE, ui->eSlider, data.e);
+        restoreConst(ui->lineF, ui->fSlider, data.f);
+        restoreConst(ui->lineS, ui->sSlider, data.s);
+        if (ui->glWidget)
+            ui->glWidget->setEquationConstants(data.a, data.b, data.c, data.d,
+                                               data.e, data.f, data.s);
+        SE_TEXP("record:costanti-rigiudicate");
+    }
 
     m_bgTexColor1 = loadedBgCol1;
     m_bgTexColor2 = loadedBgCol2;
@@ -14730,7 +15164,12 @@ void MainWindow::applyMotionExample(LibraryItem data)
             isScript && data.scriptCode.contains(metricReturnRe);
 
     if (!isScript) {
+        // onStartClicked RILEGGE lineTexture e ricommitta lo shader implicito:
+        // e' l'ultimo punto che puo' cambiare cio' che si vede. Se la riga PRIMA
+        // e quella DOPO differiscono, il colpevole e' qui dentro.
+        SE_TEXP("record:pre-onStartClicked");
         onStartClicked();
+        SE_TEXP("record:post-onStartClicked");
     } else if (isMetricScript) {
         // La mesh geodetica è già stata generata e texturizzata da applyCommonData
         // (blocco texture più sopra). Solo refresh visivo, niente recompute mesh.
@@ -14982,6 +15421,8 @@ void MainWindow::applyMotionExample(LibraryItem data)
     resetNav4DBaseline();
 
     showSceneHint(data.hintText, data.hintSeconds);
+
+    SE_TEXP("record:USCITA");
 }
 
 void MainWindow::deleteSelectedExample() {

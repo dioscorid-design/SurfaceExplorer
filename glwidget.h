@@ -477,6 +477,11 @@ public:
     // displacement insieme, quindi chi ricommitta la sola equazione (es. il load
     // di una superficie Cross Section) deve poter ripassare le altre due com'erano.
     QString currentTextureCode() const { return m_textureCode; }
+    // Texture PARAMETRICA globale attualmente compilata nel fragment. E' il
+    // canale gemello di currentTextureCode() per l'altro modo: i due non si
+    // leggono mai a vicenda, e vederli affiancati e' l'unico modo di accorgersi
+    // che uno dei due e' rimasto indietro (vedi la sonda SE_TEX_PROBE).
+    QString currentParametricTextureCode() const { return m_customFragmentCode; }
     float getSurfaceScale() const { return m_surfaceScale; }
     void rebuildShader();
 

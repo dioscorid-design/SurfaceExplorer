@@ -1190,6 +1190,13 @@ public:
     const LibraryItem *focusedTextureLibraryItem() const;
     // File del record in scena: il menu confronta con quello cliccato.
     QString currentRecordPath() const { return m_currentRecordPath; }
+
+    // SONDA DELLO STATO TEXTURE (vedi SE_TEX_PROBE in mainwindow.cpp). Stampa in
+    // UNA riga i tre canali del codice, i due slot di testo, l'ambito, F e i
+    // flag: e' pensata per essere chiamata negli stessi punti di una sequenza e
+    // letta in colonna, dove il guasto si vede come DIVERGENZA fra due campi.
+    // Inerte quando la macro e' a 0.
+    void dumpTextureState(const char *tag) const;
 private:
 
     // --- UI State & Graphics ---
