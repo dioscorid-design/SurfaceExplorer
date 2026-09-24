@@ -5187,6 +5187,14 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // Qui, nella parte comune, per non doverlo ricordare in ciascun ramo.
     applyBackgroundSkyMode(GLWidget::BgFixed);
 
+    // Ancore delle texture: il reset toglie texture e sfondo, quindi anche il
+    // loro legame con la libreria. Prima non le azzerava nessuno, e dopo un NEW
+    // uno script scritto a mano si ritrovava in Library il focus sulla texture
+    // del record di prima (il nome vince sul codice). Chi carica dopo il reset
+    // -- record, texture dalla libreria -- le riscrive da se'.
+    m_currentTextureLibName.clear();
+    m_currentBgTextureLibName.clear();
+
     ui->stepSlider->blockSignals(true);
 
     // FLUSSO GEODETICO fermato PRIMA di svuotare i campi. E' un moto come le
@@ -5986,8 +5994,10 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // memoria, pronto a finire in un eventuale risalvataggio.
     // Anche quello della TEXTURE: ora i due si compongono a schermo
     // (composedHintText), quindi lasciarlo qui lo farebbe sopravvivere al reset
-    // e riapparire sotto il messaggio del preset successivo.
+    // e riapparire sotto il messaggio del preset successivo. Stessa sorte per
+    // quello dello SFONDO: il reset toglie anche lo sfondo.
     m_currentTextureHintText.clear();
+    m_currentBgTextureHintText.clear();
     showSceneHint(QString(), 0.0f);
 
     // Scena azzerata: non c'e' piu' lavoro da proteggere, e la situazione che
@@ -7871,9 +7881,10 @@ void MainWindow::syncTextureTreeSelection()
     // clearSelection() e' gia' stato fatto qui sopra: uscendo ora l'albero
     // resta pulito.
     QString activeCode;
-    // Nome di libreria della texture cercata: SOLO per quella globale di
-    // superficie, l'unica che ne ha uno (vedi selectTextureTreeItemFor). Sfondo
-    // e fascia lo lasciano vuoto.
+    // Nome di libreria della texture cercata, ciascuna con la SUA ancora: la
+    // superficie globale m_currentTextureLibName, lo sfondo
+    // m_currentBgTextureLibName. Una fascia non ne ha uno e lo lascia vuoto
+    // (vedi selectTextureTreeItemFor).
     QString libName;
     if (ui->radioBackground->isChecked()) {
         // SFONDO: non ha un flag di modello (nessun m_bgTextureState) -- il
@@ -7881,6 +7892,7 @@ void MainWindow::syncTextureTreeSelection()
         // il display di una fascia. Qui leggerlo resta corretto.
         if (!ui->chkBoxTexture->isChecked()) return;
         activeCode = m_bgTextureCode;
+        libName = m_currentBgTextureLibName;
     } else {
         if (ui->tabModeSelector->currentIndex() == 1) {
             // RAY MARCHING: nessuna fascia, la texture e' quella di superficie e
@@ -8091,17 +8103,75 @@ bool MainWindow::syncFocusedTextureFromLibrary()
 {
     SE_TEXP("sync:PRIMA");
 
-    const LibraryItem *lib = focusedTextureLibraryItem();
-    if (!lib) return false;
+    // Le due texture del record, ognuna con la sua ancora: si aggiornano quelle
+    // che ne hanno bisogno, anche entrambe, in un solo comando. Prima esisteva la
+    // sola superficie, e uno sfondo rimasto indietro rispetto alla libreria non
+    // aveva modo di essere riallineato (ne' di ritrovare il focus in Library).
+    const LibraryItem *surfLib = focusedTextureLibraryItem();
+    const LibraryItem *bgLib   = focusedBgTextureLibraryItem();
+    bool changed = false;
+    if (surfLib) changed = syncSurfaceTextureFrom(surfLib) || changed;
+    if (bgLib)   changed = syncBackgroundTextureFrom(bgLib) || changed;
+    if (!changed) return false;
 
+    // GLI SLIDER SEGUONO IL CODICE, come l'orologio nei due rami. Una volta sola,
+    // qualunque texture sia cambiata: updateConstantsUIState legge tutti i codici.
+    //
+    // E' IL CASO PER CUI IL COMANDO ESISTE: una texture aggiornata in libreria
+    // che ha ACQUISITO uno slider (o che ne ha perso uno). Il codice nuovo e'
+    // stato scritto nei campi a blockSignals -- e deve esserlo, o textChanged
+    // azzererebbe m_currentTextureLibName -- ma quel blocco ferma anche
+    // updateConstantsUIState, che e' l'unico punto che decide quali costanti
+    // sono "usate" e quindi quali slider sono accesi.
+    // Senza questa chiamata il Sync portava a schermo una texture che usa F
+    // lasciando lo slider F SPENTO e inerte: il comando sembrava non aver
+    // funzionato, e la densita' restava quella di prima perche' nessuno
+    // spingeva il valore nel motore.
+    //
+    // Va DOPO la scrittura dei campi: updateConstantsUIState giudica leggendoli
+    // (in RM lineTexture + lineVariations, ~7464), quindi chiamarla prima la
+    // farebbe decidere sul codice VECCHIO -- e' lo stesso errore d'ordine del
+    // caricamento record.
+    updateConstantsUIState();
+    // Le costanti appena sbloccate vanno anche SPINTE nel motore: sono uniform,
+    // non serve ricompilare, ma la GPU ha ancora i valori di prima. Si rileggono
+    // dai campi come sono ADESSO (resolveCascadeConstants), che e' cio' che fa
+    // gia' la coda di handleTextureSelection (~9430) dopo lo stesso genere di
+    // cambio.
+    {
+        const CascadeConstants kc = resolveCascadeConstants(true);
+        if (ui->glWidget)
+            ui->glWidget->setEquationConstants(kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s);
+    }
+
+    // Messaggi delle texture aggiornate, una volta sola per entrambe: si
+    // mostrano i SOLI messaggi delle texture, non quello della SCENA -- gia'
+    // visto al caricamento del record. Qui non e' cambiata la scena.
+    showTextureHintsOnly(std::max(m_currentTextureHintSeconds, m_currentBgTextureHintSeconds));
+
+    // Lavoro non salvato: il record sul disco ha ancora il codice vecchio.
+    m_textureDirty = true;
+    updateMasterButtonState();
+    syncTextureTreeSelection();
+
+    SE_TEXP("sync:DOPO");
+    return true;
+}
+
+// SUPERFICIE: il corpo storico del comando. Ritorna false se non ha toccato
+// nulla (costante contesa annullata, shader che non compila).
+bool MainWindow::syncSurfaceTextureFrom(const LibraryItem *lib)
+{
     const QString newCode = lib->textureCode.isEmpty() ? lib->scriptCode : lib->textureCode;
     if (newCode.trimmed().isEmpty()) return false;
 
     // Costante contesa: stessa domanda del caricamento normale. Il codice nuovo
     // puo' rivendicare una lettera che la superficie sta gia' usando, e quello
     // slider ne muoverebbe due insieme. Annullando non si tocca nulla.
-    if (!confirmTextureConstantClash(newCode, lib->displacementCode,
-                                     ui->radioBackground && ui->radioBackground->isChecked()))
+    // forBackground = false SEMPRE: qui arriva la texture di SUPERFICIE. Prima
+    // si passava lo stato del radio Surface/Background, e col Renderer su
+    // Background il confronto avveniva dalla parte sbagliata.
+    if (!confirmTextureConstantClash(newCode, lib->displacementCode, /*forBackground=*/false))
         return false;
 
     const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
@@ -8227,104 +8297,149 @@ bool MainWindow::syncFocusedTextureFromLibrary()
         ui->glWidget->update();
     }
 
-    // GLI SLIDER SEGUONO IL CODICE, come l'orologio qui sopra.
-    //
-    // E' IL CASO PER CUI IL COMANDO ESISTE: una texture aggiornata in libreria
-    // che ha ACQUISITO uno slider (o che ne ha perso uno). Il codice nuovo e'
-    // stato scritto nei campi a blockSignals -- e deve esserlo, o textChanged
-    // azzererebbe m_currentTextureLibName -- ma quel blocco ferma anche
-    // updateConstantsUIState, che e' l'unico punto che decide quali costanti
-    // sono "usate" e quindi quali slider sono accesi.
-    // Senza questa chiamata il Sync portava a schermo una texture che usa F
-    // lasciando lo slider F SPENTO e inerte: il comando sembrava non aver
-    // funzionato, e la densita' restava quella di prima perche' nessuno
-    // spingeva il valore nel motore.
-    //
-    // Va DOPO la scrittura dei campi: updateConstantsUIState giudica leggendoli
-    // (in RM lineTexture + lineVariations, ~7464), quindi chiamarla prima la
-    // farebbe decidere sul codice VECCHIO -- e' lo stesso errore d'ordine del
-    // caricamento record.
-    updateConstantsUIState();
-    // Le costanti appena sbloccate vanno anche SPINTE nel motore: sono uniform,
-    // non serve ricompilare, ma la GPU ha ancora i valori di prima. Si rileggono
-    // dai campi come sono ADESSO (resolveCascadeConstants), che e' cio' che fa
-    // gia' la coda di handleTextureSelection (~9430) dopo lo stesso genere di
-    // cambio.
-    {
-        const CascadeConstants kc = resolveCascadeConstants(true);
-        if (ui->glWidget)
-            ui->glWidget->setEquationConstants(kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s);
-    }
-
     // Il messaggio della texture puo' essere cambiato insieme al codice: se ora
     // nomina uno slider, e' l'informazione che serve subito dopo.
-    // Si mostra il SOLO messaggio della texture, e solo se c'e': refreshSceneHint
-    // passa da composedHintText, che rimette a schermo anche quello della SCENA
-    // -- gia' visto al caricamento del record e nel frattempo scomparso. Qui non
-    // e' cambiata la scena, e' cambiata la texture.
-    // NB: non si passa da showSceneHint, che SCRIVE m_currentHintText -- il
-    // messaggio della SCENA, riscritto poi nel preset: il testo della texture
-    // diventerebbe quello della superficie al primo salvataggio.
-    m_currentTextureHintText = lib->hintText.trimmed();
-    if (!m_currentTextureHintText.isEmpty()) {
-        const QString savedScene = m_currentHintText;
-        m_currentHintText.clear();               // solo per questa chiamata
-        refreshSceneHint(lib->hintSeconds > 0 ? lib->hintSeconds : m_currentHintSeconds);
-        m_currentHintText = savedScene;
-    }
+    // Solo lo STATO qui: lo mostra syncFocusedTextureFromLibrary, una volta sola
+    // per le due texture (vedi showTextureHintsOnly). Anche vuoto: la versione
+    // aggiornata puo' aver tolto il messaggio.
+    m_currentTextureHintText    = lib->hintText.trimmed();
+    m_currentTextureHintSeconds = lib->hintSeconds > 0 ? lib->hintSeconds : m_currentHintSeconds;
 
-    // Lavoro non salvato: il record sul disco ha ancora il codice vecchio.
-    m_textureDirty = true;
-    updateMasterButtonState();
-    syncTextureTreeSelection();
-
-    SE_TEXP("sync:DOPO");
     return true;
 }
 
-// Voce di libreria da cui viene la texture della scena, e SOLO se c'e' davvero
-// qualcosa da aggiornare: serve sia al comando sia al gate della voce di menu,
-// che deve restare spenta quando non farebbe nulla.
-// nullptr se: la texture non viene da libreria (nessun libName -- scritta a
-// mano, o record salvato prima che il campo esistesse), la voce non esiste piu'
-// (rinominata o cancellata), oppure il codice e' gia' identico.
-const LibraryItem *MainWindow::focusedTextureLibraryItem() const
+// SFONDO. Stesso contratto della superficie -- arriva il CODICE della voce di
+// libreria, restano i colori (m_bgTexColor1/2), le costanti e l'inquadratura 2D
+// del record -- ma per una via propria:
+//  - NON si passa dal ramo A di onApplyTextureScriptClicked: sceglie fra sfondo e
+//    superficie guardando il radio del Renderer (il Sync parte dal menu della
+//    libreria, col radio dove capita) e azzera zoom/pan/rotazione, che qui vanno
+//    conservati;
+//  - un tag //IMG: gia' presente si CONSERVA davanti al codice nuovo: e' lo
+//    sfondo misto immagine+script, come nel ramo sfondo di handleTextureSelection.
+//    La voce di libreria porta solo lo script;
+//  - il messaggio va in m_currentBgTextureHintText, il suo: quello della texture
+//    di SUPERFICIE lo salva il record, e usarlo per lo sfondo lo sovrascriverebbe.
+bool MainWindow::syncBackgroundTextureFrom(const LibraryItem *lib)
 {
-    if (m_currentTextureLibName.isEmpty()) return nullptr;
-    if (!ui->treeTextures) return nullptr;
+    QString newCode = lib->textureCode.isEmpty() ? lib->scriptCode : lib->textureCode;
+    if (newCode.trimmed().isEmpty()) return false;
 
-    const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
-    const QString activeCode = isImplicit && ui->lineTexture
-                             ? ui->lineTexture->toPlainText()
-                             : m_surfaceTextureCode;
-    const QString cleanedActive = cleanCodeForComparison(activeCode);
-    // Il DISPLACEMENT fa parte della texture quanto il colore, e va confrontato
-    // anche lui: una texture il cui solo rilievo e' cambiato ha eccome qualcosa
-    // da sincronizzare, ma guardando il solo codice colore la voce sarebbe
-    // rimasta spenta -- e il comando, che il displacement lo aggiorna gia',
-    // sarebbe risultato irraggiungibile proprio nel caso che lo richiede.
-    const QString cleanedActiveDisp = cleanCodeForComparison(
-        ui->lineVariations ? ui->lineVariations->toPlainText() : QString());
+    // Costante contesa dal punto di vista dello SFONDO: contro la superficie e
+    // la sua texture. Annullando non si tocca nulla.
+    if (!confirmTextureConstantClash(newCode, QString(), /*forBackground=*/true))
+        return false;
 
+    static const QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)",
+                                          QRegularExpression::MultilineOption);
+    const QRegularExpressionMatch imgMatch = imgRe.match(m_bgTextureCode);
+    if (imgMatch.hasMatch() && !newCode.contains("//IMG:"))
+        newCode = "//IMG:" + imgMatch.captured(1).trimmed() + "\n" + newCode;
+
+    // Dry-run PRIMA di toccare lo stato: se non compila resta lo sfondo di prima.
+    if (ui->glWidget && !ui->glWidget->validateAndApplyBackgroundShader(newCode)) {
+        showShaderError("Background Shader Error", ui->glWidget->getShaderError());
+        return false;
+    }
+
+    m_bgTextureCode = newCode;
+    m_bgTextureScriptText = newCode;
+    // Messaggio dello sfondo: e' cio' che dice a cosa serve uno slider appena
+    // acquisito (il caso per cui il comando esiste). Solo lo stato: lo mostra il
+    // chiamante, una volta per le due texture. Anche vuoto, come la superficie.
+    m_currentBgTextureHintText    = lib->hintText.trimmed();
+    m_currentBgTextureHintSeconds = lib->hintSeconds > 0 ? lib->hintSeconds : m_currentHintSeconds;
+
+    // Editor: solo se sta mostrando lo sfondo (modulo Texture, bersaglio
+    // Background). syncTextureEditorTo rifiuta proprio questo caso, perche' e'
+    // pensata per la superficie. A segnali bloccati: e' la libreria, non una
+    // digitazione.
+    if (m_currentScriptMode == ScriptModeTexture && ui->radioBackground
+        && ui->radioBackground->isChecked() && ui->txtScriptEditor) {
+        const bool old = ui->txtScriptEditor->blockSignals(true);
+        ui->txtScriptEditor->setPlainText(newCode);
+        ui->txtScriptEditor->blockSignals(old);
+    }
+
+    // L'orologio segue il codice, come per la superficie: il codice nuovo puo'
+    // aver acquisito o perso la variabile t. Comando esplicito: riarma lo stop
+    // manuale dello sfondo, senza guardia sul master.
+    m_userStoppedBgClock = false;
+    if (ui->glWidget) {
+        ui->glWidget->setBackgroundTextureAnimating(hasTimeVariable(newCode));
+        ui->glWidget->update();
+    }
+    return true;
+}
+
+// Voce di libreria col nome dato, o nullptr. Unica scansione dell'albero per le
+// due ancore (texture di superficie e di sfondo): due copie dello stesso ciclo
+// finirebbero per divergere alla prima correzione.
+const LibraryItem *MainWindow::textureLibraryItemNamed(const QString &name) const
+{
+    if (name.isEmpty() || !ui->treeTextures) return nullptr;
     QTreeWidgetItemIterator it(ui->treeTextures);
     while (*it) {
         QVariant v = (*it)->data(0, Qt::UserRole + 1);
         if (v.isValid()) {
             const LibraryItem &item = m_libraryManager.getTexture(v.toInt());
-            if (QString::compare(m_currentTextureLibName, item.name.trimmed(),
-                                 Qt::CaseInsensitive) == 0) {
-                const QString libCode = item.textureCode.isEmpty() ? item.scriptCode
-                                                                   : item.textureCode;
-                // Gia' allineati (codice E rilievo): niente da sincronizzare.
-                if (cleanCodeForComparison(libCode) == cleanedActive
-                    && cleanCodeForComparison(item.displacementCode) == cleanedActiveDisp)
-                    return nullptr;
+            if (QString::compare(name, item.name.trimmed(), Qt::CaseInsensitive) == 0)
                 return &item;
-            }
         }
         ++it;
     }
     return nullptr;
+}
+
+// Voce di libreria da cui viene la texture DI SUPERFICIE, e SOLO se c'e'
+// davvero qualcosa da aggiornare: serve sia al comando sia al gate della voce di
+// menu, che deve restare spenta quando non farebbe nulla.
+// nullptr se: la texture non viene da libreria (nessun libName -- scritta a
+// mano, o record salvato prima che il campo esistesse), la voce non esiste piu'
+// (rinominata o cancellata), oppure il codice e' gia' identico.
+const LibraryItem *MainWindow::focusedTextureLibraryItem() const
+{
+    const LibraryItem *item = textureLibraryItemNamed(m_currentTextureLibName);
+    if (!item) return nullptr;
+
+    const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
+    const QString activeCode = isImplicit && ui->lineTexture
+                             ? ui->lineTexture->toPlainText()
+                             : m_surfaceTextureCode;
+    // Il DISPLACEMENT fa parte della texture quanto il colore, e va confrontato
+    // anche lui: una texture il cui solo rilievo e' cambiato ha eccome qualcosa
+    // da sincronizzare, ma guardando il solo codice colore la voce sarebbe
+    // rimasta spenta -- e il comando, che il displacement lo aggiorna gia',
+    // sarebbe risultato irraggiungibile proprio nel caso che lo richiede.
+    const QString activeDisp = ui->lineVariations ? ui->lineVariations->toPlainText() : QString();
+
+    const QString libCode = item->textureCode.isEmpty() ? item->scriptCode : item->textureCode;
+    // Gia' allineati (codice E rilievo): niente da sincronizzare.
+    if (cleanCodeForComparison(libCode) == cleanCodeForComparison(activeCode)
+        && cleanCodeForComparison(item->displacementCode) == cleanCodeForComparison(activeDisp))
+        return nullptr;
+    return item;
+}
+
+// Gemella per la texture DI SFONDO, con la sua ancora (m_currentBgTextureLibName).
+// Differenze dalla superficie:
+//  - niente displacement: lo sfondo non ha rilievo;
+//  - le voci IMMAGINE si escludono: il loro legame e' il nome del file nel tag
+//    //IMG:, non il codice, e non c'e' codice da portare. cleanCodeForComparison
+//    toglie il tag, quindi uno sfondo misto immagine+script si confronta sul
+//    solo script, che e' cio' che la voce di libreria contiene;
+//  - vale anche con lo sfondo SPENTO: il codice resta nel record, e aggiornarlo
+//    e' comunque cio' che il comando promette.
+const LibraryItem *MainWindow::focusedBgTextureLibraryItem() const
+{
+    if (m_bgTextureCode.trimmed().isEmpty()) return nullptr;
+    const LibraryItem *item = textureLibraryItemNamed(m_currentBgTextureLibName);
+    if (!item || item->isImage) return nullptr;
+
+    const QString libCode = item->textureCode.isEmpty() ? item->scriptCode : item->textureCode;
+    if (cleanCodeForComparison(libCode) == cleanCodeForComparison(m_bgTextureCode))
+        return nullptr;
+    return item;
 }
 
 // IL NOME ARRIVA DAL CHIAMANTE, e non si legge piu' qui m_currentTextureLibName.
@@ -8335,8 +8450,9 @@ const LibraryItem *MainWindow::focusedTextureLibraryItem() const
 // superficie, e siccome il nome vince sul codice l'albero tornava sulla texture
 // della superficie. Sintomo: record con texture su superficie E sfondo, radio
 // Background nel Renderer -> focus rimasto sulla superficie.
-// Solo il chiamante sa QUALE texture sta cercando: per sfondo e fascia passa un
-// nome vuoto e la ricerca e' per solo codice, com'era prima del libName.
+// Solo il chiamante sa QUALE texture sta cercando, e passa l'ancora di QUELLA:
+// m_currentTextureLibName per la superficie, m_currentBgTextureLibName per lo
+// sfondo. Per una fascia il nome e' vuoto e la ricerca e' per solo codice.
 void MainWindow::selectTextureTreeItemFor(QTreeWidgetItemIterator &itTex,
                                           const QString &activeCode,
                                           const QString &cleanedActive,
@@ -8619,6 +8735,19 @@ void MainWindow::handleTextureSelection(int index)
 
     // 2. CONTROLLO MODALITÀ SFONDO
     if (ui->radioBackground->isChecked()) {
+        // ANCORA E MESSAGGIO DELLO SFONDO: da quale voce di libreria viene, e
+        // cosa dice dei suoi slider. Qui, in testa al ramo, per immagini e
+        // procedurali: sono i gemelli di m_currentTextureLibName e
+        // m_currentTextureHintText, che questo ramo non tocca perche' sono della
+        // superficie. Il blocco dell'hint in coda alla funzione NON vale per lo
+        // sfondo: questo ramo esce prima. Anche a hint vuoto: lo sfondo di prima
+        // puo' averne lasciato uno, che ora va tolto da schermo.
+        m_currentBgTextureLibName     = data.name.trimmed();
+        m_currentBgTextureHintText    = data.hintText.trimmed();
+        m_currentBgTextureHintSeconds = data.hintSeconds;
+        refreshSceneHint(m_currentBgTextureHintText.isEmpty() ? m_currentHintSeconds
+                                                              : data.hintSeconds);
+
         if (data.hasCustomColors) {
             m_bgTexColor1 = QColor(data.color1);
             m_bgTexColor2 = QColor(data.color2);
@@ -9542,8 +9671,10 @@ void MainWindow::handleTextureSelection(int index)
     // soli -- updateConstantsUIState le trova nel codice -- ma niente dice a
     // COSA servano in questa texture, e l'utente si trova uno slider acceso
     // senza sapere cosa muove.
-    // Qui e non nei singoli rami: la funzione non ha uscite anticipate, quindi
-    // questo punto vale per parametrica, ray marching, sfondo e per-mesh.
+    // Qui e non nei singoli rami: vale per parametrica e ray marching. NON per lo
+    // SFONDO, che esce prima e ha il suo messaggio (m_currentBgTextureHintText,
+    // scritto in testa al suo ramo): il commento che lo dava per coperto era
+    // sbagliato, e l'hint di uno sfondo caricato dalla libreria non compariva.
     // Il messaggio della texture e' un'AGGIUNTA, non un sostituto: si somma a
     // quello della scena in composedHintText(). Non si passa il testo della
     // texture a showSceneHint -- quella scrive m_currentHintText, cioe' il
@@ -13726,6 +13857,16 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // La scena non e' piu' un record: caricando una SUPERFICIE l'ancora del
     // record caricato non vale piu' (vedi m_currentRecordPath).
     m_currentRecordPath.clear();
+    // Stessa ragione per le ancore delle texture: le portano solo i record, e le
+    // superfici non le riscrivono. Rimaste in memoria, nell'albero il nome del
+    // record precedente vincerebbe sul codice della texture di questa superficie.
+    // Non basta il reset di scena: una superficie passa di li' solo se cambia la
+    // linguetta.
+    m_currentTextureLibName.clear();
+    m_currentBgTextureLibName.clear();
+    // Il messaggio dello sfondo segue lo sfondo, che questo caricamento toglie
+    // (m_bgTextureCode viene svuotato qui sotto).
+    m_currentBgTextureHintText.clear();
 
     // ASPETTO PER-MESH DURANTE IL LOAD.
     // Per tutta la durata del caricamento i setter globali (colore, alpha, luce,
@@ -14559,6 +14700,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
         QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
         QJsonObject root = doc.object();
 
+        // Ancora della superficie: SEMPRE riscritta, anche a vuoto, come quella
+        // dello sfondo piu' sotto. Un record senza blocco "texture" non deve
+        // ereditare il nome della texture del record aperto prima.
+        m_currentTextureLibName.clear();
         if (root.contains("texture")) {
             QJsonObject tex = root["texture"].toObject();
             if (tex.contains("enabled")) texEnabled = tex["enabled"].toBool();
@@ -14616,8 +14761,18 @@ void MainWindow::applyMotionExample(LibraryItem data)
             if (tex.contains("rotation")) surfRot = tex["rotation"].toDouble(0.0);
         }
 
+        // Ancora dello sfondo: SEMPRE riscritta, anche a vuoto. Un record senza
+        // sfondo, o salvato prima che la chiave esistesse, non deve ereditare il
+        // nome dello sfondo del record aperto prima.
+        m_currentBgTextureLibName.clear();
+        m_currentBgTextureHintText.clear();
         if (root.contains("background")) {
             QJsonObject bg = root["background"].toObject();
+            m_currentBgTextureLibName = bg.value("libName").toString().trimmed();
+            // Messaggio dello sfondo: letto qui, PRIMA del showSceneHint in coda
+            // alla funzione, che lo compone con gli altri due.
+            m_currentBgTextureHintText    = bg.value("hintText").toString().trimmed();
+            m_currentBgTextureHintSeconds = (float)bg.value("hintSeconds").toDouble(6.0);
             if (bg.contains("enabled")) bgTexEnabled = bg["enabled"].toBool();
             if (bg.contains("code")) bgCode = bg["code"].toString();
             if (bg.contains("col1")) loadedBgCol1 = QColor(bg["col1"].toString());
@@ -14803,54 +14958,41 @@ void MainWindow::applyMotionExample(LibraryItem data)
     }
 
 
-    // COSTANTI USATE SOLO DALLA TEXTURE: si rigiudicano QUI, non prima.
+    // COSTANTI: si rigiudicano QUI, a campi completi, e non prima.
     //
     // applyCommonData chiude con checkParametricDependency ->
-    // updateConstantsUIState, che decide quali costanti sono "usate" leggendo,
-    // in Ray Marching, lineTexture e lineVariations (~7464). Ma la texture del
-    // record entra in quei campi DOPO, nel blocco JSON qui sopra: alla prima
-    // valutazione erano ancora VUOTI, quindi una costante citata solo dalla
-    // texture risultava inutilizzata e il ramo !used non si limita a
-    // disabilitarla -- le SCRIVE 1 nel campo (~7592).
+    // updateConstantsUIState, che decide quali costanti sono "usate" leggendo
+    // anche i codici delle texture: lineTexture/lineVariations in Ray Marching,
+    // m_surfaceTextureCode in parametrico, m_bgTextureCode in ENTRAMBI (~7464).
+    // Ma texture e sfondo del record arrivano DOPO, nel blocco JSON qui sopra:
+    // quel giudizio avveniva sui codici della SCENA PRECEDENTE. Due guasti
+    // opposti, entrambi misurati:
+    //  - costante usata solo dalla texture del record, ma non dalla scena di
+    //    prima: risultava inutilizzata e il ramo !used le SCRIVE 1 (~7592).
+    //    "Wireframe Rec" (F=3 nel JSON): primo load F=1, secondo load F=3.
+    //  - costante usata dalla scena di prima, ma da NESSUN campo del record:
+    //    risultava usata e restava ACCESA, con uno slider che non muove nulla.
+    //    "Hybrid Hyperbolic" dopo aver provato il Mandelbrot con F come sfondo.
+    // Il primo si era corretto solo in Ray Marching; il secondo colpisce
+    // soprattutto il parametrico, dove lo sfondo e' lo stesso. Quindi qui vale
+    // per ENTRAMBI i modi.
     //
-    // Sintomo, e perche' non si vedeva subito: il guasto colpisce solo il PRIMO
-    // caricamento. Al secondo, lineTexture contiene ancora la texture
-    // PRECEDENTE, che di solito cita le stesse costanti, e il reset non scatta
-    // -- lo stesso record rendeva quindi in due modi diversi a seconda di cosa
-    // ci fosse in scena prima. Misurato su "Wireframe Rec" (F=3 nel JSON, la
-    // texture ne moltiplica la densita'): primo load F=1 -> densita' 6, secondo
-    // load F=3 -> densita' 18, stesso file.
-    //
-    // Si rivaluta e si RIscrivono i valori del JSON: rivalutare da solo non
-    // basta, perche' il campo contiene gia' l'1 scritto dal reset. A segnali
-    // bloccati come il blocco costanti di applyCommonData, e spingendo poi il
-    // risultato nell'UBO -- le costanti sono uniform, quindi non serve
-    // ricompilare, ma senza questa riga la GPU resterebbe sull'1.
-    if (isImplicit) {
-        updateConstantsUIState();
-
-        auto restoreConst = [](QLineEdit *line, QSlider *slider, float v) {
-            if (!line || !slider) return;
-            const bool bl = line->blockSignals(true);
-            const bool bs = slider->blockSignals(true);
-            line->setText(QString::number(v, 'g', 6));
-            slider->setRange(0, std::max(1000, static_cast<int>(v * 100.0f)));
-            slider->setValue(static_cast<int>(v * 100.0f));
-            line->blockSignals(bl);
-            slider->blockSignals(bs);
-        };
-        restoreConst(ui->lineA, ui->aSlider, data.a);
-        restoreConst(ui->lineB, ui->bSlider, data.b);
-        restoreConst(ui->lineC, ui->cSlider, data.c);
-        restoreConst(ui->lineD, ui->dSlider, data.d);
-        restoreConst(ui->lineE, ui->eSlider, data.e);
-        restoreConst(ui->lineF, ui->fSlider, data.f);
-        restoreConst(ui->lineS, ui->sSlider, data.s);
+    // ORDINE: prima si riscrivono i valori del JSON (il reset a 1 puo' averli gia'
+    // rovinati), POI si giudica -- ora sui campi del record -- cosi' le costanti
+    // davvero inutilizzate tornano a 1 e spente come vuole la regola, e le altre
+    // tengono il valore salvato. Infine il motore legge i campi come sono adesso:
+    // le costanti sono uniform, niente rebuild, ma senza questa riga la GPU
+    // resterebbe coi valori del giudizio sbagliato.
+    // La mappa delle discrete NON si ricostruisce (false): per i record con
+    // script e' gia' stata rifatta dalle direttive :=.
+    applyPresetConstants(data, /*rebuildDiscreteMap=*/false);
+    updateConstantsUIState();
+    {
+        const CascadeConstants kc = resolveCascadeConstants(false);
         if (ui->glWidget)
-            ui->glWidget->setEquationConstants(data.a, data.b, data.c, data.d,
-                                               data.e, data.f, data.s);
-        SE_TEXP("record:costanti-rigiudicate");
+            ui->glWidget->setEquationConstants(kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s);
     }
+    SE_TEXP("record:costanti-rigiudicate");
 
     m_bgTexColor1 = loadedBgCol1;
     m_bgTexColor2 = loadedBgCol2;
@@ -15430,9 +15572,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
     QTreeWidgetItemIterator itTex(ui->treeTextures);
 
     QString activeCode;
-    QString libName;   // solo per la texture di superficie: vedi selectTextureTreeItemFor
+    QString libName;   // l'ancora della texture cercata: vedi selectTextureTreeItemFor
     if (ui->radioBackground->isChecked()) {
         activeCode = m_bgTextureCode;
+        libName = m_currentBgTextureLibName;
     } else {
         // Se siamo in Ray Marching usiamo il campo texture, altrimenti lo script superficie
         activeCode = (ui->tabModeSelector->currentIndex() == 1) ?
@@ -17197,6 +17340,102 @@ void MainWindow::loadCrossSectionDefaultSurface()
     updateConstantsUIState();
 }
 
+// COSTANTI A-F/S DI UN PRESET: campi, slider, snap delle discrete e motore.
+// Estratto da applyCommonData perche' serve DUE volte al load di un record, e la
+// seconda copia -- scritta a mano -- divergeva: impostava l'intervallo di S da 0
+// (S puo' essere negativa: un record con S < 0 si ricaricava a 0) e saltava lo
+// snap delle costanti discrete. Una sede sola, come vuole la regola del progetto
+// sulle copie di logica.
+// rebuildDiscreteMap: true al primo passaggio (applyCommonData), false al secondo
+// -- vedi il commento sulla mappa qui sotto.
+void MainWindow::applyPresetConstants(const LibraryItem &d, bool rebuildDiscreteMap)
+{
+    ui->aSlider->blockSignals(true); ui->lineA->blockSignals(true);
+    ui->bSlider->blockSignals(true); ui->lineB->blockSignals(true);
+    ui->cSlider->blockSignals(true); ui->lineC->blockSignals(true);
+    ui->dSlider->blockSignals(true); ui->lineD->blockSignals(true);
+    ui->eSlider->blockSignals(true); ui->lineE->blockSignals(true);
+    ui->fSlider->blockSignals(true); ui->lineF->blockSignals(true);
+    ui->sSlider->blockSignals(true); ui->lineS->blockSignals(true);
+
+    // Lambda per espandere il range quando si carica un salvataggio estremo
+    auto updateSliderPreset = [](QSlider* s, float v, bool isS) {
+        int intVal = static_cast<int>(v * 100.0f);
+        int newMin = isS ? std::min(-1000, intVal) : 0;
+        int newMax = std::max(1000, intVal);
+        s->setRange(newMin, newMax);
+        s->setValue(intVal);
+    };
+
+    updateSliderPreset(ui->aSlider, d.a, false);
+    updateSliderPreset(ui->bSlider, d.b, false);
+    updateSliderPreset(ui->cSlider, d.c, false);
+    updateSliderPreset(ui->dSlider, d.d, false);
+    updateSliderPreset(ui->eSlider, d.e, false);
+    updateSliderPreset(ui->fSlider, d.f, false);
+    updateSliderPreset(ui->sSlider, d.s, true);
+
+    // Formato 'g',6 (precisione significativa), NON 'f',2: quest'ultimo troncava le
+    // costanti a 2 decimali al LOAD (es. A=0.005 -> "0.01"), e un successivo salvataggio
+    // le rileggeva gia' rovinate da lineA -> il valore fine si perdeva. 'g',6 e' coerente
+    // con connectSlider (che scrive i campi con lo stesso formato).
+    ui->lineA->setText(QString::number(d.a, 'g', 6));
+    ui->lineB->setText(QString::number(d.b, 'g', 6));
+    ui->lineC->setText(QString::number(d.c, 'g', 6));
+    ui->lineD->setText(QString::number(d.d, 'g', 6));
+    ui->lineE->setText(QString::number(d.e, 'g', 6));
+    ui->lineF->setText(QString::number(d.f, 'g', 6));
+    ui->lineS->setText(QString::number(d.s, 'g', 6));
+
+    // Costanti discrete dichiarate dal PRESET ("discreteConstants": {"A":[2,6]}).
+    // Vanno adottate QUI, a campi appena scritti e segnali ancora bloccati:
+    // applyDiscreteConstants() legge i QLineEdit e li riscrive con l'intero piu'
+    // vicino, quindi deve girare dopo il ripristino dei valori.
+    // Azzerata SEMPRE per prima: un preset che non le dichiara deve tornare a
+    // costanti continue, altrimenti quelle del preset precedente resterebbero
+    // attive (stessa famiglia di bug del cutout che persisteva fra superfici).
+    // Per i preset CON script la mappa viene poi ricostruita dalle direttive :=
+    // in parseAndApplyScriptParams: le due strade non si pestano i piedi perche'
+    // quella parte azzera a sua volta prima di leggere.
+    // rebuildDiscreteMap = false: la mappa si RIUSA com'e'. Serve alla seconda
+    // applicazione dei valori al load di un record (vedi applyMotionExample):
+    // per i preset CON script, a quel punto la mappa e' gia' stata ricostruita
+    // dalle direttive := dello script, e rifarla dal JSON le cancellerebbe.
+    if (rebuildDiscreteMap) {
+        m_discreteConsts.clear();
+        for (auto it = d.discreteConstants.constBegin();
+             it != d.discreteConstants.constEnd(); ++it) {
+            m_discreteConsts.insert(it.key(), { it->first, it->second });
+        }
+    }
+    if (!m_discreteConsts.isEmpty()) applyDiscreteConstants();
+
+    ui->aSlider->blockSignals(false); ui->lineA->blockSignals(false);
+    ui->bSlider->blockSignals(false); ui->lineB->blockSignals(false);
+    ui->cSlider->blockSignals(false); ui->lineC->blockSignals(false);
+    ui->dSlider->blockSignals(false); ui->lineD->blockSignals(false);
+    ui->eSlider->blockSignals(false); ui->lineE->blockSignals(false);
+    ui->fSlider->blockSignals(false); ui->lineF->blockSignals(false);
+    ui->sSlider->blockSignals(false); ui->lineS->blockSignals(false);
+
+    // Le costanti spinte alla GPU devono essere quelle EVENTUALMENTE snappate
+    // sopra, o la superficie nascerebbe con A=3.47 mentre il campo mostra 3.
+    // Si rilegge SOLO dai campi che lo snap ha davvero toccato: gli altri
+    // possono contenere espressioni ("A*2", risolte piu' tardi dalla cascata) e
+    // un toFloat() su quelle restituirebbe 0, azzerando la costante.
+    auto snapped = [this](const QString& key, QLineEdit* line, float fallback) {
+        if (!m_discreteConsts.contains(key)) return fallback;
+        bool ok = false;
+        const float v = line->text().trimmed().toFloat(&ok);
+        return ok ? v : fallback;
+    };
+    ui->glWidget->setEquationConstants(
+        snapped("A", ui->lineA, d.a), snapped("B", ui->lineB, d.b),
+        snapped("C", ui->lineC, d.c), snapped("D", ui->lineD, d.d),
+        snapped("E", ui->lineE, d.e), snapped("F", ui->lineF, d.f),
+        snapped("S", ui->lineS, d.s));
+}
+
 void MainWindow::applyCommonData(LibraryItem d)
 {
     // CARICAMENTO IN CORSO: i campi vengono riempiti dal preset, non dall'utente.
@@ -17557,85 +17796,8 @@ void MainWindow::applyCommonData(LibraryItem d)
         ui->glWidget->setRangeZ(d.zMin, d.zMax);
     }
 
-    // 3. Costanti Matematiche
-    ui->aSlider->blockSignals(true); ui->lineA->blockSignals(true);
-    ui->bSlider->blockSignals(true); ui->lineB->blockSignals(true);
-    ui->cSlider->blockSignals(true); ui->lineC->blockSignals(true);
-    ui->dSlider->blockSignals(true); ui->lineD->blockSignals(true);
-    ui->eSlider->blockSignals(true); ui->lineE->blockSignals(true);
-    ui->fSlider->blockSignals(true); ui->lineF->blockSignals(true);
-    ui->sSlider->blockSignals(true); ui->lineS->blockSignals(true);
-
-    // Lambda per espandere il range quando si carica un salvataggio estremo
-    auto updateSliderPreset = [](QSlider* s, float v, bool isS) {
-        int intVal = static_cast<int>(v * 100.0f);
-        int newMin = isS ? std::min(-1000, intVal) : 0;
-        int newMax = std::max(1000, intVal);
-        s->setRange(newMin, newMax);
-        s->setValue(intVal);
-    };
-
-    updateSliderPreset(ui->aSlider, d.a, false);
-    updateSliderPreset(ui->bSlider, d.b, false);
-    updateSliderPreset(ui->cSlider, d.c, false);
-    updateSliderPreset(ui->dSlider, d.d, false);
-    updateSliderPreset(ui->eSlider, d.e, false);
-    updateSliderPreset(ui->fSlider, d.f, false);
-    updateSliderPreset(ui->sSlider, d.s, true);
-
-    // Formato 'g',6 (precisione significativa), NON 'f',2: quest'ultimo troncava le
-    // costanti a 2 decimali al LOAD (es. A=0.005 -> "0.01"), e un successivo salvataggio
-    // le rileggeva gia' rovinate da lineA -> il valore fine si perdeva. 'g',6 e' coerente
-    // con connectSlider (che scrive i campi con lo stesso formato).
-    ui->lineA->setText(QString::number(d.a, 'g', 6));
-    ui->lineB->setText(QString::number(d.b, 'g', 6));
-    ui->lineC->setText(QString::number(d.c, 'g', 6));
-    ui->lineD->setText(QString::number(d.d, 'g', 6));
-    ui->lineE->setText(QString::number(d.e, 'g', 6));
-    ui->lineF->setText(QString::number(d.f, 'g', 6));
-    ui->lineS->setText(QString::number(d.s, 'g', 6));
-
-    // Costanti discrete dichiarate dal PRESET ("discreteConstants": {"A":[2,6]}).
-    // Vanno adottate QUI, a campi appena scritti e segnali ancora bloccati:
-    // applyDiscreteConstants() legge i QLineEdit e li riscrive con l'intero piu'
-    // vicino, quindi deve girare dopo il ripristino dei valori.
-    // Azzerata SEMPRE per prima: un preset che non le dichiara deve tornare a
-    // costanti continue, altrimenti quelle del preset precedente resterebbero
-    // attive (stessa famiglia di bug del cutout che persisteva fra superfici).
-    // Per i preset CON script la mappa viene poi ricostruita dalle direttive :=
-    // in parseAndApplyScriptParams: le due strade non si pestano i piedi perche'
-    // quella parte azzera a sua volta prima di leggere.
-    m_discreteConsts.clear();
-    for (auto it = d.discreteConstants.constBegin();
-         it != d.discreteConstants.constEnd(); ++it) {
-        m_discreteConsts.insert(it.key(), { it->first, it->second });
-    }
-    if (!m_discreteConsts.isEmpty()) applyDiscreteConstants();
-
-    ui->aSlider->blockSignals(false); ui->lineA->blockSignals(false);
-    ui->bSlider->blockSignals(false); ui->lineB->blockSignals(false);
-    ui->cSlider->blockSignals(false); ui->lineC->blockSignals(false);
-    ui->dSlider->blockSignals(false); ui->lineD->blockSignals(false);
-    ui->eSlider->blockSignals(false); ui->lineE->blockSignals(false);
-    ui->fSlider->blockSignals(false); ui->lineF->blockSignals(false);
-    ui->sSlider->blockSignals(false); ui->lineS->blockSignals(false);
-
-    // Le costanti spinte alla GPU devono essere quelle EVENTUALMENTE snappate
-    // sopra, o la superficie nascerebbe con A=3.47 mentre il campo mostra 3.
-    // Si rilegge SOLO dai campi che lo snap ha davvero toccato: gli altri
-    // possono contenere espressioni ("A*2", risolte piu' tardi dalla cascata) e
-    // un toFloat() su quelle restituirebbe 0, azzerando la costante.
-    auto snapped = [this](const QString& key, QLineEdit* line, float fallback) {
-        if (!m_discreteConsts.contains(key)) return fallback;
-        bool ok = false;
-        const float v = line->text().trimmed().toFloat(&ok);
-        return ok ? v : fallback;
-    };
-    ui->glWidget->setEquationConstants(
-        snapped("A", ui->lineA, d.a), snapped("B", ui->lineB, d.b),
-        snapped("C", ui->lineC, d.c), snapped("D", ui->lineD, d.d),
-        snapped("E", ui->lineE, d.e), snapped("F", ui->lineF, d.f),
-        snapped("S", ui->lineS, d.s));
+    // 3. Costanti Matematiche (vedi applyPresetConstants)
+    applyPresetConstants(d, /*rebuildDiscreteMap=*/true);
 
     // --- CARICAMENTO FLUSSO GEODETICO ---
     // 1. Blocchiamo i segnali per evitare l'auto-cancellazione da parte di checkParametricDependency()
@@ -18849,10 +19011,11 @@ QString MainWindow::cleanCodeForComparison(QString str) {
 
  // --- UI State & Graphics ---
 
-// I due messaggi in sovrimpressione, uniti in quello che si vede a schermo.
+// I messaggi in sovrimpressione, uniti in quello che si vede a schermo.
 //
 // Sono TENUTI SEPARATI in memoria e nei file (m_currentHintText nel preset di
-// superficie/record, m_currentTextureHintText in quello della texture) perche'
+// superficie/record, m_currentTextureHintText in quello della texture,
+// m_currentBgTextureHintText nel blocco "background" del record) perche'
 // descrivono cose diverse e possono nominare COSTANTI diverse: la texture
 // d'origine dice la sua ("Slider A: relief frequency"), e un record che la
 // riusa puo' aver spostato quel rilievo su un'altra costante per non
@@ -18884,21 +19047,47 @@ void MainWindow::refreshSceneHint(float seconds)
 
 QString MainWindow::composedHintText() const
 {
-    const QString scene = m_currentHintText.trimmed();
-    const QString tex   = m_currentTextureHintText.trimmed();
+    // Nell'ordine in cui compaiono a schermo.
+    const QList<QPair<QString, QString>> all = {
+        { QStringLiteral("Surface"),    m_currentHintText.trimmed() },
+        { QStringLiteral("Texture"),    m_currentTextureHintText.trimmed() },
+        { QStringLiteral("Background"), m_currentBgTextureHintText.trimmed() },
+    };
 
-    if (scene.isEmpty()) return tex;
-    if (tex.isEmpty())   return scene;
-    // Identici: succede quando un record ha ereditato il testo della texture da
-    // cui e' nato. Mostrarlo due volte sarebbe solo rumore.
-    if (scene == tex)    return scene;
+    // Vuoti fuori, e identici una volta sola: succede quando un record ha
+    // ereditato il testo della texture da cui e' nato, o quando superficie e
+    // sfondo usano la stessa texture. Mostrarlo due volte sarebbe solo rumore.
+    QList<QPair<QString, QString>> shown;
+    for (const auto &p : all) {
+        if (p.second.isEmpty()) continue;
+        bool dup = false;
+        for (const auto &s : shown) if (s.second == p.second) { dup = true; break; }
+        if (!dup) shown << p;
+    }
+    if (shown.isEmpty()) return QString();
+    if (shown.size() == 1) return shown.first().second;
 
-    // Due messaggi insieme: senza dire di CHI e' ciascuno, l'utente vede due
+    // Piu' messaggi insieme: senza dire di CHI e' ciascuno, l'utente vede piu'
     // slider spiegati ma non sa quale agisce sulla forma e quale sul disegno --
-    // ed e' proprio la confusione che i due campi separati devono togliere.
-    // Le etichette si mettono solo qui, quando i messaggi sono davvero due: con
-    // uno solo sarebbero un'intestazione inutile su una riga sola.
-    return "Surface - " + scene + "\nTexture - " + tex;
+    // ed e' proprio la confusione che i campi separati devono togliere.
+    // Le etichette si mettono solo qui, quando i messaggi sono davvero piu' di
+    // uno: con uno solo sarebbero un'intestazione inutile su una riga sola.
+    QStringList lines;
+    for (const auto &s : shown) lines << s.first + " - " + s.second;
+    return lines.join("\n");
+}
+
+void MainWindow::showTextureHintsOnly(float seconds)
+{
+    if (m_currentTextureHintText.trimmed().isEmpty()
+        && m_currentBgTextureHintText.trimmed().isEmpty()) return;
+    // NB: non si passa da showSceneHint col testo delle texture: SCRIVE
+    // m_currentHintText, il messaggio della SCENA, che il preset riscrive -- il
+    // testo della texture diventerebbe quello della superficie al primo Save.
+    const QString savedScene = m_currentHintText;
+    m_currentHintText.clear();               // solo per questa chiamata
+    refreshSceneHint(seconds);
+    m_currentHintText = savedScene;
 }
 
 QVector<MainWindow::DocHit> MainWindow::searchDocumentation(const QString &needle) const

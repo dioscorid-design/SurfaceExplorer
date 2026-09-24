@@ -170,17 +170,24 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                 {
                     const bool isLoaded = !m_mainWindow->currentRecordPath().isEmpty()
                                           && QFileInfo(m_mainWindow->currentRecordPath()) == QFileInfo(path);
-                    const bool hasUpdate = isLoaded && m_mainWindow->focusedTextureLibraryItem() != nullptr;
+                    // Superficie O sfondo: basta che una delle due texture del
+                    // record sia rimasta indietro rispetto alla sua voce di libreria.
+                    // Il comando non segue il radio Surface/Background del Renderer:
+                    // aggiorna quelle indietro, e il tooltip dice QUALI, perche' dal
+                    // menu non si vede.
+                    const bool surfUpdate = isLoaded && m_mainWindow->focusedTextureLibraryItem();
+                    const bool bgUpdate   = isLoaded && m_mainWindow->focusedBgTextureLibraryItem();
+                    const bool hasUpdate  = surfUpdate || bgUpdate;
 
                     QAction *actSync = contextMenu->addAction("Sync Focused Texture", m_mainWindow, [this, executeAction](){
                         executeAction([this](){ m_mainWindow->syncFocusedTextureFromLibrary(); });
                     });
                     actSync->setEnabled(hasUpdate);
-                    actSync->setToolTip(!isLoaded
-                        ? QStringLiteral("Available on the record currently loaded in the scene.")
-                        : (hasUpdate
-                           ? QStringLiteral("Bring in the updated code of this record's texture, keeping its colors and constants.")
-                           : QStringLiteral("This record's texture already matches the library.")));
+                    actSync->setToolTip(!isLoaded ? QStringLiteral("Only for the record in the scene.")
+                                      : (surfUpdate && bgUpdate) ? QStringLiteral("Updates surface and background textures.")
+                                      : surfUpdate ? QStringLiteral("Updates the surface texture.")
+                                      : bgUpdate   ? QStringLiteral("Updates the background texture.")
+                                      : QStringLiteral("Textures already up to date."));
                     contextMenu->setToolTipsVisible(true);
                 }
                 contextMenu->addAction("Copy Record", m_mainWindow, [this, refItem, executeAction](){

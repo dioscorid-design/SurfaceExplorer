@@ -356,10 +356,13 @@ QColor PresetSerializer::globalSurfaceColor() const
 // il campo della scena e la superficie restava senza spiegazione, con due slider
 // accesi e uno solo descritto. nullptr = tipo a messaggio singolo (superficie,
 // texture), che mostra il solo campo principale.
+// bgHint: terzo campo, per i soli record che HANNO uno sfondo -- il suo
+// messaggio, separato dagli altri due per la stessa ragione. Il chiamante lo passa
+// solo quando serve, cosi' un record senza sfondo non mostra un campo inutile.
 // Un dialogo unico e non due in fila: e' un solo salvataggio, e merita una sola
 // finestra da confermare.
 static bool askSceneHint(QWidget* parent, QString* hintText, const QString& what,
-                         QString* textureHint = nullptr)
+                         QString* textureHint = nullptr, QString* bgHint = nullptr)
 {
     if (!hintText) return true;
 
@@ -376,8 +379,8 @@ static bool askSceneHint(QWidget* parent, QString* hintText, const QString& what
     info->setWordWrap(true);
     lay->addWidget(info);
 
-    // Etichette solo quando i campi sono due: con uno solo sarebbero rumore.
-    if (textureHint) lay->addWidget(new QLabel("Surface:", &dlg));
+    // Etichette solo quando i campi sono piu' d'uno: con uno solo sarebbero rumore.
+    if (textureHint || bgHint) lay->addWidget(new QLabel("Surface:", &dlg));
 
     // QPlainTextEdit e non QLineEdit: il messaggio puo' andare A CAPO, e
     // showSceneHint lo rende con setTextFormat(PlainText) proprio perche' un
@@ -415,6 +418,21 @@ static bool askSceneHint(QWidget* parent, QString* hintText, const QString& what
         lay->addWidget(texEdit);
     }
 
+    // Terzo campo: il messaggio dello SFONDO, costruito come il secondo.
+    QPlainTextEdit* bgEdit = nullptr;
+    if (bgHint) {
+        lay->addWidget(new QLabel("Background:", &dlg));
+
+        bgEdit = new QPlainTextEdit(*bgHint, &dlg);
+        bgEdit->setStyleSheet("padding: 8px;");
+        bgEdit->setFixedHeight(bgEdit->fontMetrics().lineSpacing() * 3 + 16);
+#ifdef Q_OS_IOS
+        bgEdit->setInputMethodHints(bgEdit->inputMethodHints() | Qt::ImhNoEditMenu);
+        bgEdit->setProperty("noEditMenu", true);
+#endif
+        lay->addWidget(bgEdit);
+    }
+
     QHBoxLayout* btns = new QHBoxLayout();
     QPushButton* cancel = new QPushButton("Cancel", &dlg);
     QPushButton* ok     = new QPushButton("Save", &dlg);
@@ -440,6 +458,7 @@ static bool askSceneHint(QWidget* parent, QString* hintText, const QString& what
 
     *hintText = edit->toPlainText().trimmed();
     if (textureHint && texEdit) *textureHint = texEdit->toPlainText().trimmed();
+    if (bgHint && bgEdit) *bgHint = bgEdit->toPlainText().trimmed();
     return true;
 }
 
@@ -933,13 +952,20 @@ void PresetSerializer::saveTexture(const QString &path)
     // indipendenti proprio perche' possono nominare costanti diverse: la texture
     // d'origine dice la sua (es. "Slider A"), il record che la riusa puo' averla
     // spostata su un'altra costante e dire la propria.
-    if (!askSceneHint(m_mainWindow, &m_mainWindow->m_currentTextureHintText, "texture"))
+    // Con il bersaglio Background si salva lo SFONDO, e il messaggio e' il suo:
+    // prima si chiedeva (e si scriveva nel preset) quello della texture di
+    // superficie anche salvando lo sfondo.
+    bool isBg = m_mainWindow->ui->radioBackground->isChecked();
+    QString &hintRef  = isBg ? m_mainWindow->m_currentBgTextureHintText
+                             : m_mainWindow->m_currentTextureHintText;
+    float   &hintSecs = isBg ? m_mainWindow->m_currentBgTextureHintSeconds
+                             : m_mainWindow->m_currentTextureHintSeconds;
+    if (!askSceneHint(m_mainWindow, &hintRef, "texture"))
         return;
 
     QJsonObject root;
 
     QString currentCode;
-    bool isBg = m_mainWindow->ui->radioBackground->isChecked();
     bool isImplicit = (m_mainWindow->ui->tabModeSelector->currentIndex() == 1);
 
     if (isImplicit && !isBg) {
@@ -1002,9 +1028,9 @@ void PresetSerializer::saveTexture(const QString &path)
     // che ne aveva uno lo perderebbe -- lo stesso difetto gia' corretto per le
     // superfici (~694). Chiave assente se non c'e' nulla da dire, cosi' le
     // texture che non lo usano non cambiano di un byte.
-    if (!m_mainWindow->m_currentTextureHintText.isEmpty()) {
-        root["hintText"] = m_mainWindow->m_currentTextureHintText;
-        root["hintSeconds"] = (double)m_mainWindow->m_currentTextureHintSeconds;
+    if (!hintRef.isEmpty()) {
+        root["hintText"] = hintRef;
+        root["hintSeconds"] = (double)hintSecs;
     }
 
     if (m_mainWindow->m_fileOps) {
@@ -1162,8 +1188,13 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     // blocco di validazione, cosi' non si compila un messaggio per un
     // salvataggio che verra' rifiutato o annullato. Cancel qui annulla il
     // salvataggio: e' l'ultima conferma prima della scrittura.
+    // Il campo dello sfondo solo se il record HA uno sfondo, o un suo messaggio
+    // da poter togliere: altrimenti sarebbe un campo vuoto senza scopo.
+    const bool hasBg = !m_mainWindow->m_bgTextureCode.trimmed().isEmpty()
+                       || !m_mainWindow->m_currentBgTextureHintText.isEmpty();
     if (!askSceneHint(m_mainWindow, &m_mainWindow->m_currentHintText, "record",
-                      &m_mainWindow->m_currentTextureHintText))
+                      &m_mainWindow->m_currentTextureHintText,
+                      hasBg ? &m_mainWindow->m_currentBgTextureHintText : nullptr))
         return;
 
     QString saveFolder = QFileInfo(fileName).absolutePath();
@@ -1619,6 +1650,17 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     }
     background["col1"] = m_mainWindow->m_bgTexColor1.name();
     background["col2"] = m_mainWindow->m_bgTexColor2.name();
+    // Nome della voce di libreria da cui viene lo sfondo: gemello di
+    // texture["libName"], con la stessa regola -- si scrive solo se c'e', e un
+    // record senza la chiave torna ad agganciarsi per codice.
+    if (!m_mainWindow->m_currentBgTextureLibName.isEmpty())
+        background["libName"] = m_mainWindow->m_currentBgTextureLibName;
+    // Messaggio dello sfondo, terzo accanto a "hintText" e "textureHintText" della
+    // radice: qui dentro, con il resto dello sfondo. Chiave assente se vuoto.
+    if (!m_mainWindow->m_currentBgTextureHintText.isEmpty()) {
+        background["hintText"]    = m_mainWindow->m_currentBgTextureHintText;
+        background["hintSeconds"] = (double)m_mainWindow->m_currentBgTextureHintSeconds;
+    }
     // Forma dello sfondo (radio del gruppo Background Controls): "fixed",
     // "sphere", "cylinder" o "cube" (GLWidget::bgSkyModeName). Si scrive SEMPRE,
     // anche "fixed": il load la riapplica sempre, e un record senza la chiave

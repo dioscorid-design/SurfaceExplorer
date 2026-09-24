@@ -423,10 +423,21 @@ private:
     // qui perche' un risalvataggio della texture non lo perda.
     QString m_currentTextureHintText;
     float   m_currentTextureHintSeconds = 6.0f;
-    // I due messaggi uniti, come li vede l'utente: la scena e la texture possono
-    // nominare costanti diverse e vanno mostrati ENTRAMBI. Sede unica, cosi' non
+    // Messaggio della texture DI SFONDO: terzo, separato dagli altri due per la
+    // stessa ragione. Prima non esisteva, e lo sfondo non poteva dire a cosa
+    // serve un suo slider: caricandolo dalla libreria il suo hint non compariva,
+    // e scriverlo in m_currentTextureHintText l'avrebbe fatto passare per quello
+    // della superficie al primo salvataggio. Nel record: "background"/"hintText".
+    QString m_currentBgTextureHintText;
+    float   m_currentBgTextureHintSeconds = 6.0f;
+    // I messaggi uniti, come li vede l'utente: scena, texture e sfondo possono
+    // nominare costanti diverse e vanno mostrati TUTTI. Sede unica, cosi' non
     // si torna a farne vincere uno solo. Vuoto = niente da mostrare.
     QString composedHintText() const;
+    // Ridisegna l'overlay coi soli messaggi delle TEXTURE (superficie e sfondo),
+    // sospendendo per la chiamata quello della scena: serve al Sync, dove sono
+    // cambiate le texture e non la scena. Non modifica nessuno dei tre testi.
+    void showTextureHintsOnly(float seconds);
     // Ridisegna l'overlay dalla coppia corrente senza modificare i due testi.
     // Lo usa il caricamento di una texture, che cambia solo il proprio.
     void refreshSceneHint(float seconds);
@@ -689,7 +700,15 @@ private:
     // sopravvive a qualunque modifica del codice attorno.
     // Vuoto = texture scritta a mano (non viene da libreria): in quel caso
     // l'unico aggancio possibile resta il codice.
+    // Vale per la SOLA texture globale di superficie: lo sfondo ha la sua ancora,
+    // qui sotto. Leggerla per cercare lo sfondo portava il focus sulla superficie.
     QString m_currentTextureLibName;
+    // Ancora gemella per la texture DI SFONDO: stesso ruolo, stesso ciclo di vita
+    // (scritta caricando la texture dalla libreria col bersaglio Background,
+    // salvata nel record in "background"/"libName", letta al load, azzerata dal
+    // reset di scena). Senza, uno sfondo il cui codice e' cambiato in libreria
+    // perdeva il focus e nessun Sync poteva riallinearlo.
+    QString m_currentBgTextureLibName;
 
     // File del RECORD attualmente in scena. Serve a "Sync Focused Texture", che
     // deve agire solo quando il click destro cade sul record caricato: la
@@ -1084,6 +1103,10 @@ private:
     // Per valore come applySurfaceExample/applyMotionExample: e' chiamata da
     // entrambe e ne condivide il rischio (vedi il commento la' sopra).
     void applyCommonData(LibraryItem data);
+    // Costanti A-F/S di un preset: campi, slider, snap delle discrete, motore.
+    // Unica sede (vedi la definizione): la usano applyCommonData e la seconda
+    // applicazione al load di un record.
+    void applyPresetConstants(const LibraryItem &d, bool rebuildDiscreteMap);
     // Shell/Solid del Ray Marching: UNICA implementazione condivisa fra i due
     // rami di load (equazione implicita e script implicito) e il reset alla
     // sfera di default. I due rami avevano il ripristino solo nel ramo
@@ -1173,9 +1196,9 @@ private:
                                        const QString &cleanedActiveCode);
 
     // Scansione dell'albero texture e selezione della voce corrispondente.
-    // Unica sede. libName: il nome di libreria della texture cercata, che vince
-    // sul codice; VUOTO quando non ce n'e' uno (sfondo, fascia) e allora si
-    // cerca per solo codice. Vedi il commento sulla definizione.
+    // Unica sede. libName: l'ancora della texture cercata (superficie o sfondo),
+    // che vince sul codice; VUOTO per una fascia, e allora si cerca per solo
+    // codice. Vedi il commento sulla definizione.
     void selectTextureTreeItemFor(QTreeWidgetItemIterator &itTex,
                                   const QString &activeCode,
                                   const QString &cleanedActive,
@@ -1183,14 +1206,21 @@ private:
 
 public:
     // "Sync Focused Texture" (menu contestuale dei record): riporta nella scena
-    // il codice aggiornato della texture di libreria da cui il record proviene,
-    // lasciando intatti colori, costanti, zoom e pan -- cio' che ricaricare la
-    // texture dal dock sovrascriverebbe. Non salva: il record va risalvato.
+    // il codice aggiornato delle texture di libreria da cui il record proviene --
+    // superficie e/o sfondo, quelle rimaste indietro -- lasciando intatti colori,
+    // costanti, zoom e pan: cio' che ricaricare la texture dal dock
+    // sovrascriverebbe. Non salva: il record va risalvato.
     bool syncFocusedTextureFromLibrary();
+    bool syncSurfaceTextureFrom(const LibraryItem *lib);
+    bool syncBackgroundTextureFrom(const LibraryItem *lib);
     // Voce di libreria da sincronizzare, o nullptr se non c'e' nulla da fare
-    // (texture non da libreria, voce sparita, codice gia' uguale). Il menu la
-    // usa per decidere se abilitare la voce.
+    // (texture non da libreria, voce sparita, codice gia' uguale): una per la
+    // superficie, una per lo sfondo. Il menu si accende se almeno una risponde,
+    // e il suo tooltip dice quale.
     const LibraryItem *focusedTextureLibraryItem() const;
+    const LibraryItem *focusedBgTextureLibraryItem() const;
+    // Voce di libreria col nome dato: unica scansione per le due ancore.
+    const LibraryItem *textureLibraryItemNamed(const QString &name) const;
     // File del record in scena: il menu confronta con quello cliccato.
     QString currentRecordPath() const { return m_currentRecordPath; }
 
