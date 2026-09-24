@@ -2492,7 +2492,16 @@ MainWindow::MainWindow(QWidget *parent)
     // Con un'unica coppia il problema non esiste piu': niente da riallineare.
     auto updateImplicitRenderMode = [this](bool checked) {
         if (!checked) return;   // solo chi si accende, non chi si spegne
-        applyImplicitShellMode(sender() == ui->radioShell);
+        const bool toShell = (sender() == ui->radioShell);
+        applyImplicitShellMode(toShell);
+        // SOLID: lo spessore non ha piu' un guscio da misurare, quindi torna al
+        // minimo (setShellThicknessUI incapsula motore + slider + curva). Senza
+        // questo restava sul valore di prima -- disabilitato ma non a zero -- e
+        // tornando a Shell la parete ripartiva da li' invece che dal default.
+        // SOLO sul click dell'utente, non in applyImplicitShellMode: quella gira
+        // anche durante i load, dove il preset puo' avere il proprio spessore
+        // salvato e azzerarlo qui lo perderebbe.
+        if (!toShell) setShellThicknessUI(0.005f);
         // Il pannello Thickness ha senso solo con Shell (in Solid non c'e' guscio
         // di cui regolare la parete): il gate vive in updateRenderState, che va
         // richiamata qui o il pannello resterebbe come era fino al prossimo
@@ -17630,7 +17639,12 @@ void MainWindow::applyCommonData(LibraryItem d)
         // mostrerebbe una posizione che non corrisponde al valore applicato.
         // Preset senza la chiave -> 0.005 (il parser mette gia' quel default),
         // cioe' l'aspetto con cui sono stati salvati.
-        setShellThicknessUI(d.shellThickness);
+        // IN SOLID pero' si forza SEMPRE al minimo, qualunque valore porti il
+        // file: lo spessore ha senso solo insieme a un guscio, e alcuni preset
+        // Solid portano ancora un thickness non-zero salvato prima che il
+        // passaggio a Solid lo azzerasse (vedi updateImplicitRenderMode). Senza
+        // questa guardia il caricamento riesumava quel residuo.
+        setShellThicknessUI(isShell ? d.shellThickness : 0.005f);
 
         // MARCHER (Fast/Precise). Per i record senza la chiave il parser ha gia'
         // deciso in base al sotto-tab (3D -> Fast, Cross Section -> Precise), cosi'
