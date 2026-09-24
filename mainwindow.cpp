@@ -2531,6 +2531,27 @@ MainWindow::MainWindow(QWidget *parent)
     if (ui->radioMarcherPrecise)
         connect(ui->radioMarcherPrecise, &QRadioButton::toggled, this, updateMarcherMode);
 
+    // --- SFONDO: Fixed / Sphere / Cylinder / Cube (gruppo "Background Controls") ---
+    // I quattro radio hanno un contenitore proprio (panelBgLock), quindi si
+    // escludono a vicenda senza toccare Base/Phong/WireFrame. Vale per entrambi i
+    // modi: anche in Ray Marching lo sfondo e' lo stesso pass.
+    // L'indice in bgSkyRadios() E' la modalita' (GLWidget::BgSkyMode): una sola
+    // tabella per clic, load, reset e tooltip.
+    // Nessun rebuild: la modalita' e' letta dallo shader a ogni frame (vedi
+    // GLWidget::render). Si segna la scena come modificata: il record salva la
+    // scelta ("background"/"skyMode").
+    {
+        const QList<QRadioButton*> skyRadios = bgSkyRadios();
+        for (int mode = 0; mode < skyRadios.size(); ++mode) {
+            if (!skyRadios[mode]) continue;
+            connect(skyRadios[mode], &QRadioButton::toggled, this, [this, mode](bool checked) {
+                if (!checked) return;         // solo chi si accende
+                if (ui->glWidget) ui->glWidget->setBackgroundSkyMode(mode);
+                noteSceneControlUsed();
+            });
+        }
+    }
+
     // SPESSORE DEL GUSCIO (Shell). Scala 0..100 -> 0.005..0.30, non lineare:
     // quadratica, cosi' la prima meta' della corsa copre i valori sottili (dove
     // serve precisione) e la seconda arriva ai gusci spessi.
@@ -5161,6 +5182,11 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // semplice cambio di limiti, dove il riferimento deve restare fermo.
     if (ui->glWidget) ui->glWidget->resetGeodesicUvReference();
 
+    // Sfondo di nuovo FISSO: entrambi i rami del reset spengono lo sfondo
+    // (setBackgroundTextureEnabled(false)), e la sua forma ne fa parte.
+    // Qui, nella parte comune, per non doverlo ricordare in ciascun ramo.
+    applyBackgroundSkyMode(GLWidget::BgFixed);
+
     ui->stepSlider->blockSignals(true);
 
     // FLUSSO GEODETICO fermato PRIMA di svuotare i campi. E' un moto come le
@@ -6466,6 +6492,9 @@ bool MainWindow::guardTransparencyOnHeavyTextureApply(const QString &newDispCode
 
 void MainWindow::updateRenderState()
 {
+    // Per primo, prima di qualunque ramo: vedi updateBackgroundControlsGate.
+    updateBackgroundControlsGate();
+
     // 1. Identifichiamo se siamo in modalità Ray Marching
     bool isImplicitMode = (ui->tabModeSelector->currentIndex() == 1);
 
@@ -7842,6 +7871,10 @@ void MainWindow::syncTextureTreeSelection()
     // clearSelection() e' gia' stato fatto qui sopra: uscendo ora l'albero
     // resta pulito.
     QString activeCode;
+    // Nome di libreria della texture cercata: SOLO per quella globale di
+    // superficie, l'unica che ne ha uno (vedi selectTextureTreeItemFor). Sfondo
+    // e fascia lo lasciano vuoto.
+    QString libName;
     if (ui->radioBackground->isChecked()) {
         // SFONDO: non ha un flag di modello (nessun m_bgTextureState) -- il
         // checkbox e' la sua unica memoria, e in questo ramo e' un COMANDO, non
@@ -7854,6 +7887,7 @@ void MainWindow::syncTextureTreeSelection()
             // il checkbox ne e' il comando diretto.
             if (!ui->chkBoxTexture->isChecked()) return;
             activeCode = ui->lineTexture->toPlainText();
+            libName = m_currentTextureLibName;
         } else {
             // MULTI-MESH: con una fascia selezionata l'albero deve evidenziare
             // la texture di QUELLA, non quella globale -- stessa regola con cui
@@ -7880,6 +7914,7 @@ void MainWindow::syncTextureTreeSelection()
                 ui->glWidget && ui->glWidget->globalRenderMode() == 2;
             bool on = m_surfaceTextureState && !wireframeAll;
             activeCode = m_surfaceTextureCode;
+            libName = m_currentTextureLibName;
             if (ui->glWidget && ui->glWidget->getEngine()) {
                 const int idx = ui->glWidget->activeMeshPart();
                 const auto &parts = ui->glWidget->getEngine()->getMeshParts();
@@ -7897,6 +7932,9 @@ void MainWindow::syncTextureTreeSelection()
                                : p.effectiveTextureEnabled(m_surfaceTextureState
                                                            && !wireframeAll);
                     activeCode = p.hasCustomTexture ? p.textureCode : QString();
+                    // Texture della FASCIA: il nome del record e' quello della
+                    // texture globale, non di questa.
+                    libName.clear();
                 }
             }
             if (!on) return;
@@ -7905,7 +7943,7 @@ void MainWindow::syncTextureTreeSelection()
 
     QString cleanedActive =  cleanCodeForComparison(activeCode);
 
-    selectTextureTreeItemFor(itTex, activeCode, cleanedActive);
+    selectTextureTreeItemFor(itTex, activeCode, cleanedActive, libName);
 }
 
 // Sceglie e seleziona nell'albero la voce che corrisponde alla texture attiva.
@@ -8289,9 +8327,20 @@ const LibraryItem *MainWindow::focusedTextureLibraryItem() const
     return nullptr;
 }
 
+// IL NOME ARRIVA DAL CHIAMANTE, e non si legge piu' qui m_currentTextureLibName.
+// Quel campo e' il nome della sola texture GLOBALE DI SUPERFICIE: lo scrive
+// handleTextureSelection soltanto su quel ramo (sfondo e fascia escono prima) e
+// il record lo salva nel blocco "texture". Leggendolo qui dentro valeva per
+// QUALUNQUE ricerca: cercando la texture di SFONDO si trovava il nome della
+// superficie, e siccome il nome vince sul codice l'albero tornava sulla texture
+// della superficie. Sintomo: record con texture su superficie E sfondo, radio
+// Background nel Renderer -> focus rimasto sulla superficie.
+// Solo il chiamante sa QUALE texture sta cercando: per sfondo e fascia passa un
+// nome vuoto e la ricerca e' per solo codice, com'era prima del libName.
 void MainWindow::selectTextureTreeItemFor(QTreeWidgetItemIterator &itTex,
                                           const QString &activeCode,
-                                          const QString &cleanedActive)
+                                          const QString &cleanedActive,
+                                          const QString &libName)
 {
     // activeCode.trimmed(): cosi' anche un'immagine (solo tag //IMG:) entra.
     if (activeCode.trimmed().isEmpty()) return;
@@ -8304,8 +8353,8 @@ void MainWindow::selectTextureTreeItemFor(QTreeWidgetItemIterator &itTex,
             const LibraryItem &texItem = m_libraryManager.getTexture(vTex.toInt());
             if (!byCode && textureItemMatchesCode(texItem, activeCode, cleanedActive))
                 byCode = *itTex;
-            if (!byName && !m_currentTextureLibName.isEmpty()
-                && QString::compare(m_currentTextureLibName, texItem.name.trimmed(),
+            if (!byName && !libName.isEmpty()
+                && QString::compare(libName, texItem.name.trimmed(),
                                     Qt::CaseInsensitive) == 0)
                 byName = *itTex;
             // NESSUN break anticipato sul codice. Prima si usciva appena una
@@ -8376,6 +8425,10 @@ void MainWindow::selectSurfaceColorTarget()
 
 void MainWindow::onColorTargetChanged()
 {
+    // Il gruppo Background Controls segue il bersaglio Surface/Background come
+    // gli slider colore qui sotto: vedi updateBackgroundControlsGate.
+    updateBackgroundControlsGate();
+
     // Blocchiamo i segnali per evitare loop infiniti
     ui->sliderR->blockSignals(true);
     ui->sliderG->blockSignals(true);
@@ -14498,6 +14551,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     float bgZoom = 1.0f;
     float bgPanX = 0.0f, bgPanY = 0.0f;
     float bgRot = 0.0f;
+    int bgSkyMode = GLWidget::BgFixed;   // record senza la chiave = sfondo fisso
 
     // LETTURA DEL FILE JSON (Bypassiamo la limitazione della libreria)
     QFile file(data.filePath);
@@ -14572,6 +14626,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
             if (bg.contains("pan_x")) bgPanX = bg["pan_x"].toDouble(0.0);
             if (bg.contains("pan_y")) bgPanY = bg["pan_y"].toDouble(0.0);
             if (bg.contains("rotation")) bgRot = bg["rotation"].toDouble(0.0);
+            bgSkyMode = GLWidget::bgSkyModeFromName(bg.value("skyMode").toString());
         }
 
         if (!data.hasCamera3D) {
@@ -14900,6 +14955,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // --- APPLICAZIONE TEXTURE BACKGROUND ---
     ui->glWidget->setBackgroundTextureEnabled(bgTexEnabled);
     m_bgTextureCode = bgCode;
+    // Forma dello sfondo: SEMPRE, anche quando il record non ha sfondo o non ha
+    // la chiave. E' uno stato appiccicoso del motore: saltandolo, un record
+    // caricato dopo uno solidale si terrebbe il cielo del precedente.
+    applyBackgroundSkyMode(bgSkyMode);
 
     // Il percorso dell'immagine di sfondo riparte SEMPRE da zero a ogni record e
     // lo rivalorizza piu' sotto solo chi ne trova davvero una. Azzerarlo dentro i
@@ -15371,17 +15430,19 @@ void MainWindow::applyMotionExample(LibraryItem data)
     QTreeWidgetItemIterator itTex(ui->treeTextures);
 
     QString activeCode;
+    QString libName;   // solo per la texture di superficie: vedi selectTextureTreeItemFor
     if (ui->radioBackground->isChecked()) {
         activeCode = m_bgTextureCode;
     } else {
         // Se siamo in Ray Marching usiamo il campo texture, altrimenti lo script superficie
         activeCode = (ui->tabModeSelector->currentIndex() == 1) ?
                     ui->lineTexture->toPlainText() : m_surfaceTextureCode;
+        libName = m_currentTextureLibName;
     }
 
     QString cleanedActive = cleanCodeForComparison(activeCode);
 
-    selectTextureTreeItemFor(itTex, activeCode, cleanedActive);
+    selectTextureTreeItemFor(itTex, activeCode, cleanedActive, libName);
 
     updateScriptButtonText();
 
@@ -20565,6 +20626,68 @@ void MainWindow::syncRenderRadiosTo(int mode)
     ui->radioBasic->blockSignals(b0);
     ui->radioPhong->blockSignals(b1);
     ui->radioWF->blockSignals(b2);
+}
+
+// I quattro radio della forma dello sfondo, NELL'ORDINE di GLWidget::BgSkyMode:
+// l'indice nella lista E' la modalita'. Unica tabella per clic, load, reset e
+// tooltip -- aggiungere un radio altrove farebbe divergere le quattro sedi.
+QList<QRadioButton*> MainWindow::bgSkyRadios() const
+{
+    return { ui->radioBgFixed, ui->radioBgSphere, ui->radioBgCylinder, ui->radioBgCube };
+}
+
+// Forma dello sfondo: DISPLAY dei radio e stato del motore insieme, cosi' non
+// possono divergere. A segnali bloccati su TUTTI i radio, per la stessa ragione
+// di syncRenderRadiosTo: accendendone uno quello acceso prima si spegne ed
+// emette toggled(false). Il motore si scrive a parte, esplicitamente: con i
+// segnali bloccati il gestore del clic non gira.
+void MainWindow::applyBackgroundSkyMode(int mode)
+{
+    const QList<QRadioButton*> radios = bgSkyRadios();
+    if (mode < 0 || mode >= radios.size()) mode = GLWidget::BgFixed;
+
+    QList<bool> old;
+    for (QRadioButton *r : radios) old << (r ? r->blockSignals(true) : false);
+    if (radios[mode]) radios[mode]->setChecked(true);
+    for (int i = 0; i < radios.size(); ++i)
+        if (radios[i]) radios[i]->blockSignals(old[i]);
+
+    if (ui->glWidget) ui->glWidget->setBackgroundSkyMode(mode);
+}
+
+// Gruppo "Background Controls" attivo SOLO col bersaglio Background selezionato
+// in cima al Renderer, come il resto dei controlli che agiscono sullo sfondo.
+// Spento non vuol dire azzerato: la scelta resta in vigore sullo sfondo a
+// schermo, semplicemente non la si cambia editando la superficie.
+//
+// PERCHE' DUE CHIAMANTI (updateRenderState e onColorTargetChanged). Il radio
+// Surface/Background viene riportato su Surface anche A SEGNALI BLOCCATI -- dal
+// reset di scena, dal load di un preset, da selectSurfaceColorTarget -- e li' il
+// toggled non scatta: agganciarsi al solo toggled lasciava il gruppo acceso con
+// Surface selezionato. Ognuno di quei percorsi passa pero' da una delle due
+// funzioni, che sono le sedi del gating del Renderer.
+//
+// I TOOLTIP stanno qui e non nel .ui: da spenti devono dire PERCHE' (regola del
+// progetto per i controlli inerti), da accesi cosa fanno. Una sede sola, o i
+// testi divergono. Qt mostra il tooltip anche sui widget disabilitati.
+void MainWindow::updateBackgroundControlsGate()
+{
+    const QList<QRadioButton*> radios = bgSkyRadios();
+    if (!ui->panelBackgroundControls || radios.contains(nullptr)) return;
+
+    const bool onBackground = ui->radioBackground && ui->radioBackground->isChecked();
+    ui->panelBackgroundControls->setEnabled(onBackground);
+
+    // Stesso ordine di bgSkyRadios / GLWidget::BgSkyMode.
+    const QStringList what = {
+        tr("The background stays still on the screen."),
+        tr("The background is a sky around the scene."),
+        tr("The background is a cylinder around the scene."),
+        tr("The background is a cube around the scene.")
+    };
+    const QString why = tr("Select Background at the top of this dock to change it.");
+    for (int i = 0; i < radios.size(); ++i)
+        radios[i]->setToolTip(onBackground ? what.value(i) : why);
 }
 
 // Mostra nell'editor script il testo della texture del destinatario corrente

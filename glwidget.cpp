@@ -973,6 +973,56 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             if (p.isValid()) bgUboData.center = p.value<QVector2D>();
             if (r.isValid()) bgUboData.rotation = r.toFloat();
 
+            // SFONDO SOLIDALE: la matrice che porta un pixel dello schermo alla
+            // DIREZIONE del mondo in cui guarda, letta da bgBaseUV() nello shader.
+            //
+            // Viaggia in u_mvpMatrix di QUESTA copia dell'UBO, che lo sfondo non
+            // usava: il vertex shader dello sfondo non dichiara nemmeno il blocco
+            // (rebuildBackgroundShader), e nessun ramo del fragment la legge. Un
+            // campo NUOVO avrebbe invece toccato SceneUBO, che va tenuto identico
+            // fra gli stadi (su Adreno una discordanza = schermo vuoto, vedi
+            // CLAUDE.md). La copia e' dello sfondo soltanto: la superficie ha il
+            // suo buffer e non ne risente.
+            // Oltre al 3x3 della direzione, due celle della colonna 3 (fuori dal
+            // mat3 che lo shader estrae):
+            //   (3,3) = la MODALITA' (BgSkyMode: 0 fisso, 1 sfera, 2 cilindro,
+            //           3 cubo) -- in GLSL u_mvpMatrix[3][3];
+            //   (1,3) = le proporzioni dell'immagine, larghezza/altezza, che il
+            //           cilindro usa per non deformarla -- in GLSL [3][1]. 1 per
+            //           gli script: non hanno proporzioni proprie.
+            // La matrice si scrive SEMPRE, anche a zero: la copia arriva con la
+            // mvp della scena, le cui celle possono valere qualunque cosa.
+            //
+            // Solo la ROTAZIONE di m_view: niente modello (girare l'oggetto non
+            // deve trascinare il cielo), niente traslazione (un cielo
+            // all'infinito non ha parallasse). E un campo visivo "virtuale" preso
+            // da m_cameraFov invece della proiezione vera: in ortogonale i raggi
+            // sono paralleli, e ricavando la direzione dalla proiezione ogni pixel
+            // guarderebbe nello stesso punto -- sfondo di un colore solo.
+            // Vista piatta 2D: si edita la texture a schermo, quindi fisso.
+            QMatrix4x4 skyRay;
+            skyRay.fill(0.0f);
+            if (m_bgSkyMode != BgFixed && !m_isFlatView) {
+                QMatrix4x4 viewRotInv = m_view;
+                viewRotInv.setColumn(3, QVector4D(0.0f, 0.0f, 0.0f, 1.0f));
+                viewRotInv = viewRotInv.transposed();   // rotazione: inversa = trasposta
+                const float tanHalf = std::tan(m_cameraFov * 0.5f * float(M_PI) / 180.0f);
+                QMatrix4x4 eyeFromNdc;                  // pixel (ndc.x, ndc.y, 1) -> raggio in camera
+                eyeFromNdc.setToIdentity();
+                eyeFromNdc(0, 0) = tanHalf * aspect;
+                eyeFromNdc(1, 1) = tanHalf;
+                eyeFromNdc(2, 2) = -1.0f;               // la camera guarda verso -Z
+                skyRay = viewRotInv * eyeFromNdc;
+                skyRay(3, 3) = float(m_bgSkyMode);
+                const bool isImage = !m_bgIsScript && m_backgroundTexture
+                                     && m_backgroundTexture->pixelSize().height() > 0;
+                skyRay(1, 3) = isImage
+                             ? float(m_backgroundTexture->pixelSize().width())
+                               / float(m_backgroundTexture->pixelSize().height())
+                             : 1.0f;
+            }
+            memcpy(bgUboData.mvpMatrix, skyRay.constData(), 64);
+
             resourceUpdates->updateDynamicBuffer(m_bgUbo, 0, sizeof(UboData), &bgUboData);
         }
 
@@ -4773,6 +4823,58 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
                        "    float y_min; float y_max; float z_min; float z_max;\n"
                        "} ubuf;\n";
 
+    // COORDINATA DI BASE DELLO SFONDO, unica per i rami che la usano: tutti
+    // partivano da v_texCoord (posizione sullo SCHERMO), e questa funzione la
+    // sostituisce con la DIREZIONE di vista quando lo sfondo e' solidale con la
+    // scena. Zoom/pan/rotazione 2D si applicano DOPO, come sempre: agiscono
+    // sull'immagine, che poi viene avvolta sul cielo.
+    //
+    // La matrice e' in u_mvpMatrix di questa copia dell'UBO (vedi render()): il
+    // 3x3 porta il pixel (ndc.x, ndc.y, 1) alla direzione nel mondo, [3][3] e' la
+    // modalita' (GLWidget::BgSkyMode) e [3][1] le proporzioni dell'immagine.
+    // La forma decide solo come le DIREZIONI diventano coordinate d'immagine:
+    //   SFERA    -- equirettangolare: longitudine su u, latitudine su v. Il
+    //               formato dei panorami 360 (2:1); stirata ai poli.
+    //   CILINDRO -- stessa longitudine su u; su v l'altezza su un cilindro di
+    //               raggio 1 (tan della latitudine), scalata con le proporzioni
+    //               dell'immagine: l'intera larghezza copre il giro (2 pi), quindi
+    //               l'altezza vale 2 pi / (L/A) e l'immagine non si deforma.
+    //               Aperto sopra e sotto: oltre la fascia il campionatore
+    //               (Repeat) ripete l'immagine verso il punto di fuga.
+    //   CUBO     -- la faccia e' l'asse dominante della direzione, e sulla faccia
+    //               la proiezione e' piatta (gnomonica): nessuna deformazione. La
+    //               stessa immagine su tutte e sei, DRITTA sulle quattro laterali
+    //               (u segue la destra dello schermo guardando quella faccia, v
+    //               l'alto). Sopra e sotto u resta +X e v segue il verso in cui
+    //               l'alto dello schermo punta alzando/abbassando lo sguardo dal
+    //               fronte: attraversato lo spigolo l'immagine continua come una
+    //               piastrella, invece di ribaltarsi.
+    // VERSO: il quad ha v_texCoord.y = 1 in ALTO (e' li' che l'immagine fissa
+    // appare dritta), quindi l'alto dello schermo e l'alto del cielo (+Y del
+    // mondo) si mappano entrambi su v = 1. Ricavato da cio' che si vede, non dal
+    // backend: se lo sfondo fisso e' dritto, lo e' anche il cielo.
+    const QString bgBaseUVFunc =
+        "vec2 bgBaseUV() {\n"
+        "    float _mode = ubuf.u_mvpMatrix[3][3];\n"
+        "    if (_mode < 0.5) return v_texCoord;\n"
+        "    vec2 _ndc = v_texCoord * 2.0 - 1.0;\n"
+        "    vec3 _d = normalize(mat3(ubuf.u_mvpMatrix) * vec3(_ndc, 1.0));\n"
+        "    if (_mode > 2.5) {\n"
+        "        vec3 _a = abs(_d);\n"
+        "        vec2 _f;\n"
+        "        if (_a.z >= _a.x && _a.z >= _a.y) _f = vec2(_d.z < 0.0 ? _d.x : -_d.x, _d.y) / _a.z;\n"
+        "        else if (_a.x >= _a.y)            _f = vec2(_d.x > 0.0 ? _d.z : -_d.z, _d.y) / _a.x;\n"
+        "        else                              _f = vec2(_d.x, _d.y > 0.0 ? _d.z : -_d.z) / _a.y;\n"
+        "        return _f * 0.5 + 0.5;\n"
+        "    }\n"
+        "    float _u = atan(_d.x, -_d.z) * 0.15915494 + 0.5;\n"
+        "    if (_mode > 1.5) {\n"
+        "        float _h = _d.y / max(length(_d.xz), 1e-4);\n"
+        "        return vec2(_u, _h * ubuf.u_mvpMatrix[3][1] * 0.15915494 + 0.5);\n"
+        "    }\n"
+        "    return vec2(_u, asin(clamp(_d.y, -1.0, 1.0)) * 0.31830989 + 0.5);\n"
+        "}\n";
+
     if (!customCode.isEmpty() && customCode.contains("#version")) {
         fsSource = customCode;
     }
@@ -4782,10 +4884,11 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
                    + uboBlock +
                    "layout(location=0) in vec2 v_texCoord;\n"
                    "layout(location=0) out vec4 fragColor;\n"
+                   + bgBaseUVFunc +
                    "void main() {\n"
                    "  float rad = radians(ubuf.u_rotation);\n"
                    "  float c = cos(rad); float s = sin(rad);\n"
-                   "  vec2 centered = v_texCoord - 0.5;\n"
+                   "  vec2 centered = bgBaseUV() - 0.5;\n"
                    "  vec2 rot = vec2(centered.x * c - centered.y * s, centered.x * s + centered.y * c) + 0.5;\n"
                    "  float scale = 1.0 / ubuf.u_zoom;\n"
                    "  vec2 shift = ubuf.u_center * 0.5;\n"
@@ -4880,7 +4983,7 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
                           "    return fragColor_out.rgb;\n"
                           "}\n"
                           "void main() {\n"
-                          "  out_FragColor = vec4(getCustomColor(v_texCoord), ubuf.alpha);\n"
+                          "  out_FragColor = vec4(getCustomColor(bgBaseUV()), ubuf.alpha);\n"
                           "}\n";
         }
         else if (safeCode.contains("void main()")) {
@@ -4934,7 +5037,7 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
                           "    return getCustomColor_user(uv);\n"
                           "}\n"
                           "void main() {\n"
-                          "  out_FragColor = vec4(getCustomColor(v_texCoord), ubuf.alpha);\n"
+                          "  out_FragColor = vec4(getCustomColor(bgBaseUV()), ubuf.alpha);\n"
                           "}\n";
         }
         else {
@@ -4948,16 +5051,19 @@ QString GLWidget::createBackgroundFragmentShader(bool isTextureMode, const QStri
                           + safeCode + "\n"
                                        "}\n"
                                        "void main() {\n"
-                                       "  out_FragColor = vec4(getCustomColor(v_texCoord), ubuf.alpha);\n"
+                                       "  out_FragColor = vec4(getCustomColor(bgBaseUV()), ubuf.alpha);\n"
                                        "}\n";
         }
 
         // OUTPUT GLOBALE RINOMINATO A "out_FragColor"
+        // bgBaseUV subito dopo l'UBO (le serve ubuf) e prima del codice utente.
+        // Il ramo con la "void main()" dell'utente non la chiama: quello script
+        // legge v_texCoord da se', e resta fisso anche in modalita' solidale.
         fsSource = "#version 450\n"
                    "layout(location=0) in vec2 v_texCoord;\n"
                    "layout(location=0) out vec4 out_FragColor;\n"
                    "layout(binding=1) uniform sampler2D tex;\n"
-                   + uboBlock + "\n" + commonCode + "\n" + dynamicBody;
+                   + uboBlock + "\n" + bgBaseUVFunc + "\n" + commonCode + "\n" + dynamicBody;
     }
 
     return fsSource;

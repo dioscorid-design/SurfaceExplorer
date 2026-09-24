@@ -1619,6 +1619,13 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     }
     background["col1"] = m_mainWindow->m_bgTexColor1.name();
     background["col2"] = m_mainWindow->m_bgTexColor2.name();
+    // Forma dello sfondo (radio del gruppo Background Controls): "fixed",
+    // "sphere", "cylinder" o "cube" (GLWidget::bgSkyModeName). Si scrive SEMPRE,
+    // anche "fixed": il load la riapplica sempre, e un record senza la chiave
+    // (tutti quelli salvati prima) torna fisso.
+    background["skyMode"] = GLWidget::bgSkyModeName(
+        m_mainWindow->ui->glWidget ? m_mainWindow->ui->glWidget->backgroundSkyMode()
+                                   : int(GLWidget::BgFixed));
 
     if (m_mainWindow->ui->glWidget) {
         m_mainWindow->ui->glWidget->setFlatViewTarget(1);

@@ -503,6 +503,34 @@ public:
     void setBackgroundTexture(const QString &path);
     void setBackgroundTextureEnabled(bool enabled);
     bool isBackgroundTextureEnabled() const { return m_useBackgroundTexture; }
+    // FORMA DELLO SFONDO (radio del gruppo "Background Controls" del Renderer).
+    // Fixed (default): lo sfondo e' un poster incollato allo schermo. Le altre
+    // tre lo rendono SOLIDALE con la scena: e' un cielo all'infinito, campionato
+    // per DIREZIONE di vista -- ruotando la camera (path 3D/4D, camera libera)
+    // scorre; traslandola no, come le stelle viste da un'auto in corsa. La forma
+    // decide solo come l'immagine si distribuisce sulle direzioni:
+    //   Sphere   -- equirettangolare, per i panorami 360 (2:1); stirata ai poli.
+    //   Cylinder -- avvolta in orizzontale, dritta in verticale, proporzioni
+    //               dell'immagine rispettate; aperta sopra e sotto (si ripete).
+    //   Cube     -- la stessa immagine sulle sei facce, ognuna piatta: un'immagine
+    //               qualsiasi non si deforma.
+    // I valori sono quelli che lo shader legge (vedi bgBaseUV): non riordinare.
+    // Nessun rebuild: la scelta viaggia nell'UBO dello sfondo (vedi render()).
+    enum BgSkyMode { BgFixed = 0, BgSphere = 1, BgCylinder = 2, BgCube = 3 };
+    // Nome nel JSON dei record ("background"/"skyMode"). Parole e non numeri: il
+    // file resta leggibile e sopravvive a un riordino dell'enum. Una sola tabella
+    // per salvataggio e caricamento; un nome sconosciuto o assente = Fixed.
+    static QString bgSkyModeName(int mode) {
+        static const char *names[] = { "fixed", "sphere", "cylinder", "cube" };
+        return (mode >= BgFixed && mode <= BgCube) ? QString(names[mode]) : QString("fixed");
+    }
+    static int bgSkyModeFromName(const QString &name) {
+        for (int m = BgFixed; m <= BgCube; ++m)
+            if (name.compare(bgSkyModeName(m), Qt::CaseInsensitive) == 0) return m;
+        return BgFixed;
+    }
+    void setBackgroundSkyMode(int mode) { if (m_bgSkyMode == mode) return; m_bgSkyMode = mode; update(); }
+    int backgroundSkyMode() const { return m_bgSkyMode; }
     // Stato GLOBALE della texture di superficie (quello che le parti senza
     // texture propria ereditano).
     bool isTextureEnabled() const { return m_textureEnabled; }
@@ -1059,6 +1087,7 @@ private:
     float texRed2 = 0.0f, texGreen2 = 0.0f, texBlue2 = 0.0f;
 
     bool m_useBackgroundTexture = false;
+    int m_bgSkyMode = BgFixed;      // vedi setBackgroundSkyMode
     bool m_bgIsScript = false;
     QVector3D m_bgColor = QVector3D(0.3f, 0.3f, 0.3f);
     int m_lightingMode4D = 0;

@@ -18,6 +18,7 @@
 class QLineEdit;
 class QPushButton;
 class QCheckBox;
+class QRadioButton;
 class QTimer;
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -1172,11 +1173,13 @@ private:
                                        const QString &cleanedActiveCode);
 
     // Scansione dell'albero texture e selezione della voce corrispondente.
-    // Unica sede: prima cerca per CODICE su tutte le voci, poi ripiega sul nome
-    // di libreria (m_currentTextureLibName). Vedi il commento sulla definizione.
+    // Unica sede. libName: il nome di libreria della texture cercata, che vince
+    // sul codice; VUOTO quando non ce n'e' uno (sfondo, fascia) e allora si
+    // cerca per solo codice. Vedi il commento sulla definizione.
     void selectTextureTreeItemFor(QTreeWidgetItemIterator &itTex,
                                   const QString &activeCode,
-                                  const QString &cleanedActive);
+                                  const QString &cleanedActive,
+                                  const QString &libName);
 
 public:
     // "Sync Focused Texture" (menu contestuale dei record): riporta nella scena
@@ -1278,6 +1281,16 @@ private:
     // Porta i radio Base/Phong/Wireframe sulla modalita' indicata, a segnali
     // bloccati (sono un DISPLAY: non devono scrivere nulla).
     void syncRenderRadiosTo(int mode);
+    // Forma dello sfondo (GLWidget::BgSkyMode): porta radio E motore sullo stato
+    // indicato, a segnali bloccati. Unica via per load e reset -- il clic
+    // dell'utente passa dal toggled dei radio.
+    void applyBackgroundSkyMode(int mode);
+    // I quattro radio della forma, nell'ordine di GLWidget::BgSkyMode.
+    QList<QRadioButton*> bgSkyRadios() const;
+    // Gruppo Background Controls acceso solo col bersaglio Background, e tooltip
+    // che dicono perche' quando e' spento. Chiamata da updateRenderState e da
+    // onColorTargetChanged (vedi la definizione per il perche' di entrambe).
+    void updateBackgroundControlsGate();
     // COMANDO: l'utente ha cliccato un radio Base/Phong/Wireframe. E' l'unico
     // punto che puo' scrivere una modalita' PROPRIA sulla mesh selezionata; con
     // "All" agisce sul globale come da sempre. Tenuto separato dal DISPLAY (i
