@@ -81,6 +81,13 @@ public:
     // annullare l'applicazione della texture.
     static bool showTextureConstantClashWarning(QWidget* parent, const QStringList& names,
                                                 const QStringList& freeLetters);
+    // Gemello INFORMATIVO, per il caricamento di un record: la combinazione e'
+    // gia' salvata, quindi non si chiede se procedere -- si dice soltanto quali
+    // lettere sono condivise e fra quali parti. lines: una riga per lettera
+    // ("F is used by both the texture and the background").
+    // Ritorna true se l'utente ha spuntato "Don't show again for this record".
+    static bool showSharedConstantsNotice(QWidget* parent, const QStringList& lines,
+                                          const QStringList& freeLetters);
     static bool validateParentheses(QWidget* parent, const QString& cleanCode);
 
     // Validatore generico di sintassi.

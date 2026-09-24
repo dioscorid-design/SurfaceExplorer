@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include <QCryptographicHash>
 #include "ui_mainwindow.h"
 
 #ifdef Q_OS_MACOS
@@ -207,6 +208,28 @@ static QString stripCodeComments(QString s) {
     s.remove(lineComments);
     s.remove(blockComments);
     return s;
+}
+
+// Costanti A-F citate da un blocco di codice. Stesso criterio di
+// updateConstantsUIState: match CASE-SENSITIVE (le iniettate sono maiuscole) e
+// una lettera DICHIARATA come variabile locale non conta -- "float S = 512.0" e'
+// la locale dello script, non lo slider. Unica sede: la usano il controllo delle
+// costanti contese al caricamento di una texture e l'avviso al caricamento di un
+// record.
+static QSet<QString> constantsUsedIn(const QString &raw)
+{
+    const QString code = stripCodeComments(raw);
+    QSet<QString> out;
+    for (const QChar c : QStringLiteral("ABCDEF")) {
+        const QString L(c);
+        const QRegularExpression use("(?<![A-Za-z0-9_.])" + L + "(?![A-Za-z0-9_])");
+        if (!code.contains(use)) continue;
+        const QRegularExpression decl(
+            "\\b(?:float|int|uint|bool|vec[234]|mat[234])\\s+"
+            "(?:\\w+\\s*(?:=[^,;()]*)?,\\s*)*" + L + "\\b");
+        if (!code.contains(decl)) out.insert(L);
+    }
+    return out;
 }
 
 // Regex condivise per l'analisi delle variabili nelle equazioni: vengono usate
@@ -8977,6 +9000,9 @@ void MainWindow::handleTextureSelection(int index)
         // da difendere la scena, e il suono che il reset azzera. Qui ScopeScene
         // e' corretto -- il cambio di modalita' la distrugge davvero -- e un
         // popup solo li elenca entrambi.
+        // Solo a scena SPORCA, di proposito: una scena gia' su disco (un record
+        // appena aperto) non ha nulla da perdere, e un popup in piu' su ogni
+        // cambio di modalita' appesantirebbe il flusso senza proteggere nulla.
         if (!confirmDiscardUnsaved(ScopeScene)) {
             // Annullato: la scena resta com'era, ma nell'albero e' rimasto
             // evidenziato l'item appena cliccato (la selezione la fa il click,
@@ -12800,6 +12826,87 @@ void MainWindow::runMetricScript(const QString& fullText)
     checkAndTriggerMeshUpdate();
 }
 
+// Codice della SUPERFICIE da cui si deducono le sue costanti: equazione
+// implicita (del sotto-tab attivo) o script in Ray Marching; in parametrica le
+// equazioni X/Y/Z/P con composizioni e vincoli, piu' lo script. Unica sede per
+// il controllo delle costanti contese e per l'avviso al caricamento di un record.
+QString MainWindow::surfaceConstantSource() const
+{
+    if (ui->tabModeSelector->currentIndex() == 1)
+        return activeImplicitEquationText() + " " + m_surfaceScriptText;
+    return ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
+           ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
+           ui->lineU->toPlainText() + " " + ui->lineV->toPlainText() + " " +
+           ui->lineW->toPlainText() + " " +
+           ui->lineExplicitU->toPlainText() + " " +
+           ui->lineExplicitV->toPlainText() + " " +
+           ui->lineExplicitW->toPlainText() + " " + m_surfaceScriptText;
+}
+
+// Avviso delle costanti condivise al caricamento di un RECORD.
+//
+// PERCHE' SERVE: il controllo esistente (confirmTextureConstantClash) scatta
+// quando si carica una TEXTURE in una scena gia' composta -- dalla libreria o
+// col Sync. Un record porta superficie, texture e sfondo gia' combinati, e
+// nessuno confrontava le tre fonti fra loro: SL(2,R)/NewMotion usa F sia nella
+// texture sia nello sfondo, e si caricava senza una parola.
+//
+// INFORMATIVO, non una domanda: il record e' gia' salvato cosi', e la
+// condivisione puo' essere voluta -- i tre Kerr legano A e B alla forma e alla
+// texture, e lo dicono nel loro hint. Per questo "Don't show again": si ricorda
+// per QUEL file e per QUELLE lettere (la firma), cosi' se il record cambia e
+// condivide altro l'avviso torna.
+//
+// IN CODA ALL'EVENTO: un exec() modale durante il caricamento rientrerebbe nel
+// ciclo degli eventi a scena mezza caricata (e' la trappola del record che
+// prendeva la camera di un altro). Qui la scena e' completa.
+void MainWindow::warnSharedConstantsOnRecordLoad(const QString &recordPath)
+{
+    QMetaObject::invokeMethod(this, [this, recordPath]() {
+        // Parti ATTIVE soltanto: una texture o uno sfondo spenti non muovono
+        // nulla, anche se il loro codice cita una costante.
+        const bool isRM = (ui->tabModeSelector->currentIndex() == 1);
+        QList<QPair<QString, QSet<QString>>> parts;
+        parts << qMakePair(QStringLiteral("the surface"), constantsUsedIn(surfaceConstantSource()));
+        if (m_surfaceTextureState) {
+            const QString tex = isRM
+                ? (ui->lineTexture ? ui->lineTexture->toPlainText() : QString()) + "\n"
+                  + (ui->lineVariations ? ui->lineVariations->toPlainText() : QString())
+                : m_surfaceTextureCode;
+            parts << qMakePair(QStringLiteral("the texture"), constantsUsedIn(tex));
+        }
+        if (ui->glWidget && ui->glWidget->isBackgroundTextureEnabled())
+            parts << qMakePair(QStringLiteral("the background"), constantsUsedIn(m_bgTextureCode));
+
+        QStringList lines, signature, free;
+        for (const QChar c : QStringLiteral("ABCDEF")) {
+            const QString L(c);
+            QStringList owners;
+            for (const auto &p : parts) if (p.second.contains(L)) owners << p.first;
+            if (owners.isEmpty()) { free << L; continue; }
+            if (owners.size() < 2) continue;
+            const QString who = owners.size() == 2
+                ? "both " + owners[0] + " and " + owners[1]
+                : owners.mid(0, owners.size() - 1).join(", ") + " and " + owners.last();
+            lines << QString("%1 is used by %2.").arg(L, who);
+            signature << L + ":" + owners.join("+");
+        }
+        if (lines.isEmpty()) return;
+
+        // Chiave per file: il percorso ha delle '/', che QSettings leggerebbe come
+        // gruppi annidati. Se ne usa l'hash.
+        const QString fileKey = QString::fromLatin1(QCryptographicHash::hash(
+            QFileInfo(recordPath).absoluteFilePath().toUtf8(), QCryptographicHash::Md5).toHex());
+        const QString sig = signature.join(";");
+        QSettings settings;
+        const QString settingKey = "sharedConstantsNotice/" + fileKey;
+        if (settings.value(settingKey).toString() == sig) return;
+
+        if (InputValidator::showSharedConstantsNotice(this, lines, free))
+            settings.setValue(settingKey, sig);
+    }, Qt::QueuedConnection);
+}
+
 // Avviso "costante ambigua": A..F è una sola variabile globale. Se la stessa
 // costante compare sia nel corpo metrico sia nelle condizioni iniziali (campi
 // del dock Geodesic Flow), muovere il relativo slider altera entrambe — es. la
@@ -12815,36 +12922,12 @@ bool MainWindow::confirmTextureConstantClash(const QString& texCode, const QStri
     // updateConstantsUIState: match CASE-SENSITIVE (le iniettate sono maiuscole,
     // salvo 's') e una lettera DICHIARATA come variabile locale non conta --
     // "float S = 512.0" e' la locale dello script, non lo slider.
-    auto constantsIn = [](const QString& raw) {
-        const QString code = stripCodeComments(raw);
-        QSet<QString> out;
-        for (const QChar c : QStringLiteral("ABCDEF")) {
-            const QString L(c);
-            const QRegularExpression use("(?<![A-Za-z0-9_.])" + L + "(?![A-Za-z0-9_])");
-            if (!code.contains(use)) continue;
-            const QRegularExpression decl(
-                "\\b(?:float|int|uint|bool|vec[234]|mat[234])\\s+"
-                "(?:\\w+\\s*(?:=[^,;()]*)?,\\s*)*" + L + "\\b");
-            if (!code.contains(decl)) out.insert(L);
-        }
-        return out;
-    };
+    const auto constantsIn = [](const QString& raw) { return constantsUsedIn(raw); };
 
     // Codice della SUPERFICIE: equazione implicita o script, secondo il tab
     // attivo. In parametrica sono le equazioni X/Y/Z/P con composizioni e
     // vincoli.
-    QString surfaceCode;
-    if (ui->tabModeSelector->currentIndex() == 1) {
-        surfaceCode = activeImplicitEquationText() + " " + m_surfaceScriptText;
-    } else {
-        surfaceCode = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
-                      ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
-                      ui->lineU->toPlainText() + " " + ui->lineV->toPlainText() + " " +
-                      ui->lineW->toPlainText() + " " +
-                      ui->lineExplicitU->toPlainText() + " " +
-                      ui->lineExplicitV->toPlainText() + " " +
-                      ui->lineExplicitW->toPlainText() + " " + m_surfaceScriptText;
-    }
+    const QString surfaceCode = surfaceConstantSource();
 
     // Chi e' gia' in scena, cioe' contro cosa si confronta la texture in arrivo.
     // I tre moduli (superficie, texture, sfondo) leggono lo STESSO mathParams:
@@ -15634,6 +15717,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
     resetNav4DBaseline();
 
     showSceneHint(data.hintText, data.hintSeconds);
+
+    // Lettere A-F condivise fra superficie, texture e sfondo del record: in coda
+    // all'evento, a scena completa (vedi la funzione).
+    warnSharedConstantsOnRecordLoad(data.filePath);
 
     SE_TEXP("record:USCITA");
 }

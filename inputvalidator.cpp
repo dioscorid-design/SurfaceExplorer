@@ -1,6 +1,7 @@
 #include "inputvalidator.h"
 #include <QRegularExpression>
 #include <QMessageBox>
+#include <QCheckBox>
 #include <QPushButton>
 #include <QSet>
 
@@ -554,6 +555,34 @@ bool InputValidator::showTextureConstantClashWarning(QWidget* parent, const QStr
     ++s_errorCount;
     box.exec();
     return box.clickedButton() == apply;
+}
+
+bool InputValidator::showSharedConstantsNotice(QWidget* parent, const QStringList& lines,
+                                               const QStringList& freeLetters)
+{
+    if (lines.isEmpty()) return false;
+
+    const QString free = freeLetters.isEmpty()
+            ? QStringLiteral("none are free: every constant is already in use")
+            : freeLetters.join(", ") + QStringLiteral(" are still free");
+
+    QMessageBox box(parent);
+    box.setIcon(QMessageBox::Warning);
+    box.setWindowTitle("Shared Constant");
+    box.setText(lines.join("\n"));
+    box.setInformativeText(
+        QString("Each constant A-F is a single global slider, so one slider moves "
+                "both at once.\n\nThis may be intended. Otherwise edit one of the "
+                "scripts to use a free letter (%1).").arg(free));
+    QCheckBox* dontShow = new QCheckBox("Don't show again for this record", &box);
+    box.setCheckBox(dontShow);
+    box.addButton(QMessageBox::Ok);
+
+    // NON conta in s_errorCount: e' un'informazione su un file caricato, non un
+    // errore dell'utente, e RunOutcomeGuard leggerebbe quel contatore come
+    // "Run fallito".
+    box.exec();
+    return dontShow->isChecked();
 }
 
 bool InputValidator::validateImplicitScriptReturn(QWidget* parent, const QString& cleanCode)

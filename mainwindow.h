@@ -116,6 +116,15 @@ private slots:
     // ScopeTexture/ScopeSound guarda il solo flag di quel modulo e punta
     // diritto al suo ramo. false se l'utente annulla: non si procede.
     bool confirmDiscardUnsaved(DiscardScope scope);
+    // Codice della superficie da cui si deducono le sue costanti A-F (equazioni
+    // o script, secondo il modo). Unica sede, vedi la definizione.
+    QString surfaceConstantSource() const;
+    // Avviso INFORMATIVO al caricamento di un record: lettere A-F usate da piu'
+    // parti (superficie, texture, sfondo), che uno stesso slider muove insieme.
+    // Il controllo al caricamento di una texture non copriva i record, che
+    // portano le tre parti gia' combinate. "Don't show again" vale per quel
+    // record e per quelle lettere.
+    void warnSharedConstantsOnRecordLoad(const QString &recordPath);
     // Unico punto da cui si mostra un errore di compilazione all'utente.
     void showShaderError(const QString &title, const QString &errorLog);
     // Lavoro dell'utente sui controlli che NON passano dai campi testuali:
