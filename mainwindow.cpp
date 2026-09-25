@@ -19337,13 +19337,12 @@ void MainWindow::showSceneHint(const QString &text, float seconds)
                     }
                 }
 
-                // ...e si mangia anche il RELEASE di quel click. Consumare il
-                // solo press lascia l'InputHandler senza l'inizio del gesto:
-                // al release wasClickWithoutDrag() legge uno stato mai
-                // inizializzato, GLWidget conclude "trascinamento vero" ed
-                // emette userMovedView -> la scena passa per MODIFICATA e al
-                // load successivo compariva "vuoi salvare?" per un semplice
-                // click sul messaggio.
+                // ...e si mangia anche il RELEASE di quel click: appartiene al
+                // messaggio, non alla vista. (In origine era l'unica difesa: il
+                // release orfano veniva preso per un trascinamento, emetteva
+                // userMovedView e la scena passava per MODIFICATA. Oggi
+                // InputHandler ignora da se' i release senza press -- vedi
+                // takeMouseMovedView -- e questo resta come seconda cintura.)
                 if (ev->type() == QEvent::MouseButtonRelease && m_swallowRelease) {
                     m_swallowRelease = false;
                     return true;

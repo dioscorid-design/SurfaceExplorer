@@ -15,6 +15,13 @@ void InputHandler::handleMousePress(QMouseEvent* event)
 {
     m_lastMousePos = event->pos();
 
+    // Inizio del gesto: solo il PRIMO tasto premuto lo apre (un secondo tasto
+    // durante un trascinamento lo prosegue, non ne azzera l'esito).
+    if (!m_mouseGestureActive) {
+        m_mouseGestureActive = true;
+        m_mouseMovedView = false;
+    }
+
     // Se premo il sinistro, salvo la posizione per capire se sarà un Click o un Drag
     if (event->button() == Qt::LeftButton) {
         m_pressPos = event->pos();
@@ -24,6 +31,11 @@ void InputHandler::handleMousePress(QMouseEvent* event)
 
 void InputHandler::handleMouseRelease(QMouseEvent* event)
 {
+    // Release ORFANO (il press non e' arrivato qui): non chiude nessun gesto
+    // della vista. Senza questa guardia in 2D un m_isClickCandidate rimasto
+    // vero dall'ultimo clic ruotava la texture di 90 gradi.
+    if (!m_mouseGestureActive) return;
+
     // Solo in 2D e solo se rilascio il tasto sinistro
     if (m_glWidget->isFlatView() && event->button() == Qt::LeftButton) {
 
@@ -33,6 +45,9 @@ void InputHandler::handleMouseRelease(QMouseEvent* event)
             m_glWidget->rotateFlat90();
         }
     }
+
+    // Fine del gesto quando non resta premuto nessun tasto.
+    if (event->buttons() == Qt::NoButton) m_mouseGestureActive = false;
 }
 
 void InputHandler::handleMouseMove(QMouseEvent* event)
@@ -42,11 +57,9 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
 
     // DEADZONE, PRIMA DEL RAMO DI VISTA: superati 5 px col sinistro premuto non
     // e' piu' un clic secco ma un trascinamento. Viveva DENTRO il ramo 2D, e in
-    // 3D/4D quindi non veniva mai spenta: al release wasClickWithoutDrag()
-    // rispondeva "clic" anche dopo aver ruotato l'oggetto, e GLWidget non
-    // emetteva userMovedView() -- cioe' ruotare col mouse non sporcava la scena
-    // e l'avviso "vuoi salvare?" non compariva (lo zoom si', perche' la
-    // rotellina emette il segnale direttamente).
+    // 3D/4D quindi non veniva mai spenta: ruotare l'oggetto col mouse contava
+    // come clic, e GLWidget non emetteva userMovedView() -- cioe' ruotare col
+    // mouse non sporcava la scena e l'avviso "vuoi salvare?" non compariva.
     if (event->buttons() & Qt::LeftButton) {
         if ((event->pos() - m_pressPos).manhattanLength() > 5)
             m_isClickCandidate = false;
@@ -62,6 +75,7 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
             if (!m_isClickCandidate) {
                 float sensitivity = 0.5f;
                 m_glWidget->addFlatRotation(dx * sensitivity);
+                if (m_mouseGestureActive) m_mouseMovedView = true;
             }
         }
         // TASTO DESTRO: SPOSTAMENTO (PAN)
@@ -72,6 +86,7 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
 
             QVector2D currentPan = m_glWidget->getFlatPan();
             m_glWidget->setFlatPan(currentPan.x() - dx * panSens, currentPan.y() + dy * panSens);
+            if (m_mouseGestureActive && (dx != 0 || dy != 0)) m_mouseMovedView = true;
         }
     }
 
@@ -92,6 +107,9 @@ void InputHandler::handleMouseMove(QMouseEvent* event)
                 // Passiamo 0.0f come terzo argomento (Spin)
                 m_glWidget->markUserRotated();
                 m_glWidget->addObjectRotation(dx * sensitivity, dy * sensitivity, 0.0f);
+                // Oltre la deadzone e' un trascinamento vero, non un clic: la
+                // vista e' stata mossa dall'utente (stesso criterio del touch).
+                if (m_mouseGestureActive && !m_isClickCandidate) m_mouseMovedView = true;
             }
         }
     }
@@ -205,10 +223,10 @@ bool InputHandler::handleTouch(QEvent* e)
     return true;
 }
 
-void InputHandler::handleWheel(QWheelEvent* event)
+bool InputHandler::handleWheel(QWheelEvent* event)
 {
     float delta = event->angleDelta().y();
-    if (delta == 0) return;
+    if (delta == 0) return false;
 
     // --- GESTIONE ZOOM 2D (TEXTURE) ---
     if (m_glWidget->isFlatView()) {
@@ -218,11 +236,14 @@ void InputHandler::handleWheel(QWheelEvent* event)
         float zoomFactor = (delta > 0) ? 1.15f : (1.0f / 1.15f);
 
         m_glWidget->setFlatZoom(currentZoom * zoomFactor);
+        return true;
     }
     // --- GESTIONE ZOOM 3D / 4D ---
     // Bloccato mentre un path controlla la telecamera (lo zoom 2D sopra resta libero).
     else if (!m_glWidget->isPathAnimating()) {
         float zoomSpeed = 0.01f;
         m_glWidget->zoomCamera(delta * zoomSpeed);
+        return true;
     }
+    return false;
 }

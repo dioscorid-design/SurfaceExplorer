@@ -1508,14 +1508,17 @@ void GLWidget::mouseMoveEvent(QMouseEvent *event) {
 
 void GLWidget::wheelEvent(QWheelEvent *event)
 {
-    if (m_inputHandler) {
-        m_inputHandler->handleWheel(event);
-    }
+    const bool zoomed = m_inputHandler && m_inputHandler->handleWheel(event);
 
     event->accept();
 
-    // Zoom col mouse: e' l'utente che cambia la vista.
-    emit userMovedView();
+    // Zoom col mouse: e' l'utente che cambia la vista. Solo se lo zoom e'
+    // avvenuto davvero: prima il segnale partiva per QUALUNQUE evento di
+    // rotellina, e il trackpad ne manda anche a delta verticale nullo (scroll
+    // orizzontale, fine del gesto) -- passarci sopra col puntatore sporcava la
+    // scena senza toccarla, e alla chiusura del preset usciva "vuoi salvare?".
+    // Idem durante un path, dove lo zoom 3D e' bloccato.
+    if (zoomed) emit userMovedView();
 
     update();
 }
@@ -1550,15 +1553,13 @@ bool GLWidget::event(QEvent *e)
 }
 
 void GLWidget::mouseReleaseEvent(QMouseEvent *event) {
-    // Trascinamento vero (non un clic secco): l'utente ha ruotato/spostato la
-    // vista a mano. Letto PRIMA di handleMouseRelease, che riarma il flag.
-    const bool dragged = m_inputHandler && !m_inputHandler->wasClickWithoutDrag();
-
     if (m_inputHandler) {
         m_inputHandler->handleMouseRelease(event);
     }
 
-    if (dragged) emit userMovedView();
+    // Trascinamento vero (non un clic secco, non un release orfano): l'utente
+    // ha ruotato/spostato la vista a mano in un gesto iniziato qui.
+    if (m_inputHandler && m_inputHandler->takeMouseMovedView()) emit userMovedView();
 
     // Usiamo QRhiWidget invece di QOpenGLWidget
     return QRhiWidget::mouseReleaseEvent(event);
