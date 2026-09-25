@@ -62,6 +62,17 @@
             </ul>
             <p><em>Note: If no background image is explicitly loaded, a fallback procedural Deep Space gradient will be automatically generated to ensure a sleek presentation.</em></p>
 
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Background Shape (Fixed / Sphere / Cylinder / Cube)</b></p></td></tr></table>
+            <p>The <strong>Background Controls</strong> group, below the surface controls, decides how the background sits in the scene. It is active only while the edit target is <em>Background</em>.</p>
+            <ul>
+                <li><strong>Fixed:</strong> the background is glued to the screen, as it has always been. Whatever the camera does, it stays where it is.</li>
+                <li><strong>Sphere:</strong> the background becomes a sky at infinity around the scene, mapped as an equirectangular panorama &mdash; the format of 360&deg; photos, twice as wide as it is tall.</li>
+                <li><strong>Cylinder:</strong> the image is wrapped horizontally around the scene, keeping its proportions.</li>
+                <li><strong>Cube:</strong> the same image on the six flat faces of a cube, so nothing is stretched.</li>
+            </ul>
+            <p>In the last three the background turns with the view: rotating the camera &mdash; by hand or along a 3D or 4D path &mdash; makes it scroll, while moving the camera forward or sideways leaves it still, as a distant sky would. Turning the object does not drag the sky along, and neither do the 4D rotations. The flat 2D view used to edit a texture always shows the background as <em>Fixed</em>, and so do background scripts that define their own <code>main()</code>.</p>
+            <p>The shape is stored in Records together with the rest of the background, and <strong>NEW</strong> sets it back to <em>Fixed</em>.</p>
+
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Applying Textures (Surface vs. Background)</b></p></td></tr></table>
             <p>Textures (both procedural scripts and static images) follow whichever edit target is selected:</p>
             <ul>
