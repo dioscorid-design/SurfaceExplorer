@@ -6084,9 +6084,12 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // precedente e' stata sostituita dalla default, quindi il suo item non
     // descrive piu' cio' che si vede.
     // Segnali bloccati: itemClicked ricaricherebbe il preset appena scartato.
-    QTreeWidget *keepFocus = nullptr;
-    if (m_texModeSwitchInProgress && m_lastLoadedLibraryItem)
-        keepFocus = m_lastLoadedLibraryItem->treeWidget();
+    // Il ramo di provenienza lo dichiara chi ha alzato il flag (vedi
+    // m_modeSwitchSourceTree). Dedurlo da m_lastLoadedLibraryItem era sbagliato
+    // per le texture, che non lo aggiornano: restava il RECORD caricato prima,
+    // e il suo item sopravviveva evidenziato sulla superficie di default.
+    QTreeWidget *keepFocus = m_texModeSwitchInProgress ? m_modeSwitchSourceTree
+                                                       : nullptr;
 
     for (QTreeWidget *tree : { ui->treeSurfaces, ui->treeTextures,
                                ui->treeMotions,  ui->treeSounds }) {
@@ -9020,12 +9023,22 @@ void MainWindow::handleTextureSelection(int index)
         // l'evidenziazione dell'item scelto. Il flag lo segnala a resetScene.
         {
             m_texModeSwitchInProgress = true;
+            m_modeSwitchSourceTree = ui->treeTextures;
             struct TexSwitchGuard {
                 MainWindow *w;
-                ~TexSwitchGuard() { w->m_texModeSwitchInProgress = false; }
+                ~TexSwitchGuard() {
+                    w->m_texModeSwitchInProgress = false;
+                    w->m_modeSwitchSourceTree = nullptr;
+                }
             } texSwitchGuard{this};
             ui->tabModeSelector->setCurrentIndex(texIsImplicit ? 1 : 0);
         }
+
+        // La scena caricata dalla libreria (superficie o record) e' stata appena
+        // sostituita dalla default: il suo item non descrive piu' cio' che si
+        // vede. Senza questo, annullando il caricamento successivo il focus
+        // tornava su quel record (vedi il ripristino in onExampleItemClicked).
+        m_lastLoadedLibraryItem = nullptr;
 
         // B. Imposta una Superficie di Default sicura e azzera il resto.
         // I setPlainText/clear qui sotto NON devono emettere textChanged: quei
@@ -14572,9 +14585,13 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // Alzato attorno a ENTRAMBI i rami: il tab da forzare dipende dal record,
     // non da quale ramo dell'if si prende.
     m_texModeSwitchInProgress = true;
+    m_modeSwitchSourceTree = ui->treeMotions;
     struct ModeSwitchGuard {
         MainWindow *w;
-        ~ModeSwitchGuard() { w->m_texModeSwitchInProgress = false; }
+        ~ModeSwitchGuard() {
+            w->m_texModeSwitchInProgress = false;
+            w->m_modeSwitchSourceTree = nullptr;
+        }
     } modeSwitchGuard{this};
 
     if (isImplicit) {

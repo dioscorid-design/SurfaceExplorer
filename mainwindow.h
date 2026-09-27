@@ -676,6 +676,14 @@ private:
     // sbagliato qui, dove sta CARICANDO qualcosa e l'albero gli si chiuderebbe
     // sotto le dita perdendo il focus sull'item appena scelto.
     bool m_texModeSwitchInProgress = false;
+    // Il ramo della Library da cui arriva cio' che ha IMPOSTO il cambio:
+    // treeTextures per la texture incompatibile, treeMotions per il record di
+    // modo opposto. resetScene non lo deseleziona. Lo dichiara chi alza il flag
+    // qui sopra, invece di dedurlo da m_lastLoadedLibraryItem: le texture non
+    // aggiornano quel puntatore, quindi dopo un record una texture incompatibile
+    // lasciava "protetto" il ramo Record e il vecchio record restava evidenziato
+    // su una scena che non era piu' la sua.
+    QTreeWidget *m_modeSwitchSourceTree = nullptr;
     // Alzato quando l'utente ANNULLA il cambio di modalita' dal dialogo del
     // lavoro non salvato: tabBarClicked non puo' impedire a Qt di cambiare
     // linguetta, quindi si lascia scattare currentChanged e si dice ad
