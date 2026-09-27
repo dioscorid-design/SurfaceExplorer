@@ -10344,11 +10344,17 @@ void MainWindow::onStartClicked()
         // non c'e' nulla di pesante da cui difendersi.
         guardTransparencyOnHeavyTextureApply(dispCode);
 
-        QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)", QRegularExpression::MultilineOption);
-        QRegularExpressionMatch imgMatch = imgRe.match(texCode);
-        if (imgMatch.hasMatch()) {
-            QString imgPath = imgMatch.captured(1).trimmed();
-            if (QFile::exists(imgPath)) {
+        // Stesso Smart Path Resolver del caricamento dei record. Qui c'era un
+        // QFile::exists() sul percorso del tag, cioe' la verifica che
+        // extractAndResolveImagePath ha smesso di fidarsi: sotto sandbox un file
+        // della libreria dell'ALTRA app (DMG vs App Store) esiste ma non e'
+        // leggibile, exists() lo accettava e l'immagine non si caricava. Ora il
+        // percorso si risolve per nome nella libreria in uso. Un file che non
+        // c'e' davvero resta muto come prima: questo e' il Run, non un load, e
+        // un avviso a ogni pressione sarebbe rumore.
+        const QString imgPath = extractAndResolveImagePath(texCode);
+        if (!imgPath.isEmpty()) {
+            if (!imgPath.startsWith("NOT_FOUND|")) {
                 m_isImageMode = true;
                 m_currentTexturePath = imgPath;
                 ui->glWidget->loadTextureFromFile(imgPath);
