@@ -1,12 +1,12 @@
-# Privacy Policy — Surface Explorer 4D
+# Privacy Policy — Surface Explorer
 
-_Last updated: 2026-06-29_
+_Last updated: 2026-09-27_
 
-Surface Explorer 4D ("the app") is a mathematical surface visualizer developed by Gaetano Moschetti.
+Surface Explorer ("the app") is a mathematical surface visualizer developed by Gaetano Moschetti.
 
 ## Data collection
 
-**Surface Explorer 4D does not collect, store, or transmit any personal data.**
+**Surface Explorer does not collect, store, or transmit any personal data.**
 
 - The app has no user accounts and requires no sign-in.
 - The app does not include analytics, advertising, or tracking of any kind.
