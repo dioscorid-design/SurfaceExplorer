@@ -1,11 +1,12 @@
-# Surface Explorer 1.2
+# Surface Explorer 1.3
 **A high-performance multi-backend 4D surface visualizer built with Qt6 and Qt RHI.**
 
-Surface Explorer 1.2 is built on the Qt RHI architecture and adds two major rendering and visualization capabilities: a **Ray Marching engine** for implicit surfaces and signed-distance fields, and a **Geodesic Flow** solver for intrinsic geometry on curved manifolds. By relying on the **Qt Rendering Hardware Interface (RHI)**, the application remains hardware-agnostic, automatically leveraging the most efficient graphics API available on your system: **Vulkan**, **Metal**, **Direct3D**, or **OpenGL**. This version is designed for high-precision visualization of complex mathematical surfaces in 4D space ($x, y, z, p$), providing a seamless bridge between abstract geometry and real-time GPU performance.
+Surface Explorer is built on the Qt RHI architecture and adds two major rendering and visualization capabilities: a **Ray Marching engine** for implicit surfaces and signed-distance fields, and a **Geodesic Flow** solver for intrinsic geometry on curved manifolds. By relying on the **Qt Rendering Hardware Interface (RHI)**, the application remains hardware-agnostic, automatically leveraging the most efficient graphics API available on your system: **Vulkan**, **Metal**, **Direct3D**, or **OpenGL**. This version is designed for high-precision visualization of complex mathematical surfaces in 4D space ($x, y, z, p$), providing a seamless bridge between abstract geometry and real-time GPU performance.
 
 ## 🚀 Key Features
 * **Multi-mesh surfaces**: build a surface from several independent grids, one per branch, each with its own colour, transparency, light, wireframe, line density and procedural texture — what makes the Clifford labyrinths and Hopf families possible.
 * **Ray Marching Engine**: Real-time rendering of implicit surfaces and signed-distance fields directly on the GPU, with support for procedural displacement, transparency, and true multi-layer field surfaces.
+* **Cross Section**: 3D slices of 4D implicit surfaces — write an equation in `x, y, z, p`; the 4D rotations and the 4D camera path move the slice through the object.
 * **Geodesic Flow**: Intrinsic geometry on curved manifolds — integrate geodesics from initial conditions and explore metric-driven surfaces (S³, H²×R, SL(2,R), and more) via the Equations panel.
 * **Qt RHI Engine**: Native support for **Vulkan** (Linux/Windows), **Metal** (macOS), and **Direct3D** (Windows), ensuring smoother performance and future-proof compatibility.
 * **4D Spatial Exploration**: Native support for four-dimensional coordinate systems with dedicated controls for hyperspatial rotation (Omega, Phi, Psi) and projection.
@@ -27,7 +28,7 @@ Surface Explorer 1.2 is built on the Qt RHI architecture and adds two major rend
 ## 📦 Releases
 You don't need to compile the project to try it! Check out the **[Latest Releases](https://github.com/dioscorid-design/SurfaceExplorer/releases)** for portable, standalone binaries:
 
-* **macOS**: Download `SurfaceExplorer.dmg`, open it, and drag the app to your Applications folder. The app is signed with an Apple Developer ID and notarized, so it opens normally on first launch — no Gatekeeper workaround needed.
+* **macOS**: Download `SurfaceExplorer-*-macos.dmg`, open it, and drag the app to your Applications folder. The app is signed with an Apple Developer ID and notarized, so it opens normally on first launch — no Gatekeeper workaround needed.
 * **Windows**: Download `SurfaceExplorer-*-windows-x64.zip`, extract, and run `SurfaceExplorer.exe`.
 * **Linux**: Download `SurfaceExplorer-*-linux-x86_64.AppImage` — a self-contained binary that bundles Qt, so it runs on any x86_64 distribution with no installation. Every release page carries the exact commands to make it executable and, with `install-linux.sh`, to add it to your applications menu.
 
