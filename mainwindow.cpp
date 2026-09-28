@@ -17406,7 +17406,7 @@ void MainWindow::resetImplicitSharedFields()
     // MARCHER: "Fast" (sphere tracing storico) e' il default condiviso, come per
     // ogni altra manopola qui. Il sotto-tab Cross Section lo rialza a "Precise"
     // subito dopo, in loadCrossSectionDefaultSurface: stessa sequenza dello Step
-    // Relax, che qui torna a 0.4 e li' viene riscritto a 0.7.
+    // Relax, che qui torna a 0.4 e li' viene riscritto (oggi con lo stesso 0.4).
     setMarcherUI(false);
 
     // Limiti spaziali: campi VUOTI = nessun taglio, che e' il default di avvio
@@ -17502,11 +17502,13 @@ void MainWindow::loadCrossSectionDefaultSurface()
     // suo riferimento. Le rotazioni 4D sono agganciate (vedi %CROSS_SECTION_P%) e
     // questa superficie parte con omega != 0: la sezione di default non e' quella
     // centrale, e' l'inquadratura scelta piu' sotto.
-    // Moltiplicata per 0.01 (fuori parentesi) per evitare artefatti di
-    // precisione del ray marcher sui valori grandi che l'espressione elevata
-    // al quadrato/quarta potenza produce.
+    // Moltiplicata per 0.5 (fuori parentesi): era 0.01, per evitare artefatti
+    // di precisione sui valori grandi che l'espressione elevata al quadrato/quarta
+    // potenza produce, ma schiacciava anche il gradiente (|grad| ~ 0.013) sotto il
+    // clamp 0.2 del marcher, falsando la stima di distanza. Valore scelto a
+    // schermo dall'utente insieme allo Step Relax 0.4 (vedi sotto).
     static const QString kT3Equation =
-        "0.01*(((x*x+y*y+z*z+p*p+A*A+B*B-C*C)^2 + 4*(A*A-B*B)*(x*x+y*y) - 4*B*B*(z*z+A*A))^2 "
+        "0.5*(((x*x+y*y+z*z+p*p+A*A+B*B-C*C)^2 + 4*(A*A-B*B)*(x*x+y*y) - 4*B*B*(z*z+A*A))^2 "
         "- 16*A*A*(x*x+y*y)*(x*x+y*y+z*z+p*p+A*A-B*B-C*C)^2)";
 
     if (ui->lineEquationCrossSection) {
@@ -17524,16 +17526,18 @@ void MainWindow::loadCrossSectionDefaultSurface()
     const float valD = ui->lineD ? ui->lineD->text().toFloat() : 1.0f;
     const float valE = ui->lineE ? ui->lineE->text().toFloat() : 1.0f;
     const float valF = ui->lineF ? ui->lineF->text().toFloat() : 1.0f;
-    // STEP RELAX a 0.7 (il default condiviso e' 0.4, appena scritto da
-    // resetImplicitSharedFields). Il T^3 e' stratificato e con passi piu' lunghi
-    // la marcia arriva piu' a fondo a parita' di Ray Steps. Vale SOLO per questo
-    // sotto-tab: il controllo e' uno per entrambi, quindi si scrive qui DOPO il
-    // reset, e tornando al 3D il reset lo riporta a 0.4.
+    // STEP RELAX a 0.4, come il default condiviso appena scritto da
+    // resetImplicitSharedFields. Era 0.7 ("il T^3 e' stratificato e con passi piu'
+    // lunghi la marcia arriva piu' a fondo a parita' di Ray Steps"), ma con passi
+    // lunghi l'avvicinamento scavalcava pezzi di superficie anche col marcher
+    // Precise: portato a 0.4 dall'utente insieme al fattore di scala 0.5, che
+    // correggeva i difetti a schermo. La riga resta esplicita, come Ray Steps
+    // sotto: se il default condiviso cambiasse, questa superficie tiene il suo.
     // PRIMA della lettura di valS qui sotto: in Ray Marching lineS/sSlider NON e'
     // la costante S dell'equazione ma proprio lo Step Relax, e finisce allo
     // shader attraverso setEquationConstants (u_mathParams.w). Scrivendolo dopo,
     // il motore avrebbe continuato a marciare con 0.4.
-    const double kCrossSectionStepRelax = 0.7;
+    const double kCrossSectionStepRelax = 0.4;
     m_lastImplicitS = kCrossSectionStepRelax;
     if (ui->lineS) {
         const bool old = ui->lineS->blockSignals(true);
@@ -17578,6 +17582,9 @@ void MainWindow::loadCrossSectionDefaultSurface()
     // e in Shell, e che spariva appena si accendeva un filo di trasparenza
     // (il ramo trasparente usa un altro marcher, immune per costruzione).
     // Con "Precise" i falsi hit sono ZERO e nessun pixel di superficie si perde.
+    // NB: misura fatta col fattore di scala 0.01. Con 0.5 il gradiente e' ~50x
+    // piu' grande e il clamp scatta molto meno: i numeri qui sopra non sono stati
+    // rimisurati.
     setMarcherUI(true);
 
     // RAY STEPS a 350. Erano 600 finche' questa superficie partiva TRASPARENTE:
@@ -17600,6 +17607,10 @@ void MainWindow::loadCrossSectionDefaultSurface()
     // ravvicinato (a camera z=2.6 il peggiore sale a 357, a z=2.0 a 486) -- ma lo
     // zoom e' una scelta dell'utente, che ha lo slider per rimediare, mentre
     // l'apertura deve solo essere corretta e leggera.
+    // NB: tutti i numeri di questo commento sono misurati col fattore di scala
+    // 0.01 e lo Step Relax 0.7. Con 0.5 e 0.4 i passi cambiano (piu' corti per il
+    // relax, piu' lunghi e fedeli per il gradiente non piu' clampato): non
+    // rimisurati.
     // La riga resta esplicita invece di affidarsi al reset condiviso (400): se
     // quel default cambiasse, questa superficie mantiene il valore tarato su di
     // lei, e m_lastImplicitSteps resta allineata a cio' che si vede.

@@ -1031,7 +1031,7 @@ private:
     // (fattore di scala compreso): sono due copie della stessa equazione, e una
     // che resta indietro e' un default incoerente con cio' che l'utente vede.
     QString m_eqCrossSectionF =
-        "0.01*(((x*x+y*y+z*z+p*p+A*A+B*B-C*C)^2 + 4*(A*A-B*B)*(x*x+y*y) - 4*B*B*(z*z+A*A))^2 "
+        "0.5*(((x*x+y*y+z*z+p*p+A*A+B*B-C*C)^2 + 4*(A*A-B*B)*(x*x+y*y) - 4*B*B*(z*z+A*A))^2 "
         "- 16*A*A*(x*x+y*y)*(x*x+y*y+z*z+p*p+A*A-B*B-C*C)^2)";
     // Quale delle due equazioni sopra e' quella attiva nello shader compilato.
     bool m_implicitUsesCrossSection = false;
