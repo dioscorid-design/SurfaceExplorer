@@ -10,6 +10,7 @@
         "col2": "#000000",
         "color": "#4d4d4d",
         "enabled": true,
+        "libName": "Sun with Stars",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -33,8 +34,8 @@
         "surfColor": "#33cc33"
     },
     "constants": {
-        "A": 1.0,
-        "B": 0.6899999976158142,
+        "A": 0.6899999976158142,
+        "B": 1,
         "C": 1,
         "D": 1,
         "E": 0,
@@ -42,19 +43,19 @@
         "S": 0
     },
     "equations": {
-        "defU": "u+D*t",
+        "defU": "u+B*t",
         "defV": "v",
         "defW": "u+v",
         "explicitU": "",
         "explicitV": "",
         "explicitW": "",
-        "p": "exp(-B*W)*cos(U)",
-        "x": "exp(B*W)*cos(U) + V*exp(B*W)*sin(U)",
-        "y": "V*exp(B*W)*cos(U) - exp(B*W)*sin(U)",
-        "z": "exp(-B*W)*sin(U)"
+        "p": "exp(-A*W)*cos(U)",
+        "x": "exp(A*W)*cos(U) + V*exp(A*W)*sin(U)",
+        "y": "V*exp(A*W)*cos(U) - exp(A*W)*sin(U)",
+        "z": "exp(-A*W)*sin(U)"
     },
     "hintSeconds": 6,
-    "hintText": "Sliders\nB: strength of the horocyclic shear\nD: speed of the flow",
+    "hintText": "Sliders\nA: strength of the horocyclic shear\nB: speed of the flow",
     "lightIntensity": 1,
     "lightingMode": 1,
     "limits": {
@@ -86,6 +87,7 @@
     "projectionMode": 0,
     "renderMode": 1,
     "showBorder": false,
+    "soundLibName": "Labyrinthus Sub Terra",
     "speeds": {
         "nutation": 0,
         "omega": 0.30000001192092896,
@@ -102,6 +104,7 @@
         "col1": "#33cc33",
         "col2": "#000000",
         "enabled": true,
+        "libName": "Soft Clouds",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

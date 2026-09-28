@@ -10,6 +10,7 @@
         "col2": "#000000",
         "color": "#ff0000",
         "enabled": true,
+        "libName": "Cyclic noise 2D",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

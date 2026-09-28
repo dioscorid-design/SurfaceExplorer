@@ -118,6 +118,7 @@
         "col1": "#000000",
         "col2": "#ff9700",
         "enabled": true,
+        "libName": "Shadertoy Style",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

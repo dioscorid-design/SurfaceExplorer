@@ -104,6 +104,7 @@
     "pathMode3D": 0,
     "projectionMode": 1,
     "renderMode": 0,
+    "soundLibName": "Dust Storm",
     "speeds": {
         "nutation": 0,
         "omega": 0,
@@ -120,6 +121,7 @@
         "col1": "#33cc33",
         "col2": "#000000",
         "enabled": true,
+        "libName": "Rows",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 53,

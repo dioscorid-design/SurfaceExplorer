@@ -1,7 +1,7 @@
 {
     "activeMotion": "rotation",
     "angles": {
-        "omega": 72.35689544677734,
+        "omega": 74.7455825805664,
         "phi": 0,
         "psi": 0
     },
@@ -11,6 +11,7 @@
         "col2": "#000000",
         "color": "#989699",
         "enabled": true,
+        "libName": "Monitor CRT",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -19,10 +20,10 @@
     "camera3D": {
         "pitch": -6.889644622802734,
         "roll": 0,
-        "rot_w": -0.809043288230896,
-        "rot_x": -0.4162106513977051,
-        "rot_y": -0.3085850179195404,
-        "rot_z": 0.27747592329978943,
+        "rot_w": 0.47200828790664673,
+        "rot_x": -0.43990907073020935,
+        "rot_y": -0.3247454762458801,
+        "rot_z": -0.6915407776832581,
         "x": -0.9248329401016235,
         "y": 0.34496548771858215,
         "yaw": 18.901254653930664,
@@ -54,6 +55,7 @@
         "y": "cos(w)*sin(u)",
         "z": "sin(w)*cos(v+u)"
     },
+    "fillLight": 0,
     "fov3D": 110,
     "fov4D": 110,
     "geodesic": {
@@ -116,15 +118,18 @@
     },
     "steps": 720,
     "texture": {
-        "code": "// --- TEXTURE SCRIPT: OLOGRAFIA REATTIVA ---\n// Usa questo script nel dock Texture per un oggetto implicito\n\n// 1. Usiamo lo slider 'A' per controllare la densità della griglia (es. range 0-5)\nfloat gridDensity = 25.0;   // how many grid cells \n\n// 2. Creiamo una griglia basata sulle coordinate UV della superficie\n// fract() crea il pattern ripetuto, sottraiamo 0.5 per centrare la cella\nvec2 grid = fract(uv * gridDensity) - 0.5; \n\n// 3. Calcoliamo la distanza dai bordi per disegnare le linee\nfloat lineDist = min(abs(grid.x), abs(grid.y));\n\n// 4. Spessore della linea\nfloat thickness = 0.05 + 0.03;\n\n// 5. Creiamo un effetto \"Glow\" (bagliore) morbido ai bordi della linea\nfloat glow = smoothstep(thickness + 0.05, thickness, lineDist);\n\n// 6. Assegnazione dei colori usando le variabili iniettate dal tuo engine\n// Il fondo usa il colore secondario (u_col2), le linee il primario (u_col1) \"sparato\"\nvec3 baseColor = u_col2;                  // Spazio vuoto della griglia (Colore 2)\nvec3 neonColor = u_col1 * 1.5;           // Il colore UI, reso più luminoso\n\n// 7. Mixiamo i colori in base al calcolo del glow\nvec3 finalColor = mix(baseColor, neonColor, glow);\n\nreturn finalColor;",
+        "code": "// --- TEXTURE SCRIPT: OLOGRAFIA REATTIVA ---\n// Usa questo script nel dock Texture per un oggetto implicito\n\n// 1. DENSITY comes from the F slider (Constants dock): raise F for a finer\n// grid, lower it for a coarser one. max() keeps the grid from collapsing\n// if F is left at 0.\nfloat gridDensity = 25.0 * max(F, 0.05);   // slider F\n\n// 2. Creiamo una griglia basata sulle coordinate UV della superficie\n// fract() crea il pattern ripetuto, sottraiamo 0.5 per centrare la cella\nvec2 grid = fract(uv * gridDensity) - 0.5; \n\n// 3. Calcoliamo la distanza dai bordi per disegnare le linee\nfloat lineDist = min(abs(grid.x), abs(grid.y));\n\n// 4. Spessore della linea\nfloat thickness = 0.05 + 0.03;\n\n// 5. Creiamo un effetto \"Glow\" (bagliore) morbido ai bordi della linea\nfloat glow = smoothstep(thickness + 0.05, thickness, lineDist);\n\n// 6. Assegnazione dei colori usando le variabili iniettate dal tuo engine\n// Il fondo usa il colore secondario (u_col2), le linee il primario (u_col1) \"sparato\"\nvec3 baseColor = u_col2;                  // Spazio vuoto della griglia (Colore 2)\nvec3 neonColor = u_col1 * 1.5;           // Il colore UI, reso più luminoso\n\n// 7. Mixiamo i colori in base al calcolo del glow\nvec3 finalColor = mix(baseColor, neonColor, glow);\n\nreturn finalColor;",
         "col1": "#c8cc76",
         "col2": "#000000",
         "enabled": true,
+        "libName": "Static Holography",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
         "zoom": 1
     },
+    "textureHintSeconds": 6,
+    "textureHintText": "Sliders\nF: density of the grid (1 = default, higher = finer)",
     "type": "motion",
     "use4DLighting": false,
     "wireframe": {

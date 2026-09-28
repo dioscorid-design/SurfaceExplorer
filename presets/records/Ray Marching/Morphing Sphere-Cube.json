@@ -11,6 +11,7 @@
         "col2": "#000000",
         "color": "#4d4d4d",
         "enabled": true,
+        "libName": "Venus Canopy Light",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -108,6 +109,7 @@
     "projectionMode": 1,
     "renderMode": 10,
     "scriptCode": "// --- MORPHING SFERA <-> CUBO (Modalità Implicit) ---\n// Usa lo slider A per ingrandire o rimpicciolire la figura\n\nfloat size = A > 0.0 ? A : 0.8;\n\n// Calcolo distanza per la Sfera\nfloat dSphere = length(p) - size;\n\n// Calcolo distanza per il Cubo (Box esatto)\nvec3 d = abs(p) - vec3(size);\nfloat dBox = length(max(d, 0.0)) + min(max(d.x, max(d.y, d.z)), 0.0);\n\n// Usiamo il tempo 't' per creare un fattore di interpolazione (da 0 a 1)\n// sin(t) va da -1 a 1, quindi lo rimappiamo\nfloat morphFactor = 0.5 + 0.5 * sin(t * 2.0);\n\n// Mixiamo le due forme!\nreturn mix(dSphere, dBox, morphFactor);\n\n",
+    "soundLibName": "Waves",
     "speeds": {
         "nutation": 0.10000000149011612,
         "omega": 0,
@@ -125,6 +127,7 @@
         "col2": "#000000",
         "displacement": "// Compute a 3D relief\nfloat rilievo = sin(pModel.x * 20.0*F) * sin(pModel.y * 20.0*F) * sin(pModel.z * 20.0*F);\n\n// Subtract it from the surface (expanding it and creating the bumps)\nd_surf -= rilievo * 0.05;",
         "enabled": true,
+        "libName": "Fluid Iridescence",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

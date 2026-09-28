@@ -10,6 +10,7 @@
         "col2": "#000000",
         "color": "#4d4d4d",
         "enabled": true,
+        "libName": "Warped Clouds",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -102,6 +103,7 @@
     "projectionMode": 0,
     "renderMode": 1,
     "showBorder": false,
+    "soundLibName": "Neptune Racing",
     "speeds": {
         "nutation": 0.20000000298023224,
         "omega": 0.20000000298023224,
@@ -118,6 +120,7 @@
         "col1": "#33cc33",
         "col2": "#000000",
         "enabled": true,
+        "libName": "Julia",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

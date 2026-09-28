@@ -10,6 +10,7 @@
         "col2": "#ffff00",
         "color": "#4d4d4d",
         "enabled": true,
+        "libName": "Plasma",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -101,6 +102,7 @@
     "projectionMode": 1,
     "renderMode": 11,
     "showBorder": false,
+    "soundLibName": "3322__jovica__dronetail-52",
     "speeds": {
         "nutation": 0.30000001192092896,
         "omega": 0,
@@ -118,6 +120,7 @@
         "col2": "#000000",
         "displacement": "",
         "enabled": true,
+        "libName": "Spreading Waves",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

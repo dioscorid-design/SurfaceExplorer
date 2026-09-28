@@ -11,6 +11,7 @@
         "col2": "#000000",
         "color": "#4d4d4d",
         "enabled": true,
+        "libName": "2k_makemake_fictional",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -106,6 +107,7 @@
     "pathMode3D": 0,
     "projectionMode": 0,
     "renderMode": 0,
+    "soundLibName": "Red Cells",
     "speeds": {
         "nutation": 0,
         "omega": 0,
@@ -122,6 +124,7 @@
         "col1": "#33cc33",
         "col2": "#000000",
         "enabled": true,
+        "libName": "Squished Coordinates",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

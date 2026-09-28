@@ -10,6 +10,7 @@
         "col2": "#ffff00",
         "color": "#4d4d4d",
         "enabled": true,
+        "libName": "Plasma",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -102,6 +103,7 @@
     "projectionMode": 1,
     "renderMode": 0,
     "showBorder": true,
+    "soundLibName": "Waves",
     "speeds": {
         "nutation": 0.10000000149011612,
         "omega": 0.10000000149011612,
@@ -118,6 +120,7 @@
         "col1": "#33cc33",
         "col2": "#000000",
         "enabled": true,
+        "libName": "Noise",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

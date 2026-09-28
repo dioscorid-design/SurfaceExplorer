@@ -14,7 +14,8 @@
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
-        "zoom": 1
+        "zoom": 1,
+        "libName": "Shifting Rainbow"
     },
     "camera3D": {
         "pitch": 43.8997917175293,
@@ -123,7 +124,8 @@
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
-        "zoom": 1
+        "zoom": 1,
+        "libName": "2k_mercury"
     },
     "type": "motion",
     "use4DLighting": false,

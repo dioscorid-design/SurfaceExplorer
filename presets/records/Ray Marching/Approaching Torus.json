@@ -11,6 +11,7 @@
         "col2": "#000000",
         "color": "#ffa1e6",
         "enabled": true,
+        "libName": "Warped Clouds",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -108,6 +109,7 @@
     "projectionMode": 1,
     "renderMode": 11,
     "scriptCode": "// --- SUPERFICIE DI GENERE 2 (Buchi allargati) ---\n// Utilizza la fusione morbida (smooth min) di due tori.\n\n// 1. Parametri collegati ai tuoi slider (A, B, C)\nfloat rMain = A > 0.0 ? A : 0.8;        // Raggio principale dell'anello\n// HO MODIFICATO I DEFAULT QUI SOTTO:\nfloat rTube = B > 0.0 ? B : 0.12;       // Spessore del tubo ridotto (prima era 0.25)\nfloat smoothFactor = C > 0.0 ? C : 0.2; // Fusione meno invasiva (prima era 0.4)\n\n// 2. Animazione automatica collegata al tempo 't'\n// Fa \"respirare\" la distanza tra i due buchi nel tempo\nfloat offset = 0.8 + 0.2 * sin(t * 2.0); \n\n// 3. Calcola le coordinate dei due tori traslati lungo l'asse X\nvec3 p1 = p - vec3(-offset, 3.0*sin(t), 0.0);\nvec3 p2 = p - vec3(offset, 0.0, 0.0);\n\n// 4. SDF (Signed Distance Function) esatti per i due tori\nfloat d1 = length(vec2(length(p1.xy) - rMain, p1.z)) - rTube;\nfloat d2 = length(vec2(length(p2.xy) - rMain, p2.z)) - rTube;\n\n// 5. Smooth Minimum: la magia che fonde le due figure come gocce d'acqua\nfloat h = clamp(0.5 + 0.5 * (d2 - d1) / smoothFactor, 0.0, 1.0);\nfloat finalDistance = mix(d2, d1, h) - smoothFactor * h * (1.0 - h);\n\nreturn finalDistance;",
+    "soundLibName": "Everithing's A Caustic",
     "speeds": {
         "nutation": 0.30000001192092896,
         "omega": 0,
@@ -125,6 +127,7 @@
         "col2": "#000000",
         "displacement": "",
         "enabled": true,
+        "libName": "Normal Iridescence",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

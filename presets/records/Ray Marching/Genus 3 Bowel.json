@@ -125,6 +125,7 @@
         "col2": "#000000",
         "displacement": "// Compute a 3D relief\nfloat rilievo = sin(pModel.x * 20.0*F) * sin(pModel.y * 20.0*F) * sin(pModel.z * 20.0*F);\n\n// Subtract it from the surface (expanding it and creating the bumps)\nd_surf -= rilievo * 0.05;",
         "enabled": true,
+        "libName": "Fluid Iridescence",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

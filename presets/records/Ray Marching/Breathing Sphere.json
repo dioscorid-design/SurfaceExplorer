@@ -1,19 +1,22 @@
 {
+    "activeMotion": "none",
     "angles": {
         "omega": 0,
         "phi": 0,
         "psi": 0
     },
     "background": {
-        "code": "#define PI 3.14159265\n\nvec3 palette(in float t) {\n    vec3 a = vec3(0.5, 0.5, 0.5);\n    vec3 b = vec3(0.5, 0.5, 0.5);\n    vec3 c = vec3(1.0, 1.0, 1.0);\n    vec3 d = vec3(0.1, 0.4, 0.5);\n    return a + b * cos(2.0 * PI * (c * t + d));\n}\n\nvec4 wave(vec2 uv, vec4 color, float amp, float freq, float phase, float thick, vec3 hue) {\n    float x = uv.x - phase;\n    float y = uv.y + amp * sin(freq * x);\n    float bright = smoothstep(0.0, 1.0, 1.0 - abs(y) / thick);\n    return vec4(vec3(bright) * hue, 1.0);\n}\n\nvoid mainImage(out vec4 color, in vec2 coord) {\n    vec2 uv = (2.0 * coord - iResolution.xy) / iResolution.y;\n\n    color = vec4(0.0, 0.0, 0.0, 1.0);\n\n    for (float layer = 0.0; layer < 1.0; layer += 0.1) {\n        float amp = 0.25 + 0.25 * sin(iTime + layer) * (1.0 - layer);\n        float freq = 2.0;\n        float phase = iTime * (1.0 - layer);\n        float thick = 0.01 + 0.001 * pow(abs(uv.x), 8.0);\n        vec3 hue = palette(0.5 * uv.x + 1.0 * layer - 0.5 * iTime);\n        color += wave(uv, color, amp, freq, phase, thick, hue);\n    }\n}",
-        "col1": "#33cc33",
+        "code": "// --- PARAMETRI ---\nfloat scale = 50.0; // Densità degli anelli (più alto = più cerchi)\nvec2 center = vec2(0.5, 0.5); // Centro dei cerchi (0.5, 0.5 è il centro della texture)\n\n// --- LOGICA ---\n// 1. Calcola la distanza del pixel corrente (u, v) dal centro\nfloat dist = distance(vec2(u, v), center);\n\n// 2. Crea l'onda sinusoidale basata sulla distanza\n// Moltiplichiamo per 'scale' per aumentare la frequenza\nfloat val = sin(dist * scale);\n\n// 3. Mappiamo il risultato da -1..1 a 0..1 per il mix\nfloat tit = (val + 1.0) * 0.5;\n\n// 4. Mix finale\nreturn mix(u_col1, u_col2, tit);",
+        "col1": "#ac4b33",
         "col2": "#000000",
         "color": "#4d4d4d",
         "enabled": true,
+        "libName": "Rings",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
-        "zoom": 1
+        "skyMode": "sphere",
+        "zoom": 1.5208755731582642
     },
     "camera3D": {
         "pitch": 0,
@@ -27,9 +30,9 @@
         "yaw": 0,
         "z": 4
     },
+    "cameraFov": 45,
     "colors": {
         "alpha": 1,
-        "bordColor": "#33cc33",
         "surfColor": "#33cc33"
     },
     "constants": {
@@ -41,6 +44,7 @@
         "F": 1,
         "S": 0.4000000059604645
     },
+    "crossSectionEquation": "",
     "equations": {
         "defU": "",
         "defV": "",
@@ -53,6 +57,9 @@
         "y": "",
         "z": ""
     },
+    "fillLight": 0,
+    "fov3D": 45,
+    "fov4D": 45,
     "geodesic": {
         "conform": "1.0",
         "du": "",
@@ -62,7 +69,11 @@
         "v0": "",
         "w0": ""
     },
+    "hintSeconds": 6,
+    "hintText": "Sliders\nA: radius of the sphere\nB: depth of the pulse",
+    "hybridMarcher": false,
     "implicitEquation": "// Controlled by Script",
+    "implicitUsesCrossSection": false,
     "isImplicitMode": true,
     "lightIntensity": 1,
     "lightingMode": 0,
@@ -80,6 +91,7 @@
         "zMax": 1000,
         "zMin": -1000
     },
+    "meshScopeAll": true,
     "name": "Breathing Sphere",
     "observer4D": 4,
     "path3D": {
@@ -98,10 +110,11 @@
         "z": ""
     },
     "pathMode": 0,
+    "pathMode3D": 0,
     "projectionMode": 1,
     "renderMode": 10,
     "scriptCode": "A := 1.2;\nB := 0.15;\nreturn length(p) - (A + B * sin(3.0 * t));\n",
-    "showBorder": false,
+    "shellThickness": 0.004999999888241291,
     "speeds": {
         "nutation": 0,
         "omega": 0,
@@ -119,6 +132,7 @@
         "col2": "#7200a5",
         "displacement": "",
         "enabled": true,
+        "libName": "Spreading Waves",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -126,6 +140,8 @@
     },
     "type": "motion",
     "use4DLighting": false,
-    "hintText": "Sliders\nA: radius of the sphere\nB: depth of the pulse",
-    "hintSeconds": 6
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
 }

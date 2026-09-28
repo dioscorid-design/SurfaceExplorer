@@ -10,6 +10,7 @@
         "col2": "#000000",
         "color": "#4d4d4d",
         "enabled": true,
+        "libName": "Rising Smoke",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -92,6 +93,7 @@
     "projectionMode": 1,
     "renderMode": 0,
     "showBorder": false,
+    "soundLibName": "321723__rhodesmas__deep-space-vibrations-ambience-loop",
     "speeds": {
         "nutation": 0,
         "omega": 0,
@@ -109,6 +111,7 @@
         "col2": "#000000",
         "displacement": "",
         "enabled": true,
+        "libName": "Normal Iridescence",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

@@ -10,6 +10,7 @@
         "col2": "#000000",
         "color": "#c7cece",
         "enabled": true,
+        "libName": "8",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -35,7 +36,7 @@
     "constants": {
         "A": 0.23000000417232513,
         "B": 4.159999847412109,
-        "C": 1,
+        "C": 2.5299999713897705,
         "D": 2.5299999713897705,
         "E": 1,
         "F": 0,
@@ -51,7 +52,7 @@
         "p": "W",
         "x": "A * V * cos(U)",
         "y": "A * V * sin(U)",
-        "z": "A * sin(V*B - t*D) / (V*V*0.1 + 1.0)"
+        "z": "A * sin(V*B - t*C) / (V*V*0.1 + 1.0)"
     },
     "geodesic": {
         "conform": "1.0",
@@ -63,7 +64,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders\nA: size\nB: how many ripples\nD: speed at which they travel",
+    "hintText": "Sliders\nA: size\nB: how many ripples\nC: speed at which they travel",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
@@ -102,6 +103,7 @@
     "projectionMode": 1,
     "renderMode": 0,
     "showBorder": false,
+    "soundLibName": "Xyptonjtroz 4ts3z2",
     "speeds": {
         "nutation": 0,
         "omega": 0,
@@ -118,6 +120,7 @@
         "col1": "#33cc33",
         "col2": "#000000",
         "enabled": true,
+        "libName": "14",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

@@ -123,6 +123,7 @@
         "col1": "#33cc33",
         "col2": "#000000",
         "enabled": true,
+        "libName": "2k_venus_surface",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

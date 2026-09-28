@@ -10,6 +10,7 @@
         "col2": "#000000",
         "color": "#4d4d4d",
         "enabled": true,
+        "libName": "Warped Clouds",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -34,17 +35,17 @@
     },
     "constants": {
         "A": 0.5,
-        "B": 4.940000057220459,
-        "C": 3.0999999046325684,
+        "B": 3.0999999046325684,
+        "C": 4.480000019073486,
         "D": 4.480000019073486,
         "E": 0,
         "F": 0,
         "S": 0
     },
     "equations": {
-        "defU": "C*cos(t)+u*cos(v)",
-        "defV": "C*sin(t)+u*sin(v)",
-        "defW": "D*cos(t)+A*v",
+        "defU": "B*cos(t)+u*cos(v)",
+        "defV": "B*sin(t)+u*sin(v)",
+        "defW": "C*cos(t)+A*v",
         "explicitU": "",
         "explicitV": "",
         "explicitW": "",
@@ -54,7 +55,7 @@
         "z": "W * tanh(sqrt(U^2+V^2+W^2)/2) / (sqrt(U^2+V^2+W^2) + 0.00001)"
     },
     "hintSeconds": 6,
-    "hintText": "Sliders\nA: pitch\nC and D: travel through the ball",
+    "hintText": "Sliders\nA: pitch\nB and C: travel through the ball",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {
@@ -86,6 +87,7 @@
     "projectionMode": 1,
     "renderMode": 1,
     "showBorder": false,
+    "soundLibName": "Labyrinthus Sub Terra",
     "speeds": {
         "nutation": 0,
         "omega": 0,
@@ -102,6 +104,7 @@
         "col1": "#33cc33",
         "col2": "#000000",
         "enabled": true,
+        "libName": "Soft Clouds",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

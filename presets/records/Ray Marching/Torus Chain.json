@@ -131,6 +131,7 @@
         "col2": "#000000",
         "displacement": "",
         "enabled": true,
+        "libName": "Holographic Scan",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

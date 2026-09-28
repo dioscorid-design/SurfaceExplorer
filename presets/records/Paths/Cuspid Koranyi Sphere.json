@@ -6,26 +6,28 @@
         "psi": 0.10000000149011612
     },
     "background": {
-        "code": "//IMG:/Users/dioscorid/Projects/C/presets/textures/Images/Solar System/2k_mars.jpg",
+        "code": "//IMG:/Users/dioscorid/Projects/C/presets/textures/Images/Solar System/2k_makemake_fictional.jpg",
         "col1": "#33cc33",
         "col2": "#000000",
         "color": "#4d4d4d",
         "enabled": true,
+        "libName": "2k_makemake_fictional",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
-        "zoom": 1.149999976158142
+        "skyMode": "fixed",
+        "zoom": 1
     },
     "camera3D": {
-        "pitch": -59.40926742553711,
+        "pitch": 76.18878936767578,
         "roll": 0,
         "rot_w": 0.7005811333656311,
         "rot_x": 0.41293537616729736,
         "rot_y": 0.4115019142627716,
         "rot_z": 0.4115052819252014,
-        "x": 0.5089021921157837,
-        "y": 0.8608243465423584,
-        "yaw": -90,
+        "x": -0.23872357606887817,
+        "y": -0.9710875749588013,
+        "yaw": 90,
         "z": 0
     },
     "cameraFov": 45,
@@ -54,6 +56,7 @@
         "y": "A * pow(max(cos(v), 0.0), B) * sin(u)",
         "z": "(A*A/4.0) * sin(v)"
     },
+    "fillLight": 0,
     "fov3D": 45,
     "fov4D": 45,
     "geodesic": {
@@ -122,6 +125,7 @@
         "col1": "#33cc33",
         "col2": "#000000",
         "enabled": true,
+        "libName": "2k_mercury",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

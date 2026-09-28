@@ -106,6 +106,7 @@
     "pathMode3D": 0,
     "projectionMode": 2,
     "renderMode": 1,
+    "soundLibName": "321723__rhodesmas__deep-space-vibrations-ambience-loop",
     "speeds": {
         "nutation": 0,
         "omega": 0,
@@ -122,6 +123,7 @@
         "col1": "#f4ee25",
         "col2": "#000000",
         "enabled": true,
+        "libName": "Xor",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

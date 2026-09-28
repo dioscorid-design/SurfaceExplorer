@@ -106,6 +106,7 @@
     "pathMode3D": 1,
     "projectionMode": 2,
     "renderMode": 1,
+    "soundLibName": "Trailing the Twinkling Tunnel",
     "speeds": {
         "nutation": 0,
         "omega": 0,
@@ -122,6 +123,7 @@
         "col1": "#f2e4d8",
         "col2": "#8a4a32",
         "enabled": true,
+        "libName": "Porous Bone",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

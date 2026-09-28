@@ -11,6 +11,7 @@
         "col2": "#000000",
         "color": "#4d4d4d",
         "enabled": true,
+        "libName": "Soft Clouds",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -36,7 +37,7 @@
     "constants": {
         "A": 1.5,
         "B": 1,
-        "C": 1,
+        "C": 1.5,
         "D": 1,
         "E": 1.5,
         "F": 1,
@@ -50,8 +51,8 @@
         "explicitV": "",
         "explicitW": "",
         "p": "0",
-        "x": "U * exp(W * E * sin(t * C))",
-        "y": "V * exp(-W * E * sin(t * C))",
+        "x": "U * exp(W * C * sin(t * B))",
+        "y": "V * exp(-W * C * sin(t * B))",
         "z": "W"
     },
     "fov3D": 45,
@@ -66,7 +67,7 @@
         "w0": ""
     },
     "hintSeconds": 7,
-    "hintText": "Sliders\nA: size of the sphere\nE: how far the Sol deformation goes\nC: speed of the cycle",
+    "hintText": "Sliders\nA: size of the sphere\nC: how far the Sol deformation goes\nB: speed of the cycle",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
@@ -106,6 +107,7 @@
     "pathMode3D": 0,
     "projectionMode": 1,
     "renderMode": 0,
+    "soundLibName": "Neptune Racing",
     "speeds": {
         "nutation": 0,
         "omega": 0,
@@ -122,6 +124,7 @@
         "col1": "#ff0000",
         "col2": "#ffff00",
         "enabled": true,
+        "libName": "Plasma",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

@@ -16,7 +16,9 @@
         "yaw": 0,
         "z": 5.199999809265137
     },
+    "cameraFov": 45,
     "colors": {
+        "alpha": 1,
         "b": 0.20000000298023224,
         "g": 0.800000011920929,
         "r": 0.20000000298023224
@@ -30,6 +32,7 @@
         "F": 1,
         "S": 0.4000000059604645
     },
+    "crossSectionEquation": "0.01*(((x*x+y*y+z*z+p*p+A*A+B*B-C*C)^2 + 4*(A*A-B*B)*(x*x+y*y) - 4*B*B*(z*z+A*A))^2 - 16*A*A*(x*x+y*y)*(x*x+y*y+z*z+p*p+A*A-B*B-C*C)^2) = 0.0",
     "equations": {
         "defU": "",
         "defV": "",
@@ -42,6 +45,8 @@
         "y": "(0.8 + 0.3*cos(v))*sin(u)",
         "z": "0.3*sin(v)"
     },
+    "fov3D": 45,
+    "fov4D": 45,
     "geodesic": {
         "conform": "1.0",
         "du": "",
@@ -51,7 +56,10 @@
         "v0": "",
         "w0": ""
     },
+    "hintSeconds": 6,
+    "hintText": "Slider A: step scale of the marcher (shape unchanged)",
     "implicitEquation": "A*(x^2 + y^2 + z^3 - z^2) = 0",
+    "implicitUsesCrossSection": false,
     "isImplicitMode": true,
     "lightIntensity": 1,
     "lightingMode": 0,
@@ -69,13 +77,16 @@
         "zMax": 1.5,
         "zMin": -1
     },
+    "meshScopeAll": true,
     "name": "Ding Dong",
     "projectionMode": 1,
     "renderMode": 10,
-    "showBorder": false,
+    "shellThickness": 0.1076894998550415,
     "steps": 400,
     "type": "surface",
     "use4DLighting": false,
-    "hintText": "Slider A: step scale of the marcher (shape unchanged)",
-    "hintSeconds": 6
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
 }

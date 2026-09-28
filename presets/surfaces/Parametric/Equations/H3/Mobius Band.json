@@ -23,7 +23,7 @@
     },
     "constants": {
         "A": 4.369999885559082,
-        "B": 4.940000057220459,
+        "B": 1.7200000286102295,
         "C": 1.7200000286102295,
         "D": 4.480000019073486,
         "E": 0,
@@ -31,7 +31,7 @@
         "S": 0
     },
     "equations": {
-        "defU": "C+(A + u * cos(v/2)) * cos(v)",
+        "defU": "B+(A + u * cos(v/2)) * cos(v)",
         "defV": "(A + u * cos(v/2)) * sin(v)",
         "defW": "u * sin(v/2)",
         "explicitU": "",
@@ -43,7 +43,7 @@
         "z": "W * tanh(sqrt(U^2+V^2+W^2)/2) / (sqrt(U^2+V^2+W^2) + 0.00001)"
     },
     "hintSeconds": 6,
-    "hintText": "Sliders\nA: radius of the band\nC: distance from centre",
+    "hintText": "Sliders\nA: radius of the band\nB: distance from centre",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {

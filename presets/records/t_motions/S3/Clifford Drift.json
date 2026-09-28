@@ -10,6 +10,7 @@
         "col2": "#000000",
         "color": "#4d4d4d",
         "enabled": true,
+        "libName": "Winds of Venus",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -35,16 +36,16 @@
     "constants": {
         "A": 2,
         "B": 2,
-        "C": 0.7799999713897705,
-        "D": 1.5,
+        "C": 1.5,
+        "D": 1,
         "E": 1,
         "F": 1,
         "S": 0
     },
     "equations": {
-        "defU": "u + t*D",
+        "defU": "u + t*C",
         "defV": "v",
-        "defW": "u+t*E",
+        "defW": "u+t*D",
         "explicitU": "",
         "explicitV": "",
         "explicitW": "",
@@ -54,7 +55,7 @@
         "z": "B * cos(W) * cos(V)"
     },
     "hintSeconds": 8,
-    "hintText": "Sliders\nA and B: the radii of the two circles the torus is built from\nD and E: the two drift speeds",
+    "hintText": "Sliders\nA and B: the radii of the two circles the torus is built from\nC and D: the two drift speeds",
     "lightIntensity": 1,
     "lightingMode": 0,
     "limits": {
@@ -86,6 +87,7 @@
     "projectionMode": 1,
     "renderMode": 0,
     "showBorder": false,
+    "soundLibName": "Cross-Galactic Ocean",
     "speeds": {
         "nutation": 0.20000000298023224,
         "omega": 0.20000000298023224,
@@ -102,6 +104,7 @@
         "col1": "#1c3664",
         "col2": "#e28d57",
         "enabled": true,
+        "libName": "Squished Coordinates",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 180,

@@ -11,6 +11,7 @@
         "col2": "#504ab3",
         "color": "#383b41",
         "enabled": true,
+        "libName": "Porous Bone",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -106,6 +107,7 @@
     "pathMode3D": 0,
     "projectionMode": 0,
     "renderMode": 1,
+    "soundLibName": "The Sanctuary",
     "speeds": {
         "nutation": 0,
         "omega": 0.20000000298023224,
@@ -122,6 +124,7 @@
         "col1": "#1c3664",
         "col2": "#e28d57",
         "enabled": true,
+        "libName": "Squished Coordinates",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 180,

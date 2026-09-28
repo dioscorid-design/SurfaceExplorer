@@ -10,6 +10,7 @@
         "col2": "#000000",
         "color": "#4d4d4d",
         "enabled": true,
+        "libName": "Noise",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -102,6 +103,7 @@
     "projectionMode": 1,
     "renderMode": 0,
     "showBorder": true,
+    "soundLibName": "The Sanctuary",
     "speeds": {
         "nutation": 0,
         "omega": 0,
@@ -118,6 +120,7 @@
         "col1": "#33cc33",
         "col2": "#000000",
         "enabled": true,
+        "libName": "Barber Stripe",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

@@ -10,6 +10,7 @@
         "col2": "#000000",
         "color": "#4d4d4d",
         "enabled": true,
+        "libName": "4",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -86,6 +87,7 @@
     "projectionMode": 1,
     "renderMode": 1,
     "showBorder": false,
+    "soundLibName": "723963__badwolf23__spatial-audio-4",
     "speeds": {
         "nutation": 0,
         "omega": 0.30000001192092896,
@@ -102,6 +104,7 @@
         "col1": "#33cc33",
         "col2": "#000000",
         "enabled": true,
+        "libName": "Rows",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

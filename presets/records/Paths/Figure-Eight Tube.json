@@ -121,6 +121,7 @@
         "col1": "#00a28b",
         "col2": "#000000",
         "enabled": true,
+        "libName": "Xor",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

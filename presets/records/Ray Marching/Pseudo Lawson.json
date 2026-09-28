@@ -13,7 +13,8 @@
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
-        "zoom": 1
+        "zoom": 1,
+        "libName": "Plasma"
     },
     "camera3D": {
         "pitch": 0,
@@ -110,6 +111,7 @@
         "col2": "#000000",
         "displacement": "",
         "enabled": true,
+        "libName": "Hello World",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -118,5 +120,6 @@
     "type": "motion",
     "use4DLighting": false,
     "hintText": "Sliders\nA: ring radius\nB: tube radius\nC: how softly they merge",
-    "hintSeconds": 6
+    "hintSeconds": 6,
+    "soundLibName": "Everithing's A Caustic"
 }

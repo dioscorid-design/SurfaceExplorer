@@ -11,6 +11,7 @@
         "col2": "#000000",
         "color": "#4d4d4d",
         "enabled": true,
+        "libName": "Disco Sun Vortex",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -43,7 +44,7 @@
         "S": 0
     },
     "equations": {
-        "defU": "u +D*t\n",
+        "defU": "u +B*t\n",
         "defV": "u",
         "defW": "v ",
         "explicitU": "",
@@ -66,7 +67,7 @@
         "w0": ""
     },
     "hintSeconds": 6,
-    "hintText": "Sliders\nA: size\nD: speed of the spin",
+    "hintText": "Sliders\nA: size\nB: speed of the spin",
     "isImplicitMode": false,
     "lightIntensity": 1,
     "lightingMode": 0,
@@ -106,6 +107,7 @@
     "pathMode3D": 0,
     "projectionMode": 0,
     "renderMode": 0,
+    "soundLibName": "Alien Thorns",
     "speeds": {
         "nutation": 0,
         "omega": 0.20000000298023224,
@@ -122,6 +124,7 @@
         "col1": "#33cc33",
         "col2": "#000000",
         "enabled": true,
+        "libName": "Reactive Holography",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

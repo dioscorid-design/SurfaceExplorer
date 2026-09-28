@@ -13,7 +13,8 @@
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
-        "zoom": 1
+        "zoom": 1,
+        "libName": "Cyclic noise 2D"
     },
     "camera3D": {
         "pitch": 0,
@@ -117,6 +118,7 @@
         "col1": "#376135",
         "col2": "#192c18",
         "enabled": true,
+        "libName": "Ergosphere Band",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -127,5 +129,6 @@
     "hintText": "Sliders\nA: mass of the black hole\nB: its maximum spin\nC: speed of the spin cycle",
     "hintSeconds": 6,
     "textureHintText": "Sliders\nA and B drive both the shape and its texture (mass and spin)",
-    "textureHintSeconds": 6
+    "textureHintSeconds": 6,
+    "soundLibName": "Red Cells"
 }

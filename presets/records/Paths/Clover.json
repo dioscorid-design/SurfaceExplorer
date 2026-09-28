@@ -123,6 +123,7 @@
         "col1": "#f5cc33",
         "col2": "#0000cf",
         "enabled": true,
+        "libName": "Barber Stripe",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

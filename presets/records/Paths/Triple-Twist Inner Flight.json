@@ -122,6 +122,7 @@
         "col1": "#fd784a",
         "col2": "#000000",
         "enabled": true,
+        "libName": "Plasma",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

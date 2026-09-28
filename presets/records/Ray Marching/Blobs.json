@@ -14,7 +14,8 @@
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
-        "zoom": 1
+        "zoom": 1,
+        "libName": "Cyclic noise 2D"
     },
     "camera3D": {
         "pitch": 7.526821613311768,
@@ -122,6 +123,7 @@
         "col2": "#3c4597",
         "displacement": "",
         "enabled": true,
+        "libName": "Spectral Cyclic Noise",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,

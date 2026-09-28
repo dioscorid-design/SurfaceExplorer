@@ -11,6 +11,7 @@
         "col2": "#000000",
         "color": "#4d4d4d",
         "enabled": true,
+        "libName": "8",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
@@ -105,6 +106,7 @@
     "pathMode3D": 1,
     "projectionMode": 1,
     "renderMode": 11,
+    "soundLibName": "Everithing's A Caustic",
     "speeds": {
         "nutation": 0,
         "omega": 0,

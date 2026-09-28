@@ -119,6 +119,7 @@
         "col2": "#10203f",
         "displacement": "",
         "enabled": true,
+        "libName": "Veined Cyclic Noise",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
