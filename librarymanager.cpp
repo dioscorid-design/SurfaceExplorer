@@ -562,6 +562,7 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
                 // questa feature restano identici.
                 if (o.contains("texCode")) {
                     mp.textureCode = o["texCode"].toString();
+                    mp.textureLibName = o["texLibName"].toString().trimmed();
                     mp.textureEnabled = o["texOn"].toBool(true);
                     mp.hasCustomTexture = true;
                 }
@@ -888,6 +889,7 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
                 // questa feature restano identici.
                 if (o.contains("texCode")) {
                     mp.textureCode = o["texCode"].toString();
+                    mp.textureLibName = o["texLibName"].toString().trimmed();
                     mp.textureEnabled = o["texOn"].toBool(true);
                     mp.hasCustomTexture = true;
                 }

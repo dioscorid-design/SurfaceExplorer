@@ -126,6 +126,12 @@ struct MeshPart {
     // GLWidget::createFragmentShaderSource). Percio' le texture per-mesh non
     // costano ne' binding ne' pipeline in piu': solo codice nello stesso shader.
     QString textureCode;
+    // NOME della voce di libreria da cui la texture della parte VIENE: l'ancora
+    // del focus nel dock Library, gemella di m_currentTextureLibName per la
+    // texture globale. Senza, una fascia si agganciava solo per CODICE e il
+    // primo ritocco della voce in libreria (es. uno slider aggiunto) le faceva
+    // perdere il focus. Vuoto = nessuna voce nota: ricerca per solo codice.
+    QString textureLibName;
     // Acceso/spento PROPRIO della parte. Come per renderMode, il solo valore non
     // basta a esprimere "eredita": una parte puo' voler spegnere la texture
     // mentre il globale la tiene accesa, e "spento" non si distingue da "non
@@ -252,6 +258,7 @@ public:
             next[k].wfStepU = old.wfStepU;
             next[k].wfStepV = old.wfStepV;
             next[k].textureCode = old.textureCode;
+            next[k].textureLibName = old.textureLibName;
             next[k].textureEnabled = old.textureEnabled;
             next[k].hasCustomTexture = old.hasCustomTexture;
             next[k].texCol1R = old.texCol1R;
@@ -416,6 +423,7 @@ public:
             m_declaredParts[k].wfStepU = m_meshParts[k].wfStepU;
             m_declaredParts[k].wfStepV = m_meshParts[k].wfStepV;
             m_declaredParts[k].textureCode = m_meshParts[k].textureCode;
+            m_declaredParts[k].textureLibName = m_meshParts[k].textureLibName;
             m_declaredParts[k].textureEnabled = m_meshParts[k].textureEnabled;
             m_declaredParts[k].hasCustomTexture = m_meshParts[k].hasCustomTexture;
             m_declaredParts[k].texCol1R = m_meshParts[k].texCol1R;

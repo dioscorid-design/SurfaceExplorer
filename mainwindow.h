@@ -726,6 +726,13 @@ private:
     // reset di scena). Senza, uno sfondo il cui codice e' cambiato in libreria
     // perdeva il focus e nessun Sync poteva riallinearlo.
     QString m_currentBgTextureLibName;
+    // Ancora del SUONO: nome della voce della Library Sounds da cui viene
+    // l'audio in scena, salvato nel record come "soundLibName". Il suono vive
+    // solo come codice dentro texture.code (//MUSIC: o blocco SOUND_BEGIN),
+    // quindi un ritocco dello script in libreria (es. il volume finale) gli
+    // faceva perdere il focus. Scritta dal click in Library, letta al load,
+    // azzerata dal reset di scena e dal load di una superficie.
+    QString m_currentSoundLibName;
 
     // File del RECORD attualmente in scena. Serve a "Sync Focused Texture", che
     // deve agire solo quando il click destro cade sul record caricato: la
@@ -1213,9 +1220,9 @@ private:
                                        const QString &cleanedActiveCode);
 
     // Scansione dell'albero texture e selezione della voce corrispondente.
-    // Unica sede. libName: l'ancora della texture cercata (superficie o sfondo),
-    // che vince sul codice; VUOTO per una fascia, e allora si cerca per solo
-    // codice. Vedi il commento sulla definizione.
+    // Unica sede. libName: l'ancora della texture cercata (superficie, sfondo o
+    // fascia), che vince sul codice; VUOTO se non nota, e allora si cerca per
+    // solo codice. Vedi il commento sulla definizione.
     void selectTextureTreeItemFor(QTreeWidgetItemIterator &itTex,
                                   const QString &activeCode,
                                   const QString &cleanedActive,
@@ -1230,12 +1237,17 @@ public:
     bool syncFocusedTextureFromLibrary();
     bool syncSurfaceTextureFrom(const LibraryItem *lib);
     bool syncBackgroundTextureFrom(const LibraryItem *lib);
+    // Una fascia da sincronizzare: indice della parte e voce da cui viene.
+    struct MeshTextureSync { int part; const LibraryItem *lib; };
+    bool syncMeshTexturesFrom(const QVector<MeshTextureSync> &items);
     // Voce di libreria da sincronizzare, o nullptr se non c'e' nulla da fare
     // (texture non da libreria, voce sparita, codice gia' uguale): una per la
-    // superficie, una per lo sfondo. Il menu si accende se almeno una risponde,
-    // e il suo tooltip dice quale.
+    // superficie, una per lo sfondo, e una lista per le fasce (ognuna con la
+    // SUA ancora, MeshPart::textureLibName). Il menu si accende se almeno una
+    // risponde, e il suo tooltip dice quali.
     const LibraryItem *focusedTextureLibraryItem() const;
     const LibraryItem *focusedBgTextureLibraryItem() const;
+    QVector<MeshTextureSync> focusedMeshTextureLibraryItems() const;
     // Voce di libreria col nome dato: unica scansione per le due ancore.
     const LibraryItem *textureLibraryItemNamed(const QString &name) const;
     // File del record in scena: il menu confronta con quello cliccato.
@@ -1308,6 +1320,13 @@ private:
     // Codice texture di superficie GLOBALE + quello delle mesh con texture
     // propria accesa: e' cio' su cui va deciso se il clock texture deve girare.
     QString allSurfaceTextureCode() const;
+    // Codici delle texture delle FASCE, per decidere quali costanti sono in uso:
+    // tutte le parti con texture propria (accese o no, in qualunque ambito) piu'
+    // quelle del record ancora in m_pendingMeshParts. Vedi la definizione.
+    QStringList meshTextureCodesForConstants() const;
+    // Il codice GLSL usa la costante 'letter'? Maiuscola e non dichiarata come
+    // variabile locale. Unica sede della regola.
+    static bool glslUsesConstant(const QString &glsl, const QString &letter);
     // FOV UNICO (slider nel dock renderer, sotto Light). Unico punto che imposta
     // il campo visivo: allinea slider + etichetta e applica SEMPRE il valore
     // alla proiezione, senza dipendere da quale moto stia guidando la camera.

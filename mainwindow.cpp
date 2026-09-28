@@ -933,6 +933,14 @@ protected:
 #  define SE_TEXP(tag) do {} while (0)
 #endif
 
+// Definizione accanto a resolveLibraryRoot, in fondo al file: una cartella e'
+// una radice di libreria se contiene almeno uno dei quattro rami. Dichiarata
+// qui perche' la usa gia' il costruttore (dialogo di recupero della libreria).
+static bool dirIsLibraryRoot(const QDir &dir);
+// Definita accanto a dirIsLibraryRoot, in fondo al file: dice se la cartella
+// vive dentro iCloud Drive o un altro servizio di sincronizzazione.
+static bool dirIsCloudSynced(const QString &path);
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
@@ -4482,33 +4490,53 @@ MainWindow::MainWindow(QWidget *parent)
             box.setIcon(QMessageBox::Question);
             box.setWindowTitle("Library Not Accessible");
             box.setText("Your library folder can no longer be opened.");
+            // Il testo diceva "Your presets are still there — only the permission
+            // was lost": FALSO nel caso piu' comune che porta qui, la cartella
+            // spostata o cancellata. needsAuthorization non distingue le due cose
+            // (bookmark salvato + cartella irraggiungibile), quindi il messaggio
+            // deve coprirle entrambe e dire cosa succede se la libreria non c'e'
+            // piu'.
             box.setInformativeText(
                 libRoot + "\n\n"
-                "Your presets are still there — only the permission to access them "
-                "was lost (it can happen after the folder is moved or the system is "
-                "updated).\n\nDo you want to select the folder again?");
+                "It may have been moved or deleted, or the permission to open it "
+                "may have been lost after a system update.\n\n"
+                "Do you want to select your library folder? If it no longer exists, "
+                "select where to create a new one: the factory presets will be "
+                "installed in a \"presets\" folder inside it.");
             box.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
             box.setDefaultButton(QMessageBox::Yes);
             const auto answer = box.exec();
 
             if (answer == QMessageBox::Yes) {
                 const QString picked = QFileDialog::getExistingDirectory(this,
-                    "Select Your Presets Folder", QDir::homePath());
+                    "Select Your Library Folder", QDir::homePath());
                 if (!picked.isEmpty()) {
-                    // RECUPERO, NON INSTALLAZIONE: qui la libreria esiste gia' e
-                    // l'utente la sta ri-indicando perche' l'autorizzazione e'
-                    // scaduta. Si passa comunque da resolveLibraryRoot per i suoi
-                    // casi 1 e 2 (la cartella e' gia' una libreria -> si prende
-                    // com'e'; ne contiene una in "presets" -> si scende), ma NON
-                    // si deve creare un livello nuovo: appendere "/presets" a una
-                    // libreria che non viene riconosciuta -- perche' i rami sono
-                    // temporaneamente irraggiungibili, che e' esattamente la
-                    // situazione qui -- punterebbe la radice a una sottocartella
-                    // vuota e i preset resterebbero fuori dall'albero.
+                    const QString pickedClean = QDir::cleanPath(picked);
+
+                    // DUE CASI, decisi da cio' che la cartella indicata CONTIENE.
+                    // Dopo il pannello di sistema la cartella e' autorizzata, quindi
+                    // qui il contenuto si legge davvero: non c'e' il rischio di
+                    // scambiare una libreria irraggiungibile per una cartella vuota.
+                    //
+                    // RECUPERO: la cartella e' la libreria, o ne contiene una in
+                    // "presets" (casi 1 e 2 di resolveLibraryRoot) -> si riprende
+                    // quella, senza installare niente.
+                    //
+                    // NUOVA INSTALLAZIONE: nessuna libreria in vista -- la vecchia e'
+                    // stata spostata o cancellata. Prima si prendeva la cartella
+                    // COM'ERA come radice: libreria vuota, e Restore Factory Presets
+                    // (che la trovava valida) rovesciava i quattro rami direttamente
+                    // li' dentro. MISURATO il 27/9: cancellata ~/Projects/presets e
+                    // indicata ~/Projects, rami sparsi in ~/Projects. Ora si fa come
+                    // alla prima installazione: "<scelta>/presets" e preset di
+                    // fabbrica. Eccezione: se la cartella indicata si chiama gia'
+                    // "presets" si usa lei, per non creare presets/presets.
                     QString clean = resolveLibraryRoot(picked);
-                    if (clean != QDir::cleanPath(picked)
-                        && !QDir(clean).exists()) {
-                        clean = QDir::cleanPath(picked);
+                    const bool newInstall = !dirIsLibraryRoot(QDir(clean));
+                    if (newInstall
+                        && QFileInfo(pickedClean).fileName().compare(
+                               QLatin1String("presets"), Qt::CaseInsensitive) == 0) {
+                        clean = pickedClean;
                     }
 
                     QDir().mkpath(clean);
@@ -4517,7 +4545,15 @@ MainWindow::MainWindow(QWidget *parent)
                         s.setValue("libraryRootPath", clean);
                         s.sync();
                     }
+                    // Come in setupDefaultFolders: bookmark ANCHE della cartella
+                    // indicata nel pannello, da cui nasce il diritto sotto sandbox.
+                    if (clean != pickedClean) SecurityBookmark::save(pickedClean);
                     SecurityBookmark::save(clean);
+
+                    // La radice ora e' raggiungibile, quindi setupDefaultFolders
+                    // salta la domanda e fa solo il resto: crea i quattro rami,
+                    // installa i preset di fabbrica e aggiorna gli alberi.
+                    if (newInstall) setupDefaultFolders();
                 }
             }
         }
@@ -5226,6 +5262,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // -- record, texture dalla libreria -- le riscrive da se'.
     m_currentTextureLibName.clear();
     m_currentBgTextureLibName.clear();
+    m_currentSoundLibName.clear();
 
     ui->stepSlider->blockSignals(true);
 
@@ -7492,6 +7529,13 @@ QSet<QString> MainWindow::constantsNotUsedBySurface() const
                 " " + ui->lineX_P3D->text() + " " + ui->lineY_P3D->text() +
                 " " + ui->lineZ_P3D->text() + " " + ui->lineR_P3D->text();
 
+    // TEXTURE DELLE FASCE: non sono la superficie, ma le costanti che usano non
+    // vanno riportate al default quando si carica una texture GLOBALE -- le
+    // fasce continuano a disegnare, e se ne ritroverebbero una cambiata (la F
+    // della densita' di Static Holography sui labirinti di Clifford). Sono GLSL:
+    // regola case-sensitive, non il match di mathText.
+    const QStringList meshCodes = meshTextureCodesForConstants();
+
     QSet<QString> free;
     for (const QString &letter : { QStringLiteral("A"), QStringLiteral("B"),
                                    QStringLiteral("C"), QStringLiteral("D"),
@@ -7499,9 +7543,58 @@ QSet<QString> MainWindow::constantsNotUsedBySurface() const
                                    QStringLiteral("S") }) {
         QRegularExpression re("\\b" + letter + "\\b",
                               QRegularExpression::CaseInsensitiveOption);
-        if (!mathText.contains(re)) free.insert(letter);
+        if (mathText.contains(re)) continue;
+        bool byMesh = false;
+        for (const QString &c : meshCodes)
+            if (glslUsesConstant(c, letter)) { byMesh = true; break; }
+        if (!byMesh) free.insert(letter);
     }
     return free;
+}
+
+// Le texture delle FASCE contano come "uso" delle costanti, esattamente come la
+// texture globale. Prima non contavano: una costante citata SOLO da una fascia
+// finiva nel ramo !used di updateConstantsUIState, che la riporta a 1 e spegne
+// lo slider. Emerso spostando il raggio dei Clifford Labyrinth da F ad A: F
+// restava della sola Static Holography delle fasce, e all'apertura del record
+// tornava a 1 (densita' diversa da quella salvata) con lo slider bloccato.
+// TUTTE le parti con texture propria, anche spente e anche in ambito "All" (dove
+// sono sospese): tornano a disegnare con i valori di adesso, e azzerarli ora
+// vorrebbe dire ritrovarle cambiate. Al peggio uno slider resta acceso senza
+// effetto visibile, mai il contrario.
+// Anche m_pendingMeshParts: durante il load di un record le parti possono essere
+// ancora li' (applyPendingMeshAppearance non e' passata), e gli slider si
+// ricalcolano prima. Il vettore si svuota appena applicato, quindi non e' mai
+// il residuo di un record precedente.
+// Solo in parametrico: in Ray Marching le fasce non esistono.
+QStringList MainWindow::meshTextureCodesForConstants() const
+{
+    QStringList out;
+    if (ui->tabModeSelector->currentIndex() != 0) return out;
+    auto add = [&out](const MeshPart &mp) {
+        if (mp.hasCustomTexture && !mp.textureCode.trimmed().isEmpty())
+            out << stripCodeComments(mp.textureCode);
+    };
+    if (ui->glWidget && ui->glWidget->getEngine())
+        for (const MeshPart &mp : ui->glWidget->getEngine()->getMeshParts()) add(mp);
+    for (const MeshPart &mp : m_pendingMeshParts) add(mp);
+    return out;
+}
+
+// GLSL: conta solo la MAIUSCOLA (il case delle costanti iniettate), e solo se la
+// lettera non e' dichiarata come variabile dello shader, singola ("vec2 F =
+// fragCoord") o in lista ("float i = 0.0, S = 0.0"): li' e' la locale, non la
+// costante. Dichiarazioni con inizializzatori a chiamata di funzione in lista
+// sfuggono al pattern: al peggio lo slider resta attivo (status quo), mai il
+// contrario.
+bool MainWindow::glslUsesConstant(const QString &glsl, const QString &letter)
+{
+    const QRegularExpression reGlsl("\\b" + letter + "\\b");
+    if (!glsl.contains(reGlsl)) return false;
+    const QRegularExpression reDecl(
+        "\\b(?:float|int|uint|bool|vec[234]|mat[234])\\s+"
+        "(?:\\w+\\s*(?:=[^,;()]*)?,\\s*)*" + letter + "\\b");
+    return !glsl.contains(reDecl);
 }
 
 void MainWindow::updateConstantsUIState() {
@@ -7541,6 +7634,11 @@ void MainWindow::updateConstantsUIState() {
         }
         // In parametrica aggiungiamo lo script della superficie se non siamo in Ray Marching
         glslText += stripCodeComments(m_surfaceTextureCode);
+        // ...e le texture delle FASCE: una costante citata solo da una di loro e'
+        // usata quanto una della texture globale (vedi
+        // meshTextureCodesForConstants). Blocco per blocco, come qui sotto.
+        for (const QString &c : meshTextureCodesForConstants())
+            glslText += " " + c;
     }
     else { // MODALITÀ RAY MARCHING
         // L'equazione implicita e' matematica utente (translateEquation);
@@ -7646,20 +7744,9 @@ void MainWindow::updateConstantsUIState() {
             used = mathText.contains(reMath);
 
             if (!used) {
-                // GLSL: conta solo la MAIUSCOLA (il case delle iniettate)...
-                QRegularExpression reGlsl("\\b" + letter + "\\b");
-                if (glslText.contains(reGlsl)) {
-                    // ...e solo se la lettera non e' dichiarata come variabile
-                    // dello shader, singola ("vec2 F = fragCoord") o in lista
-                    // ("float i = 0.0, S = 0.0"): li' e' la locale, non la
-                    // costante. Dichiarazioni con inizializzatori a chiamata
-                    // di funzione in lista sfuggono al pattern: al peggio lo
-                    // slider resta attivo (status quo), mai il contrario.
-                    QRegularExpression reDecl(
-                        "\\b(?:float|int|uint|bool|vec[234]|mat[234])\\s+"
-                        "(?:\\w+\\s*(?:=[^,;()]*)?,\\s*)*" + letter + "\\b");
-                    used = !glslText.contains(reDecl);
-                }
+                // GLSL: maiuscola e non dichiarata come locale (vedi
+                // glslUsesConstant, unica sede della regola).
+                used = glslUsesConstant(glslText, letter);
             }
         }
 
@@ -7918,7 +8005,7 @@ void MainWindow::syncTextureTreeSelection()
     QString activeCode;
     // Nome di libreria della texture cercata, ciascuna con la SUA ancora: la
     // superficie globale m_currentTextureLibName, lo sfondo
-    // m_currentBgTextureLibName. Una fascia non ne ha uno e lo lascia vuoto
+    // m_currentBgTextureLibName, una fascia MeshPart::textureLibName
     // (vedi selectTextureTreeItemFor).
     QString libName;
     if (ui->radioBackground->isChecked()) {
@@ -7980,8 +8067,10 @@ void MainWindow::syncTextureTreeSelection()
                                                            && !wireframeAll);
                     activeCode = p.hasCustomTexture ? p.textureCode : QString();
                     // Texture della FASCIA: il nome del record e' quello della
-                    // texture globale, non di questa.
-                    libName.clear();
+                    // texture globale, non di questa. La fascia ha la SUA ancora
+                    // (MeshPart::textureLibName, vuota nei record salvati prima
+                    // che esistesse: li' la ricerca resta per solo codice).
+                    libName = p.hasCustomTexture ? p.textureLibName : QString();
                 }
             }
             if (!on) return;
@@ -8142,12 +8231,28 @@ bool MainWindow::syncFocusedTextureFromLibrary()
     // che ne hanno bisogno, anche entrambe, in un solo comando. Prima esisteva la
     // sola superficie, e uno sfondo rimasto indietro rispetto alla libreria non
     // aveva modo di essere riallineato (ne' di ritrovare il focus in Library).
+    // LE FASCE, ognuna con la sua ancora (MeshPart::textureLibName), tutte in un
+    // colpo: prima il comando guardava la sola texture GLOBALE -- ancora e codice
+    // -- e in ambito "Mesh" ne scriveva il codice nella fascia selezionata, che
+    // poteva venire da tutt'altra voce. E aggiornava una fascia per volta: i
+    // labirinti di Clifford, cinque fasce con la stessa texture, chiedevano
+    // cinque comandi.
+    // Le tre liste si calcolano PRIMA di applicare: ogni sync cambia lo stato
+    // che le altre confrontano.
     const LibraryItem *surfLib = focusedTextureLibraryItem();
     const LibraryItem *bgLib   = focusedBgTextureLibraryItem();
+    const QVector<MeshTextureSync> meshSyncs = focusedMeshTextureLibraryItems();
     bool changed = false;
     if (surfLib) changed = syncSurfaceTextureFrom(surfLib) || changed;
     if (bgLib)   changed = syncBackgroundTextureFrom(bgLib) || changed;
+    if (!meshSyncs.isEmpty()) changed = syncMeshTexturesFrom(meshSyncs) || changed;
     if (!changed) return false;
+
+    // DISPLAY DELLA FASCIA SELEZIONATA per ultimo: editor, checkbox e colori
+    // devono mostrare la texture della parte attiva, che il sync delle fasce puo'
+    // aver appena cambiato -- e che il sync della globale non deve coprire.
+    if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0)
+        syncAppearanceControlsToActiveMesh();
 
     // GLI SLIDER SEGUONO IL CODICE, come l'orologio nei due rami. Una volta sola,
     // qualunque texture sia cambiata: updateConstantsUIState legge tutti i codici.
@@ -8214,11 +8319,16 @@ bool MainWindow::syncSurfaceTextureFrom(const LibraryItem *lib)
     // blockSignals: questo codice VIENE dalla libreria, non e' una digitazione.
     // Senza, textChanged azzererebbe m_currentTextureLibName (~2315) e il record
     // perderebbe proprio l'ancora che ha permesso di trovare la texture.
+    // In ambito "Mesh" l'editor mostra la texture della FASCIA selezionata: il
+    // codice globale non va scritto li'. Lo riallinea alla parte
+    // syncFocusedTextureFromLibrary, in coda.
+    const bool meshScope = !isImplicit && ui->glWidget
+                           && ui->glWidget->activeMeshPart() >= 0;
     if (isImplicit && ui->lineTexture) {
         ui->lineTexture->blockSignals(true);
         ui->lineTexture->setPlainText(newCode);
         ui->lineTexture->blockSignals(false);
-    } else {
+    } else if (!meshScope) {
         syncTextureEditorTo(newCode);
     }
 
@@ -8231,17 +8341,11 @@ bool MainWindow::syncSurfaceTextureFrom(const LibraryItem *lib)
     // densita' rimasta quella sincronizzata.
     // m_surfaceTextureScriptText segue, come nel caricamento normale (~8870):
     // e' il testo del modulo, da cui l'editor si ricostruisce cambiando scheda.
-    // ...ma NON in ambito "Mesh". Li' i due slot sono quelli della texture di
-    // SUPERFICIE, e la texture che si sta sincronizzando e' quella della FASCIA:
-    // scriverli faceva quello che gia' faceva il ramo Library prima del suo fix
-    // (~8797) -- la texture globale si ritrovava addosso il codice della fascia,
-    // e tornando su "All" compariva al posto del proprio.
-    const bool syncGoesToMesh = !isImplicit && ui->glWidget
-                                && ui->glWidget->activeMeshPart() >= 0;
-    if (!syncGoesToMesh) {
-        m_surfaceTextureCode = newCode;
-        m_surfaceTextureScriptText = newCode;
-    }
+    // In QUALUNQUE ambito: qui arriva sempre la texture GLOBALE (le fasce hanno
+    // la loro via, syncMeshTexturesFrom). Prima, in ambito "Mesh", il codice
+    // globale veniva dirottato sulla fascia selezionata.
+    m_surfaceTextureCode = newCode;
+    m_surfaceTextureScriptText = newCode;
 
     // m_currentTexturePresetPath NON si tocca, ed e' una scelta.
     // Quel campo dice "la scena mostra QUEL preset per intero", ed e' una delle
@@ -8280,18 +8384,9 @@ bool MainWindow::syncSurfaceTextureFrom(const LibraryItem *lib)
         if (isImplicit) {
             ui->glWidget->setTextureCode(newCode);
             ui->glWidget->rebuildShader();
-        } else if (syncGoesToMesh) {
-            // AMBITO "MESH": la texture da aggiornare e' quella della FASCIA, la
-            // stessa che focusedTextureLibraryItem ha confrontato per decidere
-            // che c'era qualcosa da sincronizzare (legge p.textureCode).
-            // Scrivere qui gli slot GLOBALI lascerebbe la fascia col codice
-            // vecchio, cioe' di nuovo editor e schermo in disaccordo.
-            // enabled=true: se la voce di menu e' arrivata fin qui la texture e'
-            // quella che la fascia sta disegnando, quindi e' gia' accesa.
-            // setActiveMeshTexture fa da se' il rebuildShader.
-            ui->glWidget->setActiveMeshTexture(newCode, true);
         } else {
-            // AMBITO "ALL" (o mesh singola): la via del Run/della Library, cioe'
+            // PARAMETRICO, in qualunque ambito (la texture e' la globale):
+            // la via del Run/della Library, cioe'
             // la compilazione vera del fragment parametrico. Se lo shader non
             // compila NON si tocca nulla -- resta in piedi il precedente --, si
             // dice perche', e si esce senza sporcare la scena: il codice puo'
@@ -8323,10 +8418,6 @@ bool MainWindow::syncSurfaceTextureFrom(const LibraryItem *lib)
         } else {
             ui->glWidget->setSurfaceTextureAnimating(
                 hasTimeVariable(allSurfaceTextureCode()));
-            if (syncGoesToMesh) {
-                ui->glWidget->setActiveMeshTextureAnimating(hasTimeVariable(newCode));
-                m_userStoppedMeshTexClock = false;
-            }
         }
 
         ui->glWidget->update();
@@ -8477,6 +8568,84 @@ const LibraryItem *MainWindow::focusedBgTextureLibraryItem() const
     return item;
 }
 
+// Gemella per le FASCE: tutte quelle con un'ancora (MeshPart::textureLibName) la
+// cui voce esiste e ha un codice diverso da quello che la fascia disegna. Stesso
+// criterio della superficie, ma confrontando il codice della PARTE -- prima il
+// gate guardava la sola texture globale anche con una fascia selezionata.
+// Il tag //IMG: non conta (cleanCodeForComparison lo toglie): una fascia
+// immagine+script si confronta sul solo script, che e' cio' che la voce contiene.
+// Anche una fascia SPENTA: il codice resta nel record e aggiornarlo e' cio' che
+// il comando promette, come per lo sfondo.
+// Solo parametrico: in Ray Marching le fasce non esistono.
+QVector<MainWindow::MeshTextureSync> MainWindow::focusedMeshTextureLibraryItems() const
+{
+    QVector<MeshTextureSync> out;
+    if (!ui->glWidget || !ui->glWidget->getEngine()) return out;
+    if (ui->tabModeSelector->currentIndex() == 1) return out;
+    const auto &parts = ui->glWidget->getEngine()->getMeshParts();
+    for (int k = 0; k < (int)parts.size(); ++k) {
+        const MeshPart &p = parts[k];
+        if (!p.hasCustomTexture || p.textureLibName.isEmpty()) continue;
+        const LibraryItem *item = textureLibraryItemNamed(p.textureLibName);
+        if (!item || item->isImage) continue;
+        const QString libCode = item->textureCode.isEmpty() ? item->scriptCode : item->textureCode;
+        if (cleanCodeForComparison(libCode) == cleanCodeForComparison(p.textureCode)) continue;
+        out.append({k, item});
+    }
+    return out;
+}
+
+// FASCE. Stesso contratto della superficie: arriva il CODICE della voce, restano
+// colori, trasformazione 2D, acceso/spento e ancora della parte. Un tag //IMG:
+// gia' presente si conserva davanti al codice nuovo (fascia immagine+script,
+// come nel ramo sfondo): la voce porta solo lo script.
+// La domanda sulla costante contesa si fa UNA volta per voce, non per fascia:
+// cinque fasce con la stessa texture farebbero cinque popup identici. Annullando,
+// le fasce di quella voce vengono saltate e le altre proseguono.
+// Una sola ricompilazione, dopo l'ultima fascia.
+bool MainWindow::syncMeshTexturesFrom(const QVector<MeshTextureSync> &items)
+{
+    if (items.isEmpty() || !ui->glWidget || !ui->glWidget->getEngine()) return false;
+    static const QRegularExpression imgRe(R"(^\s*//IMG:.*$)", QRegularExpression::MultilineOption);
+
+    QHash<const LibraryItem *, bool> accepted;
+    bool changed = false;
+    for (const MeshTextureSync &s : items) {
+        QString newCode = s.lib->textureCode.isEmpty() ? s.lib->scriptCode : s.lib->textureCode;
+        if (newCode.trimmed().isEmpty()) continue;
+        if (!accepted.contains(s.lib))
+            accepted.insert(s.lib, confirmTextureConstantClash(newCode, QString(),
+                                                               /*forBackground=*/false));
+        if (!accepted.value(s.lib)) continue;
+
+        const auto &parts = ui->glWidget->getEngine()->getMeshParts();
+        if (s.part < 0 || s.part >= (int)parts.size()) continue;
+        const QRegularExpressionMatch img = imgRe.match(parts[s.part].textureCode);
+        if (img.hasMatch() && !imgRe.match(newCode).hasMatch())
+            newCode = img.captured(0).trimmed() + "\n" + newCode;
+
+        // L'orologio segue il codice, come per la superficie: nessuna guardia sul
+        // master, il Sync e' un comando esplicito sul modulo texture.
+        if (!ui->glWidget->setMeshPartTextureCode(s.part, newCode, hasTimeVariable(newCode)))
+            continue;
+        changed = true;
+        // Messaggio della voce aggiornata, come per la superficie -- ma solo se
+        // ne ha uno: lo slot e' unico per tutte le fasce (vedi il ramo per-mesh
+        // di handleTextureSelection). Lo mostra syncFocusedTextureFromLibrary.
+        if (!s.lib->hintText.trimmed().isEmpty()) {
+            m_currentTextureHintText    = s.lib->hintText.trimmed();
+            m_currentTextureHintSeconds = s.lib->hintSeconds > 0 ? s.lib->hintSeconds
+                                                                 : m_currentHintSeconds;
+        }
+    }
+    if (!changed) return false;
+
+    ui->glWidget->rebuildShader();
+    m_userStoppedMeshTexClock = false;
+    ui->glWidget->update();
+    return true;
+}
+
 // IL NOME ARRIVA DAL CHIAMANTE, e non si legge piu' qui m_currentTextureLibName.
 // Quel campo e' il nome della sola texture GLOBALE DI SUPERFICIE: lo scrive
 // handleTextureSelection soltanto su quel ramo (sfondo e fascia escono prima) e
@@ -8487,7 +8656,8 @@ const LibraryItem *MainWindow::focusedBgTextureLibraryItem() const
 // Background nel Renderer -> focus rimasto sulla superficie.
 // Solo il chiamante sa QUALE texture sta cercando, e passa l'ancora di QUELLA:
 // m_currentTextureLibName per la superficie, m_currentBgTextureLibName per lo
-// sfondo. Per una fascia il nome e' vuoto e la ricerca e' per solo codice.
+// sfondo, MeshPart::textureLibName per una fascia (vuoto nei record salvati
+// prima dell'ancora per-mesh: li' la ricerca e' per solo codice).
 void MainWindow::selectTextureTreeItemFor(QTreeWidgetItemIterator &itTex,
                                           const QString &activeCode,
                                           const QString &cleanedActive,
@@ -9358,6 +9528,10 @@ void MainWindow::handleTextureSelection(int index)
                     data.zoom, QVector2D(data.panX, data.panY), data.rotation);
 
                 ui->glWidget->setActiveMeshTexture(newCode, true);
+                // ANCORA DEL FOCUS della fascia: la voce da cui la texture viene,
+                // come m_currentTextureLibName fa per la texture globale (che
+                // questo ramo, uscendo prima, non scrive).
+                ui->glWidget->setActiveMeshTextureLibName(data.name);
 
                 if (!ui->chkBoxTexture->isChecked()) {
                     const bool oldCb = ui->chkBoxTexture->blockSignals(true);
@@ -9403,6 +9577,36 @@ void MainWindow::handleTextureSelection(int index)
                 updateTextureUIState(true, true);
                 updateFlatPreviewButton();
                 updateScriptButtonText();
+
+                // MESSAGGIO DELLA TEXTURE: il ramo globale lo scrive piu' sotto
+                // (~9850), ma questo ramo esce prima e lo saltava -- una texture
+                // messa sulle sole fasce non mostrava mai il suo hint, e il record
+                // non lo salvava (Clifford Labyrinth 3-Tubes Fibers: nessun
+                // "F: density of the grid").
+                // A differenza del ramo globale, un hint VUOTO non cancella quello
+                // in scena: lo slot e' uno per tutte le fasce, e una texture senza
+                // messaggio su una mesh non rende inutile quello di un'altra.
+                if (!data.hintText.trimmed().isEmpty()) {
+                    m_currentTextureHintText    = data.hintText.trimmed();
+                    m_currentTextureHintSeconds = data.hintSeconds;
+                    refreshSceneHint(data.hintSeconds);
+                }
+
+                // SLIDER DELLE COSTANTI sul codice appena applicato, come fa la
+                // coda del ramo globale: la texture della fascia puo' usare una
+                // lettera che finora nessuno usava, e senza ricalcolo lo slider
+                // restava spento. updateConstantsUIState conta le fasce (vedi
+                // meshTextureCodesForConstants); i valori vanno poi spinti nel
+                // motore, perche' il ricalcolo scrive a segnali bloccati.
+                // Nessun reset al default delle costanti "libere" qui: e' la
+                // stessa scena delle altre fasce, e una lettera usata da un'altra
+                // mesh cambierebbe sotto gli occhi.
+                updateConstantsUIState();
+                {
+                    const CascadeConstants kc = resolveCascadeConstants(true);
+                    ui->glWidget->setEquationConstants(kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s);
+                }
+
                 m_blockTextureGen = false;
                 ui->glWidget->update();
                 return;
@@ -14058,6 +14262,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     m_bgTextureScriptText = "";
 
     m_soundScriptText.clear();
+    m_currentSoundLibName.clear();   // l'ancora segue il suono che se ne va
 
     m_surfaceScriptText.clear();
     exitMetricScriptMode();
@@ -14814,6 +15019,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
     if (file.open(QIODevice::ReadOnly)) {
         QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
         QJsonObject root = doc.object();
+
+        // Ancora del SUONO (vedi mainwindow.h): anche lei SEMPRE riscritta, e
+        // vuota nei record salvati prima che esistesse (focus per solo codice).
+        m_currentSoundLibName = root.value("soundLibName").toString().trimmed();
 
         // Ancora della superficie: SEMPRE riscritta, anche a vuoto, come quella
         // dello sfondo piu' sotto. Un record senza blocco "texture" non deve
@@ -15642,6 +15851,17 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
         QString normLoadedSound = cleanAudioForComparison(fullAudioSearchCode);
 
+        // DUE CRITERI, come per le texture (selectTextureTreeItemFor): il NOME
+        // salvato nel record (m_currentSoundLibName) vince sul confronto del
+        // codice, che resta il fallback per i record senza ancora e per una voce
+        // rinominata o cancellata. Il nome vale solo se in scena c'e' davvero un
+        // audio: il testo cercato qui contiene anche i codici delle texture, che
+        // non sono un suono.
+        const QString sndLibName = m_soundScriptText.trimmed().isEmpty()
+                                 ? QString() : m_currentSoundLibName;
+        QTreeWidgetItem *sndByCode = nullptr;
+        QTreeWidgetItem *sndByName = nullptr;
+
         QTreeWidgetItemIterator itSnd(ui->treeSounds);
         while (*itSnd) {
             QVariant vSnd = (*itSnd)->data(0, Qt::UserRole + 3);
@@ -15649,6 +15869,11 @@ void MainWindow::applyMotionExample(LibraryItem data)
                 int idx = vSnd.toInt();
                 const LibraryItem &sndItem = m_libraryManager.getSound(idx);
                 bool isMatch = false;
+
+                if (!sndByName && !sndLibName.isEmpty()
+                    && QString::compare(sndLibName, sndItem.name.trimmed(),
+                                        Qt::CaseInsensitive) == 0)
+                    sndByName = *itSnd;
 
                 bool isMedia = sndItem.filePath.endsWith(".mp3", Qt::CaseInsensitive) ||
                         sndItem.filePath.endsWith(".wav", Qt::CaseInsensitive) ||
@@ -15669,38 +15894,33 @@ void MainWindow::applyMotionExample(LibraryItem data)
                     }
                 }
 
-                if (isMatch) {
-                    (*itSnd)->setSelected(true);
-                    ui->treeSounds->setCurrentItem(*itSnd);
-                    QTreeWidgetItem* parent = (*itSnd)->parent();
-                    while(parent) { parent->setExpanded(true); parent = parent->parent(); }
-                    ui->treeSounds->scrollToItem(*itSnd);
-                    break; // Ferma al primo match
-                }
+                if (isMatch && !sndByCode) sndByCode = *itSnd;   // il primo, come prima
             }
             ++itSnd;
         }
+
+        if (QTreeWidgetItem *hit = sndByName ? sndByName : sndByCode) {
+            hit->setSelected(true);
+            ui->treeSounds->setCurrentItem(hit);
+            for (QTreeWidgetItem *parent = hit->parent(); parent; parent = parent->parent())
+                parent->setExpanded(true);
+            ui->treeSounds->scrollToItem(hit);
+        }
     }
 
-    // B. Sincronizzazione Texture (Evidenzia SOLO la texture della modalità attiva!)
-    ui->treeTextures->clearSelection();
-    QTreeWidgetItemIterator itTex(ui->treeTextures);
-
-    QString activeCode;
-    QString libName;   // l'ancora della texture cercata: vedi selectTextureTreeItemFor
-    if (ui->radioBackground->isChecked()) {
-        activeCode = m_bgTextureCode;
-        libName = m_currentBgTextureLibName;
-    } else {
-        // Se siamo in Ray Marching usiamo il campo texture, altrimenti lo script superficie
-        activeCode = (ui->tabModeSelector->currentIndex() == 1) ?
-                    ui->lineTexture->toPlainText() : m_surfaceTextureCode;
-        libName = m_currentTextureLibName;
-    }
-
-    QString cleanedActive = cleanCodeForComparison(activeCode);
-
-    selectTextureTreeItemFor(itTex, activeCode, cleanedActive, libName);
+    // B. Sincronizzazione Texture: stessa funzione dei cambi di mesh e di modalita'.
+    // Qui c'era una COPIA della scelta "quale texture cercare" senza il ramo
+    // per-mesh: usava sempre la texture GLOBALE col suo libName. Un record
+    // multi-mesh si apre in ambito "Mesh" con la mesh 1 attiva, e per un record
+    // script meshPartsChanged scatta SINCRONO dentro questo load (updateSurfaceData):
+    // il sync per-mesh aveva gia' evidenziato la texture della fascia, e questo
+    // blocco, girando dopo, la sostituiva con quella globale -- che in multi-mesh
+    // non si disegna su nessuna fascia. Caso: Hopf Half Tori, mesh 1 con
+    // "Quasicrystal GIF in HD", albero su "Squished Image" (la globale del record);
+    // tornava giusto solo cambiando mesh e rientrando.
+    // Lo stato che syncTextureTreeSelection legge (m_surfaceTextureState,
+    // chkBoxTexture, m_bgTextureCode, lineTexture) e' gia' scritto piu' sopra.
+    syncTextureTreeSelection();
 
     updateScriptButtonText();
 
@@ -15755,13 +15975,6 @@ void MainWindow::deleteSelectedExample() {
 void MainWindow::onUndoDelete() {
     m_fileOps->undoDelete();
 }
-
-// Definizione accanto a resolveLibraryRoot, in fondo al file: una cartella e'
-// una radice di libreria se contiene almeno uno dei quattro rami.
-static bool dirIsLibraryRoot(const QDir &dir);
-// Definita accanto a dirIsLibraryRoot, in fondo al file: dice se la cartella
-// vive dentro iCloud Drive o un altro servizio di sincronizzazione.
-static bool dirIsCloudSynced(const QString &path);
 
 void MainWindow::onAddRepositoryClicked(bool wasRotating, bool wasPath4D,
                                         bool wasPath3D, bool wasTimeAnimating)
@@ -16140,6 +16353,9 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
                 ui->btnRunCurrentScript->setText("Run Sound");
             }
         }
+        // Il click dice DA QUALE voce viene il suono gia' in scena: e' il caso
+        // di un record salvato prima dell'ancora, che la acquista qui.
+        m_currentSoundLibName = soundData.name.trimmed();
         onRunSoundClicked();
         return;
     }
@@ -16163,6 +16379,7 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
 
     // AGGIORNAMENTO MEMORIA AUDIO
     m_soundScriptText = audioSnippet;
+    m_currentSoundLibName = soundData.name.trimmed();   // ancora del focus (vedi mainwindow.h)
 
     // A schermo c'e' ora un suono di libreria, non lavoro dell'utente: niente
     // piu' da proteggere. La conferma per il suono PRECEDENTE e' gia' stata
@@ -18030,6 +18247,7 @@ void MainWindow::applyCommonData(LibraryItem d)
             // uscivano da qui con hasCustomTexture ancora falso, e la texture
             // della superficie precedente restava nel motore.
             dst.textureCode = src.textureCode;
+            dst.textureLibName = src.textureLibName;
             dst.textureEnabled = src.textureEnabled;
             dst.hasCustomTexture = src.hasCustomTexture;
             dst.texCol1R = src.texCol1R;
@@ -20875,6 +21093,7 @@ void MainWindow::applyPendingMeshAppearance()
         dst->wfStepU = src.wfStepU;
         dst->wfStepV = src.wfStepV;
         dst->textureCode = src.textureCode;
+        dst->textureLibName = src.textureLibName;
         dst->textureEnabled = src.textureEnabled;
         dst->hasCustomTexture = src.hasCustomTexture;
         dst->texCol1R = src.texCol1R;

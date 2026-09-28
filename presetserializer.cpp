@@ -1548,6 +1548,12 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
 
     root["texture"] = texture;
 
+    // Ancora del SUONO (vedi MainWindow::m_currentSoundLibName): solo se il
+    // record porta davvero un audio -- audioCode e' gia' vuoto se l'utente ha
+    // scelto "Save without sound", e un nome senza suono direbbe il falso.
+    if (!audioCode.isEmpty() && !m_mainWindow->m_currentSoundLibName.isEmpty())
+        root["soundLibName"] = m_mainWindow->m_currentSoundLibName;
+
     // STATO 4D DA PRESERVARE: in ray marching omega/phi/psi (angoli E velocita')
     // venivano azzerati di default, perche' l'RM non li leggeva affatto. Il
     // sotto-tab CROSS SECTION invece li usa come stato principale: decidono quale
@@ -1751,6 +1757,9 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
             if (mp.hasCustomTexture) {
                 o["texCode"] = mp.textureCode;
                 o["texOn"]   = mp.textureEnabled;
+                // Ancora del focus in libreria (vedi MeshPart::textureLibName):
+                // solo se nota, come "libName" della texture globale.
+                if (!mp.textureLibName.isEmpty()) o["texLibName"] = mp.textureLibName;
                 anyCustom = true;
             }
             // Colori u_col1/u_col2 propri della parte (assenti = eredita).

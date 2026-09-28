@@ -175,18 +175,25 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                     // Il comando non segue il radio Surface/Background del Renderer:
                     // aggiorna quelle indietro, e il tooltip dice QUALI, perche' dal
                     // menu non si vede.
+                    // ...e le FASCE, ognuna con la sua ancora: il comando le
+                    // aggiorna tutte insieme, qualunque sia la mesh selezionata.
                     const bool surfUpdate = isLoaded && m_mainWindow->focusedTextureLibraryItem();
                     const bool bgUpdate   = isLoaded && m_mainWindow->focusedBgTextureLibraryItem();
-                    const bool hasUpdate  = surfUpdate || bgUpdate;
+                    const int  meshCount  = isLoaded ? m_mainWindow->focusedMeshTextureLibraryItems().size() : 0;
+                    const bool hasUpdate  = surfUpdate || bgUpdate || meshCount > 0;
+
+                    QStringList what;
+                    if (surfUpdate)    what << QStringLiteral("surface");
+                    if (bgUpdate)      what << QStringLiteral("background");
+                    if (meshCount > 0) what << (meshCount == 1 ? QStringLiteral("1 mesh")
+                                                               : QString("%1 meshes").arg(meshCount));
 
                     QAction *actSync = contextMenu->addAction("Sync Focused Texture", m_mainWindow, [this, executeAction](){
                         executeAction([this](){ m_mainWindow->syncFocusedTextureFromLibrary(); });
                     });
                     actSync->setEnabled(hasUpdate);
                     actSync->setToolTip(!isLoaded ? QStringLiteral("Only for the record in the scene.")
-                                      : (surfUpdate && bgUpdate) ? QStringLiteral("Updates surface and background textures.")
-                                      : surfUpdate ? QStringLiteral("Updates the surface texture.")
-                                      : bgUpdate   ? QStringLiteral("Updates the background texture.")
+                                      : hasUpdate ? QStringLiteral("Updates textures: ") + what.join(", ") + "."
                                       : QStringLiteral("Textures already up to date."));
                     contextMenu->setToolTipsVisible(true);
                 }

@@ -2630,6 +2630,23 @@ bool GLWidget::setActiveMeshTexture(const QString &code, bool enabled) {
     return onPart;
 }
 
+// CODICE della texture di una fascia scelta per INDICE, non la parte attiva: lo
+// usa "Sync Focused Texture", che aggiorna TUTTE le fasce del record rimaste
+// indietro rispetto alla loro voce di libreria. Cambia il solo codice (e
+// l'orologio, che segue il codice): acceso/spento, colori, trasformazione 2D e
+// ancora restano quelli della parte, come nel Sync della texture globale.
+// Niente rebuildShader: il chiamante ne fa uno solo dopo l'ultima fascia.
+bool GLWidget::setMeshPartTextureCode(int index, const QString &code, bool animating) {
+    if (!engine) return false;
+    MeshPart *p = engine->mutableMeshPart(index);
+    if (!p || !p->hasCustomTexture) return false;
+    p->textureCode = code;
+    p->texAnimating = animating;
+    engine->syncPartAppearance();   // o la prossima rigenerazione lo riporterebbe indietro
+    if (animating) ensureTextureClockRunning();
+    return true;
+}
+
 // OROLOGIO DELLA TEXTURE DELLA SOLA PARTE ATTIVA (Stop/Run per-mesh).
 // Il tempo NON si azzera: fermando e riavviando, l'animazione riprende da dove
 // era, come fa lo Stop globale.
@@ -3413,6 +3430,10 @@ bool GLWidget::setActiveMeshTexTransform(float zoom, const QVector2D &pan, float
     }
     update();
     return true;
+}
+
+bool GLWidget::setActiveMeshTextureLibName(const QString &name) {
+    return applyToActiveMeshPart([&](MeshPart &p){ p.textureLibName = name.trimmed(); });
 }
 
 // Carica nei membri globali la trasformazione della parte attiva, cosi' la vista

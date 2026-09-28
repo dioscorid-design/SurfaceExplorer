@@ -344,6 +344,14 @@ public:
     // globale fa con setFlatZoom/setFlatPan/setFlatRotation. True se ha scritto
     // su una parte, false in "All".
     bool setActiveMeshTexTransform(float zoom, const QVector2D &pan, float rotation);
+    // Nome della voce di libreria da cui viene la texture della parte attiva
+    // (MeshPart::textureLibName). Lo scrive chi APPLICA una texture dalla
+    // Library; true se ha scritto su una parte, false in "All".
+    bool setActiveMeshTextureLibName(const QString &name);
+    // Codice della texture della fascia di indice dato (non la parte attiva),
+    // per il Sync di tutte le fasce. Non ricompila: rebuildShader lo fa il
+    // chiamante una volta sola. False se la parte non ha una texture propria.
+    bool setMeshPartTextureCode(int index, const QString &code, bool animating);
     // OROLOGIO TEXTURE PER-MESH (Stop/Run della sola parte selezionata).
     // Contratto degli altri setActiveMesh*: true se ha scritto su una parte,
     // false in "All", dove decide il chiamante.
