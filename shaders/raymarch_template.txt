@@ -244,11 +244,43 @@ vec3 calcNormalInner(vec3 pos) {
 
 // --- AMBIENT OCCLUSION PROCEDURALE ---
 float calcAO(vec3 pos, vec3 nor) {
+    // NORMALIZZAZIONE IN DISTANZA. map() restituisce il valore GREZZO del campo,
+    // che non ha unita' di lunghezza: quanto vale in un punto dipende da COME
+    // l'utente ha scritto l'equazione, non da quanto si e' lontani dalla
+    // superficie. La formula qui sotto lo confronta pero' con h, che e' una
+    // DISTANZA in unita' di scena: e' la stessa confusione dimensionale che il
+    // marcher aveva sul clamp del gradiente, e va curata allo stesso modo.
+    //
+    // MISURATO sul T^3 della posa di default, sui punti colpiti dai raggi:
+    // col campo grezzo l'AO mediana vale 0.168 al fattore di scala 0.01 e 1.000
+    // al fattore 0.5. La STESSA superficie si vedeva quindi schiacciata al 17%
+    // di luminosita' oppure pulita a seconda di come era scritta l'equazione.
+    // Il termine colpito e' l'ambiente (0.15 * ao in shadeSurface): sulle facce
+    // che le due luci non raggiungono -- il 17.4% di quelle viste di fronte,
+    // gia' misurato li' -- e' l'UNICO contributo, e passava da 0.15 a 0.025,
+    // cioe' nero. L'AO variava inoltre fra 0.11 e 0.24 da pixel a pixel (le
+    // chiazze scure) e risaliva di scatto a 1.0 dove occ diventava negativo
+    // (i puntini chiari sparsi): e' la sabbiatura.
+    //
+    // Dividendo per |grad| il valore torna una stima di distanza al primo ordine
+    // -- lo stesso passo di Newton che usano gia' il marcher e lo spessore del
+    // guscio -- e l'AO diventa INVARIANTE DI SCALA: misurata 1.000 a entrambi i
+    // fattori, che e' l'aspetto della configurazione verificata a schermo.
+    //
+    // Costa 4 map() in piu' per pixel, una volta sola: irrilevante accanto ai
+    // 4 map() per PASSO del marcher (centinaia di passi per pixel).
+    vec2 e = vec2(0.001, 0.0);
+    float v0 = map(pos);
+    vec3 g = vec3(map(pos + e.xyy) - v0,
+                  map(pos + e.yxy) - v0,
+                  map(pos + e.yyx) - v0);
+    float gradLen = max(length(g) / e.x, 1e-6);
+
     float occ = 0.0;
     float sca = 1.0;
     for(int i = 0; i < 5; i++) {
         float h = 0.01 + 0.12 * float(i) / 4.0;
-        float d = map(pos + h * nor);
+        float d = map(pos + h * nor) / gradLen;   // ora e' una DISTANZA, come h
         occ += (h - d) * sca;
         sca *= 0.95;
     }
