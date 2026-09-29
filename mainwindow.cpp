@@ -11714,13 +11714,27 @@ void MainWindow::onDepartureClicked()
     // Base 4D per le compensazioni del tick: solo il primo Departure parte da
     // orientamento 4D neutro; dai successivi si conserva l'orientamento corrente
     // (es. quello accumulato dal moto GO), senza reset nel passaggio di modalita'.
+    //
+    // "Conservare" vuol dire che il PRIMO TICK ridia l'orientamento corrente, e
+    // il tick scrive phi = base - gamma(t), psi = base - beta(t) (vedi
+    // applyPath4DCameraAt). Quindi la base e' l'orientamento corrente PIU' la
+    // compensazione al tempo da cui si riparte: leggere solo getPhi/getPsi,
+    // dopo uno Stop di questo stesso path, contava due volte il -gamma/-beta gia'
+    // applicato, e alla ripartenza la sezione saltava di gamma(T)/beta(T) --
+    // con alpha=beta=gamma=t (Morphing 3-Torus) tanto piu' quanto piu' a lungo
+    // il path aveva girato. Vale anche venendo dal moto GO o dal path 3D: gli
+    // angoli correnti includono gia' quel che e' successo nel frattempo.
+    // La formula usa le equazioni APPENA compilate qui sopra: se i campi sono
+    // cambiati durante lo Stop resta continua la rotazione (la posizione segue
+    // il nuovo path, com'e' giusto).
     if (!m_path4DStartedOnce) {
         m_path4DStartedOnce = true;
         m_pathBaseOmega = m_pathBasePhi = m_pathBasePsi = 0.0f;
     } else {
+        SurfaceEngine *engine = ui->glWidget->getEngine();
         m_pathBaseOmega = ui->glWidget->getOmega();
-        m_pathBasePhi   = ui->glWidget->getPhi();
-        m_pathBasePsi   = ui->glWidget->getPsi();
+        m_pathBasePhi   = ui->glWidget->getPhi() + engine->evaluatePathGamma(pathTimeT);
+        m_pathBasePsi   = ui->glWidget->getPsi() + engine->evaluatePathBeta(pathTimeT);
     }
 
     if (handoffFrom3D && ui->glWidget) ui->glWidget->beginPathHandoff();
