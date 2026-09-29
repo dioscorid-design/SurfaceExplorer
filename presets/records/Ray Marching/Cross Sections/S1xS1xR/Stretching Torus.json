@@ -2,8 +2,8 @@
     "activeMotion": "path4D",
     "angles": {
         "omega": 0,
-        "phi": -9.830129623413086,
-        "psi": -9.830129623413086
+        "phi": -14.880245208740234,
+        "psi": -14.880245208740234
     },
     "background": {
         "code": "// 1. FUNZIONI DI SUPPORTO (Noise & Random)\nfloat random (in vec2 st) {\n    return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);\n}\n\nfloat noise (in vec2 st) {\n    vec2 i = floor(st);\n    vec2 f = fract(st);\n    vec2 u = f * f * (3.0 - 2.0 * f);\n    float a = random(i);\n    float b = random(i + vec2(1.0, 0.0));\n    float c = random(i + vec2(0.0, 1.0));\n    float d = random(i + vec2(1.0, 1.0));\n    return mix(a, b, u.x) + (c - a)* u.y * (1.0 - u.x) + (d - b) * u.x * u.y;\n}\n\nvoid mainImage( out vec4 fragColor, in vec2 fragCoord )\n{\n    vec2 uv = fragCoord.xy / iResolution.xy;\n    float u = uv.x;\n    float v = uv.y;\n\n    float scale = 4.0;\n    int octaves = 5;\n    float cloudCover = 0.0; \n\n    float u_fix = abs(u * 2.0 - 1.0);\n    float v_fix = abs(v * 2.0 - 1.0);\n    vec2 st = vec2(u_fix, v_fix) * scale;\n\n    float value = 0.0;\n    float amplitude = 0.5;\n    float totalAmplitude = 0.0;\n\n    for (int i = 0; i < 5; i++) {\n        if (i >= octaves) break; \n        value += amplitude * noise(st);\n        st *= 2.0;       \n        totalAmplitude += amplitude;\n        amplitude *= 0.5; \n    }\n    \n    value /= totalAmplitude;\n    float n = smoothstep(cloudCover + 0.2, cloudCover + 0.8, value);\n\n    // FIX: Leggiamo i colori direttamente dal buffer UBO bypassando il conflitto!\n    vec3 color = mix(ubuf.u_col1, ubuf.u_col2, n);\n    \n    fragColor = vec4(color, 1.0);\n}",
@@ -19,16 +19,16 @@
         "zoom": 1
     },
     "camera3D": {
-        "pitch": -16.06041717529297,
+        "pitch": 49.701576232910156,
         "roll": 0,
         "rot_w": 1,
         "rot_x": 0,
         "rot_y": 0,
         "rot_z": 0,
-        "x": -4.601438045501709,
-        "y": 1.3409043550491333,
-        "yaw": 81.08179473876953,
-        "z": 0.7220638990402222
+        "x": -3.3766677379608154,
+        "y": -4.122019290924072,
+        "yaw": 104.9845962524414,
+        "z": -0.9038026928901672
     },
     "cameraFov": 45,
     "colors": {
@@ -38,11 +38,11 @@
     "constants": {
         "A": 1,
         "B": 0.3100000023841858,
-        "C": 0.3100000023841858,
+        "C": 1,
         "D": 1,
         "E": 4.429999828338623,
         "F": 0,
-        "S": 0.699999988079071
+        "S": 0.4000000059604645
     },
     "crossSectionEquation": "(sqrt(x^2+y^2)-A)^2+z^2 = B^2",
     "crossSectionP": 0,
@@ -72,7 +72,7 @@
     },
     "hintSeconds": 6,
     "hintText": "Sliders\nB: radius",
-    "hybridMarcher": true,
+    "hybridMarcher": false,
     "implicitEquation": "",
     "implicitUsesCrossSection": true,
     "isImplicitMode": true,
@@ -94,7 +94,7 @@
     },
     "meshScopeAll": true,
     "name": "Stretching Torus",
-    "observer4D": 3.286421298980713,
+    "observer4D": 4.176820755004883,
     "path3D": {
         "roll": "",
         "x": "",

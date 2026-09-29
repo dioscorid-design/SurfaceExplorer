@@ -32,7 +32,7 @@
         "F": 1,
         "S": 0.699999988079071
     },
-    "crossSectionEquation": "(((sqrt(x*x+y*y)-A)^2 + z^2 - B*B) + (z*(sqrt(x*x+y*y)-x)/y)^2)^2 + (p - z*(sqrt(x*x+y*y)-x)/y)^2 - C*C = 0.0",
+    "crossSectionEquation": "2*((((sqrt(x*x+y*y)-A)^2 + z^2 - B*B) + (z*(sqrt(x*x+y*y)-x)/y)^2)^2 + (p - z*(sqrt(x*x+y*y)-x)/y)^2 - C*C )= 0.0",
     "crossSectionP": 0.10500001162290573,
     "equations": {
         "defU": "",

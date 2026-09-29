@@ -1,9 +1,9 @@
 {
     "activeMotion": "rotation",
     "angles": {
-        "omega": 1240.367431640625,
-        "phi": 1241.1732177734375,
-        "psi": 2477.57861328125
+        "omega": 1252.7244873046875,
+        "phi": 1253.5302734375,
+        "psi": 2489.835205078125
     },
     "background": {
         "code": "// --- 1. INPUT ---\nvec3 c1 = u_col1;\nvec3 c2 = u_col2;\n\n// --- 2. FIX BORDI (Il segreto) ---\n// Usiamo la variabile 'u_isFlat' che abbiamo creato oggi.\n// Il taglio nero avviene SOLO nell'anteprima 2D.\nif (u_isFlat && (u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0)) {\n    return vec3(0.0); \n}\n\n// --- 3. LOGICA GRADIENTE ---\nfloat pos = v;\n\n// clamp assicura che sulla superficie 3D i colori si estendano \n// fino ai bordi invece di fare cose strane o invertire il gradiente.\npos = clamp(pos, 0.0, 1.0);\n\n// --- 4. OUTPUT ---\nreturn mix(c1, c2, pos);",
@@ -44,7 +44,7 @@
         "F": 1,
         "S": 0.4000000059604645
     },
-    "crossSectionEquation": "0.1*((sqrt(x^2+y^2)-1.0)^2 + z^2 + 0.08*(p - z*sqrt(x^2+y^2))^2 - 0.35^2) = 0.0",
+    "crossSectionEquation": "(sqrt(x^2+y^2)-1.0)^2 + z^2 + 0.08*(p - z*sqrt(x^2+y^2))^2 - 0.35^2 = 0.0",
     "crossSectionP": 0,
     "equations": {
         "defU": "",

@@ -2,8 +2,8 @@
     "activeMotion": "path4D",
     "angles": {
         "omega": 0,
-        "phi": -9.076034545898438,
-        "psi": -9.076034545898438
+        "phi": -6.6390380859375,
+        "psi": -6.6390380859375
     },
     "background": {
         "code": "// --- PARAMETRI ---\nfloat scale = 50.0; // Densità degli anelli (più alto = più cerchi)\nvec2 center = vec2(0.5, 0.5); // Centro dei cerchi (0.5, 0.5 è il centro della texture)\n\n// --- LOGICA ---\n// 1. Calcola la distanza del pixel corrente (u, v) dal centro\nfloat dist = distance(vec2(u, v), center);\n\n// 2. Crea l'onda sinusoidale basata sulla distanza\n// Moltiplichiamo per 'scale' per aumentare la frequenza\nfloat val = sin(dist * scale);\n\n// 3. Mappiamo il risultato da -1..1 a 0..1 per il mix\nfloat tit = (val + 1.0) * 0.5;\n\n// 4. Mix finale\nreturn mix(u_col1, u_col2, tit);",
@@ -19,16 +19,16 @@
         "zoom": 1.7490066289901733
     },
     "camera3D": {
-        "pitch": 18.13086700439453,
+        "pitch": 24.037355422973633,
         "roll": 0,
         "rot_w": 0.6664624810218811,
         "rot_x": -0.5127255320549011,
         "rot_y": 0.5411472320556641,
         "rot_z": 0.010001886636018753,
-        "x": -2.819169044494629,
-        "y": -1.3147354125976562,
-        "yaw": 44.598915100097656,
-        "z": 2.858917474746704
+        "x": -2.272066354751587,
+        "y": -1.1585224866867065,
+        "yaw": 118.98999786376953,
+        "z": -1.2589083909988403
     },
     "cameraFov": 45,
     "colors": {
@@ -44,7 +44,7 @@
         "F": 1,
         "S": 0.699999988079071
     },
-    "crossSectionEquation": "0.01*(((x*x+y*y+z*z+p*p+A*A+B*B-C*C)^2 + 4*(A*A-B*B)*(x*x+y*y) - 4*B*B*(z*z+A*A))^2 - 16*A*A*(x*x+y*y)*(x*x+y*y+z*z+p*p+A*A-B*B-C*C)^2) = 0.0",
+    "crossSectionEquation": "0.5*(((x*x+y*y+z*z+p*p+A*A+B*B-C*C)^2 + 4*(A*A-B*B)*(x*x+y*y) - 4*B*B*(z*z+A*A))^2 - 16*A*A*(x*x+y*y)*(x*x+y*y+z*z+p*p+A*A-B*B-C*C)^2) = 0.0",
     "crossSectionP": 0.05849999189376831,
     "equations": {
         "defU": "",
@@ -94,7 +94,7 @@
     },
     "meshScopeAll": true,
     "name": "Morphing 3-Torus",
-    "observer4D": 4.61277961730957,
+    "observer4D": 1.8435873985290527,
     "path3D": {
         "roll": "",
         "x": "",
@@ -113,7 +113,7 @@
     "pathMode": 1,
     "pathMode3D": 0,
     "projectionMode": 1,
-    "renderMode": 10,
+    "renderMode": 0,
     "shellThickness": 0.004999999888241291,
     "speeds": {
         "nutation": 0.699999988079071,

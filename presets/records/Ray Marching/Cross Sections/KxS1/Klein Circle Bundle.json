@@ -14,17 +14,18 @@
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
-        "zoom": 1
+        "skyMode": "fixed",
+        "zoom": 0.011420094408094883
     },
     "camera3D": {
-        "pitch": 67.01978302001953,
+        "pitch": -76.24983215332031,
         "roll": 0,
         "rot_w": 1,
         "rot_x": 0,
         "rot_y": 0,
         "rot_z": 0,
-        "x": 0.3904133141040802,
-        "y": -0.92063969373703,
+        "x": 0.23768876492977142,
+        "y": 0.9713413715362549,
         "yaw": -90,
         "z": 0
     },
@@ -34,13 +35,13 @@
         "surfColor": "#33cc33"
     },
     "constants": {
-        "A": 0.10000000149011612,
+        "A": 2,
         "B": 1,
         "C": 1,
         "D": 1,
         "E": 1,
         "F": 1,
-        "S": 0.5299999713897705
+        "S": 0.4000000059604645
     },
     "crossSectionEquation": "A*(sqrt( ( ( (sqrt(x*x+y*y)-0.8)^2 + z^2 - 0.09 )^2 - 0.36*( (sqrt(x*x+y*y)-0.8)^2*(1-x/sqrt(x*x+y*y))/2 + z^2*(1+x/sqrt(x*x+y*y))/2 + (y/sqrt(x*x+y*y))*(sqrt(x*x+y*y)-0.8)*z ) )^2 + p*p ) - 0.02) = 0.0",
     "crossSectionP": 0,
@@ -70,7 +71,7 @@
     },
     "hintSeconds": 6,
     "hintText": "Sliders\nA: equation scale",
-    "hybridMarcher": true,
+    "hybridMarcher": false,
     "implicitEquation": "",
     "implicitUsesCrossSection": true,
     "isImplicitMode": true,
