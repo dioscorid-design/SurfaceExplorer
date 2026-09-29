@@ -27,7 +27,6 @@
 #include <QCheckBox>
 #include <QTabBar>
 #include <QTimer>
-#include <QToolTip>
 #include <QScopeGuard>
 #include <QAction>
 #include <QJsonObject>
@@ -153,52 +152,6 @@ static constexpr double kAliasEdgeFraction = 0.15;
 
 static inline bool isMeshSafeValue(double val) {
     return std::isfinite(val) && std::abs(val) <= kMaxRenderableMagnitude;
-}
-
-// Avviso sui controlli che il marcher Precise rende inerti (Ray Steps e Step
-// Relax). Un widget DISABILITATO non riceve gli eventi del mouse e quindi non
-// mostrerebbe il tooltip: serve WA_AlwaysShowToolTips, o il testo non si
-// vedrebbe proprio nel caso in cui serve.
-//
-// SUBITO, non dopo i ~700ms di Qt: l'attesa standard serve a non coprire di
-// avvisi chi sta solo attraversando la UI col mouse, ma qui il controllo e'
-// grigio e la domanda ("perche' non funziona?") e' gia' in testa a chi ci
-// passa sopra. Il tooltip lo mostra quindi questo filtro al primo Enter,
-// invece di lasciarlo al timer interno.
-class InertHintFilter : public QObject {
-public:
-    using QObject::QObject;
-protected:
-    bool eventFilter(QObject *obj, QEvent *ev) override {
-        if (ev->type() == QEvent::Enter) {
-            if (QWidget *w = qobject_cast<QWidget*>(obj)) {
-                const QString tip = w->toolTip();
-                // Solo finche' il controllo e' inerte: tolto il tooltip (torno
-                // su Fast) questo filtro non ha piu' nulla da mostrare.
-                if (!tip.isEmpty())
-                    QToolTip::showText(w->mapToGlobal(w->rect().center()), tip, w);
-            }
-        }
-        return QObject::eventFilter(obj, ev);
-    }
-};
-
-// Il testo si TOGLIE quando il controllo torna vivo: un tooltip rimasto appeso
-// a uno slider funzionante direbbe il falso. Per questo la funzione prende il
-// flag invece di essere chiamata solo nel ramo "spento".
-static void setInertControlHint(QWidget *w, bool inert)
-{
-    if (!w) return;
-    w->setAttribute(Qt::WA_AlwaysShowToolTips, inert);
-    w->setToolTip(inert ? QObject::tr("Sliders disabled with Precise selected")
-                        : QString());
-
-    // Un filtro per widget, installato una volta sola: la proprieta' fa da
-    // marcatore, altrimenti ogni giro di updateRenderState ne aggiungerebbe uno.
-    if (inert && !w->property("inertHintFilter").toBool()) {
-        w->installEventFilter(new InertHintFilter(w));   // parent = w: muore con lui
-        w->setProperty("inertHintFilter", true);
-    }
 }
 
 // Rimuove i commenti di linea e di blocco dal codice (GLSL o equazioni)
@@ -2558,12 +2511,8 @@ MainWindow::MainWindow(QWidget *parent)
         const bool precise = (sender() == ui->radioMarcherPrecise);
         if (ui->glWidget) ui->glWidget->setHybridMarcher(precise);
         // E' un uniform: nessun rebuildShader, il cambio si vede al frame dopo.
-        // Gating degli slider che in Precise non hanno effetto: Ray Steps lo
-        // rifa' updateRenderState, lo Step Relax updateConstantsUIState (unico
-        // proprietario dello slider S). Senza queste due chiamate resterebbero
-        // com'erano fino al prossimo evento che le fa girare.
-        updateRenderState();
-        updateConstantsUIState();
+        // Nessun gating: Ray Steps e Step Relax servono con entrambi i marcher
+        // (vedi il commento in updateRenderState).
         noteSceneEdited(ui->radioMarcherPrecise);
     };
     if (ui->radioMarcherFast)
@@ -5832,14 +5781,10 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
             // Marcher: torna a Fast, il default di avvio (~2413). Stessa ragione
             // di Shell/Solid qui sopra -- senza, il reset ereditava il marcher
             // dell'ultimo preset caricato -- e stessa regola del tasto New:
-            // azzerare tutto, nessuna eccezione. Conta anche per gli slider:
-            // Ray Steps e Step Relax sono inerti con Precise (vedi il gate in
-            // updateRenderState e "stepRelaxInert" in updateConstantsUIState),
-            // quindi un reset che lasciasse Precise acceso consegnerebbe una
-            // scena nuova con due controlli spenti senza una ragione visibile.
+            // azzerare tutto, nessuna eccezione.
             // I radio sono a segnali vivi: setChecked fa girare updateMarcherMode,
-            // che allinea il motore e rifa' il gating. Si passa da li' invece di
-            // scrivere setHybridMarcher a mano per non duplicare quella logica.
+            // che allinea il motore. Si passa da li' invece di scrivere
+            // setHybridMarcher a mano per non duplicare quella logica.
             if (ui->radioMarcherFast && !ui->radioMarcherFast->isChecked())
                 ui->radioMarcherFast->setChecked(true);
 
@@ -6968,44 +6913,16 @@ void MainWindow::updateRenderState()
     if (ui->lblFill)    ui->lblFill->setEnabled(isImplicitMode);
     if (ui->widgetFill) ui->widgetFill->setEnabled(isImplicitMode);
 
-    // RAY STEPS col marcher "Precise": DISABILITATO, perche' non ha alcun effetto
-    // su cio' che si vede. E' il tetto dello sphere tracing, che in Precise serve
-    // solo ad AVVICINARSI: se si esaurisce, il marcher ricade sulla marcia completa
-    // da tNear e trova comunque la superficie.
-    //
-    // MISURATO sul T^3 (griglia 121x121, zoom da z=4 a z=1.2): il tetto interno di
-    // marchNextLayer (2000 su desktop/iOS, 600 su Android) non viene MAI raggiunto
-    // -- massimo 1791 passi allo zoom piu' estremo -- e col tetto a 600 la
-    // superficie e' IDENTICA (0 pixel persi). I passi sono limitati dalla GEOMETRIA
-    // (50 unita' di scena, passo cappato a 0.05), non da una manopola: non esiste
-    // una scena in cui questo slider serva col marcher preciso.
-    //
-    // Il VALORE non si tocca: resta quello del preset, e tornando su Fast riprende
-    // effetto immediatamente.
-    //
-    // Lo Step Relax (slider della costante S) ha il gate gemello in
-    // updateConstantsUIState (cerca "stepRelaxInert"): la' e' l'unico proprietario
-    // di quello slider e lo riaccenderebbe a ogni textChanged dell'equazione.
-    {
-        const bool preciseMarcher = isImplicitMode && ui->glWidget
-                                    && ui->glWidget->hybridMarcher();
-        if (preciseMarcher) {
-            ui->stepSlider->setEnabled(false);
-            ui->lineSteps->setEnabled(false);
-        } else if (isImplicitMode) {
-            // Fast: lo slider torna utile. Riaccenderlo qui e' necessario perche'
-            // nessun altro lo fa tornando da Precise (applyEmptySceneGating gira
-            // solo all'uscita dalla scena vuota).
-            ui->stepSlider->setEnabled(true);
-            ui->lineSteps->setEnabled(true);
-        }
-        // Perche' sono grigi: senza una parola, lo slider spento sembra un guasto
-        // (e' il motivo per cui l'utente l'ha segnalato come bug). Il testo si
-        // attacca e si toglie insieme al gate, cosi' non resta appeso a un
-        // controllo tornato vivo.
-        setInertControlHint(ui->stepSlider, preciseMarcher);
-        setInertControlHint(ui->lineSteps,  preciseMarcher);
-    }
+    // RAY STEPS e STEP RELAX restano ACCESI anche col marcher "Precise". Erano
+    // stati spenti come "senza effetto", ed era sbagliato: in Precise governano
+    // l'AVVICINAMENTO (marchField), e il suo esito non e' solo un'ottimizzazione.
+    // Decide quali raggi sono sfondo -- un raggio che esce dalla scena senza aver
+    // visto un cambio di segno viene scartato senza seconda marcia, anche se un
+    // passo lungo ha scavalcato per intero una parete sottile -- e da dove riparte
+    // la ricerca a cambio di segno, che guarda solo IN AVANTI. Verificato a
+    // schermo: difetti presenti in Precise sparivano dopo aver mosso i due slider.
+    // La misura sul T^3 che aveva motivato il gate riguardava il tetto di
+    // marchNextLayer, non questi due valori.
 
     // Ultimo blocco della funzione: sovrascrive di proposito le decisioni prese
     // qui sopra, che presuppongono tutte una superficie a schermo.
@@ -7732,11 +7649,8 @@ void MainWindow::updateConstantsUIState() {
         // FIX FONDAMENTALE: In Ray Marching (tab 1), "S" funge da Step Relax!
         // Deve rimanere sempre attivo e NON deve mai essere resettato a 0,
         // altrimenti i raggi si congelano causando glitch grafici e cerchi concentrici.
-        //
-        // NB: col marcher "Precise" lo Step Relax viene DISABILITATO piu' sotto
-        // (governa solo la fase di avvicinamento, che non decide piu' l'hit), ma
-        // il suo VALORE resta quello che e': qui "used = true" serve proprio a
-        // non azzerarlo. Disabilitare != resettare.
+        // Vale per ENTRAMBI i marcher: anche in Precise lo Step Relax governa
+        // l'avvicinamento (vedi il commento su Ray Steps in updateRenderState).
         if (currentTab == 1 && letter == "S") {
             used = true;
         } else {
@@ -7785,24 +7699,8 @@ void MainWindow::updateConstantsUIState() {
             slider->blockSignals(oldS);
             line->blockSignals(oldL);
         } else {
-            // STEP RELAX col marcher "Precise": abilitato NO, valore SI'.
-            // In Ray Marching questo slider e' lo Step Relax, e col marcher
-            // preciso non ha effetto su cio' che si vede (governa i passi
-            // dell'avvicinamento, mentre l'hit lo decidono cambio-di-segno e
-            // bisezione). Il gate vive QUI e non solo in updateRenderState
-            // perche' questa funzione e' l'unica proprietaria dello slider: gira
-            // a ogni textChanged dell'equazione e lo riaccenderebbe comunque,
-            // vanificando un gate messo altrove. Il VALORE non si tocca (vedi
-            // "used = true" per S piu' sopra): tornando su Fast riprende effetto.
-            const bool stepRelaxInert = (currentTab == 1 && letter == "S"
-                                         && ui->glWidget
-                                         && ui->glWidget->hybridMarcher());
-            slider->setEnabled(!stepRelaxInert);
-            line->setEnabled(!stepRelaxInert);
-            // Stesso avviso del gate gemello di Ray Steps in updateRenderState:
-            // spento senza spiegazione, lo slider sembra rotto.
-            setInertControlHint(slider, stepRelaxInert);
-            setInertControlHint(line,   stepRelaxInert);
+            slider->setEnabled(true);
+            line->setEnabled(true);
         }
     };
 
