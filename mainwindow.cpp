@@ -2479,13 +2479,23 @@ MainWindow::MainWindow(QWidget *parent)
         const bool toShell = (sender() == ui->radioShell);
         applyImplicitShellMode(toShell);
         // SOLID: lo spessore non ha piu' un guscio da misurare, quindi torna al
-        // minimo (setShellThicknessUI incapsula motore + slider + curva). Senza
-        // questo restava sul valore di prima -- disabilitato ma non a zero -- e
-        // tornando a Shell la parete ripartiva da li' invece che dal default.
+        // minimo (setShellThicknessUI incapsula motore + slider + curva): lo
+        // slider spento non mostra un valore che non si applica, e un preset
+        // salvato in Solid non si porta dietro un residuo.
+        // Il valore di prima pero' si RICORDA, e tornando a Shell si rimette:
+        // senza, un giro Shell -> Solid -> Shell perdeva lo spessore del preset
+        // (Ding Dong: 0.108 -> 0.005) e la figura cambiava forma -- il collo
+        // arrotondato del guscio diventava la punta del cono.
         // SOLO sul click dell'utente, non in applyImplicitShellMode: quella gira
         // anche durante i load, dove il preset puo' avere il proprio spessore
         // salvato e azzerarlo qui lo perderebbe.
-        if (!toShell) setShellThicknessUI(0.005f);
+        if (!toShell) {
+            const float keep = ui->glWidget ? ui->glWidget->shellThickness() : -1.0f;
+            setShellThicknessUI(0.005f);          // azzera anche il ricordo...
+            m_shellThicknessBeforeSolid = keep;   // ...quindi lo si scrive dopo
+        } else if (m_shellThicknessBeforeSolid > 0.0f) {
+            setShellThicknessUI(m_shellThicknessBeforeSolid);   // e lo consuma
+        }
         // Il pannello Thickness ha senso solo con Shell (in Solid non c'e' guscio
         // di cui regolare la parete): il gate vive in updateRenderState, che va
         // richiamata qui o il pannello resterebbe come era fino al prossimo
@@ -17152,6 +17162,11 @@ QString MainWindow::activeImplicitEquationText() const
 // slider, che resta l'unico punto in cui i due estremi sono scritti.
 void MainWindow::setShellThicknessUI(float thickness)
 {
+    // Chi scrive qui (load, reset, clic su Solid) decide lo spessore da capo:
+    // lo spessore ricordato per il ritorno da Solid non vale piu'. Il clic su
+    // Solid lo reimposta DOPO questa chiamata (updateImplicitRenderMode).
+    m_shellThicknessBeforeSolid = -1.0f;
+
     const double kMin = 0.005, kMax = 0.30;
     const double t = qBound(kMin, (double)thickness, kMax);
 

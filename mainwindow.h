@@ -523,6 +523,11 @@ private:
     int m_lastImplicitSteps = 400;
     double m_lastParametricS = 0.0;
     double m_lastImplicitS = 0.4;
+    // Spessore del guscio com'era prima del clic su Solid (-1 = niente da
+    // ricordare). In Solid lo slider va al minimo, ma tornando a Shell la parete
+    // riprende questo valore invece del default. Lo azzera setShellThicknessUI,
+    // cioe' ogni load e reset: non deve riemergere su un'altra scena.
+    float m_shellThicknessBeforeSolid = -1.0f;
     QTimer* m_stepsDebounce = nullptr;
     QTimer* m_meshDebounce = nullptr;
     bool m_constantPopupActive = false;
