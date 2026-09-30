@@ -14931,169 +14931,133 @@ void MainWindow::applyMotionExample(LibraryItem data)
     float bgRot = 0.0f;
     int bgSkyMode = GLWidget::BgFixed;   // record senza la chiave = sfondo fisso
 
-    // LETTURA DEL FILE JSON (Bypassiamo la limitazione della libreria)
-    QFile file(data.filePath);
-    if (file.open(QIODevice::ReadOnly)) {
-        QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
-        QJsonObject root = doc.object();
+    // --- TEXTURE DI SUPERFICIE: dalla struttura, non piu' dal file ---
+    // Tappa 3 dello "stato unico della scena": questo blocco rileggeva il JSON
+    // per conto suo. Ora legge cio' che parseJson ha gia' messo in `data`, con
+    // gli stessi valori; in piu' riscrive SEMPRE ogni campo -- la rilettura li
+    // toccava solo se la chiave c'era, e un record senza "code" o senza
+    // "displacement" (nessuno in libreria, ma possibile) si teneva quelli del
+    // record aperto prima. Zoom, pan e rotazione sono gia' in surfZoom & C.
+    //
+    // Ancora della superficie: SEMPRE riscritta, anche a vuoto, come quella
+    // dello sfondo piu' sotto. Un record senza blocco "texture" non deve
+    // ereditare il nome della texture del record aperto prima.
+    // NOME della texture di libreria: e' cio' che permette all'albero di
+    // ritrovarla anche se il suo codice e' stato modificato dopo il
+    // salvataggio del record (vedi m_currentTextureLibName). I record piu'
+    // vecchi non hanno il campo: resta vuoto e il focus si decide per codice.
+    m_currentTextureLibName = data.textureLibName;
 
-        // Ancora del SUONO (vedi mainwindow.h): anche lei SEMPRE riscritta, e
-        // vuota nei record salvati prima che esistesse (focus per solo codice).
-        m_currentSoundLibName = root.value("soundLibName").toString().trimmed();
+    // 1. CARICAMENTO TEXTURE 2D (Energia/Colore)
+    if (isImplicit) {
+        // Modalità Ray Marching: va nei campi dedicati
+        ui->lineTexture->blockSignals(true);
+        ui->lineTexture->setPlainText(data.textureCode);
+        ui->lineTexture->blockSignals(false);
+        if (ui->glWidget) ui->glWidget->setTextureCode(data.textureCode);
+        SE_TEXP("common:RM-texture-del-record");
 
-        // Ancora della superficie: SEMPRE riscritta, anche a vuoto, come quella
-        // dello sfondo piu' sotto. Un record senza blocco "texture" non deve
-        // ereditare il nome della texture del record aperto prima.
-        m_currentTextureLibName.clear();
-        if (root.contains("texture")) {
-            QJsonObject tex = root["texture"].toObject();
-            if (tex.contains("enabled")) texEnabled = tex["enabled"].toBool();
+        // L'IMMAGINE si estrae da QUI, prima dello svuotamento: sotto,
+        // imgPath viene ricavato da texCode, che in questo ramo e' vuoto.
+        rmTexCodeForImage = data.textureCode;
 
-            // NOME della texture di libreria: e' cio' che permette all'albero di
-            // ritrovarla anche se il suo codice e' stato modificato dopo il
-            // salvataggio del record (vedi m_currentTextureLibName). I record
-            // piu' vecchi non hanno il campo: resta vuoto e il focus si decide
-            // per codice, come ha sempre fatto.
-            m_currentTextureLibName = tex.value("libName").toString().trimmed();
-
-            // 1. CARICAMENTO TEXTURE 2D (Energia/Colore)
-            if (tex.contains("code")) {
-                QString rawCode = tex["code"].toString();
-
-                if (isImplicit) {
-                    // Modalità Ray Marching: va nei campi dedicati
-                    ui->lineTexture->blockSignals(true);
-                    ui->lineTexture->setPlainText(rawCode);
-                    ui->lineTexture->blockSignals(false);
-                    if (ui->glWidget) ui->glWidget->setTextureCode(rawCode);
-                    SE_TEXP("common:RM-texture-del-record");
-
-                    // L'IMMAGINE si estrae da QUI, prima dello svuotamento:
-                    // sotto, imgPath viene ricavato da texCode, che in questo
-                    // ramo e' gia' vuoto.
-                    rmTexCodeForImage = rawCode;
-
-                    // FONDAMENTALE: svuotiamo texCode per evitare che inneschi la pipeline Parametrica più giù
-                    texCode = "";
-                } else {
-                    // Modalità Parametrica: segue il percorso classico
-                    texCode = rawCode;
-                    m_surfaceTextureCode = texCode;
-                }
-            }
-
-            // 2. CARICAMENTO DISPLACEMENT 3D (Bernoccoli)
-            if (tex.contains("displacement") && isImplicit) {
-                QString dispCode = tex["displacement"].toString();
-                ui->lineVariations->blockSignals(true);
-                ui->lineVariations->setPlainText(dispCode);
-                ui->lineVariations->blockSignals(false);
-                if (ui->glWidget) ui->glWidget->setDisplacementCode(dispCode);
-            } else {
-                ui->lineVariations->clear();
-                if (ui->glWidget) ui->glWidget->setDisplacementCode("");
-            }
-
-            if (tex.contains("col1")) m_texColor1 = QColor(tex["col1"].toString());
-            if (tex.contains("col2")) m_texColor2 = QColor(tex["col2"].toString());
-            if (tex.contains("zoom")) surfZoom = tex["zoom"].toDouble(1.0);
-            if (tex.contains("pan_x")) surfPanX = tex["pan_x"].toDouble(0.0);
-            if (tex.contains("pan_y")) surfPanY = tex["pan_y"].toDouble(0.0);
-            if (tex.contains("rotation")) surfRot = tex["rotation"].toDouble(0.0);
-        }
-
-        // Ancora dello sfondo: SEMPRE riscritta, anche a vuoto. Un record senza
-        // sfondo, o salvato prima che la chiave esistesse, non deve ereditare il
-        // nome dello sfondo del record aperto prima.
-        m_currentBgTextureLibName.clear();
-        m_currentBgTextureHintText.clear();
-        if (root.contains("background")) {
-            QJsonObject bg = root["background"].toObject();
-            m_currentBgTextureLibName = bg.value("libName").toString().trimmed();
-            // Messaggio dello sfondo: letto qui, PRIMA del showSceneHint in coda
-            // alla funzione, che lo compone con gli altri due.
-            m_currentBgTextureHintText    = bg.value("hintText").toString().trimmed();
-            m_currentBgTextureHintSeconds = (float)bg.value("hintSeconds").toDouble(6.0);
-            if (bg.contains("enabled")) bgTexEnabled = bg["enabled"].toBool();
-            if (bg.contains("code")) bgCode = bg["code"].toString();
-            if (bg.contains("col1")) loadedBgCol1 = QColor(bg["col1"].toString());
-            if (bg.contains("col2")) loadedBgCol2 = QColor(bg["col2"].toString());
-            if (bg.contains("zoom")) bgZoom = bg["zoom"].toDouble(1.0);
-            if (bg.contains("pan_x")) bgPanX = bg["pan_x"].toDouble(0.0);
-            if (bg.contains("pan_y")) bgPanY = bg["pan_y"].toDouble(0.0);
-            if (bg.contains("rotation")) bgRot = bg["rotation"].toDouble(0.0);
-            bgSkyMode = GLWidget::bgSkyModeFromName(bg.value("skyMode").toString());
-        }
-
-        if (!data.hasCamera3D) {
-            ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
-            ui->glWidget->setRotationQuat(QQuaternion());
-            ui->glWidget->setCameraYaw(0.0f);
-            ui->glWidget->setCameraPitch(0.0f);
-            ui->glWidget->setCameraRoll(0.0f);
-            ui->glWidget->addObjectRotation(30.0f, 30.0f, 0.0f);
-        } else {
-            ui->glWidget->setCameraPos(QVector3D(data.camX, data.camY, data.camZ));
-            ui->glWidget->setRotationQuat(QQuaternion(data.rotW, data.rotX, data.rotY, data.rotZ));
-            // Il quaternione di un RECORD e' un'istantanea intenzionale (l'utente
-            // l'ha ruotato cosi' e l'ha salvato): senza questo mark, l'avvio del
-            // path in coda al load (sez. 6 -> onDepartureClicked, primo Departure
-            // perche' m_anyPathStartedOnce e' appena stato resettato) passava per
-            // neutralizeDefaultRotationForPath e AZZERAVA la rotazione salvata --
-            // il record ricaricato appariva identico a quello di partenza. Il ramo
-            // sopra (record vecchi senza camera3D) resta neutralizzabile: quel
-            // tilt 30/30 e' davvero cosmetico.
-            ui->glWidget->markUserRotated();
-            ui->glWidget->setCameraYaw(data.camYaw);
-            ui->glWidget->setCameraPitch(data.camPitch);
-            ui->glWidget->setCameraRoll(data.camRoll);
-        }
-
-        if (root.contains("observer4D")) {
-            ui->glWidget->setObserverPos4D(root["observer4D"].toDouble(4.0));
-        }
-
-        // Moto camera attivo al salvataggio: guida l'avvio automatico piu' sotto
-        // (applyStartSideEffects). Nei record storici manca -> stringa vuota =
-        // cascata legacy; "none" (salvato a moti fermi) idem.
-        m_lastCameraMotion = root["activeMotion"].toString();
-        if (m_lastCameraMotion == "none") m_lastCameraMotion.clear();
-
-        if (root.contains("pathMode")) {
-            CameraPathMode loaded = static_cast<CameraPathMode>(root["pathMode"].toInt());
-            m_pathViewMode4D = loaded;
-            // I record nuovi salvano anche la vista del path 3D ("pathMode3D");
-            // quelli col solo "pathMode" (formato storico) la applicano a
-            // entrambe le modalita' per retrocompatibilita'.
-            m_pathViewMode3D = root.contains("pathMode3D")
-                    ? static_cast<CameraPathMode>(root["pathMode3D"].toInt())
-                    : loaded;
-        } else {
-            // Retrocompatibilità per i vecchi record salvati prima di questa modifica
-            m_pathViewMode4D = ModeTangential;
-            m_pathViewMode3D = ModeTangential;
-        }
-
-        // Aggiorniamo subito i testi dei pulsanti nella UI (ciascuno sulla sua modalita')
-        ui->pushView->setText(m_pathViewMode4D == ModeTangential ? "Tangent View" : "Center View");
-        ui->pushView3D->setText(m_pathViewMode3D == ModeTangential ? "Tangent View" : "Center View");
-        // Abilitazione coerente con lo stato dei path (a load fermo -> disabilitati).
-        updateViewButtonsEnabled();
-
-        if (root.contains("speeds")) {
-            QJsonObject spd = root["speeds"].toObject();
-
-            if (spd.contains("path3D")) ui->speed3DSlider->setValue(spd["path3D"].toInt());
-            else ui->speed3DSlider->setValue(0); // Reset per i vecchi file
-
-            if (spd.contains("path4D")) ui->speed4DSlider->setValue(spd["path4D"].toInt());
-            else ui->speed4DSlider->setValue(0); // Reset per i vecchi file
-        } else {
-            // Se il blocco speeds non esiste affatto
-            ui->speed3DSlider->setValue(0);
-            ui->speed4DSlider->setValue(0);
-        }
+        // FONDAMENTALE: svuotiamo texCode per evitare che inneschi la pipeline Parametrica più giù
+        texCode = "";
+    } else {
+        // Modalità Parametrica: segue il percorso classico
+        m_surfaceTextureCode = texCode;
     }
+
+    // 2. CARICAMENTO DISPLACEMENT 3D (Bernoccoli): solo in Ray Marching.
+    if (isImplicit) {
+        ui->lineVariations->blockSignals(true);
+        ui->lineVariations->setPlainText(data.displacementCode);
+        ui->lineVariations->blockSignals(false);
+        if (ui->glWidget) ui->glWidget->setDisplacementCode(data.displacementCode);
+    } else {
+        ui->lineVariations->clear();
+        if (ui->glWidget) ui->glWidget->setDisplacementCode("");
+    }
+
+    // Colori u_col1/u_col2 (i default dei membri se il record non li porta).
+    m_texColor1 = data.texColor1.isEmpty() ? QColor(Qt::white) : QColor(data.texColor1);
+    m_texColor2 = data.texColor2.isEmpty() ? QColor(Qt::black) : QColor(data.texColor2);
+
+    // --- SUONO, SFONDO, CAMERA E MOTI: dalla struttura, non piu' dal file ---
+    // Qui il load RILEGGEVA il JSON del record ("bypassiamo la limitazione della
+    // libreria": LibraryItem non portava sfondo, ancore e moti). Ora parseJson
+    // li legge tutti, con gli stessi default (tappa 3 dello "stato unico della
+    // scena"), e ogni campo viene riscritto SEMPRE: prima, se il file non si
+    // apriva, camera e moti restavano quelli del record precedente, e un record
+    // senza "observer4D" si teneva l'osservatore di quello aperto prima.
+
+    // Ancora del SUONO (vedi mainwindow.h): anche lei SEMPRE riscritta, e
+    // vuota nei record salvati prima che esistesse (focus per solo codice).
+    m_currentSoundLibName = data.soundLibName;
+
+    // Ancora dello sfondo: SEMPRE riscritta, anche a vuoto. Un record senza
+    // sfondo, o salvato prima che la chiave esistesse, non deve ereditare il
+    // nome dello sfondo del record aperto prima.
+    m_currentBgTextureLibName = data.bgLibName;
+    // Messaggio dello sfondo: scritto qui, PRIMA del showSceneHint in coda
+    // alla funzione, che lo compone con gli altri due.
+    m_currentBgTextureHintText    = data.bgHintText;
+    m_currentBgTextureHintSeconds = data.bgHintSeconds;
+    loadedBgCol1 = QColor(data.bgCol1);
+    loadedBgCol2 = QColor(data.bgCol2);
+    bgZoom = data.bgZoom;
+    bgPanX = data.bgPanX;
+    bgPanY = data.bgPanY;
+    bgRot = data.bgRotation;
+    bgSkyMode = GLWidget::bgSkyModeFromName(data.bgSkyMode);
+
+    if (!data.hasCamera3D) {
+        ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
+        ui->glWidget->setRotationQuat(QQuaternion());
+        ui->glWidget->setCameraYaw(0.0f);
+        ui->glWidget->setCameraPitch(0.0f);
+        ui->glWidget->setCameraRoll(0.0f);
+        ui->glWidget->addObjectRotation(30.0f, 30.0f, 0.0f);
+    } else {
+        ui->glWidget->setCameraPos(QVector3D(data.camX, data.camY, data.camZ));
+        ui->glWidget->setRotationQuat(QQuaternion(data.rotW, data.rotX, data.rotY, data.rotZ));
+        // Il quaternione di un RECORD e' un'istantanea intenzionale (l'utente
+        // l'ha ruotato cosi' e l'ha salvato): senza questo mark, l'avvio del
+        // path in coda al load (sez. 6 -> onDepartureClicked, primo Departure
+        // perche' m_anyPathStartedOnce e' appena stato resettato) passava per
+        // neutralizeDefaultRotationForPath e AZZERAVA la rotazione salvata --
+        // il record ricaricato appariva identico a quello di partenza. Il ramo
+        // sopra (record vecchi senza camera3D) resta neutralizzabile: quel
+        // tilt 30/30 e' davvero cosmetico.
+        ui->glWidget->markUserRotated();
+        ui->glWidget->setCameraYaw(data.camYaw);
+        ui->glWidget->setCameraPitch(data.camPitch);
+        ui->glWidget->setCameraRoll(data.camRoll);
+    }
+
+    ui->glWidget->setObserverPos4D(data.observer4D);
+
+    // Moto camera attivo al salvataggio: guida l'avvio automatico piu' sotto
+    // (applyStartSideEffects). Nei record storici manca -> stringa vuota =
+    // cascata legacy; "none" (salvato a moti fermi) idem.
+    m_lastCameraMotion = data.activeMotion;
+    if (m_lastCameraMotion == "none") m_lastCameraMotion.clear();
+
+    // Vista dei due path. I record col solo "pathMode" (formato storico) la
+    // applicano a entrambi, quelli senza nessuna delle due tornano a Tangent:
+    // lo decide parseJson.
+    m_pathViewMode4D = static_cast<CameraPathMode>(data.pathMode4D);
+    m_pathViewMode3D = static_cast<CameraPathMode>(data.pathMode3D);
+
+    // Aggiorniamo subito i testi dei pulsanti nella UI (ciascuno sulla sua modalita')
+    ui->pushView->setText(m_pathViewMode4D == ModeTangential ? "Tangent View" : "Center View");
+    ui->pushView3D->setText(m_pathViewMode3D == ModeTangential ? "Tangent View" : "Center View");
+    // Abilitazione coerente con lo stato dei path (a load fermo -> disabilitati).
+    updateViewButtonsEnabled();
+
+    // Velocita' dei path (0 nei file vecchi senza la chiave).
+    ui->speed3DSlider->setValue(data.speedPath3D);
+    ui->speed4DSlider->setValue(data.speedPath4D);
 
     // SEPARAZIONE IMMEDIATA AUDIO-GRAFICA
     // Recuperiamo il codice 2D corretto in base alla modalità corrente
@@ -19134,11 +19098,13 @@ QString MainWindow::extractAndResolveImagePath(const QString& scriptCode) {
 // Esiste per un motivo solo: l'avviso deve poter partire quando a schermo c'e'
 // ancora il record PRECEDENTE, e per farlo serve conoscere i percorsi senza aver
 // modificato nulla. Ricalcola quindi texCode/bgCode come fa applyMotionExample
-// (stessa priorita' data -> JSON, stessa pulizia dei blocchi audio), ma sulle
-// proprie copie locali: qui non si tocca ne' la UI ne' il glWidget. NON si
-// replica invece lo svuotamento di texCode che il caricamento fa in Ray
-// Marching: li' serve a non innescare la pipeline parametrica, qui renderebbe
-// cieca la scansione proprio sui record implicit (vedi sotto).
+// (dalla struttura `data`, stessa pulizia dei blocchi audio), ma sulle proprie
+// copie locali: qui non si tocca ne' la UI ne' il glWidget. NON si replica
+// invece lo svuotamento di texCode che il caricamento fa in Ray Marching: li'
+// serve a non innescare la pipeline parametrica, qui renderebbe cieca la
+// scansione proprio sui record implicit -- dove il codice va in lineTexture ma
+// PUO' portare un tag //IMG:, perche' il ramo Library lo antepone allo script
+// triplanare quando la si sceglie da un'immagine.
 //
 // Il risultato viene passato al caricamento, che deve comunque togliere il tag
 // //IMG: dal codice: la scansione e' UNA e l'avviso e' UNO.
@@ -19146,37 +19112,11 @@ MainWindow::MissingImageScan MainWindow::scanRecordForMissingImages(const Librar
 {
     MissingImageScan scan;
 
-    bool texEnabled = data.textureEnabled;
+    // Dalla struttura, come il caricamento (che non rilegge piu' il file).
+    const bool texEnabled = data.textureEnabled;
     QString texCode = data.textureCode;
-    bool bgTexEnabled = data.bgTextureEnabled;
+    const bool bgTexEnabled = data.bgTextureEnabled;
     QString bgCode = data.bgTextureCode;
-
-    // Il JSON ha la precedenza su data, esattamente come nel caricamento.
-    QFile file(data.filePath);
-    if (file.open(QIODevice::ReadOnly)) {
-        const QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
-
-        if (root.contains("texture")) {
-            const QJsonObject tex = root["texture"].toObject();
-            if (tex.contains("enabled")) texEnabled = tex["enabled"].toBool();
-            if (tex.contains("code")) {
-                // ANCHE in Ray Marching, dove il codice va nei campi dedicati
-                // (lineTexture) invece che in texCode: la texture RM PUO'
-                // portare un tag //IMG:, perche' il ramo Library lo antepone
-                // allo script triplanare quando la si sceglie da un'immagine.
-                // Svuotare qui il codice in RM rendeva la scansione cieca
-                // proprio sui record implicit: l'immagine mancava, la
-                // superficie si caricava senza, e nessun avviso lo diceva.
-                texCode = tex["code"].toString();
-            }
-        }
-
-        if (root.contains("background")) {
-            const QJsonObject bg = root["background"].toObject();
-            if (bg.contains("enabled")) bgTexEnabled = bg["enabled"].toBool();
-            if (bg.contains("code")) bgCode = bg["code"].toString();
-        }
-    }
 
     // Le direttive audio vengono tolte dai codici grafici prima del controllo,
     // come nel caricamento: un //MUSIC: in mezzo non c'entra con le immagini,
