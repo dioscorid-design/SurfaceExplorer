@@ -1400,6 +1400,9 @@ private:
     // che dicono perche' quando e' spento. Chiamata da updateRenderState e da
     // onColorTargetChanged (vedi la definizione per il perche' di entrambe).
     void updateBackgroundControlsGate();
+    // Il contrario: comandi della SUPERFICIE spenti col bersaglio Background.
+    // Ultima chiamata di updateRenderState (vedi la definizione).
+    void updateSurfaceControlsGate();
     // COMANDO: l'utente ha cliccato un radio Base/Phong/Wireframe. E' l'unico
     // punto che puo' scrivere una modalita' PROPRIA sulla mesh selezionata; con
     // "All" agisce sul globale come da sempre. Tenuto separato dal DISPLAY (i

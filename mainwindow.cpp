@@ -6849,9 +6849,37 @@ void MainWindow::updateRenderState()
     // La misura sul T^3 che aveva motivato il gate riguardava il tetto di
     // marchNextLayer, non questi due valori.
 
-    // Ultimo blocco della funzione: sovrascrive di proposito le decisioni prese
-    // qui sopra, che presuppongono tutte una superficie a schermo.
+    // Ultimi blocchi della funzione: sovrascrivono di proposito le decisioni
+    // prese qui sopra, che presuppongono tutte una superficie a schermo e
+    // l'editing della superficie.
     applyEmptySceneGating();
+    updateSurfaceControlsGate();
+}
+
+// COMANDI DELLA SUPERFICIE SPENTI MENTRE SI EDITA LO SFONDO (radio Background in
+// cima al dock RENDERER), fino al ritorno su Surface. Speculare a
+// updateBackgroundControlsGate. Si spengono modo di resa e densita' wireframe,
+// trasparenza, luce e Headlight: nessuno agisce sullo sfondo, e restando accesi
+// sembravano comandi dello sfondo. Restano accesi texture e Color 1/2 (in
+// Background sono quelli dello sfondo), gli slider RGB (colore dello sfondo) e
+// il FOV (camera: inquadra anche il cielo). L'ambito All/Mesh lo spegne gia'
+// updateMeshScopeEnabled.
+// panelSurface non ha altre regole e si commuta direttamente: i figli spenti di
+// proposito (Wireframe in Ray Marching, densita' fuori dal wireframe, radio a
+// scena vuota) restano spenti, perche' Qt ricorda chi e' stato disabilitato
+// esplicitamente. Trasparenza, luce e Headlight hanno invece regole loro su
+// QUESTI contenitori (updateRenderState qui sopra, applyEmptySceneGating): qui
+// si spengono soltanto, per ultimi; tornando su Surface li rimette a posto
+// updateRenderState, che l'handler di radioBackground chiama.
+void MainWindow::updateSurfaceControlsGate()
+{
+    const bool onBackground = ui->radioBackground && ui->radioBackground->isChecked();
+    if (ui->panelSurface) ui->panelSurface->setEnabled(!onBackground);
+    if (!onBackground) return;
+    for (QWidget *w : { static_cast<QWidget*>(ui->lblTrans), static_cast<QWidget*>(ui->panelSliderTrans),
+                        static_cast<QWidget*>(ui->lblLight), static_cast<QWidget*>(ui->widget_2),
+                        static_cast<QWidget*>(ui->lblFill),  static_cast<QWidget*>(ui->widgetFill) })
+        if (w) w->setEnabled(false);
 }
 
 // Gate dei controlli di RESA sulla scena vuota. Sede unica, chiamata sia da

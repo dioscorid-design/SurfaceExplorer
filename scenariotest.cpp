@@ -274,6 +274,42 @@ void ScenarioTest::checkBackground(const QString &step, const QString &expectedI
                                   bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
 }
 
+void ScenarioTest::checkSurfaceControls(const QString &step)
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    const bool onBg = ui->radioBackground->isChecked();
+    const bool rm   = ui->tabModeSelector->currentIndex() == 1;
+    const bool wire = !rm && ui->radioWF->isChecked();
+
+    // isEnabled() tiene conto dei contenitori: e' cio' che l'utente puo' cliccare.
+    struct Want { const char *name; QWidget *w; bool on; };
+    const QList<Want> wants = {
+        { "Base",               ui->radioBasic,      !onBg },
+        { "Phong",              ui->radioPhong,      !onBg },
+        { "Wireframe",          ui->radioWF,         !onBg && !rm },
+        { "densita' wireframe", ui->btnWireUPlus,    !onBg && wire },
+        { "Light",              ui->lightSlider,     !onBg && !wire },
+        { "Headlight",          ui->fillLightSlider, !onBg && rm },
+        { "FOV",                ui->fovSliderMain,   true },
+        // Gli slider RGB no: in Background seguono la texture dello sfondo
+        // (spenti se e' un'immagine, che non usa colori) -- onColorTargetChanged.
+    };
+    QStringList bad;
+    for (const Want &x : wants)
+        if (x.w && x.w->isEnabled() != x.on)
+            bad << QStringLiteral("%1 %2 (atteso %3)").arg(QString::fromLatin1(x.name),
+                                                           x.w->isEnabled() ? QStringLiteral("acceso") : QStringLiteral("spento"),
+                                                           x.on ? QStringLiteral("acceso") : QStringLiteral("spento"));
+    // Trasparenza: spenta in Background; su Surface ha anche la guardia dei
+    // campi a prodotto in RM (syncImplicitAlphaSlider), quindi solo il caso spento.
+    if (onBg && ui->alphaSlider->isEnabled())
+        bad << QStringLiteral("Transparency accesa (attesa spenta)");
+
+    check(bad.isEmpty(), QStringLiteral("%1 -> comandi superficie %2%3")
+                             .arg(step, onBg ? QStringLiteral("spenti") : QStringLiteral("accesi"),
+                                  bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+}
+
 QString ScenarioTest::presetDisplacement(const QString &rel, LibraryType type)
 {
     LibraryManager lm;
@@ -543,6 +579,28 @@ void ScenarioTest::run()
     const QString kClifford6 = QStringLiteral("records/Solid Wireframe/Multi Mesh/Clifford 6-Tubes Rotation.json");
     if (loadRecord(kClifford6))
         checkBackground(QStringLiteral("Clifford 6-Tubes Rotation (sfondo spento)"));
+
+    // ---------------------------------------------------------------------
+    // COMANDI DELLA SUPERFICIE col bersaglio Background: spenti fino al ritorno
+    // su Surface, senza perdere le regole proprie (wireframe, Ray Marching).
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Comandi della superficie in Background =="));
+    if (loadRecord(QString::fromLatin1(kParametricRecord))) {
+        if (!ui->radioSurface->isChecked()) click(ui->radioSurface);
+        checkSurfaceControls(QStringLiteral("parametrico, Surface"));
+        click(ui->radioBackground); checkSurfaceControls(QStringLiteral("Background"));
+        click(ui->radioSurface);    checkSurfaceControls(QStringLiteral("di nuovo Surface"));
+        click(ui->radioWF);         checkSurfaceControls(QStringLiteral("Wireframe"));
+        click(ui->radioBackground); checkSurfaceControls(QStringLiteral("Background dal wireframe"));
+        click(ui->radioSurface);    checkSurfaceControls(QStringLiteral("Surface, ancora in wireframe"));
+        click(ui->radioBasic);      checkSurfaceControls(QStringLiteral("Base"));
+    }
+    if (loadRecord(QString::fromLatin1(kImplicitRecord))) {
+        if (!ui->radioSurface->isChecked()) click(ui->radioSurface);
+        checkSurfaceControls(QStringLiteral("Ray Marching, Surface"));
+        click(ui->radioBackground); checkSurfaceControls(QStringLiteral("Background"));
+        click(ui->radioSurface);    checkSurfaceControls(QStringLiteral("di nuovo Surface"));
+    }
 
     finish();
 }

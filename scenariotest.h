@@ -69,6 +69,12 @@ private:
     // caricata nel motore. `expectedImage`, se non nullo, e' il nome del file
     // atteso a schermo ("" = la default).
     void checkBackground(const QString &step, const QString &expectedImage = QString());
+    // I comandi della SUPERFICIE nel dock RENDERER dopo il gesto `step`: in
+    // Background spenti (modo di resa, densita', trasparenza, luce, Headlight),
+    // FOV acceso; su Surface di nuovo secondo le regole normali
+    // (Wireframe solo in parametrico, densita' solo in wireframe, luce spenta in
+    // wireframe, Headlight solo in Ray Marching).
+    void checkSurfaceControls(const QString &step);
     // Il codice di displacement di un preset della libreria (come lo legge l'app).
     QString presetDisplacement(const QString &rel, LibraryType type);
     // Come l'utente: slot Colore 1/2 col suo radio, poi i tre slider.
