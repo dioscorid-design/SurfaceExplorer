@@ -24,7 +24,8 @@ class MainWindow;
 //     uguale all'intenzione (quando si edita la superficie);
 //   - il Save scrive l'intenzione, in qualunque modalita' si salvi.
 // E sui COLORI u_col1/u_col2 (vedi checkTexColors), sul DISPLACEMENT
-// (checkDisplacement) e sull'immagine di SFONDO (checkBackground).
+// (checkDisplacement), sul CODICE della texture (checkTextureCode) e
+// sull'immagine di SFONDO (checkBackground).
 //
 //   SurfaceExplorer --scenario-test <radice preset> <cartella uscita>
 //
@@ -75,8 +76,27 @@ private:
     // (Wireframe solo in parametrico, densita' solo in wireframe, luce spenta in
     // wireframe, Headlight solo in Ray Marching).
     void checkSurfaceControls(const QString &step);
+    // Il CODICE della texture di superficie dopo il gesto `step`. Ray Marching:
+    // il campo lineTexture e il motore dicono la stessa cosa, salvo
+    // `pendingEdit` (campo modificato a mano, non ancora eseguito), e il Save
+    // scrive il campo. Parametrico: lo script (l'editor se mostra la texture,
+    // altrimenti il suo slot) e' quello applicato salvo `pendingEdit`, il motore
+    // compila l'applicato, il Save scrive lo script qualunque modulo mostri il
+    // dock; campo e motore Ray Marching vuoti. Si confronta la parte GRAFICA:
+    // senza audio e, in parametrico, senza tag //IMG:. `expected`, se non
+    // nullo, e' il codice atteso.
+    void checkTextureCode(const QString &step, const QString &expected = QString(),
+                          bool pendingEdit = false);
     // Il codice di displacement di un preset della libreria (come lo legge l'app).
     QString presetDisplacement(const QString &rel, LibraryType type);
+    // La parte grafica del codice texture di un preset (vedi checkTextureCode).
+    QString presetTextureCode(const QString &rel, LibraryType type, bool dropImage);
+    // Cio' che scriverebbe il Save del record in scena.
+    LibraryItem captureSave();
+    // Come un click sulla voce della Library Sounds, cercata per percorso.
+    bool selectSound(const QString &rel);
+    // Porta il dock Script sul modulo `mode` (MainWindow::ScriptMode) col suo tasto.
+    void setScriptMode(int mode);
     // Come l'utente: slot Colore 1/2 col suo radio, poi i tre slider.
     void setTexColorBySliders(bool slot2, const QColor &c);
     void finish();

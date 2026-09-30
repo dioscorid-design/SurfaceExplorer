@@ -19987,6 +19987,24 @@ QColor MainWindow::surfaceTexColor(int slot) const
     return slot == 2 ? g->globalTexColor2() : g->globalTexColor1();
 }
 
+QString MainWindow::surfaceTextureScript() const
+{
+    // L'editor mostra la texture di SUPERFICIE solo in modalita' Texture, sul
+    // bersaglio Surface e in ambito All: con una fascia selezionata mostra lo
+    // script della fascia, che vive nella MeshPart.
+    const bool editorShows = m_currentScriptMode == ScriptModeTexture
+                             && !ui->radioBackground->isChecked()
+                             && !(ui->glWidget && ui->glWidget->activeMeshPart() >= 0);
+    return editorShows ? ui->txtScriptEditor->toPlainText() : m_surfaceTextureScriptText;
+}
+
+QString MainWindow::backgroundTextureScript() const
+{
+    const bool editorShows = m_currentScriptMode == ScriptModeTexture
+                             && ui->radioBackground->isChecked();
+    return editorShows ? ui->txtScriptEditor->toPlainText() : m_bgTextureScriptText;
+}
+
 bool MainWindow::activeTextureUsesColorToken(const QString &token) const
 {
     if (ui->radioBackground->isChecked()) {

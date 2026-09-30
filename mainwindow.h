@@ -1333,6 +1333,17 @@ private:
     // riallineati a mano a ogni cambio di fascia: su una fascia senza colori
     // propri restavano quelli della fascia guardata prima.
     QColor surfaceTexColor(int slot) const;
+    // SCRIPT della texture di superficie / di sfondo (parametrico): cio' che
+    // l'utente ha scritto, eseguito o no -- l'INTENZIONE, quella che il Save
+    // scrive. E' l'editor del dock Script quando mostra quella texture,
+    // altrimenti il suo slot (m_surfaceTextureScriptText /
+    // m_bgTextureScriptText), dove l'editor la parcheggia quando passa ad altro.
+    // Solo lettura: la copia APPLICATA (m_surfaceTextureCode / m_bgTextureCode)
+    // la scrive solo chi la manda al motore. Prima il Save ci travasava
+    // l'editor, e dopo un salvataggio uno script mai eseguito risultava
+    // applicato mentre il motore disegnava ancora il vecchio.
+    QString surfaceTextureScript() const;
+    QString backgroundTextureScript() const;
     // true quando gli slider RGB stanno editando un colore della TEXTURE
     // (sfondo o superficie) e non il colore della superficie stessa. Replica la
     // scelta di destinatario fatta da handleColorChange: serve a marcare il

@@ -3284,7 +3284,20 @@ void GLWidget::setTextureCode(const QString& code) {
 
     QShader shader = baker.bake();
     if (!shader.isValid()) {
-        // Rollback silenzioso
+        // Stessa regola di setDisplacementCode: TOGLIERE la texture non puo'
+        // essere la causa dell'errore, e' il resto dello shader RM a non
+        // compilare in questo istante (load di un record parametrico, equazione
+        // implicita gia' svuotata). Col rollback il motore si teneva la texture
+        // del record RM aperto prima mentre il campo diceva vuoto (trovato dal
+        // test degli scenari). Il vuoto si registra sempre.
+        if (code.trimmed().isEmpty()) {
+            if (m_engineMode != ModeImplicit && m_pipelineImplicit) {
+                m_pipelineImplicit->destroy();
+                delete m_pipelineImplicit;
+                m_pipelineImplicit = nullptr;
+            }
+            return;
+        }
         m_textureCode = oldTex;
         return;
     }

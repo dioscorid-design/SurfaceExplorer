@@ -4,11 +4,12 @@
 #
 # Apre l'app (build Debug), carica alcuni record della libreria C/presets e
 # preme i controlli veri come farebbe l'utente -- checkbox Texture, Base/Phong/
-# Wireframe, Surface/Background, texture dalla Library, slider dei colori,
-# fasce di una multi-mesh, Run -- verificando dopo ogni gesto che le copie
-# dello stato della scena (motore, controlli, cio' che scriverebbe il Save)
-# restino coerenti: accensione della texture, colori u_col1/u_col2,
-# displacement del Ray Marching, immagine di sfondo. Dura circa un minuto.
+# Wireframe, Surface/Background, texture e suoni dalla Library, slider dei
+# colori, fasce di una multi-mesh, dock Script, Run -- verificando dopo ogni
+# gesto che le copie dello stato della scena (motore, controlli, cio' che
+# scriverebbe il Save) restino coerenti: accensione della texture, colori
+# u_col1/u_col2, codice della texture, displacement del Ray Marching,
+# immagine di sfondo. Dura circa un minuto e mezzo.
 #
 # Quando lanciarlo: dopo ogni modifica alla gestione della texture o dei
 # controlli di resa, e prima di un rilascio. E' la rete dei GESTI: il test dei

@@ -17,12 +17,38 @@
 #include <QMessageBox>
 #include <QRegularExpression>
 #include <QTimer>
+#include <QTreeWidgetItem>
 
 namespace {
 const char *kParametricRecord = "records/t_motions/3D/Dynamic Mobius Band.json";
 const char *kImplicitRecord   = "records/Ray Marching/Morphing Rosette.json";
 const char *kMultiMeshRecord  = "records/Solid Wireframe/Multi Mesh/Brieskorn-Pham (3,5).json";
 QString onOff(bool b) { return b ? QStringLiteral("on") : QStringLiteral("off"); }
+
+// La parte GRAFICA del codice di una texture: senza l'audio che viaggia con
+// lei (blocchi SOUND_BEGIN..SOUND_END, righe //MUSIC: e //SYNTH:) e, con
+// dropImage, senza il tag //IMG:. Stesse regole del Save (captureMotionState).
+QString graphicsOf(QString c, bool dropImage)
+{
+    static const QRegularExpression blockRe(R"(//\s*SOUND_BEGIN.*?//\s*SOUND_END\n?)",
+                                            QRegularExpression::DotMatchesEverythingOption
+                                                | QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression lineRe(R"(^\s*//\s*(MUSIC:|SYNTH:|SOUND_BEGIN|SOUND_END).*$\n?)",
+                                           QRegularExpression::MultilineOption
+                                               | QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression imgRe(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption);
+    while (c.contains(blockRe)) c.remove(blockRe);
+    c.remove(lineRe);
+    if (dropImage) c.remove(imgRe);
+    return c.trimmed();
+}
+
+QString briefCode(const QString &c)
+{
+    if (c.isEmpty()) return QStringLiteral("(vuoto)");
+    const QString first = c.section(QLatin1Char('\n'), 0, 0).simplified();
+    return QStringLiteral("\"%1\" (%2 car.)").arg(first.left(40)).arg(c.size());
+}
 } // namespace
 
 bool ScenarioTest::requested(const QStringList &args)
@@ -352,6 +378,109 @@ void ScenarioTest::checkDisplacement(const QString &step, const QString &expecte
                                   bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
 }
 
+LibraryItem ScenarioTest::captureSave()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    PresetSerializer::MotionRunState run;
+    run.rotating = gl->isAnimating();
+    run.path4D   = m_mw->pathTimer && m_mw->pathTimer->isActive();
+    run.path3D   = m_mw->pathTimer3D && m_mw->pathTimer3D->isActive();
+    return m_mw->m_presetSerializer->captureMotionState(m_record, run, true);
+}
+
+QString ScenarioTest::presetTextureCode(const QString &rel, LibraryType type, bool dropImage)
+{
+    LibraryManager lm;
+    const LibraryItem it = lm.parseJson(m_root + QLatin1Char('/') + rel, type);
+    // Le texture di libreria parametriche portano il codice in scriptCode, quelle
+    // Ray Marching in textureCode (scriptCode e' il ripiego dei preset vecchi):
+    // stessa scelta di handleTextureSelection.
+    return graphicsOf(it.textureCode.isEmpty() ? it.scriptCode : it.textureCode, dropImage);
+}
+
+bool ScenarioTest::selectSound(const QString &rel)
+{
+    const QList<LibraryItem> &list = m_mw->m_libraryManager.m_sounds;
+    for (int i = 0; i < list.size(); ++i) {
+        if (QDir::fromNativeSeparators(list.at(i).filePath).endsWith(rel)) {
+            // Come un click sulla voce dell'albero Sounds: l'indice viaggia nel ruolo UserRole+3.
+            QTreeWidgetItem item;
+            item.setData(0, Qt::UserRole + 3, i);
+            m_mw->onSoundItemClicked(&item, 0);
+            if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
+            wait(400);
+            return true;
+        }
+    }
+    check(false, QStringLiteral("suono non trovato nella libreria dell'app: ") + rel);
+    return false;
+}
+
+void ScenarioTest::setScriptMode(int mode)
+{
+    for (int i = 0; i < 3 && m_mw->m_currentScriptMode != mode; ++i) {
+        m_mw->onToggleScriptMode();
+        wait(100);
+    }
+}
+
+void ScenarioTest::checkTextureCode(const QString &step, const QString &expected, bool pendingEdit)
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    const bool rm = ui->tabModeSelector->currentIndex() == 1;
+    const QString saved = graphicsOf(captureSave().textureCode, /*dropImage=*/false);
+    const QString rmField  = ui->lineTexture->toPlainText().trimmed();
+    const QString rmEngine = gl->currentTextureCode().trimmed();
+
+    QStringList bad;
+    QString shown;
+    if (rm) {
+        // RAY MARCHING: il campo lineTexture e' l'intenzione (il Save lo scrive
+        // anche non eseguito, come ogni editor), il motore l'applicato.
+        shown = rmField;
+        if (!expected.isNull() && rmField != expected.trimmed())
+            bad << QStringLiteral("campo %1, atteso %2").arg(briefCode(rmField), briefCode(expected.trimmed()));
+        if (!pendingEdit && rmEngine != rmField)
+            bad << QStringLiteral("motore %1, campo %2").arg(briefCode(rmEngine), briefCode(rmField));
+        if (saved != rmField)
+            bad << QStringLiteral("il Save scriverebbe %1, campo %2").arg(briefCode(saved), briefCode(rmField));
+    } else {
+        // PARAMETRICO: l'intenzione e' lo script della texture di superficie --
+        // l'editor, se la sta mostrando, altrimenti il suo slot. L'applicato e'
+        // m_surfaceTextureCode, e il motore deve compilare quello (senza codice:
+        // la scacchiera di default, o niente sopra un'immagine).
+        if (!rmField.isEmpty() || !rmEngine.isEmpty())
+            bad << QStringLiteral("in parametrico: campo RM %1, motore RM %2")
+                       .arg(briefCode(rmField), briefCode(rmEngine));
+        const bool editorShows = m_mw->m_currentScriptMode == MainWindow::ScriptModeTexture
+                                 && !ui->radioBackground->isChecked() && gl->activeMeshPart() < 0;
+        const QString intent = graphicsOf(editorShows ? ui->txtScriptEditor->toPlainText()
+                                                      : m_mw->m_surfaceTextureScriptText, true);
+        const QString applied = graphicsOf(m_mw->m_surfaceTextureCode, true);
+        const QString engine  = graphicsOf(gl->currentParametricTextureCode(), true);
+        shown = intent;
+        if (!expected.isNull() && intent != expected.trimmed())
+            bad << QStringLiteral("editor %1, atteso %2").arg(briefCode(intent), briefCode(expected.trimmed()));
+        if (!pendingEdit && applied != intent)
+            bad << QStringLiteral("applicata %1, editor %2").arg(briefCode(applied), briefCode(intent));
+        if (m_mw->m_surfaceTextureState) {
+            const QString want = !applied.isEmpty() ? applied
+                               : m_mw->m_isImageMode ? QString()
+                                                     : m_mw->defaultMeshTextureCode();
+            if (engine != want)
+                bad << QStringLiteral("motore %1, applicata %2").arg(briefCode(engine), briefCode(want));
+        }
+        if (graphicsOf(saved, true) != intent)
+            bad << QStringLiteral("il Save scriverebbe %1, editor %2")
+                       .arg(briefCode(graphicsOf(saved, true)), briefCode(intent));
+    }
+
+    check(bad.isEmpty(), QStringLiteral("%1 -> codice %2%3")
+                             .arg(step, briefCode(shown),
+                                  bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+}
+
 void ScenarioTest::run()
 {
     Ui::MainWindow *ui = m_mw->ui;
@@ -601,6 +730,85 @@ void ScenarioTest::run()
         click(ui->radioBackground); checkSurfaceControls(QStringLiteral("Background"));
         click(ui->radioSurface);    checkSurfaceControls(QStringLiteral("di nuovo Surface"));
     }
+
+    // ---------------------------------------------------------------------
+    // CODICE DELLA TEXTURE, Ray Marching: campo lineTexture e motore insieme.
+    // Lo spegnimento prima della modifica a mano: con codice modificato il
+    // checkbox chiede conferma, e il popup chiuso vale Annulla.
+    const QString kSound = QStringLiteral("sounds/procedural/Alps.json");
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Codice texture: Ray Marching (%1) ==")
+                       .arg(QString::fromLatin1(kImplicitRecord)));
+    if (loadRecord(QString::fromLatin1(kImplicitRecord))) {
+        checkTextureCode(QStringLiteral("record caricato"),
+                         presetTextureCode(QString::fromLatin1(kImplicitRecord), LibraryType::Motion, false));
+        if (selectTexture(kFbm))
+            checkTextureCode(QStringLiteral("Fractal Noise FBm dalla Library"),
+                             presetTextureCode(kFbm, LibraryType::Texture, false));
+        if (selectTexture(QStringLiteral("textures/Images/14.png")))
+            checkTextureCode(QStringLiteral("immagine dalla Library"));
+        click(ui->chkBoxTexture);   checkTextureCode(QStringLiteral("texture spenta"), QStringLiteral(""));
+        click(ui->chkBoxTexture);   checkTextureCode(QStringLiteral("texture riaccesa (default)"));
+        if (selectSound(kSound))
+            checkTextureCode(QStringLiteral("suono dalla Library"));
+        const QString edited = QStringLiteral(
+            "textureCol = mix(ubuf.u_col1, ubuf.u_col2, 0.5 + 0.5 * sin(pModel.x * 8.0));");
+        ui->lineTexture->setPlainText(edited);  wait(200);
+        checkTextureCode(QStringLiteral("campo modificato a mano"), edited, /*pendingEdit=*/true);
+        m_mw->onStartClicked();  wait(800);
+        checkTextureCode(QStringLiteral("Run dopo la modifica"), edited);
+    }
+    if (loadRecord(QString::fromLatin1(kParametricRecord)))
+        checkTextureCode(QStringLiteral("poi un record parametrico"),
+                         presetTextureCode(QString::fromLatin1(kParametricRecord), LibraryType::Motion, true));
+    if (loadRecord(kTunnel))
+        checkTextureCode(QStringLiteral("poi Torus Tunnel"),
+                         presetTextureCode(kTunnel, LibraryType::Motion, false));
+
+    // ---------------------------------------------------------------------
+    // CODICE DELLA TEXTURE, parametrico: lo script del dock Script. Il Save
+    // scrive l'intenzione (l'editor, anche non eseguito) qualunque modulo il
+    // dock stia mostrando.
+    const QString kMandelbrot = QStringLiteral("textures/Procedurals/Mandelbrot.json");
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Codice texture: parametrico (%1) ==")
+                       .arg(QString::fromLatin1(kParametricRecord)));
+    if (loadRecord(QString::fromLatin1(kParametricRecord))) {
+        const QString recordCode =
+            presetTextureCode(QString::fromLatin1(kParametricRecord), LibraryType::Motion, true);
+        checkTextureCode(QStringLiteral("record caricato"), recordCode);
+        setScriptMode(MainWindow::ScriptModeTexture);
+        checkTextureCode(QStringLiteral("dock Script sulla texture"), recordCode);
+        const QString mandelbrot = presetTextureCode(kMandelbrot, LibraryType::Texture, true);
+        if (selectTexture(kMandelbrot))
+            checkTextureCode(QStringLiteral("Mandelbrot dalla Library"), mandelbrot);
+        if (selectTexture(QStringLiteral("textures/Images/14.png")))
+            checkTextureCode(QStringLiteral("immagine dalla Library"), QStringLiteral(""));
+        if (selectTexture(kMandelbrot))
+            checkTextureCode(QStringLiteral("Mandelbrot sopra l'immagine"), mandelbrot);
+        click(ui->chkBoxTexture);   checkTextureCode(QStringLiteral("texture spenta"), QStringLiteral(""));
+        click(ui->chkBoxTexture);   checkTextureCode(QStringLiteral("texture riaccesa (default)"), QStringLiteral(""));
+        if (selectTexture(kMandelbrot))
+            checkTextureCode(QStringLiteral("di nuovo Mandelbrot"), mandelbrot);
+        const QString edited = QStringLiteral("vec2 g = floor(vec2(u, v) * 4.0);\n"
+                                              "float c = mod(g.x + g.y, 2.0);\n"
+                                              "return mix(u_col2, u_col1, c);");
+        ui->txtScriptEditor->setPlainText(edited);  wait(200);
+        checkTextureCode(QStringLiteral("script modificato a mano"), edited, /*pendingEdit=*/true);
+        setScriptMode(MainWindow::ScriptModeSound);
+        checkTextureCode(QStringLiteral("dock Script passato al suono"), edited, true);
+        setScriptMode(MainWindow::ScriptModeTexture);
+        checkTextureCode(QStringLiteral("di nuovo sulla texture"), edited, true);
+        m_mw->onRunCurrentScript();  wait(800);
+        checkTextureCode(QStringLiteral("Run dello script"), edited);
+        if (selectSound(kSound))
+            checkTextureCode(QStringLiteral("suono dalla Library"), edited);
+        setScriptMode(MainWindow::ScriptModeSurface);
+        checkTextureCode(QStringLiteral("dock Script sulla superficie"), edited);
+    }
+    if (loadRecord(QString::fromLatin1(kImplicitRecord)))
+        checkTextureCode(QStringLiteral("poi un record Ray Marching"),
+                         presetTextureCode(QString::fromLatin1(kImplicitRecord), LibraryType::Motion, false));
 
     finish();
 }

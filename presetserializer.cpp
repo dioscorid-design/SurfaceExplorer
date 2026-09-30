@@ -738,25 +738,13 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
                    : !mw->m_lastCameraMotion.isEmpty() ? mw->m_lastCameraMotion
                                                        : QStringLiteral("none");
 
-    const bool isLookingAtBackground = mw->ui->radioBackground->isChecked();
-
-    // L'editor si travasa nei membri della texture di SUPERFICIE solo se sta
-    // davvero mostrando quella. Con una MESH selezionata mostra lo script della
-    // FASCIA, e copiarlo qui faceva diventare la texture di quella fascia la
-    // texture di superficie del preset (le per-mesh viaggiano in "meshParts").
-    // E' l'unica SCRITTURA della cattura: uno script scritto nell'editor e non
-    // ancora eseguito entra nel record, com'e' sempre stato.
-    const bool showingMeshTexture = gl && gl->activeMeshPart() >= 0;
-    if (mw->m_currentScriptMode == MainWindow::ScriptModeTexture && !showingMeshTexture) {
-        const QString editorText = mw->ui->txtScriptEditor->toPlainText();
-        if (isLookingAtBackground) {
-            mw->m_bgTextureCode = editorText;
-            mw->m_bgTextureScriptText = editorText;
-        } else {
-            mw->m_surfaceTextureCode = editorText;
-            mw->m_surfaceTextureScriptText = editorText;
-        }
-    }
+    // Codice delle texture parametriche: lo SCRIPT (surfaceTextureScript /
+    // backgroundTextureScript), cioe' l'editor se le mostra, altrimenti il loro
+    // slot. Uno script scritto e non ancora eseguito entra nel record, com'e'
+    // sempre stato, qualunque modulo il dock stia mostrando. La cattura non
+    // scrive piu' nulla: travasava l'editor nelle copie APPLICATE, e dopo un
+    // Save uno script mai eseguito risultava applicato (orologio, costanti e
+    // focus in Library lo giudicavano) mentre il motore disegnava il vecchio.
 
     // Accensione della texture di SUPERFICIE: l'INTENZIONE (m_surfaceTextureState),
     // l'unica copia che cambia solo col checkbox della superficie. Checkbox e
@@ -808,7 +796,7 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
         d.textureCode = implicitTex;
         d.displacementCode = mw->ui->lineVariations->toPlainText();
     } else {
-        QString code = mw->m_surfaceTextureCode;
+        QString code = mw->surfaceTextureScript();
         while (code.contains(blockRe)) code.remove(blockRe);
         code.remove(musicRe);
         code.remove(tagRe);
@@ -856,7 +844,7 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
     // dice QUALE si perde ai Run che riscrivono il codice. Senza "\n" in coda
     // per un'immagine PURA: e' la forma su cui il focus in Library fa match.
     {
-        QString bgCode = mw->m_bgTextureCode;
+        QString bgCode = mw->backgroundTextureScript();
         bgCode.remove(QRegularExpression(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption));
         bgCode = bgCode.trimmed();
         if (!mw->m_currentBgTexturePath.isEmpty()) {
@@ -1102,29 +1090,26 @@ void PresetSerializer::saveTexture(const QString &path)
     QString currentCode;
     bool isImplicit = (m_mainWindow->ui->tabModeSelector->currentIndex() == 1);
 
+    // Il codice BASE (senza tag immagine) in base al modo. Parametrico: lo
+    // SCRIPT, come nel Save dei record (vedi surfaceTextureScript); con una
+    // fascia selezionata e il dock sulla texture si salva cio' che l'editor
+    // mostra, lo script della fascia. Qui prima si travasava l'editor nelle
+    // copie APPLICATE (m_surfaceTextureCode / m_bgTextureCode): salvare una
+    // texture di fascia la faceva diventare la texture di superficie.
+    // Lo SFONDO non dipende dal modo (ha il suo shader): in Ray Marching col
+    // bersaglio Background si salvava il campo della texture di superficie.
     if (isImplicit && !isBg) {
-        // Se siamo in Ray Marching, leggi il codice direttamente dal box dell'interfaccia! +++
-        currentCode = m_mainWindow->ui->lineTexture->toPlainText();
-    } else {
-        // [Logica originale per le superfici parametriche]
-        if (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeTexture) {
-            currentCode = m_mainWindow->ui->txtScriptEditor->toPlainText();
-            if (isBg) m_mainWindow->m_bgTextureCode = currentCode;
-            else m_mainWindow->m_surfaceTextureCode = currentCode;
-        } else {
-            currentCode = isBg ? m_mainWindow->m_bgTextureCode : m_mainWindow->m_surfaceTextureCode;
-        }
-    }
-
-    // Determiniamo il codice BASE (senza tag immagine) in base al modo.
-    if (isImplicit) {
         // Se siamo in Ray Marching salviamo entrambi i campi
         currentCode = m_mainWindow->ui->lineTexture->toPlainText();
         root["displacement"] = m_mainWindow->ui->lineVariations->toPlainText();
         root["isImplicitMode"] = true; // Flag fondamentale per il caricamento
     } else {
-        // Logica Parametrica
-        currentCode = isBg ? m_mainWindow->m_bgTextureCode : m_mainWindow->m_surfaceTextureCode;
+        if (isBg)
+            currentCode = m_mainWindow->backgroundTextureScript();
+        else if (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeTexture)
+            currentCode = m_mainWindow->ui->txtScriptEditor->toPlainText();
+        else
+            currentCode = m_mainWindow->surfaceTextureScript();
         root["isImplicitMode"] = false;
     }
 
@@ -1136,8 +1121,13 @@ void PresetSerializer::saveTexture(const QString &path)
     // duplicati, poi lo rimettiamo pulito in cima.
     QRegularExpression imgRe(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption);
     currentCode.remove(imgRe);
-    if (m_mainWindow->m_isImageMode && !m_mainWindow->m_currentTexturePath.isEmpty()) {
-        currentCode = "//IMG:" + m_mainWindow->m_currentTexturePath + "\n" + currentCode.trimmed();
+    // L'immagine del bersaglio: lo sfondo ha il suo percorso (prima si metteva
+    // quella della superficie anche salvando lo sfondo).
+    const QString imagePath = isBg ? m_mainWindow->m_currentBgTexturePath
+                            : m_mainWindow->m_isImageMode ? m_mainWindow->m_currentTexturePath
+                                                          : QString();
+    if (!imagePath.isEmpty()) {
+        currentCode = "//IMG:" + imagePath + "\n" + currentCode.trimmed();
     }
 
     if (currentCode.trimmed().isEmpty()) currentCode = "// Texture Preset";
