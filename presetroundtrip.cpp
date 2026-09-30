@@ -220,8 +220,14 @@ void PresetRoundTrip::closeModalDialogs()
 {
     QWidget *w = QApplication::activeModalWidget();
     if (!w) return;
-    QString desc = w->windowTitle();
+    // Solo i popup di ERRORE (icona Critical: limiti, shader, equazioni)
+    // contano come difetto del caricamento. Gli avvisi (immagine o suono
+    // mancante, costanti condivise fra superficie e texture) sono voluti e si
+    // elencano soltanto.
+    QString desc = QStringLiteral("[avviso] ") + w->windowTitle();
     if (auto *mb = qobject_cast<QMessageBox *>(w)) {
+        if (mb->icon() == QMessageBox::Critical)
+            desc = QStringLiteral("[errore] ") + w->windowTitle();
         desc += QStringLiteral(": ") + mb->text();
         if (!mb->informativeText().isEmpty())
             desc += QStringLiteral(" / ") + mb->informativeText();
@@ -255,7 +261,14 @@ void PresetRoundTrip::collect()
         files.sort(Qt::CaseInsensitive);
         for (const QString &f : files) {
             const QString rel = QDir(m_root).relativeFilePath(f);
-            if (!m_filter.isEmpty() && !rel.contains(m_filter, Qt::CaseInsensitive)) continue;
+            // Piu' filtri separati da '|': basta che uno combaci. Serve a
+            // riprodurre una sequenza precisa ("Kerr|Wormhole").
+            if (!m_filter.isEmpty()) {
+                bool match = false;
+                for (const QString &f : m_filter.split(QLatin1Char('|'), Qt::SkipEmptyParts))
+                    if (rel.contains(f, Qt::CaseInsensitive)) match = true;
+                if (!match) continue;
+            }
             m_entries.append({ f, rel, b.isRecord });
         }
     }
@@ -287,7 +300,7 @@ PresetRoundTrip::Capture PresetRoundTrip::loadAndCapture(const Entry &e)
     const LibraryItem item = lm.parseJson(e.path, e.isRecord ? LibraryType::Motion
                                                              : LibraryType::Surface);
     if (item.name.isEmpty()) {
-        c.dialogs.append(QStringLiteral("NON CARICABILE: la libreria non lo mostrerebbe"));
+        c.dialogs.append(QStringLiteral("[errore] NON CARICABILE: la libreria non lo mostrerebbe"));
         m_currentDialogs = nullptr;
         return c;
     }
@@ -329,10 +342,13 @@ void PresetRoundTrip::run()
             .arg(m_singlePass ? QStringLiteral(", un solo passaggio") : QString()));
 
     const int n = m_entries.size();
+    QString previous;
     for (int i = 0; i < n; ++i) {
         const Entry &e = m_entries.at(i);
         log(QStringLiteral("A %1/%2 %3").arg(i + 1).arg(n).arg(e.rel));
-        const Capture c = loadAndCapture(e);
+        Capture c = loadAndCapture(e);
+        c.previous = previous;
+        previous = e.rel;
         writeJsonFile(m_outDir + QStringLiteral("/passA/") + e.rel, c.json);
         m_passA.insert(e.rel, c);
     }
@@ -340,7 +356,9 @@ void PresetRoundTrip::run()
         for (int i = n - 1; i >= 0; --i) {
             const Entry &e = m_entries.at(i);
             log(QStringLiteral("B %1/%2 %3").arg(n - i).arg(n).arg(e.rel));
-            const Capture c = loadAndCapture(e);
+            Capture c = loadAndCapture(e);
+            c.previous = previous;
+            previous = e.rel;
             writeJsonFile(m_outDir + QStringLiteral("/passB/") + e.rel, c.json);
             m_passB.insert(e.rel, c);
         }
@@ -359,6 +377,31 @@ QString PresetRoundTrip::excusedBecause(const QString &key, int kind, bool white
         return QStringLiteral("chiave obsoleta");
     if (key.startsWith(QLatin1String("constants/")) && c.unusedConstants.contains(key.mid(10)))
         return QStringLiteral("costante non usata");
+    // Composizione e vincoli di un preset con SCRIPT: il load li svuota (lo
+    // script da' la geometria, il motore li azzera), quindi un valore nel file
+    // e' un residuo che il Save ripulisce.
+    if (!c.json.value(QStringLiteral("scriptCode")).toString().isEmpty()) {
+        static const QStringList comp = {
+            QStringLiteral("equations/defU"), QStringLiteral("equations/defV"),
+            QStringLiteral("equations/defW"), QStringLiteral("equations/explicitU"),
+            QStringLiteral("equations/explicitV"), QStringLiteral("equations/explicitW"),
+        };
+        if (comp.contains(key)) return QStringLiteral("composizione ignorata con uno script");
+    }
+    // Path in moto al Save: la camera 3D la muove il path a ogni tick (e con
+    // il path 4D anche angoli e osservatore 4D), e al reload il path la
+    // ricalcola dal primo tick. Il valore nel file e' la foto di un istante:
+    // Clifford Labyrinth salvava yaw +90 o -90 a seconda del lato del path.
+    {
+        const QString motion = c.json.value(QStringLiteral("activeMotion")).toString();
+        const bool path4D = motion == QLatin1String("path4D");
+        if ((path4D || motion == QLatin1String("path3D"))
+            && key.startsWith(QLatin1String("camera3D/")))
+            return QStringLiteral("camera guidata dal path");
+        if (path4D && (key.startsWith(QLatin1String("angles/"))
+                       || key == QLatin1String("observer4D")))
+            return QStringLiteral("4D guidato dal path");
+    }
     // Ray Marching fuori dal Cross Section: angoli e velocita' 4D non hanno
     // effetto e il Save li azzera di proposito (vedi keep4DAngles in
     // buildMotionJson).
@@ -401,7 +444,7 @@ void PresetRoundTrip::writeReport()
     struct KeyStat { int count = 0; QStringList examples; };
     QMap<QString, KeyStat> saveByKey, orderByKey, movingByKey;
     QStringList details, popups;
-    int identical = 0, saveChanged = 0, orderDependent = 0, notLoadable = 0;
+    int identical = 0, saveChanged = 0, orderDependent = 0, notLoadable = 0, withPopups = 0;
 
     auto bump = [](QMap<QString, KeyStat> &m, const QString &key, const QString &rel) {
         KeyStat &s = m[key];
@@ -419,7 +462,21 @@ void PresetRoundTrip::writeReport()
 
     for (const Entry &e : m_entries) {
         const Capture &a = m_passA[e.rel];
-        for (const QString &p : a.dialogs) popups.append(e.rel + QStringLiteral(": ") + p);
+        // Un popup durante un caricamento e' sempre un difetto (il load si
+        // ferma a meta' finche' l'utente non lo chiude): conta, in tutti e due
+        // i passaggi, con il predecessore che serve a riprodurlo.
+        bool popped = false;
+        const Capture *bp = m_passB.contains(e.rel) ? &m_passB[e.rel] : nullptr;
+        for (const Capture *c : { &a, bp }) {
+            if (!c) continue;
+            for (const QString &p : c->dialogs) {
+                popups.append(QStringLiteral("%1 (dopo %2): %3")
+                                  .arg(e.rel, c->previous.isEmpty() ? QStringLiteral("l'avvio")
+                                                                    : c->previous, p));
+                if (!p.startsWith(QLatin1String("[avviso]"))) popped = true;
+            }
+        }
+        if (popped) ++withPopups;
         if (a.json.isEmpty()) { ++notLoadable; continue; }
 
         QSet<QString> moving = a.moving;
@@ -493,6 +550,7 @@ void PresetRoundTrip::writeReport()
         << QStringLiteral("Il Save cambia o perde qualcosa:                             %1").arg(saveChanged)
         << QStringLiteral("Dipendono dal preset caricato prima:                         %1").arg(orderDependent)
         << QStringLiteral("Non caricabili:                                              %1").arg(notLoadable)
+        << QStringLiteral("Con un popup di errore al caricamento:                       %1").arg(withPopups)
         << QString()
         << QStringLiteral("== DIPENDONO DAL PRESET PRECEDENTE, per chiave (numero di preset) ==")
         << summary(orderByKey)
@@ -503,7 +561,7 @@ void PresetRoundTrip::writeReport()
         << QStringLiteral("== CHIAVI IN MOTO, escluse dal confronto (cambiano fra due catture a 250 ms) ==")
         << summary(movingByKey)
         << QString()
-        << QStringLiteral("== POPUP CHIUSI DAL TEST DURANTE IL PASSAGGIO A ==");
+        << QStringLiteral("== POPUP DURANTE IL CARICAMENTO (chiusi dal test) ==");
     if (popups.isEmpty()) rep << QStringLiteral("  nessuno");
     for (const QString &p : popups) rep << QStringLiteral("  ") + p;
     rep << QString() << QStringLiteral("== DETTAGLIO PER PRESET ==") << details;
@@ -512,10 +570,12 @@ void PresetRoundTrip::writeReport()
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
         f.write(rep.join(QLatin1Char('\n')).toUtf8() + '\n');
 
-    const bool pass = (saveChanged == 0 && orderDependent == 0 && notLoadable == 0);
-    log(QStringLiteral("fine: %1 identici su %2, Save diverso %3, dipendenti dall'ordine %4. Report: %5")
+    const bool pass = (saveChanged == 0 && orderDependent == 0 && notLoadable == 0
+                       && withPopups == 0);
+    log(QStringLiteral("fine: %1 identici su %2, Save diverso %3, dipendenti dall'ordine %4, "
+                       "con popup %5. Report: %6")
             .arg(identical).arg(n - notLoadable).arg(saveChanged).arg(orderDependent)
-            .arg(f.fileName()));
+            .arg(withPopups).arg(f.fileName()));
     m_modalWatcher->stop();
     QCoreApplication::exit(pass ? 0 : 1);
 }

@@ -31,7 +31,7 @@ class QTimer;
 // ricostruiti nella cartella di uscita. Si lancia solo da riga di comando:
 //
 //   SurfaceExplorer --roundtrip-test <radice preset> <cartella uscita>
-//                   [--filter <testo>] [--settle <ms>] [--single-pass]
+//                   [--filter <testo>[|<testo>...]] [--settle <ms>] [--single-pass]
 //
 // La radice e' quella che contiene surfaces/ e records/. Esce con codice 0 se
 // tutti i preset tornano identici, 1 altrimenti.
@@ -52,6 +52,7 @@ private:
         QJsonObject json;
         QSet<QString> moving;   // chiavi cambiate fra le due catture
         QStringList dialogs;    // popup chiusi dal test durante il caricamento
+        QString previous;       // preset caricato subito prima (per riprodurre)
         quint64 errors = 0;     // errori segnalati da InputValidator
         // Costanti col campo spento dopo il caricamento: per l'app non le usa
         // nessun codice (updateConstantsUIState), e le riporta al default.
