@@ -15,16 +15,16 @@
 #   - dopo aver sistemato molti preset.
 #
 # Uso:
-#   ./ExC/Mac/roundtrip-test.sh                          tutta la libreria C/presets
-#   ./ExC/Mac/roundtrip-test.sh --filter "Paths|Kerr"    solo i preset che combaciano
-#   ./ExC/Mac/roundtrip-test.sh --single-pass            un solo passaggio (meta' tempo,
+#   ./ExC/Mac/Test/roundtrip-test.sh                          tutta la libreria C/presets
+#   ./ExC/Mac/Test/roundtrip-test.sh --filter "Paths|Kerr"    solo i preset che combaciano
+#   ./ExC/Mac/Test/roundtrip-test.sh --single-pass            un solo passaggio (meta' tempo,
 #                                                        niente controllo dell'ordine)
-#   ./ExC/Mac/roundtrip-test.sh --data-only              SOLO DATI, pochi secondi: file ->
+#   ./ExC/Mac/Test/roundtrip-test.sh --data-only              SOLO DATI, pochi secondi: file ->
 #                                                        parser -> Save, senza caricare nulla
 #                                                        nell'app. Trova cio' che il parser
 #                                                        legge ma il Save non scrive (o
 #                                                        viceversa); non vede i bug del load.
-#   PRESETS=/altra/libreria ./ExC/Mac/roundtrip-test.sh
+#   PRESETS=/altra/libreria ./ExC/Mac/Test/roundtrip-test.sh
 #
 # Report in build/test-reports/roundtrip-<data>/report.txt (roundtrip-dati-<data>
 # con --data-only), aperto alla fine.
@@ -35,8 +35,8 @@
 
 set -euo pipefail
 
-# --- root del progetto: lo script vive in ExC/Mac/, la root e' due cartelle sopra ---
-PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+# --- root del progetto: lo script vive in ExC/Mac/Test/, la root e' tre cartelle sopra ---
+PROJECT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 BIN="${BIN:-$PROJECT_DIR/build/Desktop_Qt_6_10-Debug/SurfaceExplorer.app/Contents/MacOS/SurfaceExplorer}"
 # La libreria su cui si lavora e' C/presets, accanto al repo (NON quella dentro il repo).
 PRESETS="${PRESETS:-$(cd "$PROJECT_DIR/.." && pwd)/presets}"

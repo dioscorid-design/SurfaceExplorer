@@ -17,15 +17,15 @@
 # che a schermo non si vedono.
 #
 # Uso:
-#   ./ExC/Mac/clock-test.sh
-#   PRESETS=/altra/libreria ./ExC/Mac/clock-test.sh
+#   ./ExC/Mac/Test/clock-test.sh
+#   PRESETS=/altra/libreria ./ExC/Mac/Test/clock-test.sh
 #
 # Report in build/test-reports/clock-<data>/clock-report.txt, stampato alla fine.
 
 set -euo pipefail
 
-# --- root del progetto: lo script vive in ExC/Mac/, la root e' due cartelle sopra ---
-PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+# --- root del progetto: lo script vive in ExC/Mac/Test/, la root e' tre cartelle sopra ---
+PROJECT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 BIN="${BIN:-$PROJECT_DIR/build/Desktop_Qt_6_10-Debug/SurfaceExplorer.app/Contents/MacOS/SurfaceExplorer}"
 # La libreria su cui si lavora e' C/presets, accanto al repo (NON quella dentro il repo).
 PRESETS="${PRESETS:-$(cd "$PROJECT_DIR/.." && pwd)/presets}"

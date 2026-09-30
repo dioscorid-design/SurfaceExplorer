@@ -23,18 +23,18 @@
 # anche il comportamento di QSettings e dei percorsi salvati e' identico.
 #
 # Uso:
-#   ./ExC/Mac/test_sandbox_local.sh              compila (se serve), firma, lancia
-#   ./ExC/Mac/test_sandbox_local.sh --reset      AZZERA il container e poi lancia
+#   ./ExC/Mac/Test/test_sandbox_local.sh              compila (se serve), firma, lancia
+#   ./ExC/Mac/Test/test_sandbox_local.sh --reset      AZZERA il container e poi lancia
 #                                                (= simula la PRIMA installazione)
-#   ./ExC/Mac/test_sandbox_local.sh --no-run     compila e firma soltanto
-#   ./ExC/Mac/test_sandbox_local.sh --logs       lancia mostrando i log in console
-#   ./ExC/Mac/test_sandbox_local.sh --help
+#   ./ExC/Mac/Test/test_sandbox_local.sh --no-run     compila e firma soltanto
+#   ./ExC/Mac/Test/test_sandbox_local.sh --logs       lancia mostrando i log in console
+#   ./ExC/Mac/Test/test_sandbox_local.sh --help
 #
 # IL CICLO DI PROVA per "funziona al primo avvio, non al secondo":
-#   1. ./ExC/Mac/test_sandbox_local.sh --reset    -> prima apertura: scegli la
+#   1. ./ExC/Mac/Test/test_sandbox_local.sh --reset    -> prima apertura: scegli la
 #      cartella dei preset, verifica che la libreria si popoli e che l'export vada
 #   2. chiudi l'app
-#   3. ./ExC/Mac/test_sandbox_local.sh            -> SECONDA apertura: la libreria
+#   3. ./ExC/Mac/Test/test_sandbox_local.sh            -> SECONDA apertura: la libreria
 #      deve essere ancora piena e l'export deve funzionare ancora
 #   Il passo 3 e' esattamente il caso che falliva su TestFlight.
 #
@@ -42,7 +42,7 @@
 
 set -euo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+PROJECT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 BUILD_DIR="$PROJECT_DIR/build/macos-sandbox-test"
 ENTITLEMENTS="$PROJECT_DIR/ExC/Mac/macos_appstore.entitlements"
 QT_CMAKE="$HOME/Qt/6.10.1/macos/bin/qt-cmake"
