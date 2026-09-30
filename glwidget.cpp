@@ -3453,10 +3453,20 @@ void GLWidget::setFlatView(bool active) {
 // corrente. Per la persistenza esistono i globalTex*() (vedi glwidget.h), che
 // salvano l'inquadratura della texture di SUPERFICIE.
 float GLWidget::getFlatZoom() const {
-    if (m_flatViewTarget == 1) {
-        return property("bg_zoom").isValid() ? property("bg_zoom").toFloat() : 1.0f;
-    }
+    if (m_flatViewTarget == 1) return backgroundZoom();
     return m_flatZoom;
+}
+
+// Inquadratura dello SFONDO, qualunque sia il bersaglio della vista 2D. E' lo
+// stato vero (le property bg_*): i getFlat*() col bersaglio 1 passano da qui.
+float GLWidget::backgroundZoom() const {
+    return property("bg_zoom").isValid() ? property("bg_zoom").toFloat() : 1.0f;
+}
+QVector2D GLWidget::backgroundPan() const {
+    return property("bg_pan").isValid() ? property("bg_pan").value<QVector2D>() : QVector2D(0.0f, 0.0f);
+}
+float GLWidget::backgroundRotation() const {
+    return property("bg_rot").isValid() ? property("bg_rot").toFloat() : 0.0f;
 }
 
 void GLWidget::setFlatZoom(float z) {
@@ -3470,9 +3480,7 @@ void GLWidget::setFlatZoom(float z) {
 }
 
 float GLWidget::getFlatRotation() const {
-    if (m_flatViewTarget == 1) {
-        return property("bg_rot").isValid() ? property("bg_rot").toFloat() : 0.0f;
-    }
+    if (m_flatViewTarget == 1) return backgroundRotation();
     return m_flatRotation;
 }
 
@@ -3510,9 +3518,7 @@ void GLWidget::rotateFlat90() {
 }
 
 QVector2D GLWidget::getFlatPan() const {
-    if (m_flatViewTarget == 1) {
-        return property("bg_pan").isValid() ? property("bg_pan").value<QVector2D>() : QVector2D(0.0f, 0.0f);
-    }
+    if (m_flatViewTarget == 1) return backgroundPan();
     return m_flatPan;
 }
 

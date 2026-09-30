@@ -320,24 +320,6 @@ PresetSerializer::PresetSerializer(MainWindow *parent)
 //
 // Il motore invece tiene i due stati separati: red/green/blue restano il colore
 // globale qualunque cosa si faccia sulle parti, che vivono nei loro MeshPart.
-// Costanti discrete SENZA script: stessa semantica di "A := int(2,6);" ma
-// dichiarata dal preset, perche' le direttive := vivono solo nello scriptCode
-// e un preset con le equazioni nel dock Equations non ne ha uno. Emessa solo
-// se c'e' qualcosa da dire, cosi' i preset esistenti non cambiano di un byte.
-// Unica implementazione per superfici e record: prima la scriveva solo
-// buildMotionJson, e Save Surface perdeva la chiave (Jeener-Klein N-Bottle,
-// A:[2,12] -- trovato dal test di andata e ritorno).
-void PresetSerializer::writeDiscreteConstants(QJsonObject &root)
-{
-    if (m_mainWindow->m_discreteConsts.isEmpty()) return;
-    QJsonObject disc;
-    for (auto it = m_mainWindow->m_discreteConsts.constBegin();
-         it != m_mainWindow->m_discreteConsts.constEnd(); ++it) {
-        disc[it.key()] = QJsonArray{ it->lo, it->hi };
-    }
-    root["discreteConstants"] = disc;
-}
-
 // Trasparenza GLOBALE dal motore, per la stessa ragione di globalSurfaceColor
 // qui sotto: lo slider in ambito "Mesh" mostra l'alpha della mesh selezionata,
 // e salvarlo la faceva diventare l'alpha della superficie -- che le mesh senza
@@ -492,914 +474,423 @@ static bool askSceneHint(QWidget* parent, QString* hintText, const QString& what
     return true;
 }
 
-// Il JSON della superficie cosi' come la scena lo mostra ora. Nessun dialogo e
-// nessuna scrittura su disco: le decide saveSurface. Separata perche' la usa
-// anche il test di andata e ritorno dei preset (presetroundtrip.cpp), che deve
-// produrre ESATTAMENTE cio' che produrrebbe un Save.
-QJsonObject PresetSerializer::buildSurfaceJson(const QString &name)
+// ==========================================================
+// CATTURA DELLO STATO DELLA SCENA (tappa 2 dello "stato unico della scena")
+// ==========================================================
+//
+// Il Save e' diviso in due: capture*State fotografa la scena in un LibraryItem
+// (qui, perche' serve l'accesso a interfaccia e motore) e LibraryManager::toJson
+// lo traduce in JSON, simmetrico a parseJson. Tutte le DECISIONI di contenuto
+// stanno qui (script o equazioni, angoli 4D azzerati fuori dal Cross Section,
+// audio e tag //IMG: nel codice delle texture); toJson conosce solo il formato.
+
+// Limiti u/v/w: il numero sempre, la forma testuale solo quando il campo
+// contiene davvero una formula ("2*A"), cosi' sopravvive al giro
+// salva/ricarica invece di congelarsi nel valore del momento. Un numero puro
+// non e' una formula: nessun Expr, e i preset senza costanti restano identici.
+void PresetSerializer::captureParametricLimits(LibraryItem &d)
 {
-    QJsonObject root;
-    root["name"] = name;
-    root["type"] = "surface";
-
-    // --- Salvataggio Ray Marching ---
-    bool isImplicit = (m_mainWindow->ui->tabModeSelector->currentIndex() == 1);
-    root["isImplicitMode"] = isImplicit;
-    if (isImplicit) {
-        root["implicitEquation"] = m_mainWindow->ui->lineEquation->toPlainText();
-        // I due sotto-tab impliciti hanno editor SEPARATI (vedi CLAUDE.md).
-        // Salvare solo lineEquation scriveva l'equazione del ramo 3D anche
-        // quando la superficie visibile era quella del Cross Section: al
-        // ricaricamento compariva la sfera di default. Scriviamo entrambi i rami
-        // piu' il flag di quale era attivo, cosi' il load sa cosa ripristinare.
-        const bool crossSectionActive = m_mainWindow->ui->subTabImplicit
-                                        && m_mainWindow->ui->subTabImplicit->currentIndex() == 1;
-        root["implicitUsesCrossSection"] = crossSectionActive;
-        if (m_mainWindow->ui->lineEquationCrossSection)
-            root["crossSectionEquation"] =
-                m_mainWindow->ui->lineEquationCrossSection->toPlainText();
-    }
-
-    QString eqX = m_mainWindow->ui->lineX->toPlainText().trimmed();
-    QString eqY = m_mainWindow->ui->lineY->toPlainText().trimmed();
-    QString eqZ = m_mainWindow->ui->lineZ->toPlainText().trimmed();
-
-    QString implicitEq = m_mainWindow->ui->lineEquation->toPlainText();
-
-    // Controlliamo in modo inequivocabile chi comanda
-    bool isImplicitScript = isImplicit && implicitEq.contains("// Controlled by Script");
-    bool isParametricScript = !isImplicit && eqX.isEmpty() && eqY.isEmpty() && eqZ.isEmpty();
-    // Script metrico: i campi x/y/z/p non sono vuoti (contengono la carta
-    // identità), ma la geometria è definita dallo script: senza questo caso il
-    // preset verrebbe salvato come superficie parametrica e lo script sparirebbe.
-    bool isMetricScript = !isImplicit && !m_mainWindow->m_metricScriptBody.trimmed().isEmpty();
-
-    if (isImplicitScript || isParametricScript || isMetricScript) {
-        QString scriptContent = m_mainWindow->property("rawSurfaceScript").toString();
-        // Fallback di sicurezza se la property è sfuggita
-        if (scriptContent.isEmpty() && m_mainWindow->m_currentScriptMode == 0) {
-            scriptContent = m_mainWindow->ui->txtScriptEditor->toPlainText();
-        }
-
-        if (!scriptContent.trimmed().isEmpty()) {
-            root["scriptCode"] = scriptContent;
-        }
-        QJsonObject eq; eq["x"]=""; eq["y"]=""; eq["z"]=""; eq["p"]="";
-        root["equations"] = eq;
-    } else {
-        QJsonObject equations;
-        equations["x"] = m_mainWindow->ui->lineX->toPlainText();
-        equations["y"] = m_mainWindow->ui->lineY->toPlainText();
-        equations["z"] = m_mainWindow->ui->lineZ->toPlainText();
-        equations["p"] = m_mainWindow->ui->lineP->toPlainText();
-        equations["explicitW"] = m_mainWindow->ui->lineExplicitW->toPlainText();
-        equations["explicitU"] = m_mainWindow->ui->lineExplicitU->toPlainText();
-        equations["explicitV"] = m_mainWindow->ui->lineExplicitV->toPlainText();
-        equations["defU"] = m_mainWindow->ui->lineU->toPlainText();
-        equations["defV"] = m_mainWindow->ui->lineV->toPlainText();
-        equations["defW"] = m_mainWindow->ui->lineW->toPlainText();
-        root["equations"] = equations;
-    }
-
-    QJsonObject geo;
-    geo["u0"] = m_mainWindow->ui->lnU->toPlainText();
-    geo["v0"] = m_mainWindow->ui->lnV->toPlainText();
-    geo["w0"] = m_mainWindow->ui->lnW->toPlainText();
-    geo["du"] = m_mainWindow->ui->lndU->toPlainText();
-    geo["dv"] = m_mainWindow->ui->lndV->toPlainText();
-    geo["dw"] = m_mainWindow->ui->lndW->toPlainText();
-    geo["conform"] = m_mainWindow->ui->lineConform->toPlainText();
-    root["geodesic"] = geo;
-
-    // Mappa di visualizzazione (embedding) di uno script metrico: i campi
-    // x/y/z/p qui sopra sono stati salvati vuoti nel ramo script; se sono una
-    // mappa custom (es. Flamm) la salviamo a parte per ripristinarla al load.
-    m_mainWindow->writeMetricDisplayMap(root);
-
-    // Le costanti si serializzano dai CAMPI TESTO (lineA..lineS), non dagli slider.
-    // Gli slider sono interi centesimali (value()/100), quindi troncano ogni valore con
-    // piu' di 2 decimali o < 0.005 -> es. A=0.005 diventava 0 (campo=0.005 ma slider=0),
-    // salvando una costante SBAGLIATA. I campi testo sono la source-of-truth (piena
-    // precisione, espressioni a cascata); resolveCascadeConstants(false) li risolve
-    // esattamente come evaluateCascade, senza toccare il testo (false = non-restore).
-    const MainWindow::CascadeConstants kc = m_mainWindow->resolveCascadeConstants(false);
-    QJsonObject constants;
-    constants["A"] = kc.a;
-    constants["B"] = kc.b;
-    constants["C"] = kc.c;
-    constants["D"] = kc.d;
-    constants["E"] = kc.e;
-    constants["F"] = kc.f;
-    constants["S"] = kc.s;
-    root["constants"] = constants;
-    writeDiscreteConstants(root);
-
-    QJsonObject limits;
-    writeParametricLimits(limits);
-
-    auto getSpaceLimit = [&](QLineEdit* edit, float defVal) {
-        if (edit->text().trimmed().isEmpty()) return defVal;
-        return m_mainWindow->parseMath(edit->text());
+    const struct { QLineEdit *edit; float *value; QString *expr; } fields[] = {
+        { m_mainWindow->ui->uMinEdit, &d.uMin, &d.uMinExpr }, { m_mainWindow->ui->uMaxEdit, &d.uMax, &d.uMaxExpr },
+        { m_mainWindow->ui->vMinEdit, &d.vMin, &d.vMinExpr }, { m_mainWindow->ui->vMaxEdit, &d.vMax, &d.vMaxExpr },
+        { m_mainWindow->ui->wMinEdit, &d.wMin, &d.wMinExpr }, { m_mainWindow->ui->wMaxEdit, &d.wMax, &d.wMaxExpr },
     };
-
-    limits["xMin"] = getSpaceLimit(m_mainWindow->ui->lineXMin, -1000.0f);
-    limits["xMax"] = getSpaceLimit(m_mainWindow->ui->lineXMax, 1000.0f);
-    limits["yMin"] = getSpaceLimit(m_mainWindow->ui->lineYMin, -1000.0f);
-    limits["yMax"] = getSpaceLimit(m_mainWindow->ui->lineYMax, 1000.0f);
-    limits["zMin"] = getSpaceLimit(m_mainWindow->ui->lineZMin, -1000.0f);
-    limits["zMax"] = getSpaceLimit(m_mainWindow->ui->lineZMax, 1000.0f);
-
-    root["limits"] = limits;
-
-    root["steps"] = m_mainWindow->ui->stepSlider->value();
-
-    QJsonObject colors;
-    {
-        const QColor gc = globalSurfaceColor();
-        colors["r"] = gc.redF();
-        colors["g"] = gc.greenF();
-        colors["b"] = gc.blueF();
+    for (const auto &f : fields) {
+        const QString raw = f.edit->text().trimmed();
+        *f.value = m_mainWindow->parseLimitField(raw);
+        bool isPlainNumber = false;
+        QString normalized = raw;
+        normalized.replace(',', '.');
+        normalized.toFloat(&isPlainNumber);
+        *f.expr = (!raw.isEmpty() && !isPlainNumber) ? raw : QString();
     }
-    // Trasparenza: senza questo, una superficie trasparente (es. ergosfera con
-    // limite statico trasparente + orizzonte interno) si risalvava OPACA perche'
-    // l'alpha non finiva mai nel JSON. Il reader la legge gia' da col["alpha"].
-    colors["alpha"] = globalSurfaceAlpha();
-    root["colors"] = colors;
-
-    root["lightingMode"] = m_mainWindow->m_lightingMode4D;
-    root["lightIntensity"] = m_mainWindow->ui->lightSlider->value() / 100.0;
-    // Luce di riempimento (dock Renderer). Senza questa riga lo slider non
-    // tornava mai indietro: il valore restava quello della scena precedente.
-    root["fillLight"] = (double)m_mainWindow->ui->glWidget->fillLight();
-    root["use4DLighting"] = m_mainWindow->ui->glWidget->is4DActive();
-    if (isImplicit) {
-        // Shell/Solid via implicitShellSelected(): il punto unico che legge lo
-        // stato. Prima leggeva ui->radioShell diretto, che era la coppia del
-        // sotto-tab "3D": salvando dal Cross Section registrava il valore
-        // sbagliato. Ora la coppia e' una sola, ma passare dall'helper resta la
-        // via giusta (e' lui che i gate e il Run consultano).
-        int shellState = m_mainWindow->implicitShellSelected() ? 10 : 0;
-        root["renderMode"] = m_mainWindow->m_savedRenderMode + shellState;
-        // SPESSORE DEL GUSCIO: dipende da come e' scritta l'equazione (le
-        // superfici con un fattore di scala davanti ne vogliono uno molto
-        // maggiore), quindi e' un parametro della superficie e va col preset.
-        // Assente nei file piu' vecchi -> 0.005, il valore storico.
-        root["shellThickness"] = (double)m_mainWindow->ui->glWidget->shellThickness();
-        // MARCHER: quale dei due radio (Fast/Precise) era attivo. Assente nei
-        // record vecchi, dove il reader lo deduce dal sotto-tab -- vedi
-        // librarymanager.cpp.
-        root["hybridMarcher"] = m_mainWindow->ui->glWidget->hybridMarcher();
-    } else {
-        root["renderMode"] = m_mainWindow->m_savedRenderMode;
-    }
-    root["projectionMode"] = (int)m_mainWindow->ui->glWidget->projectionMode;
-    // cameraFov = chiave legacy (build vecchie: unico FOV, applicato sempre);
-    // fov3D/fov4D = FOV indipendenti dei due path (build nuove).
-    root["cameraFov"] = (double)m_mainWindow->ui->glWidget->cameraFov();
-    root["fov3D"] = (double)m_mainWindow->m_fov3D;
-    root["fov4D"] = (double)m_mainWindow->m_fov4D;
-
-    // Densità wireframe corrente (passi U/V): salviamo il numero di linee a schermo IN
-    // QUESTO MOMENTO, non il default, così il reload riproduce l'aspetto scelto.
-    QJsonObject wireframe;
-    wireframe["uStep"] = m_mainWindow->ui->glWidget->getWireframeUStep();
-    wireframe["vStep"] = m_mainWindow->ui->glWidget->getWireframeVStep();
-    root["wireframe"] = wireframe;
-
-    // ASPETTO PER-MESH (multi-mesh): colore, trasparenza, luce e solid/wireframe
-    // scelti parte per parte con lo spinbox del dock renderer. Si salva SOLO cio'
-    // che e' stato personalizzato: una parte che eredita dallo stato globale non
-    // scrive nulla, e una superficie a mesh singola non produce affatto la
-    // chiave, quindi i preset esistenti restano invariati byte per byte.
-    if (m_mainWindow->ui->glWidget->getEngine()) {
-        const auto &mparts = m_mainWindow->ui->glWidget->getEngine()->getMeshParts();
-        QJsonArray meshArr;
-        bool anyCustom = false;
-        for (const MeshPart &mp : mparts) {
-            QJsonObject o;
-            if (mp.hasCustomColor()) {
-                o["r"] = (double)mp.colorR;
-                o["g"] = (double)mp.colorG;
-                o["b"] = (double)mp.colorB;
-                anyCustom = true;
-            }
-            if (mp.alpha >= 0.0f)          { o["alpha"] = (double)mp.alpha; anyCustom = true; }
-            if (mp.lightIntensity >= 0.0f) { o["light"] = (double)mp.lightIntensity; anyCustom = true; }
-            // Modalita' propria (0=Base, 1=Phong, 2=Wireframe): serve il flag,
-            // perche' 0 e' un valore legittimo e non si distingue da "eredita".
-            if (mp.hasCustomRenderMode)    { o["mode"] = mp.renderMode; anyCustom = true; }
-            // Densita' wireframe propria (0 = eredita dalla globale).
-            if (mp.wfStepU > 0)            { o["wfU"] = mp.wfStepU; anyCustom = true; }
-            if (mp.wfStepV > 0)            { o["wfV"] = mp.wfStepV; anyCustom = true; }
-            // DOMINIO PROPRIO della parte (campi u/v del pannello Multi Mesh).
-            // Si scrive SOLO se scelto dall'utente: quello dichiarato dalle
-            // sezioni //MESH_BEGIN vive gia' nello scriptCode e riscriverlo qui
-            // lo congelerebbe, rendendo inerte ogni modifica futura allo script.
-            if (mp.hasCustomDomain) {
-                o["uMin"] = (double)mp.uMin;
-                o["uMax"] = (double)mp.uMax;
-                o["vMin"] = (double)mp.vMin;
-                o["vMax"] = (double)mp.vMax;
-                anyCustom = true;
-            }
-            // NIENTE TEXTURE, per nessuna parte: codice, accensione, colori
-            // u_col1/u_col2 e trasformazione 2D restano fuori.
-            // Il ramo surfaces/ non salva la texture -- e' la regola generale
-            // del tipo, e infatti la texture GLOBALE non compare da nessuna
-            // parte in questa funzione. Le multi-mesh la disattendevano
-            // scrivendo texCode/texOn/texC*/texZoom&c. dentro "meshParts":
-            // la stessa superficie si riapriva con le fasce texturizzate se
-            // multi-mesh e nuda se a mesh singola. Per conservare la texture
-            // c'e' il ramo records/, che salva l'intera scena.
-            meshArr.append(o);
-        }
-        if (anyCustom) root["meshParts"] = meshArr;
-
-        // AMBITO All/Mesh al momento del salvataggio. Senza questa chiave il
-        // reload apriva sempre in "Mesh": una superficie messa tutta in
-        // wireframe da "All" salva renderMode = 2 (globale) e al reload le mesh
-        // senza modalita' propria lo EREDITAVANO, mostrandosi tutte wireframe
-        // ma in ambito Mesh, cioe' uno stato che l'utente non aveva scelto.
-        // A mesh SINGOLA l'ambito e' "All" per definizione (e' cio' che decide
-        // il load, applyPendingMeshScope) e il radio non si guarda: puo' essere
-        // ancora quello della superficie precedente, quando il load non
-        // rigenera la griglia e il riallineamento non scatta (script metrici:
-        // Kerr dopo Hopf Tori si salvava senza chiave, dopo altro con).
-        if (mparts.size() <= 1
-            || (m_mainWindow->ui->radioMeshAll
-                && m_mainWindow->ui->radioMeshAll->isChecked())) {
-            root["meshScopeAll"] = true;
-        }
-
-        // DOMINIO DELL'AMBITO "ALL": il taglio che vale per tutte le mesh
-        // insieme. Sta in RADICE e non dentro "meshParts" perche' non
-        // appartiene a nessuna parte -- e' il livello che le sospende tutte.
-        // Si scrive solo se impostato: i preset che non l'hanno mai usato non
-        // producono la chiave e restano invariati.
-        if (auto *eng = m_mainWindow->ui->glWidget->getEngine()) {
-            if (eng->hasAllDomain()) {
-                float aU0, aU1, aV0, aV1;
-                eng->allDomain(aU0, aU1, aV0, aV1);
-                root["allUMin"] = (double)aU0;
-                root["allUMax"] = (double)aU1;
-                root["allVMin"] = (double)aV0;
-                root["allVMax"] = (double)aV1;
-            }
-        }
-    }
-
-    // 1. Salva Rotazione 4D
-    QJsonObject angles;
-    // AZZERATE IN RAY MARCHING SOLO FUORI DAL CROSS SECTION. Lo zero secco
-    // risale a quando il ray marching non leggeva affatto omega/phi/psi: salvarli
-    // sarebbe stato rumore. Nel sotto-tab Cross Section invece quei tre angoli
-    // sono lo STATO PRINCIPALE della superficie -- decidono quale sezione
-    // dell'ipersuperficie 4D si vede (li usa %CROSS_SECTION_P% in
-    // createImplicitFragmentShader) -- e azzerarli riportava ogni superficie
-    // salvata alla sezione frontale, perdendo l'inquadratura 4D scelta.
-    const bool keep4DAngles = !isImplicit || (m_mainWindow->ui->subTabImplicit
-                              && m_mainWindow->ui->subTabImplicit->currentIndex() == 1);
-    angles["omega"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getOmega() : 0.0;
-    angles["phi"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getPhi() : 0.0;
-    angles["psi"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getPsi() : 0.0;
-    root["angles"] = angles;
-    // TRASLAZIONE DEL PIANO DI SEZIONE lungo p: l'altra meta' dello stato 4D del
-    // Cross Section (u_dummyZero.z nello shader). Non era salvata affatto, quindi
-    // una superficie sezionata a p != 0 si ricaricava sempre a p = 0.
-    if (keep4DAngles && isImplicit)
-        root["crossSectionP"] = (double)m_mainWindow->ui->glWidget->crossSectionP();
-
-    // 2. Salva Telecamera 3D
-    if (m_mainWindow->ui->glWidget) {
-        QJsonObject camera3D;
-        QVector3D camPos = m_mainWindow->ui->glWidget->getCameraPos();
-        camera3D["x"] = (double)camPos.x();
-        camera3D["y"] = (double)camPos.y();
-        camera3D["z"] = (double)camPos.z();
-
-        QQuaternion rot = m_mainWindow->ui->glWidget->getRotationQuat();
-        camera3D["rot_w"] = (double)rot.scalar();
-        camera3D["rot_x"] = (double)rot.x();
-        camera3D["rot_y"] = (double)rot.y();
-        camera3D["rot_z"] = (double)rot.z();
-
-        // EFFETTIVI, non i campi grezzi: in modalita' path la vista passa da
-        // lookAt(pos, pathTarget) e m_cameraYaw/m_cameraPitch restano al valore
-        // di prima (di norma 0). Salvare quelli dava un record con la posizione
-        // giusta e la direzione sbagliata -- al reload il soggetto usciva
-        // dall'inquadratura. Vedi getEffectiveCameraYaw in glwidget.h.
-        camera3D["yaw"] = (double)m_mainWindow->ui->glWidget->getEffectiveCameraYaw();
-        camera3D["pitch"] = (double)m_mainWindow->ui->glWidget->getEffectiveCameraPitch();
-        camera3D["roll"] = (double)m_mainWindow->ui->glWidget->getCameraRoll();
-
-        root["camera3D"] = camera3D;
-    }
-
-    // 3. Suggerimento in sovrimpressione ("Slider A: ...", vedi showSceneHint).
-    // Non ha UI di editing, quindi si riscrive quello della superficie
-    // caricata: senza questo, ogni Save su un preset che ne aveva uno lo
-    // perdeva, perche' il load lo legge (LibraryManager) ma il save lo
-    // scartava. Stessa forma di saveMotion: chiave assente se non c'e' nulla
-    // da dire, cosi' i preset che non lo usano non cambiano di un byte.
-    if (!m_mainWindow->m_currentHintText.isEmpty()) {
-        root["hintText"] = m_mainWindow->m_currentHintText;
-        root["hintSeconds"] = (double)m_mainWindow->m_currentHintSeconds;
-    }
-
-    return root;
 }
 
-// Il JSON del record, stessa separazione di buildSurfaceJson. `run` dice quale
-// moto era in corsa quando l'utente ha chiesto il Save (chiave "activeMotion"):
-// saveMotion ferma i moti per il dialogo, quindi va fotografato prima.
-QJsonObject PresetSerializer::buildMotionJson(const QString &name, const MotionRunState &run,
-                                              bool includeSound)
+// Cio' che superfici e record catturano allo stesso modo.
+void PresetSerializer::captureCommonState(LibraryItem &d)
 {
-    QJsonObject root;
-    root["type"] = "motion";
-    root["name"] = name;
+    MainWindow *mw = m_mainWindow;
+    GLWidget *gl = mw->ui->glWidget;
 
-    // --- Salvataggio Ray Marching ---
-    bool isImplicit = (m_mainWindow->ui->tabModeSelector->currentIndex() == 1);
-    root["isImplicitMode"] = isImplicit;
-    if (isImplicit) {
-        root["implicitEquation"] = m_mainWindow->ui->lineEquation->toPlainText();
-        // Stessa ragione del salvataggio superficie qui sopra: i due sotto-tab
-        // impliciti hanno editor separati, e un record girato in Cross Section
-        // si ricaricava con la sfera di default del ramo 3D.
-        const bool crossSectionActive = m_mainWindow->ui->subTabImplicit
-                                        && m_mainWindow->ui->subTabImplicit->currentIndex() == 1;
-        root["implicitUsesCrossSection"] = crossSectionActive;
-        if (m_mainWindow->ui->lineEquationCrossSection)
-            root["crossSectionEquation"] =
-                m_mainWindow->ui->lineEquationCrossSection->toPlainText();
-    }
+    // --- Ray Marching: i due sotto-tab hanno editor SEPARATI (vedi CLAUDE.md).
+    // Salvare solo lineEquation scriveva l'equazione del ramo 3D anche quando la
+    // superficie visibile era quella del Cross Section: al ricaricamento
+    // compariva la sfera di default. Si scrivono entrambi i rami piu' quale era
+    // attivo, cosi' il load sa cosa ripristinare.
+    d.isImplicitMode = (mw->ui->tabModeSelector->currentIndex() == 1);
+    d.implicitEq = mw->ui->lineEquation->toPlainText();
+    d.usesCrossSection = d.isImplicitMode && mw->ui->subTabImplicit
+                         && mw->ui->subTabImplicit->currentIndex() == 1;
+    if (mw->ui->lineEquationCrossSection)
+        d.crossSectionEq = mw->ui->lineEquationCrossSection->toPlainText();
 
-    QJsonObject equations;
-    equations["x"] = m_mainWindow->ui->lineX->toPlainText();
-    equations["y"] = m_mainWindow->ui->lineY->toPlainText();
-    equations["z"] = m_mainWindow->ui->lineZ->toPlainText();
-    equations["p"] = m_mainWindow->ui->lineP->toPlainText();
-    equations["explicitU"] = m_mainWindow->ui->lineExplicitU->toPlainText();
-    equations["explicitV"] = m_mainWindow->ui->lineExplicitV->toPlainText();
-    equations["explicitW"] = m_mainWindow->ui->lineExplicitW->toPlainText();
-    equations["defU"] = m_mainWindow->ui->lineU->toPlainText();
-    equations["defV"] = m_mainWindow->ui->lineV->toPlainText();
-    equations["defW"] = m_mainWindow->ui->lineW->toPlainText();
-    root["equations"] = equations;
+    d.x = mw->ui->lineX->toPlainText();
+    d.y = mw->ui->lineY->toPlainText();
+    d.z = mw->ui->lineZ->toPlainText();
+    d.w = mw->ui->lineP->toPlainText();
+    d.explicitU = mw->ui->lineExplicitU->toPlainText();
+    d.explicitV = mw->ui->lineExplicitV->toPlainText();
+    d.explicitW = mw->ui->lineExplicitW->toPlainText();
+    d.defU = mw->ui->lineU->toPlainText();
+    d.defV = mw->ui->lineV->toPlainText();
+    d.defW = mw->ui->lineW->toPlainText();
 
-    QJsonObject geo;
-    geo["u0"] = m_mainWindow->ui->lnU->toPlainText();
-    geo["v0"] = m_mainWindow->ui->lnV->toPlainText();
-    geo["w0"] = m_mainWindow->ui->lnW->toPlainText();
-    geo["du"] = m_mainWindow->ui->lndU->toPlainText();
-    geo["dv"] = m_mainWindow->ui->lndV->toPlainText();
-    geo["dw"] = m_mainWindow->ui->lndW->toPlainText();
-    geo["conform"] = m_mainWindow->ui->lineConform->toPlainText();
-    root["geodesic"] = geo;
+    d.geoU0 = mw->ui->lnU->toPlainText();
+    d.geoV0 = mw->ui->lnV->toPlainText();
+    d.geoW0 = mw->ui->lnW->toPlainText();
+    d.geoDU = mw->ui->lndU->toPlainText();
+    d.geoDV = mw->ui->lndV->toPlainText();
+    d.geoDW = mw->ui->lndW->toPlainText();
+    d.geoConform = mw->ui->lineConform->toPlainText();
 
-    bool usingEquations = !m_mainWindow->ui->lineX->toPlainText().trimmed().isEmpty() &&
-                          m_mainWindow->ui->lineX->toPlainText().trimmed() != "0";
+    // Le costanti si leggono dai CAMPI TESTO (lineA..lineS), non dagli slider.
+    // Gli slider sono interi centesimali (value()/100), quindi troncano ogni
+    // valore con piu' di 2 decimali o < 0.005 -> es. A=0.005 diventava 0,
+    // salvando una costante SBAGLIATA. I campi testo sono la source-of-truth
+    // (piena precisione, espressioni a cascata); resolveCascadeConstants(false)
+    // li risolve esattamente come evaluateCascade, senza toccare il testo.
+    const MainWindow::CascadeConstants kc = mw->resolveCascadeConstants(false);
+    d.a = kc.a; d.b = kc.b; d.c = kc.c; d.d = kc.d; d.e = kc.e; d.f = kc.f; d.s = kc.s;
 
-    if (isImplicit) {
-        usingEquations = !m_mainWindow->ui->lineEquation->toPlainText().contains("// Controlled by Script");
-    }
+    // Costanti discrete SENZA script: stessa semantica di "A := int(2,6);" ma
+    // dichiarata dal preset (le direttive := vivono solo nello scriptCode).
+    d.discreteConstants.clear();
+    for (auto it = mw->m_discreteConsts.constBegin(); it != mw->m_discreteConsts.constEnd(); ++it)
+        d.discreteConstants.insert(it.key(), qMakePair(it->lo, it->hi));
 
-    QString scriptContent = m_mainWindow->property("rawSurfaceScript").toString();
-    if (scriptContent.isEmpty() && m_mainWindow->m_currentScriptMode == 0) {
-        scriptContent = m_mainWindow->ui->txtScriptEditor->toPlainText();
-    }
-
-    // In modalità metrica usingEquations è vero (carta identità nei campi),
-    // ma lo script resta la sorgente della geometria e va salvato.
-    bool metricScriptActive = !m_mainWindow->m_metricScriptBody.trimmed().isEmpty();
-    if (!scriptContent.trimmed().isEmpty() && (!usingEquations || metricScriptActive)) {
-        root["scriptCode"] = scriptContent;
-    }
-
-    // Costanti dai CAMPI TESTO, non dagli slider centesimali (troncherebbero i valori
-    // con >2 decimali). Vedi saveSurface per il razionale completo.
-    const MainWindow::CascadeConstants kc = m_mainWindow->resolveCascadeConstants(false);
-    QJsonObject constants;
-    constants["A"] = kc.a;
-    constants["B"] = kc.b;
-    constants["C"] = kc.c;
-    constants["D"] = kc.d;
-    constants["E"] = kc.e;
-    constants["F"] = kc.f;
-    constants["S"] = kc.s;
-    root["constants"] = constants;
-
-    QJsonObject limits;
-    writeParametricLimits(limits);
-
-    auto getSpaceLimit = [&](QLineEdit* edit, float defVal) {
+    captureParametricLimits(d);
+    auto spaceLimit = [mw](QLineEdit *edit, float defVal) {
         if (edit->text().trimmed().isEmpty()) return defVal;
-        return m_mainWindow->parseMath(edit->text());
+        return mw->parseMath(edit->text());
     };
+    d.xMin = spaceLimit(mw->ui->lineXMin, -1000.0f);
+    d.xMax = spaceLimit(mw->ui->lineXMax, 1000.0f);
+    d.yMin = spaceLimit(mw->ui->lineYMin, -1000.0f);
+    d.yMax = spaceLimit(mw->ui->lineYMax, 1000.0f);
+    d.zMin = spaceLimit(mw->ui->lineZMin, -1000.0f);
+    d.zMax = spaceLimit(mw->ui->lineZMax, 1000.0f);
 
-    limits["xMin"] = getSpaceLimit(m_mainWindow->ui->lineXMin, -1000.0f);
-    limits["xMax"] = getSpaceLimit(m_mainWindow->ui->lineXMax, 1000.0f);
-    limits["yMin"] = getSpaceLimit(m_mainWindow->ui->lineYMin, -1000.0f);
-    limits["yMax"] = getSpaceLimit(m_mainWindow->ui->lineYMax, 1000.0f);
-    limits["zMin"] = getSpaceLimit(m_mainWindow->ui->lineZMin, -1000.0f);
-    limits["zMax"] = getSpaceLimit(m_mainWindow->ui->lineZMax, 1000.0f);
+    d.steps = mw->ui->stepSlider->value();
 
-    root["limits"] = limits;
+    // Colore e trasparenza GLOBALI dal motore, mai dai controlli: in ambito
+    // "Mesh" mostrano la mesh selezionata (vedi globalSurfaceColor/Alpha).
+    d.surfaceColor = globalSurfaceColor();
+    d.color1 = d.surfaceColor.name();
+    d.hasCustomColors = true;
+    d.alpha = globalSurfaceAlpha();
 
-    root["steps"] = m_mainWindow->ui->stepSlider->value();
-
-    QJsonObject colors;
-    colors["surfColor"] = globalSurfaceColor().name();
-    colors["alpha"] = globalSurfaceAlpha();
-    root["colors"] = colors;
-
-    QJsonObject path4D;
-    path4D["x"] = m_mainWindow->ui->lineX_P->text();
-    path4D["y"] = m_mainWindow->ui->lineY_P->text();
-    path4D["z"] = m_mainWindow->ui->lineZ_P->text();
-    path4D["w"] = m_mainWindow->ui->lineP_P->text();
-    path4D["alpha"] = m_mainWindow->ui->lineAlpha_P->text();
-    path4D["beta"]  = m_mainWindow->ui->lineBeta_P->text();
-    path4D["gamma"] = m_mainWindow->ui->lineGamma_P->text();
-    root["path4D"] = path4D;
-
-    QJsonObject path3D;
-    path3D["x"] = m_mainWindow->ui->lineX_P3D->text();
-    path3D["y"] = m_mainWindow->ui->lineY_P3D->text();
-    path3D["z"] = m_mainWindow->ui->lineZ_P3D->text();
-    path3D["roll"] = m_mainWindow->ui->lineR_P3D->text();
-    root["path3D"] = path3D;
-    // Suggerimenti in sovrimpressione. Il record ne porta DUE, perche' la scena
-    // che cattura ha due sorgenti di costanti indipendenti: la SUPERFICIE (o il
-    // suo script) e la TEXTURE. Con una chiave sola il messaggio del rilievo
-    // finiva nel campo della scena e quello della superficie non aveva dove
-    // stare: si vedeva un solo slider spiegato su due accesi.
-    // "hintText" resta il messaggio della scena (compatibilita' coi record
-    // esistenti, che hanno solo quello); "textureHintText" e' il secondo.
-    // Chiave assente se non c'e' nulla da dire: i record che non li usano non
-    // cambiano di un byte.
-    if (!m_mainWindow->m_currentHintText.isEmpty()) {
-        root["hintText"] = m_mainWindow->m_currentHintText;
-        root["hintSeconds"] = (double)m_mainWindow->m_currentHintSeconds;
+    d.lightingMode = mw->m_lightingMode4D;
+    d.lightIntensity = mw->ui->lightSlider->value() / 100.0;
+    // Luce di riempimento (dock Renderer). Senza, lo slider non tornava mai
+    // indietro: il valore restava quello della scena precedente.
+    d.fillLight = gl->fillLight();
+    d.use4DLighting = gl->is4DActive();
+    if (d.isImplicitMode) {
+        // Shell/Solid da implicitShellSelected(), il punto unico che legge lo
+        // stato (e' lui che i gate e il Run consultano); nel file la codifica e'
+        // composita: +10 = Shell.
+        d.renderMode = mw->m_savedRenderMode + (mw->implicitShellSelected() ? 10 : 0);
+    } else {
+        d.renderMode = mw->m_savedRenderMode;
     }
-    if (!m_mainWindow->m_currentTextureHintText.isEmpty()) {
-        root["textureHintText"] = m_mainWindow->m_currentTextureHintText;
-        root["textureHintSeconds"] = (double)m_mainWindow->m_currentTextureHintSeconds;
-    }
-    writeDiscreteConstants(root);
-    // Vista corrente di ENTRAMBI i path: salvare solo m_pathViewMode4D (4D) faceva
-    // ripartire i record 3D sempre in Tangent (la vista 3D vive in m_pathViewMode3D).
-    root["pathMode"] = static_cast<int>(m_mainWindow->m_pathViewMode4D);
-    root["pathMode3D"] = static_cast<int>(m_mainWindow->m_pathViewMode3D);
-    // Moto camera CORRENTE al salvataggio: al load riparte solo questo. Se al
-    // momento del save nessun moto e' in corsa (l'utente spesso ferma la scena
-    // prima di salvare) vale l'ULTIMO moto camera avviato in sessione
-    // (m_lastCameraMotion): senza fallback si scriveva "none" e il load
-    // ricadeva nella sequenza legacy, che fa sempre vincere il path 4D.
-    root["activeMotion"] = run.path3D ? QStringLiteral("path3D")
-                         : run.path4D ? QStringLiteral("path4D")
-                         : run.rotating ? QStringLiteral("rotation")
-                         : !m_mainWindow->m_lastCameraMotion.isEmpty()
-                                       ? m_mainWindow->m_lastCameraMotion
-                                       : QStringLiteral("none");
+    // Spessore del guscio: dipende da come e' scritta l'equazione, quindi e' un
+    // parametro della superficie. Marcher: quale dei due radio (Fast/Precise).
+    d.shellThickness = gl->shellThickness();
+    d.hybridMarcher = gl->hybridMarcher();
+    d.projectionMode = gl->projectionMode;
+    // cameraFov = chiave legacy (unico FOV applicato); fov3D/fov4D allineati.
+    d.cameraFov = gl->cameraFov();
+    d.fov3D = mw->m_fov3D;
+    d.fov4D = mw->m_fov4D;
 
-    bool isLookingAtBackground = m_mainWindow->ui->radioBackground->isChecked();
+    // Densita' wireframe A SCHERMO in questo momento, non il default.
+    d.hasWireframe = true;
+    d.wireframeUStep = gl->getWireframeUStep();
+    d.wireframeVStep = gl->getWireframeVStep();
+
+    // ASPETTO PER-MESH: le parti cosi' come sono nel motore; toJson ne scrive
+    // solo cio' che e' personalizzato.
+    if (SurfaceEngine *eng = gl->getEngine()) {
+        d.meshParts = eng->getMeshParts();
+        // AMBITO All/Mesh. A mesh SINGOLA e' "All" per definizione (e' cio' che
+        // decide il load, applyPendingMeshScope) e il radio non si guarda: puo'
+        // essere ancora quello della superficie precedente quando il load non
+        // rigenera la griglia (script metrici: Kerr dopo Hopf Tori).
+        d.meshScopeAll = d.meshParts.size() <= 1
+                         || (mw->ui->radioMeshAll && mw->ui->radioMeshAll->isChecked());
+        // Dominio dell'ambito "All": solo se impostato.
+        d.hasAllDomain = eng->hasAllDomain();
+        if (d.hasAllDomain) eng->allDomain(d.allUMin, d.allUMax, d.allVMin, d.allVMax);
+    }
+
+    // STATO 4D: azzerato in Ray Marching SOLO fuori dal Cross Section. Lo zero
+    // risale a quando il ray marching non leggeva omega/phi/psi; nel Cross
+    // Section invece sono lo STATO PRINCIPALE (decidono quale sezione
+    // dell'ipersuperficie 4D si vede, %CROSS_SECTION_P%).
+    const bool keep4D = !d.isImplicitMode || d.usesCrossSection;
+    d.omega = keep4D ? gl->getOmega() : 0.0f;
+    d.phi   = keep4D ? gl->getPhi()   : 0.0f;
+    d.psi   = keep4D ? gl->getPsi()   : 0.0f;
+    // Traslazione del piano di sezione lungo p: l'altra meta' dello stato 4D
+    // del Cross Section (toJson la scrive solo li').
+    d.crossSectionP = gl->crossSectionP();
+
+    // Telecamera 3D. Yaw/pitch EFFETTIVI, non i campi grezzi: in modalita' path
+    // la vista passa da lookAt(pos, pathTarget) e i campi grezzi restano al
+    // valore di prima -- il record si riapriva con la direzione sbagliata.
+    d.hasCamera3D = true;
+    const QVector3D camPos = gl->getCameraPos();
+    d.camX = camPos.x(); d.camY = camPos.y(); d.camZ = camPos.z();
+    const QQuaternion rot = gl->getRotationQuat();
+    d.rotW = rot.scalar(); d.rotX = rot.x(); d.rotY = rot.y(); d.rotZ = rot.z();
+    d.camYaw = gl->getEffectiveCameraYaw();
+    d.camPitch = gl->getEffectiveCameraPitch();
+    d.camRoll = gl->getCameraRoll();
+
+    // Suggerimento in sovrimpressione: non ha UI di editing, si riscrive quello
+    // caricato (senza, ogni Save lo perdeva).
+    d.hintText = mw->m_currentHintText;
+    d.hintSeconds = mw->m_currentHintSeconds;
+}
+
+LibraryItem PresetSerializer::captureSurfaceState(const QString &name)
+{
+    MainWindow *mw = m_mainWindow;
+    LibraryItem d;
+    d.name = name;
+    d.type = LibraryType::Surface;
+    captureCommonState(d);
+
+    // Chi comanda la geometria. Script metrico: i campi x/y/z/p non sono vuoti
+    // (carta identita' o display map), ma la geometria la definisce lo script:
+    // senza questo caso il preset si salvava come parametrico e lo script
+    // spariva.
+    const QString eqX = d.x.trimmed(), eqY = d.y.trimmed(), eqZ = d.z.trimmed();
+    const bool isImplicitScript = d.isImplicitMode && d.implicitEq.contains("// Controlled by Script");
+    const bool isParametricScript = !d.isImplicitMode && eqX.isEmpty() && eqY.isEmpty() && eqZ.isEmpty();
+    const bool isMetricScript = !d.isImplicitMode && !mw->m_metricScriptBody.trimmed().isEmpty();
+    d.isScript = isImplicitScript || isParametricScript || isMetricScript;
+    if (d.isScript) {
+        d.scriptCode = mw->property("rawSurfaceScript").toString();
+        // Fallback di sicurezza se la property e' sfuggita
+        if (d.scriptCode.isEmpty() && mw->m_currentScriptMode == 0)
+            d.scriptCode = mw->ui->txtScriptEditor->toPlainText();
+    }
+
+    // Mappa di visualizzazione di uno script metrico: si salva solo se e' una
+    // mappa custom (es. Flamm), non la carta identita'.
+    d.hasMetricMap = !mw->m_metricScriptBody.trimmed().isEmpty() && mw->metricDisplayMapIsCustom();
+    if (d.hasMetricMap) {
+        d.metricMapX = d.x; d.metricMapY = d.y; d.metricMapZ = d.z; d.metricMapP = d.w;
+    }
+    return d;
+}
+
+LibraryItem PresetSerializer::captureMotionState(const QString &name, const MotionRunState &run,
+                                                 bool includeSound)
+{
+    MainWindow *mw = m_mainWindow;
+    GLWidget *gl = mw->ui->glWidget;
+    LibraryItem d;
+    d.name = name;
+    d.type = LibraryType::Motion;
+    captureCommonState(d);
+
+    // Lo script si salva ACCANTO alle equazioni quando e' lui a comandare, o
+    // quando e' metrico (i campi portano la carta identita' / display map).
+    bool usingEquations = !d.x.trimmed().isEmpty() && d.x.trimmed() != "0";
+    if (d.isImplicitMode) usingEquations = !d.implicitEq.contains("// Controlled by Script");
+    QString scriptContent = mw->property("rawSurfaceScript").toString();
+    if (scriptContent.isEmpty() && mw->m_currentScriptMode == 0)
+        scriptContent = mw->ui->txtScriptEditor->toPlainText();
+    const bool metricScriptActive = !mw->m_metricScriptBody.trimmed().isEmpty();
+    d.isScript = !scriptContent.trimmed().isEmpty() && (!usingEquations || metricScriptActive);
+    d.scriptCode = scriptContent;
+
+    d.path4D_x = mw->ui->lineX_P->text();
+    d.path4D_y = mw->ui->lineY_P->text();
+    d.path4D_z = mw->ui->lineZ_P->text();
+    d.path4D_w = mw->ui->lineP_P->text();
+    d.path4D_alpha = mw->ui->lineAlpha_P->text();
+    d.path4D_beta  = mw->ui->lineBeta_P->text();
+    d.path4D_gamma = mw->ui->lineGamma_P->text();
+    d.path3D_x = mw->ui->lineX_P3D->text();
+    d.path3D_y = mw->ui->lineY_P3D->text();
+    d.path3D_z = mw->ui->lineZ_P3D->text();
+    d.path3D_roll = mw->ui->lineR_P3D->text();
+
+    // Il record porta DUE messaggi: quello della scena (hintText, gia' in
+    // captureCommonState) e quello della TEXTURE.
+    d.textureHintText = mw->m_currentTextureHintText;
+    d.textureHintSeconds = mw->m_currentTextureHintSeconds;
+
+    // Vista corrente di ENTRAMBI i path (salvare solo quella 4D faceva
+    // ripartire i record 3D sempre in Tangent).
+    d.pathMode4D = static_cast<int>(mw->m_pathViewMode4D);
+    d.pathMode3D = static_cast<int>(mw->m_pathViewMode3D);
+    // Moto camera CORRENTE al salvataggio; se nessuno e' in corsa, l'ULTIMO
+    // avviato in sessione (senza fallback si scriveva "none" e il load
+    // ricadeva nella sequenza legacy, che fa sempre vincere il path 4D).
+    d.activeMotion = run.path3D ? QStringLiteral("path3D")
+                   : run.path4D ? QStringLiteral("path4D")
+                   : run.rotating ? QStringLiteral("rotation")
+                   : !mw->m_lastCameraMotion.isEmpty() ? mw->m_lastCameraMotion
+                                                       : QStringLiteral("none");
+
+    const bool isLookingAtBackground = mw->ui->radioBackground->isChecked();
 
     // L'editor si travasa nei membri della texture di SUPERFICIE solo se sta
     // davvero mostrando quella. Con una MESH selezionata mostra lo script della
-    // FASCIA (vedi syncAppearanceControlsToActiveMesh), e copiarlo qui faceva
-    // diventare la texture di quella fascia la texture di superficie del
-    // preset. Le texture per-mesh viaggiano nel blocco "meshParts".
-    const bool showingMeshTexture = m_mainWindow->ui->glWidget
-                                 && m_mainWindow->ui->glWidget->activeMeshPart() >= 0;
-    if (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeTexture
-        && !showingMeshTexture) {
-        QString currentEditorText = m_mainWindow->ui->txtScriptEditor->toPlainText();
+    // FASCIA, e copiarlo qui faceva diventare la texture di quella fascia la
+    // texture di superficie del preset (le per-mesh viaggiano in "meshParts").
+    // E' l'unica SCRITTURA della cattura: uno script scritto nell'editor e non
+    // ancora eseguito entra nel record, com'e' sempre stato.
+    const bool showingMeshTexture = gl && gl->activeMeshPart() >= 0;
+    if (mw->m_currentScriptMode == MainWindow::ScriptModeTexture && !showingMeshTexture) {
+        const QString editorText = mw->ui->txtScriptEditor->toPlainText();
         if (isLookingAtBackground) {
-            m_mainWindow->m_bgTextureCode = currentEditorText;
-            m_mainWindow->m_bgTextureScriptText = currentEditorText;
+            mw->m_bgTextureCode = editorText;
+            mw->m_bgTextureScriptText = editorText;
         } else {
-            m_mainWindow->m_surfaceTextureCode = currentEditorText;
-            m_mainWindow->m_surfaceTextureScriptText = currentEditorText;
+            mw->m_surfaceTextureCode = editorText;
+            mw->m_surfaceTextureScriptText = editorText;
         }
     }
 
-    QJsonObject texture;
-    // Accensione della texture di SUPERFICIE. Il checkbox non va bene con una
-    // mesh selezionata: li' mostra lo stato EFFICACE della fascia, quindi una
-    // fascia senza texture faceva salvare "spenta" una texture di superficie
-    // accesa (e viceversa). In ambito "Mesh" si legge lo stato globale dal
-    // motore, che il percorso per-mesh non tocca.
-    bool texEnabled = isLookingAtBackground
-                        ? m_mainWindow->m_surfaceTextureState
-                        : (showingMeshTexture
-                             ? m_mainWindow->ui->glWidget->isTextureEnabled()
-                             : m_mainWindow->ui->chkBoxTexture->isChecked());
-    texture["enabled"] = texEnabled;
+    // Accensione della texture di SUPERFICIE. Con una mesh selezionata il
+    // checkbox mostra lo stato EFFICACE della fascia: si legge quello globale
+    // dal motore, che il percorso per-mesh non tocca.
+    d.textureEnabled = isLookingAtBackground
+                         ? mw->m_surfaceTextureState
+                         : (showingMeshTexture ? gl->isTextureEnabled()
+                                               : mw->ui->chkBoxTexture->isChecked());
+    // Trasformazione e colori GLOBALI dal motore, non il buffer della vista 2D
+    // ne' i picker (che seguono la fascia selezionata).
+    d.zoom = gl->globalTexZoom();
+    const QVector2D pan = gl->globalTexPan();
+    d.panX = pan.x(); d.panY = pan.y();
+    d.rotation = gl->globalTexRotation();
+    d.texColor1 = gl->globalTexColor1().name();
+    d.texColor2 = gl->globalTexColor2().name();
 
-    if (m_mainWindow->ui->glWidget) {
-        m_mainWindow->ui->glWidget->setFlatViewTarget(0);
-        // Trasformazione GLOBALE, non il buffer di lavoro della vista 2D: se si
-        // salva dopo aver regolato la texture di una fascia, il preset deve
-        // portarsi via l'inquadratura della SUPERFICIE (quelle per-mesh viaggiano
-        // nel blocco "meshParts", chiavi texZoom/texPan*/texRot).
-        texture["zoom"] = (double)m_mainWindow->ui->glWidget->globalTexZoom();
-        QVector2D pan = m_mainWindow->ui->glWidget->globalTexPan();
-        texture["pan_x"] = (double)pan.x();
-        texture["pan_y"] = (double)pan.y();
-        texture["rotation"] = (double)m_mainWindow->ui->glWidget->globalTexRotation();
-    }
-    // COLORI u_col1/u_col2 DAL MOTORE, non dai membri m_texColor1/2. Stessa
-    // ragione dello zoom/pan/rotazione qui sopra, e dello stesso difetto gia'
-    // corretto per il colore solido (globalSurfaceColor): quei due membri sono
-    // cio' che i PICKER mostrano, e syncAppearanceControlsToActiveMesh li
-    // riallinea alla FASCIA selezionata a ogni cambio di mesh. Salvandoli, i
-    // colori dell'ultima fascia guardata diventavano quelli della texture di
-    // SUPERFICIE. I due slot globali del motore (texRed1..texBlue2) non
-    // vengono mai toccati dal percorso per-mesh.
-    if (m_mainWindow->ui->glWidget) {
-        texture["col1"] = m_mainWindow->ui->glWidget->globalTexColor1().name();
-        texture["col2"] = m_mainWindow->ui->glWidget->globalTexColor2().name();
-    } else {
-        texture["col1"] = m_mainWindow->m_texColor1.name();
-        texture["col2"] = m_mainWindow->m_texColor2.name();
-    }
-
-    // --- REINIEZIONE DELL'AUDIO E GESTIONE IMMAGINI ---
-    // Blocco audio omesso solo se chi salva l'ha scelto: vedi il dialogo
-    // "The sound is stopped." in saveMotion, che decide includeSound.
-    QString audioCode = includeSound ? m_mainWindow->m_soundScriptText.trimmed()
-                                     : QString();
-
-    if (isImplicit) {
-        QString implicitTex = m_mainWindow->ui->lineTexture->toPlainText().trimmed();
-
-        // Puliamo eventuali vecchi tag e riaggiungiamo l'audio pulito
-        QRegularExpression blockRe(R"(//\s*SOUND_BEGIN.*?//\s*SOUND_END\n?)", QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
+    // --- AUDIO E IMMAGINI DENTRO IL CODICE DELLA TEXTURE ---
+    // Blocco audio omesso solo se chi salva l'ha scelto (dialogo "The sound is
+    // stopped." in saveMotion, che decide includeSound).
+    const QString audioCode = includeSound ? mw->m_soundScriptText.trimmed() : QString();
+    const QRegularExpression blockRe(R"(//\s*SOUND_BEGIN.*?//\s*SOUND_END\n?)",
+                                     QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpression musicRe(R"(^\s*//(MUSIC|SYNTH):.*$\n?)",
+                                     QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpression tagRe(R"(^\s*//\s*(SOUND_BEGIN|SOUND_END).*$\n?)",
+                                   QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption);
+    if (d.isImplicitMode) {
+        QString implicitTex = mw->ui->lineTexture->toPlainText().trimmed();
+        // Via i vecchi tag audio: si riaggiunge quello pulito.
         while (implicitTex.contains(blockRe)) implicitTex.remove(blockRe);
-        implicitTex.remove(QRegularExpression(R"(^\s*//(MUSIC|SYNTH):.*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
-        implicitTex.remove(QRegularExpression(R"(^\s*//\s*(SOUND_BEGIN|SOUND_END).*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
-
+        implicitTex.remove(musicRe);
+        implicitTex.remove(tagRe);
         if (!audioCode.isEmpty()) {
-            // IL TAG //IMG: RESTA ALLA RIGA 1, l'audio va SOTTO. Stessa regola
-            // del ramo parametrico qui sotto ("il tag //IMG: deve stare sempre
-            // alla riga 1!"): i due rami serializzano lo stesso campo e devono
-            // produrre lo stesso ordine, o un lettore che assume l'uno sbaglia
-            // sull'altro.
-            //
-            // Prima l'audio veniva anteposto e basta, seppellendo il tag decine
-            // di righe piu' sotto (in un record col synth: riga 171). Non si
-            // rompeva nulla perche' ogni lettore ripulisce l'audio PRIMA di
-            // cercare il tag, e la regex e' MultilineOption -- ma la garanzia
-            // stava tutta in quella convenzione, non nel formato.
-            //
-            // Il codice grafico e' gia' senza tag audio (ripuliti qui sopra),
-            // quindi l'unico //IMG: che si puo' incontrare e' quello vero.
-            const QRegularExpression imgFirstRe(R"(^\s*//IMG:.*$)",
-                                                QRegularExpression::MultilineOption);
+            // IL TAG //IMG: RESTA ALLA RIGA 1, l'audio va SOTTO (stessa regola del
+            // ramo parametrico). "\n" singolo dopo l'audio: al load la rimozione
+            // dell'audio lascerebbe altrimenti una riga vuota fra tag e script.
+            const QRegularExpression imgFirstRe(R"(^\s*//IMG:.*$)", QRegularExpression::MultilineOption);
             const QRegularExpressionMatch imgFirst = imgFirstRe.match(implicitTex);
             if (imgFirst.hasMatch()) {
                 const QString tag = imgFirst.captured(0).trimmed();
                 const QString rest = implicitTex.mid(imgFirst.capturedEnd(0)).trimmed();
-                // "\n" singolo dopo il blocco audio, non doppio: al load la
-                // rimozione dell'audio lascerebbe altrimenti una riga vuota fra
-                // tag e script, e il campo tornerebbe a schermo diverso da come
-                // era stato salvato (round-trip non stabile).
                 implicitTex = tag + "\n" + audioCode + "\n" + rest;
             } else {
                 implicitTex = audioCode + "\n\n" + implicitTex.trimmed();
             }
         }
-        texture["code"] = implicitTex;
-        texture["displacement"] = m_mainWindow->ui->lineVariations->toPlainText();
+        d.textureCode = implicitTex;
+        d.displacementCode = mw->ui->lineVariations->toPlainText();
     } else {
-        QString codeToSave = m_mainWindow->m_surfaceTextureCode;
-
-        // Pulizia vecchi tag audio robusta
-        QRegularExpression blockRe(R"(//\s*SOUND_BEGIN.*?//\s*SOUND_END\n?)", QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
-        while (codeToSave.contains(blockRe)) codeToSave.remove(blockRe);
-        codeToSave.remove(QRegularExpression(R"(^\s*//(MUSIC|SYNTH):.*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
-        codeToSave.remove(QRegularExpression(R"(^\s*//\s*(SOUND_BEGIN|SOUND_END).*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
-        codeToSave = codeToSave.trimmed();
-
+        QString code = mw->m_surfaceTextureCode;
+        while (code.contains(blockRe)) code.remove(blockRe);
+        code.remove(musicRe);
+        code.remove(tagRe);
+        code = code.trimmed();
         // Il tag //IMG: va SEMPRE ripulito prima: se l'immagine non e' piu' la
-        // texture attiva (l'utente ha caricato un procedurale sopra) un tag
-        // orfano finiva nel record e al reload la Library evidenziava la vecchia
-        // immagine invece dello script davvero in uso.
-        QRegularExpression imgRe(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption);
-        codeToSave.remove(imgRe);
-        codeToSave = codeToSave.trimmed();
-
-        // Se c'è un'immagine, il tag //IMG: deve stare sempre alla riga 1!
-        if (texEnabled && m_mainWindow->m_isImageMode && !m_mainWindow->m_currentTexturePath.isEmpty()) {
-            QString newCode = "//IMG:" + m_mainWindow->m_currentTexturePath + "\n";
-            if (!audioCode.isEmpty()) newCode += audioCode + "\n\n";
-            newCode += codeToSave;
-            codeToSave = newCode;
+        // texture attiva un tag orfano finiva nel record e al reload la Library
+        // evidenziava la vecchia immagine.
+        code.remove(QRegularExpression(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption));
+        code = code.trimmed();
+        // Se c'e' un'immagine, il tag //IMG: sta sempre alla riga 1.
+        if (d.textureEnabled && mw->m_isImageMode && !mw->m_currentTexturePath.isEmpty()) {
+            QString withImg = "//IMG:" + mw->m_currentTexturePath + "\n";
+            if (!audioCode.isEmpty()) withImg += audioCode + "\n\n";
+            code = withImg + code;
         } else if (!audioCode.isEmpty()) {
-            codeToSave = audioCode + "\n\n" + codeToSave;
+            code = audioCode + "\n\n" + code;
         }
-
-        texture["code"] = codeToSave.trimmed();
+        d.textureCode = code.trimmed();
     }
+    // Ancore in libreria (focus nell'albero anche se il codice e' cambiato).
+    // Il suono solo se il record porta davvero un audio: un nome senza suono
+    // direbbe il falso.
+    d.textureLibName = mw->m_currentTextureLibName;
+    d.soundLibName = audioCode.isEmpty() ? QString() : mw->m_currentSoundLibName;
 
-    // NOME della voce di libreria da cui viene questa texture. Il focus
-    // nell'albero si decide per uguaglianza del CODICE, e il record ne porta una
-    // copia: ritoccare la texture in libreria (uno slider in piu', un commento
-    // corretto) faceva perdere il focus a tutti i record che la usavano. Col
-    // nome il legame sopravvive alla modifica.
-    // FUORI dall'if: i due rami sopra sono Ray Marching e parametrico, e il
-    // campo serve a entrambi. Scritto dentro il solo ramo parametrico non
-    // compariva mai nei record RM -- cioe' proprio dove serviva.
-    // Si scrive solo se c'e': una texture scritta a mano non ha un nome di
-    // libreria, e un campo vuoto direbbe il falso. I record SENZA questo campo
-    // (tutti quelli gia' salvati) restano validi: il lettore ricade sul
-    // confronto per codice, che e' la strada di sempre.
-    if (!m_mainWindow->m_currentTextureLibName.isEmpty())
-        texture["libName"] = m_mainWindow->m_currentTextureLibName;
+    // Velocita'. Quelle 4D (e il path 4D) seguono lo stesso criterio degli
+    // angoli: nel Cross Section sono il MOTO del record, fuori sono azzerate.
+    const bool keep4D = !d.isImplicitMode || d.usesCrossSection;
+    d.speedNut = gl->getNutationSpeed();
+    d.speedPrec = gl->getPrecessionSpeed();
+    d.speedSpin = gl->getSpinSpeed();
+    d.speedOmega = keep4D ? gl->getOmegaSpeed() : 0.0f;
+    d.speedPhi   = keep4D ? gl->getPhiSpeed()   : 0.0f;
+    d.speedPsi   = keep4D ? gl->getPsiSpeed()   : 0.0f;
+    d.speedPath3D = mw->ui->speed3DSlider->value();
+    d.speedPath4D = keep4D ? mw->ui->speed4DSlider->value() : 0;
 
-    root["texture"] = texture;
+    d.observer4D = gl->getObserverPos4D();
 
-    // Ancora del SUONO (vedi MainWindow::m_currentSoundLibName): solo se il
-    // record porta davvero un audio -- audioCode e' gia' vuoto se l'utente ha
-    // scelto "Save without sound", e un nome senza suono direbbe il falso.
-    if (!audioCode.isEmpty() && !m_mainWindow->m_currentSoundLibName.isEmpty())
-        root["soundLibName"] = m_mainWindow->m_currentSoundLibName;
-
-    // STATO 4D DA PRESERVARE: in ray marching omega/phi/psi (angoli E velocita')
-    // venivano azzerati di default, perche' l'RM non li leggeva affatto. Il
-    // sotto-tab CROSS SECTION invece li usa come stato principale: decidono quale
-    // sezione dell'ipersuperficie 4D si vede (%CROSS_SECTION_P% in
-    // createImplicitFragmentShader) e, se in moto, come quella sezione evolve nel
-    // tempo -- che in un record e' esattamente cio' che si sta registrando.
-    // Definita QUI, prima di 'speeds': serve a entrambi i blocchi.
-    const bool keep4DAngles = !isImplicit || (m_mainWindow->ui->subTabImplicit
-                              && m_mainWindow->ui->subTabImplicit->currentIndex() == 1);
-
-    QJsonObject speeds;
-    speeds["nutation"] = (double)m_mainWindow->ui->glWidget->getNutationSpeed();
-    speeds["precession"] = (double)m_mainWindow->ui->glWidget->getPrecessionSpeed();
-    speeds["spin"] = (double)m_mainWindow->ui->glWidget->getSpinSpeed();
-    // VELOCITA' 4D: nel Cross Section sono il MOTO del record (le rotazioni 4D del
-    // dock 3D). Azzerarle salvava un record fermo al posto di quello registrato.
-    speeds["omega"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getOmegaSpeed() : 0.0;
-    speeds["phi"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getPhiSpeed() : 0.0;
-    speeds["psi"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getPsiSpeed() : 0.0;
-    speeds["path3D"] = m_mainWindow->ui->speed3DSlider->value();
-    // path4D: azzerato nel sotto-tab 3D, salvato nel Cross Section. Li' il path
-    // 4D ha effetto -- non attraverso u_cameraPos4D/u_observerPos, che il
-    // template davvero non legge, ma perche' applyPath4DCameraAt scrive
-    // setRotation4D (lo stato che %CROSS_SECTION_P% usa per scegliere la
-    // sezione) e setCameraFrom4DVectors (la camera 3D del marcher). Stesso
-    // criterio di angoli e velocita' 4D qui sopra.
-    speeds["path4D"] = keep4DAngles ? m_mainWindow->ui->speed4DSlider->value() : 0;
-    root["speeds"] = speeds;
-
-    QJsonObject angles;
-    // AZZERATE IN RAY MARCHING SOLO FUORI DAL CROSS SECTION. Lo zero secco
-    // risale a quando il ray marching non leggeva affatto omega/phi/psi: salvarli
-    // sarebbe stato rumore. Nel sotto-tab Cross Section invece quei tre angoli
-    // sono lo STATO PRINCIPALE della superficie -- decidono quale sezione
-    // dell'ipersuperficie 4D si vede (li usa %CROSS_SECTION_P% in
-    // createImplicitFragmentShader) -- e azzerarli riportava ogni superficie
-    // salvata alla sezione frontale, perdendo l'inquadratura 4D scelta.
-    // keep4DAngles e' gia' definita sopra il blocco 'speeds': stesso criterio.
-    angles["omega"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getOmega() : 0.0;
-    angles["phi"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getPhi() : 0.0;
-    angles["psi"] = keep4DAngles ? (double)m_mainWindow->ui->glWidget->getPsi() : 0.0;
-    root["angles"] = angles;
-    // TRASLAZIONE DEL PIANO DI SEZIONE lungo p: l'altra meta' dello stato 4D del
-    // Cross Section (u_dummyZero.z nello shader). Non era salvata affatto, quindi
-    // una superficie sezionata a p != 0 si ricaricava sempre a p = 0.
-    if (keep4DAngles && isImplicit)
-        root["crossSectionP"] = (double)m_mainWindow->ui->glWidget->crossSectionP();
-
-    if (m_mainWindow->ui->glWidget) {
-        QJsonObject camera3D;
-        QVector3D camPos = m_mainWindow->ui->glWidget->getCameraPos();
-        camera3D["x"] = (double)camPos.x();
-        camera3D["y"] = (double)camPos.y();
-        camera3D["z"] = (double)camPos.z();
-
-        QQuaternion rot = m_mainWindow->ui->glWidget->getRotationQuat();
-        camera3D["rot_w"] = (double)rot.scalar();
-        camera3D["rot_x"] = (double)rot.x();
-        camera3D["rot_y"] = (double)rot.y();
-        camera3D["rot_z"] = (double)rot.z();
-
-        // EFFETTIVI, non i campi grezzi: in modalita' path la vista passa da
-        // lookAt(pos, pathTarget) e m_cameraYaw/m_cameraPitch restano al valore
-        // di prima (di norma 0). Salvare quelli dava un record con la posizione
-        // giusta e la direzione sbagliata -- al reload il soggetto usciva
-        // dall'inquadratura. Vedi getEffectiveCameraYaw in glwidget.h.
-        camera3D["yaw"] = (double)m_mainWindow->ui->glWidget->getEffectiveCameraYaw();
-        camera3D["pitch"] = (double)m_mainWindow->ui->glWidget->getEffectiveCameraPitch();
-        camera3D["roll"] = (double)m_mainWindow->ui->glWidget->getCameraRoll();
-
-        root["camera3D"] = camera3D;
-        root["observer4D"] = (double)m_mainWindow->ui->glWidget->getObserverPos4D();
-    }
-
-    QJsonObject background;
-    background["color"] = m_mainWindow->m_currentBackgroundColor.name();
-    background["enabled"] = m_mainWindow->ui->glWidget->isBackgroundTextureEnabled();
-    // Il tag //IMG: dello SFONDO va ricostruito qui, come fa il ramo della texture
-    // di superficie piu' sopra. m_bgTextureCode da solo non basta: gli script della
-    // famiglia "Animated Images" campionano l'immagine da iChannel0, e il tag che
-    // dice QUALE si perde ai Run/commit che riscrivono quel campo. Senza, il record
-    // salvava lo script "nudo" e al reload lo sfondo prendeva l'immagine rimasta in
-    // memoria dal record aperto prima. La fonte affidabile e' m_currentBgTexturePath.
+    // --- SFONDO ---
+    d.bgColor = mw->m_currentBackgroundColor.name();
+    d.bgTextureEnabled = gl->isBackgroundTextureEnabled();
+    // Il tag //IMG: dello sfondo si ricostruisce da m_currentBgTexturePath: gli
+    // script "Animated Images" campionano l'immagine da iChannel0 e il tag che
+    // dice QUALE si perde ai Run che riscrivono il codice. Senza "\n" in coda
+    // per un'immagine PURA: e' la forma su cui il focus in Library fa match.
     {
-        QString bgCode = m_mainWindow->m_bgTextureCode;
-        const QRegularExpression bgImgRe(R"(^\s*//IMG:.*$\n?)",
-                                         QRegularExpression::MultilineOption);
-        bgCode.remove(bgImgRe);            // via i tag vecchi/orfani
+        QString bgCode = mw->m_bgTextureCode;
+        bgCode.remove(QRegularExpression(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption));
         bgCode = bgCode.trimmed();
-        if (!m_mainWindow->m_currentBgTexturePath.isEmpty()) {
-            // Il "\n" solo se sotto c'e' davvero del codice: un'immagine PURA
-            // (tag e basta) deve restare identica a com'era salvata prima del fix,
-            // senza newline in coda -- e' la forma su cui il focus in Library fa
-            // match esatto (textureItemMatchesCode: tag come UNICO contenuto).
+        if (!mw->m_currentBgTexturePath.isEmpty()) {
             bgCode = bgCode.isEmpty()
-                       ? "//IMG:" + m_mainWindow->m_currentBgTexturePath
-                       : "//IMG:" + m_mainWindow->m_currentBgTexturePath + "\n" + bgCode;
+                       ? "//IMG:" + mw->m_currentBgTexturePath
+                       : "//IMG:" + mw->m_currentBgTexturePath + "\n" + bgCode;
         }
-        background["code"] = bgCode;
+        d.bgTextureCode = bgCode;
     }
-    background["col1"] = m_mainWindow->m_bgTexColor1.name();
-    background["col2"] = m_mainWindow->m_bgTexColor2.name();
-    // Nome della voce di libreria da cui viene lo sfondo: gemello di
-    // texture["libName"], con la stessa regola -- si scrive solo se c'e', e un
-    // record senza la chiave torna ad agganciarsi per codice.
-    if (!m_mainWindow->m_currentBgTextureLibName.isEmpty())
-        background["libName"] = m_mainWindow->m_currentBgTextureLibName;
-    // Messaggio dello sfondo, terzo accanto a "hintText" e "textureHintText" della
-    // radice: qui dentro, con il resto dello sfondo. Chiave assente se vuoto.
-    if (!m_mainWindow->m_currentBgTextureHintText.isEmpty()) {
-        background["hintText"]    = m_mainWindow->m_currentBgTextureHintText;
-        background["hintSeconds"] = (double)m_mainWindow->m_currentBgTextureHintSeconds;
-    }
-    // Forma dello sfondo (radio del gruppo Background Controls): "fixed",
-    // "sphere", "cylinder" o "cube" (GLWidget::bgSkyModeName). Si scrive SEMPRE,
-    // anche "fixed": il load la riapplica sempre, e un record senza la chiave
-    // (tutti quelli salvati prima) torna fisso.
-    background["skyMode"] = GLWidget::bgSkyModeName(
-        m_mainWindow->ui->glWidget ? m_mainWindow->ui->glWidget->backgroundSkyMode()
-                                   : int(GLWidget::BgFixed));
+    d.bgCol1 = mw->m_bgTexColor1.name();
+    d.bgCol2 = mw->m_bgTexColor2.name();
+    d.bgLibName = mw->m_currentBgTextureLibName;
+    d.bgHintText = mw->m_currentBgTextureHintText;
+    d.bgHintSeconds = mw->m_currentBgTextureHintSeconds;
+    // Forma dello sfondo: si scrive SEMPRE, anche "fixed" (il load la riapplica).
+    d.bgSkyMode = GLWidget::bgSkyModeName(gl->backgroundSkyMode());
+    // Inquadratura dello sfondo letta direttamente: prima si commutava il
+    // bersaglio della vista 2D avanti e indietro per farla restituire ai
+    // getFlat*(), e fuori dalla vista 2D quel giro scriveva sulla mesh
+    // selezionata un buffer stantio (vedi 603a0f1).
+    d.bgZoom = gl->backgroundZoom();
+    const QVector2D bgPan = gl->backgroundPan();
+    d.bgPanX = bgPan.x(); d.bgPanY = bgPan.y();
+    d.bgRotation = gl->backgroundRotation();
+    return d;
+}
 
-    if (m_mainWindow->ui->glWidget) {
-        m_mainWindow->ui->glWidget->setFlatViewTarget(1);
-        background["zoom"] = (double)m_mainWindow->ui->glWidget->getFlatZoom();
-        QVector2D bgPan = m_mainWindow->ui->glWidget->getFlatPan();
-        background["pan_x"] = (double)bgPan.x();
-        background["pan_y"] = (double)bgPan.y();
-        background["rotation"] = (double)m_mainWindow->ui->glWidget->getFlatRotation();
-        m_mainWindow->ui->glWidget->setFlatViewTarget(isLookingAtBackground ? 1 : 0);
-    }
+QJsonObject PresetSerializer::buildSurfaceJson(const QString &name)
+{
+    return LibraryManager::toJson(captureSurfaceState(name));
+}
 
-    root["background"] = background;
-    root["lightingMode"] = m_mainWindow->m_lightingMode4D;
-    root["lightIntensity"] = m_mainWindow->ui->lightSlider->value() / 100.0;
-    // Luce di riempimento (dock Renderer). Senza questa riga lo slider non
-    // tornava mai indietro: il valore restava quello della scena precedente.
-    root["fillLight"] = (double)m_mainWindow->ui->glWidget->fillLight();
-    root["use4DLighting"] = m_mainWindow->ui->glWidget->is4DActive();
-    if (isImplicit) {
-        // Shell/Solid via implicitShellSelected(): il punto unico che legge lo
-        // stato. Prima leggeva ui->radioShell diretto, che era la coppia del
-        // sotto-tab "3D": salvando dal Cross Section registrava il valore
-        // sbagliato. Ora la coppia e' una sola, ma passare dall'helper resta la
-        // via giusta (e' lui che i gate e il Run consultano).
-        int shellState = m_mainWindow->implicitShellSelected() ? 10 : 0;
-        root["renderMode"] = m_mainWindow->m_savedRenderMode + shellState;
-        // SPESSORE DEL GUSCIO: dipende da come e' scritta l'equazione (le
-        // superfici con un fattore di scala davanti ne vogliono uno molto
-        // maggiore), quindi e' un parametro della superficie e va col preset.
-        // Assente nei file piu' vecchi -> 0.005, il valore storico.
-        root["shellThickness"] = (double)m_mainWindow->ui->glWidget->shellThickness();
-        // MARCHER: quale dei due radio (Fast/Precise) era attivo. Assente nei
-        // record vecchi, dove il reader lo deduce dal sotto-tab -- vedi
-        // librarymanager.cpp.
-        root["hybridMarcher"] = m_mainWindow->ui->glWidget->hybridMarcher();
-    } else {
-        root["renderMode"] = m_mainWindow->m_savedRenderMode;
-    }
-    root["projectionMode"] = m_mainWindow->ui->glWidget->projectionMode;
-    // cameraFov = chiave legacy (build vecchie: unico FOV, applicato sempre);
-    // fov3D/fov4D = FOV indipendenti dei due path (build nuove).
-    root["cameraFov"] = (double)m_mainWindow->ui->glWidget->cameraFov();
-    root["fov3D"] = (double)m_mainWindow->m_fov3D;
-    root["fov4D"] = (double)m_mainWindow->m_fov4D;
-
-    // Densità wireframe corrente (passi U/V): come in saveSurface, salviamo le linee a
-    // schermo in questo momento così il record le riproduce al reload.
-    QJsonObject wireframe;
-    wireframe["uStep"] = m_mainWindow->ui->glWidget->getWireframeUStep();
-    wireframe["vStep"] = m_mainWindow->ui->glWidget->getWireframeVStep();
-    root["wireframe"] = wireframe;
-
-    // ASPETTO PER-MESH (multi-mesh): colore, trasparenza, luce e solid/wireframe
-    // scelti parte per parte con lo spinbox del dock renderer. Si salva SOLO cio'
-    // che e' stato personalizzato: una parte che eredita dallo stato globale non
-    // scrive nulla, e una superficie a mesh singola non produce affatto la
-    // chiave, quindi i preset esistenti restano invariati byte per byte.
-    if (m_mainWindow->ui->glWidget->getEngine()) {
-        const auto &mparts = m_mainWindow->ui->glWidget->getEngine()->getMeshParts();
-        QJsonArray meshArr;
-        bool anyCustom = false;
-        for (const MeshPart &mp : mparts) {
-            QJsonObject o;
-            if (mp.hasCustomColor()) {
-                o["r"] = (double)mp.colorR;
-                o["g"] = (double)mp.colorG;
-                o["b"] = (double)mp.colorB;
-                anyCustom = true;
-            }
-            if (mp.alpha >= 0.0f)          { o["alpha"] = (double)mp.alpha; anyCustom = true; }
-            if (mp.lightIntensity >= 0.0f) { o["light"] = (double)mp.lightIntensity; anyCustom = true; }
-            // Modalita' propria (0=Base, 1=Phong, 2=Wireframe): serve il flag,
-            // perche' 0 e' un valore legittimo e non si distingue da "eredita".
-            if (mp.hasCustomRenderMode)    { o["mode"] = mp.renderMode; anyCustom = true; }
-            // Densita' wireframe propria (0 = eredita dalla globale).
-            if (mp.wfStepU > 0)            { o["wfU"] = mp.wfStepU; anyCustom = true; }
-            if (mp.wfStepV > 0)            { o["wfV"] = mp.wfStepV; anyCustom = true; }
-            // Texture procedurale propria. Come per "mode" serve il flag: una
-            // parte puo' voler la texture SPENTA mentre il globale la tiene
-            // accesa, e senza flag quel caso non si distingue da "eredita".
-            if (mp.hasCustomTexture) {
-                o["texCode"] = mp.textureCode;
-                o["texOn"]   = mp.textureEnabled;
-                // Ancora del focus in libreria (vedi MeshPart::textureLibName):
-                // solo se nota, come "libName" della texture globale.
-                if (!mp.textureLibName.isEmpty()) o["texLibName"] = mp.textureLibName;
-                anyCustom = true;
-            }
-            // Colori u_col1/u_col2 propri della parte (assenti = eredita).
-            if (mp.hasCustomTexColors()) {
-                o["texC1r"] = (double)mp.texCol1R;
-                o["texC1g"] = (double)mp.texCol1G;
-                o["texC1b"] = (double)mp.texCol1B;
-                o["texC2r"] = (double)mp.texCol2R;
-                o["texC2g"] = (double)mp.texCol2G;
-                o["texC2b"] = (double)mp.texCol2B;
-                anyCustom = true;
-            }
-            // Trasformazione 2D propria (zoom/pan/rotazione della texture).
-            if (mp.hasCustomTexTransform()) {
-                o["texZoom"] = (double)mp.texZoom;
-                o["texPanX"] = (double)mp.texPanX;
-                o["texPanY"] = (double)mp.texPanY;
-                o["texRot"]  = (double)mp.texRotation;
-                anyCustom = true;
-            }
-            // Dominio proprio della parte: stessa regola del ramo surfaces --
-            // solo se scelto dall'utente, mai quello dichiarato dallo script.
-            if (mp.hasCustomDomain) {
-                o["uMin"] = (double)mp.uMin;
-                o["uMax"] = (double)mp.uMax;
-                o["vMin"] = (double)mp.vMin;
-                o["vMax"] = (double)mp.vMax;
-                anyCustom = true;
-            }
-            meshArr.append(o);
-        }
-        if (anyCustom) root["meshParts"] = meshArr;
-
-        // AMBITO All/Mesh al momento del salvataggio. Senza questa chiave il
-        // reload apriva sempre in "Mesh": una superficie messa tutta in
-        // wireframe da "All" salva renderMode = 2 (globale) e al reload le mesh
-        // senza modalita' propria lo EREDITAVANO, mostrandosi tutte wireframe
-        // ma in ambito Mesh, cioe' uno stato che l'utente non aveva scelto.
-        // A mesh SINGOLA l'ambito e' "All" per definizione (e' cio' che decide
-        // il load, applyPendingMeshScope) e il radio non si guarda: puo' essere
-        // ancora quello della superficie precedente, quando il load non
-        // rigenera la griglia e il riallineamento non scatta (script metrici:
-        // Kerr dopo Hopf Tori si salvava senza chiave, dopo altro con).
-        if (mparts.size() <= 1
-            || (m_mainWindow->ui->radioMeshAll
-                && m_mainWindow->ui->radioMeshAll->isChecked())) {
-            root["meshScopeAll"] = true;
-        }
-
-        // DOMINIO DELL'AMBITO "ALL": il taglio che vale per tutte le mesh
-        // insieme. Sta in RADICE e non dentro "meshParts" perche' non
-        // appartiene a nessuna parte -- e' il livello che le sospende tutte.
-        // Si scrive solo se impostato: i preset che non l'hanno mai usato non
-        // producono la chiave e restano invariati.
-        if (auto *eng = m_mainWindow->ui->glWidget->getEngine()) {
-            if (eng->hasAllDomain()) {
-                float aU0, aU1, aV0, aV1;
-                eng->allDomain(aU0, aU1, aV0, aV1);
-                root["allUMin"] = (double)aU0;
-                root["allUMax"] = (double)aU1;
-                root["allVMin"] = (double)aV0;
-                root["allVMax"] = (double)aV1;
-            }
-        }
-    }
-
-    return root;
+QJsonObject PresetSerializer::buildMotionJson(const QString &name, const MotionRunState &run,
+                                              bool includeSound)
+{
+    return LibraryManager::toJson(captureMotionState(name, run, includeSound));
 }
 
 void PresetSerializer::saveSurface(const QString &suggestedPath)
@@ -2675,31 +2166,9 @@ bool PresetSerializer::saveUnsavedWorkInteractive()
 
 void PresetSerializer::writeParametricLimits(QJsonObject &limits)
 {
-    // Doppia scrittura per ogni limite:
-    //  - chiave numerica: sempre presente, e' cio' che leggono i record e i
-    //    lettori precedenti a questa versione;
-    //  - chiave "...Expr": solo se il campo contiene davvero un'espressione,
-    //    cosi' un limite scritto "2*A" sopravvive al giro salva/ricarica
-    //    invece di congelarsi nel numero che valeva al momento del salvataggio.
-    struct Field { const char* key; QLineEdit* edit; };
-    const Field fields[] = {
-        { "uMin", m_mainWindow->ui->uMinEdit }, { "uMax", m_mainWindow->ui->uMaxEdit },
-        { "vMin", m_mainWindow->ui->vMinEdit }, { "vMax", m_mainWindow->ui->vMaxEdit },
-        { "wMin", m_mainWindow->ui->wMinEdit }, { "wMax", m_mainWindow->ui->wMaxEdit },
-    };
-
-    for (const Field &f : fields) {
-        const QString raw = f.edit->text().trimmed();
-        limits[f.key] = m_mainWindow->parseLimitField(raw);
-
-        // Un numero puro non e' una formula: niente chiave Expr, cosi' i preset
-        // senza costanti restano byte-identici a prima.
-        bool isPlainNumber = false;
-        QString normalized = raw;
-        normalized.replace(',', '.');
-        normalized.toFloat(&isPlainNumber);
-
-        if (!raw.isEmpty() && !isPlainNumber)
-            limits[QString(f.key) + "Expr"] = raw;
-    }
+    // Stessa regola del Save di superfici e record (numero sempre, "...Expr"
+    // solo se formula): una cattura e una scrittura sole, in comune.
+    LibraryItem d;
+    captureParametricLimits(d);
+    LibraryManager::writeParametricLimits(d, limits);
 }

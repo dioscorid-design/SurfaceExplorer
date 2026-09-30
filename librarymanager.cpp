@@ -1040,3 +1040,297 @@ bool LibraryManager::moveFile(const QString &oldPath, const QString &newFolder)
     if (QFile::exists(newPath)) return false;
     return file.rename(newPath);
 }
+
+// ==========================================================
+// SERIALIZZAZIONE: LibraryItem -> JSON (inverso di parseJson)
+// ==========================================================
+//
+// Traduzione PURA: nessuna lettura di interfaccia o motore. Lo stato arriva gia'
+// fotografato da PresetSerializer::capture*State, che prende le decisioni
+// (script o equazioni, angoli 4D azzerati fuori dal Cross Section, audio e tag
+// //IMG: dentro il codice della texture...). Qui restano solo le regole del
+// FORMATO: quali chiavi esistono e quando si scrivono. Le superfici e i record
+// hanno formati diversi (equazioni ridotte nel ramo script, colore r/g/b contro
+// nome, texture per-mesh solo nei record): li distingue d.type.
+//
+// I numeri: dove il vecchio Save scriveva "(double)float" il campo e' float
+// (conversione esatta); dove scriveva un double calcolato (alpha, luce) il
+// campo e' double. Cosi' un file risalvato resta identico byte per byte.
+
+void LibraryManager::writeParametricLimits(const LibraryItem &d, QJsonObject &limits)
+{
+    // Numero sempre, forma testuale solo quando e' una formula (vedi
+    // PresetSerializer::captureParametricLimits).
+    const struct { const char *key; float value; const QString &expr; } l[] = {
+        { "uMin", d.uMin, d.uMinExpr }, { "uMax", d.uMax, d.uMaxExpr },
+        { "vMin", d.vMin, d.vMinExpr }, { "vMax", d.vMax, d.vMaxExpr },
+        { "wMin", d.wMin, d.wMinExpr }, { "wMax", d.wMax, d.wMaxExpr },
+    };
+    for (const auto &f : l) {
+        limits[f.key] = f.value;
+        if (!f.expr.isEmpty()) limits[QString(f.key) + "Expr"] = f.expr;
+    }
+}
+
+namespace {
+
+QJsonObject meshPartsJson(const LibraryItem &d, bool withTextures, bool *anyCustom)
+{
+    // Solo cio' che la parte personalizza: una parte che eredita non scrive
+    // nulla. Le superfici NON portano texture per-mesh (e nemmeno quella
+    // globale): la texture sta nel ramo records/, che salva la scena intera.
+    QJsonArray arr;
+    *anyCustom = false;
+    for (const MeshPart &mp : d.meshParts) {
+        QJsonObject o;
+        if (mp.hasCustomColor()) {
+            o["r"] = (double)mp.colorR;
+            o["g"] = (double)mp.colorG;
+            o["b"] = (double)mp.colorB;
+            *anyCustom = true;
+        }
+        if (mp.alpha >= 0.0f)          { o["alpha"] = (double)mp.alpha; *anyCustom = true; }
+        if (mp.lightIntensity >= 0.0f) { o["light"] = (double)mp.lightIntensity; *anyCustom = true; }
+        if (mp.hasCustomRenderMode)    { o["mode"] = mp.renderMode; *anyCustom = true; }
+        if (mp.wfStepU > 0)            { o["wfU"] = mp.wfStepU; *anyCustom = true; }
+        if (mp.wfStepV > 0)            { o["wfV"] = mp.wfStepV; *anyCustom = true; }
+        if (withTextures) {
+            if (mp.hasCustomTexture) {
+                o["texCode"] = mp.textureCode;
+                o["texOn"]   = mp.textureEnabled;
+                if (!mp.textureLibName.isEmpty()) o["texLibName"] = mp.textureLibName;
+                *anyCustom = true;
+            }
+            if (mp.hasCustomTexColors()) {
+                o["texC1r"] = (double)mp.texCol1R;
+                o["texC1g"] = (double)mp.texCol1G;
+                o["texC1b"] = (double)mp.texCol1B;
+                o["texC2r"] = (double)mp.texCol2R;
+                o["texC2g"] = (double)mp.texCol2G;
+                o["texC2b"] = (double)mp.texCol2B;
+                *anyCustom = true;
+            }
+            if (mp.hasCustomTexTransform()) {
+                o["texZoom"] = (double)mp.texZoom;
+                o["texPanX"] = (double)mp.texPanX;
+                o["texPanY"] = (double)mp.texPanY;
+                o["texRot"]  = (double)mp.texRotation;
+                *anyCustom = true;
+            }
+        }
+        if (mp.hasCustomDomain) {
+            o["uMin"] = (double)mp.uMin;
+            o["uMax"] = (double)mp.uMax;
+            o["vMin"] = (double)mp.vMin;
+            o["vMax"] = (double)mp.vMax;
+            *anyCustom = true;
+        }
+        arr.append(o);
+    }
+    QJsonObject holder;
+    holder["meshParts"] = arr;
+    return holder;
+}
+
+} // namespace
+
+QJsonObject LibraryManager::toJson(const LibraryItem &d)
+{
+    const bool record = (d.type == LibraryType::Motion);
+    QJsonObject root;
+    root["name"] = d.name;
+    root["type"] = record ? "motion" : "surface";
+
+    // --- Ray Marching: i due sotto-tab hanno editor separati, si scrivono
+    // entrambi piu' quale era attivo.
+    root["isImplicitMode"] = d.isImplicitMode;
+    if (d.isImplicitMode) {
+        root["implicitEquation"] = d.implicitEq;
+        root["implicitUsesCrossSection"] = d.usesCrossSection;
+        root["crossSectionEquation"] = d.crossSectionEq;
+    }
+
+    // --- Geometria: script o equazioni.
+    if (!record && d.isScript) {
+        // Superficie da script: equazioni ridotte a x/y/z/p vuoti.
+        if (!d.scriptCode.trimmed().isEmpty()) root["scriptCode"] = d.scriptCode;
+        QJsonObject eq; eq["x"] = ""; eq["y"] = ""; eq["z"] = ""; eq["p"] = "";
+        root["equations"] = eq;
+    } else {
+        QJsonObject eq;
+        eq["x"] = d.x; eq["y"] = d.y; eq["z"] = d.z; eq["p"] = d.w;
+        eq["explicitU"] = d.explicitU; eq["explicitV"] = d.explicitV; eq["explicitW"] = d.explicitW;
+        eq["defU"] = d.defU; eq["defV"] = d.defV; eq["defW"] = d.defW;
+        root["equations"] = eq;
+        // Record: lo script si scrive ACCANTO alle equazioni (script metrico:
+        // i campi portano la display map).
+        if (record && d.isScript) root["scriptCode"] = d.scriptCode;
+    }
+
+    QJsonObject geo;
+    geo["u0"] = d.geoU0; geo["v0"] = d.geoV0; geo["w0"] = d.geoW0;
+    geo["du"] = d.geoDU; geo["dv"] = d.geoDV; geo["dw"] = d.geoDW;
+    geo["conform"] = d.geoConform;
+    root["geodesic"] = geo;
+
+    if (!record && d.hasMetricMap) {
+        QJsonObject map;
+        map["x"] = d.metricMapX; map["y"] = d.metricMapY;
+        map["z"] = d.metricMapZ; map["p"] = d.metricMapP;
+        root["metricDisplayMap"] = map;
+    }
+
+    QJsonObject constants;
+    constants["A"] = d.a; constants["B"] = d.b; constants["C"] = d.c;
+    constants["D"] = d.d; constants["E"] = d.e; constants["F"] = d.f;
+    constants["S"] = d.s;
+    root["constants"] = constants;
+
+    if (!d.discreteConstants.isEmpty()) {
+        QJsonObject disc;
+        for (auto it = d.discreteConstants.constBegin(); it != d.discreteConstants.constEnd(); ++it)
+            disc[it.key()] = QJsonArray{ it->first, it->second };
+        root["discreteConstants"] = disc;
+    }
+
+    QJsonObject limits;
+    writeParametricLimits(d, limits);
+    limits["xMin"] = d.xMin;  limits["xMax"] = d.xMax;
+    limits["yMin"] = d.yMin;  limits["yMax"] = d.yMax;
+    limits["zMin"] = d.zMin;  limits["zMax"] = d.zMax;
+    root["limits"] = limits;
+    root["steps"] = d.steps;
+
+    QJsonObject colors;
+    if (record) {
+        colors["surfColor"] = d.color1;
+    } else {
+        colors["r"] = d.surfaceColor.redF();
+        colors["g"] = d.surfaceColor.greenF();
+        colors["b"] = d.surfaceColor.blueF();
+    }
+    colors["alpha"] = d.alpha;
+    root["colors"] = colors;
+
+    if (record) {
+        QJsonObject p4;
+        p4["x"] = d.path4D_x; p4["y"] = d.path4D_y; p4["z"] = d.path4D_z; p4["w"] = d.path4D_w;
+        p4["alpha"] = d.path4D_alpha; p4["beta"] = d.path4D_beta; p4["gamma"] = d.path4D_gamma;
+        root["path4D"] = p4;
+        QJsonObject p3;
+        p3["x"] = d.path3D_x; p3["y"] = d.path3D_y; p3["z"] = d.path3D_z; p3["roll"] = d.path3D_roll;
+        root["path3D"] = p3;
+    }
+
+    // Messaggi in sovrimpressione: chiave assente se non c'e' nulla da dire.
+    if (!d.hintText.isEmpty()) {
+        root["hintText"] = d.hintText;
+        root["hintSeconds"] = (double)d.hintSeconds;
+    }
+    if (record && !d.textureHintText.isEmpty()) {
+        root["textureHintText"] = d.textureHintText;
+        root["textureHintSeconds"] = (double)d.textureHintSeconds;
+    }
+
+    if (record) {
+        root["pathMode"] = d.pathMode4D;
+        root["pathMode3D"] = d.pathMode3D;
+        root["activeMotion"] = d.activeMotion;
+
+        QJsonObject tex;
+        tex["enabled"] = d.textureEnabled;
+        tex["zoom"] = (double)d.zoom;
+        tex["pan_x"] = (double)d.panX;
+        tex["pan_y"] = (double)d.panY;
+        tex["rotation"] = (double)d.rotation;
+        tex["col1"] = d.texColor1;
+        tex["col2"] = d.texColor2;
+        tex["code"] = d.textureCode;
+        if (d.isImplicitMode) tex["displacement"] = d.displacementCode;
+        if (!d.textureLibName.isEmpty()) tex["libName"] = d.textureLibName;
+        root["texture"] = tex;
+        if (!d.soundLibName.isEmpty()) root["soundLibName"] = d.soundLibName;
+
+        QJsonObject speeds;
+        speeds["nutation"] = (double)d.speedNut;
+        speeds["precession"] = (double)d.speedPrec;
+        speeds["spin"] = (double)d.speedSpin;
+        speeds["omega"] = (double)d.speedOmega;
+        speeds["phi"] = (double)d.speedPhi;
+        speeds["psi"] = (double)d.speedPsi;
+        speeds["path3D"] = d.speedPath3D;
+        speeds["path4D"] = d.speedPath4D;
+        root["speeds"] = speeds;
+    }
+
+    QJsonObject angles;
+    angles["omega"] = (double)d.omega;
+    angles["phi"] = (double)d.phi;
+    angles["psi"] = (double)d.psi;
+    root["angles"] = angles;
+    // Piano di sezione lungo p: solo nel sotto-tab Cross Section.
+    if (d.isImplicitMode && d.usesCrossSection)
+        root["crossSectionP"] = (double)d.crossSectionP;
+
+    if (d.hasCamera3D) {
+        QJsonObject cam;
+        cam["x"] = (double)d.camX; cam["y"] = (double)d.camY; cam["z"] = (double)d.camZ;
+        cam["rot_w"] = (double)d.rotW; cam["rot_x"] = (double)d.rotX;
+        cam["rot_y"] = (double)d.rotY; cam["rot_z"] = (double)d.rotZ;
+        cam["yaw"] = (double)d.camYaw; cam["pitch"] = (double)d.camPitch; cam["roll"] = (double)d.camRoll;
+        root["camera3D"] = cam;
+        if (record) root["observer4D"] = (double)d.observer4D;
+    }
+
+    if (record) {
+        QJsonObject bg;
+        bg["color"] = d.bgColor;
+        bg["enabled"] = d.bgTextureEnabled;
+        bg["code"] = d.bgTextureCode;
+        bg["col1"] = d.bgCol1;
+        bg["col2"] = d.bgCol2;
+        if (!d.bgLibName.isEmpty()) bg["libName"] = d.bgLibName;
+        if (!d.bgHintText.isEmpty()) {
+            bg["hintText"] = d.bgHintText;
+            bg["hintSeconds"] = (double)d.bgHintSeconds;
+        }
+        bg["skyMode"] = d.bgSkyMode;
+        bg["zoom"] = (double)d.bgZoom;
+        bg["pan_x"] = (double)d.bgPanX;
+        bg["pan_y"] = (double)d.bgPanY;
+        bg["rotation"] = (double)d.bgRotation;
+        root["background"] = bg;
+    }
+
+    root["lightingMode"] = d.lightingMode;
+    root["lightIntensity"] = d.lightIntensity;
+    root["fillLight"] = (double)d.fillLight;
+    root["use4DLighting"] = d.use4DLighting;
+    // renderMode e' gia' nella codifica del file (in RM: +10 = Shell).
+    root["renderMode"] = d.renderMode;
+    if (d.isImplicitMode) {
+        root["shellThickness"] = (double)d.shellThickness;
+        root["hybridMarcher"] = d.hybridMarcher;
+    }
+    root["projectionMode"] = d.projectionMode;
+    root["cameraFov"] = (double)d.cameraFov;
+    root["fov3D"] = (double)d.fov3D;
+    root["fov4D"] = (double)d.fov4D;
+
+    QJsonObject wf;
+    wf["uStep"] = d.wireframeUStep;
+    wf["vStep"] = d.wireframeVStep;
+    root["wireframe"] = wf;
+
+    bool anyCustom = false;
+    const QJsonObject parts = meshPartsJson(d, /*withTextures*/ record, &anyCustom);
+    if (anyCustom) root["meshParts"] = parts["meshParts"];
+    if (d.meshScopeAll) root["meshScopeAll"] = true;
+    if (d.hasAllDomain) {
+        root["allUMin"] = (double)d.allUMin;
+        root["allUMax"] = (double)d.allUMax;
+        root["allVMin"] = (double)d.allVMin;
+        root["allVMax"] = (double)d.allVMax;
+    }
+    return root;
+}

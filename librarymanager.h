@@ -2,6 +2,7 @@
 #define LIBRARYMANAGER_H
 
 #include "surfaceengine.h"
+#include <QColor>
 #include <QString>
 #include <QList>
 #include <QHash>
@@ -225,8 +226,41 @@ struct LibraryItem {
     bool use4DLighting = false;
     int lightingMode = -1;
 
-    float alpha = 1.0f;
-    float lightIntensity = 1.0f;
+    // DOUBLE, non float: il Save li scrive come valori calcolati in doppia
+    // precisione (alpha arrotondata ai centesimi, luce = slider/100). Un float
+    // li cambierebbe nel file (0.45 -> 0.4499999881).
+    double alpha = 1.0;
+    double lightIntensity = 1.0;
+
+    // ==========================================================
+    // STATO CATTURATO DAL SAVE (tappa 2 dello "stato unico della scena")
+    // ==========================================================
+    // Il Save fotografa la scena in un LibraryItem (PresetSerializer::
+    // captureSurfaceState / captureMotionState) e lo traduce in JSON
+    // (LibraryManager::toJson), simmetrico a parseJson. I campi qui sotto sono
+    // quelli che il Save scrive ma che il load dei record legge ancora
+    // direttamente dal JSON (applyMotionExample): la tappa 3 li fara' leggere
+    // anche a lui da qui.
+    // Colore globale della superficie a PIENA precisione: color1 ne e' il nome
+    // (8 bit per canale), che il load usa; il Save delle superfici scrive i
+    // canali r/g/b come double e col nome cambierebbe il file.
+    QColor surfaceColor;
+    QString textureLibName;         // texture["libName"]: ancora in libreria
+    QString soundLibName;           // "soundLibName": solo se il record ha audio
+    QString activeMotion;           // moto camera da riavviare al load
+    int pathMode4D = 0;             // "pathMode"   (vista del path 4D)
+    int pathMode3D = 0;             // "pathMode3D" (vista del path 3D)
+    int speedPath3D = 0;            // speeds["path3D"] (slider)
+    int speedPath4D = 0;            // speeds["path4D"] (slider)
+    float observer4D = 0.0f;
+    // Sfondo (blocco "background" del record); bgColor, bgTextureEnabled e
+    // bgTextureCode sono piu' sopra.
+    QString bgCol1, bgCol2;
+    QString bgLibName;
+    QString bgHintText;
+    float   bgHintSeconds = 6.0f;
+    QString bgSkyMode;              // "fixed" / "sphere" / "cylinder" / "cube"
+    float bgZoom = 1.0f, bgPanX = 0.0f, bgPanY = 0.0f, bgRotation = 0.0f;
 };
 
 struct DeletionBackup {
@@ -254,6 +288,14 @@ public:
     // ==========================================================
     void clear();
     void loadFromDirectory(const QString &dirPath, QTreeWidget *tree, LibraryType type);
+
+    // Il JSON di una superficie o di un record (secondo d.type), inverso di
+    // parseJson: traduzione PURA, non legge ne' interfaccia ne' motore. Lo
+    // stato lo fotografa PresetSerializer::capture*State.
+    static QJsonObject toJson(const LibraryItem &d);
+    // I sei limiti u/v/w di d in `limits` (numero sempre, "...Expr" se formula).
+    // La usa anche il Save degli script, che ha un formato suo.
+    static void writeParametricLimits(const LibraryItem &d, QJsonObject &limits);
 
     // ==========================================================
     // GETTERS

@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QString>
 #include <QColor>
+#include "librarymanager.h"
 
 class MainWindow;
 class QJsonObject;
@@ -46,15 +47,23 @@ public:
     QJsonObject buildMotionJson(const QString &name, const MotionRunState &run,
                                 bool includeSound);
 
+    // Lo stato della scena fotografato in un LibraryItem, cio' che i due
+    // build*Json traducono con LibraryManager::toJson (tappa 2 dello "stato
+    // unico della scena"). Nessun dialogo, nessun disco.
+    LibraryItem captureSurfaceState(const QString &name);
+    LibraryItem captureMotionState(const QString &name, const MotionRunState &run,
+                                   bool includeSound);
+
 private:
     // Scrive i sei limiti parametrici in `limits`: sempre la chiave numerica
     // (uMin/uMax/...), piu' la gemella "...Expr" con il testo grezzo quando
-    // l'utente ha scritto una formula anziche' un numero. Unica implementazione:
-    // i tre save (surface/motion/script) devono restare allineati.
+    // l'utente ha scritto una formula anziche' un numero. Per il Save degli
+    // script: e' captureParametricLimits + LibraryManager::writeParametricLimits,
+    // le stesse che usano superfici e record.
     void writeParametricLimits(QJsonObject &limits);
 
-    // "discreteConstants" (se ce ne sono), per superfici e record.
-    void writeDiscreteConstants(QJsonObject &root);
+    void captureCommonState(LibraryItem &d);
+    void captureParametricLimits(LibraryItem &d);
 
     // Colore GLOBALE della superficie letto dal motore, mai da
     // m_currentSurfaceColor (che resta contaminato dal colore dell'ultima mesh

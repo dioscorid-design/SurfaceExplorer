@@ -579,6 +579,11 @@ public:
     void addFlatRotation(float angle);
     void rotateFlat90();
     QVector2D getFlatPan() const;
+    // Inquadratura dello SFONDO senza passare dal bersaglio della vista 2D (la
+    // legge il Save: prima commutava il bersaglio avanti e indietro).
+    float backgroundZoom() const;
+    QVector2D backgroundPan() const;
+    float backgroundRotation() const;
     void setFlatPan(float x, float y);
 
     // TRASFORMAZIONE 2D GLOBALE della texture di superficie, per la PERSISTENZA.
