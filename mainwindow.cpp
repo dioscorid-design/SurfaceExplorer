@@ -17752,7 +17752,8 @@ void MainWindow::applyPresetConstants(const LibraryItem &d, bool rebuildDiscrete
 // Unica implementazione per i due rami di applyCommonData: prima li scriveva
 // solo il ramo equazioni, quindi un preset con SCRIPT si teneva quelli del
 // preset precedente e il Save li riportava nel file (trovato dal test di
-// andata e ritorno: Kerr Black Hole, Kerr Spin Animated, Wormhole).
+// andata e ritorno: Kerr Black Hole, Kerr Spin Animated, Wormhole). Il ramo
+// script la chiama con un LibraryItem vuoto: li' i campi vanno SVUOTATI.
 void MainWindow::setCompositionFieldsFromPreset(const LibraryItem &d)
 {
     bool bCU = ui->lineU->blockSignals(true);
@@ -18382,7 +18383,17 @@ void MainWindow::applyCommonData(LibraryItem d)
         ui->lineZ->blockSignals(bZ);
         ui->lineP->blockSignals(bP);
 
-        setCompositionFieldsFromPreset(d);
+        // Composizione e vincoli VUOTI, non quelli del file: con uno script la
+        // geometria la da' lo script, e il motore azzera comunque le variabili
+        // composte qui sotto. I campi pero' pilotano l'interfaccia -- una V
+        // composta spegne e svuota i limiti di v -- e il flusso geodetico li
+        // legge: Wormhole ha nel file V = B*cos(u), residuo di un vecchio
+        // salvataggio, e caricandola i limiti v vuoti facevano fallire la
+        // geodetica ("Check limits for: v") e il record restava a meta'.
+        // Svuotarli e' anche cio' che il load faceva di fatto prima (restavano
+        // quelli del preset precedente, quasi sempre vuoti), ma ora non dipende
+        // piu' da cosa era aperto prima (Kerr: defU/V/W del preset precedente).
+        setCompositionFieldsFromPreset(LibraryItem{});
 
         if (ui->glWidget) {
             // 1. Spegne m_isCustomMesh interno e azzera le funzioni base
