@@ -49,6 +49,7 @@ class MainWindow : public QMainWindow
     friend class DesktopInputFilter;
     friend class MobileInputFilter;
     friend class PresetRoundTrip;   // test di andata e ritorno dei preset
+    friend class ClockTest;         // test degli orologi di animazione
 
 public:
     // CHE COSA sta per essere perso: decide sia quando chiedere sia dove il

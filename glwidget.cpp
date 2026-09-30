@@ -90,11 +90,9 @@ GLWidget::GLWidget(QWidget *parent)
     m_flatRotation = 0.0f;
     m_rotationQuat = QQuaternion();
 
-    m_elapsedTimer.start();
     m_surfaceTimer.start();
 
     m_surfaceAnimating = false;
-    m_manualTime = 0.00001f;
 
     m_textureEnabled = false;
     nutationSpeed = precessionSpeed = spinSpeed = 0.0f;
@@ -546,51 +544,20 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     if (dt < 0) dt = 0; // Protezione al riavvio del timer
     m_lastRealTime = currentRealTime;
 
-    // 2. GESTIONE TEMPO: LIVE vs VIDEO RECORDER
-    QVariant useVirtualTimeVar = property("use_virtual_time");
-    const bool useVirtualTime = useVirtualTimeVar.isValid() && useVirtualTimeVar.toBool();
-    if (useVirtualTime) {
-        // Se stiamo registrando, il tempo del recorder guida SOLO i moduli col
-        // clock attivo: un modulo FERMATO dall'utente resta congelato al tempo
-        // fotografato da beginVirtualTimeFreeze (vedi sotto), come a schermo.
-        // Prima vTime era forzato incondizionatamente su tutti e tre: nel video
-        // la texture (o la geometria) ferma ripartiva ad animarsi.
-        float vTime = property("virtual_time").toFloat();
-        if (m_surfaceAnimating) m_timeGeom = vTime;
-        if (m_texAnimating)     m_timeTex  = vTime;
-        if (m_bgAnimating)      m_timeBg   = vTime;
-    } else {
-        // App in uso normale: ogni orologio avanza solo se la sua parte è "attiva"
-        // Se corrono insieme, avanzano dello stesso identico 'dt', restando in sincrono!
-        if (m_surfaceAnimating) m_timeGeom += dt;
-        if (m_texAnimating)     m_timeTex  += dt;
-        if (m_bgAnimating)      m_timeBg   += dt;
-    }
-
-    // OROLOGI PER-MESH DELLA TEXTURE. Stesso identico dt/vTime dei globali (il
-    // recorder passa il tempo virtuale del frame): il contratto del loop di
-    // registrazione vale anche qui, cioe' il frame i mostra cio' che lo schermo
-    // mostrerebbe al tempo equivalente. Ogni parte avanza SOLO col proprio flag,
-    // ed e' questo che permette di fermarne una sola.
-    if (engine) {
-        for (MeshPart &mp : engine->mutableMeshParts()) {
-            if (!mp.texAnimating) continue;
-            if (useVirtualTime) mp.timeTex = property("virtual_time").toFloat();
-            else                mp.timeTex += dt;
-        }
-    }
+    // 2. OROLOGI: in uso normale avanzano qui, col dt reale. In registrazione
+    // li avanza il loop del recorder (advanceClocksBy col dt del frame): il
+    // frame i mostra cio' che lo schermo mostrerebbe al tempo equivalente, e
+    // un modulo fermo resta fermo in entrambi i casi, senza congelamenti.
+    // m_lastRealTime si aggiorna comunque (sopra): a fine REC il primo dt
+    // live e' quello di un frame, non la durata della registrazione.
+    if (!m_clocksDrivenByRecorder) advanceClocksBy(dt);
 
     // 3. INVIO DEI DATI ALLA GPU
-    // In registrazione m_manualTime avanza per TUTTI (setShaderTime dal loop del
-    // recorder): per i moduli fermi va neutralizzato col tempo totale congelato,
-    // altrimenti animerebbero comunque via m_manualTime.
-    const bool vtFreezeGeom = useVirtualTime && m_vtFreezeValid && !m_surfaceAnimating;
-    const bool vtFreezeTex  = useVirtualTime && m_vtFreezeValid && !m_texAnimating;
-    const bool vtFreezeBg   = useVirtualTime && m_vtFreezeValid && !m_bgAnimating;
-    m_uboData.time = vtFreezeGeom ? m_vtFrozenGeom : m_manualTime + m_timeGeom;
+    const ClockTimes clocks = clockTimes();
+    m_uboData.time = clocks.geom;
 
     // Usiamo la coordinata X di dummyZero per inviare il tempo specifico della Texture
-    m_uboData.dummyZero.setX(vtFreezeTex ? m_vtFrozenTex : m_manualTime + m_timeTex);
+    m_uboData.dummyZero.setX(clocks.tex);
 
     // .y = flag "seconda superficie interna" (Inner:= nello script ray marching).
     // .x resta l'orologio texture; .y/.z/.w erano liberi (azzerati a inizio frame).
@@ -844,13 +811,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 // congelare, quindi una parte che copiasse m_timeTex si
                 // congelerebbe insieme a lui e non ripartirebbe piu' da sola.
                 // Vedi la nota su timeTex in MeshPart.
-                // In registrazione vale la stessa neutralizzazione del globale:
-                // m_manualTime avanza per tutti, e una parte ferma va tenuta al
-                // suo tempo congelato o animerebbe comunque nel video.
-                partUbo.dummyZero.setX(
-                    (useVirtualTime && m_vtFreezeValid && !mp.texAnimating)
-                        ? mp.timeTex
-                        : m_manualTime + mp.timeTex);
+                partUbo.dummyZero.setX(kClockOrigin + mp.timeTex);
             }
 
             // MODALITA' PER-PARTE. Lo shader decide dal solo ubuf.u_renderMode
@@ -955,7 +916,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
 
         if (m_bgUbo) {
             UboData bgUboData = m_uboData;
-            bgUboData.time = vtFreezeBg ? m_vtFrozenBg : m_manualTime + m_timeBg;
+            bgUboData.time = clocks.bg;
             // Lo sfondo è sempre opaco: lo slider trasparenza del renderer agisce
             // sulla superficie (m_uboData.alpha), non deve sbiadire la texture di
             // background fondendola col clearColor (pipeline bg con blend SrcAlpha).
@@ -3220,10 +3181,6 @@ bool GLWidget::loadCustomShader(const QString &customCode)
     return true;
 }
 
-void GLWidget::setShaderTime(float t) {
-    m_manualTime = t;
-}
-
 void GLWidget::setCameraFov(float deg) {
     // Clamp: sotto ~20° l'immagine è un teleobiettivo inutilizzabile negli
     // interni, sopra ~110° la prospettiva rettilinea degenera ai bordi.
@@ -4032,17 +3989,18 @@ void GLWidget::resumeMotion() {
 
 void GLWidget::startAnimationTimer() {
     if (m_animTimer && !m_animTimer->isActive()) {
+        m_surfaceTimer.restart();   // azzera la base del dt: niente salti
         m_animTimer->start();
-        m_elapsedTimer.restart();
     }
 }
 
+// Ferma solo i TICK: gli orologi restano dove sono. Qui si scriveva
+// m_manualTime = elapsed reale, una base sommata a TUTTI gli orologi: ogni
+// stop/start (il Save Record, il menu della libreria) faceva saltare avanti le
+// animazioni dei secondi trascorsi dall'ultimo start -- misurato: geometria da
+// 3.97 a 8.10, texture FERMA da 0 a 4.09.
 void GLWidget::stopAnimationTimer() {
-    // Se il timer sta girando, lo fermiamo
-    if (m_animTimer && m_animTimer->isActive()) {
-        m_manualTime = (float)m_elapsedTimer.elapsed() / 1000.0f;
-        m_animTimer->stop();
-    }
+    if (m_animTimer && m_animTimer->isActive()) m_animTimer->stop();
 }
 
 void GLWidget::stopAllTimers() {
@@ -4053,26 +4011,12 @@ void GLWidget::stopAllTimers() {
     if (m_animTimer->isActive()) m_animTimer->stop();
 }
 
+// Riporta all'origine i tre orologi globali (le fasce hanno i propri reset).
+// Nessuna base da azzerare a parte: il tempo mostrato E' l'orologio, quindi
+// non puo' piu' "resuscitare" da un timer esterno (il bug della sfera RM che
+// nasceva a t=43 veniva da li').
 void GLWidget::resetTime() {
-    m_manualTime = 0.00001f;
     m_surfaceTimer.restart();
-    // ANCHE la base di m_manualTime, non solo quella del dt. m_elapsedTimer
-    // misura dall'AVVIO DELL'APP (start() una sola volta nel costruttore, poi
-    // restart() solo in startAnimationTimer): senza questo restart il primo
-    // stopAnimationTimer() successivo -- che fa
-    // m_manualTime = m_elapsedTimer.elapsed() -- RESUSCITAVA il tempo appena
-    // azzerato qui, riportandolo a decine di secondi.
-    // Sintomo (solo Ray Marching, dalla SECONDA volta in poi): ricaricata la
-    // superficie di default e rimessa una 't' nell'equazione, la sfera nasceva
-    // gia' a t=43 invece che a t~0. Con x^2+y^2+t*z^2=1 il semiasse z vale
-    // 1/sqrt(t): a t~0 si contrae in fretta (il moto atteso), a t=43 e' gia' un
-    // disco schiacciato che evolve in modo impercettibile -- sembrava
-    // "appiattita e ferma", e non lo era.
-    // La PRIMA volta funzionava perche' m_animTimer non era ancora mai partito
-    // e la guardia di stopAnimationTimer() lasciava m_manualTime intatto.
-    // L'ordine in resetScene (resetTime() e, piu' sotto, stopAnimationTimer())
-    // resta quello che e': la base va azzerata qui, alla sorgente.
-    m_elapsedTimer.restart();
     m_lastRealTime = 0.0f;
     m_timeGeom = 0.0f;
     m_timeTex = 0.0f;
@@ -4083,7 +4027,7 @@ void GLWidget::resetTime() {
 // Riavvia dall'inizio il SOLO orologio indicato. Per la texture di SUPERFICIE
 // colore e displacement leggono lo stesso clock (dummyZero.x), quindi basta
 // azzerare m_timeTex; lo SFONDO ha il suo (m_timeBg).
-// Non si passa da resetTime(): quella azzera anche m_manualTime e m_timeGeom,
+// Non si passa da resetTime(): quella azzera anche m_timeGeom,
 // cioe' la geometria, che un click sulla texture non riguarda -- fermerebbe la
 // superficie animata insieme alla texture.
 void GLWidget::resetTextureTime(bool background) {
@@ -4133,27 +4077,26 @@ void GLWidget::setSurfaceTextureAnimating(bool animating) {
     }
 }
 
-// Chiamata dal VideoRecorder PRIMA di attivare use_virtual_time e di toccare
-// m_manualTime (setShaderTime): fotografa il tempo TOTALE attualmente mostrato
-// da ogni modulo. Durante la registrazione i moduli col clock fermo restano
-// inchiodati a questi valori (vedi render, ramo use_virtual_time).
-void GLWidget::beginVirtualTimeFreeze() {
-    m_vtFrozenGeom = m_manualTime + m_timeGeom;
-    m_vtFrozenTex  = m_manualTime + m_timeTex;
-    m_vtFrozenBg   = m_manualTime + m_timeBg;
-    m_vtFreezeValid = true;
+// Unica implementazione dell'avanzamento degli orologi (vedi glwidget.h):
+// la chiama il render col dt reale e il loop del recorder col dt del frame.
+// Ogni orologio avanza SOLO col proprio flag: e' questo che tiene fermo un
+// modulo fermato dall'utente, dal vivo come nel video. Se corrono insieme,
+// avanzano dello stesso identico dt e restano in sincrono.
+void GLWidget::advanceClocksBy(float dt) {
+    if (m_surfaceAnimating) m_timeGeom += dt;
+    if (m_texAnimating)     m_timeTex  += dt;
+    if (m_bgAnimating)      m_timeBg   += dt;
+
+    // OROLOGI PER-MESH DELLA TEXTURE: stesso dt dei globali, ogni parte col
+    // proprio flag -- e' cio' che permette di fermarne una sola.
+    if (engine) {
+        for (MeshPart &mp : engine->mutableMeshParts())
+            if (mp.texAnimating) mp.timeTex += dt;
+    }
 }
 
-// Chiamata a fine registrazione (use_virtual_time torna false): ricompone i
-// m_time* dei moduli fermi cosi' che (m_manualTime + m_time*) torni ESATTAMENTE
-// al valore congelato — il modulo riprende dallo stesso identico frame di prima
-// del REC, invece di saltare al tempo raggiunto dal recorder.
-void GLWidget::endVirtualTimeFreeze() {
-    if (!m_vtFreezeValid) return;
-    if (!m_surfaceAnimating) m_timeGeom = m_vtFrozenGeom - m_manualTime;
-    if (!m_texAnimating)     m_timeTex  = m_vtFrozenTex  - m_manualTime;
-    if (!m_bgAnimating)      m_timeBg   = m_vtFrozenBg   - m_manualTime;
-    m_vtFreezeValid = false;
+GLWidget::ClockTimes GLWidget::clockTimes() const {
+    return { kClockOrigin + m_timeGeom, kClockOrigin + m_timeTex, kClockOrigin + m_timeBg };
 }
 
 

@@ -121,6 +121,8 @@ qt_add_executable(SurfaceExplorer
     presetserializer.cpp
     presetroundtrip.h
     presetroundtrip.cpp
+    clocktest.h
+    clocktest.cpp
     libraryfileoperations.h
     libraryfileoperations.cpp
     librarydragdrophandler.h

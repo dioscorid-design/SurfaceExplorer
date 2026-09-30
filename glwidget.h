@@ -131,6 +131,7 @@ struct UboData {
 class GLWidget : public QRhiWidget
 {
     Q_OBJECT
+    friend class ClockTest;   // legge il tempo arrivato allo shader (m_uboData)
 
 public:
     explicit GLWidget(QWidget *parent = nullptr);
@@ -505,7 +506,6 @@ public:
 
     void setScriptCheck(bool enabled);
     bool loadCustomShader(const QString &customCode);
-    void setShaderTime(float t);
 
     void setBackgroundColor(const QColor &color);
     void setBackgroundTexture(const QString &path);
@@ -766,12 +766,24 @@ public:
     bool isBackgroundTextureAnimating() const { return m_bgAnimating; }
     bool isSurfaceTextureAnimating() const { return m_texAnimating; }
 
-    // Registrazione video: fotografa/ripristina il tempo mostrato dai moduli
-    // col clock FERMO, che non devono seguire il tempo virtuale del recorder
-    // (vedi ramo use_virtual_time in render). begin va chiamata PRIMA di
-    // attivare use_virtual_time e di toccare m_manualTime; end quando torna false.
-    void beginVirtualTimeFreeze();
-    void endVirtualTimeFreeze();
+    // OROLOGI DI ANIMAZIONE (geometria, texture, sfondo, texture per-mesh).
+    // Ognuno E' il tempo che il suo modulo mostra, e avanza solo col proprio
+    // flag. Unica implementazione dell'avanzamento, condivisa fra il tick live
+    // (dt reale, dal render) e il loop di registrazione (dt del frame
+    // virtuale): stesso contratto di advanceRotationsBy (vedi CLAUDE.md).
+    void advanceClocksBy(float dt);
+    // In registrazione gli orologi li avanza SOLO il recorder, con
+    // advanceClocksBy: il render non aggiunge il dt reale. Spento a fine REC,
+    // lo schermo prosegue da dove il video e' arrivato.
+    void setClocksDrivenByRecorder(bool on) { m_clocksDrivenByRecorder = on; }
+    // Tempo che arriva allo shader per ciascun modulo globale (il render li
+    // legge da qui; servono anche al test degli orologi).
+    struct ClockTimes { float geom; float tex; float bg; };
+    ClockTimes clockTimes() const;
+    // Mai t = 0 esatto allo shader: e' l'origine storica degli orologi (la
+    // vecchia base m_manualTime partiva da qui), e uno shader che divide per t
+    // non deve vedere un infinito al primo frame.
+    static constexpr float kClockOrigin = 0.00001f;
 
 
     // ==========================================================
@@ -1194,7 +1206,6 @@ private:
     static constexpr int kRotationTickMs = 16;
     QTimer* rotationTimer;
     QTimer* m_animTimer = nullptr;
-    QElapsedTimer m_elapsedTimer;
     QElapsedTimer m_surfaceTimer;
 
     // --- Watchdog di performance (avviso da rallentamento) ---
@@ -1228,7 +1239,6 @@ private:
                                          // il primo frame dopo lo start (transitorio)
 
     bool m_surfaceAnimating = false;
-    float m_manualTime = 0.0f;
 
     float nutation = 0, precession = 0, spin = 0;
     float omega = 0, phi = 0, psi = 0;
@@ -1239,17 +1249,16 @@ private:
     bool m_isFirstPathRun{true};
 
     float m_lastRealTime = 0.0f;
+    // Orologi dei tre moduli globali: ciascuno E' il tempo mostrato (piu'
+    // kClockOrigin). Nessuna base comune: prima c'era m_manualTime, sommata a
+    // tutti, con due sorgenti incompatibili (elapsed reale allo stop, tempo del
+    // recorder in REC). Nel video il tempo del recorder entrava due volte
+    // (velocita' doppia, partenza da zero) e ogni stop/start dell'orologio
+    // faceva saltare avanti le animazioni.
     float m_timeGeom = 0.0f;
     float m_timeTex = 0.0f;
     float m_timeBg = 0.0f;
-
-    // Tempi congelati per la registrazione video (beginVirtualTimeFreeze):
-    // il tempo TOTALE (m_manualTime + m_time*) mostrato quando e' partito il REC.
-    // In registrazione i moduli fermi restano inchiodati a questi valori.
-    bool  m_vtFreezeValid = false;
-    float m_vtFrozenGeom = 0.0f;
-    float m_vtFrozenTex  = 0.0f;
-    float m_vtFrozenBg   = 0.0f;
+    bool  m_clocksDrivenByRecorder = false;   // vedi setClocksDrivenByRecorder
 
     bool m_bgAnimating = false;
     bool m_texAnimating = false;

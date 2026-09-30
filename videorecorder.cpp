@@ -608,20 +608,10 @@ void VideoRecorder::toggleRecord()
                                  m_mainWindow->m_audioController->isPlaying();
     m_mainWindow->m_audioController->stopAll();
 
-    // 1. Creiamo una variabile per salvare il momento esatto in cui l'utente ha premuto REC
-    float initialTimeOffset = 0.0f;
-
     if (m_mainWindow->ui->glWidget) {
-        // 2. Leggiamo il tempo reale corrente dello shader dal vivo
-        initialTimeOffset = m_mainWindow->ui->glWidget->property("virtual_time").toFloat();
-
-        if (initialTimeOffset < 0.001f) initialTimeOffset = 0.001f;
-
         // Fine dialoghi: il clock geometria torna allo stato che aveva al REC
-        // (spento sopra solo per congelare lo schermo durante il setup). Va
-        // riacceso PRIMA del freeze, che fotografa i moduli fermi dallo stato
-        // reale dei clock; il clock shader live resta comunque fermo, durante
-        // il REC il tempo lo detta il loop via virtual_time.
+        // (spento sopra solo per congelare lo schermo durante il setup). Durante
+        // il REC gli orologi li avanza il loop (advanceClocksBy), non il render.
         if (wasTimeAnimating) {
             m_mainWindow->ui->glWidget->setSurfaceAnimating(true);
             // Qui c'era stopAllTimers(), che spegneva ANCHE rotationTimer.
@@ -635,22 +625,16 @@ void VideoRecorder::toggleRecord()
             //
             // Il clock shader live e' gia' fermo da stopAllTimers() a inizio
             // funzione e non e' stato riacceso: non serve rifermarlo qui.
-            // (Non usiamo stopAnimationTimer(): riscriverebbe m_manualTime
-            // dall'elapsed reale, e beginVirtualTimeFreeze() lo legge subito
-            // sotto per congelare i moduli fermi.)
         }
 
-        // Fotografa il tempo mostrato da ogni modulo PRIMA di attivare il tempo
-        // virtuale e di toccare m_manualTime: i moduli col clock FERMO (es.
-        // texture stoppata dal suo dock) resteranno su quel frame per tutto il
-        // video, invece di ripartire ad animarsi col tempo del recorder.
-        m_mainWindow->ui->glWidget->beginVirtualTimeFreeze();
-
-        // Diciamo al widget di smettere di usare il tempo reale
-        m_mainWindow->ui->glWidget->setProperty("use_virtual_time", true);
-
-        // 3. Impostiamo il virtual_time iniziale al tempo appena catturato
-        m_mainWindow->ui->glWidget->setProperty("virtual_time", initialTimeOffset);
+        // Da qui gli orologi (geometria, texture, sfondo, fasce) li avanza SOLO
+        // il loop, col dt del frame: il video parte dal tempo che lo schermo
+        // mostra ora e scorre alla stessa velocita'. Un modulo fermato
+        // dall'utente resta fermo perche' advanceClocksBy non lo tocca -- non
+        // serve piu' congelarlo e ricomporlo a fine REC.
+        // Prima: tempo del recorder da 0.001 in m_manualTime E negli orologi,
+        // sommati dallo shader -> video ripartito da zero e a velocita' doppia.
+        m_mainWindow->ui->glWidget->setClocksDrivenByRecorder(true);
     }
 
     // Feedback visivo
@@ -882,14 +866,6 @@ void VideoRecorder::toggleRecord()
             break;
         }
 
-        // Calcolo corretto del tempo basato sull'istante in cui è iniziata la registrazione
-        float currentTime = initialTimeOffset + (i * timeStep);
-
-        // INVIA IL TEMPO VIRTUALE AL BACKGROUND
-        if (m_mainWindow->ui->glWidget) {
-            m_mainWindow->ui->glWidget->setProperty("virtual_time", currentTime);
-        }
-
         // ====================================================
 
         // STATO VIVO, non snapshot: i predicati sono quelli del tick live e i
@@ -920,7 +896,10 @@ void VideoRecorder::toggleRecord()
             m_mainWindow->advanceGeodesicFlowBy(timeStep);
         }
 
-        m_mainWindow->ui->glWidget->setShaderTime(currentTime);
+        // Orologi di animazione (t di geometria, texture, sfondo, fasce): stessa
+        // identica logica del render live (advanceClocksBy), al recorder cambia
+        // solo il dt, quello del frame virtuale.
+        m_mainWindow->ui->glWidget->advanceClocksBy(timeStep);
 
         // 1. Estrazione del frame (con o senza FBO)
         QImage frame = m_mainWindow->ui->glWidget->getFrameForVideo(targetWidth, targetHeight, useFBO);
@@ -1142,10 +1121,10 @@ void VideoRecorder::toggleRecord()
 
     // >>> DISATTIVAZIONE TEMPO VIRTUALE E RIAVVIO AUDIO <<<
     if (m_mainWindow->ui->glWidget) {
-        m_mainWindow->ui->glWidget->setProperty("use_virtual_time", false);
-        // Riallinea i moduli fermi al tempo che mostravano prima del REC
-        // (il loro frame statico non deve saltare al tempo del recorder).
-        m_mainWindow->ui->glWidget->endVirtualTimeFreeze();
+        // Gli orologi tornano al render live e proseguono da dove il video e'
+        // arrivato (modello "live-through", come i moti qui sotto). I moduli
+        // fermi non si sono mai mossi: niente da ricomporre.
+        m_mainWindow->ui->glWidget->setClocksDrivenByRecorder(false);
     }
 
     // Riavvia il suono SOLO se stava suonando quando l'utente ha premuto REC:

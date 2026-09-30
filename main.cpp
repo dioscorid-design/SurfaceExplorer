@@ -4,6 +4,7 @@
 #include <QSettings>
 #include "mainwindow.h"
 #include "presetroundtrip.h"
+#include "clocktest.h"
 
 int main(int argc, char *argv[])
 {
@@ -123,6 +124,9 @@ int main(int argc, char *argv[])
     // Test di andata e ritorno dei preset (--roundtrip-test): vedi presetroundtrip.h.
     if (PresetRoundTrip::requested(app.arguments()))
         PresetRoundTrip::start(&w, app.arguments());
+    // Test degli orologi di animazione (--clock-test): vedi clocktest.h.
+    if (ClockTest::requested(app.arguments()))
+        ClockTest::start(&w, app.arguments());
 #endif
 
     return app.exec();

@@ -244,6 +244,7 @@ class LibraryManager
     // Il test di andata e ritorno legge i preset con lo stesso parseJson
     // dell'albero, senza costruire un albero.
     friend class PresetRoundTrip;
+    friend class ClockTest;
 
 public:
     LibraryManager();
