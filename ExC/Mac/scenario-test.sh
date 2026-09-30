@@ -2,11 +2,13 @@
 #
 # scenario-test.sh - Test degli scenari d'uso (vedi scenariotest.h).
 #
-# Apre l'app (build Debug), carica due record della libreria C/presets e preme
-# i controlli veri come farebbe l'utente -- checkbox Texture, Base/Phong/
-# Wireframe, Surface/Background -- verificando dopo ogni gesto che le copie
-# dello stato della scena (intenzione, motore, checkbox, cio' che scriverebbe
-# il Save) restino coerenti. Dura circa 15 secondi.
+# Apre l'app (build Debug), carica alcuni record della libreria C/presets e
+# preme i controlli veri come farebbe l'utente -- checkbox Texture, Base/Phong/
+# Wireframe, Surface/Background, texture dalla Library, slider dei colori,
+# fasce di una multi-mesh, Run -- verificando dopo ogni gesto che le copie
+# dello stato della scena (motore, controlli, cio' che scriverebbe il Save)
+# restino coerenti: accensione della texture, colori u_col1/u_col2,
+# displacement del Ray Marching. Dura circa un minuto.
 #
 # Quando lanciarlo: dopo ogni modifica alla gestione della texture o dei
 # controlli di resa, e prima di un rilascio. E' la rete dei GESTI: il test dei
@@ -44,7 +46,7 @@ OUT="$REPORTS/scenario-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$OUT"
 
 echo "Libreria: $PRESETS"
-echo "Test in corso (l'app si apre da sola e si chiude alla fine, ~15 s)..."
+echo "Test in corso (l'app si apre da sola e si chiude alla fine, ~1 min)..."
 
 RC=0
 "$BIN" --scenario-test "$PRESETS" "$OUT" > "$OUT/app.log" 2>&1 || RC=$?

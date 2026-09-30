@@ -312,9 +312,9 @@ public:
     float globalAlpha() const { return alpha; }
     float globalLightIntensity() const { return m_lightIntensity; }
     // COLORI u_col1/u_col2 della texture di SUPERFICIE. Sono i due slot globali,
-    // che il ramo per-mesh non tocca mai: restano quindi la fonte di verita' per
-    // ripristinare il DISPLAY tornando in ambito "All" dopo essere passati da una
-    // fascia (che sovrascrive i membri m_texColor1/2 di MainWindow coi propri).
+    // che il ramo per-mesh non tocca mai: sono l'unica memoria di questi colori
+    // (MainWindow::surfaceTexColor li legge da qui per i picker, il Save del
+    // record li scrive) e quelli che eredita una fascia senza colori propri.
     QColor globalTexColor1() const { return QColor::fromRgbF(texRed1, texGreen1, texBlue1); }
     QColor globalTexColor2() const { return QColor::fromRgbF(texRed2, texGreen2, texBlue2); }
     // COMANDO esplicito dell'utente sulla mesh selezionata: e' l'UNICA via che

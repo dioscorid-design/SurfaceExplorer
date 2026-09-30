@@ -3091,18 +3091,12 @@ MainWindow::MainWindow(QWidget *parent)
                 const auto &cparts = ui->glWidget->getEngine()->getMeshParts();
                 const int ci = ui->glWidget->activeMeshPart();
                 const MeshPart *cp = (ci >= 0 && ci < (int)cparts.size()) ? &cparts[ci] : nullptr;
-                if (cp && cp->hasCustomTexColors()) {
-                    m_texColor1 = QColor::fromRgbF(cp->texCol1R, cp->texCol1G, cp->texCol1B);
-                    m_texColor2 = QColor::fromRgbF(cp->texCol2R, cp->texCol2G, cp->texCol2B);
-                } else {
-                    m_texColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
-                    m_texColor2 = Qt::black;
-                }
                 // I due slot GLOBALI restano quelli della texture di superficie:
-                // qui si sta configurando una fascia. setActiveMeshTexture poco
-                // sotto cattura comunque i colori nella parte, e questa riga
-                // scrive gli stessi valori direttamente li'.
-                ui->glWidget->setActiveMeshTexColors(m_texColor1, m_texColor2);
+                // qui si sta configurando una fascia, e i colori vanno nella
+                // parte. setActiveMeshTexture poco sotto li copierebbe dai
+                // globali solo a una parte che non ne ha di propri.
+                if (!(cp && cp->hasCustomTexColors()))
+                    ui->glWidget->setActiveMeshTexColors(QColor::fromRgbF(0.20f, 0.80f, 0.20f), Qt::black);
             }
 
             // ACCENSIONE: applica lo script alla parte (via di COMANDO).
@@ -3316,11 +3310,10 @@ MainWindow::MainWindow(QWidget *parent)
                     if (currentTex.isEmpty()) {
                         // Reset dei colori texture alla default: senza questo, dopo
                         // una texture RM con colori custom (u_col1/u_col2), la default
-                        // ricompariva con i colori della precedente (m_texColor1/2 e
-                        // l'UBO restavano stantii). Simmetrico al ramo parametrico.
-                        m_texColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
-                        m_texColor2 = Qt::black;
-                        if (ui->glWidget) ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
+                        // ricompariva con i colori della precedente (l'UBO restava
+                        // stantio). Simmetrico al ramo parametrico.
+                        if (ui->glWidget)
+                            ui->glWidget->setGlobalTextureColors(QColor::fromRgbF(0.20f, 0.80f, 0.20f), Qt::black);
 
                         // Default RM = scacchiera PROCEDURALE pilotata da u_col1/u_col2
                         // (come il preset "Checkboard"): niente immagine, così i picker
@@ -3377,13 +3370,11 @@ MainWindow::MainWindow(QWidget *parent)
                     m_surfaceTextureScriptText.clear();
                     if (ui->glWidget) ui->glWidget->loadCustomShader(""); // torna allo shader standard
 
-                    // Reset dei colori texture alla default. Senza questo m_texColor1/2
-                    // restano quelli del preset precedente (settati in applyCommonData
-                    // ~3437) e la scacchiera default ricompare coi colori vecchi.
-                    // Stesso reset del ramo Ray Marching.
-                    m_texColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
-                    m_texColor2 = Qt::black;
-                    if (ui->glWidget) ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
+                    // Reset dei colori texture alla default. Senza questo restano
+                    // quelli del preset precedente e la scacchiera default
+                    // ricompare coi colori vecchi. Stesso reset del ramo Ray Marching.
+                    if (ui->glWidget)
+                        ui->glWidget->setGlobalTextureColors(QColor::fromRgbF(0.20f, 0.80f, 0.20f), Qt::black);
 
                     // Texture colorata appena attivata: il pallino dei Color va su Color 1
                     // (resetColorTargetToFirst); la tripla resta dov'è (gruppi indipendenti).
@@ -3646,12 +3637,11 @@ MainWindow::MainWindow(QWidget *parent)
     float defR = 0.20f, defG = 0.80f, defB = 0.20f;
     m_currentSurfaceColor = QColor::fromRgbF(defR, defG, defB);
 
-    m_texColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
-    m_texColor2 = Qt::black;
-
     if (ui->glWidget) {
         // Colore superficie (Verde)
         ui->glWidget->setColor(defR, defG, defB);
+        // Colori della texture di default: verde e nero.
+        ui->glWidget->setGlobalTextureColors(QColor::fromRgbF(0.20f, 0.80f, 0.20f), Qt::black);
     }
 
     ui->sliderR->setRange(0, 255);
@@ -3731,13 +3721,14 @@ MainWindow::MainWindow(QWidget *parent)
                 // scriverli qui cambiava i colori di tutte le altre fasce che li
                 // ereditano (stesso difetto del caso Mandelbrot, ma sul percorso
                 // interattivo degli slider).
-                // I membri m_texColor1/2 si aggiornano comunque: sono cio' che i
-                // picker mostrano, e syncAppearanceControlsToActiveMesh li
-                // riallinea alla fascia a ogni cambio di selezione.
-                if (ui->radioTexColor2->isChecked()) m_texColor2 = newColor;
-                else m_texColor1 = newColor;
-                if (!ui->glWidget->setActiveMeshTexColors(m_texColor1, m_texColor2))
-                    ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
+                // Lo slot non toccato resta quello che il bersaglio sta gia'
+                // disegnando (surfaceTexColor: i colori propri della fascia, o
+                // i globali che eredita).
+                const bool slot2 = ui->radioTexColor2->isChecked();
+                const QColor c1 = slot2 ? surfaceTexColor(1) : newColor;
+                const QColor c2 = slot2 ? newColor : surfaceTexColor(2);
+                if (!ui->glWidget->setActiveMeshTexColors(c1, c2))
+                    ui->glWidget->setGlobalTextureColors(c1, c2);
                 if (!m_isCustomMode && !m_isImageMode) scheduleTextureGeneration();
             } else {
                 m_currentSurfaceColor = newColor;
@@ -5394,15 +5385,13 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
 
     m_currentBackgroundColor = QColor::fromRgbF(0.3f, 0.3f, 0.3f);
     m_currentSurfaceColor = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
-    m_texColor1 = m_currentSurfaceColor;
-    m_texColor2 = Qt::black;
     m_bgTexColor1 = QColor::fromRgbF(0.2f, 0.2f, 0.8f);
     m_bgTexColor2 = Qt::black;
 
     if (ui->glWidget) {
         ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
         ui->glWidget->setColor(m_currentSurfaceColor.redF(), m_currentSurfaceColor.greenF(), m_currentSurfaceColor.blueF());
-        ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
+        ui->glWidget->setGlobalTextureColors(m_currentSurfaceColor, Qt::black);
         // Globali ora coerenti: si puo' lasciare la mesh senza esporre un
         // frame col colore stantio.
         ui->glWidget->setActiveMeshPart(-1);
@@ -8020,7 +8009,7 @@ void MainWindow::dumpTextureState(const char *tag) const
         "RM(m_textureCode) D=%6 %7 | PARAM(m_customFragmentCode) D=%8 %9 | "
         "MESH D=%10 %11 | lineTexture D=%12 %13 | editor D=%14 %15 | "
         "surfCode D=%16 %17 | texEnabled=%18 chk=%19 libName='%20' | "
-        "COL m_texColor1=%21 m_texColor2=%22 gpu1=%23 gpu2=%24 | "
+        "COL picker1=%21 picker2=%22 gpu1=%23 gpu2=%24 | "
         "GATE focused=%25 recPath='%26' | "
         "DISP campo R=%27 %28 | motore R=%29 %30")
         .arg(QString::fromUtf8(tag), -28)
@@ -8038,12 +8027,10 @@ void MainWindow::dumpTextureState(const char *tag) const
         .arg(g && g->isTextureEnabled() ? 1 : 0)
         .arg(ui->chkBoxTexture && ui->chkBoxTexture->isChecked() ? 1 : 0)
         .arg(m_currentTextureLibName)
-        // COLORI. Due livelli, e vanno letti insieme: m_texColor1/2 sono cio'
-        // che la UI crede (e che il salvataggio scriverebbe), gpu1/gpu2 cio'
-        // che il motore sta davvero usando per u_col1/u_col2. Se divergono, il
-        // guasto e' fra i due; se coincidono ma sono il colore sbagliato, il
-        // guasto e' a monte, in chi li ha scritti.
-        .arg(m_texColor1.name(), m_texColor2.name())
+        // COLORI. picker1/2 sono quelli del bersaglio (la fascia selezionata
+        // se ne ha di propri), gpu1/gpu2 i due slot globali che il Save del
+        // record scrive. Fuori dall'ambito Mesh coincidono per costruzione.
+        .arg(surfaceTexColor(1).name(), surfaceTexColor(2).name())
         .arg(ui->glWidget ? ui->glWidget->globalTexColor1().name() : QString("?"),
              ui->glWidget ? ui->glWidget->globalTexColor2().name() : QString("?"))
         // GATE della voce di menu: esattamente cio' che il menu contestuale
@@ -8624,7 +8611,7 @@ void MainWindow::onColorTargetChanged()
                 ? ui->glWidget->activeMeshTextureActive()
                 : m_surfaceTextureState;
         if (!wireframeMode && texActiveHere && activeTextureUsesColors()) {
-            target = ui->radioTexColor2->isChecked() ? m_texColor2 : m_texColor1;
+            target = surfaceTexColor(ui->radioTexColor2->isChecked() ? 2 : 1);
         } else if (!wireframeMode && texActiveHere) {
             // Texture di superficie SENZA colori: copre la superficie, slider inerti.
             target = Qt::black;
@@ -9181,16 +9168,11 @@ void MainWindow::handleTextureSelection(int index)
     // setActiveMeshTexture nella MeshPart.
     const bool texGoesToMesh = ui->glWidget && ui->glWidget->activeMeshPart() >= 0
                                && !ui->radioBackground->isChecked();
-    if (!texGoesToMesh) {
-        if (data.hasCustomColors) {
-            m_texColor1 = QColor(data.color1);
-            m_texColor2 = QColor(data.color2);
-        } else {
-            m_texColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
-            m_texColor2 = Qt::black;
-        }
-
-        if (ui->glWidget) ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
+    if (!texGoesToMesh && ui->glWidget) {
+        if (data.hasCustomColors)
+            ui->glWidget->setGlobalTextureColors(QColor(data.color1), QColor(data.color2));
+        else
+            ui->glWidget->setGlobalTextureColors(QColor::fromRgbF(0.20f, 0.80f, 0.20f), Qt::black);
     }
     // Qui i colori del PRESET sono appena stati scritti. Se piu' avanti nella
     // sequenza risultano diversi, qualcuno li ha sovrascritti DOPO.
@@ -9332,7 +9314,7 @@ void MainWindow::handleTextureSelection(int index)
             // superficie. Questo ramo (applicazione dalla Library) non aveva la
             // diramazione per-mesh che ha invece il Run dello script
             // (onApplyTextureScriptClicked): scriveva sempre gli stati GLOBALI
-            // -- m_surfaceTextureCode, m_texColor1/2 e setGlobalTextureColors -- e
+            // -- m_surfaceTextureCode e i colori (setGlobalTextureColors) -- e
             // quindi applicare una texture a una fascia cancellava quella della
             // superficie. Tornando su "All" si trovava il codice della fascia al
             // posto del proprio (clock fermo, perche' allSurfaceTextureCode()
@@ -9351,19 +9333,8 @@ void MainWindow::handleTextureSelection(int index)
                         ? QColor(data.color1) : QColor::fromRgbF(0.20f, 0.80f, 0.20f);
                 const QColor meshTexC2 = data.hasCustomColors
                         ? QColor(data.color2) : QColor(Qt::black);
+                // Gli slider li mostrano da se': surfaceTexColor legge la parte.
                 ui->glWidget->setActiveMeshTexColors(meshTexC1, meshTexC2);
-
-                // DISPLAY DEGLI SLIDER COLORE. m_texColor1/2 non sono solo i due
-                // slot GLOBALI del motore: sono anche cio' che gli slider Color
-                // 1/2 MOSTRANO e modificano. Il blocco che li scrive piu' sopra
-                // e' saltato di proposito in ambito Mesh (per non sporcare la
-                // texture di SUPERFICIE), quindi restavano sui valori precedenti
-                // -- tipicamente il verde/nero della scacchiera di default -- pur
-                // avendo la fascia i colori della texture appena caricata.
-                // Qui si allinea il DISPLAY, non il motore: i colori della parte
-                // sono gia' stati scritti nella MeshPart dalla riga sopra.
-                m_texColor1 = meshTexC1;
-                m_texColor2 = meshTexC2;
 
                 // INQUADRATURA 2D DELLA TEXTURE APPENA APPLICATA (zoom/pan/
                 // rotazione salvati nel suo preset). Stesso criterio dei colori
@@ -13338,7 +13309,6 @@ void MainWindow::onApplyTextureScriptClicked()
             m_currentTexturePath = imgPath;
             if (ui->glWidget) {
                 ui->glWidget->loadCustomShader("");
-                ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
                 ui->glWidget->loadTextureFromFile(imgPath);
             }
         } else {
@@ -13351,8 +13321,6 @@ void MainWindow::onApplyTextureScriptClicked()
         // 2. GESTIONE COMPILAZIONE SHADER
         if (hasCustomLogic) {
             if (ui->glWidget) {
-                ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
-
                 if (imgPath.isEmpty()) {
                     generateTexture();
                 }
@@ -13390,8 +13358,6 @@ void MainWindow::onApplyTextureScriptClicked()
         } else {
             // m_isCustomMode è già false (impostato = hasCustomLogic più sopra).
             if (ui->glWidget) {
-                ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
-
                 bool success = ui->glWidget->validateAndApplyParametricShader("");
                 if (!success) {
                     showShaderError("GLSL Reset Error", ui->glWidget->getShaderError());
@@ -13851,11 +13817,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
                 } else if (ui->glWidget) {
                     ui->glWidget->setGlobalTextureColors(presetC1, presetC2);
                 }
-                // DISPLAY degli slider: m_texColor1/2 sono anche cio' che i
-                // cursori Color 1/2 mostrano e scrivono, in entrambi gli ambiti
-                // (vedi la nota gemella nel ramo per-mesh dell'applicazione).
-                m_texColor1 = presetC1;
-                m_texColor2 = presetC2;
+                // DISPLAY degli slider: li rilegge dal motore (surfaceTexColor).
                 onColorTargetChanged();
                 // I colori sono uniform (blocco UBO): non serve ricompilare, ma
                 // un frame va chiesto -- setActiveMeshTexColors non lo fa da se'.
@@ -14132,15 +14094,13 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     float defR = 0.20f, defG = 0.80f, defB = 0.20f;
     m_currentSurfaceColor = QColor::fromRgbF(defR, defG, defB);
     m_currentBackgroundColor = QColor::fromRgbF(0.3f, 0.3f, 0.3f);
-    m_texColor1 = QColor::fromRgbF(defR, defG, defB);
-    m_texColor2 = Qt::black;
     m_bgTexColor1 = QColor::fromRgbF(0.2f, 0.2f, 0.8f);
     m_bgTexColor2 = Qt::black;
 
     if (ui->glWidget) {
         ui->glWidget->setColor(defR, defG, defB);
         ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
-        ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
+        ui->glWidget->setGlobalTextureColors(QColor::fromRgbF(defR, defG, defB), Qt::black);
     }
 
     // Alpha e luce del preset NON qui: vedi dopo updateRenderState() piu' sotto.
@@ -14911,9 +14871,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
         if (ui->glWidget) ui->glWidget->setDisplacementCode("");
     }
 
-    // Colori u_col1/u_col2 (i default dei membri se il record non li porta).
-    m_texColor1 = data.texColor1.isEmpty() ? QColor(Qt::white) : QColor(data.texColor1);
-    m_texColor2 = data.texColor2.isEmpty() ? QColor(Qt::black) : QColor(data.texColor2);
+    // Colori u_col1/u_col2 (bianco e nero se il record non li porta).
+    ui->glWidget->setGlobalTextureColors(
+        data.texColor1.isEmpty() ? QColor(Qt::white) : QColor(data.texColor1),
+        data.texColor2.isEmpty() ? QColor(Qt::black) : QColor(data.texColor2));
 
     // --- SUONO, SFONDO, CAMERA E MOTI: dalla struttura, non piu' dal file ---
     // Qui il load RILEGGEVA il JSON del record ("bypassiamo la limitazione della
@@ -15133,7 +15094,6 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     m_bgTexColor1 = loadedBgCol1;
     m_bgTexColor2 = loadedBgCol2;
-    ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
 
     // Svuota forzatamente gli shader procedurali "incastrati" prima di caricare il nuovo!
     if (ui->glWidget) {
@@ -19966,6 +19926,24 @@ bool MainWindow::activeTextureUsesColors() const
     return activeTextureUsesColorToken("u_col1") || activeTextureUsesColorToken("u_col2");
 }
 
+QColor MainWindow::surfaceTexColor(int slot) const
+{
+    GLWidget *g = ui->glWidget;
+    if (!g) return slot == 2 ? QColor(Qt::black) : QColor(Qt::white);
+    // Stessa regola del render (GLWidget, blocco UBO della parte): una fascia
+    // disegna coi colori propri se li ha, altrimenti coi due slot globali.
+    const int part = g->activeMeshPart();
+    if (part >= 0 && g->getEngine()) {
+        const auto &parts = g->getEngine()->getMeshParts();
+        if (part < (int)parts.size() && parts[part].hasCustomTexColors()) {
+            const MeshPart &p = parts[part];
+            return slot == 2 ? QColor::fromRgbF(p.texCol2R, p.texCol2G, p.texCol2B)
+                             : QColor::fromRgbF(p.texCol1R, p.texCol1G, p.texCol1B);
+        }
+    }
+    return slot == 2 ? g->globalTexColor2() : g->globalTexColor1();
+}
+
 bool MainWindow::activeTextureUsesColorToken(const QString &token) const
 {
     if (ui->radioBackground->isChecked()) {
@@ -19987,7 +19965,7 @@ bool MainWindow::activeTextureUsesColorToken(const QString &token) const
     // della superficie). Leggere il globale qui era il motivo per cui i picker
     // Color1/Color2 venivano abilitati/spenti in base allo script sbagliato:
     // selezionando una mesh senza texture propria restavano quelli della mesh
-    // precedente, e da lì m_texColor1/2 finivano riscritti sulla parte
+    // precedente, e da lì i colori della texture finivano riscritti sulla parte
     // sbagliata al primo tocco del checkbox.
     if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
         const QString partCode = ui->glWidget->activeMeshTextureCode();
@@ -20541,10 +20519,10 @@ void MainWindow::generateTexture()
     QPainter p(&img);
 
     // 2. Sfondo (Colore 1)
-    p.fillRect(0, 0, size, size, m_texColor1);
+    p.fillRect(0, 0, size, size, surfaceTexColor(1));
 
     // 3. Scacchi (Colore 2)
-    p.setBrush(m_texColor2);
+    p.setBrush(surfaceTexColor(2));
     p.setPen(Qt::NoPen);
     int step = 64; // Dimensione quadretti
 
@@ -21286,17 +21264,8 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
         if (!ui->radioBackground->isChecked())
             syncTextureTreeSelection();
 
-        // COLORI DELLA TEXTURE DI SUPERFICIE RIPRISTINATI NEI PICKER.
-        // Simmetrico al ramo "Mesh", che scrive in m_texColor1/2 i colori della
-        // FASCIA: tornando su "All" quei membri contengono ancora quelli, e gli
-        // slider mostravano i colori dell'ultima mesh guardata invece dei propri.
-        // La fonte di verita' sono i due slot GLOBALI del motore (texRed1..
-        // texBlue2), che il ramo per-mesh non tocca mai.
-        // Solo in LETTURA, come nel ramo "Mesh": nessuna scrittura sul motore.
-        if (!ui->radioBackground->isChecked() && ui->glWidget) {
-            m_texColor1 = ui->glWidget->globalTexColor1();
-            m_texColor2 = ui->glWidget->globalTexColor2();
-        }
+        // I colori della texture nei picker non vanno riallineati: li legge
+        // surfaceTexColor dal motore, secondo l'ambito corrente.
 
         // TASTI Run/Stop DEL DOCK SCRIPT, come in fondo al ramo "Mesh": il tasto
         // texture descrive l'ambito corrente, quindi tornando su "All" va
@@ -21348,19 +21317,10 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
     if (!ui->radioBackground->isChecked())
         syncTextureTreeSelection();
 
-    // COLORI u_col1/u_col2 DELLA PARTE nei picker. Come per il codice, i due
-    // membri globali m_texColor1/m_texColor2 sono ciò che gli slider editano e
-    // ciò che setActiveMeshTexture cattura nella parte al primo Run/checkbox:
-    // lasciarli fermi sui valori dell'ultima mesh guardata significa che
-    // tornando su una mesh già texturizzata le si riscrivono addosso i colori
-    // di un'altra (è il "la mesh perde il colore e diventa bianca", quando i
-    // due slot finiscono uguali e la scacchiera esce in tinta unita).
-    // Si allineano SOLO in lettura: nessuna scrittura sul motore, quindi la
-    // parte non viene toccata finché l'utente non muove davvero uno slider.
-    if (!ui->radioBackground->isChecked() && p.hasCustomTexColors()) {
-        m_texColor1 = QColor::fromRgbF(p.texCol1R, p.texCol1G, p.texCol1B);
-        m_texColor2 = QColor::fromRgbF(p.texCol2R, p.texCol2G, p.texCol2B);
-    }
+    // COLORI u_col1/u_col2 DELLA PARTE nei picker: nessun riallineamento, li
+    // legge surfaceTexColor (i propri della parte, o i globali che eredita).
+    // Prima erano copie aggiornate qui solo se la parte ne aveva di propri: su
+    // una fascia che li eredita restavano quelli della fascia guardata prima.
 
     // DISPLAY del checkbox Texture: mostra lo stato EFFICACE della parte (il
     // proprio se dichiarato, altrimenti il globale che sta ereditando), come i

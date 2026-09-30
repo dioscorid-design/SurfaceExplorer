@@ -3310,6 +3310,22 @@ void GLWidget::setDisplacementCode(const QString& code) {
 
     QShader shader = baker.bake();
     if (!shader.isValid()) {
+        // TOGLIERE il rilievo non puo' essere la causa dell'errore: e' il resto
+        // dello shader RM a non compilare in questo istante -- tipicamente al
+        // load di un record PARAMETRICO, con l'equazione implicita gia'
+        // svuotata. Col rollback il motore si teneva il rilievo del record RM
+        // aperto prima mentre il campo diceva vuoto (trovato dal test degli
+        // scenari). Il vuoto si registra sempre; la pipeline RM si scarta solo
+        // fuori dal Ray Marching (li' non si disegna, e al rientro si ricostruisce
+        // da capo): in RM resta quella in uso fino al prossimo apply valido.
+        if (code.trimmed().isEmpty()) {
+            if (m_engineMode != ModeImplicit && m_pipelineImplicit) {
+                m_pipelineImplicit->destroy();
+                delete m_pipelineImplicit;
+                m_pipelineImplicit = nullptr;
+            }
+            return;
+        }
         m_displacementCode = oldDisp;
         return;
     }
@@ -5913,9 +5929,9 @@ void GLWidget::createDummyTexture(QRhiCommandBuffer *cb) {
     // createFragmentShaderSource), che si risolve nel codice generato con
     // `return vec3(1.0)` e non dipende dal contenuto di questa texture.
     // Colori: il VERDE di default del progetto (0.20, 0.80, 0.20 -> 51,204,51,
-    // lo stesso di m_currentSurfaceColor/m_texColor1 in MainWindow) e il nero
-    // di m_texColor2. Cosi' il fallback ha l'aspetto di casa invece del
-    // bianco/nero generico.
+    // lo stesso di m_currentSurfaceColor in MainWindow e del Colore 1 della
+    // scacchiera di default) e il nero del Colore 2. Cosi' il fallback ha
+    // l'aspetto di casa invece del bianco/nero generico.
     const int kDummySize = 64;   // 8 celle da 8 px
     const int kDummyCell = 8;
     QImage checker(kDummySize, kDummySize, QImage::Format_RGBA8888);

@@ -1,8 +1,11 @@
 #ifndef SCENARIOTEST_H
 #define SCENARIOTEST_H
 
+#include <QColor>
 #include <QObject>
 #include <QStringList>
+
+#include "librarymanager.h"
 
 class MainWindow;
 
@@ -13,13 +16,15 @@ class MainWindow;
 // della scena": il test di andata e ritorno copre load e save, non i gesti, ed
 // e' nei gesti che lo stato duplicato diverge.
 //
-// Regole verificate, per ora sull'ACCENSIONE della texture di superficie:
+// Regole verificate sull'ACCENSIONE della texture di superficie:
 //   - l'intenzione (m_surfaceTextureState) cambia SOLO col checkbox della
 //     superficie, mai coi cambi di modalita' o di bersaglio;
 //   - il motore la segue: acceso = intenzione e non wireframe;
 //   - il checkbox la mostra: spento e disabilitato in wireframe, altrimenti
 //     uguale all'intenzione (quando si edita la superficie);
 //   - il Save scrive l'intenzione, in qualunque modalita' si salvi.
+// E sui COLORI u_col1/u_col2 (vedi checkTexColors) e sul DISPLACEMENT
+// (checkDisplacement).
 //
 //   SurfaceExplorer --scenario-test <radice preset> <cartella uscita>
 //
@@ -43,6 +48,25 @@ private:
     // Le quattro copie dell'accensione dopo il gesto `step`, con l'intenzione
     // attesa. Una riga per regola violata.
     void checkTextureEnabled(const QString &step, bool expectedIntent);
+    // I colori u_col1/u_col2 della texture di superficie dopo il gesto `step`:
+    // i picker mostrano i colori EFFICACI del bersaglio (la fascia selezionata
+    // se ne ha di propri, altrimenti i due slot globali che eredita), gli
+    // slider mostrano quello dello slot scelto, il Save scrive i globali.
+    // `global1/2`, se validi, sono i colori globali attesi; `shown1/2` quelli
+    // efficaci attesi sul bersaglio (se non validi: uguali ai globali attesi).
+    void checkTexColors(const QString &step, const QColor &global1 = QColor(),
+                        const QColor &global2 = QColor(), const QColor &shown1 = QColor(),
+                        const QColor &shown2 = QColor());
+    // Il DISPLACEMENT (rilievi, solo Ray Marching) dopo il gesto `step`: il
+    // campo e il motore dicono la stessa cosa -- salvo `pendingEdit`, un campo
+    // modificato a mano e non ancora eseguito -- e il Save scrive il campo.
+    // `expected`, se non nullo, e' il codice atteso nel campo.
+    void checkDisplacement(const QString &step, const QString &expected = QString(),
+                           bool pendingEdit = false);
+    // Il codice di displacement di un preset della libreria (come lo legge l'app).
+    QString presetDisplacement(const QString &rel, LibraryType type);
+    // Come l'utente: slot Colore 1/2 col suo radio, poi i tre slider.
+    void setTexColorBySliders(bool slot2, const QColor &c);
     void finish();
 
     MainWindow *m_mw;

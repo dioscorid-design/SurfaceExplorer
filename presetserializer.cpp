@@ -1150,8 +1150,8 @@ void PresetSerializer::saveTexture(const QString &path)
         root["zoom"] = (double)m_mainWindow->ui->glWidget->getFlatZoom();
         root["rotation"] = (double)m_mainWindow->ui->glWidget->getFlatRotation();
         root["hasCustomColors"] = true;
-        root["color1"] = m_mainWindow->m_texColor1.name();
-        root["color2"] = m_mainWindow->m_texColor2.name();
+        root["color1"] = m_mainWindow->surfaceTexColor(1).name();
+        root["color2"] = m_mainWindow->surfaceTexColor(2).name();
     }
     root["type"] = "custom_texture";
     root["name"] = QFileInfo(path).baseName();
@@ -1600,8 +1600,8 @@ void PresetSerializer::saveScript()
             root["pan_y"] = (double)pan.y();
             root["rotation"] = (double)m_mainWindow->ui->glWidget->getFlatRotation();
             root["hasCustomColors"] = true;
-            root["color1"] = m_mainWindow->m_texColor1.name();
-            root["color2"] = m_mainWindow->m_texColor2.name();
+            root["color1"] = m_mainWindow->surfaceTexColor(1).name();
+            root["color2"] = m_mainWindow->surfaceTexColor(2).name();
         }
     }
 

@@ -653,8 +653,9 @@ private:
 
     QColor m_currentSurfaceColor;
     QColor m_currentBackgroundColor;
-    QColor m_texColor1 = Qt::white;
-    QColor m_texColor2 = Qt::black;
+    // I colori u_col1/u_col2 della texture di SUPERFICIE non hanno una copia
+    // qui: vivono solo nel motore (vedi surfaceTexColor). Quelli dello sfondo
+    // si', perche' lo sfondo non ha altra memoria che questa.
     QColor m_bgTexColor1 = Qt::white;
     QColor m_bgTexColor2 = Qt::black;
 
@@ -1314,6 +1315,14 @@ private:
     void updateScriptButtonText();
     void updateTextureUIState(bool isTextureOn, bool resetColorTargetToFirst = false);
     bool activeTextureUsesColors() const;
+    // COLORI u_col1/u_col2 (slot 1 o 2) della texture di superficie che i
+    // picker mostrano e gli slider editano. Non sono stato ma una VISTA del
+    // motore, l'unica fonte: i colori propri della fascia selezionata se ne ha,
+    // altrimenti i due slot globali -- quelli che la fascia eredita, e quelli
+    // della superficie in ambito All. Prima erano due membri (m_texColor1/2)
+    // riallineati a mano a ogni cambio di fascia: su una fascia senza colori
+    // propri restavano quelli della fascia guardata prima.
+    QColor surfaceTexColor(int slot) const;
     // true quando gli slider RGB stanno editando un colore della TEXTURE
     // (sfondo o superficie) e non il colore della superficie stessa. Replica la
     // scelta di destinatario fatta da handleColorChange: serve a marcare il

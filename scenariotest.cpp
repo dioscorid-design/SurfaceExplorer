@@ -159,6 +159,117 @@ void ScenarioTest::checkTextureEnabled(const QString &step, bool expectedIntent)
                                   bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
 }
 
+void ScenarioTest::setTexColorBySliders(bool slot2, const QColor &c)
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    (slot2 ? ui->radioTexColor2 : ui->radioTexColor1)->click();
+    wait(100);
+    ui->sliderR->setValue(c.red());
+    ui->sliderG->setValue(c.green());
+    ui->sliderB->setValue(c.blue());
+    wait(200);
+}
+
+void ScenarioTest::checkTexColors(const QString &step, const QColor &global1, const QColor &global2,
+                                  const QColor &shown1, const QColor &shown2)
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    const QColor g1 = gl->globalTexColor1(), g2 = gl->globalTexColor2();
+
+    // Colori EFFICACI del bersaglio, come li disegna il motore: una fascia con
+    // colori propri usa quelli, le altre (e la superficie in ambito All) i due
+    // slot globali.
+    QColor e1 = g1, e2 = g2;
+    const int part = gl->activeMeshPart();
+    const auto &parts = gl->getEngine()->getMeshParts();
+    if (part >= 0 && part < (int)parts.size() && parts[part].hasCustomTexColors()) {
+        const MeshPart &p = parts[part];
+        e1 = QColor::fromRgbF(p.texCol1R, p.texCol1G, p.texCol1B);
+        e2 = QColor::fromRgbF(p.texCol2R, p.texCol2G, p.texCol2B);
+    }
+    const QColor s1 = m_mw->surfaceTexColor(1), s2 = m_mw->surfaceTexColor(2);
+
+    PresetSerializer::MotionRunState run;
+    run.rotating = gl->isAnimating();
+    run.path4D   = m_mw->pathTimer && m_mw->pathTimer->isActive();
+    run.path3D   = m_mw->pathTimer3D && m_mw->pathTimer3D->isActive();
+    const LibraryItem saved = m_mw->m_presetSerializer->captureMotionState(m_record, run, true);
+
+    QStringList bad;
+    if (global1.isValid() && (g1.name() != global1.name() || g2.name() != global2.name()))
+        bad << QStringLiteral("globali %1 %2, attesi %3 %4")
+                   .arg(g1.name(), g2.name(), global1.name(), global2.name());
+    const QColor x1 = shown1.isValid() ? shown1 : global1, x2 = shown1.isValid() ? shown2 : global2;
+    if (x1.isValid() && (e1.name() != x1.name() || e2.name() != x2.name()))
+        bad << QStringLiteral("il motore disegna %1 %2, attesi %3 %4")
+                   .arg(e1.name(), e2.name(), x1.name(), x2.name());
+    if (!ui->radioBackground->isChecked() && (s1.name() != e1.name() || s2.name() != e2.name()))
+        bad << QStringLiteral("picker %1 %2, il motore disegna %3 %4%5")
+                   .arg(s1.name(), s2.name(), e1.name(), e2.name(),
+                        part >= 0 ? QStringLiteral(" (fascia %1)").arg(part + 1) : QString());
+    // Gli slider mostrano lo slot scelto quando editano davvero i colori della
+    // texture (stessa condizione di onColorTargetChanged).
+    const bool texHere = part >= 0 ? gl->activeMeshTextureActive() : m_mw->m_surfaceTextureState;
+    if (!ui->radioBackground->isChecked() && !ui->radioWF->isChecked() && texHere
+        && m_mw->activeTextureUsesColors()) {
+        const QColor sl(ui->sliderR->value(), ui->sliderG->value(), ui->sliderB->value());
+        const QColor want = ui->radioTexColor2->isChecked() ? e2 : e1;
+        if (sl.name() != want.name())
+            bad << QStringLiteral("slider %1, colore %2 %3").arg(sl.name())
+                       .arg(ui->radioTexColor2->isChecked() ? 2 : 1).arg(want.name());
+    }
+    if (saved.texColor1 != g1.name() || saved.texColor2 != g2.name())
+        bad << QStringLiteral("il Save scriverebbe %1 %2, globali %3 %4")
+                   .arg(saved.texColor1, saved.texColor2, g1.name(), g2.name());
+
+    check(bad.isEmpty(), QStringLiteral("%1 -> colori %2 %3%4")
+                             .arg(step, e1.name(), e2.name(),
+                                  bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+}
+
+QString ScenarioTest::presetDisplacement(const QString &rel, LibraryType type)
+{
+    LibraryManager lm;
+    return lm.parseJson(m_root + QLatin1Char('/') + rel, type).displacementCode;
+}
+
+void ScenarioTest::checkDisplacement(const QString &step, const QString &expected, bool pendingEdit)
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    const QString field  = ui->lineVariations->toPlainText().trimmed();
+    const QString engine = gl->currentDisplacementCode().trimmed();
+    const bool rm = ui->tabModeSelector->currentIndex() == 1;
+
+    PresetSerializer::MotionRunState run;
+    run.rotating = gl->isAnimating();
+    run.path4D   = m_mw->pathTimer && m_mw->pathTimer->isActive();
+    run.path3D   = m_mw->pathTimer3D && m_mw->pathTimer3D->isActive();
+    const QString saved = m_mw->m_presetSerializer
+                              ->captureMotionState(m_record, run, true).displacementCode.trimmed();
+
+    auto brief = [](const QString &c) {
+        if (c.isEmpty()) return QStringLiteral("(vuoto)");
+        const QString first = c.section(QLatin1Char('\n'), 0, 0).simplified();
+        return QStringLiteral("\"%1\" (%2 car.)").arg(first.left(40)).arg(c.size());
+    };
+
+    QStringList bad;
+    if (!expected.isNull() && field != expected.trimmed())
+        bad << QStringLiteral("campo %1, atteso %2").arg(brief(field), brief(expected.trimmed()));
+    if (!pendingEdit && engine != field)
+        bad << QStringLiteral("motore %1, campo %2").arg(brief(engine), brief(field));
+    if (!rm && (!engine.isEmpty() || !field.isEmpty()))
+        bad << QStringLiteral("in parametrico: motore %1, campo %2").arg(brief(engine), brief(field));
+    if (rm && saved != field)
+        bad << QStringLiteral("il Save scriverebbe %1, campo %2").arg(brief(saved), brief(field));
+
+    check(bad.isEmpty(), QStringLiteral("%1 -> displacement %2%3")
+                             .arg(step, brief(field),
+                                  bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+}
+
 void ScenarioTest::run()
 {
     Ui::MainWindow *ui = m_mw->ui;
@@ -229,6 +340,136 @@ void ScenarioTest::run()
         click(ui->radioWF);         checkTextureEnabled(QStringLiteral("All in Wireframe"), true);
         click(ui->radioBasic);      checkTextureEnabled(QStringLiteral("All di nuovo Base"), true);
     }
+
+    // ---------------------------------------------------------------------
+    // COLORI DELLA TEXTURE, superficie parametrica.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Colori texture: parametrico (%1) ==")
+                       .arg(QString::fromLatin1(kParametricRecord)));
+    if (loadRecord(QString::fromLatin1(kParametricRecord))) {
+        checkTexColors(QStringLiteral("record caricato"));
+        const QColor m1(QStringLiteral("#1c3664")), m2(QStringLiteral("#e28d57"));
+        if (selectTexture(QStringLiteral("textures/Procedurals/Mandelbrot.json")))
+            checkTexColors(QStringLiteral("Mandelbrot dalla Library"), m1, m2);
+        const QColor n2(10, 200, 30);
+        setTexColorBySliders(true, n2);
+        checkTexColors(QStringLiteral("colore 2 dagli slider"), m1, n2);
+        click(ui->radioTexColor1);  checkTexColors(QStringLiteral("slot Colore 1"), m1, n2);
+        click(ui->radioWF);         checkTexColors(QStringLiteral("poi Wireframe"), m1, n2);
+        click(ui->radioPhong);      checkTexColors(QStringLiteral("poi Phong"), m1, n2);
+        click(ui->radioBackground); checkTexColors(QStringLiteral("entrata in Background"), m1, n2);
+        setTexColorBySliders(false, QColor(200, 10, 10));
+        checkTexColors(QStringLiteral("colore dello sfondo dagli slider"), m1, n2);
+        click(ui->radioSurface);    checkTexColors(QStringLiteral("ritorno a Surface"), m1, n2);
+        click(ui->chkBoxTexture);   checkTexColors(QStringLiteral("texture spenta"), m1, n2);
+        // Riaccendere riparte dalla scacchiera di default (clearTextureMemory
+        // allo spegnimento): verde e nero, voluto.
+        const QColor d1(QStringLiteral("#33cc33")), d2(Qt::black);
+        click(ui->chkBoxTexture);   checkTexColors(QStringLiteral("texture riaccesa (default)"), d1, d2);
+        setTexColorBySliders(false, QColor(40, 40, 160));
+        checkTexColors(QStringLiteral("colore 1 dagli slider"), QColor(40, 40, 160), d2);
+        m_mw->onStartClicked();  wait(600);
+        checkTexColors(QStringLiteral("Run"), QColor(40, 40, 160), d2);
+    }
+
+    // ---------------------------------------------------------------------
+    // COLORI DELLA TEXTURE, multi-mesh: i colori di una fascia sono suoi, i
+    // globali appartengono alla superficie e li eredita chi non ne ha.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Colori texture: multi-mesh (%1) ==")
+                       .arg(QString::fromLatin1(kMultiMeshRecord)));
+    if (loadRecord(QString::fromLatin1(kMultiMeshRecord))) {
+        checkTexColors(QStringLiteral("record caricato"));
+        // Il record si apre nell'ambito salvato (qui Mesh): la texture globale
+        // si sceglie in All.
+        if (!ui->radioMeshAll->isChecked()) click(ui->radioMeshAll);
+        checkTexColors(QStringLiteral("ambito All"));
+        const QColor m1(QStringLiteral("#1c3664")), m2(QStringLiteral("#e28d57"));
+        if (selectTexture(QStringLiteral("textures/Procedurals/Mandelbrot.json")))
+            checkTexColors(QStringLiteral("All: Mandelbrot dalla Library"), m1, m2);
+        if (!ui->radioMeshOne->isChecked()) click(ui->radioMeshOne);
+        ui->spinMeshSel->setValue(1);  wait(300);
+        const QColor d1(QStringLiteral("#33cc33")), d2(Qt::black);
+        checkTexColors(QStringLiteral("fascia 1 (colori propri)"), m1, m2, d1, d2);
+        const QColor b1(QStringLiteral("#f2e4d8")), b2(QStringLiteral("#8a4a32"));
+        if (selectTexture(QStringLiteral("textures/Procedurals/Porous Bone.json")))
+            checkTexColors(QStringLiteral("fascia 1: Porous Bone dalla Library"), m1, m2, b1, b2);
+        const QColor o1(250, 120, 0);
+        setTexColorBySliders(false, o1);
+        checkTexColors(QStringLiteral("fascia 1: colore 1 dagli slider"), m1, m2, o1, b2);
+        // Fascia 4: nel record e' in wireframe e senza texture propria, quindi
+        // eredita i colori globali. (Le fasce sono 15: A*B con A=3, B=5.)
+        ui->spinMeshSel->setValue(4);  wait(300);
+        checkTexColors(QStringLiteral("fascia 4 (eredita i globali)"), m1, m2);
+        click(ui->radioBasic);
+        checkTexColors(QStringLiteral("fascia 4 in Base"), m1, m2);
+        click(ui->chkBoxTexture);
+        checkTexColors(QStringLiteral("fascia 4: texture accesa (default)"), m1, m2, d1, d2);
+        const QColor v2(0, 90, 250);
+        setTexColorBySliders(true, v2);
+        checkTexColors(QStringLiteral("fascia 4: colore 2 dagli slider"), m1, m2, d1, v2);
+        ui->spinMeshSel->setValue(1);  wait(300);
+        checkTexColors(QStringLiteral("di nuovo fascia 1"), m1, m2, o1, b2);
+        click(ui->radioMeshAll);    checkTexColors(QStringLiteral("ritorno ad All"), m1, m2);
+        const QColor y1(255, 255, 0);
+        setTexColorBySliders(false, y1);
+        checkTexColors(QStringLiteral("All: colore 1 dagli slider"), y1, m2);
+        if (!ui->radioMeshOne->isChecked()) click(ui->radioMeshOne);
+        ui->spinMeshSel->setValue(1);  wait(300);
+        checkTexColors(QStringLiteral("fascia 1 dopo il cambio globale"), y1, m2, o1, b2);
+        ui->spinMeshSel->setValue(4);  wait(300);
+        checkTexColors(QStringLiteral("fascia 4 dopo il cambio globale"), y1, m2, d1, v2);
+        ui->spinMeshSel->setValue(6);  wait(300);
+        checkTexColors(QStringLiteral("fascia 6 (eredita i globali)"), y1, m2);
+        click(ui->radioMeshAll);
+    }
+
+    // ---------------------------------------------------------------------
+    // DISPLACEMENT (rilievi), Ray Marching: il campo e il motore insieme.
+    const QString kDispRecord = QStringLiteral("records/Ray Marching/Blistered Gyroid.json");
+    const QString kLimestone  = QStringLiteral("textures/Ray Marching/Limestone.json");
+    const QString kFbm        = QStringLiteral("textures/Ray Marching/Fractal Noise FBm.json");
+    const QString kFractal    = QStringLiteral("textures/Ray Marching/Fractal Noise.json");
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Displacement: Ray Marching (%1) ==").arg(kDispRecord));
+    if (loadRecord(kDispRecord)) {
+        checkDisplacement(QStringLiteral("record caricato"),
+                          presetDisplacement(kDispRecord, LibraryType::Motion));
+        if (selectTexture(kLimestone))
+            checkDisplacement(QStringLiteral("Limestone dalla Library"),
+                              presetDisplacement(kLimestone, LibraryType::Texture));
+        if (selectTexture(kFbm))
+            checkDisplacement(QStringLiteral("texture senza rilievi dalla Library"),
+                              presetDisplacement(kFbm, LibraryType::Texture));
+        if (selectTexture(kFractal))
+            checkDisplacement(QStringLiteral("Fractal Noise dalla Library"),
+                              presetDisplacement(kFractal, LibraryType::Texture));
+        click(ui->radioWF);         checkDisplacement(QStringLiteral("poi Wireframe"));
+        click(ui->radioBasic);      checkDisplacement(QStringLiteral("poi Base"));
+        click(ui->radioBackground); checkDisplacement(QStringLiteral("entrata in Background"));
+        click(ui->radioSurface);    checkDisplacement(QStringLiteral("ritorno a Surface"));
+        m_mw->onStartClicked();  wait(600);
+        checkDisplacement(QStringLiteral("Run"));
+        click(ui->chkBoxTexture);   checkDisplacement(QStringLiteral("texture spenta"), QStringLiteral(""));
+        click(ui->chkBoxTexture);   checkDisplacement(QStringLiteral("texture riaccesa (default)"));
+        // Modifica a mano: finche' non si esegue il motore resta indietro, il
+        // Save scrive il campo. Il Run li riallinea.
+        const QString edited = QStringLiteral("float rilievo = sin(pModel.x * 10.0);\n"
+                                              "d_surf -= rilievo * 0.02;");
+        ui->lineVariations->setPlainText(edited);  wait(200);
+        checkDisplacement(QStringLiteral("campo modificato a mano"), edited, /*pendingEdit=*/true);
+        m_mw->onStartClicked();  wait(800);
+        checkDisplacement(QStringLiteral("Run dopo la modifica"), edited);
+    }
+    if (loadRecord(QString::fromLatin1(kParametricRecord)))
+        checkDisplacement(QStringLiteral("poi un record parametrico"), QStringLiteral(""));
+    const QString kTunnel = QStringLiteral("records/Ray Marching/Torus Tunnel.json");
+    if (loadRecord(kTunnel))
+        checkDisplacement(QStringLiteral("poi Torus Tunnel"),
+                          presetDisplacement(kTunnel, LibraryType::Motion));
+    if (loadRecord(QString::fromLatin1(kImplicitRecord)))
+        checkDisplacement(QStringLiteral("poi un record RM senza rilievi"),
+                          presetDisplacement(QString::fromLatin1(kImplicitRecord), LibraryType::Motion));
 
     finish();
 }
