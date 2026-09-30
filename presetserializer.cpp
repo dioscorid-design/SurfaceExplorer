@@ -320,6 +320,18 @@ PresetSerializer::PresetSerializer(MainWindow *parent)
 //
 // Il motore invece tiene i due stati separati: red/green/blue restano il colore
 // globale qualunque cosa si faccia sulle parti, che vivono nei loro MeshPart.
+// Trasparenza GLOBALE dal motore, per la stessa ragione di globalSurfaceColor
+// qui sotto: lo slider in ambito "Mesh" mostra l'alpha della mesh selezionata,
+// e salvarlo la faceva diventare l'alpha della superficie -- che le mesh senza
+// valore proprio poi ereditano al reload (Hopf Tori Mesh Colors: 1 -> 0.45,
+// trovato dal test di andata e ritorno). Arrotondata ai centesimi come lo
+// slider, cosi' i preset gia' salvati non cambiano di un byte.
+double PresetSerializer::globalSurfaceAlpha() const
+{
+    if (!m_mainWindow->ui->glWidget) return m_mainWindow->ui->alphaSlider->value() / 100.0;
+    return qRound(m_mainWindow->ui->glWidget->globalAlpha() * 100.0f) / 100.0;
+}
+
 QColor PresetSerializer::globalSurfaceColor() const
 {
     if (!m_mainWindow->ui->glWidget) return m_mainWindow->m_currentSurfaceColor;
@@ -592,7 +604,7 @@ QJsonObject PresetSerializer::buildSurfaceJson(const QString &name)
     // Trasparenza: senza questo, una superficie trasparente (es. ergosfera con
     // limite statico trasparente + orizzonte interno) si risalvava OPACA perche'
     // l'alpha non finiva mai nel JSON. Il reader la legge gia' da col["alpha"].
-    colors["alpha"] = m_mainWindow->ui->alphaSlider->value() / 100.0;
+    colors["alpha"] = globalSurfaceAlpha();
     root["colors"] = colors;
 
     root["lightingMode"] = m_mainWindow->m_lightingMode4D;
@@ -874,7 +886,7 @@ QJsonObject PresetSerializer::buildMotionJson(const QString &name, const MotionR
 
     QJsonObject colors;
     colors["surfColor"] = globalSurfaceColor().name();
-    colors["alpha"] = m_mainWindow->ui->alphaSlider->value() / 100.0;
+    colors["alpha"] = globalSurfaceAlpha();
     root["colors"] = colors;
 
     QJsonObject path4D;
@@ -2057,7 +2069,7 @@ void PresetSerializer::saveScript()
         // il parser (colors.surfColor) lo ripristina identico.
         QJsonObject colors;
         colors["surfColor"] = globalSurfaceColor().name();
-        colors["alpha"] = m_mainWindow->ui->alphaSlider->value() / 100.0;
+        colors["alpha"] = globalSurfaceAlpha();
         root["colors"] = colors;
     }
     else if (isSound) {

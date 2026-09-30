@@ -14207,15 +14207,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
         ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
     }
 
-    // Set PROGRAMMATICO (caricamento preset): il flag evita che valueChanged scambi
-    // questo per un'interazione utente e faccia scattare il blocco/popup del campo a prodotto.
-    m_settingAlphaProgrammatic = true;
-    ui->alphaSlider->setValue(d.alpha * 100);
-    m_settingAlphaProgrammatic = false;
-    // setValue NON emette valueChanged se il valore coincide con quello corrente
-    // (es. due preset di fila con stesso alpha): pushiamo l'alpha esplicitamente
-    // alla GPU cosi' la trasparenza del preset si applica sempre.
-    if (ui->glWidget) ui->glWidget->setAlpha(d.alpha);
+    applyPresetAlpha(d.alpha);
     ui->lightSlider->setValue(d.lightIntensity * 100);
     // Luce di riempimento: preset senza la chiave -> 0 (il parser mette gia'
     // quel default), cioe' l'illuminazione con cui sono stati salvati.
@@ -14892,10 +14884,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
         else                                     onColorTargetChanged();
     }
 
-    // Set PROGRAMMATICO (caricamento motion/preset): vedi nota in applySurfaceExample.
-    m_settingAlphaProgrammatic = true;
-    ui->alphaSlider->setValue(data.alpha * 100);
-    m_settingAlphaProgrammatic = false;
+    applyPresetAlpha(data.alpha);
 
     // 3c. Colore Sfondo
     if (!data.bgColor.isEmpty()) {
@@ -17422,6 +17411,25 @@ void MainWindow::resetImplicitSharedFields()
         ui->lineSteps->blockSignals(old);
     }
     if (ui->glWidget) ui->glWidget->setRaySteps(kDefaultRaySteps);
+}
+
+// Trasparenza GLOBALE del preset, per superfici e record. Il record si fermava
+// al setValue dello slider, che NON emette valueChanged se il valore coincide
+// con quello a schermo: l'alpha globale del motore restava quella del preset
+// PRECEDENTE, ereditata dalle mesh senza alpha propria e riscritta dal Save
+// (trovato dal test di andata e ritorno: record Hopf multi-mesh, 1 o 0.85 a
+// seconda di cosa era aperto prima). La superficie aveva gia' il setAlpha
+// esplicito; ora e' una sola implementazione.
+// Chiamata a MeshBypass acceso (guardie dei due load): va sul globale.
+void MainWindow::applyPresetAlpha(float alpha)
+{
+    // Set PROGRAMMATICO: il flag evita che valueChanged scambi questo per
+    // un'interazione utente e faccia scattare il blocco/popup del campo a
+    // prodotto. qRound: 0.29f * 100 = 28.99, troncato darebbe 28.
+    m_settingAlphaProgrammatic = true;
+    ui->alphaSlider->setValue(qRound(alpha * 100.0f));
+    m_settingAlphaProgrammatic = false;
+    if (ui->glWidget) ui->glWidget->setAlpha(alpha);
 }
 
 // Chiamata da OGNI load di un preset Ray Marching (superfici e record), non
