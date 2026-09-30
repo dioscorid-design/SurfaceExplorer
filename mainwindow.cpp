@@ -14266,12 +14266,9 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // qui si prepara solo cio' che il giudizio sulle costanti deve poter leggere.
     const QString csEqPre = d.crossSectionEq.trimmed();
     const bool loadCrossSection = d.isImplicitMode && d.usesCrossSection && !csEqPre.isEmpty();
+    if (d.isImplicitMode)
+        setCrossSectionEditorFromPreset(csEqPre);
     if (loadCrossSection) {
-        if (ui->lineEquationCrossSection) {
-            ui->lineEquationCrossSection->blockSignals(true);
-            ui->lineEquationCrossSection->setPlainText(csEqPre);
-            ui->lineEquationCrossSection->blockSignals(false);
-        }
         // blockSignals OBBLIGATORIO: currentChanged e' connesso a
         // applyImplicitSubTabReset, che carica la superficie di DEFAULT del
         // sotto-tab e riporta ai default i controlli condivisi. Qui la linguetta
@@ -14723,6 +14720,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     if (isImplicit) {
         ui->tabModeSelector->setCurrentIndex(1); // Forza Tab Ray Marching
+        setCrossSectionEditorFromPreset(data.crossSectionEq.trimmed());
 
         // Distruggiamo i dati parametrici precedenti
         ui->lineX->clear();
@@ -14761,13 +14759,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
             // -> updateConstantsUIState, che legge il sotto-tab ATTIVO) vedra' gia'
             // l'equazione 4D: e' cio' che tiene A/B/C "usate" invece di riscriverle
             // a 1. Stessa ragione per cui i campi path sono riempiti prima.
+            // L'editor e' gia' stato scritto in cima al ramo implicito
+            // (setCrossSectionEditorFromPreset), per ogni record RM.
             const QString csEq = data.crossSectionEq.trimmed();
             const bool loadCrossSection = data.usesCrossSection && !csEq.isEmpty();
-            if (loadCrossSection && ui->lineEquationCrossSection) {
-                ui->lineEquationCrossSection->blockSignals(true);
-                ui->lineEquationCrossSection->setPlainText(csEq);
-                ui->lineEquationCrossSection->blockSignals(false);
-            }
             // blockSignals: currentChanged e' connesso a applyImplicitSubTabReset,
             // che caricherebbe la superficie di DEFAULT del sotto-tab buttando via
             // il record appena caricato.
@@ -15357,13 +15352,21 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // aperto prima.
     m_currentBgTexturePath.clear();
 
+    // Inquadratura dello sfondo: SEMPRE quella del record, anche a sfondo SPENTO.
+    // Stava dentro il ramo qui sotto, quindi un record senza sfondo si teneva
+    // zoom/pan/rotazione del record aperto prima, e il Save li scriveva nel
+    // file (trovato dal test di andata e ritorno: 10 record Paths). Un record
+    // senza le chiavi riparte da 1/0/0, i default di bgZoom/bgPan/bgRot.
+    if (ui->glWidget) {
+        ui->glWidget->setProperty("bg_zoom", bgZoom);
+        ui->glWidget->setProperty("bg_pan", QVector2D(bgPanX, bgPanY));
+        ui->glWidget->setProperty("bg_rot", bgRot);
+    }
+
     if (bgTexEnabled && !bgCode.isEmpty()) {
         if (ui->glWidget) {
             ui->glWidget->setProperty("bg_col1", QVector3D(m_bgTexColor1.redF(), m_bgTexColor1.greenF(), m_bgTexColor1.blueF()));
             ui->glWidget->setProperty("bg_col2", QVector3D(m_bgTexColor2.redF(), m_bgTexColor2.greenF(), m_bgTexColor2.blueF()));
-            ui->glWidget->setProperty("bg_zoom", bgZoom);
-            ui->glWidget->setProperty("bg_pan", QVector2D(bgPanX, bgPanY));
-            ui->glWidget->setProperty("bg_rot", bgRot);
         }
 
         QString bgImgPath = extractAndResolveImagePath(bgCode);
@@ -17421,6 +17424,22 @@ void MainWindow::resetImplicitSharedFields()
     if (ui->glWidget) ui->glWidget->setRaySteps(kDefaultRaySteps);
 }
 
+// Chiamata da OGNI load di un preset Ray Marching (superfici e record), non
+// solo da quelli che usano il Cross Section. Prima l'editor si scriveva solo in
+// quel caso: caricando un preset del ramo 3D restava l'equazione 4D del preset
+// PRECEDENTE, e il Save la scriveva nel file ("crossSectionEquation"). A
+// schermo non si vedeva -- entrare nel sotto-tab carica la superficie di
+// default -- ma il file cambiava a seconda di cosa era stato aperto prima
+// (trovato dal test di andata e ritorno: 44 superfici su 51).
+// Nessun commit al motore: lo fa chi carica, se il preset usa il Cross Section.
+void MainWindow::setCrossSectionEditorFromPreset(const QString &eq)
+{
+    if (!ui->lineEquationCrossSection) return;
+    const bool b = ui->lineEquationCrossSection->blockSignals(true);
+    ui->lineEquationCrossSection->setPlainText(eq);
+    ui->lineEquationCrossSection->blockSignals(b);
+}
+
 void MainWindow::loadCrossSectionDefaultSurface()
 {
     // T^3 (3-toro, toro-di-tori): S=x^2+y^2+z^2+A^2, M=S+p^2+B^2-C^2,
@@ -17708,6 +17727,43 @@ void MainWindow::applyPresetConstants(const LibraryItem &d, bool rebuildDiscrete
         snapped("C", ui->lineC, d.c), snapped("D", ui->lineD, d.d),
         snapped("E", ui->lineE, d.e), snapped("F", ui->lineF, d.f),
         snapped("S", ui->lineS, d.s));
+}
+
+// Campi di COMPOSIZIONE (defU/V/W) e di VINCOLO (explicitU/V/W) dal preset.
+// Unica implementazione per i due rami di applyCommonData: prima li scriveva
+// solo il ramo equazioni, quindi un preset con SCRIPT si teneva quelli del
+// preset precedente e il Save li riportava nel file (trovato dal test di
+// andata e ritorno: Kerr Black Hole, Kerr Spin Animated, Wormhole).
+void MainWindow::setCompositionFieldsFromPreset(const LibraryItem &d)
+{
+    bool bCU = ui->lineU->blockSignals(true);
+    bool bCV = ui->lineV->blockSignals(true);
+    bool bCW = ui->lineW->blockSignals(true);
+    // I campi vincolo vanno bloccati come quelli di composizione: altrimenti
+    // azzerare un vincolo residuo del preset precedente (es. explicitV) emette
+    // textChanged a metà caricamento. checkParametricDependency() parte con uno
+    // stato misto (vincolo vecchio ancora visto come attivo) e
+    // updateConstraintState svuota i limiti del parametro vincolato; quel campo
+    // viene poi riabilitato ma NON ripopolato, restando attivo e vuoto → il
+    // Run successivo fallisce la validazione min/max (popup spurio).
+    bool bEU = ui->lineExplicitU->blockSignals(true);
+    bool bEV = ui->lineExplicitV->blockSignals(true);
+    bool bEW = ui->lineExplicitW->blockSignals(true);
+
+    ui->lineU->setPlainText(d.defU);
+    ui->lineV->setPlainText(d.defV);
+    ui->lineW->setPlainText(d.defW);
+
+    ui->lineExplicitU->setPlainText(d.explicitU);
+    ui->lineExplicitV->setPlainText(d.explicitV);
+    ui->lineExplicitW->setPlainText(d.explicitW);
+
+    ui->lineU->blockSignals(bCU);
+    ui->lineV->blockSignals(bCV);
+    ui->lineW->blockSignals(bCW);
+    ui->lineExplicitU->blockSignals(bEU);
+    ui->lineExplicitV->blockSignals(bEV);
+    ui->lineExplicitW->blockSignals(bEW);
 }
 
 void MainWindow::applyCommonData(LibraryItem d)
@@ -18307,6 +18363,8 @@ void MainWindow::applyCommonData(LibraryItem d)
         ui->lineZ->blockSignals(bZ);
         ui->lineP->blockSignals(bP);
 
+        setCompositionFieldsFromPreset(d);
+
         if (ui->glWidget) {
             // 1. Spegne m_isCustomMesh interno e azzera le funzioni base
             ui->glWidget->setParametricEquations("0", "0", "0", "0");
@@ -18430,34 +18488,7 @@ void MainWindow::applyCommonData(LibraryItem d)
         ui->lineZ->blockSignals(bZ);
         ui->lineP->blockSignals(bP);
 
-        bool bCU = ui->lineU->blockSignals(true);
-        bool bCV = ui->lineV->blockSignals(true);
-        bool bCW = ui->lineW->blockSignals(true);
-        // I campi vincolo vanno bloccati come quelli di composizione: altrimenti
-        // azzerare un vincolo residuo del preset precedente (es. explicitV) emette
-        // textChanged a metà caricamento. checkParametricDependency() parte con uno
-        // stato misto (vincolo vecchio ancora visto come attivo) e
-        // updateConstraintState svuota i limiti del parametro vincolato; quel campo
-        // viene poi riabilitato ma NON ripopolato, restando attivo e vuoto → il
-        // Run successivo fallisce la validazione min/max (popup spurio).
-        bool bEU = ui->lineExplicitU->blockSignals(true);
-        bool bEV = ui->lineExplicitV->blockSignals(true);
-        bool bEW = ui->lineExplicitW->blockSignals(true);
-
-        ui->lineU->setPlainText(d.defU);
-        ui->lineV->setPlainText(d.defV);
-        ui->lineW->setPlainText(d.defW);
-
-        ui->lineExplicitU->setPlainText(d.explicitU);
-        ui->lineExplicitV->setPlainText(d.explicitV);
-        ui->lineExplicitW->setPlainText(d.explicitW);
-
-        ui->lineU->blockSignals(bCU);
-        ui->lineV->blockSignals(bCV);
-        ui->lineW->blockSignals(bCW);
-        ui->lineExplicitU->blockSignals(bEU);
-        ui->lineExplicitV->blockSignals(bEV);
-        ui->lineExplicitW->blockSignals(bEW);
+        setCompositionFieldsFromPreset(d);
 
         // Uscita dalla modalità metrica A CAMPI NUOVI (vedi nota a inizio ramo):
         // la macchina a stati interna giudica ora le equazioni del preset appena

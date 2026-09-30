@@ -1165,6 +1165,11 @@ private:
     // dal cambio di sotto-tab (3D <-> Cross Section) — vedi CLAUDE.md, mai
     // duplicare logica live: unica implementazione condivisa.
     void loadCrossSectionDefaultSurface();
+    // Editor del sotto-tab Cross Section riempito col valore del PRESET che si
+    // sta caricando, anche vuoto. Vedi l'implementazione.
+    void setCrossSectionEditorFromPreset(const QString &eq);
+    // defU/V/W e explicitU/V/W dal preset, per entrambi i rami di applyCommonData.
+    void setCompositionFieldsFromPreset(const LibraryItem &d);
     // Limiti X/Y/Z (condivisi fra i due sotto-tab impliciti) riportati al default
     // "nessun taglio". Chiamata dal cambio di sotto-tab.
     void resetImplicitSharedFields();
