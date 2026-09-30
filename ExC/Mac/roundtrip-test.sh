@@ -19,9 +19,15 @@
 #   ./ExC/Mac/roundtrip-test.sh --filter "Paths|Kerr"    solo i preset che combaciano
 #   ./ExC/Mac/roundtrip-test.sh --single-pass            un solo passaggio (meta' tempo,
 #                                                        niente controllo dell'ordine)
+#   ./ExC/Mac/roundtrip-test.sh --data-only              SOLO DATI, pochi secondi: file ->
+#                                                        parser -> Save, senza caricare nulla
+#                                                        nell'app. Trova cio' che il parser
+#                                                        legge ma il Save non scrive (o
+#                                                        viceversa); non vede i bug del load.
 #   PRESETS=/altra/libreria ./ExC/Mac/roundtrip-test.sh
 #
-# Report in build/test-reports/roundtrip-<data>/report.txt, aperto alla fine.
+# Report in build/test-reports/roundtrip-<data>/report.txt (roundtrip-dati-<data>
+# con --data-only), aperto alla fine.
 # Come leggerlo: "Dipendono dal preset caricato prima" e "Con un popup di errore"
 # devono restare a 0; "Il Save cambia o perde qualcosa" oggi non e' 0 (residui
 # nei dati che il Save ripulisce): si confronta col report precedente, il cui
@@ -49,8 +55,12 @@ if [ -n "$STALE" ]; then
     printf 'ATTENZIONE: il binario e'"'"' piu'"'"' vecchio di questi sorgenti -- ricompila prima:\n%s\n\n' "$STALE"
 fi
 
-OUT="$REPORTS/roundtrip-$(date +%Y%m%d-%H%M%S)"
-PREV="$(ls -td "$REPORTS"/roundtrip-* 2>/dev/null | head -1 || true)"
+# Il report precedente con cui confrontarsi e' dello STESSO tipo: un giro con
+# l'app e uno solo sui dati misurano cose diverse.
+KIND="roundtrip"
+case " $* " in *" --data-only "*) KIND="roundtrip-dati" ;; esac
+OUT="$REPORTS/$KIND-$(date +%Y%m%d-%H%M%S)"
+PREV="$(ls -td "$REPORTS"/"$KIND"-2* 2>/dev/null | head -1 || true)"
 mkdir -p "$OUT"
 
 echo "Libreria: $PRESETS"
@@ -59,10 +69,15 @@ echo "Test in corso (l'app si apre da sola e si chiude alla fine)..."
 
 "$BIN" --roundtrip-test "$PRESETS" "$OUT" "$@" > "$OUT/app.log" 2>&1 &
 PID=$!
-# Avanzamento ogni 20 s, dall'ultima riga di progress.log.
+# Avanzamento ogni 20 s, dall'ultima riga di progress.log (controllo ogni 2 s,
+# cosi' un test breve come --data-only non aspetta a vuoto).
+TICK=0
 while kill -0 "$PID" 2>/dev/null; do
-    sleep 20
-    [ -f "$OUT/progress.log" ] && printf '  %s\n' "$(tail -1 "$OUT/progress.log" | cut -c1-110)"
+    sleep 2
+    TICK=$((TICK + 2))
+    if [ $((TICK % 20)) -eq 0 ] && [ -f "$OUT/progress.log" ]; then
+        printf '  %s\n' "$(tail -1 "$OUT/progress.log" | cut -c1-110)"
+    fi
 done
 RC=0
 wait "$PID" || RC=$?

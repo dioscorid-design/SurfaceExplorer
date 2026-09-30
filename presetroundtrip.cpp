@@ -180,16 +180,18 @@ void PresetRoundTrip::start(MainWindow *mw, const QStringList &args)
 
     auto *t = new PresetRoundTrip(mw, QDir(root).absolutePath(), QDir(out).absolutePath(),
                                   argValue(args, QStringLiteral("--filter")), settle,
-                                  args.contains(QStringLiteral("--single-pass")));
+                                  args.contains(QStringLiteral("--single-pass")),
+                                  args.contains(QStringLiteral("--data-only")));
     // Si parte a finestra aperta e avvio concluso (superficie di default,
     // lettura della libreria): il primo preset non deve contendere con quelli.
     QTimer::singleShot(2000, t, &PresetRoundTrip::run);
 }
 
 PresetRoundTrip::PresetRoundTrip(MainWindow *mw, const QString &root, const QString &outDir,
-                                 const QString &filter, int settleMs, bool singlePass)
+                                 const QString &filter, int settleMs, bool singlePass,
+                                 bool dataOnly)
     : QObject(mw), m_mw(mw), m_root(root), m_outDir(outDir), m_filter(filter),
-      m_settleMs(settleMs), m_singlePass(singlePass)
+      m_settleMs(settleMs), m_singlePass(singlePass || dataOnly), m_dataOnly(dataOnly)
 {
     QDir().mkpath(m_outDir);
     m_logFile.setFileName(m_outDir + QStringLiteral("/progress.log"));
@@ -346,7 +348,18 @@ void PresetRoundTrip::run()
     for (int i = 0; i < n; ++i) {
         const Entry &e = m_entries.at(i);
         log(QStringLiteral("A %1/%2 %3").arg(i + 1).arg(n).arg(e.rel));
-        Capture c = loadAndCapture(e);
+        Capture c;
+        if (m_dataOnly) {
+            // Solo dati: lo stesso parser dell'albero e la stessa scrittura del
+            // Save, senza passare dall'app.
+            LibraryManager lm;
+            const LibraryItem item = lm.parseJson(e.path, e.isRecord ? LibraryType::Motion
+                                                                     : LibraryType::Surface);
+            if (!item.name.isEmpty()) c.json = LibraryManager::toJson(item);
+            else c.dialogs.append(QStringLiteral("[errore] NON CARICABILE: la libreria non lo mostrerebbe"));
+        } else {
+            c = loadAndCapture(e);
+        }
         c.previous = previous;
         previous = e.rel;
         writeJsonFile(m_outDir + QStringLiteral("/passA/") + e.rel, c.json);
@@ -401,6 +414,12 @@ QString PresetRoundTrip::excusedBecause(const QString &key, int kind, bool white
         if (path4D && (key.startsWith(QLatin1String("angles/"))
                        || key == QLatin1String("observer4D")))
             return QStringLiteral("4D guidato dal path");
+        // Rotazioni in corso: orientamento e angoli 4D sono la foto di un moto.
+        // Il confronto fra due catture a 250 ms non basta a riconoscerlo quando
+        // la rotazione e' molto lenta (Hyperbolic Mobius Band).
+        if (motion == QLatin1String("rotation")
+            && (key.startsWith(QLatin1String("camera3D/rot_")) || key.startsWith(QLatin1String("angles/"))))
+            return QStringLiteral("rotazione in corso");
     }
     // Ray Marching fuori dal Cross Section: angoli e velocita' 4D non hanno
     // effetto e il Save li azzera di proposito (vedi keep4DAngles in
@@ -416,6 +435,22 @@ QString PresetRoundTrip::excusedBecause(const QString &key, int kind, bool white
         };
         if (rm3D && fourD.contains(key))
             return QStringLiteral("4D azzerato in Ray Marching 3D");
+    }
+    // Il nome del preset lo decide il FILE: il Save scrive il nome del file,
+    // qualunque cosa dica la chiave (es. apostrofo tipografico nel "name").
+    if (kind == Diff::Changed && key == QLatin1String("name"))
+        return QStringLiteral("il nome segue il file");
+    // Messaggio VUOTO nel file: il Save omette i messaggi vuoti (e la loro
+    // durata), che al load valgono "nessun messaggio" comunque.
+    if (kind == Diff::Lost) {
+        const QJsonValue v = file.value(key);
+        if (v.isString() && v.toString().isEmpty())
+            return QStringLiteral("vuoto nel file");
+        if (key.endsWith(QLatin1String("Seconds"))) {
+            const QString textKey = key.left(key.size() - 7) + QStringLiteral("Text");
+            if (file.value(textKey).toString().isEmpty())
+                return QStringLiteral("durata di un messaggio vuoto");
+        }
     }
     // discreteConstants con voci che non sono [lo, hi] (es. {"A": true}): il load
     // le scarta (parseDiscreteConstants), quindi non c'e' nulla da riscrivere.
@@ -540,7 +575,8 @@ void PresetRoundTrip::writeReport()
 
     const int n = m_entries.size();
     QStringList rep;
-    rep << QStringLiteral("TEST DI ANDATA E RITORNO DEI PRESET")
+    rep << (m_dataOnly ? QStringLiteral("TEST DI ANDATA E RITORNO DEI PRESET -- SOLO DATI (parseJson -> toJson)")
+                       : QStringLiteral("TEST DI ANDATA E RITORNO DEI PRESET"))
         << QStringLiteral("radice: %1").arg(m_root)
         << QStringLiteral("preset: %1   settle: %2 ms   passaggi: %3%4")
                .arg(n).arg(m_settleMs).arg(m_singlePass ? 1 : 2)

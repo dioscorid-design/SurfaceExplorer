@@ -32,6 +32,7 @@ class QTimer;
 //
 //   SurfaceExplorer --roundtrip-test <radice preset> <cartella uscita>
 //                   [--filter <testo>[|<testo>...]] [--settle <ms>] [--single-pass]
+//                   [--data-only]
 //
 // La radice e' quella che contiene surfaces/ e records/. Esce con codice 0 se
 // tutti i preset tornano identici, 1 altrimenti.
@@ -64,7 +65,7 @@ private:
                                   const QJsonObject &file, const Capture &c);
 
     PresetRoundTrip(MainWindow *mw, const QString &root, const QString &outDir,
-                    const QString &filter, int settleMs, bool singlePass);
+                    const QString &filter, int settleMs, bool singlePass, bool dataOnly);
 
     void run();
     void collect();
@@ -81,6 +82,10 @@ private:
     QString m_filter;
     int m_settleMs;
     bool m_singlePass;
+    // --data-only: niente app, solo file -> parseJson -> toJson -> confronto.
+    // Trova in pochi secondi cio' che il parser legge ma il Save non scrive (o
+    // viceversa), senza il rumore dei caricamenti; non vede i bug del load.
+    bool m_dataOnly;
 
     QList<Entry> m_entries;
     QHash<QString, Capture> m_passA;    // chiave: Entry::rel

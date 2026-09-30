@@ -113,10 +113,11 @@ struct LibraryItem {
     // ==========================================================
     // MOTION, ANGLES & PATHS
     // ==========================================================
-    float omega = 0.0f, phi = 0.0f, psi = 0.0f;
     float speedNut = 0.0f, speedPrec = 0.0f, speedSpin = 0.0f;
     float speedOmega = 0.0f, speedPhi = 0.0f, speedPsi = 0.0f;
 
+    // Angoli 4D della scena (chiave "angles"). restoreAngles = il preset li
+    // porta (i preset molto vecchi li avevano in radice, o per niente).
     bool  restoreAngles = false;
     float startOmega = 0.0f, startPhi = 0.0f, startPsi = 0.0f;
     // Traslazione del piano di sezione lungo p (solo Cross Section): insieme a
@@ -252,14 +253,15 @@ struct LibraryItem {
     int pathMode3D = 0;             // "pathMode3D" (vista del path 3D)
     int speedPath3D = 0;            // speeds["path3D"] (slider)
     int speedPath4D = 0;            // speeds["path4D"] (slider)
-    float observer4D = 0.0f;
+    float observer4D = 4.0f;        // default del load per i record senza chiave
     // Sfondo (blocco "background" del record); bgColor, bgTextureEnabled e
-    // bgTextureCode sono piu' sopra.
-    QString bgCol1, bgCol2;
+    // bgTextureCode sono piu' sopra. Default = quelli del load per i record
+    // senza la chiave (applyMotionExample).
+    QString bgCol1 = QStringLiteral("#3333cc"), bgCol2 = QStringLiteral("#000000");
     QString bgLibName;
     QString bgHintText;
     float   bgHintSeconds = 6.0f;
-    QString bgSkyMode;              // "fixed" / "sphere" / "cylinder" / "cube"
+    QString bgSkyMode = QStringLiteral("fixed");   // "fixed" / "sphere" / "cylinder" / "cube"
     float bgZoom = 1.0f, bgPanX = 0.0f, bgPanY = 0.0f, bgRotation = 0.0f;
 };
 

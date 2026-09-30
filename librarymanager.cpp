@@ -64,6 +64,213 @@ static void parseDiscreteConstants(const QJsonObject& root, LibraryItem& d)
     }
 }
 
+// PARTI COMUNI al parsing di superfici e record: stesse chiavi, stessi
+// default. E' lo specchio di LibraryManager::toJson (in fondo al file): una
+// chiave che toJson scrive per entrambi i tipi si legge qui. Prima questo
+// codice era copiato identico nei due rami di parseJson.
+static void parseMeshParts(const QJsonObject &root, LibraryItem &d)
+{
+    // Aspetto per-mesh (opzionale). Ogni campo assente resta negativo, cioe'
+    // "eredita dallo stato globale": un preset che personalizza solo il
+    // colore di una parte non impone alpha o luce alle altre.
+    if (!root.contains("meshParts")) return;
+    const QJsonArray arr = root["meshParts"].toArray();
+    d.meshParts.reserve(arr.size());
+    for (const QJsonValue &v : arr) {
+        const QJsonObject o = v.toObject();
+        MeshPart mp;
+        if (o.contains("r")) {
+            mp.colorR = (float)o["r"].toDouble(-1.0);
+            mp.colorG = (float)o["g"].toDouble(-1.0);
+            mp.colorB = (float)o["b"].toDouble(-1.0);
+        }
+        if (o.contains("alpha"))      mp.alpha = (float)o["alpha"].toDouble(-1.0);
+        if (o.contains("light"))      mp.lightIntensity = (float)o["light"].toDouble(-1.0);
+        // Modalita' propria: senza la chiave la parte eredita, quindi i
+        // preset salvati prima di questa feature restano identici.
+        if (o.contains("mode")) {
+            mp.renderMode = o["mode"].toInt(0);
+            mp.hasCustomRenderMode = true;
+        }
+        if (o.contains("wfU"))        mp.wfStepU = o["wfU"].toInt(0);
+        if (o.contains("wfV"))        mp.wfStepV = o["wfV"].toInt(0);
+        // Dominio proprio della parte (campi u/v del pannello Multi Mesh).
+        // Chiave assente = la parte usa il dominio dichiarato dalla sezione
+        // //MESH_BEGIN, quindi i preset salvati prima restano identici.
+        if (o.contains("uMin")) {
+            mp.uMin = (float)o["uMin"].toDouble(0.0);
+            mp.uMax = (float)o["uMax"].toDouble(0.0);
+            mp.vMin = (float)o["vMin"].toDouble(0.0);
+            mp.vMax = (float)o["vMax"].toDouble(0.0);
+            mp.hasCustomDomain = true;
+        }
+        // Texture procedurale propria: come "mode", la chiave assente lascia
+        // la parte a EREDITARE.
+        if (o.contains("texCode")) {
+            mp.textureCode = o["texCode"].toString();
+            mp.textureLibName = o["texLibName"].toString().trimmed();
+            mp.textureEnabled = o["texOn"].toBool(true);
+            mp.hasCustomTexture = true;
+        }
+        if (o.contains("texC1r")) {
+            mp.texCol1R = (float)o["texC1r"].toDouble(-1.0);
+            mp.texCol1G = (float)o["texC1g"].toDouble(-1.0);
+            mp.texCol1B = (float)o["texC1b"].toDouble(-1.0);
+            mp.texCol2R = (float)o["texC2r"].toDouble(-1.0);
+            mp.texCol2G = (float)o["texC2g"].toDouble(-1.0);
+            mp.texCol2B = (float)o["texC2b"].toDouble(-1.0);
+        }
+        if (o.contains("texZoom")) {
+            mp.texZoom = (float)o["texZoom"].toDouble(-1.0);
+            mp.texPanX = (float)o["texPanX"].toDouble(0.0);
+            mp.texPanY = (float)o["texPanY"].toDouble(0.0);
+            mp.texRotation = (float)o["texRot"].toDouble(0.0);
+        }
+        d.meshParts.push_back(mp);
+    }
+}
+
+static void parseSceneCommon(const QJsonObject &root, LibraryItem &d)
+{
+    if (root.contains("geodesic")) {
+        QJsonObject geo = root["geodesic"].toObject();
+        d.geoU0 = geo["u0"].toString();
+        d.geoV0 = geo["v0"].toString();
+        d.geoW0 = geo["w0"].toString();
+        d.geoDU = geo["du"].toString();
+        d.geoDV = geo["dv"].toString();
+        d.geoDW = geo["dw"].toString();
+        d.geoConform = geo["conform"].toString();
+    }
+    if (root.contains("isImplicitMode")) {
+        d.isImplicitMode = root["isImplicitMode"].toBool();
+        d.implicitEq = root["implicitEquation"].toString();
+        // Sotto-tab implicito attivo al salvataggio. Chiavi assenti nei record
+        // precedenti al Cross Section -> false/vuoto, cioe' il ramo 3D di sempre.
+        d.shellThickness = (float)root["shellThickness"].toDouble(0.005);
+        d.usesCrossSection = root["implicitUsesCrossSection"].toBool();
+        d.crossSectionEq = root["crossSectionEquation"].toString();
+        d.crossSectionP = (float)root["crossSectionP"].toDouble(0.0);
+        // MARCHER. Chiave assente nei record precedenti ai radio: il default
+        // dipende dal SOTTO-TAB, e non e' un vezzo di compatibilita'.
+        //  - 3D -> "Fast" (sphere tracing storico): sono decine, si disegnano
+        //    bene cosi', e il marcher preciso introduce difetti sui bordi di
+        //    alcuni (misurato: Chain perde 4 pixel su 1681).
+        //  - Cross Section -> "Precise": superfici 4D di grado alto, dove il
+        //    marcher storico produce le "saldature" (sul T^3 il 22% degli hit era
+        //    falso, a 0.10 unita' dalla superficie).
+        // Chi ha la chiave usa il proprio valore, in entrambi i sotto-tab.
+        d.hybridMarcher = root.contains("hybridMarcher")
+                          ? root["hybridMarcher"].toBool()
+                          : d.usesCrossSection;
+    }
+    // Messaggio in sovrimpressione (suggerimento d'uso). Vuoto = nessuno.
+    if (root.contains("hintText")) {
+        d.hintText = root["hintText"].toString();
+        d.hintSeconds = (float)root["hintSeconds"].toDouble(6.0);
+    }
+    parseDiscreteConstants(root, d);
+    if (root.contains("limits")) {
+        QJsonObject l = root["limits"].toObject();
+        d.uMin=l["uMin"].toDouble(); d.uMax=l["uMax"].toDouble();
+        d.vMin=l["vMin"].toDouble(); d.vMax=l["vMax"].toDouble();
+        d.wMin=l["wMin"].toDouble(); d.wMax=l["wMax"].toDouble();
+
+        // Formule dei limiti (assenti nei record fino alla v1): se ci sono
+        // vincono sul numero, che resta il fallback.
+        d.uMinExpr=l["uMinExpr"].toString(); d.uMaxExpr=l["uMaxExpr"].toString();
+        d.vMinExpr=l["vMinExpr"].toString(); d.vMaxExpr=l["vMaxExpr"].toString();
+        d.wMinExpr=l["wMinExpr"].toString(); d.wMaxExpr=l["wMaxExpr"].toString();
+
+        d.xMin=l["xMin"].toDouble(-1000.0); d.xMax=l["xMax"].toDouble(1000.0);
+        d.yMin=l["yMin"].toDouble(-1000.0); d.yMax=l["yMax"].toDouble(1000.0);
+        d.zMin=l["zMin"].toDouble(-1000.0); d.zMax=l["zMax"].toDouble(1000.0);
+    }
+    d.steps = root["steps"].toInt(100);
+    if (root.contains("constants")) {
+        QJsonObject c = root["constants"].toObject();
+        d.a=c["A"].toDouble(0.0); d.b=c["B"].toDouble(0.0); d.c=c["C"].toDouble(0.0);
+        d.d=c["D"].toDouble(0.0); d.e=c["E"].toDouble(0.0); d.f=c["F"].toDouble(0.0);
+        if (c.contains("S")) d.s = c["S"].toDouble(0.0);
+    }
+    if (root.contains("lightingMode")) {
+        d.lightingMode = root["lightingMode"].toInt();
+    }
+    // Luce di riempimento: chiave assente -> 0 (spenta), il valore storico.
+    d.fillLight = (float)root["fillLight"].toDouble(0.0);
+    if (root.contains("lightIntensity")) {
+        d.lightIntensity = root["lightIntensity"].toDouble(1.0);
+    }
+    if (root.contains("use4DLighting")) {
+        d.use4DLighting = root["use4DLighting"].toBool();
+        d.hasLightingState = true;
+    }
+    d.renderMode = root.contains("renderMode") ? root["renderMode"].toInt() : 0;
+    if (root.contains("projectionMode")) {
+        d.projectionMode = root["projectionMode"].toInt();
+    }
+    d.cameraFov = (float)root["cameraFov"].toDouble(45.0);
+    // FOV indipendenti dei due path; i JSON vecchi (solo cameraFov) lo
+    // ereditano su entrambi.
+    d.fov3D = (float)root["fov3D"].toDouble(d.cameraFov);
+    d.fov4D = (float)root["fov4D"].toDouble(d.cameraFov);
+
+    // Densita' wireframe (opzionale): assente nei preset vecchi -> hasWireframe
+    // resta false e il load applica il default. STEP_DEF=4 lato GLWidget clampa.
+    if (root.contains("wireframe")) {
+        QJsonObject wf = root["wireframe"].toObject();
+        d.hasWireframe = true;
+        d.wireframeUStep = wf["uStep"].toInt(4);
+        d.wireframeVStep = wf["vStep"].toInt(4);
+    }
+
+    parseMeshParts(root, d);
+    // Ambito All/Mesh salvato col preset (assente nei preset vecchi).
+    d.meshScopeAll = root.contains("meshScopeAll") && root["meshScopeAll"].toBool(false);
+    // Dominio dell'ambito "All" (assente nei preset che non l'hanno usato).
+    if (root.contains("allUMin")) {
+        d.hasAllDomain = true;
+        d.allUMin = (float)root["allUMin"].toDouble(0.0);
+        d.allUMax = (float)root["allUMax"].toDouble(0.0);
+        d.allVMin = (float)root["allVMin"].toDouble(0.0);
+        d.allVMax = (float)root["allVMax"].toDouble(0.0);
+    }
+
+    if (root.contains("camera3D")) {
+        d.hasCamera3D = true;
+        QJsonObject cam = root["camera3D"].toObject();
+        d.camX = cam["x"].toDouble(0.0);
+        d.camY = cam["y"].toDouble(0.0);
+        d.camZ = cam["z"].toDouble(4.0);
+        d.rotW = cam["rot_w"].toDouble(1.0);
+        d.rotX = cam["rot_x"].toDouble(0.0);
+        d.rotY = cam["rot_y"].toDouble(0.0);
+        d.rotZ = cam["rot_z"].toDouble(0.0);
+        d.camYaw = cam["yaw"].toDouble(0.0);
+        d.camPitch = cam["pitch"].toDouble(0.0);
+        d.camRoll = cam["roll"].toDouble(0.0);
+    }
+}
+
+// Colore e trasparenza globali. Due formati storici per il colore:
+//  - stringa "#rrggbb" in "surfColor" (record, saveScript);
+//  - componenti numeriche r/g/b 0..1 (saveSurface, es. Ergosphere.json).
+// Il reader leggeva solo il primo: i preset salvati col secondo restavano senza
+// colore (default verde) e non trasparenti. color1 e' il nome che il load usa,
+// surfaceColor il colore a piena precisione che il Save delle superfici scrive.
+// (La vecchia chiave "bordColor" di preset legacy viene semplicemente ignorata.)
+static void parseSurfaceColor(const QJsonObject &col, LibraryItem &d)
+{
+    if (col.contains("surfColor")) {
+        d.color1 = col["surfColor"].toString();
+        d.surfaceColor = QColor(d.color1);
+    } else if (col.contains("r")) {
+        d.surfaceColor = QColor::fromRgbF(col["r"].toDouble(), col["g"].toDouble(), col["b"].toDouble());
+        d.color1 = d.surfaceColor.name();
+    }
+    if (col.contains("alpha")) d.alpha = col["alpha"].toDouble(1.0);
+}
+
 LibraryManager::LibraryManager() {}
 
 void LibraryManager::clear()
@@ -328,11 +535,8 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
     if (type == LibraryType::Motion) {
         if (jsonType != "motion") { d.name = ""; return d; }
 
-        if (root.contains("speeds")) {
-            QJsonObject s = root["speeds"].toObject();
-            d.speedNut = s["nutation"].toDouble(); d.speedPrec = s["precession"].toDouble(); d.speedSpin = s["spin"].toDouble();
-            d.speedOmega = s["omega"].toDouble(); d.speedPhi = s["phi"].toDouble(); d.speedPsi = s["psi"].toDouble();
-        }
+        parseSceneCommon(root, d);
+
         if (root.contains("equations")) {
             QJsonObject eq = root["equations"].toObject();
             d.x = eq["x"].toString(); d.y = eq["y"].toString(); d.z = eq["z"].toString(); d.w = eq["p"].toString();
@@ -343,40 +547,34 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.defV = eq["defV"].toString();
             d.defW = eq["defW"].toString();
         }
-        if (root.contains("geodesic")) {
-            QJsonObject geo = root["geodesic"].toObject();
-            d.geoU0 = geo["u0"].toString();
-            d.geoV0 = geo["v0"].toString();
-            d.geoW0 = geo["w0"].toString();
-            d.geoDU = geo["du"].toString();
-            d.geoDV = geo["dv"].toString();
-            d.geoDW = geo["dw"].toString();
-            d.geoConform = geo["conform"].toString();
+        if (root.contains("scriptCode")) {
+            d.isScript = true;
+            d.scriptCode = root["scriptCode"].toString();
         }
-        if (root.contains("isImplicitMode")) {
-            d.isImplicitMode = root["isImplicitMode"].toBool();
-            d.implicitEq = root["implicitEquation"].toString();
-            // Sotto-tab implicito attivo al salvataggio. Chiavi assenti nei
-            // record precedenti al Cross Section -> false/vuoto, cioe' il ramo
-            // 3D di sempre.
-            d.shellThickness = (float)root["shellThickness"].toDouble(0.005);
-            d.usesCrossSection = root["implicitUsesCrossSection"].toBool();
-            d.crossSectionEq = root["crossSectionEquation"].toString();
-            d.crossSectionP = (float)root["crossSectionP"].toDouble(0.0);
-            // MARCHER. Chiave assente nei record precedenti ai radio: il default
-            // dipende dal SOTTO-TAB, e non e' un vezzo di compatibilita'.
-            //  - record 3D -> "Fast" (sphere tracing storico): sono decine, si
-            //    disegnano bene cosi', e il marcher preciso introduce difetti sui
-            //    bordi di alcuni (misurato: Chain perde 4 pixel su 1681).
-            //  - record Cross Section -> "Precise": quelle superfici sono 4D di
-            //    grado alto, dove il marcher storico produce le "saldature" (sul
-            //    T^3 il 22% degli hit era falso, a 0.10 unita' dalla superficie).
-            //    Senza questo default andrebbero riaperti e risalvati uno per uno
-            //    per vederli corretti.
-            // Chi ha la chiave usa il proprio valore, in entrambi i sotto-tab.
-            d.hybridMarcher = root.contains("hybridMarcher")
-                              ? root["hybridMarcher"].toBool()
-                              : d.usesCrossSection;
+        if (root.contains("colors")) {
+            parseSurfaceColor(root["colors"].toObject(), d);
+            d.hasCustomColors = true;
+        }
+        if (root.contains("angles")) {
+            QJsonObject a = root["angles"].toObject();
+            d.startOmega = a["omega"].toDouble(0.0);
+            d.startPhi   = a["phi"].toDouble(0.0);
+            d.startPsi   = a["psi"].toDouble(0.0);
+            d.restoreAngles = true;
+        }
+
+        // ------------------------------------------------------------------
+        // SOLO RECORD: moti, path, texture, sfondo, suono.
+        // I default sono quelli con cui applyMotionExample legge oggi le stesse
+        // chiavi direttamente dal file: quando il load passera' da qui (tappa 3
+        // dello "stato unico della scena") non deve cambiare nulla.
+        // ------------------------------------------------------------------
+        if (root.contains("speeds")) {
+            QJsonObject s = root["speeds"].toObject();
+            d.speedNut = s["nutation"].toDouble(); d.speedPrec = s["precession"].toDouble(); d.speedSpin = s["spin"].toDouble();
+            d.speedOmega = s["omega"].toDouble(); d.speedPhi = s["phi"].toDouble(); d.speedPsi = s["psi"].toDouble();
+            d.speedPath3D = s["path3D"].toInt();   // chiave assente -> 0, come il load
+            d.speedPath4D = s["path4D"].toInt();
         }
         if (root.contains("path4D")) {
             QJsonObject p4 = root["path4D"].toObject();
@@ -395,73 +593,38 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.path3D_z = p3["z"].toString();
             d.path3D_roll = p3["roll"].toString();
         }
-        // Messaggi opzionali in sovrimpressione (suggerimenti d'uso del record).
-        // Sono DUE: quello della scena e quello della sua texture, perche' le
-        // due possono usare costanti diverse e vanno spiegate entrambe. I record
-        // salvati prima hanno solo "hintText": la seconda chiave resta assente e
-        // il campo vuoto, cioe' il comportamento di prima.
-        if (root.contains("hintText")) {
-            d.hintText = root["hintText"].toString();
-            d.hintSeconds = (float)root["hintSeconds"].toDouble(6.0);
+        // Vista dei due path: i record col solo "pathMode" (formato storico) la
+        // applicano a entrambi; senza nessuna delle due chiavi, Tangent (0).
+        if (root.contains("pathMode")) {
+            d.pathMode4D = root["pathMode"].toInt();
+            d.pathMode3D = root.contains("pathMode3D") ? root["pathMode3D"].toInt() : d.pathMode4D;
         }
+        // Moto camera da riavviare. "none" resta "none": lo interpreta il load.
+        d.activeMotion = root["activeMotion"].toString();
+        d.observer4D = (float)root["observer4D"].toDouble(4.0);
+        // Il record porta DUE messaggi: quello della scena (hintText, comune) e
+        // quello della sua TEXTURE. I record salvati prima hanno solo il primo.
         if (root.contains("textureHintText")) {
             d.textureHintText = root["textureHintText"].toString();
             d.textureHintSeconds = (float)root["textureHintSeconds"].toDouble(6.0);
-        }
-        parseDiscreteConstants(root, d);
-        if (root.contains("scriptCode")) {
-            d.isScript = true;
-            d.scriptCode = root["scriptCode"].toString();
-        }
-        if (root.contains("limits")) {
-            QJsonObject l = root["limits"].toObject();
-            d.uMin=l["uMin"].toDouble(); d.uMax=l["uMax"].toDouble();
-            d.vMin=l["vMin"].toDouble(); d.vMax=l["vMax"].toDouble();
-            d.wMin=l["wMin"].toDouble(); d.wMax=l["wMax"].toDouble();
-
-            // Formule dei limiti (assenti nei record fino alla v1): se ci sono
-            // vincono sul numero, che resta il fallback.
-            d.uMinExpr=l["uMinExpr"].toString(); d.uMaxExpr=l["uMaxExpr"].toString();
-            d.vMinExpr=l["vMinExpr"].toString(); d.vMaxExpr=l["vMaxExpr"].toString();
-            d.wMinExpr=l["wMinExpr"].toString(); d.wMaxExpr=l["wMaxExpr"].toString();
-
-            d.xMin=l["xMin"].toDouble(-1000.0); d.xMax=l["xMax"].toDouble(1000.0);
-            d.yMin=l["yMin"].toDouble(-1000.0); d.yMax=l["yMax"].toDouble(1000.0);
-            d.zMin=l["zMin"].toDouble(-1000.0); d.zMax=l["zMax"].toDouble(1000.0);
-        }
-        d.steps = root["steps"].toInt(100);
-        if (root.contains("constants")) {
-            QJsonObject c = root["constants"].toObject();
-            d.a=c["A"].toDouble(0.0); d.b=c["B"].toDouble(0.0); d.c=c["C"].toDouble(0.0);
-            d.d=c["D"].toDouble(0.0); d.e=c["E"].toDouble(0.0); d.f=c["F"].toDouble(0.0);
-            if (c.contains("S")) d.s = c["S"].toDouble(0.0);
-        }
-        if (root.contains("colors")) {
-            QJsonObject col = root["colors"].toObject();
-            // Due formati storici per il colore superficie:
-            //  - stringa "#rrggbb" in "surfColor" (saveScript);
-            //  - componenti numeriche r/g/b 0..1 (saveSurface, es. Ergosphere.json).
-            // Il reader leggeva solo il primo: i preset salvati col secondo
-            // restavano senza colore (default verde) e non trasparenti. Accettiamo
-            // entrambi, convertendo r/g/b nella stringa "#rrggbb" attesa a valle.
-            // (La vecchia chiave "bordColor" di preset legacy viene semplicemente ignorata.)
-            if (col.contains("surfColor")) {
-                d.color1 = col["surfColor"].toString();
-            } else if (col.contains("r")) {
-                QColor surf = QColor::fromRgbF(col["r"].toDouble(), col["g"].toDouble(), col["b"].toDouble());
-                d.color1 = surf.name();
-            }
-            d.hasCustomColors = true;
-
-            if (col.contains("alpha")) {
-                d.alpha = col["alpha"].toDouble(1.0);
-            }
         }
         if (root.contains("background")) {
             QJsonObject bg = root["background"].toObject();
             d.bgTextureEnabled = bg["enabled"].toBool();
             d.bgTextureCode = bg["code"].toString();
             if (bg.contains("color")) d.bgColor = bg["color"].toString();
+            if (bg.contains("col1")) d.bgCol1 = bg["col1"].toString();
+            if (bg.contains("col2")) d.bgCol2 = bg["col2"].toString();
+            d.bgLibName = bg.value("libName").toString().trimmed();
+            d.bgHintText = bg.value("hintText").toString().trimmed();
+            d.bgHintSeconds = (float)bg.value("hintSeconds").toDouble(6.0);
+            if (bg.contains("zoom")) d.bgZoom = bg["zoom"].toDouble(1.0);
+            if (bg.contains("pan_x")) d.bgPanX = bg["pan_x"].toDouble(0.0);
+            if (bg.contains("pan_y")) d.bgPanY = bg["pan_y"].toDouble(0.0);
+            if (bg.contains("rotation")) d.bgRotation = bg["rotation"].toDouble(0.0);
+            // Assente nei record salvati prima: sfondo fisso.
+            const QString sky = bg.value("skyMode").toString().trimmed();
+            if (!sky.isEmpty()) d.bgSkyMode = sky;
         }
         if (root.contains("texture")) {
             QJsonObject tex = root["texture"].toObject();
@@ -486,137 +649,11 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
                 // Importante: se c'è codice o path immagine, è "custom"
                 d.isTextureCustom = !d.textureCode.isEmpty();
             }
+            // Ancora in libreria della texture (focus anche a codice cambiato).
+            d.textureLibName = tex.value("libName").toString().trimmed();
         }
-        if (root.contains("lightingMode")) {
-            d.lightingMode = root["lightingMode"].toInt();
-        }
-        // Luce di riempimento: chiave assente -> 0 (spenta), il valore storico.
-        d.fillLight = (float)root["fillLight"].toDouble(0.0);
-        if (root.contains("lightIntensity")) {
-            d.lightIntensity = root["lightIntensity"].toDouble(1.0);
-        }
-        if (root.contains("use4DLighting")) {
-            d.use4DLighting = root["use4DLighting"].toBool();
-            d.hasLightingState = true;
-        }
-        if (root.contains("renderMode")) {
-            d.renderMode = root["renderMode"].toInt();
-        } else {
-            d.renderMode = 0;
-        }
-        if (root.contains("projectionMode")) {
-            d.projectionMode = root["projectionMode"].toInt();
-        }
-        d.cameraFov = (float)root["cameraFov"].toDouble(45.0);
-        // FOV indipendenti dei due path; i JSON vecchi (solo cameraFov) lo
-        // ereditano su entrambi.
-        d.fov3D = (float)root["fov3D"].toDouble(d.cameraFov);
-        d.fov4D = (float)root["fov4D"].toDouble(d.cameraFov);
-
-        // Densità wireframe (opzionale): assente nei preset vecchi -> hasWireframe resta
-        // false e il load applica il default. Il tag STEP_DEF=4 lato GLWidget clampa i valori.
-        if (root.contains("wireframe")) {
-            QJsonObject wf = root["wireframe"].toObject();
-            d.hasWireframe = true;
-            d.wireframeUStep = wf["uStep"].toInt(4);
-            d.wireframeVStep = wf["vStep"].toInt(4);
-        }
-
-        // Aspetto per-mesh (opzionale). Ogni campo assente resta negativo, cioe'
-        // "eredita dallo stato globale": un preset che personalizza solo il
-        // colore di una parte non impone alpha o luce alle altre.
-        if (root.contains("meshParts")) {
-            const QJsonArray arr = root["meshParts"].toArray();
-            d.meshParts.reserve(arr.size());
-            for (const QJsonValue &v : arr) {
-                const QJsonObject o = v.toObject();
-                MeshPart mp;
-                if (o.contains("r")) {
-                    mp.colorR = (float)o["r"].toDouble(-1.0);
-                    mp.colorG = (float)o["g"].toDouble(-1.0);
-                    mp.colorB = (float)o["b"].toDouble(-1.0);
-                }
-                if (o.contains("alpha"))      mp.alpha = (float)o["alpha"].toDouble(-1.0);
-                if (o.contains("light"))      mp.lightIntensity = (float)o["light"].toDouble(-1.0);
-                // Modalita' propria: senza la chiave la parte eredita, quindi i
-                // preset salvati prima di questa feature restano identici.
-                if (o.contains("mode")) {
-                    mp.renderMode = o["mode"].toInt(0);
-                    mp.hasCustomRenderMode = true;
-                }
-                if (o.contains("wfU"))        mp.wfStepU = o["wfU"].toInt(0);
-                if (o.contains("wfV"))        mp.wfStepV = o["wfV"].toInt(0);
-                // Dominio proprio della parte (campi u/v del pannello Multi
-                // Mesh). Chiave assente = la parte usa il dominio dichiarato
-                // dalla sezione //MESH_BEGIN, quindi i preset salvati prima di
-                // questa feature restano identici.
-                if (o.contains("uMin")) {
-                    mp.uMin = (float)o["uMin"].toDouble(0.0);
-                    mp.uMax = (float)o["uMax"].toDouble(0.0);
-                    mp.vMin = (float)o["vMin"].toDouble(0.0);
-                    mp.vMax = (float)o["vMax"].toDouble(0.0);
-                    mp.hasCustomDomain = true;
-                }
-                // Texture procedurale propria: come "mode", la chiave assente
-                // lascia la parte a EREDITARE, quindi i preset salvati prima di
-                // questa feature restano identici.
-                if (o.contains("texCode")) {
-                    mp.textureCode = o["texCode"].toString();
-                    mp.textureLibName = o["texLibName"].toString().trimmed();
-                    mp.textureEnabled = o["texOn"].toBool(true);
-                    mp.hasCustomTexture = true;
-                }
-                if (o.contains("texC1r")) {
-                    mp.texCol1R = (float)o["texC1r"].toDouble(-1.0);
-                    mp.texCol1G = (float)o["texC1g"].toDouble(-1.0);
-                    mp.texCol1B = (float)o["texC1b"].toDouble(-1.0);
-                    mp.texCol2R = (float)o["texC2r"].toDouble(-1.0);
-                    mp.texCol2G = (float)o["texC2g"].toDouble(-1.0);
-                    mp.texCol2B = (float)o["texC2b"].toDouble(-1.0);
-                }
-                if (o.contains("texZoom")) {
-                    mp.texZoom = (float)o["texZoom"].toDouble(-1.0);
-                    mp.texPanX = (float)o["texPanX"].toDouble(0.0);
-                    mp.texPanY = (float)o["texPanY"].toDouble(0.0);
-                    mp.texRotation = (float)o["texRot"].toDouble(0.0);
-                }
-                d.meshParts.push_back(mp);
-            }
-        }
-        // Ambito All/Mesh salvato col preset (assente nei preset vecchi).
-        d.meshScopeAll = root.contains("meshScopeAll")
-                         && root["meshScopeAll"].toBool(false);
-
-        // Dominio dell'ambito "All" (assente nei preset che non l'hanno usato).
-        if (root.contains("allUMin")) {
-            d.hasAllDomain = true;
-            d.allUMin = (float)root["allUMin"].toDouble(0.0);
-            d.allUMax = (float)root["allUMax"].toDouble(0.0);
-            d.allVMin = (float)root["allVMin"].toDouble(0.0);
-            d.allVMax = (float)root["allVMax"].toDouble(0.0);
-        }
-
-        if (root.contains("camera3D")) {
-            d.hasCamera3D = true;
-            QJsonObject cam = root["camera3D"].toObject();
-            d.camX = cam["x"].toDouble(0.0);
-            d.camY = cam["y"].toDouble(0.0);
-            d.camZ = cam["z"].toDouble(4.0);
-            d.rotW = cam["rot_w"].toDouble(1.0);
-            d.rotX = cam["rot_x"].toDouble(0.0);
-            d.rotY = cam["rot_y"].toDouble(0.0);
-            d.rotZ = cam["rot_z"].toDouble(0.0);
-            d.camYaw = cam["yaw"].toDouble(0.0);
-            d.camPitch = cam["pitch"].toDouble(0.0);
-            d.camRoll = cam["roll"].toDouble(0.0);
-        }
-        if (root.contains("angles")) {
-            QJsonObject a = root["angles"].toObject();
-            d.startOmega = a["omega"].toDouble(0.0);
-            d.startPhi   = a["phi"].toDouble(0.0);
-            d.startPsi   = a["psi"].toDouble(0.0);
-            d.restoreAngles = true;
-        }
+        // Ancora del suono: vuota nei record salvati prima che esistesse.
+        d.soundLibName = root.value("soundLibName").toString().trimmed();
 
         return d;
     }
@@ -685,14 +722,7 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
         // Controllo di sicurezza sul tipo
         if (jsonType == "custom_texture" || jsonType == "motion") { d.name = ""; return d; }
 
-        // Messaggio opzionale in sovrimpressione: stesse chiavi del ramo Motion.
-        // Serve anche qui, altrimenti le SUPERFICI (che passano da
-        // applySurfaceExample, non da applyMotionExample) non lo mostrerebbero.
-        if (root.contains("hintText")) {
-            d.hintText = root["hintText"].toString();
-            d.hintSeconds = (float)root["hintSeconds"].toDouble(6.0);
-        }
-        parseDiscreteConstants(root, d);
+        parseSceneCommon(root, d);
 
         // Caso 1: È uno SCRIPT
         if (root.contains("scriptCode")) {
@@ -735,228 +765,33 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
             d.defW = eq["defW"].toString();
         }
         else { d.name = ""; return d; }
-        if (root.contains("geodesic")) {
-            QJsonObject geo = root["geodesic"].toObject();
-            d.geoU0 = geo["u0"].toString();
-            d.geoV0 = geo["v0"].toString();
-            d.geoW0 = geo["w0"].toString();
-            d.geoDU = geo["du"].toString();
-            d.geoDV = geo["dv"].toString();
-            d.geoDW = geo["dw"].toString();
-            d.geoConform = geo["conform"].toString();
-        }
-        // Caso 3: E' una superficie implicita
-        if (root.contains("isImplicitMode")) {
-            d.isImplicitMode = root["isImplicitMode"].toBool();
-            d.implicitEq = root["implicitEquation"].toString();
-            // Sotto-tab implicito attivo al salvataggio. Chiavi assenti nei
-            // record precedenti al Cross Section -> false/vuoto, cioe' il ramo
-            // 3D di sempre.
-            d.shellThickness = (float)root["shellThickness"].toDouble(0.005);
-            d.usesCrossSection = root["implicitUsesCrossSection"].toBool();
-            d.crossSectionEq = root["crossSectionEquation"].toString();
-            d.crossSectionP = (float)root["crossSectionP"].toDouble(0.0);
-            // MARCHER. Chiave assente nei record precedenti ai radio: il default
-            // dipende dal SOTTO-TAB, e non e' un vezzo di compatibilita'.
-            //  - record 3D -> "Fast" (sphere tracing storico): sono decine, si
-            //    disegnano bene cosi', e il marcher preciso introduce difetti sui
-            //    bordi di alcuni (misurato: Chain perde 4 pixel su 1681).
-            //  - record Cross Section -> "Precise": quelle superfici sono 4D di
-            //    grado alto, dove il marcher storico produce le "saldature" (sul
-            //    T^3 il 22% degli hit era falso, a 0.10 unita' dalla superficie).
-            //    Senza questo default andrebbero riaperti e risalvati uno per uno
-            //    per vederli corretti.
-            // Chi ha la chiave usa il proprio valore, in entrambi i sotto-tab.
-            d.hybridMarcher = root.contains("hybridMarcher")
-                              ? root["hybridMarcher"].toBool()
-                              : d.usesCrossSection;
-        }
-        // Lettura parametri comuni (Limiti, step, costanti...)
-        if (root.contains("limits")) {
-            QJsonObject l = root["limits"].toObject();
-            d.uMin=l["uMin"].toDouble(); d.uMax=l["uMax"].toDouble();
-            d.vMin=l["vMin"].toDouble(); d.vMax=l["vMax"].toDouble();
-            d.wMin=l["wMin"].toDouble(); d.wMax=l["wMax"].toDouble();
 
-            // Formule dei limiti (assenti nei record fino alla v1): se ci sono
-            // vincono sul numero, che resta il fallback.
-            d.uMinExpr=l["uMinExpr"].toString(); d.uMaxExpr=l["uMaxExpr"].toString();
-            d.vMinExpr=l["vMinExpr"].toString(); d.vMaxExpr=l["vMaxExpr"].toString();
-            d.wMinExpr=l["wMinExpr"].toString(); d.wMaxExpr=l["wMaxExpr"].toString();
-
-            d.xMin=l["xMin"].toDouble(-1000.0); d.xMax=l["xMax"].toDouble(1000.0);
-            d.yMin=l["yMin"].toDouble(-1000.0); d.yMax=l["yMax"].toDouble(1000.0);
-            d.zMin=l["zMin"].toDouble(-1000.0); d.zMax=l["zMax"].toDouble(1000.0);
-        }
-        d.steps = root["steps"].toInt(100);
-        if (root.contains("constants")) {
-            QJsonObject c = root["constants"].toObject();
-            d.a=c["A"].toDouble(0.0); d.b=c["B"].toDouble(0.0); d.c=c["C"].toDouble(0.0);
-            d.d=c["D"].toDouble(0.0); d.e=c["E"].toDouble(0.0); d.f=c["F"].toDouble(0.0);
-            if (c.contains("S")) d.s = c["S"].toDouble(0.0);
-        }
-
-        // COLORE + TRASPARENZA della superficie. Questo ramo (type=="surface")
-        // prima IGNORAVA del tutto "colors": ogni superficie si ricaricava verde
-        // di default e opaca, qualunque cosa fosse salvata. Accettiamo entrambi i
-        // formati storici (r/g/b numerici di saveSurface, "#rrggbb" di saveScript)
-        // + alpha. applySurfaceExample riapplica d.color1/d.alpha dopo il reset.
+        // COLORE + TRASPARENZA della superficie. Questo ramo prima IGNORAVA del
+        // tutto "colors": ogni superficie si ricaricava verde di default e opaca.
+        // applySurfaceExample riapplica d.color1/d.alpha dopo il reset.
         if (root.contains("colors")) {
-            QJsonObject col = root["colors"].toObject();
-            if (col.contains("surfColor")) {
-                d.color1 = col["surfColor"].toString();
-            } else if (col.contains("r")) {
-                QColor surf = QColor::fromRgbF(col["r"].toDouble(), col["g"].toDouble(), col["b"].toDouble());
-                d.color1 = surf.name();
-            }
+            parseSurfaceColor(root["colors"].toObject(), d);
             d.hasCustomColors = !d.color1.isEmpty();
-            if (col.contains("alpha")) d.alpha = col["alpha"].toDouble(1.0);
         }
 
-        if (root.contains("lightingMode")) {
-            d.lightingMode = root["lightingMode"].toInt();
-        }
-        // Luce di riempimento: chiave assente -> 0 (spenta), il valore storico.
-        d.fillLight = (float)root["fillLight"].toDouble(0.0);
-        if (root.contains("lightIntensity")) {
-            d.lightIntensity = root["lightIntensity"].toDouble(1.0);
-        }
-        if (root.contains("use4DLighting")) {
-            d.use4DLighting = root["use4DLighting"].toBool();
-            d.hasLightingState = true;
-        }
-        if (root.contains("renderMode")) {
-            d.renderMode = root["renderMode"].toInt();
+        if (root.contains("angles")) {
+            // Preset Nuovi
+            QJsonObject a = root["angles"].toObject();
+            d.startOmega = a["omega"].toDouble(0.0);
+            d.startPhi   = a["phi"].toDouble(0.0);
+            d.startPsi   = a["psi"].toDouble(0.0);
+            d.restoreAngles = true;
         } else {
-            d.renderMode = 0;
-        }
-        if (root.contains("projectionMode")) {
-            d.projectionMode = root["projectionMode"].toInt();
-        }
-        d.cameraFov = (float)root["cameraFov"].toDouble(45.0);
-        // FOV indipendenti dei due path; i JSON vecchi (solo cameraFov) lo
-        // ereditano su entrambi.
-        d.fov3D = (float)root["fov3D"].toDouble(d.cameraFov);
-        d.fov4D = (float)root["fov4D"].toDouble(d.cameraFov);
-
-        // DENSITA' WIREFRAME. Veniva letta SOLO nel ramo Motion (sopra): il ramo
-        // Surface la ignorava del tutto, quindi le superfici si ricaricavano SEMPRE
-        // con wireframe di default, qualunque cosa fosse salvata nel JSON.
-        if (root.contains("wireframe")) {
-            QJsonObject wf = root["wireframe"].toObject();
-            d.hasWireframe = true;
-            d.wireframeUStep = wf["uStep"].toInt(4);
-            d.wireframeVStep = wf["vStep"].toInt(4);
-        }
-
-        // Aspetto per-mesh (opzionale). Ogni campo assente resta negativo, cioe'
-        // "eredita dallo stato globale": un preset che personalizza solo il
-        // colore di una parte non impone alpha o luce alle altre.
-        if (root.contains("meshParts")) {
-            const QJsonArray arr = root["meshParts"].toArray();
-            d.meshParts.reserve(arr.size());
-            for (const QJsonValue &v : arr) {
-                const QJsonObject o = v.toObject();
-                MeshPart mp;
-                if (o.contains("r")) {
-                    mp.colorR = (float)o["r"].toDouble(-1.0);
-                    mp.colorG = (float)o["g"].toDouble(-1.0);
-                    mp.colorB = (float)o["b"].toDouble(-1.0);
-                }
-                if (o.contains("alpha"))      mp.alpha = (float)o["alpha"].toDouble(-1.0);
-                if (o.contains("light"))      mp.lightIntensity = (float)o["light"].toDouble(-1.0);
-                // Modalita' propria: senza la chiave la parte eredita, quindi i
-                // preset salvati prima di questa feature restano identici.
-                if (o.contains("mode")) {
-                    mp.renderMode = o["mode"].toInt(0);
-                    mp.hasCustomRenderMode = true;
-                }
-                if (o.contains("wfU"))        mp.wfStepU = o["wfU"].toInt(0);
-                if (o.contains("wfV"))        mp.wfStepV = o["wfV"].toInt(0);
-                // Dominio proprio della parte (campi u/v del pannello Multi
-                // Mesh). Chiave assente = la parte usa il dominio dichiarato
-                // dalla sezione //MESH_BEGIN, quindi i preset salvati prima di
-                // questa feature restano identici.
-                if (o.contains("uMin")) {
-                    mp.uMin = (float)o["uMin"].toDouble(0.0);
-                    mp.uMax = (float)o["uMax"].toDouble(0.0);
-                    mp.vMin = (float)o["vMin"].toDouble(0.0);
-                    mp.vMax = (float)o["vMax"].toDouble(0.0);
-                    mp.hasCustomDomain = true;
-                }
-                // Texture procedurale propria: come "mode", la chiave assente
-                // lascia la parte a EREDITARE, quindi i preset salvati prima di
-                // questa feature restano identici.
-                if (o.contains("texCode")) {
-                    mp.textureCode = o["texCode"].toString();
-                    mp.textureLibName = o["texLibName"].toString().trimmed();
-                    mp.textureEnabled = o["texOn"].toBool(true);
-                    mp.hasCustomTexture = true;
-                }
-                if (o.contains("texC1r")) {
-                    mp.texCol1R = (float)o["texC1r"].toDouble(-1.0);
-                    mp.texCol1G = (float)o["texC1g"].toDouble(-1.0);
-                    mp.texCol1B = (float)o["texC1b"].toDouble(-1.0);
-                    mp.texCol2R = (float)o["texC2r"].toDouble(-1.0);
-                    mp.texCol2G = (float)o["texC2g"].toDouble(-1.0);
-                    mp.texCol2B = (float)o["texC2b"].toDouble(-1.0);
-                }
-                if (o.contains("texZoom")) {
-                    mp.texZoom = (float)o["texZoom"].toDouble(-1.0);
-                    mp.texPanX = (float)o["texPanX"].toDouble(0.0);
-                    mp.texPanY = (float)o["texPanY"].toDouble(0.0);
-                    mp.texRotation = (float)o["texRot"].toDouble(0.0);
-                }
-                d.meshParts.push_back(mp);
+            // Fallback per Preset Vecchi
+            d.startOmega = root["omega"].toDouble(0.0);
+            d.startPhi   = root["phi"].toDouble(0.0);
+            d.startPsi   = root["psi"].toDouble(0.0);
+            if (d.startOmega != 0.0 || d.startPhi != 0.0 || d.startPsi != 0.0) {
+                d.restoreAngles = true;
             }
         }
-        // Ambito All/Mesh salvato col preset (assente nei preset vecchi).
-        d.meshScopeAll = root.contains("meshScopeAll")
-                         && root["meshScopeAll"].toBool(false);
-
-        // Dominio dell'ambito "All" (assente nei preset che non l'hanno usato).
-        if (root.contains("allUMin")) {
-            d.hasAllDomain = true;
-            d.allUMin = (float)root["allUMin"].toDouble(0.0);
-            d.allUMax = (float)root["allUMax"].toDouble(0.0);
-            d.allVMin = (float)root["allVMin"].toDouble(0.0);
-            d.allVMax = (float)root["allVMax"].toDouble(0.0);
-        }
+        return d;
     }
-
-    if (root.contains("camera3D")) {
-        d.hasCamera3D = true;
-        QJsonObject cam = root["camera3D"].toObject();
-        d.camX = cam["x"].toDouble(0.0);
-        d.camY = cam["y"].toDouble(0.0);
-        d.camZ = cam["z"].toDouble(4.0);
-        d.rotW = cam["rot_w"].toDouble(1.0);
-        d.rotX = cam["rot_x"].toDouble(0.0);
-        d.rotY = cam["rot_y"].toDouble(0.0);
-        d.rotZ = cam["rot_z"].toDouble(0.0);
-        d.camYaw = cam["yaw"].toDouble(0.0);
-        d.camPitch = cam["pitch"].toDouble(0.0);
-        d.camRoll = cam["roll"].toDouble(0.0);
-    }
-
-    if (root.contains("angles")) {
-        // Preset Nuovi
-        QJsonObject a = root["angles"].toObject();
-        d.startOmega = a["omega"].toDouble(0.0);
-        d.startPhi   = a["phi"].toDouble(0.0);
-        d.startPsi   = a["psi"].toDouble(0.0);
-        d.restoreAngles = true;
-    } else {
-        // Fallback per Preset Vecchi
-        d.startOmega = root["omega"].toDouble(0.0);
-        d.startPhi   = root["phi"].toDouble(0.0);
-        d.startPsi   = root["psi"].toDouble(0.0);
-        if (d.startOmega != 0.0 || d.startPhi != 0.0 || d.startPsi != 0.0) {
-            d.restoreAngles = true;
-        }
-    }
-
-    return d;
 }
 
 DeletionBackup LibraryManager::softDelete(int index, LibraryType type)
@@ -1263,10 +1098,12 @@ QJsonObject LibraryManager::toJson(const LibraryItem &d)
         root["speeds"] = speeds;
     }
 
+    // Angoli 4D: si scrivono sempre (restoreAngles decide solo la lettura dei
+    // preset molto vecchi, senza la chiave).
     QJsonObject angles;
-    angles["omega"] = (double)d.omega;
-    angles["phi"] = (double)d.phi;
-    angles["psi"] = (double)d.psi;
+    angles["omega"] = (double)d.startOmega;
+    angles["phi"] = (double)d.startPhi;
+    angles["psi"] = (double)d.startPsi;
     root["angles"] = angles;
     // Piano di sezione lungo p: solo nel sotto-tab Cross Section.
     if (d.isImplicitMode && d.usesCrossSection)

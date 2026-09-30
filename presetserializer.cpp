@@ -628,9 +628,10 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
     // Section invece sono lo STATO PRINCIPALE (decidono quale sezione
     // dell'ipersuperficie 4D si vede, %CROSS_SECTION_P%).
     const bool keep4D = !d.isImplicitMode || d.usesCrossSection;
-    d.omega = keep4D ? gl->getOmega() : 0.0f;
-    d.phi   = keep4D ? gl->getPhi()   : 0.0f;
-    d.psi   = keep4D ? gl->getPsi()   : 0.0f;
+    d.restoreAngles = true;
+    d.startOmega = keep4D ? gl->getOmega() : 0.0f;
+    d.startPhi   = keep4D ? gl->getPhi()   : 0.0f;
+    d.startPsi   = keep4D ? gl->getPsi()   : 0.0f;
     // Traslazione del piano di sezione lungo p: l'altra meta' dello stato 4D
     // del Cross Section (toJson la scrive solo li').
     d.crossSectionP = gl->crossSectionP();
