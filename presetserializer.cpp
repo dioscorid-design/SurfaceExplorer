@@ -462,150 +462,14 @@ static bool askSceneHint(QWidget* parent, QString* hintText, const QString& what
     return true;
 }
 
-void PresetSerializer::saveSurface(const QString &suggestedPath)
+// Il JSON della superficie cosi' come la scena lo mostra ora. Nessun dialogo e
+// nessuna scrittura su disco: le decide saveSurface. Separata perche' la usa
+// anche il test di andata e ritorno dei preset (presetroundtrip.cpp), che deve
+// produrre ESATTAMENTE cio' che produrrebbe un Save.
+QJsonObject PresetSerializer::buildSurfaceJson(const QString &name)
 {
-    bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
-    bool wasPath4D = m_mainWindow->pathTimer->isActive();
-    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
-
-    if (wasAnimating) m_mainWindow->ui->glWidget->pauseMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->stop();
-    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
-
-    // UN SOLO dominio di preferenze. Qui c'era `QSettings settings("Repository")`:
-    // quel costruttore prende l'ORGANIZATION NAME, non un gruppo, quindi scriveva
-    // in un dominio separato -- e "lastFolder" (piu' sotto) finiva la' dentro,
-    // mentre saveSurfaceAs scrive la stessa chiave nel dominio globale. Due chiavi
-    // omonime in due domini: vinceva quella salvata per ultima, e il dialogo Save
-    // ripartiva da una cartella apparentemente casuale.
-    QSettings settings;
-    QString rootPath = settings.value("libraryRootPath").toString();
-
-#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-    // Mobile: la radice si ricalcola dal sistema a ogni chiamata, non passa da
-    // QSettings, quindi qui un fallback e' corretto e non puo' sbagliare posto.
-    if (rootPath.isEmpty()) {
-#if defined(Q_OS_ANDROID)
-        // Cartella Download pubblica, bypassando la sandbox di Qt
-        rootPath = "/storage/emulated/0/Documents/SurfaceExplorer_Presets";
-#else
-        rootPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/SurfaceExplorer_Presets";
-#endif
-    }
-#else
-    // DESKTOP: radice vuota NON si indovina in silenzio.
-    //
-    // Qui si ricadeva su <Documents>/SurfaceExplorer_Presets: mkpath, open e write
-    // riuscivano, m_sceneDirty veniva azzerato e l'utente riceveva la conferma di
-    // un salvataggio che non avrebbe trovato dove lo cercava. E' il meccanismo che
-    // ha prodotto due librerie in posti diversi (una su Download, una su
-    // Documents) con le modifiche che finivano in quella sbagliata: una radice
-    // scelta QUI, di nascosto, non e' la stessa che il resto dell'app usa.
-    //
-    // La libreria si installa da un punto solo -- setupDefaultFolders -- che
-    // chiede dove. Fuori sandbox, se l'utente non sceglie, usa la cartella
-    // predefinita dichiarandola; SOTTO sandbox rinuncia (nessun fallback e'
-    // utilizzabile la'), quindi al ritorno la radice puo' essere ancora vuota: in
-    // quel caso non si scrive da nessuna parte e si ripristina lo stato del moto,
-    // come per il dialogo annullato piu' sotto.
-    if (rootPath.isEmpty()) {
-        m_mainWindow->setupDefaultFolders();
-        rootPath = QSettings().value("libraryRootPath").toString();
-        if (rootPath.isEmpty()) {
-            if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
-            if (wasPath4D) m_mainWindow->pathTimer->start();
-            if (wasPath3D) m_mainWindow->pathTimer3D->start();
-            return;
-        }
-    }
-#endif
-
-    QString fileName;
-    if (!suggestedPath.isEmpty() && suggestedPath.endsWith(".json", Qt::CaseInsensitive)) {
-        fileName = suggestedPath;
-    } else {
-        QString startPath = suggestedPath;
-
-        if (!isUsableStartDir(startPath)) {
-            QTreeWidgetItem *selItem = m_mainWindow->getCurrentLibraryItem();
-            if (selItem) {
-                if (selItem->data(0, Qt::UserRole + 10).isValid()) {
-                    startPath = selItem->data(0, Qt::UserRole + 10).toString(); // È una cartella
-                } else {
-                    startPath = QFileInfo(selItem->toolTip(0)).absolutePath(); // È un file
-                }
-            }
-            // Se selezioni il NODO di categoria "Surfaces" (non una foglia) il
-            // path ricavato e' vuoto/non valido (o e' una risorsa ":/" di un
-            // item builtin): cadi qui. Il fallback deve puntare a una cartella
-            // GARANTITA esistente, altrimenti su iOS il dialog apre una
-            // directory inesistente -> lista vuota + salvataggio fallito (su
-            // Android non capita perche' rootPath e' un percorso pubblico fisso
-            // sempre presente).
-            if (!isUsableStartDir(startPath)) {
-                startPath = settings.value("lastFolder", rootPath + "/surfaces").toString();
-            }
-            if (!isUsableStartDir(startPath)) {
-                startPath = rootPath + "/surfaces";
-            }
-        }
-
-        // Garantiamo che la cartella di partenza esista davvero (prima
-        // scrittura su iOS: il container puo' non avere ancora /surfaces).
-        {
-            QString startDir = startPath.endsWith(".json", Qt::CaseInsensitive)
-                                   ? QFileInfo(startPath).absolutePath()
-                                   : startPath;
-            if (!startDir.isEmpty() && !QDir(startDir).exists())
-                QDir().mkpath(startDir);
-        }
-
-        if (!startPath.endsWith(".json", Qt::CaseInsensitive)) {
-            if (!startPath.endsWith("/")) startPath += "/";
-            startPath += "NewSurface.json";
-        }
-
-#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-        MobileSaveDialog dialog("Save Surface", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow, rootPath + "/surfaces");
-        if (dialog.exec() != QDialog::Accepted) {
-            if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
-            if (wasPath4D) m_mainWindow->pathTimer->start();
-            if (wasPath3D) m_mainWindow->pathTimer3D->start();
-            return;
-        }
-        fileName = dialog.getSelectedPath();
-#else
-        fileName = getSaveFileNameWithSuffix(m_mainWindow, "Save Surface", startPath, "JSON Files (*.json)", "json");
-#endif
-    }
-
-    if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->start();
-    if (wasPath3D) m_mainWindow->pathTimer3D->start();
-
-    if (fileName.isEmpty()) return;
-    if (!fileName.endsWith(".json", Qt::CaseInsensitive)) fileName += ".json";
-
-    // --- BLOCCO VALIDAZIONE RIGIDA ---
-    QString absPath = QFileInfo(fileName).absolutePath() + "/";
-    if (absPath.contains("/records/", Qt::CaseInsensitive) ||
-        absPath.contains("/textures/", Qt::CaseInsensitive) ||
-        absPath.contains("/sounds/", Qt::CaseInsensitive)) {
-        QMessageBox::warning(m_mainWindow, "Save Blocked",
-                             "Operation not allowed.\n\nStatic surfaces must reside in 'Surfaces'.\nIf you want to save the global scene (which contains this surface), use the 'Save Motion' command.");
-        return;
-    }
-
-    // HINT della scena, come per record e texture (vedi askSceneHint): dopo la
-    // scelta del percorso e dopo il blocco di validazione, prima della scrittura.
-    if (!askSceneHint(m_mainWindow, &m_mainWindow->m_currentHintText, "surface"))
-        return;
-
-    QFileInfo fileInfo(fileName);
-    settings.setValue("lastFolder", fileInfo.absolutePath());
-
     QJsonObject root;
-    root["name"] = QFileInfo(fileName).baseName();
+    root["name"] = name;
     root["type"] = "surface";
 
     // --- Salvataggio Ray Marching ---
@@ -905,304 +769,18 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         root["hintSeconds"] = (double)m_mainWindow->m_currentHintSeconds;
     }
 
-    QDir().mkpath(QFileInfo(fileName).absolutePath()); // 1. Crea la cartella se manca
-    QFile file(fileName);
-
-    if (file.exists()) {
-        file.setPermissions(file.permissions() | QFile::WriteOwner | QFile::WriteUser);
-        file.remove(); // 2. Distrugge il file lucchettato da iOS per poterlo ricreare
-    }
-
-    if (m_mainWindow->m_fileOps) {
-        m_mainWindow->m_fileOps->backupBeforeOverwrite(fileName);
-    }
-
-    if (file.open(QIODevice::WriteOnly)) {
-        QJsonDocument doc(root);
-        file.write(doc.toJson());
-        file.close();
-
-        // Il lavoro e' su disco: non c'e' piu' niente da proteggere. Lo legge
-        // confirmDiscardUnsaved per capire se il "Save" e' andato a buon
-        // fine o se l'utente ha annullato il dialogo (i return anticipati qui
-        // sopra lasciano il flag a true, e il reset viene giustamente sospeso).
-        m_mainWindow->m_sceneDirty = false;
-
-        QTimer::singleShot(100, m_mainWindow, [this, fileName]() {
-            m_mainWindow->refreshAndSelectPreset(m_mainWindow->ui->treeSurfaces, fileName);
-        });
-    } else {
-        QMessageBox::critical(m_mainWindow, "Error", "Could not write to file.");
-    }
+    return root;
 }
 
-void PresetSerializer::saveTexture(const QString &path)
+// Il JSON del record, stessa separazione di buildSurfaceJson. `run` dice quale
+// moto era in corsa quando l'utente ha chiesto il Save (chiave "activeMotion"):
+// saveMotion ferma i moti per il dialogo, quindi va fotografato prima.
+QJsonObject PresetSerializer::buildMotionJson(const QString &name, const MotionRunState &run,
+                                              bool includeSound)
 {
-    QString absPath = QFileInfo(path).absolutePath() + "/";
-    if (absPath.contains("/surfaces/", Qt::CaseInsensitive) ||
-        absPath.contains("/records/", Qt::CaseInsensitive) ||
-        absPath.contains("/sounds/", Qt::CaseInsensitive)) {
-        QMessageBox::warning(m_mainWindow, "Save Blocked",
-                             "Operation not allowed.\n\nTexture presets must be saved exclusively in the 'Textures' folder.");
-        return;
-    }
-
-    // HINT della texture: stesso trattamento del record (vedi askSceneHint), ma
-    // sulla variabile della TEXTURE, che ha una chiave sua. Sono due messaggi
-    // indipendenti proprio perche' possono nominare costanti diverse: la texture
-    // d'origine dice la sua (es. "Slider A"), il record che la riusa puo' averla
-    // spostata su un'altra costante e dire la propria.
-    // Con il bersaglio Background si salva lo SFONDO, e il messaggio e' il suo:
-    // prima si chiedeva (e si scriveva nel preset) quello della texture di
-    // superficie anche salvando lo sfondo.
-    bool isBg = m_mainWindow->ui->radioBackground->isChecked();
-    QString &hintRef  = isBg ? m_mainWindow->m_currentBgTextureHintText
-                             : m_mainWindow->m_currentTextureHintText;
-    float   &hintSecs = isBg ? m_mainWindow->m_currentBgTextureHintSeconds
-                             : m_mainWindow->m_currentTextureHintSeconds;
-    if (!askSceneHint(m_mainWindow, &hintRef, "texture"))
-        return;
-
-    QJsonObject root;
-
-    QString currentCode;
-    bool isImplicit = (m_mainWindow->ui->tabModeSelector->currentIndex() == 1);
-
-    if (isImplicit && !isBg) {
-        // Se siamo in Ray Marching, leggi il codice direttamente dal box dell'interfaccia! +++
-        currentCode = m_mainWindow->ui->lineTexture->toPlainText();
-    } else {
-        // [Logica originale per le superfici parametriche]
-        if (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeTexture) {
-            currentCode = m_mainWindow->ui->txtScriptEditor->toPlainText();
-            if (isBg) m_mainWindow->m_bgTextureCode = currentCode;
-            else m_mainWindow->m_surfaceTextureCode = currentCode;
-        } else {
-            currentCode = isBg ? m_mainWindow->m_bgTextureCode : m_mainWindow->m_surfaceTextureCode;
-        }
-    }
-
-    // Determiniamo il codice BASE (senza tag immagine) in base al modo.
-    if (isImplicit) {
-        // Se siamo in Ray Marching salviamo entrambi i campi
-        currentCode = m_mainWindow->ui->lineTexture->toPlainText();
-        root["displacement"] = m_mainWindow->ui->lineVariations->toPlainText();
-        root["isImplicitMode"] = true; // Flag fondamentale per il caricamento
-    } else {
-        // Logica Parametrica
-        currentCode = isBg ? m_mainWindow->m_bgTextureCode : m_mainWindow->m_surfaceTextureCode;
-        root["isImplicitMode"] = false;
-    }
-
-    // Tag immagine: va prepeso DOPO aver scelto il codice base, altrimenti (bug
-    // storico) i rami isImplicit/parametrico qui sopra ricalcolavano currentCode
-    // da zero e BUTTAVANO VIA il //IMG: -> il path immagine non finiva mai nel
-    // JSON -> al reload appariva l'ultima immagine caricata, non quella salvata.
-    // Prima togliamo eventuali //IMG: gia' presenti nel codice base per evitare
-    // duplicati, poi lo rimettiamo pulito in cima.
-    QRegularExpression imgRe(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption);
-    currentCode.remove(imgRe);
-    if (m_mainWindow->m_isImageMode && !m_mainWindow->m_currentTexturePath.isEmpty()) {
-        currentCode = "//IMG:" + m_mainWindow->m_currentTexturePath + "\n" + currentCode.trimmed();
-    }
-
-    if (currentCode.trimmed().isEmpty()) currentCode = "// Texture Preset";
-    root["code"] = currentCode;
-
-    if (m_mainWindow->ui->glWidget) {
-        QVector2D pan = m_mainWindow->ui->glWidget->getFlatPan();
-        root["pan_x"] = (double)pan.x();
-        root["pan_y"] = (double)pan.y();
-        root["zoom"] = (double)m_mainWindow->ui->glWidget->getFlatZoom();
-        root["rotation"] = (double)m_mainWindow->ui->glWidget->getFlatRotation();
-        root["hasCustomColors"] = true;
-        root["color1"] = m_mainWindow->m_texColor1.name();
-        root["color2"] = m_mainWindow->m_texColor2.name();
-    }
-    root["type"] = "custom_texture";
-    root["name"] = QFileInfo(path).baseName();
-
-    // Suggerimento in sovrimpressione della texture (tipicamente: a cosa serve
-    // la costante A..F/S che questo script usa). Non ha UI di editing, quindi si
-    // riscrive quello della texture caricata: senza, ogni Save su una texture
-    // che ne aveva uno lo perderebbe -- lo stesso difetto gia' corretto per le
-    // superfici (~694). Chiave assente se non c'e' nulla da dire, cosi' le
-    // texture che non lo usano non cambiano di un byte.
-    if (!hintRef.isEmpty()) {
-        root["hintText"] = hintRef;
-        root["hintSeconds"] = (double)hintSecs;
-    }
-
-    if (m_mainWindow->m_fileOps) {
-        m_mainWindow->m_fileOps->backupBeforeOverwrite(path);
-    }
-
-    QDir().mkpath(QFileInfo(path).absolutePath());
-    QFile file(path);
-    if (file.exists()) {
-        file.setPermissions(file.permissions() | QFile::WriteOwner | QFile::WriteUser);
-        file.remove();
-    }
-    if (file.open(QIODevice::WriteOnly)) {
-        QJsonDocument doc(root);
-        file.write(doc.toJson());
-        file.close();
-
-        m_mainWindow->m_currentTexturePresetPath = path;
-
-        // Il lavoro e' su disco: lo legge confirmDiscardUnsavedTexture per
-        // sapere se il "Save" e' riuscito.
-        //
-        // SOLO il flag del modulo: un file texture non contiene le equazioni,
-        // quindi azzerare anche m_sceneDirty dichiarerebbe salvato un lavoro
-        // sulla superficie che non e' stato scritto da nessuna parte -- e il
-        // reset successivo lo butterebbe via senza chiedere niente.
-        m_mainWindow->m_textureDirty = false;
-
-        // Refresh visivo + selezione del file appena salvato nella libreria
-        QTimer::singleShot(100, m_mainWindow, [this, path]() {
-            m_mainWindow->refreshAndSelectPreset(m_mainWindow->ui->treeTextures, path);
-        });
-    }
-}
-
-void PresetSerializer::saveMotion(const QString &suggestedPath)
-{
-    bool wasRotating = m_mainWindow->ui->glWidget->isAnimating();
-    bool wasPath4D = m_mainWindow->pathTimer->isActive();
-    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
-    bool wasTimeAnimating = false;
-
-    if (m_mainWindow->m_btnStart && m_mainWindow->m_btnStart->text().toUpper() == "STOP") {
-        wasTimeAnimating = true;
-        m_mainWindow->ui->glWidget->setSurfaceAnimating(false);
-        m_mainWindow->ui->glWidget->stopAnimationTimer();
-    }
-
-    if (wasRotating) m_mainWindow->ui->glWidget->pauseMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->stop();
-    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
-
-    QSettings settings;
-    QString lastDir = settings.value("lastMotionDir", settings.value("lastFolder", QDir::homePath()).toString()).toString();
-
-    QString fileName;
-    if (!suggestedPath.isEmpty() && suggestedPath.endsWith(".json", Qt::CaseInsensitive)) {
-        fileName = suggestedPath;
-    } else {
-        QString startPath = suggestedPath;
-
-        const QString recordsRoot = m_mainWindow->presetsRootPath() + "/records";
-
-        if (!isUsableStartDir(startPath)) {
-            QTreeWidgetItem *selItem = m_mainWindow->getCurrentLibraryItem();
-            if (selItem) {
-                if (selItem->data(0, Qt::UserRole + 10).isValid()) {
-                    startPath = selItem->data(0, Qt::UserRole + 10).toString(); // È una cartella
-                } else {
-                    startPath = QFileInfo(selItem->toolTip(0)).absolutePath(); // È un file
-                }
-            }
-            // Selezionando il NODO di categoria (non una foglia) il path e'
-            // vuoto/non valido (o risorsa ":/" di un item builtin): il fallback
-            // deve puntare a una cartella GARANTITA esistente, altrimenti su iOS
-            // il dialog apre una dir inesistente -> lista vuota + salvataggio
-            // fallito (vedi saveSurface).
-            if (!isUsableStartDir(startPath)) {
-                startPath = lastDir;
-            }
-            if (!isUsableStartDir(startPath)) {
-                startPath = recordsRoot;
-            }
-        }
-
-        // Un record si salva SOLO sotto records/: il tipo e' gia' deciso, non
-        // c'e' nessuna scelta di ramo da offrire. Le due sorgenti qui sopra
-        // possono pero' puntare altrove -- getCurrentLibraryItem() legge la
-        // selezione di QUALUNQUE albero (con una superficie selezionata il
-        // dialogo si apriva in surfaces/) e "lastMotionDir" e' una cartella
-        // ricordata che puo' non esistere piu' o essere stata spostata. In
-        // entrambi i casi il salvataggio sarebbe poi finito nel blocco
-        // "Save Blocked" piu' sotto, che rifiuta i percorsi fuori ramo.
-        {
-            const QString canon = QDir(startPath).absolutePath();
-            if (!canon.startsWith(QDir(recordsRoot).absolutePath(), Qt::CaseInsensitive))
-                startPath = recordsRoot;
-        }
-
-        // Garantiamo che la cartella di partenza esista davvero (prima scrittura
-        // su iOS: il container puo' non avere ancora /records).
-        {
-            QString startDir = startPath.endsWith(".json", Qt::CaseInsensitive)
-                                   ? QFileInfo(startPath).absolutePath()
-                                   : startPath;
-            if (!startDir.isEmpty() && !QDir(startDir).exists())
-                QDir().mkpath(startDir);
-        }
-
-        if (!startPath.endsWith(".json", Qt::CaseInsensitive)) {
-            if (!startPath.endsWith("/")) startPath += "/";
-            startPath += "NewMotion.json";
-        }
-
-#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-        MobileSaveDialog dialog("Save Record", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow, m_mainWindow->presetsRootPath() + "/records");
-        if (dialog.exec() != QDialog::Accepted) {
-            if (wasRotating) m_mainWindow->ui->glWidget->resumeMotion();
-            if (wasPath4D) m_mainWindow->pathTimer->start();
-            if (wasPath3D) m_mainWindow->pathTimer3D->start();
-            if (wasTimeAnimating) {
-                m_mainWindow->ui->glWidget->setSurfaceAnimating(true);
-                m_mainWindow->ui->glWidget->startAnimationTimer();
-            }
-            return;
-        }
-        fileName = dialog.getSelectedPath();
-#else
-        fileName = getSaveFileNameWithSuffix(m_mainWindow, "Save File", startPath, "JSON Files (*.json)", "json");
-#endif
-    }
-
-    if (wasRotating) m_mainWindow->ui->glWidget->resumeMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->start();
-    if (wasPath3D) m_mainWindow->pathTimer3D->start();
-    if (wasTimeAnimating) {
-        m_mainWindow->ui->glWidget->setSurfaceAnimating(true);
-        m_mainWindow->ui->glWidget->startAnimationTimer();
-    }
-
-    if (fileName.isEmpty()) return;
-    if (!fileName.endsWith(".json", Qt::CaseInsensitive)) fileName += ".json";
-
-    // --- BLOCCO VALIDAZIONE RIGIDA ---
-    QString absPath = QFileInfo(fileName).absolutePath() + "/";
-    if (absPath.contains("/surfaces/", Qt::CaseInsensitive) ||
-        absPath.contains("/textures/", Qt::CaseInsensitive) ||
-        absPath.contains("/sounds/", Qt::CaseInsensitive)) {
-        QMessageBox::warning(m_mainWindow, "Save Blocked",
-                             "Operation not allowed.\n\nRecord presets capture the entire scene (including the surface) and must be saved exclusively in the 'Records' folder.");
-        return;
-    }
-
-    // HINT della scena: si chiede DOPO che percorso e nome sono decisi e dopo il
-    // blocco di validazione, cosi' non si compila un messaggio per un
-    // salvataggio che verra' rifiutato o annullato. Cancel qui annulla il
-    // salvataggio: e' l'ultima conferma prima della scrittura.
-    // Il campo dello sfondo solo se il record HA uno sfondo, o un suo messaggio
-    // da poter togliere: altrimenti sarebbe un campo vuoto senza scopo.
-    const bool hasBg = !m_mainWindow->m_bgTextureCode.trimmed().isEmpty()
-                       || !m_mainWindow->m_currentBgTextureHintText.isEmpty();
-    if (!askSceneHint(m_mainWindow, &m_mainWindow->m_currentHintText, "record",
-                      &m_mainWindow->m_currentTextureHintText,
-                      hasBg ? &m_mainWindow->m_currentBgTextureHintText : nullptr))
-        return;
-
-    QString saveFolder = QFileInfo(fileName).absolutePath();
-    settings.setValue("lastMotionDir", saveFolder);
-
     QJsonObject root;
     root["type"] = "motion";
-    root["name"] = QFileInfo(fileName).baseName();
+    root["name"] = name;
 
     // --- Salvataggio Ray Marching ---
     bool isImplicit = (m_mainWindow->ui->tabModeSelector->currentIndex() == 1);
@@ -1353,9 +931,9 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     // prima di salvare) vale l'ULTIMO moto camera avviato in sessione
     // (m_lastCameraMotion): senza fallback si scriveva "none" e il load
     // ricadeva nella sequenza legacy, che fa sempre vincere il path 4D.
-    root["activeMotion"] = wasPath3D ? QStringLiteral("path3D")
-                         : wasPath4D ? QStringLiteral("path4D")
-                         : wasRotating ? QStringLiteral("rotation")
+    root["activeMotion"] = run.path3D ? QStringLiteral("path3D")
+                         : run.path4D ? QStringLiteral("path4D")
+                         : run.rotating ? QStringLiteral("rotation")
                          : !m_mainWindow->m_lastCameraMotion.isEmpty()
                                        ? m_mainWindow->m_lastCameraMotion
                                        : QStringLiteral("none");
@@ -1423,41 +1001,10 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     }
 
     // --- REINIEZIONE DELL'AUDIO E GESTIONE IMMAGINI ---
-    QString audioCode = m_mainWindow->m_soundScriptText.trimmed();
-
-    // Salvataggio SENZA suono: se il record ha un audio associato ma al momento
-    // del Save l'audio e' stoppato (ne' synth ne' player attivi), l'utente puo'
-    // salvare il record senza il blocco audio. Rete di sicurezza: chiediamo
-    // conferma, cosi' un audio messo in pausa solo per lavorare non viene perso
-    // per sbaglio.
-    if (!audioCode.isEmpty() && m_mainWindow->m_audioController
-        && !m_mainWindow->m_audioController->isPlaying()) {
-        QMessageBox box(m_mainWindow);
-        box.setIcon(QMessageBox::Question);
-        box.setWindowTitle("Save Record");
-        box.setText("The sound is stopped.");
-        box.setInformativeText("Do you want to save the record without sound?");
-        QPushButton *withoutBtn = box.addButton("Save without sound", QMessageBox::AcceptRole);
-        QPushButton *withBtn    = box.addButton("Keep the sound", QMessageBox::ActionRole);
-        box.addButton(QMessageBox::Cancel);
-        box.setDefaultButton(withoutBtn);
-
-        // Tasti larghi: "Save without sound" chiede 169px a 15pt contro i 108
-        // imposti dal foglio globale, e veniva tagliata alle due estremita'.
-        // 140 perche' e' l'etichetta piu' lunga dell'app (soglia misurata 135).
-        // Anche su Android: l'app e' sempre in landscape, quindi un box piu'
-        // largo non e' un problema.
-        UiStyleManager::widenMessageBoxButtons(&box, 140);
-
-        box.exec();
-
-        if (box.clickedButton() == withoutBtn) {
-            audioCode.clear();      // omette il blocco audio dalla reiniezione sotto
-        } else if (box.clickedButton() != withBtn) {
-            return;                 // Annulla: animazioni/timer gia' ripristinati sopra
-        }
-        // "Includi il suono": lascia audioCode invariato (comportamento classico)
-    }
+    // Blocco audio omesso solo se chi salva l'ha scelto: vedi il dialogo
+    // "The sound is stopped." in saveMotion, che decide includeSound.
+    QString audioCode = includeSound ? m_mainWindow->m_soundScriptText.trimmed()
+                                     : QString();
 
     if (isImplicit) {
         QString implicitTex = m_mainWindow->ui->lineTexture->toPlainText().trimmed();
@@ -1819,6 +1366,487 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
             }
         }
     }
+
+    return root;
+}
+
+void PresetSerializer::saveSurface(const QString &suggestedPath)
+{
+    bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
+    bool wasPath4D = m_mainWindow->pathTimer->isActive();
+    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
+
+    if (wasAnimating) m_mainWindow->ui->glWidget->pauseMotion();
+    if (wasPath4D) m_mainWindow->pathTimer->stop();
+    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
+
+    // UN SOLO dominio di preferenze. Qui c'era `QSettings settings("Repository")`:
+    // quel costruttore prende l'ORGANIZATION NAME, non un gruppo, quindi scriveva
+    // in un dominio separato -- e "lastFolder" (piu' sotto) finiva la' dentro,
+    // mentre saveSurfaceAs scrive la stessa chiave nel dominio globale. Due chiavi
+    // omonime in due domini: vinceva quella salvata per ultima, e il dialogo Save
+    // ripartiva da una cartella apparentemente casuale.
+    QSettings settings;
+    QString rootPath = settings.value("libraryRootPath").toString();
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    // Mobile: la radice si ricalcola dal sistema a ogni chiamata, non passa da
+    // QSettings, quindi qui un fallback e' corretto e non puo' sbagliare posto.
+    if (rootPath.isEmpty()) {
+#if defined(Q_OS_ANDROID)
+        // Cartella Download pubblica, bypassando la sandbox di Qt
+        rootPath = "/storage/emulated/0/Documents/SurfaceExplorer_Presets";
+#else
+        rootPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/SurfaceExplorer_Presets";
+#endif
+    }
+#else
+    // DESKTOP: radice vuota NON si indovina in silenzio.
+    //
+    // Qui si ricadeva su <Documents>/SurfaceExplorer_Presets: mkpath, open e write
+    // riuscivano, m_sceneDirty veniva azzerato e l'utente riceveva la conferma di
+    // un salvataggio che non avrebbe trovato dove lo cercava. E' il meccanismo che
+    // ha prodotto due librerie in posti diversi (una su Download, una su
+    // Documents) con le modifiche che finivano in quella sbagliata: una radice
+    // scelta QUI, di nascosto, non e' la stessa che il resto dell'app usa.
+    //
+    // La libreria si installa da un punto solo -- setupDefaultFolders -- che
+    // chiede dove. Fuori sandbox, se l'utente non sceglie, usa la cartella
+    // predefinita dichiarandola; SOTTO sandbox rinuncia (nessun fallback e'
+    // utilizzabile la'), quindi al ritorno la radice puo' essere ancora vuota: in
+    // quel caso non si scrive da nessuna parte e si ripristina lo stato del moto,
+    // come per il dialogo annullato piu' sotto.
+    if (rootPath.isEmpty()) {
+        m_mainWindow->setupDefaultFolders();
+        rootPath = QSettings().value("libraryRootPath").toString();
+        if (rootPath.isEmpty()) {
+            if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
+            if (wasPath4D) m_mainWindow->pathTimer->start();
+            if (wasPath3D) m_mainWindow->pathTimer3D->start();
+            return;
+        }
+    }
+#endif
+
+    QString fileName;
+    if (!suggestedPath.isEmpty() && suggestedPath.endsWith(".json", Qt::CaseInsensitive)) {
+        fileName = suggestedPath;
+    } else {
+        QString startPath = suggestedPath;
+
+        if (!isUsableStartDir(startPath)) {
+            QTreeWidgetItem *selItem = m_mainWindow->getCurrentLibraryItem();
+            if (selItem) {
+                if (selItem->data(0, Qt::UserRole + 10).isValid()) {
+                    startPath = selItem->data(0, Qt::UserRole + 10).toString(); // È una cartella
+                } else {
+                    startPath = QFileInfo(selItem->toolTip(0)).absolutePath(); // È un file
+                }
+            }
+            // Se selezioni il NODO di categoria "Surfaces" (non una foglia) il
+            // path ricavato e' vuoto/non valido (o e' una risorsa ":/" di un
+            // item builtin): cadi qui. Il fallback deve puntare a una cartella
+            // GARANTITA esistente, altrimenti su iOS il dialog apre una
+            // directory inesistente -> lista vuota + salvataggio fallito (su
+            // Android non capita perche' rootPath e' un percorso pubblico fisso
+            // sempre presente).
+            if (!isUsableStartDir(startPath)) {
+                startPath = settings.value("lastFolder", rootPath + "/surfaces").toString();
+            }
+            if (!isUsableStartDir(startPath)) {
+                startPath = rootPath + "/surfaces";
+            }
+        }
+
+        // Garantiamo che la cartella di partenza esista davvero (prima
+        // scrittura su iOS: il container puo' non avere ancora /surfaces).
+        {
+            QString startDir = startPath.endsWith(".json", Qt::CaseInsensitive)
+                                   ? QFileInfo(startPath).absolutePath()
+                                   : startPath;
+            if (!startDir.isEmpty() && !QDir(startDir).exists())
+                QDir().mkpath(startDir);
+        }
+
+        if (!startPath.endsWith(".json", Qt::CaseInsensitive)) {
+            if (!startPath.endsWith("/")) startPath += "/";
+            startPath += "NewSurface.json";
+        }
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+        MobileSaveDialog dialog("Save Surface", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow, rootPath + "/surfaces");
+        if (dialog.exec() != QDialog::Accepted) {
+            if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
+            if (wasPath4D) m_mainWindow->pathTimer->start();
+            if (wasPath3D) m_mainWindow->pathTimer3D->start();
+            return;
+        }
+        fileName = dialog.getSelectedPath();
+#else
+        fileName = getSaveFileNameWithSuffix(m_mainWindow, "Save Surface", startPath, "JSON Files (*.json)", "json");
+#endif
+    }
+
+    if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
+    if (wasPath4D) m_mainWindow->pathTimer->start();
+    if (wasPath3D) m_mainWindow->pathTimer3D->start();
+
+    if (fileName.isEmpty()) return;
+    if (!fileName.endsWith(".json", Qt::CaseInsensitive)) fileName += ".json";
+
+    // --- BLOCCO VALIDAZIONE RIGIDA ---
+    QString absPath = QFileInfo(fileName).absolutePath() + "/";
+    if (absPath.contains("/records/", Qt::CaseInsensitive) ||
+        absPath.contains("/textures/", Qt::CaseInsensitive) ||
+        absPath.contains("/sounds/", Qt::CaseInsensitive)) {
+        QMessageBox::warning(m_mainWindow, "Save Blocked",
+                             "Operation not allowed.\n\nStatic surfaces must reside in 'Surfaces'.\nIf you want to save the global scene (which contains this surface), use the 'Save Motion' command.");
+        return;
+    }
+
+    // HINT della scena, come per record e texture (vedi askSceneHint): dopo la
+    // scelta del percorso e dopo il blocco di validazione, prima della scrittura.
+    if (!askSceneHint(m_mainWindow, &m_mainWindow->m_currentHintText, "surface"))
+        return;
+
+    QFileInfo fileInfo(fileName);
+    settings.setValue("lastFolder", fileInfo.absolutePath());
+
+    const QJsonObject root = buildSurfaceJson(QFileInfo(fileName).baseName());
+
+    QDir().mkpath(QFileInfo(fileName).absolutePath()); // 1. Crea la cartella se manca
+    QFile file(fileName);
+
+    if (file.exists()) {
+        file.setPermissions(file.permissions() | QFile::WriteOwner | QFile::WriteUser);
+        file.remove(); // 2. Distrugge il file lucchettato da iOS per poterlo ricreare
+    }
+
+    if (m_mainWindow->m_fileOps) {
+        m_mainWindow->m_fileOps->backupBeforeOverwrite(fileName);
+    }
+
+    if (file.open(QIODevice::WriteOnly)) {
+        QJsonDocument doc(root);
+        file.write(doc.toJson());
+        file.close();
+
+        // Il lavoro e' su disco: non c'e' piu' niente da proteggere. Lo legge
+        // confirmDiscardUnsaved per capire se il "Save" e' andato a buon
+        // fine o se l'utente ha annullato il dialogo (i return anticipati qui
+        // sopra lasciano il flag a true, e il reset viene giustamente sospeso).
+        m_mainWindow->m_sceneDirty = false;
+
+        QTimer::singleShot(100, m_mainWindow, [this, fileName]() {
+            m_mainWindow->refreshAndSelectPreset(m_mainWindow->ui->treeSurfaces, fileName);
+        });
+    } else {
+        QMessageBox::critical(m_mainWindow, "Error", "Could not write to file.");
+    }
+}
+
+void PresetSerializer::saveTexture(const QString &path)
+{
+    QString absPath = QFileInfo(path).absolutePath() + "/";
+    if (absPath.contains("/surfaces/", Qt::CaseInsensitive) ||
+        absPath.contains("/records/", Qt::CaseInsensitive) ||
+        absPath.contains("/sounds/", Qt::CaseInsensitive)) {
+        QMessageBox::warning(m_mainWindow, "Save Blocked",
+                             "Operation not allowed.\n\nTexture presets must be saved exclusively in the 'Textures' folder.");
+        return;
+    }
+
+    // HINT della texture: stesso trattamento del record (vedi askSceneHint), ma
+    // sulla variabile della TEXTURE, che ha una chiave sua. Sono due messaggi
+    // indipendenti proprio perche' possono nominare costanti diverse: la texture
+    // d'origine dice la sua (es. "Slider A"), il record che la riusa puo' averla
+    // spostata su un'altra costante e dire la propria.
+    // Con il bersaglio Background si salva lo SFONDO, e il messaggio e' il suo:
+    // prima si chiedeva (e si scriveva nel preset) quello della texture di
+    // superficie anche salvando lo sfondo.
+    bool isBg = m_mainWindow->ui->radioBackground->isChecked();
+    QString &hintRef  = isBg ? m_mainWindow->m_currentBgTextureHintText
+                             : m_mainWindow->m_currentTextureHintText;
+    float   &hintSecs = isBg ? m_mainWindow->m_currentBgTextureHintSeconds
+                             : m_mainWindow->m_currentTextureHintSeconds;
+    if (!askSceneHint(m_mainWindow, &hintRef, "texture"))
+        return;
+
+    QJsonObject root;
+
+    QString currentCode;
+    bool isImplicit = (m_mainWindow->ui->tabModeSelector->currentIndex() == 1);
+
+    if (isImplicit && !isBg) {
+        // Se siamo in Ray Marching, leggi il codice direttamente dal box dell'interfaccia! +++
+        currentCode = m_mainWindow->ui->lineTexture->toPlainText();
+    } else {
+        // [Logica originale per le superfici parametriche]
+        if (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeTexture) {
+            currentCode = m_mainWindow->ui->txtScriptEditor->toPlainText();
+            if (isBg) m_mainWindow->m_bgTextureCode = currentCode;
+            else m_mainWindow->m_surfaceTextureCode = currentCode;
+        } else {
+            currentCode = isBg ? m_mainWindow->m_bgTextureCode : m_mainWindow->m_surfaceTextureCode;
+        }
+    }
+
+    // Determiniamo il codice BASE (senza tag immagine) in base al modo.
+    if (isImplicit) {
+        // Se siamo in Ray Marching salviamo entrambi i campi
+        currentCode = m_mainWindow->ui->lineTexture->toPlainText();
+        root["displacement"] = m_mainWindow->ui->lineVariations->toPlainText();
+        root["isImplicitMode"] = true; // Flag fondamentale per il caricamento
+    } else {
+        // Logica Parametrica
+        currentCode = isBg ? m_mainWindow->m_bgTextureCode : m_mainWindow->m_surfaceTextureCode;
+        root["isImplicitMode"] = false;
+    }
+
+    // Tag immagine: va prepeso DOPO aver scelto il codice base, altrimenti (bug
+    // storico) i rami isImplicit/parametrico qui sopra ricalcolavano currentCode
+    // da zero e BUTTAVANO VIA il //IMG: -> il path immagine non finiva mai nel
+    // JSON -> al reload appariva l'ultima immagine caricata, non quella salvata.
+    // Prima togliamo eventuali //IMG: gia' presenti nel codice base per evitare
+    // duplicati, poi lo rimettiamo pulito in cima.
+    QRegularExpression imgRe(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption);
+    currentCode.remove(imgRe);
+    if (m_mainWindow->m_isImageMode && !m_mainWindow->m_currentTexturePath.isEmpty()) {
+        currentCode = "//IMG:" + m_mainWindow->m_currentTexturePath + "\n" + currentCode.trimmed();
+    }
+
+    if (currentCode.trimmed().isEmpty()) currentCode = "// Texture Preset";
+    root["code"] = currentCode;
+
+    if (m_mainWindow->ui->glWidget) {
+        QVector2D pan = m_mainWindow->ui->glWidget->getFlatPan();
+        root["pan_x"] = (double)pan.x();
+        root["pan_y"] = (double)pan.y();
+        root["zoom"] = (double)m_mainWindow->ui->glWidget->getFlatZoom();
+        root["rotation"] = (double)m_mainWindow->ui->glWidget->getFlatRotation();
+        root["hasCustomColors"] = true;
+        root["color1"] = m_mainWindow->m_texColor1.name();
+        root["color2"] = m_mainWindow->m_texColor2.name();
+    }
+    root["type"] = "custom_texture";
+    root["name"] = QFileInfo(path).baseName();
+
+    // Suggerimento in sovrimpressione della texture (tipicamente: a cosa serve
+    // la costante A..F/S che questo script usa). Non ha UI di editing, quindi si
+    // riscrive quello della texture caricata: senza, ogni Save su una texture
+    // che ne aveva uno lo perderebbe -- lo stesso difetto gia' corretto per le
+    // superfici (~694). Chiave assente se non c'e' nulla da dire, cosi' le
+    // texture che non lo usano non cambiano di un byte.
+    if (!hintRef.isEmpty()) {
+        root["hintText"] = hintRef;
+        root["hintSeconds"] = (double)hintSecs;
+    }
+
+    if (m_mainWindow->m_fileOps) {
+        m_mainWindow->m_fileOps->backupBeforeOverwrite(path);
+    }
+
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QFile file(path);
+    if (file.exists()) {
+        file.setPermissions(file.permissions() | QFile::WriteOwner | QFile::WriteUser);
+        file.remove();
+    }
+    if (file.open(QIODevice::WriteOnly)) {
+        QJsonDocument doc(root);
+        file.write(doc.toJson());
+        file.close();
+
+        m_mainWindow->m_currentTexturePresetPath = path;
+
+        // Il lavoro e' su disco: lo legge confirmDiscardUnsavedTexture per
+        // sapere se il "Save" e' riuscito.
+        //
+        // SOLO il flag del modulo: un file texture non contiene le equazioni,
+        // quindi azzerare anche m_sceneDirty dichiarerebbe salvato un lavoro
+        // sulla superficie che non e' stato scritto da nessuna parte -- e il
+        // reset successivo lo butterebbe via senza chiedere niente.
+        m_mainWindow->m_textureDirty = false;
+
+        // Refresh visivo + selezione del file appena salvato nella libreria
+        QTimer::singleShot(100, m_mainWindow, [this, path]() {
+            m_mainWindow->refreshAndSelectPreset(m_mainWindow->ui->treeTextures, path);
+        });
+    }
+}
+
+void PresetSerializer::saveMotion(const QString &suggestedPath)
+{
+    bool wasRotating = m_mainWindow->ui->glWidget->isAnimating();
+    bool wasPath4D = m_mainWindow->pathTimer->isActive();
+    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
+    bool wasTimeAnimating = false;
+
+    if (m_mainWindow->m_btnStart && m_mainWindow->m_btnStart->text().toUpper() == "STOP") {
+        wasTimeAnimating = true;
+        m_mainWindow->ui->glWidget->setSurfaceAnimating(false);
+        m_mainWindow->ui->glWidget->stopAnimationTimer();
+    }
+
+    if (wasRotating) m_mainWindow->ui->glWidget->pauseMotion();
+    if (wasPath4D) m_mainWindow->pathTimer->stop();
+    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
+
+    QSettings settings;
+    QString lastDir = settings.value("lastMotionDir", settings.value("lastFolder", QDir::homePath()).toString()).toString();
+
+    QString fileName;
+    if (!suggestedPath.isEmpty() && suggestedPath.endsWith(".json", Qt::CaseInsensitive)) {
+        fileName = suggestedPath;
+    } else {
+        QString startPath = suggestedPath;
+
+        const QString recordsRoot = m_mainWindow->presetsRootPath() + "/records";
+
+        if (!isUsableStartDir(startPath)) {
+            QTreeWidgetItem *selItem = m_mainWindow->getCurrentLibraryItem();
+            if (selItem) {
+                if (selItem->data(0, Qt::UserRole + 10).isValid()) {
+                    startPath = selItem->data(0, Qt::UserRole + 10).toString(); // È una cartella
+                } else {
+                    startPath = QFileInfo(selItem->toolTip(0)).absolutePath(); // È un file
+                }
+            }
+            // Selezionando il NODO di categoria (non una foglia) il path e'
+            // vuoto/non valido (o risorsa ":/" di un item builtin): il fallback
+            // deve puntare a una cartella GARANTITA esistente, altrimenti su iOS
+            // il dialog apre una dir inesistente -> lista vuota + salvataggio
+            // fallito (vedi saveSurface).
+            if (!isUsableStartDir(startPath)) {
+                startPath = lastDir;
+            }
+            if (!isUsableStartDir(startPath)) {
+                startPath = recordsRoot;
+            }
+        }
+
+        // Un record si salva SOLO sotto records/: il tipo e' gia' deciso, non
+        // c'e' nessuna scelta di ramo da offrire. Le due sorgenti qui sopra
+        // possono pero' puntare altrove -- getCurrentLibraryItem() legge la
+        // selezione di QUALUNQUE albero (con una superficie selezionata il
+        // dialogo si apriva in surfaces/) e "lastMotionDir" e' una cartella
+        // ricordata che puo' non esistere piu' o essere stata spostata. In
+        // entrambi i casi il salvataggio sarebbe poi finito nel blocco
+        // "Save Blocked" piu' sotto, che rifiuta i percorsi fuori ramo.
+        {
+            const QString canon = QDir(startPath).absolutePath();
+            if (!canon.startsWith(QDir(recordsRoot).absolutePath(), Qt::CaseInsensitive))
+                startPath = recordsRoot;
+        }
+
+        // Garantiamo che la cartella di partenza esista davvero (prima scrittura
+        // su iOS: il container puo' non avere ancora /records).
+        {
+            QString startDir = startPath.endsWith(".json", Qt::CaseInsensitive)
+                                   ? QFileInfo(startPath).absolutePath()
+                                   : startPath;
+            if (!startDir.isEmpty() && !QDir(startDir).exists())
+                QDir().mkpath(startDir);
+        }
+
+        if (!startPath.endsWith(".json", Qt::CaseInsensitive)) {
+            if (!startPath.endsWith("/")) startPath += "/";
+            startPath += "NewMotion.json";
+        }
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+        MobileSaveDialog dialog("Save Record", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow, m_mainWindow->presetsRootPath() + "/records");
+        if (dialog.exec() != QDialog::Accepted) {
+            if (wasRotating) m_mainWindow->ui->glWidget->resumeMotion();
+            if (wasPath4D) m_mainWindow->pathTimer->start();
+            if (wasPath3D) m_mainWindow->pathTimer3D->start();
+            if (wasTimeAnimating) {
+                m_mainWindow->ui->glWidget->setSurfaceAnimating(true);
+                m_mainWindow->ui->glWidget->startAnimationTimer();
+            }
+            return;
+        }
+        fileName = dialog.getSelectedPath();
+#else
+        fileName = getSaveFileNameWithSuffix(m_mainWindow, "Save File", startPath, "JSON Files (*.json)", "json");
+#endif
+    }
+
+    if (wasRotating) m_mainWindow->ui->glWidget->resumeMotion();
+    if (wasPath4D) m_mainWindow->pathTimer->start();
+    if (wasPath3D) m_mainWindow->pathTimer3D->start();
+    if (wasTimeAnimating) {
+        m_mainWindow->ui->glWidget->setSurfaceAnimating(true);
+        m_mainWindow->ui->glWidget->startAnimationTimer();
+    }
+
+    if (fileName.isEmpty()) return;
+    if (!fileName.endsWith(".json", Qt::CaseInsensitive)) fileName += ".json";
+
+    // --- BLOCCO VALIDAZIONE RIGIDA ---
+    QString absPath = QFileInfo(fileName).absolutePath() + "/";
+    if (absPath.contains("/surfaces/", Qt::CaseInsensitive) ||
+        absPath.contains("/textures/", Qt::CaseInsensitive) ||
+        absPath.contains("/sounds/", Qt::CaseInsensitive)) {
+        QMessageBox::warning(m_mainWindow, "Save Blocked",
+                             "Operation not allowed.\n\nRecord presets capture the entire scene (including the surface) and must be saved exclusively in the 'Records' folder.");
+        return;
+    }
+
+    // HINT della scena: si chiede DOPO che percorso e nome sono decisi e dopo il
+    // blocco di validazione, cosi' non si compila un messaggio per un
+    // salvataggio che verra' rifiutato o annullato. Cancel qui annulla il
+    // salvataggio: e' l'ultima conferma prima della scrittura.
+    // Il campo dello sfondo solo se il record HA uno sfondo, o un suo messaggio
+    // da poter togliere: altrimenti sarebbe un campo vuoto senza scopo.
+    const bool hasBg = !m_mainWindow->m_bgTextureCode.trimmed().isEmpty()
+                       || !m_mainWindow->m_currentBgTextureHintText.isEmpty();
+    if (!askSceneHint(m_mainWindow, &m_mainWindow->m_currentHintText, "record",
+                      &m_mainWindow->m_currentTextureHintText,
+                      hasBg ? &m_mainWindow->m_currentBgTextureHintText : nullptr))
+        return;
+
+    QString saveFolder = QFileInfo(fileName).absolutePath();
+    settings.setValue("lastMotionDir", saveFolder);
+
+    // Salvataggio SENZA suono: se il record ha un audio associato ma al momento
+    // del Save l'audio e' stoppato (ne' synth ne' player attivi), l'utente puo'
+    // salvare il record senza il blocco audio. Rete di sicurezza: chiediamo
+    // conferma, cosi' un audio messo in pausa solo per lavorare non viene perso
+    // per sbaglio.
+    bool includeSound = true;
+    if (!m_mainWindow->m_soundScriptText.trimmed().isEmpty() && m_mainWindow->m_audioController
+        && !m_mainWindow->m_audioController->isPlaying()) {
+        QMessageBox box(m_mainWindow);
+        box.setIcon(QMessageBox::Question);
+        box.setWindowTitle("Save Record");
+        box.setText("The sound is stopped.");
+        box.setInformativeText("Do you want to save the record without sound?");
+        QPushButton *withoutBtn = box.addButton("Save without sound", QMessageBox::AcceptRole);
+        QPushButton *withBtn    = box.addButton("Keep the sound", QMessageBox::ActionRole);
+        box.addButton(QMessageBox::Cancel);
+        box.setDefaultButton(withoutBtn);
+
+        // Tasti larghi: "Save without sound" chiede 169px a 15pt contro i 108
+        // imposti dal foglio globale, e veniva tagliata alle due estremita'.
+        // 140 perche' e' l'etichetta piu' lunga dell'app (soglia misurata 135).
+        // Anche su Android: l'app e' sempre in landscape, quindi un box piu'
+        // largo non e' un problema.
+        UiStyleManager::widenMessageBoxButtons(&box, 140);
+
+        box.exec();
+
+        if (box.clickedButton() == withoutBtn) {
+            includeSound = false;   // omette il blocco audio dalla reiniezione
+        } else if (box.clickedButton() != withBtn) {
+            return;                 // Annulla: animazioni/timer gia' ripristinati sopra
+        }
+        // "Includi il suono": includeSound resta true (comportamento classico)
+    }
+
+    const QJsonObject root = buildMotionJson(QFileInfo(fileName).baseName(),
+                                             MotionRunState{wasRotating, wasPath4D, wasPath3D},
+                                             includeSound);
 
     if (m_mainWindow->m_fileOps) {
         m_mainWindow->m_fileOps->backupBeforeOverwrite(fileName);

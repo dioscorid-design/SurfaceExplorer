@@ -119,6 +119,8 @@ qt_add_executable(SurfaceExplorer
     librarymenucontroller.cpp
     presetserializer.h
     presetserializer.cpp
+    presetroundtrip.h
+    presetroundtrip.cpp
     libraryfileoperations.h
     libraryfileoperations.cpp
     librarydragdrophandler.h

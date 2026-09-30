@@ -3,6 +3,7 @@
 #include <QIcon>
 #include <QSettings>
 #include "mainwindow.h"
+#include "presetroundtrip.h"
 
 int main(int argc, char *argv[])
 {
@@ -118,6 +119,10 @@ int main(int argc, char *argv[])
 
     // 3. Mostriamo la finestra normalmente
     w.showNormal();
+
+    // Test di andata e ritorno dei preset (--roundtrip-test): vedi presetroundtrip.h.
+    if (PresetRoundTrip::requested(app.arguments()))
+        PresetRoundTrip::start(&w, app.arguments());
 #endif
 
     return app.exec();
