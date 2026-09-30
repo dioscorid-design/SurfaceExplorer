@@ -466,7 +466,7 @@ void ScenarioTest::checkTextureCode(const QString &step, const QString &expected
             bad << QStringLiteral("applicata %1, editor %2").arg(briefCode(applied), briefCode(intent));
         if (m_mw->m_surfaceTextureState) {
             const QString want = !applied.isEmpty() ? applied
-                               : m_mw->m_isImageMode ? QString()
+                               : m_mw->surfaceHasImage() ? QString()
                                                      : m_mw->defaultMeshTextureCode();
             if (engine != want)
                 bad << QStringLiteral("motore %1, applicata %2").arg(briefCode(engine), briefCode(want));
@@ -917,6 +917,24 @@ void ScenarioTest::run()
     }
     if (loadRecord(QString::fromLatin1(kParametricRecord)))
         checkSurfaceImage(QStringLiteral("poi un record senza immagine"), QStringLiteral(""));
+    if (loadRecord(kImageScript)) {
+        // Il riclic sulla stessa procedurale scarta l'immagine della superficie:
+        // riguarda la SUPERFICIE, non lo sfondo.
+        const QString kPlasma = QStringLiteral("textures/Procedurals/Plasma.json");
+        click(ui->radioBackground);
+        if (selectTexture(kPlasma) && selectTexture(kPlasma))
+            checkSurfaceImage(QStringLiteral("sfondo: stessa procedurale ricliccata"), presetImage(kImageScript));
+        click(ui->radioSurface);
+        checkSurfaceImage(QStringLiteral("ritorno a Surface"), presetImage(kImageScript));
+        m_mw->onNewSceneClicked();  wait(600);
+        checkSurfaceImage(QStringLiteral("tasto NEW"), QStringLiteral(""));
+    }
+    if (loadRecord(kImageScript)) {
+        if (selectTexture(kMandelbrot))
+            checkSurfaceImage(QStringLiteral("Mandelbrot sopra l'immagine del record"), presetImage(kImageScript));
+        if (selectTexture(kMandelbrot))
+            checkSurfaceImage(QStringLiteral("Mandelbrot ricliccato: l'immagine si scarta"), QStringLiteral(""));
+    }
 
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Immagine della texture di superficie: Ray Marching (%1) ==").arg(kRmImage));

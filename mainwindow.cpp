@@ -915,9 +915,7 @@ MainWindow::MainWindow(QWidget *parent)
     setAttribute(Qt::WA_AcceptTouchEvents);
 
     m_isCustomMode = false;
-    m_isImageMode = false;
     m_blockTextureGen = false;
-    m_currentTexturePath = "";
     m_currentTexturePresetPath = "";
     m_surfaceTextureState = false;
 
@@ -3232,15 +3230,11 @@ MainWindow::MainWindow(QWidget *parent)
                             // campo non la nomina piu', e restava in GPU.
                             ui->glWidget->clearTexture();
                         }
-                        m_isImageMode = false;
-                        m_currentTexturePath.clear();
                     } else {
                         // Svuota memoria e variabili parametriche
                         m_surfaceTextureCode.clear();
                         m_surfaceTextureScriptText.clear();
                         m_isCustomMode = false;
-                        m_isImageMode = false;
-                        m_currentTexturePath.clear();
 
                         // Se l'utente sta visualizzando il dock script in modalità texture, svuota l'editor
                         if (m_currentScriptMode == ScriptModeTexture) {
@@ -3339,9 +3333,8 @@ MainWindow::MainWindow(QWidget *parent)
                         }
                         if (ui->glWidget) ui->glWidget->setTextureCode(defaultRM);
 
-                        // Texture procedurale, non immagine.
-                        m_isImageMode = false;
-                        m_currentTexturePath.clear();
+                        // Texture procedurale, non immagine: l'immagine se n'e'
+                        // gia' andata dalla GPU allo spegnimento (clearTextureMemory).
 
                         // Texture colorata appena attivata: il pallino dei Color va su
                         // Color 1 (resetColorTargetToFirst), la tripla resta dov'è
@@ -3354,7 +3347,8 @@ MainWindow::MainWindow(QWidget *parent)
                 // --- LOGICA PARAMETRICA (Tab 0) ---
                 else {
                     if (m_isCustomMode) m_isCustomMode = false;
-                    m_isImageMode = false;
+                    // Niente immagine: generateTexture() qui sotto mette la
+                    // scacchiera nel sampler al suo posto.
 
                     // Stacco dello SHADER PROCEDURALE residuo. A differenza dello sfondo
                     // (vedi setBackgroundTexture("background.png") al suo spegnimento), la
@@ -3729,7 +3723,7 @@ MainWindow::MainWindow(QWidget *parent)
                 const QColor c2 = slot2 ? newColor : surfaceTexColor(2);
                 if (!ui->glWidget->setActiveMeshTexColors(c1, c2))
                     ui->glWidget->setGlobalTextureColors(c1, c2);
-                if (!m_isCustomMode && !m_isImageMode) scheduleTextureGeneration();
+                if (!m_isCustomMode && !surfaceHasImage()) scheduleTextureGeneration();
             } else {
                 m_currentSurfaceColor = newColor;
                 ui->glWidget->setColor(r/255.0f, g/255.0f, b/255.0f);
@@ -5330,10 +5324,12 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // ==========================================================
     m_surfaceTextureState = false;
     m_isCustomMode = false;
-    m_isImageMode = false;
     m_blockTextureGen = false;
-    m_currentTexturePath.clear();
     m_surfaceTextureCode.clear();
+    // Anche l'IMMAGINE, dalla GPU: prima si azzeravano solo i flag che la
+    // descrivevano, e dopo un NEW l'immagine restava nel sampler (trovato dal
+    // test degli scenari). La texture e' spenta: il motore la segue subito sotto.
+    if (ui->glWidget) ui->glWidget->clearTexture();
 
     // La vista segue (col Background in editing il checkbox mostra lo sfondo).
     refreshSurfaceTextureCheckbox();
@@ -8787,9 +8783,19 @@ void MainWindow::handleTextureSelection(int index)
     bool isBg = ui->radioBackground->isChecked();
 
     // Se l'utente clicca di nuovo lo stesso script procedurale, scarta l'immagine!
-    if (index == lastTextureIndex && isBg == lastWasBg && !data.isImage) {
-        m_isImageMode = false;
-        m_currentTexturePath.clear();
+    // Quella della SUPERFICIE, e solo in ambito All: prima valeva anche col
+    // bersaglio Background, dove toglieva dal Save l'immagine della superficie
+    // lasciandola a schermo (trovato dal test degli scenari). Con una fascia
+    // selezionata la texture va alla fascia, che immagini proprie non ne ha.
+    const bool meshTarget = ui->glWidget && ui->glWidget->activeMeshPart() >= 0;
+    if (index == lastTextureIndex && isBg == lastWasBg && !data.isImage
+        && !isBg && !meshTarget) {
+        if (ui->glWidget) {
+            ui->glWidget->clearTexture();
+            // clearTexture spegne anche la texture nel motore: la si riallinea
+            // all'intenzione, che il riclic non cambia.
+            applySurfaceTextureToEngine();
+        }
 
         // Rimuove il tag //IMG: dall'editor testuale
         QString currentText = ui->txtScriptEditor->toPlainText();
@@ -8830,7 +8836,8 @@ void MainWindow::handleTextureSelection(int index)
             QString bgImgSrc = data.imagePath.isEmpty() ? data.filePath : data.imagePath;
             ui->glWidget->setBackgroundTexture(bgImgSrc);
             m_bgTextureCode = "//IMG:" + bgImgSrc;
-            // Gemello di m_currentTexturePath: e' l'UNICO stato che sopravvive a un
+            // Gemello del percorso dell'immagine di superficie (che sta nel
+            // motore, surfaceImagePath): e' l'UNICO stato che sopravvive a un
             // Run/commit dello script. Il tag dentro m_bgTextureCode viene riscritto
             // da piu' punti (onRunScriptClicked, il commit del suono, ecc.) e li' si
             // perdeva; il salvataggio lo ripesca da qui.
@@ -9278,7 +9285,6 @@ void MainWindow::handleTextureSelection(int index)
                     box.exec();
                 }, Qt::QueuedConnection);
             }
-            m_currentTexturePath = imgSrc;
             if (ui->glWidget) {
                 ui->glWidget->loadCustomShader("");
                 ui->glWidget->loadTextureFromFile(imgSrc);
@@ -9287,7 +9293,6 @@ void MainWindow::handleTextureSelection(int index)
                 ui->glWidget->rebuildShader();
 
                 m_isCustomMode = false;
-                m_isImageMode = true;
                 // Impostato prima dell'aggiornamento UI: updateTextureUIState
                 // legge questo codice per decidere se accendere i picker Colore
                 // (un'immagine "//IMG:" non usa u_col1/u_col2 -> picker spenti).
@@ -9302,9 +9307,8 @@ void MainWindow::handleTextureSelection(int index)
                 // Lo slot prende il TAG, come l'editor qui sotto: e' lo script
                 // di questa texture (il Run senza tag toglierebbe l'immagine).
                 // Svuotato, col dock Script su un altro modulo l'editor tornava
-                // vuoto sulla texture, e il Save dipendeva dalle copie di riserva
-                // (m_isImageMode / m_currentTexturePath) per non perdere
-                // l'immagine. Trovato dal test degli scenari.
+                // vuoto sulla texture, e il Save dipendeva da copie di riserva
+                // per non perdere l'immagine. Trovato dal test degli scenari.
                 m_surfaceTextureScriptText = m_surfaceTextureCode;
 
                 // Il checkbox mostra l'intenzione (gia' accesa qui sopra, PRIMA
@@ -9344,11 +9348,9 @@ void MainWindow::handleTextureSelection(int index)
         } else if (!data.scriptCode.isEmpty()) {
             QString newCode = data.scriptCode;
 
-            // Preserviamo l'immagine se già caricata
-            if (m_isImageMode && !m_currentTexturePath.isEmpty()) {
-                newCode = "//IMG:" + m_currentTexturePath + "\n" + newCode;
-            } else {
-                m_isImageMode = false;
+            // Preserviamo l'immagine se già caricata (quella nel motore)
+            if (surfaceHasImage()) {
+                newCode = "//IMG:" + surfaceImagePath() + "\n" + newCode;
             }
 
             // AMBITO "MESH": la texture va sulla FASCIA selezionata, non sulla
@@ -9497,8 +9499,6 @@ void MainWindow::handleTextureSelection(int index)
         // --- LOGICA RAY MARCHING (IMPLICIT) ---
         // 1. Caricamento fisico dell'immagine nella GPU
         if (data.isImage) {
-            m_currentTexturePath = imgSrc;
-            m_isImageMode = true;
             m_isCustomMode = false;
             if (ui->glWidget) {
                 ui->glWidget->loadTextureFromFile(imgSrc);
@@ -9506,18 +9506,16 @@ void MainWindow::handleTextureSelection(int index)
         } else {
             // Texture procedurale RM (non immagine): è codice custom. Va segnato
             // PRIMA di updateTextureUIState, altrimenti la scorciatoia di
-            // activeTextureUsesColors() (!m_isCustomMode && !m_isImageMode -> true)
+            // activeTextureUsesColors() (!m_isCustomMode && !surfaceHasImage() -> true)
             // leggeva i flag stantii della texture/superficie precedente e
             // accendeva i picker Colore a torto alla PRIMA texture senza
             // u_col1/u_col2 (si correggeva solo al secondo caricamento).
-            m_isImageMode  = false;
             m_isCustomMode = true;
             // In Ray Marching l'immagine esiste solo insieme al suo triplanar,
             // che la procedurale sostituisce (il campo non avra' il tag
             // //IMG:): via anche dalla GPU. Restava caricata, e uno script
             // che campiona `tex` avrebbe mostrato un'immagine che il Save non
             // scrive. Trovato dal test degli scenari.
-            m_currentTexturePath.clear();
             if (ui->glWidget) ui->glWidget->clearTexture();
         }
 
@@ -10444,16 +10442,12 @@ void MainWindow::onStartClicked()
         const QString imgPath = extractAndResolveImagePath(texCode);
         if (!imgPath.isEmpty()) {
             if (!imgPath.startsWith("NOT_FOUND|")) {
-                m_isImageMode = true;
-                m_currentTexturePath = imgPath;
                 ui->glWidget->loadTextureFromFile(imgPath);
             }
-        } else if (m_isImageMode || !ui->glWidget->surfaceImagePath().isEmpty()) {
-            // Il campo non ha il tag: nessuna immagine. Si guarda anche la GPU,
-            // non solo il flag: un'immagine rimasta caricata col flag gia'
-            // abbassato non se ne andava piu'.
-            m_isImageMode = false;
-            m_currentTexturePath.clear();
+        } else if (surfaceHasImage()) {
+            // Il campo non ha il tag: nessuna immagine. Prima si guardava un
+            // flag, e un'immagine rimasta caricata col flag gia' abbassato non
+            // se ne andava piu'.
             ui->glWidget->clearTexture(); // Rimuove l'immagine dalla GPU
         }
 
@@ -13312,6 +13306,23 @@ void MainWindow::onApplyTextureScriptClicked()
 
         m_surfaceTextureCode = code;
 
+        // 1. GESTIONE MEMORIA IMMAGINE: il tag dello script dice quale, o
+        // nessuna. PRIMA di updateTextureUIState: activeTextureUsesColors() ha
+        // una scorciatoia "scacchiera default -> picker accesi" che guarda se il
+        // motore ha un'immagine (surfaceHasImage). Con lo stato della texture
+        // PRECEDENTE, alla PRIMA texture procedurale senza u_col1/u_col2 i
+        // picker restavano accesi a torto (un giro di ritardo). E prima
+        // dell'accensione qui sotto: clearTexture spegne la texture nel motore,
+        // e applySurfaceTextureToEngine la riaccende.
+        if (!imgPath.isEmpty()) {
+            if (ui->glWidget) {
+                ui->glWidget->loadCustomShader("");
+                ui->glWidget->loadTextureFromFile(imgPath);
+            }
+        } else if (ui->glWidget) {
+            ui->glWidget->clearTexture();
+        }
+
         // Applicare la texture di superficie la ACCENDE: intenzione accesa,
         // motore e checkbox la seguono. Prima l'intenzione si scriveva solo se il
         // checkbox era spento, fidandosi che le due copie fossero allineate.
@@ -13319,15 +13330,7 @@ void MainWindow::onApplyTextureScriptClicked()
         applySurfaceTextureToEngine();
         refreshSurfaceTextureCheckbox();
 
-        // I flag di modalità vanno impostati PRIMA di updateTextureUIState.
-        // activeTextureUsesColors() ha una scorciatoia "scacchiera default ->
-        // picker accesi" che scatta quando !m_isCustomMode && !m_isImageMode.
-        // Se questi flag erano ancora quelli della texture PRECEDENTE (sono
-        // impostati piu' in basso), alla PRIMA texture procedurale senza
-        // u_col1/u_col2 la scorciatoia scattava e i picker restavano accesi a
-        // torto; si correggevano solo al secondo caricamento (un giro di
-        // ritardo). Allineiamoli qui in base allo script appena caricato.
-        m_isImageMode  = !imgPath.isEmpty();
+        // Stesso motivo per il flag del codice custom.
         m_isCustomMode = hasCustomLogic;
 
         // Rinfresca lo stato UI ad OGNI applicazione (anche se la texture era già
@@ -13335,20 +13338,6 @@ void MainWindow::onApplyTextureScriptClicked()
         // del nuovo script. m_surfaceTextureCode e i flag di modalità sono già aggiornati.
         // resetColorTargetToFirst: caricando una nuova texture il focus torna a Colore 1.
         updateTextureUIState(true, true);
-
-        // 1. GESTIONE MEMORIA IMMAGINE
-        if (!imgPath.isEmpty()) {
-            m_currentTexturePath = imgPath;
-            if (ui->glWidget) {
-                ui->glWidget->loadCustomShader("");
-                ui->glWidget->loadTextureFromFile(imgPath);
-            }
-        } else {
-            m_currentTexturePath.clear();
-            if (ui->glWidget) {
-                ui->glWidget->clearTexture();
-            }
-        }
 
         // 2. GESTIONE COMPILAZIONE SHADER
         if (hasCustomLogic) {
@@ -14086,14 +14075,13 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // AZZERAMENTO TOTALE STATO TEXTURE, TESTI E COLORI
     // ==========================================================
     m_isCustomMode = false;
-    m_isImageMode = false;
     m_blockTextureGen = false;
     m_surfaceTextureState = false;
 
-    // Svuota tutti i testi dei vecchi script in memoria
+    // Svuota tutti i testi dei vecchi script in memoria (l'immagine se ne va
+    // dalla GPU piu' sotto, con clearTexture).
     m_surfaceTextureCode.clear();
     m_surfaceTextureScriptText.clear();
-    m_currentTexturePath.clear();
 
     ui->lineVariations->blockSignals(true);
     ui->lineVariations->clear();
@@ -15158,22 +15146,16 @@ void MainWindow::applyMotionExample(LibraryItem data)
         // tappabuchi, che a schermo sembra la texture di default.
         if (texCode.isEmpty() && !imgPath.isEmpty() && !rmTexCodeForImage.isEmpty()) {
             ui->glWidget->loadTextureFromFile(imgPath);
-            m_isImageMode = true;
-            m_currentTexturePath = imgPath;
             ui->glWidget->rebuildShader();   // il sampler e' cambiato
         }
 
         if (!texCode.isEmpty()) {
             bool hasCustomLogic = texCode.contains("return") || texCode.contains("vec3") || texCode.contains("vec4") || texCode.contains("mainImage");
 
-            // 1. Carica l'immagine se presente
+            // 1. Carica l'immagine se presente (altrimenti la GPU e' gia' vuota:
+            // clearTexture in testa a questo blocco)
             if (!imgPath.isEmpty()) {
                 ui->glWidget->loadTextureFromFile(imgPath);
-                m_isImageMode = true;
-                m_currentTexturePath = imgPath;
-            } else {
-                m_isImageMode = false;
-                m_currentTexturePath.clear();
             }
 
             // 2. Carica lo script indipendentemente dall'immagine
@@ -15205,8 +15187,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
         }
         else {
             m_isCustomMode = false;
-            m_isImageMode = false;
-            generateTexture();
+            // La scacchiera nel sampler solo se non c'e' l'immagine del ramo Ray
+            // Marching appena caricata qui sopra: la copriva, e la rimetteva poi
+            // il Run in coda al load.
+            if (!surfaceHasImage()) generateTexture();
             applyDefaultCheckerShader();
             ui->glWidget->rebuildShader();
         }
@@ -15214,8 +15198,6 @@ void MainWindow::applyMotionExample(LibraryItem data)
         ui->glWidget->setFlatViewTarget(currentTarget);
     } else {
         m_isCustomMode = false;
-        m_isImageMode = false;
-        m_currentTexturePath.clear();
         m_surfaceTextureCode.clear();
 
         // Preset SENZA texture: la trasformazione 2D va riportata a neutra come
@@ -19999,6 +19981,11 @@ QString MainWindow::backgroundTextureScript() const
     return editorShows ? ui->txtScriptEditor->toPlainText() : m_bgTextureScriptText;
 }
 
+QString MainWindow::surfaceImagePath() const
+{
+    return ui->glWidget ? ui->glWidget->surfaceImagePath() : QString();
+}
+
 QString MainWindow::wrapSoundCode(const QString &sound)
 {
     const QString s = sound.trimmed();
@@ -20020,7 +20007,7 @@ bool MainWindow::activeTextureUsesColorToken(const QString &token) const
     }
 
     // In Ray Marching la texture vive SEMPRE nel campo dedicato (lineTexture) e i
-    // flag m_isCustomMode/m_isImageMode sono un concetto del solo modo parametrico:
+    // flag m_isCustomMode e l'immagine sono un concetto del solo modo parametrico:
     // al load di un record RM restano entrambi false (il texCode parametrico viene
     // svuotato, la texture va in lineTexture), quindi la scorciatoia "scacchiera"
     // più sotto accendeva i picker a torto su texture RM senza u_col1/u_col2. In RM
@@ -20047,7 +20034,7 @@ bool MainWindow::activeTextureUsesColorToken(const QString &token) const
     // Parametrico: la scacchiera procedurale di default (applyDefaultCheckerShader)
     // non è uno script utente ma usa comunque ENTRAMBI u_col1/u_col2 -> entrambi
     // i picker servono, quindi true per qualunque token.
-    if (!m_isCustomMode && !m_isImageMode) {
+    if (!m_isCustomMode && !surfaceHasImage()) {
         return true;
     }
 
@@ -20065,15 +20052,14 @@ bool MainWindow::activeTextureUsesColorToken(const QString &token) const
 bool MainWindow::samplesImageWithoutOne(const QString &code) const
 {
     if (!code.contains("iChannel")) return false;
-    // m_isImageMode e' il modo "immagine caricata" del ramo parametrico; il path
-    // e' la verifica che ci sia davvero un file dietro.
-    return !(m_isImageMode && !m_currentTexturePath.isEmpty());
+    // L'immagine caricata e' quella nel motore.
+    return !surfaceHasImage();
 }
 
 bool MainWindow::hasSavableTexture() const
 {
     // Un'immagine caricata è salvabile anche con i box di codice vuoti.
-    if (m_isImageMode && !m_currentTexturePath.isEmpty())
+    if (surfaceHasImage())
         return true;
 
     const bool isBg = ui->radioBackground->isChecked();

@@ -809,8 +809,9 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
         code.remove(QRegularExpression(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption));
         code = code.trimmed();
         // Se c'e' un'immagine, il tag //IMG: sta sempre alla riga 1.
-        if (d.textureEnabled && mw->m_isImageMode && !mw->m_currentTexturePath.isEmpty()) {
-            QString withImg = "//IMG:" + mw->m_currentTexturePath + "\n";
+        // L'immagine e' quella nel motore (MainWindow::surfaceImagePath).
+        if (d.textureEnabled && mw->surfaceHasImage()) {
+            QString withImg = "//IMG:" + mw->surfaceImagePath() + "\n";
             if (!audioCode.isEmpty()) withImg += audioCode + "\n\n";
             code = withImg + code;
         } else if (!audioCode.isEmpty()) {
@@ -1126,8 +1127,7 @@ void PresetSerializer::saveTexture(const QString &path)
     // L'immagine del bersaglio: lo sfondo ha il suo percorso (prima si metteva
     // quella della superficie anche salvando lo sfondo).
     const QString imagePath = isBg ? m_mainWindow->m_currentBgTexturePath
-                            : m_mainWindow->m_isImageMode ? m_mainWindow->m_currentTexturePath
-                                                          : QString();
+                            : m_mainWindow->surfaceImagePath();
     if (!imagePath.isEmpty()) {
         currentCode = "//IMG:" + imagePath + "\n" + currentCode.trimmed();
     }
@@ -1473,8 +1473,8 @@ void PresetSerializer::saveScript()
     QString title = isSurface ? "Save Surface Script" : (isSound ? "Save Sound Script" : "Save Texture Script");
     // Nome di default: per le texture il nome di quella caricata, altrimenti vuoto (nuovo).
     QString defaultName;
-    if (!isSurface && !isSound && !m_mainWindow->m_currentTexturePath.isEmpty())
-        defaultName = QFileInfo(m_mainWindow->m_currentTexturePath).completeBaseName();
+    if (!isSurface && !isSound && m_mainWindow->surfaceHasImage())
+        defaultName = QFileInfo(m_mainWindow->surfaceImagePath()).completeBaseName();
     // navFloor = radice del tipo corrente: l'Up e' disponibile quando currentMem e'
     // una sottocartella e si ferma alla radice (surfaces/sounds/textures). Su mobile
     // presetsRootPath() e' il container fisso del sistema = radice reale sempre

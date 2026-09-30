@@ -556,8 +556,8 @@ private:
     // sessione. Spiega un LIMITE dell'architettura (l'immagine e' una risorsa
     // GPU unica), non un errore: e' un'informazione che non cambia, quindi va
     // detta una volta. Legarlo invece allo stato -- mostrarlo solo quando
-    // l'immagine cambia davvero -- si era rivelato fragile: m_currentTexturePath
-    // ha una ventina di punti di scrittura e azzeramento sparsi.
+    // l'immagine cambia davvero -- si era rivelato fragile: il percorso aveva
+    // una ventina di punti di scrittura e azzeramento sparsi.
     bool m_perMeshImageWarningShown = false;
     // True mentre una guardia trasparenza (forceOpaqueForHeavyRM) sta mostrando
     // il suo popup: fa scartare un performanceWarning gia' in coda (emesso sui
@@ -670,7 +670,6 @@ private:
     ScriptMode m_currentScriptMode = ScriptModeSurface;
 
     bool m_isCustomMode = false;
-    bool m_isImageMode = false;
     bool m_surfaceTextureState = false;
     bool m_blockTextureGen = false;
     // Alzato durante un cambio tab AUTOMATICO, cioe' deciso dal preset che si
@@ -714,7 +713,6 @@ private:
     bool m_sameTabRestart = false;
 
     QString lastTextureFolder;
-    QString m_currentTexturePath;
     // NOME della texture di libreria attualmente in uso, salvato nel record
     // come texture["libName"] e riletto per ritrovarla nell'albero.
     // Serve perche' il focus in libreria si decide per UGUAGLIANZA DEL CODICE
@@ -749,8 +747,8 @@ private:
     // davvero a schermo. Vuoto = nessun record caricato (scena costruita a mano,
     // superficie sola, o dopo un NEW).
     QString m_currentRecordPath;
-    // Percorso dell'immagine di SFONDO attiva. Gemello di m_currentTexturePath
-    // (che vale per la superficie): senza, il ramo background non aveva modo di
+    // Percorso dell'immagine di SFONDO attiva (per la superficie c'e'
+    // surfaceImagePath(), letto dal motore): senza, il ramo background non aveva modo di
     // sapere QUALE immagine campiona iChannel0 e salvava gli script della
     // famiglia "Animated Images" senza il tag //IMG:, cosi' al reload lo sfondo
     // usciva con l'immagine rimasta in memoria dal record precedente.
@@ -1344,6 +1342,15 @@ private:
     // applicato mentre il motore disegnava ancora il vecchio.
     QString surfaceTextureScript() const;
     QString backgroundTextureScript() const;
+    // IMMAGINE della texture di superficie: il file caricato nel motore
+    // (GLWidget::surfaceImagePath), vuoto se non c'e'. E' l'unica copia: prima
+    // c'erano anche m_isImageMode e m_currentTexturePath, riallineati a mano in
+    // una trentina di punti, e dove uno dei due restava indietro il Save
+    // perdeva l'immagine (riclic su una texture di sfondo) o la GPU se la
+    // teneva (tasto NEW). Chi carica o toglie l'immagine passa dal motore
+    // (loadTextureFromFile, clearTexture, generateTexture).
+    QString surfaceImagePath() const;
+    bool surfaceHasImage() const { return !surfaceImagePath().isEmpty(); }
     // SUONO della scena nella forma che il player e il Save capiscono: una riga
     // //MUSIC: o un blocco //SOUND_BEGIN..//SOUND_END. Il dock Sound accetta
     // anche GLSL nudo (un mainSound scritto senza marcatori): wrapSoundCode lo
