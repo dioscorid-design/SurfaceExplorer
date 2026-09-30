@@ -558,9 +558,16 @@ public:
     // Passando da Superficie (0) a Sfondo (1) si abbandona l'editing della
     // texture della parte attiva: va fissata prima, o resta nei membri globali.
     // Tornando su Superficie si ricarica quella della parte.
+    // Il commit SOLO in vista 2D, come in setActiveMeshPart: fuori dalla vista
+    // 2D il buffer non segue ne' la mesh selezionata ne' il preset caricato, e
+    // contiene l'inquadratura di chissa' quale texture precedente. Scriverlo
+    // sulla parte attiva la corrompeva -- lo faceva ogni Save di un record (che
+    // passa da Sfondo per leggerne lo zoom): la mesh 0 di Brieskorn-Pham (3,5)
+    // prendeva lo zoom 0.57 della texture di Clifford Labyrinth aperto prima.
+    // Le modifiche vere passano dai setFlat*(), che fanno il commit da se'.
     void setFlatViewTarget(int target) {
         if (target == m_flatViewTarget) { update(); return; }
-        commitFlatTransformToActivePart();
+        if (m_isFlatView) commitFlatTransformToActivePart();
         m_flatViewTarget = target;
         loadFlatTransformFromActivePart();
         update();
