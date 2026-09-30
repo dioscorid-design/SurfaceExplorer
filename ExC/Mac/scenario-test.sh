@@ -8,8 +8,8 @@
 # colori, fasce di una multi-mesh, dock Script, Run -- verificando dopo ogni
 # gesto che le copie dello stato della scena (motore, controlli, cio' che
 # scriverebbe il Save) restino coerenti: accensione della texture, colori
-# u_col1/u_col2, codice della texture, displacement del Ray Marching,
-# immagine di sfondo. Dura circa un minuto e mezzo.
+# u_col1/u_col2, codice e immagine della texture, displacement del Ray
+# Marching, immagine di sfondo. Dura circa due minuti.
 #
 # Quando lanciarlo: dopo ogni modifica alla gestione della texture o dei
 # controlli di resa, e prima di un rilascio. E' la rete dei GESTI: il test dei

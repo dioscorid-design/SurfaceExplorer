@@ -514,6 +514,10 @@ public:
     // quindi cio' che il Save deve scrivere nel tag //IMG: dello sfondo. Lo
     // verifica il test degli scenari.
     QString backgroundImagePath() const { return m_bgImagePath; }
+    // Gemello per la texture di SUPERFICIE: il file dell'immagine dell'utente
+    // caricata nel sampler, vuoto se non ce n'e' (scacchiera generata o
+    // niente). E' cio' che il tag //IMG: del Save deve dire.
+    QString surfaceImagePath() const { return m_surfaceImagePath; }
     bool backgroundIsScript() const { return m_bgIsScript; }
     void setBackgroundTextureEnabled(bool enabled);
     bool isBackgroundTextureEnabled() const { return m_useBackgroundTexture; }
@@ -919,13 +923,15 @@ private:
     // TEXTURE
     // ==========================================================
     QRhiTexture *m_surfaceTexture = nullptr;
-    // true SOLO se m_surfaceTexture contiene un'immagine caricata dall'utente
-    // (loadTextureFromFile). NON basta guardare m_surfaceTexture != nullptr:
+    // Percorso dell'immagine dell'utente in m_surfaceTexture (loadTextureFromFile);
+    // vuoto se non ce n'e'. NON basta guardare m_surfaceTexture != nullptr:
     // MainWindow::generateTexture() ci mette anche la scacchiera di default,
-    // disegnata su CPU, che e' un fallback e non un'immagine. Governa u_noImage,
-    // cioe' se gli script che campionano iChannel0 cadono sulla scacchiera
-    // procedurale (colori vivi da u_col1/u_col2) o leggono la texture.
-    bool m_hasUserImage = false;
+    // disegnata su CPU, che e' un fallback e non un'immagine. Non vuoto governa
+    // u_noImage, cioe' se gli script che campionano iChannel0 cadono sulla
+    // scacchiera procedurale (colori vivi da u_col1/u_col2) o leggono la
+    // texture. Era un bool: il percorso dice anche QUALE immagine e' a schermo
+    // (vedi surfaceImagePath).
+    QString m_surfaceImagePath;
     QImage m_pendingSurfaceImage;
     bool m_surfaceTextureNeedsUpload = false;
     // Richiesta di scarico della texture di superficie dalla GPU: la distruzione

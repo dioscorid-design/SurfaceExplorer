@@ -626,7 +626,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // carica la scacchiera di default per la stessa via, quindi m_surfaceTexture
     // resta popolata anche senza alcuna immagine e il fallback non sarebbe mai
     // scattato (era il motivo per cui gli slider colore sembravano inerti).
-    m_uboData.u_noImage = m_hasUserImage ? 0 : 1;
+    m_uboData.u_noImage = m_surfaceImagePath.isEmpty() ? 1 : 0;
 
     // Luce di riempimento dall'osservatore: 0 (default) = termine nullo nello
     // shader, immagine identica a quella storica. Vedi u_fillLight in UboData.
@@ -3087,8 +3087,8 @@ void GLWidget::loadTextureFromFile(const QString &f) {
         // Immagine VERA dell'utente (da file). Distinta dalla scacchiera che
         // MainWindow::generateTexture() disegna su CPU e carica dalla stessa
         // via: quella e' un default procedurale, non un'immagine, e non deve
-        // spegnere il fallback di iChannel0 (vedi m_hasUserImage).
-        m_hasUserImage = true;
+        // spegnere il fallback di iChannel0 (vedi m_surfaceImagePath).
+        m_surfaceImagePath = f;
     } else {
         // Prima qui non c'era nulla: si usciva in silenzio e a schermo restava
         // la texture PRECEDENTE, che l'utente leggeva come "il preset ha la
@@ -3105,10 +3105,10 @@ void GLWidget::loadTextureFromImage(const QImage &img) {
     if (img.isNull()) return;
 
     // Caricamento da QImage: e' la via della scacchiera generata. Chi carica
-    // un'immagine dell'utente passa da loadTextureFromFile, che rialza il flag
-    // subito dopo. Azzerarlo qui evita che una scacchiera generata DOPO
+    // un'immagine dell'utente passa da loadTextureFromFile, che ne scrive il
+    // percorso subito dopo. Azzerarlo qui evita che una scacchiera generata DOPO
     // un'immagine continui a spacciarsi per quella.
-    m_hasUserImage = false;
+    m_surfaceImagePath.clear();
 
     // 1. RHI richiede formati precisi (RGBA8888)
     m_pendingSurfaceImage = img.convertToFormat(QImage::Format_RGBA8888).flipped(Qt::Orientations(Qt::Vertical));
@@ -3153,7 +3153,7 @@ void GLWidget::clearTexture() {
     m_surfaceTextureNeedsUpload = false;
     // Non c'e' piu' un'immagine dell'utente: gli script che campionano
     // iChannel0 devono tornare alla scacchiera procedurale.
-    m_hasUserImage = false;
+    m_surfaceImagePath.clear();
 
     // Distruzione effettiva dell'oggetto RHI rinviata al render loop: svuotare solo
     // m_pendingSurfaceImage NON bastava (m_surfaceTexture restava residente sulla GPU

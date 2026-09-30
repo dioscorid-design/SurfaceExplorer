@@ -3228,7 +3228,12 @@ MainWindow::MainWindow(QWidget *parent)
                         if (ui->glWidget) {
                             ui->glWidget->setTextureCode("");
                             ui->glWidget->setDisplacementCode("");
+                            // Anche l'immagine, come nel ramo parametrico: il
+                            // campo non la nomina piu', e restava in GPU.
+                            ui->glWidget->clearTexture();
                         }
+                        m_isImageMode = false;
+                        m_currentTexturePath.clear();
                     } else {
                         // Svuota memoria e variabili parametriche
                         m_surfaceTextureCode.clear();
@@ -9289,12 +9294,18 @@ void MainWindow::handleTextureSelection(int index)
                 m_surfaceTextureCode = "//IMG:" + imgSrc;
 
                 // Come per lo sfondo: l'immagine sostituisce la procedurale,
-                // quindi lo slot dello script va svuotato. Qui il residuo era
-                // LATENTE -- non si vedeva subito, si manifestava al primo Run
-                // del dock texture (ramo B di onApplyTextureScriptClicked,
+                // quindi lo slot dello script non deve tenerla. Qui il residuo
+                // era LATENTE -- non si vedeva subito, si manifestava al primo
+                // Run del dock texture (ramo B di onApplyTextureScriptClicked,
                 // ~9794), che riapplicava la vecchia procedurale lasciando
                 // l'immagine evidenziata in Library.
-                m_surfaceTextureScriptText.clear();
+                // Lo slot prende il TAG, come l'editor qui sotto: e' lo script
+                // di questa texture (il Run senza tag toglierebbe l'immagine).
+                // Svuotato, col dock Script su un altro modulo l'editor tornava
+                // vuoto sulla texture, e il Save dipendeva dalle copie di riserva
+                // (m_isImageMode / m_currentTexturePath) per non perdere
+                // l'immagine. Trovato dal test degli scenari.
+                m_surfaceTextureScriptText = m_surfaceTextureCode;
 
                 // Il checkbox mostra l'intenzione (gia' accesa qui sopra, PRIMA
                 // di updateTextureUIState: onColorTargetChanged() vi si appoggia
@@ -9501,6 +9512,13 @@ void MainWindow::handleTextureSelection(int index)
             // u_col1/u_col2 (si correggeva solo al secondo caricamento).
             m_isImageMode  = false;
             m_isCustomMode = true;
+            // In Ray Marching l'immagine esiste solo insieme al suo triplanar,
+            // che la procedurale sostituisce (il campo non avra' il tag
+            // //IMG:): via anche dalla GPU. Restava caricata, e uno script
+            // che campiona `tex` avrebbe mostrato un'immagine che il Save non
+            // scrive. Trovato dal test degli scenari.
+            m_currentTexturePath.clear();
+            if (ui->glWidget) ui->glWidget->clearTexture();
         }
 
         // Displacement applicato PRIMA di questa texture: catturato QUI, prima di
@@ -10430,12 +10448,13 @@ void MainWindow::onStartClicked()
                 m_currentTexturePath = imgPath;
                 ui->glWidget->loadTextureFromFile(imgPath);
             }
-        } else {
-            if (m_isImageMode) {
-                m_isImageMode = false;
-                m_currentTexturePath.clear();
-                ui->glWidget->clearTexture(); // Rimuove l'immagine dalla GPU
-            }
+        } else if (m_isImageMode || !ui->glWidget->surfaceImagePath().isEmpty()) {
+            // Il campo non ha il tag: nessuna immagine. Si guarda anche la GPU,
+            // non solo il flag: un'immagine rimasta caricata col flag gia'
+            // abbassato non se ne andava piu'.
+            m_isImageMode = false;
+            m_currentTexturePath.clear();
+            ui->glWidget->clearTexture(); // Rimuove l'immagine dalla GPU
         }
 
         if (texCode.isEmpty() && dispCode.isEmpty()) {

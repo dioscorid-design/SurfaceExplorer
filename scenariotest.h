@@ -24,8 +24,8 @@ class MainWindow;
 //     uguale all'intenzione (quando si edita la superficie);
 //   - il Save scrive l'intenzione, in qualunque modalita' si salvi.
 // E sui COLORI u_col1/u_col2 (vedi checkTexColors), sul DISPLACEMENT
-// (checkDisplacement), sul CODICE della texture (checkTextureCode) e
-// sull'immagine di SFONDO (checkBackground).
+// (checkDisplacement), sul CODICE della texture (checkTextureCode), sulla sua
+// IMMAGINE (checkSurfaceImage) e sull'immagine di SFONDO (checkBackground).
 //
 //   SurfaceExplorer --scenario-test <radice preset> <cartella uscita>
 //
@@ -87,6 +87,12 @@ private:
     // nullo, e' il codice atteso.
     void checkTextureCode(const QString &step, const QString &expected = QString(),
                           bool pendingEdit = false);
+    // L'IMMAGINE della texture di superficie dopo il gesto `step`: quella in
+    // GPU (GLWidget::surfaceImagePath) e' quella del tag //IMG: dello script
+    // (campo lineTexture in Ray Marching, editor o slot in parametrico) e del
+    // Save. Texture spenta: niente immagine ne' in GPU ne' nel Save.
+    // `expectedImage`, se non nullo, e' il file atteso in GPU ("" = nessuna).
+    void checkSurfaceImage(const QString &step, const QString &expectedImage = QString());
     // Il codice di displacement di un preset della libreria (come lo legge l'app).
     QString presetDisplacement(const QString &rel, LibraryType type);
     // La parte grafica del codice texture di un preset (vedi checkTextureCode).

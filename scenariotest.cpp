@@ -481,6 +481,47 @@ void ScenarioTest::checkTextureCode(const QString &step, const QString &expected
                                   bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
 }
 
+void ScenarioTest::checkSurfaceImage(const QString &step, const QString &expectedImage)
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    static const QRegularExpression imgRe(QStringLiteral(R"(^\s*//IMG:\s*(.*)$)"),
+                                          QRegularExpression::MultilineOption);
+    auto imageOf = [](const QString &code) {
+        const QRegularExpressionMatch m = imgRe.match(code);
+        return m.hasMatch() ? QFileInfo(m.captured(1).trimmed()).fileName() : QString();
+    };
+    auto name = [](const QString &f) { return f.isEmpty() ? QStringLiteral("nessuna") : f; };
+
+    const QString shown = QFileInfo(gl->surfaceImagePath()).fileName();
+    const LibraryItem saved = captureSave();
+    const QString savedImage = imageOf(saved.textureCode);
+    const bool rm = ui->tabModeSelector->currentIndex() == 1;
+    // Lo SCRIPT dice quale immagine usa (il Run senza tag la toglie): in Ray
+    // Marching il campo lineTexture, in parametrico l'editor o il suo slot.
+    const QString scriptImage = imageOf(rm ? ui->lineTexture->toPlainText()
+                                           : m_mw->surfaceTextureScript());
+
+    QStringList bad;
+    if (saved.textureEnabled) {
+        if (savedImage != shown)
+            bad << QStringLiteral("a schermo %1, il Save scriverebbe %2").arg(name(shown), name(savedImage));
+        if (scriptImage != shown)
+            bad << QStringLiteral("a schermo %1, lo script dice %2").arg(name(shown), name(scriptImage));
+    } else {
+        if (!savedImage.isEmpty())
+            bad << QStringLiteral("texture spenta ma il Save scriverebbe l'immagine %1").arg(savedImage);
+        if (!shown.isEmpty())
+            bad << QStringLiteral("texture spenta con %1 in GPU").arg(shown);
+    }
+    if (!expectedImage.isNull() && shown != expectedImage)
+        bad << QStringLiteral("a schermo %1, attesa %2").arg(name(shown), name(expectedImage));
+
+    check(bad.isEmpty(), QStringLiteral("%1 -> immagine %2%3")
+                             .arg(step, name(shown),
+                                  bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+}
+
 void ScenarioTest::run()
 {
     Ui::MainWindow *ui = m_mw->ui;
@@ -831,6 +872,67 @@ void ScenarioTest::run()
     if (loadRecord(QString::fromLatin1(kImplicitRecord)))
         checkTextureCode(QStringLiteral("poi un record Ray Marching"),
                          presetTextureCode(QString::fromLatin1(kImplicitRecord), LibraryType::Motion, false));
+
+    // ---------------------------------------------------------------------
+    // IMMAGINE DELLA TEXTURE DI SUPERFICIE: quella in GPU e' quella che dice lo
+    // script e che scriverebbe il Save.
+    auto presetImage = [this](const QString &rel) {
+        static const QRegularExpression re(QStringLiteral(R"(^\s*//IMG:\s*(.*)$)"),
+                                           QRegularExpression::MultilineOption);
+        LibraryManager lm;
+        const QRegularExpressionMatch m =
+            re.match(lm.parseJson(m_root + QLatin1Char('/') + rel, LibraryType::Motion).textureCode);
+        return m.hasMatch() ? QFileInfo(m.captured(1).trimmed()).fileName() : QString();
+    };
+    const QString kImageOnly   = QStringLiteral("records/Rotations/Hyperbolic Enneper.json");
+    const QString kImageScript = QStringLiteral("records/Rotations/Boy Surface.json");
+    const QString kRmImage     = QStringLiteral("records/Ray Marching/Schwarz P Circuit.json");
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Immagine della texture di superficie: parametrico =="));
+    if (loadRecord(kImageOnly))
+        checkSurfaceImage(QStringLiteral("record con la sola immagine"), presetImage(kImageOnly));
+    if (loadRecord(kImageScript)) {
+        checkSurfaceImage(QStringLiteral("record con immagine e script"), presetImage(kImageScript));
+        setScriptMode(MainWindow::ScriptModeTexture);
+        if (selectTexture(QStringLiteral("textures/Images/14.png")))
+            checkSurfaceImage(QStringLiteral("immagine dalla Library"), QStringLiteral("14.png"));
+        setScriptMode(MainWindow::ScriptModeSound);
+        checkSurfaceImage(QStringLiteral("dock Script passato al suono"), QStringLiteral("14.png"));
+        setScriptMode(MainWindow::ScriptModeTexture);
+        checkSurfaceImage(QStringLiteral("di nuovo sulla texture"), QStringLiteral("14.png"));
+        if (selectTexture(kMandelbrot))
+            checkSurfaceImage(QStringLiteral("Mandelbrot sopra l'immagine"), QStringLiteral("14.png"));
+        click(ui->chkBoxTexture);   checkSurfaceImage(QStringLiteral("texture spenta"), QStringLiteral(""));
+        click(ui->chkBoxTexture);   checkSurfaceImage(QStringLiteral("texture riaccesa (default)"), QStringLiteral(""));
+        if (selectTexture(QStringLiteral("textures/Images/15.png")))
+            checkSurfaceImage(QStringLiteral("altra immagine dalla Library"), QStringLiteral("15.png"));
+        // Scelta col dock Script su un altro modulo: lo slot dello script deve
+        // dire l'immagine come l'editor l'avrebbe detta.
+        setScriptMode(MainWindow::ScriptModeSurface);
+        if (selectTexture(QStringLiteral("textures/Images/14.png")))
+            checkSurfaceImage(QStringLiteral("immagine scelta col dock sulla superficie"), QStringLiteral("14.png"));
+        setScriptMode(MainWindow::ScriptModeTexture);
+        checkSurfaceImage(QStringLiteral("dock Script sulla texture"), QStringLiteral("14.png"));
+        setScriptMode(MainWindow::ScriptModeSurface);
+    }
+    if (loadRecord(QString::fromLatin1(kParametricRecord)))
+        checkSurfaceImage(QStringLiteral("poi un record senza immagine"), QStringLiteral(""));
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Immagine della texture di superficie: Ray Marching (%1) ==").arg(kRmImage));
+    if (loadRecord(kRmImage)) {
+        checkSurfaceImage(QStringLiteral("record con immagine"), presetImage(kRmImage));
+        if (selectTexture(QStringLiteral("textures/Images/15.png")))
+            checkSurfaceImage(QStringLiteral("immagine dalla Library"), QStringLiteral("15.png"));
+        if (selectTexture(kFbm))
+            checkSurfaceImage(QStringLiteral("texture procedurale dalla Library"), QStringLiteral(""));
+        if (selectTexture(QStringLiteral("textures/Images/14.png")))
+            checkSurfaceImage(QStringLiteral("di nuovo un'immagine"), QStringLiteral("14.png"));
+        click(ui->chkBoxTexture);   checkSurfaceImage(QStringLiteral("texture spenta"), QStringLiteral(""));
+        click(ui->chkBoxTexture);   checkSurfaceImage(QStringLiteral("texture riaccesa (default)"), QStringLiteral(""));
+    }
+    if (loadRecord(QString::fromLatin1(kImplicitRecord)))
+        checkSurfaceImage(QStringLiteral("poi un record RM senza immagine"), QStringLiteral(""));
 
     finish();
 }
