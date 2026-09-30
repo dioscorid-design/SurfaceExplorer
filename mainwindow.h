@@ -1344,6 +1344,22 @@ private:
     // applicato mentre il motore disegnava ancora il vecchio.
     QString surfaceTextureScript() const;
     QString backgroundTextureScript() const;
+    // SUONO della scena nella forma che il player e il Save capiscono: una riga
+    // //MUSIC: o un blocco //SOUND_BEGIN..//SOUND_END. Il dock Sound accetta
+    // anche GLSL nudo (un mainSound scritto senza marcatori): wrapSoundCode lo
+    // avvolge. Prima lo avvolgeva solo il Run Sound, componendolo DENTRO il
+    // codice della texture (m_surfaceTextureCode / m_bgTextureCode): l'audio
+    // viveva in due posti, il Run Sound "applicava" in memoria uno script
+    // texture mai eseguito, e il Save -- che legge m_soundScriptText -- scriveva
+    // il GLSL nudo in mezzo alla texture. L'audio vive solo in m_soundScriptText.
+    static QString wrapSoundCode(const QString &sound);
+    QString soundCode() const { return wrapSoundCode(m_soundScriptText); }
+    // Tutto il codice in cui cercare l'audio da suonare (player, avvio
+    // automatico, video): il suono per primo, poi gli script che possono
+    // ancora portarne uno (uno script di superficie scritto a mano, una
+    // texture utente salvata col suono dentro). Vuoto -> il testo dell'editor.
+    // UNICO PUNTO: erano cinque concatenazioni, in ordini diversi.
+    QString sceneAudioSource() const;
     // true quando gli slider RGB stanno editando un colore della TEXTURE
     // (sfondo o superficie) e non il colore della superficie stessa. Replica la
     // scelta di destinatario fatta da handleColorChange: serve a marcare il

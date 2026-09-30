@@ -7794,10 +7794,7 @@ void MainWindow::applyStartSideEffects()
     // di equazione/texture (Enter ad animazione attiva) arriva qui via onStartClicked
     // e altrimenti lo farebbe ripartire come un master Start.
     if (m_audioController && !m_audioController->isPlaying() && !m_userStoppedSound) {
-        QString codeToAnalyze = m_soundScriptText + "\n" + m_surfaceScriptText + "\n" +
-                                m_surfaceTextureCode + "\n" + m_bgTextureCode;
-        if (codeToAnalyze.trimmed().isEmpty()) codeToAnalyze = ui->txtScriptEditor->toPlainText();
-
+        const QString codeToAnalyze = sceneAudioSource();
         if (!codeToAnalyze.trimmed().isEmpty()) {
             m_audioController->playFromScript(codeToAnalyze);
             updateScriptButtonText();
@@ -10275,7 +10272,9 @@ void MainWindow::onStartClicked()
                     : m_soundScriptText;
             if (!soundSrc.trimmed().isEmpty()) {
                 QString audioErr;
-                if (!m_audioController->validateScript(soundSrc, &audioErr)) {
+                // Nella forma che suonera' (GLSL nudo avvolto): senza marcatori
+                // validateScript non trovava niente da compilare e passava tutto.
+                if (!m_audioController->validateScript(wrapSoundCode(soundSrc), &audioErr)) {
                     showShaderError("Syntax Error (Sound Script)",
                                                                audioErr.isEmpty() ? "Audio shader compilation failed." : audioErr);
                     return;
@@ -12461,30 +12460,11 @@ void MainWindow::onRunCurrentScript()
         onApplyTextureScriptClicked();
 
     } else if (m_currentScriptMode == ScriptModeSound) {
+        // Il suono resta nel suo slot, cosi' com'e' scritto: la forma da suonare
+        // (GLSL nudo avvolto nei marcatori) la da' soundCode(). Qui prima lo si
+        // componeva con lo slot della texture dentro m_surfaceTextureCode /
+        // m_bgTextureCode: uno script texture in sospeso risultava applicato.
         m_soundScriptText = currentText;
-
-        // Prendi il testo visibile pulito come base
-        QString targetText = ui->radioBackground->isChecked() ? m_bgTextureScriptText : m_surfaceTextureScriptText;
-
-        targetText.remove(QRegularExpression(R"(^\s*//(SYNTH|MUSIC):.*$\n?)", QRegularExpression::MultilineOption));
-        targetText.remove(QRegularExpression(R"(//SOUND_BEGIN.*?//SOUND_END\n?)", QRegularExpression::DotMatchesEverythingOption));
-
-        QString finalCode = targetText.trimmed();
-
-        if (!m_soundScriptText.isEmpty()) {
-            if (m_soundScriptText.startsWith("//MUSIC:")) {
-                finalCode = m_soundScriptText + "\n" + finalCode;
-            } else if (m_soundScriptText.contains("//SOUND_BEGIN")) {
-                finalCode = m_soundScriptText + "\n\n" + finalCode;
-            } else {
-                finalCode = "//SOUND_BEGIN\n" + m_soundScriptText + "\n//SOUND_END\n\n" + finalCode;
-            }
-        }
-
-        // Salviamo il codice combinato per la compilazione, ma NON lo passiamo all'editor visivo!
-        if (ui->radioBackground->isChecked()) m_bgTextureCode = finalCode;
-        else m_surfaceTextureCode = finalCode;
-
         onRunSoundClicked();
     }
 
@@ -13512,11 +13492,8 @@ void MainWindow::onRunSoundClicked()
         return;
     }
 
-    QString codeToAnalyze = m_soundScriptText + "\n" + m_surfaceScriptText + "\n" + m_surfaceTextureCode + "\n" + m_bgTextureCode;
-    if (codeToAnalyze.trimmed().isEmpty()) codeToAnalyze = ui->txtScriptEditor->toPlainText();
-
     QString audioErr;
-    if (!m_audioController->playFromScript(codeToAnalyze, &audioErr)) {
+    if (!m_audioController->playFromScript(sceneAudioSource(), &audioErr)) {
         // File audio mancante: non e' un errore di sintassi e non va mostrato
         // come tale (senza questo ramo il popup diceva "Syntax Error" con
         // dentro il marcatore MISSING_FILE| grezzo).
@@ -15612,7 +15589,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // 8. AVVIO AUDIO
     if (!m_soundScriptText.isEmpty()) {
         QString audioErr;
-        bool audioOk = m_audioController->playFromScript(m_soundScriptText, &audioErr);
+        bool audioOk = m_audioController->playFromScript(soundCode(), &audioErr);
         if (!audioOk) {
             if (audioErr.startsWith("MISSING_FILE|")) {
                 // FILE AUDIO MANCANTE. Prima il record partiva muto e basta:
@@ -16194,10 +16171,16 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
     QRegularExpression reMusic(R"(^\s*//MUSIC:.*$\n?)", QRegularExpression::MultilineOption);
     QRegularExpression reProc(R"(//SOUND_BEGIN.*?//SOUND_END\n?)", QRegularExpression::DotMatchesEverythingOption);
 
-    m_surfaceTextureScriptText.remove(reMusic);
-    m_surfaceTextureScriptText.remove(reProc);
-    m_bgTextureScriptText.remove(reMusic);
-    m_bgTextureScriptText.remove(reProc);
+    // Anche dalle copie APPLICATE, e solo il suono: una texture utente salvata
+    // col suono dentro lo terrebbe in scena, e il player (che prende la prima
+    // //MUSIC: ovunque) suonerebbe quello invece del suono appena scelto.
+    // Prima le copie applicate si riscrivevano per intero (suono + slot dello
+    // script), e uno script texture in sospeso risultava applicato.
+    for (QString *code : { &m_surfaceTextureScriptText, &m_bgTextureScriptText,
+                           &m_surfaceTextureCode, &m_bgTextureCode }) {
+        code->remove(reMusic);
+        code->remove(reProc);
+    }
 
     // AGGIORNAMENTO MEMORIA AUDIO
     m_soundScriptText = audioSnippet;
@@ -16219,22 +16202,14 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
     // suono gia' in vigore lo risuona soltanto, e non e' una modifica.
     noteSceneControlUsed();
 
-    if (ui->radioBackground->isChecked()) {
-        m_bgTextureCode = (m_soundScriptText + "\n\n" + m_bgTextureScriptText.trimmed()).trimmed();
-        m_surfaceTextureCode = m_surfaceTextureScriptText.trimmed();
-    } else {
-        m_surfaceTextureCode = (m_soundScriptText + "\n\n" + m_surfaceTextureScriptText.trimmed()).trimmed();
-        m_bgTextureCode = m_bgTextureScriptText.trimmed();
-    }
-
-    // AGGIORNAMENTO VISIVO DELL'EDITOR
-    bool oldBlock = ui->txtScriptEditor->blockSignals(true);
-    if (m_currentScriptMode == ScriptModeTexture) {
-        ui->txtScriptEditor->setPlainText(ui->radioBackground->isChecked() ? m_bgTextureScriptText : m_surfaceTextureScriptText);
-    } else if (m_currentScriptMode == ScriptModeSound) {
+    // AGGIORNAMENTO VISIVO DELL'EDITOR: solo se mostra il suono. In modalita'
+    // Texture mostra uno script (magari in sospeso, o quello di una fascia) che
+    // il suono non cambia: rimetterci lo slot lo cancellava.
+    if (m_currentScriptMode == ScriptModeSound) {
+        const bool oldBlock = ui->txtScriptEditor->blockSignals(true);
         ui->txtScriptEditor->setPlainText(m_soundScriptText);
+        ui->txtScriptEditor->blockSignals(oldBlock);
     }
-    ui->txtScriptEditor->blockSignals(oldBlock);
 
     m_audioController->stopAll();
 
@@ -20003,6 +19978,20 @@ QString MainWindow::backgroundTextureScript() const
     const bool editorShows = m_currentScriptMode == ScriptModeTexture
                              && ui->radioBackground->isChecked();
     return editorShows ? ui->txtScriptEditor->toPlainText() : m_bgTextureScriptText;
+}
+
+QString MainWindow::wrapSoundCode(const QString &sound)
+{
+    const QString s = sound.trimmed();
+    if (s.isEmpty() || s.startsWith("//MUSIC:") || s.contains("//SOUND_BEGIN")) return s;
+    return "//SOUND_BEGIN\n" + s + "\n//SOUND_END";
+}
+
+QString MainWindow::sceneAudioSource() const
+{
+    const QString code = soundCode() + "\n" + m_surfaceScriptText + "\n"
+                         + m_surfaceTextureCode + "\n" + m_bgTextureCode;
+    return code.trimmed().isEmpty() ? ui->txtScriptEditor->toPlainText() : code;
 }
 
 bool MainWindow::activeTextureUsesColorToken(const QString &token) const

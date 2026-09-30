@@ -725,12 +725,9 @@ void VideoRecorder::toggleRecord()
     // il suono prima del REC (wasSoundPlaying=false) la clip e' muta per scelta.
     bool willHaveAudio = false;
     if (wasSoundPlaying) {
-        QString preCode = m_mainWindow->m_surfaceScriptText + "\n" +
-                          m_mainWindow->m_surfaceTextureCode + "\n" +
-                          m_mainWindow->m_bgTextureCode + "\n" +
-                          m_mainWindow->m_soundScriptText;
-        if (preCode.trimmed().isEmpty())
-            preCode = m_mainWindow->ui->txtScriptEditor->toPlainText();
+        // Stessa sorgente del player (sceneAudioSource): il video deve trovare
+        // il suono che sta suonando, non cercarlo per conto suo.
+        const QString preCode = m_mainWindow->sceneAudioSource();
 
         if (preCode.contains("mainSound") && m_mainWindow->m_audioController) {
             willHaveAudio = true;
@@ -762,12 +759,7 @@ void VideoRecorder::toggleRecord()
     // Si puo' fare: il bouncing offline dipende solo dalla durata, non dai frame.
     QString macAudioFile;
     if (willHaveAudio) {
-        QString preCode = m_mainWindow->m_surfaceScriptText + "\n" +
-                          m_mainWindow->m_surfaceTextureCode + "\n" +
-                          m_mainWindow->m_bgTextureCode + "\n" +
-                          m_mainWindow->m_soundScriptText;
-        if (preCode.trimmed().isEmpty())
-            preCode = m_mainWindow->ui->txtScriptEditor->toPlainText();
+        const QString preCode = m_mainWindow->sceneAudioSource();
 
         if (preCode.contains("mainSound") && m_mainWindow->m_audioController) {
             // Audio procedurale: lo renderizziamo alla durata NOMINALE richiesta.
@@ -1254,15 +1246,8 @@ void VideoRecorder::toggleRecord()
     // ==============================================================
     float actualSeconds = (float)actualFramesRendered / (float)fps;
 
-    // 1. Uniamo TUTTI gli script per trovare la musica (incluso il dock Sounds!)
-    QString currentCode = m_mainWindow->m_surfaceScriptText + "\n" +
-                          m_mainWindow->m_surfaceTextureCode + "\n" +
-                          m_mainWindow->m_bgTextureCode + "\n" +
-                          m_mainWindow->m_soundScriptText;
-
-    if (currentCode.trimmed().isEmpty()) {
-        currentCode = m_mainWindow->ui->txtScriptEditor->toPlainText();
-    }
+    // 1. Tutto il codice che puo' portare la musica: la stessa sorgente del player.
+    const QString currentCode = m_mainWindow->sceneAudioSource();
 
     QString audioFile = "";
     bool hasAudio = false;

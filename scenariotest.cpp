@@ -797,12 +797,34 @@ void ScenarioTest::run()
         checkTextureCode(QStringLiteral("script modificato a mano"), edited, /*pendingEdit=*/true);
         setScriptMode(MainWindow::ScriptModeSound);
         checkTextureCode(QStringLiteral("dock Script passato al suono"), edited, true);
+        // Il suono non applica la texture: ne' il Run Sound ne' un suono della
+        // Library devono far risultare applicato lo script in sospeso.
+        m_mw->onRunCurrentScript();  wait(400);
+        check(m_mw->m_audioController && m_mw->m_audioController->isPlaying(),
+              QStringLiteral("Run Sound -> suona"));
+        if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
+        checkTextureCode(QStringLiteral("Run Sound con lo script in sospeso"), edited, true);
+        if (selectSound(kSound))
+            checkTextureCode(QStringLiteral("suono dalla Library con lo script in sospeso"), edited, true);
         setScriptMode(MainWindow::ScriptModeTexture);
         checkTextureCode(QStringLiteral("di nuovo sulla texture"), edited, true);
         m_mw->onRunCurrentScript();  wait(800);
         checkTextureCode(QStringLiteral("Run dello script"), edited);
         if (selectSound(kSound))
             checkTextureCode(QStringLiteral("suono dalla Library"), edited);
+        // Suono scritto a mano nel dock Sound, GLSL senza marcatori: suona, e il
+        // Save lo scrive dentro il suo blocco, non in mezzo alla texture.
+        setScriptMode(MainWindow::ScriptModeSound);
+        ui->txtScriptEditor->setPlainText(QStringLiteral(
+            "vec2 mainSound(int samp, float time) {\n"
+            "    return vec2(0.1 * sin(6.2831853 * 440.0 * time));\n"
+            "}"));
+        wait(200);
+        m_mw->onRunCurrentScript();  wait(600);
+        check(m_mw->m_audioController && m_mw->m_audioController->isPlaying(),
+              QStringLiteral("suono GLSL scritto a mano -> suona"));
+        if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
+        checkTextureCode(QStringLiteral("suono GLSL scritto a mano"), edited);
         setScriptMode(MainWindow::ScriptModeSurface);
         checkTextureCode(QStringLiteral("dock Script sulla superficie"), edited);
     }

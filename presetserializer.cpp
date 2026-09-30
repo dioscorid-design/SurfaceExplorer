@@ -766,7 +766,9 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
     // --- AUDIO E IMMAGINI DENTRO IL CODICE DELLA TEXTURE ---
     // Blocco audio omesso solo se chi salva l'ha scelto (dialogo "The sound is
     // stopped." in saveMotion, che decide includeSound).
-    const QString audioCode = includeSound ? mw->m_soundScriptText.trimmed() : QString();
+    // soundCode(): un GLSL scritto a mano nel dock Sound si scriveva nudo, in
+    // mezzo al codice della texture, che al reload non compilava piu'.
+    const QString audioCode = includeSound ? mw->soundCode() : QString();
     const QRegularExpression blockRe(R"(//\s*SOUND_BEGIN.*?//\s*SOUND_END\n?)",
                                      QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
     const QRegularExpression musicRe(R"(^\s*//(MUSIC|SYNTH):.*$\n?)",
