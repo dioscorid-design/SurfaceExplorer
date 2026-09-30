@@ -720,8 +720,14 @@ QJsonObject PresetSerializer::buildSurfaceJson(const QString &name)
         // wireframe da "All" salva renderMode = 2 (globale) e al reload le mesh
         // senza modalita' propria lo EREDITAVANO, mostrandosi tutte wireframe
         // ma in ambito Mesh, cioe' uno stato che l'utente non aveva scelto.
-        if (m_mainWindow->ui->radioMeshAll
-            && m_mainWindow->ui->radioMeshAll->isChecked()) {
+        // A mesh SINGOLA l'ambito e' "All" per definizione (e' cio' che decide
+        // il load, applyPendingMeshScope) e il radio non si guarda: puo' essere
+        // ancora quello della superficie precedente, quando il load non
+        // rigenera la griglia e il riallineamento non scatta (script metrici:
+        // Kerr dopo Hopf Tori si salvava senza chiave, dopo altro con).
+        if (mparts.size() <= 1
+            || (m_mainWindow->ui->radioMeshAll
+                && m_mainWindow->ui->radioMeshAll->isChecked())) {
             root["meshScopeAll"] = true;
         }
 
@@ -1365,8 +1371,14 @@ QJsonObject PresetSerializer::buildMotionJson(const QString &name, const MotionR
         // wireframe da "All" salva renderMode = 2 (globale) e al reload le mesh
         // senza modalita' propria lo EREDITAVANO, mostrandosi tutte wireframe
         // ma in ambito Mesh, cioe' uno stato che l'utente non aveva scelto.
-        if (m_mainWindow->ui->radioMeshAll
-            && m_mainWindow->ui->radioMeshAll->isChecked()) {
+        // A mesh SINGOLA l'ambito e' "All" per definizione (e' cio' che decide
+        // il load, applyPendingMeshScope) e il radio non si guarda: puo' essere
+        // ancora quello della superficie precedente, quando il load non
+        // rigenera la griglia e il riallineamento non scatta (script metrici:
+        // Kerr dopo Hopf Tori si salvava senza chiave, dopo altro con).
+        if (mparts.size() <= 1
+            || (m_mainWindow->ui->radioMeshAll
+                && m_mainWindow->ui->radioMeshAll->isChecked())) {
             root["meshScopeAll"] = true;
         }
 
