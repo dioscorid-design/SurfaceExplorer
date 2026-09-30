@@ -281,6 +281,7 @@ class LibraryManager
     // dell'albero, senza costruire un albero.
     friend class PresetRoundTrip;
     friend class ClockTest;
+    friend class ScenarioTest;
 
 public:
     LibraryManager();

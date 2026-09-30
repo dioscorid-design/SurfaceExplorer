@@ -123,6 +123,8 @@ qt_add_executable(SurfaceExplorer
     presetroundtrip.cpp
     clocktest.h
     clocktest.cpp
+    scenariotest.h
+    scenariotest.cpp
     libraryfileoperations.h
     libraryfileoperations.cpp
     librarydragdrophandler.h

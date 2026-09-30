@@ -758,13 +758,14 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
         }
     }
 
-    // Accensione della texture di SUPERFICIE. Con una mesh selezionata il
-    // checkbox mostra lo stato EFFICACE della fascia: si legge quello globale
-    // dal motore, che il percorso per-mesh non tocca.
-    d.textureEnabled = isLookingAtBackground
-                         ? mw->m_surfaceTextureState
-                         : (showingMeshTexture ? gl->isTextureEnabled()
-                                               : mw->ui->chkBoxTexture->isChecked());
+    // Accensione della texture di SUPERFICIE: l'INTENZIONE (m_surfaceTextureState),
+    // l'unica copia che cambia solo col checkbox della superficie. Checkbox e
+    // motore ne sono viste: il checkbox mostra lo sfondo o la fascia quando si
+    // edita quelli, e in WIREFRAME entrambi dicono "spenta" perche' la texture
+    // non si disegna. Salvare la vista perdeva la texture: un record salvato in
+    // wireframe si riapriva con la texture spenta, e tornando a Phong non
+    // ricompariva piu' (dal vivo si'). Trovato dal test degli scenari.
+    d.textureEnabled = mw->m_surfaceTextureState;
     // Trasformazione e colori GLOBALI dal motore, non il buffer della vista 2D
     // ne' i picker (che seguono la fascia selezionata).
     d.zoom = gl->globalTexZoom();

@@ -5,6 +5,7 @@
 #include "mainwindow.h"
 #include "presetroundtrip.h"
 #include "clocktest.h"
+#include "scenariotest.h"
 
 int main(int argc, char *argv[])
 {
@@ -127,6 +128,9 @@ int main(int argc, char *argv[])
     // Test degli orologi di animazione (--clock-test): vedi clocktest.h.
     if (ClockTest::requested(app.arguments()))
         ClockTest::start(&w, app.arguments());
+    // Test degli scenari d'uso (--scenario-test): vedi scenariotest.h.
+    if (ScenarioTest::requested(app.arguments()))
+        ScenarioTest::start(&w, app.arguments());
 #endif
 
     return app.exec();
