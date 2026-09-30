@@ -2731,15 +2731,7 @@ MainWindow::MainWindow(QWidget *parent)
 
         if (!editingBackground) {
             ui->chkBoxTexture->setText("Texture");
-            bool oldBlock = ui->chkBoxTexture->blockSignals(true);
-            if (id == 2) {
-                ui->chkBoxTexture->setChecked(false);
-                ui->chkBoxTexture->setEnabled(false);
-            } else {
-                ui->chkBoxTexture->setEnabled(true);
-                ui->chkBoxTexture->setChecked(m_surfaceTextureState);
-            }
-            ui->chkBoxTexture->blockSignals(oldBlock);
+            refreshSurfaceTextureCheckbox();
 
             updateTextureUIState(m_surfaceTextureState);
             // LO SPEGNIMENTO PER WIREFRAME RIGUARDA SOLO L'AMBITO "ALL".
@@ -2751,9 +2743,7 @@ MainWindow::MainWindow(QWidget *parent)
             // QUELLA parte (la scrive onUserRenderModeChosen su MeshPart), e il
             // render decide gia' da se' di non texturizzare una parte in
             // wireframe: non c'e' nulla da spegnere sul globale.
-            const bool editingOneMesh = ui->glWidget && ui->glWidget->activeMeshPart() >= 0;
-            if (!editingOneMesh)
-                ui->glWidget->setGlobalTextureEnabled(m_surfaceTextureState && (id != 2));
+            applySurfaceTextureToEngine();
 
             // In Wireframe gli slider editano il colore uniforme delle linee: il pallino
             // di lavoro va su "Surface". updateTextureUIState sopra ha già spento Color1/2
@@ -2892,24 +2882,15 @@ MainWindow::MainWindow(QWidget *parent)
                                    ? ui->glWidget->activeMeshTextureActive()
                                    : m_surfaceTextureState;
 
-            int surfMode = m_savedRenderMode;
             ui->chkBoxTexture->setText("Texture");
-            bool oldBlock = ui->chkBoxTexture->blockSignals(true);
-            if (surfMode == 2) {
-                ui->chkBoxTexture->setChecked(false);
-                ui->chkBoxTexture->setEnabled(false);
-            } else {
-                ui->chkBoxTexture->setEnabled(true);
-                ui->chkBoxTexture->setChecked(texOn);
-            }
-            ui->chkBoxTexture->blockSignals(oldBlock);
+            refreshSurfaceTextureCheckbox();
 
             updateTextureUIState(texOn);
             // Questo resta sul GLOBALE anche in ambito Mesh: e' lo stato della
             // texture di SUPERFICIE nel motore, che l'ambito non cambia -- la
             // fascia ha il proprio interruttore in MeshPart. Solo il DISPLAY
             // qui sopra segue la parte.
-            ui->glWidget->setGlobalTextureEnabled(m_surfaceTextureState && (surfMode != 2));
+            applySurfaceTextureToEngine();
 
             // Uscendo da Background torniamo a editare la superficie: updateTextureUIState
             // sopra ha già messo il target colore su Surface (selectSurfaceColorTarget).
@@ -3325,7 +3306,7 @@ MainWindow::MainWindow(QWidget *parent)
 
             m_surfaceTextureState = checked;
             updateTextureUIState(checked);
-            if (ui->glWidget) ui->glWidget->setGlobalTextureEnabled(checked);
+            applySurfaceTextureToEngine();
 
             if (!m_blockTextureGen && checked) {
                 // --- LOGICA RAY MARCHING (Tab 1) ---
@@ -3875,9 +3856,7 @@ MainWindow::MainWindow(QWidget *parent)
         // parte), ma quella esce presto quando non c'e' parte attiva.
         if (!single && !ui->radioBackground->isChecked()
             && ui->tabModeSelector->currentIndex() != 1) {
-            const bool oldCb = ui->chkBoxTexture->blockSignals(true);
-            ui->chkBoxTexture->setChecked(ui->glWidget->isTextureEnabled());
-            ui->chkBoxTexture->blockSignals(oldCb);
+            refreshSurfaceTextureCheckbox();
         }
         // Come per lo spinbox: il sync muove i radio a segnali bloccati, quindi
         // il gating (tasti densita' U/V) va aggiornato a mano.
@@ -4340,7 +4319,7 @@ MainWindow::MainWindow(QWidget *parent)
     // 11. FINAL STARTUP CALLS
     // =========================================================================
     ui->chkBoxTexture->setChecked(false);
-    ui->glWidget->setGlobalTextureEnabled(false);
+    applySurfaceTextureToEngine();   // intenzione iniziale: spenta
     updateTextureUIState(false);
 
     connectSidePanels();
@@ -5365,15 +5344,11 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     m_currentTexturePath.clear();
     m_surfaceTextureCode.clear();
 
-    // Modifichiamo la UI solo se NON stiamo guardando il Background
-    if (!ui->radioBackground->isChecked()) {
-        bool oldBlock = ui->chkBoxTexture->blockSignals(true);
-        ui->chkBoxTexture->setChecked(false);
-        ui->chkBoxTexture->blockSignals(oldBlock);
-    }
+    // La vista segue (col Background in editing il checkbox mostra lo sfondo).
+    refreshSurfaceTextureCheckbox();
 
-    // Spegniamo in modo incondizionato la texture dal motore per la superficie
-    if (ui->glWidget) ui->glWidget->setGlobalTextureEnabled(false);
+    // Intenzione spenta qui sopra: il motore la segue.
+    applySurfaceTextureToEngine();
     // ==========================================================
 
     // ==========================================================
@@ -6703,37 +6678,12 @@ void MainWindow::updateRenderState()
         && ui->glWidget->meshPartCount() > 1 && !isImplicitMode) {
         mode = ui->glWidget->activeMeshEffectiveRenderMode();
     }
-    bool wantTexture = ui->chkBoxTexture->isChecked();
-
-    if (ui->radioBackground) {
-        if (ui->radioBackground->isChecked()) {
-            wantTexture = m_surfaceTextureState;
-        } else {
-            wantTexture = ui->chkBoxTexture->isChecked();
-        }
-    }
-
-    // AMBITO "MESH": il checkbox Texture e' il DISPLAY della parte selezionata
-    // (vedi syncAppearanceControlsToActiveMesh, che lo mette sullo stato
-    // EFFICACE di quella mesh), NON un comando sul globale. Usarlo qui per
-    // setGlobalTextureEnabled accendeva la texture GLOBALE solo perche' si era
-    // selezionata una mesh texturizzata: tutte le parti che ereditano
-    // (hasCustomTexture == false) si ritrovavano useTexture = 1 e cadevano sulla
-    // getCustomColor globale, che con una texture per-mesh in gioco e'
-    // neutralizzata a vec3(1.0) -> uscivano BIANCHE.
-    // Il globale lo governa m_surfaceTextureState, che cambia solo quando si
-    // agisce davvero sulla texture di superficie (ambito All o Run globale).
-    // VALE ANCHE IN "ALL" su una superficie MULTI-MESH: il checkbox puo' essere
-    // rimasto acceso come display di una fascia texturizzata, e tornando ad
-    // "All" la guardia sull'indice (>= 0) cadeva, riaccendendo la texture
-    // GLOBALE che non esiste. Con le texture per-mesh sospese, il dispatcher
-    // cade sulla getCustomColor globale -- neutralizzata -- e la superficie
-    // usciva NERA. Il checkbox resta un comando sul globale solo a mesh
-    // singola, dove non c'e' nessuna fascia di cui possa essere il display.
-    const bool multiMesh = ui->glWidget && ui->glWidget->meshPartCount() > 1;
-    if (!ui->radioBackground->isChecked() && ui->glWidget && multiMesh) {
-        wantTexture = m_surfaceTextureState;
-    }
+    // L'accensione della texture di superficie nel motore NON si decide piu' qui
+    // dal checkbox: il checkbox e' una vista (dello sfondo, della fascia
+    // selezionata, spento in wireframe) e leggerlo come comando accendeva la
+    // texture globale su una multi-mesh (superficie bianca o nera, vedi la
+    // storia in applySurfaceTextureToEngine). Il motore segue l'intenzione
+    // m_surfaceTextureState, piu' sotto.
 
     // 3. LOGICA TEXTURE (Mantenendo il fix per il Background)
     // In Wireframe superficie (mode==2, non in editing sfondo) la texture della
@@ -6823,26 +6773,9 @@ void MainWindow::updateRenderState()
     if (ui->glWidget) {
         ui->glWidget->setSpecularEnabled(isPhong);
 
-        // Blocca la texture della superficie SOLO in modalità Wireframe (mode == 2)
-        // MA il wireframe di UNA FASCIA non deve spegnere la texture GLOBALE.
-        // 'mode' qui e' la modalita' EFFICACE della mesh selezionata (vedi dove
-        // viene calcolato): usarlo per setGlobalTextureEnabled, che scrive lo stato
-        // globale m_textureEnabled, faceva sparire la texture di tutta la
-        // superficie appena si metteva in wireframe una singola fascia --
-        // e tornando su "All" il checkbox rileggeva quello stato spento
-        // (applyMeshScope) e la texture risultava persa.
-        // E' lo stesso motivo per cui poco sopra 'wantTexture' viene riportato a
-        // m_surfaceTextureState quando una mesh e' selezionata: in quell'ambito i
-        // controlli MOSTRANO la parte, non comandano il globale.
-        // Il blocco resta pieno in ambito "All" e a mesh singola, dove 'mode' E'
-        // davvero la modalita' della superficie.
-        // Nessun rischio visivo: una parte in wireframe non si texturizza
-        // comunque, perche' il fragment esce a colore piatto sul suo
-        // u_renderMode per-parte (surface.frag, ramo u_renderMode == 2).
-        const bool editingOneMesh = ui->glWidget->activeMeshPart() >= 0
-                                    && ui->glWidget->meshPartCount() > 1;
-        bool blockSurfaceTexture = (mode == 2) && !editingOneMesh;
-        ui->glWidget->setGlobalTextureEnabled(wantTexture && !blockSurfaceTexture);
+        // Texture di superficie: accesa = intenzione e non wireframe (il
+        // wireframe di UNA fascia non la spegne). Regola in un punto solo.
+        applySurfaceTextureToEngine();
 
         if (isImplicitMode) {
             // Modalità Ray Marching: il render mode viene dai radio Shell/Solid
@@ -8773,11 +8706,11 @@ void MainWindow::onColorTargetChanged()
     // gestisce il proprio enable nel suo handler, qui non lo tocchiamo per non
     // sovrascriverlo.
     if (!ui->radioBackground->isChecked()) {
-        bool wireframeSurface = (m_savedRenderMode == 2);
         // Scena vuota (tasto NEW): niente superficie da texturizzare. Come per
         // gli slider RGB qui sopra, il caso va aggiunto DOVE lo stato si decide:
         // questa funzione gira anche dopo applyEmptySceneGating e lo riaccendeva.
-        ui->chkBoxTexture->setEnabled(!wireframeSurface && !isSceneEmpty());
+        // In ambito Mesh conta la modalita' della fascia (textureTargetInWireframe).
+        ui->chkBoxTexture->setEnabled(!textureTargetInWireframe() && !isSceneEmpty());
     }
 }
 
@@ -9332,7 +9265,8 @@ void MainWindow::handleTextureSelection(int index)
             if (ui->glWidget) {
                 ui->glWidget->loadCustomShader("");
                 ui->glWidget->loadTextureFromFile(imgSrc);
-                ui->glWidget->setGlobalTextureEnabled(true);
+                m_surfaceTextureState = true;
+                applySurfaceTextureToEngine();
                 ui->glWidget->rebuildShader();
 
                 m_isCustomMode = false;
@@ -9350,18 +9284,24 @@ void MainWindow::handleTextureSelection(int index)
                 // l'immagine evidenziata in Library.
                 m_surfaceTextureScriptText.clear();
 
-                if (!ui->chkBoxTexture->isChecked()) {
-                    bool old = ui->chkBoxTexture->blockSignals(true);
-                    ui->chkBoxTexture->setChecked(true);
-                    ui->chkBoxTexture->blockSignals(old);
-                    // m_surfaceTextureState PRIMA di updateTextureUIState:
-                    // onColorTargetChanged() vi si appoggia per decidere se
-                    // azzerare/disabilitare gli slider colore (texture senza
-                    // u_col1/u_col2). Se restasse stantio a false gli slider non
-                    // verrebbero disattivati su questa immagine.
-                    m_surfaceTextureState = true;
-                    updateTextureUIState(true);
+                // Il checkbox mostra l'intenzione (gia' accesa qui sopra, PRIMA
+                // di updateTextureUIState: onColorTargetChanged() vi si appoggia
+                // per decidere se disattivare gli slider colore). In wireframe
+                // resta spento e grigio: prima lo si spuntava comunque.
+                // In ambito Mesh il checkbox e' il display della fascia, che
+                // l'immagine (sempre sull'intera superficie) accende: lo si
+                // spunta come prima.
+                const bool wasChecked = ui->chkBoxTexture->isChecked();
+                if (ui->glWidget->activeMeshPart() >= 0) {
+                    if (!wasChecked) {
+                        bool old = ui->chkBoxTexture->blockSignals(true);
+                        ui->chkBoxTexture->setChecked(true);
+                        ui->chkBoxTexture->blockSignals(old);
+                    }
+                } else {
+                    refreshSurfaceTextureCheckbox();
                 }
+                if (!wasChecked) updateTextureUIState(true);
 
                 ui->glWidget->setFlatViewTarget(0);
                 ui->glWidget->setFlatZoom(data.zoom);
@@ -9649,15 +9589,13 @@ void MainWindow::handleTextureSelection(int index)
                 implicitEqF = QString("(%1) - (0.0)").arg(rawEq);
             }
 
-            // 2. Stato UI
-            bool oldBlock = ui->chkBoxTexture->blockSignals(true);
-            ui->chkBoxTexture->setChecked(true);
-            ui->chkBoxTexture->blockSignals(oldBlock);
+            // 2. Stato UI: il checkbox segue l'intenzione, accesa qui sotto.
 
             // ---> LE RIGHE CRITICHE RIPRISTINATE: Sincronizziamo la memoria! <---
             ui->glWidget->setTextureCode(rmTexCode);
-            ui->glWidget->setGlobalTextureEnabled(true);
             m_surfaceTextureState = true;
+            applySurfaceTextureToEngine();
+            refreshSurfaceTextureCheckbox();
 
             // La checkbox è stata attivata con blockSignals: il suo handler non
             // scatta, quindi sincronizziamo a mano lo stato UI. updateTextureUIState
@@ -9674,7 +9612,12 @@ void MainWindow::handleTextureSelection(int index)
                 performMasterStop();
                 showShaderError("Preset Shader Error", ui->glWidget->getShaderError());
                 ui->glWidget->setTextureCode("");
-                ui->glWidget->setGlobalTextureEnabled(false);
+                // Texture non applicata: anche l'intenzione (e il checkbox che
+                // la mostra) tornano spenti. Prima restava il checkbox acceso
+                // col motore spento, due copie in disaccordo.
+                m_surfaceTextureState = false;
+                applySurfaceTextureToEngine();
+                refreshSurfaceTextureCheckbox();
                 ui->glWidget->rebuildShader();
                 return; // Esce in sicurezza senza crashare
             }
@@ -10493,21 +10436,15 @@ void MainWindow::onStartClicked()
         }
 
         if (texCode.isEmpty() && dispCode.isEmpty()) {
-            bool oldState = ui->chkBoxTexture->blockSignals(true);
-            ui->chkBoxTexture->setChecked(false);
-            ui->chkBoxTexture->blockSignals(oldState);
-            ui->glWidget->setGlobalTextureEnabled(false);
             m_surfaceTextureState = false;
+            applySurfaceTextureToEngine();
+            refreshSurfaceTextureCheckbox();
         } else {
-            ui->glWidget->setGlobalTextureEnabled(true);
+            const bool wasChecked = ui->chkBoxTexture->isChecked();
             m_surfaceTextureState = true;
-
-            if (!ui->chkBoxTexture->isChecked()) {
-                bool oldState = ui->chkBoxTexture->blockSignals(true);
-                ui->chkBoxTexture->setChecked(true);
-                ui->chkBoxTexture->blockSignals(oldState);
-                updateTextureUIState(true, true); // nuova texture -> focus a Colore 1
-            }
+            applySurfaceTextureToEngine();
+            refreshSurfaceTextureCheckbox();
+            if (!wasChecked) updateTextureUIState(true, true); // nuova texture -> focus a Colore 1
         }
 
         // 4. Animazione dinamica sicura. Teniamo separati i due orologi:
@@ -13372,13 +13309,12 @@ void MainWindow::onApplyTextureScriptClicked()
 
         m_surfaceTextureCode = code;
 
-        if (!ui->chkBoxTexture->isChecked()) {
-            const bool wasBlocked = ui->chkBoxTexture->blockSignals(true);
-            ui->chkBoxTexture->setChecked(true);
-            ui->chkBoxTexture->blockSignals(wasBlocked);
-            ui->glWidget->setGlobalTextureEnabled(true);
-            m_surfaceTextureState = true;
-        }
+        // Applicare la texture di superficie la ACCENDE: intenzione accesa,
+        // motore e checkbox la seguono. Prima l'intenzione si scriveva solo se il
+        // checkbox era spento, fidandosi che le due copie fossero allineate.
+        m_surfaceTextureState = true;
+        applySurfaceTextureToEngine();
+        refreshSurfaceTextureCheckbox();
 
         // I flag di modalità vanno impostati PRIMA di updateTextureUIState.
         // activeTextureUsesColors() ha una scorciatoia "scacchiera default ->
@@ -14214,19 +14150,15 @@ void MainWindow::applySurfaceExample(LibraryItem d)
 
     onColorTargetChanged();
 
-    // 2. Spegni Checkbox UI (senza triggerare segnali a cascata inutili)
-    if (ui->chkBoxTexture->isChecked()) {
-        bool wasBlocked = ui->chkBoxTexture->blockSignals(true);
-        ui->chkBoxTexture->setChecked(false);
-        ui->chkBoxTexture->blockSignals(wasBlocked);
-    }
+    // 2. Checkbox UI: segue l'intenzione, spenta al punto 1 (a segnali bloccati).
+    refreshSurfaceTextureCheckbox();
 
     // 3. Disabilita UI correlata (Slider colori texture, ecc.)
     updateTextureUIState(false);
 
     // 4. Reset Engine Grafico (Spegne tutte le texture)
     if (ui->glWidget) {
-        ui->glWidget->setGlobalTextureEnabled(false);
+        applySurfaceTextureToEngine();   // intenzione spenta al punto 1 qui sopra
         ui->glWidget->setBackgroundTextureEnabled(false);
 
         // Scarico effettivo della texture di superficie dalla GPU. Senza questo,
@@ -15141,7 +15073,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     }
 
     m_surfaceTextureState = texEnabled;
-    ui->glWidget->setGlobalTextureEnabled(texEnabled);
+    applySurfaceTextureToEngine();
     m_surfaceTextureScriptText = texCode;
     m_surfaceTextureCode = texCode;
     // In RM e' QUESTA riga a rimettere in vigore la texture: createImplicitFragmentShader
@@ -15388,9 +15320,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
             ui->btnFlatPreview->setChecked(false);
         }
     } else {
-        bool oldBlock = ui->chkBoxTexture->blockSignals(true);
-        ui->chkBoxTexture->setChecked(texEnabled);
-        ui->chkBoxTexture->blockSignals(oldBlock);
+        refreshSurfaceTextureCheckbox();   // segue l'intenzione (texEnabled)
         updateTextureUIState(texEnabled);
     }
 
@@ -17405,6 +17335,76 @@ void MainWindow::applyPresetAlpha(float alpha)
     ui->alphaSlider->setValue(qRound(alpha * 100.0f));
     m_settingAlphaProgrammatic = false;
     if (ui->glWidget) ui->glWidget->setAlpha(alpha);
+}
+
+// ACCENSIONE DELLA TEXTURE DI SUPERFICIE NEL MOTORE, derivata dall'intenzione.
+// m_surfaceTextureState e' l'unica copia che dice se l'utente VUOLE la texture
+// (cambia col checkbox della superficie, coi load e coi reset); il motore ne e'
+// una conseguenza: accesa se l'utente la vuole e la superficie non e' in
+// wireframe. Il wireframe di UNA fascia (ambito Mesh su una multi-mesh) non la
+// spegne: e' una proprieta' della parte, e il fragment non texturizza gia' da
+// se' una parte in wireframe (surface.frag, u_renderMode == 2 per-parte).
+// Prima 14 punti scrivevano setGlobalTextureEnabled, ciascuno con la sua regola
+// (alcuni ignoravano il wireframe, lasciando a updateRenderState il compito di
+// rimediare): ora la regola e' qui, ed e' quella di updateRenderState.
+// Tappa 3 dello "stato unico della scena"; il test degli scenari la verifica.
+void MainWindow::applySurfaceTextureToEngine()
+{
+    if (!ui->glWidget) return;
+    const bool editingOneMesh = ui->glWidget->activeMeshPart() >= 0
+                                && ui->glWidget->meshPartCount() > 1;
+    const bool surfaceWireframe = (m_savedRenderMode == 2) && !editingOneMesh;
+    ui->glWidget->setGlobalTextureEnabled(m_surfaceTextureState && !surfaceWireframe);
+}
+
+// IL CHECKBOX "Texture" COME VISTA dell'intenzione m_surfaceTextureState,
+// quando il dock edita la superficie in ambito All: spuntato = intenzione, e
+// in WIREFRAME spento e disabilitato (la texture non si disegna). Con lo sfondo
+// o una fascia in editing il checkbox mostra quelli (syncAppearanceControls-
+// ToActiveMesh per la fascia): qui non si tocca.
+// E' la regola che il test degli scenari verifica dopo ogni gesto; chi accende
+// o spegne la texture scrive l'intenzione e chiama questa, invece di spuntare
+// il checkbox a mano (scegliere un'immagine in wireframe lo spuntava).
+void MainWindow::refreshSurfaceTextureCheckbox()
+{
+    if (ui->radioBackground->isChecked()) return;   // mostra lo sfondo: il suo handler
+    const bool wire = textureTargetInWireframe();
+
+    // Ambito Mesh: il DISPLAY della fascia, cioe' il suo stato EFFICACE (il
+    // proprio se dichiarato, altrimenti cio' che eredita). In MULTI-mesh una
+    // parte mai configurata NON eredita la texture globale (resta in tinta
+    // unita): il display dice la stessa cosa del render. Era la regola di
+    // syncAppearanceControlsToActiveMesh; i cambi di modalita' la scavalcavano
+    // scrivendo l'intenzione GLOBALE, e una fascia senza texture risultava
+    // "accesa" (trovato dal test degli scenari).
+    bool on = m_surfaceTextureState;
+    const int part = ui->glWidget ? ui->glWidget->activeMeshPart() : -1;
+    if (part >= 0 && ui->tabModeSelector->currentIndex() != 1 && ui->glWidget->getEngine()) {
+        const auto &parts = ui->glWidget->getEngine()->getMeshParts();
+        if (part < (int)parts.size()) {
+            const bool multi = ui->glWidget->meshPartCount() > 1;
+            on = multi ? parts[part].effectiveTextureEnabledMulti()
+                       : parts[part].effectiveTextureEnabled(ui->glWidget->isTextureEnabled());
+        }
+    }
+    const bool b = ui->chkBoxTexture->blockSignals(true);
+    ui->chkBoxTexture->setEnabled(!wire && !isSceneEmpty());
+    ui->chkBoxTexture->setChecked(!wire && on);
+    ui->chkBoxTexture->blockSignals(b);
+}
+
+// La texture del bersaglio corrente non si disegna perche' e' in wireframe: in
+// ambito Mesh (multi-mesh, parametrico) conta la modalita' della FASCIA -- una
+// fascia puo' essere in wireframe su una superficie in Base, e viceversa --
+// altrimenti quella della superficie. updateRenderState e onColorTargetChanged
+// abilitavano il checkbox ciascuno con una regola sua (il secondo guardava solo
+// la superficie): l'esito dipendeva da quale girava per ultima.
+bool MainWindow::textureTargetInWireframe()
+{
+    if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0
+        && ui->glWidget->meshPartCount() > 1 && ui->tabModeSelector->currentIndex() != 1)
+        return ui->glWidget->activeMeshEffectiveRenderMode() == 2;
+    return m_savedRenderMode == 2;
 }
 
 // Chiamata da OGNI load di un preset Ray Marching (superfici e record), non
@@ -21371,12 +21371,11 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
         // globale (resta in tinta unita): il display deve dire la stessa cosa
         // del render, o il checkbox risulterebbe acceso su una fascia che si
         // disegna senza texture. Con una mesh sola vale la regola di sempre.
+        // La regola sta in refreshSurfaceTextureCheckbox (unico punto della vista).
         const bool multi = ui->glWidget->meshPartCount() > 1;
         const bool eff = multi ? p.effectiveTextureEnabledMulti()
                                : p.effectiveTextureEnabled(ui->glWidget->isTextureEnabled());
-        const bool oldCb = ui->chkBoxTexture->blockSignals(true);
-        ui->chkBoxTexture->setChecked(eff);
-        ui->chkBoxTexture->blockSignals(oldCb);
+        refreshSurfaceTextureCheckbox();
 
         // PICKER Color1/Color2 RIALLINEATI ALLA PARTE. Il checkbox qui sopra
         // mostra gia' lo stato giusto, ma i due picker non venivano rivalutati

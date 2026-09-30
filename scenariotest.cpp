@@ -6,6 +6,7 @@
 #include "librarymanager.h"
 #include "presetserializer.h"
 #include "audiocontroller.h"
+#include "surfaceengine.h"
 
 #include <QApplication>
 #include <QDialog>
@@ -19,6 +20,7 @@
 namespace {
 const char *kParametricRecord = "records/t_motions/3D/Dynamic Mobius Band.json";
 const char *kImplicitRecord   = "records/Ray Marching/Morphing Rosette.json";
+const char *kMultiMeshRecord  = "records/Solid Wireframe/Multi Mesh/Brieskorn-Pham (3,5).json";
 QString onOff(bool b) { return b ? QStringLiteral("on") : QStringLiteral("off"); }
 } // namespace
 
@@ -88,12 +90,32 @@ bool ScenarioTest::loadRecord(const QString &rel)
     return true;
 }
 
+bool ScenarioTest::selectTexture(const QString &rel)
+{
+    const QList<LibraryItem> &list = m_mw->m_libraryManager.m_textures;
+    for (int i = 0; i < list.size(); ++i) {
+        if (QDir::fromNativeSeparators(list.at(i).filePath).endsWith(rel)) {
+            m_mw->handleTextureSelection(i);
+            wait(600);
+            return true;
+        }
+    }
+    check(false, QStringLiteral("texture non trovata nella libreria dell'app: ") + rel);
+    return false;
+}
+
 void ScenarioTest::checkTextureEnabled(const QString &step, bool expectedIntent)
 {
     GLWidget *gl = m_mw->ui->glWidget;
     const bool intent  = m_mw->m_surfaceTextureState;
     const bool wire    = (m_mw->m_savedRenderMode == 2);
     const bool onBg    = m_mw->ui->radioBackground->isChecked();
+    // AMBITO MESH (fascia selezionata su una multi-mesh): il wireframe globale
+    // non spegne la texture globale, e il checkbox mostra la FASCIA -- il suo
+    // stato efficace (MeshPart::effectiveTextureEnabledMulti) -- non l'intenzione.
+    const int part = gl->activeMeshPart();
+    const bool editingOneMesh = part >= 0 && gl->meshPartCount() > 1;
+    const bool globalWire = wire && !editingOneMesh;
     const bool engine  = gl->isTextureEnabled();
     const bool chk     = m_mw->ui->chkBoxTexture->isChecked();
     const bool chkOn   = m_mw->ui->chkBoxTexture->isEnabled();
@@ -108,10 +130,19 @@ void ScenarioTest::checkTextureEnabled(const QString &step, bool expectedIntent)
     QStringList bad;
     if (intent != expectedIntent)
         bad << QStringLiteral("intenzione %1, attesa %2").arg(onOff(intent), onOff(expectedIntent));
-    if (engine != (intent && !wire))
+    if (engine != (intent && !globalWire))
         bad << QStringLiteral("motore %1 (intenzione %2, wireframe %3)")
-                   .arg(onOff(engine), onOff(intent), onOff(wire));
-    if (!onBg) {
+                   .arg(onOff(engine), onOff(intent), onOff(globalWire));
+    if (!onBg && editingOneMesh) {
+        // Fascia in wireframe: la sua texture non si disegna, checkbox spento
+        // (come la superficie in wireframe in ambito All).
+        const auto &parts = gl->getEngine()->getMeshParts();
+        const bool partWire = gl->activeMeshEffectiveRenderMode() == 2;
+        const bool eff = !partWire && parts[part].effectiveTextureEnabledMulti();
+        if (chk != eff)
+            bad << QStringLiteral("checkbox %1, fascia %2 %3%4").arg(onOff(chk)).arg(part + 1)
+                       .arg(onOff(eff), partWire ? QStringLiteral(" (in wireframe)") : QString());
+    } else if (!onBg) {
         if (wire && (chk || chkOn))
             bad << QStringLiteral("checkbox in wireframe: %1, %2")
                        .arg(onOff(chk), chkOn ? QStringLiteral("abilitato") : QStringLiteral("disabilitato"));
@@ -149,6 +180,13 @@ void ScenarioTest::run()
         click(ui->chkBoxTexture);   checkTextureEnabled(QStringLiteral("spenta in Phong"), false);
         click(ui->radioWF);         checkTextureEnabled(QStringLiteral("poi Wireframe"), false);
         click(ui->radioBasic);      checkTextureEnabled(QStringLiteral("poi Base"), false);
+        click(ui->radioPhong);      checkTextureEnabled(QStringLiteral("poi Phong"), false);
+        if (selectTexture(QStringLiteral("textures/Images/14.png")))
+            checkTextureEnabled(QStringLiteral("immagine dalla Library"), true);
+        click(ui->radioWF);         checkTextureEnabled(QStringLiteral("poi Wireframe"), true);
+        if (selectTexture(QStringLiteral("textures/Images/15.png")))
+            checkTextureEnabled(QStringLiteral("altra immagine scelta in Wireframe"), true);
+        click(ui->radioPhong);      checkTextureEnabled(QStringLiteral("di nuovo Phong"), true);
     }
 
     // ---------------------------------------------------------------------
@@ -160,6 +198,36 @@ void ScenarioTest::run()
         checkTextureEnabled(QStringLiteral("record caricato"), true);
         click(ui->chkBoxTexture);   checkTextureEnabled(QStringLiteral("spenta dal checkbox"), false);
         click(ui->chkBoxTexture);   checkTextureEnabled(QStringLiteral("riaccesa dal checkbox"), true);
+        click(ui->chkBoxTexture);   checkTextureEnabled(QStringLiteral("spenta di nuovo"), false);
+        if (selectTexture(QStringLiteral("textures/Ray Marching/Fractal Noise FBm.json")))
+            checkTextureEnabled(QStringLiteral("texture RM dalla Library"), true);
+        m_mw->onStartClicked();
+        wait(600);
+        checkTextureEnabled(QStringLiteral("Run"), true);
+    }
+
+    // ---------------------------------------------------------------------
+    // ACCENSIONE DELLA TEXTURE, multi-mesh in ambito Mesh: i gesti sulla fascia
+    // non devono toccare l'intenzione ne' il motore globale.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Accensione texture: multi-mesh, ambito Mesh (%1) ==")
+                       .arg(QString::fromLatin1(kMultiMeshRecord)));
+    if (loadRecord(QString::fromLatin1(kMultiMeshRecord))) {
+        checkTextureEnabled(QStringLiteral("record caricato"), true);
+        if (!ui->radioMeshOne->isChecked()) click(ui->radioMeshOne);
+        ui->spinMeshSel->setValue(1);  wait(300);
+        checkTextureEnabled(QStringLiteral("fascia 1 selezionata"), true);
+        click(ui->chkBoxTexture);   checkTextureEnabled(QStringLiteral("texture della fascia spenta"), true);
+        click(ui->chkBoxTexture);   checkTextureEnabled(QStringLiteral("texture della fascia riaccesa"), true);
+        ui->spinMeshSel->setValue(4);  wait(300);
+        checkTextureEnabled(QStringLiteral("fascia 4 (senza texture propria)"), true);
+        click(ui->radioWF);         checkTextureEnabled(QStringLiteral("fascia 4 in Wireframe"), true);
+        click(ui->radioBasic);      checkTextureEnabled(QStringLiteral("fascia 4 di nuovo Base"), true);
+        m_mw->onStartClicked();  wait(600);
+        checkTextureEnabled(QStringLiteral("Run con una fascia selezionata"), true);
+        click(ui->radioMeshAll);    checkTextureEnabled(QStringLiteral("ritorno ad All"), true);
+        click(ui->radioWF);         checkTextureEnabled(QStringLiteral("All in Wireframe"), true);
+        click(ui->radioBasic);      checkTextureEnabled(QStringLiteral("All di nuovo Base"), true);
     }
 
     finish();

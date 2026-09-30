@@ -35,6 +35,9 @@ private:
     ScenarioTest(MainWindow *mw, const QString &root, const QString &outDir);
     void run();
     bool loadRecord(const QString &rel);
+    // Come un click sulla voce della Library Textures (handleTextureSelection),
+    // cercata per percorso nella libreria dell'app.
+    bool selectTexture(const QString &rel);
     void wait(int ms);
     void check(bool ok, const QString &what);
     // Le quattro copie dell'accensione dopo il gesto `step`, con l'intenzione

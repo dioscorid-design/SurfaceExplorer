@@ -1170,6 +1170,15 @@ private:
     // Editor del sotto-tab Cross Section riempito col valore del PRESET che si
     // sta caricando, anche vuoto. Vedi l'implementazione.
     void setCrossSectionEditorFromPreset(const QString &eq);
+    // ACCENSIONE DELLA TEXTURE DI SUPERFICIE nel motore, derivata dall'intenzione
+    // m_surfaceTextureState. Vedi l'implementazione.
+    void applySurfaceTextureToEngine();
+    // Il checkbox "Texture" come VISTA dell'intenzione, quando si edita la
+    // superficie in ambito All. Vedi l'implementazione.
+    void refreshSurfaceTextureCheckbox();
+    // La superficie -- o la fascia selezionata, in ambito Mesh -- e' in
+    // wireframe: la texture non si disegna. Vedi l'implementazione.
+    bool textureTargetInWireframe();
     // Alpha globale del preset: slider E motore, anche a valore invariato.
     void applyPresetAlpha(float alpha);
     // defU/V/W e explicitU/V/W dal preset, per entrambi i rami di applyCommonData.
