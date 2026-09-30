@@ -3227,6 +3227,7 @@ void GLWidget::setBackgroundTexture(const QString &path) {
 
     m_backgroundTextureNeedsUpload = true;
     m_bgIsScript = false;
+    m_bgImagePath = path;
     rebuildBackgroundShader(true, "");
 
     update();

@@ -15,6 +15,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QMessageBox>
+#include <QRegularExpression>
 #include <QTimer>
 
 namespace {
@@ -225,6 +226,51 @@ void ScenarioTest::checkTexColors(const QString &step, const QColor &global1, co
 
     check(bad.isEmpty(), QStringLiteral("%1 -> colori %2 %3%4")
                              .arg(step, e1.name(), e2.name(),
+                                  bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+}
+
+void ScenarioTest::checkBackground(const QString &step, const QString &expectedImage)
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    const bool on = gl->isBackgroundTextureEnabled();
+    const QString enginePath = gl->backgroundImagePath();
+    const bool engineDefault = enginePath.isEmpty() || enginePath == QLatin1String("background.png");
+    const QString shown = engineDefault ? QString() : QFileInfo(enginePath).fileName();
+
+    PresetSerializer::MotionRunState run;
+    run.rotating = gl->isAnimating();
+    run.path4D   = m_mw->pathTimer && m_mw->pathTimer->isActive();
+    run.path3D   = m_mw->pathTimer3D && m_mw->pathTimer3D->isActive();
+    const LibraryItem saved = m_mw->m_presetSerializer->captureMotionState(m_record, run, true);
+    static const QRegularExpression imgRe(QStringLiteral(R"(^\s*//IMG:\s*(.*)$)"),
+                                          QRegularExpression::MultilineOption);
+    const QRegularExpressionMatch m = imgRe.match(saved.bgTextureCode);
+    const QString savedImage = m.hasMatch() ? QFileInfo(m.captured(1).trimmed()).fileName() : QString();
+    const QString savedScript = QString(saved.bgTextureCode).remove(imgRe).trimmed();
+
+    auto name = [](const QString &f) { return f.isEmpty() ? QStringLiteral("default") : f; };
+    QStringList bad;
+    if (saved.bgTextureEnabled != on)
+        bad << QStringLiteral("il Save scriverebbe enabled %1, motore %2")
+                   .arg(onOff(saved.bgTextureEnabled), onOff(on));
+    if (!on) {
+        if (!saved.bgTextureCode.trimmed().isEmpty())
+            bad << QStringLiteral("sfondo spento ma il Save scriverebbe il codice \"%1\"")
+                       .arg(saved.bgTextureCode.simplified().left(60));
+        if (!saved.bgLibName.isEmpty())
+            bad << QStringLiteral("sfondo spento ma il Save scriverebbe l'ancora \"%1\"").arg(saved.bgLibName);
+        if (!engineDefault)
+            bad << QStringLiteral("sfondo spento con %1 in GPU: riaccendendo ricomparirebbe").arg(shown);
+    } else if (savedScript.isEmpty() && savedImage != shown) {
+        // Sfondo a sola immagine (o default): cio' che si vede e' cio' che si salva.
+        bad << QStringLiteral("a schermo %1, il Save scriverebbe %2").arg(name(shown), name(savedImage));
+    }
+    if (!expectedImage.isNull() && on && shown != expectedImage)
+        bad << QStringLiteral("a schermo %1, atteso %2").arg(name(shown), name(expectedImage));
+
+    check(bad.isEmpty(), QStringLiteral("%1 -> sfondo %2%3%4")
+                             .arg(step, onOff(on),
+                                  on ? QStringLiteral(", ") + name(shown) : QString(),
                                   bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
 }
 
@@ -470,6 +516,33 @@ void ScenarioTest::run()
     if (loadRecord(QString::fromLatin1(kImplicitRecord)))
         checkDisplacement(QStringLiteral("poi un record RM senza rilievi"),
                           presetDisplacement(QString::fromLatin1(kImplicitRecord), LibraryType::Motion));
+
+    // ---------------------------------------------------------------------
+    // SFONDO-IMMAGINE PERSO NEI RECORD. La catena: record con un'immagine di
+    // sfondo, poi un record con lo sfondo SPENTO (ma col codice nel file), poi
+    // si riaccende lo sfondo. Prima si vedeva l'immagine del primo e il Save
+    // scriveva enabled true con codice vuoto: al reload, la default.
+    const QString kRoman = QStringLiteral("records/Rotations/Roman Surface.json");
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Sfondo: immagine persa nei record (%1, poi %2) ==")
+                       .arg(QString::fromLatin1(kParametricRecord), kRoman));
+    if (loadRecord(QString::fromLatin1(kParametricRecord)))
+        checkBackground(QStringLiteral("record con immagine di sfondo"), QStringLiteral("8.png"));
+    if (loadRecord(kRoman)) {
+        checkBackground(QStringLiteral("record con lo sfondo spento"));
+        click(ui->radioBackground);
+        click(ui->chkBoxTexture);   checkBackground(QStringLiteral("sfondo riacceso"), QStringLiteral(""));
+        if (selectTexture(QStringLiteral("textures/Images/14.png")))
+            checkBackground(QStringLiteral("immagine dalla Library"), QStringLiteral("14.png"));
+        click(ui->chkBoxTexture);   checkBackground(QStringLiteral("sfondo spento dal checkbox"));
+        click(ui->chkBoxTexture);   checkBackground(QStringLiteral("riacceso"), QStringLiteral(""));
+        click(ui->radioSurface);    checkBackground(QStringLiteral("ritorno a Surface"), QStringLiteral(""));
+    }
+    if (loadRecord(QString::fromLatin1(kParametricRecord)))
+        checkBackground(QStringLiteral("di nuovo il record con immagine"), QStringLiteral("8.png"));
+    const QString kClifford6 = QStringLiteral("records/Solid Wireframe/Multi Mesh/Clifford 6-Tubes Rotation.json");
+    if (loadRecord(kClifford6))
+        checkBackground(QStringLiteral("Clifford 6-Tubes Rotation (sfondo spento)"));
 
     finish();
 }

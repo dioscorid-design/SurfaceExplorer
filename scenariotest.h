@@ -23,8 +23,8 @@ class MainWindow;
 //   - il checkbox la mostra: spento e disabilitato in wireframe, altrimenti
 //     uguale all'intenzione (quando si edita la superficie);
 //   - il Save scrive l'intenzione, in qualunque modalita' si salvi.
-// E sui COLORI u_col1/u_col2 (vedi checkTexColors) e sul DISPLACEMENT
-// (checkDisplacement).
+// E sui COLORI u_col1/u_col2 (vedi checkTexColors), sul DISPLACEMENT
+// (checkDisplacement) e sull'immagine di SFONDO (checkBackground).
 //
 //   SurfaceExplorer --scenario-test <radice preset> <cartella uscita>
 //
@@ -63,6 +63,12 @@ private:
     // `expected`, se non nullo, e' il codice atteso nel campo.
     void checkDisplacement(const QString &step, const QString &expected = QString(),
                            bool pendingEdit = false);
+    // Lo SFONDO dopo il gesto `step`: il Save scrive cio' che e' a schermo.
+    // Spento: niente codice ne' ancora, e in GPU la default (riaccendendo si
+    // vede quella). Acceso con un'immagine: il tag //IMG: del Save e' l'immagine
+    // caricata nel motore. `expectedImage`, se non nullo, e' il nome del file
+    // atteso a schermo ("" = la default).
+    void checkBackground(const QString &step, const QString &expectedImage = QString());
     // Il codice di displacement di un preset della libreria (come lo legge l'app).
     QString presetDisplacement(const QString &rel, LibraryType type);
     // Come l'utente: slot Colore 1/2 col suo radio, poi i tre slider.

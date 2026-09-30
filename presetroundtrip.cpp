@@ -436,6 +436,17 @@ QString PresetRoundTrip::excusedBecause(const QString &key, int kind, bool white
         if (rm3D && fourD.contains(key))
             return QStringLiteral("4D azzerato in Ray Marching 3D");
     }
+    // Sfondo SPENTO nel file: codice, ancora e messaggio non contano -- lo
+    // sfondo spento non ha texture (MainWindow::forgetBackgroundTexture), e un
+    // residuo nel file era un difetto del Save vecchio (il percorso
+    // dell'immagine sopravviveva allo spegnimento).
+    if (!file.value(QStringLiteral("background")).toObject().value(QStringLiteral("enabled")).toBool()) {
+        static const QStringList bgTex = {
+            QStringLiteral("background/code"), QStringLiteral("background/libName"),
+            QStringLiteral("background/hintText"), QStringLiteral("background/hintSeconds"),
+        };
+        if (bgTex.contains(key)) return QStringLiteral("sfondo spento: niente texture");
+    }
     // Il nome del preset lo decide il FILE: il Save scrive il nome del file,
     // qualunque cosa dica la chiave (es. apostrofo tipografico nel "name").
     if (kind == Diff::Changed && key == QLatin1String("name"))

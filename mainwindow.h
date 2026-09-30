@@ -1262,6 +1262,16 @@ public:
     bool syncFocusedTextureFromLibrary();
     bool syncSurfaceTextureFrom(const LibraryItem *lib);
     bool syncBackgroundTextureFrom(const LibraryItem *lib);
+    // SFONDO SENZA TEXTURE, in un colpo solo: codice, testo dello script,
+    // percorso dell'immagine, ancora di libreria, messaggio e immagine nella
+    // GPU (torna background.png). Regola unica: sfondo spento = niente texture.
+    // Prima ogni punto di spegnimento azzerava un pezzo diverso, e cio' che
+    // restava generava lo "sfondo-immagine perso nei record": percorso rimasto
+    // -> Save con enabled false e l'//IMG: di un'immagine tolta; immagine
+    // rimasta in GPU -> riaccendendo si vedeva quella ma il Save, senza
+    // percorso, scriveva enabled true e codice VUOTO (al reload: default).
+    // Non tocca l'accensione (setBackgroundTextureEnabled): e' del chiamante.
+    void forgetBackgroundTexture();
     // Una fascia da sincronizzare: indice della parte e voce da cui viene.
     struct MeshTextureSync { int part; const LibraryItem *lib; };
     bool syncMeshTexturesFrom(const QVector<MeshTextureSync> &items);

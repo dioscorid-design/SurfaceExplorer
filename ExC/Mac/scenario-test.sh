@@ -8,7 +8,7 @@
 # fasce di una multi-mesh, Run -- verificando dopo ogni gesto che le copie
 # dello stato della scena (motore, controlli, cio' che scriverebbe il Save)
 # restino coerenti: accensione della texture, colori u_col1/u_col2,
-# displacement del Ray Marching. Dura circa un minuto.
+# displacement del Ray Marching, immagine di sfondo. Dura circa un minuto.
 #
 # Quando lanciarlo: dopo ogni modifica alla gestione della texture o dei
 # controlli di resa, e prima di un rilascio. E' la rete dei GESTI: il test dei

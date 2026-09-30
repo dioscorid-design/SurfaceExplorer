@@ -509,6 +509,12 @@ public:
 
     void setBackgroundColor(const QColor &color);
     void setBackgroundTexture(const QString &path);
+    // Percorso dell'ultima immagine caricata come sfondo ("background.png" per
+    // la default, vuoto prima del primo caricamento): cio' che e' a schermo, e
+    // quindi cio' che il Save deve scrivere nel tag //IMG: dello sfondo. Lo
+    // verifica il test degli scenari.
+    QString backgroundImagePath() const { return m_bgImagePath; }
+    bool backgroundIsScript() const { return m_bgIsScript; }
     void setBackgroundTextureEnabled(bool enabled);
     bool isBackgroundTextureEnabled() const { return m_useBackgroundTexture; }
     // FORMA DELLO SFONDO (radio del gruppo "Background Controls" del Renderer).
@@ -1121,6 +1127,7 @@ private:
     bool m_useBackgroundTexture = false;
     int m_bgSkyMode = BgFixed;      // vedi setBackgroundSkyMode
     bool m_bgIsScript = false;
+    QString m_bgImagePath;          // vedi backgroundImagePath
     QVector3D m_bgColor = QVector3D(0.3f, 0.3f, 0.3f);
     int m_lightingMode4D = 0;
 

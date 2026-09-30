@@ -3163,16 +3163,11 @@ MainWindow::MainWindow(QWidget *parent)
             }
 
             if (!checked) {
-                m_bgTextureCode.clear();
-                m_bgTextureScriptText.clear();
-
-                // Reset dello stato sfondo lato GPU alla default. Cancellare solo le
-                // stringhe CPU non basta: setBackgroundTextureEnabled(true) al
-                // riaccendere tiene "l'ultima usata" (m_backgroundTexture/m_bgScriptCode/
-                // m_bgIsScript restano in memoria) e ricompare l'ultimo sfondo invece
-                // della default. setBackgroundTexture ricarica background.png e azzera
-                // m_bgIsScript, così la riaccensione riparte sempre dalla default.
-                if (ui->glWidget) ui->glWidget->setBackgroundTexture("background.png");
+                // Codice, percorso dell'immagine, ancora e GPU insieme: la
+                // riaccensione riparte sempre dalla default, e il Save non trova
+                // piu' il percorso dell'immagine appena tolta (lo scriveva come
+                // //IMG: in un record con lo sfondo spento).
+                forgetBackgroundTexture();
 
                 // Se stiamo visualizzando il dock degli script in modalità Texture
                 if (m_currentScriptMode == ScriptModeTexture) {
@@ -5601,8 +5596,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         ui->glWidget->setDisplacementCode("");
 
         ui->glWidget->setBackgroundTextureEnabled(false);
-                    m_bgTextureCode = "";
-                    m_bgTextureScriptText = "";
+        forgetBackgroundTexture();
 
         // Slot di testo della texture di SUPERFICIE, simmetrico a quello dello
         // sfondo qui sopra. Il reset l'ha appena azzerata (m_surfaceTextureCode
@@ -5821,8 +5815,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
 
         // 3. RESET SFONDO E LIMITI
         ui->glWidget->setBackgroundTextureEnabled(false);
-        m_bgTextureCode = "";
-        m_bgTextureScriptText = "";
+        forgetBackgroundTexture();
         // Esco dall'editing sfondo: riporto il target sulla superficie. radioSurface
         // e radioBackground sono esclusivi, ma li tocco a segnali bloccati perché
         // il ripristino del dock è già gestito esplicitamente qui intorno (non
@@ -8260,6 +8253,18 @@ bool MainWindow::syncSurfaceTextureFrom(const LibraryItem *lib)
     m_currentTextureHintSeconds = lib->hintSeconds > 0 ? lib->hintSeconds : m_currentHintSeconds;
 
     return true;
+}
+
+void MainWindow::forgetBackgroundTexture()
+{
+    m_bgTextureCode.clear();
+    m_bgTextureScriptText.clear();
+    m_currentBgTexturePath.clear();
+    m_currentBgTextureLibName.clear();
+    m_currentBgTextureHintText.clear();
+    // Ricarica la default e spegne lo script di sfondo (m_bgIsScript): chi
+    // riaccende lo sfondo riparte da li', non dall'ultima immagine usata.
+    if (ui->glWidget) ui->glWidget->setBackgroundTexture("background.png");
 }
 
 // SFONDO. Stesso contratto della superficie -- arriva il CODICE della voce di
@@ -13998,10 +14003,8 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // Non basta il reset di scena: una superficie passa di li' solo se cambia la
     // linguetta.
     m_currentTextureLibName.clear();
-    m_currentBgTextureLibName.clear();
-    // Il messaggio dello sfondo segue lo sfondo, che questo caricamento toglie
-    // (m_bgTextureCode viene svuotato qui sotto).
-    m_currentBgTextureHintText.clear();
+    // Ancora e messaggio dello SFONDO: li toglie forgetBackgroundTexture, piu'
+    // sotto, insieme a tutto lo sfondo che questo caricamento spegne.
 
     // ASPETTO PER-MESH DURANTE IL LOAD.
     // Per tutta la durata del caricamento i setter globali (colore, alpha, luce,
@@ -14078,8 +14081,9 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     ui->lineTexture->blockSignals(false);
     if(ui->glWidget) ui->glWidget->setTextureCode("");
 
-    m_bgTextureCode = "";
-    m_bgTextureScriptText = "";
+    // Lo sfondo si spegne piu' sotto (setBackgroundTextureEnabled(false)): qui
+    // se ne va tutto il resto, percorso dell'immagine e GPU compresi.
+    forgetBackgroundTexture();
 
     m_soundScriptText.clear();
     m_currentSoundLibName.clear();   // l'ancora segue il suono che se ne va
@@ -14973,6 +14977,14 @@ void MainWindow::applyMotionExample(LibraryItem data)
     }
 
     bgCode.remove(cleanMusicRe); bgCode.remove(cleanBlockRe); bgCode = bgCode.trimmed();
+    // SFONDO SPENTO = NIENTE TEXTURE (vedi forgetBackgroundTexture). Un record
+    // puo' portare codice con lo sfondo spento -- era il Save a scriverlo, col
+    // percorso dell'immagine rimasto dopo lo spegnimento. Tenerlo in memoria
+    // mentre la GPU restava sull'immagine del record PRECEDENTE era l'origine
+    // dello "sfondo-immagine perso": riaccendendo si vedeva quella, e il Save
+    // scriveva enabled true con codice vuoto. Qui, DOPO l'estrazione
+    // dell'audio: un suono che viaggia nel codice dello sfondo resta.
+    if (!bgTexEnabled) bgCode.clear();
     // ===================================================================
 
     // IMMAGINI MANCANTI: l'avviso e' GIA' STATO DATO in cima alla funzione, su
@@ -15194,6 +15206,9 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // --- APPLICAZIONE TEXTURE BACKGROUND ---
     ui->glWidget->setBackgroundTextureEnabled(bgTexEnabled);
     m_bgTextureCode = bgCode;
+    // Sfondo spento: via anche ancora, messaggio e immagine in GPU (quella del
+    // record precedente, altrimenti, ricomparirebbe alla riaccensione).
+    if (!bgTexEnabled) forgetBackgroundTexture();
     // Forma dello sfondo: SEMPRE, anche quando il record non ha sfondo o non ha
     // la chiave. E' uno stato appiccicoso del motore: saltandolo, un record
     // caricato dopo uno solidale si terrebbe il cielo del precedente.
