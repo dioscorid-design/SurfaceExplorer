@@ -14207,8 +14207,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
         ui->glWidget->setGlobalTextureColors(m_texColor1, m_texColor2);
     }
 
-    applyPresetAlpha(d.alpha);
-    ui->lightSlider->setValue(d.lightIntensity * 100);
+    // Alpha e luce del preset NON qui: vedi dopo updateRenderState() piu' sotto.
     // Luce di riempimento: preset senza la chiave -> 0 (il parser mette gia'
     // quel default), cioe' l'illuminazione con cui sono stati salvati.
     setFillLightUI(d.fillLight);
@@ -14242,6 +14241,18 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     }
 
     updateRenderState();
+
+    // ALPHA E LUCE DEL PRESET DOPO la chiamata qui sopra, non prima. A questo
+    // punto m_savedRenderMode e' ancora quello del preset PRECEDENTE (lo scrive
+    // applyCommonData, piu' sotto): se quello era in wireframe, il reset
+    // "wireframe -> opaco, luce 100" di updateRenderState cancellava i valori
+    // appena impostati di un preset che in wireframe non e'. Klein Quadric
+    // Ruled Lines (luce 0.97) si apriva a 1.00 dopo Hopf Tori Mesh Colors e a
+    // 0.97 dopo Octahedron Bands (trovato dal test di andata e ritorno).
+    // I preset davvero in wireframe restano normalizzati dalle chiamate
+    // successive, che vedono il mode giusto.
+    applyPresetAlpha(d.alpha);
+    ui->lightSlider->setValue(qRound(d.lightIntensity * 100.0f));
 
     // SOTTO-TAB IMPLICITO E SUA EQUAZIONE: ripristinati PRIMA di applyCommonData,
     // non dopo (dove sta il resto del ramo implicito, piu' sotto). Ordine
@@ -15449,7 +15460,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     ui->glWidget->setPhiSpeed(spdPhi);
     ui->glWidget->setPsiSpeed(spdPsi);
 
-    ui->lightSlider->setValue(data.lightIntensity * 100);
+    ui->lightSlider->setValue(qRound(data.lightIntensity * 100.0f));
     setFillLightUI(data.fillLight);
 
     int savedMode = (data.lightingMode != -1) ? data.lightingMode : 0;
