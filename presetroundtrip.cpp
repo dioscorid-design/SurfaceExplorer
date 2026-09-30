@@ -374,6 +374,15 @@ QString PresetRoundTrip::excusedBecause(const QString &key, int kind, bool white
         if (rm3D && fourD.contains(key))
             return QStringLiteral("4D azzerato in Ray Marching 3D");
     }
+    // discreteConstants con voci che non sono [lo, hi] (es. {"A": true}): il load
+    // le scarta (parseDiscreteConstants), quindi non c'e' nulla da riscrivere.
+    if (kind == Diff::Lost && key == QLatin1String("discreteConstants")) {
+        const QJsonObject disc = file.value(key).toObject();
+        bool anyValid = false;
+        for (auto it = disc.constBegin(); it != disc.constEnd(); ++it)
+            if (it.value().toArray().size() == 2) anyValid = true;
+        if (!anyValid) return QStringLiteral("voci malformate, ignorate dal load");
+    }
     // Limiti 0/0 nel file = "nessun dominio": vale quello dichiarato dallo script
     // (u_min := ...), che il Save poi scrive. Se invece arrivasse dal preset
     // precedente, lo mostrerebbe il confronto fra i due passaggi.

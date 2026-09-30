@@ -320,6 +320,24 @@ PresetSerializer::PresetSerializer(MainWindow *parent)
 //
 // Il motore invece tiene i due stati separati: red/green/blue restano il colore
 // globale qualunque cosa si faccia sulle parti, che vivono nei loro MeshPart.
+// Costanti discrete SENZA script: stessa semantica di "A := int(2,6);" ma
+// dichiarata dal preset, perche' le direttive := vivono solo nello scriptCode
+// e un preset con le equazioni nel dock Equations non ne ha uno. Emessa solo
+// se c'e' qualcosa da dire, cosi' i preset esistenti non cambiano di un byte.
+// Unica implementazione per superfici e record: prima la scriveva solo
+// buildMotionJson, e Save Surface perdeva la chiave (Jeener-Klein N-Bottle,
+// A:[2,12] -- trovato dal test di andata e ritorno).
+void PresetSerializer::writeDiscreteConstants(QJsonObject &root)
+{
+    if (m_mainWindow->m_discreteConsts.isEmpty()) return;
+    QJsonObject disc;
+    for (auto it = m_mainWindow->m_discreteConsts.constBegin();
+         it != m_mainWindow->m_discreteConsts.constEnd(); ++it) {
+        disc[it.key()] = QJsonArray{ it->lo, it->hi };
+    }
+    root["discreteConstants"] = disc;
+}
+
 // Trasparenza GLOBALE dal motore, per la stessa ragione di globalSurfaceColor
 // qui sotto: lo slider in ambito "Mesh" mostra l'alpha della mesh selezionata,
 // e salvarlo la faceva diventare l'alpha della superficie -- che le mesh senza
@@ -574,6 +592,7 @@ QJsonObject PresetSerializer::buildSurfaceJson(const QString &name)
     constants["F"] = kc.f;
     constants["S"] = kc.s;
     root["constants"] = constants;
+    writeDiscreteConstants(root);
 
     QJsonObject limits;
     writeParametricLimits(limits);
@@ -922,18 +941,7 @@ QJsonObject PresetSerializer::buildMotionJson(const QString &name, const MotionR
         root["textureHintText"] = m_mainWindow->m_currentTextureHintText;
         root["textureHintSeconds"] = (double)m_mainWindow->m_currentTextureHintSeconds;
     }
-    // Costanti discrete SENZA script: stessa semantica di "A := int(2,6);" ma
-    // dichiarata dal preset, perche' le direttive := vivono solo nello scriptCode
-    // e un preset con le equazioni nel dock Equations non ne ha uno. Emessa solo
-    // se c'e' qualcosa da dire, cosi' i preset esistenti non cambiano di un byte.
-    if (!m_mainWindow->m_discreteConsts.isEmpty()) {
-        QJsonObject disc;
-        for (auto it = m_mainWindow->m_discreteConsts.constBegin();
-             it != m_mainWindow->m_discreteConsts.constEnd(); ++it) {
-            disc[it.key()] = QJsonArray{ it->lo, it->hi };
-        }
-        root["discreteConstants"] = disc;
-    }
+    writeDiscreteConstants(root);
     // Vista corrente di ENTRAMBI i path: salvare solo m_pathViewMode4D (4D) faceva
     // ripartire i record 3D sempre in Tangent (la vista 3D vive in m_pathViewMode3D).
     root["pathMode"] = static_cast<int>(m_mainWindow->m_pathViewMode4D);

@@ -53,6 +53,9 @@ private:
     // i tre save (surface/motion/script) devono restare allineati.
     void writeParametricLimits(QJsonObject &limits);
 
+    // "discreteConstants" (se ce ne sono), per superfici e record.
+    void writeDiscreteConstants(QJsonObject &root);
+
     // Colore GLOBALE della superficie letto dal motore, mai da
     // m_currentSurfaceColor (che resta contaminato dal colore dell'ultima mesh
     // toccata). Vedi il commento sull'implementazione.
