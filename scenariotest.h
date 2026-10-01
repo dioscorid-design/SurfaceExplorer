@@ -116,6 +116,10 @@ private:
     // "none").
     void checkMotion(const QString &step, const QString &expectRunning = QString(),
                      bool pendingEdit = false);
+    // LAVORO NON SALVATO dopo il gesto `step`: cio' che l'avviso "vuoi
+    // salvare?" difenderebbe adesso -- la scena, il modulo texture, il modulo
+    // suono (vedi MainWindow::confirmDiscardUnsaved).
+    void checkDirty(const QString &step, bool scene, bool texture, bool sound);
     // La scena senza moti: quello che devono lasciare NEW, il cambio di
     // modalita' e il load di una superficie dopo un record in movimento.
     void checkMotionDefaults(const QString &step);
@@ -160,6 +164,10 @@ private:
     // Durante una scelta in Library il popup "lavoro non salvato" riceve
     // "Don't save" invece di Annulla (vedi il costruttore).
     bool m_discardOnPrompt = false;
+    // Il watchdog della GPU ha fermato l'animazione durante un caricamento
+    // (macchina sotto carico): il load si ripete, o i gesti seguenti partono
+    // da una scena ferma che non e' quella in prova.
+    bool m_watchdogFired = false;
 };
 
 #endif // SCENARIOTEST_H

@@ -102,6 +102,7 @@ ScenarioTest::ScenarioTest(MainWindow *mw, const QString &root, const QString &o
                 }
             }
         }
+        if (desc.contains(QLatin1String("slowing down"))) m_watchdogFired = true;
         m_lines.append(QStringLiteral("        popup chiuso: ") + desc.simplified());
         if (auto *d = qobject_cast<QDialog *>(w)) d->reject();
         else w->close();
@@ -132,9 +133,15 @@ bool ScenarioTest::loadRecord(const QString &rel)
         return false;
     }
     m_record = QFileInfo(rel).baseName();
-    m_mw->applyMotionExample(item);
-    if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
-    wait(1500);
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        m_watchdogFired = false;
+        m_mw->applyMotionExample(item);
+        if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
+        wait(1500);
+        if (!m_watchdogFired) break;
+        m_lines.append(QStringLiteral("        (watchdog della GPU durante il load: record ricaricato)"));
+        wait(1500);
+    }
     return true;
 }
 
@@ -740,6 +747,8 @@ void ScenarioTest::checkMotion(const QString &step, const QString &expectRunning
     // FOV.
     if (qAbs(m_mw->m_fov3D - ui->fovSliderMain->value()) > 0.5f || qAbs(m_mw->m_fov4D - ui->fovSliderMain->value()) > 0.5f)
         bad << QStringLiteral("FOV: slider %1, membri %2/%3").arg(ui->fovSliderMain->value()).arg(m_mw->m_fov3D).arg(m_mw->m_fov4D);
+    if (qAbs(gl->cameraFov() - ui->fovSliderMain->value()) > 0.5f)
+        bad << QStringLiteral("FOV: slider %1, proiezione del motore %2").arg(ui->fovSliderMain->value()).arg(gl->cameraFov());
     if (qAbs(sv.fov3D - m_mw->m_fov3D) > 0.01f || qAbs(sv.fov4D - m_mw->m_fov4D) > 0.01f)
         bad << QStringLiteral("FOV: il Save scriverebbe %1/%2").arg(sv.fov3D).arg(sv.fov4D);
 
@@ -776,6 +785,25 @@ void ScenarioTest::checkMotion(const QString &step, const QString &expectRunning
 
     check(bad.isEmpty(), QStringLiteral("%1 -> moti (%2)%3")
                              .arg(step, running, bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+}
+
+void ScenarioTest::checkDirty(const QString &step, bool scene, bool texture, bool sound)
+{
+    const bool s = m_mw->hasUnsavedWork();
+    const bool t = m_mw->textureModuleDirty();
+    const bool a = m_mw->soundModuleDirty();
+    auto names = [](bool sc, bool tx, bool sn) {
+        QStringList l;
+        if (sc) l << QStringLiteral("scena");
+        if (tx) l << QStringLiteral("texture");
+        if (sn) l << QStringLiteral("suono");
+        return l.isEmpty() ? QStringLiteral("niente") : l.join(QStringLiteral(" + "));
+    };
+    const bool ok = (s == scene && t == texture && a == sound);
+    check(ok, QStringLiteral("%1 -> da salvare: %2%3")
+                  .arg(step, names(scene, texture, sound),
+                       ok ? QString() : QStringLiteral(" (l'app dice: %1; %2)")
+                                            .arg(names(s, t, a), m_mw->unsavedKeys().join(QStringLiteral(", ")).left(300))));
 }
 
 void ScenarioTest::checkMotionDefaults(const QString &step)
@@ -976,6 +1004,23 @@ void ScenarioTest::run()
 {
     Ui::MainWindow *ui = m_mw->ui;
     auto click = [this](QAbstractButton *b) { b->click(); wait(200); };
+
+    // ---------------------------------------------------------------------
+    // AVVIO: la superficie di default non e' lavoro dell'utente. Se qui la
+    // scena risultasse da salvare, il primo preset scelto farebbe uscire
+    // l'avviso su un'app appena aperta.
+    m_lines.append(QStringLiteral("== Avvio =="));
+    checkDirty(QStringLiteral("app appena aperta"), false, false, false);
+    m_discardOnPrompt = true;
+    ui->tabModeSelector->setCurrentIndex(1);  wait(1500);
+    checkDirty(QStringLiteral("linguetta Ray Marching (superficie di default)"), false, false, false);
+    ui->subTabImplicit->setCurrentIndex(1);  wait(1500);
+    checkDirty(QStringLiteral("sotto-tab Cross Section (superficie di default)"), false, false, false);
+    ui->subTabImplicit->setCurrentIndex(0);  wait(1500);
+    ui->tabModeSelector->setCurrentIndex(0);  wait(1500);
+    m_discardOnPrompt = false;
+    checkDirty(QStringLiteral("linguetta Parametric (superficie di default)"), false, false, false);
+    m_lines.append(QString());
 
     // ---------------------------------------------------------------------
     // ACCENSIONE DELLA TEXTURE, superficie parametrica (record in Base).
@@ -2137,6 +2182,286 @@ void ScenarioTest::run()
     if (loadRecord(kRotRec) && loadSurface(kTorusSurf)) {
         checkMotionDefaults(QStringLiteral("record di rotazioni, poi una superficie"));
         checkMotion(QStringLiteral("dopo la superficie"), QStringLiteral("none"));
+    }
+    pressNew();
+
+    // ---------------------------------------------------------------------
+    // LAVORO NON SALVATO: che cosa l'avviso "vuoi salvare?" difende dopo ogni
+    // gesto. Regole decise con l'utente: si difende cio' che e' andato a
+    // schermo (non il testo mai eseguito), il lavoro sui campi di una texture
+    // o di un suono e' del loro MODULO, una texture o un suono presi dalla
+    // Library cambiano la scena ma non sono lavoro del modulo, il checkbox
+    // della texture mostra/nasconde e non e' lavoro, muovere la vista di una
+    // scena vuota nemmeno.
+    const QString kRec = QString::fromLatin1(kParametricRecord);
+    auto release = [this](QSlider *sl, int v) { sl->setValue(v); emit sl->sliderReleased(); wait(300); };
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Lavoro non salvato: record parametrico (%1) ==").arg(kRec));
+    if (loadRecord(kRec)) {
+        checkDirty(QStringLiteral("record caricato"), false, false, false);
+        ui->lineZ->setPlainText(QStringLiteral("B*v * sin(u/2 + t) + 0.2"));  wait(300);
+        checkDirty(QStringLiteral("equazione riscritta, non eseguita"), false, false, false);
+        applyEquationEdit(ui->lineZ);
+        checkDirty(QStringLiteral("equazione applicata"), true, false, false);
+    }
+    if (loadRecord(kRec)) {
+        checkDirty(QStringLiteral("record ricaricato"), false, false, false);
+        release(ui->alphaSlider, 60);
+        checkDirty(QStringLiteral("trasparenza dallo slider"), true, false, false);
+    }
+    if (loadRecord(kRec)) {
+        emit ui->glWidget->userMovedView();  wait(200);
+        checkDirty(QStringLiteral("vista mossa col mouse"), true, false, false);
+    }
+    if (loadRecord(kRec)) {
+        click(ui->btnSpinPlus);
+        checkDirty(QStringLiteral("spin +"), true, false, false);
+    }
+    if (loadRecord(kRec)) {
+        typeInField(ui->lineA, QStringLiteral("1.3"));
+        pressEnter(ui->lineA);
+        checkDirty(QStringLiteral("costante dal campo"), true, false, false);
+    }
+    if (loadRecord(kRec)) {
+        setConstantBySlider(QStringLiteral("A"), 1.4);
+        checkDirty(QStringLiteral("costante dallo slider"), true, false, false);
+    }
+    if (loadRecord(kRec)) {
+        click(ui->radioPhong->isChecked() ? ui->radioBasic : ui->radioPhong);
+        checkDirty(QStringLiteral("modo di resa cambiato"), true, false, false);
+    }
+    if (loadRecord(kRec)) {
+        click(ui->chkBoxTexture);
+        checkDirty(QStringLiteral("texture nascosta col checkbox"), false, false, false);
+        click(ui->chkBoxTexture);
+        checkDirty(QStringLiteral("texture rimessa col checkbox"), false, false, false);
+    }
+    if (loadRecord(kRec)) {
+        if (selectTexture(kMandelbrot))
+            checkDirty(QStringLiteral("un'altra texture dalla Library"), true, false, false);
+    }
+    if (loadRecord(kRec)) {
+        setScriptMode(MainWindow::ScriptModeTexture);
+        checkDirty(QStringLiteral("dock Script sulla texture"), false, false, false);
+        ui->txtScriptEditor->setPlainText(QStringLiteral("return mix(u_col2, u_col1, step(0.5, fract(u * 4.0)));"));
+        wait(300);
+        checkDirty(QStringLiteral("script della texture riscritto"), false, true, false);
+        m_mw->onRunCurrentScript();  wait(800);
+        checkDirty(QStringLiteral("script della texture eseguito"), false, true, false);
+        setScriptMode(MainWindow::ScriptModeSurface);
+    }
+    if (loadRecord(kRec)) {
+        setScriptMode(MainWindow::ScriptModeSound);
+        ui->txtScriptEditor->setPlainText(QStringLiteral(
+            "vec2 mainSound(int samp, float time) {\n    return vec2(0.1 * sin(6.2831853 * 330.0 * time));\n}"));
+        wait(300);
+        checkDirty(QStringLiteral("suono riscritto a mano"), false, false, true);
+        setScriptMode(MainWindow::ScriptModeSurface);
+    }
+    if (loadRecord(kRec)) {
+        if (selectSound(kSound)) {
+            if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
+            checkDirty(QStringLiteral("un altro suono dalla Library"), true, false, false);
+        }
+    }
+    if (loadRecord(kRec)) {
+        typeInField(ui->lineX_P3D, QStringLiteral("3*cos(t)"));
+        checkDirty(QStringLiteral("campo di un path scritto"), true, false, false);
+    }
+    if (loadRecord(kRec)) {
+        release(ui->fovSliderMain, 70);
+        checkDirty(QStringLiteral("FOV dallo slider"), true, false, false);
+    }
+    if (loadRecord(kRec)) {
+        typeInField(ui->uMaxEdit, QStringLiteral("3.0"));
+        pressEnter(ui->uMaxEdit);
+        checkDirty(QStringLiteral("limite u dal campo, Invio"), true, false, false);
+    }
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Lavoro non salvato: Ray Marching (%1) ==").arg(QString::fromLatin1(kImplicitRecord)));
+    if (loadRecord(QString::fromLatin1(kImplicitRecord))) {
+        checkDirty(QStringLiteral("record caricato"), false, false, false);
+        ui->lineTexture->setPlainText(QStringLiteral(
+            "textureCol = mix(ubuf.u_col1, ubuf.u_col2, 0.5 + 0.5 * sin(pModel.y * 6.0));"));
+        wait(300);
+        checkDirty(QStringLiteral("campo texture riscritto"), false, true, false);
+    }
+    if (loadRecord(kRmEq)) {
+        ui->lineEquation->setPlainText(QStringLiteral("x^2 + y^2 + z^2 = 1.3"));  wait(300);
+        checkDirty(QStringLiteral("equazione riscritta, non eseguita"), false, false, false);
+        click(ui->btnImplicit);  wait(800);
+        checkDirty(QStringLiteral("equazione eseguita"), true, false, false);
+    }
+    if (loadRecord(kRmEq)) {
+        release(ui->stepSlider, ui->stepSlider->value() > 300 ? 200 : 400);
+        checkDirty(QStringLiteral("Ray Steps dallo slider"), true, false, false);
+    }
+
+    // PER VALORE: conta lo stato, non il gesto. Riportare un comando dov'era
+    // rende la scena di nuovo pulita, e un comando qualunque la sporca anche se
+    // nessuno l'aveva cablato.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Lavoro non salvato: conta lo stato, non il gesto =="));
+    if (loadRecord(kRec)) {
+        const int a0 = ui->alphaSlider->value();
+        release(ui->alphaSlider, a0 == 60 ? 50 : 60);
+        checkDirty(QStringLiteral("trasparenza cambiata"), true, false, false);
+        release(ui->alphaSlider, a0);
+        checkDirty(QStringLiteral("trasparenza riportata dov'era"), false, false, false);
+    }
+    if (loadRecord(kRec)) {
+        const QString z0 = ui->lineZ->toPlainText();
+        ui->lineZ->setPlainText(QStringLiteral("B*v * sin(u/2 + t) + 0.2"));  wait(300);
+        applyEquationEdit(ui->lineZ);
+        checkDirty(QStringLiteral("equazione cambiata ed eseguita"), true, false, false);
+        ui->lineZ->setPlainText(z0);  wait(300);
+        applyEquationEdit(ui->lineZ);
+        checkDirty(QStringLiteral("equazione rimessa com'era ed eseguita"), false, false, false);
+    }
+    if (loadSurface(kTorusSurf)) {
+        click(ui->btnSpinPlus);
+        checkDirty(QStringLiteral("spin +"), true, false, false);
+        click(ui->btnSpinMinus);
+        checkDirty(QStringLiteral("spin - (di nuovo a zero)"), false, false, false);
+    }
+    if (loadRecord(kPath3D)) {
+        click(ui->pushView3D);
+        checkDirty(QStringLiteral("vista del path cambiata"), true, false, false);
+        click(ui->pushView3D);
+        checkDirty(QStringLiteral("vista del path rimessa"), false, false, false);
+        // Fermare un moto non e' qualcosa che il record salva.
+        click(ui->btnDeparture3D);
+        checkDirty(QStringLiteral("path fermato"), false, false, false);
+    }
+    if (loadRecord(kRotRec)) {
+        click(ui->btnStart_2);
+        checkDirty(QStringLiteral("rotazioni fermate"), false, false, false);
+    }
+    if (loadSurface(kTorusSurf)) {
+        // Su una superficie: la texture presa dalla Library cambia la scena (il
+        // record la salverebbe), il checkbox che poi la nasconde non aggiunge
+        // ne' toglie nulla.
+        if (selectTexture(kMandelbrot))
+            checkDirty(QStringLiteral("texture dalla Library su una superficie"), true, false, false);
+        click(ui->chkBoxTexture);
+        checkDirty(QStringLiteral("texture nascosta col checkbox"), true, false, false);
+    }
+    if (loadRecord(kRec)) {
+        setScriptMode(MainWindow::ScriptModeTexture);
+        ui->txtScriptEditor->setPlainText(QStringLiteral("return mix(u_col2, u_col1, step(0.5, fract(v * 4.0)));"));
+        wait(300);
+        checkDirty(QStringLiteral("script della texture riscritto"), false, true, false);
+        // Salvata come texture: il modulo e' su disco, la scena non c'entra.
+        m_mw->markTextureSaved();
+        checkDirty(QStringLiteral("dopo Save Texture"), false, false, false);
+        setScriptMode(MainWindow::ScriptModeSurface);
+        checkDirty(QStringLiteral("dock Script di nuovo sulla superficie"), false, false, false);
+    }
+    if (loadRecord(kRec)) {
+        release(ui->lightSlider, ui->lightSlider->value() == 70 ? 60 : 70);
+        setScriptMode(MainWindow::ScriptModeTexture);
+        ui->txtScriptEditor->setPlainText(QStringLiteral("return mix(u_col2, u_col1, step(0.5, fract(v * 6.0)));"));
+        wait(300);
+        checkDirty(QStringLiteral("luce cambiata e script della texture riscritto"), true, true, false);
+        // Save Surface scrive la scena, non la texture: il suo lavoro resta da salvare.
+        m_mw->markSurfaceSaved();
+        checkDirty(QStringLiteral("dopo Save Surface"), false, true, false);
+        // Save Record scrive tutto.
+        m_mw->markSceneClean();
+        checkDirty(QStringLiteral("dopo Save Record"), false, false, false);
+        setScriptMode(MainWindow::ScriptModeSurface);
+    }
+    if (loadRecord(kRec)) {
+        // I moduli del dock Script: passare da uno all'altro non e' lavoro.
+        setScriptMode(MainWindow::ScriptModeTexture);
+        setScriptMode(MainWindow::ScriptModeSound);
+        checkDirty(QStringLiteral("dock Script sul suono"), false, false, false);
+        setScriptMode(MainWindow::ScriptModeSurface);
+        checkDirty(QStringLiteral("dock Script sulla superficie"), false, false, false);
+        wait(3000);
+        checkDirty(QStringLiteral("record lasciato girare"), false, false, false);
+    }
+
+    // Gesti che scelgono su che cosa lavorare, o che fermano e riavviano: non
+    // cambiano niente di cio' che il record salva.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Lavoro non salvato: gesti che non sono lavoro (%1) ==")
+                       .arg(QString::fromLatin1(kMultiMeshRecord)));
+    if (loadRecord(QString::fromLatin1(kMultiMeshRecord))) {
+        checkDirty(QStringLiteral("record multi-mesh caricato"), false, false, false);
+        click(ui->radioBackground);
+        checkDirty(QStringLiteral("bersaglio Background"), false, false, false);
+        click(ui->radioSurface);
+        checkDirty(QStringLiteral("bersaglio Surface"), false, false, false);
+        click(ui->radioMeshAll->isChecked() ? ui->radioMeshOne : ui->radioMeshAll);
+        checkDirty(QStringLiteral("ambito All/Mesh cambiato"), false, false, false);
+        click(ui->radioMeshOne);
+        ui->spinMeshSel->setValue(ui->spinMeshSel->value() == 3 ? 2 : 3);  wait(300);
+        checkDirty(QStringLiteral("un'altra fascia selezionata"), false, false, false);
+        click(m_mw->m_btnStart);
+        checkDirty(QStringLiteral("master Stop"), false, false, false);
+        click(m_mw->m_btnStart);
+        checkDirty(QStringLiteral("master Start"), false, false, false);
+    }
+    // Reset della vista: riporta anche il FOV al default, e lo slider lo segue
+    // (il motore tornava a 45 con lo slider fermo sul valore del record). Su un
+    // record col FOV diverso dal default e' quindi un cambio della scena.
+    if (loadRecord(QString::fromLatin1(kMultiMeshRecord))) {
+        const int fov0 = ui->fovSliderMain->value();
+        m_mw->onResetViewClicked();  wait(300);
+        check(ui->fovSliderMain->value() == 45 && qAbs(ui->glWidget->cameraFov() - 45.0f) < 0.01f,
+              QStringLiteral("Reset della vista -> FOV 45 sullo slider e nel motore (slider %1, motore %2)")
+                  .arg(ui->fovSliderMain->value()).arg(ui->glWidget->cameraFov()));
+        checkDirty(QStringLiteral("Reset della vista (FOV del record %1)").arg(fov0), fov0 != 45, false, false);
+        checkMotion(QStringLiteral("dopo il Reset della vista"));
+    }
+    if (loadRecord(kPath3D)) {
+        const int fov0 = ui->fovSliderMain->value();
+        m_mw->onResetViewClicked();  wait(300);
+        check(ui->fovSliderMain->value() == fov0,
+              QStringLiteral("Reset della vista a path in corsa -> il FOV del path resta (slider %1)")
+                  .arg(ui->fovSliderMain->value()));
+        checkDirty(QStringLiteral("Reset della vista a path in corsa"), false, false, false);
+    }
+    if (loadRecord(kPathBoth)) {
+        click(m_mw->m_btnStart);
+        click(m_mw->m_btnStart);
+        checkDirty(QStringLiteral("record con path: master Stop e Start"), false, false, false);
+    }
+    if (loadRecord(kCrossRec)) {
+        click(m_mw->m_btnStart);
+        click(m_mw->m_btnStart);
+        checkDirty(QStringLiteral("record Cross Section: master Stop e Start"), false, false, false);
+    }
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Lavoro non salvato: superfici e scena vuota =="));
+    if (loadSurface(kTorusSurf)) {
+        checkDirty(QStringLiteral("superficie caricata"), false, false, false);
+        click(ui->chkBoxTexture);
+        checkDirty(QStringLiteral("texture accesa col checkbox"), false, false, false);
+        release(ui->lightSlider, 70);
+        checkDirty(QStringLiteral("luce dallo slider"), true, false, false);
+    }
+    if (loadSurface(kTorusSurf)) {
+        // Un'equazione che da' errore non va a schermo: niente da difendere.
+        ui->lineX->setPlainText(QStringLiteral("(A + B*cos(v))*cos(u"));  wait(300);
+        click(ui->btnRunParametric);  wait(800);
+        checkDirty(QStringLiteral("equazione con errore, Run"), false, false, false);
+    }
+    if (loadRecord(kRec)) {
+        release(ui->alphaSlider, 55);
+        checkDirty(QStringLiteral("record modificato"), true, false, false);
+        pressNew();
+        checkDirty(QStringLiteral("tasto NEW"), false, false, false);
+        emit ui->glWidget->userMovedView();  wait(200);
+        checkDirty(QStringLiteral("vista mossa a scena vuota"), false, false, false);
+        ui->lineX->setPlainText(QStringLiteral("cos(u)*cos(v)"));
+        ui->lineY->setPlainText(QStringLiteral("sin(u)*cos(v)"));
+        ui->lineZ->setPlainText(QStringLiteral("sin(v)"));
+        wait(300);
+        checkDirty(QStringLiteral("equazioni scritte da capo, non eseguite"), false, false, false);
     }
     pressNew();
 

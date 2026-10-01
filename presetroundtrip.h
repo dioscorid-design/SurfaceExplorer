@@ -62,6 +62,10 @@ private:
         // nessun codice (updateConstantsUIState), e le riporta al default.
         QSet<QString> unusedConstants;
         QSet<QString> emptyLimits;      // "uMin", "wMax"...: campi limite vuoti alla cattura
+        // Chiavi che l'avviso "vuoi salvare?" difenderebbe a fine cattura, senza
+        // che nessuno abbia toccato nulla (MainWindow::unsavedKeys): devono
+        // essere zero, o al preset successivo uscirebbe un popup fantasma.
+        QStringList unsavedAfterLoad;
     };
 
     // Perche' una differenza fra file e Save NON conta; vuota = conta.

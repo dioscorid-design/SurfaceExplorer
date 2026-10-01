@@ -922,7 +922,7 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     // DESKTOP: radice vuota NON si indovina in silenzio.
     //
     // Qui si ricadeva su <Documents>/SurfaceExplorer_Presets: mkpath, open e write
-    // riuscivano, m_sceneDirty veniva azzerato e l'utente riceveva la conferma di
+    // riuscivano, la scena risultava salvata e l'utente riceveva la conferma di
     // un salvataggio che non avrebbe trovato dove lo cercava. E' il meccanismo che
     // ha prodotto due librerie in posti diversi (una su Download, una su
     // Documents) con le modifiche che finivano in quella sbagliata: una radice
@@ -1052,8 +1052,9 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         // Il lavoro e' su disco: non c'e' piu' niente da proteggere. Lo legge
         // confirmDiscardUnsaved per capire se il "Save" e' andato a buon
         // fine o se l'utente ha annullato il dialogo (i return anticipati qui
-        // sopra lasciano il flag a true, e il reset viene giustamente sospeso).
-        m_mainWindow->m_sceneDirty = false;
+        // sopra lasciano l'esito a false, e il reset viene giustamente sospeso).
+        m_mainWindow->markSurfaceSaved();
+        m_mainWindow->m_lastSaveSucceeded = true;
 
         QTimer::singleShot(100, m_mainWindow, [this, fileName]() {
             m_mainWindow->refreshAndSelectPreset(m_mainWindow->ui->treeSurfaces, fileName);
@@ -1178,14 +1179,16 @@ void PresetSerializer::saveTexture(const QString &path)
 
         m_mainWindow->m_currentTexturePresetPath = path;
 
-        // Il lavoro e' su disco: lo legge confirmDiscardUnsavedTexture per
-        // sapere se il "Save" e' riuscito.
+        // Il lavoro e' su disco: m_lastSaveSucceeded lo dice a
+        // confirmDiscardUnsaved.
         //
-        // SOLO il flag del modulo: un file texture non contiene le equazioni,
-        // quindi azzerare anche m_sceneDirty dichiarerebbe salvato un lavoro
-        // sulla superficie che non e' stato scritto da nessuna parte -- e il
-        // reset successivo lo butterebbe via senza chiedere niente.
-        m_mainWindow->m_textureDirty = false;
+        // Pulito SOLO il modulo texture: un file texture non contiene le
+        // equazioni, quindi dichiarare pulita anche la scena darebbe per
+        // salvato un lavoro sulla superficie che non e' stato scritto da
+        // nessuna parte -- e il reset successivo lo butterebbe via senza
+        // chiedere niente.
+        m_mainWindow->markTextureSaved();
+        m_mainWindow->m_lastSaveSucceeded = true;
 
         // Refresh visivo + selezione del file appena salvato nella libreria
         QTimer::singleShot(100, m_mainWindow, [this, path]() {
@@ -1385,14 +1388,13 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         // Il lavoro e' su disco: come in saveSurface, lo legge
         // confirmDiscardUnsaved per sapere se il "Save" e' riuscito.
         //
-        // TUTTI E TRE i flag: un record contiene l'intera scena -- superficie,
+        // Pulito TUTTO: un record contiene l'intera scena -- superficie,
         // texture, suono, camera e rotazioni -- quindi salvandolo e' su disco
-        // anche il lavoro dei moduli. Azzerando il solo m_sceneDirty l'avviso
+        // anche il lavoro dei moduli. Dichiarando pulita la sola scena l'avviso
         // sarebbe ricomparso subito dopo per una texture gia' salvata dentro il
         // record.
-        m_mainWindow->m_sceneDirty   = false;
-        m_mainWindow->m_textureDirty = false;
-        m_mainWindow->m_soundDirty   = false;
+        m_mainWindow->markSceneClean();
+        m_mainWindow->m_lastSaveSucceeded = true;
 
         QTimer::singleShot(100, m_mainWindow, [this, fileName]() {
             m_mainWindow->refreshAndSelectPreset(m_mainWindow->ui->treeMotions, fileName);
@@ -1619,19 +1621,19 @@ void PresetSerializer::saveScript()
         bool isSnd  = (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeSound);
         QString safeSettingsKey = isSurf ? "lastFolder" : (isSnd ? "lastSoundDir" : "lastCustomTexDir");
 
-        // Il lavoro e' su disco: senza azzerare il flag del modulo, la conferma
-        // "vuoi salvare?" -- che legge !m_textureDirty / !m_soundDirty come
-        // esito del Save -- credeva che il salvataggio non fosse mai avvenuto,
-        // e il popup tornava al caricamento successivo anche senza nuove
-        // modifiche. Stesso buco gia' corretto in saveSoundAs; qui mancava per
-        // tutti e tre i modi. Si azzera SOLO il flag del modulo salvato: un
-        // file texture o sound non contiene le equazioni, quindi toccare
-        // m_sceneDirty dichiarerebbe salvato un lavoro sulla superficie mai
-        // scritto da nessuna parte. Per lo script di SUPERFICIE, invece, il
-        // file e' la scena: si azzera m_sceneDirty come fa saveSurface.
-        if (isSurf)      m_mainWindow->m_sceneDirty   = false;
-        else if (isSnd)  m_mainWindow->m_soundDirty   = false;
-        else             m_mainWindow->m_textureDirty = false;
+        // Il lavoro e' su disco: senza dirlo, la conferma "vuoi salvare?"
+        // credeva che il salvataggio non fosse mai avvenuto, e il popup tornava
+        // al caricamento successivo anche senza nuove modifiche. Stesso buco
+        // gia' corretto in saveSoundAs; qui mancava per tutti e tre i modi.
+        // Pulito SOLO il modulo salvato: un file texture o sound non contiene
+        // le equazioni, quindi dichiarare pulita la scena darebbe per salvato
+        // un lavoro sulla superficie mai scritto da nessuna parte. Per lo
+        // script di SUPERFICIE, invece, il file e' la scena, come in
+        // saveSurface.
+        if (isSurf)      m_mainWindow->markSurfaceSaved();
+        else if (isSnd)  m_mainWindow->markSoundSaved();
+        else             m_mainWindow->markTextureSaved();
+        m_mainWindow->m_lastSaveSucceeded = true;
 
         QSettings().setValue(safeSettingsKey, QFileInfo(fileName).absolutePath());
 
@@ -1703,7 +1705,8 @@ void PresetSerializer::saveSound(const QString &filePath)
         // Il lavoro e' su disco: lo legge confirmDiscardUnsavedSound per sapere
         // se il "Save" e' riuscito. SOLO il flag del modulo, per la stessa
         // ragione di saveTexture: un file sound non contiene la superficie.
-        m_mainWindow->m_soundDirty = false;
+        m_mainWindow->markSoundSaved();
+        m_mainWindow->m_lastSaveSucceeded = true;
     }
 
     // 6. Aggiorniamo la UI per riflettere eventuali modifiche (es. orario di ultima modifica)
@@ -1924,7 +1927,8 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
             if (QFile::exists(savePath)) QFile::remove(savePath);
             if (QFile::copy(sourceFilePath, savePath)) {
                 QFile::setPermissions(savePath, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadGroup);
-                m_mainWindow->m_soundDirty = false;   // su disco: vedi il ramo "da zero"
+                m_mainWindow->markSoundSaved();   // su disco: vedi il ramo "da zero"
+                m_mainWindow->m_lastSaveSucceeded = true;
             }
         }
     } else if (!sourceFilePath.isEmpty()) {
@@ -1943,7 +1947,8 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
                 if (outFile.open(QIODevice::WriteOnly)) {
                     outFile.write(QJsonDocument(root).toJson());
                     outFile.close();
-                    m_mainWindow->m_soundDirty = false;   // su disco: vedi il ramo "da zero"
+                    m_mainWindow->markSoundSaved();   // su disco: vedi il ramo "da zero"
+                    m_mainWindow->m_lastSaveSucceeded = true;
                 }
             }
         }
@@ -1969,12 +1974,13 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
             outFile.close();
 
             // Il lavoro sul suono e' su disco. Senza questo, la conferma
-            // "vuoi salvare?" -- che legge !m_soundDirty come esito -- credeva
+            // "vuoi salvare?" -- che ne legge l'esito -- credeva
             // che il salvataggio fosse FALLITO: il popup si ripresentava al
             // caricamento successivo anche senza nuove modifiche, e l'azione
             // in corso veniva sospesa. saveSound (l'altro writer del tipo) lo
             // azzerava gia'; qui mancava in tutti e tre i rami.
-            m_mainWindow->m_soundDirty = false;
+            m_mainWindow->markSoundSaved();
+            m_mainWindow->m_lastSaveSucceeded = true;
         }
     }
 
@@ -2135,25 +2141,27 @@ bool PresetSerializer::saveUnsavedWorkInteractive()
     const QString absDir = QFileInfo(savePath).absolutePath() + "/";
     if (absDir.contains("/records/", Qt::CaseInsensitive)) {
         QSettings().setValue("lastMotionDir", QFileInfo(savePath).absolutePath());
+        // Esito: saveMotion/saveSurface lo alzano solo se il file e' finito su
+        // disco. Un rifiuto ("Save Blocked") o un errore di scrittura lo
+        // lasciano a false, e il chiamante sospende l'azione distruttiva.
+        m_mainWindow->m_lastSaveSucceeded = false;
         saveMotion(savePath);
-        // Esito: saveMotion/saveSurface azzerano m_sceneDirty solo se il file e'
-        // finito su disco. Un rifiuto ("Save Blocked") o un errore di scrittura
-        // lo lasciano a true, e il chiamante sospende l'azione distruttiva.
-        return !m_mainWindow->m_sceneDirty;
+        return m_mainWindow->m_lastSaveSucceeded;
     }
     if (absDir.contains("/textures/", Qt::CaseInsensitive)) {
         QSettings().setValue("lastCustomTexDir", QFileInfo(savePath).absolutePath());
+        m_mainWindow->m_lastSaveSucceeded = false;
         saveTexture(savePath);
-        // saveTexture NON tocca m_sceneDirty (un file texture non contiene le
-        // equazioni): l'esito si legge dal flag del suo modulo.
-        return !m_mainWindow->m_textureDirty;
+        return m_mainWindow->m_lastSaveSucceeded;
     }
     if (absDir.contains("/sounds/", Qt::CaseInsensitive)) {
+        m_mainWindow->m_lastSaveSucceeded = false;
         saveSound(savePath);
-        return !m_mainWindow->m_soundDirty;   // come sopra, per il suono
+        return m_mainWindow->m_lastSaveSucceeded;
     }
+    m_mainWindow->m_lastSaveSucceeded = false;
     saveSurface(savePath);
-    return !m_mainWindow->m_sceneDirty;
+    return m_mainWindow->m_lastSaveSucceeded;
 }
 
 // ==========================================================

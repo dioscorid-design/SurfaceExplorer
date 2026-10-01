@@ -1,4 +1,8 @@
 #include "mainwindow.h"
+
+#include <optional>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QCryptographicHash>
 #include "ui_mainwindow.h"
 
@@ -2259,45 +2263,40 @@ MainWindow::MainWindow(QWidget *parent)
     auto markRmTextureEdited = [this]() {
         m_rmTextureApplied = false;
         // NIENTE noteSceneEdited: lineTexture/lineVariations sono campi del
-        // modulo TEXTURE, non della geometria, e quella chiamata alzava
-        // m_sceneDirty -- cosi' modificare una texture sporcava anche la SCENA
-        // e su un reset uscivano DUE popup di fila (prima "scena", poi
-        // "texture") per un solo lavoro. Passando lineTexture non produceva
+        // modulo TEXTURE, non della geometria (il loro lavoro non salvato e'
+        // del modulo: PartTexture nell'impronta della scena, non la SCENA --
+        // su un reset uscivano DUE popup di fila, prima "scena" poi "texture",
+        // per un solo lavoro). Passando lineTexture non produceva
         // nemmeno l'avviso cross-dock: cade nel ramo "campo che non definisce
         // la superficie" e torna subito.
         //
-        // Lavoro non salvato del MODULO texture: lo protegge
-        // confirmDiscardUnsaved(ScopeScene), che lo elenca nel popup. Stesse
-        // guardie di noteSceneEdited: le scritture del boot, del load e del
-        // reset non sono lavoro dell'utente.
-        if (m_uiReady && !m_populatingFields) {
-            m_textureDirty = true;
-            // IL NOME NON SI AZZERA PIU' QUI, ed e' il punto di questo blocco.
-            //
-            // Prima si azzerava, col ragionamento "il codice non e' piu' quello
-            // della voce, quindi il nome punterebbe a una texture diversa da
-            // quella a schermo". Ma libName non vuol dire "il codice e' identico
-            // a quella voce": vuol dire **da quale voce questa texture VIENE**.
-            // Sono due cose diverse, e la prima si ricalcola quando serve
-            // confrontando i codici -- e' esattamente cio' che fa
-            // focusedTextureLibraryItem.
-            //
-            // Azzerandolo si distruggeva il legame proprio nel caso per cui e'
-            // stato introdotto. Sequenza misurata: Sync (allinea), poi ritocco a
-            // mano della densita' nell'editor -> qui il nome si azzerava -> il
-            // salvataggio omette libName (lo scrive solo se non vuoto,
-            // presetserializer ~1516) -> il record ricaricato non ha piu'
-            // l'ancora, e "Sync Focused Texture" resta GRIGIO per sempre benche'
-            // il disallineamento ci sia (record 6.0 contro libreria 12.0).
-            // Cioe': la voce si spegneva appena si creava il lavoro che le
-            // compete.
-            //
-            // Tenerlo non fa danni: un codice divergente lo vede il gate, che
-            // confronta i due testi e abilita la voce; e se davvero non c'entra
-            // piu' nulla, il focus nell'albero ricade sul match per CODICE, che
-            // ha sempre la precedenza sul nome (selectTextureTreeItemFor: due
-            // passate, prima il codice).
-        }
+        // Lavoro non salvato del MODULO texture: lo dice il confronto dello
+        // stato (textureModuleDirty) e lo elenca confirmDiscardUnsaved.
+        //
+        // IL NOME (libName) NON SI AZZERA QUI.
+        // Prima si azzerava, col ragionamento "il codice non e' piu' quello
+        // della voce, quindi il nome punterebbe a una texture diversa da
+        // quella a schermo". Ma libName non vuol dire "il codice e' identico
+        // a quella voce": vuol dire **da quale voce questa texture VIENE**.
+        // Sono due cose diverse, e la prima si ricalcola quando serve
+        // confrontando i codici -- e' esattamente cio' che fa
+        // focusedTextureLibraryItem.
+        //
+        // Azzerandolo si distruggeva il legame proprio nel caso per cui e'
+        // stato introdotto. Sequenza misurata: Sync (allinea), poi ritocco a
+        // mano della densita' nell'editor -> qui il nome si azzerava -> il
+        // salvataggio omette libName (lo scrive solo se non vuoto,
+        // presetserializer ~1516) -> il record ricaricato non ha piu'
+        // l'ancora, e "Sync Focused Texture" resta GRIGIO per sempre benche'
+        // il disallineamento ci sia (record 6.0 contro libreria 12.0).
+        // Cioe': la voce si spegneva appena si creava il lavoro che le
+        // compete.
+        //
+        // Tenerlo non fa danni: un codice divergente lo vede il gate, che
+        // confronta i due testi e abilita la voce; e se davvero non c'entra
+        // piu' nulla, il focus nell'albero ricade sul match per CODICE, che
+        // ha sempre la precedenza sul nome (selectTextureTreeItemFor: due
+        // passate, prima il codice).
         updateMasterButtonState();
     };
     connect(ui->lineTexture, &QPlainTextEdit::textChanged, this, markRmTextureEdited);
@@ -2310,12 +2309,8 @@ MainWindow::MainWindow(QWidget *parent)
         // quello che sta mostrando, e va marcato SOLO li'. Marcare anche la
         // scena (noteSceneEdited) mentre si scrive una texture o un suono
         // faceva uscire due popup di fila su un reset, per un lavoro solo.
-        if (m_currentScriptMode == ScriptModeSurface) {
+        if (m_currentScriptMode == ScriptModeSurface)
             noteSceneEdited(ui->txtScriptEditor);
-        } else if (m_uiReady && !m_populatingFields) {
-            if (m_currentScriptMode == ScriptModeTexture)    m_textureDirty = true;
-            else if (m_currentScriptMode == ScriptModeSound) m_soundDirty   = true;
-        }
         // Mantiene allineato il tasto Save texture (hasSavableTexture legge l'editor
         // in modalità script texture parametrico/sfondo).
         updateMasterButtonState();
@@ -2503,7 +2498,6 @@ MainWindow::MainWindow(QWidget *parent)
             connect(skyRadios[mode], &QRadioButton::toggled, this, [this, mode](bool checked) {
                 if (!checked) return;         // solo chi si accende
                 if (ui->glWidget) ui->glWidget->setBackgroundSkyMode(mode);
-                noteSceneControlUsed();
             });
         }
     }
@@ -3008,6 +3002,13 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     connect(ui->chkBoxTexture, &QCheckBox::toggled, this, [this](bool checked){
+        // Il checkbox MOSTRA o NASCONDE una texture: non ne scrive nessuna, e
+        // non e' lavoro da proteggere (segnalato dall'utente: l'avviso usciva
+        // su una texture mai toccata). Cio' che cambia qui dentro entra quindi
+        // anche nei riferimenti puliti. Non durante load e reset, che segnano
+        // il loro momento pulito all'uscita.
+        std::optional<AbsorbChangesGuard> absorbToggle;
+        if (m_uiReady && !m_populatingFields) absorbToggle.emplace(this);
         // ==========================================================
         // TEXTURE DELLA SOLA MESH SELEZIONATA
         // ==========================================================
@@ -3281,9 +3282,10 @@ MainWindow::MainWindow(QWidget *parent)
 
                         // A segnali bloccati: questa e' la texture DI DEFAULT che
                         // l'accensione della checkbox fa comparire, non codice
-                        // scritto dall'utente. Senza il blocco, markRmTextureEdited
-                        // (~1830) alzava m_textureDirty e il cambio texture
-                        // successivo chiedeva di salvare una default mai toccata.
+                        // scritto dall'utente. Senza il blocco passerebbe da
+                        // markRmTextureEdited come una digitazione. (Che non sia
+                        // lavoro da salvare lo garantisce AbsorbChangesGuard, in
+                        // cima a questo gestore.)
                         {
                             const bool obTex = ui->lineTexture->blockSignals(true);
                             ui->lineTexture->setPlainText(defaultRM);
@@ -3518,6 +3520,10 @@ MainWindow::MainWindow(QWidget *parent)
         // watchdog SOPRA la finestra della guardia (la confusione segnalata).
         if (m_perfPopupActive || m_masterStopped || m_transparencyGuardActive) return;
         m_perfPopupActive = true;
+
+        // Lo stop e la trasparenza tolta qui sotto li decide l'app, non
+        // l'utente: non sono lavoro da salvare.
+        AbsorbChangesGuard absorbWatchdog(this);
 
         performMasterStop();
 
@@ -4561,12 +4567,14 @@ MainWindow::MainWindow(QWidget *parent)
     // All'avvio a schermo c'e' la superficie di default (toro/sfera): i campi
     // sono pieni ma non sono lavoro dell'utente, come dopo un reset.
     m_surfaceOrigin = OriginDefault;
-    // Tracciamento del lavoro sui controlli dei dock (Renderer, 3D, 4D).
+    // Tracciamento della posa mossa dall'utente (mouse, touch, tasti di camera).
     // PRIMA di m_uiReady: i segnali emessi durante il setup trovano la guardia
-    // di noteSceneControlUsed ancora chiusa e non sporcano la scena.
-    wireSceneControlsDirtyTracking();
+    // di noteViewControlUsed ancora chiusa.
+    wireViewControlsTracking();
     m_uiReady = true;   // sblocca updateMasterButtonState: la UI è completa
     updateMasterButtonState();
+    // La scena di avvio (superficie di default) e' il primo momento pulito.
+    markSceneClean();
 }
 
 // =============================================================================
@@ -4588,8 +4596,6 @@ void MainWindow::noteSceneEdited(QWidget *source)
     // Edit programmatici del boot e del caricamento di un preset: non sono
     // lavoro dell'utente e non devono mai far comparire avvisi.
     if (!m_uiReady || m_populatingFields) return;
-
-    m_sceneDirty = true;
 
     if (!source) return;
 
@@ -4641,26 +4647,255 @@ void MainWindow::noteSceneEdited(QWidget *source)
     box.exec();
 }
 
-// L'utente ha lavoro non salvato da proteggere.
+// =============================================================================
+// LAVORO NON SALVATO, PER VALORE (vedi mainwindow.h)
+// =============================================================================
+namespace {
+void flattenFingerprint(const QString &prefix, const QJsonValue &v, QMap<QString, QJsonValue> &out)
+{
+    if (v.isObject()) {
+        const QJsonObject o = v.toObject();
+        for (auto it = o.constBegin(); it != o.constEnd(); ++it)
+            flattenFingerprint(prefix.isEmpty() ? it.key() : prefix + QLatin1Char('/') + it.key(), it.value(), out);
+    } else if (v.isArray()) {
+        const QJsonArray a = v.toArray();
+        for (int i = 0; i < a.size(); ++i)
+            flattenFingerprint(QStringLiteral("%1[%2]").arg(prefix).arg(i), a.at(i), out);
+    } else if (v.isString()) {
+        // Testo in forma canonica: fine riga unica, niente spazi in coda. Lo
+        // stesso script letto dall'editor o dal suo slot non deve risultare
+        // diverso per un "\r\n" o per uno spazio a fine riga.
+        QString t = v.toString();
+        t.replace(QLatin1String("\r\n"), QLatin1String("\n"));
+        QStringList lines = t.split(QLatin1Char('\n'));
+        for (QString &l : lines)
+            while (!l.isEmpty() && l.at(l.size() - 1).isSpace()) l.chop(1);
+        out.insert(prefix, lines.join(QLatin1Char('\n')).trimmed());
+    } else {
+        out.insert(prefix, v);
+    }
+}
+} // namespace
+
+MainWindow::FingerprintPart MainWindow::fingerprintPart(const QString &key)
+{
+    if (key.startsWith(QLatin1String("sound/")) || key == QLatin1String("soundLibName"))
+        return PartSound;
+    if (key.startsWith(QLatin1String("texture/")))
+        return PartTexture;
+    // Dello sfondo sono della SCENA il colore e la forma (li comandano i
+    // controlli del dock Renderer); il resto e' la sua texture.
+    if (key.startsWith(QLatin1String("background/")))
+        return (key == QLatin1String("background/color") || key == QLatin1String("background/skyMode"))
+                   ? PartCore : PartTexture;
+    if (key.startsWith(QLatin1String("meshParts[")))
+        return key.section(QLatin1Char('/'), 1).startsWith(QLatin1String("tex")) ? PartTexture : PartCore;
+    if (key.startsWith(QLatin1String("equations/")) || key.startsWith(QLatin1String("geodesic/"))
+        || key.startsWith(QLatin1String("limits/")) || key == QLatin1String("scriptCode")
+        || key == QLatin1String("implicitEquation") || key == QLatin1String("crossSectionEquation"))
+        return PartSurfaceText;
+    return PartCore;
+}
+
+MainWindow::SceneFingerprint MainWindow::fingerprintSlice(const SceneFingerprint &fp, FingerprintPart part)
+{
+    SceneFingerprint out;
+    for (auto it = fp.constBegin(); it != fp.constEnd(); ++it)
+        if (fingerprintPart(it.key()) == part) out.insert(it.key(), it.value());
+    return out;
+}
+
+// Cio' che Save Record scriverebbe adesso, senza la posa e senza i dati che non
+// sono stato della scena (nome, tipo, messaggi).
+MainWindow::SceneFingerprint MainWindow::sceneFingerprint() const
+{
+    SceneFingerprint fp;
+    if (!m_uiReady || !m_presetSerializer || !ui->glWidget) return fp;
+
+    PresetSerializer::MotionRunState run;
+    run.rotating = ui->glWidget->isAnimating();
+    run.path4D   = pathTimer && pathTimer->isActive();
+    run.path3D   = pathTimer3D && pathTimer3D->isActive();
+    // Senza il suono dentro il codice della texture: e' un modulo a parte.
+    QJsonObject root = m_presetSerializer->buildMotionJson(QString(), run, /*includeSound=*/false);
+
+    // Via la posa (la seguono gli eventi, vedi noteViewControlUsed), i dati che
+    // non sono stato della scena (nome, tipo, messaggi) e l'ambito All/Mesh,
+    // che sceglie su CHE COSA agiscono i comandi e non e' lavoro da salvare.
+    for (const char *k : { "name", "type", "camera3D", "angles", "observer4D",
+                           "hintText", "hintSeconds", "textureHintText", "textureHintSeconds",
+                           "meshScopeAll" })
+        root.remove(QLatin1String(k));
+    QJsonObject bg = root.value(QLatin1String("background")).toObject();
+    bg.remove(QLatin1String("hintText"));
+    bg.remove(QLatin1String("hintSeconds"));
+    root.insert(QLatin1String("background"), bg);
+
+    flattenFingerprint(QString(), root, fp);
+
+    // Il suono: l'editor se lo sta mostrando (anche non eseguito, come gli
+    // altri moduli), altrimenti il suo slot.
+    const QString sound = (m_currentScriptMode == ScriptModeSound)
+                              ? wrapSoundCode(ui->txtScriptEditor->toPlainText())
+                              : soundCode();
+    flattenFingerprint(QStringLiteral("sound/code"), QJsonValue(sound), fp);
+    return fp;
+}
+
+void MainWindow::markSceneClean()
+{
+    const SceneFingerprint fp = sceneFingerprint();
+    m_cleanScene     = fp;
+    m_appliedSurface = fingerprintSlice(fp, PartSurfaceText);
+    m_cleanTexture   = fingerprintSlice(fp, PartTexture);
+    m_cleanSound     = fingerprintSlice(fp, PartSound);
+    m_pickedTexture  = m_cleanTexture;
+    m_pickedSound    = m_cleanSound;
+    m_viewTouched = false;
+    m_textureViewTouched = false;
+}
+
+// Save Surface: la scena e' su disco come superficie. I moduli texture e suono
+// restano com'erano -- un file di surfaces/ non li contiene, e il loro lavoro
+// ha il suo avviso e il suo ramo.
+void MainWindow::markSurfaceSaved()
+{
+    const SceneFingerprint fp = sceneFingerprint();
+    m_cleanScene     = fp;
+    m_appliedSurface = fingerprintSlice(fp, PartSurfaceText);
+    m_pickedTexture  = fingerprintSlice(fp, PartTexture);
+    m_pickedSound    = fingerprintSlice(fp, PartSound);
+    m_viewTouched = false;
+}
+
+void MainWindow::markTexturePicked()
+{
+    m_cleanTexture  = fingerprintSlice(sceneFingerprint(), PartTexture);
+    m_pickedTexture = m_cleanTexture;
+    m_textureViewTouched = false;
+}
+
+void MainWindow::markTextureSaved()
+{
+    m_cleanTexture = fingerprintSlice(sceneFingerprint(), PartTexture);
+    m_textureViewTouched = false;
+}
+
+void MainWindow::markSoundPicked()
+{
+    m_cleanSound  = fingerprintSlice(sceneFingerprint(), PartSound);
+    m_pickedSound = m_cleanSound;
+}
+
+void MainWindow::markSoundSaved()
+{
+    m_cleanSound = fingerprintSlice(sceneFingerprint(), PartSound);
+}
+
+void MainWindow::noteSurfaceApplied(const QStringList &prefixes)
+{
+    if (!m_uiReady) return;
+    const SceneFingerprint now = fingerprintSlice(sceneFingerprint(), PartSurfaceText);
+    if (prefixes.isEmpty()) { m_appliedSurface = now; return; }
+    auto matches = [&prefixes](const QString &key) {
+        for (const QString &p : prefixes) if (key.startsWith(p)) return true;
+        return false;
+    };
+    for (auto it = m_appliedSurface.begin(); it != m_appliedSurface.end(); )
+        it = matches(it.key()) ? m_appliedSurface.erase(it) : it + 1;
+    for (auto it = now.constBegin(); it != now.constEnd(); ++it)
+        if (matches(it.key())) m_appliedSurface.insert(it.key(), it.value());
+}
+
+void MainWindow::absorbChangesSince(const SceneFingerprint &before)
+{
+    const SceneFingerprint now = sceneFingerprint();
+    QSet<QString> keys;
+    for (auto it = before.constBegin(); it != before.constEnd(); ++it) keys.insert(it.key());
+    for (auto it = now.constBegin(); it != now.constEnd(); ++it) keys.insert(it.key());
+    // Chi era pulito su quella chiave resta pulito; chi era gia' sporco no.
+    auto absorb = [&](SceneFingerprint &ref, const QString &k) {
+        if (ref.value(k) != before.value(k)) return;
+        if (now.contains(k)) ref.insert(k, now.value(k));
+        else ref.remove(k);
+    };
+    for (const QString &k : std::as_const(keys)) {
+        if (before.value(k) == now.value(k)) continue;
+        absorb(m_cleanScene, k);
+        switch (fingerprintPart(k)) {
+        case PartSurfaceText: absorb(m_appliedSurface, k); break;
+        case PartTexture:     absorb(m_cleanTexture, k); absorb(m_pickedTexture, k); break;
+        case PartSound:       absorb(m_cleanSound, k);   absorb(m_pickedSound, k);   break;
+        case PartCore:        break;
+        }
+    }
+}
+
+// Le chiavi che fanno uscire l'avviso, col nome della parte che difendono.
+QStringList MainWindow::unsavedKeys() const
+{
+    QStringList out;
+    const SceneFingerprint fp = sceneFingerprint();
+    QSet<QString> keys;
+    for (auto it = fp.constBegin(); it != fp.constEnd(); ++it) keys.insert(it.key());
+    for (auto it = m_cleanScene.constBegin(); it != m_cleanScene.constEnd(); ++it) keys.insert(it.key());
+    QStringList sorted(keys.constBegin(), keys.constEnd());
+    sorted.sort();
+    for (const QString &k : std::as_const(sorted)) {
+        const QJsonValue clean = m_cleanScene.value(k);
+        switch (fingerprintPart(k)) {
+        case PartCore:
+            if (fp.value(k) != clean) out << QStringLiteral("scena:") + k;
+            break;
+        case PartSurfaceText:
+            // Conta cio' che e' andato a schermo, non il testo nei campi.
+            if (m_appliedSurface.value(k) != clean) out << QStringLiteral("scena:") + k;
+            break;
+        case PartTexture:
+            if (m_pickedTexture.value(k) != clean) out << QStringLiteral("scena:") + k;
+            if (fp.value(k) != m_cleanTexture.value(k)) out << QStringLiteral("texture:") + k;
+            break;
+        case PartSound:
+            if (m_pickedSound.value(k) != clean) out << QStringLiteral("scena:") + k;
+            if (fp.value(k) != m_cleanSound.value(k)) out << QStringLiteral("suono:") + k;
+            break;
+        }
+    }
+    if (m_viewTouched) out << QStringLiteral("scena:(vista mossa)");
+    if (m_textureViewTouched) out << QStringLiteral("texture:(inquadratura 2D mossa)");
+    return out;
+}
+
+// L'utente ha lavoro di SCENA da proteggere: lo stato che il record salverebbe
+// differisce da quello dell'ultimo momento pulito.
 //
-// Si protegge il lavoro che E' ANDATO A SCHERMO, non il testo nei campi. La
-// domanda decisiva e' quindi "un Run e' mai riuscito da quando la scena e'
-// pulita?": se si', a schermo c'e' roba dell'utente e va difesa -- anche se in
-// quel momento ci sono edit non ancora eseguiti, perche' altrimenti un edit
-// pendente nasconderebbe tutto il lavoro gia' applicato (regressione: X
-// eseguito + Y in scrittura -> nessun avviso, X perso).
-//
-// Il solo caso in cui NON c'e' nulla da difendere e' quindi: scena sporca ma
-// nessun Run mai riuscito. Copre entrambi i casi segnalati -- equazioni che
-// danno errore (il Run fallisce, niente va a schermo) e testo scritto e mai
-// eseguito -- senza sacrificare il lavoro valido.
-//
-// NB: cio' che non passa da noteSceneEdited (colori, slider, rotazioni, path)
-// non alza m_sceneDirty e non e' mai stato protetto, ne' prima ne' ora.
+// Si protegge il lavoro che E' ANDATO A SCHERMO, non il testo nei campi: le
+// equazioni (e limiti, script) contano da quando un Run riuscito le ha
+// applicate. Restano fuori i due casi in cui l'avviso offrirebbe di salvare il
+// nulla -- equazioni che danno errore e testo scritto e mai eseguito -- senza
+// nascondere il lavoro gia' applicato quando si ricomincia a scrivere.
 bool MainWindow::hasUnsavedWork() const
 {
-    if (!m_sceneDirty)   return false;
-    return m_runEverSucceeded;
+    const QStringList keys = unsavedKeys();
+    for (const QString &k : keys)
+        if (k.startsWith(QLatin1String("scena:"))) return true;
+    return false;
+}
+
+bool MainWindow::textureModuleDirty() const
+{
+    const QStringList keys = unsavedKeys();
+    for (const QString &k : keys)
+        if (k.startsWith(QLatin1String("texture:"))) return true;
+    return false;
+}
+
+bool MainWindow::soundModuleDirty() const
+{
+    const QStringList keys = unsavedKeys();
+    for (const QString &k : keys)
+        if (k.startsWith(QLatin1String("suono:"))) return true;
+    return false;
 }
 
 // UNICO punto da cui si mostra un errore di compilazione all'utente (~18
@@ -4673,262 +4908,65 @@ void MainWindow::showShaderError(const QString &title, const QString &errorLog)
     InputValidator::showShaderCompilationError(this, title, errorLog);
 }
 
-// Lavoro sui controlli dei dock (Renderer, 3D, 4D): aspetto, rotazioni, path,
-// camera. Questi agiscono SUBITO sulla scena, senza passare da un Run: cio' che
-// si vede e' gia' il risultato, quindi -- a differenza del testo nei campi --
-// e' lavoro applicato e va protetto dall'avviso "vuoi salvare?".
-// Percio' alza anche m_runEverSucceeded, che significa "a schermo c'e' roba
-// dell'utente": senza, muovere solo gli slider senza mai premere Run non
-// verrebbe difeso.
-// DOVE finiscono i tre slider RGB in questo momento. Deve restare allineata a
-// handleColorChange (~3007), che e' la sede della decisione vera: qui si
-// riproducono solo le sue condizioni per sapere QUALE lavoro si sta facendo.
-//
-// Il ramo Background e quello Surface hanno la stessa forma -- texture attiva
-// sul destinatario corrente E texture che usa i colori -- ma guardano flag
-// diversi: lo sfondo la checkbox, la superficie lo stato della parte attiva
-// (o quello globale se non ce n'e' una selezionata).
-bool MainWindow::colorSlidersTargetTexture() const
-{
-    if (ui->radioBackground->isChecked())
-        return ui->chkBoxTexture->isChecked() && activeTextureUsesColors();
-
-    // In Wireframe la texture e' nascosta e le linee usano il COLORE
-    // SUPERFICIE: gli slider tornano a essere lavoro di scena.
-    if (ui->radioWF->isChecked()) return false;
-
-    const bool texActiveHere =
-        (ui->glWidget && ui->glWidget->activeMeshPart() >= 0)
-            ? ui->glWidget->activeMeshTextureActive()
-            : m_surfaceTextureState;
-    return texActiveHere && activeTextureUsesColors();
-}
-
-void MainWindow::noteSceneControlUsed()
-{
-    // Stesse guardie di noteSceneEdited: le scritture programmatiche del boot,
-    // del load di un preset e del reset non sono lavoro dell'utente.
-    if (!m_uiReady || m_populatingFields) return;
-
-    m_sceneDirty       = true;
-    m_runEverSucceeded = true;
-}
-
-// Gemello di noteSceneControlUsed per i comandi di VISTA (trascinamento del
-// mouse, rotella, tasti di camera). Unica differenza: a SCENA VUOTA non marca
-// nulla.
-// Dopo un NEW non c'e' niente da proteggere, e ruotare il nulla non e' lavoro:
-// marcando comunque, l'app chiedeva "vuoi salvare?" al caricamento successivo o
-// alla chiusura, su una scena in cui l'utente non aveva messo nulla.
-// NON si puo' mettere la guardia dentro noteSceneControlUsed: da li' passano
-// anche il load di una texture e di un suono dalla libreria (~12799, ~14963),
-// che sono lavoro VERO anche senza superficie -- comporre una texture su scena
-// vuota e perderla senza avviso sarebbe il bug opposto.
+// La POSA mossa dall'utente: trascinamento del mouse, rotella, touch, tasti di
+// camera e di rotazione a scatto. E' l'unico lavoro che si segue per EVENTI:
+// camera e angoli li muovono anche rotazioni e path, da soli, e il confronto
+// per valore sporcherebbe la scena a ogni frame.
+// A SCENA VUOTA non marca nulla: dopo un NEW non c'e' niente da proteggere, e
+// ruotare il nulla non e' lavoro (l'app chiedeva "vuoi salvare?" su una scena
+// in cui l'utente non aveva messo niente).
 void MainWindow::noteViewControlUsed()
 {
+    // Le scritture programmatiche del boot, del load e del reset non sono
+    // lavoro dell'utente.
+    if (!m_uiReady || m_populatingFields) return;
     if (isSceneEmpty()) return;
-    noteSceneControlUsed();
+    m_viewTouched = true;
 }
 
-// Collega in blocco i controlli dei dock. In un punto solo, e per elenco di
-// widget, perche' modificare a mano le ~40 connect esistenti significherebbe
-// dimenticarne qualcuna e sporcare lambda che fanno altro.
-// Criterio (scelto con l'utente): gli slider marcano al RILASCIO, non a ogni
-// valueChanged -- durante il trascinamento arrivano centinaia di segnali, e un
-// tocco accidentale non deve sporcare la scena per sempre.
-void MainWindow::wireSceneControlsDirtyTracking()
+// Collega i comandi di POSA. Tutto il resto (aspetto, costanti, velocita',
+// path, texture, suono) non si collega piu': lo dice il confronto dello stato.
+void MainWindow::wireViewControlsTracking()
 {
-    const auto mark = [this]() { noteSceneControlUsed(); };
-
-    // --- DOCK RENDERER: aspetto, tutto salvato nel preset ---
-    // COLORE: gli slider RGB sono UN solo terzetto per due destinatari -- il
-    // colore della superficie oppure una delle due tinte della TEXTURE, secondo
-    // lo stato dei radio (vedi handleColorChange ~3007). Il lavoro va marcato
-    // sul modulo che si sta davvero editando: cambiare il colore di una texture
-    // non e' salvato da un file di surfaces/, e marcarlo come lavoro di scena
-    // faceva uscire un popup il cui salvataggio non avrebbe conservato quel
-    // colore (segnalato dall'utente: "aggiungo la texture e ne cambio il
-    // colore" -> popup inutile, la texture non viene ricaricata comunque).
-    // Sono percio' esclusi dall'elenco `sliders` qui sotto e cablati a parte.
-    const QList<QSlider*> colorSliders = { ui->sliderR, ui->sliderG, ui->sliderB };
-    for (QSlider *s : colorSliders) {
-        if (s) connect(s, &QSlider::sliderReleased, this, [this]() {
-            if (colorSlidersTargetTexture()) {
-                // Stesse guardie di noteSceneControlUsed, che qui non passa.
-                if (!m_uiReady || m_populatingFields) return;
-                m_textureDirty = true;
-            } else {
-                noteSceneControlUsed();
-            }
-        });
-    }
-
-    const QList<QSlider*> sliders = {
-        ui->alphaSlider,                          // trasparenza
-        ui->lightSlider,                          // intensita' luce
-        ui->fovSliderMain,                        // FOV
-        ui->speed3DSlider, ui->speed4DSlider,     // velocita' path 3D/4D
-        // Risoluzione: UN solo slider per due significati -- Steps nel
-        // parametrico, Ray/Relax Steps nell'implicito (vedi il ramo su
-        // tabModeSelector in onStepSliderChanged). Cambia la geometria a
-        // schermo ed e' persistito nel preset.
-        ui->stepSlider
-    };
-    for (QSlider *s : sliders) {
-        if (s) connect(s, &QSlider::sliderReleased, this, mark);
-    }
-
-    // Modalita' di resa e wireframe: sono toggle, marcano al cambio.
-    const QList<QAbstractButton*> toggles = {
-        ui->radioBasic, ui->radioPhong, ui->radioWF,
-        ui->radioShell, ui->radioSolid
-    };
-    for (QAbstractButton *b : toggles) {
-        if (b) connect(b, &QAbstractButton::toggled, this, [this](bool on) {
-            if (on) noteSceneControlUsed();   // solo chi si accende, non chi si spegne
-        });
-    }
-
-    // --- DOCK 3D e 4D: rotazioni, traslazioni, densita' wireframe ---
-    // Tasti a scatto: ogni pressione sposta la scena, quindi marcano al clic.
+    // Tasti a scatto dei dock 3D e 4D che spostano camera, osservatore o
+    // angoli: ogni pressione muove la posa.
     const QList<QAbstractButton*> steppers = {
-        // rotazioni oggetto 3D
-        ui->btnSpinPlus,       ui->btnSpinMinus,
-        ui->btnPrecessionPlus, ui->btnPrecessionMinus,
-        ui->btnNutationPlus,   ui->btnNutationMinus,
-        ui->btnRollLeft,       ui->btnRollRight,
-        // rotazioni 4D
-        ui->btnOmegaPlus, ui->btnOmegaMinus, ui->btnOmegaAhead, ui->btnOmegaRear,
-        ui->btnPhiPlus,   ui->btnPhiMinus,   ui->btnPhiAhead,   ui->btnPhiRear,
-        ui->btnPsiPlus,   ui->btnPsiMinus,   ui->btnPsiAhead,   ui->btnPsiRear,
-        // traslazioni / camera
+        ui->btnRollLeft,  ui->btnRollRight,
+        ui->btnOmegaAhead, ui->btnOmegaRear,
+        ui->btnPhiAhead,   ui->btnPhiRear,
+        ui->btnPsiAhead,   ui->btnPsiRear,
         ui->btnXPlus, ui->btnXMinus, ui->btnYPlus, ui->btnYMinus,
         ui->btnZPlus, ui->btnZMinus, ui->btnPPlus, ui->btnPMinus,
         ui->btnUp,    ui->btnDown,   ui->btnLeft,  ui->btnRight,
-        ui->btnForward, ui->btnBackward,
-        // densita' wireframe (persistita nei preset)
-        ui->btnWireUPlus, ui->btnWireUMinus,
-        ui->btnWireVPlus, ui->btnWireVMinus
+        ui->btnForward, ui->btnBackward
     };
     for (QAbstractButton *b : steppers) {
-        if (b) connect(b, &QAbstractButton::clicked, this, mark);
+        if (b) connect(b, &QAbstractButton::clicked, this, [this]() { noteViewControlUsed(); });
     }
 
-    // Tasti che cambiano la scena con un clic: luce 4D (Directional/Observer/
-    // Slice, salvata nel preset) e partenza dei path.
-    const QList<QAbstractButton*> sceneButtons = {
-        ui->btnLightMode,
-        ui->btnDeparture, ui->btnDeparture3D
-    };
-    for (QAbstractButton *b : sceneButtons) {
-        if (b) connect(b, &QAbstractButton::clicked, this, mark);
-    }
-
-    // --- PATH 3D e 4D: le curve si scrivono in campi di testo dedicati ---
-    // Non passano da noteSceneEdited, che copre solo i campi della SUPERFICIE.
-    // textEdited e non textChanged: scatta solo per la digitazione dell'utente,
-    // mai per i riempimenti programmatici del load (guardia in piu' oltre a
-    // m_populatingFields).
-    const QList<QLineEdit*> textFields = {
-        ui->lineX_P, ui->lineY_P, ui->lineZ_P, ui->lineP_P,          // path 4D
-        ui->lineAlpha_P, ui->lineBeta_P, ui->lineGamma_P,            // angoli 4D
-        ui->lineX_P3D, ui->lineY_P3D, ui->lineZ_P3D, ui->lineR_P3D,  // path 3D
-        ui->lineSteps                                                // Steps digitato
-    };
-    for (QLineEdit *e : textFields) {
-        if (e) connect(e, &QLineEdit::textEdited, this, mark);
-    }
-
-    // Texture: la checkbox di attivazione.
-    //
-    // Marca il MODULO TEXTURE, non la scena. Era cablata su `mark`
-    // (noteSceneControlUsed -> m_sceneDirty) ed e' l'unico motivo per cui
-    // accendere una texture su una SUPERFICIE faceva uscire il popup "vuoi
-    // salvare la scena?": un file di surfaces/ non contiene le texture, quindi
-    // quel salvataggio non avrebbe conservato nulla di cio' che si stava
-    // perdendo. Era l'unico controllo a sporcare la scena in quel percorso.
-    //
-    // E' la stessa correzione gia' fatta per il CODICE della texture
-    // (lineTexture/lineVariations in markRmTextureEdited, ~1830): quei campi
-    // alzano m_textureDirty proprio perche' "sono campi del modulo TEXTURE, non
-    // della geometria". La checkbox era rimasta indietro.
-    //
-    // chkBoxTexture e' UN widget per due destinatari (superficie o background
-    // secondo radioSurface/radioBackground). Non marca piu' alcun flag: e' un
-    // comando di VISIBILITA', non un edit (vedi il corpo della lambda).
-    //
-    // Il popup sui RECORD non si perde: chi carica una texture da libreria
-    // marca la scena per conto suo (onExampleItemClicked ~10402), ed e' quella
-    // marcatura -- non la checkbox -- a proteggere il record.
+    // Il checkbox della texture mostra o nasconde: l'albero Library va
+    // risincronizzato in tutti e due i casi (spenta non indica nulla, riaccesa
+    // torna a evidenziare la texture che e' di nuovo a schermo).
     if (ui->chkBoxTexture) {
         connect(ui->chkBoxTexture, &QAbstractButton::toggled, this, [this]() {
-            // Stesse guardie di noteSceneEdited/noteSceneControlUsed: le
-            // accensioni programmatiche del load e del reset non sono lavoro
-            // dell'utente. (Molte di quelle scritture sono gia' a segnali
-            // bloccati, ma non tutte: la guardia resta la difesa vera.)
             if (!m_uiReady || m_populatingFields) return;
-            // La checkbox MOSTRA o NASCONDE una texture: non ne scrive nessuna.
-            // Spegnendola si toglie dalla vista (il codice resta in memoria solo
-            // per poterla riaccendere); accendendola compare la default o quella
-            // gia' in memoria. In nessuno dei due casi c'e' lavoro dell'utente da
-            // proteggere, quindi il flag non si tocca: marcarlo faceva uscire il
-            // popup "Unsaved texture" al cambio texture successivo, su una
-            // texture mai toccata -- segnalato dall'utente in entrambi i versi
-            // del toggle, su superficie e su sfondo.
-            // Il lavoro VERO resta protetto da chi lo produce: gli editor
-            // (~1830/1846) e gli slider colore della texture (~3982).
-            //
-            // L'albero Library va risincronizzato in tutti e due i casi: spenta
-            // non deve indicare nulla, riaccesa torna a evidenziare la texture
-            // che e' di nuovo a schermo.
             syncTextureTreeSelection();
         });
     }
 
-    // --- COSTANTI A..F e S ---
-    // A..F sporcano la scena di rimbalzo, perche' compaiono nelle equazioni; S
-    // no: in Ray Marching e' "Step Relax" (lblS rietichettato, vedi
-    // applyModeDependentStepUI) e non tocca alcun campo testuale. Collegati
-    // tutti e sette per uniformita' -- al rilascio, come gli altri slider.
-    const QList<QSlider*> constantSliders = {
-        ui->aSlider, ui->bSlider, ui->cSlider,
-        ui->dSlider, ui->eSlider, ui->fSlider,
-        ui->sSlider
-    };
-    for (QSlider *s : constantSliders) {
-        if (s) connect(s, &QSlider::sliderReleased, this, mark);
-    }
-    const QList<QLineEdit*> constantFields = {
-        ui->lineA, ui->lineB, ui->lineC,
-        ui->lineD, ui->lineE, ui->lineF,
-        ui->lineS
-    };
-    for (QLineEdit *e : constantFields) {
-        if (e) connect(e, &QLineEdit::textEdited, this, mark);
-    }
-
-    // --- MOUSE SULLA VISTA: rotazione trascinando, zoom con la rotella ---
+    // --- MOUSE E TOUCH SULLA VISTA ---
     // Segnale dedicato: rotationChanged() non va bene, lo emette a ogni frame
-    // anche il moto automatico e sporcherebbe la scena da solo.
-    //
-    // In vista 2D (dock Script, editing piatto della texture) il mouse NON
-    // muove la scena: zoom, pan e rotazione sono la trasformazione della
-    // TEXTURE, ed e' saveTexture a scriverli su file (zoom/pan_x/pan_y/rotation,
-    // ~790). Marcare la scena li' lasciava il modulo texture non protetto: si
-    // trasformava la texture in 2D, si cambiava texture e il lavoro spariva
-    // senza che venisse chiesto nulla. Stesso criterio degli altri controlli
-    // del modulo (editor ~1830, slider colore ~3991).
+    // anche il moto automatico.
+    // In vista 2D (editing piatto della texture) il mouse non muove la scena:
+    // zoom, pan e rotazione sono l'inquadratura della TEXTURE, lavoro del suo
+    // modulo.
     if (ui->glWidget) {
         connect(ui->glWidget, &GLWidget::userMovedView, this, [this]() {
             if (ui->glWidget && ui->glWidget->isFlatView()) {
-                // Stesse guardie di noteSceneControlUsed, che qui non passa.
                 if (!m_uiReady || m_populatingFields) return;
-                m_textureDirty = true;
+                m_textureViewTouched = true;
                 return;
             }
-            // noteViewControlUsed e non mark(): muovere la vista di una scena
-            // VUOTA (dopo NEW) non e' lavoro da proteggere, e faceva comparire
-            // "vuoi salvare?" su una scena in cui non c'era nulla.
             noteViewControlUsed();
         });
     }
@@ -4940,13 +4978,9 @@ MainWindow::RunOutcomeGuard::RunOutcomeGuard(MainWindow *mw, bool arm)
 }
 
 // Nessun errore mostrato durante il Run = cio' che l'utente ha scritto e'
-// andato a schermo. Il flag si ALZA soltanto: il contatore e' globale e conta
-// anche gli errori di moduli estranei alla superficie (audio, sfondo), che non
-// devono togliere la protezione al lavoro gia' applicato.
+// andato a schermo.
 MainWindow::RunOutcomeGuard::~RunOutcomeGuard()
 {
-    if (armed && InputValidator::errorCount() == before)
-        w->m_runEverSucceeded = true;
     // COSTANTI: all'uscita di un Run RIUSCITO campi e schermo coincidono di
     // nuovo, ed e' qui che una costante tolta dalle equazioni cade davvero in
     // disuso e torna neutra (vedi updateConstantsUIState). Dopo un Run fallito
@@ -4954,6 +4988,18 @@ MainWindow::RunOutcomeGuard::~RunOutcomeGuard()
     // sospeso e le sue costanti non si toccano.
     if (InputValidator::errorCount() == before)
         w->refreshConstants();
+    // LAVORO NON SALVATO: da questo momento il testo della superficie conta per
+    // l'avviso "vuoi salvare?" (vedi noteSurfaceApplied). Dopo un Run fallito
+    // no: a schermo non e' andato niente. Nel commit di servizio le equazioni
+    // sono quelle gia' applicate, non il testo dei campi: entrano solo limiti
+    // e script.
+    if (armed && surfaceApplied && InputValidator::errorCount() == before) {
+        if (equationsApplied)
+            w->noteSurfaceApplied();
+        else
+            w->noteSurfaceApplied({ QStringLiteral("limits/"), QStringLiteral("scriptCode"),
+                                    QStringLiteral("implicitEquation"), QStringLiteral("crossSectionEquation") });
+    }
 }
 
 
@@ -4996,7 +5042,7 @@ bool MainWindow::confirmDiscardUnsaved(DiscardScope scope)
     // --- Moduli singoli: si guarda un flag solo e si salva nel suo ramo ---
     if (scope == ScopeTexture || scope == ScopeSound) {
         const bool isTex = (scope == ScopeTexture);
-        if (isTex ? !m_textureDirty : !m_soundDirty) return true;
+        if (isTex ? !textureModuleDirty() : !soundModuleDirty()) return true;
 
         QMessageBox box(this);
         box.setIcon(QMessageBox::Warning);
@@ -5025,20 +5071,22 @@ bool MainWindow::confirmDiscardUnsaved(DiscardScope scope)
                 || !QDir(startDir).exists()) {
                 startDir = presetsRootPath() + "/textures";
             }
+            m_lastSaveSucceeded = false;
             m_presetSerializer->saveTextureAs(startDir, m_currentTexturePresetPath);
-            return !m_textureDirty;   // vero solo se il file e' su disco
+            return m_lastSaveSucceeded;   // vero solo se il file e' su disco
         }
         QString startDir = settings.value("pathSounds",
                                           presetsRootPath() + "/sounds").toString();
+        m_lastSaveSucceeded = false;
         m_presetSerializer->saveSoundAs(startDir, "");
-        return !m_soundDirty;
+        return m_lastSaveSucceeded;
     }
 
     // --- Scena intera: si difende tutto cio' che e' sporco, con un popup solo ---
     //
     const bool dirtyScene = hasUnsavedWork();
-    const bool dirtyTex   = m_textureDirty;
-    const bool dirtySnd   = m_soundDirty;
+    const bool dirtyTex   = textureModuleDirty();
+    const bool dirtySnd   = soundModuleDirty();
     if (!dirtyScene && !dirtyTex && !dirtySnd) return true;
 
     // Elenco leggibile di cio' che si sta per perdere: senza, l'avviso e'
@@ -5105,6 +5153,9 @@ void MainWindow::applyModeTabReset(int index)
 // equazione e non si compila nulla: resta la scena vuota del tasto New.
 void MainWindow::resetScene(int index, bool loadDefaultSurface)
 {
+    // All'uscita la scena e' pulita: niente lavoro da proteggere.
+    SceneCleanGuard sceneCleanGuard{this};
+
     // NEW, cambio tab, riclic sulla linguetta: la scena non e' piu' il record
     // che era caricato (vedi m_currentRecordPath).
     m_currentRecordPath.clear();
@@ -5124,9 +5175,8 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // forza la linguetta quando il record e' di modo opposto a quello a schermo,
     // e quel setCurrentIndex arriva qui. Azzerando il flag di netto, l'uscita da
     // questo reset lo spegneva anche per il chiamante, e tutto il resto del load
-    // -- campi, colori, slider, camera -- proseguiva SENZA guardia: passava da
-    // noteSceneControlUsed, che alza m_sceneDirty e m_runEverSucceeded. Risultato:
-    // il popup "vuoi salvare?" al preset successivo, per modifiche mai fatte.
+    // -- campi, colori, slider, camera -- proseguiva SENZA guardia, come se
+    // fossero gesti dell'utente (avvisi cross-dock, modifiche "in sospeso").
     const bool wasPopulating = m_populatingFields;
     m_populatingFields = true;
     struct ResetGuard {
@@ -5955,20 +6005,12 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
 
     // Scena azzerata: non c'e' piu' lavoro da proteggere, e la situazione che
     // aveva fatto scattare l'avviso "un altro modulo e' carico" non esiste piu'.
-    // Ultimo, dopo tutti gli svuotamenti di campi qui sopra: quelli passano da
-    // noteSceneEdited e rimetterebbero m_sceneDirty a true. La sorgente torna al
-    // default: qui e nel load di un preset sono le due sole sedi che la cambiano.
-    m_sceneDirty = false;
-    // Il reset svuota anche texture e suono (codice, campi e stato, piu' sopra):
-    // niente lavoro di quei moduli da proteggere.
-    m_textureDirty = false;
-    m_soundDirty   = false;
+    // (Il momento pulito lo segna SceneCleanGuard all'uscita.) La sorgente torna
+    // al default: qui e nel load di un preset sono le due sole sedi che la
+    // cambiano.
     m_warnedEditedDock = OriginDefault;
     m_warnedOrigin     = OriginDefault;
     m_surfaceOrigin    = OriginDefault;
-    // A schermo c'e' una superficie valida: l'eventuale errore di compilazione
-    // che aveva preceduto il reset non vale piu'.
-    m_runEverSucceeded = false;
 
     // A schermo c'e' ora la superficie di DEFAULT (toro/sfera) o il NULLA: in
     // nessuno dei due casi un item di libreria descrive cio' che si vede, e
@@ -6261,6 +6303,8 @@ void MainWindow::onAlphaSliderMovedWarnCheck()
 // esattamente il "a meno che non riporti alpha<1".
 void MainWindow::forceOpaqueForHeavyRM(const QString &message)
 {
+    // La trasparenza la toglie l'app: non e' lavoro dell'utente da salvare.
+    AbsorbChangesGuard absorbOpaque(this);
     m_settingAlphaProgrammatic = true;
     ui->alphaSlider->setValue(100);
     m_settingAlphaProgrammatic = false;
@@ -6394,9 +6438,13 @@ bool MainWindow::guardTransparencyOnHeavyTextureApply(const QString &newDispCode
     // costo per pixel: con alpha<1 ogni singolo ridisegno (il box stesso, un
     // resize) resta da secondi. Set programmatico: i check dell'handler sono
     // fuori luogo qui, la decisione la prende questo box.
-    m_settingAlphaProgrammatic = true;
-    ui->alphaSlider->setValue(100);
-    m_settingAlphaProgrammatic = false;
+    {
+        // La trasparenza la toglie l'app: non e' lavoro dell'utente da salvare.
+        AbsorbChangesGuard absorbOpaque(this);
+        m_settingAlphaProgrammatic = true;
+        ui->alphaSlider->setValue(100);
+        m_settingAlphaProgrammatic = false;
+    }
 
     // Il watchdog va zittito e il suo eventuale segnale gia' in coda scartato:
     // stesso motivo documentato in forceOpaqueForHeavyRM (il box modale fa girare
@@ -8164,8 +8212,8 @@ bool MainWindow::syncFocusedTextureFromLibrary()
     // visto al caricamento del record. Qui non e' cambiata la scena.
     showTextureHintsOnly(std::max(m_currentTextureHintSeconds, m_currentBgTextureHintSeconds));
 
-    // Lavoro non salvato: il record sul disco ha ancora il codice vecchio.
-    m_textureDirty = true;
+    // Lavoro non salvato: il record sul disco ha ancora il codice vecchio (lo
+    // dice il confronto dello stato, textureModuleDirty).
     updateMasterButtonState();
     syncTextureTreeSelection();
 
@@ -8796,11 +8844,15 @@ void MainWindow::handleTextureSelection(int index)
     // (stessa logica dei record). Vuoto solo se non è stata caricata nessuna texture.
     m_currentTexturePresetPath = data.filePath;
 
-    // A schermo c'e' ora una texture di libreria, non lavoro dell'utente: non
-    // c'e' piu' niente da proteggere. La conferma per la texture PRECEDENTE e'
-    // gia' stata chiesta dal chiamante (onExampleItemClicked), prima di
-    // arrivare qui.
-    m_textureDirty = false;
+    // A schermo ci sara' una texture di libreria, non lavoro dell'utente: per
+    // il MODULO texture non c'e' piu' niente da proteggere (la conferma per la
+    // texture PRECEDENTE l'ha gia' chiesta il chiamante, onExampleItemClicked).
+    // La SCENA invece e' cambiata rispetto al suo file: il record la salva, e
+    // l'avviso di scena la difende. All'uscita, quando la texture e' applicata.
+    struct TexturePickedGuard {
+        MainWindow *w;
+        ~TexturePickedGuard() { w->markTexturePicked(); }
+    } texturePickedGuard{this};
 
     static int lastTextureIndex = -1;
     static bool lastWasBg = false;
@@ -10039,9 +10091,9 @@ void MainWindow::onStartClicked()
     // scritto e' andato a schermo. RunOutcomeGuard lo rileva all'uscita,
     // qualunque essa sia.
     //
-    // Il flag si ALZA soltanto: un errore non lo abbassa mai. Lo stato "pulito"
-    // lo ristabiliscono solo il reset di modalita' e il load di un preset, che
-    // azzerano anche m_sceneDirty.
+    // Un Run riuscito porta a schermo il testo della superficie, che da li'
+    // conta per l'avviso "vuoi salvare?" (noteSurfaceApplied); un Run con errori
+    // lascia tutto com'era.
     RunOutcomeGuard runOutcomeGuard(this);
 
     m_geodesicErrorPending = false;
@@ -10062,6 +10114,7 @@ void MainWindow::onStartClicked()
     // equazioni (orologio geometria + flusso geodetico), lasciando intatti
     // rotazioni, path, texture e audio gestiti dal master.
     if (runDockOnly && dockBtn->text().toUpper() == "STOP") {
+        runOutcomeGuard.surfaceApplied = false;   // uno Stop non applica nulla
         performEquationsStop();
         return;
     }
@@ -10069,6 +10122,7 @@ void MainWindow::onStartClicked()
     // --- 1. BLOCCO STOP GLOBALE (MASTER) ---
     if (m_btnStart && m_btnStart->text().toUpper() == "STOP") {
         if (sender() == m_btnStart) {
+            runOutcomeGuard.surfaceApplied = false;   // uno Stop non applica nulla
             performMasterStop();
             return;
         }
@@ -10780,6 +10834,7 @@ void MainWindow::onStartClicked()
     // che e' il comportamento storico -- non c'e' un "gia' applicato" da usare.
     const bool serviceCommit = this->property("rmApplyOnly").toBool()
                             && this->property("active_lineX").isValid();
+    runOutcomeGuard.equationsApplied = !serviceCommit;
     auto eqField = [this, serviceCommit](const char* prop, QPlainTextEdit* edit) -> QString {
         if (serviceCommit && this->property(prop).isValid())
             return this->property(prop).toString();
@@ -11120,6 +11175,14 @@ void MainWindow::onResetViewClicked()
     // successivo del pathTimer lo riaccende: basta lasciare il timer attivo.
     ui->glWidget->resetTransformations();
 
+    // resetTransformations riporta la proiezione al FOV di default, ma lo
+    // slider restava sul valore di prima: a schermo 45, sullo slider e nel Save
+    // 70. Senza un path in corsa il reset della vista riporta al default anche
+    // lo slider, come il reset di scena; con un path in corsa il FOV e' quello
+    // scelto per il volo e resta (il path riparte da t=0 con la sua
+    // prospettiva).
+    applyCameraFov((wasPathRunning || wasPath3DRunning) ? m_fov3D : 45.0f);
+
     // Se un path era in corso, lo teniamo vivo: riparte da t=0 dopo il reset
     // della posa, esattamente come fa la rotazione.
     if (wasPathRunning && ui->glWidget) {
@@ -11439,6 +11502,8 @@ bool MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
             ui->glWidget->update();
         }
         updateMasterButtonState();
+        // Il dominio nuovo e' a schermo: da qui e' lavoro da proteggere.
+        noteSurfaceApplied({ QStringLiteral("limits/") });
         return true;
     }
 
@@ -12369,6 +12434,7 @@ void MainWindow::onRunCurrentScript()
             // e, per gli script metrici, il flusso geodetico (m_geoAnimTimer).
             // Timer condiviso col dock Equations: performEquationsStop() ferma
             // entrambe le sorgenti di 't' e riallinea i due tasti a "Run".
+            runOutcomeGuard.surfaceApplied = false;   // uno Stop non applica nulla
             performEquationsStop();
             return;
         }
@@ -13613,7 +13679,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
     //
     // Le TEXTURE si applicano sopra la scena e non la sostituiscono, ma
     // scartano il lavoro fatto sulla texture corrente: hanno una conferma loro,
-    // che protegge il solo modulo (m_textureDirty) e apre il salvataggio sul
+    // che protegge il solo modulo (textureModuleDirty) e apre il salvataggio sul
     // ramo textures/ anziche' sulla radice dell'albero. Stessa cosa per i
     // suoni, in onSoundItemClicked (albero servito da un altro slot).
     {
@@ -13831,6 +13897,12 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             // il sospetto da verificare in questo giro.
             SE_TEXP("libTex:RAMO-RICLIC(isMatch)");
             bool isBg = ui->radioBackground->isChecked();
+            // Il riclic rimette colori e inquadratura del preset: e' di nuovo la
+            // texture della Library, come dopo una scelta (markTexturePicked).
+            struct TexturePickedGuard {
+                MainWindow *w;
+                ~TexturePickedGuard() { w->markTexturePicked(); }
+            } texturePickedGuard{this};
 
             // RIAVVIO DALL'INIZIO. Ricliccare il preset gia' attivo lo fa
             // ripartire da capo: e' la regola della Library, che superfici,
@@ -13991,22 +14063,6 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
 
         handleTextureSelection(index);
 
-        // La texture a schermo ora e' diversa da quella del record caricato: la
-        // SCENA e' cambiata rispetto al file su disco, e chiudendo o cambiando
-        // preset quella differenza si perde. Il record la salva, quindi va
-        // protetta.
-        //
-        // m_sceneDirty e NON m_textureDirty: la texture viene dalla libreria ed
-        // e' gia' su disco -- non c'e' un file texture da salvare. Cio' che si
-        // perde e' la SCENA che la usa, e l'unico file che la conserva e' il
-        // record.
-        //
-        // noteSceneControlUsed() e non "m_sceneDirty = true": alza anche
-        // m_runEverSucceeded, che hasUnsavedWork() pretende. Senza, caricare una
-        // texture su una scena appena aperta (nessun Run riuscito) non farebbe
-        // uscire il popup lo stesso.
-        noteSceneControlUsed();
-
         // FIX 2: Rimosso il blocco if/else che forzava setSurfaceTextureAnimating(true).
         // handleTextureSelection() sa già calcolare perfettamente se serve l'animazione
         // e imposta tutti i flag necessari in modo coerente per Parametric e Ray Marching.
@@ -14054,6 +14110,9 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
 
 void MainWindow::applySurfaceExample(LibraryItem d)
 {
+    // All'uscita la scena e' quella del file: e' il momento pulito.
+    SceneCleanGuard sceneCleanGuard{this};
+
     // La scena non e' piu' un record: caricando una SUPERFICIE l'ancora del
     // record caricato non vale piu' (vedi m_currentRecordPath).
     m_currentRecordPath.clear();
@@ -14538,6 +14597,9 @@ void MainWindow::applySurfaceExample(LibraryItem d)
 
 void MainWindow::applyMotionExample(LibraryItem data)
 {
+    // All'uscita la scena e' quella del file: e' il momento pulito.
+    SceneCleanGuard sceneCleanGuard{this};
+
     SE_TEXP("record:ENTRATA");
 
     // IMMAGINI MANCANTI: SI CHIEDE PRIMA DI TOCCARE LA SCENA.
@@ -15634,8 +15696,8 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // Serve una riasserzione esplicita perche' il load SPORCA il flag: la
     // ripulitura dell'audio poco sopra (~11182) riscrive lineTexture a segnali
     // VIVI, quindi passa da markRmTextureEdited che mette m_rmTextureApplied a
-    // false. La guardia m_populatingFields li' protegge il solo m_textureDirty,
-    // non questo flag. Risultato: caricando un record RM il Run nasceva acceso
+    // false (la guardia m_populatingFields li' non protegge questo flag).
+    // Risultato: caricando un record RM il Run nasceva acceso
     // pur non avendo niente da applicare.
     //
     // In RM la texture NON vive in m_surfaceTextureCode (svuotato a ~11060) ma
@@ -16254,21 +16316,17 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
     m_soundScriptText = audioSnippet;
     m_currentSoundLibName = soundData.name.trimmed();   // ancora del focus (vedi mainwindow.h)
 
-    // A schermo c'e' ora un suono di libreria, non lavoro dell'utente: niente
-    // piu' da proteggere. La conferma per il suono PRECEDENTE e' gia' stata
-    // chiesta qui sopra. (La scrittura nell'editor piu' sotto e' programmatica
-    // ma a segnali BLOCCATI, quindi non rialza il flag.)
-    m_soundDirty = false;
-
-    // Simmetrico al load di una texture da libreria (onExampleItemClicked):
-    // stessa motivazione, stessa scelta di flag. Il suono viene dalla libreria
-    // ed e' gia' su disco; cio' che si perde e' la SCENA che lo usa, e l'unico
-    // file che la conserva e' il record.
-    //
-    // Dopo l'azzeramento qui sopra, mai prima. E dopo il ramo
-    // "isAlreadyPresent", che esce prima e non sostituisce nulla: ricliccare il
-    // suono gia' in vigore lo risuona soltanto, e non e' una modifica.
-    noteSceneControlUsed();
+    // A schermo c'e' ora un suono di libreria, non lavoro dell'utente: per il
+    // MODULO suono niente piu' da proteggere (la conferma per il suono
+    // PRECEDENTE e' gia' stata chiesta qui sopra). La SCENA che lo usa invece
+    // e' cambiata rispetto al suo file, e l'unico che la conserva e' il record:
+    // simmetrico al load di una texture da libreria (markTexturePicked).
+    // Qui e non prima: dopo il ramo "isAlreadyPresent", che esce senza
+    // sostituire nulla. All'uscita, a editor aggiornato.
+    struct SoundPickedGuard {
+        MainWindow *w;
+        ~SoundPickedGuard() { w->markSoundPicked(); }
+    } soundPickedGuard{this};
 
     // AGGIORNAMENTO VISIVO DELL'EDITOR: solo se mostra il suono. In modalita'
     // Texture mostra uno script (magari in sospeso, o quello di una fascia) che
@@ -18616,20 +18674,11 @@ void MainWindow::applyCommonData(LibraryItem d)
     this->setProperty("isPresetActive", true);
 
     // Il preset appena caricato e' su file: non c'e' lavoro da proteggere finche'
-    // l'utente non lo modifica. Azzerato QUI, in coda: durante il load i campi si
-    // riempiono a segnali vivi e hanno gia' fatto scattare noteSceneEdited.
-    // Riarmato anche l'avviso cross-dock: la situazione e' cambiata.
-    m_sceneDirty = false;
-    // Un preset porta con se' anche texture e suono: i loro campi sono stati
-    // riscritti dal load, quindi il lavoro precedente su quei moduli non e' piu'
-    // a schermo e non c'e' piu' niente da proteggere.
-    m_textureDirty = false;
-    m_soundDirty   = false;
+    // l'utente non lo modifica (il momento pulito lo segna SceneCleanGuard
+    // all'uscita di applySurfaceExample / applyMotionExample).
+    // Riarmato l'avviso cross-dock: la situazione e' cambiata.
     m_warnedEditedDock = OriginDefault;
     m_warnedOrigin     = OriginDefault;
-    // Il preset caricato ha compilato: azzera l'esito fallito di un Run
-    // precedente, altrimenti il lavoro fatto DOPO il load resterebbe senza avviso.
-    m_runEverSucceeded = false;
     // A schermo c'e' il preset, non il default: la superficie ora "appartiene"
     // al dock da cui il preset la definisce. E' l'unico punto, con il reset di
     // modalita', in cui la sorgente cambia -- il Run non la sposta.

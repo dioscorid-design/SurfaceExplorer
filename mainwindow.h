@@ -10,6 +10,8 @@
 #include <QProgressBar>
 #include <QFileSystemWatcher>
 #include <QHash>
+#include <QMap>
+#include <QJsonValue>
 
 #include "glwidget.h"
 #include "librarymanager.h"
@@ -105,10 +107,11 @@ private slots:
     //                      modalita'. Unica sede del reset: mai duplicarne il
     //                      contenuto in un secondo percorso.
     void resetScene(int index, bool loadDefaultSurface);
-    // Un edit dell'utente su un modulo che definisce la scena: alza m_sceneDirty
-    // e, se il campo toccato appartiene a un dock diverso da quello che ha
-    // prodotto la superficie a schermo, mostra UNA VOLTA l'avviso non bloccante
-    // che consiglia di resettare prima. `source` e' il campo editato.
+    // Un edit dell'utente su un campo che definisce la superficie: se il campo
+    // appartiene a un dock diverso da quello che ha prodotto la superficie a
+    // schermo, mostra UNA VOLTA l'avviso non bloccante che consiglia di
+    // resettare prima. `source` e' il campo editato. (Il lavoro non salvato non
+    // passa piu' di qui: si confronta lo stato, vedi sceneFingerprint.)
     void noteSceneEdited(QWidget *source = nullptr);
     bool hasUnsavedWork() const;
     // Save / Don't save / Cancel prima di un'azione che scarta il lavoro.
@@ -130,16 +133,12 @@ private slots:
     void warnSharedConstantsOnRecordLoad(const QString &recordPath);
     // Unico punto da cui si mostra un errore di compilazione all'utente.
     void showShaderError(const QString &title, const QString &errorLog);
-    // Lavoro dell'utente sui controlli che NON passano dai campi testuali:
-    // aspetto (Renderer), rotazioni 3D/4D, path e camera. A differenza delle
-    // equazioni questi agiscono subito sulla scena -- non c'e' un Run da
-    // attendere -- quindi marcano lavoro gia' applicato e da proteggere.
-    void noteSceneControlUsed();
-    // Come sopra, ma per i comandi di VISTA: a scena vuota non marca nulla.
-    // Vedi il corpo per il motivo per cui la guardia non sta nel gemello.
+    // La POSA mossa dall'utente (mouse, touch, tasti di camera): l'unico
+    // lavoro che si segue per eventi, perche' la posa la muovono anche i moti
+    // automatici. A scena vuota non marca nulla.
     void noteViewControlUsed();
-    // Collega in blocco i controlli dei dock a noteSceneControlUsed().
-    void wireSceneControlsDirtyTracking();
+    // Collega i comandi di posa a noteViewControlUsed().
+    void wireViewControlsTracking();
 
     // true quando il motore non ha niente da disegnare (stato prodotto dal
     // tasto NEW). Guarda il MOTORE, non i campi della UI: l'utente puo' aver
@@ -918,40 +917,80 @@ private:
     // avvio esplicito di un moto camera e load di preset/record (applyCommonData).
     bool m_userStoppedCameraMotion = false;
 
-    // LAVORO NON SALVATO. true dal primo edit dell'utente su un qualunque modulo
-    // che definisce la scena (equazioni, equazione implicita, script, texture,
-    // costanti); torna false a ogni load di preset/record e dopo un salvataggio
-    // o un reset. Governa l'avviso "vuoi salvare?" del reset di modalita'.
-    // Distinto da isPresetActive, che dice "a schermo c'e' un preset intatto" ed
-    // e' usato altrove (salvataggio) con semantica sua.
-    bool m_sceneDirty = false;
-
-    // UN RUN E' RIUSCITO DA QUANDO LA SCENA E' PULITA. E' la condizione che dice
-    // se a schermo c'e' lavoro dell'utente: solo un Run riuscito porta i campi
-    // sulla scena. Alzato in coda a onStartClicked quando il Run non ha prodotto
-    // errori, azzerato dove la scena torna pulita (reset di modalita', load di
-    // preset/record), insieme a m_sceneDirty.
+    // LAVORO NON SALVATO, PER VALORE. La scena e' "da salvare" quando il suo
+    // stato DIFFERISCE da quello dell'ultimo momento pulito (load di un preset o
+    // di un record, reset, salvataggio), non quando un controllo e' stato
+    // toccato: riportare uno slider dov'era la rende di nuovo pulita, e un
+    // comando che nessuno aveva cablato e' protetto lo stesso.
     //
-    // Governa l'avviso "vuoi salvare?": si chiede solo se la scena e' sporca E
-    // un Run e' riuscito. Cosi' spariscono i due casi in cui l'avviso offriva di
-    // salvare il nulla -- equazioni che danno errore, e testo scritto e mai
-    // eseguito -- senza toccare il lavoro valido.
-    //
-    // Volutamente PER-SCENA e non per-campo: la versione precedente
-    // (m_editsNeverRun, "c'e' un edit pendente") nascondeva anche il lavoro gia'
-    // applicato appena si iniziava a scrivere in un altro campo.
-    bool m_runEverSucceeded = false;
+    // Lo stato si legge dall'IMPRONTA della scena (sceneFingerprint): cio' che
+    // Save Record scriverebbe adesso, appiattito in chiave -> valore. Ogni
+    // chiave appartiene a una parte, e le parti seguono le regole decise per
+    // l'avviso "vuoi salvare?":
+    //   PartCore        comandi che agiscono subito (aspetto, costanti, moti,
+    //                   path, limiti per-mesh...): contano appena cambiano.
+    //   PartSurfaceText equazioni, limiti, script della superficie: contano
+    //                   solo DOPO che sono andati a schermo (m_appliedSurface),
+    //                   non mentre sono testo scritto e mai eseguito o che da'
+    //                   errore.
+    //   PartTexture     texture di superficie, di sfondo e delle fasce: lavoro
+    //                   del MODULO texture, col suo avviso e il suo ramo.
+    //   PartSound       il suono: lavoro del MODULO suono.
+    // La POSA (camera, angoli 4D, osservatore) non e' nell'impronta: la muovono
+    // anche rotazioni e path, da soli. Che l'abbia mossa l'utente lo dicono gli
+    // eventi (m_viewTouched), come lo stato di esecuzione in genere.
+    using SceneFingerprint = QMap<QString, QJsonValue>;
+    enum FingerprintPart { PartCore, PartSurfaceText, PartTexture, PartSound };
+    static FingerprintPart fingerprintPart(const QString &key);
+    SceneFingerprint sceneFingerprint() const;
+    static SceneFingerprint fingerprintSlice(const SceneFingerprint &fp, FingerprintPart part);
 
-    // LAVORO NON SALVATO DEI MODULI TEXTURE e SOUND, tracciato a parte da
-    // m_sceneDirty. Servono distinti perche' m_sceneDirty e' un flag di SCENA:
-    // si alza anche scrivendo le equazioni, e usarlo qui farebbe chiedere "vuoi
-    // salvare la texture?" a chi ha solo toccato la superficie. Ognuno protegge
-    // il proprio ramo, e il dialogo di salvataggio punta a quel ramo soltanto.
-    // Alzati dagli edit dell'utente sui rispettivi campi (stessi punti che gia'
-    // li intercettano per i tasti Run), azzerati dal load di un preset del tipo,
-    // dal suo salvataggio e dal reset.
-    bool m_textureDirty = false;
-    bool m_soundDirty   = false;
+    SceneFingerprint m_cleanScene;      // tutta l'impronta all'ultimo momento pulito della scena
+    SceneFingerprint m_appliedSurface;  // PartSurfaceText com'era l'ultima volta che e' andato a schermo
+    SceneFingerprint m_cleanTexture;    // PartTexture all'ultimo momento pulito del MODULO
+    SceneFingerprint m_cleanSound;      // PartSound, idem
+    // Texture e suono presi dalla LIBRARY dopo l'ultimo momento pulito della
+    // scena: non sono lavoro del modulo (sono gia' su disco), ma la scena che li
+    // usa e' cambiata, e il record e' l'unico file che lo conserva.
+    SceneFingerprint m_pickedTexture;
+    SceneFingerprint m_pickedSound;
+    bool m_viewTouched = false;         // posa mossa dall'utente (mouse, touch, tasti di camera)
+    bool m_textureViewTouched = false;  // inquadratura 2D della texture mossa nella vista piatta
+    bool m_lastSaveSucceeded = false;   // esito dell'ultimo salvataggio (lo legge confirmDiscardUnsaved)
+
+    // I momenti PULITI. Scena: tutto e' su disco o appena caricato. Surface:
+    // Save Surface (i moduli texture/suono restano com'erano). Texture/suono
+    // "picked": presi dalla Library; "saved": scritti nel loro file.
+    void markSceneClean();
+    void markSurfaceSaved();
+    void markTexturePicked();
+    void markTextureSaved();
+    void markSoundPicked();
+    void markSoundSaved();
+    // Il testo della superficie e' andato a schermo (Run riuscito, limite
+    // confermato): da qui conta per l'avviso. `prefixes` vuoto = tutte le chiavi.
+    void noteSurfaceApplied(const QStringList &prefixes = QStringList());
+    bool textureModuleDirty() const;
+    bool soundModuleDirty() const;
+    // Le chiavi che rendono sporchi scena e moduli ("scena:colors/alpha"...):
+    // per i test e per la diagnosi.
+    QStringList unsavedKeys() const;
+    // Cambi che NON sono lavoro dell'utente (il checkbox che mostra/nasconde la
+    // texture, la trasparenza tolta dal watchdog): cio' che cambia mentre la
+    // guardia e' viva entra anche nei riferimenti puliti, cosi' una scena pulita
+    // resta pulita e una sporca resta sporca.
+    void absorbChangesSince(const SceneFingerprint &before);
+    struct AbsorbChangesGuard {
+        MainWindow *w;
+        SceneFingerprint before;
+        explicit AbsorbChangesGuard(MainWindow *mw) : w(mw), before(mw->sceneFingerprint()) {}
+        ~AbsorbChangesGuard() { w->absorbChangesSince(before); }
+    };
+    // Momento pulito all'uscita da un load o da un reset, qualunque uscita sia.
+    struct SceneCleanGuard {
+        MainWindow *w;
+        ~SceneCleanGuard() { w->markSceneClean(); }
+    };
 
     // Salvataggio in corso DENTRO la conferma "vuoi salvare?": la libreria si
     // aggiorna ma il focus non si sposta sul file salvato, perche' subito dopo
@@ -971,8 +1010,9 @@ private:
     // puntatore resterebbe pendente.
     QTreeWidgetItem *m_lastLoadedLibraryItem = nullptr;
 
-    // Marca m_runEverSucceeded all'uscita dello scope, se durante la sua vita
-    // nessun errore e' stato mostrato all'utente. Da istanziare in cima a OGNI
+    // All'uscita dello scope, se durante la sua vita nessun errore e' stato
+    // mostrato all'utente, il Run e' RIUSCITO: le costanti si riallineano e il
+    // testo della superficie conta come andato a schermo (noteSurfaceApplied). Da istanziare in cima a OGNI
     // funzione che applica la superficie (onStartClicked, onRunCurrentScript):
     // funziona qualunque sia l'uscita presa, e quelle funzioni ne hanno decine.
     // NB: dichiarata fuori dalle sezioni slot -- moc rifiuta le struct li'.
@@ -980,6 +1020,11 @@ private:
         MainWindow *w;
         quint64 before;
         bool armed;
+        // false quando la chiamata non ha portato a schermo il testo della
+        // superficie (Stop del dock o del master) o non le equazioni (commit di
+        // servizio, che riusa quelle gia' applicate).
+        bool surfaceApplied = true;
+        bool equationsApplied = true;
         explicit RunOutcomeGuard(MainWindow *mw, bool arm = true);
         ~RunOutcomeGuard();
     };
@@ -1418,12 +1463,6 @@ private:
     // texture utente salvata col suono dentro). Vuoto -> il testo dell'editor.
     // UNICO PUNTO: erano cinque concatenazioni, in ordini diversi.
     QString sceneAudioSource() const;
-    // true quando gli slider RGB stanno editando un colore della TEXTURE
-    // (sfondo o superficie) e non il colore della superficie stessa. Replica la
-    // scelta di destinatario fatta da handleColorChange: serve a marcare il
-    // lavoro sul modulo giusto -- un colore di texture non e' salvato da un
-    // file di surfaces/, quindi non deve far uscire il popup della scena.
-    bool colorSlidersTargetTexture() const;
     // Granulari: la texture attiva referenzia u_col1 / u_col2 (token = "u_col1"/"u_col2").
     // Servono per abilitare i due picker INDIPENDENTEMENTE: una texture che usa solo
     // u_col1 (es. "Xor") non deve lasciare attivo il picker di col2, che non avrebbe

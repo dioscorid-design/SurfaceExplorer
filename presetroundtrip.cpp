@@ -396,6 +396,8 @@ PresetRoundTrip::Capture PresetRoundTrip::loadAndCapture(const Entry &e)
     const QJsonObject later = captureJson(e);
     for (const Diff &d : diffJson(c.json, later, {}))
         c.moving.insert(d.key);
+    // A caricamento finito e assestato la scena dev'essere PULITA.
+    c.unsavedAfterLoad = m_mw->unsavedKeys();
 
     // Il suono di un record ripartirebbe a ogni caricamento: si ferma dopo la
     // cattura (il JSON lo porta comunque, includeSound = true).
@@ -649,6 +651,8 @@ void PresetRoundTrip::writeReport()
     QMap<QString, KeyStat> saveByKey, orderByKey, movingByKey;
     QStringList details, popups;
     int identical = 0, saveChanged = 0, orderDependent = 0, notLoadable = 0, withPopups = 0;
+    int dirtyAfterLoad = 0;
+    QStringList phantom;
 
     auto bump = [](QMap<QString, KeyStat> &m, const QString &key, const QString &rel) {
         KeyStat &s = m[key];
@@ -683,6 +687,19 @@ void PresetRoundTrip::writeReport()
         }
         if (popped) ++withPopups;
         if (a.json.isEmpty()) { ++notLoadable; continue; }
+
+        // Scena "da salvare" senza alcun gesto, in uno qualunque dei passaggi.
+        {
+            bool dirty = false;
+            for (const Capture *c : { &a, bp, cp }) {
+                if (!c || c->unsavedAfterLoad.isEmpty()) continue;
+                dirty = true;
+                phantom.append(QStringLiteral("%1 (dopo %2): %3")
+                                   .arg(e.rel, c->previous.isEmpty() ? QStringLiteral("l'avvio") : c->previous,
+                                        c->unsavedAfterLoad.join(QStringLiteral(", ")).left(400)));
+            }
+            if (dirty) ++dirtyAfterLoad;
+        }
 
         QSet<QString> moving = a.moving;
         const Capture *b = m_passB.contains(e.rel) ? &m_passB[e.rel] : nullptr;
@@ -793,6 +810,7 @@ void PresetRoundTrip::writeReport()
         << QStringLiteral("Dipendono dal preset caricato prima:                         %1").arg(orderDependent)
         << QStringLiteral("Non caricabili:                                              %1").arg(notLoadable)
         << QStringLiteral("Con un popup di errore al caricamento:                       %1").arg(withPopups)
+        << QStringLiteral("Risultano da salvare appena caricati (popup fantasma):       %1").arg(dirtyAfterLoad)
         << QString()
         << QStringLiteral("== DIPENDONO DAL PRESET PRECEDENTE, per chiave (numero di preset) ==")
         << summary(orderByKey)
@@ -806,6 +824,9 @@ void PresetRoundTrip::writeReport()
         << QStringLiteral("== POPUP DURANTE IL CARICAMENTO (chiusi dal test) ==");
     if (popups.isEmpty()) rep << QStringLiteral("  nessuno");
     for (const QString &p : popups) rep << QStringLiteral("  ") + p;
+    rep << QString() << QStringLiteral("== DA SALVARE APPENA CARICATI (chiavi che farebbero uscire l'avviso) ==");
+    if (phantom.isEmpty()) rep << QStringLiteral("  nessuno");
+    for (const QString &p : phantom) rep << QStringLiteral("  ") + p;
     rep << QString() << QStringLiteral("== DETTAGLIO PER PRESET ==") << details;
 
     QFile f(m_outDir + QStringLiteral("/report.txt"));
@@ -813,7 +834,7 @@ void PresetRoundTrip::writeReport()
         f.write(rep.join(QLatin1Char('\n')).toUtf8() + '\n');
 
     const bool pass = (saveChanged == 0 && orderDependent == 0 && notLoadable == 0
-                       && withPopups == 0);
+                       && withPopups == 0 && dirtyAfterLoad == 0);
     log(QStringLiteral("fine: %1 identici su %2, Save diverso %3, dipendenti dall'ordine %4, "
                        "con popup %5. Report: %6")
             .arg(identical).arg(n - notLoadable).arg(saveChanged).arg(orderDependent)
