@@ -237,6 +237,12 @@ public:
     QString activeImplicitEquation() const {
         return m_implicitUsesCrossSection ? m_eqCrossSectionF : m_eqImplicitF;
     }
+    // Ramo attivo nel marcher: Cross Section (sezione 4D) o 3D.
+    bool implicitUsesCrossSection() const { return m_implicitUsesCrossSection; }
+    // Riporta il marcher sul ramo 3D senza toccare le equazioni. setImplicitEquation
+    // lo fa per le superfici a equazione; quelle DA SCRIPT non passano di li', e
+    // dopo un Cross Section il ramo restava il suo.
+    void useImplicit3DBranch();
 
 
     // ==========================================================

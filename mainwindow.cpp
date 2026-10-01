@@ -14334,6 +14334,9 @@ void MainWindow::applySurfaceExample(LibraryItem d)
         // Risincronizziamo lo slider per la nuova superficie: newSurface=true lo
         // riabilita (non fu bloccato da un Chain precedente) e riarma la guardia del
         // popup di avviso.
+        // Il ramo del motore torna al 3D: una superficie da script non e' mai
+        // una sezione, e dopo un Cross Section il flag restava acceso.
+        ui->glWidget->useImplicit3DBranch();
         syncImplicitAlphaSlider(true, true);
     }
 
@@ -14742,6 +14745,21 @@ void MainWindow::applyMotionExample(LibraryItem data)
                 syncImplicitAlphaSlider(true, true);
             }
             // ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        } else {
+            // RECORD DA SCRIPT: la sua SDF e' un campo 3D, il Cross Section non
+            // c'entra. Questo ramo non toccava ne' il sotto-tab ne' il ramo del
+            // motore: dopo un record Cross Section restavano i suoi, lo shader
+            // si compilava con la rotazione della sezione e il Save scriveva
+            // implicitUsesCrossSection true (trovato dal round-trip con un ordine
+            // diverso dei preset, poi dal test degli scenari).
+            // blockSignals: currentChanged caricherebbe la default del sotto-tab.
+            if (ui->subTabImplicit) {
+                const bool ob = ui->subTabImplicit->blockSignals(true);
+                ui->subTabImplicit->setCurrentIndex(0);
+                ui->subTabImplicit->blockSignals(ob);
+            }
+            if (ui->glWidget) ui->glWidget->useImplicit3DBranch();
+            updateRenderState();
         }
 
     } else {

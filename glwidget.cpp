@@ -1709,6 +1709,14 @@ bool GLWidget::setParametricEquations(const QString &xEq, const QString &yEq,
     return true;
 }
 
+void GLWidget::useImplicit3DBranch()
+{
+    if (!m_implicitUsesCrossSection) return;
+    m_implicitUsesCrossSection = false;
+    // Lo shader implicito va rifatto: includeva la rotazione della sezione.
+    if (m_engineMode == ModeImplicit) rebuildShader();
+}
+
 void GLWidget::setImplicitEquation(const QString &eqF)
 {
     // L'equazione qui e' quella del sotto-tab 3D (3 variabili): impostarla

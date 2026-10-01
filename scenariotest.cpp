@@ -1377,6 +1377,45 @@ void ScenarioTest::run()
         checkConstants(QStringLiteral("A libera: 0.1 resta 0.1"), KV{ { "A", 0.1 } });
     }
 
+    // ---------------------------------------------------------------------
+    // CROSS SECTION: e' del preset che lo dichiara. Un record (o una superficie)
+    // Ray Marching DA SCRIPT caricato dopo un Cross Section non deve restare
+    // nel sotto-tab e nel ramo del motore di quello di prima.
+    const QString kCrossRec  = QStringLiteral("records/Ray Marching/Cross Sections/T3/Morphing 3-Torus.json");
+    const QString kCrossSurf = QStringLiteral("surfaces/Ray Marching/Cross Sections/Duocylinder.json");
+    auto checkBranch = [this, ui](const QString &step, bool expectedCross) {
+        const bool saved  = captureSave().usesCrossSection;
+        const bool tab    = ui->subTabImplicit->currentIndex() == 1;
+        const bool engine = ui->glWidget->implicitUsesCrossSection();
+        QStringList bad;
+        if (tab != expectedCross)
+            bad << QStringLiteral("sotto-tab %1").arg(tab ? QStringLiteral("Cross Section") : QStringLiteral("3D"));
+        if (engine != expectedCross)
+            bad << QStringLiteral("motore sul ramo %1").arg(engine ? QStringLiteral("Cross Section") : QStringLiteral("3D"));
+        if (saved != expectedCross)
+            bad << QStringLiteral("il Save scriverebbe implicitUsesCrossSection %1").arg(onOff(saved));
+        check(bad.isEmpty(), QStringLiteral("%1 -> ramo %2%3")
+                                 .arg(step, expectedCross ? QStringLiteral("Cross Section") : QStringLiteral("3D"),
+                                      bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+    };
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Cross Section e preset Ray Marching da script =="));
+    if (loadRecord(kCrossRec))
+        checkBranch(QStringLiteral("record Cross Section"), true);
+    if (loadRecord(QString::fromLatin1(kImplicitRecord)))
+        checkBranch(QStringLiteral("poi un record Ray Marching da script"), false);
+    if (loadRecord(kCrossRec))
+        checkBranch(QStringLiteral("di nuovo il record Cross Section"), true);
+    if (loadSurface(QStringLiteral("surfaces/Ray Marching/Bitorus.json")))
+        checkBranch(QStringLiteral("poi una superficie Ray Marching da script"), false);
+    if (loadSurface(kCrossSurf))
+        checkBranch(QStringLiteral("superficie Cross Section"), true);
+    if (loadRecord(kTunnel))
+        checkBranch(QStringLiteral("poi un record Ray Marching da script"), false);
+    if (loadSurface(kCrossSurf) && loadRecord(QString::fromLatin1(kParametricRecord))
+        && loadRecord(QString::fromLatin1(kImplicitRecord)))
+        checkBranch(QStringLiteral("Cross Section, parametrico, poi Ray Marching da script"), false);
+
     finish();
 }
 
