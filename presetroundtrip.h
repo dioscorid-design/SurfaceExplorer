@@ -21,7 +21,10 @@ class QTimer;
 //   2. con un secondo passaggio in ordine INVERSO: ogni preset viene caricato
 //      dopo un predecessore diverso, quindi una differenza fra i due passaggi
 //      e' stato del preset precedente sopravvissuto al caricamento
-//      ("carica A poi B" != "carica B").
+//      ("carica A poi B" != "carica B");
+//   3. con un terzo passaggio in ordine RIMESCOLATO (seme fisso, quindi sempre
+//      lo stesso): i primi due provano solo le coppie vicine in ordine
+//      alfabetico, questo ne prova altre.
 //
 // I valori che avanzano col tempo (rotazioni, path in corsa) si riconoscono da
 // soli: il JSON si cattura due volte a distanza di qualche centinaio di ms e le
@@ -32,7 +35,7 @@ class QTimer;
 //
 //   SurfaceExplorer --roundtrip-test <radice preset> <cartella uscita>
 //                   [--filter <testo>[|<testo>...]] [--settle <ms>] [--single-pass]
-//                   [--data-only]
+//                   [--data-only] [--no-shuffle] [--shuffle-seed <n>]
 //
 // La radice e' quella che contiene surfaces/ e records/. Esce con codice 0 se
 // tutti i preset tornano identici, 1 altrimenti.
@@ -91,6 +94,11 @@ private:
     QList<Entry> m_entries;
     QHash<QString, Capture> m_passA;    // chiave: Entry::rel
     QHash<QString, Capture> m_passB;
+    // Terzo passaggio, in ordine rimescolato a seme fisso (vedi run()). Spento
+    // da --single-pass, --data-only e --no-shuffle.
+    QHash<QString, Capture> m_passC;
+    bool m_shufflePass = true;
+    uint m_shuffleSeed = 20261001;
     QStringList *m_currentDialogs = nullptr;
     QTimer *m_modalWatcher = nullptr;
     QFile m_logFile;

@@ -3,10 +3,12 @@
 # roundtrip-test.sh - Test di andata e ritorno dei preset (vedi presetroundtrip.h).
 #
 # Apre l'app (build Debug), carica da sola ogni superficie e ogni record della
-# libreria due volte -- in ordine e al contrario -- e confronta cio' che
-# scriverebbe un Save col file, e fra i due passaggi (= stato rimasto dal preset
-# caricato prima). Non scrive nulla nella libreria.
-# Dura circa 12 minuti: nel frattempo non usare l'app.
+# libreria tre volte -- in ordine, al contrario e in ordine rimescolato (sempre
+# lo stesso) -- e confronta cio' che scriverebbe un Save col file, e fra i
+# passaggi (= stato rimasto dal preset caricato prima). Non scrive nulla nella
+# libreria.
+# Dura circa 20 minuti: nel frattempo non usare l'app, e meglio non caricare la
+# macchina (un giro molto piu' lento del solito va rifatto).
 #
 # Quando lanciarlo:
 #   - prima di un rilascio (beta, App Store);
@@ -17,8 +19,11 @@
 # Uso:
 #   ./ExC/Mac/Test/roundtrip-test.sh                          tutta la libreria C/presets
 #   ./ExC/Mac/Test/roundtrip-test.sh --filter "Paths|Kerr"    solo i preset che combaciano
-#   ./ExC/Mac/Test/roundtrip-test.sh --single-pass            un solo passaggio (meta' tempo,
-#                                                        niente controllo dell'ordine)
+#   ./ExC/Mac/Test/roundtrip-test.sh --single-pass            un solo passaggio (un terzo del
+#                                                        tempo, niente controllo dell'ordine)
+#   ./ExC/Mac/Test/roundtrip-test.sh --no-shuffle             senza il terzo passaggio rimescolato
+#   ./ExC/Mac/Test/roundtrip-test.sh --shuffle-seed 7         un altro ordine rimescolato (il
+#                                                        seme di default e' fisso)
 #   ./ExC/Mac/Test/roundtrip-test.sh --data-only              SOLO DATI, pochi secondi: file ->
 #                                                        parser -> Save, senza caricare nulla
 #                                                        nell'app. Trova cio' che il parser

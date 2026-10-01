@@ -1,5 +1,7 @@
 #include "presetroundtrip.h"
 
+#include <random>
+
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "presetserializer.h"
@@ -170,7 +172,8 @@ void PresetRoundTrip::start(MainWindow *mw, const QStringList &args)
     const QString out  = args.value(i + 2);
     if (root.isEmpty() || out.isEmpty() || !QDir(root).exists()) {
         qCritical("uso: SurfaceExplorer --roundtrip-test <radice preset> <cartella uscita> "
-                  "[--filter <testo>] [--settle <ms>] [--single-pass]");
+                  "[--filter <testo>] [--settle <ms>] [--single-pass] [--no-shuffle] "
+                  "[--shuffle-seed <n>]");
         QTimer::singleShot(0, qApp, [] { QCoreApplication::exit(2); });
         return;
     }
@@ -182,6 +185,9 @@ void PresetRoundTrip::start(MainWindow *mw, const QStringList &args)
                                   argValue(args, QStringLiteral("--filter")), settle,
                                   args.contains(QStringLiteral("--single-pass")),
                                   args.contains(QStringLiteral("--data-only")));
+    if (args.contains(QStringLiteral("--no-shuffle"))) t->m_shufflePass = false;
+    const uint seed = argValue(args, QStringLiteral("--shuffle-seed")).toUInt(&ok);
+    if (ok) t->m_shuffleSeed = seed;
     // Si parte a finestra aperta e avvio concluso (superficie di default,
     // lettura della libreria): il primo preset non deve contendere con quelli.
     QTimer::singleShot(2000, t, &PresetRoundTrip::run);
@@ -376,6 +382,30 @@ void PresetRoundTrip::run()
             m_passB.insert(e.rel, c);
         }
     }
+    if (!m_singlePass && m_shufflePass) {
+        // PASSAGGIO C, in ordine RIMESCOLATO. A e B provano solo le coppie di
+        // preset vicine in ordine alfabetico, nei due versi: lo stato che
+        // sopravvive fra due preset mai adiacenti resta invisibile (visto col
+        // Cross Section ereditato dai record da script, uscito solo con un
+        // filtro che li aveva messi vicini). Il seme e' fisso: l'ordine e'
+        // sempre lo stesso, quindi un difetto trovato si ritrova; --shuffle-seed
+        // ne prova un altro. Fisher-Yates a mano: std::shuffle non garantisce
+        // lo stesso risultato fra librerie diverse.
+        QList<int> order;
+        for (int i = 0; i < n; ++i) order.append(i);
+        std::mt19937 rng(m_shuffleSeed);
+        for (int i = n - 1; i > 0; --i)
+            order.swapItemsAt(i, int(rng() % uint(i + 1)));
+        for (int k = 0; k < n; ++k) {
+            const Entry &e = m_entries.at(order.at(k));
+            log(QStringLiteral("C %1/%2 %3").arg(k + 1).arg(n).arg(e.rel));
+            Capture c = loadAndCapture(e);
+            c.previous = previous;
+            previous = e.rel;
+            writeJsonFile(m_outDir + QStringLiteral("/passC/") + e.rel, c.json);
+            m_passC.insert(e.rel, c);
+        }
+    }
     writeReport();
 }
 
@@ -523,7 +553,8 @@ void PresetRoundTrip::writeReport()
         // i passaggi, con il predecessore che serve a riprodurlo.
         bool popped = false;
         const Capture *bp = m_passB.contains(e.rel) ? &m_passB[e.rel] : nullptr;
-        for (const Capture *c : { &a, bp }) {
+        const Capture *cp = m_passC.contains(e.rel) ? &m_passC[e.rel] : nullptr;
+        for (const Capture *c : { &a, bp, cp }) {
             if (!c) continue;
             for (const QString &p : c->dialogs) {
                 popups.append(QStringLiteral("%1 (dopo %2): %3")
@@ -538,6 +569,7 @@ void PresetRoundTrip::writeReport()
         QSet<QString> moving = a.moving;
         const Capture *b = m_passB.contains(e.rel) ? &m_passB[e.rel] : nullptr;
         if (b) moving.unite(b->moving);
+        if (cp) moving.unite(cp->moving);
         for (const QString &k : moving) bump(movingByKey, k, e.rel);
 
         // Non tutto cio' che il Save cambia rispetto al file e' un difetto: chiavi
@@ -552,10 +584,22 @@ void PresetRoundTrip::writeReport()
         // preset di prima. Visto su Rotations/Torus Knot: un tick di differenza
         // negli angoli 4D fra i due passaggi, in un giro rallentato (e la
         // rotazione era troppo lenta perche' le due catture a 250 ms la vedessero).
-        QList<Diff> order;
-        if (b) {
-            for (const Diff &d : diffJson(a.json, b->json, moving))
-                if (drivenByMotion(d.key, a.json).isEmpty()) order.append(d);
+        // Contro B (ordine inverso) e contro C (ordine rimescolato).
+        auto orderDiffs = [&](const Capture *other) {
+            QList<Diff> out;
+            if (!other) return out;
+            for (const Diff &d : diffJson(a.json, other->json, moving))
+                if (drivenByMotion(d.key, a.json).isEmpty()) out.append(d);
+            return out;
+        };
+        const QList<Diff> orderB = orderDiffs(b);
+        const QList<Diff> orderC = orderDiffs(cp);
+        // Per i totali: una chiave che dipende dall'ordine conta una volta sola.
+        QList<Diff> order = orderB;
+        for (const Diff &d : orderC) {
+            bool seen = false;
+            for (const Diff &x : orderB) if (x.key == d.key && x.kind == d.kind) { seen = true; break; }
+            if (!seen) order.append(d);
         }
 
         bool saveDiffers = false;
@@ -582,9 +626,20 @@ void PresetRoundTrip::writeReport()
             details.append(QStringLiteral("  Save subito dopo il Load:"));
             details.append(saveLines);
         }
-        if (!order.isEmpty()) {
-            details.append(QStringLiteral("  Dipende dal preset caricato prima (passaggio A -> B):"));
-            for (const Diff &d : order) details.append(line(d));
+        // Col predecessore di ciascun passaggio: e' cio' che serve a riprodurre
+        // il caso a mano ("apri X, poi questo").
+        auto after = [](const Capture &c) {
+            return c.previous.isEmpty() ? QStringLiteral("l'avvio") : c.previous;
+        };
+        if (!orderB.isEmpty()) {
+            details.append(QStringLiteral("  Dipende dal preset caricato prima (A dopo %1, B dopo %2):")
+                               .arg(after(a), after(*b)));
+            for (const Diff &d : orderB) details.append(line(d));
+        }
+        if (!orderC.isEmpty()) {
+            details.append(QStringLiteral("  Dipende dal preset caricato prima (A dopo %1, C dopo %2):")
+                               .arg(after(a), after(*cp)));
+            for (const Diff &d : orderC) details.append(line(d));
         }
     }
 
@@ -609,7 +664,10 @@ void PresetRoundTrip::writeReport()
                        : QStringLiteral("TEST DI ANDATA E RITORNO DEI PRESET"))
         << QStringLiteral("radice: %1").arg(m_root)
         << QStringLiteral("preset: %1   settle: %2 ms   passaggi: %3%4")
-               .arg(n).arg(m_settleMs).arg(m_singlePass ? 1 : 2)
+               .arg(n).arg(m_settleMs)
+               .arg(m_singlePass ? QStringLiteral("1")
+                    : m_passC.isEmpty() ? QStringLiteral("2")
+                                        : QStringLiteral("3 (C rimescolato, seme %1)").arg(m_shuffleSeed))
                .arg(m_filter.isEmpty() ? QString() : QStringLiteral("   filtro: ") + m_filter)
         << QString()
         << QStringLiteral("Identici (Save = file, e nessuna dipendenza dal precedente): %1 su %2").arg(identical).arg(n - notLoadable)
