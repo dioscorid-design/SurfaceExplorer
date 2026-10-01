@@ -19214,6 +19214,17 @@ MainWindow::MissingImageScan MainWindow::scanRecordForMissingImages(const Librar
 
 QString MainWindow::extractAudioDirectives(const QString& fullText) {
     QString extractedSound;
+    // La scena ha UN audio. Lo stesso brano puo' arrivare da piu' slot (i Save
+    // vecchi lo scrivevano sia nel codice della texture sia in quello dello
+    // sfondo, es. Kerr Black Hole): va tenuto una volta sola, altrimenti il
+    // Save lo riscrive doppio e il confronto con la voce della Library Sounds
+    // non combacia piu'.
+    QStringList seen;
+    auto addOnce = [&](const QString &piece) {
+        if (seen.contains(piece)) return;
+        seen << piece;
+        extractedSound += piece;
+    };
 
     // 1. Estrae file MP3/WAV (con Smart Path Resolver integrato)
     QRegularExpression musicRe(R"(^\s*//MUSIC:\s*(.*)$)", QRegularExpression::MultilineOption);
@@ -19226,7 +19237,7 @@ QString MainWindow::extractAudioDirectives(const QString& fullText) {
         // A. Il file e' LEGGIBILE al percorso originale? (non basta che esista:
         // vedi extractAndResolveImagePath per il perche')
         if (isReadableFile(rawPath)) {
-            extractedSound += "//MUSIC: " + rawPath + "\n";
+            addOnce("//MUSIC: " + rawPath + "\n");
         } else {
             // B. Se il percorso è rotto, cerchiamo il file nella cartella Sounds locale
             QString fileName = QFileInfo(rawPath).fileName();
@@ -19242,10 +19253,10 @@ QString MainWindow::extractAudioDirectives(const QString& fullText) {
 
             if (it.hasNext()) {
                 QString resolvedPath = it.next();
-                extractedSound += "//MUSIC: " + resolvedPath + "\n"; // Sostituisce il path rotto con quello giusto!
+                addOnce("//MUSIC: " + resolvedPath + "\n"); // Sostituisce il path rotto con quello giusto!
             } else {
                 // Fallback di sicurezza: rimette quello vecchio
-                extractedSound += "//MUSIC: " + rawPath + "\n";
+                addOnce("//MUSIC: " + rawPath + "\n");
             }
         }
     }
@@ -19265,7 +19276,7 @@ QString MainWindow::extractAudioDirectives(const QString& fullText) {
     while (blockIt.hasNext()) {
         QString inner = blockIt.next().captured(1);
         inner.remove(innerMarkerRe);   // toglie eventuali marcatori annidati residui
-        extractedSound += "//SOUND_BEGIN\n" + inner.trimmed() + "\n//SOUND_END\n";
+        addOnce("//SOUND_BEGIN\n" + inner.trimmed() + "\n//SOUND_END\n");
     }
 
     return extractedSound.trimmed();

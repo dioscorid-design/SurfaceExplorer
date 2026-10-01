@@ -1235,6 +1235,34 @@ void ScenarioTest::run()
                          presetTextureCode(QString::fromLatin1(kImplicitRecord), LibraryType::Motion, false));
 
     // ---------------------------------------------------------------------
+    // AUDIO: la scena ha UN brano. Un record che lo porta in due slot del file
+    // (texture e sfondo: i Save vecchi lo scrivevano in entrambi) lo suona e lo
+    // risalva una volta sola.
+    const QString kTwiceSound = QStringLiteral("records/Rotations/Kerr Black Hole.json");
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Audio: un solo brano (%1) ==").arg(kTwiceSound));
+    if (loadRecord(kTwiceSound)) {
+        static const QRegularExpression beginRe(R"(^\s*//\s*SOUND_BEGIN\s*$)",
+                                                QRegularExpression::MultilineOption);
+        auto blocks = [](const QString &c) {
+            int n = 0;
+            auto it = beginRe.globalMatch(c);
+            while (it.hasNext()) { it.next(); ++n; }
+            return n;
+        };
+        const LibraryItem saved = captureSave();
+        const int inScene = blocks(m_mw->soundCode());
+        const int inTex = blocks(saved.textureCode);
+        const int inBg = blocks(saved.bgTextureCode);
+        check(inScene == 1, QStringLiteral("record caricato -> un blocco audio nella scena (sono %1)")
+                                .arg(inScene));
+        check(inTex + inBg == 1,
+              QStringLiteral("record caricato -> un blocco audio nel Save (texture %1, sfondo %2)")
+                  .arg(inTex).arg(inBg));
+        if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
+    }
+
+    // ---------------------------------------------------------------------
     // CODICE APPLICATO E MOTORE, parametrico: uno script che non compila non
     // diventa "applicato", e a texture spenta il motore non tiene il codice di
     // prima.
@@ -1626,6 +1654,95 @@ void ScenarioTest::run()
         // Si riapre il sotto-tab dov'era (Cross Section, con la sua default):
         // checkEquations verifica che sotto-tab, motore e Save siano d'accordo.
         checkEquations(QStringLiteral("di nuovo linguetta Ray Marching"));
+    }
+
+    // STATO 4D DEL CROSS SECTION: angoli, velocita' delle rotazioni 4D e
+    // traslazione p del piano di sezione vivono nel motore e sono della sezione.
+    // Nel Cross Section il Save scrive cio' che il motore mostra; nel Ray
+    // Marching 3D non resta nulla ne' nel motore (un moto 4D che continua a
+    // girare senza effetto) ne' nel Save.
+    auto check4D = [this, ui](const QString &step, bool expectCross) {
+        GLWidget *gl = ui->glWidget;
+        const LibraryItem sv = captureSave();
+        auto same = [](float a, float b) { return qAbs(a - b) < 1e-4f; };
+        const bool moving = !same(gl->getOmegaSpeed(), 0) || !same(gl->getPhiSpeed(), 0)
+                            || !same(gl->getPsiSpeed(), 0);
+        QStringList bad;
+        if (sv.usesCrossSection != expectCross)
+            bad << QStringLiteral("il Save scriverebbe implicitUsesCrossSection %1").arg(onOff(sv.usesCrossSection));
+        if (expectCross) {
+            if (!same(sv.crossSectionP, gl->crossSectionP()))
+                bad << QStringLiteral("p: Save %1, motore %2").arg(sv.crossSectionP).arg(gl->crossSectionP());
+            if (!same(sv.speedOmega, gl->getOmegaSpeed()) || !same(sv.speedPhi, gl->getPhiSpeed())
+                || !same(sv.speedPsi, gl->getPsiSpeed()))
+                bad << QStringLiteral("velocita' 4D: Save %1/%2/%3, motore %4/%5/%6")
+                           .arg(sv.speedOmega).arg(sv.speedPhi).arg(sv.speedPsi)
+                           .arg(gl->getOmegaSpeed()).arg(gl->getPhiSpeed()).arg(gl->getPsiSpeed());
+            if (!moving && (!same(sv.startOmega, gl->getOmega()) || !same(sv.startPhi, gl->getPhi())
+                            || !same(sv.startPsi, gl->getPsi())))
+                bad << QStringLiteral("angoli 4D: Save %1/%2/%3, motore %4/%5/%6")
+                           .arg(sv.startOmega).arg(sv.startPhi).arg(sv.startPsi)
+                           .arg(gl->getOmega()).arg(gl->getPhi()).arg(gl->getPsi());
+        } else {
+            if (!same(gl->crossSectionP(), 0))
+                bad << QStringLiteral("nel motore resta la traslazione p = %1").arg(gl->crossSectionP());
+            if (moving)
+                bad << QStringLiteral("nel motore restano le velocita' 4D %1/%2/%3")
+                           .arg(gl->getOmegaSpeed()).arg(gl->getPhiSpeed()).arg(gl->getPsiSpeed());
+            // Il riposo del motore e' 0.0001, non 0 (GLWidget: posa 4D mai
+            // esattamente piatta).
+            auto rest = [](float a) { return qAbs(a) < 1e-3f; };
+            if (!rest(gl->getOmega()) || !rest(gl->getPhi()) || !rest(gl->getPsi()))
+                bad << QStringLiteral("nel motore restano gli angoli 4D %1/%2/%3")
+                           .arg(gl->getOmega()).arg(gl->getPhi()).arg(gl->getPsi());
+            if (!same(sv.speedOmega, 0) || !same(sv.speedPhi, 0) || !same(sv.speedPsi, 0)
+                || !same(sv.startOmega, 0) || !same(sv.startPhi, 0) || !same(sv.startPsi, 0))
+                bad << QStringLiteral("il Save scriverebbe stato 4D fuori dal Cross Section");
+        }
+        check(bad.isEmpty(), QStringLiteral("%1 -> stato 4D %2%3")
+                                 .arg(step, expectCross ? QStringLiteral("della sezione") : QStringLiteral("assente"),
+                                      bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+    };
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Stato 4D del Cross Section (%1) ==").arg(kCrossRec));
+    if (loadRecord(kCrossRec)) {
+        check4D(QStringLiteral("record Cross Section in rotazione"), true);
+        // La sezione spostata lungo p (tasti della tastiera): e' stato da salvare.
+        ui->glWidget->moveCrossSectionP(0.25f);  wait(200);
+        check4D(QStringLiteral("piano di sezione spostato"), true);
+        m_discardOnPrompt = true;
+        ui->subTabImplicit->setCurrentIndex(0);  wait(1200);
+        check4D(QStringLiteral("sotto-tab 3D"), false);
+        ui->subTabImplicit->setCurrentIndex(1);  wait(1200);
+        m_discardOnPrompt = false;
+        check4D(QStringLiteral("di nuovo sotto-tab Cross Section (default)"), true);
+    }
+    if (loadRecord(kCrossRec)) {
+        ui->glWidget->moveCrossSectionP(0.25f);  wait(200);
+        if (loadRecord(kRmEq))
+            check4D(QStringLiteral("record in rotazione, poi un record Ray Marching 3D"), false);
+    }
+    if (loadRecord(kCrossRec) && loadSurface(QStringLiteral("surfaces/Ray Marching/Bitorus.json")))
+        check4D(QStringLiteral("record in rotazione, poi una superficie da script"), false);
+    if (loadRecord(kCrossRec) && loadSurface(QStringLiteral("surfaces/Ray Marching/Sphere.json")))
+        check4D(QStringLiteral("record in rotazione, poi una superficie a equazione"), false);
+    // Una superficie e la scena vuota non hanno moto: le rotazioni 4D del
+    // record di prima si fermano anche restando nel Cross Section.
+    auto still4D = [ui]() {
+        const GLWidget *gl = ui->glWidget;
+        return qFuzzyIsNull(gl->getOmegaSpeed()) && qFuzzyIsNull(gl->getPhiSpeed())
+               && qFuzzyIsNull(gl->getPsiSpeed());
+    };
+    if (loadRecord(kCrossRec) && loadSurface(kCrossSurf)) {
+        check4D(QStringLiteral("record in rotazione, poi una superficie Cross Section"), true);
+        check(still4D(), QStringLiteral("superficie Cross Section dopo il record -> rotazioni 4D ferme"));
+    }
+    if (loadRecord(kCrossRec)) {
+        pressNew();
+        check4D(QStringLiteral("record in rotazione, poi NEW"), ui->subTabImplicit->currentIndex() == 1);
+        check(still4D() && qFuzzyIsNull(ui->glWidget->crossSectionP()),
+              QStringLiteral("NEW -> rotazioni 4D ferme, piano di sezione a 0 (p = %1)")
+                  .arg(ui->glWidget->crossSectionP()));
     }
 
     m_lines.append(QString());
