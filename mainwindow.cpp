@@ -2072,47 +2072,7 @@ MainWindow::MainWindow(QWidget *parent)
         }
 
         // ESPANSIONE DINAMICA: Nota l'aggiunta di '[this]' per leggere il Tab attuale
-        auto setSmartSlider = [this](QSlider* s, float v, bool isS) {
-            bool old = s->blockSignals(true);
-            int intVal = static_cast<int>(v * 100.0f);
-
-            int newMin;
-            int newMax;
-
-            // --- NUOVA LOGICA: Se siamo sul Tab 1 (Ray Marching) e stiamo aggiornando lo slider S ---
-            if (isS && ui->tabModeSelector->currentIndex() == 1) {
-                newMin = 0; // In Ray Marching lo slider parte rigorosamente da 0
-                // Il massimo è 100 (1.0), ma se l'utente digita un numero enorme, si espande!
-                newMax = std::max(100, intVal);
-
-                // Forza anche il valore in modo che non scenda mai sotto lo 0
-                if (intVal < 0) { intVal = 40; /* 0.4 di default */ }
-            }
-            // --- VECCHIA LOGICA: Parametrica o altri slider ---
-            else {
-                // Garantisce un limite standard di 10 (1000) o espande se il valore digitato è maggiore
-                newMin = isS ? std::min(-1000, intVal) : 0;
-                newMax = std::max(1000, intVal);
-            }
-
-            // Protezione "anti-collasso" se usi il mouse
-            if (s->hasFocus() || s->isSliderDown() || s->underMouse()) {
-                newMin = std::min(newMin, s->minimum());
-                newMax = std::max(newMax, s->maximum());
-            }
-
-            s->setRange(newMin, newMax);
-            s->setValue(intVal);
-            s->blockSignals(old);
-        };
-
-        setSmartSlider(ui->aSlider, valA, false);
-        setSmartSlider(ui->bSlider, valB, false);
-        setSmartSlider(ui->cSlider, valC, false);
-        setSmartSlider(ui->dSlider, valD, false);
-        setSmartSlider(ui->eSlider, valE, false);
-        setSmartSlider(ui->fSlider, valF, false);
-        setSmartSlider(ui->sSlider, valS, true); // true = questo è lo slider S!
+        syncConstantSliders({ valA, valB, valC, valD, valE, valF, valS });
 
         if (ui->glWidget) {
             ui->glWidget->setEquationConstants(valA, valB, valC, valD, valE, valF, valS);
@@ -7716,16 +7676,25 @@ void MainWindow::updateConstantsUIState() {
         } else {
             slider->setEnabled(true);
             line->setEnabled(true);
+            // CASCATA: il campo di una costante IN USO puo' essere
+            // un'espressione delle precedenti ("A/10"): quelle lettere sono
+            // usate tramite lei. Senza, con B = A/10 e le equazioni che citano
+            // la sola B, A veniva dichiarata in disuso e riportata a 1 -- e B,
+            // cioe' la superficie, cambiava con lei (test degli scenari).
+            mathText += " " + line->text();
         }
     };
 
-    updateControl("A", ui->aSlider, ui->lineA);
-    updateControl("B", ui->bSlider, ui->lineB);
-    updateControl("C", ui->cSlider, ui->lineC);
-    updateControl("D", ui->dSlider, ui->lineD);
-    updateControl("E", ui->eSlider, ui->lineE);
-    updateControl("F", ui->fSlider, ui->lineF);
+    // Dall'ULTIMA alla prima: la cascata va solo in avanti (B puo' citare A, S
+    // tutte le altre), quindi quando si giudica una lettera i campi di quelle
+    // che possono citarla sono gia' stati aggiunti al testo.
     updateControl("S", ui->sSlider, ui->lineS);
+    updateControl("F", ui->fSlider, ui->lineF);
+    updateControl("E", ui->eSlider, ui->lineE);
+    updateControl("D", ui->dSlider, ui->lineD);
+    updateControl("C", ui->cSlider, ui->lineC);
+    updateControl("B", ui->bSlider, ui->lineB);
+    updateControl("A", ui->aSlider, ui->lineA);
 }
 
 void MainWindow::performMasterStop()
@@ -20038,9 +20007,58 @@ QString MainWindow::surfaceImagePath() const
     return ui->glWidget ? ui->glWidget->surfaceImagePath() : QString();
 }
 
+void MainWindow::syncConstantSliders(const CascadeConstants &k)
+{
+    auto setSmartSlider = [this](QSlider* s, float v, bool isS) {
+        bool old = s->blockSignals(true);
+        int intVal = static_cast<int>(v * 100.0f);
+
+        int newMin;
+        int newMax;
+
+        // --- NUOVA LOGICA: Se siamo sul Tab 1 (Ray Marching) e stiamo aggiornando lo slider S ---
+        if (isS && ui->tabModeSelector->currentIndex() == 1) {
+            newMin = 0; // In Ray Marching lo slider parte rigorosamente da 0
+            // Il massimo è 100 (1.0), ma se l'utente digita un numero enorme, si espande!
+            newMax = std::max(100, intVal);
+
+            // Forza anche il valore in modo che non scenda mai sotto lo 0
+            if (intVal < 0) { intVal = 40; /* 0.4 di default */ }
+        }
+        // --- VECCHIA LOGICA: Parametrica o altri slider ---
+        else {
+            // Garantisce un limite standard di 10 (1000) o espande se il valore digitato è maggiore
+            newMin = isS ? std::min(-1000, intVal) : 0;
+            newMax = std::max(1000, intVal);
+        }
+
+        // Protezione "anti-collasso" se usi il mouse
+        if (s->hasFocus() || s->isSliderDown() || s->underMouse()) {
+            newMin = std::min(newMin, s->minimum());
+            newMax = std::max(newMax, s->maximum());
+        }
+
+        s->setRange(newMin, newMax);
+        s->setValue(intVal);
+        s->blockSignals(old);
+    };
+
+    setSmartSlider(ui->aSlider, k.a, false);
+    setSmartSlider(ui->bSlider, k.b, false);
+    setSmartSlider(ui->cSlider, k.c, false);
+    setSmartSlider(ui->dSlider, k.d, false);
+    setSmartSlider(ui->eSlider, k.e, false);
+    setSmartSlider(ui->fSlider, k.f, false);
+    setSmartSlider(ui->sSlider, k.s, true); // true = questo è lo slider S!
+}
+
 void MainWindow::pushConstantsToEngine(bool restoreTextOnNegative)
 {
     const CascadeConstants kc = resolveCascadeConstants(restoreTextOnNegative);
+    // Gli slider mostrano i valori RISOLTI: una costante definita come
+    // espressione di un'altra cambia con lei anche quando a cambiarla non e'
+    // un gesto dell'utente.
+    syncConstantSliders(kc);
     if (!ui->glWidget) return;
     // Solo se cambia qualcosa: setEquationConstants segna la mesh da rifare, e
     // qui si passa anche all'uscita di ogni Run.

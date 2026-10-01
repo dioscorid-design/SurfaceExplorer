@@ -1202,6 +1202,10 @@ private:
     CascadeConstants resolveCascadeConstants(bool restoreTextOnNegative);
     // COSTANTI NEL MOTORE: i valori dei campi (cascata risolta) diventano quelli
     // dell'UBO. E' la derivazione a senso unico campi -> motore.
+    // Gli SLIDER sui valori risolti (passo 0.01, estremi che si allargano se
+    // serve). Unica implementazione: la usano i gesti dell'utente
+    // (evaluateCascade nel costruttore) e i percorsi programmatici.
+    void syncConstantSliders(const CascadeConstants &k);
     void pushConstantsToEngine(bool restoreTextOnNegative = true);
     // Ricalcola quali costanti sono in uso (updateConstantsUIState, che riporta
     // al valore neutro quelle cadute in disuso scrivendo a segnali BLOCCATI) e

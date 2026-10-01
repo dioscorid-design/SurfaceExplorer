@@ -1291,6 +1291,23 @@ void ScenarioTest::run()
         click(ui->btnRunParametric);  wait(800);
         checkConstants(QStringLiteral("B tolta e Run: torna neutra"), KV{ { "A", 3.22 }, { "B", 1.0 } });
     }
+    // CASCATA: B = A/10, poi equazioni che usano solo B. A resta in uso tramite
+    // B: non deve tornare a 1 al Run (cambierebbe B, e la superficie).
+    if (loadRecord(QString::fromLatin1(kParametricRecord))) {
+        setConstantByField(QStringLiteral("B"), QStringLiteral("A/10"));
+        checkConstants(QStringLiteral("B = A/10"), KV{ { "A", 3.22 }, { "B", 0.322 } });
+        ui->lineX->setPlainText(QStringLiteral("(1 + B * cos(v)) * cos(u)"));
+        ui->lineY->setPlainText(QStringLiteral("(1 + B * cos(v)) * sin(u)"));
+        ui->lineZ->setPlainText(QStringLiteral("B * sin(v)"));
+        wait(400);
+        checkConstants(QStringLiteral("equazioni con la sola B, prima del Run"), KV{ { "A", 3.22 }, { "B", 0.322 } });
+        click(ui->btnRunParametric);  wait(800);
+        // A non compare piu' nelle equazioni, ma B = A/10 la usa: resta in uso.
+        checkConstants(QStringLiteral("Run: A resta in uso tramite B = A/10"), KV{ { "A", 3.22 }, { "B", 0.322 } });
+        check(ui->lineA->isEnabled(), QStringLiteral("A accesa (la usa B)"));
+        setConstantBySlider(QStringLiteral("A"), 2.0);
+        checkConstants(QStringLiteral("A dallo slider, B la segue"), KV{ { "A", 2.0 }, { "B", 0.2 } });
+    }
     // Texture con costanti su una FASCIA (Ergosphere Band usa A e B).
     if (loadRecord(QString::fromLatin1(kMultiMeshRecord))) {
         checkConstants(QStringLiteral("multi-mesh caricato"));
