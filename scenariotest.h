@@ -41,8 +41,11 @@ private:
     ScenarioTest(MainWindow *mw, const QString &root, const QString &outDir);
     void run();
     bool loadRecord(const QString &rel);
-    // Come un click sulla voce della Library Textures (handleTextureSelection),
-    // cercata per percorso nella libreria dell'app.
+    // Come il load di una superficie della Library (applySurfaceExample).
+    bool loadSurface(const QString &rel);
+    // Il click vero sulla voce della Library Textures (segnale itemClicked
+    // dell'albero, quindi onExampleItemClicked), cercata per percorso nella
+    // libreria dell'app.
     bool selectTexture(const QString &rel);
     void wait(int ms);
     void check(bool ok, const QString &what);
@@ -103,6 +106,8 @@ private:
     bool selectSound(const QString &rel);
     // Porta il dock Script sul modulo `mode` (MainWindow::ScriptMode) col suo tasto.
     void setScriptMode(int mode);
+    // Il tasto NEW, rispondendo "Don't save" alla conferma.
+    void pressNew();
     // Come l'utente: slot Colore 1/2 col suo radio, poi i tre slider.
     void setTexColorBySliders(bool slot2, const QColor &c);
     void finish();
@@ -113,6 +118,9 @@ private:
     QString m_record;          // record in scena (per la cattura del Save)
     QStringList m_lines;
     int m_failures = 0;
+    // Durante una scelta in Library il popup "lavoro non salvato" riceve
+    // "Don't save" invece di Annulla (vedi il costruttore).
+    bool m_discardOnPrompt = false;
 };
 
 #endif // SCENARIOTEST_H

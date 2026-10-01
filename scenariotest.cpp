@@ -17,7 +17,10 @@
 #include <QMessageBox>
 #include <QRegularExpression>
 #include <QTimer>
+#include <QAbstractButton>
+#include <QTreeWidget>
 #include <QTreeWidgetItem>
+#include <QTreeWidgetItemIterator>
 
 namespace {
 const char *kParametricRecord = "records/t_motions/3D/Dynamic Mobius Band.json";
@@ -81,6 +84,18 @@ ScenarioTest::ScenarioTest(MainWindow *mw, const QString &root, const QString &o
         if (!w) return;
         QString desc = w->windowTitle();
         if (auto *mb = qobject_cast<QMessageBox *>(w)) desc += QStringLiteral(": ") + mb->text();
+        // Il popup "lavoro non salvato" durante una scelta in Library: l'utente
+        // che vuole proseguire risponde "Don't save" (Annulla lascerebbe la
+        // scena com'era, e il gesto in prova non avverrebbe).
+        if (auto *mb = qobject_cast<QMessageBox *>(w); mb && m_discardOnPrompt) {
+            for (QAbstractButton *b : mb->buttons()) {
+                if (mb->buttonRole(b) == QMessageBox::DestructiveRole) {
+                    m_lines.append(QStringLiteral("        popup, Don't save: ") + desc.simplified());
+                    b->click();
+                    return;
+                }
+            }
+        }
         m_lines.append(QStringLiteral("        popup chiuso: ") + desc.simplified());
         if (auto *d = qobject_cast<QDialog *>(w)) d->reject();
         else w->close();
@@ -117,15 +132,43 @@ bool ScenarioTest::loadRecord(const QString &rel)
     return true;
 }
 
+bool ScenarioTest::loadSurface(const QString &rel)
+{
+    LibraryManager lm;
+    const LibraryItem item = lm.parseJson(m_root + QLatin1Char('/') + rel, LibraryType::Surface);
+    if (item.name.isEmpty()) {
+        check(false, QStringLiteral("superficie non trovata o non caricabile: ") + rel);
+        return false;
+    }
+    m_mw->applySurfaceExample(item);
+    if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
+    wait(1200);
+    return true;
+}
+
 bool ScenarioTest::selectTexture(const QString &rel)
 {
     const QList<LibraryItem> &list = m_mw->m_libraryManager.m_textures;
     for (int i = 0; i < list.size(); ++i) {
-        if (QDir::fromNativeSeparators(list.at(i).filePath).endsWith(rel)) {
-            m_mw->handleTextureSelection(i);
+        if (!QDir::fromNativeSeparators(list.at(i).filePath).endsWith(rel)) continue;
+        // Il click VERO sulla voce dell'albero (onExampleItemClicked, che guarda
+        // sender()): conferma del lavoro non salvato, ramo del riclic sulla
+        // texture gia' attiva, e solo poi handleTextureSelection. Chiamando
+        // quest'ultima direttamente il test provava un percorso che il click
+        // non fa (il riclic, per esempio, non ci arriva).
+        QTreeWidget *tree = m_mw->ui->treeTextures;
+        for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+            const QVariant v = (*it)->data(0, Qt::UserRole + 1);
+            if (!v.isValid() || v.toInt() != i || (*it)->childCount() > 0) continue;
+            m_discardOnPrompt = true;
+            tree->setCurrentItem(*it);
+            emit tree->itemClicked(*it, 0);
             wait(600);
+            m_discardOnPrompt = false;
             return true;
         }
+        check(false, QStringLiteral("texture senza voce nell'albero della Library: ") + rel);
+        return false;
     }
     check(false, QStringLiteral("texture non trovata nella libreria dell'app: ") + rel);
     return false;
@@ -422,6 +465,14 @@ bool ScenarioTest::selectSound(const QString &rel)
     return false;
 }
 
+void ScenarioTest::pressNew()
+{
+    m_discardOnPrompt = true;
+    m_mw->onNewSceneClicked();
+    wait(600);
+    m_discardOnPrompt = false;
+}
+
 void ScenarioTest::setScriptMode(int mode)
 {
     for (int i = 0; i < 3 && m_mw->m_currentScriptMode != mode; ++i) {
@@ -476,6 +527,10 @@ void ScenarioTest::checkTextureCode(const QString &step, const QString &expected
                                                      : m_mw->defaultMeshTextureCode();
             if (engine != want)
                 bad << QStringLiteral("motore %1, applicata %2").arg(briefCode(engine), briefCode(want));
+        } else if (!engine.isEmpty()) {
+            // Texture spenta: il motore non deve tenersi compilato il codice di
+            // prima (come il rilievo e la texture Ray Marching fuori dal loro modo).
+            bad << QStringLiteral("texture spenta ma il motore compila ancora %1").arg(briefCode(engine));
         }
         if (graphicsOf(saved, true) != intent)
             bad << QStringLiteral("il Save scriverebbe %1, editor %2")
@@ -840,9 +895,12 @@ void ScenarioTest::run()
     if (loadRecord(QString::fromLatin1(kImplicitRecord))) {
         checkTextureCode(QStringLiteral("record caricato"),
                          presetTextureCode(QString::fromLatin1(kImplicitRecord), LibraryType::Motion, false));
-        if (selectTexture(kFbm))
-            checkTextureCode(QStringLiteral("Fractal Noise FBm dalla Library"),
-                             presetTextureCode(kFbm, LibraryType::Texture, false));
+        // Una texture DIVERSA da quella del record (che usa gia' la FBm: quella
+        // sarebbe un riclic, che non riapplica il codice).
+        const QString kWaves = QStringLiteral("textures/Ray Marching/Spreading Waves.json");
+        if (selectTexture(kWaves))
+            checkTextureCode(QStringLiteral("Spreading Waves dalla Library"),
+                             presetTextureCode(kWaves, LibraryType::Texture, false));
         if (selectTexture(QStringLiteral("textures/Images/14.png")))
             checkTextureCode(QStringLiteral("immagine dalla Library"));
         click(ui->chkBoxTexture);   checkTextureCode(QStringLiteral("texture spenta"), QStringLiteral(""));
@@ -931,6 +989,71 @@ void ScenarioTest::run()
                          presetTextureCode(QString::fromLatin1(kImplicitRecord), LibraryType::Motion, false));
 
     // ---------------------------------------------------------------------
+    // CODICE APPLICATO E MOTORE, parametrico: uno script che non compila non
+    // diventa "applicato", e a texture spenta il motore non tiene il codice di
+    // prima.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Codice texture: applicato e motore (%1) ==")
+                       .arg(QString::fromLatin1(kParametricRecord)));
+    if (loadRecord(QString::fromLatin1(kParametricRecord))) {
+        setScriptMode(MainWindow::ScriptModeTexture);
+        if (selectTexture(kMandelbrot))
+            checkTextureCode(QStringLiteral("Mandelbrot dalla Library"),
+                             presetTextureCode(kMandelbrot, LibraryType::Texture, true));
+        const QString broken = QStringLiteral("return mix(u_col1, u_col2, questo_non_esiste);");
+        ui->txtScriptEditor->setPlainText(broken);  wait(200);
+        m_mw->onRunCurrentScript();  wait(800);
+        checkTextureCode(QStringLiteral("Run di uno script che non compila"), broken, /*pendingEdit=*/true);
+        setScriptMode(MainWindow::ScriptModeSurface);
+        checkTextureCode(QStringLiteral("dock Script sulla superficie"), broken, true);
+        pressNew();
+        checkTextureCode(QStringLiteral("tasto NEW"), QStringLiteral(""));
+    }
+    if (loadRecord(QString::fromLatin1(kParametricRecord))
+        && loadSurface(QStringLiteral("surfaces/Parametric/Equations/R3/Torus.json")))
+        checkTextureCode(QStringLiteral("record con texture, poi una superficie"), QStringLiteral(""));
+    // Ambito Mesh col dock Script sulla texture: l'editor mostra lo script della
+    // FASCIA. Il Run delle equazioni non deve farlo diventare la texture di
+    // superficie (sospetto annotato il 2026-08-03, mai riprodotto prima).
+    if (loadRecord(QString::fromLatin1(kMultiMeshRecord))) {
+        // La texture di SUPERFICIE resta quella del record, qualunque cosa si
+        // faccia sulla fascia.
+        const QString globalCode =
+            presetTextureCode(QString::fromLatin1(kMultiMeshRecord), LibraryType::Motion, true);
+        if (!ui->radioMeshOne->isChecked()) click(ui->radioMeshOne);
+        ui->spinMeshSel->setValue(1);  wait(300);
+        if (selectTexture(QStringLiteral("textures/Procedurals/Porous Bone.json")))
+            checkTextureCode(QStringLiteral("multi-mesh, fascia 1: Porous Bone dalla Library"), globalCode);
+        setScriptMode(MainWindow::ScriptModeTexture);
+        checkTextureCode(QStringLiteral("dock Script sulla texture della fascia"), globalCode);
+        m_mw->onStartClicked();  wait(800);
+        checkTextureCode(QStringLiteral("Run delle equazioni con la fascia selezionata"), globalCode);
+        m_mw->onRunCurrentScript();  wait(800);
+        checkTextureCode(QStringLiteral("Run dello script della fascia"), globalCode);
+        setScriptMode(MainWindow::ScriptModeSurface);
+        click(ui->radioMeshAll);
+        checkTextureCode(QStringLiteral("ritorno ad All"), globalCode);
+        // La scacchiera di default usa u_col1/u_col2: i picker Colore servono.
+        // Il Run dello script di una FASCIA non deve cambiarlo (il flag "codice
+        // custom" della texture globale si sporcava col codice della fascia).
+        m_discardOnPrompt = true;
+        click(ui->chkBoxTexture);  click(ui->chkBoxTexture);
+        m_discardOnPrompt = false;
+        checkTextureCode(QStringLiteral("All: texture spenta e riaccesa (default)"), QStringLiteral(""));
+        check(m_mw->activeTextureUsesColors() && ui->radioTexColor1->isEnabled(),
+              QStringLiteral("All: scacchiera di default -> picker Colore accesi"));
+        click(ui->radioMeshOne);
+        ui->spinMeshSel->setValue(1);  wait(300);
+        setScriptMode(MainWindow::ScriptModeTexture);
+        m_mw->onRunCurrentScript();  wait(800);
+        setScriptMode(MainWindow::ScriptModeSurface);
+        click(ui->radioMeshAll);
+        checkTextureCode(QStringLiteral("Run sulla fascia, poi All"), QStringLiteral(""));
+        check(m_mw->activeTextureUsesColors() && ui->radioTexColor1->isEnabled(),
+              QStringLiteral("dopo il Run sulla fascia -> picker Colore ancora accesi"));
+    }
+
+    // ---------------------------------------------------------------------
     // IMMAGINE DELLA TEXTURE DI SUPERFICIE: quella in GPU e' quella che dice lo
     // script e che scriverebbe il Save.
     auto presetImage = [this](const QString &rel) {
@@ -981,16 +1104,24 @@ void ScenarioTest::run()
         click(ui->radioBackground);
         if (selectTexture(kPlasma) && selectTexture(kPlasma))
             checkSurfaceImage(QStringLiteral("sfondo: stessa procedurale ricliccata"), presetImage(kImageScript));
+        // La stessa voce scelta di nuovo SENZA essere riconosciuta come attiva
+        // (sfondo spento nel frattempo): qui il vecchio codice toglieva dal Save
+        // l'immagine della superficie.
+        click(ui->chkBoxTexture);
+        if (selectTexture(kPlasma))
+            checkSurfaceImage(QStringLiteral("sfondo spento e stessa procedurale scelta di nuovo"), presetImage(kImageScript));
         click(ui->radioSurface);
         checkSurfaceImage(QStringLiteral("ritorno a Surface"), presetImage(kImageScript));
-        m_mw->onNewSceneClicked();  wait(600);
+        pressNew();
         checkSurfaceImage(QStringLiteral("tasto NEW"), QStringLiteral(""));
     }
     if (loadRecord(kImageScript)) {
         if (selectTexture(kMandelbrot))
             checkSurfaceImage(QStringLiteral("Mandelbrot sopra l'immagine del record"), presetImage(kImageScript));
+        // Riclic sulla texture gia' attiva: riparte l'orologio, tornano colori e
+        // inquadratura del preset, l'immagine resta.
         if (selectTexture(kMandelbrot))
-            checkSurfaceImage(QStringLiteral("Mandelbrot ricliccato: l'immagine si scarta"), QStringLiteral(""));
+            checkSurfaceImage(QStringLiteral("Mandelbrot ricliccato: l'immagine resta"), presetImage(kImageScript));
     }
 
     m_lines.append(QString());

@@ -669,7 +669,6 @@ private:
     };
     ScriptMode m_currentScriptMode = ScriptModeSurface;
 
-    bool m_isCustomMode = false;
     bool m_surfaceTextureState = false;
     bool m_blockTextureGen = false;
     // Alzato durante un cambio tab AUTOMATICO, cioe' deciso dal preset che si
@@ -1351,6 +1350,15 @@ private:
     // Prima era una copia in MainWindow (m_currentBgTexturePath), azzerata in
     // punti che lasciavano l'immagine in GPU.
     QString backgroundImagePath() const;
+    // Lo script di una texture parametrica contiene CODICE da compilare (e non
+    // il solo tag //IMG: o niente)? Euristica storica, in un punto solo.
+    static bool textureHasLogic(const QString &code);
+    // La texture parametrica di superficie APPLICATA e' codice custom (e non la
+    // scacchiera di default o la sola immagine)? Si deriva dal codice applicato:
+    // era un flag (m_isCustomMode) scritto in una quindicina di punti, e il Run
+    // dello script di una FASCIA lo scriveva col codice della fascia -- tornando
+    // ad All i picker Colore della scacchiera di default restavano spenti.
+    bool surfaceTextureIsCustom() const { return textureHasLogic(m_surfaceTextureCode); }
     // SUONO della scena nella forma che il player e il Save capiscono: una riga
     // //MUSIC: o un blocco //SOUND_BEGIN..//SOUND_END. Il dock Sound accetta
     // anche GLSL nudo (un mainSound scritto senza marcatori): wrapSoundCode lo

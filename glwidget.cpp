@@ -4207,9 +4207,17 @@ QImage GLWidget::getFrameForVideo(int targetW, int targetH, bool useFbo) {
 
 bool GLWidget::validateAndApplyParametricShader(const QString &customLogic)
 {
-    // Backup dei valori correnti per ripristino
-    QString oldCustom = m_customFragmentCode;
-    QString oldX = m_eqX, oldY = m_eqY, oldZ = m_eqZ, oldW = m_eqW;
+    // TOGLIERE il codice custom non puo' essere la causa di un errore: si
+    // registra sempre, senza passare dal dry-run -- che compila anche il vertex
+    // con le equazioni del momento e, se quelle non reggono (reset di scena,
+    // load a meta'), faceva restare nel motore il codice della texture di prima
+    // a texture ormai spenta. Stessa regola di setTextureCode("") e
+    // setDisplacementCode("") per il Ray Marching.
+    if (customLogic.trimmed().isEmpty()) {
+        m_customFragmentCode.clear();
+        rebuildShader();
+        return true;
+    }
 
     // 1. DRY RUN FRAGMENT
     QString fsSource = createFragmentShaderSource(customLogic);
