@@ -5286,7 +5286,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // lo stesso. Lo slot va svuotato comunque, o riaprendo il dock in Texture
     // si ritroverebbe lo script della texture spenta.
     if (m_sameTabRestart) m_surfaceTextureScriptText.clear();
-    m_surfaceScriptText.clear();
+    clearSurfaceScript();
     exitMetricScriptMode();
     // ==========================================================
 
@@ -6033,6 +6033,11 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // default del Cross Section, che nasce con una sua inquadratura
     // (omega=0.5, P=0.015) che va presa come riferimento, non mostrata.
     resetNav4DBaseline();
+
+    // SNAPSHOT DELL'APPLICATO: la scena e' la default del tab (o vuota, col
+    // tasto NEW). Lo snapshot dell'ultimo Run restava quello della scena
+    // scartata, e l'Invio su una costante lo avrebbe riapplicato.
+    snapshotActiveEquations();
 }
 
 
@@ -10905,6 +10910,15 @@ void MainWindow::onStartClicked()
         return;
     }
 
+    // SNAPSHOT DELL'APPLICATO: le equazioni dei campi sono appena andate a
+    // schermo, quindi sono loro "l'ultimo applicato" che il commit di servizio
+    // (Invio su una costante) riusera'. Lo snapshot si faceva solo all'inizio
+    // dei Run dati dal tasto: un'equazione applicata al volo con Invio durante
+    // il moto non ci entrava, e fermata l'animazione l'Invio su una costante
+    // riapplicava quella di PRIMA (test degli scenari). Non nel commit di
+    // servizio stesso, che ha appena usato lo snapshot e non i campi.
+    if (!serviceCommit) snapshotActiveEquations();
+
     // 3. READ VALUES
     ui->glWidget->setRangeU(uMin, uMax);
     ui->glWidget->setRangeV(vMin, vMax);
@@ -14112,7 +14126,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     m_soundScriptText.clear();
     m_currentSoundLibName.clear();   // l'ancora segue il suono che se ne va
 
-    m_surfaceScriptText.clear();
+    clearSurfaceScript();
     exitMetricScriptMode();
     ui->txtScriptEditor->blockSignals(true);
     ui->txtScriptEditor->clear();
@@ -14493,6 +14507,13 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // comparirebbe solo sui record.
     showSceneHint(d.hintText, d.hintSeconds);
 
+    // SNAPSHOT DELL'APPLICATO: da qui le equazioni a schermo sono quelle dei
+    // campi del preset. applyMotionExample lo fa gia'; il load di una
+    // SUPERFICIE no, e lo snapshot restava quello della scena di prima: record,
+    // poi superficie, poi Invio su una costante riapplicava le equazioni del
+    // record (test degli scenari).
+    snapshotActiveEquations();
+
     // COSTANTI: giudizio finale a scena completa, sui soli campi del preset
     // (refreshConstants chiude le eventuali modifiche in sospeso: da qui campi e
     // scena coincidono). Senza, l'ultimo ricalcolo del load poteva ancora
@@ -14663,7 +14684,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
         ui->lineZ->clear();
         ui->lineP->clear();
         m_surfaceTextureCode.clear();
-        m_surfaceScriptText.clear();
+        clearSurfaceScript();
         exitMetricScriptMode();
 
         ui->txtScriptEditor->blockSignals(true);
@@ -18470,7 +18491,7 @@ void MainWindow::applyCommonData(LibraryItem d)
     }
     else {
         ui->glWidget->setScriptCheck(false);
-        m_surfaceScriptText.clear();
+        clearSurfaceScript();
         // NB: exitMetricScriptMode è spostata più sotto, a campi già popolati:
         // chiamarla QUI (con lineX/Y/Z/P ancora del preset VECCHIO) faceva
         // resettare a 1 dalla sua updateConstantsUIState le costanti che le
@@ -20110,6 +20131,12 @@ bool MainWindow::textureHasLogic(const QString &code)
 {
     return code.contains("return") || code.contains("vec3")
         || code.contains("vec4")   || code.contains("mainImage");
+}
+
+void MainWindow::clearSurfaceScript()
+{
+    m_surfaceScriptText.clear();
+    setProperty("rawSurfaceScript", QString());
 }
 
 QString MainWindow::backgroundImagePath() const

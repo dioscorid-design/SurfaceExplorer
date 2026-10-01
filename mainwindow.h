@@ -1354,6 +1354,13 @@ private:
     // la scrive solo chi la manda al motore. Prima il Save ci travasava
     // l'editor, e dopo un salvataggio uno script mai eseguito risultava
     // applicato mentre il motore disegnava ancora il vecchio.
+    // SCRIPT DI SUPERFICIE: via entrambe le copie. Lo slot dell'editor
+    // (m_surfaceScriptText) e la property "rawSurfaceScript" -- lo script
+    // dell'ultimo Run o del preset, quella che il Save scrive -- nascono insieme
+    // ma solo lo slot veniva svuotato: caricando una scena a equazioni dopo una
+    // da script, il Save aveva ancora in mano lo script della scena di prima
+    // (lo scartava solo perche' le equazioni non erano vuote).
+    void clearSurfaceScript();
     QString surfaceTextureScript() const;
     QString backgroundTextureScript() const;
     // IMMAGINE della texture di superficie: il file caricato nel motore

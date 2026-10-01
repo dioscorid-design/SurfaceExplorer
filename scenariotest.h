@@ -9,6 +9,7 @@
 #include "librarymanager.h"
 
 class MainWindow;
+class QWidget;
 
 // TEST DEGLI SCENARI D'USO: preme i controlli veri (checkbox, radio Base/Phong/
 // Wireframe, Surface/Background) come farebbe l'utente e dopo ogni gesto
@@ -97,6 +98,13 @@ private:
     // Save. Texture spenta: niente immagine ne' in GPU ne' nel Save.
     // `expectedImage`, se non nullo, e' il file atteso in GPU ("" = nessuna).
     void checkSurfaceImage(const QString &step, const QString &expectedImage = QString());
+    // Le EQUAZIONI dopo il gesto `step`. Ray Marching: sotto-tab, ramo del
+    // motore e Save d'accordo su 3D/Cross Section; il motore compila il campo
+    // attivo; il Save scrive i due campi. Parametrico: lo snapshot dell'ultimo
+    // Run e' il testo dei campi X/Y/Z/P, il Save scrive i campi, il dominio
+    // u/v del motore e' quello dei campi limite, e le due copie dello script di
+    // superficie coincidono. `pendingEdit`: campi modificati e non eseguiti.
+    void checkEquations(const QString &step, bool pendingEdit = false);
     // Le COSTANTI A..F/S dopo il gesto `step`: il campo di testo e' la fonte
     // (puo' essere un'espressione a cascata), lo slider lo mostra, il motore usa
     // quel valore, il Save lo scrive. Una costante spenta (nessun modulo la usa)
@@ -118,6 +126,13 @@ private:
     void setScriptMode(int mode);
     // Il tasto NEW, rispondendo "Don't save" alla conferma.
     void pressNew();
+    // Il tasto Invio dentro un campo (applica equazioni, limiti, costanti).
+    void pressEnter(QWidget *w);
+    // Testo DIGITATO in un QLineEdit (non scritto dal programma).
+    void typeInField(class QLineEdit *l, const QString &text);
+    // Applica una modifica alle equazioni parametriche come fa l'utente: Invio
+    // nel campo se l'animazione e' in corso, tasto Run del dock se e' ferma.
+    void applyEquationEdit(QWidget *field);
     // Come l'utente: slot Colore 1/2 col suo radio, poi i tre slider.
     void setTexColorBySliders(bool slot2, const QColor &c);
     void finish();

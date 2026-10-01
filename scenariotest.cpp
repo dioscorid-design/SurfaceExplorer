@@ -18,7 +18,10 @@
 #include <QRegularExpression>
 #include <QTimer>
 #include <QAbstractButton>
+#include <QKeyEvent>
 #include <QLineEdit>
+#include <QPlainTextEdit>
+#include <QPushButton>
 #include <QSlider>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -467,6 +470,45 @@ bool ScenarioTest::selectSound(const QString &rel)
     return false;
 }
 
+void ScenarioTest::pressEnter(QWidget *w)
+{
+    // Il tasto Invio vero: lo vede il filtro dei campi (EnterApplyFilter) e, per
+    // i QLineEdit, parte anche editingFinished.
+    w->setFocus();
+    QKeyEvent press(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+    QKeyEvent release(QEvent::KeyRelease, Qt::Key_Return, Qt::NoModifier);
+    QCoreApplication::sendEvent(w, &press);
+    QCoreApplication::sendEvent(w, &release);
+    wait(800);
+}
+
+void ScenarioTest::typeInField(QLineEdit *l, const QString &text)
+{
+    // Digitazione vera (textEdited): setText per Qt e' una scrittura del
+    // programma, e i campi limite applicano con Invio solo cio' che e' stato
+    // digitato.
+    l->setFocus();
+    l->selectAll();
+    l->insert(text);
+    wait(100);
+}
+
+void ScenarioTest::applyEquationEdit(QWidget *field)
+{
+    // Come fa l'utente: con l'animazione in corso il tasto del dock dice Stop e
+    // la modifica si applica con Invio nel campo; da fermo l'Invio la lascia in
+    // sospeso e si applica col tasto Run.
+    QPushButton *run = m_mw->ui->btnRunParametric;
+    if (m_mw->isEquationModuleMoving()) {
+        pressEnter(field);
+    } else if (run->isEnabled()) {
+        run->click();
+        wait(800);
+    } else {
+        check(false, QStringLiteral("modifica alle equazioni ma tasto Run spento e animazione ferma"));
+    }
+}
+
 void ScenarioTest::pressNew()
 {
     m_discardOnPrompt = true;
@@ -623,6 +665,93 @@ void ScenarioTest::checkConstants(const QString &step, const QMap<QString, doubl
     check(bad.isEmpty(), QStringLiteral("%1 -> costanti %2%3")
                              .arg(step, shown.isEmpty() ? QStringLiteral("(nessuna in uso)")
                                                         : shown.join(QLatin1Char(' ')),
+                                  bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+}
+
+void ScenarioTest::checkEquations(const QString &step, bool pendingEdit)
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    const LibraryItem sv = captureSave();
+    const bool rm = ui->tabModeSelector->currentIndex() == 1;
+    const bool script = gl->getEngine() && gl->getEngine()->isScriptModeActive();
+    auto brief = [](QString t) {
+        t = t.simplified();
+        return t.isEmpty() ? QStringLiteral("(vuoto)") : QStringLiteral("\"%1\"").arg(t.left(48));
+    };
+
+    QStringList bad;
+    QString shown;
+    if (rm) {
+        // RAY MARCHING: due campi (3D e Cross Section), un sotto-tab che dice
+        // quale e' attivo, e il motore che compila quello.
+        const QString f3D = ui->lineEquation->toPlainText();
+        const QString fCS = ui->lineEquationCrossSection->toPlainText();
+        const bool tabCS = ui->subTabImplicit->currentIndex() == 1;
+        const QString active = tabCS ? fCS : f3D;
+        shown = QStringLiteral("%1 %2").arg(tabCS ? QStringLiteral("Cross Section") : QStringLiteral("3D"),
+                                            script ? QStringLiteral("(script)") : brief(active));
+        if (gl->implicitUsesCrossSection() != tabCS)
+            bad << QStringLiteral("sotto-tab %1, motore sul ramo %2")
+                       .arg(tabCS ? QStringLiteral("Cross Section") : QStringLiteral("3D"),
+                            gl->implicitUsesCrossSection() ? QStringLiteral("Cross Section") : QStringLiteral("3D"));
+        if (sv.usesCrossSection != tabCS)
+            bad << QStringLiteral("il Save scriverebbe implicitUsesCrossSection %1").arg(onOff(sv.usesCrossSection));
+        // L'equazione compilata e' quella del campo attivo ("L = R" -> "(L) - (R)").
+        auto canon = [](QString e, bool wrapPlain) {
+            e.remove(QRegularExpression(QStringLiteral("\\s+")));
+            if (e.contains(QLatin1Char('=')))
+                return QStringLiteral("(%1)-(%2)").arg(e.section(QLatin1Char('='), 0, 0), e.section(QLatin1Char('='), 1));
+            return wrapPlain ? QStringLiteral("(%1)-(0.0)").arg(e) : e;
+        };
+        // (il motore puo' tenere il campo cosi' com'e', o gia' nella forma "(L) - (R)")
+        const QString eng = canon(gl->activeImplicitEquation(), false);
+        if (!script && !pendingEdit && !active.trimmed().isEmpty()
+            && eng != canon(active, true) && eng != canon(active, false))
+            bad << QStringLiteral("motore %1, campo %2").arg(brief(gl->activeImplicitEquation()), brief(active));
+        if (sv.implicitEq != f3D)
+            bad << QStringLiteral("il Save scriverebbe l'equazione 3D %1, campo %2").arg(brief(sv.implicitEq), brief(f3D));
+        if (sv.crossSectionEq != fCS)
+            bad << QStringLiteral("il Save scriverebbe la Cross Section %1, campo %2").arg(brief(sv.crossSectionEq), brief(fCS));
+    } else {
+        // PARAMETRICO: i campi X/Y/Z/P sono l'intenzione, lo snapshot dell'ultimo
+        // Run l'applicato; il Save scrive i campi.
+        struct F { const char *name; QPlainTextEdit *edit; const char *prop; QString saved; };
+        const QList<F> fs = {
+            { "x", ui->lineX, "active_lineX", sv.x }, { "y", ui->lineY, "active_lineY", sv.y },
+            { "z", ui->lineZ, "active_lineZ", sv.z }, { "p", ui->lineP, "active_lineP", sv.w } };
+        shown = script ? QStringLiteral("(script)") : brief(ui->lineX->toPlainText());
+        for (const F &f : fs) {
+            const QString field = f.edit->toPlainText();
+            const QString applied = m_mw->property(f.prop).toString();
+            if (!pendingEdit && applied != field)
+                bad << QStringLiteral("%1: applicata %2, campo %3").arg(QString::fromLatin1(f.name), brief(applied), brief(field));
+            if (f.saved != field)
+                bad << QStringLiteral("%1: il Save scriverebbe %2, campo %3").arg(QString::fromLatin1(f.name), brief(f.saved), brief(field));
+        }
+        // LIMITI u, v: il dominio del motore e' quello dei campi (quando ci sono:
+        // con uno script il dominio puo' venire da li').
+        struct L { const char *name; QLineEdit *edit; float engine; };
+        SurfaceEngine *en = gl->getEngine();
+        const QList<L> ls = {
+            { "uMin", ui->uMinEdit, en->getUMin() }, { "uMax", ui->uMaxEdit, en->getUMax() },
+            { "vMin", ui->vMinEdit, en->getVMin() }, { "vMax", ui->vMaxEdit, en->getVMax() } };
+        for (const L &l : ls) {
+            if (pendingEdit || script || l.edit->text().trimmed().isEmpty()) continue;
+            bool ok = false;
+            const float want = m_mw->parseLimitField(l.edit->text(), &ok);
+            if (ok && qAbs(want - l.engine) > 1e-3f)
+                bad << QStringLiteral("%1: motore %2, campo %3").arg(QString::fromLatin1(l.name))
+                           .arg(l.engine).arg(want);
+        }
+        // SCRIPT di superficie: le due copie (slot e property letta dal Save).
+        if (m_mw->property("rawSurfaceScript").toString() != m_mw->m_surfaceScriptText)
+            bad << QStringLiteral("script: la copia che il Save legge e' diversa dallo slot (%1 / %2)")
+                       .arg(brief(m_mw->property("rawSurfaceScript").toString()), brief(m_mw->m_surfaceScriptText));
+    }
+
+    check(bad.isEmpty(), QStringLiteral("%1 -> equazioni %2%3")
+                             .arg(step, shown,
                                   bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
 }
 
@@ -1415,6 +1544,78 @@ void ScenarioTest::run()
     if (loadSurface(kCrossSurf) && loadRecord(QString::fromLatin1(kParametricRecord))
         && loadRecord(QString::fromLatin1(kImplicitRecord)))
         checkBranch(QStringLiteral("Cross Section, parametrico, poi Ray Marching da script"), false);
+
+    // ---------------------------------------------------------------------
+    // EQUAZIONI: campi, applicato, Save. Il Run si da' col tasto del dock.
+    const QString kRmEq = QStringLiteral("records/Ray Marching/Sphere-Tori Merging.json");
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Equazioni: Ray Marching (%1) ==").arg(kRmEq));
+    if (loadRecord(kRmEq)) {
+        checkEquations(QStringLiteral("record caricato"));
+        ui->lineEquation->setPlainText(QStringLiteral("x^2 + y^2 + z^2 = 1.5"));  wait(300);
+        checkEquations(QStringLiteral("equazione 3D modificata a mano"), /*pendingEdit=*/true);
+        click(ui->btnImplicit);  wait(800);
+        checkEquations(QStringLiteral("Run"));
+        ui->subTabImplicit->setCurrentIndex(1);  wait(1000);
+        checkEquations(QStringLiteral("sotto-tab Cross Section (default)"));
+        ui->lineEquationCrossSection->setPlainText(QStringLiteral("x^2 + y^2 + z^2 + p^2 = 1.2"));  wait(300);
+        checkEquations(QStringLiteral("equazione Cross Section modificata a mano"), true);
+        click(ui->btnImplicit);  wait(800);
+        checkEquations(QStringLiteral("Run"));
+        ui->subTabImplicit->setCurrentIndex(0);  wait(1000);
+        checkEquations(QStringLiteral("ritorno al sotto-tab 3D"));
+    }
+    if (loadSurface(kCrossSurf))
+        checkEquations(QStringLiteral("superficie Cross Section"));
+    if (loadRecord(kRmEq))
+        checkEquations(QStringLiteral("poi il record 3D"));
+    if (loadRecord(QString::fromLatin1(kImplicitRecord)))
+        checkEquations(QStringLiteral("poi un record da script"));
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Equazioni: parametrico (%1) ==").arg(QString::fromLatin1(kParametricRecord)));
+    if (loadRecord(QString::fromLatin1(kParametricRecord))) {
+        checkEquations(QStringLiteral("record caricato"));
+        ui->lineZ->setPlainText(QStringLiteral("B*v * sin(u/2 + t) + 0.1"));  wait(300);
+        checkEquations(QStringLiteral("z modificata a mano"), /*pendingEdit=*/true);
+        // Il record e' animato: il tasto del dock dice Stop. La modifica si
+        // applica con Invio nel campo.
+        applyEquationEdit(ui->lineZ);
+        checkEquations(QStringLiteral("modifica applicata (Invio o Run)"));
+        // Si ferma l'animazione (tasto Stop del dock), poi Invio su una COSTANTE:
+        // e' un commit di servizio, riusa le equazioni applicate e non deve
+        // cambiarle -- nemmeno se sono state applicate al volo durante il moto.
+        if (m_mw->isEquationModuleMoving()) { click(ui->btnRunParametric);  wait(400); }
+        const QString applied1 = ui->glWidget->parametricEquationsApplied();
+        ui->lineA->setText(QStringLiteral("3"));
+        pressEnter(ui->lineA);
+        check(ui->glWidget->parametricEquationsApplied() == applied1,
+              QStringLiteral("Invio su una costante -> le equazioni applicate restano quelle"));
+        checkEquations(QStringLiteral("dopo l'Invio sulla costante"));
+        typeInField(ui->uMaxEdit, QStringLiteral("3.14"));
+        pressEnter(ui->uMaxEdit);
+        checkEquations(QStringLiteral("uMax dal campo, Invio"));
+        typeInField(ui->vMaxEdit, QStringLiteral("A/4"));
+        pressEnter(ui->vMaxEdit);
+        checkEquations(QStringLiteral("vMax = A/4, Invio"));
+    }
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Equations/R3/Torus.json"))) {
+        checkEquations(QStringLiteral("poi una superficie a equazioni"));
+        // Record, poi superficie, poi Invio su una costante: le equazioni a
+        // schermo devono restare quelle della superficie.
+        const QString applied2 = ui->glWidget->parametricEquationsApplied();
+        ui->lineA->setText(QStringLiteral("0.9"));
+        pressEnter(ui->lineA);
+        check(ui->glWidget->parametricEquationsApplied() == applied2,
+              QStringLiteral("superficie dopo un record, Invio su una costante -> equazioni della superficie"));
+        checkEquations(QStringLiteral("dopo l'Invio sulla costante"));
+    }
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Multimesh/Hopf Tori.json")))
+        checkEquations(QStringLiteral("poi una superficie da script"));
+    if (loadRecord(QString::fromLatin1(kParametricRecord)))
+        checkEquations(QStringLiteral("poi di nuovo il record a equazioni"));
+    pressNew();
+    checkEquations(QStringLiteral("tasto NEW"));
 
     finish();
 }
