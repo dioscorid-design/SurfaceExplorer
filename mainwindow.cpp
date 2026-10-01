@@ -17679,6 +17679,13 @@ void MainWindow::applyPresetConstants(const LibraryItem &d, bool rebuildDiscrete
     // dalle direttive := dello script, e rifarla dal JSON le cancellerebbe.
     if (rebuildDiscreteMap) {
         m_discreteConsts.clear();
+        // Anche i MINIMI ("A := min(0.3);"): non hanno una chiave nel preset,
+        // vengono solo dalle direttive dello script, e come le discrete
+        // appartengono alla scena che le dichiara. Qui non si azzeravano: dopo
+        // Octahedron Bands (A := min(0.3)) una superficie a equazioni non
+        // lasciava piu' scendere A sotto 0.3 (trovato dal test degli scenari).
+        // Per i preset con script li ricostruisce parseAndApplyScriptParams.
+        m_minConsts.clear();
         for (auto it = d.discreteConstants.constBegin();
              it != d.discreteConstants.constEnd(); ++it) {
             m_discreteConsts.insert(it.key(), { it->first, it->second });

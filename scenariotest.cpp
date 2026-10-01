@@ -1338,6 +1338,45 @@ void ScenarioTest::run()
         checkConstants(QStringLiteral("di nuovo il record Ray Marching"),
                        KV{ { "A", 5 }, { "B", 1.54 }, { "D", 4.02 }, { "F", 0.52 }, { "S", 0.2 } });
 
+    // ---------------------------------------------------------------------
+    // COSTANTI DISCRETE E MINIMI (direttive "B := int(1,6);", "A := min(1.0);"
+    // dello script): valgono per la scena che le dichiara, non per quella dopo.
+    const QString kLabyrinth = QStringLiteral("records/Solid Wireframe/Clifford Labyrinth.json");
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Costanti discrete e minimi (%1) ==").arg(kLabyrinth));
+    if (loadRecord(kLabyrinth)) {
+        checkConstants(QStringLiteral("record caricato"), KV{ { "A", 2.42 }, { "B", 3 } });
+        setConstantBySlider(QStringLiteral("B"), 4.4);
+        checkConstants(QStringLiteral("B discreta: 4.4 scatta a 4"), KV{ { "B", 4 } });
+        setConstantBySlider(QStringLiteral("B"), 9.0);
+        checkConstants(QStringLiteral("B discreta: 9 si ferma a 6"), KV{ { "B", 6 } });
+        setConstantBySlider(QStringLiteral("A"), 0.5);
+        checkConstants(QStringLiteral("A con minimo 1: 0.5 torna a 1"), KV{ { "A", 1.0 } });
+        setConstantByField(QStringLiteral("A"), QStringLiteral("0.2"));
+        checkConstants(QStringLiteral("A dal campo: 0.2 torna a 1"), KV{ { "A", 1.0 } });
+        check(captureSave().discreteConstants.contains(QStringLiteral("B")),
+              QStringLiteral("il Save scrive B fra le costanti discrete"));
+    }
+    if (loadRecord(QString::fromLatin1(kParametricRecord))) {
+        setConstantBySlider(QStringLiteral("A"), 2.34);
+        setConstantBySlider(QStringLiteral("B"), 0.37);
+        checkConstants(QStringLiteral("poi un record senza direttive: A e B libere"),
+                       KV{ { "A", 2.34 }, { "B", 0.37 } });
+        check(captureSave().discreteConstants.isEmpty(),
+              QStringLiteral("record senza direttive -> il Save non scrive costanti discrete"));
+    }
+    // Superficie con minimo (Octahedron Bands: A := min(0.3)), poi una
+    // superficie a equazioni che usa A: il minimo non deve seguirla.
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Multimesh/Solid Wireframe/Octahedron Bands.json"))) {
+        setConstantBySlider(QStringLiteral("A"), 0.1);
+        checkConstants(QStringLiteral("superficie con minimo 0.3: 0.1 torna a 0.3"), KV{ { "A", 0.3 } });
+    }
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Equations/R3/Torus.json"))) {
+        checkConstants(QStringLiteral("poi una superficie a equazioni"), KV{ { "A", 0.8 }, { "B", 0.3 } });
+        setConstantBySlider(QStringLiteral("A"), 0.1);
+        checkConstants(QStringLiteral("A libera: 0.1 resta 0.1"), KV{ { "A", 0.1 } });
+    }
+
     finish();
 }
 
