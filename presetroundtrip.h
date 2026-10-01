@@ -61,6 +61,7 @@ private:
         // Costanti col campo spento dopo il caricamento: per l'app non le usa
         // nessun codice (updateConstantsUIState), e le riporta al default.
         QSet<QString> unusedConstants;
+        QSet<QString> emptyLimits;      // "uMin", "wMax"...: campi limite vuoti alla cattura
     };
 
     // Perche' una differenza fra file e Save NON conta; vuota = conta.

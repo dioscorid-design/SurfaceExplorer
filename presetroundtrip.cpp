@@ -20,6 +20,7 @@
 #include <QJsonDocument>
 #include <QMap>
 #include <QMessageBox>
+#include <QRegularExpression>
 #include <QTimer>
 
 #include <algorithm>
@@ -151,6 +152,57 @@ const QStringList kObsoleteKeys = {
     QStringLiteral("colors/bordColor"),
     QStringLiteral("background/sceneLocked"),
 };
+
+// L'AUDIO che viaggia dentro un codice di texture/sfondo: blocchi
+// SOUND_BEGIN..SOUND_END e righe //MUSIC:. audioPieces ne da' i brani in forma
+// canonica (senza marcatori, il file per nome: il load risolve i percorsi di
+// altre macchine sulla libreria locale); graphicsPart cio' che resta.
+const QRegularExpression &soundBlockRe()
+{
+    static const QRegularExpression re(R"(//\s*SOUND_BEGIN(.*?)//\s*SOUND_END\n?)",
+                                       QRegularExpression::DotMatchesEverythingOption
+                                           | QRegularExpression::CaseInsensitiveOption);
+    return re;
+}
+const QRegularExpression &soundMarkerRe()
+{
+    static const QRegularExpression re(R"(^\s*//\s*(SOUND_BEGIN|SOUND_END).*$\n?)",
+                                       QRegularExpression::MultilineOption
+                                           | QRegularExpression::CaseInsensitiveOption);
+    return re;
+}
+const QRegularExpression &musicLineRe()
+{
+    static const QRegularExpression re(R"(^\s*//MUSIC:\s*(.*)$\n?)", QRegularExpression::MultilineOption);
+    return re;
+}
+
+QString graphicsPart(QString code)
+{
+    while (code.contains(soundBlockRe())) code.remove(soundBlockRe());
+    code.remove(soundMarkerRe());
+    code.remove(musicLineRe());
+    return code.simplified();
+}
+
+QStringList audioPieces(const QStringList &codes)
+{
+    QStringList pieces;
+    auto add = [&pieces](const QString &p) { if (!p.isEmpty() && !pieces.contains(p)) pieces << p; };
+    for (const QString &code : codes) {
+        auto music = musicLineRe().globalMatch(code);
+        while (music.hasNext())
+            add(QStringLiteral("file:") + QFileInfo(music.next().captured(1).trimmed()).fileName());
+        auto block = soundBlockRe().globalMatch(code);
+        while (block.hasNext()) {
+            QString inner = block.next().captured(1);
+            inner.remove(soundMarkerRe());
+            add(inner.simplified());
+        }
+    }
+    pieces.sort();
+    return pieces;
+}
 
 QString argValue(const QStringList &args, const QString &name)
 {
@@ -328,6 +380,18 @@ PresetRoundTrip::Capture PresetRoundTrip::loadAndCapture(const Entry &e)
     };
     for (const auto &f : constantFields)
         if (!f.second->isEnabled()) c.unusedConstants.insert(f.first);
+    // Campi limite VUOTI: l'app li svuota quando la variabile non serve (u, v o
+    // w che le equazioni non usano, composizione, Ray Marching), e il Save
+    // scrive 0 al posto del valore -- ormai senza significato -- del file.
+    {
+        Ui::MainWindow *ui = m_mw->ui;
+        const QList<QPair<QString, QLineEdit *>> limits = {
+            { QStringLiteral("uMin"), ui->uMinEdit }, { QStringLiteral("uMax"), ui->uMaxEdit },
+            { QStringLiteral("vMin"), ui->vMinEdit }, { QStringLiteral("vMax"), ui->vMaxEdit },
+            { QStringLiteral("wMin"), ui->wMinEdit }, { QStringLiteral("wMax"), ui->wMaxEdit } };
+        for (const auto &l : limits)
+            if (l.second->text().trimmed().isEmpty()) c.emptyLimits.insert(l.first);
+    }
     wait(250);
     const QJsonObject later = captureJson(e);
     for (const Diff &d : diffJson(c.json, later, {}))
@@ -512,6 +576,60 @@ QString PresetRoundTrip::excusedBecause(const QString &key, int kind, bool white
             if (it.value().toArray().size() == 2) anyValid = true;
         if (!anyValid) return QStringLiteral("voci malformate, ignorate dal load");
     }
+    // Codice di texture o di sfondo che cambia nella sola parte AUDIO: la scena
+    // ha un solo brano, che il Save scrive una volta nel codice della texture,
+    // coi marcatori ripuliti (i Save vecchi li raddoppiavano, o mettevano lo
+    // stesso brano anche nello sfondo) e il percorso del file risolto sulla
+    // libreria locale. Conta che la grafica dello slot sia la stessa e che i
+    // brani del record siano gli stessi.
+    if (kind == Diff::Changed
+        && (key == QLatin1String("texture/code") || key == QLatin1String("background/code"))) {
+        auto code = [](const QJsonObject &o, const QString &slot) {
+            return o.value(slot).toObject().value(QStringLiteral("code")).toString();
+        };
+        auto pieces = [&code](const QJsonObject &o) {
+            return audioPieces({ o.value(QStringLiteral("scriptCode")).toString(),
+                                 code(o, QStringLiteral("texture")),
+                                 code(o, QStringLiteral("background")) });
+        };
+        const QString slot = key.section(QLatin1Char('/'), 0, 0);
+        if (graphicsPart(code(file, slot)) == graphicsPart(code(c.json, slot))
+            && pieces(file) == pieces(c.json))
+            return QStringLiteral("solo audio: marcatori o percorso ripuliti");
+    }
+    // Fattore conforme VUOTO nel file: vale 1.0 (metrica piatta), che il load
+    // scrive nel campo e il Save riporta.
+    if (key == QLatin1String("geodesic/conform")
+        && file.value(QStringLiteral("geodesic")).toObject().value(QStringLiteral("conform")).toString().trimmed().isEmpty()
+        && c.json.value(QStringLiteral("geodesic")).toObject().value(QStringLiteral("conform")).toString().trimmed()
+               == QLatin1String("1.0"))
+        return QStringLiteral("fattore conforme vuoto = 1.0");
+    // Posa 4D PIATTA (tre angoli a 0) su una superficie con la quarta
+    // coordinata: il load la sposta di 0.01 per non partire dalla proiezione
+    // degenere (anti-glitch di applySurfaceExample), e il Save scrive la posa
+    // che si vede.
+    if (key.startsWith(QLatin1String("angles/"))) {
+        const QJsonObject fa = file.value(QStringLiteral("angles")).toObject();
+        const QString p = c.json.value(QStringLiteral("equations")).toObject().value(QStringLiteral("p")).toString().trimmed();
+        const bool flat = fa.value(QStringLiteral("omega")).toDouble() == 0.0
+                          && fa.value(QStringLiteral("phi")).toDouble() == 0.0
+                          && fa.value(QStringLiteral("psi")).toDouble() == 0.0;
+        const double got = c.json.value(QStringLiteral("angles")).toObject().value(key.mid(7)).toDouble();
+        const bool surface4D = !p.isEmpty() && p != QLatin1String("0") && p != QLatin1String("0.0");
+        if (flat && surface4D && std::abs(got - 0.01) < 1e-6)
+            return QStringLiteral("posa 4D piatta spostata di 0.01 (anti-glitch)");
+    }
+    // Trasparenza di un preset in WIREFRAME: il wireframe e' opaco (il ramo
+    // wireframe di updateRenderState chiama resetTransparency), quindi un'alpha
+    // < 1 nel file e' un residuo che il Save riporta a 1.
+    if (key == QLatin1String("colors/alpha")
+        && c.json.value(QStringLiteral("renderMode")).toInt() == 2
+        && c.json.value(QStringLiteral("colors")).toObject().value(QStringLiteral("alpha")).toDouble() == 1.0)
+        return QStringLiteral("wireframe: sempre opaco");
+    // Limite di una variabile che la scena non usa: campo vuoto, il Save scrive 0.
+    if (key.startsWith(QLatin1String("limits/")) && c.emptyLimits.contains(key.mid(7))
+        && c.json.value(QStringLiteral("limits")).toObject().value(key.mid(7)).toDouble() == 0.0)
+        return QStringLiteral("variabile non usata: campo limite vuoto");
     // Limiti 0/0 nel file = "nessun dominio": vale quello dichiarato dallo script
     // (u_min := ...), che il Save poi scrive. Se invece arrivasse dal preset
     // precedente, lo mostrerebbe il confronto fra i due passaggi.
