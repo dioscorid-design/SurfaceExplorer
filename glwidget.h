@@ -237,6 +237,10 @@ public:
     QString activeImplicitEquation() const {
         return m_implicitUsesCrossSection ? m_eqCrossSectionF : m_eqImplicitF;
     }
+    // Limiti spaziali x/y/z del Ray Marching come li usa lo shader (-1000/1000
+    // = nessun taglio).
+    QVector3D spaceRangeMin() const { return QVector3D(m_uboData.x_min, m_uboData.y_min, m_uboData.z_min); }
+    QVector3D spaceRangeMax() const { return QVector3D(m_uboData.x_max, m_uboData.y_max, m_uboData.z_max); }
     // Ramo attivo nel marcher: Cross Section (sezione 4D) o 3D.
     bool implicitUsesCrossSection() const { return m_implicitUsesCrossSection; }
     // Riporta il marcher sul ramo 3D senza toccare le equazioni. setImplicitEquation

@@ -713,13 +713,46 @@ void ScenarioTest::checkEquations(const QString &step, bool pendingEdit)
             bad << QStringLiteral("il Save scriverebbe l'equazione 3D %1, campo %2").arg(brief(sv.implicitEq), brief(f3D));
         if (sv.crossSectionEq != fCS)
             bad << QStringLiteral("il Save scriverebbe la Cross Section %1, campo %2").arg(brief(sv.crossSectionEq), brief(fCS));
+        // LIMITI SPAZIALI x/y/z: il motore taglia dove dicono i campi (vuoto, o
+        // minimo >= massimo: nessun taglio), e il Save scrive quei valori.
+        struct S { const char *name; QLineEdit *lo; QLineEdit *hi; float eLo, eHi, sLo, sHi; };
+        const QVector3D mn = gl->spaceRangeMin(), mx = gl->spaceRangeMax();
+        const QList<S> sp = {
+            { "x", ui->lineXMin, ui->lineXMax, mn.x(), mx.x(), sv.xMin, sv.xMax },
+            { "y", ui->lineYMin, ui->lineYMax, mn.y(), mx.y(), sv.yMin, sv.yMax },
+            { "z", ui->lineZMin, ui->lineZMax, mn.z(), mx.z(), sv.zMin, sv.zMax } };
+        for (const S &a : sp) {
+            auto val = [this](QLineEdit *e, float def) {
+                return e->text().trimmed().isEmpty() ? def : m_mw->parseMath(e->text());
+            };
+            const float fLo = val(a.lo, -1000.0f), fHi = val(a.hi, 1000.0f);
+            float wLo = fLo, wHi = fHi;
+            if (wLo >= wHi) { wLo = -1000.0f; wHi = 1000.0f; }
+            if (!pendingEdit && (qAbs(a.eLo - wLo) > 1e-3f || qAbs(a.eHi - wHi) > 1e-3f))
+                bad << QStringLiteral("limiti %1: motore %2..%3, campi %4..%5").arg(QString::fromLatin1(a.name))
+                           .arg(a.eLo).arg(a.eHi).arg(wLo).arg(wHi);
+            if (qAbs(a.sLo - fLo) > 1e-3f || qAbs(a.sHi - fHi) > 1e-3f)
+                bad << QStringLiteral("limiti %1: il Save scriverebbe %2..%3, campi %4..%5").arg(QString::fromLatin1(a.name))
+                           .arg(a.sLo).arg(a.sHi).arg(fLo).arg(fHi);
+        }
     } else {
         // PARAMETRICO: i campi X/Y/Z/P sono l'intenzione, lo snapshot dell'ultimo
         // Run l'applicato; il Save scrive i campi.
         struct F { const char *name; QPlainTextEdit *edit; const char *prop; QString saved; };
         const QList<F> fs = {
             { "x", ui->lineX, "active_lineX", sv.x }, { "y", ui->lineY, "active_lineY", sv.y },
-            { "z", ui->lineZ, "active_lineZ", sv.z }, { "p", ui->lineP, "active_lineP", sv.w } };
+            { "z", ui->lineZ, "active_lineZ", sv.z }, { "p", ui->lineP, "active_lineP", sv.w },
+            // Composizione e vincoli: stessa regola.
+            { "U", ui->lineU, "active_lineU", sv.defU }, { "V", ui->lineV, "active_lineV", sv.defV },
+            { "W", ui->lineW, "active_lineW", sv.defW },
+            { "vincolo u", ui->lineExplicitU, "active_lineExplicitU", sv.explicitU },
+            { "vincolo v", ui->lineExplicitV, "active_lineExplicitV", sv.explicitV },
+            { "vincolo w", ui->lineExplicitW, "active_lineExplicitW", sv.explicitW },
+            // Flusso geodetico: punto e direzione iniziali, fattore conforme.
+            { "geo u0", ui->lnU, "active_lnU", sv.geoU0 }, { "geo v0", ui->lnV, "active_lnV", sv.geoV0 },
+            { "geo w0", ui->lnW, "active_lnW", sv.geoW0 }, { "geo du", ui->lndU, "active_lndU", sv.geoDU },
+            { "geo dv", ui->lndV, "active_lndV", sv.geoDV }, { "geo dw", ui->lndW, "active_lndW", sv.geoDW },
+            { "conforme", ui->lineConform, "active_lineConform", sv.geoConform } };
         shown = script ? QStringLiteral("(script)") : brief(ui->lineX->toPlainText());
         for (const F &f : fs) {
             const QString field = f.edit->toPlainText();
@@ -1556,6 +1589,12 @@ void ScenarioTest::run()
         checkEquations(QStringLiteral("equazione 3D modificata a mano"), /*pendingEdit=*/true);
         click(ui->btnImplicit);  wait(800);
         checkEquations(QStringLiteral("Run"));
+        // Limiti spaziali digitati: in sospeso fino al Run.
+        typeInField(ui->lineXMin, QStringLiteral("-1"));
+        typeInField(ui->lineXMax, QStringLiteral("0.5"));
+        checkEquations(QStringLiteral("limiti x digitati"), /*pendingEdit=*/true);
+        click(ui->btnImplicit);  wait(800);
+        checkEquations(QStringLiteral("Run coi limiti"));
         ui->subTabImplicit->setCurrentIndex(1);  wait(1000);
         checkEquations(QStringLiteral("sotto-tab Cross Section (default)"));
         ui->lineEquationCrossSection->setPlainText(QStringLiteral("x^2 + y^2 + z^2 + p^2 = 1.2"));  wait(300);
@@ -1571,6 +1610,23 @@ void ScenarioTest::run()
         checkEquations(QStringLiteral("poi il record 3D"));
     if (loadRecord(QString::fromLatin1(kImplicitRecord)))
         checkEquations(QStringLiteral("poi un record da script"));
+    // Cambio di modalita' dopo un Cross Section in rotazione: lo stato 4D della
+    // sezione non deve seguire la scena nuova.
+    if (loadRecord(kCrossRec)) {
+        checkEquations(QStringLiteral("record Cross Section in rotazione"));
+        m_discardOnPrompt = true;
+        ui->tabModeSelector->setCurrentIndex(0);  wait(1200);
+        m_discardOnPrompt = false;
+        checkEquations(QStringLiteral("linguetta Parametric"));
+        check(qFuzzyIsNull(ui->glWidget->crossSectionP()),
+              QStringLiteral("in parametrico -> nessuna traslazione del piano di sezione"));
+        m_discardOnPrompt = true;
+        ui->tabModeSelector->setCurrentIndex(1);  wait(1200);
+        m_discardOnPrompt = false;
+        // Si riapre il sotto-tab dov'era (Cross Section, con la sua default):
+        // checkEquations verifica che sotto-tab, motore e Save siano d'accordo.
+        checkEquations(QStringLiteral("di nuovo linguetta Ray Marching"));
+    }
 
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Equazioni: parametrico (%1) ==").arg(QString::fromLatin1(kParametricRecord)));
@@ -1610,6 +1666,56 @@ void ScenarioTest::run()
               QStringLiteral("superficie dopo un record, Invio su una costante -> equazioni della superficie"));
         checkEquations(QStringLiteral("dopo l'Invio sulla costante"));
     }
+    // COMPOSIZIONE scritta e non eseguita (Hyperbolic Saddle: W = C*u*cos(2*v),
+    // le equazioni usano U, V, W): l'Invio su una costante non deve applicarla
+    // a meta', cioe' composizione nuova sulle equazioni di prima.
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Equations/H2xR/Hyperbolic Saddle.json"))) {
+        checkEquations(QStringLiteral("superficie con composizione"));
+        const QString applied3 = ui->glWidget->parametricEquationsApplied();
+        ui->lineW->setPlainText(QStringLiteral("C * u * cos(3*v)"));  wait(300);
+        checkEquations(QStringLiteral("composizione modificata, non eseguita"), /*pendingEdit=*/true);
+        ui->lineC->setText(QStringLiteral("0.5"));
+        pressEnter(ui->lineC);
+        check(ui->glWidget->parametricEquationsApplied() == applied3,
+              QStringLiteral("composizione in sospeso, Invio su una costante -> a schermo restano le equazioni di prima"));
+        applyEquationEdit(ui->lineW);
+        check(ui->glWidget->parametricEquationsApplied() != applied3,
+              QStringLiteral("Run -> la composizione entra"));
+        checkEquations(QStringLiteral("dopo il Run"));
+    }
+    // VINCOLO esplicito scritto e non eseguito (Tractricoid: w = u+v).
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Equations/H2xR/Tractricoid.json"))) {
+        checkEquations(QStringLiteral("superficie con vincolo"));
+        const QString explicit0 = ui->glWidget->getEngine()->getExplicitW();
+        ui->lineExplicitW->setPlainText(QStringLiteral("u-v"));  wait(300);
+        ui->lineA->setText(QStringLiteral("1.2"));
+        pressEnter(ui->lineA);
+        check(ui->glWidget->getEngine()->getExplicitW() == explicit0,
+              QStringLiteral("vincolo in sospeso, Invio su una costante -> a schermo resta il vincolo di prima"));
+        applyEquationEdit(ui->lineExplicitW);
+        check(ui->glWidget->getEngine()->getExplicitW() != explicit0,
+              QStringLiteral("Run -> il vincolo entra"));
+        checkEquations(QStringLiteral("dopo il Run"));
+    }
+    // FLUSSO GEODETICO: superficie, record, e poi una scena che non lo usa.
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Geodesic Flow/R^3/Helicoid.json"))) {
+        checkEquations(QStringLiteral("superficie con flusso geodetico"));
+        // Punto iniziale riscritto e non eseguito, poi Invio su una costante:
+        // il flusso a schermo resta quello di prima, e il Run serve ancora.
+        const QString u0 = ui->lnU->toPlainText();
+        ui->lnU->setPlainText(u0 + QStringLiteral(" + 0.1"));  wait(300);
+        ui->lineA->setText(QStringLiteral("1.1"));
+        pressEnter(ui->lineA);
+        check(m_mw->property("active_lnU").toString() == u0,
+              QStringLiteral("flusso in sospeso, Invio su una costante -> applicato resta il punto iniziale di prima"));
+        checkEquations(QStringLiteral("flusso ancora in sospeso"), /*pendingEdit=*/true);
+        applyEquationEdit(ui->lnU);
+        checkEquations(QStringLiteral("flusso applicato"));
+    }
+    if (loadRecord(QStringLiteral("records/Geodesic Flow/R^3/Ruled Hyperboloid.json")))
+        checkEquations(QStringLiteral("record con flusso geodetico"));
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Equations/R3/Torus.json")))
+        checkEquations(QStringLiteral("poi una superficie senza flusso"));
     if (loadSurface(QStringLiteral("surfaces/Parametric/Multimesh/Hopf Tori.json")))
         checkEquations(QStringLiteral("poi una superficie da script"));
     if (loadRecord(QString::fromLatin1(kParametricRecord)))

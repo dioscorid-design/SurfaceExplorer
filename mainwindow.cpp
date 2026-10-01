@@ -10786,9 +10786,11 @@ void MainWindow::onStartClicked()
         return edit->toPlainText();
     };
 
-    QString defU = ui->lineU->toPlainText();
-    QString defV = ui->lineV->toPlainText();
-    QString defW = ui->lineW->toPlainText();
+    // Composizione e vincoli come le equazioni: nel commit di servizio quelli
+    // dell'ultimo applicato, non il testo dei campi.
+    QString defU = eqField("active_lineU", ui->lineU);
+    QString defV = eqField("active_lineV", ui->lineV);
+    QString defW = eqField("active_lineW", ui->lineW);
 
     QString rawX = composeEquation(eqField("active_lineX", ui->lineX), defU, defV, defW);
     QString rawY = composeEquation(eqField("active_lineY", ui->lineY), defU, defV, defW);
@@ -10800,9 +10802,9 @@ void MainWindow::onStartClicked()
     QString zEq = GlslTranslator::translateEquation(rawZ);
     QString wEq = GlslTranslator::translateEquation(rawP);
 
-    QString rawU = composeEquation(ui->lineExplicitU->toPlainText(), defU, defV, defW).trimmed();
-    QString rawV = composeEquation(ui->lineExplicitV->toPlainText(), defU, defV, defW).trimmed();
-    QString rawW = composeEquation(ui->lineExplicitW->toPlainText(), defU, defV, defW).trimmed();
+    QString rawU = composeEquation(eqField("active_lineExplicitU", ui->lineExplicitU), defU, defV, defW).trimmed();
+    QString rawV = composeEquation(eqField("active_lineExplicitV", ui->lineExplicitV), defU, defV, defW).trimmed();
+    QString rawW = composeEquation(eqField("active_lineExplicitW", ui->lineExplicitW), defU, defV, defW).trimmed();
 
     if (!rawU.isEmpty()) {
         ui->glWidget->getEngine()->setConstraintMode(SurfaceEngine::ConstraintU);
@@ -20373,10 +20375,17 @@ bool MainWindow::mapEquationsMatchSnapshot() const
     // Nessuno snapshot: non c'e' un "gia' applicato" con cui confrontarsi.
     if (!property("active_lineX").isValid()) return false;
 
+    // ...composizione e vincoli compresi: sono nello snapshot come X/Y/Z/P.
     return property("active_lineX").toString() == ui->lineX->toPlainText()
         && property("active_lineY").toString() == ui->lineY->toPlainText()
         && property("active_lineZ").toString() == ui->lineZ->toPlainText()
-        && property("active_lineP").toString() == ui->lineP->toPlainText();
+        && property("active_lineP").toString() == ui->lineP->toPlainText()
+        && property("active_lineU").toString() == ui->lineU->toPlainText()
+        && property("active_lineV").toString() == ui->lineV->toPlainText()
+        && property("active_lineW").toString() == ui->lineW->toPlainText()
+        && property("active_lineExplicitU").toString() == ui->lineExplicitU->toPlainText()
+        && property("active_lineExplicitV").toString() == ui->lineExplicitV->toPlainText()
+        && property("active_lineExplicitW").toString() == ui->lineExplicitW->toPlainText();
 }
 
 bool MainWindow::isGeodesicRoutingActive() const
@@ -21787,6 +21796,12 @@ bool MainWindow::applyBackgroundTextureIfNeeded() {
 namespace {
 constexpr const char* kActiveEqProps[] = {
     "active_lineX", "active_lineY", "active_lineZ", "active_lineP",
+    // Composizione (U, V, W in funzione di u, v, w) e vincoli espliciti: fanno
+    // parte di cio' che e' a schermo quanto X/Y/Z/P. Fuori dallo snapshot, il
+    // commit di servizio li prendeva dai campi e applicava una composizione o
+    // un vincolo ancora in corso di scrittura sulle equazioni di prima.
+    "active_lineU", "active_lineV", "active_lineW",
+    "active_lineExplicitU", "active_lineExplicitV", "active_lineExplicitW",
     "active_lnU",   "active_lnV",   "active_lnW",
     "active_lndU",  "active_lndV",  "active_lndW",
     "active_lineConform"
@@ -21806,6 +21821,12 @@ void MainWindow::snapshotActiveEquations() {
     setProperty("active_lineY", ui->lineY->toPlainText());
     setProperty("active_lineZ", ui->lineZ->toPlainText());
     setProperty("active_lineP", ui->lineP->toPlainText());
+    setProperty("active_lineU", ui->lineU->toPlainText());
+    setProperty("active_lineV", ui->lineV->toPlainText());
+    setProperty("active_lineW", ui->lineW->toPlainText());
+    setProperty("active_lineExplicitU", ui->lineExplicitU->toPlainText());
+    setProperty("active_lineExplicitV", ui->lineExplicitV->toPlainText());
+    setProperty("active_lineExplicitW", ui->lineExplicitW->toPlainText());
     if (ui->lnU) {
         setProperty("active_lnU",   ui->lnU->toPlainText());
         setProperty("active_lnV",   ui->lnV->toPlainText());
