@@ -119,12 +119,6 @@ qt_add_executable(SurfaceExplorer
     librarymenucontroller.cpp
     presetserializer.h
     presetserializer.cpp
-    presetroundtrip.h
-    presetroundtrip.cpp
-    clocktest.h
-    clocktest.cpp
-    scenariotest.h
-    scenariotest.cpp
     libraryfileoperations.h
     libraryfileoperations.cpp
     librarydragdrophandler.h
@@ -427,6 +421,26 @@ if(APPLE AND NOT IOS)
         "-framework Foundation"
         "-framework VideoToolbox"
     )
+endif()
+
+# --- TEST INTERNI (round-trip dei preset, orologi, scenari d'uso) ---
+# Solo nelle build Debug desktop: sono la rete di sicurezza di chi sviluppa
+# (ExC/Mac/Test/*.sh li lanciano sulla build Debug) e nei binari distribuiti
+# sarebbero solo peso, piu' tre opzioni da riga di comando che nessun utente
+# deve avere. Le build di rilascio restano fuori da sole: Release di Qt Creator
+# e, per l'App Store, il generatore Xcode (multi-config: CMAKE_BUILD_TYPE e'
+# vuoto). Su iOS/Android main.cpp non li ha mai chiamati.
+# SE_SELF_TESTS e' cio' che main.cpp guarda per agganciarli.
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID AND NOT IOS)
+    target_sources(SurfaceExplorer PRIVATE
+        presetroundtrip.h
+        presetroundtrip.cpp
+        clocktest.h
+        clocktest.cpp
+        scenariotest.h
+        scenariotest.cpp
+    )
+    target_compile_definitions(SurfaceExplorer PRIVATE SE_SELF_TESTS)
 endif()
 
 # --- SECURITY-SCOPED BOOKMARK (solo canale App Store, ma compilato ovunque) ---

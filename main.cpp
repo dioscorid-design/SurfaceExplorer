@@ -3,9 +3,12 @@
 #include <QIcon>
 #include <QSettings>
 #include "mainwindow.h"
+// Test interni: compilati solo nelle build Debug desktop (vedi CMakeLists.txt).
+#ifdef SE_SELF_TESTS
 #include "presetroundtrip.h"
 #include "clocktest.h"
 #include "scenariotest.h"
+#endif
 
 int main(int argc, char *argv[])
 {
@@ -122,6 +125,7 @@ int main(int argc, char *argv[])
     // 3. Mostriamo la finestra normalmente
     w.showNormal();
 
+#ifdef SE_SELF_TESTS
     // Test di andata e ritorno dei preset (--roundtrip-test): vedi presetroundtrip.h.
     if (PresetRoundTrip::requested(app.arguments()))
         PresetRoundTrip::start(&w, app.arguments());
@@ -131,6 +135,7 @@ int main(int argc, char *argv[])
     // Test degli scenari d'uso (--scenario-test): vedi scenariotest.h.
     if (ScenarioTest::requested(app.arguments()))
         ScenarioTest::start(&w, app.arguments());
+#endif // SE_SELF_TESTS
 #endif
 
     return app.exec();
