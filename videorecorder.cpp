@@ -866,11 +866,11 @@ void VideoRecorder::toggleRecord()
             // Stessa identica camera del tick live: al recorder cambia solo
             // il tempo. Niente copie locali di questa logica (divergevano:
             // vista Center diversa, base 4D del Departure ignorata).
-            m_mainWindow->pathTimeT += m_mainWindow->m_pathSpeed4D * fpsScale4D;
+            m_mainWindow->pathTimeT += m_mainWindow->pathSpeed4D() * fpsScale4D;
             m_mainWindow->applyPath4DCameraAt(m_mainWindow->pathTimeT);
         }
         else if (m_mainWindow->pathTimer3D->isActive()) {
-            m_mainWindow->pathTimeT3D += m_mainWindow->m_pathSpeed3D * fpsScale3D;
+            m_mainWindow->pathTimeT3D += m_mainWindow->pathSpeed3D() * fpsScale3D;
             m_mainWindow->applyPath3DCameraAt(m_mainWindow->pathTimeT3D);
         }
         else if (m_mainWindow->isRotationMotionRunning()) {

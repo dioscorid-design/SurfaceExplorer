@@ -3950,8 +3950,7 @@ MainWindow::MainWindow(QWidget *parent)
     // 8. MOTION, PATHS & NAVIGATION
     // =========================================================================
     float omega = 0.0f, phi = 0.0f, psi = 0.0f;
-    ui->lblNutVal->setText("0"); ui->lblPrecVal->setText("0"); ui->lblSpinVal->setText("0");
-    ui->lblOmegaVal->setText(QString::number(omega)); ui->lblPhiVal->setText(QString::number(phi)); ui->lblPsiVal->setText(QString::number(psi));
+    refreshRotationSpeedLabels();
 
     ui->glWidget->setRotation4D(omega, phi, psi);
     ui->glWidget->addObjectRotation(30.0f, 30.0f, 0.0f);
@@ -4106,9 +4105,6 @@ MainWindow::MainWindow(QWidget *parent)
             commitMeshLimitFieldOnEnter(meshLimitEdit->objectName());
         });
     }
-
-    connect(ui->speed3DSlider, &QSlider::valueChanged, this, [this](int val){ m_pathSpeed3D = val / 1000.0f; });
-    connect(ui->speed4DSlider, &QSlider::valueChanged, this, [this](int val){ m_pathSpeed4D = val / 1000.0f; });
 
     connectNavButton(ui->btnForward, GLWidget::MoveForward); connectNavButton(ui->btnBackward, GLWidget::MoveBack);
     connectNavButton(ui->btnLeft, GLWidget::MoveLeft); connectNavButton(ui->btnRight, GLWidget::MoveRight);
@@ -5213,6 +5209,8 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     pathTimeT3D = 0.0f;
     m_path4DStartedOnce = false;
     m_anyPathStartedOnce = false;
+    // ...e i comandi dei path (vista, velocita', ultimo moto, path compilato).
+    resetMotionControls();
 
     // ==========================================================
     // AGGIORNAMENTO UI E PULIZIA MOTORE SCRIPT AL CAMBIO TAB
@@ -5442,8 +5440,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         ui->glWidget->setPhiSpeed(0.0f);
         ui->glWidget->setPsiSpeed(0.0f);
     }
-    ui->lblNutVal->setText("0.00"); ui->lblPrecVal->setText("0.00"); ui->lblSpinVal->setText("0.00");
-    ui->lblOmegaVal->setText("0.00"); ui->lblPhiVal->setText("0.00"); ui->lblPsiVal->setText("0.00");
+    refreshRotationSpeedLabels();
 
     // Il tasto delle rotazioni torna a "GO": con le velocita' azzerate un
     // "STOP" residuo descriverebbe un moto che non esiste piu'. Lo stop
@@ -7787,8 +7784,11 @@ void MainWindow::applyStartSideEffects()
 {
     if (!ui->glWidget) return;
 
-    bool hasPath4D = !ui->lineX_P->text().isEmpty() && ui->lineX_P->text() != "0";
-    bool hasPath3D = !ui->lineX_P3D->text().isEmpty() && ui->lineX_P3D->text() != "0";
+    // Stessa soglia del tasto Departure (basta un campo, hasPath*Input): col
+    // vecchio controllo sul solo campo X il master Start non avviava un path
+    // scritto con la sola Y o la sola Z, che il suo tasto invece avvia.
+    const bool hasPath4D = hasPath4DInput();
+    const bool hasPath3D = hasPath3DInput();
 
     // Con piu' moti camera disponibili (rotazioni, path 4D, path 3D) riparte
     // SOLO la modalita' corrente (ultimo moto avviato in sessione, o quello
@@ -7804,8 +7804,8 @@ void MainWindow::applyStartSideEffects()
     if (!m_userStoppedCameraMotion) {
         QString pick = m_lastCameraMotion;
         if (pick == "rotation" && !hasAnyRotationSpeed()) pick.clear();
-        if (pick == "path4D" && !hasPath4DInput()) pick.clear();
-        if (pick == "path3D" && !hasPath3DInput()) pick.clear();
+        if (pick == "path4D" && !hasPath4D) pick.clear();
+        if (pick == "path3D" && !hasPath3D) pick.clear();
 
         if (pick == "rotation") {
             if (!ui->glWidget->isAnimating()) onStopClicked();
@@ -11158,7 +11158,7 @@ void MainWindow::onNavTimerTick()
     const float psiBefore   = ui->glWidget->getPsi();
 
     for (int action : activeNavActions) {
-        ui->glWidget->virtualMove(static_cast<GLWidget::MoveDir>(action), m_pathSpeed3D, m_pathSpeed4D);
+        ui->glWidget->virtualMove(static_cast<GLWidget::MoveDir>(action), pathSpeed3D(), pathSpeed4D());
     }
 
     m_nav4DDeltaObs   += ui->glWidget->observerPos() - obsBefore;
@@ -11756,7 +11756,7 @@ void MainWindow::onPathTimerTick()
     // recorder, col dt virtuale del frame: il tick live e' un no-op.
     if (m_isRecording) return;
 
-    pathTimeT += m_pathSpeed4D;
+    pathTimeT += pathSpeed4D();
     applyPath4DCameraAt(pathTimeT);
 }
 
@@ -12114,7 +12114,7 @@ void MainWindow::onPath3DTimerTick()
     // Vedi onPathTimerTick: durante il REC avanza solo il loop del recorder.
     if (m_isRecording) return;
 
-    pathTimeT3D += m_pathSpeed3D;
+    pathTimeT3D += pathSpeed3D();
     applyPath3DCameraAt(pathTimeT3D);
 }
 
@@ -12237,26 +12237,44 @@ void MainWindow::setNavControlsEnabled(bool enabled)
     }
 }
 
+float MainWindow::pathSpeed3D() const { return ui->speed3DSlider->value() / 1000.0f; }
+float MainWindow::pathSpeed4D() const { return ui->speed4DSlider->value() / 1000.0f; }
+
+void MainWindow::setPathViewModes(CameraPathMode mode4D, CameraPathMode mode3D)
+{
+    m_pathViewMode4D = mode4D;
+    m_pathViewMode3D = mode3D;
+    ui->pushView->setText(m_pathViewMode4D == ModeTangential ? "Tangent View" : "Center View");
+    ui->pushView3D->setText(m_pathViewMode3D == ModeTangential ? "Tangent View" : "Center View");
+}
+
+void MainWindow::resetMotionControls()
+{
+    // La scena nuova non eredita i comandi dei path di quella di prima. Li
+    // riscrivevano solo i record: dopo NEW, un cambio di modalita' o il load di
+    // una superficie, un path scritto da capo partiva con la vista (Center) e
+    // la velocita' del record appena lasciato, e il Save scriveva come moto
+    // attivo quello del record di prima.
+    setPathViewModes(ModeTangential, ModeTangential);
+    // A segnali vivi, come il load dei record (i chiamanti sono dentro la
+    // guardia m_populatingFields).
+    ui->speed3DSlider->setValue(10);
+    ui->speed4DSlider->setValue(10);
+    m_lastCameraMotion.clear();
+    if (ui->glWidget && ui->glWidget->getEngine())
+        ui->glWidget->getEngine()->clearPathEquations();
+}
+
 void MainWindow::onToggleViewClicked()  // path 4D (pushView)
 {
-    if (m_pathViewMode4D == ModeTangential) {
-        m_pathViewMode4D = ModeCentered;
-        ui->pushView->setText("Center View");
-    } else {
-        m_pathViewMode4D = ModeTangential;
-        ui->pushView->setText("Tangent View");
-    }
+    setPathViewModes(m_pathViewMode4D == ModeTangential ? ModeCentered : ModeTangential,
+                     m_pathViewMode3D);
 }
 
 void MainWindow::onToggleView3DClicked()  // path 3D (pushView3D)
 {
-    if (m_pathViewMode3D == ModeTangential) {
-        m_pathViewMode3D = ModeCentered;
-        ui->pushView3D->setText("Center View");
-    } else {
-        m_pathViewMode3D = ModeTangential;
-        ui->pushView3D->setText("Tangent View");
-    }
+    setPathViewModes(m_pathViewMode4D,
+                     m_pathViewMode3D == ModeTangential ? ModeCentered : ModeTangential);
 }
 
 
@@ -14087,10 +14105,6 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     if (ui->btnStart_2) ui->btnStart_2->setText("GO");
     if (m_btnStart) m_btnStart->setText("START");
 
-    // Reset Label Interfaccia
-    ui->lblNutVal->setText("0"); ui->lblPrecVal->setText("0"); ui->lblSpinVal->setText("0");
-    ui->lblOmegaVal->setText("0"); ui->lblPhiVal->setText("0"); ui->lblPsiVal->setText("0");
-
     if (ui->glWidget) {
         ui->glWidget->setNutationSpeed(0.0f);
         ui->glWidget->setPrecessionSpeed(0.0f);
@@ -14099,6 +14113,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
         ui->glWidget->setPhiSpeed(0.0f);
         ui->glWidget->setPsiSpeed(0.0f);
     }
+    refreshRotationSpeedLabels();
 
     // ==========================================================
     // AZZERAMENTO TOTALE STATO TEXTURE, TESTI E COLORI
@@ -14382,9 +14397,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // sezionata un'altra ereditava la p della precedente.
     if (ui->glWidget) ui->glWidget->setCrossSectionP(d.isImplicitMode ? d.crossSectionP : 0.0f);
 
-    ui->lblOmegaVal->setText("0.00");
-    ui->lblPhiVal->setText("0.00");
-    ui->lblPsiVal->setText("0.00");
+    refreshRotationSpeedLabels();
 
     // 6. Eseguiamo onStartClicked per inizializzare equazioni
     // Le superfici implicite da script non hanno equazioni valide nei campi standard.
@@ -15017,18 +15030,16 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // Vista dei due path. I record col solo "pathMode" (formato storico) la
     // applicano a entrambi, quelli senza nessuna delle due tornano a Tangent:
     // lo decide parseJson.
-    m_pathViewMode4D = static_cast<CameraPathMode>(data.pathMode4D);
-    m_pathViewMode3D = static_cast<CameraPathMode>(data.pathMode3D);
-
-    // Aggiorniamo subito i testi dei pulsanti nella UI (ciascuno sulla sua modalita')
-    ui->pushView->setText(m_pathViewMode4D == ModeTangential ? "Tangent View" : "Center View");
-    ui->pushView3D->setText(m_pathViewMode3D == ModeTangential ? "Tangent View" : "Center View");
+    setPathViewModes(static_cast<CameraPathMode>(data.pathMode4D),
+                     static_cast<CameraPathMode>(data.pathMode3D));
     // Abilitazione coerente con lo stato dei path (a load fermo -> disabilitati).
     updateViewButtonsEnabled();
 
-    // Velocita' dei path (0 nei file vecchi senza la chiave).
-    ui->speed3DSlider->setValue(data.speedPath3D);
-    ui->speed4DSlider->setValue(data.speedPath4D);
+    // Velocita' dei path. 0 = chiave assente (file vecchi) o path 4D azzerato
+    // dal Save in Ray Marching 3D: resta il default messo da resetMotionControls
+    // (lo slider parte da 1, e scrivere 0 dava la velocita' minima).
+    if (data.speedPath3D > 0) ui->speed3DSlider->setValue(data.speedPath3D);
+    if (data.speedPath4D > 0) ui->speed4DSlider->setValue(data.speedPath4D);
 
     // SEPARAZIONE IMMEDIATA AUDIO-GRAFICA
     // Recuperiamo il codice 2D corretto in base alla modalità corrente
@@ -15414,13 +15425,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     if (ui->btnLightMode) ui->btnLightMode->setText(btnText);
     update4DButtonState();
 
-    ui->lblNutVal->setText(QString::number(data.speedNut, 'f', 2));
-    ui->lblPrecVal->setText(QString::number(data.speedPrec, 'f', 2));
-    ui->lblSpinVal->setText(QString::number(data.speedSpin, 'f', 2));
-    // FIX: Usiamo le variabili ripulite per aggiornare le Label
-    ui->lblOmegaVal->setText(QString::number(spdOmega, 'f', 2));
-    ui->lblPhiVal->setText(QString::number(spdPhi, 'f', 2));
-    ui->lblPsiVal->setText(QString::number(spdPsi, 'f', 2));
+    refreshRotationSpeedLabels();
 
     if (data.restoreAngles) {
         // Angoli statici azzerati in Ray Marching SOLO fuori dal Cross Section.
@@ -16538,33 +16543,39 @@ void MainWindow::connectSidePanels()
     // --- CONTROLLI ROTAZIONE
 
     // Precessione
-    setupSpeedControl(ui->btnPrecessionPlus, ui->btnPrecessionMinus, ui->lblPrecVal,
+    setupSpeedControl(ui->btnPrecessionPlus, ui->btnPrecessionMinus,
+                      [this]{ return ui->glWidget->getPrecessionSpeed(); },
                       [this](float v){ ui->glWidget->setPrecessionSpeed(v); });
 
     // Nutazione
-    setupSpeedControl(ui->btnNutationPlus, ui->btnNutationMinus, ui->lblNutVal,
+    setupSpeedControl(ui->btnNutationPlus, ui->btnNutationMinus,
+                      [this]{ return ui->glWidget->getNutationSpeed(); },
                       [this](float v){ ui->glWidget->setNutationSpeed(v); });
 
     // Spin
-    setupSpeedControl(ui->btnSpinPlus, ui->btnSpinMinus, ui->lblSpinVal,
+    setupSpeedControl(ui->btnSpinPlus, ui->btnSpinMinus,
+                      [this]{ return ui->glWidget->getSpinSpeed(); },
                       [this](float v){ ui->glWidget->setSpinSpeed(v); });
 
     // Omega (4D)
-    setupSpeedControl(ui->btnOmegaPlus, ui->btnOmegaMinus, ui->lblOmegaVal,
+    setupSpeedControl(ui->btnOmegaPlus, ui->btnOmegaMinus,
+                      [this]{ return ui->glWidget->getOmegaSpeed(); },
                       [this](float v){
                           ui->glWidget->setOmegaSpeed(v);
                           update4DButtonState();
                       });
 
     // Phi (4D)
-    setupSpeedControl(ui->btnPhiPlus, ui->btnPhiMinus, ui->lblPhiVal,
+    setupSpeedControl(ui->btnPhiPlus, ui->btnPhiMinus,
+                      [this]{ return ui->glWidget->getPhiSpeed(); },
                       [this](float v){
                           ui->glWidget->setPhiSpeed(v);
                           update4DButtonState();
                       });
 
     // Psi (4D)
-    setupSpeedControl(ui->btnPsiPlus, ui->btnPsiMinus, ui->lblPsiVal,
+    setupSpeedControl(ui->btnPsiPlus, ui->btnPsiMinus,
+                      [this]{ return ui->glWidget->getPsiSpeed(); },
                       [this](float v){
                           ui->glWidget->setPsiSpeed(v);
                           update4DButtonState();
@@ -17944,13 +17955,8 @@ void MainWindow::applyCommonData(LibraryItem d)
     ui->glWidget->resetTime();
     ui->glWidget->setRotation4D(0.0f, 0.0f, 0.0f);
 
-    // Reset Etichette Rotazioni UI
-    ui->lblNutVal->setText("0.00");
-    ui->lblPrecVal->setText("0.00");
-    ui->lblSpinVal->setText("0.00");
-    ui->lblOmegaVal->setText("0.00");
-    ui->lblPhiVal->setText("0.00");
-    ui->lblPsiVal->setText("0.00");
+    // Etichette delle rotazioni: dal motore
+    refreshRotationSpeedLabels();
 
     // Reset Limiti Intervalli di Default (Evita glitch se il preset non li dichiara)
     // Parametriche
@@ -18569,6 +18575,10 @@ void MainWindow::applyCommonData(LibraryItem d)
     }
 
     // --- 5. RESET E CARICAMENTO PATH ---
+
+    // Comandi dei path ai default: una superficie non li porta, un record li
+    // riscrive subito dopo (applyMotionExample).
+    resetMotionControls();
 
     // Path 3D
     ui->lineX_P3D->setText(d.path3D_x);
@@ -19752,23 +19762,39 @@ void MainWindow::updateLayoutForMode(int mode)
     ui->dock4D->blockSignals(old4D);
 }
 
-void MainWindow::setupSpeedControl(QPushButton* btnPlus, QPushButton* btnMinus, QLabel* label, std::function<void(float)> setter) {
+void MainWindow::refreshRotationSpeedLabels()
+{
+    if (!ui->glWidget) return;
+    // Un decimale, come il passo dei tasti +/- (0.1); lo zero senza segno.
+    auto show = [](QLabel *label, float v) {
+        v = std::round(v * 10.0f) / 10.0f;
+        if (std::abs(v) < 0.01f) v = 0.0f;
+        label->setText(QString::number(v, 'f', 1));
+    };
+    show(ui->lblNutVal,   ui->glWidget->getNutationSpeed());
+    show(ui->lblPrecVal,  ui->glWidget->getPrecessionSpeed());
+    show(ui->lblSpinVal,  ui->glWidget->getSpinSpeed());
+    show(ui->lblOmegaVal, ui->glWidget->getOmegaSpeed());
+    show(ui->lblPhiVal,   ui->glWidget->getPhiSpeed());
+    show(ui->lblPsiVal,   ui->glWidget->getPsiSpeed());
+}
+
+void MainWindow::setupSpeedControl(QPushButton* btnPlus, QPushButton* btnMinus,
+                                   std::function<float()> getter, std::function<void(float)> setter) {
 
     // 1. Pulizia totale delle connessioni per evitare comandi fantasma
     disconnect(btnPlus, &QPushButton::clicked, nullptr, nullptr);
     disconnect(btnMinus, &QPushButton::clicked, nullptr, nullptr);
 
-    auto changeVal = [this, label, setter](int direction) {
+    auto changeVal = [this, getter, setter](int direction) {
         // Usiamo un passo di 0.1
         float step = 0.1f;
 
-        // 2. Lettura ultra-robusta: rimuove spazi e converte virgole in punti
-        QString text = label->text().trimmed();
-        text.replace(",", ".");
-
-        bool ok;
-        float currentVal = text.toFloat(&ok);
-        if (!ok) currentVal = 0.0f;
+        // 2. Il valore corrente e' quello del MOTORE. Prima si rileggeva
+        // l'etichetta: due copie della stessa velocita', e bastava che una
+        // scrittura programmatica toccasse una sola delle due perche' il tasto
+        // ripartisse da un valore che il motore non aveva.
+        float currentVal = getter();
 
         // 3. Calcolo del nuovo valore
         // Moltiplichiamo la direzione (1 o -1) per lo step
@@ -19784,16 +19810,9 @@ void MainWindow::setupSpeedControl(QPushButton* btnPlus, QPushButton* btnMinus, 
             newVal = 0.0f;
         }
 
-        // 6. Aggiornamento dell'etichetta
-        if (newVal == 0.0f) {
-            label->setText("0.0");
-        } else {
-            // 'f', 1 forza la visualizzazione di un decimale (es. -0.1)
-            label->setText(QString::number(newVal, 'f', 1));
-        }
-
-        // 7. Invio al motore
+        // 6. Invio al motore, poi l'etichetta dal motore
         setter(newVal);
+        refreshRotationSpeedLabels();
 
         // 8. Se tutto è fermo, riporta il tasto a START
         if (ui->glWidget) {

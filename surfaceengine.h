@@ -7,6 +7,7 @@
 #include <vector>
 #include <algorithm>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 #include <QVector3D>
 #include <QVector4D>
@@ -509,6 +510,14 @@ public:
 
     bool compilePath3DEquations(const QString &x, const QString &y, const QString &z, const QString &r);
     QVector4D evaluatePath3DPosition(float t); // Restituisce (x, y, z, roll)
+    // Il path APPLICATO: le equazioni dell'ultima compilazione (quelle che il
+    // tick valuta) e se sono utilizzabili. I campi dei dock sono l'intenzione.
+    QStringList appliedPath4D() const { return { pathEqX, pathEqY, pathEqZ, pathEqP, pathEqAlpha, pathEqBeta, pathEqGamma }; }
+    QStringList appliedPath3D() const { return { pathEqX3D, pathEqY3D, pathEqZ3D, pathEqR3D }; }
+    // Nessun path: la scena nuova non tiene compilato quello di prima.
+    void clearPathEquations();
+    bool path4DCompiled() const { return pathValid; }
+    bool path3DCompiled() const { return path3DValid; }
 
     // ==========================================================
     // 4D LIGHTING STATE (Used by GLWidget)

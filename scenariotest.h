@@ -105,6 +105,20 @@ private:
     // u/v del motore e' quello dei campi limite, e le due copie dello script di
     // superficie coincidono. `pendingEdit`: campi modificati e non eseguiti.
     void checkEquations(const QString &step, bool pendingEdit = false);
+    // PATH E MOTI dopo il gesto `step`. Viste dei due path: tasto = membro =
+    // Save. Velocita' dei path: slider = Save. Velocita' delle
+    // rotazioni: etichetta = motore = Save. Tasti e timer: Departure/GO dicono
+    // STOP se e solo se il loro moto gira, mai due moti camera insieme, il moto
+    // "ultimo avviato" e' quello in corsa. FOV: slider = membri = Save. Path
+    // applicato: a path in corsa il motore valuta le equazioni dei campi, salvo
+    // `pendingEdit` (campi modificati e non confermati). `expectRunning`, se non
+    // nullo, e' il moto camera atteso in corsa ("path4D", "path3D", "rotation",
+    // "none").
+    void checkMotion(const QString &step, const QString &expectRunning = QString(),
+                     bool pendingEdit = false);
+    // La scena senza moti: quello che devono lasciare NEW, il cambio di
+    // modalita' e il load di una superficie dopo un record in movimento.
+    void checkMotionDefaults(const QString &step);
     // Le COSTANTI A..F/S dopo il gesto `step`: il campo di testo e' la fonte
     // (puo' essere un'espressione a cascata), lo slider lo mostra, il motore usa
     // quel valore, il Save lo scrive. Una costante spenta (nessun modulo la usa)

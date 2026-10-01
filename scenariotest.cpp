@@ -19,6 +19,7 @@
 #include <QTimer>
 #include <QAbstractButton>
 #include <QKeyEvent>
+#include <QLabel>
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
@@ -666,6 +667,148 @@ void ScenarioTest::checkConstants(const QString &step, const QMap<QString, doubl
                              .arg(step, shown.isEmpty() ? QStringLiteral("(nessuna in uso)")
                                                         : shown.join(QLatin1Char(' ')),
                                   bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+}
+
+void ScenarioTest::checkMotion(const QString &step, const QString &expectRunning, bool pendingEdit)
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    SurfaceEngine *engine = gl->getEngine();
+    const LibraryItem sv = captureSave();
+    QStringList bad;
+
+    const bool t4 = m_mw->pathTimer && m_mw->pathTimer->isActive();
+    const bool t3 = m_mw->pathTimer3D && m_mw->pathTimer3D->isActive();
+    const bool rot = gl->isAnimating();
+    const bool rm = ui->tabModeSelector->currentIndex() == 1;
+    const bool keep4D = !rm || ui->subTabImplicit->currentIndex() == 1;
+    const QString running = t3 ? QStringLiteral("path3D") : t4 ? QStringLiteral("path4D")
+                          : rot ? QStringLiteral("rotation") : QStringLiteral("none");
+
+    // VISTE dei due path.
+    auto viewName = [](int m) {
+        return m == MainWindow::ModeTangential ? QStringLiteral("Tangent View") : QStringLiteral("Center View");
+    };
+    if (ui->pushView->text() != viewName(m_mw->m_pathViewMode4D))
+        bad << QStringLiteral("vista 4D: tasto \"%1\", membro %2").arg(ui->pushView->text(), viewName(m_mw->m_pathViewMode4D));
+    if (ui->pushView3D->text() != viewName(m_mw->m_pathViewMode3D))
+        bad << QStringLiteral("vista 3D: tasto \"%1\", membro %2").arg(ui->pushView3D->text(), viewName(m_mw->m_pathViewMode3D));
+    if (sv.pathMode4D != int(m_mw->m_pathViewMode4D) || sv.pathMode3D != int(m_mw->m_pathViewMode3D))
+        bad << QStringLiteral("viste: il Save scriverebbe %1/%2").arg(sv.pathMode4D).arg(sv.pathMode3D);
+
+    // VELOCITA' dei path: lo slider e' l'unica copia, il Save lo scrive.
+    if (sv.speedPath3D != ui->speed3DSlider->value() || sv.speedPath4D != (keep4D ? ui->speed4DSlider->value() : 0))
+        bad << QStringLiteral("velocita' path: il Save scriverebbe %1/%2").arg(sv.speedPath3D).arg(sv.speedPath4D);
+
+    // VELOCITA' delle rotazioni: l'etichetta e' cio' che i tasti +/- leggono.
+    struct Rot { const char *name; QLabel *label; float engine; float saved; bool is4D; };
+    const Rot rots[] = {
+        { "precessione", ui->lblPrecVal, gl->getPrecessionSpeed(), sv.speedPrec, false },
+        { "nutazione", ui->lblNutVal, gl->getNutationSpeed(), sv.speedNut, false },
+        { "spin", ui->lblSpinVal, gl->getSpinSpeed(), sv.speedSpin, false },
+        { "omega", ui->lblOmegaVal, gl->getOmegaSpeed(), sv.speedOmega, true },
+        { "phi", ui->lblPhiVal, gl->getPhiSpeed(), sv.speedPhi, true },
+        { "psi", ui->lblPsiVal, gl->getPsiSpeed(), sv.speedPsi, true },
+    };
+    for (const Rot &r : rots) {
+        const float shown = r.label->text().trimmed().replace(QLatin1Char(','), QLatin1Char('.')).toFloat();
+        if (qAbs(shown - r.engine) > 0.006f)
+            bad << QStringLiteral("%1: etichetta %2, motore %3").arg(QLatin1String(r.name), r.label->text()).arg(r.engine);
+        const float expected = (r.is4D && !keep4D) ? 0.0f : r.engine;
+        if (qAbs(r.saved - expected) > 1e-4f)
+            bad << QStringLiteral("%1: il Save scriverebbe %2, motore %3").arg(QLatin1String(r.name)).arg(r.saved).arg(r.engine);
+    }
+
+    // TASTI E TIMER.
+    if ((ui->btnDeparture->text() == QLatin1String("STOP")) != t4)
+        bad << QStringLiteral("tasto Departure 4D \"%1\" ma il path 4D %2").arg(ui->btnDeparture->text(), t4 ? "gira" : "e' fermo");
+    if ((ui->btnDeparture3D->text() == QLatin1String("STOP")) != t3)
+        bad << QStringLiteral("tasto Departure 3D \"%1\" ma il path 3D %2").arg(ui->btnDeparture3D->text(), t3 ? "gira" : "e' fermo");
+    if ((ui->btnStart_2->text() == QLatin1String("STOP")) != rot)
+        bad << QStringLiteral("tasto GO \"%1\" ma le rotazioni %2").arg(ui->btnStart_2->text(), rot ? "girano" : "sono ferme");
+    if (gl->isPathAnimating() != (t4 || t3))
+        bad << QStringLiteral("motore: path in corsa %1, timer %2").arg(onOff(gl->isPathAnimating()), onOff(t4 || t3));
+    if (int(t4) + int(t3) + int(rot) > 1)
+        bad << QStringLiteral("piu' moti camera insieme (4D %1, 3D %2, rotazioni %3)").arg(onOff(t4), onOff(t3), onOff(rot));
+    if (running != QLatin1String("none") && m_mw->m_lastCameraMotion != running)
+        bad << QStringLiteral("gira %1 ma l'ultimo moto avviato e' \"%2\"").arg(running, m_mw->m_lastCameraMotion);
+    if (running != QLatin1String("none") && sv.activeMotion != running)
+        bad << QStringLiteral("gira %1 ma il Save scriverebbe activeMotion \"%2\"").arg(running, sv.activeMotion);
+    if (!expectRunning.isNull() && running != expectRunning)
+        bad << QStringLiteral("in corsa: %1, atteso %2").arg(running, expectRunning);
+
+    // FOV.
+    if (qAbs(m_mw->m_fov3D - ui->fovSliderMain->value()) > 0.5f || qAbs(m_mw->m_fov4D - ui->fovSliderMain->value()) > 0.5f)
+        bad << QStringLiteral("FOV: slider %1, membri %2/%3").arg(ui->fovSliderMain->value()).arg(m_mw->m_fov3D).arg(m_mw->m_fov4D);
+    if (qAbs(sv.fov3D - m_mw->m_fov3D) > 0.01f || qAbs(sv.fov4D - m_mw->m_fov4D) > 0.01f)
+        bad << QStringLiteral("FOV: il Save scriverebbe %1/%2").arg(sv.fov3D).arg(sv.fov4D);
+
+    // PATH APPLICATO: a path in corsa il motore valuta le equazioni dei campi.
+    auto field = [](QLineEdit *l) {
+        QString t = l->text().trimmed();
+        return t.isEmpty() ? QStringLiteral("0") : t.replace(QLatin1Char(','), QLatin1Char('.'));
+    };
+    if (t4) {
+        const QStringList fields = { field(ui->lineX_P), field(ui->lineY_P), field(ui->lineZ_P), field(ui->lineP_P),
+                                     field(ui->lineAlpha_P), field(ui->lineBeta_P), field(ui->lineGamma_P) };
+        if (!engine->path4DCompiled())
+            bad << QStringLiteral("il path 4D gira ma il motore non ha un path valido");
+        else if (!pendingEdit && engine->appliedPath4D() != fields)
+            bad << QStringLiteral("path 4D: campi [%1], motore [%2]").arg(fields.join(QStringLiteral(" | ")),
+                                                                       engine->appliedPath4D().join(QStringLiteral(" | ")));
+        else if (pendingEdit && engine->appliedPath4D() == fields)
+            bad << QStringLiteral("path 4D: la modifica in sospeso e' gia' nel motore");
+    }
+    if (t3) {
+        const QStringList fields = { field(ui->lineX_P3D), field(ui->lineY_P3D), field(ui->lineZ_P3D), field(ui->lineR_P3D) };
+        if (!engine->path3DCompiled())
+            bad << QStringLiteral("il path 3D gira ma il motore non ha un path valido");
+        else if (!pendingEdit && engine->appliedPath3D() != fields)
+            bad << QStringLiteral("path 3D: campi [%1], motore [%2]").arg(fields.join(QStringLiteral(" | ")),
+                                                                       engine->appliedPath3D().join(QStringLiteral(" | ")));
+        else if (pendingEdit && engine->appliedPath3D() == fields)
+            bad << QStringLiteral("path 3D: la modifica in sospeso e' gia' nel motore");
+    }
+    // Il Save scrive i campi (l'intenzione), in corsa o no.
+    if (sv.path4D_x != ui->lineX_P->text() || sv.path4D_alpha != ui->lineAlpha_P->text()
+        || sv.path3D_x != ui->lineX_P3D->text() || sv.path3D_roll != ui->lineR_P3D->text())
+        bad << QStringLiteral("path: il Save non scriverebbe i campi");
+
+    check(bad.isEmpty(), QStringLiteral("%1 -> moti (%2)%3")
+                             .arg(step, running, bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+}
+
+void ScenarioTest::checkMotionDefaults(const QString &step)
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    const LibraryItem sv = captureSave();
+    QStringList bad;
+    if ((m_mw->pathTimer && m_mw->pathTimer->isActive()) || (m_mw->pathTimer3D && m_mw->pathTimer3D->isActive())
+        || gl->isAnimating())
+        bad << QStringLiteral("un moto camera gira ancora");
+    for (QLineEdit *l : { ui->lineX_P, ui->lineY_P, ui->lineZ_P, ui->lineP_P, ui->lineAlpha_P, ui->lineBeta_P,
+                          ui->lineGamma_P, ui->lineX_P3D, ui->lineY_P3D, ui->lineZ_P3D, ui->lineR_P3D })
+        if (!l->text().trimmed().isEmpty()) { bad << QStringLiteral("campo path \"%1\" non vuoto").arg(l->objectName()); break; }
+    if (m_mw->m_pathViewMode4D != MainWindow::ModeTangential || m_mw->m_pathViewMode3D != MainWindow::ModeTangential)
+        bad << QStringLiteral("vista dei path rimasta Center (4D %1, 3D %2)")
+                   .arg(int(m_mw->m_pathViewMode4D)).arg(int(m_mw->m_pathViewMode3D));
+    if (ui->speed3DSlider->value() != 10 || ui->speed4DSlider->value() != 10)
+        bad << QStringLiteral("velocita' dei path rimaste %1/%2").arg(ui->speed3DSlider->value()).arg(ui->speed4DSlider->value());
+    const float speeds[] = { gl->getPrecessionSpeed(), gl->getNutationSpeed(), gl->getSpinSpeed(),
+                             gl->getOmegaSpeed(), gl->getPhiSpeed(), gl->getPsiSpeed() };
+    for (float v : speeds)
+        if (qAbs(v) > 1e-4f) { bad << QStringLiteral("velocita' di rotazione rimaste nel motore"); break; }
+    if (ui->fovSliderMain->value() != 45)
+        bad << QStringLiteral("FOV rimasto %1").arg(ui->fovSliderMain->value());
+    if (!m_mw->m_lastCameraMotion.isEmpty())
+        bad << QStringLiteral("ultimo moto avviato rimasto \"%1\"").arg(m_mw->m_lastCameraMotion);
+    if (sv.activeMotion != QLatin1String("none"))
+        bad << QStringLiteral("il Save scriverebbe activeMotion \"%1\"").arg(sv.activeMotion);
+    if (gl->getEngine()->path4DCompiled() || gl->getEngine()->path3DCompiled())
+        bad << QStringLiteral("nel motore resta compilato il path di prima");
+    check(bad.isEmpty(), QStringLiteral("%1 -> nessun moto, comandi ai default%2")
+                             .arg(step, bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
 }
 
 void ScenarioTest::checkEquations(const QString &step, bool pendingEdit)
@@ -1839,6 +1982,163 @@ void ScenarioTest::run()
         checkEquations(QStringLiteral("poi di nuovo il record a equazioni"));
     pressNew();
     checkEquations(QStringLiteral("tasto NEW"));
+
+    // ---------------------------------------------------------------------
+    // PATH E MOTI: viste, velocita', tasti e timer, moto attivo, FOV, path
+    // applicato (vedi checkMotion).
+    const QString kPath4D   = QStringLiteral("records/Paths/Coiled Coil.json");       // path 4D, vista Center
+    const QString kPath3D   = QStringLiteral("records/Paths/Calabi-Yau Orbit.json");  // path 3D, FOV 69, spin
+    const QString kPathBoth = QStringLiteral("records/Paths/Cytherean Coil.json");    // path 4D + 3D + rotazioni
+    const QString kRotRec   = QStringLiteral("records/Rotations/Boy Surface.json");
+    const QString kTorusSurf = QStringLiteral("surfaces/Parametric/Equations/R3/Torus.json");
+    SurfaceEngine *engine = ui->glWidget->getEngine();
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Moti: path 4D (%1) ==").arg(kPath4D));
+    if (loadRecord(kPath4D)) {
+        checkMotion(QStringLiteral("record caricato"), QStringLiteral("path4D"));
+        click(ui->btnDeparture);   checkMotion(QStringLiteral("Stop del path"), QStringLiteral("none"));
+        click(ui->btnDeparture);   checkMotion(QStringLiteral("Departure"), QStringLiteral("path4D"));
+        click(ui->pushView);       checkMotion(QStringLiteral("vista cambiata"), QStringLiteral("path4D"));
+        click(ui->pushView);       checkMotion(QStringLiteral("vista rimessa"), QStringLiteral("path4D"));
+        ui->speed4DSlider->setValue(40);  wait(200);
+        checkMotion(QStringLiteral("velocita' dallo slider"), QStringLiteral("path4D"));
+        ui->fovSliderMain->setValue(80);  wait(200);
+        checkMotion(QStringLiteral("FOV dallo slider"), QStringLiteral("path4D"));
+        // Modifica al volo: il campo riscritto resta in sospeso fino all'Invio.
+        const QString x0 = ui->lineX_P->text();
+        typeInField(ui->lineX_P, x0 + QStringLiteral(" + 0.1"));
+        checkMotion(QStringLiteral("campo X riscritto"), QStringLiteral("path4D"), /*pendingEdit=*/true);
+        pressEnter(ui->lineX_P);
+        checkMotion(QStringLiteral("Invio: ricompilato al volo"), QStringLiteral("path4D"));
+        // Un'equazione che non compila non deve togliere il path a quello in corsa.
+        const QStringList applied0 = engine->appliedPath4D();
+        typeInField(ui->lineX_P, QStringLiteral("cos(qq)"));
+        pressEnter(ui->lineX_P);
+        check(engine->path4DCompiled() && engine->appliedPath4D() == applied0,
+              QStringLiteral("Invio su un'equazione che non compila -> a schermo resta il path di prima (motore [%1])")
+                  .arg(engine->appliedPath4D().join(QStringLiteral(" | "))));
+        typeInField(ui->lineX_P, x0);
+        pressEnter(ui->lineX_P);
+        checkMotion(QStringLiteral("equazione rimessa, Invio"), QStringLiteral("path4D"));
+        // Rotazioni: il tasto + cambia la velocita', GO ferma il path.
+        click(ui->btnSpinPlus);    checkMotion(QStringLiteral("spin +"), QStringLiteral("path4D"));
+        click(ui->btnStart_2);     checkMotion(QStringLiteral("GO"), QStringLiteral("rotation"));
+        click(ui->btnDeparture);   checkMotion(QStringLiteral("Departure a rotazioni in corso"), QStringLiteral("path4D"));
+        // Campi svuotati e Invio: il path si ferma.
+        for (QLineEdit *l : { ui->lineX_P, ui->lineY_P, ui->lineZ_P, ui->lineP_P,
+                              ui->lineAlpha_P, ui->lineBeta_P, ui->lineGamma_P })
+            typeInField(l, QString());
+        pressEnter(ui->lineX_P);
+        checkMotion(QStringLiteral("campi svuotati, Invio"), QStringLiteral("none"));
+    }
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Moti: path 3D (%1) ==").arg(kPath3D));
+    if (loadRecord(kPath3D)) {
+        checkMotion(QStringLiteral("record caricato"), QStringLiteral("path3D"));
+        click(ui->btnDeparture3D); checkMotion(QStringLiteral("Stop del path"), QStringLiteral("none"));
+        click(ui->btnDeparture3D); checkMotion(QStringLiteral("Departure"), QStringLiteral("path3D"));
+        click(ui->pushView3D);     checkMotion(QStringLiteral("vista cambiata"), QStringLiteral("path3D"));
+        ui->speed3DSlider->setValue(30);  wait(200);
+        checkMotion(QStringLiteral("velocita' dallo slider"), QStringLiteral("path3D"));
+        const QString x0 = ui->lineX_P3D->text();
+        const QStringList applied0 = engine->appliedPath3D();
+        typeInField(ui->lineX_P3D, QStringLiteral("cos(qq)"));
+        pressEnter(ui->lineX_P3D);
+        check(engine->path3DCompiled() && engine->appliedPath3D() == applied0,
+              QStringLiteral("Invio su un'equazione che non compila -> a schermo resta il path di prima (motore [%1])")
+                  .arg(engine->appliedPath3D().join(QStringLiteral(" | "))));
+        typeInField(ui->lineX_P3D, x0);
+        pressEnter(ui->lineX_P3D);
+        checkMotion(QStringLiteral("equazione rimessa, Invio"), QStringLiteral("path3D"));
+        click(ui->btnStart_2);     checkMotion(QStringLiteral("GO"), QStringLiteral("rotation"));
+        click(ui->btnStart_2);     checkMotion(QStringLiteral("Stop delle rotazioni"), QStringLiteral("none"));
+    }
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Moti: due path e rotazioni (%1) ==").arg(kPathBoth));
+    if (loadRecord(kPathBoth)) {
+        checkMotion(QStringLiteral("record caricato"), QStringLiteral("path4D"));
+        click(ui->btnDeparture3D); checkMotion(QStringLiteral("Departure 3D a path 4D in corso"), QStringLiteral("path3D"));
+        click(ui->btnDeparture);   checkMotion(QStringLiteral("Departure 4D a path 3D in corso"), QStringLiteral("path4D"));
+        click(ui->btnStart_2);     checkMotion(QStringLiteral("GO a path in corso"), QStringLiteral("rotation"));
+        click(ui->btnPrecessionPlus);  checkMotion(QStringLiteral("precessione +"), QStringLiteral("rotation"));
+        click(ui->btnOmegaMinus);  checkMotion(QStringLiteral("omega -"), QStringLiteral("rotation"));
+    }
+    if (loadRecord(kRotRec)) {
+        checkMotion(QStringLiteral("poi un record di sole rotazioni"), QStringLiteral("rotation"));
+        click(ui->btnStart_2);     checkMotion(QStringLiteral("Stop"), QStringLiteral("none"));
+        click(ui->btnStart_2);     checkMotion(QStringLiteral("GO"), QStringLiteral("rotation"));
+    }
+    if (loadRecord(QString::fromLatin1(kImplicitRecord)))
+        checkMotion(QStringLiteral("poi un record Ray Marching"));
+    if (loadRecord(kCrossRec))
+        checkMotion(QStringLiteral("poi un record Cross Section"));
+
+    // TASTO MASTER: Stop ferma il moto camera, Start fa ripartire quello di prima.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Moti: tasto master =="));
+    if (loadRecord(kPath4D)) {
+        click(m_mw->m_btnStart);   checkMotion(QStringLiteral("path 4D, master Stop"), QStringLiteral("none"));
+        click(m_mw->m_btnStart);   checkMotion(QStringLiteral("master Start"), QStringLiteral("path4D"));
+    }
+    if (loadRecord(kPath3D)) {
+        click(m_mw->m_btnStart);   checkMotion(QStringLiteral("path 3D, master Stop"), QStringLiteral("none"));
+        click(m_mw->m_btnStart);   checkMotion(QStringLiteral("master Start"), QStringLiteral("path3D"));
+    }
+    if (loadRecord(kRotRec)) {
+        click(m_mw->m_btnStart);   checkMotion(QStringLiteral("rotazioni, master Stop"), QStringLiteral("none"));
+        click(m_mw->m_btnStart);   checkMotion(QStringLiteral("master Start"), QStringLiteral("rotation"));
+    }
+    // Path scritto da capo su una superficie, con una sola coordinata (basta
+    // quella per il Departure): il master Start lo deve avviare come il tasto.
+    if (loadSurface(kTorusSurf)) {
+        typeInField(ui->lineY_P3D, QStringLiteral("2*sin(t)"));
+        click(m_mw->m_btnStart);
+        checkMotion(QStringLiteral("superficie, path 3D con la sola Y, master Start"), QStringLiteral("path3D"));
+        click(m_mw->m_btnStart);   checkMotion(QStringLiteral("master Stop"), QStringLiteral("none"));
+    }
+    if (loadSurface(kTorusSurf)) {
+        typeInField(ui->lineZ_P, QStringLiteral("3 + sin(t)"));
+        click(m_mw->m_btnStart);
+        checkMotion(QStringLiteral("superficie, path 4D con la sola Z, master Start"), QStringLiteral("path4D"));
+        click(m_mw->m_btnStart);   checkMotion(QStringLiteral("master Stop"), QStringLiteral("none"));
+    }
+
+    // Dopo un record in movimento, cio' che svuota la scena non ne tiene i moti.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Moti: la scena nuova parte dai default =="));
+    if (loadRecord(kPathBoth)) {
+        pressNew();
+        checkMotionDefaults(QStringLiteral("record con path e rotazioni, poi NEW"));
+        checkMotion(QStringLiteral("dopo NEW"), QStringLiteral("none"));
+    }
+    if (loadRecord(kPath3D) && loadSurface(kTorusSurf)) {
+        checkMotionDefaults(QStringLiteral("record con path 3D, poi una superficie"));
+        checkMotion(QStringLiteral("dopo la superficie"), QStringLiteral("none"));
+    }
+    if (loadRecord(kPath4D)) {
+        m_discardOnPrompt = true;
+        ui->tabModeSelector->setCurrentIndex(1);  wait(1200);
+        checkMotionDefaults(QStringLiteral("record con path 4D, poi linguetta Ray Marching"));
+        checkMotion(QStringLiteral("dopo il cambio di modalita'"), QStringLiteral("none"));
+        ui->tabModeSelector->setCurrentIndex(0);  wait(1200);
+        m_discardOnPrompt = false;
+        checkMotionDefaults(QStringLiteral("di nuovo linguetta Parametric"));
+    }
+    if (loadRecord(kCrossRec)) {
+        m_discardOnPrompt = true;
+        ui->subTabImplicit->setCurrentIndex(0);  wait(1200);
+        m_discardOnPrompt = false;
+        checkMotionDefaults(QStringLiteral("record Cross Section in rotazione, poi sotto-tab 3D"));
+        checkMotion(QStringLiteral("dopo il cambio di sotto-tab"), QStringLiteral("none"));
+    }
+    if (loadRecord(kRotRec) && loadSurface(kTorusSurf)) {
+        checkMotionDefaults(QStringLiteral("record di rotazioni, poi una superficie"));
+        checkMotion(QStringLiteral("dopo la superficie"), QStringLiteral("none"));
+    }
+    pressNew();
 
     finish();
 }

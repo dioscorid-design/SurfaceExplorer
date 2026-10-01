@@ -250,8 +250,24 @@ bool SurfaceEngine::compilePathEquations(const QString &x, const QString &y, con
     compileSingleExpr(beta, m_exprPathBeta, parser);
     compileSingleExpr(gamma, m_exprPathGamma, parser);
 
+    pathEqX = x; pathEqY = y; pathEqZ = z; pathEqP = p;
+    pathEqAlpha = alpha; pathEqBeta = beta; pathEqGamma = gamma;
+
     pathValid = (m_exprPathX.isValid && m_exprPathY.isValid && m_exprPathZ.isValid);
     return pathValid;
+}
+
+void SurfaceEngine::clearPathEquations()
+{
+    for (CachedExpression *e : { &m_exprPathX, &m_exprPathY, &m_exprPathZ, &m_exprPathP,
+                                 &m_exprPathAlpha, &m_exprPathBeta, &m_exprPathGamma,
+                                 &m_exprPath3DX, &m_exprPath3DY, &m_exprPath3DZ, &m_exprPath3DR })
+        e->isValid = false;
+    for (QString *eq : { &pathEqX, &pathEqY, &pathEqZ, &pathEqP, &pathEqAlpha, &pathEqBeta, &pathEqGamma,
+                         &pathEqX3D, &pathEqY3D, &pathEqZ3D, &pathEqR3D })
+        eq->clear();
+    pathValid = false;
+    path3DValid = false;
 }
 
 QVector4D SurfaceEngine::evaluatePathPosition(float t)
@@ -297,6 +313,8 @@ bool SurfaceEngine::compilePath3DEquations(const QString &x, const QString &y, c
     compileSingleExpr(y, m_exprPath3DY, parser);
     compileSingleExpr(z, m_exprPath3DZ, parser);
     compileSingleExpr(r, m_exprPath3DR, parser);
+
+    pathEqX3D = x; pathEqY3D = y; pathEqZ3D = z; pathEqR3D = r;
 
     path3DValid = (m_exprPath3DX.isValid && m_exprPath3DY.isValid && m_exprPath3DZ.isValid);
     return path3DValid;

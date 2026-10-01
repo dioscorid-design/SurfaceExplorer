@@ -812,8 +812,10 @@ private:
     QTimer *pathTimer3D = nullptr;
     float pathTimeT3D = 0.0f;
 
-    float m_pathSpeed3D = 0.01f;
-    float m_pathSpeed4D = 0.01f;
+    // Avanzamento per tick dei due path: lo dicono gli slider (speed3DSlider /
+    // speed4DSlider), unica copia della velocita'.
+    float pathSpeed3D() const;
+    float pathSpeed4D() const;
 
     // FOV dei due path, INDIPENDENTI (slider nel dock 3D e nel dock 4D).
     // Il FOV effettivo della proiezione e' applicato SOLO dentro
@@ -846,6 +848,14 @@ private:
     };
     CameraPathMode m_pathViewMode4D;     // modalita' vista del path 4D (pushView)
     CameraPathMode m_pathViewMode3D;   // modalita' vista del path 3D (pushView3D)
+    // Vista dei due path: UNICO punto che scrive m_pathViewMode4D /
+    // m_pathViewMode3D e il testo dei loro tasti (pushView / pushView3D).
+    void setPathViewModes(CameraPathMode mode4D, CameraPathMode mode3D);
+    // Comandi dei moti camera ai default della scena nuova (NEW, cambio di
+    // modalita' o di sotto-tab, load): viste Tangent, velocita' dei path 10,
+    // nessun moto "ultimo avviato", nessun path compilato nel motore. I record
+    // riscrivono subito dopo i propri valori.
+    void resetMotionControls();
     // Ultimo moto camera avviato ("rotation" | "path4D" | "path3D", "" = mai):
     // con rotazioni e path entrambi compilati, applyStartSideEffects riavvia
     // SOLO questo (la vecchia cascata faceva vincere sempre il path 3D). Al
@@ -1332,7 +1342,12 @@ private:
     // mentre lo si muove). Ritorna true se ha modificato qualcosa.
     bool applyDiscreteConstants();
     void updateLayoutForMode(int mode);
-    void setupSpeedControl(QPushButton* btnPlus, QPushButton* btnMinus, QLabel* label, std::function<void(float)> setter);
+    void setupSpeedControl(QPushButton* btnPlus, QPushButton* btnMinus,
+                           std::function<float()> getter, std::function<void(float)> setter);
+    // Le sei etichette delle velocita' di rotazione, scritte dal MOTORE (unica
+    // copia delle velocita'): nessuno le scrive a mano e i tasti +/- non le
+    // rileggono piu'.
+    void refreshRotationSpeedLabels();
     void updateProjectionButtonText();
     void updateScriptButtonText();
     void updateTextureUIState(bool isTextureOn, bool resetColorTargetToFirst = false);
