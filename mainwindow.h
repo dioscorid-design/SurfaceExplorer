@@ -747,12 +747,6 @@ private:
     // davvero a schermo. Vuoto = nessun record caricato (scena costruita a mano,
     // superficie sola, o dopo un NEW).
     QString m_currentRecordPath;
-    // Percorso dell'immagine di SFONDO attiva (per la superficie c'e'
-    // surfaceImagePath(), letto dal motore): senza, il ramo background non aveva modo di
-    // sapere QUALE immagine campiona iChannel0 e salvava gli script della
-    // famiglia "Animated Images" senza il tag //IMG:, cosi' al reload lo sfondo
-    // usciva con l'immagine rimasta in memoria dal record precedente.
-    QString m_currentBgTexturePath;
     QString m_currentTexturePresetPath;
     QString m_surfaceTextureCode;
     QString m_bgTextureCode;
@@ -1351,6 +1345,12 @@ private:
     // (loadTextureFromFile, clearTexture, generateTexture).
     QString surfaceImagePath() const;
     bool surfaceHasImage() const { return !surfaceImagePath().isEmpty(); }
+    // Gemello per lo SFONDO: l'immagine dell'utente caricata nel motore, vuoto
+    // con la default (background.png). Dice QUALE immagine campiona iChannel0
+    // sotto uno script, ed e' da qui che il Save ricostruisce il tag //IMG:.
+    // Prima era una copia in MainWindow (m_currentBgTexturePath), azzerata in
+    // punti che lasciavano l'immagine in GPU.
+    QString backgroundImagePath() const;
     // SUONO della scena nella forma che il player e il Save capiscono: una riga
     // //MUSIC: o un blocco //SOUND_BEGIN..//SOUND_END. Il dock Sound accetta
     // anche GLSL nudo (un mainSound scritto senza marcatori): wrapSoundCode lo

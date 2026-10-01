@@ -509,11 +509,21 @@ public:
 
     void setBackgroundColor(const QColor &color);
     void setBackgroundTexture(const QString &path);
+    // La sola IMMAGINE nel sampler dello sfondo, senza cambiare modo: uno
+    // script attivo resta attivo e la campiona da iChannel0. setBackgroundTexture
+    // e' questa piu' il ritorno al modo immagine. Serve a togliere l'immagine
+    // ("background.png", la default) quando lo script non la nomina piu'.
+    void setBackgroundImage(const QString &path);
     // Percorso dell'ultima immagine caricata come sfondo ("background.png" per
     // la default, vuoto prima del primo caricamento): cio' che e' a schermo, e
     // quindi cio' che il Save deve scrivere nel tag //IMG: dello sfondo. Lo
     // verifica il test degli scenari.
     QString backgroundImagePath() const { return m_bgImagePath; }
+    // L'immagine dell'UTENTE nello sfondo: vuoto se c'e' la default o niente.
+    QString backgroundUserImagePath() const
+    {
+        return m_bgImagePath == QLatin1String("background.png") ? QString() : m_bgImagePath;
+    }
     // Gemello per la texture di SUPERFICIE: il file dell'immagine dell'utente
     // caricata nel sampler, vuoto se non ce n'e' (scacchiera generata o
     // niente). E' cio' che il tag //IMG: del Save deve dire.

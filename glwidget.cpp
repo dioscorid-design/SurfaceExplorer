@@ -3195,6 +3195,14 @@ void GLWidget::setBackgroundColor(const QColor &c) {
 
 
 void GLWidget::setBackgroundTexture(const QString &path) {
+    setBackgroundImage(path);
+    m_bgIsScript = false;
+    rebuildBackgroundShader(true, "");
+
+    update();
+}
+
+void GLWidget::setBackgroundImage(const QString &path) {
     QImage img;
 
     // 1. Tenta il percorso letterale esatto fornito (es. "background.png")
@@ -3226,9 +3234,7 @@ void GLWidget::setBackgroundTexture(const QString &path) {
     m_pendingBackgroundImage = img.convertToFormat(QImage::Format_RGBA8888).flipped(Qt::Orientations(Qt::Vertical));
 
     m_backgroundTextureNeedsUpload = true;
-    m_bgIsScript = false;
     m_bgImagePath = path;
-    rebuildBackgroundShader(true, "");
 
     update();
 }

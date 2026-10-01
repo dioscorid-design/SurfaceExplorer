@@ -272,7 +272,9 @@ void ScenarioTest::checkBackground(const QString &step, const QString &expectedI
                                           QRegularExpression::MultilineOption);
     const QRegularExpressionMatch m = imgRe.match(saved.bgTextureCode);
     const QString savedImage = m.hasMatch() ? QFileInfo(m.captured(1).trimmed()).fileName() : QString();
-    const QString savedScript = QString(saved.bgTextureCode).remove(imgRe).trimmed();
+    // Lo SCRIPT dello sfondo (editor o slot) dice quale immagine usa.
+    const QRegularExpressionMatch ms = imgRe.match(m_mw->backgroundTextureScript());
+    const QString scriptImage = ms.hasMatch() ? QFileInfo(ms.captured(1).trimmed()).fileName() : QString();
 
     auto name = [](const QString &f) { return f.isEmpty() ? QStringLiteral("default") : f; };
     QStringList bad;
@@ -287,9 +289,13 @@ void ScenarioTest::checkBackground(const QString &step, const QString &expectedI
             bad << QStringLiteral("sfondo spento ma il Save scriverebbe l'ancora \"%1\"").arg(saved.bgLibName);
         if (!engineDefault)
             bad << QStringLiteral("sfondo spento con %1 in GPU: riaccendendo ricomparirebbe").arg(shown);
-    } else if (savedScript.isEmpty() && savedImage != shown) {
-        // Sfondo a sola immagine (o default): cio' che si vede e' cio' che si salva.
-        bad << QStringLiteral("a schermo %1, il Save scriverebbe %2").arg(name(shown), name(savedImage));
+    } else {
+        // L'immagine nel motore e' quella che si salva e che lo script nomina,
+        // anche sotto uno script (che puo' campionarla da iChannel0).
+        if (savedImage != shown)
+            bad << QStringLiteral("a schermo %1, il Save scriverebbe %2").arg(name(shown), name(savedImage));
+        if (scriptImage != shown)
+            bad << QStringLiteral("a schermo %1, lo script dice %2").arg(name(shown), name(scriptImage));
     }
     if (!expectedImage.isNull() && on && shown != expectedImage)
         bad << QStringLiteral("a schermo %1, atteso %2").arg(name(shown), name(expectedImage));
@@ -749,6 +755,57 @@ void ScenarioTest::run()
     const QString kClifford6 = QStringLiteral("records/Solid Wireframe/Multi Mesh/Clifford 6-Tubes Rotation.json");
     if (loadRecord(kClifford6))
         checkBackground(QStringLiteral("Clifford 6-Tubes Rotation (sfondo spento)"));
+
+    // ---------------------------------------------------------------------
+    // IMMAGINE DI SFONDO sotto uno script: resta quella nel motore finche' lo
+    // script la nomina, e se ne va quando non la nomina piu'.
+    const QString kBgProc = QStringLiteral("records/Geodesic Flow/H^3/Breathing Hyperboloid.json");
+    const QString kBgMix  = QStringLiteral("records/Geodesic Flow/H^3/Poincare's Slice.json");
+    const QString kBgPlasma = QStringLiteral("textures/Procedurals/Plasma.json");
+    static const QRegularExpression bgImgRe(QStringLiteral(R"(^\s*//IMG:\s*(.*)$\n?)"),
+                                            QRegularExpression::MultilineOption);
+    auto presetBgImage = [this](const QString &rel) {
+        LibraryManager lm;
+        const QRegularExpressionMatch mm =
+            bgImgRe.match(lm.parseJson(m_root + QLatin1Char('/') + rel, LibraryType::Motion).bgTextureCode);
+        return mm.hasMatch() ? QFileInfo(mm.captured(1).trimmed()).fileName() : QString();
+    };
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Sfondo: immagine e script =="));
+    if (loadRecord(kBgMix))
+        checkBackground(QStringLiteral("record con immagine e script di sfondo"), presetBgImage(kBgMix));
+    if (loadRecord(kBgProc))
+        checkBackground(QStringLiteral("poi un record con sfondo procedurale"), QStringLiteral(""));
+    if (loadRecord(QString::fromLatin1(kParametricRecord))) {
+        click(ui->radioBackground);
+        setScriptMode(MainWindow::ScriptModeTexture);
+        checkBackground(QStringLiteral("record con immagine di sfondo, dock Script sullo sfondo"), QStringLiteral("8.png"));
+        if (selectTexture(kBgPlasma))
+            checkBackground(QStringLiteral("procedurale sopra l'immagine"), QStringLiteral("8.png"));
+        // Run dello script senza il tag: l'immagine non e' piu' nominata.
+        QString noTag = ui->txtScriptEditor->toPlainText();
+        noTag.remove(bgImgRe);
+        ui->txtScriptEditor->setPlainText(noTag);  wait(200);
+        m_mw->onRunCurrentScript();  wait(800);
+        checkBackground(QStringLiteral("Run dello script senza il tag"), QStringLiteral(""));
+        if (selectTexture(QStringLiteral("textures/Images/14.png")))
+            checkBackground(QStringLiteral("immagine dalla Library"), QStringLiteral("14.png"));
+        setScriptMode(MainWindow::ScriptModeSurface);
+        click(ui->radioSurface);
+        checkBackground(QStringLiteral("ritorno a Surface"), QStringLiteral("14.png"));
+    }
+    // Texture Ray Marching scelta come SFONDO: incompatibile, lo sfondo torna
+    // alla default (il popup si chiude da solo) e la superficie non si tocca.
+    if (loadRecord(QStringLiteral("records/Rotations/Boy Surface.json"))) {
+        click(ui->radioBackground);
+        if (selectTexture(QStringLiteral("textures/Images/14.png")))
+            checkBackground(QStringLiteral("immagine di sfondo dalla Library"), QStringLiteral("14.png"));
+        if (selectTexture(QStringLiteral("textures/Ray Marching/Fractal Noise FBm.json")))
+            checkBackground(QStringLiteral("texture Ray Marching come sfondo (incompatibile)"), QStringLiteral(""));
+        click(ui->radioSurface);
+        checkSurfaceImage(QStringLiteral("la superficie dopo la texture incompatibile sullo sfondo"),
+                          QStringLiteral("2k_venus_surface.jpg"));
+    }
 
     // ---------------------------------------------------------------------
     // COMANDI DELLA SUPERFICIE col bersaglio Background: spenti fino al ritorno

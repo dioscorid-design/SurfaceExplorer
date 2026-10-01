@@ -842,7 +842,8 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
     // --- SFONDO ---
     d.bgColor = mw->m_currentBackgroundColor.name();
     d.bgTextureEnabled = gl->isBackgroundTextureEnabled();
-    // Il tag //IMG: dello sfondo si ricostruisce da m_currentBgTexturePath: gli
+    // Il tag //IMG: dello sfondo si ricostruisce dall'immagine nel motore
+    // (MainWindow::backgroundImagePath, vuoto con la default): gli
     // script "Animated Images" campionano l'immagine da iChannel0 e il tag che
     // dice QUALE si perde ai Run che riscrivono il codice. Senza "\n" in coda
     // per un'immagine PURA: e' la forma su cui il focus in Library fa match.
@@ -850,10 +851,11 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
         QString bgCode = mw->backgroundTextureScript();
         bgCode.remove(QRegularExpression(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption));
         bgCode = bgCode.trimmed();
-        if (!mw->m_currentBgTexturePath.isEmpty()) {
+        const QString bgImage = mw->backgroundImagePath();
+        if (!bgImage.isEmpty()) {
             bgCode = bgCode.isEmpty()
-                       ? "//IMG:" + mw->m_currentBgTexturePath
-                       : "//IMG:" + mw->m_currentBgTexturePath + "\n" + bgCode;
+                       ? "//IMG:" + bgImage
+                       : "//IMG:" + bgImage + "\n" + bgCode;
         }
         d.bgTextureCode = bgCode;
     }
@@ -1126,7 +1128,7 @@ void PresetSerializer::saveTexture(const QString &path)
     currentCode.remove(imgRe);
     // L'immagine del bersaglio: lo sfondo ha il suo percorso (prima si metteva
     // quella della superficie anche salvando lo sfondo).
-    const QString imagePath = isBg ? m_mainWindow->m_currentBgTexturePath
+    const QString imagePath = isBg ? m_mainWindow->backgroundImagePath()
                             : m_mainWindow->surfaceImagePath();
     if (!imagePath.isEmpty()) {
         currentCode = "//IMG:" + imagePath + "\n" + currentCode.trimmed();

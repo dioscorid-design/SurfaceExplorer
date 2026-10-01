@@ -8285,7 +8285,6 @@ void MainWindow::forgetBackgroundTexture()
 {
     m_bgTextureCode.clear();
     m_bgTextureScriptText.clear();
-    m_currentBgTexturePath.clear();
     m_currentBgTextureLibName.clear();
     m_currentBgTextureHintText.clear();
     // Ricarica la default e spegne lo script di sfondo (m_bgIsScript): chi
@@ -8836,12 +8835,9 @@ void MainWindow::handleTextureSelection(int index)
             QString bgImgSrc = data.imagePath.isEmpty() ? data.filePath : data.imagePath;
             ui->glWidget->setBackgroundTexture(bgImgSrc);
             m_bgTextureCode = "//IMG:" + bgImgSrc;
-            // Gemello del percorso dell'immagine di superficie (che sta nel
-            // motore, surfaceImagePath): e' l'UNICO stato che sopravvive a un
-            // Run/commit dello script. Il tag dentro m_bgTextureCode viene riscritto
-            // da piu' punti (onRunScriptClicked, il commit del suono, ecc.) e li' si
-            // perdeva; il salvataggio lo ripesca da qui.
-            m_currentBgTexturePath = bgImgSrc;
+            // Il percorso dell'immagine sta nel motore (backgroundImagePath),
+            // come per la superficie: e' da li' che il salvataggio ricostruisce
+            // il tag, che dentro m_bgTextureCode viene riscritto da piu' punti.
 
             // L'immagine SOSTITUISCE la procedurale: va azzerato anche lo slot
             // dello script, non solo il codice attivo. Senza questo il vecchio
@@ -8855,7 +8851,12 @@ void MainWindow::handleTextureSelection(int index)
             // guardia basata sul testo lo scambia per codice da applicare.
             // Stesso trattamento del ramo "texture implicita incompatibile" piu'
             // sotto, che azzera gia' questa coppia.
-            m_bgTextureScriptText.clear();
+            // Lo slot prende il TAG (come per la superficie): e' lo script di
+            // questo sfondo, senza codice da riapplicare -- quei tre punti
+            // cercano return/vec3/vec4/mainImage e sul solo tag non fanno nulla.
+            // Svuotato, col dock Script su un altro modulo l'editor tornava
+            // vuoto sullo sfondo (trovato dal test degli scenari).
+            m_bgTextureScriptText = m_bgTextureCode;
 
             if (ui->glWidget) {
                 ui->glWidget->setProperty("bg_zoom", data.zoom);
@@ -8887,11 +8888,14 @@ void MainWindow::handleTextureSelection(int index)
                     ui->glWidget->setProperty("bg_rot", 0.0f);
                 }
 
-                // 2. Stringa sicura che l'engine riconosce per evitare crash dello shader
+                // 2. Lo sfondo torna alla DEFAULT per intero: codice, slot, ancora,
+                // messaggio (in testa al ramo erano stati scritti quelli della
+                // texture rifiutata) e immagine in GPU. Prima si azzerava il solo
+                // percorso: l'immagine restava a schermo e il Save non la scriveva
+                // (trovato dal test degli scenari).
                 QString safeDefault = "";
-                m_bgTextureCode = safeDefault;
-                m_bgTextureScriptText = safeDefault;
-                m_currentBgTexturePath.clear();   // niente piu' immagine di sfondo
+                forgetBackgroundTexture();
+                refreshSceneHint(m_currentHintSeconds);
 
                 if (m_currentScriptMode == ScriptModeTexture) {
                     ui->txtScriptEditor->blockSignals(true);
@@ -8899,8 +8903,9 @@ void MainWindow::handleTextureSelection(int index)
                     ui->txtScriptEditor->blockSignals(false);
                 }
 
-                // 3. Generiamo fisicamente la scacchiera nella memoria video
-                generateTexture();
+                // 3. (Qui c'era generateTexture(): disegna la scacchiera nel sampler
+                // della SUPERFICIE, e ne copriva l'immagine. Lo sfondo di default
+                // e' background.png, appena ricaricata.)
 
                 // 4. Manteniamo la checkbox attiva per mostrare la texture di default
                 bool oldBlock = ui->chkBoxTexture->blockSignals(true);
@@ -8932,30 +8937,22 @@ void MainWindow::handleTextureSelection(int index)
 
             // 1. Controlliamo se c'era già un'immagine di sfondo attiva.
             // Questo permette di mixare immagini e codice procedurale al primo clic.
-            // FONTE PRIMARIA m_bgTextureCode, l'editor solo come ripiego: l'editor
-            // riceve il tag //IMG: soltanto quando m_currentScriptMode ==
-            // ScriptModeTexture (vedi il ramo data.isImage qui sopra), quindi
-            // arrivando da un'altra modalita' il tag non era mai stato scritto li'
-            // e il mix immagine+procedurale lo perdeva. m_bgTextureCode invece ce
-            // l'ha sempre. Il ripiego sull'editor resta per l'unico caso che
-            // m_bgTextureCode non vede: un tag incollato a mano dall'utente.
-            // NB: la conservazione del tag nel RECORD non dipende da qui, ma da
-            // m_currentBgTexturePath (vedi PresetSerializer, ramo background).
-            QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)", QRegularExpression::MultilineOption);
-            QRegularExpressionMatch imgMatch = imgRe.match(m_bgTextureCode);
-            if (!imgMatch.hasMatch())
-                imgMatch = imgRe.match(ui->txtScriptEditor->toPlainText());
-
-            if (imgMatch.hasMatch() && !newCode.contains("//IMG:")) {
-                newCode = "//IMG:" + imgMatch.captured(1).trimmed() + "\n" + newCode;
+            // FONTE PRIMARIA il motore (backgroundImagePath: l'immagine attiva
+            // e' quella caricata li'), l'editor solo come ripiego per l'unico
+            // caso che il motore non vede: un tag incollato a mano dall'utente
+            // e non ancora eseguito.
+            QString keepImage = backgroundImagePath();
+            if (keepImage.isEmpty()) {
+                QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)", QRegularExpression::MultilineOption);
+                const QRegularExpressionMatch imgMatch = imgRe.match(ui->txtScriptEditor->toPlainText());
+                if (imgMatch.hasMatch()) keepImage = imgMatch.captured(1).trimmed();
             }
 
-            // Lo stato deve seguire il codice: se dopo il mix il tag NON c'e'
-            // (nessuna immagine attiva da ereditare), il percorso va dimenticato,
-            // o il salvataggio ricucirebbe sullo sfondo l'immagine di un record
-            // precedente che qui non c'entra piu' nulla.
-            if (!newCode.contains("//IMG:"))
-                m_currentBgTexturePath.clear();
+            if (!keepImage.isEmpty() && !newCode.contains("//IMG:")) {
+                newCode = "//IMG:" + keepImage + "\n" + newCode;
+            }
+            // Se dopo il mix il tag NON c'e', il Run qui sotto toglie l'immagine
+            // dal motore (onApplyTextureScriptClicked, ramo A).
 
             m_bgTextureCode = newCode;
             m_bgTextureScriptText = newCode;
@@ -13206,6 +13203,7 @@ void MainWindow::onApplyTextureScriptClicked()
         if (!imgPath.isEmpty()) {
             ui->glWidget->setBackgroundTexture(imgPath);
         }
+        const bool dropBgImage = imgPath.isEmpty() && !backgroundImagePath().isEmpty();
 
         // 2. Applica la logica custom (se c'è) o resetta al default
         if (hasCustomLogic || imgPath.isEmpty()) {
@@ -13222,12 +13220,13 @@ void MainWindow::onApplyTextureScriptClicked()
             }
         }
 
-        // Lo stato del percorso segue SEMPRE il codice appena applicato: qui
-        // passa anche il Run dell'editor, che non e' un caricamento di record e
-        // quindi salta l'azzeramento in applyMotionExample. Senza, un record
-        // senza sfondo si portava dietro l'immagine del record precedente e il
-        // salvataggio gliela scriveva come //IMG: (visto su Paths/Clover).
-        m_currentBgTexturePath = imgPath;
+        // L'immagine segue SEMPRE il codice appena applicato: se lo script non
+        // la nomina piu', nel sampler torna la default. Dopo la validazione, e
+        // senza cambiare modo (setBackgroundImage): lo script appena applicato
+        // resta attivo. Prima si azzerava solo il percorso in MainWindow, e
+        // l'immagine restava in GPU -- uno script che campiona iChannel0 la
+        // mostrava ancora, ma il Save non la scriveva (test degli scenari).
+        if (dropBgImage) ui->glWidget->setBackgroundImage("background.png");
 
         m_bgTextureCode = code;
         updateRenderState();
@@ -15220,14 +15219,11 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // caricato dopo uno solidale si terrebbe il cielo del precedente.
     applyBackgroundSkyMode(bgSkyMode);
 
-    // Il percorso dell'immagine di sfondo riparte SEMPRE da zero a ogni record e
-    // lo rivalorizza piu' sotto solo chi ne trova davvero una. Azzerarlo dentro i
-    // rami non basta: con lo sfondo DISABILITATO (bgTexEnabled == false) non si
-    // entra ne' nell'if ne' nell'else-if, il percorso del record precedente
-    // sopravvive e al salvataggio gli veniva cucito addosso un //IMG: altrui.
-    // Visto davvero: Paths/Clover, senza sfondo, si e' preso l'8.png del record
-    // aperto prima.
-    m_currentBgTexturePath.clear();
+    // L'immagine di sfondo riparte SEMPRE da zero a ogni record: ogni ramo qui
+    // sotto rimette nel motore la sua, o la default (a sfondo spento lo fa
+    // forgetBackgroundTexture qui sopra). Un record senza immagine non deve
+    // ereditare quella del record aperto prima -- visto su Paths/Clover, che
+    // si prendeva l'8.png, quando il percorso era una copia in MainWindow.
 
     // Inquadratura dello sfondo: SEMPRE quella del record, anche a sfondo SPENTO.
     // Stava dentro il ramo qui sotto, quindi un record senza sfondo si teneva
@@ -15248,11 +15244,15 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
         QString bgImgPath = extractAndResolveImagePath(bgCode);
         if (!bgImgPath.isEmpty() && !bgImgPath.startsWith("NOT_FOUND|")) {
+            // Il motore ricorda l'immagine caricata: al prossimo salvataggio il
+            // tag //IMG: viene riscritto da li' (vedi PresetSerializer, ramo
+            // background), cosi' un record aperto e risalvato non perde lo sfondo.
             ui->glWidget->setBackgroundTexture(bgImgPath);
-            // Ricorda l'immagine caricata: al prossimo salvataggio il tag //IMG:
-            // viene riscritto da qui, cosi' un record aperto e risalvato non perde
-            // lo sfondo (vedi PresetSerializer, ramo background).
-            m_currentBgTexturePath = bgImgPath;
+        } else {
+            // Sfondo procedurale: nel sampler torna la default. Restava
+            // l'immagine del record aperto prima, che uno script che campiona
+            // iChannel0 avrebbe mostrato (test degli scenari).
+            ui->glWidget->setBackgroundImage("background.png");
         }
 
         bool bgHasCustomLogic = bgCode.contains("return") || bgCode.contains("vec3") || bgCode.contains("vec4") || bgCode.contains("mainImage");
@@ -19984,6 +19984,11 @@ QString MainWindow::backgroundTextureScript() const
 QString MainWindow::surfaceImagePath() const
 {
     return ui->glWidget ? ui->glWidget->surfaceImagePath() : QString();
+}
+
+QString MainWindow::backgroundImagePath() const
+{
+    return ui->glWidget ? ui->glWidget->backgroundUserImagePath() : QString();
 }
 
 QString MainWindow::wrapSoundCode(const QString &sound)
