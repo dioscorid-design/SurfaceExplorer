@@ -217,6 +217,14 @@ public:
 
     SurfaceEngine* getEngine() const { return engine.get(); }
 
+    // Equazioni parametriche attualmente COMPILATE (x, y, z, w gia' composte e
+    // tradotte): le lettere delle costanti restano identificatori, quindi dicono
+    // quali costanti usa la superficie a schermo.
+    QString parametricEquationsApplied() const
+    {
+        return m_eqX + QLatin1Char(' ') + m_eqY + QLatin1Char(' ') + m_eqZ + QLatin1Char(' ') + m_eqW;
+    }
+
     // Campo implicito attualmente compilato nel ray marcher.
     QString implicitEquation() const { return m_eqImplicitF; }
 

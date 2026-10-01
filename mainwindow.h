@@ -1200,6 +1200,23 @@ private:
     float parseUIConstant(const QString &exprStr, float A, float B, float C, float D, float E, float F, float S, bool* ok = nullptr);
     struct CascadeConstants { float a, b, c, d, e, f, s; };
     CascadeConstants resolveCascadeConstants(bool restoreTextOnNegative);
+    // COSTANTI NEL MOTORE: i valori dei campi (cascata risolta) diventano quelli
+    // dell'UBO. E' la derivazione a senso unico campi -> motore.
+    void pushConstantsToEngine(bool restoreTextOnNegative = true);
+    // Ricalcola quali costanti sono in uso (updateConstantsUIState, che riporta
+    // al valore neutro quelle cadute in disuso scrivendo a segnali BLOCCATI) e
+    // porta i valori nel motore. Da chiamare dopo ogni cambio di codice che non
+    // passa da un textChanged: era ripetuto a mano, e dove mancava lo slider
+    // restava spento (sfondo dalla Library) o acceso a vuoto (texture spenta).
+    void refreshConstants(bool restoreTextOnNegative = true);
+    // Il testo delle equazioni dell'ULTIMO Run (lo snapshot active_*): cio' che
+    // e' a schermo per equazioni e flusso geodetico, a differenza dei campi.
+    QString activeEquationsText() const;
+    // true da quando l'utente modifica un campo fino al prossimo load, reset,
+    // scelta in Library o Run riuscito: in quell'intervallo cio' che e' scritto
+    // non e' cio' che e' a schermo, e updateConstantsUIState conta anche
+    // l'applicato prima di dichiarare una costante in disuso.
+    bool m_constantsEditPending = false;
     // Limiti U/V/W: come parseMath ma con A..F/S registrate, cosi' "2*A" o
     // "pi/B" sono limiti validi. Risolve la cascata delle costanti a ogni
     // chiamata (i limiti stanno a valle: B puo' dipendere da A, e uMax da

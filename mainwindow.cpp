@@ -3384,6 +3384,11 @@ MainWindow::MainWindow(QWidget *parent)
 
         updateFlatPreviewButton();
 
+        // COSTANTI: spegnere una texture (di superficie o di sfondo) puo' far
+        // cadere in disuso una lettera, accenderla sulla default pure. Senza
+        // ricalcolo lo slider restava acceso col valore di prima, a muovere nulla.
+        refreshConstants();
+
         // --- GESTIONE AUTOMATICA ANIMAZIONE (START/STOP) SICURA ---
         bool needsAnim = false;
 
@@ -4986,6 +4991,13 @@ MainWindow::RunOutcomeGuard::~RunOutcomeGuard()
 {
     if (armed && InputValidator::errorCount() == before)
         w->m_runEverSucceeded = true;
+    // COSTANTI: all'uscita di un Run RIUSCITO campi e schermo coincidono di
+    // nuovo, ed e' qui che una costante tolta dalle equazioni cade davvero in
+    // disuso e torna neutra (vedi updateConstantsUIState). Dopo un Run fallito
+    // a schermo c'e' ancora la superficie di prima: le modifiche restano in
+    // sospeso e le sue costanti non si toccano.
+    if (InputValidator::errorCount() == before)
+        w->refreshConstants();
 }
 
 
@@ -5140,6 +5152,8 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // NEW, cambio tab, riclic sulla linguetta: la scena non e' piu' il record
     // che era caricato (vedi m_currentRecordPath).
     m_currentRecordPath.clear();
+    // ...e le modifiche in sospeso sono scartate con lei (vedi m_constantsEditPending).
+    m_constantsEditPending = false;
 
     // RESET IN CORSO: i campi (equazioni di default, limiti, editor) li riempie
     // questa funzione, non l'utente. Senza guardia quelle scritture -- fatte a
@@ -7481,6 +7495,15 @@ void MainWindow::updateConstantsUIState() {
     //   record senza costanti (float a/b/c/d/s locali negli shader).
     QString mathText = "";
     QString glslText = "";
+    // MODIFICHE DELL'UTENTE NON ANCORA ESEGUITE. Quando il ricalcolo parte da
+    // una digitazione (il segnale di un campo di testo, fuori dal riempimento
+    // di un preset), cio' che e' scritto non e' piu' cio' che e' a schermo: da
+    // qui al prossimo Run conta anche l'applicato (vedi piu' sotto). Il flag
+    // lo spengono refreshConstants -- cioe' load, reset, scelte in Library e
+    // Run riuscito -- perche' li' campi e schermo tornano a coincidere.
+    if (m_uiReady && !m_populatingFields
+        && (qobject_cast<QPlainTextEdit *>(sender()) || qobject_cast<QLineEdit *>(sender())))
+        m_constantsEditPending = true;
     // Ray Marching con il campo equazione CANCELLATO: il ramo !used disabilita
     // le costanti ma NON le resetta (vedi la nota dov'e' usata).
     bool equationFieldIsEmpty = false;
@@ -7510,6 +7533,32 @@ void MainWindow::updateConstantsUIState() {
         // meshTextureCodesForConstants). Blocco per blocco, come qui sotto.
         for (const QString &c : meshTextureCodesForConstants())
             glslText += " " + c;
+
+        // CIO' CHE E' A SCHERMO, oltre a cio' che e' scritto. Una costante cade
+        // in disuso -- e torna al valore neutro -- solo quando non la usa ne'
+        // l'applicato ne' il testo dei campi. Guardando i soli campi, riscrivere
+        // un'equazione senza B la riportava a 1 PRIMA del Run, con a schermo la
+        // superficie che B la usava ancora; rimessa B nell'equazione, il suo
+        // valore era perso (deciso con l'utente il 2026-10-01, trovato dal test
+        // degli scenari). Le fonti: le equazioni compilate nel motore
+        // (composizione compresa) e lo snapshot dell'ultimo Run per il flusso
+        // geodetico. Lo script di superficie e' gia' coperto piu' sotto dal suo
+        // slot m_surfaceScriptText.
+        // SOLO con modifiche in sospeso: a campi e schermo allineati l'applicato
+        // non aggiunge nulla, e durante un load e' ancora quello del preset di
+        // PRIMA (in modo script le equazioni compilate restano le vecchie; il
+        // load di una superficie le applica in differita) -- contarlo sempre
+        // rendeva le costanti dipendenti dal preset caricato prima (round-trip).
+        if (m_constantsEditPending) {
+            mathText += " " + activeEquationsText();
+            const bool scriptSurface = ui->glWidget && ui->glWidget->getEngine()
+                                       && ui->glWidget->getEngine()->isScriptModeActive();
+            if (ui->glWidget && !scriptSurface)
+                glslText += " " + ui->glWidget->parametricEquationsApplied();
+        }
+        // ...e lo script della texture non ancora eseguito (l'applicato e'
+        // m_surfaceTextureCode, qui sopra).
+        glslText += " " + stripCodeComments(m_surfaceTextureScriptText);
     }
     else { // MODALITÀ RAY MARCHING
         // L'equazione implicita e' matematica utente (translateEquation);
@@ -7529,6 +7578,16 @@ void MainWindow::updateConstantsUIState() {
         equationFieldIsEmpty = mathText.trimmed().isEmpty();
         glslText += " " + stripCodeComments(ui->lineTexture->toPlainText()) +
                     " " + stripCodeComments(ui->lineVariations->toPlainText());
+        // L'APPLICATO, come nel ramo parametrico e con la stessa condizione:
+        // equazione, texture e rilievo compilati nel marcher.
+        if (m_constantsEditPending && ui->glWidget) {
+            const bool scriptSurface = ui->glWidget->getEngine()
+                                       && ui->glWidget->getEngine()->isScriptModeActive();
+            if (!scriptSurface)
+                mathText += " " + stripCodeComments(ui->glWidget->activeImplicitEquation());
+            glslText += " " + stripCodeComments(ui->glWidget->currentTextureCode()) +
+                        " " + stripCodeComments(ui->glWidget->currentDisplacementCode());
+        }
     }
 
     // 2. AGGIUNGI CAMPI SEMPRE ATTIVI (Shared)
@@ -7540,6 +7599,8 @@ void MainWindow::updateConstantsUIState() {
     // blocco inghiottirebbe l'inizio del blocco successivo (falso negativo:
     // costante vera creduta inutilizzata -> reset a 1).
     glslText += " " + stripCodeComments(m_bgTextureCode); // Lo sfondo è comune
+    // ...con il suo script non ancora eseguito (l'applicato e' la riga sopra).
+    glslText += " " + stripCodeComments(m_bgTextureScriptText);
 
     // L'EDITOR E' SEMPRE GLSL. Vale per tutti e tre i modi dello script
     // (superficie, texture, sound) e per entrambe le tab: lo script di
@@ -8119,17 +8180,10 @@ bool MainWindow::syncFocusedTextureFromLibrary()
     // (in RM lineTexture + lineVariations, ~7464), quindi chiamarla prima la
     // farebbe decidere sul codice VECCHIO -- e' lo stesso errore d'ordine del
     // caricamento record.
-    updateConstantsUIState();
     // Le costanti appena sbloccate vanno anche SPINTE nel motore: sono uniform,
-    // non serve ricompilare, ma la GPU ha ancora i valori di prima. Si rileggono
-    // dai campi come sono ADESSO (resolveCascadeConstants), che e' cio' che fa
-    // gia' la coda di handleTextureSelection (~9430) dopo lo stesso genere di
-    // cambio.
-    {
-        const CascadeConstants kc = resolveCascadeConstants(true);
-        if (ui->glWidget)
-            ui->glWidget->setEquationConstants(kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s);
-    }
+    // non serve ricompilare, ma la GPU ha ancora i valori di prima
+    // (refreshConstants: ricalcolo + valori dei campi nel motore).
+    refreshConstants();
 
     // Messaggi delle texture aggiornate, una volta sola per entrambe: si
     // mostrano i SOLI messaggi delle texture, non quello della SCENA -- gia'
@@ -8986,6 +9040,9 @@ void MainWindow::handleTextureSelection(int index)
             // questo ramo procedurale terminava senza rinfrescare onColorTargetChanged.
             onColorTargetChanged();
 
+            // Stesso discorso per le COSTANTI (vedi la coda del ramo, piu' sotto).
+            refreshConstants();
+
             return;
         }
 
@@ -9008,6 +9065,11 @@ void MainWindow::handleTextureSelection(int index)
 
         onColorTargetChanged();
         updateFlatPreviewButton();
+        // COSTANTI: lo sfondo le usa come la superficie (stesso mathParams).
+        // Questo ramo usciva senza ricalcolarle: scelta come sfondo una texture
+        // che usa F, lo slider F restava spento fino al gesto successivo
+        // (trovato dal test degli scenari).
+        refreshConstants();
         return; // Fine caricamento Sfondo
     }
 
@@ -9457,11 +9519,7 @@ void MainWindow::handleTextureSelection(int index)
                 // Nessun reset al default delle costanti "libere" qui: e' la
                 // stessa scena delle altre fasce, e una lettera usata da un'altra
                 // mesh cambierebbe sotto gli occhi.
-                updateConstantsUIState();
-                {
-                    const CascadeConstants kc = resolveCascadeConstants(true);
-                    ui->glWidget->setEquationConstants(kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s);
-                }
+                refreshConstants();
 
                 m_blockTextureGen = false;
                 ui->glWidget->update();
@@ -9851,18 +9909,12 @@ void MainWindow::handleTextureSelection(int index)
     // faceva nulla) mentre F, la costante realmente usata, era bloccato.
     // L'hint diceva gia' la cosa giusta -- viene dal file della texture nuova --
     // e questo rendeva l'incoerenza ancora piu' evidente.
-    updateConstantsUIState();
-
     // updateConstantsUIState riporta a 1 le costanti non piu' usate, ma lo fa
-    // con blockSignals: il valore nuovo non arriverebbe alla GPU. Si spingono
-    // quindi le costanti come le legge ora la UI, altrimenti la vecchia (es. E,
-    // lasciata a 4.17 dal record) resterebbe in vigore nell'UBO pur essendo
-    // sparita dallo shader.
-    {
-        const CascadeConstants kc = resolveCascadeConstants(true);
-        if (ui->glWidget)
-            ui->glWidget->setEquationConstants(kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s);
-    }
+    // con blockSignals: il valore nuovo non arriverebbe alla GPU. refreshConstants
+    // spinge quindi le costanti come le legge ora la UI, altrimenti la vecchia
+    // (es. E, lasciata a 4.17 dal record) resterebbe in vigore nell'UBO pur
+    // essendo sparita dallo shader.
+    refreshConstants();
 
     this->setProperty("isTextureModified", false);
 
@@ -13283,6 +13335,8 @@ void MainWindow::onApplyTextureScriptClicked()
 
             updateTextureUIState(true, true);
             updateScriptButtonText();
+            // COSTANTI: e' cambiato il codice applicato della fascia.
+            refreshConstants();
             ui->glWidget->update();
             return;
         }
@@ -13421,6 +13475,9 @@ void MainWindow::onApplyTextureScriptClicked()
 
     updateFlatPreviewButton();
     ui->btnSaveScript->setEnabled(true);
+
+    // COSTANTI: il codice applicato e' appena cambiato (superficie o sfondo).
+    refreshConstants();
 }
 
 void MainWindow::onRunRaymarchTextureClicked()
@@ -14463,6 +14520,12 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // passano da QUI e non da quella, quindi senza questa riga il messaggio
     // comparirebbe solo sui record.
     showSceneHint(d.hintText, d.hintSeconds);
+
+    // COSTANTI: giudizio finale a scena completa, sui soli campi del preset
+    // (refreshConstants chiude le eventuali modifiche in sospeso: da qui campi e
+    // scena coincidono). Senza, l'ultimo ricalcolo del load poteva ancora
+    // contare l'applicato della scena di PRIMA.
+    refreshConstants(/*restoreTextOnNegative=*/false);
 }
 
 void MainWindow::applyMotionExample(LibraryItem data)
@@ -15097,12 +15160,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // La mappa delle discrete NON si ricostruisce (false): per i record con
     // script e' gia' stata rifatta dalle direttive :=.
     applyPresetConstants(data, /*rebuildDiscreteMap=*/false);
-    updateConstantsUIState();
-    {
-        const CascadeConstants kc = resolveCascadeConstants(false);
-        if (ui->glWidget)
-            ui->glWidget->setEquationConstants(kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s);
-    }
+    refreshConstants(/*restoreTextOnNegative=*/false);
     SE_TEXP("record:costanti-rigiudicate");
 
     m_bgTexColor1 = loadedBgCol1;
@@ -15751,6 +15809,9 @@ void MainWindow::applyMotionExample(LibraryItem data)
     resetNav4DBaseline();
 
     showSceneHint(data.hintText, data.hintSeconds);
+
+    // COSTANTI: giudizio finale a scena completa (vedi applySurfaceExample).
+    refreshConstants(/*restoreTextOnNegative=*/false);
 
     // Lettere A-F condivise fra superficie, texture e sfondo del record: in coda
     // all'evento, a scena completa (vedi la funzione).
@@ -19977,6 +20038,31 @@ QString MainWindow::surfaceImagePath() const
     return ui->glWidget ? ui->glWidget->surfaceImagePath() : QString();
 }
 
+void MainWindow::pushConstantsToEngine(bool restoreTextOnNegative)
+{
+    const CascadeConstants kc = resolveCascadeConstants(restoreTextOnNegative);
+    if (!ui->glWidget) return;
+    // Solo se cambia qualcosa: setEquationConstants segna la mesh da rifare, e
+    // qui si passa anche all'uscita di ogni Run.
+    const QMap<QString, float> &now = ui->glWidget->getConstantsMap();
+    const float want[7] = { kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s };
+    static const char *const names[7] = { "A", "B", "C", "D", "E", "F", "S" };
+    bool same = now.size() == 7;
+    for (int i = 0; same && i < 7; ++i)
+        same = now.value(QLatin1String(names[i]), want[i] + 1.0f) == want[i];
+    if (same) return;
+    ui->glWidget->setEquationConstants(kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s);
+}
+
+void MainWindow::refreshConstants(bool restoreTextOnNegative)
+{
+    // Chi chiama da qui ha appena cambiato cio' che e' a schermo (load, reset,
+    // Library, Run riuscito): campi e applicato coincidono di nuovo.
+    m_constantsEditPending = false;
+    updateConstantsUIState();
+    pushConstantsToEngine(restoreTextOnNegative);
+}
+
 bool MainWindow::textureHasLogic(const QString &code)
 {
     return code.contains("return") || code.contains("vec3")
@@ -21635,6 +21721,14 @@ constexpr const char* kActiveEqProps[] = {
     "active_lndU",  "active_lndV",  "active_lndW",
     "active_lineConform"
 };
+}
+
+QString MainWindow::activeEquationsText() const
+{
+    QString out;
+    for (const char *name : kActiveEqProps)
+        out += property(name).toString() + QLatin1Char(' ');
+    return out;
 }
 
 void MainWindow::snapshotActiveEquations() {

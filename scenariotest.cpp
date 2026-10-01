@@ -18,6 +18,8 @@
 #include <QRegularExpression>
 #include <QTimer>
 #include <QAbstractButton>
+#include <QLineEdit>
+#include <QSlider>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QTreeWidgetItemIterator>
@@ -539,6 +541,88 @@ void ScenarioTest::checkTextureCode(const QString &step, const QString &expected
 
     check(bad.isEmpty(), QStringLiteral("%1 -> codice %2%3")
                              .arg(step, briefCode(shown),
+                                  bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+}
+
+void ScenarioTest::setConstantBySlider(const QString &letter, double value)
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    const QMap<QString, QSlider *> sliders = {
+        { QStringLiteral("A"), ui->aSlider }, { QStringLiteral("B"), ui->bSlider },
+        { QStringLiteral("C"), ui->cSlider }, { QStringLiteral("D"), ui->dSlider },
+        { QStringLiteral("E"), ui->eSlider }, { QStringLiteral("F"), ui->fSlider },
+        { QStringLiteral("S"), ui->sSlider } };
+    QSlider *s = sliders.value(letter);
+    if (!s) return;
+    // Come il dito: trascina (valueChanged) e rilascia (sliderReleased).
+    s->setValue(qRound(value * 100.0));
+    emit s->sliderReleased();
+    wait(400);
+}
+
+void ScenarioTest::setConstantByField(const QString &letter, const QString &text)
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    const QMap<QString, QLineEdit *> lines = {
+        { QStringLiteral("A"), ui->lineA }, { QStringLiteral("B"), ui->lineB },
+        { QStringLiteral("C"), ui->lineC }, { QStringLiteral("D"), ui->lineD },
+        { QStringLiteral("E"), ui->lineE }, { QStringLiteral("F"), ui->lineF },
+        { QStringLiteral("S"), ui->lineS } };
+    QLineEdit *l = lines.value(letter);
+    if (!l) return;
+    // Come la tastiera: testo e Invio (editingFinished).
+    l->setText(text);
+    emit l->editingFinished();
+    wait(600);
+}
+
+void ScenarioTest::checkConstants(const QString &step, const QMap<QString, double> &expected)
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    struct K { const char *letter; QLineEdit *line; QSlider *slider; float field; float saved; };
+    const MainWindow::CascadeConstants k = m_mw->resolveCascadeConstants(false);
+    const LibraryItem sv = captureSave();
+    const QList<K> ks = {
+        { "A", ui->lineA, ui->aSlider, k.a, sv.a }, { "B", ui->lineB, ui->bSlider, k.b, sv.b },
+        { "C", ui->lineC, ui->cSlider, k.c, sv.c }, { "D", ui->lineD, ui->dSlider, k.d, sv.d },
+        { "E", ui->lineE, ui->eSlider, k.e, sv.e }, { "F", ui->lineF, ui->fSlider, k.f, sv.f },
+        { "S", ui->lineS, ui->sSlider, k.s, sv.s } };
+    const QMap<QString, float> &engine = gl->getConstantsMap();
+    auto num = [](double v) { return QString::number(v, 'g', 6); };
+
+    QStringList bad, shown;
+    for (const K &c : ks) {
+        const QString L = QString::fromLatin1(c.letter);
+        const bool isS = L == QLatin1String("S");
+        const double def = isS ? 0.0 : 1.0;
+        // Il MOTORE usa il valore del campo.
+        const float e = engine.value(L, float(def));
+        if (qAbs(e - c.field) > 1e-4f)
+            bad << QStringLiteral("%1: motore %2, campo %3").arg(L, num(e), num(c.field));
+        // Lo SLIDER mostra il campo (passo 0.01; puo' saturare ai suoi estremi).
+        const double sl = c.slider->value() / 100.0;
+        const bool saturated = c.slider->value() == c.slider->minimum()
+                               || c.slider->value() == c.slider->maximum();
+        if (qAbs(sl - c.field) > 0.0101 && !saturated)
+            bad << QStringLiteral("%1: slider %2, campo %3").arg(L, num(sl), num(c.field));
+        // Il SAVE scrive il campo.
+        if (qAbs(c.saved - c.field) > 1e-5f)
+            bad << QStringLiteral("%1: il Save scriverebbe %2, campo %3").arg(L, num(c.saved), num(c.field));
+        // Campo e slider si accendono e spengono insieme; una costante SPENTA
+        // (nessun modulo la usa) sta al suo valore neutro.
+        if (c.line->isEnabled() != c.slider->isEnabled())
+            bad << QStringLiteral("%1: campo %2, slider %3").arg(L, onOff(c.line->isEnabled()), onOff(c.slider->isEnabled()));
+        if (!c.line->isEnabled() && qAbs(c.field - def) > 1e-6)
+            bad << QStringLiteral("%1 spenta ma vale %2").arg(L, num(c.field));
+        if (expected.contains(L) && qAbs(expected.value(L) - c.field) > 1e-4)
+            bad << QStringLiteral("%1 vale %2, atteso %3").arg(L, num(c.field), num(expected.value(L)));
+        if (c.line->isEnabled()) shown << QStringLiteral("%1=%2").arg(L, num(c.field));
+    }
+
+    check(bad.isEmpty(), QStringLiteral("%1 -> costanti %2%3")
+                             .arg(step, shown.isEmpty() ? QStringLiteral("(nessuna in uso)")
+                                                        : shown.join(QLatin1Char(' ')),
                                   bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
 }
 
@@ -1139,6 +1223,103 @@ void ScenarioTest::run()
     }
     if (loadRecord(QString::fromLatin1(kImplicitRecord)))
         checkSurfaceImage(QStringLiteral("poi un record RM senza immagine"), QStringLiteral(""));
+
+    // ---------------------------------------------------------------------
+    // COSTANTI A..F/S: campo, slider, motore e Save dicono lo stesso valore.
+    using KV = QMap<QString, double>;
+    const QString kPlasmaTex = QStringLiteral("textures/Procedurals/Plasma.json");
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Costanti: parametrico (%1) ==").arg(QString::fromLatin1(kParametricRecord)));
+    if (loadRecord(QString::fromLatin1(kParametricRecord))) {
+        checkConstants(QStringLiteral("record caricato"), KV{ { "A", 3.22 }, { "B", 0.21 } });
+        setConstantBySlider(QStringLiteral("A"), 2.5);
+        checkConstants(QStringLiteral("A dallo slider"), KV{ { "A", 2.5 }, { "B", 0.21 } });
+        setConstantByField(QStringLiteral("B"), QStringLiteral("0.4"));
+        checkConstants(QStringLiteral("B dal campo"), KV{ { "A", 2.5 }, { "B", 0.4 } });
+        setConstantByField(QStringLiteral("B"), QStringLiteral("A/10"));
+        checkConstants(QStringLiteral("B = A/10 (cascata)"), KV{ { "A", 2.5 }, { "B", 0.25 } });
+        setConstantBySlider(QStringLiteral("A"), 3.0);
+        checkConstants(QStringLiteral("A dallo slider, B la segue"), KV{ { "A", 3.0 }, { "B", 0.3 } });
+        setConstantByField(QStringLiteral("B"), QStringLiteral("0.21"));
+        if (selectTexture(kMandelbrot))
+            checkConstants(QStringLiteral("Mandelbrot dalla Library (usa F)"), KV{ { "A", 3.0 }, { "B", 0.21 } });
+        setConstantBySlider(QStringLiteral("F"), 2.0);
+        checkConstants(QStringLiteral("F dallo slider"), KV{ { "F", 2.0 } });
+        if (selectTexture(kPlasmaTex))
+            checkConstants(QStringLiteral("poi una texture che non usa F"), KV{ { "A", 3.0 }, { "F", 1.0 } });
+        click(ui->radioBackground);
+        if (selectTexture(kMandelbrot))
+            checkConstants(QStringLiteral("Mandelbrot come sfondo (usa F)"));
+        setConstantBySlider(QStringLiteral("F"), 1.5);
+        checkConstants(QStringLiteral("F dallo slider, per lo sfondo"), KV{ { "F", 1.5 } });
+        click(ui->radioSurface);
+        checkConstants(QStringLiteral("ritorno a Surface"), KV{ { "A", 3.0 }, { "F", 1.5 } });
+        pressNew();
+        checkConstants(QStringLiteral("tasto NEW"));
+    }
+    // Una costante che CADE IN DISUSO torna al valore neutro, e il motore lo sa.
+    if (loadRecord(QString::fromLatin1(kParametricRecord))) {
+        if (selectTexture(kMandelbrot)) {
+            setConstantBySlider(QStringLiteral("F"), 2.0);
+            checkConstants(QStringLiteral("Mandelbrot con F = 2"), KV{ { "F", 2.0 } });
+            m_discardOnPrompt = true;
+            click(ui->chkBoxTexture);
+            m_discardOnPrompt = false;
+            checkConstants(QStringLiteral("texture spenta: F non serve piu'"), KV{ { "F", 1.0 } });
+        }
+        // Equazioni riscritte senza B (come digitando nei campi), poi Run.
+        ui->lineX->setPlainText(QStringLiteral("A * cos(u)"));
+        ui->lineY->setPlainText(QStringLiteral("A * sin(u)"));
+        ui->lineZ->setPlainText(QStringLiteral("v"));
+        wait(400);
+        // Prima del Run a schermo c'e' ancora la superficie che usa B: B resta
+        // accesa col suo valore.
+        checkConstants(QStringLiteral("equazioni riscritte senza B, prima del Run"),
+                       KV{ { "A", 3.22 }, { "B", 0.21 } });
+        // B rimessa nell'equazione PRIMA del Run: il suo valore non deve essersi perso.
+        ui->lineZ->setPlainText(QStringLiteral("B * v"));
+        wait(400);
+        checkConstants(QStringLiteral("B rimessa nell'equazione prima del Run"), KV{ { "A", 3.22 }, { "B", 0.21 } });
+        // Il tasto Run del dock Equations (non la funzione chiamata a mano: e' il
+        // tasto, come l'Invio, ad aggiornare lo snapshot dell'ultimo Run).
+        check(ui->btnRunParametric->isEnabled(), QStringLiteral("equazioni modificate -> tasto Run acceso"));
+        click(ui->btnRunParametric);  wait(800);
+        checkConstants(QStringLiteral("Run"), KV{ { "A", 3.22 }, { "B", 0.21 } });
+        // Tolta di nuovo, e questa volta col Run: ora B non serve davvero piu'.
+        ui->lineZ->setPlainText(QStringLiteral("v"));
+        wait(400);
+        click(ui->btnRunParametric);  wait(800);
+        checkConstants(QStringLiteral("B tolta e Run: torna neutra"), KV{ { "A", 3.22 }, { "B", 1.0 } });
+    }
+    // Texture con costanti su una FASCIA (Ergosphere Band usa A e B).
+    if (loadRecord(QString::fromLatin1(kMultiMeshRecord))) {
+        checkConstants(QStringLiteral("multi-mesh caricato"));
+        if (!ui->radioMeshOne->isChecked()) click(ui->radioMeshOne);
+        ui->spinMeshSel->setValue(1);  wait(300);
+        if (selectTexture(QStringLiteral("textures/Procedurals/Static Holography.json")))
+            checkConstants(QStringLiteral("fascia 1: Static Holography (usa F)"));
+        setConstantBySlider(QStringLiteral("F"), 2.0);
+        checkConstants(QStringLiteral("F dallo slider, per la fascia"), KV{ { "F", 2.0 } });
+        click(ui->radioMeshAll);
+        checkConstants(QStringLiteral("ritorno ad All"), KV{ { "F", 2.0 } });
+    }
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Costanti: Ray Marching (%1) ==").arg(kTunnel));
+    if (loadRecord(kTunnel)) {
+        checkConstants(QStringLiteral("record caricato"),
+                       KV{ { "A", 5 }, { "B", 1.54 }, { "D", 4.02 }, { "F", 0.52 }, { "S", 0.2 } });
+        setConstantBySlider(QStringLiteral("A"), 3.4);
+        checkConstants(QStringLiteral("A discreta: al rilascio scatta all'intero"), KV{ { "A", 3 } });
+        setConstantByField(QStringLiteral("D"), QStringLiteral("2.5"));
+        checkConstants(QStringLiteral("D dal campo"), KV{ { "A", 3 }, { "D", 2.5 } });
+    }
+    if (loadRecord(QString::fromLatin1(kParametricRecord)))
+        checkConstants(QStringLiteral("poi il record parametrico"), KV{ { "A", 3.22 }, { "B", 0.21 } });
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Equations/R3/Torus.json")))
+        checkConstants(QStringLiteral("poi una superficie"));
+    if (loadRecord(kTunnel))
+        checkConstants(QStringLiteral("di nuovo il record Ray Marching"),
+                       KV{ { "A", 5 }, { "B", 1.54 }, { "D", 4.02 }, { "F", 0.52 }, { "S", 0.2 } });
 
     finish();
 }

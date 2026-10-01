@@ -2,6 +2,7 @@
 #define SCENARIOTEST_H
 
 #include <QColor>
+#include <QMap>
 #include <QObject>
 #include <QStringList>
 
@@ -96,6 +97,15 @@ private:
     // Save. Texture spenta: niente immagine ne' in GPU ne' nel Save.
     // `expectedImage`, se non nullo, e' il file atteso in GPU ("" = nessuna).
     void checkSurfaceImage(const QString &step, const QString &expectedImage = QString());
+    // Le COSTANTI A..F/S dopo il gesto `step`: il campo di testo e' la fonte
+    // (puo' essere un'espressione a cascata), lo slider lo mostra, il motore usa
+    // quel valore, il Save lo scrive. Una costante spenta (nessun modulo la usa)
+    // sta al valore neutro (1; S: 0). `expected`: valori attesi per lettera.
+    void checkConstants(const QString &step,
+                        const QMap<QString, double> &expected = QMap<QString, double>());
+    // Come l'utente: lo slider (trascina e rilascia) o il campo (testo e Invio).
+    void setConstantBySlider(const QString &letter, double value);
+    void setConstantByField(const QString &letter, const QString &text);
     // Il codice di displacement di un preset della libreria (come lo legge l'app).
     QString presetDisplacement(const QString &rel, LibraryType type);
     // La parte grafica del codice texture di un preset (vedi checkTextureCode).
