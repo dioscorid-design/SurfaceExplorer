@@ -61,6 +61,7 @@ private:
     };
 
     // Perche' una differenza fra file e Save NON conta; vuota = conta.
+    static QString drivenByMotion(const QString &key, const QJsonObject &saved);
     static QString excusedBecause(const QString &key, int kind, bool whitespaceOnly,
                                   const QJsonObject &file, const Capture &c);
 

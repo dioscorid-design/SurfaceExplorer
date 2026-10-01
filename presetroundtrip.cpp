@@ -379,6 +379,32 @@ void PresetRoundTrip::run()
     writeReport();
 }
 
+// La chiave e' la foto di un MOTO in corso al Save (path o rotazione)? Allora
+// il suo valore dipende dall'istante, non dal preset: non conta ne' contro il
+// file ne' fra i due passaggi.
+QString PresetRoundTrip::drivenByMotion(const QString &key, const QJsonObject &saved)
+{
+    // Path in moto al Save: la camera 3D la muove il path a ogni tick (e con
+    // il path 4D anche angoli e osservatore 4D), e al reload il path la
+    // ricalcola dal primo tick. Il valore nel file e' la foto di un istante:
+    // Clifford Labyrinth salvava yaw +90 o -90 a seconda del lato del path.
+    const QString motion = saved.value(QStringLiteral("activeMotion")).toString();
+    const bool path4D = motion == QLatin1String("path4D");
+    if ((path4D || motion == QLatin1String("path3D"))
+        && key.startsWith(QLatin1String("camera3D/")))
+        return QStringLiteral("camera guidata dal path");
+    if (path4D && (key.startsWith(QLatin1String("angles/"))
+                   || key == QLatin1String("observer4D")))
+        return QStringLiteral("4D guidato dal path");
+    // Rotazioni in corso: orientamento e angoli 4D sono la foto di un moto.
+    // Il confronto fra due catture a 250 ms non basta a riconoscerlo quando
+    // la rotazione e' molto lenta (Hyperbolic Mobius Band).
+    if (motion == QLatin1String("rotation")
+        && (key.startsWith(QLatin1String("camera3D/rot_")) || key.startsWith(QLatin1String("angles/"))))
+        return QStringLiteral("rotazione in corso");
+    return QString();
+}
+
 QString PresetRoundTrip::excusedBecause(const QString &key, int kind, bool whitespaceOnly,
                                        const QJsonObject &file, const Capture &c)
 {
@@ -401,25 +427,9 @@ QString PresetRoundTrip::excusedBecause(const QString &key, int kind, bool white
         };
         if (comp.contains(key)) return QStringLiteral("composizione ignorata con uno script");
     }
-    // Path in moto al Save: la camera 3D la muove il path a ogni tick (e con
-    // il path 4D anche angoli e osservatore 4D), e al reload il path la
-    // ricalcola dal primo tick. Il valore nel file e' la foto di un istante:
-    // Clifford Labyrinth salvava yaw +90 o -90 a seconda del lato del path.
     {
-        const QString motion = c.json.value(QStringLiteral("activeMotion")).toString();
-        const bool path4D = motion == QLatin1String("path4D");
-        if ((path4D || motion == QLatin1String("path3D"))
-            && key.startsWith(QLatin1String("camera3D/")))
-            return QStringLiteral("camera guidata dal path");
-        if (path4D && (key.startsWith(QLatin1String("angles/"))
-                       || key == QLatin1String("observer4D")))
-            return QStringLiteral("4D guidato dal path");
-        // Rotazioni in corso: orientamento e angoli 4D sono la foto di un moto.
-        // Il confronto fra due catture a 250 ms non basta a riconoscerlo quando
-        // la rotazione e' molto lenta (Hyperbolic Mobius Band).
-        if (motion == QLatin1String("rotation")
-            && (key.startsWith(QLatin1String("camera3D/rot_")) || key.startsWith(QLatin1String("angles/"))))
-            return QStringLiteral("rotazione in corso");
+        const QString moved = drivenByMotion(key, c.json);
+        if (!moved.isEmpty()) return moved;
     }
     // Ray Marching fuori dal Cross Section: angoli e velocita' 4D non hanno
     // effetto e il Save li azzera di proposito (vedi keep4DAngles in
@@ -537,7 +547,16 @@ void PresetRoundTrip::writeReport()
         // stato del preset precedente, mai legittimo.
         const QJsonObject file = readJsonFile(e.path);
         const QList<Diff> save = diffJson(file, a.json, moving);
-        const QList<Diff> order = b ? diffJson(a.json, b->json, moving) : QList<Diff>();
+        // ...tranne le chiavi che sono la foto di un moto in corso: quanti tick
+        // passano prima della cattura dipende dal carico della macchina, non dal
+        // preset di prima. Visto su Rotations/Torus Knot: un tick di differenza
+        // negli angoli 4D fra i due passaggi, in un giro rallentato (e la
+        // rotazione era troppo lenta perche' le due catture a 250 ms la vedessero).
+        QList<Diff> order;
+        if (b) {
+            for (const Diff &d : diffJson(a.json, b->json, moving))
+                if (drivenByMotion(d.key, a.json).isEmpty()) order.append(d);
+        }
 
         bool saveDiffers = false;
         QStringList saveLines;
