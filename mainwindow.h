@@ -1468,6 +1468,16 @@ private:
     // dello script di una FASCIA lo scriveva col codice della fascia -- tornando
     // ad All i picker Colore della scacchiera di default restavano spenti.
     bool surfaceTextureIsCustom() const { return textureHasLogic(m_surfaceTextureCode); }
+    // PROVA E APPLICA il codice della texture PARAMETRICA di superficie: il
+    // motore lo compila (un codice senza logica -- vuoto, o il solo tag //IMG:
+    // -- lascia lo shader standard) e, solo se regge, diventa la copia applicata
+    // m_surfaceTextureCode. "" toglie la texture. Sede unica della coppia
+    // "motore, poi copia applicata" per i GESTI (Run, Sync, Library, checkbox,
+    // reset): era ripetuta a mano in ciascuno. I due load (applySurfaceExample,
+    // applyMotionExample) restano a parte: li' la copia serve PRIMA che il
+    // motore possa compilare (giudizio delle costanti, equazioni non ancora
+    // applicate) e si riallinea in coda al load.
+    bool commitSurfaceTextureCode(const QString &code);
     // SUONO della scena nella forma che il player e il Save capiscono: una riga
     // //MUSIC: o un blocco //SOUND_BEGIN..//SOUND_END. Il dock Sound accetta
     // anche GLSL nudo (un mainSound scritto senza marcatori): wrapSoundCode lo

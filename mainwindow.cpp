@@ -3112,8 +3112,9 @@ MainWindow::MainWindow(QWidget *parent)
                             ui->glWidget->clearTexture();
                         }
                     } else {
-                        // Svuota memoria e variabili parametriche
-                        m_surfaceTextureCode.clear();
+                        // Svuota memoria e variabili parametriche (il motore
+                        // torna allo shader standard)
+                        commitSurfaceTextureCode(QString());
                         m_surfaceTextureScriptText.clear();
 
                         // Se l'utente sta visualizzando il dock script in modalità texture, svuota l'editor
@@ -3123,10 +3124,7 @@ MainWindow::MainWindow(QWidget *parent)
                             ui->txtScriptEditor->blockSignals(ob);
                         }
 
-                        if (ui->glWidget) {
-                            ui->glWidget->loadCustomShader(""); // Torna allo shader standard
-                            ui->glWidget->clearTexture();
-                        }
+                        if (ui->glWidget) ui->glWidget->clearTexture();
                     }
                     // TRASFORMAZIONE 2D: va azzerata insieme al codice. Zoom/pan/
                     // rotazione sono di MODULO, non della singola texture: restando
@@ -3240,9 +3238,8 @@ MainWindow::MainWindow(QWidget *parent)
                     // default (applyDefaultCheckerShader piu' sotto).
                     // NB: il bug residuo era SOLO sulle parametriche (le implicite
                     // ricompilano la texture nello shader SDF a ogni Run).
-                    m_surfaceTextureCode.clear();
+                    commitSurfaceTextureCode(QString());   // torna allo shader standard
                     m_surfaceTextureScriptText.clear();
-                    if (ui->glWidget) ui->glWidget->loadCustomShader(""); // torna allo shader standard
 
                     // Reset dei colori texture alla default. Senza questo restano
                     // quelli del preset precedente e la scacchiera default
@@ -5286,15 +5283,12 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // ==========================================================
     m_surfaceTextureState = false;
     m_blockTextureGen = false;
-    m_surfaceTextureCode.clear();
     // Anche l'IMMAGINE, dalla GPU: prima si azzeravano solo i flag che la
     // descrivevano, e dopo un NEW l'immagine restava nel sampler (trovato dal
     // test degli scenari). La texture e' spenta: il motore la segue subito sotto.
     // E il CODICE: restava compilato nel fragment quello della texture di prima.
-    if (ui->glWidget) {
-        ui->glWidget->clearTexture();
-        ui->glWidget->loadCustomShader("");
-    }
+    if (ui->glWidget) ui->glWidget->clearTexture();
+    commitSurfaceTextureCode(QString());
 
     // La vista segue (il bersaglio e' gia' Surface: vedi sopra).
     refreshSurfaceTextureCheckbox();
@@ -8237,12 +8231,11 @@ bool MainWindow::syncSurfaceTextureFrom(const LibraryItem *lib)
             // dice perche', e si esce senza sporcare la scena: il codice puo'
             // essere stato modificato in libreria in un modo che qui non regge
             // (una costante contesa risolta in altro modo, un'altra direttiva).
-            if (!ui->glWidget->validateAndApplyParametricShader(newCode)) {
+            if (!commitSurfaceTextureCode(newCode)) {
                 showShaderError("Syntax Error (Parametric Texture)",
                                 ui->glWidget->getShaderError());
                 return false;
             }
-            m_surfaceTextureCode = newCode;   // compila: ora e' il codice applicato
         }
 
         // L'OROLOGIO SEGUE IL CODICE. Il codice aggiornato puo' aver ACQUISITO
@@ -9112,7 +9105,6 @@ void MainWindow::handleTextureSelection(int index)
             ui->lineY->clear();
             ui->lineZ->clear();
             ui->lineP->clear();
-            m_surfaceTextureCode.clear();
 
             // Ambiente di rendering RM DETERMINISTICO per la sfera di default.
             // Come nel gestore canonico del cambio tab (~1108): l'equazione viene
@@ -9179,11 +9171,13 @@ void MainWindow::handleTextureSelection(int index)
         // sotto-tab Constraints/Composition/Geodesic ai campi ora puliti.
         checkParametricDependency();
 
-        // C. Resetta lo shader nel widget per rimuovere codice obsoleto
+        // C. Resetta lo shader nel widget per rimuovere codice obsoleto (il
+        // cambio di linguetta qui sopra e' passato da resetScene, che ha gia'
+        // tolto la texture: resta come rete)
+        commitSurfaceTextureCode(QString());
         if (ui->glWidget) {
-            ui->glWidget->loadCustomShader("");
             ui->glWidget->clearTexture();
-            ui->glWidget->setTextureCode(0);
+            ui->glWidget->setTextureCode(QString());
         }
 
         // D. La texture incompatibile ci ha fatto ricadere sulla superficie di
@@ -9295,16 +9289,16 @@ void MainWindow::handleTextureSelection(int index)
                 }, Qt::QueuedConnection);
             }
             if (ui->glWidget) {
-                ui->glWidget->loadCustomShader("");
+                // Sola immagine: il motore torna allo shader standard e la
+                // copia applicata e' il tag. Prima dell'aggiornamento UI:
+                // updateTextureUIState legge questo codice per decidere se
+                // accendere i picker Colore (un'immagine "//IMG:" non usa
+                // u_col1/u_col2 -> picker spenti).
+                commitSurfaceTextureCode("//IMG:" + imgSrc);
                 ui->glWidget->loadTextureFromFile(imgSrc);
                 m_surfaceTextureState = true;
                 applySurfaceTextureToEngine();
                 ui->glWidget->rebuildShader();
-
-                // Impostato prima dell'aggiornamento UI: updateTextureUIState
-                // legge questo codice per decidere se accendere i picker Colore
-                // (un'immagine "//IMG:" non usa u_col1/u_col2 -> picker spenti).
-                m_surfaceTextureCode = "//IMG:" + imgSrc;
 
                 // Come per lo sfondo: l'immagine sostituisce la procedurale,
                 // quindi lo slot dello script non deve tenerla. Qui il residuo
@@ -10289,12 +10283,9 @@ void MainWindow::onStartClicked()
             // in ambito Mesh mostra la fascia.
             if (!ui->radioBackground->isChecked() && m_surfaceTextureState) {
                 const QString texSrc = surfaceTextureScript();
-                if (textureHasLogic(texSrc)) {
-                    if (!ui->glWidget->validateAndApplyParametricShader(texSrc)) {
-                        showShaderError("Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
-                        return;
-                    }
-                    m_surfaceTextureCode = texSrc; // applicata e valida: committa
+                if (textureHasLogic(texSrc) && !commitSurfaceTextureCode(texSrc)) {
+                    showShaderError("Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
+                    return;
                 }
             }
         }
@@ -10958,13 +10949,10 @@ void MainWindow::onStartClicked()
                          ui->lineW->toPlainText() + " " +
                          m_surfaceScriptText;
 
-    if (m_surfaceTextureState && textureHasLogic(currentScript)) {
-        if (!ui->glWidget->validateAndApplyParametricShader(currentScript)) {
-            showShaderError("Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
-            return;
-        }
-        // Compila: ora e' il codice applicato.
-        m_surfaceTextureCode = currentScript;
+    if (m_surfaceTextureState && textureHasLogic(currentScript)
+        && !commitSurfaceTextureCode(currentScript)) {
+        showShaderError("Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
+        return;
     }
 
     if (ui->glWidget->isBackgroundTextureEnabled()) {
@@ -13350,13 +13338,10 @@ void MainWindow::onApplyTextureScriptClicked()
             return;
         }
 
-        if (hasCustomLogic && ui->glWidget &&
-                !ui->glWidget->validateAndApplyParametricShader(code)) {
+        if (!commitSurfaceTextureCode(code)) {
             showShaderError("Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
             return;
         }
-
-        m_surfaceTextureCode = code;
 
         // 1. GESTIONE MEMORIA IMMAGINE: il tag dello script dice quale, o
         // nessuna. PRIMA di updateTextureUIState: activeTextureUsesColors() ha
@@ -13367,10 +13352,7 @@ void MainWindow::onApplyTextureScriptClicked()
         // dell'accensione qui sotto: clearTexture spegne la texture nel motore,
         // e applySurfaceTextureToEngine la riaccende.
         if (!imgPath.isEmpty()) {
-            if (ui->glWidget) {
-                ui->glWidget->loadCustomShader("");
-                ui->glWidget->loadTextureFromFile(imgPath);
-            }
+            if (ui->glWidget) ui->glWidget->loadTextureFromFile(imgPath);
         } else if (ui->glWidget) {
             ui->glWidget->clearTexture();
         }
@@ -13396,8 +13378,9 @@ void MainWindow::onApplyTextureScriptClicked()
                     generateTexture();
                 }
 
-                // TEST E APPLICAZIONE (Solo Parametrica come da nuove regole)
-                bool success = ui->glWidget->validateAndApplyParametricShader(code);
+                // TEST E APPLICAZIONE (Solo Parametrica come da nuove regole):
+                // di nuovo, ora che il sampler ha l'immagine o la scacchiera.
+                bool success = commitSurfaceTextureCode(code);
 
                 if (!success) {
                     showShaderError("Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
@@ -13427,14 +13410,11 @@ void MainWindow::onApplyTextureScriptClicked()
                 }
             }
         } else {
-            // Nessuna logica nel codice: surfaceTextureIsCustom() e' gia' falso.
-            if (ui->glWidget) {
-                bool success = ui->glWidget->validateAndApplyParametricShader("");
-                if (!success) {
-                    showShaderError("GLSL Reset Error", ui->glWidget->getShaderError());
-                    return;
-                }
-            }
+            // Nessuna logica nel codice: surfaceTextureIsCustom() e' gia' falso,
+            // e il motore e' gia' sullo shader standard (commitSurfaceTextureCode
+            // in cima a questo ramo). Si ricostruisce ora che il sampler e'
+            // cambiato.
+            if (ui->glWidget) ui->glWidget->rebuildShader();
         }
 
         if (ui->glWidget) {
@@ -14121,8 +14101,9 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     m_surfaceTextureState = false;
 
     // Svuota tutti i testi dei vecchi script in memoria (l'immagine se ne va
-    // dalla GPU piu' sotto, con clearTexture).
-    m_surfaceTextureCode.clear();
+    // dalla GPU piu' sotto, con clearTexture) e il CODICE custom dal motore,
+    // che restava compilato nel fragment a texture spenta.
+    commitSurfaceTextureCode(QString());
     m_surfaceTextureScriptText.clear();
 
     ui->lineVariations->blockSignals(true);
@@ -14185,9 +14166,6 @@ void MainWindow::applySurfaceExample(LibraryItem d)
         // animazione / coi colori falsati). Allinea il cambio-superficie allo
         // spegnimento del checkbox, che gia' chiama clearTexture() (clearTextureMemory).
         ui->glWidget->clearTexture();
-        // E il CODICE custom, che restava compilato nel fragment a texture
-        // spenta (loadCustomShader("") ricostruisce gia' lo shader standard).
-        ui->glWidget->loadCustomShader("");
 
         // CRUCIALE: Ricostruisce lo shader standard (Phong/Basic)
         ui->glWidget->rebuildShader();
@@ -20141,6 +20119,21 @@ bool MainWindow::textureHasLogic(const QString &code)
 {
     return code.contains("return") || code.contains("vec3")
         || code.contains("vec4")   || code.contains("mainImage");
+}
+
+bool MainWindow::commitSurfaceTextureCode(const QString &code)
+{
+    // La logica si cerca fuori dalla riga del tag: il percorso di un'immagine
+    // non e' codice, qualunque parola contenga.
+    static const QRegularExpression imgTagRe(R"(^\s*//IMG:.*$\n?)",
+                                             QRegularExpression::MultilineOption);
+    QString logic = code;
+    logic.remove(imgTagRe);
+    const QString engineCode = textureHasLogic(logic) ? code : QString();
+    if (ui->glWidget && !ui->glWidget->validateAndApplyParametricShader(engineCode))
+        return false;
+    m_surfaceTextureCode = code;
+    return true;
 }
 
 void MainWindow::clearSurfaceScript()
