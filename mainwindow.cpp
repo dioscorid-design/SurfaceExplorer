@@ -2783,19 +2783,9 @@ MainWindow::MainWindow(QWidget *parent)
     ui->uDensity->setEnabled(false);
     ui->vDensity->setEnabled(false);
 
-    connect(ui->radioWF, &QRadioButton::toggled, this, [this](bool checked){
-        if (checked) {
-            // NB: qui NON si chiama piu' setGlobalRenderMode(2). Questo handler scatta
-            // anche quando e' syncAppearanceControlsToActiveMesh a mostrare una
-            // mesh in wireframe, e forzare il GLOBALE a 2 propagava il wireframe
-            // a tutte le parti che ereditano (era una delle vie del bug).
-            // La modalita' la scrive onUserRenderModeChosen, sul destinatario
-            // giusto: la parte selezionata, o il globale se siamo su "All".
-            // Qui resta solo l'effetto collaterale sulla UI della texture.
-            if (!ui->radioBackground->isChecked())
-                ui->chkBoxTexture->setEnabled(false);
-        }
-    });
+    // (Qui c'era un secondo gestore di radioWF, che spegneva a mano il
+    // checkbox Texture. Il checkbox e' una vista: lo allinea
+    // refreshTextureCheckbox, chiamata da updateRenderState qui sopra.)
 
     ui->alphaSlider->setRange(0, 100);
     ui->alphaSlider->setValue(100);
@@ -6533,14 +6523,10 @@ void MainWindow::updateRenderState()
     // applicare una texture che non avrebbe effetto. In editing sfondo la texture
     // di background e' indipendente dal wireframe, quindi resta tutto attivo.
     bool wireframeSurface = (mode == 2 && !ui->radioBackground->isChecked());
-    if (wireframeSurface) {
-        ui->chkBoxTexture->setEnabled(false);
-    }
-    else {
-        ui->chkBoxTexture->setEnabled(true);
-        // (qui c'era 'if (m_isCustomMode) mode = 11;', rimosso: renderMode 11
-        // legacy parametrico, inerte — 'mode' locale mai passato al motore.)
-    }
+    // Il checkbox Texture e' la vista della texture del bersaglio: etichetta,
+    // abilitazione (spento in wireframe sulla superficie e a scena vuota) e
+    // spunta si decidono in un posto solo.
+    refreshTextureCheckbox();
     if (ui->treeTextures) ui->treeTextures->setEnabled(!wireframeSurface);
 
     // Collasso + grigio del ramo Texture solo alla TRANSIZIONE di stato, non a
@@ -6768,8 +6754,10 @@ void MainWindow::applyEmptySceneGating()
         // bloccava anche la texture di sfondo, che a scena vuota deve restare
         // usabile: lo sfondo esiste anche senza superficie ed e' l'unica cosa
         // che si puo' ancora comporre. Stessa ragione per il ramo Library.
+        // La regola sta nella vista (refreshTextureCheckbox: a scena vuota
+        // resta acceso solo col bersaglio Background).
         const bool editingBackground = ui->radioBackground && ui->radioBackground->isChecked();
-        ui->chkBoxTexture->setEnabled(editingBackground);
+        refreshTextureCheckbox();
         // Il ramo Texture della Library resta USABILE anche senza superficie e
         // fuori da Background: cliccare una texture a scena vuota ricostruisce
         // la superficie di DEFAULT del tab corrente e ce la applica sopra (vedi
@@ -8601,17 +8589,10 @@ void MainWindow::onColorTargetChanged()
     ui->sliderG->blockSignals(false);
     ui->sliderB->blockSignals(false);
 
-    // Checkbox Texture: su Surface segue la regola canonica (stessa di
-    // updateRenderState): abilitato salvo Wireframe sulla superficie. Background
-    // gestisce il proprio enable nel suo handler, qui non lo tocchiamo per non
-    // sovrascriverlo.
-    if (!ui->radioBackground->isChecked()) {
-        // Scena vuota (tasto NEW): niente superficie da texturizzare. Come per
-        // gli slider RGB qui sopra, il caso va aggiunto DOVE lo stato si decide:
-        // questa funzione gira anche dopo applyEmptySceneGating e lo riaccendeva.
-        // In ambito Mesh conta la modalita' della fascia (textureTargetInWireframe).
-        ui->chkBoxTexture->setEnabled(!textureTargetInWireframe() && !isSceneEmpty());
-    }
+    // Checkbox Texture: la sua vista, con la regola in un posto solo (spento
+    // in wireframe sulla superficie o sulla fascia, e a scena vuota; sempre
+    // acceso col bersaglio Background).
+    refreshTextureCheckbox();
 }
 
 void MainWindow::scheduleTextureGeneration()
