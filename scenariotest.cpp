@@ -76,6 +76,8 @@ void ScenarioTest::start(MainWindow *mw, const QStringList &args)
         return;
     }
     auto *t = new ScenarioTest(mw, QDir(root).absolutePath(), QDir(out).absolutePath());
+    const int o = args.indexOf(QStringLiteral("--scenario-only"));
+    if (o >= 0) t->m_only = args.value(o + 1);
     QTimer::singleShot(2000, t, &ScenarioTest::run);
 }
 
@@ -556,17 +558,14 @@ void ScenarioTest::checkTextureCode(const QString &step, const QString &expected
         if (saved != rmField)
             bad << QStringLiteral("il Save scriverebbe %1, campo %2").arg(briefCode(saved), briefCode(rmField));
     } else {
-        // PARAMETRICO: l'intenzione e' lo script della texture di superficie --
-        // l'editor, se la sta mostrando, altrimenti il suo slot. L'applicato e'
+        // PARAMETRICO: l'intenzione e' lo script della texture di superficie (il
+        // suo slot, di cui l'editor e' la vista). L'applicato e'
         // m_surfaceTextureCode, e il motore deve compilare quello (senza codice:
         // la scacchiera di default, o niente sopra un'immagine).
         if (!rmField.isEmpty() || !rmEngine.isEmpty())
             bad << QStringLiteral("in parametrico: campo RM %1, motore RM %2")
                        .arg(briefCode(rmField), briefCode(rmEngine));
-        const bool editorShows = m_mw->m_currentScriptMode == MainWindow::ScriptModeTexture
-                                 && !ui->radioBackground->isChecked() && gl->activeMeshPart() < 0;
-        const QString intent = graphicsOf(editorShows ? ui->txtScriptEditor->toPlainText()
-                                                      : m_mw->m_surfaceTextureScriptText, true);
+        const QString intent = graphicsOf(m_mw->surfaceTextureScript(), true);
         const QString applied = graphicsOf(m_mw->m_surfaceTextureCode, true);
         const QString engine  = graphicsOf(gl->currentParametricTextureCode(), true);
         shown = intent;
@@ -590,9 +589,23 @@ void ScenarioTest::checkTextureCode(const QString &step, const QString &expected
                        .arg(briefCode(graphicsOf(saved, true)), briefCode(intent));
     }
 
+    if (!scriptEditorProblem().isEmpty()) bad << scriptEditorProblem();
+
     check(bad.isEmpty(), QStringLiteral("%1 -> codice %2%3")
                              .arg(step, briefCode(shown),
                                   bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+}
+
+QString ScenarioTest::scriptEditorProblem() const
+{
+    // L'editor del dock Script e' la VISTA dello slot che il dock mostra:
+    // stesso testo, a meno degli a capo che il widget normalizza.
+    auto canon = [](QString t) { t.replace(QLatin1String("\r\n"), QLatin1String("\n")); return t; };
+    const QString shown = canon(m_mw->ui->txtScriptEditor->toPlainText());
+    const QString slot  = canon(m_mw->scriptText(m_mw->shownScriptSlot()));
+    if (shown == slot) return QString();
+    return QStringLiteral("l'editor del dock Script mostra %1, il suo slot ha %2")
+        .arg(briefCode(shown), briefCode(slot));
 }
 
 void ScenarioTest::setConstantBySlider(const QString &letter, double value)
@@ -949,11 +962,13 @@ void ScenarioTest::checkEquations(const QString &step, bool pendingEdit)
                 bad << QStringLiteral("%1: motore %2, campo %3").arg(QString::fromLatin1(l.name))
                            .arg(l.engine).arg(want);
         }
-        // SCRIPT di superficie: le due copie (slot e property letta dal Save).
-        if (m_mw->property("rawSurfaceScript").toString() != m_mw->m_surfaceScriptText)
-            bad << QStringLiteral("script: la copia che il Save legge e' diversa dallo slot (%1 / %2)")
-                       .arg(brief(m_mw->property("rawSurfaceScript").toString()), brief(m_mw->m_surfaceScriptText));
+        // SCRIPT di superficie: lo scritto (slot) e l'applicato (che il Save legge).
+        if (!pendingEdit && m_mw->m_surfaceScriptApplied != m_mw->m_surfaceScriptText)
+            bad << QStringLiteral("script: l'applicato e' diverso dallo scritto (%1 / %2)")
+                       .arg(brief(m_mw->m_surfaceScriptApplied), brief(m_mw->m_surfaceScriptText));
     }
+
+    if (!scriptEditorProblem().isEmpty()) bad << scriptEditorProblem();
 
     check(bad.isEmpty(), QStringLiteral("%1 -> equazioni %2%3")
                              .arg(step, shown,
@@ -1005,6 +1020,13 @@ void ScenarioTest::run()
 {
     Ui::MainWindow *ui = m_mw->ui;
     auto click = [this](QAbstractButton *b) { b->click(); wait(200); };
+
+    // Una sola sezione, per provare in fretta la parte su cui si lavora.
+    if (m_only == QLatin1String("script-dock")) {
+        runScriptDockScenarios();
+        finish();
+        return;
+    }
 
     // ---------------------------------------------------------------------
     // AVVIO: la superficie di default non e' lavoro dell'utente. Se qui la
@@ -2587,7 +2609,197 @@ void ScenarioTest::run()
     }
     pressNew();
 
+    runScriptDockScenarios();
+
     finish();
+}
+
+void ScenarioTest::runScriptDockScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    auto click = [this](QAbstractButton *b) { b->click(); wait(200); };
+    auto type = [this, ui](const QString &text) { ui->txtScriptEditor->setPlainText(text); wait(300); };
+    auto shows = [ui](const QString &text) { return ui->txtScriptEditor->toPlainText().trimmed() == text.trimmed(); };
+    auto runOn = [ui] { return ui->btnRunCurrentScript->isEnabled(); };
+    auto shownBrief = [ui] { return briefCode(ui->txtScriptEditor->toPlainText()); };
+    const QString kTorus = QStringLiteral("surfaces/Parametric/Equations/R3/Torus.json");
+    const QString kStripes4 = QStringLiteral("return mix(u_col2, u_col1, step(0.5, fract(u * 4.0)));");
+    const QString kStripes6 = QStringLiteral("return mix(u_col2, u_col1, step(0.5, fract(u * 6.0)));");
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Dock Script: script di superficie scritto e non eseguito =="));
+    if (loadSurface(kTorus)) {
+        setScriptMode(MainWindow::ScriptModeSurface);
+        const QString draft = QStringLiteral(
+            "return vec4((0.8 + 0.3*cos(v))*cos(u), (0.8 + 0.3*cos(v))*sin(u), 0.5*sin(v), 0.0);");
+        type(draft);
+        check(runOn(), QStringLiteral("script scritto -> tasto Run acceso"));
+        setScriptMode(MainWindow::ScriptModeTexture);
+        check(!shows(draft), QStringLiteral("modulo Texture -> l'editor non mostra lo script di superficie (%1)").arg(shownBrief()));
+        setScriptMode(MainWindow::ScriptModeSound);
+        setScriptMode(MainWindow::ScriptModeSurface);
+        check(shows(draft), QStringLiteral("giro dei moduli e ritorno -> lo script e' ancora nell'editor (%1)").arg(shownBrief()));
+        check(runOn(), QStringLiteral("giro dei moduli e ritorno -> tasto Run ancora acceso (non e' mai stato eseguito)"));
+        check(!gl->getEngine()->isScriptModeActive(),
+              QStringLiteral("giro dei moduli e ritorno -> a schermo c'e' ancora la superficie delle equazioni"));
+        // La superficie e' ancora quella delle equazioni: il loro dock comanda.
+        setScriptMode(MainWindow::ScriptModeTexture);
+        ui->lineZ->setPlainText(QStringLiteral("0.4*sin(v)"));  wait(400);
+        check(ui->btnRunParametric->isEnabled(),
+              QStringLiteral("script in sospeso, equazione modificata -> tasto Run delle equazioni acceso"));
+        applyEquationEdit(ui->lineZ);
+        check(!gl->getEngine()->isScriptModeActive() && m_mw->property("active_lineZ").toString() == QLatin1String("0.4*sin(v)"),
+              QStringLiteral("Run delle equazioni -> applicata l'equazione, non lo script in sospeso"));
+        // Una texture dalla Library col dock sullo script di superficie.
+        setScriptMode(MainWindow::ScriptModeSurface);
+        if (selectTexture(QStringLiteral("textures/Procedurals/Plasma.json")))
+            check(shows(draft), QStringLiteral("texture dalla Library col dock sulla superficie -> l'editor tiene lo script (%1)").arg(shownBrief()));
+        // Ora lo si esegue.
+        const int popups = m_popupsClosed;
+        m_mw->onRunCurrentScript();  wait(800);
+        check(m_popupsClosed == popups && gl->getEngine()->isScriptModeActive(),
+              QStringLiteral("Run dello script -> a schermo"));
+        check(!runOn(), QStringLiteral("script statico eseguito -> tasto Run spento"));
+        setScriptMode(MainWindow::ScriptModeTexture);
+        setScriptMode(MainWindow::ScriptModeSurface);
+        check(shows(draft) && !runOn(), QStringLiteral("giro dei moduli -> script eseguito, tasto Run spento"));
+    }
+
+    // Superficie DA SCRIPT con un ritocco in sospeso: l'Invio su una costante
+    // (commit di servizio) riapplica lo script a schermo, non il ritocco; il
+    // master Start invece esegue cio' che e' scritto, e il Save lo scrive.
+    if (loadSurface(kTorus)) {
+        const QString s1 = QStringLiteral(
+            "return vec4((A + 0.3*cos(v))*cos(u), (A + 0.3*cos(v))*sin(u), 0.3*sin(v), 0.0);");
+        const QString s2 = QStringLiteral(
+            "return vec4((A + 0.3*cos(v))*cos(u), (A + 0.3*cos(v))*sin(u), 0.6*sin(v), 0.0);");
+        setScriptMode(MainWindow::ScriptModeSurface);
+        type(s1);
+        m_mw->onRunCurrentScript();  wait(800);
+        const QString glsl1 = gl->getEngine()->getScriptCodeGLSL();
+        check(gl->getEngine()->isScriptModeActive() && m_mw->m_surfaceScriptApplied == s1,
+              QStringLiteral("script con la costante A eseguito -> a schermo"));
+        type(s2);
+        ui->lineA->setText(QStringLiteral("0.9"));
+        pressEnter(ui->lineA);
+        check(gl->getEngine()->getScriptCodeGLSL() == glsl1 && m_mw->m_surfaceScriptApplied == s1,
+              QStringLiteral("ritocco in sospeso, Invio su una costante -> a schermo resta lo script di prima"));
+        setScriptMode(MainWindow::ScriptModeSurface);
+        check(shows(s2) && runOn(), QStringLiteral("ritocco in sospeso, Invio su una costante -> il ritocco aspetta ancora il Run"));
+        checkEquations(QStringLiteral("ritocco ancora in sospeso"), /*pendingEdit=*/true);
+        if (m_mw->m_btnStart) { m_mw->m_btnStart->click();  wait(800); }
+        check(gl->getEngine()->getScriptCodeGLSL() != glsl1 && m_mw->m_surfaceScriptApplied == s2,
+              QStringLiteral("master Start -> esegue lo script com'e' scritto"));
+        check(captureSave().scriptCode == s2, QStringLiteral("master Start -> il Save scrive lo script eseguito"));
+        if (m_mw->m_btnStart && m_mw->m_btnStart->text().toUpper() == QLatin1String("STOP")) {
+            m_mw->m_btnStart->click();  wait(400);
+        }
+    }
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Dock Script: texture di superficie scritta e non eseguita =="));
+    if (loadSurface(kTorus)) {
+        click(ui->chkBoxTexture);
+        setScriptMode(MainWindow::ScriptModeTexture);
+        type(kStripes4);
+        m_mw->onRunCurrentScript();  wait(800);
+        checkTextureCode(QStringLiteral("texture scritta ed eseguita"), kStripes4);
+        check(!runOn(), QStringLiteral("texture statica eseguita -> tasto Run spento"));
+        type(kStripes6);
+        check(runOn(), QStringLiteral("texture ritoccata -> tasto Run acceso"));
+        checkTextureCode(QStringLiteral("texture ritoccata, non eseguita"), kStripes6, /*pendingEdit=*/true);
+        setScriptMode(MainWindow::ScriptModeSound);
+        setScriptMode(MainWindow::ScriptModeSurface);
+        checkTextureCode(QStringLiteral("dock su un altro modulo"), kStripes6, /*pendingEdit=*/true);
+        setScriptMode(MainWindow::ScriptModeTexture);
+        check(shows(kStripes6), QStringLiteral("giro dei moduli e ritorno -> il ritocco e' ancora nell'editor (%1)").arg(shownBrief()));
+        check(runOn(), QStringLiteral("giro dei moduli e ritorno -> tasto Run ancora acceso"));
+        click(ui->radioBackground);
+        check(!shows(kStripes6), QStringLiteral("bersaglio Background -> l'editor mostra lo sfondo (%1)").arg(shownBrief()));
+        checkTextureCode(QStringLiteral("bersaglio Background"), kStripes6, /*pendingEdit=*/true);
+        click(ui->radioSurface);
+        check(shows(kStripes6), QStringLiteral("ritorno a Surface -> il ritocco e' ancora nell'editor (%1)").arg(shownBrief()));
+        check(runOn(), QStringLiteral("ritorno a Surface -> tasto Run ancora acceso"));
+        check(graphicsOf(m_mw->m_surfaceTextureCode, true) == kStripes4,
+              QStringLiteral("ritorno a Surface -> a schermo c'e' ancora la texture eseguita"));
+        m_mw->onRunCurrentScript();  wait(800);
+        checkTextureCode(QStringLiteral("Run del ritocco"), kStripes6);
+        check(!runOn(), QStringLiteral("Run del ritocco -> tasto Run spento"));
+    }
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Dock Script: sfondo scritto e non eseguito =="));
+    if (loadSurface(kTorus)) {
+        const QString bg1 = QStringLiteral("return vec3(uv.x, uv.y, 0.5);");
+        const QString bg2 = QStringLiteral("return vec3(uv.x, uv.y, 0.25);");
+        click(ui->radioBackground);
+        if (!ui->chkBoxTexture->isChecked()) click(ui->chkBoxTexture);
+        setScriptMode(MainWindow::ScriptModeTexture);
+        type(bg1);
+        m_mw->onRunCurrentScript();  wait(800);
+        check(graphicsOf(m_mw->m_bgTextureCode, true) == bg1, QStringLiteral("sfondo scritto ed eseguito -> applicato"));
+        check(!runOn(), QStringLiteral("sfondo statico eseguito -> tasto Run spento"));
+        type(bg2);
+        check(runOn(), QStringLiteral("sfondo ritoccato -> tasto Run acceso"));
+        click(ui->radioSurface);
+        check(!shows(bg2), QStringLiteral("bersaglio Surface -> l'editor non mostra lo sfondo (%1)").arg(shownBrief()));
+        click(ui->radioBackground);
+        check(shows(bg2), QStringLiteral("ritorno a Background -> il ritocco e' ancora nell'editor (%1)").arg(shownBrief()));
+        check(runOn(), QStringLiteral("ritorno a Background -> tasto Run ancora acceso"));
+        setScriptMode(MainWindow::ScriptModeSound);
+        setScriptMode(MainWindow::ScriptModeTexture);
+        check(shows(bg2) && runOn(), QStringLiteral("giro dei moduli e ritorno -> ritocco nell'editor, tasto Run acceso"));
+        check(graphicsOf(m_mw->m_bgTextureCode, true) == bg1,
+              QStringLiteral("giro dei moduli e ritorno -> a schermo c'e' ancora lo sfondo eseguito"));
+        check(graphicsOf(captureSave().bgTextureCode, true) == bg2,
+              QStringLiteral("il Save scrive lo sfondo com'e' scritto"));
+        click(ui->radioSurface);
+        setScriptMode(MainWindow::ScriptModeSurface);
+    }
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Dock Script: suono scritto e non eseguito =="));
+    if (loadSurface(kTorus)) {
+        const QString snd = QStringLiteral("//SOUND_BEGIN\nvec2 mainSound(int samp, float time) { return vec2(0.0); }\n//SOUND_END");
+        setScriptMode(MainWindow::ScriptModeSound);
+        type(snd);
+        setScriptMode(MainWindow::ScriptModeSurface);
+        check(!shows(snd), QStringLiteral("modulo Surface -> l'editor non mostra il suono (%1)").arg(shownBrief()));
+        check(captureSave().textureCode.contains(QLatin1String("mainSound")),
+              QStringLiteral("dock su un altro modulo -> il Save scrive il suono com'e' scritto"));
+        setScriptMode(MainWindow::ScriptModeSound);
+        check(shows(snd), QStringLiteral("giro dei moduli e ritorno -> il suono e' ancora nell'editor (%1)").arg(shownBrief()));
+        pressNew();
+        check(ui->txtScriptEditor->toPlainText().isEmpty(), QStringLiteral("tasto NEW -> editor vuoto"));
+        setScriptMode(MainWindow::ScriptModeSurface);
+    }
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Dock Script: texture di una fascia (%1) ==").arg(QString::fromLatin1(kMultiMeshRecord)));
+    if (loadRecord(QString::fromLatin1(kMultiMeshRecord))) {
+        if (!ui->radioMeshOne->isChecked()) click(ui->radioMeshOne);
+        ui->spinMeshSel->setValue(1);  wait(300);
+        setScriptMode(MainWindow::ScriptModeTexture);
+        const QString strip = gl->activeMeshEffectiveTextureCode();
+        check(!strip.trimmed().isEmpty() && shows(strip),
+              QStringLiteral("fascia 1 -> l'editor mostra la sua texture (%1)").arg(shownBrief()));
+        setScriptMode(MainWindow::ScriptModeSound);
+        setScriptMode(MainWindow::ScriptModeSurface);
+        setScriptMode(MainWindow::ScriptModeTexture);
+        check(shows(strip), QStringLiteral("giro dei moduli e ritorno -> ancora la texture della fascia (%1)").arg(shownBrief()));
+        click(ui->radioBackground);
+        click(ui->radioSurface);
+        check(shows(strip), QStringLiteral("Background e ritorno -> ancora la texture della fascia (%1)").arg(shownBrief()));
+        ui->spinMeshSel->setValue(4);  wait(300);
+        check(shows(gl->activeMeshEffectiveTextureCode()),
+              QStringLiteral("fascia 4 -> l'editor mostra la sua (%1)").arg(shownBrief()));
+        click(ui->radioMeshAll);
+        check(shows(m_mw->surfaceTextureScript()),
+              QStringLiteral("ambito All -> l'editor mostra la texture della superficie (%1)").arg(shownBrief()));
+        checkTextureCode(QStringLiteral("ambito All"));
+        setScriptMode(MainWindow::ScriptModeSurface);
+    }
 }
 
 void ScenarioTest::finish()

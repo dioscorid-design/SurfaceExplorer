@@ -2224,6 +2224,20 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->lineVariations, &QPlainTextEdit::textChanged, this, markRmTextureEdited);
 
     connect(ui->txtScriptEditor, &QPlainTextEdit::textChanged, this, [this](){
+        // L'editor e' la VISTA dello slot mostrato: cio' che l'utente scrive va
+        // li', subito. (Le scritture del programma passano da setScriptText e
+        // arrivano qui a segnali bloccati.)
+        const ScriptSlot shown = shownScriptSlot();
+        const QString typed = ui->txtScriptEditor->toPlainText();
+        m_scriptEditorText = typed;
+        switch (shown) {
+        case SlotSurface:           m_surfaceScriptText = typed; break;
+        case SlotSurfaceTexture:    m_surfaceTextureScriptText = typed; break;
+        case SlotMeshTexture:       syncMeshTextureSlot(); m_meshTextureScriptText = typed; break;
+        case SlotBackgroundTexture: m_bgTextureScriptText = typed; break;
+        case SlotSound:             m_soundScriptText = typed; break;
+        case SlotNone:              break;
+        }
         updateScriptButtonText();
         updateConstantsUIState();
         // txtScriptEditor e' UN widget per tre moduli: il lavoro appartiene a
@@ -2656,22 +2670,10 @@ MainWindow::MainWindow(QWidget *parent)
             }
 
             if (m_currentScriptMode == ScriptModeTexture) {
-                // L'editor si salva nello slot della texture di SUPERFICIE solo
-                // se e' davvero quella che sta mostrando. In ambito "Mesh"
-                // mostra lo script della FASCIA (vedi onToggleScriptMode, che
-                // legge activeMeshEffectiveTextureCode): salvarlo qui sporcava
-                // m_surfaceTextureScriptText col codice della parte, e siccome
-                // l'uscita da Background rimette quello slot nell'editor, il
-                // primo Run successivo lo travasava anche in
-                // m_surfaceTextureCode -- la texture globale si trasformava in
-                // quella della mesh. La fascia e' gia' committata nella
-                // MeshPart da setActiveMeshTexture: qui non c'e' nulla da
-                // salvare, esattamente come per il checkbox due righe sopra.
-                if (!showingMeshTex)
-                    m_surfaceTextureScriptText = ui->txtScriptEditor->toPlainText();
-                bool oldBlock = ui->txtScriptEditor->blockSignals(true);
-                ui->txtScriptEditor->setPlainText(m_bgTextureScriptText);
-                ui->txtScriptEditor->blockSignals(oldBlock);
+                // Niente da travasare: gli slot sono lo stato, l'editor la loro
+                // vista -- updateScriptButtonText lo porta sullo sfondo. (Prima
+                // qui l'editor si salvava nello slot della texture di superficie,
+                // e in ambito "Mesh" ci finiva lo script della fascia.)
                 ui->btnRunCurrentScript->setText("Run Background Texture");
                 updateScriptButtonText();
             }
@@ -2717,21 +2719,9 @@ MainWindow::MainWindow(QWidget *parent)
             // resta com'è a video (acceso o spento), spegnere il radio significa
             // solo "non sto più editando lo sfondo".
             if (m_currentScriptMode == ScriptModeTexture) {
-                m_bgTextureScriptText = ui->txtScriptEditor->toPlainText();
-                // USCENDO da Background si torna a cio' che il dock mostrava
-                // PRIMA: in ambito "Mesh" e' lo script della FASCIA, non lo slot
-                // globale (che appartiene alla texture di superficie). Rimettere
-                // quello lasciava sotto gli occhi -- e sotto il tasto Run -- il
-                // codice sbagliato per la parte selezionata. Stesso criterio di
-                // onToggleScriptMode, che per l'ambito Mesh legge la texture
-                // EFFICACE della parte.
-                const QString backToEditor =
-                    (ui->glWidget && ui->glWidget->activeMeshPart() >= 0)
-                        ? ui->glWidget->activeMeshEffectiveTextureCode()
-                        : m_surfaceTextureScriptText;
-                bool oldBlock = ui->txtScriptEditor->blockSignals(true);
-                ui->txtScriptEditor->setPlainText(backToEditor);
-                ui->txtScriptEditor->blockSignals(oldBlock);
+                // USCENDO da Background il dock torna a mostrare cio' che il
+                // bersaglio comanda: in ambito "Mesh" lo script della FASCIA,
+                // altrimenti la texture di superficie (shownScriptSlot).
                 ui->btnRunCurrentScript->setText("Run Surface Texture");
                 updateScriptButtonText();
             }
@@ -3048,16 +3038,9 @@ MainWindow::MainWindow(QWidget *parent)
                 // //IMG: in un record con lo sfondo spento).
                 forgetBackgroundTexture();
 
-                // Se stiamo visualizzando il dock degli script in modalità Texture
-                if (m_currentScriptMode == ScriptModeTexture) {
-                    bool oldBlockTxt = ui->txtScriptEditor->blockSignals(true);
-                    ui->txtScriptEditor->clear();
-                    ui->txtScriptEditor->blockSignals(oldBlockTxt);
-
-                    // Disattiva coerentemente i tasti
-                    ui->btnSaveScript->setEnabled(false);
-                    ui->btnRunCurrentScript->setEnabled(false);
-                }
+                // Lo slot dello sfondo e' vuoto (forgetBackgroundTexture): se
+                // il dock lo sta mostrando, editor e tasti lo seguono.
+                updateScriptButtonText();
             }
 
             onColorTargetChanged();
@@ -3115,14 +3098,8 @@ MainWindow::MainWindow(QWidget *parent)
                         // Svuota memoria e variabili parametriche (il motore
                         // torna allo shader standard)
                         commitSurfaceTextureCode(QString());
-                        m_surfaceTextureScriptText.clear();
-
-                        // Se l'utente sta visualizzando il dock script in modalità texture, svuota l'editor
-                        if (m_currentScriptMode == ScriptModeTexture) {
-                            bool ob = ui->txtScriptEditor->blockSignals(true);
-                            ui->txtScriptEditor->clear();
-                            ui->txtScriptEditor->blockSignals(ob);
-                        }
+                        // Lo script con lei: l'editor, se lo mostra, lo segue.
+                        setScriptText(SlotSurfaceTexture, QString());
 
                         if (ui->glWidget) ui->glWidget->clearTexture();
                     }
@@ -3239,7 +3216,7 @@ MainWindow::MainWindow(QWidget *parent)
                     // NB: il bug residuo era SOLO sulle parametriche (le implicite
                     // ricompilano la texture nello shader SDF a ogni Run).
                     commitSurfaceTextureCode(QString());   // torna allo shader standard
-                    m_surfaceTextureScriptText.clear();
+                    setScriptText(SlotSurfaceTexture, QString());
 
                     // Reset dei colori texture alla default. Senza questo restano
                     // quelli del preset precedente e la scacchiera default
@@ -3276,7 +3253,7 @@ MainWindow::MainWindow(QWidget *parent)
         if (ui->tabModeSelector->currentIndex() == 1) { // Ray Marching
             // Solo l'SDF (lineEquation/script) è geometria; il displacement
             // (lineVariations) è del modulo texture ed è controllato al punto 2.
-            QString eq = activeImplicitEquationText() + " " + m_surfaceScriptText;
+            QString eq = activeImplicitEquationText() + " " + m_surfaceScriptApplied;
             if (hasTimeVariable(eq)) needsAnim = true;
         } else { // Parametrica
             // Includere i campi Composition (lineU/lineV/lineW) e i vincoli espliciti:
@@ -3288,7 +3265,7 @@ MainWindow::MainWindow(QWidget *parent)
                          ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
                          ui->lineU->toPlainText() + " " + ui->lineV->toPlainText() + " " + ui->lineW->toPlainText() + " " +
                          ui->lineExplicitU->toPlainText() + " " + ui->lineExplicitV->toPlainText() + " " + ui->lineExplicitW->toPlainText() + " " +
-                         m_surfaceScriptText;
+                         m_surfaceScriptApplied;
             if (hasTimeVariable(eq)) needsAnim = true;
         }
 
@@ -4651,11 +4628,9 @@ MainWindow::SceneFingerprint MainWindow::sceneFingerprint() const
 
     flattenFingerprint(QString(), root, fp);
 
-    // Il suono: l'editor se lo sta mostrando (anche non eseguito, come gli
-    // altri moduli), altrimenti il suo slot.
-    const QString sound = (m_currentScriptMode == ScriptModeSound)
-                              ? wrapSoundCode(ui->txtScriptEditor->toPlainText())
-                              : soundCode();
+    // Il suono: com'e' scritto nel suo slot (anche non eseguito, come gli
+    // altri moduli).
+    const QString sound = soundCode();
     flattenFingerprint(QStringLiteral("sound/code"), QJsonValue(sound), fp);
     return fp;
 }
@@ -5235,46 +5210,24 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // quella conservazione e' esattamente cio' che non si vuole -- l'editor
     // restava pieno dello script texture della superficie appena buttata via.
     if (!loadDefaultSurface) {
-        ui->txtScriptEditor->blockSignals(true);
-        ui->txtScriptEditor->clear();
-        ui->txtScriptEditor->blockSignals(false);
-        m_surfaceTextureScriptText.clear();
-        m_bgTextureScriptText.clear();
-        m_soundScriptText.clear();
-        updateScriptButtonText();
+        setScriptText(SlotSurfaceTexture, QString());
+        setScriptText(SlotBackgroundTexture, QString());
+        setScriptText(SlotSound, QString());
     }
-    else if (m_currentScriptMode == ScriptModeSurface) {
-        ui->txtScriptEditor->blockSignals(true);
-        ui->txtScriptEditor->clear();
-        ui->txtScriptEditor->blockSignals(false);
-    }
-    // Se il dock Script e' aperto sulla texture di SUPERFICIE, l'editor va
-    // allineato al nuovo tab: in Ray Marching la texture di superficie non si
-    // scrive qui (si gestisce dal dock Equations) -> editor svuotato; tornando
-    // in Parametrico -> ripristinato da m_surfaceTextureScriptText. Il codice
-    // resta sempre nella variabile membro, l'editor ne e' solo la vista.
-    else if (m_currentScriptMode == ScriptModeTexture && !ui->radioBackground->isChecked()) {
-        ui->txtScriptEditor->blockSignals(true);
-        // m_sameTabRestart: riclic sulla linguetta attiva. Non e' un cambio di
-        // modalita' ma un "ricomincia da capo", e la texture viene azzerata
-        // poco piu' sotto -- ripristinarne lo script lascerebbe il dock Script
-        // pieno del codice di una texture ormai spenta. Lo slot di testo si
-        // svuota con lei, o il prossimo allineamento lo ripescherebbe.
-        if (index == 1 || m_sameTabRestart) {
-            ui->txtScriptEditor->clear();                                  // -> Ray Marching, o ripartenza
-            if (m_sameTabRestart) m_surfaceTextureScriptText.clear();
-        }
-        else            ui->txtScriptEditor->setPlainText(m_surfaceTextureScriptText); // -> Parametrico
-        ui->txtScriptEditor->blockSignals(false);
-        // Ricalcola lo stato dei pulsanti con l'editor ora corretto.
-        updateScriptButtonText();
-    }
-    // Ripartenza col dock aperto su un ALTRO modulo (superficie, sfondo, suono)
-    // o chiuso: i rami sopra non passano di qui, ma la texture viene azzerata
-    // lo stesso. Lo slot va svuotato comunque, o riaprendo il dock in Texture
-    // si ritroverebbe lo script della texture spenta.
-    if (m_sameTabRestart) m_surfaceTextureScriptText.clear();
+    // CAMBIO DI LINGUETTA: verso il Ray Marching lo script della texture di
+    // superficie lo svuota il ramo implicito, piu' sotto (li' il dock non lo
+    // mostra nemmeno: shownScriptSlot); verso il parametrico resta com'e'.
+    // RIPARTENZA (riclic sulla linguetta attiva, m_sameTabRestart): non e' un
+    // cambio di modalita' ma un "ricomincia da capo", e la texture viene
+    // azzerata poco piu' sotto -- il suo script con lei, qualunque modulo il
+    // dock stia mostrando, o riaprendolo in Texture si ritroverebbe lo script
+    // della texture spenta.
+    if (m_sameTabRestart) setScriptText(SlotSurfaceTexture, QString());
     clearSurfaceScript();
+    // Testo in lavorazione per una fascia: e' della scena di prima.
+    m_meshTextureScriptPart = -2;
+    // L'editor segue gli slot (e' la loro vista), i tasti con lui.
+    updateScriptButtonText();
     exitMetricScriptMode();
     // ==========================================================
 
@@ -5304,7 +5257,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     if (m_audioController) {
         m_audioController->stopAll();
     }
-    m_soundScriptText.clear();
+    setScriptText(SlotSound, QString());
     if (ui->btnRunCurrentScript && ui->btnRunCurrentScript->text() == "Stop Sound") {
         ui->btnRunCurrentScript->setText("Run Sound");
     }
@@ -5570,11 +5523,11 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         // sfondo qui sopra. Il reset l'ha appena azzerata (m_surfaceTextureCode
         // e setTextureCode("")), quindi il suo script non deve sopravviverle:
         // restando pieno, ogni successivo allineamento dell'editor
-        // (syncTextureEditorTo, che legge proprio questo slot) lo ripescava e
+        // (refreshScriptEditor, che legge proprio questo slot) lo ripescava e
         // il dock Script tornava sporco col codice della texture spenta.
         // Il ripristino "tornando in Parametrico" vale per il cambio tab SENZA
         // reset, dove la texture sopravvive davvero.
-        m_surfaceTextureScriptText.clear();
+        setScriptText(SlotSurfaceTexture, QString());
 
         // (Il bersaglio e' gia' tornato su Surface nella parte comune, sopra.)
 
@@ -7320,7 +7273,7 @@ QSet<QString> MainWindow::constantsNotUsedBySurface() const
         }
         // Lo SCRIPT della superficie parametrica e' GLSL, ma e' comunque della
         // SUPERFICIE: una costante che vi compare non va resettata.
-        mathText += " " + stripCodeComments(m_surfaceScriptText);
+        mathText += " " + stripCodeComments(m_surfaceScriptText + "\n" + m_surfaceScriptApplied);
     } else {
         // Sotto-tab ATTIVO, non lineEquation fisso: il criterio dev'essere lo
         // STESSO di updateConstantsUIState (vedi il commento sopra), che legge
@@ -7330,7 +7283,7 @@ QSet<QString> MainWindow::constantsNotUsedBySurface() const
         // deformando la superficie 4D a schermo.
         mathText = stripCodeComments(activeImplicitEquationText());
         // Idem per lo script implicito in Ray Marching.
-        mathText += " " + stripCodeComments(m_surfaceScriptText);
+        mathText += " " + stripCodeComments(m_surfaceScriptText + "\n" + m_surfaceScriptApplied);
     }
 
     // Limiti e path: valutati con A..F/S registrate, quindi contano come uso.
@@ -7551,9 +7504,10 @@ void MainWindow::updateConstantsUIState() {
     // coerente con generateGlslHelperVars(), che davanti a "float A" non
     // inietta affatto la costante, quindi li' A e' la locale e lo slider non ha
     // modo di influenzarla.
-    glslText += " " + stripCodeComments(ui->txtScriptEditor->toPlainText());
+    glslText += " " + stripCodeComments(scriptText(shownScriptSlot()));
 
-    // LO SCRIPT DELLA SUPERFICIE, dal suo slot stabile e non dall'editor.
+    // LO SCRIPT DELLA SUPERFICIE, scritto e applicato, qualunque modulo il dock
+    // stia mostrando (la riga sopra conta solo lo slot in vista).
     // L'editor mostra UN modulo per volta (superficie, texture o suono) e in
     // ambito Mesh la texture della fascia: appena mostra altro, lo script
     // parametrico spariva da questo testo e le costanti citate SOLO li'
@@ -7563,9 +7517,7 @@ void MainWindow::updateConstantsUIState() {
     // ritrovarsi E=1, F=1: un tubo solo e raggio degenere, cioe' la superficie
     // "collassata" -- e un salvataggio in quello stato scriveva i valori
     // sbagliati nel record.
-    // m_surfaceScriptText e' lo stesso slot che onStartClicked usa come sorgente
-    // dello script, quindi non dipende da quale modulo l'editor stia mostrando.
-    glslText += " " + stripCodeComments(m_surfaceScriptText);
+    glslText += " " + stripCodeComments(m_surfaceScriptText + "\n" + m_surfaceScriptApplied);
 
     // Anche i path camera 4D/3D valgono come "uso" di una costante: le loro
     // espressioni sono compilate su exprtk con A..F/s registrate
@@ -8020,8 +7972,8 @@ void MainWindow::dumpTextureState(const char *tag) const
             meshCode = parts[meshIdx].textureCode;
     }
 
-    const QString editorText = (m_currentScriptMode == ScriptModeTexture && ui->txtScriptEditor)
-                             ? ui->txtScriptEditor->toPlainText() : QString();
+    const QString editorText = (m_currentScriptMode == ScriptModeTexture)
+                             ? scriptText(shownScriptSlot()) : QString();
     const QString lineTexText = ui->lineTexture ? ui->lineTexture->toPlainText() : QString();
     const QString dispFieldText = ui->lineVariations ? ui->lineVariations->toPlainText() : QString();
     const QString dispEngine = g ? g->currentDisplacementCode() : QString();
@@ -8162,17 +8114,13 @@ bool MainWindow::syncSurfaceTextureFrom(const LibraryItem *lib)
     // blockSignals: questo codice VIENE dalla libreria, non e' una digitazione.
     // Senza, textChanged azzererebbe m_currentTextureLibName (~2315) e il record
     // perderebbe proprio l'ancora che ha permesso di trovare la texture.
-    // In ambito "Mesh" l'editor mostra la texture della FASCIA selezionata: il
-    // codice globale non va scritto li'. Lo riallinea alla parte
-    // syncFocusedTextureFromLibrary, in coda.
-    const bool meshScope = !isImplicit && ui->glWidget
-                           && ui->glWidget->activeMeshPart() >= 0;
+    // (In parametrico il codice va nello slot della texture di superficie, qui
+    // sotto: l'editor lo mostra solo se il dock e' su quello slot -- in ambito
+    // "Mesh" mostra la FASCIA selezionata.)
     if (isImplicit && ui->lineTexture) {
         ui->lineTexture->blockSignals(true);
         ui->lineTexture->setPlainText(newCode);
         ui->lineTexture->blockSignals(false);
-    } else if (!meshScope) {
-        syncTextureEditorTo(newCode);
     }
 
     // Lo SLOT dello script (l'intenzione, da cui l'editor si ricostruisce
@@ -8184,7 +8132,7 @@ bool MainWindow::syncSurfaceTextureFrom(const LibraryItem *lib)
     // Solo in PARAMETRICO: in Ray Marching la texture vive nel campo lineTexture
     // (e' quello che la Library confronta per riconoscere la texture attiva), e
     // i due membri parametrici restano vuoti.
-    if (!isImplicit) m_surfaceTextureScriptText = newCode;
+    if (!isImplicit) setScriptText(SlotSurfaceTexture, newCode);
 
     // m_currentTexturePresetPath NON si tocca, ed e' una scelta.
     // Quel campo dice "la scena mostra QUEL preset per intero", ed e' una delle
@@ -8276,7 +8224,7 @@ bool MainWindow::syncSurfaceTextureFrom(const LibraryItem *lib)
 void MainWindow::forgetBackgroundTexture()
 {
     m_bgTextureCode.clear();
-    m_bgTextureScriptText.clear();
+    setScriptText(SlotBackgroundTexture, QString());
     m_currentBgTextureLibName.clear();
     m_currentBgTextureHintText.clear();
     // Ricarica la default e spegne lo script di sfondo (m_bgIsScript): chi
@@ -8319,23 +8267,14 @@ bool MainWindow::syncBackgroundTextureFrom(const LibraryItem *lib)
     }
 
     m_bgTextureCode = newCode;
-    m_bgTextureScriptText = newCode;
+    // Lo slot, e con lui l'editor se sta mostrando lo sfondo: e' la libreria,
+    // non una digitazione.
+    setScriptText(SlotBackgroundTexture, newCode);
     // Messaggio dello sfondo: e' cio' che dice a cosa serve uno slider appena
     // acquisito (il caso per cui il comando esiste). Solo lo stato: lo mostra il
     // chiamante, una volta per le due texture. Anche vuoto, come la superficie.
     m_currentBgTextureHintText    = lib->hintText.trimmed();
     m_currentBgTextureHintSeconds = lib->hintSeconds > 0 ? lib->hintSeconds : m_currentHintSeconds;
-
-    // Editor: solo se sta mostrando lo sfondo (modulo Texture, bersaglio
-    // Background). syncTextureEditorTo rifiuta proprio questo caso, perche' e'
-    // pensata per la superficie. A segnali bloccati: e' la libreria, non una
-    // digitazione.
-    if (m_currentScriptMode == ScriptModeTexture && ui->radioBackground
-        && ui->radioBackground->isChecked() && ui->txtScriptEditor) {
-        const bool old = ui->txtScriptEditor->blockSignals(true);
-        ui->txtScriptEditor->setPlainText(newCode);
-        ui->txtScriptEditor->blockSignals(old);
-    }
 
     // L'orologio segue il codice, come per la superficie: il codice nuovo puo'
     // aver acquisito o perso la variabile t. Comando esplicito: riarma lo stop
@@ -8792,12 +8731,10 @@ void MainWindow::handleTextureSelection(int index)
             applySurfaceTextureToEngine();
         }
 
-        // Rimuove il tag //IMG: dall'editor testuale
-        QString currentText = ui->txtScriptEditor->toPlainText();
+        // Rimuove il tag //IMG: dallo script della texture di superficie
+        QString currentText = m_surfaceTextureScriptText;
         currentText.remove(QRegularExpression(R"(^\s*//IMG:\s*(.*)$\n?)", QRegularExpression::MultilineOption));
-        ui->txtScriptEditor->blockSignals(true);
-        ui->txtScriptEditor->setPlainText(currentText);
-        ui->txtScriptEditor->blockSignals(false);
+        setScriptText(SlotSurfaceTexture, currentText);
     }
     lastTextureIndex = index;
     lastWasBg = isBg;
@@ -8852,18 +8789,12 @@ void MainWindow::handleTextureSelection(int index)
             // cercano return/vec3/vec4/mainImage e sul solo tag non fanno nulla.
             // Svuotato, col dock Script su un altro modulo l'editor tornava
             // vuoto sullo sfondo (trovato dal test degli scenari).
-            m_bgTextureScriptText = m_bgTextureCode;
+            setScriptText(SlotBackgroundTexture, m_bgTextureCode);
 
             if (ui->glWidget) {
                 ui->glWidget->setProperty("bg_zoom", data.zoom);
                 ui->glWidget->setProperty("bg_pan", QVector2D(data.panX, data.panY));
                 ui->glWidget->setProperty("bg_rot", data.rotation);
-            }
-
-            if (m_currentScriptMode == ScriptModeTexture) {
-                ui->txtScriptEditor->blockSignals(true);
-                ui->txtScriptEditor->setPlainText(m_bgTextureCode);
-                ui->txtScriptEditor->blockSignals(false);
             }
         }
         else {
@@ -8892,12 +8823,6 @@ void MainWindow::handleTextureSelection(int index)
                 QString safeDefault = "";
                 forgetBackgroundTexture();
                 refreshSceneHint(m_currentHintSeconds);
-
-                if (m_currentScriptMode == ScriptModeTexture) {
-                    ui->txtScriptEditor->blockSignals(true);
-                    ui->txtScriptEditor->setPlainText(safeDefault);
-                    ui->txtScriptEditor->blockSignals(false);
-                }
 
                 // 3. (Qui c'era generateTexture(): disegna la scacchiera nel sampler
                 // della SUPERFICIE, e ne copriva l'immagine. Lo sfondo di default
@@ -8934,13 +8859,13 @@ void MainWindow::handleTextureSelection(int index)
             // 1. Controlliamo se c'era già un'immagine di sfondo attiva.
             // Questo permette di mixare immagini e codice procedurale al primo clic.
             // FONTE PRIMARIA il motore (backgroundImagePath: l'immagine attiva
-            // e' quella caricata li'), l'editor solo come ripiego per l'unico
-            // caso che il motore non vede: un tag incollato a mano dall'utente
-            // e non ancora eseguito.
+            // e' quella caricata li'), lo script dello sfondo solo come ripiego
+            // per l'unico caso che il motore non vede: un tag incollato a mano
+            // dall'utente e non ancora eseguito.
             QString keepImage = backgroundImagePath();
             if (keepImage.isEmpty()) {
                 QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)", QRegularExpression::MultilineOption);
-                const QRegularExpressionMatch imgMatch = imgRe.match(ui->txtScriptEditor->toPlainText());
+                const QRegularExpressionMatch imgMatch = imgRe.match(m_bgTextureScriptText);
                 if (imgMatch.hasMatch()) keepImage = imgMatch.captured(1).trimmed();
             }
 
@@ -8952,23 +8877,12 @@ void MainWindow::handleTextureSelection(int index)
 
             // Come per la superficie: lo slot subito, la copia applicata solo
             // se compila (onApplyTextureScriptClicked, ramo A).
-            m_bgTextureScriptText = newCode;
+            setScriptText(SlotBackgroundTexture, newCode);
 
-            // Salviamo il testo dell'editor per non rovinare altre schede (es. Surface)
-            QString prevEditorText = ui->txtScriptEditor->toPlainText();
-
-            // 2. Scriviamo il codice nell'editor e "premiamo" il tasto Run virtualmente
-            ui->txtScriptEditor->blockSignals(true);
-            ui->txtScriptEditor->setPlainText(newCode);
-
-            // 3. Eseguiamo il metodo centralizzato (fa parsing, carica immagini, compila e fa l'Update GPU!)
+            // 2-3. Il metodo centralizzato legge lo slot dello sfondo (fa
+            // parsing, carica immagini, compila e fa l'Update GPU). L'editor
+            // non fa da tramite: mostra lo sfondo solo se il dock e' li'.
             onApplyTextureScriptClicked();
-
-            // Ripristiniamo l'editor se non eravamo nella tab Texture
-            if (m_currentScriptMode != ScriptModeTexture) {
-                ui->txtScriptEditor->setPlainText(prevEditorText);
-            }
-            ui->txtScriptEditor->blockSignals(false);
 
             // 4. Applica proprietà aggiuntive di trasformazione
             if (ui->glWidget) {
@@ -9311,7 +9225,7 @@ void MainWindow::handleTextureSelection(int index)
                 // Svuotato, col dock Script su un altro modulo l'editor tornava
                 // vuoto sulla texture, e il Save dipendeva da copie di riserva
                 // per non perdere l'immagine. Trovato dal test degli scenari.
-                m_surfaceTextureScriptText = m_surfaceTextureCode;
+                setScriptText(SlotSurfaceTexture, m_surfaceTextureCode);
 
                 // Il checkbox mostra l'intenzione (gia' accesa qui sopra, PRIMA
                 // di updateTextureUIState: onColorTargetChanged() vi si appoggia
@@ -9339,12 +9253,6 @@ void MainWindow::handleTextureSelection(int index)
 
                 updateRenderState();
                 ui->glWidget->update();
-            }
-
-            if (m_currentScriptMode == ScriptModeTexture) {
-                ui->txtScriptEditor->blockSignals(true);
-                ui->txtScriptEditor->setPlainText(m_surfaceTextureCode);
-                ui->txtScriptEditor->blockSignals(false);
             }
 
         } else if (!data.scriptCode.isEmpty()) {
@@ -9437,7 +9345,6 @@ void MainWindow::handleTextureSelection(int index)
                 m_userStoppedMeshTexClock = false;
                 updateMasterButtonState();
 
-                syncTextureEditorTo(newCode);
                 updateTextureUIState(true, true);
                 updateFlatPreviewButton();
                 updateScriptButtonText();
@@ -9474,18 +9381,9 @@ void MainWindow::handleTextureSelection(int index)
 
             // Lo slot (lo script, cioe' l'intenzione) subito; la copia applicata
             // la scrive onApplyTextureScriptClicked, se il codice compila.
-            m_surfaceTextureScriptText = newCode;
-
-            QString prevEditorText = ui->txtScriptEditor->toPlainText();
-            ui->txtScriptEditor->blockSignals(true);
-            ui->txtScriptEditor->setPlainText(newCode);
+            setScriptText(SlotSurfaceTexture, newCode);
 
             onApplyTextureScriptClicked();
-
-            if (m_currentScriptMode != ScriptModeTexture) {
-                ui->txtScriptEditor->setPlainText(prevEditorText);
-            }
-            ui->txtScriptEditor->blockSignals(false);
 
             if (ui->glWidget) {
                 ui->glWidget->setFlatViewTarget(0);
@@ -10162,7 +10060,7 @@ void MainWindow::onStartClicked()
     // metrica; il ramo Ray Marching ha la sua equazione in lineEquation.
     {
         const bool isParametricTab = (ui->tabModeSelector->currentIndex() == 0);
-        const bool fromScript = !m_surfaceScriptText.trimmed().isEmpty()
+        const bool fromScript = !m_surfaceScriptApplied.trimmed().isEmpty()
                              && m_surfaceOrigin != OriginBoth;
         if (isParametricTab && !fromScript && !m_populatingFields
             && !hasParametricEquationInput()) {
@@ -10210,9 +10108,14 @@ void MainWindow::onStartClicked()
 
     // 2.5. RIPRESA PER GLI SCRIPT
     if (ui->glWidget->getEngine()->isScriptModeActive()) {
-        QString currentScript = (m_currentScriptMode == ScriptModeSurface)
-                ? ui->txtScriptEditor->toPlainText()
-                : m_surfaceScriptText;
+        // Lo script com'e' scritto: il master esegue anche cio' che e' in
+        // sospeso. Il COMMIT DI SERVIZIO (Invio su una costante ad animazione
+        // ferma) no: riapplica lo script a schermo, come per le equazioni, che
+        // riusano lo snapshot dell'ultimo Run -- altrimenti un Invio su una
+        // costante eseguiva di straforo uno script ancora in lavorazione.
+        const bool serviceCommit = this->property("rmApplyOnly").toBool()
+                                   && !m_surfaceScriptApplied.trimmed().isEmpty();
+        QString currentScript = serviceCommit ? m_surfaceScriptApplied : m_surfaceScriptText;
 
         const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
 
@@ -10257,6 +10160,10 @@ void MainWindow::onStartClicked()
             showShaderError("Script Compilation Error", ui->glWidget->getShaderError());
             return;
         }
+        // Compila: e' lo script a schermo, quello che il Save scrive. Prima il
+        // master eseguiva lo script in sospeso senza registrarlo, e il Save
+        // scriveva ancora quello dell'ultimo Run del dock.
+        m_surfaceScriptApplied = currentScript;
 
         if (ui->tabModeSelector->currentIndex() == 1) {
             QString texCode = ui->lineTexture->toPlainText();
@@ -10293,9 +10200,7 @@ void MainWindow::onStartClicked()
         if (!applyBackgroundTextureIfNeeded()) return;
 
         {
-            QString soundSrc = (m_currentScriptMode == ScriptModeSound)
-                    ? ui->txtScriptEditor->toPlainText()
-                    : m_soundScriptText;
+            QString soundSrc = m_soundScriptText;
             if (!soundSrc.trimmed().isEmpty()) {
                 QString audioErr;
                 // Nella forma che suonera' (GLSL nudo avvolto): senza marcatori
@@ -10305,8 +10210,6 @@ void MainWindow::onStartClicked()
                                                                audioErr.isEmpty() ? "Audio shader compilation failed." : audioErr);
                     return;
                 }
-                // Bozza valida: committa, così applyStartSideEffects suona questa.
-                if (m_currentScriptMode == ScriptModeSound) m_soundScriptText = soundSrc;
             }
         }
 
@@ -10947,7 +10850,7 @@ void MainWindow::onStartClicked()
                          ui->lineU->toPlainText() + " " +
                          ui->lineV->toPlainText() + " " +
                          ui->lineW->toPlainText() + " " +
-                         m_surfaceScriptText;
+                         m_surfaceScriptApplied;
 
     if (m_surfaceTextureState && textureHasLogic(currentScript)
         && !commitSurfaceTextureCode(currentScript)) {
@@ -12283,61 +12186,9 @@ void MainWindow::onToggleView3DClicked()  // path 3D (pushView3D)
 
 void MainWindow::onToggleScriptMode()
 {
-    // 1. Salva il testo che l'utente ha appena scritto nella variabile correnta
-    QString currentText = ui->txtScriptEditor->toPlainText();
-    if (m_currentScriptMode == ScriptModeSurface) m_surfaceScriptText = currentText;
-    else if (m_currentScriptMode == ScriptModeTexture) {
-        if (ui->radioBackground->isChecked()) m_bgTextureScriptText = currentText;
-        // AMBITO "MESH": l'editor mostra la texture della PARTE, che vive nella
-        // MeshPart. Salvarla in m_surfaceTextureScriptText (lo slot della texture
-        // di SUPERFICIE) lo sporcava col codice per-mesh: alla texture successiva
-        // ci si ritrovava i due script sommati nell'editor. Qui non si salva
-        // nulla -- la texture della parte e' gia' committata nella MeshPart da
-        // setActiveMeshTexture, e questo campo non ne e' il proprietario.
-        else if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0) { }
-        // In Ray Marching la texture di SUPERFICIE ha l'editor svuotato di proposito
-        // (si gestisce dal dock Equations): NON salvarlo, altrimenti sovrascriveremmo
-        // m_surfaceTextureScriptText con il vuoto, perdendo il codice parametrico.
-        else if (ui->tabModeSelector->currentIndex() != 1) m_surfaceTextureScriptText = currentText;
-    }
-    else if (m_currentScriptMode == ScriptModeSound) m_soundScriptText = currentText;
-
-    // 2. Passa alla modalità successiva (0 -> 1 -> 2 -> 0)
+    // Il testo scritto e' gia' nel suo slot (l'editor ne e' la vista): si passa
+    // al modulo successivo (0 -> 1 -> 2 -> 0) e la vista lo segue, coi tasti.
     m_currentScriptMode = static_cast<ScriptMode>((m_currentScriptMode + 1) % 3);
-    // 3. Ripristina il testo senza innescare eventi indesiderati
-    ui->txtScriptEditor->blockSignals(true);
-
-    if (m_currentScriptMode == ScriptModeSurface) {
-        ui->txtScriptEditor->setPlainText(m_surfaceScriptText);
-        ui->btnRunCurrentScript->setEnabled(false);
-    } else if (m_currentScriptMode == ScriptModeTexture) {
-        if (ui->radioBackground->isChecked()) {
-            ui->txtScriptEditor->setPlainText(m_bgTextureScriptText);
-        } else if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
-            // AMBITO "MESH": va mostrata la texture della PARTE, non quella di
-            // superficie. Qui si caricava sempre m_surfaceTextureScriptText:
-            // con una texture messa su una mesh quello slot e' legittimamente
-            // vuoto (la texture sta nella MeshPart), e il tab Texture appariva
-            // VUOTO pur avendo la mesh la sua texture. Stesso criterio dei
-            // radio e degli slider: i controlli mostrano cio' che comandano.
-            // Texture EFFICACE, non solo "dichiarata": se la mesh ha la texture
-            // SPENTA (wireframe, o checkbox tolto) lo script resta conservato ma
-            // non va mostrato, o il tab si ripopolerebbe con una texture che
-            // quella mesh non sta disegnando. Stesso criterio di
-            // syncAppearanceControlsToActiveMesh: e' il motivo per cui deselezionando
-            // la texture dal tab Surface e poi passando a Texture lo script
-            // ricompariva ("resta al primo giro").
-            ui->txtScriptEditor->setPlainText(ui->glWidget->activeMeshEffectiveTextureCode());
-        } else {
-            ui->txtScriptEditor->setPlainText(m_surfaceTextureScriptText);
-        }
-    } else if (m_currentScriptMode == ScriptModeSound) {
-        ui->txtScriptEditor->setPlainText(m_soundScriptText);
-    }
-
-    ui->txtScriptEditor->blockSignals(false);
-
-    // 4. DELEGA tutta la gestione dei tasti e delle label alla funzione centralizzata!
     updateScriptButtonText();
 }
 
@@ -12351,8 +12202,8 @@ void MainWindow::onRunCurrentScript()
     // noteSceneEdited, che conta txtScriptEditor come dock Script solo qui).
     RunOutcomeGuard runOutcomeGuard(this, m_currentScriptMode == ScriptModeSurface);
 
-    // 1. Estrae il testo correntemente scritto nell'editor
-    QString currentText = ui->txtScriptEditor->toPlainText();
+    // 1. Il testo del modulo che il dock mostra
+    QString currentText = scriptText(shownScriptSlot());
 
     // --- CONTROLLO DI SICUREZZA (WRONG MODE BLOCK) DELEGATO ---
     // Passiamo l'enum castato a int
@@ -12382,8 +12233,7 @@ void MainWindow::onRunCurrentScript()
         // l'equivalente parametrico) a segnalarlo, senza spostare l'utente.
 
         // BIFORCAZIONE TRA RAY MARCHING (IMPLICIT) E PARAMETRIC
-        m_surfaceScriptText = currentText;
-        this->setProperty("rawSurfaceScript", currentText);
+        m_surfaceScriptApplied = currentText;
 
         if (ui->tabModeSelector->currentIndex() == 1) {
             // --- RAMO 1: SCRIPT IMPLICITO (RAY MARCHING) MULTI-RIGA ---
@@ -12506,14 +12356,8 @@ void MainWindow::onRunCurrentScript()
             return;
         }
 
-        if (ui->radioBackground->isChecked()) m_bgTextureScriptText = currentText;
-        // AMBITO "MESH": l'editor mostra la texture della PARTE, non quella di
-        // superficie. Salvarla in m_surfaceTextureScriptText sporcherebbe lo slot
-        // globale col codice per-mesh -- stesso difetto gia' corretto in
-        // onToggleScriptMode. La parte la committa onApplyTextureScriptClicked
-        // (ramo per-mesh) via setActiveMeshTexture: qui non c'e' nulla da salvare.
-        else if (!(ui->glWidget && ui->glWidget->activeMeshPart() >= 0))
-            m_surfaceTextureScriptText = currentText;
+        // Lo script e' gia' nello slot del bersaglio (sfondo, fascia o
+        // superficie): onApplyTextureScriptClicked lo legge da li'.
         onApplyTextureScriptClicked();
 
     } else if (m_currentScriptMode == ScriptModeSound) {
@@ -12521,7 +12365,6 @@ void MainWindow::onRunCurrentScript()
         // (GLSL nudo avvolto nei marcatori) la da' soundCode(). Qui prima lo si
         // componeva con lo slot della texture dentro m_surfaceTextureCode /
         // m_bgTextureCode: uno script texture in sospeso risultava applicato.
-        m_soundScriptText = currentText;
         onRunSoundClicked();
     }
 
@@ -12662,7 +12505,7 @@ QString MainWindow::extractMeshSections(const QString &fullText, std::vector<Mes
 
 void MainWindow::onRunScriptClicked()
 {
-    QString fullText = ui->txtScriptEditor->toPlainText();
+    QString fullText = m_surfaceScriptText;
     if (fullText.trimmed().isEmpty()) return;
 
     // 1. PRIMA LINEA DI DIFESA: Evita che testo spazzatura faccia crashare il parser
@@ -12681,7 +12524,7 @@ void MainWindow::onRunScriptClicked()
         return;
     }
 
-    this->setProperty("rawSurfaceScript", fullText);
+    m_surfaceScriptApplied = fullText;
     parseAndApplyScriptParams(fullText, false);
 
     // Sezione opzionale //CUTOUT_BEGIN..//CUTOUT_END: corpo di
@@ -12793,8 +12636,8 @@ void MainWindow::runMetricScript(const QString& fullText)
     QString cleanCode = stripCodeComments(fullText);
     if (!InputValidator::validateParentheses(this, cleanCode)) return;
 
-    this->setProperty("rawSurfaceScript", fullText);
-    m_surfaceScriptText = fullText;
+    m_surfaceScriptApplied = fullText;
+    setScriptText(SlotSurface, fullText);
 
     // MULTI-MESH: uno script metrico produce una mesh CUSTOM (flusso geodetico),
     // che non ha parti. Le parti di uno script multi-mesh precedente vanno
@@ -12950,14 +12793,14 @@ void MainWindow::runMetricScript(const QString& fullText)
 QString MainWindow::surfaceConstantSource() const
 {
     if (ui->tabModeSelector->currentIndex() == 1)
-        return activeImplicitEquationText() + " " + m_surfaceScriptText;
+        return activeImplicitEquationText() + " " + m_surfaceScriptText + " " + m_surfaceScriptApplied;
     return ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
            ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
            ui->lineU->toPlainText() + " " + ui->lineV->toPlainText() + " " +
            ui->lineW->toPlainText() + " " +
            ui->lineExplicitU->toPlainText() + " " +
            ui->lineExplicitV->toPlainText() + " " +
-           ui->lineExplicitW->toPlainText() + " " + m_surfaceScriptText;
+           ui->lineExplicitW->toPlainText() + " " + m_surfaceScriptText + " " + m_surfaceScriptApplied;
 }
 
 // Avviso delle costanti condivise al caricamento di un RECORD.
@@ -13183,7 +13026,7 @@ void MainWindow::exitMetricScriptMode()
     // riassegna la sorgente per conto suo subito dopo; qui si ricade sul dock che
     // possiede la superficie adesso, cosi' i Run tornano al gate normale.
     if (m_surfaceOrigin == OriginBoth) {
-        m_surfaceOrigin = m_surfaceScriptText.trimmed().isEmpty()
+        m_surfaceOrigin = m_surfaceScriptApplied.trimmed().isEmpty()
                         ? OriginEquations : OriginScript;
     }
     checkParametricDependency();
@@ -13191,7 +13034,9 @@ void MainWindow::exitMetricScriptMode()
 
 void MainWindow::onApplyTextureScriptClicked()
 {
-    QString code = ui->txtScriptEditor->toPlainText();
+    // Lo script della texture su cui agiscono i comandi (sfondo, fascia o
+    // superficie), dal suo slot: qualunque modulo il dock stia mostrando.
+    QString code = scriptText(targetTextureSlot());
 
     // Codice applicato PRIMA di questa chiamata: serve piu' sotto per capire se
     // lo script sta davvero cambiando (texture nuova) o se e' un semplice
@@ -13782,7 +13627,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         // senza questo, il ramo toggle qui sotto non ripristinava il testo e
         // bisognava caricare un'ALTRA texture per rivederlo.
         if (isMatch && m_currentScriptMode == ScriptModeTexture
-            && ui->txtScriptEditor->toPlainText().trimmed().isEmpty()) {
+            && scriptText(shownScriptSlot()).trimmed().isEmpty()) {
             isMatch = false;
         }
 
@@ -14104,7 +13949,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // dalla GPU piu' sotto, con clearTexture) e il CODICE custom dal motore,
     // che restava compilato nel fragment a texture spenta.
     commitSurfaceTextureCode(QString());
-    m_surfaceTextureScriptText.clear();
+    setScriptText(SlotSurfaceTexture, QString());
 
     ui->lineVariations->blockSignals(true);
     ui->lineVariations->clear();
@@ -14120,14 +13965,11 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // se ne va tutto il resto, percorso dell'immagine e GPU compresi.
     forgetBackgroundTexture();
 
-    m_soundScriptText.clear();
+    setScriptText(SlotSound, QString());
     m_currentSoundLibName.clear();   // l'ancora segue il suono che se ne va
 
     clearSurfaceScript();
     exitMetricScriptMode();
-    ui->txtScriptEditor->blockSignals(true);
-    ui->txtScriptEditor->clear();
-    ui->txtScriptEditor->blockSignals(false);
 
     // Reset Colori a Default (Superficie Verde, Sfondo Grigio scuro)
     float defR = 0.20f, defG = 0.80f, defB = 0.20f;
@@ -14386,7 +14228,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     if (!isScript) {
         onStartClicked();
     } else {
-        applyAnimationState(hasTimeVariable(m_surfaceScriptText));
+        applyAnimationState(hasTimeVariable(m_surfaceScriptApplied));
     }
 
     // 7. Recuperiamo i dati di illuminazione dal file
@@ -14450,25 +14292,15 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     ui->glWidget->update();
 
     // 12. Estrai eventuale audio dallo script per la scheda Sound
-    QString fullLoadedText = m_surfaceScriptText + "\n" + m_surfaceTextureCode + "\n" + m_bgTextureCode;
-    m_soundScriptText = extractAudioDirectives(fullLoadedText);
+    QString fullLoadedText = m_surfaceScriptApplied + "\n" + m_surfaceTextureCode + "\n" + m_bgTextureCode;
+    setScriptText(SlotSound, extractAudioDirectives(fullLoadedText));
 
     // 12b. AVVIO AUTOMATICO DELL'AUDIO AL CARICAMENTO!
     if (fullLoadedText.contains("//MUSIC:") || fullLoadedText.contains("//SOUND_BEGIN")) {
         onRunSoundClicked();
     }
 
-    // 13. Aggiorna visivamente il text editor in base alla modalità in cui si trova l'utente
-    bool block = ui->txtScriptEditor->blockSignals(true);
-    if (m_currentScriptMode == ScriptModeSurface) {
-        ui->txtScriptEditor->setPlainText(m_surfaceScriptText);
-    } else if (m_currentScriptMode == ScriptModeTexture) {
-        ui->txtScriptEditor->setPlainText(m_bgTextureScriptText);
-    } else if (m_currentScriptMode == ScriptModeSound) {
-        ui->txtScriptEditor->setPlainText(m_soundScriptText);
-    }
-    ui->txtScriptEditor->blockSignals(block);
-
+    // 13. L'editor segue gli slot appena scritti (e' la loro vista), coi tasti.
     updateScriptButtonText();
 
     QTimer::singleShot(20, this, [this, isScript]() {
@@ -14682,10 +14514,6 @@ void MainWindow::applyMotionExample(LibraryItem data)
         clearSurfaceScript();
         exitMetricScriptMode();
 
-        ui->txtScriptEditor->blockSignals(true);
-        ui->txtScriptEditor->clear();
-        ui->txtScriptEditor->blockSignals(false);
-
         if (!isImplicitScript) {
             // +++ FILTRO DI SICUREZZA PER L'EQUAZIONE IMPLICITA +++
             QString eqToLoad = data.implicitEq.trimmed();
@@ -14869,7 +14697,6 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // 4. (I campi path sono già stati riempiti PRIMA di applyCommonData, vedi punto 2.)
 
     // 5. TEXTURE E AUDIO SUPERFICIE E SFONDO
-    bool oldTxtBlock = ui->txtScriptEditor->blockSignals(true);
 
     bool texEnabled = data.textureEnabled;
     QString texCode = data.textureCode;
@@ -15026,7 +14853,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     QString sourceForAudio = isImplicit ? ui->lineTexture->toPlainText() : texCode;
     QString fullLoadedText = sourceForAudio + "\n" + bgCode;
 
-    m_soundScriptText = extractAudioDirectives(fullLoadedText);
+    setScriptText(SlotSound, extractAudioDirectives(fullLoadedText));
 
     // Rimuoviamo la musica dai codici grafici per proteggere OpenGL!
     QRegularExpression cleanMusicRe(R"(^\s*//MUSIC:.*$\n?)", QRegularExpression::MultilineOption);
@@ -15112,25 +14939,18 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     m_surfaceTextureState = texEnabled;
     applySurfaceTextureToEngine();
-    m_surfaceTextureScriptText = texCode;
+    setScriptText(SlotSurfaceTexture, texCode);
     m_surfaceTextureCode = texCode;
     // In RM e' QUESTA riga a rimettere in vigore la texture: createImplicitFragmentShader
     // inietta il codice solo se m_textureEnabled, e setGlobalTextureEnabled e'
     // l'unico punto (con setTextureCode) che invalida m_pipelineImplicit.
     SE_TEXP("common:texture-riabilitata");
 
-    m_bgTextureScriptText = bgCode;
+    setScriptText(SlotBackgroundTexture, bgCode);
     m_bgTextureCode = bgCode;
 
-    // L'Editor ora riceve codice perfettamente pulito
-    if (m_currentScriptMode == ScriptModeSurface) {
-        ui->txtScriptEditor->setPlainText(m_surfaceScriptText);
-    } else if (m_currentScriptMode == ScriptModeTexture) {
-        if (ui->radioBackground->isChecked()) ui->txtScriptEditor->setPlainText(m_bgTextureScriptText);
-        else ui->txtScriptEditor->setPlainText(m_surfaceTextureScriptText);
-    } else if (m_currentScriptMode == ScriptModeSound) {
-        ui->txtScriptEditor->setPlainText(m_soundScriptText);
-    }
+    // (Gli slot hanno ora codice pulito; l'editor, loro vista, li segue.)
+    refreshScriptEditor();
 
 
     // COSTANTI: si rigiudicano QUI, a campi completi, e non prima.
@@ -15349,8 +15169,6 @@ void MainWindow::applyMotionExample(LibraryItem data)
         updateTextureUIState(texEnabled);
     }
 
-    ui->txtScriptEditor->blockSignals(oldTxtBlock);
-
     if(ui->radioTexColor1->isChecked() || ui->radioTexColor2->isChecked() || ui->radioBackground->isChecked()) {
         onColorTargetChanged();
     }
@@ -15545,7 +15363,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
         // premuto rieseguiva lo stesso script senza cambiare nulla.
         // I clock di texture e sfondo NON si perdono: applyAnimationState li
         // ricalcola da se' dai rispettivi codici, ognuno col proprio tempo.
-        applyAnimationState(hasTimeVariable(m_surfaceScriptText));
+        applyAnimationState(hasTimeVariable(m_surfaceScriptApplied));
     } else {
         if (ui->glWidget) {
 
@@ -15591,7 +15409,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
         // Come il ramo metrico qui sopra: l'argomento e' il tempo della sola
         // GEOMETRIA, non la somma dei tre moduli.
-        applyAnimationState(hasTimeVariable(m_surfaceScriptText));
+        applyAnimationState(hasTimeVariable(m_surfaceScriptApplied));
     }
 
     // =======================================================
@@ -16229,9 +16047,10 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
         code->remove(reMusic);
         code->remove(reProc);
     }
+    refreshScriptEditor();   // gli slot qui sopra sono cambiati sotto la vista
 
     // AGGIORNAMENTO MEMORIA AUDIO
-    m_soundScriptText = audioSnippet;
+    setScriptText(SlotSound, audioSnippet);
     m_currentSoundLibName = soundData.name.trimmed();   // ancora del focus (vedi mainwindow.h)
 
     // A schermo c'e' ora un suono di libreria, non lavoro dell'utente: per il
@@ -16246,14 +16065,7 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
         ~SoundPickedGuard() { w->markSoundPicked(); }
     } soundPickedGuard{this};
 
-    // AGGIORNAMENTO VISIVO DELL'EDITOR: solo se mostra il suono. In modalita'
-    // Texture mostra uno script (magari in sospeso, o quello di una fascia) che
-    // il suono non cambia: rimetterci lo slot lo cancellava.
-    if (m_currentScriptMode == ScriptModeSound) {
-        const bool oldBlock = ui->txtScriptEditor->blockSignals(true);
-        ui->txtScriptEditor->setPlainText(m_soundScriptText);
-        ui->txtScriptEditor->blockSignals(oldBlock);
-    }
+    // (L'editor segue da se' lo slot del suono, se e' quello che mostra.)
 
     m_audioController->stopAll();
 
@@ -17968,13 +17780,8 @@ void MainWindow::applyCommonData(LibraryItem d)
     }
 
     if (ui->radioBackground->isChecked()) {
-        if (m_currentScriptMode == ScriptModeTexture) {
-            m_bgTextureScriptText = ui->txtScriptEditor->toPlainText();
-            bool oldBlock = ui->txtScriptEditor->blockSignals(true);
-            ui->txtScriptEditor->setPlainText(m_surfaceTextureScriptText);
-            ui->txtScriptEditor->blockSignals(oldBlock);
+        if (m_currentScriptMode == ScriptModeTexture)
             ui->btnRunCurrentScript->setText("Run Surface Texture");
-        }
         ui->radioSurface->setEnabled(true);
 
         // Carico una nuova superficie: esco dall'editing sfondo, riporto il target
@@ -18300,12 +18107,14 @@ void MainWindow::applyCommonData(LibraryItem d)
     ui->tabModeSelector->blockSignals(oldTabSig);
 
     m_currentScriptMode = ScriptModeSurface;
+    // Testo in lavorazione per una fascia: era della scena di prima.
+    m_meshTextureScriptPart = -2;
 
     updateScriptButtonText();
 
     if (isScript && !d.scriptCode.isEmpty()) {
-        m_surfaceScriptText = d.scriptCode;
-        this->setProperty("rawSurfaceScript", d.scriptCode);
+        setScriptText(SlotSurface, d.scriptCode);
+        m_surfaceScriptApplied = d.scriptCode;
 
         // NB: l'uscita dalla modalità metrica (exitMetricScriptMode) avviene più
         // sotto, DOPO che campi ed editor contengono il preset NUOVO: la sua
@@ -18381,10 +18190,7 @@ void MainWindow::applyCommonData(LibraryItem d)
             }
         }
 
-        ui->txtScriptEditor->blockSignals(true);
-        ui->txtScriptEditor->setPlainText(d.scriptCode);
-
-        // Ora campi X/Y/Z/P (display map) ed editor riflettono il preset nuovo:
+        // Ora campi X/Y/Z/P (display map) e script riflettono il preset nuovo:
         // l'uscita dalla modalità metrica può rivalutare le costanti sul testo
         // giusto. Se lo script caricato è metrico la riattiva onRunScriptClicked
         // più sotto (runMetricScript riscrive m_metricScriptBody da sé).
@@ -18446,7 +18252,6 @@ void MainWindow::applyCommonData(LibraryItem d)
         }
 
         updateScriptButtonText();
-        ui->txtScriptEditor->blockSignals(false);
 
         // Editor ed equazione sono stati riempiti a segnali bloccati: nessun
         // textChanged è scattato, quindi ricalcoliamo qui l'abilitazione degli
@@ -19815,7 +19620,12 @@ void MainWindow::updateScriptButtonText() {
     bool isRayMarching = (ui->tabModeSelector->currentIndex() == 1);
     bool isBackground = ui->radioBackground->isChecked();
 
-    QString rawText = ui->txtScriptEditor->toPlainText();
+    // LA VISTA PRIMA DEI TASTI: l'editor mostra lo slot del modulo corrente
+    // (bersaglio e fascia compresi). Chiunque riallinei i tasti riallinea cosi'
+    // anche l'editor; se il testo e' gia' quello non succede nulla.
+    refreshScriptEditor();
+    const ScriptSlot shownSlot = shownScriptSlot();
+    QString rawText = scriptText(shownSlot);
 
     // 1. ANALISI DEL TESTO: Cerchiamo il VERO codice GLSL
     QString codeOnly = rawText;
@@ -19826,16 +19636,16 @@ void MainWindow::updateScriptButtonText() {
     bool hasGLSLCode = !codeOnly.trimmed().isEmpty();
     bool hasAnyText = !rawText.trimmed().isEmpty();
 
-    // 2. CONTROLLO MODIFICHE
-    const QString editorText = rawText.trimmed();
-    bool isModified = false;
-    if (m_currentScriptMode == ScriptModeSurface) {
-        isModified = (editorText != m_surfaceScriptText.trimmed());
-    } else if (m_currentScriptMode == ScriptModeTexture) {
-        isModified = isBackground
-                ? (editorText != m_bgTextureScriptText.trimmed())
-                : (editorText != m_surfaceTextureScriptText.trimmed());
-    }
+    // 2. CONTROLLO MODIFICHE: cio' che e' scritto e' diverso da cio' che e' a
+    // schermo (ultimo Run o preset)? Il confronto e' con l'APPLICATO, non con
+    // una copia del testo: prima il riferimento era lo slot in cui l'editor
+    // veniva travasato a ogni cambio di modulo o di bersaglio, e bastava un
+    // giro per far risultare eseguito uno script mai eseguito.
+    auto canonical = [](QString t) {
+        t.replace(QLatin1String("\r\n"), QLatin1String("\n"));
+        return t.trimmed();
+    };
+    const bool isModified = canonical(rawText) != canonical(appliedScriptText(shownSlot));
 
     // Regola 1: Tasto Modo sempre attivo per poter scorrere le Tab
     ui->btnScriptMode->setEnabled(true);
@@ -20009,22 +19819,96 @@ QColor MainWindow::surfaceTexColor(int slot) const
     return slot == 2 ? g->globalTexColor2() : g->globalTexColor1();
 }
 
-QString MainWindow::surfaceTextureScript() const
+MainWindow::ScriptSlot MainWindow::targetTextureSlot() const
 {
-    // L'editor mostra la texture di SUPERFICIE solo in modalita' Texture, sul
-    // bersaglio Surface e in ambito All: con una fascia selezionata mostra lo
-    // script della fascia, che vive nella MeshPart.
-    const bool editorShows = m_currentScriptMode == ScriptModeTexture
-                             && !ui->radioBackground->isChecked()
-                             && !(ui->glWidget && ui->glWidget->activeMeshPart() >= 0);
-    return editorShows ? ui->txtScriptEditor->toPlainText() : m_surfaceTextureScriptText;
+    if (ui->radioBackground->isChecked()) return SlotBackgroundTexture;
+    if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0) return SlotMeshTexture;
+    return SlotSurfaceTexture;
 }
 
-QString MainWindow::backgroundTextureScript() const
+MainWindow::ScriptSlot MainWindow::shownScriptSlot() const
 {
-    const bool editorShows = m_currentScriptMode == ScriptModeTexture
-                             && ui->radioBackground->isChecked();
-    return editorShows ? ui->txtScriptEditor->toPlainText() : m_bgTextureScriptText;
+    switch (m_currentScriptMode) {
+    case ScriptModeSurface: return SlotSurface;
+    case ScriptModeSound:   return SlotSound;
+    case ScriptModeTexture: {
+        const ScriptSlot target = targetTextureSlot();
+        // In Ray Marching la texture di superficie si scrive nel dock Equations
+        // (lineTexture): il dock Script non la mostra e non la fa scrivere.
+        if (target == SlotSurfaceTexture && ui->tabModeSelector->currentIndex() == 1)
+            return SlotNone;
+        return target;
+    }
+    }
+    return SlotNone;
+}
+
+void MainWindow::syncMeshTextureSlot() const
+{
+    // La texture della fascia sta nella MeshPart. Questo slot e' il testo in
+    // lavorazione per la fascia selezionata: riparte dalla texture EFFICACE
+    // della fascia (propria E accesa -- in wireframe o a checkbox tolto lo
+    // script resta conservato ma non si mostra) ogni volta che cambia la fascia
+    // o cio' che disegna; finche' restano quelle, tiene cio' che l'utente scrive.
+    const int part = ui->glWidget ? ui->glWidget->activeMeshPart() : -1;
+    const QString engineCode = part >= 0 ? ui->glWidget->activeMeshEffectiveTextureCode() : QString();
+    if (part == m_meshTextureScriptPart && engineCode == m_meshTextureScriptBase) return;
+    m_meshTextureScriptPart = part;
+    m_meshTextureScriptBase = engineCode;
+    m_meshTextureScriptText = engineCode;
+}
+
+QString MainWindow::scriptText(ScriptSlot slot) const
+{
+    switch (slot) {
+    case SlotSurface:           return m_surfaceScriptText;
+    case SlotSurfaceTexture:    return m_surfaceTextureScriptText;
+    case SlotMeshTexture:       syncMeshTextureSlot(); return m_meshTextureScriptText;
+    case SlotBackgroundTexture: return m_bgTextureScriptText;
+    case SlotSound:             return m_soundScriptText;
+    case SlotNone:              break;
+    }
+    return QString();
+}
+
+QString MainWindow::appliedScriptText(ScriptSlot slot) const
+{
+    switch (slot) {
+    case SlotSurface:           return m_surfaceScriptApplied;
+    case SlotSurfaceTexture:    return m_surfaceTextureCode;
+    case SlotMeshTexture:       syncMeshTextureSlot(); return m_meshTextureScriptBase;
+    case SlotBackgroundTexture: return m_bgTextureCode;
+    // Il suono non ha un "applicato" distinto: si suona cio' che e' scritto.
+    case SlotSound:             return m_soundScriptText;
+    case SlotNone:              break;
+    }
+    return QString();
+}
+
+void MainWindow::setScriptText(ScriptSlot slot, const QString &text)
+{
+    switch (slot) {
+    case SlotSurface:           m_surfaceScriptText = text; break;
+    case SlotSurfaceTexture:    m_surfaceTextureScriptText = text; break;
+    case SlotMeshTexture:       syncMeshTextureSlot(); m_meshTextureScriptText = text; break;
+    case SlotBackgroundTexture: m_bgTextureScriptText = text; break;
+    case SlotSound:             m_soundScriptText = text; break;
+    case SlotNone:              return;
+    }
+    if (slot == shownScriptSlot()) refreshScriptEditor();
+}
+
+void MainWindow::refreshScriptEditor()
+{
+    if (!ui->txtScriptEditor) return;
+    const QString text = scriptText(shownScriptSlot());
+    if (text == m_scriptEditorText) return;
+    m_scriptEditorText = text;
+    // A SEGNALI BLOCCATI: e' la vista che si allinea allo stato, non una
+    // digitazione (textChanged riscriverebbe lo slot, segnerebbe la texture
+    // come modificata a mano e riaccenderebbe i tasti Run).
+    const QSignalBlocker blocker(ui->txtScriptEditor);
+    ui->txtScriptEditor->setPlainText(text);
 }
 
 QString MainWindow::surfaceImagePath() const
@@ -20138,8 +20022,8 @@ bool MainWindow::commitSurfaceTextureCode(const QString &code)
 
 void MainWindow::clearSurfaceScript()
 {
-    m_surfaceScriptText.clear();
-    setProperty("rawSurfaceScript", QString());
+    setScriptText(SlotSurface, QString());
+    m_surfaceScriptApplied.clear();
 }
 
 QString MainWindow::backgroundImagePath() const
@@ -20156,9 +20040,9 @@ QString MainWindow::wrapSoundCode(const QString &sound)
 
 QString MainWindow::sceneAudioSource() const
 {
-    const QString code = soundCode() + "\n" + m_surfaceScriptText + "\n"
+    const QString code = soundCode() + "\n" + m_surfaceScriptApplied + "\n"
                          + m_surfaceTextureCode + "\n" + m_bgTextureCode;
-    return code.trimmed().isEmpty() ? ui->txtScriptEditor->toPlainText() : code;
+    return code.trimmed().isEmpty() ? scriptText(shownScriptSlot()) : code;
 }
 
 bool MainWindow::activeTextureUsesColorToken(const QString &token) const
@@ -20233,10 +20117,10 @@ bool MainWindow::hasSavableTexture() const
                || !ui->lineVariations->toPlainText().trimmed().isEmpty();
     }
 
-    // Parametrico/sfondo: in modalità script texture la verità è l'editor aperto,
-    // altrimenti il codice in memoria del target attivo.
+    // Parametrico/sfondo: in modalità script texture la verità è lo script
+    // che il dock mostra, altrimenti il codice in memoria del target attivo.
     if (m_currentScriptMode == ScriptModeTexture)
-        return !ui->txtScriptEditor->toPlainText().trimmed().isEmpty();
+        return !scriptText(shownScriptSlot()).trimmed().isEmpty();
 
     const QString &code = isBg ? m_bgTextureCode : m_surfaceTextureCode;
     return !code.trimmed().isEmpty();
@@ -20422,13 +20306,13 @@ bool MainWindow::isEquationModuleMoving() const
         // NB: lineVariations (displacement) e' del MODULO TEXTURE, non della
         // geometria: includerlo farebbe credere al dock Equations che la
         // geometria sia in moto ogni volta che la texture anima il displacement.
-        mainEq = activeImplicitEquationText() + " " + m_surfaceScriptText;
+        mainEq = activeImplicitEquationText() + " " + m_surfaceScriptApplied;
     } else {
         mainEq = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
                 ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
                 ui->lineU->toPlainText() + " " + ui->lineV->toPlainText() + " " + ui->lineW->toPlainText() + " " +
                 ui->lineExplicitU->toPlainText() + " " + ui->lineExplicitV->toPlainText() + " " + ui->lineExplicitW->toPlainText() + " " +
-                m_surfaceScriptText;
+                m_surfaceScriptApplied;
         if (ui->lnU) {
             mainEq += " " + ui->lnU->toPlainText() + " " + ui->lnV->toPlainText() + " " + ui->lnW->toPlainText() +
                     " " + ui->lndU->toPlainText() + " " + ui->lndV->toPlainText() + " " + ui->lndW->toPlainText() +
@@ -20493,13 +20377,13 @@ void MainWindow::updateMasterButtonState()
             // geometria: NON va incluso qui, altrimenti il tasto Equations crede
             // che la geometria sia in moto e resta bloccato su "Stop" finché la
             // texture anima il displacement.
-            mainEq = activeImplicitEquationText() + " " + m_surfaceScriptText;
+            mainEq = activeImplicitEquationText() + " " + m_surfaceScriptApplied;
         } else {
             mainEq = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
                     ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
                     ui->lineU->toPlainText() + " " + ui->lineV->toPlainText() + " " + ui->lineW->toPlainText() + " " +
                     ui->lineExplicitU->toPlainText() + " " + ui->lineExplicitV->toPlainText() + " " + ui->lineExplicitW->toPlainText() + " " +
-                    m_surfaceScriptText;
+                    m_surfaceScriptApplied;
             if (ui->lnU) {
                 mainEq += " " + ui->lnU->toPlainText() + " " + ui->lnV->toPlainText() + " " + ui->lnW->toPlainText() +
                         " " + ui->lndU->toPlainText() + " " + ui->lndV->toPlainText() + " " + ui->lndW->toPlainText() +
@@ -20528,7 +20412,7 @@ void MainWindow::updateMasterButtonState()
         // Run del dock Equations per sempre: si potevano cambiare le condizioni
         // iniziali senza avere un modo per applicarle. Ogni dock abilita il
         // proprio tasto -- lo script il suo, le equazioni i loro.
-        bool surfaceFromScript = !m_surfaceScriptText.trimmed().isEmpty()
+        bool surfaceFromScript = !m_surfaceScriptApplied.trimmed().isEmpty()
                               && m_surfaceOrigin != OriginBoth;
 
         if (ui->btnRunParametric) {
@@ -21361,38 +21245,6 @@ void MainWindow::updateBackgroundControlsGate()
         radios[i]->setToolTip(onBackground ? what.value(i) : why);
 }
 
-// Mostra nell'editor script il testo della texture del destinatario corrente
-// (la fascia selezionata, o quella globale in "All").
-// A SEGNALI BLOCCATI: setPlainText emette textChanged, che marca lo script come
-// modificato e riaccende il tasto Run -- e' la trappola gia' nota di questo
-// progetto (i tasti Run riattivati da una texture incompatibile). Qui stiamo
-// solo MOSTRANDO, non modificando.
-// Non scrive se il testo e' gia' quello giusto: evita di spostare il cursore e
-// di azzerare l'undo mentre l'utente sta guardando lo stesso script.
-void MainWindow::syncTextureEditorTo(const QString &text)
-{
-    if (!ui->txtScriptEditor) return;
-
-
-    // LA GUARDIA STA QUI, NON NEI CHIAMANTI. txtScriptEditor e' UN SOLO widget
-    // condiviso dai tre moduli (Surface / Texture / Sound) e commutato da
-    // m_currentScriptMode: scriverci mentre mostra un altro modulo significa
-    // sovrascrivere il testo di quel modulo. E' il bug per cui applicare una
-    // texture a una mesh mentre si guarda il tab Surface piazzava il codice
-    // della texture sopra lo script della superficie (il ramo per-mesh del load
-    // Library chiamava questa funzione senza condizione, mentre i due chiamanti
-    // di syncAppearanceControlsToActiveMesh la avevano).
-    // Nota: qui si SCRIVE SOLO NEL WIDGET; lo stato dei moduli non viene
-    // toccato, quindi lo script di superficie non era mai andato perso davvero
-    // -- restava in m_surfaceScriptText e tornava visibile commutando modulo.
-    if (m_currentScriptMode != ScriptModeTexture) return;
-    if (ui->radioBackground && ui->radioBackground->isChecked()) return;
-
-    if (ui->txtScriptEditor->toPlainText() == text) return;
-    const bool oldTx = ui->txtScriptEditor->blockSignals(true);
-    ui->txtScriptEditor->setPlainText(text);
-    ui->txtScriptEditor->blockSignals(oldTx);
-}
 
 void MainWindow::syncAppearanceControlsToActiveMesh()
 {
@@ -21474,9 +21326,9 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
         // suo script. Senza questo l'editor restava sul codice dell'ultima mesh
         // guardata mentre l'ambito diceva "All": premere Run avrebbe applicato
         // alla superficie intera uno script che apparteneva a una fascia.
-        // La guardia "solo se l'editor mostra davvero la texture di SUPERFICIE"
-        // e' dentro syncTextureEditorTo: vale per ogni chiamante.
-        syncTextureEditorTo(m_surfaceTextureScriptText);
+        // (shownScriptSlot: in "All" lo slot mostrato e' quello della
+        // superficie, e solo se il dock e' sul modulo Texture.)
+        refreshScriptEditor();
 
         // FOCUS DEL DOCK LIBRARY, come nel ramo "Mesh": tornando su "All"
         // l'albero deve evidenziare la texture di SUPERFICIE. L'aggancio stava
@@ -21512,10 +21364,9 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
     // EDITOR DELLA TEXTURE PER-MESH. Selezionando una parte, l'editor mostra il
     // SUO script: e' lo stesso principio dei radio e degli slider, cioe' i
     // controlli mostrano cio' che stanno per modificare.
-    // Si scrive SOLO se l'editor e' sul ramo texture di SUPERFICIE (guardia
-    // dentro syncTextureEditorTo): sul ramo Background o sugli altri modi il
-    // campo appartiene a un altro modulo e sovrascriverlo farebbe perdere il
-    // testo all'utente.
+    // Solo se il dock e' sul modulo Texture col bersaglio Surface
+    // (shownScriptSlot): sul ramo Background o sugli altri moduli l'editor
+    // mostra un altro slot.
     // Una parte SENZA texture propria SVUOTA l'editor. Prima lo si lasciava
     // fermo, per non "cancellare la texture della superficie" con un Run: ma
     // quel ragionamento valeva quando una fascia non configurata EREDITAVA la
@@ -21528,7 +21379,9 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
     // script, e mostrarlo lo stesso rimetterebbe in vista una texture che quella
     // mesh non sta disegnando -- col Run che la riapplicherebbe di soppiatto.
     // Lo script non e' perso: riaccendendo il checkbox torna, editor compreso.
-    syncTextureEditorTo(p.effectiveTextureEnabledMulti() ? p.textureCode : QString());
+    // Lo slot della fascia si ricarica da solo quando cambia la fascia o la sua
+    // texture (syncMeshTextureSlot); qui si riallinea la vista.
+    refreshScriptEditor();
 
     // FOCUS DEL DOCK LIBRARY (ramo Texture) SULLA FASCIA SELEZIONATA. Stessa
     // ragione dell'editor qui sopra: i controlli devono indicare cio' su cui si
@@ -21776,9 +21629,7 @@ void MainWindow::toggleProjection()
 bool MainWindow::applyBackgroundTextureIfNeeded() {
     if (!ui->glWidget->isBackgroundTextureEnabled()) return true;
 
-    QString bgSrc = (m_currentScriptMode == ScriptModeTexture && ui->radioBackground->isChecked())
-            ? ui->txtScriptEditor->toPlainText()
-            : m_bgTextureScriptText;
+    QString bgSrc = m_bgTextureScriptText;
     bool bgHasLogic = bgSrc.contains("return") || bgSrc.contains("vec3")
             || bgSrc.contains("vec4") || bgSrc.contains("mainImage");
     if (bgHasLogic) {

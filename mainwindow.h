@@ -668,6 +668,60 @@ private:
     };
     ScriptMode m_currentScriptMode = ScriptModeSurface;
 
+    // ----------------------------------------------------------
+    // DOCK SCRIPT: STATO E VISTA
+    // ----------------------------------------------------------
+    // L'editor (txtScriptEditor) e' UN widget per cinque testi. Lo STATO sono
+    // gli slot: ognuno e' il testo del suo modulo COSI' COM'E' SCRITTO, eseguito
+    // o no (l'intenzione: e' cio' che il Save scrive). L'editor e' la VISTA
+    // dello slot che il dock mostra adesso (shownScriptSlot): chi scrive uno
+    // slot passa da setScriptText, chi digita nell'editor scrive lo slot
+    // mostrato, e nessuno legge l'editor.
+    // Cio' che e' A SCHERMO sta altrove: m_surfaceScriptApplied (script di
+    // superficie dell'ultimo Run o del preset), m_surfaceTextureCode e
+    // m_bgTextureCode (texture compilate), MeshPart::textureCode (fasce).
+    // "Modificato e non eseguito" = slot diverso dall'applicato.
+    // Prima l'editor era anche stato: il testo in sospeso viveva solo li', e
+    // ogni cambio di modulo o di bersaglio lo travasava nello slot -- che
+    // faceva pure da "ultima versione eseguita". Bastava un giro dei moduli
+    // perche' uno script mai eseguito risultasse eseguito (tasto Run spento) e
+    // la superficie risultasse "da script" (tasti Run delle equazioni spenti).
+    enum ScriptSlot {
+        SlotNone,               // Texture di superficie in Ray Marching: sta nel dock Equations
+        SlotSurface,            // script della superficie (parametrica o implicita)
+        SlotSurfaceTexture,     // texture parametrica di superficie
+        SlotMeshTexture,        // texture della fascia selezionata
+        SlotBackgroundTexture,  // texture di sfondo
+        SlotSound               // suono
+    };
+    // Lo slot della TEXTURE su cui agiscono i comandi adesso: sfondo, fascia
+    // selezionata o superficie (bersaglio del dock Renderer e ambito All/Mesh).
+    ScriptSlot targetTextureSlot() const;
+    // Lo slot che il dock Script mostra adesso (modulo + bersaglio + fascia).
+    ScriptSlot shownScriptSlot() const;
+    QString scriptText(ScriptSlot slot) const;
+    // Scrive lo slot; se e' quello mostrato, l'editor lo segue (a segnali
+    // bloccati: e' una scrittura del programma, non una digitazione).
+    void setScriptText(ScriptSlot slot, const QString &text);
+    // La VISTA: porta nell'editor lo slot mostrato. La chiama
+    // updateScriptButtonText, quindi ogni riallineamento dei tasti riallinea
+    // anche l'editor; non tocca nulla se il testo e' gia' quello (cursore e
+    // undo restano dove sono).
+    void refreshScriptEditor();
+    // L'applicato che fa da riferimento per "modificato e non eseguito".
+    QString appliedScriptText(ScriptSlot slot) const;
+    // Slot della FASCIA: non e' della scena (la texture della fascia sta nella
+    // MeshPart), e' il testo in lavorazione per la fascia selezionata. Si
+    // ricarica dal motore quando cambia la fascia o la sua texture.
+    void syncMeshTextureSlot() const;
+    mutable QString m_meshTextureScriptText;
+    mutable QString m_meshTextureScriptBase;   // texture efficace della fascia al caricamento dello slot
+    mutable int m_meshTextureScriptPart = -1;
+    // Il testo che la vista ha messo nell'editor (o che l'utente vi ha scritto):
+    // refreshScriptEditor confronta con questo, non col contenuto del widget,
+    // che normalizza gli a capo e riaprirebbe il confronto a ogni giro.
+    QString m_scriptEditorText;
+
     bool m_surfaceTextureState = false;
     bool m_blockTextureGen = false;
     // Alzato durante un cambio tab AUTOMATICO, cioe' deciso dal preset che si
@@ -750,6 +804,9 @@ private:
     QString m_bgTextureCode;
 
     QString m_surfaceScriptText;
+    // Lo script di superficie dell'ultimo Run o del preset: quello a schermo, e
+    // quello che il Save scrive. (Era la property dinamica "rawSurfaceScript".)
+    QString m_surfaceScriptApplied;
     // Corpo GLSL dello script metrico (direttive := rimosse, non tradotto).
     // Non vuoto = il flusso geodetico usa il tensore g_ij dello script invece
     // della metrica indotta dall'embedding X/Y/Z/P.
@@ -1428,22 +1485,18 @@ private:
     QColor surfaceTexColor(int slot) const;
     // SCRIPT della texture di superficie / di sfondo (parametrico): cio' che
     // l'utente ha scritto, eseguito o no -- l'INTENZIONE, quella che il Save
-    // scrive. E' l'editor del dock Script quando mostra quella texture,
-    // altrimenti il suo slot (m_surfaceTextureScriptText /
-    // m_bgTextureScriptText), dove l'editor la parcheggia quando passa ad altro.
+    // scrive. E' il suo slot (vedi "DOCK SCRIPT: STATO E VISTA").
     // Solo lettura: la copia APPLICATA (m_surfaceTextureCode / m_bgTextureCode)
     // la scrive solo chi la manda al motore. Prima il Save ci travasava
     // l'editor, e dopo un salvataggio uno script mai eseguito risultava
     // applicato mentre il motore disegnava ancora il vecchio.
-    // SCRIPT DI SUPERFICIE: via entrambe le copie. Lo slot dell'editor
-    // (m_surfaceScriptText) e la property "rawSurfaceScript" -- lo script
-    // dell'ultimo Run o del preset, quella che il Save scrive -- nascono insieme
-    // ma solo lo slot veniva svuotato: caricando una scena a equazioni dopo una
-    // da script, il Save aveva ancora in mano lo script della scena di prima
-    // (lo scartava solo perche' le equazioni non erano vuote).
+    // SCRIPT DI SUPERFICIE: via lo scritto (m_surfaceScriptText) e l'applicato
+    // (m_surfaceScriptApplied), insieme. Svuotando solo il primo, caricando una
+    // scena a equazioni dopo una da script il Save aveva ancora in mano lo
+    // script della scena di prima.
     void clearSurfaceScript();
-    QString surfaceTextureScript() const;
-    QString backgroundTextureScript() const;
+    QString surfaceTextureScript() const { return m_surfaceTextureScriptText; }
+    QString backgroundTextureScript() const { return m_bgTextureScriptText; }
     // IMMAGINE della texture di superficie: il file caricato nel motore
     // (GLWidget::surfaceImagePath), vuoto se non c'e'. E' l'unica copia: prima
     // c'erano anche m_isImageMode e m_currentTexturePath, riallineati a mano in
@@ -1539,9 +1592,6 @@ private:
     // funzionalita' resta invisibile dove non serve.
     void updateMeshSelectorRange();
     void syncAppearanceControlsToActiveMesh();
-    // Mostra nell'editor lo script della texture del destinatario corrente
-    // (fascia selezionata o globale in "All"). E' un DISPLAY: segnali bloccati.
-    void syncTextureEditorTo(const QString &text);
     // Porta i radio Base/Phong/Wireframe sulla modalita' indicata, a segnali
     // bloccati (sono un DISPLAY: non devono scrivere nulla).
     void syncRenderRadiosTo(int mode);

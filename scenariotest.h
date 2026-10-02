@@ -153,12 +153,23 @@ private:
     void applyEquationEdit(QWidget *field);
     // Come l'utente: slot Colore 1/2 col suo radio, poi i tre slider.
     void setTexColorBySliders(bool slot2, const QColor &c);
+    // DOCK SCRIPT: l'editor e' un solo widget per piu' testi (script della
+    // superficie, texture di superficie, di una fascia, di sfondo, suono). Cio'
+    // che e' scritto e non eseguito sopravvive ai cambi di modulo, di bersaglio
+    // e di fascia, resta eseguibile (tasto Run acceso) e non passa per applicato.
+    // Si lancia anche da solo: --scenario-only script-dock.
+    void runScriptDockScenarios();
+    // "" se l'editor del dock Script mostra lo slot che il dock indica (e' la
+    // sua vista), altrimenti la descrizione della differenza. La controllano
+    // le verifiche piu' frequenti (codice della texture, equazioni).
+    QString scriptEditorProblem() const;
     void finish();
 
     MainWindow *m_mw;
     QString m_root;
     QString m_outDir;
     QString m_record;          // record in scena (per la cattura del Save)
+    QString m_only;            // --scenario-only <nome>: una sola sezione
     QStringList m_lines;
     int m_failures = 0;
     // Durante una scelta in Library il popup "lavoro non salvato" riceve

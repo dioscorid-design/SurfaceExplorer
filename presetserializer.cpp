@@ -672,10 +672,10 @@ LibraryItem PresetSerializer::captureSurfaceState(const QString &name)
     const bool isMetricScript = !d.isImplicitMode && !mw->m_metricScriptBody.trimmed().isEmpty();
     d.isScript = isImplicitScript || isParametricScript || isMetricScript;
     if (d.isScript) {
-        d.scriptCode = mw->property("rawSurfaceScript").toString();
-        // Fallback di sicurezza se la property e' sfuggita
+        d.scriptCode = mw->m_surfaceScriptApplied;
+        // Fallback di sicurezza se l'applicato e' sfuggito: lo script com'e' scritto
         if (d.scriptCode.isEmpty() && mw->m_currentScriptMode == 0)
-            d.scriptCode = mw->ui->txtScriptEditor->toPlainText();
+            d.scriptCode = mw->m_surfaceScriptText;
     }
 
     // Mappa di visualizzazione di uno script metrico: si salva solo se e' una
@@ -701,9 +701,9 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
     // quando e' metrico (i campi portano la carta identita' / display map).
     bool usingEquations = !d.x.trimmed().isEmpty() && d.x.trimmed() != "0";
     if (d.isImplicitMode) usingEquations = !d.implicitEq.contains("// Controlled by Script");
-    QString scriptContent = mw->property("rawSurfaceScript").toString();
+    QString scriptContent = mw->m_surfaceScriptApplied;
     if (scriptContent.isEmpty() && mw->m_currentScriptMode == 0)
-        scriptContent = mw->ui->txtScriptEditor->toPlainText();
+        scriptContent = mw->m_surfaceScriptText;
     const bool metricScriptActive = !mw->m_metricScriptBody.trimmed().isEmpty();
     d.isScript = !scriptContent.trimmed().isEmpty() && (!usingEquations || metricScriptActive);
     d.scriptCode = scriptContent;
@@ -1113,7 +1113,7 @@ void PresetSerializer::saveTexture(const QString &path)
         if (isBg)
             currentCode = m_mainWindow->backgroundTextureScript();
         else if (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeTexture)
-            currentCode = m_mainWindow->ui->txtScriptEditor->toPlainText();
+            currentCode = m_mainWindow->scriptText(m_mainWindow->shownScriptSlot());
         else
             currentCode = m_mainWindow->surfaceTextureScript();
         root["isImplicitMode"] = false;
@@ -1418,7 +1418,7 @@ void PresetSerializer::saveScript()
         if (wasPath3D) m_mainWindow->pathTimer3D->start();
     };
 
-    QString content = m_mainWindow->ui->txtScriptEditor->toPlainText();
+    QString content = m_mainWindow->scriptText(m_mainWindow->shownScriptSlot());
     if (content.trimmed().isEmpty()) {
         QMessageBox::warning(m_mainWindow, "Warning", "Editor is empty.");
         resumeTimers();
@@ -1678,9 +1678,6 @@ void PresetSerializer::saveSound(const QString &filePath)
 
     // 3. Recuperiamo il contenuto aggiornato dello script
     QString content = m_mainWindow->m_soundScriptText;
-    if (m_mainWindow->m_currentScriptMode == 2) { // 2 = ScriptModeSound
-        content = m_mainWindow->ui->txtScriptEditor->toPlainText();
-    }
 
     // 4. Creiamo la struttura JSON
     QJsonObject root;
@@ -1955,9 +1952,6 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
     } else {
         // Creazione nuovo script audio (JSON) da zero
         QString content = m_mainWindow->m_soundScriptText;
-        if (m_mainWindow->m_currentScriptMode == 2) { // 2 = ScriptModeSound
-            content = m_mainWindow->ui->txtScriptEditor->toPlainText();
-        }
 
         QJsonObject root;
         root["code"] = content;
