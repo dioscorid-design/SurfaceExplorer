@@ -386,23 +386,26 @@ return vec4(mix(u_col1, u_col2, w), 1.0);</pre>
     <p>To use an image file instead of code, the directive <code>//IMG: path/to/image.png</code> is injected
     automatically when you load an image from the Library.</p>
 
-    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Images on a single mesh: <em>Animated Images</em></b></p></td></tr></table>
-    <p>An image is a <strong>single GPU resource</strong> &mdash; one sampler slot &mdash; not code compiled into the
-    per-mesh dispatcher. So a grid cannot own an image of its own: loading one from the Library always applies it to
-    the <em>whole</em> surface, whatever the Multi&nbsp;Mesh scope says.</p>
-    <p>The presets in <em>Textures &gt; Procedurals &gt; Animated Images</em> get around this from the other side.
-    They are ordinary per-mesh texture scripts &mdash; so they do land on the selected grid &mdash; and they simply
-    <strong>resample the image already loaded</strong>, reading it through <code>iChannel0</code>. The workflow is
-    two steps:</p>
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Images on a single mesh, and <em>Animated Images</em></b></p></td></tr></table>
+    <p>Each grid of a multi-mesh surface can have <strong>an image of its own</strong>. It is named the same way as
+    the surface's: by the <code>//IMG:</code> line at the top of the grid's texture script, which the application
+    writes when you load an image from the Library with the Multi&nbsp;Mesh scope on <em>Mesh</em> and a grid
+    selected. A script that is only that line shows the image as it is.</p>
+    <p>The presets in <em>Textures &gt; Procedurals &gt; Animated Images</em> are ordinary per-mesh texture scripts
+    that <strong>resample an image</strong>, reading it through <code>iChannel0</code>. On a grid, <code>iChannel0</code>
+    is the grid's own image when its script carries an <code>//IMG:</code> line, and the image of the whole surface
+    otherwise. The workflow is two steps:</p>
     <ol>
-        <li>with the scope on <strong>All</strong>, load the image (<em>Textures &gt; Images</em>);</li>
-        <li>switch to <strong>Mesh</strong>, pick a grid and apply one of the <em>Animated Images</em> scripts.</li>
+        <li>with the scope on <strong>Mesh</strong>, pick a grid and load its image (<em>Textures &gt; Images</em>);</li>
+        <li>on the same grid, apply one of the <em>Animated Images</em> scripts: the <code>//IMG:</code> line stays
+        on top of it.</li>
     </ol>
-    <p>Repeat step 2 on every grid that should show the image: each one gets its own framing and its own motion,
-    while the grids you leave alone stay in flat colour. <em>Still Image</em> is the static case (identity matrix,
-    no animation); <em>Drifting</em>, <em>Rotating</em>, <em>Breathing</em>, <em>Shearing</em> and <em>Squished</em>
-    are the same script with a different time-dependent 2&times;2 matrix applied to the texture coordinates &mdash;
-    so they double as a starting point for writing your own.</p>
+    <p>Each grid gets its own image, its own framing and its own motion, while the grids you leave alone stay in
+    flat colour. A script that does not sample an image drops the grid's <code>//IMG:</code> line when it is applied
+    from the Library. <em>Still Image</em> is the static case (identity matrix, no animation); <em>Drifting</em>,
+    <em>Rotating</em>, <em>Breathing</em>, <em>Shearing</em> and <em>Squished</em> are the same script with a
+    different time-dependent 2&times;2 matrix applied to the texture coordinates &mdash; so they double as a
+    starting point for writing your own.</p>
     <div style="background-color: #2a2a00; padding: 10px; margin-top: 8px;">
         <strong>Two rules of the Shadertoy branch</strong>, which these scripts follow and yours should too:
         the sliders <code>A..F</code> and <code>t</code> are <em>not</em> usable inside <code>mainImage()</code>
