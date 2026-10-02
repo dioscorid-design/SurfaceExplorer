@@ -518,11 +518,11 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
     // compariva la sfera di default. Si scrivono entrambi i rami piu' quale era
     // attivo, cosi' il load sa cosa ripristinare.
     d.isImplicitMode = (mw->ui->tabModeSelector->currentIndex() == 1);
-    d.implicitEq = mw->ui->lineEquation->toPlainText();
+    d.implicitEq = mw->m_rm.equation;
     d.usesCrossSection = d.isImplicitMode && mw->ui->subTabImplicit
                          && mw->ui->subTabImplicit->currentIndex() == 1;
     if (mw->ui->lineEquationCrossSection)
-        d.crossSectionEq = mw->ui->lineEquationCrossSection->toPlainText();
+        d.crossSectionEq = mw->m_rm.crossSection;
 
     d.x = mw->m_eq.x;
     d.y = mw->m_eq.y;
@@ -776,7 +776,7 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
     const QRegularExpression tagRe(R"(^\s*//\s*(SOUND_BEGIN|SOUND_END).*$\n?)",
                                    QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption);
     if (d.isImplicitMode) {
-        QString implicitTex = mw->ui->lineTexture->toPlainText().trimmed();
+        QString implicitTex = mw->m_rm.texture.trimmed();
         // Via i vecchi tag audio: si riaggiunge quello pulito.
         while (implicitTex.contains(blockRe)) implicitTex.remove(blockRe);
         implicitTex.remove(musicRe);
@@ -796,7 +796,7 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
             }
         }
         d.textureCode = implicitTex;
-        d.displacementCode = mw->ui->lineVariations->toPlainText();
+        d.displacementCode = mw->m_rm.displacement;
     } else {
         QString code = mw->surfaceTextureScript();
         while (code.contains(blockRe)) code.remove(blockRe);
@@ -1106,8 +1106,8 @@ void PresetSerializer::saveTexture(const QString &path)
     // bersaglio Background si salvava il campo della texture di superficie.
     if (isImplicit && !isBg) {
         // Se siamo in Ray Marching salviamo entrambi i campi
-        currentCode = m_mainWindow->ui->lineTexture->toPlainText();
-        root["displacement"] = m_mainWindow->ui->lineVariations->toPlainText();
+        currentCode = m_mainWindow->m_rm.texture;
+        root["displacement"] = m_mainWindow->m_rm.displacement;
         root["isImplicitMode"] = true; // Flag fondamentale per il caricamento
     } else {
         if (isBg)

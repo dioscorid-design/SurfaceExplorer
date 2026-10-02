@@ -163,6 +163,8 @@ private:
     // sua vista), altrimenti la descrizione della differenza. La controllano
     // le verifiche piu' frequenti (codice della texture, equazioni).
     QString scriptEditorProblem() const;
+    // Lo stesso per i quattro campi Ray Marching e il loro stato (m_rm).
+    QString rmFieldsProblem() const;
     void finish();
 
     MainWindow *m_mw;

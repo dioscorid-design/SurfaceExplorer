@@ -746,12 +746,31 @@ private:
     EquationTexts m_eq;
     // Vuoto finche' non c'e' stato un Run, un load o un reset.
     std::optional<EquationTexts> m_eqApplied;
-    // Aggancia i campi a m_eq. Subito dopo setupUi: il suo gestore deve girare
-    // PRIMA di ogni altro textChanged, che m_eq lo legge.
+    // Aggancia i campi a m_eq (e quelli Ray Marching a m_rm, qui sotto). Subito
+    // dopo setupUi: il suo gestore deve girare PRIMA di ogni altro textChanged,
+    // che lo stato lo legge.
     void bindEquationFields();
     class QPlainTextEdit *equationFieldEdit(EqField field) const;
     // Scrive un campo dal programma, a segnali bloccati (m_eq segue).
     void setEqText(EqField field, const QString &text);
+
+    // ----------------------------------------------------------
+    // RAY MARCHING: STATO dei testi
+    // ----------------------------------------------------------
+    // Come m_eq, per i quattro campi del Ray Marching: lo SCRITTO. L'applicato
+    // qui non e' una copia in MainWindow: sta nel motore (GLWidget::
+    // activeImplicitEquation, currentTextureCode, currentDisplacementCode).
+    struct ImplicitTexts {
+        QString equation;       // equazione implicita, sotto-tab 3D
+        QString crossSection;   // equazione a 4 variabili, sotto-tab Cross Section
+        QString texture;        // colore (campo Texture)
+        QString displacement;   // rilievo (campo Variations)
+    };
+    using RmField = QString ImplicitTexts::*;
+    ImplicitTexts m_rm;
+    class QPlainTextEdit *implicitFieldEdit(RmField field) const;
+    // Scrive un campo dal programma, a segnali bloccati (m_rm segue).
+    void setRmText(RmField field, const QString &text);
 
     bool m_surfaceTextureState = false;
     bool m_blockTextureGen = false;

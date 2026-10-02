@@ -2482,7 +2482,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto updateImplicitEquations = [this]() {
         if(ui->glWidget) {
-            QString rawEq = ui->lineEquation->toPlainText().trimmed();
+            QString rawEq = m_rm.equation.trimmed();
             QString implicitEqF;
 
             // Formatttiamo l'equazione rimuovendo l'uguale per renderla digeribile da GLSL
@@ -3054,8 +3054,8 @@ MainWindow::MainWindow(QWidget *parent)
                 bool isModified = this->property("isTextureModified").toBool();
 
                 if (ui->tabModeSelector->currentIndex() == 1) { // Ray Marching
-                    QString tex = ui->lineTexture->toPlainText().trimmed();
-                    QString disp = ui->lineVariations->toPlainText().trimmed();
+                    QString tex = m_rm.texture.trimmed();
+                    QString disp = m_rm.displacement.trimmed();
 
                     // Ignoriamo le texture di DEFAULT generate automaticamente (non sono
                     // codice scritto dall'utente da proteggere): la scacchiera procedurale
@@ -3082,12 +3082,8 @@ MainWindow::MainWindow(QWidget *parent)
                 auto clearTextureMemory = [this]() {
                     if (ui->tabModeSelector->currentIndex() == 1) {
                         // Svuota i campi della tab Ray Marching
-                        bool b1 = ui->lineTexture->blockSignals(true);
-                        bool b2 = ui->lineVariations->blockSignals(true);
-                        ui->lineTexture->clear();
-                        ui->lineVariations->clear();
-                        ui->lineTexture->blockSignals(b1);
-                        ui->lineVariations->blockSignals(b2);
+                        setRmText(&ImplicitTexts::texture, QString());
+                        setRmText(&ImplicitTexts::displacement, QString());
                         if (ui->glWidget) {
                             ui->glWidget->setTextureCode("");
                             ui->glWidget->setDisplacementCode("");
@@ -3155,7 +3151,7 @@ MainWindow::MainWindow(QWidget *parent)
             if (!m_blockTextureGen && checked) {
                 // --- LOGICA RAY MARCHING (Tab 1) ---
                 if (ui->tabModeSelector->currentIndex() == 1) {
-                    QString currentTex = ui->lineTexture->toPlainText().trimmed();
+                    QString currentTex = m_rm.texture.trimmed();
 
                     if (currentTex.isEmpty()) {
                         // Reset dei colori texture alla default: senza questo, dopo
@@ -3184,9 +3180,7 @@ MainWindow::MainWindow(QWidget *parent)
                         // lavoro da salvare lo garantisce AbsorbChangesGuard, in
                         // cima a questo gestore.)
                         {
-                            const bool obTex = ui->lineTexture->blockSignals(true);
-                            ui->lineTexture->setPlainText(defaultRM);
-                            ui->lineTexture->blockSignals(obTex);
+                            setRmText(&ImplicitTexts::texture, defaultRM);
                         }
                         if (ui->glWidget) ui->glWidget->setTextureCode(defaultRM);
 
@@ -3284,7 +3278,7 @@ MainWindow::MainWindow(QWidget *parent)
         if (!isSurfTexActive) isSurfTexActive = anyMeshTextureActive();
         if (isSurfTexActive) {
             QString tex = (ui->tabModeSelector->currentIndex() == 1)
-                    ? (ui->lineTexture->toPlainText() + ui->lineVariations->toPlainText())
+                    ? (m_rm.texture + m_rm.displacement)
                     : allSurfaceTextureCode();
             if (hasTimeVariable(tex)) needsAnim = true;
         }
@@ -5507,14 +5501,10 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         ui->glWidget->stopAnimationTimer();
 
         // 4. Azzera Texture e Rilievi (Ritorna alla forma nuda)
-        ui->lineTexture->blockSignals(true);
-        ui->lineTexture->clear();
-        ui->lineTexture->blockSignals(false);
+        setRmText(&ImplicitTexts::texture, QString());
         ui->glWidget->setTextureCode("");
 
-        ui->lineVariations->blockSignals(true);
-        ui->lineVariations->clear();
-        ui->lineVariations->blockSignals(false);
+        setRmText(&ImplicitTexts::displacement, QString());
         ui->glWidget->setDisplacementCode("");
 
         ui->glWidget->setBackgroundTextureEnabled(false);
@@ -5537,29 +5527,23 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         // che a schermo ci sia sempre qualcosa di valido, che e' esattamente
         // cio' che New non vuole.
         if (loadDefaultSurface) {
-            ui->lineEquation->blockSignals(true);
-            QString eq = ui->lineEquation->toPlainText().trimmed();
+            QString eq = m_rm.equation.trimmed();
             if (eq.isEmpty() || !eq.contains("=")) {
-                ui->lineEquation->setPlainText("x^2 + y^2 + z^2 = 1.0");
+                setRmText(&ImplicitTexts::equation, QStringLiteral("x^2 + y^2 + z^2 = 1.0"));
             }
-            ui->lineEquation->blockSignals(false);
         } else {
             // SCENA VUOTA: il campo dell'equazione implicita e' l'unico che
             // questo ramo non svuota mai (texture e variations lo sono gia' piu'
             // sopra), perche' storicamente serviva a garantire che a schermo ci
             // fosse sempre qualcosa di valido.
-            ui->lineEquation->blockSignals(true);
-            ui->lineEquation->clear();
-            ui->lineEquation->blockSignals(false);
+            setRmText(&ImplicitTexts::equation, QString());
 
             // ENTRAMBI i sotto-tab: il Cross Section ha il proprio campo, e non
             // svuotarlo lasciava a schermo un New "a meta'" -- superficie
             // sparita ma equazione ancora scritta, al contrario di quanto fanno
             // il ramo parametrico e il sotto-tab 3D.
             if (ui->lineEquationCrossSection) {
-                ui->lineEquationCrossSection->blockSignals(true);
-                ui->lineEquationCrossSection->clear();
-                ui->lineEquationCrossSection->blockSignals(false);
+                setRmText(&ImplicitTexts::crossSection, QString());
             }
         }
 
@@ -7460,8 +7444,8 @@ void MainWindow::updateConstantsUIState() {
         // "non c'e' niente da cui dedurre". In parametrico le equazioni sono
         // molte e svuotarne una non ha lo stesso significato.
         equationFieldIsEmpty = mathText.trimmed().isEmpty();
-        glslText += " " + stripCodeComments(ui->lineTexture->toPlainText()) +
-                    " " + stripCodeComments(ui->lineVariations->toPlainText());
+        glslText += " " + stripCodeComments(m_rm.texture) +
+                    " " + stripCodeComments(m_rm.displacement);
         // L'APPLICATO, come nel ramo parametrico e con la stessa condizione:
         // equazione, texture e rilievo compilati nel marcher.
         if (m_constantsEditPending && ui->glWidget) {
@@ -7825,7 +7809,7 @@ void MainWindow::syncTextureTreeSelection()
             // RAY MARCHING: nessuna fascia, la texture e' quella di superficie e
             // il checkbox ne e' il comando diretto.
             if (!ui->chkBoxTexture->isChecked()) return;
-            activeCode = ui->lineTexture->toPlainText();
+            activeCode = m_rm.texture;
             libName = m_currentTextureLibName;
         } else {
             // MULTI-MESH: con una fascia selezionata l'albero deve evidenziare
@@ -7975,8 +7959,8 @@ void MainWindow::dumpTextureState(const char *tag) const
 
     const QString editorText = (m_currentScriptMode == ScriptModeTexture)
                              ? scriptText(shownScriptSlot()) : QString();
-    const QString lineTexText = ui->lineTexture ? ui->lineTexture->toPlainText() : QString();
-    const QString dispFieldText = ui->lineVariations ? ui->lineVariations->toPlainText() : QString();
+    const QString lineTexText = ui->lineTexture ? m_rm.texture : QString();
+    const QString dispFieldText = ui->lineVariations ? m_rm.displacement : QString();
     const QString dispEngine = g ? g->currentDisplacementCode() : QString();
 
     qDebug().noquote() << QString(
@@ -8119,9 +8103,7 @@ bool MainWindow::syncSurfaceTextureFrom(const LibraryItem *lib)
     // sotto: l'editor lo mostra solo se il dock e' su quello slot -- in ambito
     // "Mesh" mostra la FASCIA selezionata.)
     if (isImplicit && ui->lineTexture) {
-        ui->lineTexture->blockSignals(true);
-        ui->lineTexture->setPlainText(newCode);
-        ui->lineTexture->blockSignals(false);
+        setRmText(&ImplicitTexts::texture, newCode);
     }
 
     // Lo SLOT dello script (l'intenzione, da cui l'editor si ricostruisce
@@ -8147,9 +8129,7 @@ bool MainWindow::syncSurfaceTextureFrom(const LibraryItem *lib)
     // completo, colori compresi.
 
     if (ui->lineVariations) {
-        ui->lineVariations->blockSignals(true);
-        ui->lineVariations->setPlainText(lib->displacementCode);
-        ui->lineVariations->blockSignals(false);
+        setRmText(&ImplicitTexts::displacement, lib->displacementCode);
     }
 
     // APPLICAZIONE AL MOTORE: due vie diverse, e sbagliarle NON da' errori --
@@ -8201,8 +8181,8 @@ bool MainWindow::syncSurfaceTextureFrom(const LibraryItem *lib)
             // animata risultava sempre statica e il Sync la lasciava ferma.
             // Stessa distinzione che fa il riclic della Library (~13254).
             ui->glWidget->setSurfaceTextureAnimating(
-                hasTimeVariable(ui->lineTexture ? ui->lineTexture->toPlainText() : QString())
-                || hasTimeVariable(ui->lineVariations ? ui->lineVariations->toPlainText() : QString()));
+                hasTimeVariable(ui->lineTexture ? m_rm.texture : QString())
+                || hasTimeVariable(ui->lineVariations ? m_rm.displacement : QString()));
         } else {
             ui->glWidget->setSurfaceTextureAnimating(
                 hasTimeVariable(allSurfaceTextureCode()));
@@ -8320,14 +8300,14 @@ const LibraryItem *MainWindow::focusedTextureLibraryItem() const
 
     const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
     const QString activeCode = isImplicit && ui->lineTexture
-                             ? ui->lineTexture->toPlainText()
+                             ? m_rm.texture
                              : m_surfaceTextureCode;
     // Il DISPLACEMENT fa parte della texture quanto il colore, e va confrontato
     // anche lui: una texture il cui solo rilievo e' cambiato ha eccome qualcosa
     // da sincronizzare, ma guardando il solo codice colore la voce sarebbe
     // rimasta spenta -- e il comando, che il displacement lo aggiorna gia',
     // sarebbe risultato irraggiungibile proprio nel caso che lo richiede.
-    const QString activeDisp = ui->lineVariations ? ui->lineVariations->toPlainText() : QString();
+    const QString activeDisp = ui->lineVariations ? m_rm.displacement : QString();
 
     const QString libCode = item->textureCode.isEmpty() ? item->scriptCode : item->textureCode;
     // Gia' allineati (codice E rilievo): niente da sincronizzare.
@@ -9004,22 +8984,16 @@ void MainWindow::handleTextureSelection(int index)
         // i tasti Run del dock Equations (la superficie di default e' gia' quella
         // a schermo, non c'e' nulla da "applicare"). Blocchiamo i segnali attorno
         // all'intera preparazione e ripristiniamo i flag "applied" piu' sotto.
-        const QList<QPlainTextEdit*> eqFields = {
-            ui->lineEquation, ui->lineVariations, ui->lineTexture,
-            ui->lineX, ui->lineY, ui->lineZ, ui->lineP
-        };
-        QList<bool> eqOldBlock;
-        for (QPlainTextEdit* f : eqFields) eqOldBlock.append(f->blockSignals(true));
+        // (Ogni campo e' scritto dal suo setter, setRmText / setEqText, che lo
+        // scrive a segnali bloccati.)
 
         if (texIsImplicit) {
             //modeSwitched = true;
             // --- PREPARA AMBIENTE RAY MARCHING ---
-            ui->lineEquation->setPlainText("x*x + y*y + z*z = 1.0"); // Sfera Implicita
-            ui->lineVariations->clear();
-            ui->lineX->clear();
-            ui->lineY->clear();
-            ui->lineZ->clear();
-            ui->lineP->clear();
+            setRmText(&ImplicitTexts::equation, QStringLiteral("x*x + y*y + z*z = 1.0")); // Sfera Implicita
+            setRmText(&ImplicitTexts::displacement, QString());
+            for (EqField f : { &EquationTexts::x, &EquationTexts::y, &EquationTexts::z, &EquationTexts::p })
+                setEqText(f, QString());
 
             // Ambiente di rendering RM DETERMINISTICO per la sfera di default.
             // Come nel gestore canonico del cambio tab (~1108): l'equazione viene
@@ -9054,17 +9028,17 @@ void MainWindow::handleTextureSelection(int index)
             }
         } else {
             // --- PREPARA AMBIENTE PARAMETRICO ---
-            ui->lineX->setPlainText("(0.8 + 0.3 * cos(v)) * cos(u)");
-            ui->lineY->setPlainText("(0.8 + 0.3 * cos(v)) * sin(u)");
-            ui->lineZ->setPlainText("0.3 * sin(v)");
+            setEqText(&EquationTexts::x, QStringLiteral("(0.8 + 0.3 * cos(v)) * cos(u)"));
+            setEqText(&EquationTexts::y, QStringLiteral("(0.8 + 0.3 * cos(v)) * sin(u)"));
+            setEqText(&EquationTexts::z, QStringLiteral("0.3 * sin(v)"));
             ui->uMinEdit->setText("0");
             ui->uMaxEdit->setText("6.28318");
             ui->vMinEdit->setText("0");
             ui->vMaxEdit->setText("6.28318");
 
-            ui->lineEquation->clear();
-            ui->lineTexture->clear();
-            ui->lineVariations->clear();
+            setRmText(&ImplicitTexts::equation, QString());
+            setRmText(&ImplicitTexts::texture, QString());
+            setRmText(&ImplicitTexts::displacement, QString());
 
             if (ui->glWidget) {
                 ui->glWidget->setDisplacementCode("");
@@ -9072,7 +9046,6 @@ void MainWindow::handleTextureSelection(int index)
             }
         }
 
-        for (int i = 0; i < eqFields.size(); ++i) eqFields[i]->blockSignals(eqOldBlock[i]);
 
         // La superficie di default e' quella ora a schermo: niente da applicare,
         // quindi i due flag "applied" restano/tornano true -> i tasti Run del dock
@@ -9429,9 +9402,7 @@ void MainWindow::handleTextureSelection(int index)
                               .arg(data.displacementCode.length())
                               .arg(QFileInfo(data.filePath).fileName());
 #endif
-        ui->lineVariations->blockSignals(true);
-        ui->lineVariations->setPlainText(data.displacementCode);
-        ui->lineVariations->blockSignals(false);
+        setRmText(&ImplicitTexts::displacement, data.displacementCode);
         if (ui->glWidget) ui->glWidget->setDisplacementCode(data.displacementCode);
         SE_TEXP("libTex:RM-post-displacement");
 
@@ -9471,9 +9442,7 @@ void MainWindow::handleTextureSelection(int index)
             rmTexCode = "//IMG:" + imgSrc + "\n" + rmTexCode;
         }
 
-        ui->lineTexture->blockSignals(true);
-        ui->lineTexture->setPlainText(rmTexCode);
-        ui->lineTexture->blockSignals(false);
+        setRmText(&ImplicitTexts::texture, rmTexCode);
 
         if (ui->glWidget) {
             // 1. Preparazione dell'equazione (per darla in pasto al validatore).
@@ -9488,9 +9457,7 @@ void MainWindow::handleTextureSelection(int index)
             // l'equazione a 4 variabili non compilerebbe nemmeno.
             const bool crossSectionActive = ui->subTabImplicit
                                             && ui->subTabImplicit->currentIndex() == 1;
-            QPlainTextEdit *eqEditor = crossSectionActive ? ui->lineEquationCrossSection
-                                                          : ui->lineEquation;
-            QString rawEq = eqEditor->toPlainText().trimmed();
+            QString rawEq = (crossSectionActive ? m_rm.crossSection : m_rm.equation).trimmed();
             QString implicitEqF;
             if (rawEq.contains("=")) {
                 QStringList parts = rawEq.split("=");
@@ -9608,8 +9575,8 @@ void MainWindow::handleTextureSelection(int index)
     bool dispAnim     = false;   // 't' nel displacement     -> orologio TEXTURE
     if (isSurfTexActive) {
         if (isRM) {
-            texColorAnim = ui->lineTexture->toPlainText().contains(timeRegex);
-            dispAnim     = ui->lineVariations->toPlainText().contains(timeRegex);
+            texColorAnim = m_rm.texture.contains(timeRegex);
+            dispAnim     = m_rm.displacement.contains(timeRegex);
         } else {
             texColorAnim = allSurfaceTextureCode().contains(timeRegex);
         }
@@ -10167,8 +10134,8 @@ void MainWindow::onStartClicked()
         m_surfaceScriptApplied = currentScript;
 
         if (ui->tabModeSelector->currentIndex() == 1) {
-            QString texCode = ui->lineTexture->toPlainText();
-            QString dispCode = ui->lineVariations->toPlainText();
+            QString texCode = m_rm.texture;
+            QString dispCode = m_rm.displacement;
 
             // Controllo parentesi (popup di "Unmatched parentheses" chiaro)
             if (!InputValidator::validateParentheses(this, stripCodeComments(texCode))) return;
@@ -10273,9 +10240,10 @@ void MainWindow::onStartClicked()
         // (4 variabili x,y,z,p) — vedi CLAUDE.md, i due sotto-tab hanno stato
         // separato, limiti/Run/Variations restano condivisi.
         const bool crossSectionActive = (ui->subTabImplicit->currentIndex() == 1);
-        QPlainTextEdit *eqEditor = crossSectionActive ? ui->lineEquationCrossSection : ui->lineEquation;
+        const RmField rmEqField = crossSectionActive ? &ImplicitTexts::crossSection
+                                                     : &ImplicitTexts::equation;
 
-        QString rawEq = eqEditor->toPlainText().trimmed();
+        QString rawEq = (m_rm.*rmEqField).trimmed();
         // CAMPO VUOTO: si avvisa e si esce, non si esce in silenzio. Il return
         // muto lasciava a schermo la superficie PRECEDENTE senza dire nulla --
         // l'utente cancellava l'equazione, premeva Invio e vedeva la scena di
@@ -10303,16 +10271,14 @@ void MainWindow::onStartClicked()
         } else {
             // Aggiungiamo silenziosamente "= 0.0" se l'utente lo ha omesso, senza fastidiosi popup
             QString correctedEq = rawEq + " = 0.0";
-            eqEditor->blockSignals(true);
-            eqEditor->setPlainText(correctedEq);
-            eqEditor->blockSignals(false);
+            setRmText(rmEqField, correctedEq);
 
             implicitEqF = QString("(%1) - (0.0)").arg(rawEq);
         }
 
         // 2. Lettura e validazione Texture
-        QString texCode = ui->lineTexture->toPlainText().trimmed();
-        QString dispCode = ui->lineVariations->toPlainText().trimmed();
+        QString texCode = m_rm.texture.trimmed();
+        QString dispCode = m_rm.displacement.trimmed();
 
         if (!InputValidator::validateImplicitScriptContext(this, texCode)) return;
 
@@ -12273,9 +12239,7 @@ void MainWindow::onRunCurrentScript()
             // TUTTO OK: ABILITIAMO IL TASTO SALVA
             ui->btnSaveScript->setEnabled(true);
 
-            ui->lineEquation->blockSignals(true);
-            ui->lineEquation->setPlainText("// Controlled by Script");
-            ui->lineEquation->blockSignals(false);
+            setRmText(&ImplicitTexts::equation, "// Controlled by Script");
 
             m_masterStopped = false;
             m_userStoppedGeomClock = false;   // run esplicito del modulo geometria
@@ -12812,8 +12776,8 @@ void MainWindow::warnSharedConstantsOnRecordLoad(const QString &recordPath)
         parts << qMakePair(QStringLiteral("the surface"), constantsUsedIn(surfaceConstantSource()));
         if (m_surfaceTextureState) {
             const QString tex = isRM
-                ? (ui->lineTexture ? ui->lineTexture->toPlainText() : QString()) + "\n"
-                  + (ui->lineVariations ? ui->lineVariations->toPlainText() : QString())
+                ? (ui->lineTexture ? m_rm.texture : QString()) + "\n"
+                  + (ui->lineVariations ? m_rm.displacement : QString())
                 : m_surfaceTextureCode;
             parts << qMakePair(QStringLiteral("the texture"), constantsUsedIn(tex));
         }
@@ -13272,7 +13236,7 @@ void MainWindow::onApplyTextureScriptClicked()
         bool surfTexNeedsAnim = false;
         if (ui->chkBoxTexture->isChecked()) {
             QString surfTexToCheck = (ui->tabModeSelector->currentIndex() == 1)
-                    ? (ui->lineTexture->toPlainText() + ui->lineVariations->toPlainText())
+                    ? (m_rm.texture + m_rm.displacement)
                     : allSurfaceTextureCode();
             if (surfTexToCheck.contains(timeRegex)) surfTexNeedsAnim = true;
         }
@@ -13301,8 +13265,8 @@ void MainWindow::onRunRaymarchTextureClicked()
     if (!ui->glWidget) return;
 
     const QRegularExpression& timeRegex = kReTimeVar;
-    bool texColorHasTime = ui->lineTexture->toPlainText().contains(timeRegex);
-    bool dispHasTime     = ui->lineVariations->toPlainText().contains(timeRegex);
+    bool texColorHasTime = m_rm.texture.contains(timeRegex);
+    bool dispHasTime     = m_rm.displacement.contains(timeRegex);
 
     // Il MODULO TEXTURE possiede UN solo orologio: colore e displacement leggono
     // entrambi dummyZero.x nello shader. Quindi Run/Stop texture agisce SOLO su
@@ -13566,7 +13530,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         if (ui->radioBackground->isChecked()) {
             activeCode = m_bgTextureCode;
         } else if (ui->tabModeSelector->currentIndex() == 1) {
-            activeCode = ui->lineTexture->toPlainText();
+            activeCode = m_rm.texture;
         } else if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0
                    && ui->glWidget->activeMeshTextureActive()) {
             // AMBITO "MESH": la texture in uso e' quella della FASCIA, non
@@ -13594,7 +13558,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             // ne' colori. Stessa ragione del confronto su m_currentTexturePresetPath
             // qui sotto, che copre il caso gemello dello zoom.
             if (isMatch && ui->lineVariations
-                && cleanCodeForComparison(ui->lineVariations->toPlainText())
+                && cleanCodeForComparison(m_rm.displacement)
                    != cleanCodeForComparison(data.displacementCode))
                 isMatch = false;
         }
@@ -13623,7 +13587,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             .arg(isMatch)
             .arg(cleanCodeForComparison(activeCode) == cleanCodeForComparison(data.scriptCode))
             .arg(ui->lineVariations
-                 && cleanCodeForComparison(ui->lineVariations->toPlainText())
+                 && cleanCodeForComparison(m_rm.displacement)
                     == cleanCodeForComparison(data.displacementCode))
             .arg(data.filePath == m_currentTexturePresetPath)
             .arg(ui->chkBoxTexture && ui->chkBoxTexture->isChecked())
@@ -13760,8 +13724,8 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
                 // (~7548) per decidere l'orologio al caricamento.
                 const bool isRMTex = (ui->tabModeSelector->currentIndex() == 1);
                 const bool texIsAnimated = isRMTex
-                    ? (ui->lineTexture->toPlainText().contains(kReTimeVar)
-                       || ui->lineVariations->toPlainText().contains(kReTimeVar))
+                    ? (m_rm.texture.contains(kReTimeVar)
+                       || m_rm.displacement.contains(kReTimeVar))
                     : (hasTimeVariable(allSurfaceTextureCode()) || anyMeshTextureCodeAnimated());
 
                 // NON azzeriamo m_masterStopped (come il ramo background sopra):
@@ -13933,14 +13897,10 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     commitSurfaceTextureCode(QString());
     setScriptText(SlotSurfaceTexture, QString());
 
-    ui->lineVariations->blockSignals(true);
-    ui->lineVariations->clear();
-    ui->lineVariations->blockSignals(false);
+    setRmText(&ImplicitTexts::displacement, QString());
     if(ui->glWidget) ui->glWidget->setDisplacementCode("");
 
-    ui->lineTexture->blockSignals(true);
-    ui->lineTexture->clear();
-    ui->lineTexture->blockSignals(false);
+    setRmText(&ImplicitTexts::texture, QString());
     if(ui->glWidget) ui->glWidget->setTextureCode("");
 
     // Lo sfondo si spegne piu' sotto (setBackgroundTextureEnabled(false)): qui
@@ -14107,9 +14067,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
             eqToLoad = "x^2 + y^2 + z^2 = 1.0";
         }
 
-        ui->lineEquation->blockSignals(true);
-        ui->lineEquation->setPlainText(eqToLoad);
-        ui->lineEquation->blockSignals(false);
+        setRmText(&ImplicitTexts::equation, eqToLoad);
 
         // Editor 4D e linguetta sono gia' stati ripristinati PRIMA di
         // applyCommonData (vedi la nota li': il giudizio sulle costanti in coda
@@ -14506,9 +14464,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
                 eqToLoad = "x^2 + y^2 + z^2 = 1.0";
             }
 
-            ui->lineEquation->blockSignals(true);
-            ui->lineEquation->setPlainText(eqToLoad);
-            ui->lineEquation->blockSignals(false);
+            setRmText(&ImplicitTexts::equation, eqToLoad);
 
             // SOTTO-TAB CROSS SECTION: stesso trattamento del ramo superfici
             // (applySurfaceExample). Senza, un record girato in Cross Section si
@@ -14723,9 +14679,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // 1. CARICAMENTO TEXTURE 2D (Energia/Colore)
     if (isImplicit) {
         // Modalità Ray Marching: va nei campi dedicati
-        ui->lineTexture->blockSignals(true);
-        ui->lineTexture->setPlainText(data.textureCode);
-        ui->lineTexture->blockSignals(false);
+        setRmText(&ImplicitTexts::texture, data.textureCode);
         if (ui->glWidget) ui->glWidget->setTextureCode(data.textureCode);
         SE_TEXP("common:RM-texture-del-record");
 
@@ -14742,9 +14696,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     // 2. CARICAMENTO DISPLACEMENT 3D (Bernoccoli): solo in Ray Marching.
     if (isImplicit) {
-        ui->lineVariations->blockSignals(true);
-        ui->lineVariations->setPlainText(data.displacementCode);
-        ui->lineVariations->blockSignals(false);
+        setRmText(&ImplicitTexts::displacement, data.displacementCode);
         if (ui->glWidget) ui->glWidget->setDisplacementCode(data.displacementCode);
     } else {
         ui->lineVariations->clear();
@@ -14832,7 +14784,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     // SEPARAZIONE IMMEDIATA AUDIO-GRAFICA
     // Recuperiamo il codice 2D corretto in base alla modalità corrente
-    QString sourceForAudio = isImplicit ? ui->lineTexture->toPlainText() : texCode;
+    QString sourceForAudio = isImplicit ? m_rm.texture : texCode;
     QString fullLoadedText = sourceForAudio + "\n" + bgCode;
 
     setScriptText(SlotSound, extractAudioDirectives(fullLoadedText));
@@ -14842,7 +14794,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     QRegularExpression cleanBlockRe(R"(//SOUND_BEGIN.*?//SOUND_END\n?)", QRegularExpression::DotMatchesEverythingOption);
 
     if (isImplicit) {
-        QString cleanRM = ui->lineTexture->toPlainText();
+        QString cleanRM = m_rm.texture;
         cleanRM.remove(cleanMusicRe); cleanRM.remove(cleanBlockRe);
         ui->lineTexture->setPlainText(cleanRM.trimmed());
         if (ui->glWidget) ui->glWidget->setTextureCode(cleanRM.trimmed());
@@ -14892,15 +14844,13 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // un //IMG: che punta a un file inesistente, e ogni Run successivo tornava
     // a cercarlo.
     if (missingScan.surfaceMissing && isImplicit) {
-        QString rmTex = ui->lineTexture->toPlainText();
+        QString rmTex = m_rm.texture;
         rmTex.remove(imgTagRe);
         rmTex = rmTex.trimmed();
         // Stessa euristica dei due rami sotto: se resta solo il tag, non c'e'
         // nessuno script da salvare e il campo va svuotato del tutto.
         if (!missingScan.surfaceKeptScript) rmTex.clear();
-        bool rmBlock = ui->lineTexture->blockSignals(true);
-        ui->lineTexture->setPlainText(rmTex);
-        ui->lineTexture->blockSignals(rmBlock);
+        setRmText(&ImplicitTexts::texture, rmTex);
         if (ui->glWidget) ui->glWidget->setTextureCode(rmTex);
     }
 
@@ -15423,8 +15373,8 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // Con una texture animata il flag resta false -- il tasto e' un Run/Stop
     // legittimo, non un one-shot gia' consumato.
     if (isImplicit) {
-        const bool rmTexAnim = hasTimeVariable(ui->lineTexture->toPlainText())
-                               || hasTimeVariable(ui->lineVariations->toPlainText());
+        const bool rmTexAnim = hasTimeVariable(m_rm.texture)
+                               || hasTimeVariable(m_rm.displacement);
         m_rmTextureApplied = !rmTexAnim;
     }
 
@@ -16869,9 +16819,7 @@ QString MainWindow::activeImplicitEquationText() const
 {
     const bool crossSectionActive = ui->subTabImplicit
                                     && ui->subTabImplicit->currentIndex() == 1;
-    if (crossSectionActive && ui->lineEquationCrossSection)
-        return ui->lineEquationCrossSection->toPlainText();
-    return ui->lineEquation ? ui->lineEquation->toPlainText() : QString();
+    return crossSectionActive ? m_rm.crossSection : m_rm.equation;
 }
 
 // Spessore del guscio: motore + posizione dello slider in un colpo. La curva dello
@@ -17240,9 +17188,7 @@ bool MainWindow::textureTargetInWireframe()
 void MainWindow::setCrossSectionEditorFromPreset(const QString &eq)
 {
     if (!ui->lineEquationCrossSection) return;
-    const bool b = ui->lineEquationCrossSection->blockSignals(true);
-    ui->lineEquationCrossSection->setPlainText(eq);
-    ui->lineEquationCrossSection->blockSignals(b);
+    setRmText(&ImplicitTexts::crossSection, eq);
 }
 
 void MainWindow::loadCrossSectionDefaultSurface()
@@ -17263,9 +17209,7 @@ void MainWindow::loadCrossSectionDefaultSurface()
         "- 16*A*A*(x*x+y*y)*(x*x+y*y+z*z+p*p+A*A-B*B-C*C)^2)";
 
     if (ui->lineEquationCrossSection) {
-        ui->lineEquationCrossSection->blockSignals(true);
-        ui->lineEquationCrossSection->setPlainText(kT3Equation);
-        ui->lineEquationCrossSection->blockSignals(false);
+        setRmText(&ImplicitTexts::crossSection, kT3Equation);
     }
 
     // Costanti di default del T^3: A=raggio esterno, B=raggio intermedio,
@@ -18175,9 +18119,7 @@ void MainWindow::applyCommonData(LibraryItem d)
 
             ui->glWidget->rebuildShader();
 
-            ui->lineEquation->blockSignals(true);
-            ui->lineEquation->setPlainText("// Controlled by Script");
-            ui->lineEquation->blockSignals(false);
+            setRmText(&ImplicitTexts::equation, "// Controlled by Script");
 
             applyAnimationState(hasTimeVariable(d.scriptCode));
         } else {
@@ -19988,7 +19930,7 @@ bool MainWindow::activeTextureUsesColorToken(const QString &token) const
     // più sotto accendeva i picker a torto su texture RM senza u_col1/u_col2. In RM
     // la verità è solo nel codice del campo texture.
     if (ui->tabModeSelector->currentIndex() == 1) {
-        return ui->lineTexture->toPlainText().contains(token);
+        return m_rm.texture.contains(token);
     }
 
     // AMBITO "MESH": se la parte selezionata ha una texture PROPRIA, la verità
@@ -20043,8 +19985,8 @@ bool MainWindow::hasSavableTexture() const
     // Ray Marching (non sfondo): contenuto = colore (lineTexture) + displacement
     // (lineVariations), gli stessi campi salvati da saveTexture().
     if (isImplicit && !isBg) {
-        return !ui->lineTexture->toPlainText().trimmed().isEmpty()
-               || !ui->lineVariations->toPlainText().trimmed().isEmpty();
+        return !m_rm.texture.trimmed().isEmpty()
+               || !m_rm.displacement.trimmed().isEmpty();
     }
 
     // Parametrico/sfondo: in modalità script texture la verità è lo script
@@ -20380,8 +20322,8 @@ void MainWindow::updateMasterButtonState()
             // colore E displacement leggono lo STESSO orologio texture: entrambi
             // dipendono da isSurfaceTextureAnimating().
             bool texClockRunning = ui->glWidget->isSurfaceTextureAnimating() && isSurfTexActive;
-            bool texColorMoving = texClockRunning && hasTimeVariable(ui->lineTexture->toPlainText());
-            bool dispMoving     = texClockRunning && hasTimeVariable(ui->lineVariations->toPlainText());
+            bool texColorMoving = texClockRunning && hasTimeVariable(m_rm.texture);
+            bool dispMoving     = texClockRunning && hasTimeVariable(m_rm.displacement);
             isTexVisuallyMoving = texColorMoving || dispMoving;
         } else {
             bool texClockRunning = ui->glWidget->isSurfaceTextureAnimating();
@@ -20427,8 +20369,8 @@ void MainWindow::updateMasterButtonState()
             //  2. script in moto -> è un tasto Stop, attivo;
             //  3. script statico -> Run one-shot: disabilitato dopo l'applicazione
             //     (m_rmTextureApplied), riabilitato all'edit degli script.
-            bool texFieldsEmpty = ui->lineTexture->toPlainText().trimmed().isEmpty()
-                                  && ui->lineVariations->toPlainText().trimmed().isEmpty();
+            bool texFieldsEmpty = m_rm.texture.trimmed().isEmpty()
+                                  && m_rm.displacement.trimmed().isEmpty();
             ui->btnTextureCode->setEnabled(!texFieldsEmpty
                                            && (isTexVisuallyMoving || !m_rmTextureApplied));
         }
@@ -21614,6 +21556,35 @@ void MainWindow::bindEquationFields()
         connect(edit->document(), &QTextDocument::contentsChanged, this, sync);
         sync();
     }
+    // I campi Ray Marching, allo stesso modo, in m_rm.
+    for (RmField f : { &ImplicitTexts::equation, &ImplicitTexts::crossSection,
+                       &ImplicitTexts::texture, &ImplicitTexts::displacement }) {
+        QPlainTextEdit *edit = implicitFieldEdit(f);
+        if (!edit) continue;
+        auto sync = [this, f, edit] { m_rm.*f = edit->toPlainText(); };
+        connect(edit, &QPlainTextEdit::textChanged, this, sync);
+        connect(edit->document(), &QTextDocument::contentsChanged, this, sync);
+        sync();
+    }
+}
+
+QPlainTextEdit *MainWindow::implicitFieldEdit(RmField f) const
+{
+    if (f == &ImplicitTexts::equation)     return ui->lineEquation;
+    if (f == &ImplicitTexts::crossSection) return ui->lineEquationCrossSection;
+    if (f == &ImplicitTexts::texture)      return ui->lineTexture;
+    if (f == &ImplicitTexts::displacement) return ui->lineVariations;
+    return nullptr;
+}
+
+void MainWindow::setRmText(RmField field, const QString &text)
+{
+    QPlainTextEdit *edit = implicitFieldEdit(field);
+    if (!edit) { m_rm.*field = text; return; }
+    // A segnali bloccati: e' il programma che scrive, non l'utente. m_rm segue
+    // dal documento (bindEquationFields).
+    const QSignalBlocker blocker(edit);
+    edit->setPlainText(text);
 }
 
 void MainWindow::setEqText(EqField field, const QString &text)

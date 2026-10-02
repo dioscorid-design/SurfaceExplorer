@@ -590,10 +590,28 @@ void ScenarioTest::checkTextureCode(const QString &step, const QString &expected
     }
 
     if (!scriptEditorProblem().isEmpty()) bad << scriptEditorProblem();
+    if (!rmFieldsProblem().isEmpty()) bad << rmFieldsProblem();
 
     check(bad.isEmpty(), QStringLiteral("%1 -> codice %2%3")
                              .arg(step, briefCode(shown),
                                   bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+}
+
+QString ScenarioTest::rmFieldsProblem() const
+{
+    // I quattro campi Ray Marching sono l'editor dello stato m_rm: stesso testo.
+    Ui::MainWindow *ui = m_mw->ui;
+    struct F { const char *name; QPlainTextEdit *edit; const QString &state; };
+    const F fs[] = { { "equazione", ui->lineEquation, m_mw->m_rm.equation },
+                     { "Cross Section", ui->lineEquationCrossSection, m_mw->m_rm.crossSection },
+                     { "texture", ui->lineTexture, m_mw->m_rm.texture },
+                     { "rilievo", ui->lineVariations, m_mw->m_rm.displacement } };
+    for (const F &f : fs) {
+        if (f.edit && f.edit->toPlainText() != f.state)
+            return QStringLiteral("Ray Marching, %1: lo stato ha %2, il campo %3")
+                .arg(QString::fromLatin1(f.name), briefCode(f.state), briefCode(f.edit->toPlainText()));
+    }
+    return QString();
 }
 
 QString ScenarioTest::scriptEditorProblem() const
@@ -973,6 +991,7 @@ void ScenarioTest::checkEquations(const QString &step, bool pendingEdit)
     }
 
     if (!scriptEditorProblem().isEmpty()) bad << scriptEditorProblem();
+    if (!rmFieldsProblem().isEmpty()) bad << rmFieldsProblem();
 
     check(bad.isEmpty(), QStringLiteral("%1 -> equazioni %2%3")
                              .arg(step, shown,
