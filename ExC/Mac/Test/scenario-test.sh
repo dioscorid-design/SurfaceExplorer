@@ -9,7 +9,8 @@
 # gesto che le copie dello stato della scena (motore, controlli, cio' che
 # scriverebbe il Save) restino coerenti: accensione della texture, colori
 # u_col1/u_col2, codice e immagine della texture, displacement del Ray
-# Marching, immagine di sfondo. Dura circa due minuti.
+# Marching, immagine di sfondo, costanti, equazioni, path e moti, lavoro non
+# salvato, reset della scena. Dura circa otto minuti.
 #
 # Quando lanciarlo: dopo ogni modifica alla gestione della texture o dei
 # controlli di resa, e prima di un rilascio. E' la rete dei GESTI: il test dei
@@ -47,7 +48,7 @@ OUT="$REPORTS/scenario-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$OUT"
 
 echo "Libreria: $PRESETS"
-echo "Test in corso (l'app si apre da sola e si chiude alla fine, ~1 min)..."
+echo "Test in corso (l'app si apre da sola e si chiude alla fine, ~8 min)..."
 
 RC=0
 "$BIN" --scenario-test "$PRESETS" "$OUT" > "$OUT/app.log" 2>&1 || RC=$?

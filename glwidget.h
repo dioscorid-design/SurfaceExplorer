@@ -271,6 +271,10 @@ public:
         update();
     }
     void resetVisuals();
+    // Inquadratura 2D (zoom, pan, rotazione) della texture di superficie e dello
+    // sfondo al default. E' della scena: la usano il load di una superficie
+    // (resetVisuals) e il reset di scena, cosi' la scena nuova non la eredita.
+    void resetTextureFraming();
     void setProjectionMode(int mode);
     // ASPETTO PER-MESH: se una parte e' selezionata con lo spinbox del dock
     // renderer, setColor/setAlpha/setLightIntensity scrivono su QUELLA parte

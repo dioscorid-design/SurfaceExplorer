@@ -2422,23 +2422,28 @@ void GLWidget::resetVisuals()
         }
         m_bgIsScript = false;
 
-        // Azzera i parametri dinamici dello sfondo
-        setProperty("bg_zoom", 1.0f);
-        setProperty("bg_pan", QVector2D(0.0f, 0.0f));
-        setProperty("bg_rot", 0.0f);
-
-        // Azzera i parametri della superficie: sia il buffer di lavoro sia la
-        // trasformazione GLOBALE, o quest'ultima sopravviverebbe allo
-        // spegnimento della texture e tornerebbe applicata alla successiva.
-        m_flatZoom = 1.0f;
-        m_flatPan = QVector2D(0.0f, 0.0f);
-        m_flatRotation = 0.0f;
-        m_globalTexZoom = 1.0f;
-        m_globalTexPan = QVector2D(0.0f, 0.0f);
-        m_globalTexRotation = 0.0f;
-
-        update();
+        resetTextureFraming();
     }
+}
+
+void GLWidget::resetTextureFraming()
+{
+    // Azzera i parametri dinamici dello sfondo
+    setProperty("bg_zoom", 1.0f);
+    setProperty("bg_pan", QVector2D(0.0f, 0.0f));
+    setProperty("bg_rot", 0.0f);
+
+    // Azzera i parametri della superficie: sia il buffer di lavoro sia la
+    // trasformazione GLOBALE, o quest'ultima sopravviverebbe allo
+    // spegnimento della texture e tornerebbe applicata alla successiva.
+    m_flatZoom = 1.0f;
+    m_flatPan = QVector2D(0.0f, 0.0f);
+    m_flatRotation = 0.0f;
+    m_globalTexZoom = 1.0f;
+    m_globalTexPan = QVector2D(0.0f, 0.0f);
+    m_globalTexRotation = 0.0f;
+
+    update();
 }
 
 void GLWidget::setProjectionMode(int mode) {

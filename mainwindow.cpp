@@ -5207,6 +5207,28 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         ui->glWidget->getEngine()->clearAllDomain();
     }
 
+    // BERSAGLIO SU SURFACE, per entrambe le modalita': la scena nuova non ha
+    // uno sfondo (lo spengono tutti e due i rami qui sotto), quindi il dock
+    // Renderer non resta puntato li'. radioSurface e radioBackground sono
+    // esclusivi, ma si toccano a segnali bloccati: il ripristino del dock e'
+    // gestito esplicitamente qui intorno e l'handler toggled di radioBackground
+    // non deve girare.
+    // QUI, prima dell'editor e del checkbox Texture, perche' tutti e due
+    // guardano il bersaglio. Prima lo faceva ciascun ramo, in fondo: l'editor
+    // restava con lo script dello sfondo appena spento, e il checkbox veniva
+    // riallineato dal solo ramo parametrico con un setChecked a segnali VIVI --
+    // se mostrava lo sfondo acceso faceva girare il suo handler a meta' reset
+    // (in Ray Marching restava acceso, con l'etichetta dello sfondo).
+    if (ui->radioBackground->isChecked()) {
+        bool oldBgBlock = ui->radioBackground->blockSignals(true);
+        bool oldSurfBlock = ui->radioSurface->blockSignals(true);
+        ui->radioSurface->setChecked(true);
+        ui->radioSurface->blockSignals(oldSurfBlock);
+        ui->radioBackground->blockSignals(oldBgBlock);
+        ui->radioSurface->setEnabled(true);
+    }
+    ui->chkBoxTexture->setText("Texture");
+
     // 3. Svuota l'editor visivamente (se aperto su Surface) e in memoria
     //
     // SCENA VUOTA: l'editor si svuota SEMPRE, qualunque modulo stia mostrando,
@@ -5274,7 +5296,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         ui->glWidget->loadCustomShader("");
     }
 
-    // La vista segue (col Background in editing il checkbox mostra lo sfondo).
+    // La vista segue (il bersaglio e' gia' Surface: vedi sopra).
     refreshSurfaceTextureCheckbox();
 
     // Intenzione spenta qui sopra: il motore la segue.
@@ -5349,6 +5371,15 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         // del ramo Ray Marching, che quindi la assorbe: una sola compilazione.
         // La chiamata tardiva resta e diventa un no-op (stesso valore).
         ui->glWidget->setMeshAppearanceUniform(true);
+
+        // INQUADRATURA 2D di texture e sfondo al default, come al load di una
+        // superficie (resetVisuals). Non la azzerava nessuno: la scena nuova
+        // teneva zoom, pan e rotazione del record di prima -- la scacchiera di
+        // default riaccesa dopo Dynamic Mobius Band (zoom 9.36) si vedeva 2x2
+        // invece che 8x8, e il Save li scriveva nella scena nuova. Dopo aver
+        // lasciato la mesh: il buffer di lavoro della vista 2D e' di nuovo
+        // quello della superficie.
+        ui->glWidget->resetTextureFraming();
     }
 
     // Aggiorna gli slider colore della UI per allinearli ai valori appena resettati
@@ -5551,22 +5582,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         // reset, dove la texture sopravvive davvero.
         m_surfaceTextureScriptText.clear();
 
-        // Esco dall'editing sfondo: riporto il target sulla superficie. Lo
-        // faceva SOLO il ramo parametrico qui sotto, quindi arrivando alla
-        // sfera RM di default col radio su Background quello restava
-        // selezionato -- e con lui il dock Renderer puntato su uno sfondo
-        // appena spento. Stessa implementazione dell'altro ramo: esclusivi ma
-        // toccati a segnali bloccati, perche' il ripristino del dock e' gia'
-        // gestito esplicitamente qui intorno e l'handler toggled non va fatto
-        // girare.
-        if (ui->radioBackground && ui->radioBackground->isChecked()) {
-            bool oldBgBlock = ui->radioBackground->blockSignals(true);
-            bool oldSurfBlock = ui->radioSurface->blockSignals(true);
-            ui->radioSurface->setChecked(true);
-            ui->radioSurface->blockSignals(oldSurfBlock);
-            ui->radioBackground->blockSignals(oldBgBlock);
-            ui->radioSurface->setEnabled(true);
-        }
+        // (Il bersaglio e' gia' tornato su Surface nella parte comune, sopra.)
 
         // 5. Ripristina l'equazione di default
         // Scena vuota: il campo resta VUOTO. Questo blocco esiste per garantire
@@ -5759,20 +5775,8 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         // 3. RESET SFONDO E LIMITI
         ui->glWidget->setBackgroundTextureEnabled(false);
         forgetBackgroundTexture();
-        // Esco dall'editing sfondo: riporto il target sulla superficie. radioSurface
-        // e radioBackground sono esclusivi, ma li tocco a segnali bloccati perché
-        // il ripristino del dock è già gestito esplicitamente qui intorno (non
-        // voglio far girare anche l'handler toggled di radioBackground).
-        if (ui->radioBackground && ui->radioBackground->isChecked()) {
-            bool oldBgBlock = ui->radioBackground->blockSignals(true);
-            bool oldSurfBlock = ui->radioSurface->blockSignals(true);
-            ui->radioSurface->setChecked(true);
-            ui->radioSurface->blockSignals(oldSurfBlock);
-            ui->radioBackground->blockSignals(oldBgBlock);
-            ui->radioSurface->setEnabled(true);
-        }
-        ui->chkBoxTexture->setText("Texture");
-        ui->chkBoxTexture->setChecked(m_surfaceTextureState);
+        // (Bersaglio su Surface e checkbox Texture: gia' fatti nella parte
+        // comune, sopra, a segnali bloccati.)
 
         // I limiti tornano ai valori di default in ENTRAMBI i casi: sono il
         // dominio di lavoro, non la superficie. A campi vuoti servono comunque
@@ -5876,6 +5880,11 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // quindi manda al motore i valori giusti in tutti e tre i casi -- scena
     // vuota, sfera del 3D, T^3 del Cross Section.
     setEngineConstants(resolveCascadeConstants(false), /*onlyIfChanged=*/false);
+
+    // La texture non c'e' piu': nemmeno modifiche a mano da proteggere quando
+    // si spegne il checkbox. QUI, dopo i due rami: quello Ray Marching scrive
+    // nei campi della texture a segnali vivi, e il flag si rialzava da solo.
+    setProperty("isTextureModified", false);
 
     updateRenderState();
     checkParametricDependency();

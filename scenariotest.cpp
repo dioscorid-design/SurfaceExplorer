@@ -1788,6 +1788,95 @@ void ScenarioTest::run()
               QStringLiteral("Run di uno script che usa A = 0.805 -> a schermo, nessun errore"));
         checkConstants(QStringLiteral("dopo il Run dello script"), KV{ { "A", 0.805 } });
     }
+
+    // ---------------------------------------------------------------------
+    // RESET DELLA SCENA (NEW, cambio di linguetta): la scena nuova non eredita
+    // il bersaglio Background ne' l'inquadratura 2D della texture di prima.
+    // Il checkbox, la sua etichetta e l'editor seguono il bersaglio Surface,
+    // in entrambe le modalita' e da qualunque stato si parta.
+    auto checkTextureReset = [this, ui](const QString &step) {
+        GLWidget *gl = ui->glWidget;
+        QStringList bad;
+        if (!ui->radioSurface->isChecked()) bad << QStringLiteral("bersaglio ancora su Background");
+        if (ui->chkBoxTexture->text() != QLatin1String("Texture"))
+            bad << QStringLiteral("etichetta del checkbox \"%1\"").arg(ui->chkBoxTexture->text());
+        if (ui->chkBoxTexture->isChecked()) bad << QStringLiteral("checkbox acceso");
+        if (m_mw->m_surfaceTextureState) bad << QStringLiteral("intenzione accesa");
+        if (gl->isBackgroundTextureEnabled()) bad << QStringLiteral("sfondo acceso");
+        if (m_mw->m_currentScriptMode == MainWindow::ScriptModeTexture
+            && !ui->txtScriptEditor->toPlainText().trimmed().isEmpty())
+            bad << QStringLiteral("editor ancora pieno: ") + briefCode(ui->txtScriptEditor->toPlainText());
+        if (qAbs(gl->globalTexZoom() - 1.0f) > 1e-5f || !gl->globalTexPan().isNull()
+            || qAbs(gl->globalTexRotation()) > 1e-5f)
+            bad << QStringLiteral("inquadratura della texture: zoom %1, pan (%2, %3), rotazione %4")
+                       .arg(gl->globalTexZoom()).arg(gl->globalTexPan().x())
+                       .arg(gl->globalTexPan().y()).arg(gl->globalTexRotation());
+        if (qAbs(gl->backgroundZoom() - 1.0f) > 1e-5f || !gl->backgroundPan().isNull()
+            || qAbs(gl->backgroundRotation()) > 1e-5f)
+            bad << QStringLiteral("inquadratura dello sfondo: zoom %1, pan (%2, %3), rotazione %4")
+                       .arg(gl->backgroundZoom()).arg(gl->backgroundPan().x())
+                       .arg(gl->backgroundPan().y()).arg(gl->backgroundRotation());
+        if (m_mw->property("isTextureModified").toBool())
+            bad << QStringLiteral("la texture risulta ancora modificata a mano");
+        check(bad.isEmpty(), step + QStringLiteral(" -> ")
+                                 + (bad.isEmpty() ? QStringLiteral("bersaglio Surface, texture spenta, inquadratura al default")
+                                                  : bad.join(QStringLiteral("; "))));
+    };
+    auto switchModeTab = [this, ui](int index) {
+        m_discardOnPrompt = true;
+        ui->tabModeSelector->setCurrentIndex(index);  wait(1500);
+        m_discardOnPrompt = false;
+    };
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Reset della scena: bersaglio e inquadratura della texture =="));
+    if (loadRecord(QString::fromLatin1(kParametricRecord))) {
+        check(qAbs(ui->glWidget->globalTexZoom() - 1.0f) > 0.5f,
+              QStringLiteral("record caricato -> texture zoomata (zoom %1)").arg(ui->glWidget->globalTexZoom()));
+        // Script della texture ritoccato a mano, poi buttato via col NEW.
+        setScriptMode(MainWindow::ScriptModeTexture);
+        ui->txtScriptEditor->setPlainText(ui->txtScriptEditor->toPlainText() + QStringLiteral("\n// ritocco"));
+        wait(200);
+        pressNew();
+        checkTextureReset(QStringLiteral("tasto NEW dal bersaglio Surface"));
+    }
+    // Sfondo zoomato e ruotato dal record: la scena nuova riparte dal default.
+    if (loadRecord(QStringLiteral("records/Rotations/Scherk's Second Surface.json"))) {
+        check(qAbs(ui->glWidget->backgroundZoom() - 1.0f) > 0.5f,
+              QStringLiteral("record caricato -> sfondo zoomato (zoom %1)").arg(ui->glWidget->backgroundZoom()));
+        pressNew();
+        checkTextureReset(QStringLiteral("tasto NEW dopo un record con lo sfondo zoomato"));
+    }
+    if (loadRecord(QStringLiteral("records/Ray Marching/Metaball.json"))) {
+        pressNew();
+        checkTextureReset(QStringLiteral("Ray Marching: tasto NEW dopo un record con lo sfondo zoomato"));
+    }
+    if (loadRecord(QString::fromLatin1(kParametricRecord))) {
+        click(ui->radioBackground);
+        setScriptMode(MainWindow::ScriptModeTexture);
+        selectTexture(kBgPlasma);
+        pressNew();
+        checkTextureReset(QStringLiteral("tasto NEW dal bersaglio Background, sfondo con script"));
+        checkDirty(QStringLiteral("tasto NEW dal bersaglio Background"), false, false, false);
+    }
+    if (loadRecord(QString::fromLatin1(kParametricRecord))) {
+        click(ui->radioBackground);
+        switchModeTab(1);
+        checkTextureReset(QStringLiteral("linguetta Ray Marching dal bersaglio Background"));
+        switchModeTab(0);
+        checkTextureReset(QStringLiteral("ritorno alla linguetta Parametric"));
+    }
+    if (loadRecord(QString::fromLatin1(kImplicitRecord))) {
+        click(ui->radioBackground);
+        pressNew();
+        checkTextureReset(QStringLiteral("Ray Marching: tasto NEW dal bersaglio Background"));
+    }
+    if (loadRecord(QString::fromLatin1(kImplicitRecord))) {
+        click(ui->radioBackground);
+        switchModeTab(0);
+        checkTextureReset(QStringLiteral("Ray Marching: linguetta Parametric dal bersaglio Background"));
+    }
+    setScriptMode(MainWindow::ScriptModeSurface);
+
     // ---------------------------------------------------------------------
     // CROSS SECTION: e' del preset che lo dichiara. Un record (o una superficie)
     // Ray Marching DA SCRIPT caricato dopo un Cross Section non deve restare
