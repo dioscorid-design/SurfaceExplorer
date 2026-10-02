@@ -1327,12 +1327,42 @@ private:
     // ACCENSIONE DELLA TEXTURE DI SUPERFICIE nel motore, derivata dall'intenzione
     // m_surfaceTextureState. Vedi l'implementazione.
     void applySurfaceTextureToEngine();
-    // Il checkbox "Texture" come VISTA dell'intenzione, quando si edita la
-    // superficie in ambito All. Vedi l'implementazione.
-    void refreshSurfaceTextureCheckbox();
+    // ----------------------------------------------------------
+    // DOCK RENDERER: BERSAGLIO E CHECKBOX TEXTURE
+    // ----------------------------------------------------------
+    // Il checkbox "Texture" e' UN widget per tre texture: lo sfondo (bersaglio
+    // Background), la fascia selezionata (ambito Mesh) o la superficie. E' una
+    // VISTA: lo stato sta altrove (lo sfondo nel motore, la fascia nella sua
+    // MeshPart, la superficie in m_surfaceTextureState), e chi vuole sapere se
+    // una texture e' accesa lo chiede allo stato, non al checkbox -- che col
+    // bersaglio su Background mostra lo sfondo. Leggendolo come "la texture di
+    // superficie e' accesa", master Start e Run non riavviavano la texture
+    // della superficie se lo sfondo era spento.
+    //
+    // La texture che il checkbox mostra col bersaglio SURFACE: quella della
+    // fascia selezionata (ambito Mesh) o della superficie; spenta in wireframe,
+    // dove non si disegna.
+    bool surfaceTextureShown() const;
+    // La texture del bersaglio corrente: lo sfondo, o surfaceTextureShown().
+    bool targetTextureOn() const;
+    // Il MODULO texture di superficie disegna qualcosa: la texture mostrata
+    // qui sopra o quella di una fascia qualunque. Vale col dock su qualunque
+    // bersaglio: e' la domanda di chi governa l'orologio della texture.
+    bool surfaceTextureModuleActive() const;
+    // Il codice del modulo texture di superficie nella modalita' corrente: in
+    // Ray Marching colore e rilievo, in parametrico la texture globale e quelle
+    // delle fasce (allSurfaceTextureCode).
+    QString surfaceTextureModuleCode() const;
+    // LA VISTA: etichetta, abilitazione e spunta del checkbox dal bersaglio e
+    // dallo stato della sua texture. A segnali bloccati.
+    void refreshTextureCheckbox();
+    // Riporta il bersaglio su Surface dal programma (reset, load), a segnali
+    // bloccati, e riallinea il checkbox. Il resto del dock lo riallinea chi
+    // chiama, come prima.
+    void showSurfaceTarget();
     // La superficie -- o la fascia selezionata, in ambito Mesh -- e' in
     // wireframe: la texture non si disegna. Vedi l'implementazione.
-    bool textureTargetInWireframe();
+    bool textureTargetInWireframe() const;
     // Alpha globale del preset: slider E motore, anche a valore invariato.
     void applyPresetAlpha(float alpha);
     // defU/V/W e explicitU/V/W dal preset, per entrambi i rami di applyCommonData.

@@ -239,6 +239,7 @@ void ScenarioTest::checkTextureEnabled(const QString &step, bool expectedIntent)
     }
     if (saved != intent)
         bad << QStringLiteral("il Save scriverebbe %1, intenzione %2").arg(onOff(saved), onOff(intent));
+    if (!textureCheckboxProblem().isEmpty()) bad << textureCheckboxProblem();
 
     check(bad.isEmpty(), QStringLiteral("%1 -> texture %2%3")
                              .arg(step, onOff(intent),
@@ -1047,6 +1048,11 @@ void ScenarioTest::run()
     // Una sola sezione, per provare in fretta la parte su cui si lavora.
     if (m_only == QLatin1String("script-dock")) {
         runScriptDockScenarios();
+        finish();
+        return;
+    }
+    if (m_only == QLatin1String("texture-target")) {
+        runTextureTargetScenarios();
         finish();
         return;
     }
@@ -2633,8 +2639,136 @@ void ScenarioTest::run()
     pressNew();
 
     runScriptDockScenarios();
+    runTextureTargetScenarios();
 
     finish();
+}
+
+QString ScenarioTest::textureCheckboxProblem() const
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    const bool onBg = ui->radioBackground->isChecked();
+    const QString label = ui->chkBoxTexture->text();
+    const QString wantLabel = onBg ? QStringLiteral("Background Texture") : QStringLiteral("Texture");
+    if (label != wantLabel)
+        return QStringLiteral("etichetta del checkbox \"%1\" col bersaglio %2")
+            .arg(label, onBg ? QStringLiteral("Background") : QStringLiteral("Surface"));
+    // Bersaglio Background: il checkbox mostra lo sfondo. (Per la superficie
+    // e le fasce lo verifica checkTextureEnabled.)
+    if (onBg && ui->chkBoxTexture->isChecked() != ui->glWidget->isBackgroundTextureEnabled())
+        return QStringLiteral("checkbox %1, sfondo %2")
+            .arg(onOff(ui->chkBoxTexture->isChecked()), onOff(ui->glWidget->isBackgroundTextureEnabled()));
+    return QString();
+}
+
+void ScenarioTest::runTextureTargetScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    auto click = [this](QAbstractButton *b) { b->click(); wait(200); };
+    auto master = [this](const char *expectedLabel) {
+        // Il tasto master della status bar: START o STOP secondo lo stato.
+        if (!m_mw->m_btnStart) return false;
+        if (m_mw->m_btnStart->text().toUpper() != QLatin1String(expectedLabel)) return false;
+        m_mw->m_btnStart->click();
+        wait(800);
+        return true;
+    };
+    auto viewOk = [this](const QString &step) {
+        const QString p = textureCheckboxProblem();
+        check(p.isEmpty(), step + QStringLiteral(" -> checkbox ") + (p.isEmpty() ? QStringLiteral("coerente col bersaglio") : p));
+    };
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Bersaglio Background: la texture di superficie resta della superficie (parametrico) =="));
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Equations/R3/Torus.json"))) {
+        // Superficie statica con una texture animata: l'unico moto e' il suo.
+        click(ui->chkBoxTexture);
+        setScriptMode(MainWindow::ScriptModeTexture);
+        ui->txtScriptEditor->setPlainText(QStringLiteral("return vec3(fract(u + t), 0.5, 0.5);"));  wait(300);
+        m_mw->onRunCurrentScript();  wait(800);
+        check(gl->isSurfaceTextureAnimating(), QStringLiteral("texture animata eseguita -> il suo orologio gira"));
+        click(ui->radioBackground);
+        viewOk(QStringLiteral("bersaglio Background, sfondo spento"));
+        check(!gl->isBackgroundTextureEnabled() && gl->isSurfaceTextureAnimating(),
+              QStringLiteral("bersaglio Background, sfondo spento -> la texture di superficie gira ancora"));
+        check(master("STOP"), QStringLiteral("master: il tasto dice STOP"));
+        check(!gl->isSurfaceTextureAnimating(), QStringLiteral("master Stop -> texture ferma"));
+        check(master("START"), QStringLiteral("master: il tasto dice START"));
+        check(gl->isSurfaceTextureAnimating(),
+              QStringLiteral("master Start dal bersaglio Background -> la texture di superficie riparte"));
+        // Sfondo acceso e poi spento dal checkbox: non tocca la superficie.
+        click(ui->chkBoxTexture);
+        viewOk(QStringLiteral("sfondo acceso dal checkbox"));
+        check(gl->isBackgroundTextureEnabled() && m_mw->m_surfaceTextureState,
+              QStringLiteral("sfondo acceso dal checkbox -> sfondo on, texture di superficie on"));
+        click(ui->chkBoxTexture);
+        viewOk(QStringLiteral("sfondo spento dal checkbox"));
+        check(!gl->isBackgroundTextureEnabled() && m_mw->m_surfaceTextureState && gl->isSurfaceTextureAnimating(),
+              QStringLiteral("sfondo spento dal checkbox -> la texture di superficie resta accesa e in moto"));
+        click(ui->radioSurface);
+        viewOk(QStringLiteral("ritorno a Surface"));
+        checkTextureEnabled(QStringLiteral("ritorno a Surface"), true);
+        setScriptMode(MainWindow::ScriptModeSurface);
+    }
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Bersaglio Background: la texture di superficie resta della superficie (Ray Marching, %1) ==")
+                       .arg(QString::fromLatin1(kImplicitRecord)));
+    if (loadRecord(QString::fromLatin1(kImplicitRecord))
+        && selectTexture(QStringLiteral("textures/Ray Marching/Hellish Plasma.json"))) {
+        wait(600);
+        check(m_mw->hasTimeVariable(m_mw->m_rm.texture),
+              QStringLiteral("texture Ray Marching animata dalla Library -> il codice usa il tempo"));
+        check(gl->isSurfaceTextureAnimating(),
+              QStringLiteral("texture Ray Marching animata dalla Library -> il suo orologio gira"));
+        click(ui->radioBackground);
+        viewOk(QStringLiteral("bersaglio Background"));
+        if (ui->chkBoxTexture->isChecked()) { m_discardOnPrompt = true; click(ui->chkBoxTexture); m_discardOnPrompt = false; }
+        viewOk(QStringLiteral("sfondo spento dal checkbox"));
+        check(!gl->isBackgroundTextureEnabled() && m_mw->m_surfaceTextureState,
+              QStringLiteral("sfondo spento dal checkbox -> sfondo off, texture di superficie on"));
+        check(gl->isSurfaceTextureAnimating(), QStringLiteral("sfondo spento -> la texture di superficie gira ancora"));
+        if (master("STOP")) {
+            check(!gl->isSurfaceTextureAnimating(), QStringLiteral("master Stop -> texture ferma"));
+            check(master("START"), QStringLiteral("master: il tasto dice START"));
+            check(gl->isSurfaceTextureAnimating(),
+                  QStringLiteral("master Start dal bersaglio Background -> la texture di superficie riparte"));
+        } else {
+            check(false, QStringLiteral("master: il tasto dice STOP"));
+        }
+        // Il tasto Run/Stop della texture nel dock Equations.
+        if (ui->btnTextureCode->text() == QLatin1String("Stop")) { click(ui->btnTextureCode); wait(300); }
+        check(!gl->isSurfaceTextureAnimating(), QStringLiteral("Stop della texture (dock Equations) -> ferma"));
+        click(ui->btnTextureCode);  wait(600);
+        check(gl->isSurfaceTextureAnimating(),
+              QStringLiteral("Run della texture dal bersaglio Background -> la texture di superficie riparte"));
+        click(ui->radioSurface);
+        viewOk(QStringLiteral("ritorno a Surface"));
+        checkTextureEnabled(QStringLiteral("ritorno a Surface"), true);
+    }
+
+    // Load e reset col bersaglio su Background: il checkbox segue il bersaglio
+    // nuovo (Surface) e lo stato della sua texture.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Bersaglio Background: load e scelte in Library =="));
+    if (loadRecord(QString::fromLatin1(kParametricRecord))) {
+        click(ui->radioBackground);
+        viewOk(QStringLiteral("bersaglio Background su un record con sfondo"));
+        if (selectTexture(QStringLiteral("textures/Procedurals/Plasma.json")))
+            viewOk(QStringLiteral("procedurale di sfondo dalla Library"));
+        if (selectTexture(QStringLiteral("textures/Images/14.png")))
+            viewOk(QStringLiteral("immagine di sfondo dalla Library"));
+        if (loadRecord(QString::fromLatin1(kImplicitRecord))) {
+            viewOk(QStringLiteral("load di un record dal bersaglio Background"));
+            checkTextureEnabled(QStringLiteral("load di un record dal bersaglio Background"), true);
+        }
+        click(ui->radioBackground);
+        if (loadSurface(QStringLiteral("surfaces/Parametric/Equations/R3/Torus.json"))) {
+            viewOk(QStringLiteral("load di una superficie dal bersaglio Background"));
+            checkTextureEnabled(QStringLiteral("load di una superficie dal bersaglio Background"), false);
+        }
+    }
 }
 
 void ScenarioTest::runScriptDockScenarios()

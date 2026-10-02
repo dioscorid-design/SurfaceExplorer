@@ -159,6 +159,16 @@ private:
     // e di fascia, resta eseguibile (tasto Run acceso) e non passa per applicato.
     // Si lancia anche da solo: --scenario-only script-dock.
     void runScriptDockScenarios();
+    // BERSAGLIO DEL DOCK RENDERER (Surface / Background) e checkbox Texture: il
+    // checkbox e' la VISTA della texture del bersaglio (sfondo, fascia o
+    // superficie) e nessuno lo legge per sapere se la texture di SUPERFICIE e'
+    // accesa. Col bersaglio su Background e lo sfondo spento, master Start e
+    // Run riavviano comunque la texture della superficie.
+    // Da sola: --scenario-only texture-target.
+    void runTextureTargetScenarios();
+    // "" se checkbox ed etichetta dicono il bersaglio e lo stato della sua
+    // texture, altrimenti la differenza.
+    QString textureCheckboxProblem() const;
     // "" se l'editor del dock Script mostra lo slot che il dock indica (e' la
     // sua vista), altrimenti la descrizione della differenza. La controllano
     // le verifiche piu' frequenti (codice della texture, equazioni).
