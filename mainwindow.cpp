@@ -2010,88 +2010,9 @@ MainWindow::MainWindow(QWidget *parent)
         });
     }
 
-    // --- MOTORE COSTANTI A CASCATA ---
-    auto evaluateCascade = [this]() {
-        bool okA=true, okB=true, okC=true, okD=true, okE=true, okF=true, okS=true;
-        QString negativeConstName;
-
-        auto resolveConst = [this, &negativeConstName](QLineEdit* edit, const QString& name, float raw, bool ok) -> float {
-            if (ok && raw >= 0.0f) {
-                m_lastValidConst[edit] = raw;
-                return raw;
-            }
-            if (ok) { // raw < 0: ripristino + memorizza l'errore
-                float prev = m_lastValidConst.value(edit, 1.0f);
-                QSignalBlocker block(edit);   // niente editingFinished/valueChanged ricorsivi
-                edit->setText(QString::number(prev, 'g', 6));
-                if (negativeConstName.isEmpty()) negativeConstName = name;   // primo errore
-                return prev;
-            }
-            return raw; // !ok
-        };
-
-        // Variabili intermedie per evitare l'ordine di valutazione non garantito di &okX
-        float rawA = parseUIConstant(ui->lineA->text(), 0, 0, 0, 0, 0, 0, 0, &okA);
-        float valA = resolveConst(ui->lineA, "A", rawA, okA);
-        float rawB = parseUIConstant(ui->lineB->text(), valA, 0, 0, 0, 0, 0, 0, &okB);
-        float valB = resolveConst(ui->lineB, "B", rawB, okB);
-        float rawC = parseUIConstant(ui->lineC->text(), valA, valB, 0, 0, 0, 0, 0, &okC);
-        float valC = resolveConst(ui->lineC, "C", rawC, okC);
-        float rawD = parseUIConstant(ui->lineD->text(), valA, valB, valC, 0, 0, 0, 0, &okD);
-        float valD = resolveConst(ui->lineD, "D", rawD, okD);
-        float rawE = parseUIConstant(ui->lineE->text(), valA, valB, valC, valD, 0, 0, 0, &okE);
-        float valE = resolveConst(ui->lineE, "E", rawE, okE);
-        float rawF = parseUIConstant(ui->lineF->text(), valA, valB, valC, valD, valE, 0, 0, &okF);
-        float valF = resolveConst(ui->lineF, "F", rawF, okF);
-
-        // Tolto il vincolo std::max(0.0f) per S, così in parametrica accetta ancora i negativi
-        float valS = parseUIConstant(ui->lineS->text(), valA, valB, valC, valD, valE, valF, 0, &okS);
-
-        {
-            struct Ck { bool ok; QLineEdit* edit; QString name; };
-            const Ck checks[] = {
-                {okA, ui->lineA, "A"}, {okB, ui->lineB, "B"}, {okC, ui->lineC, "C"},
-                {okD, ui->lineD, "D"}, {okE, ui->lineE, "E"}, {okF, ui->lineF, "F"},
-                {okS, ui->lineS, "S"},
-            };
-            for (const auto& c : checks) {
-                if (!c.ok) {
-                    if (!m_constantPopupActive) {
-                        m_constantPopupActive = true;
-                        InputValidator::showInvalidConstantError(this, c.name, c.edit->text());
-
-                        // Ripristino focus senza ri-emettere editingFinished
-                        {
-                            QSignalBlocker blocker(c.edit);
-                            c.edit->setFocus();
-                            c.edit->selectAll();
-                        }
-                        // Reset rimandato: il flag resta true per tutto il resto
-                        // del ciclo di eventi (compreso il setFocus in onStartClicked)
-                        QTimer::singleShot(0, this, [this]{ m_constantPopupActive = false; });
-                    }
-                    return;
-                }
-            }
-        }
-
-        // ESPANSIONE DINAMICA: Nota l'aggiunta di '[this]' per leggere il Tab attuale
-        syncConstantSliders({ valA, valB, valC, valD, valE, valF, valS });
-
-        if (ui->glWidget) {
-            ui->glWidget->setEquationConstants(valA, valB, valC, valD, valE, valF, valS);
-            m_meshDebounce->start();
-        }
-
-        if (!negativeConstName.isEmpty() && !m_constantPopupActive) {
-            m_constantPopupActive = true;
-            InputValidator::showNegativeConstantError(this, negativeConstName);
-            QTimer::singleShot(0, this, [this]{ m_constantPopupActive = false; });
-        }
-    };
-
-    auto connectSlider = [this, evaluateCascade](QSlider* slider, QLineEdit* line) {
-        connect(slider, &QSlider::valueChanged, this, [line, evaluateCascade](int val) {
+    // --- MOTORE COSTANTI A CASCATA --- (vedi MainWindow::evaluateCascade)
+    auto connectSlider = [this](QSlider* slider, QLineEdit* line) {
+        connect(slider, &QSlider::valueChanged, this, [this, line](int val) {
             if (!line->hasFocus()) {
                 bool oldState = line->blockSignals(true);
                 line->setText(QString::number(val / 100.0f, 'g', 6));
@@ -2102,7 +2023,7 @@ MainWindow::MainWindow(QWidget *parent)
         // Snap delle costanti discrete ("A := int(1,6)") al RILASCIO, non durante
         // il trascinamento: agganciarlo a valueChanged farebbe scattare il cursore
         // sotto il dito a ogni tacca, e rigenererebbe la mesh a ogni scatto.
-        connect(slider, &QSlider::sliderReleased, this, [this, evaluateCascade]() {
+        connect(slider, &QSlider::sliderReleased, this, [this]() {
             if (applyDiscreteConstants()) evaluateCascade();
         });
     };
@@ -2112,8 +2033,8 @@ MainWindow::MainWindow(QWidget *parent)
     connectSlider(ui->eSlider, ui->lineE); connectSlider(ui->fSlider, ui->lineF);
     connectSlider(ui->sSlider, ui->lineS);
 
-    auto connectLineEdit = [this, evaluateCascade](QLineEdit* line) {
-        connect(line, &QLineEdit::editingFinished, this, [this, evaluateCascade]() {
+    auto connectLineEdit = [this](QLineEdit* line) {
+        connect(line, &QLineEdit::editingFinished, this, [this]() {
             // Prima lo snap delle costanti discrete: cosi' la cascata sotto parte
             // gia' dal valore intero e non ricalcola due volte.
             applyDiscreteConstants();
@@ -5954,11 +5875,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // vanno lette dopo. resolveCascadeConstants legge i campi come sono ADESSO,
     // quindi manda al motore i valori giusti in tutti e tre i casi -- scena
     // vuota, sfera del 3D, T^3 del Cross Section.
-    {
-        const CascadeConstants kc = resolveCascadeConstants(false);
-        if (ui->glWidget)
-            ui->glWidget->setEquationConstants(kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s);
-    }
+    setEngineConstants(resolveCascadeConstants(false), /*onlyIfChanged=*/false);
 
     updateRenderState();
     checkParametricDependency();
@@ -10040,32 +9957,87 @@ bool MainWindow::updateWLimits() {
     return true;
 }
 
-MainWindow::CascadeConstants MainWindow::resolveCascadeConstants(bool restoreTextOnNegative)
+MainWindow::CascadeConstants MainWindow::resolveCascadeConstants(bool restoreTextOnNegative,
+                                                                 CascadeIssues *issues)
 {
-    // A..F non ammettono valori negativi: si torna all'ultimo valore valido.
-    // S invece li accetta (in parametrica servono per invertire il tempo).
-    auto clampConst = [this, restoreTextOnNegative](QLineEdit* edit, float raw) -> float {
-        if (raw < 0.0f) {
-            float prev = m_lastValidConst.value(edit, 1.0f);
-            if (restoreTextOnNegative) {
-                QSignalBlocker b(edit);   // niente editingFinished/valueChanged ricorsivi
-                edit->setText(QString::number(prev, 'g', 6));
-            }
-            return prev;
-        }
-        m_lastValidConst[edit] = raw;
-        return raw;
+    struct Field { QLineEdit *edit; const char *name; };
+    const Field fields[7] = {
+        { ui->lineA, "A" }, { ui->lineB, "B" }, { ui->lineC, "C" }, { ui->lineD, "D" },
+        { ui->lineE, "E" }, { ui->lineF, "F" }, { ui->lineS, "S" },
     };
 
-    CascadeConstants k;
-    k.a = clampConst(ui->lineA, parseUIConstant(ui->lineA->text(), 0, 0, 0, 0, 0, 0, 0));
-    k.b = clampConst(ui->lineB, parseUIConstant(ui->lineB->text(), k.a, 0, 0, 0, 0, 0, 0));
-    k.c = clampConst(ui->lineC, parseUIConstant(ui->lineC->text(), k.a, k.b, 0, 0, 0, 0, 0));
-    k.d = clampConst(ui->lineD, parseUIConstant(ui->lineD->text(), k.a, k.b, k.c, 0, 0, 0, 0));
-    k.e = clampConst(ui->lineE, parseUIConstant(ui->lineE->text(), k.a, k.b, k.c, k.d, 0, 0, 0));
-    k.f = clampConst(ui->lineF, parseUIConstant(ui->lineF->text(), k.a, k.b, k.c, k.d, k.e, 0, 0));
-    k.s = parseUIConstant(ui->lineS->text(), k.a, k.b, k.c, k.d, k.e, k.f, 0);
-    return k;
+    // v[i] resta 0 finche' la sua costante non e' stata valutata: ogni campo
+    // vede solo le costanti che lo precedono.
+    float v[7] = { 0, 0, 0, 0, 0, 0, 0 };
+    for (int i = 0; i < 7; ++i) {
+        QLineEdit *edit = fields[i].edit;
+        bool ok = true;
+        float raw = parseUIConstant(edit->text(), v[0], v[1], v[2], v[3], v[4], v[5], 0, &ok);
+
+        if (!ok) {
+            // Testo che non si valuta: vale 0 e NON diventa l'ultimo valore valido.
+            if (issues && !issues->invalidEdit) {
+                issues->invalidEdit = edit;
+                issues->invalidName = QLatin1String(fields[i].name);
+            }
+        } else if (i < 6) {
+            // A..F non ammettono valori negativi: si torna all'ultimo valore
+            // valido. S invece li accetta (in parametrica servono per invertire
+            // il tempo).
+            if (raw < 0.0f) {
+                const float prev = m_lastValidConst.value(edit, 1.0f);
+                if (restoreTextOnNegative) {
+                    QSignalBlocker b(edit);   // niente editingFinished/valueChanged ricorsivi
+                    edit->setText(QString::number(prev, 'g', 6));
+                }
+                if (issues && issues->negativeName.isEmpty())
+                    issues->negativeName = QLatin1String(fields[i].name);
+                raw = prev;
+            } else {
+                m_lastValidConst[edit] = raw;
+            }
+        }
+        v[i] = raw;
+    }
+    return { v[0], v[1], v[2], v[3], v[4], v[5], v[6] };
+}
+
+void MainWindow::evaluateCascade()
+{
+    CascadeIssues issues;
+    const CascadeConstants kc = resolveCascadeConstants(/*restoreTextOnNegative=*/true, &issues);
+
+    if (issues.invalidEdit) {
+        if (!m_constantPopupActive) {
+            m_constantPopupActive = true;
+            InputValidator::showInvalidConstantError(this, issues.invalidName,
+                                                     issues.invalidEdit->text());
+
+            // Ripristino focus senza ri-emettere editingFinished
+            {
+                QSignalBlocker blocker(issues.invalidEdit);
+                issues.invalidEdit->setFocus();
+                issues.invalidEdit->selectAll();
+            }
+            // Reset rimandato: il flag resta true per tutto il resto
+            // del ciclo di eventi (compreso il setFocus in onStartClicked)
+            QTimer::singleShot(0, this, [this]{ m_constantPopupActive = false; });
+        }
+        return;
+    }
+
+    syncConstantSliders(kc);
+
+    if (ui->glWidget) {
+        setEngineConstants(kc, /*onlyIfChanged=*/false);
+        m_meshDebounce->start();
+    }
+
+    if (!issues.negativeName.isEmpty() && !m_constantPopupActive) {
+        m_constantPopupActive = true;
+        InputValidator::showNegativeConstantError(this, issues.negativeName);
+        QTimer::singleShot(0, this, [this]{ m_constantPopupActive = false; });
+    }
 }
 
 
@@ -10230,43 +10202,8 @@ void MainWindow::onStartClicked()
     return;
     }
 
-    // Lettura delle Costanti a cascata valida per entrambe le modalità.
-    const CascadeConstants kc = resolveCascadeConstants(false);
-    float valA = kc.a, valB = kc.b, valC = kc.c, valD = kc.d, valE = kc.e, valF = kc.f, valS = kc.s;
-
-    ui->glWidget->setEquationConstants(valA, valB, valC, valD, valE, valF, valS);
-
-    // Aggiornamento visivo degli slider (valido per entrambe le modalità)
-    auto updateSlider = [this](QSlider* s, float v, bool isS) {
-        bool old = s->blockSignals(true);
-        int intVal = static_cast<int>(v * 100.0f);
-
-        int newMin;
-        int newMax;
-
-        if (isS && ui->tabModeSelector->currentIndex() == 1) {
-            // Modalità Ray Marching: Step Relax parte da 0 a 1 (100)
-            newMin = 0;
-            newMax = std::max(100, intVal);
-            if (intVal < 0) intVal = 40; // Default di sicurezza a 0.4
-        } else {
-            // Modalità Parametrica o altri slider
-            newMin = isS ? std::min(-1000, intVal) : 0;
-            newMax = std::max(1000, intVal);
-        }
-
-        s->setRange(newMin, newMax);
-        s->setValue(intVal);
-        s->blockSignals(old);
-    };
-
-    updateSlider(ui->aSlider, valA, false);
-    updateSlider(ui->bSlider, valB, false);
-    updateSlider(ui->cSlider, valC, false);
-    updateSlider(ui->dSlider, valD, false);
-    updateSlider(ui->eSlider, valE, false);
-    updateSlider(ui->fSlider, valF, false);
-    updateSlider(ui->sSlider, valS, true);
+    // Costanti a cascata (valida per entrambe le modalità): slider e motore.
+    const CascadeConstants kc = pushConstantsToEngine(/*restoreTextOnNegative=*/false, /*always=*/true);
 
     // 2.5. RIPRESA PER GLI SCRIPT
     if (ui->glWidget->getEngine()->isScriptModeActive()) {
@@ -10888,8 +10825,8 @@ void MainWindow::onStartClicked()
             double pu = 0.0, pv = 0.0, pw = 0.0, pp_ = 0.0;
             p.setupVariables<double>(pu, pv, pw, pp_);
             p.setupConstants<double>(
-                        (double)valA, (double)valB, (double)valC, (double)valD,
-                        (double)valE, (double)valF, (double)valS);
+                        (double)kc.a, (double)kc.b, (double)kc.c, (double)kc.d,
+                        (double)kc.e, (double)kc.f, (double)kc.s);
 
             if (!p.compile(eq)) {
                 // Errore di sintassi: lo gestisce il controllo successivo.
@@ -12775,14 +12712,8 @@ void MainWindow::onRunScriptClicked()
     glslBody = GlslTranslator::translateEquation(glslBody);
 
     ui->glWidget->setResolution(ui->stepSlider->value());
-    float valA = ui->aSlider->value() / 100.0f;
-    float valB = ui->bSlider->value() / 100.0f;
-    float valC = ui->cSlider->value() / 100.0f;
-    float valD = ui->dSlider->value() / 100.0f;
-    float valE = ui->eSlider->value() / 100.0f;
-    float valF = ui->fSlider->value() / 100.0f;
-    float valS = ui->sSlider->value() / 100.0f;
-    ui->glWidget->setEquationConstants(valA, valB, valC, valD, valE, valF, valS);
+    // Dai CAMPI, non dagli slider: lo slider ha passo 0.01 e mostra il campo.
+    setEngineConstants(resolveCascadeConstants(false), /*onlyIfChanged=*/false);
 
     // 2. SECONDA LINEA DI DIFESA: dry-run del vertex shader script
     if (!ui->glWidget->validateAndApplyParametricScript(glslBody)) {
@@ -17562,9 +17493,6 @@ void MainWindow::loadCrossSectionDefaultSurface()
     // B a 0.4 (era 0.3): valori del preset "T3_1" salvato dall'utente, che e'
     // questa stessa superficie con l'inquadratura 4D scelta come default.
     const float valA = 0.9f, valB = 0.4f, valC = 0.2f;
-    const float valD = ui->lineD ? ui->lineD->text().toFloat() : 1.0f;
-    const float valE = ui->lineE ? ui->lineE->text().toFloat() : 1.0f;
-    const float valF = ui->lineF ? ui->lineF->text().toFloat() : 1.0f;
     // STEP RELAX a 0.4, come il default condiviso appena scritto da
     // resetImplicitSharedFields. Era 0.7 ("il T^3 e' stratificato e con passi piu'
     // lunghi la marcia arriva piu' a fondo a parita' di Ray Steps"), ma con passi
@@ -17572,10 +17500,10 @@ void MainWindow::loadCrossSectionDefaultSurface()
     // Precise: portato a 0.4 dall'utente insieme al fattore di scala 0.5, che
     // correggeva i difetti a schermo. La riga resta esplicita, come Ray Steps
     // sotto: se il default condiviso cambiasse, questa superficie tiene il suo.
-    // PRIMA della lettura di valS qui sotto: in Ray Marching lineS/sSlider NON e'
-    // la costante S dell'equazione ma proprio lo Step Relax, e finisce allo
-    // shader attraverso setEquationConstants (u_mathParams.w). Scrivendolo dopo,
-    // il motore avrebbe continuato a marciare con 0.4.
+    // PRIMA di spingere le costanti nel motore qui sotto: in Ray Marching
+    // lineS/sSlider NON e' la costante S dell'equazione ma proprio lo Step
+    // Relax, e finisce allo shader con le costanti (u_mathParams.w). Scrivendolo
+    // dopo, il motore avrebbe continuato a marciare con 0.4.
     const double kCrossSectionStepRelax = 0.4;
     m_lastImplicitS = kCrossSectionStepRelax;
     if (ui->lineS) {
@@ -17591,18 +17519,13 @@ void MainWindow::loadCrossSectionDefaultSurface()
         ui->sSlider->blockSignals(old);
     }
 
-    // S = lo Step Relax appena scritto qui sopra. Il fallback e' lo stesso
-    // valore, non un numero arbitrario.
-    const float valS = ui->lineS ? ui->lineS->text().toFloat()
-                                 : (float)kCrossSectionStepRelax;
-
     setConstantField(ui->lineA, ui->aSlider, valA);
     setConstantField(ui->lineB, ui->bSlider, valB);
     setConstantField(ui->lineC, ui->cSlider, valC);
 
-    if (ui->glWidget) {
-        ui->glWidget->setEquationConstants(valA, valB, valC, valD, valE, valF, valS);
-    }
+    // Dai campi appena scritti (A/B/C e lo Step Relax in S) e da quelli rimasti
+    // com'erano (D/E/F).
+    setEngineConstants(resolveCascadeConstants(false), /*onlyIfChanged=*/false);
 
     // Shell/Solid tornano al default (Shell). applyImplicitShellMode muove
     // entrambe le coppie di radio e scrive il motore: non serve piu' una copia
@@ -17811,22 +17734,10 @@ void MainWindow::applyPresetConstants(const LibraryItem &d, bool rebuildDiscrete
     ui->fSlider->blockSignals(false); ui->lineF->blockSignals(false);
     ui->sSlider->blockSignals(false); ui->lineS->blockSignals(false);
 
-    // Le costanti spinte alla GPU devono essere quelle EVENTUALMENTE snappate
-    // sopra, o la superficie nascerebbe con A=3.47 mentre il campo mostra 3.
-    // Si rilegge SOLO dai campi che lo snap ha davvero toccato: gli altri
-    // possono contenere espressioni ("A*2", risolte piu' tardi dalla cascata) e
-    // un toFloat() su quelle restituirebbe 0, azzerando la costante.
-    auto snapped = [this](const QString& key, QLineEdit* line, float fallback) {
-        if (!m_discreteConsts.contains(key)) return fallback;
-        bool ok = false;
-        const float v = line->text().trimmed().toFloat(&ok);
-        return ok ? v : fallback;
-    };
-    ui->glWidget->setEquationConstants(
-        snapped("A", ui->lineA, d.a), snapped("B", ui->lineB, d.b),
-        snapped("C", ui->lineC, d.c), snapped("D", ui->lineD, d.d),
-        snapped("E", ui->lineE, d.e), snapped("F", ui->lineF, d.f),
-        snapped("S", ui->lineS, d.s));
+    // Le costanti spinte alla GPU sono quelle dei CAMPI appena scritti, quindi
+    // anche quelle EVENTUALMENTE snappate sopra: la superficie non nasce con
+    // A=3.47 mentre il campo mostra 3. Stessa cascata di ogni altro percorso.
+    setEngineConstants(resolveCascadeConstants(false), /*onlyIfChanged=*/false);
 }
 
 // Campi di COMPOSIZIONE (defU/V/W) e di VINCOLO (explicitU/V/W) dal preset.
@@ -20179,24 +20090,33 @@ void MainWindow::syncConstantSliders(const CascadeConstants &k)
     setSmartSlider(ui->sSlider, k.s, true); // true = questo è lo slider S!
 }
 
-void MainWindow::pushConstantsToEngine(bool restoreTextOnNegative)
+void MainWindow::setEngineConstants(const CascadeConstants &kc, bool onlyIfChanged)
+{
+    if (!ui->glWidget) return;
+    if (onlyIfChanged) {
+        // setEquationConstants segna la mesh da rifare: chi passa di qui a ogni
+        // uscita di Run non deve farla rigenerare a valori invariati.
+        const QMap<QString, float> &now = ui->glWidget->getConstantsMap();
+        const float want[7] = { kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s };
+        static const char *const names[7] = { "A", "B", "C", "D", "E", "F", "S" };
+        bool same = now.size() == 7;
+        for (int i = 0; same && i < 7; ++i)
+            same = now.value(QLatin1String(names[i]), want[i] + 1.0f) == want[i];
+        if (same) return;
+    }
+    ui->glWidget->setEquationConstants(kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s);
+}
+
+MainWindow::CascadeConstants MainWindow::pushConstantsToEngine(bool restoreTextOnNegative,
+                                                               bool always)
 {
     const CascadeConstants kc = resolveCascadeConstants(restoreTextOnNegative);
     // Gli slider mostrano i valori RISOLTI: una costante definita come
     // espressione di un'altra cambia con lei anche quando a cambiarla non e'
     // un gesto dell'utente.
     syncConstantSliders(kc);
-    if (!ui->glWidget) return;
-    // Solo se cambia qualcosa: setEquationConstants segna la mesh da rifare, e
-    // qui si passa anche all'uscita di ogni Run.
-    const QMap<QString, float> &now = ui->glWidget->getConstantsMap();
-    const float want[7] = { kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s };
-    static const char *const names[7] = { "A", "B", "C", "D", "E", "F", "S" };
-    bool same = now.size() == 7;
-    for (int i = 0; same && i < 7; ++i)
-        same = now.value(QLatin1String(names[i]), want[i] + 1.0f) == want[i];
-    if (same) return;
-    ui->glWidget->setEquationConstants(kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s);
+    setEngineConstants(kc, /*onlyIfChanged=*/!always);
+    return kc;
 }
 
 void MainWindow::refreshConstants(bool restoreTextOnNegative)
@@ -22222,16 +22142,13 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
 
     QRegularExpression varRegex("\\b(u|v|w|U|V|W|x|y|z|t|iTime|u_time)\\b");
 
-    if (!rawConf.contains(varRegex)) {
-        float valA = ui->aSlider->value() / 100.0f;
-        float valB = ui->bSlider->value() / 100.0f;
-        float valC = ui->cSlider->value() / 100.0f;
-        float valD = ui->dSlider->value() / 100.0f;
-        float valE = ui->eSlider->value() / 100.0f;
-        float valF = ui->fSlider->value() / 100.0f;
-        float valS = ui->sSlider->value() / 100.0f;
+    // Costanti dai CAMPI (cascata), le stesse che vanno al motore piu' sotto.
+    // Leggendo gli slider (passo 0.01) un fattore conforme "200*A" con
+    // A = 0.005 risultava nullo, e il Run dava errore.
+    const CascadeConstants kc = resolveCascadeConstants(true);
 
-        float lambdaVal = parseUIConstant(rawConf, valA, valB, valC, valD, valE, valF, valS);
+    if (!rawConf.contains(varRegex)) {
+        float lambdaVal = parseUIConstant(rawConf, kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s);
 
         if (lambdaVal <= 1e-8f) {
             m_geodesicErrorPending = true;
@@ -22255,9 +22172,8 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
     // 2.5 ESTRAZIONE DELLE COSTANTI
     // ==============================================================
     {
-        const CascadeConstants kc = resolveCascadeConstants(true);
         float cA = kc.a, cB = kc.b, cC = kc.c, cD = kc.d, cE = kc.e, cF = kc.f, cS = kc.s;
-        if (ui->glWidget) ui->glWidget->setEquationConstants(cA, cB, cC, cD, cE, cF, cS);
+        setEngineConstants(kc, /*onlyIfChanged=*/false);
 
         if (!m_inGeoAnimTick &&
                 !geodesicFieldsAreFinite({rawU, rawV, rawW, rawDU, rawDV, rawDW,

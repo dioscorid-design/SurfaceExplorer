@@ -1254,14 +1254,35 @@ private:
     float parseMath(const QString &text, bool *ok = nullptr);
     float parseUIConstant(const QString &exprStr, float A, float B, float C, float D, float E, float F, float S, bool* ok = nullptr);
     struct CascadeConstants { float a, b, c, d, e, f, s; };
-    CascadeConstants resolveCascadeConstants(bool restoreTextOnNegative);
+    // Cio' che la cascata ha trovato di sbagliato nei campi. Lo mostra solo chi
+    // parte da un gesto dell'utente (evaluateCascade): i percorsi programmatici
+    // non aprono popup.
+    struct CascadeIssues {
+        QLineEdit *invalidEdit = nullptr;   // primo campo che non si valuta
+        QString invalidName;
+        QString negativeName;               // prima costante A..F negativa
+    };
+    // UNICO PARSER DELLA CASCATA: i campi lineA..lineS, ognuno valutato con le
+    // costanti che lo precedono. A..F negative tornano all'ultimo valore valido
+    // (S i negativi li accetta).
+    CascadeConstants resolveCascadeConstants(bool restoreTextOnNegative,
+                                             CascadeIssues *issues = nullptr);
+    // Il gesto dell'utente su una costante (slider o campo): cascata, popup
+    // degli errori, slider, motore e ricalcolo della mesh.
+    void evaluateCascade();
     // COSTANTI NEL MOTORE: i valori dei campi (cascata risolta) diventano quelli
     // dell'UBO. E' la derivazione a senso unico campi -> motore.
     // Gli SLIDER sui valori risolti (passo 0.01, estremi che si allargano se
     // serve). Unica implementazione: la usano i gesti dell'utente
-    // (evaluateCascade nel costruttore) e i percorsi programmatici.
+    // (evaluateCascade) e i percorsi programmatici.
     void syncConstantSliders(const CascadeConstants &k);
-    void pushConstantsToEngine(bool restoreTextOnNegative = true);
+    // UNICO PUNTO che scrive le costanti nel motore. onlyIfChanged: non tocca
+    // nulla a valori invariati (setEquationConstants segna la mesh da rifare).
+    void setEngineConstants(const CascadeConstants &k, bool onlyIfChanged);
+    // Campi -> slider + motore. always: scrive nel motore anche a valori
+    // invariati (i Run, che la mesh la rifanno comunque).
+    CascadeConstants pushConstantsToEngine(bool restoreTextOnNegative = true,
+                                           bool always = false);
     // Ricalcola quali costanti sono in uso (updateConstantsUIState, che riporta
     // al valore neutro quelle cadute in disuso scrivendo a segnali BLOCCATI) e
     // porta i valori nel motore. Da chiamare dopo ogni cambio di codice che non

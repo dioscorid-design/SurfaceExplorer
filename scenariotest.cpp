@@ -103,6 +103,7 @@ ScenarioTest::ScenarioTest(MainWindow *mw, const QString &root, const QString &o
             }
         }
         if (desc.contains(QLatin1String("slowing down"))) m_watchdogFired = true;
+        else ++m_popupsClosed;
         m_lines.append(QStringLiteral("        popup chiuso: ") + desc.simplified());
         if (auto *d = qobject_cast<QDialog *>(w)) d->reject();
         else w->close();
@@ -1755,6 +1756,38 @@ void ScenarioTest::run()
         checkConstants(QStringLiteral("A libera: 0.1 resta 0.1"), KV{ { "A", 0.1 } });
     }
 
+    // ---------------------------------------------------------------------
+    // COSTANTE PIU' FINE DEL PASSO DELLO SLIDER (0.01): la fonte e' il campo.
+    // Chi rileggeva lo slider vedeva 0.005 come 0 -- il fattore conforme del
+    // flusso geodetico "200*A" risultava nullo e il Run dava errore.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Costanti: valore piu' fine del passo dello slider =="));
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Geodesic Flow/R^3/Helicoid.json"))) {
+        ui->lineConform->setPlainText(QStringLiteral("200*A"));  wait(400);
+        setConstantByField(QStringLiteral("A"), QStringLiteral("0.005"));
+        checkConstants(QStringLiteral("fattore conforme 200*A, A = 0.005 dal campo"), KV{ { "A", 0.005 } });
+        const int popups = m_popupsClosed;
+        applyEquationEdit(ui->lineConform);
+        check(m_popupsClosed == popups,
+              QStringLiteral("Run col fattore conforme 200*A = 1 -> nessun errore"));
+        check(m_mw->property("active_lineConform").toString() == QLatin1String("200*A"),
+              QStringLiteral("Run col fattore conforme 200*A = 1 -> applicato"));
+        checkConstants(QStringLiteral("dopo il Run"), KV{ { "A", 0.005 } });
+    }
+    // Lo stesso con lo script di superficie: dopo il Run il motore ha il valore
+    // del campo, non quello dello slider.
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Equations/R3/Torus.json"))) {
+        setConstantByField(QStringLiteral("A"), QStringLiteral("0.805"));
+        setScriptMode(MainWindow::ScriptModeSurface);
+        ui->txtScriptEditor->setPlainText(QStringLiteral(
+            "return vec4((A + 0.3*cos(v))*cos(u), (A + 0.3*cos(v))*sin(u), 0.3*sin(v), 0.0);"));
+        wait(200);
+        const int popups = m_popupsClosed;
+        m_mw->onRunCurrentScript();  wait(800);
+        check(m_popupsClosed == popups && ui->glWidget->getEngine()->isScriptModeActive(),
+              QStringLiteral("Run di uno script che usa A = 0.805 -> a schermo, nessun errore"));
+        checkConstants(QStringLiteral("dopo il Run dello script"), KV{ { "A", 0.805 } });
+    }
     // ---------------------------------------------------------------------
     // CROSS SECTION: e' del preset che lo dichiara. Un record (o una superficie)
     // Ray Marching DA SCRIPT caricato dopo un Cross Section non deve restare

@@ -168,6 +168,9 @@ private:
     // (macchina sotto carico): il load si ripete, o i gesti seguenti partono
     // da una scena ferma che non e' quella in prova.
     bool m_watchdogFired = false;
+    // Popup chiusi dal test (errori e avvisi; non il "Don't save" ne' il
+    // watchdog): per verificare che un gesto NON ne apra.
+    int m_popupsClosed = 0;
 };
 
 #endif // SCENARIOTEST_H
