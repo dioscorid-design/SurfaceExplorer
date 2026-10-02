@@ -34,7 +34,9 @@
 # Report in build/test-reports/roundtrip-<data>/report.txt (roundtrip-dati-<data>
 # con --data-only), aperto alla fine.
 # Come leggerlo: "Dipendono dal preset caricato prima" e "Con un popup di errore"
-# devono restare a 0; "Il Save cambia o perde qualcosa" oggi non e' 0 (residui
+# devono restare a 0 ("Ricaricati perche' il watchdog..." conta i load ripetuti
+# a macchina carica: non e' un difetto, ma se sono tanti il giro va rifatto a
+# macchina libera); "Il Save cambia o perde qualcosa" oggi non e' 0 (residui
 # nei dati che il Save ripulisce): si confronta col report precedente, il cui
 # riepilogo viene stampato accanto a quello nuovo.
 
@@ -91,11 +93,11 @@ wait "$PID" || RC=$?
 
 echo
 echo "== Riepilogo =="
-sed -n '3p;5,10p' "$OUT/report.txt"
+sed -n '3p;5,11p' "$OUT/report.txt"
 if [ -n "$PREV" ] && [ -f "$PREV/report.txt" ]; then
     echo
     echo "== Riepilogo del report precedente ($(basename "$PREV")) =="
-    sed -n '3p;5,10p' "$PREV/report.txt"
+    sed -n '3p;5,11p' "$PREV/report.txt"
 fi
 echo
 case "$RC" in

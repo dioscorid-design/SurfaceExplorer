@@ -79,6 +79,10 @@ private:
     void run();
     void collect();
     Capture loadAndCapture(const Entry &e);
+    // Un solo tentativo di load e cattura (vedi loadAndCapture).
+    Capture loadAndCaptureOnce(const Entry &e);
+    // Load ripetuti perche' il watchdog della GPU aveva fermato la scena.
+    int m_watchdogReloads = 0;
     QJsonObject captureJson(const Entry &e);
     void wait(int ms);
     void closeModalDialogs();

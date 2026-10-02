@@ -351,6 +351,31 @@ QJsonObject PresetRoundTrip::captureJson(const Entry &e)
 
 PresetRoundTrip::Capture PresetRoundTrip::loadAndCapture(const Entry &e)
 {
+    // IL WATCHDOG DELLA GPU non e' un difetto del preset. A macchina carica
+    // (altri programmi, o ore di test di fila) puo' fermare l'animazione
+    // durante il load e portare la trasparenza a opaco: la scena catturata non
+    // e' piu' quella del preset, e il Save risultava "diverso" e "dipendente
+    // dall'ordine" (colors/alpha 0.61 -> 1 su Glass 3-Torus) senza che il
+    // codice c'entrasse -- lo stesso binario, pochi minuti dopo, dava il giro
+    // pulito. Come nel test degli scenari, il load si ripete; quante volte e'
+    // successo lo dice il report.
+    Capture c;
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        c = loadAndCaptureOnce(e);
+        bool watchdog = false;
+        for (const QString &d : c.dialogs)
+            if (d.contains(QLatin1String("slowing down"))) watchdog = true;
+        if (!watchdog) break;
+        ++m_watchdogReloads;
+        log(QStringLiteral("watchdog della GPU durante il load di %1: %2")
+                .arg(e.rel, attempt < 2 ? QStringLiteral("ricaricato") : QStringLiteral("terzo tentativo, lo tengo")));
+        wait(1500);
+    }
+    return c;
+}
+
+PresetRoundTrip::Capture PresetRoundTrip::loadAndCaptureOnce(const Entry &e)
+{
     Capture c;
     m_currentDialogs = &c.dialogs;
     const quint64 errorsBefore = InputValidator::errorCount();
@@ -811,6 +836,8 @@ void PresetRoundTrip::writeReport()
         << QStringLiteral("Non caricabili:                                              %1").arg(notLoadable)
         << QStringLiteral("Con un popup di errore al caricamento:                       %1").arg(withPopups)
         << QStringLiteral("Risultano da salvare appena caricati (popup fantasma):       %1").arg(dirtyAfterLoad)
+        << QStringLiteral("Ricaricati perche' il watchdog della GPU li aveva fermati:   %1%2").arg(m_watchdogReloads)
+               .arg(m_watchdogReloads > 0 ? QStringLiteral("   (macchina carica: non e' un difetto)") : QString())
         << QString()
         << QStringLiteral("== DIPENDONO DAL PRESET PRECEDENTE, per chiave (numero di preset) ==")
         << summary(orderByKey)
