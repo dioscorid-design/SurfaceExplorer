@@ -552,13 +552,6 @@ private:
     // dal primo a uscire lasciando scoperti i livelli ancora aperti.
     // Vedi libraryRebuildInProgress().
     int m_libraryRebuildDepth = 0;
-    // Avviso "le immagini non possono essere per-mesh" gia' mostrato in questa
-    // sessione. Spiega un LIMITE dell'architettura (l'immagine e' una risorsa
-    // GPU unica), non un errore: e' un'informazione che non cambia, quindi va
-    // detta una volta. Legarlo invece allo stato -- mostrarlo solo quando
-    // l'immagine cambia davvero -- si era rivelato fragile: il percorso aveva
-    // una ventina di punti di scrittura e azzeramento sparsi.
-    bool m_perMeshImageWarningShown = false;
     // True mentre una guardia trasparenza (forceOpaqueForHeavyRM) sta mostrando
     // il suo popup: fa scartare un performanceWarning gia' in coda (emesso sui
     // primi frame trasparenti prima dell'ack) che altrimenti aprirebbe il box del
@@ -1595,6 +1588,12 @@ private:
     // Lo script di una texture parametrica contiene CODICE da compilare (e non
     // il solo tag //IMG: o niente)? Euristica storica, in un punto solo.
     static bool textureHasLogic(const QString &code);
+    // Lo script campiona un'immagine (iChannel0..3 o il sampler `tex`)? Decide
+    // se una fascia tiene la propria immagine sotto la procedurale appena
+    // applicata (famiglia "Animated Images") o la lascia.
+    static bool textureCodeSamplesImage(const QString &code);
+    // Lo stesso script, col percorso del tag //IMG: sostituito (se c'e').
+    static QString withImageTagPath(const QString &code, const QString &path);
     // La texture parametrica di superficie APPLICATA e' codice custom (e non la
     // scacchiera di default o la sola immagine)? Si deriva dal codice applicato:
     // era un flag (m_isCustomMode) scritto in una quindicina di punti, e il Run

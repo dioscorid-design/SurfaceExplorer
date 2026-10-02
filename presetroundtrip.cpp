@@ -624,6 +624,29 @@ QString PresetRoundTrip::excusedBecause(const QString &key, int kind, bool white
             && pieces(file) == pieces(c.json))
             return QStringLiteral("solo audio: marcatori o percorso ripuliti");
     }
+    // Immagine di una FASCIA (tag //IMG: nel suo script): il file porta il
+    // percorso del dispositivo che l'ha salvato, il load lo ritrova per nome
+    // nella libreria locale e il Save scrive il percorso trovato -- come gia'
+    // fa per l'immagine della superficie. Conta che il file sia lo stesso e
+    // che il resto dello script non cambi.
+    if (kind == Diff::Changed && key.startsWith(QLatin1String("meshParts["))
+        && key.endsWith(QLatin1String("]/texCode"))) {
+        const int idx = key.mid(10, key.indexOf(QLatin1Char(']')) - 10).toInt();
+        auto codeOf = [idx](const QJsonObject &o) {
+            return o.value(QStringLiteral("meshParts")).toArray().at(idx).toObject()
+                    .value(QStringLiteral("texCode")).toString();
+        };
+        static const QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)",
+                                              QRegularExpression::MultilineOption);
+        const QString was = codeOf(file), now = codeOf(c.json);
+        const QString wasImg = QFileInfo(imgRe.match(was).captured(1).trimmed()).fileName();
+        const QString nowImg = QFileInfo(imgRe.match(now).captured(1).trimmed()).fileName();
+        QString wasRest = was, nowRest = now;
+        wasRest.remove(imgRe);
+        nowRest.remove(imgRe);
+        if (!wasImg.isEmpty() && wasImg == nowImg && wasRest == nowRest)
+            return QStringLiteral("immagine della fascia ritrovata nella libreria locale");
+    }
     // Fattore conforme VUOTO nel file: vale 1.0 (metrica piatta), che il load
     // scrive nel campo e il Save riporta.
     if (key == QLatin1String("geodesic/conform")

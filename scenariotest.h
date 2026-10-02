@@ -166,6 +166,14 @@ private:
     // Run riavviano comunque la texture della superficie.
     // Da sola: --scenario-only texture-target.
     void runTextureTargetScenarios();
+    // IMMAGINI SULLE SINGOLE MESH (multi-mesh, ambito Mesh): un'immagine scelta
+    // in Library con una fascia selezionata va su QUELLA fascia, ferma, e la
+    // superficie non cambia; fasce diverse tengono immagini diverse; uno script
+    // di "Animated Images" anima l'immagine della fascia, una procedurale che
+    // non campiona nulla la toglie; in ambito All sono sospese; i record
+    // salvati prima (tag della fascia = immagine della superficie) non cambiano.
+    // Da sola: --scenario-only mesh-image.
+    void runMeshImageScenarios();
     // "" se checkbox ed etichetta dicono il bersaglio e lo stato della sua
     // texture, altrimenti la differenza.
     QString textureCheckboxProblem() const;

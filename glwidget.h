@@ -17,6 +17,7 @@
 #include <QMouseEvent>
 #include <QElapsedTimer>
 #include <QQuaternion>
+#include <QHash>
 
 class InputHandler;
 class SurfaceEngine;
@@ -404,6 +405,16 @@ public:
     // Come sopra, ma vuoto se la texture della parte e' SPENTA (lo script resta
     // conservato). E' cio' che l'editor deve mostrare: vedi la nota nel .cpp.
     QString activeMeshEffectiveTextureCode() const;
+    // Il percorso nominato dal tag //IMG: di uno script di texture ("" se non
+    // c'e'). E' la regola unica con cui il renderer decide l'immagine di una
+    // fascia.
+    static QString imagePathInTextureCode(const QString &code);
+    // La fascia attiva ha un'immagine da campionare (la sua o, in mancanza,
+    // quella della superficie)? Vedi il .cpp.
+    bool activeMeshSamplesImage() const;
+    // Percorso dell'immagine PROPRIA caricata in GPU per la fascia `index`
+    // ("" se disegna con quella della superficie o senza immagine).
+    QString meshPartLoadedImagePath(int index) const;
     // Texture EFFICACE della parte attiva (propria E accesa): e' cio' che il
     // render disegna, quindi decide se gli slider colore editano u_col1/u_col2
     // o la tinta della superficie, e se il tasto 2D ha qualcosa da mostrare.
@@ -964,6 +975,29 @@ private:
     // texture. Era un bool: il percorso dice anche QUALE immagine e' a schermo
     // (vedi surfaceImagePath).
     QString m_surfaceImagePath;
+
+    // IMMAGINI PROPRIE DELLE FASCE (multi-mesh, ambito Mesh). L'immagine di una
+    // fascia e' quella nominata dal tag //IMG: nel suo script (textureCode),
+    // come per la texture di superficie. Ogni fascia e' gia' una draw call col
+    // suo blocco UBO: per darle un'immagine sua basta legarle, allo slot 1, la
+    // sua texture al posto di quella della superficie -- stesso layout, nessun
+    // campo nuovo nel blocco uniforme, nessuna pipeline in piu'.
+    // Una texture per PERCORSO: la stessa immagine su piu' fasce si carica una
+    // volta sola. Si creano e si distruggono nel frame (syncPartImages).
+    struct PartImage {
+        QRhiTexture *tex = nullptr;
+        QRhiShaderResourceBindings *srb = nullptr;
+        bool failed = false;   // file illeggibile: non si riprova a ogni frame
+    };
+    QHash<QString, PartImage> m_partImages;
+    void syncPartImages(QRhiResourceUpdateBatch *resourceUpdates);
+    void rebindPartImages();
+    void releasePartImages();
+    // La texture propria della fascia, se ne ha una caricata e l'aspetto
+    // per-fascia e' in vigore (ambito Mesh); altrimenti nullptr.
+    const PartImage *partImageFor(const MeshPart &p) const;
+    // I binding con cui disegnare la fascia: i suoi, o quelli della superficie.
+    QRhiShaderResourceBindings *bindingsForPart(const MeshPart &p) const;
     QImage m_pendingSurfaceImage;
     bool m_surfaceTextureNeedsUpload = false;
     // Richiesta di scarico della texture di superficie dalla GPU: la distruzione

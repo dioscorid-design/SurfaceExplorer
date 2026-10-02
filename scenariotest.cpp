@@ -1056,6 +1056,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("mesh-image")) {
+        runMeshImageScenarios();
+        finish();
+        return;
+    }
 
     // ---------------------------------------------------------------------
     // AVVIO: la superficie di default non e' lavoro dell'utente. Se qui la
@@ -2640,6 +2645,7 @@ void ScenarioTest::run()
 
     runScriptDockScenarios();
     runTextureTargetScenarios();
+    runMeshImageScenarios();
 
     finish();
 }
@@ -2956,6 +2962,221 @@ void ScenarioTest::runScriptDockScenarios()
               QStringLiteral("ambito All -> l'editor mostra la texture della superficie (%1)").arg(shownBrief()));
         checkTextureCode(QStringLiteral("ambito All"));
         setScriptMode(MainWindow::ScriptModeSurface);
+    }
+}
+
+void ScenarioTest::runMeshImageScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    auto click = [this](QAbstractButton *b) { b->click(); wait(200); };
+    auto part = [gl](int n) -> const MeshPart * {   // n = numero della fascia, da 1
+        const auto &parts = gl->getEngine()->getMeshParts();
+        return (n >= 1 && n <= (int)parts.size()) ? &parts[n - 1] : nullptr;
+    };
+    auto tagOf = [](const MeshPart *p) {
+        return p ? QFileInfo(GLWidget::imagePathInTextureCode(p->textureCode)).fileName() : QString();
+    };
+    auto logicOf = [](const MeshPart *p) { return p ? graphicsOf(p->textureCode, true) : QString(); };
+    auto loaded = [gl](int n) { return QFileInfo(gl->meshPartLoadedImagePath(n - 1)).fileName(); };
+    // Colore medio di cio' che e' a schermo e di un file immagine.
+    auto meanOf = [](const QImage &src) {
+        const QImage img = src.convertToFormat(QImage::Format_RGB32).scaled(64, 64);
+        double r = 0, g = 0, b = 0;
+        for (int y = 0; y < img.height(); ++y)
+            for (int x = 0; x < img.width(); ++x) {
+                const QRgb c = img.pixel(x, y);
+                r += qRed(c); g += qGreen(c); b += qBlue(c);
+            }
+        const double n = img.width() * img.height();
+        return QVector3D(r / n, g / n, b / n);
+    };
+    auto rgb = [](const QVector3D &v) {
+        return QStringLiteral("(%1,%2,%3)").arg(qRound(v.x())).arg(qRound(v.y())).arg(qRound(v.z()));
+    };
+    const QString imgA = QStringLiteral("textures/Images/14.png");   // azzurra
+    const QString imgB = QStringLiteral("textures/Images/2.png");    // rossa
+    const QVector3D meanA = meanOf(QImage(m_root + QLatin1Char('/') + imgA));
+    const QVector3D meanB = meanOf(QImage(m_root + QLatin1Char('/') + imgB));
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Immagini sulle singole mesh (%1) ==").arg(QString::fromLatin1(kMultiMeshRecord)));
+    if (loadRecord(QString::fromLatin1(kMultiMeshRecord))) {
+        if (!ui->radioMeshOne->isChecked()) click(ui->radioMeshOne);
+        const bool surfIntent = m_mw->m_surfaceTextureState;
+        const QString surfImage = gl->surfaceImagePath();
+        const QString surfCode = m_mw->m_surfaceTextureCode;
+        const QString strip1 = part(1) ? part(1)->textureCode : QString();
+        const int popups = m_popupsClosed;
+
+        // Fascia 3 (ha una procedurale): l'immagine la sostituisce, ferma.
+        ui->spinMeshSel->setValue(3);  wait(300);
+        if (selectTexture(imgA)) {
+            wait(600);
+            const MeshPart *p = part(3);
+            check(p && p->effectiveTextureEnabledMulti() && tagOf(p) == QLatin1String("14.png")
+                      && logicOf(p).isEmpty(),
+                  QStringLiteral("immagine con la fascia 3 selezionata -> lo script della fascia e' la sola immagine (tag '%1', resto %2)")
+                      .arg(tagOf(p), briefCode(logicOf(p))));
+            check(loaded(3) == QLatin1String("14.png"),
+                  QStringLiteral("immagine sulla fascia 3 -> in GPU la fascia ha la sua immagine ('%1')").arg(loaded(3)));
+            check(p && !p->texAnimating, QStringLiteral("immagine sulla fascia 3 -> il suo orologio e' fermo"));
+            check(m_mw->m_surfaceTextureState == surfIntent && gl->surfaceImagePath() == surfImage
+                      && m_mw->m_surfaceTextureCode == surfCode,
+                  QStringLiteral("immagine sulla fascia 3 -> la texture della superficie non cambia (immagine '%1')")
+                      .arg(QFileInfo(gl->surfaceImagePath()).fileName()));
+            check(part(1) && part(1)->textureCode == strip1,
+                  QStringLiteral("immagine sulla fascia 3 -> la fascia 1 tiene la sua texture"));
+            check(m_popupsClosed == popups, QStringLiteral("immagine sulla fascia 3 -> nessun avviso"));
+            checkTextureEnabled(QStringLiteral("immagine sulla fascia 3"), surfIntent);
+            const QString pb = textureCheckboxProblem();
+            check(ui->chkBoxTexture->isChecked() && pb.isEmpty(),
+                  QStringLiteral("immagine sulla fascia 3 -> checkbox Texture acceso") + (pb.isEmpty() ? QString() : QStringLiteral(" (") + pb + QLatin1Char(')')));
+            check(!ui->radioTexColor1->isEnabled() && !ui->radioTexColor2->isEnabled(),
+                  QStringLiteral("immagine sulla fascia 3 -> picker Colore 1/2 spenti (una foto non ha tinte)"));
+            setScriptMode(MainWindow::ScriptModeTexture);
+            check(ui->txtScriptEditor->toPlainText().trimmed() == (QStringLiteral("//IMG:") + GLWidget::imagePathInTextureCode(p ? p->textureCode : QString())),
+                  QStringLiteral("immagine sulla fascia 3 -> l'editor mostra il suo tag (%1)").arg(briefCode(ui->txtScriptEditor->toPlainText())));
+            setScriptMode(MainWindow::ScriptModeSurface);
+        }
+
+        // Fascia 5: un'ALTRA immagine. Ognuna tiene la sua.
+        ui->spinMeshSel->setValue(5);  wait(300);
+        if (selectTexture(imgB)) {
+            wait(600);
+            check(tagOf(part(5)) == QLatin1String("2.png") && loaded(5) == QLatin1String("2.png"),
+                  QStringLiteral("altra immagine sulla fascia 5 -> la fascia 5 ha la sua ('%1' in GPU)").arg(loaded(5)));
+            check(tagOf(part(3)) == QLatin1String("14.png") && loaded(3) == QLatin1String("14.png"),
+                  QStringLiteral("altra immagine sulla fascia 5 -> la fascia 3 tiene la sua ('%1' in GPU)").arg(loaded(3)));
+            check(gl->surfaceImagePath() == surfImage,
+                  QStringLiteral("altra immagine sulla fascia 5 -> l'immagine della superficie non cambia"));
+        }
+
+        // A SCHERMO: la vista 2D della fascia mostra la SUA immagine. (Il tasto
+        // 2D si accende col dock Script sul modulo Texture.)
+        setScriptMode(MainWindow::ScriptModeTexture);
+        if (ui->btnFlatPreview->isEnabled()) {
+            click(ui->btnFlatPreview);  wait(600);
+            const QVector3D shown5 = meanOf(gl->grabFramebuffer());
+            ui->spinMeshSel->setValue(3);  wait(600);
+            const QVector3D shown3 = meanOf(gl->grabFramebuffer());
+            check((shown5 - meanB).length() < (shown5 - meanA).length() && (shown5 - meanB).length() < 40.0f,
+                  QStringLiteral("vista 2D della fascia 5 -> a schermo l'immagine rossa: colore medio %1, immagine %2")
+                      .arg(rgb(shown5), rgb(meanB)));
+            check((shown3 - meanA).length() < (shown3 - meanB).length() && (shown3 - meanA).length() < 40.0f,
+                  QStringLiteral("vista 2D della fascia 3 -> a schermo l'immagine azzurra: colore medio %1, immagine %2")
+                      .arg(rgb(shown3), rgb(meanA)));
+            click(ui->btnFlatPreview);  wait(400);
+        } else {
+            check(false, QStringLiteral("tasto 2D acceso su una fascia con la sua immagine"));
+        }
+        setScriptMode(MainWindow::ScriptModeSurface);
+
+        // Il Save scrive le due immagini nelle due fasce.
+        LibraryItem savedWithImages;
+        {
+            const LibraryItem s = captureSave();
+            savedWithImages = s;
+            const QString t3 = s.meshParts.size() > 2 ? QFileInfo(GLWidget::imagePathInTextureCode(s.meshParts[2].textureCode)).fileName() : QString();
+            const QString t5 = s.meshParts.size() > 4 ? QFileInfo(GLWidget::imagePathInTextureCode(s.meshParts[4].textureCode)).fileName() : QString();
+            check(t3 == QLatin1String("14.png") && t5 == QLatin1String("2.png"),
+                  QStringLiteral("Save -> le fasce 3 e 5 scrivono ciascuna la sua immagine ('%1', '%2')").arg(t3, t5));
+        }
+
+        // Uno script di "Animated Images" sulla fascia 3: anima la SUA immagine.
+        ui->spinMeshSel->setValue(3);  wait(300);
+        if (selectTexture(QStringLiteral("textures/Procedurals/Animated Images/Rotating Image.json"))) {
+            wait(600);
+            const MeshPart *p = part(3);
+            check(tagOf(p) == QLatin1String("14.png") && !logicOf(p).isEmpty() && loaded(3) == QLatin1String("14.png"),
+                  QStringLiteral("Rotating Image sulla fascia 3 -> lo script tiene l'immagine della fascia (tag '%1', '%2' in GPU)")
+                      .arg(tagOf(p), loaded(3)));
+            check(p && p->texAnimating, QStringLiteral("Rotating Image sulla fascia 3 -> il suo orologio gira"));
+            check(loaded(5) == QLatin1String("2.png"),
+                  QStringLiteral("Rotating Image sulla fascia 3 -> la fascia 5 tiene la sua immagine"));
+        }
+
+        // Ambito All: l'aspetto delle fasce e' sospeso, immagini comprese.
+        click(ui->radioMeshAll);  wait(400);
+        check(loaded(3).isEmpty() && loaded(5).isEmpty(),
+              QStringLiteral("ambito All -> le immagini delle fasce sono sospese ('%1', '%2')").arg(loaded(3), loaded(5)));
+        click(ui->radioMeshOne);  wait(400);
+        check(loaded(3) == QLatin1String("14.png") && loaded(5) == QLatin1String("2.png"),
+              QStringLiteral("ritorno a Mesh -> ogni fascia ritrova la sua immagine ('%1', '%2')").arg(loaded(3), loaded(5)));
+
+        // Una procedurale che non campiona nulla toglie l'immagine dalla fascia.
+        ui->spinMeshSel->setValue(3);  wait(300);
+        if (selectTexture(QStringLiteral("textures/Procedurals/Plasma.json"))) {
+            wait(600);
+            check(tagOf(part(3)).isEmpty() && loaded(3).isEmpty() && !logicOf(part(3)).isEmpty(),
+                  QStringLiteral("Plasma sulla fascia 3 -> l'immagine della fascia non c'e' piu' (tag '%1', '%2' in GPU)")
+                      .arg(tagOf(part(3)), loaded(3)));
+        }
+
+        // Checkbox: spegne e riaccende la texture della fascia 5 con la sua immagine.
+        ui->spinMeshSel->setValue(5);  wait(300);
+        click(ui->chkBoxTexture);  wait(300);
+        check(part(5) && !part(5)->effectiveTextureEnabledMulti() && tagOf(part(5)) == QLatin1String("2.png"),
+              QStringLiteral("checkbox spento sulla fascia 5 -> texture spenta, immagine conservata"));
+        click(ui->chkBoxTexture);  wait(400);
+        check(part(5) && part(5)->effectiveTextureEnabledMulti() && tagOf(part(5)) == QLatin1String("2.png")
+                  && loaded(5) == QLatin1String("2.png"),
+              QStringLiteral("checkbox riacceso sulla fascia 5 -> di nuovo la sua immagine ('%1' in GPU)").arg(loaded(5)));
+
+        // Fascia mai configurata, e senza immagine sulla superficie: uno script
+        // di Animated Images non le da' un'immagine (campiona quella della
+        // superficie, qui la scacchiera di ripiego).
+        ui->spinMeshSel->setValue(16);  wait(300);
+        if (selectTexture(QStringLiteral("textures/Procedurals/Animated Images/Still Image.json"))) {
+            wait(600);
+            check(tagOf(part(16)).isEmpty() && loaded(16).isEmpty(),
+                  QStringLiteral("Still Image su una fascia senza immagine -> nessun tag: campiona l'immagine della superficie (tag '%1')")
+                      .arg(tagOf(part(16))));
+        }
+
+        // Il record salvato con le due immagini, ricaricato: ogni fascia ritrova
+        // la sua (il load passa dallo stesso percorso di un record della Library).
+        if (!savedWithImages.meshParts.empty()) {
+            m_discardOnPrompt = true;
+            m_mw->applyMotionExample(savedWithImages);
+            if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
+            wait(1800);
+            m_discardOnPrompt = false;
+            check(tagOf(part(3)) == QLatin1String("14.png") && loaded(3) == QLatin1String("14.png")
+                      && tagOf(part(5)) == QLatin1String("2.png") && loaded(5) == QLatin1String("2.png"),
+                  QStringLiteral("record salvato e ricaricato -> le fasce 3 e 5 ritrovano le loro immagini ('%1', '%2' in GPU)")
+                      .arg(loaded(3), loaded(5)));
+            check(part(3) && part(3)->effectiveTextureEnabledMulti() && part(5) && part(5)->effectiveTextureEnabledMulti(),
+                  QStringLiteral("record salvato e ricaricato -> le due texture sono accese"));
+            checkDirty(QStringLiteral("record salvato e ricaricato"), false, false, false);
+        }
+        if (!ui->radioMeshAll->isChecked()) click(ui->radioMeshAll);
+    }
+
+    // RECORD SALVATI PRIMA: il tag della fascia ripete l'immagine della
+    // superficie (e in una fascia porta il percorso di un altro dispositivo).
+    // Non si carica nulla due volte, e l'aspetto resta quello di prima.
+    const QString oldRecord = QStringLiteral("records/Solid Wireframe/Multi Mesh/Hopf Half Tori.json");
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Immagini sulle singole mesh: record salvato prima (%1) ==").arg(oldRecord));
+    if (loadRecord(oldRecord)) {
+        const QString surf = QFileInfo(gl->surfaceImagePath()).fileName();
+        check(!surf.isEmpty(), QStringLiteral("load -> la superficie ha la sua immagine ('%1')").arg(surf));
+        bool anyOwn = false, allSame = true, allReadable = true;
+        int tagged = 0;
+        const auto &parts = gl->getEngine()->getMeshParts();
+        for (int k = 0; k < (int)parts.size(); ++k) {
+            const QString path = GLWidget::imagePathInTextureCode(parts[k].textureCode);
+            if (path.isEmpty()) continue;
+            ++tagged;
+            if (!gl->meshPartLoadedImagePath(k).isEmpty()) anyOwn = true;
+            if (path != gl->surfaceImagePath()) allSame = false;
+            if (!QFileInfo(path).isReadable()) allReadable = false;
+        }
+        check(tagged > 0 && allReadable,
+              QStringLiteral("load -> i tag delle fasce (%1) puntano a file leggibili su questo dispositivo").arg(tagged));
+        check(allSame && !anyOwn,
+              QStringLiteral("load -> stesso file della superficie: nessuna immagine caricata due volte"));
     }
 }
 

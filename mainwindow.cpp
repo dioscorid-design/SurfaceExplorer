@@ -8672,7 +8672,8 @@ void MainWindow::handleTextureSelection(int index)
     // Quella della SUPERFICIE, e solo in ambito All: prima valeva anche col
     // bersaglio Background, dove toglieva dal Save l'immagine della superficie
     // lasciandola a schermo (trovato dal test degli scenari). Con una fascia
-    // selezionata la texture va alla fascia, che immagini proprie non ne ha.
+    // selezionata la texture va alla fascia, e l'immagine della superficie non
+    // e' cosa sua.
     const bool meshTarget = ui->glWidget && ui->glWidget->activeMeshPart() >= 0;
     if (index == lastTextureIndex && isBg == lastWasBg && !data.isImage
         && !isBg && !meshTarget) {
@@ -9094,55 +9095,41 @@ void MainWindow::handleTextureSelection(int index)
 
         // --- LOGICA PARAMETRICA ---
         if (data.isImage) {
-            // IMMAGINE CON UNA FASCIA SELEZIONATA: si applica comunque alla
-            // superficie INTERA. L'immagine e' una risorsa GPU unica (un solo
-            // sampler sullo slot 1), non codice da compilare nel dispatcher
-            // per-mesh: non esiste un modo per darne una DIVERSA a ogni fascia.
-            // Senza avviso l'utente vedeva l'immagine comparire su tutta la
-            // superficie e non capiva perche' la mesh selezionata fosse stata
-            // ignorata. La via per un effetto per-mesh e' un'altra: gli script
-            // di "Animated Images", che campionano l'immagine gia' caricata
-            // (iChannel0) e possono deformarla in modo diverso su ogni fascia.
-            // AVVISO ASINCRONO, MAI QMessageBox::information (che e' modale).
-            // Un modale qui gira un event loop ANNIDATO nel mezzo della funzione:
-            // mentre e' aperto l'app continua a processare eventi, e il resto del
-            // caricamento prosegue poi su uno stato che nel frattempo puo' essere
-            // cambiato. E' la stessa trappola dei popup a raffica dello shader.
-            // Si mostra DOPO aver applicato l'immagine (in coda all'evento), cosi'
-            // il flusso non viene interrotto a meta'.
-            // UNA VOLTA PER SESSIONE: l'avviso spiega come funzionano le
-            // immagini in multi-mesh, non segnala un errore. Ripeterlo a ogni
-            // cambio di immagine e' solo attrito, tanto piu' che il flusso
-            // corretto (immagine globale + script di "Animated Images" sulle
-            // fasce) una volta capito si usa di continuo.
-            if (texGoesToMesh && !m_perMeshImageWarningShown) {
-                m_perMeshImageWarningShown = true;
-                // FORMA STATICA come gli altri ~24 avvisi dell'app: e' quella che
-                // su iOS si dimensiona da se'. Costruire il box a mano e aprirlo
-                // con open() lo lasciava senza dimensione decisa e su iPad
-                // occupava TUTTO il display. Qui non serve il box asincrono --
-                // siamo gia' differiti dall'invokeMethod in coda all'evento,
-                // quindi il caricamento dell'immagine e' concluso e nessun flusso
-                // viene interrotto a meta'.
-                QMetaObject::invokeMethod(this, [this]{
-                    // Frase breve in setText, resto in informativeText: il testo
-                    // principale di QMessageBox e' un TITOLO e non va a capo, quindi
-                    // il box si allarga fino a contenerlo su una riga (misurato:
-                    // 1586pt contro gli ~844 dello schermo -> a tutto schermo).
-                    QMessageBox box(this);
-                    box.setIcon(QMessageBox::Information);
-                    box.setWindowTitle(tr("Per-mesh texture"));
-                    box.setText(tr("Image textures always apply to the whole surface."));
-                    box.setInformativeText(
-                        tr("The image is a single GPU resource, so a mesh cannot have one "
-                           "of its own. It has been loaded for the whole surface.\n\n"
-                           "A mesh that already has its own texture keeps showing that one. "
-                           "To bring the image onto a single mesh, apply one of the scripts "
-                           "in Procedurals > Animated Images: they sample the loaded image "
-                           "and can deform it differently on each mesh.\n\n"
-                           "(Shown once per session.)"));
-                    box.exec();
-                }, Qt::QueuedConnection);
+            // IMMAGINE CON UNA FASCIA SELEZIONATA: va su QUELLA fascia, ferma,
+            // e la superficie (la sua immagine, la sua texture) non si tocca.
+            // Ogni fascia e' una draw call a se', e il renderer le lega allo
+            // slot 1 la SUA immagine: quella nominata dal tag //IMG: nel suo
+            // script, come per la superficie (vedi GLWidget::syncPartImages).
+            // Prima l'immagine andava comunque alla superficie intera, con un
+            // avviso, e sulla fascia la portava solo uno script di "Animated
+            // Images" -- lo stesso file per tutte le fasce.
+            if (texGoesToMesh) {
+                // Inquadratura 2D della voce, come il ramo delle procedurali.
+                ui->glWidget->setActiveMeshTexTransform(
+                    data.zoom, QVector2D(data.panX, data.panY), data.rotation);
+                // Lo script della fascia e' il solo tag: l'immagine SOSTITUISCE
+                // la procedurale che c'era, come sulla superficie.
+                ui->glWidget->setActiveMeshTexture("//IMG:" + imgSrc, true);
+                ui->glWidget->setActiveMeshTextureLibName(data.name);
+                refreshTextureCheckbox();   // la fascia ha ora la sua texture
+
+                // Un'immagine e' ferma: l'orologio della fascia si spegne, e
+                // quello del modulo solo se non serve piu' a nessuno. Non si
+                // AVVIA nulla: una texture fermata dall'utente resta ferma.
+                ui->glWidget->setActiveMeshTextureAnimating(false);
+                if (!hasTimeVariable(allSurfaceTextureCode()))
+                    ui->glWidget->setSurfaceTextureAnimating(false);
+                updateMasterButtonState();
+
+                updateTextureUIState(true, true);
+                updateFlatPreviewButton();
+                updateScriptButtonText();
+                // COSTANTI: la procedurale sostituita poteva usarne una.
+                refreshConstants();
+
+                m_blockTextureGen = false;
+                ui->glWidget->update();
+                return;
             }
             if (ui->glWidget) {
                 // Sola immagine: il motore torna allo shader standard e la
@@ -9173,19 +9160,10 @@ void MainWindow::handleTextureSelection(int index)
                 // di updateTextureUIState: onColorTargetChanged() vi si appoggia
                 // per decidere se disattivare gli slider colore). In wireframe
                 // resta spento e grigio: prima lo si spuntava comunque.
-                // In ambito Mesh il checkbox e' il display della fascia, che
-                // l'immagine (sempre sull'intera superficie) accende: lo si
-                // spunta come prima.
+                // (Con una fascia selezionata qui non si arriva piu': l'immagine
+                // va alla fascia, nel ramo qui sopra.)
                 const bool wasChecked = ui->chkBoxTexture->isChecked();
-                if (ui->glWidget->activeMeshPart() >= 0) {
-                    if (!wasChecked) {
-                        bool old = ui->chkBoxTexture->blockSignals(true);
-                        ui->chkBoxTexture->setChecked(true);
-                        ui->chkBoxTexture->blockSignals(old);
-                    }
-                } else {
-                    refreshTextureCheckbox();
-                }
+                refreshTextureCheckbox();
                 if (!wasChecked) updateTextureUIState(true);
 
                 ui->glWidget->setFlatViewTarget(0);
@@ -9200,8 +9178,21 @@ void MainWindow::handleTextureSelection(int index)
         } else if (!data.scriptCode.isEmpty()) {
             QString newCode = data.scriptCode;
 
-            // Preserviamo l'immagine se già caricata (quella nel motore)
-            if (surfaceHasImage()) {
+            // L'IMMAGINE CHE LO SCRIPT TROVA SOTTO. Superficie: quella gia'
+            // caricata nel motore resta, e il tag la accompagna.
+            // Fascia: resta la SUA immagine (il tag del suo script), e solo se
+            // lo script nuovo la campiona -- e' il gesto "prima l'immagine, poi
+            // la sua animazione" (famiglia Animated Images). Una procedurale
+            // che non campiona nulla la toglie: e' il modo di levare l'immagine
+            // da una fascia. Una fascia SENZA immagine propria non prende piu'
+            // il tag della superficie: campiona quella della superficie finche'
+            // non ne ha una sua, e la segue se cambia.
+            if (texGoesToMesh) {
+                const QString ownImage =
+                    GLWidget::imagePathInTextureCode(ui->glWidget->activeMeshTextureCode());
+                if (!ownImage.isEmpty() && textureCodeSamplesImage(newCode))
+                    newCode = "//IMG:" + ownImage + "\n" + newCode;
+            } else if (surfaceHasImage()) {
                 newCode = "//IMG:" + surfaceImagePath() + "\n" + newCode;
             }
 
@@ -9214,7 +9205,7 @@ void MainWindow::handleTextureSelection(int index)
             // superficie. Tornando su "All" si trovava il codice della fascia al
             // posto del proprio (clock fermo, perche' allSurfaceTextureCode()
             // parte da m_surfaceTextureCode) e i suoi colori addosso.
-            if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
+            if (texGoesToMesh) {
                 // I colori di QUESTA texture si scrivono direttamente nella
                 // parte: i due slot globali appartengono alla texture di
                 // SUPERFICIE e non vanno toccati (il blocco che li scrive piu'
@@ -13037,24 +13028,18 @@ void MainWindow::onApplyTextureScriptClicked()
         // selezionata scrivono sulla parte e non sul globale.
         // In "All" (nessuna parte attiva) si prosegue col ramo di sempre, che
         // applica la texture all'intera superficie.
-        // NB: le texture-IMMAGINE restano globali (una sola risorsa GPU sullo
-        // slot 1): qui si accetta solo il procedurale, come da progetto.
         if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
-            // NB: qui NON si rifiuta piu' lo script che porta un tag //IMG:.
-            // Con la sola immagine il tasto Run e' gia' disabilitato
-            // (updateScriptButtonText toglie il tag da codeOnly, quindi
-            // hasGLSLCode e' falso): l'unico modo di arrivare qui era uno script
-            // PROCEDURALE a cui il ramo Library antepone "//IMG:<path>" quando
-            // un'immagine e' gia' caricata (~5503). Quello script si applica
-            // benissimo alla fascia -- la riga sotto lo fa -- e rifiutarlo
-            // bloccava un'operazione legittima per via di un tag che riguarda
-            // l'immagine GLOBALE, non la mesh.
-            // L'avviso sulle immagini per-mesh resta dove serve davvero: sul
-            // click di un'immagine nella Library.
+            // IL TAG //IMG: DELLO SCRIPT E' L'IMMAGINE DELLA FASCIA (vedi
+            // GLWidget::syncPartImages): la carica il renderer, dal percorso
+            // del tag. Se il file e' stato ritrovato altrove dallo Smart Path
+            // Resolver, il tag prende quel percorso; non trovato (l'avviso e'
+            // gia' uscito qui sopra) resta com'e' e la fascia disegna con
+            // l'immagine della superficie.
             // La compilazione avviene dentro setActiveMeshTexture (il codice
             // finisce nel fragment shader come getCustomColor_<k>): se lo shader
             // non compila, rebuildShader lascia in piedi il precedente e la
             // superficie non sparisce.
+            if (!imgPath.isEmpty()) code = withImageTagPath(code, imgPath);
             ui->glWidget->setActiveMeshTexture(code, true);
 
             // CHECKBOX "Texture" ACCESO. Applicare una texture a una mesh la
@@ -17563,6 +17548,20 @@ void MainWindow::applyCommonData(LibraryItem d)
     // subito dopo la rigenerazione. Va azzerato SEMPRE, anche quando il preset
     // non lo contiene, o l'aspetto del preset precedente sopravviverebbe.
     m_pendingMeshParts = d.meshParts;
+    // IMMAGINI DELLE FASCE: il tag //IMG: dello script di una fascia porta il
+    // percorso del dispositivo che ha salvato il record. Stesso Smart Path
+    // Resolver della superficie e dello sfondo: se il file non e' li', lo si
+    // cerca per nome nella libreria, e il tag prende il percorso trovato (e' il
+    // renderer a caricarlo, da quel percorso). Non trovato: il tag resta
+    // com'e' e la fascia disegna con l'immagine della superficie.
+    for (MeshPart &mp : m_pendingMeshParts) {
+        if (!mp.hasCustomTexture) continue;
+        const QString raw = GLWidget::imagePathInTextureCode(mp.textureCode);
+        if (raw.isEmpty()) continue;
+        const QString resolved = extractAndResolveImagePath(mp.textureCode);
+        if (resolved.isEmpty() || resolved == raw || resolved.startsWith("NOT_FOUND|")) continue;
+        mp.textureCode = withImageTagPath(mp.textureCode, resolved);
+    }
 
     // DOMINIO DELL'AMBITO "ALL" del preset. Si applica SUBITO all'engine, non
     // differito come l'aspetto per-mesh: quello deve attendere che le parti
@@ -19861,6 +19860,23 @@ bool MainWindow::textureHasLogic(const QString &code)
         || code.contains("vec4")   || code.contains("mainImage");
 }
 
+bool MainWindow::textureCodeSamplesImage(const QString &code)
+{
+    static const QRegularExpression re(R"(\biChannel[0-3]\b|\btex\b)");
+    return stripCodeComments(code).contains(re);
+}
+
+QString MainWindow::withImageTagPath(const QString &code, const QString &path)
+{
+    static const QRegularExpression imgRe(R"(^[ \t]*//IMG:[ \t]*(.*)$)",
+                                          QRegularExpression::MultilineOption);
+    const QRegularExpressionMatch m = imgRe.match(code);
+    if (!m.hasMatch()) return code;
+    QString out = code;
+    out.replace(m.capturedStart(1), m.capturedLength(1), path);
+    return out;
+}
+
 bool MainWindow::commitSurfaceTextureCode(const QString &code)
 {
     // La logica si cerca fuori dalla riga del tag: il percorso di un'immagine
@@ -19926,8 +19942,12 @@ bool MainWindow::activeTextureUsesColorToken(const QString &token) const
     // sbagliata al primo tocco del checkbox.
     if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
         const QString partCode = ui->glWidget->activeMeshTextureCode();
+        // L'immagine che la fascia campiona e' la SUA, o in mancanza quella
+        // della superficie: senza nessuna delle due c'e' la scacchiera di
+        // ripiego, fatta dei due colori.
         if (!partCode.trimmed().isEmpty())
-            return partCode.contains(token) || samplesImageWithoutOne(partCode);
+            return partCode.contains(token)
+                || (partCode.contains("iChannel") && !ui->glWidget->activeMeshSamplesImage());
         // Nessuna texture propria: la parte EREDITA la globale, quindi si
         // prosegue col ragionamento globale qui sotto.
     }

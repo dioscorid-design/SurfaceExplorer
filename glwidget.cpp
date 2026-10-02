@@ -17,6 +17,7 @@
 #include <QTextStream>
 #include <QRegularExpression>
 #include <QSet>
+#include <QFileInfo>
 #include <QCoreApplication>
 #include <QPainter>
 #include <QLinearGradient>
@@ -193,6 +194,9 @@ bool GLWidget::ensureUboCapacity(int partCount)
         m_bindings->updateResources();
     }
 
+    // ...e quelli delle immagini di fascia.
+    rebindPartImages();
+
     return true;
 }
 
@@ -233,6 +237,163 @@ void GLWidget::ensureDynamicBindings(QRhiTexture *tex)
     }
 
     m_bindingsDynTexture = tex;
+}
+
+// ==========================================================
+// IMMAGINI PROPRIE DELLE FASCE
+// ==========================================================
+
+QString GLWidget::imagePathInTextureCode(const QString &code)
+{
+    static const QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)",
+                                          QRegularExpression::MultilineOption);
+    const QRegularExpressionMatch m = imgRe.match(code);
+    return m.hasMatch() ? m.captured(1).trimmed() : QString();
+}
+
+const GLWidget::PartImage *GLWidget::partImageFor(const MeshPart &p) const
+{
+    // In ambito "All" l'aspetto per-fascia e' sospeso: vale la superficie.
+    if (m_meshAppearanceUniform || !p.hasCustomTexture) return nullptr;
+    const QString path = imagePathInTextureCode(p.textureCode);
+    if (path.isEmpty()) return nullptr;
+    const auto it = m_partImages.constFind(path);
+    return (it != m_partImages.constEnd() && it->tex && it->srb) ? &it.value() : nullptr;
+}
+
+// La fascia attiva ha un'immagine da campionare? La sua (nominata e non
+// risultata illeggibile) oppure, in mancanza, quella della superficie. Serve al
+// DISPLAY dei picker Colore: senza immagine gli script che campionano iChannel0
+// mostrano la scacchiera di ripiego, che e' fatta di u_col1/u_col2.
+bool GLWidget::activeMeshSamplesImage() const
+{
+    if (!m_surfaceImagePath.isEmpty()) return true;
+    if (m_activeMeshPart < 0 || !engine) return false;
+    const std::vector<MeshPart> &parts = engine->getMeshParts();
+    if (m_activeMeshPart >= (int)parts.size()) return false;
+    const MeshPart &p = parts[m_activeMeshPart];
+    if (!p.hasCustomTexture) return false;
+    const QString path = imagePathInTextureCode(p.textureCode);
+    if (path.isEmpty()) return false;
+    const auto it = m_partImages.constFind(path);
+    // Non ancora caricata (lo fa il prossimo frame) conta come presente.
+    return it == m_partImages.constEnd() || !it->failed;
+}
+
+// L'immagine propria della fascia `index` ("" se non ne ha una caricata): per
+// i test, che verificano cio' che la GPU ha davvero in mano.
+QString GLWidget::meshPartLoadedImagePath(int index) const
+{
+    if (!engine) return QString();
+    const std::vector<MeshPart> &parts = engine->getMeshParts();
+    if (index < 0 || index >= (int)parts.size()) return QString();
+    return partImageFor(parts[index]) ? imagePathInTextureCode(parts[index].textureCode)
+                                      : QString();
+}
+
+QRhiShaderResourceBindings *GLWidget::bindingsForPart(const MeshPart &p) const
+{
+    if (const PartImage *img = partImageFor(p)) return img->srb;
+    return m_bindingsDyn ? m_bindingsDyn : m_bindings;
+}
+
+// Allinea le texture GPU alle immagini nominate dalle fasce: carica quelle
+// nuove, distrugge quelle che nessuna fascia nomina piu'. Nel frame, dove le
+// risorse RHI si possono creare e distruggere.
+void GLWidget::syncPartImages(QRhiResourceUpdateBatch *resourceUpdates)
+{
+    if (!rhi() || !engine || !m_ubo || !m_sampler) return;
+
+    // Le immagini in uso. Contano anche le fasce con la texture SPENTA: lo
+    // script (e il suo tag) restano, e riaccendendola l'immagine e' gia' li'.
+    // STESSO FILE DELLA SUPERFICIE: non si carica due volte. La fascia disegna
+    // coi binding della superficie, che allo slot 1 hanno gia' quell'immagine
+    // (e' il caso dei record salvati prima di questa feature, dove il tag della
+    // fascia ripeteva quello della superficie). Se la superficie cambia
+    // immagine i percorsi non coincidono piu' e la fascia carica la propria.
+    QSet<QString> used;
+    for (const MeshPart &p : engine->getMeshParts()) {
+        if (!p.hasCustomTexture) continue;
+        const QString path = imagePathInTextureCode(p.textureCode);
+        if (!path.isEmpty() && path != m_surfaceImagePath) used.insert(path);
+    }
+
+    for (auto it = m_partImages.begin(); it != m_partImages.end(); ) {
+        if (used.contains(it.key())) { ++it; continue; }
+        if (it->srb) { it->srb->destroy(); delete it->srb; }
+        if (it->tex) { it->tex->destroy(); delete it->tex; }
+        it = m_partImages.erase(it);
+    }
+
+    for (const QString &path : used) {
+        if (m_partImages.contains(path)) continue;
+        PartImage entry;
+        QImage img(path);
+        if (img.isNull()) {
+            // Immagine non caricabile: la fascia ricade su quella della
+            // SUPERFICIE (o sulla scacchiera, se non c'e' nemmeno quella), come
+            // prima che le fasce potessero averne una propria. Si prova una
+            // volta sola, finche' il tag non cambia.
+            // Il file MANCA (record aperto su un altro dispositivo): in
+            // silenzio. Il file c'e' ma non e' un'immagine: si avvisa, come
+            // loadTextureFromFile.
+            qWarning() << "GLWidget: immagine della fascia non caricabile:" << path;
+            entry.failed = true;
+            m_partImages.insert(path, entry);
+            if (QFileInfo::exists(path)) emit textureImageLoadFailed(path);
+            continue;
+        }
+        // Stesso formato e stesso verso dell'immagine di superficie
+        // (loadTextureFromImage).
+        img = img.convertToFormat(QImage::Format_RGBA8888).flipped(Qt::Orientations(Qt::Vertical));
+        entry.tex = rhi()->newTexture(QRhiTexture::RGBA8, img.size(), 1);
+        entry.tex->create();
+        QRhiTextureSubresourceUploadDescription subresDesc(img.constBits(), img.sizeInBytes());
+        resourceUpdates->uploadTexture(entry.tex,
+                                       QRhiTextureUploadDescription({ QRhiTextureUploadEntry(0, 0, subresDesc) }));
+
+        // Stesso LAYOUT di m_bindingsDyn (UBO con dynamic offset allo slot 0,
+        // texture allo slot 1): le pipeline costruite su quello accettano
+        // questi binding al draw.
+        entry.srb = rhi()->newShaderResourceBindings();
+        entry.srb->setBindings({
+            QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
+                0,
+                QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+                m_ubo, sizeof(UboData)),
+            QRhiShaderResourceBinding::sampledTexture(
+                1, QRhiShaderResourceBinding::FragmentStage, entry.tex, m_sampler)
+        });
+        entry.srb->create();
+        m_partImages.insert(path, entry);
+    }
+}
+
+// L'UBO e' stato ricreato: i binding delle immagini di fascia puntavano al
+// vecchio buffer (stessa trappola di m_bindingsDyn in ensureUboCapacity).
+void GLWidget::rebindPartImages()
+{
+    for (auto it = m_partImages.begin(); it != m_partImages.end(); ++it) {
+        if (!it->srb || !it->tex) continue;
+        it->srb->setBindings({
+            QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
+                0,
+                QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
+                m_ubo, sizeof(UboData)),
+            QRhiShaderResourceBinding::sampledTexture(
+                1, QRhiShaderResourceBinding::FragmentStage, it->tex, m_sampler)
+        });
+        it->srb->updateResources();
+    }
+}
+
+void GLWidget::releasePartImages()
+{
+    for (auto it = m_partImages.begin(); it != m_partImages.end(); ++it) {
+        if (it->srb) { it->srb->destroy(); delete it->srb; }
+        if (it->tex) { it->tex->destroy(); delete it->tex; }
+    }
+    m_partImages.clear();
 }
 
 void GLWidget::initialize(QRhiCommandBuffer *cb)
@@ -656,6 +817,8 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // quindi le pipeline restano valide e non serve ricostruirle.
     ensureUboCapacity(std::max(1, uboPartCount));
     ensureDynamicBindings(m_surfaceTexture ? m_surfaceTexture : m_dummyTexture);
+    // Immagini proprie delle fasce: prima dei blocchi, che ne dipendono (u_noImage).
+    syncPartImages(resourceUpdates);
 
     if (uboPartCount <= 1) {
         // Mesh singola: un blocco solo, come da sempre.
@@ -740,6 +903,18 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 // texture in "All" le fasce lasciate apposta nude se la
                 // prendevano addosso.
                 partUbo.useTexture = partTextured ? 1 : 0;
+
+                // IMMAGINE PROPRIA DELLA PARTE. Se il suo script nomina
+                // un'immagine (tag //IMG:) e quella e' caricata, allo slot 1 di
+                // QUESTA draw call c'e' la sua texture (bindingsForPart), non
+                // quella della superficie: la leggono la funzione di default e
+                // gli script che campionano iChannel0. u_noImage va quindi a 0
+                // anche se la superficie non ha alcuna immagine.
+                // Nominata ma non caricabile: resta tutto com'e' in m_uboData,
+                // cioe' l'immagine della superficie se c'e', altrimenti la
+                // scacchiera di ripiego.
+                if (partImageFor(mp))
+                    partUbo.u_noImage = 0;
 
                 if (mp.hasCustomTexture) {
 
@@ -1104,7 +1279,12 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                                       && m_activeMeshPart < (int)flatParts.size())
                                      ? m_activeMeshPart : 0;
                 const QRhiCommandBuffer::DynamicOffset dynOfs0(0, flatPart * m_uboBlockStride);
-                cb->setShaderResources(m_bindingsDyn ? m_bindingsDyn : m_bindings, 1, &dynOfs0);
+                // ...e con la SUA immagine, se ne ha una.
+                QRhiShaderResourceBindings *flatSrb = m_bindingsDyn ? m_bindingsDyn : m_bindings;
+                if (flatParts.size() > 1 && m_activeMeshPart >= 0
+                    && m_activeMeshPart < (int)flatParts.size())
+                    flatSrb = bindingsForPart(flatParts[flatPart]);
+                cb->setShaderResources(flatSrb, 1, &dynOfs0);
                 const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
                 cb->setVertexInput(0, 1, &vbufBinding);
                 cb->draw(6);
@@ -1166,7 +1346,9 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                     auto drawPart = [&](const MeshPart &p, quint32 ubOffset) {
                         if (p.indexCount <= 0) return;
                         const QRhiCommandBuffer::DynamicOffset ofs(0, ubOffset);
-                        cb->setShaderResources(m_bindingsDyn ? m_bindingsDyn : m_bindings, 1, &ofs);
+                        // I binding della parte: con un'immagine propria lo
+                        // slot 1 e' la SUA texture.
+                        cb->setShaderResources(bindingsForPart(p), 1, &ofs);
                         cb->setVertexInput(0, 1, &vbufBinding, m_ibo,
                                            p.indexOffset * sizeof(unsigned int),
                                            QRhiCommandBuffer::IndexUInt32);
@@ -1416,6 +1598,7 @@ void GLWidget::releaseResources()
         delete m_surfaceTexture;
         m_surfaceTexture = nullptr;
     }
+    releasePartImages();
     if (m_bgVbo) {
         delete m_bgVbo;
         m_bgVbo = nullptr;
@@ -5618,11 +5801,20 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
     QString dispatch;
     if (engine && perMeshTextures) {
         const std::vector<MeshPart> &tparts = engine->getMeshParts();
+        static const QRegularExpression imgTagRe(R"(^\s*//IMG:.*$\n?)",
+                                                 QRegularExpression::MultilineOption);
         for (size_t k = 0; k < tparts.size(); ++k) {
             const QString code = tparts[k].textureCode.trimmed();
             if (code.isEmpty()) continue;
             const QString fn = QString("getCustomColor_%1").arg(k);
-            codeToInject += "\n" + buildTextureFunction(tparts[k].textureCode, fn);
+            // SOLA IMMAGINE (lo script e' il solo tag //IMG:): la funzione di
+            // default, che campiona lo slot 1 -- dove questa fascia ha la sua
+            // immagine. Passando il tag come codice, buildTextureFunction ne
+            // farebbe una funzione senza return (ripiego a colori u/v).
+            QString logic = code;
+            logic.remove(imgTagRe);
+            const bool imageOnly = logic.trimmed().isEmpty();
+            codeToInject += "\n" + buildTextureFunction(imageOnly ? QString() : tparts[k].textureCode, fn);
             // Confronto su float: u_meshIndex e' un indice piccolo esatto in
             // float32, ma restiamo sulla soglia 0.5 come il resto del progetto.
             dispatch += QString("    if (abs(ubuf.u_meshIndex - %1.0) < 0.5) return %2(in_uv);\n")
