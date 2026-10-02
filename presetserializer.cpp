@@ -524,24 +524,24 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
     if (mw->ui->lineEquationCrossSection)
         d.crossSectionEq = mw->ui->lineEquationCrossSection->toPlainText();
 
-    d.x = mw->ui->lineX->toPlainText();
-    d.y = mw->ui->lineY->toPlainText();
-    d.z = mw->ui->lineZ->toPlainText();
-    d.w = mw->ui->lineP->toPlainText();
-    d.explicitU = mw->ui->lineExplicitU->toPlainText();
-    d.explicitV = mw->ui->lineExplicitV->toPlainText();
-    d.explicitW = mw->ui->lineExplicitW->toPlainText();
-    d.defU = mw->ui->lineU->toPlainText();
-    d.defV = mw->ui->lineV->toPlainText();
-    d.defW = mw->ui->lineW->toPlainText();
+    d.x = mw->m_eq.x;
+    d.y = mw->m_eq.y;
+    d.z = mw->m_eq.z;
+    d.w = mw->m_eq.p;
+    d.explicitU = mw->m_eq.explicitU;
+    d.explicitV = mw->m_eq.explicitV;
+    d.explicitW = mw->m_eq.explicitW;
+    d.defU = mw->m_eq.u;
+    d.defV = mw->m_eq.v;
+    d.defW = mw->m_eq.w;
 
-    d.geoU0 = mw->ui->lnU->toPlainText();
-    d.geoV0 = mw->ui->lnV->toPlainText();
-    d.geoW0 = mw->ui->lnW->toPlainText();
-    d.geoDU = mw->ui->lndU->toPlainText();
-    d.geoDV = mw->ui->lndV->toPlainText();
-    d.geoDW = mw->ui->lndW->toPlainText();
-    d.geoConform = mw->ui->lineConform->toPlainText();
+    d.geoU0 = mw->m_eq.geoU;
+    d.geoV0 = mw->m_eq.geoV;
+    d.geoW0 = mw->m_eq.geoW;
+    d.geoDU = mw->m_eq.geoDU;
+    d.geoDV = mw->m_eq.geoDV;
+    d.geoDW = mw->m_eq.geoDW;
+    d.geoConform = mw->m_eq.conform;
 
     // Le costanti si leggono dai CAMPI TESTO (lineA..lineS), non dagli slider.
     // Gli slider sono interi centesimali (value()/100), quindi troncano ogni
@@ -1559,13 +1559,13 @@ void PresetSerializer::saveScript()
         // Condizioni iniziali del flusso geodetico: servono agli script metrici
         // che non le dichiarano con le direttive U:=/dU:=/...
         QJsonObject geo;
-        geo["u0"] = m_mainWindow->ui->lnU->toPlainText();
-        geo["v0"] = m_mainWindow->ui->lnV->toPlainText();
-        geo["w0"] = m_mainWindow->ui->lnW->toPlainText();
-        geo["du"] = m_mainWindow->ui->lndU->toPlainText();
-        geo["dv"] = m_mainWindow->ui->lndV->toPlainText();
-        geo["dw"] = m_mainWindow->ui->lndW->toPlainText();
-        geo["conform"] = m_mainWindow->ui->lineConform->toPlainText();
+        geo["u0"] = m_mainWindow->m_eq.geoU;
+        geo["v0"] = m_mainWindow->m_eq.geoV;
+        geo["w0"] = m_mainWindow->m_eq.geoW;
+        geo["du"] = m_mainWindow->m_eq.geoDU;
+        geo["dv"] = m_mainWindow->m_eq.geoDV;
+        geo["dw"] = m_mainWindow->m_eq.geoDW;
+        geo["conform"] = m_mainWindow->m_eq.conform;
         root["geodesic"] = geo;
 
         // Mappa di visualizzazione (embedding) di uno script metrico: se la mappa

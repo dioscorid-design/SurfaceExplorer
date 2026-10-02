@@ -923,25 +923,29 @@ void ScenarioTest::checkEquations(const QString &step, bool pendingEdit)
     } else {
         // PARAMETRICO: i campi X/Y/Z/P sono l'intenzione, lo snapshot dell'ultimo
         // Run l'applicato; il Save scrive i campi.
-        struct F { const char *name; QPlainTextEdit *edit; const char *prop; QString saved; };
+        struct F { const char *name; QPlainTextEdit *edit; MainWindow::EqField member; QString saved; };
         const QList<F> fs = {
-            { "x", ui->lineX, "active_lineX", sv.x }, { "y", ui->lineY, "active_lineY", sv.y },
-            { "z", ui->lineZ, "active_lineZ", sv.z }, { "p", ui->lineP, "active_lineP", sv.w },
+            { "x", ui->lineX, &MainWindow::EquationTexts::x, sv.x }, { "y", ui->lineY, &MainWindow::EquationTexts::y, sv.y },
+            { "z", ui->lineZ, &MainWindow::EquationTexts::z, sv.z }, { "p", ui->lineP, &MainWindow::EquationTexts::p, sv.w },
             // Composizione e vincoli: stessa regola.
-            { "U", ui->lineU, "active_lineU", sv.defU }, { "V", ui->lineV, "active_lineV", sv.defV },
-            { "W", ui->lineW, "active_lineW", sv.defW },
-            { "vincolo u", ui->lineExplicitU, "active_lineExplicitU", sv.explicitU },
-            { "vincolo v", ui->lineExplicitV, "active_lineExplicitV", sv.explicitV },
-            { "vincolo w", ui->lineExplicitW, "active_lineExplicitW", sv.explicitW },
+            { "U", ui->lineU, &MainWindow::EquationTexts::u, sv.defU }, { "V", ui->lineV, &MainWindow::EquationTexts::v, sv.defV },
+            { "W", ui->lineW, &MainWindow::EquationTexts::w, sv.defW },
+            { "vincolo u", ui->lineExplicitU, &MainWindow::EquationTexts::explicitU, sv.explicitU },
+            { "vincolo v", ui->lineExplicitV, &MainWindow::EquationTexts::explicitV, sv.explicitV },
+            { "vincolo w", ui->lineExplicitW, &MainWindow::EquationTexts::explicitW, sv.explicitW },
             // Flusso geodetico: punto e direzione iniziali, fattore conforme.
-            { "geo u0", ui->lnU, "active_lnU", sv.geoU0 }, { "geo v0", ui->lnV, "active_lnV", sv.geoV0 },
-            { "geo w0", ui->lnW, "active_lnW", sv.geoW0 }, { "geo du", ui->lndU, "active_lndU", sv.geoDU },
-            { "geo dv", ui->lndV, "active_lndV", sv.geoDV }, { "geo dw", ui->lndW, "active_lndW", sv.geoDW },
-            { "conforme", ui->lineConform, "active_lineConform", sv.geoConform } };
+            { "geo u0", ui->lnU, &MainWindow::EquationTexts::geoU, sv.geoU0 }, { "geo v0", ui->lnV, &MainWindow::EquationTexts::geoV, sv.geoV0 },
+            { "geo w0", ui->lnW, &MainWindow::EquationTexts::geoW, sv.geoW0 }, { "geo du", ui->lndU, &MainWindow::EquationTexts::geoDU, sv.geoDU },
+            { "geo dv", ui->lndV, &MainWindow::EquationTexts::geoDV, sv.geoDV }, { "geo dw", ui->lndW, &MainWindow::EquationTexts::geoDW, sv.geoDW },
+            { "conforme", ui->lineConform, &MainWindow::EquationTexts::conform, sv.geoConform } };
         shown = script ? QStringLiteral("(script)") : brief(ui->lineX->toPlainText());
         for (const F &f : fs) {
             const QString field = f.edit->toPlainText();
-            const QString applied = m_mw->property(f.prop).toString();
+            const QString applied = m_mw->m_eqApplied ? (*m_mw->m_eqApplied).*(f.member) : QString();
+            // Lo STATO (m_eq) e' il testo del campo: il campo ne e' l'editor.
+            if (m_mw->m_eq.*(f.member) != field)
+                bad << QStringLiteral("%1: lo stato ha %2, il campo %3")
+                           .arg(QString::fromLatin1(f.name), brief(m_mw->m_eq.*(f.member)), brief(field));
             if (!pendingEdit && applied != field)
                 bad << QStringLiteral("%1: applicata %2, campo %3").arg(QString::fromLatin1(f.name), brief(applied), brief(field));
             if (f.saved != field)
@@ -1792,7 +1796,7 @@ void ScenarioTest::run()
         applyEquationEdit(ui->lineConform);
         check(m_popupsClosed == popups,
               QStringLiteral("Run col fattore conforme 200*A = 1 -> nessun errore"));
-        check(m_mw->property("active_lineConform").toString() == QLatin1String("200*A"),
+        check(m_mw->m_eqApplied && m_mw->m_eqApplied->conform == QLatin1String("200*A"),
               QStringLiteral("Run col fattore conforme 200*A = 1 -> applicato"));
         checkConstants(QStringLiteral("dopo il Run"), KV{ { "A", 0.005 } });
     }
@@ -2155,7 +2159,7 @@ void ScenarioTest::run()
         ui->lnU->setPlainText(u0 + QStringLiteral(" + 0.1"));  wait(300);
         ui->lineA->setText(QStringLiteral("1.1"));
         pressEnter(ui->lineA);
-        check(m_mw->property("active_lnU").toString() == u0,
+        check(m_mw->m_eqApplied && m_mw->m_eqApplied->geoU == u0,
               QStringLiteral("flusso in sospeso, Invio su una costante -> applicato resta il punto iniziale di prima"));
         checkEquations(QStringLiteral("flusso ancora in sospeso"), /*pendingEdit=*/true);
         applyEquationEdit(ui->lnU);
@@ -2649,7 +2653,7 @@ void ScenarioTest::runScriptDockScenarios()
         check(ui->btnRunParametric->isEnabled(),
               QStringLiteral("script in sospeso, equazione modificata -> tasto Run delle equazioni acceso"));
         applyEquationEdit(ui->lineZ);
-        check(!gl->getEngine()->isScriptModeActive() && m_mw->property("active_lineZ").toString() == QLatin1String("0.4*sin(v)"),
+        check(!gl->getEngine()->isScriptModeActive() && m_mw->m_eqApplied && m_mw->m_eqApplied->z == QLatin1String("0.4*sin(v)"),
               QStringLiteral("Run delle equazioni -> applicata l'equazione, non lo script in sospeso"));
         // Una texture dalla Library col dock sullo script di superficie.
         setScriptMode(MainWindow::ScriptModeSurface);

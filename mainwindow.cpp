@@ -846,7 +846,7 @@ protected:
 };
 
 // SONDE DEL COMMIT GEODETICO (spente). Mettere a 1 per stampare chi committa un
-// campo, da dove arrivano le equazioni e se lo snapshot active_* esiste.
+// campo, da dove arrivano le equazioni e se lo snapshot dell'applicato (m_eqApplied) esiste.
 // Servono a riconoscere la regressione classica di questa zona: se ricompare
 // "le equazioni si applicano senza il Run" oppure "il campo confermato con
 // l'Invio non ha effetto", la riga da leggere e' snapshot=0 (snapshot mai
@@ -906,6 +906,7 @@ MainWindow::MainWindow(QWidget *parent)
     // 1. CORE INITIALIZATION
     // =========================================================================
     ui->setupUi(this);
+    bindEquationFields();   // prima di ogni altro connect sui campi delle equazioni
 
     // FULL IMMERSION
     if (this->centralWidget() && this->centralWidget()->layout()) {
@@ -1947,7 +1948,7 @@ MainWindow::MainWindow(QWidget *parent)
     ui->lineZ->setPlainText("0.3*sin(v)");
     ui->lineP->setPlainText("0.0");
 
-    ui->glWidget->setParametricEquations(ui->lineX->toPlainText(), ui->lineY->toPlainText(), ui->lineZ->toPlainText(), ui->lineP->toPlainText());
+    ui->glWidget->setParametricEquations(m_eq.x, m_eq.y, m_eq.z, m_eq.p);
 
     ui->uMinEdit->setText(QString::number(uMin, 'g', 12));
     ui->uMaxEdit->setText(QString::number(uMax, 'g', 12));
@@ -2253,21 +2254,21 @@ MainWindow::MainWindow(QWidget *parent)
 
     // 2. Mutua esclusione dei vincoli (con blocco segnali per evitare loop a catena!)
     connect(ui->lineExplicitU, &QPlainTextEdit::textChanged, this, [this](){
-        if(!ui->lineExplicitU->toPlainText().isEmpty()) {
-            ui->lineExplicitV->blockSignals(true); ui->lineExplicitV->clear(); ui->lineExplicitV->blockSignals(false);
-            ui->lineExplicitW->blockSignals(true); ui->lineExplicitW->clear(); ui->lineExplicitW->blockSignals(false);
+        if(!m_eq.explicitU.isEmpty()) {
+            setEqText(&EquationTexts::explicitV, QString());
+            setEqText(&EquationTexts::explicitW, QString());
         }
     });
     connect(ui->lineExplicitV, &QPlainTextEdit::textChanged, this, [this](){
-        if(!ui->lineExplicitV->toPlainText().isEmpty()) {
-            ui->lineExplicitU->blockSignals(true); ui->lineExplicitU->clear(); ui->lineExplicitU->blockSignals(false);
-            ui->lineExplicitW->blockSignals(true); ui->lineExplicitW->clear(); ui->lineExplicitW->blockSignals(false);
+        if(!m_eq.explicitV.isEmpty()) {
+            setEqText(&EquationTexts::explicitU, QString());
+            setEqText(&EquationTexts::explicitW, QString());
         }
     });
     connect(ui->lineExplicitW, &QPlainTextEdit::textChanged, this, [this](){
-        if(!ui->lineExplicitW->toPlainText().isEmpty()) {
-            ui->lineExplicitU->blockSignals(true); ui->lineExplicitU->clear(); ui->lineExplicitU->blockSignals(false);
-            ui->lineExplicitV->blockSignals(true); ui->lineExplicitV->clear(); ui->lineExplicitV->blockSignals(false);
+        if(!m_eq.explicitW.isEmpty()) {
+            setEqText(&EquationTexts::explicitU, QString());
+            setEqText(&EquationTexts::explicitV, QString());
         }
     });
 
@@ -3261,10 +3262,10 @@ MainWindow::MainWindow(QWidget *parent)
             // Senza questi, accendere/spegnere la texture ricalcolava needsAnim=false
             // e fermava per errore l'animazione della geometria. Stesso insieme di
             // rawEqsForT (onStartClicked) e mainEq (updateMasterButtonState).
-            QString eq = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
-                         ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
-                         ui->lineU->toPlainText() + " " + ui->lineV->toPlainText() + " " + ui->lineW->toPlainText() + " " +
-                         ui->lineExplicitU->toPlainText() + " " + ui->lineExplicitV->toPlainText() + " " + ui->lineExplicitW->toPlainText() + " " +
+            QString eq = m_eq.x + " " + m_eq.y + " " +
+                         m_eq.z + " " + m_eq.p + " " +
+                         m_eq.u + " " + m_eq.v + " " + m_eq.w + " " +
+                         m_eq.explicitU + " " + m_eq.explicitV + " " + m_eq.explicitW + " " +
                          m_surfaceScriptApplied;
             if (hasTimeVariable(eq)) needsAnim = true;
         }
@@ -3865,8 +3866,8 @@ MainWindow::MainWindow(QWidget *parent)
     ui->btnLightMode->setText("Directional Lighting");
 
     connect(ui->btnLightMode, &QPushButton::clicked, this, [this](){
-        QString xEq = ui->lineX->toPlainText().trimmed(); QString yEq = ui->lineY->toPlainText().trimmed();
-        QString zEq = ui->lineZ->toPlainText().trimmed(); QString pEq = ui->lineP->toPlainText().trimmed();
+        QString xEq = m_eq.x.trimmed(); QString yEq = m_eq.y.trimmed();
+        QString zEq = m_eq.z.trimmed(); QString pEq = m_eq.p.trimmed();
 
         auto isNullCoord = [](const QString &s) { return s.isEmpty() || s == "0" || s == "0.0"; };
 
@@ -5743,8 +5744,8 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
             ui->lineY->setPlainText("(0.8 + 0.3*cos(v))*sin(u)");
             ui->lineZ->setPlainText("0.3*sin(v)");
             ui->lineP->setPlainText("0.0");
-            ui->glWidget->setParametricEquations(ui->lineX->toPlainText(), ui->lineY->toPlainText(),
-                                                 ui->lineZ->toPlainText(), ui->lineP->toPlainText());
+            ui->glWidget->setParametricEquations(m_eq.x, m_eq.y,
+                                                 m_eq.z, m_eq.p);
         } else {
             // SCENA VUOTA. Non basta passare equazioni vuote a
             // setParametricEquations: createVertexShaderSource le traduce in
@@ -5977,7 +5978,7 @@ void MainWindow::switchTo4DMode() {
 void MainWindow::update4DButtonState()
 {
     // 1. Controllo Equazione P
-    QString pText = ui->lineP->toPlainText().trimmed();
+    QString pText = m_eq.p.trimmed();
 
     // Gestione Virgola/Punto
     QString sanitizedP = pText;
@@ -6975,20 +6976,20 @@ bool MainWindow::isSceneEmpty() const
 
 void MainWindow::checkParametricDependency()
 {
-    QString eqX = ui->lineX->toPlainText();
-    QString eqY = ui->lineY->toPlainText();
-    QString eqZ = ui->lineZ->toPlainText();
-    QString eqP = ui->lineP->toPlainText();
+    QString eqX = m_eq.x;
+    QString eqY = m_eq.y;
+    QString eqZ = m_eq.z;
+    QString eqP = m_eq.p;
 
     // Testi espliciti
-    QString eqExplU = ui->lineExplicitU->toPlainText();
-    QString eqExplV = ui->lineExplicitV->toPlainText();
-    QString eqExplW = ui->lineExplicitW->toPlainText();
+    QString eqExplU = m_eq.explicitU;
+    QString eqExplV = m_eq.explicitV;
+    QString eqExplW = m_eq.explicitW;
 
     // Testi composizione
-    QString defU = ui->lineU->toPlainText();
-    QString defV = ui->lineV->toPlainText();
-    QString defW = ui->lineW->toPlainText();
+    QString defU = m_eq.u;
+    QString defV = m_eq.v;
+    QString defW = m_eq.w;
 
     // 1. ANALISI RAW: Contiamo ESATTAMENTE cosa ha digitato l'utente
     QString mainEqs = eqX + " " + eqY + " " + eqZ + " " + eqP;
@@ -7137,22 +7138,22 @@ void MainWindow::checkParametricDependency()
 
 void MainWindow::updateConstraintState()
 {
-    QString txtU = ui->lineExplicitU->toPlainText().trimmed();
-    QString txtV = ui->lineExplicitV->toPlainText().trimmed();
-    QString txtW = ui->lineExplicitW->toPlainText().trimmed();
+    QString txtU = m_eq.explicitU.trimmed();
+    QString txtV = m_eq.explicitV.trimmed();
+    QString txtW = m_eq.explicitW.trimmed();
 
     bool hasConstraintU = !txtU.isEmpty();
     bool hasConstraintV = !txtV.isEmpty();
     bool hasConstraintW = !txtW.isEmpty();
 
-    QString defU = ui->lineU->toPlainText();
-    QString defV = ui->lineV->toPlainText();
-    QString defW = ui->lineW->toPlainText();
+    QString defU = m_eq.u;
+    QString defV = m_eq.v;
+    QString defW = m_eq.w;
 
-    QString allMainEqs = ui->lineX->toPlainText() + " " +
-                         ui->lineY->toPlainText() + " " +
-                         ui->lineZ->toPlainText() + " " +
-                         ui->lineP->toPlainText();
+    QString allMainEqs = m_eq.x + " " +
+                         m_eq.y + " " +
+                         m_eq.z + " " +
+                         m_eq.p;
 
     QString composedEqs = composeEquation(allMainEqs, defU, defV, defW);
 
@@ -7260,16 +7261,16 @@ QSet<QString> MainWindow::constantsNotUsedBySurface() const
     QString mathText;
 
     if (ui->tabModeSelector->currentIndex() == 0) {
-        mathText = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
-                   ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
-                   ui->lineExplicitU->toPlainText() + " " + ui->lineExplicitV->toPlainText() + " " +
-                   ui->lineExplicitW->toPlainText() + " " + ui->lineU->toPlainText() + " " +
-                   ui->lineV->toPlainText() + " " + ui->lineW->toPlainText();
+        mathText = m_eq.x + " " + m_eq.y + " " +
+                   m_eq.z + " " + m_eq.p + " " +
+                   m_eq.explicitU + " " + m_eq.explicitV + " " +
+                   m_eq.explicitW + " " + m_eq.u + " " +
+                   m_eq.v + " " + m_eq.w;
         if (ui->lnU) {
-            mathText += " " + ui->lnU->toPlainText() + " " + ui->lnV->toPlainText() +
-                        " " + ui->lnW->toPlainText() + " " + ui->lndU->toPlainText() +
-                        " " + ui->lndV->toPlainText() + " " + ui->lndW->toPlainText() +
-                        " " + ui->lineConform->toPlainText();
+            mathText += " " + m_eq.geoU + " " + m_eq.geoV +
+                        " " + m_eq.geoW + " " + m_eq.geoDU +
+                        " " + m_eq.geoDV + " " + m_eq.geoDW +
+                        " " + m_eq.conform;
         }
         // Lo SCRIPT della superficie parametrica e' GLSL, ma e' comunque della
         // SUPERFICIE: una costante che vi compare non va resettata.
@@ -7394,20 +7395,20 @@ void MainWindow::updateConstantsUIState() {
 
     // 1. RACCOLTA TESTO SPECIFICA PER TAB
     if (currentTab == 0) { // MODALITÀ PARAMETRICA
-        mathText = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
-                   ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
-                   ui->lineExplicitU->toPlainText() + " " + ui->lineExplicitV->toPlainText() + " " +
-                   ui->lineExplicitW->toPlainText() + " " + ui->lineU->toPlainText() + " " +
-                   ui->lineV->toPlainText() + " " + ui->lineW->toPlainText();
+        mathText = m_eq.x + " " + m_eq.y + " " +
+                   m_eq.z + " " + m_eq.p + " " +
+                   m_eq.explicitU + " " + m_eq.explicitV + " " +
+                   m_eq.explicitW + " " + m_eq.u + " " +
+                   m_eq.v + " " + m_eq.w;
 
         if (ui->lnU) { // Campi Geodetici (Tab 0)
-            mathText += " " + ui->lnU->toPlainText() +
-                    " " + ui->lnV->toPlainText() +
-                    " " + ui->lnW->toPlainText() +
-                    " " + ui->lndU->toPlainText() +
-                    " " + ui->lndV->toPlainText() +
-                    " " + ui->lndW->toPlainText() +
-                    " " + ui->lineConform->toPlainText();
+            mathText += " " + m_eq.geoU +
+                    " " + m_eq.geoV +
+                    " " + m_eq.geoW +
+                    " " + m_eq.geoDU +
+                    " " + m_eq.geoDV +
+                    " " + m_eq.geoDW +
+                    " " + m_eq.conform;
         }
         // In parametrica aggiungiamo lo script della superficie se non siamo in Ray Marching
         glslText += stripCodeComments(m_surfaceTextureCode);
@@ -10436,43 +10437,43 @@ void MainWindow::onStartClicked()
     // ==========================================================
 
     // --- 0. SMART INTERCEPTOR ---
-    QString allEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
-            ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
-            ui->lineU->toPlainText() + " " + ui->lineV->toPlainText() + " " +
-            ui->lineW->toPlainText();
+    QString allEqs = m_eq.x + " " + m_eq.y + " " +
+            m_eq.z + " " + m_eq.p + " " +
+            m_eq.u + " " + m_eq.v + " " +
+            m_eq.w;
 
-    bool hasExplicit = !ui->lineExplicitU->toPlainText().trimmed().isEmpty() ||
-            !ui->lineExplicitV->toPlainText().trimmed().isEmpty() ||
-            !ui->lineExplicitW->toPlainText().trimmed().isEmpty();
+    bool hasExplicit = !m_eq.explicitU.trimmed().isEmpty() ||
+            !m_eq.explicitV.trimmed().isEmpty() ||
+            !m_eq.explicitW.trimmed().isEmpty();
 
     if (!InputValidator::validateWUsage(this, allEqs, hasExplicit)) return;
 
     // 1. SAFETY CHECK: VARIABLES AND SYNTAX
-    QString mainEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
-            ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText();
+    QString mainEqs = m_eq.x + " " + m_eq.y + " " +
+            m_eq.z + " " + m_eq.p;
 
-    QString allEqsToTest = mainEqs + " " + ui->lineExplicitU->toPlainText() + " " +
-            ui->lineExplicitV->toPlainText() + " " + ui->lineExplicitW->toPlainText();
+    QString allEqsToTest = mainEqs + " " + m_eq.explicitU + " " +
+            m_eq.explicitV + " " + m_eq.explicitW;
 
     if (!InputValidator::validateParametricVariables(this, mainEqs, allEqsToTest, hasExplicit)) return;
 
     if (!InputValidator::validateFieldList(this, {
-        {"x(u,v)",     ui->lineX->toPlainText()},
-        {"y(u,v)",     ui->lineY->toPlainText()},
-        {"z(u,v)",     ui->lineZ->toPlainText()},
-        {"p(u,v)",     ui->lineP->toPlainText()},
-        {"U-comp",     ui->lineU->toPlainText()},
-        {"V-comp",     ui->lineV->toPlainText()},
-        {"W-comp",     ui->lineW->toPlainText()},
-        {"Explicit U", ui->lineExplicitU->toPlainText()},
-        {"Explicit V", ui->lineExplicitV->toPlainText()},
-        {"Explicit W", ui->lineExplicitW->toPlainText()},
+        {"x(u,v)",     m_eq.x},
+        {"y(u,v)",     m_eq.y},
+        {"z(u,v)",     m_eq.z},
+        {"p(u,v)",     m_eq.p},
+        {"U-comp",     m_eq.u},
+        {"V-comp",     m_eq.v},
+        {"W-comp",     m_eq.w},
+        {"Explicit U", m_eq.explicitU},
+        {"Explicit V", m_eq.explicitV},
+        {"Explicit W", m_eq.explicitW},
     }))  return;
 
     // --- BLOCCO VALIDAZIONE COMPOSITION & GEODESIC FLOW ---
-    QString cU = ui->lineU->toPlainText().trimmed();
-    QString cV = ui->lineV->toPlainText().trimmed();
-    QString cW = ui->lineW->toPlainText().trimmed();
+    QString cU = m_eq.u.trimmed();
+    QString cV = m_eq.v.trimmed();
+    QString cW = m_eq.w.trimmed();
 
     bool geoHasText = hasGeodesicText();
 
@@ -10526,10 +10527,8 @@ void MainWindow::onStartClicked()
 
     if (isGeodesicActive) {
         // 1. Se il campo del fattore conforme è vuoto, forziamo il default "1.0"
-        if (ui->lineConform->toPlainText().trimmed().isEmpty()) {
-            bool oldBlock = ui->lineConform->blockSignals(true);
-            ui->lineConform->setPlainText("1.0");
-            ui->lineConform->blockSignals(oldBlock);
+        if (m_eq.conform.trimmed().isEmpty()) {
+            setEqText(&EquationTexts::conform, QStringLiteral("1.0"));
         }
 
         // 2. Controllo Geometria Euclidea (avviso "metrica piatta") DISATTIVATO.
@@ -10544,32 +10543,32 @@ void MainWindow::onStartClicked()
 //        if ((sender() == m_btnStart || runDockOnly) && !isPreset) {
 //            InputValidator::validateGeodesicConformalFactor(
 //                        this,
-//                        ui->lineX->toPlainText(), ui->lineY->toPlainText(),
-//                        ui->lineZ->toPlainText(), ui->lineP->toPlainText(),
-//                        ui->lineConform->toPlainText(),
+//                        m_eq.x, m_eq.y,
+//                        m_eq.z, m_eq.p,
+//                        m_eq.conform,
 //                        true
 //                        );
 //        }
 
         if (!InputValidator::validateFieldList(this, {
-            {"x(U,V,W)",         ui->lineX->toPlainText()},
-            {"y(U,V,W)",         ui->lineY->toPlainText()},
-            {"z(U,V,W)",         ui->lineZ->toPlainText()},
-            {"p(U,V,W)",         ui->lineP->toPlainText()},
-            {"u(t)",             ui->lnU->toPlainText()},
-            {"v(t)",             ui->lnV->toPlainText()},
-            {"w(t)",             ui->lnW->toPlainText()},
-            {"du/dt",            ui->lndU->toPlainText()},
-            {"dv/dt",            ui->lndV->toPlainText()},
-            {"dw/dt",            ui->lndW->toPlainText()},
-        {"Conformal Factor", ui->lineConform->toPlainText()},
+            {"x(U,V,W)",         m_eq.x},
+            {"y(U,V,W)",         m_eq.y},
+            {"z(U,V,W)",         m_eq.z},
+            {"p(U,V,W)",         m_eq.p},
+            {"u(t)",             m_eq.geoU},
+            {"v(t)",             m_eq.geoV},
+            {"w(t)",             m_eq.geoW},
+            {"du/dt",            m_eq.geoDU},
+            {"dv/dt",            m_eq.geoDV},
+            {"dw/dt",            m_eq.geoDW},
+        {"Conformal Factor", m_eq.conform},
     })) return;
 
-        QString geoEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
-                ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
-                ui->lnU->toPlainText() + " " + ui->lnV->toPlainText() + " " + ui->lnW->toPlainText() + " " +
-                ui->lndU->toPlainText() + " " + ui->lndV->toPlainText() + " " + ui->lndW->toPlainText()+
-                ui->lineConform->toPlainText() + " " +
+        QString geoEqs = m_eq.x + " " + m_eq.y + " " +
+                m_eq.z + " " + m_eq.p + " " +
+                m_eq.geoU + " " + m_eq.geoV + " " + m_eq.geoW + " " +
+                m_eq.geoDU + " " + m_eq.geoDV + " " + m_eq.geoDW+
+                m_eq.conform + " " +
                 m_metricScriptBody;   // t può vivere nel corpo della metrica g_ij(U,V,W,t)
 
         // TEXTURE E SFONDO: servono a decidere se il ricalcolo va FATTO (i loro
@@ -10588,8 +10587,8 @@ void MainWindow::onStartClicked()
         // SNAPSHOT DELLE EQUAZIONI APPLICATE. Qui, non solo nel prologo di
         // onStartClicked (~7579): quello e' dietro `runDockOnly || masterStart`,
         // cioe' dipende dal sender(), e i percorsi che applicano senza tasto
-        // (Invio su un campo equazione, ~3790) lo saltavano. Le active_* di
-        // conseguenza restavano assenti o STANTIE, e chi legge lo snapshot
+        // (Invio su un campo equazione, ~3790) lo saltavano. Le equazioni
+        // applicate (m_eqApplied) di conseguenza restavano assenti o STANTIE, e chi legge lo snapshot
         // (l'Invio sui limiti e sui 7 campi del flusso) ricadeva sui campi UI:
         // il bug si vedeva a intermittenza, "dopo qualche tentativo" -- cioe'
         // dopo il primo click su Run che aggiornava lo snapshot.
@@ -10597,7 +10596,7 @@ void MainWindow::onStartClicked()
         // davvero: validate qui sopra e subito passate a updateGeodesicMesh.
         snapshotActiveEquations();
         SE_GEO_PROBE("RUN geodetico: snapshot aggiornato X=%s",
-                     qPrintable(ui->lineX->toPlainText().simplified()));
+                     qPrintable(m_eq.x.simplified()));
 
         // updateGeodesicMesh() calcola, verifica e restituisce false se i dati sono corrotti
         if (!updateGeodesicMesh()) {
@@ -10634,7 +10633,7 @@ void MainWindow::onStartClicked()
         return;
     }
 
-    QString pEq = ui->lineP->toPlainText().trimmed();
+    QString pEq = m_eq.p.trimmed();
     bool isSurface4D = !pEq.isEmpty() && pEq != "0" && pEq != "0.0";
 
     if (isSurface4D) {
@@ -10673,33 +10672,31 @@ void MainWindow::onStartClicked()
     // Snapshot assente (mai fatto un Run in questa scena): si ricade sui campi,
     // che e' il comportamento storico -- non c'e' un "gia' applicato" da usare.
     const bool serviceCommit = this->property("rmApplyOnly").toBool()
-                            && this->property("active_lineX").isValid();
+                            && m_eqApplied.has_value();
     runOutcomeGuard.equationsApplied = !serviceCommit;
-    auto eqField = [this, serviceCommit](const char* prop, QPlainTextEdit* edit) -> QString {
-        if (serviceCommit && this->property(prop).isValid())
-            return this->property(prop).toString();
-        return edit->toPlainText();
+    auto eqField = [this, serviceCommit](EqField f) -> QString {
+        return (serviceCommit && m_eqApplied) ? (*m_eqApplied).*f : m_eq.*f;
     };
 
     // Composizione e vincoli come le equazioni: nel commit di servizio quelli
     // dell'ultimo applicato, non il testo dei campi.
-    QString defU = eqField("active_lineU", ui->lineU);
-    QString defV = eqField("active_lineV", ui->lineV);
-    QString defW = eqField("active_lineW", ui->lineW);
+    QString defU = eqField(&EquationTexts::u);
+    QString defV = eqField(&EquationTexts::v);
+    QString defW = eqField(&EquationTexts::w);
 
-    QString rawX = composeEquation(eqField("active_lineX", ui->lineX), defU, defV, defW);
-    QString rawY = composeEquation(eqField("active_lineY", ui->lineY), defU, defV, defW);
-    QString rawZ = composeEquation(eqField("active_lineZ", ui->lineZ), defU, defV, defW);
-    QString rawP = composeEquation(eqField("active_lineP", ui->lineP), defU, defV, defW);
+    QString rawX = composeEquation(eqField(&EquationTexts::x), defU, defV, defW);
+    QString rawY = composeEquation(eqField(&EquationTexts::y), defU, defV, defW);
+    QString rawZ = composeEquation(eqField(&EquationTexts::z), defU, defV, defW);
+    QString rawP = composeEquation(eqField(&EquationTexts::p), defU, defV, defW);
 
     QString xEq = GlslTranslator::translateEquation(rawX);
     QString yEq = GlslTranslator::translateEquation(rawY);
     QString zEq = GlslTranslator::translateEquation(rawZ);
     QString wEq = GlslTranslator::translateEquation(rawP);
 
-    QString rawU = composeEquation(eqField("active_lineExplicitU", ui->lineExplicitU), defU, defV, defW).trimmed();
-    QString rawV = composeEquation(eqField("active_lineExplicitV", ui->lineExplicitV), defU, defV, defW).trimmed();
-    QString rawW = composeEquation(eqField("active_lineExplicitW", ui->lineExplicitW), defU, defV, defW).trimmed();
+    QString rawU = composeEquation(eqField(&EquationTexts::explicitU), defU, defV, defW).trimmed();
+    QString rawV = composeEquation(eqField(&EquationTexts::explicitV), defU, defV, defW).trimmed();
+    QString rawW = composeEquation(eqField(&EquationTexts::explicitW), defU, defV, defW).trimmed();
 
     if (!rawU.isEmpty()) {
         ui->glWidget->getEngine()->setConstraintMode(SurfaceEngine::ConstraintU);
@@ -10840,16 +10837,16 @@ void MainWindow::onStartClicked()
     // accendeva quel clock e infatti si comportava correttamente.
     // E' la stessa regola gia' applicata al ramo Ray Marching poco sopra e a
     // isEquationModuleMoving: ogni modulo guarda il proprio tempo.
-    QString rawEqsForT = eqField("active_lineX", ui->lineX) + " " +
-            eqField("active_lineY", ui->lineY) + " " +
-            eqField("active_lineZ", ui->lineZ) + " " +
-            eqField("active_lineP", ui->lineP) + " " +
-            ui->lineExplicitU->toPlainText() + " " +
-                         ui->lineExplicitV->toPlainText() + " " +
-                         ui->lineExplicitW->toPlainText() + " " +
-                         ui->lineU->toPlainText() + " " +
-                         ui->lineV->toPlainText() + " " +
-                         ui->lineW->toPlainText() + " " +
+    QString rawEqsForT = eqField(&EquationTexts::x) + " " +
+            eqField(&EquationTexts::y) + " " +
+            eqField(&EquationTexts::z) + " " +
+            eqField(&EquationTexts::p) + " " +
+            m_eq.explicitU + " " +
+                         m_eq.explicitV + " " +
+                         m_eq.explicitW + " " +
+                         m_eq.u + " " +
+                         m_eq.v + " " +
+                         m_eq.w + " " +
                          m_surfaceScriptApplied;
 
     if (m_surfaceTextureState && textureHasLogic(currentScript)
@@ -11825,10 +11822,10 @@ void MainWindow::applyPath4DCameraAt(float t)
 bool MainWindow::hasParametricEquationInput() const
 {
     int filled = 0;
-    if (ui->lineX && !ui->lineX->toPlainText().trimmed().isEmpty()) filled++;
-    if (ui->lineY && !ui->lineY->toPlainText().trimmed().isEmpty()) filled++;
-    if (ui->lineZ && !ui->lineZ->toPlainText().trimmed().isEmpty()) filled++;
-    if (ui->lineP && !ui->lineP->toPlainText().trimmed().isEmpty()) filled++;
+    if (ui->lineX && !m_eq.x.trimmed().isEmpty()) filled++;
+    if (ui->lineY && !m_eq.y.trimmed().isEmpty()) filled++;
+    if (ui->lineZ && !m_eq.z.trimmed().isEmpty()) filled++;
+    if (ui->lineP && !m_eq.p.trimmed().isEmpty()) filled++;
     return filled >= 3;
 }
 
@@ -12268,10 +12265,10 @@ void MainWindow::onRunCurrentScript()
 
             parseAndApplyScriptParams(currentText, false);
 
-            bool oldX = ui->lineX->blockSignals(true); ui->lineX->clear(); ui->lineX->blockSignals(oldX);
-            bool oldY = ui->lineY->blockSignals(true); ui->lineY->clear(); ui->lineY->blockSignals(oldY);
-            bool oldZ = ui->lineZ->blockSignals(true); ui->lineZ->clear(); ui->lineZ->blockSignals(oldZ);
-            bool oldP = ui->lineP->blockSignals(true); ui->lineP->clear(); ui->lineP->blockSignals(oldP);
+            setEqText(&EquationTexts::x, QString());
+            setEqText(&EquationTexts::y, QString());
+            setEqText(&EquationTexts::z, QString());
+            setEqText(&EquationTexts::p, QString());
 
             // TUTTO OK: ABILITIAMO IL TASTO SALVA
             ui->btnSaveScript->setEnabled(true);
@@ -12585,10 +12582,10 @@ void MainWindow::onRunScriptClicked()
     exitMetricScriptMode();
 
     // Tutto OK
-    bool oldX = ui->lineX->blockSignals(true); ui->lineX->clear(); ui->lineX->blockSignals(oldX);
-    bool oldY = ui->lineY->blockSignals(true); ui->lineY->clear(); ui->lineY->blockSignals(oldY);
-    bool oldZ = ui->lineZ->blockSignals(true); ui->lineZ->clear(); ui->lineZ->blockSignals(oldZ);
-    bool oldP = ui->lineP->blockSignals(true); ui->lineP->clear(); ui->lineP->blockSignals(oldP);
+    setEqText(&EquationTexts::x, QString());
+    setEqText(&EquationTexts::y, QString());
+    setEqText(&EquationTexts::z, QString());
+    setEqText(&EquationTexts::p, QString());
 
     // A SEGNALI BLOCCATI come le quattro righe qui sopra. Questi sei clear sono
     // pulizia PROGRAMMATICA (lo script prende il posto delle equazioni), non un
@@ -12598,11 +12595,9 @@ void MainWindow::onRunScriptClicked()
     // Stop/Start, senza che l'utente avesse toccato nulla (visto su Villarceau
     // Tubes Drift: il master Start passa da onRunScriptClicked).
     {
-        const QSignalBlocker bEU(ui->lineExplicitU), bEV(ui->lineExplicitV),
-                             bEW(ui->lineExplicitW);
-        const QSignalBlocker bU(ui->lineU), bV(ui->lineV), bW(ui->lineW);
-        ui->lineExplicitU->clear(); ui->lineExplicitV->clear(); ui->lineExplicitW->clear();
-        ui->lineU->clear(); ui->lineV->clear(); ui->lineW->clear();
+        for (EqField f : { &EquationTexts::explicitU, &EquationTexts::explicitV, &EquationTexts::explicitW,
+                           &EquationTexts::u, &EquationTexts::v, &EquationTexts::w })
+            setEqText(f, QString());
     }
 
     if (ui->glWidget) {
@@ -12677,22 +12672,19 @@ void MainWindow::runMetricScript(const QString& fullText)
             const QString name = m.captured(1);
             const QString value = m.captured(2).trimmed();
 
-            QPlainTextEdit* field = nullptr;
-            if      (name == "U")  field = ui->lnU;
-            else if (name == "V")  field = ui->lnV;
-            else if (name == "W")  field = ui->lnW;
-            else if (name == "dU") field = ui->lndU;
-            else if (name == "dV") field = ui->lndV;
-            else if (name == "dW") field = ui->lndW;
-            else                   field = ui->lineConform;
+            EqField field = &EquationTexts::conform;
+            if      (name == "U")  field = &EquationTexts::geoU;
+            else if (name == "V")  field = &EquationTexts::geoV;
+            else if (name == "W")  field = &EquationTexts::geoW;
+            else if (name == "dU") field = &EquationTexts::geoDU;
+            else if (name == "dV") field = &EquationTexts::geoDV;
+            else if (name == "dW") field = &EquationTexts::geoDW;
 
-            if (!field) continue;
-            if (!field->toPlainText().trimmed().isEmpty())
+            if (!equationFieldEdit(field)) continue;
+            if (!(m_eq.*field).trimmed().isEmpty())
                 continue;
 
-            bool old = field->blockSignals(true);
-            field->setPlainText(value);
-            field->blockSignals(old);
+            setEqText(field, value);
         }
     }
 
@@ -12731,23 +12723,15 @@ void MainWindow::runMetricScript(const QString& fullText)
     // minuscole, es. il toro di default) li prendiamo in consegna con la carta
     // identità. Serve anche al routing: sia onStartClicked che
     // checkAndTriggerMeshUpdate attivano il geodetico sulle maiuscole.
-    const QString displayEqs = ui->lineX->toPlainText() + " " +
-            ui->lineY->toPlainText() + " " + ui->lineZ->toPlainText() + " " +
-            ui->lineP->toPlainText();
+    const QString displayEqs = m_eq.x + " " +
+            m_eq.y + " " + m_eq.z + " " +
+            m_eq.p;
     if (!displayEqs.contains(kReUpperU) && !displayEqs.contains(kReUpperV) &&
             !displayEqs.contains(kReUpperW)) {
-        bool bX = ui->lineX->blockSignals(true);
-        bool bY = ui->lineY->blockSignals(true);
-        bool bZ = ui->lineZ->blockSignals(true);
-        bool bP = ui->lineP->blockSignals(true);
-        ui->lineX->setPlainText("U");
-        ui->lineY->setPlainText("V");
-        ui->lineZ->setPlainText("W");
-        ui->lineP->setPlainText("0");
-        ui->lineX->blockSignals(bX);
-        ui->lineY->blockSignals(bY);
-        ui->lineZ->blockSignals(bZ);
-        ui->lineP->blockSignals(bP);
+        setEqText(&EquationTexts::x, QStringLiteral("U"));
+        setEqText(&EquationTexts::y, QStringLiteral("V"));
+        setEqText(&EquationTexts::z, QStringLiteral("W"));
+        setEqText(&EquationTexts::p, QStringLiteral("0"));
     }
 
     // I campi sono stati riempiti a segnali bloccati: la macchina a stati dei
@@ -12760,10 +12744,8 @@ void MainWindow::runMetricScript(const QString& fullText)
     }
 
     // Fattore conforme di default, come in onStartClicked
-    if (ui->lineConform->toPlainText().trimmed().isEmpty()) {
-        bool oldBlock = ui->lineConform->blockSignals(true);
-        ui->lineConform->setPlainText("1.0");
-        ui->lineConform->blockSignals(oldBlock);
+    if (m_eq.conform.trimmed().isEmpty()) {
+        setEqText(&EquationTexts::conform, QStringLiteral("1.0"));
     }
 
     ui->btnSaveScript->setEnabled(true);
@@ -12794,13 +12776,13 @@ QString MainWindow::surfaceConstantSource() const
 {
     if (ui->tabModeSelector->currentIndex() == 1)
         return activeImplicitEquationText() + " " + m_surfaceScriptText + " " + m_surfaceScriptApplied;
-    return ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
-           ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
-           ui->lineU->toPlainText() + " " + ui->lineV->toPlainText() + " " +
-           ui->lineW->toPlainText() + " " +
-           ui->lineExplicitU->toPlainText() + " " +
-           ui->lineExplicitV->toPlainText() + " " +
-           ui->lineExplicitW->toPlainText() + " " + m_surfaceScriptText + " " + m_surfaceScriptApplied;
+    return m_eq.x + " " + m_eq.y + " " +
+           m_eq.z + " " + m_eq.p + " " +
+           m_eq.u + " " + m_eq.v + " " +
+           m_eq.w + " " +
+           m_eq.explicitU + " " +
+           m_eq.explicitV + " " +
+           m_eq.explicitW + " " + m_surfaceScriptText + " " + m_surfaceScriptApplied;
 }
 
 // Avviso delle costanti condivise al caricamento di un RECORD.
@@ -12930,10 +12912,10 @@ void MainWindow::checkMetricConstantAmbiguity()
 
     const QString metricBody = stripCodeComments(m_metricScriptBody);
     QString conditions =
-            ui->lnU->toPlainText() + " " + ui->lnV->toPlainText() + " " +
-            ui->lnW->toPlainText() + " " + ui->lndU->toPlainText() + " " +
-            ui->lndV->toPlainText() + " " + ui->lndW->toPlainText() + " " +
-            ui->lineConform->toPlainText();
+            m_eq.geoU + " " + m_eq.geoV + " " +
+            m_eq.geoW + " " + m_eq.geoDU + " " +
+            m_eq.geoDV + " " + m_eq.geoDW + " " +
+            m_eq.conform;
 
     // Uso COERENTE vs AMBIGUO. Una costante che compare in una condizione DENTRO
     // una chiamata a un solver geometrico (kerrUmin(A,B), kerrRadius(...),
@@ -12991,10 +12973,10 @@ void MainWindow::checkMetricConstantAmbiguity()
 bool MainWindow::metricDisplayMapIsCustom() const
 {
     auto norm = [](QString s) { return s.trimmed().remove(' '); };
-    const QString x = norm(ui->lineX->toPlainText());
-    const QString y = norm(ui->lineY->toPlainText());
-    const QString z = norm(ui->lineZ->toPlainText());
-    const QString p = norm(ui->lineP->toPlainText());
+    const QString x = norm(m_eq.x);
+    const QString y = norm(m_eq.y);
+    const QString z = norm(m_eq.z);
+    const QString p = norm(m_eq.p);
     const bool isIdentity = (x == "U") && (y == "V") && (z == "W") &&
                             (p == "0" || p.isEmpty());
     return !isIdentity;
@@ -13006,10 +12988,10 @@ void MainWindow::writeMetricDisplayMap(QJsonObject& root) const
     if (!metricDisplayMapIsCustom()) return;              // identità: non serve salvarla
 
     QJsonObject map;
-    map["x"] = ui->lineX->toPlainText();
-    map["y"] = ui->lineY->toPlainText();
-    map["z"] = ui->lineZ->toPlainText();
-    map["p"] = ui->lineP->toPlainText();
+    map["x"] = m_eq.x;
+    map["y"] = m_eq.y;
+    map["z"] = m_eq.z;
+    map["p"] = m_eq.p;
     root["metricDisplayMap"] = map;
 }
 
@@ -17547,34 +17529,21 @@ void MainWindow::applyPresetConstants(const LibraryItem &d, bool rebuildDiscrete
 // script la chiama con un LibraryItem vuoto: li' i campi vanno SVUOTATI.
 void MainWindow::setCompositionFieldsFromPreset(const LibraryItem &d)
 {
-    bool bCU = ui->lineU->blockSignals(true);
-    bool bCV = ui->lineV->blockSignals(true);
-    bool bCW = ui->lineW->blockSignals(true);
-    // I campi vincolo vanno bloccati come quelli di composizione: altrimenti
-    // azzerare un vincolo residuo del preset precedente (es. explicitV) emette
-    // textChanged a metà caricamento. checkParametricDependency() parte con uno
-    // stato misto (vincolo vecchio ancora visto come attivo) e
-    // updateConstraintState svuota i limiti del parametro vincolato; quel campo
-    // viene poi riabilitato ma NON ripopolato, restando attivo e vuoto → il
-    // Run successivo fallisce la validazione min/max (popup spurio).
-    bool bEU = ui->lineExplicitU->blockSignals(true);
-    bool bEV = ui->lineExplicitV->blockSignals(true);
-    bool bEW = ui->lineExplicitW->blockSignals(true);
+    // A segnali bloccati (setEqText), i campi vincolo come quelli di
+    // composizione: altrimenti azzerare un vincolo residuo del preset precedente
+    // (es. explicitV) emette textChanged a metà caricamento.
+    // checkParametricDependency() parte con uno stato misto (vincolo vecchio
+    // ancora visto come attivo) e updateConstraintState svuota i limiti del
+    // parametro vincolato; quel campo viene poi riabilitato ma NON ripopolato,
+    // restando attivo e vuoto → il Run successivo fallisce la validazione
+    // min/max (popup spurio).
+    setEqText(&EquationTexts::u, d.defU);
+    setEqText(&EquationTexts::v, d.defV);
+    setEqText(&EquationTexts::w, d.defW);
 
-    ui->lineU->setPlainText(d.defU);
-    ui->lineV->setPlainText(d.defV);
-    ui->lineW->setPlainText(d.defW);
-
-    ui->lineExplicitU->setPlainText(d.explicitU);
-    ui->lineExplicitV->setPlainText(d.explicitV);
-    ui->lineExplicitW->setPlainText(d.explicitW);
-
-    ui->lineU->blockSignals(bCU);
-    ui->lineV->blockSignals(bCV);
-    ui->lineW->blockSignals(bCW);
-    ui->lineExplicitU->blockSignals(bEU);
-    ui->lineExplicitV->blockSignals(bEV);
-    ui->lineExplicitW->blockSignals(bEW);
+    setEqText(&EquationTexts::explicitU, d.explicitU);
+    setEqText(&EquationTexts::explicitV, d.explicitV);
+    setEqText(&EquationTexts::explicitW, d.explicitW);
 }
 
 void MainWindow::applyCommonData(LibraryItem d)
@@ -17936,32 +17905,15 @@ void MainWindow::applyCommonData(LibraryItem d)
     applyPresetConstants(d, /*rebuildDiscreteMap=*/true);
 
     // --- CARICAMENTO FLUSSO GEODETICO ---
-    // 1. Blocchiamo i segnali per evitare l'auto-cancellazione da parte di checkParametricDependency()
-    bool b1 = ui->lnU->blockSignals(true);
-    bool b2 = ui->lnV->blockSignals(true);
-    bool b3 = ui->lnW->blockSignals(true);
-    bool b4 = ui->lndU->blockSignals(true);
-    bool b5 = ui->lndV->blockSignals(true);
-    bool b6 = ui->lndW->blockSignals(true);
-    bool b7 = ui->lineConform->blockSignals(true);
-
-    // 2. Assegnazione immediata dalle variabili pre-caricate nella struct LibraryItem
-    ui->lnU->setPlainText(d.geoU0);
-    ui->lnV->setPlainText(d.geoV0);
-    ui->lnW->setPlainText(d.geoW0);
-    ui->lndU->setPlainText(d.geoDU);
-    ui->lndV->setPlainText(d.geoDV);
-    ui->lndW->setPlainText(d.geoDW);
-    ui->lineConform->setPlainText(d.geoConform.isEmpty() ? "1.0" : d.geoConform);
-
-    // 3. Sblocco dei segnali
-    ui->lnU->blockSignals(b1);
-    ui->lnV->blockSignals(b2);
-    ui->lnW->blockSignals(b3);
-    ui->lndU->blockSignals(b4);
-    ui->lndV->blockSignals(b5);
-    ui->lndW->blockSignals(b6);
-    ui->lineConform->blockSignals(b7);
+    // A segnali bloccati (setEqText), per evitare l'auto-cancellazione da parte
+    // di checkParametricDependency(): i valori vengono dalla struct LibraryItem.
+    setEqText(&EquationTexts::geoU,  d.geoU0);
+    setEqText(&EquationTexts::geoV,  d.geoV0);
+    setEqText(&EquationTexts::geoW,  d.geoW0);
+    setEqText(&EquationTexts::geoDU, d.geoDU);
+    setEqText(&EquationTexts::geoDV, d.geoDV);
+    setEqText(&EquationTexts::geoDW, d.geoDW);
+    setEqText(&EquationTexts::conform, d.geoConform.isEmpty() ? QStringLiteral("1.0") : d.geoConform);
     // ------------------------------------
 
     // 4. Logica Caricamento Equazioni vs Script
@@ -18123,12 +18075,8 @@ void MainWindow::applyCommonData(LibraryItem d)
         // display map Kruskal, che usa solo A) azzerava le costanti del preset
         // appena scritte (B=0.17 -> 1, superficie deformata).
 
-        // Blocca i segnali prima di fare clear per non innescare reset indesiderati
-        bool bX = ui->lineX->blockSignals(true);
-        bool bY = ui->lineY->blockSignals(true);
-        bool bZ = ui->lineZ->blockSignals(true);
-        bool bP = ui->lineP->blockSignals(true);
-
+        // (Campi scritti a segnali bloccati -- setEqText -- per non innescare
+        // reset indesiderati.)
         // Mappa di visualizzazione di uno script metrico (es. Flamm): porta le
         // coordinate intrinseche (U,V,W) in 3D. Due fonti equivalenti, in ordine
         // di precedenza:
@@ -18144,27 +18092,19 @@ void MainWindow::applyCommonData(LibraryItem d)
                 eqMap.contains(QRegularExpression("\\b[UVW]\\b"));
 
         if (d.hasMetricMap) {
-            ui->lineX->setPlainText(d.metricMapX);
-            ui->lineY->setPlainText(d.metricMapY);
-            ui->lineZ->setPlainText(d.metricMapZ);
-            ui->lineP->setPlainText(d.metricMapP);
+            setEqText(&EquationTexts::x, d.metricMapX);
+            setEqText(&EquationTexts::y, d.metricMapY);
+            setEqText(&EquationTexts::z, d.metricMapZ);
+            setEqText(&EquationTexts::p, d.metricMapP);
         } else if (eqIsDisplayMap) {
-            ui->lineX->setPlainText(d.x);
-            ui->lineY->setPlainText(d.y);
-            ui->lineZ->setPlainText(d.z);
-            ui->lineP->setPlainText(d.w);
+            setEqText(&EquationTexts::x, d.x);
+            setEqText(&EquationTexts::y, d.y);
+            setEqText(&EquationTexts::z, d.z);
+            setEqText(&EquationTexts::p, d.w);
         } else {
-            ui->lineX->clear();
-            ui->lineY->clear();
-            ui->lineZ->clear();
-            ui->lineP->clear();
+            for (EqField f : { &EquationTexts::x, &EquationTexts::y, &EquationTexts::z, &EquationTexts::p })
+                setEqText(f, QString());
         }
-
-        // Ripristina i segnali
-        ui->lineX->blockSignals(bX);
-        ui->lineY->blockSignals(bY);
-        ui->lineZ->blockSignals(bZ);
-        ui->lineP->blockSignals(bP);
 
         // Composizione e vincoli VUOTI, non quelli del file: con uno script la
         // geometria la da' lo script, e il motore azzera comunque le variabili
@@ -18282,20 +18222,10 @@ void MainWindow::applyCommonData(LibraryItem d)
         }
         ui->tabModeSelector->blockSignals(oldTabSig);
 
-        bool bX = ui->lineX->blockSignals(true);
-        bool bY = ui->lineY->blockSignals(true);
-        bool bZ = ui->lineZ->blockSignals(true);
-        bool bP = ui->lineP->blockSignals(true);
-
-        ui->lineX->setPlainText(d.x);
-        ui->lineY->setPlainText(d.y);
-        ui->lineZ->setPlainText(d.z);
-        ui->lineP->setPlainText(d.w);
-
-        ui->lineX->blockSignals(bX);
-        ui->lineY->blockSignals(bY);
-        ui->lineZ->blockSignals(bZ);
-        ui->lineP->blockSignals(bP);
+        setEqText(&EquationTexts::x, d.x);
+        setEqText(&EquationTexts::y, d.y);
+        setEqText(&EquationTexts::z, d.z);
+        setEqText(&EquationTexts::p, d.w);
 
         setCompositionFieldsFromPreset(d);
 
@@ -20258,19 +20188,14 @@ void MainWindow::updateFlatPreviewButton() {
 bool MainWindow::mapEquationsMatchSnapshot() const
 {
     // Nessuno snapshot: non c'e' un "gia' applicato" con cui confrontarsi.
-    if (!property("active_lineX").isValid()) return false;
+    if (!m_eqApplied.has_value()) return false;
 
     // ...composizione e vincoli compresi: sono nello snapshot come X/Y/Z/P.
-    return property("active_lineX").toString() == ui->lineX->toPlainText()
-        && property("active_lineY").toString() == ui->lineY->toPlainText()
-        && property("active_lineZ").toString() == ui->lineZ->toPlainText()
-        && property("active_lineP").toString() == ui->lineP->toPlainText()
-        && property("active_lineU").toString() == ui->lineU->toPlainText()
-        && property("active_lineV").toString() == ui->lineV->toPlainText()
-        && property("active_lineW").toString() == ui->lineW->toPlainText()
-        && property("active_lineExplicitU").toString() == ui->lineExplicitU->toPlainText()
-        && property("active_lineExplicitV").toString() == ui->lineExplicitV->toPlainText()
-        && property("active_lineExplicitW").toString() == ui->lineExplicitW->toPlainText();
+    const EquationTexts &a = *m_eqApplied;
+    return a.x == m_eq.x && a.y == m_eq.y && a.z == m_eq.z && a.p == m_eq.p
+        && a.u == m_eq.u && a.v == m_eq.v && a.w == m_eq.w
+        && a.explicitU == m_eq.explicitU && a.explicitV == m_eq.explicitV
+        && a.explicitW == m_eq.explicitW;
 }
 
 bool MainWindow::isGeodesicRoutingActive() const
@@ -20278,8 +20203,8 @@ bool MainWindow::isGeodesicRoutingActive() const
     if (ui->tabModeSelector->currentIndex() != 0) return false;
     if (!hasGeodesicText()) return false;
 
-    const QString mainEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " "
-                          + ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText();
+    const QString mainEqs = m_eq.x + " " + m_eq.y + " "
+                          + m_eq.z + " " + m_eq.p;
     const int upperCount = (mainEqs.contains(kReUpperU) ? 1 : 0)
                          + (mainEqs.contains(kReUpperV) ? 1 : 0)
                          + (mainEqs.contains(kReUpperW) ? 1 : 0);
@@ -20308,15 +20233,15 @@ bool MainWindow::isEquationModuleMoving() const
         // geometria sia in moto ogni volta che la texture anima il displacement.
         mainEq = activeImplicitEquationText() + " " + m_surfaceScriptApplied;
     } else {
-        mainEq = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
-                ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
-                ui->lineU->toPlainText() + " " + ui->lineV->toPlainText() + " " + ui->lineW->toPlainText() + " " +
-                ui->lineExplicitU->toPlainText() + " " + ui->lineExplicitV->toPlainText() + " " + ui->lineExplicitW->toPlainText() + " " +
+        mainEq = m_eq.x + " " + m_eq.y + " " +
+                m_eq.z + " " + m_eq.p + " " +
+                m_eq.u + " " + m_eq.v + " " + m_eq.w + " " +
+                m_eq.explicitU + " " + m_eq.explicitV + " " + m_eq.explicitW + " " +
                 m_surfaceScriptApplied;
         if (ui->lnU) {
-            mainEq += " " + ui->lnU->toPlainText() + " " + ui->lnV->toPlainText() + " " + ui->lnW->toPlainText() +
-                    " " + ui->lndU->toPlainText() + " " + ui->lndV->toPlainText() + " " + ui->lndW->toPlainText() +
-                    " " + ui->lineConform->toPlainText();
+            mainEq += " " + m_eq.geoU + " " + m_eq.geoV + " " + m_eq.geoW +
+                    " " + m_eq.geoDU + " " + m_eq.geoDV + " " + m_eq.geoDW +
+                    " " + m_eq.conform;
         }
     }
     return hasTimeVariable(mainEq);
@@ -20379,15 +20304,15 @@ void MainWindow::updateMasterButtonState()
             // texture anima il displacement.
             mainEq = activeImplicitEquationText() + " " + m_surfaceScriptApplied;
         } else {
-            mainEq = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
-                    ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText() + " " +
-                    ui->lineU->toPlainText() + " " + ui->lineV->toPlainText() + " " + ui->lineW->toPlainText() + " " +
-                    ui->lineExplicitU->toPlainText() + " " + ui->lineExplicitV->toPlainText() + " " + ui->lineExplicitW->toPlainText() + " " +
+            mainEq = m_eq.x + " " + m_eq.y + " " +
+                    m_eq.z + " " + m_eq.p + " " +
+                    m_eq.u + " " + m_eq.v + " " + m_eq.w + " " +
+                    m_eq.explicitU + " " + m_eq.explicitV + " " + m_eq.explicitW + " " +
                     m_surfaceScriptApplied;
             if (ui->lnU) {
-                mainEq += " " + ui->lnU->toPlainText() + " " + ui->lnV->toPlainText() + " " + ui->lnW->toPlainText() +
-                        " " + ui->lndU->toPlainText() + " " + ui->lndV->toPlainText() + " " + ui->lndW->toPlainText() +
-                        " " + ui->lineConform->toPlainText();
+                mainEq += " " + m_eq.geoU + " " + m_eq.geoV + " " + m_eq.geoW +
+                        " " + m_eq.geoDU + " " + m_eq.geoDV + " " + m_eq.geoDW +
+                        " " + m_eq.conform;
             }
         }
 
@@ -21645,65 +21570,79 @@ bool MainWindow::applyBackgroundTextureIfNeeded() {
 
  // --- Geometry & Geodesic Flow ---
 
-namespace {
-constexpr const char* kActiveEqProps[] = {
-    "active_lineX", "active_lineY", "active_lineZ", "active_lineP",
-    // Composizione (U, V, W in funzione di u, v, w) e vincoli espliciti: fanno
-    // parte di cio' che e' a schermo quanto X/Y/Z/P. Fuori dallo snapshot, il
-    // commit di servizio li prendeva dai campi e applicava una composizione o
-    // un vincolo ancora in corso di scrittura sulle equazioni di prima.
-    "active_lineU", "active_lineV", "active_lineW",
-    "active_lineExplicitU", "active_lineExplicitV", "active_lineExplicitW",
-    "active_lnU",   "active_lnV",   "active_lnW",
-    "active_lndU",  "active_lndV",  "active_lndW",
-    "active_lineConform"
-};
+QPlainTextEdit *MainWindow::equationFieldEdit(EqField f) const
+{
+    if (f == &EquationTexts::x) return ui->lineX;
+    if (f == &EquationTexts::y) return ui->lineY;
+    if (f == &EquationTexts::z) return ui->lineZ;
+    if (f == &EquationTexts::p) return ui->lineP;
+    if (f == &EquationTexts::u) return ui->lineU;
+    if (f == &EquationTexts::v) return ui->lineV;
+    if (f == &EquationTexts::w) return ui->lineW;
+    if (f == &EquationTexts::explicitU) return ui->lineExplicitU;
+    if (f == &EquationTexts::explicitV) return ui->lineExplicitV;
+    if (f == &EquationTexts::explicitW) return ui->lineExplicitW;
+    if (f == &EquationTexts::geoU)  return ui->lnU;
+    if (f == &EquationTexts::geoV)  return ui->lnV;
+    if (f == &EquationTexts::geoW)  return ui->lnW;
+    if (f == &EquationTexts::geoDU) return ui->lndU;
+    if (f == &EquationTexts::geoDV) return ui->lndV;
+    if (f == &EquationTexts::geoDW) return ui->lndW;
+    if (f == &EquationTexts::conform) return ui->lineConform;
+    return nullptr;
+}
+
+void MainWindow::bindEquationFields()
+{
+    const EqField fields[] = {
+        &EquationTexts::x, &EquationTexts::y, &EquationTexts::z, &EquationTexts::p,
+        &EquationTexts::u, &EquationTexts::v, &EquationTexts::w,
+        &EquationTexts::explicitU, &EquationTexts::explicitV, &EquationTexts::explicitW,
+        &EquationTexts::geoU, &EquationTexts::geoV, &EquationTexts::geoW,
+        &EquationTexts::geoDU, &EquationTexts::geoDV, &EquationTexts::geoDW,
+        &EquationTexts::conform,
+    };
+    for (EqField f : fields) {
+        QPlainTextEdit *edit = equationFieldEdit(f);
+        if (!edit) continue;
+        auto sync = [this, f, edit] { m_eq.*f = edit->toPlainText(); };
+        // DUE agganci, stesso gestore. textChanged: connesso qui per primo,
+        // gira prima di ogni altro gestore del campo (che m_eq lo legge).
+        // contentsChanged del DOCUMENTO: arriva anche quando il campo e'
+        // scritto a segnali bloccati, perche' il documento e' un altro oggetto.
+        connect(edit, &QPlainTextEdit::textChanged, this, sync);
+        connect(edit->document(), &QTextDocument::contentsChanged, this, sync);
+        sync();
+    }
+}
+
+void MainWindow::setEqText(EqField field, const QString &text)
+{
+    QPlainTextEdit *edit = equationFieldEdit(field);
+    if (!edit) { m_eq.*field = text; return; }
+    // A segnali bloccati: e' il programma che scrive, non l'utente. m_eq segue
+    // dal documento (bindEquationFields).
+    const QSignalBlocker blocker(edit);
+    edit->setPlainText(text);
 }
 
 QString MainWindow::activeEquationsText() const
 {
-    QString out;
-    for (const char *name : kActiveEqProps)
-        out += property(name).toString() + QLatin1Char(' ');
-    return out;
+    if (!m_eqApplied) return QString();
+    const EquationTexts &a = *m_eqApplied;
+    return QStringList{ a.x, a.y, a.z, a.p, a.u, a.v, a.w,
+                        a.explicitU, a.explicitV, a.explicitW,
+                        a.geoU, a.geoV, a.geoW, a.geoDU, a.geoDV, a.geoDW,
+                        a.conform }.join(QLatin1Char(' '));
 }
 
 void MainWindow::snapshotActiveEquations() {
-    setProperty("active_lineX", ui->lineX->toPlainText());
-    setProperty("active_lineY", ui->lineY->toPlainText());
-    setProperty("active_lineZ", ui->lineZ->toPlainText());
-    setProperty("active_lineP", ui->lineP->toPlainText());
-    setProperty("active_lineU", ui->lineU->toPlainText());
-    setProperty("active_lineV", ui->lineV->toPlainText());
-    setProperty("active_lineW", ui->lineW->toPlainText());
-    setProperty("active_lineExplicitU", ui->lineExplicitU->toPlainText());
-    setProperty("active_lineExplicitV", ui->lineExplicitV->toPlainText());
-    setProperty("active_lineExplicitW", ui->lineExplicitW->toPlainText());
-    if (ui->lnU) {
-        setProperty("active_lnU",   ui->lnU->toPlainText());
-        setProperty("active_lnV",   ui->lnV->toPlainText());
-        setProperty("active_lnW",   ui->lnW->toPlainText());
-        setProperty("active_lndU",  ui->lndU->toPlainText());
-        setProperty("active_lndV",  ui->lndV->toPlainText());
-        setProperty("active_lndW",  ui->lndW->toPlainText());
-        setProperty("active_lineConform", ui->lineConform->toPlainText());
-    }
-}
-
-QStringList MainWindow::readActiveEquations() const {
-    QStringList out;
-    out.reserve(int(std::size(kActiveEqProps)));
-    for (const char* name : kActiveEqProps) {
-        out << property(name).toString();
-    }
-    return out;
-}
-
-void MainWindow::restoreActiveEquations(const QStringList &saved) {
-    Q_ASSERT(saved.size() == int(std::size(kActiveEqProps)));
-    for (size_t i = 0; i < std::size(kActiveEqProps); ++i) {
-        setProperty(kActiveEqProps[i], saved[int(i)]);
-    }
+    // Composizione (U, V, W in funzione di u, v, w) e vincoli espliciti fanno
+    // parte di cio' che e' a schermo quanto X/Y/Z/P, e il flusso geodetico pure:
+    // fuori dallo snapshot, il commit di servizio li prendeva dai campi e
+    // applicava una composizione o un vincolo ancora in corso di scrittura
+    // sulle equazioni di prima.
+    m_eqApplied = m_eq;
 }
 
 void MainWindow::commitUiFieldsDuringMotion() {
@@ -21724,8 +21663,8 @@ void MainWindow::commitUiFieldsDuringMotion() {
     if (!isEquationModuleMoving()) return;
     m_geodesicErrorPending = false;
 
-    QString mainEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
-                      ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText();
+    QString mainEqs = m_eq.x + " " + m_eq.y + " " +
+                      m_eq.z + " " + m_eq.p;
     int upperCount = (mainEqs.contains(kReUpperU) ? 1 : 0) +
                      (mainEqs.contains(kReUpperV) ? 1 : 0) +
                      (mainEqs.contains(kReUpperW) ? 1 : 0);
@@ -21748,18 +21687,18 @@ void MainWindow::commitUiFieldsDuringMotion() {
     }
 
     // Snapshot dei valori attuali prima di provare i nuovi.
-        const QStringList previous = readActiveEquations();
+        const std::optional<EquationTexts> previous = m_eqApplied;
         bool wasTimerActive = isGeodesicMotionActive();
 
         // Tentativo: applichiamo i nuovi e validiamo.
         snapshotActiveEquations();
         if (updateGeodesicMesh()) {
-            return;  // OK: i nuovi valori restano nelle active_*, il moto continua.
+            return;  // OK: i nuovi valori restano in m_eqApplied, il moto continua.
         }
 
         // Errore: ripristiniamo i valori validi precedenti.
         // Il tasto rimane su STOP; mostriamo un solo popup.
-        restoreActiveEquations(previous);
+        m_eqApplied = previous;
         m_geodesicErrorPending = false;
         setProperty("geoErrorType", "none");
 
@@ -21810,8 +21749,8 @@ bool MainWindow::commitFieldsOnEnter() {
     if (ui->tabModeSelector->currentIndex() != 0) return false;
 
     // Stesso routing di checkAndTriggerMeshUpdate: geodetico vs standard.
-    QString mainEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " +
-                      ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText();
+    QString mainEqs = m_eq.x + " " + m_eq.y + " " +
+                      m_eq.z + " " + m_eq.p;
     int upperCount = (mainEqs.contains(kReUpperU) ? 1 : 0) +
                      (mainEqs.contains(kReUpperV) ? 1 : 0) +
                      (mainEqs.contains(kReUpperW) ? 1 : 0);
@@ -21962,35 +21901,33 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
     SE_GEO_PROBE("updateGeodesicMesh useAppliedEqs=%d motion=%d snapshot=%d "
                  "freezeMap=%d freezeFlow=%d",
                  int(useAppliedEquations), int(motionRunning),
-                 int(this->property("active_lineX").isValid()),
+                 int(m_eqApplied.has_value()),
                  int(freezeMapEqs), int(freezeFlowEqs));
 
-    if (useAppliedEquations && !this->property("active_lineX").isValid()) {
+    if (useAppliedEquations && !m_eqApplied.has_value()) {
         SE_GEO_PROBE("ABORT: snapshot assente, non ridisegno "
                      "(il campo resta registrato, vale al prossimo Run)");
         return false;
     }
 
-    auto pick = [this](bool frozen, const char* prop, QPlainTextEdit* edit) -> QString {
-        if (frozen && this->property(prop).isValid())
-            return this->property(prop).toString();
-        return edit ? edit->toPlainText() : QString();
+    auto pick = [this](bool frozen, EqField f) -> QString {
+        return (frozen && m_eqApplied) ? (*m_eqApplied).*f : m_eq.*f;
     };
 
-    QString rawX = pick(freezeMapEqs, "active_lineX", ui->lineX);
-    QString rawY = pick(freezeMapEqs, "active_lineY", ui->lineY);
-    QString rawZ = pick(freezeMapEqs, "active_lineZ", ui->lineZ);
-    QString rawP = pick(freezeMapEqs, "active_lineP", ui->lineP);
+    QString rawX = pick(freezeMapEqs, &EquationTexts::x);
+    QString rawY = pick(freezeMapEqs, &EquationTexts::y);
+    QString rawZ = pick(freezeMapEqs, &EquationTexts::z);
+    QString rawP = pick(freezeMapEqs, &EquationTexts::p);
 
-    QString rawU = pick(freezeFlowEqs, "active_lnU", ui->lnU);
-    QString rawV = pick(freezeFlowEqs, "active_lnV", ui->lnV);
-    QString rawW = pick(freezeFlowEqs, "active_lnW", ui->lnW);
+    QString rawU = pick(freezeFlowEqs, &EquationTexts::geoU);
+    QString rawV = pick(freezeFlowEqs, &EquationTexts::geoV);
+    QString rawW = pick(freezeFlowEqs, &EquationTexts::geoW);
 
-    QString rawDU = pick(freezeFlowEqs, "active_lndU", ui->lndU);
-    QString rawDV = pick(freezeFlowEqs, "active_lndV", ui->lndV);
-    QString rawDW = pick(freezeFlowEqs, "active_lndW", ui->lndW);
+    QString rawDU = pick(freezeFlowEqs, &EquationTexts::geoDU);
+    QString rawDV = pick(freezeFlowEqs, &EquationTexts::geoDV);
+    QString rawDW = pick(freezeFlowEqs, &EquationTexts::geoDW);
 
-    QString rawConf = pick(freezeFlowEqs, "active_lineConform", ui->lineConform);
+    QString rawConf = pick(freezeFlowEqs, &EquationTexts::conform);
     // --- FINE LOGICA DI DISACCOPPIAMENTO ---
 
     QRegularExpression varRegex("\\b(u|v|w|U|V|W|x|y|z|t|iTime|u_time)\\b");
@@ -22233,7 +22170,7 @@ void MainWindow::checkAndTriggerMeshUpdate(bool useAppliedEquations) {
     }
 
     // 1. Recupero equazioni principali
-    QString mainEqs = ui->lineX->toPlainText() + " " + ui->lineY->toPlainText() + " " + ui->lineZ->toPlainText() + " " + ui->lineP->toPlainText();
+    QString mainEqs = m_eq.x + " " + m_eq.y + " " + m_eq.z + " " + m_eq.p;
 
     // 2. Analisi variabili composte (U, V, W)
     int upperCount = (mainEqs.contains(kReUpperU) ? 1 : 0) +
@@ -22289,7 +22226,7 @@ bool MainWindow::isGeodesicMotionActive() const {
     // Un tick in corso conta come moto attivo anche a timer FERMO: durante la
     // registrazione il tempo lo detta il loop (advanceGeodesicFlowBy alza
     // m_inGeoAnimTick) e il timer resta spento per contratto. Senza questo,
-    // updateGeodesicMesh nel REC saltava il disaccoppiamento active_* e
+    // updateGeodesicMesh nel REC saltava il disaccoppiamento scritto/applicato e
     // leggeva i campi UI (vuoti/diversi negli script metrici): la superficie
     // si appiattiva in una lamina solo in registrazione.
     return m_inGeoAnimTick || (m_geoAnimTimer && m_geoAnimTimer->isActive());
@@ -22297,12 +22234,12 @@ bool MainWindow::isGeodesicMotionActive() const {
 
 bool MainWindow::hasGeodesicText() const {
     if (!ui->lnU) return false;
-    return !ui->lnU->toPlainText().trimmed().isEmpty()  ||
-           !ui->lnV->toPlainText().trimmed().isEmpty()  ||
-           !ui->lnW->toPlainText().trimmed().isEmpty()  ||
-           !ui->lndU->toPlainText().trimmed().isEmpty() ||
-           !ui->lndV->toPlainText().trimmed().isEmpty() ||
-           !ui->lndW->toPlainText().trimmed().isEmpty();
+    return !m_eq.geoU.trimmed().isEmpty()  ||
+           !m_eq.geoV.trimmed().isEmpty()  ||
+           !m_eq.geoW.trimmed().isEmpty()  ||
+           !m_eq.geoDU.trimmed().isEmpty() ||
+           !m_eq.geoDV.trimmed().isEmpty() ||
+           !m_eq.geoDW.trimmed().isEmpty();
 }
 
 bool MainWindow::geodesicFieldsAreFinite(const QStringList& exprs,

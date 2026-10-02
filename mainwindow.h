@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QColor>
 #include <functional>
+#include <optional>
 #include <QButtonGroup>
 #include <QProgressBar>
 #include <QFileSystemWatcher>
@@ -300,7 +301,7 @@ private slots:
     // altri). Sede unica, cosi' non divergono.
     bool isGeodesicRoutingActive() const;
     // Le equazioni X/Y/Z/P a schermo sono ancora quelle dell'ultimo Run
-    // (snapshot active_*)? Serve al COMMIT DI SERVIZIO del ramo parametrico
+    // (snapshot m_eqApplied)? Serve al COMMIT DI SERVIZIO del ramo parametrico
     // standard (rmApplyOnly: Invio o uscita da una costante) per decidere se
     // puo' spegnere il tasto Run one-shot: puo' solo se la MAPPA non ha
     // modifiche in sospeso, perche' quelle il Run le deve ancora applicare.
@@ -721,6 +722,36 @@ private:
     // refreshScriptEditor confronta con questo, non col contenuto del widget,
     // che normalizza gli a capo e riaprirebbe il confronto a ogni giro.
     QString m_scriptEditorText;
+
+    // ----------------------------------------------------------
+    // DOCK EQUATIONS: STATO (superficie parametrica e flusso geodetico)
+    // ----------------------------------------------------------
+    // I testi del dock Equations COSI' COME SONO SCRITTI (m_eq) e com'erano
+    // all'ultimo Run o al load (m_eqApplied: cio' che e' a schermo). La logica
+    // legge m_eq, non i widget: i campi ne sono l'editor, e bindEquationFields
+    // li tiene allineati a livello di DOCUMENTO -- quindi anche quando un campo
+    // viene scritto a segnali bloccati. Chi scrive un campo dal programma
+    // senza volerne le reazioni (textChanged) passa da setEqText.
+    // L'applicato erano 17 property dinamiche ("active_lineX", ...) scritte e
+    // lette per nome: ora lo snapshot e' una copia della struct.
+    struct EquationTexts {
+        QString x, y, z, p;                         // superficie X/Y/Z/P
+        QString u, v, w;                            // composizione U, V, W
+        QString explicitU, explicitV, explicitW;    // vincoli
+        QString geoU, geoV, geoW;                   // flusso geodetico: punto iniziale
+        QString geoDU, geoDV, geoDW;                // ...direzione iniziale
+        QString conform;                            // ...fattore conforme
+    };
+    using EqField = QString EquationTexts::*;
+    EquationTexts m_eq;
+    // Vuoto finche' non c'e' stato un Run, un load o un reset.
+    std::optional<EquationTexts> m_eqApplied;
+    // Aggancia i campi a m_eq. Subito dopo setupUi: il suo gestore deve girare
+    // PRIMA di ogni altro textChanged, che m_eq lo legge.
+    void bindEquationFields();
+    class QPlainTextEdit *equationFieldEdit(EqField field) const;
+    // Scrive un campo dal programma, a segnali bloccati (m_eq segue).
+    void setEqText(EqField field, const QString &text);
 
     bool m_surfaceTextureState = false;
     bool m_blockTextureGen = false;
@@ -1346,7 +1377,7 @@ private:
     // passa da un textChanged: era ripetuto a mano, e dove mancava lo slider
     // restava spento (sfondo dalla Library) o acceso a vuoto (texture spenta).
     void refreshConstants(bool restoreTextOnNegative = true);
-    // Il testo delle equazioni dell'ULTIMO Run (lo snapshot active_*): cio' che
+    // Il testo delle equazioni dell'ULTIMO Run (m_eqApplied): cio' che
     // e' a schermo per equazioni e flusso geodetico, a differenza dei campi.
     QString activeEquationsText() const;
     // true da quando l'utente modifica un campo fino al prossimo load, reset,
@@ -1659,9 +1690,8 @@ private:
     bool applyBackgroundTextureIfNeeded();
 
     // --- Geometry & Geodesic Flow ---
+    // L'applicato = lo scritto di adesso (m_eqApplied = m_eq).
     void snapshotActiveEquations();
-    void restoreActiveEquations(const QStringList &saved);
-    QStringList readActiveEquations() const;
     void commitUiFieldsDuringMotion();
     // Ritornano true se la modifica e' stata APPLICATA, false se rifiutata
     // (limite non valido, min>=max, snapshot assente, singolarita').
@@ -1710,14 +1740,14 @@ private:
     // continuo su un record animato: rileggendo il testo dei campi raccoglieva
     // le cifre a meta' digitazione e il limite si applicava senza attendere
     // l'Invio. I percorsi interattivi (Run, Invio sui limiti) leggono i campi.
-    // useAppliedEquations: usa le equazioni GIA' APPLICATE (snapshot active_*)
+    // useAppliedEquations: usa le equazioni GIA' APPLICATE (snapshot m_eqApplied)
     // invece del testo dei campi, anche a moto FERMO. Serve all'Invio sui
     // limiti: quello deve applicare SOLO il dominio, mai equazioni modificate e
     // non ancora confermate col Run. A moto attivo il disaccoppiamento c'e'
     // gia'; questo flag lo estende al caso fermo.
     bool updateGeodesicMesh(bool useAppliedLimits = false, bool useAppliedEquations = false);
     // useAppliedEquations: nel ramo geodetico usa le equazioni X/Y/Z/P
-    // dell'ultimo Run (snapshot active_*) invece del testo dei campi. Lo
+    // dell'ultimo Run (snapshot m_eqApplied) invece del testo dei campi. Lo
     // passano i chiamanti che NON sono un Run -- debounce di Steps e costanti,
     // navigazione, ripristino path -- perche' un ricalcolo innescato da loro
     // non deve applicare equazioni ancora in corso di scrittura. I Run veri

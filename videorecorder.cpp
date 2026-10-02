@@ -377,18 +377,18 @@ void VideoRecorder::toggleRecord()
     }
 
     // Rilevamento preciso per sapere se dovremo ricalcolare la mesh frame-by-frame
-    QString mainEqs = m_mainWindow->ui->lineX->toPlainText() + " " + m_mainWindow->ui->lineY->toPlainText() + " " + m_mainWindow->ui->lineZ->toPlainText() + " " + m_mainWindow->ui->lineP->toPlainText();
+    QString mainEqs = m_mainWindow->m_eq.x + " " + m_mainWindow->m_eq.y + " " + m_mainWindow->m_eq.z + " " + m_mainWindow->m_eq.p;
     int upperCount = (mainEqs.contains(QRegularExpression("\\bU\\b")) ? 1 : 0) +
                      (mainEqs.contains(QRegularExpression("\\bV\\b")) ? 1 : 0) +
                      (mainEqs.contains(QRegularExpression("\\bW\\b")) ? 1 : 0);
     bool geoHasText = false;
     if (m_mainWindow->ui->lnU) {
-        geoHasText = !m_mainWindow->ui->lnU->toPlainText().trimmed().isEmpty() ||
-                     !m_mainWindow->ui->lnV->toPlainText().trimmed().isEmpty() ||
-                     !m_mainWindow->ui->lnW->toPlainText().trimmed().isEmpty() ||
-                     !m_mainWindow->ui->lndU->toPlainText().trimmed().isEmpty() ||
-                     !m_mainWindow->ui->lndV->toPlainText().trimmed().isEmpty() ||
-                     !m_mainWindow->ui->lndW->toPlainText().trimmed().isEmpty();
+        geoHasText = !m_mainWindow->m_eq.geoU.trimmed().isEmpty() ||
+                     !m_mainWindow->m_eq.geoV.trimmed().isEmpty() ||
+                     !m_mainWindow->m_eq.geoW.trimmed().isEmpty() ||
+                     !m_mainWindow->m_eq.geoDU.trimmed().isEmpty() ||
+                     !m_mainWindow->m_eq.geoDV.trimmed().isEmpty() ||
+                     !m_mainWindow->m_eq.geoDW.trimmed().isEmpty();
     }
     bool isGeodesicActive = (upperCount > 0) && geoHasText && (m_mainWindow->ui->tabModeSelector->currentIndex() == 0);
     double startGeoTime = m_mainWindow->property("geoTime").toDouble();
