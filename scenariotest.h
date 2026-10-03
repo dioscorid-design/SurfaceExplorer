@@ -208,6 +208,11 @@ private:
     // riempie (MainWindow::m_populatingFields): ogni emissione fa girare i
     // gestori pensati per la digitazione. "campo (sezione)", senza doppioni.
     QStringList m_liveWritesDuringLoad;
+    // Errori di compilazione degli shader comparsi nel log (shadercompilelog.h),
+    // con la sezione in cui sono avvenuti: quelli che contano e quelli attesi.
+    QStringList m_shaderErrors;
+    QStringList m_shaderExcused;
+    void collectShaderErrors();
     int m_failures = 0;
     // Durante una scelta in Library il popup "lavoro non salvato" riceve
     // "Don't save" invece di Annulla (vedi il costruttore).

@@ -66,6 +66,11 @@ private:
         // che nessuno abbia toccato nulla (MainWindow::unsavedKeys): devono
         // essere zero, o al preset successivo uscirebbe un popup fantasma.
         QStringList unsavedAfterLoad;
+        // Errori di compilazione degli shader comparsi nel log durante il
+        // caricamento (vedi shadercompilelog.h): quelli che contano, e quelli
+        // attesi, elencati con la loro ragione.
+        QStringList shaderErrors;
+        QStringList shaderExcused;
     };
 
     // Perche' una differenza fra file e Save NON conta; vuota = conta.

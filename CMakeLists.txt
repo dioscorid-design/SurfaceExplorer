@@ -439,6 +439,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID AND NOT IOS)
         clocktest.cpp
         scenariotest.h
         scenariotest.cpp
+        shadercompilelog.h
     )
     target_compile_definitions(SurfaceExplorer PRIVATE SE_SELF_TESTS)
 endif()

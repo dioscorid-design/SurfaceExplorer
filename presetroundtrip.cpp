@@ -8,6 +8,7 @@
 #include "librarymanager.h"
 #include "audiocontroller.h"
 #include "inputvalidator.h"
+#include "shadercompilelog.h"
 
 #include <QApplication>
 #include <QDateTime>
@@ -262,6 +263,10 @@ PresetRoundTrip::PresetRoundTrip(MainWindow *mw, const QString &root, const QStr
     m_modalWatcher = new QTimer(this);
     connect(m_modalWatcher, &QTimer::timeout, this, &PresetRoundTrip::closeModalDialogs);
     m_modalWatcher->start(100);
+
+    // Gli errori di compilazione degli shader non aprono sempre un popup: si
+    // leggono dal log (vedi shadercompilelog.h).
+    ShaderCompileLog::install();
 }
 
 void PresetRoundTrip::log(const QString &line)
@@ -429,6 +434,12 @@ PresetRoundTrip::Capture PresetRoundTrip::loadAndCaptureOnce(const Entry &e)
     if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
 
     c.errors = InputValidator::errorCount() - errorsBefore;
+    // Dall'ultimo caricamento a qui: cio' che un load lascia in sospeso
+    // (Run differito) arriva entro l'assestamento, cioe' qui.
+    for (const ShaderCompileLog::Entry &s : ShaderCompileLog::take()) {
+        if (s.counts) c.shaderErrors.append(s.text);
+        else          c.shaderExcused.append(QStringLiteral("%1  [non conta: %2]").arg(s.text, s.excuse));
+    }
     m_currentDialogs = nullptr;
     return c;
 }
@@ -701,6 +712,8 @@ void PresetRoundTrip::writeReport()
     int identical = 0, saveChanged = 0, orderDependent = 0, notLoadable = 0, withPopups = 0;
     int dirtyAfterLoad = 0;
     QStringList phantom;
+    int withShaderErrors = 0;
+    QStringList shaderLines;
 
     auto bump = [](QMap<QString, KeyStat> &m, const QString &key, const QString &rel) {
         KeyStat &s = m[key];
@@ -734,6 +747,23 @@ void PresetRoundTrip::writeReport()
             }
         }
         if (popped) ++withPopups;
+
+        // Shader che non compilano (vedi shadercompilelog.h), in qualunque
+        // passaggio: conta il preset una volta, si elencano tutti.
+        {
+            bool broken = false;
+            for (const Capture *c : { &a, bp, cp }) {
+                if (!c) continue;
+                const QString after = c->previous.isEmpty() ? QStringLiteral("l'avvio") : c->previous;
+                for (const QString &s : c->shaderErrors) {
+                    shaderLines.append(QStringLiteral("%1 (dopo %2): %3").arg(e.rel, after, s));
+                    broken = true;
+                }
+                for (const QString &s : c->shaderExcused)
+                    shaderLines.append(QStringLiteral("%1 (dopo %2): %3").arg(e.rel, after, s));
+            }
+            if (broken) ++withShaderErrors;
+        }
         if (a.json.isEmpty()) { ++notLoadable; continue; }
 
         // Scena "da salvare" senza alcun gesto, in uno qualunque dei passaggi.
@@ -859,6 +889,7 @@ void PresetRoundTrip::writeReport()
         << QStringLiteral("Non caricabili:                                              %1").arg(notLoadable)
         << QStringLiteral("Con un popup di errore al caricamento:                       %1").arg(withPopups)
         << QStringLiteral("Risultano da salvare appena caricati (popup fantasma):       %1").arg(dirtyAfterLoad)
+        << QStringLiteral("Con uno shader che non compila:                              %1").arg(withShaderErrors)
         << QStringLiteral("Ricaricati perche' il watchdog della GPU li aveva fermati:   %1%2").arg(m_watchdogReloads)
                .arg(m_watchdogReloads > 0 ? QStringLiteral("   (macchina carica: non e' un difetto)") : QString())
         << QString()
@@ -874,6 +905,9 @@ void PresetRoundTrip::writeReport()
         << QStringLiteral("== POPUP DURANTE IL CARICAMENTO (chiusi dal test) ==");
     if (popups.isEmpty()) rep << QStringLiteral("  nessuno");
     for (const QString &p : popups) rep << QStringLiteral("  ") + p;
+    rep << QString() << QStringLiteral("== SHADER CHE NON COMPILANO (dal log; le voci [non conta] sono attese) ==");
+    if (shaderLines.isEmpty()) rep << QStringLiteral("  nessuno");
+    for (const QString &s : shaderLines) rep << QStringLiteral("  ") + s;
     rep << QString() << QStringLiteral("== DA SALVARE APPENA CARICATI (chiavi che farebbero uscire l'avviso) ==");
     if (phantom.isEmpty()) rep << QStringLiteral("  nessuno");
     for (const QString &p : phantom) rep << QStringLiteral("  ") + p;
@@ -884,11 +918,11 @@ void PresetRoundTrip::writeReport()
         f.write(rep.join(QLatin1Char('\n')).toUtf8() + '\n');
 
     const bool pass = (saveChanged == 0 && orderDependent == 0 && notLoadable == 0
-                       && withPopups == 0 && dirtyAfterLoad == 0);
+                       && withPopups == 0 && dirtyAfterLoad == 0 && withShaderErrors == 0);
     log(QStringLiteral("fine: %1 identici su %2, Save diverso %3, dipendenti dall'ordine %4, "
-                       "con popup %5. Report: %6")
+                       "con popup %5, con shader non compilati %6. Report: %7")
             .arg(identical).arg(n - notLoadable).arg(saveChanged).arg(orderDependent)
-            .arg(withPopups).arg(f.fileName()));
+            .arg(withPopups).arg(withShaderErrors).arg(f.fileName()));
     m_modalWatcher->stop();
     QCoreApplication::exit(pass ? 0 : 1);
 }

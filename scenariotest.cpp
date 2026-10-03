@@ -6,6 +6,7 @@
 #include "librarymanager.h"
 #include "presetserializer.h"
 #include "audiocontroller.h"
+#include "shadercompilelog.h"
 #include "surfaceengine.h"
 
 #include <QApplication>
@@ -112,6 +113,10 @@ ScenarioTest::ScenarioTest(MainWindow *mw, const QString &root, const QString &o
     });
     watcher->start(100);
 
+    // Gli errori di compilazione degli shader non aprono sempre un popup: si
+    // leggono dal log (vedi shadercompilelog.h) e si raccolgono a ogni verifica.
+    ShaderCompileLog::install();
+
     // SENTINELLA: i gestori agganciati al textChanged dei campi di testo sono
     // pensati per la digitazione (scena modificata, tasti Run da riaccendere,
     // avviso di un altro dock). Load e reset devono scrivere quei campi a
@@ -145,6 +150,7 @@ void ScenarioTest::wait(int ms)
 
 void ScenarioTest::check(bool ok, const QString &what)
 {
+    collectShaderErrors();   // con la sezione del gesto che li ha prodotti
     m_lines.append((ok ? QStringLiteral("OK       ") : QStringLiteral("FALLITO  ")) + what);
     if (!ok) ++m_failures;
     qInfo().noquote() << "[scenariotest]" << m_lines.last();
@@ -3275,8 +3281,30 @@ void ScenarioTest::runMeshImageScenarios()
     }
 }
 
+void ScenarioTest::collectShaderErrors()
+{
+    const QList<ShaderCompileLog::Entry> got = ShaderCompileLog::take();
+    if (got.isEmpty()) return;
+    QString section;
+    for (int i = m_lines.size() - 1; i >= 0 && section.isEmpty(); --i)
+        if (m_lines.at(i).startsWith(QLatin1String("=="))) section = m_lines.at(i);
+    for (const ShaderCompileLog::Entry &e : got) {
+        if (e.counts) m_shaderErrors.append(QStringLiteral("%1 (%2)").arg(e.text, section));
+        else          m_shaderExcused.append(QStringLiteral("%1 (%2)  [non conta: %3]").arg(e.text, section, e.excuse));
+    }
+}
+
 void ScenarioTest::finish()
 {
+    collectShaderErrors();
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Shader: nessuno che non compila (dal log) =="));
+    for (const QString &x : m_shaderExcused) m_lines.append(QStringLiteral("        ") + x);
+    check(m_shaderErrors.isEmpty(),
+          m_shaderErrors.isEmpty()
+              ? QStringLiteral("nessun errore di compilazione che conti")
+              : QStringLiteral("errori di compilazione: ") + m_shaderErrors.join(QStringLiteral("; ")));
+
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Load e reset: nessun campo di testo scritto a segnali vivi =="));
     check(m_liveWritesDuringLoad.isEmpty(),

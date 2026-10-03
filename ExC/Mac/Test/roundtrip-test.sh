@@ -5,8 +5,10 @@
 # Apre l'app (build Debug), carica da sola ogni superficie e ogni record della
 # libreria tre volte -- in ordine, al contrario e in ordine rimescolato (sempre
 # lo stesso) -- e confronta cio' che scriverebbe un Save col file, e fra i
-# passaggi (= stato rimasto dal preset caricato prima). Non scrive nulla nella
-# libreria.
+# passaggi (= stato rimasto dal preset caricato prima). Conta anche gli shader
+# che non compilano durante il caricamento, letti dal log (shadercompilelog.h):
+# il Save puo' essere giusto con la texture invisibile a schermo. Non scrive
+# nulla nella libreria.
 # Dura circa 20 minuti: nel frattempo non usare l'app, e meglio non caricare la
 # macchina (un giro molto piu' lento del solito va rifatto).
 #
@@ -93,15 +95,15 @@ wait "$PID" || RC=$?
 
 echo
 echo "== Riepilogo =="
-sed -n '3p;5,11p' "$OUT/report.txt"
+sed -n '3p;5,12p' "$OUT/report.txt"
 if [ -n "$PREV" ] && [ -f "$PREV/report.txt" ]; then
     echo
     echo "== Riepilogo del report precedente ($(basename "$PREV")) =="
-    sed -n '3p;5,11p' "$PREV/report.txt"
+    sed -n '3p;5,12p' "$PREV/report.txt"
 fi
 echo
 case "$RC" in
-    0) echo "ESITO: tutto identico, nessuna dipendenza dall'ordine, nessun popup di errore." ;;
+    0) echo "ESITO: tutto identico, nessuna dipendenza dall'ordine, nessun popup di errore, nessuno shader che non compila." ;;
     1) echo "ESITO: ci sono differenze -- confronta col report precedente (sopra)." ;;
     *) echo "ESITO: il test non e' partito correttamente (codice $RC): vedi $OUT/app.log" ;;
 esac

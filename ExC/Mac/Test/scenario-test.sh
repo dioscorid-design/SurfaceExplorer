@@ -10,8 +10,9 @@
 # scriverebbe il Save) restino coerenti: accensione della texture, colori
 # u_col1/u_col2, codice e immagine della texture, displacement del Ray
 # Marching, immagine di sfondo, costanti, equazioni, path e moti, lavoro non
-# salvato, reset della scena, immagini sulle singole mesh. Dura circa nove
-# minuti.
+# salvato, reset della scena, immagini sulle singole mesh. Alla fine: nessun
+# campo di testo scritto a segnali vivi durante load e reset, e nessuno shader
+# che non compila (dal log, shadercompilelog.h). Dura circa nove minuti.
 #
 # Quando lanciarlo: dopo ogni modifica alla gestione della texture o dei
 # controlli di resa, e prima di un rilascio. E' la rete dei GESTI: il test dei
