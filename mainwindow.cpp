@@ -1861,7 +1861,7 @@ MainWindow::MainWindow(QWidget *parent)
                     this, [this](int index) {
                 if (index < 0) return;
 
-                if (index == ui->subTabImplicit->currentIndex()) {
+                if (index == (crossSectionTab() ? 1 : 0)) {
                     // RICLIC SULLA LINGUETTA GIA' ATTIVA = "ricomincia da capo",
                     // esattamente come per il tab principale. currentChanged non
                     // scatta se l'indice non cambia, quindi senza questo ramo
@@ -1877,20 +1877,24 @@ MainWindow::MainWindow(QWidget *parent)
                 }
 
                 if (!confirmDiscardUnsaved(ScopeScene)) {
-                    const int back = ui->subTabImplicit->currentIndex();
+                    const bool back = crossSectionTab();
                     m_suppressNextSubTabReset = true;
                     QTimer::singleShot(0, this, [this, back]() {
-                        bool b = ui->subTabImplicit->blockSignals(true);
-                        ui->subTabImplicit->setCurrentIndex(back);
-                        ui->subTabImplicit->blockSignals(b);
+                        setCrossSectionTab(back);
                         m_suppressNextSubTabReset = false;
                     });
                 }
             });
         }
 
+        // Il clic: prima lo STATO, che il reset legge (quale superficie di
+        // default caricare). Arriva solo dai clic: il programma scrive la
+        // linguetta a segnali bloccati (setCrossSectionTab).
         connect(ui->subTabImplicit, &QTabWidget::currentChanged,
-                this, &MainWindow::applyImplicitSubTabReset);
+                this, [this](int index) {
+            m_crossSectionTab = (index == 1);
+            applyImplicitSubTabReset(index);
+        });
     }
 
     // RESET SULLA LINGUETTA GIA' ATTIVA. currentChanged non scatta se l'indice
@@ -5592,8 +5596,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
             // Sotto-tab Cross Section: stessa idea, superficie di default
             // propria (T^3). Sovrascrive quanto appena fatto sopra per il
             // sotto-tab 3D SOLO se e' Cross Section quello attivo.
-            const bool crossSectionActive = ui->subTabImplicit
-                                            && ui->subTabImplicit->currentIndex() == 1;
+            const bool crossSectionActive = crossSectionTab();
             if (loadDefaultSurface && crossSectionActive) {
                 loadCrossSectionDefaultSurface();
             }
@@ -6338,8 +6341,7 @@ void MainWindow::updateRenderState()
         // Quindi restano spenti solo dove continuano a non avere effetto: il
         // sotto-tab "3D", la cui equazione e' a 3 variabili e non ha un p da
         // ruotare, e la modalita' parametrica non e' implicita affatto.
-        const bool crossSectionActive = isImplicitMode && ui->subTabImplicit
-                                        && ui->subTabImplicit->currentIndex() == 1;
+        const bool crossSectionActive = isImplicitMode && crossSectionTab();
         const bool rot4DUsable = !isImplicitMode || crossSectionActive;
 
         // Omega (W-X)
@@ -9355,8 +9357,7 @@ void MainWindow::handleTextureSelection(int index)
             // Il flag va passato anche a validateAndApplyImplicitShader piu'
             // sotto: senza, il suo default false toglie 'p' dallo scope e
             // l'equazione a 4 variabili non compilerebbe nemmeno.
-            const bool crossSectionActive = ui->subTabImplicit
-                                            && ui->subTabImplicit->currentIndex() == 1;
+            const bool crossSectionActive = crossSectionTab();
             QString rawEq = (crossSectionActive ? m_rm.crossSection : m_rm.equation).trimmed();
             QString implicitEqF;
             if (rawEq.contains("=")) {
@@ -10127,7 +10128,7 @@ void MainWindow::onStartClicked()
         // dal sotto-tab attivo: "3D" (3 variabili x,y,z) o "Cross Section"
         // (4 variabili x,y,z,p) — vedi CLAUDE.md, i due sotto-tab hanno stato
         // separato, limiti/Run/Variations restano condivisi.
-        const bool crossSectionActive = (ui->subTabImplicit->currentIndex() == 1);
+        const bool crossSectionActive = crossSectionTab();
         const RmField rmEqField = crossSectionActive ? &ImplicitTexts::crossSection
                                                      : &ImplicitTexts::equation;
 
@@ -11990,8 +11991,7 @@ void MainWindow::setNavControlsEnabled(bool enabled)
                                 ui->btnLightMode }) {
             if (b) b->setEnabled(false);
         }
-        const bool rot4DUsable = ui->subTabImplicit
-                                 && ui->subTabImplicit->currentIndex() == 1;
+        const bool rot4DUsable = crossSectionTab();
         for (QPushButton *b : { ui->btnPPlus,      ui->btnPMinus,
                                 ui->btnOmegaAhead, ui->btnOmegaRear,
                                 ui->btnPhiAhead,   ui->btnPhiRear,
@@ -13884,20 +13884,13 @@ void MainWindow::applySurfaceExample(LibraryItem d)
         // applyImplicitSubTabReset, che carica la superficie di DEFAULT del
         // sotto-tab e riporta ai default i controlli condivisi. Qui la linguetta
         // segue il preset, non e' l'utente che cambia sotto-tab.
-        if (ui->subTabImplicit) {
-            const bool ob = ui->subTabImplicit->blockSignals(true);
-            ui->subTabImplicit->setCurrentIndex(1);
-            ui->subTabImplicit->blockSignals(ob);
-        }
-    } else if (d.isImplicitMode && ui->subTabImplicit
-               && ui->subTabImplicit->currentIndex() != 0) {
+        setCrossSectionTab(true);
+    } else if (d.isImplicitMode && crossSectionTab()) {
         // Superficie RM del ramo 3D caricata mentre siamo sul Cross Section: la
         // linguetta torna al 3D, e anche qui PRIMA del giudizio sulle costanti,
         // che altrimenti leggerebbe l'equazione 4D rimasta a schermo e sbaglierebbe
         // nel verso opposto (costanti del 3D date per non usate).
-        const bool ob = ui->subTabImplicit->blockSignals(true);
-        ui->subTabImplicit->setCurrentIndex(0);
-        ui->subTabImplicit->blockSignals(ob);
+        setCrossSectionTab(false);
     }
 
     // 5. CARICAMENTO DATI (Equazioni, Colori, ecc.)
@@ -13989,11 +13982,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
                     // commit ha gia' ripristinato da se' lo stato precedente.
                     // Ripieghiamo sul ramo 3D invece di lasciare la linguetta su
                     // Cross Section con un'equazione che il motore non ha preso.
-                    if (ui->subTabImplicit) {
-                        const bool ob = ui->subTabImplicit->blockSignals(true);
-                        ui->subTabImplicit->setCurrentIndex(0);
-                        ui->subTabImplicit->blockSignals(ob);
-                    }
+                    setCrossSectionTab(false);
                     ui->glWidget->setImplicitEquation(eqToLoad);
                 }
             } else {
@@ -14373,11 +14362,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
             // blockSignals: currentChanged e' connesso a applyImplicitSubTabReset,
             // che caricherebbe la superficie di DEFAULT del sotto-tab buttando via
             // il record appena caricato.
-            if (ui->subTabImplicit) {
-                const bool ob = ui->subTabImplicit->blockSignals(true);
-                ui->subTabImplicit->setCurrentIndex(loadCrossSection ? 1 : 0);
-                ui->subTabImplicit->blockSignals(ob);
-            }
+            setCrossSectionTab(loadCrossSection);
 
             if (ui->glWidget) {
                 if (loadCrossSection) {
@@ -14397,11 +14382,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
                     } else {
                         // Equazione 4D che non compila: il commit ha gia' ripristinato
                         // da se' lo stato precedente. Ripieghiamo sul ramo 3D.
-                        if (ui->subTabImplicit) {
-                            const bool ob2 = ui->subTabImplicit->blockSignals(true);
-                            ui->subTabImplicit->setCurrentIndex(0);
-                            ui->subTabImplicit->blockSignals(ob2);
-                        }
+                        setCrossSectionTab(false);
                         ui->glWidget->setImplicitEquation(eqToLoad);
                     }
                 } else {
@@ -14425,11 +14406,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
             // implicitUsesCrossSection true (trovato dal round-trip con un ordine
             // diverso dei preset, poi dal test degli scenari).
             // blockSignals: currentChanged caricherebbe la default del sotto-tab.
-            if (ui->subTabImplicit) {
-                const bool ob = ui->subTabImplicit->blockSignals(true);
-                ui->subTabImplicit->setCurrentIndex(0);
-                ui->subTabImplicit->blockSignals(ob);
-            }
+            setCrossSectionTab(false);
             if (ui->glWidget) ui->glWidget->useImplicit3DBranch();
             updateRenderState();
         }
@@ -15002,8 +14979,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // al posto di quello registrato. Stesso criterio del salvataggio
     // (keep4DAngles in presetserializer.cpp) e degli angoli statici piu' sotto:
     // le due meta' devono concordare, o lo stato si perde comunque da un lato.
-    const bool keep4DSpeeds = !isImplicit || (ui->subTabImplicit
-                              && ui->subTabImplicit->currentIndex() == 1);
+    const bool keep4DSpeeds = !isImplicit || crossSectionTab();
     float spdOmega = keep4DSpeeds ? data.speedOmega : 0.0f;
     float spdPhi   = keep4DSpeeds ? data.speedPhi   : 0.0f;
     float spdPsi   = keep4DSpeeds ? data.speedPsi   : 0.0f;
@@ -15049,8 +15025,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
         // record alla sezione frontale, perdendo l'inquadratura registrata.
         // Stesso criterio del salvataggio (keep4DAngles in presetserializer.cpp):
         // le due meta' devono concordare, o si perde comunque.
-        const bool keep4DAngles = !isImplicit || (ui->subTabImplicit
-                                  && ui->subTabImplicit->currentIndex() == 1);
+        const bool keep4DAngles = !isImplicit || crossSectionTab();
         float stOmega = keep4DAngles ? data.startOmega : 0.0f;
         float stPhi   = keep4DAngles ? data.startPhi   : 0.0f;
         float stPsi   = keep4DAngles ? data.startPsi   : 0.0f;
@@ -16697,8 +16672,7 @@ void MainWindow::applyImplicitShellMode(bool shell)
 // al rilevamento dell'animazione una 't' scritta nell'equazione 4D.
 QString MainWindow::activeImplicitEquationText() const
 {
-    const bool crossSectionActive = ui->subTabImplicit
-                                    && ui->subTabImplicit->currentIndex() == 1;
+    const bool crossSectionActive = crossSectionTab();
     return crossSectionActive ? m_rm.crossSection : m_rm.equation;
 }
 
@@ -17028,6 +17002,16 @@ void MainWindow::showSurfaceTarget()
     setEditTarget(EditTarget::Surface);
     ui->radioSurface->setEnabled(true);
     refreshTextureCheckbox();
+}
+
+void MainWindow::setCrossSectionTab(bool on)
+{
+    m_crossSectionTab = on;
+    if (!ui->subTabImplicit) return;
+    // A segnali bloccati: il gestore currentChanged fa il reset del clic
+    // (superficie di default), che qui non va fatto.
+    const QSignalBlocker blocker(ui->subTabImplicit);
+    ui->subTabImplicit->setCurrentIndex(on ? 1 : 0);
 }
 
 void MainWindow::setEditTarget(EditTarget target)

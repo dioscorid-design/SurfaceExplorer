@@ -1401,6 +1401,15 @@ private:
     // bloccati, e riallinea il checkbox. Il resto del dock lo riallinea chi
     // chiama, come prima.
     void showSurfaceTarget();
+    // SOTTO-TAB DEL RAY MARCHING (3D / Cross Section): STATO. La linguetta
+    // (ui->subTabImplicit) ne e' la vista; il ramo che il motore compila
+    // (GLWidget::implicitUsesCrossSection) e' l'applicato. Chi vuole sapere
+    // quale sotto-tab e' attivo chiede a crossSectionTab(), non alla linguetta.
+    bool m_crossSectionTab = false;
+    bool crossSectionTab() const { return m_crossSectionTab; }
+    // Dal programma (load, ripristino dopo Annulla): stato + linguetta a
+    // segnali bloccati, senza il reset che fa il clic.
+    void setCrossSectionTab(bool on);
     // IL BERSAGLIO Surface / Background: su cosa agiscono slider colore,
     // checkbox Texture, Library, dock Script e vista 2D. E' STATO; i due radio
     // e il bersaglio della vista 2D nel motore (GLWidget::setFlatViewTarget)

@@ -952,8 +952,13 @@ void ScenarioTest::checkEquations(const QString &step, bool pendingEdit)
         // quale e' attivo, e il motore che compila quello.
         const QString f3D = ui->lineEquation->toPlainText();
         const QString fCS = ui->lineEquationCrossSection->toPlainText();
-        const bool tabCS = ui->subTabImplicit->currentIndex() == 1;
+        const bool tabCS = m_mw->crossSectionTab();
         const QString active = tabCS ? fCS : f3D;
+        if ((ui->subTabImplicit->currentIndex() == 1) != tabCS)
+            bad << QStringLiteral("stato %1, linguetta %2")
+                       .arg(tabCS ? QStringLiteral("Cross Section") : QStringLiteral("3D"),
+                            ui->subTabImplicit->currentIndex() == 1 ? QStringLiteral("Cross Section")
+                                                                     : QStringLiteral("3D"));
         shown = QStringLiteral("%1 %2").arg(tabCS ? QStringLiteral("Cross Section") : QStringLiteral("3D"),
                                             script ? QStringLiteral("(script)") : brief(active));
         if (gl->implicitUsesCrossSection() != tabCS)

@@ -519,8 +519,7 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
     // attivo, cosi' il load sa cosa ripristinare.
     d.isImplicitMode = (mw->ui->tabModeSelector->currentIndex() == 1);
     d.implicitEq = mw->m_rm.equation;
-    d.usesCrossSection = d.isImplicitMode && mw->ui->subTabImplicit
-                         && mw->ui->subTabImplicit->currentIndex() == 1;
+    d.usesCrossSection = d.isImplicitMode && mw->crossSectionTab();
     if (mw->ui->lineEquationCrossSection)
         d.crossSectionEq = mw->m_rm.crossSection;
 
