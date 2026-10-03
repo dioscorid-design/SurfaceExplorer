@@ -111,6 +111,29 @@ ScenarioTest::ScenarioTest(MainWindow *mw, const QString &root, const QString &o
         else w->close();
     });
     watcher->start(100);
+
+    // SENTINELLA: i gestori agganciati al textChanged dei campi di testo sono
+    // pensati per la digitazione (scena modificata, tasti Run da riaccendere,
+    // avviso di un altro dock). Load e reset devono scrivere quei campi a
+    // segnali bloccati (setEqText, setRmText, setScriptText): un textChanged
+    // emesso mentre li riempiono e' una scrittura a segnali vivi.
+    Ui::MainWindow *ui = mw->ui;
+    for (QPlainTextEdit *e : { ui->lineX, ui->lineY, ui->lineZ, ui->lineP,
+                               ui->lineU, ui->lineV, ui->lineW,
+                               ui->lineExplicitU, ui->lineExplicitV, ui->lineExplicitW,
+                               ui->lnU, ui->lnV, ui->lnW, ui->lndU, ui->lndV, ui->lndW,
+                               ui->lineConform, ui->lineEquation, ui->lineEquationCrossSection,
+                               ui->lineTexture, ui->lineVariations, ui->txtScriptEditor }) {
+        if (!e) continue;
+        connect(e, &QPlainTextEdit::textChanged, this, [this, e] {
+            if (!m_mw->m_populatingFields) return;
+            QString section;
+            for (int i = m_lines.size() - 1; i >= 0 && section.isEmpty(); --i)
+                if (m_lines.at(i).startsWith(QLatin1String("=="))) section = m_lines.at(i);
+            const QString entry = QStringLiteral("%1 (%2)").arg(e->objectName(), section);
+            if (!m_liveWritesDuringLoad.contains(entry)) m_liveWritesDuringLoad << entry;
+        });
+    }
 }
 
 void ScenarioTest::wait(int ms)
@@ -3254,6 +3277,13 @@ void ScenarioTest::runMeshImageScenarios()
 
 void ScenarioTest::finish()
 {
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Load e reset: nessun campo di testo scritto a segnali vivi =="));
+    check(m_liveWritesDuringLoad.isEmpty(),
+          m_liveWritesDuringLoad.isEmpty()
+              ? QStringLiteral("nessun textChanged durante load e reset")
+              : QStringLiteral("textChanged durante load e reset: ") + m_liveWritesDuringLoad.join(QStringLiteral("; ")));
+
     QStringList rep;
     rep << QStringLiteral("TEST DEGLI SCENARI D'USO")
         << QStringLiteral("radice: %1").arg(m_root)

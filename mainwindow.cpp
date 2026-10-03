@@ -1943,10 +1943,10 @@ MainWindow::MainWindow(QWidget *parent)
         });
     }
 
-    ui->lineX->setPlainText("(0.8 + 0.3*cos(v))*cos(u)");
-    ui->lineY->setPlainText("(0.8 + 0.3*cos(v))*sin(u)");
-    ui->lineZ->setPlainText("0.3*sin(v)");
-    ui->lineP->setPlainText("0.0");
+    setEqText(&EquationTexts::x, QStringLiteral("(0.8 + 0.3*cos(v))*cos(u)"));
+    setEqText(&EquationTexts::y, QStringLiteral("(0.8 + 0.3*cos(v))*sin(u)"));
+    setEqText(&EquationTexts::z, QStringLiteral("0.3*sin(v)"));
+    setEqText(&EquationTexts::p, QStringLiteral("0.0"));
 
     ui->glWidget->setParametricEquations(m_eq.x, m_eq.y, m_eq.z, m_eq.p);
 
@@ -2138,7 +2138,6 @@ MainWindow::MainWindow(QWidget *parent)
     connect(ui->lineP, &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
 
     auto markUserEdit = [this]() {
-        this->setProperty("isPresetActive", false);
         // Lavoro dell'utente da proteggere: il reset chiedera' se salvarlo.
         // Il campo va riportato QUAL E': questa lambda serve 13 widget diversi e
         // passava sempre lineX, cosi' un edit alle composizioni (U/V/W) o ai
@@ -2475,7 +2474,8 @@ MainWindow::MainWindow(QWidget *parent)
 
 
     // --- 1. Equazioni Implicite di Default (Solo 3D) ---
-    ui->lineEquation->setPlainText("x^2 + y^2 + z^2 = 1.0");
+    setRmText(&ImplicitTexts::equation, QStringLiteral("x^2 + y^2 + z^2 = 1.0"));
+    updateConstantsUIState();
 
     auto updateImplicitEquations = [this]() {
         if(ui->glWidget) {
@@ -2519,7 +2519,7 @@ MainWindow::MainWindow(QWidget *parent)
                                   ui->lineYMin, ui->lineYMax,
                                   ui->lineZMin, ui->lineZMax }) {
         connect(spaceEdit, &QLineEdit::textEdited, this, [this](const QString&) {
-            if (!m_uiReady || m_populatingFields) return;
+            if (!m_uiReady) return;
             noteSceneEdited(qobject_cast<QWidget*>(sender()));
             // Il tasto Run del tab Ray Marching torna eseguibile: c'e' un taglio
             // nuovo da applicare. E' l'omologo di m_parametricApplied per il
@@ -2894,7 +2894,7 @@ MainWindow::MainWindow(QWidget *parent)
         // anche nei riferimenti puliti. Non durante load e reset, che segnano
         // il loro momento pulito all'uscita.
         std::optional<AbsorbChangesGuard> absorbToggle;
-        if (m_uiReady && !m_populatingFields) absorbToggle.emplace(this);
+        if (m_uiReady) absorbToggle.emplace(this);
         // ==========================================================
         // TEXTURE DELLA SOLA MESH SELEZIONATA
         // ==========================================================
@@ -3885,6 +3885,7 @@ MainWindow::MainWindow(QWidget *parent)
     for (QLineEdit* pathEdit : { ui->lineX_P, ui->lineY_P, ui->lineZ_P, ui->lineP_P,
                                  ui->lineAlpha_P, ui->lineBeta_P, ui->lineGamma_P,
                                  ui->lineX_P3D, ui->lineY_P3D, ui->lineZ_P3D, ui->lineR_P3D }) {
+        connect(pathEdit, &QLineEdit::textEdited, this, [this] { m_constantsEditPending = true; });
         connect(pathEdit, &QLineEdit::textChanged, this, &MainWindow::updateConstantsUIState);
     }
 
@@ -3900,6 +3901,7 @@ MainWindow::MainWindow(QWidget *parent)
     for (QLineEdit* limitEdit : { ui->uMinEdit, ui->uMaxEdit,
                                   ui->vMinEdit, ui->vMaxEdit,
                                   ui->wMinEdit, ui->wMaxEdit }) {
+        connect(limitEdit, &QLineEdit::textEdited, this, [this] { m_constantsEditPending = true; });
         connect(limitEdit, &QLineEdit::textChanged, this, &MainWindow::updateConstantsUIState);
 
         // Il dominio fa parte della definizione della superficie: toccarlo
@@ -3908,7 +3910,7 @@ MainWindow::MainWindow(QWidget *parent)
         // restava spento e non c'era piu' alcun modo di applicarli, ora che
         // non si applicano piu' da soli all'Invio.
         connect(limitEdit, &QLineEdit::textEdited, this, [this](const QString&) {
-            if (!m_uiReady || m_populatingFields) return;
+            if (!m_uiReady) return;
             QWidget* w = qobject_cast<QWidget*>(sender());
             noteSceneEdited(w);
             m_parametricApplied = false;
@@ -3927,7 +3929,7 @@ MainWindow::MainWindow(QWidget *parent)
         // Return prima che QLineEdit emetta returnPressed; editingFinished
         // copre chi si limita a cliccare altrove.
         connect(limitEdit, &QLineEdit::editingFinished, this, [this, limitEdit]() {
-            if (!m_uiReady || m_populatingFields) return;
+            if (!m_uiReady) return;
             // Solo se c'e' una digitazione da confermare. Qt emette
             // editingFinished a ogni perdita di focus -- anche entrando e
             // uscendo da un campo senza toccarlo, e anche subito dopo il
@@ -3958,7 +3960,7 @@ MainWindow::MainWindow(QWidget *parent)
         if (!meshLimitEdit) continue;
 
         connect(meshLimitEdit, &QLineEdit::textEdited, this, [this](const QString&) {
-            if (!m_uiReady || m_populatingFields) return;
+            if (!m_uiReady) return;
             QWidget* w = qobject_cast<QWidget*>(sender());
             // La scena e' cambiata come per ogni altro comando di aspetto
             // per-mesh: il dominio di una fascia fa parte di cio' che il
@@ -3968,7 +3970,7 @@ MainWindow::MainWindow(QWidget *parent)
         });
 
         connect(meshLimitEdit, &QLineEdit::editingFinished, this, [this, meshLimitEdit]() {
-            if (!m_uiReady || m_populatingFields) return;
+            if (!m_uiReady) return;
             commitMeshLimitFieldOnEnter(meshLimitEdit->objectName());
         });
     }
@@ -4451,9 +4453,10 @@ MainWindow::MainWindow(QWidget *parent)
 // in m_warnedEditedDock/m_warnedOrigin -- non a ogni tasto premuto.
 void MainWindow::noteSceneEdited(QWidget *source)
 {
-    // Edit programmatici del boot e del caricamento di un preset: non sono
-    // lavoro dell'utente e non devono mai far comparire avvisi.
-    if (!m_uiReady || m_populatingFields) return;
+    // Ci arriva solo la digitazione: load e reset scrivono i campi a segnali
+    // bloccati (setEqText, setRmText, setScriptText). Le scritture del boot
+    // precedono m_uiReady.
+    if (!m_uiReady) return;
 
     if (!source) return;
 
@@ -4773,9 +4776,9 @@ void MainWindow::showShaderError(const QString &title, const QString &errorLog)
 // in cui l'utente non aveva messo niente).
 void MainWindow::noteViewControlUsed()
 {
-    // Le scritture programmatiche del boot, del load e del reset non sono
-    // lavoro dell'utente.
-    if (!m_uiReady || m_populatingFields) return;
+    // Ci arrivano solo gesti (mouse, touch, tasti di camera); prima di
+    // m_uiReady nessuno.
+    if (!m_uiReady) return;
     if (isSceneEmpty()) return;
     m_viewTouched = true;
 }
@@ -4805,7 +4808,7 @@ void MainWindow::wireViewControlsTracking()
     // torna a evidenziare la texture che e' di nuovo a schermo).
     if (ui->chkBoxTexture) {
         connect(ui->chkBoxTexture, &QAbstractButton::toggled, this, [this]() {
-            if (!m_uiReady || m_populatingFields) return;
+            if (!m_uiReady) return;
             syncTextureTreeSelection();
         });
     }
@@ -4819,7 +4822,7 @@ void MainWindow::wireViewControlsTracking()
     if (ui->glWidget) {
         connect(ui->glWidget, &GLWidget::userMovedView, this, [this]() {
             if (ui->glWidget && ui->glWidget->isFlatView()) {
-                if (!m_uiReady || m_populatingFields) return;
+                if (!m_uiReady) return;
                 m_textureViewTouched = true;
                 return;
             }
@@ -5011,6 +5014,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
 {
     // All'uscita la scena e' pulita: niente lavoro da proteggere.
     SceneCleanGuard sceneCleanGuard{this};
+    discardPendingLimitEdits();
 
     // NEW, cambio tab, riclic sulla linguetta: la scena non e' piu' il record
     // che era caricato (vedi m_currentRecordPath).
@@ -5018,21 +5022,11 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // ...e le modifiche in sospeso sono scartate con lei (vedi m_constantsEditPending).
     m_constantsEditPending = false;
 
-    // RESET IN CORSO: i campi (equazioni di default, limiti, editor) li riempie
-    // questa funzione, non l'utente. Senza guardia quelle scritture -- fatte a
-    // segnali VIVI -- passano da noteSceneEdited e, finche' m_surfaceScriptText
-    // non e' ancora stato svuotato, sembrano "l'utente scrive nelle equazioni
-    // con uno script caricato": l'avviso compariva durante il reset stesso.
-    // Stessa guardia RAII del caricamento preset (applyCommonData).
-    //
-    // RIPRISTINO del valore precedente, non "false" -- identica scelta (e
-    // identica ragione) di LoadGuard in applyCommonData ~12241. resetScene puo'
-    // girare ANNIDATA dentro un caricamento gia' in corso: applyMotionExample
-    // forza la linguetta quando il record e' di modo opposto a quello a schermo,
-    // e quel setCurrentIndex arriva qui. Azzerando il flag di netto, l'uscita da
-    // questo reset lo spegneva anche per il chiamante, e tutto il resto del load
-    // -- campi, colori, slider, camera -- proseguiva SENZA guardia, come se
-    // fossero gesti dell'utente (avvisi cross-dock, modifiche "in sospeso").
+    // RESET IN CORSO (m_populatingFields, vedi mainwindow.h). RIPRISTINO del
+    // valore precedente, non "false": resetScene puo' girare ANNIDATA dentro un
+    // caricamento (applyMotionExample forza la linguetta quando il record e' di
+    // modo opposto a quello a schermo), e azzerarlo di netto lo spegnerebbe
+    // anche per il resto del load.
     const bool wasPopulating = m_populatingFields;
     m_populatingFields = true;
     struct ResetGuard {
@@ -5071,17 +5065,16 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
     m_geodesicErrorPending = false;
 
+    // A segnali bloccati (setEqText): i gestori dei campi sono per la
+    // digitazione. Cio' che derivavano lo rifa' la coda di questa funzione
+    // (checkParametricDependency, tasti Run riasseriti).
     auto resetExtraFields = [this]() {
-        bool oldU = ui->lineU->blockSignals(true);
-        ui->lineU->clear(); ui->lineV->clear(); ui->lineW->clear();
-        ui->lineExplicitU->clear(); ui->lineExplicitV->clear(); ui->lineExplicitW->clear();
-
-        if (ui->lnU) {
-            ui->lnU->clear(); ui->lnV->clear(); ui->lnW->clear();
-            ui->lndU->clear(); ui->lndV->clear(); ui->lndW->clear();
-            ui->lineConform->clear();
-        }
-        ui->lineU->blockSignals(oldU);
+        for (EqField f : { &EquationTexts::u, &EquationTexts::v, &EquationTexts::w,
+                           &EquationTexts::explicitU, &EquationTexts::explicitV, &EquationTexts::explicitW,
+                           &EquationTexts::geoU, &EquationTexts::geoV, &EquationTexts::geoW,
+                           &EquationTexts::geoDU, &EquationTexts::geoDV, &EquationTexts::geoDW,
+                           &EquationTexts::conform })
+            setEqText(f, QString());
     };
 
     resetExtraFields();
@@ -5413,9 +5406,9 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
 
     if (index == 1) { // --- PASSAGGIO A IMPLICIT (RAY MARCHING) ---
         if (loadDefaultSurface) {
-            ui->lineEquation->setPlainText("x*x + y*y + z*z - 1.0");
-            ui->lineTexture->setPlainText("vec3(0.5, 0.5, 0.5)"); // Grigio neutro o il tuo default
-            ui->lineVariations->setPlainText("0.0");
+            setRmText(&ImplicitTexts::equation, QStringLiteral("x*x + y*y + z*z - 1.0"));
+            setRmText(&ImplicitTexts::texture, QStringLiteral("vec3(0.5, 0.5, 0.5)")); // Grigio neutro o il tuo default
+            setRmText(&ImplicitTexts::displacement, QStringLiteral("0.0"));
         }
 
         // ILLUMINAZIONE AL DEFAULT (Basic, niente speculare, niente 4D).
@@ -5671,10 +5664,10 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
 
         // 4. RIPRISTINO GEOMETRIA TORO
         if (loadDefaultSurface) {
-            ui->lineX->setPlainText("(0.8 + 0.3*cos(v))*cos(u)");
-            ui->lineY->setPlainText("(0.8 + 0.3*cos(v))*sin(u)");
-            ui->lineZ->setPlainText("0.3*sin(v)");
-            ui->lineP->setPlainText("0.0");
+            setEqText(&EquationTexts::x, QStringLiteral("(0.8 + 0.3*cos(v))*cos(u)"));
+            setEqText(&EquationTexts::y, QStringLiteral("(0.8 + 0.3*cos(v))*sin(u)"));
+            setEqText(&EquationTexts::z, QStringLiteral("0.3*sin(v)"));
+            setEqText(&EquationTexts::p, QStringLiteral("0.0"));
             ui->glWidget->setParametricEquations(m_eq.x, m_eq.y,
                                                  m_eq.z, m_eq.p);
         } else {
@@ -5685,8 +5678,9 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
             // nell'origine, cioe' un blob al centro invece del nulla.
             // La mesh si svuota alla sorgente: clear() lascia vertici e indici
             // vuoti e il ramo "mesh vuota" di render() azzera m_indexCount.
-            ui->lineX->clear(); ui->lineY->clear();
-            ui->lineZ->clear(); ui->lineP->clear();
+            for (EqField f : { &EquationTexts::x, &EquationTexts::y,
+                               &EquationTexts::z, &EquationTexts::p })
+                setEqText(f, QString());
             // Anche le equazioni del MOTORE, non solo i campi: restando quelle
             // della superficie precedente, il primo updateSurfaceData() di
             // chiunque (o un semplice cambio di risoluzione) la farebbe
@@ -5759,8 +5753,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     setEngineConstants(resolveCascadeConstants(false), /*onlyIfChanged=*/false);
 
     // La texture non c'e' piu': nemmeno modifiche a mano da proteggere quando
-    // si spegne il checkbox. QUI, dopo i due rami: quello Ray Marching scrive
-    // nei campi della texture a segnali vivi, e il flag si rialzava da solo.
+    // si spegne il checkbox.
     setProperty("isTextureModified", false);
 
     updateRenderState();
@@ -7310,8 +7303,11 @@ void MainWindow::updateConstantsUIState() {
     // qui al prossimo Run conta anche l'applicato (vedi piu' sotto). Il flag
     // lo spengono refreshConstants -- cioe' load, reset, scelte in Library e
     // Run riuscito -- perche' li' campi e schermo tornano a coincidere.
-    if (m_uiReady && !m_populatingFields
-        && (qobject_cast<QPlainTextEdit *>(sender()) || qobject_cast<QLineEdit *>(sender())))
+    // I campi multilinea emettono textChanged solo per la digitazione (il
+    // programma li scrive a segnali bloccati); quelli a una riga (limiti, path)
+    // anche per setText e clear, quindi per loro lo segna il loro textEdited,
+    // che Qt emette PRIMA di textChanged.
+    if (m_uiReady && qobject_cast<QPlainTextEdit *>(sender()))
         m_constantsEditPending = true;
     // Ray Marching con il campo equazione CANCELLATO: il ramo !used disabilita
     // le costanti ma NON le resetta (vedi la nota dov'e' usata).
@@ -11317,6 +11313,14 @@ bool MainWindow::commitMeshLimitFieldOnEnter(const QString& fieldName)
     return true;
 }
 
+void MainWindow::discardPendingLimitEdits()
+{
+    for (QLineEdit *e : { ui->uMinEdit, ui->uMaxEdit, ui->vMinEdit, ui->vMaxEdit,
+                          ui->wMinEdit, ui->wMaxEdit,
+                          ui->meshUMinEdit, ui->meshUMaxEdit, ui->meshVMinEdit, ui->meshVMaxEdit })
+        if (e) e->setProperty("userEditPending", false);
+}
+
 // Porta i quattro campi u/v del pannello Multi Mesh sul dominio della parte
 // selezionata. A segnali bloccati: questi setText sono DISPLAY, e senza il
 // blocco il textEdited li segnerebbe come digitazione in attesa (userEditPending),
@@ -12016,8 +12020,7 @@ void MainWindow::resetMotionControls()
     // la velocita' del record appena lasciato, e il Save scriveva come moto
     // attivo quello del record di prima.
     setPathViewModes(ModeTangential, ModeTangential);
-    // A segnali vivi, come il load dei record (i chiamanti sono dentro la
-    // guardia m_populatingFields).
+    // A segnali vivi, come il load dei record.
     ui->speed3DSlider->setValue(10);
     ui->speed4DSlider->setValue(10);
     m_lastCameraMotion.clear();
@@ -12066,7 +12069,13 @@ void MainWindow::onRunCurrentScript()
     // --- CONTROLLO DI SICUREZZA (WRONG MODE BLOCK) DELEGATO ---
     // Passiamo l'enum castato a int
     if (!InputValidator::validateScriptModeContext(this, static_cast<int>(m_currentScriptMode), currentText)) {
-        ui->txtScriptEditor->clear();
+        // Lo script del modulo sbagliato si scarta: lo slot mostrato si svuota
+        // (a segnali bloccati, l'editor e' la sua vista) e tasti e costanti si
+        // riallineano, come dopo una cancellazione a mano.
+        setScriptText(shownScriptSlot(), QString());
+        updateScriptButtonText();
+        updateConstantsUIState();
+        updateMasterButtonState();
         return;
     }
 
@@ -13706,6 +13715,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
 {
     // All'uscita la scena e' quella del file: e' il momento pulito.
     SceneCleanGuard sceneCleanGuard{this};
+    discardPendingLimitEdits();
 
     // La scena non e' piu' un record: caricando una SUPERFICIE l'ancora del
     // record caricato non vale piu' (vedi m_currentRecordPath).
@@ -14172,6 +14182,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
 {
     // All'uscita la scena e' quella del file: e' il momento pulito.
     SceneCleanGuard sceneCleanGuard{this};
+    discardPendingLimitEdits();
 
     SE_TEXP("record:ENTRATA");
 
@@ -14215,14 +14226,9 @@ void MainWindow::applyMotionExample(LibraryItem data)
         box.exec();
     }
 
-    // CARICAMENTO IN CORSO: i campi li riempie (e li svuota) il record, non
-    // l'utente. Stessa guardia RAII di applyCommonData, che pero' parte solo piu'
-    // sotto: i clear() dei rami parametrico/implicito qui in mezzo -- lineEquation,
-    // lineX/Y/Z/P, lineTexture -- avvengono a segnali VIVI, quindi passavano da
-    // noteSceneEdited mentre m_surfaceOrigin era ancora quella del preset
-    // PRECEDENTE. Caricando un record da equazioni dopo uno script, lo svuotamento
-    // di lineEquation veniva letto come "l'utente scrive nelle equazioni con uno
-    // script in vigore" e il popup compariva sul solo caricamento.
+    // CARICAMENTO IN CORSO (m_populatingFields, vedi mainwindow.h): da qui,
+    // non solo da applyCommonData piu' sotto. Lo legge la validazione del Run
+    // che il load lancia in coda.
     m_populatingFields = true;
     struct MotionLoadGuard {
         MainWindow *w;
@@ -14328,11 +14334,13 @@ void MainWindow::applyMotionExample(LibraryItem data)
         ui->tabModeSelector->setCurrentIndex(1); // Forza Tab Ray Marching
         setCrossSectionEditorFromPreset(data.crossSectionEq.trimmed());
 
-        // Distruggiamo i dati parametrici precedenti
-        ui->lineX->clear();
-        ui->lineY->clear();
-        ui->lineZ->clear();
-        ui->lineP->clear();
+        // Distruggiamo i dati parametrici precedenti. A segnali bloccati: il Run
+        // parametrico torna eseguibile qui, esplicitamente (lo faceva il
+        // gestore della digitazione, markUserEdit).
+        for (EqField f : { &EquationTexts::x, &EquationTexts::y,
+                           &EquationTexts::z, &EquationTexts::p })
+            setEqText(f, QString());
+        m_parametricApplied = false;
         clearSurfaceScript();
         exitMetricScriptMode();
 
@@ -14428,10 +14436,14 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     } else {
         ui->tabModeSelector->setCurrentIndex(0); // Forza Tab Parametrica
-        // Distruggiamo i dati Ray Marching precedenti
-        ui->lineEquation->clear();
-        ui->lineVariations->clear();
-        ui->lineTexture->clear();
+        // Distruggiamo i dati Ray Marching precedenti (a segnali bloccati; i
+        // Run Ray Marching tornano eseguibili qui, come faceva il gestore
+        // della digitazione).
+        setRmText(&ImplicitTexts::equation, QString());
+        setRmText(&ImplicitTexts::displacement, QString());
+        setRmText(&ImplicitTexts::texture, QString());
+        m_implicitApplied = false;
+        m_rmTextureApplied = false;
         if (ui->glWidget) {
             ui->glWidget->setDisplacementCode("");
             ui->glWidget->setTextureCode("");
@@ -14583,7 +14595,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
         setRmText(&ImplicitTexts::displacement, data.displacementCode);
         if (ui->glWidget) ui->glWidget->setDisplacementCode(data.displacementCode);
     } else {
-        ui->lineVariations->clear();
+        setRmText(&ImplicitTexts::displacement, QString());
         if (ui->glWidget) ui->glWidget->setDisplacementCode("");
     }
 
@@ -14680,7 +14692,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // texture, che non compilava, e la banda dell'ergosfera non si vedeva.
     if (isImplicit) {
         const QString cleanRM = stripAudioDirectives(m_rm.texture).trimmed();
-        ui->lineTexture->setPlainText(cleanRM);
+        setRmText(&ImplicitTexts::texture, cleanRM);
         if (ui->glWidget) ui->glWidget->setTextureCode(cleanRM);
     } else {
         texCode = stripAudioDirectives(texCode).trimmed();
@@ -15235,12 +15247,9 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // deve nascere DISABILITATO, come dopo il caricamento di una texture dalla
     // Library (~7214) e come all'avvio/reset (~3774, ~4815).
     //
-    // Serve una riasserzione esplicita perche' il load SPORCA il flag: la
-    // ripulitura dell'audio poco sopra (~11182) riscrive lineTexture a segnali
-    // VIVI, quindi passa da markRmTextureEdited che mette m_rmTextureApplied a
-    // false (la guardia m_populatingFields li' non protegge questo flag).
-    // Risultato: caricando un record RM il Run nasceva acceso
-    // pur non avendo niente da applicare.
+    // Serve una riasserzione esplicita: fin qui il flag e' quello della scena
+    // di prima, e un record RM deve nascere col Run spento (niente da
+    // applicare), o acceso se la sua texture e' animata.
     //
     // In RM la texture NON vive in m_surfaceTextureCode (svuotato a ~11060) ma
     // nei campi dedicati: l'animazione va cercata li', come fa il ramo Library.
@@ -17312,15 +17321,11 @@ void MainWindow::setCompositionFieldsFromPreset(const LibraryItem &d)
 
 void MainWindow::applyCommonData(LibraryItem d)
 {
-    // CARICAMENTO IN CORSO: i campi vengono riempiti dal preset, non dall'utente.
-    // Senza questa guardia noteSceneEdited scambiava quelle scritture per lavoro
-    // manuale e faceva comparire l'avviso "un altro modulo e' carico" DURANTE il
-    // load (l'avviso e' modale: azzerare i flag in coda arrivava troppo tardi).
-    // RAII: il flag cade anche sui return anticipati piu' sotto.
-    // RIPRISTINO del valore precedente, non "false": applyMotionExample chiama
-    // questa funzione avendo gia' alzato la guardia, e un azzeramento secco la
-    // spegnerebbe a meta' del caricamento del record, lasciando scoperte le
-    // scritture che vengono dopo.
+    // CARICAMENTO IN CORSO (m_populatingFields, vedi mainwindow.h). RAII: il
+    // flag cade anche sui return anticipati piu' sotto. RIPRISTINO del valore
+    // precedente, non "false": applyMotionExample chiama questa funzione avendo
+    // gia' alzato il flag, e un azzeramento secco lo spegnerebbe a meta' del
+    // caricamento del record.
     const bool wasPopulating = m_populatingFields;
     m_populatingFields = true;
     struct LoadGuard {
@@ -17969,7 +17974,8 @@ void MainWindow::applyCommonData(LibraryItem d)
         // l'osservatore 4D e la superficie collassava in "lenzuola" giganti.
 
         if (d.isImplicitMode) {
-            ui->lineEquation->setPlainText(d.implicitEq);
+            setRmText(&ImplicitTexts::equation, d.implicitEq);
+            m_implicitApplied = false;   // il Run del load la applica
             ui->glWidget->setImplicitEquation(d.implicitEq);
 
             // Ripristina lo stile Shell o Solid (implementazione condivisa
@@ -18063,7 +18069,6 @@ void MainWindow::applyCommonData(LibraryItem d)
     // al modo del preset. Il tab è stato cambiato a segnali bloccati, quindi il
     // gestore currentChanged (che normalmente lo fa) non è scattato.
     applyModeDependentStepUI(d.isImplicitMode);
-    this->setProperty("isPresetActive", true);
 
     // Il preset appena caricato e' su file: non c'e' lavoro da proteggere finche'
     // l'utente non lo modifica (il momento pulito lo segna SceneCleanGuard

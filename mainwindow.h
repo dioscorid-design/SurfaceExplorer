@@ -1200,10 +1200,21 @@ private:
     SurfaceOrigin m_warnedEditedDock = OriginDefault;
     SurfaceOrigin m_warnedOrigin     = OriginDefault;
 
-    // true per tutta la durata di applyCommonData: i campi li sta riempiendo il
-    // preset, non l'utente. noteSceneEdited esce subito, cosi' un load non
-    // sporca la scena ne' fa scattare avvisi.
+    // true mentre un load (applyCommonData, applyMotionExample) o un reset
+    // (resetScene) riempie la scena. NON serve piu' a distinguere la
+    // digitazione dalle scritture del programma: load e reset scrivono i campi
+    // a segnali bloccati (setEqText, setRmText, setScriptText, setConstText),
+    // e i gestori pensati per l'utente stanno su segnali che solo lui emette
+    // (textChanged dei campi multilinea, textEdited, clic). Lo legge soltanto la
+    // validazione del Run lanciato dal load di un record (onStartClicked), e il
+    // test degli scenari, che controlla che nessun campo di testo emetta
+    // textChanged mentre e' alzato.
     bool m_populatingFields = false;
+    // Load e reset scartano la digitazione in attesa di conferma nei campi
+    // limite (userEditPending): la scena che l'utente stava modificando non c'e'
+    // piu', e un editingFinished arrivato dopo (il Run del load sposta il
+    // focus) non deve applicare un testo che non ha scritto.
+    void discardPendingLimitEdits();
 
     // Run del dock Equations (tab Parametric) senza animazione (nessun 't'):
     // dopo aver applicato la modifica grafica il tasto va DISABILITATO finché le

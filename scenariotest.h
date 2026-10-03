@@ -204,6 +204,10 @@ private:
     QString m_record;          // record in scena (per la cattura del Save)
     QString m_only;            // --scenario-only <nome>: una sola sezione
     QStringList m_lines;
+    // Campi di testo scritti a segnali VIVI mentre un load o un reset li
+    // riempie (MainWindow::m_populatingFields): ogni emissione fa girare i
+    // gestori pensati per la digitazione. "campo (sezione)", senza doppioni.
+    QStringList m_liveWritesDuringLoad;
     int m_failures = 0;
     // Durante una scelta in Library il popup "lavoro non salvato" riceve
     // "Don't save" invece di Annulla (vedi il costruttore).
