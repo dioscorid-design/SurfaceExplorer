@@ -174,6 +174,12 @@ private:
     // salvati prima (tag della fascia = immagine della superficie) non cambiano.
     // Da sola: --scenario-only mesh-image.
     void runMeshImageScenarios();
+    // Load di record la cui texture si compilava male: motore = applicata =
+    // script (checkTextureCode). Kerr Spin Animated porta un blocco audio coi
+    // marcatori spaziati ("// SOUND_BEGIN"), Oloid un vincolo in W che al
+    // momento del load il vertex non conosce ancora.
+    // Da sola: --scenario-only record-texture.
+    void runRecordTextureScenarios();
     // "" se checkbox ed etichetta dicono il bersaglio e lo stato della sua
     // texture, altrimenti la differenza.
     QString textureCheckboxProblem() const;

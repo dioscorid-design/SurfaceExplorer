@@ -14333,7 +14333,6 @@ void MainWindow::applyMotionExample(LibraryItem data)
         ui->lineY->clear();
         ui->lineZ->clear();
         ui->lineP->clear();
-        m_surfaceTextureCode.clear();
         clearSurfaceScript();
         exitMetricScriptMode();
 
@@ -14441,10 +14440,13 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     SE_TEXP("record:pre-reset-shader");
 
-    // Reset sicuro di default per disinnescare vecchi shader bloccati
+    // Reset sicuro di default per disinnescare vecchi shader bloccati. La
+    // texture del record di prima esce dal motore E dalla copia applicata
+    // (commitSurfaceTextureCode): da qui fino all'applicazione piu' sotto il
+    // giudizio delle costanti la vede vuota, e conta lo script del record.
     if (ui->glWidget) {
         ui->glWidget->clearTexture();
-        ui->glWidget->loadCustomShader("");
+        commitSurfaceTextureCode(QString());
         ui->glWidget->setTextureCode(0);
     }
 
@@ -14572,10 +14574,9 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
         // FONDAMENTALE: svuotiamo texCode per evitare che inneschi la pipeline Parametrica più giù
         texCode = "";
-    } else {
-        // Modalità Parametrica: segue il percorso classico
-        m_surfaceTextureCode = texCode;
     }
+    // Modalita' parametrica: texCode va nello slot dello script e, se compila,
+    // nel motore (APPLICAZIONE TEXTURE SUPERFICIE, piu' sotto).
 
     // 2. CARICAMENTO DISPLACEMENT 3D (Bernoccoli): solo in Ray Marching.
     if (isImplicit) {
@@ -14672,20 +14673,20 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     setScriptText(SlotSound, extractAudioDirectives(fullLoadedText));
 
-    // Rimuoviamo la musica dai codici grafici per proteggere OpenGL!
-    QRegularExpression cleanMusicRe(R"(^\s*//MUSIC:.*$\n?)", QRegularExpression::MultilineOption);
-    QRegularExpression cleanBlockRe(R"(//SOUND_BEGIN.*?//SOUND_END\n?)", QRegularExpression::DotMatchesEverythingOption);
-
+    // Rimuoviamo la musica dai codici grafici per proteggere OpenGL! Con la
+    // stessa regola dell'estrazione qui sopra: Kerr Spin Animated porta il
+    // suono tra marcatori spaziati ("// SOUND_BEGIN"), che l'estrazione
+    // accettava e questa pulizia no -- le funzioni del suono restavano nella
+    // texture, che non compilava, e la banda dell'ergosfera non si vedeva.
     if (isImplicit) {
-        QString cleanRM = m_rm.texture;
-        cleanRM.remove(cleanMusicRe); cleanRM.remove(cleanBlockRe);
-        ui->lineTexture->setPlainText(cleanRM.trimmed());
-        if (ui->glWidget) ui->glWidget->setTextureCode(cleanRM.trimmed());
+        const QString cleanRM = stripAudioDirectives(m_rm.texture).trimmed();
+        ui->lineTexture->setPlainText(cleanRM);
+        if (ui->glWidget) ui->glWidget->setTextureCode(cleanRM);
     } else {
-        texCode.remove(cleanMusicRe); texCode.remove(cleanBlockRe); texCode = texCode.trimmed();
+        texCode = stripAudioDirectives(texCode).trimmed();
     }
 
-    bgCode.remove(cleanMusicRe); bgCode.remove(cleanBlockRe); bgCode = bgCode.trimmed();
+    bgCode = stripAudioDirectives(bgCode).trimmed();
     // SFONDO SPENTO = NIENTE TEXTURE (vedi forgetBackgroundTexture). Un record
     // puo' portare codice con lo sfondo spento -- era il Save a scriverlo, col
     // percorso dell'immagine rimasto dopo lo spegnimento. Tenerlo in memoria
@@ -14755,7 +14756,6 @@ void MainWindow::applyMotionExample(LibraryItem data)
     m_surfaceTextureState = texEnabled;
     applySurfaceTextureToEngine();
     setScriptText(SlotSurfaceTexture, texCode);
-    m_surfaceTextureCode = texCode;
     // In RM e' QUESTA riga a rimettere in vigore la texture: createImplicitFragmentShader
     // inietta il codice solo se m_textureEnabled, e setGlobalTextureEnabled e'
     // l'unico punto (con setTextureCode) che invalida m_pipelineImplicit.
@@ -14805,8 +14805,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // Svuota forzatamente gli shader procedurali "incastrati" prima di caricare il nuovo!
     if (ui->glWidget) {
         ui->glWidget->clearTexture();
-        ui->glWidget->loadCustomShader("");
-        ui->glWidget->rebuildShader();
+        commitSurfaceTextureCode(QString());   // ricompila lo shader standard
     }
 
     // --- APPLICAZIONE TEXTURE SUPERFICIE ---
@@ -14839,28 +14838,24 @@ void MainWindow::applyMotionExample(LibraryItem data)
                 ui->glWidget->loadTextureFromFile(imgPath);
             }
 
-            // 2. Carica lo script indipendentemente dall'immagine
-            if (hasCustomLogic) {
-                if (imgPath.isEmpty()) {
-                    generateTexture();
-                }
-
-                // Solo PARAMETRICO: in ray marching loadCustomShader non serve
-                // e non funziona -- scrive m_customFragmentCode, che la
-                // pipeline implicita non legge (quella usa m_textureCode, che
-                // qui e' gia' stato impostato piu' sopra). Il codice di una
-                // texture RM usa pModel/n_model, assenti nel vertex
-                // parametrico, quindi la compilazione fallisce sempre. Stessa
-                // guardia, stessa ragione, del ramo script piu' sotto.
-                if (!isImplicit) {
-                    ui->glWidget->loadCustomShader(texCode);
-                }
-            } else {
-                if (imgPath.isEmpty()) {
-                    generateTexture();
-                    applyDefaultCheckerShader();
-                }
-                ui->glWidget->rebuildShader();
+            // 2. Carica lo script indipendentemente dall'immagine. Qui si e'
+            // solo in PARAMETRICO: in Ray Marching texCode e' vuoto per
+            // costruzione (la texture sta in lineTexture / m_textureCode).
+            // La copia applicata la scrive commitSurfaceTextureCode, solo se il
+            // motore compila: prima si scriveva a prescindere, e un codice che
+            // non compilava risultava applicato con il motore vuoto.
+            if (imgPath.isEmpty()) generateTexture();
+            if (!commitSurfaceTextureCode(texCode)) {
+                // Non compila ADESSO (Oloid: il vertex si prova con le
+                // equazioni del momento, che a meta' load non conoscono ancora
+                // il vincolo in W). Nulla di applicato: si vede la scacchiera,
+                // o l'immagine, e lo script resta nel suo slot -- lo riapplica
+                // il Run in coda al load.
+                qWarning() << "applyMotionExample: texture del record non compilata:"
+                           << ui->glWidget->getShaderError();
+                if (imgPath.isEmpty()) applyDefaultCheckerShader();
+            } else if (!hasCustomLogic && imgPath.isEmpty()) {
+                applyDefaultCheckerShader();   // nessuna logica e nessuna immagine
             }
         }
         else {
@@ -14872,9 +14867,8 @@ void MainWindow::applyMotionExample(LibraryItem data)
             ui->glWidget->rebuildShader();
         }
     } else {
-        m_surfaceTextureCode.clear();
-
-        // Preset SENZA texture: la trasformazione 2D va riportata a neutra come
+        // Preset SENZA texture: la copia applicata e' gia' vuota (reset qui
+        // sopra). La trasformazione 2D va riportata a neutra come
         // il codice qui sopra. Il ramo texEnabled la imposta sempre (riga con
         // setGlobalTexTransform), questo la lasciava invece stantia: caricando un
         // record senza texture dopo uno con zoom salvato, la scacchiera di
@@ -15200,14 +15194,17 @@ void MainWindow::applyMotionExample(LibraryItem data)
             // rifiutato e la superficie si vede lo stesso). Misurati 11 record
             // su 142 gia' affetti; ogni nuovo record RM da script con texture
             // attiva sarebbe nato con lo stesso difetto.
-            if (!isImplicit && texEnabled && surfaceTextureIsCustom()) {
-                // La texture del record che NON compila non e' applicata: il
-                // motore non l'ha presa, e la copia applicata lo deve dire (lo
-                // script resta nel suo slot, dove lo si puo' correggere).
-                if (!ui->glWidget->loadCustomShader(m_surfaceTextureCode)
-                    && ui->glWidget->currentParametricTextureCode() != m_surfaceTextureCode) {
-                    m_surfaceTextureCode.clear();
-                }
+            //
+            // Di nuovo, ora che le equazioni del record sono nel motore: il
+            // primo tentativo (APPLICAZIONE TEXTURE SUPERFICIE) prova il vertex
+            // con quelle del momento, e su Oloid -- vincolo in W -- li' falliva.
+            // Dallo SCRIPT del record (il suo slot), non dalla copia applicata,
+            // che dopo un primo tentativo fallito e' vuota. Se non compila
+            // nemmeno ora resta tutto com'e': nulla di applicato, lo script nel
+            // suo slot, dove lo si puo' correggere.
+            if (!isImplicit && texEnabled) {
+                const QString texSrc = surfaceTextureScript();
+                if (textureHasLogic(texSrc)) commitSurfaceTextureCode(texSrc);
             }
 
             ui->glWidget->rebuildShader();
@@ -15843,8 +15840,6 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
     if (!confirmDiscardUnsaved(ScopeSound)) return;
 
     // PULIZIA ASSOLUTA: Rimuove l'audio da eventuali vecchi caricamenti spuri
-    QRegularExpression reMusic(R"(^\s*//MUSIC:.*$\n?)", QRegularExpression::MultilineOption);
-    QRegularExpression reProc(R"(//SOUND_BEGIN.*?//SOUND_END\n?)", QRegularExpression::DotMatchesEverythingOption);
 
     // Anche dalle copie APPLICATE, e solo il suono: una texture utente salvata
     // col suono dentro lo terrebbe in scena, e il player (che prende la prima
@@ -15853,8 +15848,7 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
     // script), e uno script texture in sospeso risultava applicato.
     for (QString *code : { &m_surfaceTextureScriptText, &m_bgTextureScriptText,
                            &m_surfaceTextureCode, &m_bgTextureCode }) {
-        code->remove(reMusic);
-        code->remove(reProc);
+        *code = stripAudioDirectives(*code);
     }
     refreshScriptEditor();   // gli slot qui sopra sono cambiati sotto la vista
 
@@ -18627,11 +18621,8 @@ MainWindow::MissingImageScan MainWindow::scanRecordForMissingImages(const Librar
     // come nel caricamento: un //MUSIC: in mezzo non c'entra con le immagini,
     // ma la pulizia cambia il trimmed() e quindi l'esito degli isEmpty() qui
     // sotto.
-    const QRegularExpression cleanMusicRe(R"(^\s*//MUSIC:.*$\n?)", QRegularExpression::MultilineOption);
-    const QRegularExpression cleanBlockRe(R"(//SOUND_BEGIN.*?//SOUND_END\n?)",
-                                          QRegularExpression::DotMatchesEverythingOption);
-    texCode.remove(cleanMusicRe); texCode.remove(cleanBlockRe); texCode = texCode.trimmed();
-    bgCode.remove(cleanMusicRe);  bgCode.remove(cleanBlockRe);  bgCode = bgCode.trimmed();
+    texCode = stripAudioDirectives(texCode).trimmed();
+    bgCode  = stripAudioDirectives(bgCode).trimmed();
 
     // Manca l'IMMAGINE, non lo script: se il codice porta anche logica
     // procedurale (il mix che il ramo Library compone anteponendo il tag //IMG:
@@ -18737,6 +18728,19 @@ QString MainWindow::extractAudioDirectives(const QString& fullText) {
     }
 
     return extractedSound.trimmed();
+}
+
+QString MainWindow::stripAudioDirectives(QString code)
+{
+    static const QRegularExpression musicRe(R"(^\s*//MUSIC:.*$\n?)", QRegularExpression::MultilineOption);
+    static const QRegularExpression blockRe(R"(//\s*SOUND_BEGIN.*?//\s*SOUND_END\n?)",
+        QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression markerRe(R"(^\s*//\s*(SOUND_BEGIN|SOUND_END).*$\n?)",
+        QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption);
+    code.remove(musicRe);
+    while (code.contains(blockRe)) code.remove(blockRe);   // blocchi duplicati o annidati
+    code.remove(markerRe);
+    return code;
 }
 
 bool MainWindow::textureItemMatchesCode(const LibraryItem &texItem, const QString &activeCode,
@@ -19308,8 +19312,8 @@ void MainWindow::updateScriptButtonText() {
     // 1. ANALISI DEL TESTO: Cerchiamo il VERO codice GLSL
     QString codeOnly = rawText;
     // Rimuoviamo i tag audio e immagine per valutare se c'è logica procedurale
-    codeOnly.remove(QRegularExpression(R"(^\s*//(SYNTH|MUSIC|IMG):.*$\n?)", QRegularExpression::MultilineOption));
-    codeOnly.remove(QRegularExpression(R"(//SOUND_BEGIN.*?//SOUND_END\n?)", QRegularExpression::DotMatchesEverythingOption));
+    codeOnly.remove(QRegularExpression(R"(^\s*//(SYNTH|IMG):.*$\n?)", QRegularExpression::MultilineOption));
+    codeOnly = stripAudioDirectives(codeOnly);
 
     bool hasGLSLCode = !codeOnly.trimmed().isEmpty();
     bool hasAnyText = !rawText.trimmed().isEmpty();

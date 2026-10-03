@@ -1487,6 +1487,12 @@ private:
     bool hasTimeVariable(const QString& code) const;
     QString extractAndResolveImagePath(const QString& scriptCode);
     QString extractAudioDirectives(const QString& fullText);
+    // Il codice GRAFICO di uno slot: toglie cio' che extractAudioDirectives
+    // estrae (//MUSIC:, blocchi //SOUND_BEGIN..//SOUND_END, anche coi
+    // marcatori spaziati "// SOUND_BEGIN") e i marcatori rimasti orfani. Le
+    // due regole devono combaciare: un blocco estratto ma non tolto finiva
+    // compilato come texture.
+    static QString stripAudioDirectives(QString code);
 
     // Immagini citate da un record e non piu' trovabili su disco. La scansione
     // gira PRIMA che applyMotionExample tocchi qualunque cosa, cosi' il popup

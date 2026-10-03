@@ -1093,6 +1093,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("record-texture")) {
+        runRecordTextureScenarios();
+        finish();
+        return;
+    }
 
     // ---------------------------------------------------------------------
     // AVVIO: la superficie di default non e' lavoro dell'utente. Se qui la
@@ -2679,8 +2684,21 @@ void ScenarioTest::run()
     runScriptDockScenarios();
     runTextureTargetScenarios();
     runMeshImageScenarios();
+    runRecordTextureScenarios();
 
     finish();
+}
+
+void ScenarioTest::runRecordTextureScenarios()
+{
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Load di record: la texture di superficie compilata e' quella del record =="));
+    for (const char *rel : { "records/Rotations/Kerr Spin Animated.json", "records/Static/Oloid.json" }) {
+        const QString r = QString::fromLatin1(rel);
+        if (!loadRecord(r)) continue;
+        wait(600);
+        checkTextureCode(QStringLiteral("load di %1").arg(QFileInfo(r).completeBaseName()), QString(), false);
+    }
 }
 
 QString ScenarioTest::textureCheckboxProblem() const
