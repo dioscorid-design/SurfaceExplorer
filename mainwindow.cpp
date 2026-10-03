@@ -2348,8 +2348,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_marcherGroup->addButton(ui->radioMarcherFast);
     m_marcherGroup->addButton(ui->radioMarcherPrecise);
 
-    ui->radioShell->setChecked(true);      // Attiva "Shell" di default
-    ui->glWidget->setGlobalRenderMode(1);        // Diciamo subito al motore che siamo in modalità Shell (1)
+    applyImplicitShellMode(true);   // "Shell" di default: stato, radio e motore (modalita' 1)
 
     // --- Connessione dei Radio Button (Solid/Shell) ---
     // UNA SOLA COPPIA, in panelRenderControls: il widget comune ai due sotto-tab
@@ -2403,7 +2402,7 @@ MainWindow::MainWindow(QWidget *parent)
     // UNA SOLA COPPIA, nella zona comune ai due sotto-tab (come il Thickness):
     // la scelta del marcher non dipende dal sotto-tab, quindi non serve il
     // doppione con il riallineamento che Shell/Solid richiede.
-    if (ui->radioMarcherFast) ui->radioMarcherFast->setChecked(true);
+    setMarcherUI(false);   // Fast di default: motore e radio
     auto updateMarcherMode = [this](bool checked) {
         if (!checked) return;                 // solo chi si accende
         const bool precise = (sender() == ui->radioMarcherPrecise);
@@ -5585,11 +5584,9 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
             // di Shell/Solid qui sopra -- senza, il reset ereditava il marcher
             // dell'ultimo preset caricato -- e stessa regola del tasto New:
             // azzerare tutto, nessuna eccezione.
-            // I radio sono a segnali vivi: setChecked fa girare updateMarcherMode,
-            // che allinea il motore. Si passa da li' invece di scrivere
-            // setHybridMarcher a mano per non duplicare quella logica.
-            if (ui->radioMarcherFast && !ui->radioMarcherFast->isChecked())
-                ui->radioMarcherFast->setChecked(true);
+            // setMarcherUI: motore e radio insieme, a segnali bloccati (il
+            // toggled dei radio e' il clic dell'utente).
+            setMarcherUI(false);
 
             ui->glWidget->rebuildShader();
 
@@ -16638,6 +16635,7 @@ void MainWindow::setTextureLibraryGrayed(bool grayed)
 // l'handler durante un load.
 void MainWindow::applyImplicitShellMode(bool shell)
 {
+    m_implicitShell = shell;
     // UNA SOLA coppia di radio, in panelRenderControls (widget comune ai due
     // sotto-tab). Lo stato Shell/Solid e' sempre stato UNO SOLO — il render mode
     // del motore e' globale e il preset lo salva in un solo campo (renderMode
@@ -16738,15 +16736,6 @@ void MainWindow::setMarcherUI(bool precise)
         fast->blockSignals(oldFast);
         prec->blockSignals(oldPrec);
     }
-}
-
-bool MainWindow::implicitShellSelected() const
-{
-    // UNA sola coppia di radio (panelRenderControls, comune ai due sotto-tab):
-    // non c'e' piu' da scegliere quale leggere in base al sotto-tab attivo.
-    // Questa funzione resta perche' la chiamano updateRenderState, il Run e il
-    // serializer, e perche' e' il punto unico in cui si legge lo stato.
-    return ui->radioShell && ui->radioShell->isChecked();
 }
 
 // LIMITI SPAZIALI X/Y/Z e COSTANTI A..F/S al cambio di sotto-tab implicito.

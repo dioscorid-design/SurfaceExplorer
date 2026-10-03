@@ -194,6 +194,8 @@ private:
     // (m_savedRenderMode) e nel motore coincidono, e i radio mostrano quella
     // della fascia selezionata o, in ambito All, la globale. Vuoto se si'.
     QString renderModeProblem() const;
+    // Shell/Solid e Fast/Precise (Ray Marching): radio = stato = motore.
+    QString implicitRenderProblem() const;
     // "" se l'editor del dock Script mostra lo slot che il dock indica (e' la
     // sua vista), altrimenti la descrizione della differenza. La controllano
     // le verifiche piu' frequenti (codice della texture, equazioni).

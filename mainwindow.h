@@ -1340,8 +1340,11 @@ private:
     // EQUAZIONE, e siccome quasi tutti i record RM sono da SCRIPT i radio non
     // si resettavano mai caricando un record; resetScene non lo faceva affatto.
     void applyImplicitShellMode(bool shell);
-    // Shell/Solid del sotto-tab implicito ATTIVO (3D o Cross Section).
-    bool implicitShellSelected() const;
+    // Shell/Solid: lo STATO (m_implicitShell); i radio ne sono la vista, la
+    // modalita' globale del motore in Ray Marching (1 = Shell) il derivato.
+    // Lo scrive solo applyImplicitShellMode.
+    bool m_implicitShell = true;
+    bool implicitShellSelected() const { return m_implicitShell; }
     // Testo dell'equazione implicita del sotto-tab ATTIVO (3D o Cross Section).
     // Da usare ovunque serva "l'equazione a schermo": leggere ui->lineEquation
     // fisso ignora il Cross Section.

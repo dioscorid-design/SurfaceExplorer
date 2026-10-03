@@ -2748,11 +2748,34 @@ QString ScenarioTest::textureCheckboxProblem() const
     if (!target.isEmpty()) return target;
     const QString render = renderModeProblem();
     if (!render.isEmpty()) return render;
+    const QString implicit = implicitRenderProblem();
+    if (!implicit.isEmpty()) return implicit;
     // Bersaglio Background: il checkbox mostra lo sfondo. (Per la superficie
     // e le fasce lo verifica checkTextureEnabled.)
     if (onBg && ui->chkBoxTexture->isChecked() != ui->glWidget->isBackgroundTextureEnabled())
         return QStringLiteral("checkbox %1, sfondo %2")
             .arg(onOff(ui->chkBoxTexture->isChecked()), onOff(ui->glWidget->isBackgroundTextureEnabled()));
+    return QString();
+}
+
+QString ScenarioTest::implicitRenderProblem() const
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    const bool shell = m_mw->implicitShellSelected();
+    if (ui->radioShell->isChecked() != shell || ui->radioSolid->isChecked() == shell)
+        return QStringLiteral("Shell/Solid: stato %1, radio Shell %2 e Solid %3")
+            .arg(shell ? QStringLiteral("Shell") : QStringLiteral("Solid"),
+                 onOff(ui->radioShell->isChecked()), onOff(ui->radioSolid->isChecked()));
+    // In Ray Marching la modalita' globale del motore e' Shell (1) o Solid (0).
+    if (ui->tabModeSelector->currentIndex() == 1 && gl->globalRenderMode() != (shell ? 1 : 0))
+        return QStringLiteral("Shell/Solid: stato %1, motore in modalita' %2")
+            .arg(shell ? QStringLiteral("Shell") : QStringLiteral("Solid")).arg(gl->globalRenderMode());
+    if (ui->radioMarcherPrecise->isChecked() != gl->hybridMarcher()
+        || ui->radioMarcherFast->isChecked() == gl->hybridMarcher())
+        return QStringLiteral("marcher: motore %1, radio Fast %2 e Precise %3")
+            .arg(gl->hybridMarcher() ? QStringLiteral("Precise") : QStringLiteral("Fast"),
+                 onOff(ui->radioMarcherFast->isChecked()), onOff(ui->radioMarcherPrecise->isChecked()));
     return QString();
 }
 
