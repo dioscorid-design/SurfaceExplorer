@@ -644,6 +644,18 @@ QString ScenarioTest::rmFieldsProblem() const
     return QString();
 }
 
+QString ScenarioTest::lineFieldsProblem() const
+{
+    QStringList bad;
+    for (const auto &f : m_mw->lineFieldTable()) {
+        if (!f.first) continue;
+        if (*f.second != f.first->text())
+            bad << QStringLiteral("%1: stato \"%2\", campo \"%3\"")
+                       .arg(f.first->objectName(), *f.second, f.first->text());
+    }
+    return bad.join(QStringLiteral("; "));
+}
+
 QString ScenarioTest::scriptEditorProblem() const
 {
     // L'editor del dock Script e' la VISTA dello slot che il dock mostra:
@@ -877,6 +889,7 @@ void ScenarioTest::checkMotion(const QString &step, const QString &expectRunning
         || sv.path3D_x != ui->lineX_P3D->text() || sv.path3D_roll != ui->lineR_P3D->text())
         bad << QStringLiteral("path: il Save non scriverebbe i campi");
 
+    if (!lineFieldsProblem().isEmpty()) bad << lineFieldsProblem();
     check(bad.isEmpty(), QStringLiteral("%1 -> moti (%2)%3")
                              .arg(step, running, bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
 }
@@ -1059,6 +1072,7 @@ void ScenarioTest::checkEquations(const QString &step, bool pendingEdit)
 
     if (!scriptEditorProblem().isEmpty()) bad << scriptEditorProblem();
     if (!rmFieldsProblem().isEmpty()) bad << rmFieldsProblem();
+    if (!lineFieldsProblem().isEmpty()) bad << lineFieldsProblem();
 
     check(bad.isEmpty(), QStringLiteral("%1 -> equazioni %2%3")
                              .arg(step, shown,

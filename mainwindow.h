@@ -795,6 +795,30 @@ private:
     void setConstText(ConstField field, const QString &text);
     void setConstValue(ConstField field, double value);   // formato 'g', 6
     void refreshConstantSliders();
+    // ----------------------------------------------------------
+    // LIMITI E PATH: STATO dei testi dei campi a una riga
+    // ----------------------------------------------------------
+    // Il dominio u/v/w, il taglio spaziale x/y/z del Ray Marching e i campi
+    // dei path 4D e 3D COSI' COME SONO SCRITTI (numeri o espressioni). La
+    // logica e il Save leggono m_lim e m_path, non i QLineEdit. L'aggancio e'
+    // il textChanged del campo (bindLineFields): arriva per la digitazione e
+    // per setText/clear a segnali vivi, i cui gestori sono solo derivazioni.
+    // Le scritture a segnali BLOCCATI passano da setLineText. I validatori che
+    // mettono il cursore sul campo sbagliato ricevono ancora il widget.
+    struct LimitTexts { QString uMin, uMax, vMin, vMax, wMin, wMax;     // dominio
+                        QString xMin, xMax, yMin, yMax, zMin, zMax; };  // taglio RM
+    struct PathTexts  { QString x, y, z, p, alpha, beta, gamma;         // path 4D
+                        QString x3D, y3D, z3D, roll3D; };               // path 3D
+    LimitTexts m_lim;
+    PathTexts m_path;
+    // I 23 campi con la loro stringa nello stato.
+    QList<QPair<QLineEdit *, QString *>> lineFieldTable();
+    void bindLineFields();
+    // Il testo dello stato per il campo `edit`, per le funzioni che ricevono
+    // il campo come puntatore. Per un campo che non e' fra questi: il suo testo.
+    QString lineText(const QLineEdit *edit) const;
+    // Dal programma, a segnali bloccati: `state` e' un membro di m_lim o m_path.
+    void setLineText(QString &state, const QString &text);
     // Steps: in parametrico la risoluzione della mesh, in Ray Marching i Ray
     // Steps. Lo slider e il campo ne sono la vista; il motore (setResolution /
     // setRaySteps) lo scrive chi chiama. setSteps: dal programma, a segnali

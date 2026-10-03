@@ -908,6 +908,7 @@ MainWindow::MainWindow(QWidget *parent)
     ui->setupUi(this);
     bindEquationFields();   // prima di ogni altro connect sui campi delle equazioni
     bindConstantFields();   // ...e su quelli delle costanti e lo slider Steps
+    bindLineFields();       // ...e su limiti e path
 
     // FULL IMMERSION
     if (this->centralWidget() && this->centralWidget()->layout()) {
@@ -7203,15 +7204,15 @@ QSet<QString> MainWindow::constantsNotUsedBySurface() const
     }
 
     // Limiti e path: valutati con A..F/S registrate, quindi contano come uso.
-    mathText += " " + ui->uMinEdit->text() + " " + ui->uMaxEdit->text() +
-                " " + ui->vMinEdit->text() + " " + ui->vMaxEdit->text() +
-                " " + ui->wMinEdit->text() + " " + ui->wMaxEdit->text();
-    mathText += " " + ui->lineX_P->text() + " " + ui->lineY_P->text() +
-                " " + ui->lineZ_P->text() + " " + ui->lineP_P->text() +
-                " " + ui->lineAlpha_P->text() + " " + ui->lineBeta_P->text() +
-                " " + ui->lineGamma_P->text() +
-                " " + ui->lineX_P3D->text() + " " + ui->lineY_P3D->text() +
-                " " + ui->lineZ_P3D->text() + " " + ui->lineR_P3D->text();
+    mathText += " " + m_lim.uMin + " " + m_lim.uMax +
+                " " + m_lim.vMin + " " + m_lim.vMax +
+                " " + m_lim.wMin + " " + m_lim.wMax;
+    mathText += " " + m_path.x + " " + m_path.y +
+                " " + m_path.z + " " + m_path.p +
+                " " + m_path.alpha + " " + m_path.beta +
+                " " + m_path.gamma +
+                " " + m_path.x3D + " " + m_path.y3D +
+                " " + m_path.z3D + " " + m_path.roll3D;
 
     // TEXTURE DELLE FASCE: non sono la superficie, ma le costanti che usano non
     // vanno riportate al default quando si carica una texture GLOBALE -- le
@@ -7446,16 +7447,16 @@ void MainWindow::updateConstantsUIState() {
     // con A..F/S registrate, quindi "uMax = 2*A" deve tenere A sbloccata (e
     // soprattutto NON farla resettare a 1 dal ramo !used, che cambierebbe
     // l'estensione della superficie di sorpresa).
-    mathText += " " + ui->uMinEdit->text() + " " + ui->uMaxEdit->text() +
-                " " + ui->vMinEdit->text() + " " + ui->vMaxEdit->text() +
-                " " + ui->wMinEdit->text() + " " + ui->wMaxEdit->text();
+    mathText += " " + m_lim.uMin + " " + m_lim.uMax +
+                " " + m_lim.vMin + " " + m_lim.vMax +
+                " " + m_lim.wMin + " " + m_lim.wMax;
 
-    mathText += " " + ui->lineX_P->text() + " " + ui->lineY_P->text() +
-                " " + ui->lineZ_P->text() + " " + ui->lineP_P->text() +
-                " " + ui->lineAlpha_P->text() + " " + ui->lineBeta_P->text() +
-                " " + ui->lineGamma_P->text() +
-                " " + ui->lineX_P3D->text() + " " + ui->lineY_P3D->text() +
-                " " + ui->lineZ_P3D->text() + " " + ui->lineR_P3D->text();
+    mathText += " " + m_path.x + " " + m_path.y +
+                " " + m_path.z + " " + m_path.p +
+                " " + m_path.alpha + " " + m_path.beta +
+                " " + m_path.gamma +
+                " " + m_path.x3D + " " + m_path.y3D +
+                " " + m_path.z3D + " " + m_path.roll3D;
 
     // 3. LOGICA DI BLOCCO/SBLOCCO E RESET
     bool resetToNeutral = false;
@@ -8918,15 +8919,9 @@ void MainWindow::handleTextureSelection(int index)
                 ui->glWidget->setEngineMode(GLWidget::ModeImplicit);
                 ui->glWidget->setRaySteps(m_lastImplicitSteps);
 
-                bool bxm = ui->lineXMin->blockSignals(true), bxM = ui->lineXMax->blockSignals(true);
-                bool bym = ui->lineYMin->blockSignals(true), byM = ui->lineYMax->blockSignals(true);
-                bool bzm = ui->lineZMin->blockSignals(true), bzM = ui->lineZMax->blockSignals(true);
-                ui->lineXMin->clear(); ui->lineXMax->clear();
-                ui->lineYMin->clear(); ui->lineYMax->clear();
-                ui->lineZMin->clear(); ui->lineZMax->clear();
-                ui->lineXMin->blockSignals(bxm); ui->lineXMax->blockSignals(bxM);
-                ui->lineYMin->blockSignals(bym); ui->lineYMax->blockSignals(byM);
-                ui->lineZMin->blockSignals(bzm); ui->lineZMax->blockSignals(bzM);
+                for (QString *t : { &m_lim.xMin, &m_lim.xMax, &m_lim.yMin,
+                                    &m_lim.yMax, &m_lim.zMin, &m_lim.zMax })
+                    setLineText(*t, QString());
 
                 ui->glWidget->setRangeX(-1000.0f, 1000.0f);
                 ui->glWidget->setRangeY(-1000.0f, 1000.0f);
@@ -9638,14 +9633,15 @@ bool MainWindow::applySpaceLimits(bool notify)
     auto readField = [this, notify](QLineEdit* edit, float def, const QString& axis,
                                     const QString& side, bool* good) -> float {
         *good = true;
-        if (edit->text().trimmed().isEmpty()) return def;
+        const QString txt = lineText(edit);
+        if (txt.trimmed().isEmpty()) return def;
         bool ok = false;
-        const float v = parseMath(edit->text(), &ok);
+        const float v = parseMath(txt, &ok);
         if (!ok) {
             *good = false;
             if (notify && !m_constantPopupActive) {
                 m_constantPopupActive = true;
-                InputValidator::showInvalidLimitError(this, axis + " " + side, edit->text());
+                InputValidator::showInvalidLimitError(this, axis + " " + side, txt);
                 edit->setFocus();
                 edit->selectAll();
                 m_constantPopupActive = false;
@@ -9690,8 +9686,8 @@ bool MainWindow::applySpaceLimits(bool notify)
 }
 
 bool MainWindow::updateULimits() {
-    float lo = parseLimitField(ui->uMinEdit->text());
-    float hi = parseLimitField(ui->uMaxEdit->text());
+    float lo = parseLimitField(m_lim.uMin);
+    float hi = parseLimitField(m_lim.uMax);
     if (lo >= hi) return false;            // limiti impossibili: non applicare né ridisegnare
     uMin = lo; uMax = hi;
     if (ui->glWidget) ui->glWidget->setRangeU(uMin, uMax);
@@ -9699,8 +9695,8 @@ bool MainWindow::updateULimits() {
 }
 
 bool MainWindow::updateVLimits() {
-    float lo = parseLimitField(ui->vMinEdit->text());
-    float hi = parseLimitField(ui->vMaxEdit->text());
+    float lo = parseLimitField(m_lim.vMin);
+    float hi = parseLimitField(m_lim.vMax);
     if (lo >= hi) return false;            // limiti impossibili: non applicare né ridisegnare
     vMin = lo; vMax = hi;
     if (ui->glWidget) ui->glWidget->setRangeV(vMin, vMax);
@@ -9708,8 +9704,8 @@ bool MainWindow::updateVLimits() {
 }
 
 bool MainWindow::updateWLimits() {
-    float lo = parseLimitField(ui->wMinEdit->text());
-    float hi = parseLimitField(ui->wMaxEdit->text());
+    float lo = parseLimitField(m_lim.wMin);
+    float hi = parseLimitField(m_lim.wMax);
     if (lo >= hi) return false;            // limiti impossibili: non applicare né ridisegnare
     wMin = lo; wMax = hi;
     if (ui->glWidget) ui->glWidget->setRangeW(wMin, wMax);
@@ -10366,16 +10362,10 @@ void MainWindow::onStartClicked()
     bool isGeodesicActive = (upperCount > 0) && geoHasText;
 
     if (isCompositionActive) {
-        bool b1 = ui->wMinEdit->blockSignals(true);
-        bool b2 = ui->wMaxEdit->blockSignals(true);
-
-        ui->wMinEdit->clear();
-        ui->wMaxEdit->clear();
+        setLineText(m_lim.wMin, QString());
+        setLineText(m_lim.wMax, QString());
         ui->wMinEdit->setEnabled(false);
         ui->wMaxEdit->setEnabled(false);
-
-        ui->wMinEdit->blockSignals(b1);
-        ui->wMaxEdit->blockSignals(b2);
     }
 
     if (isGeodesicActive) {
@@ -11098,7 +11088,7 @@ bool MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
     if (!edited->property("userEditPending").toBool()) return false;
     edited->setProperty("userEditPending", false);
 
-    const QString currentText = edited->text();
+    const QString currentText = lineText(edited);
     bool ok = false;
     parseLimitField(currentText, &ok);
     // Il campo vuoto PASSA il parse (parseUIConstant: vuoto -> ok, 0.0), quindi
@@ -11255,7 +11245,7 @@ bool MainWindow::commitMeshLimitFieldOnEnter(const QString& fieldName)
     // Il campo appena editato deve essere leggibile. Gli altri tre NON si
     // rileggono dai widget: si parte dal dominio in vigore nella parte, cosi'
     // un campo lasciato a meta' da un'altra digitazione non entra nel commit.
-    const QString currentText = edited->text();
+    const QString currentText = lineText(edited);
     bool ok = false;
     const float value = parseLimitField(currentText, &ok);
     if (!ok || currentText.trimmed().isEmpty()) {
@@ -11355,8 +11345,8 @@ void MainWindow::syncMeshLimitFields()
 bool MainWindow::compilePath4DFromFields()
 {
     // Pulizia input (campo vuoto = "0", virgola decimale tollerata)
-    auto getSafeEq = [](QLineEdit* line) {
-        QString t = line->text().trimmed();
+    auto getSafeEq = [this](QLineEdit* line) {
+        QString t = lineText(line).trimmed();
         if (t.isEmpty()) return QString("0");
         return t.replace(",", ".");
     };
@@ -11396,8 +11386,8 @@ bool MainWindow::compilePath4DFromFields()
 
 bool MainWindow::compilePath3DFromFields()
 {
-    auto getSafeEq = [](QLineEdit* line) {
-        QString t = line->text().trimmed();
+    auto getSafeEq = [this](QLineEdit* line) {
+        QString t = lineText(line).trimmed();
         if (t.isEmpty()) return QString("0");
         return t.replace(",", ".");
     };
@@ -11713,8 +11703,8 @@ bool MainWindow::hasCompleteParametricInput()
     //    all'Invio: se sono incompleti, il Run costruirebbe sul dominio vecchio.
     auto axisOk = [this](QLineEdit* lo, QLineEdit* hi) -> bool {
         if (!lo || !hi || !lo->isEnabled() || !hi->isEnabled()) return true;  // asse non in uso
-        const QString loTxt = lo->text().trimmed();
-        const QString hiTxt = hi->text().trimmed();
+        const QString loTxt = lineText(lo).trimmed();
+        const QString hiTxt = lineText(hi).trimmed();
         if (loTxt.isEmpty() || hiTxt.isEmpty()) return false;
         bool okLo = false, okHi = false;
         const float a = parseLimitField(loTxt, &okLo);
@@ -11790,10 +11780,10 @@ bool MainWindow::hasCompleteParametricInput()
 bool MainWindow::hasPath4DInput() const
 {
     int filled = 0;
-    if (!ui->lineX_P->text().trimmed().isEmpty()) filled++;
-    if (!ui->lineY_P->text().trimmed().isEmpty()) filled++;
-    if (!ui->lineZ_P->text().trimmed().isEmpty()) filled++;
-    if (!ui->lineP_P->text().trimmed().isEmpty()) filled++;
+    if (!m_path.x.trimmed().isEmpty()) filled++;
+    if (!m_path.y.trimmed().isEmpty()) filled++;
+    if (!m_path.z.trimmed().isEmpty()) filled++;
+    if (!m_path.p.trimmed().isEmpty()) filled++;
 
     return filled >= 1;
 }
@@ -11909,9 +11899,9 @@ void MainWindow::applyPath3DCameraAt(float t)
 bool MainWindow::hasPath3DInput() const
 {
     int filled = 0;
-    if (!ui->lineX_P3D->text().trimmed().isEmpty()) filled++;
-    if (!ui->lineY_P3D->text().trimmed().isEmpty()) filled++;
-    if (!ui->lineZ_P3D->text().trimmed().isEmpty()) filled++;
+    if (!m_path.x3D.trimmed().isEmpty()) filled++;
+    if (!m_path.y3D.trimmed().isEmpty()) filled++;
+    if (!m_path.z3D.trimmed().isEmpty()) filled++;
 
     return filled >= 1;
 }
@@ -16820,14 +16810,9 @@ void MainWindow::resetImplicitSharedFields()
     // (vedi il costruttore e il ramo implicito di resetScene, stessa scrittura).
     // A segnali bloccati: textEdited qui significherebbe "l'utente ha modificato
     // la scena" e accenderebbe il Run one-shot / l'avviso lavoro non salvato.
-    for (QLineEdit *e : { ui->lineXMin, ui->lineXMax,
-                          ui->lineYMin, ui->lineYMax,
-                          ui->lineZMin, ui->lineZMax }) {
-        if (!e) continue;
-        const bool old = e->blockSignals(true);
-        e->clear();
-        e->blockSignals(old);
-    }
+    for (QString *t : { &m_lim.xMin, &m_lim.xMax, &m_lim.yMin,
+                        &m_lim.yMax, &m_lim.zMin, &m_lim.zMax })
+        setLineText(*t, QString());
     if (ui->glWidget) {
         ui->glWidget->setRangeX(-1000.0f, 1000.0f);
         ui->glWidget->setRangeY(-1000.0f, 1000.0f);
@@ -18461,7 +18446,7 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
         // limite scrive SOLO nel campo ancora vuoto; costanti A..F/S e steps non
         // vengono mai riapplicate (restano quelle della UI/slider).
         auto setLimitIfAllowed = [&](QLineEdit* edit) {
-            if (onlyFillEmptyLimits && !edit->text().trimmed().isEmpty()) return;
+            if (onlyFillEmptyLimits && !lineText(edit).trimmed().isEmpty()) return;
             edit->setText(QString::number(value, 'g', 12));
             limitsChanged = true;
         };
@@ -21452,6 +21437,57 @@ void MainWindow::bindConstantFields()
         m_const.*f = edit->text();
     }
     m_steps = ui->stepSlider->value();
+}
+
+QList<QPair<QLineEdit *, QString *>> MainWindow::lineFieldTable()
+{
+    return {
+        { ui->uMinEdit, &m_lim.uMin }, { ui->uMaxEdit, &m_lim.uMax },
+        { ui->vMinEdit, &m_lim.vMin }, { ui->vMaxEdit, &m_lim.vMax },
+        { ui->wMinEdit, &m_lim.wMin }, { ui->wMaxEdit, &m_lim.wMax },
+        { ui->lineXMin, &m_lim.xMin }, { ui->lineXMax, &m_lim.xMax },
+        { ui->lineYMin, &m_lim.yMin }, { ui->lineYMax, &m_lim.yMax },
+        { ui->lineZMin, &m_lim.zMin }, { ui->lineZMax, &m_lim.zMax },
+        { ui->lineX_P, &m_path.x }, { ui->lineY_P, &m_path.y },
+        { ui->lineZ_P, &m_path.z }, { ui->lineP_P, &m_path.p },
+        { ui->lineAlpha_P, &m_path.alpha }, { ui->lineBeta_P, &m_path.beta },
+        { ui->lineGamma_P, &m_path.gamma },
+        { ui->lineX_P3D, &m_path.x3D }, { ui->lineY_P3D, &m_path.y3D },
+        { ui->lineZ_P3D, &m_path.z3D }, { ui->lineR_P3D, &m_path.roll3D },
+    };
+}
+
+void MainWindow::bindLineFields()
+{
+    for (const auto &f : lineFieldTable()) {
+        QLineEdit *edit = f.first;
+        QString *state = f.second;
+        if (!edit) continue;
+        // Connesso qui per primo: gira prima di ogni altro gestore del campo.
+        connect(edit, &QLineEdit::textChanged, this, [state](const QString &t) { *state = t; });
+        *state = edit->text();
+    }
+}
+
+QString MainWindow::lineText(const QLineEdit *edit) const
+{
+    for (const auto &f : const_cast<MainWindow *>(this)->lineFieldTable())
+        if (f.first == edit) return *f.second;
+    return edit ? edit->text() : QString();
+}
+
+void MainWindow::setLineText(QString &state, const QString &text)
+{
+    state = text;
+    for (const auto &f : lineFieldTable()) {
+        if (f.second != &state) continue;
+        if (QLineEdit *edit = f.first) {
+            // A segnali bloccati: e' il programma che scrive, non l'utente.
+            const QSignalBlocker blocker(edit);
+            edit->setText(text);
+        }
+        return;
+    }
 }
 
 void MainWindow::setConstText(ConstField field, const QString &text)

@@ -496,7 +496,7 @@ void PresetSerializer::captureParametricLimits(LibraryItem &d)
         { m_mainWindow->ui->wMinEdit, &d.wMin, &d.wMinExpr }, { m_mainWindow->ui->wMaxEdit, &d.wMax, &d.wMaxExpr },
     };
     for (const auto &f : fields) {
-        const QString raw = f.edit->text().trimmed();
+        const QString raw = m_mainWindow->lineText(f.edit).trimmed();
         *f.value = m_mainWindow->parseLimitField(raw);
         bool isPlainNumber = false;
         QString normalized = raw;
@@ -559,8 +559,9 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
 
     captureParametricLimits(d);
     auto spaceLimit = [mw](QLineEdit *edit, float defVal) {
-        if (edit->text().trimmed().isEmpty()) return defVal;
-        return mw->parseMath(edit->text());
+        const QString t = mw->lineText(edit);
+        if (t.trimmed().isEmpty()) return defVal;
+        return mw->parseMath(t);
     };
     d.xMin = spaceLimit(mw->ui->lineXMin, -1000.0f);
     d.xMax = spaceLimit(mw->ui->lineXMax, 1000.0f);
@@ -706,17 +707,17 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
     d.isScript = !scriptContent.trimmed().isEmpty() && (!usingEquations || metricScriptActive);
     d.scriptCode = scriptContent;
 
-    d.path4D_x = mw->ui->lineX_P->text();
-    d.path4D_y = mw->ui->lineY_P->text();
-    d.path4D_z = mw->ui->lineZ_P->text();
-    d.path4D_w = mw->ui->lineP_P->text();
-    d.path4D_alpha = mw->ui->lineAlpha_P->text();
-    d.path4D_beta  = mw->ui->lineBeta_P->text();
-    d.path4D_gamma = mw->ui->lineGamma_P->text();
-    d.path3D_x = mw->ui->lineX_P3D->text();
-    d.path3D_y = mw->ui->lineY_P3D->text();
-    d.path3D_z = mw->ui->lineZ_P3D->text();
-    d.path3D_roll = mw->ui->lineR_P3D->text();
+    d.path4D_x = mw->m_path.x;
+    d.path4D_y = mw->m_path.y;
+    d.path4D_z = mw->m_path.z;
+    d.path4D_w = mw->m_path.p;
+    d.path4D_alpha = mw->m_path.alpha;
+    d.path4D_beta  = mw->m_path.beta;
+    d.path4D_gamma = mw->m_path.gamma;
+    d.path3D_x = mw->m_path.x3D;
+    d.path3D_y = mw->m_path.y3D;
+    d.path3D_z = mw->m_path.z3D;
+    d.path3D_roll = mw->m_path.roll3D;
 
     // Il record porta DUE messaggi: quello della scena (hintText, gia' in
     // captureCommonState) e quello della TEXTURE.
@@ -1529,8 +1530,9 @@ void PresetSerializer::saveScript()
 
         // Helper per i limiti di spazio (come in saveSurface)
         auto getSpaceLimit = [&](QLineEdit* edit, float defVal) {
-            if (edit->text().trimmed().isEmpty()) return defVal;
-            return m_mainWindow->parseMath(edit->text());
+            const QString t = m_mainWindow->lineText(edit);
+            if (t.trimmed().isEmpty()) return defVal;
+            return m_mainWindow->parseMath(t);
         };
 
         limits["xMin"] = getSpaceLimit(m_mainWindow->ui->lineXMin, -1000.0f);

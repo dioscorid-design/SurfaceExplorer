@@ -205,6 +205,9 @@ private:
     QString scriptEditorProblem() const;
     // Lo stesso per i quattro campi Ray Marching e il loro stato (m_rm).
     QString rmFieldsProblem() const;
+    // Lo stesso per i campi a una riga: limiti u/v/w, taglio x/y/z del Ray
+    // Marching, path 4D e 3D (m_lim, m_path).
+    QString lineFieldsProblem() const;
     void finish();
 
     MainWindow *m_mw;
