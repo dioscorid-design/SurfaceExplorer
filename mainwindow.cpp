@@ -1813,7 +1813,7 @@ MainWindow::MainWindow(QWidget *parent)
         ui->tabModeSelector->tabBar()->setUsesScrollButtons(false);
     ui->tabModeSelector->setStyleSheet(
         "QTabBar::tab { min-width: 175px; padding: 6px 0px; }");
-    ui->tabModeSelector->setCurrentIndex(0);
+    setImplicitMode(false);
     // Sotto-tab Constraints/Composition/Geodesic Flow (panelImplicit): stessa
     // logica dei Parametric/Implicit, ma sono TRE voci sullo stesso dock da
     // 400px, quindi min-width piu' piccola (~un terzo) per riempire la barra
@@ -1833,8 +1833,13 @@ MainWindow::MainWindow(QWidget *parent)
 
     // 3. SOLO ORA COLLEGA IL SEGNALE DEL CAMBIO TAB
     // 3. SOLO ORA COLLEGA IL SEGNALE DEL CAMBIO TAB
+    // Il clic (o un cambio a segnali vivi del programma, che vuole il reset):
+    // prima lo STATO, che il reset e tutto il resto leggono.
     connect(ui->tabModeSelector, &QTabWidget::currentChanged,
-            this, &MainWindow::applyModeTabReset);
+            this, [this](int index) {
+        m_implicitMode = (index == 1);
+        applyModeTabReset(index);
+    });
 
     // Cambio di sotto-tab dentro Implicit (3D <-> Cross Section). Il pannello
     // Run/Variations/Texture e i LIMITI X/Y/Z sono una sola istanza fisica
@@ -1911,7 +1916,7 @@ MainWindow::MainWindow(QWidget *parent)
                 this, [this](int index) {
             if (index < 0) return;
 
-            if (index == ui->tabModeSelector->currentIndex()) {
+            if (index == (implicitMode() ? 1 : 0)) {
                 // Riclic sulla linguetta attiva = "ricomincia da capo".
                 // Lavoro non salvato: si chiede prima di buttarlo via, per OGNI
                 // modulo sporco (il reset azzera anche texture e suono). Su
@@ -1936,12 +1941,10 @@ MainWindow::MainWindow(QWidget *parent)
             // si dice ad applyModeTabReset di NON resettare, riportando poi il
             // tab dov'era: la scena resta intatta.
             if (!confirmDiscardUnsaved(ScopeScene)) {
-                const int back = ui->tabModeSelector->currentIndex();
+                const bool back = implicitMode();
                 m_suppressNextModeTabReset = true;
                 QTimer::singleShot(0, this, [this, back]() {
-                    bool b = ui->tabModeSelector->blockSignals(true);
-                    ui->tabModeSelector->setCurrentIndex(back);
-                    ui->tabModeSelector->blockSignals(b);
+                    setImplicitMode(back);
                     m_suppressNextModeTabReset = false;
                 });
             }
@@ -1991,7 +1994,7 @@ MainWindow::MainWindow(QWidget *parent)
         m_meshDebounce->setSingleShot(true);
         m_meshDebounce->setInterval(120);
         connect(m_meshDebounce, &QTimer::timeout, this, [this]() {
-            if (ui->glWidget && ui->tabModeSelector->currentIndex() != 1) {
+            if (ui->glWidget && !implicitMode()) {
                 ui->glWidget->setResolution(m_steps);
             }
             // Input nuovo (costanti/steps): un errore geodetico precedente non
@@ -2069,7 +2072,7 @@ MainWindow::MainWindow(QWidget *parent)
         m_steps = val;
         ui->lineSteps->setText(QString::number(val));
         if (!ui->glWidget) return;
-        if (ui->tabModeSelector->currentIndex() == 1) {
+        if (implicitMode()) {
             ui->glWidget->setRaySteps(val);
             ui->glWidget->update();
         } else {
@@ -2801,7 +2804,7 @@ MainWindow::MainWindow(QWidget *parent)
         // Se e' l'UTENTE ad abbassare lo slider (non un set programmatico di caricamento
         // preset), ripristiniamo l'opacita', mostriamo il popup UNA volta e blocchiamo.
         if (!m_settingAlphaProgrammatic && value < 100) {
-            bool isImplicitMode = (ui->tabModeSelector->currentIndex() == 1);
+            bool isImplicitMode = (implicitMode());
             bool illImplicit = isImplicitMode && ui->glWidget && ui->glWidget->isImplicitIllConditioned();
             if (illImplicit) {
                 onAlphaSliderMovedIllCheck(value);
@@ -2913,7 +2916,7 @@ MainWindow::MainWindow(QWidget *parent)
         // Escluso il ramo Background (la texture di sfondo non e' per-mesh) e
         // il Ray Marching, che non ha parti di mesh.
         if (!editingBackground()
-            && ui->tabModeSelector->currentIndex() != 1
+            && !implicitMode()
             && ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
 
             // Codice da usare per QUESTA parte: quello che ha gia' (riaccensione)
@@ -3031,7 +3034,7 @@ MainWindow::MainWindow(QWidget *parent)
                 bool hasCode = false;
                 bool isModified = this->property("isTextureModified").toBool();
 
-                if (ui->tabModeSelector->currentIndex() == 1) { // Ray Marching
+                if (implicitMode()) { // Ray Marching
                     QString tex = m_rm.texture.trimmed();
                     QString disp = m_rm.displacement.trimmed();
 
@@ -3058,7 +3061,7 @@ MainWindow::MainWindow(QWidget *parent)
                 // della default. Il warning sotto decide solo se CHIEDERE conferma
                 // (quando c'è codice scritto a mano che andrebbe perso).
                 auto clearTextureMemory = [this]() {
-                    if (ui->tabModeSelector->currentIndex() == 1) {
+                    if (implicitMode()) {
                         // Svuota i campi della tab Ray Marching
                         setRmText(&ImplicitTexts::texture, QString());
                         setRmText(&ImplicitTexts::displacement, QString());
@@ -3127,7 +3130,7 @@ MainWindow::MainWindow(QWidget *parent)
 
             if (!m_blockTextureGen && checked) {
                 // --- LOGICA RAY MARCHING (Tab 1) ---
-                if (ui->tabModeSelector->currentIndex() == 1) {
+                if (implicitMode()) {
                     QString currentTex = m_rm.texture.trimmed();
 
                     if (currentTex.isEmpty()) {
@@ -3222,7 +3225,7 @@ MainWindow::MainWindow(QWidget *parent)
         bool needsAnim = false;
 
         // 1. Controllo Equazioni Base
-        if (ui->tabModeSelector->currentIndex() == 1) { // Ray Marching
+        if (implicitMode()) { // Ray Marching
             // Solo l'SDF (lineEquation/script) è geometria; il displacement
             // (lineVariations) è del modulo texture ed è controllato al punto 2.
             QString eq = activeImplicitEquationText() + " " + m_surfaceScriptApplied;
@@ -3254,7 +3257,7 @@ MainWindow::MainWindow(QWidget *parent)
         bool isSurfTexActive = editingBackground() ? m_surfaceTextureState : checked;
         if (!isSurfTexActive) isSurfTexActive = anyMeshTextureActive();
         if (isSurfTexActive) {
-            QString tex = (ui->tabModeSelector->currentIndex() == 1)
+            QString tex = (implicitMode())
                     ? (m_rm.texture + m_rm.displacement)
                     : allSurfaceTextureCode();
             if (hasTimeVariable(tex)) needsAnim = true;
@@ -3408,7 +3411,7 @@ MainWindow::MainWindow(QWidget *parent)
         // scena identica a prima); con "Keep it stopped" resta opaco.
         bool alphaReset = false;
         int  alphaPrev  = 100;
-        const bool perfIsImplicit = (ui->tabModeSelector->currentIndex() == 1);
+        const bool perfIsImplicit = (implicitMode());
         if (perfIsImplicit && ui->alphaSlider->value() < 100) {
             alphaPrev = ui->alphaSlider->value();
             ui->alphaSlider->setValue(100);
@@ -3675,7 +3678,7 @@ MainWindow::MainWindow(QWidget *parent)
         // in "Mesh" ci pensa syncAppearanceControlsToActiveMesh (display della
         // parte), ma quella esce presto quando non c'e' parte attiva.
         if (!single && !editingBackground()
-            && ui->tabModeSelector->currentIndex() != 1) {
+            && !implicitMode()) {
             refreshTextureCheckbox();
         }
         // Come per lo spinbox: il sync muove i radio a segnali bloccati, quindi
@@ -6164,7 +6167,7 @@ void MainWindow::guardTransparencyOnImplicitLoad()
 {
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     if (!ui->glWidget) return;
-    const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
+    const bool isImplicit = (implicitMode());
     if (!isImplicit) return;
     if (ui->alphaSlider->value() >= 100) return;                          // trasparenza non attiva
     if (ui->glWidget->currentDisplacementCode().trimmed().isEmpty()) return; // niente displacement
@@ -6206,7 +6209,7 @@ bool MainWindow::guardTransparencyOnHeavyTextureApply(const QString &newDispCode
 {
     if (!ui->glWidget || !ui->alphaSlider) return true;
     if (m_heavyTexGuardActive) return true;                       // box gia' aperto: non impilare
-    if (ui->tabModeSelector->currentIndex() != 1) return true;    // solo Ray Marching
+    if (!implicitMode()) return true;    // solo Ray Marching
     if (ui->alphaSlider->value() >= 100) return true;             // scena gia' opaca: nulla da fare
 
     // IL CRITERIO E' IL DISPLACEMENT, non la texture. %DISPLACEMENT_CODE% e'
@@ -6317,7 +6320,7 @@ void MainWindow::updateRenderState()
     updateBackgroundControlsGate();
 
     // 1. Identifichiamo se siamo in modalità Ray Marching
-    bool isImplicitMode = (ui->tabModeSelector->currentIndex() == 1);
+    bool isImplicitMode = (implicitMode());
 
         // --- DISATTIVAZIONE CONTROLLI NON SUPPORTATI ---
         ui->radioWF->setEnabled(!isImplicitMode);
@@ -6802,7 +6805,7 @@ void MainWindow::applyEmptySceneGating()
         // non esistono in parametrico: la scelta la rifa' updateRenderState
         // (che gestisce anche il ripristino forzato se si veniva da wireframe),
         // qui basta togliere il blocco.
-        const bool isRM = (ui->tabModeSelector->currentIndex() == 1);
+        const bool isRM = (implicitMode());
         if (ui->radioBasic)  ui->radioBasic->setEnabled(true);
         if (ui->radioPhong)  ui->radioPhong->setEnabled(true);
         if (ui->radioWF)     ui->radioWF->setEnabled(!isRM);
@@ -6866,7 +6869,7 @@ bool MainWindow::ensureSurfaceForTexture()
     // proprio il caso che a scena vuota resta componibile.
     if (editingBackground()) return false;
 
-    resetScene(ui->tabModeSelector->currentIndex(), /*loadDefaultSurface=*/true);
+    resetScene(implicitMode() ? 1 : 0, /*loadDefaultSurface=*/true);
     return true;
 }
 
@@ -6874,7 +6877,7 @@ bool MainWindow::isSceneEmpty() const
 {
     if (!ui->glWidget) return false;
 
-    if (ui->tabModeSelector->currentIndex() == 1) {
+    if (implicitMode()) {
         // Il ramo ATTIVO nel marcher, non sempre quello del sotto-tab 3D: nel
         // Cross Section il campo compilato e' m_eqCrossSectionF, e leggere
         // implicitEquation() giudicava la scena su un'equazione che a schermo
@@ -7042,7 +7045,7 @@ void MainWindow::checkParametricDependency()
     QString allEqs = mainEqs + " " + eqExplU + " " + eqExplV + " " + eqExplW;
     QString composedAllEqs = composeEquation(allEqs, defU, defV, defW);
 
-    bool isGeodesicActive = (rawUpperCount > 0) && geoHasText && (ui->tabModeSelector->currentIndex() == 0);
+    bool isGeodesicActive = (rawUpperCount > 0) && geoHasText && (!implicitMode());
 
     if (ui->stepSlider->maximum() != 1000) {
         ui->stepSlider->setMaximum(1000);
@@ -7084,10 +7087,10 @@ void MainWindow::updateConstraintState()
 
     bool geoHasText = hasGeodesicText();
 
-    bool isGeodesicActive = (upperCount > 0) && geoHasText && (ui->tabModeSelector->currentIndex() == 0);
+    bool isGeodesicActive = (upperCount > 0) && geoHasText && (!implicitMode());
 
     // Aggiungiamo la rilevazione per la modalità Composition
-    bool isCompositionActive = (upperCount > 0 || !defU.trimmed().isEmpty() || !defV.trimmed().isEmpty() || !defW.trimmed().isEmpty()) && !geoHasText && (ui->tabModeSelector->currentIndex() == 0);
+    bool isCompositionActive = (upperCount > 0 || !defU.trimmed().isEmpty() || !defV.trimmed().isEmpty() || !defW.trimmed().isEmpty()) && !geoHasText && (!implicitMode());
 
     if (isGeodesicActive || isCompositionActive) {
         usesW = false;
@@ -7098,7 +7101,7 @@ void MainWindow::updateConstraintState()
     // restare attivi anche se la mappa non cita una delle variabili (es. una
     // carta alla Flamm senza V), altrimenti si svuotano e il flusso non parte.
     if (!m_metricScriptBody.trimmed().isEmpty() &&
-            ui->tabModeSelector->currentIndex() == 0) {
+            !implicitMode()) {
         usesU = true;
         usesV = true;
         usesW = false;
@@ -7176,7 +7179,7 @@ QSet<QString> MainWindow::constantsNotUsedBySurface() const
 {
     QString mathText;
 
-    if (ui->tabModeSelector->currentIndex() == 0) {
+    if (!implicitMode()) {
         mathText = m_eq.x + " " + m_eq.y + " " +
                    m_eq.z + " " + m_eq.p + " " +
                    m_eq.explicitU + " " + m_eq.explicitV + " " +
@@ -7255,7 +7258,7 @@ QSet<QString> MainWindow::constantsNotUsedBySurface() const
 QStringList MainWindow::meshTextureCodesForConstants() const
 {
     QStringList out;
-    if (ui->tabModeSelector->currentIndex() != 0) return out;
+    if (implicitMode()) return out;
     auto add = [&out](const MeshPart &mp) {
         if (mp.hasCustomTexture && !mp.textureCode.trimmed().isEmpty())
             out << stripCodeComments(mp.textureCode);
@@ -7310,7 +7313,7 @@ void MainWindow::updateConstantsUIState() {
     // Ray Marching con il campo equazione CANCELLATO: il ramo !used disabilita
     // le costanti ma NON le resetta (vedi la nota dov'e' usata).
     bool equationFieldIsEmpty = false;
-    int currentTab = ui->tabModeSelector->currentIndex();
+    int currentTab = implicitMode() ? 1 : 0;
 
     // 1. RACCOLTA TESTO SPECIFICA PER TAB
     if (currentTab == 0) { // MODALITÀ PARAMETRICA
@@ -7731,7 +7734,7 @@ void MainWindow::syncTextureTreeSelection()
         activeCode = m_bgTextureCode;
         libName = m_currentBgTextureLibName;
     } else {
-        if (ui->tabModeSelector->currentIndex() == 1) {
+        if (implicitMode()) {
             // RAY MARCHING: nessuna fascia, la texture e' quella di superficie.
             if (!surfaceTextureShown()) return;
             activeCode = m_rm.texture;
@@ -7870,7 +7873,7 @@ void MainWindow::dumpTextureState(const char *tag) const
     };
 
     const GLWidget *g = ui->glWidget;
-    const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
+    const bool isImplicit = (implicitMode());
     const int meshIdx = g ? g->activeMeshPart() : -1;
 
     // Codice della FASCIA attiva, quando l'ambito e' "Mesh": e' il terzo canale,
@@ -8019,7 +8022,7 @@ bool MainWindow::syncSurfaceTextureFrom(const LibraryItem *lib)
     if (!confirmTextureConstantClash(newCode, lib->displacementCode, /*forBackground=*/false))
         return false;
 
-    const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
+    const bool isImplicit = (implicitMode());
 
     // blockSignals: questo codice VIENE dalla libreria, non e' una digitazione.
     // Senza, textChanged azzererebbe m_currentTextureLibName (~2315) e il record
@@ -8223,7 +8226,7 @@ const LibraryItem *MainWindow::focusedTextureLibraryItem() const
     const LibraryItem *item = textureLibraryItemNamed(m_currentTextureLibName);
     if (!item) return nullptr;
 
-    const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
+    const bool isImplicit = (implicitMode());
     const QString activeCode = isImplicit && ui->lineTexture
                              ? m_rm.texture
                              : m_surfaceTextureCode;
@@ -8276,7 +8279,7 @@ QVector<MainWindow::MeshTextureSync> MainWindow::focusedMeshTextureLibraryItems(
 {
     QVector<MeshTextureSync> out;
     if (!ui->glWidget || !ui->glWidget->getEngine()) return out;
-    if (ui->tabModeSelector->currentIndex() == 1) return out;
+    if (implicitMode()) return out;
     const auto &parts = ui->glWidget->getEngine()->getMeshParts();
     for (int k = 0; k < (int)parts.size(); ++k) {
         const MeshPart &p = parts[k];
@@ -8831,7 +8834,7 @@ void MainWindow::handleTextureSelection(int index)
     // 2.5 CONTROLLO COMPATIBILITÀ MODO E SUPERFICIE DI DEFAULT
     // =====================================================================
     bool texIsImplicit = data.isImplicitMode;
-    bool currentIsImplicit = (ui->tabModeSelector->currentIndex() == 1);
+    bool currentIsImplicit = (implicitMode());
 
     if (data.isImage) {
         texIsImplicit = currentIsImplicit;
@@ -9440,7 +9443,7 @@ void MainWindow::handleTextureSelection(int index)
     // orologio. NON tocca né la geometria (SDF) né lo sfondo né la camera.
     // ==========================================
     const QRegularExpression& timeRegex = kReTimeVar;
-    bool isRM = (ui->tabModeSelector->currentIndex() == 1);
+    bool isRM = (implicitMode());
     // STATO DELLA TEXTURE DI SUPERFICIE, non del checkbox: in Background quel
     // widget e' il display dello SFONDO, e leggerlo qui faceva spegnere il clock
     // della superficie appena si applicava una texture di sfondo statica (o la
@@ -9587,7 +9590,7 @@ void MainWindow::handleTextureSelection(int index)
             // costante libera: resettarlo congela i raggi (vedi la guardia in
             // updateConstantsUIState). Si tocca solo in parametrica.
             if (f == &ConstantTexts::s) {
-                if (ui->tabModeSelector->currentIndex() != 1) setConstText(f, QStringLiteral("0"));
+                if (!implicitMode()) setConstText(f, QStringLiteral("0"));
             } else {
                 setConstText(f, QStringLiteral("1"));
             }
@@ -9907,7 +9910,7 @@ void MainWindow::onStartClicked()
     // da uno script (che i campi X/Y/Z/P non li usa affatto) ne' da una
     // metrica; il ramo Ray Marching ha la sua equazione in lineEquation.
     {
-        const bool isParametricTab = (ui->tabModeSelector->currentIndex() == 0);
+        const bool isParametricTab = (!implicitMode());
         const bool fromScript = !m_surfaceScriptApplied.trimmed().isEmpty()
                              && m_surfaceOrigin != OriginBoth;
         if (isParametricTab && !fromScript && !m_populatingFields
@@ -9965,7 +9968,7 @@ void MainWindow::onStartClicked()
                                    && !m_surfaceScriptApplied.trimmed().isEmpty();
         QString currentScript = serviceCommit ? m_surfaceScriptApplied : m_surfaceScriptText;
 
-        const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
+        const bool isImplicit = (implicitMode());
 
         // Sezione opzionale //CUTOUT_BEGIN..//CUTOUT_END (solo parametrico:
         // il Ray Marching non usa getRawPosition, quindi non ha cutout).
@@ -10013,7 +10016,7 @@ void MainWindow::onStartClicked()
         // scriveva ancora quello dell'ultimo Run del dock.
         m_surfaceScriptApplied = currentScript;
 
-        if (ui->tabModeSelector->currentIndex() == 1) {
+        if (implicitMode()) {
             QString texCode = m_rm.texture;
             QString dispCode = m_rm.displacement;
 
@@ -10105,7 +10108,7 @@ void MainWindow::onStartClicked()
     // ==========================================================
     // MODALITÀ IMPLICITA (RAY MARCHING)
     // ==========================================================
-    if (ui->tabModeSelector->currentIndex() == 1) {
+    if (implicitMode()) {
 
         // 0. LIMITI SPAZIALI X/Y/Z. Si applicano QUI, al Run, insieme
         // all'equazione: sono il taglio della scena, parte di cio' che il Run
@@ -10819,7 +10822,7 @@ void MainWindow::onStopClicked() {
 void MainWindow::onNewSceneClicked()
 {
     if (!confirmDiscardUnsaved(ScopeScene)) return;
-    resetScene(ui->tabModeSelector->currentIndex(), /*loadDefaultSurface=*/false);
+    resetScene(implicitMode() ? 1 : 0, /*loadDefaultSurface=*/false);
 }
 
 void MainWindow::onResetViewClicked()
@@ -10933,7 +10936,7 @@ void MainWindow::updateNav4DReadout()
 {
     if (!ui->glWidget) return;
 
-    const bool isImplicitMode = (ui->tabModeSelector->currentIndex() == 1);
+    const bool isImplicitMode = (implicitMode());
 
     // Il segno si mostra esplicitamente ('+' incluso) perche' un delta senza
     // segno si confonde con una posizione.
@@ -11969,7 +11972,7 @@ void MainWindow::setNavControlsEnabled(bool enabled)
     // Ray Marching, mentre P+/P- e le rotazioni 4D dipendono da rot4DUsable
     // (accesi nel solo sotto-tab Cross Section, dove governano quota e
     // inclinazione del piano di sezione).
-    if (enabled && ui->tabModeSelector->currentIndex() == 1) {
+    if (enabled && implicitMode()) {
         for (QPushButton *b : { ui->btnXPlus, ui->btnXMinus,
                                 ui->btnYPlus, ui->btnYMinus,
                                 ui->btnZPlus, ui->btnZMinus,
@@ -12087,7 +12090,7 @@ void MainWindow::onRunCurrentScript()
         // BIFORCAZIONE TRA RAY MARCHING (IMPLICIT) E PARAMETRIC
         m_surfaceScriptApplied = currentText;
 
-        if (ui->tabModeSelector->currentIndex() == 1) {
+        if (implicitMode()) {
             // --- RAMO 1: SCRIPT IMPLICITO (RAY MARCHING) MULTI-RIGA ---
 
             // 1. PRIMA LINEA DI DIFESA: Sanity Check Testuale Minimalista
@@ -12627,7 +12630,7 @@ void MainWindow::runMetricScript(const QString& fullText)
 // il controllo delle costanti contese e per l'avviso al caricamento di un record.
 QString MainWindow::surfaceConstantSource() const
 {
-    if (ui->tabModeSelector->currentIndex() == 1)
+    if (implicitMode())
         return activeImplicitEquationText() + " " + m_surfaceScriptText + " " + m_surfaceScriptApplied;
     return m_eq.x + " " + m_eq.y + " " +
            m_eq.z + " " + m_eq.p + " " +
@@ -12660,7 +12663,7 @@ void MainWindow::warnSharedConstantsOnRecordLoad(const QString &recordPath)
     QMetaObject::invokeMethod(this, [this, recordPath]() {
         // Parti ATTIVE soltanto: una texture o uno sfondo spenti non muovono
         // nulla, anche se il loro codice cita una costante.
-        const bool isRM = (ui->tabModeSelector->currentIndex() == 1);
+        const bool isRM = (implicitMode());
         QList<QPair<QString, QSet<QString>>> parts;
         parts << qMakePair(QStringLiteral("the surface"), constantsUsedIn(surfaceConstantSource()));
         if (m_surfaceTextureState) {
@@ -13056,7 +13059,7 @@ void MainWindow::onApplyTextureScriptClicked()
                 }
 
                 // Auto-switch: Se eravamo nel tab Ray Marching, passiamo automaticamente alla parametrica
-                if (ui->tabModeSelector->currentIndex() == 1) {
+                if (implicitMode()) {
                     ui->tabModeSelector->setCurrentIndex(0);
                 }
 
@@ -13110,7 +13113,7 @@ void MainWindow::onApplyTextureScriptClicked()
         m_userStoppedTexClock = false;
         bool surfTexNeedsAnim = false;
         if (surfaceTextureShown()) {
-            QString surfTexToCheck = (ui->tabModeSelector->currentIndex() == 1)
+            QString surfTexToCheck = (implicitMode())
                     ? (m_rm.texture + m_rm.displacement)
                     : allSurfaceTextureCode();
             if (surfTexToCheck.contains(timeRegex)) surfTexNeedsAnim = true;
@@ -13406,7 +13409,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         QString activeCode;
         if (editingBackground()) {
             activeCode = m_bgTextureCode;
-        } else if (ui->tabModeSelector->currentIndex() == 1) {
+        } else if (implicitMode()) {
             activeCode = m_rm.texture;
         } else if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0
                    && ui->glWidget->activeMeshTextureActive()) {
@@ -13599,7 +13602,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
                 // perche' ogni click successivo ricadeva qui e rispegneva il
                 // clock. E' la stessa distinzione che fa handleTextureSelection
                 // (~7548) per decidere l'orologio al caricamento.
-                const bool isRMTex = (ui->tabModeSelector->currentIndex() == 1);
+                const bool isRMTex = (implicitMode());
                 const bool texIsAnimated = isRMTex
                     ? (m_rm.texture.contains(kReTimeVar)
                        || m_rm.displacement.contains(kReTimeVar))
@@ -16926,7 +16929,7 @@ bool MainWindow::surfaceTextureShown() const
     // scrivendo l'intenzione GLOBALE, e una fascia senza texture risultava
     // "accesa" (trovato dal test degli scenari).
     const int part = ui->glWidget ? ui->glWidget->activeMeshPart() : -1;
-    if (part >= 0 && ui->tabModeSelector->currentIndex() != 1 && ui->glWidget->getEngine()) {
+    if (part >= 0 && !implicitMode() && ui->glWidget->getEngine()) {
         const auto &parts = ui->glWidget->getEngine()->getMeshParts();
         if (part < (int)parts.size()) {
             const bool multi = ui->glWidget->meshPartCount() > 1;
@@ -16951,7 +16954,7 @@ bool MainWindow::surfaceTextureModuleActive() const
 
 QString MainWindow::surfaceTextureModuleCode() const
 {
-    if (ui->tabModeSelector->currentIndex() == 1)
+    if (implicitMode())
         return m_rm.texture + QLatin1Char('\n') + m_rm.displacement;
     return allSurfaceTextureCode();
 }
@@ -16974,6 +16977,15 @@ void MainWindow::showSurfaceTarget()
     setEditTarget(EditTarget::Surface);
     ui->radioSurface->setEnabled(true);
     refreshTextureCheckbox();
+}
+
+void MainWindow::setImplicitMode(bool on)
+{
+    m_implicitMode = on;
+    if (!ui->tabModeSelector) return;
+    // A segnali bloccati: il gestore currentChanged fa il reset della scena.
+    const QSignalBlocker blocker(ui->tabModeSelector);
+    ui->tabModeSelector->setCurrentIndex(on ? 1 : 0);
 }
 
 void MainWindow::setMeshScopeAll(bool all)
@@ -17021,7 +17033,7 @@ void MainWindow::setEditTarget(EditTarget target)
 bool MainWindow::textureTargetInWireframe() const
 {
     if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0
-        && ui->glWidget->meshPartCount() > 1 && ui->tabModeSelector->currentIndex() != 1)
+        && ui->glWidget->meshPartCount() > 1 && !implicitMode())
         return ui->glWidget->activeMeshEffectiveRenderMode() == 2;
     return m_savedRenderMode == 2;
 }
@@ -17765,15 +17777,11 @@ void MainWindow::applyCommonData(LibraryItem d)
         ui->glWidget->getEngine()->setMeshParts(meshParts);
     }
 
-    bool oldTabSig = ui->tabModeSelector->blockSignals(true);
-    if (d.isImplicitMode) {
-        ui->tabModeSelector->setCurrentIndex(1); // Cambia al tab Implicit
-        ui->glWidget->setEngineMode(GLWidget::ModeImplicit);
-    } else {
-        ui->tabModeSelector->setCurrentIndex(0); // Cambia al tab Parametric
-        ui->glWidget->setEngineMode(GLWidget::ModeParametric);
-    }
-    ui->tabModeSelector->blockSignals(oldTabSig);
+    // La linguetta a segnali bloccati: il load riscrive la scena da se', il
+    // reset del clic qui non va fatto.
+    setImplicitMode(d.isImplicitMode);
+    ui->glWidget->setEngineMode(d.isImplicitMode ? GLWidget::ModeImplicit
+                                                 : GLWidget::ModeParametric);
 
     m_currentScriptMode = ScriptModeSurface;
     // Testo in lavorazione per una fascia: era della scena di prima.
@@ -17933,10 +17941,9 @@ void MainWindow::applyCommonData(LibraryItem d)
             // col ramo script e con resetScene).
             applyImplicitShellMode(isShell);
         } else {
-            ui->tabModeSelector->setCurrentIndex(0); // Cambia al tab Parametric
+            setImplicitMode(false);
             ui->glWidget->setEngineMode(GLWidget::ModeParametric);
         }
-        ui->tabModeSelector->blockSignals(oldTabSig);
 
         setEqText(&EquationTexts::x, d.x);
         setEqText(&EquationTexts::y, d.y);
@@ -19255,7 +19262,7 @@ void MainWindow::updateProjectionButtonText()
 }
 
 void MainWindow::updateScriptButtonText() {
-    bool isRayMarching = (ui->tabModeSelector->currentIndex() == 1);
+    bool isRayMarching = (implicitMode());
     bool isBackground = editingBackground();
 
     // LA VISTA PRIMA DEI TASTI: l'editor mostra lo slot del modulo corrente
@@ -19473,7 +19480,7 @@ MainWindow::ScriptSlot MainWindow::shownScriptSlot() const
         const ScriptSlot target = targetTextureSlot();
         // In Ray Marching la texture di superficie si scrive nel dock Equations
         // (lineTexture): il dock Script non la mostra e non la fa scrivere.
-        if (target == SlotSurfaceTexture && ui->tabModeSelector->currentIndex() == 1)
+        if (target == SlotSurfaceTexture && implicitMode())
             return SlotNone;
         return target;
     }
@@ -19564,7 +19571,7 @@ void MainWindow::syncConstantSliders(const CascadeConstants &k)
         int newMax;
 
         // --- NUOVA LOGICA: Se siamo sul Tab 1 (Ray Marching) e stiamo aggiornando lo slider S ---
-        if (isS && ui->tabModeSelector->currentIndex() == 1) {
+        if (isS && implicitMode()) {
             newMin = 0; // In Ray Marching lo slider parte rigorosamente da 0
             // Il massimo è 100 (1.0), ma se l'utente digita un numero enorme, si espande!
             newMax = std::max(100, intVal);
@@ -19712,7 +19719,7 @@ bool MainWindow::activeTextureUsesColorToken(const QString &token) const
     // svuotato, la texture va in lineTexture), quindi la scorciatoia "scacchiera"
     // più sotto accendeva i picker a torto su texture RM senza u_col1/u_col2. In RM
     // la verità è solo nel codice del campo texture.
-    if (ui->tabModeSelector->currentIndex() == 1) {
+    if (implicitMode()) {
         return m_rm.texture.contains(token);
     }
 
@@ -19767,7 +19774,7 @@ bool MainWindow::hasSavableTexture() const
         return true;
 
     const bool isBg = editingBackground();
-    const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
+    const bool isImplicit = (implicitMode());
 
     // Ray Marching (non sfondo): contenuto = colore (lineTexture) + displacement
     // (lineVariations), gli stessi campi salvati da saveTexture().
@@ -19844,7 +19851,7 @@ void MainWindow::updateTextureUIState(bool isTextureOn, bool resetColorTargetToF
 
 void MainWindow::updateFlatPreviewButton() {
     bool isTextureScriptMode = (m_currentScriptMode == ScriptModeTexture);
-    bool isParametric = (ui->tabModeSelector->currentIndex() == 0);
+    bool isParametric = (!implicitMode());
     bool bgMode = editingBackground();
 
     // 1. Gestione del Testo
@@ -19925,7 +19932,7 @@ bool MainWindow::mapEquationsMatchSnapshot() const
 
 bool MainWindow::isGeodesicRoutingActive() const
 {
-    if (ui->tabModeSelector->currentIndex() != 0) return false;
+    if (implicitMode()) return false;
     if (!hasGeodesicText()) return false;
 
     const QString mainEqs = m_eq.x + " " + m_eq.y + " "
@@ -19952,7 +19959,7 @@ bool MainWindow::isEquationModuleMoving() const
     if (!ui->glWidget->isSurfaceAnimating()) return false;
 
     QString mainEq;
-    if (ui->tabModeSelector->currentIndex() == 1) {
+    if (implicitMode()) {
         // NB: lineVariations (displacement) e' del MODULO TEXTURE, non della
         // geometria: includerlo farebbe credere al dock Equations che la
         // geometria sia in moto ogni volta che la texture anima il displacement.
@@ -20016,7 +20023,7 @@ void MainWindow::updateMasterButtonState()
     // 3. Controllo animazione intrinseca (variabile tempo 't' e texture)
     bool surfaceActive = false;
     if (ui->glWidget) {
-        bool isRM = (ui->tabModeSelector->currentIndex() == 1);
+        bool isRM = (implicitMode());
 
         // A. Orologio della Geometria Principale
         bool geomClockRunning = ui->glWidget->isSurfaceAnimating();
@@ -20806,7 +20813,7 @@ void MainWindow::applyPendingMeshAppearance()
 // gestore del clic.
 int MainWindow::shownRenderMode() const
 {
-    if (ui->glWidget && ui->tabModeSelector->currentIndex() != 1
+    if (ui->glWidget && !implicitMode()
         && ui->glWidget->activeMeshPart() >= 0 && ui->glWidget->meshPartCount() > 1)
         return ui->glWidget->activeMeshEffectiveRenderMode();
     return m_savedRenderMode;
@@ -21055,7 +21062,7 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
     // proprio se dichiarato, altrimenti il globale che sta ereditando), come i
     // radio Base/Phong/Wireframe. A segnali bloccati, o il toggled riscriverebbe
     // sulla parte cio' che stiamo solo mostrando.
-    if (!editingBackground() && ui->tabModeSelector->currentIndex() != 1) {
+    if (!editingBackground() && !implicitMode()) {
         // In MULTI-mesh una parte mai configurata NON eredita la texture
         // globale (resta in tinta unita): il display deve dire la stessa cosa
         // del render, o il checkbox risulterebbe acceso su una fascia che si
@@ -21152,7 +21159,7 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
 void MainWindow::onUserRenderModeChosen()
 {
     if (!ui->glWidget) return;
-    if (ui->tabModeSelector->currentIndex() == 1) return;   // Ray Marching: non si applica
+    if (implicitMode()) return;   // Ray Marching: non si applica
 
     const int mode = ui->radioWF->isChecked()    ? 2
                    : ui->radioPhong->isChecked() ? 1
@@ -21566,7 +21573,7 @@ void MainWindow::commitUiFieldsDuringMotion() {
                      (mainEqs.contains(kReUpperW) ? 1 : 0);
     bool geoHasText = hasGeodesicText();
     bool isGeodesicActive = (upperCount > 0) && geoHasText &&
-            (ui->tabModeSelector->currentIndex() == 0);
+            (!implicitMode());
     if (!isGeodesicActive) {
         onStartClicked();
         return;
@@ -21642,7 +21649,7 @@ bool MainWindow::commitFieldsOnEnter() {
     }
 
     // A superficie ferma: applica solo nel tab parametrico.
-    if (ui->tabModeSelector->currentIndex() != 0) return false;
+    if (implicitMode()) return false;
 
     // Stesso routing di checkAndTriggerMeshUpdate: geodetico vs standard.
     QString mainEqs = m_eq.x + " " + m_eq.y + " " +
@@ -22059,7 +22066,7 @@ void MainWindow::checkAndTriggerMeshUpdate(bool useAppliedEquations) {
     // altrimenti lo slider Steps risulta inerte sugli script parametrici. Prima
     // l'early-return copriva ogni script (isScriptModeActive) e bloccava proprio
     // quel caso.
-    if (ui->tabModeSelector->currentIndex() == 1
+    if (implicitMode()
         && ui->glWidget->getEngine() && ui->glWidget->getEngine()->isScriptModeActive()) {
         ui->glWidget->update(); // Aggiorna solo la visualizzazione (Uniforms)
         return;                 // Uscita anticipata per proteggere la GPU
@@ -22080,7 +22087,7 @@ void MainWindow::checkAndTriggerMeshUpdate(bool useAppliedEquations) {
     // calcolatore Tensoriale. Lo script metrico forza il routing geodetico anche
     // se la mappa di visualizzazione X/Y/Z/P non cita U/V/W.
     const bool metricScriptActive = !m_metricScriptBody.trimmed().isEmpty();
-    if ((upperCount > 0 || metricScriptActive) && geoHasText && (ui->tabModeSelector->currentIndex() == 0)) {
+    if ((upperCount > 0 || metricScriptActive) && geoHasText && (!implicitMode())) {
         if (m_geodesicErrorPending) return;
 
         bool success = updateGeodesicMesh(/*useAppliedLimits=*/false,

@@ -199,6 +199,8 @@ private:
     // Ambito All/Mesh: radio = stato; su una multi-mesh parametrica, in All
     // nessuna fascia attiva e aspetto uniforme nel motore, in Mesh no.
     QString meshScopeProblem() const;
+    // Modalita' Parametric / Implicit: stato, linguetta e motore coincidono.
+    QString modeProblem() const;
     // "" se l'editor del dock Script mostra lo slot che il dock indica (e' la
     // sua vista), altrimenti la descrizione della differenza. La controllano
     // le verifiche piu' frequenti (codice della texture, equazioni).

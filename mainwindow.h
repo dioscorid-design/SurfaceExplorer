@@ -1428,6 +1428,16 @@ private:
     // bloccati, e riallinea il checkbox. Il resto del dock lo riallinea chi
     // chiama, come prima.
     void showSurfaceTarget();
+    // MODALITA' Parametric / Implicit (Ray Marching): STATO. La linguetta
+    // principale (ui->tabModeSelector) ne e' la vista; la modalita' del motore
+    // (GLWidget::getEngineMode) il derivato, scritto da resetScene e dai load.
+    // Chi vuole sapere la modalita' chiede a implicitMode(), non alla linguetta.
+    bool m_implicitMode = false;
+    bool implicitMode() const { return m_implicitMode; }
+    // Dal programma: stato + linguetta a segnali bloccati, SENZA il reset del
+    // clic (load che riscrivono la scena da se', ripristino dopo Annulla). Chi
+    // vuole il reset cambia la linguetta a segnali vivi, come un clic.
+    void setImplicitMode(bool on);
     // AMBITO All / Mesh: STATO. I radio ne sono la vista; nel motore ne
     // derivano setMeshAppearanceUniform e la parte attiva (-1 in All). Chi
     // vuole sapere l'ambito chiede a meshScopeAll(), non ai radio.

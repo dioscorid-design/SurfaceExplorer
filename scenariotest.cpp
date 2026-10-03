@@ -2766,11 +2766,29 @@ QString ScenarioTest::textureCheckboxProblem() const
     if (!implicit.isEmpty()) return implicit;
     const QString scope = meshScopeProblem();
     if (!scope.isEmpty()) return scope;
+    const QString mode = modeProblem();
+    if (!mode.isEmpty()) return mode;
     // Bersaglio Background: il checkbox mostra lo sfondo. (Per la superficie
     // e le fasce lo verifica checkTextureEnabled.)
     if (onBg && ui->chkBoxTexture->isChecked() != ui->glWidget->isBackgroundTextureEnabled())
         return QStringLiteral("checkbox %1, sfondo %2")
             .arg(onOff(ui->chkBoxTexture->isChecked()), onOff(ui->glWidget->isBackgroundTextureEnabled()));
+    return QString();
+}
+
+QString ScenarioTest::modeProblem() const
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    const bool tab = ui->tabModeSelector->currentIndex() == 1;
+    const bool engine = ui->glWidget->getEngineMode() == GLWidget::ModeImplicit;
+    if (m_mw->implicitMode() != tab)
+        return QStringLiteral("modalita': stato %1, linguetta %2")
+            .arg(m_mw->implicitMode() ? QStringLiteral("Implicit") : QStringLiteral("Parametric"),
+                 tab ? QStringLiteral("Implicit") : QStringLiteral("Parametric"));
+    if (tab != engine)
+        return QStringLiteral("modalita': linguetta %1, motore %2")
+            .arg(tab ? QStringLiteral("Implicit") : QStringLiteral("Parametric"),
+                 engine ? QStringLiteral("Implicit") : QStringLiteral("Parametric"));
     return QString();
 }
 

@@ -517,7 +517,7 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
     // superficie visibile era quella del Cross Section: al ricaricamento
     // compariva la sfera di default. Si scrivono entrambi i rami piu' quale era
     // attivo, cosi' il load sa cosa ripristinare.
-    d.isImplicitMode = (mw->ui->tabModeSelector->currentIndex() == 1);
+    d.isImplicitMode = (mw->implicitMode());
     d.implicitEq = mw->m_rm.equation;
     d.usesCrossSection = d.isImplicitMode && mw->crossSectionTab();
     if (mw->ui->lineEquationCrossSection)
@@ -1093,7 +1093,7 @@ void PresetSerializer::saveTexture(const QString &path)
     QJsonObject root;
 
     QString currentCode;
-    bool isImplicit = (m_mainWindow->ui->tabModeSelector->currentIndex() == 1);
+    bool isImplicit = (m_mainWindow->implicitMode());
 
     // Il codice BASE (senza tag immagine) in base al modo. Parametrico: lo
     // SCRIPT, come nel Save dei record (vedi surfaceTextureScript); con una
@@ -1521,7 +1521,7 @@ void PresetSerializer::saveScript()
         root["scriptCode"] = content;
 
         root["isScript"] = true;
-        root["isImplicitMode"] = (m_mainWindow->ui->tabModeSelector->currentIndex() == 1);
+        root["isImplicitMode"] = (m_mainWindow->implicitMode());
 
         root["steps"] = m_mainWindow->m_steps;
 
