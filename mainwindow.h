@@ -7,6 +7,7 @@
 #include <QColor>
 #include <functional>
 #include <optional>
+#include <array>
 #include <QButtonGroup>
 #include <QProgressBar>
 #include <QFileSystemWatcher>
@@ -19,6 +20,7 @@
 #include "synthesizer.h"
 
 class QLineEdit;
+class QSlider;
 class QPushButton;
 class QCheckBox;
 class QRadioButton;
@@ -765,6 +767,41 @@ private:
     // Scrive un campo dal programma, a segnali bloccati (m_rm segue).
     void setRmText(RmField field, const QString &text);
 
+    // ----------------------------------------------------------
+    // COSTANTI A..F, S E STEPS: STATO
+    // ----------------------------------------------------------
+    // I testi dei campi delle costanti COSI' COME SONO SCRITTI (numeri o
+    // espressioni a cascata, "A/10"): sono la fonte. Gli slider sono la vista
+    // dei valori risolti (syncConstantSliders), il motore il derivato
+    // (setEngineConstants). In Ray Marching il campo S e' lo Step Relax del
+    // marcher. La logica legge m_const, non i widget.
+    // Un QLineEdit non ha un documento separato che segua le scritture a
+    // segnali bloccati: chi scrive un campo dal programma passa da
+    // setConstText, la digitazione arriva dal textChanged (bindConstantFields).
+    struct ConstantTexts { QString a, b, c, d, e, f, s; };
+    using ConstField = QString ConstantTexts::*;
+    ConstantTexts m_const;
+    // I sette campi nell'ordine della cascata (B puo' citare A, S tutte).
+    static const std::array<ConstField, 7> &constantFields();
+    static QString constantName(ConstField field);
+    QLineEdit *constantFieldEdit(ConstField field) const;
+    QSlider *constantSlider(ConstField field) const;
+    // Aggancia i campi a m_const e lo slider Steps a m_steps. Subito dopo
+    // setupUi, come bindEquationFields.
+    void bindConstantFields();
+    // Scrive un campo dal programma, a segnali bloccati. Lo slider NON lo
+    // tocca: dopo una o piu' scritture, refreshConstantSliders (o una
+    // pushConstantsToEngine, che li riallinea anche lei).
+    void setConstText(ConstField field, const QString &text);
+    void setConstValue(ConstField field, double value);   // formato 'g', 6
+    void refreshConstantSliders();
+    // Steps: in parametrico la risoluzione della mesh, in Ray Marching i Ray
+    // Steps. Lo slider e il campo ne sono la vista; il motore (setResolution /
+    // setRaySteps) lo scrive chi chiama. setSteps: dal programma, a segnali
+    // bloccati, allargando il range dello slider se serve.
+    int m_steps = 100;
+    void setSteps(int steps);
+
     bool m_surfaceTextureState = false;
     bool m_blockTextureGen = false;
     // Alzato durante un cambio tab AUTOMATICO, cioe' deciso dal preset che si
@@ -1379,8 +1416,6 @@ private:
     // cambio vero (currentChanged) sia dal riclic sulla linguetta gia' attiva,
     // che currentChanged non emette: stesso ruolo di applyModeTabReset.
     void applyImplicitSubTabReset(int subIndex);
-    // Scrive una costante (campo + slider) a segnali bloccati.
-    void setConstantField(QLineEdit *edit, QSlider *slider, float v);
     QString presetsRootPath() const;
     // Data la cartella che l'utente ha indicato in un pannello, restituisce la
     // RADICE DELLA LIBRERIA: quella cartella stessa se e' gia' una radice (dentro

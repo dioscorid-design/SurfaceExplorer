@@ -570,7 +570,7 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
     d.zMin = spaceLimit(mw->ui->lineZMin, -1000.0f);
     d.zMax = spaceLimit(mw->ui->lineZMax, 1000.0f);
 
-    d.steps = mw->ui->stepSlider->value();
+    d.steps = mw->m_steps;
 
     // Colore e trasparenza GLOBALI dal motore, mai dai controlli: in ambito
     // "Mesh" mostrano la mesh selezionata (vedi globalSurfaceColor/Alpha).
@@ -1524,7 +1524,7 @@ void PresetSerializer::saveScript()
         root["isScript"] = true;
         root["isImplicitMode"] = (m_mainWindow->ui->tabModeSelector->currentIndex() == 1);
 
-        root["steps"] = m_mainWindow->ui->stepSlider->value();
+        root["steps"] = m_mainWindow->m_steps;
 
         QJsonObject limits;
         writeParametricLimits(limits);

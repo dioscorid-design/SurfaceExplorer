@@ -907,6 +907,7 @@ MainWindow::MainWindow(QWidget *parent)
     // =========================================================================
     ui->setupUi(this);
     bindEquationFields();   // prima di ogni altro connect sui campi delle equazioni
+    bindConstantFields();   // ...e su quelli delle costanti e lo slider Steps
 
     // FULL IMMERSION
     if (this->centralWidget() && this->centralWidget()->layout()) {
@@ -1824,8 +1825,7 @@ MainWindow::MainWindow(QWidget *parent)
     ui->glWidget->setEngineMode(GLWidget::ModeParametric);
 
     ui->stepSlider->setRange(10, 1000);
-    ui->stepSlider->setValue(m_lastParametricSteps);
-    ui->lineSteps->setText(QString::number(m_lastParametricSteps));
+    setSteps(m_lastParametricSteps);
     ui->glWidget->setResolution(m_lastParametricSteps);
 
     ui->lblSteps->setText("Steps=");
@@ -1987,7 +1987,7 @@ MainWindow::MainWindow(QWidget *parent)
         m_meshDebounce->setInterval(120);
         connect(m_meshDebounce, &QTimer::timeout, this, [this]() {
             if (ui->glWidget && ui->tabModeSelector->currentIndex() != 1) {
-                ui->glWidget->setResolution(ui->stepSlider->value());
+                ui->glWidget->setResolution(m_steps);
             }
             // Input nuovo (costanti/steps): un errore geodetico precedente non
             // deve congelare il ricalcolo, altrimenti riportare una costante
@@ -2012,12 +2012,12 @@ MainWindow::MainWindow(QWidget *parent)
     }
 
     // --- MOTORE COSTANTI A CASCATA --- (vedi MainWindow::evaluateCascade)
-    auto connectSlider = [this](QSlider* slider, QLineEdit* line) {
-        connect(slider, &QSlider::valueChanged, this, [this, line](int val) {
+    auto connectSlider = [this](ConstField field) {
+        QSlider *slider = constantSlider(field);
+        QLineEdit *line = constantFieldEdit(field);
+        connect(slider, &QSlider::valueChanged, this, [this, field, line](int val) {
             if (!line->hasFocus()) {
-                bool oldState = line->blockSignals(true);
-                line->setText(QString::number(val / 100.0f, 'g', 6));
-                line->blockSignals(oldState);
+                setConstText(field, QString::number(val / 100.0f, 'g', 6));
                 evaluateCascade(); // Aggiorna le altre caselle che dipendono da questo!
             }
         });
@@ -2029,10 +2029,7 @@ MainWindow::MainWindow(QWidget *parent)
         });
     };
 
-    connectSlider(ui->aSlider, ui->lineA); connectSlider(ui->bSlider, ui->lineB);
-    connectSlider(ui->cSlider, ui->lineC); connectSlider(ui->dSlider, ui->lineD);
-    connectSlider(ui->eSlider, ui->lineE); connectSlider(ui->fSlider, ui->lineF);
-    connectSlider(ui->sSlider, ui->lineS);
+    for (ConstField f : constantFields()) connectSlider(f);
 
     auto connectLineEdit = [this](QLineEdit* line) {
         connect(line, &QLineEdit::editingFinished, this, [this]() {
@@ -2056,13 +2053,15 @@ MainWindow::MainWindow(QWidget *parent)
 
     ui->stepSlider->setRange(10, 1000);
     int initialSteps = 100;
-    ui->stepSlider->setValue(initialSteps);
-    ui->lineSteps->setText(QString::number(initialSteps));
+    setSteps(initialSteps);
     ui->glWidget->setResolution(initialSteps);
     ui->lblSteps->setText(QString("Steps="));
 
     // (1) valueChanged: aggiorna testo + avvia debounce
     connect(ui->stepSlider, &QSlider::valueChanged, this, [this](int val) {
+        // Il gesto (o un setValue a segnali vivi, come la riduzione del
+        // massimo in checkParametricDependency): lo stato per primo.
+        m_steps = val;
         ui->lineSteps->setText(QString::number(val));
         if (!ui->glWidget) return;
         if (ui->tabModeSelector->currentIndex() == 1) {
@@ -2098,9 +2097,7 @@ MainWindow::MainWindow(QWidget *parent)
                 if (notify && !m_constantPopupActive) {
                     m_constantPopupActive = true;
                     InputValidator::showInvalidStepsError(this, txt);
-                    bool oldL = ui->lineSteps->blockSignals(true);
-                    ui->lineSteps->setText(QString::number(ui->stepSlider->value()));
-                    ui->lineSteps->blockSignals(oldL);
+                    setSteps(m_steps);   // il campo torna a mostrare lo stato
                     ui->lineSteps->selectAll();
                     // Reset RIMANDATO a fine ciclo di eventi, come gli altri
                     // popup di questo modulo. Oggi qui si arriva una volta sola
@@ -2115,8 +2112,8 @@ MainWindow::MainWindow(QWidget *parent)
             }
         }
         val = std::clamp(val, ui->stepSlider->minimum(), ui->stepSlider->maximum());
-        if (val != ui->stepSlider->value())
-            ui->stepSlider->setValue(val);   // emette valueChanged -> aggiorna glWidget e testo
+        if (val != m_steps)
+            ui->stepSlider->setValue(val);   // emette valueChanged -> stato, glWidget e testo
     };
 
     // Trigger "forti": al commit notifichiamo (notify=true)
@@ -5063,8 +5060,6 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     m_currentBgTextureLibName.clear();
     m_currentSoundLibName.clear();
 
-    ui->stepSlider->blockSignals(true);
-
     // FLUSSO GEODETICO fermato PRIMA di svuotare i campi. E' un moto come le
     // rotazioni e i path (fermati poco piu' sotto) ma non veniva mai spento dal
     // reset: il suo timer continuava a girare su una scena azzerata, chiamava
@@ -5398,18 +5393,10 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // rami qui sotto lo riscrivono comunque col valore di modalita'
     // (m_lastImplicitS / m_lastParametricS), quindi non resterebbe stantio.
     {
-        auto resetConst = [](QSlider *sl, QLineEdit *ln) {
-            if (!sl || !ln) return;
-            QSignalBlocker bs(sl), bl(ln);
-            ln->setText(QStringLiteral("1"));
-            sl->setValue(100);
-        };
-        resetConst(ui->aSlider, ui->lineA);
-        resetConst(ui->bSlider, ui->lineB);
-        resetConst(ui->cSlider, ui->lineC);
-        resetConst(ui->dSlider, ui->lineD);
-        resetConst(ui->eSlider, ui->lineE);
-        resetConst(ui->fSlider, ui->lineF);
+        for (ConstField f : { &ConstantTexts::a, &ConstantTexts::b, &ConstantTexts::c,
+                              &ConstantTexts::d, &ConstantTexts::e, &ConstantTexts::f })
+            setConstText(f, QStringLiteral("1"));
+        refreshConstantSliders();
 
         // La memoria della s PARAMETRICA torna al default: e' il valore che il
         // ramo parametrico riscrive nel campo poco sotto, quindi senza questo
@@ -5454,10 +5441,10 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         m_lightingMode4D = 0;
         if (ui->btnLightMode) ui->btnLightMode->setText("Directional Lighting");
 
-        m_lastParametricSteps = ui->stepSlider->value();
+        m_lastParametricSteps = m_steps;
 
         // 1. SALVA IN MEMORIA IL VALORE PARAMETRICO DELLA S
-        m_lastParametricS = ui->lineS->text().toDouble();
+        m_lastParametricS = m_const.s.toDouble();
 
         // 2. Ferma il timer dell'animazione shader (rotazioni, tempo e path
         // camera sono già stati fermati nei blocchi comuni più sopra).
@@ -5539,10 +5526,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
 
         ui->lblSteps->setText("Ray Steps=");
 
-        ui->stepSlider->setValue(m_lastImplicitSteps);
-
-        // Aggiornamento forzato manuale della UI ignorando il blocco segnali
-        ui->lineSteps->setText(QString::number(m_lastImplicitSteps));
+        setSteps(m_lastImplicitSteps);
         ui->glWidget->setRaySteps(m_lastImplicitSteps);
 
         // Reset Limiti Spaziali per non tagliare la superficie di default
@@ -5641,8 +5625,8 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         }
     }
     else { // --- PASSAGGIO A PARAMETRIC (TAB 0) ---
-        m_lastImplicitSteps = ui->stepSlider->value();
-        m_lastImplicitS = ui->lineS->text().toDouble();
+        m_lastImplicitSteps = m_steps;
+        m_lastImplicitS = m_const.s.toDouble();
 
         // 1. RESET FISICO (lo stop delle rotazioni e del tempo e' gia' stato
         // fatto nel blocco comune ai due rami, qui sopra; i path camera nel
@@ -5721,9 +5705,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         ui->glWidget->setEngineMode(GLWidget::ModeParametric);
         ui->lblSteps->setText("Steps=");
 
-        ui->stepSlider->setValue(m_lastParametricSteps);
-        // FIX 4: Aggiornamento forzato manuale del testo
-        ui->lineSteps->setText(QString::number(m_lastParametricSteps));
+        setSteps(m_lastParametricSteps);
         ui->glWidget->setResolution(m_lastParametricSteps);
 
         if (loadDefaultSurface) {
@@ -5785,7 +5767,6 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     checkParametricDependency();
     ui->glWidget->update();
     updateScriptButtonText();
-    ui->stepSlider->blockSignals(false);
 
     // Il cambio tab ripristina e RENDERIZZA la superficie di default del tab di
     // destinazione (toro o sfera): non c'è nulla da applicare, quindi i Run
@@ -7484,7 +7465,11 @@ void MainWindow::updateConstantsUIState() {
                 " " + ui->lineZ_P3D->text() + " " + ui->lineR_P3D->text();
 
     // 3. LOGICA DI BLOCCO/SBLOCCO E RESET
-    auto updateControl = [&](const QString& letter, QSlider* slider, QLineEdit* line) {
+    bool resetToNeutral = false;
+    auto updateControl = [&](ConstField field) {
+        const QString letter = constantName(field);
+        QSlider *slider = constantSlider(field);
+        QLineEdit *line = constantFieldEdit(field);
 
         bool used = false;
 
@@ -7507,9 +7492,6 @@ void MainWindow::updateConstantsUIState() {
         }
 
         if (!used) {
-            bool oldS = slider->blockSignals(true);
-            bool oldL = line->blockSignals(true);
-
             // CAMPO EQUAZIONE VUOTO: si DISABILITA ma non si resetta. "Nessuna
             // costante citata" qui non vuol dire "nessuna costante serve": vuol
             // dire che non c'e' ancora un'equazione da cui dedurlo, e il valore
@@ -7525,21 +7507,17 @@ void MainWindow::updateConstantsUIState() {
             // Il reset resta per il caso vero -- equazione presente che NON cita
             // quella costante.
             if (!equationFieldIsEmpty) {
-                // RESET: S a 0.0, le altre (A-F) a 1.0
-                if (letter == "S") {
-                    line->setText("0");
-                    slider->setValue(0);
-                } else {
-                    line->setText("1");
-                    slider->setValue(100);
+                // RESET: S a 0.0, le altre (A-F) a 1.0 (lo slider lo
+                // riallinea refreshConstantSliders, in fondo).
+                const QString neutral = letter == "S" ? QStringLiteral("0") : QStringLiteral("1");
+                if (m_const.*field != neutral) {
+                    setConstText(field, neutral);
+                    resetToNeutral = true;
                 }
             }
 
             slider->setEnabled(false);
             line->setEnabled(false);
-
-            slider->blockSignals(oldS);
-            line->blockSignals(oldL);
         } else {
             slider->setEnabled(true);
             line->setEnabled(true);
@@ -7548,20 +7526,16 @@ void MainWindow::updateConstantsUIState() {
             // usate tramite lei. Senza, con B = A/10 e le equazioni che citano
             // la sola B, A veniva dichiarata in disuso e riportata a 1 -- e B,
             // cioe' la superficie, cambiava con lei (test degli scenari).
-            mathText += " " + line->text();
+            mathText += " " + m_const.*field;
         }
     };
 
     // Dall'ULTIMA alla prima: la cascata va solo in avanti (B puo' citare A, S
     // tutte le altre), quindi quando si giudica una lettera i campi di quelle
     // che possono citarla sono gia' stati aggiunti al testo.
-    updateControl("S", ui->sSlider, ui->lineS);
-    updateControl("F", ui->fSlider, ui->lineF);
-    updateControl("E", ui->eSlider, ui->lineE);
-    updateControl("D", ui->dSlider, ui->lineD);
-    updateControl("C", ui->cSlider, ui->lineC);
-    updateControl("B", ui->bSlider, ui->lineB);
-    updateControl("A", ui->aSlider, ui->lineA);
+    const auto &fields = constantFields();
+    for (auto it = fields.rbegin(); it != fields.rend(); ++it) updateControl(*it);
+    if (resetToNeutral) refreshConstantSliders();
 }
 
 void MainWindow::performMasterStop()
@@ -7931,7 +7905,7 @@ void MainWindow::dumpTextureState(const char *tag) const
         .arg(QString::fromUtf8(tag), -28)
         .arg(isImplicit ? "RM" : "PAR")
         .arg(meshIdx).arg(g ? g->meshPartCount() : 0)
-        .arg(ui->lineF ? ui->lineF->text() : QString("?"))
+        .arg(m_const.f)
         .arg(densityOf(g ? g->currentTextureCode() : QString()))
         .arg(sigOf(g ? g->currentTextureCode() : QString()))
         .arg(densityOf(g ? g->currentParametricTextureCode() : QString()))
@@ -9619,23 +9593,19 @@ void MainWindow::handleTextureSelection(int index)
     // di zoom/pan/rotazione sul riclic: si azzera cio' che e' della texture.
     {
         const QSet<QString> freeConsts = constantsNotUsedBySurface();
-        auto resetConst = [this](const QString &letter, QSlider *sl, QLineEdit *ln) {
-            const bool isS = (letter == QLatin1String("S"));
-            QSignalBlocker bs(sl), bl(ln);
-            ln->setText(isS ? QStringLiteral("0") : QStringLiteral("1"));
-            sl->setValue(isS ? 0 : 100);
-        };
-        if (freeConsts.contains("A")) resetConst("A", ui->aSlider, ui->lineA);
-        if (freeConsts.contains("B")) resetConst("B", ui->bSlider, ui->lineB);
-        if (freeConsts.contains("C")) resetConst("C", ui->cSlider, ui->lineC);
-        if (freeConsts.contains("D")) resetConst("D", ui->dSlider, ui->lineD);
-        if (freeConsts.contains("E")) resetConst("E", ui->eSlider, ui->lineE);
-        if (freeConsts.contains("F")) resetConst("F", ui->fSlider, ui->lineF);
-        // S in Ray Marching e' lo Step Relax del ray marcher, non una costante
-        // libera: resettarlo congela i raggi (vedi la guardia in
-        // updateConstantsUIState). Si tocca solo in parametrica.
-        if (freeConsts.contains("S") && ui->tabModeSelector->currentIndex() != 1)
-            resetConst("S", ui->sSlider, ui->lineS);
+        for (ConstField f : constantFields()) {
+            const QString letter = constantName(f);
+            if (!freeConsts.contains(letter)) continue;
+            // S in Ray Marching e' lo Step Relax del ray marcher, non una
+            // costante libera: resettarlo congela i raggi (vedi la guardia in
+            // updateConstantsUIState). Si tocca solo in parametrica.
+            if (f == &ConstantTexts::s) {
+                if (ui->tabModeSelector->currentIndex() != 1) setConstText(f, QStringLiteral("0"));
+            } else {
+                setConstText(f, QStringLiteral("1"));
+            }
+        }
+        refreshConstantSliders();
     }
 
     // SLIDER DELLE COSTANTI: vanno ricalcolati sul codice APPENA caricato.
@@ -9757,25 +9727,21 @@ bool MainWindow::updateWLimits() {
 MainWindow::CascadeConstants MainWindow::resolveCascadeConstants(bool restoreTextOnNegative,
                                                                  CascadeIssues *issues)
 {
-    struct Field { QLineEdit *edit; const char *name; };
-    const Field fields[7] = {
-        { ui->lineA, "A" }, { ui->lineB, "B" }, { ui->lineC, "C" }, { ui->lineD, "D" },
-        { ui->lineE, "E" }, { ui->lineF, "F" }, { ui->lineS, "S" },
-    };
+    const auto &fields = constantFields();
 
     // v[i] resta 0 finche' la sua costante non e' stata valutata: ogni campo
     // vede solo le costanti che lo precedono.
     float v[7] = { 0, 0, 0, 0, 0, 0, 0 };
     for (int i = 0; i < 7; ++i) {
-        QLineEdit *edit = fields[i].edit;
+        QLineEdit *edit = constantFieldEdit(fields[i]);
         bool ok = true;
-        float raw = parseUIConstant(edit->text(), v[0], v[1], v[2], v[3], v[4], v[5], 0, &ok);
+        float raw = parseUIConstant(m_const.*fields[i], v[0], v[1], v[2], v[3], v[4], v[5], 0, &ok);
 
         if (!ok) {
             // Testo che non si valuta: vale 0 e NON diventa l'ultimo valore valido.
             if (issues && !issues->invalidEdit) {
                 issues->invalidEdit = edit;
-                issues->invalidName = QLatin1String(fields[i].name);
+                issues->invalidName = constantName(fields[i]);
             }
         } else if (i < 6) {
             // A..F non ammettono valori negativi: si torna all'ultimo valore
@@ -9783,12 +9749,10 @@ MainWindow::CascadeConstants MainWindow::resolveCascadeConstants(bool restoreTex
             // il tempo).
             if (raw < 0.0f) {
                 const float prev = m_lastValidConst.value(edit, 1.0f);
-                if (restoreTextOnNegative) {
-                    QSignalBlocker b(edit);   // niente editingFinished/valueChanged ricorsivi
-                    edit->setText(QString::number(prev, 'g', 6));
-                }
+                if (restoreTextOnNegative)
+                    setConstValue(fields[i], prev);   // a segnali bloccati: niente ricorsione
                 if (issues && issues->negativeName.isEmpty())
-                    issues->negativeName = QLatin1String(fields[i].name);
+                    issues->negativeName = constantName(fields[i]);
                 raw = prev;
             } else {
                 m_lastValidConst[edit] = raw;
@@ -9988,13 +9952,13 @@ void MainWindow::onStartClicked()
         return parseUIConstant(s, 0, 0, 0, 0, 0, 0, 0, ok);
     };
     if (!InputValidator::validateConstants(this, {
-        {"A", ui->lineA->text()},
-        {"B", ui->lineB->text()},
-        {"C", ui->lineC->text()},
-        {"D", ui->lineD->text()},
-        {"E", ui->lineE->text()},
-        {"F", ui->lineF->text()},
-        {"S", ui->lineS->text()},
+        {"A", m_const.a},
+        {"B", m_const.b},
+        {"C", m_const.c},
+        {"D", m_const.d},
+        {"E", m_const.e},
+        {"F", m_const.f},
+        {"S", m_const.s},
     }, constParse)) {
     return;
     }
@@ -12150,7 +12114,7 @@ void MainWindow::onRunCurrentScript()
             }
             glslBody = GlslTranslator::translateEquation(glslBody);
 
-            ui->glWidget->setRaySteps(ui->stepSlider->value());
+            ui->glWidget->setRaySteps(m_steps);
 
             // 2. SECONDA LINEA DI DIFESA: dry-run del fragment implicito.
             if (!ui->glWidget->validateAndApplyImplicitScript(glslBody)) {
@@ -12443,7 +12407,7 @@ void MainWindow::onRunScriptClicked()
     }
     glslBody = GlslTranslator::translateEquation(glslBody);
 
-    ui->glWidget->setResolution(ui->stepSlider->value());
+    ui->glWidget->setResolution(m_steps);
     // Dai CAMPI, non dagli slider: lo slider ha passo 0.01 e mostra il campo.
     setEngineConstants(resolveCascadeConstants(false), /*onlyIfChanged=*/false);
 
@@ -14167,8 +14131,8 @@ void MainWindow::applySurfaceExample(LibraryItem d)
             updateULimits();
             updateVLimits();
             updateWLimits();
-            ui->glWidget->setResolution(ui->stepSlider->value());
-            ui->glWidget->setRaySteps(ui->stepSlider->value());
+            ui->glWidget->setResolution(m_steps);
+            ui->glWidget->setRaySteps(m_steps);
 
             if (!isScript) {
                 checkAndTriggerMeshUpdate();
@@ -15437,8 +15401,8 @@ void MainWindow::applyMotionExample(LibraryItem data)
             updateULimits();
             updateVLimits();
             updateWLimits();
-            ui->glWidget->setResolution(ui->stepSlider->value());
-            ui->glWidget->setRaySteps(ui->stepSlider->value());
+            ui->glWidget->setResolution(m_steps);
+            ui->glWidget->setRaySteps(m_steps);
 
             if (!isScript) {
                 checkAndTriggerMeshUpdate();
@@ -16816,34 +16780,6 @@ bool MainWindow::implicitShellSelected() const
     return ui->radioShell && ui->radioShell->isChecked();
 }
 
-// Scrive una costante (campo di testo + slider) senza far girare gli handler.
-// Estratta da loadCrossSectionDefaultSurface perche' ora serve anche a
-// resetImplicitSharedFields: due copie della stessa scrittura divergerebbero
-// proprio sul dettaglio che segue (il range dello slider).
-void MainWindow::setConstantField(QLineEdit *edit, QSlider *slider, float v)
-{
-    if (edit) {
-        const bool old = edit->blockSignals(true);
-        edit->setText(QString::number(v));
-        edit->blockSignals(old);
-    }
-    if (slider) {
-        const bool old = slider->blockSignals(true);
-        const int intVal = static_cast<int>(v * 100.0f);
-        // Il range dello slider e' governato a runtime da setSmartSlider
-        // (si allarga quando l'utente digita valori grandi) e puo' essere
-        // rimasto piu' stretto del valore che vogliamo mostrare qui —
-        // senza un setRange esplicito, setValue lo clamperebbe in
-        // silenzio, apparendo "bloccato". Garantiamo che il valore
-        // target ci stia sempre dentro.
-        int newMin = std::min(slider->minimum(), intVal);
-        int newMax = std::max(slider->maximum(), intVal);
-        slider->setRange(newMin, newMax);
-        slider->setValue(intVal);
-        slider->blockSignals(old);
-    }
-}
-
 // LIMITI SPAZIALI X/Y/Z e COSTANTI A..F/S al cambio di sotto-tab implicito.
 // Questi controlli sono UNA SOLA istanza fisica condivisa fra "3D" e "Cross
 // Section" (decisione esplicita: solo equazione e radio Shell/Solid sono
@@ -16953,18 +16889,8 @@ void MainWindow::resetImplicitSharedFields()
     // e lo shader lo legge da u_mathParams.w). Per questo si scrive qui e non
     // insieme ad A..F.
     m_lastImplicitS = 0.4;
-    if (ui->lineS) {
-        const bool old = ui->lineS->blockSignals(true);
-        ui->lineS->setText(QString::number(m_lastImplicitS));
-        ui->lineS->blockSignals(old);
-    }
-    if (ui->sSlider) {
-        const bool old = ui->sSlider->blockSignals(true);
-        ui->sSlider->setMinimum(0);
-        ui->sSlider->setMaximum(100);          // Step Relax: 0..1 (vedi setSmartSlider)
-        ui->sSlider->setValue(static_cast<int>(m_lastImplicitS * 100));
-        ui->sSlider->blockSignals(old);
-    }
+    setConstValue(&ConstantTexts::s, m_lastImplicitS);
+    refreshConstantSliders();   // Step Relax: 0..1 (vedi syncConstantSliders)
 
     // VISTA: zoom, pan e orientamento della camera. Come i limiti e le manopole
     // del marcher e' stato GLOBALE, non per-sotto-tab, quindi aprendo l'altro
@@ -16988,16 +16914,7 @@ void MainWindow::resetImplicitSharedFields()
 
     const int kDefaultRaySteps = 400;
     m_lastImplicitSteps = kDefaultRaySteps;   // memoria allineata a cio' che si vede
-    if (ui->stepSlider) {
-        const bool old = ui->stepSlider->blockSignals(true);
-        ui->stepSlider->setValue(kDefaultRaySteps);
-        ui->stepSlider->blockSignals(old);
-    }
-    if (ui->lineSteps) {
-        const bool old = ui->lineSteps->blockSignals(true);
-        ui->lineSteps->setText(QString::number(kDefaultRaySteps));
-        ui->lineSteps->blockSignals(old);
-    }
+    setSteps(kDefaultRaySteps);
     if (ui->glWidget) ui->glWidget->setRaySteps(kDefaultRaySteps);
 }
 
@@ -17193,26 +17110,15 @@ void MainWindow::loadCrossSectionDefaultSurface()
     // dopo, il motore avrebbe continuato a marciare con 0.4.
     const double kCrossSectionStepRelax = 0.4;
     m_lastImplicitS = kCrossSectionStepRelax;
-    if (ui->lineS) {
-        const bool old = ui->lineS->blockSignals(true);
-        ui->lineS->setText(QString::number(kCrossSectionStepRelax));
-        ui->lineS->blockSignals(old);
-    }
-    if (ui->sSlider) {
-        const bool old = ui->sSlider->blockSignals(true);
-        ui->sSlider->setMinimum(0);
-        ui->sSlider->setMaximum(100);          // Step Relax: 0..1
-        ui->sSlider->setValue(static_cast<int>(kCrossSectionStepRelax * 100));
-        ui->sSlider->blockSignals(old);
-    }
+    setConstValue(&ConstantTexts::s, kCrossSectionStepRelax);
 
-    setConstantField(ui->lineA, ui->aSlider, valA);
-    setConstantField(ui->lineB, ui->bSlider, valB);
-    setConstantField(ui->lineC, ui->cSlider, valC);
+    setConstValue(&ConstantTexts::a, valA);
+    setConstValue(&ConstantTexts::b, valB);
+    setConstValue(&ConstantTexts::c, valC);
 
     // Dai campi appena scritti (A/B/C e lo Step Relax in S) e da quelli rimasti
-    // com'erano (D/E/F).
-    setEngineConstants(resolveCascadeConstants(false), /*onlyIfChanged=*/false);
+    // com'erano (D/E/F): slider e motore.
+    pushConstantsToEngine(/*restoreTextOnNegative=*/false, /*always=*/true);
 
     // Shell/Solid tornano al default (Shell). applyImplicitShellMode muove
     // entrambe le coppie di radio e scrive il motore: non serve piu' una copia
@@ -17265,16 +17171,7 @@ void MainWindow::loadCrossSectionDefaultSurface()
     // lei, e m_lastImplicitSteps resta allineata a cio' che si vede.
     const int kCrossSectionRaySteps = 350;
     m_lastImplicitSteps = kCrossSectionRaySteps;
-    if (ui->stepSlider) {
-        const bool old = ui->stepSlider->blockSignals(true);
-        ui->stepSlider->setValue(kCrossSectionRaySteps);
-        ui->stepSlider->blockSignals(old);
-    }
-    if (ui->lineSteps) {
-        const bool old = ui->lineSteps->blockSignals(true);
-        ui->lineSteps->setText(QString::number(kCrossSectionRaySteps));
-        ui->lineSteps->blockSignals(old);
-    }
+    setSteps(kCrossSectionRaySteps);
     if (ui->glWidget) ui->glWidget->setRaySteps(kCrossSectionRaySteps);
 
     if (ui->glWidget) {
@@ -17346,47 +17243,22 @@ void MainWindow::loadCrossSectionDefaultSurface()
 // -- vedi il commento sulla mappa qui sotto.
 void MainWindow::applyPresetConstants(const LibraryItem &d, bool rebuildDiscreteMap)
 {
-    ui->aSlider->blockSignals(true); ui->lineA->blockSignals(true);
-    ui->bSlider->blockSignals(true); ui->lineB->blockSignals(true);
-    ui->cSlider->blockSignals(true); ui->lineC->blockSignals(true);
-    ui->dSlider->blockSignals(true); ui->lineD->blockSignals(true);
-    ui->eSlider->blockSignals(true); ui->lineE->blockSignals(true);
-    ui->fSlider->blockSignals(true); ui->lineF->blockSignals(true);
-    ui->sSlider->blockSignals(true); ui->lineS->blockSignals(true);
-
-    // Lambda per espandere il range quando si carica un salvataggio estremo
-    auto updateSliderPreset = [](QSlider* s, float v, bool isS) {
-        int intVal = static_cast<int>(v * 100.0f);
-        int newMin = isS ? std::min(-1000, intVal) : 0;
-        int newMax = std::max(1000, intVal);
-        s->setRange(newMin, newMax);
-        s->setValue(intVal);
-    };
-
-    updateSliderPreset(ui->aSlider, d.a, false);
-    updateSliderPreset(ui->bSlider, d.b, false);
-    updateSliderPreset(ui->cSlider, d.c, false);
-    updateSliderPreset(ui->dSlider, d.d, false);
-    updateSliderPreset(ui->eSlider, d.e, false);
-    updateSliderPreset(ui->fSlider, d.f, false);
-    updateSliderPreset(ui->sSlider, d.s, true);
-
     // Formato 'g',6 (precisione significativa), NON 'f',2: quest'ultimo troncava le
     // costanti a 2 decimali al LOAD (es. A=0.005 -> "0.01"), e un successivo salvataggio
     // le rileggeva gia' rovinate da lineA -> il valore fine si perdeva. 'g',6 e' coerente
     // con connectSlider (che scrive i campi con lo stesso formato).
-    ui->lineA->setText(QString::number(d.a, 'g', 6));
-    ui->lineB->setText(QString::number(d.b, 'g', 6));
-    ui->lineC->setText(QString::number(d.c, 'g', 6));
-    ui->lineD->setText(QString::number(d.d, 'g', 6));
-    ui->lineE->setText(QString::number(d.e, 'g', 6));
-    ui->lineF->setText(QString::number(d.f, 'g', 6));
-    ui->lineS->setText(QString::number(d.s, 'g', 6));
+    setConstValue(&ConstantTexts::a, d.a);
+    setConstValue(&ConstantTexts::b, d.b);
+    setConstValue(&ConstantTexts::c, d.c);
+    setConstValue(&ConstantTexts::d, d.d);
+    setConstValue(&ConstantTexts::e, d.e);
+    setConstValue(&ConstantTexts::f, d.f);
+    setConstValue(&ConstantTexts::s, d.s);
 
     // Costanti discrete dichiarate dal PRESET ("discreteConstants": {"A":[2,6]}).
-    // Vanno adottate QUI, a campi appena scritti e segnali ancora bloccati:
-    // applyDiscreteConstants() legge i QLineEdit e li riscrive con l'intero piu'
-    // vicino, quindi deve girare dopo il ripristino dei valori.
+    // Vanno adottate QUI, a campi appena scritti: applyDiscreteConstants()
+    // legge i campi e li riscrive con l'intero piu' vicino, quindi deve girare
+    // dopo il ripristino dei valori.
     // Azzerata SEMPRE per prima: un preset che non le dichiara deve tornare a
     // costanti continue, altrimenti quelle del preset precedente resterebbero
     // attive (stessa famiglia di bug del cutout che persisteva fra superfici).
@@ -17413,18 +17285,10 @@ void MainWindow::applyPresetConstants(const LibraryItem &d, bool rebuildDiscrete
     }
     if (!m_discreteConsts.isEmpty()) applyDiscreteConstants();
 
-    ui->aSlider->blockSignals(false); ui->lineA->blockSignals(false);
-    ui->bSlider->blockSignals(false); ui->lineB->blockSignals(false);
-    ui->cSlider->blockSignals(false); ui->lineC->blockSignals(false);
-    ui->dSlider->blockSignals(false); ui->lineD->blockSignals(false);
-    ui->eSlider->blockSignals(false); ui->lineE->blockSignals(false);
-    ui->fSlider->blockSignals(false); ui->lineF->blockSignals(false);
-    ui->sSlider->blockSignals(false); ui->lineS->blockSignals(false);
-
-    // Le costanti spinte alla GPU sono quelle dei CAMPI appena scritti, quindi
-    // anche quelle EVENTUALMENTE snappate sopra: la superficie non nasce con
-    // A=3.47 mentre il campo mostra 3. Stessa cascata di ogni altro percorso.
-    setEngineConstants(resolveCascadeConstants(false), /*onlyIfChanged=*/false);
+    // Slider e GPU dai CAMPI appena scritti, quindi anche dalle costanti
+    // EVENTUALMENTE snappate sopra: la superficie non nasce con A=3.47 mentre
+    // il campo mostra 3. Stessa cascata di ogni altro percorso.
+    pushConstantsToEngine(/*restoreTextOnNegative=*/false, /*always=*/true);
 }
 
 // Campi di COMPOSIZIONE (defU/V/W) e di VINCOLO (explicitU/V/W) dal preset.
@@ -17712,15 +17576,7 @@ void MainWindow::applyCommonData(LibraryItem d)
     }
 
     // 2. Risoluzione e Limiti (Sovrascrive i default se il preset li contiene)
-    bool oldStep = ui->stepSlider->blockSignals(true);
-
-    if (ui->stepSlider->maximum() < d.steps) {
-        ui->stepSlider->setMaximum(std::max(1000, d.steps));
-    }
-
-    ui->stepSlider->setValue(d.steps);
-    ui->lineSteps->setText(QString::number(d.steps));
-    ui->stepSlider->blockSignals(oldStep);
+    setSteps(d.steps);
 
     ui->glWidget->setResolution(d.steps);
     ui->glWidget->setRaySteps(d.steps);
@@ -18069,7 +17925,7 @@ void MainWindow::applyCommonData(LibraryItem d)
 
             ui->glWidget->getEngine()->setScriptCodeGLSL(glslBody);
             ui->glWidget->getEngine()->setScriptMode(true);
-            ui->glWidget->setRaySteps(ui->stepSlider->value());
+            ui->glWidget->setRaySteps(m_steps);
 
             // Il campo di uno script implicito e' GLSL grezzo, non valutabile su CPU:
             // la rilevazione "campo a prodotto" (Chain) non si applica. Azzeriamo quel
@@ -19229,17 +19085,9 @@ bool MainWindow::applyDiscreteConstants()
 {
     if (m_discreteConsts.isEmpty() && m_minConsts.isEmpty()) return false;
 
-    struct Row { const char* name; QLineEdit* line; QSlider* slider; };
-    const Row rows[] = {
-        { "A", ui->lineA, ui->aSlider }, { "B", ui->lineB, ui->bSlider },
-        { "C", ui->lineC, ui->cSlider }, { "D", ui->lineD, ui->dSlider },
-        { "E", ui->lineE, ui->eSlider }, { "F", ui->lineF, ui->fSlider },
-        { "S", ui->lineS, ui->sSlider },
-    };
-
     bool changed = false;
-    for (const Row& r : rows) {
-        const QString key = QString::fromLatin1(r.name);
+    for (ConstField field : constantFields()) {
+        const QString key = constantName(field);
         auto it    = m_discreteConsts.constFind(key);
         auto itMin = m_minConsts.constFind(key);
         const bool isDiscrete = (it != m_discreteConsts.constEnd());
@@ -19247,7 +19095,7 @@ bool MainWindow::applyDiscreteConstants()
         if (!isDiscrete && !hasMin) continue;
 
         bool ok = false;
-        const float cur = r.line->text().trimmed().toFloat(&ok);
+        const float cur = (m_const.*field).trimmed().toFloat(&ok);
         if (!ok) continue;   // espressione (es. "A*2"): non la tocchiamo
 
         float target = cur;
@@ -19260,21 +19108,12 @@ bool MainWindow::applyDiscreteConstants()
         }
 
         if (qFuzzyCompare(cur, target)) continue;
-        const int snapped = qRound(target * 100.0f);   // slider in centesimi
 
-        // Slider e campo sotto blockSignals: la cascata la fa il chiamante una
-        // volta sola, altrimenti ogni riga qui ne scatenerebbe una (e con essa
-        // un ricalcolo di mesh per ciascuna costante).
-        {
-            QSignalBlocker bl(r.line);
-            // 'g' evita lo zero decimale sugli interi (4, non 4.00) e tiene le
-            // frazioni dei minimi continui (0.3).
-            r.line->setText(QString::number(target, 'g', 6));
-        }
-        if (r.slider) {
-            QSignalBlocker bs(r.slider);
-            r.slider->setValue(snapped);   // gli slider costanti lavorano in centesimi
-        }
+        // Solo il campo: slider e cascata li riallinea il chiamante, una volta
+        // sola, altrimenti ogni riga qui ne scatenerebbe una (e con essa un
+        // ricalcolo di mesh per ciascuna costante). 'g' evita lo zero decimale
+        // sugli interi (4, non 4.00) e tiene le frazioni dei minimi continui (0.3).
+        setConstValue(field, target);
         changed = true;
     }
     return changed;
@@ -21582,6 +21421,94 @@ void MainWindow::setEqText(EqField field, const QString &text)
     edit->setPlainText(text);
 }
 
+const std::array<MainWindow::ConstField, 7> &MainWindow::constantFields()
+{
+    static const std::array<ConstField, 7> fields = {
+        &ConstantTexts::a, &ConstantTexts::b, &ConstantTexts::c, &ConstantTexts::d,
+        &ConstantTexts::e, &ConstantTexts::f, &ConstantTexts::s,
+    };
+    return fields;
+}
+
+QString MainWindow::constantName(ConstField field)
+{
+    static const char *const names[7] = { "A", "B", "C", "D", "E", "F", "S" };
+    const auto &fields = constantFields();
+    for (int i = 0; i < 7; ++i)
+        if (fields[i] == field) return QLatin1String(names[i]);
+    return QString();
+}
+
+QLineEdit *MainWindow::constantFieldEdit(ConstField field) const
+{
+    if (field == &ConstantTexts::a) return ui->lineA;
+    if (field == &ConstantTexts::b) return ui->lineB;
+    if (field == &ConstantTexts::c) return ui->lineC;
+    if (field == &ConstantTexts::d) return ui->lineD;
+    if (field == &ConstantTexts::e) return ui->lineE;
+    if (field == &ConstantTexts::f) return ui->lineF;
+    if (field == &ConstantTexts::s) return ui->lineS;
+    return nullptr;
+}
+
+QSlider *MainWindow::constantSlider(ConstField field) const
+{
+    if (field == &ConstantTexts::a) return ui->aSlider;
+    if (field == &ConstantTexts::b) return ui->bSlider;
+    if (field == &ConstantTexts::c) return ui->cSlider;
+    if (field == &ConstantTexts::d) return ui->dSlider;
+    if (field == &ConstantTexts::e) return ui->eSlider;
+    if (field == &ConstantTexts::f) return ui->fSlider;
+    if (field == &ConstantTexts::s) return ui->sSlider;
+    return nullptr;
+}
+
+void MainWindow::bindConstantFields()
+{
+    for (ConstField f : constantFields()) {
+        QLineEdit *edit = constantFieldEdit(f);
+        if (!edit) continue;
+        // Connesso qui per primo: gira prima di ogni altro gestore del campo,
+        // che m_const lo legge. Le scritture a segnali bloccati non arrivano:
+        // passano da setConstText.
+        connect(edit, &QLineEdit::textChanged, this, [this, f](const QString &t) { m_const.*f = t; });
+        m_const.*f = edit->text();
+    }
+    m_steps = ui->stepSlider->value();
+}
+
+void MainWindow::setConstText(ConstField field, const QString &text)
+{
+    m_const.*field = text;
+    if (QLineEdit *edit = constantFieldEdit(field)) {
+        // A segnali bloccati: e' il programma che scrive, non l'utente.
+        const QSignalBlocker blocker(edit);
+        edit->setText(text);
+    }
+}
+
+void MainWindow::setConstValue(ConstField field, double value)
+{
+    setConstText(field, QString::number(value, 'g', 6));
+}
+
+void MainWindow::refreshConstantSliders()
+{
+    syncConstantSliders(resolveCascadeConstants(/*restoreTextOnNegative=*/false));
+}
+
+void MainWindow::setSteps(int steps)
+{
+    m_steps = steps;
+    // Vista: slider (il suo range si allarga per contenere il valore, o
+    // setValue lo taglierebbe in silenzio) e campo, a segnali bloccati.
+    const QSignalBlocker bs(ui->stepSlider), bl(ui->lineSteps);
+    if (ui->stepSlider->maximum() < steps) ui->stepSlider->setMaximum(std::max(1000, steps));
+    if (ui->stepSlider->minimum() > steps) ui->stepSlider->setMinimum(steps);
+    ui->stepSlider->setValue(steps);
+    ui->lineSteps->setText(QString::number(steps));
+}
+
 QString MainWindow::activeEquationsText() const
 {
     if (!m_eqApplied) return QString();
@@ -21800,7 +21727,7 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
         vMin = eng->getVMin(); vMax = eng->getVMax();
     }
 
-    int steps = ui->stepSlider->value();
+    int steps = m_steps;
     int safeSteps = std::min(steps, 500);  // Limite fisico per le geodetiche
 
     // Controllo Min >= Max (U e V sempre attivi nel geodesic)

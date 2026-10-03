@@ -702,11 +702,43 @@ void ScenarioTest::checkConstants(const QString &step, const QMap<QString, doubl
             bad << QStringLiteral("%1 vale %2, atteso %3").arg(L, num(c.field), num(expected.value(L)));
         if (c.line->isEnabled()) shown << QStringLiteral("%1=%2").arg(L, num(c.field));
     }
+    // Lo STATO (m_const) e' cio' che i campi mostrano.
+    for (MainWindow::ConstField f : MainWindow::constantFields()) {
+        const QString t = m_mw->constantFieldEdit(f)->text();
+        if (m_mw->m_const.*f != t)
+            bad << QStringLiteral("%1: stato \"%2\", campo \"%3\"")
+                       .arg(MainWindow::constantName(f), m_mw->m_const.*f, t);
+    }
+
+    const QString steps = stepsProblem();
+    if (!steps.isEmpty()) bad << steps;
 
     check(bad.isEmpty(), QStringLiteral("%1 -> costanti %2%3")
                              .arg(step, shown.isEmpty() ? QStringLiteral("(nessuna in uso)")
                                                         : shown.join(QLatin1Char(' ')),
                                   bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+}
+
+QString ScenarioTest::stepsProblem()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    const int slider = ui->stepSlider->value();
+    QStringList bad;
+    if (m_mw->m_steps != slider)
+        bad << QStringLiteral("Steps: stato %1, slider %2").arg(m_mw->m_steps).arg(slider);
+    if (ui->lineSteps->text().trimmed() != QString::number(slider))
+        bad << QStringLiteral("campo Steps \"%1\", slider %2").arg(ui->lineSteps->text()).arg(slider);
+    const bool rm = ui->tabModeSelector->currentIndex() == 1;
+    const int engine = rm ? gl->raySteps() : gl->getEngine()->getNumU();
+    if (engine != slider)
+        bad << QStringLiteral("%1 nel motore %2, slider %3")
+                   .arg(rm ? QStringLiteral("Ray Steps") : QStringLiteral("risoluzione"))
+                   .arg(engine).arg(slider);
+    const int saved = captureSave().steps;
+    if (saved != slider)
+        bad << QStringLiteral("il Save scriverebbe steps %1, slider %2").arg(saved).arg(slider);
+    return bad.join(QStringLiteral("; "));
 }
 
 void ScenarioTest::checkMotion(const QString &step, const QString &expectRunning, bool pendingEdit)

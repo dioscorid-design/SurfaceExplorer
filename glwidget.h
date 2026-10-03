@@ -204,6 +204,7 @@ public:
     void setRangeZ(float min, float max);
     void setResolution(int n);
     void setRaySteps(int steps);
+    int raySteps() const { return m_raySteps; }
     // uMin/uMax/vMin/vMax: il DOMINIO su cui la griglia e' stata integrata. Serve
     // ad ancorare le coordinate texture al dominio invece che agli indici di
     // griglia: senza, restringere l'intervallo ri-stira la texture sulla
