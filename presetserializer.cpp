@@ -1083,7 +1083,7 @@ void PresetSerializer::saveTexture(const QString &path)
     // Con il bersaglio Background si salva lo SFONDO, e il messaggio e' il suo:
     // prima si chiedeva (e si scriveva nel preset) quello della texture di
     // superficie anche salvando lo sfondo.
-    bool isBg = m_mainWindow->ui->radioBackground->isChecked();
+    bool isBg = m_mainWindow->editingBackground();
     QString &hintRef  = isBg ? m_mainWindow->m_currentBgTextureHintText
                              : m_mainWindow->m_currentTextureHintText;
     float   &hintSecs = isBg ? m_mainWindow->m_currentBgTextureHintSeconds

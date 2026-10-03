@@ -2572,8 +2572,9 @@ MainWindow::MainWindow(QWidget *parent)
     // TARGET DI EDITING: coppia esclusiva Surface / Background. Sceglie COSA
     // pilotano gli slider/texture/colore: la superficie o lo sfondo. NON tocca la
     // modalità di rendering della superficie (Base/Phong/Wireframe), che resta un
-    // asse a sé nel m_modeGroup. La semantica per il resto del codice: radioBackground
-    // ->isChecked() == "edito lo sfondo". radioSurface ha assorbito il vecchio radioEditSurf.
+    // asse a sé nel m_modeGroup. Il bersaglio e' STATO (m_editTarget, letto con
+    // editingBackground()); i due radio ne sono la vista. radioSurface ha
+    // assorbito il vecchio radioEditSurf.
     // I due color slot della texture (radioTexColor1/2) stanno in m_colorGroup a parte;
     // l'esclusività FRA i due gruppi è mantenuta a mano (vedi setColorTargetExclusive).
     m_bgTargetGroup = new QButtonGroup(this);
@@ -2582,7 +2583,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_bgTargetGroup->setExclusive(true);
     // Default = editing superficie. Impostato PRIMA della connect dell'handler di
     // radioBackground (più sotto) così non scatena logica al boot.
-    ui->radioSurface->setChecked(true);
+    setEditTarget(EditTarget::Surface);
     // I due gruppi (coppia m_bgTargetGroup e color slot m_colorGroup) sono INDIPENDENTI:
     // la coppia dice DOVE operi (Surface/Background), Color1/2 dicono QUALE tinta
     // della texture editi quando una texture colorata è attiva. Possono essere accesi
@@ -2614,9 +2615,7 @@ MainWindow::MainWindow(QWidget *parent)
         if (!editingSingleMesh)
             m_savedRenderMode = id;
 
-        bool editingBackground = ui->radioBackground->isChecked();
-
-        if (!editingBackground) {
+        if (!editingBackground()) {
             refreshTextureCheckbox();
 
             updateTextureUIState(m_surfaceTextureState);
@@ -2651,7 +2650,10 @@ MainWindow::MainWindow(QWidget *parent)
     // superficie. NON spegne né accende i radio Base/Phong/Wireframe: la modalità
     // di rendering della superficie resta quella che era.
     connect(ui->radioBackground, &QRadioButton::toggled, this, [this](bool checked){
-        if (ui->glWidget) ui->glWidget->setFlatViewTarget(checked ? 1 : 0);
+        // Il clic: prima lo STATO (e la vista 2D del motore), che tutto il
+        // resto del dock legge. Arriva solo dai clic: il programma scrive i
+        // radio a segnali bloccati (setEditTarget).
+        setEditTarget(checked ? EditTarget::Background : EditTarget::Surface);
 
         if (checked) {
             // ENTRO in editing sfondo. Lo stato della texture di superficie
@@ -2909,7 +2911,7 @@ MainWindow::MainWindow(QWidget *parent)
         // In "All" (nessuna parte attiva) si prosegue col percorso di sempre.
         // Escluso il ramo Background (la texture di sfondo non e' per-mesh) e
         // il Ray Marching, che non ha parti di mesh.
-        if (!ui->radioBackground->isChecked()
+        if (!editingBackground()
             && ui->tabModeSelector->currentIndex() != 1
             && ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
 
@@ -2992,7 +2994,7 @@ MainWindow::MainWindow(QWidget *parent)
             return;
         }
 
-        if (ui->radioBackground->isChecked()) {
+        if (editingBackground()) {
             ui->glWidget->setBackgroundTextureEnabled(checked);
             // Picker Colore solo se lo sfondo è acceso E usa quel colore (indipendenti).
             bool bgCol1 = checked && m_bgTextureCode.contains("u_col1");
@@ -3248,7 +3250,7 @@ MainWindow::MainWindow(QWidget *parent)
         // Si vedeva SOLO applicando in Background la texture di DEFAULT: le
         // altre (script o immagine) portano un proprio codice e passano da
         // percorsi che non ricalcolano needsAnim, mentre la default arriva qui.
-        bool isSurfTexActive = ui->radioBackground->isChecked() ? m_surfaceTextureState : checked;
+        bool isSurfTexActive = editingBackground() ? m_surfaceTextureState : checked;
         if (!isSurfTexActive) isSurfTexActive = anyMeshTextureActive();
         if (isSurfTexActive) {
             QString tex = (ui->tabModeSelector->currentIndex() == 1)
@@ -3512,7 +3514,7 @@ MainWindow::MainWindow(QWidget *parent)
         // operiamo, la coppia Color1/Color2 QUALE tinta della texture editiamo. La
         // priorità è data dalla coppia; Color1/2 scelgono solo lo slot quando il target
         // ha una texture colorata attiva.
-        if (ui->radioBackground->isChecked()) {
+        if (editingBackground()) {
             if (targetTextureOn() && activeTextureUsesColors()) {
                 // Texture di sfondo colorata: Color1/Color2 scelgono quale tinta.
                 if (ui->radioTexColor2->isChecked()) m_bgTexColor2 = newColor;
@@ -3671,7 +3673,7 @@ MainWindow::MainWindow(QWidget *parent)
         // In "All" il checkbox torna a mostrare lo stato GLOBALE della texture:
         // in "Mesh" ci pensa syncAppearanceControlsToActiveMesh (display della
         // parte), ma quella esce presto quando non c'e' parte attiva.
-        if (!single && !ui->radioBackground->isChecked()
+        if (!single && !editingBackground()
             && ui->tabModeSelector->currentIndex() != 1) {
             refreshTextureCheckbox();
         }
@@ -3813,8 +3815,6 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_colorGroup, &QButtonGroup::buttonClicked, this, [this](){
         onColorTargetChanged();
     });
-
-    ui->radioSurface->setChecked(true);
 
     // =========================================================================
     // 8. MOTION, PATHS & NAVIGATION
@@ -4009,9 +4009,6 @@ MainWindow::MainWindow(QWidget *parent)
             updateFlatPreviewButton();
             ui->alphaSlider->setEnabled(true);
         }
-
-        if (ui->radioBackground->isChecked()) ui->glWidget->setFlatViewTarget(1);
-        else ui->glWidget->setFlatViewTarget(0);
 
         ui->glWidget->setFlatView(checked);
         ui->glWidget->update();
@@ -6522,7 +6519,7 @@ void MainWindow::updateRenderState()
     // il ramo Texture del dock Library (l'albero treeTextures), cosi' non si puo'
     // applicare una texture che non avrebbe effetto. In editing sfondo la texture
     // di background e' indipendente dal wireframe, quindi resta tutto attivo.
-    bool wireframeSurface = (mode == 2 && !ui->radioBackground->isChecked());
+    bool wireframeSurface = (mode == 2 && !editingBackground());
     // Il checkbox Texture e' la vista della texture del bersaglio: etichetta,
     // abilitazione (spento in wireframe sulla superficie e a scena vuota) e
     // spunta si decidono in un posto solo.
@@ -6718,7 +6715,7 @@ void MainWindow::updateRenderState()
 // updateRenderState, che l'handler di radioBackground chiama.
 void MainWindow::updateSurfaceControlsGate()
 {
-    const bool onBackground = ui->radioBackground && ui->radioBackground->isChecked();
+    const bool onBackground = editingBackground();
     if (ui->panelSurface) ui->panelSurface->setEnabled(!onBackground);
     if (!onBackground) return;
     for (QWidget *w : { static_cast<QWidget*>(ui->lblTrans), static_cast<QWidget*>(ui->panelSliderTrans),
@@ -6756,7 +6753,6 @@ void MainWindow::applyEmptySceneGating()
         // che si puo' ancora comporre. Stessa ragione per il ramo Library.
         // La regola sta nella vista (refreshTextureCheckbox: a scena vuota
         // resta acceso solo col bersaglio Background).
-        const bool editingBackground = ui->radioBackground && ui->radioBackground->isChecked();
         refreshTextureCheckbox();
         // Il ramo Texture della Library resta USABILE anche senza superficie e
         // fuori da Background: cliccare una texture a scena vuota ricostruisce
@@ -6797,7 +6793,7 @@ void MainWindow::applyEmptySceneGating()
         // restavano accesi com'erano sotto il preset precedente.
         // In editing sfondo decide lo stato della texture di background, che
         // resta legittimamente componibile.
-        updateTextureUIState(editingBackground && targetTextureOn());
+        updateTextureUIState(editingBackground() && targetTextureOn());
 
         // Slider RGB: NON si toccano da qui. La loro sede unica e'
         // onColorTargetChanged, che gira anche dopo questo gate e li
@@ -6896,7 +6892,7 @@ bool MainWindow::ensureSurfaceForTexture()
     if (!isSceneEmpty()) return false;
     // In editing SFONDO non serve: lo sfondo esiste anche senza superficie ed e'
     // proprio il caso che a scena vuota resta componibile.
-    if (ui->radioBackground && ui->radioBackground->isChecked()) return false;
+    if (editingBackground()) return false;
 
     resetScene(ui->tabModeSelector->currentIndex(), /*loadDefaultSurface=*/true);
     return true;
@@ -7761,7 +7757,7 @@ void MainWindow::syncTextureTreeSelection()
     // m_currentBgTextureLibName, una fascia MeshPart::textureLibName
     // (vedi selectTextureTreeItemFor).
     QString libName;
-    if (ui->radioBackground->isChecked()) {
+    if (editingBackground()) {
         // SFONDO: il suo stato e' nel motore (isBackgroundTextureEnabled).
         if (!targetTextureOn()) return;
         activeCode = m_bgTextureCode;
@@ -8490,7 +8486,7 @@ void MainWindow::onColorTargetChanged()
     // Stessa priorità di handleColorChange (gruppi indipendenti): la coppia decide DOVE,
     // Color1/Color2 QUALE tinta. Qui calcoliamo il colore da MOSTRARE e se gli slider
     // hanno un effetto (altrimenti li disattiviamo).
-    if (ui->radioBackground->isChecked()) {
+    if (editingBackground()) {
         if (targetTextureOn() && activeTextureUsesColors()) {
             target = ui->radioTexColor2->isChecked() ? m_bgTexColor2 : m_bgTexColor1;
         } else if (targetTextureOn()) {
@@ -8568,7 +8564,7 @@ void MainWindow::onColorTargetChanged()
     // in applyEmptySceneGating non bastava, perche' questa funzione gira DOPO
     // (la chiamano il reset stesso, i cambi di target, updateMasterButtonState)
     // e li riaccendeva.
-    if (!ui->radioBackground->isChecked() && isSceneEmpty()) slidersEnabled = false;
+    if (!editingBackground() && isSceneEmpty()) slidersEnabled = false;
 
     ui->sliderR->setEnabled(slidersEnabled);
     ui->sliderG->setEnabled(slidersEnabled);
@@ -8627,7 +8623,7 @@ void MainWindow::handleTextureSelection(int index)
         const QString incomingTex = data.textureCode.isEmpty() ? data.scriptCode
                                                                : data.textureCode;
         if (!confirmTextureConstantClash(incomingTex, data.displacementCode,
-                                         ui->radioBackground->isChecked()))
+                                         editingBackground()))
             return;
     }
 
@@ -8647,7 +8643,7 @@ void MainWindow::handleTextureSelection(int index)
 
     static int lastTextureIndex = -1;
     static bool lastWasBg = false;
-    bool isBg = ui->radioBackground->isChecked();
+    bool isBg = editingBackground();
 
     // Se l'utente clicca di nuovo lo stesso script procedurale, scarta l'immagine!
     // Quella della SUPERFICIE, e solo in ambito All: prima valeva anche col
@@ -8674,7 +8670,7 @@ void MainWindow::handleTextureSelection(int index)
     lastWasBg = isBg;
 
     // 2. CONTROLLO MODALITÀ SFONDO
-    if (ui->radioBackground->isChecked()) {
+    if (editingBackground()) {
         // ANCORA E MESSAGGIO DELLO SFONDO: da quale voce di libreria viene, e
         // cosa dice dei suoi slider. Qui, in testa al ramo, per immagini e
         // procedurali: sono i gemelli di m_currentTextureLibName e
@@ -9050,7 +9046,7 @@ void MainWindow::handleTextureSelection(int index)
     // appena messa sulla fascia. I colori della fascia li cattura
     // setActiveMeshTexture nella MeshPart.
     const bool texGoesToMesh = ui->glWidget && ui->glWidget->activeMeshPart() >= 0
-                               && !ui->radioBackground->isChecked();
+                               && !editingBackground();
     if (!texGoesToMesh && ui->glWidget) {
         if (data.hasCustomColors)
             ui->glWidget->setGlobalTextureColors(QColor(data.color1), QColor(data.color2));
@@ -9147,7 +9143,6 @@ void MainWindow::handleTextureSelection(int index)
                 refreshTextureCheckbox();
                 if (!wasChecked) updateTextureUIState(true);
 
-                ui->glWidget->setFlatViewTarget(0);
                 ui->glWidget->setFlatZoom(data.zoom);
                 ui->glWidget->setFlatPan(data.panX, data.panY);
                 ui->glWidget->setFlatRotation(data.rotation);
@@ -9296,7 +9291,6 @@ void MainWindow::handleTextureSelection(int index)
             onApplyTextureScriptClicked();
 
             if (ui->glWidget) {
-                ui->glWidget->setFlatViewTarget(0);
                 ui->glWidget->setFlatZoom(data.zoom);
                 ui->glWidget->setFlatPan(data.panX, data.panY);
                 ui->glWidget->setFlatRotation(data.rotation);
@@ -9491,7 +9485,7 @@ void MainWindow::handleTextureSelection(int index)
     // della superficie appena si applicava una texture di sfondo statica (o la
     // si disattivava). Il modulo superficie ha il proprio flag,
     // m_surfaceTextureState, che il ramo Background non tocca.
-    const bool editingBg = ui->radioBackground && ui->radioBackground->isChecked();
+    const bool editingBg = editingBackground();
     // MODULO TEXTURE DI SUPERFICIE ATTIVO: conta la texture GLOBALE **o** quella
     // di una qualunque fascia. Non basta m_surfaceTextureState (ne' il checkbox,
     // che in Background e' il display dello sfondo): con la texture messa solo
@@ -10090,7 +10084,7 @@ void MainWindow::onStartClicked()
             // (sospetto del 2026-08-03, riprodotto dal test degli scenari).
             // L'accensione e' l'intenzione della superficie, non il checkbox, che
             // in ambito Mesh mostra la fascia.
-            if (!ui->radioBackground->isChecked() && m_surfaceTextureState) {
+            if (!editingBackground() && m_surfaceTextureState) {
                 const QString texSrc = surfaceTextureScript();
                 if (textureHasLogic(texSrc) && !commitSurfaceTextureCode(texSrc)) {
                     showShaderError("Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
@@ -10485,7 +10479,7 @@ void MainWindow::onStartClicked()
         // Stessa correzione degli altri tre chiamanti.
         QString otherModulesForT;
         if (surfaceTextureShown()) otherModulesForT += " " + m_surfaceTextureCode;
-        if (ui->radioBackground->isChecked() || ui->glWidget->isBackgroundTextureEnabled()) otherModulesForT += " " + m_bgTextureCode;
+        if (editingBackground() || ui->glWidget->isBackgroundTextureEnabled()) otherModulesForT += " " + m_bgTextureCode;
 
         // SNAPSHOT DELLE EQUAZIONI APPLICATE. Qui, non solo nel prologo di
         // onStartClicked (~7579): quello e' dietro `runDockOnly || masterStart`,
@@ -12197,7 +12191,7 @@ void MainWindow::onRunCurrentScript()
             // selezionata, come colore/alpha/luce agiscono sulla sola parte.
             // Non si tocca il clock globale ne' m_userStoppedTexClock: le altre
             // mesh e la texture di superficie devono continuare a girare.
-            if (!ui->radioBackground->isChecked() && ui->glWidget
+            if (!editingBackground() && ui->glWidget
                 && ui->glWidget->activeMeshPart() >= 0) {
                 ui->glWidget->setActiveMeshTextureAnimating(false);
                 // Stop ESPLICITO su una fascia: protegge gli orologi per-mesh dai
@@ -12212,10 +12206,10 @@ void MainWindow::onRunCurrentScript()
 
             // Stop esplicito del clock texture/sfondo: il flag lo tiene fermo
             // anche attraverso i ricalcoli globali (vedi applyAnimationState).
-            if (ui->radioBackground->isChecked()) m_userStoppedBgClock = true;
+            if (editingBackground()) m_userStoppedBgClock = true;
             else                                  m_userStoppedTexClock = true;
             if (ui->glWidget) {
-                if (ui->radioBackground->isChecked())
+                if (editingBackground())
                     ui->glWidget->setBackgroundTextureAnimating(false);
                 else {
                     // AMBITO "ALL": si ferma la texture di SUPERFICIE, che e'
@@ -12238,7 +12232,7 @@ void MainWindow::onRunCurrentScript()
         // script (che passerebbe da onApplyTextureScriptClicked e ricompilerebbe
         // lo shader per tutti). Solo se lo script della parte e' animato: su una
         // texture statica il Run resta la riapplicazione di sempre.
-        if (!ui->radioBackground->isChecked() && ui->glWidget
+        if (!editingBackground() && ui->glWidget
             && ui->glWidget->activeMeshPart() >= 0
             && !ui->glWidget->isActiveMeshTextureAnimating()
             && ui->glWidget->activeMeshTextureActive()
@@ -12943,7 +12937,7 @@ void MainWindow::onApplyTextureScriptClicked()
     // Determina se il codice contiene logica procedurale
     const bool hasCustomLogic = textureHasLogic(code);
 
-    if (ui->radioBackground->isChecked()) {
+    if (editingBackground()) {
         // --- RAMO A: SFONDO ---
         ui->glWidget->setBackgroundTextureEnabled(true);
         refreshTextureCheckbox();
@@ -13108,8 +13102,6 @@ void MainWindow::onApplyTextureScriptClicked()
                     ui->tabModeSelector->setCurrentIndex(0);
                 }
 
-                ui->glWidget->setFlatViewTarget(0);
-
                 // AZZERAMENTO DELL'INQUADRATURA 2D **SOLO SE LO SCRIPT CAMBIA**.
                 // Ripartire da zoom/pan/rotazione neutri ha senso per una texture
                 // NUOVA, non per un riavvio: il tasto Run/Stop del dock e' anche
@@ -13148,7 +13140,7 @@ void MainWindow::onApplyTextureScriptClicked()
     // stop globale, quindi la texture si anima comunque. Azzerare il flag globale
     // sbloccava invece la GEOMETRIA: dopo un master STOP, applicare una texture di
     // sfondo e poi spegnerla faceva ripartire la superficie (t nelle composizioni).
-    if (ui->radioBackground->isChecked()) {
+    if (editingBackground()) {
         // RUN sulla texture di SFONDO: solo il clock background.
         // Run esplicito del canale: riarma un eventuale stop manuale.
         m_userStoppedBgClock = false;
@@ -13454,7 +13446,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
 
         // 1. Recuperiamo il codice attualmente in uso nel tab attivo
         QString activeCode;
-        if (ui->radioBackground->isChecked()) {
+        if (editingBackground()) {
             activeCode = m_bgTextureCode;
         } else if (ui->tabModeSelector->currentIndex() == 1) {
             activeCode = m_rm.texture;
@@ -13534,7 +13526,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             // un displacement DIVERSO, il rilievo resta quello di prima -- ed e'
             // il sospetto da verificare in questo giro.
             SE_TEXP("libTex:RAMO-RICLIC(isMatch)");
-            bool isBg = ui->radioBackground->isChecked();
+            bool isBg = editingBackground();
             // Il riclic rimette colori e inquadratura del preset: e' di nuovo la
             // texture della Library, come dopo una scelta (markTexturePicked).
             struct TexturePickedGuard {
@@ -14855,8 +14847,6 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     // --- APPLICAZIONE TEXTURE SUPERFICIE ---
     if (texEnabled) {
-        int currentTarget = ui->radioBackground->isChecked() ? 1 : 0;
-        ui->glWidget->setFlatViewTarget(0);
         // Trasformazione GLOBALE del preset: va nello stato globale, non nella
         // fascia selezionata. I setFlat*() passano da
         // commitFlatTransformToActivePart e, con una mesh attiva, l'avrebbero
@@ -14917,8 +14907,6 @@ void MainWindow::applyMotionExample(LibraryItem data)
             applyDefaultCheckerShader();
             ui->glWidget->rebuildShader();
         }
-
-        ui->glWidget->setFlatViewTarget(currentTarget);
     } else {
         m_surfaceTextureCode.clear();
 
@@ -15000,7 +14988,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
         }
     }
 
-    if (ui->radioBackground->isChecked()) {
+    if (editingBackground()) {
         refreshTextureCheckbox();
 
         // Picker Colore attivi solo se lo sfondo è acceso E usa quel colore (indipendenti).
@@ -15026,7 +15014,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
         updateTextureUIState(texEnabled);
     }
 
-    if(ui->radioTexColor1->isChecked() || ui->radioTexColor2->isChecked() || ui->radioBackground->isChecked()) {
+    if(ui->radioTexColor1->isChecked() || ui->radioTexColor2->isChecked() || editingBackground()) {
         onColorTargetChanged();
     }
 
@@ -17085,7 +17073,7 @@ bool MainWindow::surfaceTextureShown() const
 
 bool MainWindow::targetTextureOn() const
 {
-    if (ui->radioBackground->isChecked())
+    if (editingBackground())
         return ui->glWidget && ui->glWidget->isBackgroundTextureEnabled();
     return surfaceTextureShown();
 }
@@ -17104,7 +17092,7 @@ QString MainWindow::surfaceTextureModuleCode() const
 
 void MainWindow::refreshTextureCheckbox()
 {
-    const bool onBackground = ui->radioBackground->isChecked();
+    const bool onBackground = editingBackground();
     const QSignalBlocker blocker(ui->chkBoxTexture);
     ui->chkBoxTexture->setText(onBackground ? QStringLiteral("Background Texture")
                                             : QStringLiteral("Texture"));
@@ -17117,15 +17105,30 @@ void MainWindow::refreshTextureCheckbox()
 
 void MainWindow::showSurfaceTarget()
 {
-    if (ui->radioBackground->isChecked()) {
-        // radioSurface e radioBackground sono esclusivi, ma si toccano a
-        // segnali bloccati: l'handler toggled di radioBackground non deve
-        // girare (il resto del dock lo riallinea chi chiama).
-        const QSignalBlocker bBg(ui->radioBackground), bSurf(ui->radioSurface);
-        ui->radioSurface->setChecked(true);
-    }
+    setEditTarget(EditTarget::Surface);
     ui->radioSurface->setEnabled(true);
     refreshTextureCheckbox();
+}
+
+void MainWindow::setEditTarget(EditTarget target)
+{
+    m_editTarget = target;
+    const bool bg = (target == EditTarget::Background);
+    // I radio sono esclusivi, ma si toccano a segnali bloccati: il gestore
+    // toggled di radioBackground fa la transizione del dock, che qui non va
+    // fatta (la fa chi chiama). Dal gestore del clic sono gia' giusti.
+    QAbstractButton *shown = bg ? static_cast<QAbstractButton*>(ui->radioBackground)
+                                : static_cast<QAbstractButton*>(ui->radioSurface);
+    if (!shown->isChecked()) {
+        const QSignalBlocker bBg(ui->radioBackground), bSurf(ui->radioSurface);
+        shown->setChecked(true);
+    }
+    // Su cosa agiscono zoom, pan e rotazione 2D (mouse in vista 2D, Save
+    // Texture, inquadratura data dai load). Prima la scriveva solo il gestore
+    // del clic: dopo un load dal bersaglio Background il dock tornava su
+    // Surface e la vista 2D restava sullo sfondo, e quattro punti la
+    // forzavano a mano sulla superficie prima di scrivere l'inquadratura.
+    if (ui->glWidget) ui->glWidget->setFlatViewTarget(bg ? 1 : 0);
 }
 
 bool MainWindow::textureTargetInWireframe() const
@@ -17665,7 +17668,7 @@ void MainWindow::applyCommonData(LibraryItem d)
         setMarcherUI(d.hybridMarcher);
     }
 
-    if (ui->radioBackground->isChecked()) {
+    if (editingBackground()) {
         if (m_currentScriptMode == ScriptModeTexture)
             ui->btnRunCurrentScript->setText("Run Surface Texture");
     }
@@ -19454,7 +19457,7 @@ void MainWindow::updateProjectionButtonText()
 
 void MainWindow::updateScriptButtonText() {
     bool isRayMarching = (ui->tabModeSelector->currentIndex() == 1);
-    bool isBackground = ui->radioBackground->isChecked();
+    bool isBackground = editingBackground();
 
     // LA VISTA PRIMA DEI TASTI: l'editor mostra lo slot del modulo corrente
     // (bersaglio e fascia compresi). Chiunque riallinei i tasti riallinea cosi'
@@ -19657,7 +19660,7 @@ QColor MainWindow::surfaceTexColor(int slot) const
 
 MainWindow::ScriptSlot MainWindow::targetTextureSlot() const
 {
-    if (ui->radioBackground->isChecked()) return SlotBackgroundTexture;
+    if (editingBackground()) return SlotBackgroundTexture;
     if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0) return SlotMeshTexture;
     return SlotSurfaceTexture;
 }
@@ -19900,7 +19903,7 @@ QString MainWindow::sceneAudioSource() const
 
 bool MainWindow::activeTextureUsesColorToken(const QString &token) const
 {
-    if (ui->radioBackground->isChecked()) {
+    if (editingBackground()) {
         return m_bgTextureCode.contains(token);
     }
 
@@ -19964,7 +19967,7 @@ bool MainWindow::hasSavableTexture() const
     if (surfaceHasImage())
         return true;
 
-    const bool isBg = ui->radioBackground->isChecked();
+    const bool isBg = editingBackground();
     const bool isImplicit = (ui->tabModeSelector->currentIndex() == 1);
 
     // Ray Marching (non sfondo): contenuto = colore (lineTexture) + displacement
@@ -19991,7 +19994,7 @@ void MainWindow::updateTextureUIState(bool isTextureOn, bool resetColorTargetToF
     //    Eccezione: in WIREFRAME sulla SUPERFICIE la texture è nascosta e gli slider
     //    editano il colore uniforme delle linee, quindi Color1/2 non hanno senso e
     //    vanno spenti (lo sfondo invece può mostrare la sua texture anche in wireframe).
-    bool surfaceWireframe = ui->radioWF->isChecked() && !ui->radioBackground->isChecked();
+    bool surfaceWireframe = ui->radioWF->isChecked() && !editingBackground();
     bool baseActive = isTextureOn && !surfaceWireframe;
     // Ogni picker abilitato solo se la texture referenzia il SUO colore: una texture
     // che usa solo u_col1 (es. "Xor") lascia spento il picker di col2, che sarebbe
@@ -20035,10 +20038,6 @@ void MainWindow::updateTextureUIState(bool isTextureOn, bool resetColorTargetToF
         uncheckInExclusiveGroup(ui->radioTexColor2);
     }
 
-    // La coppia deve sempre avere un target: se nessuno è acceso, default a Surface.
-    if (!ui->radioSurface->isChecked() && !ui->radioBackground->isChecked()) {
-        selectSurfaceColorTarget();
-    }
     onColorTargetChanged();
 
     updateFlatPreviewButton();
@@ -20047,7 +20046,7 @@ void MainWindow::updateTextureUIState(bool isTextureOn, bool resetColorTargetToF
 void MainWindow::updateFlatPreviewButton() {
     bool isTextureScriptMode = (m_currentScriptMode == ScriptModeTexture);
     bool isParametric = (ui->tabModeSelector->currentIndex() == 0);
-    bool bgMode = ui->radioBackground->isChecked();
+    bool bgMode = editingBackground();
 
     // 1. Gestione del Testo
     //
@@ -20713,8 +20712,8 @@ int MainWindow::meshVisibleCount() const
 //    l'ambito con cui si stava lavorando.
 bool MainWindow::meshScopeUsable() const
 {
-    if (!ui->glWidget || !ui->radioBackground) return false;
-    if (ui->radioBackground->isChecked()) return false;
+    if (!ui->glWidget) return false;
+    if (editingBackground()) return false;
     // Scena vuota (tasto NEW): non ci sono parti da selezionare. Il controllo
     // sta QUI e non solo in applyEmptySceneGating perche' updateMeshSelectorRange
     // riabilita i radio All/Mesh per conto suo (~13813) sull'onda di
@@ -20763,7 +20762,7 @@ void MainWindow::updateMeshScopeEnabled()
 
     // BACKGROUND: i controlli sono gia' spenti qui sopra e basta cosi'. La
     // selezione va LASCIATA com'era, per ritrovarla uscendo.
-    if (ui->radioBackground->isChecked()) return;
+    if (editingBackground()) return;
 
     // MESH SINGOLA: qui "Mesh" non ha significato, quindi si torna ad "All".
     // I valori per-parte NON si toccano (restano in MeshPart e ricompaiono se
@@ -21083,7 +21082,7 @@ void MainWindow::updateBackgroundControlsGate()
     const QList<QRadioButton*> radios = bgSkyRadios();
     if (!ui->panelBackgroundControls || radios.contains(nullptr)) return;
 
-    const bool onBackground = ui->radioBackground && ui->radioBackground->isChecked();
+    const bool onBackground = editingBackground();
     ui->panelBackgroundControls->setEnabled(onBackground);
 
     // Stesso ordine di bgSkyRadios / GLWidget::BgSkyMode.
@@ -21189,7 +21188,7 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
         // sulla texture dell'ultima fascia guardata -- o si perdeva del tutto,
         // perche' syncTextureTreeSelection deseleziona quando non trova
         // corrispondenza.
-        if (!ui->radioBackground->isChecked())
+        if (!editingBackground())
             syncTextureTreeSelection();
 
         // I colori della texture nei picker non vanno riallineati: li legge
@@ -21243,7 +21242,7 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
     // mesh l'albero restava fermo sulla texture della fascia precedente -- o su
     // quella globale. Non e' condizionata a ScriptModeTexture: l'albero e' un
     // pannello a se', visibile qualunque cosa mostri l'editor.
-    if (!ui->radioBackground->isChecked())
+    if (!editingBackground())
         syncTextureTreeSelection();
 
     // COLORI u_col1/u_col2 DELLA PARTE nei picker: nessun riallineamento, li
@@ -21255,7 +21254,7 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
     // proprio se dichiarato, altrimenti il globale che sta ereditando), come i
     // radio Base/Phong/Wireframe. A segnali bloccati, o il toggled riscriverebbe
     // sulla parte cio' che stiamo solo mostrando.
-    if (!ui->radioBackground->isChecked() && ui->tabModeSelector->currentIndex() != 1) {
+    if (!editingBackground() && ui->tabModeSelector->currentIndex() != 1) {
         // In MULTI-mesh una parte mai configurata NON eredita la texture
         // globale (resta in tinta unita): il display deve dire la stessa cosa
         // del render, o il checkbox risulterebbe acceso su una fascia che si

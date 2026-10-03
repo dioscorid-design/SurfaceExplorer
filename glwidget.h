@@ -625,6 +625,9 @@ public:
         loadFlatTransformFromActivePart();
         update();
     }
+    // 0 = texture di superficie, 1 = sfondo: su cosa agiscono zoom, pan e
+    // rotazione 2D (getFlat*/setFlat*). Lo legge il test degli scenari.
+    int flatViewTarget() const { return m_flatViewTarget; }
     float getFlatZoom() const;
     void setFlatZoom(float z);
     float getFlatRotation() const;

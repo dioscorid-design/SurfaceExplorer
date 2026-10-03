@@ -177,6 +177,10 @@ private:
     // "" se checkbox ed etichetta dicono il bersaglio e lo stato della sua
     // texture, altrimenti la differenza.
     QString textureCheckboxProblem() const;
+    // Il bersaglio Surface/Background (MainWindow::m_editTarget) e le sue viste
+    // -- i due radio, il bersaglio della vista 2D nel motore -- dicono la
+    // stessa cosa. Vuoto se si'.
+    QString editTargetProblem() const;
     // "" se l'editor del dock Script mostra lo slot che il dock indica (e' la
     // sua vista), altrimenti la descrizione della differenza. La controllano
     // le verifiche piu' frequenti (codice della texture, equazioni).

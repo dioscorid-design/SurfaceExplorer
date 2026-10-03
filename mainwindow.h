@@ -179,7 +179,7 @@ private slots:
     // l'esclusività MANUALE fra tripla (m_bgTargetGroup) e color slot (m_colorGroup).
     void uncheckInExclusiveGroup(QAbstractButton *btn);
     // Evidenzia nell'albero texture la voce corrispondente al codice attivo
-    // (sfondo se radioBackground è acceso, altrimenti texture superficie).
+    // (sfondo col bersaglio Background, altrimenti texture superficie).
     void syncTextureTreeSelection();
     void scheduleTextureGeneration();
     void handleTextureSelection(int index);
@@ -485,7 +485,7 @@ private:
     QButtonGroup *m_modeGroup;
     // Coppia esclusiva Surface / Background: scelta del target di editing (cosa
     // pilotano slider/texture/colore). radioSurface = superficie, radioBackground = sfondo.
-    // La semantica: radioBackground->isChecked() == "edito lo sfondo". I color slot
+    // Sono la VISTA di m_editTarget (editingBackground()): non leggerli. I color slot
     // (radioTexColor1/2) stanno in m_colorGroup a parte; l'esclusività fra i due gruppi
     // è manuale.
     QButtonGroup *m_bgTargetGroup;
@@ -1353,6 +1353,18 @@ private:
     // bloccati, e riallinea il checkbox. Il resto del dock lo riallinea chi
     // chiama, come prima.
     void showSurfaceTarget();
+    // IL BERSAGLIO Surface / Background: su cosa agiscono slider colore,
+    // checkbox Texture, Library, dock Script e vista 2D. E' STATO; i due radio
+    // e il bersaglio della vista 2D nel motore (GLWidget::setFlatViewTarget)
+    // ne sono le viste. Chi vuole sapere dove si edita chiede a
+    // editingBackground(), non al radio.
+    enum class EditTarget { Surface, Background };
+    EditTarget m_editTarget = EditTarget::Surface;
+    bool editingBackground() const { return m_editTarget == EditTarget::Background; }
+    // Unico scrittore del bersaglio e delle sue viste (radio a segnali
+    // bloccati, vista 2D). NON fa la transizione del dock (editor, checkbox,
+    // colori, comandi spenti): quella la fa il gestore del clic, o chi chiama.
+    void setEditTarget(EditTarget target);
     // La superficie -- o la fascia selezionata, in ambito Mesh -- e' in
     // wireframe: la texture non si disegna. Vedi l'implementazione.
     bool textureTargetInWireframe() const;

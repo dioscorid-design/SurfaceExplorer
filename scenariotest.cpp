@@ -195,7 +195,7 @@ void ScenarioTest::checkTextureEnabled(const QString &step, bool expectedIntent)
     GLWidget *gl = m_mw->ui->glWidget;
     const bool intent  = m_mw->m_surfaceTextureState;
     const bool wire    = (m_mw->m_savedRenderMode == 2);
-    const bool onBg    = m_mw->ui->radioBackground->isChecked();
+    const bool onBg    = m_mw->editingBackground();
     // AMBITO MESH (fascia selezionata su una multi-mesh): il wireframe globale
     // non spegne la texture globale, e il checkbox mostra la FASCIA -- il suo
     // stato efficace (MeshPart::effectiveTextureEnabledMulti) -- non l'intenzione.
@@ -291,14 +291,14 @@ void ScenarioTest::checkTexColors(const QString &step, const QColor &global1, co
     if (x1.isValid() && (e1.name() != x1.name() || e2.name() != x2.name()))
         bad << QStringLiteral("il motore disegna %1 %2, attesi %3 %4")
                    .arg(e1.name(), e2.name(), x1.name(), x2.name());
-    if (!ui->radioBackground->isChecked() && (s1.name() != e1.name() || s2.name() != e2.name()))
+    if (!m_mw->editingBackground() && (s1.name() != e1.name() || s2.name() != e2.name()))
         bad << QStringLiteral("picker %1 %2, il motore disegna %3 %4%5")
                    .arg(s1.name(), s2.name(), e1.name(), e2.name(),
                         part >= 0 ? QStringLiteral(" (fascia %1)").arg(part + 1) : QString());
     // Gli slider mostrano lo slot scelto quando editano davvero i colori della
     // texture (stessa condizione di onColorTargetChanged).
     const bool texHere = part >= 0 ? gl->activeMeshTextureActive() : m_mw->m_surfaceTextureState;
-    if (!ui->radioBackground->isChecked() && !ui->radioWF->isChecked() && texHere
+    if (!m_mw->editingBackground() && !ui->radioWF->isChecked() && texHere
         && m_mw->activeTextureUsesColors()) {
         const QColor sl(ui->sliderR->value(), ui->sliderG->value(), ui->sliderB->value());
         const QColor want = ui->radioTexColor2->isChecked() ? e2 : e1;
@@ -369,7 +369,7 @@ void ScenarioTest::checkBackground(const QString &step, const QString &expectedI
 void ScenarioTest::checkSurfaceControls(const QString &step)
 {
     Ui::MainWindow *ui = m_mw->ui;
-    const bool onBg = ui->radioBackground->isChecked();
+    const bool onBg = m_mw->editingBackground();
     const bool rm   = ui->tabModeSelector->currentIndex() == 1;
     const bool wire = !rm && ui->radioWF->isChecked();
 
@@ -1853,7 +1853,8 @@ void ScenarioTest::run()
     auto checkTextureReset = [this, ui](const QString &step) {
         GLWidget *gl = ui->glWidget;
         QStringList bad;
-        if (!ui->radioSurface->isChecked()) bad << QStringLiteral("bersaglio ancora su Background");
+        if (m_mw->editingBackground()) bad << QStringLiteral("bersaglio ancora su Background");
+        if (!editTargetProblem().isEmpty()) bad << editTargetProblem();
         if (ui->chkBoxTexture->text() != QLatin1String("Texture"))
             bad << QStringLiteral("etichetta del checkbox \"%1\"").arg(ui->chkBoxTexture->text());
         if (ui->chkBoxTexture->isChecked()) bad << QStringLiteral("checkbox acceso");
@@ -2653,17 +2654,38 @@ void ScenarioTest::run()
 QString ScenarioTest::textureCheckboxProblem() const
 {
     Ui::MainWindow *ui = m_mw->ui;
-    const bool onBg = ui->radioBackground->isChecked();
+    const bool onBg = m_mw->editingBackground();
     const QString label = ui->chkBoxTexture->text();
     const QString wantLabel = onBg ? QStringLiteral("Background Texture") : QStringLiteral("Texture");
     if (label != wantLabel)
         return QStringLiteral("etichetta del checkbox \"%1\" col bersaglio %2")
             .arg(label, onBg ? QStringLiteral("Background") : QStringLiteral("Surface"));
+    const QString target = editTargetProblem();
+    if (!target.isEmpty()) return target;
     // Bersaglio Background: il checkbox mostra lo sfondo. (Per la superficie
     // e le fasce lo verifica checkTextureEnabled.)
     if (onBg && ui->chkBoxTexture->isChecked() != ui->glWidget->isBackgroundTextureEnabled())
         return QStringLiteral("checkbox %1, sfondo %2")
             .arg(onOff(ui->chkBoxTexture->isChecked()), onOff(ui->glWidget->isBackgroundTextureEnabled()));
+    return QString();
+}
+
+QString ScenarioTest::editTargetProblem() const
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    // Lo stato e' il bersaglio; i radio la sua vista.
+    const bool onBg = m_mw->editingBackground();
+    if (ui->radioBackground->isChecked() != onBg || ui->radioSurface->isChecked() == onBg)
+        return QStringLiteral("bersaglio %1, radio Surface %2 e Background %3")
+            .arg(onBg ? QStringLiteral("Background") : QStringLiteral("Surface"),
+                 onOff(ui->radioSurface->isChecked()), onOff(ui->radioBackground->isChecked()));
+    // Zoom, pan e rotazione 2D (mouse in vista 2D, Save Texture) agiscono sul
+    // bersaglio della vista 2D del motore: deve essere quello del dock.
+    const int flat = ui->glWidget->flatViewTarget();
+    if (flat != (onBg ? 1 : 0))
+        return QStringLiteral("vista 2D del motore sul%1 col bersaglio %2")
+            .arg(flat == 1 ? QStringLiteral("lo sfondo") : QStringLiteral("la superficie"),
+                 onBg ? QStringLiteral("Background") : QStringLiteral("Surface"));
     return QString();
 }
 
