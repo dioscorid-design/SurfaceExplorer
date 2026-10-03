@@ -376,21 +376,10 @@ void VideoRecorder::toggleRecord()
         geoAnimTimer->stop(); // Fermiamo i calcoli asincroni
     }
 
-    // Rilevamento preciso per sapere se dovremo ricalcolare la mesh frame-by-frame
-    QString mainEqs = m_mainWindow->m_eq.x + " " + m_mainWindow->m_eq.y + " " + m_mainWindow->m_eq.z + " " + m_mainWindow->m_eq.p;
-    int upperCount = (mainEqs.contains(QRegularExpression("\\bU\\b")) ? 1 : 0) +
-                     (mainEqs.contains(QRegularExpression("\\bV\\b")) ? 1 : 0) +
-                     (mainEqs.contains(QRegularExpression("\\bW\\b")) ? 1 : 0);
-    bool geoHasText = false;
-    if (m_mainWindow->ui->lnU) {
-        geoHasText = !m_mainWindow->m_eq.geoU.trimmed().isEmpty() ||
-                     !m_mainWindow->m_eq.geoV.trimmed().isEmpty() ||
-                     !m_mainWindow->m_eq.geoW.trimmed().isEmpty() ||
-                     !m_mainWindow->m_eq.geoDU.trimmed().isEmpty() ||
-                     !m_mainWindow->m_eq.geoDV.trimmed().isEmpty() ||
-                     !m_mainWindow->m_eq.geoDW.trimmed().isEmpty();
-    }
-    bool isGeodesicActive = (upperCount > 0) && geoHasText && (m_mainWindow->ui->tabModeSelector->currentIndex() == 0);
+    // Il loop avanza il flusso solo se il suo timer era acceso (wasGeoAnimating),
+    // con la stessa funzione del vivo (advanceGeodesicFlowBy). Qui c'era anche
+    // una regola ricostruita dai testi (equazioni con U/V/W, campi geodetici
+    // pieni, linguetta parametrica) che nessuno usava.
     double startGeoTime = m_mainWindow->property("geoTime").toDouble();
     // ----------------------------------------
 
