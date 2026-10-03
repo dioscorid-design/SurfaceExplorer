@@ -2760,7 +2760,7 @@ MainWindow::MainWindow(QWidget *parent)
         updateScriptButtonText();
     });
 
-    ui->radioBasic->setChecked(true);
+    refreshRenderRadios();
 
     // I radio sono DISPLAY (mostrano la modalita' della mesh selezionata) e
     // COMANDO (l'utente li clicca). Solo il secondo caso deve scrivere una
@@ -3532,7 +3532,7 @@ MainWindow::MainWindow(QWidget *parent)
         }
         else { // target = Surface
             // In Wireframe la texture è nascosta e le linee usano il COLORE SUPERFICIE.
-            bool wireframeMode = ui->radioWF->isChecked();
+            bool wireframeMode = (shownRenderMode() == 2);
             // TEXTURE ATTIVA SUL DESTINATARIO CORRENTE. Con una fascia
             // selezionata conta la SUA texture: m_surfaceTextureState e' lo
             // stato di quella GLOBALE e resta false se si e' texturizzata solo
@@ -3733,7 +3733,7 @@ MainWindow::MainWindow(QWidget *parent)
     // PARAMETRICA di partenza (Base, come radioBasic gia' selezionato sopra).
     // Nel setup del Ray Marching il motore riceve setGlobalRenderMode(1) = Shell, che
     // resta li' finche' nessuno lo cambia: applyMeshScope -> ...ToActiveMesh ->
-    // ramo "All" -> syncRenderRadiosTo(globalRenderMode()) lo leggeva come
+    // ramo "All" -> i radio sulla globalRenderMode() del motore lo leggevano come
     // modalita' parametrica e accendeva PHONG, mentre il toro di default era
     // ovviamente disegnato in Base. Radio e superficie non concordavano.
     if (ui->glWidget) ui->glWidget->setGlobalRenderMode(m_savedRenderMode);
@@ -5429,7 +5429,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         // -- non girerebbe. E' il caso "ero gia' in Basic ma con lo speculare
         // acceso da un preset".
         m_savedRenderMode = 0;
-        if (ui->radioBasic) ui->radioBasic->setChecked(true);
+        refreshRenderRadios();
         if (ui->glWidget) {
             ui->glWidget->setSpecularEnabled(false);   // spegne il Phong residuo
             ui->glWidget->set4DLighting(false);        // non usata in ray marching
@@ -5638,7 +5638,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         // 2. RESET ILLUMINAZIONE E RENDER MODE (Fix Bug persistenza)
         // Riportiamo tutto al modello "Basic" (Lambert) senza specolarità
         m_savedRenderMode = 0;
-        if (ui->radioBasic) ui->radioBasic->setChecked(true);
+        refreshRenderRadios();
         ui->glWidget->setSpecularEnabled(false); // Spegne Phong residuo
 
         // Spegniamo categoricamente l'illuminazione 4D (non usata nel reset RM)
@@ -6326,7 +6326,7 @@ void MainWindow::updateRenderState()
         // I radio MOSTRANO la mesh selezionata, quindi radioWF acceso significa
         // "la mesh che sto guardando e' in wireframe": e' esattamente la
         // condizione in cui i tasti densita' servono (agiscono su quella parte).
-        bool wireframeDensityUsable = !isImplicitMode && ui->radioWF->isChecked();
+        bool wireframeDensityUsable = !isImplicitMode && shownRenderMode() == 2;
         ui->uDensity->setEnabled(wireframeDensityUsable);
         ui->vDensity->setEnabled(wireframeDensityUsable);
 
@@ -6464,9 +6464,9 @@ void MainWindow::updateRenderState()
 
         if (isImplicitMode) {
             // Ripristino forzato se l'utente era in modalità non compatibili
-            if (ui->radioWF->isChecked()) {
-                ui->radioPhong->setChecked(true);
+            if (m_savedRenderMode == 2) {
                 m_savedRenderMode = 1;
+                refreshRenderRadios();
             }
         }
 
@@ -6601,15 +6601,7 @@ void MainWindow::updateRenderState()
             // sono una fonte valida per il globale: lo lasciamo com'e'.
             const bool showingPart =
                 (ui->glWidget->activeMeshPart() >= 0 && ui->glWidget->meshPartCount() > 1);
-            if (!showingPart) {
-                if (ui->radioWF->isChecked()) {
-                    ui->glWidget->setGlobalRenderMode(2);
-                } else if (ui->radioPhong->isChecked()) {
-                    ui->glWidget->setGlobalRenderMode(1);
-                } else {
-                    ui->glWidget->setGlobalRenderMode(0);
-                }
-            }
+            if (!showingPart) ui->glWidget->setGlobalRenderMode(m_savedRenderMode);
         }
 
         ui->glWidget->update();
@@ -8471,7 +8463,7 @@ void MainWindow::onColorTargetChanged()
         }
     }
     else { // target = Surface
-        bool wireframeMode = ui->radioWF->isChecked();
+        bool wireframeMode = (shownRenderMode() == 2);
         // Stessa condizione di handleColorChange: il DISPLAY deve dire cio' che
         // gli slider scriveranno. Con una fascia selezionata conta la texture
         // di QUELLA, non lo stato della globale.
@@ -17526,24 +17518,8 @@ void MainWindow::applyCommonData(LibraryItem d)
     // sfondo di prima) su una scena senza texture.
     showSurfaceTarget();
 
-    bool oldBas = ui->radioBasic->blockSignals(true);
-    bool oldPho = ui->radioPhong->blockSignals(true);
-    bool oldWF = ui->radioWF->blockSignals(true);
-
-    if (m_savedRenderMode == 1 && ui->radioPhong) {
-        ui->radioPhong->setChecked(true);
-    }
-    else if (m_savedRenderMode == 2 && ui->radioWF) {
-        ui->radioWF->setChecked(true);
-    }
-    else if (ui->radioBasic) {
-        m_savedRenderMode = 0;
-        ui->radioBasic->setChecked(true);
-    }
-
-    ui->radioBasic->blockSignals(oldBas);
-    ui->radioPhong->blockSignals(oldPho);
-    ui->radioWF->blockSignals(oldWF);
+    if (m_savedRenderMode != 1 && m_savedRenderMode != 2) m_savedRenderMode = 0;
+    refreshRenderRadios();
 
     // La modalita' GLOBALE del preset va scritta esplicitamente nel motore.
     // Prima ci pensava updateRenderState rileggendo i radio, ma ora quella
@@ -19826,7 +19802,7 @@ void MainWindow::updateTextureUIState(bool isTextureOn, bool resetColorTargetToF
     //    Eccezione: in WIREFRAME sulla SUPERFICIE la texture è nascosta e gli slider
     //    editano il colore uniforme delle linee, quindi Color1/2 non hanno senso e
     //    vanno spenti (lo sfondo invece può mostrare la sua texture anche in wireframe).
-    bool surfaceWireframe = ui->radioWF->isChecked() && !editingBackground();
+    bool surfaceWireframe = shownRenderMode() == 2 && !editingBackground();
     bool baseActive = isTextureOn && !surfaceWireframe;
     // Ogni picker abilitato solo se la texture referenzia il SUO colore: una texture
     // che usa solo u_col1 (es. "Xor") lascia spento il picker di col2, che sarebbe
@@ -20843,15 +20819,28 @@ void MainWindow::applyPendingMeshAppearance()
     ui->glWidget->update();
 }
 
-// DISPLAY dei radio Base/Phong/Wireframe: li porta sulla modalita' indicata
-// senza che i loro handler scrivano nulla. In un QButtonGroup esclusivo
-// setChecked(true) ne deseleziona un altro, che emette toggled(false): vanno
-// bloccati i segnali di TUTTI i bottoni del gruppo, non solo di quello che si
-// accende. In Ray Marching i radio classici non governano nulla: si lascia stare.
-void MainWindow::syncRenderRadiosTo(int mode)
+// BASE / PHONG / WIREFRAME: lo stato (m_savedRenderMode, o la MeshPart della
+// fascia selezionata) e la sua vista. Prima i radio facevano anche da stato: li
+// leggevano colori, texture e motore, e tre punti li accendevano a segnali vivi
+// (il reset e il ritorno da Wireframe in Ray Marching), facendo girare il
+// gestore del clic.
+int MainWindow::shownRenderMode() const
+{
+    if (ui->glWidget && ui->tabModeSelector->currentIndex() != 1
+        && ui->glWidget->activeMeshPart() >= 0 && ui->glWidget->meshPartCount() > 1)
+        return ui->glWidget->activeMeshEffectiveRenderMode();
+    return m_savedRenderMode;
+}
+
+// DISPLAY: in un QButtonGroup esclusivo setChecked(true) ne deseleziona un
+// altro, che emette toggled(false): vanno bloccati i segnali di TUTTI i
+// bottoni del gruppo, non solo di quello che si accende. Anche in Ray
+// Marching, dove mostrano Base o Phong (m_savedRenderMode) e il Wireframe e'
+// spento.
+void MainWindow::refreshRenderRadios()
 {
     if (!ui->radioBasic || !ui->radioPhong || !ui->radioWF) return;
-    if (ui->tabModeSelector->currentIndex() == 1) return;
+    const int mode = shownRenderMode();
 
     QRadioButton *target = (mode == 2) ? ui->radioWF
                          : (mode == 1) ? ui->radioPhong
@@ -20877,7 +20866,7 @@ QList<QRadioButton*> MainWindow::bgSkyRadios() const
 
 // Forma dello sfondo: DISPLAY dei radio e stato del motore insieme, cosi' non
 // possono divergere. A segnali bloccati su TUTTI i radio, per la stessa ragione
-// di syncRenderRadiosTo: accendendone uno quello acceso prima si spegne ed
+// di refreshRenderRadios: accendendone uno quello acceso prima si spegne ed
 // emette toggled(false). Il motore si scrive a parte, esplicitamente: con i
 // segnali bloccati il gestore del clic non gira.
 void MainWindow::applyBackgroundSkyMode(int mode)
@@ -21004,7 +20993,7 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
         showAppearance(gr, gg, gb,
                        ui->glWidget->globalAlpha(),
                        ui->glWidget->globalLightIntensity());
-        syncRenderRadiosTo(ui->glWidget->globalRenderMode());
+        refreshRenderRadios();
 
         // EDITOR: in "All" si comanda la texture GLOBALE, quindi va mostrato il
         // suo script. Senza questo l'editor restava sul codice dell'ultima mesh
@@ -21146,7 +21135,7 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
     // altro, che emette toggled(false): vanno bloccati i segnali di TUTTI i
     // bottoni del gruppo, non solo di quello che si accende.
     // In Ray Marching i radio classici non governano nulla: si lascia stare.
-    syncRenderRadiosTo(ui->glWidget->activeMeshEffectiveRenderMode());
+    refreshRenderRadios();
 
     // La densita' wireframe non ha widget di stato da riallineare: i tasti +/-
     // sono incrementali e leggono il valore corrente della parte selezionata

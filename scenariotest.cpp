@@ -2746,11 +2746,35 @@ QString ScenarioTest::textureCheckboxProblem() const
             .arg(label, onBg ? QStringLiteral("Background") : QStringLiteral("Surface"));
     const QString target = editTargetProblem();
     if (!target.isEmpty()) return target;
+    const QString render = renderModeProblem();
+    if (!render.isEmpty()) return render;
     // Bersaglio Background: il checkbox mostra lo sfondo. (Per la superficie
     // e le fasce lo verifica checkTextureEnabled.)
     if (onBg && ui->chkBoxTexture->isChecked() != ui->glWidget->isBackgroundTextureEnabled())
         return QStringLiteral("checkbox %1, sfondo %2")
             .arg(onOff(ui->chkBoxTexture->isChecked()), onOff(ui->glWidget->isBackgroundTextureEnabled()));
+    return QString();
+}
+
+QString ScenarioTest::renderModeProblem() const
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    // In Ray Marching i radio classici non governano nulla.
+    if (ui->tabModeSelector->currentIndex() == 1) return QString();
+    static const char *const names[3] = { "Base", "Phong", "Wireframe" };
+    auto name = [](int m) { return (m >= 0 && m < 3) ? QString::fromLatin1(names[m]) : QStringLiteral("nessuno"); };
+    const int global = m_mw->m_savedRenderMode;
+    if (gl->globalRenderMode() != global)
+        return QStringLiteral("modalita' globale: stato %1, motore %2").arg(name(global), name(gl->globalRenderMode()));
+    const bool onePart = gl->activeMeshPart() >= 0 && gl->meshPartCount() > 1;
+    const int shown = onePart ? gl->activeMeshEffectiveRenderMode() : global;
+    const int radio = ui->radioWF->isChecked() ? 2 : ui->radioPhong->isChecked() ? 1
+                    : ui->radioBasic->isChecked() ? 0 : -1;
+    if (radio != shown)
+        return QStringLiteral("radio %1, %2 %3").arg(name(radio),
+                                                     onePart ? QStringLiteral("fascia") : QStringLiteral("globale"),
+                                                     name(shown));
     return QString();
 }
 

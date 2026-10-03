@@ -1744,9 +1744,16 @@ private:
     // funzionalita' resta invisibile dove non serve.
     void updateMeshSelectorRange();
     void syncAppearanceControlsToActiveMesh();
-    // Porta i radio Base/Phong/Wireframe sulla modalita' indicata, a segnali
-    // bloccati (sono un DISPLAY: non devono scrivere nulla).
-    void syncRenderRadiosTo(int mode);
+    // BASE / PHONG / WIREFRAME. Lo stato e' m_savedRenderMode (globale: quello
+    // che le mesh senza modalita' propria ereditano e che il preset salva) e,
+    // per una fascia, la sua MeshPart. I radio ne sono la VISTA: chi vuole
+    // sapere la modalita' chiede a shownRenderMode(), non ai radio.
+    // La modalita' che i radio mostrano: quella efficace della fascia
+    // selezionata (parametrico, multi-mesh), altrimenti la globale.
+    int shownRenderMode() const;
+    // L'unica scrittura dei radio: su shownRenderMode(), a segnali bloccati
+    // (il loro toggled e' il clic dell'utente).
+    void refreshRenderRadios();
     // Forma dello sfondo (GLWidget::BgSkyMode): porta radio E motore sullo stato
     // indicato, a segnali bloccati. Unica via per load e reset -- il clic
     // dell'utente passa dal toggled dei radio.
