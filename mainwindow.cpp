@@ -3638,7 +3638,7 @@ MainWindow::MainWindow(QWidget *parent)
     // tornando su Mesh si ritrova (i valori vivono in MeshPart, non nei radio).
     auto applyMeshScope = [this](){
         if (!ui->glWidget) return;
-        const bool single = ui->radioMeshOne->isChecked();
+        const bool single = !meshScopeAll();
         ui->spinMeshSel->setEnabled(single);
         // In "All" la superficie si comporta come UNA SOLA: l'aspetto proprio
         // delle parti viene SOSPESO (ignorato dal render, non cancellato), cosi'
@@ -3717,11 +3717,17 @@ MainWindow::MainWindow(QWidget *parent)
     m_meshScopeGroup->setExclusive(true);
     m_meshScopeGroup->addButton(ui->radioMeshAll);
     m_meshScopeGroup->addButton(ui->radioMeshOne);
-    connect(ui->radioMeshAll, &QRadioButton::toggled, this, [applyMeshScope](bool on){
-        if (on) applyMeshScope();
+    // Il clic: prima lo STATO, che applyMeshScope legge. Arriva solo dai clic:
+    // il programma scrive i radio a segnali bloccati (setMeshScopeAll).
+    connect(ui->radioMeshAll, &QRadioButton::toggled, this, [this, applyMeshScope](bool on){
+        if (!on) return;
+        m_meshScopeAll = true;
+        applyMeshScope();
     });
-    connect(ui->radioMeshOne, &QRadioButton::toggled, this, [applyMeshScope](bool on){
-        if (on) applyMeshScope();
+    connect(ui->radioMeshOne, &QRadioButton::toggled, this, [this, applyMeshScope](bool on){
+        if (!on) return;
+        m_meshScopeAll = false;
+        applyMeshScope();
     });
     // Stato iniziale: radioMeshAll e' gia' checked nella .ui, quindi il suo
     // toggled NON scatta qui (le connect sono appena state fatte). Senza questa
@@ -3797,7 +3803,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(ui->spinMeshSel, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int val){
         if (!ui->glWidget) return;
-        if (!ui->radioMeshOne->isChecked()) return;   // in All lo spinbox e' inerte
+        if (meshScopeAll()) return;   // in All lo spinbox e' inerte
         ui->glWidget->setActiveMeshPart(val - 1);     // lo spinbox parte da 1
         syncAppearanceControlsToActiveMesh();
         // syncAppearanceControlsToActiveMesh muove i radio a SEGNALI BLOCCATI
@@ -16985,6 +16991,17 @@ void MainWindow::showSurfaceTarget()
     refreshTextureCheckbox();
 }
 
+void MainWindow::setMeshScopeAll(bool all)
+{
+    m_meshScopeAll = all;
+    if (!ui->radioMeshAll || !ui->radioMeshOne) return;
+    // Si accende solo il radio voluto: l'altro lo spegne il QButtonGroup
+    // esclusivo, e lo spegnimento emette comunque toggled(false): segnali
+    // bloccati su ENTRAMBI. Il loro toggled e' il clic dell'utente.
+    QSignalBlocker b1(ui->radioMeshAll), b2(ui->radioMeshOne);
+    (all ? ui->radioMeshAll : ui->radioMeshOne)->setChecked(true);
+}
+
 void MainWindow::setCrossSectionTab(bool on)
 {
     m_crossSectionTab = on;
@@ -20534,7 +20551,7 @@ void MainWindow::updateMeshScopeEnabled()
 
     ui->radioMeshAll->setEnabled(usable);
     ui->radioMeshOne->setEnabled(usable);
-    ui->spinMeshSel->setEnabled(usable && ui->radioMeshOne->isChecked());
+    ui->spinMeshSel->setEnabled(usable && !meshScopeAll());
 
     // LIMITI PER-MESH: attivi in ENTRAMBI gli ambiti su una superficie
     // multi-mesh. In "Mesh" tagliano la parte scelta, in "All" tagliano tutte
@@ -20564,10 +20581,7 @@ void MainWindow::updateMeshScopeEnabled()
     // MESH SINGOLA: qui "Mesh" non ha significato, quindi si torna ad "All".
     // I valori per-parte NON si toccano (restano in MeshPart e ricompaiono se
     // la superficie torna multi-mesh): cambia solo il destinatario dei comandi.
-    if (!ui->radioMeshAll->isChecked()) {
-        QSignalBlocker b1(ui->radioMeshAll), b2(ui->radioMeshOne);
-        ui->radioMeshAll->setChecked(true);
-    }
+    if (!meshScopeAll()) setMeshScopeAll(true);
     ui->glWidget->setMeshAppearanceUniform(true);
     ui->glWidget->setActiveMeshPart(-1);
 }
@@ -20614,7 +20628,7 @@ void MainWindow::updateMeshSelectorRange()
     // AMBITO "ALL": e' il radio a decidere, non il numero. La parte attiva resta
     // -1 (i comandi vanno sul globale) e lo spinbox e' disabilitato ma conserva
     // il suo valore, cosi' tornando su Mesh si ritrova la stessa selezione.
-    if (ui->radioMeshAll && ui->radioMeshAll->isChecked()) {
+    if (meshScopeAll()) {
         ui->glWidget->setActiveMeshPart(-1);
         ui->spinMeshSel->setEnabled(false);
         ui->radioMeshAll->setEnabled(true);
@@ -20715,15 +20729,7 @@ void MainWindow::applyPendingMeshScope()
     // comando finiva dirottato su di essa: sembrava che "non funzionasse
     // niente" finche' non si sceglieva All a mano.
     const bool wantAll = m_pendingMeshScopeAll || !meshScopeUsable();
-    {
-        // Si accende solo il radio voluto: l'altro lo spegne il QButtonGroup
-        // esclusivo (m_meshScopeGroup). I segnali vanno bloccati su ENTRAMBI,
-        // non solo su quello che si accende, perche' lo spegnimento
-        // automatico emette comunque toggled(false).
-        QSignalBlocker b1(ui->radioMeshAll), b2(ui->radioMeshOne);
-        if (wantAll) ui->radioMeshAll->setChecked(true);
-        else         ui->radioMeshOne->setChecked(true);
-    }
+    setMeshScopeAll(wantAll);
     ui->glWidget->setMeshAppearanceUniform(wantAll);
     ui->glWidget->setActiveMeshPart(wantAll ? -1 : ui->spinMeshSel->value() - 1);
     ui->spinMeshSel->setEnabled(!wantAll);

@@ -2750,11 +2750,31 @@ QString ScenarioTest::textureCheckboxProblem() const
     if (!render.isEmpty()) return render;
     const QString implicit = implicitRenderProblem();
     if (!implicit.isEmpty()) return implicit;
+    const QString scope = meshScopeProblem();
+    if (!scope.isEmpty()) return scope;
     // Bersaglio Background: il checkbox mostra lo sfondo. (Per la superficie
     // e le fasce lo verifica checkTextureEnabled.)
     if (onBg && ui->chkBoxTexture->isChecked() != ui->glWidget->isBackgroundTextureEnabled())
         return QStringLiteral("checkbox %1, sfondo %2")
             .arg(onOff(ui->chkBoxTexture->isChecked()), onOff(ui->glWidget->isBackgroundTextureEnabled()));
+    return QString();
+}
+
+QString ScenarioTest::meshScopeProblem() const
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    const bool all = m_mw->meshScopeAll();
+    if (ui->radioMeshAll->isChecked() != all || ui->radioMeshOne->isChecked() == all)
+        return QStringLiteral("ambito: stato %1, radio All %2 e Mesh %3")
+            .arg(all ? QStringLiteral("All") : QStringLiteral("Mesh"),
+                 onOff(ui->radioMeshAll->isChecked()), onOff(ui->radioMeshOne->isChecked()));
+    if (ui->tabModeSelector->currentIndex() == 1 || gl->meshPartCount() <= 1) return QString();
+    if (all && (gl->activeMeshPart() != -1 || !gl->meshAppearanceUniform()))
+        return QStringLiteral("ambito All, ma nel motore fascia attiva %1, aspetto uniforme %2")
+            .arg(gl->activeMeshPart() + 1).arg(onOff(gl->meshAppearanceUniform()));
+    if (!all && gl->meshAppearanceUniform())
+        return QStringLiteral("ambito Mesh, ma nel motore aspetto uniforme");
     return QString();
 }
 

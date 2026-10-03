@@ -1404,6 +1404,14 @@ private:
     // bloccati, e riallinea il checkbox. Il resto del dock lo riallinea chi
     // chiama, come prima.
     void showSurfaceTarget();
+    // AMBITO All / Mesh: STATO. I radio ne sono la vista; nel motore ne
+    // derivano setMeshAppearanceUniform e la parte attiva (-1 in All). Chi
+    // vuole sapere l'ambito chiede a meshScopeAll(), non ai radio.
+    bool m_meshScopeAll = true;
+    bool meshScopeAll() const { return m_meshScopeAll; }
+    // Dal programma (gate del selettore, ambito del preset al load): stato +
+    // radio a segnali bloccati. Il motore lo scrive chi chiama.
+    void setMeshScopeAll(bool all);
     // SOTTO-TAB DEL RAY MARCHING (3D / Cross Section): STATO. La linguetta
     // (ui->subTabImplicit) ne e' la vista; il ramo che il motore compila
     // (GLWidget::implicitUsesCrossSection) e' l'applicato. Chi vuole sapere

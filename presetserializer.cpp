@@ -615,8 +615,7 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
         // decide il load, applyPendingMeshScope) e il radio non si guarda: puo'
         // essere ancora quello della superficie precedente quando il load non
         // rigenera la griglia (script metrici: Kerr dopo Hopf Tori).
-        d.meshScopeAll = d.meshParts.size() <= 1
-                         || (mw->ui->radioMeshAll && mw->ui->radioMeshAll->isChecked());
+        d.meshScopeAll = d.meshParts.size() <= 1 || mw->meshScopeAll();
         // Dominio dell'ambito "All": solo se impostato.
         d.hasAllDomain = eng->hasAllDomain();
         if (d.hasAllDomain) eng->allDomain(d.allUMin, d.allUMax, d.allVMin, d.allVMax);
