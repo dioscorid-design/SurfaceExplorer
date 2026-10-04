@@ -516,7 +516,7 @@ void MainWindow::runMetricScript(const QString& fullText)
     // ancora vuoto, costanti e steps non vengono mai reimposti dallo script.
     // Così i due tasti producono la stessa superficie (niente rimpicciolimento
     // da v_min/v_max := che sovrascrivevano i limiti del dock).
-    if (!m_metricPresetLoad)
+    if (!m_scriptRunFromLoad)
         parseAndApplyScriptParams(fullText, false, /*onlyFillEmptyLimits=*/true);
 
     // Condizioni iniziali dichiarate nello script: le direttive case-sensitive
@@ -1215,7 +1215,13 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
 
     bool limitsChanged = false;
 
-    for (const auto &directive : sd.values) {
+    // Run lanciato dal LOAD di un preset: la scena e' il file, gia' assegnata in
+    // testa ad applyCommonData (costanti, domini, limiti). Le direttive di
+    // VALORE non si riapplicano: valgono al Run dell'utente. Prima passavano
+    // dagli slider (troncate al centesimo) e dai campi limite, riscrivendo a
+    // meta' load cio' che il file aveva gia' detto.
+    static const QList<QPair<QString, QString>> kNoValues;
+    for (const auto &directive : m_scriptRunFromLoad ? kNoValues : sd.values) {
         const QString &varName = directive.first;
         const QString &valStr  = directive.second;
 

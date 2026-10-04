@@ -988,6 +988,20 @@ void MainWindow::updateConstraintState()
         usesW = false;
     }
 
+    // Superficie da SCRIPT (non metrico): la geometria e' getRawPosition(u, v)
+    // dello script e X/Y/Z/P sono vuoti, quindi "le equazioni non citano u" non
+    // vuol dire che u non serva. Svuotare qui i limiti li cancellava al load di
+    // un record da script dopo uno METRICO (exitMetricScriptMode rilancia questa
+    // funzione): Clifford Labyrinth e i tori di Hopf si salvavano a 0, a seconda
+    // del preset aperto prima. Lo nascondeva il load, che riapplicava le
+    // direttive "u_max := ..." dello script dopo.
+    const QString scriptApplied = stripCodeComments(m_scene.surfaceScriptApplied);
+    if (!implicitMode() && allMainEqs.trimmed().isEmpty() && !scriptApplied.trimmed().isEmpty()) {
+        usesU = true;
+        usesV = true;
+        usesW = usesW || scriptApplied.contains(kReLowerW);
+    }
+
     auto applyLimitsState = [](QLineEdit* minEdit, QLineEdit* maxEdit, bool enable) {
         minEdit->setEnabled(enable);
         maxEdit->setEnabled(enable);
@@ -2189,26 +2203,12 @@ bool MainWindow::applyDiscreteConstants()
 
     bool changed = false;
     for (ConstField field : constantFields()) {
-        const QString key = constantName(field);
-        auto it    = m_scene.discreteConsts.constFind(key);
-        auto itMin = m_scene.minConsts.constFind(key);
-        const bool isDiscrete = (it != m_scene.discreteConsts.constEnd());
-        const bool hasMin     = (itMin != m_scene.minConsts.constEnd());
-        if (!isDiscrete && !hasMin) continue;
-
         bool ok = false;
         const float cur = (m_scene.constants.*field).trimmed().toFloat(&ok);
         if (!ok) continue;   // espressione (es. "A*2"): non la tocchiamo
 
-        float target = cur;
-        if (isDiscrete) {
-            // Intero PIU' VICINO, poi dentro il range dichiarato.
-            target = float(qBound(it->lo, qRound(cur), it->hi));
-        }
-        if (hasMin && target < *itMin) {
-            target = *itMin;   // costante continua, solo la soglia inferiore
-        }
-
+        const float target = snapConstant(cur, constantName(field),
+                                          m_scene.discreteConsts, m_scene.minConsts);
         if (qFuzzyCompare(cur, target)) continue;
 
         // Solo il campo: slider e cascata li riallinea il chiamante, una volta

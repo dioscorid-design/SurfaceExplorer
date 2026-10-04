@@ -485,38 +485,44 @@ MainWindow::LimitTexts MainWindow::limitTextsFromItem(const LibraryItem &d)
     l.xMin = cut(d.xMin, -1000.0f, d.xMinExpr);  l.xMax = cut(d.xMax, 1000.0f, d.xMaxExpr);
     l.yMin = cut(d.yMin, -1000.0f, d.yMinExpr);  l.yMax = cut(d.yMax, 1000.0f, d.yMaxExpr);
     l.zMin = cut(d.zMin, -1000.0f, d.zMinExpr);  l.zMax = cut(d.zMax, 1000.0f, d.zMaxExpr);
+
+    // Con uno script, un asse SENZA dominio nel file (0/0, nessuna formula:
+    // preset scritti a mano, che il dominio lo dichiarano nello script) lo
+    // prende dalle direttive "u_max := 4*pi;", col valore calcolato a 12
+    // cifre. Un asse con un dominio salvato lo tiene: e' il file, magari
+    // ritoccato dall'utente dopo il Run, e le direttive valgono al Run
+    // dell'utente (vedi m_scriptRunFromLoad).
+    if (loadsFromScript(d)) {
+        auto noDomain = [](float lo, float hi, const QString &loExpr, const QString &hiExpr) {
+            return lo == 0.0f && hi == 0.0f && loExpr.isEmpty() && hiExpr.isEmpty();
+        };
+        const bool freeU = noDomain(d.uMin, d.uMax, d.uMinExpr, d.uMaxExpr);
+        const bool freeV = noDomain(d.vMin, d.vMax, d.vMinExpr, d.vMaxExpr);
+        const bool freeW = noDomain(d.wMin, d.wMax, d.wMinExpr, d.wMaxExpr);
+        for (const auto &dv : parseScriptDirectives(d.scriptCode).values) {
+            const QString &k = dv.first;
+            QString *lim = (freeU && k == QLatin1String("u_min")) ? &l.uMin
+                         : (freeU && k == QLatin1String("u_max")) ? &l.uMax
+                         : (freeV && k == QLatin1String("v_min")) ? &l.vMin
+                         : (freeV && k == QLatin1String("v_max")) ? &l.vMax
+                         : (freeW && k == QLatin1String("w_min")) ? &l.wMin
+                         : (freeW && k == QLatin1String("w_max")) ? &l.wMax : nullptr;
+            if (lim) *lim = QString::number(ExpressionParser::evaluateSimple(dv.second), 'g', 12);
+        }
+    }
     return l;
 }
 
 MainWindow::SceneState MainWindow::sceneFromItem(const LibraryItem &d, bool isRecord)
 {
     SceneState s;
-    const bool fromScript = loadsFromScript(d);
-
     s.eq = equationTextsFromItem(d);
     s.rm = implicitTextsFromItem(d);
 
-    // Costanti: il formato con cui il load le scrive (setConstValue, 'g', 6).
-    auto num = [](float v) { return QString::number(v, 'g', 6); };
-    s.constants.a = num(d.a);  s.constants.b = num(d.b);  s.constants.c = num(d.c);
-    s.constants.d = num(d.d);  s.constants.e = num(d.e);  s.constants.f = num(d.f);
-    s.constants.s = num(d.s);
+    s.constants = constantTextsFromItem(d);
+    constantDomainsFromItem(d, &s.discreteConsts, &s.minConsts);
 
     s.lim = limitTextsFromItem(d);
-    // Con uno script, le sue direttive di dominio ("u_max := 4*pi;") vincono sui
-    // numeri del file: il load le applica (parseAndApplyScriptParams), scritte
-    // col valore calcolato a 12 cifre.
-    if (fromScript) {
-        for (const auto &dv : parseScriptDirectives(d.scriptCode).values) {
-            QString *lim = dv.first == QLatin1String("u_min") ? &s.lim.uMin
-                         : dv.first == QLatin1String("u_max") ? &s.lim.uMax
-                         : dv.first == QLatin1String("v_min") ? &s.lim.vMin
-                         : dv.first == QLatin1String("v_max") ? &s.lim.vMax
-                         : dv.first == QLatin1String("w_min") ? &s.lim.wMin
-                         : dv.first == QLatin1String("w_max") ? &s.lim.wMax : nullptr;
-            if (lim) *lim = QString::number(ExpressionParser::evaluateSimple(dv.second), 'g', 12);
-        }
-    }
     s.path = pathTextsFromItem(d);
     s.steps = d.steps;
 
@@ -583,6 +589,53 @@ MainWindow::EquationTexts MainWindow::equationTextsFromItem(const LibraryItem &d
     return e;
 }
 
+void MainWindow::constantDomainsFromItem(const LibraryItem &d,
+                                         QHash<QString, DiscreteRange> *discrete,
+                                         QHash<QString, float> *mins)
+{
+    discrete->clear();
+    mins->clear();
+    if (loadsFromScript(d)) {
+        const ScriptDirectives sd = parseScriptDirectives(d.scriptCode);
+        *discrete = sd.discrete;
+        *mins = sd.mins;
+        return;
+    }
+    for (auto it = d.discreteConstants.constBegin(); it != d.discreteConstants.constEnd(); ++it)
+        discrete->insert(it.key(), { it->first, it->second });
+}
+
+MainWindow::ConstantTexts MainWindow::constantTextsFromItem(const LibraryItem &d)
+{
+    QHash<QString, DiscreteRange> discrete;
+    QHash<QString, float> mins;
+    constantDomainsFromItem(d, &discrete, &mins);
+    const float values[7] = { d.a, d.b, d.c, d.d, d.e, d.f, d.s };
+    ConstantTexts k;
+    int i = 0;
+    for (ConstField f : constantFields()) {
+        // Il formato del load ('g', 6), e lo scatto sul numero COSI' scritto,
+        // come applyDiscreteConstants lo rilegge dal campo.
+        const QString text = QString::number(values[i++], 'g', 6);
+        const float cur = text.toFloat();
+        const float snapped = snapConstant(cur, constantName(f), discrete, mins);
+        k.*f = qFuzzyCompare(cur, snapped) ? text : QString::number(snapped, 'g', 6);
+    }
+    return k;
+}
+
+float MainWindow::snapConstant(float v, const QString &letter,
+                               const QHash<QString, DiscreteRange> &discrete,
+                               const QHash<QString, float> &mins)
+{
+    float target = v;
+    const auto it = discrete.constFind(letter);
+    if (it != discrete.constEnd()) target = float(qBound(it->lo, qRound(v), it->hi));
+    const auto itMin = mins.constFind(letter);
+    if (itMin != mins.constEnd() && target < *itMin) target = *itMin;
+    return target;
+}
+
 bool MainWindow::loadsFromScript(const LibraryItem &d)
 {
     const bool hasValidEquations = (!d.x.trimmed().isEmpty() && d.x != QLatin1String("0")
@@ -632,6 +685,11 @@ void MainWindow::setConstText(ConstField field, const QString &text)
 void MainWindow::setConstValue(ConstField field, double value)
 {
     setConstText(field, QString::number(value, 'g', 6));
+}
+
+void MainWindow::setConstTexts(const ConstantTexts &k)
+{
+    for (ConstField f : constantFields()) setConstText(f, k.*f);
 }
 
 void MainWindow::refreshConstantSliders()

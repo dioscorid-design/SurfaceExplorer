@@ -2546,15 +2546,15 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // soprattutto il parametrico, dove lo sfondo e' lo stesso. Quindi qui vale
     // per ENTRAMBI i modi.
     //
-    // ORDINE: prima si riscrivono i valori del JSON (il reset a 1 puo' averli gia'
-    // rovinati), POI si giudica -- ora sui campi del record -- cosi' le costanti
-    // davvero inutilizzate tornano a 1 e spente come vuole la regola, e le altre
-    // tengono il valore salvato. Infine il motore legge i campi come sono adesso:
-    // le costanti sono uniform, niente rebuild, ma senza questa riga la GPU
-    // resterebbe coi valori del giudizio sbagliato.
-    // La mappa delle discrete NON si ricostruisce (false): per i record con
-    // script e' gia' stata rifatta dalle direttive :=.
-    applyPresetConstants(data, /*rebuildDiscreteMap=*/false);
+    // ORDINE: prima si riassegnano i valori del preset (il reset a 1 puo' averli
+    // gia' rovinati), POI si giudica -- ora sui campi del record -- cosi' le
+    // costanti davvero inutilizzate tornano a 1 e spente come vuole la regola,
+    // e le altre tengono il valore salvato. Infine il motore legge i campi come
+    // sono adesso (refreshConstants): le costanti sono uniform, niente rebuild,
+    // ma senza la GPU resterebbe coi valori del giudizio sbagliato.
+    // E' la STESSA assegnazione della testa di applyCommonData (i domini non
+    // cambiano): sparira' quando anche le texture saranno assegnate in testa.
+    setConstTexts(constantTextsFromItem(data));
     refreshConstants(/*restoreTextOnNegative=*/false);
     SE_TEXP("record:costanti-rigiudicate");
 
@@ -3517,64 +3517,6 @@ void MainWindow::loadCrossSectionDefaultSurface()
     updateConstantsUIState();
 }
 
-// COSTANTI A-F/S DI UN PRESET: campi, slider, snap delle discrete e motore.
-// Estratto da applyCommonData perche' serve DUE volte al load di un record, e la
-// seconda copia -- scritta a mano -- divergeva: impostava l'intervallo di S da 0
-// (S puo' essere negativa: un record con S < 0 si ricaricava a 0) e saltava lo
-// snap delle costanti discrete. Una sede sola, come vuole la regola del progetto
-// sulle copie di logica.
-// rebuildDiscreteMap: true al primo passaggio (applyCommonData), false al secondo
-// -- vedi il commento sulla mappa qui sotto.
-void MainWindow::applyPresetConstants(const LibraryItem &d, bool rebuildDiscreteMap)
-{
-    // Formato 'g',6 (precisione significativa), NON 'f',2: quest'ultimo troncava le
-    // costanti a 2 decimali al LOAD (es. A=0.005 -> "0.01"), e un successivo salvataggio
-    // le rileggeva gia' rovinate da lineA -> il valore fine si perdeva. 'g',6 e' coerente
-    // con connectSlider (che scrive i campi con lo stesso formato).
-    setConstValue(&ConstantTexts::a, d.a);
-    setConstValue(&ConstantTexts::b, d.b);
-    setConstValue(&ConstantTexts::c, d.c);
-    setConstValue(&ConstantTexts::d, d.d);
-    setConstValue(&ConstantTexts::e, d.e);
-    setConstValue(&ConstantTexts::f, d.f);
-    setConstValue(&ConstantTexts::s, d.s);
-
-    // Costanti discrete dichiarate dal PRESET ("discreteConstants": {"A":[2,6]}).
-    // Vanno adottate QUI, a campi appena scritti: applyDiscreteConstants()
-    // legge i campi e li riscrive con l'intero piu' vicino, quindi deve girare
-    // dopo il ripristino dei valori.
-    // Azzerata SEMPRE per prima: un preset che non le dichiara deve tornare a
-    // costanti continue, altrimenti quelle del preset precedente resterebbero
-    // attive (stessa famiglia di bug del cutout che persisteva fra superfici).
-    // Per i preset CON script la mappa viene poi ricostruita dalle direttive :=
-    // in parseAndApplyScriptParams: le due strade non si pestano i piedi perche'
-    // quella parte azzera a sua volta prima di leggere.
-    // rebuildDiscreteMap = false: la mappa si RIUSA com'e'. Serve alla seconda
-    // applicazione dei valori al load di un record (vedi applyMotionExample):
-    // per i preset CON script, a quel punto la mappa e' gia' stata ricostruita
-    // dalle direttive := dello script, e rifarla dal JSON le cancellerebbe.
-    if (rebuildDiscreteMap) {
-        m_scene.discreteConsts.clear();
-        // Anche i MINIMI ("A := min(0.3);"): non hanno una chiave nel preset,
-        // vengono solo dalle direttive dello script, e come le discrete
-        // appartengono alla scena che le dichiara. Qui non si azzeravano: dopo
-        // Octahedron Bands (A := min(0.3)) una superficie a equazioni non
-        // lasciava piu' scendere A sotto 0.3 (trovato dal test degli scenari).
-        // Per i preset con script li ricostruisce parseAndApplyScriptParams.
-        m_scene.minConsts.clear();
-        for (auto it = d.discreteConstants.constBegin();
-             it != d.discreteConstants.constEnd(); ++it) {
-            m_scene.discreteConsts.insert(it.key(), { it->first, it->second });
-        }
-    }
-    if (!m_scene.discreteConsts.isEmpty()) applyDiscreteConstants();
-
-    // Slider e GPU dai CAMPI appena scritti, quindi anche dalle costanti
-    // EVENTUALMENTE snappate sopra: la superficie non nasce con A=3.47 mentre
-    // il campo mostra 3. Stessa cascata di ogni altro percorso.
-    pushConstantsToEngine(/*restoreTextOnNegative=*/false, /*always=*/true);
-}
-
 void MainWindow::applyCommonData(LibraryItem d)
 {
     // CARICAMENTO IN CORSO (m_populatingFields, vedi mainwindow.h). RAII: il
@@ -3776,6 +3718,15 @@ void MainWindow::applyCommonData(LibraryItem d)
         setCrossSectionTab(false);
         setImplicitShell(true);
     }
+    // COSTANTI E LORO DOMINI (discrete "A := int(2,6)", minimi "F := min(0.3)"):
+    // dal preset, gia' scattate sui domini, e anch'esse prima di ogni giudizio.
+    // Domini sempre riscritti: un preset che non ne dichiara torna a costanti
+    // continue (quelli del preset di prima resterebbero attivi). Le direttive
+    // di VALORE dello script ("A := 1.2", "u_max := 4*pi") al load non si
+    // riapplicano (parseAndApplyScriptParams): la scena e' il file. Slider e
+    // motore le ricevono piu' sotto, dopo i limiti.
+    constantDomainsFromItem(d, &m_scene.discreteConsts, &m_scene.minConsts);
+    setConstTexts(constantTextsFromItem(d));
 
     // ==========================================================
     // 2. APPLICAZIONE DATI DEL PRESET
@@ -3858,8 +3809,9 @@ void MainWindow::applyCommonData(LibraryItem d)
         ui->glWidget->setRangeZ(d.zMin, d.zMax);
     }
 
-    // 3. Costanti Matematiche (vedi applyPresetConstants)
-    applyPresetConstants(d, /*rebuildDiscreteMap=*/true);
+    // 3. Costanti: i testi sono gia' quelli del preset (in testa); qui slider e
+    // motore, dai valori risolti della cascata.
+    pushConstantsToEngine(/*restoreTextOnNegative=*/false, /*always=*/true);
 
     // Il taglio dai campi appena scritti, con le costanti del preset: registra
     // anche i testi applicati, che lo slider di una costante rivaluta. Il
@@ -4054,7 +4006,10 @@ void MainWindow::applyCommonData(LibraryItem d)
             // record RM (equazione = "// Controlled by Script").
             applyImplicitShellMode(isShell);
 
+            // Domini, MESH_VISIBLE e suono; i valori no (vedi m_scriptRunFromLoad).
+            m_scriptRunFromLoad = true;
             parseAndApplyScriptParams(d.scriptCode);
+            m_scriptRunFromLoad = false;
 
             QString glslBody;
             QString scriptCopy = d.scriptCode;
@@ -4092,11 +4047,11 @@ void MainWindow::applyCommonData(LibraryItem d)
             // Esecuzione Parametrica standard. Durante il load di un preset lo
             // stato salvato (limiti, costanti, steps e condizioni iniziali,
             // già ripristinati più sopra, eventualmente modificati dall'utente
-            // dopo il Run) ha la precedenza sulle direttive := di un eventuale
-            // script metrico: al load riempiono solo i campi rimasti vuoti.
-            m_metricPresetLoad = true;
+            // dopo il Run) ha la precedenza sulle direttive := dello script
+            // (vedi m_scriptRunFromLoad).
+            m_scriptRunFromLoad = true;
             onRunScriptClicked();
-            m_metricPresetLoad = false;
+            m_scriptRunFromLoad = false;
         }
 
         updateScriptButtonText();

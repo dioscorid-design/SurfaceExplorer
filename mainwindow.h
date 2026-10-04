@@ -800,6 +800,8 @@ private:
     // pushConstantsToEngine, che li riallinea anche lei).
     void setConstText(ConstField field, const QString &text);
     void setConstValue(ConstField field, double value);   // formato 'g', 6
+    // Tutti e sette in blocco (load: constantTextsFromItem), stessa regola.
+    void setConstTexts(const ConstantTexts &k);
     void refreshConstantSliders();
     // ----------------------------------------------------------
     // LIMITI E PATH: STATO dei testi dei campi a una riga
@@ -848,6 +850,21 @@ private:
     static bool loadsFromScript(const LibraryItem &d);
     // Equazioni, composizione, vincoli e flusso geodetico DAL PRESET.
     static EquationTexts equationTextsFromItem(const LibraryItem &d);
+    // Domini delle costanti DAL PRESET: discrete ("A := int(1,6)") e minimi
+    // ("F := min(0.3)"). Dallo script se la scena viene dallo script,
+    // altrimenti dalla chiave "discreteConstants" del file (i minimi non ne
+    // hanno una).
+    static void constantDomainsFromItem(const LibraryItem &d,
+                                        QHash<QString, DiscreteRange> *discrete,
+                                        QHash<QString, float> *mins);
+    // Le costanti DAL PRESET: i valori del file nel formato del load ('g', 6),
+    // gia' scattati sui domini qui sopra.
+    static ConstantTexts constantTextsFromItem(const LibraryItem &d);
+    // Lo scatto di UNA costante sul suo dominio: intero piu' vicino dentro
+    // [lo, hi], poi la soglia del minimo. Unica sede della regola.
+    static float snapConstant(float v, const QString &letter,
+                              const QHash<QString, DiscreteRange> &discrete,
+                              const QHash<QString, float> &mins);
     // Equazione 3D, sezione 4D e rilievo DAL PRESET (la texture no: e' del
     // concetto texture). Un preset parametrico li lascia vuoti.
     static ImplicitTexts implicitTextsFromItem(const LibraryItem &d);
@@ -941,11 +958,13 @@ private:
     // Non vuoto = il flusso geodetico usa il tensore g_ij dello script invece
     // della metrica indotta dall'embedding X/Y/Z/P.
     QString m_metricScriptBody;
-    // Caricamento preset: lo stato salvato (limiti, costanti, steps e
-    // condizioni iniziali, eventualmente modificati dall'utente dopo il Run)
-    // ha la precedenza sulle direttive := dello script metrico, che valgono
-    // per intero solo al Run manuale; al load riempiono solo i campi vuoti.
-    bool m_metricPresetLoad = false;
+    // Run dello script lanciato dal LOAD di un preset: lo stato salvato
+    // (limiti, costanti, steps e condizioni iniziali, eventualmente modificati
+    // dall'utente dopo il Run), gia' assegnato da applyCommonData, ha la
+    // precedenza sulle direttive := dello script, che valgono solo al Run
+    // dell'utente (parseAndApplyScriptParams non applica i valori; lo script
+    // metrico riempie solo le condizioni iniziali vuote).
+    bool m_scriptRunFromLoad = false;
     // Firma dell'ultima combinazione metrica+condizioni per cui è già stato
     // mostrato l'avviso "costante ambigua": evita di ripeterlo a ogni frame di
     // animazione o a ogni tweak di slider con la stessa configurazione.
@@ -1389,10 +1408,6 @@ private:
     // Per valore come applySurfaceExample/applyMotionExample: e' chiamata da
     // entrambe e ne condivide il rischio (vedi il commento la' sopra).
     void applyCommonData(LibraryItem data);
-    // Costanti A-F/S di un preset: campi, slider, snap delle discrete, motore.
-    // Unica sede (vedi la definizione): la usano applyCommonData e la seconda
-    // applicazione al load di un record.
-    void applyPresetConstants(const LibraryItem &d, bool rebuildDiscreteMap);
     // Shell/Solid del Ray Marching: UNICA implementazione condivisa fra i due
     // rami di load (equazione implicita e script implicito) e il reset alla
     // sfera di default. I due rami avevano il ripristino solo nel ramo

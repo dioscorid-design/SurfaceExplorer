@@ -498,6 +498,18 @@ QStringList PresetRoundTrip::diffScene(const MainWindow::SceneState &want, const
     SE_CMP(path.x3D); SE_CMP(path.y3D); SE_CMP(path.z3D); SE_CMP(path.roll3D);
     SE_CMP(lastCameraMotion);
 #undef SE_CMP
+    // Domini delle costanti, in ordine di lettera.
+    auto domains = [](const MainWindow::SceneState &s) {
+        QStringList out;
+        for (const QString &k : s.discreteConsts.keys())
+            out << QStringLiteral("%1:int(%2,%3)").arg(k).arg(s.discreteConsts.value(k).lo)
+                                                  .arg(s.discreteConsts.value(k).hi);
+        for (const QString &k : s.minConsts.keys())
+            out << QStringLiteral("%1:min(%2)").arg(k).arg(s.minConsts.value(k));
+        out.sort();
+        return out.join(QLatin1Char(' '));
+    };
+    cmp("constantDomains", domains(want), domains(got));
     cmpInt("steps", want.steps, got.steps);
     cmpInt("implicitMode", want.implicitMode, got.implicitMode);
     cmpInt("crossSectionTab", want.crossSectionTab, got.crossSectionTab);
@@ -799,22 +811,38 @@ void PresetRoundTrip::writeReport()
 
     for (const Entry &e : m_entries) {
         const Capture &a = m_passA[e.rel];
-        // Scena prevista dal file contro scena dopo il load (passaggio A).
-        if (!a.sceneDiff.isEmpty()) ++sceneMismatch;
-        for (const QString &d : a.sceneDiff) {
-            const QStringList f = d.split(QLatin1Char('|'));
-            KeyStat &st = sceneByKey[f.value(0)];
-            ++st.count;
-            if (st.examples.size() < 3)
-                st.examples.append(QStringLiteral("%1 [previsto '%2', reale '%3']")
-                                       .arg(QFileInfo(e.rel).completeBaseName(), f.value(1), f.value(2)));
+        const Capture *bp = m_passB.contains(e.rel) ? &m_passB[e.rel] : nullptr;
+        const Capture *cp = m_passC.contains(e.rel) ? &m_passC[e.rel] : nullptr;
+        // Scena prevista dal file contro scena dopo il load, in TUTTI i
+        // passaggi: una scelta che sopravvive dal preset di prima si vede solo
+        // dopo certi preset (sotto-tab e Shell ereditati da un record Ray
+        // Marching: solo nel passaggio rimescolato). Il preset conta una volta.
+        {
+            bool off = false;
+            const QPair<QChar, const Capture *> passes[] = {
+                { QLatin1Char('A'), &a }, { QLatin1Char('B'), bp }, { QLatin1Char('C'), cp } };
+            for (const auto &pc : passes) {
+                if (!pc.second) continue;
+                for (const QString &d : pc.second->sceneDiff) {
+                    off = true;
+                    const QStringList f = d.split(QLatin1Char('|'));
+                    KeyStat &st = sceneByKey[f.value(0)];
+                    ++st.count;
+                    if (st.examples.size() < 3)
+                        st.examples.append(QStringLiteral("%1 [previsto '%2', reale '%3', %4 dopo %5]")
+                                               .arg(QFileInfo(e.rel).completeBaseName(), f.value(1), f.value(2))
+                                               .arg(pc.first)
+                                               .arg(pc.second->previous.isEmpty()
+                                                        ? QStringLiteral("l'avvio")
+                                                        : QFileInfo(pc.second->previous).completeBaseName()));
+                }
+            }
+            if (off) ++sceneMismatch;
         }
         // Un popup durante un caricamento e' sempre un difetto (il load si
         // ferma a meta' finche' l'utente non lo chiude): conta, in tutti e due
         // i passaggi, con il predecessore che serve a riprodurlo.
         bool popped = false;
-        const Capture *bp = m_passB.contains(e.rel) ? &m_passB[e.rel] : nullptr;
-        const Capture *cp = m_passC.contains(e.rel) ? &m_passC[e.rel] : nullptr;
         for (const Capture *c : { &a, bp, cp }) {
             if (!c) continue;
             for (const QString &p : c->dialogs) {
@@ -972,7 +1000,7 @@ void PresetRoundTrip::writeReport()
         << QStringLiteral("Ricaricati perche' il watchdog della GPU li aveva fermati:   %1%2").arg(m_watchdogReloads)
                .arg(m_watchdogReloads > 0 ? QStringLiteral("   (macchina carica: non e' un difetto)") : QString())
         << QString()
-        << QStringLiteral("== SCENA PREVISTA DAL FILE vs SCENA DOPO IL LOAD, per campo (passaggio A) ==")
+        << QStringLiteral("== SCENA PREVISTA DAL FILE vs SCENA DOPO IL LOAD, per campo (tutti i passaggi) ==")
         << summary(sceneByKey)
         << QString()
         << QStringLiteral("== DIPENDONO DAL PRESET PRECEDENTE, per chiave (numero di preset) ==")

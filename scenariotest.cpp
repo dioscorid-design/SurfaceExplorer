@@ -15,6 +15,7 @@
 #include <QDir>
 #include <QEventLoop>
 #include <QFile>
+#include <QJsonDocument>
 #include <QFileInfo>
 #include <QMessageBox>
 #include <QRegularExpression>
@@ -1972,6 +1973,70 @@ void ScenarioTest::run()
         checkConstants(QStringLiteral("poi una superficie a equazioni"), KV{ { "A", 0.8 }, { "B", 0.3 } });
         setConstantBySlider(QStringLiteral("A"), 0.1);
         checkConstants(QStringLiteral("A libera: 0.1 resta 0.1"), KV{ { "A", 0.1 } });
+    }
+
+    // ---------------------------------------------------------------------
+    // IL FILE VINCE SULLE DIRETTIVE DI VALORE DELLO SCRIPT. Una superficie da
+    // script che dichiara "A := 10.0;" e "u_max := 1.0;", salvata con A e u max
+    // ritoccati, si riapre coi valori salvati: le direttive valgono al Run
+    // dell'utente. Prima il load le riapplicava (A dagli slider nelle
+    // superfici, u max dal campo anche nei record) e il ritocco andava perso.
+    {
+        const QString kEnneper = QStringLiteral("surfaces/Parametric/Equations/R3/Symmetrized Double Enneper.json");
+        m_lines.append(QString());
+        m_lines.append(QStringLiteral("== Direttive dello script contro valori salvati (%1) ==").arg(kEnneper));
+        QTemporaryDir tmp;
+        // Save -> file -> stesso parser dell'albero -> load, come l'utente.
+        auto reopen = [&](const LibraryItem &saved, LibraryType type) {
+            const QString path = tmp.path() + QStringLiteral("/saved.json");
+            QFile f(path);
+            if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+            f.write(QJsonDocument(LibraryManager::toJson(saved)).toJson());
+            f.close();
+            LibraryManager lm;
+            const LibraryItem item = lm.parseJson(path, type);
+            if (item.name.isEmpty()) return false;
+            if (type == LibraryType::Surface) m_mw->applySurfaceExample(item);
+            else                              m_mw->applyMotionExample(item);
+            if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
+            wait(1500);
+            return true;
+        };
+        auto touchUp = [&]() {
+            setConstantBySlider(QStringLiteral("A"), 7.5);
+            typeInField(ui->uMaxEdit, QStringLiteral("0.8"));
+            pressEnter(ui->uMaxEdit);
+        };
+        auto checkKept = [&](const QString &how) {
+            checkConstants(how + QStringLiteral(": A resta 7.5"), KV{ { "A", 7.5 }, { "B", 0.1 } });
+            check(ui->uMaxEdit->text() == QLatin1String("0.8"),
+                  how + QStringLiteral(": u max resta 0.8 (campo '%1')").arg(ui->uMaxEdit->text()));
+        };
+        if (tmp.isValid() && loadSurface(kEnneper)) {
+            checkConstants(QStringLiteral("superficie da script caricata"), KV{ { "A", 10 }, { "B", 0.1 } });
+            touchUp();
+            check(reopen(m_mw->m_presetSerializer->captureSurfaceState(QStringLiteral("saved")),
+                         LibraryType::Surface),
+                  QStringLiteral("Save Surface riaperto"));
+            checkKept(QStringLiteral("riaperta come superficie"));
+        }
+        if (tmp.isValid() && loadSurface(kEnneper)) {
+            touchUp();
+            m_record = QStringLiteral("saved");
+            check(reopen(captureSave(), LibraryType::Motion), QStringLiteral("Save Record riaperto"));
+            checkKept(QStringLiteral("riaperta come record"));
+        }
+        // Record da script aperto dopo uno METRICO: l'uscita dalla modalita'
+        // metrica rigiudica i limiti, e su una superficie da script (X/Y/Z/P
+        // vuoti) svuotava u e v. Li riscrivevano le direttive, riapplicate a
+        // ogni load; ora vale il file, e i limiti devono restare.
+        if (loadRecord(QStringLiteral("records/Rotations/Wormhole.json"))
+            && loadRecord(QStringLiteral("records/Solid Wireframe/Clifford Labyrinth.json"))) {
+            check(ui->uMaxEdit->isEnabled() && !ui->uMaxEdit->text().isEmpty()
+                      && !ui->vMaxEdit->text().isEmpty(),
+                  QStringLiteral("record da script dopo uno metrico: limiti u/v presenti (u max '%1', v max '%2')")
+                      .arg(ui->uMaxEdit->text(), ui->vMaxEdit->text()));
+        }
     }
 
     // ---------------------------------------------------------------------
