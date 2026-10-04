@@ -2990,7 +2990,33 @@ void ScenarioTest::runResetSceneScenarios()
         checkReset(QStringLiteral("record parametrico, NEW"), 0, false, false, [&] { pressNew(); });
     if (loadRecord(kRM))
         checkReset(QStringLiteral("record Ray Marching, NEW"), 1, false, false, [&] { pressNew(); });
+
+    // MEMORIE PER MODALITA': un riclic o un NEW restando in un modo non tocca
+    // la memoria dell'altro. Prima il reset la riscriveva coi valori del modo
+    // corrente: un riclic in Ray Marching dava al parametrico 400 di Steps, uno
+    // in parametrico al Ray Marching 100 Ray Steps. Sotto-tab 3D: il Cross
+    // Section impone i suoi 350 e nasconderebbe il difetto.
+    modeTab(1);
+    if (m_mw->crossSectionTab()) {
+        m_discardOnPrompt = true;
+        ui->subTabImplicit->setCurrentIndex(0);  wait(1500);
+        m_discardOnPrompt = false;
+    }
+    const int rmSteps = m_mw->m_scene.steps;
     modeTab(0);
+    const int paramSteps = m_mw->m_scene.steps;
+    reclick();
+    pressNew();
+    modeTab(1);
+    check(m_mw->m_scene.steps == rmSteps,
+          QStringLiteral("riclic e NEW in Parametric, poi Ray Marching -> Ray Steps %1 (attesi %2)")
+              .arg(m_mw->m_scene.steps).arg(rmSteps));
+    reclick();
+    pressNew();
+    modeTab(0);
+    check(m_mw->m_scene.steps == paramSteps,
+          QStringLiteral("riclic e NEW in Ray Marching, poi Parametric -> Steps %1 (attesi %2)")
+              .arg(m_mw->m_scene.steps).arg(paramSteps));
 }
 
 void ScenarioTest::runMasterRecordsScenarios()

@@ -621,6 +621,43 @@ MainWindow::SceneState MainWindow::defaultScene(int index, bool loadDefaultSurfa
     return s;
 }
 
+void MainWindow::assignSceneTexts(const SceneState &s)
+{
+    for (EqField f : { &EquationTexts::x, &EquationTexts::y, &EquationTexts::z, &EquationTexts::p,
+                       &EquationTexts::u, &EquationTexts::v, &EquationTexts::w,
+                       &EquationTexts::explicitU, &EquationTexts::explicitV, &EquationTexts::explicitW,
+                       &EquationTexts::geoU, &EquationTexts::geoV, &EquationTexts::geoW,
+                       &EquationTexts::geoDU, &EquationTexts::geoDV, &EquationTexts::geoDW,
+                       &EquationTexts::conform })
+        setEqText(f, s.eq.*f);
+    setRmText(&ImplicitTexts::equation, s.rm.equation);
+    setRmText(&ImplicitTexts::crossSection, s.rm.crossSection);
+    setRmText(&ImplicitTexts::displacement, s.rm.displacement);
+    setRmText(&ImplicitTexts::texture, s.rm.texture);
+
+    setImplicitShell(s.implicitShell);
+    m_scene.renderMode = s.renderMode;
+
+    m_scene.discreteConsts = s.discreteConsts;
+    m_scene.minConsts = s.minConsts;
+    setConstTexts(s.constants);
+
+    setScriptText(SlotSurface, s.surfaceScriptText);
+    m_scene.surfaceScriptApplied = s.surfaceScriptApplied;
+    setScriptText(SlotSurfaceTexture, s.surfaceTextureScriptText);
+    setScriptText(SlotBackgroundTexture, s.bgTextureScriptText);
+    m_scene.bgTextureCode = s.bgTextureCode;
+    setScriptText(SlotSound, s.soundScriptText);
+    m_scene.surfaceTextureState = s.surfaceTextureState;
+    m_scene.textureLibName = s.textureLibName;
+    m_scene.bgTextureLibName = s.bgTextureLibName;
+    m_scene.soundLibName = s.soundLibName;
+
+    m_scene.lim = s.lim;
+    m_scene.path = s.path;
+    showLineFields();
+}
+
 void MainWindow::textureTextsFromItem(const LibraryItem &d, bool isRecord,
                                       const MissingImageScan &scan, SceneState *s)
 {

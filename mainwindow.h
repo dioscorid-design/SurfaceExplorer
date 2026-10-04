@@ -537,7 +537,6 @@ private:
     float wMax = 0.1f;
     int m_lastParametricSteps = 100;
     int m_lastImplicitSteps = 400;
-    double m_lastParametricS = 0.0;
     double m_lastImplicitS = 0.4;
     // Spessore del guscio com'era prima del clic su Solid (-1 = niente da
     // ricordare). In Solid lo slider va al minimo, ma tornando a Shell la parete
@@ -1713,6 +1712,15 @@ private:
     // il parametrico se non e' un riclic) -- e dalle memorie per modalita'
     // (steps, S). Non tocca nulla.
     SceneState defaultScene(int index, bool loadDefaultSurface, bool sameTabRestart) const;
+    // ASSEGNA una scena intera a m_scene, con la vista dei campi: equazioni,
+    // campi RM, costanti e domini, Shell/Solid e resa, slot di script,
+    // texture, sfondo e suono, codice dello sfondo, accensione e ancore; per
+    // ultimi limiti e path (showLineFields, che fa il giudizio sulle costanti
+    // a scena completa). NON tocca: modalita' e sotto-tab (li cambia chi
+    // gestisce la linguetta), steps (setSteps, col motore), moti, applicato
+    // della texture (commitSurfaceTextureCode). La usano la testa del load e
+    // il reset: e' la sola strada per cui una scena intera entra in m_scene.
+    void assignSceneTexts(const SceneState &s);
     static QString cleanCodeForComparison(QString str);
     // Decide se un item della libreria texture e' quello attivo. Unica sede del
     // confronto: lo usano sia syncTextureTreeSelection sia la sincronizzazione

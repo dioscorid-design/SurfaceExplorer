@@ -1188,7 +1188,7 @@ void MainWindow::updateConstantsUIState() {
     // Due nature di testo, due regole di match:
     // - mathText: campi exprtk (equazioni, geodetica, path). Case-INSENSITIVE
     //   come sempre: 'a' e 'A' sono la stessa costante.
-    // - glslText: codice shader (texture, sfondo, editor script GLSL). Nel
+    // - glslBlocks: codice shader (texture, sfondo, editor script GLSL). Nel
     //   GLSL le costanti sono iniettate come 'float A..F' e 'S' (case-
     //   sensitive): le minuscole a..f di uno shader NON sono mai le costanti,
     //   e una lettera DICHIARATA come variabile locale (es. 'vec2 F =
@@ -1196,7 +1196,13 @@ void MainWindow::updateConstantsUIState() {
     //   vecchio match unico case-insensitive accendeva gli slider a vuoto su
     //   record senza costanti (float a/b/c/d/s locali negli shader).
     QString mathText = "";
-    QString glslText = "";
+    // Un BLOCCO per codice, non un testo unico: una lettera dichiarata come
+    // locale in uno shader ("vec2 F = fragCoord") non e' la costante LI', ma
+    // non cancella l'uso della costante in un altro. Concatenati, la locale di
+    // una texture del record PRECEDENTE (fasce ancora nel motore durante il
+    // load) nascondeva la F usata dalle fasce di Clifford Labyrinth 3-Tubes
+    // Fibers, che si apriva con F = 1 (round-trip).
+    QStringList glslBlocks;
     // MODIFICHE DELL'UTENTE NON ANCORA ESEGUITE. Quando il ricalcolo parte da
     // una digitazione (il segnale di un campo di testo, fuori dal riempimento
     // di un preset), cio' che e' scritto non e' piu' cio' che e' a schermo: da
@@ -1232,12 +1238,12 @@ void MainWindow::updateConstantsUIState() {
                     " " + m_scene.eq.conform;
         }
         // In parametrica aggiungiamo lo script della superficie se non siamo in Ray Marching
-        glslText += stripCodeComments(m_scene.surfaceTextureCode);
+        glslBlocks << stripCodeComments(m_scene.surfaceTextureCode);
         // ...e le texture delle FASCE: una costante citata solo da una di loro e'
         // usata quanto una della texture globale (vedi
         // meshTextureCodesForConstants). Blocco per blocco, come qui sotto.
         for (const QString &c : meshTextureCodesForConstants())
-            glslText += " " + c;
+            glslBlocks << c;
 
         // CIO' CHE E' A SCHERMO, oltre a cio' che e' scritto. Una costante cade
         // in disuso -- e torna al valore neutro -- solo quando non la usa ne'
@@ -1259,11 +1265,11 @@ void MainWindow::updateConstantsUIState() {
             const bool scriptSurface = ui->glWidget && ui->glWidget->getEngine()
                                        && ui->glWidget->getEngine()->isScriptModeActive();
             if (ui->glWidget && !scriptSurface)
-                glslText += " " + ui->glWidget->parametricEquationsApplied();
+                glslBlocks << ui->glWidget->parametricEquationsApplied();
         }
         // ...e lo script della texture non ancora eseguito (l'applicato e'
         // m_scene.surfaceTextureCode, qui sopra).
-        glslText += " " + stripCodeComments(m_scene.surfaceTextureScriptText);
+        glslBlocks << stripCodeComments(m_scene.surfaceTextureScriptText);
     }
     else { // MODALITÀ RAY MARCHING
         // L'equazione implicita e' matematica utente (translateEquation);
@@ -1281,8 +1287,8 @@ void MainWindow::updateConstantsUIState() {
         // "non c'e' niente da cui dedurre". In parametrico le equazioni sono
         // molte e svuotarne una non ha lo stesso significato.
         equationFieldIsEmpty = mathText.trimmed().isEmpty();
-        glslText += " " + stripCodeComments(m_scene.rm.texture) +
-                    " " + stripCodeComments(m_scene.rm.displacement);
+        glslBlocks << stripCodeComments(m_scene.rm.texture)
+                   << stripCodeComments(m_scene.rm.displacement);
         // L'APPLICATO, come nel ramo parametrico e con la stessa condizione:
         // equazione, texture e rilievo compilati nel marcher.
         if (m_constantsEditPending && ui->glWidget) {
@@ -1290,8 +1296,8 @@ void MainWindow::updateConstantsUIState() {
                                        && ui->glWidget->getEngine()->isScriptModeActive();
             if (!scriptSurface)
                 mathText += " " + stripCodeComments(ui->glWidget->activeImplicitEquation());
-            glslText += " " + stripCodeComments(ui->glWidget->currentTextureCode()) +
-                        " " + stripCodeComments(ui->glWidget->currentDisplacementCode());
+            glslBlocks << stripCodeComments(ui->glWidget->currentTextureCode())
+                       << stripCodeComments(ui->glWidget->currentDisplacementCode());
         }
     }
 
@@ -1303,9 +1309,9 @@ void MainWindow::updateConstantsUIState() {
     // concatenati con spazi, e un commento di linea non terminato a fine
     // blocco inghiottirebbe l'inizio del blocco successivo (falso negativo:
     // costante vera creduta inutilizzata -> reset a 1).
-    glslText += " " + stripCodeComments(m_scene.bgTextureCode); // Lo sfondo è comune
+    glslBlocks << stripCodeComments(m_scene.bgTextureCode); // Lo sfondo è comune
     // ...con il suo script non ancora eseguito (l'applicato e' la riga sopra).
-    glslText += " " + stripCodeComments(m_scene.bgTextureScriptText);
+    glslBlocks << stripCodeComments(m_scene.bgTextureScriptText);
 
     // L'EDITOR E' SEMPRE GLSL. Vale per tutti e tre i modi dello script
     // (superficie, texture, sound) e per entrambe le tab: lo script di
@@ -1321,12 +1327,12 @@ void MainWindow::updateConstantsUIState() {
     // Clover/Trefoil/Tube). E' la stessa famiglia di falsi positivi descritta
     // sopra per gli shader; la protezione non arrivava fin qui.
     //
-    // In glslText il match e' case-sensitive (le costanti sono iniettate come
+    // Nei blocchi GLSL il match e' case-sensitive (le costanti sono iniettate come
     // "float A..F") ed esclude le lettere dichiarate come variabili locali:
     // coerente con generateGlslHelperVars(), che davanti a "float A" non
     // inietta affatto la costante, quindi li' A e' la locale e lo slider non ha
     // modo di influenzarla.
-    glslText += " " + stripCodeComments(scriptText(shownScriptSlot()));
+    glslBlocks << stripCodeComments(scriptText(shownScriptSlot()));
 
     // LO SCRIPT DELLA SUPERFICIE, scritto e applicato, qualunque modulo il dock
     // stia mostrando (la riga sopra conta solo lo slot in vista).
@@ -1339,7 +1345,8 @@ void MainWindow::updateConstantsUIState() {
     // ritrovarsi E=1, F=1: un tubo solo e raggio degenere, cioe' la superficie
     // "collassata" -- e un salvataggio in quello stato scriveva i valori
     // sbagliati nel record.
-    glslText += " " + stripCodeComments(m_scene.surfaceScriptText + "\n" + m_scene.surfaceScriptApplied);
+    glslBlocks << stripCodeComments(m_scene.surfaceScriptText)
+               << stripCodeComments(m_scene.surfaceScriptApplied);
 
     // Anche i path camera 4D/3D valgono come "uso" di una costante: le loro
     // espressioni sono compilate su exprtk con A..F/s registrate
@@ -1387,7 +1394,8 @@ void MainWindow::updateConstantsUIState() {
             if (!used) {
                 // GLSL: maiuscola e non dichiarata come locale (vedi
                 // glslUsesConstant, unica sede della regola).
-                used = glslUsesConstant(glslText, letter);
+                for (const QString &block : glslBlocks)
+                    if ((used = glslUsesConstant(block, letter))) break;
             }
         }
 
