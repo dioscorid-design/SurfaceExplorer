@@ -3485,8 +3485,11 @@ MainWindow::MainWindow(QWidget *parent)
     ui->sliderB->setRange(0, 255);
     ui->lightSlider->setRange(0, 200); ui->lightSlider->setValue(100);
     ui->lblValLight->setText(QString::number(ui->lightSlider->value()) + " %");
-    ui->speed3DSlider->setRange(1, 100); ui->speed3DSlider->setValue(10);
-    ui->speed4DSlider->setRange(1, 100); ui->speed4DSlider->setValue(10);
+    ui->speed3DSlider->setRange(1, 100); setPathSpeed3D(10);
+    ui->speed4DSlider->setRange(1, 100); setPathSpeed4D(10);
+    // Il trascinamento scrive lo stato (vedi pathSpeed3D).
+    connect(ui->speed3DSlider, &QSlider::valueChanged, this, [this](int v) { m_pathSpeed3D = v; });
+    connect(ui->speed4DSlider, &QSlider::valueChanged, this, [this](int v) { m_pathSpeed4D = v; });
     // FOV UNICO (dock renderer, sotto Light). Prima erano due slider separati nei
     // dock 3D e 4D, attivi solo con la RISPETTIVA path in corsa: andavano in
     // conflitto (due controlli sullo stesso m_cameraFov) e da fermo erano
@@ -12100,8 +12103,24 @@ void MainWindow::setNavControlsEnabled(bool enabled)
     }
 }
 
-float MainWindow::pathSpeed3D() const { return ui->speed3DSlider->value() / 1000.0f; }
-float MainWindow::pathSpeed4D() const { return ui->speed4DSlider->value() / 1000.0f; }
+float MainWindow::pathSpeed3D() const { return m_pathSpeed3D / 1000.0f; }
+float MainWindow::pathSpeed4D() const { return m_pathSpeed4D / 1000.0f; }
+
+// Lo slider taglia da se' i valori fuori dal suo intervallo: lo stato fa lo
+// stesso, o il Save scriverebbe una velocita' che lo slider non mostra.
+void MainWindow::setPathSpeed3D(int speed)
+{
+    m_pathSpeed3D = qBound(ui->speed3DSlider->minimum(), speed, ui->speed3DSlider->maximum());
+    const QSignalBlocker b(ui->speed3DSlider);
+    ui->speed3DSlider->setValue(m_pathSpeed3D);
+}
+
+void MainWindow::setPathSpeed4D(int speed)
+{
+    m_pathSpeed4D = qBound(ui->speed4DSlider->minimum(), speed, ui->speed4DSlider->maximum());
+    const QSignalBlocker b(ui->speed4DSlider);
+    ui->speed4DSlider->setValue(m_pathSpeed4D);
+}
 
 void MainWindow::setPathViewModes(CameraPathMode mode4D, CameraPathMode mode3D)
 {
@@ -12119,9 +12138,8 @@ void MainWindow::resetMotionControls()
     // la velocita' del record appena lasciato, e il Save scriveva come moto
     // attivo quello del record di prima.
     setPathViewModes(ModeTangential, ModeTangential);
-    // A segnali vivi, come il load dei record.
-    ui->speed3DSlider->setValue(10);
-    ui->speed4DSlider->setValue(10);
+    setPathSpeed3D(10);
+    setPathSpeed4D(10);
     m_lastCameraMotion.clear();
     if (ui->glWidget && ui->glWidget->getEngine())
         ui->glWidget->getEngine()->clearPathEquations();
@@ -14756,8 +14774,8 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // Velocita' dei path. 0 = chiave assente (file vecchi) o path 4D azzerato
     // dal Save in Ray Marching 3D: resta il default messo da resetMotionControls
     // (lo slider parte da 1, e scrivere 0 dava la velocita' minima).
-    if (data.speedPath3D > 0) ui->speed3DSlider->setValue(data.speedPath3D);
-    if (data.speedPath4D > 0) ui->speed4DSlider->setValue(data.speedPath4D);
+    if (data.speedPath3D > 0) setPathSpeed3D(data.speedPath3D);
+    if (data.speedPath4D > 0) setPathSpeed4D(data.speedPath4D);
 
     // SEPARAZIONE IMMEDIATA AUDIO-GRAFICA
     // Recuperiamo il codice 2D corretto in base alla modalità corrente

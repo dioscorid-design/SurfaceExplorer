@@ -426,6 +426,8 @@ void ScenarioTest::checkSurfaceControls(const QString &step)
     // campi a prodotto in RM (syncImplicitAlphaSlider), quindi solo il caso spento.
     if (onBg && ui->alphaSlider->isEnabled())
         bad << QStringLiteral("Transparency accesa (attesa spenta)");
+    const QString light = lightProblem();
+    if (!light.isEmpty()) bad << light;
 
     check(bad.isEmpty(), QStringLiteral("%1 -> comandi superficie %2%3")
                              .arg(step, onBg ? QStringLiteral("spenti") : QStringLiteral("accesi"),
@@ -761,6 +763,21 @@ void ScenarioTest::checkConstants(const QString &step, const QMap<QString, doubl
                                   bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
 }
 
+QString ScenarioTest::lightProblem()
+{
+    // LUCE: globale, l'unica copia e' nel motore; lo slider la mostra (anche in
+    // ambito "Mesh") e il Save la scrive.
+    Ui::MainWindow *ui = m_mw->ui;
+    const float engine = ui->glWidget->globalLightIntensity();
+    QStringList bad;
+    if (ui->lightSlider->value() != qRound(engine * 100.0f))
+        bad << QStringLiteral("luce: slider %1, motore %2").arg(ui->lightSlider->value()).arg(engine);
+    const double saved = captureSave().lightIntensity;
+    if (qAbs(saved - engine) > 0.006)
+        bad << QStringLiteral("luce: il Save scriverebbe %1, motore %2").arg(saved).arg(engine);
+    return bad.join(QStringLiteral("; "));
+}
+
 QString ScenarioTest::stepsProblem()
 {
     Ui::MainWindow *ui = m_mw->ui;
@@ -810,8 +827,13 @@ void ScenarioTest::checkMotion(const QString &step, const QString &expectRunning
     if (sv.pathMode4D != int(m_mw->m_pathViewMode4D) || sv.pathMode3D != int(m_mw->m_pathViewMode3D))
         bad << QStringLiteral("viste: il Save scriverebbe %1/%2").arg(sv.pathMode4D).arg(sv.pathMode3D);
 
-    // VELOCITA' dei path: lo slider e' l'unica copia, il Save lo scrive.
-    if (sv.speedPath3D != ui->speed3DSlider->value() || sv.speedPath4D != (keep4D ? ui->speed4DSlider->value() : 0))
+    // VELOCITA' dei path: lo stato (m_pathSpeed3D/4D) e' cio' che gli slider
+    // mostrano e che il Save scrive.
+    if (m_mw->m_pathSpeed3D != ui->speed3DSlider->value() || m_mw->m_pathSpeed4D != ui->speed4DSlider->value())
+        bad << QStringLiteral("velocita' path: stato %1/%2, slider %3/%4")
+                   .arg(m_mw->m_pathSpeed3D).arg(m_mw->m_pathSpeed4D)
+                   .arg(ui->speed3DSlider->value()).arg(ui->speed4DSlider->value());
+    if (sv.speedPath3D != m_mw->m_pathSpeed3D || sv.speedPath4D != (keep4D ? m_mw->m_pathSpeed4D : 0))
         bad << QStringLiteral("velocita' path: il Save scriverebbe %1/%2").arg(sv.speedPath3D).arg(sv.speedPath4D);
 
     // VELOCITA' delle rotazioni: l'etichetta e' cio' che i tasti +/- leggono.
@@ -907,11 +929,16 @@ void ScenarioTest::checkDirty(const QString &step, bool scene, bool texture, boo
         if (sn) l << QStringLiteral("suono");
         return l.isEmpty() ? QStringLiteral("niente") : l.join(QStringLiteral(" + "));
     };
-    const bool ok = (s == scene && t == texture && a == sound);
-    check(ok, QStringLiteral("%1 -> da salvare: %2%3")
-                  .arg(step, names(scene, texture, sound),
-                       ok ? QString() : QStringLiteral(" (l'app dice: %1; %2)")
-                                            .arg(names(s, t, a), m_mw->unsavedKeys().join(QStringLiteral(", ")).left(300))));
+    const bool flags = (s == scene && t == texture && a == sound);
+    // Di passaggio, la luce (tra i gesti qui c'e' lo slider della luce).
+    const QString light = lightProblem();
+    QString why;
+    if (!flags)
+        why = QStringLiteral(" (l'app dice: %1; %2)")
+                  .arg(names(s, t, a), m_mw->unsavedKeys().join(QStringLiteral(", ")).left(300));
+    if (!light.isEmpty()) why += QStringLiteral(": ") + light;
+    check(flags && light.isEmpty(), QStringLiteral("%1 -> da salvare: %2%3")
+                                        .arg(step, names(scene, texture, sound), why));
 }
 
 void ScenarioTest::checkMotionDefaults(const QString &step)
@@ -929,8 +956,11 @@ void ScenarioTest::checkMotionDefaults(const QString &step)
     if (m_mw->m_pathViewMode4D != MainWindow::ModeTangential || m_mw->m_pathViewMode3D != MainWindow::ModeTangential)
         bad << QStringLiteral("vista dei path rimasta Center (4D %1, 3D %2)")
                    .arg(int(m_mw->m_pathViewMode4D)).arg(int(m_mw->m_pathViewMode3D));
-    if (ui->speed3DSlider->value() != 10 || ui->speed4DSlider->value() != 10)
-        bad << QStringLiteral("velocita' dei path rimaste %1/%2").arg(ui->speed3DSlider->value()).arg(ui->speed4DSlider->value());
+    if (m_mw->m_pathSpeed3D != 10 || m_mw->m_pathSpeed4D != 10
+        || ui->speed3DSlider->value() != 10 || ui->speed4DSlider->value() != 10)
+        bad << QStringLiteral("velocita' dei path rimaste %1/%2 (slider %3/%4)")
+                   .arg(m_mw->m_pathSpeed3D).arg(m_mw->m_pathSpeed4D)
+                   .arg(ui->speed3DSlider->value()).arg(ui->speed4DSlider->value());
     const float speeds[] = { gl->getPrecessionSpeed(), gl->getNutationSpeed(), gl->getSpinSpeed(),
                              gl->getOmegaSpeed(), gl->getPhiSpeed(), gl->getPsiSpeed() };
     for (float v : speeds)

@@ -328,7 +328,7 @@ PresetSerializer::PresetSerializer(MainWindow *parent)
 // slider, cosi' i preset gia' salvati non cambiano di un byte.
 double PresetSerializer::globalSurfaceAlpha() const
 {
-    if (!m_mainWindow->ui->glWidget) return m_mainWindow->ui->alphaSlider->value() / 100.0;
+    if (!m_mainWindow->ui->glWidget) return 1.0;
     return qRound(m_mainWindow->ui->glWidget->globalAlpha() * 100.0f) / 100.0;
 }
 
@@ -540,8 +540,7 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
     d.isImplicitMode = (mw->implicitMode());
     d.implicitEq = mw->m_rm.equation;
     d.usesCrossSection = d.isImplicitMode && mw->crossSectionTab();
-    if (mw->ui->lineEquationCrossSection)
-        d.crossSectionEq = mw->m_rm.crossSection;
+    d.crossSectionEq = mw->m_rm.crossSection;
 
     d.x = mw->m_eq.x;
     d.y = mw->m_eq.y;
@@ -590,7 +589,9 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
     d.alpha = globalSurfaceAlpha();
 
     d.lightingMode = mw->m_lightingMode4D;
-    d.lightIntensity = mw->ui->lightSlider->value() / 100.0;
+    // Luce GLOBALE dal motore, che ne tiene l'unica copia (lo slider ne e' la
+    // vista, anche in ambito "Mesh"). Ai centesimi come lo slider, come l'alpha.
+    d.lightIntensity = qRound(gl->globalLightIntensity() * 100.0f) / 100.0;
     // Luce di riempimento (dock Renderer). Senza, lo slider non tornava mai
     // indietro: il valore restava quello della scena precedente.
     d.fillLight = gl->fillLight();
@@ -843,8 +844,8 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
     d.speedOmega = keep4D ? gl->getOmegaSpeed() : 0.0f;
     d.speedPhi   = keep4D ? gl->getPhiSpeed()   : 0.0f;
     d.speedPsi   = keep4D ? gl->getPsiSpeed()   : 0.0f;
-    d.speedPath3D = mw->ui->speed3DSlider->value();
-    d.speedPath4D = keep4D ? mw->ui->speed4DSlider->value() : 0;
+    d.speedPath3D = mw->m_pathSpeed3D;
+    d.speedPath4D = keep4D ? mw->m_pathSpeed4D : 0;
 
     d.observer4D = gl->getObserverPos4D();
 

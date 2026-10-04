@@ -978,10 +978,15 @@ private:
     QTimer *pathTimer3D = nullptr;
     float pathTimeT3D = 0.0f;
 
-    // Avanzamento per tick dei due path: lo dicono gli slider (speed3DSlider /
-    // speed4DSlider), unica copia della velocita'.
+    // Avanzamento per tick dei due path. STATO: m_pathSpeed3D/4D, in unita'
+    // dello slider (1..100); speed3DSlider/speed4DSlider ne sono la vista
+    // (setPathSpeed3D/4D a segnali bloccati; il trascinamento scrive lo stato).
     float pathSpeed3D() const;
     float pathSpeed4D() const;
+    int m_pathSpeed3D = 10;
+    int m_pathSpeed4D = 10;
+    void setPathSpeed3D(int speed);
+    void setPathSpeed4D(int speed);
 
     // FOV dei due path, INDIPENDENTI (slider nel dock 3D e nel dock 4D).
     // Il FOV effettivo della proiezione e' applicato SOLO dentro

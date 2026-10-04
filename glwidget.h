@@ -279,8 +279,9 @@ public:
     void resetTextureFraming();
     void setProjectionMode(int mode);
     // ASPETTO PER-MESH: se una parte e' selezionata con lo spinbox del dock
-    // renderer, setColor/setAlpha/setLightIntensity scrivono su QUELLA parte
-    // invece che sullo stato globale (vedi applyToActiveMeshPart).
+    // renderer, setColor/setAlpha scrivono su QUELLA parte invece che sullo
+    // stato globale (vedi applyToActiveMeshPart). setLightIntensity no: la luce
+    // e' della scena, globale anche in ambito "Mesh" (vedi glwidget.cpp).
     //
     // I SETTER DI GLWIDGET SONO DI DUE FAMIGLIE, con contratti OPPOSTI. Sbagliare
     // famiglia e' la radice di un'intera serie di bug (il colore del preset che
@@ -288,7 +289,7 @@ public:
     // texture di tutta la superficie, i colori di una texture per-mesh addosso a
     // quella globale). Il prefisso nel nome dice a quale appartengono:
     //
-    //   setColor / setAlpha / setLightIntensity
+    //   setColor / setAlpha
     //       DIROTTANO sulla parte attiva. Per scrivere davvero il globale (stato
     //       del preset, reset automatici del motore) serve il BYPASS.
     //   setGlobal* (setGlobalRenderMode / setGlobalTextureEnabled /

@@ -191,6 +191,8 @@ private:
     // Steps: slider, campo, motore (risoluzione della mesh in parametrico, Ray
     // Steps in Ray Marching) e Save dicono lo stesso numero. Vuoto se si'.
     QString stepsProblem();
+    // Luce: slider = motore (unica copia, globale) = Save. Vuoto se si'.
+    QString lightProblem();
     // Il bersaglio Surface/Background (MainWindow::m_editTarget) e le sue viste
     // -- i due radio, il bersaglio della vista 2D nel motore -- dicono la
     // stessa cosa. Vuoto se si'.
