@@ -95,11 +95,11 @@ wait "$PID" || RC=$?
 
 echo
 echo "== Riepilogo =="
-sed -n '3p;5,12p' "$OUT/report.txt"
+sed -n '3p;5,13p' "$OUT/report.txt"
 if [ -n "$PREV" ] && [ -f "$PREV/report.txt" ]; then
     echo
     echo "== Riepilogo del report precedente ($(basename "$PREV")) =="
-    sed -n '3p;5,12p' "$PREV/report.txt"
+    sed -n '3p;5,13p' "$PREV/report.txt"
 fi
 echo
 case "$RC" in

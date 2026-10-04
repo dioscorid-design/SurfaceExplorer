@@ -1670,8 +1670,6 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // qui si prepara solo cio' che il giudizio sulle costanti deve poter leggere.
     const QString csEqPre = d.crossSectionEq.trimmed();
     const bool loadCrossSection = d.isImplicitMode && d.usesCrossSection && !csEqPre.isEmpty();
-    if (d.isImplicitMode)
-        setCrossSectionEditorFromPreset(csEqPre);
     if (loadCrossSection) {
         // blockSignals OBBLIGATORIO: currentChanged e' connesso a
         // applyImplicitSubTabReset, che carica la superficie di DEFAULT del
@@ -1738,15 +1736,8 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     bool isImplicitScript = d.isImplicitMode && !d.scriptCode.isEmpty();
 
     if (d.isImplicitMode && !isImplicitScript) {
-        QString eqToLoad = d.implicitEq.trimmed();
-
-        // Se l'equazione letta dal file è vuota o NON contiene l'uguale,
-        // forziamo la stringa di default per non far scattare il popup d'errore!
-        if (eqToLoad.isEmpty() || !eqToLoad.contains("=")) {
-            eqToLoad = "x^2 + y^2 + z^2 = 1.0";
-        }
-
-        setRmText(&ImplicitTexts::equation, eqToLoad);
+        // Il testo e' gia' nel campo (applyCommonData): qui il commit al motore.
+        const QString eqToLoad = safeImplicitEquation(implicitTextsFromItem(d).equation);
 
         // Editor 4D e linguetta sono gia' stati ripristinati PRIMA di
         // applyCommonData (vedi la nota li': il giudizio sulle costanti in coda
@@ -2114,29 +2105,19 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     if (isImplicit) {
         ui->tabModeSelector->setCurrentIndex(1); // Forza Tab Ray Marching
-        setCrossSectionEditorFromPreset(data.crossSectionEq.trimmed());
 
-        // Distruggiamo i dati parametrici precedenti. A segnali bloccati: il Run
-        // parametrico torna eseguibile qui, esplicitamente (lo faceva il
-        // gestore della digitazione, markUserEdit).
-        for (EqField f : { &EquationTexts::x, &EquationTexts::y,
-                           &EquationTexts::z, &EquationTexts::p })
-            setEqText(f, QString());
+        // I dati parametrici del record di prima li svuota applyCommonData, in
+        // testa (equationTextsFromItem). Il Run parametrico torna eseguibile
+        // qui, esplicitamente (lo faceva il gestore della digitazione).
         m_parametricApplied = false;
         clearSurfaceScript();
         exitMetricScriptMode();
 
         if (!isImplicitScript) {
-            // +++ FILTRO DI SICUREZZA PER L'EQUAZIONE IMPLICITA +++
-            QString eqToLoad = data.implicitEq.trimmed();
-
-            // Se l'equazione letta dal file è vuota o NON contiene l'uguale (vecchio formato),
-            // forziamo la stringa umana di default per evitare crash della scheda video!
-            if (eqToLoad.isEmpty() || !eqToLoad.contains("=")) {
-                eqToLoad = "x^2 + y^2 + z^2 = 1.0";
-            }
-
-            setRmText(&ImplicitTexts::equation, eqToLoad);
+            // L'equazione per il motore, con lo stesso filtro di sicurezza del
+            // campo (implicitTextsFromItem: vuota o senza '=' -> la sfera). Il
+            // campo lo scrive applyCommonData, in testa.
+            const QString eqToLoad = safeImplicitEquation(implicitTextsFromItem(data).equation);
 
             // SOTTO-TAB CROSS SECTION: stesso trattamento del ramo superfici
             // (applySurfaceExample). Senza, un record girato in Cross Section si
@@ -2209,8 +2190,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
         // Distruggiamo i dati Ray Marching precedenti (a segnali bloccati; i
         // Run Ray Marching tornano eseguibili qui, come faceva il gestore
         // della digitazione).
-        setRmText(&ImplicitTexts::equation, QString());
-        setRmText(&ImplicitTexts::displacement, QString());
+        // (Equazione e rilievo li svuota applyCommonData, in testa.)
         setRmText(&ImplicitTexts::texture, QString());
         m_implicitApplied = false;
         m_rmTextureApplied = false;
@@ -3582,31 +3562,6 @@ void MainWindow::applyPresetConstants(const LibraryItem &d, bool rebuildDiscrete
     pushConstantsToEngine(/*restoreTextOnNegative=*/false, /*always=*/true);
 }
 
-// Campi di COMPOSIZIONE (defU/V/W) e di VINCOLO (explicitU/V/W) dal preset.
-// Unica implementazione per i due rami di applyCommonData: prima li scriveva
-// solo il ramo equazioni, quindi un preset con SCRIPT si teneva quelli del
-// preset precedente e il Save li riportava nel file (trovato dal test di
-// andata e ritorno: Kerr Black Hole, Kerr Spin Animated, Wormhole). Il ramo
-// script la chiama con un LibraryItem vuoto: li' i campi vanno SVUOTATI.
-void MainWindow::setCompositionFieldsFromPreset(const LibraryItem &d)
-{
-    // A segnali bloccati (setEqText), i campi vincolo come quelli di
-    // composizione: altrimenti azzerare un vincolo residuo del preset precedente
-    // (es. explicitV) emette textChanged a metà caricamento.
-    // checkParametricDependency() parte con uno stato misto (vincolo vecchio
-    // ancora visto come attivo) e updateConstraintState svuota i limiti del
-    // parametro vincolato; quel campo viene poi riabilitato ma NON ripopolato,
-    // restando attivo e vuoto → il Run successivo fallisce la validazione
-    // min/max (popup spurio).
-    setEqText(&EquationTexts::u, d.defU);
-    setEqText(&EquationTexts::v, d.defV);
-    setEqText(&EquationTexts::w, d.defW);
-
-    setEqText(&EquationTexts::explicitU, d.explicitU);
-    setEqText(&EquationTexts::explicitV, d.explicitV);
-    setEqText(&EquationTexts::explicitW, d.explicitW);
-}
-
 void MainWindow::applyCommonData(LibraryItem d)
 {
     // CARICAMENTO IN CORSO (m_populatingFields, vedi mainwindow.h). RAII: il
@@ -3766,6 +3721,20 @@ void MainWindow::applyCommonData(LibraryItem d)
     // Etichette delle rotazioni: dal motore
     refreshRotationSpeedLabels();
 
+    // EQUAZIONI (X/Y/Z/P o mappa di visualizzazione, composizione, vincoli,
+    // flusso geodetico): dal preset, in blocco e prima di ogni giudizio sulle
+    // costanti. A segnali bloccati (setEqText): checkParametricDependency gira
+    // in coda, sullo stato intero. Il motore le riceve dai rami qui sotto.
+    {
+        const EquationTexts eq = equationTextsFromItem(d);
+        for (EqField f : { &EquationTexts::x, &EquationTexts::y, &EquationTexts::z, &EquationTexts::p,
+                           &EquationTexts::u, &EquationTexts::v, &EquationTexts::w,
+                           &EquationTexts::explicitU, &EquationTexts::explicitV, &EquationTexts::explicitW,
+                           &EquationTexts::geoU, &EquationTexts::geoV, &EquationTexts::geoW,
+                           &EquationTexts::geoDU, &EquationTexts::geoDV, &EquationTexts::geoDW,
+                           &EquationTexts::conform })
+            setEqText(f, eq.*f);
+    }
     // LIMITI E PATH: i testi del preset, assegnati qui in blocco e PRIMA di
     // ogni giudizio sulle costanti, che li legge (una costante usata solo da
     // un limite o da un path va tenuta sbloccata). Il motore li riceve piu'
@@ -3773,6 +3742,16 @@ void MainWindow::applyCommonData(LibraryItem d)
     m_scene.lim = limitTextsFromItem(d);
     m_scene.path = pathTextsFromItem(d);
     showLineFields();
+    // CAMPI RAY MARCHING (equazione 3D, sezione 4D, rilievo), per la stessa
+    // ragione: l'equazione del sotto-tab attivo conta nel giudizio sulle
+    // costanti. Un preset parametrico li lascia vuoti. Il motore li riceve dai
+    // rami qui sotto e da applySurfaceExample / applyMotionExample.
+    {
+        const ImplicitTexts rm = implicitTextsFromItem(d);
+        setRmText(&ImplicitTexts::equation, rm.equation);
+        setRmText(&ImplicitTexts::crossSection, rm.crossSection);
+        setRmText(&ImplicitTexts::displacement, rm.displacement);
+    }
 
     // ==========================================================
     // 2. APPLICAZIONE DATI DEL PRESET
@@ -3863,18 +3842,6 @@ void MainWindow::applyCommonData(LibraryItem d)
     // setRange qui sopra (i numeri salvati) resta come base se un campo non
     // fosse valutabile.
     applySpaceLimits(/*notify=*/false);
-
-    // --- CARICAMENTO FLUSSO GEODETICO ---
-    // A segnali bloccati (setEqText), per evitare l'auto-cancellazione da parte
-    // di checkParametricDependency(): i valori vengono dalla struct LibraryItem.
-    setEqText(&EquationTexts::geoU,  d.geoU0);
-    setEqText(&EquationTexts::geoV,  d.geoV0);
-    setEqText(&EquationTexts::geoW,  d.geoW0);
-    setEqText(&EquationTexts::geoDU, d.geoDU);
-    setEqText(&EquationTexts::geoDV, d.geoDV);
-    setEqText(&EquationTexts::geoDW, d.geoDW);
-    setEqText(&EquationTexts::conform, d.geoConform.isEmpty() ? QStringLiteral("1.0") : d.geoConform);
-    // ------------------------------------
 
     // 4. Logica Caricamento Equazioni vs Script
     bool hasValidEquations = false;
@@ -4031,48 +3998,12 @@ void MainWindow::applyCommonData(LibraryItem d)
         // display map Kruskal, che usa solo A) azzerava le costanti del preset
         // appena scritte (B=0.17 -> 1, superficie deformata).
 
-        // (Campi scritti a segnali bloccati -- setEqText -- per non innescare
-        // reset indesiderati.)
-        // Mappa di visualizzazione di uno script metrico (es. Flamm): porta le
-        // coordinate intrinseche (U,V,W) in 3D. Due fonti equivalenti, in ordine
-        // di precedenza:
-        //  1) metricDisplayMap dedicata (hasMetricMap);
-        //  2) i campi equations x/y/z/p del preset, quando citano U/V/W
-        //     maiuscole (la tecnica "script + equations": la display map è
-        //     scritta direttamente nelle equazioni della superficie).
-        // runMetricScript riconosce U/V/W e non sovrascrive con la carta
-        // identità. Se nessuna delle due cita U/V/W, i campi restano vuoti e
-        // runMetricScript applica l'identità (x=U, y=V, z=W).
-        const QString eqMap = d.x + " " + d.y + " " + d.z + " " + d.w;
-        const bool eqIsDisplayMap =
-                eqMap.contains(QRegularExpression("\\b[UVW]\\b"));
-
-        if (d.hasMetricMap) {
-            setEqText(&EquationTexts::x, d.metricMapX);
-            setEqText(&EquationTexts::y, d.metricMapY);
-            setEqText(&EquationTexts::z, d.metricMapZ);
-            setEqText(&EquationTexts::p, d.metricMapP);
-        } else if (eqIsDisplayMap) {
-            setEqText(&EquationTexts::x, d.x);
-            setEqText(&EquationTexts::y, d.y);
-            setEqText(&EquationTexts::z, d.z);
-            setEqText(&EquationTexts::p, d.w);
-        } else {
-            for (EqField f : { &EquationTexts::x, &EquationTexts::y, &EquationTexts::z, &EquationTexts::p })
-                setEqText(f, QString());
-        }
-
-        // Composizione e vincoli VUOTI, non quelli del file: con uno script la
-        // geometria la da' lo script, e il motore azzera comunque le variabili
-        // composte qui sotto. I campi pero' pilotano l'interfaccia -- una V
-        // composta spegne e svuota i limiti di v -- e il flusso geodetico li
-        // legge: Wormhole ha nel file V = B*cos(u), residuo di un vecchio
-        // salvataggio, e caricandola i limiti v vuoti facevano fallire la
-        // geodetica ("Check limits for: v") e il record restava a meta'.
-        // Svuotarli e' anche cio' che il load faceva di fatto prima (restavano
-        // quelli del preset precedente, quasi sempre vuoti), ma ora non dipende
-        // piu' da cosa era aperto prima (Kerr: defU/V/W del preset precedente).
-        setCompositionFieldsFromPreset(LibraryItem{});
+        // Mappa di visualizzazione (X/Y/Z/P) e composizione/vincoli VUOTI li ha
+        // gia' assegnati la testa (equationTextsFromItem): con uno script
+        // X/Y/Z/P sono la mappa di uno script metrico -- quella dedicata del
+        // file, o le equazioni del file se citano U/V/W -- e composizione e
+        // vincoli non sono geometria (Wormhole ha nel file V = B*cos(u), che
+        // spegnendo i limiti di v faceva fallire la geodetica).
 
         if (ui->glWidget) {
             // 1. Spegne m_isCustomMesh interno e azzera le funzioni base
@@ -4131,7 +4062,6 @@ void MainWindow::applyCommonData(LibraryItem d)
 
             ui->glWidget->rebuildShader();
 
-            setRmText(&ImplicitTexts::equation, "// Controlled by Script");
 
             applyAnimationState(hasTimeVariable(d.scriptCode));
         } else {
@@ -4164,7 +4094,6 @@ void MainWindow::applyCommonData(LibraryItem d)
         // l'osservatore 4D e la superficie collassava in "lenzuola" giganti.
 
         if (d.isImplicitMode) {
-            setRmText(&ImplicitTexts::equation, d.implicitEq);
             m_implicitApplied = false;   // il Run del load la applica
             ui->glWidget->setImplicitEquation(d.implicitEq);
 
@@ -4175,13 +4104,6 @@ void MainWindow::applyCommonData(LibraryItem d)
             setImplicitMode(false);
             ui->glWidget->setEngineMode(GLWidget::ModeParametric);
         }
-
-        setEqText(&EquationTexts::x, d.x);
-        setEqText(&EquationTexts::y, d.y);
-        setEqText(&EquationTexts::z, d.z);
-        setEqText(&EquationTexts::p, d.w);
-
-        setCompositionFieldsFromPreset(d);
 
         // Uscita dalla modalità metrica A CAMPI NUOVI (vedi nota a inizio ramo):
         // la macchina a stati interna giudica ora le equazioni del preset appena

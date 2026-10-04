@@ -402,6 +402,36 @@ PresetRoundTrip::Capture PresetRoundTrip::loadAndCaptureOnce(const Entry &e)
 
     wait(m_settleMs);
     c.json = captureJson(e);
+    c.sceneDiff = diffScene(MainWindow::sceneFromItem(item, e.isRecord), m_mw->m_scene);
+    // DERIVAZIONI che il load fa DOPO aver scritto la scena, e che non sono
+    // decisioni sul file: costante non usata a 1 (S a 0) col campo spento,
+    // limite di un asse non usato svuotato (campo spento), ultimo moto camera
+    // ricavato da cio' che il load ha fatto partire.
+    {
+        Ui::MainWindow *ui = m_mw->ui;
+        const QHash<QString, QWidget *> fieldOf = {
+            { QStringLiteral("constants.a"), ui->lineA }, { QStringLiteral("constants.b"), ui->lineB },
+            { QStringLiteral("constants.c"), ui->lineC }, { QStringLiteral("constants.d"), ui->lineD },
+            { QStringLiteral("constants.e"), ui->lineE }, { QStringLiteral("constants.f"), ui->lineF },
+            { QStringLiteral("constants.s"), ui->lineS },
+            { QStringLiteral("lim.uMin"), ui->uMinEdit }, { QStringLiteral("lim.uMax"), ui->uMaxEdit },
+            { QStringLiteral("lim.vMin"), ui->vMinEdit }, { QStringLiteral("lim.vMax"), ui->vMaxEdit },
+            { QStringLiteral("lim.wMin"), ui->wMinEdit }, { QStringLiteral("lim.wMax"), ui->wMaxEdit } };
+        QStringList kept;
+        for (const QString &line : c.sceneDiff) {
+            const QStringList f = line.split(QLatin1Char('|'));
+            const QString key = f.value(0), got = f.value(2);
+            QWidget *w = fieldOf.value(key);
+            const bool off = w && !w->isEnabled();
+            if (key.startsWith(QLatin1String("constants.")) && off
+                && got == (key == QLatin1String("constants.s") ? QLatin1String("0") : QLatin1String("1")))
+                continue;
+            if (key.startsWith(QLatin1String("lim.")) && off && got.isEmpty()) continue;
+            if (key == QLatin1String("lastCameraMotion") && f.value(1).isEmpty()) continue;
+            kept.append(line);
+        }
+        c.sceneDiff = kept;
+    }
     const QPair<QString, QLineEdit *> constantFields[] = {
         { QStringLiteral("A"), m_mw->ui->lineA }, { QStringLiteral("B"), m_mw->ui->lineB },
         { QStringLiteral("C"), m_mw->ui->lineC }, { QStringLiteral("D"), m_mw->ui->lineD },
@@ -442,6 +472,42 @@ PresetRoundTrip::Capture PresetRoundTrip::loadAndCaptureOnce(const Entry &e)
     }
     m_currentDialogs = nullptr;
     return c;
+}
+
+QStringList PresetRoundTrip::diffScene(const MainWindow::SceneState &want, const MainWindow::SceneState &got)
+{
+    QStringList out;
+    auto cmp = [&out](const char *name, const QString &w, const QString &g) {
+        if (w != g) out.append(QStringLiteral("%1|%2|%3").arg(QString::fromLatin1(name), w.left(50), g.left(50)));
+    };
+    auto cmpInt = [&cmp](const char *name, int w, int g) { cmp(name, QString::number(w), QString::number(g)); };
+#define SE_CMP(path) cmp(#path, want.path, got.path)
+    SE_CMP(eq.x); SE_CMP(eq.y); SE_CMP(eq.z); SE_CMP(eq.p);
+    SE_CMP(eq.u); SE_CMP(eq.v); SE_CMP(eq.w);
+    SE_CMP(eq.explicitU); SE_CMP(eq.explicitV); SE_CMP(eq.explicitW);
+    SE_CMP(eq.geoU); SE_CMP(eq.geoV); SE_CMP(eq.geoW);
+    SE_CMP(eq.geoDU); SE_CMP(eq.geoDV); SE_CMP(eq.geoDW); SE_CMP(eq.conform);
+    SE_CMP(rm.equation); SE_CMP(rm.crossSection); SE_CMP(rm.displacement);
+    SE_CMP(constants.a); SE_CMP(constants.b); SE_CMP(constants.c); SE_CMP(constants.d);
+    SE_CMP(constants.e); SE_CMP(constants.f); SE_CMP(constants.s);
+    SE_CMP(lim.uMin); SE_CMP(lim.uMax); SE_CMP(lim.vMin); SE_CMP(lim.vMax);
+    SE_CMP(lim.wMin); SE_CMP(lim.wMax); SE_CMP(lim.xMin); SE_CMP(lim.xMax);
+    SE_CMP(lim.yMin); SE_CMP(lim.yMax); SE_CMP(lim.zMin); SE_CMP(lim.zMax);
+    SE_CMP(path.x); SE_CMP(path.y); SE_CMP(path.z); SE_CMP(path.p);
+    SE_CMP(path.alpha); SE_CMP(path.beta); SE_CMP(path.gamma);
+    SE_CMP(path.x3D); SE_CMP(path.y3D); SE_CMP(path.z3D); SE_CMP(path.roll3D);
+    SE_CMP(lastCameraMotion);
+#undef SE_CMP
+    cmpInt("steps", want.steps, got.steps);
+    cmpInt("implicitMode", want.implicitMode, got.implicitMode);
+    cmpInt("crossSectionTab", want.crossSectionTab, got.crossSectionTab);
+    cmpInt("implicitShell", want.implicitShell, got.implicitShell);
+    cmpInt("renderMode", want.renderMode, got.renderMode);
+    cmpInt("pathViewMode4D", want.pathViewMode4D, got.pathViewMode4D);
+    cmpInt("pathViewMode3D", want.pathViewMode3D, got.pathViewMode3D);
+    cmpInt("pathSpeed3D", want.pathSpeed3D, got.pathSpeed3D);
+    cmpInt("pathSpeed4D", want.pathSpeed4D, got.pathSpeed4D);
+    return out;
 }
 
 void PresetRoundTrip::run()
@@ -714,6 +780,8 @@ void PresetRoundTrip::writeReport()
     QStringList phantom;
     int withShaderErrors = 0;
     QStringList shaderLines;
+    QMap<QString, KeyStat> sceneByKey;
+    int sceneMismatch = 0;
 
     auto bump = [](QMap<QString, KeyStat> &m, const QString &key, const QString &rel) {
         KeyStat &s = m[key];
@@ -731,6 +799,16 @@ void PresetRoundTrip::writeReport()
 
     for (const Entry &e : m_entries) {
         const Capture &a = m_passA[e.rel];
+        // Scena prevista dal file contro scena dopo il load (passaggio A).
+        if (!a.sceneDiff.isEmpty()) ++sceneMismatch;
+        for (const QString &d : a.sceneDiff) {
+            const QStringList f = d.split(QLatin1Char('|'));
+            KeyStat &st = sceneByKey[f.value(0)];
+            ++st.count;
+            if (st.examples.size() < 3)
+                st.examples.append(QStringLiteral("%1 [previsto '%2', reale '%3']")
+                                       .arg(QFileInfo(e.rel).completeBaseName(), f.value(1), f.value(2)));
+        }
         // Un popup durante un caricamento e' sempre un difetto (il load si
         // ferma a meta' finche' l'utente non lo chiude): conta, in tutti e due
         // i passaggi, con il predecessore che serve a riprodurlo.
@@ -890,8 +968,12 @@ void PresetRoundTrip::writeReport()
         << QStringLiteral("Con un popup di errore al caricamento:                       %1").arg(withPopups)
         << QStringLiteral("Risultano da salvare appena caricati (popup fantasma):       %1").arg(dirtyAfterLoad)
         << QStringLiteral("Con uno shader che non compila:                              %1").arg(withShaderErrors)
+        << QStringLiteral("Scena dopo il load diversa da quella del file:              %1").arg(sceneMismatch)
         << QStringLiteral("Ricaricati perche' il watchdog della GPU li aveva fermati:   %1%2").arg(m_watchdogReloads)
                .arg(m_watchdogReloads > 0 ? QStringLiteral("   (macchina carica: non e' un difetto)") : QString())
+        << QString()
+        << QStringLiteral("== SCENA PREVISTA DAL FILE vs SCENA DOPO IL LOAD, per campo (passaggio A) ==")
+        << summary(sceneByKey)
         << QString()
         << QStringLiteral("== DIPENDONO DAL PRESET PRECEDENTE, per chiave (numero di preset) ==")
         << summary(orderByKey)
@@ -918,7 +1000,8 @@ void PresetRoundTrip::writeReport()
         f.write(rep.join(QLatin1Char('\n')).toUtf8() + '\n');
 
     const bool pass = (saveChanged == 0 && orderDependent == 0 && notLoadable == 0
-                       && withPopups == 0 && dirtyAfterLoad == 0 && withShaderErrors == 0);
+                       && withPopups == 0 && dirtyAfterLoad == 0 && withShaderErrors == 0
+                       && sceneMismatch == 0);
     log(QStringLiteral("fine: %1 identici su %2, Save diverso %3, dipendenti dall'ordine %4, "
                        "con popup %5, con shader non compilati %6. Report: %7")
             .arg(identical).arg(n - notLoadable).arg(saveChanged).arg(orderDependent)

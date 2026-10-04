@@ -488,6 +488,128 @@ MainWindow::LimitTexts MainWindow::limitTextsFromItem(const LibraryItem &d)
     return l;
 }
 
+MainWindow::SceneState MainWindow::sceneFromItem(const LibraryItem &d, bool isRecord)
+{
+    SceneState s;
+    const bool fromScript = loadsFromScript(d);
+
+    s.eq = equationTextsFromItem(d);
+    s.rm = implicitTextsFromItem(d);
+
+    // Costanti: il formato con cui il load le scrive (setConstValue, 'g', 6).
+    auto num = [](float v) { return QString::number(v, 'g', 6); };
+    s.constants.a = num(d.a);  s.constants.b = num(d.b);  s.constants.c = num(d.c);
+    s.constants.d = num(d.d);  s.constants.e = num(d.e);  s.constants.f = num(d.f);
+    s.constants.s = num(d.s);
+
+    s.lim = limitTextsFromItem(d);
+    // Con uno script, le sue direttive di dominio ("u_max := 4*pi;") vincono sui
+    // numeri del file: il load le applica (parseAndApplyScriptParams), scritte
+    // col valore calcolato a 12 cifre.
+    if (fromScript) {
+        for (const auto &dv : parseScriptDirectives(d.scriptCode).values) {
+            QString *lim = dv.first == QLatin1String("u_min") ? &s.lim.uMin
+                         : dv.first == QLatin1String("u_max") ? &s.lim.uMax
+                         : dv.first == QLatin1String("v_min") ? &s.lim.vMin
+                         : dv.first == QLatin1String("v_max") ? &s.lim.vMax
+                         : dv.first == QLatin1String("w_min") ? &s.lim.wMin
+                         : dv.first == QLatin1String("w_max") ? &s.lim.wMax : nullptr;
+            if (lim) *lim = QString::number(ExpressionParser::evaluateSimple(dv.second), 'g', 12);
+        }
+    }
+    s.path = pathTextsFromItem(d);
+    s.steps = d.steps;
+
+    // Scelte. renderMode >= 10 codifica Shell in Ray Marching.
+    s.implicitMode = d.isImplicitMode;
+    s.crossSectionTab = d.isImplicitMode && d.usesCrossSection;
+    s.implicitShell = !d.isImplicitMode || d.renderMode >= 10;   // parametrico: il default
+    s.renderMode = d.renderMode % 10;
+    if (s.renderMode != 1 && s.renderMode != 2) s.renderMode = 0;
+
+    // Moti della camera: una superficie riparte dai default, un record porta i
+    // suoi (0 = chiave assente: il default).
+    if (isRecord) {
+        s.pathViewMode4D = static_cast<CameraPathMode>(d.pathMode4D);
+        s.pathViewMode3D = static_cast<CameraPathMode>(d.pathMode3D);
+        if (d.speedPath3D > 0) s.pathSpeed3D = d.speedPath3D;
+        if (d.speedPath4D > 0) s.pathSpeed4D = d.speedPath4D;
+        // "none" (salvato a moti fermi) e chiave assente: la cascata del load.
+        if (d.activeMotion != QLatin1String("none")) s.lastCameraMotion = d.activeMotion;
+    }
+    return s;
+}
+
+QString MainWindow::safeImplicitEquation(const QString &eq)
+{
+    const QString e = eq.trimmed();
+    if (e.isEmpty() || !e.contains(QLatin1Char('=')))
+        return QStringLiteral("x^2 + y^2 + z^2 = 1.0");
+    return e;
+}
+
+MainWindow::EquationTexts MainWindow::equationTextsFromItem(const LibraryItem &d)
+{
+    EquationTexts e;
+    const bool fromScript = loadsFromScript(d);
+    // Equazioni e flusso geodetico. Il fattore conforme vuoto vale 1.
+    e.x = d.x;  e.y = d.y;  e.z = d.z;  e.p = d.w;
+    e.u = d.defU;  e.v = d.defV;  e.w = d.defW;
+    e.explicitU = d.explicitU;  e.explicitV = d.explicitV;  e.explicitW = d.explicitW;
+    e.geoU = d.geoU0;  e.geoV = d.geoV0;  e.geoW = d.geoW0;
+    e.geoDU = d.geoDU;  e.geoDV = d.geoDV;  e.geoDW = d.geoDW;
+    e.conform = d.geoConform.isEmpty() ? QStringLiteral("1.0") : d.geoConform;
+    // Con uno script X/Y/Z/P sono la MAPPA DI VISUALIZZAZIONE: quella dedicata
+    // del file (script metrici), o le equazioni del file se citano U/V/W,
+    // altrimenti vuote (lo script metrico vi mettera' l'identita').
+    if (fromScript) {
+        const QString eqMap = d.x + " " + d.y + " " + d.z + " " + d.w;
+        if (d.hasMetricMap) {
+            e.x = d.metricMapX;  e.y = d.metricMapY;
+            e.z = d.metricMapZ;  e.p = d.metricMapP;
+        } else if (!eqMap.contains(QRegularExpression(QStringLiteral("\\b[UVW]\\b")))) {
+            e.x.clear();  e.y.clear();  e.z.clear();  e.p.clear();
+        }
+    }
+    // Con uno script composizione e vincoli non sono geometria: si svuotano.
+    if (fromScript) {
+        e.u.clear();  e.v.clear();  e.w.clear();
+        e.explicitU.clear();  e.explicitV.clear();  e.explicitW.clear();
+    }
+    // NB: anche in un preset IMPLICITO X/Y/Z/P vengono dal file. Le superfici
+    // Ray Marching vi portano le equazioni del toro di default (e col loro
+    // dominio u/v): svuotarle cambiava il Save di 65 superfici. I record
+    // impliciti hanno i campi vuoti nel file, e tali restano.
+    return e;
+}
+
+bool MainWindow::loadsFromScript(const LibraryItem &d)
+{
+    const bool hasValidEquations = (!d.x.trimmed().isEmpty() && d.x != QLatin1String("0")
+                                    && d.x != QLatin1String("0.0"))
+                                   || (d.isImplicitMode && d.scriptCode.isEmpty());
+    return !d.scriptCode.isEmpty() && (d.isScript || !hasValidEquations);
+}
+
+MainWindow::ImplicitTexts MainWindow::implicitTextsFromItem(const LibraryItem &d)
+{
+    ImplicitTexts t;
+    if (!d.isImplicitMode) return t;
+    // Con uno script il campo lo dice. Altrimenti l'equazione del file, e se e'
+    // quella del sotto-tab ATTIVO (3D) la versione sicura per il motore. In un
+    // preset Cross Section l'equazione 3D non si usa e resta com'e' nel file
+    // (spesso vuota): la sfera la scriverebbe il Save.
+    if (loadsFromScript(d)) {
+        t.equation = QStringLiteral("// Controlled by Script");
+    } else {
+        t.equation = d.implicitEq.trimmed();
+        if (!d.usesCrossSection) t.equation = safeImplicitEquation(t.equation);
+    }
+    t.crossSection = d.crossSectionEq.trimmed();
+    t.displacement = d.displacementCode;
+    return t;
+}
+
 MainWindow::PathTexts MainWindow::pathTextsFromItem(const LibraryItem &d)
 {
     PathTexts p;

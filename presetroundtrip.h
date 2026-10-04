@@ -9,7 +9,7 @@
 #include <QTextStream>
 #include <QFile>
 
-class MainWindow;
+#include "mainwindow.h"   // MainWindow::SceneState (diffScene)
 class QTimer;
 
 // TEST DI ANDATA E RITORNO DEI PRESET (tappa 1 del refactoring "stato unico
@@ -71,7 +71,12 @@ private:
         // attesi, elencati con la loro ragione.
         QStringList shaderErrors;
         QStringList shaderExcused;
+        // Scena dopo il load contro MainWindow::sceneFromItem(file): una riga
+        // per campo diverso, "campo|previsto|reale" (punto 5, tappa 5.3b).
+        QStringList sceneDiff;
     };
+
+    static QStringList diffScene(const MainWindow::SceneState &want, const MainWindow::SceneState &got);
 
     // Perche' una differenza fra file e Save NON conta; vuota = conta.
     static QString drivenByMotion(const QString &key, const QJsonObject &saved);

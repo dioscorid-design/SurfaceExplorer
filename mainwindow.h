@@ -843,6 +843,17 @@ private:
     // I testi dei campi a una riga DAL PRESET, funzioni pure del file.
     static LimitTexts limitTextsFromItem(const LibraryItem &d);
     static PathTexts pathTextsFromItem(const LibraryItem &d);
+    // Il ramo SCRIPT del load: il preset ha uno script e lo dichiara, o non ha
+    // equazioni X valide (stessa condizione di applyCommonData).
+    static bool loadsFromScript(const LibraryItem &d);
+    // Equazioni, composizione, vincoli e flusso geodetico DAL PRESET.
+    static EquationTexts equationTextsFromItem(const LibraryItem &d);
+    // Equazione 3D, sezione 4D e rilievo DAL PRESET (la texture no: e' del
+    // concetto texture). Un preset parametrico li lascia vuoti.
+    static ImplicitTexts implicitTextsFromItem(const LibraryItem &d);
+    // L'equazione 3D da dare al MOTORE: vuota o senza '=' (formato vecchio)
+    // diventa la sfera di default, che non fa scattare il popup d'errore.
+    static QString safeImplicitEquation(const QString &eq);
     // Steps: in parametrico la risoluzione della mesh, in Ray Marching i Ray
     // Steps. Lo slider e il campo ne sono la vista; il motore (setResolution /
     // setRaySteps) lo scrive chi chiama. setSteps: dal programma, a segnali
@@ -1539,13 +1550,17 @@ private:
         QHash<QString, float> minConsts;
     };
     SceneState m_scene;
+    // LA SCENA DAL FILE, funzione PURA del preset: cio' che il load deve
+    // lasciare in m_scene (punto 5, tappa 5.3b). Cresce un concetto alla volta;
+    // il test di andata e ritorno la confronta, preset per preset, con la scena
+    // che il load produce davvero (PresetRoundTrip::sceneDiff).
+    static SceneState sceneFromItem(const LibraryItem &d, bool isRecord);
     // La superficie -- o la fascia selezionata, in ambito Mesh -- e' in
     // wireframe: la texture non si disegna. Vedi l'implementazione.
     bool textureTargetInWireframe() const;
     // Alpha globale del preset: slider E motore, anche a valore invariato.
     void applyPresetAlpha(float alpha);
     // defU/V/W e explicitU/V/W dal preset, per entrambi i rami di applyCommonData.
-    void setCompositionFieldsFromPreset(const LibraryItem &d);
     // Limiti X/Y/Z (condivisi fra i due sotto-tab impliciti) riportati al default
     // "nessun taglio". Chiamata dal cambio di sotto-tab.
     void resetImplicitSharedFields();
@@ -1619,6 +1634,13 @@ private:
     QString composeEquation(const QString &eq, const QString &uDef, const QString &vDef, const QString &wDef);
     void parseAndApplyScriptParams(const QString &scriptCode, bool restartAudio = true,
                                    bool onlyFillEmptyLimits = false);
+    struct ScriptDirectives {
+        QList<QPair<QString, QString>> values;   // ("u_min", "-3.0"), ("a", "1.2")... in ordine
+        QHash<QString, DiscreteRange> discrete;  // "A := int(1,6);"
+        QHash<QString, float> mins;              // "F := min(0.3);"
+        QString meshVisible;                     // "MESH_VISIBLE := E;"
+    };
+    static ScriptDirectives parseScriptDirectives(const QString &scriptCode);
     // const: e' pura analisi del testo, non tocca stato. Serve tale ai lettori
     // const che devono sapere se un codice e' animato (anyMeshTextureCodeAnimated).
     bool hasTimeVariable(const QString& code) const;

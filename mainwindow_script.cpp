@@ -1126,9 +1126,13 @@ void MainWindow::onRunSoundClicked()
     updateMasterButtonState();
 }
 
-void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool restartAudio,
-                                           bool onlyFillEmptyLimits)
+// LE DIRETTIVE ":=" DI UNO SCRIPT, lette e basta (funzione PURA): i valori di
+// limiti e costanti nell'ordine in cui compaiono, le costanti discrete, i minimi
+// e MESH_VISIBLE. Le applica parseAndApplyScriptParams; le usa anche
+// sceneFromItem per sapere che scena lascera' il load.
+MainWindow::ScriptDirectives MainWindow::parseScriptDirectives(const QString &scriptCode)
 {
+    ScriptDirectives sd;
     // SOLO direttive ":=" (es. "A := 1.2", "u_min := -3.0"), NON il "=" nudo del
     // codice GLSL. Il vecchio "[:=]+" catturava anche righe legittime come
     // "float a = min(B, A);": con CaseInsensitive, "a" -> costante A, e
@@ -1149,13 +1153,6 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
     // Le lettere trovate qui vengono escluse dal ciclo (skipDiscrete).
     QSet<QString> skipDiscrete;
     {
-        // Azzerate SEMPRE: un preset senza direttive deve tornare a costanti
-        // continue e senza minimi, altrimenti quelli del preset precedente
-        // resterebbero attivi (stessa famiglia di bug del cutout che persisteva
-        // fra superfici).
-        m_scene.discreteConsts.clear();
-        m_scene.minConsts.clear();
-
         QRegularExpression reInt(R"(\b([A-FS])\b\s*:=\s*int\s*\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)\s*;)",
                                  QRegularExpression::CaseInsensitiveOption);
         QRegularExpressionMatchIterator it = reInt.globalMatch(cleanScript);
@@ -1165,7 +1162,7 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
             int lo = m.captured(2).toInt();
             int hi = m.captured(3).toInt();
             if (lo > hi) std::swap(lo, hi);      // "int(6,1)" tollerato
-            m_scene.discreteConsts.insert(name, { lo, hi });
+            sd.discrete.insert(name, { lo, hi });
             skipDiscrete.insert(name);
         }
 
@@ -1179,34 +1176,48 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
         while (itm.hasNext()) {
             QRegularExpressionMatch m = itm.next();
             const QString name = m.captured(1).toUpper();
-            m_scene.minConsts.insert(name, m.captured(2).toFloat());
+            sd.mins.insert(name, m.captured(2).toFloat());
             skipDiscrete.insert(name);
         }
 
         // "MESH_VISIBLE := E;" — quante mesh sono davvero a schermo quando un
         // //CUTOUT ne spegne una parte. Si conserva l'ESPRESSIONE: dipende dalle
         // costanti e va rivalutata a ogni loro cambio (vedi meshVisibleCount).
-        // Azzerata sempre come le altre direttive, o quella del preset
-        // precedente resterebbe attiva su una superficie che non la dichiara.
-        m_meshVisibleExpr.clear();
         QRegularExpression reMeshVis(R"(\bMESH_VISIBLE\b\s*:=\s*([^;]+);)",
                                      QRegularExpression::CaseInsensitiveOption);
         const QRegularExpressionMatch mv = reMeshVis.match(cleanScript);
-        if (mv.hasMatch()) m_meshVisibleExpr = mv.captured(1).trimmed();
+        if (mv.hasMatch()) sd.meshVisible = mv.captured(1).trimmed();
     }
 
     QRegularExpressionMatchIterator i = re.globalMatch(cleanScript);
-
-    bool limitsChanged = false;
-
     while (i.hasNext()) {
-        QRegularExpressionMatch match = i.next();
-        QString varName = match.captured(1).toLower(); // es. "u_min"
-        QString valStr  = match.captured(2);           // es. "-3.14" o "2*PI"
-
+        const QRegularExpressionMatch match = i.next();
+        const QString varName = match.captured(1).toLower(); // es. "u_min"
         // "A := int(1,6);" e' una DICHIARAZIONE di dominio, gia' consumata sopra:
         // qui va saltata, altrimenti evaluateSimple("int(1,6)") = 0 azzera A.
         if (skipDiscrete.contains(varName.toUpper())) continue;
+        sd.values.append({ varName, match.captured(2) });     // es. "-3.14" o "2*PI"
+    }
+    return sd;
+}
+
+void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool restartAudio,
+                                           bool onlyFillEmptyLimits)
+{
+    const ScriptDirectives sd = parseScriptDirectives(scriptCode);
+    // Azzerate SEMPRE: un preset senza direttive deve tornare a costanti continue,
+    // senza minimi e senza MESH_VISIBLE, altrimenti quelli del preset precedente
+    // resterebbero attivi (stessa famiglia di bug del cutout che persisteva fra
+    // superfici).
+    m_scene.discreteConsts = sd.discrete;
+    m_scene.minConsts = sd.mins;
+    m_meshVisibleExpr = sd.meshVisible;
+
+    bool limitsChanged = false;
+
+    for (const auto &directive : sd.values) {
+        const QString &varName = directive.first;
+        const QString &valStr  = directive.second;
 
         // Usiamo il tuo parser per calcolare il valore (es. "2*PI" -> 6.28)
         float value = ExpressionParser::evaluateSimple(valStr);
