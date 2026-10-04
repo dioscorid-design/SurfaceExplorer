@@ -311,12 +311,11 @@ PresetSerializer::PresetSerializer(MainWindow *parent)
 
 // COLORE GLOBALE DELLA SUPERFICIE, letto dal MOTORE.
 //
-// Non si usa m_currentSurfaceColor: quel membro non e' una fonte di verita' per
-// il globale, perche' handleColorChange ci scrive dentro anche mentre si sta
-// colorando una MESH (il setColor successivo instrada il valore nella parte, ma
-// il membro resta con il colore della fascia). Salvandolo come colore globale,
-// una superficie multi-mesh con una sola fascia colorata si riapriva TUTTA di
-// quel colore.
+// E' l'unica copia: MainWindow ne teneva una (m_currentSurfaceColor), tolta
+// perche' handleColorChange ci scriveva dentro anche mentre si colorava una
+// MESH (il setColor successivo instrada il valore nella parte, ma la copia
+// restava col colore della fascia). Salvata come colore globale, una superficie
+// multi-mesh con una sola fascia colorata si riapriva TUTTA di quel colore.
 //
 // Il motore invece tiene i due stati separati: red/green/blue restano il colore
 // globale qualunque cosa si faccia sulle parti, che vivono nei loro MeshPart.
@@ -334,7 +333,7 @@ double PresetSerializer::globalSurfaceAlpha() const
 
 QColor PresetSerializer::globalSurfaceColor() const
 {
-    if (!m_mainWindow->ui->glWidget) return m_mainWindow->m_currentSurfaceColor;
+    if (!m_mainWindow->ui->glWidget) return QColor::fromRgbF(0.20f, 0.80f, 0.20f);
     float r = 0.0f, g = 0.0f, b = 0.0f;
     m_mainWindow->ui->glWidget->globalColor(r, g, b);
     return QColor::fromRgbF(r, g, b);
@@ -611,8 +610,8 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
     d.projectionMode = gl->projectionMode;
     // cameraFov = chiave legacy (unico FOV applicato); fov3D/fov4D allineati.
     d.cameraFov = gl->cameraFov();
-    d.fov3D = mw->m_fov3D;
-    d.fov4D = mw->m_fov4D;
+    d.fov3D = mw->m_scene.fov;
+    d.fov4D = mw->m_scene.fov;
 
     // Densita' wireframe A SCHERMO in questo momento, non il default.
     d.hasWireframe = true;
@@ -850,7 +849,7 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
     d.observer4D = gl->getObserverPos4D();
 
     // --- SFONDO ---
-    d.bgColor = mw->m_currentBackgroundColor.name();
+    d.bgColor = mw->m_scene.bgColor.name();
     d.bgTextureEnabled = gl->isBackgroundTextureEnabled();
     // Il tag //IMG: dello sfondo si ricostruisce dall'immagine nel motore
     // (MainWindow::backgroundImagePath, vuoto con la default): gli
@@ -869,8 +868,8 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
         }
         d.bgTextureCode = bgCode;
     }
-    d.bgCol1 = mw->m_bgTexColor1.name();
-    d.bgCol2 = mw->m_bgTexColor2.name();
+    d.bgCol1 = mw->m_scene.bgTexColor1.name();
+    d.bgCol2 = mw->m_scene.bgTexColor2.name();
     d.bgLibName = mw->m_scene.bgTextureLibName;
     d.bgHintText = mw->m_currentBgTextureHintText;
     d.bgHintSeconds = mw->m_currentBgTextureHintSeconds;

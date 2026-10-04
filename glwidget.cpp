@@ -6162,7 +6162,7 @@ void GLWidget::createDummyTexture(QRhiCommandBuffer *cb) {
     // createFragmentShaderSource), che si risolve nel codice generato con
     // `return vec3(1.0)` e non dipende dal contenuto di questa texture.
     // Colori: il VERDE di default del progetto (0.20, 0.80, 0.20 -> 51,204,51,
-    // lo stesso di m_currentSurfaceColor in MainWindow e del Colore 1 della
+    // lo stesso del colore di default della superficie e del Colore 1 della
     // scacchiera di default) e il nero del Colore 2. Cosi' il fallback ha
     // l'aspetto di casa invece del bianco/nero generico.
     const int kDummySize = 64;   // 8 celle da 8 px

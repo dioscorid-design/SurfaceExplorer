@@ -652,15 +652,9 @@ private:
     // resetTransparency): l'handler valueChanged distingue cosi' il set programmatico
     // dall'interazione utente e non fa scattare il blocco/popup sui load. Vedi setAlphaSliderProgrammatic.
     bool m_settingAlphaProgrammatic = false;
-    float alphaValue = 1.0f;
-
-    QColor m_currentSurfaceColor;
-    QColor m_currentBackgroundColor;
-    // I colori u_col1/u_col2 della texture di SUPERFICIE non hanno una copia
-    // qui: vivono solo nel motore (vedi surfaceTexColor). Quelli dello sfondo
-    // si', perche' lo sfondo non ha altra memoria che questa.
-    QColor m_bgTexColor1 = Qt::white;
-    QColor m_bgTexColor2 = Qt::black;
+    // (Colore e alpha GLOBALI della superficie vivono solo nel motore:
+    // globalColor / globalAlpha. Colore e colori 1/2 dello sfondo stanno nella
+    // scena, m_scene.bgColor / bgTexColor1/2.)
 
     // ==========================================================
     // TEXTURE & SCRIPTING STATE
@@ -1021,14 +1015,7 @@ private:
     void setPathSpeed3D(int speed);
     void setPathSpeed4D(int speed);
 
-    // FOV dei due path, INDIPENDENTI (slider nel dock 3D e nel dock 4D).
-    // Il FOV effettivo della proiezione e' applicato SOLO dentro
-    // applyPath3D/4DCameraAt (quindi anche nei video, che passano di li');
-    // fuori dalle path la proiezione resta al default 45 (lo zoom fuori
-    // path ha gia' i suoi comandi, e un reset non deve rimpicciolire la
-    // superficie). Persistiti come "fov3D"/"fov4D" (legacy: "cameraFov").
-    float m_fov3D = 45.0f;
-    float m_fov4D = 45.0f;
+    // (FOV dei path: m_scene.fov.)
 
     // Orientamento 4D (omega/phi/psi) della superficie catturato all'avvio del
     // path 4D: il tick applica le compensazioni -gamma/-beta RELATIVE a questa
@@ -1578,6 +1565,21 @@ private:
         // Costanti dichiarate dallo script: discrete ("A := int(1,6)") e minimi
         QHash<QString, DiscreteRange> discreteConsts;
         QHash<QString, float> minConsts;
+
+        // SFONDO: colore pieno e colori u_col1/u_col2 della sua texture (il
+        // motore li consuma: setBackgroundColor, proprieta' bg_col1/bg_col2).
+        // Quelli della texture di SUPERFICIE invece vivono solo nel motore
+        // (vedi surfaceTexColor), come il colore e l'alpha globali.
+        QColor bgColor;
+        QColor bgTexColor1 = Qt::white;
+        QColor bgTexColor2 = Qt::black;
+        // FOV dei path, uno solo (lo slider e' unico). Applicato SOLO dentro
+        // applyPath3D/4DCameraAt (quindi anche nei video, che passano di li');
+        // fuori dalle path la proiezione resta al default 45 (lo zoom fuori
+        // path ha gia' i suoi comandi, e un reset non deve rimpicciolire la
+        // superficie). Persistito come "cameraFov" e, per le build precedenti,
+        // "fov3D"/"fov4D".
+        float fov = 45.0f;
     };
     SceneState m_scene;
     // LA SCENA DAL FILE: cio' che il load deve lasciare in m_scene (punto 5,
@@ -1726,7 +1728,8 @@ private:
     SceneState defaultScene(int index, bool loadDefaultSurface, bool sameTabRestart) const;
     // ASSEGNA una scena intera a m_scene, con la vista dei campi: equazioni,
     // campi RM, costanti e domini, Shell/Solid e resa, slot di script,
-    // texture, sfondo e suono, codice dello sfondo, accensione e ancore; per
+    // texture, sfondo e suono, codice e colori dello sfondo, accensione e
+    // ancore; per
     // ultimi limiti e path (showLineFields, che fa il giudizio sulle costanti
     // a scena completa). NON tocca: modalita' e sotto-tab (li cambia chi
     // gestisce la linguetta), steps (setSteps, col motore), moti, applicato

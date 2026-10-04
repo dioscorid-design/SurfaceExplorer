@@ -787,15 +787,13 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         ~MeshBypassGuard() { if (w->ui->glWidget) w->ui->glWidget->setMeshAppearanceBypass(prev); }
     } meshBypassGuard{this, prevBypass};
 
-    m_currentBackgroundColor = QColor::fromRgbF(0.3f, 0.3f, 0.3f);
-    m_currentSurfaceColor = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
-    m_bgTexColor1 = QColor::fromRgbF(0.2f, 0.2f, 0.8f);
-    m_bgTexColor2 = Qt::black;
-
+    // (Colore e colori 1/2 dello sfondo: scena di default, in testa.) Il verde
+    // della superficie vive solo nel motore.
+    const QColor defaultGreen = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
     if (ui->glWidget) {
-        ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
-        ui->glWidget->setColor(m_currentSurfaceColor.redF(), m_currentSurfaceColor.greenF(), m_currentSurfaceColor.blueF());
-        ui->glWidget->setGlobalTextureColors(m_currentSurfaceColor, Qt::black);
+        ui->glWidget->setBackgroundColor(m_scene.bgColor);
+        ui->glWidget->setColor(defaultGreen.redF(), defaultGreen.greenF(), defaultGreen.blueF());
+        ui->glWidget->setGlobalTextureColors(defaultGreen, Qt::black);
         // Globali ora coerenti: si puo' lasciare la mesh senza esporre un
         // frame col colore stantio.
         ui->glWidget->setActiveMeshPart(-1);
@@ -1165,7 +1163,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // e su un preset con FOV stretto la differenza e' vistosa.
     // Vale per entrambi i rami: e' stato di CAMERA, come projectionMode qui
     // sopra e come il setCameraPos(0,0,4) dei due rami. applyCameraFov allinea
-    // in un colpo membri (m_fov3D/m_fov4D), label, slider e motore.
+    // in un colpo stato (m_scene.fov), label, slider e motore.
     applyCameraFov(45.0f);
 
     // COSTANTI AL MOTORE. I campi A..F sono stati riportati al default a
@@ -1478,16 +1476,13 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     clearSurfaceScript();
     exitMetricScriptMode();
 
-    // Reset Colori a Default (Superficie Verde, Sfondo Grigio scuro)
+    // Colori al default nel MOTORE (superficie verde); lo sfondo e' quello
+    // della scena del file -- grigio scuro: una superficie non ne porta --, che
+    // la testa di applyCommonData assegna allo stato.
     float defR = 0.20f, defG = 0.80f, defB = 0.20f;
-    m_currentSurfaceColor = QColor::fromRgbF(defR, defG, defB);
-    m_currentBackgroundColor = QColor::fromRgbF(0.3f, 0.3f, 0.3f);
-    m_bgTexColor1 = QColor::fromRgbF(0.2f, 0.2f, 0.8f);
-    m_bgTexColor2 = Qt::black;
-
     if (ui->glWidget) {
         ui->glWidget->setColor(defR, defG, defB);
-        ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
+        ui->glWidget->setBackgroundColor(file.bgColor);
         ui->glWidget->setGlobalTextureColors(QColor::fromRgbF(defR, defG, defB), Qt::black);
     }
 
@@ -1567,7 +1562,6 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     if (d.hasCustomColors && !d.color1.isEmpty()) {
         QColor surfCol(d.color1);
         if (surfCol.isValid()) {
-            m_currentSurfaceColor = surfCol;
             if (ui->glWidget) {
                 // BYPASS OBBLIGATORIO: questo e' il colore GLOBALE del preset,
                 // non una scelta dell'utente su una fascia. Senza, setColor
@@ -1587,8 +1581,8 @@ void MainWindow::applySurfaceExample(LibraryItem d)
             }
             // GLI SLIDER SI ALLINEANO SOLO SE NON C'E' UNA MESH SELEZIONATA.
             // Qui si ripristina il colore GLOBALE della superficie, e
-            // onColorTargetChanged lo riversa sugli slider leggendo
-            // m_currentSurfaceColor -- senza mai guardare la mesh attiva.
+            // onColorTargetChanged lo riversa sugli slider leggendolo dal
+            // motore -- senza mai guardare la mesh attiva.
             // Ma applyCommonData(), appena sopra, ha gia' fatto girare il sync
             // per-mesh, che aveva messo gli slider sul colore della fascia
             // selezionata: questa chiamata arriva DOPO e lo sovrascriveva col
@@ -2116,7 +2110,6 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // 3b. Colori
     if (data.hasCustomColors && !data.color1.isEmpty()) {
         QColor surfCol(data.color1);
-        m_currentSurfaceColor = surfCol;
 
         // Stesso trattamento del ramo superfici (applySurfaceExample): colore
         // GLOBALE del preset, quindi bypass acceso perche' non finisca nella
@@ -2132,11 +2125,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     applyPresetAlpha(data.alpha);
 
-    // 3c. Colore Sfondo
-    if (!data.bgColor.isEmpty()) {
-        m_currentBackgroundColor = QColor(data.bgColor);
-        ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
-    }
+    // 3c. Colore Sfondo: dallo stato (scena del file, in testa). Un record
+    // senza la chiave ha il grigio di default; prima si teneva quello del
+    // preset aperto prima.
+    ui->glWidget->setBackgroundColor(m_scene.bgColor);
 
     // 4. (I campi path sono già stati riempiti PRIMA di applyCommonData, vedi punto 2.)
 
@@ -2158,8 +2150,6 @@ void MainWindow::applyMotionExample(LibraryItem data)
     float surfPanX = data.panX, surfPanY = data.panY;
     float surfRot = data.rotation;
 
-    QColor loadedBgCol1 = QColor::fromRgbF(0.2f, 0.2f, 0.8f);
-    QColor loadedBgCol2 = Qt::black;
     float bgZoom = 1.0f;
     float bgPanX = 0.0f, bgPanY = 0.0f;
     float bgRot = 0.0f;
@@ -2202,8 +2192,6 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // alla funzione, che lo compone con gli altri due.
     m_currentBgTextureHintText    = data.bgHintText;
     m_currentBgTextureHintSeconds = data.bgHintSeconds;
-    loadedBgCol1 = QColor(data.bgCol1);
-    loadedBgCol2 = QColor(data.bgCol2);
     bgZoom = data.bgZoom;
     bgPanX = data.bgPanX;
     bgPanY = data.bgPanY;
@@ -2287,9 +2275,6 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // nel motore, e il motore allineato ai campi.
     refreshConstants(/*restoreTextOnNegative=*/false);
     SE_TEXP("record:costanti-rigiudicate");
-
-    m_bgTexColor1 = loadedBgCol1;
-    m_bgTexColor2 = loadedBgCol2;
 
     // Svuota forzatamente gli shader procedurali "incastrati" prima di caricare il nuovo!
     if (ui->glWidget) {
@@ -2395,8 +2380,8 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     if (bgTexEnabled && !bgCode.isEmpty()) {
         if (ui->glWidget) {
-            ui->glWidget->setProperty("bg_col1", QVector3D(m_bgTexColor1.redF(), m_bgTexColor1.greenF(), m_bgTexColor1.blueF()));
-            ui->glWidget->setProperty("bg_col2", QVector3D(m_bgTexColor2.redF(), m_bgTexColor2.greenF(), m_bgTexColor2.blueF()));
+            ui->glWidget->setProperty("bg_col1", QVector3D(m_scene.bgTexColor1.redF(), m_scene.bgTexColor1.greenF(), m_scene.bgTexColor1.blueF()));
+            ui->glWidget->setProperty("bg_col2", QVector3D(m_scene.bgTexColor2.redF(), m_scene.bgTexColor2.greenF(), m_scene.bgTexColor2.blueF()));
         }
 
         QString bgImgPath = extractAndResolveImagePath(bgCode);

@@ -68,9 +68,8 @@ private:
     void captureParametricLimits(LibraryItem &d);
     void captureSpaceLimits(LibraryItem &d);
 
-    // Colore GLOBALE della superficie letto dal motore, mai da
-    // m_currentSurfaceColor (che resta contaminato dal colore dell'ultima mesh
-    // toccata). Vedi il commento sull'implementazione.
+    // Colore GLOBALE della superficie letto dal motore, la sua unica sede.
+    // Vedi il commento sull'implementazione.
     QColor globalSurfaceColor() const;
     // Trasparenza GLOBALE dal motore, mai dallo slider (stessa ragione).
     double globalSurfaceAlpha() const;

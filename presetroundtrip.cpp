@@ -514,6 +514,10 @@ QStringList PresetRoundTrip::diffScene(const MainWindow::SceneState &want, const
         return out.join(QLatin1Char(' '));
     };
     cmp("constantDomains", domains(want), domains(got));
+    cmp("bgColor", want.bgColor.name(), got.bgColor.name());
+    cmp("bgTexColor1", want.bgTexColor1.name(), got.bgTexColor1.name());
+    cmp("bgTexColor2", want.bgTexColor2.name(), got.bgTexColor2.name());
+    cmp("fov", QString::number(want.fov), QString::number(got.fov));
     cmpInt("steps", want.steps, got.steps);
     cmpInt("implicitMode", want.implicitMode, got.implicitMode);
     cmpInt("crossSectionTab", want.crossSectionTab, got.crossSectionTab);

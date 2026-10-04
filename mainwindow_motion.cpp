@@ -321,7 +321,7 @@ void MainWindow::onResetViewClicked()
     // lo slider, come il reset di scena; con un path in corsa il FOV e' quello
     // scelto per il volo e resta (il path riparte da t=0 con la sua
     // prospettiva).
-    applyCameraFov((wasPathRunning || wasPath3DRunning) ? m_fov3D : 45.0f);
+    applyCameraFov((wasPathRunning || wasPath3DRunning) ? m_scene.fov : 45.0f);
 
     // Se un path era in corso, lo teniamo vivo: riparte da t=0 dopo il reset
     // della posa, esattamente come fa la rotazione.
@@ -1192,8 +1192,7 @@ void MainWindow::applyCameraFov(float deg)
 {
     const float v = qBound(20.0f, deg, 110.0f);
 
-    m_fov3D = v;
-    m_fov4D = v;
+    m_scene.fov = v;
 
     if (ui->lblValFov)
         ui->lblValFov->setText(QString::number(qRound(v)) + QString::fromUtf8("°"));

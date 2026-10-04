@@ -453,7 +453,7 @@ void MainWindow::forgetBackgroundTexture()
 }
 
 // SFONDO. Stesso contratto della superficie -- arriva il CODICE della voce di
-// libreria, restano i colori (m_bgTexColor1/2), le costanti e l'inquadratura 2D
+// libreria, restano i colori (m_scene.bgTexColor1/2), le costanti e l'inquadratura 2D
 // del record -- ma per una via propria:
 //  - NON si passa dal ramo A di onApplyTextureScriptClicked: sceglie fra sfondo e
 //    superficie guardando il radio del Renderer (il Sync parte dal menu della
@@ -770,14 +770,14 @@ void MainWindow::onColorTargetChanged()
     // hanno un effetto (altrimenti li disattiviamo).
     if (editingBackground()) {
         if (targetTextureOn() && activeTextureUsesColors()) {
-            target = ui->radioTexColor2->isChecked() ? m_bgTexColor2 : m_bgTexColor1;
+            target = ui->radioTexColor2->isChecked() ? m_scene.bgTexColor2 : m_scene.bgTexColor1;
         } else if (targetTextureOn()) {
             // Texture di sfondo SENZA colori (immagine): copre lo sfondo, gli slider
             // non hanno effetto -> disattivati.
             target = Qt::black;
             slidersEnabled = false;
         } else {
-            target = m_currentBackgroundColor;
+            target = m_scene.bgColor;
         }
     }
     else { // target = Surface
@@ -799,11 +799,11 @@ void MainWindow::onColorTargetChanged()
             // Nessuna texture colorata (o wireframe): si edita il colore
             // superficie/linee.
             //
-            // Il colore da MOSTRARE e' quello dell'ambito corrente, non il
-            // membro globale. m_currentSurfaceColor non e' una fonte di verita'
-            // affidabile per il display: handleColorChange ci scrive dentro
-            // anche mentre si sta colorando una MESH (il setColor instrada poi
-            // il valore nella parte), quindi resta contaminato dal colore
+            // Il colore da MOSTRARE e' quello dell'ambito corrente, letto dal
+            // motore. (Una copia in MainWindow, m_currentSurfaceColor, non era
+            // affidabile: handleColorChange ci scriveva anche mentre si colorava
+            // una MESH -- il setColor instrada poi il valore nella parte --, e
+            // restava contaminata dal colore
             // dell'ultima fascia toccata.
             // Effetto senza questo ramo: colorata una mesh e tornati ad "All",
             // la superficie restava verde ma gli slider mostravano il colore
@@ -827,14 +827,11 @@ void MainWindow::onColorTargetChanged()
             }
             if (!shown) {
                 // Ambito "All", o parte che eredita: il colore e' quello
-                // GLOBALE del motore -- non m_currentSurfaceColor, che puo'
-                // essere stantio per la ragione detta sopra.
+                // GLOBALE del motore.
                 if (ui->glWidget) {
                     float gr, gg, gb;
                     ui->glWidget->globalColor(gr, gg, gb);
                     target = QColor::fromRgbF(gr, gg, gb);
-                } else {
-                    target = m_currentSurfaceColor;
                 }
             }
         }
@@ -967,11 +964,11 @@ void MainWindow::handleTextureSelection(int index)
                                                               : data.hintSeconds);
 
         if (data.hasCustomColors) {
-            m_bgTexColor1 = QColor(data.color1);
-            m_bgTexColor2 = QColor(data.color2);
+            m_scene.bgTexColor1 = QColor(data.color1);
+            m_scene.bgTexColor2 = QColor(data.color2);
         } else {
-            m_bgTexColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f); // Verde default
-            m_bgTexColor2 = Qt::black;
+            m_scene.bgTexColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f); // Verde default
+            m_scene.bgTexColor2 = Qt::black;
         }
 
         if (data.isImage) {
@@ -1016,12 +1013,12 @@ void MainWindow::handleTextureSelection(int index)
                                      "The background will be restored to its default state.");
 
                 // 1. Ripristino colori di default
-                m_bgTexColor1 = QColor::fromRgbF(0.2f, 0.2f, 0.8f);
-                m_bgTexColor2 = Qt::black;
+                m_scene.bgTexColor1 = QColor::fromRgbF(0.2f, 0.2f, 0.8f);
+                m_scene.bgTexColor2 = Qt::black;
 
                 if (ui->glWidget) {
-                    ui->glWidget->setProperty("bg_col1", QVector3D(m_bgTexColor1.redF(), m_bgTexColor1.greenF(), m_bgTexColor1.blueF()));
-                    ui->glWidget->setProperty("bg_col2", QVector3D(m_bgTexColor2.redF(), m_bgTexColor2.greenF(), m_bgTexColor2.blueF()));
+                    ui->glWidget->setProperty("bg_col1", QVector3D(m_scene.bgTexColor1.redF(), m_scene.bgTexColor1.greenF(), m_scene.bgTexColor1.blueF()));
+                    ui->glWidget->setProperty("bg_col2", QVector3D(m_scene.bgTexColor2.redF(), m_scene.bgTexColor2.greenF(), m_scene.bgTexColor2.blueF()));
                     ui->glWidget->setProperty("bg_zoom", 1.0f);
                     ui->glWidget->setProperty("bg_pan", QVector2D(0.0f, 0.0f));
                     ui->glWidget->setProperty("bg_rot", 0.0f);

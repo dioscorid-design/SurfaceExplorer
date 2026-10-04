@@ -534,6 +534,8 @@ MainWindow::SceneState MainWindow::sceneFromItem(const LibraryItem &d, bool isRe
     s.steps = d.steps;
 
     choicesFromItem(d, &s);
+    // FOV dei path: lo stesso ripiego dei file vecchi per superfici e record.
+    s.fov = qBound(20.0f, resolveSavedFov(d.cameraFov, d.fov3D, d.fov4D), 110.0f);
     // Moti della camera: una superficie riparte dai default, un record porta i suoi.
     if (isRecord) motionFromItem(d, &s);
     textureTextsFromItem(d, isRecord, scan, &s);
@@ -578,6 +580,10 @@ MainWindow::SceneState MainWindow::defaultScene(int index, bool loadDefaultSurfa
     s.minConsts.clear();
     s.renderMode = 0;
     s.lightingMode4D = 0;
+    s.bgColor = QColor::fromRgbF(0.3f, 0.3f, 0.3f);
+    s.bgTexColor1 = QColor::fromRgbF(0.2f, 0.2f, 0.8f);
+    s.bgTexColor2 = Qt::black;
+    s.fov = 45.0f;
 
     if (index == 1) {
         // RAY MARCHING. X/Y/Z/P restano (nascosti); u/v/w restano; via il taglio.
@@ -647,6 +653,9 @@ void MainWindow::assignSceneTexts(const SceneState &s)
     setScriptText(SlotSurfaceTexture, s.surfaceTextureScriptText);
     setScriptText(SlotBackgroundTexture, s.bgTextureScriptText);
     m_scene.bgTextureCode = s.bgTextureCode;
+    m_scene.bgColor = s.bgColor;
+    m_scene.bgTexColor1 = s.bgTexColor1;
+    m_scene.bgTexColor2 = s.bgTexColor2;
     setScriptText(SlotSound, s.soundScriptText);
     m_scene.surfaceTextureState = s.surfaceTextureState;
     m_scene.textureLibName = s.textureLibName;
@@ -665,12 +674,20 @@ void MainWindow::textureTextsFromItem(const LibraryItem &d, bool isRecord,
         s->surfaceScriptText = d.scriptCode;
         s->surfaceScriptApplied = d.scriptCode;
     }
-    // Una superficie: niente texture ne' sfondo; il suono e' quello dello
-    // script (//MUSIC:, //SOUND_BEGIN..END), se ne ha uno.
+    // Una superficie: niente texture ne' sfondo (colori di sfondo al default);
+    // il suono e' quello dello script (//MUSIC:, //SOUND_BEGIN..END), se ne ha
+    // uno.
     if (!isRecord) {
         s->soundScriptText = extractAudioDirectives(s->surfaceScriptApplied);
+        s->bgColor = QColor::fromRgbF(0.3f, 0.3f, 0.3f);
+        s->bgTexColor1 = QColor::fromRgbF(0.2f, 0.2f, 0.8f);
+        s->bgTexColor2 = Qt::black;
         return;
     }
+    // Colori dello sfondo: senza la chiave, il grigio di default.
+    s->bgColor = d.bgColor.isEmpty() ? QColor::fromRgbF(0.3f, 0.3f, 0.3f) : QColor(d.bgColor);
+    s->bgTexColor1 = QColor(d.bgCol1);
+    s->bgTexColor2 = QColor(d.bgCol2);
 
     // Il suono si estrae dai codici GREZZI di texture e sfondo (anche spento).
     s->soundScriptText = extractAudioDirectives(d.textureCode + "\n" + d.bgTextureCode);

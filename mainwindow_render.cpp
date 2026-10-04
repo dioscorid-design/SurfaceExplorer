@@ -245,8 +245,7 @@ void MainWindow::setupRendererDock()
 
     ui->alphaSlider->setRange(0, 100);
     ui->alphaSlider->setValue(100);
-    alphaValue = 1.0f;
-    ui->glWidget->setAlpha(alphaValue);
+    ui->glWidget->setAlpha(1.0f);
     ui->lblAlphaVal->setText("1.00");
 
     connect(ui->alphaSlider, &QSlider::valueChanged, this, [this](int value){
@@ -327,9 +326,9 @@ void MainWindow::setupRendererDock()
                 return;  // in entrambi i casi il set giusto e' gia' avvenuto sopra
             }
         }
-        alphaValue = static_cast<float>(value) / 100.0f;
-        ui->lblAlphaVal->setText(QString::number(alphaValue, 'f', 2));
-        ui->glWidget->setAlpha(alphaValue);
+        const float alpha = static_cast<float>(value) / 100.0f;
+        ui->lblAlphaVal->setText(QString::number(alpha, 'f', 2));
+        ui->glWidget->setAlpha(alpha);
     });
 
     // Nuova presa dello slider trasparenza: il "Keep it opaque" dato durante la
@@ -917,7 +916,6 @@ void MainWindow::setupRendererDock()
 
     // Colori Default
     float defR = 0.20f, defG = 0.80f, defB = 0.20f;
-    m_currentSurfaceColor = QColor::fromRgbF(defR, defG, defB);
 
     if (ui->glWidget) {
         // Colore superficie (Verde)
@@ -956,8 +954,8 @@ void MainWindow::setupRendererDock()
     m_colorGroup->addButton(ui->radioTexColor2);
     m_colorGroup->setExclusive(true);
 
-    m_currentBackgroundColor = QColor::fromRgbF(0.3f, 0.3f, 0.3f);
-    ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
+    m_scene.bgColor = QColor::fromRgbF(0.3f, 0.3f, 0.3f);
+    ui->glWidget->setBackgroundColor(m_scene.bgColor);
 
     // (onColorTargetChanged è già invocato dall'handler toggled di radioBackground
     //  definito sopra: nessuna connessione separata per evitare doppia chiamata.)
@@ -974,15 +972,15 @@ void MainWindow::setupRendererDock()
         if (editingBackground()) {
             if (targetTextureOn() && activeTextureUsesColors()) {
                 // Texture di sfondo colorata: Color1/Color2 scelgono quale tinta.
-                if (ui->radioTexColor2->isChecked()) m_bgTexColor2 = newColor;
-                else m_bgTexColor1 = newColor;
+                if (ui->radioTexColor2->isChecked()) m_scene.bgTexColor2 = newColor;
+                else m_scene.bgTexColor1 = newColor;
 
-                ui->glWidget->setProperty("bg_col1", QVector3D(m_bgTexColor1.redF(), m_bgTexColor1.greenF(), m_bgTexColor1.blueF()));
-                ui->glWidget->setProperty("bg_col2", QVector3D(m_bgTexColor2.redF(), m_bgTexColor2.greenF(), m_bgTexColor2.blueF()));
+                ui->glWidget->setProperty("bg_col1", QVector3D(m_scene.bgTexColor1.redF(), m_scene.bgTexColor1.greenF(), m_scene.bgTexColor1.blueF()));
+                ui->glWidget->setProperty("bg_col2", QVector3D(m_scene.bgTexColor2.redF(), m_scene.bgTexColor2.greenF(), m_scene.bgTexColor2.blueF()));
                 ui->glWidget->update();
             } else {
-                m_currentBackgroundColor = newColor;
-                ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
+                m_scene.bgColor = newColor;
+                ui->glWidget->setBackgroundColor(m_scene.bgColor);
                 ui->glWidget->update();
             }
         }
@@ -1016,7 +1014,6 @@ void MainWindow::setupRendererDock()
                     ui->glWidget->setGlobalTextureColors(c1, c2);
                 if (!surfaceTextureIsCustom() && !surfaceHasImage()) scheduleTextureGeneration();
             } else {
-                m_currentSurfaceColor = newColor;
                 ui->glWidget->setColor(r/255.0f, g/255.0f, b/255.0f);
             }
         }
@@ -2230,14 +2227,13 @@ bool MainWindow::isSceneEmpty() const
 
 void MainWindow::resetTransparency()
 {
-    // setValue(100) scatena il valueChanged dello slider, che e' la fonte unica
-    // di verita': aggiorna alphaValue, l'etichetta e la GPU (setAlpha) in un
-    // colpo. Se eravamo gia' a 100 il segnale non scatta, quindi forziamo a mano
-    // membro/label/GPU per coprire anche quel caso.
+    // setValue(100) scatena il valueChanged dello slider, che aggiorna
+    // l'etichetta e la GPU (setAlpha) in un colpo. Se eravamo gia' a 100 il
+    // segnale non scatta, quindi forziamo a mano label e GPU per coprire anche
+    // quel caso. (L'alpha globale vive nel motore: nessuna copia qui.)
     if (ui->alphaSlider->value() != 100) {
         ui->alphaSlider->setValue(100);
     }
-    alphaValue = 1.0f;
     ui->lblAlphaVal->setText("1.00");
     if (ui->glWidget) ui->glWidget->setAlpha(1.0f);
 }
@@ -2357,9 +2353,9 @@ void MainWindow::setMarcherUI(bool precise)
 // due path attivi in sequenza i due slider si contendevano lo stesso
 // m_cameraFov. Un solo controllo, sempre attivo, elimina entrambi i problemi.
 //
-// m_fov3D/m_fov4D restano allineati al valore unico perche' PresetSerializer li
-// scrive ancora nel JSON (chiavi fov3D/fov4D): i file salvati da questa build
-// restano leggibili dalle build precedenti, che li usavano per i path.
+// Il valore unico e' m_scene.fov; PresetSerializer lo scrive ancora anche come
+// fov3D/fov4D nel JSON: i file salvati da questa build restano leggibili dalle
+// build precedenti, che li usavano per i path.
 // ==========================================================
 // ASPETTO PER-MESH: spinbox di selezione
 // ==========================================================
@@ -2807,19 +2803,17 @@ void MainWindow::syncAppearanceControlsToActiveMesh()
 
         if (fa >= 0.0f) {
             setNoSignal(ui->alphaSlider, qRound(fa * 100.0f));
-            alphaValue = fa;
             ui->lblAlphaVal->setText(QString::number(fa, 'f', 2));
         }
         if (fl >= 0.0f) {
             setNoSignal(ui->lightSlider, qRound(fl * 100.0f));
             ui->lblValLight->setText(QString::number(qRound(fl * 100.0f)) + " %");
         }
-        // NB: NON si tocca m_currentSurfaceColor. Quel membro e' il colore
-        // GLOBALE ed e' SALVATO nel preset (presetserializer, chiavi r/g/b e
-        // surfColor): scriverci il colore della mesh selezionata significherebbe
-        // che basta guardare la mesh 3 e salvare per portarsi via il suo rosso
-        // come colore globale della superficie. alphaValue invece si aggiorna
-        // perche' non finisce nel preset: e' solo lo stato corrente dello slider.
+        // NB: NON si tocca il colore GLOBALE del motore, che e' quello SALVATO
+        // nel preset (presetserializer, chiavi r/g/b e surfColor): scriverci il
+        // colore della mesh selezionata significherebbe che basta guardare la
+        // mesh 3 e salvare per portarsi via il suo rosso come colore globale
+        // della superficie. Qui si muove solo la VISTA.
     };
 
     const int idx = ui->glWidget->activeMeshPart();

@@ -893,11 +893,11 @@ void ScenarioTest::checkMotion(const QString &step, const QString &expectRunning
         bad << QStringLiteral("in corsa: %1, atteso %2").arg(running, expectRunning);
 
     // FOV.
-    if (qAbs(m_mw->m_fov3D - ui->fovSliderMain->value()) > 0.5f || qAbs(m_mw->m_fov4D - ui->fovSliderMain->value()) > 0.5f)
-        bad << QStringLiteral("FOV: slider %1, membri %2/%3").arg(ui->fovSliderMain->value()).arg(m_mw->m_fov3D).arg(m_mw->m_fov4D);
+    if (qAbs(m_mw->m_scene.fov - ui->fovSliderMain->value()) > 0.5f)
+        bad << QStringLiteral("FOV: slider %1, stato %2").arg(ui->fovSliderMain->value()).arg(m_mw->m_scene.fov);
     if (qAbs(gl->cameraFov() - ui->fovSliderMain->value()) > 0.5f)
         bad << QStringLiteral("FOV: slider %1, proiezione del motore %2").arg(ui->fovSliderMain->value()).arg(gl->cameraFov());
-    if (qAbs(sv.fov3D - m_mw->m_fov3D) > 0.01f || qAbs(sv.fov4D - m_mw->m_fov4D) > 0.01f)
+    if (qAbs(sv.fov3D - m_mw->m_scene.fov) > 0.01f || qAbs(sv.fov4D - m_mw->m_scene.fov) > 0.01f)
         bad << QStringLiteral("FOV: il Save scriverebbe %1/%2").arg(sv.fov3D).arg(sv.fov4D);
 
     // PATH APPLICATO: a path in corsa il motore valuta le equazioni dei campi.
