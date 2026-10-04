@@ -185,6 +185,9 @@ static void parseSceneCommon(const QJsonObject &root, LibraryItem &d)
         d.xMin=l["xMin"].toDouble(-1000.0); d.xMax=l["xMax"].toDouble(1000.0);
         d.yMin=l["yMin"].toDouble(-1000.0); d.yMax=l["yMax"].toDouble(1000.0);
         d.zMin=l["zMin"].toDouble(-1000.0); d.zMax=l["zMax"].toDouble(1000.0);
+        d.xMinExpr=l["xMinExpr"].toString(); d.xMaxExpr=l["xMaxExpr"].toString();
+        d.yMinExpr=l["yMinExpr"].toString(); d.yMaxExpr=l["yMaxExpr"].toString();
+        d.zMinExpr=l["zMinExpr"].toString(); d.zMaxExpr=l["zMaxExpr"].toString();
     }
     d.steps = root["steps"].toInt(100);
     if (root.contains("constants")) {
@@ -907,6 +910,19 @@ void LibraryManager::writeParametricLimits(const LibraryItem &d, QJsonObject &li
     }
 }
 
+void LibraryManager::writeSpaceLimits(const LibraryItem &d, QJsonObject &limits)
+{
+    const struct { const char *key; float value; const QString &expr; } l[] = {
+        { "xMin", d.xMin, d.xMinExpr }, { "xMax", d.xMax, d.xMaxExpr },
+        { "yMin", d.yMin, d.yMinExpr }, { "yMax", d.yMax, d.yMaxExpr },
+        { "zMin", d.zMin, d.zMinExpr }, { "zMax", d.zMax, d.zMaxExpr },
+    };
+    for (const auto &f : l) {
+        limits[f.key] = f.value;
+        if (!f.expr.isEmpty()) limits[QString(f.key) + "Expr"] = f.expr;
+    }
+}
+
 namespace {
 
 QJsonObject meshPartsJson(const LibraryItem &d, bool withTextures, bool *anyCustom)
@@ -1030,9 +1046,7 @@ QJsonObject LibraryManager::toJson(const LibraryItem &d)
 
     QJsonObject limits;
     writeParametricLimits(d, limits);
-    limits["xMin"] = d.xMin;  limits["xMax"] = d.xMax;
-    limits["yMin"] = d.yMin;  limits["yMax"] = d.yMax;
-    limits["zMin"] = d.zMin;  limits["zMax"] = d.zMax;
+    writeSpaceLimits(d, limits);
     root["limits"] = limits;
     root["steps"] = d.steps;
 

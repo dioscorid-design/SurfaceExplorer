@@ -61,9 +61,12 @@ private:
     // script: e' captureParametricLimits + LibraryManager::writeParametricLimits,
     // le stesse che usano superfici e record.
     void writeParametricLimits(QJsonObject &limits);
+    // Gemella per il taglio x/y/z del Ray Marching (captureSpaceLimits).
+    void writeSpaceLimits(QJsonObject &limits);
 
     void captureCommonState(LibraryItem &d);
     void captureParametricLimits(LibraryItem &d);
+    void captureSpaceLimits(LibraryItem &d);
 
     // Colore GLOBALE della superficie letto dal motore, mai da
     // m_currentSurfaceColor (che resta contaminato dal colore dell'ultima mesh

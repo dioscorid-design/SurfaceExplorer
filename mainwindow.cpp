@@ -2525,6 +2525,10 @@ MainWindow::MainWindow(QWidget *parent)
     for (QLineEdit* spaceEdit : { ui->lineXMin, ui->lineXMax,
                                   ui->lineYMin, ui->lineYMax,
                                   ui->lineZMin, ui->lineZMax }) {
+        // Come i limiti u/v/w, ammettono A..F/S: scrivere "2*A" sblocca subito
+        // slider e casella di A.
+        connect(spaceEdit, &QLineEdit::textEdited, this, [this] { m_constantsEditPending = true; });
+        connect(spaceEdit, &QLineEdit::textChanged, this, &MainWindow::updateConstantsUIState);
         connect(spaceEdit, &QLineEdit::textEdited, this, [this](const QString&) {
             if (!m_uiReady) return;
             noteSceneEdited(qobject_cast<QWidget*>(sender()));
@@ -5540,9 +5544,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         ui->lineYMin->clear(); ui->lineYMax->clear();
         ui->lineZMin->clear(); ui->lineZMax->clear();
         if (ui->glWidget) {
-            ui->glWidget->setRangeX(-1000.0f, 1000.0f);
-            ui->glWidget->setRangeY(-1000.0f, 1000.0f);
-            ui->glWidget->setRangeZ(-1000.0f, 1000.0f);
+            applySpaceLimits(/*notify=*/false);   // campi vuoti: nessun taglio
 
             // Reset completo della vista, come già fa il ramo Parametrico:
             // in particolare spegne m_isPathFollowing, che dopo un record
@@ -7210,6 +7212,10 @@ QSet<QString> MainWindow::constantsNotUsedBySurface() const
     mathText += " " + m_lim.uMin + " " + m_lim.uMax +
                 " " + m_lim.vMin + " " + m_lim.vMax +
                 " " + m_lim.wMin + " " + m_lim.wMax;
+    // Stessa regola per il taglio x/y/z del Ray Marching.
+    mathText += " " + m_lim.xMin + " " + m_lim.xMax +
+                " " + m_lim.yMin + " " + m_lim.yMax +
+                " " + m_lim.zMin + " " + m_lim.zMax;
     mathText += " " + m_path.x + " " + m_path.y +
                 " " + m_path.z + " " + m_path.p +
                 " " + m_path.alpha + " " + m_path.beta +
@@ -7449,10 +7455,14 @@ void MainWindow::updateConstantsUIState() {
     // Anche i limiti U/V/W valgono come "uso": sono valutati da parseLimitField
     // con A..F/S registrate, quindi "uMax = 2*A" deve tenere A sbloccata (e
     // soprattutto NON farla resettare a 1 dal ramo !used, che cambierebbe
-    // l'estensione della superficie di sorpresa).
+    // l'estensione della superficie di sorpresa). Lo stesso il taglio x/y/z
+    // del Ray Marching.
     mathText += " " + m_lim.uMin + " " + m_lim.uMax +
                 " " + m_lim.vMin + " " + m_lim.vMax +
                 " " + m_lim.wMin + " " + m_lim.wMax;
+    mathText += " " + m_lim.xMin + " " + m_lim.xMax +
+                " " + m_lim.yMin + " " + m_lim.yMax +
+                " " + m_lim.zMin + " " + m_lim.zMax;
 
     mathText += " " + m_path.x + " " + m_path.y +
                 " " + m_path.z + " " + m_path.p +
@@ -8925,10 +8935,7 @@ void MainWindow::handleTextureSelection(int index)
                 for (QString *t : { &m_lim.xMin, &m_lim.xMax, &m_lim.yMin,
                                     &m_lim.yMax, &m_lim.zMin, &m_lim.zMax })
                     setLineText(*t, QString());
-
-                ui->glWidget->setRangeX(-1000.0f, 1000.0f);
-                ui->glWidget->setRangeY(-1000.0f, 1000.0f);
-                ui->glWidget->setRangeZ(-1000.0f, 1000.0f);
+                applySpaceLimits(/*notify=*/false);   // campi vuoti: nessun taglio
 
                 // Camera alla distanza standard: altrimenti la sfera di default
                 // eredita il camera3D.z del record RM precedente (vedi ~1108).
@@ -9626,20 +9633,21 @@ void MainWindow::handleTextureSelection(int index)
 // EQUATIONS & MATHEMATICS
 // ==========================================================
 
-bool MainWindow::applySpaceLimits(bool notify)
+bool MainWindow::applySpaceLimits(bool notify, bool reapply)
 {
     if (!ui->glWidget) return true;
 
     // Campo vuoto = nessun taglio su quel lato: si usa il default largo, non un
     // errore. Un campo NON valutabile invece ferma tutto: applicare gli assi
     // buoni e saltare quello rotto darebbe un taglio a meta', senza dire perche'.
-    auto readField = [this, notify](QLineEdit* edit, float def, const QString& axis,
-                                    const QString& side, bool* good) -> float {
+    // Come i limiti u/v/w, ammettono le costanti A..F/S (parseLimitField).
+    auto readField = [this, notify](QLineEdit* edit, const QString& txt, float def,
+                                    const QString& axis, const QString& side,
+                                    bool* good) -> float {
         *good = true;
-        const QString txt = lineText(edit);
         if (txt.trimmed().isEmpty()) return def;
         bool ok = false;
-        const float v = parseMath(txt, &ok);
+        const float v = parseLimitField(txt, &ok);
         if (!ok) {
             *good = false;
             if (notify && !m_constantPopupActive) {
@@ -9669,12 +9677,21 @@ bool MainWindow::applySpaceLimits(bool notify)
     // DUE PASSATE: prima si legge e valida tutto, poi si applica. Cosi' un
     // errore sull'asse Z non lascia X e Y gia' tagliati con la scena in uno
     // stato intermedio che nessun campo descrive.
+    // I TESTI: al Run quelli scritti; con reapply quelli dell'ultimo taglio
+    // applicato, rivalutati perche' sono cambiate le costanti (vedi
+    // refreshLimitsFromConstants). Lo scritto dopo il Run aspetta il Run.
+    QString txt[6];
+    for (int i = 0; i < 3; ++i) {
+        txt[2 * i]     = reapply ? m_spaceLimitsApplied[2 * i]     : lineText(axes[i].lo);
+        txt[2 * i + 1] = reapply ? m_spaceLimitsApplied[2 * i + 1] : lineText(axes[i].hi);
+    }
+
     float lo[3], hi[3];
     for (int i = 0; i < 3; ++i) {
         bool okLo = true, okHi = true;
-        lo[i] = readField(axes[i].lo, -1000.0f, axes[i].name, "min", &okLo);
+        lo[i] = readField(axes[i].lo, txt[2 * i], -1000.0f, axes[i].name, "min", &okLo);
         if (!okLo) return false;
-        hi[i] = readField(axes[i].hi,  1000.0f, axes[i].name, "max", &okHi);
+        hi[i] = readField(axes[i].hi, txt[2 * i + 1], 1000.0f, axes[i].name, "max", &okHi);
         if (!okHi) return false;
 
         // Intervallo impossibile: si lascia l'asse com'e' (nessun taglio nuovo),
@@ -9685,6 +9702,7 @@ bool MainWindow::applySpaceLimits(bool notify)
     for (int i = 0; i < 3; ++i) {
         (ui->glWidget->*axes[i].setter)(lo[i], hi[i]);
     }
+    if (!reapply) std::copy(txt, txt + 6, m_spaceLimitsApplied);
     return true;
 }
 
@@ -9713,6 +9731,43 @@ bool MainWindow::updateWLimits() {
     wMin = lo; wMax = hi;
     if (ui->glWidget) ui->glWidget->setRangeW(wMin, wMax);
     return true;
+}
+
+// Le costanti A..F/S sono cambiate: i limiti u/v/w CONFERMATI che le citano
+// ("uMax = A", "6.28/C") vanno rivalutati e registrati di nuovo, come le
+// equazioni che le leggono dal vivo. Senza, il dominio restava il numero
+// calcolato alla conferma del campo: lo slider cambiava la superficie ma non
+// la sua estensione. Il flusso geodetico rilegge i limiti a ogni ridisegno e
+// l'Invio su una costante passa dal Run di servizio, che li rilegge anche lui:
+// restava scoperto lo slider.
+// Si salta l'asse spento, quello con una digitazione in attesa (il dominio
+// cambia alla conferma del campo, non mentre si scrive) e quello con un campo
+// vuoto o illeggibile, che la conferma ha rifiutato: il parse del vuoto passa
+// (0.0) e lo registrerebbe di straforo. min >= max lo rifiuta updateU/V/WLimits.
+void MainWindow::refreshLimitsFromConstants()
+{
+    struct Axis { QLineEdit *lo, *hi; bool (MainWindow::*update)(); };
+    const Axis axes[] = {
+        { ui->uMinEdit, ui->uMaxEdit, &MainWindow::updateULimits },
+        { ui->vMinEdit, ui->vMaxEdit, &MainWindow::updateVLimits },
+        { ui->wMinEdit, ui->wMaxEdit, &MainWindow::updateWLimits },
+    };
+    for (const Axis &a : axes) {
+        if (!a.lo->isEnabled() || !a.hi->isEnabled()) continue;
+        if (a.lo->property("userEditPending").toBool()
+            || a.hi->property("userEditPending").toBool()) continue;
+        const QString loTxt = lineText(a.lo).trimmed();
+        const QString hiTxt = lineText(a.hi).trimmed();
+        if (loTxt.isEmpty() || hiTxt.isEmpty()) continue;
+        bool okLo = false, okHi = false;
+        parseLimitField(loTxt, &okLo);
+        parseLimitField(hiTxt, &okHi);
+        if (okLo && okHi) (this->*a.update)();
+    }
+
+    // Taglio x/y/z del Ray Marching: si applica al Run, quindi qui si
+    // rivalutano i testi dell'ultimo taglio applicato, non quelli scritti dopo.
+    applySpaceLimits(/*notify=*/false, /*reapply=*/true);
 }
 
 MainWindow::CascadeConstants MainWindow::resolveCascadeConstants(bool restoreTextOnNegative,
@@ -9782,6 +9837,7 @@ void MainWindow::evaluateCascade()
 
     if (ui->glWidget) {
         setEngineConstants(kc, /*onlyIfChanged=*/false);
+        refreshLimitsFromConstants();   // i limiti che citano le costanti
         m_meshDebounce->start();
     }
 
@@ -16816,11 +16872,7 @@ void MainWindow::resetImplicitSharedFields()
     for (QString *t : { &m_lim.xMin, &m_lim.xMax, &m_lim.yMin,
                         &m_lim.yMax, &m_lim.zMin, &m_lim.zMax })
         setLineText(*t, QString());
-    if (ui->glWidget) {
-        ui->glWidget->setRangeX(-1000.0f, 1000.0f);
-        ui->glWidget->setRangeY(-1000.0f, 1000.0f);
-        ui->glWidget->setRangeZ(-1000.0f, 1000.0f);
-    }
+    applySpaceLimits(/*notify=*/false);   // campi vuoti: nessun taglio
 
     // STEP RELAX e RAY STEPS: sono le due manopole del MARCHER, non della
     // superficie, e come i limiti hanno una sola istanza fisica condivisa fra i
@@ -17607,8 +17659,11 @@ void MainWindow::applyCommonData(LibraryItem d)
     updateVLimits();
     updateWLimits();
 
-    auto setLimSpace = [](QLineEdit* line, float val, float defVal) {
-        if (std::abs(val - defVal) < 0.001f) {
+    // Come per u/v/w, la formula ("2*A") vince sul numero, che resta il fallback.
+    auto setLimSpace = [](QLineEdit* line, float val, float defVal, const QString& expr) {
+        if (!expr.isEmpty()) {
+            line->setText(expr);
+        } else if (std::abs(val - defVal) < 0.001f) {
             line->clear(); // Se è il valore di default estremo, lascia la casella pulita
         } else {
             line->setText(QString::number(val, 'g', 6));
@@ -17616,12 +17671,12 @@ void MainWindow::applyCommonData(LibraryItem d)
         line->setCursorPosition(0);
     };
 
-    setLimSpace(ui->lineXMin, d.xMin, -1000.0f);
-    setLimSpace(ui->lineXMax, d.xMax, 1000.0f);
-    setLimSpace(ui->lineYMin, d.yMin, -1000.0f);
-    setLimSpace(ui->lineYMax, d.yMax, 1000.0f);
-    setLimSpace(ui->lineZMin, d.zMin, -1000.0f);
-    setLimSpace(ui->lineZMax, d.zMax, 1000.0f);
+    setLimSpace(ui->lineXMin, d.xMin, -1000.0f, d.xMinExpr);
+    setLimSpace(ui->lineXMax, d.xMax, 1000.0f, d.xMaxExpr);
+    setLimSpace(ui->lineYMin, d.yMin, -1000.0f, d.yMinExpr);
+    setLimSpace(ui->lineYMax, d.yMax, 1000.0f, d.yMaxExpr);
+    setLimSpace(ui->lineZMin, d.zMin, -1000.0f, d.zMinExpr);
+    setLimSpace(ui->lineZMax, d.zMax, 1000.0f, d.zMaxExpr);
 
     // Forza immediatamente i limiti sulla GPU cancellando le reminiscenze vecchie
     if (ui->glWidget) {
@@ -17632,6 +17687,12 @@ void MainWindow::applyCommonData(LibraryItem d)
 
     // 3. Costanti Matematiche (vedi applyPresetConstants)
     applyPresetConstants(d, /*rebuildDiscreteMap=*/true);
+
+    // Il taglio dai campi appena scritti, con le costanti del preset: registra
+    // anche i testi applicati, che lo slider di una costante rivaluta. Il
+    // setRange qui sopra (i numeri salvati) resta come base se un campo non
+    // fosse valutabile.
+    applySpaceLimits(/*notify=*/false);
 
     // --- CARICAMENTO FLUSSO GEODETICO ---
     // A segnali bloccati (setEqText), per evitare l'auto-cancellazione da parte
@@ -21439,8 +21500,11 @@ void MainWindow::bindConstantFields()
         if (!edit) continue;
         // Connesso qui per primo: gira prima di ogni altro gestore del campo,
         // che m_const lo legge. Le scritture a segnali bloccati non arrivano:
-        // passano da setConstText.
-        connect(edit, &QLineEdit::textChanged, this, [this, f](const QString &t) { m_const.*f = t; });
+        // passano da setConstText. Anche su textEdited, che precede
+        // textChanged (vedi bindLineFields).
+        const auto write = [this, f](const QString &t) { m_const.*f = t; };
+        connect(edit, &QLineEdit::textEdited, this, write);
+        connect(edit, &QLineEdit::textChanged, this, write);
         m_const.*f = edit->text();
     }
     m_steps = ui->stepSlider->value();
@@ -21471,7 +21535,13 @@ void MainWindow::bindLineFields()
         QString *state = f.second;
         if (!edit) continue;
         // Connesso qui per primo: gira prima di ogni altro gestore del campo.
-        connect(edit, &QLineEdit::textChanged, this, [state](const QString &t) { *state = t; });
+        // Anche su textEdited, che Qt emette PRIMA di textChanged: i gestori
+        // della digitazione (Run one-shot dei limiti, completezza del dominio)
+        // leggono lo stato, e col solo textChanged lo trovavano indietro di un
+        // tasto -- u max svuotato accendeva il Run, riscritto lo spegneva.
+        const auto write = [state](const QString &t) { *state = t; };
+        connect(edit, &QLineEdit::textEdited, this, write);
+        connect(edit, &QLineEdit::textChanged, this, write);
         *state = edit->text();
     }
 }

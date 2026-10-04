@@ -997,17 +997,28 @@ void ScenarioTest::checkEquations(const QString &step, bool pendingEdit)
         if (sv.crossSectionEq != fCS)
             bad << QStringLiteral("il Save scriverebbe la Cross Section %1, campo %2").arg(brief(sv.crossSectionEq), brief(fCS));
         // LIMITI SPAZIALI x/y/z: il motore taglia dove dicono i campi (vuoto, o
-        // minimo >= massimo: nessun taglio), e il Save scrive quei valori.
-        struct S { const char *name; QLineEdit *lo; QLineEdit *hi; float eLo, eHi, sLo, sHi; };
+        // minimo >= massimo: nessun taglio), e il Save scrive quei valori --
+        // piu' la formula, quando il campo ne contiene una ("A/2").
+        struct S { const char *name; QLineEdit *lo; QLineEdit *hi; float eLo, eHi, sLo, sHi;
+                   QString xLo, xHi; };
         const QVector3D mn = gl->spaceRangeMin(), mx = gl->spaceRangeMax();
         const QList<S> sp = {
-            { "x", ui->lineXMin, ui->lineXMax, mn.x(), mx.x(), sv.xMin, sv.xMax },
-            { "y", ui->lineYMin, ui->lineYMax, mn.y(), mx.y(), sv.yMin, sv.yMax },
-            { "z", ui->lineZMin, ui->lineZMax, mn.z(), mx.z(), sv.zMin, sv.zMax } };
+            { "x", ui->lineXMin, ui->lineXMax, mn.x(), mx.x(), sv.xMin, sv.xMax, sv.xMinExpr, sv.xMaxExpr },
+            { "y", ui->lineYMin, ui->lineYMax, mn.y(), mx.y(), sv.yMin, sv.yMax, sv.yMinExpr, sv.yMaxExpr },
+            { "z", ui->lineZMin, ui->lineZMax, mn.z(), mx.z(), sv.zMin, sv.zMax, sv.zMinExpr, sv.zMaxExpr } };
         for (const S &a : sp) {
             auto val = [this](QLineEdit *e, float def) {
-                return e->text().trimmed().isEmpty() ? def : m_mw->parseMath(e->text());
+                return e->text().trimmed().isEmpty() ? def : m_mw->parseLimitField(e->text());
             };
+            auto formula = [](QLineEdit *e) {
+                const QString t = e->text().trimmed();
+                bool number = false;
+                QString(t).replace(',', '.').toFloat(&number);
+                return (t.isEmpty() || number) ? QString() : t;
+            };
+            if (a.xLo != formula(a.lo) || a.xHi != formula(a.hi))
+                bad << QStringLiteral("limiti %1: il Save scriverebbe le formule '%2'..'%3', campi '%4'..'%5'")
+                           .arg(QString::fromLatin1(a.name), a.xLo, a.xHi, a.lo->text(), a.hi->text());
             const float fLo = val(a.lo, -1000.0f), fHi = val(a.hi, 1000.0f);
             float wLo = fLo, wHi = fHi;
             if (wLo >= wHi) { wLo = -1000.0f; wHi = 1000.0f; }
@@ -2075,6 +2086,12 @@ void ScenarioTest::run()
         checkEquations(QStringLiteral("limiti x digitati"), /*pendingEdit=*/true);
         click(ui->btnImplicit);  wait(800);
         checkEquations(QStringLiteral("Run coi limiti"));
+        // Una costante nel limite: si applica al Run e poi segue lo slider.
+        typeInField(ui->lineXMax, QStringLiteral("A/2"));
+        click(ui->btnImplicit);  wait(800);
+        checkEquations(QStringLiteral("x max = A/2, Run"));
+        setConstantBySlider(QStringLiteral("A"), 1.6);
+        checkEquations(QStringLiteral("x max = A/2, slider di A a 1.6"));
         ui->subTabImplicit->setCurrentIndex(1);  wait(1000);
         checkEquations(QStringLiteral("sotto-tab Cross Section (default)"));
         ui->lineEquationCrossSection->setPlainText(QStringLiteral("x^2 + y^2 + z^2 + p^2 = 1.2"));  wait(300);
@@ -2234,6 +2251,23 @@ void ScenarioTest::run()
         check(ui->glWidget->parametricEquationsApplied() == applied2,
               QStringLiteral("superficie dopo un record, Invio su una costante -> equazioni della superficie"));
         checkEquations(QStringLiteral("dopo l'Invio sulla costante"));
+        // Il Run e' anche l'indicatore di completezza del dominio, e deve
+        // seguire la digitazione stessa: u max vuoto -> spento, riscritto ->
+        // acceso. Il gestore di textEdited legge lo stato, che Qt aggiorna
+        // con textChanged DOPO: senza la scrittura anche su textEdited il
+        // tasto restava indietro di un tasto.
+        const QString uMax0 = ui->uMaxEdit->text();
+        typeInField(ui->uMaxEdit, QString());
+        check(!ui->btnRunParametric->isEnabled(), QStringLiteral("u max svuotato -> tasto Run spento"));
+        typeInField(ui->uMaxEdit, QStringLiteral("A"));
+        check(ui->btnRunParametric->isEnabled(), QStringLiteral("u max = A -> tasto Run acceso"));
+        // Un limite confermato che cita una costante segue lo slider, come le
+        // equazioni: il dominio del motore e' quello del campo rivalutato.
+        pressEnter(ui->uMaxEdit);
+        setConstantBySlider(QStringLiteral("A"), 2.0);
+        checkEquations(QStringLiteral("u max = A, slider di A a 2"));
+        typeInField(ui->uMaxEdit, uMax0);
+        pressEnter(ui->uMaxEdit);
     }
     // COMPOSIZIONE scritta e non eseguita (Hyperbolic Saddle: W = C*u*cos(2*v),
     // le equazioni usano U, V, W): l'Invio su una costante non deve applicarla

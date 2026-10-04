@@ -200,10 +200,13 @@ private slots:
     // campo illeggibile; false applica in silenzio (chiamate di inizializzazione).
     // Ritorna false se un campo non e' valutabile: in quel caso NON si applica
     // nulla e il Run si ferma, come per un'equazione con errore di sintassi.
-    bool applySpaceLimits(bool notify);
+    // reapply: rivaluta i testi dell'ultimo taglio applicato (costanti cambiate)
+    // invece di quelli scritti; li tiene m_spaceLimitsApplied.
+    bool applySpaceLimits(bool notify, bool reapply = false);
     bool updateULimits();
     bool updateVLimits();
     bool updateWLimits();
+    void refreshLimitsFromConstants();
 
     // ==========================================================
     // ANIMATION, MOTION & TIMERS
@@ -810,6 +813,9 @@ private:
     struct PathTexts  { QString x, y, z, p, alpha, beta, gamma;         // path 4D
                         QString x3D, y3D, z3D, roll3D; };               // path 3D
     LimitTexts m_lim;
+    // I testi x/y/z (min, max) dell'ultimo taglio applicato da applySpaceLimits:
+    // lo slider di una costante li rivaluta, lo scritto dopo aspetta il Run.
+    QString m_spaceLimitsApplied[6];
     PathTexts m_path;
     // I 23 campi con la loro stringa nello stato.
     QList<QPair<QLineEdit *, QString *>> lineFieldTable();

@@ -100,6 +100,10 @@ struct LibraryItem {
     QString uMinExpr, uMaxExpr;
     QString vMinExpr, vMaxExpr;
     QString wMinExpr, wMaxExpr;
+    // Idem per il taglio x/y/z del Ray Marching (xMin..zMax, sopra).
+    QString xMinExpr, xMaxExpr;
+    QString yMinExpr, yMaxExpr;
+    QString zMinExpr, zMaxExpr;
     float a = 0.0f, b = 0.0f, c = 0.0f, d = 0.0f, e = 0.0f, f = 0.0f, s = 0.0f;
 
     // ==========================================================
@@ -299,6 +303,8 @@ public:
     // I sei limiti u/v/w di d in `limits` (numero sempre, "...Expr" se formula).
     // La usa anche il Save degli script, che ha un formato suo.
     static void writeParametricLimits(const LibraryItem &d, QJsonObject &limits);
+    // I sei limiti x/y/z del Ray Marching, con la stessa regola.
+    static void writeSpaceLimits(const LibraryItem &d, QJsonObject &limits);
 
     // ==========================================================
     // GETTERS

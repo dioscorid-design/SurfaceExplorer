@@ -506,6 +506,26 @@ void PresetSerializer::captureParametricLimits(LibraryItem &d)
     }
 }
 
+// Taglio x/y/z del Ray Marching: stessa regola dei limiti u/v/w, ma il campo
+// vuoto vale "nessun taglio" (il default largo), non zero.
+void PresetSerializer::captureSpaceLimits(LibraryItem &d)
+{
+    const struct { QLineEdit *edit; float def; float *value; QString *expr; } fields[] = {
+        { m_mainWindow->ui->lineXMin, -1000.0f, &d.xMin, &d.xMinExpr }, { m_mainWindow->ui->lineXMax, 1000.0f, &d.xMax, &d.xMaxExpr },
+        { m_mainWindow->ui->lineYMin, -1000.0f, &d.yMin, &d.yMinExpr }, { m_mainWindow->ui->lineYMax, 1000.0f, &d.yMax, &d.yMaxExpr },
+        { m_mainWindow->ui->lineZMin, -1000.0f, &d.zMin, &d.zMinExpr }, { m_mainWindow->ui->lineZMax, 1000.0f, &d.zMax, &d.zMaxExpr },
+    };
+    for (const auto &f : fields) {
+        const QString raw = m_mainWindow->lineText(f.edit).trimmed();
+        *f.value = raw.isEmpty() ? f.def : m_mainWindow->parseLimitField(raw);
+        bool isPlainNumber = false;
+        QString normalized = raw;
+        normalized.replace(',', '.');
+        normalized.toFloat(&isPlainNumber);
+        *f.expr = (!raw.isEmpty() && !isPlainNumber) ? raw : QString();
+    }
+}
+
 // Cio' che superfici e record catturano allo stesso modo.
 void PresetSerializer::captureCommonState(LibraryItem &d)
 {
@@ -558,17 +578,7 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
         d.discreteConstants.insert(it.key(), qMakePair(it->lo, it->hi));
 
     captureParametricLimits(d);
-    auto spaceLimit = [mw](QLineEdit *edit, float defVal) {
-        const QString t = mw->lineText(edit);
-        if (t.trimmed().isEmpty()) return defVal;
-        return mw->parseMath(t);
-    };
-    d.xMin = spaceLimit(mw->ui->lineXMin, -1000.0f);
-    d.xMax = spaceLimit(mw->ui->lineXMax, 1000.0f);
-    d.yMin = spaceLimit(mw->ui->lineYMin, -1000.0f);
-    d.yMax = spaceLimit(mw->ui->lineYMax, 1000.0f);
-    d.zMin = spaceLimit(mw->ui->lineZMin, -1000.0f);
-    d.zMax = spaceLimit(mw->ui->lineZMax, 1000.0f);
+    captureSpaceLimits(d);
 
     d.steps = mw->m_steps;
 
@@ -1527,20 +1537,7 @@ void PresetSerializer::saveScript()
 
         QJsonObject limits;
         writeParametricLimits(limits);
-
-        // Helper per i limiti di spazio (come in saveSurface)
-        auto getSpaceLimit = [&](QLineEdit* edit, float defVal) {
-            const QString t = m_mainWindow->lineText(edit);
-            if (t.trimmed().isEmpty()) return defVal;
-            return m_mainWindow->parseMath(t);
-        };
-
-        limits["xMin"] = getSpaceLimit(m_mainWindow->ui->lineXMin, -1000.0f);
-        limits["xMax"] = getSpaceLimit(m_mainWindow->ui->lineXMax, 1000.0f);
-        limits["yMin"] = getSpaceLimit(m_mainWindow->ui->lineYMin, -1000.0f);
-        limits["yMax"] = getSpaceLimit(m_mainWindow->ui->lineYMax, 1000.0f);
-        limits["zMin"] = getSpaceLimit(m_mainWindow->ui->lineZMin, -1000.0f);
-        limits["zMax"] = getSpaceLimit(m_mainWindow->ui->lineZMax, 1000.0f);
+        writeSpaceLimits(limits);
 
         root["limits"] = limits;
 
@@ -2169,4 +2166,11 @@ void PresetSerializer::writeParametricLimits(QJsonObject &limits)
     LibraryItem d;
     captureParametricLimits(d);
     LibraryManager::writeParametricLimits(d, limits);
+}
+
+void PresetSerializer::writeSpaceLimits(QJsonObject &limits)
+{
+    LibraryItem d;
+    captureSpaceLimits(d);
+    LibraryManager::writeSpaceLimits(d, limits);
 }
