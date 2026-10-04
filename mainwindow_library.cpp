@@ -33,6 +33,11 @@ void MainWindow::setupLibraryDock()
     m_fileOps = new LibraryFileOperations(this);
     m_dragDropHandler = new LibraryDragDropHandler(this);
     m_audioController = new AudioController(this);
+    // Il suono parte e si ferma anche da solo rispetto ai tasti (la musica
+    // passa in riproduzione un attimo dopo play()): il master va rifatto
+    // allora, o resterebbe su START con tutti i moduli accesi.
+    connect(m_audioController, &AudioController::playingChanged,
+            this, &MainWindow::updateMasterButtonState);
 
     auto initTree = [this](QTreeWidget* tree) {
         tree->setHeaderHidden(true);

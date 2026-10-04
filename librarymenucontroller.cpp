@@ -80,8 +80,7 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     const bool motionRotating = m_mainWindow->ui->glWidget->isAnimating();
     const bool motionPath4D   = m_mainWindow->pathTimer->isActive();
     const bool motionPath3D   = m_mainWindow->pathTimer3D->isActive();
-    const bool motionTimeAnim = m_mainWindow->m_btnStart
-                             && m_mainWindow->m_btnStart->text().toUpper() == "STOP";
+    const bool motionTimeAnim = m_mainWindow->isAnythingMoving();
 
     std::function<void()> pendingAction = nullptr;
 
@@ -503,7 +502,7 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     bool wasRotating = false;
 
     if (!skipMotionHandling) {
-        if (m_mainWindow->m_btnStart && m_mainWindow->m_btnStart->text().toUpper() == "STOP") {
+        if (m_mainWindow->isAnythingMoving()) {
             wasTimeAnimating = true;
             m_mainWindow->ui->glWidget->setSurfaceAnimating(false);
             m_mainWindow->ui->glWidget->stopAnimationTimer();

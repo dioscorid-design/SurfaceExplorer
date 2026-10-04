@@ -290,7 +290,7 @@ private slots:
     // Il MODULO EQUAZIONI e' in moto: geometria animata da 't' col suo orologio
     // acceso, oppure flusso geodetico in corsa. E' il criterio con cui il tasto
     // Run del dock diventa "Stop", ed e' cosa diversa dal master button, che e'
-    // su STOP anche se si muovono solo rotazioni, path, texture o audio.
+    // su STOP solo quando TUTTI i moduli accendibili sono accesi (masterActivity).
     // UNICO lettore autorizzato di questo stato: lo usano updateMasterButtonState
     // (testo/abilitazione dei Run) e i filtri tastiera (l'Invio applica al volo
     // solo a modulo in moto). Mai ricostruirlo a mano: e' la stessa famiglia di
@@ -1830,6 +1830,36 @@ private:
     // PresetSerializer::saveTexture(). Pilota l'abilitazione del tasto Save.
     bool hasSavableTexture() const;
     void updateFlatPreviewButton();
+    // Il testo del modulo equazioni in cui cercare 't': equazioni (o
+    // l'equazione implicita del sotto-tab), script di superficie applicato e,
+    // col pannello geodetico, i campi del flusso.
+    QString equationModuleCode() const;
+    // MODULI DEL MASTER, uno per uno: il master START avrebbe qualcosa da
+    // accendere (available) e lo e' gia' (running)? Le condizioni sono quelle
+    // con cui START accende ciascuno. Una sede sola per il testo del tasto --
+    // STOP solo quando TUTTI i moduli accendibili sono accesi: accende tutto,
+    // spegne tutto, i singoli moduli si comandano coi loro tasti -- e per chi
+    // deve sapere se qualcosa si muove (isAnythingMoving).
+    struct MasterActivity {
+        bool eqAvailable = false, eqRunning = false;          // geometria con 't', flusso geodetico
+        bool texAvailable = false, texRunning = false;        // texture di superficie e delle fasce
+        bool bgAvailable = false, bgRunning = false;          // texture di sfondo
+        bool cameraAvailable = false, cameraRunning = false;  // rotazioni e path (uno alla volta)
+        bool audioAvailable = false, audioRunning = false;
+        bool anyRunning() const {
+            return eqRunning || texRunning || bgRunning || cameraRunning || audioRunning;
+        }
+        bool allRunning() const {
+            return (!eqAvailable || eqRunning) && (!texAvailable || texRunning)
+                && (!bgAvailable || bgRunning) && (!cameraAvailable || cameraRunning)
+                && (!audioAvailable || audioRunning);
+        }
+    };
+    MasterActivity masterActivity() const;
+    // Qualcosa si muove o suona. Era il significato del "STOP" del master prima
+    // che il tasto seguisse la regola di tutti i moduli: chi lo leggeva per
+    // sapere se fermare e poi ripristinare le animazioni chiede a questa.
+    bool isAnythingMoving() const { return masterActivity().anyRunning(); }
     void updateMasterButtonState();
     void applyAnimationState(bool animated, bool dockOnly = false);
     bool hasAnyRotationSpeed() const;

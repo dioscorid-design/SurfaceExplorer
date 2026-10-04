@@ -26,8 +26,17 @@ public:
 
     // Verifica se qualcosa sta suonando
     bool isPlaying() const;
+    // Il testo contiene qualcosa da suonare: una riga //MUSIC: o un blocco
+    // //SOUND_BEGIN..//SOUND_END non vuoto -- i casi in cui playFromScript suona.
+    static bool containsAudio(const QString &scriptCode);
 
     bool saveSynthToRawFile(const QString &filePath, int durationSeconds);
+
+signals:
+    // Cambia cio' che isPlaying() risponde. Per la musica arriva quando il
+    // player cambia davvero stato -- in modo asincrono, un attimo dopo play() --
+    // e per lo script audio quando il sintetizzatore parte o si ferma.
+    void playingChanged();
 
 private:
     MainWindow *m_mainWindow;

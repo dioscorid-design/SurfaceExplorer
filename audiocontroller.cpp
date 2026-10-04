@@ -9,6 +9,26 @@
 #include <QFileInfo>
 #include <QDebug>
 
+// I due tag dell'audio, per playFromScript, validateScript e containsAudio.
+static const QRegularExpression &musicTagRe()
+{
+    static const QRegularExpression re(R"(^\s*//MUSIC:\s*(.*)$)", QRegularExpression::MultilineOption);
+    return re;
+}
+
+static const QRegularExpression &soundBlockRe()
+{
+    static const QRegularExpression re(R"(//SOUND_BEGIN(.*?)//SOUND_END)", QRegularExpression::DotMatchesEverythingOption);
+    return re;
+}
+
+bool AudioController::containsAudio(const QString &scriptCode)
+{
+    if (musicTagRe().match(scriptCode).hasMatch()) return true;
+    const QRegularExpressionMatch m = soundBlockRe().match(scriptCode);
+    return m.hasMatch() && !m.captured(1).trimmed().isEmpty();
+}
+
 AudioController::AudioController(MainWindow *parent)
     : QObject(parent), m_mainWindow(parent)
 {
@@ -17,6 +37,7 @@ AudioController::AudioController(MainWindow *parent)
     m_player->setAudioOutput(m_audioOutput);
     m_audioOutput->setVolume(0.5);
     m_player->setLoops(QMediaPlayer::Infinite);
+    connect(m_player, &QMediaPlayer::playbackStateChanged, this, &AudioController::playingChanged);
 
     m_synth = new Synthesizer(m_mainWindow);
 }
@@ -48,6 +69,7 @@ void AudioController::stopAll()
     }
     if (m_synth && m_synth->isOpen()) {
         m_synth->stop();
+        emit playingChanged();
     }
 
     // Aggiorna la UI della MainWindow se siamo nella tab del suono
@@ -69,8 +91,7 @@ bool AudioController::playFromScript(const QString &scriptCode, QString *outErro
     if (scriptCode.trimmed().isEmpty()) return true; // niente da suonare: non è un errore
 
     // 1. MUSICA MP3/WAV
-    QRegularExpression musicRe(R"(^\s*//MUSIC:\s*(.*)$)", QRegularExpression::MultilineOption);
-    QRegularExpressionMatch musicMatch = musicRe.match(scriptCode);
+    QRegularExpressionMatch musicMatch = musicTagRe().match(scriptCode);
     if (musicMatch.hasMatch()) {
         if (m_synth) m_synth->stop();
         QString newMusicPath = musicMatch.captured(1).trimmed();
@@ -94,8 +115,7 @@ bool AudioController::playFromScript(const QString &scriptCode, QString *outErro
     }
 
     // 2. SCRIPT AUDIO GPU
-    QRegularExpression blockRe(R"(//SOUND_BEGIN(.*?)//SOUND_END)", QRegularExpression::DotMatchesEverythingOption);
-    QRegularExpressionMatch blockMatch = blockRe.match(scriptCode);
+    QRegularExpressionMatch blockMatch = soundBlockRe().match(scriptCode);
     if (blockMatch.hasMatch()) {
         QString glslCode = blockMatch.captured(1).trimmed();
         if (!glslCode.isEmpty()) {
@@ -105,6 +125,7 @@ bool AudioController::playFromScript(const QString &scriptCode, QString *outErro
 
             if (m_synth->updateScript(glslCode, false)) {
                 m_synth->start();
+                emit playingChanged();
                 if (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeSound) {
                     m_mainWindow->ui->btnRunCurrentScript->setText("Stop Sound");
                 }
@@ -129,12 +150,10 @@ bool AudioController::validateScript(const QString &scriptCode, QString *outErro
     if (scriptCode.trimmed().isEmpty()) return true;
 
     // La musica MP3/WAV non si compila: niente da validare qui.
-    QRegularExpression musicRe(R"(^\s*//MUSIC:\s*(.*)$)", QRegularExpression::MultilineOption);
-    if (musicRe.match(scriptCode).hasMatch()) return true;
+    if (musicTagRe().match(scriptCode).hasMatch()) return true;
 
     // Script audio GPU: compila SENZA suonare (updateScript non avvia l'audio).
-    QRegularExpression blockRe(R"(//SOUND_BEGIN(.*?)//SOUND_END)", QRegularExpression::DotMatchesEverythingOption);
-    QRegularExpressionMatch blockMatch = blockRe.match(scriptCode);
+    QRegularExpressionMatch blockMatch = soundBlockRe().match(scriptCode);
     if (blockMatch.hasMatch()) {
         QString glslCode = blockMatch.captured(1).trimmed();
         if (!glslCode.isEmpty()) {

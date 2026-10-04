@@ -196,6 +196,10 @@ private:
     // sole maiuscole permesse, cartella con record in scena e appunti di Copia
     // che la seguono. Da sola: --scenario-only library-rename.
     void runLibraryRenameScenarios();
+    // Master su TUTTI i record della libreria: dopo il load ogni modulo
+    // accendibile e' acceso e il tasto dice STOP (il suono escluso: il test lo
+    // spegne). Lunga (~5 minuti): solo con --scenario-only master-records.
+    void runMasterRecordsScenarios();
     // "" se checkbox ed etichetta dicono il bersaglio e lo stato della sua
     // texture, altrimenti la differenza.
     QString textureCheckboxProblem() const;
@@ -204,6 +208,8 @@ private:
     QString stepsProblem();
     // Luce: slider = motore (unica copia, globale) = Save. Vuoto se si'.
     QString lightProblem();
+    // Il testo del master e i moduli accendibili ma spenti (diagnosi).
+    QString masterState() const;
     // Il bersaglio Surface/Background (MainWindow::m_editTarget) e le sue viste
     // -- i due radio, il bersaglio della vista 2D nel motore -- dicono la
     // stessa cosa. Vuoto se si'.

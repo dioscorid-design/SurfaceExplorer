@@ -2055,8 +2055,11 @@ void MainWindow::showEvent(QShowEvent* event)
         this->setProperty("geoAnimTimerWasRunning", false);
 
         QTimer::singleShot(300, this, [this]() {
-            // Ricontrolla che l'utente non abbia premuto STOP nel frattempo
-            if (!m_btnStart || m_btnStart->text() != "STOP") return;
+            // Ricontrolla che l'utente non abbia fermato il flusso nel frattempo:
+            // col master (m_masterStopped) o col tasto del dock Equations.
+            // (Era il testo del master su "STOP", che ora vuol dire "tutti i
+            // moduli accesi", non "qualcosa in moto".)
+            if (m_masterStopped || m_userStoppedGeomClock) return;
             if (!isVisible()) return;
             if (!ui->glWidget || !ui->glWidget->getRhi()) return;
 

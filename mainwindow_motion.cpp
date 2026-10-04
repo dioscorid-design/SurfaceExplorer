@@ -80,6 +80,9 @@ void MainWindow::setupMotionDocks()
                                  ui->lineX_P3D, ui->lineY_P3D, ui->lineZ_P3D, ui->lineR_P3D }) {
         connect(pathEdit, &QLineEdit::textEdited, this, [this] { m_constantsEditPending = true; });
         connect(pathEdit, &QLineEdit::textChanged, this, &MainWindow::updateConstantsUIState);
+        // Un path scritto (o svuotato) cambia cio' che il master avrebbe da
+        // accendere: il suo testo va rifatto (vedi masterActivity).
+        connect(pathEdit, &QLineEdit::textChanged, this, &MainWindow::updateMasterButtonState);
     }
 
     // (L'Invio sui campi path passa dai filtri tastiera desktop/mobile, che

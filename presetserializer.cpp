@@ -1214,7 +1214,7 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
     bool wasTimeAnimating = false;
 
-    if (m_mainWindow->m_btnStart && m_mainWindow->m_btnStart->text().toUpper() == "STOP") {
+    if (m_mainWindow->isAnythingMoving()) {
         wasTimeAnimating = true;
         m_mainWindow->ui->glWidget->setSurfaceAnimating(false);
         m_mainWindow->ui->glWidget->stopAnimationTimer();

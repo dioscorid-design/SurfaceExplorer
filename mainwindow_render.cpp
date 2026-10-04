@@ -720,7 +720,7 @@ void MainWindow::setupRendererDock()
 
         // 4. APPLICAZIONE STATO E AGGIORNAMENTO UI
         if (needsAnim) {
-            if (m_btnStart && m_btnStart->text() != "START") {
+            if (isAnythingMoving()) {
                 applyAnimationState(true);
             }
         } else {

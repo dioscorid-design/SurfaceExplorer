@@ -1142,26 +1142,69 @@ bool MainWindow::isEquationModuleMoving() const
     // Geometria animata da 't': serve sia l'orologio acceso sia un 't' che lo
     // usi -- un clock acceso su equazioni statiche non muove niente.
     if (!ui->glWidget->isSurfaceAnimating()) return false;
+    return hasTimeVariable(equationModuleCode());
+}
 
-    QString mainEq;
+QString MainWindow::equationModuleCode() const
+{
     if (implicitMode()) {
         // NB: lineVariations (displacement) e' del MODULO TEXTURE, non della
         // geometria: includerlo farebbe credere al dock Equations che la
         // geometria sia in moto ogni volta che la texture anima il displacement.
-        mainEq = activeImplicitEquationText() + " " + m_scene.surfaceScriptApplied;
-    } else {
-        mainEq = m_scene.eq.x + " " + m_scene.eq.y + " " +
-                m_scene.eq.z + " " + m_scene.eq.p + " " +
-                m_scene.eq.u + " " + m_scene.eq.v + " " + m_scene.eq.w + " " +
-                m_scene.eq.explicitU + " " + m_scene.eq.explicitV + " " + m_scene.eq.explicitW + " " +
-                m_scene.surfaceScriptApplied;
-        if (ui->lnU) {
-            mainEq += " " + m_scene.eq.geoU + " " + m_scene.eq.geoV + " " + m_scene.eq.geoW +
-                    " " + m_scene.eq.geoDU + " " + m_scene.eq.geoDV + " " + m_scene.eq.geoDW +
-                    " " + m_scene.eq.conform;
-        }
+        return activeImplicitEquationText() + " " + m_scene.surfaceScriptApplied;
     }
-    return hasTimeVariable(mainEq);
+    QString code = m_scene.eq.x + " " + m_scene.eq.y + " " +
+            m_scene.eq.z + " " + m_scene.eq.p + " " +
+            m_scene.eq.u + " " + m_scene.eq.v + " " + m_scene.eq.w + " " +
+            m_scene.eq.explicitU + " " + m_scene.eq.explicitV + " " + m_scene.eq.explicitW + " " +
+            m_scene.surfaceScriptApplied;
+    if (ui->lnU) {
+        code += " " + m_scene.eq.geoU + " " + m_scene.eq.geoV + " " + m_scene.eq.geoW +
+                " " + m_scene.eq.geoDU + " " + m_scene.eq.geoDV + " " + m_scene.eq.geoDW +
+                " " + m_scene.eq.conform;
+    }
+    return code;
+}
+
+MainWindow::MasterActivity MainWindow::masterActivity() const
+{
+    MasterActivity a;
+    GLWidget *gl = ui->glWidget;
+    if (!gl) return a;
+
+    // EQUAZIONI: geometria animata da 't' e flusso geodetico, che col 't' parte
+    // dal Run (updateGeodesicMesh).
+    a.eqAvailable = hasTimeVariable(equationModuleCode());
+    a.eqRunning = isEquationModuleMoving();
+
+    // TEXTURE DI SUPERFICIE: stessa condizione con cui START ne accende
+    // l'orologio (applyAnimationState: modulo attivo e codice del modulo, nella
+    // modalita' corrente, con il tempo). In ambito "Mesh" contano anche le
+    // fasce animate; in "All" no, perche' non si disegnano.
+    a.texAvailable = surfaceTextureModuleActive() && hasTimeVariable(surfaceTextureModuleCode());
+    a.texRunning = a.texAvailable && gl->isSurfaceTextureAnimating();
+    if (!implicitMode() && !gl->meshAppearanceUniform() && anyMeshTextureCodeAnimated()) {
+        a.texAvailable = true;
+        if (gl->anyMeshTextureAnimating()) a.texRunning = true;
+    }
+
+    // SFONDO: come START (applyAnimationState).
+    a.bgAvailable = gl->isBackgroundTextureEnabled() && hasTimeVariable(m_scene.bgTextureCode);
+    a.bgRunning = a.bgAvailable && gl->isBackgroundTextureAnimating();
+
+    // MOTO DELLA CAMERA: rotazioni, path 4D e path 3D si escludono a vicenda e
+    // START ne avvia uno (applyStartSideEffects): basta che uno giri.
+    a.cameraAvailable = hasAnyRotationSpeed() || hasPath4DInput() || hasPath3DInput();
+    a.cameraRunning = isRotationMotionRunning()
+                      || (pathTimer && pathTimer->isActive())
+                      || (pathTimer3D && pathTimer3D->isActive());
+
+    // SUONO: START suona sceneAudioSource(), che e' il testo in cui CERCARE le
+    // direttive audio (suono, script, texture, sfondo): c'e' un suono solo se
+    // vi compare un tag.
+    a.audioAvailable = AudioController::containsAudio(sceneAudioSource());
+    a.audioRunning = m_audioController && m_audioController->isPlaying();
+    return a;
 }
 
 bool MainWindow::isRotationMotionRunning() const
@@ -1190,58 +1233,26 @@ void MainWindow::updateMasterButtonState()
         updateRenderState();       // rimette il resto secondo le regole normali
     }
 
-    // 1. Controllo Rotazioni 3D/4D
-    bool rotActive = isRotationMotionRunning();
+    // AUTO-FIX del tasto del dock Script: in modalita' Sound, se l'audio e'
+    // finito da solo il tasto torna su "Run Sound".
+    if (m_currentScriptMode == ScriptModeSound && ui->btnRunCurrentScript
+        && ui->btnRunCurrentScript->text() != "Run Sound"
+        && !(m_audioController && m_audioController->isPlaying()))
+        ui->btnRunCurrentScript->setText("Run Sound");
 
-    // 2. Controllo Audio
-    bool audioActive = false;
-    if (m_audioController) audioActive = m_audioController->isPlaying();
-    if (m_currentScriptMode == ScriptModeSound && ui->btnRunCurrentScript) {
-        if (ui->btnRunCurrentScript->text() == "Run Sound") {
-            audioActive = false;
-        } else if (!audioActive) {
-            // AUTO-FIX: Se l'audio è finito da solo, resetta il tasto laterale
-            ui->btnRunCurrentScript->setText("Run Sound");
-        }
-    }
+    // Lo stato dei moduli, da una sede sola (masterActivity): ne leggono sia i
+    // tasti dei dock qui sotto sia il master.
+    const MasterActivity act = masterActivity();
 
-    // 3. Controllo animazione intrinseca (variabile tempo 't' e texture)
-    bool surfaceActive = false;
     if (ui->glWidget) {
-        bool isRM = (implicitMode());
-
-        // A. Orologio della Geometria Principale
-        bool geomClockRunning = ui->glWidget->isSurfaceAnimating();
-
-        QString mainEq;
-        if (isRM) {
-            // NB: lineVariations (displacement) è del MODULO TEXTURE, non della
-            // geometria: NON va incluso qui, altrimenti il tasto Equations crede
-            // che la geometria sia in moto e resta bloccato su "Stop" finché la
-            // texture anima il displacement.
-            mainEq = activeImplicitEquationText() + " " + m_scene.surfaceScriptApplied;
-        } else {
-            mainEq = m_scene.eq.x + " " + m_scene.eq.y + " " +
-                    m_scene.eq.z + " " + m_scene.eq.p + " " +
-                    m_scene.eq.u + " " + m_scene.eq.v + " " + m_scene.eq.w + " " +
-                    m_scene.eq.explicitU + " " + m_scene.eq.explicitV + " " + m_scene.eq.explicitW + " " +
-                    m_scene.surfaceScriptApplied;
-            if (ui->lnU) {
-                mainEq += " " + m_scene.eq.geoU + " " + m_scene.eq.geoV + " " + m_scene.eq.geoW +
-                        " " + m_scene.eq.geoDU + " " + m_scene.eq.geoDV + " " + m_scene.eq.geoDW +
-                        " " + m_scene.eq.conform;
-            }
-        }
-
-        bool geomHasTime = hasTimeVariable(mainEq);
-        bool isGeomVisuallyMoving = geomClockRunning && geomHasTime;
+        const bool geomHasTime = act.eqAvailable;
 
         // Il tasto Run del dock Equations riflette SOLO il modulo equazioni:
         // mostra "Stop" se la geometria o il flusso geodetico sono in moto.
         // Il tasto parametrico e quello implicito condividono lo stesso stato.
         // Stessa definizione usata dai filtri tastiera per decidere se l'Invio
         // applica al volo: una sede sola (isEquationModuleMoving).
-        const bool eqModuleMoving = isEquationModuleMoving();
+        const bool eqModuleMoving = act.eqRunning;
 
         // Se la superficie è definita da uno SCRIPT (dock Script), la geometria è
         // gestita da lì: il dock Equations non è in uso e i suoi tasti Run/Stop
@@ -1286,56 +1297,8 @@ void MainWindow::updateMasterButtonState()
                                         (eqModuleMoving || !m_implicitApplied || geomHasTime));
         }
 
-        // B. Orologio della Texture di Superficie
-        // Come altrove: il modulo e' attivo anche se la texture ce l'ha solo una
-        // FASCIA, e nessuno dei due flag globali lo dice. Senza, il master
-        // considerava ferma una texture per-mesh in movimento.
-        const bool isSurfTexActive = surfaceTextureModuleActive();
-        bool isTexVisuallyMoving;
-        if (isRM) {
-            // colore E displacement leggono lo STESSO orologio texture: entrambi
-            // dipendono da isSurfaceTextureAnimating().
-            bool texClockRunning = ui->glWidget->isSurfaceTextureAnimating() && isSurfTexActive;
-            bool texColorMoving = texClockRunning && hasTimeVariable(m_scene.rm.texture);
-            bool dispMoving     = texClockRunning && hasTimeVariable(m_scene.rm.displacement);
-            isTexVisuallyMoving = texColorMoving || dispMoving;
-        } else {
-            bool texClockRunning = ui->glWidget->isSurfaceTextureAnimating();
-            bool texHasTime = isSurfTexActive && hasTimeVariable(allSurfaceTextureCode());
-            isTexVisuallyMoving = texClockRunning && texHasTime;
-
-            // Una texture PER-MESH in movimento e' attivita' a tutti gli effetti,
-            // e il master deve poterla fermare: il suo clock e' quello della
-            // parte, che i due flag globali qui sopra non raccontano.
-            // anyMeshTextureAnimating() controlla gia' che la parte abbia una
-            // texture propria e accesa; qui resta da chiedere se quel codice usa
-            // il tempo, cioe' se c'e' davvero qualcosa in movimento da fermare.
-            // ...ma SOLO in ambito "Mesh". In "All" l'aspetto per-mesh e'
-            // SOSPESO: il render non disegna nemmeno le texture delle fasce
-            // (tutto il blocco per-parte e' dentro !m_meshAppearanceUniform),
-            // quindi il loro orologio, che continua a girare, non muove NULLA a
-            // schermo. Contandolo, il master diceva STOP su una scena ferma --
-            // e restava li' anche tornando su "Mesh". E' la stessa distinzione
-            // che fa allSurfaceTextureCode(), che in "All" esclude apposta le
-            // per-mesh. NB: il predicato resta globale per chi deve RIACCENDERE
-            // gli orologi (applyAnimationState, onStartClicked): quelli devono
-            // vedere le fasce anche da "All", o tornando su "Mesh" sarebbero
-            // ferme. Qui la domanda e' un'altra: si vede qualcosa muoversi?
-            if (!isTexVisuallyMoving && !ui->glWidget->meshAppearanceUniform()
-                && ui->glWidget->anyMeshTextureAnimating())
-                isTexVisuallyMoving = anyMeshTextureCodeAnimated();
-        }
-
-        // C. Orologio della Texture di Sfondo
-        bool bgClockRunning = ui->glWidget->isBackgroundTextureAnimating();
-        bool bgHasTime = ui->glWidget->isBackgroundTextureEnabled() && hasTimeVariable(m_scene.bgTextureCode);
-        bool isBgVisuallyMoving = bgClockRunning && bgHasTime;
-
-        // La grafica è "attiva" SOLO se c'è almeno un elemento che usa il tempo E il suo orologio è acceso
-        surfaceActive = isGeomVisuallyMoving || isTexVisuallyMoving || isBgVisuallyMoving;
-
         if (ui->btnTextureCode) {
-            ui->btnTextureCode->setText(isTexVisuallyMoving ? "Stop" : "Run");
+            ui->btnTextureCode->setText(act.texRunning ? "Stop" : "Run");
 
             // Tre stati del Run texture (Ray Marching), alimentato da lineTexture
             // (colore) + lineVariations (displacement):
@@ -1346,7 +1309,7 @@ void MainWindow::updateMasterButtonState()
             bool texFieldsEmpty = m_scene.rm.texture.trimmed().isEmpty()
                                   && m_scene.rm.displacement.trimmed().isEmpty();
             ui->btnTextureCode->setEnabled(!texFieldsEmpty
-                                           && (isTexVisuallyMoving || !m_rmTextureApplied));
+                                           && (act.texRunning || !m_rmTextureApplied));
         }
 
         // Save texture: attivo solo se c'è del codice/immagine da salvare,
@@ -1356,19 +1319,14 @@ void MainWindow::updateMasterButtonState()
         }
     }
 
-    // 4. Controllo Timer Flusso Geodetico
-    bool geoActive = (m_geoAnimTimer && m_geoAnimTimer->isActive());
 
-    // 5. Tiriamo le somme: c'è ALMENO UNA cosa che si sta muovendo/suonando fisicamente?
-    bool somethingIsMoving = rotActive ||
-                             (pathTimer && pathTimer->isActive()) ||
-                             (pathTimer3D && pathTimer3D->isActive()) ||
-                             surfaceActive ||
-                             audioActive ||
-                             geoActive;
-
-    // 6. Aggiorniamo dinamicamente il Master Button
-    m_btnStart->setText(somethingIsMoving ? "STOP" : "START");
+    // MASTER: STOP solo quando TUTTI i moduli accendibili sono accesi -- allora
+    // il tasto li ferma tutti; altrimenti START, che accende tutto cio' che e'
+    // spento lasciando com'e' cio' che gira. Prima bastava UN modulo in moto
+    // per avere STOP: con una parte accesa, accendere il resto voleva due
+    // pressioni (STOP, poi START). I singoli moduli si accendono e si spengono
+    // coi loro tasti.
+    m_btnStart->setText(act.anyRunning() && act.allRunning() ? "STOP" : "START");
 
     updateScriptButtonText();
 }

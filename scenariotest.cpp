@@ -765,6 +765,19 @@ void ScenarioTest::checkConstants(const QString &step, const QMap<QString, doubl
                                   bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
 }
 
+QString ScenarioTest::masterState() const
+{
+    const MainWindow::MasterActivity a = m_mw->masterActivity();
+    QStringList off;
+    if (a.eqAvailable && !a.eqRunning)         off << QStringLiteral("equazioni");
+    if (a.texAvailable && !a.texRunning)       off << QStringLiteral("texture");
+    if (a.bgAvailable && !a.bgRunning)         off << QStringLiteral("sfondo");
+    if (a.cameraAvailable && !a.cameraRunning) off << QStringLiteral("camera");
+    if (a.audioAvailable && !a.audioRunning)   off << QStringLiteral("suono");
+    const QString label = m_mw->m_btnStart ? m_mw->m_btnStart->text().toUpper() : QString();
+    return off.isEmpty() ? label : label + QStringLiteral(", spenti: ") + off.join(QStringLiteral(", "));
+}
+
 QString ScenarioTest::lightProblem()
 {
     // LUCE: globale, l'unica copia e' nel motore; lo slider la mostra (anche in
@@ -1202,6 +1215,11 @@ void ScenarioTest::run()
     }
     if (m_only == QLatin1String("library-rename")) {
         runLibraryRenameScenarios();
+        finish();
+        return;
+    }
+    if (m_only.startsWith(QLatin1String("master-records"))) {
+        runMasterRecordsScenarios();
         finish();
         return;
     }
@@ -2496,6 +2514,28 @@ void ScenarioTest::run()
         checkMotion(QStringLiteral("superficie, path 4D con la sola Z, master Start"), QStringLiteral("path4D"));
         click(m_mw->m_btnStart);   checkMotion(QStringLiteral("master Stop"), QStringLiteral("none"));
     }
+    // Il master dice STOP solo con TUTTI i moduli accendibili accesi: accende
+    // tutto, spegne tutto; i singoli moduli vanno coi loro tasti. Prima bastava
+    // un modulo in moto per avere STOP, e accendere il resto voleva due
+    // pressioni (STOP, poi START).
+    if (loadSurface(kTorusSurf)) {
+        auto label = [this] { return m_mw->m_btnStart->text().toUpper(); };
+        ui->lineX->setPlainText(QStringLiteral("(0.8 + 0.3*cos(v))*cos(u + t)"));  wait(300);
+        click(ui->btnRunParametric);  wait(800);
+        typeInField(ui->lineY_P3D, QStringLiteral("2*sin(t)"));
+        check(m_mw->isEquationModuleMoving() && !m_mw->pathTimer3D->isActive() && label() == QLatin1String("START"),
+              QStringLiteral("geometria in moto, path 3D scritto e fermo -> master START (%1)").arg(label()));
+        click(m_mw->m_btnStart);  wait(600);
+        check(m_mw->isEquationModuleMoving() && m_mw->pathTimer3D->isActive() && label() == QLatin1String("STOP"),
+              QStringLiteral("master START accende il path e lascia la geometria in moto -> STOP (%1)").arg(label()));
+        click(m_mw->m_btnStart);  wait(400);
+        check(!m_mw->isAnythingMoving() && label() == QLatin1String("START"),
+              QStringLiteral("master STOP spegne tutto -> START (%1)").arg(label()));
+        click(ui->btnDeparture3D);  wait(400);
+        check(m_mw->pathTimer3D->isActive() && !m_mw->isEquationModuleMoving() && label() == QLatin1String("START"),
+              QStringLiteral("solo il path col suo tasto, geometria ferma -> master resta START (%1)").arg(label()));
+        click(ui->btnDeparture3D);  wait(300);
+    }
 
     // Dopo un record in movimento, cio' che svuota la scena non ne tiene i moti.
     m_lines.append(QString());
@@ -2820,6 +2860,45 @@ void ScenarioTest::run()
     runLibraryRenameScenarios();
 
     finish();
+}
+
+void ScenarioTest::runMasterRecordsScenarios()
+{
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Master su tutti i record: dopo il load tutto acceso, tasto STOP =="));
+    const QList<LibraryItem> records = m_mw->m_libraryManager.m_motions;
+    const QString filter = m_only.section(QLatin1Char(':'), 1);
+    int ok = 0;
+    for (const LibraryItem &item : records) {
+        if (item.name.isEmpty()) continue;
+        if (!filter.isEmpty() && !item.filePath.contains(QRegularExpression(filter, QRegularExpression::CaseInsensitiveOption))) continue;
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            m_watchdogFired = false;
+            m_mw->applyMotionExample(item);
+            wait(1500);
+            if (!m_watchdogFired) break;
+        }
+        // Il testo del tasto COM'E' a schermo, senza ricalcolarlo: un modulo che
+        // parte in differita dopo l'ultimo ricalcolo lo lascerebbe indietro.
+        const QString shown = m_mw->m_btnStart ? m_mw->m_btnStart->text().toUpper() : QString();
+        const MainWindow::MasterActivity a = m_mw->masterActivity();
+        QStringList off;
+        if (a.eqAvailable && !a.eqRunning)         off << QStringLiteral("equazioni");
+        if (a.texAvailable && !a.texRunning)       off << QStringLiteral("texture");
+        if (a.bgAvailable && !a.bgRunning)         off << QStringLiteral("sfondo");
+        if (a.cameraAvailable && !a.cameraRunning) off << QStringLiteral("camera");
+        if (a.audioAvailable && !a.audioRunning)   off << QStringLiteral("suono");
+        const QString expected = (a.anyRunning() && a.allRunning()) ? QStringLiteral("STOP") : QStringLiteral("START");
+        const QString rel = QDir(m_root).relativeFilePath(item.filePath);
+        if (!off.isEmpty() || shown != expected) {
+            check(false, QStringLiteral("%1 -> tasto %2, atteso %3%4").arg(rel, shown, expected,
+                      off.isEmpty() ? QString() : QStringLiteral(" (spenti: ") + off.join(QStringLiteral(", ")) + QLatin1Char(')')));
+        } else {
+            ++ok;
+        }
+        if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
+    }
+    check(ok > 0, QStringLiteral("record con tutti i moduli accesi dopo il load: %1 su %2").arg(ok).arg(records.size()));
 }
 
 void ScenarioTest::runLibraryRenameScenarios()
@@ -3195,7 +3274,7 @@ void ScenarioTest::runTextureTargetScenarios()
         viewOk(QStringLiteral("bersaglio Background, sfondo spento"));
         check(!gl->isBackgroundTextureEnabled() && gl->isSurfaceTextureAnimating(),
               QStringLiteral("bersaglio Background, sfondo spento -> la texture di superficie gira ancora"));
-        check(master("STOP"), QStringLiteral("master: il tasto dice STOP"));
+        check(master("STOP"), QStringLiteral("master: il tasto dice STOP (%1)").arg(masterState()));
         check(!gl->isSurfaceTextureAnimating(), QStringLiteral("master Stop -> texture ferma"));
         check(master("START"), QStringLiteral("master: il tasto dice START"));
         check(gl->isSurfaceTextureAnimating(),
@@ -3238,7 +3317,7 @@ void ScenarioTest::runTextureTargetScenarios()
             check(gl->isSurfaceTextureAnimating(),
                   QStringLiteral("master Start dal bersaglio Background -> la texture di superficie riparte"));
         } else {
-            check(false, QStringLiteral("master: il tasto dice STOP"));
+            check(false, QStringLiteral("master: il tasto dice STOP (%1)").arg(masterState()));
         }
         // Il tasto Run/Stop della texture nel dock Equations.
         if (ui->btnTextureCode->text() == QLatin1String("Stop")) { click(ui->btnTextureCode); wait(300); }
