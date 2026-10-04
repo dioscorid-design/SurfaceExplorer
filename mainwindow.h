@@ -1314,6 +1314,18 @@ private:
 
     // --- Data & Initialization ---
     void setupDefaultFolders();
+    // Sezioni del costruttore, chiamate nell'ordine (vedi MainWindow::MainWindow).
+    void setupStyling();
+    void setupDockLayout();
+    void setupActionsAndMenus();
+    void setupStatusBar();
+    void setupEquationsDock();
+    void setupRendererDock();
+    void setupMotionDocks();
+    void setupScriptDock();
+    void setupLibraryDock();
+    void finishStartup();
+    void setupDesktopFilters();
     void connectSidePanels();
     void connectNavButton(QPushButton *btn, int action);
     // Abilita/disabilita in blocco i tasti di spostamento dei dock 3D/4D e blocca i

@@ -3,6 +3,1283 @@
 // Parte della classe MainWindow divisa per argomento (mainwindow_p.h).
 #include "mainwindow_p.h"
 
+// Dock Renderer: resa, colori, luci, trasparenza, texture. Parte del costruttore, nell'ordine in cui la chiama.
+void MainWindow::setupRendererDock()
+{
+    // =========================================================================
+    // 7. RENDERER, COLORS & LIGHTING
+    // =========================================================================
+    ui->glWidget->setProjectionMode(1);
+    updateProjectionButtonText();
+
+    // Il gruppo esclusivo gestisce SOLO la modalità di rendering della superficie
+    // (Base / Phong / Wireframe): sono mutuamente esclusivi perché la superficie
+    // viene disegnata in un solo modo. Il Background NON ne fa parte: è una funzione
+    // indipendente (texture di sfondo) e va attivata/disattivata senza spegnere la
+    // modalità superficie e viceversa.
+    m_modeGroup = new QButtonGroup(this);
+    m_modeGroup->addButton(ui->radioBasic, 0);
+    m_modeGroup->addButton(ui->radioPhong, 1);
+    m_modeGroup->addButton(ui->radioWF,    2);
+    m_modeGroup->setExclusive(true);
+
+    // TARGET DI EDITING: coppia esclusiva Surface / Background. Sceglie COSA
+    // pilotano gli slider/texture/colore: la superficie o lo sfondo. NON tocca la
+    // modalità di rendering della superficie (Base/Phong/Wireframe), che resta un
+    // asse a sé nel m_modeGroup. Il bersaglio e' STATO (m_editTarget, letto con
+    // editingBackground()); i due radio ne sono la vista. radioSurface ha
+    // assorbito il vecchio radioEditSurf.
+    // I due color slot della texture (radioTexColor1/2) stanno in m_colorGroup a parte;
+    // l'esclusività FRA i due gruppi è mantenuta a mano (vedi setColorTargetExclusive).
+    m_bgTargetGroup = new QButtonGroup(this);
+    m_bgTargetGroup->addButton(ui->radioSurface);
+    m_bgTargetGroup->addButton(ui->radioBackground);
+    m_bgTargetGroup->setExclusive(true);
+    // Default = editing superficie. Impostato PRIMA della connect dell'handler di
+    // radioBackground (più sotto) così non scatena logica al boot.
+    setEditTarget(EditTarget::Surface);
+    // I due gruppi (coppia m_bgTargetGroup e color slot m_colorGroup) sono INDIPENDENTI:
+    // la coppia dice DOVE operi (Surface/Background), Color1/2 dicono QUALE tinta
+    // della texture editi quando una texture colorata è attiva. Possono essere accesi
+    // entrambi (es. Surface + Color 1). Nessuna deselezione incrociata: cliccare un radio
+    // della tripla lascia intatta la coppia Color1/2 e viceversa. Qui basta riallineare
+    // gli slider. Background porta la sua logica nell'handler toggled dedicato (che chiama
+    // già onColorTargetChanged), quindi per Background non rifacciamo nulla.
+    connect(m_bgTargetGroup, &QButtonGroup::buttonClicked, this, [this](QAbstractButton *btn){
+        if (btn == ui->radioBackground) return;
+        onColorTargetChanged();
+    });
+
+    connect(m_modeGroup, &QButtonGroup::idClicked, this, [this](int id){
+        // Click su un radio della superficie (Base/Phong/Wireframe).
+        // NON tocchiamo il Background: è indipendente. Se il dock texture sta
+        // attualmente editando lo sfondo (radioBackground acceso) lasciamo invariati
+        // editor, checkbox e picker: continuano a riferirsi allo sfondo.
+        //
+        // m_savedRenderMode e' lo stato GLOBALE della superficie, quello che le
+        // mesh senza modalita' propria ereditano e che il preset salva. Quando
+        // si sta editando una SINGOLA mesh (spinbox diverso da "All") il click
+        // riguarda solo quella parte, non la superficie intera: registrarlo
+        // come globale lo faceva riapplicare a TUTTE le mesh al ricarico del
+        // preset (sequenza: seleziono 5, Phong, wireframe, ricarico -> tutto
+        // wireframe, perche' updateRenderState rileggeva m_savedRenderMode=2 e
+        // col bypass del load lo scriveva sul globale).
+        const bool editingSingleMesh =
+            ui->glWidget && ui->glWidget->activeMeshPart() >= 0;
+        if (!editingSingleMesh)
+            m_savedRenderMode = id;
+
+        if (!editingBackground()) {
+            refreshTextureCheckbox();
+
+            updateTextureUIState(m_surfaceTextureState);
+            // LO SPEGNIMENTO PER WIREFRAME RIGUARDA SOLO L'AMBITO "ALL".
+            // setGlobalTextureEnabled scrive m_textureEnabled, che e' lo stato GLOBALE
+            // della texture di superficie: mettendo in wireframe UNA fascia si
+            // spegneva la texture di tutta la superficie, e tornando su "All" il
+            // checkbox rileggeva quello stato e la texture risultava persa.
+            // Con una fascia selezionata la modalita' e' una proprieta' di
+            // QUELLA parte (la scrive onUserRenderModeChosen su MeshPart), e il
+            // render decide gia' da se' di non texturizzare una parte in
+            // wireframe: non c'e' nulla da spegnere sul globale.
+            applySurfaceTextureToEngine();
+
+            // In Wireframe gli slider editano il colore uniforme delle linee: il pallino
+            // di lavoro va su "Surface". updateTextureUIState sopra ha già spento Color1/2
+            // (surfaceWireframe), qui assicuriamo che la tripla sia su Surface.
+            if (id == 2 && ui->radioSurface->isEnabled()) {
+                selectSurfaceColorTarget();
+            }
+            onColorTargetChanged();
+        }
+
+        updateFlatPreviewButton();
+        updateRenderState();
+        syncTextureTreeSelection();
+        updateScriptButtonText();
+    });
+
+    // BACKGROUND: toggle indipendente. Acceso = il dock texture edita lo sfondo e
+    // (se c'è codice) lo sfondo è attivo; spento = il dock torna a editare la
+    // superficie. NON spegne né accende i radio Base/Phong/Wireframe: la modalità
+    // di rendering della superficie resta quella che era.
+    connect(ui->radioBackground, &QRadioButton::toggled, this, [this](bool checked){
+        // Il clic: prima lo STATO (e la vista 2D del motore), che tutto il
+        // resto del dock legge. Arriva solo dai clic: il programma scrive i
+        // radio a segnali bloccati (setEditTarget).
+        setEditTarget(checked ? EditTarget::Background : EditTarget::Surface);
+
+        if (checked) {
+            // ENTRO in editing sfondo. Lo stato della texture di superficie
+            // (m_surfaceTextureState) non si tocca: il checkbox ne era solo la
+            // vista, e ora mostra lo sfondo. (Prima lo si ricopiava DAL checkbox
+            // per "salvarlo": in ambito Mesh il checkbox mostra la fascia, e la
+            // copia accendeva una texture globale che non esisteva.)
+
+            if (m_currentScriptMode == ScriptModeTexture) {
+                // Niente da travasare: gli slot sono lo stato, l'editor la loro
+                // vista -- updateScriptButtonText lo porta sullo sfondo. (Prima
+                // qui l'editor si salvava nello slot della texture di superficie,
+                // e in ambito "Mesh" ci finiva lo script della fascia.)
+                ui->btnRunCurrentScript->setText("Run Background Texture");
+                updateScriptButtonText();
+            }
+
+            bool bgTexActive = ui->glWidget->isBackgroundTextureEnabled();
+            refreshTextureCheckbox();   // etichetta, abilitazione e spunta dello sfondo
+
+            // Surface resta cliccabile anche in editing sfondo: la coppia Surface/Background
+            // è l'asse di scelta della scena, quindi disabilitare Surface impedirebbe di
+            // tornare alla superficie. Cliccare Surface esce da Background (esclusività di
+            // m_bgTargetGroup) e il ramo "else" di questo handler ripristina il contesto
+            // superficie. Niente disabilitazione di radioSurface.
+
+            // Picker Colore attivi solo se lo sfondo è acceso E usa quel colore:
+            // ciascuno indipendente (una texture che usa solo u_col1 non abilita col2).
+            bool bgCol1 = bgTexActive && m_bgTextureCode.contains("u_col1");
+            bool bgCol2 = bgTexActive && m_bgTextureCode.contains("u_col2");
+            ui->radioTexColor1->setEnabled(bgCol1);
+            ui->radioTexColor2->setEnabled(bgCol2);
+
+            if (bgCol1 || bgCol2) {
+                // Accendiamo il picker ABILITATO (col1 se usato, altrimenti col2).
+                QRadioButton *target = bgCol1 ? ui->radioTexColor1 : ui->radioTexColor2;
+                bool oldBlock2 = target->blockSignals(true);
+                target->setChecked(true);
+                target->blockSignals(oldBlock2);
+            } else {
+                // Sfondo senza colori: oltre a disabilitarli, DESELEZIONIAMO i color slot,
+                // altrimenti un Color rimasto checked dalla superficie precedente mostra un
+                // pallino fantasma (grigio ma acceso). uncheckInExclusiveGroup perché un
+                // setChecked(false) diretto sull'unico acceso di un gruppo esclusivo è no-op.
+                uncheckInExclusiveGroup(ui->radioTexColor1);
+                uncheckInExclusiveGroup(ui->radioTexColor2);
+            }
+
+        }
+        else {
+            // ESCO dall'editing sfondo: il dock torna alla superficie. Lo sfondo
+            // resta com'è a video (acceso o spento), spegnere il radio significa
+            // solo "non sto più editando lo sfondo".
+            if (m_currentScriptMode == ScriptModeTexture) {
+                // USCENDO da Background il dock torna a mostrare cio' che il
+                // bersaglio comanda: in ambito "Mesh" lo script della FASCIA,
+                // altrimenti la texture di superficie (shownScriptSlot).
+                ui->btnRunCurrentScript->setText("Run Surface Texture");
+                updateScriptButtonText();
+            }
+
+            // radioSurface non viene più disabilitato entrando in Background,
+            // quindi qui non c'è nulla da riabilitare.
+
+            // Ripristino la checkbox e la sua etichetta.
+            // AMBITO "MESH": il checkbox e' il DISPLAY della fascia, non lo
+            // stato della texture GLOBALE (entrando in Background la selezione
+            // della parte viene lasciata com'era apposta, vedi
+            // updateMeshScopeEnabled, quindi uscendo siamo ancora su quella
+            // fascia). Ripristinando m_surfaceTextureState si riaccendeva il
+            // checkbox su una fascia a cui la texture era appena stata TOLTA.
+            // Stesso criterio del ramo di ingresso, che per questo non salva
+            // m_surfaceTextureState quando showingMeshTex.
+            const bool onMeshScope = ui->glWidget
+                                     && ui->glWidget->activeMeshPart() >= 0;
+            const bool texOn = onMeshScope
+                                   ? ui->glWidget->activeMeshTextureActive()
+                                   : m_surfaceTextureState;
+
+            refreshTextureCheckbox();
+
+            updateTextureUIState(texOn);
+            // Questo resta sul GLOBALE anche in ambito Mesh: e' lo stato della
+            // texture di SUPERFICIE nel motore, che l'ambito non cambia -- la
+            // fascia ha il proprio interruttore in MeshPart. Solo il DISPLAY
+            // qui sopra segue la parte.
+            applySurfaceTextureToEngine();
+
+            // Uscendo da Background torniamo a editare la superficie: updateTextureUIState
+            // sopra ha già messo il target colore su Surface (selectSurfaceColorTarget).
+            // onColorTargetChanged() finale allinea gli slider.
+        }
+
+        onColorTargetChanged();
+        updateFlatPreviewButton();
+        updateRenderState();
+        // Entrando in Background il selettore All/Mesh non ha senso (lo sfondo
+        // non ha fasce): si disabilita e l'ambito torna ad "All", cosi' i
+        // comandi non restano dirottati su una mesh. Uscendo si riabilita da
+        // solo, se la superficie e' multi-mesh.
+        updateMeshScopeEnabled();
+        syncTextureTreeSelection();
+        updateScriptButtonText();
+    });
+
+    refreshRenderRadios();
+
+    // I radio sono DISPLAY (mostrano la modalita' della mesh selezionata) e
+    // COMANDO (l'utente li clicca). Solo il secondo caso deve scrivere una
+    // modalita' PROPRIA sulla parte attiva: quando e' syncAppearanceControls-
+    // ToActiveMesh a muoverli, m_syncingMeshControls e' vero e qui non si scrive
+    // nulla. Senza questa distinzione ogni updateRenderState (cambio tab,
+    // proiezione, load) riapplicava il valore a un destinatario variabile ed era
+    // la causa del wireframe che si propagava a tutte le mesh.
+    auto onRenderRadioToggled = [this](bool checked){
+        if (!checked) return;                 // interessa solo chi si accende
+        if (!m_syncingMeshControls) onUserRenderModeChosen();
+        updateRenderState();
+    };
+    connect(ui->radioBasic, &QRadioButton::toggled, this, onRenderRadioToggled);
+    connect(ui->radioPhong, &QRadioButton::toggled, this, onRenderRadioToggled);
+    connect(ui->radioWF,    &QRadioButton::toggled, this, onRenderRadioToggled);
+
+    // Stato iniziale dei controlli densità Wireframe: al boot la modalità è Base, quindi
+    // vanno disabilitati. updateRenderState (che li gestisce) non viene chiamato a tempo
+    // di costruzione — solo dagli handler dei radio dopo un click — e setChecked(true) su
+    // radioBasic sopra non emette toggled finché le connect non sono in piedi: senza questo
+    // restavano attivi (stato di default della .ui) finché non si cliccava un radio.
+    ui->uDensity->setEnabled(false);
+    ui->vDensity->setEnabled(false);
+
+    // (Qui c'era un secondo gestore di radioWF, che spegneva a mano il
+    // checkbox Texture. Il checkbox e' una vista: lo allinea
+    // refreshTextureCheckbox, chiamata da updateRenderState qui sopra.)
+
+    ui->alphaSlider->setRange(0, 100);
+    ui->alphaSlider->setValue(100);
+    alphaValue = 1.0f;
+    ui->glWidget->setAlpha(alphaValue);
+    ui->lblAlphaVal->setText("1.00");
+
+    connect(ui->alphaSlider, &QSlider::valueChanged, this, [this](int value){
+        // Su campo implicito a PRODOTTO ("Chain") la trasparenza fa sparire la superficie.
+        // Se e' l'UTENTE ad abbassare lo slider (non un set programmatico di caricamento
+        // preset), ripristiniamo l'opacita', mostriamo il popup UNA volta e blocchiamo.
+        if (!m_settingAlphaProgrammatic && value < 100) {
+            bool isImplicitMode = (implicitMode());
+            bool illImplicit = isImplicitMode && ui->glWidget && ui->glWidget->isImplicitIllConditioned();
+            if (illImplicit) {
+                onAlphaSliderMovedIllCheck(value);
+                return;   // onAlphaSliderMovedIllCheck ha gia' rimesso alpha a 100
+            }
+            // SOLO ANDROID: superficie la cui trasparenza puo' degradare (Gyroid, script
+            // RM). NON blocchiamo: mostriamo l'avviso una volta e proseguiamo applicando
+            // l'alpha normalmente (lo slider agisce, l'utente vede l'effetto reale).
+            bool warnImplicit = isImplicitMode && ui->glWidget && ui->glWidget->implicitTransparencyMayDegrade();
+            if (warnImplicit) {
+                onAlphaSliderMovedWarnCheck();   // no return: l'alpha si applica sotto
+            }
+            // CONFERMA MISURATA (tutte le piattaforme): se la GPU e' GIA' sotto
+            // carico pesante con la scena opaca (EMA del watchdog, significativa
+            // solo ad animazione in corso), il ramo trasparente (~4-12x il costo
+            // per pixel) porta quasi certamente al collasso, che il watchdog
+            // fermerebbe solo DOPO il magenta. Chiediamo QUI, prima che il primo
+            // frame trasparente venga renderizzato. Sulle scene fluide o ferme
+            // non scatta mai (renderingUnderHeavyLoad e' false a riposo).
+            if (isImplicitMode && !m_alphaHeavyWarnShown &&
+                ui->glWidget && ui->glWidget->renderingUnderHeavyLoad()) {
+                // Eventi della STESSA presa arrivati col box gia' aperto, o dopo
+                // un "Keep it opaque": riassorbiti a 100 senza riaprire nulla,
+                // altrimenti il drag ancora in corso impila/riapre il box in
+                // loop (finestra che "permane o ricompare"). Una nuova presa
+                // riarma via sliderPressed; il cambio superficie via sync.
+                if (m_alphaHeavyPopupActive || m_alphaHeavyDeclined) {
+                    m_settingAlphaProgrammatic = true;
+                    ui->alphaSlider->setValue(100);
+                    m_settingAlphaProgrammatic = false;
+                    return;
+                }
+                m_alphaHeavyPopupActive = true;
+                // Slider subito a 100 PRIMA del box modale: mentre e' aperto
+                // nessun frame trasparente parte (pattern di onAlphaSliderMovedIllCheck).
+                m_settingAlphaProgrammatic = true;
+                ui->alphaSlider->setValue(100);
+                m_settingAlphaProgrammatic = false;
+
+                QMessageBox box(this);
+                box.setIcon(QMessageBox::Warning);
+                box.setWindowTitle(tr("Transparency on a heavy scene"));
+                box.setText(tr("The GPU is already under heavy load with this "
+                               "animation."));
+                box.setInformativeText(tr("Transparency multiplies the per-pixel "
+                                          "cost of ray marching and would very "
+                                          "likely make rendering collapse (on "
+                                          "some devices it can freeze the "
+                                          "application).\n\n"
+                                          "You can apply it anyway at your own "
+                                          "risk, or keep the surface opaque."));
+                QPushButton *applyBtn  = box.addButton(tr("Apply anyway"), QMessageBox::AcceptRole);
+                QPushButton *opaqueBtn = box.addButton(tr("Keep it opaque"), QMessageBox::RejectRole);
+                box.setDefaultButton(opaqueBtn);
+                box.exec();
+                if (box.clickedButton() == applyBtn) {
+                    // Conferma data: applichiamo il valore richiesto in modo
+                    // programmatico (i check di questa invocazione sono gia'
+                    // stati fatti) e non richiediamo piu' per questa superficie.
+                    m_alphaHeavyWarnShown = true;
+                    m_settingAlphaProgrammatic = true;
+                    ui->alphaSlider->setValue(value);
+                    m_settingAlphaProgrammatic = false;
+                } else {
+                    // "Keep it opaque": vale per TUTTO il gesto in corso — gli
+                    // eventi residui della presa vengono riassorbiti sopra.
+                    m_alphaHeavyDeclined = true;
+                }
+                m_alphaHeavyPopupActive = false;
+                return;  // in entrambi i casi il set giusto e' gia' avvenuto sopra
+            }
+        }
+        alphaValue = static_cast<float>(value) / 100.0f;
+        ui->lblAlphaVal->setText(QString::number(alphaValue, 'f', 2));
+        ui->glWidget->setAlpha(alphaValue);
+    });
+
+    // Nuova presa dello slider trasparenza: il "Keep it opaque" dato durante la
+    // presa precedente valeva per QUEL gesto, non per sempre — riarma la conferma.
+    // Riarma anche il watchdog: se era stato zittito perche' avevamo disattivato
+    // la trasparenza (guardTransparencyOnDisplacementApply -> ack), toccare di
+    // nuovo lo slider e' l'atto esplicito dopo cui il watchdog deve tornare a
+    // vigilare (setAlpha fa solo update(), NON passa da rebuildShader che
+    // altrimenti lo riarmerebbe). E' il "a meno che non riporti alpha<1".
+    connect(ui->alphaSlider, &QSlider::sliderPressed, this, [this](){
+        m_alphaHeavyDeclined = false;
+        if (ui->glWidget) ui->glWidget->rearmPerformanceWarning();
+    });
+
+    connect(ui->chkBoxTexture, &QCheckBox::toggled, this, [this](bool checked){
+        // Il checkbox MOSTRA o NASCONDE una texture: non ne scrive nessuna, e
+        // non e' lavoro da proteggere (segnalato dall'utente: l'avviso usciva
+        // su una texture mai toccata). Cio' che cambia qui dentro entra quindi
+        // anche nei riferimenti puliti. Non durante load e reset, che segnano
+        // il loro momento pulito all'uscita.
+        std::optional<AbsorbChangesGuard> absorbToggle;
+        if (m_uiReady) absorbToggle.emplace(this);
+        // ==========================================================
+        // TEXTURE DELLA SOLA MESH SELEZIONATA
+        // ==========================================================
+        // Con l'ambito su "Mesh" e una parte attiva, il checkbox accende o
+        // spegne la texture di QUELLA parte, come fanno colore/alpha/luce.
+        // Va PRIMA di tutto il resto: il ramo sotto scrive lo stato GLOBALE
+        // (setGlobalTextureEnabled + generateTexture), che finisce nell'UBO di ogni
+        // parte e texturizzava l'intera superficie -- oltre a far diventare
+        // bianche le mesh in wireframe, che venivano disegnate col colore
+        // della texture invece che col proprio.
+        // In "All" (nessuna parte attiva) si prosegue col percorso di sempre.
+        // Escluso il ramo Background (la texture di sfondo non e' per-mesh) e
+        // il Ray Marching, che non ha parti di mesh.
+        if (!editingBackground()
+            && !implicitMode()
+            && ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
+
+            // Codice da usare per QUESTA parte: quello che ha gia' (riaccensione)
+            // oppure la scacchiera di default, cosi' accendere il checkbox
+            // produce sempre qualcosa di visibile come sulla superficie intera.
+            QString code = ui->glWidget->activeMeshTextureCode();
+            if (checked && code.trimmed().isEmpty())
+                code = defaultMeshTextureCode();
+
+            // COLORI DELLA TEXTURE ALLA GPU. La scacchiera di default e' tutta
+            // costruita su u_col1/u_col2 (mix dei due), che arrivano dall'UBO
+            // via setGlobalTextureColors: senza questa riga i due slot restano ai
+            // valori stantii del contesto precedente e, se coincidono, la
+            // scacchiera esce in TINTA UNITA (il caso "tutto bianco").
+            // Il ramo globale del checkbox fa lo stesso poco piu' sotto: qui
+            // serve perche' quel ramo non viene percorso.
+            // I colori di default valgono solo per una texture NUOVA. Se la
+            // parte ne aveva già di propri (riaccensione, o rientro su una mesh
+            // già texturizzata) vanno RIPRISTINATI i suoi: forzarli a
+            // verde/nero qui riscriveva i colori di una mesh già configurata
+            // solo perché la si era riselezionata.
+            if (checked) {
+                const auto &cparts = ui->glWidget->getEngine()->getMeshParts();
+                const int ci = ui->glWidget->activeMeshPart();
+                const MeshPart *cp = (ci >= 0 && ci < (int)cparts.size()) ? &cparts[ci] : nullptr;
+                // I due slot GLOBALI restano quelli della texture di superficie:
+                // qui si sta configurando una fascia, e i colori vanno nella
+                // parte. setActiveMeshTexture poco sotto li copierebbe dai
+                // globali solo a una parte che non ne ha di propri.
+                if (!(cp && cp->hasCustomTexColors()))
+                    ui->glWidget->setActiveMeshTexColors(QColor::fromRgbF(0.20f, 0.80f, 0.20f), Qt::black);
+            }
+
+            // ACCENSIONE: applica lo script alla parte (via di COMANDO).
+            // SPEGNIMENTO: si spegne soltanto, CONSERVANDO lo script --
+            // setActiveMeshTexture e' la via di comando e riscriverebbe
+            // textureCode forzando hasCustomTexture=true, cioe' rimetterebbe la
+            // texture "in vita" proprio mentre la si sta spegnendo: l'editor
+            // continuava a mostrarne lo script (il display guarda la texture
+            // EFFICACE, e quella restava dichiarata).
+            if (checked) ui->glWidget->setActiveMeshTexture(code, true);
+            else         ui->glWidget->setActiveMeshTextureEnabled(false);
+
+            // OROLOGIO DELLA TEXTURE. Accendere la texture di una mesh e' un
+            // avvio esplicito del modulo, come il Run: riarma un eventuale stop
+            // manuale e rivaluta se il clock serve. Il conto va fatto DOPO
+            // setActiveMeshTexture, perche' allSurfaceTextureCode() legge lo
+            // stato appena scritto sulla parte.
+            m_userStoppedTexClock = false;
+            ui->glWidget->setSurfaceTextureAnimating(
+                hasTimeVariable(allSurfaceTextureCode()));
+
+            // OROLOGIO DELLA PARTE. Ogni fascia ha il PROPRIO clock: accendere
+            // solo quello globale (riga sopra) non la muove piu'. Senza questa
+            // riga, riaccendendo il checkbox la texture tornava FERMA.
+            // Solo se il suo script usa il tempo: una texture statica non deve
+            // lasciare acceso un orologio a vuoto.
+            if (checked) {
+                m_userStoppedMeshTexClock = false;   // comando esplicito
+                ui->glWidget->setActiveMeshTextureAnimating(hasTimeVariable(code));
+            }
+
+            // I picker Color 1/2 servono solo se lo script della parte li usa.
+            updateTextureUIState(checked, true);
+            updateFlatPreviewButton();
+
+            // EDITOR E TASTI RIALLINEATI SUBITO. Questo ramo esce con return e
+            // non passava dal display per-mesh: spegnendo il checkbox l'editor
+            // restava con lo script della texture appena spenta, e si svuotava
+            // solo al PRIMO EVENTO SUCCESSIVO che risincronizza (il "giro di
+            // ritardo": serviva spegnere due volte perche' sparisse).
+            // syncAppearanceControlsToActiveMesh e' il punto unico del display
+            // per-mesh e decide da solo cosa mostrare, in base alla texture
+            // EFFICACE della parte.
+            syncAppearanceControlsToActiveMesh();
+            updateMasterButtonState();
+
+            ui->glWidget->update();
+            return;
+        }
+
+        if (editingBackground()) {
+            ui->glWidget->setBackgroundTextureEnabled(checked);
+            // Picker Colore solo se lo sfondo è acceso E usa quel colore (indipendenti).
+            bool bgCol1 = checked && m_bgTextureCode.contains("u_col1");
+            bool bgCol2 = checked && m_bgTextureCode.contains("u_col2");
+            ui->radioTexColor1->setEnabled(bgCol1);
+            ui->radioTexColor2->setEnabled(bgCol2);
+
+            if ((bgCol1 || bgCol2) && !ui->radioTexColor1->isChecked() && !ui->radioTexColor2->isChecked()) {
+                QRadioButton *target = bgCol1 ? ui->radioTexColor1 : ui->radioTexColor2;
+                bool oldBlock = target->blockSignals(true);
+                target->setChecked(true);
+                target->blockSignals(oldBlock);
+            }
+
+            if (!checked) {
+                // Codice, percorso dell'immagine, ancora e GPU insieme: la
+                // riaccensione riparte sempre dalla default, e il Save non trova
+                // piu' il percorso dell'immagine appena tolta (lo scriveva come
+                // //IMG: in un record con lo sfondo spento).
+                forgetBackgroundTexture();
+
+                // Lo slot dello sfondo e' vuoto (forgetBackgroundTexture): se
+                // il dock lo sta mostrando, editor e tasti lo seguono.
+                updateScriptButtonText();
+            }
+
+            onColorTargetChanged();
+        }
+        else {
+            // CANCELLAZIONE SCRIPTS CON WARNING (SURFACE TEXTURE)
+            if (!checked && !m_blockTextureGen) {
+                // 1. Verifichiamo se c'è effettivamente del codice che andrebbe perso
+                bool hasCode = false;
+                bool isModified = this->property("isTextureModified").toBool();
+
+                if (implicitMode()) { // Ray Marching
+                    QString tex = m_rm.texture.trimmed();
+                    QString disp = m_rm.displacement.trimmed();
+
+                    // Ignoriamo le texture di DEFAULT generate automaticamente (non sono
+                    // codice scritto dall'utente da proteggere): la scacchiera procedurale
+                    // attuale e il vecchio Triplanar Mapping (per record/preset salvati prima).
+                    bool isAutoDefault = tex.contains("sin(pModel.x * 20.0) * sin(pModel.y * 20.0)")
+                                         || tex.contains("vec3 blend = abs(n_model);");
+                    if (!tex.isEmpty() && !isAutoDefault) hasCode = true;
+                    if (!disp.isEmpty()) hasCode = true;
+
+                } else { // Parametrica
+                    QString tex = m_surfaceTextureCode.trimmed();
+
+                    // Se c'è SOLO un tag immagine (es. //IMG:/percorso.png) senza logica a capo, ignoralo
+                    bool isOnlyImage = tex.startsWith("//IMG:") && !tex.contains("\n");
+                    if (!tex.isEmpty() && !isOnlyImage) hasCode = true;
+                }
+
+                // Cancellazione fisica del codice texture in memoria. DEVE avvenire
+                // a OGNI spegnimento (non solo quando si modifica a mano), altrimenti
+                // riaccendendo il checkbox il rebuildShader/generateTexture riusa il
+                // codice ancora in memoria e ricompare l'ULTIMA texture caricata invece
+                // della default. Il warning sotto decide solo se CHIEDERE conferma
+                // (quando c'è codice scritto a mano che andrebbe perso).
+                auto clearTextureMemory = [this]() {
+                    if (implicitMode()) {
+                        // Svuota i campi della tab Ray Marching
+                        setRmText(&ImplicitTexts::texture, QString());
+                        setRmText(&ImplicitTexts::displacement, QString());
+                        if (ui->glWidget) {
+                            ui->glWidget->setTextureCode("");
+                            ui->glWidget->setDisplacementCode("");
+                            // Anche l'immagine, come nel ramo parametrico: il
+                            // campo non la nomina piu', e restava in GPU.
+                            ui->glWidget->clearTexture();
+                        }
+                    } else {
+                        // Svuota memoria e variabili parametriche (il motore
+                        // torna allo shader standard)
+                        commitSurfaceTextureCode(QString());
+                        // Lo script con lei: l'editor, se lo mostra, lo segue.
+                        setScriptText(SlotSurfaceTexture, QString());
+
+                        if (ui->glWidget) ui->glWidget->clearTexture();
+                    }
+                    // TRASFORMAZIONE 2D: va azzerata insieme al codice. Zoom/pan/
+                    // rotazione sono di MODULO, non della singola texture: restando
+                    // in piedi, la scacchiera di default che ricompare alla
+                    // riaccensione veniva disegnata attraverso l'inquadratura della
+                    // texture precedente. Col record "Dynamic Mobius Band" (che salva
+                    // zoom 9.36 per il proprio Shadertoy) la default si vedeva come un
+                    // quadrato 2x2 invece che come la griglia 8x8; con uno zoom < 1
+                    // salvato altrove appariva invece rimpicciolita. Stesso motivo per
+                    // cui qui si azzerano gia' i colori texture nei due rami piu' sotto.
+                    // setGlobalTexTransform allinea da se' anche il buffer di lavoro
+                    // della vista 2D (in ambito "All"), che e' cio' che lo shader legge.
+                    if (ui->glWidget)
+                        ui->glWidget->setGlobalTexTransform(1.0f, QVector2D(0.0f, 0.0f), 0.0f);
+
+                    // Codice perso/azzerato: lo stato "modificato" non ha più senso.
+                    this->setProperty("isTextureModified", false);
+                };
+
+                // MOSTRA IL WARNING SOLO SE C'È VERO CODICE *E* L'UTENTE LO HA MODIFICATO MANUALMENTE
+                if (hasCode && isModified) {
+                    // Stesso popup di ogni altra uscita senza salvare (Save /
+                    // Don't save / Cancel): prima era un Si'/No che poteva solo
+                    // buttare via il lavoro. Uniformita' dell'interfaccia, e in
+                    // piu' qui si puo' finalmente salvare invece di perdere tutto.
+                    if (!confirmDiscardUnsaved(ScopeTexture)) {
+                        // Cancel: la texture resta accesa, e il checkbox -- la
+                        // sua vista -- torna a dirlo.
+                        refreshTextureCheckbox();
+                        return; // Interrompe l'operazione
+                    }
+
+                    // Save o Don't save: in entrambi i casi si prosegue e si
+                    // azzera. Dopo Save il codice e' su disco, quindi non si
+                    // perde nulla; dopo Don't save la perdita e' voluta.
+                    clearTextureMemory();
+                } else {
+                    // Nessun codice scritto a mano da proteggere (es. texture solo
+                    // CARICATA da preset): niente warning, ma azzeriamo lo stesso così
+                    // la riaccensione riparte sempre dalla texture di default.
+                    clearTextureMemory();
+                }
+            }
+
+            m_surfaceTextureState = checked;
+            updateTextureUIState(checked);
+            applySurfaceTextureToEngine();
+
+            if (!m_blockTextureGen && checked) {
+                // --- LOGICA RAY MARCHING (Tab 1) ---
+                if (implicitMode()) {
+                    QString currentTex = m_rm.texture.trimmed();
+
+                    if (currentTex.isEmpty()) {
+                        // Reset dei colori texture alla default: senza questo, dopo
+                        // una texture RM con colori custom (u_col1/u_col2), la default
+                        // ricompariva con i colori della precedente (l'UBO restava
+                        // stantio). Simmetrico al ramo parametrico.
+                        if (ui->glWidget)
+                            ui->glWidget->setGlobalTextureColors(QColor::fromRgbF(0.20f, 0.80f, 0.20f), Qt::black);
+
+                        // Default RM = scacchiera PROCEDURALE pilotata da u_col1/u_col2
+                        // (come il preset "Checkboard"): niente immagine, così i picker
+                        // Color 1/2 sono attivi sulla texture di default. Contratto texture
+                        // RM: assegnare textureCol usando pModel e ubuf.u_col1/u_col2.
+                        QString defaultRM =
+                            "float pattern = sin(pModel.x * 20.0) * sin(pModel.y * 20.0);\n"
+                            "if (pattern > 0.0) {\n"
+                            "    textureCol = ubuf.u_col1;\n"
+                            "} else {\n"
+                            "    textureCol = ubuf.u_col2;\n"
+                            "}";
+
+                        // A segnali bloccati: questa e' la texture DI DEFAULT che
+                        // l'accensione della checkbox fa comparire, non codice
+                        // scritto dall'utente. Senza il blocco passerebbe da
+                        // markRmTextureEdited come una digitazione. (Che non sia
+                        // lavoro da salvare lo garantisce AbsorbChangesGuard, in
+                        // cima a questo gestore.)
+                        {
+                            setRmText(&ImplicitTexts::texture, defaultRM);
+                        }
+                        if (ui->glWidget) ui->glWidget->setTextureCode(defaultRM);
+
+                        // Texture procedurale, non immagine: l'immagine se n'e'
+                        // gia' andata dalla GPU allo spegnimento (clearTextureMemory).
+
+                        // Texture colorata appena attivata: il pallino dei Color va su
+                        // Color 1 (resetColorTargetToFirst), la tripla resta dov'è
+                        // (gruppi indipendenti). updateTextureUIState chiama già
+                        // onColorTargetChanged. DEVE stare DOPO aver impostato lineTexture:
+                        // activeTextureUsesColors() in RM legge u_col1/u_col2 da lineTexture.
+                        updateTextureUIState(true, true);
+                    }
+                }
+                // --- LOGICA PARAMETRICA (Tab 0) ---
+                else {
+                    // Niente immagine: generateTexture() qui sotto mette la
+                    // scacchiera nel sampler al suo posto.
+
+                    // Stacco dello SHADER PROCEDURALE residuo. A differenza dello sfondo
+                    // (vedi setBackgroundTexture("background.png") al suo spegnimento), la
+                    // texture di superficie parametrica e' uno shader custom applicato via
+                    // loadCustomShader: se la superficie PRECEDENTE aveva una texture
+                    // procedurale, quello shader resta agganciato -> riappare la vecchia
+                    // texture senza animazione / coi colori falsati. Azzeriamo il codice in
+                    // memoria e ripristiniamo lo shader standard prima di applicare la
+                    // default (applyDefaultCheckerShader piu' sotto).
+                    // NB: il bug residuo era SOLO sulle parametriche (le implicite
+                    // ricompilano la texture nello shader SDF a ogni Run).
+                    commitSurfaceTextureCode(QString());   // torna allo shader standard
+                    setScriptText(SlotSurfaceTexture, QString());
+
+                    // Reset dei colori texture alla default. Senza questo restano
+                    // quelli del preset precedente e la scacchiera default
+                    // ricompare coi colori vecchi. Stesso reset del ramo Ray Marching.
+                    if (ui->glWidget)
+                        ui->glWidget->setGlobalTextureColors(QColor::fromRgbF(0.20f, 0.80f, 0.20f), Qt::black);
+
+                    // Texture colorata appena attivata: il pallino dei Color va su Color 1
+                    // (resetColorTargetToFirst); la tripla resta dov'è (gruppi indipendenti).
+                    updateTextureUIState(true, true);
+
+                    generateTexture();
+                    // Il visual della default e' lo shader procedurale, non l'immagine
+                    // appena caricata (vedi applyDefaultCheckerShader). Se la bake
+                    // fallisse resta lo shader standard -> fallback sull'immagine.
+                    applyDefaultCheckerShader();
+                }
+
+                if (ui->glWidget) ui->glWidget->rebuildShader();
+            }
+        }
+
+        updateFlatPreviewButton();
+
+        // COSTANTI: spegnere una texture (di superficie o di sfondo) puo' far
+        // cadere in disuso una lettera, accenderla sulla default pure. Senza
+        // ricalcolo lo slider restava acceso col valore di prima, a muovere nulla.
+        refreshConstants();
+
+        // --- GESTIONE AUTOMATICA ANIMAZIONE (START/STOP) SICURA ---
+        bool needsAnim = false;
+
+        // 1. Controllo Equazioni Base
+        if (implicitMode()) { // Ray Marching
+            // Solo l'SDF (lineEquation/script) è geometria; il displacement
+            // (lineVariations) è del modulo texture ed è controllato al punto 2.
+            QString eq = activeImplicitEquationText() + " " + m_surfaceScriptApplied;
+            if (hasTimeVariable(eq)) needsAnim = true;
+        } else { // Parametrica
+            // Includere i campi Composition (lineU/lineV/lineW) e i vincoli espliciti:
+            // 't' può vivere SOLO lì (es. U(u,v)=u+t*D) mentre X/Y/Z/P ne sono privi.
+            // Senza questi, accendere/spegnere la texture ricalcolava needsAnim=false
+            // e fermava per errore l'animazione della geometria. Stesso insieme di
+            // rawEqsForT (onStartClicked) e mainEq (updateMasterButtonState).
+            QString eq = m_eq.x + " " + m_eq.y + " " +
+                         m_eq.z + " " + m_eq.p + " " +
+                         m_eq.u + " " + m_eq.v + " " + m_eq.w + " " +
+                         m_eq.explicitU + " " + m_eq.explicitV + " " + m_eq.explicitW + " " +
+                         m_surfaceScriptApplied;
+            if (hasTimeVariable(eq)) needsAnim = true;
+        }
+
+        // 2. Controllo Texture Superficie (SOLO SE ABILITATA)
+        // MULTI-MESH: il modulo e' attivo, e il suo 't' va cercato, anche quando
+        // la texture ce l'ha solo una FASCIA. Qui si guardava m_surfaceTextureCode
+        // (la sola texture globale) con un gate sul checkbox / su
+        // m_surfaceTextureState: con l'animazione sulla fascia 1 e nessuna
+        // texture globale, needsAnim usciva falso e il ramo sotto chiamava
+        // applyAnimationState(false), fermando l'animazione.
+        // Si vedeva SOLO applicando in Background la texture di DEFAULT: le
+        // altre (script o immagine) portano un proprio codice e passano da
+        // percorsi che non ricalcolano needsAnim, mentre la default arriva qui.
+        bool isSurfTexActive = editingBackground() ? m_surfaceTextureState : checked;
+        if (!isSurfTexActive) isSurfTexActive = anyMeshTextureActive();
+        if (isSurfTexActive) {
+            QString tex = (implicitMode())
+                    ? (m_rm.texture + m_rm.displacement)
+                    : allSurfaceTextureCode();
+            if (hasTimeVariable(tex)) needsAnim = true;
+        }
+
+        // 3. Controllo Texture Sfondo (SOLO SE ABILITATA)
+        if (ui->glWidget && ui->glWidget->isBackgroundTextureEnabled()) {
+            if (hasTimeVariable(m_bgTextureCode)) needsAnim = true;
+        }
+
+        // 4. APPLICAZIONE STATO E AGGIORNAMENTO UI
+        if (needsAnim) {
+            if (m_btnStart && m_btnStart->text() != "START") {
+                applyAnimationState(true);
+            }
+        } else {
+            applyAnimationState(false);
+        }
+
+        if (ui->glWidget) ui->glWidget->update();
+    });
+
+    // Avviso di rallentamento: il GLWidget segnala quando il rendering resta
+    // sotto soglia troppo a lungo. PRIMA fermiamo l'animazione, POI avvisiamo:
+    // col collasso in corso (frame da secondi) il popup modale restava sepolto
+    // dietro il rendering e l'utente non riusciva nemmeno a premere "Stop"
+    // (visto su iPhone: magenta + app di fatto inutilizzabile). Fermare subito
+    // libera GPU e GUI thread, la finestra appare ed e' reattiva; chi vuole fa
+    // ripartire tutto dal popup (equivale a un master Start).
+    // QueuedConnection: il segnale parte dal thread di rendering del QRhiWidget,
+    // il QMessageBox deve invece girare nel thread GUI.
+    // SHADER CHE NON COMPILA: la superficie SPARISCE (buildPipeline azzera le
+    // pipeline) e finora l'unica traccia era un qWarning sulla console, che
+    // l'utente non vede -- restava solo lo schermo vuoto, senza spiegazione.
+    // Caso tipico: due texture per-mesh i cui script dichiarano lo stesso
+    // simbolo. Il generatore rinomina per-mesh le forme note (#define, funzioni,
+    // globali, struct), ma uno script NUOVO puo' sempre introdurne una non
+    // prevista: qui l'utente almeno legge QUALE simbolo e' in conflitto.
+    connect(ui->glWidget, &GLWidget::shaderCompilationFailed, this,
+            [this](const QString &err) {
+        // Un popup alla volta. La sorgente ne emette gia' UNO solo per errore
+        // (m_shaderErrorReported in GLWidget), ma la guardia resta come rete:
+        // il segnale e' Queued e il box e' asincrono, quindi due errori diversi
+        // in rapida successione potrebbero comunque accavallarsi.
+        if (m_shaderErrorPopupActive) return;
+        m_shaderErrorPopupActive = true;
+
+        // BOX ASINCRONO, non exec(): un QMessageBox modale gira un event loop
+        // ANNIDATO, e i segnali consegnati li' dentro riaprivano il popup sopra
+        // se stesso -- la raffica che ha reso necessaria l'uscita forzata.
+        // open() ritorna subito e l'applicazione resta utilizzabile.
+        auto *box = new QMessageBox(this);
+        box->setIcon(QMessageBox::Warning);
+        box->setWindowTitle(tr("Shader Compilation Failed"));
+
+        // TESTO CORTO in setText, RESTO in setInformativeText: QMessageBox tratta
+        // il testo principale come un titolo e NON lo manda a capo, allargando la
+        // finestra quanto serve a contenerlo su una riga. Con la spiegazione
+        // intera li' dentro il box arrivava a occupare tutto lo schermo (visto su
+        // iPhone). L'informativeText invece va a capo da solo: e' lo stesso
+        // schema del box "Transparency on a heavy scene", che infatti si e'
+        // sempre visto di dimensioni normali.
+        const QString detail = err.trimmed();
+
+        // Una RISORSA di shader mancante non e' un errore dell'utente: il testo
+        // sulle texture in conflitto sarebbe una spiegazione falsa, e manderebbe
+        // a cercare un problema inesistente nei propri script. bakeShader in quel
+        // caso confeziona gia' il messaggio giusto (riconoscibile dal prefisso),
+        // che qui si mostra al posto di quello standard.
+        if (detail.startsWith(QLatin1String("Internal error:"))) {
+            box->setText(tr("The application is missing part of its built-in data."));
+            box->setInformativeText(detail);
+        } else {
+            box->setText(tr("The surface was not updated: what you see is the "
+                            "last valid image."));
+            box->setInformativeText(
+                tr("The shader could not be compiled.\n\n"
+                   "If you have just applied a texture to a mesh, its script may "
+                   "declare a symbol (a function, a #define, a global variable) "
+                   "with the same name as another mesh's texture.\n\n"
+                   "To recover, turn that texture off on the mesh, or load a "
+                   "different one."));
+            // Il log del compilatore e' lungo e a righe fisse: sta nei dettagli,
+            // dove ha una sua area con scorrimento invece di allargare il box.
+            if (!detail.isEmpty()) box->setDetailedText(detail);
+        }
+
+        box->setStandardButtons(QMessageBox::Ok);
+        box->setAttribute(Qt::WA_DeleteOnClose);
+        connect(box, &QDialog::finished, this,
+                [this](int){ m_shaderErrorPopupActive = false; });
+        box->open();
+    }, Qt::QueuedConnection);
+
+    // IMMAGINE DI TEXTURE NON DECODIFICABILE.
+    // Il file c'e' ed e' leggibile (validato prima del caricamento) ma Qt non ne
+    // ricava pixel: formato non supportato o file corrotto. Prima
+    // loadTextureFromFile usciva in silenzio e a schermo restava la texture
+    // PRECEDENTE, che sembrava "la texture di default del preset": nessun
+    // indizio della causa. Box asincrono per gli stessi motivi del segnale
+    // gemello qui sopra (niente event loop annidato).
+    connect(ui->glWidget, &GLWidget::textureImageLoadFailed, this,
+            [this](const QString &path) {
+        if (m_textureImageErrorPopupActive) return;
+        m_textureImageErrorPopupActive = true;
+
+        auto *box = new QMessageBox(QMessageBox::Warning, "Image Not Loaded",
+            "This image could not be loaded, so the previous texture is still "
+            "showing:\n\n" + path + "\n\nThe file exists but is not a readable "
+            "image: it may be corrupted, or in a format that is not supported.",
+            QMessageBox::Ok, this);
+        box->setAttribute(Qt::WA_DeleteOnClose);
+        connect(box, &QDialog::finished, this,
+                [this](int){ m_textureImageErrorPopupActive = false; });
+        box->open();
+    }, Qt::QueuedConnection);
+
+    connect(ui->glWidget, &GLWidget::performanceWarning, this, [this]() {
+        // Un popup alla volta: eventuali segnali gia' in coda quando il box e'
+        // aperto (peggioramenti misurati prima del nostro stop) non devono
+        // aprirne altri. E se il master e' gia' fermo (stop manuale arrivato
+        // prima della consegna del segnale in coda) l'avviso e' stantio.
+        //
+        // m_transparencyGuardActive: una guardia trasparenza (interattiva o
+        // post-load) sta gestendo il caso o ha il suo popup aperto. Il segnale
+        // del watchdog qui e' STANTIO — era stato emesso (QueuedConnection) sui
+        // primi frame trasparenti PRIMA che la guardia mettesse alpha a 1 e
+        // chiamasse acknowledgePerformanceWarning(); l'ack blocca le emissioni
+        // FUTURE ma non questa gia' in coda. Scartarlo evita il popup del
+        // watchdog SOPRA la finestra della guardia (la confusione segnalata).
+        if (m_perfPopupActive || m_masterStopped || m_transparencyGuardActive) return;
+        m_perfPopupActive = true;
+
+        // Lo stop e la trasparenza tolta qui sotto li decide l'app, non
+        // l'utente: non sono lavoro da salvare.
+        AbsorbChangesGuard absorbWatchdog(this);
+
+        performMasterStop();
+
+        // Allo stop da collasso riportiamo anche la trasparenza a 1 (solo Ray
+        // Marching): il ramo trasparente e' il moltiplicatore di costo del
+        // marcher (MAX_FACES x 3 marchNextLayer per pixel), e con alpha<1 OGNI
+        // ridisegno (slider, drag, resize) restava da secondi anche a scena
+        // ferma — lo stop toglie il moto, non il costo per pixel. Opaco costa
+        // una frazione: l'interfaccia torna reattiva subito, popup compreso.
+        // setValue(100) passa dall'handler valueChanged (value==100: nessun
+        // check ill/warn) e riallinea slider, label e GLWidget in un colpo.
+        // Sul parametrico la trasparenza non e' il collo di bottiglia: non si
+        // tocca. Se l'utente sceglie "Restart animation" l'alpha ORIGINALE
+        // viene ripristinato prima del riavvio (prosegue a suo rischio con la
+        // scena identica a prima); con "Keep it stopped" resta opaco.
+        bool alphaReset = false;
+        int  alphaPrev  = 100;
+        const bool perfIsImplicit = (implicitMode());
+        if (perfIsImplicit && ui->alphaSlider->value() < 100) {
+            alphaPrev = ui->alphaSlider->value();
+            ui->alphaSlider->setValue(100);
+            alphaReset = true;
+        }
+
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Warning);
+        box.setWindowTitle(tr("Animation stopped"));
+        box.setText(tr("The animation was stopped because rendering was "
+                       "slowing down dangerously."));
+        QString info = tr("Pushing the complexity further (steps, effects, "
+                          "resolution) may degrade the image or, on some "
+                          "devices, freeze the application.\n\n"
+                          "You can restart the animation at your own risk, "
+                          "or leave it stopped and reduce some parameters "
+                          "first.");
+        if (alphaReset)
+            info += tr("\n\nTransparency has been set to fully opaque to keep "
+                       "the app responsive while stopped. Restarting the "
+                       "animation restores your transparency setting.");
+        box.setInformativeText(info);
+        QPushButton *resumeBtn = box.addButton(tr("Restart animation"), QMessageBox::AcceptRole);
+        QPushButton *stayBtn   = box.addButton(tr("Keep it stopped"), QMessageBox::RejectRole);
+        box.setDefaultButton(stayBtn);
+        box.exec();
+        if (box.clickedButton() == resumeBtn) {
+            // Ripristina la trasparenza originale PRIMA del riavvio, cosi' la
+            // scena riparte identica a com'era. Set programmatico: il flag salta
+            // i check ill/warn dell'handler (gia' assolti quando l'utente aveva
+            // abbassato lo slider la prima volta).
+            if (alphaReset) {
+                m_settingAlphaProgrammatic = true;
+                ui->alphaSlider->setValue(alphaPrev);
+                m_settingAlphaProgrammatic = false;
+            }
+            // Riavvio = vero master Start (il gestore riconosce sender()==m_btnStart:
+            // riarma i flag user-stop e riparte il moto camera corrente).
+            if (m_btnStart) m_btnStart->click();
+            // L'utente e' avvisato e ha scelto di proseguire: zittiamo il watchdog
+            // per QUESTA animazione (niente popup a raffica sullo stesso
+            // rallentamento). DOPO il riavvio, non prima: da fermo il ramo
+            // !animating del watchdog azzererebbe subito il flag.
+            if (ui->glWidget) ui->glWidget->acknowledgePerformanceWarning();
+        }
+        m_perfPopupActive = false;
+    }, Qt::QueuedConnection);
+
+    connect(ui->btnWireUPlus,  &QPushButton::clicked, this, [this](){ ui->glWidget->increaseWireframeUDensity(); });
+    connect(ui->btnWireVPlus,  &QPushButton::clicked, this, [this](){ ui->glWidget->increaseWireframeVDensity(); });
+    connect(ui->btnWireUMinus, &QPushButton::clicked, this, [this](){ ui->glWidget->decreaseWireframeUDensity(); });
+    connect(ui->btnWireVMinus, &QPushButton::clicked, this, [this](){ ui->glWidget->decreaseWireframeVDensity(); });
+
+    // Colori Default
+    float defR = 0.20f, defG = 0.80f, defB = 0.20f;
+    m_currentSurfaceColor = QColor::fromRgbF(defR, defG, defB);
+
+    if (ui->glWidget) {
+        // Colore superficie (Verde)
+        ui->glWidget->setColor(defR, defG, defB);
+        // Colori della texture di default: verde e nero.
+        ui->glWidget->setGlobalTextureColors(QColor::fromRgbF(0.20f, 0.80f, 0.20f), Qt::black);
+    }
+
+    ui->sliderR->setRange(0, 255);
+    ui->sliderG->setRange(0, 255);
+    ui->sliderB->setRange(0, 255);
+    ui->lightSlider->setRange(0, 200); ui->lightSlider->setValue(100);
+    ui->lblValLight->setText(QString::number(ui->lightSlider->value()) + " %");
+    ui->speed3DSlider->setRange(1, 100); setPathSpeed3D(10);
+    ui->speed4DSlider->setRange(1, 100); setPathSpeed4D(10);
+    // Il trascinamento scrive lo stato (vedi pathSpeed3D).
+    connect(ui->speed3DSlider, &QSlider::valueChanged, this, [this](int v) { m_pathSpeed3D = v; });
+    connect(ui->speed4DSlider, &QSlider::valueChanged, this, [this](int v) { m_pathSpeed4D = v; });
+    // FOV UNICO (dock renderer, sotto Light). Prima erano due slider separati nei
+    // dock 3D e 4D, attivi solo con la RISPETTIVA path in corsa: andavano in
+    // conflitto (due controlli sullo stesso m_cameraFov) e da fermo erano
+    // entrambi bloccati, quindi dopo un path a FOV largo non si poteva
+    // correggere l'inquadratura se non con Reset View. Questo e' l'unico
+    // controllo, non si blocca mai e agisce su TUTTO: path 3D/4D, rotazioni,
+    // t-motion e superfici statiche.
+    ui->fovSliderMain->setRange(20, 110);
+    ui->fovSliderMain->setValue(45);
+    ui->lblValFov->setText(QString::number(45) + QString::fromUtf8("°"));
+
+    UiStyleManager::setupBigSliders(ui->sliderR, ui->sliderG, ui->sliderB, ui->alphaSlider, ui->lightSlider, ui->speed3DSlider, ui->speed4DSlider, ui->fovSliderMain);
+
+    // Color slot della texture (col1/col2). Surface NON è qui: è nella coppia
+    // m_bgTargetGroup (Surface/Background). L'esclusività FRA i due gruppi è a mano.
+    m_colorGroup = new QButtonGroup(this);
+    m_colorGroup->addButton(ui->radioTexColor1);
+    m_colorGroup->addButton(ui->radioTexColor2);
+    m_colorGroup->setExclusive(true);
+
+    m_currentBackgroundColor = QColor::fromRgbF(0.3f, 0.3f, 0.3f);
+    ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
+
+    // (onColorTargetChanged è già invocato dall'handler toggled di radioBackground
+    //  definito sopra: nessuna connessione separata per evitare doppia chiamata.)
+
+    auto handleColorChange = [this]() {
+        int r = ui->sliderR->value(); int g = ui->sliderG->value(); int b = ui->sliderB->value();
+        ui->valR->setNum(r); ui->valG->setNum(g); ui->valB->setNum(b);
+        QColor newColor(r, g, b);
+
+        // Due gruppi INDIPENDENTI: la coppia (Surface/Background) dice DOVE
+        // operiamo, la coppia Color1/Color2 QUALE tinta della texture editiamo. La
+        // priorità è data dalla coppia; Color1/2 scelgono solo lo slot quando il target
+        // ha una texture colorata attiva.
+        if (editingBackground()) {
+            if (targetTextureOn() && activeTextureUsesColors()) {
+                // Texture di sfondo colorata: Color1/Color2 scelgono quale tinta.
+                if (ui->radioTexColor2->isChecked()) m_bgTexColor2 = newColor;
+                else m_bgTexColor1 = newColor;
+
+                ui->glWidget->setProperty("bg_col1", QVector3D(m_bgTexColor1.redF(), m_bgTexColor1.greenF(), m_bgTexColor1.blueF()));
+                ui->glWidget->setProperty("bg_col2", QVector3D(m_bgTexColor2.redF(), m_bgTexColor2.greenF(), m_bgTexColor2.blueF()));
+                ui->glWidget->update();
+            } else {
+                m_currentBackgroundColor = newColor;
+                ui->glWidget->setBackgroundColor(m_currentBackgroundColor);
+                ui->glWidget->update();
+            }
+        }
+        else { // target = Surface
+            // In Wireframe la texture è nascosta e le linee usano il COLORE SUPERFICIE.
+            bool wireframeMode = (shownRenderMode() == 2);
+            // TEXTURE ATTIVA SUL DESTINATARIO CORRENTE. Con una fascia
+            // selezionata conta la SUA texture: m_surfaceTextureState e' lo
+            // stato di quella GLOBALE e resta false se si e' texturizzata solo
+            // la fascia, quindi questo ramo non veniva mai preso e gli slider
+            // finivano a editare il colore della superficie invece dei due
+            // u_col1/u_col2 della texture -- "i picker non cambiano colore".
+            const bool texActiveHere =
+                (ui->glWidget && ui->glWidget->activeMeshPart() >= 0)
+                    ? ui->glWidget->activeMeshTextureActive()
+                    : m_surfaceTextureState;
+            if (!wireframeMode && texActiveHere && activeTextureUsesColors()) {
+                // Texture di superficie colorata: Color1/Color2 scelgono lo slot.
+                // AMBITO "MESH": i colori vanno nella PARTE, non nei due slot
+                // globali. Quelli appartengono alla texture di superficie, e
+                // scriverli qui cambiava i colori di tutte le altre fasce che li
+                // ereditano (stesso difetto del caso Mandelbrot, ma sul percorso
+                // interattivo degli slider).
+                // Lo slot non toccato resta quello che il bersaglio sta gia'
+                // disegnando (surfaceTexColor: i colori propri della fascia, o
+                // i globali che eredita).
+                const bool slot2 = ui->radioTexColor2->isChecked();
+                const QColor c1 = slot2 ? surfaceTexColor(1) : newColor;
+                const QColor c2 = slot2 ? newColor : surfaceTexColor(2);
+                if (!ui->glWidget->setActiveMeshTexColors(c1, c2))
+                    ui->glWidget->setGlobalTextureColors(c1, c2);
+                if (!surfaceTextureIsCustom() && !surfaceHasImage()) scheduleTextureGeneration();
+            } else {
+                m_currentSurfaceColor = newColor;
+                ui->glWidget->setColor(r/255.0f, g/255.0f, b/255.0f);
+            }
+        }
+    };
+
+    ui->sliderR->disconnect(); ui->sliderG->disconnect(); ui->sliderB->disconnect();
+    connect(ui->sliderR, &QSlider::valueChanged, this, handleColorChange);
+    connect(ui->sliderG, &QSlider::valueChanged, this, handleColorChange);
+    connect(ui->sliderB, &QSlider::valueChanged, this, handleColorChange);
+
+    connect(ui->lightSlider, &QSlider::valueChanged, this, [this](int val){
+        float intensity = val / 100.0f;
+        ui->glWidget->setLightIntensity(intensity);
+        ui->lblValLight->setText(QString::number(val) + " %");
+    });
+
+    // LUCE DI RIEMPIMENTO (Fill Light): luce dall'osservatore, SOLO Ray Marching.
+    // Serve dove le due luci principali non arrivano -- le pareti viste da dentro
+    // un tubo o una cavita' lungo un path, che restano nere per quanto si alzi
+    // Light (che moltiplica, quindi su un valore quasi nullo non ha presa).
+    // Scala 0..100 = 0.00..1.20. Il tetto era 0.50 e si e' rivelato basso: su
+    // certe geometrie bisognava portare il cursore a fondo senza riuscire a
+    // schiarire l'ombra, perche' le facce quasi PERPENDICOLARI alla vista sono
+    // quelle che la headlight prende meno (vedi la formula "wrap" nel template,
+    // che le recupera). Con 1.20 il cursore ha margine anche in quei casi e
+    // resta comunque una regolazione fine nella prima meta' della corsa.
+    // DEFAULT 0: a zero il termine nello shader e' esattamente zero e l'immagine
+    // e' identica a prima. E' la ragione per cui questa luce e' un controllo e
+    // non una costante -- vedi u_fillLight in glwidget.h.
+    ui->fillLightSlider->setRange(0, 100);
+    ui->fillLightSlider->setValue(0);
+    ui->lblValFill->setText("0.00");
+    // Stesso aspetto degli altri slider grandi. Copiato da lightSlider (che
+    // setupBigSliders ha appena stilizzato) invece di allungare la firma di
+    // quella funzione a dieci parametri: e' lo stesso stile, senza toccare una
+    // API usata anche altrove.
+    if (ui->lightSlider) {
+        ui->fillLightSlider->setStyleSheet(ui->lightSlider->styleSheet());
+        ui->fillLightSlider->setMinimumHeight(ui->lightSlider->minimumHeight());
+    }
+    connect(ui->fillLightSlider, &QSlider::valueChanged, this, [this](int val){
+        const float v = val * 0.012f;          // 0..100 -> 0.00..1.20
+        ui->glWidget->setFillLight(v);
+        ui->lblValFill->setText(QString::number(v, 'f', 2));
+    });
+
+    // FOV UNICO: agisce SEMPRE e subito, qualunque cosa stia guidando la camera
+    // (path 3D/4D, rotazioni, t-motion, o superficie ferma). Nessun gate: era il
+    // blocco "solo con la propria path in corsa" a rendere il valore non
+    // correggibile da fermo.
+    connect(ui->fovSliderMain, &QSlider::valueChanged, this, [this](int val){
+        applyCameraFov((float)val);
+    });
+
+    // ASPETTO PER-MESH: lo spinbox sceglie su quale parte agiscono i controlli
+    // gia' esistenti (colore, trasparenza, Light, Solid/Wireframe). Il valore 0
+    // mostra "All" e li riporta sullo stato globale, cioe' il comportamento di
+    // sempre; 1..N selezionano la parte k-1. Cambiando selezione riallineiamo i
+    // controlli ai valori di quella parte, cosi' gli slider mostrano cio' che
+    // stanno per modificare invece di un valore ereditato da un'altra mesh.
+    // Le parti di mesh nascono in GLWidget::updateSurfaceData, che ha molti
+    // chiamanti (script, equazioni, cambio tab, load di preset): agganciarsi al
+    // segnale invece che ai singoli chiamanti copre tutti i percorsi. In
+    // particolare il load di un preset SCRIPT non passa da
+    // checkAndTriggerMeshUpdate, dove l'aggancio precedente non scattava.
+    connect(ui->glWidget, &GLWidget::meshPartsChanged, this, [this](){
+        applyPendingMeshAppearance();
+        updateMeshSelectorRange();
+    });
+
+    // ALL / MESH: due radio espliciti al posto della vecchia voce "All" nascosta
+    // dentro lo spinbox (che era il valore 0 con specialValueText). Li' non si
+    // capiva che 0 fosse uno stato diverso, e digitarlo veniva rifiutato perche'
+    // updateMeshSelectorRange riportava subito la selezione a 1.
+    // Passando ad All l'aspetto per-mesh NON si perde: resta nelle parti, e
+    // tornando su Mesh si ritrova (i valori vivono in MeshPart, non nei radio).
+    auto applyMeshScope = [this](){
+        if (!ui->glWidget) return;
+        const bool single = !meshScopeAll();
+        ui->spinMeshSel->setEnabled(single);
+        // In "All" la superficie si comporta come UNA SOLA: l'aspetto proprio
+        // delle parti viene SOSPESO (ignorato dal render, non cancellato), cosi'
+        // colore, trasparenza, luce e wireframe globali valgono per tutte.
+        // Premendo "Mesh" le differenze tornano da sole: i valori sono rimasti
+        // nelle MeshPart.
+        ui->glWidget->setMeshAppearanceUniform(!single);
+        ui->glWidget->setActiveMeshPart(single ? ui->spinMeshSel->value() - 1 : -1);
+        syncAppearanceControlsToActiveMesh();
+
+        // OROLOGIO TEXTURE. Cambiare ambito cambia QUALI texture sono in gioco:
+        // in "All" quelle per-mesh sono sospese, quindi il clock va rivalutato o
+        // resterebbe acceso per una texture animata che nessuno sta piu'
+        // disegnando (e viceversa, spento tornando su "Mesh").
+        // Si guarda SOLO la texture di SUPERFICIE: e' quella che questo clock
+        // governa. Con allSurfaceTextureCode() (che aggrega anche le fasce),
+        // passare ad "All" con una texture per-mesh animata RIACCENDEVA il clock
+        // di superficie che l'utente aveva appena fermato -- e il tasto tornava
+        // su "Stop" da solo.
+        // ...e MAI dopo un master Stop. Il gate storico e' m_userStoppedTexClock,
+        // che pero' registra il solo Stop del DOCK: performMasterStop alza
+        // m_masterStopped (e m_userStoppedMeshTexClock per le fasce), non
+        // quello. Cosi' bastava cambiare ambito per far ripartire la texture di
+        // superficie a scena ferma -- e il master, che la contava come attivita'
+        // in moto, tornava a dire STOP senza che si muovesse nient'altro.
+        // Stessa regola di applyAnimationState: il master e' il gate di ogni
+        // riaccensione, qualunque sia il modulo.
+        if (!m_userStoppedTexClock && !m_masterStopped)
+            ui->glWidget->setSurfaceTextureAnimating(
+                hasTimeVariable(m_surfaceTextureCode));
+
+        // In "All" il checkbox torna a mostrare lo stato GLOBALE della texture:
+        // in "Mesh" ci pensa syncAppearanceControlsToActiveMesh (display della
+        // parte), ma quella esce presto quando non c'e' parte attiva.
+        if (!single && !editingBackground()
+            && !implicitMode()) {
+            refreshTextureCheckbox();
+        }
+        // Come per lo spinbox: il sync muove i radio a segnali bloccati, quindi
+        // il gating (tasti densita' U/V) va aggiornato a mano.
+        updateRenderState();
+
+        // TASTI RICALCOLATI PER ULTIMI. syncAppearanceControlsToActiveMesh (piu'
+        // sopra) li aggiorna gia', ma gira PRIMA che il clock texture venga
+        // rivalutato qui: leggeva quindi lo stato vecchio e il tasto restava
+        // quello dell'ambito precedente. Ordine: stato -> display, mai il
+        // contrario.
+        updateScriptButtonText();
+        updateMasterButtonState();
+
+        // GATING DEI LIMITI PER-MESH. I quattro campi u/v sono attivi solo in
+        // ambito "Mesh" (in "All" non c'e' una parte a cui riferirli), e quel
+        // gating vive in updateMeshScopeEnabled. Senza questa chiamata il
+        // cambio di ambito non lo aggiornava: gli altri controlli per-mesh sono
+        // sempre abilitati e cambiano solo DESTINATARIO, quindi finora nessuno
+        // aveva bisogno di rivalutare il gating al click sui radio -- il giro
+        // passava solo da meshPartsChanged, che al solo cambio di ambito non
+        // scatta. I campi restavano percio' spenti e vuoti fino alla prima
+        // rigenerazione della griglia.
+        // Va per ULTIMA: legge i radio, che sono gia' nello stato finale.
+        updateMeshScopeEnabled();
+        // ...e il gating appena calcolato ha potuto RIABILITARE i campi, che
+        // pero' sono ancora vuoti: updateMeshScopeEnabled li riempie solo
+        // quando li spegne. Il display tocca a questa.
+        syncMeshLimitFields();
+    };
+    // ESCLUSIVITA': i due radio NON sono fratelli (radioMeshOne sta dentro
+    // groupMeshOne, il riquadro che lo tiene insieme allo spinbox; radioMeshAll
+    // sta in widgetMeshSel). Qt rende esclusivi solo i radio con lo stesso
+    // genitore, quindi senza questo gruppo esplicito ognuno faceva storia a se':
+    // si potevano avere entrambi accesi, oppure entrambi spenti (un radio solo
+    // nel suo gruppo e' anche deselezionabile).
+    // Il gruppo li riunisce a prescindere dal layout: il riquadro attorno a
+    // "Mesh" resta libero di essere spostato o ridisegnato.
+    m_meshScopeGroup = new QButtonGroup(this);
+    m_meshScopeGroup->setExclusive(true);
+    m_meshScopeGroup->addButton(ui->radioMeshAll);
+    m_meshScopeGroup->addButton(ui->radioMeshOne);
+    // Il clic: prima lo STATO, che applyMeshScope legge. Arriva solo dai clic:
+    // il programma scrive i radio a segnali bloccati (setMeshScopeAll).
+    connect(ui->radioMeshAll, &QRadioButton::toggled, this, [this, applyMeshScope](bool on){
+        if (!on) return;
+        m_meshScopeAll = true;
+        applyMeshScope();
+    });
+    connect(ui->radioMeshOne, &QRadioButton::toggled, this, [this, applyMeshScope](bool on){
+        if (!on) return;
+        m_meshScopeAll = false;
+        applyMeshScope();
+    });
+    // Stato iniziale: radioMeshAll e' gia' checked nella .ui, quindi il suo
+    // toggled NON scatta qui (le connect sono appena state fatte). Senza questa
+    // chiamata l'ambito "All" sarebbe mostrato dai radio ma non applicato al
+    // motore, e le mesh partirebbero gia' differenziate.
+    //
+    // PRIMA pero' va allineato il renderMode del motore alla modalita'
+    // PARAMETRICA di partenza (Base, come radioBasic gia' selezionato sopra).
+    // Nel setup del Ray Marching il motore riceve setGlobalRenderMode(1) = Shell, che
+    // resta li' finche' nessuno lo cambia: applyMeshScope -> ...ToActiveMesh ->
+    // ramo "All" -> i radio sulla globalRenderMode() del motore lo leggevano come
+    // modalita' parametrica e accendeva PHONG, mentre il toro di default era
+    // ovviamente disegnato in Base. Radio e superficie non concordavano.
+    if (ui->glWidget) ui->glWidget->setGlobalRenderMode(m_savedRenderMode);
+    applyMeshScope();
+
+    // MOBILE: il campo Mesh e' un intero 1..N e non ha bisogno della tastiera.
+    // Le frecce native vengono sostituite da due tasti a forma di freccia e il
+    // campo diventa non editabile (vedi installMobileSpinButtons: su iOS
+    // toccarlo apriva tastierino e menu di modifica senza poterli chiudere).
+    // No-op su desktop.
+    UiStyleManager::installMobileSpinButtons(ui->spinMeshSel);
+#if defined(Q_OS_IOS) || defined(Q_OS_ANDROID)
+    // I radio non devono cedere spazio: senza questo il testo "Mesh" veniva
+    // troncato in "Mes". Un minimo "a occhio" non basta — dipende dal font
+    // effettivo, che su mobile e' piu' grande — quindi lo calcoliamo dal testo
+    // reale: larghezza del testo + indicatore + margini dello stile, e lo
+    // imponiamo come minimo E come dimensione preferita, cosi' il layout non
+    // puo' comprimerli sotto quella soglia per far posto ai tasti.
+    // NB: si usa sizeHint(), non un calcolo a mano su fontMetrics +
+    // pixelMetric. Il QSS mobile ridefinisce sia la dimensione
+    // dell'indicatore (QRadioButton::indicator width/height) sia lo spacing,
+    // quindi i pixelMetric dello stile restituirebbero i valori di DEFAULT e
+    // non quelli realmente usati: il minimo risulterebbe troppo stretto e il
+    // testo continuerebbe a essere troncato. sizeHint tiene conto del foglio
+    // di stile applicato.
+    auto fitRadio = [](QRadioButton* rb) {
+        if (!rb) return;
+        rb->ensurePolished();                       // QSS applicato prima di misurare
+        const int w = rb->sizeHint().width() + 8;    // 8 = respiro
+        rb->setMinimumWidth(w);
+        rb->setSizePolicy(QSizePolicy::Fixed, rb->sizePolicy().verticalPolicy());
+    };
+    fitRadio(ui->radioMeshAll);
+    fitRadio(ui->radioMeshOne);
+
+    // MARGINE SINISTRO (solo mobile). Va toccato SOLO quello: la distribuzione
+    // fra i due gruppi la fa lo stretch 1,2 della .ui (non si tocca, o "Mesh"
+    // torna sotto il campo come su desktop), e il rightMargin deve restare 0.
+    // Quello zero non e' un caso: e' cio' che tiene il gruppo "Mesh + frecce +
+    // campo" compattato a DESTRA, e quindi nettamente separato dal radio "All".
+    // Un margine simmetrico lo staccherebbe dal bordo destro e i due gruppi
+    // tornerebbero a somigliarsi.
+    // Il leftMargin invece e' 24px tarati sui widget piccoli del desktop: su
+    // mobile indicatori, font e tasti sono piu' grandi, la riga si riempie quasi
+    // tutta e quei 24px venivano mangiati dal layout, lasciando "All"
+    // appiccicato al bordo sinistro. Bastano pochi px in piu' per staccarlo,
+    // senza spostare nulla a destra.
+    if (auto* meshRow = qobject_cast<QHBoxLayout*>(ui->widgetMeshSel->layout())) {
+        const QMargins m = meshRow->contentsMargins();
+        meshRow->setContentsMargins(12, m.top(), 0, m.bottom());
+        // COMPATTAZIONE A DESTRA. Con lo stretch 1,2 le due celle si allargano,
+        // ma i widget dentro restano allineati a SINISTRA della propria cella:
+        // il gruppo "Mesh" galleggiava a meta' di una cella larga il doppio,
+        // invece di stare tutto a destra come prima. Il rightMargin a 0 da solo
+        // non basta a rimediare, perche' e' la cella a essere piu' larga del
+        // gruppo, non il margine a spingerlo dentro.
+        // Allineandolo a destra torna compatto contro il bordo e nettamente
+        // staccato da "All", che resta a sinistra nella sua cella.
+        meshRow->setAlignment(ui->groupMeshOne, Qt::AlignRight | Qt::AlignVCenter);
+    }
+#endif
+
+    connect(ui->spinMeshSel, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int val){
+        if (!ui->glWidget) return;
+        if (meshScopeAll()) return;   // in All lo spinbox e' inerte
+        ui->glWidget->setActiveMeshPart(val - 1);     // lo spinbox parte da 1
+        syncAppearanceControlsToActiveMesh();
+        // syncAppearanceControlsToActiveMesh muove i radio a SEGNALI BLOCCATI
+        // (deve: il loro handler scriverebbe la modalita' sulla parte), quindi
+        // updateRenderState non gira da solo e il gating dei controlli resta
+        // fermo allo stato della mesh PRECEDENTE. Senza questa chiamata,
+        // selezionando una mesh in wireframe i tasti densita' U/V restavano
+        // grigi. Va DOPO il sync, cosi' rilegge i radio gia' aggiornati.
+        updateRenderState();
+    });
+
+    // Click su Color1/Color2. Gruppi indipendenti: scegliere quale tinta editare NON
+    // tocca la coppia Surface/Background (che resta dov'è: continui a operare
+    // sulla superficie o sullo sfondo). Basta riallineare gli slider alla tinta scelta.
+    connect(m_colorGroup, &QButtonGroup::buttonClicked, this, [this](){
+        onColorTargetChanged();
+    });
+}
+
 
 // UNICO punto da cui si mostra un errore di compilazione all'utente (~18
 // chiamanti). L'esito del Run NON si marca qui: lo deduce RunOutcomeGuard dal

@@ -3,6 +3,184 @@
 // Parte della classe MainWindow divisa per argomento (mainwindow_p.h).
 #include "mainwindow_p.h"
 
+// Dock 3D e 4D: rotazioni, path, navigazione. Parte del costruttore, nell'ordine in cui la chiama.
+void MainWindow::setupMotionDocks()
+{
+    // =========================================================================
+    // 8. MOTION, PATHS & NAVIGATION
+    // =========================================================================
+    float omega = 0.0f, phi = 0.0f, psi = 0.0f;
+    refreshRotationSpeedLabels();
+
+    ui->glWidget->setRotation4D(omega, phi, psi);
+    ui->glWidget->addObjectRotation(30.0f, 30.0f, 0.0f);
+    ui->glWidget->setNutationSpeed(0.0f); ui->glWidget->setPrecessionSpeed(0.0f); ui->glWidget->setSpinSpeed(0.0f);
+    ui->glWidget->setOmegaSpeed(0.0f); ui->glWidget->setPhiSpeed(0.0f); ui->glWidget->setPsiSpeed(0.0f);
+
+    ui->btnStart_2->setText("GO");
+
+    m_lightingMode4D = 0;
+    ui->glWidget->setLightingMode4D(0);
+    ui->btnLightMode->setText("Directional Lighting");
+
+    connect(ui->btnLightMode, &QPushButton::clicked, this, [this](){
+        QString xEq = m_eq.x.trimmed(); QString yEq = m_eq.y.trimmed();
+        QString zEq = m_eq.z.trimmed(); QString pEq = m_eq.p.trimmed();
+
+        auto isNullCoord = [](const QString &s) { return s.isEmpty() || s == "0" || s == "0.0"; };
+
+        bool isDegenerate4D = isNullCoord(xEq) || isNullCoord(yEq) || isNullCoord(zEq) || isNullCoord(pEq);
+        int numModes = (!isDegenerate4D) ? 3 : 2;
+        m_lightingMode4D = (m_lightingMode4D + 1) % numModes;
+
+        switch (m_lightingMode4D) {
+        case 0: ui->glWidget->setLightingMode4D(0); ui->btnLightMode->setText("Directional Lighting"); break;
+        case 1: ui->glWidget->setLightingMode4D(1); ui->btnLightMode->setText("Observer Lighting"); break;
+        case 2: ui->glWidget->setLightingMode4D(2); ui->btnLightMode->setText("Slice Lighting"); break;
+        }
+    });
+
+    navTimer = new QTimer(this); navTimer->setInterval(30);
+    connect(navTimer, &QTimer::timeout, this, &MainWindow::onNavTimerTick);
+
+    pathTimer = new QTimer(this); pathTimer->setInterval(30);
+    connect(pathTimer, &QTimer::timeout, this, &MainWindow::onPathTimerTick);
+
+    pathTimer3D = new QTimer(this); pathTimer3D->setInterval(30);
+    connect(pathTimer3D, &QTimer::timeout, this, &MainWindow::onPath3DTimerTick);
+
+    ui->btnDeparture->setEnabled(false); connect(ui->btnDeparture, &QPushButton::clicked, this, &MainWindow::onDepartureClicked);
+    ui->btnDeparture3D->setEnabled(false); connect(ui->btnDeparture3D, &QPushButton::clicked, this, &MainWindow::onDeparture3DClicked);
+
+    m_pathViewMode4D = ModeTangential;
+    m_pathViewMode3D = ModeTangential;
+    // Enabled iniziale ai View: deciso da updateViewButtonsEnabled (campi path
+    // vuoti all'avvio -> spenti, come il Departure; si accendono compilandoli).
+    ui->pushView->setText("Tangent View"); ui->pushView->setEnabled(false); connect(ui->pushView, &QPushButton::clicked, this, &MainWindow::onToggleViewClicked);
+    ui->pushView3D->setText("Tangent View"); ui->pushView3D->setEnabled(false); connect(ui->pushView3D, &QPushButton::clicked, this, &MainWindow::onToggleView3DClicked);
+
+    connect(ui->lineX_P, &QLineEdit::textChanged, this, &MainWindow::checkPathFields);
+    connect(ui->lineY_P, &QLineEdit::textChanged, this, &MainWindow::checkPathFields);
+    connect(ui->lineZ_P, &QLineEdit::textChanged, this, &MainWindow::checkPathFields);
+    connect(ui->lineP_P, &QLineEdit::textChanged, this, &MainWindow::checkPathFields);
+
+    // Alpha/Beta/Gamma NON sono connessi: non accendono il Departure (solo le
+    // COORDINATE lo fanno, vedi hasPath4DInput), quindi il loro textChanged
+    // ricalcolerebbe sempre lo stesso esito. Collegarli direbbe il contrario.
+
+    connect(ui->lineX_P3D, &QLineEdit::textChanged, this, &MainWindow::checkPath3DFields);
+    connect(ui->lineY_P3D, &QLineEdit::textChanged, this, &MainWindow::checkPath3DFields);
+    connect(ui->lineZ_P3D, &QLineEdit::textChanged, this, &MainWindow::checkPath3DFields);
+    // lineR_P3D (rollio) idem: fuori dal gate, vedi hasPath3DInput.
+
+    // Le espressioni dei path possono usare le costanti A..F/S: scrivere una
+    // costante in un campo path deve sbloccarne l'edit come nelle equazioni.
+    for (QLineEdit* pathEdit : { ui->lineX_P, ui->lineY_P, ui->lineZ_P, ui->lineP_P,
+                                 ui->lineAlpha_P, ui->lineBeta_P, ui->lineGamma_P,
+                                 ui->lineX_P3D, ui->lineY_P3D, ui->lineZ_P3D, ui->lineR_P3D }) {
+        connect(pathEdit, &QLineEdit::textEdited, this, [this] { m_constantsEditPending = true; });
+        connect(pathEdit, &QLineEdit::textChanged, this, &MainWindow::updateConstantsUIState);
+    }
+
+    // (L'Invio sui campi path passa dai filtri tastiera desktop/mobile, che
+    // consumano il Return e chiamano commitPathFieldOnEnter: connettere qui
+    // returnPressed non servirebbe, il segnale non viene mai emesso.)
+
+    // Stessa ragione per i limiti U/V/W, che ammettono A..F/S: scrivere "2*A"
+    // in uMax sblocca subito slider e casella di A. Qui SOLO lo stato dell'UI
+    // delle costanti: il limite si applica alla conferma del campo (Invio o
+    // uscita), mai su textChanged -- altrimenti la mesh si rigenererebbe a ogni
+    // carattere digitato.
+    for (QLineEdit* limitEdit : { ui->uMinEdit, ui->uMaxEdit,
+                                  ui->vMinEdit, ui->vMaxEdit,
+                                  ui->wMinEdit, ui->wMaxEdit }) {
+        connect(limitEdit, &QLineEdit::textEdited, this, [this] { m_constantsEditPending = true; });
+        connect(limitEdit, &QLineEdit::textChanged, this, &MainWindow::updateConstantsUIState);
+
+        // Il dominio fa parte della definizione della superficie: toccarlo
+        // riaccende il Run one-shot, esattamente come toccare X/Y/Z/P
+        // (markUserEdit). Senza questo, cambiando i SOLI limiti il tasto
+        // restava spento e non c'era piu' alcun modo di applicarli, ora che
+        // non si applicano piu' da soli all'Invio.
+        connect(limitEdit, &QLineEdit::textEdited, this, [this](const QString&) {
+            if (!m_uiReady) return;
+            QWidget* w = qobject_cast<QWidget*>(sender());
+            noteSceneEdited(w);
+            m_parametricApplied = false;
+            // Modifica DELL'UTENTE in attesa di conferma. textEdited (non
+            // textChanged) scatta solo per la digitazione: i setText di preset,
+            // reset e cambio tab non lo emettono, e non devono far validare
+            // nulla all'uscita dal campo.
+            if (w) w->setProperty("userEditPending", true);
+            updateMasterButtonState();
+        });
+
+        // Conferma del campo al CAMBIO DI FOCUS, non solo con l'Invio: valida
+        // il numero (popup se illeggibile o min>=max) e registra il dominio --
+        // che entra a schermo subito se la superficie e' in moto, al Run se e'
+        // ferma. L'Invio arriva qui dai filtri tastiera, che consumano il
+        // Return prima che QLineEdit emetta returnPressed; editingFinished
+        // copre chi si limita a cliccare altrove.
+        connect(limitEdit, &QLineEdit::editingFinished, this, [this, limitEdit]() {
+            if (!m_uiReady) return;
+            // Solo se c'e' una digitazione da confermare. Qt emette
+            // editingFinished a ogni perdita di focus -- anche entrando e
+            // uscendo da un campo senza toccarlo, e anche subito dopo il
+            // clearFocus() del filtro tastiera sull'Invio: senza questa
+            // guardia il campo verrebbe validato (e il popup mostrato) due
+            // volte, o per un testo che l'utente non ha mai scritto.
+            // Il controllo-e-consuma del flag sta dentro commitLimitFieldOnEnter,
+            // sede unica: farlo anche qui lo consumerebbe prima, e la chiamata
+            // del filtro tastiera che segue il clearFocus() tornerebbe a
+            // rivalidare (due popup per un solo Invio).
+            commitLimitFieldOnEnter(limitEdit->objectName());
+        });
+    }
+
+    // LIMITI PER-MESH (pannello Multi Mesh). Stesso cablaggio dei limiti
+    // globali qui sopra -- textEdited per registrare la digitazione in attesa,
+    // editingFinished per confermarla -- ma con due assenze deliberate:
+    //  - updateConstantsUIState: questi campi accettano gli stessi A..F/S, ma
+    //    lo sblocco delle costanti lo decidono gia' i campi globali e le
+    //    equazioni. Agganciarli qui non aggiungerebbe nulla e farebbe girare
+    //    il ricalcolo a ogni carattere.
+    //  - m_parametricApplied / updateMasterButtonState: il Run dello script
+    //    RISCRIVE questi domini, quindi accendere il tasto Run come se ci
+    //    fosse qualcosa "da applicare" direbbe il contrario del vero. Il
+    //    dominio per-mesh si applica da se' alla conferma del campo.
+    for (QLineEdit* meshLimitEdit : { ui->meshUMinEdit, ui->meshUMaxEdit,
+                                      ui->meshVMinEdit, ui->meshVMaxEdit }) {
+        if (!meshLimitEdit) continue;
+
+        connect(meshLimitEdit, &QLineEdit::textEdited, this, [this](const QString&) {
+            if (!m_uiReady) return;
+            QWidget* w = qobject_cast<QWidget*>(sender());
+            // La scena e' cambiata come per ogni altro comando di aspetto
+            // per-mesh: il dominio di una fascia fa parte di cio' che il
+            // record salva.
+            noteSceneEdited(w);
+            if (w) w->setProperty("userEditPending", true);
+        });
+
+        connect(meshLimitEdit, &QLineEdit::editingFinished, this, [this, meshLimitEdit]() {
+            if (!m_uiReady) return;
+            commitMeshLimitFieldOnEnter(meshLimitEdit->objectName());
+        });
+    }
+
+    connectNavButton(ui->btnForward, GLWidget::MoveForward); connectNavButton(ui->btnBackward, GLWidget::MoveBack);
+    connectNavButton(ui->btnLeft, GLWidget::MoveLeft); connectNavButton(ui->btnRight, GLWidget::MoveRight);
+    connectNavButton(ui->btnDown, GLWidget::MoveDown); connectNavButton(ui->btnUp, GLWidget::MoveUp);
+    connectNavButton(ui->btnRollLeft, GLWidget::RollLeft); connectNavButton(ui->btnRollRight, GLWidget::RollRight);
+    connectNavButton(ui->btnXPlus,  GLWidget::ObsMoveXPos); connectNavButton(ui->btnXMinus, GLWidget::ObsMoveXNeg);
+    connectNavButton(ui->btnYPlus,  GLWidget::ObsMoveYPos); connectNavButton(ui->btnYMinus, GLWidget::ObsMoveYNeg);
+    connectNavButton(ui->btnZPlus,  GLWidget::ObsMoveZPos); connectNavButton(ui->btnZMinus, GLWidget::ObsMoveZNeg);
+    connectNavButton(ui->btnPPlus,  GLWidget::ObsMovePPos); connectNavButton(ui->btnPMinus, GLWidget::ObsMovePNeg);
+    connectNavButton(ui->btnOmegaAhead, GLWidget::RotOmegaPos); connectNavButton(ui->btnOmegaRear,  GLWidget::RotOmegaNeg);
+    connectNavButton(ui->btnPhiRear, GLWidget::RotPhiNeg); connectNavButton(ui->btnPhiAhead,  GLWidget::RotPhiPos);
+    connectNavButton(ui->btnPsiAhead,   GLWidget::RotPsiPos); connectNavButton(ui->btnPsiRear,    GLWidget::RotPsiNeg);
+}
+
 
 void MainWindow::switchTo3DMode()
 {   updateLayoutForMode(1);

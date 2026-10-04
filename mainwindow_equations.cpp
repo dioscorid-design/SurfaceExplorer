@@ -3,6 +3,774 @@
 // Parte della classe MainWindow divisa per argomento (mainwindow_p.h).
 #include "mainwindow_p.h"
 
+// Dock Equations: campi, costanti, Steps, limiti. Parte del costruttore, nell'ordine in cui la chiama.
+void MainWindow::setupEquationsDock()
+{
+    // =========================================================================
+    // 6. EQUATIONS, CONSTANTS & PARAMETERS
+    // =========================================================================
+
+    // 1. INIZIALIZZA LA MEMORIA
+    m_lastParametricSteps = 100;
+    m_lastImplicitSteps = 400;
+
+    // 2. PREPARA L'INTERFACCIA E LO SLIDER AL LORO STATO INIZIALE (Senza lanciare segnali!)
+    // Tab Parametric/Implicit a piena larghezza: due sole voci, ~meta' del dock
+    // ciascuna (il dock Equations ha larghezza fissa 400). min-width via
+    // stylesheet perche' col CSS globale setExpanding e' ignorato. Niente frecce
+    // di scorrimento: il cambio si fa cliccando la linguetta.
+    if (ui->tabModeSelector->tabBar())
+        ui->tabModeSelector->tabBar()->setUsesScrollButtons(false);
+    ui->tabModeSelector->setStyleSheet(
+        "QTabBar::tab { min-width: 175px; padding: 6px 0px; }");
+    setImplicitMode(false);
+    // Sotto-tab Constraints/Composition/Geodesic Flow (panelImplicit): stessa
+    // logica dei Parametric/Implicit, ma sono TRE voci sullo stesso dock da
+    // 400px, quindi min-width piu' piccola (~un terzo) per riempire la barra
+    // senza sforare e riattivare le frecce di scorrimento. min-width via
+    // stylesheet perche' col CSS globale setExpanding e' ignorato.
+    if (ui->panelImplicit->tabBar())
+        ui->panelImplicit->tabBar()->setUsesScrollButtons(false);
+    ui->panelImplicit->setStyleSheet(
+        "QTabBar::tab { min-width: 110px; padding: 6px 0px; }");
+    ui->glWidget->setEngineMode(GLWidget::ModeParametric);
+
+    ui->stepSlider->setRange(10, 1000);
+    setSteps(m_lastParametricSteps);
+    ui->glWidget->setResolution(m_lastParametricSteps);
+
+    ui->lblSteps->setText("Steps=");
+
+    // 3. SOLO ORA COLLEGA IL SEGNALE DEL CAMBIO TAB
+    // 3. SOLO ORA COLLEGA IL SEGNALE DEL CAMBIO TAB
+    // Il clic (o un cambio a segnali vivi del programma, che vuole il reset):
+    // prima lo STATO, che il reset e tutto il resto leggono.
+    connect(ui->tabModeSelector, &QTabWidget::currentChanged,
+            this, [this](int index) {
+        m_implicitMode = (index == 1);
+        applyModeTabReset(index);
+    });
+
+    // Cambio di sotto-tab dentro Implicit (3D <-> Cross Section). Il pannello
+    // Run/Variations/Texture e i LIMITI X/Y/Z sono una sola istanza fisica
+    // condivisa; equazione e radio Shell/Solid sono separati. Aprendo un
+    // sotto-tab si mostra la sua superficie di DEFAULT, quindi i controlli
+    // condivisi vanno riportati al default insieme a lei: restando addosso i
+    // valori dell'altro sotto-tab, i limiti la taglierebbero e le costanti la
+    // deformerebbero (vedi resetImplicitSharedFields).
+    // Nessun reset di camera/texture/animazione: le superfici di default non ne
+    // hanno (vedi loadCrossSectionDefaultSurface).
+    if (ui->subTabImplicit) {
+        // LAVORO NON SALVATO, come per il cambio di modalita' (tabModeSelector
+        // qui sopra). Cambiare sotto-tab carica la superficie di DEFAULT e
+        // riporta ai default i controlli condivisi: e' una distruzione di scena
+        // quanto il passaggio Parametric <-> Implicit, e finora non chiedeva
+        // nulla -- un tocco sulla linguetta sbagliata buttava via il lavoro.
+        // Stesso schema, per le stesse ragioni: la conferma va su tabBarClicked
+        // perche' currentChanged scatta a linguetta GIA' cambiata e da li' non
+        // si potrebbe piu' rifiutare; tabBarClicked non permette di annullare il
+        // cambio (Qt lo esegue subito dopo), quindi su Cancel si lascia cambiare
+        // la linguetta, si dice all'handler di NON resettare e si riporta il
+        // sotto-tab dov'era.
+        if (ui->subTabImplicit->tabBar()) {
+            connect(ui->subTabImplicit->tabBar(), &QTabBar::tabBarClicked,
+                    this, [this](int index) {
+                if (index < 0) return;
+
+                if (index == (crossSectionTab() ? 1 : 0)) {
+                    // RICLIC SULLA LINGUETTA GIA' ATTIVA = "ricomincia da capo",
+                    // esattamente come per il tab principale. currentChanged non
+                    // scatta se l'indice non cambia, quindi senza questo ramo
+                    // ricliccare il sotto-tab in cui sei gia' non faceva nulla:
+                    // dopo un New lo schermo restava vuoto e la superficie di
+                    // default compariva solo premendo la linguetta NON attiva --
+                    // mentre Parametric/Implicit la ricaricano in entrambi i casi.
+                    // Su Cancel non si resetta (qui la linguetta non cambia,
+                    // basta uscire).
+                    if (!confirmDiscardUnsaved(ScopeScene)) return;
+                    applyImplicitSubTabReset(index);
+                    return;
+                }
+
+                if (!confirmDiscardUnsaved(ScopeScene)) {
+                    const bool back = crossSectionTab();
+                    m_suppressNextSubTabReset = true;
+                    QTimer::singleShot(0, this, [this, back]() {
+                        setCrossSectionTab(back);
+                        m_suppressNextSubTabReset = false;
+                    });
+                }
+            });
+        }
+
+        // Il clic: prima lo STATO, che il reset legge (quale superficie di
+        // default caricare). Arriva solo dai clic: il programma scrive la
+        // linguetta a segnali bloccati (setCrossSectionTab).
+        connect(ui->subTabImplicit, &QTabWidget::currentChanged,
+                this, [this](int index) {
+            m_crossSectionTab = (index == 1);
+            applyImplicitSubTabReset(index);
+        });
+    }
+
+    // RESET SULLA LINGUETTA GIA' ATTIVA. currentChanged non scatta se l'indice
+    // non cambia, quindi ricliccare il tab in cui sei gia' non faceva nulla.
+    // Ora vale come "ricomincia da capo in questa modalita'": la stessa pulizia
+    // totale del cambio tab (superficie di default, script/texture/path azzerati,
+    // camera, zoom e limiti di spazio ripristinati) senza dover passare
+    // dall'altra modalita' e tornare indietro. Riusa lo STESSO percorso, non una
+    // copia: e' quello gia' validato dall'uso quotidiano, e i residui della
+    // superficie precedente sono la causa storica delle deformazioni.
+    if (ui->tabModeSelector->tabBar()) {
+        connect(ui->tabModeSelector->tabBar(), &QTabBar::tabBarClicked,
+                this, [this](int index) {
+            if (index < 0) return;
+
+            if (index == (implicitMode() ? 1 : 0)) {
+                // Riclic sulla linguetta attiva = "ricomincia da capo".
+                // Lavoro non salvato: si chiede prima di buttarlo via, per OGNI
+                // modulo sporco (il reset azzera anche texture e suono). Su
+                // Cancel non si resetta (qui il tab non cambia, basta uscire).
+                if (!confirmDiscardUnsaved(ScopeScene)) return;
+                // "Ricomincia da capo": a differenza del cambio di modalita',
+                // qui la texture non sopravvive, quindi il suo script non va
+                // ripristinato nell'editor. Vedi m_sameTabRestart.
+                m_sameTabRestart = true;
+                applyModeTabReset(index);
+                m_sameTabRestart = false;
+                return;
+            }
+
+            // CAMBIO DI MODALITA' VERO. Anche questo distrugge la scena, via
+            // currentChanged -> applyModeTabReset, e finora non chiedeva nulla:
+            // un tocco sulla linguetta sbagliata buttava via il lavoro. La
+            // conferma va CHIESTA QUI, perche' currentChanged scatta a tab gia'
+            // cambiato e da li' non si potrebbe piu' rifiutare.
+            // tabBarClicked non permette di annullare il cambio (Qt lo esegue
+            // subito dopo), quindi su Cancel si lascia cambiare la linguetta e
+            // si dice ad applyModeTabReset di NON resettare, riportando poi il
+            // tab dov'era: la scena resta intatta.
+            if (!confirmDiscardUnsaved(ScopeScene)) {
+                const bool back = implicitMode();
+                m_suppressNextModeTabReset = true;
+                QTimer::singleShot(0, this, [this, back]() {
+                    setImplicitMode(back);
+                    m_suppressNextModeTabReset = false;
+                });
+            }
+        });
+    }
+
+    setEqText(&EquationTexts::x, QStringLiteral("(0.8 + 0.3*cos(v))*cos(u)"));
+    setEqText(&EquationTexts::y, QStringLiteral("(0.8 + 0.3*cos(v))*sin(u)"));
+    setEqText(&EquationTexts::z, QStringLiteral("0.3*sin(v)"));
+    setEqText(&EquationTexts::p, QStringLiteral("0.0"));
+
+    ui->glWidget->setParametricEquations(m_eq.x, m_eq.y, m_eq.z, m_eq.p);
+
+    ui->uMinEdit->setText(QString::number(uMin, 'g', 12));
+    ui->uMaxEdit->setText(QString::number(uMax, 'g', 12));
+    ui->vMinEdit->setText(QString::number(vMin, 'g', 12));
+    ui->vMaxEdit->setText(QString::number(vMax, 'g', 12));
+    ui->wMinEdit->setText(QString::number(wMin, 'g', 12));
+    ui->wMaxEdit->setText(QString::number(wMax, 'g', 12));
+    ui->wMinEdit->setEnabled(false);
+    ui->wMaxEdit->setEnabled(false);
+
+    updateULimits();
+    updateVLimits();
+
+    ui->aSlider->setRange(0, 1000); ui->aSlider->setValue(100);
+    ui->bSlider->setRange(0, 1000); ui->bSlider->setValue(100);
+    ui->cSlider->setRange(0, 1000); ui->cSlider->setValue(100);
+    ui->dSlider->setRange(0, 1000); ui->dSlider->setValue(100);
+    ui->eSlider->setRange(0, 1000); ui->eSlider->setValue(100);
+    ui->fSlider->setRange(0, 1000); ui->fSlider->setValue(100);
+    ui->sSlider->setRange(-1000, 1000); ui->sSlider->setValue(0);
+
+    // --- Inizializzazione Testi di Default ---
+    if (ui->lineA->text().isEmpty()) ui->lineA->setText("1");
+    if (ui->lineB->text().isEmpty()) ui->lineB->setText("1");
+    if (ui->lineC->text().isEmpty()) ui->lineC->setText("1");
+    if (ui->lineD->text().isEmpty()) ui->lineD->setText("1");
+    if (ui->lineE->text().isEmpty()) ui->lineE->setText("1");
+    if (ui->lineF->text().isEmpty()) ui->lineF->setText("1");
+    if (ui->lineS->text().isEmpty() || ui->lineS->text() == "0.4") {
+        ui->lineS->setText("0");
+    }
+
+    if (!m_meshDebounce) {
+        m_meshDebounce = new QTimer(this);
+        m_meshDebounce->setSingleShot(true);
+        m_meshDebounce->setInterval(120);
+        connect(m_meshDebounce, &QTimer::timeout, this, [this]() {
+            if (ui->glWidget && !implicitMode()) {
+                ui->glWidget->setResolution(m_steps);
+            }
+            // Input nuovo (costanti/steps): un errore geodetico precedente non
+            // deve congelare il ricalcolo, altrimenti riportare una costante
+            // al valore buono lascia la mesh bloccata sull'ultimo stato.
+            m_geodesicErrorPending = false;
+            // useAppliedEquations: questo debounce lo fanno partire lo slider
+            // Steps e le costanti, che NON sono un Run. Senza il flag il ramo
+            // geodetico rileggeva X/Y/Z/P dai campi e applicava equazioni
+            // modificate e non confermate -- lo stesso difetto che avevano i
+            // limiti: bastava muovere Steps per committarle di straforo.
+            checkAndTriggerMeshUpdate(/*useAppliedEquations=*/true);
+
+            // Il Run NON si spegne qui, in nessuno dei due rami. Questo percorso
+            // (slider costanti, slider Steps) non applica equazioni: le congela
+            // tutte sullo snapshot -- la mappa X/Y/Z/P e, dal disallineamento
+            // corretto, anche i 7 campi del flusso geodetico. Se l'utente ha
+            // scritto qualcosa in quei campi la modifica e' ancora in attesa, e
+            // il Run e' l'unico modo di applicarla: spegnerlo la renderebbe
+            // irraggiungibile. Solo un Run vero rialza m_parametricApplied.
+            updateMasterButtonState();
+        });
+    }
+
+    // --- MOTORE COSTANTI A CASCATA --- (vedi MainWindow::evaluateCascade)
+    auto connectSlider = [this](ConstField field) {
+        QSlider *slider = constantSlider(field);
+        QLineEdit *line = constantFieldEdit(field);
+        connect(slider, &QSlider::valueChanged, this, [this, field, line](int val) {
+            if (!line->hasFocus()) {
+                setConstText(field, QString::number(val / 100.0f, 'g', 6));
+                evaluateCascade(); // Aggiorna le altre caselle che dipendono da questo!
+            }
+        });
+        // Snap delle costanti discrete ("A := int(1,6)") al RILASCIO, non durante
+        // il trascinamento: agganciarlo a valueChanged farebbe scattare il cursore
+        // sotto il dito a ogni tacca, e rigenererebbe la mesh a ogni scatto.
+        connect(slider, &QSlider::sliderReleased, this, [this]() {
+            if (applyDiscreteConstants()) evaluateCascade();
+        });
+    };
+
+    for (ConstField f : constantFields()) connectSlider(f);
+
+    auto connectLineEdit = [this](QLineEdit* line) {
+        connect(line, &QLineEdit::editingFinished, this, [this]() {
+            // Prima lo snap delle costanti discrete: cosi' la cascata sotto parte
+            // gia' dal valore intero e non ricalcola due volte.
+            applyDiscreteConstants();
+            evaluateCascade();                           // clamp + cascata + slider + push costanti
+            if (m_meshDebounce) m_meshDebounce->stop();  // evita il doppio ridisegno asincrono
+            SE_GEO_PROBE("costante editingFinished -> commitFieldsOnEnter");
+            const bool okConst = commitFieldsOnEnter();  // valida: se ok ridisegna, altrimenti vecchia immagine + popup
+            SE_GEO_PROBE("costante esito applied=%d", int(okConst));
+        });
+    };
+
+    connectLineEdit(ui->lineA); connectLineEdit(ui->lineB);
+    connectLineEdit(ui->lineC); connectLineEdit(ui->lineD);
+    connectLineEdit(ui->lineE); connectLineEdit(ui->lineF);
+    connectLineEdit(ui->lineS);
+
+    evaluateCascade();
+
+    ui->stepSlider->setRange(10, 1000);
+    int initialSteps = 100;
+    setSteps(initialSteps);
+    ui->glWidget->setResolution(initialSteps);
+    ui->lblSteps->setText(QString("Steps="));
+
+    // (1) valueChanged: aggiorna testo + avvia debounce
+    connect(ui->stepSlider, &QSlider::valueChanged, this, [this](int val) {
+        // Il gesto (o un setValue a segnali vivi, come la riduzione del
+        // massimo in checkParametricDependency): lo stato per primo.
+        m_steps = val;
+        ui->lineSteps->setText(QString::number(val));
+        if (!ui->glWidget) return;
+        if (implicitMode()) {
+            ui->glWidget->setRaySteps(val);
+            ui->glWidget->update();
+        } else {
+            m_meshDebounce->start();
+        }
+    });
+
+    // (2) sliderPressed: sospende il rendering durante il trascinamento
+    connect(ui->stepSlider, &QSlider::sliderPressed, this, [this]() {
+        if (ui->glWidget) ui->glWidget->setUpdatesEnabled(false);
+    });
+
+    // (3) sliderReleased: riattiva il rendering e rigenera al rilascio
+    connect(ui->stepSlider, &QSlider::sliderReleased, this, [this]() {
+        if (ui->glWidget) {
+            ui->glWidget->setUpdatesEnabled(true);
+            ui->glWidget->update();
+        }
+        m_meshDebounce->start();
+    });
+
+    auto applyStepsFromLine = [this](bool notify) {
+        const QString txt = ui->lineSteps->text().trimmed();
+        if (txt.isEmpty()) return;   // vuoto durante la digitazione: ignora
+        bool ok = false;
+        int val = txt.toInt(&ok);
+        if (!ok) {
+            // notify=true solo al commit (Enter/uscita campo): niente popup mentre si digita
+            if (!ok) {
+                if (notify && !m_constantPopupActive) {
+                    m_constantPopupActive = true;
+                    InputValidator::showInvalidStepsError(this, txt);
+                    setSteps(m_steps);   // il campo torna a mostrare lo stato
+                    ui->lineSteps->selectAll();
+                    // Reset RIMANDATO a fine ciclo di eventi, come gli altri
+                    // popup di questo modulo. Oggi qui si arriva una volta sola
+                    // (i filtri tastiera consumano il Return, quindi dei due
+                    // trigger collegati -- editingFinished e returnPressed --
+                    // ne scatta uno), ma il reset sincrono rende il doppione
+                    // dipendente da quel dettaglio: basterebbe un percorso che
+                    // lascia passare il Return per vedere due box in fila.
+                    QTimer::singleShot(0, this, [this]{ m_constantPopupActive = false; });
+                }
+                return;
+            }
+        }
+        val = std::clamp(val, ui->stepSlider->minimum(), ui->stepSlider->maximum());
+        if (val != m_steps)
+            ui->stepSlider->setValue(val);   // emette valueChanged -> stato, glWidget e testo
+    };
+
+    // Trigger "forti": al commit notifichiamo (notify=true)
+    connect(ui->lineSteps, &QLineEdit::editingFinished, this, [applyStepsFromLine]() { applyStepsFromLine(true); });
+    connect(ui->lineSteps, &QLineEdit::returnPressed,   this, [applyStepsFromLine]() { applyStepsFromLine(true); });
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+    m_stepsDebounce = new QTimer(this);
+    m_stepsDebounce->setSingleShot(true);
+    m_stepsDebounce->setInterval(350);
+    connect(m_stepsDebounce, &QTimer::timeout, this, [applyStepsFromLine]() { applyStepsFromLine(false); });
+
+    connect(ui->lineSteps, &QLineEdit::textEdited, this, [this](const QString&) {
+        m_stepsDebounce->start();
+    });
+#endif
+
+    // 1. Dipendenze delle equazioni principali
+    connect(ui->lineX, &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
+    connect(ui->lineY, &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
+    connect(ui->lineZ, &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
+    connect(ui->lineP, &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
+
+    auto markUserEdit = [this]() {
+        // Lavoro dell'utente da proteggere: il reset chiedera' se salvarlo.
+        // Il campo va riportato QUAL E': questa lambda serve 13 widget diversi e
+        // passava sempre lineX, cosi' un edit alle composizioni (U/V/W) o ai
+        // vincoli espliciti veniva contato come "sto scrivendo le equazioni".
+        noteSceneEdited(qobject_cast<QWidget*>(sender()));
+        // Le equazioni sono cambiate: il Run parametrico "one-shot" (senza 't')
+        // torna eseguibile. updateMasterButtonState() riabilita il tasto.
+        m_parametricApplied = false;
+        updateMasterButtonState();
+
+        // L'evidenziazione del preset in libreria RESTA anche dopo aver
+        // modificato le equazioni. Prima cadeva al primo carattere, e solo sul
+        // ramo Superfici -- texture, suoni e record non l'hanno mai fatto:
+        // un'asimmetria nata dall'aggiunta fatta da un lato solo. Serve a
+        // ricordare su quale preset si sta lavorando, che e' la ragione per cui
+        // la si guarda. Effetto collaterale utile: annullando il caricamento di
+        // un altro preset (Cancel sul popup del lavoro non salvato, ~10407)
+        // c'e' sempre un item da rievidenziare, e l'albero non resta spoglio.
+    };
+    connect(ui->lineX, &QPlainTextEdit::textChanged, this, markUserEdit);
+    connect(ui->lineY, &QPlainTextEdit::textChanged, this, markUserEdit);
+    connect(ui->lineZ, &QPlainTextEdit::textChanged, this, markUserEdit);
+    connect(ui->lineP, &QPlainTextEdit::textChanged, this, markUserEdit);
+
+    // Anche composizioni (U/V/W) e vincoli espliciti cambiano la superficie:
+    // un loro edit deve riabilitare il Run parametrico one-shot.
+    connect(ui->lineU, &QPlainTextEdit::textChanged, this, markUserEdit);
+    connect(ui->lineV, &QPlainTextEdit::textChanged, this, markUserEdit);
+    connect(ui->lineW, &QPlainTextEdit::textChanged, this, markUserEdit);
+    connect(ui->lineExplicitU, &QPlainTextEdit::textChanged, this, markUserEdit);
+    connect(ui->lineExplicitV, &QPlainTextEdit::textChanged, this, markUserEdit);
+    connect(ui->lineExplicitW, &QPlainTextEdit::textChanged, this, markUserEdit);
+
+    auto markTextureModified = [this]() { this->setProperty("isTextureModified", true); };
+    connect(ui->txtScriptEditor, &QPlainTextEdit::textChanged, this, markTextureModified);
+    connect(ui->lineTexture, &QPlainTextEdit::textChanged, this, markTextureModified);
+    connect(ui->lineVariations, &QPlainTextEdit::textChanged, this, markTextureModified);
+
+    // Run "one-shot" della texture Ray Marching: modificare lo script di colore
+    // (lineTexture) o di displacement (lineVariations) lo riabilita.
+    auto markRmTextureEdited = [this]() {
+        m_rmTextureApplied = false;
+        // NIENTE noteSceneEdited: lineTexture/lineVariations sono campi del
+        // modulo TEXTURE, non della geometria (il loro lavoro non salvato e'
+        // del modulo: PartTexture nell'impronta della scena, non la SCENA --
+        // su un reset uscivano DUE popup di fila, prima "scena" poi "texture",
+        // per un solo lavoro). Passando lineTexture non produceva
+        // nemmeno l'avviso cross-dock: cade nel ramo "campo che non definisce
+        // la superficie" e torna subito.
+        //
+        // Lavoro non salvato del MODULO texture: lo dice il confronto dello
+        // stato (textureModuleDirty) e lo elenca confirmDiscardUnsaved.
+        //
+        // IL NOME (libName) NON SI AZZERA QUI.
+        // Prima si azzerava, col ragionamento "il codice non e' piu' quello
+        // della voce, quindi il nome punterebbe a una texture diversa da
+        // quella a schermo". Ma libName non vuol dire "il codice e' identico
+        // a quella voce": vuol dire **da quale voce questa texture VIENE**.
+        // Sono due cose diverse, e la prima si ricalcola quando serve
+        // confrontando i codici -- e' esattamente cio' che fa
+        // focusedTextureLibraryItem.
+        //
+        // Azzerandolo si distruggeva il legame proprio nel caso per cui e'
+        // stato introdotto. Sequenza misurata: Sync (allinea), poi ritocco a
+        // mano della densita' nell'editor -> qui il nome si azzerava -> il
+        // salvataggio omette libName (lo scrive solo se non vuoto,
+        // presetserializer ~1516) -> il record ricaricato non ha piu'
+        // l'ancora, e "Sync Focused Texture" resta GRIGIO per sempre benche'
+        // il disallineamento ci sia (record 6.0 contro libreria 12.0).
+        // Cioe': la voce si spegneva appena si creava il lavoro che le
+        // compete.
+        //
+        // Tenerlo non fa danni: un codice divergente lo vede il gate, che
+        // confronta i due testi e abilita la voce; e se davvero non c'entra
+        // piu' nulla, il focus nell'albero ricade sul match per CODICE, che
+        // ha sempre la precedenza sul nome (selectTextureTreeItemFor: due
+        // passate, prima il codice).
+        updateMasterButtonState();
+    };
+    connect(ui->lineTexture, &QPlainTextEdit::textChanged, this, markRmTextureEdited);
+    connect(ui->lineVariations, &QPlainTextEdit::textChanged, this, markRmTextureEdited);
+
+    connect(ui->txtScriptEditor, &QPlainTextEdit::textChanged, this, [this](){
+        // L'editor e' la VISTA dello slot mostrato: cio' che l'utente scrive va
+        // li', subito. (Le scritture del programma passano da setScriptText e
+        // arrivano qui a segnali bloccati.)
+        const ScriptSlot shown = shownScriptSlot();
+        const QString typed = ui->txtScriptEditor->toPlainText();
+        m_scriptEditorText = typed;
+        switch (shown) {
+        case SlotSurface:           m_surfaceScriptText = typed; break;
+        case SlotSurfaceTexture:    m_surfaceTextureScriptText = typed; break;
+        case SlotMeshTexture:       syncMeshTextureSlot(); m_meshTextureScriptText = typed; break;
+        case SlotBackgroundTexture: m_bgTextureScriptText = typed; break;
+        case SlotSound:             m_soundScriptText = typed; break;
+        case SlotNone:              break;
+        }
+        updateScriptButtonText();
+        updateConstantsUIState();
+        // txtScriptEditor e' UN widget per tre moduli: il lavoro appartiene a
+        // quello che sta mostrando, e va marcato SOLO li'. Marcare anche la
+        // scena (noteSceneEdited) mentre si scrive una texture o un suono
+        // faceva uscire due popup di fila su un reset, per un lavoro solo.
+        if (m_currentScriptMode == ScriptModeSurface)
+            noteSceneEdited(ui->txtScriptEditor);
+        // Mantiene allineato il tasto Save texture (hasSavableTexture legge l'editor
+        // in modalità script texture parametrico/sfondo).
+        updateMasterButtonState();
+    });
+
+    // 2. Mutua esclusione dei vincoli (con blocco segnali per evitare loop a catena!)
+    connect(ui->lineExplicitU, &QPlainTextEdit::textChanged, this, [this](){
+        if(!m_eq.explicitU.isEmpty()) {
+            setEqText(&EquationTexts::explicitV, QString());
+            setEqText(&EquationTexts::explicitW, QString());
+        }
+    });
+    connect(ui->lineExplicitV, &QPlainTextEdit::textChanged, this, [this](){
+        if(!m_eq.explicitV.isEmpty()) {
+            setEqText(&EquationTexts::explicitU, QString());
+            setEqText(&EquationTexts::explicitW, QString());
+        }
+    });
+    connect(ui->lineExplicitW, &QPlainTextEdit::textChanged, this, [this](){
+        if(!m_eq.explicitW.isEmpty()) {
+            setEqText(&EquationTexts::explicitU, QString());
+            setEqText(&EquationTexts::explicitV, QString());
+        }
+    });
+
+    // 3. Dipendenze dei vincoli (chiamano checkParametricDependency, che a sua volta chiamerà updateConstraintState)
+    connect(ui->lineExplicitU, &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
+    connect(ui->lineExplicitV, &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
+    connect(ui->lineExplicitW, &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
+
+    // 4. Dipendenze delle composizioni
+    connect(ui->lineU, &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
+    connect(ui->lineV, &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
+    connect(ui->lineW, &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
+
+    connect(ui->lineEquation, &QPlainTextEdit::textChanged, this, &MainWindow::updateConstantsUIState);
+    connect(ui->lineTexture, &QPlainTextEdit::textChanged, this, &MainWindow::updateConstantsUIState);
+    connect(ui->lineVariations, &QPlainTextEdit::textChanged, this, &MainWindow::updateConstantsUIState);
+    connect(ui->lineEquationCrossSection, &QPlainTextEdit::textChanged, this, &MainWindow::updateConstantsUIState);
+
+    // Run "one-shot" del tab Ray Marching: modificare l'EQUAZIONE implicita lo
+    // riabilita. Solo lineEquation -> texture e displacement sono del modulo
+    // texture, non della geometria (coerente con geomAnimated in onStartClicked).
+    connect(ui->lineEquation, &QPlainTextEdit::textChanged, this, [this]() {
+        m_implicitApplied = false;
+        noteSceneEdited(ui->lineEquation);
+        updateMasterButtonState();
+
+        // Come nel ramo parametrico qui sopra: l'evidenziazione resta.
+    });
+
+    // Stessa cosa per il sotto-tab Cross Section (equazione a 4 variabili):
+    // editor distinto, ma stesso contratto Run "one-shot" del tab 3D.
+    connect(ui->lineEquationCrossSection, &QPlainTextEdit::textChanged, this, [this]() {
+        m_implicitApplied = false;
+        noteSceneEdited(ui->lineEquationCrossSection);
+        updateMasterButtonState();
+    });
+
+    if (ui->lnU) {
+        connect(ui->lnU,    &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
+        connect(ui->lnV,    &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
+        connect(ui->lnW,    &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
+        connect(ui->lndU,   &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
+        connect(ui->lndV,   &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
+        connect(ui->lndW,   &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
+        connect(ui->lineConform, &QPlainTextEdit::textChanged, this, &MainWindow::checkParametricDependency);
+
+        connect(ui->lineConform, &QPlainTextEdit::textChanged, this, markUserEdit);
+        connect(ui->lnU, &QPlainTextEdit::textChanged, this, markUserEdit);
+        connect(ui->lnV, &QPlainTextEdit::textChanged, this, markUserEdit);
+        connect(ui->lnW, &QPlainTextEdit::textChanged, this, markUserEdit);
+
+        connect(ui->lndU, &QPlainTextEdit::textChanged, this, markUserEdit);
+        connect(ui->lndV, &QPlainTextEdit::textChanged, this, markUserEdit);
+        connect(ui->lndW, &QPlainTextEdit::textChanged, this, markUserEdit);
+    }
+
+    checkParametricDependency();
+    updateConstraintState();
+
+    // ----------------------------------------------------
+    // IMPLICIT MODE SETTINGS (Equazioni e Limiti Spaziali)
+    // ---------------------------------------------------
+
+    // --- 0. Impostazioni di Default UI ---
+    // DUE GRUPPI ESCLUSIVI SEPARATI. I quattro radio (Shell/Solid e Fast/Precise)
+    // sono fratelli nella griglia gridRenderControls, e l'esclusivita' automatica
+    // dei QRadioButton vale fra TUTTI i fratelli con lo stesso genitore: senza
+    // questi gruppi accendere "Precise" spegneva "Shell". Vanno creati PRIMA dei
+    // setChecked e dei connect qui sotto.
+    m_shellSolidGroup = new QButtonGroup(this);
+    m_shellSolidGroup->setExclusive(true);
+    m_shellSolidGroup->addButton(ui->radioShell);
+    m_shellSolidGroup->addButton(ui->radioSolid);
+
+    m_marcherGroup = new QButtonGroup(this);
+    m_marcherGroup->setExclusive(true);
+    m_marcherGroup->addButton(ui->radioMarcherFast);
+    m_marcherGroup->addButton(ui->radioMarcherPrecise);
+
+    applyImplicitShellMode(true);   // "Shell" di default: stato, radio e motore (modalita' 1)
+
+    // --- Connessione dei Radio Button (Solid/Shell) ---
+    // UNA SOLA COPPIA, in panelRenderControls: il widget comune ai due sotto-tab
+    // ("3D" e "Cross Section"), insieme a Thickness e ai radio del marcher.
+    //
+    // Prima i radio erano DUPLICATI, uno per pannello equazione, perche' i
+    // pannelli sono due — ma lo stato Shell/Solid e' sempre stato UNO SOLO (il
+    // render mode del motore e' globale, e il preset lo salva in un solo campo).
+    // Quella duplicazione ha prodotto una serie di bug: i radio del Cross Section
+    // inizialmente non erano nemmeno collegati (cliccarli non faceva nulla), e il
+    // serializer leggeva la coppia del 3D anche salvando dal Cross Section.
+    // Con un'unica coppia il problema non esiste piu': niente da riallineare.
+    auto updateImplicitRenderMode = [this](bool checked) {
+        if (!checked) return;   // solo chi si accende, non chi si spegne
+        const bool toShell = (sender() == ui->radioShell);
+        applyImplicitShellMode(toShell);
+        // SOLID: lo spessore non ha piu' un guscio da misurare, quindi torna al
+        // minimo (setShellThicknessUI incapsula motore + slider + curva): lo
+        // slider spento non mostra un valore che non si applica, e un preset
+        // salvato in Solid non si porta dietro un residuo.
+        // Il valore di prima pero' si RICORDA, e tornando a Shell si rimette:
+        // senza, un giro Shell -> Solid -> Shell perdeva lo spessore del preset
+        // (Ding Dong: 0.108 -> 0.005) e la figura cambiava forma -- il collo
+        // arrotondato del guscio diventava la punta del cono.
+        // SOLO sul click dell'utente, non in applyImplicitShellMode: quella gira
+        // anche durante i load, dove il preset puo' avere il proprio spessore
+        // salvato e azzerarlo qui lo perderebbe.
+        if (!toShell) {
+            const float keep = ui->glWidget ? ui->glWidget->shellThickness() : -1.0f;
+            setShellThicknessUI(0.005f);          // azzera anche il ricordo...
+            m_shellThicknessBeforeSolid = keep;   // ...quindi lo si scrive dopo
+        } else if (m_shellThicknessBeforeSolid > 0.0f) {
+            setShellThicknessUI(m_shellThicknessBeforeSolid);   // e lo consuma
+        }
+        // Il pannello Thickness ha senso solo con Shell (in Solid non c'e' guscio
+        // di cui regolare la parete): il gate vive in updateRenderState, che va
+        // richiamata qui o il pannello resterebbe come era fino al prossimo
+        // evento che la fa girare. applyImplicitShellMode non la chiama da se'
+        // perche' e' usata anche durante i load, dove gira comunque alla fine.
+        updateRenderState();
+    };
+    connect(ui->radioShell, &QRadioButton::toggled, this, updateImplicitRenderMode);
+    connect(ui->radioSolid, &QRadioButton::toggled, this, updateImplicitRenderMode);
+
+    // --- MARCHER: Fast (sphere tracing storico) / Precise (ibrido) ---
+    // "Fast" di default: e' il comportamento di sempre, e ogni superficie che non
+    // chiede esplicitamente il Precise si disegna come prima. Il T^3 del Cross
+    // Section accende Precise da loadCrossSectionDefaultSurface, e i preset se lo
+    // portano dietro (chiave "hybridMarcher").
+    //
+    // UNA SOLA COPPIA, nella zona comune ai due sotto-tab (come il Thickness):
+    // la scelta del marcher non dipende dal sotto-tab, quindi non serve il
+    // doppione con il riallineamento che Shell/Solid richiede.
+    setMarcherUI(false);   // Fast di default: motore e radio
+    auto updateMarcherMode = [this](bool checked) {
+        if (!checked) return;                 // solo chi si accende
+        const bool precise = (sender() == ui->radioMarcherPrecise);
+        if (ui->glWidget) ui->glWidget->setHybridMarcher(precise);
+        // E' un uniform: nessun rebuildShader, il cambio si vede al frame dopo.
+        // Nessun gating: Ray Steps e Step Relax servono con entrambi i marcher
+        // (vedi il commento in updateRenderState).
+        noteSceneEdited(ui->radioMarcherPrecise);
+    };
+    if (ui->radioMarcherFast)
+        connect(ui->radioMarcherFast, &QRadioButton::toggled, this, updateMarcherMode);
+    if (ui->radioMarcherPrecise)
+        connect(ui->radioMarcherPrecise, &QRadioButton::toggled, this, updateMarcherMode);
+
+    // --- SFONDO: Fixed / Sphere / Cylinder / Cube (gruppo "Background Controls") ---
+    // I quattro radio hanno un contenitore proprio (panelBgLock), quindi si
+    // escludono a vicenda senza toccare Base/Phong/WireFrame. Vale per entrambi i
+    // modi: anche in Ray Marching lo sfondo e' lo stesso pass.
+    // L'indice in bgSkyRadios() E' la modalita' (GLWidget::BgSkyMode): una sola
+    // tabella per clic, load, reset e tooltip.
+    // Nessun rebuild: la modalita' e' letta dallo shader a ogni frame (vedi
+    // GLWidget::render). Si segna la scena come modificata: il record salva la
+    // scelta ("background"/"skyMode").
+    {
+        const QList<QRadioButton*> skyRadios = bgSkyRadios();
+        for (int mode = 0; mode < skyRadios.size(); ++mode) {
+            if (!skyRadios[mode]) continue;
+            connect(skyRadios[mode], &QRadioButton::toggled, this, [this, mode](bool checked) {
+                if (!checked) return;         // solo chi si accende
+                if (ui->glWidget) ui->glWidget->setBackgroundSkyMode(mode);
+            });
+        }
+    }
+
+    // SPESSORE DEL GUSCIO (Shell). Scala 0..100 -> 0.005..0.30, non lineare:
+    // quadratica, cosi' la prima meta' della corsa copre i valori sottili (dove
+    // serve precisione) e la seconda arriva ai gusci spessi.
+    //
+    // Perche' e' un controllo e non una costante: normalizzare il campo col
+    // gradiente ha reso lo spessore una LUNGHEZZA VERA, uguale per tutte le
+    // equazioni. E' corretto, ma prima valeva 0.01/|grad|, quindi dipendeva da
+    // come l'equazione era scritta: le superfici con un fattore di scala davanti
+    // avevano gusci molto piu' spessi. Misurato, per tornare all'aspetto storico
+    // servono 0.10 a Ding Dong (|grad| 0.096) e 0.26 a Steiner (|grad| 0.039),
+    // mentre la sfera e il T^3 del Cross Section stanno bene a 0.005: due ordini
+    // di grandezza di differenza, nessun default unico puo' accontentarle tutte.
+    // Il tetto 0.30 copre Steiner con margine.
+    const double kShellThickMin = 0.005, kShellThickMax = 0.30;
+    auto shellThickFromSlider = [=](int v) {
+        const double f = v / 100.0;
+        return kShellThickMin + (kShellThickMax - kShellThickMin) * f * f;
+    };
+    if (ui->shellThicknessSlider) {
+        ui->shellThicknessSlider->setRange(0, 100);
+        ui->shellThicknessSlider->setValue(0);          // 0.005 = comportamento storico
+        // Stesso aspetto degli altri slider grandi: l'handle e' 30px con
+        // margin -10px, quindi senza questo stile (e senza l'altezza minima nel
+        // .ui) il disco viene TAGLIATO dal bordo del widget.
+        ui->shellThicknessSlider->setStyleSheet(
+            "QSlider::groove:horizontal { border: 1px solid #999; height: 12px;"
+            " border-radius: 6px; margin: 2px 0; background: #AAAAAA; }"
+            "QSlider::handle:horizontal { background: white; border: 1px solid #5c5c5c;"
+            " width: 30px; height: 30px; margin: -10px 0; border-radius: 15px; }");
+        ui->shellThicknessSlider->setMinimumHeight(40);
+        connect(ui->shellThicknessSlider, &QSlider::valueChanged, this,
+                [this, shellThickFromSlider](int v) {
+            const double t = shellThickFromSlider(v);
+            if (ui->glWidget) ui->glWidget->setShellThickness((float)t);
+            noteSceneEdited(ui->shellThicknessSlider);
+        });
+    }
+
+
+    // --- 1. Equazioni Implicite di Default (Solo 3D) ---
+    setRmText(&ImplicitTexts::equation, QStringLiteral("x^2 + y^2 + z^2 = 1.0"));
+    updateConstantsUIState();
+
+    auto updateImplicitEquations = [this]() {
+        if(ui->glWidget) {
+            QString rawEq = m_rm.equation.trimmed();
+            QString implicitEqF;
+
+            // Formatttiamo l'equazione rimuovendo l'uguale per renderla digeribile da GLSL
+            if (rawEq.contains("=")) {
+                QStringList parts = rawEq.split("=");
+                if (parts.size() == 2) {
+                    implicitEqF = QString("(%1) - (%2)").arg(parts[0].trimmed(), parts[1].trimmed());
+                }
+            } else {
+                implicitEqF = QString("(%1) - (0.0)").arg(rawEq);
+            }
+
+            ui->glWidget->setImplicitEquation(implicitEqF);
+        }
+    };
+
+    updateImplicitEquations();
+
+
+    // --- 2. Limiti Spaziali (Facoltativi) ---
+    // Partiamo con le caselle vuote = Nessun taglio applicato
+    ui->lineXMin->clear(); ui->lineXMax->clear();
+    ui->lineYMin->clear(); ui->lineYMax->clear();
+    ui->lineZMin->clear(); ui->lineZMax->clear();
+
+    // LIMITI SPAZIALI X/Y/Z: si applicano al RUN, non all'Invio -- stessa regola
+    // dei limiti u/v/w e delle equazioni. Sono il taglio della scena in Ray
+    // Marching, cioe' parte della definizione di cio' che si vede, e come tali
+    // vanno confermati insieme all'equazione implicita. Niente connect su
+    // editingFinished qui: l'applicazione passa da applySpaceLimits(), che il
+    // ramo Ray Marching di onStartClicked chiama a ogni Run.
+    // Le modifiche dell'utente riaccendono il Run one-shot, come per ogni altro
+    // campo del modulo (vedi le connect textEdited piu' sotto).
+    applySpaceLimits(/*notify=*/false);   // allineamento iniziale, silenzioso
+
+    for (QLineEdit* spaceEdit : { ui->lineXMin, ui->lineXMax,
+                                  ui->lineYMin, ui->lineYMax,
+                                  ui->lineZMin, ui->lineZMax }) {
+        // Come i limiti u/v/w, ammettono A..F/S: scrivere "2*A" sblocca subito
+        // slider e casella di A.
+        connect(spaceEdit, &QLineEdit::textEdited, this, [this] { m_constantsEditPending = true; });
+        connect(spaceEdit, &QLineEdit::textChanged, this, &MainWindow::updateConstantsUIState);
+        connect(spaceEdit, &QLineEdit::textEdited, this, [this](const QString&) {
+            if (!m_uiReady) return;
+            noteSceneEdited(qobject_cast<QWidget*>(sender()));
+            // Il tasto Run del tab Ray Marching torna eseguibile: c'e' un taglio
+            // nuovo da applicare. E' l'omologo di m_parametricApplied per il
+            // ramo implicito.
+            m_implicitApplied = false;
+            updateMasterButtonState();
+        });
+    }
+
+    // LIMITI U/V/W: il dominio fa parte della definizione della superficie e
+    // segue la stessa regola delle equazioni -- a superficie FERMA aspetta il
+    // Run, IN MOTO entra subito (li' un Run da premere non c'e': il tasto e'
+    // "Stop"). La conferma del campo -- Invio o uscita -- passa da
+    // commitLimitFieldOnEnter, che valida il numero e registra il dominio
+    // nell'engine in entrambi i casi; le connect stanno piu' avanti, insieme a
+    // quelle che riaccendono il Run. Il Return non arriva mai ai QLineEdit --
+    // lo consumano prima i filtri tastiera (desktop e mobile) -- percio'
+    // l'Invio passa di li'. onStartClicked rilegge e valida i campi per conto
+    // suo, cosi' al Run i limiti entrano in vigore insieme alle equazioni.
+    //
+    // I LIMITI SPAZIALI X/Y/Z qui sopra restano invece immediati: sono un
+    // taglio della VISTA in Ray Marching, non il dominio dei parametri.
+
+    connect(ui->btnTextureCode, &QPushButton::clicked, this, [this]() {
+        onRunRaymarchTextureClicked();
+    });
+
+    connect(ui->btnSave, &QPushButton::clicked, this, &MainWindow::onSaveTextureClicked);
+}
+
 
 void MainWindow::checkParametricDependency()
 {

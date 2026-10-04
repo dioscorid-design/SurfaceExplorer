@@ -3,6 +3,40 @@
 // Parte della classe MainWindow divisa per argomento (mainwindow_p.h).
 #include "mainwindow_p.h"
 
+// Dock Script. Parte del costruttore, nell'ordine in cui la chiama.
+void MainWindow::setupScriptDock()
+{
+    // =========================================================================
+    // 9. SCRIPTING & TEXTURE DOCK
+    // =========================================================================
+    connect(ui->btnScriptMode, &QPushButton::clicked, this, &MainWindow::onToggleScriptMode);
+    connect(ui->btnRunCurrentScript, &QPushButton::clicked, this, &MainWindow::onRunCurrentScript);
+    connect(ui->btnSaveScript, &QPushButton::clicked, this, &MainWindow::onSaveScriptClicked);
+
+    m_currentScriptMode = ScriptModeSurface;
+    updateScriptButtonText();
+
+    ui->btnFlatPreview->setText("2D View");
+    ui->btnFlatPreview->setEnabled(false);
+
+    connect(ui->btnFlatPreview, &QPushButton::toggled, this, [this](bool checked){
+        if (checked) {
+            ui->btnFlatPreview->setText("3D View");
+            ui->alphaSlider->setEnabled(false); // Blocchiamo solo la trasparenza
+        } else {
+            updateFlatPreviewButton();
+            ui->alphaSlider->setEnabled(true);
+        }
+
+        ui->glWidget->setFlatView(checked);
+        ui->glWidget->update();
+    });
+
+    updateFlatPreviewButton();
+
+    ui->txtScriptEditor->setPlaceholderText("Write GLSL code for custom texture.\nExample: return vec4(0.2 * u - 0.5, 0.2 * v - 0.5, 0.2 * sin(u * v), 1.0);");
+}
+
 
 
 // ==========================================================

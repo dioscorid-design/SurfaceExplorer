@@ -3,6 +3,172 @@
 // Parte della classe MainWindow divisa per argomento (mainwindow_p.h).
 #include "mainwindow_p.h"
 
+// Library: alberi, menu contestuali, osservatore del file system. Parte del costruttore, nell'ordine in cui la chiama.
+void MainWindow::setupLibraryDock()
+{
+    // =========================================================================
+    // 10. LIBRARY TREES & FILE SYSTEM
+    // =========================================================================
+    QSettings settings;
+    QStringList repos = settings.value("repositoryPaths").toStringList();
+
+    if (!repos.isEmpty() && QDir(repos.first()).exists()) lastTextureFolder = repos.first();
+    else {
+        QString osBaseDir;
+#ifdef Q_OS_ANDROID
+        osBaseDir = "/storage/emulated/0/Download";
+#elif defined(Q_OS_LINUX)
+        osBaseDir = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+        if (osBaseDir.isEmpty()) osBaseDir = QDir::homePath();
+#else
+        osBaseDir = QDir::homePath();
+#endif
+        QString potentialPath = osBaseDir + "/Texture";
+        if (QDir(potentialPath).exists()) lastTextureFolder = potentialPath;
+        else lastTextureFolder = osBaseDir;
+    }
+
+    m_menuController = new LibraryMenuController(this);
+    m_presetSerializer = new PresetSerializer(this);
+    m_fileOps = new LibraryFileOperations(this);
+    m_dragDropHandler = new LibraryDragDropHandler(this);
+    m_audioController = new AudioController(this);
+
+    auto initTree = [this](QTreeWidget* tree) {
+        tree->setHeaderHidden(true);
+        tree->setColumnCount(1);
+        tree->setContextMenuPolicy(Qt::CustomContextMenu);
+        tree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+        // Su mobile la selezione multipla col dito e' involontaria (muovendo il dito
+        // si selezionano piu' file) e comunque il long-press per aprire il menu la
+        // riduceva a 1 -> "Copy/Cut/Delete N items" agiva su un solo file. Selezione
+        // SINGOLA: un tocco = un item, menu sempre coerente. Su desktop resta
+        // ExtendedSelection (Ctrl/Shift+click funziona bene col mouse).
+        tree->setSelectionMode(QAbstractItemView::SingleSelection);
+        // Drag&drop diretto disabilitato su mobile (competeva con lo scroll a dito):
+        // lo spostamento resta via menu Cut/Paste (long-press).
+        tree->setDragDropMode(QAbstractItemView::NoDragDrop);
+#else
+        tree->setSelectionMode(QAbstractItemView::ExtendedSelection);
+        tree->setDragDropMode(QAbstractItemView::InternalMove);
+#endif
+
+        // 1. FORZA lo scroll per pixel
+        tree->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+        tree->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+
+        // 2. IL VERO SEGRETO: Dichiara che le righe sono tutte alte uguali.
+        // Senza questo, Qt annulla lo scroll fluido e torna agli "scatti"!
+        tree->setUniformRowHeights(true);
+
+#if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
+        // Niente scroll cinetico a dito sul viewport: si scrolla solo con la scroll
+        // bar (lo scroll a dito animava di moto proprio ed evidenziava gli item).
+        // Il TapAndHold resta: apre il menu contestuale.
+        tree->grabGesture(Qt::TapAndHoldGesture);
+
+        tree->setIndentation(12);
+#endif
+
+        tree->installEventFilter(m_dragDropHandler);
+        tree->viewport()->installEventFilter(m_dragDropHandler);
+    };
+    initTree(ui->treeSurfaces);
+    connect(ui->treeSurfaces, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint &pos){
+        if (!ui->treeSurfaces->itemAt(pos)) { ui->treeSurfaces->clearSelection(); ui->treeSurfaces->setCurrentItem(nullptr); }
+        m_menuController->showMenu(ui->treeSurfaces, pos);
+    });
+    connect(ui->treeSurfaces, &QTreeWidget::itemClicked, this, &MainWindow::onExampleItemClicked);
+
+    initTree(ui->treeTextures);
+    connect(ui->treeTextures, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint &pos){
+        if (!ui->treeTextures->itemAt(pos)) { ui->treeTextures->clearSelection(); ui->treeTextures->setCurrentItem(nullptr); }
+        m_menuController->showMenu(ui->treeTextures, pos);
+    });
+    connect(ui->treeTextures, &QTreeWidget::itemClicked, this, &MainWindow::onExampleItemClicked);
+
+    initTree(ui->treeMotions);
+    connect(ui->treeMotions, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint &pos){
+        if (!ui->treeMotions->itemAt(pos)) { ui->treeMotions->clearSelection(); ui->treeMotions->setCurrentItem(nullptr); }
+        m_menuController->showMenu(ui->treeMotions, pos);
+    });
+    connect(ui->treeMotions, &QTreeWidget::itemClicked, this, &MainWindow::onExampleItemClicked);
+
+    initTree(ui->treeSounds);
+    connect(ui->treeSounds, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint &pos){
+        if (!ui->treeSounds->itemAt(pos)) { ui->treeSounds->clearSelection(); ui->treeSounds->setCurrentItem(nullptr); }
+        m_menuController->showMenu(ui->treeSounds, pos);
+    });
+    connect(ui->treeSounds, &QTreeWidget::itemClicked, this, &MainWindow::onSoundItemClicked);
+
+    // APRIRE O CHIUDERE UNA CARTELLA NON SPOSTA L'EVIDENZIAZIONE. Il clic sulla
+    // RIGA di una cartella (tap su mobile, doppio clic su desktop; solo la
+    // freccetta non seleziona) passa prima da Qt, che sposta la selezione sulla
+    // cartella: il preset in vigore perdeva il focus anche se il clic serviva
+    // solo ad aprire o chiudere il ramo. Qui si ricorda cio' che la cartella ha
+    // scalzato e lo si rimette quando il ramo si apre o si chiude.
+    // Il ripristino scatta solo se la cartella e' ancora l'intera selezione:
+    // le espansioni del programma (load, refresh) arrivano con la selezione
+    // gia' sul preset nuovo, e una cartella selezionata con un clic singolo
+    // resta selezionata finche' non la si apre (serve a Copy/Cut/Paste/Delete).
+    // Indici persistenti, non puntatori: se l'albero viene ricostruito
+    // (refreshLibrary) diventano invalidi da soli.
+    auto keepHighlightOnToggle = [this](QTreeWidget *tree) {
+        struct Displaced { QPersistentModelIndex folder; QList<QPersistentModelIndex> leaves; };
+        auto d = std::make_shared<Displaced>();
+        connect(tree->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+                [tree, d](const QItemSelection &, const QItemSelection &deselected) {
+            d->folder = QPersistentModelIndex();
+            d->leaves.clear();
+            const QList<QTreeWidgetItem *> sel = tree->selectedItems();
+            if (sel.size() != 1 || sel.first()->childCount() == 0) return;
+            d->folder = tree->indexFromItem(sel.first());
+            for (const QModelIndex &i : deselected.indexes()) {
+                QTreeWidgetItem *it = tree->itemFromIndex(i);
+                if (it && it->childCount() == 0) d->leaves << QPersistentModelIndex(i);
+            }
+        });
+        auto restore = [tree, d](QTreeWidgetItem *folder) {
+            if (d->leaves.isEmpty() || tree->indexFromItem(folder) != d->folder) return;
+            const QList<QTreeWidgetItem *> sel = tree->selectedItems();
+            if (sel.size() != 1 || sel.first() != folder) return;
+            const QList<QPersistentModelIndex> leaves = d->leaves;   // la selectionChanged qui sotto lo azzera
+            QItemSelectionModel *sm = tree->selectionModel();
+            sm->clearSelection();
+            QModelIndex current;
+            for (const QPersistentModelIndex &i : leaves) {
+                if (!i.isValid()) continue;
+                sm->select(i, QItemSelectionModel::Select | QItemSelectionModel::Rows);
+                if (!current.isValid()) current = i;
+            }
+            // Senza autoscroll: spostare l'elemento corrente fa scrollTo, che
+            // RIAPRE i genitori chiusi -- cioe' la cartella appena chiusa.
+            if (current.isValid()) {
+                const bool autoScroll = tree->hasAutoScroll();
+                tree->setAutoScroll(false);
+                sm->setCurrentIndex(current, QItemSelectionModel::NoUpdate);
+                tree->setAutoScroll(autoScroll);
+            }
+        };
+        connect(tree, &QTreeWidget::itemExpanded, this, restore);
+        connect(tree, &QTreeWidget::itemCollapsed, this, restore);
+    };
+    for (QTreeWidget *tree : { ui->treeSurfaces, ui->treeTextures, ui->treeMotions, ui->treeSounds })
+        keepHighlightOnToggle(tree);
+
+    connect(ui->btnSyncLibrary, &QPushButton::clicked, this, &MainWindow::onSyncPresetsClicked);
+
+    m_fsWatcher = new QFileSystemWatcher(this);
+    m_fsSyncTimer = new QTimer(this);
+    m_fsSyncTimer->setSingleShot(true);
+    m_fsSyncTimer->setInterval(500);
+
+    connect(m_fsWatcher, &QFileSystemWatcher::directoryChanged, this, [this](const QString &){ m_fsSyncTimer->start(); });
+    connect(m_fsWatcher, &QFileSystemWatcher::fileChanged, this, [this](const QString &){ m_fsSyncTimer->start(); });
+    connect(m_fsSyncTimer, &QTimer::timeout, this, &MainWindow::refreshRepositories);
+}
+
 
 #if defined(Q_OS_ANDROID)
 void notifyAndroidMediaStore(const QString& filePath) {
