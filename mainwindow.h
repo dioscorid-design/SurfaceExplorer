@@ -464,13 +464,11 @@ private:
     // Al rilascio dello slider / Enter nel campo il valore scatta all'intero
     // piu' vicino dentro [min,max]. Vedi applyDiscreteConstants().
     struct DiscreteRange { int lo; int hi; };
-    QHash<QString, DiscreteRange> m_discreteConsts;
 
     // Minimi CONTINUI dichiarati con "F := min(0.3);": la costante resta
     // frazionaria ma non scende sotto la soglia. Serve dove sotto un certo
     // valore la figura degenera (i tubi di Clifford collassano sull'asse).
     // Applicati insieme ai discreti, dagli stessi punti.
-    QHash<QString, float> m_minConsts;
 
     // MESH_VISIBLE := <espressione>;  (es. "MESH_VISIBLE := E;")
     // Quante delle mesh dichiarate sono davvero A SCHERMO. Serve perche' un
@@ -570,7 +568,6 @@ private:
     // ==========================================================
     // RENDERING & COLOR STATE
     // ==========================================================
-    int m_savedRenderMode = 0;
     // True quando il ramo Texture del dock Library e' collassato+grigio perche'
     // siamo in surface-wireframe. Traccia la transizione: applichiamo il grigio
     // (o lo togliamo) solo quando lo stato cambia, non a ogni updateRenderState.
@@ -646,7 +643,6 @@ private:
     // resetTransparency): l'handler valueChanged distingue cosi' il set programmatico
     // dall'interazione utente e non fa scattare il blocco/popup sui load. Vedi setAlphaSliderProgrammatic.
     bool m_settingAlphaProgrammatic = false;
-    int m_lightingMode4D = 0;
     float alphaValue = 1.0f;
 
     QColor m_currentSurfaceColor;
@@ -676,9 +672,9 @@ private:
     // dello slot che il dock mostra adesso (shownScriptSlot): chi scrive uno
     // slot passa da setScriptText, chi digita nell'editor scrive lo slot
     // mostrato, e nessuno legge l'editor.
-    // Cio' che e' A SCHERMO sta altrove: m_surfaceScriptApplied (script di
-    // superficie dell'ultimo Run o del preset), m_surfaceTextureCode e
-    // m_bgTextureCode (texture compilate), MeshPart::textureCode (fasce).
+    // Cio' che e' A SCHERMO sta altrove: m_scene.surfaceScriptApplied (script di
+    // superficie dell'ultimo Run o del preset), m_scene.surfaceTextureCode e
+    // m_scene.bgTextureCode (texture compilate), MeshPart::textureCode (fasce).
     // "Modificato e non eseguito" = slot diverso dall'applicato.
     // Prima l'editor era anche stato: il testo in sospeso viveva solo li', e
     // ogni cambio di modulo o di bersaglio lo travasava nello slot -- che
@@ -724,9 +720,9 @@ private:
     // ----------------------------------------------------------
     // DOCK EQUATIONS: STATO (superficie parametrica e flusso geodetico)
     // ----------------------------------------------------------
-    // I testi del dock Equations COSI' COME SONO SCRITTI (m_eq) e com'erano
+    // I testi del dock Equations COSI' COME SONO SCRITTI (m_scene.eq) e com'erano
     // all'ultimo Run o al load (m_eqApplied: cio' che e' a schermo). La logica
-    // legge m_eq, non i widget: i campi ne sono l'editor, e bindEquationFields
+    // legge m_scene.eq, non i widget: i campi ne sono l'editor, e bindEquationFields
     // li tiene allineati a livello di DOCUMENTO -- quindi anche quando un campo
     // viene scritto a segnali bloccati. Chi scrive un campo dal programma
     // senza volerne le reazioni (textChanged) passa da setEqText.
@@ -741,21 +737,20 @@ private:
         QString conform;                            // ...fattore conforme
     };
     using EqField = QString EquationTexts::*;
-    EquationTexts m_eq;
     // Vuoto finche' non c'e' stato un Run, un load o un reset.
     std::optional<EquationTexts> m_eqApplied;
-    // Aggancia i campi a m_eq (e quelli Ray Marching a m_rm, qui sotto). Subito
+    // Aggancia i campi a m_scene.eq (e quelli Ray Marching a m_scene.rm, qui sotto). Subito
     // dopo setupUi: il suo gestore deve girare PRIMA di ogni altro textChanged,
     // che lo stato lo legge.
     void bindEquationFields();
     class QPlainTextEdit *equationFieldEdit(EqField field) const;
-    // Scrive un campo dal programma, a segnali bloccati (m_eq segue).
+    // Scrive un campo dal programma, a segnali bloccati (m_scene.eq segue).
     void setEqText(EqField field, const QString &text);
 
     // ----------------------------------------------------------
     // RAY MARCHING: STATO dei testi
     // ----------------------------------------------------------
-    // Come m_eq, per i quattro campi del Ray Marching: lo SCRITTO. L'applicato
+    // Come m_scene.eq, per i quattro campi del Ray Marching: lo SCRITTO. L'applicato
     // qui non e' una copia in MainWindow: sta nel motore (GLWidget::
     // activeImplicitEquation, currentTextureCode, currentDisplacementCode).
     struct ImplicitTexts {
@@ -765,9 +760,8 @@ private:
         QString displacement;   // rilievo (campo Variations)
     };
     using RmField = QString ImplicitTexts::*;
-    ImplicitTexts m_rm;
     class QPlainTextEdit *implicitFieldEdit(RmField field) const;
-    // Scrive un campo dal programma, a segnali bloccati (m_rm segue).
+    // Scrive un campo dal programma, a segnali bloccati (m_scene.rm segue).
     void setRmText(RmField field, const QString &text);
 
     // ----------------------------------------------------------
@@ -777,19 +771,18 @@ private:
     // espressioni a cascata, "A/10"): sono la fonte. Gli slider sono la vista
     // dei valori risolti (syncConstantSliders), il motore il derivato
     // (setEngineConstants). In Ray Marching il campo S e' lo Step Relax del
-    // marcher. La logica legge m_const, non i widget.
+    // marcher. La logica legge m_scene.constants, non i widget.
     // Un QLineEdit non ha un documento separato che segua le scritture a
     // segnali bloccati: chi scrive un campo dal programma passa da
     // setConstText, la digitazione arriva dal textChanged (bindConstantFields).
     struct ConstantTexts { QString a, b, c, d, e, f, s; };
     using ConstField = QString ConstantTexts::*;
-    ConstantTexts m_const;
     // I sette campi nell'ordine della cascata (B puo' citare A, S tutte).
     static const std::array<ConstField, 7> &constantFields();
     static QString constantName(ConstField field);
     QLineEdit *constantFieldEdit(ConstField field) const;
     QSlider *constantSlider(ConstField field) const;
-    // Aggancia i campi a m_const e lo slider Steps a m_steps. Subito dopo
+    // Aggancia i campi a m_scene.constants e lo slider Steps a m_scene.steps. Subito dopo
     // setupUi, come bindEquationFields.
     void bindConstantFields();
     // Scrive un campo dal programma, a segnali bloccati. Lo slider NON lo
@@ -803,7 +796,7 @@ private:
     // ----------------------------------------------------------
     // Il dominio u/v/w, il taglio spaziale x/y/z del Ray Marching e i campi
     // dei path 4D e 3D COSI' COME SONO SCRITTI (numeri o espressioni). La
-    // logica e il Save leggono m_lim e m_path, non i QLineEdit. L'aggancio e'
+    // logica e il Save leggono m_scene.lim e m_scene.path, non i QLineEdit. L'aggancio e'
     // il textChanged del campo (bindLineFields): arriva per la digitazione e
     // per setText/clear a segnali vivi, i cui gestori sono solo derivazioni.
     // Le scritture a segnali BLOCCATI passano da setLineText. I validatori che
@@ -812,27 +805,23 @@ private:
                         QString xMin, xMax, yMin, yMax, zMin, zMax; };  // taglio RM
     struct PathTexts  { QString x, y, z, p, alpha, beta, gamma;         // path 4D
                         QString x3D, y3D, z3D, roll3D; };               // path 3D
-    LimitTexts m_lim;
     // I testi x/y/z (min, max) dell'ultimo taglio applicato da applySpaceLimits:
     // lo slider di una costante li rivaluta, lo scritto dopo aspetta il Run.
     QString m_spaceLimitsApplied[6];
-    PathTexts m_path;
     // I 23 campi con la loro stringa nello stato.
     QList<QPair<QLineEdit *, QString *>> lineFieldTable();
     void bindLineFields();
     // Il testo dello stato per il campo `edit`, per le funzioni che ricevono
     // il campo come puntatore. Per un campo che non e' fra questi: il suo testo.
     QString lineText(const QLineEdit *edit) const;
-    // Dal programma, a segnali bloccati: `state` e' un membro di m_lim o m_path.
+    // Dal programma, a segnali bloccati: `state` e' un membro di m_scene.lim o m_scene.path.
     void setLineText(QString &state, const QString &text);
     // Steps: in parametrico la risoluzione della mesh, in Ray Marching i Ray
     // Steps. Lo slider e il campo ne sono la vista; il motore (setResolution /
     // setRaySteps) lo scrive chi chiama. setSteps: dal programma, a segnali
     // bloccati, allargando il range dello slider se serve.
-    int m_steps = 100;
     void setSteps(int steps);
 
-    bool m_surfaceTextureState = false;
     bool m_blockTextureGen = false;
     // Alzato durante un cambio tab AUTOMATICO, cioe' deciso dal preset che si
     // sta caricando e non dall'utente. Due casi, stessa ragione:
@@ -888,20 +877,17 @@ private:
     // l'unico aggancio possibile resta il codice.
     // Vale per la SOLA texture globale di superficie: lo sfondo ha la sua ancora,
     // qui sotto. Leggerla per cercare lo sfondo portava il focus sulla superficie.
-    QString m_currentTextureLibName;
     // Ancora gemella per la texture DI SFONDO: stesso ruolo, stesso ciclo di vita
     // (scritta caricando la texture dalla libreria col bersaglio Background,
     // salvata nel record in "background"/"libName", letta al load, azzerata dal
     // reset di scena). Senza, uno sfondo il cui codice e' cambiato in libreria
     // perdeva il focus e nessun Sync poteva riallinearlo.
-    QString m_currentBgTextureLibName;
     // Ancora del SUONO: nome della voce della Library Sounds da cui viene
     // l'audio in scena, salvato nel record come "soundLibName". Il suono vive
     // solo come codice dentro texture.code (//MUSIC: o blocco SOUND_BEGIN),
     // quindi un ritocco dello script in libreria (es. il volume finale) gli
     // faceva perdere il focus. Scritta dal click in Library, letta al load,
     // azzerata dal reset di scena e dal load di una superficie.
-    QString m_currentSoundLibName;
 
     // File del RECORD attualmente in scena. Serve a "Sync Focused Texture", che
     // deve agire solo quando il click destro cade sul record caricato: la
@@ -910,13 +896,9 @@ private:
     // superficie sola, o dopo un NEW).
     QString m_currentRecordPath;
     QString m_currentTexturePresetPath;
-    QString m_surfaceTextureCode;
-    QString m_bgTextureCode;
 
-    QString m_surfaceScriptText;
     // Lo script di superficie dell'ultimo Run o del preset: quello a schermo, e
     // quello che il Save scrive. (Era la property dinamica "rawSurfaceScript".)
-    QString m_surfaceScriptApplied;
     // Corpo GLSL dello script metrico (direttive := rimosse, non tradotto).
     // Non vuoto = il flusso geodetico usa il tensore g_ij dello script invece
     // della metrica indotta dall'embedding X/Y/Z/P.
@@ -950,9 +932,6 @@ private:
     // applica al load reimpostando i campi. Vuoto = identità, non serializzato.
     void writeMetricDisplayMap(QJsonObject& root) const;
     bool metricDisplayMapIsCustom() const;
-    QString m_surfaceTextureScriptText;
-    QString m_bgTextureScriptText;
-    QString m_soundScriptText;
 
     // ==========================================================
     // MOTION & PATHS
@@ -978,13 +957,11 @@ private:
     QTimer *pathTimer3D = nullptr;
     float pathTimeT3D = 0.0f;
 
-    // Avanzamento per tick dei due path. STATO: m_pathSpeed3D/4D, in unita'
+    // Avanzamento per tick dei due path. STATO: m_scene.pathSpeed3D/4D, in unita'
     // dello slider (1..100); speed3DSlider/speed4DSlider ne sono la vista
     // (setPathSpeed3D/4D a segnali bloccati; il trascinamento scrive lo stato).
     float pathSpeed3D() const;
     float pathSpeed4D() const;
-    int m_pathSpeed3D = 10;
-    int m_pathSpeed4D = 10;
     void setPathSpeed3D(int speed);
     void setPathSpeed4D(int speed);
 
@@ -1017,10 +994,8 @@ private:
         ModeTangential,
         ModeCentered
     };
-    CameraPathMode m_pathViewMode4D;     // modalita' vista del path 4D (pushView)
-    CameraPathMode m_pathViewMode3D;   // modalita' vista del path 3D (pushView3D)
-    // Vista dei due path: UNICO punto che scrive m_pathViewMode4D /
-    // m_pathViewMode3D e il testo dei loro tasti (pushView / pushView3D).
+    // Vista dei due path: UNICO punto che scrive m_scene.pathViewMode4D /
+    // m_scene.pathViewMode3D e il testo dei loro tasti (pushView / pushView3D).
     void setPathViewModes(CameraPathMode mode4D, CameraPathMode mode3D);
     // Comandi dei moti camera ai default della scena nuova (NEW, cambio di
     // modalita' o di sotto-tab, load): viste Tangent, velocita' dei path 10,
@@ -1031,7 +1006,6 @@ private:
     // con rotazioni e path entrambi compilati, applyStartSideEffects riavvia
     // SOLO questo (la vecchia cascata faceva vincere sempre il path 3D). Al
     // load di un record viene impostato dalla chiave JSON "activeMotion".
-    QString m_lastCameraMotion;
 
     bool m_masterStopped = false;
     // L'utente ha fermato il suono ESPLICITAMENTE (tasto Stop Sound): in tal caso
@@ -1085,7 +1059,7 @@ private:
     // Moto CAMERA (path 4D/3D o rotazioni GO) fermato ESPLICITAMENTE: STOP su
     // Departure, pausa del GO o master STOP. Senza questo flag un commit di
     // equazione (Enter -> onStartClicked -> applyStartSideEffects) riavviava
-    // m_lastCameraMotion pur con tutto fermo a mano. Si riarma su master Start,
+    // m_scene.lastCameraMotion pur con tutto fermo a mano. Si riarma su master Start,
     // avvio esplicito di un moto camera e load di preset/record (applyCommonData).
     bool m_userStoppedCameraMotion = false;
 
@@ -1204,7 +1178,7 @@ private:
     // QUALE DOCK DEFINISCE LA SUPERFICIE A SCHERMO. Stato ESPLICITO, non
     // dedotto: la versione precedente lo indovinava a ogni battitura guardando
     // se i campi erano pieni ("default a schermo" + "script non vuoto"), e
-    // la deduzione si sfasava dalla realta' in entrambi i versi -- m_surfaceScriptText
+    // la deduzione si sfasava dalla realta' in entrambi i versi -- m_scene.surfaceScriptText
     // non veniva mai svuotato da un Run delle equazioni (avviso a sproposito),
     // e chi costruiva nel dock Script partendo dal default lasciava il flag di
     // default acceso per sempre (avviso mai piu' mostrato).
@@ -1387,11 +1361,10 @@ private:
     // EQUAZIONE, e siccome quasi tutti i record RM sono da SCRIPT i radio non
     // si resettavano mai caricando un record; resetScene non lo faceva affatto.
     void applyImplicitShellMode(bool shell);
-    // Shell/Solid: lo STATO (m_implicitShell); i radio ne sono la vista, la
+    // Shell/Solid: lo STATO (m_scene.implicitShell); i radio ne sono la vista, la
     // modalita' globale del motore in Ray Marching (1 = Shell) il derivato.
     // Lo scrive solo applyImplicitShellMode.
-    bool m_implicitShell = true;
-    bool implicitShellSelected() const { return m_implicitShell; }
+    bool implicitShellSelected() const { return m_scene.implicitShell; }
     // Testo dell'equazione implicita del sotto-tab ATTIVO (3D o Cross Section).
     // Da usare ovunque serva "l'equazione a schermo": leggere ui->lineEquation
     // fisso ignora il Cross Section.
@@ -1416,7 +1389,7 @@ private:
     // sta caricando, anche vuoto. Vedi l'implementazione.
     void setCrossSectionEditorFromPreset(const QString &eq);
     // ACCENSIONE DELLA TEXTURE DI SUPERFICIE nel motore, derivata dall'intenzione
-    // m_surfaceTextureState. Vedi l'implementazione.
+    // m_scene.surfaceTextureState. Vedi l'implementazione.
     void applySurfaceTextureToEngine();
     // ----------------------------------------------------------
     // DOCK RENDERER: BERSAGLIO E CHECKBOX TEXTURE
@@ -1424,7 +1397,7 @@ private:
     // Il checkbox "Texture" e' UN widget per tre texture: lo sfondo (bersaglio
     // Background), la fascia selezionata (ambito Mesh) o la superficie. E' una
     // VISTA: lo stato sta altrove (lo sfondo nel motore, la fascia nella sua
-    // MeshPart, la superficie in m_surfaceTextureState), e chi vuole sapere se
+    // MeshPart, la superficie in m_scene.surfaceTextureState), e chi vuole sapere se
     // una texture e' accesa lo chiede allo stato, non al checkbox -- che col
     // bersaglio su Background mostra lo sfondo. Leggendolo come "la texture di
     // superficie e' accesa", master Start e Run non riavviavano la texture
@@ -1455,8 +1428,7 @@ private:
     // principale (ui->tabModeSelector) ne e' la vista; la modalita' del motore
     // (GLWidget::getEngineMode) il derivato, scritto da resetScene e dai load.
     // Chi vuole sapere la modalita' chiede a implicitMode(), non alla linguetta.
-    bool m_implicitMode = false;
-    bool implicitMode() const { return m_implicitMode; }
+    bool implicitMode() const { return m_scene.implicitMode; }
     // Dal programma: stato + linguetta a segnali bloccati, SENZA il reset del
     // clic (load che riscrivono la scena da se', ripristino dopo Annulla). Chi
     // vuole il reset cambia la linguetta a segnali vivi, come un clic.
@@ -1464,8 +1436,7 @@ private:
     // AMBITO All / Mesh: STATO. I radio ne sono la vista; nel motore ne
     // derivano setMeshAppearanceUniform e la parte attiva (-1 in All). Chi
     // vuole sapere l'ambito chiede a meshScopeAll(), non ai radio.
-    bool m_meshScopeAll = true;
-    bool meshScopeAll() const { return m_meshScopeAll; }
+    bool meshScopeAll() const { return m_scene.meshScopeAll; }
     // Dal programma (gate del selettore, ambito del preset al load): stato +
     // radio a segnali bloccati. Il motore lo scrive chi chiama.
     void setMeshScopeAll(bool all);
@@ -1473,8 +1444,7 @@ private:
     // (ui->subTabImplicit) ne e' la vista; il ramo che il motore compila
     // (GLWidget::implicitUsesCrossSection) e' l'applicato. Chi vuole sapere
     // quale sotto-tab e' attivo chiede a crossSectionTab(), non alla linguetta.
-    bool m_crossSectionTab = false;
-    bool crossSectionTab() const { return m_crossSectionTab; }
+    bool crossSectionTab() const { return m_scene.crossSectionTab; }
     // Dal programma (load, ripristino dopo Annulla): stato + linguetta a
     // segnali bloccati, senza il reset che fa il clic.
     void setCrossSectionTab(bool on);
@@ -1490,6 +1460,58 @@ private:
     // bloccati, vista 2D). NON fa la transizione del dock (editor, checkbox,
     // colori, comandi spenti): quella la fa il gestore del clic, o chi chiama.
     void setEditTarget(EditTarget target);
+
+    // ----------------------------------------------------------
+    // LA SCENA: le sedi dello stato lato MainWindow in UN valore
+    // ----------------------------------------------------------
+    // Ognuna e' documentata nella sua sezione qui sopra, insieme ai suoi
+    // setter. Riunite qui perche' il load diventi un'assegnazione, il Save la
+    // sua traduzione e il reset la scena di default (punto 5 del refactoring).
+    // Nel MOTORE restano, copia unica, colori/alpha/luce, MeshPart, stato 4D,
+    // inquadrature e marcher.
+    struct SceneState {
+        EquationTexts eq;         // dock Equations, lo SCRITTO (l'applicato: m_eqApplied)
+        ImplicitTexts rm;         // i quattro campi Ray Marching
+        ConstantTexts constants;  // costanti A..F, S (testi, anche a cascata)
+        LimitTexts lim;           // dominio u/v/w e taglio x/y/z
+        PathTexts path;           // path 4D e 3D
+        int steps = 100;          // Steps (parametrico) / Ray Steps (RM)
+
+        // Scelte
+        bool implicitMode = false;          // Parametric / Implicit (vista: tabModeSelector)
+        bool crossSectionTab = false;       // sotto-tab RM 3D / Cross Section
+        bool implicitShell = true;          // Shell / Solid (vista: due coppie di radio)
+        int renderMode = 0;                 // Base / Phong / Wireframe, globale
+        bool meshScopeAll = true;           // ambito multi-mesh All / Mesh
+        bool surfaceTextureState = false;   // texture di superficie accesa (intenzione)
+        int lightingMode4D = 0;
+
+        // Moti della camera
+        CameraPathMode pathViewMode4D = ModeTangential;   // vista del path 4D (pushView)
+        CameraPathMode pathViewMode3D = ModeTangential;   // vista del path 3D (pushView3D)
+        int pathSpeed3D = 10;               // unita' degli slider, 1..100
+        int pathSpeed4D = 10;
+        QString lastCameraMotion;           // ultimo moto camera avviato (Save: activeMotion)
+
+        // Dock Script: lo scritto per modulo e l'applicato della superficie
+        QString surfaceScriptText;
+        QString surfaceScriptApplied;
+        QString surfaceTextureScriptText;
+        QString bgTextureScriptText;
+        QString soundScriptText;
+
+        // Texture: codice applicato e ancore della Library
+        QString surfaceTextureCode;
+        QString bgTextureCode;
+        QString textureLibName;
+        QString bgTextureLibName;
+        QString soundLibName;
+
+        // Costanti dichiarate dallo script: discrete ("A := int(1,6)") e minimi
+        QHash<QString, DiscreteRange> discreteConsts;
+        QHash<QString, float> minConsts;
+    };
+    SceneState m_scene;
     // La superficie -- o la fascia selezionata, in ambito Mesh -- e' in
     // wireframe: la texture non si disegna. Vedi l'implementazione.
     bool textureTargetInWireframe() const;
@@ -1700,17 +1722,17 @@ private:
     // SCRIPT della texture di superficie / di sfondo (parametrico): cio' che
     // l'utente ha scritto, eseguito o no -- l'INTENZIONE, quella che il Save
     // scrive. E' il suo slot (vedi "DOCK SCRIPT: STATO E VISTA").
-    // Solo lettura: la copia APPLICATA (m_surfaceTextureCode / m_bgTextureCode)
+    // Solo lettura: la copia APPLICATA (m_scene.surfaceTextureCode / m_scene.bgTextureCode)
     // la scrive solo chi la manda al motore. Prima il Save ci travasava
     // l'editor, e dopo un salvataggio uno script mai eseguito risultava
     // applicato mentre il motore disegnava ancora il vecchio.
-    // SCRIPT DI SUPERFICIE: via lo scritto (m_surfaceScriptText) e l'applicato
-    // (m_surfaceScriptApplied), insieme. Svuotando solo il primo, caricando una
+    // SCRIPT DI SUPERFICIE: via lo scritto (m_scene.surfaceScriptText) e l'applicato
+    // (m_scene.surfaceScriptApplied), insieme. Svuotando solo il primo, caricando una
     // scena a equazioni dopo una da script il Save aveva ancora in mano lo
     // script della scena di prima.
     void clearSurfaceScript();
-    QString surfaceTextureScript() const { return m_surfaceTextureScriptText; }
-    QString backgroundTextureScript() const { return m_bgTextureScriptText; }
+    QString surfaceTextureScript() const { return m_scene.surfaceTextureScriptText; }
+    QString backgroundTextureScript() const { return m_scene.bgTextureScriptText; }
     // IMMAGINE della texture di superficie: il file caricato nel motore
     // (GLWidget::surfaceImagePath), vuoto se non c'e'. E' l'unica copia: prima
     // c'erano anche m_isImageMode e m_currentTexturePath, riallineati a mano in
@@ -1740,11 +1762,11 @@ private:
     // era un flag (m_isCustomMode) scritto in una quindicina di punti, e il Run
     // dello script di una FASCIA lo scriveva col codice della fascia -- tornando
     // ad All i picker Colore della scacchiera di default restavano spenti.
-    bool surfaceTextureIsCustom() const { return textureHasLogic(m_surfaceTextureCode); }
+    bool surfaceTextureIsCustom() const { return textureHasLogic(m_scene.surfaceTextureCode); }
     // PROVA E APPLICA il codice della texture PARAMETRICA di superficie: il
     // motore lo compila (un codice senza logica -- vuoto, o il solo tag //IMG:
     // -- lascia lo shader standard) e, solo se regge, diventa la copia applicata
-    // m_surfaceTextureCode. "" toglie la texture. Sede unica della coppia
+    // m_scene.surfaceTextureCode. "" toglie la texture. Sede unica della coppia
     // "motore, poi copia applicata" per i GESTI (Run, Sync, Library, checkbox,
     // reset): era ripetuta a mano in ciascuno. I due load (applySurfaceExample,
     // applyMotionExample) restano a parte: li' la copia serve PRIMA che il
@@ -1755,12 +1777,12 @@ private:
     // //MUSIC: o un blocco //SOUND_BEGIN..//SOUND_END. Il dock Sound accetta
     // anche GLSL nudo (un mainSound scritto senza marcatori): wrapSoundCode lo
     // avvolge. Prima lo avvolgeva solo il Run Sound, componendolo DENTRO il
-    // codice della texture (m_surfaceTextureCode / m_bgTextureCode): l'audio
+    // codice della texture (m_scene.surfaceTextureCode / m_scene.bgTextureCode): l'audio
     // viveva in due posti, il Run Sound "applicava" in memoria uno script
-    // texture mai eseguito, e il Save -- che legge m_soundScriptText -- scriveva
-    // il GLSL nudo in mezzo alla texture. L'audio vive solo in m_soundScriptText.
+    // texture mai eseguito, e il Save -- che legge m_scene.soundScriptText -- scriveva
+    // il GLSL nudo in mezzo alla texture. L'audio vive solo in m_scene.soundScriptText.
     static QString wrapSoundCode(const QString &sound);
-    QString soundCode() const { return wrapSoundCode(m_soundScriptText); }
+    QString soundCode() const { return wrapSoundCode(m_scene.soundScriptText); }
     // Tutto il codice in cui cercare l'audio da suonare (player, avvio
     // automatico, video): il suono per primo, poi gli script che possono
     // ancora portarne uno (uno script di superficie scritto a mano, una
@@ -1812,7 +1834,7 @@ private:
     // funzionalita' resta invisibile dove non serve.
     void updateMeshSelectorRange();
     void syncAppearanceControlsToActiveMesh();
-    // BASE / PHONG / WIREFRAME. Lo stato e' m_savedRenderMode (globale: quello
+    // BASE / PHONG / WIREFRAME. Lo stato e' m_scene.renderMode (globale: quello
     // che le mesh senza modalita' propria ereditano e che il preset salva) e,
     // per una fascia, la sua MeshPart. I radio ne sono la VISTA: chi vuole
     // sapere la modalita' chiede a shownRenderMode(), non ai radio.
@@ -1886,7 +1908,7 @@ private:
     bool applyBackgroundTextureIfNeeded();
 
     // --- Geometry & Geodesic Flow ---
-    // L'applicato = lo scritto di adesso (m_eqApplied = m_eq).
+    // L'applicato = lo scritto di adesso (m_eqApplied = m_scene.eq).
     void snapshotActiveEquations();
     void commitUiFieldsDuringMotion();
     // Ritornano true se la modifica e' stata APPLICATA, false se rifiutata

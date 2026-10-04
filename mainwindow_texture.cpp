@@ -35,21 +35,21 @@ void MainWindow::syncTextureTreeSelection()
     // resta pulito.
     QString activeCode;
     // Nome di libreria della texture cercata, ciascuna con la SUA ancora: la
-    // superficie globale m_currentTextureLibName, lo sfondo
-    // m_currentBgTextureLibName, una fascia MeshPart::textureLibName
+    // superficie globale m_scene.textureLibName, lo sfondo
+    // m_scene.bgTextureLibName, una fascia MeshPart::textureLibName
     // (vedi selectTextureTreeItemFor).
     QString libName;
     if (editingBackground()) {
         // SFONDO: il suo stato e' nel motore (isBackgroundTextureEnabled).
         if (!targetTextureOn()) return;
-        activeCode = m_bgTextureCode;
-        libName = m_currentBgTextureLibName;
+        activeCode = m_scene.bgTextureCode;
+        libName = m_scene.bgTextureLibName;
     } else {
         if (implicitMode()) {
             // RAY MARCHING: nessuna fascia, la texture e' quella di superficie.
             if (!surfaceTextureShown()) return;
-            activeCode = m_rm.texture;
-            libName = m_currentTextureLibName;
+            activeCode = m_scene.rm.texture;
+            libName = m_scene.textureLibName;
         } else {
             // MULTI-MESH: con una fascia selezionata l'albero deve evidenziare
             // la texture di QUELLA, non quella globale -- stessa regola con cui
@@ -66,7 +66,7 @@ void MainWindow::syncTextureTreeSelection()
             // si disegna (surface.frag esce a colore piatto), quindi l'albero
             // non deve indicarne nessuna. Il vecchio gate lo otteneva di
             // rimbalzo -- il ramo wireframe del radio forza il checkbox a false
-            // (~2098) senza toccare m_surfaceTextureState -- e leggendo il
+            // (~2098) senza toccare m_scene.surfaceTextureState -- e leggendo il
             // modello quella condizione va riscritta ESPLICITA, o passando in
             // wireframe da "All" l'albero resterebbe puntato sulla texture.
             // La modalita' si legge dal motore, non dai radio, per la stessa
@@ -74,9 +74,9 @@ void MainWindow::syncTextureTreeSelection()
             // fascia, non il globale.
             const bool wireframeAll =
                 ui->glWidget && ui->glWidget->globalRenderMode() == 2;
-            bool on = m_surfaceTextureState && !wireframeAll;
-            activeCode = m_surfaceTextureCode;
-            libName = m_currentTextureLibName;
+            bool on = m_scene.surfaceTextureState && !wireframeAll;
+            activeCode = m_scene.surfaceTextureCode;
+            libName = m_scene.textureLibName;
             if (ui->glWidget && ui->glWidget->getEngine()) {
                 const int idx = ui->glWidget->activeMeshPart();
                 const auto &parts = ui->glWidget->getEngine()->getMeshParts();
@@ -91,7 +91,7 @@ void MainWindow::syncTextureTreeSelection()
                     const MeshPart &p = parts[idx];
                     const bool multi = ui->glWidget->meshPartCount() > 1;
                     on = multi ? p.effectiveTextureEnabledMulti()
-                               : p.effectiveTextureEnabled(m_surfaceTextureState
+                               : p.effectiveTextureEnabled(m_scene.surfaceTextureState
                                                            && !wireframeAll);
                     activeCode = p.hasCustomTexture ? p.textureCode : QString();
                     // Texture della FASCIA: il nome del record e' quello della
@@ -198,8 +198,8 @@ void MainWindow::dumpTextureState(const char *tag) const
 
     const QString editorText = (m_currentScriptMode == ScriptModeTexture)
                              ? scriptText(shownScriptSlot()) : QString();
-    const QString lineTexText = ui->lineTexture ? m_rm.texture : QString();
-    const QString dispFieldText = ui->lineVariations ? m_rm.displacement : QString();
+    const QString lineTexText = ui->lineTexture ? m_scene.rm.texture : QString();
+    const QString dispFieldText = ui->lineVariations ? m_scene.rm.displacement : QString();
     const QString dispEngine = g ? g->currentDisplacementCode() : QString();
 
     qDebug().noquote() << QString(
@@ -213,7 +213,7 @@ void MainWindow::dumpTextureState(const char *tag) const
         .arg(QString::fromUtf8(tag), -28)
         .arg(isImplicit ? "RM" : "PAR")
         .arg(meshIdx).arg(g ? g->meshPartCount() : 0)
-        .arg(m_const.f)
+        .arg(m_scene.constants.f)
         .arg(densityOf(g ? g->currentTextureCode() : QString()))
         .arg(sigOf(g ? g->currentTextureCode() : QString()))
         .arg(densityOf(g ? g->currentParametricTextureCode() : QString()))
@@ -221,10 +221,10 @@ void MainWindow::dumpTextureState(const char *tag) const
         .arg(densityOf(meshCode)).arg(sigOf(meshCode))
         .arg(densityOf(lineTexText)).arg(sigOf(lineTexText))
         .arg(densityOf(editorText)).arg(sigOf(editorText))
-        .arg(densityOf(m_surfaceTextureCode)).arg(sigOf(m_surfaceTextureCode))
+        .arg(densityOf(m_scene.surfaceTextureCode)).arg(sigOf(m_scene.surfaceTextureCode))
         .arg(g && g->isTextureEnabled() ? 1 : 0)
         .arg(ui->chkBoxTexture && ui->chkBoxTexture->isChecked() ? 1 : 0)
-        .arg(m_currentTextureLibName)
+        .arg(m_scene.textureLibName)
         // COLORI. picker1/2 sono quelli del bersaglio (la fascia selezionata
         // se ne ha di propri), gpu1/gpu2 i due slot globali che il Save del
         // record scrive. Fuori dall'ambito Mesh coincidono per costruzione.
@@ -286,7 +286,7 @@ bool MainWindow::syncFocusedTextureFromLibrary()
     // E' IL CASO PER CUI IL COMANDO ESISTE: una texture aggiornata in libreria
     // che ha ACQUISITO uno slider (o che ne ha perso uno). Il codice nuovo e'
     // stato scritto nei campi a blockSignals -- e deve esserlo, o textChanged
-    // azzererebbe m_currentTextureLibName -- ma quel blocco ferma anche
+    // azzererebbe m_scene.textureLibName -- ma quel blocco ferma anche
     // updateConstantsUIState, che e' l'unico punto che decide quali costanti
     // sono "usate" e quindi quali slider sono accesi.
     // Senza questa chiamata il Sync portava a schermo una texture che usa F
@@ -336,7 +336,7 @@ bool MainWindow::syncSurfaceTextureFrom(const LibraryItem *lib)
     const bool isImplicit = (implicitMode());
 
     // blockSignals: questo codice VIENE dalla libreria, non e' una digitazione.
-    // Senza, textChanged azzererebbe m_currentTextureLibName (~2315) e il record
+    // Senza, textChanged azzererebbe m_scene.textureLibName (~2315) e il record
     // perderebbe proprio l'ancora che ha permesso di trovare la texture.
     // (In parametrico il codice va nello slot della texture di superficie, qui
     // sotto: l'editor lo mostra solo se il dock e' su quello slot -- in ambito
@@ -348,7 +348,7 @@ bool MainWindow::syncSurfaceTextureFrom(const LibraryItem *lib)
     // Lo SLOT dello script (l'intenzione, da cui l'editor si ricostruisce
     // cambiando scheda) subito, in qualunque ambito: qui arriva sempre la
     // texture GLOBALE (le fasce hanno la loro via, syncMeshTexturesFrom). La
-    // copia APPLICATA m_surfaceTextureCode la scrive piu' sotto il ramo
+    // copia APPLICATA m_scene.surfaceTextureCode la scrive piu' sotto il ramo
     // parametrico, solo se il codice compila: prima veniva scritta qui, e un
     // codice di libreria che non reggeva risultava applicato.
     // Solo in PARAMETRICO: in Ray Marching la texture vive nel campo lineTexture
@@ -420,8 +420,8 @@ bool MainWindow::syncSurfaceTextureFrom(const LibraryItem *lib)
             // animata risultava sempre statica e il Sync la lasciava ferma.
             // Stessa distinzione che fa il riclic della Library (~13254).
             ui->glWidget->setSurfaceTextureAnimating(
-                hasTimeVariable(ui->lineTexture ? m_rm.texture : QString())
-                || hasTimeVariable(ui->lineVariations ? m_rm.displacement : QString()));
+                hasTimeVariable(ui->lineTexture ? m_scene.rm.texture : QString())
+                || hasTimeVariable(ui->lineVariations ? m_scene.rm.displacement : QString()));
         } else {
             ui->glWidget->setSurfaceTextureAnimating(
                 hasTimeVariable(allSurfaceTextureCode()));
@@ -443,9 +443,9 @@ bool MainWindow::syncSurfaceTextureFrom(const LibraryItem *lib)
 
 void MainWindow::forgetBackgroundTexture()
 {
-    m_bgTextureCode.clear();
+    m_scene.bgTextureCode.clear();
     setScriptText(SlotBackgroundTexture, QString());
-    m_currentBgTextureLibName.clear();
+    m_scene.bgTextureLibName.clear();
     m_currentBgTextureHintText.clear();
     // Ricarica la default e spegne lo script di sfondo (m_bgIsScript): chi
     // riaccende lo sfondo riparte da li', non dall'ultima immagine usata.
@@ -476,7 +476,7 @@ bool MainWindow::syncBackgroundTextureFrom(const LibraryItem *lib)
 
     static const QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)",
                                           QRegularExpression::MultilineOption);
-    const QRegularExpressionMatch imgMatch = imgRe.match(m_bgTextureCode);
+    const QRegularExpressionMatch imgMatch = imgRe.match(m_scene.bgTextureCode);
     if (imgMatch.hasMatch() && !newCode.contains("//IMG:"))
         newCode = "//IMG:" + imgMatch.captured(1).trimmed() + "\n" + newCode;
 
@@ -486,7 +486,7 @@ bool MainWindow::syncBackgroundTextureFrom(const LibraryItem *lib)
         return false;
     }
 
-    m_bgTextureCode = newCode;
+    m_scene.bgTextureCode = newCode;
     // Lo slot, e con lui l'editor se sta mostrando lo sfondo: e' la libreria,
     // non una digitazione.
     setScriptText(SlotBackgroundTexture, newCode);
@@ -534,19 +534,19 @@ const LibraryItem *MainWindow::textureLibraryItemNamed(const QString &name) cons
 // (rinominata o cancellata), oppure il codice e' gia' identico.
 const LibraryItem *MainWindow::focusedTextureLibraryItem() const
 {
-    const LibraryItem *item = textureLibraryItemNamed(m_currentTextureLibName);
+    const LibraryItem *item = textureLibraryItemNamed(m_scene.textureLibName);
     if (!item) return nullptr;
 
     const bool isImplicit = (implicitMode());
     const QString activeCode = isImplicit && ui->lineTexture
-                             ? m_rm.texture
-                             : m_surfaceTextureCode;
+                             ? m_scene.rm.texture
+                             : m_scene.surfaceTextureCode;
     // Il DISPLACEMENT fa parte della texture quanto il colore, e va confrontato
     // anche lui: una texture il cui solo rilievo e' cambiato ha eccome qualcosa
     // da sincronizzare, ma guardando il solo codice colore la voce sarebbe
     // rimasta spenta -- e il comando, che il displacement lo aggiorna gia',
     // sarebbe risultato irraggiungibile proprio nel caso che lo richiede.
-    const QString activeDisp = ui->lineVariations ? m_rm.displacement : QString();
+    const QString activeDisp = ui->lineVariations ? m_scene.rm.displacement : QString();
 
     const QString libCode = item->textureCode.isEmpty() ? item->scriptCode : item->textureCode;
     // Gia' allineati (codice E rilievo): niente da sincronizzare.
@@ -556,7 +556,7 @@ const LibraryItem *MainWindow::focusedTextureLibraryItem() const
     return item;
 }
 
-// Gemella per la texture DI SFONDO, con la sua ancora (m_currentBgTextureLibName).
+// Gemella per la texture DI SFONDO, con la sua ancora (m_scene.bgTextureLibName).
 // Differenze dalla superficie:
 //  - niente displacement: lo sfondo non ha rilievo;
 //  - le voci IMMAGINE si escludono: il loro legame e' il nome del file nel tag
@@ -567,12 +567,12 @@ const LibraryItem *MainWindow::focusedTextureLibraryItem() const
 //    e' comunque cio' che il comando promette.
 const LibraryItem *MainWindow::focusedBgTextureLibraryItem() const
 {
-    if (m_bgTextureCode.trimmed().isEmpty()) return nullptr;
-    const LibraryItem *item = textureLibraryItemNamed(m_currentBgTextureLibName);
+    if (m_scene.bgTextureCode.trimmed().isEmpty()) return nullptr;
+    const LibraryItem *item = textureLibraryItemNamed(m_scene.bgTextureLibName);
     if (!item || item->isImage) return nullptr;
 
     const QString libCode = item->textureCode.isEmpty() ? item->scriptCode : item->textureCode;
-    if (cleanCodeForComparison(libCode) == cleanCodeForComparison(m_bgTextureCode))
+    if (cleanCodeForComparison(libCode) == cleanCodeForComparison(m_scene.bgTextureCode))
         return nullptr;
     return item;
 }
@@ -655,7 +655,7 @@ bool MainWindow::syncMeshTexturesFrom(const QVector<MeshTextureSync> &items)
     return true;
 }
 
-// IL NOME ARRIVA DAL CHIAMANTE, e non si legge piu' qui m_currentTextureLibName.
+// IL NOME ARRIVA DAL CHIAMANTE, e non si legge piu' qui m_scene.textureLibName.
 // Quel campo e' il nome della sola texture GLOBALE DI SUPERFICIE: lo scrive
 // handleTextureSelection soltanto su quel ramo (sfondo e fascia escono prima) e
 // il record lo salva nel blocco "texture". Leggendolo qui dentro valeva per
@@ -664,7 +664,7 @@ bool MainWindow::syncMeshTexturesFrom(const QVector<MeshTextureSync> &items)
 // della superficie. Sintomo: record con texture su superficie E sfondo, radio
 // Background nel Renderer -> focus rimasto sulla superficie.
 // Solo il chiamante sa QUALE texture sta cercando, e passa l'ancora di QUELLA:
-// m_currentTextureLibName per la superficie, m_currentBgTextureLibName per lo
+// m_scene.textureLibName per la superficie, m_scene.bgTextureLibName per lo
 // sfondo, MeshPart::textureLibName per una fascia (vuoto nei record salvati
 // prima dell'ancora per-mesh: li' la ricerca e' per solo codice).
 void MainWindow::selectTextureTreeItemFor(QTreeWidgetItemIterator &itTex,
@@ -788,7 +788,7 @@ void MainWindow::onColorTargetChanged()
         const bool texActiveHere =
             (ui->glWidget && ui->glWidget->activeMeshPart() >= 0)
                 ? ui->glWidget->activeMeshTextureActive()
-                : m_surfaceTextureState;
+                : m_scene.surfaceTextureState;
         if (!wireframeMode && texActiveHere && activeTextureUsesColors()) {
             target = surfaceTexColor(ui->radioTexColor2->isChecked() ? 2 : 1);
         } else if (!wireframeMode && texActiveHere) {
@@ -944,7 +944,7 @@ void MainWindow::handleTextureSelection(int index)
         }
 
         // Rimuove il tag //IMG: dallo script della texture di superficie
-        QString currentText = m_surfaceTextureScriptText;
+        QString currentText = m_scene.surfaceTextureScriptText;
         currentText.remove(QRegularExpression(R"(^\s*//IMG:\s*(.*)$\n?)", QRegularExpression::MultilineOption));
         setScriptText(SlotSurfaceTexture, currentText);
     }
@@ -955,12 +955,12 @@ void MainWindow::handleTextureSelection(int index)
     if (editingBackground()) {
         // ANCORA E MESSAGGIO DELLO SFONDO: da quale voce di libreria viene, e
         // cosa dice dei suoi slider. Qui, in testa al ramo, per immagini e
-        // procedurali: sono i gemelli di m_currentTextureLibName e
+        // procedurali: sono i gemelli di m_scene.textureLibName e
         // m_currentTextureHintText, che questo ramo non tocca perche' sono della
         // superficie. Il blocco dell'hint in coda alla funzione NON vale per lo
         // sfondo: questo ramo esce prima. Anche a hint vuoto: lo sfondo di prima
         // puo' averne lasciato uno, che ora va tolto da schermo.
-        m_currentBgTextureLibName     = data.name.trimmed();
+        m_scene.bgTextureLibName     = data.name.trimmed();
         m_currentBgTextureHintText    = data.hintText.trimmed();
         m_currentBgTextureHintSeconds = data.hintSeconds;
         refreshSceneHint(m_currentBgTextureHintText.isEmpty() ? m_currentHintSeconds
@@ -979,14 +979,14 @@ void MainWindow::handleTextureSelection(int index)
             // sta in imagePath (filePath e' il .json).
             QString bgImgSrc = data.imagePath.isEmpty() ? data.filePath : data.imagePath;
             ui->glWidget->setBackgroundTexture(bgImgSrc);
-            m_bgTextureCode = "//IMG:" + bgImgSrc;
+            m_scene.bgTextureCode = "//IMG:" + bgImgSrc;
             // Il percorso dell'immagine sta nel motore (backgroundImagePath),
             // come per la superficie: e' da li' che il salvataggio ricostruisce
-            // il tag, che dentro m_bgTextureCode viene riscritto da piu' punti.
+            // il tag, che dentro m_scene.bgTextureCode viene riscritto da piu' punti.
 
             // L'immagine SOSTITUISCE la procedurale: va azzerato anche lo slot
             // dello script, non solo il codice attivo. Senza questo il vecchio
-            // script sopravviveva in m_bgTextureScriptText e i punti che lo
+            // script sopravviveva in m_scene.bgTextureScriptText e i punti che lo
             // rileggono -- onRunScriptClicked (~8051), il ramo A di
             // onApplyTextureScriptClicked (~9706) e applyBackgroundTextureIfNeeded
             // -- lo riapplicavano al primo Run / Stop-Start, facendo tornare la
@@ -1001,7 +1001,7 @@ void MainWindow::handleTextureSelection(int index)
             // cercano return/vec3/vec4/mainImage e sul solo tag non fanno nulla.
             // Svuotato, col dock Script su un altro modulo l'editor tornava
             // vuoto sullo sfondo (trovato dal test degli scenari).
-            setScriptText(SlotBackgroundTexture, m_bgTextureCode);
+            setScriptText(SlotBackgroundTexture, m_scene.bgTextureCode);
 
             if (ui->glWidget) {
                 ui->glWidget->setProperty("bg_zoom", data.zoom);
@@ -1076,7 +1076,7 @@ void MainWindow::handleTextureSelection(int index)
             QString keepImage = backgroundImagePath();
             if (keepImage.isEmpty()) {
                 QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)", QRegularExpression::MultilineOption);
-                const QRegularExpressionMatch imgMatch = imgRe.match(m_bgTextureScriptText);
+                const QRegularExpressionMatch imgMatch = imgRe.match(m_scene.bgTextureScriptText);
                 if (imgMatch.hasMatch()) keepImage = imgMatch.captured(1).trimmed();
             }
 
@@ -1103,7 +1103,7 @@ void MainWindow::handleTextureSelection(int index)
             }
 
             // Riallinea gli slider colore al nuovo script di sfondo: se la texture
-            // procedurale usa u_col1/u_col2 devono riattivarsi (m_bgTextureCode è già
+            // procedurale usa u_col1/u_col2 devono riattivarsi (m_scene.bgTextureCode è già
             // aggiornato qui sopra). Senza questa chiamata, dopo una texture di sfondo
             // SENZA colori (es. immagine di default) gli slider restavano disattivati
             // a zero anche caricando poi una texture procedurale CON colori, perché
@@ -1120,8 +1120,8 @@ void MainWindow::handleTextureSelection(int index)
         refreshTextureCheckbox();
 
         // Picker Colore solo se lo sfondo usa quel colore (un'immagine no; indipendenti).
-        bool bgCol1 = m_bgTextureCode.contains("u_col1");
-        bool bgCol2 = m_bgTextureCode.contains("u_col2");
+        bool bgCol1 = m_scene.bgTextureCode.contains("u_col1");
+        bool bgCol2 = m_scene.bgTextureCode.contains("u_col2");
         ui->radioTexColor1->setEnabled(bgCol1);
         ui->radioTexColor2->setEnabled(bgCol2);
         if (bgCol1 || bgCol2) {
@@ -1233,8 +1233,8 @@ void MainWindow::handleTextureSelection(int index)
                 ui->glWidget->setEngineMode(GLWidget::ModeImplicit);
                 ui->glWidget->setRaySteps(m_lastImplicitSteps);
 
-                for (QString *t : { &m_lim.xMin, &m_lim.xMax, &m_lim.yMin,
-                                    &m_lim.yMax, &m_lim.zMin, &m_lim.zMax })
+                for (QString *t : { &m_scene.lim.xMin, &m_scene.lim.xMax, &m_scene.lim.yMin,
+                                    &m_scene.lim.yMax, &m_scene.lim.zMin, &m_scene.lim.zMax })
                     setLineText(*t, QString());
                 applySpaceLimits(/*notify=*/false);   // campi vuoti: nessun taglio
 
@@ -1389,7 +1389,7 @@ void MainWindow::handleTextureSelection(int index)
                 // u_col1/u_col2 -> picker spenti).
                 commitSurfaceTextureCode("//IMG:" + imgSrc);
                 ui->glWidget->loadTextureFromFile(imgSrc);
-                m_surfaceTextureState = true;
+                m_scene.surfaceTextureState = true;
                 applySurfaceTextureToEngine();
                 ui->glWidget->rebuildShader();
 
@@ -1404,7 +1404,7 @@ void MainWindow::handleTextureSelection(int index)
                 // Svuotato, col dock Script su un altro modulo l'editor tornava
                 // vuoto sulla texture, e il Save dipendeva da copie di riserva
                 // per non perdere l'immagine. Trovato dal test degli scenari.
-                setScriptText(SlotSurfaceTexture, m_surfaceTextureCode);
+                setScriptText(SlotSurfaceTexture, m_scene.surfaceTextureCode);
 
                 // Il checkbox mostra l'intenzione (gia' accesa qui sopra, PRIMA
                 // di updateTextureUIState: onColorTargetChanged() vi si appoggia
@@ -1449,11 +1449,11 @@ void MainWindow::handleTextureSelection(int index)
             // superficie. Questo ramo (applicazione dalla Library) non aveva la
             // diramazione per-mesh che ha invece il Run dello script
             // (onApplyTextureScriptClicked): scriveva sempre gli stati GLOBALI
-            // -- m_surfaceTextureCode e i colori (setGlobalTextureColors) -- e
+            // -- m_scene.surfaceTextureCode e i colori (setGlobalTextureColors) -- e
             // quindi applicare una texture a una fascia cancellava quella della
             // superficie. Tornando su "All" si trovava il codice della fascia al
             // posto del proprio (clock fermo, perche' allSurfaceTextureCode()
-            // parte da m_surfaceTextureCode) e i suoi colori addosso.
+            // parte da m_scene.surfaceTextureCode) e i suoi colori addosso.
             if (texGoesToMesh) {
                 // I colori di QUESTA texture si scrivono direttamente nella
                 // parte: i due slot globali appartengono alla texture di
@@ -1483,7 +1483,7 @@ void MainWindow::handleTextureSelection(int index)
 
                 ui->glWidget->setActiveMeshTexture(newCode, true);
                 // ANCORA DEL FOCUS della fascia: la voce da cui la texture viene,
-                // come m_currentTextureLibName fa per la texture globale (che
+                // come m_scene.textureLibName fa per la texture globale (che
                 // questo ramo, uscendo prima, non scrive).
                 ui->glWidget->setActiveMeshTextureLibName(data.name);
 
@@ -1659,7 +1659,7 @@ void MainWindow::handleTextureSelection(int index)
             // sotto: senza, il suo default false toglie 'p' dallo scope e
             // l'equazione a 4 variabili non compilerebbe nemmeno.
             const bool crossSectionActive = crossSectionTab();
-            QString rawEq = (crossSectionActive ? m_rm.crossSection : m_rm.equation).trimmed();
+            QString rawEq = (crossSectionActive ? m_scene.rm.crossSection : m_scene.rm.equation).trimmed();
             QString implicitEqF;
             if (rawEq.contains("=")) {
                 QStringList parts = rawEq.split("=");
@@ -1672,7 +1672,7 @@ void MainWindow::handleTextureSelection(int index)
 
             // ---> LE RIGHE CRITICHE RIPRISTINATE: Sincronizziamo la memoria! <---
             ui->glWidget->setTextureCode(rmTexCode);
-            m_surfaceTextureState = true;
+            m_scene.surfaceTextureState = true;
             applySurfaceTextureToEngine();
             refreshTextureCheckbox();
 
@@ -1694,7 +1694,7 @@ void MainWindow::handleTextureSelection(int index)
                 // Texture non applicata: anche l'intenzione (e il checkbox che
                 // la mostra) tornano spenti. Prima restava il checkbox acceso
                 // col motore spento, due copie in disaccordo.
-                m_surfaceTextureState = false;
+                m_scene.surfaceTextureState = false;
                 applySurfaceTextureToEngine();
                 refreshTextureCheckbox();
                 ui->glWidget->rebuildShader();
@@ -1756,10 +1756,10 @@ void MainWindow::handleTextureSelection(int index)
     // widget e' il display dello SFONDO, e leggerlo qui faceva spegnere il clock
     // della superficie appena si applicava una texture di sfondo statica (o la
     // si disattivava). Il modulo superficie ha il proprio flag,
-    // m_surfaceTextureState, che il ramo Background non tocca.
+    // m_scene.surfaceTextureState, che il ramo Background non tocca.
     const bool editingBg = editingBackground();
     // MODULO TEXTURE DI SUPERFICIE ATTIVO: conta la texture GLOBALE **o** quella
-    // di una qualunque fascia. Non basta m_surfaceTextureState (ne' il checkbox,
+    // di una qualunque fascia. Non basta m_scene.surfaceTextureState (ne' il checkbox,
     // che in Background e' il display dello sfondo): con la texture messa solo
     // sulla fascia 1 quel flag e' false, il ramo veniva saltato e il clock della
     // superficie spento -- l'animazione si fermava andando in Background.
@@ -1775,8 +1775,8 @@ void MainWindow::handleTextureSelection(int index)
     bool dispAnim     = false;   // 't' nel displacement     -> orologio TEXTURE
     if (isSurfTexActive) {
         if (isRM) {
-            texColorAnim = m_rm.texture.contains(timeRegex);
-            dispAnim     = m_rm.displacement.contains(timeRegex);
+            texColorAnim = m_scene.rm.texture.contains(timeRegex);
+            dispAnim     = m_scene.rm.displacement.contains(timeRegex);
         } else {
             texColorAnim = allSurfaceTextureCode().contains(timeRegex);
         }
@@ -1869,9 +1869,9 @@ void MainWindow::handleTextureSelection(int index)
 
     // Nome della texture da cui veniamo: finisce nel record e lo riaggancia a
     // QUESTA voce di libreria anche dopo che il suo codice e' stato modificato
-    // (vedi m_currentTextureLibName). Si scrive qui, dove si scrive l'hint:
+    // (vedi m_scene.textureLibName). Si scrive qui, dove si scrive l'hint:
     // stesso ciclo di vita, stessa provenienza.
-    m_currentTextureLibName = data.name.trimmed();
+    m_scene.textureLibName = data.name.trimmed();
     refreshSceneHint(m_currentTextureHintText.isEmpty() ? m_currentHintSeconds
                                                         : data.hintSeconds);
 
@@ -1934,8 +1934,8 @@ void MainWindow::onRunRaymarchTextureClicked()
     if (!ui->glWidget) return;
 
     const QRegularExpression& timeRegex = kReTimeVar;
-    bool texColorHasTime = m_rm.texture.contains(timeRegex);
-    bool dispHasTime     = m_rm.displacement.contains(timeRegex);
+    bool texColorHasTime = m_scene.rm.texture.contains(timeRegex);
+    bool dispHasTime     = m_scene.rm.displacement.contains(timeRegex);
 
     // Il MODULO TEXTURE possiede UN solo orologio: colore e displacement leggono
     // entrambi dummyZero.x nello shader. Quindi Run/Stop texture agisce SOLO su
@@ -1981,7 +1981,7 @@ void MainWindow::onRunRaymarchTextureClicked()
 }
 
 // ACCENSIONE DELLA TEXTURE DI SUPERFICIE NEL MOTORE, derivata dall'intenzione.
-// m_surfaceTextureState e' l'unica copia che dice se l'utente VUOLE la texture
+// m_scene.surfaceTextureState e' l'unica copia che dice se l'utente VUOLE la texture
 // (cambia col checkbox della superficie, coi load e coi reset); il motore ne e'
 // una conseguenza: accesa se l'utente la vuole e la superficie non e' in
 // wireframe. Il wireframe di UNA fascia (ambito Mesh su una multi-mesh) non la
@@ -1996,11 +1996,11 @@ void MainWindow::applySurfaceTextureToEngine()
     if (!ui->glWidget) return;
     const bool editingOneMesh = ui->glWidget->activeMeshPart() >= 0
                                 && ui->glWidget->meshPartCount() > 1;
-    const bool surfaceWireframe = (m_savedRenderMode == 2) && !editingOneMesh;
-    ui->glWidget->setGlobalTextureEnabled(m_surfaceTextureState && !surfaceWireframe);
+    const bool surfaceWireframe = (m_scene.renderMode == 2) && !editingOneMesh;
+    ui->glWidget->setGlobalTextureEnabled(m_scene.surfaceTextureState && !surfaceWireframe);
 }
 
-// IL CHECKBOX "Texture" COME VISTA dell'intenzione m_surfaceTextureState,
+// IL CHECKBOX "Texture" COME VISTA dell'intenzione m_scene.surfaceTextureState,
 // quando il dock edita la superficie in ambito All: spuntato = intenzione, e
 // in WIREFRAME spento e disabilitato (la texture non si disegna). Con lo sfondo
 // o una fascia in editing il checkbox mostra quelli (syncAppearanceControls-
@@ -2028,7 +2028,7 @@ bool MainWindow::surfaceTextureShown() const
                          : parts[part].effectiveTextureEnabled(ui->glWidget->isTextureEnabled());
         }
     }
-    return m_surfaceTextureState;
+    return m_scene.surfaceTextureState;
 }
 
 bool MainWindow::targetTextureOn() const
@@ -2046,7 +2046,7 @@ bool MainWindow::surfaceTextureModuleActive() const
 QString MainWindow::surfaceTextureModuleCode() const
 {
     if (implicitMode())
-        return m_rm.texture + QLatin1Char('\n') + m_rm.displacement;
+        return m_scene.rm.texture + QLatin1Char('\n') + m_scene.rm.displacement;
     return allSurfaceTextureCode();
 }
 
@@ -2068,7 +2068,7 @@ bool MainWindow::textureTargetInWireframe() const
     if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0
         && ui->glWidget->meshPartCount() > 1 && !implicitMode())
         return ui->glWidget->activeMeshEffectiveRenderMode() == 2;
-    return m_savedRenderMode == 2;
+    return m_scene.renderMode == 2;
 }
 
 QString MainWindow::extractAndResolveImagePath(const QString& scriptCode) {
@@ -2232,7 +2232,7 @@ bool MainWindow::commitSurfaceTextureCode(const QString &code)
     const QString engineCode = textureHasLogic(logic) ? code : QString();
     if (ui->glWidget && !ui->glWidget->validateAndApplyParametricShader(engineCode))
         return false;
-    m_surfaceTextureCode = code;
+    m_scene.surfaceTextureCode = code;
     return true;
 }
 
@@ -2244,7 +2244,7 @@ QString MainWindow::backgroundImagePath() const
 bool MainWindow::activeTextureUsesColorToken(const QString &token) const
 {
     if (editingBackground()) {
-        return m_bgTextureCode.contains(token);
+        return m_scene.bgTextureCode.contains(token);
     }
 
     // In Ray Marching la texture vive SEMPRE nel campo dedicato (lineTexture) e i
@@ -2254,11 +2254,11 @@ bool MainWindow::activeTextureUsesColorToken(const QString &token) const
     // più sotto accendeva i picker a torto su texture RM senza u_col1/u_col2. In RM
     // la verità è solo nel codice del campo texture.
     if (implicitMode()) {
-        return m_rm.texture.contains(token);
+        return m_scene.rm.texture.contains(token);
     }
 
     // AMBITO "MESH": se la parte selezionata ha una texture PROPRIA, la verità
-    // è nel SUO codice, non in m_surfaceTextureCode (che è la texture globale
+    // è nel SUO codice, non in m_scene.surfaceTextureCode (che è la texture globale
     // della superficie). Leggere il globale qui era il motivo per cui i picker
     // Color1/Color2 venivano abilitati/spenti in base allo script sbagliato:
     // selezionando una mesh senza texture propria restavano quelli della mesh
@@ -2283,7 +2283,7 @@ bool MainWindow::activeTextureUsesColorToken(const QString &token) const
         return true;
     }
 
-    return m_surfaceTextureCode.contains(token) || samplesImageWithoutOne(m_surfaceTextureCode);
+    return m_scene.surfaceTextureCode.contains(token) || samplesImageWithoutOne(m_scene.surfaceTextureCode);
 }
 
 // Uno script che campiona iChannel0 (famiglia "Animated Images": rimostra
@@ -2313,8 +2313,8 @@ bool MainWindow::hasSavableTexture() const
     // Ray Marching (non sfondo): contenuto = colore (lineTexture) + displacement
     // (lineVariations), gli stessi campi salvati da saveTexture().
     if (isImplicit && !isBg) {
-        return !m_rm.texture.trimmed().isEmpty()
-               || !m_rm.displacement.trimmed().isEmpty();
+        return !m_scene.rm.texture.trimmed().isEmpty()
+               || !m_scene.rm.displacement.trimmed().isEmpty();
     }
 
     // Parametrico/sfondo: in modalità script texture la verità è lo script
@@ -2322,7 +2322,7 @@ bool MainWindow::hasSavableTexture() const
     if (m_currentScriptMode == ScriptModeTexture)
         return !scriptText(shownScriptSlot()).trimmed().isEmpty();
 
-    const QString &code = isBg ? m_bgTextureCode : m_surfaceTextureCode;
+    const QString &code = isBg ? m_scene.bgTextureCode : m_scene.surfaceTextureCode;
     return !code.trimmed().isEmpty();
 }
 
@@ -2409,10 +2409,10 @@ void MainWindow::updateFlatPreviewButton() {
     }
 
     // 2. Controllo attivazione fisica (Checkbox / Motore)
-    bool isTexActive = bgMode ? targetTextureOn() : m_surfaceTextureState;
+    bool isTexActive = bgMode ? targetTextureOn() : m_scene.surfaceTextureState;
 
     // AMBITO "MESH": la texture puo' essere accesa sulla SOLA fascia
-    // selezionata, e in quel caso m_surfaceTextureState (che e' il flag GLOBALE
+    // selezionata, e in quel caso m_scene.surfaceTextureState (che e' il flag GLOBALE
     // della superficie) resta spento -- il ramo per-mesh del checkbox e del Run
     // esce prima di scriverlo. Il tasto 2D risultava quindi disabilitato con una
     // texture visibilissima a schermo: e' il "texture attiva ma 2D deselezionato".
@@ -2483,7 +2483,7 @@ void MainWindow::generateTexture()
 // destinate a divergere.
 // Tutto il codice texture di SUPERFICIE che concorre all'animazione: quello
 // globale piu' quello delle singole mesh. Con le texture per-mesh il solo
-// m_surfaceTextureCode non basta piu': una parte con 't' nel proprio script
+// m_scene.surfaceTextureCode non basta piu': una parte con 't' nel proprio script
 // anima davvero (il suo codice e' compilato nel fragment), ma i punti che
 // decidono setSurfaceTextureAnimating guardavano solo il globale e trovavano
 // una stringa senza 't' -> clock spento e texture ferma.
@@ -2491,7 +2491,7 @@ void MainWindow::generateTexture()
 // correggerli uno per uno li avrebbe fatti divergere.
 // C'e' almeno una FASCIA con una texture propria e accesa?
 // Il modulo "texture di superficie" e' attivo anche in questo caso, e nessuno
-// dei flag globali lo dice: m_surfaceTextureState riguarda la sola texture
+// dei flag globali lo dice: m_scene.surfaceTextureState riguarda la sola texture
 // della superficie, e chkBoxTexture in ambito Mesh e' il display della parte
 // (in Background, dello sfondo). Punto unico: la stessa domanda serve al clock
 // e a chi decide se il modulo va considerato in moto.
@@ -2548,7 +2548,7 @@ void MainWindow::restartAnimatedMeshTextures()
 
 QString MainWindow::allSurfaceTextureCode() const
 {
-    QString all = m_surfaceTextureCode;
+    QString all = m_scene.surfaceTextureCode;
     // AMBITO "ALL": le texture per-mesh sono SOSPESE (lo shader non le compila
     // nemmeno), quindi non devono far girare il clock: conta solo la globale.
     if (ui->glWidget && ui->glWidget->getEngine()
@@ -2641,7 +2641,7 @@ void MainWindow::updateBackgroundControlsGate()
 bool MainWindow::applyBackgroundTextureIfNeeded() {
     if (!ui->glWidget->isBackgroundTextureEnabled()) return true;
 
-    QString bgSrc = m_bgTextureScriptText;
+    QString bgSrc = m_scene.bgTextureScriptText;
     bool bgHasLogic = bgSrc.contains("return") || bgSrc.contains("vec3")
             || bgSrc.contains("vec4") || bgSrc.contains("mainImage");
     if (bgHasLogic) {
@@ -2649,7 +2649,7 @@ bool MainWindow::applyBackgroundTextureIfNeeded() {
             showShaderError("Syntax Error (Background Texture)", ui->glWidget->getShaderError());
             return false;
         }
-        m_bgTextureCode = bgSrc; // applicata e valida: committa
+        m_scene.bgTextureCode = bgSrc; // applicata e valida: committa
     }
     return true;
 }

@@ -19,21 +19,21 @@ void MainWindow::setupMotionDocks()
 
     ui->btnStart_2->setText("GO");
 
-    m_lightingMode4D = 0;
+    m_scene.lightingMode4D = 0;
     ui->glWidget->setLightingMode4D(0);
     ui->btnLightMode->setText("Directional Lighting");
 
     connect(ui->btnLightMode, &QPushButton::clicked, this, [this](){
-        QString xEq = m_eq.x.trimmed(); QString yEq = m_eq.y.trimmed();
-        QString zEq = m_eq.z.trimmed(); QString pEq = m_eq.p.trimmed();
+        QString xEq = m_scene.eq.x.trimmed(); QString yEq = m_scene.eq.y.trimmed();
+        QString zEq = m_scene.eq.z.trimmed(); QString pEq = m_scene.eq.p.trimmed();
 
         auto isNullCoord = [](const QString &s) { return s.isEmpty() || s == "0" || s == "0.0"; };
 
         bool isDegenerate4D = isNullCoord(xEq) || isNullCoord(yEq) || isNullCoord(zEq) || isNullCoord(pEq);
         int numModes = (!isDegenerate4D) ? 3 : 2;
-        m_lightingMode4D = (m_lightingMode4D + 1) % numModes;
+        m_scene.lightingMode4D = (m_scene.lightingMode4D + 1) % numModes;
 
-        switch (m_lightingMode4D) {
+        switch (m_scene.lightingMode4D) {
         case 0: ui->glWidget->setLightingMode4D(0); ui->btnLightMode->setText("Directional Lighting"); break;
         case 1: ui->glWidget->setLightingMode4D(1); ui->btnLightMode->setText("Observer Lighting"); break;
         case 2: ui->glWidget->setLightingMode4D(2); ui->btnLightMode->setText("Slice Lighting"); break;
@@ -52,8 +52,8 @@ void MainWindow::setupMotionDocks()
     ui->btnDeparture->setEnabled(false); connect(ui->btnDeparture, &QPushButton::clicked, this, &MainWindow::onDepartureClicked);
     ui->btnDeparture3D->setEnabled(false); connect(ui->btnDeparture3D, &QPushButton::clicked, this, &MainWindow::onDeparture3DClicked);
 
-    m_pathViewMode4D = ModeTangential;
-    m_pathViewMode3D = ModeTangential;
+    m_scene.pathViewMode4D = ModeTangential;
+    m_scene.pathViewMode3D = ModeTangential;
     // Enabled iniziale ai View: deciso da updateViewButtonsEnabled (campi path
     // vuoti all'avvio -> spenti, come il Departure; si accendono compilandoli).
     ui->pushView->setText("Tangent View"); ui->pushView->setEnabled(false); connect(ui->pushView, &QPushButton::clicked, this, &MainWindow::onToggleViewClicked);
@@ -197,7 +197,7 @@ void MainWindow::switchTo4DMode() {
 void MainWindow::update4DButtonState()
 {
     // 1. Controllo Equazione P
-    QString pText = m_eq.p.trimmed();
+    QString pText = m_scene.eq.p.trimmed();
 
     // Gestione Virgola/Punto
     QString sanitizedP = pText;
@@ -625,7 +625,7 @@ void MainWindow::onDepartureClicked()
     if (handoffFrom3D && ui->glWidget) ui->glWidget->beginPathHandoff();
 
     pathTimer->start();
-    m_lastCameraMotion = "path4D";
+    m_scene.lastCameraMotion = "path4D";
     m_userStoppedCameraMotion = false;
     if (ui->glWidget) {
         ui->glWidget->setPathAnimating(true);
@@ -686,7 +686,7 @@ void MainWindow::applyPath4DCameraAt(float t)
     QVector4D N1, N2, N3;
     QVector4D finalPos4D, finalTarget4D, finalUp4D;
 
-    if (m_pathViewMode4D == ModeTangential) {
+    if (m_scene.pathViewMode4D == ModeTangential) {
         QVector4D velocity = p_next - engine->evaluatePathPosition(t - dt);
         V = (velocity.lengthSquared() > 1e-8f) ? velocity.normalized() : QVector4D(0, 1, 0, 0);
 
@@ -822,10 +822,10 @@ void MainWindow::applyPath4DCameraAt(float t)
 bool MainWindow::hasPath4DInput() const
 {
     int filled = 0;
-    if (!m_path.x.trimmed().isEmpty()) filled++;
-    if (!m_path.y.trimmed().isEmpty()) filled++;
-    if (!m_path.z.trimmed().isEmpty()) filled++;
-    if (!m_path.p.trimmed().isEmpty()) filled++;
+    if (!m_scene.path.x.trimmed().isEmpty()) filled++;
+    if (!m_scene.path.y.trimmed().isEmpty()) filled++;
+    if (!m_scene.path.z.trimmed().isEmpty()) filled++;
+    if (!m_scene.path.p.trimmed().isEmpty()) filled++;
 
     return filled >= 1;
 }
@@ -881,7 +881,7 @@ void MainWindow::onDeparture3DClicked()
     if (handoffFrom4D && ui->glWidget) ui->glWidget->beginPathHandoff();
 
     pathTimer3D->start();
-    m_lastCameraMotion = "path3D";
+    m_scene.lastCameraMotion = "path3D";
     m_userStoppedCameraMotion = false;
     if (ui->glWidget) {
         ui->glWidget->setPathAnimating(true);
@@ -923,7 +923,7 @@ void MainWindow::applyPath3DCameraAt(float t)
 
     QVector3D target;
 
-    if (m_pathViewMode3D == ModeTangential) {
+    if (m_scene.pathViewMode3D == ModeTangential) {
         float delta = 0.1f;
         QVector4D futureData = ui->glWidget->getEngine()->evaluatePath3DPosition(t + delta);
         target = futureData.toVector3D();
@@ -941,9 +941,9 @@ void MainWindow::applyPath3DCameraAt(float t)
 bool MainWindow::hasPath3DInput() const
 {
     int filled = 0;
-    if (!m_path.x3D.trimmed().isEmpty()) filled++;
-    if (!m_path.y3D.trimmed().isEmpty()) filled++;
-    if (!m_path.z3D.trimmed().isEmpty()) filled++;
+    if (!m_scene.path.x3D.trimmed().isEmpty()) filled++;
+    if (!m_scene.path.y3D.trimmed().isEmpty()) filled++;
+    if (!m_scene.path.z3D.trimmed().isEmpty()) filled++;
 
     return filled >= 1;
 }
@@ -967,7 +967,7 @@ void MainWindow::updateViewButtonsEnabled()
     // se il proprio path e' in corsa O i suoi campi sono compilati. Anche a
     // path ALTRUI in corsa il View resta attivo coi campi compilati: per il
     // subentro 3D<->4D (handoff) si deve poter pre-selezionare la vista con
-    // cui partira' l'altro path (m_pathViewMode4D/m_pathViewMode3D sono letti nei tick).
+    // cui partira' l'altro path (m_scene.pathViewMode4D/m_scene.pathViewMode3D sono letti nei tick).
     bool path4D = pathTimer && pathTimer->isActive();
     bool path3D = pathTimer3D && pathTimer3D->isActive();
     ui->pushView->setEnabled(path4D || hasPath4DInput());
@@ -1028,31 +1028,31 @@ void MainWindow::setNavControlsEnabled(bool enabled)
     }
 }
 
-float MainWindow::pathSpeed3D() const { return m_pathSpeed3D / 1000.0f; }
-float MainWindow::pathSpeed4D() const { return m_pathSpeed4D / 1000.0f; }
+float MainWindow::pathSpeed3D() const { return m_scene.pathSpeed3D / 1000.0f; }
+float MainWindow::pathSpeed4D() const { return m_scene.pathSpeed4D / 1000.0f; }
 
 // Lo slider taglia da se' i valori fuori dal suo intervallo: lo stato fa lo
 // stesso, o il Save scriverebbe una velocita' che lo slider non mostra.
 void MainWindow::setPathSpeed3D(int speed)
 {
-    m_pathSpeed3D = qBound(ui->speed3DSlider->minimum(), speed, ui->speed3DSlider->maximum());
+    m_scene.pathSpeed3D = qBound(ui->speed3DSlider->minimum(), speed, ui->speed3DSlider->maximum());
     const QSignalBlocker b(ui->speed3DSlider);
-    ui->speed3DSlider->setValue(m_pathSpeed3D);
+    ui->speed3DSlider->setValue(m_scene.pathSpeed3D);
 }
 
 void MainWindow::setPathSpeed4D(int speed)
 {
-    m_pathSpeed4D = qBound(ui->speed4DSlider->minimum(), speed, ui->speed4DSlider->maximum());
+    m_scene.pathSpeed4D = qBound(ui->speed4DSlider->minimum(), speed, ui->speed4DSlider->maximum());
     const QSignalBlocker b(ui->speed4DSlider);
-    ui->speed4DSlider->setValue(m_pathSpeed4D);
+    ui->speed4DSlider->setValue(m_scene.pathSpeed4D);
 }
 
 void MainWindow::setPathViewModes(CameraPathMode mode4D, CameraPathMode mode3D)
 {
-    m_pathViewMode4D = mode4D;
-    m_pathViewMode3D = mode3D;
-    ui->pushView->setText(m_pathViewMode4D == ModeTangential ? "Tangent View" : "Center View");
-    ui->pushView3D->setText(m_pathViewMode3D == ModeTangential ? "Tangent View" : "Center View");
+    m_scene.pathViewMode4D = mode4D;
+    m_scene.pathViewMode3D = mode3D;
+    ui->pushView->setText(m_scene.pathViewMode4D == ModeTangential ? "Tangent View" : "Center View");
+    ui->pushView3D->setText(m_scene.pathViewMode3D == ModeTangential ? "Tangent View" : "Center View");
 }
 
 void MainWindow::resetMotionControls()
@@ -1065,21 +1065,21 @@ void MainWindow::resetMotionControls()
     setPathViewModes(ModeTangential, ModeTangential);
     setPathSpeed3D(10);
     setPathSpeed4D(10);
-    m_lastCameraMotion.clear();
+    m_scene.lastCameraMotion.clear();
     if (ui->glWidget && ui->glWidget->getEngine())
         ui->glWidget->getEngine()->clearPathEquations();
 }
 
 void MainWindow::onToggleViewClicked()  // path 4D (pushView)
 {
-    setPathViewModes(m_pathViewMode4D == ModeTangential ? ModeCentered : ModeTangential,
-                     m_pathViewMode3D);
+    setPathViewModes(m_scene.pathViewMode4D == ModeTangential ? ModeCentered : ModeTangential,
+                     m_scene.pathViewMode3D);
 }
 
 void MainWindow::onToggleView3DClicked()  // path 3D (pushView3D)
 {
-    setPathViewModes(m_pathViewMode4D,
-                     m_pathViewMode3D == ModeTangential ? ModeCentered : ModeTangential);
+    setPathViewModes(m_scene.pathViewMode4D,
+                     m_scene.pathViewMode3D == ModeTangential ? ModeCentered : ModeTangential);
 }
 
 void MainWindow::refreshRotationSpeedLabels()

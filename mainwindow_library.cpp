@@ -374,20 +374,20 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         // 1. Recuperiamo il codice attualmente in uso nel tab attivo
         QString activeCode;
         if (editingBackground()) {
-            activeCode = m_bgTextureCode;
+            activeCode = m_scene.bgTextureCode;
         } else if (implicitMode()) {
-            activeCode = m_rm.texture;
+            activeCode = m_scene.rm.texture;
         } else if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0
                    && ui->glWidget->activeMeshTextureActive()) {
             // AMBITO "MESH": la texture in uso e' quella della FASCIA, non
-            // m_surfaceTextureCode (che e' la texture di SUPERFICIE e qui
+            // m_scene.surfaceTextureCode (che e' la texture di SUPERFICIE e qui
             // contiene altro, o niente). Leggendo lo slot sbagliato isMatch
             // risultava sempre falso, il toggle veniva saltato e il PRIMO click
             // ricaricava gia' resettando: sulla singola mesh mancava la fase di
             // stop che c'e' sulla superficie intera.
             activeCode = ui->glWidget->activeMeshTextureCode();
         } else {
-            activeCode = m_surfaceTextureCode;
+            activeCode = m_scene.surfaceTextureCode;
         }
 
         // 2. Verifichiamo se la texture cliccata è già quella visualizzata
@@ -404,7 +404,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             // ne' colori. Stessa ragione del confronto su m_currentTexturePresetPath
             // qui sotto, che copre il caso gemello dello zoom.
             if (isMatch && ui->lineVariations
-                && cleanCodeForComparison(m_rm.displacement)
+                && cleanCodeForComparison(m_scene.rm.displacement)
                    != cleanCodeForComparison(data.displacementCode))
                 isMatch = false;
         }
@@ -433,7 +433,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             .arg(isMatch)
             .arg(cleanCodeForComparison(activeCode) == cleanCodeForComparison(data.scriptCode))
             .arg(ui->lineVariations
-                 && cleanCodeForComparison(m_rm.displacement)
+                 && cleanCodeForComparison(m_scene.rm.displacement)
                     == cleanCodeForComparison(data.displacementCode))
             .arg(data.filePath == m_currentTexturePresetPath)
             .arg(ui->chkBoxTexture && ui->chkBoxTexture->isChecked())
@@ -570,8 +570,8 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
                 // (~7548) per decidere l'orologio al caricamento.
                 const bool isRMTex = (implicitMode());
                 const bool texIsAnimated = isRMTex
-                    ? (m_rm.texture.contains(kReTimeVar)
-                       || m_rm.displacement.contains(kReTimeVar))
+                    ? (m_scene.rm.texture.contains(kReTimeVar)
+                       || m_scene.rm.displacement.contains(kReTimeVar))
                     : (hasTimeVariable(allSurfaceTextureCode()) || anyMeshTextureCodeAnimated());
 
                 // NON azzeriamo m_masterStopped (come il ramo background sopra):
@@ -1026,13 +1026,13 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
 
     if (isMedia) {
         audioSnippet = "//MUSIC: " + soundData.filePath;
-        isAlreadyPresent = m_soundScriptText.contains(soundData.filePath);
+        isAlreadyPresent = m_scene.soundScriptText.contains(soundData.filePath);
     } else {
         audioSnippet = "//SOUND_BEGIN\n" + soundData.scriptCode.trimmed() + "\n//SOUND_END";
 
         // 2. MODIFICHIAMO SOLO QUESTA RIGA PER GLI SCRIPT:
         // Usiamo la pulizia per confrontare il codice in memoria con quello della libreria
-        isAlreadyPresent = (cleanAudioCode(m_soundScriptText) == cleanAudioCode(soundData.scriptCode));
+        isAlreadyPresent = (cleanAudioCode(m_scene.soundScriptText) == cleanAudioCode(soundData.scriptCode));
     }
     // 3. SUONO GIA' CARICATO: il click lo RIGENERA (nessun toggle)
     // Cliccare nella Library un suono gia' presente significa sempre "risuona
@@ -1052,7 +1052,7 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
         }
         // Il click dice DA QUALE voce viene il suono gia' in scena: e' il caso
         // di un record salvato prima dell'ancora, che la acquista qui.
-        m_currentSoundLibName = soundData.name.trimmed();
+        m_scene.soundLibName = soundData.name.trimmed();
         onRunSoundClicked();
         return;
     }
@@ -1072,15 +1072,15 @@ void MainWindow::onSoundItemClicked(QTreeWidgetItem *item, int column)
     // //MUSIC: ovunque) suonerebbe quello invece del suono appena scelto.
     // Prima le copie applicate si riscrivevano per intero (suono + slot dello
     // script), e uno script texture in sospeso risultava applicato.
-    for (QString *code : { &m_surfaceTextureScriptText, &m_bgTextureScriptText,
-                           &m_surfaceTextureCode, &m_bgTextureCode }) {
+    for (QString *code : { &m_scene.surfaceTextureScriptText, &m_scene.bgTextureScriptText,
+                           &m_scene.surfaceTextureCode, &m_scene.bgTextureCode }) {
         *code = stripAudioDirectives(*code);
     }
     refreshScriptEditor();   // gli slot qui sopra sono cambiati sotto la vista
 
     // AGGIORNAMENTO MEMORIA AUDIO
     setScriptText(SlotSound, audioSnippet);
-    m_currentSoundLibName = soundData.name.trimmed();   // ancora del focus (vedi mainwindow.h)
+    m_scene.soundLibName = soundData.name.trimmed();   // ancora del focus (vedi mainwindow.h)
 
     // A schermo c'e' ora un suono di libreria, non lavoro dell'utente: per il
     // MODULO suono niente piu' da proteggere (la conferma per il suono

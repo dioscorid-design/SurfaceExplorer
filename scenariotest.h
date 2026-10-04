@@ -19,7 +19,7 @@ class QWidget;
 // e' nei gesti che lo stato duplicato diverge.
 //
 // Regole verificate sull'ACCENSIONE della texture di superficie:
-//   - l'intenzione (m_surfaceTextureState) cambia SOLO col checkbox della
+//   - l'intenzione (m_scene.surfaceTextureState) cambia SOLO col checkbox della
 //     superficie, mai coi cambi di modalita' o di bersaglio;
 //   - il motore la segue: acceso = intenzione e non wireframe;
 //   - il checkbox la mostra: spento e disabilitato in wireframe, altrimenti
@@ -198,7 +198,7 @@ private:
     // stessa cosa. Vuoto se si'.
     QString editTargetProblem() const;
     // Base/Phong/Wireframe (parametrico): la modalita' globale nello stato
-    // (m_savedRenderMode) e nel motore coincidono, e i radio mostrano quella
+    // (m_scene.renderMode) e nel motore coincidono, e i radio mostrano quella
     // della fascia selezionata o, in ambito All, la globale. Vuoto se si'.
     QString renderModeProblem() const;
     // Shell/Solid e Fast/Precise (Ray Marching): radio = stato = motore.
@@ -212,10 +212,10 @@ private:
     // sua vista), altrimenti la descrizione della differenza. La controllano
     // le verifiche piu' frequenti (codice della texture, equazioni).
     QString scriptEditorProblem() const;
-    // Lo stesso per i quattro campi Ray Marching e il loro stato (m_rm).
+    // Lo stesso per i quattro campi Ray Marching e il loro stato (m_scene.rm).
     QString rmFieldsProblem() const;
     // Lo stesso per i campi a una riga: limiti u/v/w, taglio x/y/z del Ray
-    // Marching, path 4D e 3D (m_lim, m_path).
+    // Marching, path 4D e 3D (m_scene.lim, m_scene.path).
     QString lineFieldsProblem() const;
     void finish();
 

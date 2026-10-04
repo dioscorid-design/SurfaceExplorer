@@ -538,28 +538,28 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
     // compariva la sfera di default. Si scrivono entrambi i rami piu' quale era
     // attivo, cosi' il load sa cosa ripristinare.
     d.isImplicitMode = (mw->implicitMode());
-    d.implicitEq = mw->m_rm.equation;
+    d.implicitEq = mw->m_scene.rm.equation;
     d.usesCrossSection = d.isImplicitMode && mw->crossSectionTab();
-    d.crossSectionEq = mw->m_rm.crossSection;
+    d.crossSectionEq = mw->m_scene.rm.crossSection;
 
-    d.x = mw->m_eq.x;
-    d.y = mw->m_eq.y;
-    d.z = mw->m_eq.z;
-    d.w = mw->m_eq.p;
-    d.explicitU = mw->m_eq.explicitU;
-    d.explicitV = mw->m_eq.explicitV;
-    d.explicitW = mw->m_eq.explicitW;
-    d.defU = mw->m_eq.u;
-    d.defV = mw->m_eq.v;
-    d.defW = mw->m_eq.w;
+    d.x = mw->m_scene.eq.x;
+    d.y = mw->m_scene.eq.y;
+    d.z = mw->m_scene.eq.z;
+    d.w = mw->m_scene.eq.p;
+    d.explicitU = mw->m_scene.eq.explicitU;
+    d.explicitV = mw->m_scene.eq.explicitV;
+    d.explicitW = mw->m_scene.eq.explicitW;
+    d.defU = mw->m_scene.eq.u;
+    d.defV = mw->m_scene.eq.v;
+    d.defW = mw->m_scene.eq.w;
 
-    d.geoU0 = mw->m_eq.geoU;
-    d.geoV0 = mw->m_eq.geoV;
-    d.geoW0 = mw->m_eq.geoW;
-    d.geoDU = mw->m_eq.geoDU;
-    d.geoDV = mw->m_eq.geoDV;
-    d.geoDW = mw->m_eq.geoDW;
-    d.geoConform = mw->m_eq.conform;
+    d.geoU0 = mw->m_scene.eq.geoU;
+    d.geoV0 = mw->m_scene.eq.geoV;
+    d.geoW0 = mw->m_scene.eq.geoW;
+    d.geoDU = mw->m_scene.eq.geoDU;
+    d.geoDV = mw->m_scene.eq.geoDV;
+    d.geoDW = mw->m_scene.eq.geoDW;
+    d.geoConform = mw->m_scene.eq.conform;
 
     // Le costanti si leggono dai CAMPI TESTO (lineA..lineS), non dagli slider.
     // Gli slider sono interi centesimali (value()/100), quindi troncano ogni
@@ -573,13 +573,13 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
     // Costanti discrete SENZA script: stessa semantica di "A := int(2,6);" ma
     // dichiarata dal preset (le direttive := vivono solo nello scriptCode).
     d.discreteConstants.clear();
-    for (auto it = mw->m_discreteConsts.constBegin(); it != mw->m_discreteConsts.constEnd(); ++it)
+    for (auto it = mw->m_scene.discreteConsts.constBegin(); it != mw->m_scene.discreteConsts.constEnd(); ++it)
         d.discreteConstants.insert(it.key(), qMakePair(it->lo, it->hi));
 
     captureParametricLimits(d);
     captureSpaceLimits(d);
 
-    d.steps = mw->m_steps;
+    d.steps = mw->m_scene.steps;
 
     // Colore e trasparenza GLOBALI dal motore, mai dai controlli: in ambito
     // "Mesh" mostrano la mesh selezionata (vedi globalSurfaceColor/Alpha).
@@ -588,7 +588,7 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
     d.hasCustomColors = true;
     d.alpha = globalSurfaceAlpha();
 
-    d.lightingMode = mw->m_lightingMode4D;
+    d.lightingMode = mw->m_scene.lightingMode4D;
     // Luce GLOBALE dal motore, che ne tiene l'unica copia (lo slider ne e' la
     // vista, anche in ambito "Mesh"). Ai centesimi come lo slider, come l'alpha.
     d.lightIntensity = qRound(gl->globalLightIntensity() * 100.0f) / 100.0;
@@ -600,9 +600,9 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
         // Shell/Solid da implicitShellSelected(), il punto unico che legge lo
         // stato (e' lui che i gate e il Run consultano); nel file la codifica e'
         // composita: +10 = Shell.
-        d.renderMode = mw->m_savedRenderMode + (mw->implicitShellSelected() ? 10 : 0);
+        d.renderMode = mw->m_scene.renderMode + (mw->implicitShellSelected() ? 10 : 0);
     } else {
-        d.renderMode = mw->m_savedRenderMode;
+        d.renderMode = mw->m_scene.renderMode;
     }
     // Spessore del guscio: dipende da come e' scritta l'equazione, quindi e' un
     // parametro della superficie. Marcher: quale dei due radio (Fast/Precise).
@@ -682,10 +682,10 @@ LibraryItem PresetSerializer::captureSurfaceState(const QString &name)
     const bool isMetricScript = !d.isImplicitMode && !mw->m_metricScriptBody.trimmed().isEmpty();
     d.isScript = isImplicitScript || isParametricScript || isMetricScript;
     if (d.isScript) {
-        d.scriptCode = mw->m_surfaceScriptApplied;
+        d.scriptCode = mw->m_scene.surfaceScriptApplied;
         // Fallback di sicurezza se l'applicato e' sfuggito: lo script com'e' scritto
         if (d.scriptCode.isEmpty() && mw->m_currentScriptMode == 0)
-            d.scriptCode = mw->m_surfaceScriptText;
+            d.scriptCode = mw->m_scene.surfaceScriptText;
     }
 
     // Mappa di visualizzazione di uno script metrico: si salva solo se e' una
@@ -711,24 +711,24 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
     // quando e' metrico (i campi portano la carta identita' / display map).
     bool usingEquations = !d.x.trimmed().isEmpty() && d.x.trimmed() != "0";
     if (d.isImplicitMode) usingEquations = !d.implicitEq.contains("// Controlled by Script");
-    QString scriptContent = mw->m_surfaceScriptApplied;
+    QString scriptContent = mw->m_scene.surfaceScriptApplied;
     if (scriptContent.isEmpty() && mw->m_currentScriptMode == 0)
-        scriptContent = mw->m_surfaceScriptText;
+        scriptContent = mw->m_scene.surfaceScriptText;
     const bool metricScriptActive = !mw->m_metricScriptBody.trimmed().isEmpty();
     d.isScript = !scriptContent.trimmed().isEmpty() && (!usingEquations || metricScriptActive);
     d.scriptCode = scriptContent;
 
-    d.path4D_x = mw->m_path.x;
-    d.path4D_y = mw->m_path.y;
-    d.path4D_z = mw->m_path.z;
-    d.path4D_w = mw->m_path.p;
-    d.path4D_alpha = mw->m_path.alpha;
-    d.path4D_beta  = mw->m_path.beta;
-    d.path4D_gamma = mw->m_path.gamma;
-    d.path3D_x = mw->m_path.x3D;
-    d.path3D_y = mw->m_path.y3D;
-    d.path3D_z = mw->m_path.z3D;
-    d.path3D_roll = mw->m_path.roll3D;
+    d.path4D_x = mw->m_scene.path.x;
+    d.path4D_y = mw->m_scene.path.y;
+    d.path4D_z = mw->m_scene.path.z;
+    d.path4D_w = mw->m_scene.path.p;
+    d.path4D_alpha = mw->m_scene.path.alpha;
+    d.path4D_beta  = mw->m_scene.path.beta;
+    d.path4D_gamma = mw->m_scene.path.gamma;
+    d.path3D_x = mw->m_scene.path.x3D;
+    d.path3D_y = mw->m_scene.path.y3D;
+    d.path3D_z = mw->m_scene.path.z3D;
+    d.path3D_roll = mw->m_scene.path.roll3D;
 
     // Il record porta DUE messaggi: quello della scena (hintText, gia' in
     // captureCommonState) e quello della TEXTURE.
@@ -737,15 +737,15 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
 
     // Vista corrente di ENTRAMBI i path (salvare solo quella 4D faceva
     // ripartire i record 3D sempre in Tangent).
-    d.pathMode4D = static_cast<int>(mw->m_pathViewMode4D);
-    d.pathMode3D = static_cast<int>(mw->m_pathViewMode3D);
+    d.pathMode4D = static_cast<int>(mw->m_scene.pathViewMode4D);
+    d.pathMode3D = static_cast<int>(mw->m_scene.pathViewMode3D);
     // Moto camera CORRENTE al salvataggio; se nessuno e' in corsa, l'ULTIMO
     // avviato in sessione (senza fallback si scriveva "none" e il load
     // ricadeva nella sequenza legacy, che fa sempre vincere il path 4D).
     d.activeMotion = run.path3D ? QStringLiteral("path3D")
                    : run.path4D ? QStringLiteral("path4D")
                    : run.rotating ? QStringLiteral("rotation")
-                   : !mw->m_lastCameraMotion.isEmpty() ? mw->m_lastCameraMotion
+                   : !mw->m_scene.lastCameraMotion.isEmpty() ? mw->m_scene.lastCameraMotion
                                                        : QStringLiteral("none");
 
     // Codice delle texture parametriche: lo SCRIPT (surfaceTextureScript /
@@ -756,14 +756,14 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
     // Save uno script mai eseguito risultava applicato (orologio, costanti e
     // focus in Library lo giudicavano) mentre il motore disegnava il vecchio.
 
-    // Accensione della texture di SUPERFICIE: l'INTENZIONE (m_surfaceTextureState),
+    // Accensione della texture di SUPERFICIE: l'INTENZIONE (m_scene.surfaceTextureState),
     // l'unica copia che cambia solo col checkbox della superficie. Checkbox e
     // motore ne sono viste: il checkbox mostra lo sfondo o la fascia quando si
     // edita quelli, e in WIREFRAME entrambi dicono "spenta" perche' la texture
     // non si disegna. Salvare la vista perdeva la texture: un record salvato in
     // wireframe si riapriva con la texture spenta, e tornando a Phong non
     // ricompariva piu' (dal vivo si'). Trovato dal test degli scenari.
-    d.textureEnabled = mw->m_surfaceTextureState;
+    d.textureEnabled = mw->m_scene.surfaceTextureState;
     // Trasformazione e colori GLOBALI dal motore, non il buffer della vista 2D
     // ne' i picker (che seguono la fascia selezionata).
     d.zoom = gl->globalTexZoom();
@@ -786,7 +786,7 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
     const QRegularExpression tagRe(R"(^\s*//\s*(SOUND_BEGIN|SOUND_END).*$\n?)",
                                    QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption);
     if (d.isImplicitMode) {
-        QString implicitTex = mw->m_rm.texture.trimmed();
+        QString implicitTex = mw->m_scene.rm.texture.trimmed();
         // Via i vecchi tag audio: si riaggiunge quello pulito.
         while (implicitTex.contains(blockRe)) implicitTex.remove(blockRe);
         implicitTex.remove(musicRe);
@@ -806,7 +806,7 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
             }
         }
         d.textureCode = implicitTex;
-        d.displacementCode = mw->m_rm.displacement;
+        d.displacementCode = mw->m_scene.rm.displacement;
     } else {
         QString code = mw->surfaceTextureScript();
         while (code.contains(blockRe)) code.remove(blockRe);
@@ -832,8 +832,8 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
     // Ancore in libreria (focus nell'albero anche se il codice e' cambiato).
     // Il suono solo se il record porta davvero un audio: un nome senza suono
     // direbbe il falso.
-    d.textureLibName = mw->m_currentTextureLibName;
-    d.soundLibName = audioCode.isEmpty() ? QString() : mw->m_currentSoundLibName;
+    d.textureLibName = mw->m_scene.textureLibName;
+    d.soundLibName = audioCode.isEmpty() ? QString() : mw->m_scene.soundLibName;
 
     // Velocita'. Quelle 4D (e il path 4D) seguono lo stesso criterio degli
     // angoli: nel Cross Section sono il MOTO del record, fuori sono azzerate.
@@ -844,8 +844,8 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
     d.speedOmega = keep4D ? gl->getOmegaSpeed() : 0.0f;
     d.speedPhi   = keep4D ? gl->getPhiSpeed()   : 0.0f;
     d.speedPsi   = keep4D ? gl->getPsiSpeed()   : 0.0f;
-    d.speedPath3D = mw->m_pathSpeed3D;
-    d.speedPath4D = keep4D ? mw->m_pathSpeed4D : 0;
+    d.speedPath3D = mw->m_scene.pathSpeed3D;
+    d.speedPath4D = keep4D ? mw->m_scene.pathSpeed4D : 0;
 
     d.observer4D = gl->getObserverPos4D();
 
@@ -871,7 +871,7 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
     }
     d.bgCol1 = mw->m_bgTexColor1.name();
     d.bgCol2 = mw->m_bgTexColor2.name();
-    d.bgLibName = mw->m_currentBgTextureLibName;
+    d.bgLibName = mw->m_scene.bgTextureLibName;
     d.bgHintText = mw->m_currentBgTextureHintText;
     d.bgHintSeconds = mw->m_currentBgTextureHintSeconds;
     // Forma dello sfondo: si scrive SEMPRE, anche "fixed" (il load la riapplica).
@@ -1110,14 +1110,14 @@ void PresetSerializer::saveTexture(const QString &path)
     // SCRIPT, come nel Save dei record (vedi surfaceTextureScript); con una
     // fascia selezionata e il dock sulla texture si salva cio' che l'editor
     // mostra, lo script della fascia. Qui prima si travasava l'editor nelle
-    // copie APPLICATE (m_surfaceTextureCode / m_bgTextureCode): salvare una
+    // copie APPLICATE (m_scene.surfaceTextureCode / m_scene.bgTextureCode): salvare una
     // texture di fascia la faceva diventare la texture di superficie.
     // Lo SFONDO non dipende dal modo (ha il suo shader): in Ray Marching col
     // bersaglio Background si salvava il campo della texture di superficie.
     if (isImplicit && !isBg) {
         // Se siamo in Ray Marching salviamo entrambi i campi
-        currentCode = m_mainWindow->m_rm.texture;
-        root["displacement"] = m_mainWindow->m_rm.displacement;
+        currentCode = m_mainWindow->m_scene.rm.texture;
+        root["displacement"] = m_mainWindow->m_scene.rm.displacement;
         root["isImplicitMode"] = true; // Flag fondamentale per il caricamento
     } else {
         if (isBg)
@@ -1331,7 +1331,7 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     // salvataggio: e' l'ultima conferma prima della scrittura.
     // Il campo dello sfondo solo se il record HA uno sfondo, o un suo messaggio
     // da poter togliere: altrimenti sarebbe un campo vuoto senza scopo.
-    const bool hasBg = !m_mainWindow->m_bgTextureCode.trimmed().isEmpty()
+    const bool hasBg = !m_mainWindow->m_scene.bgTextureCode.trimmed().isEmpty()
                        || !m_mainWindow->m_currentBgTextureHintText.isEmpty();
     if (!askSceneHint(m_mainWindow, &m_mainWindow->m_currentHintText, "record",
                       &m_mainWindow->m_currentTextureHintText,
@@ -1347,7 +1347,7 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     // conferma, cosi' un audio messo in pausa solo per lavorare non viene perso
     // per sbaglio.
     bool includeSound = true;
-    if (!m_mainWindow->m_soundScriptText.trimmed().isEmpty() && m_mainWindow->m_audioController
+    if (!m_mainWindow->m_scene.soundScriptText.trimmed().isEmpty() && m_mainWindow->m_audioController
         && !m_mainWindow->m_audioController->isPlaying()) {
         QMessageBox box(m_mainWindow);
         box.setIcon(QMessageBox::Question);
@@ -1534,7 +1534,7 @@ void PresetSerializer::saveScript()
         root["isScript"] = true;
         root["isImplicitMode"] = (m_mainWindow->implicitMode());
 
-        root["steps"] = m_mainWindow->m_steps;
+        root["steps"] = m_mainWindow->m_scene.steps;
 
         QJsonObject limits;
         writeParametricLimits(limits);
@@ -1557,13 +1557,13 @@ void PresetSerializer::saveScript()
         // Condizioni iniziali del flusso geodetico: servono agli script metrici
         // che non le dichiarano con le direttive U:=/dU:=/...
         QJsonObject geo;
-        geo["u0"] = m_mainWindow->m_eq.geoU;
-        geo["v0"] = m_mainWindow->m_eq.geoV;
-        geo["w0"] = m_mainWindow->m_eq.geoW;
-        geo["du"] = m_mainWindow->m_eq.geoDU;
-        geo["dv"] = m_mainWindow->m_eq.geoDV;
-        geo["dw"] = m_mainWindow->m_eq.geoDW;
-        geo["conform"] = m_mainWindow->m_eq.conform;
+        geo["u0"] = m_mainWindow->m_scene.eq.geoU;
+        geo["v0"] = m_mainWindow->m_scene.eq.geoV;
+        geo["w0"] = m_mainWindow->m_scene.eq.geoW;
+        geo["du"] = m_mainWindow->m_scene.eq.geoDU;
+        geo["dv"] = m_mainWindow->m_scene.eq.geoDV;
+        geo["dw"] = m_mainWindow->m_scene.eq.geoDW;
+        geo["conform"] = m_mainWindow->m_scene.eq.conform;
         root["geodesic"] = geo;
 
         // Mappa di visualizzazione (embedding) di uno script metrico: se la mappa
@@ -1675,7 +1675,7 @@ void PresetSerializer::saveSound(const QString &filePath)
     }
 
     // 3. Recuperiamo il contenuto aggiornato dello script
-    QString content = m_mainWindow->m_soundScriptText;
+    QString content = m_mainWindow->m_scene.soundScriptText;
 
     // 4. Creiamo la struttura JSON
     QJsonObject root;
@@ -1949,7 +1949,7 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
         }
     } else {
         // Creazione nuovo script audio (JSON) da zero
-        QString content = m_mainWindow->m_soundScriptText;
+        QString content = m_mainWindow->m_scene.soundScriptText;
 
         QJsonObject root;
         root["code"] = content;

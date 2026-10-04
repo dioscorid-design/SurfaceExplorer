@@ -47,7 +47,7 @@ void MainWindow::setupEquationsDock()
     // prima lo STATO, che il reset e tutto il resto leggono.
     connect(ui->tabModeSelector, &QTabWidget::currentChanged,
             this, [this](int index) {
-        m_implicitMode = (index == 1);
+        m_scene.implicitMode = (index == 1);
         applyModeTabReset(index);
     });
 
@@ -108,7 +108,7 @@ void MainWindow::setupEquationsDock()
         // linguetta a segnali bloccati (setCrossSectionTab).
         connect(ui->subTabImplicit, &QTabWidget::currentChanged,
                 this, [this](int index) {
-            m_crossSectionTab = (index == 1);
+            m_scene.crossSectionTab = (index == 1);
             applyImplicitSubTabReset(index);
         });
     }
@@ -166,7 +166,7 @@ void MainWindow::setupEquationsDock()
     setEqText(&EquationTexts::z, QStringLiteral("0.3*sin(v)"));
     setEqText(&EquationTexts::p, QStringLiteral("0.0"));
 
-    ui->glWidget->setParametricEquations(m_eq.x, m_eq.y, m_eq.z, m_eq.p);
+    ui->glWidget->setParametricEquations(m_scene.eq.x, m_scene.eq.y, m_scene.eq.z, m_scene.eq.p);
 
     ui->uMinEdit->setText(QString::number(uMin, 'g', 12));
     ui->uMaxEdit->setText(QString::number(uMax, 'g', 12));
@@ -205,7 +205,7 @@ void MainWindow::setupEquationsDock()
         m_meshDebounce->setInterval(120);
         connect(m_meshDebounce, &QTimer::timeout, this, [this]() {
             if (ui->glWidget && !implicitMode()) {
-                ui->glWidget->setResolution(m_steps);
+                ui->glWidget->setResolution(m_scene.steps);
             }
             // Input nuovo (costanti/steps): un errore geodetico precedente non
             // deve congelare il ricalcolo, altrimenti riportare una costante
@@ -279,7 +279,7 @@ void MainWindow::setupEquationsDock()
     connect(ui->stepSlider, &QSlider::valueChanged, this, [this](int val) {
         // Il gesto (o un setValue a segnali vivi, come la riduzione del
         // massimo in checkParametricDependency): lo stato per primo.
-        m_steps = val;
+        m_scene.steps = val;
         ui->lineSteps->setText(QString::number(val));
         if (!ui->glWidget) return;
         if (implicitMode()) {
@@ -315,7 +315,7 @@ void MainWindow::setupEquationsDock()
                 if (notify && !m_constantPopupActive) {
                     m_constantPopupActive = true;
                     InputValidator::showInvalidStepsError(this, txt);
-                    setSteps(m_steps);   // il campo torna a mostrare lo stato
+                    setSteps(m_scene.steps);   // il campo torna a mostrare lo stato
                     ui->lineSteps->selectAll();
                     // Reset RIMANDATO a fine ciclo di eventi, come gli altri
                     // popup di questo modulo. Oggi qui si arriva una volta sola
@@ -330,7 +330,7 @@ void MainWindow::setupEquationsDock()
             }
         }
         val = std::clamp(val, ui->stepSlider->minimum(), ui->stepSlider->maximum());
-        if (val != m_steps)
+        if (val != m_scene.steps)
             ui->stepSlider->setValue(val);   // emette valueChanged -> stato, glWidget e testo
     };
 
@@ -446,11 +446,11 @@ void MainWindow::setupEquationsDock()
         const QString typed = ui->txtScriptEditor->toPlainText();
         m_scriptEditorText = typed;
         switch (shown) {
-        case SlotSurface:           m_surfaceScriptText = typed; break;
-        case SlotSurfaceTexture:    m_surfaceTextureScriptText = typed; break;
+        case SlotSurface:           m_scene.surfaceScriptText = typed; break;
+        case SlotSurfaceTexture:    m_scene.surfaceTextureScriptText = typed; break;
         case SlotMeshTexture:       syncMeshTextureSlot(); m_meshTextureScriptText = typed; break;
-        case SlotBackgroundTexture: m_bgTextureScriptText = typed; break;
-        case SlotSound:             m_soundScriptText = typed; break;
+        case SlotBackgroundTexture: m_scene.bgTextureScriptText = typed; break;
+        case SlotSound:             m_scene.soundScriptText = typed; break;
         case SlotNone:              break;
         }
         updateScriptButtonText();
@@ -468,19 +468,19 @@ void MainWindow::setupEquationsDock()
 
     // 2. Mutua esclusione dei vincoli (con blocco segnali per evitare loop a catena!)
     connect(ui->lineExplicitU, &QPlainTextEdit::textChanged, this, [this](){
-        if(!m_eq.explicitU.isEmpty()) {
+        if(!m_scene.eq.explicitU.isEmpty()) {
             setEqText(&EquationTexts::explicitV, QString());
             setEqText(&EquationTexts::explicitW, QString());
         }
     });
     connect(ui->lineExplicitV, &QPlainTextEdit::textChanged, this, [this](){
-        if(!m_eq.explicitV.isEmpty()) {
+        if(!m_scene.eq.explicitV.isEmpty()) {
             setEqText(&EquationTexts::explicitU, QString());
             setEqText(&EquationTexts::explicitW, QString());
         }
     });
     connect(ui->lineExplicitW, &QPlainTextEdit::textChanged, this, [this](){
-        if(!m_eq.explicitW.isEmpty()) {
+        if(!m_scene.eq.explicitW.isEmpty()) {
             setEqText(&EquationTexts::explicitU, QString());
             setEqText(&EquationTexts::explicitV, QString());
         }
@@ -696,7 +696,7 @@ void MainWindow::setupEquationsDock()
 
     auto updateImplicitEquations = [this]() {
         if(ui->glWidget) {
-            QString rawEq = m_rm.equation.trimmed();
+            QString rawEq = m_scene.rm.equation.trimmed();
             QString implicitEqF;
 
             // Formatttiamo l'equazione rimuovendo l'uguale per renderla digeribile da GLSL
@@ -774,20 +774,20 @@ void MainWindow::setupEquationsDock()
 
 void MainWindow::checkParametricDependency()
 {
-    QString eqX = m_eq.x;
-    QString eqY = m_eq.y;
-    QString eqZ = m_eq.z;
-    QString eqP = m_eq.p;
+    QString eqX = m_scene.eq.x;
+    QString eqY = m_scene.eq.y;
+    QString eqZ = m_scene.eq.z;
+    QString eqP = m_scene.eq.p;
 
     // Testi espliciti
-    QString eqExplU = m_eq.explicitU;
-    QString eqExplV = m_eq.explicitV;
-    QString eqExplW = m_eq.explicitW;
+    QString eqExplU = m_scene.eq.explicitU;
+    QString eqExplV = m_scene.eq.explicitV;
+    QString eqExplW = m_scene.eq.explicitW;
 
     // Testi composizione
-    QString defU = m_eq.u;
-    QString defV = m_eq.v;
-    QString defW = m_eq.w;
+    QString defU = m_scene.eq.u;
+    QString defV = m_scene.eq.v;
+    QString defW = m_scene.eq.w;
 
     // 1. ANALISI RAW: Contiamo ESATTAMENTE cosa ha digitato l'utente
     QString mainEqs = eqX + " " + eqY + " " + eqZ + " " + eqP;
@@ -936,22 +936,22 @@ void MainWindow::checkParametricDependency()
 
 void MainWindow::updateConstraintState()
 {
-    QString txtU = m_eq.explicitU.trimmed();
-    QString txtV = m_eq.explicitV.trimmed();
-    QString txtW = m_eq.explicitW.trimmed();
+    QString txtU = m_scene.eq.explicitU.trimmed();
+    QString txtV = m_scene.eq.explicitV.trimmed();
+    QString txtW = m_scene.eq.explicitW.trimmed();
 
     bool hasConstraintU = !txtU.isEmpty();
     bool hasConstraintV = !txtV.isEmpty();
     bool hasConstraintW = !txtW.isEmpty();
 
-    QString defU = m_eq.u;
-    QString defV = m_eq.v;
-    QString defW = m_eq.w;
+    QString defU = m_scene.eq.u;
+    QString defV = m_scene.eq.v;
+    QString defW = m_scene.eq.w;
 
-    QString allMainEqs = m_eq.x + " " +
-                         m_eq.y + " " +
-                         m_eq.z + " " +
-                         m_eq.p;
+    QString allMainEqs = m_scene.eq.x + " " +
+                         m_scene.eq.y + " " +
+                         m_scene.eq.z + " " +
+                         m_scene.eq.p;
 
     QString composedEqs = composeEquation(allMainEqs, defU, defV, defW);
 
@@ -1059,20 +1059,20 @@ QSet<QString> MainWindow::constantsNotUsedBySurface() const
     QString mathText;
 
     if (!implicitMode()) {
-        mathText = m_eq.x + " " + m_eq.y + " " +
-                   m_eq.z + " " + m_eq.p + " " +
-                   m_eq.explicitU + " " + m_eq.explicitV + " " +
-                   m_eq.explicitW + " " + m_eq.u + " " +
-                   m_eq.v + " " + m_eq.w;
+        mathText = m_scene.eq.x + " " + m_scene.eq.y + " " +
+                   m_scene.eq.z + " " + m_scene.eq.p + " " +
+                   m_scene.eq.explicitU + " " + m_scene.eq.explicitV + " " +
+                   m_scene.eq.explicitW + " " + m_scene.eq.u + " " +
+                   m_scene.eq.v + " " + m_scene.eq.w;
         if (ui->lnU) {
-            mathText += " " + m_eq.geoU + " " + m_eq.geoV +
-                        " " + m_eq.geoW + " " + m_eq.geoDU +
-                        " " + m_eq.geoDV + " " + m_eq.geoDW +
-                        " " + m_eq.conform;
+            mathText += " " + m_scene.eq.geoU + " " + m_scene.eq.geoV +
+                        " " + m_scene.eq.geoW + " " + m_scene.eq.geoDU +
+                        " " + m_scene.eq.geoDV + " " + m_scene.eq.geoDW +
+                        " " + m_scene.eq.conform;
         }
         // Lo SCRIPT della superficie parametrica e' GLSL, ma e' comunque della
         // SUPERFICIE: una costante che vi compare non va resettata.
-        mathText += " " + stripCodeComments(m_surfaceScriptText + "\n" + m_surfaceScriptApplied);
+        mathText += " " + stripCodeComments(m_scene.surfaceScriptText + "\n" + m_scene.surfaceScriptApplied);
     } else {
         // Sotto-tab ATTIVO, non lineEquation fisso: il criterio dev'essere lo
         // STESSO di updateConstantsUIState (vedi il commento sopra), che legge
@@ -1082,23 +1082,23 @@ QSet<QString> MainWindow::constantsNotUsedBySurface() const
         // deformando la superficie 4D a schermo.
         mathText = stripCodeComments(activeImplicitEquationText());
         // Idem per lo script implicito in Ray Marching.
-        mathText += " " + stripCodeComments(m_surfaceScriptText + "\n" + m_surfaceScriptApplied);
+        mathText += " " + stripCodeComments(m_scene.surfaceScriptText + "\n" + m_scene.surfaceScriptApplied);
     }
 
     // Limiti e path: valutati con A..F/S registrate, quindi contano come uso.
-    mathText += " " + m_lim.uMin + " " + m_lim.uMax +
-                " " + m_lim.vMin + " " + m_lim.vMax +
-                " " + m_lim.wMin + " " + m_lim.wMax;
+    mathText += " " + m_scene.lim.uMin + " " + m_scene.lim.uMax +
+                " " + m_scene.lim.vMin + " " + m_scene.lim.vMax +
+                " " + m_scene.lim.wMin + " " + m_scene.lim.wMax;
     // Stessa regola per il taglio x/y/z del Ray Marching.
-    mathText += " " + m_lim.xMin + " " + m_lim.xMax +
-                " " + m_lim.yMin + " " + m_lim.yMax +
-                " " + m_lim.zMin + " " + m_lim.zMax;
-    mathText += " " + m_path.x + " " + m_path.y +
-                " " + m_path.z + " " + m_path.p +
-                " " + m_path.alpha + " " + m_path.beta +
-                " " + m_path.gamma +
-                " " + m_path.x3D + " " + m_path.y3D +
-                " " + m_path.z3D + " " + m_path.roll3D;
+    mathText += " " + m_scene.lim.xMin + " " + m_scene.lim.xMax +
+                " " + m_scene.lim.yMin + " " + m_scene.lim.yMax +
+                " " + m_scene.lim.zMin + " " + m_scene.lim.zMax;
+    mathText += " " + m_scene.path.x + " " + m_scene.path.y +
+                " " + m_scene.path.z + " " + m_scene.path.p +
+                " " + m_scene.path.alpha + " " + m_scene.path.beta +
+                " " + m_scene.path.gamma +
+                " " + m_scene.path.x3D + " " + m_scene.path.y3D +
+                " " + m_scene.path.z3D + " " + m_scene.path.roll3D;
 
     // TEXTURE DELLE FASCE: non sono la superficie, ma le costanti che usano non
     // vanno riportate al default quando si carica una texture GLOBALE -- le
@@ -1200,23 +1200,23 @@ void MainWindow::updateConstantsUIState() {
 
     // 1. RACCOLTA TESTO SPECIFICA PER TAB
     if (currentTab == 0) { // MODALITÀ PARAMETRICA
-        mathText = m_eq.x + " " + m_eq.y + " " +
-                   m_eq.z + " " + m_eq.p + " " +
-                   m_eq.explicitU + " " + m_eq.explicitV + " " +
-                   m_eq.explicitW + " " + m_eq.u + " " +
-                   m_eq.v + " " + m_eq.w;
+        mathText = m_scene.eq.x + " " + m_scene.eq.y + " " +
+                   m_scene.eq.z + " " + m_scene.eq.p + " " +
+                   m_scene.eq.explicitU + " " + m_scene.eq.explicitV + " " +
+                   m_scene.eq.explicitW + " " + m_scene.eq.u + " " +
+                   m_scene.eq.v + " " + m_scene.eq.w;
 
         if (ui->lnU) { // Campi Geodetici (Tab 0)
-            mathText += " " + m_eq.geoU +
-                    " " + m_eq.geoV +
-                    " " + m_eq.geoW +
-                    " " + m_eq.geoDU +
-                    " " + m_eq.geoDV +
-                    " " + m_eq.geoDW +
-                    " " + m_eq.conform;
+            mathText += " " + m_scene.eq.geoU +
+                    " " + m_scene.eq.geoV +
+                    " " + m_scene.eq.geoW +
+                    " " + m_scene.eq.geoDU +
+                    " " + m_scene.eq.geoDV +
+                    " " + m_scene.eq.geoDW +
+                    " " + m_scene.eq.conform;
         }
         // In parametrica aggiungiamo lo script della superficie se non siamo in Ray Marching
-        glslText += stripCodeComments(m_surfaceTextureCode);
+        glslText += stripCodeComments(m_scene.surfaceTextureCode);
         // ...e le texture delle FASCE: una costante citata solo da una di loro e'
         // usata quanto una della texture globale (vedi
         // meshTextureCodesForConstants). Blocco per blocco, come qui sotto.
@@ -1232,7 +1232,7 @@ void MainWindow::updateConstantsUIState() {
         // degli scenari). Le fonti: le equazioni compilate nel motore
         // (composizione compresa) e lo snapshot dell'ultimo Run per il flusso
         // geodetico. Lo script di superficie e' gia' coperto piu' sotto dal suo
-        // slot m_surfaceScriptText.
+        // slot m_scene.surfaceScriptText.
         // SOLO con modifiche in sospeso: a campi e schermo allineati l'applicato
         // non aggiunge nulla, e durante un load e' ancora quello del preset di
         // PRIMA (in modo script le equazioni compilate restano le vecchie; il
@@ -1246,8 +1246,8 @@ void MainWindow::updateConstantsUIState() {
                 glslText += " " + ui->glWidget->parametricEquationsApplied();
         }
         // ...e lo script della texture non ancora eseguito (l'applicato e'
-        // m_surfaceTextureCode, qui sopra).
-        glslText += " " + stripCodeComments(m_surfaceTextureScriptText);
+        // m_scene.surfaceTextureCode, qui sopra).
+        glslText += " " + stripCodeComments(m_scene.surfaceTextureScriptText);
     }
     else { // MODALITÀ RAY MARCHING
         // L'equazione implicita e' matematica utente (translateEquation);
@@ -1265,8 +1265,8 @@ void MainWindow::updateConstantsUIState() {
         // "non c'e' niente da cui dedurre". In parametrico le equazioni sono
         // molte e svuotarne una non ha lo stesso significato.
         equationFieldIsEmpty = mathText.trimmed().isEmpty();
-        glslText += " " + stripCodeComments(m_rm.texture) +
-                    " " + stripCodeComments(m_rm.displacement);
+        glslText += " " + stripCodeComments(m_scene.rm.texture) +
+                    " " + stripCodeComments(m_scene.rm.displacement);
         // L'APPLICATO, come nel ramo parametrico e con la stessa condizione:
         // equazione, texture e rilievo compilati nel marcher.
         if (m_constantsEditPending && ui->glWidget) {
@@ -1287,9 +1287,9 @@ void MainWindow::updateConstantsUIState() {
     // concatenati con spazi, e un commento di linea non terminato a fine
     // blocco inghiottirebbe l'inizio del blocco successivo (falso negativo:
     // costante vera creduta inutilizzata -> reset a 1).
-    glslText += " " + stripCodeComments(m_bgTextureCode); // Lo sfondo è comune
+    glslText += " " + stripCodeComments(m_scene.bgTextureCode); // Lo sfondo è comune
     // ...con il suo script non ancora eseguito (l'applicato e' la riga sopra).
-    glslText += " " + stripCodeComments(m_bgTextureScriptText);
+    glslText += " " + stripCodeComments(m_scene.bgTextureScriptText);
 
     // L'EDITOR E' SEMPRE GLSL. Vale per tutti e tre i modi dello script
     // (superficie, texture, sound) e per entrambe le tab: lo script di
@@ -1323,7 +1323,7 @@ void MainWindow::updateConstantsUIState() {
     // ritrovarsi E=1, F=1: un tubo solo e raggio degenere, cioe' la superficie
     // "collassata" -- e un salvataggio in quello stato scriveva i valori
     // sbagliati nel record.
-    glslText += " " + stripCodeComments(m_surfaceScriptText + "\n" + m_surfaceScriptApplied);
+    glslText += " " + stripCodeComments(m_scene.surfaceScriptText + "\n" + m_scene.surfaceScriptApplied);
 
     // Anche i path camera 4D/3D valgono come "uso" di una costante: le loro
     // espressioni sono compilate su exprtk con A..F/s registrate
@@ -1334,19 +1334,19 @@ void MainWindow::updateConstantsUIState() {
     // soprattutto NON farla resettare a 1 dal ramo !used, che cambierebbe
     // l'estensione della superficie di sorpresa). Lo stesso il taglio x/y/z
     // del Ray Marching.
-    mathText += " " + m_lim.uMin + " " + m_lim.uMax +
-                " " + m_lim.vMin + " " + m_lim.vMax +
-                " " + m_lim.wMin + " " + m_lim.wMax;
-    mathText += " " + m_lim.xMin + " " + m_lim.xMax +
-                " " + m_lim.yMin + " " + m_lim.yMax +
-                " " + m_lim.zMin + " " + m_lim.zMax;
+    mathText += " " + m_scene.lim.uMin + " " + m_scene.lim.uMax +
+                " " + m_scene.lim.vMin + " " + m_scene.lim.vMax +
+                " " + m_scene.lim.wMin + " " + m_scene.lim.wMax;
+    mathText += " " + m_scene.lim.xMin + " " + m_scene.lim.xMax +
+                " " + m_scene.lim.yMin + " " + m_scene.lim.yMax +
+                " " + m_scene.lim.zMin + " " + m_scene.lim.zMax;
 
-    mathText += " " + m_path.x + " " + m_path.y +
-                " " + m_path.z + " " + m_path.p +
-                " " + m_path.alpha + " " + m_path.beta +
-                " " + m_path.gamma +
-                " " + m_path.x3D + " " + m_path.y3D +
-                " " + m_path.z3D + " " + m_path.roll3D;
+    mathText += " " + m_scene.path.x + " " + m_scene.path.y +
+                " " + m_scene.path.z + " " + m_scene.path.p +
+                " " + m_scene.path.alpha + " " + m_scene.path.beta +
+                " " + m_scene.path.gamma +
+                " " + m_scene.path.x3D + " " + m_scene.path.y3D +
+                " " + m_scene.path.z3D + " " + m_scene.path.roll3D;
 
     // 3. LOGICA DI BLOCCO/SBLOCCO E RESET
     bool resetToNeutral = false;
@@ -1394,7 +1394,7 @@ void MainWindow::updateConstantsUIState() {
                 // RESET: S a 0.0, le altre (A-F) a 1.0 (lo slider lo
                 // riallinea refreshConstantSliders, in fondo).
                 const QString neutral = letter == "S" ? QStringLiteral("0") : QStringLiteral("1");
-                if (m_const.*field != neutral) {
+                if (m_scene.constants.*field != neutral) {
                     setConstText(field, neutral);
                     resetToNeutral = true;
                 }
@@ -1410,7 +1410,7 @@ void MainWindow::updateConstantsUIState() {
             // usate tramite lei. Senza, con B = A/10 e le equazioni che citano
             // la sola B, A veniva dichiarata in disuso e riportata a 1 -- e B,
             // cioe' la superficie, cambiava con lei (test degli scenari).
-            mathText += " " + m_const.*field;
+            mathText += " " + m_scene.constants.*field;
         }
     };
 
@@ -1501,8 +1501,8 @@ bool MainWindow::applySpaceLimits(bool notify, bool reapply)
 }
 
 bool MainWindow::updateULimits() {
-    float lo = parseLimitField(m_lim.uMin);
-    float hi = parseLimitField(m_lim.uMax);
+    float lo = parseLimitField(m_scene.lim.uMin);
+    float hi = parseLimitField(m_scene.lim.uMax);
     if (lo >= hi) return false;            // limiti impossibili: non applicare né ridisegnare
     uMin = lo; uMax = hi;
     if (ui->glWidget) ui->glWidget->setRangeU(uMin, uMax);
@@ -1510,8 +1510,8 @@ bool MainWindow::updateULimits() {
 }
 
 bool MainWindow::updateVLimits() {
-    float lo = parseLimitField(m_lim.vMin);
-    float hi = parseLimitField(m_lim.vMax);
+    float lo = parseLimitField(m_scene.lim.vMin);
+    float hi = parseLimitField(m_scene.lim.vMax);
     if (lo >= hi) return false;            // limiti impossibili: non applicare né ridisegnare
     vMin = lo; vMax = hi;
     if (ui->glWidget) ui->glWidget->setRangeV(vMin, vMax);
@@ -1519,8 +1519,8 @@ bool MainWindow::updateVLimits() {
 }
 
 bool MainWindow::updateWLimits() {
-    float lo = parseLimitField(m_lim.wMin);
-    float hi = parseLimitField(m_lim.wMax);
+    float lo = parseLimitField(m_scene.lim.wMin);
+    float hi = parseLimitField(m_scene.lim.wMax);
     if (lo >= hi) return false;            // limiti impossibili: non applicare né ridisegnare
     wMin = lo; wMax = hi;
     if (ui->glWidget) ui->glWidget->setRangeW(wMin, wMax);
@@ -1575,7 +1575,7 @@ MainWindow::CascadeConstants MainWindow::resolveCascadeConstants(bool restoreTex
     for (int i = 0; i < 7; ++i) {
         QLineEdit *edit = constantFieldEdit(fields[i]);
         bool ok = true;
-        float raw = parseUIConstant(m_const.*fields[i], v[0], v[1], v[2], v[3], v[4], v[5], 0, &ok);
+        float raw = parseUIConstant(m_scene.constants.*fields[i], v[0], v[1], v[2], v[3], v[4], v[5], 0, &ok);
 
         if (!ok) {
             // Testo che non si valuta: vale 0 e NON diventa l'ultimo valore valido.
@@ -1969,10 +1969,10 @@ void MainWindow::syncMeshLimitFields()
 bool MainWindow::hasParametricEquationInput() const
 {
     int filled = 0;
-    if (ui->lineX && !m_eq.x.trimmed().isEmpty()) filled++;
-    if (ui->lineY && !m_eq.y.trimmed().isEmpty()) filled++;
-    if (ui->lineZ && !m_eq.z.trimmed().isEmpty()) filled++;
-    if (ui->lineP && !m_eq.p.trimmed().isEmpty()) filled++;
+    if (ui->lineX && !m_scene.eq.x.trimmed().isEmpty()) filled++;
+    if (ui->lineY && !m_scene.eq.y.trimmed().isEmpty()) filled++;
+    if (ui->lineZ && !m_scene.eq.z.trimmed().isEmpty()) filled++;
+    if (ui->lineP && !m_scene.eq.p.trimmed().isEmpty()) filled++;
     return filled >= 3;
 }
 
@@ -2183,19 +2183,19 @@ bool MainWindow::hasTimeVariable(const QString& code) const {
 
 bool MainWindow::applyDiscreteConstants()
 {
-    if (m_discreteConsts.isEmpty() && m_minConsts.isEmpty()) return false;
+    if (m_scene.discreteConsts.isEmpty() && m_scene.minConsts.isEmpty()) return false;
 
     bool changed = false;
     for (ConstField field : constantFields()) {
         const QString key = constantName(field);
-        auto it    = m_discreteConsts.constFind(key);
-        auto itMin = m_minConsts.constFind(key);
-        const bool isDiscrete = (it != m_discreteConsts.constEnd());
-        const bool hasMin     = (itMin != m_minConsts.constEnd());
+        auto it    = m_scene.discreteConsts.constFind(key);
+        auto itMin = m_scene.minConsts.constFind(key);
+        const bool isDiscrete = (it != m_scene.discreteConsts.constEnd());
+        const bool hasMin     = (itMin != m_scene.minConsts.constEnd());
         if (!isDiscrete && !hasMin) continue;
 
         bool ok = false;
-        const float cur = (m_const.*field).trimmed().toFloat(&ok);
+        const float cur = (m_scene.constants.*field).trimmed().toFloat(&ok);
         if (!ok) continue;   // espressione (es. "A*2"): non la tocchiamo
 
         float target = cur;
@@ -2307,8 +2307,8 @@ bool MainWindow::isGeodesicRoutingActive() const
     if (implicitMode()) return false;
     if (!hasGeodesicText()) return false;
 
-    const QString mainEqs = m_eq.x + " " + m_eq.y + " "
-                          + m_eq.z + " " + m_eq.p;
+    const QString mainEqs = m_scene.eq.x + " " + m_scene.eq.y + " "
+                          + m_scene.eq.z + " " + m_scene.eq.p;
     const int upperCount = (mainEqs.contains(kReUpperU) ? 1 : 0)
                          + (mainEqs.contains(kReUpperV) ? 1 : 0)
                          + (mainEqs.contains(kReUpperW) ? 1 : 0);
@@ -2337,8 +2337,8 @@ void MainWindow::commitUiFieldsDuringMotion() {
     if (!isEquationModuleMoving()) return;
     m_geodesicErrorPending = false;
 
-    QString mainEqs = m_eq.x + " " + m_eq.y + " " +
-                      m_eq.z + " " + m_eq.p;
+    QString mainEqs = m_scene.eq.x + " " + m_scene.eq.y + " " +
+                      m_scene.eq.z + " " + m_scene.eq.p;
     int upperCount = (mainEqs.contains(kReUpperU) ? 1 : 0) +
                      (mainEqs.contains(kReUpperV) ? 1 : 0) +
                      (mainEqs.contains(kReUpperW) ? 1 : 0);
@@ -2423,8 +2423,8 @@ bool MainWindow::commitFieldsOnEnter() {
     if (implicitMode()) return false;
 
     // Stesso routing di checkAndTriggerMeshUpdate: geodetico vs standard.
-    QString mainEqs = m_eq.x + " " + m_eq.y + " " +
-                      m_eq.z + " " + m_eq.p;
+    QString mainEqs = m_scene.eq.x + " " + m_scene.eq.y + " " +
+                      m_scene.eq.z + " " + m_scene.eq.p;
     int upperCount = (mainEqs.contains(kReUpperU) ? 1 : 0) +
                      (mainEqs.contains(kReUpperV) ? 1 : 0) +
                      (mainEqs.contains(kReUpperW) ? 1 : 0);
@@ -2518,7 +2518,7 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
         vMin = eng->getVMin(); vMax = eng->getVMax();
     }
 
-    int steps = m_steps;
+    int steps = m_scene.steps;
     int safeSteps = std::min(steps, 500);  // Limite fisico per le geodetiche
 
     // Controllo Min >= Max (U e V sempre attivi nel geodesic)
@@ -2585,7 +2585,7 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
     }
 
     auto pick = [this](bool frozen, EqField f) -> QString {
-        return (frozen && m_eqApplied) ? (*m_eqApplied).*f : m_eq.*f;
+        return (frozen && m_eqApplied) ? (*m_eqApplied).*f : m_scene.eq.*f;
     };
 
     QString rawX = pick(freezeMapEqs, &EquationTexts::x);
@@ -2844,7 +2844,7 @@ void MainWindow::checkAndTriggerMeshUpdate(bool useAppliedEquations) {
     }
 
     // 1. Recupero equazioni principali
-    QString mainEqs = m_eq.x + " " + m_eq.y + " " + m_eq.z + " " + m_eq.p;
+    QString mainEqs = m_scene.eq.x + " " + m_scene.eq.y + " " + m_scene.eq.z + " " + m_scene.eq.p;
 
     // 2. Analisi variabili composte (U, V, W)
     int upperCount = (mainEqs.contains(kReUpperU) ? 1 : 0) +
@@ -2908,12 +2908,12 @@ bool MainWindow::isGeodesicMotionActive() const {
 
 bool MainWindow::hasGeodesicText() const {
     if (!ui->lnU) return false;
-    return !m_eq.geoU.trimmed().isEmpty()  ||
-           !m_eq.geoV.trimmed().isEmpty()  ||
-           !m_eq.geoW.trimmed().isEmpty()  ||
-           !m_eq.geoDU.trimmed().isEmpty() ||
-           !m_eq.geoDV.trimmed().isEmpty() ||
-           !m_eq.geoDW.trimmed().isEmpty();
+    return !m_scene.eq.geoU.trimmed().isEmpty()  ||
+           !m_scene.eq.geoV.trimmed().isEmpty()  ||
+           !m_scene.eq.geoW.trimmed().isEmpty()  ||
+           !m_scene.eq.geoDU.trimmed().isEmpty() ||
+           !m_scene.eq.geoDV.trimmed().isEmpty() ||
+           !m_scene.eq.geoDW.trimmed().isEmpty();
 }
 
 bool MainWindow::geodesicFieldsAreFinite(const QStringList& exprs,

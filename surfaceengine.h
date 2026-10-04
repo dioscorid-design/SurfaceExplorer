@@ -128,7 +128,7 @@ struct MeshPart {
     // costano ne' binding ne' pipeline in piu': solo codice nello stesso shader.
     QString textureCode;
     // NOME della voce di libreria da cui la texture della parte VIENE: l'ancora
-    // del focus nel dock Library, gemella di m_currentTextureLibName per la
+    // del focus nel dock Library, gemella di MainWindow::m_scene.textureLibName per la
     // texture globale. Senza, una fascia si agganciava solo per CODICE e il
     // primo ritocco della voce in libreria (es. uno slider aggiunto) le faceva
     // perdere il focus. Vuoto = nessuna voce nota: ricerca per solo codice.

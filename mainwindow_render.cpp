@@ -56,23 +56,23 @@ void MainWindow::setupRendererDock()
         // attualmente editando lo sfondo (radioBackground acceso) lasciamo invariati
         // editor, checkbox e picker: continuano a riferirsi allo sfondo.
         //
-        // m_savedRenderMode e' lo stato GLOBALE della superficie, quello che le
+        // m_scene.renderMode e' lo stato GLOBALE della superficie, quello che le
         // mesh senza modalita' propria ereditano e che il preset salva. Quando
         // si sta editando una SINGOLA mesh (spinbox diverso da "All") il click
         // riguarda solo quella parte, non la superficie intera: registrarlo
         // come globale lo faceva riapplicare a TUTTE le mesh al ricarico del
         // preset (sequenza: seleziono 5, Phong, wireframe, ricarico -> tutto
-        // wireframe, perche' updateRenderState rileggeva m_savedRenderMode=2 e
+        // wireframe, perche' updateRenderState rileggeva m_scene.renderMode=2 e
         // col bypass del load lo scriveva sul globale).
         const bool editingSingleMesh =
             ui->glWidget && ui->glWidget->activeMeshPart() >= 0;
         if (!editingSingleMesh)
-            m_savedRenderMode = id;
+            m_scene.renderMode = id;
 
         if (!editingBackground()) {
             refreshTextureCheckbox();
 
-            updateTextureUIState(m_surfaceTextureState);
+            updateTextureUIState(m_scene.surfaceTextureState);
             // LO SPEGNIMENTO PER WIREFRAME RIGUARDA SOLO L'AMBITO "ALL".
             // setGlobalTextureEnabled scrive m_textureEnabled, che e' lo stato GLOBALE
             // della texture di superficie: mettendo in wireframe UNA fascia si
@@ -111,7 +111,7 @@ void MainWindow::setupRendererDock()
 
         if (checked) {
             // ENTRO in editing sfondo. Lo stato della texture di superficie
-            // (m_surfaceTextureState) non si tocca: il checkbox ne era solo la
+            // (m_scene.surfaceTextureState) non si tocca: il checkbox ne era solo la
             // vista, e ora mostra lo sfondo. (Prima lo si ricopiava DAL checkbox
             // per "salvarlo": in ambito Mesh il checkbox mostra la fascia, e la
             // copia accendeva una texture globale che non esisteva.)
@@ -136,8 +136,8 @@ void MainWindow::setupRendererDock()
 
             // Picker Colore attivi solo se lo sfondo è acceso E usa quel colore:
             // ciascuno indipendente (una texture che usa solo u_col1 non abilita col2).
-            bool bgCol1 = bgTexActive && m_bgTextureCode.contains("u_col1");
-            bool bgCol2 = bgTexActive && m_bgTextureCode.contains("u_col2");
+            bool bgCol1 = bgTexActive && m_scene.bgTextureCode.contains("u_col1");
+            bool bgCol2 = bgTexActive && m_scene.bgTextureCode.contains("u_col2");
             ui->radioTexColor1->setEnabled(bgCol1);
             ui->radioTexColor2->setEnabled(bgCol2);
 
@@ -177,15 +177,15 @@ void MainWindow::setupRendererDock()
             // stato della texture GLOBALE (entrando in Background la selezione
             // della parte viene lasciata com'era apposta, vedi
             // updateMeshScopeEnabled, quindi uscendo siamo ancora su quella
-            // fascia). Ripristinando m_surfaceTextureState si riaccendeva il
+            // fascia). Ripristinando m_scene.surfaceTextureState si riaccendeva il
             // checkbox su una fascia a cui la texture era appena stata TOLTA.
             // Stesso criterio del ramo di ingresso, che per questo non salva
-            // m_surfaceTextureState quando showingMeshTex.
+            // m_scene.surfaceTextureState quando showingMeshTex.
             const bool onMeshScope = ui->glWidget
                                      && ui->glWidget->activeMeshPart() >= 0;
             const bool texOn = onMeshScope
                                    ? ui->glWidget->activeMeshTextureActive()
-                                   : m_surfaceTextureState;
+                                   : m_scene.surfaceTextureState;
 
             refreshTextureCheckbox();
 
@@ -451,8 +451,8 @@ void MainWindow::setupRendererDock()
         if (editingBackground()) {
             ui->glWidget->setBackgroundTextureEnabled(checked);
             // Picker Colore solo se lo sfondo è acceso E usa quel colore (indipendenti).
-            bool bgCol1 = checked && m_bgTextureCode.contains("u_col1");
-            bool bgCol2 = checked && m_bgTextureCode.contains("u_col2");
+            bool bgCol1 = checked && m_scene.bgTextureCode.contains("u_col1");
+            bool bgCol2 = checked && m_scene.bgTextureCode.contains("u_col2");
             ui->radioTexColor1->setEnabled(bgCol1);
             ui->radioTexColor2->setEnabled(bgCol2);
 
@@ -485,8 +485,8 @@ void MainWindow::setupRendererDock()
                 bool isModified = this->property("isTextureModified").toBool();
 
                 if (implicitMode()) { // Ray Marching
-                    QString tex = m_rm.texture.trimmed();
-                    QString disp = m_rm.displacement.trimmed();
+                    QString tex = m_scene.rm.texture.trimmed();
+                    QString disp = m_scene.rm.displacement.trimmed();
 
                     // Ignoriamo le texture di DEFAULT generate automaticamente (non sono
                     // codice scritto dall'utente da proteggere): la scacchiera procedurale
@@ -497,7 +497,7 @@ void MainWindow::setupRendererDock()
                     if (!disp.isEmpty()) hasCode = true;
 
                 } else { // Parametrica
-                    QString tex = m_surfaceTextureCode.trimmed();
+                    QString tex = m_scene.surfaceTextureCode.trimmed();
 
                     // Se c'è SOLO un tag immagine (es. //IMG:/percorso.png) senza logica a capo, ignoralo
                     bool isOnlyImage = tex.startsWith("//IMG:") && !tex.contains("\n");
@@ -574,14 +574,14 @@ void MainWindow::setupRendererDock()
                 }
             }
 
-            m_surfaceTextureState = checked;
+            m_scene.surfaceTextureState = checked;
             updateTextureUIState(checked);
             applySurfaceTextureToEngine();
 
             if (!m_blockTextureGen && checked) {
                 // --- LOGICA RAY MARCHING (Tab 1) ---
                 if (implicitMode()) {
-                    QString currentTex = m_rm.texture.trimmed();
+                    QString currentTex = m_scene.rm.texture.trimmed();
 
                     if (currentTex.isEmpty()) {
                         // Reset dei colori texture alla default: senza questo, dopo
@@ -678,7 +678,7 @@ void MainWindow::setupRendererDock()
         if (implicitMode()) { // Ray Marching
             // Solo l'SDF (lineEquation/script) è geometria; il displacement
             // (lineVariations) è del modulo texture ed è controllato al punto 2.
-            QString eq = activeImplicitEquationText() + " " + m_surfaceScriptApplied;
+            QString eq = activeImplicitEquationText() + " " + m_scene.surfaceScriptApplied;
             if (hasTimeVariable(eq)) needsAnim = true;
         } else { // Parametrica
             // Includere i campi Composition (lineU/lineV/lineW) e i vincoli espliciti:
@@ -686,36 +686,36 @@ void MainWindow::setupRendererDock()
             // Senza questi, accendere/spegnere la texture ricalcolava needsAnim=false
             // e fermava per errore l'animazione della geometria. Stesso insieme di
             // rawEqsForT (onStartClicked) e mainEq (updateMasterButtonState).
-            QString eq = m_eq.x + " " + m_eq.y + " " +
-                         m_eq.z + " " + m_eq.p + " " +
-                         m_eq.u + " " + m_eq.v + " " + m_eq.w + " " +
-                         m_eq.explicitU + " " + m_eq.explicitV + " " + m_eq.explicitW + " " +
-                         m_surfaceScriptApplied;
+            QString eq = m_scene.eq.x + " " + m_scene.eq.y + " " +
+                         m_scene.eq.z + " " + m_scene.eq.p + " " +
+                         m_scene.eq.u + " " + m_scene.eq.v + " " + m_scene.eq.w + " " +
+                         m_scene.eq.explicitU + " " + m_scene.eq.explicitV + " " + m_scene.eq.explicitW + " " +
+                         m_scene.surfaceScriptApplied;
             if (hasTimeVariable(eq)) needsAnim = true;
         }
 
         // 2. Controllo Texture Superficie (SOLO SE ABILITATA)
         // MULTI-MESH: il modulo e' attivo, e il suo 't' va cercato, anche quando
-        // la texture ce l'ha solo una FASCIA. Qui si guardava m_surfaceTextureCode
+        // la texture ce l'ha solo una FASCIA. Qui si guardava m_scene.surfaceTextureCode
         // (la sola texture globale) con un gate sul checkbox / su
-        // m_surfaceTextureState: con l'animazione sulla fascia 1 e nessuna
+        // m_scene.surfaceTextureState: con l'animazione sulla fascia 1 e nessuna
         // texture globale, needsAnim usciva falso e il ramo sotto chiamava
         // applyAnimationState(false), fermando l'animazione.
         // Si vedeva SOLO applicando in Background la texture di DEFAULT: le
         // altre (script o immagine) portano un proprio codice e passano da
         // percorsi che non ricalcolano needsAnim, mentre la default arriva qui.
-        bool isSurfTexActive = editingBackground() ? m_surfaceTextureState : checked;
+        bool isSurfTexActive = editingBackground() ? m_scene.surfaceTextureState : checked;
         if (!isSurfTexActive) isSurfTexActive = anyMeshTextureActive();
         if (isSurfTexActive) {
             QString tex = (implicitMode())
-                    ? (m_rm.texture + m_rm.displacement)
+                    ? (m_scene.rm.texture + m_scene.rm.displacement)
                     : allSurfaceTextureCode();
             if (hasTimeVariable(tex)) needsAnim = true;
         }
 
         // 3. Controllo Texture Sfondo (SOLO SE ABILITATA)
         if (ui->glWidget && ui->glWidget->isBackgroundTextureEnabled()) {
-            if (hasTimeVariable(m_bgTextureCode)) needsAnim = true;
+            if (hasTimeVariable(m_scene.bgTextureCode)) needsAnim = true;
         }
 
         // 4. APPLICAZIONE STATO E AGGIORNAMENTO UI
@@ -934,8 +934,8 @@ void MainWindow::setupRendererDock()
     ui->speed3DSlider->setRange(1, 100); setPathSpeed3D(10);
     ui->speed4DSlider->setRange(1, 100); setPathSpeed4D(10);
     // Il trascinamento scrive lo stato (vedi pathSpeed3D).
-    connect(ui->speed3DSlider, &QSlider::valueChanged, this, [this](int v) { m_pathSpeed3D = v; });
-    connect(ui->speed4DSlider, &QSlider::valueChanged, this, [this](int v) { m_pathSpeed4D = v; });
+    connect(ui->speed3DSlider, &QSlider::valueChanged, this, [this](int v) { m_scene.pathSpeed3D = v; });
+    connect(ui->speed4DSlider, &QSlider::valueChanged, this, [this](int v) { m_scene.pathSpeed4D = v; });
     // FOV UNICO (dock renderer, sotto Light). Prima erano due slider separati nei
     // dock 3D e 4D, attivi solo con la RISPETTIVA path in corsa: andavano in
     // conflitto (due controlli sullo stesso m_cameraFov) e da fermo erano
@@ -990,7 +990,7 @@ void MainWindow::setupRendererDock()
             // In Wireframe la texture è nascosta e le linee usano il COLORE SUPERFICIE.
             bool wireframeMode = (shownRenderMode() == 2);
             // TEXTURE ATTIVA SUL DESTINATARIO CORRENTE. Con una fascia
-            // selezionata conta la SUA texture: m_surfaceTextureState e' lo
+            // selezionata conta la SUA texture: m_scene.surfaceTextureState e' lo
             // stato di quella GLOBALE e resta false se si e' texturizzata solo
             // la fascia, quindi questo ramo non veniva mai preso e gli slider
             // finivano a editare il colore della superficie invece dei due
@@ -998,7 +998,7 @@ void MainWindow::setupRendererDock()
             const bool texActiveHere =
                 (ui->glWidget && ui->glWidget->activeMeshPart() >= 0)
                     ? ui->glWidget->activeMeshTextureActive()
-                    : m_surfaceTextureState;
+                    : m_scene.surfaceTextureState;
             if (!wireframeMode && texActiveHere && activeTextureUsesColors()) {
                 // Texture di superficie colorata: Color1/Color2 scelgono lo slot.
                 // AMBITO "MESH": i colori vanno nella PARTE, non nei due slot
@@ -1125,7 +1125,7 @@ void MainWindow::setupRendererDock()
         // riaccensione, qualunque sia il modulo.
         if (!m_userStoppedTexClock && !m_masterStopped)
             ui->glWidget->setSurfaceTextureAnimating(
-                hasTimeVariable(m_surfaceTextureCode));
+                hasTimeVariable(m_scene.surfaceTextureCode));
 
         // In "All" il checkbox torna a mostrare lo stato GLOBALE della texture:
         // in "Mesh" ci pensa syncAppearanceControlsToActiveMesh (display della
@@ -1178,12 +1178,12 @@ void MainWindow::setupRendererDock()
     // il programma scrive i radio a segnali bloccati (setMeshScopeAll).
     connect(ui->radioMeshAll, &QRadioButton::toggled, this, [this, applyMeshScope](bool on){
         if (!on) return;
-        m_meshScopeAll = true;
+        m_scene.meshScopeAll = true;
         applyMeshScope();
     });
     connect(ui->radioMeshOne, &QRadioButton::toggled, this, [this, applyMeshScope](bool on){
         if (!on) return;
-        m_meshScopeAll = false;
+        m_scene.meshScopeAll = false;
         applyMeshScope();
     });
     // Stato iniziale: radioMeshAll e' gia' checked nella .ui, quindi il suo
@@ -1198,7 +1198,7 @@ void MainWindow::setupRendererDock()
     // ramo "All" -> i radio sulla globalRenderMode() del motore lo leggevano come
     // modalita' parametrica e accendeva PHONG, mentre il toro di default era
     // ovviamente disegnato in Base. Radio e superficie non concordavano.
-    if (ui->glWidget) ui->glWidget->setGlobalRenderMode(m_savedRenderMode);
+    if (ui->glWidget) ui->glWidget->setGlobalRenderMode(m_scene.renderMode);
     applyMeshScope();
 
     // MOBILE: il campo Mesh e' un intero 1..N e non ha bisogno della tastiera.
@@ -1801,8 +1801,8 @@ void MainWindow::updateRenderState()
 
         if (isImplicitMode) {
             // Ripristino forzato se l'utente era in modalità non compatibili
-            if (m_savedRenderMode == 2) {
-                m_savedRenderMode = 1;
+            if (m_scene.renderMode == 2) {
+                m_scene.renderMode = 1;
                 refreshRenderRadios();
             }
         }
@@ -1812,9 +1812,9 @@ void MainWindow::updateRenderState()
     // wireframe): deve seguire cio' che l'utente sta guardando, cioe' la
     // modalita' EFFICACE della mesh selezionata. Su "All" coincide con lo stato
     // globale, quindi il comportamento storico non cambia.
-    // Restano invece su m_savedRenderMode le decisioni sullo stato GLOBALE
+    // Restano invece su m_scene.renderMode le decisioni sullo stato GLOBALE
     // (vedi 'isPhong' e il blocco che scrive nel motore piu' sotto).
-    int mode = m_savedRenderMode;
+    int mode = m_scene.renderMode;
     if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0
         && ui->glWidget->meshPartCount() > 1 && !isImplicitMode) {
         mode = ui->glWidget->activeMeshEffectiveRenderMode();
@@ -1824,7 +1824,7 @@ void MainWindow::updateRenderState()
     // selezionata, spento in wireframe) e leggerlo come comando accendeva la
     // texture globale su una multi-mesh (superficie bianca o nera, vedi la
     // storia in applySurfaceTextureToEngine). Il motore segue l'intenzione
-    // m_surfaceTextureState, piu' sotto.
+    // m_scene.surfaceTextureState, piu' sotto.
 
     // 3. LOGICA TEXTURE (Mantenendo il fix per il Background)
     // In Wireframe superficie (mode==2, non in editing sfondo) la texture della
@@ -1865,11 +1865,11 @@ void MainWindow::updateRenderState()
     // chiamata lo riporta a 1). A slider disabilitati nessun input utente da
     // preservare; uscendo dal wireframe restano ai default.
     // Il reset riguarda lo stato GLOBALE, quindi si fa solo quando e' il
-    // globale a essere in wireframe (m_savedRenderMode), NON quando e'
+    // globale a essere in wireframe (m_scene.renderMode), NON quando e'
     // semplicemente la mesh selezionata a esserlo: li' le altre mesh sono
     // ancora solide e azzerarne trasparenza e luce cancellerebbe l'aspetto
     // per-mesh appena impostato.
-    if (mode == 2 && m_savedRenderMode == 2) {
+    if (mode == 2 && m_scene.renderMode == 2) {
         // Questi due sono reset AUTOMATICI del motore, non scelte dell'utente su
         // una singola mesh: vanno sullo stato globale. Senza il bypass, con una
         // mesh selezionata nello spinbox finivano scritti su QUELLA parte (che
@@ -1904,7 +1904,7 @@ void MainWindow::updateRenderState()
     // Slider trasparenza su campo implicito mal condizionato (vedi syncImplicitAlphaSlider).
     syncImplicitAlphaSlider(isImplicitMode);
 
-    bool isPhong = (m_savedRenderMode == 1);
+    bool isPhong = (m_scene.renderMode == 1);
 
     // 4. APPLICAZIONE AL MOTORE GRAFICO
     if (ui->glWidget) {
@@ -1938,7 +1938,7 @@ void MainWindow::updateRenderState()
             // sono una fonte valida per il globale: lo lasciamo com'e'.
             const bool showingPart =
                 (ui->glWidget->activeMeshPart() >= 0 && ui->glWidget->meshPartCount() > 1);
-            if (!showingPart) ui->glWidget->setGlobalRenderMode(m_savedRenderMode);
+            if (!showingPart) ui->glWidget->setGlobalRenderMode(m_scene.renderMode);
         }
 
         ui->glWidget->update();
@@ -2252,7 +2252,7 @@ void MainWindow::resetTransparency()
 // l'handler durante un load.
 void MainWindow::applyImplicitShellMode(bool shell)
 {
-    m_implicitShell = shell;
+    m_scene.implicitShell = shell;
     // UNA SOLA coppia di radio, in panelRenderControls (widget comune ai due
     // sotto-tab). Lo stato Shell/Solid e' sempre stato UNO SOLO — il render mode
     // del motore e' globale e il preset lo salva in un solo campo (renderMode
@@ -2726,7 +2726,7 @@ void MainWindow::applyPendingMeshAppearance()
     ui->glWidget->update();
 }
 
-// BASE / PHONG / WIREFRAME: lo stato (m_savedRenderMode, o la MeshPart della
+// BASE / PHONG / WIREFRAME: lo stato (m_scene.renderMode, o la MeshPart della
 // fascia selezionata) e la sua vista. Prima i radio facevano anche da stato: li
 // leggevano colori, texture e motore, e tre punti li accendevano a segnali vivi
 // (il reset e il ritorno da Wireframe in Ray Marching), facendo girare il
@@ -2736,13 +2736,13 @@ int MainWindow::shownRenderMode() const
     if (ui->glWidget && !implicitMode()
         && ui->glWidget->activeMeshPart() >= 0 && ui->glWidget->meshPartCount() > 1)
         return ui->glWidget->activeMeshEffectiveRenderMode();
-    return m_savedRenderMode;
+    return m_scene.renderMode;
 }
 
 // DISPLAY: in un QButtonGroup esclusivo setChecked(true) ne deseleziona un
 // altro, che emette toggled(false): vanno bloccati i segnali di TUTTI i
 // bottoni del gruppo, non solo di quello che si accende. Anche in Ray
-// Marching, dove mostrano Base o Phong (m_savedRenderMode) e il Wireframe e'
+// Marching, dove mostrano Base o Phong (m_scene.renderMode) e il Wireframe e'
 // spento.
 void MainWindow::refreshRenderRadios()
 {
@@ -3027,7 +3027,7 @@ void MainWindow::onUserRenderModeChosen()
         (ui->glWidget->activeMeshPart() >= 0 && ui->glWidget->meshPartCount() > 1);
 
     if (editingSingleMesh) {
-        // Scrive la modalita' PROPRIA della parte. m_savedRenderMode (lo stato
+        // Scrive la modalita' PROPRIA della parte. m_scene.renderMode (lo stato
         // globale, quello che il preset salva e che le altre mesh ereditano)
         // resta invariato: e' la ragione per cui ricaricare il preset non
         // propaga piu' il wireframe a tutte le parti.
@@ -3065,13 +3065,13 @@ void MainWindow::onUserRenderModeChosen()
         //    globale (ubuf.useSpecular, da setSpecularEnabled): non esiste "una
         //    mesh in Phong e una in Base", il modello di illuminazione e' uno
         //    per tutta la figura.
-        // Prima m_savedRenderMode non veniva toccato qui, e siccome
+        // Prima m_scene.renderMode non veniva toccato qui, e siccome
         // updateRenderState calcola isPhong proprio da lui, cliccare Phong con
         // una mesh selezionata non accendeva nulla: il tasto sembrava morto.
         // Percio' la scelta fra Base e Phong si scrive anche nel globale. Il
         // Wireframe no: quello resta della sola parte, o si perderebbe l'aspetto
         // misto (e cambierebbe il valore salvato nel preset).
-        if (mode != 2 && mode != m_savedRenderMode) {
+        if (mode != 2 && mode != m_scene.renderMode) {
             // Stessa cautela del ramo "All" qui sotto: le parti che EREDITANO
             // seguono il globale, quindi spostarlo le trascina. Il caso vero:
             // globale in wireframe (mesh ereditanti disegnate a fil di ferro),
@@ -3080,7 +3080,7 @@ void MainWindow::onUserRenderModeChosen()
             // Congelando prima l'eredita', restano come sono e cambia solo
             // l'illuminazione.
             ui->glWidget->pinInheritedRenderModes();
-            m_savedRenderMode = mode;
+            m_scene.renderMode = mode;
         }
     } else {
         // AMBITO "ALL": la scelta e' globale, come da sempre. Ma le parti che
@@ -3101,8 +3101,8 @@ void MainWindow::onUserRenderModeChosen()
         // chiama i gestori dei radio anche per ragioni di sola UI, e congelare
         // a vuoto renderebbe "propria" una modalita' che l'utente non ha mai
         // scelto per quelle mesh (smetterebbero di seguire il globale).
-        if (mode != m_savedRenderMode)
+        if (mode != m_scene.renderMode)
             ui->glWidget->pinInheritedRenderModes();
-        m_savedRenderMode = mode;
+        m_scene.renderMode = mode;
     }
 }

@@ -13,5 +13,5 @@
 - Verifica rapida degli offset: estrarre il solo blocco in uno shader minimo (i due file veri hanno segnaposto `%X_EQ%` che `qsb` non compila) e `qsb --dump`. Riferimento noto: `u_min=372`, `z_max=416`, `u_meshIndex=420`, `u_noImage=424`.
 
 ## Nomi trappola
-- `m_pathViewMode4D` = vista del path 4D (pushView); `m_pathViewMode3D` = vista del path 3D (pushView3D). Non abbreviarli né confonderli: il bug storico nasceva dai vecchi nomi quasi identici (`m_pathMode`/`m_pathMode3D`).
+- `m_scene.pathViewMode4D` = vista del path 4D (pushView); `m_scene.pathViewMode3D` = vista del path 3D (pushView3D). Non abbreviarli né confonderli: il bug storico nasceva dai vecchi nomi quasi identici (`m_pathMode`/`m_pathMode3D`).
 - Le chiavi JSON di persistenza restano `"pathMode"` / `"pathMode3D"` (compatibilità coi record esistenti).

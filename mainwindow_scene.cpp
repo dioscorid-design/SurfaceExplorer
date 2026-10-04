@@ -608,9 +608,9 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // uno script scritto a mano si ritrovava in Library il focus sulla texture
     // del record di prima (il nome vince sul codice). Chi carica dopo il reset
     // -- record, texture dalla libreria -- le riscrive da se'.
-    m_currentTextureLibName.clear();
-    m_currentBgTextureLibName.clear();
-    m_currentSoundLibName.clear();
+    m_scene.textureLibName.clear();
+    m_scene.bgTextureLibName.clear();
+    m_scene.soundLibName.clear();
 
     // FLUSSO GEODETICO fermato PRIMA di svuotare i campi. E' un moto come le
     // rotazioni e i path (fermati poco piu' sotto) ma non veniva mai spento dal
@@ -738,7 +738,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // ==========================================================
     // GESTIONE STATI TEXTURE
     // ==========================================================
-    m_surfaceTextureState = false;
+    m_scene.surfaceTextureState = false;
     m_blockTextureGen = false;
     // Anche l'IMMAGINE, dalla GPU: prima si azzeravano solo i flag che la
     // descrivevano, e dopo un NEW l'immagine restava nel sampler (trovato dal
@@ -958,8 +958,8 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         // appartengono allo script appena scartato. Restando in vigore, gli
         // slider della scena nuova continuerebbero a scattare sugli interi (o a
         // non scendere sotto una soglia) di una superficie che non c'e' piu'.
-        m_discreteConsts.clear();
-        m_minConsts.clear();
+        m_scene.discreteConsts.clear();
+        m_scene.minConsts.clear();
     }
 
     if (index == 1) { // --- PASSAGGIO A IMPLICIT (RAY MARCHING) ---
@@ -982,20 +982,20 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         // l'handler onRenderRadioToggled -- che e' quello che riscrive il motore
         // -- non girerebbe. E' il caso "ero gia' in Basic ma con lo speculare
         // acceso da un preset".
-        m_savedRenderMode = 0;
+        m_scene.renderMode = 0;
         refreshRenderRadios();
         if (ui->glWidget) {
             ui->glWidget->setSpecularEnabled(false);   // spegne il Phong residuo
             ui->glWidget->set4DLighting(false);        // non usata in ray marching
             ui->glWidget->setLightingMode4D(0);
         }
-        m_lightingMode4D = 0;
+        m_scene.lightingMode4D = 0;
         if (ui->btnLightMode) ui->btnLightMode->setText("Directional Lighting");
 
-        m_lastParametricSteps = m_steps;
+        m_lastParametricSteps = m_scene.steps;
 
         // 1. SALVA IN MEMORIA IL VALORE PARAMETRICO DELLA S
-        m_lastParametricS = m_const.s.toDouble();
+        m_lastParametricS = m_scene.constants.s.toDouble();
 
         // 2. Ferma il timer dell'animazione shader (rotazioni, tempo e path
         // camera sono già stati fermati nei blocchi comuni più sopra).
@@ -1012,7 +1012,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         forgetBackgroundTexture();
 
         // Slot di testo della texture di SUPERFICIE, simmetrico a quello dello
-        // sfondo qui sopra. Il reset l'ha appena azzerata (m_surfaceTextureCode
+        // sfondo qui sopra. Il reset l'ha appena azzerata (m_scene.surfaceTextureCode
         // e setTextureCode("")), quindi il suo script non deve sopravviverle:
         // restando pieno, ogni successivo allineamento dell'editor
         // (refreshScriptEditor, che legge proprio questo slot) lo ripescava e
@@ -1028,7 +1028,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         // che a schermo ci sia sempre qualcosa di valido, che e' esattamente
         // cio' che New non vuole.
         if (loadDefaultSurface) {
-            QString eq = m_rm.equation.trimmed();
+            QString eq = m_scene.rm.equation.trimmed();
             if (eq.isEmpty() || !eq.contains("=")) {
                 setRmText(&ImplicitTexts::equation, QStringLiteral("x^2 + y^2 + z^2 = 1.0"));
             }
@@ -1171,8 +1171,8 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         }
     }
     else { // --- PASSAGGIO A PARAMETRIC (TAB 0) ---
-        m_lastImplicitSteps = m_steps;
-        m_lastImplicitS = m_const.s.toDouble();
+        m_lastImplicitSteps = m_scene.steps;
+        m_lastImplicitS = m_scene.constants.s.toDouble();
 
         // 1. RESET FISICO (lo stop delle rotazioni e del tempo e' gia' stato
         // fatto nel blocco comune ai due rami, qui sopra; i path camera nel
@@ -1187,13 +1187,13 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
 
         // 2. RESET ILLUMINAZIONE E RENDER MODE (Fix Bug persistenza)
         // Riportiamo tutto al modello "Basic" (Lambert) senza specolarità
-        m_savedRenderMode = 0;
+        m_scene.renderMode = 0;
         refreshRenderRadios();
         ui->glWidget->setSpecularEnabled(false); // Spegne Phong residuo
 
         // Spegniamo categoricamente l'illuminazione 4D (non usata nel reset RM)
         ui->glWidget->set4DLighting(false);
-        m_lightingMode4D = 0;
+        m_scene.lightingMode4D = 0;
         if (ui->btnLightMode) ui->btnLightMode->setText("Directional Lighting");
         ui->glWidget->setLightingMode4D(0);
 
@@ -1221,8 +1221,8 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
             setEqText(&EquationTexts::y, QStringLiteral("(0.8 + 0.3*cos(v))*sin(u)"));
             setEqText(&EquationTexts::z, QStringLiteral("0.3*sin(v)"));
             setEqText(&EquationTexts::p, QStringLiteral("0.0"));
-            ui->glWidget->setParametricEquations(m_eq.x, m_eq.y,
-                                                 m_eq.z, m_eq.p);
+            ui->glWidget->setParametricEquations(m_scene.eq.x, m_scene.eq.y,
+                                                 m_scene.eq.z, m_scene.eq.p);
         } else {
             // SCENA VUOTA. Non basta passare equazioni vuote a
             // setParametricEquations: createVertexShaderSource le traduce in
@@ -1473,15 +1473,15 @@ void MainWindow::warnSharedConstantsOnRecordLoad(const QString &recordPath)
         const bool isRM = (implicitMode());
         QList<QPair<QString, QSet<QString>>> parts;
         parts << qMakePair(QStringLiteral("the surface"), constantsUsedIn(surfaceConstantSource()));
-        if (m_surfaceTextureState) {
+        if (m_scene.surfaceTextureState) {
             const QString tex = isRM
-                ? (ui->lineTexture ? m_rm.texture : QString()) + "\n"
-                  + (ui->lineVariations ? m_rm.displacement : QString())
-                : m_surfaceTextureCode;
+                ? (ui->lineTexture ? m_scene.rm.texture : QString()) + "\n"
+                  + (ui->lineVariations ? m_scene.rm.displacement : QString())
+                : m_scene.surfaceTextureCode;
             parts << qMakePair(QStringLiteral("the texture"), constantsUsedIn(tex));
         }
         if (ui->glWidget && ui->glWidget->isBackgroundTextureEnabled())
-            parts << qMakePair(QStringLiteral("the background"), constantsUsedIn(m_bgTextureCode));
+            parts << qMakePair(QStringLiteral("the background"), constantsUsedIn(m_scene.bgTextureCode));
 
         QStringList lines, signature, free;
         for (const QChar c : QStringLiteral("ABCDEF")) {
@@ -1526,7 +1526,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // record precedente vincerebbe sul codice della texture di questa superficie.
     // Non basta il reset di scena: una superficie passa di li' solo se cambia la
     // linguetta.
-    m_currentTextureLibName.clear();
+    m_scene.textureLibName.clear();
     // Ancora e messaggio dello SFONDO: li toglie forgetBackgroundTexture, piu'
     // sotto, insieme a tutto lo sfondo che questo caricamento spegne.
 
@@ -1583,7 +1583,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // AZZERAMENTO TOTALE STATO TEXTURE, TESTI E COLORI
     // ==========================================================
     m_blockTextureGen = false;
-    m_surfaceTextureState = false;
+    m_scene.surfaceTextureState = false;
 
     // Svuota tutti i testi dei vecchi script in memoria (l'immagine se ne va
     // dalla GPU piu' sotto, con clearTexture) e il CODICE custom dal motore,
@@ -1602,7 +1602,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     forgetBackgroundTexture();
 
     setScriptText(SlotSound, QString());
-    m_currentSoundLibName.clear();   // l'ancora segue il suono che se ne va
+    m_scene.soundLibName.clear();   // l'ancora segue il suono che se ne va
 
     clearSurfaceScript();
     exitMetricScriptMode();
@@ -1652,7 +1652,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     updateRenderState();
 
     // ALPHA E LUCE DEL PRESET DOPO la chiamata qui sopra, non prima. A questo
-    // punto m_savedRenderMode e' ancora quello del preset PRECEDENTE (lo scrive
+    // punto m_scene.renderMode e' ancora quello del preset PRECEDENTE (lo scrive
     // applyCommonData, piu' sotto): se quello era in wireframe, il reset
     // "wireframe -> opaco, luce 100" di updateRenderState cancellava i valori
     // appena impostati di un preset che in wireframe non e'. Klein Quadric
@@ -1851,7 +1851,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     if (!isScript) {
         onStartClicked();
     } else {
-        applyAnimationState(hasTimeVariable(m_surfaceScriptApplied));
+        applyAnimationState(hasTimeVariable(m_scene.surfaceScriptApplied));
     }
 
     // 7. Recuperiamo i dati di illuminazione dal file
@@ -1860,7 +1860,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     bool want4D = d.hasLightingState ? d.use4DLighting : isSurface4D;
 
     // 8. Applichiamo le impostazioni ALLA VARIABILE MEMBRO
-    m_lightingMode4D = modeToApply;
+    m_scene.lightingMode4D = modeToApply;
 
     // 9. Applichiamo le impostazioni AL WIDGET GL
     if (ui->glWidget) {
@@ -1915,7 +1915,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     ui->glWidget->update();
 
     // 12. Estrai eventuale audio dallo script per la scheda Sound
-    QString fullLoadedText = m_surfaceScriptApplied + "\n" + m_surfaceTextureCode + "\n" + m_bgTextureCode;
+    QString fullLoadedText = m_scene.surfaceScriptApplied + "\n" + m_scene.surfaceTextureCode + "\n" + m_scene.bgTextureCode;
     setScriptText(SlotSound, extractAudioDirectives(fullLoadedText));
 
     // 12b. AVVIO AUTOMATICO DELL'AUDIO AL CARICAMENTO!
@@ -1931,8 +1931,8 @@ void MainWindow::applySurfaceExample(LibraryItem d)
             updateULimits();
             updateVLimits();
             updateWLimits();
-            ui->glWidget->setResolution(m_steps);
-            ui->glWidget->setRaySteps(m_steps);
+            ui->glWidget->setResolution(m_scene.steps);
+            ui->glWidget->setRaySteps(m_scene.steps);
 
             if (!isScript) {
                 checkAndTriggerMeshUpdate();
@@ -2056,7 +2056,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // Moto camera del record: riletto piu' sotto dal JSON ("activeMotion");
     // azzerato qui perche' un residuo di sessione non guidi l'avvio automatico
     // di un record storico privo della chiave.
-    m_lastCameraMotion.clear();
+    m_scene.lastCameraMotion.clear();
 
     InputValidator::resetGeodesicWarning();
 
@@ -2347,9 +2347,9 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // ereditare il nome della texture del record aperto prima.
     // NOME della texture di libreria: e' cio' che permette all'albero di
     // ritrovarla anche se il suo codice e' stato modificato dopo il
-    // salvataggio del record (vedi m_currentTextureLibName). I record piu'
+    // salvataggio del record (vedi m_scene.textureLibName). I record piu'
     // vecchi non hanno il campo: resta vuoto e il focus si decide per codice.
-    m_currentTextureLibName = data.textureLibName;
+    m_scene.textureLibName = data.textureLibName;
 
     // 1. CARICAMENTO TEXTURE 2D (Energia/Colore)
     if (isImplicit) {
@@ -2392,12 +2392,12 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     // Ancora del SUONO (vedi mainwindow.h): anche lei SEMPRE riscritta, e
     // vuota nei record salvati prima che esistesse (focus per solo codice).
-    m_currentSoundLibName = data.soundLibName;
+    m_scene.soundLibName = data.soundLibName;
 
     // Ancora dello sfondo: SEMPRE riscritta, anche a vuoto. Un record senza
     // sfondo, o salvato prima che la chiave esistesse, non deve ereditare il
     // nome dello sfondo del record aperto prima.
-    m_currentBgTextureLibName = data.bgLibName;
+    m_scene.bgTextureLibName = data.bgLibName;
     // Messaggio dello sfondo: scritto qui, PRIMA del showSceneHint in coda
     // alla funzione, che lo compone con gli altri due.
     m_currentBgTextureHintText    = data.bgHintText;
@@ -2439,8 +2439,8 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // Moto camera attivo al salvataggio: guida l'avvio automatico piu' sotto
     // (applyStartSideEffects). Nei record storici manca -> stringa vuota =
     // cascata legacy; "none" (salvato a moti fermi) idem.
-    m_lastCameraMotion = data.activeMotion;
-    if (m_lastCameraMotion == "none") m_lastCameraMotion.clear();
+    m_scene.lastCameraMotion = data.activeMotion;
+    if (m_scene.lastCameraMotion == "none") m_scene.lastCameraMotion.clear();
 
     // Vista dei due path. I record col solo "pathMode" (formato storico) la
     // applicano a entrambi, quelli senza nessuna delle due tornano a Tangent:
@@ -2458,7 +2458,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     // SEPARAZIONE IMMEDIATA AUDIO-GRAFICA
     // Recuperiamo il codice 2D corretto in base alla modalità corrente
-    QString sourceForAudio = isImplicit ? m_rm.texture : texCode;
+    QString sourceForAudio = isImplicit ? m_scene.rm.texture : texCode;
     QString fullLoadedText = sourceForAudio + "\n" + bgCode;
 
     setScriptText(SlotSound, extractAudioDirectives(fullLoadedText));
@@ -2469,7 +2469,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // accettava e questa pulizia no -- le funzioni del suono restavano nella
     // texture, che non compilava, e la banda dell'ergosfera non si vedeva.
     if (isImplicit) {
-        const QString cleanRM = stripAudioDirectives(m_rm.texture).trimmed();
+        const QString cleanRM = stripAudioDirectives(m_scene.rm.texture).trimmed();
         setRmText(&ImplicitTexts::texture, cleanRM);
         if (ui->glWidget) ui->glWidget->setTextureCode(cleanRM);
     } else {
@@ -2518,7 +2518,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // un //IMG: che punta a un file inesistente, e ogni Run successivo tornava
     // a cercarlo.
     if (missingScan.surfaceMissing && isImplicit) {
-        QString rmTex = m_rm.texture;
+        QString rmTex = m_scene.rm.texture;
         rmTex.remove(imgTagRe);
         rmTex = rmTex.trimmed();
         // Stessa euristica dei due rami sotto: se resta solo il tag, non c'e'
@@ -2543,7 +2543,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
         if (!missingScan.surfaceKeptScript) texCode.clear();
     }
 
-    m_surfaceTextureState = texEnabled;
+    m_scene.surfaceTextureState = texEnabled;
     applySurfaceTextureToEngine();
     setScriptText(SlotSurfaceTexture, texCode);
     // In RM e' QUESTA riga a rimettere in vigore la texture: createImplicitFragmentShader
@@ -2552,7 +2552,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     SE_TEXP("common:texture-riabilitata");
 
     setScriptText(SlotBackgroundTexture, bgCode);
-    m_bgTextureCode = bgCode;
+    m_scene.bgTextureCode = bgCode;
 
     // (Gli slot hanno ora codice pulito; l'editor, loro vista, li segue.)
     refreshScriptEditor();
@@ -2563,7 +2563,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // applyCommonData chiude con checkParametricDependency ->
     // updateConstantsUIState, che decide quali costanti sono "usate" leggendo
     // anche i codici delle texture: lineTexture/lineVariations in Ray Marching,
-    // m_surfaceTextureCode in parametrico, m_bgTextureCode in ENTRAMBI (~7464).
+    // m_scene.surfaceTextureCode in parametrico, m_scene.bgTextureCode in ENTRAMBI (~7464).
     // Ma texture e sfondo del record arrivano DOPO, nel blocco JSON qui sopra:
     // quel giudizio avveniva sui codici della SCENA PRECEDENTE. Due guasti
     // opposti, entrambi misurati:
@@ -2669,7 +2669,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     // --- APPLICAZIONE TEXTURE BACKGROUND ---
     ui->glWidget->setBackgroundTextureEnabled(bgTexEnabled);
-    m_bgTextureCode = bgCode;
+    m_scene.bgTextureCode = bgCode;
     // Sfondo spento: via anche ancora, messaggio e immagine in GPU (quella del
     // record precedente, altrimenti, ricomparirebbe alla riaccensione).
     if (!bgTexEnabled) forgetBackgroundTexture();
@@ -2801,7 +2801,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
         want4D = (!wText.isEmpty() && wText != "0" && wText != "0.0");
     }
 
-    m_lightingMode4D = savedMode;
+    m_scene.lightingMode4D = savedMode;
     ui->glWidget->set4DLighting(want4D);
     ui->glWidget->setLightingMode4D(savedMode);
 
@@ -2867,10 +2867,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
     bool hasPath3D = isReal(data.path3D_x) || isReal(data.path3D_y) || isReal(data.path3D_z) || isReal(data.path3D_roll);
 
     // Moto camera del record: riparte SOLO quello attivo al salvataggio
-    // (m_lastCameraMotion, letto dal JSON "activeMotion" piu' sopra). La
+    // (m_scene.lastCameraMotion, letto dal JSON "activeMotion" piu' sopra). La
     // vecchia sequenza fissa (rotazioni, poi 4D con precedenza sul 3D) faceva
     // sempre vincere il path 4D. Record storici senza chiave: sequenza di prima.
-    QString pick = m_lastCameraMotion;
+    QString pick = m_scene.lastCameraMotion;
     if (pick == "rotation" && !hasRotation) pick.clear();
     if (pick == "path4D" && !hasPath4D) pick.clear();
     if (pick == "path3D" && !hasPath3D) pick.clear();
@@ -2886,7 +2886,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
         if (hasRotation) {
             if (ui->btnStart_2) ui->btnStart_2->setText("STOP");
             ui->glWidget->resumeMotion();
-            m_lastCameraMotion = "rotation";
+            m_scene.lastCameraMotion = "rotation";
         }
         if (hasPath4D) onDepartureClicked();
         else if (hasPath3D) onDeparture3DClicked();
@@ -2954,7 +2954,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
         // premuto rieseguiva lo stesso script senza cambiare nulla.
         // I clock di texture e sfondo NON si perdono: applyAnimationState li
         // ricalcola da se' dai rispettivi codici, ognuno col proprio tempo.
-        applyAnimationState(hasTimeVariable(m_surfaceScriptApplied));
+        applyAnimationState(hasTimeVariable(m_scene.surfaceScriptApplied));
     } else {
         if (ui->glWidget) {
 
@@ -3003,7 +3003,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
         // Come il ramo metrico qui sopra: l'argomento e' il tempo della sola
         // GEOMETRIA, non la somma dei tre moduli.
-        applyAnimationState(hasTimeVariable(m_surfaceScriptApplied));
+        applyAnimationState(hasTimeVariable(m_scene.surfaceScriptApplied));
     }
 
     // =======================================================
@@ -3013,7 +3013,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
         if (texEnabled && hasTimeVariable(allSurfaceTextureCode())) {
             ui->glWidget->setSurfaceTextureAnimating(true);
         }
-        if (bgTexEnabled && hasTimeVariable(m_bgTextureCode)) {
+        if (bgTexEnabled && hasTimeVariable(m_scene.bgTextureCode)) {
             ui->glWidget->setBackgroundTextureAnimating(true);
         }
     }
@@ -3027,13 +3027,13 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // di prima, e un record RM deve nascere col Run spento (niente da
     // applicare), o acceso se la sua texture e' animata.
     //
-    // In RM la texture NON vive in m_surfaceTextureCode (svuotato a ~11060) ma
+    // In RM la texture NON vive in m_scene.surfaceTextureCode (svuotato a ~11060) ma
     // nei campi dedicati: l'animazione va cercata li', come fa il ramo Library.
     // Con una texture animata il flag resta false -- il tasto e' un Run/Stop
     // legittimo, non un one-shot gia' consumato.
     if (isImplicit) {
-        const bool rmTexAnim = hasTimeVariable(m_rm.texture)
-                               || hasTimeVariable(m_rm.displacement);
+        const bool rmTexAnim = hasTimeVariable(m_scene.rm.texture)
+                               || hasTimeVariable(m_scene.rm.displacement);
         m_rmTextureApplied = !rmTexAnim;
     }
 
@@ -3041,7 +3041,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // =======================================================
 
     // 8. AVVIO AUDIO
-    if (!m_soundScriptText.isEmpty()) {
+    if (!m_scene.soundScriptText.isEmpty()) {
         QString audioErr;
         bool audioOk = m_audioController->playFromScript(soundCode(), &audioErr);
         if (!audioOk) {
@@ -3079,7 +3079,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     }
 
     if (m_currentScriptMode == ScriptModeSound) {
-        if (!m_soundScriptText.isEmpty()) {
+        if (!m_scene.soundScriptText.isEmpty()) {
             ui->btnRunCurrentScript->setText("Stop Sound");
         } else {
             ui->btnRunCurrentScript->setText("Run Sound");
@@ -3090,7 +3090,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // A. Sincronizzazione Suoni (Cerca l'audio in TUTTI gli script attivi!)
     ui->treeSounds->clearSelection();
 
-    QString fullAudioSearchCode = m_soundScriptText + "\n" + m_surfaceTextureCode + "\n" + m_bgTextureCode;
+    QString fullAudioSearchCode = m_scene.soundScriptText + "\n" + m_scene.surfaceTextureCode + "\n" + m_scene.bgTextureCode;
 
     if (!fullAudioSearchCode.trimmed().isEmpty()) {
 
@@ -3105,13 +3105,13 @@ void MainWindow::applyMotionExample(LibraryItem data)
         QString normLoadedSound = cleanAudioForComparison(fullAudioSearchCode);
 
         // DUE CRITERI, come per le texture (selectTextureTreeItemFor): il NOME
-        // salvato nel record (m_currentSoundLibName) vince sul confronto del
+        // salvato nel record (m_scene.soundLibName) vince sul confronto del
         // codice, che resta il fallback per i record senza ancora e per una voce
         // rinominata o cancellata. Il nome vale solo se in scena c'e' davvero un
         // audio: il testo cercato qui contiene anche i codici delle texture, che
         // non sono un suono.
-        const QString sndLibName = m_soundScriptText.trimmed().isEmpty()
-                                 ? QString() : m_currentSoundLibName;
+        const QString sndLibName = m_scene.soundScriptText.trimmed().isEmpty()
+                                 ? QString() : m_scene.soundLibName;
         QTreeWidgetItem *sndByCode = nullptr;
         QTreeWidgetItem *sndByName = nullptr;
 
@@ -3171,8 +3171,8 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // non si disegna su nessuna fascia. Caso: Hopf Half Tori, mesh 1 con
     // "Quasicrystal GIF in HD", albero su "Squished Image" (la globale del record);
     // tornava giusto solo cambiando mesh e rientrando.
-    // Lo stato che syncTextureTreeSelection legge (m_surfaceTextureState,
-    // chkBoxTexture, m_bgTextureCode, lineTexture) e' gia' scritto piu' sopra.
+    // Lo stato che syncTextureTreeSelection legge (m_scene.surfaceTextureState,
+    // chkBoxTexture, m_scene.bgTextureCode, lineTexture) e' gia' scritto piu' sopra.
     syncTextureTreeSelection();
 
     updateScriptButtonText();
@@ -3183,8 +3183,8 @@ void MainWindow::applyMotionExample(LibraryItem data)
             updateULimits();
             updateVLimits();
             updateWLimits();
-            ui->glWidget->setResolution(m_steps);
-            ui->glWidget->setRaySteps(m_steps);
+            ui->glWidget->setResolution(m_scene.steps);
+            ui->glWidget->setRaySteps(m_scene.steps);
 
             if (!isScript) {
                 checkAndTriggerMeshUpdate();
@@ -3300,8 +3300,8 @@ void MainWindow::resetImplicitSharedFields()
     // (vedi il costruttore e il ramo implicito di resetScene, stessa scrittura).
     // A segnali bloccati: textEdited qui significherebbe "l'utente ha modificato
     // la scena" e accenderebbe il Run one-shot / l'avviso lavoro non salvato.
-    for (QString *t : { &m_lim.xMin, &m_lim.xMax, &m_lim.yMin,
-                        &m_lim.yMax, &m_lim.zMin, &m_lim.zMax })
+    for (QString *t : { &m_scene.lim.xMin, &m_scene.lim.xMax, &m_scene.lim.yMin,
+                        &m_scene.lim.yMax, &m_scene.lim.zMin, &m_scene.lim.zMax })
         setLineText(*t, QString());
     applySpaceLimits(/*notify=*/false);   // campi vuoti: nessun taglio
 
@@ -3586,20 +3586,20 @@ void MainWindow::applyPresetConstants(const LibraryItem &d, bool rebuildDiscrete
     // per i preset CON script, a quel punto la mappa e' gia' stata ricostruita
     // dalle direttive := dello script, e rifarla dal JSON le cancellerebbe.
     if (rebuildDiscreteMap) {
-        m_discreteConsts.clear();
+        m_scene.discreteConsts.clear();
         // Anche i MINIMI ("A := min(0.3);"): non hanno una chiave nel preset,
         // vengono solo dalle direttive dello script, e come le discrete
         // appartengono alla scena che le dichiara. Qui non si azzeravano: dopo
         // Octahedron Bands (A := min(0.3)) una superficie a equazioni non
         // lasciava piu' scendere A sotto 0.3 (trovato dal test degli scenari).
         // Per i preset con script li ricostruisce parseAndApplyScriptParams.
-        m_minConsts.clear();
+        m_scene.minConsts.clear();
         for (auto it = d.discreteConstants.constBegin();
              it != d.discreteConstants.constEnd(); ++it) {
-            m_discreteConsts.insert(it.key(), { it->first, it->second });
+            m_scene.discreteConsts.insert(it.key(), { it->first, it->second });
         }
     }
-    if (!m_discreteConsts.isEmpty()) applyDiscreteConstants();
+    if (!m_scene.discreteConsts.isEmpty()) applyDiscreteConstants();
 
     // Slider e GPU dai CAMPI appena scritti, quindi anche dalle costanti
     // EVENTUALMENTE snappate sopra: la superficie non nasce con A=3.47 mentre
@@ -3811,7 +3811,7 @@ void MainWindow::applyCommonData(LibraryItem d)
     // 2. APPLICAZIONE DATI DEL PRESET
     // ==========================================================
 
-    m_savedRenderMode = d.renderMode;
+    m_scene.renderMode = d.renderMode;
 
     bool isShell = false;
     if (d.isImplicitMode) {
@@ -3819,9 +3819,9 @@ void MainWindow::applyCommonData(LibraryItem d)
         // decine = flag Shell (+10), unita' = modo base (0=Basic, 1=Phong). Es. 11
         // = Shell + Phong. Da NON confondere col vecchio renderMode 11 "parametrico"
         // (rimosso): qui il 10 e' vivo e usato da preset reali (Gyroid, Lawson, ...).
-        if (m_savedRenderMode >= 10) {
+        if (m_scene.renderMode >= 10) {
             isShell = true;
-            m_savedRenderMode -= 10;
+            m_scene.renderMode -= 10;
         } else {
             isShell = false;
         }
@@ -3855,7 +3855,7 @@ void MainWindow::applyCommonData(LibraryItem d)
     // sfondo di prima) su una scena senza texture.
     showSurfaceTarget();
 
-    if (m_savedRenderMode != 1 && m_savedRenderMode != 2) m_savedRenderMode = 0;
+    if (m_scene.renderMode != 1 && m_scene.renderMode != 2) m_scene.renderMode = 0;
     refreshRenderRadios();
 
     // La modalita' GLOBALE del preset va scritta esplicitamente nel motore.
@@ -3867,7 +3867,7 @@ void MainWindow::applyCommonData(LibraryItem d)
     if (ui->glWidget) {
         const bool oldBypass = ui->glWidget->meshAppearanceBypass();
         ui->glWidget->setMeshAppearanceBypass(true);
-        ui->glWidget->setGlobalRenderMode(m_savedRenderMode);
+        ui->glWidget->setGlobalRenderMode(m_scene.renderMode);
         ui->glWidget->setMeshAppearanceBypass(oldBypass);
     }
 
@@ -4134,7 +4134,7 @@ void MainWindow::applyCommonData(LibraryItem d)
 
     if (isScript && !d.scriptCode.isEmpty()) {
         setScriptText(SlotSurface, d.scriptCode);
-        m_surfaceScriptApplied = d.scriptCode;
+        m_scene.surfaceScriptApplied = d.scriptCode;
 
         // NB: l'uscita dalla modalità metrica (exitMetricScriptMode) avviene più
         // sotto, DOPO che campi ed editor contengono il preset NUOVO: la sua
@@ -4226,7 +4226,7 @@ void MainWindow::applyCommonData(LibraryItem d)
 
             ui->glWidget->getEngine()->setScriptCodeGLSL(glslBody);
             ui->glWidget->getEngine()->setScriptMode(true);
-            ui->glWidget->setRaySteps(m_steps);
+            ui->glWidget->setRaySteps(m_scene.steps);
 
             // Il campo di uno script implicito e' GLSL grezzo, non valutabile su CPU:
             // la rilevazione "campo a prodotto" (Chain) non si applica. Azzeriamo quel

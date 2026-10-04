@@ -98,7 +98,7 @@ void MainWindow::onRunCurrentScript()
         // l'equivalente parametrico) a segnalarlo, senza spostare l'utente.
 
         // BIFORCAZIONE TRA RAY MARCHING (IMPLICIT) E PARAMETRIC
-        m_surfaceScriptApplied = currentText;
+        m_scene.surfaceScriptApplied = currentText;
 
         if (implicitMode()) {
             // --- RAMO 1: SCRIPT IMPLICITO (RAY MARCHING) MULTI-RIGA ---
@@ -121,7 +121,7 @@ void MainWindow::onRunCurrentScript()
             }
             glslBody = GlslTranslator::translateEquation(glslBody);
 
-            ui->glWidget->setRaySteps(m_steps);
+            ui->glWidget->setRaySteps(m_scene.steps);
 
             // 2. SECONDA LINEA DI DIFESA: dry-run del fragment implicito.
             if (!ui->glWidget->validateAndApplyImplicitScript(glslBody)) {
@@ -226,8 +226,8 @@ void MainWindow::onRunCurrentScript()
     } else if (m_currentScriptMode == ScriptModeSound) {
         // Il suono resta nel suo slot, cosi' com'e' scritto: la forma da suonare
         // (GLSL nudo avvolto nei marcatori) la da' soundCode(). Qui prima lo si
-        // componeva con lo slot della texture dentro m_surfaceTextureCode /
-        // m_bgTextureCode: uno script texture in sospeso risultava applicato.
+        // componeva con lo slot della texture dentro m_scene.surfaceTextureCode /
+        // m_scene.bgTextureCode: uno script texture in sospeso risultava applicato.
         onRunSoundClicked();
     }
 
@@ -368,7 +368,7 @@ QString MainWindow::extractMeshSections(const QString &fullText, std::vector<Mes
 
 void MainWindow::onRunScriptClicked()
 {
-    QString fullText = m_surfaceScriptText;
+    QString fullText = m_scene.surfaceScriptText;
     if (fullText.trimmed().isEmpty()) return;
 
     // 1. PRIMA LINEA DI DIFESA: Evita che testo spazzatura faccia crashare il parser
@@ -387,7 +387,7 @@ void MainWindow::onRunScriptClicked()
         return;
     }
 
-    m_surfaceScriptApplied = fullText;
+    m_scene.surfaceScriptApplied = fullText;
     parseAndApplyScriptParams(fullText, false);
 
     // Sezione opzionale //CUTOUT_BEGIN..//CUTOUT_END: corpo di
@@ -414,7 +414,7 @@ void MainWindow::onRunScriptClicked()
     }
     glslBody = GlslTranslator::translateEquation(glslBody);
 
-    ui->glWidget->setResolution(m_steps);
+    ui->glWidget->setResolution(m_scene.steps);
     // Dai CAMPI, non dagli slider: lo slider ha passo 0.01 e mostra il campo.
     setEngineConstants(resolveCascadeConstants(false), /*onlyIfChanged=*/false);
 
@@ -497,7 +497,7 @@ void MainWindow::runMetricScript(const QString& fullText)
     QString cleanCode = stripCodeComments(fullText);
     if (!InputValidator::validateParentheses(this, cleanCode)) return;
 
-    m_surfaceScriptApplied = fullText;
+    m_scene.surfaceScriptApplied = fullText;
     setScriptText(SlotSurface, fullText);
 
     // MULTI-MESH: uno script metrico produce una mesh CUSTOM (flusso geodetico),
@@ -547,7 +547,7 @@ void MainWindow::runMetricScript(const QString& fullText)
             else if (name == "dW") field = &EquationTexts::geoDW;
 
             if (!equationFieldEdit(field)) continue;
-            if (!(m_eq.*field).trimmed().isEmpty())
+            if (!(m_scene.eq.*field).trimmed().isEmpty())
                 continue;
 
             setEqText(field, value);
@@ -589,9 +589,9 @@ void MainWindow::runMetricScript(const QString& fullText)
     // minuscole, es. il toro di default) li prendiamo in consegna con la carta
     // identità. Serve anche al routing: sia onStartClicked che
     // checkAndTriggerMeshUpdate attivano il geodetico sulle maiuscole.
-    const QString displayEqs = m_eq.x + " " +
-            m_eq.y + " " + m_eq.z + " " +
-            m_eq.p;
+    const QString displayEqs = m_scene.eq.x + " " +
+            m_scene.eq.y + " " + m_scene.eq.z + " " +
+            m_scene.eq.p;
     if (!displayEqs.contains(kReUpperU) && !displayEqs.contains(kReUpperV) &&
             !displayEqs.contains(kReUpperW)) {
         setEqText(&EquationTexts::x, QStringLiteral("U"));
@@ -610,7 +610,7 @@ void MainWindow::runMetricScript(const QString& fullText)
     }
 
     // Fattore conforme di default, come in onStartClicked
-    if (m_eq.conform.trimmed().isEmpty()) {
+    if (m_scene.eq.conform.trimmed().isEmpty()) {
         setEqText(&EquationTexts::conform, QStringLiteral("1.0"));
     }
 
@@ -641,14 +641,14 @@ void MainWindow::runMetricScript(const QString& fullText)
 QString MainWindow::surfaceConstantSource() const
 {
     if (implicitMode())
-        return activeImplicitEquationText() + " " + m_surfaceScriptText + " " + m_surfaceScriptApplied;
-    return m_eq.x + " " + m_eq.y + " " +
-           m_eq.z + " " + m_eq.p + " " +
-           m_eq.u + " " + m_eq.v + " " +
-           m_eq.w + " " +
-           m_eq.explicitU + " " +
-           m_eq.explicitV + " " +
-           m_eq.explicitW + " " + m_surfaceScriptText + " " + m_surfaceScriptApplied;
+        return activeImplicitEquationText() + " " + m_scene.surfaceScriptText + " " + m_scene.surfaceScriptApplied;
+    return m_scene.eq.x + " " + m_scene.eq.y + " " +
+           m_scene.eq.z + " " + m_scene.eq.p + " " +
+           m_scene.eq.u + " " + m_scene.eq.v + " " +
+           m_scene.eq.w + " " +
+           m_scene.eq.explicitU + " " +
+           m_scene.eq.explicitV + " " +
+           m_scene.eq.explicitW + " " + m_scene.surfaceScriptText + " " + m_scene.surfaceScriptApplied;
 }
 
 // Avviso "costante ambigua": A..F è una sola variabile globale. Se la stessa
@@ -680,10 +680,10 @@ bool MainWindow::confirmTextureConstantClash(const QString& texCode, const QStri
     QSet<QString> inScene = constantsIn(surfaceCode);
     if (forBackground) {
         // Sfondo in arrivo: contano superficie e texture di superficie.
-        inScene.unite(constantsIn(m_surfaceTextureCode));
+        inScene.unite(constantsIn(m_scene.surfaceTextureCode));
     } else {
         // Texture in arrivo: contano superficie e sfondo.
-        inScene.unite(constantsIn(m_bgTextureCode));
+        inScene.unite(constantsIn(m_scene.bgTextureCode));
     }
     if (inScene.isEmpty()) return true;              // niente da contendere
 
@@ -714,10 +714,10 @@ void MainWindow::checkMetricConstantAmbiguity()
 
     const QString metricBody = stripCodeComments(m_metricScriptBody);
     QString conditions =
-            m_eq.geoU + " " + m_eq.geoV + " " +
-            m_eq.geoW + " " + m_eq.geoDU + " " +
-            m_eq.geoDV + " " + m_eq.geoDW + " " +
-            m_eq.conform;
+            m_scene.eq.geoU + " " + m_scene.eq.geoV + " " +
+            m_scene.eq.geoW + " " + m_scene.eq.geoDU + " " +
+            m_scene.eq.geoDV + " " + m_scene.eq.geoDW + " " +
+            m_scene.eq.conform;
 
     // Uso COERENTE vs AMBIGUO. Una costante che compare in una condizione DENTRO
     // una chiamata a un solver geometrico (kerrUmin(A,B), kerrRadius(...),
@@ -775,10 +775,10 @@ void MainWindow::checkMetricConstantAmbiguity()
 bool MainWindow::metricDisplayMapIsCustom() const
 {
     auto norm = [](QString s) { return s.trimmed().remove(' '); };
-    const QString x = norm(m_eq.x);
-    const QString y = norm(m_eq.y);
-    const QString z = norm(m_eq.z);
-    const QString p = norm(m_eq.p);
+    const QString x = norm(m_scene.eq.x);
+    const QString y = norm(m_scene.eq.y);
+    const QString z = norm(m_scene.eq.z);
+    const QString p = norm(m_scene.eq.p);
     const bool isIdentity = (x == "U") && (y == "V") && (z == "W") &&
                             (p == "0" || p.isEmpty());
     return !isIdentity;
@@ -790,10 +790,10 @@ void MainWindow::writeMetricDisplayMap(QJsonObject& root) const
     if (!metricDisplayMapIsCustom()) return;              // identità: non serve salvarla
 
     QJsonObject map;
-    map["x"] = m_eq.x;
-    map["y"] = m_eq.y;
-    map["z"] = m_eq.z;
-    map["p"] = m_eq.p;
+    map["x"] = m_scene.eq.x;
+    map["y"] = m_scene.eq.y;
+    map["z"] = m_scene.eq.z;
+    map["p"] = m_scene.eq.p;
     root["metricDisplayMap"] = map;
 }
 
@@ -810,7 +810,7 @@ void MainWindow::exitMetricScriptMode()
     // riassegna la sorgente per conto suo subito dopo; qui si ricade sul dock che
     // possiede la superficie adesso, cosi' i Run tornano al gate normale.
     if (m_surfaceOrigin == OriginBoth) {
-        m_surfaceOrigin = m_surfaceScriptApplied.trimmed().isEmpty()
+        m_surfaceOrigin = m_scene.surfaceScriptApplied.trimmed().isEmpty()
                         ? OriginEquations : OriginScript;
     }
     checkParametricDependency();
@@ -825,9 +825,9 @@ void MainWindow::onApplyTextureScriptClicked()
     // Codice applicato PRIMA di questa chiamata: serve piu' sotto per capire se
     // lo script sta davvero cambiando (texture nuova) o se e' un semplice
     // riavvio dello stesso (Run/Stop del dock).
-    const QString prevSurfaceTextureCode = m_surfaceTextureCode;
+    const QString prevSurfaceTextureCode = m_scene.surfaceTextureCode;
 
-    // Le copie APPLICATE (m_surfaceTextureCode / m_bgTextureCode) si scrivono
+    // Le copie APPLICATE (m_scene.surfaceTextureCode / m_scene.bgTextureCode) si scrivono
     // piu' sotto, solo DOPO che il motore ha compilato il codice. Qui venivano
     // scritte subito: uno script che non compila risultava applicato mentre il
     // motore disegnava il precedente, e in ambito Mesh ci finiva lo script
@@ -895,7 +895,7 @@ void MainWindow::onApplyTextureScriptClicked()
         // mostrava ancora, ma il Save non la scriveva (test degli scenari).
         if (dropBgImage) ui->glWidget->setBackgroundImage("background.png");
 
-        m_bgTextureCode = code;
+        m_scene.bgTextureCode = code;
         updateRenderState();
         if (ui->glWidget) ui->glWidget->update();
         updateFlatPreviewButton();
@@ -977,14 +977,14 @@ void MainWindow::onApplyTextureScriptClicked()
         // Applicare la texture di superficie la ACCENDE: intenzione accesa,
         // motore e checkbox la seguono. Prima l'intenzione si scriveva solo se il
         // checkbox era spento, fidandosi che le due copie fossero allineate.
-        m_surfaceTextureState = true;
+        m_scene.surfaceTextureState = true;
         applySurfaceTextureToEngine();
         refreshTextureCheckbox();
 
 
         // Rinfresca lo stato UI ad OGNI applicazione (anche se la texture era già
         // accesa): cambiando texture i picker Colore vanno riallineati a u_col1/u_col2
-        // del nuovo script. m_surfaceTextureCode e i flag di modalità sono già aggiornati.
+        // del nuovo script. m_scene.surfaceTextureCode e i flag di modalità sono già aggiornati.
         // resetColorTargetToFirst: caricando una nuova texture il focus torna a Colore 1.
         updateTextureUIState(true, true);
 
@@ -1015,7 +1015,7 @@ void MainWindow::onApplyTextureScriptClicked()
                 // il modo per far ripartire l'animazione, e azzerando sempre
                 // cancellava le manipolazioni 2D dell'utente ad ogni Start.
                 // Il confronto e' col codice applicato PRIMA della chiamata
-                // (catturato in cima: m_surfaceTextureCode e' gia' stato
+                // (catturato in cima: m_scene.surfaceTextureCode e' gia' stato
                 // sovrascritto), normalizzato come altrove per non contare
                 // spazi e commenti.
                 if (cleanCodeForComparison(code) != cleanCodeForComparison(prevSurfaceTextureCode)) {
@@ -1051,7 +1051,7 @@ void MainWindow::onApplyTextureScriptClicked()
         // RUN sulla texture di SFONDO: solo il clock background.
         // Run esplicito del canale: riarma un eventuale stop manuale.
         m_userStoppedBgClock = false;
-        bool bgNeedsAnim = m_bgTextureCode.contains(timeRegex);
+        bool bgNeedsAnim = m_scene.bgTextureCode.contains(timeRegex);
         if (ui->glWidget) ui->glWidget->setBackgroundTextureAnimating(bgNeedsAnim);
     } else {
         // RUN sulla texture di SUPERFICIE: solo il clock texture superficie.
@@ -1060,7 +1060,7 @@ void MainWindow::onApplyTextureScriptClicked()
         bool surfTexNeedsAnim = false;
         if (surfaceTextureShown()) {
             QString surfTexToCheck = (implicitMode())
-                    ? (m_rm.texture + m_rm.displacement)
+                    ? (m_scene.rm.texture + m_scene.rm.displacement)
                     : allSurfaceTextureCode();
             if (surfTexToCheck.contains(timeRegex)) surfTexNeedsAnim = true;
         }
@@ -1153,8 +1153,8 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
         // continue e senza minimi, altrimenti quelli del preset precedente
         // resterebbero attivi (stessa famiglia di bug del cutout che persisteva
         // fra superfici).
-        m_discreteConsts.clear();
-        m_minConsts.clear();
+        m_scene.discreteConsts.clear();
+        m_scene.minConsts.clear();
 
         QRegularExpression reInt(R"(\b([A-FS])\b\s*:=\s*int\s*\(\s*(-?\d+)\s*,\s*(-?\d+)\s*\)\s*;)",
                                  QRegularExpression::CaseInsensitiveOption);
@@ -1165,7 +1165,7 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
             int lo = m.captured(2).toInt();
             int hi = m.captured(3).toInt();
             if (lo > hi) std::swap(lo, hi);      // "int(6,1)" tollerato
-            m_discreteConsts.insert(name, { lo, hi });
+            m_scene.discreteConsts.insert(name, { lo, hi });
             skipDiscrete.insert(name);
         }
 
@@ -1179,7 +1179,7 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
         while (itm.hasNext()) {
             QRegularExpressionMatch m = itm.next();
             const QString name = m.captured(1).toUpper();
-            m_minConsts.insert(name, m.captured(2).toFloat());
+            m_scene.minConsts.insert(name, m.captured(2).toFloat());
             skipDiscrete.insert(name);
         }
 
@@ -1253,8 +1253,8 @@ void MainWindow::parseAndApplyScriptParams(const QString &scriptCode, bool resta
 
     if (!m_audioController->isPlaying()) {
         if (restartAudio) {
-            QString globalCode = m_soundScriptText + "\n" + scriptCode + "\n"
-                    + m_surfaceTextureCode + "\n" + m_bgTextureCode;
+            QString globalCode = m_scene.soundScriptText + "\n" + scriptCode + "\n"
+                    + m_scene.surfaceTextureCode + "\n" + m_scene.bgTextureCode;
             m_audioController->playFromScript(globalCode);
         }
     }
@@ -1315,7 +1315,7 @@ QString MainWindow::extractAudioDirectives(const QString& fullText) {
     // due volte con "//SOUND_BEGIN\n//SOUND_BEGIN\n...\n//SOUND_END\n//SOUND_END")
     // la cattura non-greedy include un //SOUND_BEGIN interno spurio. Li rimuoviamo
     // dal contenuto, cosi' l'output e' SEMPRE un blocco singolo pulito: altrimenti
-    // m_soundScriptText differisce dal codice salvato in libreria e il confronto
+    // m_scene.soundScriptText differisce dal codice salvato in libreria e il confronto
     // isAlreadyPresent (onSoundItemClicked) da' un falso negativo -> il click di
     // stop ricarica e riavvia il suono invece di fermarlo.
     QRegularExpression innerMarkerRe(R"(^\s*//\s*(SOUND_BEGIN|SOUND_END).*$\n?)",
@@ -1430,7 +1430,7 @@ void MainWindow::updateScriptButtonText() {
             if (isBackground) {
                 texMoving = ui->glWidget->isBackgroundTextureAnimating()
                         && ui->glWidget->isBackgroundTextureEnabled()
-                        && hasTimeVariable(m_bgTextureCode);
+                        && hasTimeVariable(m_scene.bgTextureCode);
             } else if (ui->glWidget->activeMeshPart() >= 0) {
                 // AMBITO "MESH": il tasto mostra lo stato della PARTE, non quello
                 // globale -- stesso principio di editor, slider e radio, che
@@ -1442,14 +1442,14 @@ void MainWindow::updateScriptButtonText() {
                         && hasTimeVariable(ui->glWidget->activeMeshTextureCode());
             } else {
                 // AMBITO "ALL": il tasto comanda la texture di SUPERFICIE, quindi
-                // deve descrivere QUELLA. Si guarda m_surfaceTextureCode e non
+                // deve descrivere QUELLA. Si guarda m_scene.surfaceTextureCode e non
                 // allSurfaceTextureCode(), che aggrega anche gli script delle
                 // fasce: con una texture animata su una mesh il tasto di "All"
                 // cambiava aspetto per un moto che non gli apparteneva (e
                 // viceversa restava fermo quando la sua era in movimento).
                 texMoving = ui->glWidget->isSurfaceTextureAnimating()
                         && surfaceTextureShown()
-                        && hasTimeVariable(m_surfaceTextureCode);
+                        && hasTimeVariable(m_scene.surfaceTextureCode);
             }
         }
 
@@ -1527,7 +1527,7 @@ QString MainWindow::wrapSoundCode(const QString &sound)
 
 QString MainWindow::sceneAudioSource() const
 {
-    const QString code = soundCode() + "\n" + m_surfaceScriptApplied + "\n"
-                         + m_surfaceTextureCode + "\n" + m_bgTextureCode;
+    const QString code = soundCode() + "\n" + m_scene.surfaceScriptApplied + "\n"
+                         + m_scene.surfaceTextureCode + "\n" + m_scene.bgTextureCode;
     return code.trimmed().isEmpty() ? scriptText(shownScriptSlot()) : code;
 }

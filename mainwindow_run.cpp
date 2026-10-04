@@ -107,7 +107,7 @@ void MainWindow::applyStartSideEffects()
     // moto camera (m_userStoppedCameraMotion), un commit di equazione che
     // arriva qui via onStartClicked NON deve farlo ripartire.
     if (!m_userStoppedCameraMotion) {
-        QString pick = m_lastCameraMotion;
+        QString pick = m_scene.lastCameraMotion;
         if (pick == "rotation" && !hasAnyRotationSpeed()) pick.clear();
         if (pick == "path4D" && !hasPath4D) pick.clear();
         if (pick == "path3D" && !hasPath3D) pick.clear();
@@ -262,7 +262,7 @@ void MainWindow::onStartClicked()
     // metrica; il ramo Ray Marching ha la sua equazione in lineEquation.
     {
         const bool isParametricTab = (!implicitMode());
-        const bool fromScript = !m_surfaceScriptApplied.trimmed().isEmpty()
+        const bool fromScript = !m_scene.surfaceScriptApplied.trimmed().isEmpty()
                              && m_surfaceOrigin != OriginBoth;
         if (isParametricTab && !fromScript && !m_populatingFields
             && !hasParametricEquationInput()) {
@@ -294,13 +294,13 @@ void MainWindow::onStartClicked()
         return parseUIConstant(s, 0, 0, 0, 0, 0, 0, 0, ok);
     };
     if (!InputValidator::validateConstants(this, {
-        {"A", m_const.a},
-        {"B", m_const.b},
-        {"C", m_const.c},
-        {"D", m_const.d},
-        {"E", m_const.e},
-        {"F", m_const.f},
-        {"S", m_const.s},
+        {"A", m_scene.constants.a},
+        {"B", m_scene.constants.b},
+        {"C", m_scene.constants.c},
+        {"D", m_scene.constants.d},
+        {"E", m_scene.constants.e},
+        {"F", m_scene.constants.f},
+        {"S", m_scene.constants.s},
     }, constParse)) {
     return;
     }
@@ -316,8 +316,8 @@ void MainWindow::onStartClicked()
         // riusano lo snapshot dell'ultimo Run -- altrimenti un Invio su una
         // costante eseguiva di straforo uno script ancora in lavorazione.
         const bool serviceCommit = this->property("rmApplyOnly").toBool()
-                                   && !m_surfaceScriptApplied.trimmed().isEmpty();
-        QString currentScript = serviceCommit ? m_surfaceScriptApplied : m_surfaceScriptText;
+                                   && !m_scene.surfaceScriptApplied.trimmed().isEmpty();
+        QString currentScript = serviceCommit ? m_scene.surfaceScriptApplied : m_scene.surfaceScriptText;
 
         const bool isImplicit = (implicitMode());
 
@@ -365,11 +365,11 @@ void MainWindow::onStartClicked()
         // Compila: e' lo script a schermo, quello che il Save scrive. Prima il
         // master eseguiva lo script in sospeso senza registrarlo, e il Save
         // scriveva ancora quello dell'ultimo Run del dock.
-        m_surfaceScriptApplied = currentScript;
+        m_scene.surfaceScriptApplied = currentScript;
 
         if (implicitMode()) {
-            QString texCode = m_rm.texture;
-            QString dispCode = m_rm.displacement;
+            QString texCode = m_scene.rm.texture;
+            QString dispCode = m_scene.rm.displacement;
 
             // Controllo parentesi (popup di "Unmatched parentheses" chiaro)
             if (!InputValidator::validateParentheses(this, stripCodeComments(texCode))) return;
@@ -390,7 +390,7 @@ void MainWindow::onStartClicked()
             // (sospetto del 2026-08-03, riprodotto dal test degli scenari).
             // L'accensione e' l'intenzione della superficie, non il checkbox, che
             // in ambito Mesh mostra la fascia.
-            if (!editingBackground() && m_surfaceTextureState) {
+            if (!editingBackground() && m_scene.surfaceTextureState) {
                 const QString texSrc = surfaceTextureScript();
                 if (textureHasLogic(texSrc) && !commitSurfaceTextureCode(texSrc)) {
                     showShaderError("Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
@@ -402,7 +402,7 @@ void MainWindow::onStartClicked()
         if (!applyBackgroundTextureIfNeeded()) return;
 
         {
-            QString soundSrc = m_soundScriptText;
+            QString soundSrc = m_scene.soundScriptText;
             if (!soundSrc.trimmed().isEmpty()) {
                 QString audioErr;
                 // Nella forma che suonera' (GLSL nudo avvolto): senza marcatori
@@ -420,7 +420,7 @@ void MainWindow::onStartClicked()
 
         // Il 't' delle texture PER-MESH non e' in nessuno di questi tre slot: il
         // codice di una fascia vive in MeshPart::textureCode, che
-        // m_surfaceTextureCode (la texture di SUPERFICIE) non contiene. Con la
+        // m_scene.surfaceTextureCode (la texture di SUPERFICIE) non contiene. Con la
         // scena animata dalle sole fasce -- superficie senza 't', nessuna
         // texture globale, come Clifford 6-tubes -- la condizione era falsa, il
         // master Start NON chiamava applyAnimationState e le texture restavano
@@ -443,7 +443,7 @@ void MainWindow::onStartClicked()
         //    ricalcola da se' dai rispettivi codici ("ogni modulo guarda il
         //    PROPRIO tempo"). Stessa correzione fatta nel load dei record.
         const bool geomHasTime = hasTimeVariable(currentScript);
-        const bool otherHasTime = hasTimeVariable(m_surfaceTextureCode + "\n" + m_bgTextureCode)
+        const bool otherHasTime = hasTimeVariable(m_scene.surfaceTextureCode + "\n" + m_scene.bgTextureCode)
                                   || anyMeshTextureCodeAnimated();
         if (!applyOnly && (geomHasTime || otherHasTime)) {
             applyAnimationState(geomHasTime, runDockOnly);
@@ -477,7 +477,7 @@ void MainWindow::onStartClicked()
         const RmField rmEqField = crossSectionActive ? &ImplicitTexts::crossSection
                                                      : &ImplicitTexts::equation;
 
-        QString rawEq = (m_rm.*rmEqField).trimmed();
+        QString rawEq = (m_scene.rm.*rmEqField).trimmed();
         // CAMPO VUOTO: si avvisa e si esce, non si esce in silenzio. Il return
         // muto lasciava a schermo la superficie PRECEDENTE senza dire nulla --
         // l'utente cancellava l'equazione, premeva Invio e vedeva la scena di
@@ -511,8 +511,8 @@ void MainWindow::onStartClicked()
         }
 
         // 2. Lettura e validazione Texture
-        QString texCode = m_rm.texture.trimmed();
-        QString dispCode = m_rm.displacement.trimmed();
+        QString texCode = m_scene.rm.texture.trimmed();
+        QString dispCode = m_scene.rm.displacement.trimmed();
 
         if (!InputValidator::validateImplicitScriptContext(this, texCode)) return;
 
@@ -566,12 +566,12 @@ void MainWindow::onStartClicked()
         }
 
         if (texCode.isEmpty() && dispCode.isEmpty()) {
-            m_surfaceTextureState = false;
+            m_scene.surfaceTextureState = false;
             applySurfaceTextureToEngine();
             refreshTextureCheckbox();
         } else {
             const bool wasOn = surfaceTextureShown();
-            m_surfaceTextureState = true;
+            m_scene.surfaceTextureState = true;
             applySurfaceTextureToEngine();
             refreshTextureCheckbox();
             if (!wasOn) updateTextureUIState(true, true); // nuova texture -> focus a Colore 1
@@ -590,7 +590,7 @@ void MainWindow::onStartClicked()
         if (surfaceTextureShown()) {
             texAnimated = hasTimeVariable(texCode) || hasTimeVariable(dispCode);
         }
-        if (ui->glWidget->isBackgroundTextureEnabled() && hasTimeVariable(m_bgTextureCode)) {
+        if (ui->glWidget->isBackgroundTextureEnabled() && hasTimeVariable(m_scene.bgTextureCode)) {
             texAnimated = true;
         }
 
@@ -640,43 +640,43 @@ void MainWindow::onStartClicked()
     // ==========================================================
 
     // --- 0. SMART INTERCEPTOR ---
-    QString allEqs = m_eq.x + " " + m_eq.y + " " +
-            m_eq.z + " " + m_eq.p + " " +
-            m_eq.u + " " + m_eq.v + " " +
-            m_eq.w;
+    QString allEqs = m_scene.eq.x + " " + m_scene.eq.y + " " +
+            m_scene.eq.z + " " + m_scene.eq.p + " " +
+            m_scene.eq.u + " " + m_scene.eq.v + " " +
+            m_scene.eq.w;
 
-    bool hasExplicit = !m_eq.explicitU.trimmed().isEmpty() ||
-            !m_eq.explicitV.trimmed().isEmpty() ||
-            !m_eq.explicitW.trimmed().isEmpty();
+    bool hasExplicit = !m_scene.eq.explicitU.trimmed().isEmpty() ||
+            !m_scene.eq.explicitV.trimmed().isEmpty() ||
+            !m_scene.eq.explicitW.trimmed().isEmpty();
 
     if (!InputValidator::validateWUsage(this, allEqs, hasExplicit)) return;
 
     // 1. SAFETY CHECK: VARIABLES AND SYNTAX
-    QString mainEqs = m_eq.x + " " + m_eq.y + " " +
-            m_eq.z + " " + m_eq.p;
+    QString mainEqs = m_scene.eq.x + " " + m_scene.eq.y + " " +
+            m_scene.eq.z + " " + m_scene.eq.p;
 
-    QString allEqsToTest = mainEqs + " " + m_eq.explicitU + " " +
-            m_eq.explicitV + " " + m_eq.explicitW;
+    QString allEqsToTest = mainEqs + " " + m_scene.eq.explicitU + " " +
+            m_scene.eq.explicitV + " " + m_scene.eq.explicitW;
 
     if (!InputValidator::validateParametricVariables(this, mainEqs, allEqsToTest, hasExplicit)) return;
 
     if (!InputValidator::validateFieldList(this, {
-        {"x(u,v)",     m_eq.x},
-        {"y(u,v)",     m_eq.y},
-        {"z(u,v)",     m_eq.z},
-        {"p(u,v)",     m_eq.p},
-        {"U-comp",     m_eq.u},
-        {"V-comp",     m_eq.v},
-        {"W-comp",     m_eq.w},
-        {"Explicit U", m_eq.explicitU},
-        {"Explicit V", m_eq.explicitV},
-        {"Explicit W", m_eq.explicitW},
+        {"x(u,v)",     m_scene.eq.x},
+        {"y(u,v)",     m_scene.eq.y},
+        {"z(u,v)",     m_scene.eq.z},
+        {"p(u,v)",     m_scene.eq.p},
+        {"U-comp",     m_scene.eq.u},
+        {"V-comp",     m_scene.eq.v},
+        {"W-comp",     m_scene.eq.w},
+        {"Explicit U", m_scene.eq.explicitU},
+        {"Explicit V", m_scene.eq.explicitV},
+        {"Explicit W", m_scene.eq.explicitW},
     }))  return;
 
     // --- BLOCCO VALIDAZIONE COMPOSITION & GEODESIC FLOW ---
-    QString cU = m_eq.u.trimmed();
-    QString cV = m_eq.v.trimmed();
-    QString cW = m_eq.w.trimmed();
+    QString cU = m_scene.eq.u.trimmed();
+    QString cV = m_scene.eq.v.trimmed();
+    QString cW = m_scene.eq.w.trimmed();
 
     bool geoHasText = hasGeodesicText();
 
@@ -716,15 +716,15 @@ void MainWindow::onStartClicked()
     bool isGeodesicActive = (upperCount > 0) && geoHasText;
 
     if (isCompositionActive) {
-        setLineText(m_lim.wMin, QString());
-        setLineText(m_lim.wMax, QString());
+        setLineText(m_scene.lim.wMin, QString());
+        setLineText(m_scene.lim.wMax, QString());
         ui->wMinEdit->setEnabled(false);
         ui->wMaxEdit->setEnabled(false);
     }
 
     if (isGeodesicActive) {
         // 1. Se il campo del fattore conforme è vuoto, forziamo il default "1.0"
-        if (m_eq.conform.trimmed().isEmpty()) {
+        if (m_scene.eq.conform.trimmed().isEmpty()) {
             setEqText(&EquationTexts::conform, QStringLiteral("1.0"));
         }
 
@@ -740,32 +740,32 @@ void MainWindow::onStartClicked()
 //        if ((sender() == m_btnStart || runDockOnly) && !isPreset) {
 //            InputValidator::validateGeodesicConformalFactor(
 //                        this,
-//                        m_eq.x, m_eq.y,
-//                        m_eq.z, m_eq.p,
-//                        m_eq.conform,
+//                        m_scene.eq.x, m_scene.eq.y,
+//                        m_scene.eq.z, m_scene.eq.p,
+//                        m_scene.eq.conform,
 //                        true
 //                        );
 //        }
 
         if (!InputValidator::validateFieldList(this, {
-            {"x(U,V,W)",         m_eq.x},
-            {"y(U,V,W)",         m_eq.y},
-            {"z(U,V,W)",         m_eq.z},
-            {"p(U,V,W)",         m_eq.p},
-            {"u(t)",             m_eq.geoU},
-            {"v(t)",             m_eq.geoV},
-            {"w(t)",             m_eq.geoW},
-            {"du/dt",            m_eq.geoDU},
-            {"dv/dt",            m_eq.geoDV},
-            {"dw/dt",            m_eq.geoDW},
-        {"Conformal Factor", m_eq.conform},
+            {"x(U,V,W)",         m_scene.eq.x},
+            {"y(U,V,W)",         m_scene.eq.y},
+            {"z(U,V,W)",         m_scene.eq.z},
+            {"p(U,V,W)",         m_scene.eq.p},
+            {"u(t)",             m_scene.eq.geoU},
+            {"v(t)",             m_scene.eq.geoV},
+            {"w(t)",             m_scene.eq.geoW},
+            {"du/dt",            m_scene.eq.geoDU},
+            {"dv/dt",            m_scene.eq.geoDV},
+            {"dw/dt",            m_scene.eq.geoDW},
+        {"Conformal Factor", m_scene.eq.conform},
     })) return;
 
-        QString geoEqs = m_eq.x + " " + m_eq.y + " " +
-                m_eq.z + " " + m_eq.p + " " +
-                m_eq.geoU + " " + m_eq.geoV + " " + m_eq.geoW + " " +
-                m_eq.geoDU + " " + m_eq.geoDV + " " + m_eq.geoDW+
-                m_eq.conform + " " +
+        QString geoEqs = m_scene.eq.x + " " + m_scene.eq.y + " " +
+                m_scene.eq.z + " " + m_scene.eq.p + " " +
+                m_scene.eq.geoU + " " + m_scene.eq.geoV + " " + m_scene.eq.geoW + " " +
+                m_scene.eq.geoDU + " " + m_scene.eq.geoDV + " " + m_scene.eq.geoDW+
+                m_scene.eq.conform + " " +
                 m_metricScriptBody;   // t può vivere nel corpo della metrica g_ij(U,V,W,t)
 
         // TEXTURE E SFONDO: servono a decidere se il ricalcolo va FATTO (i loro
@@ -778,8 +778,8 @@ void MainWindow::onStartClicked()
         // Parametric" su uno script statico, senza nulla da fermare.
         // Stessa correzione degli altri tre chiamanti.
         QString otherModulesForT;
-        if (surfaceTextureShown()) otherModulesForT += " " + m_surfaceTextureCode;
-        if (editingBackground() || ui->glWidget->isBackgroundTextureEnabled()) otherModulesForT += " " + m_bgTextureCode;
+        if (surfaceTextureShown()) otherModulesForT += " " + m_scene.surfaceTextureCode;
+        if (editingBackground() || ui->glWidget->isBackgroundTextureEnabled()) otherModulesForT += " " + m_scene.bgTextureCode;
 
         // SNAPSHOT DELLE EQUAZIONI APPLICATE. Qui, non solo nel prologo di
         // onStartClicked (~7579): quello e' dietro `runDockOnly || masterStart`,
@@ -793,7 +793,7 @@ void MainWindow::onStartClicked()
         // davvero: validate qui sopra e subito passate a updateGeodesicMesh.
         snapshotActiveEquations();
         SE_GEO_PROBE("RUN geodetico: snapshot aggiornato X=%s",
-                     qPrintable(m_eq.x.simplified()));
+                     qPrintable(m_scene.eq.x.simplified()));
 
         // updateGeodesicMesh() calcola, verifica e restituisce false se i dati sono corrotti
         if (!updateGeodesicMesh()) {
@@ -830,7 +830,7 @@ void MainWindow::onStartClicked()
         return;
     }
 
-    QString pEq = m_eq.p.trimmed();
+    QString pEq = m_scene.eq.p.trimmed();
     bool isSurface4D = !pEq.isEmpty() && pEq != "0" && pEq != "0.0";
 
     if (isSurface4D) {
@@ -872,7 +872,7 @@ void MainWindow::onStartClicked()
                             && m_eqApplied.has_value();
     runOutcomeGuard.equationsApplied = !serviceCommit;
     auto eqField = [this, serviceCommit](EqField f) -> QString {
-        return (serviceCommit && m_eqApplied) ? (*m_eqApplied).*f : m_eq.*f;
+        return (serviceCommit && m_eqApplied) ? (*m_eqApplied).*f : m_scene.eq.*f;
     };
 
     // Composizione e vincoli come le equazioni: nel commit di servizio quelli
@@ -1021,7 +1021,7 @@ void MainWindow::onStartClicked()
     // confermato -- i tasti passavano a Stop per un'animazione che non era
     // partita.
     // SOLO i campi del modulo EQUAZIONI. Gli script di texture e sfondo
-    // (m_surfaceTextureCode, m_bgTextureCode) NON vanno inclusi: il loro 't'
+    // (m_scene.surfaceTextureCode, m_scene.bgTextureCode) NON vanno inclusi: il loro 't'
     // anima il proprio modulo, che ha i suoi clock (setSurfaceTextureAnimating /
     // setBackgroundTextureAnimating), non la geometria.
     // Includendoli, un record con texture o sfondo animati -- es. "Coiled Coil"
@@ -1038,22 +1038,22 @@ void MainWindow::onStartClicked()
             eqField(&EquationTexts::y) + " " +
             eqField(&EquationTexts::z) + " " +
             eqField(&EquationTexts::p) + " " +
-            m_eq.explicitU + " " +
-                         m_eq.explicitV + " " +
-                         m_eq.explicitW + " " +
-                         m_eq.u + " " +
-                         m_eq.v + " " +
-                         m_eq.w + " " +
-                         m_surfaceScriptApplied;
+            m_scene.eq.explicitU + " " +
+                         m_scene.eq.explicitV + " " +
+                         m_scene.eq.explicitW + " " +
+                         m_scene.eq.u + " " +
+                         m_scene.eq.v + " " +
+                         m_scene.eq.w + " " +
+                         m_scene.surfaceScriptApplied;
 
-    if (m_surfaceTextureState && textureHasLogic(currentScript)
+    if (m_scene.surfaceTextureState && textureHasLogic(currentScript)
         && !commitSurfaceTextureCode(currentScript)) {
         showShaderError("Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
         return;
     }
 
     if (ui->glWidget->isBackgroundTextureEnabled()) {
-        QString bgSrc = m_bgTextureScriptText;
+        QString bgSrc = m_scene.bgTextureScriptText;
         bool bgHasLogic = bgSrc.contains("return") || bgSrc.contains("vec3")
                 || bgSrc.contains("vec4") || bgSrc.contains("mainImage");
         if (bgHasLogic) {
@@ -1061,7 +1061,7 @@ void MainWindow::onStartClicked()
                 showShaderError("Syntax Error (Background Texture)", ui->glWidget->getShaderError());
                 return;
             }
-            m_bgTextureCode = bgSrc; // valida: committa
+            m_scene.bgTextureCode = bgSrc; // valida: committa
         }
     }
 
@@ -1122,7 +1122,7 @@ void MainWindow::onStopClicked() {
         stopPathAnimations();
 
         ui->glWidget->resumeMotion();
-        m_lastCameraMotion = "rotation";
+        m_scene.lastCameraMotion = "rotation";
         m_userStoppedCameraMotion = false;
         if (ui->btnStart_2) ui->btnStart_2->setText("STOP");
     }
@@ -1148,17 +1148,17 @@ bool MainWindow::isEquationModuleMoving() const
         // NB: lineVariations (displacement) e' del MODULO TEXTURE, non della
         // geometria: includerlo farebbe credere al dock Equations che la
         // geometria sia in moto ogni volta che la texture anima il displacement.
-        mainEq = activeImplicitEquationText() + " " + m_surfaceScriptApplied;
+        mainEq = activeImplicitEquationText() + " " + m_scene.surfaceScriptApplied;
     } else {
-        mainEq = m_eq.x + " " + m_eq.y + " " +
-                m_eq.z + " " + m_eq.p + " " +
-                m_eq.u + " " + m_eq.v + " " + m_eq.w + " " +
-                m_eq.explicitU + " " + m_eq.explicitV + " " + m_eq.explicitW + " " +
-                m_surfaceScriptApplied;
+        mainEq = m_scene.eq.x + " " + m_scene.eq.y + " " +
+                m_scene.eq.z + " " + m_scene.eq.p + " " +
+                m_scene.eq.u + " " + m_scene.eq.v + " " + m_scene.eq.w + " " +
+                m_scene.eq.explicitU + " " + m_scene.eq.explicitV + " " + m_scene.eq.explicitW + " " +
+                m_scene.surfaceScriptApplied;
         if (ui->lnU) {
-            mainEq += " " + m_eq.geoU + " " + m_eq.geoV + " " + m_eq.geoW +
-                    " " + m_eq.geoDU + " " + m_eq.geoDV + " " + m_eq.geoDW +
-                    " " + m_eq.conform;
+            mainEq += " " + m_scene.eq.geoU + " " + m_scene.eq.geoV + " " + m_scene.eq.geoW +
+                    " " + m_scene.eq.geoDU + " " + m_scene.eq.geoDV + " " + m_scene.eq.geoDW +
+                    " " + m_scene.eq.conform;
         }
     }
     return hasTimeVariable(mainEq);
@@ -1219,17 +1219,17 @@ void MainWindow::updateMasterButtonState()
             // geometria: NON va incluso qui, altrimenti il tasto Equations crede
             // che la geometria sia in moto e resta bloccato su "Stop" finché la
             // texture anima il displacement.
-            mainEq = activeImplicitEquationText() + " " + m_surfaceScriptApplied;
+            mainEq = activeImplicitEquationText() + " " + m_scene.surfaceScriptApplied;
         } else {
-            mainEq = m_eq.x + " " + m_eq.y + " " +
-                    m_eq.z + " " + m_eq.p + " " +
-                    m_eq.u + " " + m_eq.v + " " + m_eq.w + " " +
-                    m_eq.explicitU + " " + m_eq.explicitV + " " + m_eq.explicitW + " " +
-                    m_surfaceScriptApplied;
+            mainEq = m_scene.eq.x + " " + m_scene.eq.y + " " +
+                    m_scene.eq.z + " " + m_scene.eq.p + " " +
+                    m_scene.eq.u + " " + m_scene.eq.v + " " + m_scene.eq.w + " " +
+                    m_scene.eq.explicitU + " " + m_scene.eq.explicitV + " " + m_scene.eq.explicitW + " " +
+                    m_scene.surfaceScriptApplied;
             if (ui->lnU) {
-                mainEq += " " + m_eq.geoU + " " + m_eq.geoV + " " + m_eq.geoW +
-                        " " + m_eq.geoDU + " " + m_eq.geoDV + " " + m_eq.geoDW +
-                        " " + m_eq.conform;
+                mainEq += " " + m_scene.eq.geoU + " " + m_scene.eq.geoV + " " + m_scene.eq.geoW +
+                        " " + m_scene.eq.geoDU + " " + m_scene.eq.geoDV + " " + m_scene.eq.geoDW +
+                        " " + m_scene.eq.conform;
             }
         }
 
@@ -1254,7 +1254,7 @@ void MainWindow::updateMasterButtonState()
         // Run del dock Equations per sempre: si potevano cambiare le condizioni
         // iniziali senza avere un modo per applicarle. Ogni dock abilita il
         // proprio tasto -- lo script il suo, le equazioni i loro.
-        bool surfaceFromScript = !m_surfaceScriptApplied.trimmed().isEmpty()
+        bool surfaceFromScript = !m_scene.surfaceScriptApplied.trimmed().isEmpty()
                               && m_surfaceOrigin != OriginBoth;
 
         if (ui->btnRunParametric) {
@@ -1296,8 +1296,8 @@ void MainWindow::updateMasterButtonState()
             // colore E displacement leggono lo STESSO orologio texture: entrambi
             // dipendono da isSurfaceTextureAnimating().
             bool texClockRunning = ui->glWidget->isSurfaceTextureAnimating() && isSurfTexActive;
-            bool texColorMoving = texClockRunning && hasTimeVariable(m_rm.texture);
-            bool dispMoving     = texClockRunning && hasTimeVariable(m_rm.displacement);
+            bool texColorMoving = texClockRunning && hasTimeVariable(m_scene.rm.texture);
+            bool dispMoving     = texClockRunning && hasTimeVariable(m_scene.rm.displacement);
             isTexVisuallyMoving = texColorMoving || dispMoving;
         } else {
             bool texClockRunning = ui->glWidget->isSurfaceTextureAnimating();
@@ -1328,7 +1328,7 @@ void MainWindow::updateMasterButtonState()
 
         // C. Orologio della Texture di Sfondo
         bool bgClockRunning = ui->glWidget->isBackgroundTextureAnimating();
-        bool bgHasTime = ui->glWidget->isBackgroundTextureEnabled() && hasTimeVariable(m_bgTextureCode);
+        bool bgHasTime = ui->glWidget->isBackgroundTextureEnabled() && hasTimeVariable(m_scene.bgTextureCode);
         bool isBgVisuallyMoving = bgClockRunning && bgHasTime;
 
         // La grafica è "attiva" SOLO se c'è almeno un elemento che usa il tempo E il suo orologio è acceso
@@ -1343,8 +1343,8 @@ void MainWindow::updateMasterButtonState()
             //  2. script in moto -> è un tasto Stop, attivo;
             //  3. script statico -> Run one-shot: disabilitato dopo l'applicazione
             //     (m_rmTextureApplied), riabilitato all'edit degli script.
-            bool texFieldsEmpty = m_rm.texture.trimmed().isEmpty()
-                                  && m_rm.displacement.trimmed().isEmpty();
+            bool texFieldsEmpty = m_scene.rm.texture.trimmed().isEmpty()
+                                  && m_scene.rm.displacement.trimmed().isEmpty();
             ui->btnTextureCode->setEnabled(!texFieldsEmpty
                                            && (isTexVisuallyMoving || !m_rmTextureApplied));
         }
@@ -1396,7 +1396,7 @@ void MainWindow::applyAnimationState(bool animated, bool dockOnly) {
             // MULTI-MESH: il modulo e' attivo anche se la texture ce l'ha solo
             // una FASCIA. Ne' il checkbox (che in ambito Mesh e' il display
             // della parte, e in Background quello dello sfondo) ne'
-            // m_surfaceTextureState (che e' la sola texture globale) lo dicono:
+            // m_scene.surfaceTextureState (che e' la sola texture globale) lo dicono:
             // con la texture animata sulla fascia 1 e nessuna globale, entrambi
             // sono false e questo ricalcolo SPEGNEVA il clock. Bastava un click
             // su un bottone che passa di qui -- ad esempio il toggle della
@@ -1448,11 +1448,11 @@ void MainWindow::applyAnimationState(bool animated, bool dockOnly) {
                 if (!m_masterStopped) restartAnimatedMeshTextures();
                 else                  ui->glWidget->setAllMeshTexturesAnimating(false);
             }
-            // Stessa regola per lo SFONDO: il suo 't' e' in m_bgTextureCode, che
+            // Stessa regola per lo SFONDO: il suo 't' e' in m_scene.bgTextureCode, che
             // rawEqsForT (e quindi 'animated') non contiene piu'. Legarlo a
             // 'effective' lo faceva dipendere dal tempo della geometria.
             ui->glWidget->setBackgroundTextureAnimating(
-                        !m_masterStopped && hasTimeVariable(m_bgTextureCode)
+                        !m_masterStopped && hasTimeVariable(m_scene.bgTextureCode)
                                   && ui->glWidget->isBackgroundTextureEnabled()
                                   && !m_userStoppedBgClock);
         }

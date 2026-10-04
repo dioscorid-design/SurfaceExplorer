@@ -634,7 +634,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_blockTextureGen = false;
     m_currentTexturePresetPath = "";
-    m_surfaceTextureState = false;
+    m_scene.surfaceTextureState = false;
 
 #if defined(Q_OS_ANDROID)
     // 1. Controlla prima l'API Level (Deve essere >= 30 per questa funzione)

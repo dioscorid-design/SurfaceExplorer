@@ -14,7 +14,7 @@
 QString MainWindow::activeImplicitEquationText() const
 {
     const bool crossSectionActive = crossSectionTab();
-    return crossSectionActive ? m_rm.crossSection : m_rm.equation;
+    return crossSectionActive ? m_scene.rm.crossSection : m_scene.rm.equation;
 }
 
 void MainWindow::showSurfaceTarget()
@@ -26,7 +26,7 @@ void MainWindow::showSurfaceTarget()
 
 void MainWindow::setImplicitMode(bool on)
 {
-    m_implicitMode = on;
+    m_scene.implicitMode = on;
     if (!ui->tabModeSelector) return;
     // A segnali bloccati: il gestore currentChanged fa il reset della scena.
     const QSignalBlocker blocker(ui->tabModeSelector);
@@ -35,7 +35,7 @@ void MainWindow::setImplicitMode(bool on)
 
 void MainWindow::setMeshScopeAll(bool all)
 {
-    m_meshScopeAll = all;
+    m_scene.meshScopeAll = all;
     if (!ui->radioMeshAll || !ui->radioMeshOne) return;
     // Si accende solo il radio voluto: l'altro lo spegne il QButtonGroup
     // esclusivo, e lo spegnimento emette comunque toggled(false): segnali
@@ -46,7 +46,7 @@ void MainWindow::setMeshScopeAll(bool all)
 
 void MainWindow::setCrossSectionTab(bool on)
 {
-    m_crossSectionTab = on;
+    m_scene.crossSectionTab = on;
     if (!ui->subTabImplicit) return;
     // A segnali bloccati: il gestore currentChanged fa il reset del clic
     // (superficie di default), che qui non va fatto.
@@ -117,11 +117,11 @@ void MainWindow::syncMeshTextureSlot() const
 QString MainWindow::scriptText(ScriptSlot slot) const
 {
     switch (slot) {
-    case SlotSurface:           return m_surfaceScriptText;
-    case SlotSurfaceTexture:    return m_surfaceTextureScriptText;
+    case SlotSurface:           return m_scene.surfaceScriptText;
+    case SlotSurfaceTexture:    return m_scene.surfaceTextureScriptText;
     case SlotMeshTexture:       syncMeshTextureSlot(); return m_meshTextureScriptText;
-    case SlotBackgroundTexture: return m_bgTextureScriptText;
-    case SlotSound:             return m_soundScriptText;
+    case SlotBackgroundTexture: return m_scene.bgTextureScriptText;
+    case SlotSound:             return m_scene.soundScriptText;
     case SlotNone:              break;
     }
     return QString();
@@ -130,12 +130,12 @@ QString MainWindow::scriptText(ScriptSlot slot) const
 QString MainWindow::appliedScriptText(ScriptSlot slot) const
 {
     switch (slot) {
-    case SlotSurface:           return m_surfaceScriptApplied;
-    case SlotSurfaceTexture:    return m_surfaceTextureCode;
+    case SlotSurface:           return m_scene.surfaceScriptApplied;
+    case SlotSurfaceTexture:    return m_scene.surfaceTextureCode;
     case SlotMeshTexture:       syncMeshTextureSlot(); return m_meshTextureScriptBase;
-    case SlotBackgroundTexture: return m_bgTextureCode;
+    case SlotBackgroundTexture: return m_scene.bgTextureCode;
     // Il suono non ha un "applicato" distinto: si suona cio' che e' scritto.
-    case SlotSound:             return m_soundScriptText;
+    case SlotSound:             return m_scene.soundScriptText;
     case SlotNone:              break;
     }
     return QString();
@@ -144,11 +144,11 @@ QString MainWindow::appliedScriptText(ScriptSlot slot) const
 void MainWindow::setScriptText(ScriptSlot slot, const QString &text)
 {
     switch (slot) {
-    case SlotSurface:           m_surfaceScriptText = text; break;
-    case SlotSurfaceTexture:    m_surfaceTextureScriptText = text; break;
+    case SlotSurface:           m_scene.surfaceScriptText = text; break;
+    case SlotSurfaceTexture:    m_scene.surfaceTextureScriptText = text; break;
     case SlotMeshTexture:       syncMeshTextureSlot(); m_meshTextureScriptText = text; break;
-    case SlotBackgroundTexture: m_bgTextureScriptText = text; break;
-    case SlotSound:             m_soundScriptText = text; break;
+    case SlotBackgroundTexture: m_scene.bgTextureScriptText = text; break;
+    case SlotSound:             m_scene.soundScriptText = text; break;
     case SlotNone:              return;
     }
     if (slot == shownScriptSlot()) refreshScriptEditor();
@@ -170,7 +170,7 @@ void MainWindow::refreshScriptEditor()
 void MainWindow::clearSurfaceScript()
 {
     setScriptText(SlotSurface, QString());
-    m_surfaceScriptApplied.clear();
+    m_scene.surfaceScriptApplied.clear();
 }
 
 // Moto GO (rotazioni superficie/4D) davvero in corsa: il timer attivo non
@@ -191,10 +191,10 @@ bool MainWindow::mapEquationsMatchSnapshot() const
 
     // ...composizione e vincoli compresi: sono nello snapshot come X/Y/Z/P.
     const EquationTexts &a = *m_eqApplied;
-    return a.x == m_eq.x && a.y == m_eq.y && a.z == m_eq.z && a.p == m_eq.p
-        && a.u == m_eq.u && a.v == m_eq.v && a.w == m_eq.w
-        && a.explicitU == m_eq.explicitU && a.explicitV == m_eq.explicitV
-        && a.explicitW == m_eq.explicitW;
+    return a.x == m_scene.eq.x && a.y == m_scene.eq.y && a.z == m_scene.eq.z && a.p == m_scene.eq.p
+        && a.u == m_scene.eq.u && a.v == m_scene.eq.v && a.w == m_scene.eq.w
+        && a.explicitU == m_scene.eq.explicitU && a.explicitV == m_scene.eq.explicitV
+        && a.explicitW == m_scene.eq.explicitW;
 }
 
 
@@ -235,21 +235,21 @@ void MainWindow::bindEquationFields()
     for (EqField f : fields) {
         QPlainTextEdit *edit = equationFieldEdit(f);
         if (!edit) continue;
-        auto sync = [this, f, edit] { m_eq.*f = edit->toPlainText(); };
+        auto sync = [this, f, edit] { m_scene.eq.*f = edit->toPlainText(); };
         // DUE agganci, stesso gestore. textChanged: connesso qui per primo,
-        // gira prima di ogni altro gestore del campo (che m_eq lo legge).
+        // gira prima di ogni altro gestore del campo (che m_scene.eq lo legge).
         // contentsChanged del DOCUMENTO: arriva anche quando il campo e'
         // scritto a segnali bloccati, perche' il documento e' un altro oggetto.
         connect(edit, &QPlainTextEdit::textChanged, this, sync);
         connect(edit->document(), &QTextDocument::contentsChanged, this, sync);
         sync();
     }
-    // I campi Ray Marching, allo stesso modo, in m_rm.
+    // I campi Ray Marching, allo stesso modo, in m_scene.rm.
     for (RmField f : { &ImplicitTexts::equation, &ImplicitTexts::crossSection,
                        &ImplicitTexts::texture, &ImplicitTexts::displacement }) {
         QPlainTextEdit *edit = implicitFieldEdit(f);
         if (!edit) continue;
-        auto sync = [this, f, edit] { m_rm.*f = edit->toPlainText(); };
+        auto sync = [this, f, edit] { m_scene.rm.*f = edit->toPlainText(); };
         connect(edit, &QPlainTextEdit::textChanged, this, sync);
         connect(edit->document(), &QTextDocument::contentsChanged, this, sync);
         sync();
@@ -268,8 +268,8 @@ QPlainTextEdit *MainWindow::implicitFieldEdit(RmField f) const
 void MainWindow::setRmText(RmField field, const QString &text)
 {
     QPlainTextEdit *edit = implicitFieldEdit(field);
-    if (!edit) { m_rm.*field = text; return; }
-    // A segnali bloccati: e' il programma che scrive, non l'utente. m_rm segue
+    if (!edit) { m_scene.rm.*field = text; return; }
+    // A segnali bloccati: e' il programma che scrive, non l'utente. m_scene.rm segue
     // dal documento (bindEquationFields).
     const QSignalBlocker blocker(edit);
     edit->setPlainText(text);
@@ -278,8 +278,8 @@ void MainWindow::setRmText(RmField field, const QString &text)
 void MainWindow::setEqText(EqField field, const QString &text)
 {
     QPlainTextEdit *edit = equationFieldEdit(field);
-    if (!edit) { m_eq.*field = text; return; }
-    // A segnali bloccati: e' il programma che scrive, non l'utente. m_eq segue
+    if (!edit) { m_scene.eq.*field = text; return; }
+    // A segnali bloccati: e' il programma che scrive, non l'utente. m_scene.eq segue
     // dal documento (bindEquationFields).
     const QSignalBlocker blocker(edit);
     edit->setPlainText(text);
@@ -333,32 +333,32 @@ void MainWindow::bindConstantFields()
         QLineEdit *edit = constantFieldEdit(f);
         if (!edit) continue;
         // Connesso qui per primo: gira prima di ogni altro gestore del campo,
-        // che m_const lo legge. Le scritture a segnali bloccati non arrivano:
+        // che m_scene.constants lo legge. Le scritture a segnali bloccati non arrivano:
         // passano da setConstText. Anche su textEdited, che precede
         // textChanged (vedi bindLineFields).
-        const auto write = [this, f](const QString &t) { m_const.*f = t; };
+        const auto write = [this, f](const QString &t) { m_scene.constants.*f = t; };
         connect(edit, &QLineEdit::textEdited, this, write);
         connect(edit, &QLineEdit::textChanged, this, write);
-        m_const.*f = edit->text();
+        m_scene.constants.*f = edit->text();
     }
-    m_steps = ui->stepSlider->value();
+    m_scene.steps = ui->stepSlider->value();
 }
 
 QList<QPair<QLineEdit *, QString *>> MainWindow::lineFieldTable()
 {
     return {
-        { ui->uMinEdit, &m_lim.uMin }, { ui->uMaxEdit, &m_lim.uMax },
-        { ui->vMinEdit, &m_lim.vMin }, { ui->vMaxEdit, &m_lim.vMax },
-        { ui->wMinEdit, &m_lim.wMin }, { ui->wMaxEdit, &m_lim.wMax },
-        { ui->lineXMin, &m_lim.xMin }, { ui->lineXMax, &m_lim.xMax },
-        { ui->lineYMin, &m_lim.yMin }, { ui->lineYMax, &m_lim.yMax },
-        { ui->lineZMin, &m_lim.zMin }, { ui->lineZMax, &m_lim.zMax },
-        { ui->lineX_P, &m_path.x }, { ui->lineY_P, &m_path.y },
-        { ui->lineZ_P, &m_path.z }, { ui->lineP_P, &m_path.p },
-        { ui->lineAlpha_P, &m_path.alpha }, { ui->lineBeta_P, &m_path.beta },
-        { ui->lineGamma_P, &m_path.gamma },
-        { ui->lineX_P3D, &m_path.x3D }, { ui->lineY_P3D, &m_path.y3D },
-        { ui->lineZ_P3D, &m_path.z3D }, { ui->lineR_P3D, &m_path.roll3D },
+        { ui->uMinEdit, &m_scene.lim.uMin }, { ui->uMaxEdit, &m_scene.lim.uMax },
+        { ui->vMinEdit, &m_scene.lim.vMin }, { ui->vMaxEdit, &m_scene.lim.vMax },
+        { ui->wMinEdit, &m_scene.lim.wMin }, { ui->wMaxEdit, &m_scene.lim.wMax },
+        { ui->lineXMin, &m_scene.lim.xMin }, { ui->lineXMax, &m_scene.lim.xMax },
+        { ui->lineYMin, &m_scene.lim.yMin }, { ui->lineYMax, &m_scene.lim.yMax },
+        { ui->lineZMin, &m_scene.lim.zMin }, { ui->lineZMax, &m_scene.lim.zMax },
+        { ui->lineX_P, &m_scene.path.x }, { ui->lineY_P, &m_scene.path.y },
+        { ui->lineZ_P, &m_scene.path.z }, { ui->lineP_P, &m_scene.path.p },
+        { ui->lineAlpha_P, &m_scene.path.alpha }, { ui->lineBeta_P, &m_scene.path.beta },
+        { ui->lineGamma_P, &m_scene.path.gamma },
+        { ui->lineX_P3D, &m_scene.path.x3D }, { ui->lineY_P3D, &m_scene.path.y3D },
+        { ui->lineZ_P3D, &m_scene.path.z3D }, { ui->lineR_P3D, &m_scene.path.roll3D },
     };
 }
 
@@ -403,7 +403,7 @@ void MainWindow::setLineText(QString &state, const QString &text)
 
 void MainWindow::setConstText(ConstField field, const QString &text)
 {
-    m_const.*field = text;
+    m_scene.constants.*field = text;
     if (QLineEdit *edit = constantFieldEdit(field)) {
         // A segnali bloccati: e' il programma che scrive, non l'utente.
         const QSignalBlocker blocker(edit);
@@ -423,7 +423,7 @@ void MainWindow::refreshConstantSliders()
 
 void MainWindow::setSteps(int steps)
 {
-    m_steps = steps;
+    m_scene.steps = steps;
     // Vista: slider (il suo range si allarga per contenere il valore, o
     // setValue lo taglierebbe in silenzio) e campo, a segnali bloccati.
     const QSignalBlocker bs(ui->stepSlider), bl(ui->lineSteps);
@@ -449,5 +449,5 @@ void MainWindow::snapshotActiveEquations() {
     // fuori dallo snapshot, il commit di servizio li prendeva dai campi e
     // applicava una composizione o un vincolo ancora in corso di scrittura
     // sulle equazioni di prima.
-    m_eqApplied = m_eq;
+    m_eqApplied = m_scene.eq;
 }

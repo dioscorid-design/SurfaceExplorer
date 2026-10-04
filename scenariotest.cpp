@@ -223,8 +223,8 @@ bool ScenarioTest::selectTexture(const QString &rel)
 void ScenarioTest::checkTextureEnabled(const QString &step, bool expectedIntent)
 {
     GLWidget *gl = m_mw->ui->glWidget;
-    const bool intent  = m_mw->m_surfaceTextureState;
-    const bool wire    = (m_mw->m_savedRenderMode == 2);
+    const bool intent  = m_mw->m_scene.surfaceTextureState;
+    const bool wire    = (m_mw->m_scene.renderMode == 2);
     const bool onBg    = m_mw->editingBackground();
     // AMBITO MESH (fascia selezionata su una multi-mesh): il wireframe globale
     // non spegne la texture globale, e il checkbox mostra la FASCIA -- il suo
@@ -327,7 +327,7 @@ void ScenarioTest::checkTexColors(const QString &step, const QColor &global1, co
                         part >= 0 ? QStringLiteral(" (fascia %1)").arg(part + 1) : QString());
     // Gli slider mostrano lo slot scelto quando editano davvero i colori della
     // texture (stessa condizione di onColorTargetChanged).
-    const bool texHere = part >= 0 ? gl->activeMeshTextureActive() : m_mw->m_surfaceTextureState;
+    const bool texHere = part >= 0 ? gl->activeMeshTextureActive() : m_mw->m_scene.surfaceTextureState;
     if (!m_mw->editingBackground() && !ui->radioWF->isChecked() && texHere
         && m_mw->activeTextureUsesColors()) {
         const QColor sl(ui->sliderR->value(), ui->sliderG->value(), ui->sliderB->value());
@@ -593,20 +593,20 @@ void ScenarioTest::checkTextureCode(const QString &step, const QString &expected
     } else {
         // PARAMETRICO: l'intenzione e' lo script della texture di superficie (il
         // suo slot, di cui l'editor e' la vista). L'applicato e'
-        // m_surfaceTextureCode, e il motore deve compilare quello (senza codice:
+        // m_scene.surfaceTextureCode, e il motore deve compilare quello (senza codice:
         // la scacchiera di default, o niente sopra un'immagine).
         if (!rmField.isEmpty() || !rmEngine.isEmpty())
             bad << QStringLiteral("in parametrico: campo RM %1, motore RM %2")
                        .arg(briefCode(rmField), briefCode(rmEngine));
         const QString intent = graphicsOf(m_mw->surfaceTextureScript(), true);
-        const QString applied = graphicsOf(m_mw->m_surfaceTextureCode, true);
+        const QString applied = graphicsOf(m_mw->m_scene.surfaceTextureCode, true);
         const QString engine  = graphicsOf(gl->currentParametricTextureCode(), true);
         shown = intent;
         if (!expected.isNull() && intent != expected.trimmed())
             bad << QStringLiteral("editor %1, atteso %2").arg(briefCode(intent), briefCode(expected.trimmed()));
         if (!pendingEdit && applied != intent)
             bad << QStringLiteral("applicata %1, editor %2").arg(briefCode(applied), briefCode(intent));
-        if (m_mw->m_surfaceTextureState) {
+        if (m_mw->m_scene.surfaceTextureState) {
             const QString want = !applied.isEmpty() ? applied
                                : m_mw->surfaceHasImage() ? QString()
                                                      : m_mw->defaultMeshTextureCode();
@@ -632,13 +632,13 @@ void ScenarioTest::checkTextureCode(const QString &step, const QString &expected
 
 QString ScenarioTest::rmFieldsProblem() const
 {
-    // I quattro campi Ray Marching sono l'editor dello stato m_rm: stesso testo.
+    // I quattro campi Ray Marching sono l'editor dello stato m_scene.rm: stesso testo.
     Ui::MainWindow *ui = m_mw->ui;
     struct F { const char *name; QPlainTextEdit *edit; const QString &state; };
-    const F fs[] = { { "equazione", ui->lineEquation, m_mw->m_rm.equation },
-                     { "Cross Section", ui->lineEquationCrossSection, m_mw->m_rm.crossSection },
-                     { "texture", ui->lineTexture, m_mw->m_rm.texture },
-                     { "rilievo", ui->lineVariations, m_mw->m_rm.displacement } };
+    const F fs[] = { { "equazione", ui->lineEquation, m_mw->m_scene.rm.equation },
+                     { "Cross Section", ui->lineEquationCrossSection, m_mw->m_scene.rm.crossSection },
+                     { "texture", ui->lineTexture, m_mw->m_scene.rm.texture },
+                     { "rilievo", ui->lineVariations, m_mw->m_scene.rm.displacement } };
     for (const F &f : fs) {
         if (f.edit && f.edit->toPlainText() != f.state)
             return QStringLiteral("Ray Marching, %1: lo stato ha %2, il campo %3")
@@ -746,12 +746,12 @@ void ScenarioTest::checkConstants(const QString &step, const QMap<QString, doubl
             bad << QStringLiteral("%1 vale %2, atteso %3").arg(L, num(c.field), num(expected.value(L)));
         if (c.line->isEnabled()) shown << QStringLiteral("%1=%2").arg(L, num(c.field));
     }
-    // Lo STATO (m_const) e' cio' che i campi mostrano.
+    // Lo STATO (m_scene.constants) e' cio' che i campi mostrano.
     for (MainWindow::ConstField f : MainWindow::constantFields()) {
         const QString t = m_mw->constantFieldEdit(f)->text();
-        if (m_mw->m_const.*f != t)
+        if (m_mw->m_scene.constants.*f != t)
             bad << QStringLiteral("%1: stato \"%2\", campo \"%3\"")
-                       .arg(MainWindow::constantName(f), m_mw->m_const.*f, t);
+                       .arg(MainWindow::constantName(f), m_mw->m_scene.constants.*f, t);
     }
 
     const QString steps = stepsProblem();
@@ -784,8 +784,8 @@ QString ScenarioTest::stepsProblem()
     GLWidget *gl = ui->glWidget;
     const int slider = ui->stepSlider->value();
     QStringList bad;
-    if (m_mw->m_steps != slider)
-        bad << QStringLiteral("Steps: stato %1, slider %2").arg(m_mw->m_steps).arg(slider);
+    if (m_mw->m_scene.steps != slider)
+        bad << QStringLiteral("Steps: stato %1, slider %2").arg(m_mw->m_scene.steps).arg(slider);
     if (ui->lineSteps->text().trimmed() != QString::number(slider))
         bad << QStringLiteral("campo Steps \"%1\", slider %2").arg(ui->lineSteps->text()).arg(slider);
     const bool rm = ui->tabModeSelector->currentIndex() == 1;
@@ -820,20 +820,20 @@ void ScenarioTest::checkMotion(const QString &step, const QString &expectRunning
     auto viewName = [](int m) {
         return m == MainWindow::ModeTangential ? QStringLiteral("Tangent View") : QStringLiteral("Center View");
     };
-    if (ui->pushView->text() != viewName(m_mw->m_pathViewMode4D))
-        bad << QStringLiteral("vista 4D: tasto \"%1\", membro %2").arg(ui->pushView->text(), viewName(m_mw->m_pathViewMode4D));
-    if (ui->pushView3D->text() != viewName(m_mw->m_pathViewMode3D))
-        bad << QStringLiteral("vista 3D: tasto \"%1\", membro %2").arg(ui->pushView3D->text(), viewName(m_mw->m_pathViewMode3D));
-    if (sv.pathMode4D != int(m_mw->m_pathViewMode4D) || sv.pathMode3D != int(m_mw->m_pathViewMode3D))
+    if (ui->pushView->text() != viewName(m_mw->m_scene.pathViewMode4D))
+        bad << QStringLiteral("vista 4D: tasto \"%1\", membro %2").arg(ui->pushView->text(), viewName(m_mw->m_scene.pathViewMode4D));
+    if (ui->pushView3D->text() != viewName(m_mw->m_scene.pathViewMode3D))
+        bad << QStringLiteral("vista 3D: tasto \"%1\", membro %2").arg(ui->pushView3D->text(), viewName(m_mw->m_scene.pathViewMode3D));
+    if (sv.pathMode4D != int(m_mw->m_scene.pathViewMode4D) || sv.pathMode3D != int(m_mw->m_scene.pathViewMode3D))
         bad << QStringLiteral("viste: il Save scriverebbe %1/%2").arg(sv.pathMode4D).arg(sv.pathMode3D);
 
-    // VELOCITA' dei path: lo stato (m_pathSpeed3D/4D) e' cio' che gli slider
+    // VELOCITA' dei path: lo stato (m_scene.pathSpeed3D/4D) e' cio' che gli slider
     // mostrano e che il Save scrive.
-    if (m_mw->m_pathSpeed3D != ui->speed3DSlider->value() || m_mw->m_pathSpeed4D != ui->speed4DSlider->value())
+    if (m_mw->m_scene.pathSpeed3D != ui->speed3DSlider->value() || m_mw->m_scene.pathSpeed4D != ui->speed4DSlider->value())
         bad << QStringLiteral("velocita' path: stato %1/%2, slider %3/%4")
-                   .arg(m_mw->m_pathSpeed3D).arg(m_mw->m_pathSpeed4D)
+                   .arg(m_mw->m_scene.pathSpeed3D).arg(m_mw->m_scene.pathSpeed4D)
                    .arg(ui->speed3DSlider->value()).arg(ui->speed4DSlider->value());
-    if (sv.speedPath3D != m_mw->m_pathSpeed3D || sv.speedPath4D != (keep4D ? m_mw->m_pathSpeed4D : 0))
+    if (sv.speedPath3D != m_mw->m_scene.pathSpeed3D || sv.speedPath4D != (keep4D ? m_mw->m_scene.pathSpeed4D : 0))
         bad << QStringLiteral("velocita' path: il Save scriverebbe %1/%2").arg(sv.speedPath3D).arg(sv.speedPath4D);
 
     // VELOCITA' delle rotazioni: l'etichetta e' cio' che i tasti +/- leggono.
@@ -866,8 +866,8 @@ void ScenarioTest::checkMotion(const QString &step, const QString &expectRunning
         bad << QStringLiteral("motore: path in corsa %1, timer %2").arg(onOff(gl->isPathAnimating()), onOff(t4 || t3));
     if (int(t4) + int(t3) + int(rot) > 1)
         bad << QStringLiteral("piu' moti camera insieme (4D %1, 3D %2, rotazioni %3)").arg(onOff(t4), onOff(t3), onOff(rot));
-    if (running != QLatin1String("none") && m_mw->m_lastCameraMotion != running)
-        bad << QStringLiteral("gira %1 ma l'ultimo moto avviato e' \"%2\"").arg(running, m_mw->m_lastCameraMotion);
+    if (running != QLatin1String("none") && m_mw->m_scene.lastCameraMotion != running)
+        bad << QStringLiteral("gira %1 ma l'ultimo moto avviato e' \"%2\"").arg(running, m_mw->m_scene.lastCameraMotion);
     if (running != QLatin1String("none") && sv.activeMotion != running)
         bad << QStringLiteral("gira %1 ma il Save scriverebbe activeMotion \"%2\"").arg(running, sv.activeMotion);
     if (!expectRunning.isNull() && running != expectRunning)
@@ -953,13 +953,13 @@ void ScenarioTest::checkMotionDefaults(const QString &step)
     for (QLineEdit *l : { ui->lineX_P, ui->lineY_P, ui->lineZ_P, ui->lineP_P, ui->lineAlpha_P, ui->lineBeta_P,
                           ui->lineGamma_P, ui->lineX_P3D, ui->lineY_P3D, ui->lineZ_P3D, ui->lineR_P3D })
         if (!l->text().trimmed().isEmpty()) { bad << QStringLiteral("campo path \"%1\" non vuoto").arg(l->objectName()); break; }
-    if (m_mw->m_pathViewMode4D != MainWindow::ModeTangential || m_mw->m_pathViewMode3D != MainWindow::ModeTangential)
+    if (m_mw->m_scene.pathViewMode4D != MainWindow::ModeTangential || m_mw->m_scene.pathViewMode3D != MainWindow::ModeTangential)
         bad << QStringLiteral("vista dei path rimasta Center (4D %1, 3D %2)")
-                   .arg(int(m_mw->m_pathViewMode4D)).arg(int(m_mw->m_pathViewMode3D));
-    if (m_mw->m_pathSpeed3D != 10 || m_mw->m_pathSpeed4D != 10
+                   .arg(int(m_mw->m_scene.pathViewMode4D)).arg(int(m_mw->m_scene.pathViewMode3D));
+    if (m_mw->m_scene.pathSpeed3D != 10 || m_mw->m_scene.pathSpeed4D != 10
         || ui->speed3DSlider->value() != 10 || ui->speed4DSlider->value() != 10)
         bad << QStringLiteral("velocita' dei path rimaste %1/%2 (slider %3/%4)")
-                   .arg(m_mw->m_pathSpeed3D).arg(m_mw->m_pathSpeed4D)
+                   .arg(m_mw->m_scene.pathSpeed3D).arg(m_mw->m_scene.pathSpeed4D)
                    .arg(ui->speed3DSlider->value()).arg(ui->speed4DSlider->value());
     const float speeds[] = { gl->getPrecessionSpeed(), gl->getNutationSpeed(), gl->getSpinSpeed(),
                              gl->getOmegaSpeed(), gl->getPhiSpeed(), gl->getPsiSpeed() };
@@ -967,8 +967,8 @@ void ScenarioTest::checkMotionDefaults(const QString &step)
         if (qAbs(v) > 1e-4f) { bad << QStringLiteral("velocita' di rotazione rimaste nel motore"); break; }
     if (ui->fovSliderMain->value() != 45)
         bad << QStringLiteral("FOV rimasto %1").arg(ui->fovSliderMain->value());
-    if (!m_mw->m_lastCameraMotion.isEmpty())
-        bad << QStringLiteral("ultimo moto avviato rimasto \"%1\"").arg(m_mw->m_lastCameraMotion);
+    if (!m_mw->m_scene.lastCameraMotion.isEmpty())
+        bad << QStringLiteral("ultimo moto avviato rimasto \"%1\"").arg(m_mw->m_scene.lastCameraMotion);
     if (sv.activeMotion != QLatin1String("none"))
         bad << QStringLiteral("il Save scriverebbe activeMotion \"%1\"").arg(sv.activeMotion);
     if (gl->getEngine()->path4DCompiled() || gl->getEngine()->path3DCompiled())
@@ -1082,10 +1082,10 @@ void ScenarioTest::checkEquations(const QString &step, bool pendingEdit)
         for (const F &f : fs) {
             const QString field = f.edit->toPlainText();
             const QString applied = m_mw->m_eqApplied ? (*m_mw->m_eqApplied).*(f.member) : QString();
-            // Lo STATO (m_eq) e' il testo del campo: il campo ne e' l'editor.
-            if (m_mw->m_eq.*(f.member) != field)
+            // Lo STATO (m_scene.eq) e' il testo del campo: il campo ne e' l'editor.
+            if (m_mw->m_scene.eq.*(f.member) != field)
                 bad << QStringLiteral("%1: lo stato ha %2, il campo %3")
-                           .arg(QString::fromLatin1(f.name), brief(m_mw->m_eq.*(f.member)), brief(field));
+                           .arg(QString::fromLatin1(f.name), brief(m_mw->m_scene.eq.*(f.member)), brief(field));
             if (!pendingEdit && applied != field)
                 bad << QStringLiteral("%1: applicata %2, campo %3").arg(QString::fromLatin1(f.name), brief(applied), brief(field));
             if (f.saved != field)
@@ -1107,9 +1107,9 @@ void ScenarioTest::checkEquations(const QString &step, bool pendingEdit)
                            .arg(l.engine).arg(want);
         }
         // SCRIPT di superficie: lo scritto (slot) e l'applicato (che il Save legge).
-        if (!pendingEdit && m_mw->m_surfaceScriptApplied != m_mw->m_surfaceScriptText)
+        if (!pendingEdit && m_mw->m_scene.surfaceScriptApplied != m_mw->m_scene.surfaceScriptText)
             bad << QStringLiteral("script: l'applicato e' diverso dallo scritto (%1 / %2)")
-                       .arg(brief(m_mw->m_surfaceScriptApplied), brief(m_mw->m_surfaceScriptText));
+                       .arg(brief(m_mw->m_scene.surfaceScriptApplied), brief(m_mw->m_scene.surfaceScriptText));
     }
 
     if (!scriptEditorProblem().isEmpty()) bad << scriptEditorProblem();
@@ -1990,7 +1990,7 @@ void ScenarioTest::run()
         if (ui->chkBoxTexture->text() != QLatin1String("Texture"))
             bad << QStringLiteral("etichetta del checkbox \"%1\"").arg(ui->chkBoxTexture->text());
         if (ui->chkBoxTexture->isChecked()) bad << QStringLiteral("checkbox acceso");
-        if (m_mw->m_surfaceTextureState) bad << QStringLiteral("intenzione accesa");
+        if (m_mw->m_scene.surfaceTextureState) bad << QStringLiteral("intenzione accesa");
         if (gl->isBackgroundTextureEnabled()) bad << QStringLiteral("sfondo acceso");
         if (m_mw->m_currentScriptMode == MainWindow::ScriptModeTexture
             && !ui->txtScriptEditor->toPlainText().trimmed().isEmpty())
@@ -3019,7 +3019,7 @@ QString ScenarioTest::renderModeProblem() const
     if (ui->tabModeSelector->currentIndex() == 1) return QString();
     static const char *const names[3] = { "Base", "Phong", "Wireframe" };
     auto name = [](int m) { return (m >= 0 && m < 3) ? QString::fromLatin1(names[m]) : QStringLiteral("nessuno"); };
-    const int global = m_mw->m_savedRenderMode;
+    const int global = m_mw->m_scene.renderMode;
     if (gl->globalRenderMode() != global)
         return QStringLiteral("modalita' globale: stato %1, motore %2").arg(name(global), name(gl->globalRenderMode()));
     const bool onePart = gl->activeMeshPart() >= 0 && gl->meshPartCount() > 1;
@@ -3091,11 +3091,11 @@ void ScenarioTest::runTextureTargetScenarios()
         // Sfondo acceso e poi spento dal checkbox: non tocca la superficie.
         click(ui->chkBoxTexture);
         viewOk(QStringLiteral("sfondo acceso dal checkbox"));
-        check(gl->isBackgroundTextureEnabled() && m_mw->m_surfaceTextureState,
+        check(gl->isBackgroundTextureEnabled() && m_mw->m_scene.surfaceTextureState,
               QStringLiteral("sfondo acceso dal checkbox -> sfondo on, texture di superficie on"));
         click(ui->chkBoxTexture);
         viewOk(QStringLiteral("sfondo spento dal checkbox"));
-        check(!gl->isBackgroundTextureEnabled() && m_mw->m_surfaceTextureState && gl->isSurfaceTextureAnimating(),
+        check(!gl->isBackgroundTextureEnabled() && m_mw->m_scene.surfaceTextureState && gl->isSurfaceTextureAnimating(),
               QStringLiteral("sfondo spento dal checkbox -> la texture di superficie resta accesa e in moto"));
         click(ui->radioSurface);
         viewOk(QStringLiteral("ritorno a Surface"));
@@ -3109,7 +3109,7 @@ void ScenarioTest::runTextureTargetScenarios()
     if (loadRecord(QString::fromLatin1(kImplicitRecord))
         && selectTexture(QStringLiteral("textures/Ray Marching/Hellish Plasma.json"))) {
         wait(600);
-        check(m_mw->hasTimeVariable(m_mw->m_rm.texture),
+        check(m_mw->hasTimeVariable(m_mw->m_scene.rm.texture),
               QStringLiteral("texture Ray Marching animata dalla Library -> il codice usa il tempo"));
         check(gl->isSurfaceTextureAnimating(),
               QStringLiteral("texture Ray Marching animata dalla Library -> il suo orologio gira"));
@@ -3117,7 +3117,7 @@ void ScenarioTest::runTextureTargetScenarios()
         viewOk(QStringLiteral("bersaglio Background"));
         if (ui->chkBoxTexture->isChecked()) { m_discardOnPrompt = true; click(ui->chkBoxTexture); m_discardOnPrompt = false; }
         viewOk(QStringLiteral("sfondo spento dal checkbox"));
-        check(!gl->isBackgroundTextureEnabled() && m_mw->m_surfaceTextureState,
+        check(!gl->isBackgroundTextureEnabled() && m_mw->m_scene.surfaceTextureState,
               QStringLiteral("sfondo spento dal checkbox -> sfondo off, texture di superficie on"));
         check(gl->isSurfaceTextureAnimating(), QStringLiteral("sfondo spento -> la texture di superficie gira ancora"));
         if (master("STOP")) {
@@ -3226,18 +3226,18 @@ void ScenarioTest::runScriptDockScenarios()
         type(s1);
         m_mw->onRunCurrentScript();  wait(800);
         const QString glsl1 = gl->getEngine()->getScriptCodeGLSL();
-        check(gl->getEngine()->isScriptModeActive() && m_mw->m_surfaceScriptApplied == s1,
+        check(gl->getEngine()->isScriptModeActive() && m_mw->m_scene.surfaceScriptApplied == s1,
               QStringLiteral("script con la costante A eseguito -> a schermo"));
         type(s2);
         ui->lineA->setText(QStringLiteral("0.9"));
         pressEnter(ui->lineA);
-        check(gl->getEngine()->getScriptCodeGLSL() == glsl1 && m_mw->m_surfaceScriptApplied == s1,
+        check(gl->getEngine()->getScriptCodeGLSL() == glsl1 && m_mw->m_scene.surfaceScriptApplied == s1,
               QStringLiteral("ritocco in sospeso, Invio su una costante -> a schermo resta lo script di prima"));
         setScriptMode(MainWindow::ScriptModeSurface);
         check(shows(s2) && runOn(), QStringLiteral("ritocco in sospeso, Invio su una costante -> il ritocco aspetta ancora il Run"));
         checkEquations(QStringLiteral("ritocco ancora in sospeso"), /*pendingEdit=*/true);
         if (m_mw->m_btnStart) { m_mw->m_btnStart->click();  wait(800); }
-        check(gl->getEngine()->getScriptCodeGLSL() != glsl1 && m_mw->m_surfaceScriptApplied == s2,
+        check(gl->getEngine()->getScriptCodeGLSL() != glsl1 && m_mw->m_scene.surfaceScriptApplied == s2,
               QStringLiteral("master Start -> esegue lo script com'e' scritto"));
         check(captureSave().scriptCode == s2, QStringLiteral("master Start -> il Save scrive lo script eseguito"));
         if (m_mw->m_btnStart && m_mw->m_btnStart->text().toUpper() == QLatin1String("STOP")) {
@@ -3269,7 +3269,7 @@ void ScenarioTest::runScriptDockScenarios()
         click(ui->radioSurface);
         check(shows(kStripes6), QStringLiteral("ritorno a Surface -> il ritocco e' ancora nell'editor (%1)").arg(shownBrief()));
         check(runOn(), QStringLiteral("ritorno a Surface -> tasto Run ancora acceso"));
-        check(graphicsOf(m_mw->m_surfaceTextureCode, true) == kStripes4,
+        check(graphicsOf(m_mw->m_scene.surfaceTextureCode, true) == kStripes4,
               QStringLiteral("ritorno a Surface -> a schermo c'e' ancora la texture eseguita"));
         m_mw->onRunCurrentScript();  wait(800);
         checkTextureCode(QStringLiteral("Run del ritocco"), kStripes6);
@@ -3286,7 +3286,7 @@ void ScenarioTest::runScriptDockScenarios()
         setScriptMode(MainWindow::ScriptModeTexture);
         type(bg1);
         m_mw->onRunCurrentScript();  wait(800);
-        check(graphicsOf(m_mw->m_bgTextureCode, true) == bg1, QStringLiteral("sfondo scritto ed eseguito -> applicato"));
+        check(graphicsOf(m_mw->m_scene.bgTextureCode, true) == bg1, QStringLiteral("sfondo scritto ed eseguito -> applicato"));
         check(!runOn(), QStringLiteral("sfondo statico eseguito -> tasto Run spento"));
         type(bg2);
         check(runOn(), QStringLiteral("sfondo ritoccato -> tasto Run acceso"));
@@ -3298,7 +3298,7 @@ void ScenarioTest::runScriptDockScenarios()
         setScriptMode(MainWindow::ScriptModeSound);
         setScriptMode(MainWindow::ScriptModeTexture);
         check(shows(bg2) && runOn(), QStringLiteral("giro dei moduli e ritorno -> ritocco nell'editor, tasto Run acceso"));
-        check(graphicsOf(m_mw->m_bgTextureCode, true) == bg1,
+        check(graphicsOf(m_mw->m_scene.bgTextureCode, true) == bg1,
               QStringLiteral("giro dei moduli e ritorno -> a schermo c'e' ancora lo sfondo eseguito"));
         check(graphicsOf(captureSave().bgTextureCode, true) == bg2,
               QStringLiteral("il Save scrive lo sfondo com'e' scritto"));
@@ -3388,9 +3388,9 @@ void ScenarioTest::runMeshImageScenarios()
     m_lines.append(QStringLiteral("== Immagini sulle singole mesh (%1) ==").arg(QString::fromLatin1(kMultiMeshRecord)));
     if (loadRecord(QString::fromLatin1(kMultiMeshRecord))) {
         if (!ui->radioMeshOne->isChecked()) click(ui->radioMeshOne);
-        const bool surfIntent = m_mw->m_surfaceTextureState;
+        const bool surfIntent = m_mw->m_scene.surfaceTextureState;
         const QString surfImage = gl->surfaceImagePath();
-        const QString surfCode = m_mw->m_surfaceTextureCode;
+        const QString surfCode = m_mw->m_scene.surfaceTextureCode;
         const QString strip1 = part(1) ? part(1)->textureCode : QString();
         const int popups = m_popupsClosed;
 
@@ -3406,8 +3406,8 @@ void ScenarioTest::runMeshImageScenarios()
             check(loaded(3) == QLatin1String("14.png"),
                   QStringLiteral("immagine sulla fascia 3 -> in GPU la fascia ha la sua immagine ('%1')").arg(loaded(3)));
             check(p && !p->texAnimating, QStringLiteral("immagine sulla fascia 3 -> il suo orologio e' fermo"));
-            check(m_mw->m_surfaceTextureState == surfIntent && gl->surfaceImagePath() == surfImage
-                      && m_mw->m_surfaceTextureCode == surfCode,
+            check(m_mw->m_scene.surfaceTextureState == surfIntent && gl->surfaceImagePath() == surfImage
+                      && m_mw->m_scene.surfaceTextureCode == surfCode,
                   QStringLiteral("immagine sulla fascia 3 -> la texture della superficie non cambia (immagine '%1')")
                       .arg(QFileInfo(gl->surfaceImagePath()).fileName()));
             check(part(1) && part(1)->textureCode == strip1,
