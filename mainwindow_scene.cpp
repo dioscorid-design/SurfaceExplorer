@@ -786,11 +786,18 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // globali -- ancora BIANCA, ed e' il lampo bianco al caricamento.
     // Col bypass acceso setColor scrive gia' sui globali anche a mesh
     // attiva, quindi si puo' sistemare il colore e solo allora deselezionare.
+    // RIPRISTINO del valore precedente, non "false": resetScene gira anche
+    // ANNIDATA in un load (un record di modo opposto a quello a schermo fa
+    // cambiare linguetta), e spegnerlo di netto toglieva il bypass al resto del
+    // load -- l'alpha globale del record finiva nella fascia 0 gia' creata
+    // (Villarceau Tubes Drift dopo un record Ray Marching, round-trip).
+    const bool prevBypass = ui->glWidget && ui->glWidget->meshAppearanceBypass();
     if (ui->glWidget) ui->glWidget->setMeshAppearanceBypass(true);
     struct MeshBypassGuard {
         MainWindow *w;
-        ~MeshBypassGuard() { if (w->ui->glWidget) w->ui->glWidget->setMeshAppearanceBypass(false); }
-    } meshBypassGuard{this};
+        bool prev;
+        ~MeshBypassGuard() { if (w->ui->glWidget) w->ui->glWidget->setMeshAppearanceBypass(prev); }
+    } meshBypassGuard{this, prevBypass};
 
     m_currentBackgroundColor = QColor::fromRgbF(0.3f, 0.3f, 0.3f);
     m_currentSurfaceColor = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
@@ -1531,14 +1538,17 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // il renderMode finiva per propagarsi a tutte le mesh che ereditano.
     // La selezione viene azzerata qui e reimpostata a 1 da
     // updateMeshSelectorRange quando le parti della nuova superficie esistono.
+    // Alla fine il valore PRECEDENTE (vedi la guardia gemella in resetScene).
+    const bool prevBypass = ui->glWidget && ui->glWidget->meshAppearanceBypass();
     if (ui->glWidget) {
         ui->glWidget->setMeshAppearanceBypass(true);
         ui->glWidget->setActiveMeshPart(-1);
     }
     struct MeshBypassGuard {
         MainWindow *w;
-        ~MeshBypassGuard() { if (w->ui->glWidget) w->ui->glWidget->setMeshAppearanceBypass(false); }
-    } meshBypassGuard{this};
+        bool prev;
+        ~MeshBypassGuard() { if (w->ui->glWidget) w->ui->glWidget->setMeshAppearanceBypass(prev); }
+    } meshBypassGuard{this, prevBypass};
 
 
     InputValidator::resetGeodesicWarning();
@@ -1703,11 +1713,11 @@ void MainWindow::applySurfaceExample(LibraryItem d)
                 // selezionata, lo scrive DENTRO quella parte: la fascia 1 si
                 // ritrovava come colore proprio il verde globale, e da li' in
                 // poi sia il render sia gli slider mostravano quello.
-                // Il MeshBypassGuard di inizio funzione qui non protegge piu':
-                // applyCommonData(), poco sopra, ha nel frattempo ripristinato
-                // il bypass al valore che aveva PRIMA del load (false), ed e'
-                // anche il punto in cui la parte attiva torna a 0. Percio' la
-                // protezione va rimessa esplicitamente attorno a questa riga.
+                // Il MeshBypassGuard di inizio funzione dovrebbe bastare (la
+                // parte attiva torna a 0 dentro applyCommonData, qui sopra);
+                // finche' la guardia di resetScene, annidata nei cambi di modo,
+                // lo spegneva di netto, non bastava. La protezione esplicita
+                // attorno a questa riga resta: non dipende da chi gira prima.
                 const bool oldBypass = ui->glWidget->meshAppearanceBypass();
                 ui->glWidget->setMeshAppearanceBypass(true);
                 ui->glWidget->setColor(surfCol.redF(), surfCol.greenF(), surfCol.blueF());
@@ -2017,14 +2027,17 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // il renderMode finiva per propagarsi a tutte le mesh che ereditano.
     // La selezione viene azzerata qui e reimpostata a 1 da
     // updateMeshSelectorRange quando le parti della nuova superficie esistono.
+    // Alla fine il valore PRECEDENTE (vedi la guardia gemella in resetScene).
+    const bool prevBypass = ui->glWidget && ui->glWidget->meshAppearanceBypass();
     if (ui->glWidget) {
         ui->glWidget->setMeshAppearanceBypass(true);
         ui->glWidget->setActiveMeshPart(-1);
     }
     struct MeshBypassGuard {
         MainWindow *w;
-        ~MeshBypassGuard() { if (w->ui->glWidget) w->ui->glWidget->setMeshAppearanceBypass(false); }
-    } meshBypassGuard{this};
+        bool prev;
+        ~MeshBypassGuard() { if (w->ui->glWidget) w->ui->glWidget->setMeshAppearanceBypass(prev); }
+    } meshBypassGuard{this, prevBypass};
 
 
     m_masterStopped = false;
@@ -3751,6 +3764,17 @@ void MainWindow::applyCommonData(LibraryItem d)
         setRmText(&ImplicitTexts::equation, rm.equation);
         setRmText(&ImplicitTexts::crossSection, rm.crossSection);
         setRmText(&ImplicitTexts::displacement, rm.displacement);
+    }
+    // SCELTE DEL RAY MARCHING in un preset PARAMETRICO: sotto-tab 3D e Shell,
+    // i default (sceneFromItem). Nessuno le toccava: un preset parametrico
+    // caricato dopo un record Cross Section in Solid le ereditava (trovato dal
+    // confronto della scena nel round-trip, Villarceau Tubes Drift nel
+    // passaggio rimescolato). Il motore no: in parametrico la sua modalita'
+    // globale e' la resa. Nei preset impliciti le decidono i rami qui sotto e
+    // applySurfaceExample / applyMotionExample.
+    if (!d.isImplicitMode) {
+        setCrossSectionTab(false);
+        setImplicitShell(true);
     }
 
     // ==========================================================

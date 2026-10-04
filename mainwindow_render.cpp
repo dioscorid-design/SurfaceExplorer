@@ -2252,6 +2252,12 @@ void MainWindow::resetTransparency()
 // l'handler durante un load.
 void MainWindow::applyImplicitShellMode(bool shell)
 {
+    setImplicitShell(shell);
+    if (ui->glWidget) ui->glWidget->setGlobalRenderMode(shell ? 1 : 0);
+}
+
+void MainWindow::setImplicitShell(bool shell)
+{
     m_scene.implicitShell = shell;
     // UNA SOLA coppia di radio, in panelRenderControls (widget comune ai due
     // sotto-tab). Lo stato Shell/Solid e' sempre stato UNO SOLO — il render mode
@@ -2267,8 +2273,6 @@ void MainWindow::applyImplicitShellMode(bool shell)
         ui->radioShell->blockSignals(oldShell);
         ui->radioSolid->blockSignals(oldSolid);
     }
-
-    if (ui->glWidget) ui->glWidget->setGlobalRenderMode(shell ? 1 : 0);
 }
 
 // Spessore del guscio: motore + posizione dello slider in un colpo. La curva dello
