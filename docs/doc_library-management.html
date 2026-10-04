@@ -21,13 +21,13 @@
 <hr>
 <p style="font-size: 15px; margin-bottom: 20px;"><a href="doc_scripting.html">&larr; Script Dock &amp; Advanced Scripting</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_modular-controls.html">Modular Activation &amp; Master Controls &rarr;</a></p>
 <hr>
-<p>The <strong>Library</strong> dock is the nerve center for managing your creations. The library system allows you to organize your work into four main tabs, each designed to store a specific type of file. Understanding what is encapsulated in each category is crucial for organizing your presets in a modular way.</p>
+<p>The Library dock organizes your work into four tabs, each storing one kind of file.</p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>1. Surfaces (*.json)</b></p></td></tr></table>
             <p>Saving a Surface captures the mathematical definition and the base visual style of your 3D/4D object. It is ideal for storing pure geometry without linking it to a specific animation or texture.</p>
             <ul>
-                <li><strong>What it saves:</strong> The essential geometric elements such as parametric and implicit equations, custom GLSL surface scripts, explicit constraints (U, V, W), mathematical constants (A-F, S), U/V/W limits, grid resolution (Steps), 4D rotation state, and lighting configuration. It also stores the visual style of the object: the base surface color, its transparency, the render mode (Base/Phong/Wireframe) with the wireframe line density, and the framing &mdash; the 3D camera position and orientation, the projection mode and the field of view.</li>
-                <li><strong>Multi-mesh surfaces:</strong> When a script builds several meshes (<code>//MESH_BEGIN</code>), the per-mesh appearance you set with the <em>Mesh</em> selector in the Renderer dock is saved as well: color, transparency, light intensity, render mode and wireframe density, part by part. The <em>parametric domain</em> of a grid is saved too, whenever you set it from the u_a/u_b/v_a/v_b fields &mdash; and so is the separate domain of the <strong>All</strong> scope, which is stored on its own so that both levels come back as you left them. Only the parts you actually customized are written; a part left inheriting the global style &mdash; or the domain declared by its <code>//MESH_BEGIN</code> section &mdash; stays that way on reload, together with the All/Mesh scope active when you saved.</li>
+                <li><strong>What it saves:</strong> the geometry (equations or surface script, constraints, constants A&ndash;F and S, U/V/W limits, Steps, 4D rotation state), the visual style (color, transparency, render mode, lighting) and the framing (camera, projection, field of view).</li>
+                <li><strong>Multi-mesh surfaces:</strong> the appearance and the domain of every grid you customized are saved too, with the domain of the All scope and the active All/Mesh scope.</li>
                 <li><strong>What it ignores:</strong> Textures, the background (both its color and any background texture), 3D/4D paths, and animation speeds. A Surface always loads over the default dark gray background; to store a scene complete with textures and background, save a <em>Record</em> instead.</li>
             </ul>
 
@@ -42,29 +42,21 @@
             <p>The Sounds tab stores audio configurations, which can be procedural mathematical synths or based on external files.</p>
             <ul>
                 <li><strong>What it saves:</strong> Purely procedural audio scripts (using the <code>//SYNTH:</code> directive) or absolute paths to local audio files (<code>//MUSIC:</code> directive).</li>
-                <li><strong>How to use it:</strong> By right-clicking a sound in the tree and selecting <em>"Add to Current Script"</em> (or simply by single-clicking the item), the audio directive will be automatically injected into the active script, seamlessly merging the sound with your graphics.</li>
+                <li><strong>How to use it:</strong> click a sound in the tree to add its directive to the current script and play it.</li>
             </ul>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>4. Records / Motions (*.json)</b></p></td></tr></table>
             <p>A Record save is an <strong>absolute and complete snapshot</strong> of your entire workspace. It is the most powerful format, designed for animations and final renders.</p>
             <ul>
                 <li><strong>What it saves:</strong> <em>Absolutely everything.</em> The surface geometry in a complete composite form, customized colors, applied textures (both surface and background), active sounds, all mathematical constants, 4D lighting configuration, 3D/4D path tracking data, and all continuous rotation speeds (Spin, Nutation, Precession, Omega, Phi, Psi).</li>
-                <li><strong>Camera and Observer:</strong> It perfectly immortalizes the exact position of the 3D camera (the zoom and orbital rotation you set with the mouse) and the distance of the 4D Observer (P+/P-). When you reopen a Record, the framing and audio will resume exactly as you left them, while the animation restarts from the beginning.</li>
+                <li><strong>Camera and Observer:</strong> when you reopen a Record, the framing and audio resume as you left them, while the animation restarts from the beginning.</li>
                 <li><strong>Sync Focused Texture:</strong> Right-click the Record loaded in the scene and choose <em>Sync Focused Texture</em> to bring in the current code of the Library textures it uses &mdash; surface, background or both &mdash; while keeping the Record's colors, constants A&ndash;F and zoom, pan and rotation. It does not save: save the Record again to keep the result.</li>
             </ul>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Workflow & Organization</b></p></td></tr></table>
             <ul>
-                <li><strong>Smart Saving:</strong> By clicking the <strong>Save</strong> button in the Script dock, the program will automatically understand whether you are working on a Surface, a Texture, or a Sound based on the "Mode" button, and will prompt you with the correct format.</li>
                 <li><strong>Context Menu:</strong> Right-click an item or an empty spot in the Library tree (long-press on touch devices) to open a context menu with the operations on files and folders.</li>
-                <li><strong>Drag & Drop:</strong> You can drag files and folders between the various branches to reorganize your collection; the file system will physically update in real-time.</li>
-            </ul>
-
-            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Factory Presets</b></p></td></tr></table>
-            <p>The application includes a built-in library of presets to help you get started. To ensure the software remains lightweight and fast to download, the media files within these presets are carefully managed:</p>
-            <ul>
-                <li><strong>Textures:</strong> The included texture presets consist primarily of procedural JSON scripts. While standard image files are perfectly supported and included, their number is strictly limited to avoid bloating the application's overall file size.</li>
-                <li><strong>Sounds:</strong> Similarly, sound presets rely mostly on procedural audio scripts. A select few standard audio files (such as .wav) are included, but they are also kept to a minimum to conserve space and maintain high performance.</li>
+                <li><strong>Drag &amp; Drop:</strong> on desktop, files and folders can be dragged between branches to reorganize them on disk.</li>
             </ul>
 
 <hr>

@@ -43,11 +43,7 @@
             <p><strong>Note on <code>steps</code>:</strong> a <code>steps := N;</code> line in a script is <em>not</em> applied to the resolution. The mesh resolution is governed exclusively by the <strong>Steps</strong> slider (seeded from the preset's saved value when you load it). This lets you drag the slider freely without a re-run snapping it back to the scripted number; the directive is kept in the source only as a note of the author's intended value.</p>
 
             <div class="note">
-                <strong>Technical Note:</strong> Because geodesic integration calculates multiple micro-steps per vertex using RK4, extremely high grid resolutions combined with steep conformal gradients may impact your CPU's performance. The engine includes an automatic singularity detection system that will safely halt the calculation if a geodesic escapes to infinity or hits a mathematical pole.
-            </div>
-
-            <div class="note" style="border-left-color: #ff4444;">
-                <strong>Warning:</strong> The numerical integration may fail if the input data is incorrect, physically impossible, or pushes the curve outside the valid domain. If the engine encounters a mathematical singularity, the generation will be safely aborted. Always carefully review your starting coordinates, vectors, and conformal factor.
+                <strong>Technical Note:</strong> geodesic integration runs several RK4 micro-steps per vertex, so very high resolutions with steep conformal factors are heavy. If a geodesic reaches a singularity or escapes to infinity the integration stops safely: check the starting coordinates, the vectors and the conformal factor.
             </div>
 
 <hr>

@@ -24,16 +24,11 @@
 <p>The Renderer dock is organized around <strong>three independent choices</strong>: the <em>rendering style</em> of the surface, the <em>edit target</em> that the colors and textures act upon, and &mdash; on multi-mesh surfaces &mdash; the <em>scope</em> those controls apply to.</p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Rendering Style (Surface)</b></p></td></tr></table>
-            <p>This selects how the surface itself is drawn. The three modes are mutually exclusive:</p>
-            <ul>
-                <li><strong>Base:</strong> Flat color (fast).</li>
-                <li><strong>Phong:</strong> Realistic specular lighting.</li>
-                <li><strong>WireFrame:</strong> Displays the polygonal grid. The overall fineness of that grid is set by <strong>Steps</strong> in the Equations dock (more steps &rarr; denser wireframe). When this mode is active, the <strong>Density u</strong> and <strong>Density v</strong> controls also become enabled: they do <em>not</em> add resolution, they only <strong>rebalance the two families of coordinate lines</strong> relative to each other. This is useful when the surface shape stretches one parameter far more than the other (long tubes, thin ribbons), leaving the U-lines and V-lines looking visually mismatched &mdash; you can thin out the crowded family or thicken the sparse one to even out the appearance, without changing the geometry. They are greyed out in any other mode (and in Ray Marching, where wireframe is not available).</li>
-            </ul>
+            <p><strong>Density u / Density v</strong> (WireFrame only) do <em>not</em> add resolution &mdash; that is <strong>Steps</strong> in the Equations dock &mdash; they rebalance the two families of coordinate lines, useful when the shape stretches one parameter far more than the other (long tubes, thin ribbons).</p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Headlight (Ray Marching)</b></p></td></tr></table>
             <p>Implicit surfaces are lit by two fixed lights, one from the side and one from behind. Between them they leave some faces dark whatever you do: the inside of a cavity, a tube seen down its own axis, a face turned edge-on to the view. The <strong>Headlight</strong> slider adds a third light that comes <em>from the observer</em>, so it always illuminates what you are looking at &mdash; which is exactly what a cavity needs.</p>
-            <p>It is off at zero, which is the default, and there the image is identical to the one before this slider existed. Raise it only when something you want to see is in shadow; it deliberately ignores ambient occlusion, because the places that need filling are the ones where occlusion is strongest. The value is saved with the scene.</p>
+            <p>Raise it only when something you want to see is in shadow.</p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Multi Mesh (All / Mesh)</b></p></td></tr></table>
             <p>A surface built from several independent grids (see <em>Multi-Mesh Surfaces</em> in the Script Guide) can be styled grid by grid. The <strong>Multi Mesh</strong> box decides the <em>scope</em> of the appearance controls &mdash; colour, transparency, <em>Light Intensity</em> and the Solid/Phong/WireFrame choice:</p>
@@ -41,7 +36,7 @@
                 <li><strong>All:</strong> the surface behaves as a single one. Every control applies to all the grids at once, whatever they were set to individually.</li>
                 <li><strong>Mesh:</strong> the spin box next to it picks one grid, and the same controls act only on that one &mdash; including its own <strong>Density u / Density v</strong>, so two grids can be drawn as wireframe with different line spacing.</li>
             </ul>
-            <p>Switching to <strong>All</strong> does not erase what you set per grid: those values are only suspended, and they come back exactly as they were when you switch to <strong>Mesh</strong>. A grid you never touched simply follows the global settings, so surfaces made of a single mesh &mdash; and every preset built before this feature &mdash; behave as they always did. Both the per-mesh appearance and the active scope are stored in the preset.</p>
+            <p>Switching to <strong>All</strong> suspends the per-grid settings without erasing them: they come back when you switch to <strong>Mesh</strong>.</p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Per-mesh limits (u_a / u_b / v_a / v_b)</b></p></td></tr></table>
             <p>Below the selector, four fields set the <em>parametric domain</em> &mdash; the portion of the surface each grid actually draws. They follow the same scope rule as the controls above, and they take the same expressions as the U/V limits of the Equations dock (numbers, <code>pi</code>, <code>tau</code>, the constants A&ndash;F and S):</p>
@@ -49,37 +44,25 @@
                 <li><strong>Mesh:</strong> the domain belongs to the selected grid alone. Halving <code>v_b</code> draws half of that grid and leaves the others whole &mdash; a way to open a figure up and look inside it without touching the script.</li>
                 <li><strong>All:</strong> the four fields drive a domain of their own that applies to every grid at once. It <em>suspends</em> the individual domains instead of overwriting them: restrict two grids, switch to All and the figure comes back whole (or cut as you last left it in All), cut it there, then switch back to Mesh and the two restrictions are still exactly where you put them.</li>
             </ul>
-            <p>Unlike the appearance controls, a domain generates the vertices, so each change rebuilds the grid. The fields confirm on <em>Enter</em> or when they lose focus, and they apply at once &mdash; there is no Run to press.</p>
-            <p><strong>The value you type wins over the script.</strong> A grid whose domain you edited keeps it through Master START, both Run buttons, an Enter in the equation fields and a reload, and it is saved in the preset. The trade-off is that such a grid stops following its own <code>//MESH_BEGIN</code> section: editing that section in the script no longer changes it. To hand the grid back to the script, type the values its <code>//MESH_BEGIN</code> block declares &mdash; or load the preset afresh, which restores the declared domain for every grid you never customized.</p>
+            <p><strong>The value you type wins over the script.</strong> A grid whose domain you edited keeps it through Run and reload, and stops following its own <code>//MESH_BEGIN</code> section. To hand it back to the script, type the values that section declares, or load the preset afresh.</p>
             <p><em>Note: the U/V limits in the Equations dock govern single-mesh surfaces. On a multi-mesh surface each grid carries its own domain, so those fields no longer drive the geometry &mdash; these do.</em></p>
-            <p><em>Note: a per-mesh colour has no effect while a texture is active on the surface, because the texture carries its own colours (see the <code>u_col1</code> token in the Script Guide).</em></p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Edit Target (Surface / Background)</b></p></td></tr></table>
-            <p>This pair of buttons is a single exclusive choice that decides <em>what</em> the color sliders, the Texture checkbox and the Library textures act upon. Switching the target never changes the rendering style above &mdash; the two are completely separate axes.</p>
+            <p>These two buttons decide <em>what</em> the color sliders, the Texture checkbox and the Library textures act upon.</p>
             <ul>
-                <li><strong>Surface:</strong> Colors and textures are applied to the 3D/4D surface itself. This is the default.</li>
-                <li><strong>Background:</strong> Everything is redirected to the 2D interactive environment drawn behind the objects. While this target is active, images and procedural effects stay fully interactive &mdash; you can pan, zoom and rotate them with the mouse, just like the 3D camera. The surface is <em>not</em> hidden: only the editing focus moves to the background, so you can keep Surface one click away.</li>
+                <li><strong>Surface:</strong> the 3D/4D surface itself.</li>
+                <li><strong>Background:</strong> the 2D environment drawn behind the objects, where images and procedural effects can be panned, zoomed and rotated with the mouse, like the 3D camera.</li>
             </ul>
-            <p><em>Note: If no background image is explicitly loaded, a fallback procedural Deep Space gradient will be automatically generated to ensure a sleek presentation.</em></p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Background Shape (Fixed / Sphere / Cylinder / Cube)</b></p></td></tr></table>
-            <p>The <strong>Background Controls</strong> group, below the surface controls, decides how the background sits in the scene. It is active only while the edit target is <em>Background</em>.</p>
+            <p>Below the surface controls, <strong>Background Controls</strong> decide how the background sits in the scene:</p>
             <ul>
-                <li><strong>Fixed:</strong> the background is glued to the screen, as it has always been. Whatever the camera does, it stays where it is.</li>
+                <li><strong>Fixed:</strong> the background is glued to the screen.</li>
                 <li><strong>Sphere:</strong> the background becomes a sky at infinity around the scene, mapped as an equirectangular panorama &mdash; the format of 360&deg; photos, twice as wide as it is tall.</li>
                 <li><strong>Cylinder:</strong> the image is wrapped horizontally around the scene, keeping its proportions.</li>
                 <li><strong>Cube:</strong> the same image on the six flat faces of a cube, so nothing is stretched.</li>
             </ul>
-            <p>In the last three the background turns with the view: rotating the camera &mdash; by hand or along a 3D or 4D path &mdash; makes it scroll, while moving the camera forward or sideways leaves it still, as a distant sky would. Turning the object does not drag the sky along, and neither do the 4D rotations. The flat 2D view used to edit a texture always shows the background as <em>Fixed</em>, and so do background scripts that define their own <code>main()</code>.</p>
-            <p>The shape is stored in Records together with the rest of the background, and <strong>NEW</strong> sets it back to <em>Fixed</em>.</p>
-
-            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Applying Textures (Surface vs. Background)</b></p></td></tr></table>
-            <p>Textures (both procedural scripts and static images) follow whichever edit target is selected:</p>
-            <ul>
-                <li><strong>Surface Textures:</strong> With the <em>Surface</em> target selected, applying a texture from the Library (or activating the Texture checkbox) wraps the selected image or script directly onto the geometry of the 3D/4D surface. This works in both the <em>Base</em> and <em>Phong</em> rendering styles; in <em>WireFrame</em> the surface texture is hidden and the sliders edit the line color instead.</li>
-                <li><strong>Background Textures:</strong> With the <em>Background</em> target selected, any texture you load or procedural script you run is applied to the 2D background behind the surface, where it remains fully interactive (pan, zoom, rotate).</li>
-            </ul>
-            <p>When a colored procedural texture is active, the <strong>Color 1</strong> and <strong>Color 2</strong> buttons appear and let the sliders edit the two tint slots of that texture. In the Surface target, picking Color 1, Color 2 or Surface is a single mutually-exclusive choice of what the sliders control; in the Background target, Color 1/Color 2 instead drive the two background-texture colors.</p>
+            <p>In the last three the background turns with the view &mdash; when the camera rotates, by hand or along a 3D or 4D path &mdash; but not with the object or its 4D rotations, as a distant sky would.</p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Procedural Textures (GLSL)</b></p></td></tr></table>
             <p>Besides loading images (PNG/JPG), you can write custom GLSL scripts to generate mathematical textures in real-time.</p>
@@ -98,8 +81,7 @@ return vec3(r, g, 0.5);</pre>
                 <li>On the same grid, apply one of the <em>Animated Images</em> presets: it moves that grid's image.</li>
             </ol>
             <p>Every grid keeps its own image, its own framing and its own movement &mdash; so one photograph can drift on one branch of a surface while a different one rotates on another. A grid without an image of its own shows, through these scripts, the image of the whole surface (the one loaded with the scope on <em>All</em>).</p>
-            <p><strong>Choosing the preset.</strong> <em>Drifting</em>, <em>Rotating</em>, <em>Breathing</em>, <em>Shearing</em> and <em>Squished</em> animate the image in different ways &mdash; sliding, turning, pulsing, slanting and stretching respectively. <em>Still Image</em> shows it motionless: it is the way to bring the surface's image onto a single grid without loading it again. Each script carries a short block of parameters (speed, amount) at the top of its code, so the effect can be tuned in the Script dock without rewriting anything.</p>
-            <p><strong>Removing it.</strong> Applying an ordinary procedural texture to the grid replaces its image. Unticking <em>Texture</em> only switches it off: the image comes back when you tick the box again.</p>
+            <p><strong>Choosing the preset.</strong> <em>Still Image</em> shows the image motionless &mdash; the way to bring the surface's image onto a single grid without loading it again. Each script carries its parameters (speed, amount) at the top of its code.</p>
 
 <hr>
 <p style="font-size: 15px; margin-top: 30px;"><a href="doc_raymarching.html">&larr; Implicit Surfaces (Ray Marching)</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_audio.html">Sounds &amp; Audio &rarr;</a></p>

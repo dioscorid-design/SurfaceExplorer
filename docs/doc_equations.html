@@ -69,23 +69,17 @@
             </table>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Resolution (Steps)</b></p></td></tr></table>
-            <p>Within the Equations dock, you will find the <strong>Steps</strong> slider (and matching input field). This parameter controls the geometric resolution of the generated 3D mesh &mdash; the actual number of samples taken along each parameter:</p>
-            <ul>
-                <li><strong>Higher values (e.g., 100-200):</strong> Generate a smoother, highly detailed, and perfectly curved surface, but require more processing power from your CPU/GPU.</li>
-                <li><strong>Lower values (e.g., 10-50):</strong> Create a blocky, low-polygon mesh. This is excellent for boosting performance on older devices, exploring complex 4D shapes rapidly, or achieving a stylized, retro wireframe aesthetic.</li>
-            </ul>
-            <p><strong>Steps is what actually changes the wireframe density.</strong> Because the wireframe simply draws the edges of the polygonal grid, raising or lowering Steps directly makes the wireframe finer or coarser. Moving the slider takes effect live, on parametric surfaces, scripted surfaces, and geodesic flows alike &mdash; you do not need to press Run. (In Ray Marching mode the surface is computed per-pixel rather than as a polygon grid, so there Steps drives the ray-marching accuracy instead; see the Ray Marching section.)</p>
-            <p>Do not confuse Steps with the <strong>Density u / Density v</strong> controls in the Renderer dock. Those do <em>not</em> change the mesh resolution: they only <strong>rebalance the appearance</strong> of the two families of coordinate lines. On shapes whose form stretches one parameter much more than the other &mdash; long tubes, thin ribbons &mdash; the U-lines and V-lines can look visually mismatched (too crowded one way, too sparse the other); Density u/v let you thin out or thicken each family independently to restore a balanced look, without altering the underlying geometry. See <a href="doc_rendering.html">Rendering &amp; Textures</a> for details.</p>
+            <p>The <strong>Steps</strong> slider sets the resolution of the mesh: the number of samples taken along each parameter. In Ray Marching it sets the ray-marching accuracy instead (see the Ray Marching section).</p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Cutout (Hiding Parts of a Surface)</b></p></td></tr></table>
             <p>A scripted surface can carry an optional <strong>cutout</strong> section, written in the Script dock between <code>//CUTOUT_BEGIN</code> and <code>//CUTOUT_END</code>. It is a rule, evaluated at every point of the surface, that answers one question: <em>should this point be drawn?</em> Everything the rule rejects simply disappears from view.</p>
             <p>The main use is <strong>self-intersecting shapes</strong> &mdash; tubes and ribbons that pass through themselves. Where two branches cross, the walls that end up buried inside the solid are still being drawn even though nothing can be seen of them, and they betray themselves as stray highlights and hard seams along the crossing. A cutout removes precisely those hidden strips and leaves the visible skin untouched.</p>
-            <p>The test runs on the GPU while the image is drawn, not while the mesh is built, and this is what makes it pleasant to use:</p>
+            <p>The test runs on the GPU while the image is drawn:</p>
             <ul>
                 <li><strong>It follows the sliders live.</strong> A cutout that depends on a constant reacts continuously as you drag &mdash; nothing is recomputed, so there is no pause. This is also how a script can switch whole grids of a multi-mesh surface on and off from a slider (see the Script Guide).</li>
                 <li><strong>It opens the surface, it does not seal it.</strong> The removed area leaves a bare rim rather than a lid, so through the opening you see the inside of the far wall. That is expected, not a rendering error.</li>
             </ul>
-            <p>The cutout is part of the surface script and is saved with the preset. Surfaces that do not define one are completely unaffected &mdash; the test is not even included in the shader, so it costs nothing. The full syntax, with the variables available to the rule, is in the <strong>Script Guide</strong>.</p>
+            <p>The full syntax, with the variables available to the rule, is in the Script Guide.</p>
 
 <hr>
 <p style="font-size: 15px; margin-top: 30px;"><a href="doc_dimensions.html">&larr; The 4th Dimension</a> &nbsp;&middot;&nbsp; <a href="documentation.html">Contents</a> &nbsp;&middot;&nbsp; <a href="doc_geodesic.html">Geodesic Flow &amp; Non-Euclidean Geometries &rarr;</a></p>
