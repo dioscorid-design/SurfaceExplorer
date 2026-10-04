@@ -20,6 +20,7 @@
 #include <QTimer>
 #include <QAbstractButton>
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPlainTextEdit>
@@ -1154,6 +1155,11 @@ void ScenarioTest::run()
     }
     if (m_only == QLatin1String("record-texture")) {
         runRecordTextureScenarios();
+        finish();
+        return;
+    }
+    if (m_only == QLatin1String("library-folder")) {
+        runLibraryFolderScenarios();
         finish();
         return;
     }
@@ -2767,8 +2773,118 @@ void ScenarioTest::run()
     runTextureTargetScenarios();
     runMeshImageScenarios();
     runRecordTextureScenarios();
+    runLibraryFolderScenarios();
 
     finish();
+}
+
+void ScenarioTest::runLibraryFolderScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Library: aprire e chiudere una cartella non sposta il focus =="));
+
+    // Clic VERI sul viewport: la selezione la fa Qt al press, come per l'utente,
+    // quindi l'albero dev'essere a schermo.
+    ui->dockSurfaces->show();
+    ui->dockSurfaces->raise();
+    ui->tabWidget->setCurrentWidget(ui->Surface);
+    wait(300);
+
+    QTreeWidget *tree = ui->treeSurfaces;
+    QTreeWidgetItem *leaf = nullptr;
+    for (QTreeWidgetItemIterator it(tree); *it && !leaf; ++it)
+        if ((*it)->childCount() == 0 && (*it)->parent() && (*it)->data(0, Qt::UserRole).isValid())
+            leaf = *it;
+    if (!leaf) {
+        check(false, QStringLiteral("nessun preset dentro una cartella delle Surfaces"));
+        return;
+    }
+    QTreeWidgetItem *folder = leaf->parent();
+    for (QTreeWidgetItem *p = folder; p; p = p->parent()) p->setExpanded(true);
+
+    // Il preset caricato col click, come fa l'utente.
+    m_discardOnPrompt = true;
+    tree->setCurrentItem(leaf);
+    emit tree->itemClicked(leaf, 0);
+    wait(1200);
+    m_discardOnPrompt = false;
+    tree->scrollToItem(folder);
+    wait(200);
+
+    // Una texture evidenziata in un ALTRO albero: il clic su una cartella delle
+    // Surfaces non deve togliergliela.
+    QTreeWidgetItem *tex = nullptr;
+    for (QTreeWidgetItemIterator it(ui->treeTextures); *it && !tex; ++it)
+        if ((*it)->childCount() == 0 && (*it)->data(0, Qt::UserRole + 1).isValid()) tex = *it;
+    if (tex) ui->treeTextures->setCurrentItem(tex);
+
+    const QString name = leaf->text(0);
+    auto focusOk = [&](const QString &step) {
+        QStringList bad;
+        if (!leaf->isSelected()) bad << QStringLiteral("il preset non e' evidenziato");
+        if (folder->isSelected()) bad << QStringLiteral("la cartella e' selezionata");
+        if (tree->currentItem() != leaf) bad << QStringLiteral("l'elemento corrente non e' il preset");
+        if (tex && !tex->isSelected()) bad << QStringLiteral("la texture ha perso l'evidenziazione");
+        check(bad.isEmpty(), QStringLiteral("%1 -> focus su '%2'%3").arg(step, name,
+                  bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+    };
+    auto mouse = [&](QEvent::Type type, QTreeWidgetItem *it) {
+        const QPoint pos = tree->visualItemRect(it).center();
+        QMouseEvent e(type, pos, tree->viewport()->mapToGlobal(pos), Qt::LeftButton,
+                      type == QEvent::MouseButtonRelease ? Qt::NoButton : Qt::LeftButton,
+                      Qt::NoModifier);
+        QCoreApplication::sendEvent(tree->viewport(), &e);
+    };
+    auto doubleClick = [&](QTreeWidgetItem *it) {
+        mouse(QEvent::MouseButtonPress, it);
+        mouse(QEvent::MouseButtonRelease, it);
+        mouse(QEvent::MouseButtonDblClick, it);
+        mouse(QEvent::MouseButtonRelease, it);
+        wait(300);
+    };
+
+    focusOk(QStringLiteral("preset caricato"));
+    doubleClick(folder);
+    check(!folder->isExpanded(), QStringLiteral("doppio clic sulla cartella -> si chiude"));
+    focusOk(QStringLiteral("cartella chiusa col doppio clic"));
+    doubleClick(folder);
+    check(folder->isExpanded(), QStringLiteral("doppio clic sulla cartella -> si riapre"));
+    focusOk(QStringLiteral("cartella riaperta col doppio clic"));
+
+    // Clic singolo: la cartella resta selezionata (serve a Copy/Cut/Paste/Delete),
+    // ma gli altri alberi non perdono la loro evidenziazione.
+    mouse(QEvent::MouseButtonPress, folder);
+    mouse(QEvent::MouseButtonRelease, folder);
+    wait(300);
+    check(folder->isSelected() && !leaf->isSelected(),
+          QStringLiteral("clic singolo sulla cartella -> la cartella e' selezionata"));
+    check(!tex || tex->isSelected(),
+          QStringLiteral("clic singolo su una cartella delle Surfaces -> la texture resta evidenziata"));
+
+    // Tap su mobile: il press seleziona la cartella, poi onExampleItemClicked la
+    // apre o la chiude (setExpanded). Qui il secondo passo e' simulato.
+    folder->setExpanded(false);
+    wait(200);
+    focusOk(QStringLiteral("tap mobile simulato, cartella chiusa"));
+    mouse(QEvent::MouseButtonPress, folder);
+    mouse(QEvent::MouseButtonRelease, folder);
+    folder->setExpanded(true);
+    wait(200);
+    focusOk(QStringLiteral("tap mobile simulato, cartella riaperta"));
+
+    // Un'espansione del PROGRAMMA con un altro preset evidenziato non lo tocca.
+    QTreeWidgetItem *other = nullptr;
+    for (QTreeWidgetItemIterator it(tree); *it && !other; ++it)
+        if ((*it)->childCount() == 0 && *it != leaf && (*it)->data(0, Qt::UserRole).isValid()) other = *it;
+    if (other) {
+        tree->setCurrentItem(other);
+        folder->setExpanded(false);
+        folder->setExpanded(true);
+        wait(200);
+        check(other->isSelected() && !leaf->isSelected(),
+              QStringLiteral("espansione del programma con un altro preset evidenziato -> resta quello"));
+    }
 }
 
 void ScenarioTest::runRecordTextureScenarios()

@@ -180,6 +180,11 @@ private:
     // momento del load il vertex non conosce ancora.
     // Da sola: --scenario-only record-texture.
     void runRecordTextureScenarios();
+    // Library: aprire e chiudere la cartella del preset caricato (doppio clic
+    // vero sulla riga; tap mobile simulato) non gli toglie l'evidenziazione, e
+    // il clic su una cartella non la toglie agli altri alberi.
+    // Da sola: --scenario-only library-folder.
+    void runLibraryFolderScenarios();
     // "" se checkbox ed etichetta dicono il bersaglio e lo stato della sua
     // texture, altrimenti la differenza.
     QString textureCheckboxProblem() const;

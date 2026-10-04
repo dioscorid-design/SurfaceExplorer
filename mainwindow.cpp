@@ -4130,6 +4130,61 @@ MainWindow::MainWindow(QWidget *parent)
     });
     connect(ui->treeSounds, &QTreeWidget::itemClicked, this, &MainWindow::onSoundItemClicked);
 
+    // APRIRE O CHIUDERE UNA CARTELLA NON SPOSTA L'EVIDENZIAZIONE. Il clic sulla
+    // RIGA di una cartella (tap su mobile, doppio clic su desktop; solo la
+    // freccetta non seleziona) passa prima da Qt, che sposta la selezione sulla
+    // cartella: il preset in vigore perdeva il focus anche se il clic serviva
+    // solo ad aprire o chiudere il ramo. Qui si ricorda cio' che la cartella ha
+    // scalzato e lo si rimette quando il ramo si apre o si chiude.
+    // Il ripristino scatta solo se la cartella e' ancora l'intera selezione:
+    // le espansioni del programma (load, refresh) arrivano con la selezione
+    // gia' sul preset nuovo, e una cartella selezionata con un clic singolo
+    // resta selezionata finche' non la si apre (serve a Copy/Cut/Paste/Delete).
+    // Indici persistenti, non puntatori: se l'albero viene ricostruito
+    // (refreshLibrary) diventano invalidi da soli.
+    auto keepHighlightOnToggle = [this](QTreeWidget *tree) {
+        struct Displaced { QPersistentModelIndex folder; QList<QPersistentModelIndex> leaves; };
+        auto d = std::make_shared<Displaced>();
+        connect(tree->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+                [tree, d](const QItemSelection &, const QItemSelection &deselected) {
+            d->folder = QPersistentModelIndex();
+            d->leaves.clear();
+            const QList<QTreeWidgetItem *> sel = tree->selectedItems();
+            if (sel.size() != 1 || sel.first()->childCount() == 0) return;
+            d->folder = tree->indexFromItem(sel.first());
+            for (const QModelIndex &i : deselected.indexes()) {
+                QTreeWidgetItem *it = tree->itemFromIndex(i);
+                if (it && it->childCount() == 0) d->leaves << QPersistentModelIndex(i);
+            }
+        });
+        auto restore = [tree, d](QTreeWidgetItem *folder) {
+            if (d->leaves.isEmpty() || tree->indexFromItem(folder) != d->folder) return;
+            const QList<QTreeWidgetItem *> sel = tree->selectedItems();
+            if (sel.size() != 1 || sel.first() != folder) return;
+            const QList<QPersistentModelIndex> leaves = d->leaves;   // la selectionChanged qui sotto lo azzera
+            QItemSelectionModel *sm = tree->selectionModel();
+            sm->clearSelection();
+            QModelIndex current;
+            for (const QPersistentModelIndex &i : leaves) {
+                if (!i.isValid()) continue;
+                sm->select(i, QItemSelectionModel::Select | QItemSelectionModel::Rows);
+                if (!current.isValid()) current = i;
+            }
+            // Senza autoscroll: spostare l'elemento corrente fa scrollTo, che
+            // RIAPRE i genitori chiusi -- cioe' la cartella appena chiusa.
+            if (current.isValid()) {
+                const bool autoScroll = tree->hasAutoScroll();
+                tree->setAutoScroll(false);
+                sm->setCurrentIndex(current, QItemSelectionModel::NoUpdate);
+                tree->setAutoScroll(autoScroll);
+            }
+        };
+        connect(tree, &QTreeWidget::itemExpanded, this, restore);
+        connect(tree, &QTreeWidget::itemCollapsed, this, restore);
+    };
+    for (QTreeWidget *tree : { ui->treeSurfaces, ui->treeTextures, ui->treeMotions, ui->treeSounds })
+        keepHighlightOnToggle(tree);
+
     connect(ui->btnSyncLibrary, &QPushButton::clicked, this, &MainWindow::onSyncPresetsClicked);
 
     m_fsWatcher = new QFileSystemWatcher(this);
@@ -13399,7 +13454,12 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         }
     }
 
-    if (QTreeWidget *src = qobject_cast<QTreeWidget*>(sender())) {
+    // Solo per le FOGLIE: il clic su una cartella apre o chiude il ramo e non
+    // cambia la scena, quindi non deve togliere l'evidenziazione agli altri
+    // alberi (aprire una cartella delle Surfaces la toglieva alla texture e al
+    // suono in vigore, una dei Records alla superficie).
+    QTreeWidget *src = qobject_cast<QTreeWidget*>(sender());
+    if (src && item && item->childCount() == 0) {
         if (src == ui->treeSurfaces) {
             for (QTreeWidget *tree : { ui->treeTextures, ui->treeMotions, ui->treeSounds }) {
                 if (tree) {
