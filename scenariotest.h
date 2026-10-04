@@ -185,6 +185,12 @@ private:
     // il clic su una cartella non la toglie agli altri alberi.
     // Da sola: --scenario-only library-folder.
     void runLibraryFolderScenarios();
+    // Library: copia e incolla di una CARTELLA, in una cartella temporanea (la
+    // libreria non si tocca): accanto a se stessa -> _copy1 col contenuto; in
+    // una cartella il cui nome la contiene come prefisso (Paths -> Paths2);
+    // dentro una sua sottocartella -> rifiutata.
+    // Da sola: --scenario-only library-paste.
+    void runLibraryPasteScenarios();
     // "" se checkbox ed etichetta dicono il bersaglio e lo stato della sua
     // texture, altrimenti la differenza.
     QString textureCheckboxProblem() const;

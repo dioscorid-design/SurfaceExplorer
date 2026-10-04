@@ -258,7 +258,12 @@ void LibraryFileOperations::performPasteExample(const QString &destDirOverride)
             continue;
         }
 
-        if (fi.isDir() && QDir::cleanPath(newFilePath).startsWith(QDir::cleanPath(sourcePath))) continue;
+        // Una cartella non si incolla dentro se stessa ne' in una sua
+        // sottocartella (la copia non finirebbe mai). Si guarda la cartella di
+        // DESTINAZIONE: incollarla accanto a se stessa e' una copia legittima
+        // ("Paths" -> "Paths_copy1"), che il vecchio controllo sul percorso
+        // finale scartava -- come scartava "Paths" incollata in "Paths2".
+        if (fi.isDir() && isSameOrInside(destDir, sourcePath)) continue;
 
         if (QFileInfo(newFilePath).exists() && m_mainWindow->m_isCopyOperation) {
             QString baseName = fi.completeBaseName();
@@ -536,12 +541,19 @@ void LibraryFileOperations::undoDelete()
     }
 }
 
+bool LibraryFileOperations::isSameOrInside(const QString &path, const QString &dir)
+{
+    const QString p = QDir::cleanPath(path);
+    const QString d = QDir::cleanPath(dir);
+    return p == d || p.startsWith(d + QLatin1Char('/'));
+}
+
 void LibraryFileOperations::copyPath(const QString &src, const QString &dst)
 {
     QDir dir(src);
     if (!dir.exists()) return;
 
-    if (dst.startsWith(src)) return;
+    if (isSameOrInside(dst, src)) return;   // dentro se stessa: non finirebbe mai
 
     QDir dirDst(dst);
     if (!dirDst.exists()) dirDst.mkpath(dst);

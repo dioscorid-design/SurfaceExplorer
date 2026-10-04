@@ -114,7 +114,8 @@ bool LibraryDragDropHandler::eventFilter(QObject *obj, QEvent *event)
                     QFileInfo srcInfo(sourcePath);
                     QString newPath = destDir + "/" + srcInfo.fileName();
 
-                    if (sourcePath != newPath && !destDir.startsWith(sourcePath)) {
+                    if (sourcePath != newPath
+                        && !LibraryFileOperations::isSameOrInside(destDir, sourcePath)) {
                         if (isDir) {
                             // Le cartelle omonime restano saltate (no merge): comportamento invariato.
                             if (!QFile::exists(newPath)) {

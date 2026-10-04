@@ -28,6 +28,10 @@ public:
     void deleteSelected();
     void undoDelete();
     void copyPath(const QString &src, const QString &dst);
+    // `path` e' la cartella `dir` stessa o sta dentro di lei. Per PERCORSO, non
+    // per prefisso di stringa: "/records/Paths2" e "/records/Paths_copy1" non
+    // stanno dentro "/records/Paths".
+    static bool isSameOrInside(const QString &path, const QString &dir);
     void updateJsonTypeForFolder(const QString &filePath);
     void backupBeforeOverwrite(const QString &filePath);
 

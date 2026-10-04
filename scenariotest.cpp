@@ -4,6 +4,7 @@
 #include "ui_mainwindow.h"
 #include "glwidget.h"
 #include "librarymanager.h"
+#include "libraryfileoperations.h"
 #include "presetserializer.h"
 #include "audiocontroller.h"
 #include "shadercompilelog.h"
@@ -29,6 +30,7 @@
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QTreeWidgetItemIterator>
+#include <QTemporaryDir>
 
 namespace {
 const char *kParametricRecord = "records/t_motions/3D/Dynamic Mobius Band.json";
@@ -1190,6 +1192,11 @@ void ScenarioTest::run()
     }
     if (m_only == QLatin1String("library-folder")) {
         runLibraryFolderScenarios();
+        finish();
+        return;
+    }
+    if (m_only == QLatin1String("library-paste")) {
+        runLibraryPasteScenarios();
         finish();
         return;
     }
@@ -2804,8 +2811,53 @@ void ScenarioTest::run()
     runMeshImageScenarios();
     runRecordTextureScenarios();
     runLibraryFolderScenarios();
+    runLibraryPasteScenarios();
 
     finish();
+}
+
+void ScenarioTest::runLibraryPasteScenarios()
+{
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Library: copia e incolla di una cartella (in una cartella temporanea) =="));
+
+    QTemporaryDir tmp;
+    if (!tmp.isValid()) {
+        check(false, QStringLiteral("cartella temporanea non creata"));
+        return;
+    }
+    const QString root = tmp.path();
+    auto touch = [](const QString &path) {
+        QFile f(path);
+        if (f.open(QIODevice::WriteOnly)) f.write("{}");
+    };
+    QDir().mkpath(root + QStringLiteral("/Paths/sub"));
+    QDir().mkpath(root + QStringLiteral("/Paths2"));
+    touch(root + QStringLiteral("/Paths/a.json"));
+    touch(root + QStringLiteral("/Paths/sub/b.json"));
+
+    // Come il menu: Copy riempie la lista, Paste la incolla nella destinazione.
+    auto copyPaste = [&](const QString &src, const QString &dest) {
+        m_mw->m_cutFilePaths = { src };
+        m_mw->m_isCopyOperation = true;
+        m_mw->m_fileOps->performPasteExample(dest);
+        wait(300);
+    };
+
+    copyPaste(root + QStringLiteral("/Paths"), root);
+    check(QFile::exists(root + QStringLiteral("/Paths_copy1/a.json"))
+              && QFile::exists(root + QStringLiteral("/Paths_copy1/sub/b.json")),
+          QStringLiteral("cartella incollata accanto a se stessa -> Paths_copy1 col suo contenuto"));
+
+    copyPaste(root + QStringLiteral("/Paths"), root + QStringLiteral("/Paths2"));
+    check(QFile::exists(root + QStringLiteral("/Paths2/Paths/sub/b.json")),
+          QStringLiteral("incollata in Paths2 (nome con lo stesso prefisso) -> copiata"));
+
+    copyPaste(root + QStringLiteral("/Paths"), root + QStringLiteral("/Paths/sub"));
+    check(!QDir(root + QStringLiteral("/Paths/sub/Paths")).exists(),
+          QStringLiteral("incollata in una sua sottocartella -> rifiutata"));
+
+    m_mw->m_cutFilePaths.clear();
 }
 
 void ScenarioTest::runLibraryFolderScenarios()
