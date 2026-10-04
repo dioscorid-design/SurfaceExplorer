@@ -1233,9 +1233,8 @@ void MainWindow::handleTextureSelection(int index)
                 ui->glWidget->setEngineMode(GLWidget::ModeImplicit);
                 ui->glWidget->setRaySteps(m_lastImplicitSteps);
 
-                for (QString *t : { &m_scene.lim.xMin, &m_scene.lim.xMax, &m_scene.lim.yMin,
-                                    &m_scene.lim.yMax, &m_scene.lim.zMin, &m_scene.lim.zMax })
-                    setLineText(*t, QString());
+                m_scene.lim.clearSpaceCut();
+                showLineFields();
                 applySpaceLimits(/*notify=*/false);   // campi vuoti: nessun taglio
 
                 // Camera alla distanza standard: altrimenti la sfera di default
@@ -1250,10 +1249,11 @@ void MainWindow::handleTextureSelection(int index)
             setEqText(&EquationTexts::x, QStringLiteral("(0.8 + 0.3 * cos(v)) * cos(u)"));
             setEqText(&EquationTexts::y, QStringLiteral("(0.8 + 0.3 * cos(v)) * sin(u)"));
             setEqText(&EquationTexts::z, QStringLiteral("0.3 * sin(v)"));
-            ui->uMinEdit->setText("0");
-            ui->uMaxEdit->setText("6.28318");
-            ui->vMinEdit->setText("0");
-            ui->vMaxEdit->setText("6.28318");
+            m_scene.lim.uMin = QStringLiteral("0");
+            m_scene.lim.uMax = QStringLiteral("6.28318");
+            m_scene.lim.vMin = QStringLiteral("0");
+            m_scene.lim.vMax = QStringLiteral("6.28318");
+            showLineFields();
 
             setRmText(&ImplicitTexts::equation, QString());
             setRmText(&ImplicitTexts::texture, QString());

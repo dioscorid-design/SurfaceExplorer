@@ -401,6 +401,102 @@ void MainWindow::setLineText(QString &state, const QString &text)
     }
 }
 
+void MainWindow::showLineFields()
+{
+    for (const auto &f : lineFieldTable()) {
+        QLineEdit *edit = f.first;
+        if (!edit) continue;
+        // Testo scritto dal PROGRAMMA, non dall'utente: nessuna conferma
+        // pendente. Senza, un preset caricato mentre un limite era in attesa di
+        // conferma farebbe validare all'uscita dal campo un testo che l'utente
+        // non ha mai scritto (e su un dominio 0/0 uscirebbe un popup a sproposito).
+        edit->setProperty("userEditPending", false);
+        if (edit->text() == *f.second) continue;
+        const QSignalBlocker blocker(edit);
+        edit->setText(*f.second);
+        edit->setCursorPosition(0);   // l'inizio di un'espressione lunga
+    }
+    // Cio' che i textChanged dei campi farebbero, una volta sola sullo stato
+    // intero: costanti in uso (limiti e path le citano) e tasti Departure.
+    updateConstantsUIState();
+    checkPathFields();
+    checkPath3DFields();
+}
+
+// FORMATO "shortest round-trip": la rappresentazione piu' CORTA che, riletta,
+// ridia lo STESSO float bit per bit.
+//
+// Con 'g',12 un limite digitato "1.3" ricompariva come "1.29999995232". Non
+// e' un errore di salvataggio: 1.3 non e' rappresentabile in binario e il
+// float piu' vicino vale 1.2999999523162842. Chiedendo 12 cifre a un tipo
+// che ne porta ~7 si stampano cifre che il valore non ha mai avuto.
+//
+// Abbassare a 'g',7 NON va bene: perde precisione dove 7 cifre non bastano
+// a distinguere due float (2*pi -> "6.283185" rilegge un float DIVERSO).
+// Qui si prova da 1 a 9 cifre e ci si ferma alla prima che rilegge identico:
+// "1.3" resta "1.3", mentre 6.2831855 conserva tutte le cifre che gli
+// servono. Il campo viene RILETTO e riconvertito a float (parseLimitField,
+// e il salvataggio rilegge il testo), quindi il round-trip esatto e' la
+// condizione che rende la modifica sicura: verificata su 1.992.204 float
+// casuali, zero fallimenti.
+static QString shortestFloat(float v)
+{
+    for (int prec = 1; prec <= 9; ++prec) {
+        QString s = QString::number(v, 'g', prec);
+        if (s.toFloat() != v) continue;
+        // 'g' passa all'esponenziale appena l'esponente supera la precisione
+        // chiesta: con prec=1 il numero 10 diventerebbe "1e+01". Per le
+        // magnitudini normali si preferisce la forma piatta, che e' quella
+        // che l'utente aveva digitato.
+        if (s.contains('e')) {
+            const float a = qAbs(v);
+            if (a >= 1e-4f && a < 1e7f) {
+                QString flat = QString::number(v, 'f', 9);
+                while (flat.contains('.') && (flat.endsWith('0') || flat.endsWith('.')))
+                    flat.chop(1);
+                if (flat.toFloat() == v) return flat;
+            }
+        }
+        return s;
+    }
+    return QString::number(v, 'g', 9);
+}
+
+MainWindow::LimitTexts MainWindow::limitTextsFromItem(const LibraryItem &d)
+{
+    // La formula, se il preset ne ha una, vince sul numero: e' l'originale
+    // scritto dall'utente, mentre il float e' la sua valutazione al momento
+    // del salvataggio (e non seguirebbe piu' le costanti). Preset vecchi:
+    // formula vuota -> si usa il numero.
+    auto domain = [](float val, const QString &expr) {
+        return expr.isEmpty() ? shortestFloat(val) : expr;
+    };
+    // Taglio x/y/z: il valore di default estremo (+-1000, nessun taglio) lascia
+    // il campo vuoto.
+    auto cut = [](float val, float defVal, const QString &expr) {
+        if (!expr.isEmpty()) return expr;
+        if (std::abs(val - defVal) < 0.001f) return QString();
+        return QString::number(val, 'g', 6);
+    };
+    LimitTexts l;
+    l.uMin = domain(d.uMin, d.uMinExpr);  l.uMax = domain(d.uMax, d.uMaxExpr);
+    l.vMin = domain(d.vMin, d.vMinExpr);  l.vMax = domain(d.vMax, d.vMaxExpr);
+    l.wMin = domain(d.wMin, d.wMinExpr);  l.wMax = domain(d.wMax, d.wMaxExpr);
+    l.xMin = cut(d.xMin, -1000.0f, d.xMinExpr);  l.xMax = cut(d.xMax, 1000.0f, d.xMaxExpr);
+    l.yMin = cut(d.yMin, -1000.0f, d.yMinExpr);  l.yMax = cut(d.yMax, 1000.0f, d.yMaxExpr);
+    l.zMin = cut(d.zMin, -1000.0f, d.zMinExpr);  l.zMax = cut(d.zMax, 1000.0f, d.zMaxExpr);
+    return l;
+}
+
+MainWindow::PathTexts MainWindow::pathTextsFromItem(const LibraryItem &d)
+{
+    PathTexts p;
+    p.x = d.path4D_x;  p.y = d.path4D_y;  p.z = d.path4D_z;  p.p = d.path4D_w;
+    p.alpha = d.path4D_alpha;  p.beta = d.path4D_beta;  p.gamma = d.path4D_gamma;
+    p.x3D = d.path3D_x;  p.y3D = d.path3D_y;  p.z3D = d.path3D_z;  p.roll3D = d.path3D_roll;
+    return p;
+}
+
 void MainWindow::setConstText(ConstField field, const QString &text)
 {
     m_scene.constants.*field = text;

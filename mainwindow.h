@@ -801,8 +801,16 @@ private:
     // per setText/clear a segnali vivi, i cui gestori sono solo derivazioni.
     // Le scritture a segnali BLOCCATI passano da setLineText. I validatori che
     // mettono il cursore sul campo sbagliato ricevono ancora il widget.
-    struct LimitTexts { QString uMin, uMax, vMin, vMax, wMin, wMax;     // dominio
-                        QString xMin, xMax, yMin, yMax, zMin, zMax; };  // taglio RM
+    struct LimitTexts {
+        QString uMin, uMax, vMin, vMax, wMin, wMax;     // dominio
+        QString xMin, xMax, yMin, yMax, zMin, zMax;     // taglio RM
+        // I valori di avvio e di reset: dominio di lavoro 0..2pi, 0..2pi, 0..1
+        // (a campi vuoti il primo Run dell'utente li leggerebbe cosi' come
+        // sono), taglio vuoto = nessun taglio.
+        void resetDomain() { uMin = "0"; uMax = "6.28318"; vMin = "0"; vMax = "6.28318";
+                             wMin = "0"; wMax = "1"; }
+        void clearSpaceCut() { xMin = xMax = yMin = yMax = zMin = zMax = QString(); }
+    };
     struct PathTexts  { QString x, y, z, p, alpha, beta, gamma;         // path 4D
                         QString x3D, y3D, z3D, roll3D; };               // path 3D
     // I testi x/y/z (min, max) dell'ultimo taglio applicato da applySpaceLimits:
@@ -816,6 +824,15 @@ private:
     QString lineText(const QLineEdit *edit) const;
     // Dal programma, a segnali bloccati: `state` e' un membro di m_scene.lim o m_scene.path.
     void setLineText(QString &state, const QString &text);
+    // La VISTA dei 23 campi: i testi dello stato nei campi, a segnali bloccati
+    // (nessuna conferma pendente, cursore all'inizio), poi le derivazioni che
+    // i campi accenderebbero coi loro textChanged -- costanti in uso e tasti
+    // Departure -- una volta sola. Chi assegna m_scene.lim / m_scene.path in
+    // blocco (load, reset) la chiama dopo.
+    void showLineFields();
+    // I testi dei campi a una riga DAL PRESET, funzioni pure del file.
+    static LimitTexts limitTextsFromItem(const LibraryItem &d);
+    static PathTexts pathTextsFromItem(const LibraryItem &d);
     // Steps: in parametrico la risoluzione della mesh, in Ray Marching i Ray
     // Steps. Lo slider e il campo ne sono la vista; il motore (setResolution /
     // setRaySteps) lo scrive chi chiama. setSteps: dal programma, a segnali

@@ -168,12 +168,14 @@ void MainWindow::setupEquationsDock()
 
     ui->glWidget->setParametricEquations(m_scene.eq.x, m_scene.eq.y, m_scene.eq.z, m_scene.eq.p);
 
-    ui->uMinEdit->setText(QString::number(uMin, 'g', 12));
-    ui->uMaxEdit->setText(QString::number(uMax, 'g', 12));
-    ui->vMinEdit->setText(QString::number(vMin, 'g', 12));
-    ui->vMaxEdit->setText(QString::number(vMax, 'g', 12));
-    ui->wMinEdit->setText(QString::number(wMin, 'g', 12));
-    ui->wMaxEdit->setText(QString::number(wMax, 'g', 12));
+    // All'avvio, prima che i campi siano agganciati alle derivazioni: solo
+    // stato e campo (showLineFields arrivera' coi reset).
+    setLineText(m_scene.lim.uMin, QString::number(uMin, 'g', 12));
+    setLineText(m_scene.lim.uMax, QString::number(uMax, 'g', 12));
+    setLineText(m_scene.lim.vMin, QString::number(vMin, 'g', 12));
+    setLineText(m_scene.lim.vMax, QString::number(vMax, 'g', 12));
+    setLineText(m_scene.lim.wMin, QString::number(wMin, 'g', 12));
+    setLineText(m_scene.lim.wMax, QString::number(wMax, 'g', 12));
     ui->wMinEdit->setEnabled(false);
     ui->wMaxEdit->setEnabled(false);
 
@@ -718,9 +720,9 @@ void MainWindow::setupEquationsDock()
 
     // --- 2. Limiti Spaziali (Facoltativi) ---
     // Partiamo con le caselle vuote = Nessun taglio applicato
-    ui->lineXMin->clear(); ui->lineXMax->clear();
-    ui->lineYMin->clear(); ui->lineYMax->clear();
-    ui->lineZMin->clear(); ui->lineZMax->clear();
+    for (QString *t : { &m_scene.lim.xMin, &m_scene.lim.xMax, &m_scene.lim.yMin,
+                        &m_scene.lim.yMax, &m_scene.lim.zMin, &m_scene.lim.zMax })
+        setLineText(*t, QString());
 
     // LIMITI SPAZIALI X/Y/Z: si applicano al RUN, non all'Invio -- stessa regola
     // dei limiti u/v/w e delle equazioni. Sono il taglio della scena in Ray

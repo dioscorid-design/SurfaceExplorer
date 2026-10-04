@@ -649,13 +649,10 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     if (pathTimer->isActive()) onDepartureClicked();
     if (pathTimer3D->isActive()) onDeparture3DClicked();
 
-    // Campi svuotati a segnali VIVI: textChanged -> checkPath(3D)Fields
-    // disabilita i tasti Departure ora che i campi sono vuoti.
-    ui->lineX_P->clear(); ui->lineY_P->clear(); ui->lineZ_P->clear();
-    ui->lineP_P->clear();
-    ui->lineAlpha_P->clear(); ui->lineBeta_P->clear(); ui->lineGamma_P->clear();
-    ui->lineX_P3D->clear(); ui->lineY_P3D->clear(); ui->lineZ_P3D->clear();
-    ui->lineR_P3D->clear();
+    // Testi dei path svuotati; showLineFields disabilita i tasti Departure ora
+    // che i campi sono vuoti.
+    m_scene.path = PathTexts{};
+    showLineFields();
 
     // Stato di sessione dei path azzerato, come al load di un record
     // (vedi applyMotionExample): un futuro Departure riparte da t=0 e
@@ -1081,9 +1078,8 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         ui->glWidget->setRaySteps(m_lastImplicitSteps);
 
         // Reset Limiti Spaziali per non tagliare la superficie di default
-        ui->lineXMin->clear(); ui->lineXMax->clear();
-        ui->lineYMin->clear(); ui->lineYMax->clear();
-        ui->lineZMin->clear(); ui->lineZMax->clear();
+        m_scene.lim.clearSpaceCut();
+        showLineFields();
         if (ui->glWidget) {
             applySpaceLimits(/*notify=*/false);   // campi vuoti: nessun taglio
 
@@ -1207,12 +1203,8 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         // dominio di lavoro, non la superficie. A campi vuoti servono comunque
         // sensati, perche' il primo Run dell'utente li legge cosi' come sono
         // (i limiti si applicano solo al Run, mai con Invio).
-        ui->uMinEdit->setText("0");
-        ui->uMaxEdit->setText("6.28318");
-        ui->vMinEdit->setText("0");
-        ui->vMaxEdit->setText("6.28318");
-        ui->wMinEdit->setText("0");
-        ui->wMaxEdit->setText("1");
+        m_scene.lim.resetDomain();
+        showLineFields();
         updateULimits(); updateVLimits(); updateWLimits();
 
         // 4. RIPRISTINO GEOMETRIA TORO
@@ -2242,25 +2234,9 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     SE_TEXP("record:post-reset-shader");
 
-    // 2. RIEMPI CAMPI TESTO PATH — PRIMA di applyCommonData: la sua
-    // updateConstantsUIState/checkParametricDependency finale giudica le
-    // costanti anche sul testo dei path (una costante usata solo dal path va
-    // tenuta sbloccata); coi campi ancora del record VECCHIO verrebbe
-    // resettata a 1 (stessa firma del bug "preset metrico precedente").
-    ui->lineX_P->setText(data.path4D_x);
-    ui->lineY_P->setText(data.path4D_y);
-    ui->lineZ_P->setText(data.path4D_z);
-    ui->lineP_P->setText(data.path4D_w);
-    ui->lineAlpha_P->setText(data.path4D_alpha);
-    ui->lineBeta_P->setText(data.path4D_beta);
-    ui->lineGamma_P->setText(data.path4D_gamma);
-    checkPathFields();
-
-    ui->lineX_P3D->setText(data.path3D_x);
-    ui->lineY_P3D->setText(data.path3D_y);
-    ui->lineZ_P3D->setText(data.path3D_z);
-    ui->lineR_P3D->setText(data.path3D_roll);
-    checkPath3DFields();
+    // (I testi dei path li assegna applyCommonData in testa, prima di ogni
+    // giudizio sulle costanti: una costante usata solo dal path va tenuta
+    // sbloccata, e coi campi del record VECCHIO verrebbe resettata a 1.)
 
     // 3. Dati Comuni (Surface)
     // NB per la sonda: e' applyCommonData a portare F (e le altre costanti) dal
@@ -3300,9 +3276,8 @@ void MainWindow::resetImplicitSharedFields()
     // (vedi il costruttore e il ramo implicito di resetScene, stessa scrittura).
     // A segnali bloccati: textEdited qui significherebbe "l'utente ha modificato
     // la scena" e accenderebbe il Run one-shot / l'avviso lavoro non salvato.
-    for (QString *t : { &m_scene.lim.xMin, &m_scene.lim.xMax, &m_scene.lim.yMin,
-                        &m_scene.lim.yMax, &m_scene.lim.zMin, &m_scene.lim.zMax })
-        setLineText(*t, QString());
+    m_scene.lim.clearSpaceCut();
+    showLineFields();
     applySpaceLimits(/*notify=*/false);   // campi vuoti: nessun taglio
 
     // STEP RELAX e RAY STEPS: sono le due manopole del MARCHER, non della
@@ -3791,21 +3766,13 @@ void MainWindow::applyCommonData(LibraryItem d)
     // Etichette delle rotazioni: dal motore
     refreshRotationSpeedLabels();
 
-    // Reset Limiti Intervalli di Default (Evita glitch se il preset non li dichiara)
-    // Parametriche
-    ui->uMinEdit->setText("0");
-    ui->uMaxEdit->setText("6.28318");
-    ui->vMinEdit->setText("0");
-    ui->vMaxEdit->setText("6.28318");
-    ui->wMinEdit->setText("0");
-    ui->wMaxEdit->setText("1");
-    // Ray Marching
-    ui->lineXMin->clear();
-    ui->lineXMax->clear();
-    ui->lineYMin->clear();
-    ui->lineYMax->clear();
-    ui->lineZMin->clear();
-    ui->lineZMax->clear();
+    // LIMITI E PATH: i testi del preset, assegnati qui in blocco e PRIMA di
+    // ogni giudizio sulle costanti, che li legge (una costante usata solo da
+    // un limite o da un path va tenuta sbloccata). Il motore li riceve piu'
+    // sotto (updateU/V/WLimits, applySpaceLimits, compilePath*).
+    m_scene.lim = limitTextsFromItem(d);
+    m_scene.path = pathTextsFromItem(d);
+    showLineFields();
 
     // ==========================================================
     // 2. APPLICAZIONE DATI DEL PRESET
@@ -3877,88 +3844,9 @@ void MainWindow::applyCommonData(LibraryItem d)
     ui->glWidget->setResolution(d.steps);
     ui->glWidget->setRaySteps(d.steps);
 
-    // La formula, se il record ne ha una, vince sul numero: e' l'originale
-    // scritto dall'utente, mentre il float e' la sua valutazione al momento
-    // del salvataggio (e non seguirebbe piu' le costanti). Record vecchi:
-    // expr vuota -> si usa il numero, come prima.
-    // FORMATO "shortest round-trip": la rappresentazione piu' CORTA che, riletta,
-    // ridia lo STESSO float bit per bit.
-    //
-    // Con 'g',12 un limite digitato "1.3" ricompariva come "1.29999995232". Non
-    // e' un errore di salvataggio: 1.3 non e' rappresentabile in binario e il
-    // float piu' vicino vale 1.2999999523162842. Chiedendo 12 cifre a un tipo
-    // che ne porta ~7 si stampano cifre che il valore non ha mai avuto.
-    //
-    // Abbassare a 'g',7 NON va bene: perde precisione dove 7 cifre non bastano
-    // a distinguere due float (2*pi -> "6.283185" rilegge un float DIVERSO).
-    // Qui si prova da 1 a 9 cifre e ci si ferma alla prima che rilegge identico:
-    // "1.3" resta "1.3", mentre 6.2831855 conserva tutte le cifre che gli
-    // servono. Il campo viene RILETTO e riconvertito a float (parseLimitField,
-    // e il salvataggio rilegge f.edit->text()), quindi il round-trip esatto e'
-    // la condizione che rende la modifica sicura: verificata su 1.992.204 float
-    // casuali, zero fallimenti.
-    auto shortestFloat = [](float v) -> QString {
-        for (int prec = 1; prec <= 9; ++prec) {
-            QString s = QString::number(v, 'g', prec);
-            if (s.toFloat() != v) continue;
-            // 'g' passa all'esponenziale appena l'esponente supera la precisione
-            // chiesta: con prec=1 il numero 10 diventerebbe "1e+01". Per le
-            // magnitudini normali si preferisce la forma piatta, che e' quella
-            // che l'utente aveva digitato.
-            if (s.contains('e')) {
-                const float a = qAbs(v);
-                if (a >= 1e-4f && a < 1e7f) {
-                    QString flat = QString::number(v, 'f', 9);
-                    while (flat.contains('.') && (flat.endsWith('0') || flat.endsWith('.')))
-                        flat.chop(1);
-                    if (flat.toFloat() == v) return flat;
-                }
-            }
-            return s;
-        }
-        return QString::number(v, 'g', 9);
-    };
-
-    auto setLim = [&shortestFloat](QLineEdit* line, float val, const QString& expr) {
-        line->setText(expr.isEmpty() ? shortestFloat(val) : expr);
-        line->setCursorPosition(0); // Riporta il cursore a sinistra
-        // Testo scritto dal PRESET, non dall'utente: nessuna conferma pendente.
-        // Senza questo, un preset caricato mentre un limite era in attesa di
-        // conferma farebbe validare all'uscita dal campo un testo che l'utente
-        // non ha mai scritto (e su un dominio 0/0 -- caso vivo -- uscirebbe un
-        // popup d'errore a sproposito).
-        line->setProperty("userEditPending", false);
-    };
-
-    setLim(ui->uMinEdit, d.uMin, d.uMinExpr);
-    setLim(ui->uMaxEdit, d.uMax, d.uMaxExpr);
-    setLim(ui->vMinEdit, d.vMin, d.vMinExpr);
-    setLim(ui->vMaxEdit, d.vMax, d.vMaxExpr);
-    setLim(ui->wMinEdit, d.wMin, d.wMinExpr);
-    setLim(ui->wMaxEdit, d.wMax, d.wMaxExpr);
-
     updateULimits();
     updateVLimits();
     updateWLimits();
-
-    // Come per u/v/w, la formula ("2*A") vince sul numero, che resta il fallback.
-    auto setLimSpace = [](QLineEdit* line, float val, float defVal, const QString& expr) {
-        if (!expr.isEmpty()) {
-            line->setText(expr);
-        } else if (std::abs(val - defVal) < 0.001f) {
-            line->clear(); // Se è il valore di default estremo, lascia la casella pulita
-        } else {
-            line->setText(QString::number(val, 'g', 6));
-        }
-        line->setCursorPosition(0);
-    };
-
-    setLimSpace(ui->lineXMin, d.xMin, -1000.0f, d.xMinExpr);
-    setLimSpace(ui->lineXMax, d.xMax, 1000.0f, d.xMaxExpr);
-    setLimSpace(ui->lineYMin, d.yMin, -1000.0f, d.yMinExpr);
-    setLimSpace(ui->lineYMax, d.yMax, 1000.0f, d.yMaxExpr);
-    setLimSpace(ui->lineZMin, d.zMin, -1000.0f, d.zMinExpr);
-    setLimSpace(ui->lineZMax, d.zMax, 1000.0f, d.zMaxExpr);
 
     // Forza immediatamente i limiti sulla GPU cancellando le reminiscenze vecchie
     if (ui->glWidget) {
@@ -4337,27 +4225,11 @@ void MainWindow::applyCommonData(LibraryItem d)
     // riscrive subito dopo (applyMotionExample).
     resetMotionControls();
 
-    // Path 3D
-    ui->lineX_P3D->setText(d.path3D_x);
-    ui->lineY_P3D->setText(d.path3D_y);
-    ui->lineZ_P3D->setText(d.path3D_z);
-    ui->lineR_P3D->setText(d.path3D_roll);
-
-    ui->glWidget->getEngine()->compilePath3DEquations(d.path3D_x, d.path3D_y, d.path3D_z, d.path3D_roll);
-
-    // Path 4D
-    ui->lineX_P->setText(d.path4D_x);
-    ui->lineY_P->setText(d.path4D_y);
-    ui->lineZ_P->setText(d.path4D_z);
-    ui->lineP_P->setText(d.path4D_w);
-    ui->lineAlpha_P->setText(d.path4D_alpha);
-    ui->lineBeta_P->setText(d.path4D_beta);
-    ui->lineGamma_P->setText(d.path4D_gamma);
-
-    ui->glWidget->getEngine()->compilePathEquations(
-                d.path4D_x, d.path4D_y, d.path4D_z, d.path4D_w,
-                d.path4D_alpha, d.path4D_beta, d.path4D_gamma
-                );
+    // Path 3D e 4D nel motore, dai testi assegnati in testa (m_scene.path).
+    const PathTexts &pt = m_scene.path;
+    ui->glWidget->getEngine()->compilePath3DEquations(pt.x3D, pt.y3D, pt.z3D, pt.roll3D);
+    ui->glWidget->getEngine()->compilePathEquations(pt.x, pt.y, pt.z, pt.p,
+                                                    pt.alpha, pt.beta, pt.gamma);
 
     // Reset Variabili Tempo Locali
     pathTimeT = 0.0f;
