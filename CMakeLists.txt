@@ -78,6 +78,19 @@ qt_add_executable(SurfaceExplorer
     mainwindow.cpp
     mainwindow.h
     mainwindow.ui
+    # MainWindow divisa per argomento: stessa classe, un file per area
+    # (intestazione privata comune mainwindow_p.h).
+    mainwindow_p.h
+    mainwindow_scene.cpp
+    mainwindow_state.cpp
+    mainwindow_equations.cpp
+    mainwindow_run.cpp
+    mainwindow_motion.cpp
+    mainwindow_texture.cpp
+    mainwindow_render.cpp
+    mainwindow_script.cpp
+    mainwindow_library.cpp
+    mainwindow_hint.cpp
 
     # --- ENGINE & PARSING ---
     surfaceengine.cpp

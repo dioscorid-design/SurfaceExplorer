@@ -1,0 +1,1044 @@
+// mainwindow_motion.cpp - MainWindow: moti della camera -- path 4D e 3D, rotazioni,
+// navigazione, proiezione e FOV.
+// Parte della classe MainWindow divisa per argomento (mainwindow_p.h).
+#include "mainwindow_p.h"
+
+
+void MainWindow::switchTo3DMode()
+{   updateLayoutForMode(1);
+    ui->glWidget->set4DLighting(false);
+    updateProjectionButtonText();
+}
+
+void MainWindow::switchTo4DMode() {
+    updateLayoutForMode(2);
+    ui->glWidget->set4DLighting(true);
+    updateProjectionButtonText();
+}
+
+void MainWindow::update4DButtonState()
+{
+    // 1. Controllo Equazione P
+    QString pText = m_eq.p.trimmed();
+
+    // Gestione Virgola/Punto
+    QString sanitizedP = pText;
+    sanitizedP.replace(",", ".");
+
+    bool isNumber;
+    float val = sanitizedP.toFloat(&isNumber);
+
+    bool isEquation3D = true;
+
+    if (!pText.isEmpty()) {
+        if (isNumber) {
+            if (std::abs(val) > 0.001f) {
+                isEquation3D = false;
+            }
+        } else {
+            isEquation3D = false;
+        }
+    }
+
+    // 2. Controllo Rotazione 4D (Angoli Omega, Phi, Psi)
+    bool has4DRotation = false;
+    if (ui->glWidget) {
+        float eps = 0.01f;
+        bool angleNonZero = (std::abs(ui->glWidget->getOmega()) > eps ||
+                             std::abs(ui->glWidget->getPhi())   > eps ||
+                             std::abs(ui->glWidget->getPsi())   > eps);
+        has4DRotation = angleNonZero;
+    }
+
+    // 3. Logica: ABILITA SE (P è valido e != 0) OPPURE (C'è rotazione 4D)
+    bool enable4D = (!isEquation3D) || has4DRotation;
+
+    // 4. --- CERCA IL PULSANTE NELLA STATUS BAR E ABILITALO/DISABILITALO ---
+    QPushButton* btn4D = ui->statusbar->findChild<QPushButton*>("btnDock4D");
+    if (btn4D) {
+        btn4D->setEnabled(true);
+    }
+
+    // 5. Uscita forzata se disabilitato mentre attivo.
+    // MA non mentre un path anima: all'avvio di un Departure questa funzione viene
+    // richiamata prima che il primo tick imposti la rotazione 4D, quindi enable4D
+    // potrebbe risultare falso e chiuderebbe il dock 4D da cui si e' avviato il
+    // path. I dock si chiudono solo a mano (o quando P viene svuotato a path fermo).
+    bool pathActive = (pathTimer && pathTimer->isActive()) ||
+                      (pathTimer3D && pathTimer3D->isActive());
+    if (!enable4D && ui->dock4D->isVisible() && !pathActive) {
+        ui->dock4D->close();
+    }
+}
+
+void MainWindow::stopPathAnimations()
+{
+    // Ferma entrambi i percorsi camera (4D + 3D) riportandoli allo stato "fermo".
+    // Rispecchia il ramo STOP di onDepartureClicked / onDeparture3DClicked.
+    bool changed = false;
+    if (pathTimer && pathTimer->isActive()) {
+        pathTimer->stop();
+        ui->btnDeparture->setText("DEPARTURE");
+        checkPathFields();
+        changed = true;
+    }
+    if (pathTimer3D && pathTimer3D->isActive()) {
+        pathTimer3D->stop();
+        ui->btnDeparture3D->setText("DEPARTURE");
+        checkPath3DFields();
+        changed = true;
+    }
+    if (changed) {
+        if (ui->glWidget) ui->glWidget->setPathAnimating(false);
+        updateViewButtonsEnabled();
+    }
+}
+
+void MainWindow::stopRotationMotion()
+{
+    // Ferma il moto GO (rotazioni superficie/4D). Rispecchia il ramo "STOP" di
+    // onStopClicked, ma non tocca i timer dei path.
+    if (ui->glWidget && ui->glWidget->isAnimating()) {
+        ui->glWidget->pauseMotion();
+        if (ui->btnStart_2) ui->btnStart_2->setText("GO");
+    }
+}
+
+void MainWindow::onResetViewClicked()
+{
+    // Il reset deve comportarsi come per le rotazioni: se un path e' in corso,
+    // NON lo fermiamo. Reset azzera solo la posizione (t=0) e la vista spaziale,
+    // poi il path RIPARTE da capo (come la rotazione riprende dalla posa resettata).
+    bool wasPathRunning   = pathTimer->isActive();
+    bool wasPath3DRunning = pathTimer3D->isActive();
+
+    // Riportiamo il tempo del percorso a t=0 in entrambi i casi (il path,
+    // se attivo, ricomincera' dall'inizio; se fermo, resta fermo a 0).
+    pathTimeT = 0.0f;
+    pathTimeT3D = 0.0f;
+
+    // Solo i path NON attivi tornano allo stato "DEPARTURE"; quelli in corso
+    // restano su "STOP" perche' continuano a girare.
+    if (!wasPathRunning) {
+        ui->btnDeparture->setText("DEPARTURE");
+        checkPathFields();
+    }
+    if (!wasPath3DRunning) {
+        ui->btnDeparture3D->setText("DEPARTURE");
+        checkPath3DFields();
+    }
+
+    // Il motore resetta SOLO la vista spaziale (angoli e posizione), senza
+    // uccidere il tempo 't' e senza azzerare le velocità di rotazione.
+    // NB: resetTransformations() spegne m_isPathFollowing, ma il primo tick
+    // successivo del pathTimer lo riaccende: basta lasciare il timer attivo.
+    ui->glWidget->resetTransformations();
+
+    // resetTransformations riporta la proiezione al FOV di default, ma lo
+    // slider restava sul valore di prima: a schermo 45, sullo slider e nel Save
+    // 70. Senza un path in corsa il reset della vista riporta al default anche
+    // lo slider, come il reset di scena; con un path in corsa il FOV e' quello
+    // scelto per il volo e resta (il path riparte da t=0 con la sua
+    // prospettiva).
+    applyCameraFov((wasPathRunning || wasPath3DRunning) ? m_fov3D : 45.0f);
+
+    // Se un path era in corso, lo teniamo vivo: riparte da t=0 dopo il reset
+    // della posa, esattamente come fa la rotazione.
+    if (wasPathRunning && ui->glWidget) {
+        ui->glWidget->setPathAnimating(true);
+    }
+    if (wasPath3DRunning && ui->glWidget) {
+        ui->glWidget->setPathAnimating(true);
+    }
+
+    // Aggiorna in sicurezza la mesh. useAppliedEquations: il ripristino di un
+    // path non e' un Run e non deve applicare equazioni in sospeso.
+    checkAndTriggerMeshUpdate(/*useAppliedEquations=*/true);
+
+    // Sincronizza il pulsante principale (che rimarrà su STOP se la superficie,
+    // le rotazioni o un path stanno andando)
+    updateMasterButtonState();
+
+    // Reset view: lo stato 4D appena azzerato diventa il nuovo zero dei campi.
+    resetNav4DBaseline();
+}
+
+void MainWindow::onNavTimerTick()
+{
+    if (activeNavActions.isEmpty()) return;
+
+    // Stato 4D PRIMA degli scatti di questo tick. La differenza col dopo e'
+    // quanto hanno prodotto i tasti -- e solo loro, perche' fra queste due
+    // righe non gira nient'altro: le rotazioni automatiche avanzano nel tick di
+    // rotationTimer, il path nel suo. E' il motivo per cui la misura si prende
+    // qui e non in updateNav4DReadout, dove i due contributi sarebbero gia'
+    // sommati e indistinguibili.
+    const QVector4D obsBefore = ui->glWidget->observerPos();
+    const float csPBefore   = ui->glWidget->crossSectionP();
+    const float omegaBefore = ui->glWidget->getOmega();
+    const float phiBefore   = ui->glWidget->getPhi();
+    const float psiBefore   = ui->glWidget->getPsi();
+
+    for (int action : activeNavActions) {
+        ui->glWidget->virtualMove(static_cast<GLWidget::MoveDir>(action), pathSpeed3D(), pathSpeed4D());
+    }
+
+    m_nav4DDeltaObs   += ui->glWidget->observerPos() - obsBefore;
+    m_nav4DDeltaCsP   += ui->glWidget->crossSectionP() - csPBefore;
+    m_nav4DDeltaOmega += ui->glWidget->getOmega() - omegaBefore;
+    m_nav4DDeltaPhi   += ui->glWidget->getPhi()   - phiBefore;
+    m_nav4DDeltaPsi   += ui->glWidget->getPsi()   - psiBefore;
+
+    updateNav4DReadout();
+
+    // useAppliedEquations: navigare non e' un Run.
+    checkAndTriggerMeshUpdate(/*useAppliedEquations=*/true);
+}
+
+// Readout numerico dei tasti a scatto del dock 4D: i tasti non davano alcun
+// riscontro, quindi dopo qualche click non c'era modo di sapere il valore
+// corrente ne' di tornare a una posizione nota.
+//
+// IL DOCK SERVE DUE MODALITA' CON SEMANTICHE DIVERSE, e le label devono seguire
+// quella attiva, non una sola delle due:
+//  - PARAMETRICO: X/Y/Z/P muovono l'OSSERVATORE 4D (m_observerPos, che il ramo
+//    parametrico legge davvero). Nota che la sua W parte da 4.0, non da 0: e'
+//    la distanza di default della camera 4D, e mostrare "0.00" li' sarebbe una
+//    bugia.
+//  - RAY MARCHING: X/Y/Z sono spenti (scriverebbero uno stato che il template
+//    del marcher non legge, vedi updateRenderState) e P muove invece la QUOTA
+//    DEL PIANO DI SEZIONE (m_crossSectionP). Le label X/Y/Z mostrano percio'
+//    un trattino: il valore esiste nel motore ma non descrive nulla di cio' che
+//    si vede, e un numero che non cambia mai premendo il tasto confonde.
+// Omega/Phi/Psi sono gli stessi angoli nei due modi, quindi non si ramificano.
+void MainWindow::updateNav4DReadout()
+{
+    if (!ui->glWidget) return;
+
+    const bool isImplicitMode = (implicitMode());
+
+    // Il segno si mostra esplicitamente ('+' incluso) perche' un delta senza
+    // segno si confonde con una posizione.
+    auto fmt = [](float v) {
+        // -0.00 e' matematicamente corretto ma si legge come un errore.
+        if (qAbs(v) < 0.005f) v = 0.0f;
+        return QString::asprintf("%+.2f", v);
+    };
+
+    if (ui->lblXVal4D) ui->lblXVal4D->setText(fmt(m_nav4DDeltaObs.x()));
+    if (ui->lblYVal4D) ui->lblYVal4D->setText(fmt(m_nav4DDeltaObs.y()));
+    if (ui->lblZVal4D) ui->lblZVal4D->setText(fmt(m_nav4DDeltaObs.z()));
+
+    // P: quota della sezione in Ray Marching, quarta coordinata (distanza) della
+    // camera 4D in parametrico. Due grandezze distinte, due accumulatori: lo
+    // stesso tasto muove l'una o l'altra secondo il modo, e passando da un modo
+    // all'altro il campo deve mostrare gli scatti dati IN QUEL modo.
+    if (ui->lblPVal4D)
+        ui->lblPVal4D->setText(fmt(isImplicitMode ? m_nav4DDeltaCsP
+                                                  : m_nav4DDeltaObs.w()));
+
+    if (ui->lblOmegaVal4D) ui->lblOmegaVal4D->setText(fmt(m_nav4DDeltaOmega));
+    if (ui->lblPhiVal4D)   ui->lblPhiVal4D->setText(fmt(m_nav4DDeltaPhi));
+    if (ui->lblPsiVal4D)   ui->lblPsiVal4D->setText(fmt(m_nav4DDeltaPsi));
+}
+
+// Azzera il conto degli scatti: il dock torna a sette "+0.00" qualunque sia lo
+// stato reale del motore. E' il comportamento voluto anche sui preset, dove
+// l'inquadratura salvata e' il punto da cui l'utente inizia a muoversi.
+// (Il nome parla ancora di "baseline" per continuita' coi ~4 punti che la
+// chiamano -- cambio scena, load di superfici e record, tasto RESET.)
+void MainWindow::resetNav4DBaseline()
+{
+    if (!ui->glWidget) return;
+    m_nav4DDeltaObs   = QVector4D(0.0f, 0.0f, 0.0f, 0.0f);
+    m_nav4DDeltaCsP   = 0.0f;
+    m_nav4DDeltaOmega = 0.0f;
+    m_nav4DDeltaPhi   = 0.0f;
+    m_nav4DDeltaPsi   = 0.0f;
+    updateNav4DReadout();
+}
+
+void MainWindow::commitPathFieldOnEnter(const QString& fieldName)
+{
+    // Invio su un campo path a moto ATTIVO: ricompila le equazioni al volo,
+    // cosi' una costante (o qualunque modifica all'espressione) entra subito
+    // senza fermare e far ripartire il path. I VALORI delle costanti sono gia' live
+    // (m_pathSymbolTable le lega per riferimento, vedi SurfaceEngine).
+    // NB: chiamata dai filtri tastiera (desktop e mobile), che consumano il
+    // Return prima che i QLineEdit possano emettere returnPressed.
+    //
+    // CAMPI SVUOTATI: l'Invio FERMA il path invece di ricompilarlo. Cancellare
+    // tutti i campi e confermare e' il modo naturale di dire "basta": senza
+    // questo ramo il path continuava a correre sull'ultima compilazione valida,
+    // con il tasto su STOP e il master su Stop, su una definizione che a schermo
+    // non esisteva piu'. Si passa da onDeparture*Clicked a timer ATTIVO, cioe'
+    // dal suo ramo di arresto: ferma il timer, riporta il tasto a DEPARTURE e
+    // riallinea Departure (che ora si spegne, campi vuoti) e master (che torna
+    // su Start). Rifare quei passaggi a mano qui significherebbe due copie che
+    // divergono al primo cambiamento.
+    // PATH FERMO e campi validi: l'Invio AVVIA, come il tasto. Scritta
+    // un'equazione, confermarla e vederla partire e' il gesto naturale, e ora
+    // che basta una coordinata sola il giro "scrivo, poi vado col mouse sul
+    // tasto" e' quasi sempre superfluo.
+    // Si passa da onDeparture*Clicked a timer INATTIVO, cioe' dal suo ramo di
+    // avvio: compila (e in caso d'errore non parte, col suo popup), applica la
+    // mutua esclusivita' con l'altro path e col moto GO, fa l'handoff di camera
+    // 3D<->4D, porta il tasto su STOP e il master su Stop. Tutte cose che
+    // rifatte qui a mano sarebbero una seconda copia destinata a divergere.
+    //
+    // Riassunto dei tre casi, per lato:
+    //   campi vuoti + path in corsa -> ferma      (ramo STOP)
+    //   campi validi + path in corsa -> ricompila al volo
+    //   campi validi + path fermo    -> avvia     (ramo DEPARTURE)
+    //   campi vuoti  + path fermo    -> niente
+    if (fieldName.endsWith("_P3D")) {
+        if (!pathTimer3D) return;
+        if (pathTimer3D->isActive()) {
+            if (!hasPath3DInput()) onDeparture3DClicked();
+            else                   compilePath3DFromFields();
+        } else if (hasPath3DInput()) {
+            onDeparture3DClicked();
+        }
+    } else {
+        if (!pathTimer) return;
+        if (pathTimer->isActive()) {
+            if (!hasPath4DInput()) onDepartureClicked();
+            else                   compilePath4DFromFields();
+        } else if (hasPath4DInput()) {
+            onDepartureClicked();
+        }
+    }
+}
+
+bool MainWindow::compilePath4DFromFields()
+{
+    // Pulizia input (campo vuoto = "0", virgola decimale tollerata)
+    auto getSafeEq = [this](QLineEdit* line) {
+        QString t = lineText(line).trimmed();
+        if (t.isEmpty()) return QString("0");
+        return t.replace(",", ".");
+    };
+
+    QString eqX = getSafeEq(ui->lineX_P);
+    QString eqY = getSafeEq(ui->lineY_P);
+    QString eqZ = getSafeEq(ui->lineZ_P);
+    QString eqP = getSafeEq(ui->lineP_P);
+
+    // Opzionali
+    QString eqAlpha = getSafeEq(ui->lineAlpha_P);
+    QString eqBeta  = getSafeEq(ui->lineBeta_P);
+    QString eqGamma = getSafeEq(ui->lineGamma_P);
+
+    bool syntaxWarned = false;
+    if (!InputValidator::validateFieldList(this, {
+        {"X(t)", eqX},
+        {"Y(t)", eqY},
+        {"Z(t)", eqZ},
+        {"W(t)", eqP},
+        {"Alpha(t)", eqAlpha},
+        {"Beta(t)", eqBeta},
+        {"Gamma(t)", eqGamma}
+    }, &syntaxWarned)) {
+        return false;
+    }
+
+    bool ok = ui->glWidget->getEngine()->compilePathEquations(eqX, eqY, eqZ, eqP, eqAlpha, eqBeta, eqGamma);
+    if (!ok) {
+        // Niente secondo popup se un warning di sintassi e' gia' comparso (stesso errore).
+        if (!syntaxWarned)
+            QMessageBox::warning(this, "Error", "Path 4D compilation error .\nCheck the syntax.");
+        return false;
+    }
+    return true;
+}
+
+bool MainWindow::compilePath3DFromFields()
+{
+    auto getSafeEq = [this](QLineEdit* line) {
+        QString t = lineText(line).trimmed();
+        if (t.isEmpty()) return QString("0");
+        return t.replace(",", ".");
+    };
+
+    QString eqX = getSafeEq(ui->lineX_P3D);
+    QString eqY = getSafeEq(ui->lineY_P3D);
+    QString eqZ = getSafeEq(ui->lineZ_P3D);
+    QString eqR = getSafeEq(ui->lineR_P3D);
+
+    bool syntaxWarned = false;
+    if (!InputValidator::validateFieldList(this, {
+        {"X(t)", eqX},
+        {"Y(t)", eqY},
+        {"Z(t)", eqZ},
+        {"Roll(t)", eqR}
+    }, &syntaxWarned)) {
+        return false;
+    }
+
+    bool ok = ui->glWidget->getEngine()->compilePath3DEquations(eqX, eqY, eqZ, eqR);
+    if (!ok) {
+        // Niente secondo popup se l'utente e' gia' stato avvisato da un warning di
+        // sintassi (es. operatori consecutivi): sarebbe lo stesso errore due volte.
+        if (!syntaxWarned)
+            QMessageBox::warning(this, "Error", "3D path compilation error.\nCheck the syntax.");
+        return false;
+    }
+    return true;
+}
+
+void MainWindow::onDepartureClicked()
+{
+    // NB: funziona anche DURANTE il REC — i timer restano attivi (tick no-op)
+    // e il loop legge lo stato vivo a ogni frame (vedi onPathTimerTick).
+
+    // CASO 1: VOGLIAMO FERMARE
+    if (pathTimer->isActive()) {
+        pathTimer->stop();
+        m_userStoppedCameraMotion = true;
+        if (ui->glWidget) ui->glWidget->setPathAnimating(false);
+        updateViewButtonsEnabled();
+        ui->btnDeparture->setText("DEPARTURE");
+        checkPathFields();
+        updateMasterButtonState();
+        return;
+    }
+
+    // CASO 2: VOGLIAMO PARTIRE
+    // Mutua esclusivita': fermiamo il percorso 3D e il moto GO se attivi.
+    // Se stiamo SUBENTRANDO al path 3D, la camera fa l'handoff (scivolata
+    // continua invece del teletrasporto): vedi GLWidget::beginPathHandoff.
+    const bool handoffFrom3D = pathTimer3D->isActive();
+    if (pathTimer3D->isActive()) {
+        pathTimer3D->stop();
+        ui->btnDeparture3D->setText("DEPARTURE");
+    }
+    stopRotationMotion();
+
+    if (!compilePath4DFromFields()) {
+        return; // Errore matematico o di compilazione: niente avvio
+    }
+
+    // Base 4D per le compensazioni del tick: solo il primo Departure parte da
+    // orientamento 4D neutro; dai successivi si conserva l'orientamento corrente
+    // (es. quello accumulato dal moto GO), senza reset nel passaggio di modalita'.
+    //
+    // "Conservare" vuol dire che il PRIMO TICK ridia l'orientamento corrente, e
+    // il tick scrive phi = base - gamma(t), psi = base - beta(t) (vedi
+    // applyPath4DCameraAt). Quindi la base e' l'orientamento corrente PIU' la
+    // compensazione al tempo da cui si riparte: leggere solo getPhi/getPsi,
+    // dopo uno Stop di questo stesso path, contava due volte il -gamma/-beta gia'
+    // applicato, e alla ripartenza la sezione saltava di gamma(T)/beta(T) --
+    // con alpha=beta=gamma=t (Morphing 3-Torus) tanto piu' quanto piu' a lungo
+    // il path aveva girato. Vale anche venendo dal moto GO o dal path 3D: gli
+    // angoli correnti includono gia' quel che e' successo nel frattempo.
+    // La formula usa le equazioni APPENA compilate qui sopra: se i campi sono
+    // cambiati durante lo Stop resta continua la rotazione (la posizione segue
+    // il nuovo path, com'e' giusto).
+    if (!m_path4DStartedOnce) {
+        m_path4DStartedOnce = true;
+        m_pathBaseOmega = m_pathBasePhi = m_pathBasePsi = 0.0f;
+    } else {
+        SurfaceEngine *engine = ui->glWidget->getEngine();
+        m_pathBaseOmega = ui->glWidget->getOmega();
+        m_pathBasePhi   = ui->glWidget->getPhi() + engine->evaluatePathGamma(pathTimeT);
+        m_pathBasePsi   = ui->glWidget->getPsi() + engine->evaluatePathBeta(pathTimeT);
+    }
+
+    if (handoffFrom3D && ui->glWidget) ui->glWidget->beginPathHandoff();
+
+    pathTimer->start();
+    m_lastCameraMotion = "path4D";
+    m_userStoppedCameraMotion = false;
+    if (ui->glWidget) {
+        ui->glWidget->setPathAnimating(true);
+        // Solo il PRIMO Departure della sessione azzera la rotazione di default
+        // (se non ruotata a mano); dai successivi si conserva l'orientamento
+        // accumulato (es. dal moto GO), senza reset nel cambio di modalita'.
+        if (!m_anyPathStartedOnce) {
+            m_anyPathStartedOnce = true;
+            ui->glWidget->neutralizeDefaultRotationForPath();
+        }
+    }
+    updateViewButtonsEnabled();
+    ui->btnDeparture->setText("STOP");
+
+    updateMasterButtonState();
+    update4DButtonState();   // riallinea i controlli 4D dopo l'eventuale stop del moto GO
+}
+
+void MainWindow::onPathTimerTick()
+{
+    if (!pathTimer->isActive()) return;
+    // Durante il REC il timer resta ATTIVO (lo stato deve restare vero per
+    // bottoni/esclusivita'/handler) ma il tempo lo avanza SOLO il loop del
+    // recorder, col dt virtuale del frame: il tick live e' un no-op.
+    if (m_isRecording) return;
+
+    pathTimeT += pathSpeed4D();
+    applyPath4DCameraAt(pathTimeT);
+}
+
+void MainWindow::applyPath4DCameraAt(float t)
+{
+    // NB: il FOV NON si applica qui. Con lo slider unico del dock renderer il
+    // campo visivo e' gia' impostato su GLWidget e vale per tutto (path,
+    // rotazioni, superfici ferme); riapplicarlo a ogni tick sovrascriverebbe una
+    // regolazione fatta MENTRE il path e' in corsa. Il recorder non ne risente:
+    // legge lo stesso m_cameraFov vivo del tick live.
+
+    // 1. SETUP BASE
+    float dt = 0.01f;
+
+    SurfaceEngine* engine = ui->glWidget->getEngine();
+
+    // 2. VALUTAZIONE POSIZIONE (la tangente serve solo in vista Tangent,
+    // quindi p_prev si valuta dentro quel ramo: una eval exprtk in meno
+    // per frame in vista Center)
+    QVector4D p_curr = engine->evaluatePathPosition(t);
+    QVector4D p_next = engine->evaluatePathPosition(t + dt);
+
+    QVector4D V;
+
+    // 3. RECUPERO ANGOLI (Alpha, Beta, Gamma)
+    float alpha = engine->evaluatePathAlpha(t);
+    float beta  = engine->evaluatePathBeta(t);
+    float gamma = engine->evaluatePathGamma(t);
+
+    // 4. CALCOLO BASE ORTONORMALE LOCALE (N1, N2, N3)
+    QVector4D N1, N2, N3;
+    QVector4D finalPos4D, finalTarget4D, finalUp4D;
+
+    if (m_pathViewMode4D == ModeTangential) {
+        QVector4D velocity = p_next - engine->evaluatePathPosition(t - dt);
+        V = (velocity.lengthSquared() > 1e-8f) ? velocity.normalized() : QVector4D(0, 1, 0, 0);
+
+        QVector4D K(0.0f, 0.0f, 1.0f, 0.0f);
+        N1 = K - V * QVector4D::dotProduct(K, V);
+        if (N1.lengthSquared() > 1e-6f) N1.normalize();
+        else {
+            QVector4D Y(0.0f, 1.0f, 0.0f, 0.0f);
+            N1 = (Y - V * QVector4D::dotProduct(Y, V)).normalized();
+        }
+
+        QVector3D v3 = V.toVector3D();
+        QVector3D n13 = N1.toVector3D();
+        QVector3D side3 = QVector3D::crossProduct(v3, n13);
+
+        if (side3.lengthSquared() > 1e-6f) {
+            N2 = QVector4D(side3, 0.0f).normalized();
+            N2 = N2 - V * QVector4D::dotProduct(N2, V) - N1 * QVector4D::dotProduct(N2, N1);
+            N2.normalize();
+        } else {
+            QVector4D I(1.0f, 0.0f, 0.0f, 0.0f);
+            N2 = I - V * QVector4D::dotProduct(I, V) - N1 * QVector4D::dotProduct(I, N1);
+            N2.normalize();
+        }
+        finalPos4D = p_curr - V * 0.2f;
+        finalTarget4D = p_next;
+    } else {
+        finalPos4D = p_curr;
+        finalTarget4D = QVector4D(0,0,0,0);
+        QVector4D viewDir = (finalTarget4D - finalPos4D);
+        V = (viewDir.lengthSquared() > 1e-8f) ? viewDir.normalized() : QVector4D(0,0,-1,0);
+        N1 = QVector4D(0,0,1,0);
+
+        QVector4D globalX(1,0,0,0);
+        N2 = globalX - V * QVector4D::dotProduct(globalX, V) - N1 * QVector4D::dotProduct(globalX, N1);
+        N2.normalize();
+    }
+
+    // Calcolo N3 (Ana)
+    float dx =  det3x3(V.y(), V.z(), V.w(),  N1.y(), N1.z(), N1.w(),  N2.y(), N2.z(), N2.w());
+    float dy = -det3x3(V.x(), V.z(), V.w(),  N1.x(), N1.z(), N1.w(),  N2.x(), N2.z(), N2.w());
+    float dz =  det3x3(V.x(), V.y(), V.w(),  N1.x(), N1.y(), N1.w(),  N2.x(), N2.y(), N2.w());
+    float dw = -det3x3(V.x(), V.y(), V.z(),  N1.x(), N1.y(), N1.z(),  N2.x(), N2.y(), N2.z());
+    N3 = QVector4D(dx, dy, dz, dw).normalized();
+
+    // Composizione Orientamento Locale
+    float ca = std::cos(alpha), sa = std::sin(alpha);
+    float cb = std::cos(beta),  sb = std::sin(beta);
+    float cg = std::cos(gamma), sg = std::sin(gamma);
+
+    float c1 = ca * cb;
+    float c2 = sa * cg - ca * sb * sg;
+    float c3 = sa * sg + ca * sb * cg;
+
+    finalUp4D = N1 * c1 + N2 * c2 + N3 * c3;
+    finalUp4D.normalize();
+
+    // =========================================================================
+    // >>> SINCRONIZZATO BETA + GAMMA <<<
+    // =========================================================================
+
+    // 1. Definiamo le rotazioni globali per compensare, RELATIVE alla base
+    // catturata all'avvio del path (orientamento 4D preesistente, es. dal moto GO)
+    float rotOmega = m_pathBaseOmega;          // X-W (base)
+    float rotPhi   = m_pathBasePhi - gamma;    // Y-W (base + fix per Gamma)
+    float rotPsi   = m_pathBasePsi - beta;     // Z-W (base + fix per Beta)
+
+    // 2. Aggiorniamo la GPU (Shader)
+    ui->glWidget->setRotation4D(rotOmega, rotPhi, rotPsi);
+
+    // 3. Funzione helper per ruotare la CPU Camera
+    // NB: stesso ordine dello shader (surface.vert): XW -> YW -> ZW
+    auto transformCPU = [&](QVector4D v) {
+        // A. Rotazione XW (Omega base)
+        if (std::abs(rotOmega) > 1e-6f) {
+            float c = std::cos(rotOmega);
+            float s = std::sin(rotOmega);
+            float x = v.x();
+            float w = v.w();
+            v.setX( x * c + w * s);
+            v.setW(-x * s + w * c);
+        }
+        // B. Rotazione YW (Phi / Gamma Fix)
+        if (std::abs(rotPhi) > 1e-6f) {
+            float c = std::cos(rotPhi);
+            float s = std::sin(rotPhi);
+            float y = v.y();
+            float w = v.w();
+            v.setY( y * c + w * s);
+            v.setW(-y * s + w * c);
+        }
+        // C. Rotazione ZW (Psi / Beta Fix)
+        if (std::abs(rotPsi) > 1e-6f) {
+            float c = std::cos(rotPsi);
+            float s = std::sin(rotPsi);
+            float z = v.z();
+            float w = v.w();
+            v.setZ( z * c + w * s);
+            v.setW(-z * s + w * c);
+        }
+        return v;
+    };
+
+    // 4. Applichiamo la trasformazione ai vettori camera
+    QVector4D rotPos    = transformCPU(finalPos4D);
+    QVector4D rotTarget = transformCPU(finalTarget4D);
+    QVector4D rotUp     = transformCPU(finalUp4D);
+
+    // 5. Invio finale
+    ui->glWidget->setCameraFrom4DVectors(rotPos, rotTarget, rotUp);
+
+    // NB: qui NON si aggiorna il readout del dock 4D. I campi misurano quanto
+    // l'utente ha mosso con i TASTI a scatto: il path (e le rotazioni) muovono
+    // la stessa camera, e riscrivere i campi mentre corrono faceva ballare sette
+    // numeri che l'utente non stava toccando, perdendo per giunta il conto degli
+    // scatti dati. L'unico aggiornamento sta in onNavTimerTick, il tick dei
+    // tasti premuti.
+}
+
+// UNA COORDINATA BASTA, MA DEVE ESSERE UNA COORDINATA.
+// Un path con la sola X e' legittimo: gli altri assi valgono 0 (campo vuoto ->
+// "0", vedi compilePath4DFromFields) e il moto corre lungo un asse solo, che e'
+// il caso piu' semplice da scrivere a mano. La vecchia soglia >=2 lo negava
+// senza dire perche'.
+//
+// Gli ANGOLI (Alpha/Beta/Gamma) non contano ai fini dell'accensione. Da soli
+// lasciano X=Y=Z=P=0: la camera resta ferma nell'ORIGINE, che e' anche il punto
+// guardato -- in Center View il target e' (0,0,0), in Tangent View e' la
+// posizione a t+delta, cioe' ancora l'origine. Direzione di vista nulla, matrice
+// di vista degenere: a schermo la superficie sembra sparita, mentre in realta'
+// si e' dentro di essa senza una direzione in cui guardare. Un orientamento non
+// definisce un percorso; serve qualcosa che muova il PUNTO.
+bool MainWindow::hasPath4DInput() const
+{
+    int filled = 0;
+    if (!m_path.x.trimmed().isEmpty()) filled++;
+    if (!m_path.y.trimmed().isEmpty()) filled++;
+    if (!m_path.z.trimmed().isEmpty()) filled++;
+    if (!m_path.p.trimmed().isEmpty()) filled++;
+
+    return filled >= 1;
+}
+
+void MainWindow::checkPathFields()
+{
+    // I timer nascono a META' del costruttore (~3986), ma updateRenderState --
+    // che ora chiama questa funzione -- e' raggiungibile gia' da prima: senza
+    // questa guardia l'app crashava all'avvio sul primo isActive().
+    // updateViewButtonsEnabled si protegge gia' da se'.
+    if (!pathTimer || !ui->btnDeparture) return;
+
+    if (pathTimer->isActive()) {
+        ui->btnDeparture->setEnabled(true);
+    } else {
+        ui->btnDeparture->setEnabled(hasPath4DInput());
+    }
+    updateViewButtonsEnabled();
+}
+
+void MainWindow::onDeparture3DClicked()
+{
+    // NB: funziona anche DURANTE il REC — i timer restano attivi (tick no-op)
+    // e il loop legge lo stato vivo a ogni frame (vedi onPath3DTimerTick).
+
+    // CASO 1: STOP
+    if (pathTimer3D->isActive()) {
+        pathTimer3D->stop();
+        m_userStoppedCameraMotion = true;
+        if (ui->glWidget) ui->glWidget->setPathAnimating(false);
+        updateViewButtonsEnabled();
+        ui->btnDeparture3D->setText("DEPARTURE");
+        checkPath3DFields();
+        updateMasterButtonState();
+        return;
+    }
+
+    // CASO 2: START
+    // Mutua esclusivita': fermiamo il percorso 4D e il moto GO se attivi.
+    // Se stiamo SUBENTRANDO al path 4D, la camera fa l'handoff (scivolata
+    // continua invece del teletrasporto): vedi GLWidget::beginPathHandoff.
+    const bool handoffFrom4D = pathTimer->isActive();
+    if (pathTimer->isActive()) {
+        pathTimer->stop();
+        ui->btnDeparture->setText("DEPARTURE");
+    }
+    stopRotationMotion();
+
+    if (!compilePath3DFromFields()) {
+        return; // Errore matematico o di compilazione: niente avvio
+    }
+
+    if (handoffFrom4D && ui->glWidget) ui->glWidget->beginPathHandoff();
+
+    pathTimer3D->start();
+    m_lastCameraMotion = "path3D";
+    m_userStoppedCameraMotion = false;
+    if (ui->glWidget) {
+        ui->glWidget->setPathAnimating(true);
+        // Solo il PRIMO Departure della sessione azzera la rotazione di default
+        // (se non ruotata a mano); dai successivi si conserva l'orientamento
+        // accumulato (es. dal moto GO), senza reset nel cambio di modalita'.
+        if (!m_anyPathStartedOnce) {
+            m_anyPathStartedOnce = true;
+            ui->glWidget->neutralizeDefaultRotationForPath();
+        }
+    }
+    updateViewButtonsEnabled();
+    ui->btnDeparture3D->setText("STOP");
+
+    updateMasterButtonState();
+    update4DButtonState();   // riallinea i controlli 4D dopo l'eventuale stop del moto GO
+}
+
+void MainWindow::onPath3DTimerTick()
+{
+    if (!pathTimer3D->isActive()) return;
+    // Vedi onPathTimerTick: durante il REC avanza solo il loop del recorder.
+    if (m_isRecording) return;
+
+    pathTimeT3D += pathSpeed3D();
+    applyPath3DCameraAt(pathTimeT3D);
+}
+
+void MainWindow::applyPath3DCameraAt(float t)
+{
+    // NB: il FOV NON si applica qui: vedi la nota in applyPath4DCameraAt.
+    // Lo slider unico lo imposta una volta e vale per tutto.
+
+    QVector4D rawData = ui->glWidget->getEngine()->evaluatePath3DPosition(t);
+
+    // Scala la posizione (XYZ) ma NON il rollio (W)
+    QVector3D currentPos = rawData.toVector3D();
+    float currentRoll = rawData.w();
+
+    QVector3D target;
+
+    if (m_pathViewMode3D == ModeTangential) {
+        float delta = 0.1f;
+        QVector4D futureData = ui->glWidget->getEngine()->evaluatePath3DPosition(t + delta);
+        target = futureData.toVector3D();
+    } else {
+        target = QVector3D(0, 0, 0);
+    }
+
+    ui->glWidget->setCameraPosAndDirection3D(currentPos, target, currentRoll);
+}
+
+// Una coordinata basta, e R(t) non e' una coordinata: e' il ROLLIO, che ruota
+// attorno alla direzione di vista. Col solo R la camera resta nell'origine a
+// guardare l'origine, e il rollio non ha nemmeno un asse su cui agire -- vedi
+// la nota estesa su hasPath4DInput.
+bool MainWindow::hasPath3DInput() const
+{
+    int filled = 0;
+    if (!m_path.x3D.trimmed().isEmpty()) filled++;
+    if (!m_path.y3D.trimmed().isEmpty()) filled++;
+    if (!m_path.z3D.trimmed().isEmpty()) filled++;
+
+    return filled >= 1;
+}
+
+void MainWindow::checkPath3DFields()
+{
+    // Stessa guardia di checkPathFields: timer non ancora costruiti all'avvio.
+    if (!pathTimer3D || !ui->btnDeparture3D) return;
+
+    if (pathTimer3D->isActive()) {
+        ui->btnDeparture3D->setEnabled(true);
+    } else {
+        ui->btnDeparture3D->setEnabled(hasPath3DInput());
+    }
+    updateViewButtonsEnabled();
+}
+
+void MainWindow::updateViewButtonsEnabled()
+{
+    // I tasti Tangent/Center View rispecchiano i rispettivi Departure: attivi
+    // se il proprio path e' in corsa O i suoi campi sono compilati. Anche a
+    // path ALTRUI in corsa il View resta attivo coi campi compilati: per il
+    // subentro 3D<->4D (handoff) si deve poter pre-selezionare la vista con
+    // cui partira' l'altro path (m_pathViewMode4D/m_pathViewMode3D sono letti nei tick).
+    bool path4D = pathTimer && pathTimer->isActive();
+    bool path3D = pathTimer3D && pathTimer3D->isActive();
+    ui->pushView->setEnabled(path4D || hasPath4DInput());
+    ui->pushView3D->setEnabled(path3D || hasPath3DInput());
+
+    // Gli slider FOV seguono lo stesso ciclo di vita dei path (questa funzione
+    // e' chiamata ovunque un path parta o si fermi); il fattore proiezione e'
+    // coperto dalla chiamata gemella in updateProjectionButtonText().
+    // NB: lo STOP di un path NON tocca il FOV: l'immagine si congela
+    // sull'ultimo fotogramma (posa E prospettiva). Il ritorno al default 45
+    // avviene in GLWidget::resetTransformations, cioe' solo quando la vista
+    // viene davvero resettata (Reset view, cambio tab, load).
+
+    // Mentre un path qualsiasi controlla la telecamera, i tasti di spostamento a
+    // click dei dock 3D/4D sono disabilitati. Chiamato ovunque si avvii/fermi un
+    // path (in coppia con setPathAnimating), quindi resta sempre sincronizzato.
+    // I comandi mouse 3D (rotazione/zoom) sono bloccati a parte in InputHandler
+    // via GLWidget::isPathAnimating().
+    setNavControlsEnabled(!(path4D || path3D));
+}
+
+void MainWindow::setNavControlsEnabled(bool enabled)
+{
+    // Tasti di spostamento a click dei dock 3D/4D (X±, Y±, left/right, roll, ...).
+    for (QPushButton* btn : m_navButtons) {
+        if (btn) btn->setEnabled(enabled);
+    }
+
+    // RIACCENSIONE NON INCONDIZIONATA. Questa funzione spegne i tasti mentre un
+    // path guida la telecamera e li riaccende quando finisce, ma 'enabled=true'
+    // significa "il path non comanda piu'", NON "tutti questi tasti hanno
+    // senso adesso": in Ray Marching gli spostamenti X/Y/Z dell'osservatore
+    // restano spenti in ogni caso (scrivono u_observerPos, che il template del
+    // marcher non legge, e sarebbero un doppio spostamento rispetto alla
+    // matrice di vista -- vedi updateRenderState).
+    // Senza questo ripristino bastava DIGITARE in un campo path per riaccenderli:
+    // textChanged -> checkPathFields -> updateViewButtonsEnabled ->
+    // setNavControlsEnabled(true), e i tasti tornavano attivi a sproposito.
+    // I vincoli di modalita' li decide updateRenderState, con gli STESSI due
+    // gate usati la': gli spostamenti dell'osservatore sono sempre spenti in
+    // Ray Marching, mentre P+/P- e le rotazioni 4D dipendono da rot4DUsable
+    // (accesi nel solo sotto-tab Cross Section, dove governano quota e
+    // inclinazione del piano di sezione).
+    if (enabled && implicitMode()) {
+        for (QPushButton *b : { ui->btnXPlus, ui->btnXMinus,
+                                ui->btnYPlus, ui->btnYMinus,
+                                ui->btnZPlus, ui->btnZMinus,
+                                ui->btnLightMode }) {
+            if (b) b->setEnabled(false);
+        }
+        const bool rot4DUsable = crossSectionTab();
+        for (QPushButton *b : { ui->btnPPlus,      ui->btnPMinus,
+                                ui->btnOmegaAhead, ui->btnOmegaRear,
+                                ui->btnPhiAhead,   ui->btnPhiRear,
+                                ui->btnPsiAhead,   ui->btnPsiRear }) {
+            if (b) b->setEnabled(rot4DUsable);
+        }
+    }
+}
+
+float MainWindow::pathSpeed3D() const { return m_pathSpeed3D / 1000.0f; }
+float MainWindow::pathSpeed4D() const { return m_pathSpeed4D / 1000.0f; }
+
+// Lo slider taglia da se' i valori fuori dal suo intervallo: lo stato fa lo
+// stesso, o il Save scriverebbe una velocita' che lo slider non mostra.
+void MainWindow::setPathSpeed3D(int speed)
+{
+    m_pathSpeed3D = qBound(ui->speed3DSlider->minimum(), speed, ui->speed3DSlider->maximum());
+    const QSignalBlocker b(ui->speed3DSlider);
+    ui->speed3DSlider->setValue(m_pathSpeed3D);
+}
+
+void MainWindow::setPathSpeed4D(int speed)
+{
+    m_pathSpeed4D = qBound(ui->speed4DSlider->minimum(), speed, ui->speed4DSlider->maximum());
+    const QSignalBlocker b(ui->speed4DSlider);
+    ui->speed4DSlider->setValue(m_pathSpeed4D);
+}
+
+void MainWindow::setPathViewModes(CameraPathMode mode4D, CameraPathMode mode3D)
+{
+    m_pathViewMode4D = mode4D;
+    m_pathViewMode3D = mode3D;
+    ui->pushView->setText(m_pathViewMode4D == ModeTangential ? "Tangent View" : "Center View");
+    ui->pushView3D->setText(m_pathViewMode3D == ModeTangential ? "Tangent View" : "Center View");
+}
+
+void MainWindow::resetMotionControls()
+{
+    // La scena nuova non eredita i comandi dei path di quella di prima. Li
+    // riscrivevano solo i record: dopo NEW, un cambio di modalita' o il load di
+    // una superficie, un path scritto da capo partiva con la vista (Center) e
+    // la velocita' del record appena lasciato, e il Save scriveva come moto
+    // attivo quello del record di prima.
+    setPathViewModes(ModeTangential, ModeTangential);
+    setPathSpeed3D(10);
+    setPathSpeed4D(10);
+    m_lastCameraMotion.clear();
+    if (ui->glWidget && ui->glWidget->getEngine())
+        ui->glWidget->getEngine()->clearPathEquations();
+}
+
+void MainWindow::onToggleViewClicked()  // path 4D (pushView)
+{
+    setPathViewModes(m_pathViewMode4D == ModeTangential ? ModeCentered : ModeTangential,
+                     m_pathViewMode3D);
+}
+
+void MainWindow::onToggleView3DClicked()  // path 3D (pushView3D)
+{
+    setPathViewModes(m_pathViewMode4D,
+                     m_pathViewMode3D == ModeTangential ? ModeCentered : ModeTangential);
+}
+
+void MainWindow::refreshRotationSpeedLabels()
+{
+    if (!ui->glWidget) return;
+    // Un decimale, come il passo dei tasti +/- (0.1); lo zero senza segno.
+    auto show = [](QLabel *label, float v) {
+        v = std::round(v * 10.0f) / 10.0f;
+        if (std::abs(v) < 0.01f) v = 0.0f;
+        label->setText(QString::number(v, 'f', 1));
+    };
+    show(ui->lblNutVal,   ui->glWidget->getNutationSpeed());
+    show(ui->lblPrecVal,  ui->glWidget->getPrecessionSpeed());
+    show(ui->lblSpinVal,  ui->glWidget->getSpinSpeed());
+    show(ui->lblOmegaVal, ui->glWidget->getOmegaSpeed());
+    show(ui->lblPhiVal,   ui->glWidget->getPhiSpeed());
+    show(ui->lblPsiVal,   ui->glWidget->getPsiSpeed());
+}
+
+void MainWindow::setupSpeedControl(QPushButton* btnPlus, QPushButton* btnMinus,
+                                   std::function<float()> getter, std::function<void(float)> setter) {
+
+    // 1. Pulizia totale delle connessioni per evitare comandi fantasma
+    disconnect(btnPlus, &QPushButton::clicked, nullptr, nullptr);
+    disconnect(btnMinus, &QPushButton::clicked, nullptr, nullptr);
+
+    auto changeVal = [this, getter, setter](int direction) {
+        // Usiamo un passo di 0.1
+        float step = 0.1f;
+
+        // 2. Il valore corrente e' quello del MOTORE. Prima si rileggeva
+        // l'etichetta: due copie della stessa velocita', e bastava che una
+        // scrittura programmatica toccasse una sola delle due perche' il tasto
+        // ripartisse da un valore che il motore non aveva.
+        float currentVal = getter();
+
+        // 3. Calcolo del nuovo valore
+        // Moltiplichiamo la direzione (1 o -1) per lo step
+        float newVal = currentVal + (static_cast<float>(direction) * step);
+
+        // 4. ARROTONDAMENTO CRITICO:
+        // Arrotondiamo a 1 decimale PRIMA di ogni altra operazione
+        newVal = std::round(newVal * 10.0f) / 10.0f;
+
+        // 5. Gestione dello zero assoluto (Zero-Snap)
+        // Se siamo molto vicini allo zero, forziamolo a 0.0 per resettare il segno
+        if (std::abs(newVal) < 0.01f) {
+            newVal = 0.0f;
+        }
+
+        // 6. Invio al motore, poi l'etichetta dal motore
+        setter(newVal);
+        refreshRotationSpeedLabels();
+
+        // 8. Se tutto è fermo, riporta il tasto a START
+        if (ui->glWidget) {
+            bool anyMotion = std::abs(ui->glWidget->getNutationSpeed()) > 0.001f ||
+                    std::abs(ui->glWidget->getPrecessionSpeed()) > 0.001f ||
+                    std::abs(ui->glWidget->getSpinSpeed()) > 0.001f ||
+                    std::abs(ui->glWidget->getOmegaSpeed()) > 0.001f ||
+                    std::abs(ui->glWidget->getPhiSpeed()) > 0.001f ||
+                    std::abs(ui->glWidget->getPsiSpeed()) > 0.001f;
+
+            if (!anyMotion) {
+                    // Se si azzera tutto, fermiamo l'animazione per sicurezza
+                    ui->glWidget->pauseMotion();
+                    if (ui->btnStart_2) ui->btnStart_2->setText("GO");
+                } else {
+                    // Aggiorniamo il tasto solo in base allo stato REALE dell'animazione.
+                    if (ui->btnStart_2) {
+                        ui->btnStart_2->setText(ui->glWidget->isAnimating() ? "STOP" : "GO");
+                    }
+                }
+
+                updateMasterButtonState();
+                ui->glWidget->update();
+        }
+    };
+
+    // Usiamo il contesto 'this' per garantire che la connessione sia stabile
+    connect(btnPlus, &QPushButton::clicked, this, [changeVal](){ changeVal(1); });
+    connect(btnMinus, &QPushButton::clicked, this, [changeVal](){ changeVal(-1); });
+}
+
+void MainWindow::updateProjectionButtonText()
+{
+    int mode = (int)ui->glWidget->projectionMode;
+    QString txt;
+
+    if (mode == 0) {
+        txt = "Orthogonal";
+    } else if (mode == 1) {
+        txt = "Perspective";
+    } else if (mode == 2) {
+        txt = "Stereographic";
+    }
+
+    // Aggiorna il NUOVO tasto sulla status bar
+    if (m_btnProjection) { m_btnProjection->setText(txt); }
+
+    // Chiamata a ogni cambio di proiezione (toggle, load preset/record, init):
+    // in Ortho gli slider FOV si spengono.
+}
+
+
+void MainWindow::applyCameraFov(float deg)
+{
+    const float v = qBound(20.0f, deg, 110.0f);
+
+    m_fov3D = v;
+    m_fov4D = v;
+
+    if (ui->lblValFov)
+        ui->lblValFov->setText(QString::number(qRound(v)) + QString::fromUtf8("°"));
+
+    if (ui->fovSliderMain) {
+        bool old = ui->fovSliderMain->blockSignals(true);
+        ui->fovSliderMain->setValue(qRound(v));
+        ui->fovSliderMain->blockSignals(old);
+    }
+
+    if (ui->glWidget)
+        ui->glWidget->setCameraFov(v);
+}
+
+void MainWindow::toggleProjection()
+{
+    // Leggi modo attuale forzandolo a intero (0=Ortho, 1=Persp, 2=Wide)
+    int current = (int)ui->glWidget->projectionMode;
+
+    // Calcola il prossimo (aggiunge 1 e torna a 0 quando arriva a 3)
+    int nextMode = (current + 1) % 3;
+
+    // Applica
+    ui->glWidget->setProjectionMode(nextMode);
+
+    // Aggiorna il testo e forza il repaint
+    updateProjectionButtonText();
+    ui->glWidget->update();
+}
