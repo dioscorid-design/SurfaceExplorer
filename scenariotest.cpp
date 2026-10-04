@@ -1200,6 +1200,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("library-rename")) {
+        runLibraryRenameScenarios();
+        finish();
+        return;
+    }
 
     // ---------------------------------------------------------------------
     // AVVIO: la superficie di default non e' lavoro dell'utente. Se qui la
@@ -2812,8 +2817,63 @@ void ScenarioTest::run()
     runRecordTextureScenarios();
     runLibraryFolderScenarios();
     runLibraryPasteScenarios();
+    runLibraryRenameScenarios();
 
     finish();
+}
+
+void ScenarioTest::runLibraryRenameScenarios()
+{
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Library: Rename (in una cartella temporanea) =="));
+
+    QTemporaryDir tmp;
+    if (!tmp.isValid()) {
+        check(false, QStringLiteral("cartella temporanea non creata"));
+        return;
+    }
+    const QString root = tmp.path();
+    auto touch = [](const QString &path) {
+        QFile f(path);
+        if (f.open(QIODevice::WriteOnly)) f.write("{}");
+    };
+    QDir().mkpath(root + QStringLiteral("/Paths"));
+    touch(root + QStringLiteral("/Paths/a.json"));
+    touch(root + QStringLiteral("/Paths/x.json"));
+
+    QString error;
+    QString got = m_mw->renameLibraryPath(root + QStringLiteral("/Paths/a.json"), QStringLiteral("b"), &error);
+    check(got == root + QStringLiteral("/Paths/b.json") && QFile::exists(got)
+              && !QFile::exists(root + QStringLiteral("/Paths/a.json")),
+          QStringLiteral("file rinominato (l'estensione resta)"));
+
+    got = m_mw->renameLibraryPath(root + QStringLiteral("/Paths/b.json"), QStringLiteral("c.d"), &error);
+    check(got.isEmpty() && !error.isEmpty() && QFile::exists(root + QStringLiteral("/Paths/b.json")),
+          QStringLiteral("nome col punto -> rifiutato col motivo, file intatto"));
+
+    got = m_mw->renameLibraryPath(root + QStringLiteral("/Paths/b.json"), QStringLiteral("x"), &error);
+    check(got.isEmpty() && !error.isEmpty() && QFile::exists(root + QStringLiteral("/Paths/b.json")),
+          QStringLiteral("nome gia' usato nella cartella -> rifiutato"));
+
+    got = m_mw->renameLibraryPath(root + QStringLiteral("/Paths/b.json"), QStringLiteral("B"), &error);
+    check(got == root + QStringLiteral("/Paths/B.json") && QDir(root + QStringLiteral("/Paths")).entryList().contains(QStringLiteral("B.json")),
+          QStringLiteral("cambiano solo le maiuscole -> permesso"));
+
+    // Cartella: il record in scena e gli appunti di Copia che stanno dentro la
+    // seguono.
+    const QString keepRecord = m_mw->m_currentRecordPath;
+    const QStringList keepCut = m_mw->m_cutFilePaths;
+    m_mw->m_currentRecordPath = root + QStringLiteral("/Paths/B.json");
+    m_mw->m_cutFilePaths = { root + QStringLiteral("/Paths") };
+    got = m_mw->renameLibraryPath(root + QStringLiteral("/Paths"), QStringLiteral("Routes"), &error);
+    check(got == root + QStringLiteral("/Routes") && QFile::exists(root + QStringLiteral("/Routes/B.json")),
+          QStringLiteral("cartella rinominata col suo contenuto"));
+    check(m_mw->m_currentRecordPath == root + QStringLiteral("/Routes/B.json")
+              && m_mw->m_cutFilePaths == QStringList{ root + QStringLiteral("/Routes") },
+          QStringLiteral("cartella rinominata -> record in scena e appunti di Copia la seguono (%1, %2)")
+              .arg(m_mw->m_currentRecordPath, m_mw->m_cutFilePaths.join(QStringLiteral(", "))));
+    m_mw->m_currentRecordPath = keepRecord;
+    m_mw->m_cutFilePaths = keepCut;
 }
 
 void ScenarioTest::runLibraryPasteScenarios()

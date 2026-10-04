@@ -124,6 +124,9 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                 contextMenu->addAction("Save Surface As...", m_mainWindow, [this, path, executeAction](){
                     executeAction([this, path](){ m_mainWindow->m_presetSerializer->saveSurfaceAs(QFileInfo(path).absolutePath(), path); });
                 });
+                contextMenu->addAction("Rename Surface...", m_mainWindow, [this, refItem, executeAction](){
+                    executeAction([this, refItem](){ m_mainWindow->renameLibraryItem(refItem); });
+                });
                 contextMenu->addAction("Copy Surface", m_mainWindow, [this, refItem, executeAction](){
                     executeAction([this, refItem](){ m_mainWindow->m_fileOps->performCopy(refItem); });
                 });
@@ -142,6 +145,9 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                     executeAction([this, data](){ m_mainWindow->m_presetSerializer->saveTextureAs(QFileInfo(data.filePath).absolutePath(), data.filePath); });
                 });
 
+                contextMenu->addAction("Rename Texture...", m_mainWindow, [this, refItem, executeAction](){
+                    executeAction([this, refItem](){ m_mainWindow->renameLibraryItem(refItem); });
+                });
                 contextMenu->addAction("Copy Texture", m_mainWindow, [this, refItem, executeAction](){
                     executeAction([this, refItem](){ m_mainWindow->performCopy(refItem); });
                 });
@@ -197,6 +203,9 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                                       : QStringLiteral("Textures already up to date."));
                     contextMenu->setToolTipsVisible(true);
                 }
+                contextMenu->addAction("Rename Record...", m_mainWindow, [this, refItem, executeAction](){
+                    executeAction([this, refItem](){ m_mainWindow->renameLibraryItem(refItem); });
+                });
                 contextMenu->addAction("Copy Record", m_mainWindow, [this, refItem, executeAction](){
                     executeAction([this, refItem](){ m_mainWindow->m_fileOps->performCopy(refItem); });
                 });
@@ -218,6 +227,9 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                     });
                 }
 
+                contextMenu->addAction("Rename Sound...", m_mainWindow, [this, refItem, executeAction](){
+                    executeAction([this, refItem](){ m_mainWindow->renameLibraryItem(refItem); });
+                });
                 contextMenu->addAction("Copy Sound", m_mainWindow, [this, refItem, executeAction](){
                     executeAction([this, refItem](){ m_mainWindow->performCopy(refItem); });
                 });
@@ -268,6 +280,9 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                     });
                     contextMenu->addSeparator();
                 }
+                contextMenu->addAction("Rename Folder...", m_mainWindow, [this, refItem, executeAction](){
+                    executeAction([this, refItem](){ m_mainWindow->renameLibraryItem(refItem); });
+                });
                 contextMenu->addAction("Copy Folder", m_mainWindow, [this, refItem, executeAction](){
                     executeAction([this, refItem](){ m_mainWindow->performCopy(refItem); });
                 });

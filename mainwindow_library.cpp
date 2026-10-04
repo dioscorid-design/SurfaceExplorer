@@ -870,6 +870,119 @@ void MainWindow::onCreateFolderClicked()
     }
 }
 
+QString MainWindow::renameLibraryPath(const QString &path, QString newName, QString *error)
+{
+    auto fail = [error](const QString &why) { if (error) *error = why; return QString(); };
+
+    const QFileInfo fi(path);
+    if (!fi.exists()) return fail(QStringLiteral("The item no longer exists on disk."));
+    const bool isDir = fi.isDir();
+
+    newName = newName.trimmed();
+    // Come "Create New Folder": un separatore farebbe un percorso, non un nome.
+    newName.replace(QLatin1Char('/'), QLatin1Char('_'));
+    newName.replace(QLatin1Char('\\'), QLatin1Char('_'));
+    if (newName.isEmpty()) return fail(QStringLiteral("The name is empty."));
+    // Per i FILE il nome mostrato e' QFileInfo::baseName(), che si ferma al primo
+    // punto (LibraryManager): "Torus v1.2" comparirebbe come "Torus v1".
+    if (!isDir && newName.contains(QLatin1Char('.')))
+        return fail(QStringLiteral("A file name cannot contain a dot: the Library would show it cut at the dot."));
+
+    const QString suffix = isDir || fi.suffix().isEmpty() ? QString() : QLatin1Char('.') + fi.suffix();
+    const QString newPath = fi.absolutePath() + QLatin1Char('/') + newName + suffix;
+    if (newPath == path) return fail(QString());          // stesso nome: niente da fare
+    // Un altro elemento con quel nome. Sui dischi che non distinguono maiuscole e
+    // minuscole "torus" esiste gia' quando si rinomina "Torus": e' lo stesso file,
+    // e cambiare solo le maiuscole e' una rinomina legittima.
+    const bool sameIgnoringCase = newPath.compare(path, Qt::CaseInsensitive) == 0;
+    if (QFileInfo::exists(newPath) && !sameIgnoringCase)
+        return fail(QStringLiteral("An item named \"%1\" already exists here.").arg(newName + suffix));
+
+    const bool ok = isDir ? QDir().rename(path, newPath) : QFile::rename(path, newPath);
+    if (!ok) return fail(QStringLiteral("The item could not be renamed (permissions, or the file is in use)."));
+
+    // I percorsi che l'app ricorda: la voce stessa o, per una cartella, cio' che
+    // sta dentro di lei.
+    auto remap = [&](QString &p) {
+        if (p.isEmpty()) return;
+        if (QDir::cleanPath(p) == QDir::cleanPath(path)) p = newPath;
+        else if (isDir && LibraryFileOperations::isSameOrInside(p, path))
+            p = newPath + QDir::cleanPath(p).mid(QDir::cleanPath(path).length());
+    };
+    remap(m_currentRecordPath);
+    remap(m_currentTexturePresetPath);
+    for (QString &p : m_cutFilePaths) remap(p);
+    for (QString &p : m_cutTexturePaths) remap(p);
+
+    if (error) error->clear();
+    return newPath;
+}
+
+void MainWindow::renameLibraryItem(QTreeWidgetItem *item)
+{
+    if (!item) return;
+    QTreeWidget *tree = item->treeWidget();
+
+    // Il percorso della voce, come lo leggono Copia e Taglia.
+    QString path;
+    if (item->data(0, Qt::UserRole + 10).isValid())     path = item->data(0, Qt::UserRole + 10).toString();
+    else if (item->data(0, Qt::UserRole).isValid())     path = m_libraryManager.getSurface(item->data(0, Qt::UserRole).toInt()).filePath;
+    else if (item->data(0, Qt::UserRole + 1).isValid()) path = m_libraryManager.getTexture(item->data(0, Qt::UserRole + 1).toInt()).filePath;
+    else if (item->data(0, Qt::UserRole + 2).isValid()) path = m_libraryManager.getMotion(item->data(0, Qt::UserRole + 2).toInt()).filePath;
+    else if (item->data(0, Qt::UserRole + 3).isValid()) path = m_libraryManager.getSound(item->data(0, Qt::UserRole + 3).toInt()).filePath;
+    if (path.isEmpty() || !tree) return;
+
+    const QFileInfo fi(path);
+    const bool isDir = fi.isDir();
+
+    // Immagini e audio si citano per NOME: un record ritrova //IMG: e //MUSIC:
+    // cercando il nome del file nella libreria, quindi dopo la rinomina non li
+    // trova piu'. Le cartelle no: la ricerca guarda in tutte le sottocartelle.
+    const QString ext = fi.suffix().toLower();
+    const bool citedByName = !isDir && ext != QLatin1String("json");
+    if (citedByName) {
+        QMessageBox box(this);
+        box.setIcon(QMessageBox::Warning);
+        box.setWindowTitle(QStringLiteral("Rename"));
+        box.setText(QStringLiteral("Records and textures use this file by its name."));
+        box.setInformativeText(QStringLiteral("After renaming it they will not find it any more. Rename anyway?"));
+        box.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
+        box.setDefaultButton(QMessageBox::Cancel);
+        if (box.exec() != QMessageBox::Yes) return;
+    }
+
+    bool ok = false;
+    const QString current = isDir ? fi.fileName() : fi.completeBaseName();
+    const QString newName = QInputDialog::getText(this, QStringLiteral("Rename"),
+                                                  isDir ? QStringLiteral("Folder name:") : QStringLiteral("Name:"),
+                                                  QLineEdit::Normal, current, &ok);
+    if (!ok) return;
+
+    QString error;
+    const QString newPath = renameLibraryPath(path, newName, &error);
+    if (newPath.isEmpty()) {
+        if (!error.isEmpty()) QMessageBox::warning(this, QStringLiteral("Rename"), error);
+        return;
+    }
+
+    // Library riletta con la voce rinominata selezionata, come dopo un Save.
+    if (!isDir) {
+        refreshAndSelectPreset(tree, newPath);
+    } else {
+        refreshRepositories();
+        updateWatcherPaths();
+        for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+            if ((*it)->data(0, Qt::UserRole + 10).toString() != newPath) continue;
+            tree->clearSelection();
+            (*it)->setSelected(true);
+            tree->setCurrentItem(*it);
+            for (QTreeWidgetItem *p = (*it)->parent(); p; p = p->parent()) p->setExpanded(true);
+            tree->scrollToItem(*it);
+            break;
+        }
+    }
+}
+
 void MainWindow::onSyncPresetsClicked()
 {
     QSettings settings;

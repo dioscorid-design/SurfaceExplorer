@@ -191,6 +191,11 @@ private:
     // dentro una sua sottocartella -> rifiutata.
     // Da sola: --scenario-only library-paste.
     void runLibraryPasteScenarios();
+    // Library: Rename (MainWindow::renameLibraryPath, senza dialoghi), in una
+    // cartella temporanea: file, nome col punto e nome gia' usato rifiutati,
+    // sole maiuscole permesse, cartella con record in scena e appunti di Copia
+    // che la seguono. Da sola: --scenario-only library-rename.
+    void runLibraryRenameScenarios();
     // "" se checkbox ed etichetta dicono il bersaglio e lo stato della sua
     // texture, altrimenti la differenza.
     QString textureCheckboxProblem() const;

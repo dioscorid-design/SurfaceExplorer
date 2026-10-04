@@ -356,6 +356,16 @@ private slots:
     void onAddRepositoryClicked(bool wasRotating = false, bool wasPath4D = false,
                                 bool wasPath3D = false, bool wasTimeAnimating = false);
     void onCreateFolderClicked();
+    // RENAME dal menu contestuale della Library (file o cartella): chiede il
+    // nome, avvisa se la voce e' un'immagine o un audio (chi la cita per nome
+    // non la trova piu'), poi renameLibraryPath e la Library riletta con la
+    // voce rinominata selezionata.
+    void renameLibraryItem(QTreeWidgetItem *item);
+    // Il lavoro, senza dialoghi (lo usa anche il test): rinomina sul disco e
+    // riallinea i percorsi che l'app ricorda (record in scena, texture
+    // caricata, appunti di Copia/Taglia). Ritorna il percorso nuovo, o vuoto
+    // con il motivo in *error.
+    QString renameLibraryPath(const QString &path, QString newName, QString *error);
     void onSyncPresetsClicked();
 
     // ==========================================================
