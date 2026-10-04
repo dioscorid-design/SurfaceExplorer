@@ -540,6 +540,87 @@ MainWindow::SceneState MainWindow::sceneFromItem(const LibraryItem &d, bool isRe
     return s;
 }
 
+MainWindow::SceneState MainWindow::defaultScene(int index, bool loadDefaultSurface,
+                                                bool sameTabRestart) const
+{
+    SceneState s = m_scene;
+
+    // Comune ai due modi: niente composizione, vincoli, flusso geodetico, path,
+    // moti, script della superficie, texture accesa, suono, ancore, domini
+    // delle costanti; A..F al default.
+    for (EqField f : { &EquationTexts::u, &EquationTexts::v, &EquationTexts::w,
+                       &EquationTexts::explicitU, &EquationTexts::explicitV, &EquationTexts::explicitW,
+                       &EquationTexts::geoU, &EquationTexts::geoV, &EquationTexts::geoW,
+                       &EquationTexts::geoDU, &EquationTexts::geoDV, &EquationTexts::geoDW,
+                       &EquationTexts::conform })
+        s.eq.*f = QString();
+    s.path = PathTexts{};
+    s.pathViewMode4D = s.pathViewMode3D = ModeTangential;
+    s.pathSpeed3D = s.pathSpeed4D = 10;
+    s.lastCameraMotion.clear();
+    s.surfaceScriptText.clear();
+    s.surfaceScriptApplied.clear();
+    // NEW svuota tutti gli slot; il riclic sulla linguetta anche quello della
+    // texture, che al CAMBIO di linguetta verso il parametrico sopravvive.
+    if (!loadDefaultSurface || sameTabRestart) s.surfaceTextureScriptText.clear();
+    s.soundScriptText.clear();
+    s.surfaceTextureState = false;
+    s.surfaceTextureCode.clear();
+    s.bgTextureScriptText.clear();          // forgetBackgroundTexture, in entrambi i modi
+    s.bgTextureCode.clear();
+    s.textureLibName.clear();
+    s.bgTextureLibName.clear();
+    s.soundLibName.clear();
+    for (ConstField f : { &ConstantTexts::a, &ConstantTexts::b, &ConstantTexts::c,
+                          &ConstantTexts::d, &ConstantTexts::e, &ConstantTexts::f })
+        s.constants.*f = QStringLiteral("1");
+    s.discreteConsts.clear();
+    s.minConsts.clear();
+    s.renderMode = 0;
+    s.lightingMode4D = 0;
+
+    if (index == 1) {
+        // RAY MARCHING. X/Y/Z/P restano (nascosti); u/v/w restano; via il taglio.
+        s.implicitMode = true;
+        s.rm.equation = loadDefaultSurface ? QStringLiteral("x^2 + y^2 + z^2 = 1.0") : QString();
+        if (!loadDefaultSurface) s.rm.crossSection.clear();
+        s.rm.texture.clear();
+        s.rm.displacement.clear();
+        s.surfaceTextureScriptText.clear();
+        s.lim.clearSpaceCut();
+        s.implicitShell = true;
+        s.constants.s = QString::number(m_lastImplicitS <= 0.0 ? 0.4 : m_lastImplicitS);
+        s.steps = m_lastImplicitSteps;
+        if (loadDefaultSurface && s.crossSectionTab) {
+            // La superficie di default del Cross Section: il T^3, che vive su
+            // A > B > C (vedi loadCrossSectionDefaultSurface).
+            s.rm.crossSection = QStringLiteral(
+                "0.5*(((x*x+y*y+z*z+p*p+A*A+B*B-C*C)^2 + 4*(A*A-B*B)*(x*x+y*y) - 4*B*B*(z*z+A*A))^2 "
+                "- 16*A*A*(x*x+y*y)*(x*x+y*y+z*z+p*p+A*A-B*B-C*C)^2)");
+            s.constants.s = QStringLiteral("0.4");
+            s.constants.a = QStringLiteral("0.9");
+            s.constants.b = QStringLiteral("0.4");
+            s.constants.c = QStringLiteral("0.2");
+            s.steps = 350;
+        }
+    } else {
+        // PARAMETRICO. I campi RM restano (nascosti); il dominio torna al default.
+        s.implicitMode = false;
+        s.lim.resetDomain();
+        if (loadDefaultSurface) {
+            s.eq.x = QStringLiteral("(0.8 + 0.3*cos(v))*cos(u)");
+            s.eq.y = QStringLiteral("(0.8 + 0.3*cos(v))*sin(u)");
+            s.eq.z = QStringLiteral("0.3*sin(v)");
+            s.eq.p = QStringLiteral("0.0");
+        } else {
+            s.eq.x.clear();  s.eq.y.clear();  s.eq.z.clear();  s.eq.p.clear();
+        }
+        s.constants.s = QStringLiteral("0");
+        s.steps = m_lastParametricSteps;
+    }
+    return s;
+}
+
 void MainWindow::textureTextsFromItem(const LibraryItem &d, bool isRecord,
                                       const MissingImageScan &scan, SceneState *s)
 {

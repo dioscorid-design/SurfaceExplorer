@@ -9,6 +9,7 @@
 #include "audiocontroller.h"
 #include "shadercompilelog.h"
 #include "surfaceengine.h"
+#include "presetroundtrip.h"
 
 #include <QApplication>
 #include <QDialog>
@@ -30,6 +31,8 @@
 #include <QSlider>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
+#include <QTabBar>
+#include <functional>
 #include <QTreeWidgetItemIterator>
 #include <QTemporaryDir>
 
@@ -1221,6 +1224,11 @@ void ScenarioTest::run()
     }
     if (m_only.startsWith(QLatin1String("master-records"))) {
         runMasterRecordsScenarios();
+        finish();
+        return;
+    }
+    if (m_only == QLatin1String("reset-scene")) {
+        runResetSceneScenarios();
         finish();
         return;
     }
@@ -2923,8 +2931,66 @@ void ScenarioTest::run()
     runLibraryFolderScenarios();
     runLibraryPasteScenarios();
     runLibraryRenameScenarios();
+    runResetSceneScenarios();
 
     finish();
+}
+
+void ScenarioTest::runResetSceneScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Reset della scena = scena di default (MainWindow::defaultScene) =="));
+    // La previsione si calcola PRIMA del reset: dipende dalla scena di
+    // partenza (al cambio di linguetta alcune parti sopravvivono) e dalle
+    // memorie per modalita'. Le derivazioni (costante non usata a 1, limite di
+    // un asse non usato vuoto) sono quelle del round-trip.
+    auto checkReset = [this](const QString &what, int index, bool loadDefault, bool sameTab,
+                             const std::function<void()> &trigger) {
+        const MainWindow::SceneState want = m_mw->defaultScene(index, loadDefault, sameTab);
+        trigger();
+        const QStringList diff = PresetRoundTrip::withoutDerivations(
+            PresetRoundTrip::diffScene(want, m_mw->m_scene), m_mw);
+        check(diff.isEmpty(), what + (diff.isEmpty() ? QStringLiteral(" -> scena di default")
+                                                     : QStringLiteral(" -> diversa: ")
+                                                           + diff.join(QStringLiteral("; "))));
+    };
+    auto modeTab = [this, ui](int index) {
+        m_discardOnPrompt = true;
+        ui->tabModeSelector->setCurrentIndex(index);  wait(1500);
+        m_discardOnPrompt = false;
+    };
+    auto reclick = [this, ui]() {
+        m_discardOnPrompt = true;
+        emit ui->tabModeSelector->tabBar()->tabBarClicked(ui->tabModeSelector->currentIndex());
+        wait(1500);
+        m_discardOnPrompt = false;
+    };
+    const QString kParam = QString::fromLatin1(kParametricRecord);
+    const QString kRM = QString::fromLatin1(kImplicitRecord);
+    const QString kCS = QStringLiteral("records/Ray Marching/Cross Sections/KxS1/Klein Bundle in R5.json");
+
+    if (loadRecord(kParam))
+        checkReset(QStringLiteral("record parametrico, linguetta Ray Marching"), 1, true, false,
+                   [&] { modeTab(1); });
+    checkReset(QStringLiteral("poi linguetta Parametric"), 0, true, false, [&] { modeTab(0); });
+    if (loadRecord(kParam))
+        checkReset(QStringLiteral("record parametrico, riclic su Parametric"), 0, true, true, reclick);
+    if (loadRecord(kRM))
+        checkReset(QStringLiteral("record Ray Marching, riclic su Ray Marching"), 1, true, true, reclick);
+    if (loadRecord(kCS))
+        checkReset(QStringLiteral("record Cross Section, riclic (superficie di default del sotto-tab)"),
+                   1, true, true, reclick);
+    if (loadRecord(kCS))
+        checkReset(QStringLiteral("record Cross Section, linguetta Parametric"), 0, true, false,
+                   [&] { modeTab(0); });
+    checkReset(QStringLiteral("poi linguetta Ray Marching (sotto-tab Cross Section)"), 1, true, false,
+               [&] { modeTab(1); });
+    if (loadRecord(kParam))
+        checkReset(QStringLiteral("record parametrico, NEW"), 0, false, false, [&] { pressNew(); });
+    if (loadRecord(kRM))
+        checkReset(QStringLiteral("record Ray Marching, NEW"), 1, false, false, [&] { pressNew(); });
+    modeTab(0);
 }
 
 void ScenarioTest::runMasterRecordsScenarios()

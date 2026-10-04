@@ -20,6 +20,9 @@
 #
 # Uso:
 #   ./ExC/Mac/Test/scenario-test.sh
+#   ./ExC/Mac/Test/scenario-test.sh --scenario-only reset-scene   una sola sezione
+#       (script-dock, texture-target, mesh-image, record-texture, library-folder,
+#        library-paste, library-rename, master-records[:filtro], reset-scene)
 #   PRESETS=/altra/libreria ./ExC/Mac/Test/scenario-test.sh
 #
 # Report in build/test-reports/scenario-<data>/scenario-report.txt, stampato alla fine.
@@ -53,7 +56,7 @@ echo "Libreria: $PRESETS"
 echo "Test in corso (l'app si apre da sola e si chiude alla fine, ~8 min)..."
 
 RC=0
-"$BIN" --scenario-test "$PRESETS" "$OUT" > "$OUT/app.log" 2>&1 || RC=$?
+"$BIN" --scenario-test "$PRESETS" "$OUT" ${@+"$@"} > "$OUT/app.log" 2>&1 || RC=$?
 
 [ -f "$OUT/scenario-report.txt" ] || err "il test non ha prodotto il report (codice $RC): vedi $OUT/app.log"
 

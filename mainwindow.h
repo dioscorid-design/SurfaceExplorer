@@ -1706,6 +1706,13 @@ private:
     // sceneFromItem con la scansione delle immagini gia' fatta (il load di un
     // record la fa una volta sola, prima del popup).
     SceneState sceneFromItem(const LibraryItem &d, bool isRecord, const MissingImageScan &scan);
+    // LA SCENA DEL RESET (punto 5, tappa 5.4): cio' che resetScene(index,
+    // loadDefaultSurface) lascia in m_scene, a partire dalla scena attuale --
+    // al cambio di linguetta alcune parti sopravvivono (X/Y/Z/P verso il Ray
+    // Marching, i campi RM verso il parametrico, lo slot della texture verso
+    // il parametrico se non e' un riclic) -- e dalle memorie per modalita'
+    // (steps, S). Non tocca nulla.
+    SceneState defaultScene(int index, bool loadDefaultSurface, bool sameTabRestart) const;
     static QString cleanCodeForComparison(QString str);
     // Decide se un item della libreria texture e' quello attivo. Unica sede del
     // confronto: lo usano sia syncTextureTreeSelection sia la sincronizzazione

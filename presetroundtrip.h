@@ -46,6 +46,15 @@ public:
     static bool requested(const QStringList &args);
     static void start(MainWindow *mw, const QStringList &args);
 
+    // La scena prevista contro quella reale: una riga per campo diverso,
+    // "campo|previsto|reale". La usano anche gli scenari (reset della scena).
+    static QStringList diffScene(const MainWindow::SceneState &want, const MainWindow::SceneState &got);
+    // Toglie dal confronto le DERIVAZIONI che l'app fa dopo aver scritto la
+    // scena, e che non sono decisioni sul file: costante non usata a 1 (S a 0)
+    // col campo spento, limite di un asse non usato svuotato (campo spento),
+    // ultimo moto camera ricavato da cio' che il load ha fatto partire.
+    static QStringList withoutDerivations(const QStringList &diff, MainWindow *mw);
+
 private:
     struct Entry {
         QString path;       // assoluto
@@ -75,8 +84,6 @@ private:
         // per campo diverso, "campo|previsto|reale" (punto 5, tappa 5.3b).
         QStringList sceneDiff;
     };
-
-    static QStringList diffScene(const MainWindow::SceneState &want, const MainWindow::SceneState &got);
 
     // Perche' una differenza fra file e Save NON conta; vuota = conta.
     static QString drivenByMotion(const QString &key, const QJsonObject &saved);

@@ -402,36 +402,8 @@ PresetRoundTrip::Capture PresetRoundTrip::loadAndCaptureOnce(const Entry &e)
 
     wait(m_settleMs);
     c.json = captureJson(e);
-    c.sceneDiff = diffScene(m_mw->sceneFromItem(item, e.isRecord), m_mw->m_scene);
-    // DERIVAZIONI che il load fa DOPO aver scritto la scena, e che non sono
-    // decisioni sul file: costante non usata a 1 (S a 0) col campo spento,
-    // limite di un asse non usato svuotato (campo spento), ultimo moto camera
-    // ricavato da cio' che il load ha fatto partire.
-    {
-        Ui::MainWindow *ui = m_mw->ui;
-        const QHash<QString, QWidget *> fieldOf = {
-            { QStringLiteral("constants.a"), ui->lineA }, { QStringLiteral("constants.b"), ui->lineB },
-            { QStringLiteral("constants.c"), ui->lineC }, { QStringLiteral("constants.d"), ui->lineD },
-            { QStringLiteral("constants.e"), ui->lineE }, { QStringLiteral("constants.f"), ui->lineF },
-            { QStringLiteral("constants.s"), ui->lineS },
-            { QStringLiteral("lim.uMin"), ui->uMinEdit }, { QStringLiteral("lim.uMax"), ui->uMaxEdit },
-            { QStringLiteral("lim.vMin"), ui->vMinEdit }, { QStringLiteral("lim.vMax"), ui->vMaxEdit },
-            { QStringLiteral("lim.wMin"), ui->wMinEdit }, { QStringLiteral("lim.wMax"), ui->wMaxEdit } };
-        QStringList kept;
-        for (const QString &line : c.sceneDiff) {
-            const QStringList f = line.split(QLatin1Char('|'));
-            const QString key = f.value(0), got = f.value(2);
-            QWidget *w = fieldOf.value(key);
-            const bool off = w && !w->isEnabled();
-            if (key.startsWith(QLatin1String("constants.")) && off
-                && got == (key == QLatin1String("constants.s") ? QLatin1String("0") : QLatin1String("1")))
-                continue;
-            if (key.startsWith(QLatin1String("lim.")) && off && got.isEmpty()) continue;
-            if (key == QLatin1String("lastCameraMotion") && f.value(1).isEmpty()) continue;
-            kept.append(line);
-        }
-        c.sceneDiff = kept;
-    }
+    c.sceneDiff = withoutDerivations(diffScene(m_mw->sceneFromItem(item, e.isRecord), m_mw->m_scene),
+                                     m_mw);
     const QPair<QString, QLineEdit *> constantFields[] = {
         { QStringLiteral("A"), m_mw->ui->lineA }, { QStringLiteral("B"), m_mw->ui->lineB },
         { QStringLiteral("C"), m_mw->ui->lineC }, { QStringLiteral("D"), m_mw->ui->lineD },
@@ -472,6 +444,33 @@ PresetRoundTrip::Capture PresetRoundTrip::loadAndCaptureOnce(const Entry &e)
     }
     m_currentDialogs = nullptr;
     return c;
+}
+
+QStringList PresetRoundTrip::withoutDerivations(const QStringList &diff, MainWindow *mw)
+{
+    Ui::MainWindow *ui = mw->ui;
+    const QHash<QString, QWidget *> fieldOf = {
+        { QStringLiteral("constants.a"), ui->lineA }, { QStringLiteral("constants.b"), ui->lineB },
+        { QStringLiteral("constants.c"), ui->lineC }, { QStringLiteral("constants.d"), ui->lineD },
+        { QStringLiteral("constants.e"), ui->lineE }, { QStringLiteral("constants.f"), ui->lineF },
+        { QStringLiteral("constants.s"), ui->lineS },
+        { QStringLiteral("lim.uMin"), ui->uMinEdit }, { QStringLiteral("lim.uMax"), ui->uMaxEdit },
+        { QStringLiteral("lim.vMin"), ui->vMinEdit }, { QStringLiteral("lim.vMax"), ui->vMaxEdit },
+        { QStringLiteral("lim.wMin"), ui->wMinEdit }, { QStringLiteral("lim.wMax"), ui->wMaxEdit } };
+    QStringList kept;
+    for (const QString &line : diff) {
+        const QStringList f = line.split(QLatin1Char('|'));
+        const QString key = f.value(0), got = f.value(2);
+        QWidget *w = fieldOf.value(key);
+        const bool off = w && !w->isEnabled();
+        if (key.startsWith(QLatin1String("constants.")) && off
+            && got == (key == QLatin1String("constants.s") ? QLatin1String("0") : QLatin1String("1")))
+            continue;
+        if (key.startsWith(QLatin1String("lim.")) && off && got.isEmpty()) continue;
+        if (key == QLatin1String("lastCameraMotion") && f.value(1).isEmpty()) continue;
+        kept.append(line);
+    }
+    return kept;
 }
 
 QStringList PresetRoundTrip::diffScene(const MainWindow::SceneState &want, const MainWindow::SceneState &got)

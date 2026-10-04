@@ -174,6 +174,10 @@ private:
     // salvati prima (tag della fascia = immagine della superficie) non cambiano.
     // Da sola: --scenario-only mesh-image.
     void runMeshImageScenarios();
+    // RESET DELLA SCENA (NEW, cambio di linguetta, riclic, nei due modi e nel
+    // Cross Section): dopo ogni reset la scena e' MainWindow::defaultScene,
+    // calcolata prima dal punto di partenza. Da sola: --scenario-only reset-scene.
+    void runResetSceneScenarios();
     // Load di record la cui texture si compilava male: motore = applicata =
     // script (checkTextureCode). Kerr Spin Animated porta un blocco audio coi
     // marcatori spaziati ("// SOUND_BEGIN"), Oloid un vincolo in W che al
