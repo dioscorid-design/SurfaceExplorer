@@ -1574,6 +1574,14 @@ private:
     // il test di andata e ritorno la confronta, preset per preset, con la scena
     // che il load produce davvero (PresetRoundTrip::sceneDiff).
     static SceneState sceneFromItem(const LibraryItem &d, bool isRecord);
+    // Due parti di sceneFromItem che il load usa anche da sole. Le SCELTE:
+    // modalita', sotto-tab (Cross Section solo con l'equazione 4D e senza
+    // script: la SDF di uno script e' un campo 3D), Shell/Solid e resa (dal
+    // renderMode composito: >= 10 = Shell, solo nei preset impliciti). I MOTI
+    // di un record: viste e velocita' dei path (0 = chiave assente: il
+    // default), ultimo moto camera ("none" = fermo: nessuno).
+    static void choicesFromItem(const LibraryItem &d, SceneState *s);
+    static void motionFromItem(const LibraryItem &d, SceneState *s);
     // La superficie -- o la fascia selezionata, in ambito Mesh -- e' in
     // wireframe: la texture non si disegna. Vedi l'implementazione.
     bool textureTargetInWireframe() const;

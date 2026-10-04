@@ -526,24 +526,31 @@ MainWindow::SceneState MainWindow::sceneFromItem(const LibraryItem &d, bool isRe
     s.path = pathTextsFromItem(d);
     s.steps = d.steps;
 
-    // Scelte. renderMode >= 10 codifica Shell in Ray Marching.
-    s.implicitMode = d.isImplicitMode;
-    s.crossSectionTab = d.isImplicitMode && d.usesCrossSection;
-    s.implicitShell = !d.isImplicitMode || d.renderMode >= 10;   // parametrico: il default
-    s.renderMode = d.renderMode % 10;
-    if (s.renderMode != 1 && s.renderMode != 2) s.renderMode = 0;
-
-    // Moti della camera: una superficie riparte dai default, un record porta i
-    // suoi (0 = chiave assente: il default).
-    if (isRecord) {
-        s.pathViewMode4D = static_cast<CameraPathMode>(d.pathMode4D);
-        s.pathViewMode3D = static_cast<CameraPathMode>(d.pathMode3D);
-        if (d.speedPath3D > 0) s.pathSpeed3D = d.speedPath3D;
-        if (d.speedPath4D > 0) s.pathSpeed4D = d.speedPath4D;
-        // "none" (salvato a moti fermi) e chiave assente: la cascata del load.
-        if (d.activeMotion != QLatin1String("none")) s.lastCameraMotion = d.activeMotion;
-    }
+    choicesFromItem(d, &s);
+    // Moti della camera: una superficie riparte dai default, un record porta i suoi.
+    if (isRecord) motionFromItem(d, &s);
     return s;
+}
+
+void MainWindow::choicesFromItem(const LibraryItem &d, SceneState *s)
+{
+    s->implicitMode = d.isImplicitMode;
+    s->crossSectionTab = d.isImplicitMode && d.usesCrossSection
+                         && !d.crossSectionEq.trimmed().isEmpty() && !loadsFromScript(d);
+    // Parametrico: Shell e' il default, e il renderMode non ha la decina.
+    s->implicitShell = !d.isImplicitMode || d.renderMode >= 10;
+    s->renderMode = (d.isImplicitMode && d.renderMode >= 10) ? d.renderMode - 10 : d.renderMode;
+    if (s->renderMode != 1 && s->renderMode != 2) s->renderMode = 0;
+}
+
+void MainWindow::motionFromItem(const LibraryItem &d, SceneState *s)
+{
+    s->pathViewMode4D = static_cast<CameraPathMode>(d.pathMode4D);
+    s->pathViewMode3D = static_cast<CameraPathMode>(d.pathMode3D);
+    if (d.speedPath3D > 0) s->pathSpeed3D = d.speedPath3D;
+    if (d.speedPath4D > 0) s->pathSpeed4D = d.speedPath4D;
+    // "none" (salvato a moti fermi) e chiave assente: la cascata del load.
+    s->lastCameraMotion = d.activeMotion == QLatin1String("none") ? QString() : d.activeMotion;
 }
 
 QString MainWindow::safeImplicitEquation(const QString &eq)

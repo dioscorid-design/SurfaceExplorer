@@ -1678,20 +1678,18 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // "uso" deve farlo PRIMA del giudizio finale.
     // Il COMMIT al motore resta piu' sotto, insieme al resto del ramo implicito:
     // qui si prepara solo cio' che il giudizio sulle costanti deve poter leggere.
+    // La regola e' choicesFromItem; setCrossSectionTab muove la linguetta a
+    // segnali bloccati (currentChanged farebbe applyImplicitSubTabReset, cioe'
+    // la superficie di DEFAULT del sotto-tab). Anche il ritorno al 3D va fatto
+    // qui: una superficie del ramo 3D caricata dal Cross Section farebbe
+    // leggere al giudizio l'equazione 4D rimasta a schermo.
     const QString csEqPre = d.crossSectionEq.trimmed();
-    const bool loadCrossSection = d.isImplicitMode && d.usesCrossSection && !csEqPre.isEmpty();
-    if (loadCrossSection) {
-        // blockSignals OBBLIGATORIO: currentChanged e' connesso a
-        // applyImplicitSubTabReset, che carica la superficie di DEFAULT del
-        // sotto-tab e riporta ai default i controlli condivisi. Qui la linguetta
-        // segue il preset, non e' l'utente che cambia sotto-tab.
-        setCrossSectionTab(true);
-    } else if (d.isImplicitMode && crossSectionTab()) {
-        // Superficie RM del ramo 3D caricata mentre siamo sul Cross Section: la
-        // linguetta torna al 3D, e anche qui PRIMA del giudizio sulle costanti,
-        // che altrimenti leggerebbe l'equazione 4D rimasta a schermo e sbaglierebbe
-        // nel verso opposto (costanti del 3D date per non usate).
-        setCrossSectionTab(false);
+    bool loadCrossSection = false;
+    if (d.isImplicitMode) {
+        SceneState c;
+        choicesFromItem(d, &c);
+        loadCrossSection = c.crossSectionTab;
+        setCrossSectionTab(loadCrossSection);
     }
 
     // 5. CARICAMENTO DATI (Equazioni, Colori, ecc.)
@@ -2141,11 +2139,12 @@ void MainWindow::applyMotionExample(LibraryItem data)
             // sulle costanti in coda a quella funzione (checkParametricDependency
             // -> updateConstantsUIState, che legge il sotto-tab ATTIVO) vedra' gia'
             // l'equazione 4D: e' cio' che tiene A/B/C "usate" invece di riscriverle
-            // a 1. Stessa ragione per cui i campi path sono riempiti prima.
-            // L'editor e' gia' stato scritto in cima al ramo implicito
-            // (setCrossSectionEditorFromPreset), per ogni record RM.
+            // a 1. Il testo dell'editor 4D lo scrive applyCommonData, in testa.
+            // La regola e' choicesFromItem (la stessa delle superfici).
             const QString csEq = data.crossSectionEq.trimmed();
-            const bool loadCrossSection = data.usesCrossSection && !csEq.isEmpty();
+            SceneState choices;
+            choicesFromItem(data, &choices);
+            const bool loadCrossSection = choices.crossSectionTab;
             // blockSignals: currentChanged e' connesso a applyImplicitSubTabReset,
             // che caricherebbe la superficie di DEFAULT del sotto-tab buttando via
             // il record appena caricato.
@@ -2408,22 +2407,21 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // Moto camera attivo al salvataggio: guida l'avvio automatico piu' sotto
     // (applyStartSideEffects). Nei record storici manca -> stringa vuota =
     // cascata legacy; "none" (salvato a moti fermi) idem.
-    m_scene.lastCameraMotion = data.activeMotion;
-    if (m_scene.lastCameraMotion == "none") m_scene.lastCameraMotion.clear();
-
-    // Vista dei due path. I record col solo "pathMode" (formato storico) la
-    // applicano a entrambi, quelli senza nessuna delle due tornano a Tangent:
-    // lo decide parseJson.
-    setPathViewModes(static_cast<CameraPathMode>(data.pathMode4D),
-                     static_cast<CameraPathMode>(data.pathMode3D));
+    // Le regole sono in motionFromItem. Vista dei due path: i record col solo
+    // "pathMode" (formato storico) la applicano a entrambi, quelli senza
+    // nessuna delle due tornano a Tangent (lo decide parseJson). Velocita': 0 =
+    // chiave assente (file vecchi) o path 4D azzerato dal Save in Ray Marching
+    // 3D, cioe' il default (scrivere 0 dava la velocita' minima).
+    {
+        SceneState mo;
+        motionFromItem(data, &mo);
+        m_scene.lastCameraMotion = mo.lastCameraMotion;
+        setPathViewModes(mo.pathViewMode4D, mo.pathViewMode3D);
+        setPathSpeed3D(mo.pathSpeed3D);
+        setPathSpeed4D(mo.pathSpeed4D);
+    }
     // Abilitazione coerente con lo stato dei path (a load fermo -> disabilitati).
     updateViewButtonsEnabled();
-
-    // Velocita' dei path. 0 = chiave assente (file vecchi) o path 4D azzerato
-    // dal Save in Ray Marching 3D: resta il default messo da resetMotionControls
-    // (lo slider parte da 1, e scrivere 0 dava la velocita' minima).
-    if (data.speedPath3D > 0) setPathSpeed3D(data.speedPath3D);
-    if (data.speedPath4D > 0) setPathSpeed4D(data.speedPath4D);
 
     // SEPARAZIONE IMMEDIATA AUDIO-GRAFICA
     // Recuperiamo il codice 2D corretto in base alla modalità corrente
@@ -3707,16 +3705,21 @@ void MainWindow::applyCommonData(LibraryItem d)
         setRmText(&ImplicitTexts::crossSection, rm.crossSection);
         setRmText(&ImplicitTexts::displacement, rm.displacement);
     }
-    // SCELTE DEL RAY MARCHING in un preset PARAMETRICO: sotto-tab 3D e Shell,
-    // i default (sceneFromItem). Nessuno le toccava: un preset parametrico
-    // caricato dopo un record Cross Section in Solid le ereditava (trovato dal
-    // confronto della scena nel round-trip, Villarceau Tubes Drift nel
-    // passaggio rimescolato). Il motore no: in parametrico la sua modalita'
-    // globale e' la resa. Nei preset impliciti le decidono i rami qui sotto e
-    // applySurfaceExample / applyMotionExample.
-    if (!d.isImplicitMode) {
-        setCrossSectionTab(false);
-        setImplicitShell(true);
+    // SCELTE (choicesFromItem): Shell/Solid e resa, stato + vista. Il motore le
+    // riceve piu' sotto (modalita' globale) e dai rami del load
+    // (applyImplicitShellMode). Il sotto-tab di un preset IMPLICITO lo mettono
+    // i chiamanti, con la stessa regola, prima di qui: il commit dell'equazione
+    // di un record lo legge, e se l'equazione 4D non compila ripiega sul 3D. In
+    // un preset PARAMETRICO torna al 3D qui: nessuno lo toccava, e un preset
+    // parametrico aperto dopo un record Cross Section in Solid ereditava l'uno
+    // e l'altro (round-trip, Villarceau Tubes Drift nel passaggio rimescolato).
+    // Il motore no: in parametrico la sua modalita' globale e' la resa.
+    {
+        SceneState c;
+        choicesFromItem(d, &c);
+        if (!d.isImplicitMode) setCrossSectionTab(false);
+        setImplicitShell(c.implicitShell);
+        m_scene.renderMode = c.renderMode;
     }
     // COSTANTI E LORO DOMINI (discrete "A := int(2,6)", minimi "F := min(0.3)"):
     // dal preset, gia' scattate sui domini, e anch'esse prima di ogni giudizio.
@@ -3732,21 +3735,12 @@ void MainWindow::applyCommonData(LibraryItem d)
     // 2. APPLICAZIONE DATI DEL PRESET
     // ==========================================================
 
-    m_scene.renderMode = d.renderMode;
-
-    bool isShell = false;
+    // Shell/Solid e resa sono gia' nello stato (in testa, choicesFromItem: il
+    // renderMode dei preset ray marching e' composito, decine = Shell, unita' =
+    // modo base; da NON confondere col vecchio renderMode 11 "parametrico",
+    // rimosso). Qui il resto del ramo implicito.
+    const bool isShell = m_scene.implicitShell;
     if (d.isImplicitMode) {
-        // renderMode salvato nei preset ray marching e' una codifica composita:
-        // decine = flag Shell (+10), unita' = modo base (0=Basic, 1=Phong). Es. 11
-        // = Shell + Phong. Da NON confondere col vecchio renderMode 11 "parametrico"
-        // (rimosso): qui il 10 e' vivo e usato da preset reali (Gyroid, Lawson, ...).
-        if (m_scene.renderMode >= 10) {
-            isShell = true;
-            m_scene.renderMode -= 10;
-        } else {
-            isShell = false;
-        }
-
         // SPESSORE DEL GUSCIO. Il motore riceve il valore vero; lo slider si
         // posiziona con la funzione INVERSA della sua curva quadratica, o
         // mostrerebbe una posizione che non corrisponde al valore applicato.
@@ -3776,7 +3770,6 @@ void MainWindow::applyCommonData(LibraryItem d)
     // sfondo di prima) su una scena senza texture.
     showSurfaceTarget();
 
-    if (m_scene.renderMode != 1 && m_scene.renderMode != 2) m_scene.renderMode = 0;
     refreshRenderRadios();
 
     // La modalita' GLOBALE del preset va scritta esplicitamente nel motore.
