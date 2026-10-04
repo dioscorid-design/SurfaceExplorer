@@ -1517,15 +1517,13 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     SceneCleanGuard sceneCleanGuard{this};
     discardPendingLimitEdits();
 
+    // LA SCENA DEL FILE, calcolata una volta: applyCommonData la assegna in
+    // testa (una superficie riparte senza texture, sfondo, suono e ancore).
+    const SceneState file = sceneFromItem(d, /*isRecord=*/false);
+
     // La scena non e' piu' un record: caricando una SUPERFICIE l'ancora del
     // record caricato non vale piu' (vedi m_currentRecordPath).
     m_currentRecordPath.clear();
-    // Stessa ragione per le ancore delle texture: le portano solo i record, e le
-    // superfici non le riscrivono. Rimaste in memoria, nell'albero il nome del
-    // record precedente vincerebbe sul codice della texture di questa superficie.
-    // Non basta il reset di scena: una superficie passa di li' solo se cambia la
-    // linguetta.
-    m_scene.textureLibName.clear();
     // Ancora e messaggio dello SFONDO: li toglie forgetBackgroundTexture, piu'
     // sotto, insieme a tutto lo sfondo che questo caricamento spegne.
 
@@ -1585,27 +1583,21 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // AZZERAMENTO TOTALE STATO TEXTURE, TESTI E COLORI
     // ==========================================================
     m_blockTextureGen = false;
-    m_scene.surfaceTextureState = false;
 
-    // Svuota tutti i testi dei vecchi script in memoria (l'immagine se ne va
-    // dalla GPU piu' sotto, con clearTexture) e il CODICE custom dal motore,
-    // che restava compilato nel fragment a texture spenta.
+    // Il CODICE custom esce dal motore, che lo teneva compilato nel fragment a
+    // texture spenta (l'immagine se ne va dalla GPU piu' sotto, con
+    // clearTexture). I testi -- slot, accensione, ancore, suono -- li assegna
+    // applyCommonData in testa.
     commitSurfaceTextureCode(QString());
-    setScriptText(SlotSurfaceTexture, QString());
-
-    setRmText(&ImplicitTexts::displacement, QString());
     if(ui->glWidget) ui->glWidget->setDisplacementCode("");
-
-    setRmText(&ImplicitTexts::texture, QString());
     if(ui->glWidget) ui->glWidget->setTextureCode("");
 
     // Lo sfondo si spegne piu' sotto (setBackgroundTextureEnabled(false)): qui
     // se ne va tutto il resto, percorso dell'immagine e GPU compresi.
     forgetBackgroundTexture();
 
-    setScriptText(SlotSound, QString());
-    m_scene.soundLibName.clear();   // l'ancora segue il suono che se ne va
-
+    // Prima dell'uscita dalla modalita' metrica, che decide la sorgente della
+    // superficie guardando lo script applicato.
     clearSurfaceScript();
     exitMetricScriptMode();
 
@@ -1684,16 +1676,11 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // qui: una superficie del ramo 3D caricata dal Cross Section farebbe
     // leggere al giudizio l'equazione 4D rimasta a schermo.
     const QString csEqPre = d.crossSectionEq.trimmed();
-    bool loadCrossSection = false;
-    if (d.isImplicitMode) {
-        SceneState c;
-        choicesFromItem(d, &c);
-        loadCrossSection = c.crossSectionTab;
-        setCrossSectionTab(loadCrossSection);
-    }
+    const bool loadCrossSection = file.crossSectionTab;
+    if (d.isImplicitMode) setCrossSectionTab(loadCrossSection);
 
     // 5. CARICAMENTO DATI (Equazioni, Colori, ecc.)
-    applyCommonData(d);
+    applyCommonData(d, file);
 
     // Ripristina il COLORE SUPERFICIE del preset. Sopra (riga ~5716) abbiamo
     // resettato al verde di default; senza questo blocco il colore salvato non
@@ -1745,7 +1732,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
 
     if (d.isImplicitMode && !isImplicitScript) {
         // Il testo e' gia' nel campo (applyCommonData): qui il commit al motore.
-        const QString eqToLoad = safeImplicitEquation(implicitTextsFromItem(d).equation);
+        const QString eqToLoad = safeImplicitEquation(file.rm.equation);
 
         // Editor 4D e linguetta sono gia' stati ripristinati PRIMA di
         // applyCommonData (vedi la nota li': il giudizio sulle costanti in coda
@@ -1905,11 +1892,9 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // Forza il ridisegno immediato con le nuove angolazioni
     ui->glWidget->update();
 
-    // 12. Estrai eventuale audio dallo script per la scheda Sound
-    QString fullLoadedText = m_scene.surfaceScriptApplied + "\n" + m_scene.surfaceTextureCode + "\n" + m_scene.bgTextureCode;
-    setScriptText(SlotSound, extractAudioDirectives(fullLoadedText));
-
-    // 12b. AVVIO AUTOMATICO DELL'AUDIO AL CARICAMENTO!
+    // 12. Il suono dello script e' gia' nel suo slot (applyCommonData, in
+    // testa). AVVIO AUTOMATICO DELL'AUDIO AL CARICAMENTO:
+    const QString fullLoadedText = m_scene.surfaceScriptApplied + "\n" + m_scene.surfaceTextureCode + "\n" + m_scene.bgTextureCode;
     if (fullLoadedText.contains("//MUSIC:") || fullLoadedText.contains("//SOUND_BEGIN")) {
         onRunSoundClicked();
     }
@@ -2006,6 +1991,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
                                     : "\n\nThe animation will be loaded without it."));
         box.exec();
     }
+
+    // LA SCENA DEL FILE, calcolata una volta (con la scansione appena fatta):
+    // applyCommonData la assegna in testa, e da qui la leggono sotto-tab e moti.
+    const SceneState file = sceneFromItem(data, /*isRecord=*/true, missingScan);
 
     // CARICAMENTO IN CORSO (m_populatingFields, vedi mainwindow.h): da qui,
     // non solo da applyCommonData piu' sotto. Lo legge la validazione del Run
@@ -2128,7 +2117,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
             // L'equazione per il motore, con lo stesso filtro di sicurezza del
             // campo (implicitTextsFromItem: vuota o senza '=' -> la sfera). Il
             // campo lo scrive applyCommonData, in testa.
-            const QString eqToLoad = safeImplicitEquation(implicitTextsFromItem(data).equation);
+            const QString eqToLoad = safeImplicitEquation(file.rm.equation);
 
             // SOTTO-TAB CROSS SECTION: stesso trattamento del ramo superfici
             // (applySurfaceExample). Senza, un record girato in Cross Section si
@@ -2142,9 +2131,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
             // a 1. Il testo dell'editor 4D lo scrive applyCommonData, in testa.
             // La regola e' choicesFromItem (la stessa delle superfici).
             const QString csEq = data.crossSectionEq.trimmed();
-            SceneState choices;
-            choicesFromItem(data, &choices);
-            const bool loadCrossSection = choices.crossSectionTab;
+            const bool loadCrossSection = file.crossSectionTab;
             // blockSignals: currentChanged e' connesso a applyImplicitSubTabReset,
             // che caricherebbe la superficie di DEFAULT del sotto-tab buttando via
             // il record appena caricato.
@@ -2202,8 +2189,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
         // Distruggiamo i dati Ray Marching precedenti (a segnali bloccati; i
         // Run Ray Marching tornano eseguibili qui, come faceva il gestore
         // della digitazione).
-        // (Equazione e rilievo li svuota applyCommonData, in testa.)
-        setRmText(&ImplicitTexts::texture, QString());
+        // (Equazione, rilievo e texture li svuota applyCommonData, in testa.)
         m_implicitApplied = false;
         m_rmTextureApplied = false;
         if (ui->glWidget) {
@@ -2235,7 +2221,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // JSON ai campi e all'UBO. Se F cambia fra queste due righe, la resa cambia
     // anche a codice texture IDENTICO.
     SE_TEXP("record:pre-applyCommonData");
-    applyCommonData(data);
+    applyCommonData(data, file);
     SE_TEXP("record:post-applyCommonData");
 
     // Record che da qui in poi E' la scena. Lo legge "Sync Focused Texture" per
@@ -2302,48 +2288,24 @@ void MainWindow::applyMotionExample(LibraryItem data)
     float bgRot = 0.0f;
     int bgSkyMode = GLWidget::BgFixed;   // record senza la chiave = sfondo fisso
 
-    // --- TEXTURE DI SUPERFICIE: dalla struttura, non piu' dal file ---
-    // Tappa 3 dello "stato unico della scena": questo blocco rileggeva il JSON
-    // per conto suo. Ora legge cio' che parseJson ha gia' messo in `data`, con
-    // gli stessi valori; in piu' riscrive SEMPRE ogni campo -- la rilettura li
-    // toccava solo se la chiave c'era, e un record senza "code" o senza
-    // "displacement" (nessuno in libreria, ma possibile) si teneva quelli del
-    // record aperto prima. Zoom, pan e rotazione sono gia' in surfZoom & C.
-    //
-    // Ancora della superficie: SEMPRE riscritta, anche a vuoto, come quella
-    // dello sfondo piu' sotto. Un record senza blocco "texture" non deve
-    // ereditare il nome della texture del record aperto prima.
-    // NOME della texture di libreria: e' cio' che permette all'albero di
-    // ritrovarla anche se il suo codice e' stato modificato dopo il
-    // salvataggio del record (vedi m_scene.textureLibName). I record piu'
-    // vecchi non hanno il campo: resta vuoto e il focus si decide per codice.
-    m_scene.textureLibName = data.textureLibName;
-
-    // 1. CARICAMENTO TEXTURE 2D (Energia/Colore)
+    // --- TEXTURE DI SUPERFICIE E RILIEVO: i testi sono gia' nello stato ---
+    // applyCommonData li ha assegnati in testa dalla scena del file
+    // (textureTextsFromItem: codici senza suono, senza il tag //IMG: di
+    // un'immagine mancante; ancore SEMPRE riscritte, anche a vuoto). Qui il
+    // motore. In Ray Marching la texture va nel marcher e l'IMMAGINE si estrae
+    // dal codice del file (texCode resta vuoto: non deve innescare la pipeline
+    // parametrica piu' giu'); in parametrico texCode va nel motore, se compila
+    // (APPLICAZIONE TEXTURE SUPERFICIE, piu' sotto). Il rilievo solo in Ray
+    // Marching.
     if (isImplicit) {
-        // Modalità Ray Marching: va nei campi dedicati
-        setRmText(&ImplicitTexts::texture, data.textureCode);
-        if (ui->glWidget) ui->glWidget->setTextureCode(data.textureCode);
+        if (ui->glWidget) ui->glWidget->setTextureCode(m_scene.rm.texture);
         SE_TEXP("common:RM-texture-del-record");
-
-        // L'IMMAGINE si estrae da QUI, prima dello svuotamento: sotto,
-        // imgPath viene ricavato da texCode, che in questo ramo e' vuoto.
         rmTexCodeForImage = data.textureCode;
-
-        // FONDAMENTALE: svuotiamo texCode per evitare che inneschi la pipeline Parametrica più giù
         texCode = "";
-    }
-    // Modalita' parametrica: texCode va nello slot dello script e, se compila,
-    // nel motore (APPLICAZIONE TEXTURE SUPERFICIE, piu' sotto).
-
-    // 2. CARICAMENTO DISPLACEMENT 3D (Bernoccoli): solo in Ray Marching.
-    if (isImplicit) {
-        setRmText(&ImplicitTexts::displacement, data.displacementCode);
-        if (ui->glWidget) ui->glWidget->setDisplacementCode(data.displacementCode);
     } else {
-        setRmText(&ImplicitTexts::displacement, QString());
-        if (ui->glWidget) ui->glWidget->setDisplacementCode("");
+        texCode = m_scene.surfaceTextureScriptText;
     }
+    if (ui->glWidget) ui->glWidget->setDisplacementCode(m_scene.rm.displacement);
 
     // Colori u_col1/u_col2 (bianco e nero se il record non li porta).
     ui->glWidget->setGlobalTextureColors(
@@ -2358,14 +2320,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // apriva, camera e moti restavano quelli del record precedente, e un record
     // senza "observer4D" si teneva l'osservatore di quello aperto prima.
 
-    // Ancora del SUONO (vedi mainwindow.h): anche lei SEMPRE riscritta, e
-    // vuota nei record salvati prima che esistesse (focus per solo codice).
-    m_scene.soundLibName = data.soundLibName;
-
-    // Ancora dello sfondo: SEMPRE riscritta, anche a vuoto. Un record senza
-    // sfondo, o salvato prima che la chiave esistesse, non deve ereditare il
-    // nome dello sfondo del record aperto prima.
-    m_scene.bgTextureLibName = data.bgLibName;
+    // (Ancore del suono e dello sfondo: in testa ad applyCommonData.)
     // Messaggio dello sfondo: scritto qui, PRIMA del showSceneHint in coda
     // alla funzione, che lo compone con gli altri due.
     m_currentBgTextureHintText    = data.bgHintText;
@@ -2412,147 +2367,47 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // nessuna delle due tornano a Tangent (lo decide parseJson). Velocita': 0 =
     // chiave assente (file vecchi) o path 4D azzerato dal Save in Ray Marching
     // 3D, cioe' il default (scrivere 0 dava la velocita' minima).
-    {
-        SceneState mo;
-        motionFromItem(data, &mo);
-        m_scene.lastCameraMotion = mo.lastCameraMotion;
-        setPathViewModes(mo.pathViewMode4D, mo.pathViewMode3D);
-        setPathSpeed3D(mo.pathSpeed3D);
-        setPathSpeed4D(mo.pathSpeed4D);
-    }
+    m_scene.lastCameraMotion = file.lastCameraMotion;
+    setPathViewModes(file.pathViewMode4D, file.pathViewMode3D);
+    setPathSpeed3D(file.pathSpeed3D);
+    setPathSpeed4D(file.pathSpeed4D);
     // Abilitazione coerente con lo stato dei path (a load fermo -> disabilitati).
     updateViewButtonsEnabled();
 
-    // SEPARAZIONE IMMEDIATA AUDIO-GRAFICA
-    // Recuperiamo il codice 2D corretto in base alla modalità corrente
-    QString sourceForAudio = isImplicit ? m_scene.rm.texture : texCode;
-    QString fullLoadedText = sourceForAudio + "\n" + bgCode;
+    // SUONO E SFONDO: slot e codici gia' nello stato (textureTextsFromItem). Il
+    // suono e' estratto dai codici GREZZI, anche dallo sfondo spento; i codici
+    // grafici sono senza suono (Kerr Spin Animated lo porta tra marcatori
+    // spaziati: rimasto nella texture, questa non compilava); lo sfondo spento
+    // non ha codice (vedi forgetBackgroundTexture: tenerlo era lo "sfondo-
+    // immagine perso"); il tag //IMG: di un'immagine mancante e' tolto, o tutto
+    // il codice se c'era solo quello (il popup e' gia' stato dato, in cima).
+    bgCode = m_scene.bgTextureCode;
 
-    setScriptText(SlotSound, extractAudioDirectives(fullLoadedText));
+    // L'immagine della superficie: in Ray Marching texCode e' vuoto e si cerca
+    // nel codice del file. Mancante: un imgPath vuoto manda la superficie
+    // sulla texture di default.
+    QString imgPath = missingScan.surfaceMissing
+        ? QString()
+        : extractAndResolveImagePath(texCode.isEmpty() ? rmTexCodeForImage : texCode);
 
-    // Rimuoviamo la musica dai codici grafici per proteggere OpenGL! Con la
-    // stessa regola dell'estrazione qui sopra: Kerr Spin Animated porta il
-    // suono tra marcatori spaziati ("// SOUND_BEGIN"), che l'estrazione
-    // accettava e questa pulizia no -- le funzioni del suono restavano nella
-    // texture, che non compilava, e la banda dell'ergosfera non si vedeva.
-    if (isImplicit) {
-        const QString cleanRM = stripAudioDirectives(m_scene.rm.texture).trimmed();
-        setRmText(&ImplicitTexts::texture, cleanRM);
-        if (ui->glWidget) ui->glWidget->setTextureCode(cleanRM);
-    } else {
-        texCode = stripAudioDirectives(texCode).trimmed();
-    }
-
-    bgCode = stripAudioDirectives(bgCode).trimmed();
-    // SFONDO SPENTO = NIENTE TEXTURE (vedi forgetBackgroundTexture). Un record
-    // puo' portare codice con lo sfondo spento -- era il Save a scriverlo, col
-    // percorso dell'immagine rimasto dopo lo spegnimento. Tenerlo in memoria
-    // mentre la GPU restava sull'immagine del record PRECEDENTE era l'origine
-    // dello "sfondo-immagine perso": riaccendendo si vedeva quella, e il Save
-    // scriveva enabled true con codice vuoto. Qui, DOPO l'estrazione
-    // dell'audio: un suono che viaggia nel codice dello sfondo resta.
-    if (!bgTexEnabled) bgCode.clear();
-    // ===================================================================
-
-    // IMMAGINI MANCANTI: l'avviso e' GIA' STATO DATO in cima alla funzione, su
-    // scena ancora intatta (scanRecordForMissingImages). Qui resta il solo
-    // lavoro sul codice, che va fatto per forza a questo punto: bgCode/texCode
-    // vengono copiati subito sotto in m_*TextureScriptText / m_*TextureCode e da
-    // li' finiscono nell'editor, quindi il tag //IMG: va tolto PRIMA o
-    // ricomparirebbe a schermo.
-    //
-    // Nessun ricontrollo del disco: si riusa l'esito della scansione, cosi' i
-    // due punti non possono divergere.
-    //
-    // Due casi per ciascun ramo, perche' il codice puo' avere il tag //IMG:
-    // INSIEME a uno script procedurale (il mix che il ramo Library compone
-    // anteponendo il tag, ~6542):
-    //   - solo immagine   -> si azzera tutto, torna la texture di default;
-    //   - immagine+script -> si toglie il solo tag e lo script resta, che e'
-    //     valido e rende identico (campiona la scacchiera procedurale al posto
-    //     della foto, come gli "Animated Images" che usano iChannel0 senza tag).
-    const QRegularExpression imgTagRe(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption);
-
-    if (missingScan.bgMissing) {
-        bgCode.remove(imgTagRe);
-        bgCode = bgCode.trimmed();
-        if (!missingScan.bgKeptScript) bgCode.clear();
-    }
-
-    // RAY MARCHING: la texture di superficie non vive in texCode (svuotato piu'
-    // sopra) ma nel campo dedicato lineTexture, quindi il tag //IMG: morto va
-    // tolto DI LI'. Senza questo, il record si caricava mostrando nell'editor
-    // un //IMG: che punta a un file inesistente, e ogni Run successivo tornava
-    // a cercarlo.
-    if (missingScan.surfaceMissing && isImplicit) {
-        QString rmTex = m_scene.rm.texture;
-        rmTex.remove(imgTagRe);
-        rmTex = rmTex.trimmed();
-        // Stessa euristica dei due rami sotto: se resta solo il tag, non c'e'
-        // nessuno script da salvare e il campo va svuotato del tutto.
-        if (!missingScan.surfaceKeptScript) rmTex.clear();
-        setRmText(&ImplicitTexts::texture, rmTex);
-        if (ui->glWidget) ui->glWidget->setTextureCode(rmTex);
-    }
-
-    // In Ray Marching texCode e' vuoto per costruzione (vedi sopra): l'immagine
-    // si cerca nel codice RM conservato a parte. Lo Smart Path Resolver dentro
-    // extractAndResolveImagePath vale per entrambi i rami.
-    QString imgPath = extractAndResolveImagePath(
-        texCode.isEmpty() ? rmTexCodeForImage : texCode);
-    if (missingScan.surfaceMissing) {
-        // Il percorso non si usa: l'immagine non c'e' piu'. Piu' sotto un
-        // imgPath vuoto e' proprio il segnale che manda la superficie sulla
-        // texture di default.
-        imgPath = "";
-        texCode.remove(imgTagRe);
-        texCode = texCode.trimmed();
-        if (!missingScan.surfaceKeptScript) texCode.clear();
-    }
-
-    m_scene.surfaceTextureState = texEnabled;
     applySurfaceTextureToEngine();
-    setScriptText(SlotSurfaceTexture, texCode);
     // In RM e' QUESTA riga a rimettere in vigore la texture: createImplicitFragmentShader
     // inietta il codice solo se m_textureEnabled, e setGlobalTextureEnabled e'
     // l'unico punto (con setTextureCode) che invalida m_pipelineImplicit.
     SE_TEXP("common:texture-riabilitata");
 
-    setScriptText(SlotBackgroundTexture, bgCode);
-    m_scene.bgTextureCode = bgCode;
-
-    // (Gli slot hanno ora codice pulito; l'editor, loro vista, li segue.)
+    // (L'editor, vista degli slot, li segue.)
     refreshScriptEditor();
 
 
-    // COSTANTI: si rigiudicano QUI, a campi completi, e non prima.
-    //
-    // applyCommonData chiude con checkParametricDependency ->
-    // updateConstantsUIState, che decide quali costanti sono "usate" leggendo
-    // anche i codici delle texture: lineTexture/lineVariations in Ray Marching,
-    // m_scene.surfaceTextureCode in parametrico, m_scene.bgTextureCode in ENTRAMBI (~7464).
-    // Ma texture e sfondo del record arrivano DOPO, nel blocco JSON qui sopra:
-    // quel giudizio avveniva sui codici della SCENA PRECEDENTE. Due guasti
-    // opposti, entrambi misurati:
-    //  - costante usata solo dalla texture del record, ma non dalla scena di
-    //    prima: risultava inutilizzata e il ramo !used le SCRIVE 1 (~7592).
-    //    "Wireframe Rec" (F=3 nel JSON): primo load F=1, secondo load F=3.
-    //  - costante usata dalla scena di prima, ma da NESSUN campo del record:
-    //    risultava usata e restava ACCESA, con uno slider che non muove nulla.
-    //    "Hybrid Hyperbolic" dopo aver provato il Mandelbrot con F come sfondo.
-    // Il primo si era corretto solo in Ray Marching; il secondo colpisce
-    // soprattutto il parametrico, dove lo sfondo e' lo stesso. Quindi qui vale
-    // per ENTRAMBI i modi.
-    //
-    // ORDINE: prima si riassegnano i valori del preset (il reset a 1 puo' averli
-    // gia' rovinati), POI si giudica -- ora sui campi del record -- cosi' le
-    // costanti davvero inutilizzate tornano a 1 e spente come vuole la regola,
-    // e le altre tengono il valore salvato. Infine il motore legge i campi come
-    // sono adesso (refreshConstants): le costanti sono uniform, niente rebuild,
-    // ma senza la GPU resterebbe coi valori del giudizio sbagliato.
-    // E' la STESSA assegnazione della testa di applyCommonData (i domini non
-    // cambiano): sparira' quando anche le texture saranno assegnate in testa.
-    setConstTexts(constantTextsFromItem(data));
+    // COSTANTI: il giudizio finale, a scena completa. Texture e sfondo del
+    // record sono nello stato dalla testa di applyCommonData, quindi il
+    // giudizio la' dentro li vede gia' (prima arrivavano DOPO, e si giudicava
+    // sui codici della SCENA PRECEDENTE: "Wireframe Rec", F=3 nel JSON, si
+    // apriva con F=1; "Hybrid Hyperbolic" teneva accesa la F dello sfondo
+    // provato prima -- e serviva una seconda assegnazione dei valori del file
+    // qui). Resta il giudizio, una volta, con le fasce del record ormai
+    // nel motore, e il motore allineato ai campi.
     refreshConstants(/*restoreTextOnNegative=*/false);
     SE_TEXP("record:costanti-rigiudicate");
 
@@ -2636,7 +2491,6 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     // --- APPLICAZIONE TEXTURE BACKGROUND ---
     ui->glWidget->setBackgroundTextureEnabled(bgTexEnabled);
-    m_scene.bgTextureCode = bgCode;
     // Sfondo spento: via anche ancora, messaggio e immagine in GPU (quella del
     // record precedente, altrimenti, ricomparirebbe alla riaccensione).
     if (!bgTexEnabled) forgetBackgroundTexture();
@@ -3338,20 +3192,6 @@ void MainWindow::applyPresetAlpha(float alpha)
     if (ui->glWidget) ui->glWidget->setAlpha(alpha);
 }
 
-// Chiamata da OGNI load di un preset Ray Marching (superfici e record), non
-// solo da quelli che usano il Cross Section. Prima l'editor si scriveva solo in
-// quel caso: caricando un preset del ramo 3D restava l'equazione 4D del preset
-// PRECEDENTE, e il Save la scriveva nel file ("crossSectionEquation"). A
-// schermo non si vedeva -- entrare nel sotto-tab carica la superficie di
-// default -- ma il file cambiava a seconda di cosa era stato aperto prima
-// (trovato dal test di andata e ritorno: 44 superfici su 51).
-// Nessun commit al motore: lo fa chi carica, se il preset usa il Cross Section.
-void MainWindow::setCrossSectionEditorFromPreset(const QString &eq)
-{
-    if (!ui->lineEquationCrossSection) return;
-    setRmText(&ImplicitTexts::crossSection, eq);
-}
-
 void MainWindow::loadCrossSectionDefaultSurface()
 {
     // T^3 (3-toro, toro-di-tori): S=x^2+y^2+z^2+A^2, M=S+p^2+B^2-C^2,
@@ -3515,7 +3355,7 @@ void MainWindow::loadCrossSectionDefaultSurface()
     updateConstantsUIState();
 }
 
-void MainWindow::applyCommonData(LibraryItem d)
+void MainWindow::applyCommonData(LibraryItem d, const SceneState &file)
 {
     // CARICAMENTO IN CORSO (m_populatingFields, vedi mainwindow.h). RAII: il
     // flag cade anche sui return anticipati piu' sotto. RIPRISTINO del valore
@@ -3679,7 +3519,7 @@ void MainWindow::applyCommonData(LibraryItem d)
     // costanti. A segnali bloccati (setEqText): checkParametricDependency gira
     // in coda, sullo stato intero. Il motore le riceve dai rami qui sotto.
     {
-        const EquationTexts eq = equationTextsFromItem(d);
+        const EquationTexts &eq = file.eq;
         for (EqField f : { &EquationTexts::x, &EquationTexts::y, &EquationTexts::z, &EquationTexts::p,
                            &EquationTexts::u, &EquationTexts::v, &EquationTexts::w,
                            &EquationTexts::explicitU, &EquationTexts::explicitV, &EquationTexts::explicitW,
@@ -3692,19 +3532,16 @@ void MainWindow::applyCommonData(LibraryItem d)
     // ogni giudizio sulle costanti, che li legge (una costante usata solo da
     // un limite o da un path va tenuta sbloccata). Il motore li riceve piu'
     // sotto (updateU/V/WLimits, applySpaceLimits, compilePath*).
-    m_scene.lim = limitTextsFromItem(d);
-    m_scene.path = pathTextsFromItem(d);
+    m_scene.lim = file.lim;
+    m_scene.path = file.path;
     showLineFields();
     // CAMPI RAY MARCHING (equazione 3D, sezione 4D, rilievo), per la stessa
     // ragione: l'equazione del sotto-tab attivo conta nel giudizio sulle
     // costanti. Un preset parametrico li lascia vuoti. Il motore li riceve dai
     // rami qui sotto e da applySurfaceExample / applyMotionExample.
-    {
-        const ImplicitTexts rm = implicitTextsFromItem(d);
-        setRmText(&ImplicitTexts::equation, rm.equation);
-        setRmText(&ImplicitTexts::crossSection, rm.crossSection);
-        setRmText(&ImplicitTexts::displacement, rm.displacement);
-    }
+    setRmText(&ImplicitTexts::equation, file.rm.equation);
+    setRmText(&ImplicitTexts::crossSection, file.rm.crossSection);
+    setRmText(&ImplicitTexts::displacement, file.rm.displacement);
     // SCELTE (choicesFromItem): Shell/Solid e resa, stato + vista. Il motore le
     // riceve piu' sotto (modalita' globale) e dai rami del load
     // (applyImplicitShellMode). Il sotto-tab di un preset IMPLICITO lo mettono
@@ -3714,13 +3551,9 @@ void MainWindow::applyCommonData(LibraryItem d)
     // parametrico aperto dopo un record Cross Section in Solid ereditava l'uno
     // e l'altro (round-trip, Villarceau Tubes Drift nel passaggio rimescolato).
     // Il motore no: in parametrico la sua modalita' globale e' la resa.
-    {
-        SceneState c;
-        choicesFromItem(d, &c);
-        if (!d.isImplicitMode) setCrossSectionTab(false);
-        setImplicitShell(c.implicitShell);
-        m_scene.renderMode = c.renderMode;
-    }
+    if (!d.isImplicitMode) setCrossSectionTab(false);
+    setImplicitShell(file.implicitShell);
+    m_scene.renderMode = file.renderMode;
     // COSTANTI E LORO DOMINI (discrete "A := int(2,6)", minimi "F := min(0.3)"):
     // dal preset, gia' scattate sui domini, e anch'esse prima di ogni giudizio.
     // Domini sempre riscritti: un preset che non ne dichiara torna a costanti
@@ -3728,8 +3561,27 @@ void MainWindow::applyCommonData(LibraryItem d)
     // di VALORE dello script ("A := 1.2", "u_max := 4*pi") al load non si
     // riapplicano (parseAndApplyScriptParams): la scena e' il file. Slider e
     // motore le ricevono piu' sotto, dopo i limiti.
-    constantDomainsFromItem(d, &m_scene.discreteConsts, &m_scene.minConsts);
-    setConstTexts(constantTextsFromItem(d));
+    m_scene.discreteConsts = file.discreteConsts;
+    m_scene.minConsts = file.minConsts;
+    setConstTexts(file.constants);
+    // SCRIPT, TEXTURE, SFONDO E SUONO (textureTextsFromItem): slot, codici,
+    // accensione e ancore della Library. Anch'essi prima di ogni giudizio: le
+    // costanti usate solo dalla texture o dallo sfondo del record contano (il
+    // giudizio vedeva quelle del record PRECEDENTE). Il motore li riceve dai
+    // rami qui sotto (script) e, per un record, da applyMotionExample (texture,
+    // sfondo, suono); l'applicato della texture lo scrive solo
+    // commitSurfaceTextureCode.
+    setScriptText(SlotSurface, file.surfaceScriptText);
+    m_scene.surfaceScriptApplied = file.surfaceScriptApplied;
+    setScriptText(SlotSurfaceTexture, file.surfaceTextureScriptText);
+    setRmText(&ImplicitTexts::texture, file.rm.texture);
+    setScriptText(SlotBackgroundTexture, file.bgTextureScriptText);
+    m_scene.bgTextureCode = file.bgTextureCode;
+    setScriptText(SlotSound, file.soundScriptText);
+    m_scene.surfaceTextureState = file.surfaceTextureState;
+    m_scene.textureLibName = file.textureLibName;
+    m_scene.bgTextureLibName = file.bgTextureLibName;
+    m_scene.soundLibName = file.soundLibName;
 
     // ==========================================================
     // 2. APPLICAZIONE DATI DEL PRESET
@@ -3957,8 +3809,7 @@ void MainWindow::applyCommonData(LibraryItem d)
     updateScriptButtonText();
 
     if (isScript && !d.scriptCode.isEmpty()) {
-        setScriptText(SlotSurface, d.scriptCode);
-        m_scene.surfaceScriptApplied = d.scriptCode;
+        // (Slot e applicato dello script: in testa.)
 
         // NB: l'uscita dalla modalità metrica (exitMetricScriptMode) avviene più
         // sotto, DOPO che campi ed editor contengono il preset NUOVO: la sua
@@ -4056,7 +3907,7 @@ void MainWindow::applyCommonData(LibraryItem d)
     }
     else {
         ui->glWidget->setScriptCheck(false);
-        clearSurfaceScript();
+        // (Slot e applicato dello script vuoti: in testa.)
         // NB: exitMetricScriptMode è spostata più sotto, a campi già popolati:
         // chiamarla QUI (con lineX/Y/Z/P ancora del preset VECCHIO) faceva
         // resettare a 1 dalla sua updateConstantsUIState le costanti che le

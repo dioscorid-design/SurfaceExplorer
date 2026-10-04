@@ -1407,7 +1407,10 @@ private:
     void setTextureLibraryGrayed(bool grayed);
     // Per valore come applySurfaceExample/applyMotionExample: e' chiamata da
     // entrambe e ne condivide il rischio (vedi il commento la' sopra).
-    void applyCommonData(LibraryItem data);
+    // `file` e' la scena del preset (sceneFromItem), calcolata una volta dal
+    // chiamante: la testa la assegna a m_scene, concetto per concetto.
+    struct SceneState;   // piu' sotto, con m_scene
+    void applyCommonData(LibraryItem data, const SceneState &file);
     // Shell/Solid del Ray Marching: UNICA implementazione condivisa fra i due
     // rami di load (equazione implicita e script implicito) e il reset alla
     // sfera di default. I due rami avevano il ripristino solo nel ramo
@@ -1442,9 +1445,6 @@ private:
     // dal cambio di sotto-tab (3D <-> Cross Section) — vedi CLAUDE.md, mai
     // duplicare logica live: unica implementazione condivisa.
     void loadCrossSectionDefaultSurface();
-    // Editor del sotto-tab Cross Section riempito col valore del PRESET che si
-    // sta caricando, anche vuoto. Vedi l'implementazione.
-    void setCrossSectionEditorFromPreset(const QString &eq);
     // ACCENSIONE DELLA TEXTURE DI SUPERFICIE nel motore, derivata dall'intenzione
     // m_scene.surfaceTextureState. Vedi l'implementazione.
     void applySurfaceTextureToEngine();
@@ -1569,11 +1569,12 @@ private:
         QHash<QString, float> minConsts;
     };
     SceneState m_scene;
-    // LA SCENA DAL FILE, funzione PURA del preset: cio' che il load deve
-    // lasciare in m_scene (punto 5, tappa 5.3b). Cresce un concetto alla volta;
-    // il test di andata e ritorno la confronta, preset per preset, con la scena
-    // che il load produce davvero (PresetRoundTrip::sceneDiff).
-    static SceneState sceneFromItem(const LibraryItem &d, bool isRecord);
+    // LA SCENA DAL FILE: cio' che il load deve lasciare in m_scene (punto 5,
+    // tappa 5.3b). Non tocca la scena; legge solo il preset e, per texture e
+    // suono, il disco (immagini mancanti, brani da ritrovare nella libreria).
+    // Il test di andata e ritorno la confronta, preset per preset, con la
+    // scena che il load produce davvero (PresetRoundTrip::sceneDiff).
+    SceneState sceneFromItem(const LibraryItem &d, bool isRecord);
     // Due parti di sceneFromItem che il load usa anche da sole. Le SCELTE:
     // modalita', sotto-tab (Cross Section solo con l'equazione 4D e senza
     // script: la SDF di uno script e' un campo 3D), Shell/Solid e resa (dal
@@ -1694,6 +1695,17 @@ private:
     // Sola lettura di data e del suo JSON: non modifica nulla, quindi puo'
     // girare prima del caricamento vero.
     MissingImageScan scanRecordForMissingImages(const LibraryItem &data);
+    // SCRIPT, TEXTURE, SFONDO E SUONO dal preset (parte di sceneFromItem): lo
+    // script della superficie (slot e applicato) se la scena viene dallo
+    // script; per un record i codici di texture e sfondo senza il suono (che va
+    // nel suo slot), senza il tag //IMG: di un'immagine mancante (scan), lo
+    // sfondo vuoto se spento, l'accensione e le ancore della Library. Una
+    // superficie riparte senza texture, sfondo e suono.
+    void textureTextsFromItem(const LibraryItem &d, bool isRecord,
+                              const MissingImageScan &scan, SceneState *s);
+    // sceneFromItem con la scansione delle immagini gia' fatta (il load di un
+    // record la fa una volta sola, prima del popup).
+    SceneState sceneFromItem(const LibraryItem &d, bool isRecord, const MissingImageScan &scan);
     static QString cleanCodeForComparison(QString str);
     // Decide se un item della libreria texture e' quello attivo. Unica sede del
     // confronto: lo usano sia syncTextureTreeSelection sia la sincronizzazione

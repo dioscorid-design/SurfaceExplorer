@@ -402,7 +402,7 @@ PresetRoundTrip::Capture PresetRoundTrip::loadAndCaptureOnce(const Entry &e)
 
     wait(m_settleMs);
     c.json = captureJson(e);
-    c.sceneDiff = diffScene(MainWindow::sceneFromItem(item, e.isRecord), m_mw->m_scene);
+    c.sceneDiff = diffScene(m_mw->sceneFromItem(item, e.isRecord), m_mw->m_scene);
     // DERIVAZIONI che il load fa DOPO aver scritto la scena, e che non sono
     // decisioni sul file: costante non usata a 1 (S a 0) col campo spento,
     // limite di un asse non usato svuotato (campo spento), ultimo moto camera
@@ -497,7 +497,12 @@ QStringList PresetRoundTrip::diffScene(const MainWindow::SceneState &want, const
     SE_CMP(path.alpha); SE_CMP(path.beta); SE_CMP(path.gamma);
     SE_CMP(path.x3D); SE_CMP(path.y3D); SE_CMP(path.z3D); SE_CMP(path.roll3D);
     SE_CMP(lastCameraMotion);
+    SE_CMP(surfaceScriptText); SE_CMP(surfaceScriptApplied);
+    SE_CMP(surfaceTextureScriptText); SE_CMP(surfaceTextureCode); SE_CMP(rm.texture);
+    SE_CMP(bgTextureScriptText); SE_CMP(bgTextureCode); SE_CMP(soundScriptText);
+    SE_CMP(textureLibName); SE_CMP(bgTextureLibName); SE_CMP(soundLibName);
 #undef SE_CMP
+    cmpInt("surfaceTextureState", want.surfaceTextureState, got.surfaceTextureState);
     // Domini delle costanti, in ordine di lettera.
     auto domains = [](const MainWindow::SceneState &s) {
         QStringList out;

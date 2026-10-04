@@ -515,6 +515,13 @@ MainWindow::LimitTexts MainWindow::limitTextsFromItem(const LibraryItem &d)
 
 MainWindow::SceneState MainWindow::sceneFromItem(const LibraryItem &d, bool isRecord)
 {
+    return sceneFromItem(d, isRecord,
+                         isRecord ? scanRecordForMissingImages(d) : MissingImageScan());
+}
+
+MainWindow::SceneState MainWindow::sceneFromItem(const LibraryItem &d, bool isRecord,
+                                                 const MissingImageScan &scan)
+{
     SceneState s;
     s.eq = equationTextsFromItem(d);
     s.rm = implicitTextsFromItem(d);
@@ -529,7 +536,54 @@ MainWindow::SceneState MainWindow::sceneFromItem(const LibraryItem &d, bool isRe
     choicesFromItem(d, &s);
     // Moti della camera: una superficie riparte dai default, un record porta i suoi.
     if (isRecord) motionFromItem(d, &s);
+    textureTextsFromItem(d, isRecord, scan, &s);
     return s;
+}
+
+void MainWindow::textureTextsFromItem(const LibraryItem &d, bool isRecord,
+                                      const MissingImageScan &scan, SceneState *s)
+{
+    if (loadsFromScript(d)) {
+        s->surfaceScriptText = d.scriptCode;
+        s->surfaceScriptApplied = d.scriptCode;
+    }
+    // Una superficie: niente texture ne' sfondo; il suono e' quello dello
+    // script (//MUSIC:, //SOUND_BEGIN..END), se ne ha uno.
+    if (!isRecord) {
+        s->soundScriptText = extractAudioDirectives(s->surfaceScriptApplied);
+        return;
+    }
+
+    // Il suono si estrae dai codici GREZZI di texture e sfondo (anche spento).
+    s->soundScriptText = extractAudioDirectives(d.textureCode + "\n" + d.bgTextureCode);
+
+    static const QRegularExpression imgTagRe(QStringLiteral(R"(^\s*//IMG:.*$\n?)"),
+                                             QRegularExpression::MultilineOption);
+    QString tex = stripAudioDirectives(d.textureCode).trimmed();
+    if (scan.surfaceMissing) {
+        tex.remove(imgTagRe);
+        tex = tex.trimmed();
+        if (!scan.surfaceKeptScript) tex.clear();
+    }
+    if (d.isImplicitMode) s->rm.texture = tex;
+    else                  s->surfaceTextureScriptText = tex;
+    if (!d.isImplicitMode && d.textureEnabled) s->surfaceTextureCode = tex;
+
+    QString bg = stripAudioDirectives(d.bgTextureCode).trimmed();
+    if (!d.bgTextureEnabled) bg.clear();
+    if (scan.bgMissing) {
+        bg.remove(imgTagRe);
+        bg = bg.trimmed();
+        if (!scan.bgKeptScript) bg.clear();
+    }
+    s->bgTextureScriptText = bg;
+    s->bgTextureCode = bg;
+
+    s->surfaceTextureState = d.textureEnabled;
+    s->textureLibName = d.textureLibName;
+    // Sfondo spento: niente codice e niente ancora (forgetBackgroundTexture).
+    s->bgTextureLibName = d.bgTextureEnabled ? d.bgLibName : QString();
+    s->soundLibName = d.soundLibName;
 }
 
 void MainWindow::choicesFromItem(const LibraryItem &d, SceneState *s)
