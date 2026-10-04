@@ -150,6 +150,17 @@ void MainWindow::applyStartSideEffects()
 
 void MainWindow::onStartClicked()
 {
+    QObject *from = sender();
+    if (from == ui->btnRunParametric || from == ui->btnImplicit)
+        runScene(RunOrigin::DockRun, static_cast<QPushButton *>(from));
+    else if (from && from == m_btnStart)
+        runScene(RunOrigin::MasterButton);
+    else
+        runScene(RunOrigin::Program);
+}
+
+void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
+{
     // Il master button (START/STOP globale, mai disabilitato) e i Run dei
     // dock restano INERTI durante il REC: rilanciano equazioni e clock di
     // TUTTI i moduli, uno stravolgimento che il loop non deve subire. I
@@ -173,16 +184,13 @@ void MainWindow::onStartClicked()
 
     m_geodesicErrorPending = false;
     setProperty("geoErrorShown", false);   // riarma il popup geodetico per la nuova azione
-    if (!property("rmApplyOnly").toBool())
+    if (origin != RunOrigin::ServiceCommit)
         setProperty("collapseErrorShown", false);  // riarma il collasso solo sulle azioni vere (Start/caricamento)
 
     // Run del dock Equations: agisce SOLO sul modulo equazioni (applica e
     // riavvia il suo orologio), senza toccare rotazioni, path e audio.
     // Vale per il tasto parametrico e per quello implicito (Ray Marching).
-    QPushButton* dockBtn = (sender() == ui->btnRunParametric) ? ui->btnRunParametric
-                         : (sender() == ui->btnImplicit)      ? ui->btnImplicit
-                                                              : nullptr;
-    const bool runDockOnly = (dockBtn != nullptr);
+    const bool runDockOnly = (origin == RunOrigin::DockRun && dockBtn != nullptr);
 
     // --- 0. STOP DEL DOCK EQUATIONS ---
     // Se il tasto del dock mostra "Stop", interrompe SOLO l'animazione delle
@@ -196,7 +204,7 @@ void MainWindow::onStartClicked()
 
     // --- 1. BLOCCO STOP GLOBALE (MASTER) ---
     if (m_btnStart && m_btnStart->text().toUpper() == "STOP") {
-        if (sender() == m_btnStart) {
+        if (origin == RunOrigin::MasterButton) {
             runOutcomeGuard.surfaceApplied = false;   // uno Stop non applica nulla
             performMasterStop();
             return;
@@ -204,7 +212,8 @@ void MainWindow::onStartClicked()
     }
 
     // --- 2. BLOCCO START GLOBALE (MASTER) / RUN (dock Equations) ---
-    const bool masterStart = (m_btnStart && m_btnStart->text().toUpper() == "START" && sender() == m_btnStart);
+    const bool masterStart = (m_btnStart && m_btnStart->text().toUpper() == "START"
+                              && origin == RunOrigin::MasterButton);
     if (runDockOnly || masterStart) {
         m_masterStopped = false;
         // Run del dock Equations o master Start: entrambi riavviano ESPLICITAMENTE
@@ -213,9 +222,9 @@ void MainWindow::onStartClicked()
         snapshotActiveEquations();
     }
 
-    // COMMIT DA INVIO su un campo equazione. Arriva qui dalla lambda del filtro
-    // (EnterApplyFilter -> onStartClicked()), quindi SENZA sender(): non e' ne'
-    // runDockOnly ne' masterStart, e non passava dal riarmo qui sopra. Ma
+    // COMMIT DA INVIO su un campo equazione (RunOrigin::EnterKey, dalla lambda
+    // del filtro EnterApplyFilter): non e' ne' runDockOnly ne' masterStart, e
+    // non passava dal riarmo qui sopra. Ma
     // premere Invio su un'equazione e' un'intenzione di ESEGUIRE esattamente
     // come premere Run: dopo uno Stop del dock, l'Invio applicava la nuova
     // equazione lasciando il clock spento -- la superficie restava ferma e il
@@ -224,13 +233,13 @@ void MainWindow::onStartClicked()
     // Si riarma SOLO il clock della geometria: un commit di equazione non e' un
     // master Start, quindi non tocca suono, texture, sfondo e moti camera (vedi
     // il blocco 'masterStart' qui sotto, che resta l'unico a governarli).
-    // SERVE IL FLAG ESPLICITO, non "assenza di sender": onStartClicked() e'
-    // chiamato programmaticamente anche da altri percorsi senza sender -- p.es.
-    // handleTextureSelection al cambio scheda (~8730) -- e riarmare li'
+    // SERVE L'ORIGINE ESPLICITA, non "assenza di sender": il Run e' chiamato
+    // anche da altri percorsi senza tasto (RunOrigin::Program) -- p.es.
+    // handleTextureSelection al cambio scheda -- e riarmare li'
     // riaccenderebbe la geometria che l'utente aveva fermato, che e' la
     // regressione nota "caricare una texture dalla libreria fa ripartire la
     // scena".
-    if (m_commitFromEnterKey) {
+    if (origin == RunOrigin::EnterKey) {
         m_userStoppedGeomClock = false;
     }
     // Solo un vero master Start riarma il riavvio automatico del suono (un Run di
@@ -264,7 +273,7 @@ void MainWindow::onStartClicked()
         const bool isParametricTab = (!implicitMode());
         const bool fromScript = !m_scene.surfaceScriptApplied.trimmed().isEmpty()
                              && m_surfaceOrigin != OriginBoth;
-        if (isParametricTab && !fromScript && !m_populatingFields
+        if (isParametricTab && !fromScript && origin != RunOrigin::Load
             && !hasParametricEquationInput()) {
             if (!m_constantPopupActive) {
                 m_constantPopupActive = true;
@@ -315,7 +324,7 @@ void MainWindow::onStartClicked()
         // ferma) no: riapplica lo script a schermo, come per le equazioni, che
         // riusano lo snapshot dell'ultimo Run -- altrimenti un Invio su una
         // costante eseguiva di straforo uno script ancora in lavorazione.
-        const bool serviceCommit = this->property("rmApplyOnly").toBool()
+        const bool serviceCommit = (origin == RunOrigin::ServiceCommit)
                                    && !m_scene.surfaceScriptApplied.trimmed().isEmpty();
         QString currentScript = serviceCommit ? m_scene.surfaceScriptApplied : m_scene.surfaceScriptText;
 
@@ -416,7 +425,7 @@ void MainWindow::onStartClicked()
         }
 
 
-        const bool applyOnly = this->property("rmApplyOnly").toBool();
+        const bool applyOnly = (origin == RunOrigin::ServiceCommit);
 
         // Il 't' delle texture PER-MESH non e' in nessuno di questi tre slot: il
         // codice di una fascia vive in MeshPart::textureCode, che
@@ -594,7 +603,7 @@ void MainWindow::onStartClicked()
             texAnimated = true;
         }
 
-        const bool applyOnly = this->property("rmApplyOnly").toBool();
+        const bool applyOnly = (origin == RunOrigin::ServiceCommit);
 
         if (!applyOnly) {
             // Il clock GEOMETRIA è del dock Equations/master: lo guida geomAnimated.
@@ -782,8 +791,8 @@ void MainWindow::onStartClicked()
         if (editingBackground() || ui->glWidget->isBackgroundTextureEnabled()) otherModulesForT += " " + m_scene.bgTextureCode;
 
         // SNAPSHOT DELLE EQUAZIONI APPLICATE. Qui, non solo nel prologo di
-        // onStartClicked (~7579): quello e' dietro `runDockOnly || masterStart`,
-        // cioe' dipende dal sender(), e i percorsi che applicano senza tasto
+        // runScene: quello e' dietro `runDockOnly || masterStart`, cioe'
+        // dipende dall'origine, e i percorsi che applicano senza tasto
         // (Invio su un campo equazione, ~3790) lo saltavano. Le equazioni
         // applicate (m_eqApplied) di conseguenza restavano assenti o STANTIE, e chi legge lo snapshot
         // (l'Invio sui limiti e sui 7 campi del flusso) ricadeva sui campi UI:
@@ -853,7 +862,7 @@ void MainWindow::onStartClicked()
 
     // 2. EQUATIONS E CONSTRAINTS
     //
-    // COMMIT DI SERVIZIO (rmApplyOnly): ci arrivano l'Invio su una costante e
+    // COMMIT DI SERVIZIO (RunOrigin::ServiceCommit): ci arrivano l'Invio su una costante e
     // l'uscita dal suo campo, cioe' percorsi che NON sono un Run. Le equazioni
     // vanno prese dallo SNAPSHOT dell'ultimo Run, non dai campi: lo stesso
     // disaccoppiamento che il ramo geodetico ottiene con useAppliedEquations.
@@ -868,7 +877,7 @@ void MainWindow::onStartClicked()
     //
     // Snapshot assente (mai fatto un Run in questa scena): si ricade sui campi,
     // che e' il comportamento storico -- non c'e' un "gia' applicato" da usare.
-    const bool serviceCommit = this->property("rmApplyOnly").toBool()
+    const bool serviceCommit = (origin == RunOrigin::ServiceCommit)
                             && m_eqApplied.has_value();
     runOutcomeGuard.equationsApplied = !serviceCommit;
     auto eqField = [this, serviceCommit](EqField f) -> QString {
@@ -1065,7 +1074,7 @@ void MainWindow::onStartClicked()
         }
     }
 
-    const bool applyOnly = this->property("rmApplyOnly").toBool();
+    const bool applyOnly = (origin == RunOrigin::ServiceCommit);
     applyAnimationState(applyOnly ? false : hasTimeVariable(rawEqsForT), runDockOnly);
     updateMasterButtonState();
 
@@ -1372,7 +1381,7 @@ void MainWindow::applyAnimationState(bool animated, bool dockOnly) {
             // ostaggio del tempo di un ALTRO modulo.
             // Sintomo: record con superficie E texture animate, master Stop, poi
             // Start -> la superficie ripartiva e la texture no, ogni volta che
-            // 'animated' arrivava false (es. commit con rmApplyOnly, che lo forza
+            // 'animated' arrivava false (es. un commit di servizio, che lo forza
             // a false, o una superficie statica con texture animata).
             // Ogni modulo guarda il PROPRIO tempo: qui decidono l'attivita' del
             // modulo texture (surfTexActive), il suo stop manuale e il master.

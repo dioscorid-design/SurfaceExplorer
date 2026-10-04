@@ -1811,16 +1811,11 @@ void MainWindow::setupDesktopFilters()
 #endif
 
     EnterApplyFilter* equationEnterFilter = new EnterApplyFilter(this);
-    // Il flag marca QUESTA via d'ingresso (Invio su un campo equazione), che
-    // altrimenti onStartClicked non potrebbe distinguere dalle chiamate
-    // programmatiche: entrambe arrivano senza sender(). Serve a riarmare il
-    // clock della geometria come fa il Run. Ripristinato sempre, anche sulle
-    // molte uscite anticipate di onStartClicked (validazioni, popup).
-    equationEnterFilter->onEnter = [this]() {
-        m_commitFromEnterKey = true;
-        const auto reset = qScopeGuard([this]{ m_commitFromEnterKey = false; });
-        onStartClicked();
-    };
+    // L'origine marca QUESTA via d'ingresso (Invio su un campo equazione), che
+    // senza non si distinguerebbe dalle chiamate programmatiche: entrambe
+    // arrivano senza tasto. Serve a riarmare il clock della geometria come fa
+    // il Run.
+    equationEnterFilter->onEnter = [this]() { runScene(RunOrigin::EnterKey); };
     ui->lineEquation->installEventFilter(equationEnterFilter);
     ui->lineEquationCrossSection->installEventFilter(equationEnterFilter);
 

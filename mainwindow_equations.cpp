@@ -2413,7 +2413,7 @@ bool MainWindow::commitFieldsOnEnter() {
     // Si guarda il MODULO EQUAZIONI, non il master button. Il master va su STOP
     // per QUALUNQUE cosa si muova -- clock della texture o dello sfondo, path
     // camera, rotazioni, audio -- anche con la GEOMETRIA FERMA. In quel caso si
-    // finiva nel ramo live, che chiama onStartClicked SENZA rmApplyOnly, quindi
+    // finiva nel ramo live, che fa un Run NON di servizio, quindi
     // senza il congelamento delle equazioni sullo snapshot.
     // Basta un path camera in corsa, o una texture animata, perche' il master
     // dica STOP: da li' si finiva nel ramo live e la t appena scritta veniva
@@ -2422,7 +2422,7 @@ bool MainWindow::commitFieldsOnEnter() {
     // l'avvio del flusso geodetico: qualcosa entra senza un Run, e lo stato dei
     // tasti descrive una realta' diversa da quella a schermo. La radice comune
     // e' usare il master button come se dicesse "la geometria e' in moto".
-    // A geometria ferma si prosegue sotto, dove il commit passa da rmApplyOnly
+    // A geometria ferma si prosegue sotto, dove il commit e' di servizio
     // e le equazioni restano in attesa del Run.
     if (isEquationModuleMoving()) {
         commitUiFieldsDuringMotion();
@@ -2465,9 +2465,7 @@ bool MainWindow::commitFieldsOnEnter() {
 
     // Standard / composition / constraint: applica equazioni, composizioni e
     // vincoli correnti e rigenera la mesh, senza far ripartire moto/rotazioni/audio.
-    setProperty("rmApplyOnly", true);
-    onStartClicked();                 // sender != m_btnStart -> niente toggle START/STOP
-    setProperty("rmApplyOnly", false);
+    runScene(RunOrigin::ServiceCommit);   // niente toggle START/STOP
     return true;
 }
 

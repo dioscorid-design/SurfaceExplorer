@@ -307,7 +307,7 @@ private slots:
     bool isGeodesicRoutingActive() const;
     // Le equazioni X/Y/Z/P a schermo sono ancora quelle dell'ultimo Run
     // (snapshot m_eqApplied)? Serve al COMMIT DI SERVIZIO del ramo parametrico
-    // standard (rmApplyOnly: Invio o uscita da una costante) per decidere se
+    // standard (RunOrigin::ServiceCommit: Invio o uscita da una costante) per decidere se
     // puo' spegnere il tasto Run one-shot: puo' solo se la MAPPA non ha
     // modifiche in sospeso, perche' quelle il Run le deve ancora applicare.
     // Snapshot assente = mai fatto un Run: non si puo' affermare che coincidano.
@@ -1081,13 +1081,25 @@ private:
     bool m_userStoppedTexClock  = false;
     bool m_userStoppedBgClock   = false;
     bool m_userStoppedGeomClock = false;
-    // Vero SOLO mentre onStartClicked() gira per un Invio su un campo equazione
-    // (EnterApplyFilter). Quell'ingresso non ha sender(), quindi e'
-    // indistinguibile dalle chiamate programmatiche -- p.es. quella al cambio
-    // scheda in handleTextureSelection -- che invece NON devono riarmare nulla.
-    // Serve a dare all'Invio lo stesso diritto del Run di riaccendere il clock
-    // della geometria fermato a mano, e a nessun altro percorso.
-    bool m_commitFromEnterKey = false;
+    // CHI CHIEDE IL RUN (punto 5, tappa 5.5). Prima lo si deduceva da sender(),
+    // da flag alzati attorno alla chiamata (Invio, commit di servizio) e da
+    // m_populatingFields (load): ora e' un argomento di runScene.
+    enum class RunOrigin {
+        Program,        // altri percorsi del programma (texture dalla libreria...)
+        MasterButton,   // tasto master START/STOP
+        DockRun,        // tasti Run del dock Equations (parametrico / Ray Marching)
+        EnterKey,       // Invio su un campo equazione: come il Run, riaccende il
+                        // clock della geometria fermato a mano (gli altri
+                        // percorsi senza tasto non devono)
+        ServiceCommit,  // commit di servizio (Invio su una costante o su un
+                        // limite): applica senza far ripartire moto, rotazioni
+                        // e audio
+        Load            // il Run lanciato dal load di un preset: la scena e' il
+                        // file, niente popup di equazioni incomplete
+    };
+    // Il corpo del Run. onStartClicked (lo slot dei tasti) ricava l'origine dal
+    // sender; dockBtn e' il tasto del dock premuto (per il suo STOP).
+    void runScene(RunOrigin origin, QPushButton *dockBtn = nullptr);
 
     // Campi numerici del dock 4D: quanto l'utente ha mosso COI TASTI da
     // resetNav4DBaseline in poi. Si ACCUMULA qui a ogni scatto, invece di
@@ -1270,10 +1282,10 @@ private:
     // digitazione dalle scritture del programma: load e reset scrivono i campi
     // a segnali bloccati (setEqText, setRmText, setScriptText, setConstText),
     // e i gestori pensati per l'utente stanno su segnali che solo lui emette
-    // (textChanged dei campi multilinea, textEdited, clic). Lo legge soltanto la
-    // validazione del Run lanciato dal load di un record (onStartClicked), e il
-    // test degli scenari, che controlla che nessun campo di testo emetta
-    // textChanged mentre e' alzato.
+    // (textChanged dei campi multilinea, textEdited, clic); il Run del load ha
+    // la sua origine (RunOrigin::Load). Lo legge soltanto il test degli
+    // scenari, che controlla che nessun campo di testo emetta textChanged
+    // mentre e' alzato.
     bool m_populatingFields = false;
     // Load e reset scartano la digitazione in attesa di conferma nei campi
     // limite (userEditPending): la scena che l'utente stava modificando non c'e'

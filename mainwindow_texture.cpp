@@ -1951,11 +1951,9 @@ void MainWindow::onRunRaymarchTextureClicked()
         return;
     }
 
-    // RUN del modulo TEXTURE: applica le equazioni (rmApplyOnly non avvia la
-    // geometria) e avvia il proprio unico orologio.
-    this->setProperty("rmApplyOnly", true);
-    onStartClicked();
-    this->setProperty("rmApplyOnly", false);
+    // RUN del modulo TEXTURE: applica le equazioni (un commit di servizio non
+    // avvia la geometria) e avvia il proprio unico orologio.
+    runScene(RunOrigin::ServiceCommit);
 
     // La texture di SUPERFICIE (il checkbox, col bersaglio su Background,
     // mostra lo sfondo: a sfondo spento il Run lasciava ferma la texture).

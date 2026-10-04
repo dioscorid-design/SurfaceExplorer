@@ -1704,7 +1704,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     bool isScript = d.isScript || isImplicitScript || (!d.scriptCode.isEmpty() && !hasValidEquations);
 
     if (!isScript) {
-        onStartClicked();
+        runScene(RunOrigin::Load);
     } else {
         applyAnimationState(hasTimeVariable(m_scene.surfaceScriptApplied));
     }
@@ -2638,7 +2638,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
         // e' l'ultimo punto che puo' cambiare cio' che si vede. Se la riga PRIMA
         // e quella DOPO differiscono, il colpevole e' qui dentro.
         SE_TEXP("record:pre-onStartClicked");
-        onStartClicked();
+        runScene(RunOrigin::Load);
         SE_TEXP("record:post-onStartClicked");
     } else if (isMetricScript) {
         // La mesh geodetica è già stata generata e texturizzata da applyCommonData
