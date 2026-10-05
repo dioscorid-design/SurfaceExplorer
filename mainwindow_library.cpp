@@ -401,7 +401,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             QString fileName = QFileInfo(data.filePath).fileName();
             isMatch = (!fileName.isEmpty() && activeCode.contains(fileName));
         } else {
-            isMatch = (cleanCodeForComparison(activeCode) == cleanCodeForComparison(data.scriptCode));
+            isMatch = (TextureCode::cleanForComparison(activeCode) == TextureCode::cleanForComparison(data.scriptCode));
             // Il DISPLACEMENT distingue due texture quanto il colore: due preset
             // possono avere lo stesso codice di colore e rilievi diversi, e
             // guardando il solo colore l'app concludeva "e' gia' quella attiva",
@@ -409,8 +409,8 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             // ne' colori. Stessa ragione del confronto su m_currentTexturePresetPath
             // qui sotto, che copre il caso gemello dello zoom.
             if (isMatch && ui->lineVariations
-                && cleanCodeForComparison(m_scene.rm.displacement)
-                   != cleanCodeForComparison(data.displacementCode))
+                && TextureCode::cleanForComparison(m_scene.rm.displacement)
+                   != TextureCode::cleanForComparison(data.displacementCode))
                 isMatch = false;
         }
         // Se il file preset è diverso da quello attualmente caricato, non è mai un match
@@ -436,10 +436,10 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             "TEXP   isMatch=%1 | codice uguale=%2 | disp uguale=%3 | "
             "presetPath uguale=%4 | chk=%5 | preset='%6'")
             .arg(isMatch)
-            .arg(cleanCodeForComparison(activeCode) == cleanCodeForComparison(data.scriptCode))
+            .arg(TextureCode::cleanForComparison(activeCode) == TextureCode::cleanForComparison(data.scriptCode))
             .arg(ui->lineVariations
-                 && cleanCodeForComparison(m_scene.rm.displacement)
-                    == cleanCodeForComparison(data.displacementCode))
+                 && TextureCode::cleanForComparison(m_scene.rm.displacement)
+                    == TextureCode::cleanForComparison(data.displacementCode))
             .arg(data.filePath == m_currentTexturePresetPath)
             .arg(ui->chkBoxTexture && ui->chkBoxTexture->isChecked())
             .arg(QFileInfo(data.filePath).fileName());

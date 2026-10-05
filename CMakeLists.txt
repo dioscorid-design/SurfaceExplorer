@@ -99,6 +99,9 @@ qt_add_executable(SurfaceExplorer
     docsearch.h
     camerapaths.cpp
     camerapaths.h
+    texturecode.cpp
+    texturecode.h
+    texthelpers.h
 
     # --- ENGINE & PARSING ---
     surfaceengine.cpp

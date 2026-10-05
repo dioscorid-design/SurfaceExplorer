@@ -2197,7 +2197,7 @@ bool MainWindow::hasTimeVariable(const QString& code) const {
     // record con un suono (la maggioranza) risultava "animato" anche a geometria
     // statica -> clock accesi a vuoto e potenziali riavvii spuri. La 't'/'iTime'
     // del codice GRAFICO (es. "float t = iTime;") resta e segnala animazione vera.
-    // Stesso regex (con blocchi annidati) di cleanCodeForComparison.
+    // Stesso regex (con blocchi annidati) di TextureCode::cleanForComparison.
     QRegularExpression soundBlock(R"(//\s*SOUND_BEGIN.*?//\s*SOUND_END\n?)",
         QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
     while (cleaned.contains(soundBlock)) cleaned.remove(soundBlock);

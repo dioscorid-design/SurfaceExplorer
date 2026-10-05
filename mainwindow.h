@@ -18,6 +18,7 @@
 #include "glwidget.h"
 #include "scenestate.h"
 #include "camerapaths.h"
+#include "texturecode.h"
 #include "librarymanager.h"
 #include "synthesizer.h"
 
@@ -890,7 +891,7 @@ private:
     // NOME della texture di libreria attualmente in uso, salvato nel record
     // come texture["libName"] e riletto per ritrovarla nell'albero.
     // Serve perche' il focus in libreria si decide per UGUAGLIANZA DEL CODICE
-    // (textureItemMatchesCode): un record porta la sua copia del sorgente, e
+    // (TextureCode::itemMatchesCode): un record porta la sua copia del sorgente, e
     // BASTA ritoccare la texture in libreria -- aggiungere uno slider, correggere
     // un commento -- perche' i record che la usano non la riconoscano piu'.
     // E' lo stesso schema con cui le texture IMMAGINE non hanno mai avuto il
@@ -1573,7 +1574,6 @@ private:
     // const: e' pura analisi del testo, non tocca stato. Serve tale ai lettori
     // const che devono sapere se un codice e' animato (anyMeshTextureCodeAnimated).
     bool hasTimeVariable(const QString& code) const;
-    QString extractAndResolveImagePath(const QString& scriptCode);
     QString extractAudioDirectives(const QString& fullText);
     // Il codice GRAFICO di uno slot: toglie cio' che extractAudioDirectives
     // estrae (//MUSIC:, blocchi //SOUND_BEGIN..//SOUND_END, anche coi
@@ -1617,19 +1617,12 @@ private:
     // ASSEGNA una scena intera a m_scene, con la vista dei campi: equazioni,
     // campi RM, costanti e domini, Shell/Solid e resa, slot di script,
     // texture, sfondo e suono, codice e colori dello sfondo, accensione e
-    // ancore; per
-    // ultimi limiti e path (showLineFields, che fa il giudizio sulle costanti
+    // ancore; per ultimi limiti e path (showLineFields, che fa il giudizio sulle costanti
     // a scena completa). NON tocca: modalita' e sotto-tab (li cambia chi
     // gestisce la linguetta), steps (setSteps, col motore), moti, applicato
     // della texture (commitSurfaceTextureCode). La usano la testa del load e
     // il reset: e' la sola strada per cui una scena intera entra in m_scene.
     void assignSceneTexts(const SceneState &s);
-    static QString cleanCodeForComparison(QString str);
-    // Decide se un item della libreria texture e' quello attivo. Unica sede del
-    // confronto: lo usano sia syncTextureTreeSelection sia la sincronizzazione
-    // al load di un record.
-    static bool textureItemMatchesCode(const LibraryItem &texItem, const QString &activeCode,
-                                       const QString &cleanedActiveCode);
 
     // Scansione dell'albero texture e selezione della voce corrispondente.
     // Unica sede. libName: l'ancora della texture cercata (superficie, sfondo o
@@ -1741,21 +1734,12 @@ private:
     // Prima era una copia in MainWindow (m_currentBgTexturePath), azzerata in
     // punti che lasciavano l'immagine in GPU.
     QString backgroundImagePath() const;
-    // Lo script di una texture parametrica contiene CODICE da compilare (e non
-    // il solo tag //IMG: o niente)? Euristica storica, in un punto solo.
-    static bool textureHasLogic(const QString &code);
-    // Lo script campiona un'immagine (iChannel0..3 o il sampler `tex`)? Decide
-    // se una fascia tiene la propria immagine sotto la procedurale appena
-    // applicata (famiglia "Animated Images") o la lascia.
-    static bool textureCodeSamplesImage(const QString &code);
-    // Lo stesso script, col percorso del tag //IMG: sostituito (se c'e').
-    static QString withImageTagPath(const QString &code, const QString &path);
     // La texture parametrica di superficie APPLICATA e' codice custom (e non la
     // scacchiera di default o la sola immagine)? Si deriva dal codice applicato:
     // era un flag (m_isCustomMode) scritto in una quindicina di punti, e il Run
     // dello script di una FASCIA lo scriveva col codice della fascia -- tornando
     // ad All i picker Colore della scacchiera di default restavano spenti.
-    bool surfaceTextureIsCustom() const { return textureHasLogic(m_scene.surfaceTextureCode); }
+    bool surfaceTextureIsCustom() const { return TextureCode::hasLogic(m_scene.surfaceTextureCode); }
     // PROVA E APPLICA il codice della texture PARAMETRICA di superficie: il
     // motore lo compila (un codice senza logica -- vuoto, o il solo tag //IMG:
     // -- lascia lo shader standard) e, solo se regge, diventa la copia applicata
@@ -1831,8 +1815,6 @@ private:
     bool hasAnyRotationSpeed() const;
     void generateTexture();
     void applyDefaultCheckerShader();
-    // Scacchiera di default, condivisa fra texture globale e texture per-mesh.
-    QString defaultMeshTextureCode() const;
     // Codice texture di superficie GLOBALE + quello delle mesh con texture
     // propria accesa: e' cio' su cui va deciso se il clock texture deve girare.
     QString allSurfaceTextureCode() const;

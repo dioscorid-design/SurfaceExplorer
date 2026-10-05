@@ -5734,7 +5734,7 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
     // l'immagine caricata deformandola) senza alcuna immagine leggevano la texture
     // tappabuchi. Ora, quando u_noImage vale 1, restituiamo una SCACCHIERA
     // PROCEDURALE costruita su u_col1/u_col2: identica per aspetto e per contratto
-    // alla scacchiera di default (defaultMeshTextureCode in MainWindow), quindi i
+    // alla scacchiera di default (TextureCode::defaultMeshCode), quindi i
     // picker Color1/Color2 agiscono davvero invece di essere decorativi.
     // Si intercetta la CHIAMATA texture(), non il sampler: i preset la usano sia a
     // 2 argomenti sia a 3 (Squished Coordinates passa il bias di mip), e una macro

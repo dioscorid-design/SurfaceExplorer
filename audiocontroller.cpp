@@ -48,7 +48,7 @@ bool AudioController::playMusic(const QString &filePath)
     // c'era un return muto e il record partiva silenzioso senza dire nulla --
     // a differenza delle IMMAGINI mancanti, che hanno sempre avuto il loro
     // popup. Non basta exists(): sotto sandbox un file puo' esistere ed essere
-    // illeggibile (stessa ragione di extractAndResolveImagePath).
+    // illeggibile (stessa ragione di TextureCode::resolveImagePath).
     QFileInfo fi(filePath);
     if (!fi.exists() || !fi.isFile() || !fi.isReadable()) return false;
 

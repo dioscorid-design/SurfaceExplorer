@@ -835,14 +835,14 @@ void MainWindow::onApplyTextureScriptClicked()
 
     if (code.trimmed().isEmpty()) return;
 
-    QString imgPath = extractAndResolveImagePath(code);
+    QString imgPath = TextureCode::resolveImagePath(code);
     if (imgPath.startsWith("NOT_FOUND|")) {
         InputValidator::showImageNotFoundError(this, imgPath.split("|").last());
         imgPath = "";
     }
 
     // Determina se il codice contiene logica procedurale
-    const bool hasCustomLogic = textureHasLogic(code);
+    const bool hasCustomLogic = TextureCode::hasLogic(code);
 
     if (editingBackground()) {
         // --- RAMO A: SFONDO ---
@@ -921,7 +921,7 @@ void MainWindow::onApplyTextureScriptClicked()
             // finisce nel fragment shader come getCustomColor_<k>): se lo shader
             // non compila, rebuildShader lascia in piedi il precedente e la
             // superficie non sparisce.
-            if (!imgPath.isEmpty()) code = withImageTagPath(code, imgPath);
+            if (!imgPath.isEmpty()) code = TextureCode::withImageTagPath(code, imgPath);
             ui->glWidget->setActiveMeshTexture(code, true);
 
             // CHECKBOX "Texture" ACCESO. Applicare una texture a una mesh la
@@ -1018,7 +1018,7 @@ void MainWindow::onApplyTextureScriptClicked()
                 // (catturato in cima: m_scene.surfaceTextureCode e' gia' stato
                 // sovrascritto), normalizzato come altrove per non contare
                 // spazi e commenti.
-                if (cleanCodeForComparison(code) != cleanCodeForComparison(prevSurfaceTextureCode)) {
+                if (TextureCode::cleanForComparison(code) != TextureCode::cleanForComparison(prevSurfaceTextureCode)) {
                     ui->glWidget->setFlatPan(0.0f, 0.0f);
                     ui->glWidget->setFlatZoom(1.0f);
                     ui->glWidget->setFlatRotation(0.0f);
@@ -1300,7 +1300,7 @@ QString MainWindow::extractAudioDirectives(const QString& fullText) {
         QString rawPath = match.captured(1).trimmed();
 
         // A. Il file e' LEGGIBILE al percorso originale? (non basta che esista:
-        // vedi extractAndResolveImagePath per il perche')
+        // vedi TextureCode::resolveImagePath per il perche')
         if (isReadableFile(rawPath)) {
             addOnce("//MUSIC: " + rawPath + "\n");
         } else {

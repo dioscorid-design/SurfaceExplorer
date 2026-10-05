@@ -1829,7 +1829,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // ridisegna, e l'utente vedeva quel mezzo record finche' non premeva OK.
     //
     // Qui non e' stato modificato ancora nulla: si guardano solo data e il JSON
-    // (extractAndResolveImagePath legge il disco e non tocca lo stato), si
+    // (TextureCode::resolveImagePath legge il disco e non tocca lo stato), si
     // avvisa, e solo al ritorno da exec() parte il caricamento vero. Sullo
     // schermo resta il record precedente, intatto, per tutta la durata del
     // popup.
@@ -2246,7 +2246,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // sulla texture di default.
     QString imgPath = missingScan.surfaceMissing
         ? QString()
-        : extractAndResolveImagePath(texCode.isEmpty() ? rmTexCodeForImage : texCode);
+        : TextureCode::resolveImagePath(texCode.isEmpty() ? rmTexCodeForImage : texCode);
 
     applySurfaceTextureToEngine();
     // In RM e' QUESTA riga a rimettere in vigore la texture: createImplicitFragmentShader
@@ -2377,7 +2377,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
             ui->glWidget->setProperty("bg_col2", QVector3D(m_scene.bgTexColor2.redF(), m_scene.bgTexColor2.greenF(), m_scene.bgTexColor2.blueF()));
         }
 
-        QString bgImgPath = extractAndResolveImagePath(bgCode);
+        QString bgImgPath = TextureCode::resolveImagePath(bgCode);
         if (!bgImgPath.isEmpty() && !bgImgPath.startsWith("NOT_FOUND|")) {
             // Il motore ricorda l'immagine caricata: al prossimo salvataggio il
             // tag //IMG: viene riscritto da li' (vedi PresetSerializer, ramo
@@ -2668,7 +2668,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
             // suo slot, dove lo si puo' correggere.
             if (!isImplicit && texEnabled) {
                 const QString texSrc = surfaceTextureScript();
-                if (textureHasLogic(texSrc)) commitSurfaceTextureCode(texSrc);
+                if (TextureCode::hasLogic(texSrc)) commitSurfaceTextureCode(texSrc);
             }
 
             ui->glWidget->rebuildShader();
@@ -3296,9 +3296,9 @@ void MainWindow::applyCommonData(LibraryItem d, const SceneState &file)
         if (!mp.hasCustomTexture) continue;
         const QString raw = GLWidget::imagePathInTextureCode(mp.textureCode);
         if (raw.isEmpty()) continue;
-        const QString resolved = extractAndResolveImagePath(mp.textureCode);
+        const QString resolved = TextureCode::resolveImagePath(mp.textureCode);
         if (resolved.isEmpty() || resolved == raw || resolved.startsWith("NOT_FOUND|")) continue;
-        mp.textureCode = withImageTagPath(mp.textureCode, resolved);
+        mp.textureCode = TextureCode::withImageTagPath(mp.textureCode, resolved);
     }
 
     // DOMINIO DELL'AMBITO "ALL" del preset. Si applica SUBITO all'engine, non
@@ -3872,7 +3872,7 @@ MainWindow::MissingImageScan MainWindow::scanRecordForMissingImages(const Librar
     };
 
     if (bgTexEnabled && !bgCode.isEmpty()) {
-        const QString bgImg = extractAndResolveImagePath(bgCode);
+        const QString bgImg = TextureCode::resolveImagePath(bgCode);
         if (bgImg.startsWith("NOT_FOUND|")) {
             scan.bgMissing = true;
             scan.bgKeptScript = keepsScript(bgCode);
@@ -3884,7 +3884,7 @@ MainWindow::MissingImageScan MainWindow::scanRecordForMissingImages(const Librar
     // guarda il solo texCode, e cambiarlo qui vorrebbe dire avvisare per un
     // record e non per l'altro.
     Q_UNUSED(texEnabled);
-    const QString texImg = extractAndResolveImagePath(texCode);
+    const QString texImg = TextureCode::resolveImagePath(texCode);
     if (texImg.startsWith("NOT_FOUND|")) {
         scan.surfaceMissing = true;
         scan.surfaceKeptScript = keepsScript(texCode);

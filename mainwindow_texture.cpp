@@ -105,7 +105,7 @@ void MainWindow::syncTextureTreeSelection()
         }
     }
 
-    QString cleanedActive =  cleanCodeForComparison(activeCode);
+    QString cleanedActive =  TextureCode::cleanForComparison(activeCode);
 
     selectTextureTreeItemFor(itTex, activeCode, cleanedActive, libName);
 }
@@ -550,8 +550,8 @@ const LibraryItem *MainWindow::focusedTextureLibraryItem() const
 
     const QString libCode = item->textureCode.isEmpty() ? item->scriptCode : item->textureCode;
     // Gia' allineati (codice E rilievo): niente da sincronizzare.
-    if (cleanCodeForComparison(libCode) == cleanCodeForComparison(activeCode)
-        && cleanCodeForComparison(item->displacementCode) == cleanCodeForComparison(activeDisp))
+    if (TextureCode::cleanForComparison(libCode) == TextureCode::cleanForComparison(activeCode)
+        && TextureCode::cleanForComparison(item->displacementCode) == TextureCode::cleanForComparison(activeDisp))
         return nullptr;
     return item;
 }
@@ -560,7 +560,7 @@ const LibraryItem *MainWindow::focusedTextureLibraryItem() const
 // Differenze dalla superficie:
 //  - niente displacement: lo sfondo non ha rilievo;
 //  - le voci IMMAGINE si escludono: il loro legame e' il nome del file nel tag
-//    //IMG:, non il codice, e non c'e' codice da portare. cleanCodeForComparison
+//    //IMG:, non il codice, e non c'e' codice da portare. TextureCode::cleanForComparison
 //    toglie il tag, quindi uno sfondo misto immagine+script si confronta sul
 //    solo script, che e' cio' che la voce di libreria contiene;
 //  - vale anche con lo sfondo SPENTO: il codice resta nel record, e aggiornarlo
@@ -572,7 +572,7 @@ const LibraryItem *MainWindow::focusedBgTextureLibraryItem() const
     if (!item || item->isImage) return nullptr;
 
     const QString libCode = item->textureCode.isEmpty() ? item->scriptCode : item->textureCode;
-    if (cleanCodeForComparison(libCode) == cleanCodeForComparison(m_scene.bgTextureCode))
+    if (TextureCode::cleanForComparison(libCode) == TextureCode::cleanForComparison(m_scene.bgTextureCode))
         return nullptr;
     return item;
 }
@@ -581,7 +581,7 @@ const LibraryItem *MainWindow::focusedBgTextureLibraryItem() const
 // cui voce esiste e ha un codice diverso da quello che la fascia disegna. Stesso
 // criterio della superficie, ma confrontando il codice della PARTE -- prima il
 // gate guardava la sola texture globale anche con una fascia selezionata.
-// Il tag //IMG: non conta (cleanCodeForComparison lo toglie): una fascia
+// Il tag //IMG: non conta (TextureCode::cleanForComparison lo toglie): una fascia
 // immagine+script si confronta sul solo script, che e' cio' che la voce contiene.
 // Anche una fascia SPENTA: il codice resta nel record e aggiornarlo e' cio' che
 // il comando promette, come per lo sfondo.
@@ -598,7 +598,7 @@ QVector<MainWindow::MeshTextureSync> MainWindow::focusedMeshTextureLibraryItems(
         const LibraryItem *item = textureLibraryItemNamed(p.textureLibName);
         if (!item || item->isImage) continue;
         const QString libCode = item->textureCode.isEmpty() ? item->scriptCode : item->textureCode;
-        if (cleanCodeForComparison(libCode) == cleanCodeForComparison(p.textureCode)) continue;
+        if (TextureCode::cleanForComparison(libCode) == TextureCode::cleanForComparison(p.textureCode)) continue;
         out.append({k, item});
     }
     return out;
@@ -681,7 +681,7 @@ void MainWindow::selectTextureTreeItemFor(QTreeWidgetItemIterator &itTex,
         QVariant vTex = (*itTex)->data(0, Qt::UserRole + 1);
         if (vTex.isValid()) {
             const LibraryItem &texItem = m_libraryManager.getTexture(vTex.toInt());
-            if (!byCode && textureItemMatchesCode(texItem, activeCode, cleanedActive))
+            if (!byCode && TextureCode::itemMatchesCode(texItem, activeCode, cleanedActive))
                 byCode = *itTex;
             if (!byName && !libName.isEmpty()
                 && QString::compare(libName, texItem.name.trimmed(),
@@ -1436,7 +1436,7 @@ void MainWindow::handleTextureSelection(int index)
             if (texGoesToMesh) {
                 const QString ownImage =
                     GLWidget::imagePathInTextureCode(ui->glWidget->activeMeshTextureCode());
-                if (!ownImage.isEmpty() && textureCodeSamplesImage(newCode))
+                if (!ownImage.isEmpty() && TextureCode::samplesImage(newCode))
                     newCode = "//IMG:" + ownImage + "\n" + newCode;
             } else if (surfaceHasImage()) {
                 newCode = "//IMG:" + surfaceImagePath() + "\n" + newCode;
@@ -2066,99 +2066,8 @@ bool MainWindow::textureTargetInWireframe() const
     return m_scene.renderMode == 2;
 }
 
-QString MainWindow::extractAndResolveImagePath(const QString& scriptCode) {
-    QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)", QRegularExpression::MultilineOption);
-    QRegularExpressionMatch imgMatch = imgRe.match(scriptCode);
 
-    if (!imgMatch.hasMatch()) return ""; // Nessun tag immagine trovato
 
-    QString imgPath = imgMatch.captured(1).trimmed();
-    // LEGGIBILE, non solo esistente. Sotto sandbox un file PUO' esistere ed
-    // essere illeggibile: e' il caso dei preset che citano una vecchia copia
-    // della libreria fuori dalla cartella autorizzata (es. una cartella di
-    // lavoro del progetto). Con il solo exists() il percorso veniva accettato,
-    // lo Smart Path Resolver NON entrava in funzione e l'immagine finiva nel
-    // fallback grigio -- mentre la stessa immagine, citata da un record iOS con
-    // percorso inesistente, veniva ritrovata correttamente per nome.
-    if (isReadableFile(imgPath)) return imgPath; // Trovata al percorso originale!
-
-    // --- SMART PATH RESOLVER (Ricerca automatica) ---
-    QString fileName = QFileInfo(imgPath).fileName();
-    QSettings settings;
-    QString texDir = settings.value("pathTextures", settings.value("libraryRootPath").toString() + "/textures").toString();
-    QDirIterator it(texDir, QStringList() << fileName, QDir::Files, QDirIterator::Subdirectories);
-
-    if (it.hasNext()) return it.next(); // Ritrovata nella nuova cartella!
-
-    return "NOT_FOUND|" + imgPath; // Restituisce un flag per far gestire l'errore a chi l'ha chiamata
-}
-
-bool MainWindow::textureItemMatchesCode(const LibraryItem &texItem, const QString &activeCode,
-                                        const QString &cleanedActiveCode)
-{
-    if (texItem.isImage) {
-        // Un'immagine e' attiva SOLO se il suo file compare nel tag //IMG:, non
-        // in un punto qualsiasi del sorgente: uno script procedurale puo'
-        // trascinarsi un //IMG: orfano (o citare un nome file in un commento) e
-        // con un contains() sul testo intero l'albero evidenziava l'immagine al
-        // posto del procedurale davvero in uso.
-        QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)", QRegularExpression::MultilineOption);
-        QRegularExpressionMatch m = imgRe.match(activeCode);
-        if (!m.hasMatch()) return false;
-
-        // Il tag conta come immagine attiva solo se e' l'unico contenuto: se sotto
-        // c'e' del codice GLSL, a disegnare e' quello (il tag e' un residuo).
-        //
-        // ECCEZIONE, il TRIPLANAR: in Ray Marching un'immagine non e' mai un tag
-        // nudo. L'app le antepone sempre lo script che la campiona (~7747), che
-        // e' generato dal motore e non scritto dall'utente: senza, l'immagine
-        // non si vedrebbe affatto. Trattarlo come "codice sotto il tag" faceva
-        // scartare OGNI immagine ray marching, che restava senza focus in
-        // libreria -- il tag c'era, l'immagine si vedeva, ma l'albero non la
-        // evidenziava mai.
-        // Si riconosce dalla FIRMA (le tre proiezioni triplanari su pModel) e
-        // non dal testo esatto: cosi' un ritocco di spaziatura o di 'scale' nel
-        // generatore non rimette in piedi il difetto.
-        QString rest = activeCode;
-        rest.remove(imgRe);
-        const QString restClean = cleanCodeForComparison(rest);
-        const bool isGeneratedTriplanar =
-                restClean.contains("texture(tex,pModel.yz") &&
-                restClean.contains("texture(tex,pModel.xz") &&
-                restClean.contains("texture(tex,pModel.xy") &&
-                restClean.contains("textureCol=cX*blend.x");
-        if (!restClean.isEmpty() && !isGeneratedTriplanar) return false;
-
-        QString activeImg = QFileInfo(m.captured(1).trimmed()).fileName();
-        QString libImg    = QFileInfo(texItem.filePath).fileName();
-        return !libImg.isEmpty() && !activeImg.isEmpty() &&
-               QString::compare(activeImg, libImg, Qt::CaseInsensitive) == 0;
-    }
-
-    // NB: il confronto per NOME (libName) NON sta qui. Deve valere solo quando
-    // NESSUNA voce combacia per codice, e una funzione che guarda un item alla
-    // volta non puo' saperlo: rispondendo "si" sulla prima voce col nome giusto
-    // faceva vincere l'ordine alfabetico sul criterio. Il fallback sul nome vive
-    // percio' nel chiamante, che scorre l'albero in due passate.
-
-    // Procedurale: confronto sui codici puliti (cleanCodeForComparison toglie
-    // gia' il tag //IMG:, quindi un residuo non impedisce il match).
-    QString cleanLibCode = cleanCodeForComparison(texItem.scriptCode);
-    return !cleanedActiveCode.isEmpty() && cleanedActiveCode == cleanLibCode;
-}
-
-QString MainWindow::cleanCodeForComparison(QString str) {
-    QRegularExpression blockRe(R"(//\s*SOUND_BEGIN.*?//\s*SOUND_END\n?)",
-        QRegularExpression::DotMatchesEverythingOption | QRegularExpression::CaseInsensitiveOption);
-    while (str.contains(blockRe)) str.remove(blockRe);
-    str.remove(QRegularExpression(R"(^\s*//(MUSIC|SYNTH):.*$\n?)",            QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
-    str.remove(QRegularExpression(R"(^\s*//\s*(SOUND_BEGIN|SOUND_END).*$\n?)", QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
-    str.remove(QRegularExpression(R"(^\s*//IMG:.*$\n?)",                       QRegularExpression::MultilineOption | QRegularExpression::CaseInsensitiveOption));
-    str.remove(QRegularExpression(R"(//.*$)",                                  QRegularExpression::MultilineOption));
-    str.remove(QRegularExpression(R"(/\*.*?\*/)",                              QRegularExpression::DotMatchesEverythingOption));
-    str.replace(QRegularExpression("\\s+"), "");
-    return str;
-}
 
 // Ritorna true se la texture attualmente attiva (superficie/ray-marching o
 // background, a seconda della modalità) referenzia davvero u_col1/u_col2.
@@ -2193,28 +2102,8 @@ QString MainWindow::surfaceImagePath() const
     return ui->glWidget ? ui->glWidget->surfaceImagePath() : QString();
 }
 
-bool MainWindow::textureHasLogic(const QString &code)
-{
-    return code.contains("return") || code.contains("vec3")
-        || code.contains("vec4")   || code.contains("mainImage");
-}
 
-bool MainWindow::textureCodeSamplesImage(const QString &code)
-{
-    static const QRegularExpression re(R"(\biChannel[0-3]\b|\btex\b)");
-    return stripCodeComments(code).contains(re);
-}
 
-QString MainWindow::withImageTagPath(const QString &code, const QString &path)
-{
-    static const QRegularExpression imgRe(R"(^[ \t]*//IMG:[ \t]*(.*)$)",
-                                          QRegularExpression::MultilineOption);
-    const QRegularExpressionMatch m = imgRe.match(code);
-    if (!m.hasMatch()) return code;
-    QString out = code;
-    out.replace(m.capturedStart(1), m.capturedLength(1), path);
-    return out;
-}
 
 bool MainWindow::commitSurfaceTextureCode(const QString &code)
 {
@@ -2224,7 +2113,7 @@ bool MainWindow::commitSurfaceTextureCode(const QString &code)
                                              QRegularExpression::MultilineOption);
     QString logic = code;
     logic.remove(imgTagRe);
-    const QString engineCode = textureHasLogic(logic) ? code : QString();
+    const QString engineCode = TextureCode::hasLogic(logic) ? code : QString();
     if (ui->glWidget && !ui->glWidget->validateAndApplyParametricShader(engineCode))
         return false;
     m_scene.surfaceTextureCode = code;
@@ -2558,17 +2447,10 @@ QString MainWindow::allSurfaceTextureCode() const
     return all;
 }
 
-QString MainWindow::defaultMeshTextureCode() const
-{
-    return QStringLiteral(
-        "vec2 g = floor(vec2(u, v) * 8.0);\n"
-        "float c = mod(g.x + g.y, 2.0);\n"
-        "return mix(u_col1, u_col2, c);");
-}
 
 void MainWindow::applyDefaultCheckerShader()
 {
-    if (ui->glWidget) ui->glWidget->loadCustomShader(defaultMeshTextureCode());
+    if (ui->glWidget) ui->glWidget->loadCustomShader(TextureCode::defaultMeshCode());
 }
 
 // I quattro radio della forma dello sfondo, NELL'ORDINE di GLWidget::BgSkyMode:

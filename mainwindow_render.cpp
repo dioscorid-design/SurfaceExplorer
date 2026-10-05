@@ -373,7 +373,7 @@ void MainWindow::setupRendererDock()
             // produce sempre qualcosa di visibile come sulla superficie intera.
             QString code = ui->glWidget->activeMeshTextureCode();
             if (checked && code.trimmed().isEmpty())
-                code = defaultMeshTextureCode();
+                code = TextureCode::defaultMeshCode();
 
             // COLORI DELLA TEXTURE ALLA GPU. La scacchiera di default e' tutta
             // costruita su u_col1/u_col2 (mix dei due), che arrivano dall'UBO

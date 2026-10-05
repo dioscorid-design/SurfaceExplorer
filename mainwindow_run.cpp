@@ -401,7 +401,7 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
             // in ambito Mesh mostra la fascia.
             if (!editingBackground() && m_scene.surfaceTextureState) {
                 const QString texSrc = surfaceTextureScript();
-                if (textureHasLogic(texSrc) && !commitSurfaceTextureCode(texSrc)) {
+                if (TextureCode::hasLogic(texSrc) && !commitSurfaceTextureCode(texSrc)) {
                     showShaderError("Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
                     return;
                 }
@@ -556,13 +556,13 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
 
         // Stesso Smart Path Resolver del caricamento dei record. Qui c'era un
         // QFile::exists() sul percorso del tag, cioe' la verifica che
-        // extractAndResolveImagePath ha smesso di fidarsi: sotto sandbox un file
+        // TextureCode::resolveImagePath ha smesso di fidarsi: sotto sandbox un file
         // della libreria dell'ALTRA app (DMG vs App Store) esiste ma non e'
         // leggibile, exists() lo accettava e l'immagine non si caricava. Ora il
         // percorso si risolve per nome nella libreria in uso. Un file che non
         // c'e' davvero resta muto come prima: questo e' il Run, non un load, e
         // un avviso a ogni pressione sarebbe rumore.
-        const QString imgPath = extractAndResolveImagePath(texCode);
+        const QString imgPath = TextureCode::resolveImagePath(texCode);
         if (!imgPath.isEmpty()) {
             if (!imgPath.startsWith("NOT_FOUND|")) {
                 ui->glWidget->loadTextureFromFile(imgPath);
@@ -1055,7 +1055,7 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
                          m_scene.eq.w + " " +
                          m_scene.surfaceScriptApplied;
 
-    if (m_scene.surfaceTextureState && textureHasLogic(currentScript)
+    if (m_scene.surfaceTextureState && TextureCode::hasLogic(currentScript)
         && !commitSurfaceTextureCode(currentScript)) {
         showShaderError("Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
         return;

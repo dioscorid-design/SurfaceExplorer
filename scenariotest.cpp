@@ -615,7 +615,7 @@ void ScenarioTest::checkTextureCode(const QString &step, const QString &expected
         if (m_mw->m_scene.surfaceTextureState) {
             const QString want = !applied.isEmpty() ? applied
                                : m_mw->surfaceHasImage() ? QString()
-                                                     : m_mw->defaultMeshTextureCode();
+                                                     : TextureCode::defaultMeshCode();
             if (engine != want)
                 bad << QStringLiteral("motore %1, applicata %2").arg(briefCode(engine), briefCode(want));
         } else if (!engine.isEmpty()) {

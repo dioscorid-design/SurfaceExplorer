@@ -4,6 +4,7 @@
 #pragma once
 
 #include "mainwindow.h"
+#include "texthelpers.h"
 
 #include <optional>
 #include <QJsonArray>
@@ -187,14 +188,6 @@ inline bool isMeshSafeValue(double val) {
     return std::isfinite(val) && std::abs(val) <= kMaxRenderableMagnitude;
 }
 
-// Rimuove i commenti di linea e di blocco dal codice (GLSL o equazioni)
-inline QString stripCodeComments(QString s) {
-    static const QRegularExpression lineComments(R"(//.*$)", QRegularExpression::MultilineOption);
-    static const QRegularExpression blockComments(R"(/\*.*?\*/)", QRegularExpression::DotMatchesEverythingOption);
-    s.remove(lineComments);
-    s.remove(blockComments);
-    return s;
-}
 
 // Costanti A-F citate da un blocco di codice. Stesso criterio di
 // updateConstantsUIState: match CASE-SENSITIVE (le iniettate sono maiuscole) e
@@ -269,18 +262,6 @@ inline bool isDeferredEquationField(const QString& objectName)
     return kEquationFields.contains(objectName);
 }
 
-// Un file e' utilizzabile solo se si riesce davvero ad APRIRLO. QFile::exists()
-// non basta: sotto sandbox i metadati di un file fuori dallo scope autorizzato
-// restano visibili (exists() = true) mentre la lettura fallisce. La differenza
-// e' invisibile finche' non si prova ad aprirlo.
-inline bool isReadableFile(const QString& path)
-{
-    if (path.isEmpty()) return false;
-    QFile f(path);
-    if (!f.open(QIODevice::ReadOnly)) return false;
-    f.close();
-    return true;
-}
 
 // La fascia ha una texture PROPRIA, accesa e ANIMATA? Punto unico: e' la stessa
 // domanda che serve a sapere se il master deve considerarla in moto e a decidere
