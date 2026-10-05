@@ -268,6 +268,8 @@ private:
     int m_popupsClosed = 0;
     // Popup "lavoro non salvato" a cui il test ha risposto "Don't save".
     int m_discardPrompts = 0;
+    // Ultimo popup chiuso dal test: titolo, testo e testo informativo.
+    QString m_lastPopup;
 };
 
 #endif // SCENARIOTEST_H

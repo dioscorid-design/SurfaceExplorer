@@ -1875,7 +1875,8 @@ void MainWindow::warnMissingRecordImages(const MissingImageScan &scan)
     // Se DOVUNQUE l'immagine mancante lascia in piedi uno script, si dice
     // che il record parte lo stesso con la sua texture procedurale: e' il
     // caso in cui non si perde nulla se non la foto.
-    const bool someScriptSurvives = scan.bgKeptScript || scan.surfaceKeptScript;
+    const bool someScriptSurvives = scan.bgKeptScript || scan.surfaceKeptScript
+                                    || scan.meshKeptScript;
     box.setInformativeText(scan.paths.join("\n") +
                            (someScriptSurvives
                                 ? "\n\nThe procedural texture will be loaded without it."
@@ -3941,8 +3942,20 @@ MainWindow::MissingImageScan MainWindow::scanRecordForMissingImages(const Librar
         scan.paths << texImg.split("|").last();
     }
 
+    // IMMAGINI DELLE FASCE: stessa risoluzione per nome del load
+    // (resetEngineBeforePresetLoad), che non trovandole lascia la fascia
+    // sull'immagine della superficie. L'avviso c'era solo per superficie e
+    // sfondo: la fascia cambiava aspetto in silenzio.
+    for (const MeshPart &mp : data.meshParts) {
+        if (!mp.hasCustomTexture) continue;
+        const QString img = TextureCode::resolveImagePath(mp.textureCode);
+        if (!img.startsWith("NOT_FOUND|")) continue;
+        scan.meshKeptScript = scan.meshKeptScript || keepsScript(mp.textureCode);
+        scan.paths << img.split("|").last();
+    }
+
     // Lo STESSO file puo' essere citato da superficie e sfondo (es. Clifford
-    // Tori Labyrinth): va nominato una volta sola.
+    // Tori Labyrinth), o da piu' fasce: va nominato una volta sola.
     scan.paths.removeDuplicates();
     return scan;
 }

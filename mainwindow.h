@@ -1622,6 +1622,7 @@ private:
         bool bgKeptScript = false;      // idem per lo sfondo
         bool surfaceMissing = false;
         bool bgMissing = false;
+        bool meshKeptScript = false;    // una fascia perde la sola foto: il suo script resta
     };
     // Sola lettura di data e del suo JSON: non modifica nulla, quindi puo'
     // girare prima del caricamento vero.

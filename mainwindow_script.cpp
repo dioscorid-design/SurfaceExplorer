@@ -1001,10 +1001,11 @@ void MainWindow::onApplyTextureScriptClicked()
                     return;
                 }
 
-                // Auto-switch: Se eravamo nel tab Ray Marching, passiamo automaticamente alla parametrica
-                if (implicitMode()) {
-                    ui->tabModeSelector->setCurrentIndex(0);
-                }
+                // (Qui c'era un passaggio forzato al parametrico se si era in Ray
+                // Marching: irraggiungibile -- in RM lo slot della texture di
+                // superficie e' vuoto e la funzione esce in testa, scenario
+                // "modulo Texture in Ray Marching" -- e, se raggiunto, avrebbe
+                // buttato via la scena RM senza avviso.)
 
                 // AZZERAMENTO DELL'INQUADRATURA 2D **SOLO SE LO SCRIPT CAMBIA**.
                 // Ripartire da zoom/pan/rotazione neutri ha senso per una texture

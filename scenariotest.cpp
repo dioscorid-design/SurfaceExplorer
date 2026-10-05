@@ -113,6 +113,8 @@ ScenarioTest::ScenarioTest(MainWindow *mw, const QString &root, const QString &o
                 }
             }
         }
+        m_lastPopup = desc;
+        if (auto *mb = qobject_cast<QMessageBox *>(w)) m_lastPopup += QStringLiteral(" | ") + mb->informativeText();
         if (desc.contains(QLatin1String("slowing down"))) m_watchdogFired = true;
         else ++m_popupsClosed;
         m_lines.append(QStringLiteral("        popup chiuso: ") + desc.simplified());
@@ -3736,6 +3738,35 @@ void ScenarioTest::runScriptDockScenarios()
         checkTextureCode(QStringLiteral("ambito All"));
         setScriptMode(MainWindow::ScriptModeSurface);
     }
+
+    // RAY MARCHING: la texture di superficie si scrive nel dock Equations, il
+    // dock Script in Texture non la mostra. onApplyTextureScriptClicked ha un
+    // cambio di linguetta forzato verso il parametrico (applicata una texture
+    // parametrica in Ray Marching): da qui non ci si deve arrivare, o la scena
+    // RM se ne andrebbe senza avviso.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Dock Script: modulo Texture in Ray Marching (%1) ==")
+                       .arg(QString::fromLatin1(kImplicitRecord)));
+    if (loadRecord(QString::fromLatin1(kImplicitRecord))) {
+        if (m_mw->editingBackground()) click(ui->radioSurface);
+        setScriptMode(MainWindow::ScriptModeTexture);
+        check(ui->txtScriptEditor->toPlainText().trimmed().isEmpty(),
+              QStringLiteral("bersaglio Surface -> l'editor non mostra la texture RM (%1)").arg(shownBrief()));
+        const QString rmTexBefore = ui->lineTexture->toPlainText();
+        const int popups = m_popupsClosed;
+        type(kStripes4);
+        m_mw->onRunCurrentScript();  wait(800);
+        check(ui->tabModeSelector->currentIndex() == 1 && m_mw->implicitMode()
+                  && ui->lineTexture->toPlainText() == rmTexBefore,
+              QStringLiteral("scritto e Run -> resta in Ray Marching con la sua texture (popup: %1)")
+                  .arg(m_popupsClosed - popups));
+        m_mw->onApplyTextureScriptClicked();  wait(800);
+        check(ui->tabModeSelector->currentIndex() == 1 && m_mw->implicitMode()
+                  && ui->lineTexture->toPlainText() == rmTexBefore,
+              QStringLiteral("applicazione della texture di superficie -> resta in Ray Marching (slot: %1)")
+                  .arg(briefCode(m_mw->surfaceTextureScript())));
+        setScriptMode(MainWindow::ScriptModeSurface);
+    }
 }
 
 void ScenarioTest::runMeshImageScenarios()
@@ -3950,6 +3981,34 @@ void ScenarioTest::runMeshImageScenarios()
               QStringLiteral("load -> i tag delle fasce (%1) puntano a file leggibili su questo dispositivo").arg(tagged));
         check(allSame && !anyOwn,
               QStringLiteral("load -> stesso file della superficie: nessuna immagine caricata due volte"));
+    }
+
+    // IMMAGINE DI UNA FASCIA NON TROVATA: stesso avviso di superficie e
+    // sfondo, prima di toccare la scena; la fascia ripiega sull'immagine della
+    // superficie. Prima nessun avviso.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Immagine di una fascia non trovata (%1) ==").arg(QString::fromLatin1(kMultiMeshRecord)));
+    {
+        LibraryManager lm;
+        LibraryItem item = lm.parseJson(m_root + QLatin1Char('/') + QString::fromLatin1(kMultiMeshRecord),
+                                        LibraryType::Motion);
+        const QString missing = QStringLiteral("/nonexistent/Missing Strip Image.png");
+        if (!item.name.isEmpty() && !item.meshParts.empty()) {
+            MeshPart &mp = item.meshParts[0];
+            mp.textureCode = QStringLiteral("//IMG:") + missing + QLatin1Char('\n') + mp.textureCode;
+            mp.hasCustomTexture = true;
+            mp.textureEnabled = true;
+            m_lastPopup.clear();
+            const int popups = m_popupsClosed;
+            m_mw->applyMotionExample(item);
+            if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
+            wait(1500);
+            check(m_popupsClosed == popups + 1 && m_lastPopup.contains(QLatin1String("was not found"))
+                      && m_lastPopup.contains(missing),
+                  QStringLiteral("load -> avviso col percorso della fascia (%1)").arg(m_lastPopup.simplified().left(160)));
+        } else {
+            check(false, QStringLiteral("record multi-mesh senza fasce"));
+        }
     }
 }
 
