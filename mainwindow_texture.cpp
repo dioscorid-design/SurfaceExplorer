@@ -856,194 +856,10 @@ void MainWindow::handleTextureSelection(int index)
     lastTextureIndex = index;
     lastWasBg = isBg;
 
-    // 2. CONTROLLO MODALITÀ SFONDO
+    // 2. CONTROLLO MODALITÀ SFONDO: la texture va sullo sfondo, e qui finisce.
     if (editingBackground()) {
-        // ANCORA E MESSAGGIO DELLO SFONDO: da quale voce di libreria viene, e
-        // cosa dice dei suoi slider. Qui, in testa al ramo, per immagini e
-        // procedurali: sono i gemelli di m_scene.textureLibName e
-        // m_currentTextureHintText, che questo ramo non tocca perche' sono della
-        // superficie. Il blocco dell'hint in coda alla funzione NON vale per lo
-        // sfondo: questo ramo esce prima. Anche a hint vuoto: lo sfondo di prima
-        // puo' averne lasciato uno, che ora va tolto da schermo.
-        m_scene.bgTextureLibName     = data.name.trimmed();
-        m_currentBgTextureHintText    = data.hintText.trimmed();
-        m_currentBgTextureHintSeconds = data.hintSeconds;
-        refreshSceneHint(m_currentBgTextureHintText.isEmpty() ? m_currentHintSeconds
-                                                              : data.hintSeconds);
-
-        if (data.hasCustomColors) {
-            m_scene.bgTexColor1 = QColor(data.color1);
-            m_scene.bgTexColor2 = QColor(data.color2);
-        } else {
-            m_scene.bgTexColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f); // Verde default
-            m_scene.bgTexColor2 = Qt::black;
-        }
-
-        if (data.isImage) {
-            // Come per la texture di superficie: se e' un JSON-immagine, la PNG
-            // sta in imagePath (filePath e' il .json).
-            QString bgImgSrc = data.imagePath.isEmpty() ? data.filePath : data.imagePath;
-            ui->glWidget->setBackgroundTexture(bgImgSrc);
-            m_scene.bgTextureCode = "//IMG:" + bgImgSrc;
-            // Il percorso dell'immagine sta nel motore (backgroundImagePath),
-            // come per la superficie: e' da li' che il salvataggio ricostruisce
-            // il tag, che dentro m_scene.bgTextureCode viene riscritto da piu' punti.
-
-            // L'immagine SOSTITUISCE la procedurale: va azzerato anche lo slot
-            // dello script, non solo il codice attivo. Senza questo il vecchio
-            // script sopravviveva in m_scene.bgTextureScriptText e i punti che lo
-            // rileggono -- onRunScriptClicked (~8051), il ramo A di
-            // onApplyTextureScriptClicked (~9706) e applyBackgroundTextureIfNeeded
-            // -- lo riapplicavano al primo Run / Stop-Start, facendo tornare la
-            // procedurale mentre in Library restava evidenziata l'immagine.
-            // Nessuno di quei tre puo' accorgersene da solo: il residuo NON
-            // contiene il tag //IMG:, e' lo script vecchio puro, quindi ogni
-            // guardia basata sul testo lo scambia per codice da applicare.
-            // Stesso trattamento del ramo "texture implicita incompatibile" piu'
-            // sotto, che azzera gia' questa coppia.
-            // Lo slot prende il TAG (come per la superficie): e' lo script di
-            // questo sfondo, senza codice da riapplicare -- quei tre punti
-            // cercano return/vec3/vec4/mainImage e sul solo tag non fanno nulla.
-            // Svuotato, col dock Script su un altro modulo l'editor tornava
-            // vuoto sullo sfondo (trovato dal test degli scenari).
-            setScriptText(SlotBackgroundTexture, m_scene.bgTextureCode);
-
-            if (ui->glWidget) {
-                ui->glWidget->setProperty("bg_zoom", data.zoom);
-                ui->glWidget->setProperty("bg_pan", QVector2D(data.panX, data.panY));
-                ui->glWidget->setProperty("bg_rot", data.rotation);
-            }
-        }
-        else {
-            if (data.isImplicitMode) {
-                QMessageBox::warning(this, "Incompatible Texture",
-                                     "Procedural textures for 3D (implicit) surfaces cannot be used as a background.\n"
-                                     "The background will be restored to its default state.");
-
-                // 1. Ripristino colori di default
-                m_scene.bgTexColor1 = QColor::fromRgbF(0.2f, 0.2f, 0.8f);
-                m_scene.bgTexColor2 = Qt::black;
-
-                if (ui->glWidget) {
-                    ui->glWidget->setProperty("bg_col1", QVector3D(m_scene.bgTexColor1.redF(), m_scene.bgTexColor1.greenF(), m_scene.bgTexColor1.blueF()));
-                    ui->glWidget->setProperty("bg_col2", QVector3D(m_scene.bgTexColor2.redF(), m_scene.bgTexColor2.greenF(), m_scene.bgTexColor2.blueF()));
-                    ui->glWidget->setProperty("bg_zoom", 1.0f);
-                    ui->glWidget->setProperty("bg_pan", QVector2D(0.0f, 0.0f));
-                    ui->glWidget->setProperty("bg_rot", 0.0f);
-                }
-
-                // 2. Lo sfondo torna alla DEFAULT per intero: codice, slot, ancora,
-                // messaggio (in testa al ramo erano stati scritti quelli della
-                // texture rifiutata) e immagine in GPU. Prima si azzerava il solo
-                // percorso: l'immagine restava a schermo e il Save non la scriveva
-                // (trovato dal test degli scenari).
-                QString safeDefault = "";
-                forgetBackgroundTexture();
-                refreshSceneHint(m_currentHintSeconds);
-
-                // 3. (Qui c'era generateTexture(): disegna la scacchiera nel sampler
-                // della SUPERFICIE, e ne copriva l'immagine. Lo sfondo di default
-                // e' background.png, appena ricaricata.)
-
-                // 4. Lo sfondo resta acceso sulla texture di default (lo accende
-                // il punto 5; il checkbox lo segue li').
-
-                ui->radioTexColor1->setEnabled(true);
-                ui->radioTexColor2->setEnabled(true);
-                bool oldRad = ui->radioTexColor1->blockSignals(true);
-                ui->radioTexColor1->setChecked(true);
-                ui->radioTexColor1->blockSignals(oldRad);
-
-                // 5. Ricostruzione pulita e nativa dello shader di background
-                if (ui->glWidget) {
-                    ui->glWidget->setBackgroundTextureEnabled(true);
-                    ui->glWidget->rebuildBackgroundShader(true, safeDefault);
-                }
-                refreshTextureCheckbox();
-
-                onColorTargetChanged();
-                updateFlatPreviewButton();
-
-                if (ui->glWidget) ui->glWidget->update();
-
-                return; // Salvataggio riuscito, usciamo
-            }
-
-            // CARICAMENTO TEXTURE PROCEDURALE 2D
-            QString newCode = data.scriptCode;
-
-            // 1. Controlliamo se c'era già un'immagine di sfondo attiva.
-            // Questo permette di mixare immagini e codice procedurale al primo clic.
-            // FONTE PRIMARIA il motore (backgroundImagePath: l'immagine attiva
-            // e' quella caricata li'), lo script dello sfondo solo come ripiego
-            // per l'unico caso che il motore non vede: un tag incollato a mano
-            // dall'utente e non ancora eseguito.
-            QString keepImage = backgroundImagePath();
-            if (keepImage.isEmpty()) {
-                QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)", QRegularExpression::MultilineOption);
-                const QRegularExpressionMatch imgMatch = imgRe.match(m_scene.bgTextureScriptText);
-                if (imgMatch.hasMatch()) keepImage = imgMatch.captured(1).trimmed();
-            }
-
-            if (!keepImage.isEmpty() && !newCode.contains("//IMG:")) {
-                newCode = "//IMG:" + keepImage + "\n" + newCode;
-            }
-            // Se dopo il mix il tag NON c'e', il Run qui sotto toglie l'immagine
-            // dal motore (onApplyTextureScriptClicked, ramo A).
-
-            // Come per la superficie: lo slot subito, la copia applicata solo
-            // se compila (onApplyTextureScriptClicked, ramo A).
-            setScriptText(SlotBackgroundTexture, newCode);
-
-            // 2-3. Il metodo centralizzato legge lo slot dello sfondo (fa
-            // parsing, carica immagini, compila e fa l'Update GPU). L'editor
-            // non fa da tramite: mostra lo sfondo solo se il dock e' li'.
-            onApplyTextureScriptClicked();
-
-            // 4. Applica proprietà aggiuntive di trasformazione
-            if (ui->glWidget) {
-                ui->glWidget->setProperty("bg_zoom", data.zoom);
-                ui->glWidget->setProperty("bg_pan", QVector2D(data.panX, data.panY));
-                ui->glWidget->setProperty("bg_rot", data.rotation);
-            }
-
-            // Riallinea gli slider colore al nuovo script di sfondo: se la texture
-            // procedurale usa u_col1/u_col2 devono riattivarsi (m_scene.bgTextureCode è già
-            // aggiornato qui sopra). Senza questa chiamata, dopo una texture di sfondo
-            // SENZA colori (es. immagine di default) gli slider restavano disattivati
-            // a zero anche caricando poi una texture procedurale CON colori, perché
-            // questo ramo procedurale terminava senza rinfrescare onColorTargetChanged.
-            onColorTargetChanged();
-
-            // Stesso discorso per le COSTANTI (vedi la coda del ramo, piu' sotto).
-            refreshConstants();
-
-            return;
-        }
-
-        ui->glWidget->setBackgroundTextureEnabled(true);
-        refreshTextureCheckbox();
-
-        // Picker Colore solo se lo sfondo usa quel colore (un'immagine no; indipendenti).
-        bool bgCol1 = m_scene.bgTextureCode.contains("u_col1");
-        bool bgCol2 = m_scene.bgTextureCode.contains("u_col2");
-        ui->radioTexColor1->setEnabled(bgCol1);
-        ui->radioTexColor2->setEnabled(bgCol2);
-        if (bgCol1 || bgCol2) {
-            QRadioButton *target = bgCol1 ? ui->radioTexColor1 : ui->radioTexColor2;
-            bool oldRad = target->blockSignals(true);
-            target->setChecked(true);
-            target->blockSignals(oldRad);
-        }
-
-        onColorTargetChanged();
-        updateFlatPreviewButton();
-        // COSTANTI: lo sfondo le usa come la superficie (stesso mathParams).
-        // Questo ramo usciva senza ricalcolarle: scelta come sfondo una texture
-        // che usa F, lo slider F restava spento fino al gesto successivo
-        // (trovato dal test degli scenari).
-        refreshConstants();
-        return; // Fine caricamento Sfondo
+        applyLibraryTextureToBackground(data);
+        return;
     }
 
     // =====================================================================
@@ -1056,161 +872,9 @@ void MainWindow::handleTextureSelection(int index)
         texIsImplicit = currentIsImplicit;
     }
 
-    bool modeSwitched = false;
-
-    if (texIsImplicit != currentIsImplicit) {
-        // A0. Questa texture non e' applicabile alla superficie corrente: per
-        // mostrarla si cambia modalita', e il cambio DISTRUGGE la scena (il
-        // setCurrentIndex qui sotto fa scattare applyModeTabReset). E' l'unico
-        // percorso in cui l'utente perde il lavoro senza averlo chiesto --
-        // clicca una texture, non un reset -- quindi qui si chiede conferma.
-        // Va fatto PRIMA di toccare qualunque cosa: currentChanged scatta a tab
-        // gia' cambiato e da li' non si potrebbe piu' dire di no.
-        //
-        // La conferma per la texture l'ha gia' chiesta onExampleItemClicked
-        // prima di arrivare qui (e qui la texture e' proprio cio' che si sta
-        // caricando, quindi non c'e' piu' niente di suo da difendere): resta
-        // da difendere la scena, e il suono che il reset azzera. Qui ScopeScene
-        // e' corretto -- il cambio di modalita' la distrugge davvero -- e un
-        // popup solo li elenca entrambi.
-        // Solo a scena SPORCA, di proposito: una scena gia' su disco (un record
-        // appena aperto) non ha nulla da perdere, e un popup in piu' su ogni
-        // cambio di modalita' appesantirebbe il flusso senza proteggere nulla.
-        if (!confirmDiscardUnsaved(ScopeScene)) {
-            // Annullato: la scena resta com'era, ma nell'albero e' rimasto
-            // evidenziato l'item appena cliccato (la selezione la fa il click,
-            // prima di arrivare qui). Si rimette il focus sulla texture
-            // realmente in vigore, o si deseleziona se non ce n'e' nessuna.
-            syncTextureTreeSelection();
-            return;
-        }
-
-        // A. Cambia automaticamente il pannello (Tab).
-        // Il setCurrentIndex fa scattare applyModeTabReset -> resetScene, che
-        // fra le altre cose RICHIUDE i rami della Library. Li' e' voluto (si
-        // sta scartando una superficie), qui no: l'utente ha appena cliccato
-        // una texture e vedrebbe l'albero chiudersi sotto le dita, perdendo
-        // l'evidenziazione dell'item scelto. Il flag lo segnala a resetScene.
-        {
-            m_texModeSwitchInProgress = true;
-            m_modeSwitchSourceTree = ui->treeTextures;
-            struct TexSwitchGuard {
-                MainWindow *w;
-                ~TexSwitchGuard() {
-                    w->m_texModeSwitchInProgress = false;
-                    w->m_modeSwitchSourceTree = nullptr;
-                }
-            } texSwitchGuard{this};
-            ui->tabModeSelector->setCurrentIndex(texIsImplicit ? 1 : 0);
-        }
-
-        // La scena caricata dalla libreria (superficie o record) e' stata appena
-        // sostituita dalla default: il suo item non descrive piu' cio' che si
-        // vede. Senza questo, annullando il caricamento successivo il focus
-        // tornava su quel record (vedi il ripristino in onExampleItemClicked).
-        m_lastLoadedLibraryItem = nullptr;
-
-        // B. Imposta una Superficie di Default sicura e azzera il resto.
-        // I setPlainText/clear qui sotto NON devono emettere textChanged: quei
-        // segnali chiamerebbero markUserEdit / il lambda di lineEquation che
-        // azzerano m_parametricApplied / m_implicitApplied, riabilitando a torto
-        // i tasti Run del dock Equations (la superficie di default e' gia' quella
-        // a schermo, non c'e' nulla da "applicare"). Blocchiamo i segnali attorno
-        // all'intera preparazione e ripristiniamo i flag "applied" piu' sotto.
-        // (Ogni campo e' scritto dal suo setter, setRmText / setEqText, che lo
-        // scrive a segnali bloccati.)
-
-        if (texIsImplicit) {
-            //modeSwitched = true;
-            // --- PREPARA AMBIENTE RAY MARCHING ---
-            setRmText(&ImplicitTexts::equation, QStringLiteral("x*x + y*y + z*z = 1.0")); // Sfera Implicita
-            setRmText(&ImplicitTexts::displacement, QString());
-            for (EqField f : { &EquationTexts::x, &EquationTexts::y, &EquationTexts::z, &EquationTexts::p })
-                setEqText(f, QString());
-
-            // Ambiente di rendering RM DETERMINISTICO per la sfera di default.
-            // Come nel gestore canonico del cambio tab (~1108): l'equazione viene
-            // applicata piu' avanti dal flusso texture (~4063), ma limiti spaziali,
-            // ray steps e CAMERA vanno fissati qui, altrimenti la sfera eredita lo
-            // stato (in particolare la distanza camera = camera3D.z) del record RM
-            // precedente e appare rimpicciolita.
-            if (ui->glWidget) {
-                ui->glWidget->setEngineMode(GLWidget::ModeImplicit);
-                ui->glWidget->setRaySteps(m_lastImplicitSteps);
-
-                m_scene.lim.clearSpaceCut();
-                showLineFields();
-                applySpaceLimits(/*notify=*/false);   // campi vuoti: nessun taglio
-
-                // Camera alla distanza standard: altrimenti la sfera di default
-                // eredita il camera3D.z del record RM precedente (vedi ~1108).
-                ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
-                ui->glWidget->setCameraYaw(0.0f);
-                ui->glWidget->setCameraPitch(0.0f);
-                ui->glWidget->setCameraRoll(0.0f);
-            }
-        } else {
-            // --- PREPARA AMBIENTE PARAMETRICO ---
-            setEqText(&EquationTexts::x, QStringLiteral("(0.8 + 0.3 * cos(v)) * cos(u)"));
-            setEqText(&EquationTexts::y, QStringLiteral("(0.8 + 0.3 * cos(v)) * sin(u)"));
-            setEqText(&EquationTexts::z, QStringLiteral("0.3 * sin(v)"));
-            m_scene.lim.uMin = QStringLiteral("0");
-            m_scene.lim.uMax = QStringLiteral("6.28318");
-            m_scene.lim.vMin = QStringLiteral("0");
-            m_scene.lim.vMax = QStringLiteral("6.28318");
-            showLineFields();
-
-            setRmText(&ImplicitTexts::equation, QString());
-            setRmText(&ImplicitTexts::texture, QString());
-            setRmText(&ImplicitTexts::displacement, QString());
-
-            if (ui->glWidget) {
-                ui->glWidget->setDisplacementCode("");
-                ui->glWidget->setTextureCode("");
-            }
-        }
-
-
-        // La superficie di default e' quella ora a schermo: niente da applicare,
-        // quindi i due flag "applied" restano/tornano true -> i tasti Run del dock
-        // Equations restano SPENTI (updateMasterButtonState li tiene disabilitati
-        // finche' non c'e' un'animazione o un edit reale dell'utente).
-        m_parametricApplied = true;
-        m_implicitApplied = true;
-
-        // Avendo bloccato i textChanged sopra, checkParametricDependency (che vi era
-        // agganciato) non e' scattato: la richiamiamo qui per riallineare le
-        // sotto-tab Constraints/Composition/Geodesic ai campi ora puliti.
-        checkParametricDependency();
-
-        // C. Resetta lo shader nel widget per rimuovere codice obsoleto (il
-        // cambio di linguetta qui sopra e' passato da resetScene, che ha gia'
-        // tolto la texture: resta come rete)
-        commitSurfaceTextureCode(QString());
-        if (ui->glWidget) {
-            ui->glWidget->clearTexture();
-            ui->glWidget->setTextureCode(QString());
-        }
-
-        // D. La texture incompatibile ci ha fatto ricadere sulla superficie di
-        // default (sfera/toro): e' opaca, quindi azzeriamo la trasparenza
-        // ereditata dalla superficie precedente (stesso reset del cambio tab).
-        resetTransparency();
-
-        // E. La superficie precedente e' stata SOSTITUITA dalla default (sfera/toro),
-        // ma nel dock Library il suo item restava evidenziato (onExampleItemClicked
-        // lascia di proposito la selezione superficie quando si clicca una texture).
-        // Qui la selezione sarebbe ingannevole: punterebbe a una superficie non piu'
-        // a schermo. La sfera/toro di default non e' un item di libreria, quindi
-        // deselezioniamo del tutto il treeSurfaces (senza emettere itemClicked, che
-        // ricaricherebbe la superficie e azzererebbe la selezione texture in corso).
-        if (ui->treeSurfaces) {
-            bool bSurf = ui->treeSurfaces->blockSignals(true);
-            ui->treeSurfaces->clearSelection();
-            ui->treeSurfaces->setCurrentItem(nullptr);
-            ui->treeSurfaces->blockSignals(bSurf);
-        }
-    }
+    if (texIsImplicit != currentIsImplicit
+        && !switchModeForLibraryTexture(data, texIsImplicit))
+        return;   // l'utente ha annullato il cambio di modalita'
 
     // =====================================================================
     // 3. APPLICAZIONE DATI TEXTURE (Separati per Parametrico / Implicito)
@@ -1246,411 +910,782 @@ void MainWindow::handleTextureSelection(int index)
     QString imgSrc = data.imagePath.isEmpty() ? data.filePath : data.imagePath;
 
     // DIVIDIAMO IL FLUSSO IN BASE ALLA NATURA DELLA TEXTURE
-    if (!texIsImplicit) {
-
-        // --- LOGICA PARAMETRICA ---
-        if (data.isImage) {
-            // IMMAGINE CON UNA FASCIA SELEZIONATA: va su QUELLA fascia, ferma,
-            // e la superficie (la sua immagine, la sua texture) non si tocca.
-            // Ogni fascia e' una draw call a se', e il renderer le lega allo
-            // slot 1 la SUA immagine: quella nominata dal tag //IMG: nel suo
-            // script, come per la superficie (vedi GLWidget::syncPartImages).
-            // Prima l'immagine andava comunque alla superficie intera, con un
-            // avviso, e sulla fascia la portava solo uno script di "Animated
-            // Images" -- lo stesso file per tutte le fasce.
-            if (texGoesToMesh) {
-                // Inquadratura 2D della voce, come il ramo delle procedurali.
-                ui->glWidget->setActiveMeshTexTransform(
-                    data.zoom, QVector2D(data.panX, data.panY), data.rotation);
-                // Lo script della fascia e' il solo tag: l'immagine SOSTITUISCE
-                // la procedurale che c'era, come sulla superficie.
-                ui->glWidget->setActiveMeshTexture("//IMG:" + imgSrc, true);
-                ui->glWidget->setActiveMeshTextureLibName(data.name);
-                refreshTextureCheckbox();   // la fascia ha ora la sua texture
-
-                // Un'immagine e' ferma: l'orologio della fascia si spegne, e
-                // quello del modulo solo se non serve piu' a nessuno. Non si
-                // AVVIA nulla: una texture fermata dall'utente resta ferma.
-                ui->glWidget->setActiveMeshTextureAnimating(false);
-                if (!hasTimeVariable(allSurfaceTextureCode()))
-                    ui->glWidget->setSurfaceTextureAnimating(false);
-                updateMasterButtonState();
-
-                updateTextureUIState(true, true);
-                updateFlatPreviewButton();
-                updateScriptButtonText();
-                // COSTANTI: la procedurale sostituita poteva usarne una.
-                refreshConstants();
-
-                m_blockTextureGen = false;
-                ui->glWidget->update();
-                return;
-            }
-            if (ui->glWidget) {
-                // Sola immagine: il motore torna allo shader standard e la
-                // copia applicata e' il tag. Prima dell'aggiornamento UI:
-                // updateTextureUIState legge questo codice per decidere se
-                // accendere i picker Colore (un'immagine "//IMG:" non usa
-                // u_col1/u_col2 -> picker spenti).
-                commitSurfaceTextureCode("//IMG:" + imgSrc);
-                ui->glWidget->loadTextureFromFile(imgSrc);
-                m_scene.surfaceTextureState = true;
-                applySurfaceTextureToEngine();
-                ui->glWidget->rebuildShader();
-
-                // Come per lo sfondo: l'immagine sostituisce la procedurale,
-                // quindi lo slot dello script non deve tenerla. Qui il residuo
-                // era LATENTE -- non si vedeva subito, si manifestava al primo
-                // Run del dock texture (ramo B di onApplyTextureScriptClicked,
-                // ~9794), che riapplicava la vecchia procedurale lasciando
-                // l'immagine evidenziata in Library.
-                // Lo slot prende il TAG, come l'editor qui sotto: e' lo script
-                // di questa texture (il Run senza tag toglierebbe l'immagine).
-                // Svuotato, col dock Script su un altro modulo l'editor tornava
-                // vuoto sulla texture, e il Save dipendeva da copie di riserva
-                // per non perdere l'immagine. Trovato dal test degli scenari.
-                setScriptText(SlotSurfaceTexture, m_scene.surfaceTextureCode);
-
-                // Il checkbox mostra l'intenzione (gia' accesa qui sopra, PRIMA
-                // di updateTextureUIState: onColorTargetChanged() vi si appoggia
-                // per decidere se disattivare gli slider colore). In wireframe
-                // resta spento e grigio: prima lo si spuntava comunque.
-                // (Con una fascia selezionata qui non si arriva piu': l'immagine
-                // va alla fascia, nel ramo qui sopra.)
-                const bool wasChecked = ui->chkBoxTexture->isChecked();
-                refreshTextureCheckbox();
-                if (!wasChecked) updateTextureUIState(true);
-
-                ui->glWidget->setFlatZoom(data.zoom);
-                ui->glWidget->setFlatPan(data.panX, data.panY);
-                ui->glWidget->setFlatRotation(data.rotation);
-
-                updateRenderState();
-                ui->glWidget->update();
-            }
-
-        } else if (!data.scriptCode.isEmpty()) {
-            QString newCode = data.scriptCode;
-
-            // L'IMMAGINE CHE LO SCRIPT TROVA SOTTO. Superficie: quella gia'
-            // caricata nel motore resta, e il tag la accompagna.
-            // Fascia: resta la SUA immagine (il tag del suo script), e solo se
-            // lo script nuovo la campiona -- e' il gesto "prima l'immagine, poi
-            // la sua animazione" (famiglia Animated Images). Una procedurale
-            // che non campiona nulla la toglie: e' il modo di levare l'immagine
-            // da una fascia. Una fascia SENZA immagine propria non prende piu'
-            // il tag della superficie: campiona quella della superficie finche'
-            // non ne ha una sua, e la segue se cambia.
-            if (texGoesToMesh) {
-                const QString ownImage =
-                    GLWidget::imagePathInTextureCode(ui->glWidget->activeMeshTextureCode());
-                if (!ownImage.isEmpty() && TextureCode::samplesImage(newCode))
-                    newCode = "//IMG:" + ownImage + "\n" + newCode;
-            } else if (surfaceHasImage()) {
-                newCode = "//IMG:" + surfaceImagePath() + "\n" + newCode;
-            }
-
-            // AMBITO "MESH": la texture va sulla FASCIA selezionata, non sulla
-            // superficie. Questo ramo (applicazione dalla Library) non aveva la
-            // diramazione per-mesh che ha invece il Run dello script
-            // (onApplyTextureScriptClicked): scriveva sempre gli stati GLOBALI
-            // -- m_scene.surfaceTextureCode e i colori (setGlobalTextureColors) -- e
-            // quindi applicare una texture a una fascia cancellava quella della
-            // superficie. Tornando su "All" si trovava il codice della fascia al
-            // posto del proprio (clock fermo, perche' allSurfaceTextureCode()
-            // parte da m_scene.surfaceTextureCode) e i suoi colori addosso.
-            if (texGoesToMesh) {
-                // I colori di QUESTA texture si scrivono direttamente nella
-                // parte: i due slot globali appartengono alla texture di
-                // SUPERFICIE e non vanno toccati (il blocco che li scrive piu'
-                // sopra e' saltato proprio per questo).
-                // Prima di setActiveMeshTexture, che li cattura dai globali solo
-                // se la parte non ne ha gia' di propri.
-                // Una texture SENZA colori propri riparte dai default, come fa il
-                // ramo globale: senza azzerarli, la fascia si terrebbe addosso i
-                // colori della texture che aveva prima.
-                const QColor meshTexC1 = data.hasCustomColors
-                        ? QColor(data.color1) : QColor::fromRgbF(0.20f, 0.80f, 0.20f);
-                const QColor meshTexC2 = data.hasCustomColors
-                        ? QColor(data.color2) : QColor(Qt::black);
-                // Gli slider li mostrano da se': surfaceTexColor legge la parte.
-                ui->glWidget->setActiveMeshTexColors(meshTexC1, meshTexC2);
-
-                // INQUADRATURA 2D DELLA TEXTURE APPENA APPLICATA (zoom/pan/
-                // rotazione salvati nel suo preset). Stesso criterio dei colori
-                // qui sopra, e stessa cosa che il ramo GLOBALE fa poco piu' sotto
-                // con setFlatZoom/setFlatPan/setFlatRotation: era l'unico dato
-                // della texture che il ramo per-mesh non applicava, e la fascia
-                // si teneva addosso la manipolazione 2D della texture PRECEDENTE
-                // -- ogni texture nuova nasceva gia' zoomata e ruotata.
-                ui->glWidget->setActiveMeshTexTransform(
-                    data.zoom, QVector2D(data.panX, data.panY), data.rotation);
-
-                ui->glWidget->setActiveMeshTexture(newCode, true);
-                // ANCORA DEL FOCUS della fascia: la voce da cui la texture viene,
-                // come m_scene.textureLibName fa per la texture globale (che
-                // questo ramo, uscendo prima, non scrive).
-                ui->glWidget->setActiveMeshTextureLibName(data.name);
-
-                refreshTextureCheckbox();   // la fascia ha ora la sua texture
-
-                // Il clock guarda globale + parti accese: una texture animata
-                // messa su una fascia deve farlo ripartire, e una statica non
-                // deve fermare quella della superficie.
-                m_userStoppedTexClock = false;
-                // NESSUNA guardia sul master STOP, come la riga gemella del ramo
-                // globale (~8002) e come l'orologio della parte qui sotto:
-                // applicare una texture e' un comando esplicito sul modulo, e il
-                // modulo parte -- anche a scena ferma. Con la guardia il clock
-                // globale restava spento e una texture animata applicata mentre
-                // il master era fermo nasceva FERMA: serviva un secondo click.
-                // Il master torna a "STOP" perche' c'e' davvero qualcosa in moto.
-                ui->glWidget->setSurfaceTextureAnimating(
-                    hasTimeVariable(allSurfaceTextureCode()));
-                // OROLOGIO DELLA PARTE. Va acceso QUI: e' un campo suo, e senza
-                // questa riga una texture animata appena applicata alla fascia
-                // nascerebbe FERMA (il clock globale non la muove piu': ogni
-                // parte ha il proprio). Solo se il codice usa il tempo, cosi'
-                // una texture statica non lascia acceso un orologio inutile.
-                // NESSUNA guardia sul master STOP. Applicare una texture animata
-                // a una fascia e' un comando esplicito su quella fascia: parte
-                // subito, come gia' fanno il riclic sulla texture attiva e il Run
-                // per-mesh del dock Script (~10200). Con la guardia, a master
-                // fermo la texture nasceva FERMA e serviva un SECONDO click --
-                // quello che entrava nel ramo riclic -- per vederla partire.
-                // La scena resta ferma: si muove solo la fascia, e il master
-                // torna a dire STOP perche' qualcosa e' davvero in moto.
-                ui->glWidget->setActiveMeshTextureAnimating(hasTimeVariable(newCode));
-                // Applicare una texture e' un comando esplicito sulla fascia:
-                // riarma il gate, come m_userStoppedTexClock qui sopra per il
-                // globale. Senza, dopo uno Stop per-mesh ogni texture applicata
-                // dopo sarebbe nata ferma.
-                m_userStoppedMeshTexClock = false;
-                updateMasterButtonState();
-
-                updateTextureUIState(true, true);
-                updateFlatPreviewButton();
-                updateScriptButtonText();
-
-                // MESSAGGIO DELLA TEXTURE: il ramo globale lo scrive piu' sotto
-                // (~9850), ma questo ramo esce prima e lo saltava -- una texture
-                // messa sulle sole fasce non mostrava mai il suo hint, e il record
-                // non lo salvava (Clifford Labyrinth 3-Tubes Fibers: nessun
-                // "F: density of the grid").
-                // A differenza del ramo globale, un hint VUOTO non cancella quello
-                // in scena: lo slot e' uno per tutte le fasce, e una texture senza
-                // messaggio su una mesh non rende inutile quello di un'altra.
-                if (!data.hintText.trimmed().isEmpty()) {
-                    m_currentTextureHintText    = data.hintText.trimmed();
-                    m_currentTextureHintSeconds = data.hintSeconds;
-                    refreshSceneHint(data.hintSeconds);
-                }
-
-                // SLIDER DELLE COSTANTI sul codice appena applicato, come fa la
-                // coda del ramo globale: la texture della fascia puo' usare una
-                // lettera che finora nessuno usava, e senza ricalcolo lo slider
-                // restava spento. updateConstantsUIState conta le fasce (vedi
-                // meshTextureCodesForConstants); i valori vanno poi spinti nel
-                // motore, perche' il ricalcolo scrive a segnali bloccati.
-                // Nessun reset al default delle costanti "libere" qui: e' la
-                // stessa scena delle altre fasce, e una lettera usata da un'altra
-                // mesh cambierebbe sotto gli occhi.
-                refreshConstants();
-
-                m_blockTextureGen = false;
-                ui->glWidget->update();
-                return;
-            }
-
-            // Lo slot (lo script, cioe' l'intenzione) subito; la copia applicata
-            // la scrive onApplyTextureScriptClicked, se il codice compila.
-            setScriptText(SlotSurfaceTexture, newCode);
-
-            onApplyTextureScriptClicked();
-
-            if (ui->glWidget) {
-                ui->glWidget->setFlatZoom(data.zoom);
-                ui->glWidget->setFlatPan(data.panX, data.panY);
-                ui->glWidget->setFlatRotation(data.rotation);
-            }
-        }
-    } else {    
-        // --- LOGICA RAY MARCHING (IMPLICIT) ---
-        // 1. Caricamento fisico dell'immagine nella GPU
-        if (data.isImage) {
-            if (ui->glWidget) {
-                ui->glWidget->loadTextureFromFile(imgSrc);
-            }
-        } else {
-            // Texture procedurale RM (non immagine). I picker Colore in Ray
-            // Marching si decidono sul campo lineTexture
-            // (activeTextureUsesColorToken), non su un flag.
-            // In Ray Marching l'immagine esiste solo insieme al suo triplanar,
-            // che la procedurale sostituisce (il campo non avra' il tag
-            // //IMG:): via anche dalla GPU. Restava caricata, e uno script
-            // che campiona `tex` avrebbe mostrato un'immagine che il Save non
-            // scrive. Trovato dal test degli scenari.
-            if (ui->glWidget) ui->glWidget->clearTexture();
-        }
-
-        // Displacement applicato PRIMA di questa texture: catturato QUI, prima di
-        // setDisplacementCode qui sotto, altrimenti currentDisplacementCode()
-        // restituirebbe gia' il valore NUOVO e la guardia lo vedrebbe "invariato"
-        // (era il bug: il popup non compariva e restava il watchdog tardivo).
-        const QString prevDispApplied =
-            ui->glWidget ? ui->glWidget->currentDisplacementCode() : QString();
-
-        SE_TEXP("libTex:RM-pre-displacement");
-#if SE_TEX_PROBE
-        // Cosa dice il PRESET, che nessun altro campo della sonda mostra: se qui
-        // il rilievo e' gia' quello vecchio, il guasto e' a monte (parsing,
-        // indice della libreria, voce cliccata), non in chi lo applica.
-        qDebug().noquote() << QString("TEXP   preset.displacementCode = %1 (len %2) | preset='%3'")
-                              .arg(data.displacementCode.left(60).replace('\n', ' '))
-                              .arg(data.displacementCode.length())
-                              .arg(QFileInfo(data.filePath).fileName());
-#endif
-        setRmText(&ImplicitTexts::displacement, data.displacementCode);
-        if (ui->glWidget) ui->glWidget->setDisplacementCode(data.displacementCode);
-        SE_TEXP("libTex:RM-post-displacement");
-
-        // Codice della texture in ARRIVO (scriptCode e' il fallback dei vecchi
-        // preset, che non avevano textureCode). Serve al solo ramo PROCEDURALE:
-        // il ramo immagine qui sotto lo sovrascrive per intero col triplanar.
-        QString rmTexCode = data.textureCode.isEmpty() ? data.scriptCode : data.textureCode;
-
-        // 2. Iniezione automatica del Triplanar Mapping per le immagini pure!
-        if (data.isImage) {
-            // L'IMMAGINE SOSTITUISCE LA PROCEDURALE, non ci si somma. rmTexCode
-            // qui descrive la texture in ARRIVO (per una PNG di libreria e'
-            // vuoto), mai quella gia' in lineTexture: senza questa riga il campo
-            // conservava lo script RM PRECEDENTE e il tag //IMG: gli finiva
-            // semplicemente davanti. Il risultato lo si vedeva nel dock
-            // Equations -- immagine in cima, vecchio script morto a seguire --
-            // e finiva tale e quale dentro i record salvati, perche' il ramo
-            // implicito del serializzatore dumpa lineTexture cosi' com'e'.
-            // Stesso trattamento che i rami parametrico (~6875) e sfondo (~6455)
-            // riservano gia' ai loro slot script.
-            //
-            // Il Triplanar Mapping non e' un default "se manca altro": e' LO
-            // script che campiona l'immagine, senza il quale non si vedrebbe
-            // nulla. Va quindi imposto, non messo in un ramo condizionale che
-            // ora non potrebbe mai essere falso.
-            rmTexCode = "vec3 blend = abs(n_model);\n"
-                        "blend /= max(blend.x + blend.y + blend.z, 0.00001);\n"
-                        "float scale = 0.5;\n"
-                        "vec3 cX = texture(tex, pModel.yz * scale).rgb;\n"
-                        "vec3 cY = texture(tex, pModel.xz * scale).rgb;\n"
-                        "vec3 cZ = texture(tex, pModel.xy * scale).rgb;\n"
-                        "textureCol = cX * blend.x + cY * blend.y + cZ * blend.z;";
-            // Tag in cima: dice al motore quale file caricare. imgSrc e non
-            // data.filePath, come nel caricamento GPU poche righe sopra: per una
-            // texture-immagine salvata come JSON filePath e' il .json, e il tag
-            // avrebbe puntato a quello invece che alla PNG.
-            rmTexCode = "//IMG:" + imgSrc + "\n" + rmTexCode;
-        }
-
-        setRmText(&ImplicitTexts::texture, rmTexCode);
-
-        if (ui->glWidget) {
-            // 1. Preparazione dell'equazione (per darla in pasto al validatore).
-            // La sorgente dipende dal sotto-tab implicito ATTIVO, come nel Run
-            // (onStartClicked): "3D" ha lineEquation, "Cross Section" ha
-            // lineEquationCrossSection. Leggendo sempre lineEquation, applicare
-            // una texture RM mentre si e' in Cross Section ricompilava lo shader
-            // con la SFERA del sotto-tab 3D -- la superficie 4D spariva e la
-            // texture finiva su una sfera che l'utente non aveva chiesto.
-            // Il flag va passato anche a validateAndApplyImplicitShader piu'
-            // sotto: senza, il suo default false toglie 'p' dallo scope e
-            // l'equazione a 4 variabili non compilerebbe nemmeno.
-            const bool crossSectionActive = crossSectionTab();
-            QString rawEq = (crossSectionActive ? m_scene.rm.crossSection : m_scene.rm.equation).trimmed();
-            QString implicitEqF;
-            if (rawEq.contains("=")) {
-                QStringList parts = rawEq.split("=");
-                implicitEqF = QString("(%1) - (%2)").arg(parts[0].trimmed(), parts[1].trimmed());
-            } else {
-                implicitEqF = QString("(%1) - (0.0)").arg(rawEq);
-            }
-
-            // 2. Stato UI: il checkbox segue l'intenzione, accesa qui sotto.
-
-            // ---> LE RIGHE CRITICHE RIPRISTINATE: Sincronizziamo la memoria! <---
-            ui->glWidget->setTextureCode(rmTexCode);
-            m_scene.surfaceTextureState = true;
-            applySurfaceTextureToEngine();
-            refreshTextureCheckbox();
-
-            // La checkbox è stata attivata con blockSignals: il suo handler non
-            // scatta, quindi sincronizziamo a mano lo stato UI. updateTextureUIState
-            // deduce da solo se i picker Colore servono (lineTexture contiene rmTexCode).
-            // resetColorTargetToFirst: caricando il preset il focus torna a Colore 1.
-            updateTextureUIState(true, true);
-
-            // 3. Validazione reale
-            bool success = ui->glWidget->validateAndApplyImplicitShader(implicitEqF, rmTexCode,
-                                                                        data.displacementCode,
-                                                                        crossSectionActive);
-
-            if (!success) {
-                performMasterStop();
-                showShaderError("Preset Shader Error", ui->glWidget->getShaderError());
-                ui->glWidget->setTextureCode("");
-                // Texture non applicata: anche l'intenzione (e il checkbox che
-                // la mostra) tornano spenti. Prima restava il checkbox acceso
-                // col motore spento, due copie in disaccordo.
-                m_scene.surfaceTextureState = false;
-                applySurfaceTextureToEngine();
-                refreshTextureCheckbox();
-                ui->glWidget->rebuildShader();
-                return; // Esce in sicurezza senza crashare
-            }
-
-            SE_TEXP("libTex:RM-pre-rebuild");
-            // ---> COMPILAZIONE FINALE RIPRISTINATA <---
-            ui->glWidget->rebuildShader();
-
-            ui->glWidget->updateSurfaceData();
-
-            // Mobile: displacement nuovo + trasparenza attiva -> alpha a 1
-            // (vedi guardTransparencyOnDisplacementApply).
-            guardTransparencyOnDisplacementApply(prevDispApplied);
-
-            // TUTTE le piattaforme: displacement calato su una scena trasparente
-            // -> stop del moto + opaco + popup. E' il percorso del caso
-            // segnalato: texture di libreria CON RILIEVO sul Cross Section di
-            // default, che e' gia' ad alpha 0.75 + Ray Steps 600 senza che
-            // nessuna guardia l'abbia visto. Il displacement viaggia insieme alla
-            // texture (data.displacementCode, passato all'apply qui sopra) ed e'
-            // lui il moltiplicatore: vedi guardTransparencyOnHeavyTextureApply.
-            //
-            // PRIMA della update() qui sotto, non dopo: e' il punto dell'ordine
-            // che conta. La guardia deve poter portare l'alpha a 1 mentre il
-            // primo frame trasparente+texturizzato non e' ancora partito -- ed e'
-            // proprio quel frame che puo' far collassare la GPU. update() e'
-            // asincrona (accoda un paintGL), ma il box modale della guardia fa
-            // girare l'event loop: accodare prima significherebbe disegnarlo.
-            // L'equazione implicita e' committata: risincronizza lo slider trasparenza
-            // (campi a prodotto -> disabilitato + popup). Vedi syncImplicitAlphaSlider.
-            //
-            // PRIMA della guardia qui sotto, non dopo. Due motivi, entrambi
-            // necessari: (1) con newSurface=true questa chiamata RIARMA i flag
-            // "gia' chiesto" (compreso quello della guardia), quindi eseguirla
-            // dopo cancellava la memoria appena scritta e il commit successivo
-            // riapriva il box -- la raffica senza fine; (2) e' lei a portare lo
-            // slider allo stato definitivo della nuova superficie, ed e' quello
-            // stato che la guardia deve valutare per decidere se chiedere.
-            syncImplicitAlphaSlider(true, true);
-
-            guardTransparencyOnHeavyTextureApply(data.displacementCode);
-
-            ui->glWidget->update();
-        }
-    }
+    // Un "false" vuol dire che il lavoro e' finito li' (texture o immagine
+    // messa su una fascia, texture Ray Marching che non compila).
+    const bool applied = texIsImplicit ? applyLibraryTextureRM(data, imgSrc)
+                                       : applyLibraryTextureParametric(data, imgSrc, texGoesToMesh);
+    if (!applied) return;
 
     m_blockTextureGen = false;
     updateFlatPreviewButton();
+    restartLibraryTextureClocks();
+    finishLibraryTexturePick(data);
+}
 
+// LA TEXTURE DI LIBRERIA COME SFONDO (handleTextureSelection, bersaglio
+// Background). Il resto di handleTextureSelection non vale per lo sfondo.
+void MainWindow::applyLibraryTextureToBackground(const LibraryItem &data)
+{
+    // ANCORA E MESSAGGIO DELLO SFONDO: da quale voce di libreria viene, e
+    // cosa dice dei suoi slider. Qui, in testa al ramo, per immagini e
+    // procedurali: sono i gemelli di m_scene.textureLibName e
+    // m_currentTextureHintText, che questo ramo non tocca perche' sono della
+    // superficie. Il blocco dell'hint in coda alla funzione NON vale per lo
+    // sfondo: questo ramo esce prima. Anche a hint vuoto: lo sfondo di prima
+    // puo' averne lasciato uno, che ora va tolto da schermo.
+    m_scene.bgTextureLibName     = data.name.trimmed();
+    m_currentBgTextureHintText    = data.hintText.trimmed();
+    m_currentBgTextureHintSeconds = data.hintSeconds;
+    refreshSceneHint(m_currentBgTextureHintText.isEmpty() ? m_currentHintSeconds
+                                                          : data.hintSeconds);
+
+    if (data.hasCustomColors) {
+        m_scene.bgTexColor1 = QColor(data.color1);
+        m_scene.bgTexColor2 = QColor(data.color2);
+    } else {
+        m_scene.bgTexColor1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f); // Verde default
+        m_scene.bgTexColor2 = Qt::black;
+    }
+
+    if (data.isImage) {
+        // Come per la texture di superficie: se e' un JSON-immagine, la PNG
+        // sta in imagePath (filePath e' il .json).
+        QString bgImgSrc = data.imagePath.isEmpty() ? data.filePath : data.imagePath;
+        ui->glWidget->setBackgroundTexture(bgImgSrc);
+        m_scene.bgTextureCode = "//IMG:" + bgImgSrc;
+        // Il percorso dell'immagine sta nel motore (backgroundImagePath),
+        // come per la superficie: e' da li' che il salvataggio ricostruisce
+        // il tag, che dentro m_scene.bgTextureCode viene riscritto da piu' punti.
+
+        // L'immagine SOSTITUISCE la procedurale: va azzerato anche lo slot
+        // dello script, non solo il codice attivo. Senza questo il vecchio
+        // script sopravviveva in m_scene.bgTextureScriptText e i punti che lo
+        // rileggono -- onRunScriptClicked (~8051), il ramo A di
+        // onApplyTextureScriptClicked (~9706) e applyBackgroundTextureIfNeeded
+        // -- lo riapplicavano al primo Run / Stop-Start, facendo tornare la
+        // procedurale mentre in Library restava evidenziata l'immagine.
+        // Nessuno di quei tre puo' accorgersene da solo: il residuo NON
+        // contiene il tag //IMG:, e' lo script vecchio puro, quindi ogni
+        // guardia basata sul testo lo scambia per codice da applicare.
+        // Stesso trattamento del ramo "texture implicita incompatibile" piu'
+        // sotto, che azzera gia' questa coppia.
+        // Lo slot prende il TAG (come per la superficie): e' lo script di
+        // questo sfondo, senza codice da riapplicare -- quei tre punti
+        // cercano return/vec3/vec4/mainImage e sul solo tag non fanno nulla.
+        // Svuotato, col dock Script su un altro modulo l'editor tornava
+        // vuoto sullo sfondo (trovato dal test degli scenari).
+        setScriptText(SlotBackgroundTexture, m_scene.bgTextureCode);
+
+        if (ui->glWidget) {
+            ui->glWidget->setProperty("bg_zoom", data.zoom);
+            ui->glWidget->setProperty("bg_pan", QVector2D(data.panX, data.panY));
+            ui->glWidget->setProperty("bg_rot", data.rotation);
+        }
+    }
+    else {
+        if (data.isImplicitMode) {
+            QMessageBox::warning(this, "Incompatible Texture",
+                                 "Procedural textures for 3D (implicit) surfaces cannot be used as a background.\n"
+                                 "The background will be restored to its default state.");
+
+            // 1. Ripristino colori di default
+            m_scene.bgTexColor1 = QColor::fromRgbF(0.2f, 0.2f, 0.8f);
+            m_scene.bgTexColor2 = Qt::black;
+
+            if (ui->glWidget) {
+                ui->glWidget->setProperty("bg_col1", QVector3D(m_scene.bgTexColor1.redF(), m_scene.bgTexColor1.greenF(), m_scene.bgTexColor1.blueF()));
+                ui->glWidget->setProperty("bg_col2", QVector3D(m_scene.bgTexColor2.redF(), m_scene.bgTexColor2.greenF(), m_scene.bgTexColor2.blueF()));
+                ui->glWidget->setProperty("bg_zoom", 1.0f);
+                ui->glWidget->setProperty("bg_pan", QVector2D(0.0f, 0.0f));
+                ui->glWidget->setProperty("bg_rot", 0.0f);
+            }
+
+            // 2. Lo sfondo torna alla DEFAULT per intero: codice, slot, ancora,
+            // messaggio (in testa al ramo erano stati scritti quelli della
+            // texture rifiutata) e immagine in GPU. Prima si azzerava il solo
+            // percorso: l'immagine restava a schermo e il Save non la scriveva
+            // (trovato dal test degli scenari).
+            QString safeDefault = "";
+            forgetBackgroundTexture();
+            refreshSceneHint(m_currentHintSeconds);
+
+            // 3. (Qui c'era generateTexture(): disegna la scacchiera nel sampler
+            // della SUPERFICIE, e ne copriva l'immagine. Lo sfondo di default
+            // e' background.png, appena ricaricata.)
+
+            // 4. Lo sfondo resta acceso sulla texture di default (lo accende
+            // il punto 5; il checkbox lo segue li').
+
+            ui->radioTexColor1->setEnabled(true);
+            ui->radioTexColor2->setEnabled(true);
+            bool oldRad = ui->radioTexColor1->blockSignals(true);
+            ui->radioTexColor1->setChecked(true);
+            ui->radioTexColor1->blockSignals(oldRad);
+
+            // 5. Ricostruzione pulita e nativa dello shader di background
+            if (ui->glWidget) {
+                ui->glWidget->setBackgroundTextureEnabled(true);
+                ui->glWidget->rebuildBackgroundShader(true, safeDefault);
+            }
+            refreshTextureCheckbox();
+
+            onColorTargetChanged();
+            updateFlatPreviewButton();
+
+            if (ui->glWidget) ui->glWidget->update();
+
+            return; // Salvataggio riuscito, usciamo
+        }
+
+        // CARICAMENTO TEXTURE PROCEDURALE 2D
+        QString newCode = data.scriptCode;
+
+        // 1. Controlliamo se c'era già un'immagine di sfondo attiva.
+        // Questo permette di mixare immagini e codice procedurale al primo clic.
+        // FONTE PRIMARIA il motore (backgroundImagePath: l'immagine attiva
+        // e' quella caricata li'), lo script dello sfondo solo come ripiego
+        // per l'unico caso che il motore non vede: un tag incollato a mano
+        // dall'utente e non ancora eseguito.
+        QString keepImage = backgroundImagePath();
+        if (keepImage.isEmpty()) {
+            QRegularExpression imgRe(R"(^\s*//IMG:\s*(.*)$)", QRegularExpression::MultilineOption);
+            const QRegularExpressionMatch imgMatch = imgRe.match(m_scene.bgTextureScriptText);
+            if (imgMatch.hasMatch()) keepImage = imgMatch.captured(1).trimmed();
+        }
+
+        if (!keepImage.isEmpty() && !newCode.contains("//IMG:")) {
+            newCode = "//IMG:" + keepImage + "\n" + newCode;
+        }
+        // Se dopo il mix il tag NON c'e', il Run qui sotto toglie l'immagine
+        // dal motore (onApplyTextureScriptClicked, ramo A).
+
+        // Come per la superficie: lo slot subito, la copia applicata solo
+        // se compila (onApplyTextureScriptClicked, ramo A).
+        setScriptText(SlotBackgroundTexture, newCode);
+
+        // 2-3. Il metodo centralizzato legge lo slot dello sfondo (fa
+        // parsing, carica immagini, compila e fa l'Update GPU). L'editor
+        // non fa da tramite: mostra lo sfondo solo se il dock e' li'.
+        onApplyTextureScriptClicked();
+
+        // 4. Applica proprietà aggiuntive di trasformazione
+        if (ui->glWidget) {
+            ui->glWidget->setProperty("bg_zoom", data.zoom);
+            ui->glWidget->setProperty("bg_pan", QVector2D(data.panX, data.panY));
+            ui->glWidget->setProperty("bg_rot", data.rotation);
+        }
+
+        // Riallinea gli slider colore al nuovo script di sfondo: se la texture
+        // procedurale usa u_col1/u_col2 devono riattivarsi (m_scene.bgTextureCode è già
+        // aggiornato qui sopra). Senza questa chiamata, dopo una texture di sfondo
+        // SENZA colori (es. immagine di default) gli slider restavano disattivati
+        // a zero anche caricando poi una texture procedurale CON colori, perché
+        // questo ramo procedurale terminava senza rinfrescare onColorTargetChanged.
+        onColorTargetChanged();
+
+        // Stesso discorso per le COSTANTI (vedi la coda del ramo, piu' sotto).
+        refreshConstants();
+
+        return;
+    }
+
+    ui->glWidget->setBackgroundTextureEnabled(true);
+    refreshTextureCheckbox();
+
+    // Picker Colore solo se lo sfondo usa quel colore (un'immagine no; indipendenti).
+    bool bgCol1 = m_scene.bgTextureCode.contains("u_col1");
+    bool bgCol2 = m_scene.bgTextureCode.contains("u_col2");
+    ui->radioTexColor1->setEnabled(bgCol1);
+    ui->radioTexColor2->setEnabled(bgCol2);
+    if (bgCol1 || bgCol2) {
+        QRadioButton *target = bgCol1 ? ui->radioTexColor1 : ui->radioTexColor2;
+        bool oldRad = target->blockSignals(true);
+        target->setChecked(true);
+        target->blockSignals(oldRad);
+    }
+
+    onColorTargetChanged();
+    updateFlatPreviewButton();
+    // COSTANTI: lo sfondo le usa come la superficie (stesso mathParams).
+    // Questo ramo usciva senza ricalcolarle: scelta come sfondo una texture
+    // che usa F, lo slider F restava spento fino al gesto successivo
+    // (trovato dal test degli scenari).
+    refreshConstants();
+}
+
+// La texture e' di modalita' opposta a quella in scena: si cambia modalita'
+// (con la superficie di default), dopo averlo chiesto. false = annullato.
+bool MainWindow::switchModeForLibraryTexture(const LibraryItem &data, bool texIsImplicit)
+{
+    // A0. Questa texture non e' applicabile alla superficie corrente: per
+    // mostrarla si cambia modalita', e il cambio DISTRUGGE la scena (il
+    // setCurrentIndex qui sotto fa scattare applyModeTabReset). E' l'unico
+    // percorso in cui l'utente perde il lavoro senza averlo chiesto --
+    // clicca una texture, non un reset -- quindi qui si chiede conferma.
+    // Va fatto PRIMA di toccare qualunque cosa: currentChanged scatta a tab
+    // gia' cambiato e da li' non si potrebbe piu' dire di no.
+    //
+    // La conferma per la texture l'ha gia' chiesta onExampleItemClicked
+    // prima di arrivare qui (e qui la texture e' proprio cio' che si sta
+    // caricando, quindi non c'e' piu' niente di suo da difendere): resta
+    // da difendere la scena, e il suono che il reset azzera. Qui ScopeScene
+    // e' corretto -- il cambio di modalita' la distrugge davvero -- e un
+    // popup solo li elenca entrambi.
+    // Solo a scena SPORCA, di proposito: una scena gia' su disco (un record
+    // appena aperto) non ha nulla da perdere, e un popup in piu' su ogni
+    // cambio di modalita' appesantirebbe il flusso senza proteggere nulla.
+    if (!confirmDiscardUnsaved(ScopeScene)) {
+        // Annullato: la scena resta com'era, ma nell'albero e' rimasto
+        // evidenziato l'item appena cliccato (la selezione la fa il click,
+        // prima di arrivare qui). Si rimette il focus sulla texture
+        // realmente in vigore, o si deseleziona se non ce n'e' nessuna.
+        syncTextureTreeSelection();
+        return false;
+    }
+
+    // A. Cambia automaticamente il pannello (Tab).
+    // Il setCurrentIndex fa scattare applyModeTabReset -> resetScene, che
+    // fra le altre cose RICHIUDE i rami della Library. Li' e' voluto (si
+    // sta scartando una superficie), qui no: l'utente ha appena cliccato
+    // una texture e vedrebbe l'albero chiudersi sotto le dita, perdendo
+    // l'evidenziazione dell'item scelto. Il flag lo segnala a resetScene.
+    {
+        m_texModeSwitchInProgress = true;
+        m_modeSwitchSourceTree = ui->treeTextures;
+        struct TexSwitchGuard {
+            MainWindow *w;
+            ~TexSwitchGuard() {
+                w->m_texModeSwitchInProgress = false;
+                w->m_modeSwitchSourceTree = nullptr;
+            }
+        } texSwitchGuard{this};
+        ui->tabModeSelector->setCurrentIndex(texIsImplicit ? 1 : 0);
+    }
+
+    // La scena caricata dalla libreria (superficie o record) e' stata appena
+    // sostituita dalla default: il suo item non descrive piu' cio' che si
+    // vede. Senza questo, annullando il caricamento successivo il focus
+    // tornava su quel record (vedi il ripristino in onExampleItemClicked).
+    m_lastLoadedLibraryItem = nullptr;
+
+    // B. Imposta una Superficie di Default sicura e azzera il resto.
+    // I setPlainText/clear qui sotto NON devono emettere textChanged: quei
+    // segnali chiamerebbero markUserEdit / il lambda di lineEquation che
+    // azzerano m_parametricApplied / m_implicitApplied, riabilitando a torto
+    // i tasti Run del dock Equations (la superficie di default e' gia' quella
+    // a schermo, non c'e' nulla da "applicare"). Blocchiamo i segnali attorno
+    // all'intera preparazione e ripristiniamo i flag "applied" piu' sotto.
+    // (Ogni campo e' scritto dal suo setter, setRmText / setEqText, che lo
+    // scrive a segnali bloccati.)
+
+    if (texIsImplicit) {
+        //modeSwitched = true;
+        // --- PREPARA AMBIENTE RAY MARCHING ---
+        setRmText(&ImplicitTexts::equation, QStringLiteral("x*x + y*y + z*z = 1.0")); // Sfera Implicita
+        setRmText(&ImplicitTexts::displacement, QString());
+        for (EqField f : { &EquationTexts::x, &EquationTexts::y, &EquationTexts::z, &EquationTexts::p })
+            setEqText(f, QString());
+
+        // Ambiente di rendering RM DETERMINISTICO per la sfera di default.
+        // Come nel gestore canonico del cambio tab (~1108): l'equazione viene
+        // applicata piu' avanti dal flusso texture (~4063), ma limiti spaziali,
+        // ray steps e CAMERA vanno fissati qui, altrimenti la sfera eredita lo
+        // stato (in particolare la distanza camera = camera3D.z) del record RM
+        // precedente e appare rimpicciolita.
+        if (ui->glWidget) {
+            ui->glWidget->setEngineMode(GLWidget::ModeImplicit);
+            ui->glWidget->setRaySteps(m_lastImplicitSteps);
+
+            m_scene.lim.clearSpaceCut();
+            showLineFields();
+            applySpaceLimits(/*notify=*/false);   // campi vuoti: nessun taglio
+
+            // Camera alla distanza standard: altrimenti la sfera di default
+            // eredita il camera3D.z del record RM precedente (vedi ~1108).
+            ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
+            ui->glWidget->setCameraYaw(0.0f);
+            ui->glWidget->setCameraPitch(0.0f);
+            ui->glWidget->setCameraRoll(0.0f);
+        }
+    } else {
+        // --- PREPARA AMBIENTE PARAMETRICO ---
+        setEqText(&EquationTexts::x, QStringLiteral("(0.8 + 0.3 * cos(v)) * cos(u)"));
+        setEqText(&EquationTexts::y, QStringLiteral("(0.8 + 0.3 * cos(v)) * sin(u)"));
+        setEqText(&EquationTexts::z, QStringLiteral("0.3 * sin(v)"));
+        m_scene.lim.uMin = QStringLiteral("0");
+        m_scene.lim.uMax = QStringLiteral("6.28318");
+        m_scene.lim.vMin = QStringLiteral("0");
+        m_scene.lim.vMax = QStringLiteral("6.28318");
+        showLineFields();
+
+        setRmText(&ImplicitTexts::equation, QString());
+        setRmText(&ImplicitTexts::texture, QString());
+        setRmText(&ImplicitTexts::displacement, QString());
+
+        if (ui->glWidget) {
+            ui->glWidget->setDisplacementCode("");
+            ui->glWidget->setTextureCode("");
+        }
+    }
+
+
+    // La superficie di default e' quella ora a schermo: niente da applicare,
+    // quindi i due flag "applied" restano/tornano true -> i tasti Run del dock
+    // Equations restano SPENTI (updateMasterButtonState li tiene disabilitati
+    // finche' non c'e' un'animazione o un edit reale dell'utente).
+    m_parametricApplied = true;
+    m_implicitApplied = true;
+
+    // Avendo bloccato i textChanged sopra, checkParametricDependency (che vi era
+    // agganciato) non e' scattato: la richiamiamo qui per riallineare le
+    // sotto-tab Constraints/Composition/Geodesic ai campi ora puliti.
+    checkParametricDependency();
+
+    // C. Resetta lo shader nel widget per rimuovere codice obsoleto (il
+    // cambio di linguetta qui sopra e' passato da resetScene, che ha gia'
+    // tolto la texture: resta come rete)
+    commitSurfaceTextureCode(QString());
+    if (ui->glWidget) {
+        ui->glWidget->clearTexture();
+        ui->glWidget->setTextureCode(QString());
+    }
+
+    // D. La texture incompatibile ci ha fatto ricadere sulla superficie di
+    // default (sfera/toro): e' opaca, quindi azzeriamo la trasparenza
+    // ereditata dalla superficie precedente (stesso reset del cambio tab).
+    resetTransparency();
+
+    // E. La superficie precedente e' stata SOSTITUITA dalla default (sfera/toro),
+    // ma nel dock Library il suo item restava evidenziato (onExampleItemClicked
+    // lascia di proposito la selezione superficie quando si clicca una texture).
+    // Qui la selezione sarebbe ingannevole: punterebbe a una superficie non piu'
+    // a schermo. La sfera/toro di default non e' un item di libreria, quindi
+    // deselezioniamo del tutto il treeSurfaces (senza emettere itemClicked, che
+    // ricaricherebbe la superficie e azzererebbe la selezione texture in corso).
+    if (ui->treeSurfaces) {
+        bool bSurf = ui->treeSurfaces->blockSignals(true);
+        ui->treeSurfaces->clearSelection();
+        ui->treeSurfaces->setCurrentItem(nullptr);
+        ui->treeSurfaces->blockSignals(bSurf);
+    }
+    return true;
+}
+
+// TEXTURE PARAMETRICA: immagine o procedurale, sulla superficie o sulla
+// fascia selezionata. false = finito qui (fascia), non proseguire.
+bool MainWindow::applyLibraryTextureParametric(const LibraryItem &data, const QString &imgSrc,
+                                               bool texGoesToMesh)
+{
+
+    // --- LOGICA PARAMETRICA ---
+    if (data.isImage) {
+        // IMMAGINE CON UNA FASCIA SELEZIONATA: va su QUELLA fascia, ferma,
+        // e la superficie (la sua immagine, la sua texture) non si tocca.
+        // Ogni fascia e' una draw call a se', e il renderer le lega allo
+        // slot 1 la SUA immagine: quella nominata dal tag //IMG: nel suo
+        // script, come per la superficie (vedi GLWidget::syncPartImages).
+        // Prima l'immagine andava comunque alla superficie intera, con un
+        // avviso, e sulla fascia la portava solo uno script di "Animated
+        // Images" -- lo stesso file per tutte le fasce.
+        if (texGoesToMesh) {
+            // Inquadratura 2D della voce, come il ramo delle procedurali.
+            ui->glWidget->setActiveMeshTexTransform(
+                data.zoom, QVector2D(data.panX, data.panY), data.rotation);
+            // Lo script della fascia e' il solo tag: l'immagine SOSTITUISCE
+            // la procedurale che c'era, come sulla superficie.
+            ui->glWidget->setActiveMeshTexture("//IMG:" + imgSrc, true);
+            ui->glWidget->setActiveMeshTextureLibName(data.name);
+            refreshTextureCheckbox();   // la fascia ha ora la sua texture
+
+            // Un'immagine e' ferma: l'orologio della fascia si spegne, e
+            // quello del modulo solo se non serve piu' a nessuno. Non si
+            // AVVIA nulla: una texture fermata dall'utente resta ferma.
+            ui->glWidget->setActiveMeshTextureAnimating(false);
+            if (!hasTimeVariable(allSurfaceTextureCode()))
+                ui->glWidget->setSurfaceTextureAnimating(false);
+            updateMasterButtonState();
+
+            updateTextureUIState(true, true);
+            updateFlatPreviewButton();
+            updateScriptButtonText();
+            // COSTANTI: la procedurale sostituita poteva usarne una.
+            refreshConstants();
+
+            m_blockTextureGen = false;
+            ui->glWidget->update();
+            return false;
+        }
+        if (ui->glWidget) {
+            // Sola immagine: il motore torna allo shader standard e la
+            // copia applicata e' il tag. Prima dell'aggiornamento UI:
+            // updateTextureUIState legge questo codice per decidere se
+            // accendere i picker Colore (un'immagine "//IMG:" non usa
+            // u_col1/u_col2 -> picker spenti).
+            commitSurfaceTextureCode("//IMG:" + imgSrc);
+            ui->glWidget->loadTextureFromFile(imgSrc);
+            m_scene.surfaceTextureState = true;
+            applySurfaceTextureToEngine();
+            ui->glWidget->rebuildShader();
+
+            // Come per lo sfondo: l'immagine sostituisce la procedurale,
+            // quindi lo slot dello script non deve tenerla. Qui il residuo
+            // era LATENTE -- non si vedeva subito, si manifestava al primo
+            // Run del dock texture (ramo B di onApplyTextureScriptClicked,
+            // ~9794), che riapplicava la vecchia procedurale lasciando
+            // l'immagine evidenziata in Library.
+            // Lo slot prende il TAG, come l'editor qui sotto: e' lo script
+            // di questa texture (il Run senza tag toglierebbe l'immagine).
+            // Svuotato, col dock Script su un altro modulo l'editor tornava
+            // vuoto sulla texture, e il Save dipendeva da copie di riserva
+            // per non perdere l'immagine. Trovato dal test degli scenari.
+            setScriptText(SlotSurfaceTexture, m_scene.surfaceTextureCode);
+
+            // Il checkbox mostra l'intenzione (gia' accesa qui sopra, PRIMA
+            // di updateTextureUIState: onColorTargetChanged() vi si appoggia
+            // per decidere se disattivare gli slider colore). In wireframe
+            // resta spento e grigio: prima lo si spuntava comunque.
+            // (Con una fascia selezionata qui non si arriva piu': l'immagine
+            // va alla fascia, nel ramo qui sopra.)
+            const bool wasChecked = ui->chkBoxTexture->isChecked();
+            refreshTextureCheckbox();
+            if (!wasChecked) updateTextureUIState(true);
+
+            ui->glWidget->setFlatZoom(data.zoom);
+            ui->glWidget->setFlatPan(data.panX, data.panY);
+            ui->glWidget->setFlatRotation(data.rotation);
+
+            updateRenderState();
+            ui->glWidget->update();
+        }
+
+    } else if (!data.scriptCode.isEmpty()) {
+        QString newCode = data.scriptCode;
+
+        // L'IMMAGINE CHE LO SCRIPT TROVA SOTTO. Superficie: quella gia'
+        // caricata nel motore resta, e il tag la accompagna.
+        // Fascia: resta la SUA immagine (il tag del suo script), e solo se
+        // lo script nuovo la campiona -- e' il gesto "prima l'immagine, poi
+        // la sua animazione" (famiglia Animated Images). Una procedurale
+        // che non campiona nulla la toglie: e' il modo di levare l'immagine
+        // da una fascia. Una fascia SENZA immagine propria non prende piu'
+        // il tag della superficie: campiona quella della superficie finche'
+        // non ne ha una sua, e la segue se cambia.
+        if (texGoesToMesh) {
+            const QString ownImage =
+                GLWidget::imagePathInTextureCode(ui->glWidget->activeMeshTextureCode());
+            if (!ownImage.isEmpty() && TextureCode::samplesImage(newCode))
+                newCode = "//IMG:" + ownImage + "\n" + newCode;
+        } else if (surfaceHasImage()) {
+            newCode = "//IMG:" + surfaceImagePath() + "\n" + newCode;
+        }
+
+        // AMBITO "MESH": la texture va sulla FASCIA selezionata, non sulla
+        // superficie. Questo ramo (applicazione dalla Library) non aveva la
+        // diramazione per-mesh che ha invece il Run dello script
+        // (onApplyTextureScriptClicked): scriveva sempre gli stati GLOBALI
+        // -- m_scene.surfaceTextureCode e i colori (setGlobalTextureColors) -- e
+        // quindi applicare una texture a una fascia cancellava quella della
+        // superficie. Tornando su "All" si trovava il codice della fascia al
+        // posto del proprio (clock fermo, perche' allSurfaceTextureCode()
+        // parte da m_scene.surfaceTextureCode) e i suoi colori addosso.
+        if (texGoesToMesh) {
+            // I colori di QUESTA texture si scrivono direttamente nella
+            // parte: i due slot globali appartengono alla texture di
+            // SUPERFICIE e non vanno toccati (il blocco che li scrive piu'
+            // sopra e' saltato proprio per questo).
+            // Prima di setActiveMeshTexture, che li cattura dai globali solo
+            // se la parte non ne ha gia' di propri.
+            // Una texture SENZA colori propri riparte dai default, come fa il
+            // ramo globale: senza azzerarli, la fascia si terrebbe addosso i
+            // colori della texture che aveva prima.
+            const QColor meshTexC1 = data.hasCustomColors
+                    ? QColor(data.color1) : QColor::fromRgbF(0.20f, 0.80f, 0.20f);
+            const QColor meshTexC2 = data.hasCustomColors
+                    ? QColor(data.color2) : QColor(Qt::black);
+            // Gli slider li mostrano da se': surfaceTexColor legge la parte.
+            ui->glWidget->setActiveMeshTexColors(meshTexC1, meshTexC2);
+
+            // INQUADRATURA 2D DELLA TEXTURE APPENA APPLICATA (zoom/pan/
+            // rotazione salvati nel suo preset). Stesso criterio dei colori
+            // qui sopra, e stessa cosa che il ramo GLOBALE fa poco piu' sotto
+            // con setFlatZoom/setFlatPan/setFlatRotation: era l'unico dato
+            // della texture che il ramo per-mesh non applicava, e la fascia
+            // si teneva addosso la manipolazione 2D della texture PRECEDENTE
+            // -- ogni texture nuova nasceva gia' zoomata e ruotata.
+            ui->glWidget->setActiveMeshTexTransform(
+                data.zoom, QVector2D(data.panX, data.panY), data.rotation);
+
+            ui->glWidget->setActiveMeshTexture(newCode, true);
+            // ANCORA DEL FOCUS della fascia: la voce da cui la texture viene,
+            // come m_scene.textureLibName fa per la texture globale (che
+            // questo ramo, uscendo prima, non scrive).
+            ui->glWidget->setActiveMeshTextureLibName(data.name);
+
+            refreshTextureCheckbox();   // la fascia ha ora la sua texture
+
+            // Il clock guarda globale + parti accese: una texture animata
+            // messa su una fascia deve farlo ripartire, e una statica non
+            // deve fermare quella della superficie.
+            m_userStoppedTexClock = false;
+            // NESSUNA guardia sul master STOP, come la riga gemella del ramo
+            // globale (~8002) e come l'orologio della parte qui sotto:
+            // applicare una texture e' un comando esplicito sul modulo, e il
+            // modulo parte -- anche a scena ferma. Con la guardia il clock
+            // globale restava spento e una texture animata applicata mentre
+            // il master era fermo nasceva FERMA: serviva un secondo click.
+            // Il master torna a "STOP" perche' c'e' davvero qualcosa in moto.
+            ui->glWidget->setSurfaceTextureAnimating(
+                hasTimeVariable(allSurfaceTextureCode()));
+            // OROLOGIO DELLA PARTE. Va acceso QUI: e' un campo suo, e senza
+            // questa riga una texture animata appena applicata alla fascia
+            // nascerebbe FERMA (il clock globale non la muove piu': ogni
+            // parte ha il proprio). Solo se il codice usa il tempo, cosi'
+            // una texture statica non lascia acceso un orologio inutile.
+            // NESSUNA guardia sul master STOP. Applicare una texture animata
+            // a una fascia e' un comando esplicito su quella fascia: parte
+            // subito, come gia' fanno il riclic sulla texture attiva e il Run
+            // per-mesh del dock Script (~10200). Con la guardia, a master
+            // fermo la texture nasceva FERMA e serviva un SECONDO click --
+            // quello che entrava nel ramo riclic -- per vederla partire.
+            // La scena resta ferma: si muove solo la fascia, e il master
+            // torna a dire STOP perche' qualcosa e' davvero in moto.
+            ui->glWidget->setActiveMeshTextureAnimating(hasTimeVariable(newCode));
+            // Applicare una texture e' un comando esplicito sulla fascia:
+            // riarma il gate, come m_userStoppedTexClock qui sopra per il
+            // globale. Senza, dopo uno Stop per-mesh ogni texture applicata
+            // dopo sarebbe nata ferma.
+            m_userStoppedMeshTexClock = false;
+            updateMasterButtonState();
+
+            updateTextureUIState(true, true);
+            updateFlatPreviewButton();
+            updateScriptButtonText();
+
+            // MESSAGGIO DELLA TEXTURE: il ramo globale lo scrive piu' sotto
+            // (~9850), ma questo ramo esce prima e lo saltava -- una texture
+            // messa sulle sole fasce non mostrava mai il suo hint, e il record
+            // non lo salvava (Clifford Labyrinth 3-Tubes Fibers: nessun
+            // "F: density of the grid").
+            // A differenza del ramo globale, un hint VUOTO non cancella quello
+            // in scena: lo slot e' uno per tutte le fasce, e una texture senza
+            // messaggio su una mesh non rende inutile quello di un'altra.
+            if (!data.hintText.trimmed().isEmpty()) {
+                m_currentTextureHintText    = data.hintText.trimmed();
+                m_currentTextureHintSeconds = data.hintSeconds;
+                refreshSceneHint(data.hintSeconds);
+            }
+
+            // SLIDER DELLE COSTANTI sul codice appena applicato, come fa la
+            // coda del ramo globale: la texture della fascia puo' usare una
+            // lettera che finora nessuno usava, e senza ricalcolo lo slider
+            // restava spento. updateConstantsUIState conta le fasce (vedi
+            // meshTextureCodesForConstants); i valori vanno poi spinti nel
+            // motore, perche' il ricalcolo scrive a segnali bloccati.
+            // Nessun reset al default delle costanti "libere" qui: e' la
+            // stessa scena delle altre fasce, e una lettera usata da un'altra
+            // mesh cambierebbe sotto gli occhi.
+            refreshConstants();
+
+            m_blockTextureGen = false;
+            ui->glWidget->update();
+            return false;
+        }
+
+        // Lo slot (lo script, cioe' l'intenzione) subito; la copia applicata
+        // la scrive onApplyTextureScriptClicked, se il codice compila.
+        setScriptText(SlotSurfaceTexture, newCode);
+
+        onApplyTextureScriptClicked();
+
+        if (ui->glWidget) {
+            ui->glWidget->setFlatZoom(data.zoom);
+            ui->glWidget->setFlatPan(data.panX, data.panY);
+            ui->glWidget->setFlatRotation(data.rotation);
+        }
+    }
+    return true;
+}
+
+// TEXTURE RAY MARCHING: colore e rilievo nel marcher. false = non compila,
+// texture spenta, non proseguire.
+bool MainWindow::applyLibraryTextureRM(const LibraryItem &data, const QString &imgSrc)
+{
+    // --- LOGICA RAY MARCHING (IMPLICIT) ---
+    // 1. Caricamento fisico dell'immagine nella GPU
+    if (data.isImage) {
+        if (ui->glWidget) {
+            ui->glWidget->loadTextureFromFile(imgSrc);
+        }
+    } else {
+        // Texture procedurale RM (non immagine). I picker Colore in Ray
+        // Marching si decidono sul campo lineTexture
+        // (activeTextureUsesColorToken), non su un flag.
+        // In Ray Marching l'immagine esiste solo insieme al suo triplanar,
+        // che la procedurale sostituisce (il campo non avra' il tag
+        // //IMG:): via anche dalla GPU. Restava caricata, e uno script
+        // che campiona `tex` avrebbe mostrato un'immagine che il Save non
+        // scrive. Trovato dal test degli scenari.
+        if (ui->glWidget) ui->glWidget->clearTexture();
+    }
+
+    // Displacement applicato PRIMA di questa texture: catturato QUI, prima di
+    // setDisplacementCode qui sotto, altrimenti currentDisplacementCode()
+    // restituirebbe gia' il valore NUOVO e la guardia lo vedrebbe "invariato"
+    // (era il bug: il popup non compariva e restava il watchdog tardivo).
+    const QString prevDispApplied =
+        ui->glWidget ? ui->glWidget->currentDisplacementCode() : QString();
+
+    SE_TEXP("libTex:RM-pre-displacement");
+#if SE_TEX_PROBE
+    // Cosa dice il PRESET, che nessun altro campo della sonda mostra: se qui
+    // il rilievo e' gia' quello vecchio, il guasto e' a monte (parsing,
+    // indice della libreria, voce cliccata), non in chi lo applica.
+    qDebug().noquote() << QString("TEXP   preset.displacementCode = %1 (len %2) | preset='%3'")
+                          .arg(data.displacementCode.left(60).replace('\n', ' '))
+                          .arg(data.displacementCode.length())
+                          .arg(QFileInfo(data.filePath).fileName());
+#endif
+    setRmText(&ImplicitTexts::displacement, data.displacementCode);
+    if (ui->glWidget) ui->glWidget->setDisplacementCode(data.displacementCode);
+    SE_TEXP("libTex:RM-post-displacement");
+
+    // Codice della texture in ARRIVO (scriptCode e' il fallback dei vecchi
+    // preset, che non avevano textureCode). Serve al solo ramo PROCEDURALE:
+    // il ramo immagine qui sotto lo sovrascrive per intero col triplanar.
+    QString rmTexCode = data.textureCode.isEmpty() ? data.scriptCode : data.textureCode;
+
+    // 2. Iniezione automatica del Triplanar Mapping per le immagini pure!
+    if (data.isImage) {
+        // L'IMMAGINE SOSTITUISCE LA PROCEDURALE, non ci si somma. rmTexCode
+        // qui descrive la texture in ARRIVO (per una PNG di libreria e'
+        // vuoto), mai quella gia' in lineTexture: senza questa riga il campo
+        // conservava lo script RM PRECEDENTE e il tag //IMG: gli finiva
+        // semplicemente davanti. Il risultato lo si vedeva nel dock
+        // Equations -- immagine in cima, vecchio script morto a seguire --
+        // e finiva tale e quale dentro i record salvati, perche' il ramo
+        // implicito del serializzatore dumpa lineTexture cosi' com'e'.
+        // Stesso trattamento che i rami parametrico (~6875) e sfondo (~6455)
+        // riservano gia' ai loro slot script.
+        //
+        // Il Triplanar Mapping non e' un default "se manca altro": e' LO
+        // script che campiona l'immagine, senza il quale non si vedrebbe
+        // nulla. Va quindi imposto, non messo in un ramo condizionale che
+        // ora non potrebbe mai essere falso.
+        rmTexCode = "vec3 blend = abs(n_model);\n"
+                    "blend /= max(blend.x + blend.y + blend.z, 0.00001);\n"
+                    "float scale = 0.5;\n"
+                    "vec3 cX = texture(tex, pModel.yz * scale).rgb;\n"
+                    "vec3 cY = texture(tex, pModel.xz * scale).rgb;\n"
+                    "vec3 cZ = texture(tex, pModel.xy * scale).rgb;\n"
+                    "textureCol = cX * blend.x + cY * blend.y + cZ * blend.z;";
+        // Tag in cima: dice al motore quale file caricare. imgSrc e non
+        // data.filePath, come nel caricamento GPU poche righe sopra: per una
+        // texture-immagine salvata come JSON filePath e' il .json, e il tag
+        // avrebbe puntato a quello invece che alla PNG.
+        rmTexCode = "//IMG:" + imgSrc + "\n" + rmTexCode;
+    }
+
+    setRmText(&ImplicitTexts::texture, rmTexCode);
+
+    if (ui->glWidget) {
+        // 1. Preparazione dell'equazione (per darla in pasto al validatore).
+        // La sorgente dipende dal sotto-tab implicito ATTIVO, come nel Run
+        // (onStartClicked): "3D" ha lineEquation, "Cross Section" ha
+        // lineEquationCrossSection. Leggendo sempre lineEquation, applicare
+        // una texture RM mentre si e' in Cross Section ricompilava lo shader
+        // con la SFERA del sotto-tab 3D -- la superficie 4D spariva e la
+        // texture finiva su una sfera che l'utente non aveva chiesto.
+        // Il flag va passato anche a validateAndApplyImplicitShader piu'
+        // sotto: senza, il suo default false toglie 'p' dallo scope e
+        // l'equazione a 4 variabili non compilerebbe nemmeno.
+        const bool crossSectionActive = crossSectionTab();
+        QString rawEq = (crossSectionActive ? m_scene.rm.crossSection : m_scene.rm.equation).trimmed();
+        QString implicitEqF;
+        if (rawEq.contains("=")) {
+            QStringList parts = rawEq.split("=");
+            implicitEqF = QString("(%1) - (%2)").arg(parts[0].trimmed(), parts[1].trimmed());
+        } else {
+            implicitEqF = QString("(%1) - (0.0)").arg(rawEq);
+        }
+
+        // 2. Stato UI: il checkbox segue l'intenzione, accesa qui sotto.
+
+        // ---> LE RIGHE CRITICHE RIPRISTINATE: Sincronizziamo la memoria! <---
+        ui->glWidget->setTextureCode(rmTexCode);
+        m_scene.surfaceTextureState = true;
+        applySurfaceTextureToEngine();
+        refreshTextureCheckbox();
+
+        // La checkbox è stata attivata con blockSignals: il suo handler non
+        // scatta, quindi sincronizziamo a mano lo stato UI. updateTextureUIState
+        // deduce da solo se i picker Colore servono (lineTexture contiene rmTexCode).
+        // resetColorTargetToFirst: caricando il preset il focus torna a Colore 1.
+        updateTextureUIState(true, true);
+
+        // 3. Validazione reale
+        bool success = ui->glWidget->validateAndApplyImplicitShader(implicitEqF, rmTexCode,
+                                                                    data.displacementCode,
+                                                                    crossSectionActive);
+
+        if (!success) {
+            performMasterStop();
+            showShaderError("Preset Shader Error", ui->glWidget->getShaderError());
+            ui->glWidget->setTextureCode("");
+            // Texture non applicata: anche l'intenzione (e il checkbox che
+            // la mostra) tornano spenti. Prima restava il checkbox acceso
+            // col motore spento, due copie in disaccordo.
+            m_scene.surfaceTextureState = false;
+            applySurfaceTextureToEngine();
+            refreshTextureCheckbox();
+            ui->glWidget->rebuildShader();
+            return false; // Esce in sicurezza senza crashare
+        }
+
+        SE_TEXP("libTex:RM-pre-rebuild");
+        // ---> COMPILAZIONE FINALE RIPRISTINATA <---
+        ui->glWidget->rebuildShader();
+
+        ui->glWidget->updateSurfaceData();
+
+        // Mobile: displacement nuovo + trasparenza attiva -> alpha a 1
+        // (vedi guardTransparencyOnDisplacementApply).
+        guardTransparencyOnDisplacementApply(prevDispApplied);
+
+        // TUTTE le piattaforme: displacement calato su una scena trasparente
+        // -> stop del moto + opaco + popup. E' il percorso del caso
+        // segnalato: texture di libreria CON RILIEVO sul Cross Section di
+        // default, che e' gia' ad alpha 0.75 + Ray Steps 600 senza che
+        // nessuna guardia l'abbia visto. Il displacement viaggia insieme alla
+        // texture (data.displacementCode, passato all'apply qui sopra) ed e'
+        // lui il moltiplicatore: vedi guardTransparencyOnHeavyTextureApply.
+        //
+        // PRIMA della update() qui sotto, non dopo: e' il punto dell'ordine
+        // che conta. La guardia deve poter portare l'alpha a 1 mentre il
+        // primo frame trasparente+texturizzato non e' ancora partito -- ed e'
+        // proprio quel frame che puo' far collassare la GPU. update() e'
+        // asincrona (accoda un paintGL), ma il box modale della guardia fa
+        // girare l'event loop: accodare prima significherebbe disegnarlo.
+        // L'equazione implicita e' committata: risincronizza lo slider trasparenza
+        // (campi a prodotto -> disabilitato + popup). Vedi syncImplicitAlphaSlider.
+        //
+        // PRIMA della guardia qui sotto, non dopo. Due motivi, entrambi
+        // necessari: (1) con newSurface=true questa chiamata RIARMA i flag
+        // "gia' chiesto" (compreso quello della guardia), quindi eseguirla
+        // dopo cancellava la memoria appena scritta e il commit successivo
+        // riapriva il box -- la raffica senza fine; (2) e' lei a portare lo
+        // slider allo stato definitivo della nuova superficie, ed e' quello
+        // stato che la guardia deve valutare per decidere se chiedere.
+        syncImplicitAlphaSlider(true, true);
+
+        guardTransparencyOnHeavyTextureApply(data.displacementCode);
+
+        ui->glWidget->update();
+    }
+    return true;
+}
+
+void MainWindow::restartLibraryTextureClocks()
+{
     // ==========================================
     // ANIMAZIONE: selezionare una texture di SUPERFICIE avvia solo il proprio
     // orologio. NON tocca né la geometria (SDF) né lo sfondo né la camera.
@@ -1735,13 +1770,12 @@ void MainWindow::handleTextureSelection(int index)
         m_rmTextureApplied = !texAnim;
     }
     updateMasterButtonState();
+}
 
-    // Se abbiamo cambiato scheda, assicuriamoci che l'engine inizializzi correttamente
-    // le equazioni chiamando onStartClicked() se necessario
-    if (modeSwitched) {
-        onStartClicked();
-    }
-
+// La coda della scelta di una texture di superficie: tasti, colori, ancora,
+// messaggio e costanti.
+void MainWindow::finishLibraryTexturePick(const LibraryItem &data)
+{
     if (m_currentScriptMode != ScriptModeSound) {
         ui->btnRunCurrentScript->setEnabled(false);
     }

@@ -1733,6 +1733,18 @@ private:
     // motore possa compilare (giudizio delle costanti, equazioni non ancora
     // applicate) e si riallinea in coda al load.
     bool commitSurfaceTextureCode(const QString &code);
+    // LA SCELTA DI UNA TEXTURE DALLA LIBRARY (handleTextureSelection), a passi:
+    // sullo sfondo e basta; altrimenti l'eventuale cambio di modalita' (false =
+    // annullato), la texture parametrica o Ray Marching (false = finito li':
+    // messa su una fascia, o non compila), gli orologi della texture e la coda
+    // (tasti, colori, ancora, messaggio, costanti).
+    void applyLibraryTextureToBackground(const LibraryItem &data);
+    bool switchModeForLibraryTexture(const LibraryItem &data, bool texIsImplicit);
+    bool applyLibraryTextureParametric(const LibraryItem &data, const QString &imgSrc,
+                                       bool texGoesToMesh);
+    bool applyLibraryTextureRM(const LibraryItem &data, const QString &imgSrc);
+    void restartLibraryTextureClocks();
+    void finishLibraryTexturePick(const LibraryItem &data);
     // SUONO della scena nella forma che il player e il Save capiscono: una riga
     // //MUSIC: o un blocco //SOUND_BEGIN..//SOUND_END. Il dock Sound accetta
     // anche GLSL nudo (un mainSound scritto senza marcatori): wrapSoundCode lo
