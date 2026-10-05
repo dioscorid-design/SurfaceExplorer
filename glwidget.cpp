@@ -4388,11 +4388,9 @@ QImage GLWidget::getFrameForVideo(int targetW, int targetH, bool useFbo) {
 bool GLWidget::validateAndApplyParametricShader(const QString &customLogic)
 {
     // TOGLIERE il codice custom non puo' essere la causa di un errore: si
-    // registra sempre, senza passare dal dry-run -- che compila anche il vertex
-    // con le equazioni del momento e, se quelle non reggono (reset di scena,
-    // load a meta'), faceva restare nel motore il codice della texture di prima
-    // a texture ormai spenta. Stessa regola di setTextureCode("") e
-    // setDisplacementCode("") per il Ray Marching.
+    // registra sempre, senza dry-run (un rifiuto lascerebbe nel motore la
+    // texture di prima a texture ormai spenta). Stessa regola di
+    // setTextureCode("") e setDisplacementCode("") per il Ray Marching.
     if (customLogic.trimmed().isEmpty()) {
         m_customFragmentCode.clear();
         rebuildShader();
@@ -4413,42 +4411,16 @@ bool GLWidget::validateAndApplyParametricShader(const QString &customLogic)
         }
     }
 
-    // 2. DRY RUN VERTEX - testa le equazioni x/y/z/w correnti.
-    //
-    // SOLO IN MODO PARAMETRICO. In ray marching la geometria non passa da
-    // questo vertex (la pipeline implicita e' un full-screen quad + SDF nel
-    // fragment, vedi buildImplicitPipeline), quindi validarlo qui e' lavoro
-    // buttato -- e per giunta FALLISCE SEMPRE: createVertexShaderSource, se
-    // engine->isScriptModeActive(), inietta getScriptCodeGLSL() dentro
-    // getRawPosition(). Su una superficie implicita da script quel codice e'
-    // una SDF che opera su 'p', variabile che nel vertex parametrico non
-    // esiste -> "ERROR: 'p' : undeclared identifier".
-    //
-    // NB: il fallimento NON dipende dall'argomento customLogic, che qui non
-    // viene nemmeno usato. Per questo le guardie !isImplicit sui chiamanti
-    // (applyMotionExample) non bastavano: fallivano anche le chiamate con
-    // stringa vuota e quelle di applyDefaultCheckerShader, il cui codice e'
-    // parametrico pulito. La guardia giusta sta qui, sul dry-run.
-    //
-    // NON spegnere invece lo script mode nel motore: m_useScriptMode vuol dire
-    // "la superficie viene da uno script", non "siamo in parametrico", e la
-    // pipeline IMPLICITA lo legge -- createImplicitFragmentShader() ci inietta
-    // la SDF e la direttiva //INNER:. Azzerarlo farebbe sparire le superfici RM
-    // da script.
-    if (m_engineMode == ModeParametric) {
-        QString vsSource = createVertexShaderSource(m_eqX, m_eqY, m_eqZ, m_eqW);
-        QShaderBaker baker;
-        baker.setSourceString(vsSource.toUtf8(), QShader::VertexStage);
-        baker.setGeneratedShaderVariants({QShader::StandardShader});
-        baker.setGeneratedShaders({ {QShader::SpirvShader, QShaderVersion(100)} });
-        QShader shader = baker.bake();
-        if (!shader.isValid()) {
-            m_lastCompilationError = "VERTEX: " + baker.errorMessage();
-            return false;
-        }
-    }
+    // NIENTE prova del VERTEX: il codice della texture li' non c'e', e il
+    // vertex si costruisce dalle equazioni del momento, gia' provate al loro
+    // commit (setParametricEquations). A meta' load potevano non combaciare
+    // ancora col vincolo (Oloid, vincolo in W: "'W' undeclared") e la texture
+    // veniva rifiutata per un errore non suo. rebuildShader e' differito: la
+    // pipeline si ricostruisce al frame dopo, con lo stato del load completo.
+    // (In Ray Marching poi quel vertex non disegna nulla, e con uno script
+    // implicito falliva sempre: la SDF su 'p' dentro getRawPosition.)
 
-    // 3. APPLICA
+    // 2. APPLICA
     m_customFragmentCode = customLogic;
     rebuildShader();
     return true;

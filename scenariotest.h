@@ -180,8 +180,8 @@ private:
     void runResetSceneScenarios();
     // Load di record la cui texture si compilava male: motore = applicata =
     // script (checkTextureCode). Kerr Spin Animated porta un blocco audio coi
-    // marcatori spaziati ("// SOUND_BEGIN"), Oloid un vincolo in W che al
-    // momento del load il vertex non conosce ancora.
+    // marcatori spaziati ("// SOUND_BEGIN"), Oloid un vincolo in W che a meta'
+    // load faceva fallire la vecchia prova del vertex.
     // Da sola: --scenario-only record-texture.
     void runRecordTextureScenarios();
     // Library: aprire e chiudere la cartella del preset caricato (doppio clic

@@ -12,11 +12,11 @@
 //  - SHADER ERROR / "pipeline non costruite" (GLWidget::bakeShader, buildPipeline):
 //    uno shader che DISEGNA non compila, a schermo manca qualcosa. Conta sempre.
 //  - texture RIFIUTATA alla prova (loadCustomShader, load dei record): il motore
-//    tiene lo shader di prima. Conta se l'errore e' nel FRAGMENT, cioe' nel
-//    codice della texture. Un errore nel VERTEX non e' della texture (il suo
-//    codice li' non c'e'): il vertex si prova con le equazioni del momento, e a
-//    meta' load possono non essere ancora quelle del preset -- Oloid, vincolo in
-//    W, che passa al secondo tentativo in coda al load. Si elenca, non conta.
+//    tiene lo shader di prima. Conta sempre: la prova compila solo il FRAGMENT,
+//    cioe' il codice della texture. (Provava anche il vertex con le equazioni
+//    del momento, e a meta' load Oloid -- vincolo in W -- veniva rifiutata per
+//    un errore non suo: quell'errore era elencato senza contare. Tolta la prova
+//    del vertex, e' sparita anche l'eccezione.)
 
 #include <QList>
 #include <QString>
@@ -45,11 +45,6 @@ inline bool classify(const QString &msg, Entry *out)
     out->text = msg.simplified().left(300);
     out->counts = true;
     out->excuse.clear();
-    if (rejected && msg.contains(QLatin1String("VERTEX:"))) {
-        out->counts = false;
-        out->excuse = QStringLiteral("errore nel vertex, provato con le equazioni del momento: "
-                                     "il codice della texture li' non c'e'");
-    }
     return true;
 }
 

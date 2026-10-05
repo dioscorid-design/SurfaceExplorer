@@ -2313,11 +2313,9 @@ void MainWindow::applyMotionExample(LibraryItem data)
             // non compilava risultava applicato con il motore vuoto.
             if (imgPath.isEmpty()) generateTexture();
             if (!commitSurfaceTextureCode(texCode)) {
-                // Non compila ADESSO (Oloid: il vertex si prova con le
-                // equazioni del momento, che a meta' load non conoscono ancora
-                // il vincolo in W). Nulla di applicato: si vede la scacchiera,
-                // o l'immagine, e lo script resta nel suo slot -- lo riapplica
-                // il Run in coda al load.
+                // Non compila: nulla di applicato, si vede la scacchiera (o
+                // l'immagine) e lo script resta nel suo slot, dove lo si puo'
+                // correggere.
                 qWarning() << "applyMotionExample: texture del record non compilata:"
                            << ui->glWidget->getShaderError();
                 if (imgPath.isEmpty()) applyDefaultCheckerShader();
@@ -2654,16 +2652,16 @@ void MainWindow::applyMotionExample(LibraryItem data)
             // su 142 gia' affetti; ogni nuovo record RM da script con texture
             // attiva sarebbe nato con lo stesso difetto.
             //
-            // Di nuovo, ora che le equazioni del record sono nel motore: il
-            // primo tentativo (APPLICAZIONE TEXTURE SUPERFICIE) prova il vertex
-            // con quelle del momento, e su Oloid -- vincolo in W -- li' falliva.
-            // Dallo SCRIPT del record (il suo slot), non dalla copia applicata,
-            // che dopo un primo tentativo fallito e' vuota. Se non compila
-            // nemmeno ora resta tutto com'e': nulla di applicato, lo script nel
-            // suo slot, dove lo si puo' correggere.
+            // Di nuovo, se il primo tentativo (APPLICAZIONE TEXTURE SUPERFICIE)
+            // non l'ha applicata: dallo SCRIPT del record (il suo slot), non
+            // dalla copia applicata, che dopo un tentativo fallito e' vuota. Se
+            // non compila nemmeno ora resta tutto com'e': nulla di applicato, lo
+            // script nel suo slot, dove lo si puo' correggere. Gia' applicata:
+            // niente seconda prova a secco.
             if (!isImplicit && texEnabled) {
                 const QString texSrc = surfaceTextureScript();
-                if (TextureCode::hasLogic(texSrc)) commitSurfaceTextureCode(texSrc);
+                if (TextureCode::hasLogic(texSrc) && m_scene.surfaceTextureCode != texSrc)
+                    commitSurfaceTextureCode(texSrc);
             }
 
             ui->glWidget->rebuildShader();
