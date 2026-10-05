@@ -1528,6 +1528,21 @@ private:
     float parseMath(const QString &text, bool *ok = nullptr);
     float parseUIConstant(const QString &exprStr, float A, float B, float C, float D, float E, float F, float S, bool* ok = nullptr);
     struct CascadeConstants { float a, b, c, d, e, f, s; };
+    // PASSI DI runScene (le guardie e il prologo Stop/Start restano a lei).
+    // Validazioni comuni: campi X/Y/Z/P e costanti; false = Run fermato.
+    bool validateRunInputs(RunOrigin origin);
+    void runSceneScript(RunOrigin origin, bool runDockOnly);
+    void runSceneImplicit(RunOrigin origin, bool runDockOnly);
+    struct RunLimits { float uMin = 0, uMax = 0, vMin = 0, vMax = 0, wMin = 0, wMax = 0; };
+    void runSceneParametric(RunOrigin origin, bool runDockOnly,
+                            const CascadeConstants &kc, RunOutcomeGuard &outcome);
+    // Variabili, composizione e limiti del ramo parametrico; *geodesic = la
+    // scena e' un flusso geodetico (ha il suo ramo, runSceneGeodesic).
+    bool checkParametricRunInputs(RunLimits *lim, bool *geodesic);
+    void runSceneGeodesic(bool runDockOnly);
+    // La sonda dei poli: false se l'equazione esplode sul dominio u/v.
+    static bool equationStaysRenderable(const QString &eq, const CascadeConstants &kc,
+                                        const RunLimits &lim);
     // Cio' che la cascata ha trovato di sbagliato nei campi. Lo mostra solo chi
     // parte da un gesto dell'utente (evaluateCascade): i percorsi programmatici
     // non aprono popup.
@@ -1622,6 +1637,21 @@ private:
     // sceneFromItem con la scansione delle immagini gia' fatta (il load di un
     // record la fa una volta sola, prima del popup).
     SceneState sceneFromItem(const LibraryItem &d, bool isRecord, const MissingImageScan &scan);
+    // PASSI DEL LOAD DI UN RECORD, nell'ordine in cui applyMotionExample li
+    // chiama (le guardie RAII del load restano a lei: valgono per tutti).
+    void warnMissingRecordImages(const MissingImageScan &scan);
+    void stopMotionForRecordLoad();
+    void applyRecordMode(const LibraryItem &data, const SceneState &file);
+    void applyRecordColors(const LibraryItem &data);
+    void applyRecordCamera(const LibraryItem &data, const SceneState &file);
+    void applyRecordSurfaceTexture(const LibraryItem &data, const MissingImageScan &scan);
+    void applyRecordBackgroundTexture(const LibraryItem &data);
+    void syncTextureControlsAfterRecordLoad(const LibraryItem &data);
+    void applyRecordSpeedsAndAngles(const LibraryItem &data);
+    void startRecordCameraMotion(const LibraryItem &data);
+    bool runRecordGeometry(const LibraryItem &data);   // true: scena da script
+    void restartRecordClocks(const LibraryItem &data);
+    void startRecordSound();
     // LA SCENA DEL RESET (punto 5, tappa 5.4): cio' che resetScene(index,
     // loadDefaultSurface) lascia in m_scene, a partire dalla scena attuale --
     // al cambio di linguetta alcune parti sopravvivono (X/Y/Z/P verso il Ray

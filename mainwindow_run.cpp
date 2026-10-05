@@ -261,6 +261,35 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
     // ==========================================================
     ui->glWidget->setFocus();
 
+    if (!validateRunInputs(origin)) return;
+
+    // Costanti a cascata (valida per entrambe le modalità): slider e motore.
+    const CascadeConstants kc = pushConstantsToEngine(/*restoreTextOnNegative=*/false, /*always=*/true);
+
+    // 2.5. RIPRESA PER GLI SCRIPT
+    if (ui->glWidget->getEngine()->isScriptModeActive()) {
+        runSceneScript(origin, runDockOnly);
+        return;
+    }
+
+    // ==========================================================
+    // MODALITÀ IMPLICITA (RAY MARCHING)
+    // ==========================================================
+    if (implicitMode()) {
+        runSceneImplicit(origin, runDockOnly);
+        return;
+    }
+
+    // ==========================================================
+    // MODALITÀ PARAMETRICA
+    // ==========================================================
+    runSceneParametric(origin, runDockOnly, kc, runOutcomeGuard);
+}
+
+// ---- Passi di runScene: validazioni comuni, poi un ramo per modalita' ----
+
+bool MainWindow::validateRunInputs(RunOrigin origin)
+{
     // --- VALIDAZIONE EQUAZIONI PARAMETRICHE ---
     // Servono almeno 3 dei 4 campi X/Y/Z/P (vedi hasParametricEquationInput).
     // Il tasto Run del dock e' gia' spento in questo caso, ma il master START
@@ -291,13 +320,13 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
                 // doppione era sistematico.
                 QTimer::singleShot(0, this, [this]{ m_constantPopupActive = false; });
             }
-            return;
+            return false;
         }
     }
 
     // --- VALIDAZIONE COSTANTI (parametriche e implicite) ---
     if (m_constantPopupActive)
-            return;
+        return false;
 
     auto constParse = [this](const QString& s, bool* ok) {
         return parseUIConstant(s, 0, 0, 0, 0, 0, 0, 0, ok);
@@ -311,530 +340,340 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
         {"F", m_scene.constants.f},
         {"S", m_scene.constants.s},
     }, constParse)) {
-    return;
+        return false;
+    }
+    return true;
+}
+
+void MainWindow::runSceneScript(RunOrigin origin, bool runDockOnly)
+{
+    // Lo script com'e' scritto: il master esegue anche cio' che e' in
+    // sospeso. Il COMMIT DI SERVIZIO (Invio su una costante ad animazione
+    // ferma) no: riapplica lo script a schermo, come per le equazioni, che
+    // riusano lo snapshot dell'ultimo Run -- altrimenti un Invio su una
+    // costante eseguiva di straforo uno script ancora in lavorazione.
+    const bool serviceCommit = (origin == RunOrigin::ServiceCommit)
+                               && !m_scene.surfaceScriptApplied.trimmed().isEmpty();
+    QString currentScript = serviceCommit ? m_scene.surfaceScriptApplied : m_scene.surfaceScriptText;
+
+    const bool isImplicit = (implicitMode());
+
+    // Sezione opzionale //CUTOUT_BEGIN..//CUTOUT_END (solo parametrico:
+    // il Ray Marching non usa getRawPosition, quindi non ha cutout).
+    // Stessa estrazione di onRunScriptClicked: qui era rimasta una copia
+    // che non la toglieva dal corpo, quindi il blocco CUTOUT finiva
+    // iniettato anche in getRawPosition() -> due "return" di tipo diverso
+    // nella stessa funzione -> errore di compilazione SOLO da Master Start
+    // (onRunScriptClicked, chiamato da Departure/altri percorsi, la toglieva
+    // già correttamente).
+    QString scriptForGlsl = currentScript;
+    if (!isImplicit) {
+        QString cutoutGlsl;
+        scriptForGlsl = extractCutoutSection(currentScript, &cutoutGlsl);
+        ui->glWidget->getEngine()->setCutoutCodeGLSL(cutoutGlsl);
+
+        // Multi-mesh: come il cutout, va riallineato anche qui o la ripresa
+        // da Master Start perderebbe le parti dichiarate dallo script.
+        std::vector<MeshPart> meshParts;
+        scriptForGlsl = extractMeshSections(scriptForGlsl, &meshParts);
+        ui->glWidget->getEngine()->setMeshParts(meshParts);
     }
 
-    // Costanti a cascata (valida per entrambe le modalità): slider e motore.
-    const CascadeConstants kc = pushConstantsToEngine(/*restoreTextOnNegative=*/false, /*always=*/true);
+    // Ri-valida lo script corrente prima di riprendere: se contiene un
+    // errore non corretto NON facciamo ripartire il moto (come le equazioni).
+    QString glslBody;
+    QString copy = scriptForGlsl;
+    QTextStream stream(&copy);
+    while (!stream.atEnd()) {
+        QString line = stream.readLine();
+        if (line.contains(":=")) continue;
+        glslBody.append(line + "\n");
+    }
+    glslBody = GlslTranslator::translateEquation(glslBody);
 
-    // 2.5. RIPRESA PER GLI SCRIPT
-    if (ui->glWidget->getEngine()->isScriptModeActive()) {
-        // Lo script com'e' scritto: il master esegue anche cio' che e' in
-        // sospeso. Il COMMIT DI SERVIZIO (Invio su una costante ad animazione
-        // ferma) no: riapplica lo script a schermo, come per le equazioni, che
-        // riusano lo snapshot dell'ultimo Run -- altrimenti un Invio su una
-        // costante eseguiva di straforo uno script ancora in lavorazione.
-        const bool serviceCommit = (origin == RunOrigin::ServiceCommit)
-                                   && !m_scene.surfaceScriptApplied.trimmed().isEmpty();
-        QString currentScript = serviceCommit ? m_scene.surfaceScriptApplied : m_scene.surfaceScriptText;
+    const bool ok = isImplicit
+            ? ui->glWidget->validateAndApplyImplicitScript(glslBody)
+            : ui->glWidget->validateAndApplyParametricScript(glslBody);
 
-        const bool isImplicit = (implicitMode());
-
-        // Sezione opzionale //CUTOUT_BEGIN..//CUTOUT_END (solo parametrico:
-        // il Ray Marching non usa getRawPosition, quindi non ha cutout).
-        // Stessa estrazione di onRunScriptClicked: qui era rimasta una copia
-        // che non la toglieva dal corpo, quindi il blocco CUTOUT finiva
-        // iniettato anche in getRawPosition() -> due "return" di tipo diverso
-        // nella stessa funzione -> errore di compilazione SOLO da Master Start
-        // (onRunScriptClicked, chiamato da Departure/altri percorsi, la toglieva
-        // già correttamente).
-        QString scriptForGlsl = currentScript;
-        if (!isImplicit) {
-            QString cutoutGlsl;
-            scriptForGlsl = extractCutoutSection(currentScript, &cutoutGlsl);
-            ui->glWidget->getEngine()->setCutoutCodeGLSL(cutoutGlsl);
-
-            // Multi-mesh: come il cutout, va riallineato anche qui o la ripresa
-            // da Master Start perderebbe le parti dichiarate dallo script.
-            std::vector<MeshPart> meshParts;
-            scriptForGlsl = extractMeshSections(scriptForGlsl, &meshParts);
-            ui->glWidget->getEngine()->setMeshParts(meshParts);
-        }
-
-        // Ri-valida lo script corrente prima di riprendere: se contiene un
-        // errore non corretto NON facciamo ripartire il moto (come le equazioni).
-        QString glslBody;
-        QString copy = scriptForGlsl;
-        QTextStream stream(&copy);
-        while (!stream.atEnd()) {
-            QString line = stream.readLine();
-            if (line.contains(":=")) continue;
-            glslBody.append(line + "\n");
-        }
-        glslBody = GlslTranslator::translateEquation(glslBody);
-
-        const bool ok = isImplicit
-                ? ui->glWidget->validateAndApplyImplicitScript(glslBody)
-                : ui->glWidget->validateAndApplyParametricScript(glslBody);
-
-        if (!ok) {
-            showShaderError("Script Compilation Error", ui->glWidget->getShaderError());
-            return;
-        }
-        // Compila: e' lo script a schermo, quello che il Save scrive. Prima il
-        // master eseguiva lo script in sospeso senza registrarlo, e il Save
-        // scriveva ancora quello dell'ultimo Run del dock.
-        m_scene.surfaceScriptApplied = currentScript;
-
-        if (implicitMode()) {
-            QString texCode = m_scene.rm.texture;
-            QString dispCode = m_scene.rm.displacement;
-
-            // Controllo parentesi (popup di "Unmatched parentheses" chiaro)
-            if (!InputValidator::validateParentheses(this, stripCodeComments(texCode))) return;
-            if (!InputValidator::validateParentheses(this, stripCodeComments(dispCode))) return;
-
-            // Validazione compilazione GLSL completa per texture+displacement
-            if (!ui->glWidget->validateAndApplyTextureDisplacement(texCode, dispCode)) {
-                showShaderError("Texture/Displacement Compilation Error",
-                                                           ui->glWidget->getShaderError());
-                return;
-            }
-
-        } else {
-            // Lo SCRIPT della texture di superficie (surfaceTextureScript): mai
-            // l'editor quando mostra una FASCIA. Qui si prendeva l'editor a
-            // prescindere, e con una fascia selezionata e il dock sulla texture il
-            // Run applicava lo script della fascia a tutta la superficie
-            // (sospetto del 2026-08-03, riprodotto dal test degli scenari).
-            // L'accensione e' l'intenzione della superficie, non il checkbox, che
-            // in ambito Mesh mostra la fascia.
-            if (!editingBackground() && m_scene.surfaceTextureState) {
-                const QString texSrc = surfaceTextureScript();
-                if (TextureCode::hasLogic(texSrc) && !commitSurfaceTextureCode(texSrc)) {
-                    showShaderError("Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
-                    return;
-                }
-            }
-        }
-
-        if (!applyBackgroundTextureIfNeeded()) return;
-
-        {
-            QString soundSrc = m_scene.soundScriptText;
-            if (!soundSrc.trimmed().isEmpty()) {
-                QString audioErr;
-                // Nella forma che suonera' (GLSL nudo avvolto): senza marcatori
-                // validateScript non trovava niente da compilare e passava tutto.
-                if (!m_audioController->validateScript(wrapSoundCode(soundSrc), &audioErr)) {
-                    showShaderError("Syntax Error (Sound Script)",
-                                                               audioErr.isEmpty() ? "Audio shader compilation failed." : audioErr);
-                    return;
-                }
-            }
-        }
-
-
-        const bool applyOnly = (origin == RunOrigin::ServiceCommit);
-
-        // Il 't' delle texture PER-MESH non e' in nessuno di questi tre slot: il
-        // codice di una fascia vive in MeshPart::textureCode, che
-        // m_scene.surfaceTextureCode (la texture di SUPERFICIE) non contiene. Con la
-        // scena animata dalle sole fasce -- superficie senza 't', nessuna
-        // texture globale, come Clifford 6-tubes -- la condizione era falsa, il
-        // master Start NON chiamava applyAnimationState e le texture restavano
-        // ferme mentre rotazioni e path ripartivano. Stessa distinzione che
-        // allSurfaceTextureCode() documenta: per le fasce si guarda
-        // anyMeshTextureCodeAnimated().
-        // DUE DOMANDE DISTINTE, e vanno tenute separate.
-        // 1. SERVE il ricalcolo? Si', se un modulo QUALSIASI usa il tempo:
-        //    geometria, texture di superficie, sfondo o una fascia. Senza,
-        //    applyAnimationState non viene chiamata e i clock di texture e
-        //    sfondo non ripartono affatto (era il bug del master Start che non
-        //    riaccendeva le texture per-mesh).
-        // 2. La GEOMETRIA e' animata? Solo se lo script usa il tempo. Questo, e
-        //    nient'altro, e' l'argomento di applyAnimationState: da li' esce
-        //    setSurfaceAnimating. Passando 'true' perche' si muove un ALTRO
-        //    modulo si accendeva il clock della superficie a vuoto, e il tasto
-        //    del dock Script diceva "Stop Parametric" su uno script statico --
-        //    con nulla da fermare. Bastava uno sfondo animato (Calabi Yau).
-        //    I clock degli altri moduli non si perdono: applyAnimationState li
-        //    ricalcola da se' dai rispettivi codici ("ogni modulo guarda il
-        //    PROPRIO tempo"). Stessa correzione fatta nel load dei record.
-        const bool geomHasTime = hasTimeVariable(currentScript);
-        const bool otherHasTime = hasTimeVariable(m_scene.surfaceTextureCode + "\n" + m_scene.bgTextureCode)
-                                  || anyMeshTextureCodeAnimated();
-        if (!applyOnly && (geomHasTime || otherHasTime)) {
-            applyAnimationState(geomHasTime, runDockOnly);
-        }
-
-        if (!applyOnly && !runDockOnly) {
-            applyStartSideEffects();
-        }
-        ui->glWidget->update();
+    if (!ok) {
+        showShaderError("Script Compilation Error", ui->glWidget->getShaderError());
         return;
     }
+    // Compila: e' lo script a schermo, quello che il Save scrive. Prima il
+    // master eseguiva lo script in sospeso senza registrarlo, e il Save
+    // scriveva ancora quello dell'ultimo Run del dock.
+    m_scene.surfaceScriptApplied = currentScript;
 
-    // ==========================================================
-    // MODALITÀ IMPLICITA (RAY MARCHING)
-    // ==========================================================
     if (implicitMode()) {
+        QString texCode = m_scene.rm.texture;
+        QString dispCode = m_scene.rm.displacement;
 
-        // 0. LIMITI SPAZIALI X/Y/Z. Si applicano QUI, al Run, insieme
-        // all'equazione: sono il taglio della scena, parte di cio' che il Run
-        // porta a schermo. Prima entravano da soli all'uscita dal campo, unico
-        // pezzo del modulo a non passare dal Run.
-        // Un campo illeggibile ferma il Run come un errore di sintassi: il
-        // popup lo mostra applySpaceLimits, e la scena resta quella valida.
-        if (!applySpaceLimits(/*notify=*/true)) return;
-
-        // 1. Lettura e validazione equazione. Sorgente (editor/radio) dipende
-        // dal sotto-tab attivo: "3D" (3 variabili x,y,z) o "Cross Section"
-        // (4 variabili x,y,z,p) — vedi CLAUDE.md, i due sotto-tab hanno stato
-        // separato, limiti/Run/Variations restano condivisi.
-        const bool crossSectionActive = crossSectionTab();
-        const RmField rmEqField = crossSectionActive ? &ImplicitTexts::crossSection
-                                                     : &ImplicitTexts::equation;
-
-        QString rawEq = (m_scene.rm.*rmEqField).trimmed();
-        // CAMPO VUOTO: si avvisa e si esce, non si esce in silenzio. Il return
-        // muto lasciava a schermo la superficie PRECEDENTE senza dire nulla --
-        // l'utente cancellava l'equazione, premeva Invio e vedeva la scena di
-        // prima, senza capire se il Run fosse andato o no. In Cross Section era
-        // anche peggio: il campo vuoto arriva al fallback di
-        // createImplicitFragmentShader (glwidget ~4511), che sostituisce la
-        // stringa vuota con la sfera -- e quella sfera, passando da
-        // %CROSS_SECTION_P%, veniva mostrata come sezione ruotata in 4D, cioe'
-        // una superficie che nessuno aveva chiesto.
-        // Per svuotare la scena c'e' NEW, che e' esplicito.
-        if (rawEq.isEmpty()) {
-            InputValidator::notifyEmptyImplicitEquation(this, crossSectionActive);
-            return;
-        }
-
-        const QString eqFieldLabel = crossSectionActive ? "Cross Section Equation" : "Implicit Equation";
-        if (!InputValidator::validateImplicitEquation(this, rawEq, /*allowP=*/crossSectionActive)) return;
-        if (!InputValidator::validateExpressionSyntax(this, rawEq, eqFieldLabel)) return;
-        if (!InputValidator::validateIdentifiers(this, rawEq, eqFieldLabel)) return;
-
-        QString implicitEqF;
-        if (rawEq.contains("=")) {
-            QStringList parts = rawEq.split("=");
-            implicitEqF = QString("(%1) - (%2)").arg(parts[0].trimmed(), parts[1].trimmed());
-        } else {
-            // Aggiungiamo silenziosamente "= 0.0" se l'utente lo ha omesso, senza fastidiosi popup
-            QString correctedEq = rawEq + " = 0.0";
-            setRmText(rmEqField, correctedEq);
-
-            implicitEqF = QString("(%1) - (0.0)").arg(rawEq);
-        }
-
-        // 2. Lettura e validazione Texture
-        QString texCode = m_scene.rm.texture.trimmed();
-        QString dispCode = m_scene.rm.displacement.trimmed();
-
-        if (!InputValidator::validateImplicitScriptContext(this, texCode)) return;
-
+        // Controllo parentesi (popup di "Unmatched parentheses" chiaro)
         if (!InputValidator::validateParentheses(this, stripCodeComments(texCode))) return;
-
         if (!InputValidator::validateParentheses(this, stripCodeComments(dispCode))) return;
 
-        ui->glWidget->setTextureCode(texCode);
-
-        // Displacement applicato PRIMA di questo commit (guardia trasparenza mobile).
-        const QString prevDispApplied = ui->glWidget->currentDisplacementCode();
-
-        // TEST E APPLICAZIONE
-        bool success = ui->glWidget->validateAndApplyImplicitShader(implicitEqF, texCode, dispCode,
-                                                                     crossSectionActive);
-        if (!success) {
-            showShaderError("Syntax Error (Ray Marching)", ui->glWidget->getShaderError());
+        // Validazione compilazione GLSL completa per texture+displacement
+        if (!ui->glWidget->validateAndApplyTextureDisplacement(texCode, dispCode)) {
+            showShaderError("Texture/Displacement Compilation Error",
+                                                       ui->glWidget->getShaderError());
             return;
         }
 
-        // Mobile: displacement nuovo + trasparenza attiva -> alpha a 1
-        // (vedi guardTransparencyOnDisplacementApply).
-        guardTransparencyOnDisplacementApply(prevDispApplied);
-
-        // TUTTE le piattaforme: displacement su scena trasparente -> stop del
-        // moto + opaco + popup che chiede se ripristinarli. E' il caso del Cross
-        // Section di default (alpha 0.75 programmatico), dove nessuna delle
-        // guardie sopra puo' scattare: quelle sono #if mobile. Va DOPO l'apply
-        // riuscito: agisce sullo stato davvero applicato, e se l'apply fallisce
-        // non c'e' nulla di pesante da cui difendersi.
-        guardTransparencyOnHeavyTextureApply(dispCode);
-
-        // Stesso Smart Path Resolver del caricamento dei record. Qui c'era un
-        // QFile::exists() sul percorso del tag, cioe' la verifica che
-        // TextureCode::resolveImagePath ha smesso di fidarsi: sotto sandbox un file
-        // della libreria dell'ALTRA app (DMG vs App Store) esiste ma non e'
-        // leggibile, exists() lo accettava e l'immagine non si caricava. Ora il
-        // percorso si risolve per nome nella libreria in uso. Un file che non
-        // c'e' davvero resta muto come prima: questo e' il Run, non un load, e
-        // un avviso a ogni pressione sarebbe rumore.
-        const QString imgPath = TextureCode::resolveImagePath(texCode);
-        if (!imgPath.isEmpty()) {
-            if (!imgPath.startsWith("NOT_FOUND|")) {
-                ui->glWidget->loadTextureFromFile(imgPath);
-            }
-        } else if (surfaceHasImage()) {
-            // Il campo non ha il tag: nessuna immagine. Prima si guardava un
-            // flag, e un'immagine rimasta caricata col flag gia' abbassato non
-            // se ne andava piu'.
-            ui->glWidget->clearTexture(); // Rimuove l'immagine dalla GPU
-        }
-
-        if (texCode.isEmpty() && dispCode.isEmpty()) {
-            m_scene.surfaceTextureState = false;
-            applySurfaceTextureToEngine();
-            refreshTextureCheckbox();
-        } else {
-            const bool wasOn = surfaceTextureShown();
-            m_scene.surfaceTextureState = true;
-            applySurfaceTextureToEngine();
-            refreshTextureCheckbox();
-            if (!wasOn) updateTextureUIState(true, true); // nuova texture -> focus a Colore 1
-        }
-
-        // 4. Animazione dinamica sicura. Teniamo separati i due orologi:
-        //  - GEOMETRIA: solo l'SDF (implicitEqF).
-        //  - TEXTURE: colore + displacement (entrambi leggono dummyZero.x nello
-        //    shader) + background. Il displacement NON appartiene alla geometria,
-        //    altrimenti un Run riaccoppierebbe i due moduli (bug texture/superficie).
-        bool geomAnimated = hasTimeVariable(implicitEqF);
-        // La texture di SUPERFICIE, non cio' che mostra il checkbox: col
-        // bersaglio su Background quello e' lo sfondo, e a sfondo spento il
-        // master Start non riavviava la texture della superficie.
-        bool texAnimated = false;
-        if (surfaceTextureShown()) {
-            texAnimated = hasTimeVariable(texCode) || hasTimeVariable(dispCode);
-        }
-        if (ui->glWidget->isBackgroundTextureEnabled() && hasTimeVariable(m_scene.bgTextureCode)) {
-            texAnimated = true;
-        }
-
-        const bool applyOnly = (origin == RunOrigin::ServiceCommit);
-
-        if (!applyOnly) {
-            // Il clock GEOMETRIA è del dock Equations/master: lo guida geomAnimated.
-            applyAnimationState(geomAnimated, runDockOnly);
-            // Il clock TEXTURE è del suo modulo: NON lo tocca il Run del dock
-            // Equations (runDockOnly), solo il master/Start globale. E come per
-            // il suono, un COMMIT di equazione non riaccende una texture fermata
-            // a mano (m_userStoppedTexClock; un vero master Start l'ha già riarmato).
-            if (!runDockOnly && ui->glWidget) {
-                ui->glWidget->setSurfaceTextureAnimating(texAnimated && !m_masterStopped
-                                                         && !m_userStoppedTexClock);
+    } else {
+        // Lo SCRIPT della texture di superficie (surfaceTextureScript): mai
+        // l'editor quando mostra una FASCIA. Qui si prendeva l'editor a
+        // prescindere, e con una fascia selezionata e il dock sulla texture il
+        // Run applicava lo script della fascia a tutta la superficie
+        // (sospetto del 2026-08-03, riprodotto dal test degli scenari).
+        // L'accensione e' l'intenzione della superficie, non il checkbox, che
+        // in ambito Mesh mostra la fascia.
+        if (!editingBackground() && m_scene.surfaceTextureState) {
+            const QString texSrc = surfaceTextureScript();
+            if (TextureCode::hasLogic(texSrc) && !commitSurfaceTextureCode(texSrc)) {
+                showShaderError("Syntax Error (Parametric Texture)", ui->glWidget->getShaderError());
+                return;
             }
         }
-        updateMasterButtonState();
+    }
 
-        ui->glWidget->setGlobalRenderMode(implicitShellSelected() ? 1 : 0);
+    if (!applyBackgroundTextureIfNeeded()) return;
 
-        ui->glWidget->rebuildShader();
-        if (!applyOnly && !runDockOnly) {
-            applyStartSideEffects();
+    {
+        QString soundSrc = m_scene.soundScriptText;
+        if (!soundSrc.trimmed().isEmpty()) {
+            QString audioErr;
+            // Nella forma che suonera' (GLSL nudo avvolto): senza marcatori
+            // validateScript non trovava niente da compilare e passava tutto.
+            if (!m_audioController->validateScript(wrapSoundCode(soundSrc), &audioErr)) {
+                showShaderError("Syntax Error (Sound Script)",
+                                                           audioErr.isEmpty() ? "Audio shader compilation failed." : audioErr);
+                return;
+            }
         }
+    }
 
-        // Run "one-shot" Ray Marching: se l'equazione NON è animata (geomAnimated
-        // guarda solo l'SDF, non texture/displacement), la modifica è applicata e
-        // il tasto si disabilita finché l'equazione non cambia. Con animazione
-        // resta Run/Stop (gestito da updateMasterButtonState).
-        if (!geomAnimated) {
-            m_implicitApplied = true;
-            updateMasterButtonState();
-        }
 
-        // Equazione implicita committata: risincronizza lo slider trasparenza
-        // (campi a prodotto -> disabilitato + popup). Vedi syncImplicitAlphaSlider.
-        syncImplicitAlphaSlider(true, true);
+    const bool applyOnly = (origin == RunOrigin::ServiceCommit);
 
-        ui->glWidget->update();
+    // Il 't' delle texture PER-MESH non e' in nessuno di questi tre slot: il
+    // codice di una fascia vive in MeshPart::textureCode, che
+    // m_scene.surfaceTextureCode (la texture di SUPERFICIE) non contiene. Con la
+    // scena animata dalle sole fasce -- superficie senza 't', nessuna
+    // texture globale, come Clifford 6-tubes -- la condizione era falsa, il
+    // master Start NON chiamava applyAnimationState e le texture restavano
+    // ferme mentre rotazioni e path ripartivano. Stessa distinzione che
+    // allSurfaceTextureCode() documenta: per le fasce si guarda
+    // anyMeshTextureCodeAnimated().
+    // DUE DOMANDE DISTINTE, e vanno tenute separate.
+    // 1. SERVE il ricalcolo? Si', se un modulo QUALSIASI usa il tempo:
+    //    geometria, texture di superficie, sfondo o una fascia. Senza,
+    //    applyAnimationState non viene chiamata e i clock di texture e
+    //    sfondo non ripartono affatto (era il bug del master Start che non
+    //    riaccendeva le texture per-mesh).
+    // 2. La GEOMETRIA e' animata? Solo se lo script usa il tempo. Questo, e
+    //    nient'altro, e' l'argomento di applyAnimationState: da li' esce
+    //    setSurfaceAnimating. Passando 'true' perche' si muove un ALTRO
+    //    modulo si accendeva il clock della superficie a vuoto, e il tasto
+    //    del dock Script diceva "Stop Parametric" su uno script statico --
+    //    con nulla da fermare. Bastava uno sfondo animato (Calabi Yau).
+    //    I clock degli altri moduli non si perdono: applyAnimationState li
+    //    ricalcola da se' dai rispettivi codici ("ogni modulo guarda il
+    //    PROPRIO tempo"). Stessa correzione fatta nel load dei record.
+    const bool geomHasTime = hasTimeVariable(currentScript);
+    const bool otherHasTime = hasTimeVariable(m_scene.surfaceTextureCode + "\n" + m_scene.bgTextureCode)
+                              || anyMeshTextureCodeAnimated();
+    if (!applyOnly && (geomHasTime || otherHasTime)) {
+        applyAnimationState(geomHasTime, runDockOnly);
+    }
+
+    if (!applyOnly && !runDockOnly) {
+        applyStartSideEffects();
+    }
+    ui->glWidget->update();
+}
+
+void MainWindow::runSceneImplicit(RunOrigin origin, bool runDockOnly)
+{
+    // 0. LIMITI SPAZIALI X/Y/Z. Si applicano QUI, al Run, insieme
+    // all'equazione: sono il taglio della scena, parte di cio' che il Run
+    // porta a schermo. Prima entravano da soli all'uscita dal campo, unico
+    // pezzo del modulo a non passare dal Run.
+    // Un campo illeggibile ferma il Run come un errore di sintassi: il
+    // popup lo mostra applySpaceLimits, e la scena resta quella valida.
+    if (!applySpaceLimits(/*notify=*/true)) return;
+
+    // 1. Lettura e validazione equazione. Sorgente (editor/radio) dipende
+    // dal sotto-tab attivo: "3D" (3 variabili x,y,z) o "Cross Section"
+    // (4 variabili x,y,z,p) — vedi CLAUDE.md, i due sotto-tab hanno stato
+    // separato, limiti/Run/Variations restano condivisi.
+    const bool crossSectionActive = crossSectionTab();
+    const RmField rmEqField = crossSectionActive ? &ImplicitTexts::crossSection
+                                                 : &ImplicitTexts::equation;
+
+    QString rawEq = (m_scene.rm.*rmEqField).trimmed();
+    // CAMPO VUOTO: si avvisa e si esce, non si esce in silenzio. Il return
+    // muto lasciava a schermo la superficie PRECEDENTE senza dire nulla --
+    // l'utente cancellava l'equazione, premeva Invio e vedeva la scena di
+    // prima, senza capire se il Run fosse andato o no. In Cross Section era
+    // anche peggio: il campo vuoto arriva al fallback di
+    // createImplicitFragmentShader (glwidget ~4511), che sostituisce la
+    // stringa vuota con la sfera -- e quella sfera, passando da
+    // %CROSS_SECTION_P%, veniva mostrata come sezione ruotata in 4D, cioe'
+    // una superficie che nessuno aveva chiesto.
+    // Per svuotare la scena c'e' NEW, che e' esplicito.
+    if (rawEq.isEmpty()) {
+        InputValidator::notifyEmptyImplicitEquation(this, crossSectionActive);
         return;
     }
 
+    const QString eqFieldLabel = crossSectionActive ? "Cross Section Equation" : "Implicit Equation";
+    if (!InputValidator::validateImplicitEquation(this, rawEq, /*allowP=*/crossSectionActive)) return;
+    if (!InputValidator::validateExpressionSyntax(this, rawEq, eqFieldLabel)) return;
+    if (!InputValidator::validateIdentifiers(this, rawEq, eqFieldLabel)) return;
 
-    // ==========================================================
-    // MODALITÀ PARAMETRICA
-    // ==========================================================
+    QString implicitEqF;
+    if (rawEq.contains("=")) {
+        QStringList parts = rawEq.split("=");
+        implicitEqF = QString("(%1) - (%2)").arg(parts[0].trimmed(), parts[1].trimmed());
+    } else {
+        // Aggiungiamo silenziosamente "= 0.0" se l'utente lo ha omesso, senza fastidiosi popup
+        QString correctedEq = rawEq + " = 0.0";
+        setRmText(rmEqField, correctedEq);
 
-    // --- 0. SMART INTERCEPTOR ---
-    QString allEqs = m_scene.eq.x + " " + m_scene.eq.y + " " +
-            m_scene.eq.z + " " + m_scene.eq.p + " " +
-            m_scene.eq.u + " " + m_scene.eq.v + " " +
-            m_scene.eq.w;
-
-    bool hasExplicit = !m_scene.eq.explicitU.trimmed().isEmpty() ||
-            !m_scene.eq.explicitV.trimmed().isEmpty() ||
-            !m_scene.eq.explicitW.trimmed().isEmpty();
-
-    if (!InputValidator::validateWUsage(this, allEqs, hasExplicit)) return;
-
-    // 1. SAFETY CHECK: VARIABLES AND SYNTAX
-    QString mainEqs = m_scene.eq.x + " " + m_scene.eq.y + " " +
-            m_scene.eq.z + " " + m_scene.eq.p;
-
-    QString allEqsToTest = mainEqs + " " + m_scene.eq.explicitU + " " +
-            m_scene.eq.explicitV + " " + m_scene.eq.explicitW;
-
-    if (!InputValidator::validateParametricVariables(this, mainEqs, allEqsToTest, hasExplicit)) return;
-
-    if (!InputValidator::validateFieldList(this, {
-        {"x(u,v)",     m_scene.eq.x},
-        {"y(u,v)",     m_scene.eq.y},
-        {"z(u,v)",     m_scene.eq.z},
-        {"p(u,v)",     m_scene.eq.p},
-        {"U-comp",     m_scene.eq.u},
-        {"V-comp",     m_scene.eq.v},
-        {"W-comp",     m_scene.eq.w},
-        {"Explicit U", m_scene.eq.explicitU},
-        {"Explicit V", m_scene.eq.explicitV},
-        {"Explicit W", m_scene.eq.explicitW},
-    }))  return;
-
-    // --- BLOCCO VALIDAZIONE COMPOSITION & GEODESIC FLOW ---
-    QString cU = m_scene.eq.u.trimmed();
-    QString cV = m_scene.eq.v.trimmed();
-    QString cW = m_scene.eq.w.trimmed();
-
-    bool geoHasText = hasGeodesicText();
-
-    QString composedTest = composeEquation(mainEqs, cU, cV, cW);
-
-    if (!InputValidator::validateCompositionFields(this, mainEqs, cU, cV, cW, geoHasText, composedTest)) return;
-
-    // --- 1. LETTURA E VALIDAZIONE DEI LIMITI ---
-    bool uActive = ui->uMinEdit->isEnabled();
-    bool vActive = ui->vMinEdit->isEnabled();
-    bool wActive = ui->wMinEdit->isEnabled();
-
-    QVector<InputValidator::LimitField> limitFields = {
-        {ui->uMinEdit, uActive}, {ui->uMaxEdit, uActive},
-        {ui->vMinEdit, vActive}, {ui->vMaxEdit, vActive},
-        {ui->wMinEdit, wActive}, {ui->wMaxEdit, wActive},
-    };
-
-    QVector<float> limitValues;
-    auto parseFn = [this](const QString& s, bool* ok) { return this->parseLimitField(s, ok); };
-    if (!InputValidator::validateAndParseLimits(this, limitFields, parseFn, limitValues)) return;
-
-    float uMin = limitValues[0], uMax = limitValues[1];
-    float vMin = limitValues[2], vMax = limitValues[3];
-    float wMin = limitValues[4], wMax = limitValues[5];
-
-    // Controllo distrazione dell'utente (Min >= Max) solo sulle variabili in uso!
-    if (!InputValidator::validateLimits(this, uMin, uMax, uActive, vMin, vMax, vActive, wMin, wMax, wActive)) return;
-
-    // --- AGGIORNAMENTO UI: Svuota e disabilita i limiti W in modalità Composition ---
-    bool has_U = mainEqs.contains(kReUpperU);
-    bool has_V = mainEqs.contains(kReUpperV);
-    bool has_W = mainEqs.contains(kReUpperW);
-    int upperCount = (has_U ? 1 : 0) + (has_V ? 1 : 0) + (has_W ? 1 : 0);
-
-    bool isCompositionActive = ((upperCount > 0) || !cU.isEmpty() || !cV.isEmpty() || !cW.isEmpty()) && !geoHasText;
-    bool isGeodesicActive = (upperCount > 0) && geoHasText;
-
-    if (isCompositionActive) {
-        setLineText(m_scene.lim.wMin, QString());
-        setLineText(m_scene.lim.wMax, QString());
-        ui->wMinEdit->setEnabled(false);
-        ui->wMaxEdit->setEnabled(false);
+        implicitEqF = QString("(%1) - (0.0)").arg(rawEq);
     }
 
-    if (isGeodesicActive) {
-        // 1. Se il campo del fattore conforme è vuoto, forziamo il default "1.0"
-        if (m_scene.eq.conform.trimmed().isEmpty()) {
-            setEqText(&EquationTexts::conform, QStringLiteral("1.0"));
+    // 2. Lettura e validazione Texture
+    QString texCode = m_scene.rm.texture.trimmed();
+    QString dispCode = m_scene.rm.displacement.trimmed();
+
+    if (!InputValidator::validateImplicitScriptContext(this, texCode)) return;
+
+    if (!InputValidator::validateParentheses(this, stripCodeComments(texCode))) return;
+
+    if (!InputValidator::validateParentheses(this, stripCodeComments(dispCode))) return;
+
+    ui->glWidget->setTextureCode(texCode);
+
+    // Displacement applicato PRIMA di questo commit (guardia trasparenza mobile).
+    const QString prevDispApplied = ui->glWidget->currentDisplacementCode();
+
+    // TEST E APPLICAZIONE
+    bool success = ui->glWidget->validateAndApplyImplicitShader(implicitEqF, texCode, dispCode,
+                                                                 crossSectionActive);
+    if (!success) {
+        showShaderError("Syntax Error (Ray Marching)", ui->glWidget->getShaderError());
+        return;
+    }
+
+    // Mobile: displacement nuovo + trasparenza attiva -> alpha a 1
+    // (vedi guardTransparencyOnDisplacementApply).
+    guardTransparencyOnDisplacementApply(prevDispApplied);
+
+    // TUTTE le piattaforme: displacement su scena trasparente -> stop del
+    // moto + opaco + popup che chiede se ripristinarli. E' il caso del Cross
+    // Section di default (alpha 0.75 programmatico), dove nessuna delle
+    // guardie sopra puo' scattare: quelle sono #if mobile. Va DOPO l'apply
+    // riuscito: agisce sullo stato davvero applicato, e se l'apply fallisce
+    // non c'e' nulla di pesante da cui difendersi.
+    guardTransparencyOnHeavyTextureApply(dispCode);
+
+    // Stesso Smart Path Resolver del caricamento dei record. Qui c'era un
+    // QFile::exists() sul percorso del tag, cioe' la verifica che
+    // TextureCode::resolveImagePath ha smesso di fidarsi: sotto sandbox un file
+    // della libreria dell'ALTRA app (DMG vs App Store) esiste ma non e'
+    // leggibile, exists() lo accettava e l'immagine non si caricava. Ora il
+    // percorso si risolve per nome nella libreria in uso. Un file che non
+    // c'e' davvero resta muto come prima: questo e' il Run, non un load, e
+    // un avviso a ogni pressione sarebbe rumore.
+    const QString imgPath = TextureCode::resolveImagePath(texCode);
+    if (!imgPath.isEmpty()) {
+        if (!imgPath.startsWith("NOT_FOUND|")) {
+            ui->glWidget->loadTextureFromFile(imgPath);
         }
+    } else if (surfaceHasImage()) {
+        // Il campo non ha il tag: nessuna immagine. Prima si guardava un
+        // flag, e un'immagine rimasta caricata col flag gia' abbassato non
+        // se ne andava piu'.
+        ui->glWidget->clearTexture(); // Rimuove l'immagine dalla GPU
+    }
 
-        // 2. Controllo Geometria Euclidea (avviso "metrica piatta") DISATTIVATO.
-        // Scattava quando una coordinata era costante e il fattore conforme non
-        // dipendeva da U/V/W (tipicamente Lambda = 1): un caso legittimo e
-        // frequente, quindi l'avviso risultava invadente invece che utile.
-        // Il validatore e' INTATTO (InputValidator::validateGeodesicConformalFactor,
-        // con il suo "disabilita per questa sessione" e resetGeodesicWarning):
-        // per riattivarlo basta ripristinare questa chiamata. Se un giorno torna,
-        // conviene prima restringere la condizione ai casi davvero sospetti.
-//        if (sender() == m_btnStart || runDockOnly) {
-//            InputValidator::validateGeodesicConformalFactor(
-//                        this,
-//                        m_scene.eq.x, m_scene.eq.y,
-//                        m_scene.eq.z, m_scene.eq.p,
-//                        m_scene.eq.conform,
-//                        true
-//                        );
-//        }
+    if (texCode.isEmpty() && dispCode.isEmpty()) {
+        m_scene.surfaceTextureState = false;
+        applySurfaceTextureToEngine();
+        refreshTextureCheckbox();
+    } else {
+        const bool wasOn = surfaceTextureShown();
+        m_scene.surfaceTextureState = true;
+        applySurfaceTextureToEngine();
+        refreshTextureCheckbox();
+        if (!wasOn) updateTextureUIState(true, true); // nuova texture -> focus a Colore 1
+    }
 
-        if (!InputValidator::validateFieldList(this, {
-            {"x(U,V,W)",         m_scene.eq.x},
-            {"y(U,V,W)",         m_scene.eq.y},
-            {"z(U,V,W)",         m_scene.eq.z},
-            {"p(U,V,W)",         m_scene.eq.p},
-            {"u(t)",             m_scene.eq.geoU},
-            {"v(t)",             m_scene.eq.geoV},
-            {"w(t)",             m_scene.eq.geoW},
-            {"du/dt",            m_scene.eq.geoDU},
-            {"dv/dt",            m_scene.eq.geoDV},
-            {"dw/dt",            m_scene.eq.geoDW},
-        {"Conformal Factor", m_scene.eq.conform},
-    })) return;
+    // 4. Animazione dinamica sicura. Teniamo separati i due orologi:
+    //  - GEOMETRIA: solo l'SDF (implicitEqF).
+    //  - TEXTURE: colore + displacement (entrambi leggono dummyZero.x nello
+    //    shader) + background. Il displacement NON appartiene alla geometria,
+    //    altrimenti un Run riaccoppierebbe i due moduli (bug texture/superficie).
+    bool geomAnimated = hasTimeVariable(implicitEqF);
+    // La texture di SUPERFICIE, non cio' che mostra il checkbox: col
+    // bersaglio su Background quello e' lo sfondo, e a sfondo spento il
+    // master Start non riavviava la texture della superficie.
+    bool texAnimated = false;
+    if (surfaceTextureShown()) {
+        texAnimated = hasTimeVariable(texCode) || hasTimeVariable(dispCode);
+    }
+    if (ui->glWidget->isBackgroundTextureEnabled() && hasTimeVariable(m_scene.bgTextureCode)) {
+        texAnimated = true;
+    }
 
-        QString geoEqs = m_scene.eq.x + " " + m_scene.eq.y + " " +
-                m_scene.eq.z + " " + m_scene.eq.p + " " +
-                m_scene.eq.geoU + " " + m_scene.eq.geoV + " " + m_scene.eq.geoW + " " +
-                m_scene.eq.geoDU + " " + m_scene.eq.geoDV + " " + m_scene.eq.geoDW+
-                m_scene.eq.conform + " " +
-                m_metricScriptBody;   // t può vivere nel corpo della metrica g_ij(U,V,W,t)
+    const bool applyOnly = (origin == RunOrigin::ServiceCommit);
 
-        // TEXTURE E SFONDO: servono a decidere se il ricalcolo va FATTO (i loro
-        // clock vanno ripristinati anche quando la sola geometria e' statica),
-        // ma NON entrano in geoEqs -- che e' il tempo della GEOMETRIA, cioe'
-        // l'argomento di applyAnimationState da cui esce setSurfaceAnimating.
-        // Mescolandoli, un record geodetico con texture o sfondo animati (Kerr
-        // Black Hole, Kruskal Wormhole) accendeva il clock della superficie a
-        // vuoto: dopo uno Stop/Start il tasto del dock Script diceva "Stop
-        // Parametric" su uno script statico, senza nulla da fermare.
-        // Stessa correzione degli altri tre chiamanti.
-        QString otherModulesForT;
-        if (surfaceTextureShown()) otherModulesForT += " " + m_scene.surfaceTextureCode;
-        if (editingBackground() || ui->glWidget->isBackgroundTextureEnabled()) otherModulesForT += " " + m_scene.bgTextureCode;
-
-        // SNAPSHOT DELLE EQUAZIONI APPLICATE. Qui, non solo nel prologo di
-        // runScene: quello e' dietro `runDockOnly || masterStart`, cioe'
-        // dipende dall'origine, e i percorsi che applicano senza tasto
-        // (Invio su un campo equazione, ~3790) lo saltavano. Le equazioni
-        // applicate (m_eqApplied) di conseguenza restavano assenti o STANTIE, e chi legge lo snapshot
-        // (l'Invio sui limiti e sui 7 campi del flusso) ricadeva sui campi UI:
-        // il bug si vedeva a intermittenza, "dopo qualche tentativo" -- cioe'
-        // dopo il primo click su Run che aggiornava lo snapshot.
-        // Questo e' il punto in cui le equazioni geodetiche vengono APPLICATE
-        // davvero: validate qui sopra e subito passate a updateGeodesicMesh.
-        snapshotActiveEquations();
-        SE_GEO_PROBE("RUN geodetico: snapshot aggiornato X=%s",
-                     qPrintable(m_scene.eq.x.simplified()));
-
-        // updateGeodesicMesh() calcola, verifica e restituisce false se i dati sono corrotti
-        if (!updateGeodesicMesh()) {
-            if (m_geoErrorType == GeoError::Singularity
-                    && !m_geoErrorShown) {
-                m_geoErrorShown = true;
-                InputValidator::showGeodesicSingularityError(this);
-            }
-            return;
+    if (!applyOnly) {
+        // Il clock GEOMETRIA è del dock Equations/master: lo guida geomAnimated.
+        applyAnimationState(geomAnimated, runDockOnly);
+        // Il clock TEXTURE è del suo modulo: NON lo tocca il Run del dock
+        // Equations (runDockOnly), solo il master/Start globale. E come per
+        // il suono, un COMMIT di equazione non riaccende una texture fermata
+        // a mano (m_userStoppedTexClock; un vero master Start l'ha già riarmato).
+        if (!runDockOnly && ui->glWidget) {
+            ui->glWidget->setSurfaceTextureAnimating(texAnimated && !m_masterStopped
+                                                     && !m_userStoppedTexClock);
         }
+    }
+    updateMasterButtonState();
 
-        // Condizione LARGA (serve il ricalcolo?), argomento STRETTO (la
-        // geometria e' animata?): vedi la nota su otherModulesForT qui sopra.
-        // Se nessuno dei due usa il tempo la chiamata si puo' saltare, ma
-        // quando la usa un modulo qualsiasi va fatta, o i clock di texture e
-        // sfondo non verrebbero ricalcolati affatto.
-        const bool geoAnimated = hasTimeVariable(geoEqs);
-        if (geoAnimated || hasTimeVariable(otherModulesForT))
-            applyAnimationState(geoAnimated, runDockOnly);
-        if (!runDockOnly) applyStartSideEffects();
+    ui->glWidget->setGlobalRenderMode(implicitShellSelected() ? 1 : 0);
 
-        // Run "one-shot" del flusso geodetico, come nei rami parametrico (~6888) e
-        // Ray Marching (~6506): applicata la mesh e senza 't' da animare non c'e'
-        // piu' nulla da rieseguire, quindi il tasto si spegne finche' l'utente non
-        // tocca di nuovo equazioni o condizioni iniziali. Questo ramo esce col
-        // return qui sotto e non raggiungeva il blocco in fondo alla funzione: il
-        // flag restava false e il Run del dock Equations rimaneva acceso per sempre.
-        if (!geoAnimated) {
-            m_parametricApplied = true;
-            updateMasterButtonState();
-        }
+    ui->glWidget->rebuildShader();
+    if (!applyOnly && !runDockOnly) {
+        applyStartSideEffects();
+    }
 
-        ui->glWidget->update();
+    // Run "one-shot" Ray Marching: se l'equazione NON è animata (geomAnimated
+    // guarda solo l'SDF, non texture/displacement), la modifica è applicata e
+    // il tasto si disabilita finché l'equazione non cambia. Con animazione
+    // resta Run/Stop (gestito da updateMasterButtonState).
+    if (!geomAnimated) {
+        m_implicitApplied = true;
+        updateMasterButtonState();
+    }
+
+    // Equazione implicita committata: risincronizza lo slider trasparenza
+    // (campi a prodotto -> disabilitato + popup). Vedi syncImplicitAlphaSlider.
+    syncImplicitAlphaSlider(true, true);
+
+    ui->glWidget->update();
+}
+
+void MainWindow::runSceneParametric(RunOrigin origin, bool runDockOnly,
+                                     const CascadeConstants &kc, RunOutcomeGuard &outcome)
+{
+    RunLimits lim;
+    bool geodesic = false;
+    if (!checkParametricRunInputs(&lim, &geodesic)) return;
+    if (geodesic) {
+        runSceneGeodesic(runDockOnly);
         return;
     }
 
@@ -878,7 +717,7 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
     // che e' il comportamento storico -- non c'e' un "gia' applicato" da usare.
     const bool serviceCommit = (origin == RunOrigin::ServiceCommit)
                             && m_eqApplied.has_value();
-    runOutcomeGuard.equationsApplied = !serviceCommit;
+    outcome.equationsApplied = !serviceCommit;
     auto eqField = [this, serviceCommit](EqField f) -> QString {
         return (serviceCommit && m_eqApplied) ? (*m_eqApplied).*f : m_scene.eq.*f;
     };
@@ -923,76 +762,11 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
     }
 
     {
-        auto probeEquation = [&](const QString& eq) -> bool {
-            if (eq.trimmed().isEmpty()) return true;  // P vuoto è lecito
 
-            ExpressionParser p;
-            double pu = 0.0, pv = 0.0, pw = 0.0, pp_ = 0.0;
-            p.setupVariables<double>(pu, pv, pw, pp_);
-            p.setupConstants<double>(
-                        (double)kc.a, (double)kc.b, (double)kc.c, (double)kc.d,
-                        (double)kc.e, (double)kc.f, (double)kc.s);
-
-            if (!p.compile(eq)) {
-                // Errore di sintassi: lo gestisce il controllo successivo.
-                return true;
-            }
-
-            constexpr int N = 48;  // griglia più fitta: intercetta i poli vicini ai bordi
-            QVector<double> mags;
-            mags.reserve((N + 1) * (N + 1));
-            double maxMag = 0.0;
-
-            for (int i = 0; i <= N; ++i) {
-                for (int j = 0; j <= N; ++j) {
-                    pu = (double)uMin + ((double)uMax - (double)uMin) * i / (double)N;
-                    pv = (double)vMin + ((double)vMax - (double)vMin) * j / (double)N;
-                    double val = p.value();
-
-                    // 1) inf / NaN: NON blocchiamo subito. Una singolarità RIMOVIBILE
-                    //    (es. Torus Artifact: z = B*sin(v)/v, che a v=0 dà 0/0=NaN ma
-                    //    il limite è B, finito) tocca solo i punti esatti della
-                    //    singolarità mentre i vicini restano limitati: la GPU la
-                    //    disegna bene. Saltiamo il campione. Un polo VERO (1/(v-π),
-                    //    tan, csc) ha invece i vicini finiti che esplodono e vengono
-                    //    presi dal tetto kMax qui sotto.
-                    if (!std::isfinite(val)) continue;
-
-                    // 2) tetto assoluto di sicurezza (oltre la portata float32 GPU):
-                    //    qui cade il vicinato di un polo vero -> blocco corretto.
-                    if (std::abs(val) > kMaxRenderableMagnitude) return false;
-
-                    double m = std::abs(val);
-                    maxMag = std::max(maxMag, m);
-                    mags.push_back(m);
-                }
-            }
-
-            // Tutti i campioni non finiti: non c'è nulla di renderizzabile.
-            if (mags.isEmpty()) return false;
-
-            // 3) Picco RELATIVO alla scala della superficie. Usiamo il 90°
-            //    percentile (NON la mediana) come riferimento di scala "tipica":
-            //    superfici legittime possono avere oltre metà dei campioni vicini
-            //    a zero (es. Koranyi: x = A*pow(max(cos(v),0),B)*cos(u), dove
-            //    max(cos(v),0) annulla mezzo dominio in v e cos(u) lo attraversa).
-            //    Con la mediana ~0 il rapporto max/mediana esplodeva e bloccava
-            //    per errore queste superfici; un polo vero (1/0, tan ai bordi)
-            //    supera comunque il p90 di vari ordini di grandezza ed è preso.
-            if (!mags.isEmpty()) {
-                size_t p90Idx = static_cast<size_t>(0.90 * (mags.size() - 1));
-                std::nth_element(mags.begin(), mags.begin() + p90Idx, mags.end());
-                double p90Mag = mags[p90Idx];
-                if (p90Mag > 1e-9 && maxMag > kSpikeRatio * p90Mag)
-                    return false;
-            }
-            return true;
-        };
-
-        if (!probeEquation(rawX) ||
-                !probeEquation(rawY) ||
-                !probeEquation(rawZ) ||
-                !probeEquation(rawP))
+        if (!equationStaysRenderable(rawX, kc, lim) ||
+                !equationStaysRenderable(rawY, kc, lim) ||
+                !equationStaysRenderable(rawZ, kc, lim) ||
+                !equationStaysRenderable(rawP, kc, lim))
         {
             if (!m_collapseErrorShown) {
                 m_collapseErrorShown = true;
@@ -1019,9 +793,9 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
     if (!serviceCommit) snapshotActiveEquations();
 
     // 3. READ VALUES
-    ui->glWidget->setRangeU(uMin, uMax);
-    ui->glWidget->setRangeV(vMin, vMax);
-    ui->glWidget->setRangeW(wMin, wMax);
+    ui->glWidget->setRangeU(lim.uMin, lim.uMax);
+    ui->glWidget->setRangeV(lim.vMin, lim.vMax);
+    ui->glWidget->setRangeW(lim.wMin, lim.wMax);
 
     // Le STESSE equazioni appena applicate (congelate sullo snapshot se questo e'
     // un commit di servizio): e' su questo testo che si decidono il clock e il
@@ -1111,6 +885,269 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
     }
 
     ui->glWidget->update();
+}
+
+bool MainWindow::checkParametricRunInputs(RunLimits *lim, bool *geodesic)
+{
+    // --- 0. SMART INTERCEPTOR ---
+    QString allEqs = m_scene.eq.x + " " + m_scene.eq.y + " " +
+            m_scene.eq.z + " " + m_scene.eq.p + " " +
+            m_scene.eq.u + " " + m_scene.eq.v + " " +
+            m_scene.eq.w;
+
+    bool hasExplicit = !m_scene.eq.explicitU.trimmed().isEmpty() ||
+            !m_scene.eq.explicitV.trimmed().isEmpty() ||
+            !m_scene.eq.explicitW.trimmed().isEmpty();
+
+    if (!InputValidator::validateWUsage(this, allEqs, hasExplicit)) return false;
+
+    // 1. SAFETY CHECK: VARIABLES AND SYNTAX
+    QString mainEqs = m_scene.eq.x + " " + m_scene.eq.y + " " +
+            m_scene.eq.z + " " + m_scene.eq.p;
+
+    QString allEqsToTest = mainEqs + " " + m_scene.eq.explicitU + " " +
+            m_scene.eq.explicitV + " " + m_scene.eq.explicitW;
+
+    if (!InputValidator::validateParametricVariables(this, mainEqs, allEqsToTest, hasExplicit)) return false;
+
+    if (!InputValidator::validateFieldList(this, {
+        {"x(u,v)",     m_scene.eq.x},
+        {"y(u,v)",     m_scene.eq.y},
+        {"z(u,v)",     m_scene.eq.z},
+        {"p(u,v)",     m_scene.eq.p},
+        {"U-comp",     m_scene.eq.u},
+        {"V-comp",     m_scene.eq.v},
+        {"W-comp",     m_scene.eq.w},
+        {"Explicit U", m_scene.eq.explicitU},
+        {"Explicit V", m_scene.eq.explicitV},
+        {"Explicit W", m_scene.eq.explicitW},
+    }))  return false;
+
+    // --- BLOCCO VALIDAZIONE COMPOSITION & GEODESIC FLOW ---
+    QString cU = m_scene.eq.u.trimmed();
+    QString cV = m_scene.eq.v.trimmed();
+    QString cW = m_scene.eq.w.trimmed();
+
+    bool geoHasText = hasGeodesicText();
+
+    QString composedTest = composeEquation(mainEqs, cU, cV, cW);
+
+    if (!InputValidator::validateCompositionFields(this, mainEqs, cU, cV, cW, geoHasText, composedTest)) return false;
+
+    // --- 1. LETTURA E VALIDAZIONE DEI LIMITI ---
+    bool uActive = ui->uMinEdit->isEnabled();
+    bool vActive = ui->vMinEdit->isEnabled();
+    bool wActive = ui->wMinEdit->isEnabled();
+
+    QVector<InputValidator::LimitField> limitFields = {
+        {ui->uMinEdit, uActive}, {ui->uMaxEdit, uActive},
+        {ui->vMinEdit, vActive}, {ui->vMaxEdit, vActive},
+        {ui->wMinEdit, wActive}, {ui->wMaxEdit, wActive},
+    };
+
+    QVector<float> limitValues;
+    auto parseFn = [this](const QString& s, bool* ok) { return this->parseLimitField(s, ok); };
+    if (!InputValidator::validateAndParseLimits(this, limitFields, parseFn, limitValues)) return false;
+
+    lim->uMin = limitValues[0]; lim->uMax = limitValues[1];
+    lim->vMin = limitValues[2]; lim->vMax = limitValues[3];
+    lim->wMin = limitValues[4]; lim->wMax = limitValues[5];
+
+    // Controllo distrazione dell'utente (Min >= Max) solo sulle variabili in uso!
+    if (!InputValidator::validateLimits(this, lim->uMin, lim->uMax, uActive, lim->vMin, lim->vMax, vActive,
+                                        lim->wMin, lim->wMax, wActive)) return false;
+
+    // --- AGGIORNAMENTO UI: Svuota e disabilita i limiti W in modalità Composition ---
+    bool has_U = mainEqs.contains(kReUpperU);
+    bool has_V = mainEqs.contains(kReUpperV);
+    bool has_W = mainEqs.contains(kReUpperW);
+    int upperCount = (has_U ? 1 : 0) + (has_V ? 1 : 0) + (has_W ? 1 : 0);
+
+    bool isCompositionActive = ((upperCount > 0) || !cU.isEmpty() || !cV.isEmpty() || !cW.isEmpty()) && !geoHasText;
+    *geodesic = (upperCount > 0) && geoHasText;
+
+    if (isCompositionActive) {
+        setLineText(m_scene.lim.wMin, QString());
+        setLineText(m_scene.lim.wMax, QString());
+        ui->wMinEdit->setEnabled(false);
+        ui->wMaxEdit->setEnabled(false);
+    }
+    return true;
+}
+
+void MainWindow::runSceneGeodesic(bool runDockOnly)
+{
+    // 1. Se il campo del fattore conforme è vuoto, forziamo il default "1.0"
+    if (m_scene.eq.conform.trimmed().isEmpty()) {
+        setEqText(&EquationTexts::conform, QStringLiteral("1.0"));
+    }
+
+    // 2. Controllo Geometria Euclidea (avviso "metrica piatta") DISATTIVATO.
+    // Scattava quando una coordinata era costante e il fattore conforme non
+    // dipendeva da U/V/W (tipicamente Lambda = 1): un caso legittimo e
+    // frequente, quindi l'avviso risultava invadente invece che utile.
+    // Il validatore e' INTATTO (InputValidator::validateGeodesicConformalFactor,
+    // con il suo "disabilita per questa sessione" e resetGeodesicWarning):
+    // per riattivarlo basta ripristinare questa chiamata. Se un giorno torna,
+    // conviene prima restringere la condizione ai casi davvero sospetti.
+//        if (sender() == m_btnStart || runDockOnly) {
+//            InputValidator::validateGeodesicConformalFactor(
+//                        this,
+//                        m_scene.eq.x, m_scene.eq.y,
+//                        m_scene.eq.z, m_scene.eq.p,
+//                        m_scene.eq.conform,
+//                        true
+//                        );
+//        }
+
+    if (!InputValidator::validateFieldList(this, {
+        {"x(U,V,W)",         m_scene.eq.x},
+        {"y(U,V,W)",         m_scene.eq.y},
+        {"z(U,V,W)",         m_scene.eq.z},
+        {"p(U,V,W)",         m_scene.eq.p},
+        {"u(t)",             m_scene.eq.geoU},
+        {"v(t)",             m_scene.eq.geoV},
+        {"w(t)",             m_scene.eq.geoW},
+        {"du/dt",            m_scene.eq.geoDU},
+        {"dv/dt",            m_scene.eq.geoDV},
+        {"dw/dt",            m_scene.eq.geoDW},
+    {"Conformal Factor", m_scene.eq.conform},
+})) return;
+
+    QString geoEqs = m_scene.eq.x + " " + m_scene.eq.y + " " +
+            m_scene.eq.z + " " + m_scene.eq.p + " " +
+            m_scene.eq.geoU + " " + m_scene.eq.geoV + " " + m_scene.eq.geoW + " " +
+            m_scene.eq.geoDU + " " + m_scene.eq.geoDV + " " + m_scene.eq.geoDW+
+            m_scene.eq.conform + " " +
+            m_metricScriptBody;   // t può vivere nel corpo della metrica g_ij(U,V,W,t)
+
+    // TEXTURE E SFONDO: servono a decidere se il ricalcolo va FATTO (i loro
+    // clock vanno ripristinati anche quando la sola geometria e' statica),
+    // ma NON entrano in geoEqs -- che e' il tempo della GEOMETRIA, cioe'
+    // l'argomento di applyAnimationState da cui esce setSurfaceAnimating.
+    // Mescolandoli, un record geodetico con texture o sfondo animati (Kerr
+    // Black Hole, Kruskal Wormhole) accendeva il clock della superficie a
+    // vuoto: dopo uno Stop/Start il tasto del dock Script diceva "Stop
+    // Parametric" su uno script statico, senza nulla da fermare.
+    // Stessa correzione degli altri tre chiamanti.
+    QString otherModulesForT;
+    if (surfaceTextureShown()) otherModulesForT += " " + m_scene.surfaceTextureCode;
+    if (editingBackground() || ui->glWidget->isBackgroundTextureEnabled()) otherModulesForT += " " + m_scene.bgTextureCode;
+
+    // SNAPSHOT DELLE EQUAZIONI APPLICATE. Qui, non solo nel prologo di
+    // runScene: quello e' dietro `runDockOnly || masterStart`, cioe'
+    // dipende dall'origine, e i percorsi che applicano senza tasto
+    // (Invio su un campo equazione, ~3790) lo saltavano. Le equazioni
+    // applicate (m_eqApplied) di conseguenza restavano assenti o STANTIE, e chi legge lo snapshot
+    // (l'Invio sui limiti e sui 7 campi del flusso) ricadeva sui campi UI:
+    // il bug si vedeva a intermittenza, "dopo qualche tentativo" -- cioe'
+    // dopo il primo click su Run che aggiornava lo snapshot.
+    // Questo e' il punto in cui le equazioni geodetiche vengono APPLICATE
+    // davvero: validate qui sopra e subito passate a updateGeodesicMesh.
+    snapshotActiveEquations();
+    SE_GEO_PROBE("RUN geodetico: snapshot aggiornato X=%s",
+                 qPrintable(m_scene.eq.x.simplified()));
+
+    // updateGeodesicMesh() calcola, verifica e restituisce false se i dati sono corrotti
+    if (!updateGeodesicMesh()) {
+        if (m_geoErrorType == GeoError::Singularity
+                && !m_geoErrorShown) {
+            m_geoErrorShown = true;
+            InputValidator::showGeodesicSingularityError(this);
+        }
+        return;
+    }
+
+    // Condizione LARGA (serve il ricalcolo?), argomento STRETTO (la
+    // geometria e' animata?): vedi la nota su otherModulesForT qui sopra.
+    // Se nessuno dei due usa il tempo la chiamata si puo' saltare, ma
+    // quando la usa un modulo qualsiasi va fatta, o i clock di texture e
+    // sfondo non verrebbero ricalcolati affatto.
+    const bool geoAnimated = hasTimeVariable(geoEqs);
+    if (geoAnimated || hasTimeVariable(otherModulesForT))
+        applyAnimationState(geoAnimated, runDockOnly);
+    if (!runDockOnly) applyStartSideEffects();
+
+    // Run "one-shot" del flusso geodetico, come nei rami parametrico (~6888) e
+    // Ray Marching (~6506): applicata la mesh e senza 't' da animare non c'e'
+    // piu' nulla da rieseguire, quindi il tasto si spegne finche' l'utente non
+    // tocca di nuovo equazioni o condizioni iniziali. Questo ramo esce col
+    // return qui sotto e non raggiungeva il blocco in fondo alla funzione: il
+    // flag restava false e il Run del dock Equations rimaneva acceso per sempre.
+    if (!geoAnimated) {
+        m_parametricApplied = true;
+        updateMasterButtonState();
+    }
+
+    ui->glWidget->update();
+}
+
+bool MainWindow::equationStaysRenderable(const QString &eq, const CascadeConstants &kc,
+                                         const RunLimits &lim)
+{
+    if (eq.trimmed().isEmpty()) return true;  // P vuoto è lecito
+
+    ExpressionParser p;
+    double pu = 0.0, pv = 0.0, pw = 0.0, pp_ = 0.0;
+    p.setupVariables<double>(pu, pv, pw, pp_);
+    p.setupConstants<double>(
+                (double)kc.a, (double)kc.b, (double)kc.c, (double)kc.d,
+                (double)kc.e, (double)kc.f, (double)kc.s);
+
+    if (!p.compile(eq)) {
+        // Errore di sintassi: lo gestisce il controllo successivo.
+        return true;
+    }
+
+    constexpr int N = 48;  // griglia più fitta: intercetta i poli vicini ai bordi
+    QVector<double> mags;
+    mags.reserve((N + 1) * (N + 1));
+    double maxMag = 0.0;
+
+    for (int i = 0; i <= N; ++i) {
+        for (int j = 0; j <= N; ++j) {
+            pu = (double)lim.uMin + ((double)lim.uMax - (double)lim.uMin) * i / (double)N;
+            pv = (double)lim.vMin + ((double)lim.vMax - (double)lim.vMin) * j / (double)N;
+            double val = p.value();
+
+            // 1) inf / NaN: NON blocchiamo subito. Una singolarità RIMOVIBILE
+            //    (es. Torus Artifact: z = B*sin(v)/v, che a v=0 dà 0/0=NaN ma
+            //    il limite è B, finito) tocca solo i punti esatti della
+            //    singolarità mentre i vicini restano limitati: la GPU la
+            //    disegna bene. Saltiamo il campione. Un polo VERO (1/(v-π),
+            //    tan, csc) ha invece i vicini finiti che esplodono e vengono
+            //    presi dal tetto kMax qui sotto.
+            if (!std::isfinite(val)) continue;
+
+            // 2) tetto assoluto di sicurezza (oltre la portata float32 GPU):
+            //    qui cade il vicinato di un polo vero -> blocco corretto.
+            if (std::abs(val) > kMaxRenderableMagnitude) return false;
+
+            double m = std::abs(val);
+            maxMag = std::max(maxMag, m);
+            mags.push_back(m);
+        }
+    }
+
+    // Tutti i campioni non finiti: non c'è nulla di renderizzabile.
+    if (mags.isEmpty()) return false;
+
+    // 3) Picco RELATIVO alla scala della superficie. Usiamo il 90°
+    //    percentile (NON la mediana) come riferimento di scala "tipica":
+    //    superfici legittime possono avere oltre metà dei campioni vicini
+    //    a zero (es. Koranyi: x = A*pow(max(cos(v),0),B)*cos(u), dove
+    //    max(cos(v),0) annulla mezzo dominio in v e cos(u) lo attraversa).
+    //    Con la mediana ~0 il rapporto max/mediana esplodeva e bloccava
+    //    per errore queste superfici; un polo vero (1/0, tan ai bordi)
+    //    supera comunque il p90 di vari ordini di grandezza ed è preso.
+    if (!mags.isEmpty()) {
+        size_t p90Idx = static_cast<size_t>(0.90 * (mags.size() - 1));
+        std::nth_element(mags.begin(), mags.begin() + p90Idx, mags.end());
+        double p90Mag = mags[p90Idx];
+        if (p90Mag > 1e-9 && maxMag > kSpikeRatio * p90Mag)
+            return false;
+    }
+    return true;
 }
 
 void MainWindow::onStopClicked() {

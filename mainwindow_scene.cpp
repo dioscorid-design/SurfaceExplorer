@@ -1812,89 +1812,34 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     refreshConstants(/*restoreTextOnNegative=*/false);
 }
 
-void MainWindow::applyMotionExample(LibraryItem data)
+// ---- Passi del load di un record (applyMotionExample), nell'ordine ----
+
+void MainWindow::warnMissingRecordImages(const MissingImageScan &scan)
 {
-    // All'uscita la scena e' quella del file: e' il momento pulito.
-    SceneCleanGuard sceneCleanGuard{this};
-    discardPendingLimitEdits();
+    if (scan.paths.isEmpty()) return;
+    // I percorsi stanno su righe tutte loro e NON hanno spazi dove
+    // spezzarsi: nel testo principale (che non va a capo) allargherebbero
+    // il box quanto sono lunghi. Nell'informativeText il resto del testo va
+    // a capo e i percorsi restano le uniche righe lunghe.
+    const bool many = scan.paths.size() > 1;
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Warning);
+    box.setWindowTitle("Record Image Not Found");
+    box.setText(many ? "Some images used in this record were not found."
+                     : "The image used in this record was not found.");
+    // Se DOVUNQUE l'immagine mancante lascia in piedi uno script, si dice
+    // che il record parte lo stesso con la sua texture procedurale: e' il
+    // caso in cui non si perde nulla se non la foto.
+    const bool someScriptSurvives = scan.bgKeptScript || scan.surfaceKeptScript;
+    box.setInformativeText(scan.paths.join("\n") +
+                           (someScriptSurvives
+                                ? "\n\nThe procedural texture will be loaded without it."
+                                : "\n\nThe animation will be loaded without it."));
+    box.exec();
+}
 
-    SE_TEXP("record:ENTRATA");
-
-    // IMMAGINI MANCANTI: SI CHIEDE PRIMA DI TOCCARE LA SCENA.
-    // L'avviso stava in mezzo alla funzione (dopo il caricamento di texture e
-    // sfondo), quindi il popup si apriva su una scena IBRIDA: geometria,
-    // equazioni, camera e tab erano gia' quelli del record NUOVO, mentre le
-    // texture -- che si applicano piu' sotto -- erano ancora quelle del record
-    // PRECEDENTE. exec() e' modale e rientra nel ciclo di eventi: la finestra si
-    // ridisegna, e l'utente vedeva quel mezzo record finche' non premeva OK.
-    //
-    // Qui non e' stato modificato ancora nulla: si guardano solo data e il JSON
-    // (TextureCode::resolveImagePath legge il disco e non tocca lo stato), si
-    // avvisa, e solo al ritorno da exec() parte il caricamento vero. Sullo
-    // schermo resta il record precedente, intatto, per tutta la durata del
-    // popup.
-    //
-    // L'esito della scansione viene passato al codice piu' sotto (che deve
-    // comunque togliere il tag //IMG: da texCode/bgCode) invece di essere
-    // ricalcolato: la scansione e' UNA, il popup e' UNO.
-    const MissingImageScan missingScan = scanRecordForMissingImages(data);
-    if (!missingScan.paths.isEmpty()) {
-        // I percorsi stanno su righe tutte loro e NON hanno spazi dove
-        // spezzarsi: nel testo principale (che non va a capo) allargherebbero
-        // il box quanto sono lunghi. Nell'informativeText il resto del testo va
-        // a capo e i percorsi restano le uniche righe lunghe.
-        const bool many = missingScan.paths.size() > 1;
-        QMessageBox box(this);
-        box.setIcon(QMessageBox::Warning);
-        box.setWindowTitle("Record Image Not Found");
-        box.setText(many ? "Some images used in this record were not found."
-                         : "The image used in this record was not found.");
-        // Se DOVUNQUE l'immagine mancante lascia in piedi uno script, si dice
-        // che il record parte lo stesso con la sua texture procedurale: e' il
-        // caso in cui non si perde nulla se non la foto.
-        const bool someScriptSurvives = missingScan.bgKeptScript || missingScan.surfaceKeptScript;
-        box.setInformativeText(missingScan.paths.join("\n") +
-                               (someScriptSurvives
-                                    ? "\n\nThe procedural texture will be loaded without it."
-                                    : "\n\nThe animation will be loaded without it."));
-        box.exec();
-    }
-
-    // LA SCENA DEL FILE, calcolata una volta (con la scansione appena fatta):
-    // applyCommonData la assegna in testa, e da qui la leggono sotto-tab e moti.
-    const SceneState file = sceneFromItem(data, /*isRecord=*/true, missingScan);
-
-    // CARICAMENTO IN CORSO (m_populatingFields, vedi mainwindow.h): da qui,
-    // non solo da applyCommonData piu' sotto. Lo legge la validazione del Run
-    // che il load lancia in coda.
-    m_populatingFields = true;
-    struct MotionLoadGuard {
-        MainWindow *w;
-        ~MotionLoadGuard() { w->m_populatingFields = false; }
-    } motionLoadGuard{this};
-
-    // ASPETTO PER-MESH DURANTE IL LOAD.
-    // Per tutta la durata del caricamento i setter globali (colore, alpha, luce,
-    // renderMode del preset) NON devono essere dirottati sulla mesh selezionata:
-    // sono lo stato della superficie, non una scelta dell'utente su una parte.
-    // Senza questo, con una mesh ancora attiva dalla sessione precedente quella
-    // parte si prendeva i valori globali come propri (tornava verde e solida) e
-    // il renderMode finiva per propagarsi a tutte le mesh che ereditano.
-    // La selezione viene azzerata qui e reimpostata a 1 da
-    // updateMeshSelectorRange quando le parti della nuova superficie esistono.
-    // Alla fine il valore PRECEDENTE (vedi la guardia gemella in resetScene).
-    const bool prevBypass = ui->glWidget && ui->glWidget->meshAppearanceBypass();
-    if (ui->glWidget) {
-        ui->glWidget->setMeshAppearanceBypass(true);
-        ui->glWidget->setActiveMeshPart(-1);
-    }
-    struct MeshBypassGuard {
-        MainWindow *w;
-        bool prev;
-        ~MeshBypassGuard() { if (w->ui->glWidget) w->ui->glWidget->setMeshAppearanceBypass(prev); }
-    } meshBypassGuard{this, prevBypass};
-
-
+void MainWindow::stopMotionForRecordLoad()
+{
     m_masterStopped = false;
     // Nuovo record caricato: dimentica un eventuale stop manuale del suono
     // precedente, cosi' l'audio del nuovo preset puo' partire. Idem per gli
@@ -1938,34 +1883,13 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     if (m_btnStart) m_btnStart->setText("START");
     if (ui->btnStart_2) ui->btnStart_2->setText("GO");
+}
 
-    // =================================================================
-    // 1.5 SANIFICAZIONE E SEPARAZIONE DEI MODI (Parametrico vs Ray Marching)
-    // =================================================================
-    bool isImplicit = data.isImplicitMode;
-
+void MainWindow::applyRecordMode(const LibraryItem &data, const SceneState &file)
+{
+    const bool isImplicit = data.isImplicitMode;
     // Le superfici implicite da script sono gestite da applyCommonData: non sovrascrivere.
-    bool isImplicitScript = isImplicit && !data.scriptCode.isEmpty();
-
-    // Il tab forzato qui sotto e' un cambio di modalita' a tutti gli effetti:
-    // se il record e' di modo opposto a quello a schermo, il setCurrentIndex fa
-    // scattare applyModeTabReset -> resetScene, che RICHIUDE i rami della
-    // Library e ne azzera la selezione. Il risultato era che caricando un
-    // record RM con un Parametric a video (e viceversa) l'albero Record si
-    // chiudeva e il record appena scelto perdeva il focus. Qui l'utente non sta
-    // scartando niente, sta CARICANDO: stesso flag e stessa guardia RAII del
-    // cambio tab provocato da una texture incompatibile (~6434).
-    // Alzato attorno a ENTRAMBI i rami: il tab da forzare dipende dal record,
-    // non da quale ramo dell'if si prende.
-    m_texModeSwitchInProgress = true;
-    m_modeSwitchSourceTree = ui->treeMotions;
-    struct ModeSwitchGuard {
-        MainWindow *w;
-        ~ModeSwitchGuard() {
-            w->m_texModeSwitchInProgress = false;
-            w->m_modeSwitchSourceTree = nullptr;
-        }
-    } modeSwitchGuard{this};
+    const bool isImplicitScript = isImplicit && !data.scriptCode.isEmpty();
 
     if (isImplicit) {
         ui->tabModeSelector->setCurrentIndex(1); // Forza Tab Ray Marching
@@ -2061,45 +1985,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
             ui->glWidget->setTextureCode("");
         }
     }
+}
 
-    SE_TEXP("record:pre-reset-shader");
-
-    // Reset sicuro di default per disinnescare vecchi shader bloccati. La
-    // texture del record di prima esce dal motore E dalla copia applicata
-    // (commitSurfaceTextureCode): da qui fino all'applicazione piu' sotto il
-    // giudizio delle costanti la vede vuota, e conta lo script del record.
-    if (ui->glWidget) {
-        ui->glWidget->clearTexture();
-        commitSurfaceTextureCode(QString());
-        ui->glWidget->setTextureCode(0);
-    }
-
-    SE_TEXP("record:post-reset-shader");
-
-    // (I testi dei path li assegna applyCommonData in testa, prima di ogni
-    // giudizio sulle costanti: una costante usata solo dal path va tenuta
-    // sbloccata, e coi campi del record VECCHIO verrebbe resettata a 1.)
-
-    // 3. Dati Comuni (Surface)
-    // NB per la sonda: e' applyCommonData a portare F (e le altre costanti) dal
-    // JSON ai campi e all'UBO. Se F cambia fra queste due righe, la resa cambia
-    // anche a codice texture IDENTICO.
-    SE_TEXP("record:pre-applyCommonData");
-    applyCommonData(data, file);
-    SE_TEXP("record:post-applyCommonData");
-
-    // Record che da qui in poi E' la scena. Lo legge "Sync Focused Texture" per
-    // sapere se il click destro e' caduto sul record caricato: la selezione
-    // dell'albero segue il click e non direbbe cosa c'e' davvero a schermo.
-    //
-    // DOPO applyCommonData, non prima: il caricamento passa da applyModeTabReset
-    // -> resetScene (vedi ~13864), che azzera questo campo perche' un cambio tab
-    // o un NEW devono farlo. Scrivendolo in cima veniva quindi cancellato dal
-    // reset del caricamento stesso, e il comando restava disabilitato su ogni
-    // record -- la voce appariva cliccabile ma Qt non emette nulla su un'azione
-    // disabilitata.
-    m_currentRecordPath = data.filePath;
-
+void MainWindow::applyRecordColors(const LibraryItem &data)
+{
     // 3b. Colori
     if (data.hasCustomColors && !data.color1.isEmpty()) {
         QColor surfCol(data.color1);
@@ -2122,12 +2011,64 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // senza la chiave ha il grigio di default; prima si teneva quello del
     // preset aperto prima.
     ui->glWidget->setBackgroundColor(m_scene.bgColor);
+}
 
-    // 4. (I campi path sono già stati riempiti PRIMA di applyCommonData, vedi punto 2.)
+void MainWindow::applyRecordCamera(const LibraryItem &data, const SceneState &file)
+{
+    // CAMERA E MOTI: dalla struttura, non piu' dal file (come sfondo e suono).
+    // Qui il load RILEGGEVA il JSON del record ("bypassiamo la limitazione della
+    // libreria": LibraryItem non portava sfondo, ancore e moti). Ora parseJson
+    // li legge tutti, con gli stessi default (tappa 3 dello "stato unico della
+    // scena"), e ogni campo viene riscritto SEMPRE: prima, se il file non si
+    // apriva, camera e moti restavano quelli del record precedente, e un record
+    // senza "observer4D" si teneva l'osservatore di quello aperto prima.
 
-    // 5. TEXTURE E AUDIO SUPERFICIE E SFONDO
+    if (!data.hasCamera3D) {
+        ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
+        ui->glWidget->setRotationQuat(QQuaternion());
+        ui->glWidget->setCameraYaw(0.0f);
+        ui->glWidget->setCameraPitch(0.0f);
+        ui->glWidget->setCameraRoll(0.0f);
+        ui->glWidget->addObjectRotation(30.0f, 30.0f, 0.0f);
+    } else {
+        ui->glWidget->setCameraPos(QVector3D(data.camX, data.camY, data.camZ));
+        ui->glWidget->setRotationQuat(QQuaternion(data.rotW, data.rotX, data.rotY, data.rotZ));
+        // Il quaternione di un RECORD e' un'istantanea intenzionale (l'utente
+        // l'ha ruotato cosi' e l'ha salvato): senza questo mark, l'avvio del
+        // path in coda al load (startRecordCameraMotion -> onDepartureClicked, primo Departure
+        // perche' la sessione dei path e' appena stata azzerata) passava per
+        // neutralizeDefaultRotationForPath e AZZERAVA la rotazione salvata --
+        // il record ricaricato appariva identico a quello di partenza. Il ramo
+        // sopra (record vecchi senza camera3D) resta neutralizzabile: quel
+        // tilt 30/30 e' davvero cosmetico.
+        ui->glWidget->markUserRotated();
+        ui->glWidget->setCameraYaw(data.camYaw);
+        ui->glWidget->setCameraPitch(data.camPitch);
+        ui->glWidget->setCameraRoll(data.camRoll);
+    }
 
-    bool texEnabled = data.textureEnabled;
+    ui->glWidget->setObserverPos4D(data.observer4D);
+
+    // Moto camera attivo al salvataggio: guida l'avvio automatico
+    // (startRecordCameraMotion). Nei record storici manca -> stringa vuota =
+    // cascata legacy; "none" (salvato a moti fermi) idem.
+    // Le regole sono in motionFromItem. Vista dei due path: i record col solo
+    // "pathMode" (formato storico) la applicano a entrambi, quelli senza
+    // nessuna delle due tornano a Tangent (lo decide parseJson). Velocita': 0 =
+    // chiave assente (file vecchi) o path 4D azzerato dal Save in Ray Marching
+    // 3D, cioe' il default (scrivere 0 dava la velocita' minima).
+    m_scene.lastCameraMotion = file.lastCameraMotion;
+    setPathViewModes(file.pathViewMode4D, file.pathViewMode3D);
+    setPathSpeed3D(file.pathSpeed3D);
+    setPathSpeed4D(file.pathSpeed4D);
+    // Abilitazione coerente con lo stato dei path (a load fermo -> disabilitati).
+    updateViewButtonsEnabled();
+}
+
+void MainWindow::applyRecordSurfaceTexture(const LibraryItem &data, const MissingImageScan &scan)
+{
+    const bool texEnabled = data.textureEnabled;
+    const bool isImplicit = data.isImplicitMode;
     QString texCode = data.textureCode;
     // Codice della texture RAY MARCHING, tenuto a parte perche' il ramo
     // implicito qui sotto AZZERA texCode (per non innescare la pipeline
@@ -2136,17 +2077,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // caricava mai, e il triplanar campionava la texture tappabuchi -- a schermo
     // sembrava la texture di default.
     QString rmTexCodeForImage;
-    bool bgTexEnabled = data.bgTextureEnabled;
-    QString bgCode = data.bgTextureCode;
 
     float surfZoom = data.zoom;
     float surfPanX = data.panX, surfPanY = data.panY;
     float surfRot = data.rotation;
-
-    float bgZoom = 1.0f;
-    float bgPanX = 0.0f, bgPanY = 0.0f;
-    float bgRot = 0.0f;
-    int bgSkyMode = GLWidget::BgFixed;   // record senza la chiave = sfondo fisso
 
     // --- TEXTURE DI SUPERFICIE E RILIEVO: i testi sono gia' nello stato ---
     // applyCommonData li ha assegnati in testa dalla scena del file
@@ -2172,79 +2106,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
         data.texColor1.isEmpty() ? QColor(Qt::white) : QColor(data.texColor1),
         data.texColor2.isEmpty() ? QColor(Qt::black) : QColor(data.texColor2));
 
-    // --- SUONO, SFONDO, CAMERA E MOTI: dalla struttura, non piu' dal file ---
-    // Qui il load RILEGGEVA il JSON del record ("bypassiamo la limitazione della
-    // libreria": LibraryItem non portava sfondo, ancore e moti). Ora parseJson
-    // li legge tutti, con gli stessi default (tappa 3 dello "stato unico della
-    // scena"), e ogni campo viene riscritto SEMPRE: prima, se il file non si
-    // apriva, camera e moti restavano quelli del record precedente, e un record
-    // senza "observer4D" si teneva l'osservatore di quello aperto prima.
-
-    // (Ancore del suono e dello sfondo: in testa ad applyCommonData.)
-    // Messaggio dello sfondo: scritto qui, PRIMA del showSceneHint in coda
-    // alla funzione, che lo compone con gli altri due.
-    m_currentBgTextureHintText    = data.bgHintText;
-    m_currentBgTextureHintSeconds = data.bgHintSeconds;
-    bgZoom = data.bgZoom;
-    bgPanX = data.bgPanX;
-    bgPanY = data.bgPanY;
-    bgRot = data.bgRotation;
-    bgSkyMode = GLWidget::bgSkyModeFromName(data.bgSkyMode);
-
-    if (!data.hasCamera3D) {
-        ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
-        ui->glWidget->setRotationQuat(QQuaternion());
-        ui->glWidget->setCameraYaw(0.0f);
-        ui->glWidget->setCameraPitch(0.0f);
-        ui->glWidget->setCameraRoll(0.0f);
-        ui->glWidget->addObjectRotation(30.0f, 30.0f, 0.0f);
-    } else {
-        ui->glWidget->setCameraPos(QVector3D(data.camX, data.camY, data.camZ));
-        ui->glWidget->setRotationQuat(QQuaternion(data.rotW, data.rotX, data.rotY, data.rotZ));
-        // Il quaternione di un RECORD e' un'istantanea intenzionale (l'utente
-        // l'ha ruotato cosi' e l'ha salvato): senza questo mark, l'avvio del
-        // path in coda al load (sez. 6 -> onDepartureClicked, primo Departure
-        // perche' la sessione dei path e' appena stata azzerata) passava per
-        // neutralizeDefaultRotationForPath e AZZERAVA la rotazione salvata --
-        // il record ricaricato appariva identico a quello di partenza. Il ramo
-        // sopra (record vecchi senza camera3D) resta neutralizzabile: quel
-        // tilt 30/30 e' davvero cosmetico.
-        ui->glWidget->markUserRotated();
-        ui->glWidget->setCameraYaw(data.camYaw);
-        ui->glWidget->setCameraPitch(data.camPitch);
-        ui->glWidget->setCameraRoll(data.camRoll);
-    }
-
-    ui->glWidget->setObserverPos4D(data.observer4D);
-
-    // Moto camera attivo al salvataggio: guida l'avvio automatico piu' sotto
-    // (applyStartSideEffects). Nei record storici manca -> stringa vuota =
-    // cascata legacy; "none" (salvato a moti fermi) idem.
-    // Le regole sono in motionFromItem. Vista dei due path: i record col solo
-    // "pathMode" (formato storico) la applicano a entrambi, quelli senza
-    // nessuna delle due tornano a Tangent (lo decide parseJson). Velocita': 0 =
-    // chiave assente (file vecchi) o path 4D azzerato dal Save in Ray Marching
-    // 3D, cioe' il default (scrivere 0 dava la velocita' minima).
-    m_scene.lastCameraMotion = file.lastCameraMotion;
-    setPathViewModes(file.pathViewMode4D, file.pathViewMode3D);
-    setPathSpeed3D(file.pathSpeed3D);
-    setPathSpeed4D(file.pathSpeed4D);
-    // Abilitazione coerente con lo stato dei path (a load fermo -> disabilitati).
-    updateViewButtonsEnabled();
-
-    // SUONO E SFONDO: slot e codici gia' nello stato (textureTextsFromItem). Il
-    // suono e' estratto dai codici GREZZI, anche dallo sfondo spento; i codici
-    // grafici sono senza suono (Kerr Spin Animated lo porta tra marcatori
-    // spaziati: rimasto nella texture, questa non compilava); lo sfondo spento
-    // non ha codice (vedi forgetBackgroundTexture: tenerlo era lo "sfondo-
-    // immagine perso"); il tag //IMG: di un'immagine mancante e' tolto, o tutto
-    // il codice se c'era solo quello (il popup e' gia' stato dato, in cima).
-    bgCode = m_scene.bgTextureCode;
-
     // L'immagine della superficie: in Ray Marching texCode e' vuoto e si cerca
     // nel codice del file. Mancante: un imgPath vuoto manda la superficie
     // sulla texture di default.
-    QString imgPath = missingScan.surfaceMissing
+    QString imgPath = scan.surfaceMissing
         ? QString()
         : TextureCode::resolveImagePath(texCode.isEmpty() ? rmTexCodeForImage : texCode);
 
@@ -2341,6 +2206,29 @@ void MainWindow::applyMotionExample(LibraryItem data)
         // clearTextureMemory (spegnimento del checkbox).
         ui->glWidget->setGlobalTexTransform(1.0f, QVector2D(0.0f, 0.0f), 0.0f);
     }
+}
+
+void MainWindow::applyRecordBackgroundTexture(const LibraryItem &data)
+{
+    const bool bgTexEnabled = data.bgTextureEnabled;
+    // (Ancore del suono e dello sfondo: in testa ad applyCommonData.)
+    // Messaggio dello sfondo: scritto qui, PRIMA del showSceneHint in coda
+    // alla funzione, che lo compone con gli altri due.
+    m_currentBgTextureHintText    = data.bgHintText;
+    m_currentBgTextureHintSeconds = data.bgHintSeconds;
+    const float bgZoom = data.bgZoom;
+    const float bgPanX = data.bgPanX, bgPanY = data.bgPanY;
+    const float bgRot = data.bgRotation;
+    const int bgSkyMode = GLWidget::bgSkyModeFromName(data.bgSkyMode);
+
+    // SUONO E SFONDO: slot e codici gia' nello stato (textureTextsFromItem). Il
+    // suono e' estratto dai codici GREZZI, anche dallo sfondo spento; i codici
+    // grafici sono senza suono (Kerr Spin Animated lo porta tra marcatori
+    // spaziati: rimasto nella texture, questa non compilava); lo sfondo spento
+    // non ha codice (vedi forgetBackgroundTexture: tenerlo era lo "sfondo-
+    // immagine perso"); il tag //IMG: di un'immagine mancante e' tolto, o tutto
+    // il codice se c'era solo quello (il popup e' gia' stato dato, in cima).
+    const QString bgCode = m_scene.bgTextureCode;
 
     // --- APPLICAZIONE TEXTURE BACKGROUND ---
     ui->glWidget->setBackgroundTextureEnabled(bgTexEnabled);
@@ -2404,7 +2292,13 @@ void MainWindow::applyMotionExample(LibraryItem data)
             ui->glWidget->setBackgroundTexture("background.png");
         }
     }
+}
 
+void MainWindow::syncTextureControlsAfterRecordLoad(const LibraryItem &data)
+{
+    const bool texEnabled = data.textureEnabled;
+    const bool bgTexEnabled = data.bgTextureEnabled;
+    const QString &bgCode = m_scene.bgTextureCode;
     if (editingBackground()) {
         refreshTextureCheckbox();
 
@@ -2436,7 +2330,11 @@ void MainWindow::applyMotionExample(LibraryItem data)
     }
 
     updateRenderState();
+}
 
+void MainWindow::applyRecordSpeedsAndAngles(const LibraryItem &data)
+{
+    const bool isImplicit = data.isImplicitMode;
     // 6. VELOCITÀ E ANGOLI
     ui->glWidget->setNutationSpeed(data.speedNut);
     ui->glWidget->setPrecessionSpeed(data.speedPrec);
@@ -2510,14 +2408,17 @@ void MainWindow::applyMotionExample(LibraryItem data)
         ui->glWidget->setCrossSectionP(isImplicit ? data.crossSectionP : 0.0f);
 
     ui->glWidget->update();
+}
 
+void MainWindow::startRecordCameraMotion(const LibraryItem &data)
+{
     auto isReal = [](const QString &s) {
         QString t = s.trimmed();
         return !t.isEmpty() && t != "0" && t != "0.0";
     };
 
     // In Ray Marching FUORI dal Cross Section le rotazioni 4D (omega/phi/psi) non
-    // hanno effetto e qui sopra vengono azzerate (spdOmega/spdPhi/spdPsi).
+    // hanno effetto e vengono azzerate (applyRecordSpeedsAndAngles).
     // hasRotation deve guardare le velocità EFFETTIVE applicate al motore, non
     // quelle grezze del record: altrimenti un preset RM con omega/phi/psi salvati
     // faceva partire il rotationTimer (isAnimating()==true) pur senza alcuna
@@ -2527,9 +2428,9 @@ void MainWindow::applyMotionExample(LibraryItem data)
     bool hasRotation = (std::abs(data.speedPrec) > 0.001f ||
                         std::abs(data.speedNut)  > 0.001f ||
                         std::abs(data.speedSpin) > 0.001f ||
-                        std::abs(spdOmega) > 0.001f ||
-                        std::abs(spdPhi)   > 0.001f ||
-                        std::abs(spdPsi)   > 0.001f);
+                        std::abs(ui->glWidget->getOmegaSpeed()) > 0.001f ||
+                        std::abs(ui->glWidget->getPhiSpeed())   > 0.001f ||
+                        std::abs(ui->glWidget->getPsiSpeed())   > 0.001f);
     bool hasPath4D = isReal(data.path4D_x) || isReal(data.path4D_y) || isReal(data.path4D_z) || isReal(data.path4D_w) ||
             isReal(data.path4D_alpha) || isReal(data.path4D_beta) || isReal(data.path4D_gamma);
 
@@ -2577,7 +2478,12 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     ui->glWidget->setProjectionMode(data.projectionMode);
     updateProjectionButtonText();
+}
 
+bool MainWindow::runRecordGeometry(const LibraryItem &data)
+{
+    const bool isImplicit = data.isImplicitMode;
+    const bool texEnabled = data.textureEnabled;
     // 7. AVVIO AUTOMATICO GRAFICA
     // 1. Nuova logica di validazione sicura
     bool hasValidEquations;
@@ -2674,15 +2580,19 @@ void MainWindow::applyMotionExample(LibraryItem data)
         // GEOMETRIA, non la somma dei tre moduli.
         applyAnimationState(hasTimeVariable(m_scene.surfaceScriptApplied));
     }
+    return isScript;
+}
 
+void MainWindow::restartRecordClocks(const LibraryItem &data)
+{
     // =======================================================
     // RIATTIVAZIONE ANIMAZIONI TEXTURE AL CARICAMENTO
     // =======================================================
     if (ui->glWidget) {
-        if (texEnabled && hasTimeVariable(allSurfaceTextureCode())) {
+        if (data.textureEnabled && hasTimeVariable(allSurfaceTextureCode())) {
             ui->glWidget->setSurfaceTextureAnimating(true);
         }
-        if (bgTexEnabled && hasTimeVariable(m_scene.bgTextureCode)) {
+        if (data.bgTextureEnabled && hasTimeVariable(m_scene.bgTextureCode)) {
             ui->glWidget->setBackgroundTextureAnimating(true);
         }
     }
@@ -2700,15 +2610,17 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // nei campi dedicati: l'animazione va cercata li', come fa il ramo Library.
     // Con una texture animata il flag resta false -- il tasto e' un Run/Stop
     // legittimo, non un one-shot gia' consumato.
-    if (isImplicit) {
+    if (data.isImplicitMode) {
         const bool rmTexAnim = hasTimeVariable(m_scene.rm.texture)
                                || hasTimeVariable(m_scene.rm.displacement);
         m_rmTextureApplied = !rmTexAnim;
     }
 
     updateMasterButtonState();
-    // =======================================================
+}
 
+void MainWindow::startRecordSound()
+{
     // 8. AVVIO AUDIO
     if (!m_scene.soundScriptText.isEmpty()) {
         QString audioErr;
@@ -2754,6 +2666,151 @@ void MainWindow::applyMotionExample(LibraryItem data)
             ui->btnRunCurrentScript->setText("Run Sound");
         }
     }
+}
+
+void MainWindow::applyMotionExample(LibraryItem data)
+{
+    // All'uscita la scena e' quella del file: e' il momento pulito.
+    SceneCleanGuard sceneCleanGuard{this};
+    discardPendingLimitEdits();
+
+    SE_TEXP("record:ENTRATA");
+
+    // IMMAGINI MANCANTI: SI CHIEDE PRIMA DI TOCCARE LA SCENA.
+    // L'avviso stava in mezzo alla funzione (dopo il caricamento di texture e
+    // sfondo), quindi il popup si apriva su una scena IBRIDA: geometria,
+    // equazioni, camera e tab erano gia' quelli del record NUOVO, mentre le
+    // texture -- che si applicano piu' sotto -- erano ancora quelle del record
+    // PRECEDENTE. exec() e' modale e rientra nel ciclo di eventi: la finestra si
+    // ridisegna, e l'utente vedeva quel mezzo record finche' non premeva OK.
+    //
+    // Qui non e' stato modificato ancora nulla: si guardano solo data e il JSON
+    // (TextureCode::resolveImagePath legge il disco e non tocca lo stato), si
+    // avvisa, e solo al ritorno da exec() parte il caricamento vero. Sullo
+    // schermo resta il record precedente, intatto, per tutta la durata del
+    // popup.
+    //
+    // L'esito della scansione viene passato al codice piu' sotto (che deve
+    // comunque togliere il tag //IMG: da texCode/bgCode) invece di essere
+    // ricalcolato: la scansione e' UNA, il popup e' UNO.
+    const MissingImageScan missingScan = scanRecordForMissingImages(data);
+    warnMissingRecordImages(missingScan);
+
+    // LA SCENA DEL FILE, calcolata una volta (con la scansione appena fatta):
+    // applyCommonData la assegna in testa, e da qui la leggono sotto-tab e moti.
+    const SceneState file = sceneFromItem(data, /*isRecord=*/true, missingScan);
+
+    // CARICAMENTO IN CORSO (m_populatingFields, vedi mainwindow.h): da qui,
+    // non solo da applyCommonData piu' sotto. Lo legge la validazione del Run
+    // che il load lancia in coda.
+    m_populatingFields = true;
+    struct MotionLoadGuard {
+        MainWindow *w;
+        ~MotionLoadGuard() { w->m_populatingFields = false; }
+    } motionLoadGuard{this};
+
+    // ASPETTO PER-MESH DURANTE IL LOAD.
+    // Per tutta la durata del caricamento i setter globali (colore, alpha, luce,
+    // renderMode del preset) NON devono essere dirottati sulla mesh selezionata:
+    // sono lo stato della superficie, non una scelta dell'utente su una parte.
+    // Senza questo, con una mesh ancora attiva dalla sessione precedente quella
+    // parte si prendeva i valori globali come propri (tornava verde e solida) e
+    // il renderMode finiva per propagarsi a tutte le mesh che ereditano.
+    // La selezione viene azzerata qui e reimpostata a 1 da
+    // updateMeshSelectorRange quando le parti della nuova superficie esistono.
+    // Alla fine il valore PRECEDENTE (vedi la guardia gemella in resetScene).
+    const bool prevBypass = ui->glWidget && ui->glWidget->meshAppearanceBypass();
+    if (ui->glWidget) {
+        ui->glWidget->setMeshAppearanceBypass(true);
+        ui->glWidget->setActiveMeshPart(-1);
+    }
+    struct MeshBypassGuard {
+        MainWindow *w;
+        bool prev;
+        ~MeshBypassGuard() { if (w->ui->glWidget) w->ui->glWidget->setMeshAppearanceBypass(prev); }
+    } meshBypassGuard{this, prevBypass};
+
+    stopMotionForRecordLoad();
+
+    // =================================================================
+    // 1.5 SANIFICAZIONE E SEPARAZIONE DEI MODI (Parametrico vs Ray Marching)
+    // =================================================================
+    // Il tab forzato qui sotto e' un cambio di modalita' a tutti gli effetti:
+    // se il record e' di modo opposto a quello a schermo, il setCurrentIndex fa
+    // scattare applyModeTabReset -> resetScene, che RICHIUDE i rami della
+    // Library e ne azzera la selezione. Il risultato era che caricando un
+    // record RM con un Parametric a video (e viceversa) l'albero Record si
+    // chiudeva e il record appena scelto perdeva il focus. Qui l'utente non sta
+    // scartando niente, sta CARICANDO: stesso flag e stessa guardia RAII del
+    // cambio tab provocato da una texture incompatibile (~6434).
+    // Alzato attorno a ENTRAMBI i rami: il tab da forzare dipende dal record,
+    // non da quale ramo dell'if si prende.
+    m_texModeSwitchInProgress = true;
+    m_modeSwitchSourceTree = ui->treeMotions;
+    struct ModeSwitchGuard {
+        MainWindow *w;
+        ~ModeSwitchGuard() {
+            w->m_texModeSwitchInProgress = false;
+            w->m_modeSwitchSourceTree = nullptr;
+        }
+    } modeSwitchGuard{this};
+
+    applyRecordMode(data, file);
+
+    SE_TEXP("record:pre-reset-shader");
+
+    // Reset sicuro di default per disinnescare vecchi shader bloccati. La
+    // texture del record di prima esce dal motore E dalla copia applicata
+    // (commitSurfaceTextureCode): da qui fino all'applicazione piu' sotto il
+    // giudizio delle costanti la vede vuota, e conta lo script del record.
+    if (ui->glWidget) {
+        ui->glWidget->clearTexture();
+        commitSurfaceTextureCode(QString());
+        ui->glWidget->setTextureCode(0);
+    }
+
+    SE_TEXP("record:post-reset-shader");
+
+    // (I testi dei path li assegna applyCommonData in testa, prima di ogni
+    // giudizio sulle costanti: una costante usata solo dal path va tenuta
+    // sbloccata, e coi campi del record VECCHIO verrebbe resettata a 1.)
+
+    // 3. Dati Comuni (Surface)
+    // NB per la sonda: e' applyCommonData a portare F (e le altre costanti) dal
+    // JSON ai campi e all'UBO. Se F cambia fra queste due righe, la resa cambia
+    // anche a codice texture IDENTICO.
+    SE_TEXP("record:pre-applyCommonData");
+    applyCommonData(data, file);
+    SE_TEXP("record:post-applyCommonData");
+
+    // Record che da qui in poi E' la scena. Lo legge "Sync Focused Texture" per
+    // sapere se il click destro e' caduto sul record caricato: la selezione
+    // dell'albero segue il click e non direbbe cosa c'e' davvero a schermo.
+    //
+    // DOPO applyCommonData, non prima: il caricamento passa da applyModeTabReset
+    // -> resetScene (vedi ~13864), che azzera questo campo perche' un cambio tab
+    // o un NEW devono farlo. Scrivendolo in cima veniva quindi cancellato dal
+    // reset del caricamento stesso, e il comando restava disabilitato su ogni
+    // record -- la voce appariva cliccabile ma Qt non emette nulla su un'azione
+    // disabilitata.
+    m_currentRecordPath = data.filePath;
+
+    applyRecordColors(data);
+
+    applyRecordCamera(data, file);
+    applyRecordSurfaceTexture(data, missingScan);
+    applyRecordBackgroundTexture(data);
+    syncTextureControlsAfterRecordLoad(data);
+
+    applyRecordSpeedsAndAngles(data);
+
+    startRecordCameraMotion(data);
+
+    const bool isScript = runRecordGeometry(data);
+
+    restartRecordClocks(data);
+
+    startRecordSound();
 
     // 9. HIGHLIGHT AUTOMATICO: SELEZIONA TEXTURE E SUONI NELL'ALBERO
     // A. Sincronizzazione Suoni (Cerca l'audio in TUTTI gli script attivi!)
@@ -2781,7 +2838,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     updateScriptButtonText();
 
-    // MODIFICA: Catturiamo 'isScript' (calcolato al punto 7) dentro la parentesi quadra
+    // isScript: da runRecordGeometry.
     QTimer::singleShot(20, this, [this, isScript]() {
         if (ui->glWidget) {
             updateULimits();
