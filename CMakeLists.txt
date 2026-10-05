@@ -91,6 +91,11 @@ qt_add_executable(SurfaceExplorer
     mainwindow_script.cpp
     mainwindow_library.cpp
     mainwindow_hint.cpp
+    # Classi estratte da MainWindow (stato e interfaccia propri).
+    scenehintoverlay.cpp
+    scenehintoverlay.h
+    docsearch.cpp
+    docsearch.h
 
     # --- ENGINE & PARSING ---
     surfaceengine.cpp

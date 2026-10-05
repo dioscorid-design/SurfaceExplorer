@@ -2,6 +2,7 @@
 // d'input), distruttore ed eventi della finestra.
 // Parte della classe MainWindow divisa per argomento (mainwindow_p.h).
 #include "mainwindow_p.h"
+#include "docsearch.h"
 
 
 class DesktopInputFilter : public QObject {
@@ -1224,7 +1225,7 @@ void MainWindow::setupActionsAndMenus()
             }
 
             results->clear();
-            const QVector<DocHit> hits = searchDocumentation(term);
+            const QVector<DocSearch::Hit> hits = DocSearch::search(term);
 
             if (hits.isEmpty()) {
                 QListWidgetItem* none = new QListWidgetItem(
@@ -1232,7 +1233,7 @@ void MainWindow::setupActionsAndMenus()
                 // Voce informativa, non cliccabile.
                 none->setFlags(Qt::NoItemFlags);
             } else {
-                for (const DocHit &h : hits) {
+                for (const DocSearch::Hit &h : hits) {
                     QListWidgetItem* item = new QListWidgetItem(
                         QString("%1  (%2)\n%3").arg(h.title).arg(h.count).arg(h.context),
                         results);

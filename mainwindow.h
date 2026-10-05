@@ -29,6 +29,7 @@ class QTreeWidget;
 class QTreeWidgetItem;
 class QAction;
 class QMenu;
+class SceneHintOverlay;
 class QMenuBar;
 class VideoRecorder;
 class LibraryMenuController;
@@ -430,11 +431,9 @@ private:
     QPushButton *m_btnProjection;
     QPushButton *m_btnRec;
     QLabel *m_statusLabel;
-    // Messaggio in sovrimpressione sulla scena (chiave "hintText" dei record).
-    // Figlia del glWidget, autonascosta a timer: NON entra nei video esportati,
-    // che vengono composti dal render offscreen.
-    QLabel *m_hintOverlay = nullptr;
-    QTimer *m_hintTimer = nullptr;
+    // Messaggio in sovrimpressione sulla scena: la VISTA dei tre messaggi qui
+    // sotto (vedi scenehintoverlay.h). Creato al primo messaggio.
+    SceneHintOverlay *m_hintOverlay = nullptr;
     // Messaggio del record attualmente caricato: va ricordato qui perche' un
     // risalvataggio non lo perda. Si edita dal dialogo che compare al
     // salvataggio (askSceneHint in presetserializer.cpp): non ha un campo fisso
@@ -1796,23 +1795,10 @@ public:
 private:
 
     // --- UI State & Graphics ---
-    // Mostra un messaggio in sovrimpressione sulla scena per 'seconds' secondi
-    // (testo vuoto = nasconde subito).
-    // RICERCA NELLA DOCUMENTAZIONE. Cerca `needle` in TUTTE le pagine del
-    // manuale (:/docs/*.html), non nella sola pagina aperta: il manuale e'
-    // spezzato in 17 file e un Ctrl+F locale non troverebbe cio' che sta
-    // altrove. Restituisce un elenco di pagine con un frammento di contesto,
-    // gia' ordinato per numero di occorrenze.
-    struct DocHit {
-        QString file;      // "qrc:/docs/doc_raymarching.html"
-        QString title;     // dal <title> della pagina
-        QString context;   // frase attorno alla prima occorrenza
-        int     count = 0; // occorrenze nella pagina
-    };
-    QVector<DocHit> searchDocumentation(const QString &needle) const;
+    // Mostra il messaggio della SCENA (con quelli di texture e sfondo) per
+    // 'seconds' secondi; testo vuoto e niente altro da mostrare = nasconde.
     void showSceneHint(const QString &text, float seconds);
     void hideSceneHint();
-    void repositionSceneHint();
     // Porta le costanti dichiarate discrete ("A := int(min,max);") all'intero
     // piu' vicino nel loro range. Chiamata al RILASCIO dello slider e all'Enter
     // nel campo, mai durante il trascinamento (renderebbe lo slider a scatti
