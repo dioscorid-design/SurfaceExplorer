@@ -8,7 +8,6 @@ void MainWindow::syncTextureTreeSelection()
 {
     // SINCRONIZZA L'ALBERO TEXTURE AL CAMBIO MODALITÀ
     ui->treeTextures->clearSelection();
-    QTreeWidgetItemIterator itTex(ui->treeTextures);
 
     // Texture SPENTA: a schermo non c'e' alcuna texture, quindi l'albero non
     // deve indicarne una. Il codice resta in memoria (per poterla riaccendere),
@@ -37,7 +36,7 @@ void MainWindow::syncTextureTreeSelection()
     // Nome di libreria della texture cercata, ciascuna con la SUA ancora: la
     // superficie globale m_scene.textureLibName, lo sfondo
     // m_scene.bgTextureLibName, una fascia MeshPart::textureLibName
-    // (vedi selectTextureTreeItemFor).
+    // (vedi LibraryTreeFocus::selectTexture).
     QString libName;
     if (editingBackground()) {
         // SFONDO: il suo stato e' nel motore (isBackgroundTextureEnabled).
@@ -105,9 +104,7 @@ void MainWindow::syncTextureTreeSelection()
         }
     }
 
-    QString cleanedActive =  TextureCode::cleanForComparison(activeCode);
-
-    selectTextureTreeItemFor(itTex, activeCode, cleanedActive, libName);
+    LibraryTreeFocus::selectTexture(ui->treeTextures, m_libraryManager, activeCode, libName);
 }
 
 // Sceglie e seleziona nell'albero la voce che corrisponde alla texture attiva.
@@ -507,25 +504,6 @@ bool MainWindow::syncBackgroundTextureFrom(const LibraryItem *lib)
     return true;
 }
 
-// Voce di libreria col nome dato, o nullptr. Unica scansione dell'albero per le
-// due ancore (texture di superficie e di sfondo): due copie dello stesso ciclo
-// finirebbero per divergere alla prima correzione.
-const LibraryItem *MainWindow::textureLibraryItemNamed(const QString &name) const
-{
-    if (name.isEmpty() || !ui->treeTextures) return nullptr;
-    QTreeWidgetItemIterator it(ui->treeTextures);
-    while (*it) {
-        QVariant v = (*it)->data(0, Qt::UserRole + 1);
-        if (v.isValid()) {
-            const LibraryItem &item = m_libraryManager.getTexture(v.toInt());
-            if (QString::compare(name, item.name.trimmed(), Qt::CaseInsensitive) == 0)
-                return &item;
-        }
-        ++it;
-    }
-    return nullptr;
-}
-
 // Voce di libreria da cui viene la texture DI SUPERFICIE, e SOLO se c'e'
 // davvero qualcosa da aggiornare: serve sia al comando sia al gate della voce di
 // menu, che deve restare spenta quando non farebbe nulla.
@@ -534,7 +512,7 @@ const LibraryItem *MainWindow::textureLibraryItemNamed(const QString &name) cons
 // (rinominata o cancellata), oppure il codice e' gia' identico.
 const LibraryItem *MainWindow::focusedTextureLibraryItem() const
 {
-    const LibraryItem *item = textureLibraryItemNamed(m_scene.textureLibName);
+    const LibraryItem *item = LibraryTreeFocus::textureNamed(ui->treeTextures, m_libraryManager, m_scene.textureLibName);
     if (!item) return nullptr;
 
     const bool isImplicit = (implicitMode());
@@ -568,7 +546,7 @@ const LibraryItem *MainWindow::focusedTextureLibraryItem() const
 const LibraryItem *MainWindow::focusedBgTextureLibraryItem() const
 {
     if (m_scene.bgTextureCode.trimmed().isEmpty()) return nullptr;
-    const LibraryItem *item = textureLibraryItemNamed(m_scene.bgTextureLibName);
+    const LibraryItem *item = LibraryTreeFocus::textureNamed(ui->treeTextures, m_libraryManager, m_scene.bgTextureLibName);
     if (!item || item->isImage) return nullptr;
 
     const QString libCode = item->textureCode.isEmpty() ? item->scriptCode : item->textureCode;
@@ -595,7 +573,7 @@ QVector<MainWindow::MeshTextureSync> MainWindow::focusedMeshTextureLibraryItems(
     for (int k = 0; k < (int)parts.size(); ++k) {
         const MeshPart &p = parts[k];
         if (!p.hasCustomTexture || p.textureLibName.isEmpty()) continue;
-        const LibraryItem *item = textureLibraryItemNamed(p.textureLibName);
+        const LibraryItem *item = LibraryTreeFocus::textureNamed(ui->treeTextures, m_libraryManager, p.textureLibName);
         if (!item || item->isImage) continue;
         const QString libCode = item->textureCode.isEmpty() ? item->scriptCode : item->textureCode;
         if (TextureCode::cleanForComparison(libCode) == TextureCode::cleanForComparison(p.textureCode)) continue;
@@ -653,76 +631,6 @@ bool MainWindow::syncMeshTexturesFrom(const QVector<MeshTextureSync> &items)
     m_userStoppedMeshTexClock = false;
     ui->glWidget->update();
     return true;
-}
-
-// IL NOME ARRIVA DAL CHIAMANTE, e non si legge piu' qui m_scene.textureLibName.
-// Quel campo e' il nome della sola texture GLOBALE DI SUPERFICIE: lo scrive
-// handleTextureSelection soltanto su quel ramo (sfondo e fascia escono prima) e
-// il record lo salva nel blocco "texture". Leggendolo qui dentro valeva per
-// QUALUNQUE ricerca: cercando la texture di SFONDO si trovava il nome della
-// superficie, e siccome il nome vince sul codice l'albero tornava sulla texture
-// della superficie. Sintomo: record con texture su superficie E sfondo, radio
-// Background nel Renderer -> focus rimasto sulla superficie.
-// Solo il chiamante sa QUALE texture sta cercando, e passa l'ancora di QUELLA:
-// m_scene.textureLibName per la superficie, m_scene.bgTextureLibName per lo
-// sfondo, MeshPart::textureLibName per una fascia (vuoto nei record salvati
-// prima dell'ancora per-mesh: li' la ricerca e' per solo codice).
-void MainWindow::selectTextureTreeItemFor(QTreeWidgetItemIterator &itTex,
-                                          const QString &activeCode,
-                                          const QString &cleanedActive,
-                                          const QString &libName)
-{
-    // activeCode.trimmed(): cosi' anche un'immagine (solo tag //IMG:) entra.
-    if (activeCode.trimmed().isEmpty()) return;
-
-    QTreeWidgetItem *byCode = nullptr;
-    QTreeWidgetItem *byName = nullptr;
-    while (*itTex) {
-        QVariant vTex = (*itTex)->data(0, Qt::UserRole + 1);
-        if (vTex.isValid()) {
-            const LibraryItem &texItem = m_libraryManager.getTexture(vTex.toInt());
-            if (!byCode && TextureCode::itemMatchesCode(texItem, activeCode, cleanedActive))
-                byCode = *itTex;
-            if (!byName && !libName.isEmpty()
-                && QString::compare(libName, texItem.name.trimmed(),
-                                    Qt::CaseInsensitive) == 0)
-                byName = *itTex;
-            // NESSUN break anticipato sul codice. Prima si usciva appena una
-            // voce rispondeva per codice, e questo IMPEDIVA di scoprire che piu'
-            // avanti nell'albero c'era la voce col NOME esatto del record.
-        }
-        ++itTex;
-    }
-
-    // IL NOME VINCE SUL CODICE, quando c'e'. E' il contrario di quanto valeva
-    // prima, ed e' il punto di questa modifica.
-    //
-    // "Il codice vince" ha una buona ragione -- il codice e' cio' che si DISEGNA,
-    // e indicare una voce che renderebbe diversamente sarebbe una bugia -- ma
-    // vale solo fra voci che il nome NON distingue. Quando il record porta un
-    // libName e quella voce esiste, e' l'informazione piu' precisa che abbiamo:
-    // dice da quale voce la texture VIENE, mentre il codice, da solo, non
-    // distingue due preset che lo condividono.
-    //
-    // Caso misurato: "Fluid Iridescence" e "Fluid Iridescence TEST" hanno lo
-    // STESSO codice colore e differiscono per il solo displacement. Il record
-    // puntava (correttamente) a TEST, ma l'albero evidenziava Fluid Iridescence
-    // -- la prima incontrata nella scansione. Cliccando la voce evidenziata si
-    // caricava una texture DIVERSA da quella del record, e il disallineamento
-    // che ne seguiva sembrava un bug del Sync: in realta' era il focus a
-    // indicare la voce sbagliata.
-    //
-    // Il fallback sul codice resta per i record SENZA libName (tutti quelli
-    // salvati prima che il campo esistesse) e per quando la voce col nome e'
-    // stata rinominata o cancellata.
-    QTreeWidgetItem *hit = byName ? byName : byCode;
-    if (!hit) return;
-
-    hit->setSelected(true);
-    ui->treeTextures->setCurrentItem(hit);
-    for (QTreeWidgetItem *parent = hit->parent(); parent; parent = parent->parent())
-        parent->setExpanded(true);
-    ui->treeTextures->scrollToItem(hit);
 }
 
 void MainWindow::uncheckInExclusiveGroup(QAbstractButton *btn)

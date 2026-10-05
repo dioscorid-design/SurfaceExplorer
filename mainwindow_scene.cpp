@@ -2764,78 +2764,13 @@ void MainWindow::applyMotionExample(LibraryItem data)
 
     // 9. HIGHLIGHT AUTOMATICO: SELEZIONA TEXTURE E SUONI NELL'ALBERO
     // A. Sincronizzazione Suoni (Cerca l'audio in TUTTI gli script attivi!)
-    ui->treeSounds->clearSelection();
-
-    QString fullAudioSearchCode = m_scene.soundScriptText + "\n" + m_scene.surfaceTextureCode + "\n" + m_scene.bgTextureCode;
-
-    if (!fullAudioSearchCode.trimmed().isEmpty()) {
-
-        // FUNZIONE DI PULIZIA AGGRESSIVA (Rimuove TUTTI i commenti e gli spazi)
-        auto cleanAudioForComparison = [](QString str) {
-            str.remove(QRegularExpression(R"(//.*$)", QRegularExpression::MultilineOption));
-            str.remove(QRegularExpression(R"(/\*.*?\*/)", QRegularExpression::DotMatchesEverythingOption));
-            str.replace(QRegularExpression("\\s+"), "");
-            return str;
-        };
-
-        QString normLoadedSound = cleanAudioForComparison(fullAudioSearchCode);
-
-        // DUE CRITERI, come per le texture (selectTextureTreeItemFor): il NOME
-        // salvato nel record (m_scene.soundLibName) vince sul confronto del
-        // codice, che resta il fallback per i record senza ancora e per una voce
-        // rinominata o cancellata. Il nome vale solo se in scena c'e' davvero un
-        // audio: il testo cercato qui contiene anche i codici delle texture, che
-        // non sono un suono.
-        const QString sndLibName = m_scene.soundScriptText.trimmed().isEmpty()
-                                 ? QString() : m_scene.soundLibName;
-        QTreeWidgetItem *sndByCode = nullptr;
-        QTreeWidgetItem *sndByName = nullptr;
-
-        QTreeWidgetItemIterator itSnd(ui->treeSounds);
-        while (*itSnd) {
-            QVariant vSnd = (*itSnd)->data(0, Qt::UserRole + 3);
-            if (vSnd.isValid()) {
-                int idx = vSnd.toInt();
-                const LibraryItem &sndItem = m_libraryManager.getSound(idx);
-                bool isMatch = false;
-
-                if (!sndByName && !sndLibName.isEmpty()
-                    && QString::compare(sndLibName, sndItem.name.trimmed(),
-                                        Qt::CaseInsensitive) == 0)
-                    sndByName = *itSnd;
-
-                bool isMedia = sndItem.filePath.endsWith(".mp3", Qt::CaseInsensitive) ||
-                        sndItem.filePath.endsWith(".wav", Qt::CaseInsensitive) ||
-                        sndItem.filePath.endsWith(".ogg", Qt::CaseInsensitive);
-
-                if (isMedia) {
-                    // MATCH ROBUSTO PER MEDIA: Estrae e confronta solo il nome del file (usando il codice NON pulito)
-                    QString fileName = QFileInfo(sndItem.filePath).fileName();
-                    if (!fileName.isEmpty() && fullAudioSearchCode.contains(fileName)) {
-                        isMatch = true;
-                    }
-                } else if (!sndItem.scriptCode.isEmpty()) {
-                    // MATCH PER SCRIPT PROCEDURALI: Usa il codice pulito (solo matematica GLSL)
-                    QString normLibSound = cleanAudioForComparison(sndItem.scriptCode);
-
-                    if (!normLibSound.isEmpty() && normLoadedSound.contains(normLibSound)) {
-                        isMatch = true;
-                    }
-                }
-
-                if (isMatch && !sndByCode) sndByCode = *itSnd;   // il primo, come prima
-            }
-            ++itSnd;
-        }
-
-        if (QTreeWidgetItem *hit = sndByName ? sndByName : sndByCode) {
-            hit->setSelected(true);
-            ui->treeSounds->setCurrentItem(hit);
-            for (QTreeWidgetItem *parent = hit->parent(); parent; parent = parent->parent())
-                parent->setExpanded(true);
-            ui->treeSounds->scrollToItem(hit);
-        }
-    }
+    const QString fullAudioSearchCode = m_scene.soundScriptText + "\n" + m_scene.surfaceTextureCode
+                                        + "\n" + m_scene.bgTextureCode;
+    // Il nome vale solo se in scena c'e' davvero un audio: il testo cercato
+    // contiene anche i codici delle texture, che non sono un suono.
+    LibraryTreeFocus::selectSound(ui->treeSounds, m_libraryManager, fullAudioSearchCode,
+                                  m_scene.soundScriptText.trimmed().isEmpty()
+                                      ? QString() : m_scene.soundLibName);
 
     // B. Sincronizzazione Texture: stessa funzione dei cambi di mesh e di modalita'.
     // Qui c'era una COPIA della scelta "quale texture cercare" senza il ramo

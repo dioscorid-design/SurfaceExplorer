@@ -433,7 +433,7 @@ void MainWindow::setupEquationsDock()
         // Tenerlo non fa danni: un codice divergente lo vede il gate, che
         // confronta i due testi e abilita la voce; e se davvero non c'entra
         // piu' nulla, il focus nell'albero ricade sul match per CODICE, che
-        // ha sempre la precedenza sul nome (selectTextureTreeItemFor: due
+        // ha sempre la precedenza sul nome (LibraryTreeFocus::selectTexture: due
         // passate, prima il codice).
         updateMasterButtonState();
     };

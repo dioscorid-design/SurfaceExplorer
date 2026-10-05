@@ -958,10 +958,7 @@ void MainWindow::renameLibraryItem(QTreeWidgetItem *item)
         for (QTreeWidgetItemIterator it(tree); *it; ++it) {
             if ((*it)->data(0, Qt::UserRole + 10).toString() != newPath) continue;
             tree->clearSelection();
-            (*it)->setSelected(true);
-            tree->setCurrentItem(*it);
-            for (QTreeWidgetItem *p = (*it)->parent(); p; p = p->parent()) p->setExpanded(true);
-            tree->scrollToItem(*it);
+            LibraryTreeFocus::focus(tree, *it);
             break;
         }
     }
@@ -1641,11 +1638,7 @@ void MainWindow::refreshAndSelectPreset(QTreeWidget *tree, const QString &path)
     while (*it) {
         if ((*it)->toolTip(0) == path) {
             tree->clearSelection();
-            (*it)->setSelected(true);
-            tree->setCurrentItem(*it);
-            QTreeWidgetItem* parent = (*it)->parent();
-            while (parent) { parent->setExpanded(true); parent = parent->parent(); }
-            tree->scrollToItem(*it);
+            LibraryTreeFocus::focus(tree, *it);
             break;
         }
         ++it;

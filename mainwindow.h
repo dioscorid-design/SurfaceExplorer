@@ -20,6 +20,7 @@
 #include "camerapaths.h"
 #include "texturecode.h"
 #include "libraryfolders.h"
+#include "librarytreefocus.h"
 #include "librarymanager.h"
 #include "synthesizer.h"
 
@@ -1614,14 +1615,8 @@ private:
     // il reset: e' la sola strada per cui una scena intera entra in m_scene.
     void assignSceneTexts(const SceneState &s);
 
-    // Scansione dell'albero texture e selezione della voce corrispondente.
-    // Unica sede. libName: l'ancora della texture cercata (superficie, sfondo o
-    // fascia), che vince sul codice; VUOTO se non nota, e allora si cerca per
-    // solo codice. Vedi il commento sulla definizione.
-    void selectTextureTreeItemFor(QTreeWidgetItemIterator &itTex,
-                                  const QString &activeCode,
-                                  const QString &cleanedActive,
-                                  const QString &libName);
+    // (Scansione dell'albero texture e selezione della voce corrispondente:
+    // LibraryTreeFocus::selectTexture.)
 
 public:
     // "Sync Focused Texture" (menu contestuale dei record): riporta nella scena
@@ -1653,8 +1648,6 @@ public:
     const LibraryItem *focusedTextureLibraryItem() const;
     const LibraryItem *focusedBgTextureLibraryItem() const;
     QVector<MeshTextureSync> focusedMeshTextureLibraryItems() const;
-    // Voce di libreria col nome dato: unica scansione per le due ancore.
-    const LibraryItem *textureLibraryItemNamed(const QString &name) const;
     // File del record in scena: il menu confronta con quello cliccato.
     QString currentRecordPath() const { return m_currentRecordPath; }
 
