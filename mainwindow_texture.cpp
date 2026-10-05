@@ -806,7 +806,10 @@ void MainWindow::handleTextureSelection(int index)
     // Vale anche per lo SFONDO: legge lo stesso mathParams della superficie e
     // della texture, quindi una lettera contesa muove due cose insieme
     // esattamente come sul modulo di superficie.
-    {
+    // Non se la texture fa cambiare modalita': la superficie in scena sta per
+    // essere sostituita da quella di default, che non usa costanti, e la
+    // domanda si sommerebbe al popup del cambio.
+    if (!textureNeedsModeSwitch(data)) {
         const QString incomingTex = data.textureCode.isEmpty() ? data.scriptCode
                                                                : data.textureCode;
         if (!confirmTextureConstantClash(incomingTex, data.displacementCode,
@@ -872,6 +875,8 @@ void MainWindow::handleTextureSelection(int index)
         texIsImplicit = currentIsImplicit;
     }
 
+    // (texIsImplicit != currentIsImplicit qui equivale a textureNeedsModeSwitch:
+    // lo sfondo e' gia' uscito, e un'immagine prende la modalita' corrente.)
     if (texIsImplicit != currentIsImplicit
         && !switchModeForLibraryTexture(data, texIsImplicit))
         return;   // l'utente ha annullato il cambio di modalita'
@@ -1113,6 +1118,12 @@ void MainWindow::applyLibraryTextureToBackground(const LibraryItem &data)
     refreshConstants();
 }
 
+bool MainWindow::textureNeedsModeSwitch(const LibraryItem &data) const
+{
+    if (editingBackground() || data.isImage) return false;
+    return data.isImplicitMode != implicitMode();
+}
+
 // La texture e' di modalita' opposta a quella in scena: si cambia modalita'
 // (con la superficie di default), dopo averlo chiesto. false = annullato.
 bool MainWindow::switchModeForLibraryTexture(const LibraryItem &data, bool texIsImplicit)
@@ -1125,16 +1136,26 @@ bool MainWindow::switchModeForLibraryTexture(const LibraryItem &data, bool texIs
     // Va fatto PRIMA di toccare qualunque cosa: currentChanged scatta a tab
     // gia' cambiato e da li' non si potrebbe piu' dire di no.
     //
-    // La conferma per la texture l'ha gia' chiesta onExampleItemClicked
-    // prima di arrivare qui (e qui la texture e' proprio cio' che si sta
-    // caricando, quindi non c'e' piu' niente di suo da difendere): resta
-    // da difendere la scena, e il suono che il reset azzera. Qui ScopeScene
-    // e' corretto -- il cambio di modalita' la distrugge davvero -- e un
-    // popup solo li elenca entrambi.
+    // E' l'UNICA domanda di questo gesto: il click nella Library non chiede
+    // della texture quando la modalita' cambia (textureNeedsModeSwitch), e la
+    // costante contesa non si controlla (la superficie se ne va). Qui
+    // ScopeScene e' corretto -- il cambio di modalita' distrugge davvero la
+    // scena -- e il popup elenca tutto cio' che e' sporco (scena, texture,
+    // suono), dicendo PERCHE' la superficie se ne va: senza, toccando una
+    // texture si vedeva solo "vuoi salvare la scena?" (deciso con l'utente il
+    // 2026-10-05).
     // Solo a scena SPORCA, di proposito: una scena gia' su disco (un record
     // appena aperto) non ha nulla da perdere, e un popup in piu' su ogni
-    // cambio di modalita' appesantirebbe il flusso senza proteggere nulla.
-    if (!confirmDiscardUnsaved(ScopeScene)) {
+    // cambio di modalita' appesantirebbe il flusso senza proteggere nulla
+    // (deciso con l'utente il 2026-09-24; un tentativo di forzarlo e' stato
+    // ritirato).
+    // UN popup solo, col motivo: il click nella Library non ha chiesto della
+    // texture (vedi textureNeedsModeSwitch), quindi qui si difende tutto --
+    // scena, texture e suono -- e si dice perche' la superficie se ne va.
+    const QString reason = texIsImplicit
+        ? QStringLiteral("This texture needs Ray Marching: the current surface will be replaced by the default sphere.")
+        : QStringLiteral("This texture needs a parametric surface: the current one will be replaced by the default torus.");
+    if (!confirmDiscardUnsaved(ScopeScene, reason)) {
         // Annullato: la scena resta com'era, ma nell'albero e' rimasto
         // evidenziato l'item appena cliccato (la selezione la fa il click,
         // prima di arrivare qui). Si rimette il focus sulla texture

@@ -231,7 +231,14 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             // qui della scena intera (cosa che una texture pure cambia) faceva
             // uscire un popup a ogni modifica, anche quando la texture non era
             // stata toccata.
-            if (!confirmDiscardUnsaved(ScopeTexture)) {
+            // ...tranne quando la texture fa cambiare modalita': allora si perde
+            // anche la SCENA, e lo chiede switchModeForLibraryTexture con UN
+            // popup che elenca texture, scena e suono e dice perche'. Chiedere
+            // anche qui faceva due popup, e il secondo riproponeva la texture.
+            const QVariant texIdx = item->data(0, Qt::UserRole + 1);
+            const bool switchesMode = texIdx.isValid()
+                && textureNeedsModeSwitch(m_libraryManager.getTexture(texIdx.toInt()));
+            if (!switchesMode && !confirmDiscardUnsaved(ScopeTexture)) {
                 // Annullato: l'item cliccato e' gia' selezionato (la selezione
                 // la fa il click) e indicherebbe una texture che non e' stata
                 // caricata. Si rimette il focus su quella realmente in vigore,

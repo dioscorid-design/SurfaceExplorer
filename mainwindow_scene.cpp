@@ -439,7 +439,7 @@ MainWindow::RunOutcomeGuard::~RunOutcomeGuard()
 // chiedeva della scena intera. Caricare una texture cambia si' la scena, ma
 // far uscire li' l'avviso "stai perdendo la scena" produceva una raffica di
 // popup a ogni modifica: la domanda si fa quando si perde la scena INTERA.
-bool MainWindow::confirmDiscardUnsaved(DiscardScope scope)
+bool MainWindow::confirmDiscardUnsaved(DiscardScope scope, const QString &reason)
 {
     // Qualunque salvataggio parta da qui e' un "salva prima di buttare via":
     // subito dopo il chiamante carica un altro preset o resetta la scena, ed e'
@@ -522,10 +522,10 @@ bool MainWindow::confirmDiscardUnsaved(DiscardScope scope)
     box.setWindowTitle("Unsaved work");
     box.setText(what + (parts.size() == 1 ? " has unsaved changes."
                                           : " have unsaved changes."));
-    box.setInformativeText(
-        parts.size() == 1
-            ? "They will be discarded. Do you want to save first?"
-            : "They will be discarded. Save them as a Record to keep them all in one file.");
+    const QString advice = parts.size() == 1
+            ? QStringLiteral("They will be discarded. Do you want to save first?")
+            : QStringLiteral("They will be discarded. Save them as a Record to keep them all in one file.");
+    box.setInformativeText(reason.isEmpty() ? advice : reason + QStringLiteral("\n\n") + advice);
     QPushButton *saveBtn    = box.addButton("Save",       QMessageBox::AcceptRole);
     QPushButton *discardBtn = box.addButton("Don't save", QMessageBox::DestructiveRole);
     box.addButton("Cancel", QMessageBox::RejectRole);
