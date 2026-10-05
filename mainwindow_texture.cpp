@@ -1141,21 +1141,20 @@ bool MainWindow::switchModeForLibraryTexture(const LibraryItem &data, bool texIs
     // costante contesa non si controlla (la superficie se ne va). Qui
     // ScopeScene e' corretto -- il cambio di modalita' distrugge davvero la
     // scena -- e il popup elenca tutto cio' che e' sporco (scena, texture,
-    // suono), dicendo PERCHE' la superficie se ne va: senza, toccando una
-    // texture si vedeva solo "vuoi salvare la scena?" (deciso con l'utente il
-    // 2026-10-05).
-    // Solo a scena SPORCA, di proposito: una scena gia' su disco (un record
-    // appena aperto) non ha nulla da perdere, e un popup in piu' su ogni
-    // cambio di modalita' appesantirebbe il flusso senza proteggere nulla
-    // (deciso con l'utente il 2026-09-24; un tentativo di forzarlo e' stato
-    // ritirato).
-    // UN popup solo, col motivo: il click nella Library non ha chiesto della
-    // texture (vedi textureNeedsModeSwitch), quindi qui si difende tutto --
-    // scena, texture e suono -- e si dice perche' la superficie se ne va.
-    const QString reason = texIsImplicit
-        ? QStringLiteral("This texture needs Ray Marching: the current surface will be replaced by the default sphere.")
-        : QStringLiteral("This texture needs a parametric surface: the current one will be replaced by the default torus.");
-    if (!confirmDiscardUnsaved(ScopeScene, reason)) {
+    // suono).
+    // Solo a scena SPORCA, di proposito, e senza un avviso dedicato al cambio
+    // di superficie: una scena gia' su disco (un record appena aperto) non ha
+    // nulla da perdere, e un popup in piu' su ogni cambio di modalita'
+    // appesantirebbe il flusso senza proteggere nulla. Deciso con l'utente il
+    // 2026-09-24 (un tentativo di forzarlo e' stato ritirato) e confermato il
+    // 2026-10-05: provato un motivo nel testo di questo popup ("This texture
+    // needs Ray Marching..."), tolto -- compariva solo a scena modificata,
+    // quindi il cambio restava comunque senza avviso nel caso piu' comune, e
+    // con l'uso il cambio di superficie diventa normale.
+    // UN popup solo: il click nella Library non ha chiesto della texture (vedi
+    // textureNeedsModeSwitch), quindi qui si difende tutto -- scena, texture e
+    // suono.
+    if (!confirmDiscardUnsaved(ScopeScene)) {
         // Annullato: la scena resta com'era, ma nell'albero e' rimasto
         // evidenziato l'item appena cliccato (la selezione la fa il click,
         // prima di arrivare qui). Si rimette il focus sulla texture

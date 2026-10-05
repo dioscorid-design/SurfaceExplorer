@@ -266,10 +266,8 @@ private:
     // Popup chiusi dal test (errori e avvisi; non il "Don't save" ne' il
     // watchdog): per verificare che un gesto NON ne apra.
     int m_popupsClosed = 0;
-    // Popup "lavoro non salvato" a cui il test ha risposto "Don't save", e il
-    // testo informativo dell'ultimo (vi sta il motivo, quando c'e').
+    // Popup "lavoro non salvato" a cui il test ha risposto "Don't save".
     int m_discardPrompts = 0;
-    QString m_lastDiscardInfo;
 };
 
 #endif // SCENARIOTEST_H

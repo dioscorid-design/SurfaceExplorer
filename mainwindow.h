@@ -145,11 +145,7 @@ private slots:
     // radice dell'albero, dove "records" tiene insieme l'intera scena; con
     // ScopeTexture/ScopeSound guarda il solo flag di quel modulo e punta
     // diritto al suo ramo. false se l'utente annulla: non si procede.
-    // reason (solo ScopeScene): PERCHE' la scena se ne va, quando non e' il
-    // gesto stesso a dirlo (una texture che fa cambiare modalita'). Va nel
-    // testo informativo: nel titolo un testo lungo allarga il box a tutto
-    // schermo su iPhone.
-    bool confirmDiscardUnsaved(DiscardScope scope, const QString &reason = QString());
+    bool confirmDiscardUnsaved(DiscardScope scope);
     // La texture di libreria si applica in una modalita' diversa da quella in
     // scena, quindi sceglierla cambia modalita' e sostituisce la superficie
     // con quella di default. Mai per lo sfondo ne' per un'immagine, che valgono

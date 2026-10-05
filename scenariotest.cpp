@@ -107,7 +107,6 @@ ScenarioTest::ScenarioTest(MainWindow *mw, const QString &root, const QString &o
             for (QAbstractButton *b : mb->buttons()) {
                 if (mb->buttonRole(b) == QMessageBox::DestructiveRole) {
                     ++m_discardPrompts;
-                    m_lastDiscardInfo = mb->informativeText();
                     m_lines.append(QStringLiteral("        popup, Don't save: ") + desc.simplified());
                     b->click();
                     return;
@@ -3527,11 +3526,11 @@ void ScenarioTest::runTextureTargetScenarios()
     }
 
     // TEXTURE DI MODALITA' OPPOSTA a scena e texture da salvare: UN popup solo
-    // (quello della scena, che elenca anche la texture), col MOTIVO nel testo.
-    // Prima il click chiedeva della texture e poi il cambio di modalita' della
-    // scena: due popup, e il secondo non diceva perche' la superficie se ne va.
+    // (quello della scena, che elenca anche la texture). Prima il click
+    // chiedeva della texture e poi il cambio di modalita' della scena: due
+    // popup, e il secondo riproponeva la texture.
     m_lines.append(QString());
-    m_lines.append(QStringLiteral("== Texture di modalita' opposta: un popup solo, col motivo =="));
+    m_lines.append(QStringLiteral("== Texture di modalita' opposta: un popup solo =="));
     if (loadSurface(QStringLiteral("surfaces/Parametric/Equations/R3/Torus.json"))
         && selectTexture(QStringLiteral("textures/Procedurals/Plasma.json"))) {
         setScriptMode(MainWindow::ScriptModeTexture);
@@ -3546,8 +3545,6 @@ void ScenarioTest::runTextureTargetScenarios()
             check(m_discardPrompts == prompts + 1 && m_popupsClosed == closed,
                   QStringLiteral("texture Ray Marching -> popup %1 (atteso 1), altri %2")
                       .arg(m_discardPrompts - prompts).arg(m_popupsClosed - closed));
-            check(m_lastDiscardInfo.contains(QLatin1String("needs Ray Marching")),
-                  QStringLiteral("il popup dice perche': %1").arg(m_lastDiscardInfo.left(80)));
             check(m_mw->implicitMode(), QStringLiteral("poi la scena e' in Ray Marching"));
         }
     }
