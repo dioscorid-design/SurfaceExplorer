@@ -66,7 +66,7 @@
                 <h4 style="margin-top: 0;">The Scale Factor Trick (0.1 Multiplier)</h4>
                 <p>If your surface looks broken or has external artifacts, the standard mathematical practice is to multiply the entire equation by a small scale factor (Lipschitz bound). <br><br>
                 <strong>Example:</strong> Change <code>x^2 + y^2 + z^2 + 2*x*y*z - 1.0</code> to <code>0.1 * (x^2 + y^2 + z^2 + 2*x*y*z - 1.0)</code>.</p>
-                <p style="margin-bottom: 0;">This artificially reduces the steepness of the function, forcing the ray to take smaller, safer steps without altering the actual shape of your object.</p>
+                <p style="margin-bottom: 0;">This artificially reduces the steepness of the function, forcing the ray to take smaller, safer steps without altering the actual shape of your object or its shading.</p>
             </div>
 
             <p><strong>Shell vs. Solid Stability:</strong> These artifacts are especially prominent in <strong>Shell</strong> mode. Because the shell is a thin wall, a fast-traveling ray can jump right through it without detecting a hit, which shows up as holes that open and close as the camera moves. The first thing to try is the <strong>Precise</strong> marcher (see below): it finds the wall by where the equation changes sign, so it misses it far less often. Raising <strong>Shell Thickness</strong> works too, by giving the ray a wider wall to land on. If you don't specifically need the hollow shell effect, <strong>Solid</strong> mode is more robust still. The <code>0.1</code> multiplier and a lower <strong>Step Relax (S)</strong> remain useful too.</p>
