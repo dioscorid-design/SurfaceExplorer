@@ -174,6 +174,10 @@ private:
     // salvati prima (tag della fascia = immagine della superficie) non cambiano.
     // Da sola: --scenario-only mesh-image.
     void runMeshImageScenarios();
+    // Orologi delle fasce a master fermo: una texture data a UNA fascia dalla
+    // Library (nuova, riclic, checkbox) fa ripartire solo quella, come dal
+    // dock Script. Da sola: --scenario-only mesh-clocks.
+    void runMeshClockScenarios();
     // RESET DELLA SCENA (NEW, cambio di linguetta, riclic, nei due modi e nel
     // Cross Section): dopo ogni reset la scena e' MainWindow::defaultScene,
     // calcolata prima dal punto di partenza. Da sola: --scenario-only reset-scene.

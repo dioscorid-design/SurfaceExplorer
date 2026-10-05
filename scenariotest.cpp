@@ -1210,6 +1210,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("mesh-clocks")) {
+        runMeshClockScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("library-folder")) {
         runLibraryFolderScenarios();
         finish();
@@ -2945,6 +2950,7 @@ void ScenarioTest::run()
     runScriptDockScenarios();
     runTextureTargetScenarios();
     runMeshImageScenarios();
+    runMeshClockScenarios();
     runRecordTextureScenarios();
     runLibraryFolderScenarios();
     runLibraryPasteScenarios();
@@ -3767,6 +3773,79 @@ void ScenarioTest::runScriptDockScenarios()
                   .arg(briefCode(m_mw->surfaceTextureScript())));
         setScriptMode(MainWindow::ScriptModeSurface);
     }
+}
+
+void ScenarioTest::runMeshClockScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    auto click = [this](QAbstractButton *b) { b->click(); wait(200); };
+    // Fasce (da 1) col proprio orologio acceso.
+    auto animating = [gl] {
+        QList<int> on;
+        const auto &parts = gl->getEngine()->getMeshParts();
+        for (int k = 0; k < (int)parts.size(); ++k)
+            if (parts[k].texAnimating) on << k + 1;
+        return on;
+    };
+    auto names = [](const QList<int> &l) {
+        QStringList s;
+        for (int k : l) s << QString::number(k);
+        return s.isEmpty() ? QStringLiteral("nessuna") : s.join(QLatin1Char(','));
+    };
+    const QString rec = QStringLiteral("records/Solid Wireframe/Multi Mesh/Hopf Parallel.json");
+    const QString staticTex = QStringLiteral("textures/Procedurals/Stripes.json");
+    const QString animTex = QStringLiteral("textures/Procedurals/Animated Gradient.json");
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Orologi delle fasce a master fermo (%1) ==").arg(rec));
+    if (!loadRecord(rec)) return;
+    if (!ui->radioMeshOne->isChecked()) click(ui->radioMeshOne);
+    check(!animating().isEmpty(), QStringLiteral("load -> fasce animate in moto (%1)").arg(names(animating())));
+    if (m_mw->m_btnStart->text().toUpper() == QLatin1String("STOP")) click(m_mw->m_btnStart);
+    wait(300);
+    check(animating().isEmpty(), QStringLiteral("master Stop -> nessuna fascia in moto (%1)").arg(names(animating())));
+
+    ui->spinMeshSel->setValue(6);  wait(300);
+    if (selectTexture(staticTex))
+        check(animating().isEmpty(),
+              QStringLiteral("fascia 6, texture statica dalla Library -> nessuna riparte (%1)").arg(names(animating())));
+    ui->spinMeshSel->setValue(2);  wait(300);
+    if (selectTexture(animTex))
+        check(animating() == QList<int>{ 2 },
+              QStringLiteral("fascia 2, texture animata dalla Library -> parte solo lei (%1)").arg(names(animating())));
+    if (selectTexture(animTex))
+        check(animating() == QList<int>{ 2 },
+              QStringLiteral("fascia 2, riclic sulla stessa -> ancora solo lei (%1)").arg(names(animating())));
+    click(ui->chkBoxTexture);
+    check(animating().isEmpty(),
+          QStringLiteral("fascia 2, checkbox spento -> nessuna in moto (%1)").arg(names(animating())));
+    click(ui->chkBoxTexture);
+    check(animating() == QList<int>{ 2 },
+          QStringLiteral("fascia 2, checkbox riacceso -> parte solo lei (%1)").arg(names(animating())));
+    // Riferimento: il Run del dock Script sulla fascia 3 (animata nel record).
+    ui->spinMeshSel->setValue(3);  wait(300);
+    setScriptMode(MainWindow::ScriptModeTexture);
+    m_mw->onRunCurrentScript();  wait(400);
+    check(animating() == QList<int>{ 2, 3 },
+          QStringLiteral("fascia 3, Run del dock Script -> riparte anche lei (%1)").arg(names(animating())));
+    setScriptMode(MainWindow::ScriptModeSurface);
+    // Un gesto che non riguarda le fasce non le riaccende.
+    pressEnter(ui->lineA);
+    check(animating() == QList<int>{ 2, 3 },
+          QStringLiteral("Invio su una costante -> nessun'altra fascia riparte (%1)").arg(names(animating())));
+    // Fascia animata nel record (ferma dal master) che riceve una STATICA.
+    ui->spinMeshSel->setValue(1);  wait(300);
+    if (selectTexture(staticTex))
+        check(animating() == QList<int>{ 2, 3 },
+              QStringLiteral("fascia 1, texture statica dalla Library -> nessun'altra riparte (%1)").arg(names(animating())));
+    ui->spinMeshSel->setValue(4);  wait(300);
+    if (selectTexture(animTex))
+        check(animating() == QList<int>{ 2, 3, 4 },
+              QStringLiteral("fascia 4, texture animata dalla Library -> parte anche lei (%1)").arg(names(animating())));
+    wait(2000);
+    check(animating() == QList<int>{ 2, 3, 4 },
+          QStringLiteral("dopo due secondi -> nessuna ripartita da sola (%1)").arg(names(animating())));
 }
 
 void ScenarioTest::runMeshImageScenarios()
