@@ -19,6 +19,7 @@
 #include "scenestate.h"
 #include "camerapaths.h"
 #include "texturecode.h"
+#include "libraryfolders.h"
 #include "librarymanager.h"
 #include "synthesizer.h"
 
@@ -1317,7 +1318,6 @@ private:
     void setNavControlsEnabled(bool enabled);
 
     // --- Library & File I/O ---
-    void syncResourcesToFolder(const QString &resourcePath, const QString &diskPath, bool forceRestore = false, int *overwriteState = nullptr);
     void refreshRepositories();
 
     // RILETTURA DELLA LIBRERIA CHE NON SPEGNE I MOTI.
@@ -1498,16 +1498,6 @@ private:
     // cambio vero (currentChanged) sia dal riclic sulla linguetta gia' attiva,
     // che currentChanged non emette: stesso ruolo di applyModeTabReset.
     void applyImplicitSubTabReset(int subIndex);
-    QString presetsRootPath() const;
-    // Data la cartella che l'utente ha indicato in un pannello, restituisce la
-    // RADICE DELLA LIBRERIA: quella cartella stessa se e' gia' una radice (dentro
-    // c'e' almeno uno dei quattro rami), altrimenti la sottocartella dei preset.
-    // Unico punto che decide se appendere: senza, indicare una libreria esistente
-    // la duplicava dentro se' stessa (presets/presets). Vedi il corpo per il
-    // perche' il nome della sottocartella va letto DA DISCO.
-    static QString resolveLibraryRoot(const QString &pickedDir);
-    bool resolveNeedsCopy(const QString& src, const QString& dst,
-                          bool forceRestore, bool isDeleted, int* overwriteState);
 
     // --- Parsing, Strings & Scripts ---
     float parseMath(const QString &text, bool *ok = nullptr);

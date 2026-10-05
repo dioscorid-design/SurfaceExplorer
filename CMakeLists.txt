@@ -102,6 +102,8 @@ qt_add_executable(SurfaceExplorer
     texturecode.cpp
     texturecode.h
     texthelpers.h
+    libraryfolders.cpp
+    libraryfolders.h
 
     # --- ENGINE & PARSING ---
     surfaceengine.cpp

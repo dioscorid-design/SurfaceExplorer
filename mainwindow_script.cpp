@@ -1309,7 +1309,7 @@ QString MainWindow::extractAudioDirectives(const QString& fullText) {
             QSettings settings;
             QString rootPath;
 
-            rootPath = presetsRootPath();
+            rootPath = LibraryFolders::root();
 
             QString sndDir = settings.value("pathSounds", rootPath + "/sounds").toString();
 

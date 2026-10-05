@@ -1682,7 +1682,7 @@ void MainWindow::finishStartup()
                     // scambiare una libreria irraggiungibile per una cartella vuota.
                     //
                     // RECUPERO: la cartella e' la libreria, o ne contiene una in
-                    // "presets" (casi 1 e 2 di resolveLibraryRoot) -> si riprende
+                    // "presets" (casi 1 e 2 di LibraryFolders::resolveRoot) -> si riprende
                     // quella, senza installare niente.
                     //
                     // NUOVA INSTALLAZIONE: nessuna libreria in vista -- la vecchia e'
@@ -1694,8 +1694,8 @@ void MainWindow::finishStartup()
                     // alla prima installazione: "<scelta>/presets" e preset di
                     // fabbrica. Eccezione: se la cartella indicata si chiama gia'
                     // "presets" si usa lei, per non creare presets/presets.
-                    QString clean = resolveLibraryRoot(picked);
-                    const bool newInstall = !dirIsLibraryRoot(QDir(clean));
+                    QString clean = LibraryFolders::resolveRoot(picked);
+                    const bool newInstall = !LibraryFolders::isLibraryRoot(QDir(clean));
                     if (newInstall
                         && QFileInfo(pickedClean).fileName().compare(
                                QLatin1String("presets"), Qt::CaseInsensitive) == 0) {

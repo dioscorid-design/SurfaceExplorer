@@ -30,7 +30,7 @@
 //   - DMG / Developer ID : macos_release.entitlements NON ha app-sandbox, quindi
 //                          nessuna redirezione: la stringa basta e avanza.
 //   - build di sviluppo  : idem, non e' sandboxed.
-//   - iOS / Android      : non usano affatto libraryRootPath; presetsRootPath()
+//   - iOS / Android      : non usano affatto libraryRootPath; LibraryFolders::root()
 //                          ricalcola il percorso a ogni chiamata dal sistema.
 // Fuori da macOS-sandbox queste funzioni sono no-op che rispondono ESATTAMENTE
 // come il vecchio QDir::exists(), cosi' DMG/Windows/Linux non cambiano di una

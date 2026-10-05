@@ -1232,7 +1232,7 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     } else {
         QString startPath = suggestedPath;
 
-        const QString recordsRoot = m_mainWindow->presetsRootPath() + "/records";
+        const QString recordsRoot = LibraryFolders::root() + "/records";
 
         if (!isUsableStartDir(startPath)) {
             QTreeWidgetItem *selItem = m_mainWindow->getCurrentLibraryItem();
@@ -1286,7 +1286,7 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         }
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-        MobileSaveDialog dialog("Save Record", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow, m_mainWindow->presetsRootPath() + "/records");
+        MobileSaveDialog dialog("Save Record", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow, LibraryFolders::root() + "/records");
         if (dialog.exec() != QDialog::Accepted) {
             if (wasRotating) m_mainWindow->ui->glWidget->resumeMotion();
             if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
@@ -1454,14 +1454,14 @@ void PresetSerializer::saveScript()
     // condivideva la chiave): fuori ramo il salvataggio verrebbe poi rifiutato
     // dal blocco "Save Blocked" di saveTexture/saveSound.
     //
-    // Il ramo NON si ricava appendendo il nome a presetsRootPath(): "Change
+    // Il ramo NON si ricava appendendo il nome a LibraryFolders::root(): "Change
     // Folder for Textures/Sounds/Surfaces" puo' portare un ramo FUORI dalla
     // radice, e le chiavi pathTextures/pathSounds/pathSurfaces sono la sede
     // autorevole di dov'e' finito. Con il solo percorso costruito a mano, un
     // ramo spostato risultava sempre "fuori ramo" e il dialogo veniva dirottato
     // su una cartella che nella libreria non e' piu' quel ramo.
     {
-        const QString rootFallback = m_mainWindow->presetsRootPath();
+        const QString rootFallback = LibraryFolders::root();
         const QString typeKey  = isSurface ? "pathSurfaces" : (isSound ? "pathSounds" : "pathTextures");
         const QString typeName = isSurface ? "/surfaces"    : (isSound ? "/sounds"    : "/textures");
         QString typeRoot = settings.value(typeKey, rootFallback + typeName).toString();
@@ -1490,9 +1490,9 @@ void PresetSerializer::saveScript()
         defaultName = QFileInfo(m_mainWindow->surfaceImagePath()).completeBaseName();
     // navFloor = radice del tipo corrente: l'Up e' disponibile quando currentMem e'
     // una sottocartella e si ferma alla radice (surfaces/sounds/textures). Su mobile
-    // presetsRootPath() e' il container fisso del sistema = radice reale sempre
+    // LibraryFolders::root() e' il container fisso del sistema = radice reale sempre
     // valida (niente workspace custom, che e' desktop-only).
-    QString presetsRoot = m_mainWindow->presetsRootPath();
+    QString presetsRoot = LibraryFolders::root();
     QString navFloor = isSurface ? presetsRoot + "/surfaces"
                      : (isSound  ? presetsRoot + "/sounds"
                                  : presetsRoot + "/textures");
@@ -1729,7 +1729,7 @@ void PresetSerializer::saveTextureAs(const QString &startDir, const QString &sou
     // una cartella texture GARANTITA e la creiamo (vedi saveSurface/saveMotion).
     QString effStartDir = startDir;
     if (!isUsableStartDir(effStartDir))
-        effStartDir = m_mainWindow->presetsRootPath() + "/textures";
+        effStartDir = LibraryFolders::root() + "/textures";
     if (!QDir(effStartDir).exists())
         QDir().mkpath(effStartDir);
 
@@ -1737,7 +1737,7 @@ void PresetSerializer::saveTextureAs(const QString &startDir, const QString &sou
     // navFloor = radice del tipo (textures): l'Up e' disponibile quando si parte
     // da una SOTTOCARTELLA e si ferma qui, senza salire nel filesystem sandbox.
     MobileSaveDialog dialog("Save Texture As...", effStartDir, defaultName, m_mainWindow,
-                            m_mainWindow->presetsRootPath() + "/textures");
+                            LibraryFolders::root() + "/textures");
 
     if (dialog.exec() != QDialog::Accepted) {
         // Se l'utente preme Cancel, riprendiamo l'animazione ed usciamo
@@ -1780,7 +1780,7 @@ void PresetSerializer::saveSurfaceAs(const QString &startDir, const QString &sou
     // del tipo, garantita esistente (stessa guardia di saveTextureAs/saveSoundAs).
     QString effStartDir = startDir;
     if (!isUsableStartDir(effStartDir))
-        effStartDir = m_mainWindow->presetsRootPath() + "/surfaces";
+        effStartDir = LibraryFolders::root() + "/surfaces";
     if (!QDir(effStartDir).exists())
         QDir().mkpath(effStartDir);
 
@@ -1792,7 +1792,7 @@ void PresetSerializer::saveSurfaceAs(const QString &startDir, const QString &sou
     // navFloor = radice del tipo (surfaces): Up disponibile dalle sottocartelle,
     // fermo alla radice.
     MobileSaveDialog dialog("Save Surface As...", effStartDir, baseName, m_mainWindow,
-                            m_mainWindow->presetsRootPath() + "/surfaces");
+                            LibraryFolders::root() + "/surfaces");
 
     if (dialog.exec() != QDialog::Accepted) {
         // Se l'utente preme Cancel, riprendiamo l'animazione ed usciamo
@@ -1831,7 +1831,7 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
     // una cartella sound GARANTITA e la creiamo (vedi saveSurface/saveMotion).
     QString effStartDir = startDir;
     if (!isUsableStartDir(effStartDir))
-        effStartDir = m_mainWindow->presetsRootPath() + "/sounds";
+        effStartDir = LibraryFolders::root() + "/sounds";
     if (!QDir(effStartDir).exists())
         QDir().mkpath(effStartDir);
 
@@ -1872,7 +1872,7 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
     QString baseName = QFileInfo(defaultSelection).completeBaseName();
     // navFloor = radice del tipo (sounds): Up dalle sottocartelle, fermo alla radice.
     MobileSaveDialog dialog("Save Sound As...", effStartDir, baseName, m_mainWindow,
-                            m_mainWindow->presetsRootPath() + "/sounds");
+                            LibraryFolders::root() + "/sounds");
 
     if (dialog.exec() != QDialog::Accepted) {
         if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
@@ -1995,7 +1995,7 @@ void PresetSerializer::saveMotionAs(const QString &startDir, const QString &sour
     // del tipo, garantita esistente (stessa guardia di saveTextureAs/saveSoundAs).
     QString effStartDir = startDir;
     if (!isUsableStartDir(effStartDir))
-        effStartDir = m_mainWindow->presetsRootPath() + "/records";
+        effStartDir = LibraryFolders::root() + "/records";
     if (!QDir(effStartDir).exists())
         QDir().mkpath(effStartDir);
 
@@ -2006,7 +2006,7 @@ void PresetSerializer::saveMotionAs(const QString &startDir, const QString &sour
     QString baseName = QFileInfo(defaultSelection).completeBaseName();
     // navFloor = radice del tipo (records): Up dalle sottocartelle, fermo alla radice.
     MobileSaveDialog dialog("Save Record As...", effStartDir, baseName, m_mainWindow,
-                            m_mainWindow->presetsRootPath() + "/records");
+                            LibraryFolders::root() + "/records");
 
     if (dialog.exec() != QDialog::Accepted) {
         // Se l'utente preme Cancel, riprendiamo l'animazione ed usciamo
@@ -2069,7 +2069,7 @@ bool PresetSerializer::saveUnsavedWorkInteractive()
     };
 
     // Radice reale della libreria: la cartella che CONTIENE i quattro rami.
-    QString root = m_mainWindow->presetsRootPath();
+    QString root = LibraryFolders::root();
     if (root.isEmpty()) {
 #if defined(Q_OS_ANDROID)
         root = "/storage/emulated/0/Documents/SurfaceExplorer_Presets";

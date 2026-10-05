@@ -191,7 +191,7 @@ void releaseAll()
 #else // !Q_OS_MACOS
 
 // iOS, Android, Windows, Linux: nessuna sandbox con Powerbox di mezzo. iOS e
-// Android non passano nemmeno da qui (presetsRootPath ricalcola il percorso dal
+// Android non passano nemmeno da qui (LibraryFolders::root ricalcola il percorso dal
 // sistema); Windows e Linux usano cartelle normali.
 namespace SecurityBookmark {
 

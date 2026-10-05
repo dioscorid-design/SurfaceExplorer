@@ -486,14 +486,14 @@ bool MainWindow::confirmDiscardUnsaved(DiscardScope scope)
             QString startDir = settings.value("lastCustomTexDir").toString();
             if (startDir.isEmpty() || startDir.contains("build", Qt::CaseInsensitive)
                 || !QDir(startDir).exists()) {
-                startDir = presetsRootPath() + "/textures";
+                startDir = LibraryFolders::root() + "/textures";
             }
             m_lastSaveSucceeded = false;
             m_presetSerializer->saveTextureAs(startDir, m_currentTexturePresetPath);
             return m_lastSaveSucceeded;   // vero solo se il file e' su disco
         }
         QString startDir = settings.value("pathSounds",
-                                          presetsRootPath() + "/sounds").toString();
+                                          LibraryFolders::root() + "/sounds").toString();
         m_lastSaveSucceeded = false;
         m_presetSerializer->saveSoundAs(startDir, "");
         return m_lastSaveSucceeded;

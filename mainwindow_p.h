@@ -12,9 +12,6 @@
 #include <QCryptographicHash>
 #include "ui_mainwindow.h"
 
-#ifdef Q_OS_MACOS
-#include <sys/xattr.h>   // getxattr: vedi dirIsCloudSynced
-#endif
 
 #include "surfaceengine.h"
 #include "expressionparser.h"
@@ -275,10 +272,3 @@ inline bool meshTextureAnimated(const MeshPart &mp,
 }
 
 
-// Definizione accanto a resolveLibraryRoot, in fondo al file: una cartella e'
-// una radice di libreria se contiene almeno uno dei quattro rami. Dichiarata
-// qui perche' la usa gia' il costruttore (dialogo di recupero della libreria).
-bool dirIsLibraryRoot(const QDir &dir);
-// Definita accanto a dirIsLibraryRoot, in fondo al file: dice se la cartella
-// vive dentro iCloud Drive o un altro servizio di sincronizzazione.
-bool dirIsCloudSynced(const QString &path);
