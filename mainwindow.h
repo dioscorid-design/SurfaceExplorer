@@ -1652,6 +1652,17 @@ private:
     bool runRecordGeometry(const LibraryItem &data);   // true: scena da script
     void restartRecordClocks(const LibraryItem &data);
     void startRecordSound();
+    // PASSI DEL CLIC SU UNA VOCE DELLA LIBRARY (onExampleItemClicked).
+    // false = l'utente ha annullato nel popup del lavoro non salvato.
+    // Confermato: una texture su scena vuota ritrova la superficie di default,
+    // un preset che sostituisce la scena diventa m_lastLoadedLibraryItem.
+    bool confirmLibraryClick(QTreeWidget *src, QTreeWidgetItem *item);
+    void clearOtherLibraryTrees(QTreeWidget *src);
+    // La texture cliccata e' gia' quella in vigore sul bersaglio (codice,
+    // rilievo, file del preset, editor non svuotato).
+    bool libraryTextureIsActive(const LibraryItem &data);
+    // Riclic su una texture gia' attiva: orologio, colori e inquadratura del preset.
+    void restartActiveLibraryTexture(const LibraryItem &data);
     // LA SCENA DEL RESET (punto 5, tappa 5.4): cio' che resetScene(index,
     // loadDefaultSurface) lascia in m_scene, a partire dalla scena attuale --
     // al cambio di linguetta alcune parti sopravvivono (X/Y/Z/P verso il Ray
@@ -1659,6 +1670,16 @@ private:
     // il parametrico se non e' un riclic) -- e dalle memorie per modalita'
     // (steps, S). Non tocca nulla.
     SceneState defaultScene(int index, bool loadDefaultSurface, bool sameTabRestart) const;
+    // PASSI DI resetScene, nell'ordine in cui li chiama.
+    void stopSceneForReset();
+    void resetScriptEngineForNewScene();
+    void resetTextureAndSoundForNewScene();
+    void resetAppearanceForNewScene();
+    void resetRotationsForNewScene();
+    void resetEngineToImplicit(bool loadDefaultSurface);
+    void resetEngineToParametric(bool loadDefaultSurface);
+    void finishSceneReset();
+    void clearLibrarySelectionAfterReset();
     // ASSEGNA una scena intera a m_scene, con la vista dei campi: equazioni,
     // campi RM, costanti e domini, Shell/Solid e resa, slot di script,
     // texture, sfondo e suono, codice e colori dello sfondo, accensione e
@@ -1668,6 +1689,13 @@ private:
     // della texture (commitSurfaceTextureCode). La usano la testa del load e
     // il reset: e' la sola strada per cui una scena intera entra in m_scene.
     void assignSceneTexts(const SceneState &s);
+    // PASSI DI applyCommonData, nell'ordine in cui li chiama.
+    void resetEngineBeforePresetLoad(const LibraryItem &d);
+    void applyPresetRenderAndLimits(const LibraryItem &d, bool isShell);
+    void preparePresetScriptEngine(const LibraryItem &d, bool isScript);
+    void applyPresetScript(const LibraryItem &d, bool isShell);
+    void applyPresetEquations(const LibraryItem &d, bool isShell);
+    void finishPresetLoad(const LibraryItem &d, bool isScript);
 
     // (Scansione dell'albero texture e selezione della voce corrispondente:
     // LibraryTreeFocus::selectTexture.)

@@ -568,53 +568,10 @@ void MainWindow::applyModeTabReset(int index)
 // Corpo del reset, parametrizzato sulla superficie finale (vedi mainwindow.h).
 // Con loadDefaultSurface=false la pulizia e' IDENTICA ma non si scrive nessuna
 // equazione e non si compila nulla: resta la scena vuota del tasto New.
-void MainWindow::resetScene(int index, bool loadDefaultSurface)
+// ---- Passi di resetScene (le guardie RAII restano a lei) ----
+
+void MainWindow::stopSceneForReset()
 {
-    // All'uscita la scena e' pulita: niente lavoro da proteggere.
-    SceneCleanGuard sceneCleanGuard{this};
-    discardPendingLimitEdits();
-
-    // NEW, cambio tab, riclic sulla linguetta: la scena non e' piu' il record
-    // che era caricato (vedi m_currentRecordPath).
-    m_currentRecordPath.clear();
-    // ...e le modifiche in sospeso sono scartate con lei (vedi m_constantsEditPending).
-    m_constantsEditPending = false;
-
-    // RESET IN CORSO (m_populatingFields, vedi mainwindow.h). RIPRISTINO del
-    // valore precedente, non "false": resetScene puo' girare ANNIDATA dentro un
-    // caricamento (applyMotionExample forza la linguetta quando il record e' di
-    // modo opposto a quello a schermo), e azzerarlo di netto lo spegnerebbe
-    // anche per il resto del load.
-    const bool wasPopulating = m_populatingFields;
-    m_populatingFields = true;
-    struct ResetGuard {
-        MainWindow *w;
-        bool prev;
-        ~ResetGuard() { w->m_populatingFields = prev; }
-    } resetGuard{this, wasPopulating};
-
-    // LA SCENA DEL RESET (defaultScene), calcolata sulla scena che si lascia:
-    // al cambio di linguetta alcune parti sopravvivono. Si assegna piu' sotto,
-    // in blocco, a moti fermati.
-    const SceneState def = defaultScene(index, loadDefaultSurface, m_sameTabRestart);
-    // MEMORIE PER MODALITA': gli steps (e in Ray Marching lo Step Relax) del
-    // modo che si LASCIA, ritrovati al ritorno. Solo se lo si lascia davvero
-    // (il motore e' ancora sul modo di prima): un riclic, un NEW o il reset del
-    // sotto-tab restano nello stesso modo. Prima la memoria dell'altro modo si
-    // riscriveva anche li', coi valori di quello corrente: un riclic in Ray
-    // Marching dava al parametrico 400 di Steps, uno in parametrico al Ray
-    // Marching 100 Ray Steps.
-    {
-        const bool wasImplicit = ui->glWidget
-                                 && ui->glWidget->getEngineMode() == GLWidget::ModeImplicit;
-        if (index == 1 && !wasImplicit) {
-            m_lastParametricSteps = m_scene.steps;
-        } else if (index == 0 && wasImplicit) {
-            m_lastImplicitSteps = m_scene.steps;
-            m_lastImplicitS = m_scene.constants.s.toDouble();
-        }
-    }
-
     // Scena nuova: la scala della texture geodetica si rifissa al primo calcolo
     // (vedi setCustomMesh). Come al load di un preset -- e a differenza di un
     // semplice cambio di limiti, dove il riferimento deve restare fermo.
@@ -647,24 +604,10 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // restava su STOP e campi/tempo/flag del path sopravvivevano al tab.
     if (pathRunning(CameraPaths::Path4D)) onDepartureClicked();
     if (pathRunning(CameraPaths::Path3D)) onDeparture3DClicked();
+}
 
-    // LA SCENA DI DEFAULT, in blocco (assignSceneTexts, la stessa strada del
-    // load): equazioni, campi RM, costanti, slot, ancore, limiti e path. Le
-    // ancore azzerate sono il legame con la libreria della texture e dello
-    // sfondo tolti: dopo un NEW uno script scritto a mano si ritrovava in
-    // Library il focus sulla texture del record di prima (il nome vince sul
-    // codice). I path vuoti spengono i Departure (showLineFields). Il resto
-    // della funzione porta motore e controlli su questa scena.
-    assignSceneTexts(def);
-    setSteps(def.steps);
-
-    // Stato di sessione dei path azzerato, come al load di un record
-    // (vedi applyMotionExample): un futuro Departure riparte da t=0 e
-    // da orientamento neutro.
-    m_paths->resetSession();
-    // ...e i comandi dei path (vista, velocita', ultimo moto, path compilato).
-    resetMotionControls();
-
+void MainWindow::resetScriptEngineForNewScene()
+{
     // ==========================================================
     // AGGIORNAMENTO UI E PULIZIA MOTORE SCRIPT AL CAMBIO TAB
     // ==========================================================
@@ -717,8 +660,10 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // L'editor segue gli slot (e' la loro vista), i tasti con lui.
     updateScriptButtonText();
     exitMetricScriptMode();
-    // ==========================================================
+}
 
+void MainWindow::resetTextureAndSoundForNewScene()
+{
     // ==========================================================
     // GESTIONE STATI TEXTURE
     // ==========================================================
@@ -747,43 +692,10 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     if (ui->btnRunCurrentScript && ui->btnRunCurrentScript->text() == "Stop Sound") {
         ui->btnRunCurrentScript->setText("Run Sound");
     }
+}
 
-    // 2. Resetta i colori al default per evitare "sanguinamenti" dai record precedenti
-    //
-    // I reset che seguono (colore, e piu' sopra alpha/luce/wireframe) sono lo
-    // stato della SUPERFICIE DI DEFAULT, non un comando dell'utente su una
-    // parte: vanno scritti sullo stato globale. Senza il bypass, con una mesh
-    // ancora selezionata dal preset multi-mesh precedente (es. "Hopf Tori Mesh
-    // Colors"), setColor passa da applyToActiveMeshPart e il verde finisce
-    // DENTRO la MeshPart invece che nei membri globali: la sfera di default
-    // lampeggiava verde e tornava subito al colore del preset (giallo).
-    // NB: clearMeshParts() piu' sopra svuota solo m_declaredParts; m_meshParts
-    // (cio' che mutableMeshPart legge) sopravvive, quindi la parte attiva e'
-    // ancora valida qui. Stesso schema del load superficie (~8654).
-    // Il BYPASS si accende PRIMA di lasciare la mesh, ma la selezione si
-    // molla DOPO aver riscritto i colori globali (piu' sotto). Ordine
-    // obbligato: mentre la superficie multi-mesh e' a schermo ogni parte
-    // disegna dal proprio MeshPart e i membri globali red/green/blue non
-    // vengono mai esercitati, quindi restano su un valore stantio (il loro
-    // inizializzatore e' bianco, glwidget.h:809). setActiveMeshPart chiama
-    // update(): mollando la selezione per prima, il repaint che ne segue
-    // trova la sfera di default -- che e' a mesh singola e disegna dai
-    // globali -- ancora BIANCA, ed e' il lampo bianco al caricamento.
-    // Col bypass acceso setColor scrive gia' sui globali anche a mesh
-    // attiva, quindi si puo' sistemare il colore e solo allora deselezionare.
-    // RIPRISTINO del valore precedente, non "false": resetScene gira anche
-    // ANNIDATA in un load (un record di modo opposto a quello a schermo fa
-    // cambiare linguetta), e spegnerlo di netto toglieva il bypass al resto del
-    // load -- l'alpha globale del record finiva nella fascia 0 gia' creata
-    // (Villarceau Tubes Drift dopo un record Ray Marching, round-trip).
-    const bool prevBypass = ui->glWidget && ui->glWidget->meshAppearanceBypass();
-    if (ui->glWidget) ui->glWidget->setMeshAppearanceBypass(true);
-    struct MeshBypassGuard {
-        MainWindow *w;
-        bool prev;
-        ~MeshBypassGuard() { if (w->ui->glWidget) w->ui->glWidget->setMeshAppearanceBypass(prev); }
-    } meshBypassGuard{this, prevBypass};
-
+void MainWindow::resetAppearanceForNewScene()
+{
     // (Colore e colori 1/2 dello sfondo: scena di default, in testa.) Il verde
     // della superficie vive solo nel motore.
     const QColor defaultGreen = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
@@ -847,8 +759,10 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         ui->lblValLight->setText("100 %");
         if (ui->glWidget) ui->glWidget->setLightIntensity(1.0f);
     }
-    // ==========================================================
+}
 
+void MainWindow::resetRotationsForNewScene()
+{
     // ==========================================================
     // RESET ROTAZIONI (oggetto 3D + 4D) -- COMUNE AI DUE RAMI
     // ==========================================================
@@ -895,254 +809,253 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         ui->glWidget->setSurfaceAnimating(false);
     }
     if (m_btnStart) m_btnStart->setText("START");
+}
 
-    // COSTANTI: A..F al default (1), nessun dominio dello script e la S del
-    // modo sono gia' nella scena di default, assegnata piu' sopra. Erano
-    // l'ultimo stato della scena precedente a sopravvivere a cambio tab e NEW
-    // (in Ray Marching il giudizio "non usata" a equazione vuota non le
-    // riscrive, apposta), e i domini ("A := int(2,6)") dello script scartato
-    // continuavano a far scattare gli slider. La superficie di default del
-    // Cross Section ha costanti PROPRIE (il T^3 degenera senza A > B > C): le
-    // scrive loadCrossSectionDefaultSurface, nel ramo implicito.
+void MainWindow::resetEngineToImplicit(bool loadDefaultSurface)
+{
+    // --- PASSAGGIO A IMPLICIT (RAY MARCHING) ---
+    // (Campi RM, slot, Step Relax, Ray Steps e taglio x/y/z: scena di
+    // default, assegnata in blocco piu' sopra. Qui motore e controlli.)
 
-    if (index == 1) { // --- PASSAGGIO A IMPLICIT (RAY MARCHING) ---
-        // (Campi RM, slot, Step Relax, Ray Steps e taglio x/y/z: scena di
-        // default, assegnata in blocco piu' sopra. Qui motore e controlli.)
-
-        // ILLUMINAZIONE AL DEFAULT (Basic, niente speculare, niente 4D).
-        // Il ramo PARAMETRICO qui sotto lo faceva gia'; questo no, e il modello
-        // restava quello della scena precedente: arrivando in Ray Marching da una
-        // superficie in Phong, le due superfici di default (sfera del sotto-tab
-        // 3D e T^3 del Cross Section) si presentavano in Phong -- ereditando un
-        // aspetto che nessuno aveva scelto per loro. Bug preesistente al Cross
-        // Section, che si limitava a raddoppiarne le occorrenze.
-        //
-        // Il motore va scritto ESPLICITAMENTE, non solo muovendo il radio:
-        // setChecked(true) su un radio GIA' selezionato non emette toggled, e
-        // l'handler onRenderRadioToggled -- che e' quello che riscrive il motore
-        // -- non girerebbe. E' il caso "ero gia' in Basic ma con lo speculare
-        // acceso da un preset".
-        refreshRenderRadios();
-        if (ui->glWidget) {
-            ui->glWidget->setSpecularEnabled(false);   // spegne il Phong residuo
-            ui->glWidget->set4DLighting(false);        // non usata in ray marching
-            ui->glWidget->setLightingMode4D(0);
-        }
-        m_scene.lightingMode4D = 0;
-        if (ui->btnLightMode) ui->btnLightMode->setText("Directional Lighting");
-
-        // 2. Ferma il timer dell'animazione shader (rotazioni, tempo e path
-        // camera sono già stati fermati nei blocchi comuni più sopra).
-        ui->glWidget->stopAnimationTimer();
-
-        // 4. Texture e rilievo fuori dal motore (la forma nuda)
-        ui->glWidget->setTextureCode("");
-        ui->glWidget->setDisplacementCode("");
-
-        ui->glWidget->setBackgroundTextureEnabled(false);
-        forgetBackgroundTexture();
-
-        // (Lo slot della texture di SUPERFICIE e' vuoto nella scena di
-        // default: restando pieno, l'editor -- che lo legge -- ripescava il
-        // codice della texture spenta e il dock Script tornava sporco.)
-
-        // (Il bersaglio e' gia' tornato su Surface nella parte comune, sopra.)
-
-        // 5. L'equazione e' quella della scena di default: la sfera, o VUOTA
-        // in entrambi i sotto-tab per NEW (un New "a meta'" lasciava scritta
-        // l'equazione del Cross Section, al contrario del 3D e del parametrico).
-
-        // ==========================================================
-        // ADATTAMENTO SLIDER "S" IN "STEP RELAX" (MEMORIA SEPARATA)
-        // ==========================================================
-        ui->lblS->setText("Step Relax");
-        // Memoria protetta: un valore non positivo congela i raggi (la scena
-        // di default l'ha gia' letta cosi').
-        if (m_lastImplicitS <= 0.0) m_lastImplicitS = 0.4;
-        // Il valore e' nella scena; lo slider (range 0..1, allargato se serve)
-        // lo segue.
-        refreshConstantSliders();
-        // ==========================================================
-
-        // --- SETUP MODALITA' RAY MARCHING (Originale) ---
-        ui->glWidget->setEngineMode(GLWidget::ModeImplicit);
-
-        ui->lblSteps->setText("Ray Steps=");
-
-        ui->glWidget->setRaySteps(m_scene.steps);
-
-        // Taglio x/y/z vuoto (scena di default): non taglia la superficie
-        if (ui->glWidget) {
-            applySpaceLimits(/*notify=*/false);   // campi vuoti: nessun taglio
-
-            // Reset completo della vista, come già fa il ramo Parametrico:
-            // in particolare spegne m_isPathFollowing, che dopo un record
-            // col path resterebbe acceso e la view continuerebbe il lookAt
-            // su m_pathTarget/m_pathUp stantii -> la sfera di default
-            // compariva spostata/inclinata. La distanza viene comunque
-            // forzata a 4.0 subito sotto (il salvavita zoom di
-            // resetTransformations da solo non basta).
-            ui->glWidget->resetTransformations();
-
-            // Distanza camera alla standard (4.0): la sfera di default ha
-            // raggio 1 e va vista da qui. Senza questo reset la camera resta a
-            // quella del RECORD RM caricato prima (resetTransformations PRESERVA
-            // la distanza corrente se >= 2.5, "salvavita zoom"), quindi la sfera
-            // appariva RIMPICCIOLITA e la sua dimensione dipendeva dal camera3D.z
-            // del record (es. N-Tours z=11.12). Stato persistente: ne' Run ne'
-            // cambi tab successivi la ripristinavano.
-            ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
-            ui->glWidget->setCameraYaw(0.0f);
-            ui->glWidget->setCameraPitch(0.0f);
-            ui->glWidget->setCameraRoll(0.0f);
-
-            // FIX 3: Compilazione e invio della sfera alla GPU
-            //
-            // Scena vuota: in Ray Marching non esiste una mesh da azzerare (il
-            // gate m_indexCount non governa questo ramo), quindi l'unico modo di
-            // non far vedere NIENTE e' dare al marcher un campo che non venga mai
-            // intersecato. Non si puo' passare "": createImplicitFragmentShader
-            // ha un fallback (~4077) che sostituisce la stringa vuota proprio con
-            // la sfera, e otterremmo l'opposto della scena vuota. Una costante
-            // positiva e' sempre > epsilon a ogni passo -> nessun hit, sfondo
-            // pulito, e lo shader compila (se non compilasse, il ripristino di
-            // emergenza in validateAndApplyImplicitShader rimetterebbe a schermo
-            // l'equazione PRECEDENTE).
-            const QString implicitEqF = loadDefaultSurface
-                                      ? QStringLiteral("(x^2 + y^2 + z^2) - (1.0)")
-                                      : QLatin1String(kEmptyImplicitField);
-            ui->glWidget->setImplicitEquation(implicitEqF);
-            ui->glWidget->validateAndApplyImplicitShader(implicitEqF, "", "");
-
-            // Shell/Solid tornano al default di avvio (Shell, vedi il setup a
-            // ~1926). Senza questo il reset alla sfera di default ereditava lo
-            // stile dell'ultimo preset/record RM caricato: i radio restavano
-            // dov'erano e il motore pure. Stessa implementazione condivisa dei
-            // due rami di load.
-            applyImplicitShellMode(true);
-
-            // Marcher: torna a Fast, il default di avvio (~2413). Stessa ragione
-            // di Shell/Solid qui sopra -- senza, il reset ereditava il marcher
-            // dell'ultimo preset caricato -- e stessa regola del tasto New:
-            // azzerare tutto, nessuna eccezione.
-            // setMarcherUI: motore e radio insieme, a segnali bloccati (il
-            // toggled dei radio e' il clic dell'utente).
-            setMarcherUI(false);
-
-            ui->glWidget->rebuildShader();
-
-            // Sotto-tab Cross Section: stessa idea, superficie di default
-            // propria (T^3). Sovrascrive quanto appena fatto sopra per il
-            // sotto-tab 3D SOLO se e' Cross Section quello attivo.
-            const bool crossSectionActive = crossSectionTab();
-            if (loadDefaultSurface && crossSectionActive) {
-                loadCrossSectionDefaultSurface();
-            }
-            // SCENA VUOTA dal Cross Section: il campo vuoto va applicato al SUO
-            // ramo. setImplicitEquation() qui sopra riporta il marcher al ramo
-            // 3D (lo fa apposta, vedi la sua nota), e le due righe sopra
-            // agiscono entrambe sul solo ramo 3D. Senza questo blocco il New
-            // lasciava m_eqCrossSectionF INTATTO, con dentro l'equazione
-            // precedente: a schermo la scena era vuota (coerente: il ramo vivo
-            // era il 3D col campo vuoto), ma lo STATO era incoerente -- sotto-tab
-            // Cross Section attivo e marcher sull'altro ramo.
-            // Si autocorreggeva al primo Invio, che passa useCrossSection=true:
-            // il guasto viveva nella finestra fra il New e quel commit, dove
-            // chiunque LEGGA il ramo attivo (p.es. isSceneEmpty) trovava il 3D
-            // mentre l'utente era nel Cross Section.
-            else if (!loadDefaultSurface && crossSectionActive) {
-                ui->glWidget->validateAndApplyImplicitShader(
-                            QLatin1String(kEmptyImplicitField), "", "",
-                            /*useCrossSection=*/true);
-                ui->glWidget->rebuildShader();
-            }
-        }
-    }
-    else { // --- PASSAGGIO A PARAMETRIC (TAB 0) ---
-        // (Equazioni, dominio, s e Steps: scena di default, assegnata in blocco
-        // piu' sopra. Qui motore e controlli.)
-
-        // 1. RESET FISICO (lo stop delle rotazioni e del tempo e' gia' stato
-        // fatto nel blocco comune ai due rami, qui sopra; i path camera nel
-        // blocco RESET PATH CAMERA piu' su).
-        ui->glWidget->resetTransformations();
-        // Distanza camera alla standard (4.0): il salvavita zoom di
-        // resetTransformations PRESERVA una distanza >= 2.5 (es. quella
-        // della camera del path/record appena abbandonato) e il toro di
-        // default apparirebbe da li'. Stesso riallineamento che il ramo
-        // Ray Marching fa per la sfera di default.
-        ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
-
-        // 2. RESET ILLUMINAZIONE E RENDER MODE (Fix Bug persistenza)
-        // Riportiamo tutto al modello "Basic" (Lambert) senza specolarità
-        refreshRenderRadios();
-        ui->glWidget->setSpecularEnabled(false); // Spegne Phong residuo
-
-        // Spegniamo categoricamente l'illuminazione 4D (non usata nel reset RM)
-        ui->glWidget->set4DLighting(false);
-        m_scene.lightingMode4D = 0;
-        if (ui->btnLightMode) ui->btnLightMode->setText("Directional Lighting");
+    // ILLUMINAZIONE AL DEFAULT (Basic, niente speculare, niente 4D).
+    // Il ramo PARAMETRICO qui sotto lo faceva gia'; questo no, e il modello
+    // restava quello della scena precedente: arrivando in Ray Marching da una
+    // superficie in Phong, le due superfici di default (sfera del sotto-tab
+    // 3D e T^3 del Cross Section) si presentavano in Phong -- ereditando un
+    // aspetto che nessuno aveva scelto per loro. Bug preesistente al Cross
+    // Section, che si limitava a raddoppiarne le occorrenze.
+    //
+    // Il motore va scritto ESPLICITAMENTE, non solo muovendo il radio:
+    // setChecked(true) su un radio GIA' selezionato non emette toggled, e
+    // l'handler onRenderRadioToggled -- che e' quello che riscrive il motore
+    // -- non girerebbe. E' il caso "ero gia' in Basic ma con lo speculare
+    // acceso da un preset".
+    refreshRenderRadios();
+    if (ui->glWidget) {
+        ui->glWidget->setSpecularEnabled(false);   // spegne il Phong residuo
+        ui->glWidget->set4DLighting(false);        // non usata in ray marching
         ui->glWidget->setLightingMode4D(0);
+    }
+    m_scene.lightingMode4D = 0;
+    if (ui->btnLightMode) ui->btnLightMode->setText("Directional Lighting");
 
-        // 3. RESET SFONDO E LIMITI
-        ui->glWidget->setBackgroundTextureEnabled(false);
-        forgetBackgroundTexture();
-        // (Bersaglio su Surface e checkbox Texture: gia' fatti nella parte
-        // comune, sopra, a segnali bloccati.)
+    // 2. Ferma il timer dell'animazione shader (rotazioni, tempo e path
+    // camera sono già stati fermati nei blocchi comuni più sopra).
+    ui->glWidget->stopAnimationTimer();
 
-        // I limiti sono al default in ENTRAMBI i casi (anche NEW): sono il
-        // dominio di lavoro, non la superficie. A campi vuoti servono comunque
-        // sensati, perche' il primo Run dell'utente li legge cosi' come sono
-        // (i limiti si applicano solo al Run, mai con Invio). Qui al motore.
-        updateULimits(); updateVLimits(); updateWLimits();
+    // 4. Texture e rilievo fuori dal motore (la forma nuda)
+    ui->glWidget->setTextureCode("");
+    ui->glWidget->setDisplacementCode("");
 
-        // 4. GEOMETRIA: il toro di default, o niente (NEW)
-        if (loadDefaultSurface) {
-            ui->glWidget->setParametricEquations(m_scene.eq.x, m_scene.eq.y,
-                                                 m_scene.eq.z, m_scene.eq.p);
-        } else {
-            // SCENA VUOTA. Non basta passare equazioni vuote a
-            // setParametricEquations: createVertexShaderSource le traduce in
-            // "0.0" (~4440), quindi lo shader compila benissimo e la griglia
-            // viene generata lo stesso -- tutti i vertici collassati
-            // nell'origine, cioe' un blob al centro invece del nulla.
-            // La mesh si svuota alla sorgente: clear() lascia vertici e indici
-            // vuoti e il ramo "mesh vuota" di render() azzera m_indexCount.
-            // Anche le equazioni del MOTORE, non solo i campi: restando quelle
-            // della superficie precedente, il primo updateSurfaceData() di
-            // chiunque (o un semplice cambio di risoluzione) la farebbe
-            // RIAPPARIRE dal nulla.
-            ui->glWidget->setParametricEquations("", "", "", "");
-            ui->glWidget->clearSceneGeometry();
+    ui->glWidget->setBackgroundTextureEnabled(false);
+    forgetBackgroundTexture();
+
+    // (Lo slot della texture di SUPERFICIE e' vuoto nella scena di
+    // default: restando pieno, l'editor -- che lo legge -- ripescava il
+    // codice della texture spenta e il dock Script tornava sporco.)
+
+    // (Il bersaglio e' gia' tornato su Surface nella parte comune, sopra.)
+
+    // 5. L'equazione e' quella della scena di default: la sfera, o VUOTA
+    // in entrambi i sotto-tab per NEW (un New "a meta'" lasciava scritta
+    // l'equazione del Cross Section, al contrario del 3D e del parametrico).
+
+    // ==========================================================
+    // ADATTAMENTO SLIDER "S" IN "STEP RELAX" (MEMORIA SEPARATA)
+    // ==========================================================
+    ui->lblS->setText("Step Relax");
+    // Memoria protetta: un valore non positivo congela i raggi (la scena
+    // di default l'ha gia' letta cosi').
+    if (m_lastImplicitS <= 0.0) m_lastImplicitS = 0.4;
+    // Il valore e' nella scena; lo slider (range 0..1, allargato se serve)
+    // lo segue.
+    refreshConstantSliders();
+    // ==========================================================
+
+    // --- SETUP MODALITA' RAY MARCHING (Originale) ---
+    ui->glWidget->setEngineMode(GLWidget::ModeImplicit);
+
+    ui->lblSteps->setText("Ray Steps=");
+
+    ui->glWidget->setRaySteps(m_scene.steps);
+
+    // Taglio x/y/z vuoto (scena di default): non taglia la superficie
+    if (ui->glWidget) {
+        applySpaceLimits(/*notify=*/false);   // campi vuoti: nessun taglio
+
+        // Reset completo della vista, come già fa il ramo Parametrico:
+        // in particolare spegne m_isPathFollowing, che dopo un record
+        // col path resterebbe acceso e la view continuerebbe il lookAt
+        // su m_pathTarget/m_pathUp stantii -> la sfera di default
+        // compariva spostata/inclinata. La distanza viene comunque
+        // forzata a 4.0 subito sotto (il salvavita zoom di
+        // resetTransformations da solo non basta).
+        ui->glWidget->resetTransformations();
+
+        // Distanza camera alla standard (4.0): la sfera di default ha
+        // raggio 1 e va vista da qui. Senza questo reset la camera resta a
+        // quella del RECORD RM caricato prima (resetTransformations PRESERVA
+        // la distanza corrente se >= 2.5, "salvavita zoom"), quindi la sfera
+        // appariva RIMPICCIOLITA e la sua dimensione dipendeva dal camera3D.z
+        // del record (es. N-Tours z=11.12). Stato persistente: ne' Run ne'
+        // cambi tab successivi la ripristinavano.
+        ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
+        ui->glWidget->setCameraYaw(0.0f);
+        ui->glWidget->setCameraPitch(0.0f);
+        ui->glWidget->setCameraRoll(0.0f);
+
+        // FIX 3: Compilazione e invio della sfera alla GPU
+        //
+        // Scena vuota: in Ray Marching non esiste una mesh da azzerare (il
+        // gate m_indexCount non governa questo ramo), quindi l'unico modo di
+        // non far vedere NIENTE e' dare al marcher un campo che non venga mai
+        // intersecato. Non si puo' passare "": createImplicitFragmentShader
+        // ha un fallback (~4077) che sostituisce la stringa vuota proprio con
+        // la sfera, e otterremmo l'opposto della scena vuota. Una costante
+        // positiva e' sempre > epsilon a ogni passo -> nessun hit, sfondo
+        // pulito, e lo shader compila (se non compilasse, il ripristino di
+        // emergenza in validateAndApplyImplicitShader rimetterebbe a schermo
+        // l'equazione PRECEDENTE).
+        const QString implicitEqF = loadDefaultSurface
+                                  ? QStringLiteral("(x^2 + y^2 + z^2) - (1.0)")
+                                  : QLatin1String(kEmptyImplicitField);
+        ui->glWidget->setImplicitEquation(implicitEqF);
+        ui->glWidget->validateAndApplyImplicitShader(implicitEqF, "", "");
+
+        // Shell/Solid tornano al default di avvio (Shell, vedi il setup a
+        // ~1926). Senza questo il reset alla sfera di default ereditava lo
+        // stile dell'ultimo preset/record RM caricato: i radio restavano
+        // dov'erano e il motore pure. Stessa implementazione condivisa dei
+        // due rami di load.
+        applyImplicitShellMode(true);
+
+        // Marcher: torna a Fast, il default di avvio (~2413). Stessa ragione
+        // di Shell/Solid qui sopra -- senza, il reset ereditava il marcher
+        // dell'ultimo preset caricato -- e stessa regola del tasto New:
+        // azzerare tutto, nessuna eccezione.
+        // setMarcherUI: motore e radio insieme, a segnali bloccati (il
+        // toggled dei radio e' il clic dell'utente).
+        setMarcherUI(false);
+
+        ui->glWidget->rebuildShader();
+
+        // Sotto-tab Cross Section: stessa idea, superficie di default
+        // propria (T^3). Sovrascrive quanto appena fatto sopra per il
+        // sotto-tab 3D SOLO se e' Cross Section quello attivo.
+        const bool crossSectionActive = crossSectionTab();
+        if (loadDefaultSurface && crossSectionActive) {
+            loadCrossSectionDefaultSurface();
         }
-
-        // 5. CONFIGURAZIONE ENGINE PARAMETRICO
-        ui->lblS->setText("s=");
-        // s = 0 (scena di default); lo slider (range -10..10) la segue.
-        refreshConstantSliders();
-
-        ui->glWidget->setEngineMode(GLWidget::ModeParametric);
-        ui->lblSteps->setText("Steps=");
-
-        ui->glWidget->setResolution(m_scene.steps);
-
-        if (loadDefaultSurface) {
-            ui->glWidget->updateSurfaceData();
-            // Inclinazione di cortesia con cui il toro di default si presenta.
-            ui->glWidget->addObjectRotation(30.0f, 30.0f, 0.0f);
-        } else {
-            // Niente updateSurfaceData(): chiama computeMesh(), che rigenererebbe
-            // la griglia. Lo svuotamento si ripete QUI, in fondo al ramo: fra il
-            // clear() piu' sopra e questo punto passano setEngineMode e
-            // setResolution, e l'ultima parola sulla geometria deve restare a
-            // "vuota" -- il ramo `loadDefaultSurface` simmetrico fa lo stesso con
-            // updateSurfaceData().
-            ui->glWidget->clearSceneGeometry();
+        // SCENA VUOTA dal Cross Section: il campo vuoto va applicato al SUO
+        // ramo. setImplicitEquation() qui sopra riporta il marcher al ramo
+        // 3D (lo fa apposta, vedi la sua nota), e le due righe sopra
+        // agiscono entrambe sul solo ramo 3D. Senza questo blocco il New
+        // lasciava m_eqCrossSectionF INTATTO, con dentro l'equazione
+        // precedente: a schermo la scena era vuota (coerente: il ramo vivo
+        // era il 3D col campo vuoto), ma lo STATO era incoerente -- sotto-tab
+        // Cross Section attivo e marcher sull'altro ramo.
+        // Si autocorreggeva al primo Invio, che passa useCrossSection=true:
+        // il guasto viveva nella finestra fra il New e quel commit, dove
+        // chiunque LEGGA il ramo attivo (p.es. isSceneEmpty) trovava il 3D
+        // mentre l'utente era nel Cross Section.
+        else if (!loadDefaultSurface && crossSectionActive) {
+            ui->glWidget->validateAndApplyImplicitShader(
+                        QLatin1String(kEmptyImplicitField), "", "",
+                        /*useCrossSection=*/true);
+            ui->glWidget->rebuildShader();
         }
+    }
+}
 
-        onStopClicked();
+void MainWindow::resetEngineToParametric(bool loadDefaultSurface)
+{
+    // --- PASSAGGIO A PARAMETRIC (TAB 0) ---
+    // (Equazioni, dominio, s e Steps: scena di default, assegnata in blocco
+    // piu' sopra. Qui motore e controlli.)
+
+    // 1. RESET FISICO (lo stop delle rotazioni e del tempo e' gia' stato
+    // fatto nel blocco comune ai due rami, qui sopra; i path camera nel
+    // blocco RESET PATH CAMERA piu' su).
+    ui->glWidget->resetTransformations();
+    // Distanza camera alla standard (4.0): il salvavita zoom di
+    // resetTransformations PRESERVA una distanza >= 2.5 (es. quella
+    // della camera del path/record appena abbandonato) e il toro di
+    // default apparirebbe da li'. Stesso riallineamento che il ramo
+    // Ray Marching fa per la sfera di default.
+    ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
+
+    // 2. RESET ILLUMINAZIONE E RENDER MODE (Fix Bug persistenza)
+    // Riportiamo tutto al modello "Basic" (Lambert) senza specolarità
+    refreshRenderRadios();
+    ui->glWidget->setSpecularEnabled(false); // Spegne Phong residuo
+
+    // Spegniamo categoricamente l'illuminazione 4D (non usata nel reset RM)
+    ui->glWidget->set4DLighting(false);
+    m_scene.lightingMode4D = 0;
+    if (ui->btnLightMode) ui->btnLightMode->setText("Directional Lighting");
+    ui->glWidget->setLightingMode4D(0);
+
+    // 3. RESET SFONDO E LIMITI
+    ui->glWidget->setBackgroundTextureEnabled(false);
+    forgetBackgroundTexture();
+    // (Bersaglio su Surface e checkbox Texture: gia' fatti nella parte
+    // comune, sopra, a segnali bloccati.)
+
+    // I limiti sono al default in ENTRAMBI i casi (anche NEW): sono il
+    // dominio di lavoro, non la superficie. A campi vuoti servono comunque
+    // sensati, perche' il primo Run dell'utente li legge cosi' come sono
+    // (i limiti si applicano solo al Run, mai con Invio). Qui al motore.
+    updateULimits(); updateVLimits(); updateWLimits();
+
+    // 4. GEOMETRIA: il toro di default, o niente (NEW)
+    if (loadDefaultSurface) {
+        ui->glWidget->setParametricEquations(m_scene.eq.x, m_scene.eq.y,
+                                             m_scene.eq.z, m_scene.eq.p);
+    } else {
+        // SCENA VUOTA. Non basta passare equazioni vuote a
+        // setParametricEquations: createVertexShaderSource le traduce in
+        // "0.0" (~4440), quindi lo shader compila benissimo e la griglia
+        // viene generata lo stesso -- tutti i vertici collassati
+        // nell'origine, cioe' un blob al centro invece del nulla.
+        // La mesh si svuota alla sorgente: clear() lascia vertici e indici
+        // vuoti e il ramo "mesh vuota" di render() azzera m_indexCount.
+        // Anche le equazioni del MOTORE, non solo i campi: restando quelle
+        // della superficie precedente, il primo updateSurfaceData() di
+        // chiunque (o un semplice cambio di risoluzione) la farebbe
+        // RIAPPARIRE dal nulla.
+        ui->glWidget->setParametricEquations("", "", "", "");
+        ui->glWidget->clearSceneGeometry();
     }
 
+    // 5. CONFIGURAZIONE ENGINE PARAMETRICO
+    ui->lblS->setText("s=");
+    // s = 0 (scena di default); lo slider (range -10..10) la segue.
+    refreshConstantSliders();
+
+    ui->glWidget->setEngineMode(GLWidget::ModeParametric);
+    ui->lblSteps->setText("Steps=");
+
+    ui->glWidget->setResolution(m_scene.steps);
+
+    if (loadDefaultSurface) {
+        ui->glWidget->updateSurfaceData();
+        // Inclinazione di cortesia con cui il toro di default si presenta.
+        ui->glWidget->addObjectRotation(30.0f, 30.0f, 0.0f);
+    } else {
+        // Niente updateSurfaceData(): chiama computeMesh(), che rigenererebbe
+        // la griglia. Lo svuotamento si ripete QUI, in fondo al ramo: fra il
+        // clear() piu' sopra e questo punto passano setEngineMode e
+        // setResolution, e l'ultima parola sulla geometria deve restare a
+        // "vuota" -- il ramo `loadDefaultSurface` simmetrico fa lo stesso con
+        // updateSurfaceData().
+        ui->glWidget->clearSceneGeometry();
+    }
+
+    onStopClicked();
+}
+
+void MainWindow::finishSceneReset()
+{
     // PROIEZIONE al default (1 = prospettica, come il costruttore ~1911).
     // Non la tocca nessuno degli altri reset: `resetTransformations` azzera le
     // rotazioni 4D e la camera, ma projectionMode e' stato di RENDERING, non una
@@ -1230,7 +1143,10 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     m_warnedEditedDock = OriginDefault;
     m_warnedOrigin     = OriginDefault;
     m_surfaceOrigin    = OriginDefault;
+}
 
+void MainWindow::clearLibrarySelectionAfterReset()
+{
     // A schermo c'e' ora la superficie di DEFAULT (toro/sfera) o il NULLA: in
     // nessuno dei due casi un item di libreria descrive cio' che si vede, e
     // lasciarne uno evidenziato indica una superficie che non c'e' piu'. Stessa
@@ -1284,6 +1200,135 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
         if (!m_texModeSwitchInProgress) tree->collapseAll();
         tree->blockSignals(b);
     }
+}
+
+void MainWindow::resetScene(int index, bool loadDefaultSurface)
+{
+    // All'uscita la scena e' pulita: niente lavoro da proteggere.
+    SceneCleanGuard sceneCleanGuard{this};
+    discardPendingLimitEdits();
+
+    // NEW, cambio tab, riclic sulla linguetta: la scena non e' piu' il record
+    // che era caricato (vedi m_currentRecordPath).
+    m_currentRecordPath.clear();
+    // ...e le modifiche in sospeso sono scartate con lei (vedi m_constantsEditPending).
+    m_constantsEditPending = false;
+
+    // RESET IN CORSO (m_populatingFields, vedi mainwindow.h). RIPRISTINO del
+    // valore precedente, non "false": resetScene puo' girare ANNIDATA dentro un
+    // caricamento (applyMotionExample forza la linguetta quando il record e' di
+    // modo opposto a quello a schermo), e azzerarlo di netto lo spegnerebbe
+    // anche per il resto del load.
+    const bool wasPopulating = m_populatingFields;
+    m_populatingFields = true;
+    struct ResetGuard {
+        MainWindow *w;
+        bool prev;
+        ~ResetGuard() { w->m_populatingFields = prev; }
+    } resetGuard{this, wasPopulating};
+
+    // LA SCENA DEL RESET (defaultScene), calcolata sulla scena che si lascia:
+    // al cambio di linguetta alcune parti sopravvivono. Si assegna piu' sotto,
+    // in blocco, a moti fermati.
+    const SceneState def = defaultScene(index, loadDefaultSurface, m_sameTabRestart);
+    // MEMORIE PER MODALITA': gli steps (e in Ray Marching lo Step Relax) del
+    // modo che si LASCIA, ritrovati al ritorno. Solo se lo si lascia davvero
+    // (il motore e' ancora sul modo di prima): un riclic, un NEW o il reset del
+    // sotto-tab restano nello stesso modo. Prima la memoria dell'altro modo si
+    // riscriveva anche li', coi valori di quello corrente: un riclic in Ray
+    // Marching dava al parametrico 400 di Steps, uno in parametrico al Ray
+    // Marching 100 Ray Steps.
+    {
+        const bool wasImplicit = ui->glWidget
+                                 && ui->glWidget->getEngineMode() == GLWidget::ModeImplicit;
+        if (index == 1 && !wasImplicit) {
+            m_lastParametricSteps = m_scene.steps;
+        } else if (index == 0 && wasImplicit) {
+            m_lastImplicitSteps = m_scene.steps;
+            m_lastImplicitS = m_scene.constants.s.toDouble();
+        }
+    }
+
+    stopSceneForReset();
+
+    // LA SCENA DI DEFAULT, in blocco (assignSceneTexts, la stessa strada del
+    // load): equazioni, campi RM, costanti, slot, ancore, limiti e path. Le
+    // ancore azzerate sono il legame con la libreria della texture e dello
+    // sfondo tolti: dopo un NEW uno script scritto a mano si ritrovava in
+    // Library il focus sulla texture del record di prima (il nome vince sul
+    // codice). I path vuoti spengono i Departure (showLineFields). Il resto
+    // della funzione porta motore e controlli su questa scena.
+    assignSceneTexts(def);
+    setSteps(def.steps);
+
+    // Stato di sessione dei path azzerato, come al load di un record
+    // (vedi applyMotionExample): un futuro Departure riparte da t=0 e
+    // da orientamento neutro.
+    m_paths->resetSession();
+    // ...e i comandi dei path (vista, velocita', ultimo moto, path compilato).
+    resetMotionControls();
+
+    resetScriptEngineForNewScene();
+    // ==========================================================
+
+    resetTextureAndSoundForNewScene();
+
+    // 2. Resetta i colori al default per evitare "sanguinamenti" dai record precedenti
+    //
+    // I reset che seguono (colore, e piu' sopra alpha/luce/wireframe) sono lo
+    // stato della SUPERFICIE DI DEFAULT, non un comando dell'utente su una
+    // parte: vanno scritti sullo stato globale. Senza il bypass, con una mesh
+    // ancora selezionata dal preset multi-mesh precedente (es. "Hopf Tori Mesh
+    // Colors"), setColor passa da applyToActiveMeshPart e il verde finisce
+    // DENTRO la MeshPart invece che nei membri globali: la sfera di default
+    // lampeggiava verde e tornava subito al colore del preset (giallo).
+    // NB: clearMeshParts() piu' sopra svuota solo m_declaredParts; m_meshParts
+    // (cio' che mutableMeshPart legge) sopravvive, quindi la parte attiva e'
+    // ancora valida qui. Stesso schema del load superficie (~8654).
+    // Il BYPASS si accende PRIMA di lasciare la mesh, ma la selezione si
+    // molla DOPO aver riscritto i colori globali (piu' sotto). Ordine
+    // obbligato: mentre la superficie multi-mesh e' a schermo ogni parte
+    // disegna dal proprio MeshPart e i membri globali red/green/blue non
+    // vengono mai esercitati, quindi restano su un valore stantio (il loro
+    // inizializzatore e' bianco, glwidget.h:809). setActiveMeshPart chiama
+    // update(): mollando la selezione per prima, il repaint che ne segue
+    // trova la sfera di default -- che e' a mesh singola e disegna dai
+    // globali -- ancora BIANCA, ed e' il lampo bianco al caricamento.
+    // Col bypass acceso setColor scrive gia' sui globali anche a mesh
+    // attiva, quindi si puo' sistemare il colore e solo allora deselezionare.
+    // RIPRISTINO del valore precedente, non "false": resetScene gira anche
+    // ANNIDATA in un load (un record di modo opposto a quello a schermo fa
+    // cambiare linguetta), e spegnerlo di netto toglieva il bypass al resto del
+    // load -- l'alpha globale del record finiva nella fascia 0 gia' creata
+    // (Villarceau Tubes Drift dopo un record Ray Marching, round-trip).
+    const bool prevBypass = ui->glWidget && ui->glWidget->meshAppearanceBypass();
+    if (ui->glWidget) ui->glWidget->setMeshAppearanceBypass(true);
+    struct MeshBypassGuard {
+        MainWindow *w;
+        bool prev;
+        ~MeshBypassGuard() { if (w->ui->glWidget) w->ui->glWidget->setMeshAppearanceBypass(prev); }
+    } meshBypassGuard{this, prevBypass};
+
+    resetAppearanceForNewScene();
+    // ==========================================================
+
+    resetRotationsForNewScene();
+
+    // COSTANTI: A..F al default (1), nessun dominio dello script e la S del
+    // modo sono gia' nella scena di default, assegnata piu' sopra. Erano
+    // l'ultimo stato della scena precedente a sopravvivere a cambio tab e NEW
+    // (in Ray Marching il giudizio "non usata" a equazione vuota non le
+    // riscrive, apposta), e i domini ("A := int(2,6)") dello script scartato
+    // continuavano a far scattare gli slider. La superficie di default del
+    // Cross Section ha costanti PROPRIE (il T^3 degenera senza A > B > C): le
+    // scrive loadCrossSectionDefaultSurface, nel ramo implicito.
+
+    if (index == 1) resetEngineToImplicit(loadDefaultSurface);
+    else            resetEngineToParametric(loadDefaultSurface);
+
+    finishSceneReset();
+
+    clearLibrarySelectionAfterReset();
 
     // Nuovo zero dei campi del dock 4D. In coda a TUTTO: questa funzione serve
     // il cambio tab, il riclic sulla linguetta e il tasto NEW, e in ognuno dei
@@ -3195,25 +3240,10 @@ void MainWindow::loadCrossSectionDefaultSurface()
     updateConstantsUIState();
 }
 
-void MainWindow::applyCommonData(LibraryItem d, const SceneState &file)
+// ---- Passi di applyCommonData (la guardia del load resta a lei) ----
+
+void MainWindow::resetEngineBeforePresetLoad(const LibraryItem &d)
 {
-    // CARICAMENTO IN CORSO (m_populatingFields, vedi mainwindow.h). RAII: il
-    // flag cade anche sui return anticipati piu' sotto. RIPRISTINO del valore
-    // precedente, non "false": applyMotionExample chiama questa funzione avendo
-    // gia' alzato il flag, e un azzeramento secco lo spegnerebbe a meta' del
-    // caricamento del record.
-    const bool wasPopulating = m_populatingFields;
-    m_populatingFields = true;
-    struct LoadGuard {
-        MainWindow *w;
-        bool prev;
-        ~LoadGuard() { w->m_populatingFields = prev; }
-    } loadGuard{this, wasPopulating};
-
-    // ==========================================================
-    // 1. RESET GLOBALE PRE-CARICAMENTO E UI
-    // ==========================================================
-
     m_geoInitialLoad = true;
 
     // Nuovo stato di partenza: la scala della texture geodetica va rifissata sul
@@ -3353,44 +3383,14 @@ void MainWindow::applyCommonData(LibraryItem d, const SceneState &file)
 
     // Etichette delle rotazioni: dal motore
     refreshRotationSpeedLabels();
+}
 
-    // LA SCENA DEL FILE, assegnata qui in blocco e PRIMA di ogni giudizio
-    // sulle costanti (assignSceneTexts, la stessa strada del reset). Il
-    // giudizio legge equazioni, limiti, path, l'equazione del sotto-tab attivo,
-    // texture e sfondo: una costante usata solo da uno di loro va tenuta, e
-    // prima li vedeva ancora del preset PRECEDENTE (le texture del record
-    // arrivavano dopo). Le direttive di VALORE dello script ("A := 1.2",
-    // "u_max := 4*pi") al load non si riapplicano (parseAndApplyScriptParams):
-    // la scena e' il file. Il motore la riceve piu' sotto (rami del load,
-    // updateU/V/WLimits, applySpaceLimits, pushConstantsToEngine, compilePath*)
-    // e, per un record, da applyMotionExample (texture, sfondo, suono);
-    // l'applicato della texture lo scrive solo commitSurfaceTextureCode.
-    // SOTTO-TAB: quello di un preset IMPLICITO lo mettono i chiamanti, con la
-    // stessa regola (choicesFromItem), prima di qui: il commit dell'equazione
-    // di un record lo legge, e se l'equazione 4D non compila ripiega sul 3D. Un
-    // preset PARAMETRICO torna al 3D qui: nessuno lo toccava, e un preset
-    // parametrico aperto dopo un record Cross Section in Solid ereditava
-    // sotto-tab e Solid (round-trip, Villarceau Tubes Drift nel passaggio
-    // rimescolato). Shell/Solid e resa: stato + vista; il motore le riceve
-    // piu' sotto (modalita' globale) e dai rami del load (applyImplicitShellMode).
-    // MODALITA' per prima (stato + linguetta a segnali bloccati: il load
-    // riscrive la scena da se', il reset del clic qui non va fatto): il
-    // giudizio sulle costanti dentro assignSceneTexts la legge. Assegnata piu'
-    // sotto, una superficie Ray Marching aperta dopo una parametrica veniva
-    // giudicata come parametrica e le sue costanti tornavano a 1 (S a 0).
-    setImplicitMode(d.isImplicitMode);
-    if (!d.isImplicitMode) setCrossSectionTab(false);
-    assignSceneTexts(file);
-
-    // ==========================================================
-    // 2. APPLICAZIONE DATI DEL PRESET
-    // ==========================================================
-
+void MainWindow::applyPresetRenderAndLimits(const LibraryItem &d, bool isShell)
+{
     // Shell/Solid e resa sono gia' nello stato (in testa, choicesFromItem: il
     // renderMode dei preset ray marching e' composito, decine = Shell, unita' =
     // modo base; da NON confondere col vecchio renderMode 11 "parametrico",
     // rimosso). Qui il resto del ramo implicito.
-    const bool isShell = m_scene.implicitShell;
     if (d.isImplicitMode) {
         // SPESSORE DEL GUSCIO. Il motore riceve il valore vero; lo slider si
         // posiziona con la funzione INVERSA della sua curva quadratica, o
@@ -3462,16 +3462,10 @@ void MainWindow::applyCommonData(LibraryItem d, const SceneState &file)
     // setRange qui sopra (i numeri salvati) resta come base se un campo non
     // fosse valutabile.
     applySpaceLimits(/*notify=*/false);
+}
 
-    // 4. Logica Caricamento Equazioni vs Script
-    bool hasValidEquations = false;
-    if (d.x.trimmed().length() > 0 && d.x != "0" && d.x != "0.0") hasValidEquations = true;
-    // Le superfici implicite da script non hanno equazioni valide: non forzare hasValidEquations.
-    if (d.isImplicitMode && d.scriptCode.isEmpty()) hasValidEquations = true;
-
-    // Salvataggio
-    bool isScript = d.isScript || (!d.scriptCode.isEmpty() && !hasValidEquations);
-
+void MainWindow::preparePresetScriptEngine(const LibraryItem &d, bool isScript)
+{
     // PRE-ARMO DELLO STATO SCRIPT (fix ergosfera "puntino verde").
     // setEngineMode(ModeImplicit) chiama update(): Qt puo' dispatchare un render()
     // PRIMA che il blocco script piu' sotto (riga ~7755) installi script-mode e il
@@ -3594,173 +3588,169 @@ void MainWindow::applyCommonData(LibraryItem d, const SceneState &file)
         ui->glWidget->getEngine()->clearAllMeshParts();
         ui->glWidget->getEngine()->setMeshParts(meshParts);
     }
+}
 
-    // (La modalita' e' gia' nello stato, in testa.) Il motore la segue.
-    ui->glWidget->setEngineMode(d.isImplicitMode ? GLWidget::ModeImplicit
-                                                 : GLWidget::ModeParametric);
+void MainWindow::applyPresetScript(const LibraryItem &d, bool isShell)
+{
+    // (Slot e applicato dello script: in testa.)
 
-    m_currentScriptMode = ScriptModeSurface;
-    // Testo in lavorazione per una fascia: era della scena di prima.
-    m_meshTextureScriptPart = -2;
+    // NB: l'uscita dalla modalità metrica (exitMetricScriptMode) avviene più
+    // sotto, DOPO che campi ed editor contengono il preset NUOVO: la sua
+    // checkParametricDependency -> updateConstantsUIState resetta a 1 le
+    // costanti "non usate", e giudicarle sulle equazioni VECCHIE (es. la
+    // display map Kruskal, che usa solo A) azzerava le costanti del preset
+    // appena scritte (B=0.17 -> 1, superficie deformata).
+
+    // Mappa di visualizzazione (X/Y/Z/P) e composizione/vincoli VUOTI li ha
+    // gia' assegnati la testa (equationTextsFromItem): con uno script
+    // X/Y/Z/P sono la mappa di uno script metrico -- quella dedicata del
+    // file, o le equazioni del file se citano U/V/W -- e composizione e
+    // vincoli non sono geometria (Wormhole ha nel file V = B*cos(u), che
+    // spegnendo i limiti di v faceva fallire la geodetica).
+
+    if (ui->glWidget) {
+        // 1. Spegne m_isCustomMesh interno e azzera le funzioni base
+        ui->glWidget->setParametricEquations("0", "0", "0", "0");
+
+        // 2. Svuota la memoria delle variabili composte U, V, W
+        if (ui->glWidget->getEngine()) {
+            ui->glWidget->getEngine()->setExplicitU("");
+            ui->glWidget->getEngine()->setExplicitV("");
+            ui->glWidget->getEngine()->setExplicitW("");
+        }
+    }
+
+    // Ora campi X/Y/Z/P (display map) e script riflettono il preset nuovo:
+    // l'uscita dalla modalità metrica può rivalutare le costanti sul testo
+    // giusto. Se lo script caricato è metrico la riattiva onRunScriptClicked
+    // più sotto (runMetricScript riscrive m_metricScriptBody da sé).
+    exitMetricScriptMode();
+
+    if (d.isImplicitMode) {
+        // Shell/Solid anche qui: e' lo stesso stato salvato nel renderMode
+        // composito (>= 10 = Shell), decodificato in isShell piu' sopra.
+        // Mancava solo in questo ramo, ed e' il ramo di quasi tutti i
+        // record RM (equazione = "// Controlled by Script").
+        applyImplicitShellMode(isShell);
+
+        // Domini, MESH_VISIBLE e suono; i valori no (vedi m_scriptRunFromLoad).
+        m_scriptRunFromLoad = true;
+        parseAndApplyScriptParams(d.scriptCode);
+        m_scriptRunFromLoad = false;
+
+        QString glslBody;
+        QString scriptCopy = d.scriptCode;
+        QTextStream stream(&scriptCopy);
+
+        while (!stream.atEnd()) {
+            QString line = stream.readLine();
+            if (line.contains(":=")) continue;
+            glslBody.append(line + "\n");
+        }
+        glslBody = GlslTranslator::translateEquation(glslBody);
+
+        ui->glWidget->getEngine()->setScriptCodeGLSL(glslBody);
+        ui->glWidget->getEngine()->setScriptMode(true);
+        ui->glWidget->setRaySteps(m_scene.steps);
+
+        // Il campo di uno script implicito e' GLSL grezzo, non valutabile su CPU:
+        // la rilevazione "campo a prodotto" (Chain) non si applica. Azzeriamo quel
+        // flag come fa validateAndApplyImplicitScript (questo ramo di load NON ci
+        // passa) per non ereditare il blocco+opaco da un Chain caricato prima.
+        ui->glWidget->clearImplicitIllConditioned();
+        // SOLO ANDROID: non potendo contare le facce di uno script su CPU, avvisiamo
+        // preventivamente per OGNI script RM (Gyroid1 & co. si tagliano/spariscono
+        // con alpha<1 sul budget facce ridotto di Android). Slider USABILE, popup di
+        // avviso al primo tocco. Sempre false su desktop/iOS (trasparenza piena).
+#if defined(Q_OS_ANDROID)
+        ui->glWidget->setImplicitTransparencyWarn(true);
+#endif
+
+        ui->glWidget->rebuildShader();
+
+
+        applyAnimationState(hasTimeVariable(d.scriptCode));
+    } else {
+        // Esecuzione Parametrica standard. Durante il load di un preset lo
+        // stato salvato (limiti, costanti, steps e condizioni iniziali,
+        // già ripristinati più sopra, eventualmente modificati dall'utente
+        // dopo il Run) ha la precedenza sulle direttive := dello script
+        // (vedi m_scriptRunFromLoad).
+        m_scriptRunFromLoad = true;
+        onRunScriptClicked();
+        m_scriptRunFromLoad = false;
+    }
 
     updateScriptButtonText();
 
-    if (isScript && !d.scriptCode.isEmpty()) {
-        // (Slot e applicato dello script: in testa.)
+    // Editor ed equazione sono stati riempiti a segnali bloccati: nessun
+    // textChanged è scattato, quindi ricalcoliamo qui l'abilitazione degli
+    // slider A-F/S in base al codice dello script appena caricato.
+    updateConstantsUIState();
+}
 
-        // NB: l'uscita dalla modalità metrica (exitMetricScriptMode) avviene più
-        // sotto, DOPO che campi ed editor contengono il preset NUOVO: la sua
-        // checkParametricDependency -> updateConstantsUIState resetta a 1 le
-        // costanti "non usate", e giudicarle sulle equazioni VECCHIE (es. la
-        // display map Kruskal, che usa solo A) azzerava le costanti del preset
-        // appena scritte (B=0.17 -> 1, superficie deformata).
+void MainWindow::applyPresetEquations(const LibraryItem &d, bool isShell)
+{
+    ui->glWidget->setScriptCheck(false);
+    // (Slot e applicato dello script vuoti: in testa.)
+    // NB: exitMetricScriptMode è spostata più sotto, a campi già popolati:
+    // chiamarla QUI (con lineX/Y/Z/P ancora del preset VECCHIO) faceva
+    // resettare a 1 dalla sua updateConstantsUIState le costanti che le
+    // equazioni vecchie non usano — es. dopo un metric script Kruskal
+    // (display map con la sola A) la B=0.17 di H^2xR, appena scritta dal
+    // blocco costanti, veniva riportata a 1: p=B*(u+v)+0.5 sforava
+    // l'osservatore 4D e la superficie collassava in "lenzuola" giganti.
 
-        // Mappa di visualizzazione (X/Y/Z/P) e composizione/vincoli VUOTI li ha
-        // gia' assegnati la testa (equationTextsFromItem): con uno script
-        // X/Y/Z/P sono la mappa di uno script metrico -- quella dedicata del
-        // file, o le equazioni del file se citano U/V/W -- e composizione e
-        // vincoli non sono geometria (Wormhole ha nel file V = B*cos(u), che
-        // spegnendo i limiti di v faceva fallire la geodetica).
+    if (d.isImplicitMode) {
+        m_implicitApplied = false;   // il Run del load la applica
+        ui->glWidget->setImplicitEquation(d.implicitEq);
 
-        if (ui->glWidget) {
-            // 1. Spegne m_isCustomMesh interno e azzera le funzioni base
-            ui->glWidget->setParametricEquations("0", "0", "0", "0");
+        // Ripristina lo stile Shell o Solid (implementazione condivisa
+        // col ramo script e con resetScene).
+        applyImplicitShellMode(isShell);
+    } else {
+        setImplicitMode(false);
+        ui->glWidget->setEngineMode(GLWidget::ModeParametric);
+    }
 
-            // 2. Svuota la memoria delle variabili composte U, V, W
-            if (ui->glWidget->getEngine()) {
-                ui->glWidget->getEngine()->setExplicitU("");
-                ui->glWidget->getEngine()->setExplicitV("");
-                ui->glWidget->getEngine()->setExplicitW("");
-            }
-        }
+    // Uscita dalla modalità metrica A CAMPI NUOVI (vedi nota a inizio ramo):
+    // la macchina a stati interna giudica ora le equazioni del preset appena
+    // caricato, quindi le costanti realmente usate restano intatte. Se non
+    // eravamo in modalità metrica è un no-op (early return), e la
+    // checkParametricDependency sotto copre comunque il caso.
+    exitMetricScriptMode();
 
-        // Ora campi X/Y/Z/P (display map) e script riflettono il preset nuovo:
-        // l'uscita dalla modalità metrica può rivalutare le costanti sul testo
-        // giusto. Se lo script caricato è metrico la riattiva onRunScriptClicked
-        // più sotto (runMetricScript riscrive m_metricScriptBody da sé).
-        exitMetricScriptMode();
+    checkParametricDependency();
 
-        if (d.isImplicitMode) {
-            // Shell/Solid anche qui: e' lo stesso stato salvato nel renderMode
-            // composito (>= 10 = Shell), decodificato in isShell piu' sopra.
-            // Mancava solo in questo ramo, ed e' il ramo di quasi tutti i
-            // record RM (equazione = "// Controlled by Script").
-            applyImplicitShellMode(isShell);
-
-            // Domini, MESH_VISIBLE e suono; i valori no (vedi m_scriptRunFromLoad).
-            m_scriptRunFromLoad = true;
-            parseAndApplyScriptParams(d.scriptCode);
-            m_scriptRunFromLoad = false;
-
-            QString glslBody;
-            QString scriptCopy = d.scriptCode;
-            QTextStream stream(&scriptCopy);
-
-            while (!stream.atEnd()) {
-                QString line = stream.readLine();
-                if (line.contains(":=")) continue;
-                glslBody.append(line + "\n");
-            }
-            glslBody = GlslTranslator::translateEquation(glslBody);
-
-            ui->glWidget->getEngine()->setScriptCodeGLSL(glslBody);
-            ui->glWidget->getEngine()->setScriptMode(true);
-            ui->glWidget->setRaySteps(m_scene.steps);
-
-            // Il campo di uno script implicito e' GLSL grezzo, non valutabile su CPU:
-            // la rilevazione "campo a prodotto" (Chain) non si applica. Azzeriamo quel
-            // flag come fa validateAndApplyImplicitScript (questo ramo di load NON ci
-            // passa) per non ereditare il blocco+opaco da un Chain caricato prima.
-            ui->glWidget->clearImplicitIllConditioned();
-            // SOLO ANDROID: non potendo contare le facce di uno script su CPU, avvisiamo
-            // preventivamente per OGNI script RM (Gyroid1 & co. si tagliano/spariscono
-            // con alpha<1 sul budget facce ridotto di Android). Slider USABILE, popup di
-            // avviso al primo tocco. Sempre false su desktop/iOS (trasparenza piena).
-#if defined(Q_OS_ANDROID)
-            ui->glWidget->setImplicitTransparencyWarn(true);
-#endif
-
-            ui->glWidget->rebuildShader();
-
-
-            applyAnimationState(hasTimeVariable(d.scriptCode));
-        } else {
-            // Esecuzione Parametrica standard. Durante il load di un preset lo
-            // stato salvato (limiti, costanti, steps e condizioni iniziali,
-            // già ripristinati più sopra, eventualmente modificati dall'utente
-            // dopo il Run) ha la precedenza sulle direttive := dello script
-            // (vedi m_scriptRunFromLoad).
-            m_scriptRunFromLoad = true;
-            onRunScriptClicked();
-            m_scriptRunFromLoad = false;
-        }
-
-        updateScriptButtonText();
-
-        // Editor ed equazione sono stati riempiti a segnali bloccati: nessun
-        // textChanged è scattato, quindi ricalcoliamo qui l'abilitazione degli
-        // slider A-F/S in base al codice dello script appena caricato.
-        updateConstantsUIState();
+    if (!d.explicitU.isEmpty()) {
+        ui->glWidget->getEngine()->setConstraintMode(SurfaceEngine::ConstraintU);
+        ui->glWidget->getEngine()->setExplicitU(d.explicitU);
+        ui->glWidget->getEngine()->setExplicitV("");
+        ui->glWidget->getEngine()->setExplicitW("");
+    }
+    else if (!d.explicitV.isEmpty()) {
+        ui->glWidget->getEngine()->setConstraintMode(SurfaceEngine::ConstraintV);
+        ui->glWidget->getEngine()->setExplicitV(d.explicitV);
+        ui->glWidget->getEngine()->setExplicitU("");
+        ui->glWidget->getEngine()->setExplicitW("");
     }
     else {
-        ui->glWidget->setScriptCheck(false);
-        // (Slot e applicato dello script vuoti: in testa.)
-        // NB: exitMetricScriptMode è spostata più sotto, a campi già popolati:
-        // chiamarla QUI (con lineX/Y/Z/P ancora del preset VECCHIO) faceva
-        // resettare a 1 dalla sua updateConstantsUIState le costanti che le
-        // equazioni vecchie non usano — es. dopo un metric script Kruskal
-        // (display map con la sola A) la B=0.17 di H^2xR, appena scritta dal
-        // blocco costanti, veniva riportata a 1: p=B*(u+v)+0.5 sforava
-        // l'osservatore 4D e la superficie collassava in "lenzuola" giganti.
-
-        if (d.isImplicitMode) {
-            m_implicitApplied = false;   // il Run del load la applica
-            ui->glWidget->setImplicitEquation(d.implicitEq);
-
-            // Ripristina lo stile Shell o Solid (implementazione condivisa
-            // col ramo script e con resetScene).
-            applyImplicitShellMode(isShell);
-        } else {
-            setImplicitMode(false);
-            ui->glWidget->setEngineMode(GLWidget::ModeParametric);
-        }
-
-        // Uscita dalla modalità metrica A CAMPI NUOVI (vedi nota a inizio ramo):
-        // la macchina a stati interna giudica ora le equazioni del preset appena
-        // caricato, quindi le costanti realmente usate restano intatte. Se non
-        // eravamo in modalità metrica è un no-op (early return), e la
-        // checkParametricDependency sotto copre comunque il caso.
-        exitMetricScriptMode();
-
-        checkParametricDependency();
-
-        if (!d.explicitU.isEmpty()) {
-            ui->glWidget->getEngine()->setConstraintMode(SurfaceEngine::ConstraintU);
-            ui->glWidget->getEngine()->setExplicitU(d.explicitU);
-            ui->glWidget->getEngine()->setExplicitV("");
-            ui->glWidget->getEngine()->setExplicitW("");
-        }
-        else if (!d.explicitV.isEmpty()) {
-            ui->glWidget->getEngine()->setConstraintMode(SurfaceEngine::ConstraintV);
-            ui->glWidget->getEngine()->setExplicitV(d.explicitV);
-            ui->glWidget->getEngine()->setExplicitU("");
-            ui->glWidget->getEngine()->setExplicitW("");
-        }
-        else {
-            ui->glWidget->getEngine()->setConstraintMode(SurfaceEngine::ConstraintW);
-            ui->glWidget->getEngine()->setExplicitW(d.explicitW);
-            ui->glWidget->getEngine()->setExplicitU("");
-            ui->glWidget->getEngine()->setExplicitV("");
-        }
-
-        ui->glWidget->setParametricEquations(
-                    GlslTranslator::translateEquation(d.x),
-                    GlslTranslator::translateEquation(d.y),
-                    GlslTranslator::translateEquation(d.z),
-                    GlslTranslator::translateEquation(d.w)
-                    );
+        ui->glWidget->getEngine()->setConstraintMode(SurfaceEngine::ConstraintW);
+        ui->glWidget->getEngine()->setExplicitW(d.explicitW);
+        ui->glWidget->getEngine()->setExplicitU("");
+        ui->glWidget->getEngine()->setExplicitV("");
     }
 
+    ui->glWidget->setParametricEquations(
+                GlslTranslator::translateEquation(d.x),
+                GlslTranslator::translateEquation(d.y),
+                GlslTranslator::translateEquation(d.z),
+                GlslTranslator::translateEquation(d.w)
+                );
+}
+
+void MainWindow::finishPresetLoad(const LibraryItem &d, bool isScript)
+{
     // --- 5. RESET E CARICAMENTO PATH ---
 
     // Comandi dei path ai default: una superficie non li porta, un record li
@@ -3811,7 +3801,82 @@ void MainWindow::applyCommonData(LibraryItem d, const SceneState &file)
     // forza opaco e avvisa (falla del record con alpha<1 nel JSON, che aggira i
     // due preventivi interattivi). No-op su desktop e sugli altri casi.
     guardTransparencyOnImplicitLoad();
+}
 
+void MainWindow::applyCommonData(LibraryItem d, const SceneState &file)
+{
+    // CARICAMENTO IN CORSO (m_populatingFields, vedi mainwindow.h). RAII: il
+    // flag cade anche sui return anticipati piu' sotto. RIPRISTINO del valore
+    // precedente, non "false": applyMotionExample chiama questa funzione avendo
+    // gia' alzato il flag, e un azzeramento secco lo spegnerebbe a meta' del
+    // caricamento del record.
+    const bool wasPopulating = m_populatingFields;
+    m_populatingFields = true;
+    struct LoadGuard {
+        MainWindow *w;
+        bool prev;
+        ~LoadGuard() { w->m_populatingFields = prev; }
+    } loadGuard{this, wasPopulating};
+
+    resetEngineBeforePresetLoad(d);
+
+    // LA SCENA DEL FILE, assegnata qui in blocco e PRIMA di ogni giudizio
+    // sulle costanti (assignSceneTexts, la stessa strada del reset). Il
+    // giudizio legge equazioni, limiti, path, l'equazione del sotto-tab attivo,
+    // texture e sfondo: una costante usata solo da uno di loro va tenuta, e
+    // prima li vedeva ancora del preset PRECEDENTE (le texture del record
+    // arrivavano dopo). Le direttive di VALORE dello script ("A := 1.2",
+    // "u_max := 4*pi") al load non si riapplicano (parseAndApplyScriptParams):
+    // la scena e' il file. Il motore la riceve piu' sotto (rami del load,
+    // updateU/V/WLimits, applySpaceLimits, pushConstantsToEngine, compilePath*)
+    // e, per un record, da applyMotionExample (texture, sfondo, suono);
+    // l'applicato della texture lo scrive solo commitSurfaceTextureCode.
+    // SOTTO-TAB: quello di un preset IMPLICITO lo mettono i chiamanti, con la
+    // stessa regola (choicesFromItem), prima di qui: il commit dell'equazione
+    // di un record lo legge, e se l'equazione 4D non compila ripiega sul 3D. Un
+    // preset PARAMETRICO torna al 3D qui: nessuno lo toccava, e un preset
+    // parametrico aperto dopo un record Cross Section in Solid ereditava
+    // sotto-tab e Solid (round-trip, Villarceau Tubes Drift nel passaggio
+    // rimescolato). Shell/Solid e resa: stato + vista; il motore le riceve
+    // piu' sotto (modalita' globale) e dai rami del load (applyImplicitShellMode).
+    // MODALITA' per prima (stato + linguetta a segnali bloccati: il load
+    // riscrive la scena da se', il reset del clic qui non va fatto): il
+    // giudizio sulle costanti dentro assignSceneTexts la legge. Assegnata piu'
+    // sotto, una superficie Ray Marching aperta dopo una parametrica veniva
+    // giudicata come parametrica e le sue costanti tornavano a 1 (S a 0).
+    setImplicitMode(d.isImplicitMode);
+    if (!d.isImplicitMode) setCrossSectionTab(false);
+    assignSceneTexts(file);
+
+    // Shell/Solid: gia' nello stato (in testa, choicesFromItem).
+    const bool isShell = m_scene.implicitShell;
+    applyPresetRenderAndLimits(d, isShell);
+
+    // 4. Logica Caricamento Equazioni vs Script
+    bool hasValidEquations = false;
+    if (d.x.trimmed().length() > 0 && d.x != "0" && d.x != "0.0") hasValidEquations = true;
+    // Le superfici implicite da script non hanno equazioni valide: non forzare hasValidEquations.
+    if (d.isImplicitMode && d.scriptCode.isEmpty()) hasValidEquations = true;
+
+    // Salvataggio
+    bool isScript = d.isScript || (!d.scriptCode.isEmpty() && !hasValidEquations);
+
+    preparePresetScriptEngine(d, isScript);
+
+    // (La modalita' e' gia' nello stato, in testa.) Il motore la segue.
+    ui->glWidget->setEngineMode(d.isImplicitMode ? GLWidget::ModeImplicit
+                                                 : GLWidget::ModeParametric);
+
+    m_currentScriptMode = ScriptModeSurface;
+    // Testo in lavorazione per una fascia: era della scena di prima.
+    m_meshTextureScriptPart = -2;
+
+    updateScriptButtonText();
+
+    if (isScript && !d.scriptCode.isEmpty()) applyPresetScript(d, isShell);
+    else                                     applyPresetEquations(d, isShell);
+
+    finishPresetLoad(d, isScript);
 }
 
 // Scansione delle immagini mancanti di un record, PRIMA di caricarlo.

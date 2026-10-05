@@ -181,6 +181,339 @@ void MainWindow::setupLibraryDock()
 // LIBRARY & WORKSPACE MANAGEMENT
 // ==========================================================
 
+// ---- Passi di onExampleItemClicked ----
+
+bool MainWindow::confirmLibraryClick(QTreeWidget *src, QTreeWidgetItem *item)
+{
+    const bool replacesScene = (src == ui->treeSurfaces || src == ui->treeMotions);
+    // Solo le FOGLIE caricano qualcosa: sulle cartelle il click apre il ramo
+    // e non tocca la scena, quindi non deve chiedere nulla.
+    const bool isLeaf = (item && item->childCount() == 0);
+
+    if (src == ui->treeTextures && isLeaf) {
+        // Si sta perdendo la sola TEXTURE, non la scena: si guarda il flag
+        // di quel modulo e il salvataggio punta al ramo textures/. Chiedere
+        // qui della scena intera (cosa che una texture pure cambia) faceva
+        // uscire un popup a ogni modifica, anche quando la texture non era
+        // stata toccata.
+        // ...tranne quando la texture fa cambiare modalita': allora si perde
+        // anche la SCENA, e lo chiede switchModeForLibraryTexture con UN
+        // popup che elenca texture, scena e suono e dice perche'. Chiedere
+        // anche qui faceva due popup, e il secondo riproponeva la texture.
+        const QVariant texIdx = item->data(0, Qt::UserRole + 1);
+        const bool switchesMode = texIdx.isValid()
+            && textureNeedsModeSwitch(m_libraryManager.getTexture(texIdx.toInt()));
+        if (!switchesMode && !confirmDiscardUnsaved(ScopeTexture)) {
+            // Annullato: l'item cliccato e' gia' selezionato (la selezione
+            // la fa il click) e indicherebbe una texture che non e' stata
+            // caricata. Si rimette il focus su quella realmente in vigore,
+            // con la stessa funzione usata dal load di texture incompatibili.
+            syncTextureTreeSelection();
+            return false;
+        }
+
+        // SCENA VUOTA (dopo NEW): si ricostruisce la superficie di default
+        // del tab, cosi' la texture che si sta per caricare ha su cosa
+        // apparire. Va fatto QUI, prima di leggere lo stato della scena piu'
+        // sotto (isMatch, chkBoxTexture, ambito mesh): quel codice
+        // presuppone una superficie, e su scena vuota deciderebbe sul nulla.
+        ensureSurfaceForTexture();
+    }
+
+    if (replacesScene && isLeaf) {
+        // L'item cliccato risulta gia' selezionato quando arriviamo qui (la
+        // selezione la fa il click). Se l'utente annulla, va rimesso in
+        // evidenza il preset REALMENTE a schermo -- non basta deselezionare,
+        // o l'albero resta senza focus e non indica piu' nulla.
+        //
+        // Il test e' la selezione VIVA nell'albero d'origine, non la memoria
+        // storica di m_lastLoadedLibraryItem: quest'ultima sopravvive anche
+        // a un preset non piu' a schermo.
+        // (Storico: l'evidenziazione cadeva alla prima modifica delle
+        // equazioni, quindi qui poteva non esserci nulla da rievidenziare.
+        // Ora RESTA -- si veda markUserEdit ~1798 -- e questo ramo trova
+        // sempre l'item giusto.)
+        QTreeWidgetItem *previous = m_lastLoadedLibraryItem;
+
+        if (!confirmDiscardUnsaved(ScopeScene)) {
+            bool b = src->blockSignals(true);
+            src->clearSelection();
+            // Il preset in vigore puo' stare in un ALTRO albero (una
+            // superficie mentre si clicca un record): si rievidenzia dove
+            // vive davvero, altrimenti solo si deseleziona.
+            if (previous) {
+                if (QTreeWidget *owner = previous->treeWidget()) {
+                    bool b2 = (owner == src) ? false : owner->blockSignals(true);
+                    previous->setSelected(true);
+                    owner->setCurrentItem(previous);
+                    if (owner != src) owner->blockSignals(b2);
+                }
+            } else {
+                src->setCurrentItem(nullptr);
+            }
+            src->blockSignals(b);
+            return false;
+        }
+
+        // Confermato: da qui in poi il preset caricato e' quello cliccato.
+        m_lastLoadedLibraryItem = item;
+    }
+    return true;
+}
+
+void MainWindow::clearOtherLibraryTrees(QTreeWidget *src)
+{
+    if (src == ui->treeSurfaces) {
+        for (QTreeWidget *tree : { ui->treeTextures, ui->treeMotions, ui->treeSounds }) {
+            if (tree) {
+                bool b = tree->blockSignals(true);
+                tree->clearSelection();
+                tree->setCurrentItem(nullptr);
+                tree->blockSignals(b);
+            }
+        }
+    } else if (src == ui->treeMotions && ui->treeSurfaces) {
+        bool b = ui->treeSurfaces->blockSignals(true);
+        ui->treeSurfaces->clearSelection();
+        ui->treeSurfaces->setCurrentItem(nullptr);
+        ui->treeSurfaces->blockSignals(b);
+    }
+}
+
+bool MainWindow::libraryTextureIsActive(const LibraryItem &data)
+{
+    // 1. Recuperiamo il codice attualmente in uso nel tab attivo
+    QString activeCode;
+    if (editingBackground()) {
+        activeCode = m_scene.bgTextureCode;
+    } else if (implicitMode()) {
+        activeCode = m_scene.rm.texture;
+    } else if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0
+               && ui->glWidget->activeMeshTextureActive()) {
+        // AMBITO "MESH": la texture in uso e' quella della FASCIA, non
+        // m_scene.surfaceTextureCode (che e' la texture di SUPERFICIE e qui
+        // contiene altro, o niente). Leggendo lo slot sbagliato isMatch
+        // risultava sempre falso, il toggle veniva saltato e il PRIMO click
+        // ricaricava gia' resettando: sulla singola mesh mancava la fase di
+        // stop che c'e' sulla superficie intera.
+        activeCode = ui->glWidget->activeMeshTextureCode();
+    } else {
+        activeCode = m_scene.surfaceTextureCode;
+    }
+
+    // 2. Verifichiamo se la texture cliccata è già quella visualizzata
+    bool isMatch = false;
+    if (data.isImage) {
+        QString fileName = QFileInfo(data.filePath).fileName();
+        isMatch = (!fileName.isEmpty() && activeCode.contains(fileName));
+    } else {
+        isMatch = (TextureCode::cleanForComparison(activeCode) == TextureCode::cleanForComparison(data.scriptCode));
+        // Il DISPLACEMENT distingue due texture quanto il colore: due preset
+        // possono avere lo stesso codice di colore e rilievi diversi, e
+        // guardando il solo colore l'app concludeva "e' gia' quella attiva",
+        // entrava nel ramo del ri-click e NON ricaricava nulla -- ne' rilievo
+        // ne' colori. Stessa ragione del confronto su m_currentTexturePresetPath
+        // qui sotto, che copre il caso gemello dello zoom.
+        if (isMatch && ui->lineVariations
+            && TextureCode::cleanForComparison(m_scene.rm.displacement)
+               != TextureCode::cleanForComparison(data.displacementCode))
+            isMatch = false;
+    }
+    // Se il file preset è diverso da quello attualmente caricato, non è mai un match
+    // (es. due preset con lo stesso codice ma zoom/rotazione diversi)
+    if (data.filePath != m_currentTexturePresetPath) {
+        isMatch = false;
+    }
+
+    // Se l'editor script (che in modalità texture mostra questo codice) è
+    // stato svuotato dall'utente, la texture non è più "visualizzata":
+    // senza questo, il ramo toggle qui sotto non ripristinava il testo e
+    // bisognava caricare un'ALTRA texture per rivederlo.
+    if (isMatch && m_currentScriptMode == ScriptModeTexture
+        && scriptText(shownScriptSlot()).trimmed().isEmpty()) {
+        isMatch = false;
+    }
+
+#if SE_TEX_PROBE
+    // VERDETTO del gate con i pezzi del confronto: dice se si andra' nel
+    // ramo ri-click (che non riapplica codice e displacement) o nel
+    // caricamento pieno, e su quale dei quattro criteri si e' deciso.
+    qDebug().noquote() << QString(
+        "TEXP   isMatch=%1 | codice uguale=%2 | disp uguale=%3 | "
+        "presetPath uguale=%4 | chk=%5 | preset='%6'")
+        .arg(isMatch)
+        .arg(TextureCode::cleanForComparison(activeCode) == TextureCode::cleanForComparison(data.scriptCode))
+        .arg(ui->lineVariations
+             && TextureCode::cleanForComparison(m_scene.rm.displacement)
+                == TextureCode::cleanForComparison(data.displacementCode))
+        .arg(data.filePath == m_currentTexturePresetPath)
+        .arg(ui->chkBoxTexture && ui->chkBoxTexture->isChecked())
+        .arg(QFileInfo(data.filePath).fileName());
+#endif
+    return isMatch;
+}
+
+void MainWindow::restartActiveLibraryTexture(const LibraryItem &data)
+{
+    // RAMO RI-CLICK: NON riapplica codice ne' displacement (per scelta:
+    // sono gia' quelli). Se ci si entra quando in realta' il preset ha
+    // un displacement DIVERSO, il rilievo resta quello di prima -- ed e'
+    // il sospetto da verificare in questo giro.
+    SE_TEXP("libTex:RAMO-RICLIC(isMatch)");
+    bool isBg = editingBackground();
+    // Il riclic rimette colori e inquadratura del preset: e' di nuovo la
+    // texture della Library, come dopo una scelta (markTexturePicked).
+    struct TexturePickedGuard {
+        MainWindow *w;
+        ~TexturePickedGuard() { w->markTexturePicked(); }
+    } texturePickedGuard{this};
+
+    // RIAVVIO DALL'INIZIO. Ricliccare il preset gia' attivo lo fa
+    // ripartire da capo: e' la regola della Library, che superfici,
+    // suoni e record seguono gia' (il loro ramo ricarica il preset e con
+    // esso azzera l'orologio). Le texture avevano un ramo dedicato --
+    // serve a non riapplicare il codice e a resettare la manipolazione
+    // 2D -- che pero' l'orologio non lo toccava: il click non produceva
+    // alcun effetto visibile su una texture animata.
+    // Si azzera il SOLO clock interessato -- superficie o sfondo, che
+    // sono separati: la geometria non la riguarda questo gesto
+    // (resetTime() fermerebbe anche quella).
+    // AMBITO "MESH": il gesto riguarda la SOLA fascia selezionata, quindi
+    // nemmeno l'azzeramento puo' essere globale -- resetTextureTime
+    // rimette a zero anche il clock di superficie e quello di TUTTE le
+    // altre parti, che questo click non tocca.
+    const bool onMeshScope = !isBg && ui->glWidget
+                             && ui->glWidget->activeMeshPart() >= 0;
+    if (onMeshScope) ui->glWidget->resetActiveMeshTextureTime();
+    else             ui->glWidget->resetTextureTime(/*background=*/isBg);
+
+    // COLORI DEL PRESET, RIAPPLICATI. Questo ramo dichiara di fare
+    // "rivoglio questa texture com'e' nel preset" -- e lo faceva per il
+    // clock e per la manipolazione 2D, ma NON per i colori: li lasciava
+    // com'erano, dando per scontato che una texture "gia' attiva" avesse
+    // gia' addosso i propri.
+    //
+    // Non e' piu' vero da quando esiste "Sync Focused Texture", che
+    // crea di proposito uno stato misto: CODICE del preset + COLORI del
+    // record. Li' il codice combacia, isMatch e' vero, e il ri-click --
+    // l'unico gesto con cui si possono rivolere i colori originali --
+    // non li riportava: la texture continuava a mostrarsi con la tinta
+    // del record (verde del preset -> arancio del record, nel caso
+    // segnalato). E' lo stesso motivo per cui il Sync NON allinea
+    // m_currentTexturePresetPath: il click deve restare un caricamento
+    // vero. Mancava solo che lo fosse anche per i colori.
+    //
+    // Stessi valori e stesso default del ramo che applica una texture
+    // NUOVA (~8829): un preset senza colori propri riparte dal
+    // verde/nero, o si terrebbe addosso quelli di prima.
+    // In ambito "Mesh" si scrivono nella PARTE, non nei due slot
+    // globali, che appartengono alla texture di superficie.
+    if (!isBg) {
+        const QColor presetC1 = data.hasCustomColors
+                ? QColor(data.color1) : QColor::fromRgbF(0.20f, 0.80f, 0.20f);
+        const QColor presetC2 = data.hasCustomColors
+                ? QColor(data.color2) : QColor(Qt::black);
+        if (onMeshScope) {
+            ui->glWidget->setActiveMeshTexColors(presetC1, presetC2);
+        } else if (ui->glWidget) {
+            ui->glWidget->setGlobalTextureColors(presetC1, presetC2);
+        }
+        // DISPLAY degli slider: li rilegge dal motore (surfaceTexColor).
+        onColorTargetChanged();
+        // I colori sono uniform (blocco UBO): non serve ricompilare, ma
+        // un frame va chiesto -- setActiveMeshTexColors non lo fa da se'.
+        if (ui->glWidget) ui->glWidget->update();
+    }
+
+    if (isBg) {
+        m_userStoppedBgClock = false;
+        ui->glWidget->setBackgroundTextureAnimating(true);
+    } else if (onMeshScope) {
+        // RICLIC IN AMBITO "MESH": stessa portata del Run/Stop del dock
+        // Script in questo ambito -- riguarda l'orologio della SOLA
+        // fascia selezionata. Il ramo globale qui sotto passa invece da
+        // setSurfaceTextureAnimating + restartAnimatedMeshTextures, che
+        // riaccendono la texture di superficie e quelle di TUTTE le
+        // parti: cliccare nella Library la texture della mesh corrente
+        // faceva partire le animazioni di tutte le altre.
+        // NESSUNA guardia su m_masterStopped: cliccare una texture in
+        // ambito Mesh e' un comando esplicito su quella fascia, e parte
+        // subito anche a scena ferma. Stessa scelta del ramo che APPLICA
+        // una texture nuova (~7690) e del Run per-mesh del dock Script
+        // (~10200): i tre gesti per-mesh si comportano allo stesso modo.
+        // Stesso criterio di meshTextureAnimated: texture propria,
+        // ACCESA e che usa il tempo. activeMeshTextureCode() da solo
+        // ignora textureEnabled e accenderebbe un orologio a vuoto su
+        // una fascia con la texture spenta (script conservato).
+        m_userStoppedMeshTexClock = false;
+        ui->glWidget->setActiveMeshTextureAnimating(
+            ui->glWidget->activeMeshTextureActive()
+            && hasTimeVariable(ui->glWidget->activeMeshTextureCode()));
+
+        // RESET DELLA MANIPOLAZIONE 2D della sola fascia, come fa il
+        // ramo globale per la superficie.
+        ui->glWidget->setActiveMeshTexTransform(
+            data.zoom, QVector2D(data.panX, data.panY), data.rotation);
+        ui->glWidget->update();
+    } else {
+        // Ricarica del MODULO TEXTURE: colore E displacement condividono
+        // lo stesso orologio texture, quindi basta riaccendere quello. Il
+        // clock geometria/SDF NON va mai toccato da qui (lo governano dock
+        // Equations e master): è proprio quel coupling che faceva "partire
+        // la superficie" e bloccava i tasti.
+        // La ricarica governa il MODULO texture, quindi anche gli orologi
+        // delle fasce: riaccendere solo il globale lascerebbe le texture
+        // per-mesh ferme sotto un tasto che dice "in moto".
+        // Si guarda il CODICE (usa il tempo?), non lo stato del clock:
+        // e' l'unico dato che dice se c'e' un'animazione possibile.
+        //
+        // In RAY MARCHING il codice sta in lineTexture/lineVariations,
+        // NON in allSurfaceTextureCode() (che raccoglie la globale
+        // parametrica e le per-mesh). Leggendo solo quella, su una
+        // texture RM animata texIsAnimated risultava sempre false e il
+        // riclic la FERMAVA invece di riavviarla -- e restava ferma,
+        // perche' ogni click successivo ricadeva qui e rispegneva il
+        // clock. E' la stessa distinzione che fa handleTextureSelection
+        // (~7548) per decidere l'orologio al caricamento.
+        const bool isRMTex = (implicitMode());
+        const bool texIsAnimated = isRMTex
+            ? (m_scene.rm.texture.contains(kReTimeVar)
+               || m_scene.rm.displacement.contains(kReTimeVar))
+            : (hasTimeVariable(allSurfaceTextureCode()) || anyMeshTextureCodeAnimated());
+
+        // NON azzeriamo m_masterStopped (come il ramo background sopra):
+        // il clock texture parte da solo, sbloccare lo stop globale
+        // farebbe ripartire la geometria ferma dopo un master STOP.
+        m_userStoppedTexClock = false;
+        m_userStoppedMeshTexClock = false;
+        // Il clock si accende solo se c'e' davvero un'animazione: su
+        // una texture statica resterebbe acceso a vuoto.
+        ui->glWidget->setSurfaceTextureAnimating(texIsAnimated);
+        restartAnimatedMeshTextures();
+
+        // RESET DELLA MANIPOLAZIONE 2D. Ricaricare dalla Library la
+        // texture gia' attiva e' l'unico gesto che puo' significare
+        // "rivoglio questa texture com'e' nel preset": senza, zoom/pan/
+        // rotazione fatti col mouse restavano e per azzerarli bisognava
+        // caricare un'ALTRA texture e poi tornare su questa.
+        // Lo Stop/Start che lascia le modifiche intatte resta quello del
+        // dock Script e del master.
+        // Vale per la fascia selezionata E per la superficie intera:
+        // setActiveMeshTexTransform scrive sulla parte attiva e
+        // ritorna false in "All", dove tocca al ramo globale.
+        if (!ui->glWidget->setActiveMeshTexTransform(
+                data.zoom, QVector2D(data.panX, data.panY), data.rotation)) {
+            // setGlobalTexTransform allinea da se' il buffer di
+            // lavoro della vista 2D quando l'ambito e' "All".
+            ui->glWidget->setGlobalTexTransform(
+                data.zoom, QVector2D(data.panX, data.panY), data.rotation);
+        }
+        ui->glWidget->update();
+    }
+
+    updateMasterButtonState();
+}
+
 void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
 {
     Q_UNUSED(column);
@@ -218,105 +551,14 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
     // che protegge il solo modulo (textureModuleDirty) e apre il salvataggio sul
     // ramo textures/ anziche' sulla radice dell'albero. Stessa cosa per i
     // suoni, in onSoundItemClicked (albero servito da un altro slot).
-    {
-        QTreeWidget *src = qobject_cast<QTreeWidget*>(sender());
-        const bool replacesScene = (src == ui->treeSurfaces || src == ui->treeMotions);
-        // Solo le FOGLIE caricano qualcosa: sulle cartelle il click apre il ramo
-        // e non tocca la scena, quindi non deve chiedere nulla.
-        const bool isLeaf = (item && item->childCount() == 0);
-
-        if (src == ui->treeTextures && isLeaf) {
-            // Si sta perdendo la sola TEXTURE, non la scena: si guarda il flag
-            // di quel modulo e il salvataggio punta al ramo textures/. Chiedere
-            // qui della scena intera (cosa che una texture pure cambia) faceva
-            // uscire un popup a ogni modifica, anche quando la texture non era
-            // stata toccata.
-            // ...tranne quando la texture fa cambiare modalita': allora si perde
-            // anche la SCENA, e lo chiede switchModeForLibraryTexture con UN
-            // popup che elenca texture, scena e suono e dice perche'. Chiedere
-            // anche qui faceva due popup, e il secondo riproponeva la texture.
-            const QVariant texIdx = item->data(0, Qt::UserRole + 1);
-            const bool switchesMode = texIdx.isValid()
-                && textureNeedsModeSwitch(m_libraryManager.getTexture(texIdx.toInt()));
-            if (!switchesMode && !confirmDiscardUnsaved(ScopeTexture)) {
-                // Annullato: l'item cliccato e' gia' selezionato (la selezione
-                // la fa il click) e indicherebbe una texture che non e' stata
-                // caricata. Si rimette il focus su quella realmente in vigore,
-                // con la stessa funzione usata dal load di texture incompatibili.
-                syncTextureTreeSelection();
-                return;
-            }
-
-            // SCENA VUOTA (dopo NEW): si ricostruisce la superficie di default
-            // del tab, cosi' la texture che si sta per caricare ha su cosa
-            // apparire. Va fatto QUI, prima di leggere lo stato della scena piu'
-            // sotto (isMatch, chkBoxTexture, ambito mesh): quel codice
-            // presuppone una superficie, e su scena vuota deciderebbe sul nulla.
-            ensureSurfaceForTexture();
-        }
-
-        if (replacesScene && isLeaf) {
-            // L'item cliccato risulta gia' selezionato quando arriviamo qui (la
-            // selezione la fa il click). Se l'utente annulla, va rimesso in
-            // evidenza il preset REALMENTE a schermo -- non basta deselezionare,
-            // o l'albero resta senza focus e non indica piu' nulla.
-            //
-            // Il test e' la selezione VIVA nell'albero d'origine, non la memoria
-            // storica di m_lastLoadedLibraryItem: quest'ultima sopravvive anche
-            // a un preset non piu' a schermo.
-            // (Storico: l'evidenziazione cadeva alla prima modifica delle
-            // equazioni, quindi qui poteva non esserci nulla da rievidenziare.
-            // Ora RESTA -- si veda markUserEdit ~1798 -- e questo ramo trova
-            // sempre l'item giusto.)
-            QTreeWidgetItem *previous = m_lastLoadedLibraryItem;
-
-            if (!confirmDiscardUnsaved(ScopeScene)) {
-                bool b = src->blockSignals(true);
-                src->clearSelection();
-                // Il preset in vigore puo' stare in un ALTRO albero (una
-                // superficie mentre si clicca un record): si rievidenzia dove
-                // vive davvero, altrimenti solo si deseleziona.
-                if (previous) {
-                    if (QTreeWidget *owner = previous->treeWidget()) {
-                        bool b2 = (owner == src) ? false : owner->blockSignals(true);
-                        previous->setSelected(true);
-                        owner->setCurrentItem(previous);
-                        if (owner != src) owner->blockSignals(b2);
-                    }
-                } else {
-                    src->setCurrentItem(nullptr);
-                }
-                src->blockSignals(b);
-                return;
-            }
-
-            // Confermato: da qui in poi il preset caricato e' quello cliccato.
-            m_lastLoadedLibraryItem = item;
-        }
-    }
+    QTreeWidget *src = qobject_cast<QTreeWidget*>(sender());
+    if (!confirmLibraryClick(src, item)) return;
 
     // Solo per le FOGLIE: il clic su una cartella apre o chiude il ramo e non
     // cambia la scena, quindi non deve togliere l'evidenziazione agli altri
     // alberi (aprire una cartella delle Surfaces la toglieva alla texture e al
     // suono in vigore, una dei Records alla superficie).
-    QTreeWidget *src = qobject_cast<QTreeWidget*>(sender());
-    if (src && item && item->childCount() == 0) {
-        if (src == ui->treeSurfaces) {
-            for (QTreeWidget *tree : { ui->treeTextures, ui->treeMotions, ui->treeSounds }) {
-                if (tree) {
-                    bool b = tree->blockSignals(true);
-                    tree->clearSelection();
-                    tree->setCurrentItem(nullptr);
-                    tree->blockSignals(b);
-                }
-            }
-        } else if (src == ui->treeMotions && ui->treeSurfaces) {
-            bool b = ui->treeSurfaces->blockSignals(true);
-            ui->treeSurfaces->clearSelection();
-            ui->treeSurfaces->setCurrentItem(nullptr);
-            ui->treeSurfaces->blockSignals(b);
-        }
-    }
+    if (src && item && item->childCount() == 0) clearOtherLibraryTrees(src);
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
     if (item->childCount() > 0) {
@@ -362,74 +604,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         int index = vTex.toInt();
         const LibraryItem &data = m_libraryManager.getTexture(index);
 
-        // 1. Recuperiamo il codice attualmente in uso nel tab attivo
-        QString activeCode;
-        if (editingBackground()) {
-            activeCode = m_scene.bgTextureCode;
-        } else if (implicitMode()) {
-            activeCode = m_scene.rm.texture;
-        } else if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0
-                   && ui->glWidget->activeMeshTextureActive()) {
-            // AMBITO "MESH": la texture in uso e' quella della FASCIA, non
-            // m_scene.surfaceTextureCode (che e' la texture di SUPERFICIE e qui
-            // contiene altro, o niente). Leggendo lo slot sbagliato isMatch
-            // risultava sempre falso, il toggle veniva saltato e il PRIMO click
-            // ricaricava gia' resettando: sulla singola mesh mancava la fase di
-            // stop che c'e' sulla superficie intera.
-            activeCode = ui->glWidget->activeMeshTextureCode();
-        } else {
-            activeCode = m_scene.surfaceTextureCode;
-        }
-
-        // 2. Verifichiamo se la texture cliccata è già quella visualizzata
-        bool isMatch = false;
-        if (data.isImage) {
-            QString fileName = QFileInfo(data.filePath).fileName();
-            isMatch = (!fileName.isEmpty() && activeCode.contains(fileName));
-        } else {
-            isMatch = (TextureCode::cleanForComparison(activeCode) == TextureCode::cleanForComparison(data.scriptCode));
-            // Il DISPLACEMENT distingue due texture quanto il colore: due preset
-            // possono avere lo stesso codice di colore e rilievi diversi, e
-            // guardando il solo colore l'app concludeva "e' gia' quella attiva",
-            // entrava nel ramo del ri-click e NON ricaricava nulla -- ne' rilievo
-            // ne' colori. Stessa ragione del confronto su m_currentTexturePresetPath
-            // qui sotto, che copre il caso gemello dello zoom.
-            if (isMatch && ui->lineVariations
-                && TextureCode::cleanForComparison(m_scene.rm.displacement)
-                   != TextureCode::cleanForComparison(data.displacementCode))
-                isMatch = false;
-        }
-        // Se il file preset è diverso da quello attualmente caricato, non è mai un match
-        // (es. due preset con lo stesso codice ma zoom/rotazione diversi)
-        if (data.filePath != m_currentTexturePresetPath) {
-            isMatch = false;
-        }
-
-        // Se l'editor script (che in modalità texture mostra questo codice) è
-        // stato svuotato dall'utente, la texture non è più "visualizzata":
-        // senza questo, il ramo toggle qui sotto non ripristinava il testo e
-        // bisognava caricare un'ALTRA texture per rivederlo.
-        if (isMatch && m_currentScriptMode == ScriptModeTexture
-            && scriptText(shownScriptSlot()).trimmed().isEmpty()) {
-            isMatch = false;
-        }
-
-#if SE_TEX_PROBE
-        // VERDETTO del gate con i pezzi del confronto: dice se si andra' nel
-        // ramo ri-click (che non riapplica codice e displacement) o nel
-        // caricamento pieno, e su quale dei quattro criteri si e' deciso.
-        qDebug().noquote() << QString(
-            "TEXP   isMatch=%1 | codice uguale=%2 | disp uguale=%3 | "
-            "presetPath uguale=%4 | chk=%5 | preset='%6'")
-            .arg(isMatch)
-            .arg(TextureCode::cleanForComparison(activeCode) == TextureCode::cleanForComparison(data.scriptCode))
-            .arg(ui->lineVariations
-                 && TextureCode::cleanForComparison(m_scene.rm.displacement)
-                    == TextureCode::cleanForComparison(data.displacementCode))
-            .arg(data.filePath == m_currentTexturePresetPath)
-            .arg(ui->chkBoxTexture && ui->chkBoxTexture->isChecked())
-            .arg(QFileInfo(data.filePath).fileName());
-#endif
+        const bool isMatch = libraryTextureIsActive(data);
 
         // 3. RICARICA DEL PRESET GIA' ATTIVO (nessun toggle)
         // Cliccare nella Library una texture gia' caricata significa SEMPRE
@@ -439,163 +614,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         // dedicati (dock Script e master), quindi lo stop qui era solo un passo
         // in piu' prima del gesto utile.
         if (isMatch && targetTextureOn()) {
-            // RAMO RI-CLICK: NON riapplica codice ne' displacement (per scelta:
-            // sono gia' quelli). Se ci si entra quando in realta' il preset ha
-            // un displacement DIVERSO, il rilievo resta quello di prima -- ed e'
-            // il sospetto da verificare in questo giro.
-            SE_TEXP("libTex:RAMO-RICLIC(isMatch)");
-            bool isBg = editingBackground();
-            // Il riclic rimette colori e inquadratura del preset: e' di nuovo la
-            // texture della Library, come dopo una scelta (markTexturePicked).
-            struct TexturePickedGuard {
-                MainWindow *w;
-                ~TexturePickedGuard() { w->markTexturePicked(); }
-            } texturePickedGuard{this};
-
-            // RIAVVIO DALL'INIZIO. Ricliccare il preset gia' attivo lo fa
-            // ripartire da capo: e' la regola della Library, che superfici,
-            // suoni e record seguono gia' (il loro ramo ricarica il preset e con
-            // esso azzera l'orologio). Le texture avevano un ramo dedicato --
-            // serve a non riapplicare il codice e a resettare la manipolazione
-            // 2D -- che pero' l'orologio non lo toccava: il click non produceva
-            // alcun effetto visibile su una texture animata.
-            // Si azzera il SOLO clock interessato -- superficie o sfondo, che
-            // sono separati: la geometria non la riguarda questo gesto
-            // (resetTime() fermerebbe anche quella).
-            // AMBITO "MESH": il gesto riguarda la SOLA fascia selezionata, quindi
-            // nemmeno l'azzeramento puo' essere globale -- resetTextureTime
-            // rimette a zero anche il clock di superficie e quello di TUTTE le
-            // altre parti, che questo click non tocca.
-            const bool onMeshScope = !isBg && ui->glWidget
-                                     && ui->glWidget->activeMeshPart() >= 0;
-            if (onMeshScope) ui->glWidget->resetActiveMeshTextureTime();
-            else             ui->glWidget->resetTextureTime(/*background=*/isBg);
-
-            // COLORI DEL PRESET, RIAPPLICATI. Questo ramo dichiara di fare
-            // "rivoglio questa texture com'e' nel preset" -- e lo faceva per il
-            // clock e per la manipolazione 2D, ma NON per i colori: li lasciava
-            // com'erano, dando per scontato che una texture "gia' attiva" avesse
-            // gia' addosso i propri.
-            //
-            // Non e' piu' vero da quando esiste "Sync Focused Texture", che
-            // crea di proposito uno stato misto: CODICE del preset + COLORI del
-            // record. Li' il codice combacia, isMatch e' vero, e il ri-click --
-            // l'unico gesto con cui si possono rivolere i colori originali --
-            // non li riportava: la texture continuava a mostrarsi con la tinta
-            // del record (verde del preset -> arancio del record, nel caso
-            // segnalato). E' lo stesso motivo per cui il Sync NON allinea
-            // m_currentTexturePresetPath: il click deve restare un caricamento
-            // vero. Mancava solo che lo fosse anche per i colori.
-            //
-            // Stessi valori e stesso default del ramo che applica una texture
-            // NUOVA (~8829): un preset senza colori propri riparte dal
-            // verde/nero, o si terrebbe addosso quelli di prima.
-            // In ambito "Mesh" si scrivono nella PARTE, non nei due slot
-            // globali, che appartengono alla texture di superficie.
-            if (!isBg) {
-                const QColor presetC1 = data.hasCustomColors
-                        ? QColor(data.color1) : QColor::fromRgbF(0.20f, 0.80f, 0.20f);
-                const QColor presetC2 = data.hasCustomColors
-                        ? QColor(data.color2) : QColor(Qt::black);
-                if (onMeshScope) {
-                    ui->glWidget->setActiveMeshTexColors(presetC1, presetC2);
-                } else if (ui->glWidget) {
-                    ui->glWidget->setGlobalTextureColors(presetC1, presetC2);
-                }
-                // DISPLAY degli slider: li rilegge dal motore (surfaceTexColor).
-                onColorTargetChanged();
-                // I colori sono uniform (blocco UBO): non serve ricompilare, ma
-                // un frame va chiesto -- setActiveMeshTexColors non lo fa da se'.
-                if (ui->glWidget) ui->glWidget->update();
-            }
-
-            if (isBg) {
-                m_userStoppedBgClock = false;
-                ui->glWidget->setBackgroundTextureAnimating(true);
-            } else if (onMeshScope) {
-                // RICLIC IN AMBITO "MESH": stessa portata del Run/Stop del dock
-                // Script in questo ambito -- riguarda l'orologio della SOLA
-                // fascia selezionata. Il ramo globale qui sotto passa invece da
-                // setSurfaceTextureAnimating + restartAnimatedMeshTextures, che
-                // riaccendono la texture di superficie e quelle di TUTTE le
-                // parti: cliccare nella Library la texture della mesh corrente
-                // faceva partire le animazioni di tutte le altre.
-                // NESSUNA guardia su m_masterStopped: cliccare una texture in
-                // ambito Mesh e' un comando esplicito su quella fascia, e parte
-                // subito anche a scena ferma. Stessa scelta del ramo che APPLICA
-                // una texture nuova (~7690) e del Run per-mesh del dock Script
-                // (~10200): i tre gesti per-mesh si comportano allo stesso modo.
-                // Stesso criterio di meshTextureAnimated: texture propria,
-                // ACCESA e che usa il tempo. activeMeshTextureCode() da solo
-                // ignora textureEnabled e accenderebbe un orologio a vuoto su
-                // una fascia con la texture spenta (script conservato).
-                m_userStoppedMeshTexClock = false;
-                ui->glWidget->setActiveMeshTextureAnimating(
-                    ui->glWidget->activeMeshTextureActive()
-                    && hasTimeVariable(ui->glWidget->activeMeshTextureCode()));
-
-                // RESET DELLA MANIPOLAZIONE 2D della sola fascia, come fa il
-                // ramo globale per la superficie.
-                ui->glWidget->setActiveMeshTexTransform(
-                    data.zoom, QVector2D(data.panX, data.panY), data.rotation);
-                ui->glWidget->update();
-            } else {
-                // Ricarica del MODULO TEXTURE: colore E displacement condividono
-                // lo stesso orologio texture, quindi basta riaccendere quello. Il
-                // clock geometria/SDF NON va mai toccato da qui (lo governano dock
-                // Equations e master): è proprio quel coupling che faceva "partire
-                // la superficie" e bloccava i tasti.
-                // La ricarica governa il MODULO texture, quindi anche gli orologi
-                // delle fasce: riaccendere solo il globale lascerebbe le texture
-                // per-mesh ferme sotto un tasto che dice "in moto".
-                // Si guarda il CODICE (usa il tempo?), non lo stato del clock:
-                // e' l'unico dato che dice se c'e' un'animazione possibile.
-                //
-                // In RAY MARCHING il codice sta in lineTexture/lineVariations,
-                // NON in allSurfaceTextureCode() (che raccoglie la globale
-                // parametrica e le per-mesh). Leggendo solo quella, su una
-                // texture RM animata texIsAnimated risultava sempre false e il
-                // riclic la FERMAVA invece di riavviarla -- e restava ferma,
-                // perche' ogni click successivo ricadeva qui e rispegneva il
-                // clock. E' la stessa distinzione che fa handleTextureSelection
-                // (~7548) per decidere l'orologio al caricamento.
-                const bool isRMTex = (implicitMode());
-                const bool texIsAnimated = isRMTex
-                    ? (m_scene.rm.texture.contains(kReTimeVar)
-                       || m_scene.rm.displacement.contains(kReTimeVar))
-                    : (hasTimeVariable(allSurfaceTextureCode()) || anyMeshTextureCodeAnimated());
-
-                // NON azzeriamo m_masterStopped (come il ramo background sopra):
-                // il clock texture parte da solo, sbloccare lo stop globale
-                // farebbe ripartire la geometria ferma dopo un master STOP.
-                m_userStoppedTexClock = false;
-                m_userStoppedMeshTexClock = false;
-                // Il clock si accende solo se c'e' davvero un'animazione: su
-                // una texture statica resterebbe acceso a vuoto.
-                ui->glWidget->setSurfaceTextureAnimating(texIsAnimated);
-                restartAnimatedMeshTextures();
-
-                // RESET DELLA MANIPOLAZIONE 2D. Ricaricare dalla Library la
-                // texture gia' attiva e' l'unico gesto che puo' significare
-                // "rivoglio questa texture com'e' nel preset": senza, zoom/pan/
-                // rotazione fatti col mouse restavano e per azzerarli bisognava
-                // caricare un'ALTRA texture e poi tornare su questa.
-                // Lo Stop/Start che lascia le modifiche intatte resta quello del
-                // dock Script e del master.
-                // Vale per la fascia selezionata E per la superficie intera:
-                // setActiveMeshTexTransform scrive sulla parte attiva e
-                // ritorna false in "All", dove tocca al ramo globale.
-                if (!ui->glWidget->setActiveMeshTexTransform(
-                        data.zoom, QVector2D(data.panX, data.panY), data.rotation)) {
-                    // setGlobalTexTransform allinea da se' il buffer di
-                    // lavoro della vista 2D quando l'ambito e' "All".
-                    ui->glWidget->setGlobalTexTransform(
-                        data.zoom, QVector2D(data.panX, data.panY), data.rotation);
-                }
-                ui->glWidget->update();
-            }
-
-            updateMasterButtonState();
+            restartActiveLibraryTexture(data);
             return;
         }
 
