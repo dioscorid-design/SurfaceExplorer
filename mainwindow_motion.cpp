@@ -112,7 +112,7 @@ void MainWindow::setupMotionDocks()
             // textChanged) scatta solo per la digitazione: i setText di preset,
             // reset e cambio tab non lo emettono, e non devono far validare
             // nulla all'uscita dal campo.
-            if (w) w->setProperty("userEditPending", true);
+            if (w) setUserEditPending(w, true);
             updateMasterButtonState();
         });
 
@@ -160,7 +160,7 @@ void MainWindow::setupMotionDocks()
             // per-mesh: il dominio di una fascia fa parte di cio' che il
             // record salva.
             noteSceneEdited(w);
-            if (w) w->setProperty("userEditPending", true);
+            if (w) setUserEditPending(w, true);
         });
 
         connect(meshLimitEdit, &QLineEdit::editingFinished, this, [this, meshLimitEdit]() {

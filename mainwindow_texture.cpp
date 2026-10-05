@@ -982,9 +982,7 @@ void MainWindow::applyLibraryTextureToBackground(const LibraryItem &data)
         setScriptText(SlotBackgroundTexture, m_scene.bgTextureCode);
 
         if (ui->glWidget) {
-            ui->glWidget->setProperty("bg_zoom", data.zoom);
-            ui->glWidget->setProperty("bg_pan", QVector2D(data.panX, data.panY));
-            ui->glWidget->setProperty("bg_rot", data.rotation);
+            ui->glWidget->setBackgroundFraming(data.zoom, QVector2D(data.panX, data.panY), data.rotation);
         }
     }
     else {
@@ -998,11 +996,8 @@ void MainWindow::applyLibraryTextureToBackground(const LibraryItem &data)
             m_scene.bgTexColor2 = Qt::black;
 
             if (ui->glWidget) {
-                ui->glWidget->setProperty("bg_col1", QVector3D(m_scene.bgTexColor1.redF(), m_scene.bgTexColor1.greenF(), m_scene.bgTexColor1.blueF()));
-                ui->glWidget->setProperty("bg_col2", QVector3D(m_scene.bgTexColor2.redF(), m_scene.bgTexColor2.greenF(), m_scene.bgTexColor2.blueF()));
-                ui->glWidget->setProperty("bg_zoom", 1.0f);
-                ui->glWidget->setProperty("bg_pan", QVector2D(0.0f, 0.0f));
-                ui->glWidget->setProperty("bg_rot", 0.0f);
+                ui->glWidget->setBackgroundTexColors(m_scene.bgTexColor1, m_scene.bgTexColor2);
+                ui->glWidget->setBackgroundFraming(1.0f, QVector2D(0.0f, 0.0f), 0.0f);
             }
 
             // 2. Lo sfondo torna alla DEFAULT per intero: codice, slot, ancora,
@@ -1075,9 +1070,7 @@ void MainWindow::applyLibraryTextureToBackground(const LibraryItem &data)
 
         // 4. Applica proprietà aggiuntive di trasformazione
         if (ui->glWidget) {
-            ui->glWidget->setProperty("bg_zoom", data.zoom);
-            ui->glWidget->setProperty("bg_pan", QVector2D(data.panX, data.panY));
-            ui->glWidget->setProperty("bg_rot", data.rotation);
+            ui->glWidget->setBackgroundFraming(data.zoom, QVector2D(data.panX, data.panY), data.rotation);
         }
 
         // Riallinea gli slider colore al nuovo script di sfondo: se la texture
@@ -1883,7 +1876,7 @@ void MainWindow::finishLibraryTexturePick(const LibraryItem &data)
     // essendo sparita dallo shader.
     refreshConstants();
 
-    this->setProperty("isTextureModified", false);
+    m_textureModified = false;
 
     SE_TEXP("libTex:USCITA");
 }

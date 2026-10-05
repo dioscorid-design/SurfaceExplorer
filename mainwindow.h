@@ -587,6 +587,24 @@ private:
     QTimer* m_geoAnimTimer = nullptr;   // timer del flusso geodetico (creato al primo updateGeodesicMesh)
     bool m_geodesicErrorPending = false;
     bool m_inGeoAnimTick = false;
+    // Esito dell'ultimo calcolo del flusso geodetico e popup gia' mostrato per
+    // l'azione in corso (riarmato da runScene e dai load).
+    enum class GeoError { None, Singularity, NonFinite, Syntax };
+    GeoError m_geoErrorType = GeoError::None;
+    bool m_geoErrorShown = false;
+    double m_geoTime = 0.0;          // tempo del flusso: advanceGeodesicFlowBy
+    bool m_geoInitialLoad = false;   // primo calcolo dopo il load di un preset
+    bool m_geoAnimTimerWasRunning = false;  // fermato da hideEvent, riparte in showEvent
+    bool m_collapseErrorShown = false;      // popup di collasso gia' mostrato
+    // Script di texture toccato a mano dopo l'ultimo load/applicazione: chiede
+    // conferma prima di spegnere la texture.
+    bool m_textureModified = false;
+    // Campi in cui l'utente ha DIGITATO (textEdited) senza ancora confermare:
+    // solo questi si validano all'uscita. I setText del programma li tolgono.
+    QSet<const QObject*> m_pendingUserEdits;
+    void setUserEditPending(const QObject *w, bool on)
+    { if (!w) return; if (on) m_pendingUserEdits.insert(w); else m_pendingUserEdits.remove(w); }
+    bool userEditPending(const QObject *w) const { return m_pendingUserEdits.contains(w); }
 
     // ==========================================================
     // RENDERING & COLOR STATE

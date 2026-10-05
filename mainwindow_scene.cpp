@@ -1178,7 +1178,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
 
     // La texture non c'e' piu': nemmeno modifiche a mano da proteggere quando
     // si spegne il checkbox.
-    setProperty("isTextureModified", false);
+    m_textureModified = false;
 
     updateRenderState();
     checkParametricDependency();
@@ -1786,7 +1786,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
         }
     });
 
-    this->setProperty("isTextureModified", false);
+    m_textureModified = false;
 
     // La superficie caricata diventa il RIFERIMENTO dei campi del dock 4D: da
     // qui l'utente misura di quanto si e' mosso. In coda perche'
@@ -2366,15 +2366,12 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // file (trovato dal test di andata e ritorno: 10 record Paths). Un record
     // senza le chiavi riparte da 1/0/0, i default di bgZoom/bgPan/bgRot.
     if (ui->glWidget) {
-        ui->glWidget->setProperty("bg_zoom", bgZoom);
-        ui->glWidget->setProperty("bg_pan", QVector2D(bgPanX, bgPanY));
-        ui->glWidget->setProperty("bg_rot", bgRot);
+        ui->glWidget->setBackgroundFraming(bgZoom, QVector2D(bgPanX, bgPanY), bgRot);
     }
 
     if (bgTexEnabled && !bgCode.isEmpty()) {
         if (ui->glWidget) {
-            ui->glWidget->setProperty("bg_col1", QVector3D(m_scene.bgTexColor1.redF(), m_scene.bgTexColor1.greenF(), m_scene.bgTexColor1.blueF()));
-            ui->glWidget->setProperty("bg_col2", QVector3D(m_scene.bgTexColor2.redF(), m_scene.bgTexColor2.greenF(), m_scene.bgTexColor2.blueF()));
+            ui->glWidget->setBackgroundTexColors(m_scene.bgTexColor1, m_scene.bgTexColor2);
         }
 
         QString bgImgPath = TextureCode::resolveImagePath(bgCode);
@@ -2405,9 +2402,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
         // clearBackgroundScript() spegne m_bgIsScript e rimette la pipeline
         // immagine, poi si carica la texture di default.
         if (ui->glWidget) {
-            ui->glWidget->setProperty("bg_zoom", 1.0f);
-            ui->glWidget->setProperty("bg_pan", QVector2D(0.0f, 0.0f));
-            ui->glWidget->setProperty("bg_rot", 0.0f);
+            ui->glWidget->setBackgroundFraming(1.0f, QVector2D(0.0f, 0.0f), 0.0f);
             ui->glWidget->setBackgroundTexture("background.png");
         }
     }
@@ -2805,7 +2800,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
         }
     });
 
-    this->setProperty("isTextureModified", false);
+    m_textureModified = false;
 
     // Suggerimento d'uso del record ("hintText"): mostrato in coda al load,
     // quando la scena e' gia' quella nuova. Un record senza la chiave nasconde
@@ -3164,7 +3159,7 @@ void MainWindow::applyCommonData(LibraryItem d, const SceneState &file)
     // 1. RESET GLOBALE PRE-CARICAMENTO E UI
     // ==========================================================
 
-    this->setProperty("isInitialLoad", true);
+    m_geoInitialLoad = true;
 
     // Nuovo stato di partenza: la scala della texture geodetica va rifissata sul
     // dominio di QUESTO preset, cosi' si apre con l'aspetto con cui e' stato
@@ -3282,8 +3277,8 @@ void MainWindow::applyCommonData(LibraryItem d, const SceneState &file)
     // bloccando i caricamenti. Caricare un nuovo preset è proprio l'azione che
     // deve ripulirlo, quindi lo azzeriamo qui insieme alle sue proprietà.
     m_geodesicErrorPending = false;
-    setProperty("geoErrorShown", false);
-    setProperty("geoErrorType", "none");
+    m_geoErrorShown = false;
+    m_geoErrorType = GeoError::None;
 
     // CRUCIALE per lo sblocco: quando updateGeodesicMesh parte con isInitialLoad
     // disabilita gli update del glWidget (riga ~8798) e li riabilita SOLO in caso
@@ -3725,7 +3720,7 @@ void MainWindow::applyCommonData(LibraryItem d, const SceneState &file)
 
     // Reset Variabili Tempo Locali
     m_paths->resetTimes();
-    this->setProperty("geoTime", 0.0);
+    m_geoTime = 0.0;
     if (ui->glWidget) ui->glWidget->resetTime();
 
     updateRenderState();

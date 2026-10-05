@@ -111,7 +111,7 @@ struct SceneState {
     QHash<QString, float> minConsts;
 
     // SFONDO: colore pieno e colori u_col1/u_col2 della sua texture (il
-    // motore li consuma: setBackgroundColor, proprieta' bg_col1/bg_col2).
+    // motore li consuma: setBackgroundColor, setBackgroundTexColors).
     // Quelli della texture di SUPERFICIE invece vivono solo nel motore
     // (vedi surfaceTexColor), come il colore e l'alpha globali.
     QColor bgColor;

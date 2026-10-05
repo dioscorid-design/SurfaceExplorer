@@ -639,9 +639,19 @@ public:
     QVector2D getFlatPan() const;
     // Inquadratura dello SFONDO senza passare dal bersaglio della vista 2D (la
     // legge il Save: prima commutava il bersaglio avanti e indietro).
-    float backgroundZoom() const;
-    QVector2D backgroundPan() const;
-    float backgroundRotation() const;
+    float backgroundZoom() const { return m_bgZoom; }
+    QVector2D backgroundPan() const { return m_bgPan; }
+    float backgroundRotation() const { return m_bgRotation; }
+    // Inquadratura dello sfondo scritta dalla scena (load, record, script).
+    void setBackgroundFraming(float zoom, const QVector2D &pan, float rotation)
+    { m_bgZoom = zoom; m_bgPan = pan; m_bgRotation = rotation; }
+    // Colori della texture di sfondo (u_col1/u_col2 della sua copia dell'UBO).
+    void setBackgroundTexColors(const QColor &c1, const QColor &c2)
+    {
+        m_bgTexCol1 = QVector3D(c1.redF(), c1.greenF(), c1.blueF());
+        m_bgTexCol2 = QVector3D(c2.redF(), c2.greenF(), c2.blueF());
+        m_bgTexColorsSet = true;
+    }
     void setFlatPan(float x, float y);
 
     // TRASFORMAZIONE 2D GLOBALE della texture di superficie, per la PERSISTENZA.
@@ -1238,6 +1248,13 @@ private:
     float m_globalTexZoom = 1.0f;
     float m_globalTexRotation = 0.0f;
     QVector2D m_globalTexPan;
+    // Inquadratura e colori della texture di SFONDO: unica, non per-parte.
+    // Finche' nessuno scrive i colori lo sfondo usa quelli della superficie.
+    float m_bgZoom = 1.0f;
+    float m_bgRotation = 0.0f;
+    QVector2D m_bgPan;
+    QVector3D m_bgTexCol1, m_bgTexCol2;
+    bool m_bgTexColorsSet = false;
 
 
     // ==========================================================

@@ -2109,7 +2109,7 @@ void ScenarioTest::run()
             bad << QStringLiteral("inquadratura dello sfondo: zoom %1, pan (%2, %3), rotazione %4")
                        .arg(gl->backgroundZoom()).arg(gl->backgroundPan().x())
                        .arg(gl->backgroundPan().y()).arg(gl->backgroundRotation());
-        if (m_mw->property("isTextureModified").toBool())
+        if (m_mw->m_textureModified)
             bad << QStringLiteral("la texture risulta ancora modificata a mano");
         check(bad.isEmpty(), step + QStringLiteral(" -> ")
                                  + (bad.isEmpty() ? QStringLiteral("bersaglio Surface, texture spenta, inquadratura al default")

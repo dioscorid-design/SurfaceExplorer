@@ -1097,17 +1097,14 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             // background fondendola col clearColor (pipeline bg con blend SrcAlpha).
             bgUboData.alpha = 1.0f;
 
-            QVariant c1 = property("bg_col1");
-            QVariant c2 = property("bg_col2");
-            if (c1.isValid()) bgUboData.col1 = c1.value<QVector3D>();
-            if (c2.isValid()) bgUboData.col2 = c2.value<QVector3D>();
+            if (m_bgTexColorsSet) {
+                bgUboData.col1 = m_bgTexCol1;
+                bgUboData.col2 = m_bgTexCol2;
+            }
 
-            QVariant z = property("bg_zoom");
-            QVariant p = property("bg_pan");
-            QVariant r = property("bg_rot");
-            if (z.isValid()) bgUboData.zoom = z.toFloat();
-            if (p.isValid()) bgUboData.center = p.value<QVector2D>();
-            if (r.isValid()) bgUboData.rotation = r.toFloat();
+            bgUboData.zoom = m_bgZoom;
+            bgUboData.center = m_bgPan;
+            bgUboData.rotation = m_bgRotation;
 
             // SFONDO SOLIDALE: la matrice che porta un pixel dello schermo alla
             // DIREZIONE del mondo in cui guarda, letta da bgBaseUV() nello shader.
@@ -2612,9 +2609,9 @@ void GLWidget::resetVisuals()
 void GLWidget::resetTextureFraming()
 {
     // Azzera i parametri dinamici dello sfondo
-    setProperty("bg_zoom", 1.0f);
-    setProperty("bg_pan", QVector2D(0.0f, 0.0f));
-    setProperty("bg_rot", 0.0f);
+    m_bgZoom = 1.0f;
+    m_bgPan = QVector2D(0.0f, 0.0f);
+    m_bgRotation = 0.0f;
 
     // Azzera i parametri della superficie: sia il buffer di lavoro sia la
     // trasformazione GLOBALE, o quest'ultima sopravviverebbe allo
@@ -3572,7 +3569,7 @@ void GLWidget::setDisplacementCode(const QString& code) {
 // dello script. Con quel requisito una fascia senza texture propria restava
 // agganciata allo zoom globale e si ridimensionava insieme alle altre.
 // Solo per la texture di SUPERFICIE (m_flatViewTarget 0): il target 1 e' lo
-// sfondo, che ha i propri bg_zoom/bg_pan/bg_rot ed e' unico.
+// sfondo, che ha i propri m_bgZoom/m_bgPan/m_bgRotation ed e' unico.
 void GLWidget::commitFlatTransformToActivePart() {
     if (m_flatViewTarget != 0) return;
 
@@ -3689,21 +3686,9 @@ float GLWidget::getFlatZoom() const {
     return m_flatZoom;
 }
 
-// Inquadratura dello SFONDO, qualunque sia il bersaglio della vista 2D. E' lo
-// stato vero (le property bg_*): i getFlat*() col bersaglio 1 passano da qui.
-float GLWidget::backgroundZoom() const {
-    return property("bg_zoom").isValid() ? property("bg_zoom").toFloat() : 1.0f;
-}
-QVector2D GLWidget::backgroundPan() const {
-    return property("bg_pan").isValid() ? property("bg_pan").value<QVector2D>() : QVector2D(0.0f, 0.0f);
-}
-float GLWidget::backgroundRotation() const {
-    return property("bg_rot").isValid() ? property("bg_rot").toFloat() : 0.0f;
-}
-
 void GLWidget::setFlatZoom(float z) {
     if (m_flatViewTarget == 1) { // 1 = Sfondo
-        setProperty("bg_zoom", std::clamp(z, 0.001f, 1000.0f));
+        m_bgZoom = std::clamp(z, 0.001f, 1000.0f);
     } else { // 0 = Superficie
         m_flatZoom = std::clamp(z, 0.001f, 1000.0f);
         commitFlatTransformToActivePart();
@@ -3718,7 +3703,7 @@ float GLWidget::getFlatRotation() const {
 
 void GLWidget::setFlatRotation(float angle) {
     if (m_flatViewTarget == 1) {
-        setProperty("bg_rot", angle);
+        m_bgRotation = angle;
     } else {
         m_flatRotation = angle;
         commitFlatTransformToActivePart();
@@ -3732,8 +3717,7 @@ void GLWidget::addFlatRotation(float angle) {
 
 void GLWidget::rotateFlat90() {
     if (m_flatViewTarget == 1) { // Sfondo
-        float current = property("bg_rot").isValid() ? property("bg_rot").toFloat() : 0.0f;
-        setProperty("bg_rot", current + 90.0f);
+        m_bgRotation += 90.0f;
     } else { // Superficie
         m_flatRotation += 90.0f;
         commitFlatTransformToActivePart();
@@ -3756,7 +3740,7 @@ QVector2D GLWidget::getFlatPan() const {
 
 void GLWidget::setFlatPan(float x, float y) {
     if (m_flatViewTarget == 1) {
-        setProperty("bg_pan", QVector2D(x, y));
+        m_bgPan = QVector2D(x, y);
     } else {
         m_flatPan = QVector2D(x, y);
         commitFlatTransformToActivePart();
@@ -4069,7 +4053,7 @@ void GLWidget::resetTransformations()
     m_isFirstPathRun = true;
 
     m_flatPan = QVector2D(0.0f, 0.0f);
-    setProperty("bg_pan", QVector2D(0.0f, 0.0f));
+    m_bgPan = QVector2D(0.0f, 0.0f);
 
     m_rotationQuat = QQuaternion();
 

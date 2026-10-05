@@ -481,7 +481,7 @@ void MainWindow::setupRendererDock()
             if (!checked && !m_blockTextureGen) {
                 // 1. Verifichiamo se c'è effettivamente del codice che andrebbe perso
                 bool hasCode = false;
-                bool isModified = this->property("isTextureModified").toBool();
+                bool isModified = m_textureModified;
 
                 if (implicitMode()) { // Ray Marching
                     QString tex = m_scene.rm.texture.trimmed();
@@ -545,7 +545,7 @@ void MainWindow::setupRendererDock()
                         ui->glWidget->setGlobalTexTransform(1.0f, QVector2D(0.0f, 0.0f), 0.0f);
 
                     // Codice perso/azzerato: lo stato "modificato" non ha più senso.
-                    this->setProperty("isTextureModified", false);
+                    m_textureModified = false;
                 };
 
                 // MOSTRA IL WARNING SOLO SE C'È VERO CODICE *E* L'UTENTE LO HA MODIFICATO MANUALMENTE
@@ -975,8 +975,7 @@ void MainWindow::setupRendererDock()
                 if (ui->radioTexColor2->isChecked()) m_scene.bgTexColor2 = newColor;
                 else m_scene.bgTexColor1 = newColor;
 
-                ui->glWidget->setProperty("bg_col1", QVector3D(m_scene.bgTexColor1.redF(), m_scene.bgTexColor1.greenF(), m_scene.bgTexColor1.blueF()));
-                ui->glWidget->setProperty("bg_col2", QVector3D(m_scene.bgTexColor2.redF(), m_scene.bgTexColor2.greenF(), m_scene.bgTexColor2.blueF()));
+                ui->glWidget->setBackgroundTexColors(m_scene.bgTexColor1, m_scene.bgTexColor2);
                 ui->glWidget->update();
             } else {
                 m_scene.bgColor = newColor;

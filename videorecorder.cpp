@@ -380,7 +380,7 @@ void VideoRecorder::toggleRecord()
     // con la stessa funzione del vivo (advanceGeodesicFlowBy). Qui c'era anche
     // una regola ricostruita dai testi (equazioni con U/V/W, campi geodetici
     // pieni, linguetta parametrica) che nessuno usava.
-    double startGeoTime = m_mainWindow->property("geoTime").toDouble();
+    double startGeoTime = m_mainWindow->m_geoTime;
     // ----------------------------------------
 
     // Fermiamo tutto PRIMA di aprire finestre di dialogo
@@ -408,7 +408,7 @@ void VideoRecorder::toggleRecord()
             // Il loop ha avanzato geoTime per i frame del video: lo schermo
             // torna al tempo pre-REC, come rotazioni (setRotation4D in coda a
             // toggleRecord) e path (il loop non muta i tempi dei path).
-            m_mainWindow->setProperty("geoTime", startGeoTime);
+            m_mainWindow->m_geoTime = startGeoTime;
             geoAnimTimer->start(); // Riavviamo l'asincronia per la normale visualizzazione
         }
     };

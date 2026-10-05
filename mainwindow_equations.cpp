@@ -391,7 +391,7 @@ void MainWindow::setupEquationsDock()
     connect(ui->lineExplicitV, &QPlainTextEdit::textChanged, this, markUserEdit);
     connect(ui->lineExplicitW, &QPlainTextEdit::textChanged, this, markUserEdit);
 
-    auto markTextureModified = [this]() { this->setProperty("isTextureModified", true); };
+    auto markTextureModified = [this]() { m_textureModified = true; };
     connect(ui->txtScriptEditor, &QPlainTextEdit::textChanged, this, markTextureModified);
     connect(ui->lineTexture, &QPlainTextEdit::textChanged, this, markTextureModified);
     connect(ui->lineVariations, &QPlainTextEdit::textChanged, this, markTextureModified);
@@ -1572,8 +1572,8 @@ void MainWindow::refreshLimitsFromConstants()
     };
     for (const Axis &a : axes) {
         if (!a.lo->isEnabled() || !a.hi->isEnabled()) continue;
-        if (a.lo->property("userEditPending").toBool()
-            || a.hi->property("userEditPending").toBool()) continue;
+        if (userEditPending(a.lo)
+            || userEditPending(a.hi)) continue;
         const QString loTxt = lineText(a.lo).trimmed();
         const QString hiTxt = lineText(a.hi).trimmed();
         if (loTxt.isEmpty() || hiTxt.isEmpty()) continue;
@@ -1723,8 +1723,8 @@ bool MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
     //
     // Il ramo Android di notify() non salva: li' s_boxActive scarta il secondo
     // box, ma la seconda validazione girava comunque.
-    if (!edited->property("userEditPending").toBool()) return false;
-    edited->setProperty("userEditPending", false);
+    if (!userEditPending(edited)) return false;
+    setUserEditPending(edited, false);
 
     const QString currentText = lineText(edited);
     bool ok = false;
@@ -1866,8 +1866,8 @@ bool MainWindow::commitMeshLimitFieldOnEnter(const QString& fieldName)
     // CONTROLLA e si consuma qui, in questo ordine: chi arriva secondo lo
     // trova gia' consumato ed esce senza rivalidare, o si vedrebbero due
     // popup in fila per un solo errore.
-    if (!edited->property("userEditPending").toBool()) return false;
-    edited->setProperty("userEditPending", false);
+    if (!userEditPending(edited)) return false;
+    setUserEditPending(edited, false);
 
     // AMBITO: in "Mesh" si scrive nella parte selezionata, in "All" nel dominio
     // di All (che vale per tutte le mesh e sospende i tagli per-parte senza
@@ -1942,7 +1942,7 @@ void MainWindow::discardPendingLimitEdits()
     for (QLineEdit *e : { ui->uMinEdit, ui->uMaxEdit, ui->vMinEdit, ui->vMaxEdit,
                           ui->wMinEdit, ui->wMaxEdit,
                           ui->meshUMinEdit, ui->meshUMaxEdit, ui->meshVMinEdit, ui->meshVMaxEdit })
-        if (e) e->setProperty("userEditPending", false);
+        if (e) setUserEditPending(e, false);
 }
 
 // Porta i quattro campi u/v del pannello Multi Mesh sul dominio della parte
@@ -1963,7 +1963,7 @@ void MainWindow::syncMeshLimitFields()
                        ? ui->glWidget->activeMeshDomain(uLo, uHi, vLo, vHi)
                        : ui->glWidget->allMeshDomain(uLo, uHi, vLo, vHi);
 
-    auto show = [](QLineEdit *e, bool on, float v) {
+    auto show = [this](QLineEdit *e, bool on, float v) {
         if (!e) return;
         QSignalBlocker b(e);
         // 'g' con 12 cifre come i limiti globali (mainwindow.cpp ~1807): un
@@ -1971,7 +1971,7 @@ void MainWindow::syncMeshLimitFields()
         e->setText(on ? QString::number(v, 'g', 12) : QString());
         // La digitazione eventualmente in sospeso su questo campo non vale
         // piu': il testo l'ha appena riscritto il programma.
-        e->setProperty("userEditPending", false);
+        setUserEditPending(e, false);
     };
 
     show(ui->meshUMinEdit, hasPart, uLo);
@@ -2384,10 +2384,10 @@ void MainWindow::commitUiFieldsDuringMotion() {
         // Il tasto rimane su STOP; mostriamo un solo popup.
         m_eqApplied = previous;
         m_geodesicErrorPending = false;
-        setProperty("geoErrorType", "none");
+        m_geoErrorType = GeoError::None;
 
-        if (!property("geoErrorShown").toBool()) {
-            setProperty("geoErrorShown", true);
+        if (!m_geoErrorShown) {
+            m_geoErrorShown = true;
             InputValidator::showGeodesicSingularityError(this);
         }
 
@@ -2450,9 +2450,9 @@ bool MainWindow::commitFieldsOnEnter() {
         const bool meshOk = updateGeodesicMesh(/*useAppliedLimits=*/false,
                                                /*useAppliedEquations=*/true);
         if (!meshOk
-                && property("geoErrorType").toString() == "singularity"
-                && !property("geoErrorShown").toBool()) {
-            setProperty("geoErrorShown", true);
+                && m_geoErrorType == GeoError::Singularity
+                && !m_geoErrorShown) {
+            m_geoErrorShown = true;
             InputValidator::showGeodesicSingularityError(this);
         }
 
@@ -2472,7 +2472,7 @@ bool MainWindow::commitFieldsOnEnter() {
 bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquations)
 {
     // Resettiamo il flag degli errori per questa esecuzione
-    this->setProperty("geoErrorType", "none");
+    m_geoErrorType = GeoError::None;
 
     if (m_geodesicErrorPending) return false;
 
@@ -2536,14 +2536,14 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
     }
 
     // 1. GESTIONE TEMPO (Animazione)
-    double t = this->property("geoTime").toDouble();
+    double t = m_geoTime;
 
-    if (this->property("isInitialLoad").toBool()) {
+    if (m_geoInitialLoad) {
         if (ui->glWidget) ui->glWidget->setUpdatesEnabled(false);
         if (m_statusLabel) {
             m_statusLabel->setStyleSheet("color: #00bfff; font-weight: bold;");
         }
-        this->setProperty("isInitialLoad", false);
+        m_geoInitialLoad = false;
     }
 
     // --- LOGICA DI DISACCOPPIAMENTO ---
@@ -2625,8 +2625,8 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
         if (lambdaVal <= 1e-8f) {
             m_geodesicErrorPending = true;
             if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
-            if (!property("geoErrorShown").toBool()) {
-                setProperty("geoErrorShown", true);
+            if (!m_geoErrorShown) {
+                m_geoErrorShown = true;
                 InputValidator::showInvalidConformalConstantError(this);
             }
             return false;
@@ -2654,9 +2654,9 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
                                          cA, cB, cC, cD, cE, cF, cS)) {
             m_geodesicErrorPending = true;
             if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
-            this->setProperty("geoErrorType", "nonfinite");
-            if (!property("geoErrorShown").toBool()) {
-                setProperty("geoErrorShown", true);
+            m_geoErrorType = GeoError::NonFinite;
+            if (!m_geoErrorShown) {
+                m_geoErrorShown = true;
                 InputValidator::showGeodesicSingularityError(this);
             }
             return false;
@@ -2695,13 +2695,13 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
         if (!shaderError.isEmpty()) {
             m_geodesicErrorPending = true;
             if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
-            setProperty("geoErrorShown", true);
+            m_geoErrorShown = true;
             showShaderError("Geodesic Shader Error", shaderError);
-            this->setProperty("geoErrorType", "syntax");
+            m_geoErrorType = GeoError::Syntax;
         } else {
             m_geodesicErrorPending = true;
             if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
-            this->setProperty("geoErrorType", "singularity");
+            m_geoErrorType = GeoError::Singularity;
         }
         return false;
     }
@@ -2714,7 +2714,7 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
                                      uMin, uMax, vMin, vMax)) {
         m_geodesicErrorPending = true;
         if (m_geoAnimTimer && m_geoAnimTimer->isActive()) m_geoAnimTimer->stop();
-        this->setProperty("geoErrorType", "singularity");
+        m_geoErrorType = GeoError::Singularity;
         return false;
     }
 
@@ -2755,7 +2755,7 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
 
             bool meshOk = advanceGeodesicFlowBy(m_geoAnimTimer->interval() / 1000.0);
             if (!meshOk) {
-                if (this->property("geoErrorType").toString() == "singularity") {
+                if (m_geoErrorType == GeoError::Singularity) {
                     InputValidator::showAnimatedGeodesicSingularityError(this);
                 }
             }
@@ -2809,7 +2809,7 @@ bool MainWindow::updateGeodesicMesh(bool useAppliedLimits, bool useAppliedEquati
         }
     }
 
-    setProperty("geoErrorShown", false);
+    m_geoErrorShown = false;
     m_geodesicErrorPending = false;
     return true;
 }
@@ -2823,7 +2823,7 @@ bool MainWindow::advanceGeodesicFlowBy(double dtSeconds)
     const int intervalMs = (m_geoAnimTimer && m_geoAnimTimer->interval() > 0)
                                ? m_geoAnimTimer->interval() : 16;
     const double step = 0.015 * (dtSeconds * 1000.0 / intervalMs);
-    setProperty("geoTime", property("geoTime").toDouble() + step);
+    m_geoTime += step;
 
     m_inGeoAnimTick = true;
     // useAppliedLimits: il tick del moto NON deve raccogliere il testo dei campi
@@ -2877,9 +2877,9 @@ void MainWindow::checkAndTriggerMeshUpdate(bool useAppliedEquations) {
             // qui, altrimenti il Run dallo Script fallisce in silenzio. La guard
             // geoErrorShown evita doppioni se più chiamanti si concatenano; i
             // rami "nonfinite"/"syntax" mostrano già da soli il loro popup.
-            if (this->property("geoErrorType").toString() == "singularity"
-                    && !property("geoErrorShown").toBool()) {
-                setProperty("geoErrorShown", true);
+            if (m_geoErrorType == GeoError::Singularity
+                    && !m_geoErrorShown) {
+                m_geoErrorShown = true;
                 InputValidator::showGeodesicSingularityError(this);
             }
             return;

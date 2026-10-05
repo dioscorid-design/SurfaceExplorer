@@ -183,9 +183,9 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
     RunOutcomeGuard runOutcomeGuard(this);
 
     m_geodesicErrorPending = false;
-    setProperty("geoErrorShown", false);   // riarma il popup geodetico per la nuova azione
+    m_geoErrorShown = false;   // riarma il popup geodetico per la nuova azione
     if (origin != RunOrigin::ServiceCommit)
-        setProperty("collapseErrorShown", false);  // riarma il collasso solo sulle azioni vere (Start/caricamento)
+        m_collapseErrorShown = false;  // riarma il collasso solo sulle azioni vere (Start/caricamento)
 
     // Run del dock Equations: agisce SOLO sul modulo equazioni (applica e
     // riavvia il suo orologio), senza toccare rotazioni, path e audio.
@@ -745,8 +745,7 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
         // con il suo "disabilita per questa sessione" e resetGeodesicWarning):
         // per riattivarlo basta ripristinare questa chiamata. Se un giorno torna,
         // conviene prima restringere la condizione ai casi davvero sospetti.
-//        bool isPreset = this->property("isPresetActive").toBool();
-//        if ((sender() == m_btnStart || runDockOnly) && !isPreset) {
+//        if (sender() == m_btnStart || runDockOnly) {
 //            InputValidator::validateGeodesicConformalFactor(
 //                        this,
 //                        m_scene.eq.x, m_scene.eq.y,
@@ -806,9 +805,9 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
 
         // updateGeodesicMesh() calcola, verifica e restituisce false se i dati sono corrotti
         if (!updateGeodesicMesh()) {
-            if (this->property("geoErrorType").toString() == "singularity"
-                    && !property("geoErrorShown").toBool()) {
-                setProperty("geoErrorShown", true);
+            if (m_geoErrorType == GeoError::Singularity
+                    && !m_geoErrorShown) {
+                m_geoErrorShown = true;
                 InputValidator::showGeodesicSingularityError(this);
             }
             return;
@@ -995,8 +994,8 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
                 !probeEquation(rawZ) ||
                 !probeEquation(rawP))
         {
-            if (!property("collapseErrorShown").toBool()) {
-                setProperty("collapseErrorShown", true);
+            if (!m_collapseErrorShown) {
+                m_collapseErrorShown = true;
                 InputValidator::showMathematicalCollapseError(this);
             }
             return;
@@ -1083,15 +1082,15 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
 
     // Controllo Collasso Matematico
     if (!ui->glWidget->getEngine()->isMeshValid()) {
-        if (!property("collapseErrorShown").toBool()) {
-            setProperty("collapseErrorShown", true);
+        if (!m_collapseErrorShown) {
+            m_collapseErrorShown = true;
             InputValidator::showMathematicalCollapseError(this);
         }
         return;
     }
 
     if (!applyOnly && !runDockOnly) applyStartSideEffects();
-    setProperty("collapseErrorShown", false);  // superficie valida: riarma il popup di collasso
+    m_collapseErrorShown = false;  // superficie valida: riarma il popup di collasso
 
     // Run parametrico "one-shot": se le equazioni NON sono animate (nessun 't'),
     // la modifica grafica è ormai applicata e non c'è nulla da rieseguire finché

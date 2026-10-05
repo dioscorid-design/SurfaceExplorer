@@ -628,8 +628,8 @@ void MainWindow::runMetricScript(const QString& fullText)
     updateMasterButtonState();
 
     m_geodesicErrorPending = false;
-    setProperty("geoErrorShown", false);
-    setProperty("geoErrorType", "none");
+    m_geoErrorShown = false;
+    m_geoErrorType = GeoError::None;
 
     checkAndTriggerMeshUpdate();
 }
@@ -862,8 +862,7 @@ void MainWindow::onApplyTextureScriptClicked()
         }
 
         if (ui->glWidget) {
-            ui->glWidget->setProperty("bg_col1", QVector3D(m_scene.bgTexColor1.redF(), m_scene.bgTexColor1.greenF(), m_scene.bgTexColor1.blueF()));
-            ui->glWidget->setProperty("bg_col2", QVector3D(m_scene.bgTexColor2.redF(), m_scene.bgTexColor2.greenF(), m_scene.bgTexColor2.blueF()));
+            ui->glWidget->setBackgroundTexColors(m_scene.bgTexColor1, m_scene.bgTexColor2);
         }
 
         // 1. Carica l'immagine (se c'è)
@@ -881,9 +880,7 @@ void MainWindow::onApplyTextureScriptClicked()
                 return;
             }
             if (ui->glWidget && imgPath.isEmpty()) {
-                ui->glWidget->setProperty("bg_zoom", 1.0f);
-                ui->glWidget->setProperty("bg_pan", QVector2D(0.0f, 0.0f));
-                ui->glWidget->setProperty("bg_rot", 0.0f);
+                ui->glWidget->setBackgroundFraming(1.0f, QVector2D(0.0f, 0.0f), 0.0f);
             }
         }
 

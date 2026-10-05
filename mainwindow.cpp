@@ -2034,7 +2034,7 @@ void MainWindow::hideEvent(QHideEvent* event)
     // -> falso popup di singolarita'.
     if (m_geoAnimTimer && m_geoAnimTimer->isActive()) {
         m_geoAnimTimer->stop();
-        this->setProperty("geoAnimTimerWasRunning", true);
+        m_geoAnimTimerWasRunning = true;
     }
 
     QMainWindow::hideEvent(event);
@@ -2047,8 +2047,8 @@ void MainWindow::showEvent(QShowEvent* event)
     // Riavvia il timer geodetico solo se era stato fermato da hideEvent.
     // Il delay (300 ms) serve a dare al backend grafico il tempo di
     // ricreare le risorse GPU su iOS/Android prima del primo tick.
-    if (this->property("geoAnimTimerWasRunning").toBool()) {
-        this->setProperty("geoAnimTimerWasRunning", false);
+    if (m_geoAnimTimerWasRunning) {
+        m_geoAnimTimerWasRunning = false;
 
         QTimer::singleShot(300, this, [this]() {
             // Ricontrolla che l'utente non abbia fermato il flusso nel frattempo:

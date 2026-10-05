@@ -649,7 +649,6 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             // (pauseMotion, stopAll, path fermati, tempo dei path azzerato).
             // La conferma "vuoi salvare?" e' gia' stata chiesta in cima alla
             // funzione, prima di toccare qualunque stato.
-            this->setProperty("activeMotionPath", data.filePath);
             applyMotionExample(data);
         }
         return;

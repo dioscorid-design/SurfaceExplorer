@@ -410,7 +410,7 @@ void MainWindow::showLineFields()
         // pendente. Senza, un preset caricato mentre un limite era in attesa di
         // conferma farebbe validare all'uscita dal campo un testo che l'utente
         // non ha mai scritto (e su un dominio 0/0 uscirebbe un popup a sproposito).
-        edit->setProperty("userEditPending", false);
+        setUserEditPending(edit, false);
         if (edit->text() == *f.second) continue;
         const QSignalBlocker blocker(edit);
         edit->setText(*f.second);
