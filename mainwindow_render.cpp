@@ -1719,7 +1719,7 @@ void MainWindow::updateRenderState()
         // template non legge.
         //
         // Nel Cross Section invece funzionano gia', senza una riga di logica
-        // nuova, perche' applyPath4DCameraAt NON passa da quegli uniform. Scrive
+        // nuova, perche' la camera del path 4D (CameraPaths) NON passa da quegli uniform. Scrive
         // due cose che il ray marcher usa entrambe:
         //  - setRotation4D(omega, phi, psi): e' lo stato che %CROSS_SECTION_P%
         //    legge per decidere quale sezione dell'ipersuperficie si vede, quindi

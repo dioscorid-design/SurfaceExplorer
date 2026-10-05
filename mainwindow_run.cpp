@@ -38,8 +38,8 @@ void MainWindow::performMasterStop()
     // sicurezza per il watchdog. NB: NON tocchiamo m_isPathFollowing (modalita'
     // camera tangent): deve persistere dopo lo stop, altrimenti la vista
     // tornerebbe a center view al primo render (es. resize/fullscreen).
-    if (pathTimer && pathTimer->isActive()) onDepartureClicked();
-    if (pathTimer3D && pathTimer3D->isActive()) onDeparture3DClicked();
+    if (pathRunning(CameraPaths::Path4D)) onDepartureClicked();
+    if (pathRunning(CameraPaths::Path3D)) onDeparture3DClicked();
     if (ui->glWidget) ui->glWidget->setPathAnimating(false);
     updateViewButtonsEnabled();
 
@@ -115,17 +115,17 @@ void MainWindow::applyStartSideEffects()
         if (pick == "rotation") {
             if (!ui->glWidget->isAnimating()) onStopClicked();
         } else if (pick == "path4D") {
-            if (!pathTimer->isActive()) onDepartureClicked();
+            if (!pathRunning(CameraPaths::Path4D)) onDepartureClicked();
         } else if (pick == "path3D") {
-            if (!pathTimer3D->isActive()) onDeparture3DClicked();
+            if (!pathRunning(CameraPaths::Path3D)) onDeparture3DClicked();
         } else {
             if (hasAnyRotationSpeed() && !ui->glWidget->isAnimating()) {
                 onStopClicked();
             }
-            if (hasPath4D && !pathTimer->isActive()) {
+            if (hasPath4D && !pathRunning(CameraPaths::Path4D)) {
                 onDepartureClicked();
             }
-            if (hasPath3D && !pathTimer3D->isActive()) {
+            if (hasPath3D && !pathRunning(CameraPaths::Path3D)) {
                 onDeparture3DClicked();
             }
         }
@@ -1205,8 +1205,8 @@ MainWindow::MasterActivity MainWindow::masterActivity() const
     // START ne avvia uno (applyStartSideEffects): basta che uno giri.
     a.cameraAvailable = hasAnyRotationSpeed() || hasPath4DInput() || hasPath3DInput();
     a.cameraRunning = isRotationMotionRunning()
-                      || (pathTimer && pathTimer->isActive())
-                      || (pathTimer3D && pathTimer3D->isActive());
+                      || pathRunning(CameraPaths::Path4D)
+                      || pathRunning(CameraPaths::Path3D);
 
     // SUONO: START suona sceneAudioSource(), che e' il testo in cui CERCARE le
     // direttive audio (suono, script, texture, sfondo): c'e' un suono solo se

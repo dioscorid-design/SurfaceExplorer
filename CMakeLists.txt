@@ -97,6 +97,8 @@ qt_add_executable(SurfaceExplorer
     scenehintoverlay.h
     docsearch.cpp
     docsearch.h
+    camerapaths.cpp
+    camerapaths.h
 
     # --- ENGINE & PARSING ---
     surfaceengine.cpp

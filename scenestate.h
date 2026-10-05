@@ -118,7 +118,7 @@ struct SceneState {
     QColor bgTexColor1 = Qt::white;
     QColor bgTexColor2 = Qt::black;
     // FOV dei path, uno solo (lo slider e' unico). Applicato SOLO dentro
-    // applyPath3D/4DCameraAt (quindi anche nei video, che passano di li');
+    // CameraPaths::applyCameraAt (quindi anche nei video, che passano di li');
     // fuori dalle path la proiezione resta al default 45 (lo zoom fuori
     // path ha gia' i suoi comandi, e un reset non deve rimpicciolire la
     // superficie). Persistito come "cameraFov" e, per le build precedenti,

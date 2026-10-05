@@ -349,8 +349,8 @@ QJsonObject PresetRoundTrip::captureJson(const Entry &e)
     // Stesse letture di saveMotion per "activeMotion".
     PresetSerializer::MotionRunState run;
     run.rotating = m_mw->ui->glWidget->isAnimating();
-    run.path4D   = m_mw->pathTimer && m_mw->pathTimer->isActive();
-    run.path3D   = m_mw->pathTimer3D && m_mw->pathTimer3D->isActive();
+    run.path4D   = m_mw->pathRunning(CameraPaths::Path4D);
+    run.path3D   = m_mw->pathRunning(CameraPaths::Path3D);
     return ser->buildMotionJson(name, run, /*includeSound*/ true);
 }
 

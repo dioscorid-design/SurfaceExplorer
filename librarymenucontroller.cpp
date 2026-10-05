@@ -78,8 +78,8 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     // Le altre voci non ne hanno bisogno: non ricostruiscono gli alberi, quindi
     // il ripristino in fondo a showMenu basta.
     const bool motionRotating = m_mainWindow->ui->glWidget->isAnimating();
-    const bool motionPath4D   = m_mainWindow->pathTimer->isActive();
-    const bool motionPath3D   = m_mainWindow->pathTimer3D->isActive();
+    const bool motionPath4D   = m_mainWindow->pathRunning(CameraPaths::Path4D);
+    const bool motionPath3D   = m_mainWindow->pathRunning(CameraPaths::Path3D);
     const bool motionTimeAnim = m_mainWindow->isAnythingMoving();
 
     std::function<void()> pendingAction = nullptr;
@@ -508,12 +508,12 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
             m_mainWindow->ui->glWidget->stopAnimationTimer();
         }
 
-        wasPath4D = m_mainWindow->pathTimer->isActive();
-        wasPath3D = m_mainWindow->pathTimer3D->isActive();
+        wasPath4D = m_mainWindow->pathRunning(CameraPaths::Path4D);
+        wasPath3D = m_mainWindow->pathRunning(CameraPaths::Path3D);
         wasRotating = m_mainWindow->ui->glWidget->isAnimating();
 
-        if (wasPath4D) m_mainWindow->pathTimer->stop();
-        if (wasPath3D) m_mainWindow->pathTimer3D->stop();
+        if (wasPath4D) m_mainWindow->m_paths->stop(CameraPaths::Path4D);
+        if (wasPath3D) m_mainWindow->m_paths->stop(CameraPaths::Path3D);
         if (wasRotating) m_mainWindow->ui->glWidget->pauseMotion();
     }
 
@@ -542,7 +542,7 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
         m_mainWindow->ui->glWidget->setSurfaceAnimating(true);
         m_mainWindow->ui->glWidget->startAnimationTimer();
     }
-    if (wasPath4D) m_mainWindow->pathTimer->start();
-    if (wasPath3D) m_mainWindow->pathTimer3D->start();
+    if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
+    if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
     if (wasRotating) m_mainWindow->ui->glWidget->resumeMotion();
 }

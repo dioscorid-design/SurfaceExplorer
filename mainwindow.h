@@ -17,6 +17,7 @@
 
 #include "glwidget.h"
 #include "scenestate.h"
+#include "camerapaths.h"
 #include "librarymanager.h"
 #include "synthesizer.h"
 
@@ -252,17 +253,11 @@ private slots:
     // cambio tab/sotto-tab.
     void resetNav4DBaseline();
     void onDepartureClicked();
-    void onPathTimerTick();
     void checkPathFields();
     void onDeparture3DClicked();
-    void onPath3DTimerTick();
     void checkPath3DFields();
-    // Camera dei path al tempo t: unica implementazione, condivisa tra i tick
-    // live e il loop di registrazione (VideoRecorder passa il tempo virtuale
-    // del frame). Il video deve mostrare cio' che mostrerebbe lo schermo:
-    // niente copie locali di questa logica nel recorder.
-    void applyPath4DCameraAt(float t);
-    void applyPath3DCameraAt(float t);
+    // (Camera dei path al tempo t: CameraPaths::applyCameraAt, unica
+    // implementazione per i tick dal vivo e il loop di registrazione.)
     // Avanzamento del flusso geodetico di dtSeconds: unica implementazione,
     // condivisa tra il tick di m_geoAnimTimer e il loop di registrazione
     // (VideoRecorder passa il dt virtuale del frame). Converte il dt nella
@@ -278,7 +273,7 @@ private slots:
     // Mutua esclusivita' GO / Departure 3D / Departure 4D: attivando uno di questi
     // tre moti gli altri due si spengono. Questi helper fermano gli "altri" senza
     // duplicare la logica di pulizia UI. Ognuno e' un no-op se il suo moto e' fermo.
-    void stopPathAnimations();   // ferma pathTimer (4D) e pathTimer3D (3D)
+    void stopPathAnimations();   // ferma i due path (4D e 3D), coi loro tasti
     void stopRotationMotion();   // ferma il moto GO (rotazioni superficie/4D)
     void onToggleViewClicked();    // toggle vista path 4D (pushView)
     void onToggleView3DClicked();  // toggle vista path 3D (pushView3D)
@@ -973,19 +968,15 @@ private:
     // un path la telecamera segue il percorso e questi comandi non hanno senso.
     QVector<QPushButton*> m_navButtons;
 
-    // Inizializzati a nullptr: updateProjectionButtonText() viene chiamata
-    // alla riga ~2182 del costruttore,
-    // ~700 righe PRIMA che pathTimer/pathTimer3D siano creati (~2875). Senza
-    // l'inizializzatore il puntatore raw contiene spazzatura (non 0x0): il
-    // guard "pathTimer &&" la considera valida e pathTimer->isActive() va in
-    // EXC_BAD_ACCESS dentro QBindingStorage::registerDependency — crash
-    // all'avvio, riprodotto SOLO su device iOS (il pattern di memoria dello
-    // stack del costruttore capitava innocuo su desktop).
-    QTimer *pathTimer = nullptr;
-    float pathTimeT = 0.0f;
-
-    QTimer *pathTimer3D = nullptr;
-    float pathTimeT3D = 0.0f;
+    // I PATH DELLA CAMERA (4D e 3D): orologi, tempi, posa del path 4D e la
+    // camera che ne segue la traiettoria (camerapaths.h). Creati in
+    // setupMotionDocks; nullptr fino ad allora, e qualcuno chiede gia' prima se
+    // un path e' in corso (updateProjectionButtonText, ~700 righe prima nel
+    // costruttore): per questo si chiede SEMPRE a pathRunning, che regge il
+    // nullptr. Un puntatore non inizializzato faceva crashare l'avvio su iOS
+    // (EXC_BAD_ACCESS in QBindingStorage::registerDependency).
+    CameraPaths *m_paths = nullptr;
+    bool pathRunning(CameraPaths::Path p) const { return m_paths && m_paths->isRunning(p); }
 
     // Avanzamento per tick dei due path. STATO: m_scene.pathSpeed3D/4D, in unita'
     // dello slider (1..100); speed3DSlider/speed4DSlider ne sono la vista
@@ -997,21 +988,8 @@ private:
 
     // (FOV dei path: m_scene.fov.)
 
-    // Orientamento 4D (omega/phi/psi) della superficie catturato all'avvio del
-    // path 4D: il tick applica le compensazioni -gamma/-beta RELATIVE a questa
-    // base, cosi' l'orientamento accumulato dal moto GO non viene azzerato a ogni
-    // Departure. Solo il PRIMO Departure 4D della sessione parte da neutro
-    // (m_path4DStartedOnce), come gia' avviene per il path 3D.
-    float m_pathBaseOmega = 0.0f;
-    float m_pathBasePhi   = 0.0f;
-    float m_pathBasePsi   = 0.0f;
-    bool  m_path4DStartedOnce = false;
-
-    // Il PRIMO Departure della sessione (3D o 4D) azzera la rotazione spaziale di
-    // default (neutralizeDefaultRotationForPath); dai successivi si conserva
-    // l'orientamento accumulato (es. dal moto GO), senza reset nel passaggio da
-    // una modalita' all'altra (GO <-> Departure 3D <-> Departure 4D).
-    bool  m_anyPathStartedOnce = false;
+    // (Base dell'orientamento 4D del path e "primo Departure della sessione":
+    // in CameraPaths, captureBase4D e takeFirstStart.)
 
     // Vista dei due path: UNICO punto che scrive m_scene.pathViewMode4D /
     // m_scene.pathViewMode3D e il testo dei loro tasti (pushView / pushView3D).
@@ -2021,15 +1999,6 @@ private:
     bool hasGeodesicText() const;
     bool geodesicFieldsAreFinite(const QStringList& exprs, float uMin, float uMax, float vMin, float vMax, float A, float B, float C, float D, float E, float F, float S);
 
-    // --- Inline Math Helper ---
-    static float det3x3(float a1, float a2, float a3,
-                        float b1, float b2, float b3,
-                        float c1, float c2, float c3)
-    {
-        return a1 * (b2 * c3 - b3 * c2) -
-               a2 * (b1 * c3 - b3 * c1) +
-               a3 * (b1 * c2 - b2 * c1);
-    }
 
 
 protected:

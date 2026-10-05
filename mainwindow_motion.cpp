@@ -43,11 +43,9 @@ void MainWindow::setupMotionDocks()
     navTimer = new QTimer(this); navTimer->setInterval(30);
     connect(navTimer, &QTimer::timeout, this, &MainWindow::onNavTimerTick);
 
-    pathTimer = new QTimer(this); pathTimer->setInterval(30);
-    connect(pathTimer, &QTimer::timeout, this, &MainWindow::onPathTimerTick);
-
-    pathTimer3D = new QTimer(this); pathTimer3D->setInterval(30);
-    connect(pathTimer3D, &QTimer::timeout, this, &MainWindow::onPath3DTimerTick);
+    // I path della camera: orologi, tempi, posa e camera (camerapaths.h).
+    // Fermi durante il REC: li avanza il recorder, col dt del suo frame.
+    m_paths = new CameraPaths(ui->glWidget, m_scene, [this] { return m_isRecording; }, this);
 
     ui->btnDeparture->setEnabled(false); connect(ui->btnDeparture, &QPushButton::clicked, this, &MainWindow::onDepartureClicked);
     ui->btnDeparture3D->setEnabled(false); connect(ui->btnDeparture3D, &QPushButton::clicked, this, &MainWindow::onDeparture3DClicked);
@@ -245,8 +243,8 @@ void MainWindow::update4DButtonState()
     // richiamata prima che il primo tick imposti la rotazione 4D, quindi enable4D
     // potrebbe risultare falso e chiuderebbe il dock 4D da cui si e' avviato il
     // path. I dock si chiudono solo a mano (o quando P viene svuotato a path fermo).
-    bool pathActive = (pathTimer && pathTimer->isActive()) ||
-                      (pathTimer3D && pathTimer3D->isActive());
+    bool pathActive = pathRunning(CameraPaths::Path4D) ||
+                      pathRunning(CameraPaths::Path3D);
     if (!enable4D && ui->dock4D->isVisible() && !pathActive) {
         ui->dock4D->close();
     }
@@ -257,14 +255,14 @@ void MainWindow::stopPathAnimations()
     // Ferma entrambi i percorsi camera (4D + 3D) riportandoli allo stato "fermo".
     // Rispecchia il ramo STOP di onDepartureClicked / onDeparture3DClicked.
     bool changed = false;
-    if (pathTimer && pathTimer->isActive()) {
-        pathTimer->stop();
+    if (pathRunning(CameraPaths::Path4D)) {
+        m_paths->stop(CameraPaths::Path4D);
         ui->btnDeparture->setText("DEPARTURE");
         checkPathFields();
         changed = true;
     }
-    if (pathTimer3D && pathTimer3D->isActive()) {
-        pathTimer3D->stop();
+    if (pathRunning(CameraPaths::Path3D)) {
+        m_paths->stop(CameraPaths::Path3D);
         ui->btnDeparture3D->setText("DEPARTURE");
         checkPath3DFields();
         changed = true;
@@ -290,13 +288,12 @@ void MainWindow::onResetViewClicked()
     // Il reset deve comportarsi come per le rotazioni: se un path e' in corso,
     // NON lo fermiamo. Reset azzera solo la posizione (t=0) e la vista spaziale,
     // poi il path RIPARTE da capo (come la rotazione riprende dalla posa resettata).
-    bool wasPathRunning   = pathTimer->isActive();
-    bool wasPath3DRunning = pathTimer3D->isActive();
+    bool wasPathRunning   = pathRunning(CameraPaths::Path4D);
+    bool wasPath3DRunning = pathRunning(CameraPaths::Path3D);
 
     // Riportiamo il tempo del percorso a t=0 in entrambi i casi (il path,
     // se attivo, ricomincera' dall'inizio; se fermo, resta fermo a 0).
-    pathTimeT = 0.0f;
-    pathTimeT3D = 0.0f;
+    m_paths->resetTimes();
 
     // Solo i path NON attivi tornano allo stato "DEPARTURE"; quelli in corso
     // restano su "STOP" perche' continuano a girare.
@@ -473,16 +470,16 @@ void MainWindow::commitPathFieldOnEnter(const QString& fieldName)
     //   campi validi + path fermo    -> avvia     (ramo DEPARTURE)
     //   campi vuoti  + path fermo    -> niente
     if (fieldName.endsWith("_P3D")) {
-        if (!pathTimer3D) return;
-        if (pathTimer3D->isActive()) {
+        if (!m_paths) return;
+        if (pathRunning(CameraPaths::Path3D)) {
             if (!hasPath3DInput()) onDeparture3DClicked();
             else                   compilePath3DFromFields();
         } else if (hasPath3DInput()) {
             onDeparture3DClicked();
         }
     } else {
-        if (!pathTimer) return;
-        if (pathTimer->isActive()) {
+        if (!m_paths) return;
+        if (pathRunning(CameraPaths::Path4D)) {
             if (!hasPath4DInput()) onDepartureClicked();
             else                   compilePath4DFromFields();
         } else if (hasPath4DInput()) {
@@ -570,11 +567,11 @@ bool MainWindow::compilePath3DFromFields()
 void MainWindow::onDepartureClicked()
 {
     // NB: funziona anche DURANTE il REC — i timer restano attivi (tick no-op)
-    // e il loop legge lo stato vivo a ogni frame (vedi onPathTimerTick).
+    // e il loop legge lo stato vivo a ogni frame (vedi CameraPaths::tick).
 
     // CASO 1: VOGLIAMO FERMARE
-    if (pathTimer->isActive()) {
-        pathTimer->stop();
+    if (pathRunning(CameraPaths::Path4D)) {
+        m_paths->stop(CameraPaths::Path4D);
         m_userStoppedCameraMotion = true;
         if (ui->glWidget) ui->glWidget->setPathAnimating(false);
         updateViewButtonsEnabled();
@@ -588,9 +585,9 @@ void MainWindow::onDepartureClicked()
     // Mutua esclusivita': fermiamo il percorso 3D e il moto GO se attivi.
     // Se stiamo SUBENTRANDO al path 3D, la camera fa l'handoff (scivolata
     // continua invece del teletrasporto): vedi GLWidget::beginPathHandoff.
-    const bool handoffFrom3D = pathTimer3D->isActive();
-    if (pathTimer3D->isActive()) {
-        pathTimer3D->stop();
+    const bool handoffFrom3D = pathRunning(CameraPaths::Path3D);
+    if (pathRunning(CameraPaths::Path3D)) {
+        m_paths->stop(CameraPaths::Path3D);
         ui->btnDeparture3D->setText("DEPARTURE");
     }
     stopRotationMotion();
@@ -599,35 +596,13 @@ void MainWindow::onDepartureClicked()
         return; // Errore matematico o di compilazione: niente avvio
     }
 
-    // Base 4D per le compensazioni del tick: solo il primo Departure parte da
-    // orientamento 4D neutro; dai successivi si conserva l'orientamento corrente
-    // (es. quello accumulato dal moto GO), senza reset nel passaggio di modalita'.
-    //
-    // "Conservare" vuol dire che il PRIMO TICK ridia l'orientamento corrente, e
-    // il tick scrive phi = base - gamma(t), psi = base - beta(t) (vedi
-    // applyPath4DCameraAt). Quindi la base e' l'orientamento corrente PIU' la
-    // compensazione al tempo da cui si riparte: leggere solo getPhi/getPsi,
-    // dopo uno Stop di questo stesso path, contava due volte il -gamma/-beta gia'
-    // applicato, e alla ripartenza la sezione saltava di gamma(T)/beta(T) --
-    // con alpha=beta=gamma=t (Morphing 3-Torus) tanto piu' quanto piu' a lungo
-    // il path aveva girato. Vale anche venendo dal moto GO o dal path 3D: gli
-    // angoli correnti includono gia' quel che e' successo nel frattempo.
-    // La formula usa le equazioni APPENA compilate qui sopra: se i campi sono
-    // cambiati durante lo Stop resta continua la rotazione (la posizione segue
-    // il nuovo path, com'e' giusto).
-    if (!m_path4DStartedOnce) {
-        m_path4DStartedOnce = true;
-        m_pathBaseOmega = m_pathBasePhi = m_pathBasePsi = 0.0f;
-    } else {
-        SurfaceEngine *engine = ui->glWidget->getEngine();
-        m_pathBaseOmega = ui->glWidget->getOmega();
-        m_pathBasePhi   = ui->glWidget->getPhi() + engine->evaluatePathGamma(pathTimeT);
-        m_pathBasePsi   = ui->glWidget->getPsi() + engine->evaluatePathBeta(pathTimeT);
-    }
+    // Base 4D per le compensazioni del tick (vedi CameraPaths::captureBase4D):
+    // con le equazioni APPENA compilate qui sopra.
+    m_paths->captureBase4D();
 
     if (handoffFrom3D && ui->glWidget) ui->glWidget->beginPathHandoff();
 
-    pathTimer->start();
+    m_paths->start(CameraPaths::Path4D);
     m_scene.lastCameraMotion = "path4D";
     m_userStoppedCameraMotion = false;
     if (ui->glWidget) {
@@ -635,178 +610,13 @@ void MainWindow::onDepartureClicked()
         // Solo il PRIMO Departure della sessione azzera la rotazione di default
         // (se non ruotata a mano); dai successivi si conserva l'orientamento
         // accumulato (es. dal moto GO), senza reset nel cambio di modalita'.
-        if (!m_anyPathStartedOnce) {
-            m_anyPathStartedOnce = true;
-            ui->glWidget->neutralizeDefaultRotationForPath();
-        }
+        if (m_paths->takeFirstStart()) ui->glWidget->neutralizeDefaultRotationForPath();
     }
     updateViewButtonsEnabled();
     ui->btnDeparture->setText("STOP");
 
     updateMasterButtonState();
     update4DButtonState();   // riallinea i controlli 4D dopo l'eventuale stop del moto GO
-}
-
-void MainWindow::onPathTimerTick()
-{
-    if (!pathTimer->isActive()) return;
-    // Durante il REC il timer resta ATTIVO (lo stato deve restare vero per
-    // bottoni/esclusivita'/handler) ma il tempo lo avanza SOLO il loop del
-    // recorder, col dt virtuale del frame: il tick live e' un no-op.
-    if (m_isRecording) return;
-
-    pathTimeT += pathSpeed4D();
-    applyPath4DCameraAt(pathTimeT);
-}
-
-void MainWindow::applyPath4DCameraAt(float t)
-{
-    // NB: il FOV NON si applica qui. Con lo slider unico del dock renderer il
-    // campo visivo e' gia' impostato su GLWidget e vale per tutto (path,
-    // rotazioni, superfici ferme); riapplicarlo a ogni tick sovrascriverebbe una
-    // regolazione fatta MENTRE il path e' in corsa. Il recorder non ne risente:
-    // legge lo stesso m_cameraFov vivo del tick live.
-
-    // 1. SETUP BASE
-    float dt = 0.01f;
-
-    SurfaceEngine* engine = ui->glWidget->getEngine();
-
-    // 2. VALUTAZIONE POSIZIONE (la tangente serve solo in vista Tangent,
-    // quindi p_prev si valuta dentro quel ramo: una eval exprtk in meno
-    // per frame in vista Center)
-    QVector4D p_curr = engine->evaluatePathPosition(t);
-    QVector4D p_next = engine->evaluatePathPosition(t + dt);
-
-    QVector4D V;
-
-    // 3. RECUPERO ANGOLI (Alpha, Beta, Gamma)
-    float alpha = engine->evaluatePathAlpha(t);
-    float beta  = engine->evaluatePathBeta(t);
-    float gamma = engine->evaluatePathGamma(t);
-
-    // 4. CALCOLO BASE ORTONORMALE LOCALE (N1, N2, N3)
-    QVector4D N1, N2, N3;
-    QVector4D finalPos4D, finalTarget4D, finalUp4D;
-
-    if (m_scene.pathViewMode4D == ModeTangential) {
-        QVector4D velocity = p_next - engine->evaluatePathPosition(t - dt);
-        V = (velocity.lengthSquared() > 1e-8f) ? velocity.normalized() : QVector4D(0, 1, 0, 0);
-
-        QVector4D K(0.0f, 0.0f, 1.0f, 0.0f);
-        N1 = K - V * QVector4D::dotProduct(K, V);
-        if (N1.lengthSquared() > 1e-6f) N1.normalize();
-        else {
-            QVector4D Y(0.0f, 1.0f, 0.0f, 0.0f);
-            N1 = (Y - V * QVector4D::dotProduct(Y, V)).normalized();
-        }
-
-        QVector3D v3 = V.toVector3D();
-        QVector3D n13 = N1.toVector3D();
-        QVector3D side3 = QVector3D::crossProduct(v3, n13);
-
-        if (side3.lengthSquared() > 1e-6f) {
-            N2 = QVector4D(side3, 0.0f).normalized();
-            N2 = N2 - V * QVector4D::dotProduct(N2, V) - N1 * QVector4D::dotProduct(N2, N1);
-            N2.normalize();
-        } else {
-            QVector4D I(1.0f, 0.0f, 0.0f, 0.0f);
-            N2 = I - V * QVector4D::dotProduct(I, V) - N1 * QVector4D::dotProduct(I, N1);
-            N2.normalize();
-        }
-        finalPos4D = p_curr - V * 0.2f;
-        finalTarget4D = p_next;
-    } else {
-        finalPos4D = p_curr;
-        finalTarget4D = QVector4D(0,0,0,0);
-        QVector4D viewDir = (finalTarget4D - finalPos4D);
-        V = (viewDir.lengthSquared() > 1e-8f) ? viewDir.normalized() : QVector4D(0,0,-1,0);
-        N1 = QVector4D(0,0,1,0);
-
-        QVector4D globalX(1,0,0,0);
-        N2 = globalX - V * QVector4D::dotProduct(globalX, V) - N1 * QVector4D::dotProduct(globalX, N1);
-        N2.normalize();
-    }
-
-    // Calcolo N3 (Ana)
-    float dx =  det3x3(V.y(), V.z(), V.w(),  N1.y(), N1.z(), N1.w(),  N2.y(), N2.z(), N2.w());
-    float dy = -det3x3(V.x(), V.z(), V.w(),  N1.x(), N1.z(), N1.w(),  N2.x(), N2.z(), N2.w());
-    float dz =  det3x3(V.x(), V.y(), V.w(),  N1.x(), N1.y(), N1.w(),  N2.x(), N2.y(), N2.w());
-    float dw = -det3x3(V.x(), V.y(), V.z(),  N1.x(), N1.y(), N1.z(),  N2.x(), N2.y(), N2.z());
-    N3 = QVector4D(dx, dy, dz, dw).normalized();
-
-    // Composizione Orientamento Locale
-    float ca = std::cos(alpha), sa = std::sin(alpha);
-    float cb = std::cos(beta),  sb = std::sin(beta);
-    float cg = std::cos(gamma), sg = std::sin(gamma);
-
-    float c1 = ca * cb;
-    float c2 = sa * cg - ca * sb * sg;
-    float c3 = sa * sg + ca * sb * cg;
-
-    finalUp4D = N1 * c1 + N2 * c2 + N3 * c3;
-    finalUp4D.normalize();
-
-    // =========================================================================
-    // >>> SINCRONIZZATO BETA + GAMMA <<<
-    // =========================================================================
-
-    // 1. Definiamo le rotazioni globali per compensare, RELATIVE alla base
-    // catturata all'avvio del path (orientamento 4D preesistente, es. dal moto GO)
-    float rotOmega = m_pathBaseOmega;          // X-W (base)
-    float rotPhi   = m_pathBasePhi - gamma;    // Y-W (base + fix per Gamma)
-    float rotPsi   = m_pathBasePsi - beta;     // Z-W (base + fix per Beta)
-
-    // 2. Aggiorniamo la GPU (Shader)
-    ui->glWidget->setRotation4D(rotOmega, rotPhi, rotPsi);
-
-    // 3. Funzione helper per ruotare la CPU Camera
-    // NB: stesso ordine dello shader (surface.vert): XW -> YW -> ZW
-    auto transformCPU = [&](QVector4D v) {
-        // A. Rotazione XW (Omega base)
-        if (std::abs(rotOmega) > 1e-6f) {
-            float c = std::cos(rotOmega);
-            float s = std::sin(rotOmega);
-            float x = v.x();
-            float w = v.w();
-            v.setX( x * c + w * s);
-            v.setW(-x * s + w * c);
-        }
-        // B. Rotazione YW (Phi / Gamma Fix)
-        if (std::abs(rotPhi) > 1e-6f) {
-            float c = std::cos(rotPhi);
-            float s = std::sin(rotPhi);
-            float y = v.y();
-            float w = v.w();
-            v.setY( y * c + w * s);
-            v.setW(-y * s + w * c);
-        }
-        // C. Rotazione ZW (Psi / Beta Fix)
-        if (std::abs(rotPsi) > 1e-6f) {
-            float c = std::cos(rotPsi);
-            float s = std::sin(rotPsi);
-            float z = v.z();
-            float w = v.w();
-            v.setZ( z * c + w * s);
-            v.setW(-z * s + w * c);
-        }
-        return v;
-    };
-
-    // 4. Applichiamo la trasformazione ai vettori camera
-    QVector4D rotPos    = transformCPU(finalPos4D);
-    QVector4D rotTarget = transformCPU(finalTarget4D);
-    QVector4D rotUp     = transformCPU(finalUp4D);
-
-    // 5. Invio finale
-    ui->glWidget->setCameraFrom4DVectors(rotPos, rotTarget, rotUp);
-
-    // NB: qui NON si aggiorna il readout del dock 4D. I campi misurano quanto
-    // l'utente ha mosso con i TASTI a scatto: il path (e le rotazioni) muovono
-    // la stessa camera, e riscrivere i campi mentre corrono faceva ballare sette
-    // numeri che l'utente non stava toccando, perdendo per giunta il conto degli
-    // scatti dati. L'unico aggiornamento sta in onNavTimerTick, il tick dei
-    // tasti premuti.
 }
 
 // UNA COORDINATA BASTA, MA DEVE ESSERE UNA COORDINATA.
@@ -839,9 +649,9 @@ void MainWindow::checkPathFields()
     // che ora chiama questa funzione -- e' raggiungibile gia' da prima: senza
     // questa guardia l'app crashava all'avvio sul primo isActive().
     // updateViewButtonsEnabled si protegge gia' da se'.
-    if (!pathTimer || !ui->btnDeparture) return;
+    if (!m_paths || !ui->btnDeparture) return;
 
-    if (pathTimer->isActive()) {
+    if (pathRunning(CameraPaths::Path4D)) {
         ui->btnDeparture->setEnabled(true);
     } else {
         ui->btnDeparture->setEnabled(hasPath4DInput());
@@ -852,11 +662,11 @@ void MainWindow::checkPathFields()
 void MainWindow::onDeparture3DClicked()
 {
     // NB: funziona anche DURANTE il REC — i timer restano attivi (tick no-op)
-    // e il loop legge lo stato vivo a ogni frame (vedi onPath3DTimerTick).
+    // e il loop legge lo stato vivo a ogni frame (vedi CameraPaths::tick).
 
     // CASO 1: STOP
-    if (pathTimer3D->isActive()) {
-        pathTimer3D->stop();
+    if (pathRunning(CameraPaths::Path3D)) {
+        m_paths->stop(CameraPaths::Path3D);
         m_userStoppedCameraMotion = true;
         if (ui->glWidget) ui->glWidget->setPathAnimating(false);
         updateViewButtonsEnabled();
@@ -870,9 +680,9 @@ void MainWindow::onDeparture3DClicked()
     // Mutua esclusivita': fermiamo il percorso 4D e il moto GO se attivi.
     // Se stiamo SUBENTRANDO al path 4D, la camera fa l'handoff (scivolata
     // continua invece del teletrasporto): vedi GLWidget::beginPathHandoff.
-    const bool handoffFrom4D = pathTimer->isActive();
-    if (pathTimer->isActive()) {
-        pathTimer->stop();
+    const bool handoffFrom4D = pathRunning(CameraPaths::Path4D);
+    if (pathRunning(CameraPaths::Path4D)) {
+        m_paths->stop(CameraPaths::Path4D);
         ui->btnDeparture->setText("DEPARTURE");
     }
     stopRotationMotion();
@@ -883,7 +693,7 @@ void MainWindow::onDeparture3DClicked()
 
     if (handoffFrom4D && ui->glWidget) ui->glWidget->beginPathHandoff();
 
-    pathTimer3D->start();
+    m_paths->start(CameraPaths::Path3D);
     m_scene.lastCameraMotion = "path3D";
     m_userStoppedCameraMotion = false;
     if (ui->glWidget) {
@@ -891,50 +701,13 @@ void MainWindow::onDeparture3DClicked()
         // Solo il PRIMO Departure della sessione azzera la rotazione di default
         // (se non ruotata a mano); dai successivi si conserva l'orientamento
         // accumulato (es. dal moto GO), senza reset nel cambio di modalita'.
-        if (!m_anyPathStartedOnce) {
-            m_anyPathStartedOnce = true;
-            ui->glWidget->neutralizeDefaultRotationForPath();
-        }
+        if (m_paths->takeFirstStart()) ui->glWidget->neutralizeDefaultRotationForPath();
     }
     updateViewButtonsEnabled();
     ui->btnDeparture3D->setText("STOP");
 
     updateMasterButtonState();
     update4DButtonState();   // riallinea i controlli 4D dopo l'eventuale stop del moto GO
-}
-
-void MainWindow::onPath3DTimerTick()
-{
-    if (!pathTimer3D->isActive()) return;
-    // Vedi onPathTimerTick: durante il REC avanza solo il loop del recorder.
-    if (m_isRecording) return;
-
-    pathTimeT3D += pathSpeed3D();
-    applyPath3DCameraAt(pathTimeT3D);
-}
-
-void MainWindow::applyPath3DCameraAt(float t)
-{
-    // NB: il FOV NON si applica qui: vedi la nota in applyPath4DCameraAt.
-    // Lo slider unico lo imposta una volta e vale per tutto.
-
-    QVector4D rawData = ui->glWidget->getEngine()->evaluatePath3DPosition(t);
-
-    // Scala la posizione (XYZ) ma NON il rollio (W)
-    QVector3D currentPos = rawData.toVector3D();
-    float currentRoll = rawData.w();
-
-    QVector3D target;
-
-    if (m_scene.pathViewMode3D == ModeTangential) {
-        float delta = 0.1f;
-        QVector4D futureData = ui->glWidget->getEngine()->evaluatePath3DPosition(t + delta);
-        target = futureData.toVector3D();
-    } else {
-        target = QVector3D(0, 0, 0);
-    }
-
-    ui->glWidget->setCameraPosAndDirection3D(currentPos, target, currentRoll);
 }
 
 // Una coordinata basta, e R(t) non e' una coordinata: e' il ROLLIO, che ruota
@@ -954,9 +727,9 @@ bool MainWindow::hasPath3DInput() const
 void MainWindow::checkPath3DFields()
 {
     // Stessa guardia di checkPathFields: timer non ancora costruiti all'avvio.
-    if (!pathTimer3D || !ui->btnDeparture3D) return;
+    if (!m_paths || !ui->btnDeparture3D) return;
 
-    if (pathTimer3D->isActive()) {
+    if (pathRunning(CameraPaths::Path3D)) {
         ui->btnDeparture3D->setEnabled(true);
     } else {
         ui->btnDeparture3D->setEnabled(hasPath3DInput());
@@ -971,8 +744,8 @@ void MainWindow::updateViewButtonsEnabled()
     // path ALTRUI in corsa il View resta attivo coi campi compilati: per il
     // subentro 3D<->4D (handoff) si deve poter pre-selezionare la vista con
     // cui partira' l'altro path (m_scene.pathViewMode4D/m_scene.pathViewMode3D sono letti nei tick).
-    bool path4D = pathTimer && pathTimer->isActive();
-    bool path3D = pathTimer3D && pathTimer3D->isActive();
+    bool path4D = pathRunning(CameraPaths::Path4D);
+    bool path3D = pathRunning(CameraPaths::Path3D);
     ui->pushView->setEnabled(path4D || hasPath4DInput());
     ui->pushView3D->setEnabled(path3D || hasPath3DInput());
 

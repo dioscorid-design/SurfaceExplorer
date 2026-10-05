@@ -350,8 +350,8 @@ void VideoRecorder::toggleRecord()
     // ==============================================================
     // 1. SALVATAGGIO STATO E STOP IMMEDIATO (FIX CONGELAMENTO E GEODETICO)
     // ==============================================================
-    bool wasPath4D = m_mainWindow->pathTimer->isActive();
-    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
+    bool wasPath4D = m_mainWindow->pathRunning(CameraPaths::Path4D);
+    bool wasPath3D = m_mainWindow->pathRunning(CameraPaths::Path3D);
     bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
     // NB: niente snapshot del moto GO — il loop legge isRotationMotionRunning()
     // a ogni frame (stato vivo), cosi' GO/STOP premuti durante il REC agiscono.
@@ -384,8 +384,8 @@ void VideoRecorder::toggleRecord()
     // ----------------------------------------
 
     // Fermiamo tutto PRIMA di aprire finestre di dialogo
-    if (wasPath4D) m_mainWindow->pathTimer->stop();
-    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
+    if (wasPath4D) m_mainWindow->m_paths->stop(CameraPaths::Path4D);
+    if (wasPath3D) m_mainWindow->m_paths->stop(CameraPaths::Path3D);
     m_mainWindow->ui->glWidget->stopAllTimers();
     m_mainWindow->ui->glWidget->pauseMotion();
 
@@ -393,11 +393,11 @@ void VideoRecorder::toggleRecord()
     auto restoreState = [this, wasAnimating, wasPath4D, wasPath3D, wasTimeAnimating, wasGeoAnimating, geoAnimTimer, startGeoTime]() {
         if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
         if (wasPath4D) {
-            m_mainWindow->pathTimer->start();
+            m_mainWindow->m_paths->start(CameraPaths::Path4D);
             m_mainWindow->ui->btnDeparture->setText("STOP");
         }
         if (wasPath3D) {
-            m_mainWindow->pathTimer3D->start();
+            m_mainWindow->m_paths->start(CameraPaths::Path3D);
             m_mainWindow->ui->btnDeparture3D->setText("STOP");
         }
         if (wasTimeAnimating) {
@@ -407,7 +407,7 @@ void VideoRecorder::toggleRecord()
         if (wasGeoAnimating && geoAnimTimer) {
             // Il loop ha avanzato geoTime per i frame del video: lo schermo
             // torna al tempo pre-REC, come rotazioni (setRotation4D in coda a
-            // toggleRecord) e path (il loop non muta pathTimeT/T3D).
+            // toggleRecord) e path (il loop non muta i tempi dei path).
             m_mainWindow->setProperty("geoTime", startGeoTime);
             geoAnimTimer->start(); // Riavviamo l'asincronia per la normale visualizzazione
         }
@@ -569,8 +569,8 @@ void VideoRecorder::toggleRecord()
     // video), ma i tick live sono no-op — con m_isRecording gia' true e il
     // clock esterno attivo, ad avanzare il tempo e' SOLO il loop qui sotto.
     m_mainWindow->ui->glWidget->setExternalClockActive(true);
-    if (wasPath4D) m_mainWindow->pathTimer->start();
-    if (wasPath3D) m_mainWindow->pathTimer3D->start();
+    if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
+    if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
     if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
 
     // ---> BLOCCA LO SPEGNIMENTO DELLO SCHERMO <---
@@ -635,8 +635,8 @@ void VideoRecorder::toggleRecord()
     // Tick/secondo REALI dei timer path (l'intervallo e' in ms): il passo per
     // frame deve riprodurre la velocita' vista a schermo. Il vecchio 30.0f
     // nominale (vs 33.3 reali) rendeva i path ~11% piu' lenti nel video.
-    float fpsScale4D = (1000.0f / (float)m_mainWindow->pathTimer->interval()) / (float)fps;
-    float fpsScale3D = (1000.0f / (float)m_mainWindow->pathTimer3D->interval()) / (float)fps;
+    float fpsScale4D = (1000.0f / (float)m_mainWindow->m_paths->interval(CameraPaths::Path4D)) / (float)fps;
+    float fpsScale3D = (1000.0f / (float)m_mainWindow->m_paths->interval(CameraPaths::Path3D)) / (float)fps;
 
 #ifdef Q_OS_ANDROID
     // Android: Usa la cache interna dell'app in modo che FFmpeg (C nativo) abbia i permessi
@@ -666,11 +666,11 @@ void VideoRecorder::toggleRecord()
             QDir().mkpath(m_mainWindow->m_recFolder);
     };
 
-    // Il loop avanza direttamente le variabili di stato VERE (pathTimeT,
-    // pathTimeT3D, omega/phi/psi), con la stessa semantica del tick live
+    // Il loop avanza direttamente lo stato VERO (i tempi dei path in
+    // CameraPaths, omega/phi/psi), con la stessa semantica del tick live
     // (t += velocita' corrente): il recorder sostituisce l'OROLOGIO, non lo
     // stato. Cosi' velocita' cambiate al volo entrano in modo continuo, il
-    // Reset (che azzera pathTimeT/T3D e la posa) agisce sul video come a
+    // Reset (che azzera i tempi dei path e la posa) agisce sul video come a
     // schermo, e a fine REC il live prosegue da dove il video e' finito.
 
     // UI Feedback
@@ -851,16 +851,15 @@ void VideoRecorder::toggleRecord()
 
         // STATO VIVO, non snapshot: i predicati sono quelli del tick live e i
         // toggle (GO/Departure/Reset) agiscono a meta' REC come a schermo.
-        if (m_mainWindow->pathTimer->isActive()) {
-            // Stessa identica camera del tick live: al recorder cambia solo
-            // il tempo. Niente copie locali di questa logica (divergevano:
+        if (m_mainWindow->pathRunning(CameraPaths::Path4D)) {
+            // Stesso identico avanzamento e camera del tick live
+            // (CameraPaths::advance): al recorder cambia solo quanti tick vale
+            // il frame. Niente copie locali di questa logica (divergevano:
             // vista Center diversa, base 4D del Departure ignorata).
-            m_mainWindow->pathTimeT += m_mainWindow->pathSpeed4D() * fpsScale4D;
-            m_mainWindow->applyPath4DCameraAt(m_mainWindow->pathTimeT);
+            m_mainWindow->m_paths->advance(CameraPaths::Path4D, fpsScale4D);
         }
-        else if (m_mainWindow->pathTimer3D->isActive()) {
-            m_mainWindow->pathTimeT3D += m_mainWindow->pathSpeed3D() * fpsScale3D;
-            m_mainWindow->applyPath3DCameraAt(m_mainWindow->pathTimeT3D);
+        else if (m_mainWindow->pathRunning(CameraPaths::Path3D)) {
+            m_mainWindow->m_paths->advance(CameraPaths::Path3D, fpsScale3D);
         }
         else if (m_mainWindow->isRotationMotionRunning()) {
             // Stessa identica cinematica del tick live (advanceRotationsBy):
@@ -1121,7 +1120,7 @@ void VideoRecorder::toggleRecord()
     m_mainWindow->ui->dockSurfaces->setEnabled(true);
 
     // FINE REC, modello "live-through": NESSUN ripristino dei moti — lo stato
-    // corrente (timer, testi bottone, pathTimeT/T3D, posa 4D, geoTime) e'
+    // corrente (timer, testi bottone, tempi dei path, posa 4D, geoTime) e'
     // quello che l'utente ha costruito coi comandi al volo, e lo schermo
     // prosegue da dove il video e' finito (i timer non sono mai stati fermati:
     // era fermo solo il loro OROLOGIO). restoreState resta per i soli percorsi

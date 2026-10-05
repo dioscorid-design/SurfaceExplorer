@@ -143,8 +143,8 @@ MainWindow::SceneFingerprint MainWindow::sceneFingerprint() const
 
     PresetSerializer::MotionRunState run;
     run.rotating = ui->glWidget->isAnimating();
-    run.path4D   = pathTimer && pathTimer->isActive();
-    run.path3D   = pathTimer3D && pathTimer3D->isActive();
+    run.path4D   = pathRunning(CameraPaths::Path4D);
+    run.path3D   = pathRunning(CameraPaths::Path3D);
     // Senza il suono dentro il codice della texture: e' un modulo a parte.
     QJsonObject root = m_presetSerializer->buildMotionJson(QString(), run, /*includeSound=*/false);
 
@@ -643,10 +643,10 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // del path del preset precedente deve sopravvivere. Lo stop passa dai
     // TASTI (onDeparture*Clicked): testo riportato a "DEPARTURE",
     // setPathAnimating(false), master button riallineato. Il ramo Ray
-    // Marching fermava i timer con pathTimer->stop() diretto: il tasto
+    // Marching fermava i timer con m_paths->stop(CameraPaths::Path4D) diretto: il tasto
     // restava su STOP e campi/tempo/flag del path sopravvivevano al tab.
-    if (pathTimer->isActive()) onDepartureClicked();
-    if (pathTimer3D->isActive()) onDeparture3DClicked();
+    if (pathRunning(CameraPaths::Path4D)) onDepartureClicked();
+    if (pathRunning(CameraPaths::Path3D)) onDeparture3DClicked();
 
     // LA SCENA DI DEFAULT, in blocco (assignSceneTexts, la stessa strada del
     // load): equazioni, campi RM, costanti, slot, ancore, limiti e path. Le
@@ -661,10 +661,7 @@ void MainWindow::resetScene(int index, bool loadDefaultSurface)
     // Stato di sessione dei path azzerato, come al load di un record
     // (vedi applyMotionExample): un futuro Departure riparte da t=0 e
     // da orientamento neutro.
-    pathTimeT = 0.0f;
-    pathTimeT3D = 0.0f;
-    m_path4DStartedOnce = false;
-    m_anyPathStartedOnce = false;
+    m_paths->resetSession();
     // ...e i comandi dei path (vista, velocita', ultimo moto, path compilato).
     resetMotionControls();
 
@@ -1920,28 +1917,24 @@ void MainWindow::applyMotionExample(LibraryItem data)
     ui->glWidget->pauseMotion(); // Ferma rotazioni
     ui->glWidget->resetTransformations();
 
-    if (pathTimer->isActive()) onDepartureClicked();
-    if (pathTimer3D->isActive()) onDeparture3DClicked();
+    if (pathRunning(CameraPaths::Path4D)) onDepartureClicked();
+    if (pathRunning(CameraPaths::Path3D)) onDeparture3DClicked();
 
     if (m_geoAnimTimer && m_geoAnimTimer->isActive()) {
         m_geoAnimTimer->stop();
     }
 
     // Caricare un nuovo record = nuovo "primo Departure": i flag di sessione che
-    // gate-ano la neutralizzazione dell'orientamento (m_path4DStartedOnce e
-    // m_anyPathStartedOnce) NON venivano mai rimessi a false, quindi dal secondo
+    // gate-ano la neutralizzazione dell'orientamento (oggi in CameraPaths:
+    // resetSession) NON venivano mai rimessi a false, quindi dal secondo
     // record in poi il path partiva da una base 4D non-neutra (l'angolo psi del
     // preset appena applicato via setRotation4D) -> il frame della camera si ribaltava
     // e il moto appariva percorso in senso OPPOSTO a ogni ricarica. Reset qui: ogni
     // record riparte pulito come il primissimo della sessione.
-    m_path4DStartedOnce = false;
-    m_anyPathStartedOnce = false;
-
-    // Tempo dei path azzerato: un nuovo record deve partire da t=0, non dal tempo
-    // RESIDUO del moto precedente (che altrimenti farebbe ripartire la traiettoria da
-    // una fase arbitraria a ogni ricarica).
-    pathTimeT = 0.0f;
-    pathTimeT3D = 0.0f;
+    // Anche il tempo dei path torna a t=0: un nuovo record deve partire da li',
+    // non dal tempo RESIDUO del moto precedente (che altrimenti farebbe
+    // ripartire la traiettoria da una fase arbitraria a ogni ricarica).
+    m_paths->resetSession();
 
     if (m_btnStart) m_btnStart->setText("START");
     if (ui->btnStart_2) ui->btnStart_2->setText("GO");
@@ -2211,7 +2204,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
         // Il quaternione di un RECORD e' un'istantanea intenzionale (l'utente
         // l'ha ruotato cosi' e l'ha salvato): senza questo mark, l'avvio del
         // path in coda al load (sez. 6 -> onDepartureClicked, primo Departure
-        // perche' m_anyPathStartedOnce e' appena stato resettato) passava per
+        // perche' la sessione dei path e' appena stata azzerata) passava per
         // neutralizeDefaultRotationForPath e AZZERAVA la rotazione salvata --
         // il record ricaricato appariva identico a quello di partenza. Il ramo
         // sopra (record vecchi senza camera3D) resta neutralizzabile: quel
@@ -2562,9 +2555,9 @@ void MainWindow::applyMotionExample(LibraryItem data)
         if (ui->btnStart_2) ui->btnStart_2->setText("STOP");
         ui->glWidget->resumeMotion();
     } else if (pick == "path4D") {
-        if (!pathTimer->isActive()) onDepartureClicked();
+        if (!pathRunning(CameraPaths::Path4D)) onDepartureClicked();
     } else if (pick == "path3D") {
-        if (!pathTimer3D->isActive()) onDeparture3DClicked();
+        if (!pathRunning(CameraPaths::Path3D)) onDeparture3DClicked();
     } else {
         if (hasRotation) {
             if (ui->btnStart_2) ui->btnStart_2->setText("STOP");
@@ -2586,8 +2579,8 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // Il FOV va caricato PRIMA del tick di sincronizzazione, perche' il tick
     // ridisegna gia' con la proiezione corrente.
     applyCameraFov(resolveSavedFov(data.cameraFov, data.fov3D, data.fov4D));
-    if (pathTimer->isActive()) onPathTimerTick();
-    else if (pathTimer3D->isActive()) onPath3DTimerTick();
+    if (pathRunning(CameraPaths::Path4D)) m_paths->tick(CameraPaths::Path4D);
+    else if (pathRunning(CameraPaths::Path3D)) m_paths->tick(CameraPaths::Path3D);
 
     ui->glWidget->setProjectionMode(data.projectionMode);
     updateProjectionButtonText();
@@ -3253,8 +3246,8 @@ void MainWindow::applyCommonData(LibraryItem d, const SceneState &file)
 
     onStopClicked();
 
-    if (pathTimer->isActive()) onDepartureClicked();
-    if (pathTimer3D->isActive()) onDeparture3DClicked();
+    if (pathRunning(CameraPaths::Path4D)) onDepartureClicked();
+    if (pathRunning(CameraPaths::Path3D)) onDeparture3DClicked();
 
     // Gli stop qui sopra passano dai tasti e alzano m_userStoppedCameraMotion,
     // ma sono stop PROGRAMMATICI di pre-caricamento: il nuovo preset/record
@@ -3796,8 +3789,7 @@ void MainWindow::applyCommonData(LibraryItem d, const SceneState &file)
                                                     pt.alpha, pt.beta, pt.gamma);
 
     // Reset Variabili Tempo Locali
-    pathTimeT = 0.0f;
-    pathTimeT3D = 0.0f;
+    m_paths->resetTimes();
     this->setProperty("geoTime", 0.0);
     if (ui->glWidget) ui->glWidget->resetTime();
 

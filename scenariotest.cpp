@@ -244,8 +244,8 @@ void ScenarioTest::checkTextureEnabled(const QString &step, bool expectedIntent)
 
     PresetSerializer::MotionRunState run;
     run.rotating = gl->isAnimating();
-    run.path4D   = m_mw->pathTimer && m_mw->pathTimer->isActive();
-    run.path3D   = m_mw->pathTimer3D && m_mw->pathTimer3D->isActive();
+    run.path4D   = m_mw->pathRunning(CameraPaths::Path4D);
+    run.path3D   = m_mw->pathRunning(CameraPaths::Path3D);
     const bool saved = m_mw->m_presetSerializer
                            ->captureMotionState(m_record, run, true).textureEnabled;
 
@@ -315,8 +315,8 @@ void ScenarioTest::checkTexColors(const QString &step, const QColor &global1, co
 
     PresetSerializer::MotionRunState run;
     run.rotating = gl->isAnimating();
-    run.path4D   = m_mw->pathTimer && m_mw->pathTimer->isActive();
-    run.path3D   = m_mw->pathTimer3D && m_mw->pathTimer3D->isActive();
+    run.path4D   = m_mw->pathRunning(CameraPaths::Path4D);
+    run.path3D   = m_mw->pathRunning(CameraPaths::Path3D);
     const LibraryItem saved = m_mw->m_presetSerializer->captureMotionState(m_record, run, true);
 
     QStringList bad;
@@ -361,8 +361,8 @@ void ScenarioTest::checkBackground(const QString &step, const QString &expectedI
 
     PresetSerializer::MotionRunState run;
     run.rotating = gl->isAnimating();
-    run.path4D   = m_mw->pathTimer && m_mw->pathTimer->isActive();
-    run.path3D   = m_mw->pathTimer3D && m_mw->pathTimer3D->isActive();
+    run.path4D   = m_mw->pathRunning(CameraPaths::Path4D);
+    run.path3D   = m_mw->pathRunning(CameraPaths::Path3D);
     const LibraryItem saved = m_mw->m_presetSerializer->captureMotionState(m_record, run, true);
     static const QRegularExpression imgRe(QStringLiteral(R"(^\s*//IMG:\s*(.*)$)"),
                                           QRegularExpression::MultilineOption);
@@ -456,8 +456,8 @@ void ScenarioTest::checkDisplacement(const QString &step, const QString &expecte
 
     PresetSerializer::MotionRunState run;
     run.rotating = gl->isAnimating();
-    run.path4D   = m_mw->pathTimer && m_mw->pathTimer->isActive();
-    run.path3D   = m_mw->pathTimer3D && m_mw->pathTimer3D->isActive();
+    run.path4D   = m_mw->pathRunning(CameraPaths::Path4D);
+    run.path3D   = m_mw->pathRunning(CameraPaths::Path3D);
     const QString saved = m_mw->m_presetSerializer
                               ->captureMotionState(m_record, run, true).displacementCode.trimmed();
 
@@ -487,8 +487,8 @@ LibraryItem ScenarioTest::captureSave()
     GLWidget *gl = m_mw->ui->glWidget;
     PresetSerializer::MotionRunState run;
     run.rotating = gl->isAnimating();
-    run.path4D   = m_mw->pathTimer && m_mw->pathTimer->isActive();
-    run.path3D   = m_mw->pathTimer3D && m_mw->pathTimer3D->isActive();
+    run.path4D   = m_mw->pathRunning(CameraPaths::Path4D);
+    run.path3D   = m_mw->pathRunning(CameraPaths::Path3D);
     return m_mw->m_presetSerializer->captureMotionState(m_record, run, true);
 }
 
@@ -827,8 +827,8 @@ void ScenarioTest::checkMotion(const QString &step, const QString &expectRunning
     const LibraryItem sv = captureSave();
     QStringList bad;
 
-    const bool t4 = m_mw->pathTimer && m_mw->pathTimer->isActive();
-    const bool t3 = m_mw->pathTimer3D && m_mw->pathTimer3D->isActive();
+    const bool t4 = m_mw->pathRunning(CameraPaths::Path4D);
+    const bool t3 = m_mw->pathRunning(CameraPaths::Path3D);
     const bool rot = gl->isAnimating();
     const bool rm = ui->tabModeSelector->currentIndex() == 1;
     const bool keep4D = !rm || ui->subTabImplicit->currentIndex() == 1;
@@ -966,7 +966,7 @@ void ScenarioTest::checkMotionDefaults(const QString &step)
     GLWidget *gl = ui->glWidget;
     const LibraryItem sv = captureSave();
     QStringList bad;
-    if ((m_mw->pathTimer && m_mw->pathTimer->isActive()) || (m_mw->pathTimer3D && m_mw->pathTimer3D->isActive())
+    if (m_mw->pathRunning(CameraPaths::Path4D) || m_mw->pathRunning(CameraPaths::Path3D)
         || gl->isAnimating())
         bad << QStringLiteral("un moto camera gira ancora");
     for (QLineEdit *l : { ui->lineX_P, ui->lineY_P, ui->lineZ_P, ui->lineP_P, ui->lineAlpha_P, ui->lineBeta_P,
@@ -2596,16 +2596,16 @@ void ScenarioTest::run()
         ui->lineX->setPlainText(QStringLiteral("(0.8 + 0.3*cos(v))*cos(u + t)"));  wait(300);
         click(ui->btnRunParametric);  wait(800);
         typeInField(ui->lineY_P3D, QStringLiteral("2*sin(t)"));
-        check(m_mw->isEquationModuleMoving() && !m_mw->pathTimer3D->isActive() && label() == QLatin1String("START"),
+        check(m_mw->isEquationModuleMoving() && !m_mw->pathRunning(CameraPaths::Path3D) && label() == QLatin1String("START"),
               QStringLiteral("geometria in moto, path 3D scritto e fermo -> master START (%1)").arg(label()));
         click(m_mw->m_btnStart);  wait(600);
-        check(m_mw->isEquationModuleMoving() && m_mw->pathTimer3D->isActive() && label() == QLatin1String("STOP"),
+        check(m_mw->isEquationModuleMoving() && m_mw->pathRunning(CameraPaths::Path3D) && label() == QLatin1String("STOP"),
               QStringLiteral("master START accende il path e lascia la geometria in moto -> STOP (%1)").arg(label()));
         click(m_mw->m_btnStart);  wait(400);
         check(!m_mw->isAnythingMoving() && label() == QLatin1String("START"),
               QStringLiteral("master STOP spegne tutto -> START (%1)").arg(label()));
         click(ui->btnDeparture3D);  wait(400);
-        check(m_mw->pathTimer3D->isActive() && !m_mw->isEquationModuleMoving() && label() == QLatin1String("START"),
+        check(m_mw->pathRunning(CameraPaths::Path3D) && !m_mw->isEquationModuleMoving() && label() == QLatin1String("START"),
               QStringLiteral("solo il path col suo tasto, geometria ferma -> master resta START (%1)").arg(label()));
         click(ui->btnDeparture3D);  wait(300);
     }

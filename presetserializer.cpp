@@ -900,12 +900,12 @@ QJsonObject PresetSerializer::buildMotionJson(const QString &name, const MotionR
 void PresetSerializer::saveSurface(const QString &suggestedPath)
 {
     bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
-    bool wasPath4D = m_mainWindow->pathTimer->isActive();
-    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
+    bool wasPath4D = m_mainWindow->pathRunning(CameraPaths::Path4D);
+    bool wasPath3D = m_mainWindow->pathRunning(CameraPaths::Path3D);
 
     if (wasAnimating) m_mainWindow->ui->glWidget->pauseMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->stop();
-    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
+    if (wasPath4D) m_mainWindow->m_paths->stop(CameraPaths::Path4D);
+    if (wasPath3D) m_mainWindow->m_paths->stop(CameraPaths::Path3D);
 
     // UN SOLO dominio di preferenze. Qui c'era `QSettings settings("Repository")`:
     // quel costruttore prende l'ORGANIZATION NAME, non un gruppo, quindi scriveva
@@ -948,8 +948,8 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         rootPath = QSettings().value("libraryRootPath").toString();
         if (rootPath.isEmpty()) {
             if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
-            if (wasPath4D) m_mainWindow->pathTimer->start();
-            if (wasPath3D) m_mainWindow->pathTimer3D->start();
+            if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
+            if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
             return;
         }
     }
@@ -1004,8 +1004,8 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         MobileSaveDialog dialog("Save Surface", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow, rootPath + "/surfaces");
         if (dialog.exec() != QDialog::Accepted) {
             if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
-            if (wasPath4D) m_mainWindow->pathTimer->start();
-            if (wasPath3D) m_mainWindow->pathTimer3D->start();
+            if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
+            if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
             return;
         }
         fileName = dialog.getSelectedPath();
@@ -1015,8 +1015,8 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     }
 
     if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->start();
-    if (wasPath3D) m_mainWindow->pathTimer3D->start();
+    if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
+    if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
 
     if (fileName.isEmpty()) return;
     if (!fileName.endsWith(".json", Qt::CaseInsensitive)) fileName += ".json";
@@ -1209,8 +1209,8 @@ void PresetSerializer::saveTexture(const QString &path)
 void PresetSerializer::saveMotion(const QString &suggestedPath)
 {
     bool wasRotating = m_mainWindow->ui->glWidget->isAnimating();
-    bool wasPath4D = m_mainWindow->pathTimer->isActive();
-    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
+    bool wasPath4D = m_mainWindow->pathRunning(CameraPaths::Path4D);
+    bool wasPath3D = m_mainWindow->pathRunning(CameraPaths::Path3D);
     bool wasTimeAnimating = false;
 
     if (m_mainWindow->isAnythingMoving()) {
@@ -1220,8 +1220,8 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     }
 
     if (wasRotating) m_mainWindow->ui->glWidget->pauseMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->stop();
-    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
+    if (wasPath4D) m_mainWindow->m_paths->stop(CameraPaths::Path4D);
+    if (wasPath3D) m_mainWindow->m_paths->stop(CameraPaths::Path3D);
 
     QSettings settings;
     QString lastDir = settings.value("lastMotionDir", settings.value("lastFolder", QDir::homePath()).toString()).toString();
@@ -1289,8 +1289,8 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         MobileSaveDialog dialog("Save Record", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow, m_mainWindow->presetsRootPath() + "/records");
         if (dialog.exec() != QDialog::Accepted) {
             if (wasRotating) m_mainWindow->ui->glWidget->resumeMotion();
-            if (wasPath4D) m_mainWindow->pathTimer->start();
-            if (wasPath3D) m_mainWindow->pathTimer3D->start();
+            if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
+            if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
             if (wasTimeAnimating) {
                 m_mainWindow->ui->glWidget->setSurfaceAnimating(true);
                 m_mainWindow->ui->glWidget->startAnimationTimer();
@@ -1304,8 +1304,8 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     }
 
     if (wasRotating) m_mainWindow->ui->glWidget->resumeMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->start();
-    if (wasPath3D) m_mainWindow->pathTimer3D->start();
+    if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
+    if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
     if (wasTimeAnimating) {
         m_mainWindow->ui->glWidget->setSurfaceAnimating(true);
         m_mainWindow->ui->glWidget->startAnimationTimer();
@@ -1414,17 +1414,17 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
 void PresetSerializer::saveScript()
 {
     bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
-    bool wasPath4D = m_mainWindow->pathTimer->isActive();
-    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
+    bool wasPath4D = m_mainWindow->pathRunning(CameraPaths::Path4D);
+    bool wasPath3D = m_mainWindow->pathRunning(CameraPaths::Path3D);
 
     if (wasAnimating) m_mainWindow->ui->glWidget->pauseMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->stop();
-    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
+    if (wasPath4D) m_mainWindow->m_paths->stop(CameraPaths::Path4D);
+    if (wasPath3D) m_mainWindow->m_paths->stop(CameraPaths::Path3D);
 
     auto resumeTimers = [&]() {
         if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
-        if (wasPath4D) m_mainWindow->pathTimer->start();
-        if (wasPath3D) m_mainWindow->pathTimer3D->start();
+        if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
+        if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
     };
 
     QString content = m_mainWindow->scriptText(m_mainWindow->shownScriptSlot());
@@ -1712,12 +1712,12 @@ void PresetSerializer::saveSound(const QString &filePath)
 void PresetSerializer::saveTextureAs(const QString &startDir, const QString &sourceFilePath)
 {
     bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
-    bool wasPath4D = m_mainWindow->pathTimer->isActive();
-    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
+    bool wasPath4D = m_mainWindow->pathRunning(CameraPaths::Path4D);
+    bool wasPath3D = m_mainWindow->pathRunning(CameraPaths::Path3D);
 
     if (wasAnimating) m_mainWindow->ui->glWidget->pauseMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->stop();
-    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
+    if (wasPath4D) m_mainWindow->m_paths->stop(CameraPaths::Path4D);
+    if (wasPath3D) m_mainWindow->m_paths->stop(CameraPaths::Path3D);
     // Nome di default: quello della texture caricata, vuoto se è una texture nuova.
     QString defaultName = sourceFilePath.isEmpty()
                               ? QString()
@@ -1742,8 +1742,8 @@ void PresetSerializer::saveTextureAs(const QString &startDir, const QString &sou
     if (dialog.exec() != QDialog::Accepted) {
         // Se l'utente preme Cancel, riprendiamo l'animazione ed usciamo
         if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
-        if (wasPath4D) m_mainWindow->pathTimer->start();
-        if (wasPath3D) m_mainWindow->pathTimer3D->start();
+        if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
+        if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
         return;
     }
     QString savePath = dialog.getSelectedPath();
@@ -1754,8 +1754,8 @@ void PresetSerializer::saveTextureAs(const QString &startDir, const QString &sou
 #endif
 
     if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->start();
-    if (wasPath3D) m_mainWindow->pathTimer3D->start();
+    if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
+    if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
 
     if (savePath.isEmpty()) return;
     if (!savePath.endsWith(".json", Qt::CaseInsensitive)) savePath += ".json";
@@ -1768,12 +1768,12 @@ void PresetSerializer::saveTextureAs(const QString &startDir, const QString &sou
 void PresetSerializer::saveSurfaceAs(const QString &startDir, const QString &sourceFilePath)
 {
     bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
-    bool wasPath4D = m_mainWindow->pathTimer->isActive();
-    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
+    bool wasPath4D = m_mainWindow->pathRunning(CameraPaths::Path4D);
+    bool wasPath3D = m_mainWindow->pathRunning(CameraPaths::Path3D);
 
     if (wasAnimating) m_mainWindow->ui->glWidget->pauseMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->stop();
-    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
+    if (wasPath4D) m_mainWindow->m_paths->stop(CameraPaths::Path4D);
+    if (wasPath3D) m_mainWindow->m_paths->stop(CameraPaths::Path3D);
 
     // startDir puo' essere inesistente o una risorsa ":/" (item builtin): il
     // dialog ripiegherebbe sull'ultima cartella visitata. Fallback alla radice
@@ -1797,8 +1797,8 @@ void PresetSerializer::saveSurfaceAs(const QString &startDir, const QString &sou
     if (dialog.exec() != QDialog::Accepted) {
         // Se l'utente preme Cancel, riprendiamo l'animazione ed usciamo
         if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
-        if (wasPath4D) m_mainWindow->pathTimer->start();
-        if (wasPath3D) m_mainWindow->pathTimer3D->start();
+        if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
+        if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
         return;
     }
     QString savePath = dialog.getSelectedPath();
@@ -1807,8 +1807,8 @@ void PresetSerializer::saveSurfaceAs(const QString &startDir, const QString &sou
 #endif
 
     if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->start();
-    if (wasPath3D) m_mainWindow->pathTimer3D->start();
+    if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
+    if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
 
     if (savePath.isEmpty()) return;
     if (!savePath.endsWith(".json", Qt::CaseInsensitive)) savePath += ".json";
@@ -1858,12 +1858,12 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
     // Protezione contro i congelamenti UI
     // ==============================================================
     bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
-    bool wasPath4D = m_mainWindow->pathTimer->isActive();
-    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
+    bool wasPath4D = m_mainWindow->pathRunning(CameraPaths::Path4D);
+    bool wasPath3D = m_mainWindow->pathRunning(CameraPaths::Path3D);
 
     if (wasAnimating) m_mainWindow->ui->glWidget->pauseMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->stop();
-    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
+    if (wasPath4D) m_mainWindow->m_paths->stop(CameraPaths::Path4D);
+    if (wasPath3D) m_mainWindow->m_paths->stop(CameraPaths::Path3D);
 
     // ==============================================================
     // Apertura finestra di salvataggio
@@ -1876,8 +1876,8 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
 
     if (dialog.exec() != QDialog::Accepted) {
         if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
-        if (wasPath4D) m_mainWindow->pathTimer->start();
-        if (wasPath3D) m_mainWindow->pathTimer3D->start();
+        if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
+        if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
         return;
     }
     QString savePath = dialog.getSelectedPath();
@@ -1896,8 +1896,8 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
 
     // Riprendiamo i timer dopo la chiusura della finestra
     if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->start();
-    if (wasPath3D) m_mainWindow->pathTimer3D->start();
+    if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
+    if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
     // ==============================================================
 
     if (savePath.isEmpty()) return;
@@ -1983,12 +1983,12 @@ void PresetSerializer::saveSoundAs(const QString &startDir, const QString &sourc
 void PresetSerializer::saveMotionAs(const QString &startDir, const QString &sourceFilePath)
 {
     bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
-    bool wasPath4D = m_mainWindow->pathTimer->isActive();
-    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
+    bool wasPath4D = m_mainWindow->pathRunning(CameraPaths::Path4D);
+    bool wasPath3D = m_mainWindow->pathRunning(CameraPaths::Path3D);
 
     if (wasAnimating) m_mainWindow->ui->glWidget->pauseMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->stop();
-    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
+    if (wasPath4D) m_mainWindow->m_paths->stop(CameraPaths::Path4D);
+    if (wasPath3D) m_mainWindow->m_paths->stop(CameraPaths::Path3D);
 
     // startDir puo' essere inesistente o una risorsa ":/" (item builtin): il
     // dialog ripiegherebbe sull'ultima cartella visitata. Fallback alla radice
@@ -2011,8 +2011,8 @@ void PresetSerializer::saveMotionAs(const QString &startDir, const QString &sour
     if (dialog.exec() != QDialog::Accepted) {
         // Se l'utente preme Cancel, riprendiamo l'animazione ed usciamo
         if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
-        if (wasPath4D) m_mainWindow->pathTimer->start();
-        if (wasPath3D) m_mainWindow->pathTimer3D->start();
+        if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
+        if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
         return;
     }
     QString savePath = dialog.getSelectedPath();
@@ -2021,8 +2021,8 @@ void PresetSerializer::saveMotionAs(const QString &startDir, const QString &sour
 #endif
 
     if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->start();
-    if (wasPath3D) m_mainWindow->pathTimer3D->start();
+    if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
+    if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
 
     if (savePath.isEmpty()) return;
     if (!savePath.endsWith(".json", Qt::CaseInsensitive)) savePath += ".json";
@@ -2055,17 +2055,17 @@ void PresetSerializer::saveMotionAs(const QString &startDir, const QString &sour
 bool PresetSerializer::saveUnsavedWorkInteractive()
 {
     bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
-    bool wasPath4D = m_mainWindow->pathTimer->isActive();
-    bool wasPath3D = m_mainWindow->pathTimer3D->isActive();
+    bool wasPath4D = m_mainWindow->pathRunning(CameraPaths::Path4D);
+    bool wasPath3D = m_mainWindow->pathRunning(CameraPaths::Path3D);
 
     if (wasAnimating) m_mainWindow->ui->glWidget->pauseMotion();
-    if (wasPath4D) m_mainWindow->pathTimer->stop();
-    if (wasPath3D) m_mainWindow->pathTimer3D->stop();
+    if (wasPath4D) m_mainWindow->m_paths->stop(CameraPaths::Path4D);
+    if (wasPath3D) m_mainWindow->m_paths->stop(CameraPaths::Path3D);
 
     const auto resumeMotion = [&]() {
         if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
-        if (wasPath4D) m_mainWindow->pathTimer->start();
-        if (wasPath3D) m_mainWindow->pathTimer3D->start();
+        if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
+        if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
     };
 
     // Radice reale della libreria: la cartella che CONTIENE i quattro rami.

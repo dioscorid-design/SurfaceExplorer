@@ -660,7 +660,7 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
             // moto ci sono gia' i tasti dedicati (START/STOP e master), quindi
             // la pausa qui era solo un passo in piu' prima del gesto utile.
             // Non serve fermare prima: applyMotionExample apre con lo STOP TOTALE
-            // (pauseMotion, stopAll, path timer fermati, pathTimeT azzerato).
+            // (pauseMotion, stopAll, path fermati, tempo dei path azzerato).
             // La conferma "vuoi salvare?" e' gia' stata chiesta in cima alla
             // funzione, prima di toccare qualunque stato.
             this->setProperty("activeMotionPath", data.filePath);
@@ -1811,8 +1811,8 @@ void MainWindow::restoreMotionState(bool wasRotating, bool wasPath4D,
         ui->glWidget->setSurfaceAnimating(true);
         ui->glWidget->startAnimationTimer();
     }
-    if (wasPath4D)  pathTimer->start();
-    if (wasPath3D)  pathTimer3D->start();
+    if (wasPath4D)  m_paths->start(CameraPaths::Path4D);
+    if (wasPath3D)  m_paths->start(CameraPaths::Path3D);
     if (wasRotating) ui->glWidget->resumeMotion();
 }
 
