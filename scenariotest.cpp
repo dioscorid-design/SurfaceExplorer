@@ -837,7 +837,7 @@ void ScenarioTest::checkMotion(const QString &step, const QString &expectRunning
 
     // VISTE dei due path.
     auto viewName = [](int m) {
-        return m == MainWindow::ModeTangential ? QStringLiteral("Tangent View") : QStringLiteral("Center View");
+        return m == ModeTangential ? QStringLiteral("Tangent View") : QStringLiteral("Center View");
     };
     if (ui->pushView->text() != viewName(m_mw->m_scene.pathViewMode4D))
         bad << QStringLiteral("vista 4D: tasto \"%1\", membro %2").arg(ui->pushView->text(), viewName(m_mw->m_scene.pathViewMode4D));
@@ -972,7 +972,7 @@ void ScenarioTest::checkMotionDefaults(const QString &step)
     for (QLineEdit *l : { ui->lineX_P, ui->lineY_P, ui->lineZ_P, ui->lineP_P, ui->lineAlpha_P, ui->lineBeta_P,
                           ui->lineGamma_P, ui->lineX_P3D, ui->lineY_P3D, ui->lineZ_P3D, ui->lineR_P3D })
         if (!l->text().trimmed().isEmpty()) { bad << QStringLiteral("campo path \"%1\" non vuoto").arg(l->objectName()); break; }
-    if (m_mw->m_scene.pathViewMode4D != MainWindow::ModeTangential || m_mw->m_scene.pathViewMode3D != MainWindow::ModeTangential)
+    if (m_mw->m_scene.pathViewMode4D != ModeTangential || m_mw->m_scene.pathViewMode3D != ModeTangential)
         bad << QStringLiteral("vista dei path rimasta Center (4D %1, 3D %2)")
                    .arg(int(m_mw->m_scene.pathViewMode4D)).arg(int(m_mw->m_scene.pathViewMode3D));
     if (m_mw->m_scene.pathSpeed3D != 10 || m_mw->m_scene.pathSpeed4D != 10

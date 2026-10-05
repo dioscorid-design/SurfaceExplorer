@@ -81,6 +81,7 @@ qt_add_executable(SurfaceExplorer
     # MainWindow divisa per argomento: stessa classe, un file per area
     # (intestazione privata comune mainwindow_p.h).
     mainwindow_p.h
+    scenestate.h
     mainwindow_scene.cpp
     mainwindow_state.cpp
     mainwindow_equations.cpp

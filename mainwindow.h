@@ -16,6 +16,7 @@
 #include <QJsonValue>
 
 #include "glwidget.h"
+#include "scenestate.h"
 #include "librarymanager.h"
 #include "synthesizer.h"
 
@@ -57,6 +58,21 @@ class MainWindow : public QMainWindow
     friend class PresetRoundTrip;   // test di andata e ritorno dei preset
     friend class ClockTest;         // test degli orologi di animazione
     friend class ScenarioTest;      // test degli scenari d'uso
+
+    // I TIPI DELLA SCENA vivono in scenestate.h (le classi estratte da
+    // MainWindow li usano senza includere questa intestazione); qui i nomi
+    // storici, MainWindow::SceneState & co.
+    using DiscreteRange = ::DiscreteRange;
+    using EquationTexts = ::EquationTexts;
+    using EqField = ::EqField;
+    using ImplicitTexts = ::ImplicitTexts;
+    using RmField = ::RmField;
+    using ConstantTexts = ::ConstantTexts;
+    using ConstField = ::ConstField;
+    using LimitTexts = ::LimitTexts;
+    using PathTexts = ::PathTexts;
+    using CameraPathMode = ::CameraPathMode;
+    using SceneState = ::SceneState;
 
 public:
     // CHE COSA sta per essere perso: decide sia quando chiedere sia dove il
@@ -468,11 +484,6 @@ private:
     // Lo usa il caricamento di una texture, che cambia solo il proprio.
     void refreshSceneHint(float seconds);
 
-    // Costanti DISCRETE dichiarate dallo script con "A := int(min,max);".
-    // Chiave = lettera maiuscola (A..F, S); assente = costante continua.
-    // Al rilascio dello slider / Enter nel campo il valore scatta all'intero
-    // piu' vicino dentro [min,max]. Vedi applyDiscreteConstants().
-    struct DiscreteRange { int lo; int hi; };
 
     // Minimi CONTINUI dichiarati con "F := min(0.3);": la costante resta
     // frazionaria ma non scende sotto la soglia. Serve dove sotto un certo
@@ -730,15 +741,6 @@ private:
     // senza volerne le reazioni (textChanged) passa da setEqText.
     // L'applicato erano 17 property dinamiche ("active_lineX", ...) scritte e
     // lette per nome: ora lo snapshot e' una copia della struct.
-    struct EquationTexts {
-        QString x, y, z, p;                         // superficie X/Y/Z/P
-        QString u, v, w;                            // composizione U, V, W
-        QString explicitU, explicitV, explicitW;    // vincoli
-        QString geoU, geoV, geoW;                   // flusso geodetico: punto iniziale
-        QString geoDU, geoDV, geoDW;                // ...direzione iniziale
-        QString conform;                            // ...fattore conforme
-    };
-    using EqField = QString EquationTexts::*;
     // Vuoto finche' non c'e' stato un Run, un load o un reset.
     std::optional<EquationTexts> m_eqApplied;
     // Aggancia i campi a m_scene.eq (e quelli Ray Marching a m_scene.rm, qui sotto). Subito
@@ -755,13 +757,6 @@ private:
     // Come m_scene.eq, per i quattro campi del Ray Marching: lo SCRITTO. L'applicato
     // qui non e' una copia in MainWindow: sta nel motore (GLWidget::
     // activeImplicitEquation, currentTextureCode, currentDisplacementCode).
-    struct ImplicitTexts {
-        QString equation;       // equazione implicita, sotto-tab 3D
-        QString crossSection;   // equazione a 4 variabili, sotto-tab Cross Section
-        QString texture;        // colore (campo Texture)
-        QString displacement;   // rilievo (campo Variations)
-    };
-    using RmField = QString ImplicitTexts::*;
     class QPlainTextEdit *implicitFieldEdit(RmField field) const;
     // Scrive un campo dal programma, a segnali bloccati (m_scene.rm segue).
     void setRmText(RmField field, const QString &text);
@@ -777,8 +772,6 @@ private:
     // Un QLineEdit non ha un documento separato che segua le scritture a
     // segnali bloccati: chi scrive un campo dal programma passa da
     // setConstText, la digitazione arriva dal textChanged (bindConstantFields).
-    struct ConstantTexts { QString a, b, c, d, e, f, s; };
-    using ConstField = QString ConstantTexts::*;
     // I sette campi nell'ordine della cascata (B puo' citare A, S tutte).
     static const std::array<ConstField, 7> &constantFields();
     static QString constantName(ConstField field);
@@ -805,18 +798,6 @@ private:
     // per setText/clear a segnali vivi, i cui gestori sono solo derivazioni.
     // Le scritture a segnali BLOCCATI passano da setLineText. I validatori che
     // mettono il cursore sul campo sbagliato ricevono ancora il widget.
-    struct LimitTexts {
-        QString uMin, uMax, vMin, vMax, wMin, wMax;     // dominio
-        QString xMin, xMax, yMin, yMax, zMin, zMax;     // taglio RM
-        // I valori di avvio e di reset: dominio di lavoro 0..2pi, 0..2pi, 0..1
-        // (a campi vuoti il primo Run dell'utente li leggerebbe cosi' come
-        // sono), taglio vuoto = nessun taglio.
-        void resetDomain() { uMin = "0"; uMax = "6.28318"; vMin = "0"; vMax = "6.28318";
-                             wMin = "0"; wMax = "1"; }
-        void clearSpaceCut() { xMin = xMax = yMin = yMax = zMin = zMax = QString(); }
-    };
-    struct PathTexts  { QString x, y, z, p, alpha, beta, gamma;         // path 4D
-                        QString x3D, y3D, z3D, roll3D; };               // path 3D
     // I testi x/y/z (min, max) dell'ultimo taglio applicato da applySpaceLimits:
     // lo slider di una costante li rivaluta, lo scritto dopo aspetta il Run.
     QString m_spaceLimitsApplied[6];
@@ -1032,10 +1013,6 @@ private:
     // una modalita' all'altra (GO <-> Departure 3D <-> Departure 4D).
     bool  m_anyPathStartedOnce = false;
 
-    enum CameraPathMode {
-        ModeTangential,
-        ModeCentered
-    };
     // Vista dei due path: UNICO punto che scrive m_scene.pathViewMode4D /
     // m_scene.pathViewMode3D e il testo dei loro tasti (pushView / pushView3D).
     void setPathViewModes(CameraPathMode mode4D, CameraPathMode mode3D);
@@ -1406,7 +1383,6 @@ private:
     // entrambe e ne condivide il rischio (vedi il commento la' sopra).
     // `file` e' la scena del preset (sceneFromItem), calcolata una volta dal
     // chiamante: la testa la assegna a m_scene, concetto per concetto.
-    struct SceneState;   // piu' sotto, con m_scene
     void applyCommonData(LibraryItem data, const SceneState &file);
     // Shell/Solid del Ray Marching: UNICA implementazione condivisa fra i due
     // rami di load (equazione implicita e script implicito) e il reset alla
@@ -1515,71 +1491,6 @@ private:
     // colori, comandi spenti): quella la fa il gestore del clic, o chi chiama.
     void setEditTarget(EditTarget target);
 
-    // ----------------------------------------------------------
-    // LA SCENA: le sedi dello stato lato MainWindow in UN valore
-    // ----------------------------------------------------------
-    // Ognuna e' documentata nella sua sezione qui sopra, insieme ai suoi
-    // setter. Riunite qui perche' il load diventi un'assegnazione, il Save la
-    // sua traduzione e il reset la scena di default (punto 5 del refactoring).
-    // Nel MOTORE restano, copia unica, colori/alpha/luce, MeshPart, stato 4D,
-    // inquadrature e marcher.
-    struct SceneState {
-        EquationTexts eq;         // dock Equations, lo SCRITTO (l'applicato: m_eqApplied)
-        ImplicitTexts rm;         // i quattro campi Ray Marching
-        ConstantTexts constants;  // costanti A..F, S (testi, anche a cascata)
-        LimitTexts lim;           // dominio u/v/w e taglio x/y/z
-        PathTexts path;           // path 4D e 3D
-        int steps = 100;          // Steps (parametrico) / Ray Steps (RM)
-
-        // Scelte
-        bool implicitMode = false;          // Parametric / Implicit (vista: tabModeSelector)
-        bool crossSectionTab = false;       // sotto-tab RM 3D / Cross Section
-        bool implicitShell = true;          // Shell / Solid (vista: due coppie di radio)
-        int renderMode = 0;                 // Base / Phong / Wireframe, globale
-        bool meshScopeAll = true;           // ambito multi-mesh All / Mesh
-        bool surfaceTextureState = false;   // texture di superficie accesa (intenzione)
-        int lightingMode4D = 0;
-
-        // Moti della camera
-        CameraPathMode pathViewMode4D = ModeTangential;   // vista del path 4D (pushView)
-        CameraPathMode pathViewMode3D = ModeTangential;   // vista del path 3D (pushView3D)
-        int pathSpeed3D = 10;               // unita' degli slider, 1..100
-        int pathSpeed4D = 10;
-        QString lastCameraMotion;           // ultimo moto camera avviato (Save: activeMotion)
-
-        // Dock Script: lo scritto per modulo e l'applicato della superficie
-        QString surfaceScriptText;
-        QString surfaceScriptApplied;
-        QString surfaceTextureScriptText;
-        QString bgTextureScriptText;
-        QString soundScriptText;
-
-        // Texture: codice applicato e ancore della Library
-        QString surfaceTextureCode;
-        QString bgTextureCode;
-        QString textureLibName;
-        QString bgTextureLibName;
-        QString soundLibName;
-
-        // Costanti dichiarate dallo script: discrete ("A := int(1,6)") e minimi
-        QHash<QString, DiscreteRange> discreteConsts;
-        QHash<QString, float> minConsts;
-
-        // SFONDO: colore pieno e colori u_col1/u_col2 della sua texture (il
-        // motore li consuma: setBackgroundColor, proprieta' bg_col1/bg_col2).
-        // Quelli della texture di SUPERFICIE invece vivono solo nel motore
-        // (vedi surfaceTexColor), come il colore e l'alpha globali.
-        QColor bgColor;
-        QColor bgTexColor1 = Qt::white;
-        QColor bgTexColor2 = Qt::black;
-        // FOV dei path, uno solo (lo slider e' unico). Applicato SOLO dentro
-        // applyPath3D/4DCameraAt (quindi anche nei video, che passano di li');
-        // fuori dalle path la proiezione resta al default 45 (lo zoom fuori
-        // path ha gia' i suoi comandi, e un reset non deve rimpicciolire la
-        // superficie). Persistito come "cameraFov" e, per le build precedenti,
-        // "fov3D"/"fov4D".
-        float fov = 45.0f;
-    };
     SceneState m_scene;
     // LA SCENA DAL FILE: cio' che il load deve lasciare in m_scene (punto 5,
     // tappa 5.3b). Non tocca la scena; legge solo il preset e, per texture e
