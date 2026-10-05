@@ -22,8 +22,8 @@
 // costanti sia sulla superficie sia sulla texture ne mostrava percio' solo una,
 // lasciando l'altro slider acceso senza spiegazione.
 //
-// Uno dei due vuoto (il caso normale) da' esattamente il messaggio di prima,
-// senza separatore.
+// Ciascuno porta il suo ruolo nell'intestazione ("Texture sliders"), anche
+// quando e' il solo (vedi composedHintText).
 // Ridisegna l'overlay dalla coppia corrente di messaggi, SENZA toccarli.
 // Serve a chi cambia uno solo dei due (il caricamento di una texture): passare
 // da showSceneHint travaserebbe il testo della texture in m_currentHintText,
@@ -60,15 +60,20 @@ QString MainWindow::composedHintText() const
         if (!dup) shown << p;
     }
     if (shown.isEmpty()) return QString();
-    if (shown.size() == 1) return shown.first().second;
 
-    // Piu' messaggi insieme: senza dire di CHI e' ciascuno, l'utente vede piu'
-    // slider spiegati ma non sa quale agisce sulla forma e quale sul disegno --
-    // ed e' proprio la confusione che i campi separati devono togliere.
-    // Le etichette si mettono solo qui, quando i messaggi sono davvero piu' di
-    // uno: con uno solo sarebbero un'intestazione inutile su una riga sola.
+    // Ogni legenda dice di CHI sono i suoi slider, anche da sola: senza,
+    // "Sliders / F: ..." non diceva se F agisce sulla forma, sulla texture o
+    // sullo sfondo. Il ruolo si mette QUI, non nel preset: una texture della
+    // Library puo' finire sulla superficie o sullo sfondo. "Sliders" diventa
+    // "Texture sliders", "Slider A: ..." "Surface slider A: ...".
+    static const QRegularExpression head(QStringLiteral("^Sliders?\\b"));
     QStringList lines;
-    for (const auto &s : shown) lines << s.first + " - " + s.second;
+    for (const auto &s : shown) {
+        QString text = s.second;
+        const QRegularExpressionMatch m = head.match(text);
+        if (m.hasMatch()) lines << text.replace(0, m.capturedLength(), s.first + " " + m.captured(0).toLower());
+        else              lines << s.first + " - " + text;
+    }
     return lines.join("\n");
 }
 

@@ -2924,6 +2924,21 @@ void ScenarioTest::run()
     }
     pressNew();
 
+    // HINT: ogni legenda dice di CHI sono i suoi slider, anche da sola
+    // (composedHintText): "Surface", "Texture", "Background".
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Hint: il ruolo degli slider =="));
+    if (loadRecord(QStringLiteral("records/Ray Marching/Morphing Sphere-Cube.json"))) {
+        const QString h = m_mw->composedHintText();
+        check(h.startsWith(QLatin1String("Surface slider A")) && h.contains(QLatin1String("\nTexture sliders\n")),
+              QStringLiteral("hint di superficie e di texture -> %1").arg(QString(h).replace(QLatin1Char('\n'), QLatin1String(" / "))));
+    }
+    if (loadRecord(QString::fromLatin1(kImplicitRecord))) {
+        const QString h = m_mw->composedHintText();
+        check(h.isEmpty() || h.startsWith(QLatin1String("Surface slider")),
+              QStringLiteral("hint della sola superficie -> %1").arg(QString(h).replace(QLatin1Char('\n'), QLatin1String(" / "))));
+    }
+
     runScriptDockScenarios();
     runTextureTargetScenarios();
     runMeshImageScenarios();
