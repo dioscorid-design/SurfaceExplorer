@@ -182,6 +182,12 @@ private:
     // Cross Section): dopo ogni reset la scena e' MainWindow::defaultScene,
     // calcolata prima dal punto di partenza. Da sola: --scenario-only reset-scene.
     void runResetSceneScenarios();
+    // SOTTO-TAB TUBES del parametrico: il trifoglio di default al cambio di
+    // linguetta, lo spessore (slider subito, campo alla conferma, massimo 3),
+    // l'Invio sulla curva (fermo aspetta il Run, in moto applica), le costanti
+    // della curva bloccate fino al Run, Save e riapertura, ritorno a Surface.
+    // Da sola: --scenario-only tubes.
+    void runTubeScenarios();
     // Load di record la cui texture si compilava male: motore = applicata =
     // script (checkTextureCode). Kerr Spin Animated porta un blocco audio coi
     // marcatori spaziati ("// SOUND_BEGIN"), Oloid un vincolo in W che a meta'

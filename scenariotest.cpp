@@ -138,7 +138,8 @@ ScenarioTest::ScenarioTest(MainWindow *mw, const QString &root, const QString &o
                                ui->lineExplicitU, ui->lineExplicitV, ui->lineExplicitW,
                                ui->lnU, ui->lnV, ui->lnW, ui->lndU, ui->lndV, ui->lndW,
                                ui->lineConform, ui->lineEquation, ui->lineEquationCrossSection,
-                               ui->lineTexture, ui->lineVariations, ui->txtScriptEditor }) {
+                               ui->lineTexture, ui->lineVariations, ui->txtScriptEditor,
+                               ui->lineTubeX, ui->lineTubeY, ui->lineTubeZ, ui->lineTubeP }) {
         if (!e) continue;
         connect(e, &QPlainTextEdit::textChanged, this, [this, e] {
             if (!m_mw->m_populatingFields) return;
@@ -164,6 +165,117 @@ void ScenarioTest::check(bool ok, const QString &what)
     m_lines.append((ok ? QStringLiteral("OK       ") : QStringLiteral("FALLITO  ")) + what);
     if (!ok) ++m_failures;
     qInfo().noquote() << "[scenariotest]" << m_lines.last();
+}
+
+void ScenarioTest::runTubeScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    SurfaceEngine *eng = gl->getEngine();
+    // Il clic vero sulla linguetta: tabBarClicked (la conferma) e poi il cambio.
+    auto clickSubTab = [&](int index) {
+        emit ui->subTabParametric->tabBar()->tabBarClicked(index);
+        ui->subTabParametric->setCurrentIndex(index);
+        wait(1500);
+    };
+    auto fieldCurve = [&] {
+        const MainWindow::TubeTexts &t = m_mw->m_scene.tube;
+        return QStringList{ t.x, t.y, t.z, t.p };
+    };
+    auto engineCurve = [&] { return QStringList{ eng->tubeX(), eng->tubeY(), eng->tubeZ(), eng->tubeP() }; };
+    auto radiusIs = [&](double thickness) {
+        return qAbs(double(gl->tubeRadius()) - thickness * MainWindow::kTubeRadiusUnit) < 1e-4;
+    };
+    // Lo spessore come la tastiera: testo digitato e conferma (editingFinished).
+    auto typeThickness = [&](const QString &text, bool confirm) {
+        typeInField(ui->lineTubeThickness, text);
+        if (confirm) { emit ui->lineTubeThickness->editingFinished(); wait(300); }
+    };
+
+    m_lines.append(QStringLiteral("== Tubi: sotto-tab Tubes del parametrico =="));
+    m_discardOnPrompt = true;
+    ui->tabModeSelector->setCurrentIndex(0);  wait(1500);
+
+    // LINGUETTA TUBES: il trifoglio di default, gia' a schermo.
+    clickSubTab(1);
+    const MainWindow::TubeTexts def = MainWindow::defaultTubeTexts();
+    check(m_mw->tubesShown() && eng->isTubeModeActive()
+              && fieldCurve() == QStringList({ def.x, def.y, def.z, def.p }) && engineCurve() == fieldCurve(),
+          QStringLiteral("linguetta Tubes -> il trifoglio di default a schermo, motore = campi"));
+    check(m_mw->m_scene.tube.thickness == QLatin1String("1") && radiusIs(1.0)
+              && ui->tubeThicknessSlider->value() == 100,
+          QStringLiteral("linguetta Tubes -> spessore 1: raggio %1, slider %2")
+              .arg(gl->tubeRadius()).arg(ui->tubeThicknessSlider->value()));
+    check(!ui->btnRunParametric->isEnabled(),
+          QStringLiteral("linguetta Tubes -> Run spento (il tubo a schermo e' gia' applicato)"));
+    // isHidden, non isVisible: nel test il dock Equations e' chiuso.
+    check(ui->vMinEdit->isHidden() && ui->wMinEdit->isHidden() && !ui->panelTubeThickness->isHidden()
+              && ui->uMinEdit->isEnabled(),
+          QStringLiteral("linguetta Tubes -> limiti v/w nascosti, Thickness visibile, limiti u accesi"));
+    checkDirty(QStringLiteral("linguetta Tubes appena aperta"), false, false, false);
+
+    // SPESSORE: lo slider subito, il campo alla conferma, massimo 3.
+    ui->tubeThicknessSlider->setValue(150);  wait(300);
+    check(radiusIs(1.5) && ui->lineTubeThickness->text() == QLatin1String("1.5"),
+          QStringLiteral("slider dello spessore a 1.5 -> tubo subito, campo '%1'").arg(ui->lineTubeThickness->text()));
+    checkDirty(QStringLiteral("spessore dallo slider"), true, false, false);
+    typeThickness(QStringLiteral("2.5"), false);
+    check(radiusIs(1.5), QStringLiteral("spessore 2.5 digitato e non confermato -> il tubo non cambia"));
+    typeThickness(QStringLiteral("2.5"), true);
+    check(radiusIs(2.5) && ui->tubeThicknessSlider->value() == 250,
+          QStringLiteral("spessore 2.5 confermato -> tubo e slider"));
+    typeThickness(QStringLiteral("7"), true);
+    check(radiusIs(3.0) && ui->lineTubeThickness->text() == QLatin1String("3"),
+          QStringLiteral("spessore 7 confermato -> riportato al massimo 3 (campo '%1')").arg(ui->lineTubeThickness->text()));
+
+    // CURVA, a tubo fermo: l'Invio aspetta il Run.
+    const QString zNew = QStringLiteral("-sin(3*u)/2");
+    ui->lineTubeZ->setPlainText(zNew);  wait(300);
+    pressEnter(ui->lineTubeZ);
+    check(eng->tubeZ() == def.z, QStringLiteral("curva modificata, Invio a tubo fermo -> a schermo resta quella di prima"));
+    check(ui->btnRunParametric->isEnabled(), QStringLiteral("curva modificata -> Run acceso"));
+    applyEquationEdit(ui->lineTubeZ);
+    check(eng->tubeZ() == zNew && engineCurve() == fieldCurve(), QStringLiteral("Run -> la curva nuova nel motore"));
+
+    // COSTANTE citata solo dalla curva: bloccata fino al Run, poi in uso.
+    ui->lineTubeX->setPlainText(QStringLiteral("A*(sin(u) + 2*sin(2*u))/3"));  wait(300);
+    check(!ui->aSlider->isEnabled(), QStringLiteral("A scritta nella curva, prima del Run -> A bloccata"));
+    applyEquationEdit(ui->lineTubeX);
+    check(ui->aSlider->isEnabled(), QStringLiteral("dopo il Run -> A sbloccata"));
+    setConstantByField(QStringLiteral("A"), QStringLiteral("1.3"));
+    checkConstants(QStringLiteral("A = 1.3 usata dalla curva del tubo"), QMap<QString, double>{ { QStringLiteral("A"), 1.3 } });
+
+    // CURVA ANIMATA: in moto l'Invio applica al volo.
+    ui->lineTubeY->setPlainText(QStringLiteral("(cos(u) - 2*cos(2*u))/3 + 0.2*sin(t)"));  wait(300);
+    applyEquationEdit(ui->lineTubeY);
+    check(m_mw->isEquationModuleMoving(), QStringLiteral("curva con t, Run -> la geometria si anima"));
+    const QString yMoving = QStringLiteral("(cos(u) - 2*cos(2*u))/3 + 0.3*sin(t)");
+    ui->lineTubeY->setPlainText(yMoving);  wait(300);
+    pressEnter(ui->lineTubeY);
+    check(eng->tubeY() == yMoving, QStringLiteral("in moto, Invio sulla curva -> applicata al volo"));
+
+    // SAVE E RIAPERTURA (Save Record: la stessa cattura del Save Surface).
+    const LibraryItem saved = captureSave();
+    check(saved.isTube && saved.tubeX == m_mw->m_scene.tube.x && saved.tubeY == yMoving
+              && saved.tubeZ == zNew && saved.tubeThickness == QLatin1String("3"),
+          QStringLiteral("Save -> scrive la curva e lo spessore del tubo"));
+    check(saved.x.isEmpty() && saved.y.isEmpty() && saved.z.isEmpty() && !saved.isScript,
+          QStringLiteral("Save di un tubo -> equazioni di Surface vuote, non uno script"));
+    clickSubTab(0);   // si esce dal tubo, poi lo si riapre dal Save
+    m_mw->applyMotionExample(saved);  wait(1500);
+    check(m_mw->tubesShown() && ui->subTabParametric->currentWidget() == ui->subTabParametricTubes
+              && fieldCurve() == QStringList({ saved.tubeX, saved.tubeY, saved.tubeZ, saved.tubeP })
+              && engineCurve() == fieldCurve() && radiusIs(3.0),
+          QStringLiteral("record tubo riaperto -> linguetta Tubes, curva e spessore com'erano"));
+    checkConstants(QStringLiteral("record tubo riaperto"), QMap<QString, double>{ { QStringLiteral("A"), 1.3 } });
+    if (m_mw->isEquationModuleMoving()) { ui->btnRunParametric->click();  wait(400); }
+
+    // RITORNO A SURFACE: la superficie di default, i limiti v/w di nuovo.
+    clickSubTab(0);
+    check(!m_mw->tubesShown() && !eng->isTubeModeActive() && !ui->vMinEdit->isHidden()
+              && ui->panelTubeThickness->isHidden(),
+          QStringLiteral("ritorno a Surface -> superficie di default, limiti v/w visibili, niente Thickness"));
+    m_discardOnPrompt = false;
 }
 
 bool ScenarioTest::loadRecord(const QString &rel)
@@ -1240,6 +1352,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("tubes")) {
+        runTubeScenarios();
+        finish();
+        return;
+    }
 
     // ---------------------------------------------------------------------
     // AVVIO: la superficie di default non e' lavoro dell'utente. Se qui la
@@ -1256,6 +1373,11 @@ void ScenarioTest::run()
     ui->tabModeSelector->setCurrentIndex(0);  wait(1500);
     m_discardOnPrompt = false;
     checkDirty(QStringLiteral("linguetta Parametric (superficie di default)"), false, false, false);
+    m_lines.append(QString());
+
+    // ---------------------------------------------------------------------
+    // SOTTO-TAB TUBES (vedi runTubeScenarios).
+    runTubeScenarios();
     m_lines.append(QString());
 
     // ---------------------------------------------------------------------
