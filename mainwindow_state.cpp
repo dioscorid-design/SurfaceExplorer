@@ -649,6 +649,10 @@ MainWindow::SceneState MainWindow::sceneFromItem(const LibraryItem &d, bool isRe
     s.lim = limitTextsFromItem(d);
     s.path = pathTextsFromItem(d);
     s.steps = d.steps;
+    // Tubo: la linguetta e i campi del sotto-tab Tubes (vuoti se la scena
+    // non e' un tubo: passando a Tubes il reset mette il trifoglio).
+    s.tubesTab = d.isTube && !d.isImplicitMode;
+    if (s.tubesTab) s.tube = TubeTexts{ d.tubeX, d.tubeY, d.tubeZ, d.tubeP, d.tubeThickness };
 
     choicesFromItem(d, &s);
     // FOV dei path: lo stesso ripiego dei file vecchi per superfici e record.

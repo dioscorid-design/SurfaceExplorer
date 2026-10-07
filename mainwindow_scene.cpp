@@ -119,6 +119,10 @@ MainWindow::FingerprintPart MainWindow::fingerprintPart(const QString &key)
                    ? PartCore : PartTexture;
     if (key.startsWith(QLatin1String("meshParts[")))
         return key.section(QLatin1Char('/'), 1).startsWith(QLatin1String("tex")) ? PartTexture : PartCore;
+    // Tubo: la curva e' testo della superficie (conta quando il Run la porta a
+    // schermo, come le equazioni); lo spessore agisce subito, come le costanti.
+    if (key.startsWith(QLatin1String("tube/")))
+        return key == QLatin1String("tube/thickness") ? PartCore : PartSurfaceText;
     if (key.startsWith(QLatin1String("equations/")) || key.startsWith(QLatin1String("geodesic/"))
         || key.startsWith(QLatin1String("limits/")) || key == QLatin1String("scriptCode")
         || key == QLatin1String("implicitEquation") || key == QLatin1String("crossSectionEquation"))
@@ -1722,7 +1726,8 @@ void MainWindow::applySurfaceExample(LibraryItem d)
 
     // Controllo Anti-Glitch per il 4D
     bool isFlat4D = (qFuzzyIsNull(startOmega) && qFuzzyIsNull(startPhi) && qFuzzyIsNull(startPsi));
-    QString wText = d.w.trimmed();
+    // La quarta coordinata: quella della curva, se la scena e' un tubo.
+    QString wText = (d.isTube ? d.tubeP : d.w).trimmed();
     bool isSurface4D = !wText.isEmpty() && wText != "0" && wText != "0.0";
 
     if (isFlat4D && isSurface4D) {

@@ -541,10 +541,20 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
     d.usesCrossSection = d.isImplicitMode && mw->crossSectionTab();
     d.crossSectionEq = mw->m_scene.rm.crossSection;
 
-    d.x = mw->m_scene.eq.x;
-    d.y = mw->m_scene.eq.y;
-    d.z = mw->m_scene.eq.z;
-    d.w = mw->m_scene.eq.p;
+    // TUBO: la geometria e' la curva del sotto-tab Tubes; le equazioni di
+    // Surface (nascoste) non sono della scena e si scrivono vuote.
+    d.isTube = mw->tubesShown();
+    if (d.isTube) {
+        d.tubeX = mw->m_scene.tube.x;
+        d.tubeY = mw->m_scene.tube.y;
+        d.tubeZ = mw->m_scene.tube.z;
+        d.tubeP = mw->m_scene.tube.p;
+        d.tubeThickness = mw->m_scene.tube.thickness;
+    }
+    d.x = d.isTube ? QString() : mw->m_scene.eq.x;
+    d.y = d.isTube ? QString() : mw->m_scene.eq.y;
+    d.z = d.isTube ? QString() : mw->m_scene.eq.z;
+    d.w = d.isTube ? QString() : mw->m_scene.eq.p;
     d.explicitU = mw->m_scene.eq.explicitU;
     d.explicitV = mw->m_scene.eq.explicitV;
     d.explicitW = mw->m_scene.eq.explicitW;
@@ -677,7 +687,9 @@ LibraryItem PresetSerializer::captureSurfaceState(const QString &name)
     // spariva.
     const QString eqX = d.x.trimmed(), eqY = d.y.trimmed(), eqZ = d.z.trimmed();
     const bool isImplicitScript = d.isImplicitMode && d.implicitEq.contains("// Controlled by Script");
-    const bool isParametricScript = !d.isImplicitMode && eqX.isEmpty() && eqY.isEmpty() && eqZ.isEmpty();
+    // Un tubo ha X/Y/Z di Surface vuoti, ma non e' uno script.
+    const bool isParametricScript = !d.isImplicitMode && !d.isTube
+                                    && eqX.isEmpty() && eqY.isEmpty() && eqZ.isEmpty();
     const bool isMetricScript = !d.isImplicitMode && !mw->m_metricScriptBody.trimmed().isEmpty();
     d.isScript = isImplicitScript || isParametricScript || isMetricScript;
     if (d.isScript) {
@@ -714,8 +726,8 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
     if (scriptContent.isEmpty() && mw->m_currentScriptMode == 0)
         scriptContent = mw->m_scene.surfaceScriptText;
     const bool metricScriptActive = !mw->m_metricScriptBody.trimmed().isEmpty();
-    d.isScript = !scriptContent.trimmed().isEmpty() && (!usingEquations || metricScriptActive);
-    d.scriptCode = scriptContent;
+    d.isScript = !d.isTube && !scriptContent.trimmed().isEmpty() && (!usingEquations || metricScriptActive);
+    d.scriptCode = d.isTube ? QString() : scriptContent;
 
     d.path4D_x = mw->m_scene.path.x;
     d.path4D_y = mw->m_scene.path.y;

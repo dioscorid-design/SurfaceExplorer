@@ -164,6 +164,16 @@ static void parseSceneCommon(const QJsonObject &root, LibraryItem &d)
                           ? root["hybridMarcher"].toBool()
                           : d.usesCrossSection;
     }
+    // Tubo: la chiave c'e' solo nelle scene del sotto-tab Tubes.
+    if (root.contains("tube")) {
+        const QJsonObject tube = root["tube"].toObject();
+        d.isTube = true;
+        d.tubeX = tube["x"].toString();
+        d.tubeY = tube["y"].toString();
+        d.tubeZ = tube["z"].toString();
+        d.tubeP = tube["p"].toString();
+        d.tubeThickness = tube["thickness"].toString();
+    }
     // Messaggio in sovrimpressione (suggerimento d'uso). Vuoto = nessuno.
     if (root.contains("hintText")) {
         d.hintText = root["hintText"].toString();
@@ -999,6 +1009,17 @@ QJsonObject LibraryManager::toJson(const LibraryItem &d)
         root["implicitEquation"] = d.implicitEq;
         root["implicitUsesCrossSection"] = d.usesCrossSection;
         root["crossSectionEquation"] = d.crossSectionEq;
+    }
+
+    // --- Tubo (sotto-tab Tubes): la curva asse e lo spessore.
+    if (d.isTube) {
+        QJsonObject tube;
+        tube["x"] = d.tubeX;
+        tube["y"] = d.tubeY;
+        tube["z"] = d.tubeZ;
+        tube["p"] = d.tubeP;
+        tube["thickness"] = d.tubeThickness;
+        root["tube"] = tube;
     }
 
     // --- Geometria: script o equazioni.

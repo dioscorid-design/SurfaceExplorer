@@ -500,6 +500,7 @@ QStringList PresetRoundTrip::diffScene(const MainWindow::SceneState &want, const
     SE_CMP(surfaceTextureScriptText); SE_CMP(surfaceTextureCode); SE_CMP(rm.texture);
     SE_CMP(bgTextureScriptText); SE_CMP(bgTextureCode); SE_CMP(soundScriptText);
     SE_CMP(textureLibName); SE_CMP(bgTextureLibName); SE_CMP(soundLibName);
+    SE_CMP(tube.x); SE_CMP(tube.y); SE_CMP(tube.z); SE_CMP(tube.p); SE_CMP(tube.thickness);
 #undef SE_CMP
     cmpInt("surfaceTextureState", want.surfaceTextureState, got.surfaceTextureState);
     // Domini delle costanti, in ordine di lettera.
@@ -521,6 +522,7 @@ QStringList PresetRoundTrip::diffScene(const MainWindow::SceneState &want, const
     cmpInt("steps", want.steps, got.steps);
     cmpInt("implicitMode", want.implicitMode, got.implicitMode);
     cmpInt("crossSectionTab", want.crossSectionTab, got.crossSectionTab);
+    cmpInt("tubesTab", want.tubesTab, got.tubesTab);
     cmpInt("implicitShell", want.implicitShell, got.implicitShell);
     cmpInt("renderMode", want.renderMode, got.renderMode);
     cmpInt("pathViewMode4D", want.pathViewMode4D, got.pathViewMode4D);
@@ -757,7 +759,10 @@ QString PresetRoundTrip::excusedBecause(const QString &key, int kind, bool white
     // che si vede.
     if (key.startsWith(QLatin1String("angles/"))) {
         const QJsonObject fa = file.value(QStringLiteral("angles")).toObject();
-        const QString p = c.json.value(QStringLiteral("equations")).toObject().value(QStringLiteral("p")).toString().trimmed();
+        // La quarta coordinata: della curva, se la scena e' un tubo.
+        const QString eqKey = c.json.contains(QStringLiteral("tube")) ? QStringLiteral("tube")
+                                                                       : QStringLiteral("equations");
+        const QString p = c.json.value(eqKey).toObject().value(QStringLiteral("p")).toString().trimmed();
         const bool flat = fa.value(QStringLiteral("omega")).toDouble() == 0.0
                           && fa.value(QStringLiteral("phi")).toDouble() == 0.0
                           && fa.value(QStringLiteral("psi")).toDouble() == 0.0;

@@ -1672,6 +1672,12 @@ bool MainWindow::updateULimits() {
 }
 
 bool MainWindow::updateVLimits() {
+    // Tubo: v e' l'angolo attorno alla curva, sempre 0..2pi (i campi v non si
+    // vedono e restano di Surface).
+    if (tubesShown()) {
+        if (ui->glWidget) ui->glWidget->setRangeV(0.0f, 6.28318530718f);
+        return true;
+    }
     float lo = parseLimitField(m_scene.lim.vMin);
     float hi = parseLimitField(m_scene.lim.vMax);
     if (lo >= hi) return false;            // limiti impossibili: non applicare né ridisegnare
@@ -1681,6 +1687,11 @@ bool MainWindow::updateVLimits() {
 }
 
 bool MainWindow::updateWLimits() {
+    // Tubo: w non c'entra.
+    if (tubesShown()) {
+        if (ui->glWidget) ui->glWidget->setRangeW(0.0f, 1.0f);
+        return true;
+    }
     float lo = parseLimitField(m_scene.lim.wMin);
     float hi = parseLimitField(m_scene.lim.wMax);
     if (lo >= hi) return false;            // limiti impossibili: non applicare né ridisegnare

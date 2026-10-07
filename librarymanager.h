@@ -55,6 +55,15 @@ struct LibraryItem {
     QString metricMapX, metricMapY, metricMapZ, metricMapP;
 
     // ==========================================================
+    // TUBO (sotto-tab Tubes del parametrico)
+    // ==========================================================
+    // La scena e' un tubo attorno alla curva X/Y/Z/P(u) (P vuoto = curva 3D),
+    // con lo spessore del campo Thickness. Chiave JSON "tube", presente solo
+    // nelle scene tubo: assente = sotto-tab Surface, cioe' ogni preset di prima.
+    bool isTube = false;
+    QString tubeX, tubeY, tubeZ, tubeP, tubeThickness;
+
+    // ==========================================================
     // IMPLICIT EQUATIONS
     // ==========================================================
     bool isImplicitMode = false;
