@@ -1458,12 +1458,49 @@ void MainWindow::updateConstantsUIState() {
                 " " + m_scene.path.x3D + " " + m_scene.path.y3D +
                 " " + m_scene.path.z3D + " " + m_scene.path.roll3D;
 
+    // 2b. CIO' CHE E' A SCHERMO, da solo. Con modifiche in sospeso uno slider
+    //     SPENTO si accende soltanto se la costante la usa gia' quello che si
+    //     vede: una lettera appena scritta in un'equazione non ancora eseguita
+    //     sbloccava lo slider, che pero' non muoveva nulla fino al Run (deciso
+    //     con l'utente il 2026-10-07: bloccati fino al Run). Le stesse fonti
+    //     dell'applicato qui sopra, piu' i path compilati (Departure e Invio li
+    //     applicano senza Run) e la curva del tubo nel motore.
+    QString appliedMath;
+    QStringList appliedGlsl;
+    if (m_constantsEditPending && ui->glWidget) {
+        SurfaceEngine *eng = ui->glWidget->getEngine();
+        const bool scriptSurface = eng && eng->isScriptModeActive();
+        if (currentTab == 0) {
+            if (eng && eng->isTubeModeActive() && !scriptSurface) {
+                appliedMath = eng->tubeX() + " " + eng->tubeY() + " " + eng->tubeZ() + " "
+                            + eng->tubeP();
+            } else if (scriptSurface) {
+                appliedGlsl << stripCodeComments(m_scene.surfaceScriptApplied);
+            } else {
+                appliedMath = activeEquationsText();
+                appliedGlsl << ui->glWidget->parametricEquationsApplied();
+            }
+            appliedGlsl << stripCodeComments(m_scene.surfaceTextureCode);
+            for (const QString &c : meshTextureCodesForConstants())
+                appliedGlsl << c;
+        } else {
+            if (scriptSurface) appliedGlsl << stripCodeComments(m_scene.surfaceScriptApplied);
+            else appliedMath = stripCodeComments(ui->glWidget->activeImplicitEquation());
+            appliedGlsl << stripCodeComments(ui->glWidget->currentTextureCode())
+                        << stripCodeComments(ui->glWidget->currentDisplacementCode());
+        }
+        appliedGlsl << stripCodeComments(m_scene.bgTextureCode);
+        if (eng) appliedMath += " " + eng->appliedPath4D().join(QLatin1Char(' '))
+                              + " " + eng->appliedPath3D().join(QLatin1Char(' '));
+    }
+
     // 3. LOGICA DI BLOCCO/SBLOCCO E RESET
     bool resetToNeutral = false;
     auto updateControl = [&](ConstField field) {
         const QString letter = constantName(field);
         QSlider *slider = constantSlider(field);
         QLineEdit *line = constantFieldEdit(field);
+        const bool wasEnabled = slider->isEnabled();
 
         bool used = false;
 
@@ -1514,14 +1551,28 @@ void MainWindow::updateConstantsUIState() {
             slider->setEnabled(false);
             line->setEnabled(false);
         } else {
-            slider->setEnabled(true);
-            line->setEnabled(true);
+            // Usata. Senza modifiche in sospeso (load, reset, Run riuscito)
+            // scritto e schermo coincidono: si accende. Con modifiche in
+            // sospeso si accende solo se era gia' accesa o se la usa cio' che
+            // e' a schermo (2b); altrimenti resta bloccata fino al Run, che
+            // azzera il sospeso e rifa' il giudizio (refreshConstants).
+            bool onScreen = !m_constantsEditPending || wasEnabled || (currentTab == 1 && letter == "S");
+            if (!onScreen) {
+                QRegularExpression reMath("\\b" + letter + "\\b", QRegularExpression::CaseInsensitiveOption);
+                onScreen = appliedMath.contains(reMath);
+                for (const QString &block : appliedGlsl)
+                    if (!onScreen && glslUsesConstant(block, letter)) onScreen = true;
+            }
+            slider->setEnabled(onScreen);
+            line->setEnabled(onScreen);
             // CASCATA: il campo di una costante IN USO puo' essere
             // un'espressione delle precedenti ("A/10"): quelle lettere sono
             // usate tramite lei. Senza, con B = A/10 e le equazioni che citano
             // la sola B, A veniva dichiarata in disuso e riportata a 1 -- e B,
             // cioe' la superficie, cambiava con lei (test degli scenari).
             mathText += " " + m_scene.constants.*field;
+            // ...e a schermo, se lei lo e'.
+            if (onScreen) appliedMath += " " + m_scene.constants.*field;
         }
     };
 

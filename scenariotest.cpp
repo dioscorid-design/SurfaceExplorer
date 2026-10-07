@@ -2063,8 +2063,17 @@ void ScenarioTest::run()
     m_lines.append(QStringLiteral("== Costanti: valore piu' fine del passo dello slider =="));
     if (loadSurface(QStringLiteral("surfaces/Parametric/Geodesic Flow/R^3/Helicoid.json"))) {
         ui->lineConform->setPlainText(QStringLiteral("200*A"));  wait(400);
+        // Una costante scritta e non ancora eseguita resta BLOCCATA fino al Run
+        // (deciso con l'utente il 2026-10-07): lo slider non muoverebbe nulla.
+        check(!ui->aSlider->isEnabled() && !ui->lineA->isEnabled(),
+              QStringLiteral("fattore conforme 200*A scritto, prima del Run: A bloccata"));
+        applyEquationEdit(ui->lineConform);
+        check(ui->aSlider->isEnabled() && ui->lineA->isEnabled(),
+              QStringLiteral("dopo il Run: A sbloccata"));
         setConstantByField(QStringLiteral("A"), QStringLiteral("0.005"));
         checkConstants(QStringLiteral("fattore conforme 200*A, A = 0.005 dal campo"), KV{ { "A", 0.005 } });
+        // Riscritto: il Run torna disponibile e rilegge le costanti.
+        ui->lineConform->setPlainText(QStringLiteral("200*A"));  wait(400);
         const int popups = m_popupsClosed;
         applyEquationEdit(ui->lineConform);
         check(m_popupsClosed == popups,

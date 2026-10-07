@@ -527,6 +527,9 @@ bool MainWindow::compilePath4DFromFields()
             QMessageBox::warning(this, "Error", "Path 4D compilation error .\nCheck the syntax.");
         return false;
     }
+    // Il path compilato e' a schermo: le costanti che usa si sbloccano ora
+    // (con modifiche in sospeso lo slider aspetta che sia applicato).
+    updateConstantsUIState();
     return true;
 }
 
@@ -561,6 +564,8 @@ bool MainWindow::compilePath3DFromFields()
             QMessageBox::warning(this, "Error", "3D path compilation error.\nCheck the syntax.");
         return false;
     }
+    // Come per il path 4D: le sue costanti si sbloccano a path applicato.
+    updateConstantsUIState();
     return true;
 }
 
