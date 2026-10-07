@@ -46,11 +46,11 @@ protected:
                 // che il clearFocus emette.
                 if (isTubeEquationField(on)) {
                     if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
-                    if (on != QLatin1String("lineTubeThickness")) {
-                        if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
-                            if (mainWin->isEquationModuleMoving())
-                                mainWin->commitUiFieldsDuringMotion();
-                        }
+                    if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
+                        if (on == QLatin1String("lineTubeThickness"))
+                            mainWin->commitTubeThicknessOnEnter();   // vuoto -> popup
+                        else if (mainWin->isEquationModuleMoving())
+                            mainWin->commitUiFieldsDuringMotion();
                     }
                     return true;
                 }
@@ -417,11 +417,11 @@ protected:
                 // in moto applica al volo, lo spessore alla conferma).
                 if (isTubeEquationField(obj->objectName())) {
                     if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
-                    if (obj->objectName() != QLatin1String("lineTubeThickness")) {
-                        if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
-                            if (mainWin->isEquationModuleMoving())
-                                mainWin->commitUiFieldsDuringMotion();
-                        }
+                    if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
+                        if (obj->objectName() == QLatin1String("lineTubeThickness"))
+                            mainWin->commitTubeThicknessOnEnter();   // vuoto -> popup
+                        else if (mainWin->isEquationModuleMoving())
+                            mainWin->commitUiFieldsDuringMotion();
                     }
                     QGuiApplication::inputMethod()->hide();
                     return true;

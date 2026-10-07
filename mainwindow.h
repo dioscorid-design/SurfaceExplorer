@@ -1502,15 +1502,24 @@ private:
     // lo spessore (lo scritto sta in m_scene.tube, bindEquationFields).
     QWidget *tubeFieldEdit(TubeField field) const;
     void setTubeText(TubeField field, const QString &text);
-    // SPESSORE DEL TUBO: il numero del campo, 0..kTubeThicknessMax; il raggio
-    // nel motore e' spessore * kTubeRadiusUnit (1 = il tubo del trifoglio di
-    // default, tarato con l'utente il 2026-10-07).
+    // SPESSORE DEL TUBO: il numero del campo; il raggio nel motore e'
+    // spessore * kTubeRadiusUnit (1 = il tubo del trifoglio di default, tarato
+    // con l'utente il 2026-10-07). Minimo kTubeThicknessMin (a 0 il tubo
+    // sparisce). kTubeThicknessMax e' il massimo dello SLIDER, non del campo:
+    // come per le costanti, un valore scritto piu' grande allarga lo slider.
     static constexpr float kTubeRadiusUnit = 0.12f;
+    static constexpr float kTubeThicknessMin = 0.01f;
     static constexpr float kTubeThicknessMax = 3.0f;
-    // Spessore dal suo campo, riportato a 0..kTubeThicknessMax (illeggibile o
-    // negativo -> ok false).
+    // Spessore dal suo campo, almeno kTubeThicknessMin (vuoto o illeggibile
+    // -> ok false: Run spento).
     float tubeThicknessValue(bool *ok = nullptr) const;
-    // Spessore -> slider (a segnali bloccati) e motore (u_tubeRadius).
+    // Invio sul campo dello spessore (dai filtri tastiera): vuoto -> 1, il
+    // default (campo, slider e tubo riallineati); illeggibile -> popup e focus
+    // di nuovo sul campo. Solo all'Invio: uscire dal campo (anche cliccando
+    // NEW) non tocca nulla, il Run resta spento.
+    void commitTubeThicknessOnEnter();
+    // Spessore -> slider (range e valore, a segnali bloccati) e motore
+    // (u_tubeRadius).
     void pushTubeThickness();
     // IL BERSAGLIO Surface / Background: su cosa agiscono slider colore,
     // checkbox Texture, Library, dock Script e vista 2D. E' STATO; i due radio
@@ -1574,8 +1583,13 @@ private:
     // dominio), senza popup: la validazione la fa chi chiama. false = la curva
     // non compila (errore in getShaderError). Usata dal Run e dal reset.
     bool applyTubeToEngine(float uMin, float uMax, const CascadeConstants &kc);
-    // Campo curva + limiti u compilati e coerenti: gate del tasto Run su Tubes.
+    // Almeno un campo della curva (i vuoti valgono 0), curva che cita u,
+    // limiti u compilati e coerenti, spessore scritto: gate del tasto Run su
+    // Tubes.
     bool hasCompleteTubeInput();
+    // La curva di m_scene.tube cita u: senza, non c'e' curva (i limiti u si
+    // spengono, come in Surface).
+    bool tubeCurveUsesU() const;
     // Campiona la curva sulla CPU: direzione lontana da tutte le tangenti
     // (orienta la sezione) e chiusura in u. false = la curva non si valuta.
     static bool sampleTubeCurve(const TubeTexts &tube, float uMin, float uMax,

@@ -677,8 +677,9 @@ void MainWindow::runSceneTube(RunOrigin origin, bool runDockOnly, const CascadeC
 {
     const TubeTexts &tube = m_scene.tube;
 
-    // 1. LA CURVA: X, Y, Z obbligatori, P facoltativo (vuoto = curva 3D).
-    if (tube.x.trimmed().isEmpty() || tube.y.trimmed().isEmpty() || tube.z.trimmed().isEmpty()) {
+    // 1. LA CURVA: basta un campo, i vuoti valgono 0 (P vuoto = curva 3D);
+    // deve citare u, il suo parametro.
+    if (!tubeCurveUsesU()) {
         if (origin != RunOrigin::Load) InputValidator::showIncompleteEquationsError(this);
         return;
     }
@@ -696,12 +697,12 @@ void MainWindow::runSceneTube(RunOrigin origin, bool runDockOnly, const CascadeC
     if (!InputValidator::validateLimits(this, lim[0], lim[1], true, 0.0f, 1.0f, false,
                                         0.0f, 1.0f, false)) return;
 
-    // 3. LO SPESSORE: un numero >= 0.
+    // 3. LO SPESSORE: un numero (sotto 0.01 vale 0.01).
     bool thicknessOk = false;
     tubeThicknessValue(&thicknessOk);
     if (!thicknessOk) {
-        QMessageBox::warning(this, QStringLiteral("Tube"),
-                             QStringLiteral("The thickness must be a number greater than or equal to 0."));
+        if (origin != RunOrigin::Load)
+            InputValidator::showInvalidThicknessError(this, tube.thickness);
         return;
     }
 
@@ -779,13 +780,25 @@ bool MainWindow::applyTubeToEngine(float uMin, float uMax, const CascadeConstant
     return true;
 }
 
+bool MainWindow::tubeCurveUsesU() const
+{
+    const TubeTexts &c = m_scene.tube;
+    return (c.x + " " + c.y + " " + c.z + " " + c.p).contains(kReLowerU);
+}
+
 bool MainWindow::hasCompleteTubeInput()
 {
-    if (m_scene.tube.x.trimmed().isEmpty() || m_scene.tube.y.trimmed().isEmpty()
-        || m_scene.tube.z.trimmed().isEmpty()) return false;
+    // Basta un campo: i vuoti valgono 0 (X = cos(u) da solo e' un segmento).
+    if (!tubeCurveUsesU()) return false;
+    // Limiti u entrambi scritti: un campo vuoto si leggerebbe 0 e il Run si
+    // accendeva con un limite mancante (come axisOk di Surface).
+    const QString loTxt = m_scene.lim.uMin.trimmed();
+    const QString hiTxt = m_scene.lim.uMax.trimmed();
+    if (loTxt.isEmpty() || hiTxt.isEmpty()) return false;
     bool okLo = false, okHi = false;
-    const float a = parseLimitField(m_scene.lim.uMin.trimmed(), &okLo);
-    const float b = parseLimitField(m_scene.lim.uMax.trimmed(), &okHi);
+    const float a = parseLimitField(loTxt, &okLo);
+    const float b = parseLimitField(hiTxt, &okHi);
+    // Spessore: vuoto = Run spento (1 e' solo il valore che mette NEW).
     bool okThickness = false;
     tubeThicknessValue(&okThickness);
     return okLo && okHi && a < b && okThickness;
@@ -795,13 +808,16 @@ bool MainWindow::sampleTubeCurve(const TubeTexts &tube, float uMin, float uMax,
                                  const CascadeConstants &kc, QVector3D *reference, bool *uClosed)
 {
     double u = 0.0, v = 0.0, w = 0.0, p = 0.0;
-    ExpressionParser px, py, pz;
-    for (ExpressionParser *e : { &px, &py, &pz }) {
+    ExpressionParser px, py, pz, pp;
+    for (ExpressionParser *e : { &px, &py, &pz, &pp }) {
         e->setupVariables<double>(u, v, w, p);
         e->setupConstants<double>((double)kc.a, (double)kc.b, (double)kc.c, (double)kc.d,
                                   (double)kc.e, (double)kc.f, (double)kc.s);
     }
-    if (!px.compile(tube.x) || !py.compile(tube.y) || !pz.compile(tube.z)) return false;
+    // Un campo vuoto vale 0, come nello shader.
+    const auto orZero = [](const QString &s) { return s.trimmed().isEmpty() ? QStringLiteral("0") : s; };
+    if (!px.compile(orZero(tube.x)) || !py.compile(orZero(tube.y)) || !pz.compile(orZero(tube.z))
+        || !pp.compile(orZero(tube.p))) return false;
 
     // La curva su N+1 punti; le tangenti per differenze centrali. Una curva
     // ANIMATA (cita t) si campiona anche in altri istanti, t da 0 a 2pi: la
@@ -817,20 +833,30 @@ bool MainWindow::sampleTubeCurve(const TubeTexts &tube, float uMin, float uMax,
     tangents.reserve(size_t(N) * timeSamples);
     for (int ts = 0; ts < timeSamples; ++ts) {
         const double t = (ts == 0) ? 0.00001 : 6.28318530718 * ts / timeSamples;
-        for (ExpressionParser *e : { &px, &py, &pz }) e->setTime(t);
+        for (ExpressionParser *e : { &px, &py, &pz, &pp }) e->setTime(t);
+        double p0 = 0.0, pN = 0.0;
         for (int i = 0; i <= N; ++i) {
             u = uMin + (double(uMax) - double(uMin)) * i / N;
             const double x = px.value(), y = py.value(), z = pz.value();
             if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) return false;
             pts[i] = QVector3D(float(x), float(y), float(z));
+            if (ts == 0 && (i == 0 || i == N)) (i == 0 ? p0 : pN) = pp.value();
         }
-        if (ts == 0) *uClosed = pts[0].distanceToPoint(pts[N]) < 0.001f;
+        // Chiusa se torna al punto di partenza ANCHE in P: un cerchio che
+        // sale in P (elica 4D) ha l'ombra 3D chiusa ma la curva aperta.
+        if (ts == 0)
+            *uClosed = pts[0].distanceToPoint(pts[N]) < 0.001f && std::abs(pN - p0) < 0.001;
         for (int i = 1; i < N; ++i) {
             const QVector3D d = pts[i + 1] - pts[i - 1];
             if (d.lengthSquared() > 1e-16f) tangents.push_back(d.normalized());
         }
     }
-    if (tangents.empty()) return false;
+    // Nessuna tangente 3D: la curva si muove solo in P (ombra 3D ferma in un
+    // punto). Lo shader ripiega su un asse; il riferimento resta z.
+    if (tangents.empty()) {
+        *reference = QVector3D(0.0f, 0.0f, 1.0f);
+        return true;
+    }
 
     // CANDIDATI per la direzione di riferimento: il piano della curva se ne
     // ha uno (binormali concordi: per una curva piana sono tutte la normale

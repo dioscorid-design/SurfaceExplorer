@@ -213,8 +213,10 @@ void MainWindow::setupEquationsDock()
     ui->glWidget->setParametricEquations(m_scene.eq.x, m_scene.eq.y, m_scene.eq.z, m_scene.eq.p);
 
     // Sotto-tab Tubes: il tubo di default, quello che il cambio di linguetta
-    // disegna. Spessore: slider in centesimi, 0..kTubeThicknessMax.
-    ui->tubeThicknessSlider->setRange(0, qRound(kTubeThicknessMax * 100.0f));
+    // disegna. Spessore: slider in centesimi, kTubeThicknessMin..Max (il
+    // massimo si allarga coi valori scritti, vedi pushTubeThickness).
+    ui->tubeThicknessSlider->setRange(qRound(kTubeThicknessMin * 100.0f),
+                                      qRound(kTubeThicknessMax * 100.0f));
     {
         const TubeTexts def = defaultTubeTexts();
         for (TubeField f : { &TubeTexts::x, &TubeTexts::y, &TubeTexts::z, &TubeTexts::p,
@@ -444,24 +446,36 @@ void MainWindow::setupEquationsDock()
     connect(ui->lineExplicitU, &QPlainTextEdit::textChanged, this, markUserEdit);
     connect(ui->lineExplicitV, &QPlainTextEdit::textChanged, this, markUserEdit);
     connect(ui->lineExplicitW, &QPlainTextEdit::textChanged, this, markUserEdit);
-    // ...e la curva del sotto-tab Tubes.
-    for (QPlainTextEdit *e : { ui->lineTubeX, ui->lineTubeY, ui->lineTubeZ, ui->lineTubeP })
+    // ...e la curva del sotto-tab Tubes, che come le equazioni di Surface
+    // decide anche i limiti u (accesi solo se la curva cita u).
+    for (QPlainTextEdit *e : { ui->lineTubeX, ui->lineTubeY, ui->lineTubeZ, ui->lineTubeP }) {
         connect(e, &QPlainTextEdit::textChanged, this, markUserEdit);
+        connect(e, &QPlainTextEdit::textChanged, this, [this] {
+            if (tubesShown()) checkParametricDependency();
+        });
+    }
 
     // SPESSORE DEL TUBO, campo e slider come le costanti: lo slider scrive il
     // campo (in centesimi) e il tubo lo segue subito (u_tubeRadius e' un
     // uniform, niente Run); il campo si applica alla CONFERMA -- Invio o uscita
     // dal campo --, non a ogni carattere: digitando "1.5" il tubo passava per
-    // 1 e poi per 1.5. Oltre il massimo si riporta al massimo.
+    // 1 e poi per 1.5. Sotto il minimo si riporta al minimo; sopra il massimo
+    // dello slider vale quel che si scrive, e lo slider si allarga.
     connect(ui->tubeThicknessSlider, &QSlider::valueChanged, this, [this](int value) {
         setTubeText(&TubeTexts::thickness, QString::number(value / 100.0, 'g', 6));
+        updateMasterButtonState();   // il campo era forse vuoto (Run spento)
     });
     connect(ui->lineTubeThickness, &QLineEdit::editingFinished, this, [this]() {
         bool ok = false;
         const float thickness = tubeThicknessValue(&ok);
-        if (ok && thickness < ExpressionParser::evaluateSimple(m_scene.tube.thickness.trimmed()))
+        if (ok && thickness > ExpressionParser::evaluateSimple(m_scene.tube.thickness.trimmed()))
             setTubeText(&TubeTexts::thickness, QString::number(double(thickness), 'g', 6));
         pushTubeThickness();
+    });
+    // Il Run guarda anche lo spessore (vuoto o illeggibile = spento): ogni
+    // carattere lo rivaluta, come per la curva.
+    connect(ui->lineTubeThickness, &QLineEdit::textChanged, this, [this]() {
+        if (tubesShown()) updateMasterButtonState();
     });
 
     auto markTextureModified = [this]() { m_textureModified = true; };
@@ -1084,11 +1098,12 @@ void MainWindow::updateConstraintState()
         }
     };
 
-    // Sotto-tab TUBES: u e' il parametro della curva, sempre in uso; v e w
-    // non si vedono e restano come sono (sono di Surface). Vincoli e
+    // Sotto-tab TUBES: u e' il parametro della curva; i suoi limiti si
+    // accendono, come in Surface, solo se la curva lo cita (NEW li spegne).
+    // v e w non si vedono e restano come sono (sono di Surface). Vincoli e
     // composizione non c'entrano col tubo: il motore li ignora (runSceneTube).
     if (tubesShown()) {
-        applyLimitsState(ui->uMinEdit, ui->uMaxEdit, true);
+        applyLimitsState(ui->uMinEdit, ui->uMaxEdit, tubeCurveUsesU());
         return;
     }
 

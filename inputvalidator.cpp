@@ -352,6 +352,15 @@ void InputValidator::showInvalidConstantError(QWidget* parent, const QString& na
                               .arg(name, text.trimmed()));
 }
 
+void InputValidator::showInvalidThicknessError(QWidget* parent, const QString& text)
+{
+    const QString what = text.trimmed().isEmpty()
+        ? QString("The tube thickness is empty.")
+        : QString("The tube thickness is not a valid number:\n\n    \"%1\"").arg(text.trimmed());
+    notify(parent, QMessageBox::Critical, "Invalid Thickness",
+           what + "\n\nPlease enter a number (e.g. 1, 0.5).");
+}
+
 void InputValidator::showInvalidStepsError(QWidget* parent, const QString& text)
 {
     notify(parent, QMessageBox::Critical, "Invalid Steps",

@@ -50,6 +50,8 @@ public:
     static void showShaderCompilationError(QWidget* parent, const QString& title, const QString& errorLog);
     static void showInvalidConstantError(QWidget* parent, const QString& name, const QString& text);
     static void showInvalidStepsError(QWidget* parent, const QString& text);
+    // Spessore del tubo (sotto-tab Tubes) vuoto o illeggibile.
+    static void showInvalidThicknessError(QWidget* parent, const QString& text);
     // emptyMeansNoLimit distingue i due contesti, che hanno regole OPPOSTE sul
     // campo vuoto: nei limiti spaziali X/Y/Z del Ray Marching vuoto = nessun
     // taglio (lecito), nei limiti u/v/w del parametrico il dominio DEVE essere

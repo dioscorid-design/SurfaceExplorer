@@ -2606,9 +2606,6 @@
                        <verstretch>0</verstretch>
                       </sizepolicy>
                      </property>
-                     <property name="placeholderText">
-                      <string>empty for a 3D curve</string>
-                     </property>
                     </widget>
                    </item>
                   </layout>

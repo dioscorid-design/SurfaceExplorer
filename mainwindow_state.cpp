@@ -139,8 +139,33 @@ float MainWindow::tubeThicknessValue(bool *ok) const
 {
     bool valid = false;
     const float r = ExpressionParser::evaluateSimple(m_scene.tube.thickness.trimmed(), valid);
-    if (ok) *ok = valid && r >= 0.0f;
-    return (valid && r >= 0.0f) ? std::min(r, kTubeThicknessMax) : 0.0f;
+    if (ok) *ok = valid;
+    return valid ? std::max(r, kTubeThicknessMin) : kTubeThicknessMin;
+}
+
+void MainWindow::commitTubeThicknessOnEnter()
+{
+    if (!tubesShown()) return;
+    // Vuoto: torna al default 1, deciso con l'utente (10-07) al posto del
+    // popup -- lo slider restava fermo sul valore di prima, disallineato.
+    if (m_scene.tube.thickness.trimmed().isEmpty()) {
+        setTubeText(&TubeTexts::thickness, QStringLiteral("1"));
+        updateMasterButtonState();
+        return;
+    }
+    bool ok = false;
+    tubeThicknessValue(&ok);
+    if (ok || !tubesShown() || m_constantPopupActive) return;
+    m_constantPopupActive = true;
+    InputValidator::showInvalidThicknessError(this, m_scene.tube.thickness);
+    {
+        // Focus di nuovo sul campo, senza un altro editingFinished.
+        const QSignalBlocker blocker(ui->lineTubeThickness);
+        ui->lineTubeThickness->setFocus();
+        ui->lineTubeThickness->selectAll();
+    }
+    // Reset rimandato a fine ciclo di eventi, come per le costanti.
+    QTimer::singleShot(0, this, [this] { m_constantPopupActive = false; });
 }
 
 void MainWindow::pushTubeThickness()
@@ -148,9 +173,18 @@ void MainWindow::pushTubeThickness()
     bool ok = false;
     const float thickness = tubeThicknessValue(&ok);
     if (!ok) return;   // illeggibile: slider e tubo restano dove sono
-    if (ui->tubeThicknessSlider) {
-        const QSignalBlocker blocker(ui->tubeThicknessSlider);
-        ui->tubeThicknessSlider->setValue(qRound(thickness * 100.0f));
+    if (QSlider *s = ui->tubeThicknessSlider) {
+        // Range come gli slider delle costanti (syncConstantSliders): il
+        // massimo standard, o il valore scritto se e' piu' grande; tornati
+        // sotto, di nuovo lo standard. Mentre lo slider si trascina il range
+        // non si stringe (salterebbe sotto il dito).
+        const QSignalBlocker blocker(s);
+        const int value = qRound(thickness * 100.0f);
+        const int lo = qRound(kTubeThicknessMin * 100.0f);
+        int hi = std::max(qRound(kTubeThicknessMax * 100.0f), value);
+        if (s->isSliderDown() || s->hasFocus() || s->underMouse()) hi = std::max(hi, s->maximum());
+        s->setRange(lo, hi);
+        s->setValue(value);
     }
     if (ui->glWidget) ui->glWidget->setTubeRadius(thickness * kTubeRadiusUnit);
 }
@@ -744,9 +778,11 @@ MainWindow::SceneState MainWindow::defaultScene(int index, bool loadDefaultSurfa
         }
         s.constants.s = QStringLiteral("0");
         s.steps = m_lastParametricSteps;
-        // Il tubo di default, o niente (NEW). E' la superficie che il reset
-        // disegna quando la linguetta e' Tubes (resetEngineToParametric).
-        s.tube = loadDefaultSurface ? defaultTubeTexts() : TubeTexts{};
+        // Il tubo di default, o niente (NEW: curva vuota, spessore di
+        // default). E' la superficie che il reset disegna quando la linguetta
+        // e' Tubes (resetEngineToParametric).
+        if (loadDefaultSurface) s.tube = defaultTubeTexts();
+        else { s.tube = TubeTexts{}; s.tube.thickness = QStringLiteral("1"); }
     }
     return s;
 }

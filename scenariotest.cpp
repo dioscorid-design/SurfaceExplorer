@@ -224,9 +224,30 @@ void ScenarioTest::runTubeScenarios()
     typeThickness(QStringLiteral("2.5"), true);
     check(radiusIs(2.5) && ui->tubeThicknessSlider->value() == 250,
           QStringLiteral("spessore 2.5 confermato -> tubo e slider"));
+    // Il massimo e' dello SLIDER, non del campo (come le costanti): un valore
+    // scritto piu' grande vale e allarga lo slider; tornati sotto, lo slider
+    // torna al suo massimo standard. Sotto il minimo 0.01 si riporta a 0.01.
     typeThickness(QStringLiteral("7"), true);
-    check(radiusIs(3.0) && ui->lineTubeThickness->text() == QLatin1String("3"),
-          QStringLiteral("spessore 7 confermato -> riportato al massimo 3 (campo '%1')").arg(ui->lineTubeThickness->text()));
+    check(radiusIs(7.0) && ui->lineTubeThickness->text() == QLatin1String("7")
+              && ui->tubeThicknessSlider->maximum() == 700 && ui->tubeThicknessSlider->value() == 700,
+          QStringLiteral("spessore 7 confermato -> vale 7, slider allargato (max %1)")
+              .arg(ui->tubeThicknessSlider->maximum()));
+    typeThickness(QStringLiteral("2"), true);
+    check(radiusIs(2.0) && ui->tubeThicknessSlider->maximum() == 300,
+          QStringLiteral("spessore 2 confermato -> slider di nuovo a max 3 (max %1)")
+              .arg(ui->tubeThicknessSlider->maximum()));
+    typeThickness(QStringLiteral("0"), true);
+    check(radiusIs(0.01) && ui->lineTubeThickness->text() == QLatin1String("0.01")
+              && ui->tubeThicknessSlider->value() == 1,
+          QStringLiteral("spessore 0 confermato -> riportato al minimo 0.01 (campo '%1')")
+              .arg(ui->lineTubeThickness->text()));
+    // Campo svuotato + Invio: torna al default 1 (campo, slider e tubo).
+    typeInField(ui->lineTubeThickness, QString());
+    pressEnter(ui->lineTubeThickness);
+    check(ui->lineTubeThickness->text() == QLatin1String("1") && ui->tubeThicknessSlider->value() == 100
+              && radiusIs(1.0),
+          QStringLiteral("spessore svuotato, Invio -> riportato a 1 (campo '%1', slider %2)")
+              .arg(ui->lineTubeThickness->text()).arg(ui->tubeThicknessSlider->value()));
 
     // CURVA, a tubo fermo: l'Invio aspetta il Run.
     const QString zNew = QStringLiteral("-sin(3*u)/2");
@@ -257,7 +278,7 @@ void ScenarioTest::runTubeScenarios()
     // SAVE E RIAPERTURA (Save Record: la stessa cattura del Save Surface).
     const LibraryItem saved = captureSave();
     check(saved.isTube && saved.tubeX == m_mw->m_scene.tube.x && saved.tubeY == yMoving
-              && saved.tubeZ == zNew && saved.tubeThickness == QLatin1String("3"),
+              && saved.tubeZ == zNew && saved.tubeThickness == QLatin1String("1"),
           QStringLiteral("Save -> scrive la curva e lo spessore del tubo"));
     check(saved.x.isEmpty() && saved.y.isEmpty() && saved.z.isEmpty() && !saved.isScript,
           QStringLiteral("Save di un tubo -> equazioni di Surface vuote, non uno script"));
@@ -265,7 +286,7 @@ void ScenarioTest::runTubeScenarios()
     m_mw->applyMotionExample(saved);  wait(1500);
     check(m_mw->tubesShown() && ui->subTabParametric->currentWidget() == ui->subTabParametricTubes
               && fieldCurve() == QStringList({ saved.tubeX, saved.tubeY, saved.tubeZ, saved.tubeP })
-              && engineCurve() == fieldCurve() && radiusIs(3.0),
+              && engineCurve() == fieldCurve() && radiusIs(1.0),
           QStringLiteral("record tubo riaperto -> linguetta Tubes, curva e spessore com'erano"));
     checkConstants(QStringLiteral("record tubo riaperto"), QMap<QString, double>{ { QStringLiteral("A"), 1.3 } });
     if (m_mw->isEquationModuleMoving()) { ui->btnRunParametric->click();  wait(400); }
