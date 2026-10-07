@@ -92,6 +92,10 @@ public:
         // -------------------------------------------------------------
     }
 
+    // Il tempo 't' delle espressioni (di norma fermo a 0.00001): chi campiona
+    // una curva animata lo fa scorrere.
+    void setTime(double t) { mT = t; }
+
     void addCustomVariable(const QString& varName, double& variable) {
         symbol_table.add_variable(varName.toStdString(), variable);
     }

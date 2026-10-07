@@ -803,22 +803,32 @@ bool MainWindow::sampleTubeCurve(const TubeTexts &tube, float uMin, float uMax,
     }
     if (!px.compile(tube.x) || !py.compile(tube.y) || !pz.compile(tube.z)) return false;
 
-    // La curva su N+1 punti; le tangenti per differenze centrali.
+    // La curva su N+1 punti; le tangenti per differenze centrali. Una curva
+    // ANIMATA (cita t) si campiona anche in altri istanti, t da 0 a 2pi: la
+    // direzione scelta qui vale per tutto il moto (il Run non si ripete a ogni
+    // fotogramma), e deve restare lontana dalle tangenti anche quando la curva
+    // si e' mossa. La chiusura in u si giudica all'istante di partenza.
+    static const QRegularExpression timeRe(QStringLiteral("\\bt\\b"));
+    const bool animated = tube.x.contains(timeRe) || tube.y.contains(timeRe) || tube.z.contains(timeRe);
+    const int timeSamples = animated ? 8 : 1;
     constexpr int N = 400;
     std::vector<QVector3D> pts(N + 1);
-    for (int i = 0; i <= N; ++i) {
-        u = uMin + (double(uMax) - double(uMin)) * i / N;
-        const double x = px.value(), y = py.value(), z = pz.value();
-        if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) return false;
-        pts[i] = QVector3D(float(x), float(y), float(z));
-    }
-    *uClosed = pts[0].distanceToPoint(pts[N]) < 0.001f;
-
     std::vector<QVector3D> tangents;
-    tangents.reserve(N);
-    for (int i = 1; i < N; ++i) {
-        const QVector3D d = pts[i + 1] - pts[i - 1];
-        if (d.lengthSquared() > 1e-16f) tangents.push_back(d.normalized());
+    tangents.reserve(size_t(N) * timeSamples);
+    for (int ts = 0; ts < timeSamples; ++ts) {
+        const double t = (ts == 0) ? 0.00001 : 6.28318530718 * ts / timeSamples;
+        for (ExpressionParser *e : { &px, &py, &pz }) e->setTime(t);
+        for (int i = 0; i <= N; ++i) {
+            u = uMin + (double(uMax) - double(uMin)) * i / N;
+            const double x = px.value(), y = py.value(), z = pz.value();
+            if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) return false;
+            pts[i] = QVector3D(float(x), float(y), float(z));
+        }
+        if (ts == 0) *uClosed = pts[0].distanceToPoint(pts[N]) < 0.001f;
+        for (int i = 1; i < N; ++i) {
+            const QVector3D d = pts[i + 1] - pts[i - 1];
+            if (d.lengthSquared() > 1e-16f) tangents.push_back(d.normalized());
+        }
     }
     if (tangents.empty()) return false;
 
