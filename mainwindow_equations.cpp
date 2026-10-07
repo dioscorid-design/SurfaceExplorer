@@ -2502,8 +2502,10 @@ void MainWindow::commitUiFieldsDuringMotion() {
                      (mainEqs.contains(kReUpperV) ? 1 : 0) +
                      (mainEqs.contains(kReUpperW) ? 1 : 0);
     bool geoHasText = hasGeodesicText();
+    // Su Tubes i campi di Surface (nascosti) non decidono nulla: il Run va al
+    // ramo dei tubi.
     bool isGeodesicActive = (upperCount > 0) && geoHasText &&
-            (!implicitMode());
+            (!implicitMode()) && !tubesShown();
     if (!isGeodesicActive) {
         onStartClicked();
         return;
@@ -2588,7 +2590,7 @@ bool MainWindow::commitFieldsOnEnter() {
                      (mainEqs.contains(kReUpperV) ? 1 : 0) +
                      (mainEqs.contains(kReUpperW) ? 1 : 0);
 
-    if ((upperCount > 0) && hasGeodesicText()) {
+    if ((upperCount > 0) && hasGeodesicText() && !tubesShown()) {
         // useAppliedEquations: qui arriva l'Invio sulle COSTANTI A..F/S, che non
         // e' un Run. Si aggiorna il VALORE delle costanti sulla superficie gia'
         // applicata; tutte le equazioni -- la mappa X/Y/Z/P e i 7 campi del

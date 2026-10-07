@@ -260,9 +260,10 @@ inline bool isDeferredEquationField(const QString& objectName)
 }
 
 // Campi del sotto-tab TUBES (tab Parametric): la curva asse X/Y/Z/P(u) e lo
-// spessore. Finche' il tubo non ha il suo motore l'Invio toglie solo il
-// focus: senza questo ramo cadrebbero nel generico dei filtri tastiera, che
-// rifa' il Run della superficie a schermo.
+// spessore. Hanno un ramo proprio nei filtri tastiera: la curva segue la
+// regola dei campi differiti (ferma aspetta il Run, in moto applica al volo),
+// lo spessore si applica alla conferma del campo. Senza il ramo cadrebbero nel
+// generico, che rifa' il Run anche a superficie ferma.
 inline bool isTubeEquationField(const QString& objectName)
 {
     static const QSet<QString> kTubeFields = {

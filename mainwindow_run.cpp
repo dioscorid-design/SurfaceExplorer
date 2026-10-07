@@ -1393,6 +1393,11 @@ QString MainWindow::equationModuleCode() const
         // geometria sia in moto ogni volta che la texture anima il displacement.
         return activeImplicitEquationText() + " " + m_scene.surfaceScriptApplied;
     }
+    // Sotto-tab Tubes: la geometria e' la curva (le equazioni di Surface,
+    // nascoste, non disegnano nulla). Senza, un tubo animato da 't' non
+    // risultava in moto: tasto Run su "Run", master e Invio al volo sbagliati.
+    if (tubesShown())
+        return m_scene.tube.x + " " + m_scene.tube.y + " " + m_scene.tube.z + " " + m_scene.tube.p;
     QString code = m_scene.eq.x + " " + m_scene.eq.y + " " +
             m_scene.eq.z + " " + m_scene.eq.p + " " +
             m_scene.eq.u + " " + m_scene.eq.v + " " + m_scene.eq.w + " " +

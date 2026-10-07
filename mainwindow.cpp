@@ -40,10 +40,18 @@ protected:
                     return true;
                 }
 
-                // Campi del sotto-tab Tubes: per ora l'Invio non applica nulla
-                // (vedi isTubeEquationField).
+                // Campi del sotto-tab Tubes. La CURVA segue la regola dei campi
+                // qui sopra (ferma aspetta il Run, in moto applica al volo); lo
+                // SPESSORE si applica alla conferma, cioe' all'editingFinished
+                // che il clearFocus emette.
                 if (isTubeEquationField(on)) {
                     if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
+                    if (on != QLatin1String("lineTubeThickness")) {
+                        if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
+                            if (mainWin->isEquationModuleMoving())
+                                mainWin->commitUiFieldsDuringMotion();
+                        }
+                    }
                     return true;
                 }
 
@@ -405,9 +413,16 @@ protected:
                     return true;
                 }
 
-                // Campi del sotto-tab Tubes: come nel filtro desktop.
+                // Campi del sotto-tab Tubes: come nel filtro desktop (la curva
+                // in moto applica al volo, lo spessore alla conferma).
                 if (isTubeEquationField(obj->objectName())) {
                     if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
+                    if (obj->objectName() != QLatin1String("lineTubeThickness")) {
+                        if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
+                            if (mainWin->isEquationModuleMoving())
+                                mainWin->commitUiFieldsDuringMotion();
+                        }
+                    }
                     QGuiApplication::inputMethod()->hide();
                     return true;
                 }
