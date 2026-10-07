@@ -31,6 +31,7 @@ void MainWindow::setImplicitMode(bool on)
     // A segnali bloccati: il gestore currentChanged fa il reset della scena.
     const QSignalBlocker blocker(ui->tabModeSelector);
     ui->tabModeSelector->setCurrentIndex(on ? 1 : 0);
+    refreshTubeControls();   // l'altezza del dock dipende dalla pagina visibile
 }
 
 void MainWindow::setMeshScopeAll(bool all)
@@ -52,6 +53,106 @@ void MainWindow::setCrossSectionTab(bool on)
     // (superficie di default), che qui non va fatto.
     const QSignalBlocker blocker(ui->subTabImplicit);
     ui->subTabImplicit->setCurrentIndex(on ? 1 : 0);
+}
+
+void MainWindow::setTubesTab(bool on)
+{
+    m_scene.tubesTab = on;
+    if (ui->subTabParametric) {
+        // A segnali bloccati: il gestore currentChanged e' quello del clic.
+        const QSignalBlocker blocker(ui->subTabParametric);
+        ui->subTabParametric->setCurrentWidget(on ? ui->subTabParametricTubes
+                                                  : ui->subTabParametricSurface);
+    }
+    refreshTubeControls();
+}
+
+void MainWindow::refreshTubeControls()
+{
+    // Tutto vale solo mentre Tubes SI VEDE (tab Parametric davanti): col tab
+    // Implicit davanti la pagina Parametric torna com'era, perche' anche
+    // nascosta conta nell'altezza del dock (vedi sotto).
+    const bool shown = tubesShown();
+
+    const QList<QWidget *> limitsVW = { ui->lbla_2, ui->vMinEdit, ui->lblb_2, ui->vMaxEdit,
+                                        ui->label_2, ui->wMinEdit, ui->label_3, ui->wMaxEdit };
+    for (QWidget *w : limitsVW)
+        w->setVisible(!shown);
+    ui->panelTubeThickness->setVisible(shown);
+
+    // ALTEZZA. Un QTabWidget e' alto quanto la sua pagina PIU' ALTA, anche se
+    // nascosta: la pagina Tubes ereditava l'altezza della Surface (che ha in
+    // piu' Constraints/Composition/Geodesic Flow) e quella del tab Implicit
+    // (su mobile i due editor delle texture), e la spartiva fra quattro campi
+    // -- enormi su desktop, distanziati su iOS dove l'altezza dei campi ha un
+    // massimo. Mentre si vede Tubes le pagine nascoste non contano (Ignored in
+    // verticale); in ogni altro caso tutto resta Preferred, come prima: le
+    // pagine Surface e Implicit non cambiano di un pixel.
+    auto fit = [](QWidget *page, bool ignored) {
+        page->setSizePolicy(page->sizePolicy().horizontalPolicy(),
+                            ignored ? QSizePolicy::Ignored : QSizePolicy::Preferred);
+    };
+    fit(ui->subTabParametricSurface, shown);
+    fit(ui->tabImplicit, shown);
+    // Pagine e righe cambiano spesso mentre sono NASCOSTE (col tab Implicit
+    // davanti), e cio' che e' nascosto non avvisa i layout che lo contengono:
+    // senza questi avvisi il tab Implicit, aperto lasciando il sotto-tab su
+    // Tubes, teneva i minimi calcolati prima e risultava piu' basso del solito.
+    ui->intervalLimits->updateGeometry();
+    ui->panelParametricBottom->updateGeometry();
+    ui->subTabParametric->updateGeometry();
+    ui->tabModeSelector->updateGeometry();
+
+    // Limiti u (il parametro della curva) accesi su Tubes, quelli di Surface
+    // al ritorno: li decide updateConstraintState, solo quando la vista
+    // cambia davvero (durante un load gira coi campi ancora del preset prima).
+    if (shown != m_tubeControlsShown) {
+        m_tubeControlsShown = shown;
+        updateConstraintState();
+        updateMasterButtonState();
+    }
+}
+
+QWidget *MainWindow::tubeFieldEdit(TubeField field) const
+{
+    if (field == &TubeTexts::x) return ui->lineTubeX;
+    if (field == &TubeTexts::y) return ui->lineTubeY;
+    if (field == &TubeTexts::z) return ui->lineTubeZ;
+    if (field == &TubeTexts::p) return ui->lineTubeP;
+    if (field == &TubeTexts::thickness) return ui->lineTubeThickness;
+    return nullptr;
+}
+
+void MainWindow::setTubeText(TubeField field, const QString &text)
+{
+    QWidget *edit = tubeFieldEdit(field);
+    if (!edit) { m_scene.tube.*field = text; return; }
+    // A segnali bloccati: e' il programma che scrive. m_scene.tube segue dal
+    // documento (curva) o lo si scrive qui (spessore, QLineEdit).
+    const QSignalBlocker blocker(edit);
+    if (auto *pe = qobject_cast<QPlainTextEdit *>(edit)) pe->setPlainText(text);
+    else if (auto *le = qobject_cast<QLineEdit *>(edit)) { le->setText(text); m_scene.tube.*field = text; }
+    if (field == &TubeTexts::thickness) pushTubeThickness();
+}
+
+float MainWindow::tubeThicknessValue(bool *ok) const
+{
+    bool valid = false;
+    const float r = ExpressionParser::evaluateSimple(m_scene.tube.thickness.trimmed(), valid);
+    if (ok) *ok = valid && r >= 0.0f;
+    return (valid && r >= 0.0f) ? std::min(r, kTubeThicknessMax) : 0.0f;
+}
+
+void MainWindow::pushTubeThickness()
+{
+    bool ok = false;
+    const float thickness = tubeThicknessValue(&ok);
+    if (!ok) return;   // illeggibile: slider e tubo restano dove sono
+    if (ui->tubeThicknessSlider) {
+        const QSignalBlocker blocker(ui->tubeThicknessSlider);
+        ui->tubeThicknessSlider->setValue(qRound(thickness * 100.0f));
+    }
+    if (ui->glWidget) ui->glWidget->setTubeRadius(thickness * kTubeRadiusUnit);
 }
 
 void MainWindow::setEditTarget(EditTarget target)
@@ -243,6 +344,22 @@ void MainWindow::bindEquationFields()
         connect(edit, &QPlainTextEdit::textChanged, this, sync);
         connect(edit->document(), &QTextDocument::contentsChanged, this, sync);
         sync();
+    }
+    // La curva del sotto-tab Tubes, allo stesso modo, in m_scene.tube; lo
+    // spessore (una riga) come i campi limite: textEdited e textChanged.
+    for (TubeField f : { &TubeTexts::x, &TubeTexts::y, &TubeTexts::z, &TubeTexts::p }) {
+        auto *edit = qobject_cast<QPlainTextEdit *>(tubeFieldEdit(f));
+        if (!edit) continue;
+        auto sync = [this, f, edit] { m_scene.tube.*f = edit->toPlainText(); };
+        connect(edit, &QPlainTextEdit::textChanged, this, sync);
+        connect(edit->document(), &QTextDocument::contentsChanged, this, sync);
+        sync();
+    }
+    if (ui->lineTubeThickness) {
+        const auto write = [this](const QString &t) { m_scene.tube.thickness = t; };
+        connect(ui->lineTubeThickness, &QLineEdit::textEdited, this, write);
+        connect(ui->lineTubeThickness, &QLineEdit::textChanged, this, write);
+        m_scene.tube.thickness = ui->lineTubeThickness->text();
     }
     // I campi Ray Marching, allo stesso modo, in m_scene.rm.
     for (RmField f : { &ImplicitTexts::equation, &ImplicitTexts::crossSection,
@@ -623,8 +740,21 @@ MainWindow::SceneState MainWindow::defaultScene(int index, bool loadDefaultSurfa
         }
         s.constants.s = QStringLiteral("0");
         s.steps = m_lastParametricSteps;
+        // Il tubo di default, o niente (NEW). E' la superficie che il reset
+        // disegna quando la linguetta e' Tubes (resetEngineToParametric).
+        s.tube = loadDefaultSurface ? defaultTubeTexts() : TubeTexts{};
     }
     return s;
+}
+
+MainWindow::TubeTexts MainWindow::defaultTubeTexts()
+{
+    TubeTexts t;
+    t.x = QStringLiteral("(sin(u) + 2*sin(2*u))/3");
+    t.y = QStringLiteral("(cos(u) - 2*cos(2*u))/3");
+    t.z = QStringLiteral("-sin(3*u)/3");
+    t.thickness = QStringLiteral("1");
+    return t;
 }
 
 void MainWindow::assignSceneTexts(const SceneState &s)
@@ -642,6 +772,10 @@ void MainWindow::assignSceneTexts(const SceneState &s)
     setRmText(&ImplicitTexts::texture, s.rm.texture);
 
     setImplicitShell(s.implicitShell);
+    for (TubeField f : { &TubeTexts::x, &TubeTexts::y, &TubeTexts::z, &TubeTexts::p,
+                         &TubeTexts::thickness })
+        setTubeText(f, s.tube.*f);
+    setTubesTab(s.tubesTab);
     m_scene.renderMode = s.renderMode;
 
     m_scene.discreteConsts = s.discreteConsts;

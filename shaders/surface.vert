@@ -73,8 +73,11 @@ layout(std140, binding = 0) uniform SceneUBO {
     // combaciare col fragment. Ultimo campo di UboData.
     float u_shellThickness;
     // NON USATA QUI (la scelta del marcher e' solo del ray marching), ma il
-    // blocco deve combaciare col fragment. Ultimo campo di UboData.
+    // blocco deve combaciare col fragment.
     float u_marcherMode;
+    // Raggio del tubo (sotto-tab Tubes): lo legge il getRawPosition generato
+    // per i tubi (GLWidget::createVertexShaderSource). Ultimo campo di UboData.
+    float u_tubeRadius;
 } ubuf;
 
 float sq(float x) { return x*x; }

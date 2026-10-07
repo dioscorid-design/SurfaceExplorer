@@ -801,6 +801,10 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // quindi il cambio e' immediato senza ricompilare lo shader.
     m_uboData.u_marcherMode = m_hybridMarcher ? 1.0f : 0.0f;
 
+    // Raggio del tubo (sotto-tab Tubes): uniform anche lui, lo slider dello
+    // spessore e' immediato.
+    m_uboData.u_tubeRadius = m_tubeRadius;
+
     // ==========================================================
     // AGGIORNAMENTO BUFFER PRINCIPALE (multi-mesh)
     // ==========================================================
@@ -1868,6 +1872,10 @@ bool GLWidget::setParametricEquations(const QString &xEq, const QString &yEq,
     m_isCustomMesh = false;
     QString oldX = m_eqX, oldY = m_eqY, oldZ = m_eqZ, oldW = m_eqW;
 
+    // Le equazioni sostituiscono un eventuale tubo: la prova si fa senza.
+    const bool oldTube = engine->isTubeModeActive();
+    engine->setTubeMode(false);
+
     // 1. DRY RUN del vertex con le NUOVE equazioni prima di toccare lo stato
     QString vsSource = createVertexShaderSource(xEq, yEq, zEq, wEq);
     QShaderBaker baker;
@@ -1877,12 +1885,59 @@ bool GLWidget::setParametricEquations(const QString &xEq, const QString &yEq,
     QShader shader = baker.bake();
     if (!shader.isValid()) {
         m_lastCompilationError = "VERTEX (parametric): " + baker.errorMessage();
+        engine->setTubeMode(oldTube);
         return false;  // Non tocchiamo nulla, l'UI riceve false e mostra il popup
     }
 
     // 2. Solo ora applichiamo
     m_eqX = xEq; m_eqY = yEq; m_eqZ = zEq; m_eqW = wEq;
     engine->setEquations(xEq, yEq, zEq, wEq);
+    rebuildShader();
+    meshNeedsUpdate = true;
+    update();
+    return true;
+}
+
+// Gli offset di UboData devono combaciare col blocco SceneUBO degli shader
+// (verificati con qsb --dump, vedi CLAUDE.md): un campo spostato qui non da'
+// errori su desktop e su Adreno fa fallire tutte le pipeline.
+static_assert(offsetof(UboData, u_min) == 372, "UboData: u_min fuori posto");
+static_assert(offsetof(UboData, z_max) == 416, "UboData: z_max fuori posto");
+static_assert(offsetof(UboData, u_meshIndex) == 420, "UboData: u_meshIndex fuori posto");
+static_assert(offsetof(UboData, u_noImage) == 424, "UboData: u_noImage fuori posto");
+static_assert(offsetof(UboData, u_marcherMode) == 436, "UboData: u_marcherMode fuori posto");
+static_assert(offsetof(UboData, u_tubeRadius) == 440, "UboData: u_tubeRadius fuori posto");
+
+bool GLWidget::setTubeCurve(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq,
+                            const QVector3D &reference, bool uClosed)
+{
+    m_isCustomMesh = false;
+    // Stato di prima, per tornarci se la prova fallisce.
+    const bool oldTube = engine->isTubeModeActive();
+    const bool oldScript = engine->isScriptModeActive();
+    const QString oldX = engine->tubeX(), oldY = engine->tubeY(), oldZ = engine->tubeZ(), oldP = engine->tubeP();
+    const QVector3D oldRef = engine->tubeReference();
+    const bool oldClosed = engine->tubeUClosed();
+
+    engine->setTubeCurve(xEq, yEq, zEq, wEq, reference, uClosed);
+    engine->setTubeMode(true);
+    engine->setScriptMode(false);
+
+    // DRY RUN del vertex, come setParametricEquations.
+    QString vsSource = createVertexShaderSource("0", "0", "0", "0");
+    QShaderBaker baker;
+    baker.setSourceString(vsSource.toUtf8(), QShader::VertexStage);
+    baker.setGeneratedShaderVariants({QShader::StandardShader});
+    baker.setGeneratedShaders({ {QShader::SpirvShader, QShaderVersion(100)} });
+    QShader shader = baker.bake();
+    if (!shader.isValid()) {
+        m_lastCompilationError = "VERTEX (tube): " + baker.errorMessage();
+        engine->setTubeCurve(oldX, oldY, oldZ, oldP, oldRef, oldClosed);
+        engine->setTubeMode(oldTube);
+        engine->setScriptMode(oldScript);
+        return false;
+    }
+
     rebuildShader();
     meshNeedsUpdate = true;
     update();
@@ -3361,6 +3416,7 @@ void GLWidget::clearTexture() {
 
 void GLWidget::setScriptCheck(bool enabled) {
     engine->setScriptMode(enabled);
+    if (enabled) engine->setTubeMode(false);   // script e tubo si escludono
     meshNeedsUpdate = true;
 }
 
@@ -4546,10 +4602,13 @@ bool GLWidget::validateAndApplyParametricScript(const QString &scriptCodeGLSL)
     QString oldScript = engine->getScriptCodeGLSL();
     QString oldCutout = engine->getCutoutCodeGLSL();
     bool oldScriptMode = engine->isScriptModeActive();
+    // Lo script sostituisce un eventuale tubo.
+    const bool oldTube = engine->isTubeModeActive();
 
     // Applica temporaneamente per testare
     engine->setScriptCodeGLSL(scriptCodeGLSL);
     engine->setScriptMode(true);
+    engine->setTubeMode(false);
 
     // Genera il vertex shader con lo script applicato
     QString vsSource = createVertexShaderSource("0", "0", "0", "0");
@@ -4567,6 +4626,7 @@ bool GLWidget::validateAndApplyParametricScript(const QString &scriptCodeGLSL)
         engine->setScriptCodeGLSL(oldScript);
         engine->setCutoutCodeGLSL(oldCutout);
         engine->setScriptMode(oldScriptMode);
+        engine->setTubeMode(oldTube);
         return false;
     }
 
@@ -4584,6 +4644,7 @@ bool GLWidget::validateAndApplyParametricScript(const QString &scriptCodeGLSL)
         engine->setScriptCodeGLSL(oldScript);
         engine->setCutoutCodeGLSL(oldCutout);
         engine->setScriptMode(oldScriptMode);
+        engine->setTubeMode(oldTube);
         return false;
     }
 
@@ -5288,7 +5349,62 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
     };
 
     // --- SOSTITUZIONE LOGICA ---
-    if (engine->isScriptModeActive()) {
+    if (engine->isTubeModeActive() && !engine->isScriptModeActive()) {
+        // TUBO attorno alla curva C(u) = (X, Y, Z, P), sotto-tab Tubes. La
+        // curva si valuta in tre punti (u-h, u, u+h) dentro un ciclo che
+        // ridichiara u, cosi' le espressioni dell'utente compaiono UNA volta
+        // nel sorgente (gli shader parametrici enormi fanno cadere il
+        // compilatore Mali). Tangente per differenze centrali sull'ombra 3D
+        // della curva. La sezione e' il cerchio di raggio u_tubeRadius nel
+        // piano perpendicolare alla tangente 3D, a w costante = P(u) (la quarta
+        // dimensione e' nella curva): orientato proiettando sul piano la
+        // direzione di riferimento scelta al Run, lontana da tutte le tangenti
+        // -- niente ribaltamenti come con Frenet. Se la tangente le diventa
+        // comunque parallela si ripiega su un asse.
+        auto glslFloat = [](float x) { return QString::number(double(x), 'f', 6); };
+        const QVector3D ref = engine->tubeReference();
+        const QString tubeFunction =
+            "vec4 getRawPosition(float u, float v, float w) {\n"
+            "    float A = ubuf.u_mathParams.x;\n"
+            "    float B = ubuf.u_mathParams.y;\n"
+            "    float C = ubuf.u_mathParams.z;\n"
+            "    float D = ubuf.u_mathParams2.x;\n"
+            "    float E = ubuf.u_mathParams2.y;\n"
+            "    float F = ubuf.u_mathParams2.z;\n"
+            "    float s = ubuf.u_mathParams.w;\n"
+            "    float t = ubuf.u_time;\n"
+            "    float tubeU = u;\n"
+            "    vec4 tubeM = vec4(0.0);\n"
+            "    vec4 tubeC = vec4(0.0);\n"
+            "    vec4 tubeN = vec4(0.0);\n"
+            "    for (float tubeK = -1.0; tubeK < 1.5; tubeK += 1.0) {\n"
+            "        float u = tubeU + tubeK * 0.001;\n"
+            "        vec4 tubeQ = vec4(" + sanitizeEq(engine->tubeX()) + ", " + sanitizeEq(engine->tubeY()) + ", "
+                                     + sanitizeEq(engine->tubeZ()) + ", " + sanitizeEq(engine->tubeP()) + ");\n"
+            "        if (tubeK < -0.5) tubeM = tubeQ; else if (tubeK < 0.5) tubeC = tubeQ; else tubeN = tubeQ;\n"
+            "    }\n"
+            "    vec3 tubeT = tubeN.xyz - tubeM.xyz;\n"
+            "    float tubeTl = length(tubeT);\n"
+            "    tubeT = (tubeTl > 1.0e-10) ? tubeT / tubeTl : vec3(1.0, 0.0, 0.0);\n"
+            "    vec3 tubeR = vec3(" + glslFloat(ref.x()) + ", " + glslFloat(ref.y()) + ", " + glslFloat(ref.z()) + ");\n"
+            "    vec3 tubeE1 = tubeR - dot(tubeR, tubeT) * tubeT;\n"
+            "    if (dot(tubeE1, tubeE1) < 1.0e-8) {\n"
+            "        vec3 tubeAlt = (abs(tubeT.x) < 0.9) ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);\n"
+            "        tubeE1 = tubeAlt - dot(tubeAlt, tubeT) * tubeT;\n"
+            "    }\n"
+            "    tubeE1 = normalize(tubeE1);\n"
+            "    vec3 tubeE2 = cross(tubeT, tubeE1);\n"
+            "    vec3 tubePos = tubeC.xyz + ubuf.u_tubeRadius * (cos(v) * tubeE1 + sin(v) * tubeE2);\n"
+            "    return sanitizePos(vec4(tubePos, tubeC.w));\n"
+            "}";
+        QRegularExpression regEx("vec4 getRawPosition\\(float u, float v, float w\\)\\s*\\{[\\s\\S]*?\\}");
+        source.replace(regEx, tubeFunction);
+        source.replace("%X_EQ%", "0.0");
+        source.replace("%Y_EQ%", "0.0");
+        source.replace("%Z_EQ%", "0.0");
+        source.replace("%W_EQ%", "0.0");
+
+    } else if (engine->isScriptModeActive()) {
         QString customCode = engine->getScriptCodeGLSL();
         if (customCode.trimmed().isEmpty()) customCode = "return vec4(0.0, 0.0, 0.0, 0.0);";
 

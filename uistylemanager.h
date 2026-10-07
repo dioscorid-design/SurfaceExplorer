@@ -17,6 +17,7 @@ class QPushButton;
 class QMenu;
 class QSpinBox;
 class QMessageBox;
+class QTabWidget;
 
 class UiStyleManager
 {
@@ -58,6 +59,12 @@ public:
     // minWidth e' il valore CSS min-width, non la larghezza finale del tasto
     // (che vale minWidth + il padding del foglio globale, 18*2).
     static void widenMessageBoxButtons(QMessageBox* box, int minWidth = 100);
+
+    // Linguette a tutta larghezza: si dividono la larghezza del tab widget e
+    // l'ultima finisce sul suo bordo destro. Ricalcolate a ogni
+    // ridimensionamento (la larghezza disponibile cambia fra desktop e mobile e
+    // con la barra di scorrimento del dock).
+    static void fillTabBarWidth(QTabWidget* tabs);
 };
 
 #endif // UISTYLEMANAGER_H

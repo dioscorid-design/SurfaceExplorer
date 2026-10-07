@@ -534,6 +534,29 @@ public:
     void setScriptCodeGLSL(const QString& code) { m_glslCode = code; }
     QString getScriptCodeGLSL() const { return m_glslCode; }
 
+    // TUBO (sotto-tab Tubes del parametrico): getRawPosition lo genera
+    // GLWidget::createVertexShaderSource dalla curva asse, esclusivo con la
+    // modalita' script. Dominio: u = parametro della curva, v = angolo attorno
+    // (0..2pi). La curva arriva gia' tradotta in GLSL (P vuoto = "0.0"), con la
+    // direzione di riferimento che orienta la sezione e la chiusura in u (la
+    // curva torna al punto di partenza): la sceglie chi chiama campionando la
+    // curva sulla CPU, perche' qui le equazioni del tubo non hanno un exprtk.
+    void setTubeMode(bool active) { m_useTubeMode = active; }
+    bool isTubeModeActive() const { return m_useTubeMode; }
+    void setTubeCurve(const QString &x, const QString &y, const QString &z, const QString &p,
+                      const QVector3D &reference, bool uClosed)
+    {
+        m_tubeX = x; m_tubeY = y; m_tubeZ = z; m_tubeP = p;
+        m_tubeReference = reference;
+        m_tubeUClosed = uClosed;
+    }
+    QString tubeX() const { return m_tubeX; }
+    QString tubeY() const { return m_tubeY; }
+    QString tubeZ() const { return m_tubeZ; }
+    QString tubeP() const { return m_tubeP; }
+    QVector3D tubeReference() const { return m_tubeReference; }
+    bool tubeUClosed() const { return m_tubeUClosed; }
+
     // Sezione opzionale //CUTOUT_BEGIN..//CUTOUT_END dello script (dock Script):
     // corpo di bool cutHere(float u, float v), iniettato nel fragment shader per
     // scartare (discard) le pareti interne nei punti di autointersezione. Vuoto =
@@ -596,6 +619,11 @@ private:
     QString m_glslCode;
     QString m_cutoutCode;
     bool m_useScriptMode = false;
+    // Tubo: vedi setTubeCurve.
+    bool m_useTubeMode = false;
+    QString m_tubeX, m_tubeY, m_tubeZ, m_tubeP;
+    QVector3D m_tubeReference{0.0f, 0.0f, 1.0f};
+    bool m_tubeUClosed = false;
 
     // ==========================================================
     // EXPRTK PARSER ENVIRONMENT (Simboli Mappati in Memoria)

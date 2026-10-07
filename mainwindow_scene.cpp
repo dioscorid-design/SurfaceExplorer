@@ -1007,8 +1007,19 @@ void MainWindow::resetEngineToParametric(bool loadDefaultSurface)
     // (i limiti si applicano solo al Run, mai con Invio). Qui al motore.
     updateULimits(); updateVLimits(); updateWLimits();
 
-    // 4. GEOMETRIA: il toro di default, o niente (NEW)
-    if (loadDefaultSurface) {
+    // 4. GEOMETRIA: il toro di default (il trifoglio sul sotto-tab Tubes), o
+    // niente (NEW)
+    if (loadDefaultSurface && m_scene.tubesTab) {
+        // Il tubo di defaultScene, dal motore dei tubi: curva valida per
+        // costruzione, costanti al default (A..F = 1, s = 0), dominio u di
+        // default. Se non compilasse resterebbe la superficie di prima: lo dice
+        // il log degli shader, che il test degli scenari legge.
+        bool okLo = false, okHi = false;
+        const float uMin = parseLimitField(m_scene.lim.uMin, &okLo);
+        const float uMax = parseLimitField(m_scene.lim.uMax, &okHi);
+        if (!okLo || !okHi || !applyTubeToEngine(uMin, uMax, CascadeConstants{1, 1, 1, 1, 1, 1, 0}))
+            qWarning() << "resetScene: tubo di default non applicato:" << ui->glWidget->getShaderError();
+    } else if (loadDefaultSurface) {
         ui->glWidget->setParametricEquations(m_scene.eq.x, m_scene.eq.y,
                                              m_scene.eq.z, m_scene.eq.p);
     } else {
@@ -2986,6 +2997,21 @@ void MainWindow::applyImplicitSubTabReset(int subIndex)
     // sotto-tab Cross Section e spenti nel "3D", quindi il loro stato dipende da
     // QUALE sotto-tab e' attivo: senza questa chiamata restavano com'erano fino
     // al primo evento che per altri motivi faceva girare updateRenderState.
+    updateRenderState();
+}
+
+void MainWindow::applyParametricSubTabReset()
+{
+    // Cambio rifiutato nel dialogo del lavoro non salvato: la linguetta sta
+    // per tornare indietro da sola, la scena non va toccata (vedi
+    // m_suppressNextSubTabReset, lo stesso schema).
+    if (m_suppressNextTubesTabReset) return;
+
+    // DELEGA A resetScene, come il sotto-tab implicito: il suo ramo
+    // parametrico legge m_scene.tubesTab (gia' aggiornato da chi chiama) e
+    // disegna il toro o il trifoglio di default. I limiti v e w, che su Tubes
+    // non si vedono, tornano al default con il resto del dominio.
+    resetScene(0, /*loadDefaultSurface=*/true);
     updateRenderState();
 }
 

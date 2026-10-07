@@ -124,9 +124,15 @@ struct UboData {
     // rifiuta il link se un solo stage lo dichiara e su Android si vede schermo
     // vuoto senza alcun errore. Vedi CLAUDE.md.
     float u_marcherMode;
+    // RAGGIO DEL TUBO (sotto-tab Tubes del parametrico): lo spessore scelto
+    // con campo e slider. Uniforme e non costante nello shader, cosi' lo slider
+    // agisce senza ricompilare. Occupa il primo slot della riserva _pad1: il
+    // blocco non cresce. Dichiarato in ENTRAMBI gli shader parametrici (regola
+    // Adreno, vedi CLAUDE.md); lo usa solo il vertex.
+    float u_tubeRadius;
     // padding esplicito: std140 allinea la struct a vec4 (16 byte). Senza, il
     // compilatore C++ e lo shader potrebbero non concordare sulla dimensione.
-    float _pad1[3];
+    float _pad1[2];
 };
 
 class GLWidget : public QRhiWidget
@@ -194,6 +200,14 @@ public:
     // EQUATIONS & MATHEMATICS
     // ==========================================================
     bool setParametricEquations(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq);
+    // TUBO attorno a una curva (sotto-tab Tubes): curva gia' tradotta in GLSL
+    // (P vuoto = "0.0"), direzione di riferimento della sezione e chiusura in
+    // u. Prova il vertex PRIMA di toccare lo stato, come setParametricEquations;
+    // false = non compila (errore in getShaderError) e tutto resta com'era.
+    // Esclude la modalita' script; equazioni e script, applicati, escludono il
+    // tubo.
+    bool setTubeCurve(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq,
+                      const QVector3D &reference, bool uClosed);
     void setImplicitEquation(const QString &eqF);
     void setEquationConstants(float a, float b, float c, float d, float e, float f, float s);
     void setRangeU(float min, float max);
@@ -479,6 +493,10 @@ public:
     // E' un uniform: cambiarlo NON richiede di ricompilare lo shader.
     void setHybridMarcher(bool on);
     bool hybridMarcher() const { return m_hybridMarcher; }
+    // RAGGIO DEL TUBO (u_tubeRadius): un uniform, quindi lo slider dello
+    // spessore agisce senza ricompilare lo shader.
+    void setTubeRadius(float r) { m_tubeRadius = r; update(); }
+    float tubeRadius() const { return m_tubeRadius; }
     void increaseWireframeUDensity();
     void decreaseWireframeUDensity();
     void increaseWireframeVDensity();
@@ -1207,6 +1225,7 @@ private:
     // Il T^3 del Cross Section lo accende da loadCrossSectionDefaultSurface, e i
     // preset lo portano nella chiave "hybridMarcher".
     bool m_hybridMarcher = false;
+    float m_tubeRadius = 0.1f;
 
     float texRed1 = 1.0f, texGreen1 = 1.0f, texBlue1 = 1.0f;
     float texRed2 = 0.0f, texGreen2 = 0.0f, texBlue2 = 0.0f;

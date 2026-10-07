@@ -266,6 +266,13 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
     // Costanti a cascata (valida per entrambe le modalità): slider e motore.
     const CascadeConstants kc = pushConstantsToEngine(/*restoreTextOnNegative=*/false, /*always=*/true);
 
+    // SOTTO-TAB TUBES: il Run costruisce il tubo attorno alla curva, qualunque
+    // cosa (equazioni o script) ci fosse a schermo prima.
+    if (tubesShown()) {
+        runSceneTube(origin, runDockOnly, kc);
+        return;
+    }
+
     // 2.5. RIPRESA PER GLI SCRIPT
     if (ui->glWidget->getEngine()->isScriptModeActive()) {
         runSceneScript(origin, runDockOnly);
@@ -302,7 +309,7 @@ bool MainWindow::validateRunInputs(RunOrigin origin)
         const bool isParametricTab = (!implicitMode());
         const bool fromScript = !m_scene.surfaceScriptApplied.trimmed().isEmpty()
                              && m_surfaceOrigin != OriginBoth;
-        if (isParametricTab && !fromScript && origin != RunOrigin::Load
+        if (isParametricTab && !fromScript && !tubesShown() && origin != RunOrigin::Load
             && !hasParametricEquationInput()) {
             if (!m_constantPopupActive) {
                 m_constantPopupActive = true;
@@ -664,6 +671,194 @@ void MainWindow::runSceneImplicit(RunOrigin origin, bool runDockOnly)
     syncImplicitAlphaSlider(true, true);
 
     ui->glWidget->update();
+}
+
+void MainWindow::runSceneTube(RunOrigin origin, bool runDockOnly, const CascadeConstants &kc)
+{
+    const TubeTexts &tube = m_scene.tube;
+
+    // 1. LA CURVA: X, Y, Z obbligatori, P facoltativo (vuoto = curva 3D).
+    if (tube.x.trimmed().isEmpty() || tube.y.trimmed().isEmpty() || tube.z.trimmed().isEmpty()) {
+        if (origin != RunOrigin::Load) InputValidator::showIncompleteEquationsError(this);
+        return;
+    }
+    if (!InputValidator::validateFieldList(this, {
+        {"X(u)", tube.x}, {"Y(u)", tube.y}, {"Z(u)", tube.z}, {"P(u)", tube.p},
+    })) return;
+
+    // 2. IL DOMINIO DELLA CURVA: i limiti u. v e' l'angolo attorno, 0..2pi.
+    const QVector<InputValidator::LimitField> limitFields = {
+        {ui->uMinEdit, true}, {ui->uMaxEdit, true},
+    };
+    QVector<float> lim;
+    auto parseFn = [this](const QString &text, bool *ok) { return this->parseLimitField(text, ok); };
+    if (!InputValidator::validateAndParseLimits(this, limitFields, parseFn, lim)) return;
+    if (!InputValidator::validateLimits(this, lim[0], lim[1], true, 0.0f, 1.0f, false,
+                                        0.0f, 1.0f, false)) return;
+
+    // 3. LO SPESSORE: un numero >= 0.
+    bool thicknessOk = false;
+    tubeThicknessValue(&thicknessOk);
+    if (!thicknessOk) {
+        QMessageBox::warning(this, QStringLiteral("Tube"),
+                             QStringLiteral("The thickness must be a number greater than or equal to 0."));
+        return;
+    }
+
+    // 4. MOTORE: curva, riferimento della sezione, spessore e dominio.
+    if (!applyTubeToEngine(lim[0], lim[1], kc)) {
+        showShaderError("Syntax Error (Tube)", ui->glWidget->getShaderError());
+        return;
+    }
+    SurfaceEngine *engine = ui->glWidget->getEngine();
+
+    // 6. OROLOGIO: la curva con 't' anima la geometria.
+    const QString curveText = tube.x + " " + tube.y + " " + tube.z + " " + tube.p;
+    const bool applyOnly = (origin == RunOrigin::ServiceCommit);
+    applyAnimationState(applyOnly ? false : hasTimeVariable(curveText), runDockOnly);
+    updateMasterButtonState();
+
+    // 7. MESH e collasso, come le superfici.
+    ui->glWidget->updateSurfaceData();
+    if (!engine->isMeshValid()) {
+        if (!m_collapseErrorShown) {
+            m_collapseErrorShown = true;
+            InputValidator::showMathematicalCollapseError(this);
+        }
+        return;
+    }
+    if (!applyOnly && !runDockOnly) applyStartSideEffects();
+    m_collapseErrorShown = false;
+
+    // Run one-shot: senza 't' la modifica e' a schermo, il tasto si spegne
+    // finche' la curva non cambia (markUserEdit).
+    if (!hasTimeVariable(curveText)) {
+        m_parametricApplied = true;
+        updateMasterButtonState();
+    }
+    ui->glWidget->update();
+}
+
+bool MainWindow::applyTubeToEngine(float uMin, float uMax, const CascadeConstants &kc)
+{
+    const TubeTexts &tube = m_scene.tube;
+
+    // ORIENTAMENTO DELLA SEZIONE: una direzione lontana da tutte le tangenti,
+    // e se la curva si chiude. Se la curva non si valuta sulla CPU (sintassi
+    // che exprtk non capisce) resta l'asse z: lo shader ha comunque la sua
+    // riserva per le tangenti parallele.
+    QVector3D reference(0.0f, 0.0f, 1.0f);
+    bool uClosed = false;
+    sampleTubeCurve(tube, uMin, uMax, kc, &reference, &uClosed);
+
+    // Prima la curva (provata prima di toccare lo stato), poi il resto:
+    // rebuildShader rifa' le pipeline al fotogramma dopo, coi valori di
+    // adesso. Vincoli e composizione non c'entrano col tubo.
+    ui->glWidget->setTubeRadius(tubeThicknessValue() * kTubeRadiusUnit);
+    if (!ui->glWidget->setTubeCurve(tube.x, tube.y, tube.z, tube.p, reference, uClosed))
+        return false;
+    SurfaceEngine *engine = ui->glWidget->getEngine();
+    engine->setConstraintMode(SurfaceEngine::ConstraintW);
+    engine->setExplicitU(QString());
+    engine->setExplicitV(QString());
+    engine->setExplicitW(QString());
+    ui->glWidget->setRangeU(uMin, uMax);
+    ui->glWidget->setRangeV(0.0f, 6.28318530718f);
+    ui->glWidget->setRangeW(0.0f, 1.0f);
+
+    // Curva 4D: come le superfici con P, una rotazione 4D appena diversa da
+    // zero (vedi runSceneParametric).
+    const QString pEq = tube.p.trimmed();
+    if (!pEq.isEmpty() && pEq != "0" && pEq != "0.0"
+        && std::abs(ui->glWidget->getOmega()) < 0.0001f
+        && std::abs(ui->glWidget->getPhi()) < 0.0001f
+        && std::abs(ui->glWidget->getPsi()) < 0.0001f) {
+        const float safety = 0.0001f;
+        ui->glWidget->setRotation4D(safety, safety, safety);
+    }
+    return true;
+}
+
+bool MainWindow::hasCompleteTubeInput()
+{
+    if (m_scene.tube.x.trimmed().isEmpty() || m_scene.tube.y.trimmed().isEmpty()
+        || m_scene.tube.z.trimmed().isEmpty()) return false;
+    bool okLo = false, okHi = false;
+    const float a = parseLimitField(m_scene.lim.uMin.trimmed(), &okLo);
+    const float b = parseLimitField(m_scene.lim.uMax.trimmed(), &okHi);
+    bool okThickness = false;
+    tubeThicknessValue(&okThickness);
+    return okLo && okHi && a < b && okThickness;
+}
+
+bool MainWindow::sampleTubeCurve(const TubeTexts &tube, float uMin, float uMax,
+                                 const CascadeConstants &kc, QVector3D *reference, bool *uClosed)
+{
+    double u = 0.0, v = 0.0, w = 0.0, p = 0.0;
+    ExpressionParser px, py, pz;
+    for (ExpressionParser *e : { &px, &py, &pz }) {
+        e->setupVariables<double>(u, v, w, p);
+        e->setupConstants<double>((double)kc.a, (double)kc.b, (double)kc.c, (double)kc.d,
+                                  (double)kc.e, (double)kc.f, (double)kc.s);
+    }
+    if (!px.compile(tube.x) || !py.compile(tube.y) || !pz.compile(tube.z)) return false;
+
+    // La curva su N+1 punti; le tangenti per differenze centrali.
+    constexpr int N = 400;
+    std::vector<QVector3D> pts(N + 1);
+    for (int i = 0; i <= N; ++i) {
+        u = uMin + (double(uMax) - double(uMin)) * i / N;
+        const double x = px.value(), y = py.value(), z = pz.value();
+        if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) return false;
+        pts[i] = QVector3D(float(x), float(y), float(z));
+    }
+    *uClosed = pts[0].distanceToPoint(pts[N]) < 0.001f;
+
+    std::vector<QVector3D> tangents;
+    tangents.reserve(N);
+    for (int i = 1; i < N; ++i) {
+        const QVector3D d = pts[i + 1] - pts[i - 1];
+        if (d.lengthSquared() > 1e-16f) tangents.push_back(d.normalized());
+    }
+    if (tangents.empty()) return false;
+
+    // CANDIDATI per la direzione di riferimento: il piano della curva se ne
+    // ha uno (binormali concordi: per una curva piana sono tutte la normale
+    // del piano, ortogonale a ogni tangente), gli assi e una sfera di punti.
+    std::vector<QVector3D> candidates;
+    QVector3D binormal;
+    for (size_t i = 1; i < tangents.size(); ++i) {
+        QVector3D c = QVector3D::crossProduct(tangents[i - 1], tangents[i]);
+        if (QVector3D::dotProduct(c, binormal) < 0.0f) c = -c;
+        binormal += c;
+    }
+    if (binormal.lengthSquared() > 1e-12f) candidates.push_back(binormal.normalized());
+    candidates.push_back(QVector3D(0.0f, 0.0f, 1.0f));
+    candidates.push_back(QVector3D(0.0f, 1.0f, 0.0f));
+    candidates.push_back(QVector3D(1.0f, 0.0f, 0.0f));
+    constexpr int K = 256;                       // punti di Fibonacci sulla sfera
+    const float golden = 3.14159265f * (3.0f - std::sqrt(5.0f));
+    for (int k = 0; k < K; ++k) {
+        const float y = 1.0f - 2.0f * (k + 0.5f) / K;
+        const float r = std::sqrt(std::max(0.0f, 1.0f - y * y));
+        candidates.push_back(QVector3D(r * std::cos(golden * k), y, r * std::sin(golden * k)));
+    }
+
+    // Vince la direzione il cui allineamento PEGGIORE con una tangente e' il
+    // piu' piccolo: la sezione ruota piano lungo tutta la curva.
+    float bestScore = 2.0f;
+    for (const QVector3D &cand : candidates) {
+        float worst = 0.0f;
+        for (const QVector3D &t : tangents) {
+            worst = std::max(worst, std::abs(QVector3D::dotProduct(t, cand)));
+            if (worst >= bestScore) break;
+        }
+        if (worst < bestScore) {
+            bestScore = worst;
+            *reference = cand;
+        }
+    }
+    return true;
 }
 
 void MainWindow::runSceneParametric(RunOrigin origin, bool runDockOnly,
@@ -1314,7 +1509,8 @@ void MainWindow::updateMasterButtonState()
                               && m_surfaceOrigin != OriginBoth;
 
         if (ui->btnRunParametric) {
-            ui->btnRunParametric->setText((eqModuleMoving && !surfaceFromScript) ? "Stop" : "Run");
+            ui->btnRunParametric->setText((eqModuleMoving && (tubesShown() || !surfaceFromScript))
+                                          ? "Stop" : "Run");
             // Run "one-shot" senza animazione: quando il modulo non è in moto e la
             // modifica è già stata applicata (m_parametricApplied), il tasto è
             // disabilitato finché le equazioni non cambiano. ECCEZIONE: se l'equazione
@@ -1330,8 +1526,12 @@ void MainWindow::updateMasterButtonState()
             // Gate completo: equazioni, dominio e campi del tab attivo (vedi
             // hasCompleteParametricInput). A moto in corso il tasto e' "Stop" e
             // non si valuta l'input: fermare dev'essere sempre possibile.
-            const bool eqInputOk = eqModuleMoving || hasCompleteParametricInput();
-            ui->btnRunParametric->setEnabled(!surfaceFromScript && eqInputOk &&
+            // Sotto-tab Tubes: il Run costruisce il tubo, che sostituisce
+            // anche una superficie da script; servono la curva e i limiti u.
+            const bool tubes = tubesShown();
+            const bool eqInputOk = eqModuleMoving
+                                   || (tubes ? hasCompleteTubeInput() : hasCompleteParametricInput());
+            ui->btnRunParametric->setEnabled((tubes || !surfaceFromScript) && eqInputOk &&
                                              (eqModuleMoving || !m_parametricApplied || geomHasTime));
         }
         if (ui->btnImplicit) {

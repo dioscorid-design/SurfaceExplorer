@@ -40,6 +40,13 @@ protected:
                     return true;
                 }
 
+                // Campi del sotto-tab Tubes: per ora l'Invio non applica nulla
+                // (vedi isTubeEquationField).
+                if (isTubeEquationField(on)) {
+                    if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
+                    return true;
+                }
+
                 // LIMITI U/V/W: hanno un ramo proprio ma seguono la stessa
                 // regola dei campi qui sopra -- a superficie ferma il dominio
                 // aspetta il Run, in moto entra subito. Il ramo separato serve
@@ -394,6 +401,13 @@ protected:
                         if (mainWin->isEquationModuleMoving())
                             mainWin->commitUiFieldsDuringMotion();
                     }
+                    QGuiApplication::inputMethod()->hide();
+                    return true;
+                }
+
+                // Campi del sotto-tab Tubes: come nel filtro desktop.
+                if (isTubeEquationField(obj->objectName())) {
+                    if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
                     QGuiApplication::inputMethod()->hide();
                     return true;
                 }
@@ -760,6 +774,7 @@ void MainWindow::setupStyling()
 
     QList<QWidget*> mainInputFields = {
         ui->lineX, ui->lineY, ui->lineZ, ui->lineP,
+        ui->lineTubeX, ui->lineTubeY, ui->lineTubeZ, ui->lineTubeP,
         ui->lineX_P3D, ui->lineY_P3D, ui->lineZ_P3D, ui->lineR_P3D,
         ui->lineX_P, ui->lineY_P, ui->lineZ_P, ui->lineP_P,
         ui->lineAlpha_P, ui->lineBeta_P, ui->lineGamma_P

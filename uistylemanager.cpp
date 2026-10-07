@@ -29,6 +29,8 @@
 #include <functional>
 #include <QIcon>
 #include <QMenu>
+#include <QTabWidget>
+#include <QTabBar>
 
 void UiStyleManager::applyDarkTheme(QMainWindow* window) {
 
@@ -1097,4 +1099,81 @@ void UiStyleManager::widenMessageBoxButtons(QMessageBox* box, int minWidth)
 {
     if (!box) return;
     box->setStyleSheet(QString("QPushButton { min-width: %1px; }").arg(minWidth));
+}
+
+// Linguette a tutta larghezza.
+//
+// Dentro un QTabWidget il tab bar riceve solo la larghezza che chiede: per
+// questo setExpanding non serve, e l'unica leva e' la min-width delle
+// linguette. Un valore FISSO non arriva al bordo: il tab widget e' largo la sua
+// barra piu' 8px e il suo MINIMO e' proprio quello, quindi alzando la min-width
+// cresce tutto il dock (fino a strabordare dall'area visibile, con la barra di
+// scorrimento orizzontale) e la distanza dal bordo resta la stessa.
+//
+// Qui la larghezza si misura a ogni ridimensionamento: si divide per il numero
+// di linguette e l'ultima prende il resto, cosi' finisce sul bordo. La
+// linguetta e' larga min-width piu' i suoi bordi (2px sul Mac): i bordi si
+// MISURANO dalla linguetta, non si stimano -- un primo tentativo che li
+// ignorava faceva strabordare la seconda linguetta.
+//
+// Il foglio va sul TAB BAR, non sul tab widget: quello del tab widget si
+// propagherebbe ai tab widget contenuti nelle sue pagine. Le frecce di
+// scorrimento restano ATTIVE (con linguette a filo non compaiono): senza, il
+// minimo del tab bar sarebbe la somma delle linguette e il tab widget non
+// potrebbe piu' restringersi.
+namespace {
+class TabFillWatcher : public QObject
+{
+public:
+    explicit TabFillWatcher(QTabWidget *tabs) : QObject(tabs), m_tabs(tabs) {}
+
+    bool eventFilter(QObject *obj, QEvent *event) override
+    {
+        if (obj == m_tabs && (event->type() == QEvent::Resize || event->type() == QEvent::Show))
+            refit();
+        return false;
+    }
+
+    void refit()
+    {
+        const int n = m_tabs->count();
+        const int w = m_tabs->width();
+        if (n <= 0 || w <= 0) return;
+        const int per = w / n;
+        const int last = w - per * (n - 1);
+        if (per == m_per && last == m_last) return;
+        m_per = per;
+        m_last = last;
+        apply(per - m_chrome, last - m_chrome);
+        // Bordi veri della linguetta: larghezza reale meno la min-width data.
+        const int chrome = m_tabs->tabBar()->tabRect(0).width() - (per - m_chrome);
+        if (chrome != m_chrome && chrome >= 0 && chrome < per) {
+            m_chrome = chrome;
+            apply(per - m_chrome, last - m_chrome);
+        }
+    }
+
+private:
+    void apply(int width, int lastWidth)
+    {
+        m_tabs->tabBar()->setStyleSheet(
+            QString("QTabBar::tab { min-width: %1px; max-width: %1px; padding: 6px 0px; }"
+                    "QTabBar::tab:last { min-width: %2px; max-width: %2px; }")
+                .arg(width).arg(lastWidth));
+    }
+
+    QTabWidget *m_tabs;
+    int m_per = -1;
+    int m_last = -1;
+    int m_chrome = 2;
+};
+}
+
+void UiStyleManager::fillTabBarWidth(QTabWidget* tabs)
+{
+    if (!tabs || !tabs->tabBar()) return;
+    tabs->tabBar()->setUsesScrollButtons(true);
+    auto *watcher = new TabFillWatcher(tabs);
+    tabs->installEventFilter(watcher);
+    watcher->refit();
 }

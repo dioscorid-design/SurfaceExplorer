@@ -15,14 +15,14 @@ void MainWindow::setupEquationsDock()
     m_lastImplicitSteps = 400;
 
     // 2. PREPARA L'INTERFACCIA E LO SLIDER AL LORO STATO INIZIALE (Senza lanciare segnali!)
-    // Tab Parametric/Implicit a piena larghezza: due sole voci, ~meta' del dock
-    // ciascuna (il dock Equations ha larghezza fissa 400). min-width via
-    // stylesheet perche' col CSS globale setExpanding e' ignorato. Niente frecce
-    // di scorrimento: il cambio si fa cliccando la linguetta.
-    if (ui->tabModeSelector->tabBar())
-        ui->tabModeSelector->tabBar()->setUsesScrollButtons(false);
-    ui->tabModeSelector->setStyleSheet(
-        "QTabBar::tab { min-width: 175px; padding: 6px 0px; }");
+    // Tab Parametric/Implicit e i due sotto-tab (3D/Cross Section,
+    // Surface/Tubes) a tutta larghezza: le linguette si dividono la larghezza
+    // del tab widget e la seconda finisce sul bordo, cosi' le due colonne sono
+    // allineate in tutti e due i tab. Con un valore fisso non si arrivava al
+    // bordo (vedi UiStyleManager::fillTabBarWidth).
+    UiStyleManager::fillTabBarWidth(ui->tabModeSelector);
+    UiStyleManager::fillTabBarWidth(ui->subTabImplicit);
+    UiStyleManager::fillTabBarWidth(ui->subTabParametric);
     setImplicitMode(false);
     // Sotto-tab Constraints/Composition/Geodesic Flow (panelImplicit): stessa
     // logica dei Parametric/Implicit, ma sono TRE voci sullo stesso dock da
@@ -33,6 +33,50 @@ void MainWindow::setupEquationsDock()
         ui->panelImplicit->tabBar()->setUsesScrollButtons(false);
     ui->panelImplicit->setStyleSheet(
         "QTabBar::tab { min-width: 110px; padding: 6px 0px; }");
+    // Sotto-tab Surface/Tubes (subTabParametric): come 3D/Cross Section, sta a
+    // margini zero nel tab Parametric, cosi' le sue linguette cadono sotto
+    // Parametric/Implicit. I controlli sotto (limiti, Thickness, Run) hanno i
+    // margini nel loro contenitore, panelParametricBottom.
+    // CAMBIO DI SOTTO-TAB PARAMETRICO (Surface <-> Tubes): come 3D/Cross
+    // Section. Aprire una linguetta mostra la sua superficie di DEFAULT (il
+    // toro, o il trifoglio), quindi butta via la scena: si chiede prima del
+    // lavoro non salvato. La conferma va su tabBarClicked, perche'
+    // currentChanged scatta a linguetta gia' cambiata; su Cancel si lascia
+    // cambiare, si dice al reset di non fare nulla e la si riporta indietro.
+    if (ui->subTabParametric->tabBar()) {
+        connect(ui->subTabParametric->tabBar(), &QTabBar::tabBarClicked,
+                this, [this](int index) {
+            if (index < 0) return;
+            const bool toTubes = (ui->subTabParametric->widget(index) == ui->subTabParametricTubes);
+            if (toTubes == m_scene.tubesTab) {
+                // RICLIC sulla linguetta gia' attiva = "ricomincia da capo"
+                // (currentChanged non scatta). Su Cancel non si resetta.
+                if (!confirmDiscardUnsaved(ScopeScene)) return;
+                applyParametricSubTabReset();
+                return;
+            }
+            if (!confirmDiscardUnsaved(ScopeScene)) {
+                const bool back = m_scene.tubesTab;
+                m_suppressNextTubesTabReset = true;
+                QTimer::singleShot(0, this, [this, back]() {
+                    setTubesTab(back);
+                    m_suppressNextTubesTabReset = false;
+                });
+            }
+        });
+    }
+    // Il clic: prima lo STATO, che il reset legge (quale superficie di default
+    // disegnare), poi il reset. Il programma scrive la linguetta a segnali
+    // bloccati (setTubesTab).
+    connect(ui->subTabParametric, &QTabWidget::currentChanged,
+            this, [this](int) {
+        m_scene.tubesTab = (ui->subTabParametric->currentWidget() == ui->subTabParametricTubes);
+        refreshTubeControls();
+        applyParametricSubTabReset();
+    });
+    connect(ui->tabModeSelector, &QTabWidget::currentChanged,
+            this, [this](int) { refreshTubeControls(); });
+    refreshTubeControls();
     ui->glWidget->setEngineMode(GLWidget::ModeParametric);
 
     ui->stepSlider->setRange(10, 1000);
@@ -167,6 +211,16 @@ void MainWindow::setupEquationsDock()
     setEqText(&EquationTexts::p, QStringLiteral("0.0"));
 
     ui->glWidget->setParametricEquations(m_scene.eq.x, m_scene.eq.y, m_scene.eq.z, m_scene.eq.p);
+
+    // Sotto-tab Tubes: il tubo di default, quello che il cambio di linguetta
+    // disegna. Spessore: slider in centesimi, 0..kTubeThicknessMax.
+    ui->tubeThicknessSlider->setRange(0, qRound(kTubeThicknessMax * 100.0f));
+    {
+        const TubeTexts def = defaultTubeTexts();
+        for (TubeField f : { &TubeTexts::x, &TubeTexts::y, &TubeTexts::z, &TubeTexts::p,
+                             &TubeTexts::thickness })
+            setTubeText(f, def.*f);
+    }
 
     // All'avvio, prima che i campi siano agganciati alle derivazioni: solo
     // stato e campo (showLineFields arrivera' coi reset).
@@ -390,6 +444,25 @@ void MainWindow::setupEquationsDock()
     connect(ui->lineExplicitU, &QPlainTextEdit::textChanged, this, markUserEdit);
     connect(ui->lineExplicitV, &QPlainTextEdit::textChanged, this, markUserEdit);
     connect(ui->lineExplicitW, &QPlainTextEdit::textChanged, this, markUserEdit);
+    // ...e la curva del sotto-tab Tubes.
+    for (QPlainTextEdit *e : { ui->lineTubeX, ui->lineTubeY, ui->lineTubeZ, ui->lineTubeP })
+        connect(e, &QPlainTextEdit::textChanged, this, markUserEdit);
+
+    // SPESSORE DEL TUBO, campo e slider come le costanti: lo slider scrive il
+    // campo (in centesimi) e il tubo lo segue subito (u_tubeRadius e' un
+    // uniform, niente Run); il campo si applica alla CONFERMA -- Invio o uscita
+    // dal campo --, non a ogni carattere: digitando "1.5" il tubo passava per
+    // 1 e poi per 1.5. Oltre il massimo si riporta al massimo.
+    connect(ui->tubeThicknessSlider, &QSlider::valueChanged, this, [this](int value) {
+        setTubeText(&TubeTexts::thickness, QString::number(value / 100.0, 'g', 6));
+    });
+    connect(ui->lineTubeThickness, &QLineEdit::editingFinished, this, [this]() {
+        bool ok = false;
+        const float thickness = tubeThicknessValue(&ok);
+        if (ok && thickness < ExpressionParser::evaluateSimple(m_scene.tube.thickness.trimmed()))
+            setTubeText(&TubeTexts::thickness, QString::number(double(thickness), 'g', 6));
+        pushTubeThickness();
+    });
 
     auto markTextureModified = [this]() { m_textureModified = true; };
     connect(ui->txtScriptEditor, &QPlainTextEdit::textChanged, this, markTextureModified);
@@ -1011,6 +1084,14 @@ void MainWindow::updateConstraintState()
         }
     };
 
+    // Sotto-tab TUBES: u e' il parametro della curva, sempre in uso; v e w
+    // non si vedono e restano come sono (sono di Surface). Vincoli e
+    // composizione non c'entrano col tubo: il motore li ignora (runSceneTube).
+    if (tubesShown()) {
+        applyLimitsState(ui->uMinEdit, ui->uMaxEdit, true);
+        return;
+    }
+
     if (hasConstraintU) {
         UiStyleManager::applyConstraintStyle(ui->lineExplicitU, UiStyleManager::ConstraintState::Active);
         UiStyleManager::applyConstraintStyle(ui->lineExplicitV, UiStyleManager::ConstraintState::Inactive);
@@ -1227,6 +1308,12 @@ void MainWindow::updateConstantsUIState() {
                    m_scene.eq.explicitU + " " + m_scene.eq.explicitV + " " +
                    m_scene.eq.explicitW + " " + m_scene.eq.u + " " +
                    m_scene.eq.v + " " + m_scene.eq.w;
+
+        // Sotto-tab Tubes: la curva (e lo spessore) usano le costanti come
+        // le equazioni della superficie.
+        if (tubesShown())
+            mathText += " " + m_scene.tube.x + " " + m_scene.tube.y + " " + m_scene.tube.z
+                      + " " + m_scene.tube.p + " " + m_scene.tube.thickness;
 
         if (ui->lnU) { // Campi Geodetici (Tab 0)
             mathText += " " + m_scene.eq.geoU +

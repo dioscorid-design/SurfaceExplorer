@@ -75,6 +75,8 @@ class MainWindow : public QMainWindow
     using ConstField = ::ConstField;
     using LimitTexts = ::LimitTexts;
     using PathTexts = ::PathTexts;
+    using TubeTexts = ::TubeTexts;
+    using TubeField = ::TubeField;
     using CameraPathMode = ::CameraPathMode;
     using SceneState = ::SceneState;
 
@@ -905,6 +907,9 @@ private:
     // lavoro non salvato passa dallo stesso schema. Vedi il connect su
     // subTabImplicit->tabBar().
     bool m_suppressNextSubTabReset = false;
+    // Gemello per il sotto-tab parametrico (Surface <-> Tubes), stesso schema:
+    // vedi il connect su subTabParametric->tabBar().
+    bool m_suppressNextTubesTabReset = false;
 
     // Riclic sulla linguetta GIA' ATTIVA ("ricomincia da capo"), distinto dal
     // cambio di modalita' vero. resetScene riceve solo l'indice di arrivo e non
@@ -1482,6 +1487,31 @@ private:
     // Dal programma (load, ripristino dopo Annulla): stato + linguetta a
     // segnali bloccati, senza il reset che fa il clic.
     void setCrossSectionTab(bool on);
+    // SOTTO-TAB DEL PARAMETRICO (Surface / Tubes): STATO, m_scene.tubesTab.
+    // La linguetta (ui->subTabParametric) ne e' la vista. Sulla linguetta Tubes
+    // i limiti v e w non servono (il tubo ha come variabili il parametro della
+    // curva e lo spessore): le loro righe lasciano il posto alla riga
+    // Thickness. tubesShown(): Tubes e' davanti (tab Parametric e sotto-tab
+    // Tubes), cioe' il Run costruisce un tubo.
+    bool tubesShown() const { return m_scene.tubesTab && !implicitMode(); }
+    // Dal programma: stato + linguetta a segnali bloccati, poi la vista.
+    void setTubesTab(bool on);
+    void refreshTubeControls();
+    bool m_tubeControlsShown = false;   // ultima vista applicata da refreshTubeControls
+    // Campi del sotto-tab Tubes: QPlainTextEdit per la curva, QLineEdit per
+    // lo spessore (lo scritto sta in m_scene.tube, bindEquationFields).
+    QWidget *tubeFieldEdit(TubeField field) const;
+    void setTubeText(TubeField field, const QString &text);
+    // SPESSORE DEL TUBO: il numero del campo, 0..kTubeThicknessMax; il raggio
+    // nel motore e' spessore * kTubeRadiusUnit (1 = il tubo del trifoglio di
+    // default, tarato con l'utente il 2026-10-07).
+    static constexpr float kTubeRadiusUnit = 0.12f;
+    static constexpr float kTubeThicknessMax = 3.0f;
+    // Spessore dal suo campo, riportato a 0..kTubeThicknessMax (illeggibile o
+    // negativo -> ok false).
+    float tubeThicknessValue(bool *ok = nullptr) const;
+    // Spessore -> slider (a segnali bloccati) e motore (u_tubeRadius).
+    void pushTubeThickness();
     // IL BERSAGLIO Surface / Background: su cosa agiscono slider colore,
     // checkbox Texture, Library, dock Script e vista 2D. E' STATO; i due radio
     // e il bersaglio della vista 2D nel motore (GLWidget::setFlatViewTarget)
@@ -1523,6 +1553,12 @@ private:
     // cambio vero (currentChanged) sia dal riclic sulla linguetta gia' attiva,
     // che currentChanged non emette: stesso ruolo di applyModeTabReset.
     void applyImplicitSubTabReset(int subIndex);
+    // Cambio di sotto-tab parametrico (Surface <-> Tubes), e riclic sulla
+    // linguetta attiva: reset della scena, che disegna la superficie di
+    // default della linguetta (il toro, o il trifoglio di defaultTubeTexts).
+    void applyParametricSubTabReset();
+    // Il tubo di default: un nodo trifoglio, spessore 0.12.
+    static TubeTexts defaultTubeTexts();
 
     // --- Parsing, Strings & Scripts ---
     float parseMath(const QString &text, bool *ok = nullptr);
@@ -1531,6 +1567,19 @@ private:
     // PASSI DI runScene (le guardie e il prologo Stop/Start restano a lei).
     // Validazioni comuni: campi X/Y/Z/P e costanti; false = Run fermato.
     bool validateRunInputs(RunOrigin origin);
+    // Ramo TUBES del Run: curva asse, limiti u, direzione di riferimento,
+    // motore (GLWidget::setTubeCurve) e spessore.
+    void runSceneTube(RunOrigin origin, bool runDockOnly, const CascadeConstants &kc);
+    // Il tubo di m_scene.tube nel motore (curva, riferimento, spessore,
+    // dominio), senza popup: la validazione la fa chi chiama. false = la curva
+    // non compila (errore in getShaderError). Usata dal Run e dal reset.
+    bool applyTubeToEngine(float uMin, float uMax, const CascadeConstants &kc);
+    // Campo curva + limiti u compilati e coerenti: gate del tasto Run su Tubes.
+    bool hasCompleteTubeInput();
+    // Campiona la curva sulla CPU: direzione lontana da tutte le tangenti
+    // (orienta la sezione) e chiusura in u. false = la curva non si valuta.
+    static bool sampleTubeCurve(const TubeTexts &tube, float uMin, float uMax,
+                                const CascadeConstants &kc, QVector3D *reference, bool *uClosed);
     void runSceneScript(RunOrigin origin, bool runDockOnly);
     void runSceneImplicit(RunOrigin origin, bool runDockOnly);
     struct RunLimits { float uMin = 0, uMax = 0, vMin = 0, vMax = 0, wMin = 0, wMax = 0; };

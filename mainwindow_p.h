@@ -259,6 +259,18 @@ inline bool isDeferredEquationField(const QString& objectName)
     return kEquationFields.contains(objectName);
 }
 
+// Campi del sotto-tab TUBES (tab Parametric): la curva asse X/Y/Z/P(u) e lo
+// spessore. Finche' il tubo non ha il suo motore l'Invio toglie solo il
+// focus: senza questo ramo cadrebbero nel generico dei filtri tastiera, che
+// rifa' il Run della superficie a schermo.
+inline bool isTubeEquationField(const QString& objectName)
+{
+    static const QSet<QString> kTubeFields = {
+        "lineTubeX", "lineTubeY", "lineTubeZ", "lineTubeP", "lineTubeThickness"
+    };
+    return kTubeFields.contains(objectName);
+}
+
 
 // La fascia ha una texture PROPRIA, accesa e ANIMATA? Punto unico: e' la stessa
 // domanda che serve a sapere se il master deve considerarla in moto e a decidere

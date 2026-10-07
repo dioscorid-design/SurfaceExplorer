@@ -67,6 +67,9 @@ layout(std140, binding = 0) uniform SceneUBO {
     // dal ray marching, dichiarata qui per tenere i due blocchi identici campo
     // per campo (regola Adreno, vedi CLAUDE.md).
     float u_marcherMode;
+    // Raggio del tubo: NON USATO QUI (lo usa il vertex), dichiarato per tenere
+    // i due blocchi identici campo per campo (regola Adreno, vedi CLAUDE.md).
+    float u_tubeRadius;
 } ubuf;
 
 // --- PLACEHOLDER PER CODICE TEXTURE CUSTOM ---

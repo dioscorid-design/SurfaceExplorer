@@ -55,6 +55,11 @@ struct LimitTexts {
 struct PathTexts  { QString x, y, z, p, alpha, beta, gamma;         // path 4D
                     QString x3D, y3D, z3D, roll3D; };               // path 3D
 
+// Sotto-tab TUBES del parametrico: la curva asse (P vuoto = curva 3D) e lo
+// spessore (raggio del tubo, >= 0), COSI' COME SONO SCRITTI.
+struct TubeTexts { QString x, y, z, p, thickness; };
+using TubeField = QString TubeTexts::*;
+
 // Vista di un path: tangente al moto o verso il centro.
 enum CameraPathMode {
     ModeTangential,
@@ -74,11 +79,13 @@ struct SceneState {
     ConstantTexts constants;  // costanti A..F, S (testi, anche a cascata)
     LimitTexts lim;           // dominio u/v/w e taglio x/y/z
     PathTexts path;           // path 4D e 3D
+    TubeTexts tube;           // sotto-tab Tubes: curva asse e spessore
     int steps = 100;          // Steps (parametrico) / Ray Steps (RM)
 
     // Scelte
     bool implicitMode = false;          // Parametric / Implicit (vista: tabModeSelector)
     bool crossSectionTab = false;       // sotto-tab RM 3D / Cross Section
+    bool tubesTab = false;              // sotto-tab parametrico Surface / Tubes
     bool implicitShell = true;          // Shell / Solid (vista: due coppie di radio)
     int renderMode = 0;                 // Base / Phong / Wireframe, globale
     bool meshScopeAll = true;           // ambito multi-mesh All / Mesh
