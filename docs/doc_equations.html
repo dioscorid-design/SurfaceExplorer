@@ -71,6 +71,15 @@
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Resolution (Steps)</b></p></td></tr></table>
             <p>The <strong>Steps</strong> slider sets the resolution of the mesh: the number of samples taken along each parameter. In Ray Marching it sets the ray-marching accuracy instead (see the Ray Marching section).</p>
 
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>The Tubes Sub-tab</b></p></td></tr></table>
+            <p>The Parametric tab holds two sub-tabs: <strong>Surface</strong>, with the equations described above, and <strong>Tubes</strong>, which draws a tube around a curve.</p>
+            <ul>
+                <li><strong>The curve:</strong> write <code>X(u)</code>, <code>Y(u)</code>, <code>Z(u)</code> as functions of the single parameter <code>u</code>; the <strong>u</strong> limits choose the stretch of curve that is drawn. Filling in <code>P(u)</code> as well gives a curve in 4D, projected and rotated like any 4D surface.</li>
+                <li><strong>Thickness</strong> sets the width of the tube, from 0 to 3.</li>
+                <li>The curve can use the constants <code>A&ndash;F</code>, <code>s</code> and the time <code>t</code>: a curve that depends on <code>t</code> moves, and the tube follows it.</li>
+            </ul>
+            <p>Clicking the sub-tab you are already on reloads its default surface.</p>
+
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Cutout (Hiding Parts of a Surface)</b></p></td></tr></table>
             <p>A scripted surface can carry an optional <strong>cutout</strong> section, written in the Script dock between <code>//CUTOUT_BEGIN</code> and <code>//CUTOUT_END</code>. It is a rule, evaluated at every point of the surface, that answers one question: <em>should this point be drawn?</em> Everything the rule rejects simply disappears from view.</p>
             <p>The main use is <strong>self-intersecting shapes</strong> &mdash; tubes and ribbons that pass through themselves. Where two branches cross, the walls that end up buried inside the solid are still being drawn even though nothing can be seen of them, and they betray themselves as stray highlights and hard seams along the crossing. A cutout removes precisely those hidden strips and leaves the visible skin untouched.</p>
