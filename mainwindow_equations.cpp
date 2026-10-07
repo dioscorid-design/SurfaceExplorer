@@ -1876,13 +1876,30 @@ bool MainWindow::commitLimitFieldOnEnter(const QString& fieldName)
     setUserEditPending(edited, false);
 
     const QString currentText = lineText(edited);
+
+    // COPPIA INCOMPLETA: il campo e' vuoto, o lo e' ancora il suo compagno
+    // dello stesso asse (si scrive il primo e si passa al secondo). Niente
+    // popup e niente registrazione: il dominio si sta ancora scrivendo, e il
+    // vuoto si leggerebbe 0 (min >= max con "0" e un max non ancora scritto).
+    // Il Run resta spento finche' la coppia non e' completa
+    // (hasCompleteParametricInput / hasCompleteTubeInput), e chi lo forza
+    // (Invio su un'equazione, master) trova la validazione del Run. Prima il
+    // popup usciva anche cliccando NEW con un limite cancellato.
+    QLineEdit* partner = nullptr;
+    if      (edited == ui->uMinEdit) partner = ui->uMaxEdit;
+    else if (edited == ui->uMaxEdit) partner = ui->uMinEdit;
+    else if (edited == ui->vMinEdit) partner = ui->vMaxEdit;
+    else if (edited == ui->vMaxEdit) partner = ui->vMinEdit;
+    else if (edited == ui->wMinEdit) partner = ui->wMaxEdit;
+    else if (edited == ui->wMaxEdit) partner = ui->wMinEdit;
+    if (currentText.trimmed().isEmpty() || (partner && lineText(partner).trimmed().isEmpty())) {
+        updateMasterButtonState();
+        return false;
+    }
+
     bool ok = false;
     parseLimitField(currentText, &ok);
-    // Il campo vuoto PASSA il parse (parseUIConstant: vuoto -> ok, 0.0), quindi
-    // qui non si ferma: lo intercetta il ramo min>=max piu' sotto. Lo segnaliamo
-    // comunque con emptyMeansNoLimit=false, cosi' il messaggio parla di dominio
-    // mancante e non di numero illeggibile.
-    if (!ok || currentText.trimmed().isEmpty()) {
+    if (!ok) {
         if (!m_constantPopupActive) {
             m_constantPopupActive = true;
             InputValidator::showInvalidLimitError(this, axisLabel, currentText,
