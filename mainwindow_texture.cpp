@@ -1651,6 +1651,11 @@ bool MainWindow::applyLibraryTextureRM(const LibraryItem &data, const QString &i
             applySurfaceTextureToEngine();
             refreshTextureCheckbox();
             ui->glWidget->rebuildShader();
+            // Come le uscite per-mesh del ramo parametrico: il blocco alzato da
+            // handleTextureSelection va tolto anche qui, o fino al load/reset
+            // seguente slider dei colori e riaccensione del checkbox Texture non
+            // rigenerano piu' nulla.
+            m_blockTextureGen = false;
             return false; // Esce in sicurezza senza crashare
         }
 

@@ -2747,8 +2747,9 @@ void MainWindow::applyMotionExample(LibraryItem data)
     const SceneState file = sceneFromItem(data, /*isRecord=*/true, missingScan);
 
     // CARICAMENTO IN CORSO (m_populatingFields, vedi mainwindow.h): da qui,
-    // non solo da applyCommonData piu' sotto. Lo legge la validazione del Run
-    // che il load lancia in coda.
+    // non solo da applyCommonData piu' sotto. Lo legge soltanto il test degli
+    // scenari (nessun campo scritto a segnali vivi durante il load); il Run che
+    // il load lancia in coda si riconosce dalla sua origine (RunOrigin::Load).
     m_populatingFields = true;
     struct MotionLoadGuard {
         MainWindow *w;
