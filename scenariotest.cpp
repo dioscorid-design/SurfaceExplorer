@@ -100,6 +100,16 @@ ScenarioTest::ScenarioTest(MainWindow *mw, const QString &root, const QString &o
         if (!w) return;
         QString desc = w->windowTitle();
         if (auto *mb = qobject_cast<QMessageBox *>(w)) desc += QStringLiteral(": ") + mb->text();
+        if (auto *mb = qobject_cast<QMessageBox *>(w); mb && !m_popupAnswer.isEmpty()) {
+            for (QAbstractButton *b : mb->buttons()) {
+                if (b->text() == m_popupAnswer) {
+                    m_lines.append(QStringLiteral("        popup, %1: ").arg(m_popupAnswer) + desc.simplified());
+                    m_popupAnswer.clear();
+                    b->click();
+                    return;
+                }
+            }
+        }
         // Il popup "lavoro non salvato" durante una scelta in Library: l'utente
         // che vuole proseguire risponde "Don't save" (Annulla lascerebbe la
         // scena com'era, e il gesto in prova non avverrebbe).
@@ -1375,6 +1385,11 @@ void ScenarioTest::run()
     }
     if (m_only == QLatin1String("tubes")) {
         runTubeScenarios();
+        finish();
+        return;
+    }
+    if (m_only == QLatin1String("reset-button")) {
+        runResetButtonScenarios();
         finish();
         return;
     }
@@ -3023,21 +3038,22 @@ void ScenarioTest::run()
         click(m_mw->m_btnStart);
         checkDirty(QStringLiteral("master Start"), false, false, false);
     }
-    // Reset della vista: riporta anche il FOV al default, e lo slider lo segue
-    // (il motore tornava a 45 con lo slider fermo sul valore del record). Su un
-    // record col FOV diverso dal default e' quindi un cambio della scena.
+    // Reset della vista: riporta il FOV a quello d'apertura del record, e lo
+    // slider lo segue (il motore cambiava con lo slider fermo). Cambiato il FOV
+    // e poi resettata la vista, la scena e' di nuovo quella del file.
     if (loadRecord(QString::fromLatin1(kMultiMeshRecord))) {
         const int fov0 = ui->fovSliderMain->value();
-        m_mw->onResetViewClicked();  wait(300);
-        check(ui->fovSliderMain->value() == 45 && qAbs(ui->glWidget->cameraFov() - 45.0f) < 0.01f,
-              QStringLiteral("Reset della vista -> FOV 45 sullo slider e nel motore (slider %1, motore %2)")
-                  .arg(ui->fovSliderMain->value()).arg(ui->glWidget->cameraFov()));
-        checkDirty(QStringLiteral("Reset della vista (FOV del record %1)").arg(fov0), fov0 != 45, false, false);
+        m_mw->applyCameraFov(fov0 == 80 ? 60.0f : 80.0f);
+        m_mw->resetView();  wait(300);
+        check(ui->fovSliderMain->value() == fov0 && qAbs(ui->glWidget->cameraFov() - fov0) < 0.51f,
+              QStringLiteral("Reset della vista -> FOV del record (%1) sullo slider e nel motore (slider %2, motore %3)")
+                  .arg(fov0).arg(ui->fovSliderMain->value()).arg(ui->glWidget->cameraFov()));
+        checkDirty(QStringLiteral("Reset della vista (FOV del record %1)").arg(fov0), false, false, false);
         checkMotion(QStringLiteral("dopo il Reset della vista"));
     }
     if (loadRecord(kPath3D)) {
         const int fov0 = ui->fovSliderMain->value();
-        m_mw->onResetViewClicked();  wait(300);
+        m_mw->resetView();  wait(300);
         check(ui->fovSliderMain->value() == fov0,
               QStringLiteral("Reset della vista a path in corsa -> il FOV del path resta (slider %1)")
                   .arg(ui->fovSliderMain->value()));
@@ -3108,8 +3124,180 @@ void ScenarioTest::run()
     runLibraryPasteScenarios();
     runLibraryRenameScenarios();
     runResetSceneScenarios();
+    runResetButtonScenarios();
 
     finish();
+}
+
+void ScenarioTest::runResetButtonScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Tasto RESET: vista e moti alla posa d'apertura =="));
+    const float o = GLWidget::kClockOrigin;
+    const QString kTorus = QStringLiteral("surfaces/Parametric/Equations/R3/Torus.json");
+    const QString kAnim  = QString::fromLatin1(kParametricRecord);                     // t, niente rotazioni
+    const QString kRot   = QStringLiteral("records/Rotations/Boy Surface.json");       // rotazioni
+    const QString kPath  = QStringLiteral("records/Paths/Calabi-Yau Orbit.json");      // path 3D
+    const QString kMesh  = QStringLiteral("records/Solid Wireframe/Multi Mesh/Hopf Tori.json");
+    const QString kGeo   = QStringLiteral("records/Geodesic Flow/H^3/Breathing Hyperboloid.json");
+
+    auto sameCamera = [this, gl]() {
+        return (gl->getCameraPos() - m_mw->m_startFraming.cameraPos).length() < 1e-4f;
+    };
+    auto sameOrientation = [this, gl]() {
+        return qFuzzyCompare(gl->getRotationQuat(), m_mw->m_startOrientation.rotation);
+    };
+
+    // Scena ferma: nessuna domanda, tornano camera (zoom compreso) e
+    // orientamento girato col mouse.
+    if (loadSurface(kTorus)) {
+        const int popups = m_popupsClosed;
+        gl->addObjectRotation(40.0f, 20.0f, 0.0f);
+        gl->zoomCamera(1.5f);
+        m_mw->onResetClicked();  wait(300);
+        check(m_popupsClosed == popups && sameCamera() && sameOrientation(),
+              QStringLiteral("superficie ferma -> camera e orientamento d'apertura, senza popup (popup %1)")
+                  .arg(m_popupsClosed - popups));
+    }
+
+    if (loadRecord(kAnim)) {
+        // Annulla: niente cambia, l'animazione prosegue.
+        const int popups = m_popupsClosed;
+        const float g0 = gl->clockTimes().geom;
+        m_mw->onResetClicked();  wait(300);
+        // Dal testo: su macOS QMessageBox ignora il titolo della finestra.
+        check(m_popupsClosed == popups + 1 && m_lastPopup.contains(QLatin1String("What do you want to reset?"))
+                  && gl->clockTimes().geom > g0,
+              QStringLiteral("record animato, Annulla -> popup del Reset, t prosegue (%1 -> %2)")
+                  .arg(g0).arg(gl->clockTimes().geom));
+
+        // Solo la vista: zoom e FOV tornano, gli orologi non si toccano.
+        const int fov0 = ui->fovSliderMain->value();
+        gl->zoomCamera(1.5f);
+        m_mw->applyCameraFov(fov0 == 80 ? 60.0f : 80.0f);
+        const float g1 = gl->clockTimes().geom;
+        m_popupAnswer = QStringLiteral("View");
+        m_mw->onResetClicked();  wait(300);
+        check(gl->clockTimes().geom > g1 && sameCamera() && ui->fovSliderMain->value() == fov0,
+              QStringLiteral("View -> zoom e FOV d'apertura (FOV %1), t prosegue (%2 -> %3)")
+                  .arg(ui->fovSliderMain->value()).arg(g1).arg(gl->clockTimes().geom));
+        checkDirty(QStringLiteral("View dopo zoom e FOV"), false, false, false);
+
+        // Moti in corso: t riparte dall'origine e prosegue.
+        m_popupAnswer = QStringLiteral("Motions");
+        m_mw->onResetClicked();
+        const float g2 = gl->clockTimes().geom;
+        wait(500);
+        const float g3 = gl->clockTimes().geom;
+        check(g2 < 0.2f && g3 - g2 > 0.3f && gl->isSurfaceAnimating(),
+              QStringLiteral("Motions, in moto -> t riparte dall'origine e prosegue (%1, poi %2)")
+                  .arg(g2).arg(g3));
+        checkDirty(QStringLiteral("Motions"), false, false, false);
+
+        // Moti fermi dal master: t all'origine, e resta li'. Il master e' STOP
+        // solo con tutti i moduli accesi: se non lo e', prima li accende.
+        if (m_mw->m_btnStart->text() != QLatin1String("STOP")) { m_mw->m_btnStart->click();  wait(300); }
+        m_mw->m_btnStart->click();  wait(300);
+        m_popupAnswer = QStringLiteral("Both");
+        m_mw->onResetClicked();  wait(500);
+        const GLWidget::ClockTimes c = gl->clockTimes();
+        check(c.geom == o && c.tex == o && c.bg == o && !gl->isSurfaceAnimating()
+                  && m_mw->m_btnStart->text() == QLatin1String("START"),
+              QStringLiteral("Both, master fermo -> orologi all'origine e fermi (%1, %2, %3; master %4)")
+                  .arg(c.geom).arg(c.tex).arg(c.bg).arg(m_mw->m_btnStart->text()));
+        m_mw->m_btnStart->click();  wait(300);
+    }
+
+    // Rotazioni: Motions le rimette alla posa d'apertura e il GO prosegue da li'.
+    if (loadRecord(kRot)) {
+        const bool turned = !sameOrientation();
+        m_popupAnswer = QStringLiteral("Motions");
+        m_mw->onResetClicked();
+        const bool back = sameOrientation();
+        wait(500);
+        check(turned && back && gl->isAnimating() && !sameOrientation(),
+              QStringLiteral("rotazioni -> Motions le rimette alla posa d'apertura, il GO prosegue "
+                             "(girato %1, rimesso %2, gira %3)")
+                  .arg(turned).arg(back).arg(gl->isAnimating()));
+    }
+
+    // Path: la camera del path torna SUBITO al punto di partenza (in corsa
+    // come da fermo), View a path in corsa non gliela toglie.
+    if (loadRecord(kPath)) {
+        const QVector3D start = gl->getEngine()->evaluatePath3DPosition(0.0f).toVector3D();
+        auto atStart = [gl, start]() { return (gl->getCameraPos() - start).length() < 1e-3f; };
+
+        // In corsa, View: la camera resta al path, nessun salto.
+        const bool running = m_mw->pathRunning(CameraPaths::Path3D);
+        const QVector3D before = gl->getCameraPos();
+        m_mw->resetView();
+        const bool kept = (gl->getCameraPos() - before).length() < 1e-3f && gl->isPathFollowing();
+        check(running && kept, QStringLiteral("path in corsa, View -> la camera resta al path (in corsa %1, ferma %2)")
+                                   .arg(running).arg(kept));
+
+        // In corsa, Motions: riparte da capo e prosegue.
+        wait(300);
+        m_popupAnswer = QStringLiteral("Motions");
+        m_mw->onResetClicked();
+        const bool runStart = atStart() && m_mw->m_paths->time(CameraPaths::Path3D) == 0.0f;
+        wait(300);
+        check(runStart && m_mw->pathRunning(CameraPaths::Path3D) && !atStart(),
+              QStringLiteral("path in corsa, Motions -> camera al punto di partenza, poi prosegue (%1)")
+                  .arg(runStart));
+
+        // Fermo, Motions: camera al punto di partenza, t = 0, resta fermo; al
+        // Departure riparte dall'inizio.
+        wait(300);
+        ui->btnDeparture3D->click();  wait(200);
+        const float t0 = m_mw->m_paths->time(CameraPaths::Path3D);
+        const bool movedAway = !atStart();
+        m_popupAnswer = QStringLiteral("Motions");
+        m_mw->onResetClicked();  wait(200);
+        const float t1 = m_mw->m_paths->time(CameraPaths::Path3D);
+        const bool still = !m_mw->pathRunning(CameraPaths::Path3D);
+        const bool back = atStart();
+        ui->btnDeparture3D->click();  wait(300);
+        const float t2 = m_mw->m_paths->time(CameraPaths::Path3D);
+        check(t0 > 0.0f && movedAway && t1 == 0.0f && still && back && t2 < t0,
+              QStringLiteral("path fermo, Motions -> t %1 -> %2, camera al punto di partenza (%3), resta fermo; "
+                             "al Departure riparte dall'inizio (%4)")
+                  .arg(t0).arg(t1).arg(back).arg(t2));
+
+        // Fermo, Both: anche qui la camera e' del path, al punto di partenza.
+        wait(300);
+        ui->btnDeparture3D->click();  wait(200);
+        m_popupAnswer = QStringLiteral("Both");
+        m_mw->onResetClicked();  wait(200);
+        check(atStart() && gl->isPathFollowing() && !m_mw->pathRunning(CameraPaths::Path3D),
+              QStringLiteral("path fermo, Both -> camera al punto di partenza del path, fermo"));
+    }
+
+    // Fasce: anche gli orologi per-mesh tornano all'origine.
+    if (loadRecord(kMesh)) {
+        m_mw->resetMotions();
+        QStringList bad;
+        const auto &parts = gl->getEngine()->getMeshParts();
+        for (int i = 0; i < parts.size(); ++i)
+            if (parts.at(i).timeTex != 0.0f)
+                bad << QStringLiteral("fascia %1 a %2").arg(i + 1).arg(parts.at(i).timeTex);
+        check(bad.isEmpty(), QStringLiteral("fasce -> orologi per-mesh all'origine%1")
+                                 .arg(bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+    }
+
+    // Flusso geodetico: geoTime a 0, e se scorre continua a scorrere.
+    if (loadRecord(kGeo)) {
+        const double before = m_mw->m_geoTime;
+        const bool flowing = m_mw->isGeodesicMotionActive();
+        m_mw->resetMotions();
+        const double after = m_mw->m_geoTime;
+        wait(500);
+        check(before > 0.0 && after == 0.0 && (!flowing || m_mw->m_geoTime > 0.0),
+              QStringLiteral("flusso geodetico -> geoTime %1 -> %2, poi %3 (%4)")
+                  .arg(before).arg(after).arg(m_mw->m_geoTime)
+                  .arg(flowing ? QStringLiteral("in moto") : QStringLiteral("fermo")));
+    }
 }
 
 void ScenarioTest::runResetSceneScenarios()

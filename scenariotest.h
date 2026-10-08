@@ -188,6 +188,13 @@ private:
     // della curva bloccate fino al Run, Save e riapertura, ritorno a Surface.
     // Da sola: --scenario-only tubes.
     void runTubeScenarios();
+    // TASTO RESET: su una scena ferma rimette tutto senza chiedere; altrimenti
+    // chiede (Annulla non tocca nulla). View: zoom e FOV d'apertura, orologi
+    // intatti. Motions: rotazioni alla posa d'apertura (il GO prosegue), path a
+    // t = 0 (fermo resta fermo, al Departure riparte da capo), animazioni in t
+    // dall'origine -- fasce e flusso geodetico compresi -- ferme se erano ferme.
+    // Da sola: --scenario-only reset-button.
+    void runResetButtonScenarios();
     // Load di record la cui texture si compilava male: motore = applicata =
     // script (checkTextureCode). Kerr Spin Animated porta un blocco audio coi
     // marcatori spaziati ("// SOUND_BEGIN"), Oloid un vincolo in W che a meta'
@@ -280,6 +287,9 @@ private:
     int m_discardPrompts = 0;
     // Ultimo popup chiuso dal test: titolo, testo e testo informativo.
     QString m_lastPopup;
+    // Se non vuoto, il prossimo popup con un tasto di questo testo riceve quel
+    // tasto invece di Annulla (la scelta del popup del RESET).
+    QString m_popupAnswer;
 };
 
 #endif // SCENARIOTEST_H
