@@ -70,6 +70,12 @@ layout(std140, binding = 0) uniform SceneUBO {
     // Raggio del tubo: NON USATO QUI (lo usa il vertex), dichiarato per tenere
     // i due blocchi identici campo per campo (regola Adreno, vedi CLAUDE.md).
     float u_tubeRadius;
+    // Raggio del bordo: NON USATO QUI (il tubo lo costruisce il vertex),
+    // dichiarato per tenere i due blocchi identici (regola Adreno, CLAUDE.md).
+    float u_borderRadius;
+    // 1 nei blocchi del bordo: texture del bordo (getSceneColor) e niente
+    // cutout. Ultimo campo di UboData.
+    int u_isBorder;
 } ubuf;
 
 // --- PLACEHOLDER PER CODICE TEXTURE CUSTOM ---
@@ -94,9 +100,11 @@ void main() {
     // vertex shader, vedi surface.vert). Iniettato SOLO se il preset definisce
     // una sezione //CUTOUT_BEGIN (vedi createFragmentShaderSource): costo zero
     // per ogni altra superficie, che non passa mai da questo branch.
+    // Il bordo no: il suo v_texCoord sono le coordinate della sua texture
+    // (lungo il lato, attorno al tubo), non i parametri della superficie.
     float _cutU = mix(ubuf.u_min, ubuf.u_max, v_texCoord.x);
     float _cutV = mix(ubuf.v_min, ubuf.v_max, 1.0 - v_texCoord.y);
-    if (cutHere(_cutU, _cutV)) {
+    if (ubuf.u_isBorder == 0 && cutHere(_cutU, _cutV)) {
         discard;
     }
 #endif

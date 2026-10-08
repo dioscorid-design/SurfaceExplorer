@@ -71,6 +71,7 @@ void SurfaceEngine::computeMesh()
     generatedIndices.clear();
 
     generateParametricGrid();
+    generateBorder();
 }
 
 void SurfaceEngine::setResolution(int u, int v)
@@ -83,6 +84,13 @@ void SurfaceEngine::setCustomMesh(const std::vector<Vertex>& vertices, const std
 {
     generatedVertices = vertices;
     generatedIndices = indices;
+
+    // Niente bordo sulla mesh custom: i suoi vertici sono POSIZIONI, non
+    // parametri da cui il vertex shader possa ricostruire i lati.
+    m_borderVertices.clear();
+    m_borderIndices.clear();
+    m_borderRanges.clear();
+    m_borderWireIndices.clear();
 
     // Ora rispettiamo la vera topologia della mesh geodetica
     u_is_closed = isUClosed;
@@ -530,6 +538,103 @@ void SurfaceEngine::generateParametricGrid()
     }
 
     detectMeshClosure();
+}
+
+// BORDO: per ogni parte, i quattro lati del dominio, ciascuno come griglia
+// (punti lungo il lato) x (angoli attorno al tubo). Ogni vertice porta:
+//   position = (u, v, angolo, 1)   il punto del lato e la posizione sul cerchio
+//   normal   = (lungo u, lungo v, verso l'interno, 1)
+//              direzione del lato nel dominio, segno del passo verso
+//              l'interno, e w = 1 che distingue i vertici del bordo da quelli
+//              della superficie (normal.w = 0)
+//   texCoord = (coordinata del lato opposto, somma degli estremi del lato)
+//              per il test della cucitura, diritta o ritorta (Moebius)
+// I punti lungo il lato sono quelli della griglia della parte, cosi' il tubo
+// segue la superficie con la stessa risoluzione.
+void SurfaceEngine::generateBorder()
+{
+    m_borderVertices.clear();
+    m_borderIndices.clear();
+    m_borderRanges.clear();
+    m_borderWireIndices.clear();
+
+    const int ring = kBorderRing;
+
+    for (const MeshPart &part : m_meshParts) {
+        BorderRange range;
+        range.meshIndex = part.meshIndex;
+        range.vertexOffset = (int)m_borderVertices.size();
+        range.indexOffset = (int)m_borderIndices.size();
+
+        struct Edge { bool alongU; float fixed; float opposite; float inward; int steps; };
+        const Edge edges[4] = {
+            { true,  part.vMin, part.vMax,  1.0f, part.numU },
+            { true,  part.vMax, part.vMin, -1.0f, part.numU },
+            { false, part.uMin, part.uMax,  1.0f, part.numV },
+            { false, part.uMax, part.uMin, -1.0f, part.numV },
+        };
+        for (int ei = 0; ei < 4; ++ei) {
+            const Edge &e = edges[ei];
+            range.edgeSteps[ei] = e.steps;
+            const float a0 = e.alongU ? part.uMin : part.vMin;
+            const float a1 = e.alongU ? part.uMax : part.vMax;
+            const int base = (int)m_borderVertices.size() - range.vertexOffset;
+            for (int i = 0; i <= e.steps; ++i) {
+                const float a = a0 + (float)i / e.steps * (a1 - a0);
+                const float u = e.alongU ? a : e.fixed;
+                const float v = e.alongU ? e.fixed : a;
+                for (int k = 0; k <= ring; ++k) {
+                    Vertex vert;
+                    vert.position = QVector4D(u, v, (float)k / ring * 6.28318531f, 1.0f);
+                    vert.normal = QVector4D(e.alongU ? 1.0f : 0.0f, e.alongU ? 0.0f : 1.0f,
+                                            e.inward, 1.0f);
+                    vert.texCoord = QVector2D(e.opposite, a0 + a1);
+                    m_borderVertices.push_back(vert);
+                }
+            }
+            // Indici LOCALI alla parte, come quelli della superficie.
+            for (int i = 0; i < e.steps; ++i) {
+                for (int k = 0; k < ring; ++k) {
+                    const unsigned int p0 = base + i * (ring + 1) + k;
+                    const unsigned int p1 = base + (i + 1) * (ring + 1) + k;
+                    m_borderIndices.insert(m_borderIndices.end(),
+                                           { p0, p1, p0 + 1, p0 + 1, p1, p1 + 1 });
+                }
+            }
+        }
+
+        range.indexCount = (int)m_borderIndices.size() - range.indexOffset;
+        m_borderRanges.push_back(range);
+    }
+}
+
+void SurfaceEngine::buildBorderWire(int stepAlong, int stepAround)
+{
+    m_borderWireIndices.clear();
+    const int ring = kBorderRing;
+    const int along = std::max(1, stepAlong);
+    const int around = std::max(1, stepAround);
+
+    for (BorderRange &range : m_borderRanges) {
+        range.wireIndexOffset = (int)m_borderWireIndices.size();
+        int base = 0;   // primo vertice del lato, locale alla parte
+        for (int ei = 0; ei < 4; ++ei) {
+            const int n = range.edgeSteps[ei];
+            auto at = [&](int i, int k) { return (unsigned int)(base + i * (ring + 1) + k); };
+            // Anelli attorno al tubo, l'ultimo sempre (chiude il lato).
+            for (int i = 0; i <= n; i += along) {
+                for (int k = 0; k < ring; ++k)
+                    m_borderWireIndices.insert(m_borderWireIndices.end(), { at(i, k), at(i, k + 1) });
+                if (i < n && i + along > n) i = n - along;   // il prossimo giro e' l'ultimo punto
+            }
+            // Linee lungo il tubo.
+            for (int k = 0; k < ring; k += around)
+                for (int i = 0; i < n; ++i)
+                    m_borderWireIndices.insert(m_borderWireIndices.end(), { at(i, k), at(i + 1, k) });
+            base += (n + 1) * (ring + 1);
+        }
+        range.wireIndexCount = (int)m_borderWireIndices.size() - range.wireIndexOffset;
+    }
 }
 
 // Chiusura di UNA parte: confronta gli estremi del sotto-dominio della parte.

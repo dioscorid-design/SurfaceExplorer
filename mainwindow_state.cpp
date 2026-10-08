@@ -197,22 +197,31 @@ void MainWindow::setEditTarget(EditTarget target)
     // toggled di radioBackground fa la transizione del dock, che qui non va
     // fatta (la fa chi chiama). Dal gestore del clic sono gia' giusti.
     QAbstractButton *shown = bg ? static_cast<QAbstractButton*>(ui->radioBackground)
-                                : static_cast<QAbstractButton*>(ui->radioSurface);
+                           : target == EditTarget::Border ? static_cast<QAbstractButton*>(ui->radioBorder)
+                                                          : static_cast<QAbstractButton*>(ui->radioSurface);
     if (!shown->isChecked()) {
-        const QSignalBlocker bBg(ui->radioBackground), bSurf(ui->radioSurface);
+        const QSignalBlocker bBg(ui->radioBackground), bSurf(ui->radioSurface),
+                             bBorder(ui->radioBorder);
         shown->setChecked(true);
     }
+    // Lo spessore del bordo si regola solo col bersaglio Border.
+    const bool border = (target == EditTarget::Border);
+    if (ui->lblBorderThickness)   ui->lblBorderThickness->setEnabled(border);
+    if (ui->panelBorderThickness) ui->panelBorderThickness->setEnabled(border);
+    // Base/Phong/WireFrame mostrano la modalita' del bersaglio.
+    refreshRenderRadios();
     // Su cosa agiscono zoom, pan e rotazione 2D (mouse in vista 2D, Save
     // Texture, inquadratura data dai load). Prima la scriveva solo il gestore
     // del clic: dopo un load dal bersaglio Background il dock tornava su
     // Surface e la vista 2D restava sullo sfondo, e quattro punti la
     // forzavano a mano sulla superficie prima di scrivere l'inquadratura.
-    if (ui->glWidget) ui->glWidget->setFlatViewTarget(bg ? 1 : 0);
+    if (ui->glWidget) ui->glWidget->setFlatViewTarget(bg ? 1 : target == EditTarget::Border ? 2 : 0);
 }
 
 MainWindow::ScriptSlot MainWindow::targetTextureSlot() const
 {
     if (editingBackground()) return SlotBackgroundTexture;
+    if (editingBorder()) return SlotBorderTexture;
     if (ui->glWidget && ui->glWidget->activeMeshPart() >= 0) return SlotMeshTexture;
     return SlotSurfaceTexture;
 }
@@ -249,12 +258,24 @@ void MainWindow::syncMeshTextureSlot() const
     m_meshTextureScriptText = engineCode;
 }
 
+void MainWindow::syncBorderTextureSlot() const
+{
+    // La texture EFFICACE del bordo (accesa): spenta, lo script resta nel
+    // motore ma non si mostra, come per le fasce.
+    const QString engineCode = (ui->glWidget && ui->glWidget->borderTextureEnabled())
+                               ? ui->glWidget->borderTextureCode() : QString();
+    if (engineCode == m_borderTextureScriptBase) return;
+    m_borderTextureScriptBase = engineCode;
+    m_borderTextureScriptText = engineCode;
+}
+
 QString MainWindow::scriptText(ScriptSlot slot) const
 {
     switch (slot) {
     case SlotSurface:           return m_scene.surfaceScriptText;
     case SlotSurfaceTexture:    return m_scene.surfaceTextureScriptText;
     case SlotMeshTexture:       syncMeshTextureSlot(); return m_meshTextureScriptText;
+    case SlotBorderTexture:     syncBorderTextureSlot(); return m_borderTextureScriptText;
     case SlotBackgroundTexture: return m_scene.bgTextureScriptText;
     case SlotSound:             return m_scene.soundScriptText;
     case SlotNone:              break;
@@ -268,6 +289,7 @@ QString MainWindow::appliedScriptText(ScriptSlot slot) const
     case SlotSurface:           return m_scene.surfaceScriptApplied;
     case SlotSurfaceTexture:    return m_scene.surfaceTextureCode;
     case SlotMeshTexture:       syncMeshTextureSlot(); return m_meshTextureScriptBase;
+    case SlotBorderTexture:     syncBorderTextureSlot(); return m_borderTextureScriptBase;
     case SlotBackgroundTexture: return m_scene.bgTextureCode;
     // Il suono non ha un "applicato" distinto: si suona cio' che e' scritto.
     case SlotSound:             return m_scene.soundScriptText;
@@ -282,6 +304,7 @@ void MainWindow::setScriptText(ScriptSlot slot, const QString &text)
     case SlotSurface:           m_scene.surfaceScriptText = text; break;
     case SlotSurfaceTexture:    m_scene.surfaceTextureScriptText = text; break;
     case SlotMeshTexture:       syncMeshTextureSlot(); m_meshTextureScriptText = text; break;
+    case SlotBorderTexture:     syncBorderTextureSlot(); m_borderTextureScriptText = text; break;
     case SlotBackgroundTexture: m_scene.bgTextureScriptText = text; break;
     case SlotSound:             m_scene.soundScriptText = text; break;
     case SlotNone:              return;

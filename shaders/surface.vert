@@ -76,8 +76,15 @@ layout(std140, binding = 0) uniform SceneUBO {
     // blocco deve combaciare col fragment.
     float u_marcherMode;
     // Raggio del tubo (sotto-tab Tubes): lo legge il getRawPosition generato
-    // per i tubi (GLWidget::createVertexShaderSource). Ultimo campo di UboData.
+    // per i tubi (GLWidget::createVertexShaderSource).
     float u_tubeRadius;
+    // Raggio del bordo (Border Thickness): lo usa solo il ramo HAS_BORDER qui
+    // sotto.
+    float u_borderRadius;
+    // NON USATO QUI (lo legge il fragment per la texture del bordo), ma il
+    // blocco deve combaciare campo per campo col fragment. Ultimo campo di
+    // UboData.
+    int u_isBorder;
 } ubuf;
 
 float sq(float x) { return x*x; }
@@ -392,6 +399,134 @@ vec3 calculateFinalNormal(float u, float v) {
     return -normalize(N);
 }
 
+// Posizione nella scena 3D di un punto 4D gia' ruotato. Unica implementazione
+// della proiezione del vertice: la usa main() per la superficie e il bordo, che
+// deve cadere esattamente sui lati della superficie disegnata (due copie
+// potrebbero divergere, come gia' visto per la stereografica).
+vec3 projectToScene(vec4 pRot) {
+    if (ubuf.u_projMode == 0) return pRot.xyz;
+    // --- STEREOGRAFICA SU IPERSFERA (S^3) ---
+    if (ubuf.u_projMode == 2) return stereoS3(pRot);
+    // --- PROSPETTIVA CENTRALE ---
+    vec4 obs = ubuf.u_observerPos;
+    if (abs(obs.w - pRot.w) < 0.1) {
+        obs.w += 0.1;
+    }
+    float denom = obs.w - pRot.w;
+    if (abs(denom) < 0.15) {
+        denom = (denom >= 0.0) ? 0.15 : -0.15;
+    }
+    float wFactor = obs.w / denom;
+    return obs.xyz + (pRot.xyz - obs.xyz) * wFactor;
+}
+
+#ifdef HAS_BORDER
+// BORDO DELLA SUPERFICIE: un tubo di raggio u_borderRadius attorno a un lato
+// del dominio. I vertici li genera SurfaceEngine::generateBorder:
+//   vertex   = (u, v, angolo attorno al tubo, 1)
+//   normal   = (lungo u, lungo v, verso l'interno, 1)
+//   texCoord = (coordinata del lato opposto, somma degli estremi del lato)
+// Il tubo si costruisce nello spazio 3D FINALE, dopo rotazioni 4D e
+// proiezione: lo spessore e' lo stesso ovunque, comunque la superficie sia
+// deformata dalla proiezione.
+// Non ogni lato del dominio e' un bordo, e quelli che non lo sono non si
+// disegnano affatto:
+//  - le CUCITURE, dove il lato coincide col lato opposto: diritte (toro,
+//    cilindro) o ritorte, col verso invertito (nastro di Moebius);
+//  - i lati che collassano in un punto (i poli di una sfera).
+// Il test e' qui e non sulla CPU: per gli script la CPU non sa valutare la
+// superficie, e una cucitura puo' aprirsi e chiudersi col tempo.
+// E' una decisione PER LATO (borderEdgeHidden), non per punto: vedi sotto.
+
+// Il lato e' una cucitura o un polo PER INTERO? Si prova in tre punti fissi
+// del lato, gli stessi per tutti i suoi vertici: la decisione e' identica per
+// ognuno, quindi un lato o si disegna tutto o non si disegna. Punto per punto
+// si sbagliava dove due lati DIVERSI si toccano in un punto solo -- sul nastro
+// di Moebius la fine di v = -1 coincide, attraverso la cucitura, con l'inizio
+// di v = +1 -- e il tubo si strozzava proprio li'.
+// Le rotazioni 4D conservano le distanze: il confronto vale fra punti ruotati.
+bool borderEdgeHidden(vec2 along, float fixedCoord, float opposite, float alongSum,
+                      float a0, float a1) {
+    const float tol = 1.0e-3;
+    bool straight = true;
+    bool twisted = true;
+    float len = 0.0;
+    vec4 prev = vec4(0.0);
+    for (int i = 0; i < 3; ++i) {
+        float a = mix(a0, a1, (float(i) + 0.5) / 3.0);
+        vec2 p  = (along.x > 0.5) ? vec2(a, fixedCoord) : vec2(fixedCoord, a);
+        vec2 q  = (along.x > 0.5) ? vec2(a, opposite)   : vec2(opposite, a);
+        vec2 qt = (along.x > 0.5) ? vec2(alongSum - a, opposite) : vec2(opposite, alongSum - a);
+        vec4 P = getRotatedPoint4D(p.x, p.y);
+        if (length(getRotatedPoint4D(q.x, q.y) - P) > tol)   straight = false;
+        if (length(getRotatedPoint4D(qt.x, qt.y) - P) > tol) twisted = false;
+        if (i > 0) len += length(P - prev);
+        prev = P;
+    }
+    return straight || twisted || len < tol;
+}
+
+void emitBorderVertex() {
+    vec2 uv = vertex.xy;
+    float ang = vertex.z;
+    vec2 along = normal.xy;
+    vec2 inward = vec2(along.y, along.x) * normal.z;
+    float e = 0.0005;
+    float a0 = (along.x > 0.5) ? ubuf.u_min : ubuf.v_min;
+    float a1 = (along.x > 0.5) ? ubuf.u_max : ubuf.v_max;
+
+    // LATO NASCOSTO: tutti i suoi vertici fuori dal volume di clip, cosi'
+    // triangoli e linee si scartano interi. Un raggio zero non bastava: i
+    // triangoli spariscono, ma in wireframe le linee lungo il tubo collassano
+    // sulla cucitura e si vedono (un tratteggio sul toro).
+    if (borderEdgeHidden(along, (along.x > 0.5) ? uv.y : uv.x, texCoord.x, texCoord.y, a0, a1)) {
+        v_pos = vec3(0.0);
+        v_normal = vec4(0.0, 0.0, 1.0, 0.0);
+        v_texCoord = vec2(0.0);
+        v_light4D = 1.0;
+        v_spec4D = 0.0;
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        return;
+    }
+
+    vec4 P4 = getRotatedPoint4D(uv.x, uv.y);
+    vec3 P = projectToScene(P4);
+    vec3 T = projectToScene(getRotatedPoint4D(uv.x + along.x * e, uv.y + along.y * e))
+           - projectToScene(getRotatedPoint4D(uv.x - along.x * e, uv.y - along.y * e));
+    vec3 Q = projectToScene(getRotatedPoint4D(uv.x + inward.x * e, uv.y + inward.y * e)) - P;
+    float lenT = length(T);
+    float r = ubuf.u_borderRadius;
+
+    // Cerchio nel piano normale al lato, orientato sulla superficie: il primo
+    // asse e' la direzione verso l'interno, tolta la componente lungo il lato.
+    vec3 Tn = (lenT > 1.0e-9) ? T / lenT : vec3(1.0, 0.0, 0.0);
+    vec3 E1 = Q - Tn * dot(Q, Tn);
+    if (dot(E1, E1) < 1.0e-18) {
+        vec3 alt = (abs(Tn.x) < 0.9) ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+        E1 = alt - Tn * dot(alt, Tn);
+    }
+    E1 = normalize(E1);
+    vec3 E2 = cross(Tn, E1);
+    vec3 n = cos(ang) * E1 + sin(ang) * E2;
+    vec3 pos = P + r * n;
+
+    v_pos = vec3(ubuf.u_mvMatrix * vec4(pos, 1.0));
+    v_normal = ubuf.u_mvMatrix * vec4(n, 0.0);
+    // Coordinate della texture del bordo: lungo il lato (0..1 su ciascun
+    // lato della parte) e attorno al tubo (0..1), nella stessa forma della
+    // superficie (seconda coordinata rovesciata, come v_texCoord di main).
+    float a  = (along.x > 0.5) ? uv.x : uv.y;
+    float s  = (abs(a1 - a0) > 1.0e-9) ? (a - a0) / (a1 - a0) : 0.0;
+    v_texCoord = vec2(s, 1.0 - ang / 6.28318531);
+    v_light4D = 1.0;
+    v_spec4D = 0.0;
+
+    vec4 clip = ubuf.u_mvpMatrix * vec4(pos, 1.0);
+    clip += ubuf.u_dummyZero * 0.000001;
+    gl_Position = clip;
+}
+#endif
+
 void main() {
     // --- BYPASS PER FLAT VIEW (TEXTURE PREVIEW) ---
     if (ubuf.u_isFlat != 0) {
@@ -403,33 +538,22 @@ void main() {
         return;
     }
 
+#ifdef HAS_BORDER
+    // Vertice del bordo (normal.w = 1; la superficie ha normal.w = 0).
+    if (normal.w > 0.5) {
+        emitBorderVertex();
+        return;
+    }
+#endif
+
     float u = vertex.x;
     float v = vertex.y;
 
     // 1. Calcolo Posizione 4D Reale
     vec4 pRot = getRotatedPoint4D(u, v);
-    vec4 obs = ubuf.u_observerPos;
-
-    if (abs(obs.w - pRot.w) < 0.1) {
-        obs.w += 0.1;
-    }
 
     // 2. Proiezione 4D -> 3D
-    vec3 finalPos3D;
-    if (ubuf.u_projMode == 0) {
-        finalPos3D = pRot.xyz;
-    } else if (ubuf.u_projMode == 2) {
-        // --- STEREOGRAFICA SU IPERSFERA (S^3) ---
-        finalPos3D = stereoS3(pRot);
-    } else {
-        // --- PROSPETTIVA CENTRALE ---
-        float denom = obs.w - pRot.w;
-        if (abs(denom) < 0.15) {
-            denom = (denom >= 0.0) ? 0.15 : -0.15;
-        }
-        float wFactor = obs.w / denom;
-        finalPos3D = obs.xyz + (pRot.xyz - obs.xyz) * wFactor;
-    }
+    vec3 finalPos3D = projectToScene(pRot);
 
 #ifdef CUSTOM_MESH
     // SE SIAMO NEL GEODESIC FLOW, PRENDIAMO LA NORMALE DAL BUFFER

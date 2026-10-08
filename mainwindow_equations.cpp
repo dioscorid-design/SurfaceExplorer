@@ -538,6 +538,7 @@ void MainWindow::setupEquationsDock()
         case SlotSurface:           m_scene.surfaceScriptText = typed; break;
         case SlotSurfaceTexture:    m_scene.surfaceTextureScriptText = typed; break;
         case SlotMeshTexture:       syncMeshTextureSlot(); m_meshTextureScriptText = typed; break;
+        case SlotBorderTexture:     syncBorderTextureSlot(); m_borderTextureScriptText = typed; break;
         case SlotBackgroundTexture: m_scene.bgTextureScriptText = typed; break;
         case SlotSound:             m_scene.soundScriptText = typed; break;
         case SlotNone:              break;
@@ -1261,6 +1262,10 @@ QStringList MainWindow::meshTextureCodesForConstants() const
     if (ui->glWidget && ui->glWidget->getEngine())
         for (const MeshPart &mp : ui->glWidget->getEngine()->getMeshParts()) add(mp);
     for (const MeshPart &mp : m_pendingMeshParts) add(mp);
+    // La texture del BORDO, se c'e' (bordo acceso e texture accesa).
+    if (ui->glWidget && ui->glWidget->borderRadius() > 0.0f && ui->glWidget->borderTextureEnabled()
+        && !ui->glWidget->borderTextureCode().trimmed().isEmpty())
+        out << stripCodeComments(ui->glWidget->borderTextureCode());
     return out;
 }
 

@@ -130,9 +130,23 @@ struct UboData {
     // blocco non cresce. Dichiarato in ENTRAMBI gli shader parametrici (regola
     // Adreno, vedi CLAUDE.md); lo usa solo il vertex.
     float u_tubeRadius;
+    // RAGGIO DEL BORDO (Border Thickness nel dock Renderer), in unita' di
+    // scena; 0 = nessun bordo. Uniforme, cosi' lo slider agisce senza
+    // ricompilare (si ricompila solo passando da 0 a un valore e viceversa:
+    // il codice del bordo esiste solo con HAS_BORDER). Secondo slot della
+    // riserva _pad1: il blocco non cresce. Dichiarato in ENTRAMBI gli shader
+    // parametrici (regola Adreno, vedi CLAUDE.md); lo usa solo il vertex.
+    float u_borderRadius;
+    // 1 nei blocchi del BORDO, 0 altrove: il fragment ci sceglie la texture del
+    // bordo (getCustomColor_border) e salta il cutout. Non si puo' usare
+    // u_meshIndex: nel bordo vale l'indice della parte, che il vertex passa
+    // agli script per costruire la geometria. Ultimo slot di _pad1; da qui il
+    // blocco cresce di una riga (464 byte). Dichiarato in ENTRAMBI gli shader
+    // parametrici (regola Adreno, vedi CLAUDE.md).
+    int u_isBorder;
     // padding esplicito: std140 allinea la struct a vec4 (16 byte). Senza, il
     // compilatore C++ e lo shader potrebbero non concordare sulla dimensione.
-    float _pad1[2];
+    float _pad2[3];
 };
 
 class GLWidget : public QRhiWidget
@@ -497,6 +511,75 @@ public:
     // spessore agisce senza ricompilare lo shader.
     void setTubeRadius(float r) { m_tubeRadius = r; update(); }
     float tubeRadius() const { return m_tubeRadius; }
+    // BORDO DELLA SUPERFICIE (parametrico): tubi attorno ai lati del dominio,
+    // raggio in unita' di scena, 0 = nessun bordo. Il raggio e' un uniform
+    // (u_borderRadius), ma il codice del bordo esiste nello shader solo con
+    // HAS_BORDER: si ricompila soltanto passando da 0 a un valore e viceversa.
+    void setBorderRadius(float r);
+    float borderRadius() const { return m_borderRadius; }
+    void setBorderColor(const QColor &c) { m_borderColor = c; update(); }
+    QColor borderColor() const { return m_borderColor; }
+    // Aspetto PROPRIO del bordo, indipendente da quello della superficie: Base
+    // (0), Phong (1) o Wireframe (2), e in wireframe la densita' delle linee
+    // (un anello ogni wireAlong punti lungo il lato, una linea lungo il tubo
+    // ogni wireAround lati del poligono). Il bordo ha il suo blocco di uniform,
+    // quindi anche Base/Phong sono suoi, non della scena.
+    void setBorderRenderMode(int mode);
+    int borderRenderMode() const { return m_borderRenderMode; }
+    // Tasti Density u (lungo il lato) e Density v (attorno al tubo) col
+    // bersaglio Border: delta < 0 = piu' fitto.
+    void adjustBorderWireStep(bool along, int delta);
+    struct BorderStyle {
+        float radius = 0.0f;
+        QColor color = QColor::fromRgbF(1.0f, 1.0f, 1.0f);
+        int mode = 0;
+        int wireAlong = kBorderWireAlongDefault;
+        int wireAround = kBorderWireAroundDefault;
+        // TEXTURE del bordo (dalla Library): codice (o il solo tag //IMG:),
+        // accesa/spenta, i due colori, l'inquadratura 2D della voce e il suo
+        // nome (focus dell'albero).
+        QString texCode;
+        bool texEnabled = false;
+        QColor texCol1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
+        QColor texCol2 = QColor(Qt::black);
+        float texZoom = 1.0f;
+        QVector2D texPan = QVector2D(0.0f, 0.0f);
+        float texRotation = 0.0f;
+        QString texLibName;
+    };
+    static constexpr int kBorderWireAlongDefault = 8;
+    static constexpr int kBorderWireAroundDefault = 2;
+    static constexpr int kBorderWireAlongMax = 50;
+    static constexpr int kBorderWireAroundMax = 6;   // 12 lati: 2 linee
+    BorderStyle borderStyle() const;
+    void setBorderStyle(const BorderStyle &s);
+    // TEXTURE DEL BORDO. Coordinate: lungo il lato (0..1 su ciascun lato) e
+    // attorno al tubo (0..1). Il codice entra nel fragment come
+    // getCustomColor_border solo col bordo acceso: cambiarlo ricompila.
+    void setBorderTexture(const QString &code, bool enabled);
+    void setBorderTextureEnabled(bool on) { m_borderTexEnabled = on; update(); }
+    QString borderTextureCode() const { return m_borderTexCode; }
+    bool borderTextureEnabled() const { return m_borderTexEnabled; }
+    // Disegnata davvero: bordo acceso, texture accesa e con codice, non in
+    // wireframe (li' il fragment esce col colore pieno).
+    bool borderTextureShown() const {
+        return m_borderRadius > 0.0f && m_borderTexEnabled
+               && !m_borderTexCode.trimmed().isEmpty() && m_borderRenderMode != 2;
+    }
+    void setBorderTexColors(const QColor &c1, const QColor &c2) { m_borderTexCol1 = c1; m_borderTexCol2 = c2; update(); }
+    QColor borderTexColor1() const { return m_borderTexCol1; }
+    QColor borderTexColor2() const { return m_borderTexCol2; }
+    void setBorderTexTransform(float zoom, const QVector2D &pan, float rotation) {
+        m_borderTexZoom = zoom; m_borderTexPan = pan; m_borderTexRotation = rotation; update();
+    }
+    void setBorderTextureLibName(const QString &n) { m_borderTexLibName = n; }
+    QString borderTextureLibName() const { return m_borderTexLibName; }
+    // Orologio proprio, avanzato da advanceClocksBy come gli altri.
+    void setBorderTextureAnimating(bool on);
+    bool isBorderTextureAnimating() const { return m_borderTexAnimating; }
+    // Il bordo ha un'immagine da campionare: la sua, o in mancanza quella
+    // della superficie (senza nessuna delle due c'e' la scacchiera di ripiego).
+    bool borderSamplesImage() const;
     void increaseWireframeUDensity();
     void decreaseWireframeUDensity();
     void increaseWireframeVDensity();
@@ -645,8 +728,9 @@ public:
         loadFlatTransformFromActivePart();
         update();
     }
-    // 0 = texture di superficie, 1 = sfondo: su cosa agiscono zoom, pan e
-    // rotazione 2D (getFlat*/setFlat*). Lo legge il test degli scenari.
+    // 0 = texture di superficie, 1 = sfondo, 2 = texture del bordo: su cosa
+    // agiscono zoom, pan e rotazione 2D (getFlat*/setFlat*) e cosa mostra la
+    // vista 2D. Lo legge il test degli scenari.
     int flatViewTarget() const { return m_flatViewTarget; }
     float getFlatZoom() const;
     void setFlatZoom(float z);
@@ -1111,6 +1195,12 @@ private:
     QRhiShaderResourceBindings *m_bindings = nullptr;
 
     QRhiBuffer *m_wireframeIbo = nullptr;
+    // Bordo: buffer a parte, riempiti insieme alla mesh (vedi
+    // SurfaceEngine::generateBorder).
+    QRhiBuffer *m_borderVbo = nullptr;
+    QRhiBuffer *m_borderIbo = nullptr;
+    QRhiBuffer *m_borderWireIbo = nullptr;
+    bool m_borderUploaded = false;
     QRhiGraphicsPipeline *m_wireframePipeline = nullptr;
     std::vector<unsigned int> m_wireframeIndices;
     bool wireframeNeedsUpdate = true;
@@ -1266,6 +1356,23 @@ private:
     // preset lo portano nella chiave "hybridMarcher".
     bool m_hybridMarcher = false;
     float m_tubeRadius = 0.1f;
+    float m_borderRadius = 0.0f;
+    QColor m_borderColor = QColor::fromRgbF(1.0f, 1.0f, 1.0f);
+    int m_borderRenderMode = 0;
+    int m_borderWireAlong = kBorderWireAlongDefault;
+    int m_borderWireAround = kBorderWireAroundDefault;
+    QString m_borderTexCode;
+    bool m_borderTexEnabled = false;
+    QColor m_borderTexCol1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
+    QColor m_borderTexCol2 = QColor(Qt::black);
+    float m_borderTexZoom = 1.0f;
+    QVector2D m_borderTexPan = QVector2D(0.0f, 0.0f);
+    float m_borderTexRotation = 0.0f;
+    QString m_borderTexLibName;
+    bool m_borderTexAnimating = false;
+    float m_borderTimeTex = 0.0f;
+    // Binding del bordo: quelli della sua immagine, se ne ha una caricata.
+    QRhiShaderResourceBindings *borderBindings() const;
 
     float texRed1 = 1.0f, texGreen1 = 1.0f, texBlue1 = 1.0f;
     float texRed2 = 0.0f, texGreen2 = 0.0f, texBlue2 = 0.0f;

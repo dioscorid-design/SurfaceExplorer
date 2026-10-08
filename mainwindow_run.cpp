@@ -19,6 +19,8 @@ void MainWindow::performMasterStop()
         // siccome updateMasterButtonState le considera attivita' in moto, il
         // tasto restava su "STOP" senza avere piu' nulla da fermare.
         ui->glWidget->setAllMeshTexturesAnimating(false);
+        // E la texture del bordo, che ha un orologio suo.
+        ui->glWidget->setBorderTextureAnimating(false);
         // Stop esplicito: alza il gate come gli altri stop, o il primo ricalcolo
         // (commit di equazione, toggle sfondo) le riaccenderebbe. Lo riarma il
         // master Start, che deve poter rimettere in moto qualunque cosa.
@@ -254,6 +256,7 @@ void MainWindow::runScene(RunOrigin origin, QPushButton *dockBtn)
         // Anche gli stop delle SINGOLE mesh: il master rimette in moto qualunque
         // cosa, quindi riarma pure il gate che li protegge dai ricalcoli.
         m_userStoppedMeshTexClock = false;
+        m_userStoppedBorderTexClock = false;
     }
 
     // ==========================================================
@@ -1468,6 +1471,10 @@ MainWindow::MasterActivity MainWindow::masterActivity() const
         a.texAvailable = true;
         if (gl->anyMeshTextureAnimating()) a.texRunning = true;
     }
+    // TEXTURE DEL BORDO, modulo a se': se si vede ed e' animata.
+    a.borderAvailable = !implicitMode() && gl->borderTextureShown()
+                        && hasTimeVariable(gl->borderTextureCode());
+    a.borderRunning = a.borderAvailable && gl->isBorderTextureAnimating();
 
     // SFONDO: come START (applyAnimationState).
     a.bgAvailable = gl->isBackgroundTextureEnabled() && hasTimeVariable(m_scene.bgTextureCode);
@@ -1692,6 +1699,13 @@ void MainWindow::applyAnimationState(bool animated, bool dockOnly) {
                 if (!m_masterStopped) restartAnimatedMeshTextures();
                 else                  ui->glWidget->setAllMeshTexturesAnimating(false);
             }
+            // TEXTURE DEL BORDO: il suo orologio gira se si vede ed e' animata,
+            // il master non e' fermo e l'utente non l'ha fermata dal dock
+            // Script (il gate lo riarma il master Start).
+            if (!m_userStoppedBorderTexClock)
+                ui->glWidget->setBorderTextureAnimating(
+                    !m_masterStopped && ui->glWidget->borderTextureShown()
+                    && hasTimeVariable(ui->glWidget->borderTextureCode()));
             // Stessa regola per lo SFONDO: il suo 't' e' in m_scene.bgTextureCode, che
             // rawEqsForT (e quindi 'animated') non contiene piu'. Legarlo a
             // 'effective' lo faceva dipendere dal tempo della geometria.

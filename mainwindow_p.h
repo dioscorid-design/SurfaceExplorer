@@ -177,6 +177,64 @@ inline float resolveSavedFov(float cameraFov, float fov3D, float fov4D)
 // ==========================================
 // Controllo robustezza valori prima dell'invio in GPU
 // ==========================================
+// SPESSORE DEL BORDO. Il motore lavora sul RAGGIO dei tubi (unita' di scena,
+// fino a kBorderThicknessMax); slider ed etichetta su una scala piu' leggibile,
+// raggio = valore * kBorderThicknessUnit, quindi 0.25..10. Slider 0..100:
+//  - 0 = nessun bordo;
+//  - 1..100 = da kBorderThicknessDisplayMin a 10 con curva QUADRATICA, fine
+//    vicino al minimo dove stanno i bordi sottili (50 -> 2.64).
+// Il minimo non e' zero: il primo scatto deve dare un bordo visibile. Il clic
+// su Border col bordo spento lo accende a kBorderThicknessDisplayDefault.
+// Le conversioni stanno qui insieme: lo slider (clic) e setBorderUI (load,
+// reset) devono concordare.
+inline constexpr float kBorderThicknessMax = 0.2f;
+inline constexpr float kBorderThicknessUnit = 0.02f;          // raggio per unita' mostrata
+inline constexpr float kBorderThicknessDisplayMin = 0.25f;
+inline constexpr float kBorderThicknessDisplayDefault = 0.5f; // all'accensione dal radio
+inline constexpr float kBorderThicknessDisplayMax = kBorderThicknessMax / kBorderThicknessUnit;   // 10
+inline float borderThicknessFromSlider(int val)
+{
+    if (val <= 0) return 0.0f;
+    const float f = (qBound(1, val, 100) - 1) / 99.0f;
+    const float shown = kBorderThicknessDisplayMin
+                        + (kBorderThicknessDisplayMax - kBorderThicknessDisplayMin) * f * f;
+    return shown * kBorderThicknessUnit;
+}
+inline int sliderFromBorderThickness(float t)
+{
+    if (t <= 0.0f) return 0;
+    const float shown = qBound(kBorderThicknessDisplayMin, t / kBorderThicknessUnit,
+                               kBorderThicknessDisplayMax);
+    const float f = std::sqrt((shown - kBorderThicknessDisplayMin)
+                              / (kBorderThicknessDisplayMax - kBorderThicknessDisplayMin));
+    return 1 + qRound(f * 99.0f);
+}
+// Il valore mostrato nell'etichetta (scala 0.5..10), dal raggio.
+inline QString borderThicknessText(float t)
+{
+    return QString::number(t / kBorderThicknessUnit, 'f', 2);
+}
+
+// Il bordo di un preset nella forma del motore.
+inline GLWidget::BorderStyle borderStyleOf(const LibraryItem &d)
+{
+    GLWidget::BorderStyle s;
+    s.radius = d.borderThickness;
+    s.color = d.borderColor;
+    s.mode = d.borderMode;
+    s.wireAlong = d.borderWireAlong;
+    s.wireAround = d.borderWireAround;
+    s.texCode = d.borderTexCode;
+    s.texEnabled = d.borderTexEnabled;
+    s.texCol1 = d.borderTexCol1;
+    s.texCol2 = d.borderTexCol2;
+    s.texZoom = d.borderTexZoom;
+    s.texPan = QVector2D(d.borderTexPanX, d.borderTexPanY);
+    s.texRotation = d.borderTexRotation;
+    s.texLibName = d.borderTexLibName;
+    return s;
+}
+
 inline constexpr double kMaxRenderableMagnitude = 1.0e5;
 inline constexpr double kSpikeRatio = 50.0;
 inline constexpr double kAliasEdgeFraction = 0.15;

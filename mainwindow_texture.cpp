@@ -8,6 +8,15 @@ void MainWindow::syncTextureTreeSelection()
 {
     // SINCRONIZZA L'ALBERO TEXTURE AL CAMBIO MODALITÀ
     ui->treeTextures->clearSelection();
+    // Anche la voce CORRENTE: senza, quando la texture del bersaglio non ha
+    // una voce nella Library (scritta nel dock Script, scacchiera accesa dal
+    // checkbox) l'indicatore di focus restava sulla voce di prima -- passando
+    // da Surface a Border sembrava evidenziata la texture della superficie.
+    // A segnali bloccati: e' la vista che si riallinea, non un clic.
+    {
+        const QSignalBlocker blocker(ui->treeTextures);
+        ui->treeTextures->setCurrentItem(nullptr);
+    }
 
     // Texture SPENTA: a schermo non c'e' alcuna texture, quindi l'albero non
     // deve indicarne una. Il codice resta in memoria (per poterla riaccendere),
@@ -38,7 +47,12 @@ void MainWindow::syncTextureTreeSelection()
     // m_scene.bgTextureLibName, una fascia MeshPart::textureLibName
     // (vedi LibraryTreeFocus::selectTexture).
     QString libName;
-    if (editingBackground()) {
+    if (editingBorder()) {
+        // BORDO: la sua texture e la sua ancora, se si vede.
+        if (!ui->glWidget || !ui->glWidget->borderTextureShown()) return;
+        activeCode = ui->glWidget->borderTextureCode();
+        libName = ui->glWidget->borderTextureLibName();
+    } else if (editingBackground()) {
         // SFONDO: il suo stato e' nel motore (isBackgroundTextureEnabled).
         if (!targetTextureOn()) return;
         activeCode = m_scene.bgTextureCode;
@@ -673,10 +687,25 @@ void MainWindow::onColorTargetChanged()
     QColor target;
     bool slidersEnabled = true;
 
-    // Stessa priorità di handleColorChange (gruppi indipendenti): la coppia decide DOVE,
+    // Stessa priorità di handleColorChange (gruppi indipendenti): la terna decide DOVE,
     // Color1/Color2 QUALE tinta. Qui calcoliamo il colore da MOSTRARE e se gli slider
     // hanno un effetto (altrimenti li disattiviamo).
-    if (editingBackground()) {
+    if (editingBorder()) {
+        // Come la superficie: con una texture colorata gli slider mostrano il
+        // suo Color 1/2; con una texture senza colori (immagine) sono inerti;
+        // senza texture mostrano il colore del bordo.
+        GLWidget *gl = ui->glWidget;
+        const bool texOn = gl && gl->borderTextureShown();
+        if (texOn && activeTextureUsesColors()) {
+            target = ui->radioTexColor2->isChecked() ? gl->borderTexColor2() : gl->borderTexColor1();
+        } else if (texOn) {
+            target = Qt::black;
+            slidersEnabled = false;
+        } else {
+            target = gl ? gl->borderColor() : QColor(Qt::white);
+        }
+    }
+    else if (editingBackground()) {
         if (targetTextureOn() && activeTextureUsesColors()) {
             target = ui->radioTexColor2->isChecked() ? m_scene.bgTexColor2 : m_scene.bgTexColor1;
         } else if (targetTextureOn()) {
@@ -809,7 +838,11 @@ void MainWindow::handleTextureSelection(int index)
     // Non se la texture fa cambiare modalita': la superficie in scena sta per
     // essere sostituita da quella di default, che non usa costanti, e la
     // domanda si sommerebbe al popup del cambio.
-    if (!textureNeedsModeSwitch(data)) {
+    // TEXTURE INCOMPATIBILE col bersaglio: un avviso, e niente cambia. Prima
+    // di qualunque altra domanda: non si chiede di una costante contesa per
+    // una texture che non verra' applicata.
+    if (refuseIncompatibleTexture(data)) return;
+    {
         const QString incomingTex = data.textureCode.isEmpty() ? data.scriptCode
                                                                : data.textureCode;
         if (!confirmTextureConstantClash(incomingTex, data.displacementCode,
@@ -843,7 +876,7 @@ void MainWindow::handleTextureSelection(int index)
     // e' cosa sua.
     const bool meshTarget = ui->glWidget && ui->glWidget->activeMeshPart() >= 0;
     if (index == lastTextureIndex && isBg == lastWasBg && !data.isImage
-        && !isBg && !meshTarget) {
+        && !isBg && !meshTarget && !editingBorder()) {
         if (ui->glWidget) {
             ui->glWidget->clearTexture();
             // clearTexture spegne anche la texture nel motore: la si riallinea
@@ -864,22 +897,18 @@ void MainWindow::handleTextureSelection(int index)
         applyLibraryTextureToBackground(data);
         return;
     }
-
-    // =====================================================================
-    // 2.5 CONTROLLO COMPATIBILITÀ MODO E SUPERFICIE DI DEFAULT
-    // =====================================================================
-    bool texIsImplicit = data.isImplicitMode;
-    bool currentIsImplicit = (implicitMode());
-
-    if (data.isImage) {
-        texIsImplicit = currentIsImplicit;
+    // ...e col bersaglio Border va sul bordo.
+    if (editingBorder()) {
+        applyLibraryTextureToBorder(data);
+        return;
     }
 
-    // (texIsImplicit != currentIsImplicit qui equivale a textureNeedsModeSwitch:
-    // lo sfondo e' gia' uscito, e un'immagine prende la modalita' corrente.)
-    if (texIsImplicit != currentIsImplicit
-        && !switchModeForLibraryTexture(data, texIsImplicit))
-        return;   // l'utente ha annullato il cambio di modalita'
+    // =====================================================================
+    // 2.5 MODALITA' DELLA TEXTURE: quella in scena. Una texture di modalita'
+    // opposta e' gia' stata rifiutata in testa (refuseIncompatibleTexture), e
+    // un'immagine prende la modalita' corrente.
+    // =====================================================================
+    const bool texIsImplicit = implicitMode();
 
     // =====================================================================
     // 3. APPLICAZIONE DATI TEXTURE (Separati per Parametrico / Implicito)
@@ -925,6 +954,49 @@ void MainWindow::handleTextureSelection(int index)
     updateFlatPreviewButton();
     restartLibraryTextureClocks();
     finishLibraryTexturePick(data);
+}
+
+// LA TEXTURE DI LIBRERIA SUL BORDO (handleTextureSelection, bersaglio Border).
+// Come per una fascia: codice, colori, inquadratura e nome della voce vanno nel
+// motore, e il bordo ha il suo orologio. Solo texture PARAMETRICHE (procedurali
+// e immagini): quelle Ray Marching sono funzioni di un punto 3D, il bordo ha
+// coordinate di superficie (lungo il lato, attorno al tubo), e le rifiuta
+// refuseIncompatibleTexture prima di arrivare qui.
+void MainWindow::applyLibraryTextureToBorder(const LibraryItem &data)
+{
+    GLWidget *gl = ui->glWidget;
+    if (!gl) return;
+    // (Le Ray Marching le ha gia' rifiutate refuseIncompatibleTexture.)
+
+    QString code;
+    if (data.isImage) {
+        code = "//IMG:" + (data.imagePath.isEmpty() ? data.filePath : data.imagePath);
+    } else {
+        code = data.scriptCode;
+        // Lo script che campiona un'immagine trova quella che il bordo ha gia'
+        // (il gesto "prima l'immagine, poi la sua animazione"), come le fasce.
+        const QString ownImage = GLWidget::imagePathInTextureCode(gl->borderTextureCode());
+        if (!ownImage.isEmpty() && TextureCode::samplesImage(code))
+            code = "//IMG:" + ownImage + "\n" + code;
+    }
+
+    gl->setBorderTexColors(data.hasCustomColors ? QColor(data.color1) : QColor::fromRgbF(0.20f, 0.80f, 0.20f),
+                           data.hasCustomColors ? QColor(data.color2) : QColor(Qt::black));
+    gl->setBorderTexTransform(data.zoom, QVector2D(data.panX, data.panY), data.rotation);
+    gl->setBorderTexture(code, true);
+    gl->setBorderTextureLibName(data.name);
+    // Applicare una texture e' un comando esplicito: un'animata parte subito,
+    // anche a master fermo, come sulle fasce.
+    m_userStoppedBorderTexClock = false;
+    gl->setBorderTextureAnimating(hasTimeVariable(code));
+
+    m_blockTextureGen = false;
+    updateTextureUIState(true, true);
+    refreshTextureCheckbox();
+    updateMasterButtonState();   // ...e il dock Script mostra la texture nuova
+    syncTextureTreeSelection();
+    refreshConstants();   // la texture puo' usare A..F
+    gl->update();
 }
 
 // LA TEXTURE DI LIBRERIA COME SFONDO (handleTextureSelection, bersaglio
@@ -986,56 +1058,8 @@ void MainWindow::applyLibraryTextureToBackground(const LibraryItem &data)
         }
     }
     else {
-        if (data.isImplicitMode) {
-            QMessageBox::warning(this, "Incompatible Texture",
-                                 "Procedural textures for 3D (implicit) surfaces cannot be used as a background.\n"
-                                 "The background will be restored to its default state.");
-
-            // 1. Ripristino colori di default
-            m_scene.bgTexColor1 = QColor::fromRgbF(0.2f, 0.2f, 0.8f);
-            m_scene.bgTexColor2 = Qt::black;
-
-            if (ui->glWidget) {
-                ui->glWidget->setBackgroundTexColors(m_scene.bgTexColor1, m_scene.bgTexColor2);
-                ui->glWidget->setBackgroundFraming(1.0f, QVector2D(0.0f, 0.0f), 0.0f);
-            }
-
-            // 2. Lo sfondo torna alla DEFAULT per intero: codice, slot, ancora,
-            // messaggio (in testa al ramo erano stati scritti quelli della
-            // texture rifiutata) e immagine in GPU. Prima si azzerava il solo
-            // percorso: l'immagine restava a schermo e il Save non la scriveva
-            // (trovato dal test degli scenari).
-            QString safeDefault = "";
-            forgetBackgroundTexture();
-            refreshSceneHint(m_currentHintSeconds);
-
-            // 3. (Qui c'era generateTexture(): disegna la scacchiera nel sampler
-            // della SUPERFICIE, e ne copriva l'immagine. Lo sfondo di default
-            // e' background.png, appena ricaricata.)
-
-            // 4. Lo sfondo resta acceso sulla texture di default (lo accende
-            // il punto 5; il checkbox lo segue li').
-
-            ui->radioTexColor1->setEnabled(true);
-            ui->radioTexColor2->setEnabled(true);
-            bool oldRad = ui->radioTexColor1->blockSignals(true);
-            ui->radioTexColor1->setChecked(true);
-            ui->radioTexColor1->blockSignals(oldRad);
-
-            // 5. Ricostruzione pulita e nativa dello shader di background
-            if (ui->glWidget) {
-                ui->glWidget->setBackgroundTextureEnabled(true);
-                ui->glWidget->rebuildBackgroundShader(true, safeDefault);
-            }
-            refreshTextureCheckbox();
-
-            onColorTargetChanged();
-            updateFlatPreviewButton();
-
-            if (ui->glWidget) ui->glWidget->update();
-
-            return; // Salvataggio riuscito, usciamo
-        }
+        // (Le texture Ray Marching le ha gia' rifiutate refuseIncompatibleTexture,
+        // in testa a handleTextureSelection: lo sfondo non si tocca piu'.)
 
         // CARICAMENTO TEXTURE PROCEDURALE 2D
         QString newCode = data.scriptCode;
@@ -1111,176 +1135,36 @@ void MainWindow::applyLibraryTextureToBackground(const LibraryItem &data)
     refreshConstants();
 }
 
-bool MainWindow::textureNeedsModeSwitch(const LibraryItem &data) const
+bool MainWindow::textureIncompatible(const LibraryItem &data) const
 {
-    if (editingBackground() || data.isImage) return false;
+    if (data.isImage) return false;
+    if (editingBackground() || editingBorder()) return data.isImplicitMode;
     return data.isImplicitMode != implicitMode();
 }
 
-// La texture e' di modalita' opposta a quella in scena: si cambia modalita'
-// (con la superficie di default), dopo averlo chiesto. false = annullato.
-bool MainWindow::switchModeForLibraryTexture(const LibraryItem &data, bool texIsImplicit)
+// TEXTURE CHE IL BERSAGLIO NON PUO' USARE: lo stesso gesto per superficie,
+// fascia, sfondo e bordo -- un avviso, e la scena resta com'e'. Prima la
+// superficie cambiava MODALITA' (chiedendo del lavoro non salvato e mettendo la
+// superficie di default) e lo sfondo tornava alla DEFAULT: in entrambi i casi
+// compariva qualcosa che l'utente non aveva chiesto, mentre il bordo si
+// limitava ad avvisare. Uniformati a quest'ultimo, deciso con l'utente il
+// 2026-10-08 (superava la regola del 2026-09-24 sul cambio di modalita').
+bool MainWindow::refuseIncompatibleTexture(const LibraryItem &data)
 {
-    // A0. Questa texture non e' applicabile alla superficie corrente: per
-    // mostrarla si cambia modalita', e il cambio DISTRUGGE la scena (il
-    // setCurrentIndex qui sotto fa scattare applyModeTabReset). E' l'unico
-    // percorso in cui l'utente perde il lavoro senza averlo chiesto --
-    // clicca una texture, non un reset -- quindi qui si chiede conferma.
-    // Va fatto PRIMA di toccare qualunque cosa: currentChanged scatta a tab
-    // gia' cambiato e da li' non si potrebbe piu' dire di no.
-    //
-    // E' l'UNICA domanda di questo gesto: il click nella Library non chiede
-    // della texture quando la modalita' cambia (textureNeedsModeSwitch), e la
-    // costante contesa non si controlla (la superficie se ne va). Qui
-    // ScopeScene e' corretto -- il cambio di modalita' distrugge davvero la
-    // scena -- e il popup elenca tutto cio' che e' sporco (scena, texture,
-    // suono).
-    // Solo a scena SPORCA, di proposito, e senza un avviso dedicato al cambio
-    // di superficie: una scena gia' su disco (un record appena aperto) non ha
-    // nulla da perdere, e un popup in piu' su ogni cambio di modalita'
-    // appesantirebbe il flusso senza proteggere nulla. Deciso con l'utente il
-    // 2026-09-24 (un tentativo di forzarlo e' stato ritirato) e confermato il
-    // 2026-10-05: provato un motivo nel testo di questo popup ("This texture
-    // needs Ray Marching..."), tolto -- compariva solo a scena modificata,
-    // quindi il cambio restava comunque senza avviso nel caso piu' comune, e
-    // con l'uso il cambio di superficie diventa normale.
-    // UN popup solo: il click nella Library non ha chiesto della texture (vedi
-    // textureNeedsModeSwitch), quindi qui si difende tutto -- scena, texture e
-    // suono.
-    if (!confirmDiscardUnsaved(ScopeScene)) {
-        // Annullato: la scena resta com'era, ma nell'albero e' rimasto
-        // evidenziato l'item appena cliccato (la selezione la fa il click,
-        // prima di arrivare qui). Si rimette il focus sulla texture
-        // realmente in vigore, o si deseleziona se non ce n'e' nessuna.
-        syncTextureTreeSelection();
-        return false;
-    }
-
-    // A. Cambia automaticamente il pannello (Tab).
-    // Il setCurrentIndex fa scattare applyModeTabReset -> resetScene, che
-    // fra le altre cose RICHIUDE i rami della Library. Li' e' voluto (si
-    // sta scartando una superficie), qui no: l'utente ha appena cliccato
-    // una texture e vedrebbe l'albero chiudersi sotto le dita, perdendo
-    // l'evidenziazione dell'item scelto. Il flag lo segnala a resetScene.
-    {
-        m_texModeSwitchInProgress = true;
-        m_modeSwitchSourceTree = ui->treeTextures;
-        struct TexSwitchGuard {
-            MainWindow *w;
-            ~TexSwitchGuard() {
-                w->m_texModeSwitchInProgress = false;
-                w->m_modeSwitchSourceTree = nullptr;
-            }
-        } texSwitchGuard{this};
-        ui->tabModeSelector->setCurrentIndex(texIsImplicit ? 1 : 0);
-    }
-
-    // La scena caricata dalla libreria (superficie o record) e' stata appena
-    // sostituita dalla default: il suo item non descrive piu' cio' che si
-    // vede. Senza questo, annullando il caricamento successivo il focus
-    // tornava su quel record (vedi il ripristino in onExampleItemClicked).
-    m_lastLoadedLibraryItem = nullptr;
-
-    // B. Imposta una Superficie di Default sicura e azzera il resto.
-    // I setPlainText/clear qui sotto NON devono emettere textChanged: quei
-    // segnali chiamerebbero markUserEdit / il lambda di lineEquation che
-    // azzerano m_parametricApplied / m_implicitApplied, riabilitando a torto
-    // i tasti Run del dock Equations (la superficie di default e' gia' quella
-    // a schermo, non c'e' nulla da "applicare"). Blocchiamo i segnali attorno
-    // all'intera preparazione e ripristiniamo i flag "applied" piu' sotto.
-    // (Ogni campo e' scritto dal suo setter, setRmText / setEqText, che lo
-    // scrive a segnali bloccati.)
-
-    if (texIsImplicit) {
-        //modeSwitched = true;
-        // --- PREPARA AMBIENTE RAY MARCHING ---
-        setRmText(&ImplicitTexts::equation, QStringLiteral("x*x + y*y + z*z = 1.0")); // Sfera Implicita
-        setRmText(&ImplicitTexts::displacement, QString());
-        for (EqField f : { &EquationTexts::x, &EquationTexts::y, &EquationTexts::z, &EquationTexts::p })
-            setEqText(f, QString());
-
-        // Ambiente di rendering RM DETERMINISTICO per la sfera di default.
-        // Come nel gestore canonico del cambio tab (~1108): l'equazione viene
-        // applicata piu' avanti dal flusso texture (~4063), ma limiti spaziali,
-        // ray steps e CAMERA vanno fissati qui, altrimenti la sfera eredita lo
-        // stato (in particolare la distanza camera = camera3D.z) del record RM
-        // precedente e appare rimpicciolita.
-        if (ui->glWidget) {
-            ui->glWidget->setEngineMode(GLWidget::ModeImplicit);
-            ui->glWidget->setRaySteps(m_lastImplicitSteps);
-
-            m_scene.lim.clearSpaceCut();
-            showLineFields();
-            applySpaceLimits(/*notify=*/false);   // campi vuoti: nessun taglio
-
-            // Camera alla distanza standard: altrimenti la sfera di default
-            // eredita il camera3D.z del record RM precedente (vedi ~1108).
-            ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
-            ui->glWidget->setCameraYaw(0.0f);
-            ui->glWidget->setCameraPitch(0.0f);
-            ui->glWidget->setCameraRoll(0.0f);
-        }
-    } else {
-        // --- PREPARA AMBIENTE PARAMETRICO ---
-        setEqText(&EquationTexts::x, QStringLiteral("(0.8 + 0.3 * cos(v)) * cos(u)"));
-        setEqText(&EquationTexts::y, QStringLiteral("(0.8 + 0.3 * cos(v)) * sin(u)"));
-        setEqText(&EquationTexts::z, QStringLiteral("0.3 * sin(v)"));
-        m_scene.lim.uMin = QStringLiteral("0");
-        m_scene.lim.uMax = QStringLiteral("6.28318");
-        m_scene.lim.vMin = QStringLiteral("0");
-        m_scene.lim.vMax = QStringLiteral("6.28318");
-        showLineFields();
-
-        setRmText(&ImplicitTexts::equation, QString());
-        setRmText(&ImplicitTexts::texture, QString());
-        setRmText(&ImplicitTexts::displacement, QString());
-
-        if (ui->glWidget) {
-            ui->glWidget->setDisplacementCode("");
-            ui->glWidget->setTextureCode("");
-        }
-    }
-
-
-    // La superficie di default e' quella ora a schermo: niente da applicare,
-    // quindi i due flag "applied" restano/tornano true -> i tasti Run del dock
-    // Equations restano SPENTI (updateMasterButtonState li tiene disabilitati
-    // finche' non c'e' un'animazione o un edit reale dell'utente).
-    m_parametricApplied = true;
-    m_implicitApplied = true;
-
-    // Avendo bloccato i textChanged sopra, checkParametricDependency (che vi era
-    // agganciato) non e' scattato: la richiamiamo qui per riallineare le
-    // sotto-tab Constraints/Composition/Geodesic ai campi ora puliti.
-    checkParametricDependency();
-
-    // C. Resetta lo shader nel widget per rimuovere codice obsoleto (il
-    // cambio di linguetta qui sopra e' passato da resetScene, che ha gia'
-    // tolto la texture: resta come rete)
-    commitSurfaceTextureCode(QString());
-    if (ui->glWidget) {
-        ui->glWidget->clearTexture();
-        ui->glWidget->setTextureCode(QString());
-    }
-
-    // D. La texture incompatibile ci ha fatto ricadere sulla superficie di
-    // default (sfera/toro): e' opaca, quindi azzeriamo la trasparenza
-    // ereditata dalla superficie precedente (stesso reset del cambio tab).
-    resetTransparency();
-
-    // E. La superficie precedente e' stata SOSTITUITA dalla default (sfera/toro),
-    // ma nel dock Library il suo item restava evidenziato (onExampleItemClicked
-    // lascia di proposito la selezione superficie quando si clicca una texture).
-    // Qui la selezione sarebbe ingannevole: punterebbe a una superficie non piu'
-    // a schermo. La sfera/toro di default non e' un item di libreria, quindi
-    // deselezioniamo del tutto il treeSurfaces (senza emettere itemClicked, che
-    // ricaricherebbe la superficie e azzererebbe la selezione texture in corso).
-    if (ui->treeSurfaces) {
-        bool bSurf = ui->treeSurfaces->blockSignals(true);
-        ui->treeSurfaces->clearSelection();
-        ui->treeSurfaces->setCurrentItem(nullptr);
-        ui->treeSurfaces->blockSignals(bSurf);
-    }
+    if (!textureIncompatible(data)) return false;
+    QString text;
+    if (editingBorder())          text = QStringLiteral("Ray marching textures can't go on the border.");
+    else if (editingBackground()) text = QStringLiteral("Ray marching textures can't go on the background.");
+    else if (implicitMode())      text = QStringLiteral("Parametric textures can't go on a ray marching surface.");
+    else                          text = QStringLiteral("Ray marching textures can't go on a parametric surface.");
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Information);
+    box.setWindowTitle(QStringLiteral("Incompatible Texture"));
+    box.setText(text);
+    box.setInformativeText(QStringLiteral("Pick a texture made for this kind of surface, or an image."));
+    box.exec();
+    // Il clic ha selezionato la voce rifiutata: il focus torna su quella in vigore.
+    syncTextureTreeSelection();
     return true;
 }
 
@@ -1988,6 +1872,9 @@ bool MainWindow::surfaceTextureShown() const
 
 bool MainWindow::targetTextureOn() const
 {
+    if (editingBorder())
+        return ui->glWidget && ui->glWidget->borderTextureEnabled()
+               && !ui->glWidget->borderTextureCode().trimmed().isEmpty();
     if (editingBackground())
         return ui->glWidget && ui->glWidget->isBackgroundTextureEnabled();
     return surfaceTextureShown();
@@ -2010,11 +1897,14 @@ void MainWindow::refreshTextureCheckbox()
     const bool onBackground = editingBackground();
     const QSignalBlocker blocker(ui->chkBoxTexture);
     ui->chkBoxTexture->setText(onBackground ? QStringLiteral("Background Texture")
-                                            : QStringLiteral("Texture"));
+                               : editingBorder() ? QStringLiteral("Border Texture")
+                                                 : QStringLiteral("Texture"));
     // Lo sfondo esiste anche senza superficie e in wireframe; la texture di
-    // superficie no.
-    ui->chkBoxTexture->setEnabled(onBackground
-                                  || (!textureTargetInWireframe() && !isSceneEmpty()));
+    // superficie no. Quella del bordo segue la modalita' del bordo.
+    const bool wire = editingBorder()
+                      ? (ui->glWidget && ui->glWidget->borderRenderMode() == 2)
+                      : textureTargetInWireframe();
+    ui->chkBoxTexture->setEnabled(onBackground || (!wire && !isSceneEmpty()));
     ui->chkBoxTexture->setChecked(targetTextureOn());
 }
 
@@ -2087,6 +1977,13 @@ QString MainWindow::backgroundImagePath() const
 
 bool MainWindow::activeTextureUsesColorToken(const QString &token) const
 {
+    // BORDO: il suo codice; senza immagine da campionare gli script che
+    // leggono iChannel mostrano la scacchiera, fatta dei due colori.
+    if (editingBorder()) {
+        const QString code = ui->glWidget ? ui->glWidget->borderTextureCode() : QString();
+        return code.contains(token)
+            || (code.contains("iChannel") && !ui->glWidget->borderSamplesImage());
+    }
     if (editingBackground()) {
         return m_scene.bgTextureCode.contains(token);
     }
@@ -2147,6 +2044,16 @@ bool MainWindow::samplesImageWithoutOne(const QString &code) const
 
 bool MainWindow::hasSavableTexture() const
 {
+    // BORDO: il suo codice (o la sua immagine), come lo mostra il dock Script o
+    // com'e' nel motore. Prima della regola sull'immagine della SUPERFICIE, che
+    // qui non c'entra.
+    if (editingBorder()) {
+        const QString code = (m_currentScriptMode == ScriptModeTexture)
+                             ? scriptText(shownScriptSlot())
+                             : (ui->glWidget ? ui->glWidget->borderTextureCode() : QString());
+        return !code.trimmed().isEmpty();
+    }
+
     // Un'immagine caricata è salvabile anche con i box di codice vuoti.
     if (surfaceHasImage())
         return true;
@@ -2247,6 +2154,8 @@ void MainWindow::updateFlatPreviewButton() {
     if (!ui->btnFlatPreview->isChecked()) {
         if (bgMode) {
             ui->btnFlatPreview->setText("2D Background");
+        } else if (editingBorder()) {
+            ui->btnFlatPreview->setText("2D Border");
         } else {
             ui->btnFlatPreview->setText("2D Surface");
         }
@@ -2269,6 +2178,8 @@ void MainWindow::updateFlatPreviewButton() {
     if (!bgMode && ui->glWidget && ui->glWidget->activeMeshPart() >= 0) {
         isTexActive = ui->glWidget->activeMeshTextureActive();
     }
+    // BORDO: la sua texture, se si vede.
+    if (editingBorder()) isTexActive = ui->glWidget && ui->glWidget->borderTextureShown();
 
     // 3. Regola di abilitazione:
     // Deve essere aperta la tab Texture (isTextureScriptMode)
@@ -2440,8 +2351,11 @@ void MainWindow::applyBackgroundSkyMode(int mode)
     if (ui->glWidget) ui->glWidget->setBackgroundSkyMode(mode);
 }
 
-// Gruppo "Background Controls" attivo SOLO col bersaglio Background selezionato
-// in cima al Renderer, come il resto dei controlli che agiscono sullo sfondo.
+// Forma dello sfondo (panelBgLock) attiva SOLO col bersaglio Background e la
+// texture di sfondo accesa (come il resto dei controlli che agiscono sullo
+// sfondo; la forma avvolge la texture, una tinta unita non ne ha bisogno). Si spegne il contenitore dei
+// quattro radio e non il riquadro: in testa al riquadro c'e' il radio
+// Background stesso, che deve restare cliccabile.
 // Spento non vuol dire azzerato: la scelta resta in vigore sullo sfondo a
 // schermo, semplicemente non la si cambia editando la superficie.
 //
@@ -2458,10 +2372,15 @@ void MainWindow::applyBackgroundSkyMode(int mode)
 void MainWindow::updateBackgroundControlsGate()
 {
     const QList<QRadioButton*> radios = bgSkyRadios();
-    if (!ui->panelBackgroundControls || radios.contains(nullptr)) return;
+    if (!ui->panelBgLock || radios.contains(nullptr)) return;
 
+    // La forma riguarda la TEXTURE di sfondo (come la si avvolge attorno alla
+    // scena): con lo sfondo a tinta unita non c'e' niente da avvolgere, quindi
+    // i radio si accendono solo col bersaglio Background E la texture accesa.
     const bool onBackground = editingBackground();
-    ui->panelBackgroundControls->setEnabled(onBackground);
+    const bool bgTexture = ui->glWidget && ui->glWidget->isBackgroundTextureEnabled();
+    const bool usable = onBackground && bgTexture;
+    ui->panelBgLock->setEnabled(usable);
 
     // Stesso ordine di bgSkyRadios / GLWidget::BgSkyMode.
     const QStringList what = {
@@ -2470,9 +2389,10 @@ void MainWindow::updateBackgroundControlsGate()
         tr("The background is a cylinder around the scene."),
         tr("The background is a cube around the scene.")
     };
-    const QString why = tr("Select Background at the top of this dock to change it.");
+    const QString why = !onBackground ? tr("Select Background to change it.")
+                                      : tr("Turn on the Background Texture to choose its shape.");
     for (int i = 0; i < radios.size(); ++i)
-        radios[i]->setToolTip(onBackground ? what.value(i) : why);
+        radios[i]->setToolTip(usable ? what.value(i) : why);
 }
 
 bool MainWindow::applyBackgroundTextureIfNeeded() {

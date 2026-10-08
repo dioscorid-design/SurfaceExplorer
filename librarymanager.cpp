@@ -211,6 +211,33 @@ static void parseSceneCommon(const QJsonObject &root, LibraryItem &d)
     }
     // Luce di riempimento: chiave assente -> 0 (spenta), il valore storico.
     d.fillLight = (float)root["fillLight"].toDouble(0.0);
+    // Bordo: chiave assente -> nessun bordo, col colore di default.
+    if (root.contains("border")) {
+        const QJsonObject b = root["border"].toObject();
+        d.borderThickness = (float)b["thickness"].toDouble(0.0);
+        d.borderColor = QColor::fromRgbF(b["r"].toDouble(1.0), b["g"].toDouble(1.0),
+                                         b["b"].toDouble(1.0));
+        d.borderMode = b["mode"].toInt(0);
+        d.borderWireAlong = b["wireAlong"].toInt(8);
+        d.borderWireAround = b["wireAround"].toInt(2);
+        if (b.contains("texture")) {
+            const QJsonObject t = b["texture"].toObject();
+            auto color = [](const QJsonValue &v, const QColor &def) {
+                const QJsonArray a = v.toArray();
+                return a.size() == 3 ? QColor::fromRgbF(a[0].toDouble(), a[1].toDouble(), a[2].toDouble())
+                                     : def;
+            };
+            d.borderTexCode = t["code"].toString();
+            d.borderTexEnabled = t["enabled"].toBool(true);
+            d.borderTexCol1 = color(t["col1"], d.borderTexCol1);
+            d.borderTexCol2 = color(t["col2"], d.borderTexCol2);
+            d.borderTexZoom = (float)t["zoom"].toDouble(1.0);
+            d.borderTexPanX = (float)t["panX"].toDouble(0.0);
+            d.borderTexPanY = (float)t["panY"].toDouble(0.0);
+            d.borderTexRotation = (float)t["rotation"].toDouble(0.0);
+            d.borderTexLibName = t["libName"].toString();
+        }
+    }
     if (root.contains("lightIntensity")) {
         d.lightIntensity = root["lightIntensity"].toDouble(1.0);
     }
@@ -1177,6 +1204,37 @@ QJsonObject LibraryManager::toJson(const LibraryItem &d)
     root["lightingMode"] = d.lightingMode;
     root["lightIntensity"] = d.lightIntensity;
     root["fillLight"] = (double)d.fillLight;
+    // Bordo: solo se c'e', e solo in parametrico (in Ray Marching non esiste).
+    // Senza bordo la chiave manca, come nei preset precedenti: i file salvati
+    // restano identici.
+    if (d.borderThickness > 0.0f && !d.isImplicitMode) {
+        QJsonObject b;
+        b["thickness"] = (double)d.borderThickness;
+        b["r"] = d.borderColor.redF();
+        b["g"] = d.borderColor.greenF();
+        b["b"] = d.borderColor.blueF();
+        b["mode"] = d.borderMode;
+        b["wireAlong"] = d.borderWireAlong;
+        b["wireAround"] = d.borderWireAround;
+        // Texture: solo se il bordo ne ha una.
+        if (!d.borderTexCode.trimmed().isEmpty()) {
+            auto color = [](const QColor &c) {
+                return QJsonArray{ c.redF(), c.greenF(), c.blueF() };
+            };
+            QJsonObject t;
+            t["code"] = d.borderTexCode;
+            t["enabled"] = d.borderTexEnabled;
+            t["col1"] = color(d.borderTexCol1);
+            t["col2"] = color(d.borderTexCol2);
+            t["zoom"] = (double)d.borderTexZoom;
+            t["panX"] = (double)d.borderTexPanX;
+            t["panY"] = (double)d.borderTexPanY;
+            t["rotation"] = (double)d.borderTexRotation;
+            if (!d.borderTexLibName.isEmpty()) t["libName"] = d.borderTexLibName;
+            b["texture"] = t;
+        }
+        root["border"] = b;
+    }
     root["use4DLighting"] = d.use4DLighting;
     // renderMode e' gia' nella codifica del file (in RM: +10 = Shell).
     root["renderMode"] = d.renderMode;

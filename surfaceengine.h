@@ -223,6 +223,34 @@ public:
     const std::vector<Vertex>& getVertices() const { return generatedVertices; }
     const std::vector<unsigned int>& getIndices() const { return generatedIndices; }
 
+    // BORDO DELLA SUPERFICIE: un tubo attorno a ciascuno dei quattro lati del
+    // dominio di ogni parte (generateBorder). Buffer A PARTE da quelli della
+    // superficie, cosi' offset delle parti, wireframe e ordinamento della
+    // trasparenza non li vedono. Il tubo lo costruisce il vertex shader
+    // (#define HAS_BORDER): qui ci sono solo i parametri di ogni vertice, e la
+    // CPU non sa se un lato e' davvero un bordo -- per gli script non puo'
+    // valutare la superficie, e una cucitura puo' dipendere dal tempo -- quindi
+    // li genera tutti e quattro e lo shader appiattisce quelli che non lo sono.
+    // Lati del poligono attorno al tubo.
+    static constexpr int kBorderRing = 12;
+    struct BorderRange {
+        int meshIndex = 0;
+        int vertexOffset = 0;
+        int indexOffset = 0;        // triangoli
+        int indexCount = 0;
+        int wireIndexOffset = 0;    // linee del wireframe (buildBorderWire)
+        int wireIndexCount = 0;
+        int edgeSteps[4] = { 0, 0, 0, 0 };   // punti lungo ciascun lato, meno uno
+    };
+    const std::vector<Vertex>& getBorderVertices() const { return m_borderVertices; }
+    const std::vector<unsigned int>& getBorderIndices() const { return m_borderIndices; }
+    const std::vector<BorderRange>& getBorderRanges() const { return m_borderRanges; }
+    // Linee del bordo in wireframe: un anello ogni `stepAlong` punti lungo il
+    // lato, e una linea lungo il tubo ogni `stepAround` lati del poligono.
+    // Indici locali alla parte, come i triangoli.
+    void buildBorderWire(int stepAlong, int stepAround);
+    const std::vector<unsigned int>& getBorderWireIndices() const { return m_borderWireIndices; }
+
     int getNumU() const { return numU; }
     int getNumV() const { return numV; }
     bool isUClosed() const { return u_is_closed; }
@@ -571,6 +599,10 @@ private:
     // ==========================================================
     std::vector<Vertex> generatedVertices;
     std::vector<unsigned int> generatedIndices;
+    std::vector<Vertex> m_borderVertices;
+    std::vector<unsigned int> m_borderIndices;
+    std::vector<BorderRange> m_borderRanges;
+    std::vector<unsigned int> m_borderWireIndices;
     int numU = 100, numV = 100;
     bool u_is_closed = false;
     bool v_is_closed = false;
@@ -665,6 +697,7 @@ private:
     // ==========================================================
     // --- Mesh Generation & Analysis ---
     void generateParametricGrid();
+    void generateBorder();
     void detectMeshClosure();
     // Chiusura di una singola parte: valuta le equazioni agli estremi del
     // sotto-dominio della parte, non del dominio globale.

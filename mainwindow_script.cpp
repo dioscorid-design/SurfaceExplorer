@@ -158,6 +158,15 @@ void MainWindow::onRunCurrentScript()
 
     } else if (m_currentScriptMode == ScriptModeTexture) {
         if (ui->btnRunCurrentScript->text().startsWith("Stop")) {
+            // BORDO: lo Stop ferma il SOLO orologio della texture del bordo, e
+            // il gate lo protegge dai ricalcoli (applyAnimationState).
+            if (editingBorder() && ui->glWidget) {
+                ui->glWidget->setBorderTextureAnimating(false);
+                m_userStoppedBorderTexClock = true;
+                updateMasterButtonState();
+                updateScriptButtonText();
+                return;
+            }
             // AMBITO "MESH": lo Stop ferma SOLO la texture della mesh
             // selezionata, come colore/alpha/luce agiscono sulla sola parte.
             // Non si tocca il clock globale ne' m_userStoppedTexClock: le altre
@@ -195,6 +204,20 @@ void MainWindow::onRunCurrentScript()
                 }
             }
             updateMasterButtonState();   // riallinea i pulsanti -> "Run ..."
+            return;
+        }
+
+        // RUN COL BERSAGLIO BORDER sulla texture gia' applicata e animata: solo
+        // il riavvio del suo orologio, senza ricompilare lo shader.
+        if (editingBorder() && ui->glWidget
+            && !ui->glWidget->isBorderTextureAnimating()
+            && ui->glWidget->borderTextureShown()
+            && currentText.trimmed() == ui->glWidget->borderTextureCode().trimmed()
+            && hasTimeVariable(ui->glWidget->borderTextureCode())) {
+            ui->glWidget->setBorderTextureAnimating(true);
+            m_userStoppedBorderTexClock = false;
+            updateMasterButtonState();
+            updateScriptButtonText();
             return;
         }
 
@@ -897,6 +920,33 @@ void MainWindow::onApplyTextureScriptClicked()
         if (ui->glWidget) ui->glWidget->update();
         updateFlatPreviewButton();
 
+    } else if (editingBorder()) {
+        // --- RAMO C: BORDO ---
+        // Come una fascia: il codice va nel motore (getCustomColor_border nel
+        // fragment); se non compila, rebuildShader lascia in piedi lo shader
+        // precedente. Il tag //IMG: e' l'immagine del bordo.
+        if (!InputValidator::validateParametricScriptContext(this, code)) return;
+        GLWidget *gl = ui->glWidget;
+        if (!gl) return;
+        if (!imgPath.isEmpty()) code = TextureCode::withImageTagPath(code, imgPath);
+        // Scritto a mano: non e' piu' la voce della Library da cui veniva.
+        if (code.trimmed() != gl->borderTextureCode().trimmed()) gl->setBorderTextureLibName(QString());
+        gl->setBorderTexture(code, true);
+        // Run = avvio esplicito: riarma lo stop manuale e accende l'orologio
+        // se lo script usa il tempo.
+        m_userStoppedBorderTexClock = false;
+        gl->setBorderTextureAnimating(hasTimeVariable(code));
+        refreshTextureCheckbox();
+        updateTextureUIState(true, true);
+        updateMasterButtonState();
+        updateScriptButtonText();
+        syncTextureTreeSelection();
+        refreshConstants();
+        gl->update();
+        // FINE: la coda qui sotto e' di superficie e sfondo. Proseguendo, il Run
+        // del bordo riarmava e riaccendeva l'orologio della texture di
+        // SUPERFICIE (fermata a mano, ripartiva) e riaccendeva il tasto Save.
+        return;
     } else {
         // --- RAMO B: SUPERFICIE ---
         if (!InputValidator::validateParametricScriptContext(this, code)) return;
@@ -1446,6 +1496,11 @@ void MainWindow::updateScriptButtonText() {
                 texMoving = ui->glWidget->isBackgroundTextureAnimating()
                         && ui->glWidget->isBackgroundTextureEnabled()
                         && hasTimeVariable(m_scene.bgTextureCode);
+            } else if (editingBorder()) {
+                // BORDO: l'orologio della SUA texture.
+                texMoving = ui->glWidget->isBorderTextureAnimating()
+                        && ui->glWidget->borderTextureShown()
+                        && hasTimeVariable(ui->glWidget->borderTextureCode());
             } else if (ui->glWidget->activeMeshPart() >= 0) {
                 // AMBITO "MESH": il tasto mostra lo stato della PARTE, non quello
                 // globale -- stesso principio di editor, slider e radio, che
@@ -1473,7 +1528,15 @@ void MainWindow::updateScriptButtonText() {
         // modifica il testo.
         bool texCodeAnimated = hasTimeVariable(codeOnly);
 
-        if (isBackground) {
+        if (editingBorder()) {
+            ui->btnScriptMode->setText("Texture");
+            ui->btnRunCurrentScript->setText(texMoving ? "Stop Border Texture" : "Run Border Texture");
+            ui->txtScriptEditor->setEnabled(true);
+            ui->txtScriptEditor->setPlaceholderText("Write GLSL for the Border Texture.\nuv.x runs along the edge, uv.y around the tube.\nExample: return vec3(uv.x, uv.y, 0.5);");
+
+            enableRun = hasGLSLCode && (texMoving || texCodeAnimated || isModified);
+            enableSave = hasGLSLCode;
+        } else if (isBackground) {
             ui->btnScriptMode->setText("Texture");
             ui->btnRunCurrentScript->setText(texMoving ? "Stop Background Texture" : "Run Background Texture");
             ui->txtScriptEditor->setEnabled(true);

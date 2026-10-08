@@ -23,16 +23,19 @@ void MainWindow::setupRendererDock()
     m_modeGroup->addButton(ui->radioWF,    2);
     m_modeGroup->setExclusive(true);
 
-    // TARGET DI EDITING: coppia esclusiva Surface / Background. Sceglie COSA
-    // pilotano gli slider/texture/colore: la superficie o lo sfondo. NON tocca la
-    // modalità di rendering della superficie (Base/Phong/Wireframe), che resta un
-    // asse a sé nel m_modeGroup. Il bersaglio e' STATO (m_editTarget, letto con
-    // editingBackground()); i due radio ne sono la vista. radioSurface ha
-    // assorbito il vecchio radioEditSurf.
+    // TARGET DI EDITING: terna esclusiva Surface / Border / Background, in testa
+    // ai riquadri della superficie e dello sfondo (stanno in contenitori diversi:
+    // l'esclusivita' la da' il gruppo, non i genitori). Sceglie COSA pilotano gli
+    // slider/texture/colore. NON tocca la modalità di rendering della superficie
+    // (Base/Phong/Wireframe), che resta un asse a sé nel m_modeGroup. Il
+    // bersaglio e' STATO (m_editTarget, letto con editingBackground() /
+    // editingBorder()); i tre radio ne sono la vista. radioSurface ha assorbito
+    // il vecchio radioEditSurf.
     // I due color slot della texture (radioTexColor1/2) stanno in m_colorGroup a parte;
     // l'esclusività FRA i due gruppi è mantenuta a mano (vedi setColorTargetExclusive).
     m_bgTargetGroup = new QButtonGroup(this);
     m_bgTargetGroup->addButton(ui->radioSurface);
+    m_bgTargetGroup->addButton(ui->radioBorder);
     m_bgTargetGroup->addButton(ui->radioBackground);
     m_bgTargetGroup->setExclusive(true);
     // Default = editing superficie. Impostato PRIMA della connect dell'handler di
@@ -47,10 +50,36 @@ void MainWindow::setupRendererDock()
     // già onColorTargetChanged), quindi per Background non rifacciamo nulla.
     connect(m_bgTargetGroup, &QButtonGroup::buttonClicked, this, [this](QAbstractButton *btn){
         if (btn == ui->radioBackground) return;
+        // Fra Surface e Border il gestore di radioBackground non scatta: il
+        // bersaglio lo scrive il clic.
+        setEditTarget(btn == ui->radioBorder ? EditTarget::Border : EditTarget::Surface);
+        // Border col bordo spento lo accende allo spessore di default (0.50):
+        // il clic deve avere un effetto visibile. Valore esatto nel motore e
+        // nell'etichetta, slider sulla sua posizione; per spegnerlo si riporta
+        // lo slider a 0.
+        if (btn == ui->radioBorder && ui->glWidget && ui->glWidget->borderRadius() <= 0.0f
+            && ui->borderThicknessSlider->value() == 0) {
+            const float t = kBorderThicknessDisplayDefault * kBorderThicknessUnit;
+            {
+                const QSignalBlocker blocker(ui->borderThicknessSlider);
+                ui->borderThicknessSlider->setValue(sliderFromBorderThickness(t));
+            }
+            ui->glWidget->setBorderRadius(t);
+            ui->lblValBorderThickness->setText(borderThicknessText(t));
+        }
         onColorTargetChanged();
+        // Base/Phong/WireFrame e densita' mostrano ora il bersaglio nuovo, e il
+        // dock Script la sua texture (col suo tasto Run/Stop).
+        updateRenderState();
+        updateScriptButtonText();
+        syncTextureTreeSelection();
     });
 
     connect(m_modeGroup, &QButtonGroup::idClicked, this, [this](int id){
+        // Col bersaglio Border il clic e' gia' stato scritto sul bordo
+        // (onUserRenderModeChosen, dal toggled che precede): la superficie --
+        // modalita' globale, texture, editor -- non c'entra.
+        if (editingBorder()) return;
         // Click su un radio della superficie (Base/Phong/Wireframe).
         // NON tocchiamo il Background: è indipendente. Se il dock texture sta
         // attualmente editando lo sfondo (radioBackground acceso) lasciamo invariati
@@ -87,7 +116,9 @@ void MainWindow::setupRendererDock()
             // In Wireframe gli slider editano il colore uniforme delle linee: il pallino
             // di lavoro va su "Surface". updateTextureUIState sopra ha già spento Color1/2
             // (surfaceWireframe), qui assicuriamo che la tripla sia su Surface.
-            if (id == 2 && ui->radioSurface->isEnabled()) {
+            // Col bersaglio Border gli slider restano sul bordo: il wireframe
+            // non cambia nulla per lui.
+            if (id == 2 && ui->radioSurface->isEnabled() && !editingBorder()) {
                 selectSurfaceColorTarget();
             }
             onColorTargetChanged();
@@ -106,8 +137,12 @@ void MainWindow::setupRendererDock()
     connect(ui->radioBackground, &QRadioButton::toggled, this, [this](bool checked){
         // Il clic: prima lo STATO (e la vista 2D del motore), che tutto il
         // resto del dock legge. Arriva solo dai clic: il programma scrive i
-        // radio a segnali bloccati (setEditTarget).
-        setEditTarget(checked ? EditTarget::Background : EditTarget::Surface);
+        // radio a segnali bloccati (setEditTarget). In uscita il radio cliccato
+        // e' gia' acceso (il gruppo spegne questo dopo aver acceso quello): puo'
+        // essere Surface o Border.
+        setEditTarget(checked ? EditTarget::Background
+                              : ui->radioBorder->isChecked() ? EditTarget::Border
+                                                             : EditTarget::Surface);
 
         if (checked) {
             // ENTRO in editing sfondo. Lo stato della texture di superficie
@@ -351,6 +386,25 @@ void MainWindow::setupRendererDock()
         // il loro momento pulito all'uscita.
         std::optional<AbsorbChangesGuard> absorbToggle;
         if (m_uiReady) absorbToggle.emplace(this);
+        // BORDO: accende o spegne la SUA texture. Senza un codice proprio parte
+        // dalla scacchiera di default, coi suoi due colori, come una fascia.
+        if (editingBorder()) {
+            GLWidget *gl = ui->glWidget;
+            if (!gl) return;
+            QString code = gl->borderTextureCode();
+            if (checked && code.trimmed().isEmpty()) {
+                code = TextureCode::defaultMeshCode();
+                gl->setBorderTexColors(QColor::fromRgbF(0.20f, 0.80f, 0.20f), Qt::black);
+            }
+            gl->setBorderTexture(code, checked);
+            gl->setBorderTextureAnimating(checked && hasTimeVariable(code) && !m_masterStopped
+                                          && !m_userStoppedBorderTexClock);
+            updateTextureUIState(checked, true);
+            updateMasterButtonState();
+            syncTextureTreeSelection();
+            refreshConstants();
+            return;
+        }
         // ==========================================================
         // TEXTURE DELLA SOLA MESH SELEZIONATA
         // ==========================================================
@@ -909,10 +963,24 @@ void MainWindow::setupRendererDock()
         m_perfPopupActive = false;
     }, Qt::QueuedConnection);
 
-    connect(ui->btnWireUPlus,  &QPushButton::clicked, this, [this](){ ui->glWidget->increaseWireframeUDensity(); });
-    connect(ui->btnWireVPlus,  &QPushButton::clicked, this, [this](){ ui->glWidget->increaseWireframeVDensity(); });
-    connect(ui->btnWireUMinus, &QPushButton::clicked, this, [this](){ ui->glWidget->decreaseWireframeUDensity(); });
-    connect(ui->btnWireVMinus, &QPushButton::clicked, this, [this](){ ui->glWidget->decreaseWireframeVDensity(); });
+    // Col bersaglio Border le densita' sono del bordo: Density u = anelli lungo
+    // il lato, Density v = linee attorno al tubo.
+    connect(ui->btnWireUPlus,  &QPushButton::clicked, this, [this](){
+        if (editingBorder()) ui->glWidget->adjustBorderWireStep(true, -1);
+        else                 ui->glWidget->increaseWireframeUDensity();
+    });
+    connect(ui->btnWireVPlus,  &QPushButton::clicked, this, [this](){
+        if (editingBorder()) ui->glWidget->adjustBorderWireStep(false, -1);
+        else                 ui->glWidget->increaseWireframeVDensity();
+    });
+    connect(ui->btnWireUMinus, &QPushButton::clicked, this, [this](){
+        if (editingBorder()) ui->glWidget->adjustBorderWireStep(true, +1);
+        else                 ui->glWidget->decreaseWireframeUDensity();
+    });
+    connect(ui->btnWireVMinus, &QPushButton::clicked, this, [this](){
+        if (editingBorder()) ui->glWidget->adjustBorderWireStep(false, +1);
+        else                 ui->glWidget->decreaseWireframeVDensity();
+    });
 
     // Colori Default
     float defR = 0.20f, defG = 0.80f, defB = 0.20f;
@@ -965,11 +1033,24 @@ void MainWindow::setupRendererDock()
         ui->valR->setNum(r); ui->valG->setNum(g); ui->valB->setNum(b);
         QColor newColor(r, g, b);
 
-        // Due gruppi INDIPENDENTI: la coppia (Surface/Background) dice DOVE
-        // operiamo, la coppia Color1/Color2 QUALE tinta della texture editiamo. La
-        // priorità è data dalla coppia; Color1/2 scelgono solo lo slot quando il target
-        // ha una texture colorata attiva.
-        if (editingBackground()) {
+        // Due gruppi INDIPENDENTI: la terna (Surface/Border/Background) dice
+        // DOVE operiamo, la coppia Color1/Color2 QUALE tinta della texture
+        // editiamo. La priorità è data dalla terna; Color1/2 scelgono solo lo
+        // slot quando il target ha una texture colorata attiva.
+        if (editingBorder()) {
+            // Texture del bordo colorata: Color 1/2 scelgono la tinta; senza,
+            // e' il colore del bordo.
+            GLWidget *gl = ui->glWidget;
+            if (gl && gl->borderTextureShown() && activeTextureUsesColors()) {
+                if (ui->radioTexColor2->isChecked())
+                    gl->setBorderTexColors(gl->borderTexColor1(), newColor);
+                else
+                    gl->setBorderTexColors(newColor, gl->borderTexColor2());
+            } else if (gl) {
+                gl->setBorderColor(newColor);
+            }
+        }
+        else if (editingBackground()) {
             if (targetTextureOn() && activeTextureUsesColors()) {
                 // Texture di sfondo colorata: Color1/Color2 scelgono quale tinta.
                 if (ui->radioTexColor2->isChecked()) m_scene.bgTexColor2 = newColor;
@@ -1045,14 +1126,29 @@ void MainWindow::setupRendererDock()
     ui->fillLightSlider->setRange(0, 100);
     ui->fillLightSlider->setValue(0);
     ui->lblValFill->setText("0.00");
-    // Stesso aspetto degli altri slider grandi. Copiato da lightSlider (che
-    // setupBigSliders ha appena stilizzato) invece di allungare la firma di
-    // quella funzione a dieci parametri: e' lo stesso stile, senza toccare una
-    // API usata anche altrove.
+    // Stesso aspetto degli altri slider di valore (UiStyleManager::
+    // valueSliderStyle, grigio da spento) e la stessa altezza di Light.
     if (ui->lightSlider) {
-        ui->fillLightSlider->setStyleSheet(ui->lightSlider->styleSheet());
+        ui->fillLightSlider->setStyleSheet(UiStyleManager::valueSliderStyle());
         ui->fillLightSlider->setMinimumHeight(ui->lightSlider->minimumHeight());
     }
+    // SPESSORE DEL BORDO (raggio dei tubi sui lati, unita' di scena). Curva
+    // QUADRATICA, come lo spessore del guscio: i bordi utili sono sottili e la
+    // prima meta' della corsa deve regolarli finemente. 0 = nessun bordo, il
+    // default: lo shader non contiene nemmeno il codice del bordo.
+    ui->borderThicknessSlider->setRange(0, 100);
+    ui->borderThicknessSlider->setValue(0);
+    ui->lblValBorderThickness->setText(borderThicknessText(0.0f));
+    if (ui->lightSlider) {
+        ui->borderThicknessSlider->setStyleSheet(UiStyleManager::valueSliderStyle());
+        ui->borderThicknessSlider->setMinimumHeight(ui->lightSlider->minimumHeight());
+    }
+    connect(ui->borderThicknessSlider, &QSlider::valueChanged, this, [this](int val){
+        const float t = borderThicknessFromSlider(val);
+        if (ui->glWidget) ui->glWidget->setBorderRadius(t);
+        ui->lblValBorderThickness->setText(borderThicknessText(t));
+    });
+
     connect(ui->fillLightSlider, &QSlider::valueChanged, this, [this](int val){
         const float v = val * 0.012f;          // 0..100 -> 0.00..1.20
         ui->glWidget->setFillLight(v);
@@ -1997,17 +2093,37 @@ void MainWindow::updateRenderState()
     // l'editing della superficie.
     applyEmptySceneGating();
     updateSurfaceControlsGate();
+    updateBorderControlsGate();
+}
+
+void MainWindow::updateBorderControlsGate()
+{
+    const bool usable = !implicitMode();
+    if (ui->radioBorder) {
+        ui->radioBorder->setEnabled(usable);
+        // Da spento deve dire PERCHE' (regola dei controlli inerti).
+        ui->radioBorder->setToolTip(usable
+            ? tr("Edit the border: its color with the sliders below, its thickness with Border Thickness.")
+            : tr("The border follows the edges of a parametric surface: not available in ray marching."));
+    }
+    if (!usable && editingBorder()) {
+        setEditTarget(EditTarget::Surface);
+        onColorTargetChanged();
+    }
 }
 
 // COMANDI DELLA SUPERFICIE SPENTI MENTRE SI EDITA LO SFONDO (radio Background in
-// cima al dock RENDERER), fino al ritorno su Surface. Speculare a
+// testa al riquadro dello sfondo, nel dock RENDERER), fino al ritorno su Surface. Speculare a
 // updateBackgroundControlsGate. Si spengono modo di resa e densita' wireframe,
 // trasparenza, luce e Headlight: nessuno agisce sullo sfondo, e restando accesi
 // sembravano comandi dello sfondo. Restano accesi texture e Color 1/2 (in
 // Background sono quelli dello sfondo), gli slider RGB (colore dello sfondo) e
 // il FOV (camera: inquadra anche il cielo). L'ambito All/Mesh lo spegne gia'
 // updateMeshScopeEnabled.
-// panelSurface non ha altre regole e si commuta direttamente: i figli spenti di
+// I radio Surface/Border stanno nello stesso riquadro e devono restare
+// cliccabili (sono la via del ritorno): si spegne il contenitore interno
+// panelSurfaceModes, non panelSurface.
+// panelSurfaceModes non ha altre regole e si commuta direttamente: i figli spenti di
 // proposito (Wireframe in Ray Marching, densita' fuori dal wireframe, radio a
 // scena vuota) restano spenti, perche' Qt ricorda chi e' stato disabilitato
 // esplicitamente. Trasparenza, luce e Headlight hanno invece regole loro su
@@ -2017,7 +2133,7 @@ void MainWindow::updateRenderState()
 void MainWindow::updateSurfaceControlsGate()
 {
     const bool onBackground = editingBackground();
-    if (ui->panelSurface) ui->panelSurface->setEnabled(!onBackground);
+    if (ui->panelSurfaceModes) ui->panelSurfaceModes->setEnabled(!onBackground);
     if (!onBackground) return;
     for (QWidget *w : { static_cast<QWidget*>(ui->lblTrans), static_cast<QWidget*>(ui->panelSliderTrans),
                         static_cast<QWidget*>(ui->lblLight), static_cast<QWidget*>(ui->widget_2),
@@ -2306,6 +2422,27 @@ void MainWindow::setShellThicknessUI(float thickness)
 // una modifica dell'utente). Il motore lo scriviamo qui, esplicitamente, perche'
 // setValue non emette valueChanged quando il valore coincide con quello corrente
 // -- due preset di fila con la stessa luce lascerebbero la GPU non aggiornata.
+void MainWindow::setBorderUI(const GLWidget::BorderStyle &style)
+{
+    GLWidget::BorderStyle s = style;
+    s.radius = qBound(0.0f, s.radius, kBorderThicknessMax);
+    const float t = s.radius;
+    // Scena nuova: lo stop manuale della texture del bordo non vale piu'.
+    m_userStoppedBorderTexClock = false;
+    if (ui->glWidget) {
+        ui->glWidget->setBorderStyle(s);
+        // Una texture animata del bordo parte con la scena, salvo master fermo.
+        ui->glWidget->setBorderTextureAnimating(!m_masterStopped && ui->glWidget->borderTextureShown()
+                                                && hasTimeVariable(ui->glWidget->borderTextureCode()));
+    }
+    if (ui->borderThicknessSlider) {
+        const bool old = ui->borderThicknessSlider->blockSignals(true);
+        ui->borderThicknessSlider->setValue(sliderFromBorderThickness(t));
+        ui->borderThicknessSlider->blockSignals(old);
+    }
+    if (ui->lblValBorderThickness) ui->lblValBorderThickness->setText(borderThicknessText(t));
+}
+
 void MainWindow::setFillLightUI(float v)
 {
     const float val = qBound(0.0f, v, 1.20f);
@@ -2732,6 +2869,9 @@ void MainWindow::applyPendingMeshAppearance()
 // gestore del clic.
 int MainWindow::shownRenderMode() const
 {
+    // Col bersaglio Border i radio mostrano la modalita' del bordo.
+    if (editingBorder() && ui->glWidget && !implicitMode())
+        return ui->glWidget->borderRenderMode();
     if (ui->glWidget && !implicitMode()
         && ui->glWidget->activeMeshPart() >= 0 && ui->glWidget->meshPartCount() > 1)
         return ui->glWidget->activeMeshEffectiveRenderMode();
@@ -3019,6 +3159,12 @@ void MainWindow::onUserRenderModeChosen()
     const int mode = ui->radioWF->isChecked()    ? 2
                    : ui->radioPhong->isChecked() ? 1
                                                  : 0;
+
+    // Bersaglio Border: la modalita' e' del bordo, e solo sua.
+    if (editingBorder()) {
+        ui->glWidget->setBorderRenderMode(mode);
+        return;
+    }
 
     const bool editingSingleMesh =
         (ui->glWidget->activeMeshPart() >= 0 && ui->glWidget->meshPartCount() > 1);

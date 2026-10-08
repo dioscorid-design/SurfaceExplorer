@@ -717,14 +717,26 @@ void UiStyleManager::setupBigSliders(QSlider* r, QSlider* g, QSlider* b, QSlider
     if(r) r->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #FF6666; }");
     if(g) g->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #66FF66; }");
     if(b) b->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #6666FF; }");
-    if(alpha) alpha->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #BBBBBB; }");
-    if(light) light->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #FFFFFF; }");
 
-    // Nuovi slider di velocità
-    if(speed3D) speed3D->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #AAAAAA; }");
-    if(speed4D) speed4D->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #AAAAAA; }");
-    if(fov) fov->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #AAAAAA; }");
-    if(fov4D) fov4D->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #AAAAAA; }");
+    // SLIDER DI VALORE del dock Renderer (Transparency, Light, FOV; Headlight
+    // e Border Thickness copiano lo stile di Light): tutti uguali, evidenziati
+    // da accesi e GRIGI da spenti. Prima Light era bianca e Transparency/FOV
+    // grigine, e nessuno stile diceva come disegnare lo slider spento: Headlight
+    // spenta sembrava accesa, Transparency e FOV accese sembravano spente.
+    // I colori (R/G/B) restano coi loro: il colore e' il loro significato.
+    const QString valueStyle = valueSliderStyle();
+    if(alpha) alpha->setStyleSheet(valueStyle);
+    if(light) light->setStyleSheet(valueStyle);
+    if(fov) fov->setStyleSheet(valueStyle);
+    if(fov4D) fov4D->setStyleSheet(valueStyle);
+
+    // Velocita' dei path (dock 3D e 4D): il loro grigio, piu' l'aspetto spento.
+    const QString disabledStyle = R"(
+        QSlider::groove:horizontal:disabled { background: #4A4A4A; border: 1px solid #555555; }
+        QSlider::handle:horizontal:disabled { background: #6E6E6E; border: 1px solid #555555; }
+    )";
+    if(speed3D) speed3D->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #AAAAAA; }" + disabledStyle);
+    if(speed4D) speed4D->setStyleSheet(baseStyle + "QSlider::groove:horizontal { background: #AAAAAA; }" + disabledStyle);
 
     int minH = 40;
     if(r) r->setMinimumHeight(minH);
@@ -736,6 +748,16 @@ void UiStyleManager::setupBigSliders(QSlider* r, QSlider* g, QSlider* b, QSlider
     if(speed4D) speed4D->setMinimumHeight(minH);
     if(fov) fov->setMinimumHeight(minH);
     if(fov4D) fov4D->setMinimumHeight(minH);
+}
+
+QString UiStyleManager::valueSliderStyle()
+{
+    return QStringLiteral(R"(
+        QSlider::groove:horizontal { border: 1px solid #999; height: 12px; border-radius: 6px; margin: 2px 0; background: #FFFFFF; }
+        QSlider::handle:horizontal { background: white; border: 1px solid #5c5c5c; width: 30px; height: 30px; margin: -10px 0; border-radius: 15px; }
+        QSlider::groove:horizontal:disabled { background: #4A4A4A; border: 1px solid #555555; }
+        QSlider::handle:horizontal:disabled { background: #6E6E6E; border: 1px solid #555555; }
+    )");
 }
 
 void UiStyleManager::applyInputFieldsStyle(const QList<QWidget*>& fields) {

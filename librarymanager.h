@@ -82,6 +82,28 @@ struct LibraryItem {
     // Assente nei preset precedenti allo slider -> 0, cioe' l'illuminazione
     // storica: quei preset si riaprono esattamente come sono stati salvati.
     float fillLight = 0.0f;
+    // BORDO della superficie (parametrico): raggio dei tubi sui lati del
+    // dominio, 0 = nessun bordo, e il loro colore. Chiave "border" assente ->
+    // nessun bordo: i preset precedenti si riaprono come sono stati salvati.
+    float borderThickness = 0.0f;
+    QColor borderColor = QColor::fromRgbF(1.0f, 1.0f, 1.0f);
+    // Modalita' propria del bordo (0 Base, 1 Phong, 2 Wireframe) e densita'
+    // del suo wireframe: anello ogni N punti lungo il lato, linea ogni N lati
+    // attorno al tubo. Gli stessi default di GLWidget::BorderStyle.
+    int borderMode = 0;
+    int borderWireAlong = 8;
+    int borderWireAround = 2;
+    // Texture del bordo (dalla Library): codice o tag //IMG:, accesa, colori,
+    // inquadratura e nome della voce. Gli stessi default di
+    // GLWidget::BorderStyle.
+    QString borderTexCode;
+    bool borderTexEnabled = false;
+    QColor borderTexCol1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
+    QColor borderTexCol2 = QColor(Qt::black);
+    float borderTexZoom = 1.0f;
+    float borderTexPanX = 0.0f, borderTexPanY = 0.0f;
+    float borderTexRotation = 0.0f;
+    QString borderTexLibName;
     bool usesCrossSection = false;
     QString crossSectionEq;
     // MARCHER del ray marching: false = sphere tracing storico ("Fast"), true =

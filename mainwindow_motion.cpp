@@ -294,7 +294,7 @@ void MainWindow::onResetClicked()
     // mouse). Che cosa si muove lo dice la stessa sede del master (masterActivity).
     const MasterActivity act = masterActivity();
     if (!act.eqAvailable && !act.eqRunning && !act.texAvailable && !act.bgAvailable
-        && !act.cameraAvailable) {
+        && !act.borderAvailable && !act.cameraAvailable) {
         resetView();
         resetMotions(camPath);
         return;

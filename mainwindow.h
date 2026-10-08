@@ -148,12 +148,16 @@ private slots:
     // ScopeTexture/ScopeSound guarda il solo flag di quel modulo e punta
     // diritto al suo ramo. false se l'utente annulla: non si procede.
     bool confirmDiscardUnsaved(DiscardScope scope);
-    // La texture di libreria si applica in una modalita' diversa da quella in
-    // scena, quindi sceglierla cambia modalita' e sostituisce la superficie
-    // con quella di default. Mai per lo sfondo ne' per un'immagine, che valgono
-    // in entrambe. Unica regola: la usano il click nella Library (per non
-    // chiedere due volte) e handleTextureSelection.
-    bool textureNeedsModeSwitch(const LibraryItem &data) const;
+    // La texture di libreria non puo' andare sul bersaglio corrente: le Ray
+    // Marching (funzioni di un punto 3D) non vanno su una superficie
+    // parametrica, sullo sfondo o sul bordo; le parametriche non vanno su una
+    // superficie Ray Marching. Le immagini vanno ovunque. Unica regola: la
+    // usano il click nella Library (niente domanda sul lavoro non salvato per
+    // una texture che non verra' applicata) e handleTextureSelection.
+    bool textureIncompatible(const LibraryItem &data) const;
+    // Se incompatibile: un avviso, il focus della Library torna sulla texture
+    // in vigore, e true (la scena resta com'e').
+    bool refuseIncompatibleTexture(const LibraryItem &data);
     // Codice della superficie da cui si deducono le sue costanti A-F (equazioni
     // o script, secondo il modo). Unica sede, vedi la definizione.
     QString surfaceConstantSource() const;
@@ -741,6 +745,7 @@ private:
         SlotSurface,            // script della superficie (parametrica o implicita)
         SlotSurfaceTexture,     // texture parametrica di superficie
         SlotMeshTexture,        // texture della fascia selezionata
+        SlotBorderTexture,      // texture del bordo (bersaglio Border)
         SlotBackgroundTexture,  // texture di sfondo
         SlotSound               // suono
     };
@@ -767,6 +772,12 @@ private:
     mutable QString m_meshTextureScriptText;
     mutable QString m_meshTextureScriptBase;   // texture efficace della fascia al caricamento dello slot
     mutable int m_meshTextureScriptPart = -1;
+    // Slot del BORDO, stesso schema: la texture del bordo sta nel motore
+    // (GLWidget::borderTextureCode), lo slot e' il testo in lavorazione e si
+    // ricarica quando la texture del bordo cambia.
+    void syncBorderTextureSlot() const;
+    mutable QString m_borderTextureScriptText;
+    mutable QString m_borderTextureScriptBase;
     // Il testo che la vista ha messo nell'editor (o che l'utente vi ha scritto):
     // refreshScriptEditor confronta con questo, non col contenuto del widget,
     // che normalizza gli a capo e riaprirebbe il confronto a ogni giro.
@@ -1114,6 +1125,10 @@ private:
     // Non distingue QUALE fascia: e' un gate sul ricalcolo di massa, non lo
     // stato dei singoli orologi, che vivono in MeshPart::texAnimating.
     bool m_userStoppedMeshTexClock = false;
+    // Stesso ruolo per l'orologio della texture del BORDO: alzato dallo Stop
+    // del dock Script col bersaglio Border, riarmato da master Start, Run,
+    // Library e da una scena nuova (setBorderUI).
+    bool m_userStoppedBorderTexClock = false;
 
     // Moto CAMERA (path 4D/3D o rotazioni GO) fermato ESPLICITAMENTE: STOP su
     // Departure, pausa del GO o master STOP. Senza questo flag un commit di
@@ -1447,6 +1462,10 @@ private:
     void setMarcherUI(bool precise);
     // Luce di riempimento: motore + slider + etichetta, a segnali bloccati.
     void setFillLightUI(float v);
+    // BORDO (dock Renderer): spessore, colore, modalita' e densita' nel motore,
+    // slider ed etichetta a segnali bloccati. Per load e reset, che non sono
+    // modifiche dell'utente.
+    void setBorderUI(const GLWidget::BorderStyle &style);
     // Superficie di default del sotto-tab Cross Section (T^3, 3-toro): stessa
     // idea della sfera di default per il tab 3D, ma per l'equazione a 4
     // variabili (x,y,z,p). Riusata sia da resetScene (arrivo su Implicit) sia
@@ -1547,17 +1566,22 @@ private:
     // Spessore -> slider (range e valore, a segnali bloccati) e motore
     // (u_tubeRadius).
     void pushTubeThickness();
-    // IL BERSAGLIO Surface / Background: su cosa agiscono slider colore,
-    // checkbox Texture, Library, dock Script e vista 2D. E' STATO; i due radio
-    // e il bersaglio della vista 2D nel motore (GLWidget::setFlatViewTarget)
-    // ne sono le viste. Chi vuole sapere dove si edita chiede a
-    // editingBackground(), non al radio.
-    enum class EditTarget { Surface, Background };
+    // IL BERSAGLIO Surface / Border / Background: su cosa agiscono slider
+    // colore, checkbox Texture, Library, dock Script e vista 2D. E' STATO; i tre
+    // radio, lo slider dello spessore del bordo e il bersaglio della vista 2D
+    // nel motore (GLWidget::setFlatViewTarget) ne sono le viste. Chi vuole
+    // sapere dove si edita chiede a editingBackground() / editingBorder(), non
+    // al radio. Col bersaglio Border gli slider RGB editano il colore del bordo
+    // (o il Color 1/2 della sua texture), lo slider Border Thickness il suo
+    // spessore, il checkbox Texture e la Library la sua texture.
+    enum class EditTarget { Surface, Border, Background };
     EditTarget m_editTarget = EditTarget::Surface;
     bool editingBackground() const { return m_editTarget == EditTarget::Background; }
+    bool editingBorder() const { return m_editTarget == EditTarget::Border; }
     // Unico scrittore del bersaglio e delle sue viste (radio a segnali
-    // bloccati, vista 2D). NON fa la transizione del dock (editor, checkbox,
-    // colori, comandi spenti): quella la fa il gestore del clic, o chi chiama.
+    // bloccati, slider dello spessore, vista 2D). NON fa la transizione del
+    // dock (editor, checkbox, colori, comandi spenti): quella la fa il gestore
+    // del clic, o chi chiama.
     void setEditTarget(EditTarget target);
 
     SceneState m_scene;
@@ -1906,12 +1930,13 @@ private:
     // applicate) e si riallinea in coda al load.
     bool commitSurfaceTextureCode(const QString &code);
     // LA SCELTA DI UNA TEXTURE DALLA LIBRARY (handleTextureSelection), a passi:
-    // sullo sfondo e basta; altrimenti l'eventuale cambio di modalita' (false =
-    // annullato), la texture parametrica o Ray Marching (false = finito li':
-    // messa su una fascia, o non compila), gli orologi della texture e la coda
-    // (tasti, colori, ancora, messaggio, costanti).
+    // una texture incompatibile si rifiuta subito (refuseIncompatibleTexture);
+    // sullo sfondo o sul bordo e basta; altrimenti la texture parametrica o Ray
+    // Marching (false = finito li': messa su una fascia, o non compila), gli
+    // orologi della texture e la coda (tasti, colori, ancora, messaggio,
+    // costanti).
     void applyLibraryTextureToBackground(const LibraryItem &data);
-    bool switchModeForLibraryTexture(const LibraryItem &data, bool texIsImplicit);
+    void applyLibraryTextureToBorder(const LibraryItem &data);
     bool applyLibraryTextureParametric(const LibraryItem &data, const QString &imgSrc,
                                        bool texGoesToMesh);
     bool applyLibraryTextureRM(const LibraryItem &data, const QString &imgSrc);
@@ -1961,15 +1986,19 @@ private:
         bool eqAvailable = false, eqRunning = false;          // geometria con 't', flusso geodetico
         bool texAvailable = false, texRunning = false;        // texture di superficie e delle fasce
         bool bgAvailable = false, bgRunning = false;          // texture di sfondo
+        // Texture del BORDO: un modulo a se', col suo orologio. Sommata alla
+        // texture di superficie la faceva risultare "in moto" anche ferma, e
+        // il master diceva STOP con un modulo spento.
+        bool borderAvailable = false, borderRunning = false;
         bool cameraAvailable = false, cameraRunning = false;  // rotazioni e path (uno alla volta)
         bool audioAvailable = false, audioRunning = false;
         bool anyRunning() const {
-            return eqRunning || texRunning || bgRunning || cameraRunning || audioRunning;
+            return eqRunning || texRunning || bgRunning || borderRunning || cameraRunning || audioRunning;
         }
         bool allRunning() const {
             return (!eqAvailable || eqRunning) && (!texAvailable || texRunning)
-                && (!bgAvailable || bgRunning) && (!cameraAvailable || cameraRunning)
-                && (!audioAvailable || audioRunning);
+                && (!bgAvailable || bgRunning) && (!borderAvailable || borderRunning)
+                && (!cameraAvailable || cameraRunning) && (!audioAvailable || audioRunning);
         }
     };
     MasterActivity masterActivity() const;
@@ -2029,6 +2058,9 @@ private:
     // Il contrario: comandi della SUPERFICIE spenti col bersaglio Background.
     // Ultima chiamata di updateRenderState (vedi la definizione).
     void updateSurfaceControlsGate();
+    // Il bordo e' dei lati del dominio parametrico: in Ray Marching il radio
+    // Border si spegne, e col bersaglio Border si torna su Surface.
+    void updateBorderControlsGate();
     // COMANDO: l'utente ha cliccato un radio Base/Phong/Wireframe. E' l'unico
     // punto che puo' scrivere una modalita' PROPRIA sulla mesh selezionata; con
     // "All" agisce sul globale come da sempre. Tenuto separato dal DISPLAY (i

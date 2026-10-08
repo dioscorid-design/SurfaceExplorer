@@ -604,6 +604,24 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
     // Luce di riempimento (dock Renderer). Senza, lo slider non tornava mai
     // indietro: il valore restava quello della scena precedente.
     d.fillLight = gl->fillLight();
+    // Bordo (dock Renderer): il motore ne tiene l'unica copia.
+    {
+        const GLWidget::BorderStyle b = gl->borderStyle();
+        d.borderThickness = b.radius;
+        d.borderColor = b.color;
+        d.borderMode = b.mode;
+        d.borderWireAlong = b.wireAlong;
+        d.borderWireAround = b.wireAround;
+        d.borderTexCode = b.texCode;
+        d.borderTexEnabled = b.texEnabled;
+        d.borderTexCol1 = b.texCol1;
+        d.borderTexCol2 = b.texCol2;
+        d.borderTexZoom = b.texZoom;
+        d.borderTexPanX = b.texPan.x();
+        d.borderTexPanY = b.texPan.y();
+        d.borderTexRotation = b.texRotation;
+        d.borderTexLibName = b.texLibName;
+    }
     d.use4DLighting = gl->is4DActive();
     if (d.isImplicitMode) {
         // Shell/Solid da implicitShellSelected(), il punto unico che legge lo
@@ -1105,10 +1123,18 @@ void PresetSerializer::saveTexture(const QString &path)
     // prima si chiedeva (e si scriveva nel preset) quello della texture di
     // superficie anche salvando lo sfondo.
     bool isBg = m_mainWindow->editingBackground();
-    QString &hintRef  = isBg ? m_mainWindow->m_currentBgTextureHintText
+    // Col bersaglio Border si salva la texture del BORDO. Non ha un messaggio
+    // suo da conservare: si chiede come per le altre, su una variabile locale.
+    const bool isBorder = m_mainWindow->editingBorder();
+    QString borderHint;
+    float borderHintSecs = 0.0f;
+    QString &hintRef  = isBorder ? borderHint
+                      : isBg ? m_mainWindow->m_currentBgTextureHintText
                              : m_mainWindow->m_currentTextureHintText;
-    float   &hintSecs = isBg ? m_mainWindow->m_currentBgTextureHintSeconds
+    float   &hintSecs = isBorder ? borderHintSecs
+                      : isBg ? m_mainWindow->m_currentBgTextureHintSeconds
                              : m_mainWindow->m_currentTextureHintSeconds;
+    GLWidget *gl = m_mainWindow->ui->glWidget;
     if (!askSceneHint(m_mainWindow, &hintRef, "texture"))
         return;
 
@@ -1125,7 +1151,14 @@ void PresetSerializer::saveTexture(const QString &path)
     // texture di fascia la faceva diventare la texture di superficie.
     // Lo SFONDO non dipende dal modo (ha il suo shader): in Ray Marching col
     // bersaglio Background si salvava il campo della texture di superficie.
-    if (isImplicit && !isBg) {
+    if (isBorder) {
+        // BORDO: cio' che il dock Script mostra (lo slot del bordo) o, col dock
+        // su un altro modulo, il codice nel motore. Sempre parametrico.
+        currentCode = (m_mainWindow->m_currentScriptMode == MainWindow::ScriptModeTexture)
+                      ? m_mainWindow->scriptText(m_mainWindow->shownScriptSlot())
+                      : (gl ? gl->borderTextureCode() : QString());
+        root["isImplicitMode"] = false;
+    } else if (isImplicit && !isBg) {
         // Se siamo in Ray Marching salviamo entrambi i campi
         currentCode = m_mainWindow->m_scene.rm.texture;
         root["displacement"] = m_mainWindow->m_scene.rm.displacement;
@@ -1146,12 +1179,21 @@ void PresetSerializer::saveTexture(const QString &path)
     // JSON -> al reload appariva l'ultima immagine caricata, non quella salvata.
     // Prima togliamo eventuali //IMG: gia' presenti nel codice base per evitare
     // duplicati, poi lo rimettiamo pulito in cima.
+    // Il bordo: la SUA immagine, dal tag del codice salvato o da quello nel
+    // motore (non quella della superficie, che campiona solo in mancanza).
+    QString borderImage;
+    if (isBorder) {
+        borderImage = GLWidget::imagePathInTextureCode(currentCode);
+        if (borderImage.isEmpty() && gl)
+            borderImage = GLWidget::imagePathInTextureCode(gl->borderTextureCode());
+    }
     QRegularExpression imgRe(R"(^\s*//IMG:.*$\n?)", QRegularExpression::MultilineOption);
     currentCode.remove(imgRe);
     // L'immagine del bersaglio: lo sfondo ha il suo percorso (prima si metteva
     // quella della superficie anche salvando lo sfondo).
-    const QString imagePath = isBg ? m_mainWindow->backgroundImagePath()
-                            : m_mainWindow->surfaceImagePath();
+    const QString imagePath = isBorder ? borderImage
+                            : isBg ? m_mainWindow->backgroundImagePath()
+                                   : m_mainWindow->surfaceImagePath();
     if (!imagePath.isEmpty()) {
         currentCode = "//IMG:" + imagePath + "\n" + currentCode.trimmed();
     }
@@ -1159,7 +1201,17 @@ void PresetSerializer::saveTexture(const QString &path)
     if (currentCode.trimmed().isEmpty()) currentCode = "// Texture Preset";
     root["code"] = currentCode;
 
-    if (m_mainWindow->ui->glWidget) {
+    if (isBorder && gl) {
+        // Inquadratura e colori della texture del BORDO.
+        const GLWidget::BorderStyle b = gl->borderStyle();
+        root["pan_x"] = (double)b.texPan.x();
+        root["pan_y"] = (double)b.texPan.y();
+        root["zoom"] = (double)b.texZoom;
+        root["rotation"] = (double)b.texRotation;
+        root["hasCustomColors"] = true;
+        root["color1"] = b.texCol1.name();
+        root["color2"] = b.texCol2.name();
+    } else if (m_mainWindow->ui->glWidget) {
         QVector2D pan = m_mainWindow->ui->glWidget->getFlatPan();
         root["pan_x"] = (double)pan.x();
         root["pan_y"] = (double)pan.y();

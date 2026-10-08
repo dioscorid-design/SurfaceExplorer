@@ -196,14 +196,13 @@ bool MainWindow::confirmLibraryClick(QTreeWidget *src, QTreeWidgetItem *item)
         // qui della scena intera (cosa che una texture pure cambia) faceva
         // uscire un popup a ogni modifica, anche quando la texture non era
         // stata toccata.
-        // ...tranne quando la texture fa cambiare modalita': allora si perde
-        // anche la SCENA, e lo chiede switchModeForLibraryTexture con UN
-        // popup che elenca texture, scena e suono e dice perche'. Chiedere
-        // anche qui faceva due popup, e il secondo riproponeva la texture.
+        // ...tranne quando la texture non puo' andare sul bersaglio: verra'
+        // rifiutata con un avviso (refuseIncompatibleTexture) e nulla cambia,
+        // quindi non c'e' niente da difendere.
         const QVariant texIdx = item->data(0, Qt::UserRole + 1);
-        const bool switchesMode = texIdx.isValid()
-            && textureNeedsModeSwitch(m_libraryManager.getTexture(texIdx.toInt()));
-        if (!switchesMode && !confirmDiscardUnsaved(ScopeTexture)) {
+        const bool incompatible = texIdx.isValid()
+            && textureIncompatible(m_libraryManager.getTexture(texIdx.toInt()));
+        if (!incompatible && !confirmDiscardUnsaved(ScopeTexture)) {
             // Annullato: l'item cliccato e' gia' selezionato (la selezione
             // la fa il click) e indicherebbe una texture che non e' stata
             // caricata. Si rimette il focus su quella realmente in vigore,
@@ -282,6 +281,12 @@ void MainWindow::clearOtherLibraryTrees(QTreeWidget *src)
 
 bool MainWindow::libraryTextureIsActive(const LibraryItem &data)
 {
+    // BORDO: niente ramo del riclic (pensato per superficie, fasce e sfondo):
+    // la voce si riapplica sempre al bordo. Senza, una texture uguale a quella
+    // della superficie veniva presa per un riclic sulla superficie e al bordo
+    // non arrivava.
+    if (editingBorder()) return false;
+
     // 1. Recuperiamo il codice attualmente in uso nel tab attivo
     QString activeCode;
     if (editingBackground()) {

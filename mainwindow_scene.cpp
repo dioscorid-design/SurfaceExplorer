@@ -760,6 +760,7 @@ void MainWindow::resetAppearanceForNewScene()
         ui->lightSlider->setValue(100);
         ui->lightSlider->blockSignals(oldLight);
         setFillLightUI(0.0f);   // come la luce principale: torna al default
+        setBorderUI(GLWidget::BorderStyle());   // niente bordo, aspetto di default
         ui->lblValLight->setText("100 %");
         if (ui->glWidget) ui->glWidget->setLightIntensity(1.0f);
     }
@@ -1547,6 +1548,8 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // Luce di riempimento: preset senza la chiave -> 0 (il parser mette gia'
     // quel default), cioe' l'illuminazione con cui sono stati salvati.
     setFillLightUI(d.fillLight);
+    // Bordo: preset senza la chiave -> nessun bordo (default del parser).
+    setBorderUI(borderStyleOf(d));
 
     onColorTargetChanged();
 
@@ -2420,6 +2423,7 @@ void MainWindow::applyRecordSpeedsAndAngles(const LibraryItem &data)
 
     ui->lightSlider->setValue(qRound(data.lightIntensity * 100.0f));
     setFillLightUI(data.fillLight);
+    setBorderUI(borderStyleOf(data));
 
     int savedMode = (data.lightingMode != -1) ? data.lightingMode : 0;
     bool want4D = false;

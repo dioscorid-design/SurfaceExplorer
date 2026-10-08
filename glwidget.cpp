@@ -317,6 +317,12 @@ void GLWidget::syncPartImages(QRhiResourceUpdateBatch *resourceUpdates)
         const QString path = imagePathInTextureCode(p.textureCode);
         if (!path.isEmpty() && path != m_surfaceImagePath) used.insert(path);
     }
+    // L'immagine della texture del BORDO vive nella stessa cache: stessi
+    // binding, e una sola copia se coincide con quella di una fascia.
+    if (m_borderRadius > 0.0f) {
+        const QString path = imagePathInTextureCode(m_borderTexCode);
+        if (!path.isEmpty() && path != m_surfaceImagePath) used.insert(path);
+    }
 
     for (auto it = m_partImages.begin(); it != m_partImages.end(); ) {
         if (used.contains(it.key())) { ++it; continue; }
@@ -428,6 +434,15 @@ void GLWidget::initialize(QRhiCommandBuffer *cb)
 
     m_wireframeIbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, maxIndexSize);
     m_wireframeIbo->create();
+
+    // Bordo: piccolo, cresce al primo upload che non ci sta.
+    m_borderVbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, 65536 * sizeof(Vertex));
+    m_borderVbo->create();
+    m_borderIbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, 262144 * sizeof(unsigned int));
+    m_borderIbo->create();
+    m_borderWireIbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, 65536 * sizeof(unsigned int));
+    m_borderWireIbo->create();
+    m_borderUploaded = false;
 
     // --- 3. CREAZIONE TEXTURE E BINDINGS ---
     // A. Creiamo la texture "tappabuchi" (scacchiera: serve il cb per l'upload)
@@ -804,6 +819,8 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // Raggio del tubo (sotto-tab Tubes): uniform anche lui, lo slider dello
     // spessore e' immediato.
     m_uboData.u_tubeRadius = m_tubeRadius;
+    m_uboData.u_borderRadius = m_borderRadius;
+    m_uboData.u_isBorder = 0;   // solo i blocchi del bordo lo accendono
 
     // ==========================================================
     // AGGIORNAMENTO BUFFER PRINCIPALE (multi-mesh)
@@ -815,11 +832,15 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // esattamente cio' che scriveva prima.
     const std::vector<MeshPart> &uboParts = engine->getMeshParts();
     const int uboPartCount = (int)uboParts.size();
+    // Col bordo acceso i blocchi raddoppiano: dopo quelli delle parti, uno di
+    // bordo per parte (vedi sotto).
+    const bool borderOn = (m_borderRadius > 0.0f && m_engineMode == ModeParametric);
+    const int uboPartSlots = std::max(1, uboPartCount);
 
     // Cresce l'UBO se lo script ha dichiarato piu' parti della capienza attuale.
     // ensureUboCapacity riaggancia i binding in place (senza distruggerli),
     // quindi le pipeline restano valide e non serve ricostruirle.
-    ensureUboCapacity(std::max(1, uboPartCount));
+    ensureUboCapacity(uboPartSlots * (borderOn ? 2 : 1));
     ensureDynamicBindings(m_surfaceTexture ? m_surfaceTexture : m_dummyTexture);
     // Immagini proprie delle fasce: prima dei blocchi, che ne dipendono (u_noImage).
     syncPartImages(resourceUpdates);
@@ -1001,6 +1022,51 @@ void GLWidget::render(QRhiCommandBuffer *cb)
 
             resourceUpdates->updateDynamicBuffer(m_ubo, k * m_uboBlockStride,
                                                  sizeof(UboData), &partUbo);
+        }
+    }
+
+    // BORDO: un blocco per parte, dopo quelli delle parti (indice
+    // uboPartSlots + k). Del blocco della parte servono il dominio e
+    // u_meshIndex -- gli script scelgono la geometria leggendo `mesh` -- il
+    // resto e' del bordo: il suo colore, opaco, senza texture, e la sua
+    // modalita' (Base, Phong o Wireframe), indipendente dalla superficie.
+    if (borderOn) {
+        for (int k = 0; k < uboPartSlots; ++k) {
+            UboData borderUbo = m_uboData;
+            if (k < uboPartCount) {
+                const MeshPart &mp = uboParts[k];
+                borderUbo.u_min = mp.uMin;
+                borderUbo.u_max = mp.uMax;
+                borderUbo.v_min = mp.vMin;
+                borderUbo.v_max = mp.vMax;
+                borderUbo.u_meshIndex = (float)mp.meshIndex;
+            }
+            borderUbo.u_isBorder = 1;
+            borderUbo.color = QVector3D(m_borderColor.redF(), m_borderColor.greenF(),
+                                        m_borderColor.blueF());
+            borderUbo.alpha = 1.0f;
+            // TEXTURE DEL BORDO: colore base a bianco (il fragment compone
+            // color * texture), i suoi due colori, la sua inquadratura, il suo
+            // orologio e la sua immagine, se ne ha una (altrimenti campiona
+            // quella della superficie, come una fascia senza immagine propria).
+            const bool borderTex = borderTextureShown();
+            borderUbo.useTexture = borderTex ? 1 : 0;
+            if (borderTex) borderUbo.color = QVector3D(1.0f, 1.0f, 1.0f);
+            borderUbo.col1 = QVector3D(m_borderTexCol1.redF(), m_borderTexCol1.greenF(), m_borderTexCol1.blueF());
+            borderUbo.col2 = QVector3D(m_borderTexCol2.redF(), m_borderTexCol2.greenF(), m_borderTexCol2.blueF());
+            borderUbo.zoom = m_borderTexZoom;
+            borderUbo.center = m_borderTexPan;
+            borderUbo.rotation = m_borderTexRotation;
+            borderUbo.dummyZero.setX(kClockOrigin + m_borderTimeTex);
+            if (borderBindings() != (m_bindingsDyn ? m_bindingsDyn : m_bindings))
+                borderUbo.u_noImage = 0;
+            // Base / Phong / Wireframe del BORDO, non della superficie: in
+            // wireframe il fragment esce col colore pieno, in Phong accende la
+            // speculare (che altrove e' un flag unico della figura).
+            borderUbo.renderMode = m_borderRenderMode;
+            borderUbo.useSpecular = (m_borderRenderMode == 1) ? 1 : 0;
+            resourceUpdates->updateDynamicBuffer(m_ubo, (uboPartSlots + k) * m_uboBlockStride,
+                                                 sizeof(UboData), &borderUbo);
         }
     }
 
@@ -1221,6 +1287,45 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 m_indexCount = indices.size();
             }
             meshNeedsUpdate = false;
+            // Il bordo segue le parti appena rigenerate.
+            m_borderUploaded = false;
+        }
+
+        // BORDO: i suoi buffer, solo quando si disegna (a raggio 0 non serve
+        // caricarli; li ricarica il primo frame col bordo acceso).
+        if (!m_borderUploaded && m_borderRadius > 0.0f && m_borderVbo && m_borderIbo) {
+            const auto &bv = engine->getBorderVertices();
+            const auto &bi = engine->getBorderIndices();
+            if (!bv.empty() && !bi.empty()) {
+                const int vSize = int(bv.size() * sizeof(Vertex));
+                const int iSize = int(bi.size() * sizeof(unsigned int));
+                if (m_borderVbo->size() < vSize) {
+                    m_borderVbo->destroy(); delete m_borderVbo;
+                    m_borderVbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, vSize * 1.5);
+                    m_borderVbo->create();
+                }
+                if (m_borderIbo->size() < iSize) {
+                    m_borderIbo->destroy(); delete m_borderIbo;
+                    m_borderIbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, iSize * 1.5);
+                    m_borderIbo->create();
+                }
+                resourceUpdates->updateDynamicBuffer(m_borderVbo, 0, vSize, bv.data());
+                resourceUpdates->updateDynamicBuffer(m_borderIbo, 0, iSize, bi.data());
+
+                // Linee del wireframe, con la densita' corrente.
+                engine->buildBorderWire(m_borderWireAlong, m_borderWireAround);
+                const auto &bw = engine->getBorderWireIndices();
+                const int wSize = int(bw.size() * sizeof(unsigned int));
+                if (wSize > 0 && m_borderWireIbo) {
+                    if (m_borderWireIbo->size() < wSize) {
+                        m_borderWireIbo->destroy(); delete m_borderWireIbo;
+                        m_borderWireIbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, wSize * 1.5);
+                        m_borderWireIbo->create();
+                    }
+                    resourceUpdates->updateDynamicBuffer(m_borderWireIbo, 0, wSize, bw.data());
+                }
+            }
+            m_borderUploaded = true;
         }
 
         // Stesso trattamento del solido: a indici vuoti il ramo di upload non
@@ -1254,6 +1359,19 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 cb->setGraphicsPipeline(m_bgPipeline);
                 cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
                 cb->setShaderResources(m_bgBindings);
+                const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
+                cb->setVertexInput(0, 1, &vbufBinding);
+                cb->draw(6);
+            } else if (m_flatViewTarget == 2 && m_borderRadius > 0.0f && m_pipelineOpaque && m_bgVbo) {
+                // TEXTURE DEL BORDO in 2D: lo stesso quadrato, col blocco di
+                // uniform del bordo (u_isBorder: il fragment sceglie la sua
+                // texture; colori, inquadratura e orologio suoi) e la sua
+                // immagine. Il blocco e' quello del bordo della prima parte.
+                cb->setGraphicsPipeline(m_pipelineOpaque);
+                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+                const int partSlots = std::max(1, (int)engine->getMeshParts().size());
+                const QRhiCommandBuffer::DynamicOffset dynOfs0(0, partSlots * m_uboBlockStride);
+                cb->setShaderResources(borderBindings(), 1, &dynOfs0);
                 const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
                 cb->setVertexInput(0, 1, &vbufBinding);
                 cb->draw(6);
@@ -1323,6 +1441,30 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 for (const MeshPart &p : parts) {
                     if (partIsWireframe(p)) anyWireframe = true;
                     else                    anySolid = true;
+                }
+            }
+
+            // BORDO, per primo: e' opaco e scrive la profondita', quindi le
+            // parti trasparenti disegnate dopo lo lasciano vedere attraverso e
+            // il wireframe ne resta occluso dove gli passa dietro. Ogni parte
+            // col suo blocco di bordo (uboPartSlots + indice della parte).
+            if (m_borderRadius > 0.0f && m_borderRenderMode != 2 && m_indexCount > 0
+                && m_pipelineOpaque && m_borderVbo && m_borderIbo && m_borderUploaded) {
+                const int partSlots = std::max(1, (int)parts.size());
+                cb->setGraphicsPipeline(m_pipelineOpaque);
+                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+                const QRhiCommandBuffer::VertexInput borderBinding(m_borderVbo, 0);
+                // Con un'immagine propria lo slot 1 e' la SUA texture.
+                QRhiShaderResourceBindings *borderSrb = borderBindings();
+                for (const SurfaceEngine::BorderRange &r : engine->getBorderRanges()) {
+                    if (r.indexCount <= 0) continue;
+                    const int slot = partSlots + std::clamp(r.meshIndex, 0, partSlots - 1);
+                    const QRhiCommandBuffer::DynamicOffset ofs(0, slot * m_uboBlockStride);
+                    cb->setShaderResources(borderSrb, 1, &ofs);
+                    cb->setVertexInput(0, 1, &borderBinding, m_borderIbo,
+                                       r.indexOffset * sizeof(unsigned int),
+                                       QRhiCommandBuffer::IndexUInt32);
+                    cb->drawIndexed(r.indexCount, 1, 0, r.vertexOffset);
                 }
             }
 
@@ -1502,6 +1644,27 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 }
             }
 
+            // BORDO IN WIREFRAME: con la pipeline a linee, dopo il solido per
+            // la stessa ragione del wireframe della superficie (scrive la
+            // profondita' e non deve nascondere le parti trasparenti).
+            if (m_borderRadius > 0.0f && m_borderRenderMode == 2 && m_indexCount > 0
+                && m_wireframePipeline && m_borderVbo && m_borderWireIbo && m_borderUploaded) {
+                const int partSlots = std::max(1, (int)parts.size());
+                cb->setGraphicsPipeline(m_wireframePipeline);
+                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+                const QRhiCommandBuffer::VertexInput borderBinding(m_borderVbo, 0);
+                for (const SurfaceEngine::BorderRange &r : engine->getBorderRanges()) {
+                    if (r.wireIndexCount <= 0) continue;
+                    const int slot = partSlots + std::clamp(r.meshIndex, 0, partSlots - 1);
+                    const QRhiCommandBuffer::DynamicOffset ofs(0, slot * m_uboBlockStride);
+                    cb->setShaderResources(srb, 1, &ofs);
+                    cb->setVertexInput(0, 1, &borderBinding, m_borderWireIbo,
+                                       r.wireIndexOffset * sizeof(unsigned int),
+                                       QRhiCommandBuffer::IndexUInt32);
+                    cb->drawIndexed(r.wireIndexCount, 1, 0, r.vertexOffset);
+                }
+            }
+
         }
 
         cb->endPass();
@@ -1590,6 +1753,19 @@ void GLWidget::releaseResources()
         delete m_wireframeIbo;
         m_wireframeIbo = nullptr;
     }
+    if (m_borderVbo) {
+        delete m_borderVbo;
+        m_borderVbo = nullptr;
+    }
+    if (m_borderIbo) {
+        delete m_borderIbo;
+        m_borderIbo = nullptr;
+    }
+    if (m_borderWireIbo) {
+        delete m_borderWireIbo;
+        m_borderWireIbo = nullptr;
+    }
+    m_borderUploaded = false;
     if (m_wireframePipeline) {
         delete m_wireframePipeline;
         m_wireframePipeline = nullptr;
@@ -1907,6 +2083,9 @@ static_assert(offsetof(UboData, u_meshIndex) == 420, "UboData: u_meshIndex fuori
 static_assert(offsetof(UboData, u_noImage) == 424, "UboData: u_noImage fuori posto");
 static_assert(offsetof(UboData, u_marcherMode) == 436, "UboData: u_marcherMode fuori posto");
 static_assert(offsetof(UboData, u_tubeRadius) == 440, "UboData: u_tubeRadius fuori posto");
+static_assert(offsetof(UboData, u_borderRadius) == 444, "UboData: u_borderRadius fuori posto");
+static_assert(offsetof(UboData, u_isBorder) == 448, "UboData: u_isBorder fuori posto");
+static_assert(sizeof(UboData) % 16 == 0, "UboData: dimensione non multipla di 16 (std140)");
 
 bool GLWidget::setTubeCurve(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq,
                             const QVector3D &reference, bool uClosed)
@@ -3179,6 +3358,97 @@ void GLWidget::setShellThickness(float v) {
     update();
 }
 
+void GLWidget::setBorderRadius(float r) {
+    const float next = std::max(0.0f, r);
+    const bool wasOn = (m_borderRadius > 0.0f);
+    m_borderRadius = next;
+    // Il codice del bordo e' nello shader solo con HAS_BORDER: acceso o spento
+    // si ricompila, altrimenti basta l'uniform.
+    if (wasOn != (next > 0.0f)) rebuildShader();
+    update();
+}
+
+void GLWidget::setBorderRenderMode(int mode) {
+    m_borderRenderMode = std::clamp(mode, 0, 2);
+    update();
+}
+
+void GLWidget::adjustBorderWireStep(bool along, int delta) {
+    if (along) m_borderWireAlong = std::clamp(m_borderWireAlong + delta, 1, kBorderWireAlongMax);
+    else       m_borderWireAround = std::clamp(m_borderWireAround + delta, 1, kBorderWireAroundMax);
+    m_borderUploaded = false;   // le linee si ricostruiscono al prossimo frame
+    update();
+}
+
+GLWidget::BorderStyle GLWidget::borderStyle() const {
+    BorderStyle s;
+    s.radius = m_borderRadius;
+    s.color = m_borderColor;
+    s.mode = m_borderRenderMode;
+    s.wireAlong = m_borderWireAlong;
+    s.wireAround = m_borderWireAround;
+    s.texCode = m_borderTexCode;
+    s.texEnabled = m_borderTexEnabled;
+    s.texCol1 = m_borderTexCol1;
+    s.texCol2 = m_borderTexCol2;
+    s.texZoom = m_borderTexZoom;
+    s.texPan = m_borderTexPan;
+    s.texRotation = m_borderTexRotation;
+    s.texLibName = m_borderTexLibName;
+    return s;
+}
+
+void GLWidget::setBorderStyle(const BorderStyle &s) {
+    m_borderColor = s.color;
+    m_borderRenderMode = std::clamp(s.mode, 0, 2);
+    m_borderWireAlong = std::clamp(s.wireAlong, 1, kBorderWireAlongMax);
+    m_borderWireAround = std::clamp(s.wireAround, 1, kBorderWireAroundMax);
+    m_borderTexCol1 = s.texCol1;
+    m_borderTexCol2 = s.texCol2;
+    m_borderTexZoom = s.texZoom;
+    m_borderTexPan = s.texPan;
+    m_borderTexRotation = s.texRotation;
+    m_borderTexLibName = s.texLibName;
+    m_borderTimeTex = 0.0f;      // una scena nuova parte dall'inizio
+    m_borderUploaded = false;
+    setBorderTexture(s.texCode, s.texEnabled);
+    setBorderRadius(s.radius);   // ricompila solo se il bordo si accende o si spegne
+}
+
+void GLWidget::setBorderTexture(const QString &code, bool enabled) {
+    m_borderTexEnabled = enabled;
+    if (code != m_borderTexCode) {
+        m_borderTexCode = code;
+        // Il codice e' nel fragment solo col bordo acceso.
+        if (m_borderRadius > 0.0f) rebuildShader();
+    }
+    update();
+}
+
+void GLWidget::setBorderTextureAnimating(bool on) {
+    m_borderTexAnimating = on;
+    if (on) ensureTextureClockRunning();
+}
+
+bool GLWidget::borderSamplesImage() const {
+    const QString path = imagePathInTextureCode(m_borderTexCode);
+    if (!path.isEmpty() && path != m_surfaceImagePath) {
+        const auto it = m_partImages.constFind(path);
+        // Non ancora caricata (lo fa il prossimo frame) conta come presente.
+        if (it == m_partImages.constEnd() || !it->failed) return true;
+    }
+    return !m_surfaceImagePath.isEmpty();
+}
+
+QRhiShaderResourceBindings *GLWidget::borderBindings() const {
+    const QString path = imagePathInTextureCode(m_borderTexCode);
+    if (!path.isEmpty()) {
+        const auto it = m_partImages.constFind(path);
+        if (it != m_partImages.constEnd() && it->tex && it->srb) return it->srb;
+    }
+    return m_bindingsDyn ? m_bindingsDyn : m_bindings;
+}
+
 void GLWidget::setHybridMarcher(bool on) {
     m_hybridMarcher = on;
     update();
@@ -3737,14 +4007,21 @@ void GLWidget::setFlatView(bool active) {
 // devono quindi riflettere cio' che il mouse sta muovendo sul destinatario
 // corrente. Per la persistenza esistono i globalTex*() (vedi glwidget.h), che
 // salvano l'inquadratura della texture di SUPERFICIE.
+// BERSAGLIO 2 = TEXTURE DEL BORDO: come lo sfondo, i valori sono direttamente
+// quelli della texture del bordo (m_borderTex*), senza buffer di lavoro -- il
+// bordo ha un'inquadratura sola, e il blocco di uniform del bordo la legge da
+// li' (vedi la scrittura dei blocchi del bordo in render).
 float GLWidget::getFlatZoom() const {
     if (m_flatViewTarget == 1) return backgroundZoom();
+    if (m_flatViewTarget == 2) return m_borderTexZoom;
     return m_flatZoom;
 }
 
 void GLWidget::setFlatZoom(float z) {
     if (m_flatViewTarget == 1) { // 1 = Sfondo
         m_bgZoom = std::clamp(z, 0.001f, 1000.0f);
+    } else if (m_flatViewTarget == 2) { // 2 = Bordo
+        m_borderTexZoom = std::clamp(z, 0.001f, 1000.0f);
     } else { // 0 = Superficie
         m_flatZoom = std::clamp(z, 0.001f, 1000.0f);
         commitFlatTransformToActivePart();
@@ -3754,12 +4031,15 @@ void GLWidget::setFlatZoom(float z) {
 
 float GLWidget::getFlatRotation() const {
     if (m_flatViewTarget == 1) return backgroundRotation();
+    if (m_flatViewTarget == 2) return m_borderTexRotation;
     return m_flatRotation;
 }
 
 void GLWidget::setFlatRotation(float angle) {
     if (m_flatViewTarget == 1) {
         m_bgRotation = angle;
+    } else if (m_flatViewTarget == 2) {
+        m_borderTexRotation = angle;
     } else {
         m_flatRotation = angle;
         commitFlatTransformToActivePart();
@@ -3774,6 +4054,8 @@ void GLWidget::addFlatRotation(float angle) {
 void GLWidget::rotateFlat90() {
     if (m_flatViewTarget == 1) { // Sfondo
         m_bgRotation += 90.0f;
+    } else if (m_flatViewTarget == 2) { // Bordo
+        m_borderTexRotation += 90.0f;
     } else { // Superficie
         m_flatRotation += 90.0f;
         commitFlatTransformToActivePart();
@@ -3791,12 +4073,15 @@ void GLWidget::rotateFlat90() {
 
 QVector2D GLWidget::getFlatPan() const {
     if (m_flatViewTarget == 1) return backgroundPan();
+    if (m_flatViewTarget == 2) return m_borderTexPan;
     return m_flatPan;
 }
 
 void GLWidget::setFlatPan(float x, float y) {
     if (m_flatViewTarget == 1) {
         m_bgPan = QVector2D(x, y);
+    } else if (m_flatViewTarget == 2) {
+        m_borderTexPan = QVector2D(x, y);
     } else {
         m_flatPan = QVector2D(x, y);
         commitFlatTransformToActivePart();
@@ -4378,6 +4663,7 @@ void GLWidget::resetAllClocks() {
         for (MeshPart &mp : engine->mutableMeshParts())
             mp.timeTex = 0.0f;
     }
+    m_borderTimeTex = 0.0f;
     resetTime();
 }
 
@@ -4422,6 +4708,9 @@ void GLWidget::advanceClocksBy(float dt) {
         for (MeshPart &mp : engine->mutableMeshParts())
             if (mp.texAnimating) mp.timeTex += dt;
     }
+
+    // OROLOGIO DELLA TEXTURE DEL BORDO: stesso dt, proprio flag.
+    if (m_borderTexAnimating) m_borderTimeTex += dt;
 }
 
 GLWidget::ClockTimes GLWidget::clockTimes() const {
@@ -5523,6 +5812,14 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
         source.replace("#version 450", "#version 450\n#define CUSTOM_MESH\n");
     }
 
+    // Bordo (Border Thickness > 0): il ramo che costruisce i tubi sui lati del
+    // dominio (emitBorderVertex) esiste solo con HAS_BORDER, come il CUTOUT:
+    // una superficie senza bordo compila lo shader di sempre. Mai sulla mesh
+    // custom: i suoi vertici sono posizioni, non parametri.
+    if (m_borderRadius > 0.0f && !m_isCustomMesh) {
+        source.replace("#version 450", "#version 450\n#define HAS_BORDER\n");
+    }
+
     return source;
 }
 
@@ -5954,8 +6251,31 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
 
     // Il frag chiama getMeshColor SOLO se esiste almeno una texture per-mesh;
     // altrimenti resta la chiamata diretta di sempre.
-    const QString entryPoint = dispatch.isEmpty() ? QStringLiteral("getCustomColor")
-                                                  : QStringLiteral("getMeshColor");
+    QString entryPoint = dispatch.isEmpty() ? QStringLiteral("getCustomColor")
+                                            : QStringLiteral("getMeshColor");
+
+    // TEXTURE DEL BORDO: getCustomColor_border, scelta dal flag dei blocchi del
+    // bordo (u_isBorder) davanti a tutto il resto. Solo col bordo acceso e una
+    // texture: senza, lo shader e' quello di prima. Il suffisso "_border" fa
+    // rinominare a buildTextureFunction i simboli di modulo degli script
+    // Shadertoy, come per le fasce: la stessa texture su superficie e bordo
+    // non collide.
+    if (m_borderRadius > 0.0f && !m_borderTexCode.trimmed().isEmpty() && !m_isCustomMesh) {
+        static const QRegularExpression imgTagRe(R"(^\s*//IMG:.*$\n?)",
+                                                 QRegularExpression::MultilineOption);
+        QString logic = m_borderTexCode;
+        logic.remove(imgTagRe);
+        // Sola immagine: la funzione di default, che campiona lo slot 1, dove
+        // il bordo ha la sua immagine.
+        const bool imageOnly = logic.trimmed().isEmpty();
+        codeToInject += "\n" + buildTextureFunction(imageOnly ? QString() : m_borderTexCode,
+                                                     QStringLiteral("getCustomColor_border"));
+        codeToInject += "\nvec3 getSceneColor(vec2 in_uv) {\n"
+                        "    if (ubuf.u_isBorder != 0) return getCustomColor_border(in_uv);\n"
+                        "    return " + entryPoint + "(in_uv);\n"
+                        "}\n";
+        entryPoint = QStringLiteral("getSceneColor");
+    }
 
     fullSource.replace("%CUSTOM_CODE%", codeToInject);
 
