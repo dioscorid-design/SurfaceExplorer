@@ -309,6 +309,89 @@ void ScenarioTest::runTubeScenarios()
     checkConstants(QStringLiteral("record tubo riaperto"), QMap<QString, double>{ { QStringLiteral("A"), 1.3 } });
     if (m_mw->isEquationModuleMoving()) { ui->btnRunParametric->click();  wait(400); }
 
+    // TUBI DA SCRIPT: sul sotto-tab Tubes lo script del dock descrive la
+    // CURVA (vec4(x, y, z, p)); le sezioni //MESH_BEGIN dichiarano i tubi
+    // (u:, thickness:) e `mesh` li distingue. Tre cerchi in piani ruotati
+    // attorno a x: il secondo spesso la meta', il terzo mezzo cerchio (aperto).
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Tubi da script: piu' tubi, una mesh ciascuno =="));
+    clickSubTab(0);
+    clickSubTab(1);   // Tubes da capo: il trifoglio di default
+    const QString kTrio = QStringLiteral(
+        "//MESH_BEGIN\nu: 0, TAU\n//MESH_END\n"
+        "//MESH_BEGIN\nu: 0, TAU\nthickness: 0.5\n//MESH_END\n"
+        "//MESH_BEGIN\nu: 0, PI\n//MESH_END\n"
+        "float a = mesh * 2.0943951;\n"
+        "return vec4(cos(u), sin(u)*cos(a), sin(u)*sin(a), 0.0);\n");
+    // Il piano di ogni cerchio: la direzione della sezione e' la sua normale
+    // (per una curva piana e' ortogonale a ogni tangente).
+    const QVector3D planeNormal[3] = { QVector3D(0.0f, 0.0f, 1.0f),
+                                       QVector3D(0.0f, -0.8660254f, -0.5f),
+                                       QVector3D(0.0f, 0.8660254f, -0.5f) };
+    auto trioOnScreen = [&](const QString &step) {
+        const auto &parts = eng->getMeshParts();
+        const auto &copies = eng->tubeCopies();
+        QStringList bad;
+        if (!eng->isTubeModeActive() || !eng->isTubeFromScript()) bad << QStringLiteral("motore non in tubo da script");
+        if (parts.size() != 3 || copies.size() != 3) {
+            bad << QStringLiteral("%1 parti, %2 copie").arg(parts.size()).arg(copies.size());
+        } else {
+            if (qAbs(parts[2].uMax - 3.14159265f) > 1e-4f || qAbs(parts[0].vMax - 6.2831853f) > 1e-4f)
+                bad << QStringLiteral("domini u/v");
+            if (parts[1].tubeThickness != 0.5f || parts[0].tubeThickness >= 0.0f)
+                bad << QStringLiteral("spessori %1/%2").arg(parts[0].tubeThickness).arg(parts[1].tubeThickness);
+            if (!copies[0].uClosed || !copies[1].uClosed || copies[2].uClosed)
+                bad << QStringLiteral("chiusure %1 %2 %3").arg(copies[0].uClosed).arg(copies[1].uClosed).arg(copies[2].uClosed);
+            for (int k = 0; k < 3; ++k)
+                if (qAbs(QVector3D::dotProduct(copies[k].reference, planeNormal[k])) < 0.99f)
+                    bad << QStringLiteral("tubo %1: direzione (%2, %3, %4) fuori dalla normale del piano").arg(k + 1)
+                               .arg(copies[k].reference.x(), 0, 'f', 3).arg(copies[k].reference.y(), 0, 'f', 3)
+                               .arg(copies[k].reference.z(), 0, 'f', 3);
+        }
+        check(bad.isEmpty(), step + QStringLiteral(" -> tre tubi, direzioni dalla GPU, chiusure e spessori")
+                                 + (bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+    };
+    setScriptMode(MainWindow::ScriptModeSurface);
+    ui->txtScriptEditor->setPlainText(kTrio);  wait(300);
+    m_mw->onRunCurrentScript();  wait(1200);
+    trioOnScreen(QStringLiteral("script dei tre cerchi eseguito"));
+    gl->grabFramebuffer().save(m_outDir + QStringLiteral("/tube-script-trio.png"));
+    check(fieldCurve() == QStringList({ QString(), QString(), QString(), QString() })
+              && m_mw->m_scene.surfaceScriptApplied == kTrio && !ui->btnRunParametric->isEnabled(),
+          QStringLiteral("script del tubo eseguito -> campi della curva vuoti, Run delle equazioni spento"));
+    const LibraryItem savedTrio = captureSave();
+    check(savedTrio.isTube && savedTrio.isScript && savedTrio.scriptCode == kTrio
+              && savedTrio.tubeX.isEmpty() && savedTrio.x.isEmpty(),
+          QStringLiteral("Save di un tubo da script -> tubo, script, curva vuota"));
+    clickSubTab(0);   // si esce dal tubo, poi lo si riapre dal Save
+    m_mw->applyMotionExample(savedTrio);  wait(1500);
+    trioOnScreen(QStringLiteral("record riaperto"));
+    check(m_mw->tubesShown() && ui->uMinEdit->isEnabled(),
+          QStringLiteral("record riaperto -> linguetta Tubes, limiti u accesi (Tubes %1, u %2 '%3'..'%4', da script %5)")
+              .arg(onOff(m_mw->tubesShown()), onOff(ui->uMinEdit->isEnabled()), ui->uMinEdit->text(),
+                   ui->uMaxEdit->text(), onOff(m_mw->tubeSceneFromScript())));
+    // Il master Start riprende lo script (runScene -> runSceneTubeScript).
+    m_mw->performMasterStop();  wait(200);
+    m_mw->runScene(MainWindow::RunOrigin::Program);  wait(1200);
+    trioOnScreen(QStringLiteral("Run del programma sulla scena da script"));
+
+    // I preset della libreria: un tubo per sezione, tutti chiusi (cerchi e
+    // trefoli), col colore proprio di ogni tubo.
+    struct TubePreset { const char *rel; int tubes; const char *png; };
+    for (const TubePreset &tp : { TubePreset{ "surfaces/Tubes/Villarceau Circles.json", 12, "tube-script-villarceau.png" },
+                                  TubePreset{ "surfaces/Tubes/Trefoil Trio.json", 3, "tube-script-trefoil-trio.png" } }) {
+        if (!loadSurface(QString::fromLatin1(tp.rel))) continue;
+        const auto &copies = eng->tubeCopies();
+        const bool allClosed = std::all_of(copies.begin(), copies.end(),
+                                           [](const SurfaceEngine::TubeCopy &c) { return c.uClosed; });
+        check(m_mw->tubesShown() && eng->isTubeFromScript() && gl->meshPartCount() == tp.tubes
+                  && int(copies.size()) == tp.tubes && allClosed,
+              QStringLiteral("%1 -> %2 tubi da script, tutti chiusi (%3 parti, %4 copie)")
+                  .arg(QFileInfo(QString::fromLatin1(tp.rel)).baseName()).arg(tp.tubes)
+                  .arg(gl->meshPartCount()).arg(copies.size()));
+        gl->grabFramebuffer().save(m_outDir + QLatin1Char('/') + QString::fromLatin1(tp.png));
+    }
+
     // RITORNO A SURFACE: la superficie di default, i limiti v/w di nuovo.
     clickSubTab(0);
     check(!m_mw->tubesShown() && !eng->isTubeModeActive() && !ui->vMinEdit->isHidden()
