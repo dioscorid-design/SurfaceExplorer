@@ -3493,6 +3493,21 @@ void ScenarioTest::runBorderScenarios()
         check(onSurface.startsWith(QLatin1String("selezionata Disco Sun Vortex"))
                   && onBorder.startsWith(QLatin1String("selezionata Plasma")),
               QStringLiteral("record riaperto -> Library su Surface: %1; su Border: %2").arg(onSurface, onBorder));
+
+        // HINT della texture del bordo: la legenda dice di chi sono gli slider
+        // ("Border sliders"), alla scelta in Library e nel record riaperto.
+        click(ui->radioBorder);
+        selectTexture(QStringLiteral("textures/Procedurals/Mandelbrot.json"));
+        const QString hPick = m_mw->composedHintText();
+        m_record = QStringLiteral("border-hint");
+        const LibraryItem recHint = captureSave();
+        loadSurface(kTorus);
+        m_mw->applyMotionExample(recHint);  wait(1500);
+        const QString hLoad = m_mw->composedHintText();
+        check(hPick.contains(QLatin1String("Border sliders\nF:")) && hLoad.contains(QLatin1String("Border sliders\nF:")),
+              QStringLiteral("hint della texture del bordo -> scelta: %1 | record riaperto: %2")
+                  .arg(QString(hPick).replace(QLatin1Char('\n'), QLatin1String(" / ")),
+                       QString(hLoad).replace(QLatin1Char('\n'), QLatin1String(" / "))));
     }
 
     // Enneper da script: superficie aperta, il bordo si vede. La CPU non sa
