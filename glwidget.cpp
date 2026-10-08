@@ -3395,6 +3395,8 @@ GLWidget::BorderStyle GLWidget::borderStyle() const {
     s.texPan = m_borderTexPan;
     s.texRotation = m_borderTexRotation;
     s.texLibName = m_borderTexLibName;
+    s.texHint = m_borderTexHint;
+    s.texHintSeconds = m_borderTexHintSeconds;
     return s;
 }
 
@@ -3409,6 +3411,8 @@ void GLWidget::setBorderStyle(const BorderStyle &s) {
     m_borderTexPan = s.texPan;
     m_borderTexRotation = s.texRotation;
     m_borderTexLibName = s.texLibName;
+    m_borderTexHint = s.texHint.trimmed();
+    m_borderTexHintSeconds = s.texHintSeconds;
     m_borderTimeTex = 0.0f;      // una scena nuova parte dall'inizio
     m_borderUploaded = false;
     setBorderTexture(s.texCode, s.texEnabled);

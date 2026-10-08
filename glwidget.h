@@ -546,6 +546,11 @@ public:
         QVector2D texPan = QVector2D(0.0f, 0.0f);
         float texRotation = 0.0f;
         QString texLibName;
+        // Messaggio della texture del bordo (hintText della voce): si compone
+        // a schermo con quelli di superficie, texture e sfondo
+        // (MainWindow::composedHintText) e va nel blocco "border" del record.
+        QString texHint;
+        float texHintSeconds = 6.0f;
     };
     static constexpr int kBorderWireAlongDefault = 8;
     static constexpr int kBorderWireAroundDefault = 2;
@@ -574,6 +579,11 @@ public:
     }
     void setBorderTextureLibName(const QString &n) { m_borderTexLibName = n; }
     QString borderTextureLibName() const { return m_borderTexLibName; }
+    void setBorderTextureHint(const QString &text, float seconds) {
+        m_borderTexHint = text.trimmed(); m_borderTexHintSeconds = seconds;
+    }
+    QString borderTextureHint() const { return m_borderTexHint; }
+    float borderTextureHintSeconds() const { return m_borderTexHintSeconds; }
     // Orologio proprio, avanzato da advanceClocksBy come gli altri.
     void setBorderTextureAnimating(bool on);
     bool isBorderTextureAnimating() const { return m_borderTexAnimating; }
@@ -1369,6 +1379,8 @@ private:
     QVector2D m_borderTexPan = QVector2D(0.0f, 0.0f);
     float m_borderTexRotation = 0.0f;
     QString m_borderTexLibName;
+    QString m_borderTexHint;
+    float m_borderTexHintSeconds = 6.0f;
     bool m_borderTexAnimating = false;
     float m_borderTimeTex = 0.0f;
     // Binding del bordo: quelli della sua immagine, se ne ha una caricata.

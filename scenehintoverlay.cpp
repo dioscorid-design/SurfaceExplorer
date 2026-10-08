@@ -19,12 +19,13 @@ SceneHintOverlay::SceneHintOverlay(GLWidget *view, QObject *parent)
 }
 
 QString SceneHintOverlay::compose(const QString &surface, const QString &texture,
-                                  const QString &background)
+                                  const QString &background, const QString &border)
 {
     // Nell'ordine in cui compaiono a schermo.
     const QList<QPair<QString, QString>> all = {
         { QStringLiteral("Surface"),    surface.trimmed() },
         { QStringLiteral("Texture"),    texture.trimmed() },
+        { QStringLiteral("Border"),     border.trimmed() },
         { QStringLiteral("Background"), background.trimmed() },
     };
 

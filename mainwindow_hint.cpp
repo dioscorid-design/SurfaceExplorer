@@ -44,13 +44,23 @@ void MainWindow::refreshSceneHint(float seconds)
 QString MainWindow::composedHintText() const
 {
     return SceneHintOverlay::compose(m_currentHintText, m_currentTextureHintText,
-                                     m_currentBgTextureHintText);
+                                     m_currentBgTextureHintText, shownBorderTextureHint());
+}
+
+// Il messaggio della texture del BORDO, solo se quella texture si vede: col
+// bordo o la sua texture spenti i suoi slider non muovono nulla a schermo.
+// Lo tiene il motore, con il resto del bordo (GLWidget::BorderStyle).
+QString MainWindow::shownBorderTextureHint() const
+{
+    if (!ui->glWidget || !ui->glWidget->borderTextureShown()) return QString();
+    return ui->glWidget->borderTextureHint();
 }
 
 void MainWindow::showTextureHintsOnly(float seconds)
 {
     if (m_currentTextureHintText.trimmed().isEmpty()
-        && m_currentBgTextureHintText.trimmed().isEmpty()) return;
+        && m_currentBgTextureHintText.trimmed().isEmpty()
+        && shownBorderTextureHint().isEmpty()) return;
     // NB: non si passa da showSceneHint col testo delle texture: SCRIVE
     // m_currentHintText, il messaggio della SCENA, che il preset riscrive -- il
     // testo della texture diventerebbe quello della superficie al primo Save.

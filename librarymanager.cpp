@@ -236,6 +236,8 @@ static void parseSceneCommon(const QJsonObject &root, LibraryItem &d)
             d.borderTexPanY = (float)t["panY"].toDouble(0.0);
             d.borderTexRotation = (float)t["rotation"].toDouble(0.0);
             d.borderTexLibName = t["libName"].toString();
+            d.borderTexHintText = t["hintText"].toString();
+            d.borderTexHintSeconds = (float)t["hintSeconds"].toDouble(6.0);
         }
     }
     if (root.contains("lightIntensity")) {
@@ -1231,6 +1233,10 @@ QJsonObject LibraryManager::toJson(const LibraryItem &d)
             t["panY"] = (double)d.borderTexPanY;
             t["rotation"] = (double)d.borderTexRotation;
             if (!d.borderTexLibName.isEmpty()) t["libName"] = d.borderTexLibName;
+            if (!d.borderTexHintText.trimmed().isEmpty()) {
+                t["hintText"] = d.borderTexHintText.trimmed();
+                t["hintSeconds"] = (double)d.borderTexHintSeconds;
+            }
             b["texture"] = t;
         }
         root["border"] = b;

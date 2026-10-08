@@ -504,6 +504,7 @@ private:
     // nominare costanti diverse e vanno mostrati TUTTI. Sede unica, cosi' non
     // si torna a farne vincere uno solo. Vuoto = niente da mostrare.
     QString composedHintText() const;
+    QString shownBorderTextureHint() const;
     // Ridisegna l'overlay coi soli messaggi delle TEXTURE (superficie e sfondo),
     // sospendendo per la chiamata quello della scena: serve al Sync, dove sono
     // cambiate le texture e non la scena. Non modifica nessuno dei tre testi.

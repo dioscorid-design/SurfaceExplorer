@@ -232,6 +232,8 @@ inline GLWidget::BorderStyle borderStyleOf(const LibraryItem &d)
     s.texPan = QVector2D(d.borderTexPanX, d.borderTexPanY);
     s.texRotation = d.borderTexRotation;
     s.texLibName = d.borderTexLibName;
+    s.texHint = d.borderTexHintText;
+    s.texHintSeconds = d.borderTexHintSeconds;
     return s;
 }
 

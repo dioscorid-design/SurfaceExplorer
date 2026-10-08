@@ -985,6 +985,11 @@ void MainWindow::applyLibraryTextureToBorder(const LibraryItem &data)
     gl->setBorderTexTransform(data.zoom, QVector2D(data.panX, data.panY), data.rotation);
     gl->setBorderTexture(code, true);
     gl->setBorderTextureLibName(data.name);
+    // Il messaggio della voce, come per lo sfondo: anche vuoto, perche' la
+    // texture di prima puo' averne lasciato uno che ora va tolto da schermo.
+    gl->setBorderTextureHint(data.hintText, data.hintSeconds);
+    refreshSceneHint(data.hintText.trimmed().isEmpty() ? m_currentHintSeconds
+                                                       : data.hintSeconds);
     // Applicare una texture e' un comando esplicito: un'animata parte subito,
     // anche a master fermo, come sulle fasce.
     m_userStoppedBorderTexClock = false;

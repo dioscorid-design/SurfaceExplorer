@@ -21,10 +21,10 @@ class SceneHintOverlay : public QObject
 public:
     explicit SceneHintOverlay(GLWidget *view, QObject *parent = nullptr);
 
-    // I tre messaggi in quello che si vede: vuoti fuori, identici una volta
+    // I messaggi in quello che si vede: vuoti fuori, identici una volta
     // sola, ciascuno col suo ruolo nell'intestazione ("Texture sliders").
     static QString compose(const QString &surface, const QString &texture,
-                           const QString &background);
+                           const QString &background, const QString &border = QString());
 
     // Mostra `text` per `seconds` secondi (0 o meno: finche' qualcuno non lo
     // nasconde). Testo vuoto = nasconde.

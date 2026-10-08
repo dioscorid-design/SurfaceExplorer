@@ -373,7 +373,8 @@ QColor PresetSerializer::globalSurfaceColor() const
 // Un dialogo unico e non due in fila: e' un solo salvataggio, e merita una sola
 // finestra da confermare.
 static bool askSceneHint(QWidget* parent, QString* hintText, const QString& what,
-                         QString* textureHint = nullptr, QString* bgHint = nullptr)
+                         QString* textureHint = nullptr, QString* bgHint = nullptr,
+                         QString* borderHint = nullptr)
 {
     if (!hintText) return true;
 
@@ -391,7 +392,7 @@ static bool askSceneHint(QWidget* parent, QString* hintText, const QString& what
     lay->addWidget(info);
 
     // Etichette solo quando i campi sono piu' d'uno: con uno solo sarebbero rumore.
-    if (textureHint || bgHint) lay->addWidget(new QLabel("Surface:", &dlg));
+    if (textureHint || bgHint || borderHint) lay->addWidget(new QLabel("Surface:", &dlg));
 
     // QPlainTextEdit e non QLineEdit: il messaggio puo' andare A CAPO, e
     // showSceneHint lo rende con setTextFormat(PlainText) proprio perche' un
@@ -429,7 +430,22 @@ static bool askSceneHint(QWidget* parent, QString* hintText, const QString& what
         lay->addWidget(texEdit);
     }
 
-    // Terzo campo: il messaggio dello SFONDO, costruito come il secondo.
+    // Campo del BORDO, costruito come il secondo.
+    QPlainTextEdit* borderEdit = nullptr;
+    if (borderHint) {
+        lay->addWidget(new QLabel("Border:", &dlg));
+
+        borderEdit = new QPlainTextEdit(*borderHint, &dlg);
+        borderEdit->setStyleSheet("padding: 8px;");
+        borderEdit->setFixedHeight(borderEdit->fontMetrics().lineSpacing() * 3 + 16);
+#ifdef Q_OS_IOS
+        borderEdit->setInputMethodHints(borderEdit->inputMethodHints() | Qt::ImhNoEditMenu);
+        borderEdit->setProperty("noEditMenu", true);
+#endif
+        lay->addWidget(borderEdit);
+    }
+
+    // Ultimo campo: il messaggio dello SFONDO, costruito come il secondo.
     QPlainTextEdit* bgEdit = nullptr;
     if (bgHint) {
         lay->addWidget(new QLabel("Background:", &dlg));
@@ -470,6 +486,7 @@ static bool askSceneHint(QWidget* parent, QString* hintText, const QString& what
     *hintText = edit->toPlainText().trimmed();
     if (textureHint && texEdit) *textureHint = texEdit->toPlainText().trimmed();
     if (bgHint && bgEdit) *bgHint = bgEdit->toPlainText().trimmed();
+    if (borderHint && borderEdit) *borderHint = borderEdit->toPlainText().trimmed();
     return true;
 }
 
@@ -621,6 +638,8 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
         d.borderTexPanY = b.texPan.y();
         d.borderTexRotation = b.texRotation;
         d.borderTexLibName = b.texLibName;
+        d.borderTexHintText = b.texHint;
+        d.borderTexHintSeconds = b.texHintSeconds;
     }
     d.use4DLighting = gl->is4DActive();
     if (d.isImplicitMode) {
@@ -1123,20 +1142,22 @@ void PresetSerializer::saveTexture(const QString &path)
     // prima si chiedeva (e si scriveva nel preset) quello della texture di
     // superficie anche salvando lo sfondo.
     bool isBg = m_mainWindow->editingBackground();
-    // Col bersaglio Border si salva la texture del BORDO. Non ha un messaggio
-    // suo da conservare: si chiede come per le altre, su una variabile locale.
+    // Col bersaglio Border si salva la texture del BORDO, col suo messaggio:
+    // lo tiene il motore (BorderStyle), quindi si chiede su una copia e la si
+    // riscrive dopo la conferma.
     const bool isBorder = m_mainWindow->editingBorder();
-    QString borderHint;
-    float borderHintSecs = 0.0f;
+    GLWidget *gl = m_mainWindow->ui->glWidget;
+    QString borderHint = (isBorder && gl) ? gl->borderTextureHint() : QString();
+    float borderHintSecs = (isBorder && gl) ? gl->borderTextureHintSeconds() : 6.0f;
     QString &hintRef  = isBorder ? borderHint
                       : isBg ? m_mainWindow->m_currentBgTextureHintText
                              : m_mainWindow->m_currentTextureHintText;
     float   &hintSecs = isBorder ? borderHintSecs
                       : isBg ? m_mainWindow->m_currentBgTextureHintSeconds
                              : m_mainWindow->m_currentTextureHintSeconds;
-    GLWidget *gl = m_mainWindow->ui->glWidget;
     if (!askSceneHint(m_mainWindow, &hintRef, "texture"))
         return;
+    if (isBorder && gl) gl->setBorderTextureHint(borderHint, borderHintSecs);
 
     QJsonObject root;
 
@@ -1396,10 +1417,20 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     // da poter togliere: altrimenti sarebbe un campo vuoto senza scopo.
     const bool hasBg = !m_mainWindow->m_scene.bgTextureCode.trimmed().isEmpty()
                        || !m_mainWindow->m_currentBgTextureHintText.isEmpty();
+    // Il campo del bordo solo se il record ha una texture sul bordo (o un suo
+    // messaggio da poter togliere). Il messaggio lo tiene il motore: si chiede
+    // su una copia e la si riscrive prima della cattura della scena.
+    GLWidget *hintGl = m_mainWindow->ui->glWidget;
+    QString borderHint = hintGl ? hintGl->borderTextureHint() : QString();
+    const bool hasBorderTex = hintGl && (!hintGl->borderTextureCode().trimmed().isEmpty()
+                                         || !borderHint.isEmpty());
     if (!askSceneHint(m_mainWindow, &m_mainWindow->m_currentHintText, "record",
                       &m_mainWindow->m_currentTextureHintText,
-                      hasBg ? &m_mainWindow->m_currentBgTextureHintText : nullptr))
+                      hasBg ? &m_mainWindow->m_currentBgTextureHintText : nullptr,
+                      hasBorderTex ? &borderHint : nullptr))
         return;
+    if (hasBorderTex)
+        hintGl->setBorderTextureHint(borderHint, hintGl->borderTextureHintSeconds());
 
     QString saveFolder = QFileInfo(fileName).absolutePath();
     settings.setValue("lastMotionDir", saveFolder);

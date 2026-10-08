@@ -104,6 +104,8 @@ struct LibraryItem {
     float borderTexPanX = 0.0f, borderTexPanY = 0.0f;
     float borderTexRotation = 0.0f;
     QString borderTexLibName;
+    QString borderTexHintText;
+    float borderTexHintSeconds = 6.0f;
     bool usesCrossSection = false;
     QString crossSectionEq;
     // MARCHER del ray marching: false = sphere tracing storico ("Fast"), true =
