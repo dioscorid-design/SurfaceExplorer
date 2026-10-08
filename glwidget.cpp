@@ -4050,21 +4050,6 @@ void GLWidget::addCameraRotation(float dYaw, float dPitch) {
 
 void GLWidget::resetTransformations()
 {
-    m_isPathFollowing = false;
-
-    precession = 0.0f;
-    nutation = 0.0f;
-    spin = 0.0f;
-
-    // Manteniamo un offset sicuro per evitare lo Z-Fighting in 4D.
-    // Deve combaciare col valore usato all'avvio e nel guard di onStartClicked
-    // (0.0001): un 0.1 introdurrebbe una rotazione XW/YW/ZW reale che, proiettata
-    // 4D->3D, deforma in modo asimmetrico le superfici con componente P costruite
-    // dopo un giro nei tab (Parametric->Ray Marching->Parametric).
-    omega = 0.0001f;
-    phi = 0.0001f;
-    psi = 0.0001f;
-
     // =======================================================
     // FIX 1: SALVAVITA ZOOM 3D (Risolve l'effetto "Gigante")
     // =======================================================
@@ -4073,18 +4058,6 @@ void GLWidget::resetTransformations()
     if (std::isnan(current3DZoom) || std::isinf(current3DZoom) || current3DZoom < 2.5f) {
         current3DZoom = 4.0f;
     }
-    m_cameraPos = QVector3D(0.0f, 0.0f, current3DZoom);
-
-    m_cameraYaw = 0.0f;
-    m_cameraPitch = 0.0f;
-    m_cameraRoll = 0.0f;
-
-    // FOV al default: il reset della vista annulla anche lo "zoom" del FOV di
-    // un path appena abbandonato (senza questo, dopo un path a FOV alto la
-    // superficie resettata apparirebbe rimpicciolita). Se un path e' ANCORA in
-    // corsa, il suo primo tick riapplica subito il proprio FOV (stesso schema
-    // della posa): il default vale solo per la vista libera.
-    m_cameraFov = 45.0f;
 
     // =======================================================
     // FIX 2: SALVAVITA PROIEZIONE 4D
@@ -4095,12 +4068,68 @@ void GLWidget::resetTransformations()
         current4DZoom = 4.0f;
     }
 
-    m_observerPos = QVector4D(0.0f, 0.0f, 0.0f, current4DZoom);
-    m_cameraPos4D = QVector4D(0.0f, 0.0f, 0.0f, current4DZoom);
+    Framing f;
+    f.cameraPos = QVector3D(0.0f, 0.0f, current3DZoom);
+    f.observerPos = QVector4D(0.0f, 0.0f, 0.0f, current4DZoom);
     // Quota del piano di sezione: azzerata davvero (a differenza di w, che e'
     // una DISTANZA e ha il salvavita zoom qui sopra). p=0 e' la sezione centrale,
     // quella da cui ogni superficie Cross Section deve ripartire.
-    m_crossSectionP = 0.0f;
+    f.crossSectionP = 0.0f;
+    resetFraming(f);
+
+    // Orientamento neutro (angoli 4D al valore di Orientation, vedi glwidget.h).
+    // Il marchio "ruotato a mano" non si tocca: qui non si rimette una posa
+    // fotografata, si azzera.
+    Orientation o;
+    o.userRotated = m_userRotatedManually;
+    resetOrientation(o);
+
+    // FOV al default: il reset della vista annulla anche lo "zoom" del FOV di
+    // un path appena abbandonato (senza questo, dopo un path a FOV alto la
+    // superficie resettata apparirebbe rimpicciolita). Se un path e' ANCORA in
+    // corsa, il suo primo tick riapplica subito il proprio FOV (stesso schema
+    // della posa): il default vale solo per la vista libera.
+    m_cameraFov = 45.0f;
+}
+
+GLWidget::Framing GLWidget::framing() const
+{
+    Framing f;
+    f.cameraPos = m_cameraPos;
+    f.yaw = m_cameraYaw;
+    f.pitch = m_cameraPitch;
+    f.roll = m_cameraRoll;
+    f.observerPos = m_observerPos;
+    f.crossSectionP = m_crossSectionP;
+    return f;
+}
+
+GLWidget::Orientation GLWidget::orientation() const
+{
+    Orientation o;
+    o.rotation = m_rotationQuat;
+    o.omega = omega;
+    o.phi = phi;
+    o.psi = psi;
+    o.userRotated = m_userRotatedManually;
+    return o;
+}
+
+void GLWidget::resetFraming(const Framing &f)
+{
+    // Vista libera: la modalita' path si spegne (un path in corsa la riaccende
+    // al suo prossimo tick, insieme alla propria camera).
+    m_isPathFollowing = false;
+
+    m_cameraPos = f.cameraPos;
+    m_cameraYaw = f.yaw;
+    m_cameraPitch = f.pitch;
+    m_cameraRoll = f.roll;
+
+    // Osservatore 4D e camera 4D coincidono fuori dal path 4D.
+    m_observerPos = f.observerPos;
+    m_cameraPos4D = f.observerPos;
+    m_crossSectionP = f.crossSectionP;
 
     // Reset dei vettori di mira
     m_pathTarget = QVector3D(0.0f, 0.0f, 0.0f);
@@ -4111,11 +4140,25 @@ void GLWidget::resetTransformations()
     m_flatPan = QVector2D(0.0f, 0.0f);
     m_bgPan = QVector2D(0.0f, 0.0f);
 
-    m_rotationQuat = QQuaternion();
-
     // Azzera le memorie di backup
     m_viewStates[0] = ViewState();
     m_viewStates[1] = ViewState();
+
+    meshNeedsUpdate = true;
+    update();
+}
+
+void GLWidget::resetOrientation(const Orientation &o)
+{
+    precession = 0.0f;
+    nutation = 0.0f;
+    spin = 0.0f;
+
+    m_rotationQuat = o.rotation;
+    omega = o.omega;
+    phi = o.phi;
+    psi = o.psi;
+    m_userRotatedManually = o.userRotated;
 
     meshNeedsUpdate = true;
     update();
@@ -4328,6 +4371,14 @@ void GLWidget::resetTextureTime(bool background) {
     // ultimo tick. Il reset cade fra due tick, quindi il primo dt dopo di esso e'
     // quello normale di un frame: la texture riparte da ~0 senza scatti.
     update();
+}
+
+void GLWidget::resetAllClocks() {
+    if (engine) {
+        for (MeshPart &mp : engine->mutableMeshParts())
+            mp.timeTex = 0.0f;
+    }
+    resetTime();
 }
 
 void GLWidget::setSurfaceAnimating(bool animating) {

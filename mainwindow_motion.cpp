@@ -283,61 +283,125 @@ void MainWindow::stopRotationMotion()
     }
 }
 
-void MainWindow::onResetViewClicked()
+void MainWindow::onResetClicked()
 {
-    // Il reset deve comportarsi come per le rotazioni: se un path e' in corso,
-    // NON lo fermiamo. Reset azzera solo la posizione (t=0) e la vista spaziale,
-    // poi il path RIPARTE da capo (come la rotazione riprende dalla posa resettata).
-    bool wasPathRunning   = pathRunning(CameraPaths::Path4D);
-    bool wasPath3DRunning = pathRunning(CameraPaths::Path3D);
+    // Il path che ha la camera si guarda PRIMA di resettare la vista, che da
+    // fermo gliela toglie: e' quello che i moti rimettono al punto di partenza.
+    const std::optional<CameraPaths::Path> camPath = cameraPath();
 
-    // Riportiamo il tempo del percorso a t=0 in entrambi i casi (il path,
-    // se attivo, ricomincera' dall'inizio; se fermo, resta fermo a 0).
+    // Se niente si muove -- ne' rotazioni, ne' path, ne' animazioni in t -- la
+    // domanda non ha senso: si rimette tutto (anche l'orientamento girato col
+    // mouse). Che cosa si muove lo dice la stessa sede del master (masterActivity).
+    const MasterActivity act = masterActivity();
+    if (!act.eqAvailable && !act.eqRunning && !act.texAvailable && !act.bgAvailable
+        && !act.cameraAvailable) {
+        resetView();
+        resetMotions(camPath);
+        return;
+    }
+
+    QMessageBox box(this);
+    box.setIcon(QMessageBox::Question);
+    box.setWindowTitle("Reset");
+    box.setText("What do you want to reset?");
+    box.setInformativeText("View: camera, zoom and field of view.\n"
+                           "Motions: rotations, camera paths and everything that moves "
+                           "with t go back to the start.");
+    QPushButton *viewBtn   = box.addButton("View",    QMessageBox::ActionRole);
+    QPushButton *motionBtn = box.addButton("Motions", QMessageBox::ActionRole);
+    QPushButton *bothBtn   = box.addButton("Both",    QMessageBox::AcceptRole);
+    box.addButton("Cancel", QMessageBox::RejectRole);
+    box.setDefaultButton(bothBtn);
+    box.exec();
+
+    const QAbstractButton *choice = box.clickedButton();
+    if (choice == viewBtn   || choice == bothBtn) resetView();
+    if (choice == motionBtn || choice == bothBtn) resetMotions(camPath);
+}
+
+void MainWindow::captureStartPose()
+{
+    if (!ui->glWidget) return;
+    m_startFraming     = ui->glWidget->framing();
+    m_startOrientation = ui->glWidget->orientation();
+    m_startFov         = m_scene.fov;
+}
+
+std::optional<CameraPaths::Path> MainWindow::cameraPath() const
+{
+    if (pathRunning(CameraPaths::Path4D)) return CameraPaths::Path4D;
+    if (pathRunning(CameraPaths::Path3D)) return CameraPaths::Path3D;
+    if (!ui->glWidget || !ui->glWidget->isPathFollowing()) return std::nullopt;
+    if (m_scene.lastCameraMotion == QLatin1String("path4D")) return CameraPaths::Path4D;
+    if (m_scene.lastCameraMotion == QLatin1String("path3D")) return CameraPaths::Path3D;
+    return std::nullopt;
+}
+
+void MainWindow::resetView()
+{
+    // Inquadratura d'apertura. Le velocita' e i moti non si toccano. Un path
+    // FERMO lascia la camera: si torna alla vista libera (resetFraming spegne
+    // la modalita' path).
+    ui->glWidget->resetFraming(m_startFraming);
+
+    // Un path IN CORSA la camera la tiene: gliela si rimette subito al suo
+    // tempo, invece di mostrare la vista libera per un fotogramma fino al
+    // prossimo tick. Il resto dell'inquadratura (FOV, e osservatore 4D per il
+    // path 3D) torna comunque all'apertura.
+    for (CameraPaths::Path p : { CameraPaths::Path4D, CameraPaths::Path3D })
+        if (pathRunning(p)) m_paths->applyCameraAt(p, m_paths->time(p));
+
+    // Il FOV della scena, slider compreso: anche lui e' uno zoom.
+    applyCameraFov(m_startFov);
+
+    // Aggiorna in sicurezza la mesh. useAppliedEquations: il ripristino della
+    // vista non e' un Run e non deve applicare equazioni in sospeso.
+    checkAndTriggerMeshUpdate(/*useAppliedEquations=*/true);
+    updateMasterButtonState();
+
+    // Lo stato 4D appena rimesso diventa il nuovo zero dei campi del dock 4D.
+    resetNav4DBaseline();
+}
+
+void MainWindow::resetMotions(std::optional<CameraPaths::Path> camPath)
+{
+    // PATH: t = 0. Uno in corsa riparte da capo e resta su "STOP"; uno fermo
+    // resta fermo, e al Departure ripartira' dall'inizio invece che da dove si
+    // era fermato (da solo il Departure riprende dal tempo raggiunto).
     m_paths->resetTimes();
-
-    // Solo i path NON attivi tornano allo stato "DEPARTURE"; quelli in corso
-    // restano su "STOP" perche' continuano a girare.
-    if (!wasPathRunning) {
+    if (!pathRunning(CameraPaths::Path4D)) {
         ui->btnDeparture->setText("DEPARTURE");
         checkPathFields();
     }
-    if (!wasPath3DRunning) {
+    if (!pathRunning(CameraPaths::Path3D)) {
         ui->btnDeparture3D->setText("DEPARTURE");
         checkPath3DFields();
     }
 
-    // Il motore resetta SOLO la vista spaziale (angoli e posizione), senza
-    // uccidere il tempo 't' e senza azzerare le velocità di rotazione.
-    // NB: resetTransformations() spegne m_isPathFollowing, ma il primo tick
-    // successivo del pathTimer lo riaccende: basta lasciare il timer attivo.
-    ui->glWidget->resetTransformations();
+    // ROTAZIONI: posa d'apertura. Le velocita' restano: un GO in corso
+    // continua a girare da li'.
+    ui->glWidget->resetOrientation(m_startOrientation);
 
-    // resetTransformations riporta la proiezione al FOV di default, ma lo
-    // slider restava sul valore di prima: a schermo 45, sullo slider e nel Save
-    // 70. Senza un path in corsa il reset della vista riporta al default anche
-    // lo slider, come il reset di scena; con un path in corsa il FOV e' quello
-    // scelto per il volo e resta (il path riparte da t=0 con la sua
-    // prospettiva).
-    applyCameraFov((wasPathRunning || wasPath3DRunning) ? m_scene.fov : 45.0f);
+    // La camera del path torna al punto di partenza, SUBITO: da fermo
+    // resterebbe dov'era fino al Departure (il reset sembrava non fare nulla),
+    // in corsa ci arriverebbe al tick dopo. Dopo l'orientamento: il path 4D
+    // scrive i propri angoli, come al tick.
+    if (camPath) m_paths->applyCameraAt(*camPath, 0.0f);
 
-    // Se un path era in corso, lo teniamo vivo: riparte da t=0 dopo il reset
-    // della posa, esattamente come fa la rotazione.
-    if (wasPathRunning && ui->glWidget) {
-        ui->glWidget->setPathAnimating(true);
-    }
-    if (wasPath3DRunning && ui->glWidget) {
-        ui->glWidget->setPathAnimating(true);
-    }
+    // ANIMAZIONI IN t: orologi all'origine (fasce comprese) e flusso geodetico
+    // a geoTime 0. I flag di moto non cambiano, quindi master e tasti dei dock
+    // restano come sono.
+    ui->glWidget->resetAllClocks();
+    m_geoTime = 0.0;
 
-    // Aggiorna in sicurezza la mesh. useAppliedEquations: il ripristino di un
-    // path non e' un Run e non deve applicare equazioni in sospeso.
+    // Le animazioni in t leggono l'orologio nello shader al prossimo frame; il
+    // flusso geodetico invece e' una mesh calcolata sulla CPU al suo geoTime e,
+    // da fermo, resterebbe sul fotogramma di prima. useAppliedEquations: non e'
+    // un Run, non applica equazioni in sospeso e non avvia un flusso fermo.
     checkAndTriggerMeshUpdate(/*useAppliedEquations=*/true);
-
-    // Sincronizza il pulsante principale (che rimarrà su STOP se la superficie,
-    // le rotazioni o un path stanno andando)
     updateMasterButtonState();
 
-    // Reset view: lo stato 4D appena azzerato diventa il nuovo zero dei campi.
+    // Gli angoli 4D sono cambiati: nuovo zero dei campi del dock 4D.
     resetNav4DBaseline();
 }
 

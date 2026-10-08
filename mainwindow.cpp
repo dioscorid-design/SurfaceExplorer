@@ -1399,7 +1399,7 @@ void MainWindow::setupStatusBar()
     m_btnResetView = new QPushButton("RESET", this);
     m_btnResetView->setFlat(true);
     m_btnResetView->setFont(fontBold);
-    connect(m_btnResetView, &QPushButton::clicked, this, &MainWindow::onResetViewClicked);
+    connect(m_btnResetView, &QPushButton::clicked, this, &MainWindow::onResetClicked);
 
     m_btnProjection = new QPushButton("Perspective", this);
     m_btnProjection->setFlat(true);
@@ -1880,6 +1880,7 @@ void MainWindow::setupDesktopFilters()
     updateMasterButtonState();
     // La scena di avvio (superficie di default) e' il primo momento pulito.
     markSceneClean();
+    captureStartPose();
 }
 
 void MainWindow::connectSidePanels()

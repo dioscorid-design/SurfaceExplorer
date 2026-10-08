@@ -242,7 +242,25 @@ private slots:
     // ==========================================================
     void onStartClicked();
     void onStopClicked();
-    void onResetViewClicked();
+    // Tasto RESET della status bar. Se nella scena c'e' qualcosa che si muove
+    // (rotazioni, path, animazioni in t) chiede che cosa rimettere all'inizio:
+    // la vista, i moti o entrambi. Altrimenti rimette tutto senza chiedere.
+    void onResetClicked();
+    // Vista: l'inquadratura con cui la scena e' stata aperta -- camera (zoom
+    // compreso), FOV, osservatore 4D, quota della sezione.
+    void resetView();
+    // Moti, alla posizione iniziale: rotazioni alla posa d'apertura, path a
+    // t = 0, orologi di geometria, texture, sfondo e fasce all'origine, flusso
+    // geodetico a geoTime 0. Cio' che gira riparte dall'inizio, cio' che e'
+    // fermo resta fermo; un path fermo ripartira' da capo al Departure (che da
+    // solo riprende da dove si era fermato).
+    // `camPath`: il path che ha la camera (cameraPath()), letto dal chiamante
+    // prima di un eventuale reset della vista, che a path fermo gliela toglie.
+    void resetMotions(std::optional<CameraPaths::Path> camPath);
+    void resetMotions() { resetMotions(cameraPath()); }
+    // Il path che ha la camera: quello in corsa, o l'ultimo partito se la
+    // camera lo segue ancora da fermo (la modalita' path persiste dopo lo stop).
+    std::optional<CameraPaths::Path> cameraPath() const;
     // Tasto NEW della status bar: scena vuota (campi e schermo). Stessa pulizia
     // del reset di modalita', ma senza superficie di default e senza cambiare
     // tab. Chiede conferma se c'e' lavoro non salvato.
@@ -1174,10 +1192,18 @@ private:
         ~AbsorbChangesGuard() { w->absorbChangesSince(before); }
     };
     // Momento pulito all'uscita da un load o da un reset, qualunque uscita sia.
+    // E' anche l'apertura della scena: la sua posa e' quella a cui torna il RESET.
     struct SceneCleanGuard {
         MainWindow *w;
-        ~SceneCleanGuard() { w->markSceneClean(); }
+        ~SceneCleanGuard() { w->markSceneClean(); w->captureStartPose(); }
     };
+    // POSA D'APERTURA DELLA SCENA (load, reset, NEW, avvio). Non al Save: il
+    // RESET riporta a come la scena si e' presentata, non all'istante in cui
+    // e' stata salvata.
+    void captureStartPose();
+    GLWidget::Framing m_startFraming;
+    GLWidget::Orientation m_startOrientation;
+    float m_startFov = 45.0f;
 
     // Salvataggio in corso DENTRO la conferma "vuoi salvare?": la libreria si
     // aggiorna ma il focus non si sposta sul file salvato, perche' subito dopo

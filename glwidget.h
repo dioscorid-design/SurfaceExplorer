@@ -733,7 +733,39 @@ public:
 
     void zoomCamera(float delta);
     void addCameraRotation(float dYaw, float dPitch);
+    // Inquadratura e orientamento neutri (salvavita sulle distanze 3D e 4D),
+    // FOV 45: la vista di partenza del reset di scena.
     void resetTransformations();
+
+    // LE DUE META' DELLA POSA, che il tasto RESET rimette separatamente.
+    // Inquadratura: camera 3D (la posizione e' anche lo zoom: rotella e tasti
+    // Forward/Backward la spostano), osservatore 4D e quota della sezione.
+    // Orientamento: cio' che muovono le rotazioni (quaternione dell'oggetto e
+    // angoli 4D). Il FOV non e' qui: lo governa MainWindow::applyCameraFov.
+    struct Framing {
+        QVector3D cameraPos = QVector3D(0.0f, 0.0f, 4.0f);
+        float yaw = 0.0f, pitch = 0.0f, roll = 0.0f;
+        QVector4D observerPos = QVector4D(0.0f, 0.0f, 0.0f, 4.0f);
+        float crossSectionP = 0.0f;
+    };
+    struct Orientation {
+        QQuaternion rotation;
+        // Mai zero secco: offset contro lo z-fighting in 4D. Deve combaciare col
+        // valore usato all'avvio e nel guard di onStartClicked (0.0001): un 0.1
+        // introdurrebbe una rotazione XW/YW/ZW reale che, proiettata 4D->3D,
+        // deforma in modo asimmetrico le superfici con componente P.
+        float omega = 0.0001f, phi = 0.0001f, psi = 0.0001f;
+        // Il quaternione e' voluto (record, mouse): il primo Departure non lo
+        // neutralizza (neutralizeDefaultRotationForPath).
+        bool userRotated = false;
+    };
+    Framing framing() const;
+    Orientation orientation() const;
+    // Rimettono una posa. resetFraming torna anche alla vista libera (fuori
+    // dalla modalita' path, pan e memorie per modalita' azzerati): un path in
+    // corsa si riprende la camera al suo tick.
+    void resetFraming(const Framing &f);
+    void resetOrientation(const Orientation &o);
     void virtualMove(MoveDir dir, float speed3D, float speed4D);
 
     QVector3D getCameraPos() const { return m_cameraPos; }
@@ -837,6 +869,9 @@ public:
         if (!animating) m_pathHandoffActive = false;
     }
     bool isPathAnimating() const { return m_pathAnimating; }
+    // La MODALITA' path (camera guidata da un path, anche fermo): vedi
+    // m_isPathFollowing.
+    bool isPathFollowing() const { return m_isPathFollowing; }
 
     void startAnimationTimer();
     void stopAnimationTimer();
@@ -849,6 +884,11 @@ public:
     // dall'inizio. resetTime() non va bene, azzererebbe TUTTI gli orologi --
     // geometria compresa -- che quel gesto non riguarda.
     void resetTextureTime(bool background = false);
+    // Tutti gli orologi all'origine, fasce comprese: e' il "ricomincia da
+    // t = 0" del tasto RESET. resetTime() lascia le fasce ai loro reset (load
+    // del record, riclic della texture). I flag di moto non si toccano: cio'
+    // che gira riparte dall'inizio, cio' che e' fermo resta fermo a t = 0.
+    void resetAllClocks();
     void setSurfaceAnimating(bool animating);
     bool isSurfaceAnimating() const { return m_surfaceAnimating; }
 
