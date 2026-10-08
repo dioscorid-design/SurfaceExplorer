@@ -18,6 +18,7 @@ HEADERS += audiocontroller.h \
            expressionparser.h \
            exprtk.hpp \
            geodesiccalculator.h \
+           tubecurvesampler.h \
            geometrybuilder.h \
            glsltranslator.h \
            glwidget.h \
@@ -45,6 +46,7 @@ HEADERS += audiocontroller.h \
 FORMS += mainwindow.ui
 SOURCES += audiocontroller.cpp \
            geodesiccalculator.cpp \
+           tubecurvesampler.cpp \
            geometrybuilder.cpp \
            glsltranslator.cpp \
            glwidget.cpp \

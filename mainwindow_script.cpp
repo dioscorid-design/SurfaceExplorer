@@ -294,11 +294,18 @@ QString MainWindow::extractCutoutSection(const QString &fullText, QString *outCu
 // Le espressioni ammettono PI/TAU e aritmetica semplice: sono valutate qui, non
 // nello shader, perche' servono al generatore di griglia sulla CPU.
 //
+// TUBI (script sul sotto-tab Tubes): la sezione dichiara un tubo. Conta solo
+// "u:" (v e' l'angolo attorno, sempre 0..2pi), e "thickness: 0.5" fa quel
+// tubo spesso la meta' del campo Thickness. Una sezione col solo spessore
+// prende il dominio u dei limiti (outHasU dice quali sezioni hanno "u:").
+//
 // Nota: e' il traduttore GLSL a NON dover vedere queste righe, quindi la sezione
 // viene rimossa dal testo restituito (come per il CUTOUT).
-QString MainWindow::extractMeshSections(const QString &fullText, std::vector<MeshPart> *outParts)
+QString MainWindow::extractMeshSections(const QString &fullText, std::vector<MeshPart> *outParts,
+                                        QVector<bool> *outHasU)
 {
     if (outParts) outParts->clear();
+    if (outHasU) outHasU->clear();
 
     static const QRegularExpression meshRegex(
         R"(//MESH_BEGIN([\s\S]*?)//MESH_END)");
@@ -327,12 +334,14 @@ QString MainWindow::extractMeshSections(const QString &fullText, std::vector<Mes
     QRegularExpressionMatchIterator it = meshRegex.globalMatch(fullText);
 
     std::vector<MeshPart> parts;
+    QVector<bool> hasU;
     while (it.hasNext()) {
         QRegularExpressionMatch m = it.next();
         const QString body = m.captured(1);
 
         MeshPart part;
         bool sawAxis = false;
+        bool sawU = false;
 
         // Una riga per asse: "u: min, max[, steps]" / "v: min, max[, steps]".
         static const QRegularExpression axisRegex(
@@ -362,6 +371,7 @@ QString MainWindow::extractMeshSections(const QString &fullText, std::vector<Mes
             if (axis == "u") {
                 part.uMin = (float)lo; part.uMax = (float)hi;
                 if (steps > 0) part.declaredU = steps;
+                sawU = true;
             } else {
                 part.vMin = (float)lo; part.vMax = (float)hi;
                 if (steps > 0) part.declaredV = steps;
@@ -369,11 +379,22 @@ QString MainWindow::extractMeshSections(const QString &fullText, std::vector<Mes
             sawAxis = true;
         }
 
+        // Spessore del tubo (solo i tubi lo leggono): fattore >= 0.
+        static const QRegularExpression thicknessRegex(R"((?im)^\s*thickness\s*:\s*([^\n]+?)\s*$)");
+        const QRegularExpressionMatch th = thicknessRegex.match(body);
+        if (th.hasMatch()) {
+            bool okTh = false;
+            const double tv = evalNumber(th.captured(1), &okTh);
+            if (okTh && tv >= 0.0) part.tubeThickness = (float)tv;
+        }
+
         // Una sezione senza assi validi non descrive nulla: la ignoriamo invece
         // di generare una parte degenere (che sarebbe una superficie invisibile).
-        if (sawAxis) {
+        // Per un tubo basta lo spessore: il dominio u e' quello dei limiti.
+        if (sawAxis || part.tubeThickness >= 0.0f) {
             part.meshIndex = (int)parts.size();
             parts.push_back(part);
+            hasU.append(sawU);
         }
     }
 
@@ -386,6 +407,7 @@ QString MainWindow::extractMeshSections(const QString &fullText, std::vector<Mes
     }
 
     if (outParts) *outParts = parts;
+    if (outHasU) *outHasU = hasU;
     return remaining;
 }
 
@@ -407,6 +429,13 @@ void MainWindow::onRunScriptClicked()
 
     // DELEGA LA VALIDAZIONE E BLOCCA SE FALLISCE
     if (!InputValidator::validateParametricScriptReturn(this, cleanCode)) {
+        return;
+    }
+
+    // Sotto-tab TUBES: lo script descrive la CURVA asse (vec4(x, y, z, p)),
+    // e attorno il motore costruisce i tubi.
+    if (tubesShown()) {
+        runTubeScriptFromDock(fullText);
         return;
     }
 
@@ -1465,6 +1494,13 @@ void MainWindow::updateScriptButtonText() {
             ui->btnScriptMode->setText("Implicit Surface");
             ui->btnRunCurrentScript->setText(isSurfaceMoving ? "Stop" : "Run");
             ui->txtScriptEditor->setPlaceholderText("Write GLSL for Implicit Surface (Ray Marching).\nExample: return length(p) - 1.0;");
+        } else if (tubesShown()) {
+            // Sotto-tab Tubes: lo script descrive la CURVA asse dei tubi.
+            ui->btnScriptMode->setText("Tube Curve");
+            ui->btnRunCurrentScript->setText(isSurfaceMoving ? "Stop Tubes" : "Run Tubes");
+            ui->txtScriptEditor->setPlaceholderText("Write GLSL for the tube axis: the point of the curve at u.\n"
+                                                    "Example: return vec4(cos(u), sin(u), 0.3 * sin(3.0 * u), 0.0);\n"
+                                                    "More tubes: one //MESH_BEGIN section each, told apart by 'mesh'.");
         } else {
             ui->btnScriptMode->setText("Parametric Surface");
             ui->btnRunCurrentScript->setText(isSurfaceMoving ? "Stop Parametric" : "Run Parametric");

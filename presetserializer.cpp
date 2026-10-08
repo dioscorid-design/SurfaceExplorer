@@ -724,9 +724,11 @@ LibraryItem PresetSerializer::captureSurfaceState(const QString &name)
     // spariva.
     const QString eqX = d.x.trimmed(), eqY = d.y.trimmed(), eqZ = d.z.trimmed();
     const bool isImplicitScript = d.isImplicitMode && d.implicitEq.contains("// Controlled by Script");
-    // Un tubo ha X/Y/Z di Surface vuoti, ma non e' uno script.
-    const bool isParametricScript = !d.isImplicitMode && !d.isTube
-                                    && eqX.isEmpty() && eqY.isEmpty() && eqZ.isEmpty();
+    // Un tubo ha X/Y/Z di Surface vuoti, ma e' uno script solo se la curva la
+    // da' lo script (campi della curva vuoti, vedi tubeSceneFromScript).
+    const bool isParametricScript = !d.isImplicitMode
+                                    && (d.isTube ? mw->tubeSceneFromScript()
+                                                 : eqX.isEmpty() && eqY.isEmpty() && eqZ.isEmpty());
     const bool isMetricScript = !d.isImplicitMode && !mw->m_metricScriptBody.trimmed().isEmpty();
     d.isScript = isImplicitScript || isParametricScript || isMetricScript;
     if (d.isScript) {
@@ -763,8 +765,11 @@ LibraryItem PresetSerializer::captureMotionState(const QString &name, const Moti
     if (scriptContent.isEmpty() && mw->m_currentScriptMode == 0)
         scriptContent = mw->m_scene.surfaceScriptText;
     const bool metricScriptActive = !mw->m_metricScriptBody.trimmed().isEmpty();
-    d.isScript = !d.isTube && !scriptContent.trimmed().isEmpty() && (!usingEquations || metricScriptActive);
-    d.scriptCode = d.isTube ? QString() : scriptContent;
+    // Tubo: lo script solo se e' lui a dare la curva (campi vuoti).
+    const bool tubeScript = d.isTube && mw->tubeSceneFromScript();
+    d.isScript = (!d.isTube || tubeScript) && !scriptContent.trimmed().isEmpty()
+                 && (!usingEquations || metricScriptActive);
+    d.scriptCode = (d.isTube && !tubeScript) ? QString() : scriptContent;
 
     d.path4D_x = mw->m_scene.path.x;
     d.path4D_y = mw->m_scene.path.y;

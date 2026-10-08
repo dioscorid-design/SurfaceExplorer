@@ -82,9 +82,13 @@ layout(std140, binding = 0) uniform SceneUBO {
     // sotto.
     float u_borderRadius;
     // NON USATO QUI (lo legge il fragment per la texture del bordo), ma il
-    // blocco deve combaciare campo per campo col fragment. Ultimo campo di
-    // UboData.
+    // blocco deve combaciare campo per campo col fragment.
     int u_isBorder;
+    // Direzione di riferimento della sezione del tubo, per parte: la legge il
+    // getRawPosition generato per i tubi. Ultimi campi di UboData.
+    float u_tubeRefX;
+    float u_tubeRefY;
+    float u_tubeRefZ;
 } ubuf;
 
 float sq(float x) { return x*x; }

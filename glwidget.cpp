@@ -832,6 +832,18 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // esattamente cio' che scriveva prima.
     const std::vector<MeshPart> &uboParts = engine->getMeshParts();
     const int uboPartCount = (int)uboParts.size();
+
+    // TUBO: direzione della sezione e spessore del tubo `mesh` (vedi
+    // SurfaceEngine::TubeCopy e MeshPart::tubeThickness, fattore sullo
+    // spessore del campo Thickness). Fuori dai tubi nessuno li legge.
+    auto applyTubeFields = [this](UboData &u, const MeshPart *mp, int mesh) {
+        const QVector3D r = engine->tubeReference(mesh);
+        u.u_tubeRefX = r.x();
+        u.u_tubeRefY = r.y();
+        u.u_tubeRefZ = r.z();
+        u.u_tubeRadius = m_tubeRadius * ((mp && mp->tubeThickness >= 0.0f) ? mp->tubeThickness : 1.0f);
+    };
+    applyTubeFields(m_uboData, uboParts.empty() ? nullptr : &uboParts[0], 0);
     // Col bordo acceso i blocchi raddoppiano: dopo quelli delle parti, uno di
     // bordo per parte (vedi sotto).
     const bool borderOn = (m_borderRadius > 0.0f && m_engineMode == ModeParametric);
@@ -857,6 +869,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             partUbo.v_min = mp.vMin;
             partUbo.v_max = mp.vMax;
             partUbo.u_meshIndex = (float)mp.meshIndex;
+            applyTubeFields(partUbo, &mp, mp.meshIndex);
 
             // ASPETTO PER-PARTE. Un valore negativo significa "eredita dallo
             // stato globale", che e' gia' in partUbo perche' copiato da
@@ -1040,6 +1053,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 borderUbo.v_min = mp.vMin;
                 borderUbo.v_max = mp.vMax;
                 borderUbo.u_meshIndex = (float)mp.meshIndex;
+                applyTubeFields(borderUbo, &mp, mp.meshIndex);
             }
             borderUbo.u_isBorder = 1;
             borderUbo.color = QVector3D(m_borderColor.redF(), m_borderColor.greenF(),
@@ -2085,20 +2099,35 @@ static_assert(offsetof(UboData, u_marcherMode) == 436, "UboData: u_marcherMode f
 static_assert(offsetof(UboData, u_tubeRadius) == 440, "UboData: u_tubeRadius fuori posto");
 static_assert(offsetof(UboData, u_borderRadius) == 444, "UboData: u_borderRadius fuori posto");
 static_assert(offsetof(UboData, u_isBorder) == 448, "UboData: u_isBorder fuori posto");
+static_assert(offsetof(UboData, u_tubeRefX) == 452, "UboData: u_tubeRefX fuori posto");
+static_assert(offsetof(UboData, u_tubeRefZ) == 460, "UboData: u_tubeRefZ fuori posto");
+static_assert(sizeof(UboData) == 464, "UboData: la riserva _pad2 e' diventata la direzione del tubo, il blocco non cresce");
 static_assert(sizeof(UboData) % 16 == 0, "UboData: dimensione non multipla di 16 (std140)");
 
 bool GLWidget::setTubeCurve(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq,
-                            const QVector3D &reference, bool uClosed)
+                            const std::vector<SurfaceEngine::TubeCopy> &copies)
+{
+    return applyTubeSource([&] { engine->setTubeCurve(xEq, yEq, zEq, wEq); }, copies);
+}
+
+bool GLWidget::setTubeScript(const QString &glslBody, const std::vector<SurfaceEngine::TubeCopy> &copies)
+{
+    return applyTubeSource([&] { engine->setTubeScriptBody(glslBody); }, copies);
+}
+
+bool GLWidget::applyTubeSource(const std::function<void()> &setCurve,
+                               const std::vector<SurfaceEngine::TubeCopy> &copies)
 {
     m_isCustomMesh = false;
     // Stato di prima, per tornarci se la prova fallisce.
     const bool oldTube = engine->isTubeModeActive();
     const bool oldScript = engine->isScriptModeActive();
     const QString oldX = engine->tubeX(), oldY = engine->tubeY(), oldZ = engine->tubeZ(), oldP = engine->tubeP();
-    const QVector3D oldRef = engine->tubeReference();
-    const bool oldClosed = engine->tubeUClosed();
+    const QString oldBody = engine->tubeScriptBody();
+    const std::vector<SurfaceEngine::TubeCopy> oldCopies = engine->tubeCopies();
 
-    engine->setTubeCurve(xEq, yEq, zEq, wEq, reference, uClosed);
+    setCurve();
+    engine->setTubeCopies(copies);
     engine->setTubeMode(true);
     engine->setScriptMode(false);
 
@@ -2111,7 +2140,9 @@ bool GLWidget::setTubeCurve(const QString &xEq, const QString &yEq, const QStrin
     QShader shader = baker.bake();
     if (!shader.isValid()) {
         m_lastCompilationError = "VERTEX (tube): " + baker.errorMessage();
-        engine->setTubeCurve(oldX, oldY, oldZ, oldP, oldRef, oldClosed);
+        if (!oldBody.isEmpty()) engine->setTubeScriptBody(oldBody);
+        else engine->setTubeCurve(oldX, oldY, oldZ, oldP);
+        engine->setTubeCopies(oldCopies);
         engine->setTubeMode(oldTube);
         engine->setScriptMode(oldScript);
         return false;
@@ -2121,6 +2152,46 @@ bool GLWidget::setTubeCurve(const QString &xEq, const QString &yEq, const QStrin
     meshNeedsUpdate = true;
     update();
     return true;
+}
+
+void GLWidget::setTubeCopies(const std::vector<SurfaceEngine::TubeCopy> &copies)
+{
+    engine->setTubeCopies(copies);
+    // La chiusura in u e' delle parti: si rigenerano.
+    meshNeedsUpdate = true;
+    update();
+}
+
+QString GLWidget::tubeCurveFunction(const QString &xEq, const QString &yEq, const QString &zEq,
+                                    const QString &wEq, const QString &scriptBody)
+{
+    QString body;
+    if (!scriptBody.trimmed().isEmpty()) {
+        // SCRIPT: come quelli della superficie, interi in float e variabili di
+        // supporto (costanti, t, mesh) iniettate se lo script non le dichiara.
+        QString code = scriptBody;
+        static const QRegularExpression regInt("(?<=[^a-zA-Z0-9_.]|^)([0-9]+)(?=[^a-zA-Z0-9_.]|$)");
+        code.replace(regInt, "\\1.0");
+        body = generateGlslHelperVars(code) + code;
+    } else {
+        // EQUAZIONI: come quelle della superficie (traduzione, vuoto = 0).
+        auto eq = [](const QString &s) {
+            const QString translated = GlslTranslator::translateEquation(s);
+            if (translated.trimmed().isEmpty()) return QString("0.0");
+            return "float(" + translated + ")";
+        };
+        body = "    float A = ubuf.u_mathParams.x;\n"
+               "    float B = ubuf.u_mathParams.y;\n"
+               "    float C = ubuf.u_mathParams.z;\n"
+               "    float D = ubuf.u_mathParams2.x;\n"
+               "    float E = ubuf.u_mathParams2.y;\n"
+               "    float F = ubuf.u_mathParams2.z;\n"
+               "    float s = ubuf.u_mathParams.w;\n"
+               "    float t = ubuf.u_time;\n"
+               "    float mesh = ubuf.u_meshIndex;\n"
+               "    return vec4(" + eq(xEq) + ", " + eq(yEq) + ", " + eq(zEq) + ", " + eq(wEq) + ");\n";
+    }
+    return "vec4 tubeCurve(float u, float v, float w) {\n" + body + "\n}\n";
 }
 
 void GLWidget::useImplicit3DBranch()
@@ -5694,43 +5765,34 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
 
     // --- SOSTITUZIONE LOGICA ---
     if (engine->isTubeModeActive() && !engine->isScriptModeActive()) {
-        // TUBO attorno alla curva C(u) = (X, Y, Z, P), sotto-tab Tubes. La
-        // curva si valuta in tre punti (u-h, u, u+h) dentro un ciclo che
-        // ridichiara u, cosi' le espressioni dell'utente compaiono UNA volta
-        // nel sorgente (gli shader parametrici enormi fanno cadere il
+        // TUBO attorno alla curva C(u) = (X, Y, Z, P), sotto-tab Tubes: dalle
+        // equazioni o da uno script (tubeCurveFunction). La curva si valuta in
+        // tre punti (u-h, u, u+h) dentro un ciclo, cosi' tubeCurve ha UNA sola
+        // chiamata nel sorgente (gli shader parametrici enormi fanno cadere il
         // compilatore Mali). Tangente per differenze centrali sull'ombra 3D
         // della curva. La sezione e' il cerchio di raggio u_tubeRadius nel
         // piano perpendicolare alla tangente 3D, a w costante = P(u) (la quarta
         // dimensione e' nella curva): orientato proiettando sul piano la
-        // direzione di riferimento scelta al Run, lontana da tutte le tangenti
-        // -- niente ribaltamenti come con Frenet. Se la tangente le diventa
-        // comunque parallela si ripiega su un asse.
-        auto glslFloat = [](float x) { return QString::number(double(x), 'f', 6); };
-        const QVector3D ref = engine->tubeReference();
+        // direzione di riferimento DI QUESTO TUBO (u_tubeRef, nel blocco della
+        // parte), scelta al Run lontana da tutte le sue tangenti -- niente
+        // ribaltamenti come con Frenet. Se la tangente le diventa comunque
+        // parallela si ripiega su un asse.
         const QString tubeFunction =
+            tubeCurveFunction(engine->tubeX(), engine->tubeY(), engine->tubeZ(), engine->tubeP(),
+                              engine->tubeScriptBody()) +
             "vec4 getRawPosition(float u, float v, float w) {\n"
-            "    float A = ubuf.u_mathParams.x;\n"
-            "    float B = ubuf.u_mathParams.y;\n"
-            "    float C = ubuf.u_mathParams.z;\n"
-            "    float D = ubuf.u_mathParams2.x;\n"
-            "    float E = ubuf.u_mathParams2.y;\n"
-            "    float F = ubuf.u_mathParams2.z;\n"
-            "    float s = ubuf.u_mathParams.w;\n"
-            "    float t = ubuf.u_time;\n"
             "    float tubeU = u;\n"
             "    vec4 tubeM = vec4(0.0);\n"
             "    vec4 tubeC = vec4(0.0);\n"
             "    vec4 tubeN = vec4(0.0);\n"
             "    for (float tubeK = -1.0; tubeK < 1.5; tubeK += 1.0) {\n"
-            "        float u = tubeU + tubeK * 0.001;\n"
-            "        vec4 tubeQ = vec4(" + sanitizeEq(engine->tubeX()) + ", " + sanitizeEq(engine->tubeY()) + ", "
-                                     + sanitizeEq(engine->tubeZ()) + ", " + sanitizeEq(engine->tubeP()) + ");\n"
+            "        vec4 tubeQ = tubeCurve(tubeU + tubeK * 0.001, 0.0, 0.0);\n"
             "        if (tubeK < -0.5) tubeM = tubeQ; else if (tubeK < 0.5) tubeC = tubeQ; else tubeN = tubeQ;\n"
             "    }\n"
             "    vec3 tubeT = tubeN.xyz - tubeM.xyz;\n"
             "    float tubeTl = length(tubeT);\n"
             "    tubeT = (tubeTl > 1.0e-10) ? tubeT / tubeTl : vec3(1.0, 0.0, 0.0);\n"
-            "    vec3 tubeR = vec3(" + glslFloat(ref.x()) + ", " + glslFloat(ref.y()) + ", " + glslFloat(ref.z()) + ");\n"
+            "    vec3 tubeR = vec3(ubuf.u_tubeRefX, ubuf.u_tubeRefY, ubuf.u_tubeRefZ);\n"
             "    vec3 tubeE1 = tubeR - dot(tubeR, tubeT) * tubeT;\n"
             "    if (dot(tubeE1, tubeE1) < 1.0e-8) {\n"
             "        vec3 tubeAlt = (abs(tubeT.x) < 0.9) ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);\n"
@@ -5742,7 +5804,12 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
             "    return sanitizePos(vec4(tubePos, tubeC.w));\n"
             "}";
         QRegularExpression regEx("vec4 getRawPosition\\(float u, float v, float w\\)\\s*\\{[\\s\\S]*?\\}");
-        source.replace(regEx, tubeFunction);
+        // Sostituzione per posizione, non con replace(regex, testo): il testo
+        // della curva viene da uno script e un "\\1" li' sarebbe preso per un
+        // rimando alla regex.
+        const QRegularExpressionMatch rawMatch = regEx.match(source);
+        if (rawMatch.hasMatch())
+            source.replace(rawMatch.capturedStart(), rawMatch.capturedLength(), tubeFunction);
         source.replace("%X_EQ%", "0.0");
         source.replace("%Y_EQ%", "0.0");
         source.replace("%Z_EQ%", "0.0");

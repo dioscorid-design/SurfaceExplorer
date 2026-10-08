@@ -108,6 +108,7 @@ void MainWindow::refreshTubeControls()
     // cambia davvero (durante un load gira coi campi ancora del preset prima).
     if (shown != m_tubeControlsShown) {
         m_tubeControlsShown = shown;
+        updateScriptButtonText();   // il dock Script parla di curva sui tubi
         updateConstraintState();
         updateMasterButtonState();
     }

@@ -449,7 +449,8 @@ private:
     // u_meshIndex. Senza sezioni l'elenco resta vuoto = una mesh sola come
     // sempre. Va chiamata negli STESSI punti dell'estrazione del cutout,
     // altrimenti si ripete il bug "funziona da Run ma non da Master Start".
-    QString extractMeshSections(const QString &fullText, std::vector<MeshPart> *outParts);
+    QString extractMeshSections(const QString &fullText, std::vector<MeshPart> *outParts,
+                                QVector<bool> *outHasU = nullptr);
 
     // ==========================================================
     // CORE UI COMPONENTS
@@ -1641,10 +1642,34 @@ private:
     // La curva di m_scene.tube cita u: senza, non c'e' curva (i limiti u si
     // spengono, come in Surface).
     bool tubeCurveUsesU() const;
-    // Campiona la curva sulla CPU: direzione lontana da tutte le tangenti
-    // (orienta la sezione) e chiusura in u. false = la curva non si valuta.
+    // Campiona la curva delle equazioni sulla CPU e ne ricava la copia del
+    // tubo (tubeCopyFromCurve). false = la curva non si valuta (copia di
+    // default: asse z, aperta).
     static bool sampleTubeCurve(const TubeTexts &tube, float uMin, float uMax,
-                                const CascadeConstants &kc, QVector3D *reference, bool *uClosed);
+                                const CascadeConstants &kc, SurfaceEngine::TubeCopy *copy);
+    // La copia di UN tubo dai punti della sua curva: direzione lontana da
+    // tutte le tangenti (orienta la sezione) e chiusura in u. `curves` = un
+    // vettore di punti (x, y, z, p) per istante di t, il primo a t = 0. Unica
+    // sede della scelta: punti dalla CPU (equazioni) o dalla GPU (script).
+    static SurfaceEngine::TubeCopy tubeCopyFromCurve(const std::vector<std::vector<QVector4D>> &curves);
+    // SCRIPT DEL TUBO (dock Script sul sotto-tab Tubes): il corpo restituisce
+    // vec4(x, y, z, p) in funzione di u e di `mesh`, le sezioni //MESH_BEGIN
+    // dichiarano i tubi (u: e thickness:). Nel motore, senza popup: curva
+    // campionata sulla GPU (TubeCurveSampler) per la copia di ogni tubo, parti,
+    // dominio, spessore. false = non compila (errore in getShaderError).
+    bool applyTubeScript(const QString &fullText, const CascadeConstants &kc);
+    // Run del dock Script sul sotto-tab Tubes (onRunScriptClicked).
+    void runTubeScriptFromDock(const QString &fullText);
+    // Ripresa dello script del tubo da runScene (master Start, Invio su una
+    // costante), come runSceneScript per le superfici.
+    void runSceneTubeScript(RunOrigin origin, bool runDockOnly, const CascadeConstants &kc);
+    // Coda comune dei Run del tubo: orologio, mesh e collasso.
+    void finishTubeRun(RunOrigin origin, bool runDockOnly, const QString &curveText);
+    // Sotto-tab Tubes con i campi della curva vuoti e uno script: la curva la
+    // da' lo script (come una superficie da script, dove lo script prende il
+    // posto delle equazioni). `applied` = lo script eseguito, non l'editor.
+    bool tubeSceneFromScript(bool applied = true) const;
+    bool tubeCurveFieldsEmpty() const;
     void runSceneScript(RunOrigin origin, bool runDockOnly);
     void runSceneImplicit(RunOrigin origin, bool runDockOnly);
     struct RunLimits { float uMin = 0, uMax = 0, vMin = 0, vMax = 0, wMin = 0, wMax = 0; };

@@ -74,8 +74,14 @@ layout(std140, binding = 0) uniform SceneUBO {
     // dichiarato per tenere i due blocchi identici (regola Adreno, CLAUDE.md).
     float u_borderRadius;
     // 1 nei blocchi del bordo: texture del bordo (getSceneColor) e niente
-    // cutout. Ultimo campo di UboData.
+    // cutout.
     int u_isBorder;
+    // Direzione della sezione del tubo: NON USATA QUI (la usa il vertex),
+    // dichiarata per tenere i due blocchi identici campo per campo (regola
+    // Adreno, vedi CLAUDE.md). Ultimi campi di UboData.
+    float u_tubeRefX;
+    float u_tubeRefY;
+    float u_tubeRefZ;
 } ubuf;
 
 // --- PLACEHOLDER PER CODICE TEXTURE CUSTOM ---

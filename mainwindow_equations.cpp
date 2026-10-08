@@ -1100,11 +1100,12 @@ void MainWindow::updateConstraintState()
     };
 
     // Sotto-tab TUBES: u e' il parametro della curva; i suoi limiti si
-    // accendono, come in Surface, solo se la curva lo cita (NEW li spegne).
+    // accendono, come in Surface, solo se la curva lo cita (NEW li spegne), o
+    // se la curva la da' uno script (come per le superfici qui sopra).
     // v e w non si vedono e restano come sono (sono di Surface). Vincoli e
     // composizione non c'entrano col tubo: il motore li ignora (runSceneTube).
     if (tubesShown()) {
-        applyLimitsState(ui->uMinEdit, ui->uMaxEdit, tubeCurveUsesU());
+        applyLimitsState(ui->uMinEdit, ui->uMaxEdit, tubeCurveUsesU() || tubeSceneFromScript());
         return;
     }
 

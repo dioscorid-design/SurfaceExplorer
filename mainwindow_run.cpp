@@ -2,6 +2,7 @@
 // dell'animazione.
 // Parte della classe MainWindow divisa per argomento (mainwindow_p.h).
 #include "mainwindow_p.h"
+#include "tubecurvesampler.h"
 
 
 void MainWindow::performMasterStop()
@@ -680,6 +681,13 @@ void MainWindow::runSceneTube(RunOrigin origin, bool runDockOnly, const CascadeC
 {
     const TubeTexts &tube = m_scene.tube;
 
+    // 0. La curva la da' uno SCRIPT (campi vuoti, script nel dock): lo si
+    // riprende, come runSceneScript per le superfici.
+    if (tubeSceneFromScript(/*applied=*/false)) {
+        runSceneTubeScript(origin, runDockOnly, kc);
+        return;
+    }
+
     // 1. LA CURVA: basta un campo, i vuoti valgono 0 (P vuoto = curva 3D);
     // deve citare u, il suo parametro.
     if (!tubeCurveUsesU()) {
@@ -714,10 +722,31 @@ void MainWindow::runSceneTube(RunOrigin origin, bool runDockOnly, const CascadeC
         showShaderError("Syntax Error (Tube)", ui->glWidget->getShaderError());
         return;
     }
+    finishTubeRun(origin, runDockOnly, tube.x + " " + tube.y + " " + tube.z + " " + tube.p);
+}
+
+void MainWindow::runSceneTubeScript(RunOrigin origin, bool runDockOnly, const CascadeConstants &kc)
+{
+    // Lo script com'e' scritto: il master esegue anche cio' che e' in
+    // sospeso. Il commit di servizio (Invio su una costante a moto fermo)
+    // riapplica quello a schermo, come runSceneScript.
+    const bool serviceCommit = (origin == RunOrigin::ServiceCommit)
+                               && !m_scene.surfaceScriptApplied.trimmed().isEmpty();
+    const QString script = serviceCommit ? m_scene.surfaceScriptApplied : m_scene.surfaceScriptText;
+    if (!applyTubeScript(script, kc)) {
+        showShaderError("Script Compilation Error", ui->glWidget->getShaderError());
+        return;
+    }
+    // Compila: e' lo script a schermo, quello che il Save scrive.
+    m_scene.surfaceScriptApplied = script;
+    finishTubeRun(origin, runDockOnly, script);
+}
+
+void MainWindow::finishTubeRun(RunOrigin origin, bool runDockOnly, const QString &curveText)
+{
     SurfaceEngine *engine = ui->glWidget->getEngine();
 
     // 6. OROLOGIO: la curva con 't' anima la geometria.
-    const QString curveText = tube.x + " " + tube.y + " " + tube.z + " " + tube.p;
     const bool applyOnly = (origin == RunOrigin::ServiceCommit);
     applyAnimationState(applyOnly ? false : hasTimeVariable(curveText), runDockOnly);
     updateMasterButtonState();
@@ -751,17 +780,18 @@ bool MainWindow::applyTubeToEngine(float uMin, float uMax, const CascadeConstant
     // e se la curva si chiude. Se la curva non si valuta sulla CPU (sintassi
     // che exprtk non capisce) resta l'asse z: lo shader ha comunque la sua
     // riserva per le tangenti parallele.
-    QVector3D reference(0.0f, 0.0f, 1.0f);
-    bool uClosed = false;
-    sampleTubeCurve(tube, uMin, uMax, kc, &reference, &uClosed);
+    SurfaceEngine::TubeCopy copy;
+    sampleTubeCurve(tube, uMin, uMax, kc, &copy);
 
     // Prima la curva (provata prima di toccare lo stato), poi il resto:
     // rebuildShader rifa' le pipeline al fotogramma dopo, coi valori di
     // adesso. Vincoli e composizione non c'entrano col tubo.
     ui->glWidget->setTubeRadius(tubeThicknessValue() * kTubeRadiusUnit);
-    if (!ui->glWidget->setTubeCurve(tube.x, tube.y, tube.z, tube.p, reference, uClosed))
+    if (!ui->glWidget->setTubeCurve(tube.x, tube.y, tube.z, tube.p, { copy }))
         return false;
     SurfaceEngine *engine = ui->glWidget->getEngine();
+    // Le equazioni fanno UN tubo: via le parti di uno script di prima.
+    engine->setMeshParts({});
     engine->setConstraintMode(SurfaceEngine::ConstraintW);
     engine->setExplicitU(QString());
     engine->setExplicitV(QString());
@@ -808,8 +838,9 @@ bool MainWindow::hasCompleteTubeInput()
 }
 
 bool MainWindow::sampleTubeCurve(const TubeTexts &tube, float uMin, float uMax,
-                                 const CascadeConstants &kc, QVector3D *reference, bool *uClosed)
+                                 const CascadeConstants &kc, SurfaceEngine::TubeCopy *copy)
 {
+    *copy = SurfaceEngine::TubeCopy();
     double u = 0.0, v = 0.0, w = 0.0, p = 0.0;
     ExpressionParser px, py, pz, pp;
     for (ExpressionParser *e : { &px, &py, &pz, &pp }) {
@@ -822,44 +853,63 @@ bool MainWindow::sampleTubeCurve(const TubeTexts &tube, float uMin, float uMax,
     if (!px.compile(orZero(tube.x)) || !py.compile(orZero(tube.y)) || !pz.compile(orZero(tube.z))
         || !pp.compile(orZero(tube.p))) return false;
 
-    // La curva su N+1 punti; le tangenti per differenze centrali. Una curva
-    // ANIMATA (cita t) si campiona anche in altri istanti, t da 0 a 2pi: la
-    // direzione scelta qui vale per tutto il moto (il Run non si ripete a ogni
-    // fotogramma), e deve restare lontana dalle tangenti anche quando la curva
-    // si e' mossa. La chiusura in u si giudica all'istante di partenza.
+    // La curva su N+1 punti. Una curva ANIMATA (cita t) si campiona anche in
+    // altri istanti, t da 0 a 2pi: la direzione scelta vale per tutto il moto
+    // (il Run non si ripete a ogni fotogramma).
     static const QRegularExpression timeRe(QStringLiteral("\\bt\\b"));
     const bool animated = tube.x.contains(timeRe) || tube.y.contains(timeRe) || tube.z.contains(timeRe);
     const int timeSamples = animated ? 8 : 1;
     constexpr int N = 400;
-    std::vector<QVector3D> pts(N + 1);
-    std::vector<QVector3D> tangents;
-    tangents.reserve(size_t(N) * timeSamples);
+    std::vector<std::vector<QVector4D>> curves(timeSamples, std::vector<QVector4D>(N + 1));
     for (int ts = 0; ts < timeSamples; ++ts) {
         const double t = (ts == 0) ? 0.00001 : 6.28318530718 * ts / timeSamples;
         for (ExpressionParser *e : { &px, &py, &pz, &pp }) e->setTime(t);
-        double p0 = 0.0, pN = 0.0;
         for (int i = 0; i <= N; ++i) {
             u = uMin + (double(uMax) - double(uMin)) * i / N;
             const double x = px.value(), y = py.value(), z = pz.value();
             if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) return false;
-            pts[i] = QVector3D(float(x), float(y), float(z));
-            if (ts == 0 && (i == 0 || i == N)) (i == 0 ? p0 : pN) = pp.value();
+            // P serve solo agli estremi del primo istante (chiusura).
+            const double pv = (ts == 0 && (i == 0 || i == N)) ? pp.value() : 0.0;
+            curves[ts][i] = QVector4D(float(x), float(y), float(z), float(pv));
         }
-        // Chiusa se torna al punto di partenza ANCHE in P: un cerchio che
-        // sale in P (elica 4D) ha l'ombra 3D chiusa ma la curva aperta.
-        if (ts == 0)
-            *uClosed = pts[0].distanceToPoint(pts[N]) < 0.001f && std::abs(pN - p0) < 0.001;
+    }
+    *copy = tubeCopyFromCurve(curves);
+    return true;
+}
+
+SurfaceEngine::TubeCopy MainWindow::tubeCopyFromCurve(const std::vector<std::vector<QVector4D>> &curves)
+{
+    SurfaceEngine::TubeCopy copy;
+    if (curves.empty() || curves[0].size() < 3) return copy;
+
+    // Un punto non finito: la curva non si valuta li', resta la copia di
+    // default (lo shader ha comunque la sua riserva).
+    for (const std::vector<QVector4D> &pts : curves)
+        for (const QVector4D &q : pts)
+            if (!std::isfinite(q.x()) || !std::isfinite(q.y()) || !std::isfinite(q.z())) return copy;
+
+    // Chiusa se torna al punto di partenza ANCHE in P (all'istante di
+    // partenza): un cerchio che sale in P (elica 4D) ha l'ombra 3D chiusa ma
+    // la curva aperta.
+    {
+        const std::vector<QVector4D> &pts = curves[0];
+        const QVector4D &q0 = pts.front(), &qN = pts.back();
+        copy.uClosed = q0.toVector3D().distanceToPoint(qN.toVector3D()) < 0.001f
+                       && std::abs(qN.w() - q0.w()) < 0.001f;
+    }
+
+    // Le tangenti per differenze centrali, di tutti gli istanti.
+    std::vector<QVector3D> tangents;
+    for (const std::vector<QVector4D> &pts : curves) {
+        const int N = int(pts.size()) - 1;
         for (int i = 1; i < N; ++i) {
-            const QVector3D d = pts[i + 1] - pts[i - 1];
+            const QVector3D d = pts[i + 1].toVector3D() - pts[i - 1].toVector3D();
             if (d.lengthSquared() > 1e-16f) tangents.push_back(d.normalized());
         }
     }
     // Nessuna tangente 3D: la curva si muove solo in P (ombra 3D ferma in un
     // punto). Lo shader ripiega su un asse; il riferimento resta z.
-    if (tangents.empty()) {
-        *reference = QVector3D(0.0f, 0.0f, 1.0f);
-        return true;
-    }
+    if (tangents.empty()) return copy;
 
     // CANDIDATI per la direzione di riferimento: il piano della curva se ne
     // ha uno (binormali concordi: per una curva piana sono tutte la normale
@@ -894,10 +944,158 @@ bool MainWindow::sampleTubeCurve(const TubeTexts &tube, float uMin, float uMax,
         }
         if (worst < bestScore) {
             bestScore = worst;
-            *reference = cand;
+            copy.reference = cand;
         }
     }
+    return copy;
+}
+
+bool MainWindow::tubeCurveFieldsEmpty() const
+{
+    const TubeTexts &c = m_scene.tube;
+    return c.x.trimmed().isEmpty() && c.y.trimmed().isEmpty()
+           && c.z.trimmed().isEmpty() && c.p.trimmed().isEmpty();
+}
+
+bool MainWindow::tubeSceneFromScript(bool applied) const
+{
+    const QString &script = applied ? m_scene.surfaceScriptApplied : m_scene.surfaceScriptText;
+    return tubesShown() && tubeCurveFieldsEmpty() && !script.trimmed().isEmpty();
+}
+
+bool MainWindow::applyTubeScript(const QString &fullText, const CascadeConstants &kc)
+{
+    GLWidget *gl = ui->glWidget;
+    SurfaceEngine *engine = gl->getEngine();
+
+    // Sezioni //CUTOUT e //MESH_BEGIN fuori dal corpo, come per le superfici.
+    QString cutoutGlsl;
+    QString body = extractCutoutSection(fullText, &cutoutGlsl);
+    engine->setCutoutCodeGLSL(cutoutGlsl);
+    std::vector<MeshPart> parts;
+    QVector<bool> hasU;
+    body = extractMeshSections(body, &parts, &hasU);
+
+    QString glslBody;
+    {
+        QTextStream stream(&body);
+        while (!stream.atEnd()) {
+            const QString line = stream.readLine();
+            if (line.contains(":=")) continue;
+            glslBody.append(line + "\n");
+        }
+    }
+    glslBody = GlslTranslator::translateEquation(glslBody);
+
+    // DOMINIO: u dai limiti (anche dalle direttive u_min :=), o della
+    // sezione; v e' l'angolo attorno, 0..2pi, qualunque cosa dica la sezione.
+    bool okLo = false, okHi = false;
+    float uMin = parseLimitField(m_scene.lim.uMin, &okLo);
+    float uMax = parseLimitField(m_scene.lim.uMax, &okHi);
+    if (!okLo || !okHi || !(uMin < uMax)) { uMin = 0.0f; uMax = 6.28318530718f; }
+    for (int k = 0; k < (int)parts.size(); ++k) {
+        MeshPart &part = parts[k];
+        if (!hasU.value(k)) { part.uMin = uMin; part.uMax = uMax; }
+        part.vMin = 0.0f;
+        part.vMax = 6.28318530718f;
+    }
+
+    // LA CURVA DI OGNI TUBO, campionata sulla GPU con la stessa funzione del
+    // vertex: N+1 punti per tubo e per istante (8 se la curva cita t).
+    const int tubes = std::max(1, (int)parts.size());
+    const int timeSamples = hasTimeVariable(glslBody) ? 8 : 1;
+    constexpr int N = 400;
+    QVector<QVector4D> params;
+    params.reserve(tubes * timeSamples * (N + 1));
+    for (int k = 0; k < tubes; ++k) {
+        const float lo = parts.empty() ? uMin : parts[k].uMin;
+        const float hi = parts.empty() ? uMax : parts[k].uMax;
+        for (int ts = 0; ts < timeSamples; ++ts) {
+            const float t = (ts == 0) ? 0.00001f : 6.28318530718f * ts / timeSamples;
+            for (int i = 0; i <= N; ++i)
+                params.append(QVector4D(lo + (hi - lo) * i / N, float(k), t, 0.0f));
+        }
+    }
+    const float consts[7] = { kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s };
+    QVector<QVector4D> points;
+    QString samplingError;
+    std::vector<SurfaceEngine::TubeCopy> copies(tubes);
+    bool curve4D = false;
+    if (TubeCurveSampler::sample(gl->getRhi(), gl->tubeCurveFunction({}, {}, {}, {}, glslBody),
+                                 params, consts, &points, &samplingError)) {
+        for (int k = 0; k < tubes; ++k) {
+            std::vector<std::vector<QVector4D>> curves(timeSamples, std::vector<QVector4D>(N + 1));
+            for (int ts = 0; ts < timeSamples; ++ts)
+                for (int i = 0; i <= N; ++i) {
+                    const QVector4D &q = points[(k * timeSamples + ts) * (N + 1) + i];
+                    curves[ts][i] = q;
+                    if (std::abs(q.w()) > 1e-6f) curve4D = true;
+                }
+            copies[k] = tubeCopyFromCurve(curves);
+        }
+    } else {
+        // Senza GPU di calcolo (o con uno script che non compila: lo dira' la
+        // prova del vertex qui sotto) le sezioni restano sull'asse z.
+        qWarning() << "Tube script sampling:" << samplingError;
+    }
+
+    if (!gl->setTubeScript(glslBody, copies)) return false;
+    engine->setMeshParts(parts);
+    engine->setConstraintMode(SurfaceEngine::ConstraintW);
+    engine->setExplicitU(QString());
+    engine->setExplicitV(QString());
+    engine->setExplicitW(QString());
+    gl->setRangeU(uMin, uMax);
+    gl->setRangeV(0.0f, 6.28318530718f);
+    gl->setRangeW(0.0f, 1.0f);
+    gl->setTubeRadius(tubeThicknessValue() * kTubeRadiusUnit);
+
+    // Curva 4D: la rotazione di sicurezza delle superfici con P.
+    if (curve4D
+        && std::abs(gl->getOmega()) < 0.0001f && std::abs(gl->getPhi()) < 0.0001f
+        && std::abs(gl->getPsi()) < 0.0001f) {
+        const float safety = 0.0001f;
+        gl->setRotation4D(safety, safety, safety);
+    }
     return true;
+}
+
+void MainWindow::runTubeScriptFromDock(const QString &fullText)
+{
+    m_scene.surfaceScriptApplied = fullText;
+    parseAndApplyScriptParams(fullText, false);   // A :=, u_min :=, ...
+    ui->glWidget->setResolution(m_scene.steps);
+    // Dai CAMPI, non dagli slider: lo slider ha passo 0.01 e mostra il campo.
+    const CascadeConstants kc = resolveCascadeConstants(false);
+    setEngineConstants(kc, /*onlyIfChanged=*/false);
+
+    if (!applyTubeScript(fullText, kc)) {
+        showShaderError("Script Compilation Error", ui->glWidget->getShaderError());
+        return;
+    }
+    ui->glWidget->updateSurfaceData();
+    if (!ui->glWidget->getEngine()->isMeshValid()) {
+        performMasterStop();
+        InputValidator::showMathematicalCollapseError(this);
+        return;
+    }
+
+    ui->btnSaveScript->setEnabled(true);
+    exitMetricScriptMode();
+    // Lo script prende il posto della curva dei campi, come quello di una
+    // superficie prende il posto delle equazioni.
+    for (TubeField f : { &TubeTexts::x, &TubeTexts::y, &TubeTexts::z, &TubeTexts::p })
+        setTubeText(f, QString());
+    // I limiti u ora li comanda lo script (accesi): al load il loro stato era
+    // stato deciso prima che lo script fosse a schermo.
+    updateConstraintState();
+
+    m_masterStopped = false;
+    m_userStoppedGeomClock = false;   // run esplicito del modulo geometria
+    ui->glWidget->setSurfaceAnimating(hasTimeVariable(fullText));
+    if (!hasTimeVariable(fullText)) m_parametricApplied = true;
+    updateMasterButtonState();
+    ui->glWidget->update();
 }
 
 void MainWindow::runSceneParametric(RunOrigin origin, bool runDockOnly,

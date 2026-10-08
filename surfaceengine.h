@@ -88,6 +88,12 @@ struct MeshPart {
     // distinguere il ramo (es. quale toro di Clifford si sta generando).
     int meshIndex = 0;
 
+    // SPESSORE DI QUESTO TUBO (script del sotto-tab Tubes, riga "thickness:"
+    // della sezione //MESH_BEGIN): fattore sullo spessore del campo Thickness,
+    // cosi' lo slider resta valido per tutti i tubi. < 0 = non dichiarato (1).
+    // Come il dominio, lo dichiara lo script: setMeshParts non lo conserva.
+    float tubeThickness = -1.0f;
+
     // ==========================================================
     // ASPETTO PER-PARTE (colore, trasparenza, luce, solid/wireframe)
     // ==========================================================
@@ -563,27 +569,49 @@ public:
     QString getScriptCodeGLSL() const { return m_glslCode; }
 
     // TUBO (sotto-tab Tubes del parametrico): getRawPosition lo genera
-    // GLWidget::createVertexShaderSource dalla curva asse, esclusivo con la
-    // modalita' script. Dominio: u = parametro della curva, v = angolo attorno
-    // (0..2pi). La curva arriva gia' tradotta in GLSL (P vuoto = "0.0"), con la
-    // direzione di riferimento che orienta la sezione e la chiusura in u (la
-    // curva torna al punto di partenza): la sceglie chi chiama campionando la
-    // curva sulla CPU, perche' qui le equazioni del tubo non hanno un exprtk.
+    // GLWidget::createVertexShaderSource attorno alla curva asse, esclusivo con
+    // la modalita' script della superficie. Dominio: u = parametro della
+    // curva, v = angolo attorno (0..2pi). La curva viene dalle equazioni del
+    // sotto-tab (setTubeCurve, P vuoto = curva 3D) o da uno SCRIPT del dock
+    // Script (setTubeScriptBody: corpo GLSL che restituisce vec4(x, y, z, p),
+    // con `mesh` e le sezioni //MESH_BEGIN per piu' tubi).
     void setTubeMode(bool active) { m_useTubeMode = active; }
     bool isTubeModeActive() const { return m_useTubeMode; }
-    void setTubeCurve(const QString &x, const QString &y, const QString &z, const QString &p,
-                      const QVector3D &reference, bool uClosed)
+    void setTubeCurve(const QString &x, const QString &y, const QString &z, const QString &p)
     {
         m_tubeX = x; m_tubeY = y; m_tubeZ = z; m_tubeP = p;
-        m_tubeReference = reference;
-        m_tubeUClosed = uClosed;
+        m_tubeScriptBody.clear();
     }
+    void setTubeScriptBody(const QString &glslBody)
+    {
+        m_tubeScriptBody = glslBody;
+        m_tubeX.clear(); m_tubeY.clear(); m_tubeZ.clear(); m_tubeP.clear();
+    }
+    bool isTubeFromScript() const { return !m_tubeScriptBody.trimmed().isEmpty(); }
+    QString tubeScriptBody() const { return m_tubeScriptBody; }
     QString tubeX() const { return m_tubeX; }
     QString tubeY() const { return m_tubeY; }
     QString tubeZ() const { return m_tubeZ; }
     QString tubeP() const { return m_tubeP; }
-    QVector3D tubeReference() const { return m_tubeReference; }
-    bool tubeUClosed() const { return m_tubeUClosed; }
+
+    // UNA COPIA PER TUBO (indice = `mesh`): la direzione di riferimento che
+    // orienta la sezione e la chiusura in u (la curva torna al punto di
+    // partenza). Le sceglie chi chiama campionando la curva -- sulla CPU per
+    // le equazioni, sulla GPU per gli script -- perche' qui la curva non si
+    // valuta. Senza copie: asse z, aperta.
+    struct TubeCopy {
+        QVector3D reference{0.0f, 0.0f, 1.0f};
+        bool uClosed = false;
+    };
+    void setTubeCopies(const std::vector<TubeCopy> &copies) { m_tubeCopies = copies; }
+    const std::vector<TubeCopy> &tubeCopies() const { return m_tubeCopies; }
+    QVector3D tubeReference(int mesh) const {
+        return (mesh >= 0 && mesh < (int)m_tubeCopies.size()) ? m_tubeCopies[mesh].reference
+                                                              : QVector3D(0.0f, 0.0f, 1.0f);
+    }
+    bool tubeUClosed(int mesh) const {
+        return mesh >= 0 && mesh < (int)m_tubeCopies.size() && m_tubeCopies[mesh].uClosed;
+    }
 
     // Sezione opzionale //CUTOUT_BEGIN..//CUTOUT_END dello script (dock Script):
     // corpo di bool cutHere(float u, float v), iniettato nel fragment shader per
@@ -651,11 +679,11 @@ private:
     QString m_glslCode;
     QString m_cutoutCode;
     bool m_useScriptMode = false;
-    // Tubo: vedi setTubeCurve.
+    // Tubo: vedi setTubeCurve / setTubeScriptBody / setTubeCopies.
     bool m_useTubeMode = false;
     QString m_tubeX, m_tubeY, m_tubeZ, m_tubeP;
-    QVector3D m_tubeReference{0.0f, 0.0f, 1.0f};
-    bool m_tubeUClosed = false;
+    QString m_tubeScriptBody;
+    std::vector<TubeCopy> m_tubeCopies;
 
     // ==========================================================
     // EXPRTK PARSER ENVIRONMENT (Simboli Mappati in Memoria)

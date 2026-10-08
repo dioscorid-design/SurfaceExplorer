@@ -144,9 +144,16 @@ struct UboData {
     // blocco cresce di una riga (464 byte). Dichiarato in ENTRAMBI gli shader
     // parametrici (regola Adreno, vedi CLAUDE.md).
     int u_isBorder;
-    // padding esplicito: std140 allinea la struct a vec4 (16 byte). Senza, il
-    // compilatore C++ e lo shader potrebbero non concordare sulla dimensione.
-    float _pad2[3];
+    // DIREZIONE DI RIFERIMENTO DELLA SEZIONE DEL TUBO (sotto-tab Tubes), per
+    // parte: ogni tubo di uno script multi-mesh ha la sua, scelta al Run
+    // campionando la sua curva. Nel blocco della parte e non come costante
+    // nello shader, cosi' cambiare i tubi non ricompila. Occupano i tre posti
+    // della riserva _pad2: il blocco non cresce (464 byte). Dichiarati in
+    // ENTRAMBI gli shader parametrici (regola Adreno, vedi CLAUDE.md); li usa
+    // solo il vertex.
+    float u_tubeRefX;
+    float u_tubeRefY;
+    float u_tubeRefZ;
 };
 
 class GLWidget : public QRhiWidget
@@ -214,14 +221,26 @@ public:
     // EQUATIONS & MATHEMATICS
     // ==========================================================
     bool setParametricEquations(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq);
-    // TUBO attorno a una curva (sotto-tab Tubes): curva gia' tradotta in GLSL
-    // (P vuoto = "0.0"), direzione di riferimento della sezione e chiusura in
-    // u. Prova il vertex PRIMA di toccare lo stato, come setParametricEquations;
-    // false = non compila (errore in getShaderError) e tutto resta com'era.
-    // Esclude la modalita' script; equazioni e script, applicati, escludono il
-    // tubo.
+    // TUBO attorno a una curva (sotto-tab Tubes): dalle equazioni (P vuoto =
+    // curva 3D) o dal corpo GLSL di uno script del dock Script, gia' tradotto,
+    // che restituisce vec4(x, y, z, p) e puo' leggere `mesh`. Con la curva, una
+    // copia per tubo (direzione della sezione, chiusura in u). Provano il vertex
+    // PRIMA di toccare lo stato, come setParametricEquations; false = non
+    // compila (errore in getShaderError) e tutto resta com'era. Escludono la
+    // modalita' script della superficie; equazioni e script della superficie,
+    // applicati, escludono il tubo.
     bool setTubeCurve(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq,
-                      const QVector3D &reference, bool uClosed);
+                      const std::vector<SurfaceEngine::TubeCopy> &copies);
+    bool setTubeScript(const QString &glslBody, const std::vector<SurfaceEngine::TubeCopy> &copies);
+    // Solo le copie (cambio di dominio o di costanti): niente ricompilazione.
+    void setTubeCopies(const std::vector<SurfaceEngine::TubeCopy> &copies);
+    // La curva come funzione GLSL vec4 tubeCurve(float u, float v, float w):
+    // dalle equazioni, o dal corpo di uno script se non e' vuoto. Unica sede
+    // del testo: la usano il vertex (attorno ci costruisce il tubo) e il
+    // campionatore sulla GPU (TubeCurveSampler), che al Run sceglie la
+    // direzione della sezione -- due copie della curva divergerebbero.
+    QString tubeCurveFunction(const QString &xEq, const QString &yEq, const QString &zEq,
+                              const QString &wEq, const QString &scriptBody);
     void setImplicitEquation(const QString &eqF);
     void setEquationConstants(float a, float b, float c, float d, float e, float f, float s);
     void setRangeU(float min, float max);
@@ -1585,6 +1604,8 @@ private:
     QString buildTextureFunction(const QString &customLogic, const QString &funcName);
     QString generateGlslHelperVars(const QString& sourceCode);
     QShader bakeShader(const QByteArray &source, QShader::Stage stage);
+    bool applyTubeSource(const std::function<void()> &setCurve,
+                         const std::vector<SurfaceEngine::TubeCopy> &copies);
 
     // --- Pipeline & Resource Initialization ---
     void buildPipeline();

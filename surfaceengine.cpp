@@ -647,9 +647,9 @@ void SurfaceEngine::detectPartClosure(MeshPart& part)
     part.vClosed = false;
 
     // Tubo: v e' l'angolo attorno alla curva, sempre chiuso; u lo sa chi ha
-    // campionato la curva (setTubeCurve).
+    // campionato la curva di QUESTO tubo (setTubeCopies).
     if (m_useTubeMode) {
-        part.uClosed = m_tubeUClosed;
+        part.uClosed = tubeUClosed(part.meshIndex);
         part.vClosed = true;
         return;
     }

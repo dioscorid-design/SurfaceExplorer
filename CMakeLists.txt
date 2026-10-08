@@ -161,6 +161,8 @@ qt_add_executable(SurfaceExplorer
     shaders/raymarch_template.txt
     geodesiccalculator.h
     geodesiccalculator.cpp
+    tubecurvesampler.h
+    tubecurvesampler.cpp
     inputvalidator.h
     inputvalidator.cpp
     shaders/geodesic.glsl
