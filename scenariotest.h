@@ -195,6 +195,13 @@ private:
     // dall'origine -- fasce e flusso geodetico compresi -- ferme se erano ferme.
     // Da sola: --scenario-only reset-button.
     void runResetButtonScenarios();
+    // BORDO DELLA SUPERFICIE: bersaglio Border (slider dello spessore acceso,
+    // riquadro Texture spento, RGB sul colore del bordo e non della
+    // superficie); a schermo il bordo c'e' su una superficie aperta (anche da
+    // script) e non sulle cuciture e sui poli (toro, sfera); lavoro non salvato,
+    // Save e riapertura, nessuna chiave senza bordo; spento in Ray Marching.
+    // Da sola: --scenario-only border.
+    void runBorderScenarios();
     // Load di record la cui texture si compilava male: motore = applicata =
     // script (checkTextureCode). Kerr Spin Animated porta un blocco audio coi
     // marcatori spaziati ("// SOUND_BEGIN"), Oloid un vincolo in W che a meta'
@@ -290,6 +297,9 @@ private:
     // Se non vuoto, il prossimo popup con un tasto di questo testo riceve quel
     // tasto invece di Annulla (la scelta del popup del RESET).
     QString m_popupAnswer;
+    // Se vero, il prossimo DIALOGO (non QMessageBox: per esempio la domanda sul
+    // messaggio di una texture al Save) si conferma invece di annullarlo.
+    bool m_acceptNextDialog = false;
 };
 
 #endif // SCENARIOTEST_H

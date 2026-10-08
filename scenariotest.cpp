@@ -100,6 +100,14 @@ ScenarioTest::ScenarioTest(MainWindow *mw, const QString &root, const QString &o
         if (!w) return;
         QString desc = w->windowTitle();
         if (auto *mb = qobject_cast<QMessageBox *>(w)) desc += QStringLiteral(": ") + mb->text();
+        if (m_acceptNextDialog && !qobject_cast<QMessageBox *>(w)) {
+            if (auto *d = qobject_cast<QDialog *>(w)) {
+                m_acceptNextDialog = false;
+                m_lines.append(QStringLiteral("        dialogo confermato: ") + desc.simplified());
+                d->accept();
+                return;
+            }
+        }
         if (auto *mb = qobject_cast<QMessageBox *>(w); mb && !m_popupAnswer.isEmpty()) {
             for (QAbstractButton *b : mb->buttons()) {
                 if (b->text() == m_popupAnswer) {
@@ -558,11 +566,20 @@ void ScenarioTest::checkSurfaceControls(const QString &step)
     // isEnabled() tiene conto dei contenitori: e' cio' che l'utente puo' cliccare.
     struct Want { const char *name; QWidget *w; bool on; };
     const QList<Want> wants = {
+        // I tre radio del bersaglio stanno nei riquadri che il gate spegne: sono
+        // la via del ritorno e devono restare cliccabili.
+        { "radio Surface",      ui->radioSurface,    true },
+        { "radio Border",       ui->radioBorder,     !rm },
+        { "radio Background",   ui->radioBackground, true },
         { "Base",               ui->radioBasic,      !onBg },
         { "Phong",              ui->radioPhong,      !onBg },
         { "Wireframe",          ui->radioWF,         !onBg && !rm },
         { "densita' wireframe", ui->btnWireUPlus,    !onBg && wire },
-        { "Light",              ui->lightSlider,     !onBg && !wire },
+        // Light segue la SUPERFICIE: col bersaglio Border i radio mostrano il
+        // bordo, ma luce e trasparenza restano della superficie.
+        { "Light",              ui->lightSlider,     !onBg && !(m_mw->editingBorder()
+                                                                ? (!rm && m_mw->m_scene.renderMode == 2)
+                                                                : wire) },
         { "Headlight",          ui->fillLightSlider, !onBg && rm },
         { "FOV",                ui->fovSliderMain,   true },
         // Gli slider RGB no: in Background seguono la texture dello sfondo
@@ -580,6 +597,8 @@ void ScenarioTest::checkSurfaceControls(const QString &step)
         bad << QStringLiteral("Transparency accesa (attesa spenta)");
     const QString light = lightProblem();
     if (!light.isEmpty()) bad << light;
+    const QString target = editTargetProblem();
+    if (!target.isEmpty()) bad << target;
 
     check(bad.isEmpty(), QStringLiteral("%1 -> comandi superficie %2%3")
                              .arg(step, onBg ? QStringLiteral("spenti") : QStringLiteral("accesi"),
@@ -922,6 +941,7 @@ QString ScenarioTest::masterState() const
     if (a.eqAvailable && !a.eqRunning)         off << QStringLiteral("equazioni");
     if (a.texAvailable && !a.texRunning)       off << QStringLiteral("texture");
     if (a.bgAvailable && !a.bgRunning)         off << QStringLiteral("sfondo");
+    if (a.borderAvailable && !a.borderRunning) off << QStringLiteral("bordo");
     if (a.cameraAvailable && !a.cameraRunning) off << QStringLiteral("camera");
     if (a.audioAvailable && !a.audioRunning)   off << QStringLiteral("suono");
     const QString label = m_mw->m_btnStart ? m_mw->m_btnStart->text().toUpper() : QString();
@@ -1393,6 +1413,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("border")) {
+        runBorderScenarios();
+        finish();
+        return;
+    }
 
     // ---------------------------------------------------------------------
     // AVVIO: la superficie di default non e' lavoro dell'utente. Se qui la
@@ -1677,14 +1702,35 @@ void ScenarioTest::run()
         click(ui->radioSurface);
         checkBackground(QStringLiteral("ritorno a Surface"), QStringLiteral("14.png"));
     }
-    // Texture Ray Marching scelta come SFONDO: incompatibile, lo sfondo torna
-    // alla default (il popup si chiude da solo) e la superficie non si tocca.
+    // FORMA DELLO SFONDO (Fixed/Sphere/Cylinder/Cube): solo col bersaglio
+    // Background e la texture di sfondo accesa.
+    if (loadRecord(QStringLiteral("records/Rotations/Boy Surface.json"))) {
+        click(ui->radioBackground);
+        if (ui->chkBoxTexture->isChecked()) click(ui->chkBoxTexture);
+        check(!ui->radioBgSphere->isEnabled(),
+              QStringLiteral("Background, texture di sfondo spenta -> forma dello sfondo spenta"));
+        click(ui->chkBoxTexture);
+        check(ui->radioBgSphere->isEnabled(),
+              QStringLiteral("Background, texture di sfondo accesa -> forma dello sfondo accesa"));
+        click(ui->radioSurface);
+        check(!ui->radioBgSphere->isEnabled(),
+              QStringLiteral("di nuovo Surface -> forma dello sfondo spenta"));
+    }
+
+    // Texture Ray Marching scelta come SFONDO: incompatibile, un avviso (il
+    // popup si chiude da solo) e lo sfondo resta com'era; la superficie non si
+    // tocca.
     if (loadRecord(QStringLiteral("records/Rotations/Boy Surface.json"))) {
         click(ui->radioBackground);
         if (selectTexture(QStringLiteral("textures/Images/14.png")))
             checkBackground(QStringLiteral("immagine di sfondo dalla Library"), QStringLiteral("14.png"));
-        if (selectTexture(QStringLiteral("textures/Ray Marching/Fractal Noise FBm.json")))
-            checkBackground(QStringLiteral("texture Ray Marching come sfondo (incompatibile)"), QStringLiteral(""));
+        const int closedBg = m_popupsClosed;
+        if (selectTexture(QStringLiteral("textures/Ray Marching/Fractal Noise FBm.json"))) {
+            checkBackground(QStringLiteral("texture Ray Marching come sfondo (rifiutata, sfondo invariato)"),
+                            QStringLiteral("14.png"));
+            check(m_popupsClosed == closedBg + 1,
+                  QStringLiteral("texture Ray Marching come sfondo -> un avviso (%1)").arg(m_popupsClosed - closedBg));
+        }
         click(ui->radioSurface);
         checkSurfaceImage(QStringLiteral("la superficie dopo la texture incompatibile sullo sfondo"),
                           QStringLiteral("2k_venus_surface.jpg"));
@@ -1704,6 +1750,12 @@ void ScenarioTest::run()
         click(ui->radioBackground); checkSurfaceControls(QStringLiteral("Background dal wireframe"));
         click(ui->radioSurface);    checkSurfaceControls(QStringLiteral("Surface, ancora in wireframe"));
         click(ui->radioBasic);      checkSurfaceControls(QStringLiteral("Base"));
+        // Border: comandi della superficie accesi, spessore regolabile; il
+        // passaggio da e verso Background riporta il bersaglio giusto.
+        click(ui->radioBorder);     checkSurfaceControls(QStringLiteral("Border"));
+        click(ui->radioBackground); checkSurfaceControls(QStringLiteral("Background dal Border"));
+        click(ui->radioBorder);     checkSurfaceControls(QStringLiteral("Border dal Background"));
+        click(ui->radioSurface);    checkSurfaceControls(QStringLiteral("Surface dal Border"));
     }
     if (loadRecord(QString::fromLatin1(kImplicitRecord))) {
         if (!ui->radioSurface->isChecked()) click(ui->radioSurface);
@@ -3125,8 +3177,422 @@ void ScenarioTest::run()
     runLibraryRenameScenarios();
     runResetSceneScenarios();
     runResetButtonScenarios();
+    runBorderScenarios();
 
     finish();
+}
+
+void ScenarioTest::runBorderScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    auto click = [this](QAbstractButton *b) { b->click(); wait(200); };
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Bordo della superficie =="));
+    const QString kTorus   = QStringLiteral("surfaces/Parametric/Equations/R3/Torus.json");
+    const QString kSphere  = QStringLiteral("surfaces/Parametric/Equations/R3/Sphere.json");
+    const QString kEnneper = QStringLiteral("surfaces/Parametric/Equations/R3/Symmetrized Double Enneper.json");
+    const QString kMobius  = QStringLiteral("surfaces/Parametric/Equations/Non-orientable/Mobius Strip.json");
+
+    // Frazione di pixel che cambiano fra due fotogrammi (soglia per canale 8).
+    auto changed = [](const QImage &a0, const QImage &b0) -> double {
+        const QImage a = a0.convertToFormat(QImage::Format_RGB32);
+        const QImage b = b0.convertToFormat(QImage::Format_RGB32);
+        if (a.size() != b.size() || a.isNull()) return 1.0;
+        qint64 n = 0;
+        for (int y = 0; y < a.height(); ++y) {
+            const QRgb *pa = reinterpret_cast<const QRgb*>(a.constScanLine(y));
+            const QRgb *pb = reinterpret_cast<const QRgb*>(b.constScanLine(y));
+            for (int x = 0; x < a.width(); ++x)
+                if (qAbs(qRed(pa[x]) - qRed(pb[x])) > 8 || qAbs(qGreen(pa[x]) - qGreen(pb[x])) > 8
+                    || qAbs(qBlue(pa[x]) - qBlue(pb[x])) > 8) ++n;
+        }
+        return double(n) / (double(a.width()) * a.height());
+    };
+    // Bordo acceso dallo slider, come l'utente: fotogramma prima e dopo. Il
+    // fotogramma col bordo resta nel report (border-<nome>.png), da guardare.
+    auto borderEffect = [&](int sliderValue, const QString &name) -> double {
+        const QImage before = gl->grabFramebuffer();
+        ui->borderThicknessSlider->setValue(sliderValue);  wait(600);
+        const QImage after = gl->grabFramebuffer();
+        after.save(m_outDir + QStringLiteral("/border-") + name + QStringLiteral(".png"));
+        return changed(before, after);
+    };
+    auto pct = [](double f) { return QString::number(f * 100.0, 'f', 3) + QLatin1Char('%'); };
+
+    // Bersaglio Border: i suoi controlli.
+    if (loadSurface(kTorus)) {
+        check(gl->borderRadius() == 0.0f && ui->radioBorder->isEnabled(),
+              QStringLiteral("superficie caricata -> nessun bordo, radio Border acceso"));
+        click(ui->radioBorder);
+        // Border col bordo spento lo accende al default 0.50 (raggio 0.01); il
+        // minimo dello slider (primo scatto) e' 0.25.
+        check(qAbs(gl->borderRadius() - 0.01f) < 1e-5f && ui->borderThicknessSlider->value() == 17
+                  && ui->lblValBorderThickness->text() == QLatin1String("0.50"),
+              QStringLiteral("Border col bordo spento -> bordo al default 0.50 (motore %1, slider %2, '%3')")
+                  .arg(gl->borderRadius()).arg(ui->borderThicknessSlider->value())
+                  .arg(ui->lblValBorderThickness->text()));
+        check(m_mw->editingBorder() && ui->borderThicknessSlider->isEnabled()
+                  && ui->chkBoxTexture->isEnabled() && !ui->chkBoxTexture->isChecked()
+                  && ui->sliderR->value() == 255
+                  && ui->sliderG->value() == 255 && ui->sliderB->value() == 255,
+              QStringLiteral("Border -> spessore regolabile, texture del bordo spenta, RGB sul bianco del bordo (%1 %2 %3)")
+                  .arg(ui->sliderR->value()).arg(ui->sliderG->value()).arg(ui->sliderB->value()));
+        const QString target = editTargetProblem();
+        check(target.isEmpty(), QStringLiteral("Border -> bersaglio coerente%1")
+                                    .arg(target.isEmpty() ? QString() : QStringLiteral(": ") + target));
+
+        // Toro: solo cuciture, il bordo non si vede.
+        const double torus = borderEffect(50, QStringLiteral("torus"));
+        // Scala mostrata 0.25..10, raggio = valore * 0.02: 50 -> 2.64.
+        check(qAbs(gl->borderRadius() - 2.6385f * 0.02f) < 1e-4f
+                  && ui->lblValBorderThickness->text() == QLatin1String("2.64"),
+              QStringLiteral("slider a 50 -> spessore 2.64 nell'etichetta, raggio 0.0528 nel motore (%1, '%2')")
+                  .arg(gl->borderRadius()).arg(ui->lblValBorderThickness->text()));
+        ui->borderThicknessSlider->setValue(1);  wait(200);
+        check(ui->lblValBorderThickness->text() == QLatin1String("0.25"),
+              QStringLiteral("slider a 1 -> minimo 0.25 ('%1')").arg(ui->lblValBorderThickness->text()));
+        ui->borderThicknessSlider->setValue(100);  wait(200);
+        check(qAbs(gl->borderRadius() - 0.2f) < 1e-5f && ui->lblValBorderThickness->text() == QLatin1String("10.00"),
+              QStringLiteral("slider a 100 -> 10.00, raggio 0.2 (%1)").arg(gl->borderRadius()));
+        ui->borderThicknessSlider->setValue(0);  wait(300);
+        check(gl->borderRadius() == 0.0f && ui->lblValBorderThickness->text() == QLatin1String("0.00"),
+              QStringLiteral("slider a 0 -> nessun bordo"));
+        ui->borderThicknessSlider->setValue(50);  wait(300);
+        check(torus < 0.002, QStringLiteral("toro (solo cuciture) -> bordo invisibile (pixel cambiati %1)").arg(pct(torus)));
+
+        // Wireframe col bersaglio Border: gli slider restano sul bordo.
+        click(ui->radioWF);
+        // ...e sulle cuciture del toro nemmeno il wireframe del bordo lascia
+        // linee (prima collassavano sulla cucitura: un tratteggio).
+        ui->borderThicknessSlider->setValue(0);  wait(400);
+        const QImage noBorder = gl->grabFramebuffer();
+        ui->borderThicknessSlider->setValue(50);  wait(500);
+        const QImage wireBorder = gl->grabFramebuffer();
+        wireBorder.save(m_outDir + QStringLiteral("/border-torus-wire.png"));
+        const double torusWire = changed(noBorder, wireBorder);
+        check(torusWire < 0.002, QStringLiteral("toro, bordo in wireframe -> nessuna linea sulle cuciture (pixel cambiati %1)")
+                                     .arg(pct(torusWire)));
+        check(m_mw->editingBorder(), QStringLiteral("Wireframe col bersaglio Border -> il bersaglio resta Border"));
+        click(ui->radioBasic);
+    }
+
+    // Sfera: cucitura e due poli, nessun bordo vero.
+    if (loadSurface(kSphere)) {
+        check(gl->borderRadius() == 0.0f && !m_mw->editingBorder(),
+              QStringLiteral("load -> bordo del preset (nessuno) e bersaglio Surface"));
+        click(ui->radioBorder);
+        const double sphere = borderEffect(50, QStringLiteral("sphere"));
+        check(sphere < 0.002, QStringLiteral("sfera (cucitura e poli) -> bordo invisibile (pixel cambiati %1)").arg(pct(sphere)));
+    }
+
+    // Nastro di Moebius: la cucitura e' RITORTA (u = 0 combacia con u = 2*pi a
+    // v rovesciato) e non va bordata; il bordo vero e' il lato v = +-1, che
+    // gira due volte attorno al nastro.
+    if (loadSurface(kMobius)) {
+        click(ui->radioBorder);
+        const double mobius = borderEffect(25, QStringLiteral("mobius"));
+        check(mobius > 0.002, QStringLiteral("nastro di Moebius -> bordo visibile (pixel cambiati %1)").arg(pct(mobius)));
+        click(ui->radioWF);  wait(300);
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/border-mobius-wire.png"));
+        click(ui->radioBasic);
+    }
+
+    // TEXTURE DEL BORDO (dalla Library), sul nastro di Moebius.
+    const QString kDisco = QStringLiteral("textures/Procedurals/Shadertoy/Disco Sun Vortex.json");
+    if (loadSurface(kMobius)) {
+        click(ui->radioBorder);
+        ui->borderThicknessSlider->setValue(50);  wait(500);
+        const QString surfCode = m_mw->m_scene.surfaceTextureCode;
+        const bool surfOn = m_mw->m_scene.surfaceTextureState;
+        check(ui->chkBoxTexture->isEnabled() && ui->chkBoxTexture->text() == QLatin1String("Border Texture")
+                  && !ui->chkBoxTexture->isChecked(),
+              QStringLiteral("Border -> checkbox \"Border Texture\" acceso, texture del bordo spenta"));
+
+        // Checkbox: la scacchiera di default, coi suoi due colori.
+        const QImage plain = gl->grabFramebuffer();
+        click(ui->chkBoxTexture);  wait(500);
+        const double checker = changed(plain, gl->grabFramebuffer());
+        check(gl->borderTextureShown() && checker > 0.001 && ui->radioTexColor1->isEnabled(),
+              QStringLiteral("checkbox -> scacchiera sul bordo (pixel cambiati %1), Color 1 acceso").arg(pct(checker)));
+        const QColor borderCol = gl->borderColor();
+        click(ui->radioTexColor1);
+        ui->sliderR->setValue(10);  wait(200);
+        check(gl->borderTexColor1().red() == 10 && gl->borderColor() == borderCol,
+              QStringLiteral("R su Color 1 -> colore 1 della texture del bordo (%1), non il colore del bordo")
+                  .arg(gl->borderTexColor1().red()));
+        click(ui->chkBoxTexture);  wait(300);
+        check(!gl->borderTextureShown() && !gl->borderTextureCode().isEmpty(),
+              QStringLiteral("checkbox spento -> texture del bordo nascosta, codice conservato"));
+        check(m_mw->m_scene.surfaceTextureCode == surfCode && m_mw->m_scene.surfaceTextureState == surfOn,
+              QStringLiteral("checkbox e colori del bordo -> texture della superficie intatta"));
+
+        // La stessa procedurale Shadertoy animata sulla superficie e sul bordo:
+        // i simboli dei due script non collidono (lo shader compila, vedi il
+        // controllo dal log in fondo).
+        click(ui->radioSurface);
+        selectTexture(kDisco);
+        const QString surfDisco = m_mw->m_scene.surfaceTextureCode;
+        click(ui->radioBorder);
+        selectTexture(kDisco);
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/border-texture-disco.png"));
+        check(gl->borderTextureShown() && gl->borderTextureCode().contains(QLatin1String("mainImage"))
+                  && gl->isBorderTextureAnimating()
+                  && gl->borderTextureLibName() == QLatin1String("Disco Sun Vortex")
+                  && m_mw->m_scene.surfaceTextureCode == surfDisco,
+              QStringLiteral("Library col bersaglio Border -> texture animata sul bordo, superficie intatta"));
+        QTreeWidgetItem *sel = ui->treeTextures->selectedItems().value(0);
+        check(sel && sel->text(0) == QLatin1String("Disco Sun Vortex"),
+              QStringLiteral("Library -> evidenziata la texture del bordo (%1)")
+                  .arg(sel ? sel->text(0) : QStringLiteral("nessuna")));
+        if (m_mw->m_btnStart->text() != QLatin1String("STOP")) click(m_mw->m_btnStart);
+        click(m_mw->m_btnStart);
+        check(!gl->isBorderTextureAnimating(), QStringLiteral("master STOP -> orologio del bordo fermo"));
+        click(m_mw->m_btnStart);
+        check(gl->isBorderTextureAnimating(), QStringLiteral("master START -> orologio del bordo di nuovo in moto"));
+
+        // DOCK SCRIPT col bersaglio Border: mostra e comanda la texture del
+        // bordo, non quella della superficie.
+        setScriptMode(MainWindow::ScriptModeTexture);
+        check(ui->txtScriptEditor->toPlainText().trimmed() == gl->borderTextureCode().trimmed()
+                  && ui->btnRunCurrentScript->text() == QLatin1String("Stop Border Texture")
+                  && ui->btnSaveScript->isEnabled(),
+              QStringLiteral("dock Script col bersaglio Border -> texture del bordo, tasto \"%1\"")
+                  .arg(ui->btnRunCurrentScript->text()));
+        const bool surfMoving = gl->isSurfaceTextureAnimating();
+        click(ui->btnRunCurrentScript);
+        m_mw->applyAnimationState(true);  wait(200);   // un ricalcolo degli orologi
+        check(!gl->isBorderTextureAnimating() && gl->isSurfaceTextureAnimating() == surfMoving
+                  && ui->btnRunCurrentScript->text() == QLatin1String("Run Border Texture"),
+              QStringLiteral("Stop dal dock -> fermo il solo bordo, anche dopo un ricalcolo degli orologi"));
+        click(ui->btnRunCurrentScript);
+        check(gl->isBorderTextureAnimating(), QStringLiteral("Run dal dock -> il bordo riparte"));
+
+        // MASTER: il bordo e' un modulo a se'. Texture di superficie ferma dal
+        // dock e bordo in moto -> c'e' un modulo spento, quindi START.
+        click(ui->radioSurface);
+        click(ui->btnRunCurrentScript);   // Stop della texture di superficie
+        check(!gl->isSurfaceTextureAnimating() && gl->isBorderTextureAnimating()
+                  && m_mw->m_btnStart->text() == QLatin1String("START"),
+              QStringLiteral("superficie ferma e bordo in moto -> master START (%1)").arg(masterState()));
+        click(m_mw->m_btnStart);           // START accende tutto
+        check(gl->isSurfaceTextureAnimating() && gl->isBorderTextureAnimating(),
+              QStringLiteral("master START -> superficie e bordo in moto (%1)").arg(masterState()));
+        click(ui->radioBorder);
+        const QString written = QStringLiteral("return vec3(uv.x, uv.y, 0.5);");
+        ui->txtScriptEditor->setPlainText(written);  wait(200);
+        // Animata, il tasto dice Stop: il primo clic la ferma, il secondo
+        // applica il testo scritto (come per la superficie). La texture di
+        // superficie, fermata prima, deve restare ferma.
+        click(ui->radioSurface);
+        if (ui->btnRunCurrentScript->text().startsWith(QLatin1String("Stop"))) click(ui->btnRunCurrentScript);
+        click(ui->radioBorder);
+        ui->txtScriptEditor->setPlainText(written);  wait(200);
+        if (ui->btnRunCurrentScript->text().startsWith(QLatin1String("Stop"))) click(ui->btnRunCurrentScript);
+        click(ui->btnRunCurrentScript);  wait(400);
+        check(!gl->isSurfaceTextureAnimating() && ui->btnSaveScript->isEnabled(),
+              QStringLiteral("Run dello script del bordo -> la texture di superficie fermata resta ferma, Save acceso"));
+        check(gl->borderTextureCode().trimmed() == written && m_mw->m_scene.surfaceTextureCode == surfDisco,
+              QStringLiteral("script scritto a mano + Run -> sul bordo, superficie intatta"));
+        // Uno script scritto a mano non ha una voce nella Library: l'albero non
+        // ne indica nessuna, nemmeno come voce corrente rimasta da prima.
+        check(ui->treeTextures->selectedItems().isEmpty() && !ui->treeTextures->currentItem(),
+              QStringLiteral("texture del bordo senza voce in Library -> albero senza voce indicata (corrente %1)")
+                  .arg(ui->treeTextures->currentItem() ? ui->treeTextures->currentItem()->text(0)
+                                                       : QStringLiteral("nessuna")));
+        click(ui->radioSurface);
+        check(ui->txtScriptEditor->toPlainText().trimmed() != written,
+              QStringLiteral("di nuovo Surface -> il dock Script mostra la texture della superficie"));
+        click(ui->radioBorder);
+
+        // SAVE TEXTURE dal bordo: codice, colori e inquadratura del BORDO.
+        gl->setBorderTexColors(QColor(10, 20, 30), QColor(40, 50, 60));
+        gl->setBorderTexTransform(1.5f, QVector2D(0.1f, 0.2f), 30.0f);
+        {
+            QTemporaryDir tmpTex;
+            const QString texPath = tmpTex.path() + QStringLiteral("/textures/border-tex.json");
+            m_acceptNextDialog = true;   // la domanda sul messaggio della texture
+            m_mw->m_presetSerializer->saveTexture(texPath);
+            m_acceptNextDialog = false;
+            QFile f(texPath);
+            const QJsonObject o = f.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(f.readAll()).object()
+                                                              : QJsonObject();
+            check(o.value(QStringLiteral("code")).toString().contains(QLatin1String("uv.x, uv.y, 0.5"))
+                      && o.value(QStringLiteral("color1")).toString() == QLatin1String("#0a141e")
+                      && qAbs(o.value(QStringLiteral("zoom")).toDouble() - 1.5) < 1e-6
+                      && qAbs(o.value(QStringLiteral("rotation")).toDouble() - 30.0) < 1e-6,
+                  QStringLiteral("Save Texture col bersaglio Border -> codice, colori e inquadratura del bordo (%1)")
+                      .arg(QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact)).left(160)));
+        }
+
+        // VISTA 2D del bordo: mostra la SUA texture e regola la SUA inquadratura.
+        setScriptMode(MainWindow::ScriptModeTexture);
+        check(ui->btnFlatPreview->isEnabled() && ui->btnFlatPreview->text() == QLatin1String("2D Border"),
+              QStringLiteral("dock Script col bersaglio Border -> tasto \"%1\" %2")
+                  .arg(ui->btnFlatPreview->text(), onOff(ui->btnFlatPreview->isEnabled())));
+        click(ui->btnFlatPreview);  wait(400);
+        const QImage borderFlat = gl->grabFramebuffer();
+        borderFlat.save(m_outDir + QStringLiteral("/border-texture-2d.png"));
+        const float surfZoom = gl->globalTexZoom();
+        gl->setFlatZoom(2.5f);
+        check(gl->flatViewTarget() == 2 && qAbs(gl->borderStyle().texZoom - 2.5f) < 1e-6f
+                  && qAbs(gl->globalTexZoom() - surfZoom) < 1e-6f,
+              QStringLiteral("vista 2D del bordo -> lo zoom va sulla texture del bordo (%1), non sulla superficie")
+                  .arg(gl->borderStyle().texZoom));
+        click(ui->radioSurface);  wait(400);
+        const QImage surfFlat = gl->grabFramebuffer();
+        check(changed(borderFlat, surfFlat) > 0.05,
+              QStringLiteral("vista 2D, da Border a Surface -> si vede la texture della superficie (pixel cambiati %1)")
+                  .arg(pct(changed(borderFlat, surfFlat))));
+        if (ui->btnFlatPreview->isChecked()) click(ui->btnFlatPreview);
+        click(ui->radioBorder);
+        setScriptMode(MainWindow::ScriptModeSurface);
+
+        // Immagine, poi una texture Ray Marching (rifiutata con un avviso).
+        if (selectTexture(QStringLiteral("textures/Images/14.png")))
+            check(gl->borderTextureCode().startsWith(QLatin1String("//IMG:")) && gl->borderSamplesImage()
+                      && !gl->isBorderTextureAnimating(),
+                  QStringLiteral("immagine col bersaglio Border -> immagine sul bordo, ferma"));
+        const QString imageCode = gl->borderTextureCode();
+        const int popups = m_popupsClosed;
+        selectTexture(QStringLiteral("textures/Ray Marching/Fractal Noise.json"));
+        check(gl->borderTextureCode() == imageCode && m_popupsClosed == popups + 1 && !m_mw->implicitMode(),
+              QStringLiteral("texture Ray Marching col bersaglio Border -> rifiutata con un avviso, niente cambio di modalita'"));
+
+        // Save e riapertura.
+        const LibraryItem saved = m_mw->m_presetSerializer->captureSurfaceState(QStringLiteral("saved"));
+        check(saved.borderTexCode == imageCode && saved.borderTexEnabled
+                  && LibraryManager::toJson(saved).value(QStringLiteral("border")).toObject().contains(QStringLiteral("texture")),
+              QStringLiteral("Save -> texture del bordo nel file"));
+        loadSurface(kTorus);
+        m_mw->applySurfaceExample(saved);  wait(1500);
+        click(ui->radioBorder);
+        check(gl->borderTextureCode() == imageCode && gl->borderTextureShown() && ui->chkBoxTexture->isChecked(),
+              QStringLiteral("Save riaperto -> immagine sul bordo, checkbox acceso"));
+
+        // FOCUS DELLA LIBRARY IN UN RECORD: ogni bersaglio evidenzia la SUA
+        // texture. Superficie con Disco Sun Vortex, bordo con Plasma.
+        const QString kPlasma = QStringLiteral("textures/Procedurals/Plasma.json");
+        click(ui->radioSurface);
+        selectTexture(kDisco);    // il Save Surface riaperto non porta texture
+        click(ui->radioBorder);
+        selectTexture(kPlasma);
+        m_record = QStringLiteral("border-focus");
+        const LibraryItem rec = captureSave();
+        auto selectedName = [ui]() {
+            QTreeWidgetItem *it = ui->treeTextures->selectedItems().value(0);
+            QTreeWidgetItem *cur = ui->treeTextures->currentItem();
+            return QStringLiteral("selezionata %1, corrente %2")
+                .arg(it ? it->text(0) : QStringLiteral("nessuna"), cur ? cur->text(0) : QStringLiteral("nessuna"));
+        };
+        loadSurface(kTorus);
+        m_mw->applyMotionExample(rec);  wait(1500);
+        const QString onSurface = selectedName();
+        click(ui->radioBorder);
+        const QString onBorder = selectedName();
+        check(onSurface.startsWith(QLatin1String("selezionata Disco Sun Vortex"))
+                  && onBorder.startsWith(QLatin1String("selezionata Plasma")),
+              QStringLiteral("record riaperto -> Library su Surface: %1; su Border: %2").arg(onSurface, onBorder));
+    }
+
+    // Enneper da script: superficie aperta, il bordo si vede. La CPU non sa
+    // valutare uno script: il bordo lo costruisce lo shader.
+    if (loadSurface(kEnneper)) {
+        float r0, g0, b0;
+        gl->globalColor(r0, g0, b0);
+        click(ui->radioBorder);
+        const double open = borderEffect(50, QStringLiteral("enneper"));
+        check(open > 0.002, QStringLiteral("Enneper da script (aperta) -> bordo visibile (pixel cambiati %1)").arg(pct(open)));
+
+        ui->sliderR->setValue(0);  wait(200);
+        float r1, g1, b1;
+        gl->globalColor(r1, g1, b1);
+        check(gl->borderColor().red() == 0 && r1 == r0 && g1 == g0 && b1 == b0,
+              QStringLiteral("R a 0 col bersaglio Border -> cambia il bordo (rosso %1), non la superficie")
+                  .arg(gl->borderColor().red()));
+        checkDirty(QStringLiteral("bordo acceso e colorato"), true, false, false);
+
+        // Base / Phong / WireFrame col bersaglio Border: del bordo, non della
+        // superficie.
+        const int surfMode = m_mw->m_scene.renderMode;
+        click(ui->radioPhong);
+        check(gl->borderRenderMode() == 1 && m_mw->m_scene.renderMode == surfMode,
+              QStringLiteral("Phong col bersaglio Border -> bordo in Phong, superficie invariata (%1, %2)")
+                  .arg(gl->borderRenderMode()).arg(m_mw->m_scene.renderMode));
+        const QImage solid = gl->grabFramebuffer();
+        click(ui->radioWF);  wait(300);
+        const double wire = changed(solid, gl->grabFramebuffer());
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/border-enneper-wire.png"));
+        check(gl->borderRenderMode() == 2 && m_mw->m_scene.renderMode == surfMode
+                  && ui->btnWireUPlus->isEnabled() && wire > 0.002,
+              QStringLiteral("WireFrame col bersaglio Border -> bordo a linee (pixel cambiati %1), superficie invariata, densita' accese")
+                  .arg(pct(wire)));
+        const int along0 = gl->borderStyle().wireAlong;
+        click(ui->btnWireUPlus);
+        check(gl->borderStyle().wireAlong == along0 - 1,
+              QStringLiteral("Density u + col bersaglio Border -> anelli piu' fitti sul bordo (%1 -> %2)")
+                  .arg(along0).arg(gl->borderStyle().wireAlong));
+        click(ui->radioSurface);
+        check(!ui->radioWF->isChecked() && ui->radioBasic->isChecked() == (surfMode == 0)
+                  && !ui->btnWireUPlus->isEnabled(),
+              QStringLiteral("ritorno su Surface -> i radio mostrano di nuovo la superficie"));
+        click(ui->radioBorder);
+        check(ui->radioWF->isChecked(), QStringLiteral("di nuovo Border -> i radio mostrano il wireframe del bordo"));
+
+        // Save Surface -> file -> parser -> load, come l'utente.
+        QTemporaryDir tmp;
+        const LibraryItem saved = m_mw->m_presetSerializer->captureSurfaceState(QStringLiteral("saved"));
+        const QJsonObject json = LibraryManager::toJson(saved);
+        check(json.contains(QStringLiteral("border")),
+              QStringLiteral("Save -> chiave \"border\" nel file"));
+        bool reopened = false;
+        if (tmp.isValid()) {
+            const QString path = tmp.path() + QStringLiteral("/saved.json");
+            QFile f(path);
+            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                f.write(QJsonDocument(json).toJson());
+                f.close();
+                loadSurface(kTorus);   // si passa da un'altra scena
+                LibraryManager lm;
+                const LibraryItem item = lm.parseJson(path, LibraryType::Surface);
+                if (!item.name.isEmpty()) {
+                    m_mw->applySurfaceExample(item);
+                    wait(1500);
+                    reopened = true;
+                }
+            }
+        }
+        check(reopened && qAbs(gl->borderRadius() - 2.6385f * 0.02f) < 1e-4f && gl->borderColor().red() == 0
+                  && ui->borderThicknessSlider->value() == 50 && gl->borderRenderMode() == 2
+                  && gl->borderStyle().wireAlong == saved.borderWireAlong,
+              QStringLiteral("Save riaperto -> bordo 2.64 rosso 0 in wireframe, slider a 50 (motore %1, rosso %2, slider %3, modo %4)")
+                  .arg(gl->borderRadius()).arg(gl->borderColor().red()).arg(ui->borderThicknessSlider->value())
+                  .arg(gl->borderRenderMode()));
+        checkDirty(QStringLiteral("Save col bordo riaperto"), false, false, false);
+    }
+
+    // Senza bordo il file non cambia: nessuna chiave.
+    if (loadSurface(kTorus)) {
+        const QJsonObject json = LibraryManager::toJson(
+            m_mw->m_presetSerializer->captureSurfaceState(QStringLiteral("plain")));
+        check(!json.contains(QStringLiteral("border")),
+              QStringLiteral("Save senza bordo -> nessuna chiave \"border\""));
+    }
+
+    // Ray Marching: il bordo non esiste, il radio si spegne e il bersaglio
+    // torna su Surface.
+    if (loadSurface(kTorus)) {
+        click(ui->radioBorder);
+        m_discardOnPrompt = true;
+        ui->tabModeSelector->setCurrentIndex(1);  wait(1500);
+        m_discardOnPrompt = false;
+        check(!ui->radioBorder->isEnabled() && !m_mw->editingBorder() && gl->borderRadius() == 0.0f,
+              QStringLiteral("Ray Marching -> radio Border spento, bersaglio Surface, nessun bordo"));
+        m_discardOnPrompt = true;
+        ui->tabModeSelector->setCurrentIndex(0);  wait(1500);
+        m_discardOnPrompt = false;
+        check(ui->radioBorder->isEnabled(), QStringLiteral("di nuovo Parametric -> radio Border acceso"));
+    }
 }
 
 void ScenarioTest::runResetButtonScenarios()
@@ -3407,6 +3873,7 @@ void ScenarioTest::runMasterRecordsScenarios()
         if (a.eqAvailable && !a.eqRunning)         off << QStringLiteral("equazioni");
         if (a.texAvailable && !a.texRunning)       off << QStringLiteral("texture");
         if (a.bgAvailable && !a.bgRunning)         off << QStringLiteral("sfondo");
+        if (a.borderAvailable && !a.borderRunning) off << QStringLiteral("bordo");
         if (a.cameraAvailable && !a.cameraRunning) off << QStringLiteral("camera");
         if (a.audioAvailable && !a.audioRunning)   off << QStringLiteral("suono");
         const QString expected = (a.anyRunning() && a.allRunning()) ? QStringLiteral("STOP") : QStringLiteral("START");
@@ -3748,19 +4215,28 @@ QString ScenarioTest::renderModeProblem() const
 QString ScenarioTest::editTargetProblem() const
 {
     Ui::MainWindow *ui = m_mw->ui;
-    // Lo stato e' il bersaglio; i radio la sua vista.
+    // Lo stato e' il bersaglio; i radio e lo slider dello spessore la sua vista.
     const bool onBg = m_mw->editingBackground();
-    if (ui->radioBackground->isChecked() != onBg || ui->radioSurface->isChecked() == onBg)
-        return QStringLiteral("bersaglio %1, radio Surface %2 e Background %3")
-            .arg(onBg ? QStringLiteral("Background") : QStringLiteral("Surface"),
-                 onOff(ui->radioSurface->isChecked()), onOff(ui->radioBackground->isChecked()));
+    const bool onBorder = m_mw->editingBorder();
+    const bool onSurf = !onBg && !onBorder;
+    const QString target = onBg ? QStringLiteral("Background")
+                         : onBorder ? QStringLiteral("Border") : QStringLiteral("Surface");
+    if (ui->radioBackground->isChecked() != onBg || ui->radioBorder->isChecked() != onBorder
+        || ui->radioSurface->isChecked() != onSurf)
+        return QStringLiteral("bersaglio %1, radio Surface %2, Border %3 e Background %4")
+            .arg(target, onOff(ui->radioSurface->isChecked()), onOff(ui->radioBorder->isChecked()),
+                 onOff(ui->radioBackground->isChecked()));
+    if (ui->borderThicknessSlider->isEnabled() != onBorder)
+        return QStringLiteral("bersaglio %1, slider Border Thickness %2")
+            .arg(target, onOff(ui->borderThicknessSlider->isEnabled()));
     // Zoom, pan e rotazione 2D (mouse in vista 2D, Save Texture) agiscono sul
     // bersaglio della vista 2D del motore: deve essere quello del dock.
     const int flat = ui->glWidget->flatViewTarget();
-    if (flat != (onBg ? 1 : 0))
+    if (flat != (onBg ? 1 : onBorder ? 2 : 0))
         return QStringLiteral("vista 2D del motore sul%1 col bersaglio %2")
-            .arg(flat == 1 ? QStringLiteral("lo sfondo") : QStringLiteral("la superficie"),
-                 onBg ? QStringLiteral("Background") : QStringLiteral("Surface"));
+            .arg(flat == 1 ? QStringLiteral("lo sfondo") : flat == 2 ? QStringLiteral(" bordo")
+                                                                     : QStringLiteral("la superficie"),
+                 target);
     return QString();
 }
 
@@ -3873,12 +4349,11 @@ void ScenarioTest::runTextureTargetScenarios()
         }
     }
 
-    // TEXTURE DI MODALITA' OPPOSTA a scena e texture da salvare: UN popup solo
-    // (quello della scena, che elenca anche la texture). Prima il click
-    // chiedeva della texture e poi il cambio di modalita' della scena: due
-    // popup, e il secondo riproponeva la texture.
+    // TEXTURE DI MODALITA' OPPOSTA: un avviso e basta, anche con scena e
+    // texture da salvare. Niente domanda sul lavoro non salvato (nulla viene
+    // perso) e niente cambio di modalita': la superficie resta quella.
     m_lines.append(QString());
-    m_lines.append(QStringLiteral("== Texture di modalita' opposta: un popup solo =="));
+    m_lines.append(QStringLiteral("== Texture di modalita' opposta: un avviso, niente cambio =="));
     if (loadSurface(QStringLiteral("surfaces/Parametric/Equations/R3/Torus.json"))
         && selectTexture(QStringLiteral("textures/Procedurals/Plasma.json"))) {
         setScriptMode(MainWindow::ScriptModeTexture);
@@ -3889,12 +4364,23 @@ void ScenarioTest::runTextureTargetScenarios()
               QStringLiteral("texture modificata su un toro: scena e texture da salvare"));
         const int prompts = m_discardPrompts;
         const int closed = m_popupsClosed;
+        const QString texBefore = m_mw->m_scene.surfaceTextureCode;
         if (selectTexture(QStringLiteral("textures/Ray Marching/Fluid Iridescence.json"))) {
-            check(m_discardPrompts == prompts + 1 && m_popupsClosed == closed,
-                  QStringLiteral("texture Ray Marching -> popup %1 (atteso 1), altri %2")
-                      .arg(m_discardPrompts - prompts).arg(m_popupsClosed - closed));
-            check(m_mw->implicitMode(), QStringLiteral("poi la scena e' in Ray Marching"));
+            check(m_discardPrompts == prompts && m_popupsClosed == closed + 1,
+                  QStringLiteral("texture Ray Marching su parametrica -> un avviso (%1), domande sul salvataggio %2")
+                      .arg(m_popupsClosed - closed).arg(m_discardPrompts - prompts));
+            check(!m_mw->implicitMode() && m_mw->m_scene.surfaceTextureCode == texBefore
+                      && m_mw->textureModuleDirty(),
+                  QStringLiteral("poi la scena e' ancora parametrica, texture e lavoro invariati"));
         }
+    }
+    // Il caso inverso: texture parametrica su una superficie Ray Marching.
+    if (loadRecord(QString::fromLatin1(kImplicitRecord))) {
+        const QString rmTex = m_mw->m_scene.rm.texture;
+        const int closed = m_popupsClosed;
+        if (selectTexture(QStringLiteral("textures/Procedurals/Plasma.json")))
+            check(m_popupsClosed == closed + 1 && m_mw->implicitMode() && m_mw->m_scene.rm.texture == rmTex,
+                  QStringLiteral("texture parametrica su Ray Marching -> un avviso, scena e texture invariate"));
     }
 }
 
