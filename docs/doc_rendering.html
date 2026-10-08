@@ -47,15 +47,16 @@
             <p><strong>The value you type wins over the script.</strong> A grid whose domain you edited keeps it through Run and reload, and stops following its own <code>//MESH_BEGIN</code> section. To hand it back to the script, type the values that section declares, or load the preset afresh.</p>
             <p><em>Note: the U/V limits in the Equations dock govern single-mesh surfaces. On a multi-mesh surface each grid carries its own domain, so those fields no longer drive the geometry &mdash; these do.</em></p>
 
-            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Edit Target (Surface / Background)</b></p></td></tr></table>
-            <p>These two buttons decide <em>what</em> the color sliders, the Texture checkbox and the Library textures act upon.</p>
+            <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Edit Target (Surface / Border / Background)</b></p></td></tr></table>
+            <p>These three buttons decide <em>what</em> the color sliders, the Texture checkbox and the Library textures act upon.</p>
             <ul>
                 <li><strong>Surface:</strong> the 3D/4D surface itself.</li>
+                <li><strong>Border:</strong> a tube along the edges of a parametric surface. The color sliders paint it, <strong>Border Thickness</strong> sets its width (0 = no border; selecting Border turns on a thin one), Base, Phong, WireFrame and the two densities act on the border alone, and so do the Texture checkbox and the textures picked in the Library (parametric textures and images), with Color 1/2 for their colors; the Script dock, the <strong>2D Border</strong> view and <strong>Save Texture</strong> work on the border texture too. Edges that close up &mdash; the seam of a torus, the twisted seam of a M&ouml;bius strip, the poles of a sphere &mdash; get no border. Not available in ray marching.</li>
                 <li><strong>Background:</strong> the 2D environment drawn behind the objects, where images and procedural effects can be panned, zoomed and rotated with the mouse, like the 3D camera.</li>
             </ul>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Background Shape (Fixed / Sphere / Cylinder / Cube)</b></p></td></tr></table>
-            <p>Below the surface controls, <strong>Background Controls</strong> decide how the background sits in the scene:</p>
+            <p>With <strong>Background</strong> selected and a background texture on, four choices decide how the texture sits in the scene:</p>
             <ul>
                 <li><strong>Fixed:</strong> the background is glued to the screen.</li>
                 <li><strong>Sphere:</strong> the background becomes a sky at infinity around the scene, mapped as an equirectangular panorama &mdash; the format of 360&deg; photos, twice as wide as it is tall.</li>

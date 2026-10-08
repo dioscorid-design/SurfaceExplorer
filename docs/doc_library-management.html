@@ -35,7 +35,7 @@
             <p>Saving a Texture isolates the visual pattern or image. It can be applied interchangeably to the object's surface or the background.</p>
             <ul>
                 <li><strong>What it saves:</strong> The GLSL texture scripts or the absolute path of the loaded image, the two active colors in the interface (Color 1 and Color 2), and 2D transformations applied via mouse or 2D View (Zoom, Pan X/Y, Rotation).</li>
-                <li><strong>What it ignores:</strong> The 3D geometry it is mapped onto. You can safely load a saved texture onto any new surface of the same mode: a Ray Marching texture loaded on a parametric surface (or the other way round) switches mode and brings up that mode's default surface. Images, and textures applied to the background, work in both.</li>
+                <li><strong>What it ignores:</strong> The 3D geometry it is mapped onto. You can safely load a saved texture onto any new surface of the same mode. A texture made for the other mode is refused with a warning and nothing changes; Ray Marching textures can't go on the background or the border either. Images work everywhere.</li>
             </ul>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>3. Sounds (*.json, *.mp3, *.wav, *.ogg)</b></p></td></tr></table>
