@@ -1641,6 +1641,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("meshes")) {
+        runMeshCountScenarios();
+        finish();
+        return;
+    }
 
     // ---------------------------------------------------------------------
     // AVVIO: la superficie di default non e' lavoro dell'utente. Se qui la
@@ -3401,6 +3406,7 @@ void ScenarioTest::run()
     runResetSceneScenarios();
     runResetButtonScenarios();
     runBorderScenarios();
+    runMeshCountScenarios();
 
     finish();
 }
@@ -5197,4 +5203,161 @@ void ScenarioTest::finish()
         f.write(rep.join(QLatin1Char('\n')).toUtf8() + '\n');
     qInfo().noquote() << "[scenariotest]" << rep.at(2) << "- report:" << f.fileName();
     QCoreApplication::exit(m_failures == 0 ? 0 : 1);
+}
+
+// CAMPO MESHES (pannello Multi Mesh): quante copie della superficie o della
+// curva. Le equazioni le distinguono con `mesh`; una sezione //MESH_BEGIN sola
+// e' il modello delle copie, piu' sezioni comandano da sole.
+void ScenarioTest::runMeshCountScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    SurfaceEngine *eng = gl->getEngine();
+    auto parts = [eng] { return (int)eng->getMeshParts().size(); };
+    auto setCount = [&](const QString &text) {
+        typeInField(ui->lineMeshCount, text);
+        pressEnter(ui->lineMeshCount);
+        wait(400);
+    };
+    auto changedPct = [](const QImage &a0, const QImage &b0) {
+        const QImage a = a0.convertToFormat(QImage::Format_RGB32), b = b0.convertToFormat(QImage::Format_RGB32);
+        if (a.size() != b.size() || a.isNull()) return 100.0;
+        qint64 diff = 0;
+        for (int y = 0; y < a.height(); ++y) {
+            const QRgb *pa = reinterpret_cast<const QRgb *>(a.constScanLine(y));
+            const QRgb *pb = reinterpret_cast<const QRgb *>(b.constScanLine(y));
+            for (int x = 0; x < a.width(); ++x)
+                if (qAbs(qGray(pa[x]) - qGray(pb[x])) > 6) ++diff;
+        }
+        return 100.0 * double(diff) / double(a.width() * a.height());
+    };
+    const QString kTorus = QStringLiteral("surfaces/Parametric/Equations/R3/Torus.json");
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Campo Meshes: copie dalle equazioni, dagli script, dai tubi =="));
+    m_discardOnPrompt = true;
+    ui->tabModeSelector->setCurrentIndex(0);  wait(1200);
+    if (!loadSurface(kTorus)) { m_discardOnPrompt = false; return; }
+    check(parts() <= 1 && ui->lineMeshCount->text() == QLatin1String("1") && ui->lineMeshCount->isEnabled()
+              && ui->meshCountSlider->isEnabled(),
+          QStringLiteral("superficie da equazioni -> Meshes 1, campo e slider accesi (campo '%1')")
+              .arg(ui->lineMeshCount->text()));
+
+    // Tori annidati: il raggio cresce con `mesh`.
+    ui->lineX->setPlainText(QStringLiteral("(0.6 + 0.4*mesh + 0.15*cos(v))*cos(u)"));
+    ui->lineY->setPlainText(QStringLiteral("(0.6 + 0.4*mesh + 0.15*cos(v))*sin(u)"));
+    ui->lineZ->setPlainText(QStringLiteral("0.15*sin(v)"));
+    wait(300);
+    applyEquationEdit(ui->lineX);
+    const QImage one = gl->grabFramebuffer();
+    setCount(QStringLiteral("3"));
+    const QImage three = gl->grabFramebuffer();
+    three.save(m_outDir + QStringLiteral("/meshes-tori-3.png"));
+    const double d13 = changedPct(one, three);
+    check(parts() == 3 && ui->meshCountSlider->value() == 3 && d13 > 1.0,
+          QStringLiteral("Meshes 3 -> tre tori annidati (%1 parti, slider %2, immagine cambiata %3%, stato '%4', campo '%5', usabile %6)")
+              .arg(parts()).arg(ui->meshCountSlider->value()).arg(d13, 0, 'f', 2)
+              .arg(m_mw->m_scene.meshCount, ui->lineMeshCount->text(), onOff(m_mw->meshCountUsable())));
+    ui->meshCountSlider->setValue(2);  wait(600);
+    check(parts() == 2 && m_mw->m_scene.meshCount == QLatin1String("2") && ui->lineMeshCount->text() == QLatin1String("2"),
+          QStringLiteral("slider a 2 -> due mesh, campo '%1'").arg(ui->lineMeshCount->text()));
+    checkDirty(QStringLiteral("Meshes dallo slider"), true, false, false);
+
+    // SAVE E RIAPERTURA.
+    m_record = QStringLiteral("meshes");
+    const LibraryItem saved = captureSave();
+    check(saved.meshCount == QLatin1String("2"), QStringLiteral("Save -> meshCount '%1'").arg(saved.meshCount));
+    loadSurface(kTorus);
+    check(parts() <= 1 && ui->lineMeshCount->text() == QLatin1String("1"),
+          QStringLiteral("un'altra superficie -> Meshes di nuovo 1"));
+    m_mw->applyMotionExample(saved);  wait(1500);
+    check(parts() == 2 && ui->lineMeshCount->text() == QLatin1String("2"),
+          QStringLiteral("record riaperto -> due mesh (%1), campo '%2'").arg(parts()).arg(ui->lineMeshCount->text()));
+
+    // ESPRESSIONE CON UNA COSTANTE: il numero segue A.
+    setCount(QStringLiteral("A"));
+    setConstantByField(QStringLiteral("A"), QStringLiteral("3"));  wait(600);
+    check(parts() == 3 && !ui->meshCountSlider->isEnabled() && ui->aSlider->isEnabled(),
+          QStringLiteral("Meshes = A, A = 3 -> tre mesh, slider Meshes spento, slider A acceso (%1 parti)").arg(parts()));
+    setConstantByField(QStringLiteral("A"), QStringLiteral("2"));  wait(600);
+    check(parts() == 2, QStringLiteral("A = 2 -> due mesh (%1)").arg(parts()));
+    setCount(QStringLiteral("4"));
+
+    // SCRIPT CON UNA SEZIONE: e' il modello delle copie (dominio e passi suoi).
+    setScriptMode(MainWindow::ScriptModeSurface);
+    ui->txtScriptEditor->setPlainText(QStringLiteral(
+        "//MESH_BEGIN\nu: 0, PI, 60\nv: 0, TAU, 30\n//MESH_END\n"
+        "float R = 0.6 + 0.4*mesh;\n"
+        "return vec4((R + 0.15*cos(v))*cos(u), (R + 0.15*cos(v))*sin(u), 0.15*sin(v), 0.0);\n"));
+    wait(300);
+    m_mw->onRunCurrentScript();  wait(1000);
+    check(parts() == 4 && qAbs(eng->getMeshParts()[3].uMax - 3.14159265f) < 1e-3f,
+          QStringLiteral("script con una sezione e Meshes 4 -> quattro copie della sezione (%1)").arg(parts()));
+    // PIU' SEZIONI: comandano loro, il campo le mostra ed e' spento.
+    ui->txtScriptEditor->setPlainText(QStringLiteral(
+        "//MESH_BEGIN\nu: 0, TAU\nv: 0, TAU\n//MESH_END\n"
+        "//MESH_BEGIN\nu: 0, TAU\nv: 0, TAU\n//MESH_END\n"
+        "//MESH_BEGIN\nu: 0, TAU\nv: 0, TAU\n//MESH_END\n"
+        "float R = 0.6 + 0.4*mesh;\n"
+        "return vec4((R + 0.15*cos(v))*cos(u), (R + 0.15*cos(v))*sin(u), 0.15*sin(v), 0.0);\n"));
+    wait(300);
+    m_mw->onRunCurrentScript();  wait(1000);
+    check(parts() == 3 && !ui->lineMeshCount->isEnabled() && ui->lineMeshCount->text() == QLatin1String("3")
+              && m_mw->m_scene.meshCount == QLatin1String("4"),
+          QStringLiteral("script con tre sezioni -> tre mesh, campo spento che mostra '%1' (stato '%2')")
+              .arg(ui->lineMeshCount->text(), m_mw->m_scene.meshCount));
+
+    // SOLID CURVE: una curva per copia, ognuna con la sua sezione.
+    emit ui->subTabParametric->tabBar()->tabBarClicked(1);
+    ui->subTabParametric->setCurrentIndex(1);
+    wait(1500);
+    ui->lineTubeX->setPlainText(QStringLiteral("cos(u)"));
+    ui->lineTubeY->setPlainText(QStringLiteral("sin(u)*cos(mesh*2.0943951)"));
+    ui->lineTubeZ->setPlainText(QStringLiteral("sin(u)*sin(mesh*2.0943951)"));
+    wait(300);
+    applyEquationEdit(ui->lineTubeX);
+    setCount(QStringLiteral("3"));
+    const auto &copies = eng->tubeCopies();
+    const QVector3D normals[3] = { QVector3D(0.0f, 0.0f, 1.0f), QVector3D(0.0f, -0.8660254f, -0.5f),
+                                   QVector3D(0.0f, 0.8660254f, -0.5f) };
+    bool refsOk = copies.size() == 3;
+    for (int k = 0; refsOk && k < 3; ++k)
+        refsOk = qAbs(QVector3D::dotProduct(copies[k].reference, normals[k])) > 0.99f;
+    check(m_mw->tubesShown() && parts() == 3 && refsOk,
+          QStringLiteral("Solid Curve con mesh e Meshes 3 -> tre tubi, ognuno con la sua sezione (%1 parti, %2 copie)")
+              .arg(parts()).arg(copies.size()));
+    gl->grabFramebuffer().save(m_outDir + QStringLiteral("/meshes-curves-3.png"));
+
+    // RISERVA DEGLI ASPETTI: Hopf Tori Mesh Colors ha 9 colori e 5 tori a
+    // schermo. Alzando a 9 il nono toro prende il suo colore dal file;
+    // riabbassando, il Save scrive ancora tutti e 9 i colori.
+    {
+        const QString kHopf = QStringLiteral("surfaces/Parametric/Multimesh/Solid Wireframe/Hopf Tori Mesh Colors.json");
+        LibraryManager lm;
+        const LibraryItem file = lm.parseJson(m_root + QLatin1Char('/') + kHopf, LibraryType::Surface);
+        if (loadSurface(kHopf) && file.meshParts.size() >= 9) {
+            check(parts() == 5 && ui->lineMeshCount->text() == QLatin1String("5"),
+                  QStringLiteral("Hopf Tori Mesh Colors -> cinque tori dal campo Meshes (%1)").arg(parts()));
+            ui->meshCountSlider->setValue(9);  wait(800);
+            const MeshPart &p8 = eng->getMeshParts().back();
+            const MeshPart &f8 = file.meshParts[8];
+            check(parts() == 9 && qAbs(p8.colorR - f8.colorR) < 1e-4f && qAbs(p8.colorG - f8.colorG) < 1e-4f
+                      && qAbs(p8.colorB - f8.colorB) < 1e-4f,
+                  QStringLiteral("Meshes a 9 -> il nono toro col suo colore del file (%1 parti)").arg(parts()));
+            ui->meshCountSlider->setValue(3);  wait(800);
+            const LibraryItem saved = captureSave();
+            check(parts() == 3 && saved.meshParts.size() >= 9
+                      && qAbs(saved.meshParts[8].colorR - f8.colorR) < 1e-4f,
+                  QStringLiteral("Meshes a 3 -> il Save scrive ancora %1 aspetti").arg(saved.meshParts.size()));
+        }
+    }
+
+    // RAY MARCHING: niente copie.
+    ui->tabModeSelector->setCurrentIndex(1);  wait(1500);
+    check(!ui->lineMeshCount->isEnabled(), QStringLiteral("Ray Marching -> campo Meshes spento"));
+    ui->tabModeSelector->setCurrentIndex(0);  wait(1500);
+    pressNew();
+    check(m_mw->m_scene.meshCount == QLatin1String("1") && ui->lineMeshCount->text() == QLatin1String("1"),
+          QStringLiteral("NEW -> Meshes 1 (campo '%1')").arg(ui->lineMeshCount->text()));
+    m_discardOnPrompt = false;
 }

@@ -202,6 +202,7 @@ private:
     // Save e riapertura, nessuna chiave senza bordo; spento in Ray Marching.
     // Da sola: --scenario-only border.
     void runBorderScenarios();
+    void runMeshCountScenarios();
     // Load di record la cui texture si compilava male: motore = applicata =
     // script (checkTextureCode). Kerr Spin Animated porta un blocco audio coi
     // marcatori spaziati ("// SOUND_BEGIN"), Oloid un vincolo in W che a meta'
