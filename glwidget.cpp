@@ -5766,42 +5766,18 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
     // --- SOSTITUZIONE LOGICA ---
     if (engine->isTubeModeActive() && !engine->isScriptModeActive()) {
         // TUBO attorno alla curva C(u) = (X, Y, Z, P), sotto-tab Tubes: dalle
-        // equazioni o da uno script (tubeCurveFunction). La curva si valuta in
-        // tre punti (u-h, u, u+h) dentro un ciclo, cosi' tubeCurve ha UNA sola
-        // chiamata nel sorgente (gli shader parametrici enormi fanno cadere il
-        // compilatore Mali). Tangente per differenze centrali sull'ombra 3D
-        // della curva. La sezione e' il cerchio di raggio u_tubeRadius nel
-        // piano perpendicolare alla tangente 3D, a w costante = P(u) (la quarta
-        // dimensione e' nella curva): orientato proiettando sul piano la
-        // direzione di riferimento DI QUESTO TUBO (u_tubeRef, nel blocco della
-        // parte), scelta al Run lontana da tutte le sue tangenti -- niente
-        // ribaltamenti come con Frenet. Se la tangente le diventa comunque
-        // parallela si ripiega su un asse.
+        // equazioni o da uno script (tubeCurveFunction). Qui getRawPosition
+        // restituisce il solo punto della CURVA; il tubo lo costruisce il
+        // template (emitTubeVertex, con IS_TUBE) nello spazio 3D finale, dopo
+        // rotazioni 4D e proiezione, cosi' la sezione resta rotonda anche
+        // quando la curva ruota in 4D. Una sola chiamata a tubeCurve nel
+        // sorgente: gli shader parametrici enormi fanno cadere il compilatore
+        // Mali.
         const QString tubeFunction =
             tubeCurveFunction(engine->tubeX(), engine->tubeY(), engine->tubeZ(), engine->tubeP(),
                               engine->tubeScriptBody()) +
             "vec4 getRawPosition(float u, float v, float w) {\n"
-            "    float tubeU = u;\n"
-            "    vec4 tubeM = vec4(0.0);\n"
-            "    vec4 tubeC = vec4(0.0);\n"
-            "    vec4 tubeN = vec4(0.0);\n"
-            "    for (float tubeK = -1.0; tubeK < 1.5; tubeK += 1.0) {\n"
-            "        vec4 tubeQ = tubeCurve(tubeU + tubeK * 0.001, 0.0, 0.0);\n"
-            "        if (tubeK < -0.5) tubeM = tubeQ; else if (tubeK < 0.5) tubeC = tubeQ; else tubeN = tubeQ;\n"
-            "    }\n"
-            "    vec3 tubeT = tubeN.xyz - tubeM.xyz;\n"
-            "    float tubeTl = length(tubeT);\n"
-            "    tubeT = (tubeTl > 1.0e-10) ? tubeT / tubeTl : vec3(1.0, 0.0, 0.0);\n"
-            "    vec3 tubeR = vec3(ubuf.u_tubeRefX, ubuf.u_tubeRefY, ubuf.u_tubeRefZ);\n"
-            "    vec3 tubeE1 = tubeR - dot(tubeR, tubeT) * tubeT;\n"
-            "    if (dot(tubeE1, tubeE1) < 1.0e-8) {\n"
-            "        vec3 tubeAlt = (abs(tubeT.x) < 0.9) ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);\n"
-            "        tubeE1 = tubeAlt - dot(tubeAlt, tubeT) * tubeT;\n"
-            "    }\n"
-            "    tubeE1 = normalize(tubeE1);\n"
-            "    vec3 tubeE2 = cross(tubeT, tubeE1);\n"
-            "    vec3 tubePos = tubeC.xyz + ubuf.u_tubeRadius * (cos(v) * tubeE1 + sin(v) * tubeE2);\n"
-            "    return sanitizePos(vec4(tubePos, tubeC.w));\n"
+            "    return sanitizePos(tubeCurve(u, 0.0, 0.0));\n"
             "}";
         QRegularExpression regEx("vec4 getRawPosition\\(float u, float v, float w\\)\\s*\\{[\\s\\S]*?\\}");
         // Sostituzione per posizione, non con replace(regex, testo): il testo
@@ -5889,6 +5865,10 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
     // custom: i suoi vertici sono posizioni, non parametri.
     if (m_borderRadius > 0.0f && !m_isCustomMesh) {
         source.replace("#version 450", "#version 450\n#define HAS_BORDER\n");
+    }
+    // Tubo: il template lo costruisce nella scena (emitTubeVertex).
+    if (engine->isTubeModeActive() && !engine->isScriptModeActive() && !m_isCustomMesh) {
+        source.replace("#version 450", "#version 450\n#define IS_TUBE\n");
     }
 
     return source;

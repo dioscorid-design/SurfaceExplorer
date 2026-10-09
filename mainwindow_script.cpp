@@ -294,9 +294,10 @@ QString MainWindow::extractCutoutSection(const QString &fullText, QString *outCu
 // Le espressioni ammettono PI/TAU e aritmetica semplice: sono valutate qui, non
 // nello shader, perche' servono al generatore di griglia sulla CPU.
 //
-// TUBI (script sul sotto-tab Tubes): la sezione dichiara un tubo. Conta solo
-// "u:" (v e' l'angolo attorno, sempre 0..2pi), e "thickness: 0.5" fa quel
-// tubo spesso la meta' del campo Thickness. Una sezione col solo spessore
+// TUBI (script sul sotto-tab Tubes): la sezione dichiara un tubo. "u:" e' il
+// tratto di curva; di "v:" contano solo i passi (attorno al tubo, in
+// proporzione a quelli di u: il giro e' sempre 0..2pi), e "thickness: 0.5" fa
+// quel tubo spesso la meta' del campo Thickness. Una sezione col solo spessore
 // prende il dominio u dei limiti (outHasU dice quali sezioni hanno "u:").
 //
 // Nota: e' il traduttore GLSL a NON dover vedere queste righe, quindi la sezione
@@ -700,7 +701,15 @@ QString MainWindow::surfaceConstantSource() const
            m_scene.eq.w + " " +
            m_scene.eq.explicitU + " " +
            m_scene.eq.explicitV + " " +
-           m_scene.eq.explicitW + " " + m_scene.surfaceScriptText + " " + m_scene.surfaceScriptApplied;
+           m_scene.eq.explicitW + " " + m_scene.surfaceScriptText + " " + m_scene.surfaceScriptApplied
+           + " " + tubeConstantSource();
+}
+
+QString MainWindow::tubeConstantSource() const
+{
+    if (!tubesShown()) return QString();
+    return m_scene.tube.x + " " + m_scene.tube.y + " " + m_scene.tube.z
+           + " " + m_scene.tube.p + " " + m_scene.tube.thickness;
 }
 
 // Avviso "costante ambigua": A..F è una sola variabile globale. Se la stessa
@@ -1495,12 +1504,13 @@ void MainWindow::updateScriptButtonText() {
             ui->btnRunCurrentScript->setText(isSurfaceMoving ? "Stop" : "Run");
             ui->txtScriptEditor->setPlaceholderText("Write GLSL for Implicit Surface (Ray Marching).\nExample: return length(p) - 1.0;");
         } else if (tubesShown()) {
-            // Sotto-tab Tubes: lo script descrive la CURVA asse dei tubi.
-            ui->btnScriptMode->setText("Tube Curve");
-            ui->btnRunCurrentScript->setText(isSurfaceMoving ? "Stop Tubes" : "Run Tubes");
-            ui->txtScriptEditor->setPlaceholderText("Write GLSL for the tube axis: the point of the curve at u.\n"
+            // Sotto-tab Solid Curve (nel codice: Tubes): lo script descrive la
+            // CURVA, disegnata come tubo.
+            ui->btnScriptMode->setText("Solid Curve");
+            ui->btnRunCurrentScript->setText(isSurfaceMoving ? "Stop Solid Curve" : "Run Solid Curve");
+            ui->txtScriptEditor->setPlaceholderText("Write GLSL for the curve: its point at u, as vec4(x, y, z, p).\n"
                                                     "Example: return vec4(cos(u), sin(u), 0.3 * sin(3.0 * u), 0.0);\n"
-                                                    "More tubes: one //MESH_BEGIN section each, told apart by 'mesh'.");
+                                                    "More curves: one //MESH_BEGIN section each, told apart by 'mesh'.");
         } else {
             ui->btnScriptMode->setText("Parametric Surface");
             ui->btnRunCurrentScript->setText(isSurfaceMoving ? "Stop Parametric" : "Run Parametric");

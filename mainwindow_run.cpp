@@ -1633,8 +1633,12 @@ QString MainWindow::equationModuleCode() const
     // Sotto-tab Tubes: la geometria e' la curva (le equazioni di Surface,
     // nascoste, non disegnano nulla). Senza, un tubo animato da 't' non
     // risultava in moto: tasto Run su "Run", master e Invio al volo sbagliati.
+    // Se la curva la da' uno script (campi vuoti), e' lo script: senza, i
+    // tubi animati da script non erano un modulo per il master, che restava
+    // su STOP con la geometria ferma.
     if (tubesShown())
-        return m_scene.tube.x + " " + m_scene.tube.y + " " + m_scene.tube.z + " " + m_scene.tube.p;
+        return m_scene.tube.x + " " + m_scene.tube.y + " " + m_scene.tube.z + " " + m_scene.tube.p
+               + (tubeSceneFromScript() ? " " + m_scene.surfaceScriptApplied : QString());
     QString code = m_scene.eq.x + " " + m_scene.eq.y + " " +
             m_scene.eq.z + " " + m_scene.eq.p + " " +
             m_scene.eq.u + " " + m_scene.eq.v + " " + m_scene.eq.w + " " +
@@ -1659,15 +1663,26 @@ MainWindow::MasterActivity MainWindow::masterActivity() const
     a.eqAvailable = hasTimeVariable(equationModuleCode());
     a.eqRunning = isEquationModuleMoving();
 
-    // TEXTURE DI SUPERFICIE: stessa condizione con cui START ne accende
-    // l'orologio (applyAnimationState: modulo attivo e codice del modulo, nella
-    // modalita' corrente, con il tempo). In ambito "Mesh" contano anche le
-    // fasce animate; in "All" no, perche' non si disegnano.
-    a.texAvailable = surfaceTextureModuleActive() && hasTimeVariable(surfaceTextureModuleCode());
-    a.texRunning = a.texAvailable && gl->isSurfaceTextureAnimating();
-    if (!implicitMode() && !gl->meshAppearanceUniform() && anyMeshTextureCodeAnimated()) {
-        a.texAvailable = true;
-        if (gl->anyMeshTextureAnimating()) a.texRunning = true;
+    // TEXTURE DI SUPERFICIE: un orologio per ogni texture che si vede. In
+    // ambito "Mesh" su una multi-mesh si vedono solo le texture PROPRIE delle
+    // fasce (una fascia senza texture propria non eredita la globale), ognuna
+    // col suo orologio; altrimenti l'orologio globale, con la stessa
+    // condizione con cui START lo accende (applyAnimationState). Il modulo e'
+    // in moto per il master solo se girano TUTTI: prima bastava una fascia in
+    // moto, e con un'altra fermata a mano il master restava su STOP.
+    if (!implicitMode() && !gl->meshAppearanceUniform() && gl->meshPartCount() > 1) {
+        auto hasTime = [this](const QString &c) { return hasTimeVariable(c); };
+        bool allRunning = true;
+        for (const MeshPart &mp : gl->getEngine()->getMeshParts()) {
+            if (!meshTextureAnimated(mp, hasTime)) continue;
+            a.texAvailable = true;
+            if (mp.texAnimating) a.texAnyRunning = true;
+            else allRunning = false;
+        }
+        a.texRunning = a.texAvailable && allRunning;
+    } else {
+        a.texAvailable = surfaceTextureModuleActive() && hasTimeVariable(surfaceTextureModuleCode());
+        a.texRunning = a.texAnyRunning = a.texAvailable && gl->isSurfaceTextureAnimating();
     }
     // TEXTURE DEL BORDO, modulo a se': se si vede ed e' animata.
     a.borderAvailable = !implicitMode() && gl->borderTextureShown()

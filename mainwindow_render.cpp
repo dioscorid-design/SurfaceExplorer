@@ -2115,11 +2115,11 @@ void MainWindow::updateBorderControlsGate()
 // COMANDI DELLA SUPERFICIE SPENTI MENTRE SI EDITA LO SFONDO (radio Background in
 // testa al riquadro dello sfondo, nel dock RENDERER), fino al ritorno su Surface. Speculare a
 // updateBackgroundControlsGate. Si spengono modo di resa e densita' wireframe,
-// trasparenza, luce e Headlight: nessuno agisce sullo sfondo, e restando accesi
-// sembravano comandi dello sfondo. Restano accesi texture e Color 1/2 (in
-// Background sono quelli dello sfondo), gli slider RGB (colore dello sfondo) e
-// il FOV (camera: inquadra anche il cielo). L'ambito All/Mesh lo spegne gia'
-// updateMeshScopeEnabled.
+// trasparenza, luce, Headlight e FOV (scelta dell'utente, 10-09: e' un comando
+// della scena, non dello sfondo): restando accesi sembravano comandi dello
+// sfondo. Restano accesi texture e Color 1/2 (in Background sono quelli dello
+// sfondo) e gli slider RGB (colore dello sfondo). L'ambito All/Mesh lo spegne
+// gia' updateMeshScopeEnabled.
 // I radio Surface/Border stanno nello stesso riquadro e devono restare
 // cliccabili (sono la via del ritorno): si spegne il contenitore interno
 // panelSurfaceModes, non panelSurface.
@@ -2127,13 +2127,20 @@ void MainWindow::updateBorderControlsGate()
 // proposito (Wireframe in Ray Marching, densita' fuori dal wireframe, radio a
 // scena vuota) restano spenti, perche' Qt ricorda chi e' stato disabilitato
 // esplicitamente. Trasparenza, luce e Headlight hanno invece regole loro su
-// QUESTI contenitori (updateRenderState qui sopra, applyEmptySceneGating): qui
-// si spengono soltanto, per ultimi; tornando su Surface li rimette a posto
-// updateRenderState, che l'handler di radioBackground chiama.
+// QUESTI contenitori (updateRenderState qui sopra, applyEmptySceneGating, che
+// riaccende anche il FOV): qui si spengono soltanto, per ultimi; tornando su
+// Surface li rimette a posto updateRenderState, che l'handler di
+// radioBackground chiama.
 void MainWindow::updateSurfaceControlsGate()
 {
     const bool onBackground = editingBackground();
     if (ui->panelSurfaceModes) ui->panelSurfaceModes->setEnabled(!onBackground);
+    // FOV in ENTRAMBI i versi: nessun'altra regola lo riaccende tornando su
+    // Surface (applyEmptySceneGating lo fa solo all'uscita dalla scena vuota).
+    const bool fovOn = !onBackground && !isSceneEmpty();
+    for (QWidget *w : { static_cast<QWidget*>(ui->lblFov), static_cast<QWidget*>(ui->lblValFov),
+                        static_cast<QWidget*>(ui->fovSliderMain) })
+        if (w) w->setEnabled(fovOn);
     if (!onBackground) return;
     for (QWidget *w : { static_cast<QWidget*>(ui->lblTrans), static_cast<QWidget*>(ui->panelSliderTrans),
                         static_cast<QWidget*>(ui->lblLight), static_cast<QWidget*>(ui->widget_2),

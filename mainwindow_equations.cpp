@@ -1187,6 +1187,9 @@ QSet<QString> MainWindow::constantsNotUsedBySurface() const
         // Lo SCRIPT della superficie parametrica e' GLSL, ma e' comunque della
         // SUPERFICIE: una costante che vi compare non va resettata.
         mathText += " " + stripCodeComments(m_scene.surfaceScriptText + "\n" + m_scene.surfaceScriptApplied);
+        // La curva dei TUBI anche: senza, caricando una texture le costanti
+        // della curva tornavano a 1 (Clifford Knot Rotating diventava un anello).
+        mathText += " " + tubeConstantSource();
     } else {
         // Sotto-tab ATTIVO, non lineEquation fisso: il criterio dev'essere lo
         // STESSO di updateConstantsUIState (vedi il commento sopra), che legge
@@ -1332,9 +1335,7 @@ void MainWindow::updateConstantsUIState() {
 
         // Sotto-tab Tubes: la curva (e lo spessore) usano le costanti come
         // le equazioni della superficie.
-        if (tubesShown())
-            mathText += " " + m_scene.tube.x + " " + m_scene.tube.y + " " + m_scene.tube.z
-                      + " " + m_scene.tube.p + " " + m_scene.tube.thickness;
+        mathText += " " + tubeConstantSource();
 
         if (ui->lnU) { // Campi Geodetici (Tab 0)
             mathText += " " + m_scene.eq.geoU +

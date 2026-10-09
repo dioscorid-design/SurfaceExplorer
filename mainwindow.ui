@@ -2559,7 +2559,7 @@ QFrame#panelBackgroundTarget QRadioButton { background: transparent; }</string>
               </widget>
               <widget class="QWidget" name="subTabParametricTubes">
                <attribute name="title">
-                <string>Tubes</string>
+                <string>Solid Curve</string>
                </attribute>
                <layout class="QVBoxLayout" name="verticalLayout_parametricTubes">
                 <item>

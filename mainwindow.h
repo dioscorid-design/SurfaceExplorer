@@ -161,6 +161,13 @@ private slots:
     // Codice della superficie da cui si deducono le sue costanti A-F (equazioni
     // o script, secondo il modo). Unica sede, vedi la definizione.
     QString surfaceConstantSource() const;
+    // Il testo dei TUBI da cui si deducono le costanti della superficie (curva
+    // e spessore; lo script, se da' lui la curva, sta gia' con la superficie),
+    // vuoto fuori dal sotto-tab Tubes. Unica sede per i tre controlli: slider
+    // accesi (updateConstantsUIState), costanti libere azzerate al load di una
+    // texture (constantsNotUsedBySurface), costanti contese
+    // (surfaceConstantSource).
+    QString tubeConstantSource() const;
     // Avviso INFORMATIVO al caricamento di un record: lettere A-F usate da piu'
     // parti (superficie, texture, sfondo), che uno stesso slider muove insieme.
     // Il controllo al caricamento di una texture non copriva i record, che
@@ -2010,7 +2017,10 @@ private:
     // deve sapere se qualcosa si muove (isAnythingMoving).
     struct MasterActivity {
         bool eqAvailable = false, eqRunning = false;          // geometria con 't', flusso geodetico
-        bool texAvailable = false, texRunning = false;        // texture di superficie e delle fasce
+        // Texture di superficie e delle fasce. texRunning = girano TUTTI i loro
+        // orologi (il master dice STOP solo cosi'); texAnyRunning = ne gira
+        // almeno uno (qualcosa si muove).
+        bool texAvailable = false, texRunning = false, texAnyRunning = false;
         bool bgAvailable = false, bgRunning = false;          // texture di sfondo
         // Texture del BORDO: un modulo a se', col suo orologio. Sommata alla
         // texture di superficie la faceva risultare "in moto" anche ferma, e
@@ -2019,7 +2029,7 @@ private:
         bool cameraAvailable = false, cameraRunning = false;  // rotazioni e path (uno alla volta)
         bool audioAvailable = false, audioRunning = false;
         bool anyRunning() const {
-            return eqRunning || texRunning || bgRunning || borderRunning || cameraRunning || audioRunning;
+            return eqRunning || texAnyRunning || bgRunning || borderRunning || cameraRunning || audioRunning;
         }
         bool allRunning() const {
             return (!eqAvailable || eqRunning) && (!texAvailable || texRunning)

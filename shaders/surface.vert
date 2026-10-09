@@ -239,15 +239,18 @@ vec4 getRawPositionAuto(float r1, float r2) {
     return getRawPosition(u, v, w);
 }
 
-// Funzione completa (Solo Object Rotation)
-vec4 getRotatedPoint4D(float u, float v) {
-    vec4 p = getRawPositionAuto(u, v);
-
+// Le rotazioni 4D dell'oggetto. Unica implementazione: la usano i punti della
+// superficie e, nei tubi, la direzione che orienta la sezione.
+vec4 rotate4D(vec4 p) {
     if (ubuf.u_omega != 0.0) p = rotateXW(p, ubuf.u_omega);
     if (ubuf.u_phi   != 0.0) p = rotateYW(p, ubuf.u_phi);
     if (ubuf.u_psi   != 0.0) p = rotateZW(p, ubuf.u_psi);
-
     return p;
+}
+
+// Funzione completa (Solo Object Rotation)
+vec4 getRotatedPoint4D(float u, float v) {
+    return rotate4D(getRawPositionAuto(u, v));
 }
 
 // Estrae i due vettori ortonormali che formano il piano tangente in 4D
@@ -424,6 +427,125 @@ vec3 projectToScene(vec4 pRot) {
     return obs.xyz + (pRot.xyz - obs.xyz) * wFactor;
 }
 
+#ifdef IS_TUBE
+// TUBO ATTORNO A UNA CURVA (sotto-tab Tubes). Qui getRawPosition, generata da
+// GLWidget::createVertexShaderSource, restituisce il punto della CURVA C(u)
+// (v non conta); il tubo si costruisce nello spazio 3D FINALE, come il bordo:
+// la curva passa per le rotazioni 4D e la proiezione, e il cerchio di raggio
+// u_tubeRadius si disegna attorno alla curva PROIETTATA, nel piano normale
+// alla sua tangente. Cosi' la sezione resta rotonda con qualunque rotazione
+// 4D: costruito in 4D prima della proiezione, il cerchio si vedeva di taglio
+// ai gomiti e si schiacciava. Per una curva 3D non cambia nulla.
+// La direzione che orienta la sezione (u_tubeRef, scelta al Run lontana da
+// tutte le tangenti della curva) subisce la STESSA trasformazione della
+// curva: la sezione gira con la figura, e texture e wireframe restano solidali
+// al tubo. Se la direzione trasformata diventa parallela alla tangente, si
+// ripiega su un asse.
+void tubeSceneFrame(float u, out vec3 C, out vec3 E1, out vec3 E2, out vec4 C4, out vec4 T4) {
+    const float e = 0.001;
+    vec4 raw = getRawPositionAuto(u, 0.0);
+    C4 = rotate4D(raw);
+    C = projectToScene(C4);
+    vec4 Cp = getRotatedPoint4D(u + e, 0.0);
+    vec4 Cm = getRotatedPoint4D(u - e, 0.0);
+    // Direzione 4D della curva ruotata: la usa la luce 4D (tubeLight4D).
+    T4 = Cp - Cm;
+    T4 = (dot(T4, T4) > 1.0e-20) ? normalize(T4) : vec4(1.0, 0.0, 0.0, 0.0);
+    vec3 T = projectToScene(Cp) - projectToScene(Cm);
+    float lenT = length(T);
+    vec3 Tn = (lenT > 1.0e-10) ? T / lenT : vec3(1.0, 0.0, 0.0);
+    vec4 R4 = vec4(ubuf.u_tubeRefX, ubuf.u_tubeRefY, ubuf.u_tubeRefZ, 0.0);
+    vec3 R = projectToScene(rotate4D(raw + e * R4)) - C;
+    E1 = R - dot(R, Tn) * Tn;
+    if (dot(E1, E1) < 1.0e-4 * dot(R, R) || dot(R, R) < 1.0e-16) {
+        vec3 alt = (abs(Tn.x) < 0.9) ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+        E1 = alt - dot(alt, Tn) * Tn;
+    }
+    E1 = normalize(E1);
+    E2 = cross(Tn, E1);
+}
+
+// Il punto (u, v) del tubo nella scena: lo usa il bordo, che sui tubi deve
+// cadere sulla superficie del tubo, non sulla curva.
+vec3 tubeScenePoint(float u, float v) {
+    vec3 C, E1, E2;
+    vec4 C4, T4;
+    tubeSceneFrame(u, C, E1, E2, C4, T4);
+    return C + ubuf.u_tubeRadius * (cos(v) * E1 + sin(v) * E2);
+}
+
+// LUCE 4D DEL TUBO (dock 4D: Directional, Observer). Stesse formule delle
+// superfici in main(): la luce e' la parte della direzione 4D della luce che
+// esce dal piano tangente. Il piano tangente del tubo e' quello della
+// direzione 4D della curva (T4) e della direzione attorno al tubo, portata in
+// 4D come direzione della scena (w = 0: il cerchio vive nella scena). Cosi'
+// la luminosita' segue dove la curva va in w e cambia ruotando in 4D. Slice
+// si basa sulla sezione 3D di una superficie e per una curva non ha un
+// equivalente: sui tubi vale come Directional.
+void tubeLight4D(vec4 C4, vec4 T4, vec3 around) {
+    v_light4D = 1.0;
+    v_spec4D = 0.0;
+    if (ubuf.u_lightingMode <= 0) return;
+    vec4 S4 = vec4(around, 0.0);
+    S4 -= T4 * dot(S4, T4);
+    S4 = (dot(S4, S4) > 1.0e-12) ? normalize(S4) : vec4(0.0);
+    vec4 lightDir4D = normalize(vec4(1.0, 1.0, 1.0, 0.5));
+    float attenuation = 1.0;
+    if (ubuf.u_lightingMode == 2) {   // OBSERVER
+        vec4 toObserver = ubuf.u_observerPos - C4;
+        float dist = length(toObserver);
+        if (dist < 0.001) return;
+        lightDir4D = toObserver / dist;
+        attenuation = 2.0 / (1.0 + 0.2 * dist + 0.02 * dist * dist);
+    }
+    vec4 viewDir4D = normalize(ubuf.u_cameraPos4D - C4);
+    vec4 L_norm = lightDir4D - T4 * dot(lightDir4D, T4) - S4 * dot(lightDir4D, S4);
+    v_light4D = clamp(0.2 + 0.8 * length(L_norm) * attenuation, 0.1, 1.5);
+    vec4 H = normalize(lightDir4D + viewDir4D);
+    vec4 H_norm = H - T4 * dot(H, T4) - S4 * dot(H, S4);
+    v_spec4D = pow(length(H_norm), 32.0) * 0.5 * attenuation;
+}
+
+void emitTubeVertex() {
+    float u = vertex.x;
+    float v = vertex.y;
+    vec3 C, E1, E2;
+    vec4 C4, T4;
+    tubeSceneFrame(u, C, E1, E2, C4, T4);
+    vec3 n = cos(v) * E1 + sin(v) * E2;
+    vec3 pos = C + ubuf.u_tubeRadius * n;
+
+    v_pos = vec3(ubuf.u_mvMatrix * vec4(pos, 1.0));
+    v_normal = ubuf.u_mvMatrix * vec4(n, 0.0);
+    v_texCoord = vec2(texCoord.x, 1.0 - texCoord.y);
+    tubeLight4D(C4, T4, -sin(v) * E1 + cos(v) * E2);
+
+    vec4 clip = ubuf.u_mvpMatrix * vec4(pos, 1.0);
+    // Stesso spareggio di profondita' 4D di main().
+    clip.z -= clamp(C4.w, -1.0, 1.0) * 0.0005 * clip.w;
+    clip += ubuf.u_dummyZero * 0.000001;
+    gl_Position = clip;
+}
+#endif
+
+// Punto (u, v) della figura per il bordo: nello spazio 4D ruotato per le
+// superfici (le rotazioni conservano le distanze, il test delle cuciture le
+// confronta), nella scena per i tubi, che esistono solo li'.
+vec4 borderFigurePoint(float u, float v) {
+#ifdef IS_TUBE
+    return vec4(tubeScenePoint(u, v), 0.0);
+#else
+    return getRotatedPoint4D(u, v);
+#endif
+}
+vec3 borderScenePoint(float u, float v) {
+#ifdef IS_TUBE
+    return tubeScenePoint(u, v);
+#else
+    return projectToScene(getRotatedPoint4D(u, v));
+#endif
+}
+
 #ifdef HAS_BORDER
 // BORDO DELLA SUPERFICIE: un tubo di raggio u_borderRadius attorno a un lato
 // del dominio. I vertici li genera SurfaceEngine::generateBorder:
@@ -461,9 +583,9 @@ bool borderEdgeHidden(vec2 along, float fixedCoord, float opposite, float alongS
         vec2 p  = (along.x > 0.5) ? vec2(a, fixedCoord) : vec2(fixedCoord, a);
         vec2 q  = (along.x > 0.5) ? vec2(a, opposite)   : vec2(opposite, a);
         vec2 qt = (along.x > 0.5) ? vec2(alongSum - a, opposite) : vec2(opposite, alongSum - a);
-        vec4 P = getRotatedPoint4D(p.x, p.y);
-        if (length(getRotatedPoint4D(q.x, q.y) - P) > tol)   straight = false;
-        if (length(getRotatedPoint4D(qt.x, qt.y) - P) > tol) twisted = false;
+        vec4 P = borderFigurePoint(p.x, p.y);
+        if (length(borderFigurePoint(q.x, q.y) - P) > tol)   straight = false;
+        if (length(borderFigurePoint(qt.x, qt.y) - P) > tol) twisted = false;
         if (i > 0) len += length(P - prev);
         prev = P;
     }
@@ -493,11 +615,10 @@ void emitBorderVertex() {
         return;
     }
 
-    vec4 P4 = getRotatedPoint4D(uv.x, uv.y);
-    vec3 P = projectToScene(P4);
-    vec3 T = projectToScene(getRotatedPoint4D(uv.x + along.x * e, uv.y + along.y * e))
-           - projectToScene(getRotatedPoint4D(uv.x - along.x * e, uv.y - along.y * e));
-    vec3 Q = projectToScene(getRotatedPoint4D(uv.x + inward.x * e, uv.y + inward.y * e)) - P;
+    vec3 P = borderScenePoint(uv.x, uv.y);
+    vec3 T = borderScenePoint(uv.x + along.x * e, uv.y + along.y * e)
+           - borderScenePoint(uv.x - along.x * e, uv.y - along.y * e);
+    vec3 Q = borderScenePoint(uv.x + inward.x * e, uv.y + inward.y * e) - P;
     float lenT = length(T);
     float r = ubuf.u_borderRadius;
 
@@ -548,6 +669,11 @@ void main() {
         emitBorderVertex();
         return;
     }
+#endif
+#ifdef IS_TUBE
+    // Vertice del tubo: costruito nella scena (emitTubeVertex).
+    emitTubeVertex();
+    return;
 #endif
 
     float u = vertex.x;

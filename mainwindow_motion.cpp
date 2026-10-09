@@ -29,7 +29,10 @@ void MainWindow::setupMotionDocks()
 
         auto isNullCoord = [](const QString &s) { return s.isEmpty() || s == "0" || s == "0.0"; };
 
-        bool isDegenerate4D = isNullCoord(xEq) || isNullCoord(yEq) || isNullCoord(zEq) || isNullCoord(pEq);
+        // Sui TUBI Slice non c'e' (si basa sulla sezione 3D di una superficie):
+        // restano Directional e Observer, vedi tubeLight4D in surface.vert.
+        bool isDegenerate4D = tubesShown() || isNullCoord(xEq) || isNullCoord(yEq)
+                              || isNullCoord(zEq) || isNullCoord(pEq);
         int numModes = (!isDegenerate4D) ? 3 : 2;
         m_scene.lightingMode4D = (m_scene.lightingMode4D + 1) % numModes;
 
