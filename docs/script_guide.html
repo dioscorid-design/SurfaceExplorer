@@ -245,7 +245,9 @@ v: 0, 2*pi, 100
     and arithmetic allowed. The step count is a <strong>proportion</strong>, not a ceiling: the Steps slider still
     governs the real resolution, and the declared numbers only set the ratios between grids and between u and v.</p>
     <p>Inside the script the variable <code>mesh</code> holds the index of the grid being generated
-    (<code>0, 1, 2 …</code>), so one body can produce every branch:</p>
+    (<code>0, 1, 2 …</code>) and <code>meshes</code> how many grids there are, so one body can produce every branch.
+    With a <strong>single</strong> block, the <strong>Meshes</strong> field of the Renderer dock sets how many copies of it
+    are drawn; with several blocks, the blocks decide.</p>
     <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">//MESH_BEGIN
 u: 0, 2*pi, 200
 v: 0, 2*pi, 200
@@ -286,7 +288,9 @@ float a = mesh * 1.5707963;
 return vec4(cos(u), sin(u)*cos(a), sin(u)*sin(a), 0.0);</pre>
 
     <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Turning grids on and off from a slider</b></p></td></tr></table>
-    <p>The <code>//MESH_BEGIN</code> blocks are <strong>static</strong>: they are read when the script runs, so a
+    <p>The simplest way is the <strong>Meshes</strong> field of the Renderer dock: write a constant in it (e.g.
+    <code>A</code>) and the grids are created as the slider moves. With several blocks, instead,
+    the <code>//MESH_BEGIN</code> blocks are <strong>static</strong>: they are read when the script runs, so a
     constant cannot change how many grids exist. (Their domains, on the other hand, can be edited live from the
     Renderer dock &mdash; see <em>Per-mesh domain from the interface</em> below.) To drive the count from a slider,
     declare the maximum number of grids and discard the extra ones in the cutout section (3.2), which also

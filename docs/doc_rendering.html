@@ -37,6 +37,7 @@
                 <li><strong>Mesh:</strong> the spin box next to it picks one grid, and the same controls act only on that one &mdash; including its own <strong>Density u / Density v</strong>, so two grids can be drawn as wireframe with different line spacing.</li>
             </ul>
             <p>Switching to <strong>All</strong> suspends the per-grid settings without erasing them: they come back when you switch to <strong>Mesh</strong>.</p>
+            <p><strong>Meshes</strong> sets how many copies of the surface, or of the curve in <em>Solid Curve</em>, are drawn: the equations tell them apart with <code>mesh</code> (0, 1, 2&hellip;). It takes a number or an expression with the constants, such as <code>A*A</code>, so a slider can add and remove copies.</p>
 
             <p style="font-size: 6px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 19px; color: #4ec9b0; margin: 0;"><b>Per-mesh limits (u_a / u_b / v_a / v_b)</b></p></td></tr></table>
             <p>Below the selector, four fields set the <em>parametric domain</em> &mdash; the portion of the surface each grid actually draws. They follow the same scope rule as the controls above, and they take the same expressions as the U/V limits of the Equations dock (numbers, <code>pi</code>, <code>tau</code>, the constants A&ndash;F and S):</p>
