@@ -28,7 +28,7 @@
         "yaw": 0,
         "z": 0
     },
-    "cameraFov": 57,
+    "cameraFov": 83,
     "colors": {
         "alpha": 1,
         "surfColor": "#33cc33"
@@ -54,7 +54,7 @@
         "y": "",
         "z": ""
     },
-    "fov3D": 57,
+    "fov3D": 83,
     "fov4D": 83,
     "geodesic": {
         "conform": "1.0",

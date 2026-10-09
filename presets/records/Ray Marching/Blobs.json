@@ -11,19 +11,20 @@
         "col2": "#000000",
         "color": "#ff4d4d",
         "enabled": true,
+        "libName": "Cyclic noise 2D",
         "pan_x": 0,
         "pan_y": 0,
         "rotation": 0,
-        "zoom": 1,
-        "libName": "Cyclic noise 2D"
+        "skyMode": "fixed",
+        "zoom": 1
     },
     "camera3D": {
         "pitch": 7.526821613311768,
         "roll": 0,
-        "rot_w": -0.820912778377533,
-        "rot_x": 0.3003559410572052,
-        "rot_y": 0.04187655821442604,
-        "rot_z": 0.4838749170303345,
+        "rot_w": -0.6472906470298767,
+        "rot_x": -0.3075355589389801,
+        "rot_y": -0.5796199440956116,
+        "rot_z": -0.3879142999649048,
         "x": 0.4680842459201813,
         "y": -0.17577585577964783,
         "yaw": 2.4192893505096436,
@@ -41,8 +42,9 @@
         "D": 1,
         "E": 1,
         "F": 1,
-        "S": 0.10000000149011612
+        "S": 0.4000000059604645
     },
+    "crossSectionEquation": "",
     "equations": {
         "defU": "",
         "defV": "",
@@ -55,6 +57,7 @@
         "y": "(0.8 + 0.3*cos(v))*sin(u)",
         "z": "0.3*sin(v)"
     },
+    "fillLight": 0,
     "fov3D": 45,
     "fov4D": 45,
     "geodesic": {
@@ -66,7 +69,9 @@
         "v0": "",
         "w0": ""
     },
-    "implicitEquation": "x^2+y^2+z^2+sin(4*x)+sin(4*y)+sin(4*z)-1=0",
+    "hybridMarcher": false,
+    "implicitEquation": "0.1*(x^2+y^2+z^2+sin(4*x)+sin(4*y)+sin(4*z)-1)=0",
+    "implicitUsesCrossSection": false,
     "isImplicitMode": true,
     "lightIntensity": 1,
     "lightingMode": 0,
@@ -106,6 +111,7 @@
     "pathMode3D": 0,
     "projectionMode": 1,
     "renderMode": 10,
+    "shellThickness": 0.004999999888241291,
     "speeds": {
         "nutation": 0.30000001192092896,
         "omega": 0,
@@ -129,14 +135,12 @@
         "rotation": 0,
         "zoom": 1
     },
+    "textureHintSeconds": 6,
+    "textureHintText": "Sliders\nE: pattern scale\nF: distortion",
     "type": "motion",
     "use4DLighting": false,
     "wireframe": {
         "uStep": 4,
         "vStep": 4
-    },
-    "hintText": "",
-    "hintSeconds": 6,
-    "textureHintText": "Sliders\nE: pattern scale\nF: distortion",
-    "textureHintSeconds": 6
+    }
 }
