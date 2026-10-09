@@ -303,18 +303,26 @@ void MainWindow::onResetClicked()
         return;
     }
 
+    // Con un path IN CORSA la camera e' del path: View non la sposterebbe
+    // (resetView la rimette subito al suo tempo), e Both farebbe solo Motions.
+    // Si spengono, invece di offrire scelte che non fanno nulla.
+    const bool pathMoving = pathRunning(CameraPaths::Path4D) || pathRunning(CameraPaths::Path3D);
+
     QMessageBox box(this);
     box.setIcon(QMessageBox::Question);
     box.setWindowTitle("Reset");
     box.setText("What do you want to reset?");
-    box.setInformativeText("View: camera, zoom and field of view.\n"
-                           "Motions: rotations, camera paths and everything that moves "
-                           "with t go back to the start.");
+    box.setInformativeText(QString("View: camera, zoom and field of view.\n"
+                                   "Motions: rotations, camera paths and everything that moves "
+                                   "with t go back to the start.")
+                           + (pathMoving ? QString("\n\nA camera path is running: the view follows it.") : QString()));
     QPushButton *viewBtn   = box.addButton("View",    QMessageBox::ActionRole);
     QPushButton *motionBtn = box.addButton("Motions", QMessageBox::ActionRole);
     QPushButton *bothBtn   = box.addButton("Both",    QMessageBox::AcceptRole);
     box.addButton("Cancel", QMessageBox::RejectRole);
-    box.setDefaultButton(bothBtn);
+    box.setDefaultButton(pathMoving ? motionBtn : bothBtn);
+    viewBtn->setEnabled(!pathMoving);
+    bothBtn->setEnabled(!pathMoving);
     box.exec();
 
     const QAbstractButton *choice = box.clickedButton();
