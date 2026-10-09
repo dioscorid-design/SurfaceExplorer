@@ -267,13 +267,12 @@ return vec3((1.0 + r*cos(v)) * cos(u),
     make that impossible: no quad can bridge two of them, so the defect is gone at the root. It also removes the
     closure rescaling and the guard bands those scripts needed.</p>
 
-    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Tubes from a script</b></p></td></tr></table>
-    <p>On the <strong>Tubes</strong> sub-tab of the Parametric tab the script describes the <strong>axis</strong>
+    <p style="font-size: 10px; margin: 0;">&nbsp;</p><table width="100%" cellpadding="6" cellspacing="0" bgcolor="#252526"><tr><td><p style="font-size: 18px; color: #4ec9b0; margin: 0;"><b>Solid curves from a script</b></p></td></tr></table>
+    <p>On the <strong>Solid Curve</strong> sub-tab of the Parametric tab the script describes the <strong>axis</strong>
     of the tubes instead of a surface: it returns the point <code>vec4(x, y, z, p)</code> of the curve at
     <code>u</code>, and the tube is built around it, as with the <code>X(u)</code>&hellip;<code>P(u)</code> fields.
-    Each <code>//MESH_BEGIN</code> block is one tube: only <code>u</code> counts (the tube always goes all the way
-    round), and an optional <code>thickness:</code> line scales that tube with respect to the <strong>Thickness</strong>
-    field. <code>mesh</code> tells the tubes apart, and each one can be styled on its own like any other grid.</p>
+    Each <code>//MESH_BEGIN</code> block is one tube, with its own <code>u</code> range, and an optional
+    <code>thickness:</code> line scales that tube with respect to the <strong>Thickness</strong> field. <code>mesh</code> tells the tubes apart, and each one can be styled on its own like any other grid.</p>
     <pre style="background-color: #101010; color: #dcdcaa; padding: 12px;">//MESH_BEGIN
 u: 0, 2*pi
 //MESH_END
