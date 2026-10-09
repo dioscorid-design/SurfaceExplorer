@@ -87,6 +87,19 @@ protected:
                     return true;
                 }
 
+                // Campo MESHES (pannello Multi Mesh): si conferma solo lui. Il
+                // ramo generico qui sotto rifarebbe anche il commit dei campi
+                // delle equazioni. Il commit si chiama qui e non si lascia al
+                // solo editingFinished, come per lo spessore dei tubi: se il
+                // campo non aveva davvero il focus, il clearFocus non lo emette.
+                // Un secondo commit non cambia nulla (numero gia' applicato).
+                if (on == "lineMeshCount") {
+                    if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
+                    if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent()))
+                        mainWin->commitMeshCountOnEnter();
+                    return true;
+                }
+
                 // Campi path camera: l'Invio AVVIA il path se e' fermo e i campi
                 // lo definiscono, lo ricompila al volo se e' gia' in corsa, e lo
                 // ferma se i campi sono stati svuotati (vedi
@@ -462,6 +475,15 @@ protected:
                     if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent())) {
                         mainWin->commitMeshLimitFieldOnEnter(limitName);
                     }
+                    QGuiApplication::inputMethod()->hide();
+                    return true;
+                }
+
+                // Campo MESHES: come nel filtro desktop.
+                if (limitName == "lineMeshCount") {
+                    if (QWidget* w = qobject_cast<QWidget*>(obj)) w->clearFocus();
+                    if (MainWindow* mainWin = qobject_cast<MainWindow*>(parent()))
+                        mainWin->commitMeshCountOnEnter();
                     QGuiApplication::inputMethod()->hide();
                     return true;
                 }

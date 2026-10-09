@@ -84,6 +84,11 @@ public:
         symbol_table.add_variable("w", w);
         symbol_table.add_variable("p", p);
         symbol_table.add_variable("t", mT);
+        // MULTI-MESH: indice della copia e numero di copie (campo Meshes del
+        // pannello Multi Mesh), come nello shader. Valgono 0 e 1 se nessuno li
+        // imposta (setMesh).
+        symbol_table.add_variable("mesh", mMesh);
+        symbol_table.add_variable("meshes", mMeshes);
 
         // --- QUI AGGIUNGIAMO LE COSTANTI MATEMATICHE (pi, e, ecc.) ---
         symbol_table.add_constants();
@@ -95,6 +100,8 @@ public:
     // Il tempo 't' delle espressioni (di norma fermo a 0.00001): chi campiona
     // una curva animata lo fa scorrere.
     void setTime(double t) { mT = t; }
+    // La copia (0..n-1) e il numero di copie che le espressioni leggono.
+    void setMesh(double mesh, double meshes) { mMesh = mesh; mMeshes = meshes; }
 
     void addCustomVariable(const QString& varName, double& variable) {
         symbol_table.add_variable(varName.toStdString(), variable);
@@ -141,6 +148,8 @@ private:
     double mF;
     double mS;
     double mT;
+    double mMesh = 0.0;
+    double mMeshes = 1.0;
 };
 
 #endif // EXPRESSIONPARSER_H

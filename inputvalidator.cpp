@@ -361,6 +361,14 @@ void InputValidator::showInvalidThicknessError(QWidget* parent, const QString& t
            what + "\n\nPlease enter a number (e.g. 1, 0.5).");
 }
 
+void InputValidator::showInvalidMeshCountError(QWidget* parent, const QString& text)
+{
+    notify(parent, QMessageBox::Critical, "Invalid Number of Meshes",
+           QString("The number of meshes is not valid:\n\n    \"%1\"\n\n"
+                   "Please enter a whole number (e.g. 3) or an expression with the "
+                   "constants (e.g. A*A).").arg(text.trimmed()));
+}
+
 void InputValidator::showInvalidStepsError(QWidget* parent, const QString& text)
 {
     notify(parent, QMessageBox::Critical, "Invalid Steps",
@@ -788,6 +796,8 @@ bool InputValidator::validateIdentifiers(QWidget* parent, const QString& expr,
 
         // time / shader globals
         "iTime", "u_time", "fragCoord", "fragColor", "textureCol",
+        // multi-mesh: quale copia e quante (campo Meshes, sezioni //MESH_BEGIN)
+        "mesh", "meshes",
 
         // utility comuni nelle texture/ray-marching
         "texture", "texture2D",

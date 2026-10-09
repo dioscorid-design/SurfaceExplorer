@@ -1183,6 +1183,20 @@ void MainWindow::setupRendererDock()
     // dentro lo spinbox (che era il valore 0 con specialValueText). Li' non si
     // capiva che 0 fosse uno stato diverso, e digitarlo veniva rifiutato perche'
     // updateMeshSelectorRange riportava subito la selezione a 1.
+    // CAMPO MESHES: il testo e' lo stato (anche a meta' digitazione, come i
+    // limiti); si applica alla conferma, lo slider subito.
+    if (ui->lineMeshCount) {
+        connect(ui->lineMeshCount, &QLineEdit::textEdited, this,
+                [this](const QString &text) { m_scene.meshCount = text; });
+        connect(ui->lineMeshCount, &QLineEdit::editingFinished, this, &MainWindow::commitMeshCountOnEnter);
+    }
+    if (ui->meshCountSlider) {
+        connect(ui->meshCountSlider, &QSlider::valueChanged, this, [this](int value) {
+            setMeshCountText(QString::number(value));
+            applyMeshCount();
+        });
+    }
+
     // Passando ad All l'aspetto per-mesh NON si perde: resta nelle parti, e
     // tornando su Mesh si ritrova (i valori vivono in MeshPart, non nei radio).
     auto applyMeshScope = [this](){
@@ -2094,6 +2108,7 @@ void MainWindow::updateRenderState()
     applyEmptySceneGating();
     updateSurfaceControlsGate();
     updateBorderControlsGate();
+    updateMeshCountControls();   // campo Meshes: spento in Ray Marching e in Background
 }
 
 void MainWindow::updateBorderControlsGate()
@@ -2601,6 +2616,7 @@ bool MainWindow::meshScopeUsable() const
 void MainWindow::updateMeshScopeEnabled()
 {
     if (!ui->radioMeshAll || !ui->radioMeshOne || !ui->spinMeshSel || !ui->glWidget) return;
+    updateMeshCountControls();
 
     const bool usable = meshScopeUsable();
 
@@ -2771,9 +2787,14 @@ void MainWindow::applyPendingMeshScope()
     // al giro BUONO e setActiveMeshPart non verrebbe mai chiamato con l'indice
     // del preset. Se il preset non porta aspetto per-mesh (m_pendingMeshParts
     // vuoto) non c'e' nulla da attendere e vale il primo giro, come da sempre.
+    // Si aspetta il numero di mesh ATTESO dal preset (m_lastAppliedMeshCount,
+    // dal campo Meshes o dalle sezioni), non la lunghezza della lista: con
+    // Meshes piu' basso della lista (aspetti in riserva) le parti non la
+    // raggiungono mai e l'ambito restava quello del preset precedente.
     if (!m_pendingMeshParts.empty()
         && ui->glWidget->getEngine()
-        && ui->glWidget->getEngine()->getMeshPartCount() < (int)m_pendingMeshParts.size())
+        && ui->glWidget->getEngine()->getMeshPartCount()
+               < std::min((int)m_pendingMeshParts.size(), m_lastAppliedMeshCount))
         return;
 
     m_meshScopePending = false;
@@ -2811,6 +2832,9 @@ void MainWindow::applyPendingMeshAppearance()
     if (m_pendingMeshParts.empty()) return;
 
     SurfaceEngine *eng = ui->glWidget->getEngine();
+    // Gli aspetti oltre il numero di mesh a schermo (campo Meshes piu' basso
+    // della lista salvata) restano in riserva: tornano alzando il numero.
+    eng->rememberPartAppearance(m_pendingMeshParts);
     const int n = std::min((int)m_pendingMeshParts.size(), eng->getMeshPartCount());
     bool anyTexture = false;
     for (int k = 0; k < n; ++k) {
@@ -3255,4 +3279,159 @@ void MainWindow::onUserRenderModeChosen()
             ui->glWidget->pinInheritedRenderModes();
         m_scene.renderMode = mode;
     }
+}
+
+// =========================================================================
+// CAMPO MESHES (pannello Multi Mesh): quante copie della superficie o della
+// curva. Vedi la dichiarazione in mainwindow.h.
+// =========================================================================
+
+void MainWindow::setMeshCountText(const QString &text)
+{
+    m_scene.meshCount = text;
+    if (ui->lineMeshCount) {
+        const QSignalBlocker blocker(ui->lineMeshCount);
+        ui->lineMeshCount->setText(text);
+    }
+    pushMeshCountSlider();
+}
+
+int MainWindow::meshCountValue(bool *ok)
+{
+    const QString text = m_scene.meshCount.trimmed();
+    if (text.isEmpty()) {
+        if (ok) *ok = true;
+        return 1;
+    }
+    bool valid = false;
+    const float value = parseLimitField(text, &valid);
+    valid = valid && std::isfinite(value);
+    if (ok) *ok = valid;
+    if (!valid) return 1;
+    return std::clamp((int)std::lround(value), 1, kMeshCountMax);
+}
+
+bool MainWindow::meshCountUsesConstants() const
+{
+    static const QRegularExpression constRe(QStringLiteral("\\b[A-FSs]\\b"));
+    return m_scene.meshCount.contains(constRe);
+}
+
+std::vector<MeshPart> MainWindow::countMeshParts(const std::vector<MeshPart> &sections)
+{
+    m_lastSectionCount = (int)sections.size();
+    if (sections.size() > 1) {
+        m_lastAppliedMeshCount = (int)sections.size();
+        return sections;
+    }
+    const int count = meshCountValue();
+    m_lastAppliedMeshCount = count;
+    if (count <= 1) return sections;
+
+    std::vector<MeshPart> parts;
+    parts.reserve(count);
+    for (int k = 0; k < count; ++k) {
+        MeshPart part;
+        if (!sections.empty()) {
+            part = sections.front();          // la sezione e' il modello
+        } else {
+            part.followsGlobalDomain = true;  // il dominio dei limiti, sempre attuale
+        }
+        part.meshIndex = k;
+        parts.push_back(part);
+    }
+    return parts;
+}
+
+bool MainWindow::meshCountUsable() const
+{
+    if (!ui->glWidget || isSceneEmpty() || implicitMode() || editingBackground()) return false;
+    // Flusso geodetico e script metrici: la mesh e' gia' pronta, non da parti.
+    if (!m_metricScriptBody.trimmed().isEmpty() || ui->glWidget->isCustomMesh()) return false;
+    // Piu' sezioni //MESH_BEGIN: le mesh le dichiara lo script.
+    return m_lastSectionCount <= 1;
+}
+
+void MainWindow::pushMeshCountSlider()
+{
+    QSlider *s = ui->meshCountSlider;
+    if (!s) return;
+    const int n = (m_lastSectionCount > 1) ? m_lastSectionCount : meshCountValue();
+    // Range come lo spessore dei tubi (pushTubeThickness): il massimo
+    // standard, o il valore scritto se e' piu' grande; mentre lo slider si
+    // trascina il range non si stringe.
+    const QSignalBlocker blocker(s);
+    int hi = std::max(kMeshCountSliderMax, n);
+    if (s->isSliderDown()) hi = std::max(hi, s->maximum());
+    s->setRange(1, hi);
+    s->setValue(n);
+}
+
+void MainWindow::commitMeshCountOnEnter()
+{
+    if (!meshCountUsable()) return;
+    // Vuoto: torna a 1, come lo spessore dei tubi vuoto torna al default.
+    if (m_scene.meshCount.trimmed().isEmpty()) setMeshCountText(QStringLiteral("1"));
+    bool ok = false;
+    const int n = meshCountValue(&ok);
+    if (!ok) {
+        if (m_constantPopupActive) return;
+        m_constantPopupActive = true;
+        InputValidator::showInvalidMeshCountError(this, m_scene.meshCount);
+        {
+            const QSignalBlocker blocker(ui->lineMeshCount);
+            ui->lineMeshCount->setFocus();
+            ui->lineMeshCount->selectAll();
+        }
+        QTimer::singleShot(0, this, [this] { m_constantPopupActive = false; });
+        return;
+    }
+    // Un numero si riscrive intero e dentro il massimo (2.4 -> 2, 100 -> 64);
+    // un'espressione resta com'e' scritta.
+    if (!meshCountUsesConstants() && QString::number(n) != m_scene.meshCount.trimmed())
+        setMeshCountText(QString::number(n));
+    pushMeshCountSlider();
+    applyMeshCount();
+    updateMeshCountControls();
+}
+
+void MainWindow::applyMeshCount()
+{
+    if (!meshCountUsable()) return;
+    if (meshCountValue() == m_lastAppliedMeshCount) return;
+    // La scena com'e' a schermo, col numero nuovo: equazioni applicate,
+    // script applicato o curva (lo stesso commit dell'Invio su una costante,
+    // che non fa ripartire moti e audio).
+    runScene(RunOrigin::ServiceCommit);
+    // Con uno script immutato il commit non rigenera la griglia: le parti
+    // nuove resterebbero dichiarate ma non costruite.
+    if (ui->glWidget) ui->glWidget->updateSurfaceData();
+    updateMeshCountControls();
+}
+
+void MainWindow::refreshMeshCountFromConstants()
+{
+    if (!meshCountUsesConstants() || !meshCountUsable()) return;
+    pushMeshCountSlider();
+    if (meshCountValue() != m_lastAppliedMeshCount)
+        QTimer::singleShot(0, this, [this] { applyMeshCount(); });
+}
+
+void MainWindow::updateMeshCountControls()
+{
+    if (!ui->lineMeshCount || !ui->meshCountSlider) return;
+    const bool usable = meshCountUsable();
+    ui->lblMeshCount->setEnabled(usable);
+    ui->lineMeshCount->setEnabled(usable);
+    // Con un'espressione il numero lo decidono le costanti: lo slider la segue.
+    ui->meshCountSlider->setEnabled(usable && !meshCountUsesConstants());
+    // Con piu' sezioni il campo MOSTRA quante ne dichiara lo script; lo stato
+    // (m_scene.meshCount, che il Save scrive) resta il suo.
+    const QString shown = (m_lastSectionCount > 1 && !implicitMode())
+                              ? QString::number(m_lastSectionCount) : m_scene.meshCount;
+    if (ui->lineMeshCount->text() != shown && !ui->lineMeshCount->hasFocus()) {
+        const QSignalBlocker blocker(ui->lineMeshCount);
+        ui->lineMeshCount->setText(shown);
+    }
+    pushMeshCountSlider();
 }

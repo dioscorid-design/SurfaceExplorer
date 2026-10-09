@@ -58,6 +58,13 @@ struct MeshPart {
     // "meshParts"); la sua assenza nei preset esistenti li lascia identici.
     bool hasCustomDomain = false;
 
+    // true = parte nata dal campo Meshes senza sezione //MESH_BEGIN: il suo
+    // dominio e' quello CORRENTE della superficie (limiti del dock Equations,
+    // secondo il vincolo attivo), letto a ogni rigenerazione da
+    // resolveMeshParts, non una copia presa una volta. Un dominio scelto a mano
+    // (hasCustomDomain) vince comunque.
+    bool followsGlobalDomain = false;
+
     // Risoluzione EFFETTIVA di questa parte, cioe' quella con cui la griglia
     // viene generata. NON e' il valore dichiarato nello script: e' quello
     // riscalato dallo slider Steps (vedi resolveMeshParts).
@@ -278,39 +285,70 @@ public:
     // slider E dei tori di Hopf) le mesh tornavano tutte al colore globale.
     // L'aspetto si conserva per INDICE: se lo script dichiara piu' parti di
     // prima, quelle nuove partono con i valori di default (= eredita).
+    // L'ASPETTO di una parte (colore, trasparenza, luce, modo, densita'
+    // wireframe, texture e il suo orologio), non la geometria. Unica sede: la
+    // usano setMeshParts e la riserva delle mesh oltre il numero attuale.
+    static void copyPartAppearance(MeshPart &dst, const MeshPart &src) {
+        dst.colorR = src.colorR;
+        dst.colorG = src.colorG;
+        dst.colorB = src.colorB;
+        dst.alpha = src.alpha;
+        dst.lightIntensity = src.lightIntensity;
+        dst.renderMode = src.renderMode;
+        dst.hasCustomRenderMode = src.hasCustomRenderMode;
+        dst.wfStepU = src.wfStepU;
+        dst.wfStepV = src.wfStepV;
+        dst.textureCode = src.textureCode;
+        dst.textureLibName = src.textureLibName;
+        dst.textureEnabled = src.textureEnabled;
+        dst.hasCustomTexture = src.hasCustomTexture;
+        dst.texCol1R = src.texCol1R;
+        dst.texCol1G = src.texCol1G;
+        dst.texCol1B = src.texCol1B;
+        dst.texCol2R = src.texCol2R;
+        dst.texCol2G = src.texCol2G;
+        dst.texCol2B = src.texCol2B;
+        dst.texZoom = src.texZoom;
+        dst.texPanX = src.texPanX;
+        dst.texPanY = src.texPanY;
+        dst.texRotation = src.texRotation;
+        // Orologio della parte: si conserva come il resto dell'aspetto. Il
+        // TEMPO in particolare, o una rigenerazione della griglia (un tocco
+        // allo slider Steps) farebbe saltare indietro l'animazione.
+        dst.timeTex = src.timeTex;
+        dst.texAnimating = src.texAnimating;
+    }
+
+    // RISERVA DEGLI ASPETTI, per indice: quando il campo Meshes cala, l'aspetto
+    // delle mesh tolte resta qui e torna quando il numero risale; il Save lo
+    // scrive comunque (meshPartsForSave), cosi' un preset con 9 colori e 5 tori
+    // a schermo non perde i colori 6-9. Una scena nuova la svuota.
+    void rememberPartAppearance(const std::vector<MeshPart> &parts) {
+        if (m_appearanceStore.size() < parts.size()) m_appearanceStore.resize(parts.size());
+        for (size_t k = 0; k < parts.size(); ++k) copyPartAppearance(m_appearanceStore[k], parts[k]);
+    }
+    // Le parti a schermo, piu' gli aspetti in riserva oltre il loro numero.
+    std::vector<MeshPart> meshPartsForSave() const {
+        std::vector<MeshPart> out = m_meshParts;
+        for (size_t k = out.size(); k < m_appearanceStore.size(); ++k) {
+            MeshPart p;
+            copyPartAppearance(p, m_appearanceStore[k]);
+            p.meshIndex = (int)k;
+            out.push_back(p);
+        }
+        return out;
+    }
+
     void setMeshParts(const std::vector<MeshPart>& parts) {
         std::vector<MeshPart> next = parts;
+        rememberPartAppearance(m_declaredParts);
+        // Le parti nuove oltre quelle di prima riprendono l'aspetto in riserva.
+        for (size_t k = m_declaredParts.size(); k < next.size() && k < m_appearanceStore.size(); ++k)
+            copyPartAppearance(next[k], m_appearanceStore[k]);
         const int n = std::min((int)next.size(), (int)m_declaredParts.size());
         for (int k = 0; k < n; ++k) {
             const MeshPart &old = m_declaredParts[k];
-            next[k].colorR = old.colorR;
-            next[k].colorG = old.colorG;
-            next[k].colorB = old.colorB;
-            next[k].alpha = old.alpha;
-            next[k].lightIntensity = old.lightIntensity;
-            next[k].renderMode = old.renderMode;
-            next[k].hasCustomRenderMode = old.hasCustomRenderMode;
-            next[k].wfStepU = old.wfStepU;
-            next[k].wfStepV = old.wfStepV;
-            next[k].textureCode = old.textureCode;
-            next[k].textureLibName = old.textureLibName;
-            next[k].textureEnabled = old.textureEnabled;
-            next[k].hasCustomTexture = old.hasCustomTexture;
-            next[k].texCol1R = old.texCol1R;
-            next[k].texCol1G = old.texCol1G;
-            next[k].texCol1B = old.texCol1B;
-            next[k].texCol2R = old.texCol2R;
-            next[k].texCol2G = old.texCol2G;
-            next[k].texCol2B = old.texCol2B;
-            next[k].texZoom = old.texZoom;
-            next[k].texPanX = old.texPanX;
-            next[k].texPanY = old.texPanY;
-            next[k].texRotation = old.texRotation;
-            // Orologio della parte: si conserva come il resto dell'aspetto. Il
-            // TEMPO in particolare, o una rigenerazione della griglia (un tocco
-            // allo slider Steps) farebbe saltare indietro l'animazione.
-            next[k].timeTex = old.timeTex;
-            next[k].texAnimating = old.texAnimating;
+            copyPartAppearance(next[k], old);
 
             // DOMINIO SCELTO A MANO (campi u/v del pannello Multi Mesh).
             // Si preserva come l'aspetto, ed e' una scelta DELIBERATA maturata
@@ -342,7 +380,7 @@ public:
         }
         m_declaredParts = std::move(next);
     }
-    void clearMeshParts() { m_declaredParts.clear(); }
+    void clearMeshParts() { m_declaredParts.clear(); m_appearanceStore.clear(); }
 
     // ==========================================================
     // DOMINIO DELL'AMBITO "ALL" (multi-mesh)
@@ -392,7 +430,7 @@ public:
     // mesh -- quella attiva al salvataggio -- resta tagliata mentre le altre
     // tornano intere, un fantasma che non corrisponde ne' al preset caricato ne'
     // a quello precedente.
-    void clearAllMeshParts() { m_declaredParts.clear(); m_meshParts.clear(); }
+    void clearAllMeshParts() { m_declaredParts.clear(); m_meshParts.clear(); m_appearanceStore.clear(); }
     const std::vector<MeshPart>& getMeshParts() const { return m_meshParts; }
     int getMeshPartCount() const { return (int)m_meshParts.size(); }
 
@@ -679,6 +717,8 @@ private:
     QString m_glslCode;
     QString m_cutoutCode;
     bool m_useScriptMode = false;
+    // Riserva degli aspetti per indice (vedi rememberPartAppearance).
+    std::vector<MeshPart> m_appearanceStore;
     // Tubo: vedi setTubeCurve / setTubeScriptBody / setTubeCopies.
     bool m_useTubeMode = false;
     QString m_tubeX, m_tubeY, m_tubeZ, m_tubeP;
@@ -702,6 +742,8 @@ private:
 
     float m_varP = 0.0f;
     float m_varT = 0.0f;
+    float m_varMesh = 0.0f;     // copia valutata (detectPartClosure)
+    float m_varMeshes = 1.0f;   // numero di copie
 
     float m_varA = 1.0f, m_varB = 1.0f, m_varC = 1.0f;
     float m_varD = 1.0f, m_varE = 1.0f, m_varF = 1.0f;

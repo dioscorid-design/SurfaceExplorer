@@ -631,6 +631,8 @@ void MainWindow::resetScriptEngineForNewScene()
         // superficie del tab successivo resterebbe spezzata nei rami
         // dichiarati dallo script precedente.
         ui->glWidget->getEngine()->clearMeshParts();
+        m_lastSectionCount = 0;
+        m_lastAppliedMeshCount = 1;
         // ...e il taglio dell'ambito "All", che altrimenti resterebbe in vigore
         // sulla superficie nuova.
         ui->glWidget->getEngine()->clearAllDomain();
@@ -3546,6 +3548,9 @@ void MainWindow::preparePresetScriptEngine(const LibraryItem &d, bool isScript)
             // sopravviverebbero, spezzando in rami una superficie che non li ha.
             extractMeshSections(d.scriptCode, &meshParts);
         }
+        // Le copie del campo Meshes (gia' nello stato: assignSceneTexts),
+        // prima di fondere l'aspetto salvato per ogni mesh.
+        if (!d.isImplicitMode) meshParts = countMeshParts(meshParts);
         ui->glWidget->getEngine()->setCutoutCodeGLSL(cutoutGlsl);
 
         // ASPETTO PER-MESH: le parti appena estratte dallo script portano solo

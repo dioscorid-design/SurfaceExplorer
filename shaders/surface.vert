@@ -85,10 +85,13 @@ layout(std140, binding = 0) uniform SceneUBO {
     // blocco deve combaciare campo per campo col fragment.
     int u_isBorder;
     // Direzione di riferimento della sezione del tubo, per parte: la legge il
-    // getRawPosition generato per i tubi. Ultimi campi di UboData.
+    // ramo dei tubi (tubeSceneFrame).
     float u_tubeRefX;
     float u_tubeRefY;
     float u_tubeRefZ;
+    // Numero di copie (campo Meshes): `meshes` nelle equazioni e negli script.
+    // Ultimo campo di UboData.
+    float u_meshCount;
 } ubuf;
 
 float sq(float x) { return x*x; }
@@ -198,6 +201,9 @@ vec4 getRawPosition(float u, float v, float w) {
     float F = ubuf.u_mathParams2.z;
     float s = ubuf.u_mathParams.w;
     float t = ubuf.u_time;
+    // Multi-mesh dal campo Meshes: quale copia (0..meshes-1) e quante.
+    float mesh = ubuf.u_meshIndex;
+    float meshes = ubuf.u_meshCount;
 
     float x = %X_EQ%;
     float y = %Y_EQ%;

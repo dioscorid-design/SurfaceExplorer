@@ -20,7 +20,7 @@ class QRhi;
 class TubeCurveSampler
 {
 public:
-    // Per ogni campione (u, mesh, t, -) di `params` restituisce in `out` il
+    // Per ogni campione (u, mesh, t, meshes) di `params` restituisce in `out` il
     // punto (x, y, z, p) della curva. `constants` = A, B, C, D, E, F, s.
     // false = niente GPU, shader che non compila o lettura fallita (`error`).
     static bool sample(QRhi *rhi, const QString &curveFunction,

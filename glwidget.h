@@ -154,6 +154,15 @@ struct UboData {
     float u_tubeRefX;
     float u_tubeRefY;
     float u_tubeRefZ;
+    // NUMERO DI COPIE della superficie o della curva (campo Meshes del
+    // pannello Multi Mesh, o sezioni //MESH_BEGIN): le equazioni e gli script
+    // lo leggono come `meshes`, accanto all'indice `mesh`. Uniforme, cosi'
+    // non serve ricompilare quando cambia. In coda: il blocco cresce di una
+    // riga (480 byte). Dichiarato in ENTRAMBI gli shader parametrici (regola
+    // Adreno, vedi CLAUDE.md); lo usa solo il vertex.
+    float u_meshCount;
+    // padding esplicito: std140 allinea la struct a vec4 (16 byte).
+    float _pad3[3];
 };
 
 class GLWidget : public QRhiWidget
@@ -166,6 +175,8 @@ public:
     ~GLWidget();
 
     QRhi* getRhi() { return rhi(); }
+    // La mesh e' gia' fatta di posizioni (flusso geodetico), non da parti.
+    bool isCustomMesh() const { return m_isCustomMesh; }
 
     // ==========================================================
     // ENUMS & CONSTANTS

@@ -387,7 +387,7 @@ void MainWindow::runSceneScript(RunOrigin origin, bool runDockOnly)
         // da Master Start perderebbe le parti dichiarate dallo script.
         std::vector<MeshPart> meshParts;
         scriptForGlsl = extractMeshSections(scriptForGlsl, &meshParts);
-        ui->glWidget->getEngine()->setMeshParts(meshParts);
+        ui->glWidget->getEngine()->setMeshParts(countMeshParts(meshParts));
     }
 
     // Ri-valida lo script corrente prima di riprendere: se contiene un
@@ -780,18 +780,24 @@ bool MainWindow::applyTubeToEngine(float uMin, float uMax, const CascadeConstant
     // e se la curva si chiude. Se la curva non si valuta sulla CPU (sintassi
     // che exprtk non capisce) resta l'asse z: lo shader ha comunque la sua
     // riserva per le tangenti parallele.
-    SurfaceEngine::TubeCopy copy;
-    sampleTubeCurve(tube, uMin, uMax, kc, &copy);
+    // Le copie del campo Meshes: una curva per copia (`mesh`), ognuna con la
+    // sua direzione della sezione.
+    const std::vector<MeshPart> parts = countMeshParts({});
+    const int tubes = std::max<int>(1, (int)parts.size());
+    std::vector<SurfaceEngine::TubeCopy> copies(tubes);
+    for (int k = 0; k < tubes; ++k)
+        sampleTubeCurve(tube, uMin, uMax, kc, k, tubes, &copies[k]);
 
     // Prima la curva (provata prima di toccare lo stato), poi il resto:
     // rebuildShader rifa' le pipeline al fotogramma dopo, coi valori di
     // adesso. Vincoli e composizione non c'entrano col tubo.
     ui->glWidget->setTubeRadius(tubeThicknessValue() * kTubeRadiusUnit);
-    if (!ui->glWidget->setTubeCurve(tube.x, tube.y, tube.z, tube.p, { copy }))
+    if (!ui->glWidget->setTubeCurve(tube.x, tube.y, tube.z, tube.p, copies))
         return false;
     SurfaceEngine *engine = ui->glWidget->getEngine();
-    // Le equazioni fanno UN tubo: via le parti di uno script di prima.
-    engine->setMeshParts({});
+    // Le parti delle copie (nessuna con un tubo solo: via quelle di uno script
+    // di prima).
+    engine->setMeshParts(parts);
     engine->setConstraintMode(SurfaceEngine::ConstraintW);
     engine->setExplicitU(QString());
     engine->setExplicitV(QString());
@@ -838,7 +844,8 @@ bool MainWindow::hasCompleteTubeInput()
 }
 
 bool MainWindow::sampleTubeCurve(const TubeTexts &tube, float uMin, float uMax,
-                                 const CascadeConstants &kc, SurfaceEngine::TubeCopy *copy)
+                                 const CascadeConstants &kc, int mesh, int meshes,
+                                 SurfaceEngine::TubeCopy *copy)
 {
     *copy = SurfaceEngine::TubeCopy();
     double u = 0.0, v = 0.0, w = 0.0, p = 0.0;
@@ -847,6 +854,7 @@ bool MainWindow::sampleTubeCurve(const TubeTexts &tube, float uMin, float uMax,
         e->setupVariables<double>(u, v, w, p);
         e->setupConstants<double>((double)kc.a, (double)kc.b, (double)kc.c, (double)kc.d,
                                   (double)kc.e, (double)kc.f, (double)kc.s);
+        e->setMesh(mesh, meshes);   // la copia di cui si campiona la curva
     }
     // Un campo vuoto vale 0, come nello shader.
     const auto orZero = [](const QString &s) { return s.trimmed().isEmpty() ? QStringLiteral("0") : s; };
@@ -975,6 +983,12 @@ bool MainWindow::applyTubeScript(const QString &fullText, const CascadeConstants
     std::vector<MeshPart> parts;
     QVector<bool> hasU;
     body = extractMeshSections(body, &parts, &hasU);
+    // La regola delle parti (campo Meshes): una sezione sola e' il modello di
+    // tutte le copie, nessuna sezione = copie sul dominio dei limiti.
+    const int sectionCount = (int)parts.size();
+    const bool templateHasU = hasU.value(0);
+    parts = countMeshParts(parts);
+    if (sectionCount <= 1) hasU = QVector<bool>((int)parts.size(), sectionCount == 1 && templateHasU);
 
     QString glslBody;
     {
@@ -1013,7 +1027,7 @@ bool MainWindow::applyTubeScript(const QString &fullText, const CascadeConstants
         for (int ts = 0; ts < timeSamples; ++ts) {
             const float t = (ts == 0) ? 0.00001f : 6.28318530718f * ts / timeSamples;
             for (int i = 0; i <= N; ++i)
-                params.append(QVector4D(lo + (hi - lo) * i / N, float(k), t, 0.0f));
+                params.append(QVector4D(lo + (hi - lo) * i / N, float(k), t, float(tubes)));
         }
     }
     const float consts[7] = { kc.a, kc.b, kc.c, kc.d, kc.e, kc.f, kc.s };
@@ -1214,6 +1228,8 @@ void MainWindow::runSceneParametric(RunOrigin origin, bool runDockOnly,
         InputValidator::showEquationSyntaxError(this);
         return;
     }
+    // Le copie del campo Meshes (le equazioni le distinguono con `mesh`).
+    ui->glWidget->getEngine()->setMeshParts(countMeshParts({}));
 
     // SNAPSHOT DELL'APPLICATO: le equazioni dei campi sono appena andate a
     // schermo, quindi sono loro "l'ultimo applicato" che il commit di servizio

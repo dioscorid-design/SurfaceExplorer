@@ -456,7 +456,7 @@ void MainWindow::onRunScriptClicked()
     // cutout, vanno via dal corpo prima di costruire glslBody.
     std::vector<MeshPart> meshParts;
     bodyWithoutCutout = extractMeshSections(bodyWithoutCutout, &meshParts);
-    ui->glWidget->getEngine()->setMeshParts(meshParts);
+    ui->glWidget->getEngine()->setMeshParts(countMeshParts(meshParts));
 
     QString glslBody;
     QTextStream stream(&bodyWithoutCutout);
@@ -707,9 +707,12 @@ QString MainWindow::surfaceConstantSource() const
 
 QString MainWindow::tubeConstantSource() const
 {
-    if (!tubesShown()) return QString();
+    // Il campo Meshes (numero di copie) vale per superfici e tubi: un
+    // "A*A" usa A come le equazioni.
+    const QString meshCount = implicitMode() ? QString() : " " + m_scene.meshCount;
+    if (!tubesShown()) return meshCount;
     return m_scene.tube.x + " " + m_scene.tube.y + " " + m_scene.tube.z
-           + " " + m_scene.tube.p + " " + m_scene.tube.thickness;
+           + " " + m_scene.tube.p + " " + m_scene.tube.thickness + meshCount;
 }
 
 // Avviso "costante ambigua": A..F è una sola variabile globale. Se la stessa

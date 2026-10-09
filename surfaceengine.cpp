@@ -47,6 +47,9 @@ SurfaceEngine::SurfaceEngine()
     m_surfaceSymbolTable.add_variable("F", m_varF);
     m_surfaceSymbolTable.add_variable("s", m_varS);
     m_surfaceSymbolTable.add_variable("t", m_varT);
+    // Multi-mesh: copia e numero di copie (vedi detectPartClosure).
+    m_surfaceSymbolTable.add_variable("mesh", m_varMesh);
+    m_surfaceSymbolTable.add_variable("meshes", m_varMeshes);
     m_surfaceSymbolTable.add_constants();
 
     // Generiamo subito la mesh di default
@@ -370,24 +373,28 @@ void SurfaceEngine::setScriptMode(bool active) {
 
 std::vector<MeshPart> SurfaceEngine::resolveMeshParts() const
 {
+    // Il dominio CORRENTE della superficie: gli assi della griglia dipendono
+    // dal vincolo attivo, come prima. Vale per la mesh singola e per le parti
+    // nate dal campo Meshes senza una sezione (followsGlobalDomain).
+    auto applyGlobalDomain = [this](MeshPart &p) {
+        if (m_constraintMode == ConstraintU) {
+            p.uMin = vMin; p.uMax = vMax;
+            p.vMin = wMin; p.vMax = wMax;
+        } else if (m_constraintMode == ConstraintV) {
+            p.uMin = uMin; p.uMax = uMax;
+            p.vMin = wMin; p.vMax = wMax;
+        } else {
+            p.uMin = uMin; p.uMax = uMax;
+            p.vMin = vMin; p.vMax = vMax;
+        }
+    };
+
     // Nessuna sezione //MESH_BEGIN nello script: una parte sola sul dominio
     // corrente. Coincide esattamente con la griglia storica, quindi ogni preset
     // che non dichiara parti genera gli stessi vertici e gli stessi indici.
     if (m_declaredParts.empty()) {
         MeshPart single;
-
-        // Gli assi della griglia dipendono dal vincolo attivo, come prima.
-        if (m_constraintMode == ConstraintU) {
-            single.uMin = vMin; single.uMax = vMax;
-            single.vMin = wMin; single.vMax = wMax;
-        } else if (m_constraintMode == ConstraintV) {
-            single.uMin = uMin; single.uMax = uMax;
-            single.vMin = wMin; single.vMax = wMax;
-        } else {
-            single.uMin = uMin; single.uMax = uMax;
-            single.vMin = vMin; single.vMax = vMax;
-        }
-
+        applyGlobalDomain(single);
         single.numU = numU;
         single.numV = numV;
         single.meshIndex = 0;
@@ -422,6 +429,7 @@ std::vector<MeshPart> SurfaceEngine::resolveMeshParts() const
     for (int k = 0; k < (int)parts.size(); ++k) {
         MeshPart& p = parts[k];
         p.meshIndex = k;
+        if (p.followsGlobalDomain && !p.hasCustomDomain) applyGlobalDomain(p);
 
         // AMBITO "ALL" CON UN DOMINIO PROPRIO: vale per TUTTE le parti, al
         // posto del loro. E' il gemello di cio' che m_meshAppearanceUniform fa
@@ -655,6 +663,11 @@ void SurfaceEngine::detectPartClosure(MeshPart& part)
     }
     if (m_useScriptMode) return;
     if (!m_exprSurfX.isValid || !m_exprSurfY.isValid || !m_exprSurfZ.isValid) return;
+
+    // Le equazioni possono distinguere le copie con `mesh` (campo Meshes):
+    // la chiusura e' quella di QUESTA copia.
+    m_varMesh = (float)part.meshIndex;
+    m_varMeshes = (float)std::max<size_t>(1, m_meshParts.size());
 
     const float threshold = 0.001f;
 

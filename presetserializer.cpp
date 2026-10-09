@@ -606,6 +606,7 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
     captureSpaceLimits(d);
 
     d.steps = mw->m_scene.steps;
+    d.meshCount = mw->m_scene.meshCount;
 
     // Colore e trasparenza GLOBALI dal motore, mai dai controlli: in ambito
     // "Mesh" mostrano la mesh selezionata (vedi globalSurfaceColor/Alpha).
@@ -668,12 +669,12 @@ void PresetSerializer::captureCommonState(LibraryItem &d)
     // ASPETTO PER-MESH: le parti cosi' come sono nel motore; toJson ne scrive
     // solo cio' che e' personalizzato.
     if (SurfaceEngine *eng = gl->getEngine()) {
-        d.meshParts = eng->getMeshParts();
+        d.meshParts = eng->meshPartsForSave();   // anche le mesh oltre il numero attuale
         // AMBITO All/Mesh. A mesh SINGOLA e' "All" per definizione (e' cio' che
         // decide il load, applyPendingMeshScope) e il radio non si guarda: puo'
         // essere ancora quello della superficie precedente quando il load non
         // rigenera la griglia (script metrici: Kerr dopo Hopf Tori).
-        d.meshScopeAll = d.meshParts.size() <= 1 || mw->meshScopeAll();
+        d.meshScopeAll = eng->getMeshPartCount() <= 1 || mw->meshScopeAll();
         // Dominio dell'ambito "All": solo se impostato.
         d.hasAllDomain = eng->hasAllDomain();
         if (d.hasAllDomain) eng->allDomain(d.allUMin, d.allUMax, d.allVMin, d.allVMax);

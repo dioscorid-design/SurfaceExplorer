@@ -81,6 +81,9 @@ struct SceneState {
     PathTexts path;           // path 4D e 3D
     TubeTexts tube;           // sotto-tab Tubes: curva asse e spessore
     int steps = 100;          // Steps (parametrico) / Ray Steps (RM)
+    // Numero di copie (campo Meshes del pannello Multi Mesh): un numero o
+    // un'espressione con le costanti, come i limiti. "1" = una sola.
+    QString meshCount = QStringLiteral("1");
 
     // Scelte
     bool implicitMode = false;          // Parametric / Implicit (vista: tabModeSelector)

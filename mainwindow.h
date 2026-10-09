@@ -163,7 +163,7 @@ private slots:
     QString surfaceConstantSource() const;
     // Il testo dei TUBI da cui si deducono le costanti della superficie (curva
     // e spessore; lo script, se da' lui la curva, sta gia' con la superficie),
-    // vuoto fuori dal sotto-tab Tubes. Unica sede per i tre controlli: slider
+    // piu' il campo Meshes, che vale anche per le superfici. Unica sede per i tre controlli: slider
     // accesi (updateConstantsUIState), costanti libere azzerate al load di una
     // texture (constantsNotUsedBySurface), costanti contese
     // (surfaceConstantSource).
@@ -1653,7 +1653,8 @@ private:
     // tubo (tubeCopyFromCurve). false = la curva non si valuta (copia di
     // default: asse z, aperta).
     static bool sampleTubeCurve(const TubeTexts &tube, float uMin, float uMax,
-                                const CascadeConstants &kc, SurfaceEngine::TubeCopy *copy);
+                                const CascadeConstants &kc, int mesh, int meshes,
+                                SurfaceEngine::TubeCopy *copy);
     // La copia di UN tubo dai punti della sua curva: direzione lontana da
     // tutte le tangenti (orienta la sezione) e chiusura in u. `curves` = un
     // vettore di punti (x, y, z, p) per istante di t, il primo a t = 0. Unica
@@ -2133,6 +2134,32 @@ private:
     // Background; updateMeshScopeEnabled applica il gating e, se non lo e',
     // riporta l'ambito su "All".
     bool meshScopeUsable() const;
+    // CAMPO MESHES (riga del pannello Multi Mesh): quante copie della
+    // superficie o della curva. Il testo sta in m_scene.meshCount (un numero o
+    // un'espressione con le costanti, come i limiti); lo slider va da 1 a
+    // kMeshCountSliderMax e si allarga coi valori scritti, fino a
+    // kMeshCountMax. Le equazioni e gli script distinguono le copie con `mesh`
+    // e ne leggono il numero con `meshes`.
+    static constexpr int kMeshCountMax = 64;
+    static constexpr int kMeshCountSliderMax = 24;
+    void setMeshCountText(const QString &text);
+    // Il numero valutato, 1..kMeshCountMax (testo vuoto = 1).
+    int meshCountValue(bool *ok = nullptr);
+    bool meshCountUsesConstants() const;
+    // LA REGOLA DELLE PARTI, unica sede: senza sezioni //MESH_BEGIN, N copie
+    // sul dominio corrente (followsGlobalDomain); con UNA sezione, N copie di
+    // quella; con piu' sezioni comandano le sezioni e il campo e' spento.
+    std::vector<MeshPart> countMeshParts(const std::vector<MeshPart> &sections);
+    bool meshCountUsable() const;
+    void pushMeshCountSlider();
+    void commitMeshCountOnEnter();
+    // Il numero nuovo a schermo: riapplica la scena com'e' (commit di servizio).
+    void applyMeshCount();
+    // Un'espressione con le costanti cambia valore con loro (evaluateCascade).
+    void refreshMeshCountFromConstants();
+    void updateMeshCountControls();
+    int m_lastAppliedMeshCount = 1;   // copie dell'ultima applicazione
+    int m_lastSectionCount = 0;       // sezioni //MESH_BEGIN della scena
     // true se almeno una fascia ha una texture propria accesa: il modulo
     // "texture di superficie" e' attivo anche senza texture globale.
     bool anyMeshTextureActive() const;

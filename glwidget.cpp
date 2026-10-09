@@ -844,6 +844,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         u.u_tubeRadius = m_tubeRadius * ((mp && mp->tubeThickness >= 0.0f) ? mp->tubeThickness : 1.0f);
     };
     applyTubeFields(m_uboData, uboParts.empty() ? nullptr : &uboParts[0], 0);
+    m_uboData.u_meshCount = (float)std::max(1, uboPartCount);
     // Col bordo acceso i blocchi raddoppiano: dopo quelli delle parti, uno di
     // bordo per parte (vedi sotto).
     const bool borderOn = (m_borderRadius > 0.0f && m_engineMode == ModeParametric);
@@ -2101,7 +2102,8 @@ static_assert(offsetof(UboData, u_borderRadius) == 444, "UboData: u_borderRadius
 static_assert(offsetof(UboData, u_isBorder) == 448, "UboData: u_isBorder fuori posto");
 static_assert(offsetof(UboData, u_tubeRefX) == 452, "UboData: u_tubeRefX fuori posto");
 static_assert(offsetof(UboData, u_tubeRefZ) == 460, "UboData: u_tubeRefZ fuori posto");
-static_assert(sizeof(UboData) == 464, "UboData: la riserva _pad2 e' diventata la direzione del tubo, il blocco non cresce");
+static_assert(offsetof(UboData, u_meshCount) == 464, "UboData: u_meshCount fuori posto");
+static_assert(sizeof(UboData) == 480, "UboData: dopo u_meshCount il blocco e' di 480 byte");
 static_assert(sizeof(UboData) % 16 == 0, "UboData: dimensione non multipla di 16 (std140)");
 
 bool GLWidget::setTubeCurve(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq,
@@ -2189,6 +2191,7 @@ QString GLWidget::tubeCurveFunction(const QString &xEq, const QString &yEq, cons
                "    float s = ubuf.u_mathParams.w;\n"
                "    float t = ubuf.u_time;\n"
                "    float mesh = ubuf.u_meshIndex;\n"
+               "    float meshes = ubuf.u_meshCount;\n"
                "    return vec4(" + eq(xEq) + ", " + eq(yEq) + ", " + eq(zEq) + ", " + eq(wEq) + ");\n";
     }
     return "vec4 tubeCurve(float u, float v, float w) {\n" + body + "\n}\n";
@@ -6387,6 +6390,8 @@ QString GLWidget::generateGlslHelperVars(const QString& sourceCode) {
     // MULTI-MESH: indice della parte in corso di disegno, per distinguere il ramo
     // (0 se la superficie e' a mesh singola). Nome esposto allo script: mesh.
     if (!sourceCode.contains(QRegularExpression("\\bfloat\\s+mesh\\b"))) vars += "    float mesh = ubuf.u_meshIndex;\n";
+    // Quante copie (sezioni //MESH_BEGIN o campo Meshes): nome esposto, meshes.
+    if (!sourceCode.contains(QRegularExpression("\\bfloat\\s+meshes\\b"))) vars += "    float meshes = ubuf.u_meshCount;\n";
     return vars;
 }
 

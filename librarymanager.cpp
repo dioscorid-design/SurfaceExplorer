@@ -164,6 +164,12 @@ static void parseSceneCommon(const QJsonObject &root, LibraryItem &d)
                           ? root["hybridMarcher"].toBool()
                           : d.usesCrossSection;
     }
+    // Numero di copie (campo Meshes): numero o espressione; assente = 1.
+    if (root.contains("meshCount")) {
+        const QJsonValue mc = root["meshCount"];
+        d.meshCount = mc.isString() ? mc.toString() : QString::number(mc.toDouble(1.0), 'g', 12);
+        if (d.meshCount.trimmed().isEmpty()) d.meshCount = QStringLiteral("1");
+    }
     // Tubo: la chiave c'e' solo nelle scene del sotto-tab Tubes.
     if (root.contains("tube")) {
         const QJsonObject tube = root["tube"].toObject();
@@ -1039,6 +1045,11 @@ QJsonObject LibraryManager::toJson(const LibraryItem &d)
         root["implicitUsesCrossSection"] = d.usesCrossSection;
         root["crossSectionEquation"] = d.crossSectionEq;
     }
+
+    // --- Numero di copie (campo Meshes): solo se diverso da 1, cosi' i preset
+    // di una mesh sola restano identici.
+    if (!d.meshCount.trimmed().isEmpty() && d.meshCount.trimmed() != QLatin1String("1"))
+        root["meshCount"] = d.meshCount.trimmed();
 
     // --- Tubo (sotto-tab Tubes): la curva asse e lo spessore.
     if (d.isTube) {

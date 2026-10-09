@@ -1827,6 +1827,7 @@ void MainWindow::evaluateCascade()
     if (ui->glWidget) {
         setEngineConstants(kc, /*onlyIfChanged=*/false);
         refreshLimitsFromConstants();   // i limiti che citano le costanti
+        refreshMeshCountFromConstants();   // e il campo Meshes, se le cita
         m_meshDebounce->start();
     }
 

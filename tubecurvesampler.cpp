@@ -33,7 +33,7 @@ bool TubeCurveSampler::sample(QRhi *rhi, const QString &curveFunction,
         "layout(local_size_x = 64) in;\n"
         "layout(std430, binding = 0) buffer Samples { vec4 s[]; } samples;\n"
         "layout(std140, binding = 1) uniform Params { vec4 mathParams; vec4 mathParams2; int count; } params;\n"
-        "struct TubeCurveScene { vec4 u_mathParams; vec4 u_mathParams2; float u_time; float u_meshIndex; };\n"
+        "struct TubeCurveScene { vec4 u_mathParams; vec4 u_mathParams2; float u_time; float u_meshIndex; float u_meshCount; };\n"
         "TubeCurveScene ubuf;\n"
         + loadShaderLibrary(QStringLiteral(":/shaders/common.glsl")) + "\n"
         + loadShaderLibrary(QStringLiteral(":/shaders/implicit.glsl")) + "\n"
@@ -46,6 +46,7 @@ bool TubeCurveSampler::sample(QRhi *rhi, const QString &curveFunction,
         "    ubuf.u_mathParams2 = params.mathParams2;\n"
         "    ubuf.u_time = q.z;\n"
         "    ubuf.u_meshIndex = q.y;\n"
+        "    ubuf.u_meshCount = q.w;\n"
         "    samples.s[i] = tubeCurve(q.x, 0.0, 0.0);\n"
         "}\n";
 

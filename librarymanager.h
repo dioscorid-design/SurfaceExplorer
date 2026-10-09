@@ -62,6 +62,9 @@ struct LibraryItem {
     // nelle scene tubo: assente = sotto-tab Surface, cioe' ogni preset di prima.
     bool isTube = false;
     QString tubeX, tubeY, tubeZ, tubeP, tubeThickness;
+    // Campo Meshes (pannello Multi Mesh): numero di copie, numero o
+    // espressione con le costanti. Chiave "meshCount" solo se diverso da 1.
+    QString meshCount = QStringLiteral("1");
 
     // ==========================================================
     // IMPLICIT EQUATIONS
