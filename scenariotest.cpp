@@ -14,6 +14,7 @@
 #include <QApplication>
 #include <QDialog>
 #include <QDir>
+#include <QDirIterator>
 #include <QEventLoop>
 #include <QFile>
 #include <QJsonDocument>
@@ -378,8 +379,8 @@ void ScenarioTest::runTubeScenarios()
     // I preset della libreria: un tubo per sezione, tutti chiusi (cerchi e
     // trefoli), col colore proprio di ogni tubo.
     struct TubePreset { const char *rel; int tubes; const char *png; };
-    for (const TubePreset &tp : { TubePreset{ "surfaces/Tubes/Villarceau Circles.json", 12, "tube-script-villarceau.png" },
-                                  TubePreset{ "surfaces/Tubes/Trefoil Trio.json", 3, "tube-script-trefoil-trio.png" } }) {
+    for (const TubePreset &tp : { TubePreset{ "surfaces/Tubes/Multi Tube/Villarceau Circles.json", 12, "tube-script-villarceau.png" },
+                                  TubePreset{ "surfaces/Tubes/Multi Tube/Trefoil Trio.json", 3, "tube-script-trefoil-trio.png" } }) {
         if (!loadSurface(QString::fromLatin1(tp.rel))) continue;
         const auto &copies = eng->tubeCopies();
         const bool allClosed = std::all_of(copies.begin(), copies.end(),
@@ -390,6 +391,145 @@ void ScenarioTest::runTubeScenarios()
                   .arg(QFileInfo(QString::fromLatin1(tp.rel)).baseName()).arg(tp.tubes)
                   .arg(gl->meshPartCount()).arg(copies.size()));
         gl->grabFramebuffer().save(m_outDir + QLatin1Char('/') + QString::fromLatin1(tp.png));
+    }
+
+    // MASTER coi tubi da SCRIPT animati da t: la geometria e' un modulo (prima
+    // non lo era: con la geometria ferma il master restava su STOP).
+    if (loadRecord(QStringLiteral("records/Tubes/Lissajous Layers Wave.json"))) {
+        const MainWindow::MasterActivity a = m_mw->masterActivity();
+        check(a.eqAvailable && a.eqRunning && m_mw->m_btnStart->text() == QLatin1String("STOP"),
+              QStringLiteral("tubi da script con t -> la geometria e' un modulo in moto, master STOP (%1)").arg(masterState()));
+        setScriptMode(MainWindow::ScriptModeSurface);
+        ui->btnRunCurrentScript->click();  wait(300);   // Stop Tubes
+        check(!m_mw->masterActivity().eqRunning && m_mw->m_btnStart->text() == QLatin1String("START"),
+              QStringLiteral("Stop dal dock Script -> geometria ferma, master START (%1)").arg(masterState()));
+        m_mw->m_btnStart->click();  wait(300);
+        check(m_mw->masterActivity().eqRunning && m_mw->m_btnStart->text() == QLatin1String("STOP"),
+              QStringLiteral("master START -> i tubi ripartono (%1)").arg(masterState()));
+        m_mw->performMasterStop();
+    }
+
+    // TEXTURE su un tubo con costanti INTERE (discreteConstants): la curva
+    // resta quella del file (prima A e B tornavano a 1 e il nodo diventava un
+    // anello).
+    if (loadRecord(QStringLiteral("records/Tubes/Clifford Knot Rotating.json"))) {
+        const QString before = QStringLiteral("A=%1 B=%2").arg(ui->lineA->text(), ui->lineB->text());
+        selectTexture(QStringLiteral("textures/Procedurals/Plasma.json"));
+        const QString after = QStringLiteral("A=%1 B=%2").arg(ui->lineA->text(), ui->lineB->text());
+        const QVector4D mp = gl->getConstantsMap().isEmpty() ? QVector4D()
+                             : QVector4D(gl->getConstantsMap().value(QStringLiteral("A")),
+                                         gl->getConstantsMap().value(QStringLiteral("B")), 0, 0);
+        check(before == QLatin1String("A=2 B=3") && after == before && qFuzzyCompare(mp.x(), 2.0f)
+                  && qFuzzyCompare(mp.y(), 3.0f),
+              QStringLiteral("texture su Clifford Knot Rotating -> costanti intatte (prima %1, dopo %2, motore A=%3 B=%4)")
+                  .arg(before, after).arg(mp.x()).arg(mp.y()));
+        m_mw->performMasterStop();
+    }
+
+    // LUCE 4D sui tubi (dock 4D): Directional e Observer danno risultati
+    // diversi fra loro e dalla luce normale (il tubo costruito nella scena
+    // usa il suo piano tangente 4D, tubeLight4D).
+    if (loadSurface(QStringLiteral("surfaces/Tubes/4D/Clifford Torus Knot.json"))) {
+        auto changedPct = [](const QImage &a0, const QImage &b0) {
+            const QImage a = a0.convertToFormat(QImage::Format_RGB32), b = b0.convertToFormat(QImage::Format_RGB32);
+            if (a.size() != b.size() || a.isNull()) return 100.0;
+            qint64 diff = 0;
+            for (int y = 0; y < a.height(); ++y) {
+                const QRgb *pa = reinterpret_cast<const QRgb *>(a.constScanLine(y));
+                const QRgb *pb = reinterpret_cast<const QRgb *>(b.constScanLine(y));
+                for (int x = 0; x < a.width(); ++x)
+                    if (qAbs(qGray(pa[x]) - qGray(pb[x])) > 6) ++diff;
+            }
+            return 100.0 * double(diff) / double(a.width() * a.height());
+        };
+        gl->set4DLighting(false);  wait(250);
+        const QImage plain = gl->grabFramebuffer();
+        gl->set4DLighting(true);
+        gl->setLightingMode4D(0);  wait(250);
+        const QImage directional = gl->grabFramebuffer();
+        gl->setLightingMode4D(1);  wait(250);
+        const QImage observer = gl->grabFramebuffer();
+        directional.save(m_outDir + QStringLiteral("/tube-light4d-directional.png"));
+        observer.save(m_outDir + QStringLiteral("/tube-light4d-observer.png"));
+        plain.save(m_outDir + QStringLiteral("/tube-light4d-off.png"));
+        const double dOff = changedPct(plain, directional), dObs = changedPct(directional, observer);
+        check(dOff > 1.0 && dObs > 1.0,
+              QStringLiteral("luce 4D sul tubo -> Directional diversa dalla normale (%1%), Observer da Directional (%2%)")
+                  .arg(dOff, 0, 'f', 2).arg(dObs, 0, 'f', 2));
+        gl->set4DLighting(false);
+        gl->setLightingMode4D(0);
+    }
+
+    // MASTER con le texture animate di piu' fasce: ogni fascia e' un orologio.
+    // Fermata una sola fascia (le altre in moto) c'e' qualcosa di spento: START.
+    if (loadSurface(QStringLiteral("surfaces/Tubes/Multi Tube/Trefoil Trio.json"))) {
+        if (!ui->radioMeshOne->isChecked()) { ui->radioMeshOne->click();  wait(200); }
+        for (int k : { 1, 2 }) {
+            ui->spinMeshSel->setValue(k);  wait(300);
+            selectTexture(QStringLiteral("textures/Procedurals/Wavy Gradient.json"));
+        }
+        const auto &parts = eng->getMeshParts();
+        check(parts.size() == 3 && parts[0].texAnimating && parts[1].texAnimating
+                  && m_mw->m_btnStart->text() == QLatin1String("STOP"),
+              QStringLiteral("texture animate sulle fasce 1 e 2 -> in moto, master STOP (%1)").arg(masterState()));
+        setScriptMode(MainWindow::ScriptModeTexture);
+        ui->btnRunCurrentScript->click();  wait(300);   // Stop della sola fascia 2
+        check(eng->getMeshParts()[0].texAnimating && !eng->getMeshParts()[1].texAnimating
+                  && m_mw->m_btnStart->text() == QLatin1String("START"),
+              QStringLiteral("Stop della texture della fascia 2 -> la fascia 1 gira ancora, master START (%1)").arg(masterState()));
+        m_mw->m_btnStart->click();  wait(300);
+        check(eng->getMeshParts()[0].texAnimating && eng->getMeshParts()[1].texAnimating
+                  && m_mw->m_btnStart->text() == QLatin1String("STOP"),
+              QStringLiteral("master START -> riparte anche la fascia 2 (%1)").arg(masterState()));
+        m_mw->performMasterStop();
+        setScriptMode(MainWindow::ScriptModeSurface);
+    }
+
+    // TUTTI I PRESET TUBO della libreria (superfici e record): si aprono sul
+    // sotto-tab Tubes senza popup, il tubo e' quello del file (equazioni o
+    // script), gli slider delle costanti che la curva usa sono accesi.
+    // Un'immagine per preset nel report, da guardare.
+    {
+        QStringList rels;
+        for (const char *dir : { "surfaces/Tubes", "records/Tubes" }) {
+            QDirIterator it(m_root + QLatin1Char('/') + QString::fromLatin1(dir), { QStringLiteral("*.json") },
+                            QDir::Files, QDirIterator::Subdirectories);
+            while (it.hasNext()) rels << QDir(m_root).relativeFilePath(it.next());
+        }
+        rels.sort();
+        QDir().mkpath(m_outDir + QStringLiteral("/tubes"));
+        for (const QString &rel : rels) {
+            const int popups = m_popupsClosed;
+            const bool isRecord = rel.startsWith(QLatin1String("records/"));
+            if (!(isRecord ? loadRecord(rel) : loadSurface(rel))) continue;
+            wait(500);
+            LibraryManager lm;
+            const LibraryItem item = lm.parseJson(m_root + QLatin1Char('/') + rel,
+                                                  isRecord ? LibraryType::Motion : LibraryType::Surface);
+            const bool fromScript = !item.scriptCode.trimmed().isEmpty();
+            QStringList bad;
+            if (m_popupsClosed != popups) bad << QStringLiteral("popup al caricamento");
+            if (!m_mw->tubesShown() || !eng->isTubeModeActive()) bad << QStringLiteral("non e' un tubo a schermo");
+            if (eng->isTubeFromScript() != fromScript) bad << QStringLiteral("script %1 nel motore").arg(onOff(eng->isTubeFromScript()));
+            if (!fromScript && engineCurve() != QStringList({ item.tubeX, item.tubeY, item.tubeZ, item.tubeP }))
+                bad << QStringLiteral("curva nel motore diversa dal file");
+            QString curveText = fromScript ? item.scriptCode
+                                           : item.tubeX + " " + item.tubeY + " " + item.tubeZ + " " + item.tubeP;
+            curveText.remove(QRegularExpression(QStringLiteral("//[^\\n]*")));   // i commenti non usano costanti
+            const QList<QPair<QString, QSlider *>> sliders = {
+                { QStringLiteral("A"), ui->aSlider }, { QStringLiteral("B"), ui->bSlider },
+                { QStringLiteral("C"), ui->cSlider }, { QStringLiteral("D"), ui->dSlider } };
+            for (const auto &ls : sliders) {
+                if (!curveText.contains(QRegularExpression(QStringLiteral("\\b%1\\b").arg(ls.first)))) continue;
+                if (!ls.second->isEnabled()) bad << QStringLiteral("slider %1 spento").arg(ls.first);
+            }
+            check(bad.isEmpty(), QStringLiteral("%1 -> tubo %2%3").arg(rel, fromScript ? QStringLiteral("da script") : QStringLiteral("da equazioni"),
+                                                                      bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+            QString png = rel;
+            png.replace(QLatin1Char('/'), QLatin1Char('_')).replace(QStringLiteral(".json"), QStringLiteral(".png"));
+            gl->grabFramebuffer().save(m_outDir + QStringLiteral("/tubes/") + png);
+            if (m_mw->isEquationModuleMoving()) m_mw->performMasterStop();
+        }
     }
 
     // RITORNO A SURFACE: la superficie di default, i limiti v/w di nuovo.
@@ -664,7 +804,7 @@ void ScenarioTest::checkSurfaceControls(const QString &step)
                                                                 ? (!rm && m_mw->m_scene.renderMode == 2)
                                                                 : wire) },
         { "Headlight",          ui->fillLightSlider, !onBg && rm },
-        { "FOV",                ui->fovSliderMain,   true },
+        { "FOV",                ui->fovSliderMain,   !onBg },
         // Gli slider RGB no: in Background seguono la texture dello sfondo
         // (spenti se e' un'immagine, che non usa colori) -- onColorTargetChanged.
     };
