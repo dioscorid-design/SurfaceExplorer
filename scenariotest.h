@@ -298,6 +298,8 @@ private:
     // Se non vuoto, il prossimo popup con un tasto di questo testo riceve quel
     // tasto invece di Annulla (la scelta del popup del RESET).
     QString m_popupAnswer;
+    // Tasti SPENTI dell'ultimo popup a cui si e' risposto con m_popupAnswer.
+    QStringList m_lastPopupDisabled;
     // Se vero, il prossimo DIALOGO (non QMessageBox: per esempio la domanda sul
     // messaggio di una texture al Save) si conferma invece di annullarlo.
     bool m_acceptNextDialog = false;

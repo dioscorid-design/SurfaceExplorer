@@ -110,13 +110,25 @@ ScenarioTest::ScenarioTest(MainWindow *mw, const QString &root, const QString &o
             }
         }
         if (auto *mb = qobject_cast<QMessageBox *>(w); mb && !m_popupAnswer.isEmpty()) {
+            m_lastPopupDisabled.clear();
+            for (QAbstractButton *b : mb->buttons())
+                if (!b->isEnabled()) m_lastPopupDisabled << b->text();
             for (QAbstractButton *b : mb->buttons()) {
-                if (b->text() == m_popupAnswer) {
-                    m_lines.append(QStringLiteral("        popup, %1: ").arg(m_popupAnswer) + desc.simplified());
+                if (b->text() != m_popupAnswer) continue;
+                // Un tasto spento non si preme (il click non farebbe nulla e il
+                // popup resterebbe aperto): si annulla e lo si annota.
+                if (!b->isEnabled()) {
+                    m_lines.append(QStringLiteral("        popup, %1 SPENTO, annullato: ").arg(m_popupAnswer) + desc.simplified());
                     m_popupAnswer.clear();
-                    b->click();
+                    for (QAbstractButton *c : mb->buttons())
+                        if (mb->buttonRole(c) == QMessageBox::RejectRole) { c->click(); return; }
+                    mb->reject();
                     return;
                 }
+                m_lines.append(QStringLiteral("        popup, %1: ").arg(m_popupAnswer) + desc.simplified());
+                m_popupAnswer.clear();
+                b->click();
+                return;
             }
         }
         // Il popup "lavoro non salvato" durante una scelta in Library: l'utente
@@ -3947,6 +3959,16 @@ void ScenarioTest::runResetButtonScenarios()
         check(running && kept, QStringLiteral("path in corsa, View -> la camera resta al path (in corsa %1, ferma %2)")
                                    .arg(running).arg(kept));
 
+        // In corsa, il popup: View e Both spenti (la vista segue il path).
+        m_popupAnswer = QStringLiteral("View");
+        m_mw->onResetClicked();  wait(200);
+        QStringList disabled = m_lastPopupDisabled;
+        disabled.sort();
+        check(disabled == QStringList({ QStringLiteral("Both"), QStringLiteral("View") })
+                  && m_mw->pathRunning(CameraPaths::Path3D),
+              QStringLiteral("path in corsa, popup del RESET -> View e Both spenti (spenti: %1)")
+                  .arg(disabled.join(QStringLiteral(", "))));
+
         // In corsa, Motions: riparte da capo e prosegue.
         wait(300);
         m_popupAnswer = QStringLiteral("Motions");
@@ -5349,6 +5371,33 @@ void ScenarioTest::runMeshCountScenarios()
             check(parts() == 3 && saved.meshParts.size() >= 9
                       && qAbs(saved.meshParts[8].colorR - f8.colorR) < 1e-4f,
                   QStringLiteral("Meshes a 3 -> il Save scrive ancora %1 aspetti").arg(saved.meshParts.size()));
+        }
+    }
+
+    // I PRESET MULTI-MESH DA EQUAZIONI della libreria: niente popup, tante mesh
+    // quante ne dice il campo Meshes. Un'immagine ciascuno nel report.
+    {
+        QStringList rels;
+        for (const char *dir : { "surfaces/Parametric/Multimesh/Equations", "records/Multi Mesh" }) {
+            QDirIterator it(m_root + QLatin1Char('/') + QString::fromLatin1(dir), { QStringLiteral("*.json") },
+                            QDir::Files, QDirIterator::Subdirectories);
+            while (it.hasNext()) rels << QDir(m_root).relativeFilePath(it.next());
+        }
+        rels.sort();
+        QDir().mkpath(m_outDir + QStringLiteral("/meshes"));
+        for (const QString &rel : rels) {
+            const int popups = m_popupsClosed;
+            const bool isRecord = rel.startsWith(QLatin1String("records/"));
+            if (!(isRecord ? loadRecord(rel) : loadSurface(rel))) continue;
+            wait(400);
+            const int expected = m_mw->meshCountValue();
+            check(m_popupsClosed == popups && parts() == expected && expected > 1,
+                  QStringLiteral("%1 -> %2 mesh dal campo Meshes '%3' (%4 a schermo)")
+                      .arg(rel).arg(expected).arg(m_mw->m_scene.meshCount).arg(parts()));
+            QString png = rel;
+            png.replace(QLatin1Char('/'), QLatin1Char('_')).replace(QStringLiteral(".json"), QStringLiteral(".png"));
+            gl->grabFramebuffer().save(m_outDir + QStringLiteral("/meshes/") + png);
+            if (m_mw->isAnythingMoving()) m_mw->performMasterStop();
         }
     }
 
