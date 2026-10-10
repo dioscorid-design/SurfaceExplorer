@@ -1,0 +1,13 @@
+{
+    "code": "vec3 getCustomColor(vec2 in_uv) {\n    vec2 q = in_uv * 6.2831;\n    float val = sin(q.x + iTime) + sin(q.y + iTime) + sin(q.x + q.y + iTime);\n    float c = 0.5 + 0.5 * sin(val);\n    return mix(u_col1, u_col2, c);\n}",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "hasCustomColors": true,
+    "isImplicitMode": false,
+    "name": "Animated Gradient",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

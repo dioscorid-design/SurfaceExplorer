@@ -1,6 +1,5 @@
 <RCC>
     <qresource prefix="/library">
-        <file>presets/surfaces/NewSurface.json</file>
         <file>presets/surfaces/Ray Marching/Tangle Cube.json</file>
         <file>presets/surfaces/Ray Marching/Ding Dong.json</file>
         <file>presets/surfaces/Ray Marching/Implicit Steiner Surface.json</file>
@@ -47,25 +46,6 @@
         <file>presets/surfaces/Ray Marching/Cross Sections/Klein Bundle in R5.json</file>
         <file>presets/surfaces/Ray Marching/Cross Sections/T3.json</file>
         <file>presets/surfaces/Ray Marching/Cross Sections/Klein Circle Bundle.json</file>
-        <file>presets/surfaces/Tubes/Trefoil Knot.json</file>
-        <file>presets/surfaces/Tubes/Lifted Trefoil 4D.json</file>
-        <file>presets/surfaces/Tubes/Open Helix.json</file>
-        <file>presets/surfaces/Tubes/4D/Clifford Torus Knot.json</file>
-        <file>presets/surfaces/Tubes/4D/Lissajous 4D.json</file>
-        <file>presets/surfaces/Tubes/Lissajous/Lissajous Knot.json</file>
-        <file>presets/surfaces/Tubes/Lissajous/Spherical Lissajous.json</file>
-        <file>presets/surfaces/Tubes/Lissajous/Lissajous Curve.json</file>
-        <file>presets/surfaces/Tubes/Multi Tube/Borromean Rings.json</file>
-        <file>presets/surfaces/Tubes/Multi Tube/Villarceau Circles.json</file>
-        <file>presets/surfaces/Tubes/Multi Tube/Chain.json</file>
-        <file>presets/surfaces/Tubes/Multi Tube/Hopf Fibers.json</file>
-        <file>presets/surfaces/Tubes/Multi Tube/Lissajous Layers.json</file>
-        <file>presets/surfaces/Tubes/Multi Tube/Trefoil Trio.json</file>
-        <file>presets/surfaces/Tubes/Curves/Loxodrome.json</file>
-        <file>presets/surfaces/Tubes/Curves/Torus Knot (p, q).json</file>
-        <file>presets/surfaces/Tubes/Curves/Tennis Ball Seam.json</file>
-        <file>presets/surfaces/Tubes/Curves/Figure-Eight Knot.json</file>
-        <file>presets/surfaces/Tubes/Curves/Viviani Curve.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Poincare's Hyperboloid.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Twisted Torus Ribbon.json</file>
         <file>presets/surfaces/Parametric/Geodesic Flow/H^3/Whitney Umbrella.json</file>
@@ -212,6 +192,38 @@
         <file>presets/surfaces/Parametric/Multimesh/Solid Wireframe/Klein Quadric Ruled Lines.json</file>
         <file>presets/surfaces/Parametric/Multimesh/Solid Wireframe/Villarceau Tubes.json</file>
         <file>presets/surfaces/Parametric/Multimesh/Solid Wireframe/Clifford Labyrinth.json</file>
+        <file>presets/surfaces/Parametric/Multimesh/Equations/Nested Tori.json</file>
+        <file>presets/surfaces/Parametric/Multimesh/Equations/Nested Ellipsoids.json</file>
+        <file>presets/surfaces/Parametric/Multimesh/Equations/Nested Tori in S3.json</file>
+        <file>presets/surfaces/Parametric/Multimesh/Equations/Twisted Bands.json</file>
+        <file>presets/surfaces/Parametric/Multimesh/Equations/Nested Ellipsoides.json</file>
+        <file>presets/surfaces/Parametric/Multimesh/Equations/Torus Necklace.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Loxodrome.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Trefoil Knot.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Torus Knot (p, q).json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Open Helix.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Tennis Ball Seam.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Figure-Eight Knot.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Mobius Border.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Viviani Curve.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/4D/Lifted Trefoil 4D.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/4D/Clifford Torus Knot.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/4D/Lissajous 4D.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Lissajous/Lissajous Knot.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Lissajous/Spherical Lissajous.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Lissajous/Lissajous Curve.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Multi Curves/Rose Curves.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Multi Curves/Hopf Fibers Ring.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Multi Curves/Borromean Rings.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Multi Curves/Villarceau Circles.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Multi Curves/Helix Bundle.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Multi Curves/Chain.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Multi Curves/Spherical Spirals.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Multi Curves/Hopf Fibers.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Multi Curves/Lissajous Layers.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Multi Curves/Epicycloids.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Multi Curves/Torus Knot Family.json</file>
+        <file>presets/surfaces/Parametric/Solid Curves/Multi Curves/Trefoil Trio.json</file>
         <file>presets/textures/Ray Marching/Hellish Plasma.json</file>
         <file>presets/textures/Ray Marching/Fluid Iridescence.json</file>
         <file>presets/textures/Ray Marching/Animated Psychedelic Waves.json</file>
@@ -442,9 +454,12 @@
         <file>presets/records/Wireframe/Boy Surface.json</file>
         <file>presets/records/Tubes/Breathing Trefoil.json</file>
         <file>presets/records/Tubes/Clifford Knot Rotating.json</file>
+        <file>presets/records/Tubes/Helix Bundle Twist.json</file>
         <file>presets/records/Tubes/Hopf Fibers Rotating.json</file>
         <file>presets/records/Tubes/Lissajous Drift.json</file>
+        <file>presets/records/Tubes/Rose Curves Bloom.json</file>
         <file>presets/records/Tubes/Lissajous Layers Wave.json</file>
+        <file>presets/records/Tubes/Hopf Fibers Ring Rotating.json</file>
         <file>presets/records/Tubes/Borromean Rings Spinning.json</file>
         <file>presets/records/Static/Hopf Tori.json</file>
         <file>presets/records/Static/Enneper.json</file>
@@ -457,6 +472,8 @@
         <file>presets/records/Static/Symmetrized Double Enneper.json</file>
         <file>presets/records/Static/Winding Clifford Torus.json</file>
         <file>presets/records/Static/Spherical Cycloid Tube.json</file>
+        <file>presets/records/Multi Mesh/Twisted Bands Tumble.json</file>
+        <file>presets/records/Multi Mesh/Torus Necklace Spin.json</file>
         <file>presets/sounds/wav/321723__rhodesmas__deep-space-vibrations-ambience-loop.wav</file>
         <file>presets/sounds/wav/723963__badwolf23__spatial-audio-4.wav</file>
         <file>presets/sounds/wav/3322__jovica__dronetail-52.wav</file>

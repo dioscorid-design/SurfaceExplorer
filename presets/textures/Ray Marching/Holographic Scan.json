@@ -1,0 +1,16 @@
+{
+    "code": "// DENSITY comes from the F slider (Constants dock): raise F for denser\n// lines, lower it for sparser ones. F = 1 is the density this preset has\n// always had. max() keeps the lines from vanishing if F is left at 0.\nfloat DENSITY = 40.0 * max(F, 0.05);   // slider F\n\n// WIDTH comes from the E slider: E = 1 is the width this preset has always\n// had, higher values widen the bars, lower ones thin them out. The clamp\n// keeps a thin line at the bottom and a gap between the bars at the top.\nfloat EDGE = 1.0 - 0.2 * clamp(E, 0.05, 9.0);   // slider E\n\n// TILT comes from the D slider: D = 1 keeps the lines horizontal, as this\n// preset has always had them. Each unit away from 1 turns them by 90\n// degrees in the x-y plane: D = 1.5 -> 45, D = 2 -> vertical, D = 0.5 -> -45.\nfloat TILT = (D - 1.0) * 1.5707963;   // slider D\nvec2 scanDir = vec2(sin(TILT), cos(TILT));\n\n// Speed and position of the scan line\nfloat scanSpeed = ubuf.u_time * 3.0;\nfloat scanline = sin(dot(pModel.xy, scanDir) * DENSITY - scanSpeed);\n\n// Makes the line crisp and bright\nscanline = smoothstep(EDGE, EDGE + 0.2, scanline);\n\n// Base = u_col2, scan glow = u_col1 (dock colors)\ntextureCol = mix(ubuf.u_col2, ubuf.u_col1, scanline);",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "displacement": "",
+    "hasCustomColors": true,
+    "hintSeconds": 6,
+    "hintText": "Sliders\nF: line density\nE: bar width\nD: tilt",
+    "isImplicitMode": true,
+    "name": "Holographic Scan",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

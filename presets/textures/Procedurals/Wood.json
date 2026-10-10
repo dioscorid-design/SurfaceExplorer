@@ -1,0 +1,8 @@
+{
+    "code": "// PARAMETRI\nfloat density = 12.0; \nvec3 c1 = vec3(0.6, 0.4, 0.2);\nvec3 c2 = vec3(0.4, 0.2, 0.1);\n\n// Coordinate pixel\nvec2 pos = vec2(u * 512.0, v * 512.0);\nvec2 p = pos * 0.02; // Frequenza fissa\n\n// --- INIZIO NOISE INLINE ---\nvec2 i = floor(p);\nvec2 f = fract(p);\nf = f * f * (3.0 - 2.0 * f);\nfloat n00 = fract(sin(dot(i, vec2(12.9898, 78.233))) * 43758.5453);\nfloat n10 = fract(sin(dot(i + vec2(1.0, 0.0), vec2(12.9898, 78.233))) * 43758.5453);\nfloat n01 = fract(sin(dot(i + vec2(0.0, 1.0), vec2(12.9898, 78.233))) * 43758.5453);\nfloat n11 = fract(sin(dot(i + vec2(1.0, 1.0), vec2(12.9898, 78.233))) * 43758.5453);\nfloat valNoise = mix(mix(n00, n10, f.x), mix(n01, n11, f.x), f.y);\n// --- FINE NOISE INLINE ---\n\nfloat n = valNoise * 10.0;\nfloat val = sin((pos.x * 0.05 + pos.y * 0.05 + n) * (density / 5.0));\nfloat ti = 0.5 * (1.0 + val);\n\nreturn mix(c1, c2, ti);",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

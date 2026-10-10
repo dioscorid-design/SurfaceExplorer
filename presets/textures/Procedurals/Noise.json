@@ -1,0 +1,12 @@
+{
+    "code": "\n\n// --- CONFIGURATION ---\n// We build the position vector from u and v (already provided by the system)\n// We multiply by 8.0 to \"zoom out\" and see more detail\nvec2 p = vec2(u, v) * 8.0;\n\n// --- DISTORTION (Domain Warping) ---\n// We compute a base noise value\nfloat n1 = sys_noise(p);\n\n// We use the noise to shift the coordinates of the next step\n// This creates the fluid/liquid effect\nvec2 shift = vec2(n1, sys_noise(p + vec2(5.0, 5.0))); \n\n// --- PATTERN FINALE ---\n// Calcoliamo il rumore finale sulle coordinate distorte\nfloat pattern = sys_noise(p + shift * 2.0);\n\n// --- CONTRASTO ---\n// Rendiamo i bordi più netti (taglia i grigi intermedi)\npattern = smoothstep(0.3, 0.7, pattern);\n\n// --- COLOR ---\n// Uses the colors you chose in the panel (Color 1 and Color 2)\nreturn mix(u_col1, u_col2, pattern);",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "hasCustomColors": true,
+    "name": "Noise",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": -34,
+    "type": "custom_texture",
+    "zoom": 0.32690200209617615
+}

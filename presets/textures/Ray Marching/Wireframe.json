@@ -1,0 +1,15 @@
+{
+    "code": "// WIREFRAME: a grid of lines drawn over the surface.\n// STATIC (no t): the grid is fixed to the object, not animated.\n// In scope: pModel, n_model, viewDir_model, and the constants A-F/S.\n\n// DENSITY comes from the F slider (Constants dock): raise F for a finer\n// mesh, lower it for a coarser one. max() keeps the grid from collapsing\n// if F is left at 0.\nfloat DENSITY = 12.0 * max(F, 0.05);   // slider F\n\nvec3 p = pModel * DENSITY;\n\n// Distance to the nearest grid plane on each axis, divided by fwidth:\n// this holds the lines at about one pixel whatever the zoom, instead of\n// letting them thicken up close and alias away in the distance.\nvec3 grid = abs(fract(p - 0.5) - 0.5) / fwidth(p);\n\n// min() over the three axes: a point belongs to the wireframe when it is\n// close to a grid plane in ANY of the three directions.\nfloat line = min(min(grid.x, grid.y), grid.z);\nfloat wire = 1.0 - min(line, 1.0);\n\n// Background = u_col2, wireframe lines = u_col1 (dock colors).\n// With u_col1 set to a bright colour on a dark u_col2 this gives the\n// neon-grid look.\ntextureCol = mix(ubuf.u_col2, ubuf.u_col1, wire);",
+    "color1": "#33cc33",
+    "color2": "#000000",
+    "displacement": "",
+    "hasCustomColors": true,
+    "hintText": "Slider\nF: density of the grid (1 = default, higher = finer)",
+    "isImplicitMode": true,
+    "name": "Wireframe",
+    "pan_x": 0,
+    "pan_y": 0,
+    "rotation": 0,
+    "type": "custom_texture",
+    "zoom": 1
+}

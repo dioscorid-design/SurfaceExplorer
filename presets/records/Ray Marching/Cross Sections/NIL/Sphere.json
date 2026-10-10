@@ -1,0 +1,147 @@
+{
+    "activeMotion": "path4D",
+    "angles": {
+        "omega": 0,
+        "phi": -76.64679718017578,
+        "psi": 0
+    },
+    "background": {
+        "code": "// --- PARAMETRI ---\nfloat zoom = 10.0;  // <--- AUMENTATO DA 1.0 A 20.0 PER RIDURRE I BLOCCHI\nfloat s = 512.0;    // Risoluzione virtuale\n\n// --- LOGICA XOR ---\n// Convertiamo u, v (0.0-1.0) in coordinate intere scalate\n// Formula C++ originale: int xx = x * z / 5;\n// Qui moltiplichiamo per zoom alto per avere il pattern fitto\nint xx = int(u * s * zoom / 5.0);\nint yy = int(v * s * zoom / 5.0);\n\n// Formula XOR bitwise\nint val = (xx ^ yy) % 256;\n\n// Mappiamo a 0.0-1.0\nfloat tit = float(val) / 255.0;\n\n// --- GENERAZIONE COLORE PSICHEDELICO (Inline) ---\n// tit * 3.0 serve a fare 3 giri completi di spettro\nfloat time = tit * 3.0; \nfloat freq = 6.283; // 2 * PI\n\n// Calcolo componenti RGB con le fasi originali (0.00, 0.33, 0.67)\nfloat r_psy = 0.5 + 0.5 * cos(freq * time + 0.00);\nfloat g_psy = 0.5 + 0.5 * cos(freq * time + 0.33); \nfloat b_psy = 0.5 + 0.5 * cos(freq * time + 0.67); \n\nvec3 psyColor = vec3(r_psy, g_psy, b_psy);\n\n// --- MIX FINALE ---\n// Mischiamo il risultato psichedelico con la tinta base (Colore 1)\nreturn (psyColor + u_col1) * 0.5;",
+        "col1": "#dedfe1",
+        "col2": "#000000",
+        "color": "#4d4d4d",
+        "enabled": true,
+        "libName": "Xor",
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "skyMode": "cube",
+        "zoom": 1
+    },
+    "camera3D": {
+        "pitch": 5.910831077926559e-07,
+        "roll": 0,
+        "rot_w": 1,
+        "rot_x": 0,
+        "rot_y": 0,
+        "rot_z": 0,
+        "x": 1.230350136756897,
+        "y": -4.126965791328985e-08,
+        "yaw": -17.911983489990234,
+        "z": 3.8065149784088135
+    },
+    "cameraFov": 45,
+    "colors": {
+        "alpha": 1,
+        "surfColor": "#33cc33"
+    },
+    "constants": {
+        "A": 2.990000009536743,
+        "B": 1,
+        "C": 1,
+        "D": 1,
+        "E": 1,
+        "F": 1,
+        "S": 0.4000000059604645
+    },
+    "crossSectionEquation": "x^2 + y^2 + z^2 + A*(p - z*sqrt(x^2+y^2))^2 = B",
+    "crossSectionP": 0,
+    "equations": {
+        "defU": "",
+        "defV": "",
+        "defW": "",
+        "explicitU": "",
+        "explicitV": "",
+        "explicitW": "",
+        "p": "0.0",
+        "x": "(0.8 + 0.3*cos(v))*cos(u)",
+        "y": "(0.8 + 0.3*cos(v))*sin(u)",
+        "z": "0.3*sin(v)"
+    },
+    "fillLight": 0.18000000715255737,
+    "fov3D": 45,
+    "fov4D": 45,
+    "geodesic": {
+        "conform": "1.0",
+        "du": "",
+        "dv": "",
+        "dw": "",
+        "u0": "",
+        "v0": "",
+        "w0": ""
+    },
+    "hintSeconds": 6,
+    "hintText": "Sliders\nA: strength of the twist\nB: sphere radius",
+    "hybridMarcher": false,
+    "implicitEquation": "",
+    "implicitUsesCrossSection": true,
+    "isImplicitMode": true,
+    "lightIntensity": 0.92,
+    "lightingMode": 0,
+    "limits": {
+        "uMax": 6.2831854820251465,
+        "uMin": 0,
+        "vMax": 6.2831854820251465,
+        "vMin": 0,
+        "wMax": 0,
+        "wMin": 0,
+        "xMax": 1000,
+        "xMin": -1000,
+        "yMax": 1000,
+        "yMin": -1000,
+        "zMax": 1000,
+        "zMin": -1000
+    },
+    "meshScopeAll": true,
+    "name": "Sphere",
+    "observer4D": 9,
+    "path3D": {
+        "roll": "",
+        "x": "",
+        "y": "",
+        "z": ""
+    },
+    "path4D": {
+        "alpha": "t",
+        "beta": "",
+        "gamma": "t",
+        "w": "4cos(t)",
+        "x": "4cos(t)",
+        "y": "4*sin(t)",
+        "z": "4sin(t)"
+    },
+    "pathMode": 1,
+    "pathMode3D": 0,
+    "projectionMode": 1,
+    "renderMode": 0,
+    "shellThickness": 0.004999999888241291,
+    "speeds": {
+        "nutation": 0,
+        "omega": 0.4000000059604645,
+        "path3D": 100,
+        "path4D": 12,
+        "phi": 0.4000000059604645,
+        "precession": 0,
+        "psi": 0.4000000059604645,
+        "spin": 0
+    },
+    "steps": 400,
+    "texture": {
+        "code": "textureCol = 0.5 + 0.5 * cos(ubuf.u_time + n_model.xyz + vec3(0, 2, 4));",
+        "col1": "#33cc33",
+        "col2": "#000000",
+        "displacement": "",
+        "enabled": true,
+        "libName": "Normal Iridescence",
+        "pan_x": 0,
+        "pan_y": 0,
+        "rotation": 0,
+        "zoom": 1
+    },
+    "type": "motion",
+    "use4DLighting": true,
+    "wireframe": {
+        "uStep": 4,
+        "vStep": 4
+    }
+}
