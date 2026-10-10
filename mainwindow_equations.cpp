@@ -291,9 +291,12 @@ void MainWindow::setupEquationsDock()
     auto connectSlider = [this](ConstField field) {
         QSlider *slider = constantSlider(field);
         QLineEdit *line = constantFieldEdit(field);
-        connect(slider, &QSlider::valueChanged, this, [this, field, line](int val) {
+        connect(slider, &QSlider::valueChanged, this, [this, field, line, slider](int val) {
             if (!line->hasFocus()) {
                 setConstText(field, QString::number(val / 100.0f, 'g', 6));
+                // Senza trascinamento (clic accanto alla maniglia, frecce,
+                // rotellina) non arriva nessun sliderReleased: lo snap qui.
+                if (!slider->isSliderDown()) applyDiscreteConstants();
                 evaluateCascade(); // Aggiorna le altre caselle che dipendono da questo!
             }
         });
@@ -2461,6 +2464,16 @@ void MainWindow::syncConstantSliders(const CascadeConstants &k)
     setSmartSlider(ui->eSlider, k.e, false);
     setSmartSlider(ui->fSlider, k.f, false);
     setSmartSlider(ui->sSlider, k.s, true); // true = questo è lo slider S!
+
+    // Costanti discrete ("A := int(1,6)"): clic accanto alla maniglia, frecce
+    // e rotellina spostano di un intero (100 centesimi). Coi passi standard
+    // (0.1 e 0.01) l'arrotondamento riporterebbe la costante dov'era.
+    for (ConstField f : constantFields()) {
+        const bool discrete = m_scene.discreteConsts.contains(constantName(f));
+        QSlider *s = constantSlider(f);
+        s->setSingleStep(discrete ? 100 : 1);
+        s->setPageStep(discrete ? 100 : 10);
+    }
 }
 
 void MainWindow::setEngineConstants(const CascadeConstants &kc, bool onlyIfChanged)

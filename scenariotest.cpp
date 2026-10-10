@@ -456,6 +456,19 @@ void ScenarioTest::runTubeScenarios()
                   && qFuzzyCompare(mp.y(), 3.0f),
               QStringLiteral("texture su Clifford Knot Rotating -> costanti intatte (prima %1, dopo %2, motore A=%3 B=%4)")
                   .arg(before, after).arg(mp.x()).arg(mp.y()));
+        // Clic accanto alla maniglia su una costante DISCRETA: un intero, e
+        // il valore resta intero (prima 2 -> 2.1, lo snap era solo al rilascio).
+        ui->aSlider->triggerAction(QAbstractSlider::SliderPageStepAdd);  wait(400);
+        const QString up = ui->lineA->text();
+        ui->aSlider->triggerAction(QAbstractSlider::SliderSingleStepSub);  wait(400);
+        const QString down = ui->lineA->text();
+        // C e' continua: il clic sposta di 0.1, come sempre.
+        const QString c0 = ui->lineC->text();
+        ui->cSlider->triggerAction(QAbstractSlider::SliderPageStepAdd);  wait(400);
+        check(up == QLatin1String("3") && down == QLatin1String("2") && ui->aSlider->value() == 200
+                  && c0 == QLatin1String("1") && ui->lineC->text() == QLatin1String("1.1"),
+              QStringLiteral("clic accanto alla maniglia -> A discreta 2 -> %1 -> %2 (slider %3), C continua %4 -> %5")
+                  .arg(up, down).arg(ui->aSlider->value()).arg(c0, ui->lineC->text()));
         m_mw->performMasterStop();
     }
 
@@ -3760,7 +3773,8 @@ void ScenarioTest::runBorderScenarios()
               QStringLiteral("record riaperto -> Library su Surface: %1; su Border: %2").arg(onSurface, onBorder));
 
         // HINT della texture del bordo: la legenda dice di chi sono gli slider
-        // ("Border sliders"), alla scelta in Library e nel record riaperto.
+        // ("Border slider", al plurale con piu' costanti), alla scelta in
+        // Library e nel record riaperto.
         click(ui->radioBorder);
         selectTexture(QStringLiteral("textures/Procedurals/Mandelbrot.json"));
         const QString hPick = m_mw->composedHintText();
@@ -3769,7 +3783,7 @@ void ScenarioTest::runBorderScenarios()
         loadSurface(kTorus);
         m_mw->applyMotionExample(recHint);  wait(1500);
         const QString hLoad = m_mw->composedHintText();
-        check(hPick.contains(QLatin1String("Border sliders\nF:")) && hLoad.contains(QLatin1String("Border sliders\nF:")),
+        check(hPick.contains(QLatin1String("Border slider\nF:")) && hLoad.contains(QLatin1String("Border slider\nF:")),
               QStringLiteral("hint della texture del bordo -> scelta: %1 | record riaperto: %2")
                   .arg(QString(hPick).replace(QLatin1Char('\n'), QLatin1String(" / ")),
                        QString(hLoad).replace(QLatin1Char('\n'), QLatin1String(" / "))));
