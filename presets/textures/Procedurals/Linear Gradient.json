@@ -1,8 +1,0 @@
-{
-    "code": "// --- 1. INPUT ---\nvec3 c1 = u_col1;\nvec3 c2 = u_col2;\n\n// --- 2. EDGE FIX (the secret) ---\n// We use the variable 'u_isFlat' created for this.\n// The black cut happens ONLY in the 2D preview.\nif (u_isFlat && (u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0)) {\n    return vec3(0.0); \n}\n\n// --- 3. LOGICA GRADIENTE ---\nfloat pos = v;\n\n// clamp makes sure that on the 3D surface the colors extend\n// up to the edges instead of doing strange things or inverting the gradient.\npos = clamp(pos, 0.0, 1.0);\n\n// --- 4. OUTPUT ---\nreturn mix(c1, c2, pos);",
-    "pan_x": 0,
-    "pan_y": 0,
-    "rotation": 0,
-    "type": "custom_texture",
-    "zoom": 1
-}
