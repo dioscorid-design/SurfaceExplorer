@@ -3425,6 +3425,27 @@ void MainWindow::updateMeshCountControls()
     ui->lineMeshCount->setEnabled(usable);
     // Con un'espressione il numero lo decidono le costanti: lo slider la segue.
     ui->meshCountSlider->setEnabled(usable && !meshCountUsesConstants());
+    // Da spento deve dire PERCHE' (regola dei controlli inerti): il campo di
+    // testo spento ha lo stesso aspetto di quello acceso.
+    QString why;
+    if (!ui->glWidget || isSceneEmpty())
+        why = tr("Meshes is unavailable: there is no surface on screen.");
+    else if (implicitMode())
+        why = tr("Meshes is unavailable in ray marching.");
+    else if (editingBackground())
+        why = tr("Meshes is unavailable while editing the background.");
+    else if (!m_metricScriptBody.trimmed().isEmpty() || ui->glWidget->isCustomMesh())
+        why = tr("Meshes is unavailable: this surface is built as a single ready-made mesh.");
+    else if (m_lastSectionCount > 1)
+        why = tr("Meshes is locked: the script declares %1 //MESH_BEGIN sections, one mesh each. "
+                 "To change the count, keep a single section and use 'mesh' and 'meshes' in the script.")
+                  .arg(m_lastSectionCount);
+    const QString sliderWhy = (why.isEmpty() && meshCountUsesConstants())
+        ? tr("The count follows the expression in the field: change the constants it uses.")
+        : why;
+    ui->lblMeshCount->setToolTip(why);
+    ui->lineMeshCount->setToolTip(why);
+    ui->meshCountSlider->setToolTip(sliderWhy);
     // Con piu' sezioni il campo MOSTRA quante ne dichiara lo script; lo stato
     // (m_scene.meshCount, che il Save scrive) resta il suo.
     const QString shown = (m_lastSectionCount > 1 && !implicitMode())

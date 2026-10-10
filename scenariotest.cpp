@@ -391,8 +391,8 @@ void ScenarioTest::runTubeScenarios()
     // I preset della libreria: un tubo per sezione, tutti chiusi (cerchi e
     // trefoli), col colore proprio di ogni tubo.
     struct TubePreset { const char *rel; int tubes; const char *png; };
-    for (const TubePreset &tp : { TubePreset{ "surfaces/Tubes/Multi Tube/Villarceau Circles.json", 12, "tube-script-villarceau.png" },
-                                  TubePreset{ "surfaces/Tubes/Multi Tube/Trefoil Trio.json", 3, "tube-script-trefoil-trio.png" } }) {
+    for (const TubePreset &tp : { TubePreset{ "surfaces/Parametric/Solid Curves/Multi Curves/Villarceau Circles.json", 12, "tube-script-villarceau.png" },
+                                  TubePreset{ "surfaces/Parametric/Solid Curves/Multi Curves/Trefoil Trio.json", 3, "tube-script-trefoil-trio.png" } }) {
         if (!loadSurface(QString::fromLatin1(tp.rel))) continue;
         const auto &copies = eng->tubeCopies();
         const bool allClosed = std::all_of(copies.begin(), copies.end(),
@@ -402,7 +402,28 @@ void ScenarioTest::runTubeScenarios()
               QStringLiteral("%1 -> %2 tubi da script, tutti chiusi (%3 parti, %4 copie)")
                   .arg(QFileInfo(QString::fromLatin1(tp.rel)).baseName()).arg(tp.tubes)
                   .arg(gl->meshPartCount()).arg(copies.size()));
+        // Piu' sezioni: il campo Meshes mostra il loro numero ed e' spento.
+        check(ui->lineMeshCount->text() == QString::number(tp.tubes) && !ui->lineMeshCount->isEnabled()
+                  && !ui->meshCountSlider->isEnabled(),
+              QStringLiteral("%1 -> campo Meshes spento su %2 (campo '%3' %4, slider %5)")
+                  .arg(QFileInfo(QString::fromLatin1(tp.rel)).baseName()).arg(tp.tubes)
+                  .arg(ui->lineMeshCount->text(), onOff(ui->lineMeshCount->isEnabled()),
+                       onOff(ui->meshCountSlider->isEnabled())));
         gl->grabFramebuffer().save(m_outDir + QLatin1Char('/') + QString::fromLatin1(tp.png));
+    }
+
+    // Stessa regola aprendo un RECORD e una superficie multi-mesh da script.
+    for (const char *rel : { "records/Tubes/Borromean Rings Spinning.json", "records/Tubes/Lissajous Layers Wave.json",
+                             "surfaces/Parametric/Multimesh/Hopf Tori.json" }) {
+        const QString path = QString::fromLatin1(rel);
+        if (!(path.startsWith(QLatin1String("records/")) ? loadRecord(path) : loadSurface(path))) continue;
+        check(ui->lineMeshCount->text() == QString::number(gl->meshPartCount()) && !ui->lineMeshCount->isEnabled()
+                  && !ui->meshCountSlider->isEnabled(),
+              QStringLiteral("%1 -> campo Meshes spento sulle sezioni (%2 parti, campo '%3' %4, slider %5)")
+                  .arg(QFileInfo(path).baseName()).arg(gl->meshPartCount())
+                  .arg(ui->lineMeshCount->text(), onOff(ui->lineMeshCount->isEnabled()),
+                       onOff(ui->meshCountSlider->isEnabled())));
+        m_mw->performMasterStop();
     }
 
     // MASTER coi tubi da SCRIPT animati da t: la geometria e' un modulo (prima
@@ -441,7 +462,7 @@ void ScenarioTest::runTubeScenarios()
     // LUCE 4D sui tubi (dock 4D): Directional e Observer danno risultati
     // diversi fra loro e dalla luce normale (il tubo costruito nella scena
     // usa il suo piano tangente 4D, tubeLight4D).
-    if (loadSurface(QStringLiteral("surfaces/Tubes/4D/Clifford Torus Knot.json"))) {
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Solid Curves/4D/Clifford Torus Knot.json"))) {
         auto changedPct = [](const QImage &a0, const QImage &b0) {
             const QImage a = a0.convertToFormat(QImage::Format_RGB32), b = b0.convertToFormat(QImage::Format_RGB32);
             if (a.size() != b.size() || a.isNull()) return 100.0;
@@ -474,7 +495,7 @@ void ScenarioTest::runTubeScenarios()
 
     // MASTER con le texture animate di piu' fasce: ogni fascia e' un orologio.
     // Fermata una sola fascia (le altre in moto) c'e' qualcosa di spento: START.
-    if (loadSurface(QStringLiteral("surfaces/Tubes/Multi Tube/Trefoil Trio.json"))) {
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Solid Curves/Multi Curves/Trefoil Trio.json"))) {
         if (!ui->radioMeshOne->isChecked()) { ui->radioMeshOne->click();  wait(200); }
         for (int k : { 1, 2 }) {
             ui->spinMeshSel->setValue(k);  wait(300);
@@ -503,7 +524,7 @@ void ScenarioTest::runTubeScenarios()
     // Un'immagine per preset nel report, da guardare.
     {
         QStringList rels;
-        for (const char *dir : { "surfaces/Tubes", "records/Tubes" }) {
+        for (const char *dir : { "surfaces/Parametric/Solid Curves", "records/Tubes" }) {
             QDirIterator it(m_root + QLatin1Char('/') + QString::fromLatin1(dir), { QStringLiteral("*.json") },
                             QDir::Files, QDirIterator::Subdirectories);
             while (it.hasNext()) rels << QDir(m_root).relativeFilePath(it.next());
@@ -518,6 +539,9 @@ void ScenarioTest::runTubeScenarios()
             LibraryManager lm;
             const LibraryItem item = lm.parseJson(m_root + QLatin1Char('/') + rel,
                                                   isRecord ? LibraryType::Motion : LibraryType::Surface);
+            // Nella cartella delle curve solide possono stare anche superfici (es.
+            // Mobius Border, a trasparenza 0 per vedere solo il bordo): non sono tubi.
+            if (!item.isTube) continue;
             const bool fromScript = !item.scriptCode.trimmed().isEmpty();
             QStringList bad;
             if (m_popupsClosed != popups) bad << QStringLiteral("popup al caricamento");
