@@ -915,21 +915,49 @@ QString MainWindow::renameLibraryPath(const QString &path, QString newName, QStr
     const bool ok = isDir ? QDir().rename(path, newPath) : QFile::rename(path, newPath);
     if (!ok) return fail(QStringLiteral("The item could not be renamed (permissions, or the file is in use)."));
 
-    // I percorsi che l'app ricorda: la voce stessa o, per una cartella, cio' che
-    // sta dentro di lei.
+    remapLibraryPaths(path, newPath, isDir);
+
+    if (error) error->clear();
+    return newPath;
+}
+
+void MainWindow::remapLibraryPaths(const QString &oldPathRef, const QString &newPathRef, bool isDir)
+{
+    // COPIE: l'Incolla passa un elemento di m_cutFilePaths, che qui sotto viene
+    // riscritto -- per riferimento, oldPath cambierebbe a meta' funzione.
+    const QString oldPath = QDir::cleanPath(oldPathRef);
+    const QString newPath = newPathRef;
+    // La voce stessa o, per una cartella, cio' che sta dentro di lei.
     auto remap = [&](QString &p) {
         if (p.isEmpty()) return;
-        if (QDir::cleanPath(p) == QDir::cleanPath(path)) p = newPath;
-        else if (isDir && LibraryFileOperations::isSameOrInside(p, path))
-            p = newPath + QDir::cleanPath(p).mid(QDir::cleanPath(path).length());
+        if (QDir::cleanPath(p) == oldPath) p = newPath;
+        else if (isDir && LibraryFileOperations::isSameOrInside(p, oldPath))
+            p = newPath + QDir::cleanPath(p).mid(oldPath.length());
     };
     remap(m_currentRecordPath);
     remap(m_currentTexturePresetPath);
     for (QString &p : m_cutFilePaths) remap(p);
     for (QString &p : m_cutTexturePaths) remap(p);
+}
 
-    if (error) error->clear();
-    return newPath;
+void MainWindow::refreshAndFocusPaths(const QStringList &paths)
+{
+    refreshRepositories();
+    QSet<QString> wanted;
+    for (const QString &p : paths) wanted.insert(QDir::cleanPath(p));
+    if (wanted.isEmpty()) return;
+    bool focused = false;
+    for (QTreeWidget *tree : { ui->treeSurfaces, ui->treeTextures, ui->treeMotions, ui->treeSounds }) {
+        bool cleared = false;
+        for (QTreeWidgetItemIterator it(tree); *it; ++it) {
+            const QVariant dir = (*it)->data(0, Qt::UserRole + 10);
+            const QString p = dir.isValid() ? dir.toString() : (*it)->toolTip(0);
+            if (p.isEmpty() || !wanted.contains(QDir::cleanPath(p))) continue;
+            if (!cleared) { tree->clearSelection(); cleared = true; }
+            if (!focused) { LibraryTreeFocus::focus(tree, *it); focused = true; }
+            else (*it)->setSelected(true);
+        }
+    }
 }
 
 void MainWindow::renameLibraryItem(QTreeWidgetItem *item)

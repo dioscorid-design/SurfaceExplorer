@@ -250,8 +250,11 @@ void LibraryFileOperations::performPasteExample(const QString &destDirOverride)
     int opCount = 0;
     int applyToAllChoice = -1;
     const bool multiple = m_mainWindow->m_cutFilePaths.size() > 1;
+    QStringList pastedPaths;
     for (const QString &sourcePath : m_mainWindow->m_cutFilePaths) {
         QFileInfo fi(sourcePath);
+        // Prima dello spostamento: dopo la sorgente non esiste piu'.
+        const bool sourceIsDir = fi.isDir();
         QString newFilePath = destDir + "/" + fi.fileName();
 
         if (!m_mainWindow->m_isCopyOperation && QFileInfo(sourcePath).canonicalFilePath() == QFileInfo(newFilePath).canonicalFilePath()) {
@@ -317,12 +320,18 @@ void LibraryFileOperations::performPasteExample(const QString &destDirOverride)
                 }
             }
         }
-        if (ok) opCount++;
+        if (ok) {
+            opCount++;
+            pastedPaths << newFilePath;
+            // Spostamento: i percorsi ricordati seguono la voce.
+            if (!m_mainWindow->m_isCopyOperation)
+                m_mainWindow->remapLibraryPaths(sourcePath, newFilePath, sourceIsDir);
+        }
     }
 
     if (opCount > 0) {
         if (!m_mainWindow->m_isCopyOperation) m_mainWindow->m_cutFilePaths.clear();
-        m_mainWindow->refreshRepositories();
+        m_mainWindow->refreshAndFocusPaths(pastedPaths);
     } else {
         // opCount 0 con lista non vuota = copy/rename falliti (permessi, cartella
         // sparita) oppure destinazione = origine. Prima era silenzio totale ("il
@@ -367,8 +376,11 @@ void LibraryFileOperations::performPasteTexture(const QString &destDirOverride)
     int opCount = 0;
     int applyToAllChoice = -1;
     const bool multiple = m_mainWindow->m_cutTexturePaths.size() > 1;
+    QStringList pastedPaths;
     for (const QString &sourcePath : m_mainWindow->m_cutTexturePaths) {
         QFileInfo fi(sourcePath);
+        // Prima dello spostamento: dopo la sorgente non esiste piu'.
+        const bool sourceIsDir = fi.isDir();
         QString newFilePath = destDir + "/" + fi.fileName();
 
         if (!m_mainWindow->m_isCopyOperation && QFileInfo(sourcePath).canonicalFilePath() == QFileInfo(newFilePath).canonicalFilePath()) {
@@ -412,12 +424,18 @@ void LibraryFileOperations::performPasteTexture(const QString &destDirOverride)
                 ok = true;
             }
         }
-        if (ok) opCount++;
+        if (ok) {
+            opCount++;
+            pastedPaths << newFilePath;
+            // Spostamento: i percorsi ricordati seguono la voce.
+            if (!m_mainWindow->m_isCopyOperation)
+                m_mainWindow->remapLibraryPaths(sourcePath, newFilePath, sourceIsDir);
+        }
     }
 
     if (opCount > 0) {
         if (!m_mainWindow->m_isCopyOperation) m_mainWindow->m_cutTexturePaths.clear();
-        m_mainWindow->refreshRepositories();
+        m_mainWindow->refreshAndFocusPaths(pastedPaths);
     } else {
         notifyPasteNoOp(destDir);
     }

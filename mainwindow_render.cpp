@@ -3393,6 +3393,15 @@ void MainWindow::pushMeshCountSlider()
     // standard, o il valore scritto se e' piu' grande; mentre lo slider si
     // trascina il range non si stringe.
     const QSignalBlocker blocker(s);
+    // Il numero lo decidono le costanti (espressione nel campo): lo slider e'
+    // spento e non comanda nulla, quindi resta a zero. Mostrare il valore lo
+    // lasciava quasi sempre in fondo, perche' il range si allarga fino a lui
+    // (Calabi-Yau: floor(A+0.5)^2 = 25 su un massimo di 24).
+    if (m_lastSectionCount <= 1 && meshCountUsesConstants()) {
+        s->setRange(1, kMeshCountSliderMax);
+        s->setValue(1);
+        return;
+    }
     int hi = std::max(kMeshCountSliderMax, n);
     if (s->isSliderDown()) hi = std::max(hi, s->maximum());
     s->setRange(1, hi);

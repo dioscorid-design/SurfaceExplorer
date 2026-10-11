@@ -44,7 +44,8 @@ void MainWindow::refreshSceneHint(float seconds)
 QString MainWindow::composedHintText() const
 {
     return SceneHintOverlay::compose(m_currentHintText, m_currentTextureHintText,
-                                     m_currentBgTextureHintText, shownBorderTextureHint());
+                                     m_currentBgTextureHintText, shownBorderTextureHint(),
+                                     !m_sceneHintFromSurfacePreset);
 }
 
 // Il messaggio della texture del BORDO, solo se quella texture si vede: col

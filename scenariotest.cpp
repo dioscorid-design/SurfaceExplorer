@@ -3531,6 +3531,12 @@ void ScenarioTest::run()
         check(h.isEmpty() || h.startsWith(QLatin1String("Surface slider")),
               QStringLiteral("hint della sola superficie -> %1").arg(QString(h).replace(QLatin1Char('\n'), QLatin1String(" / "))));
     }
+    // Preset del ramo Surfaces: il suo messaggio, da solo, senza etichetta.
+    if (loadSurface(QStringLiteral("surfaces/Ray Marching/3D/Sphere and Tori Merge.json"))) {
+        const QString h = m_mw->composedHintText();
+        check(h.startsWith(QLatin1String("Sliders\n")),
+              QStringLiteral("hint di un preset di superficie, senza etichetta -> %1").arg(QString(h).replace(QLatin1Char('\n'), QLatin1String(" / "))));
+    }
     // Un hint che dichiara il proprio ruolo resta com'e' (record di path).
     if (loadRecord(QStringLiteral("records/Paths/Clover.json"))) {
         const QString h = m_mw->composedHintText();
@@ -4561,6 +4567,20 @@ void ScenarioTest::runLibraryPasteScenarios()
     copyPaste(root + QStringLiteral("/Paths"), root + QStringLiteral("/Paths/sub"));
     check(!QDir(root + QStringLiteral("/Paths/sub/Paths")).exists(),
           QStringLiteral("incollata in una sua sottocartella -> rifiutata"));
+
+    // SPOSTAMENTO (Taglia e Incolla) del preset in scena: il percorso ricordato
+    // lo segue, o un Save successivo lo riscriverebbe nel posto vecchio.
+    const QString savedRecordPath = m_mw->m_currentRecordPath;
+    m_mw->m_currentRecordPath = root + QStringLiteral("/Paths/a.json");
+    m_mw->m_cutFilePaths = { root + QStringLiteral("/Paths/a.json") };
+    m_mw->m_isCopyOperation = false;
+    m_mw->m_fileOps->performPasteExample(root + QStringLiteral("/Paths2"));
+    wait(300);
+    check(QFile::exists(root + QStringLiteral("/Paths2/a.json"))
+              && m_mw->m_currentRecordPath == root + QStringLiteral("/Paths2/a.json"),
+          QStringLiteral("preset in scena spostato -> il percorso ricordato lo segue (%1)")
+              .arg(QDir(root).relativeFilePath(m_mw->m_currentRecordPath)));
+    m_mw->m_currentRecordPath = savedRecordPath;
 
     m_mw->m_cutFilePaths.clear();
 }
@@ -5616,8 +5636,10 @@ void ScenarioTest::runMeshCountScenarios()
     // ESPRESSIONE CON UNA COSTANTE: il numero segue A.
     setCount(QStringLiteral("A"));
     setConstantByField(QStringLiteral("A"), QStringLiteral("3"));  wait(600);
-    check(parts() == 3 && !ui->meshCountSlider->isEnabled() && ui->aSlider->isEnabled(),
-          QStringLiteral("Meshes = A, A = 3 -> tre mesh, slider Meshes spento, slider A acceso (%1 parti)").arg(parts()));
+    check(parts() == 3 && !ui->meshCountSlider->isEnabled() && ui->aSlider->isEnabled()
+              && ui->meshCountSlider->value() == ui->meshCountSlider->minimum(),
+          QStringLiteral("Meshes = A, A = 3 -> tre mesh, slider Meshes spento e a zero, slider A acceso (%1 parti, slider %2)")
+              .arg(parts()).arg(ui->meshCountSlider->value()));
     setConstantByField(QStringLiteral("A"), QStringLiteral("2"));  wait(600);
     check(parts() == 2, QStringLiteral("A = 2 -> due mesh (%1)").arg(parts()));
     setCount(QStringLiteral("4"));

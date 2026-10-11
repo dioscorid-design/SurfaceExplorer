@@ -1152,6 +1152,7 @@ void MainWindow::finishSceneReset()
     // quello dello SFONDO: il reset toglie anche lo sfondo.
     m_currentTextureHintText.clear();
     m_currentBgTextureHintText.clear();
+    m_sceneHintFromSurfacePreset = false;
     showSceneHint(QString(), 0.0f);
 
     // Scena azzerata: non c'e' piu' lavoro da proteggere, e la situazione che
@@ -1863,6 +1864,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // Suggerimento d'uso ("hintText"), come in applyMotionExample: le superfici
     // passano da QUI e non da quella, quindi senza questa riga il messaggio
     // comparirebbe solo sui record.
+    m_sceneHintFromSurfacePreset = true;
     showSceneHint(d.hintText, d.hintSeconds);
 
     // SNAPSHOT DELL'APPLICATO: da qui le equazioni a schermo sono quelle dei
@@ -2943,6 +2945,7 @@ void MainWindow::applyMotionExample(LibraryItem data)
     // le superfici. In coda: setRotation4D/setCrossSectionP scrivono poco sopra.
     resetNav4DBaseline();
 
+    m_sceneHintFromSurfacePreset = false;
     showSceneHint(data.hintText, data.hintSeconds);
 
     // COSTANTI: giudizio finale a scena completa (vedi applySurfaceExample).

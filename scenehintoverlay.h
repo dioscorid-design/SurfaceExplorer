@@ -23,8 +23,12 @@ public:
 
     // I messaggi in quello che si vede: vuoti fuori, identici una volta
     // sola, ciascuno col suo ruolo nell'intestazione ("Texture sliders").
+    // labelLoneSurface = false: il messaggio della superficie, quando e' il
+    // solo, resta senza etichetta (preset del ramo Surfaces: non ce ne possono
+    // essere altri).
     static QString compose(const QString &surface, const QString &texture,
-                           const QString &background, const QString &border = QString());
+                           const QString &background, const QString &border = QString(),
+                           bool labelLoneSurface = true);
 
     // Mostra `text` per `seconds` secondi (0 o meno: finche' qualcuno non lo
     // nasconde). Testo vuoto = nasconde.

@@ -418,6 +418,14 @@ private slots:
     // caricata, appunti di Copia/Taglia). Ritorna il percorso nuovo, o vuoto
     // con il motivo in *error.
     QString renameLibraryPath(const QString &path, QString newName, QString *error);
+    // I percorsi che l'app ricorda (record e texture caricati, appunti di
+    // Taglia) seguono una voce della Library rinominata o spostata: senza, un
+    // Save successivo riscriverebbe il file nel posto vecchio.
+    void remapLibraryPaths(const QString &oldPath, const QString &newPath, bool isDir);
+    // Library riletta con le voci appena spostate o incollate selezionate, la
+    // prima col focus. Il refresh ritrova la selezione dal percorso
+    // nell'albero, che per una voce spostata e' cambiato: il focus si perdeva.
+    void refreshAndFocusPaths(const QStringList &paths);
     void onSyncPresetsClicked();
 
     // ==========================================================
@@ -492,6 +500,9 @@ private:
     // nell'interfaccia, che per un messaggio occasionale sarebbe ingombro.
     QString m_currentHintText;
     float   m_currentHintSeconds = 6.0f;
+    // La scena viene da un preset del ramo Surfaces: il suo messaggio, da
+    // solo, non ha bisogno dell'etichetta "Surface" (vedi composedHintText).
+    bool    m_sceneHintFromSurfacePreset = false;
 
     // Messaggio della TEXTURE caricata, tenuto SEPARATO da quello della scena.
     // I due vivono in file diversi (il .json della texture e quello della

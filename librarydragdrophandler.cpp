@@ -87,6 +87,7 @@ bool LibraryDragDropHandler::eventFilter(QObject *obj, QEvent *event)
             int applyToAllChoice = -1;
             const bool multipleDragged = draggedItems.size() > 1;
 
+            QStringList movedPaths;
             for (QTreeWidgetItem* item : draggedItems) {
                 QString sourcePath;
                 bool isDir = false;
@@ -126,6 +127,8 @@ bool LibraryDragDropHandler::eventFilter(QObject *obj, QEvent *event)
                                     QDir(sourcePath).removeRecursively();
                                     anyMoved = true;
                                 }
+                                m_mainWindow->remapLibraryPaths(sourcePath, newPath, true);
+                                movedPaths << newPath;
                             }
                         } else {
                             // File omonimo a destinazione: chiedi (prima era azione nulla).
@@ -143,12 +146,18 @@ bool LibraryDragDropHandler::eventFilter(QObject *obj, QEvent *event)
                                 // KeepBoth: newPath gia' riscritto col suffisso _copyN.
                             }
                             if (proceed) {
+                                bool moved = false;
                                 if (QFile::rename(sourcePath, newPath)) {
-                                    anyMoved = true;
+                                    moved = true;
                                 } else if (QFile::copy(sourcePath, newPath)) {
                                     QFile::setPermissions(newPath, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadGroup);
                                     QFile::remove(sourcePath);
+                                    moved = true;
+                                }
+                                if (moved) {
                                     anyMoved = true;
+                                    m_mainWindow->remapLibraryPaths(sourcePath, newPath, false);
+                                    movedPaths << newPath;
                                 }
                             }
                         }
@@ -158,7 +167,7 @@ bool LibraryDragDropHandler::eventFilter(QObject *obj, QEvent *event)
 
             dropEvent->setDropAction(Qt::IgnoreAction);
             dropEvent->accept();
-            if (anyMoved) m_mainWindow->refreshRepositories();
+            if (anyMoved) m_mainWindow->refreshAndFocusPaths(movedPaths);
 
             return true;
         }

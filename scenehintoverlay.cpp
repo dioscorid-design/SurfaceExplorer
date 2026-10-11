@@ -19,7 +19,8 @@ SceneHintOverlay::SceneHintOverlay(GLWidget *view, QObject *parent)
 }
 
 QString SceneHintOverlay::compose(const QString &surface, const QString &texture,
-                                  const QString &background, const QString &border)
+                                  const QString &background, const QString &border,
+                                  bool labelLoneSurface)
 {
     // Nell'ordine in cui compaiono a schermo.
     const QList<QPair<QString, QString>> all = {
@@ -40,6 +41,8 @@ QString SceneHintOverlay::compose(const QString &surface, const QString &texture
         if (!dup) shown << p;
     }
     if (shown.isEmpty()) return QString();
+    if (!labelLoneSurface && shown.size() == 1 && shown.first().first == QLatin1String("Surface"))
+        return shown.first().second;
 
     // Ogni legenda dice di CHI sono i suoi slider, anche da sola: senza,
     // "Sliders / F: ..." non diceva se F agisce sulla forma, sulla texture o
