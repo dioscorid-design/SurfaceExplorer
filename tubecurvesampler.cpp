@@ -13,6 +13,45 @@ static QString loadShaderLibrary(const QString &path)
     return QTextStream(&f).readAll();
 }
 
+bool TubeCurveSampler::bakeCompute(const QString &source, QShader *shader, QString *error)
+{
+    QShaderBaker baker;
+    baker.setSourceString(source.toUtf8(), QShader::ComputeStage);
+    baker.setGeneratedShaderVariants({QShader::StandardShader});
+    baker.setGeneratedShaders({
+        {QShader::SpirvShader, QShaderVersion(100)},
+        {QShader::SpirvShader, QShaderVersion(130)},
+        {QShader::GlslShader,  QShaderVersion(430)},
+        {QShader::GlslShader,  QShaderVersion(460)},
+        {QShader::GlslShader,  QShaderVersion(310, QShaderVersion::GlslEs)},
+        {QShader::GlslShader,  QShaderVersion(320, QShaderVersion::GlslEs)},
+        {QShader::MslShader,   QShaderVersion(20)},
+        {QShader::HlslShader,  QShaderVersion(50)},
+        {QShader::HlslShader,  QShaderVersion(60)}
+    });
+    *shader = baker.bake();
+    if (!shader->isValid()) {
+        if (error) *error = baker.errorMessage();
+        return false;
+    }
+    // GLSL ES: i compute non hanno una precisione di default (Mali ripiega su
+    // mediump) e la riga nel sorgente la toglie SPIRV-Cross: si inserisce
+    // nelle varianti, come in GeodesicCalculator.
+    for (const QShaderKey &key : shader->availableShaders()) {
+        if (key.source() != QShader::GlslShader) continue;
+        if (!key.sourceVersion().flags().testFlag(QShaderVersion::GlslEs)) continue;
+        QByteArray code = shader->shader(key).shader();
+        const int versionPos = code.indexOf("#version");
+        const int eol = versionPos < 0 ? -1 : code.indexOf('\n', versionPos);
+        if (eol < 0) continue;
+        code.insert(eol + 1, "\nprecision highp float;\nprecision highp int;\n");
+        QShaderCode patched = shader->shader(key);
+        patched.setShader(code);
+        shader->setShader(key, patched);
+    }
+    return true;
+}
+
 bool TubeCurveSampler::sample(QRhi *rhi, const QString &curveFunction,
                               const QVector<QVector4D> &params, const float constants[7],
                               QVector<QVector4D> *out, QString *error)
@@ -51,40 +90,8 @@ bool TubeCurveSampler::sample(QRhi *rhi, const QString &curveFunction,
         "}\n";
 
     // --- 2. Bake, stessi target del flusso geodetico.
-    QShaderBaker baker;
-    baker.setSourceString(source.toUtf8(), QShader::ComputeStage);
-    baker.setGeneratedShaderVariants({QShader::StandardShader});
-    baker.setGeneratedShaders({
-        {QShader::SpirvShader, QShaderVersion(100)},
-        {QShader::SpirvShader, QShaderVersion(130)},
-        {QShader::GlslShader,  QShaderVersion(430)},
-        {QShader::GlslShader,  QShaderVersion(460)},
-        {QShader::GlslShader,  QShaderVersion(310, QShaderVersion::GlslEs)},
-        {QShader::GlslShader,  QShaderVersion(320, QShaderVersion::GlslEs)},
-        {QShader::MslShader,   QShaderVersion(20)},
-        {QShader::HlslShader,  QShaderVersion(50)},
-        {QShader::HlslShader,  QShaderVersion(60)}
-    });
-    QShader shader = baker.bake();
-    if (!shader.isValid()) {
-        if (error) *error = baker.errorMessage();
-        return false;
-    }
-    // GLSL ES: i compute non hanno una precisione di default (Mali ripiega su
-    // mediump) e la riga nel sorgente la toglie SPIRV-Cross: si inserisce
-    // nelle varianti, come in GeodesicCalculator.
-    for (const QShaderKey &key : shader.availableShaders()) {
-        if (key.source() != QShader::GlslShader) continue;
-        if (!key.sourceVersion().flags().testFlag(QShaderVersion::GlslEs)) continue;
-        QByteArray code = shader.shader(key).shader();
-        const int versionPos = code.indexOf("#version");
-        const int eol = versionPos < 0 ? -1 : code.indexOf('\n', versionPos);
-        if (eol < 0) continue;
-        code.insert(eol + 1, "\nprecision highp float;\nprecision highp int;\n");
-        QShaderCode patched = shader.shader(key);
-        patched.setShader(code);
-        shader.setShader(key, patched);
-    }
+    QShader shader;
+    if (!bakeCompute(source, &shader, error)) return false;
 
     // --- 3. Risorse: i campioni in un SSBO (entrano come parametri, escono
     // come punti), costanti e conteggio in un UBO std140.

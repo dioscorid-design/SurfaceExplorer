@@ -30,6 +30,8 @@
 #include <QMouseEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPainter>
+#include <rhi/qrhi.h>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSlider>
@@ -583,6 +585,44 @@ void ScenarioTest::runTubeScenarios()
             gl->grabFramebuffer().save(m_outDir + QStringLiteral("/tubes/") + png);
             if (m_mw->isEquationModuleMoving()) m_mw->performMasterStop();
         }
+    }
+
+    // SEZIONE TRASPORTATA: con la rotazione 4D la sezione orientata punto per
+    // punto si strozzava in qualche posa (pizzicature). Con il compute la
+    // passata deve girare; un provino di 16 pose con e senza, da guardare.
+    if (loadRecord(QStringLiteral("records/Rotations/Clifford Knot Rotating.json"))) {
+        if (m_mw->isAnythingMoving()) m_mw->performMasterStop();
+        const bool compute = gl->rhi() && gl->rhi()->isFeatureSupported(QRhi::Compute);
+        check(!compute || gl->tubeFramesActive(),
+              QStringLiteral("tubo 4D -> sezione trasportata dalla passata compute (compute %1, passata %2)")
+                  .arg(onOff(compute), onOff(gl->tubeFramesActive())));
+        // Le pose a piena risoluzione in tube-frames/<modo>/, per il confronto
+        // (la geometria e' la stessa: cambia solo dove gli anelli si strozzano).
+        auto contactSheet = [&](const QString &mode) {
+            const QSize cell(300, 190);
+            QImage sheet(cell.width() * 4, cell.height() * 4, QImage::Format_RGB32);
+            sheet.fill(Qt::black);
+            QPainter painter(&sheet);
+            const QString dir = m_outDir + QStringLiteral("/tube-frames/") + mode;
+            QDir().mkpath(dir);
+            for (int k = 0; k < 48; ++k) {
+                gl->setRotation4D(0.13f * k, 0.09f * k, 0.1f);
+                wait(120);
+                const QImage shot = gl->grabFramebuffer();
+                shot.save(dir + QStringLiteral("/%1.png").arg(k, 2, 10, QLatin1Char('0')));
+                if (k % 3 == 0 && k / 3 < 16)
+                    painter.drawImage(((k / 3) % 4) * cell.width(), ((k / 3) / 4) * cell.height(),
+                                      shot.scaled(cell, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            }
+            painter.end();
+            sheet.save(m_outDir + QStringLiteral("/tube-frames-") + mode + QStringLiteral(".png"));
+        };
+        contactSheet(QStringLiteral("transported"));
+        gl->releaseTubeFramePipeline();
+        gl->update();
+        contactSheet(QStringLiteral("local"));
+        gl->rebuildShader();
+        wait(300);
     }
 
     // UN TUBO, POI UN RECORD GEODETICO (segnalato: la superficie spariva). Le

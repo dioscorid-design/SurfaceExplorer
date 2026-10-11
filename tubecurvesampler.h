@@ -16,6 +16,7 @@
 #include <QVector4D>
 
 class QRhi;
+class QShader;
 
 class TubeCurveSampler
 {
@@ -26,6 +27,11 @@ public:
     static bool sample(QRhi *rhi, const QString &curveFunction,
                        const QVector<QVector4D> &params, const float constants[7],
                        QVector<QVector4D> *out, QString *error = nullptr);
+
+    // Compila un compute shader per tutti i backend (gli stessi target del
+    // flusso geodetico), con la precisione alta forzata nelle varianti GLSL ES.
+    // Lo usa anche il trasporto della sezione dei tubi (GLWidget).
+    static bool bakeCompute(const QString &source, QShader *shader, QString *error = nullptr);
 };
 
 #endif // TUBECURVESAMPLER_H

@@ -90,8 +90,12 @@ layout(std140, binding = 0) uniform SceneUBO {
     float u_tubeRefY;
     float u_tubeRefZ;
     // Numero di copie (campo Meshes): `meshes` nelle equazioni e negli script.
-    // Ultimo campo di UboData.
     float u_meshCount;
+    // Sezione trasportata dei tubi: anelli della parte e 1 se la direzione
+    // della sezione e' in u_tubeFrames (tubeTransportedDir). Ultimi campi di
+    // UboData.
+    float u_tubeRings;
+    float u_tubeFramesOn;
 } ubuf;
 
 float sq(float x) { return x*x; }
@@ -447,6 +451,34 @@ vec3 projectToScene(vec4 pRot) {
 // curva: la sezione gira con la figura, e texture e wireframe restano solidali
 // al tubo. Se la direzione trasformata diventa parallela alla tangente, si
 // ripiega su un asse.
+// SEZIONE TRASPORTATA. Con la rotazione 4D e la proiezione gli angoli non si
+// conservano: in qualche punto, in qualche istante, la direzione trasformata
+// finiva quasi parallela alla tangente proiettata, la sezione girava di quasi
+// mezzo giro in pochi anelli e il tubo si strozzava (pizzicature). Ogni
+// orientamento calcolato punto per punto ha punti cosi'. Percio', quando la
+// passata compute (GLWidget::buildTubeFramePipeline) e' disponibile, la
+// direzione viene dal TRASPORTO PARALLELO lungo la curva proiettata, rifatto a
+// ogni frame: la sezione passa da un anello al successivo senza ruotare, e
+// sulle curve chiuse lo scarto si ripartisce lungo il giro. Quella locale qui
+// sotto resta il punto di partenza (primo anello) e la riserva.
+#ifndef TUBE_FRAME_COMPUTE
+layout(binding = 2) uniform sampler2D u_tubeFrames;
+
+// Direzione trasportata in u: una riga per tubo (u_meshIndex), un texel per
+// anello, interpolata fra i due anelli vicini (il bordo cade anche fra due).
+vec3 tubeTransportedDir(float u) {
+    float last = max(ubuf.u_tubeRings - 1.0, 1.0);
+    float span = ubuf.u_max - ubuf.u_min;
+    float f = (abs(span) > 1.0e-12) ? clamp((u - ubuf.u_min) / span * last, 0.0, last) : 0.0;
+    int i0 = int(floor(f));
+    int i1 = min(i0 + 1, int(last));
+    int row = int(ubuf.u_meshIndex + 0.5);
+    vec3 a = texelFetch(u_tubeFrames, ivec2(i0, row), 0).xyz;
+    vec3 b = texelFetch(u_tubeFrames, ivec2(i1, row), 0).xyz;
+    return mix(a, b, f - float(i0));
+}
+#endif
+
 void tubeSceneFrame(float u, out vec3 C, out vec3 E1, out vec3 E2, out vec4 C4, out vec4 T4) {
     const float e = 0.001;
     vec4 raw = getRawPositionAuto(u, 0.0);
@@ -467,6 +499,13 @@ void tubeSceneFrame(float u, out vec3 C, out vec3 E1, out vec3 E2, out vec4 C4, 
         vec3 alt = (abs(Tn.x) < 0.9) ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
         E1 = alt - dot(alt, Tn) * Tn;
     }
+#ifndef TUBE_FRAME_COMPUTE
+    if (ubuf.u_tubeFramesOn > 0.5) {
+        vec3 F = tubeTransportedDir(u);
+        F -= dot(F, Tn) * Tn;
+        if (dot(F, F) > 1.0e-8) E1 = F;
+    }
+#endif
     E1 = normalize(E1);
     E2 = cross(Tn, E1);
 }

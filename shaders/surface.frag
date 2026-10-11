@@ -83,8 +83,12 @@ layout(std140, binding = 0) uniform SceneUBO {
     float u_tubeRefY;
     float u_tubeRefZ;
     // Numero di copie (campo Meshes): NON USATO QUI, dichiarato per tenere i
-    // due blocchi identici (regola Adreno). Ultimo campo di UboData.
+    // due blocchi identici (regola Adreno).
     float u_meshCount;
+    // Sezione trasportata dei tubi: NON USATI QUI (li leggono vertex e
+    // compute), dichiarati per la regola Adreno. Ultimi campi di UboData.
+    float u_tubeRings;
+    float u_tubeFramesOn;
 } ubuf;
 
 // --- PLACEHOLDER PER CODICE TEXTURE CUSTOM ---

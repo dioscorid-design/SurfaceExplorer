@@ -4,6 +4,7 @@
 #include "surfaceengine.h"
 #include "glsltranslator.h"
 #include "expressionparser.h"
+#include "tubecurvesampler.h"
 
 #include <QTimer>
 #include <cmath>
@@ -177,9 +178,19 @@ bool GLWidget::ensureUboCapacity(int partCount)
                 m_ubo, sizeof(UboData)),
             QRhiShaderResourceBinding::sampledTexture(
                 1, QRhiShaderResourceBinding::FragmentStage,
-                m_bindingsDynTexture ? m_bindingsDynTexture : m_dummyTexture, m_sampler)
+                m_bindingsDynTexture ? m_bindingsDynTexture : m_dummyTexture, m_sampler),
+            tubeFramesBinding()
         });
         m_bindingsDyn->updateResources();
+    }
+    // ...e la passata compute dei tubi, che legge gli stessi blocchi.
+    if (m_tubeFrameSrb) {
+        m_tubeFrameSrb->setBindings({
+            QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
+                0, QRhiShaderResourceBinding::ComputeStage, m_ubo, sizeof(UboData)),
+            QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, m_tubeFrameTex, 0)
+        });
+        m_tubeFrameSrb->updateResources();
     }
 
     // Anche i binding statici (sfondo flat, ray marching) puntavano al vecchio UBO.
@@ -223,7 +234,8 @@ void GLWidget::ensureDynamicBindings(QRhiTexture *tex)
             QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
             m_ubo, sizeof(UboData)),
         QRhiShaderResourceBinding::sampledTexture(
-            1, QRhiShaderResourceBinding::FragmentStage, tex, m_sampler)
+            1, QRhiShaderResourceBinding::FragmentStage, tex, m_sampler),
+        tubeFramesBinding()
     });
 
     if (isNew) {
@@ -237,6 +249,152 @@ void GLWidget::ensureDynamicBindings(QRhiTexture *tex)
     }
 
     m_bindingsDynTexture = tex;
+}
+
+// ==========================================================
+// SEZIONE TRASPORTATA DEI TUBI (vedi glwidget.h e tubeSceneFrame in surface.vert)
+// ==========================================================
+
+void GLWidget::createTubeFrameResources()
+{
+    if (m_tubeFrameTex || !rhi()) return;
+    if (!rhi()->isFeatureSupported(QRhi::Compute)
+        || !rhi()->isTextureFormatSupported(QRhiTexture::RGBA32F, QRhiTexture::UsedWithLoadStore))
+        return;
+    m_tubeFrameTex = rhi()->newTexture(QRhiTexture::RGBA32F, QSize(kTubeFrameMaxRings, kTubeFrameMaxParts),
+                                       1, QRhiTexture::UsedWithLoadStore);
+    if (!m_tubeFrameTex->create()) {
+        delete m_tubeFrameTex;
+        m_tubeFrameTex = nullptr;
+        return;
+    }
+    // Texel interi letti con texelFetch: niente filtro (RGBA32F non e'
+    // filtrabile ovunque, e con Linear su GLES la texture risulterebbe
+    // incompleta).
+    m_tubeFrameSampler = rhi()->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
+                                           QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge);
+    m_tubeFrameSampler->create();
+}
+
+QRhiShaderResourceBinding GLWidget::tubeFramesBinding() const
+{
+    return QRhiShaderResourceBinding::sampledTexture(
+        2, QRhiShaderResourceBinding::VertexStage,
+        m_tubeFrameTex ? m_tubeFrameTex : m_dummyTexture,
+        m_tubeFrameSampler ? m_tubeFrameSampler : m_sampler);
+}
+
+bool GLWidget::tubeFramesActive() const
+{
+    return m_tubeFramePipeline && m_tubeFrameSrb && engine && m_engineMode == ModeParametric
+           && engine->isTubeModeActive() && !engine->isScriptModeActive() && !m_isCustomMesh;
+}
+
+void GLWidget::releaseTubeFramePipeline()
+{
+    if (m_tubeFramePipeline) { m_tubeFramePipeline->destroy(); delete m_tubeFramePipeline; m_tubeFramePipeline = nullptr; }
+    if (m_tubeFrameSrb) { m_tubeFrameSrb->destroy(); delete m_tubeFrameSrb; m_tubeFrameSrb = nullptr; }
+}
+
+// Il compute e' il vertex del tubo ridotto a libreria: ingressi e uscite
+// diventano variabili globali, main e gl_Position spariscono, e in coda va il
+// main che trasporta la sezione. Cosi' curva, rotazioni 4D e proiezione sono
+// LE STESSE del disegno, senza una seconda copia da tenere allineata.
+void GLWidget::buildTubeFramePipeline(const QString &vertexSource)
+{
+    releaseTubeFramePipeline();
+    if (!m_tubeFrameTex || !m_ubo || !vertexSource.contains(QLatin1String("#define IS_TUBE"))) return;
+
+    QString src = vertexSource;
+    static const QRegularExpression ioRe(QStringLiteral(R"(layout\s*\(\s*location\s*=\s*\d+\s*\)\s*(in|out)\s+)"));
+    src.remove(ioRe);
+    static const QRegularExpression mainRe(QStringLiteral(R"(\bvoid\s+main\s*\(\s*\))"));
+    src.replace(mainRe, QStringLiteral("void tubeVertexMain()"));
+    src.replace(QLatin1String("gl_Position"), QLatin1String("g_tubeFramePosition"));
+    const int versionAt = src.indexOf(QLatin1String("#version"));
+    const int eol = (versionAt < 0) ? -1 : src.indexOf(QLatin1Char('\n'), versionAt);
+    if (eol < 0) return;
+    src.insert(eol + 1, QStringLiteral("#define TUBE_FRAME_COMPUTE\nvec4 g_tubeFramePosition;\n"));
+
+    // Un workgroup per tubo. In parallelo la tangente proiettata di ogni
+    // anello; poi un thread solo porta la sezione da un anello al successivo
+    // (proiezione sul piano normale: nessuna rotazione attorno alla tangente)
+    // partendo dalla direzione locale del primo anello, e sulle curve chiuse
+    // ripartisce lungo il giro l'angolo che manca per ritrovarla all'ultimo.
+    src += QStringLiteral(R"(
+layout(local_size_x = 64) in;
+layout(rgba32f, binding = 1) writeonly uniform image2D u_frameOut;
+const int TUBE_MAX_RINGS = %1;
+shared float s_tx[TUBE_MAX_RINGS];
+shared float s_ty[TUBE_MAX_RINGS];
+shared float s_tz[TUBE_MAX_RINGS];
+shared vec3 s_start;
+shared vec3 s_first;
+shared vec3 s_last;
+
+vec3 tubeTangentAt(int i) { return vec3(s_tx[i], s_ty[i], s_tz[i]); }
+
+vec3 tubeCarry(vec3 r, vec3 T) {
+    vec3 q = r - dot(r, T) * T;
+    return (dot(q, q) > 1.0e-12) ? normalize(q) : r;
+}
+
+void main() {
+    int n = int(ubuf.u_tubeRings + 0.5);
+    int row = int(ubuf.u_meshIndex + 0.5);
+    if (ubuf.u_tubeFramesOn < 0.5 || n < 2 || n > TUBE_MAX_RINGS) return;
+    float span = ubuf.u_max - ubuf.u_min;
+    for (int i = int(gl_LocalInvocationID.x); i < n; i += 64) {
+        float u = ubuf.u_min + span * float(i) / float(n - 1);
+        vec3 C, E1, E2;
+        vec4 C4, T4;
+        tubeSceneFrame(u, C, E1, E2, C4, T4);
+        vec3 T = cross(E1, E2);
+        s_tx[i] = T.x;
+        s_ty[i] = T.y;
+        s_tz[i] = T.z;
+        if (i == 0) { s_start = E1; s_first = C; }
+        if (i == n - 1) s_last = C;
+    }
+    memoryBarrierShared();
+    barrier();
+    if (gl_LocalInvocationID.x != 0u) return;
+
+    vec3 r = s_start;
+    for (int i = 1; i < n; ++i) r = tubeCarry(r, tubeTangentAt(i));
+    float phi = 0.0;
+    if (length(s_last - s_first) < 1.0e-4 * (1.0 + length(s_first)))
+        phi = atan(dot(cross(r, s_start), tubeTangentAt(0)), dot(r, s_start));
+
+    r = s_start;
+    for (int i = 0; i < n; ++i) {
+        vec3 T = tubeTangentAt(i);
+        if (i > 0) r = tubeCarry(r, T);
+        float a = phi * float(i) / float(n - 1);
+        imageStore(u_frameOut, ivec2(i, row), vec4(cos(a) * r + sin(a) * cross(T, r), 0.0));
+    }
+}
+)").arg(kTubeFrameMaxRings);
+
+    QShader shader;
+    QString error;
+    if (!TubeCurveSampler::bakeCompute(src, &shader, &error)) {
+        qWarning() << "Tubi: passata della sezione non compilata, resta l'orientamento locale:" << error;
+        return;
+    }
+    m_tubeFrameSrb = rhi()->newShaderResourceBindings();
+    m_tubeFrameSrb->setBindings({
+        QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
+            0, QRhiShaderResourceBinding::ComputeStage, m_ubo, sizeof(UboData)),
+        QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, m_tubeFrameTex, 0)
+    });
+    m_tubeFramePipeline = rhi()->newComputePipeline();
+    m_tubeFramePipeline->setShaderResourceBindings(m_tubeFrameSrb);
+    m_tubeFramePipeline->setShaderStage(QRhiShaderStage(QRhiShaderStage::Compute, shader));
+    if (!m_tubeFrameSrb->create() || !m_tubeFramePipeline->create()) {
+        qWarning() << "Tubi: pipeline della sezione non creata, resta l'orientamento locale.";
+        releaseTubeFramePipeline();
+    }
 }
 
 // ==========================================================
@@ -368,7 +526,8 @@ void GLWidget::syncPartImages(QRhiResourceUpdateBatch *resourceUpdates)
                 QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
                 m_ubo, sizeof(UboData)),
             QRhiShaderResourceBinding::sampledTexture(
-                1, QRhiShaderResourceBinding::FragmentStage, entry.tex, m_sampler)
+                1, QRhiShaderResourceBinding::FragmentStage, entry.tex, m_sampler),
+            tubeFramesBinding()
         });
         entry.srb->create();
         m_partImages.insert(path, entry);
@@ -387,7 +546,8 @@ void GLWidget::rebindPartImages()
                 QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
                 m_ubo, sizeof(UboData)),
             QRhiShaderResourceBinding::sampledTexture(
-                1, QRhiShaderResourceBinding::FragmentStage, it->tex, m_sampler)
+                1, QRhiShaderResourceBinding::FragmentStage, it->tex, m_sampler),
+            tubeFramesBinding()
         });
         it->srb->updateResources();
     }
@@ -447,6 +607,8 @@ void GLWidget::initialize(QRhiCommandBuffer *cb)
     // --- 3. CREAZIONE TEXTURE E BINDINGS ---
     // A. Creiamo la texture "tappabuchi" (scacchiera: serve il cb per l'upload)
     createDummyTexture(cb);
+    // Prima dei binding della superficie, che la referenziano allo slot 2.
+    createTubeFrameResources();
 
     // B. Colleghiamo l'UBO al binding 0 e la TEXTURE al binding 1
     m_bindings = rhi()->newShaderResourceBindings();
@@ -836,12 +998,19 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // TUBO: direzione della sezione e spessore del tubo `mesh` (vedi
     // SurfaceEngine::TubeCopy e MeshPart::tubeThickness, fattore sullo
     // spessore del campo Thickness). Fuori dai tubi nessuno li legge.
-    auto applyTubeFields = [this](UboData &u, const MeshPart *mp, int mesh) {
+    // Sezione trasportata: gli anelli della parte, e se la passata compute di
+    // questo frame scrive la sua riga (entro i limiti della texture).
+    const bool tubeFrames = tubeFramesActive();
+    auto applyTubeFields = [this, tubeFrames](UboData &u, const MeshPart *mp, int mesh) {
         const QVector3D r = engine->tubeReference(mesh);
         u.u_tubeRefX = r.x();
         u.u_tubeRefY = r.y();
         u.u_tubeRefZ = r.z();
         u.u_tubeRadius = m_tubeRadius * ((mp && mp->tubeThickness >= 0.0f) ? mp->tubeThickness : 1.0f);
+        const int rings = mp ? mp->numU + 1 : 0;
+        u.u_tubeRings = float(rings);
+        u.u_tubeFramesOn = (tubeFrames && rings >= 2 && rings <= kTubeFrameMaxRings
+                            && mesh >= 0 && mesh < kTubeFrameMaxParts) ? 1.0f : 0.0f;
     };
     applyTubeFields(m_uboData, uboParts.empty() ? nullptr : &uboParts[0], 0);
     m_uboData.u_meshCount = (float)std::max(1, uboPartCount);
@@ -1365,6 +1534,25 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             wireframeNeedsUpdate = false;
         }
 
+        // SEZIONE TRASPORTATA DEI TUBI: prima del disegno, fuori dal render
+        // pass. La passata consuma gli aggiornamenti in coda (i blocchi UBO di
+        // questo frame), quindi il render pass parte senza.
+        if (tubeFramesActive()) {
+            cb->beginComputePass(resourceUpdates);
+            resourceUpdates = nullptr;
+            cb->setComputePipeline(m_tubeFramePipeline);
+            const std::vector<MeshPart> &frameParts = engine->getMeshParts();
+            const int blocks = std::max(1, (int)frameParts.size());
+            for (int k = 0; k < blocks; ++k) {
+                // Stesso blocco dei draw: 0 per un tubo solo, k per le copie.
+                const quint32 ofsBytes = (frameParts.size() <= 1) ? 0u : quint32(k) * m_uboBlockStride;
+                const QRhiCommandBuffer::DynamicOffset ofs(0, ofsBytes);
+                cb->setShaderResources(m_tubeFrameSrb, 1, &ofs);
+                cb->dispatch(1, 1, 1);
+            }
+            cb->endComputePass();
+        }
+
         // --- RENDER PASS ---
         QColor clearColor = QColor::fromRgbF(m_bgColor.x(), m_bgColor.y(), m_bgColor.z());
         cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 }, resourceUpdates);
@@ -1732,6 +1920,17 @@ void GLWidget::render(QRhiCommandBuffer *cb)
 
 void GLWidget::releaseResources()
 {
+    releaseTubeFramePipeline();
+    if (m_tubeFrameTex) {
+        m_tubeFrameTex->destroy();
+        delete m_tubeFrameTex;
+        m_tubeFrameTex = nullptr;
+    }
+    if (m_tubeFrameSampler) {
+        m_tubeFrameSampler->destroy();
+        delete m_tubeFrameSampler;
+        m_tubeFrameSampler = nullptr;
+    }
     if (m_dummyTexture) {
         m_dummyTexture->destroy();
         delete m_dummyTexture;
@@ -2103,7 +2302,9 @@ static_assert(offsetof(UboData, u_isBorder) == 448, "UboData: u_isBorder fuori p
 static_assert(offsetof(UboData, u_tubeRefX) == 452, "UboData: u_tubeRefX fuori posto");
 static_assert(offsetof(UboData, u_tubeRefZ) == 460, "UboData: u_tubeRefZ fuori posto");
 static_assert(offsetof(UboData, u_meshCount) == 464, "UboData: u_meshCount fuori posto");
-static_assert(sizeof(UboData) == 480, "UboData: dopo u_meshCount il blocco e' di 480 byte");
+static_assert(offsetof(UboData, u_tubeRings) == 468, "UboData: u_tubeRings fuori posto");
+static_assert(offsetof(UboData, u_tubeFramesOn) == 472, "UboData: u_tubeFramesOn fuori posto");
+static_assert(sizeof(UboData) == 480, "UboData: dopo u_tubeFramesOn il blocco e' di 480 byte");
 static_assert(sizeof(UboData) % 16 == 0, "UboData: dimensione non multipla di 16 (std140)");
 
 bool GLWidget::setTubeCurve(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq,
@@ -6579,6 +6780,8 @@ void GLWidget::buildPipeline() {
     freePipe(m_pipelineTranspBack);
     freePipe(m_pipelineTranspFront);
     freePipe(m_wireframePipeline);
+    // La passata dei tubi nasce dallo stesso vertex: va rifatta con lui.
+    buildTubeFramePipeline(vsSource);
 
     QRhiGraphicsPipeline::TargetBlend blend;
     blend.enable   = true;

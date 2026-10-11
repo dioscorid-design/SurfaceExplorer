@@ -161,8 +161,16 @@ struct UboData {
     // riga (480 byte). Dichiarato in ENTRAMBI gli shader parametrici (regola
     // Adreno, vedi CLAUDE.md); lo usa solo il vertex.
     float u_meshCount;
+    // SEZIONE TRASPORTATA DEI TUBI (vedi buildTubeFramePipeline): anelli della
+    // parte (numU + 1) e 1 se la passata compute ha scritto per lei la
+    // direzione della sezione in m_tubeFrameTex. Occupano due posti della
+    // riserva _pad3: il blocco non cresce (480 byte). Dichiarati in ENTRAMBI
+    // gli shader parametrici (regola Adreno, vedi CLAUDE.md); li usano il
+    // vertex e il compute.
+    float u_tubeRings;
+    float u_tubeFramesOn;
     // padding esplicito: std140 allinea la struct a vec4 (16 byte).
-    float _pad3[3];
+    float _pad3[1];
 };
 
 class GLWidget : public QRhiWidget
@@ -1283,6 +1291,29 @@ private:
     QRhiTexture *m_bindingsDynTexture = nullptr;  // texture con cui e' stato creato
     void ensureDynamicBindings(QRhiTexture *tex);
     bool ensureUboCapacity(int partCount);
+
+    // SEZIONE TRASPORTATA DEI TUBI. Una passata compute a ogni frame, prima
+    // del disegno, porta la sezione da un anello al successivo lungo la curva
+    // PROIETTATA (trasporto parallelo) e scrive la direzione di ogni anello in
+    // m_tubeFrameTex (una riga per tubo); il vertex la legge (slot 2,
+    // tubeTransportedDir in surface.vert). Il compute e' il vertex stesso
+    // ridotto a libreria di funzioni, quindi curva, rotazioni e proiezione
+    // sono le stesse del disegno. Senza compute (o RGBA32F in load/store) la
+    // texture non esiste e resta l'orientamento locale di sempre.
+    static constexpr int kTubeFrameMaxRings = 1024;   // = TUBE_MAX_RINGS nel compute
+    static constexpr int kTubeFrameMaxParts = 64;
+    QRhiTexture *m_tubeFrameTex = nullptr;
+    QRhiSampler *m_tubeFrameSampler = nullptr;
+    QRhiShaderResourceBindings *m_tubeFrameSrb = nullptr;
+    QRhiComputePipeline *m_tubeFramePipeline = nullptr;
+    void createTubeFrameResources();
+    void buildTubeFramePipeline(const QString &vertexSource);
+    void releaseTubeFramePipeline();
+    // La passata gira in questo frame: tubo a schermo e pipeline pronta.
+    bool tubeFramesActive() const;
+    // Lo slot 2 di ogni binding della superficie: la texture delle direzioni,
+    // o la dummy dove non c'e' (il layout deve essere lo stesso per tutte).
+    QRhiShaderResourceBinding tubeFramesBinding() const;
 
 
     // ==========================================================
