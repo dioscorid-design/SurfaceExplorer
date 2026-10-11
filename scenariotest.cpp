@@ -3531,6 +3531,12 @@ void ScenarioTest::run()
         check(h.isEmpty() || h.startsWith(QLatin1String("Surface slider")),
               QStringLiteral("hint della sola superficie -> %1").arg(QString(h).replace(QLatin1Char('\n'), QLatin1String(" / "))));
     }
+    // Un hint che dichiara il proprio ruolo resta com'e' (record di path).
+    if (loadRecord(QStringLiteral("records/Paths/Clover.json"))) {
+        const QString h = m_mw->composedHintText();
+        check(h.startsWith(QLatin1String("Path slider A")),
+              QStringLiteral("hint del path -> %1").arg(QString(h).replace(QLatin1Char('\n'), QLatin1String(" / "))));
+    }
 
     runScriptDockScenarios();
     runTextureTargetScenarios();

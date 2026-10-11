@@ -47,9 +47,14 @@ QString SceneHintOverlay::compose(const QString &surface, const QString &texture
     // Library puo' finire sulla superficie o sullo sfondo. "Sliders" diventa
     // "Texture sliders", "Slider A: ..." "Surface slider A: ...".
     static const QRegularExpression head(QStringLiteral("^Sliders?\\b"));
+    // Un hint puo' dichiarare da se' il ruolo dei suoi slider ("Path slider A:
+    // ..."): nei record di path A muove il percorso della camera, e "Surface
+    // slider" sarebbe falso. Si lascia com'e'.
+    static const QRegularExpression ownRole(QStringLiteral("^\\w+ sliders?\\b"));
     QStringList lines;
     for (const auto &s : shown) {
         QString text = s.second;
+        if (ownRole.match(text).hasMatch()) { lines << text; continue; }
         const QRegularExpressionMatch m = head.match(text);
         if (m.hasMatch()) lines << text.replace(0, m.capturedLength(), s.first + " " + m.captured(0).toLower());
         else              lines << s.first + " - " + text;
