@@ -1787,9 +1787,17 @@ void MainWindow::updateMasterButtonState()
         bool surfaceFromScript = !m_scene.surfaceScriptApplied.trimmed().isEmpty()
                               && m_surfaceOrigin != OriginBoth;
 
+        // Sotto-tab Tubes: il dock Equations comanda se la curva e' nei suoi
+        // campi (il Run costruisce il tubo, che sostituisce anche una superficie
+        // da script). Con i campi vuoti la curva la da' lo SCRIPT
+        // (tubeSceneFromScript): il tubo si avvia e si ferma dal dock Script,
+        // come ogni superficie da script, e qui il tasto resta spento -- prima
+        // un tubo da script animato accendeva "Stop" anche in questo dock.
+        const bool tubes = tubesShown();
+        const bool eqDockOwnsGeometry = tubes ? !tubeSceneFromScript() : !surfaceFromScript;
+
         if (ui->btnRunParametric) {
-            ui->btnRunParametric->setText((eqModuleMoving && (tubesShown() || !surfaceFromScript))
-                                          ? "Stop" : "Run");
+            ui->btnRunParametric->setText((eqModuleMoving && eqDockOwnsGeometry) ? "Stop" : "Run");
             // Run "one-shot" senza animazione: quando il modulo non è in moto e la
             // modifica è già stata applicata (m_parametricApplied), il tasto è
             // disabilitato finché le equazioni non cambiano. ECCEZIONE: se l'equazione
@@ -1805,12 +1813,10 @@ void MainWindow::updateMasterButtonState()
             // Gate completo: equazioni, dominio e campi del tab attivo (vedi
             // hasCompleteParametricInput). A moto in corso il tasto e' "Stop" e
             // non si valuta l'input: fermare dev'essere sempre possibile.
-            // Sotto-tab Tubes: il Run costruisce il tubo, che sostituisce
-            // anche una superficie da script; servono la curva e i limiti u.
-            const bool tubes = tubesShown();
+            // Sotto-tab Tubes: servono la curva e i limiti u.
             const bool eqInputOk = eqModuleMoving
                                    || (tubes ? hasCompleteTubeInput() : hasCompleteParametricInput());
-            ui->btnRunParametric->setEnabled((tubes || !surfaceFromScript) && eqInputOk &&
+            ui->btnRunParametric->setEnabled(eqDockOwnsGeometry && eqInputOk &&
                                              (eqModuleMoving || !m_parametricApplied || geomHasTime));
         }
         if (ui->btnImplicit) {
