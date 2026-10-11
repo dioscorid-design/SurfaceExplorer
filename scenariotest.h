@@ -2,6 +2,7 @@
 #define SCENARIOTEST_H
 
 #include <QColor>
+#include <functional>
 #include <QMap>
 #include <QObject>
 #include <QStringList>
@@ -45,6 +46,10 @@ private:
     bool loadRecord(const QString &rel);
     // Come il load di una superficie della Library (applySurfaceExample).
     bool loadSurface(const QString &rel);
+    // Superfici e record della libreria che soddisfano `pick`, in ordine. Per
+    // i giri su un TIPO di preset: le cartelle le riordina l'utente, e un
+    // elenco di cartelle scritto qui smetteva di trovare i file.
+    QStringList presetsWhere(const std::function<bool(const LibraryItem &, bool isRecord)> &pick) const;
     // Il click vero sulla voce della Library Textures (segnale itemClicked
     // dell'albero, quindi onExampleItemClicked), cercata per percorso nella
     // libreria dell'app.
@@ -203,6 +208,15 @@ private:
     // Da sola: --scenario-only border.
     void runBorderScenarios();
     void runMeshCountScenarios();
+    // ORDINE DEI CARICAMENTI: una scena non deve ricordare quella di prima.
+    // Un giro che carica ogni tipo di scena (equazioni, script, tubi, flusso
+    // geodetico, metrica, Ray Marching, Cross Section, multi-mesh, bordo, NEW)
+    // dopo ogni altro tipo; per ognuno l'impronta del motore (modalita', tubo,
+    // script, mesh custom, parti, costanti in uso, sorgenti degli shader...)
+    // deve venire uguale qualunque sia il predecessore. Il riferimento e'
+    // l'impronta piu' frequente: si segnalano i predecessori che la cambiano.
+    // ~4 minuti. Da sola: --scenario-only load-order.
+    void runLoadOrderScenarios();
     // Load di record la cui texture si compilava male: motore = applicata =
     // script (checkTextureCode). Kerr Spin Animated porta un blocco audio coi
     // marcatori spaziati ("// SOUND_BEGIN"), Oloid un vincolo in W che a meta'

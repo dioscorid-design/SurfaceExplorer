@@ -169,6 +169,7 @@ class GLWidget : public QRhiWidget
 {
     Q_OBJECT
     friend class ClockTest;   // legge il tempo arrivato allo shader (m_uboData)
+    friend class ScenarioTest;   // confronta i sorgenti degli shader (ordine dei load)
 
 public:
     explicit GLWidget(QWidget *parent = nullptr);

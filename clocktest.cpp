@@ -21,7 +21,7 @@
 namespace {
 
 // Record della libreria di fabbrica usati dal test (radice/<percorso>).
-const char *kAnimatedRecord  = "records/t_motions/3D/Dynamic Mobius Band.json";
+const char *kAnimatedRecord  = "records/Animations/3D/Dynamic Mobius Band.json";
 const char *kMultiMeshRecord = "records/Solid Wireframe/Multi Mesh/Hopf Tori.json";
 
 QString num(float v) { return QString::number(v, 'f', 4); }
