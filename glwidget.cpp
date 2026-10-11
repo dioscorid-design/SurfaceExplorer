@@ -2843,6 +2843,15 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
     }
 #endif
 
+    // La mesh custom sostituisce un eventuale tubo, come equazioni e script.
+    // Il load di un record geodetico dopo un tubo non passava di li': le sue
+    // equazioni (x = U, ...) non compilano come parametriche, quindi
+    // setParametricEquations falliva e RIMETTEVA il tubo. Rimasto acceso,
+    // il motore leggeva la curva al posto delle equazioni (costanti in uso)
+    // e lo shader disegnava la curva al posto della superficie, che spariva.
+    const bool wasTube = engine->isTubeModeActive();
+    engine->setTubeMode(false);
+
     // 3. Invia i dati al SurfaceEngine
     engine->setCustomMesh(vertices, indices, isUClosed, isVClosed);
 
@@ -2850,7 +2859,7 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
 
     meshNeedsUpdate = true;
 
-    if (!wasCustom) {
+    if (!wasCustom || wasTube) {
         rebuildShader();
     }
 
@@ -5808,7 +5817,10 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
     };
 
     // --- SOSTITUZIONE LOGICA ---
-    if (engine->isTubeModeActive() && !engine->isScriptModeActive()) {
+    // Mai sulla mesh custom (stessa guardia di IS_TUBE piu' sotto): li'
+    // getRawPosition restituisce il vertice del buffer, e sostituirla con la
+    // curva faceva sparire la superficie.
+    if (engine->isTubeModeActive() && !engine->isScriptModeActive() && !m_isCustomMesh) {
         // TUBO attorno alla curva C(u) = (X, Y, Z, P), sotto-tab Tubes: dalle
         // equazioni o da uno script (tubeCurveFunction). Qui getRawPosition
         // restituisce il solo punto della CURVA; il tubo lo costruisce il

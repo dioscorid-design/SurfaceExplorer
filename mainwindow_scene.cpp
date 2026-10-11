@@ -3551,14 +3551,16 @@ void MainWindow::preparePresetScriptEngine(const LibraryItem &d, bool isScript)
         }
         // Le copie del campo Meshes (gia' nello stato: assignSceneTexts),
         // prima di fondere l'aspetto salvato per ogni mesh. La sorgente in cui
-        // cercare `mesh`: lo script, oppure equazioni e curva del tubo.
+        // cercare `mesh`: lo script, oppure cio' che va a schermo -- la curva
+        // se il preset e' un tubo, altrimenti le equazioni.
         if (!d.isImplicitMode) {
             const EquationTexts &e = m_scene.eq;
             const TubeTexts &t = m_scene.tube;
             const QString meshSource = isScript ? d.scriptCode
-                : QStringList{ e.x, e.y, e.z, e.p, e.u, e.v, e.w,
-                               e.explicitU, e.explicitV, e.explicitW,
-                               t.x, t.y, t.z, t.p, t.thickness }.join(QLatin1Char('\n'));
+                : m_scene.tubesTab
+                    ? QStringList{ t.x, t.y, t.z, t.p, t.thickness }.join(QLatin1Char('\n'))
+                    : QStringList{ e.x, e.y, e.z, e.p, e.u, e.v, e.w,
+                                   e.explicitU, e.explicitV, e.explicitW }.join(QLatin1Char('\n'));
             meshParts = countMeshParts(meshParts, meshSource);
         }
         ui->glWidget->getEngine()->setCutoutCodeGLSL(cutoutGlsl);
