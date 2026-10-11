@@ -169,8 +169,11 @@ struct UboData {
     // vertex e il compute.
     float u_tubeRings;
     float u_tubeFramesOn;
-    // padding esplicito: std140 allinea la struct a vec4 (16 byte).
-    float _pad3[1];
+    // Quanto ogni anello si avvicina, in questo frame, alla sezione calcolata
+    // (smorzamento degli scatti, vedi buildTubeFramePipeline): dal passo del
+    // frame, quindi uguale a schermo e nel video. Ultimo posto della riserva:
+    // il blocco resta di 480 byte.
+    float u_tubeFrameBlend;
 };
 
 class GLWidget : public QRhiWidget
@@ -1304,6 +1307,18 @@ private:
     static constexpr int kTubeFrameMaxParts = 64;
     QRhiTexture *m_tubeFrameTex = nullptr;
     QRhiSampler *m_tubeFrameSampler = nullptr;
+    // Lavoro del compute e stato fra un frame e l'altro: per ogni anello
+    // tangente, direzione locale e sezione mostrata al frame prima; in coda,
+    // per ogni tubo, partenza e angolo di chiusura. Lo stato si azzera quando
+    // la pipeline viene rifatta (curva nuova) o cambiano tubi e anelli
+    // (m_tubeFrameLayout): m_tubeFrameStateReset, consumato al frame dopo.
+    QRhiBuffer *m_tubeFrameWork = nullptr;
+    bool m_tubeFrameStateReset = true;
+    quint64 m_tubeFrameLayout = 0;
+    // Passo dell'ultimo frame, da advanceClocksBy (live o REC): da qui lo
+    // smorzamento degli scatti della sezione (u_tubeFrameBlend).
+    float m_tubeFrameDt = 0.0f;
+    static constexpr int kTubeFrameWorkVec4 = kTubeFrameMaxParts * kTubeFrameMaxRings * 3 + kTubeFrameMaxParts * 2;
     QRhiShaderResourceBindings *m_tubeFrameSrb = nullptr;
     QRhiComputePipeline *m_tubeFramePipeline = nullptr;
     void createTubeFrameResources();

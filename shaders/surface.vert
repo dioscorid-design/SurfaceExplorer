@@ -96,6 +96,8 @@ layout(std140, binding = 0) uniform SceneUBO {
     // UboData.
     float u_tubeRings;
     float u_tubeFramesOn;
+    // Smorzamento della sezione dei tubi: lo legge solo il compute.
+    float u_tubeFrameBlend;
 } ubuf;
 
 float sq(float x) { return x*x; }
@@ -460,7 +462,7 @@ vec3 projectToScene(vec4 pRot) {
 // direzione viene dal TRASPORTO PARALLELO lungo la curva proiettata, rifatto a
 // ogni frame: la sezione passa da un anello al successivo senza ruotare, e
 // sulle curve chiuse lo scarto si ripartisce lungo il giro. Quella locale qui
-// sotto resta il punto di partenza (primo anello) e la riserva.
+// sotto resta il riferimento della partenza (primo anello) e la riserva.
 #ifndef TUBE_FRAME_COMPUTE
 layout(binding = 2) uniform sampler2D u_tubeFrames;
 
@@ -479,7 +481,13 @@ vec3 tubeTransportedDir(float u) {
 }
 #endif
 
-void tubeSceneFrame(float u, out vec3 C, out vec3 E1, out vec3 E2, out vec4 C4, out vec4 T4) {
+// Orientamento LOCALE in u: punto, tangente proiettata Tn e direzione E1 della
+// sezione dalla direzione di riferimento. `trust` dice quanto E1 e' affidabile
+// (seno al quadrato dell'angolo fra riferimento e tangente): vicino a 0 la
+// direzione gira in fretta, e col ripiego sull'asse vale 0. Lo usa il compute
+// per non farsi trascinare dalla partenza quando non e' affidabile.
+void tubeLocalFrame(float u, out vec3 C, out vec3 Tn, out vec3 E1, out vec4 C4, out vec4 T4,
+                    out float trust) {
     const float e = 0.001;
     vec4 raw = getRawPositionAuto(u, 0.0);
     C4 = rotate4D(raw);
@@ -491,22 +499,31 @@ void tubeSceneFrame(float u, out vec3 C, out vec3 E1, out vec3 E2, out vec4 C4, 
     T4 = (dot(T4, T4) > 1.0e-20) ? normalize(T4) : vec4(1.0, 0.0, 0.0, 0.0);
     vec3 T = projectToScene(Cp) - projectToScene(Cm);
     float lenT = length(T);
-    vec3 Tn = (lenT > 1.0e-10) ? T / lenT : vec3(1.0, 0.0, 0.0);
+    Tn = (lenT > 1.0e-10) ? T / lenT : vec3(1.0, 0.0, 0.0);
     vec4 R4 = vec4(ubuf.u_tubeRefX, ubuf.u_tubeRefY, ubuf.u_tubeRefZ, 0.0);
     vec3 R = projectToScene(rotate4D(raw + e * R4)) - C;
     E1 = R - dot(R, Tn) * Tn;
-    if (dot(E1, E1) < 1.0e-4 * dot(R, R) || dot(R, R) < 1.0e-16) {
+    float rr = dot(R, R);
+    trust = (rr > 1.0e-16) ? clamp(dot(E1, E1) / rr, 0.0, 1.0) : 0.0;
+    if (dot(E1, E1) < 1.0e-4 * rr || rr < 1.0e-16) {
         vec3 alt = (abs(Tn.x) < 0.9) ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
         E1 = alt - dot(alt, Tn) * Tn;
+        trust = 0.0;
     }
+    E1 = normalize(E1);
+}
+
+void tubeSceneFrame(float u, out vec3 C, out vec3 E1, out vec3 E2, out vec4 C4, out vec4 T4) {
+    vec3 Tn;
+    float trust;
+    tubeLocalFrame(u, C, Tn, E1, C4, T4, trust);
 #ifndef TUBE_FRAME_COMPUTE
     if (ubuf.u_tubeFramesOn > 0.5) {
         vec3 F = tubeTransportedDir(u);
         F -= dot(F, Tn) * Tn;
-        if (dot(F, F) > 1.0e-8) E1 = F;
+        if (dot(F, F) > 1.0e-8) E1 = normalize(F);
     }
 #endif
-    E1 = normalize(E1);
     E2 = cross(Tn, E1);
 }
 

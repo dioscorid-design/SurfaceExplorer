@@ -188,7 +188,8 @@ bool GLWidget::ensureUboCapacity(int partCount)
         m_tubeFrameSrb->setBindings({
             QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
                 0, QRhiShaderResourceBinding::ComputeStage, m_ubo, sizeof(UboData)),
-            QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, m_tubeFrameTex, 0)
+            QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, m_tubeFrameTex, 0),
+            QRhiShaderResourceBinding::bufferLoadStore(2, QRhiShaderResourceBinding::ComputeStage, m_tubeFrameWork)
         });
         m_tubeFrameSrb->updateResources();
     }
@@ -274,6 +275,16 @@ void GLWidget::createTubeFrameResources()
     m_tubeFrameSampler = rhi()->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
                                            QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge);
     m_tubeFrameSampler->create();
+    const quint32 workBytes = quint32(kTubeFrameWorkVec4) * 16u;
+    m_tubeFrameWork = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer, workBytes);
+    if (!m_tubeFrameWork->create()) {
+        delete m_tubeFrameWork;
+        m_tubeFrameWork = nullptr;
+        m_tubeFrameTex->destroy();
+        delete m_tubeFrameTex;
+        m_tubeFrameTex = nullptr;
+    }
+    m_tubeFrameStateReset = true;
 }
 
 QRhiShaderResourceBinding GLWidget::tubeFramesBinding() const
@@ -286,7 +297,7 @@ QRhiShaderResourceBinding GLWidget::tubeFramesBinding() const
 
 bool GLWidget::tubeFramesActive() const
 {
-    return m_tubeFramePipeline && m_tubeFrameSrb && engine && m_engineMode == ModeParametric
+    return m_tubeFramePipeline && m_tubeFrameSrb && m_tubeFrameWork && engine && m_engineMode == ModeParametric
            && engine->isTubeModeActive() && !engine->isScriptModeActive() && !m_isCustomMesh;
 }
 
@@ -303,7 +314,8 @@ void GLWidget::releaseTubeFramePipeline()
 void GLWidget::buildTubeFramePipeline(const QString &vertexSource)
 {
     releaseTubeFramePipeline();
-    if (!m_tubeFrameTex || !m_ubo || !vertexSource.contains(QLatin1String("#define IS_TUBE"))) return;
+    if (!m_tubeFrameTex || !m_tubeFrameWork || !m_ubo
+        || !vertexSource.contains(QLatin1String("#define IS_TUBE"))) return;
 
     QString src = vertexSource;
     static const QRegularExpression ioRe(QStringLiteral(R"(layout\s*\(\s*location\s*=\s*\d+\s*\)\s*(in|out)\s+)"));
@@ -316,65 +328,119 @@ void GLWidget::buildTubeFramePipeline(const QString &vertexSource)
     if (eol < 0) return;
     src.insert(eol + 1, QStringLiteral("#define TUBE_FRAME_COMPUTE\nvec4 g_tubeFramePosition;\n"));
 
-    // Un workgroup per tubo. In parallelo la tangente proiettata di ogni
-    // anello; poi un thread solo porta la sezione da un anello al successivo
-    // (proiezione sul piano normale: nessuna rotazione attorno alla tangente)
-    // partendo dalla direzione locale del primo anello, e sulle curve chiuse
-    // ripartisce lungo il giro l'angolo che manca per ritrovarla all'ultimo.
+    // Un workgroup per tubo. In parallelo, per ogni anello, la tangente
+    // proiettata e la direzione locale (con la sua affidabilita'); poi un
+    // thread solo porta la sezione da un anello al successivo (proiezione sul
+    // piano normale: nessuna rotazione attorno alla tangente).
+    // CONTINUITA' NEL TEMPO, dallo stato dei frame precedenti (nel buffer di
+    // lavoro, azzerato quando cambiano curva o anelli). Gli scatti che restano
+    // col solo trasporto vengono dalla curva PROIETTATA: dove forma o scioglie
+    // una cuspide (svolte di 100-140 gradi fra due anelli) il trasporto che la
+    // attraversa cambia di colpo, e lo scarto di chiusura lo ripartisce su
+    // lunghi tratti del tubo. E' una proprieta' della curva, non un errore di
+    // calcolo, quindi si toglie dalla vista:
+    //  - ogni anello si avvicina alla sezione calcolata di una frazione per
+    //    frame (u_tubeFrameBlend, costante di tempo 0.1 s): un salto di 20 gradi
+    //    diventa una rotazione fluida di un terzo di secondo. Un limite fisso di
+    //    gradi per frame non bastava: nel moto normale la sezione ruota gia' di
+    //    6-8 gradi per tick (misurato), quanto i salti piu' piccoli. Il prezzo
+    //    e' un piccolo ritardo della texture nel moto, senza artefatti;
+    //  - l'ANGOLO DI CHIUSURA prosegue quello di prima invece di essere ripreso
+    //    fra -180 e +180 gradi (scatta solo oltre un giro e mezzo): senza, al
+    //    passaggio per 180 meta' tubo ruoterebbe in un verso e meta' nell'altro;
+    //  - la PARTENZA e' quella di prima riportata sul piano normale di adesso,
+    //    avvicinata a poco a poco alla direzione locale quando questa e'
+    //    affidabile.
     src += QStringLiteral(R"(
 layout(local_size_x = 64) in;
 layout(rgba32f, binding = 1) writeonly uniform image2D u_frameOut;
+// Per tubo 3 vec4 per anello (tangente + affidabilita', direzione locale,
+// sezione mostrata al frame prima + valida), poi in coda 2 vec4 di stato per
+// tubo (partenza + valida, angolo di chiusura + valido).
+layout(std430, binding = 2) coherent buffer TubeFrameWork { vec4 w[]; } work;
 const int TUBE_MAX_RINGS = %1;
-shared float s_tx[TUBE_MAX_RINGS];
-shared float s_ty[TUBE_MAX_RINGS];
-shared float s_tz[TUBE_MAX_RINGS];
-shared vec3 s_start;
+const int TUBE_MAX_PARTS = %2;
+const float TUBE_TWO_PI = 6.28318530718;
 shared vec3 s_first;
 shared vec3 s_last;
 
-vec3 tubeTangentAt(int i) { return vec3(s_tx[i], s_ty[i], s_tz[i]); }
+int tubeRingSlot(int row, int i) { return (row * TUBE_MAX_RINGS + i) * 3; }
+int tubeStateSlot(int row) { return TUBE_MAX_PARTS * TUBE_MAX_RINGS * 3 + row * 2; }
 
 vec3 tubeCarry(vec3 r, vec3 T) {
     vec3 q = r - dot(r, T) * T;
     return (dot(q, q) > 1.0e-12) ? normalize(q) : r;
 }
+vec3 tubeTurn(vec3 r, vec3 T, float a) { return cos(a) * r + sin(a) * cross(T, r); }
+float tubeAngle(vec3 from, vec3 to, vec3 T) { return atan(dot(cross(from, to), T), dot(from, to)); }
 
 void main() {
     int n = int(ubuf.u_tubeRings + 0.5);
     int row = int(ubuf.u_meshIndex + 0.5);
-    if (ubuf.u_tubeFramesOn < 0.5 || n < 2 || n > TUBE_MAX_RINGS) return;
+    if (ubuf.u_tubeFramesOn < 0.5 || n < 2 || n > TUBE_MAX_RINGS || row < 0 || row >= TUBE_MAX_PARTS) return;
     float span = ubuf.u_max - ubuf.u_min;
     for (int i = int(gl_LocalInvocationID.x); i < n; i += 64) {
         float u = ubuf.u_min + span * float(i) / float(n - 1);
-        vec3 C, E1, E2;
+        vec3 C, Tn, E1;
         vec4 C4, T4;
-        tubeSceneFrame(u, C, E1, E2, C4, T4);
-        vec3 T = cross(E1, E2);
-        s_tx[i] = T.x;
-        s_ty[i] = T.y;
-        s_tz[i] = T.z;
-        if (i == 0) { s_start = E1; s_first = C; }
+        float trust;
+        tubeLocalFrame(u, C, Tn, E1, C4, T4, trust);
+        work.w[tubeRingSlot(row, i)] = vec4(Tn, trust);
+        work.w[tubeRingSlot(row, i) + 1] = vec4(E1, 0.0);
+        if (i == 0) s_first = C;
         if (i == n - 1) s_last = C;
     }
+    memoryBarrierBuffer();
     memoryBarrierShared();
     barrier();
     if (gl_LocalInvocationID.x != 0u) return;
 
-    vec3 r = s_start;
-    for (int i = 1; i < n; ++i) r = tubeCarry(r, tubeTangentAt(i));
-    float phi = 0.0;
-    if (length(s_last - s_first) < 1.0e-4 * (1.0 + length(s_first)))
-        phi = atan(dot(cross(r, s_start), tubeTangentAt(0)), dot(r, s_start));
+    // 1. Partenza continua nel tempo.
+    vec4 t0 = work.w[tubeRingSlot(row, 0)];
+    vec3 T0 = t0.xyz;
+    vec3 local0 = work.w[tubeRingSlot(row, 0) + 1].xyz;
+    vec4 st = work.w[tubeStateSlot(row)];
+    vec3 start = local0;
+    if (st.w > 0.5) {
+        vec3 prev = tubeCarry(st.xyz, T0);
+        float pull = 0.15 * smoothstep(0.02, 0.25, t0.w);
+        start = normalize(tubeTurn(prev, T0, pull * tubeAngle(prev, local0, T0)));
+    }
+    work.w[tubeStateSlot(row)] = vec4(start, 1.0);
 
-    r = s_start;
+    // 2. Giro di prova: dove arriva la sezione, e quanto manca per richiudersi.
+    vec3 r = start;
+    for (int i = 1; i < n; ++i) r = tubeCarry(r, work.w[tubeRingSlot(row, i)].xyz);
+    vec4 sp = work.w[tubeStateSlot(row) + 1];
+    float phi = 0.0;
+    if (length(s_last - s_first) < 1.0e-4 * (1.0 + length(s_first))) {
+        float p = tubeAngle(r, start, T0);
+        phi = p;
+        if (sp.y > 0.5) {
+            float c = p + TUBE_TWO_PI * round((sp.x - p) / TUBE_TWO_PI);
+            if (abs(c) <= 1.5 * TUBE_TWO_PI) phi = c;
+        }
+    }
+    work.w[tubeStateSlot(row) + 1] = vec4(phi, 1.0, 0.0, 0.0);
+
+    // 3. Giro vero, con lo scarto ripartito lungo la curva; ogni anello si
+    //    avvicina alla sezione calcolata di u_tubeFrameBlend.
+    r = start;
     for (int i = 0; i < n; ++i) {
-        vec3 T = tubeTangentAt(i);
+        vec3 T = work.w[tubeRingSlot(row, i)].xyz;
         if (i > 0) r = tubeCarry(r, T);
-        float a = phi * float(i) / float(n - 1);
-        imageStore(u_frameOut, ivec2(i, row), vec4(cos(a) * r + sin(a) * cross(T, r), 0.0));
+        vec3 target = tubeTurn(r, T, phi * float(i) / float(n - 1));
+        vec4 last = work.w[tubeRingSlot(row, i) + 2];
+        vec3 shown = target;
+        if (last.w > 0.5) {
+            vec3 before = tubeCarry(last.xyz, T);
+            shown = tubeTurn(before, T, ubuf.u_tubeFrameBlend * tubeAngle(before, target, T));
+        }
+        work.w[tubeRingSlot(row, i) + 2] = vec4(shown, 1.0);
+        imageStore(u_frameOut, ivec2(i, row), vec4(shown, 0.0));
     }
 }
-)").arg(kTubeFrameMaxRings);
+)").arg(kTubeFrameMaxRings).arg(kTubeFrameMaxParts);
 
     QShader shader;
     QString error;
@@ -386,8 +452,11 @@ void main() {
     m_tubeFrameSrb->setBindings({
         QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
             0, QRhiShaderResourceBinding::ComputeStage, m_ubo, sizeof(UboData)),
-        QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, m_tubeFrameTex, 0)
+        QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, m_tubeFrameTex, 0),
+        QRhiShaderResourceBinding::bufferLoadStore(2, QRhiShaderResourceBinding::ComputeStage, m_tubeFrameWork)
     });
+    // Curva nuova: lo stato dei frame precedenti non le appartiene.
+    m_tubeFrameStateReset = true;
     m_tubeFramePipeline = rhi()->newComputePipeline();
     m_tubeFramePipeline->setShaderResourceBindings(m_tubeFrameSrb);
     m_tubeFramePipeline->setShaderStage(QRhiShaderStage(QRhiShaderStage::Compute, shader));
@@ -1001,7 +1070,9 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // Sezione trasportata: gli anelli della parte, e se la passata compute di
     // questo frame scrive la sua riga (entro i limiti della texture).
     const bool tubeFrames = tubeFramesActive();
-    auto applyTubeFields = [this, tubeFrames](UboData &u, const MeshPart *mp, int mesh) {
+    // Smorzamento della sezione: costante di tempo 0.1 s, indipendente dai fps.
+    const float tubeBlend = 1.0f - std::exp(-std::max(0.0f, m_tubeFrameDt) / 0.1f);
+    auto applyTubeFields = [this, tubeFrames, tubeBlend](UboData &u, const MeshPart *mp, int mesh) {
         const QVector3D r = engine->tubeReference(mesh);
         u.u_tubeRefX = r.x();
         u.u_tubeRefY = r.y();
@@ -1011,6 +1082,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         u.u_tubeRings = float(rings);
         u.u_tubeFramesOn = (tubeFrames && rings >= 2 && rings <= kTubeFrameMaxRings
                             && mesh >= 0 && mesh < kTubeFrameMaxParts) ? 1.0f : 0.0f;
+        u.u_tubeFrameBlend = tubeBlend;
     };
     applyTubeFields(m_uboData, uboParts.empty() ? nullptr : &uboParts[0], 0);
     m_uboData.u_meshCount = (float)std::max(1, uboPartCount);
@@ -1538,6 +1610,18 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         // pass. La passata consuma gli aggiornamenti in coda (i blocchi UBO di
         // questo frame), quindi il render pass parte senza.
         if (tubeFramesActive()) {
+            // Tubi o anelli diversi: lo stato per anello non corrisponde piu'.
+            quint64 layout = engine->getMeshParts().size();
+            for (const MeshPart &mp : engine->getMeshParts()) layout = layout * 1000003u + quint64(mp.numU);
+            if (layout != m_tubeFrameLayout) {
+                m_tubeFrameLayout = layout;
+                m_tubeFrameStateReset = true;
+            }
+            if (m_tubeFrameStateReset) {
+                static const QByteArray zeros(kTubeFrameWorkVec4 * 16, '\0');
+                resourceUpdates->uploadStaticBuffer(m_tubeFrameWork, 0, quint32(zeros.size()), zeros.constData());
+                m_tubeFrameStateReset = false;
+            }
             cb->beginComputePass(resourceUpdates);
             resourceUpdates = nullptr;
             cb->setComputePipeline(m_tubeFramePipeline);
@@ -1931,6 +2015,11 @@ void GLWidget::releaseResources()
         delete m_tubeFrameSampler;
         m_tubeFrameSampler = nullptr;
     }
+    if (m_tubeFrameWork) {
+        m_tubeFrameWork->destroy();
+        delete m_tubeFrameWork;
+        m_tubeFrameWork = nullptr;
+    }
     if (m_dummyTexture) {
         m_dummyTexture->destroy();
         delete m_dummyTexture;
@@ -2304,7 +2393,8 @@ static_assert(offsetof(UboData, u_tubeRefZ) == 460, "UboData: u_tubeRefZ fuori p
 static_assert(offsetof(UboData, u_meshCount) == 464, "UboData: u_meshCount fuori posto");
 static_assert(offsetof(UboData, u_tubeRings) == 468, "UboData: u_tubeRings fuori posto");
 static_assert(offsetof(UboData, u_tubeFramesOn) == 472, "UboData: u_tubeFramesOn fuori posto");
-static_assert(sizeof(UboData) == 480, "UboData: dopo u_tubeFramesOn il blocco e' di 480 byte");
+static_assert(offsetof(UboData, u_tubeFrameBlend) == 476, "UboData: u_tubeFrameBlend fuori posto");
+static_assert(sizeof(UboData) == 480, "UboData: dopo u_tubeFrameBlend il blocco e' di 480 byte");
 static_assert(sizeof(UboData) % 16 == 0, "UboData: dimensione non multipla di 16 (std140)");
 
 bool GLWidget::setTubeCurve(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq,
@@ -5027,6 +5117,9 @@ void GLWidget::setSurfaceTextureAnimating(bool animating) {
 // modulo fermato dall'utente, dal vivo come nel video. Se corrono insieme,
 // avanzano dello stesso identico dt e restano in sincrono.
 void GLWidget::advanceClocksBy(float dt) {
+    // Il passo del frame serve anche alla sezione dei tubi (smorzamento degli
+    // scatti): preso qui, che e' il punto comune a render live e REC.
+    m_tubeFrameDt = dt;
     if (m_surfaceAnimating) m_timeGeom += dt;
     if (m_texAnimating)     m_timeTex  += dt;
     if (m_bgAnimating)      m_timeBg   += dt;

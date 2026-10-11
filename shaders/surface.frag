@@ -89,6 +89,7 @@ layout(std140, binding = 0) uniform SceneUBO {
     // compute), dichiarati per la regola Adreno. Ultimi campi di UboData.
     float u_tubeRings;
     float u_tubeFramesOn;
+    float u_tubeFrameBlend;
 } ubuf;
 
 // --- PLACEHOLDER PER CODICE TEXTURE CUSTOM ---
