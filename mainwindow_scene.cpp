@@ -1382,6 +1382,9 @@ void MainWindow::onNewSceneClicked()
 {
     if (!confirmDiscardUnsaved(ScopeScene)) return;
     resetScene(implicitMode() ? 1 : 0, /*loadDefaultSurface=*/false);
+    // Scena vuota: niente parti, l'ambito torna ad "All" (restava "Mesh" dopo
+    // un multi-mesh, perche' una scena vuota non emette meshPartsChanged).
+    updateMeshScopeEnabled();
 }
 
 // Avviso delle costanti condivise al caricamento di un RECORD.

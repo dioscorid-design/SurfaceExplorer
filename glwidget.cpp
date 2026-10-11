@@ -3154,6 +3154,13 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
         rebuildShader();
     }
 
+    // LE PARTI SONO CAMBIATE: la mesh custom ne ha una sola. Il segnale nasce in
+    // updateSurfaceData, da cui la mesh custom non passa: senza, dopo un
+    // multi-mesh l'ambito restava "Mesh" sul flusso geodetico e l'ambito del
+    // preset restava in sospeso. Solo al passaggio, non a ogni frame
+    // dell'animazione geodetica.
+    if (!wasCustom) emit meshPartsChanged();
+
     update();
     return true; // Costruzione completata con successo!
 }

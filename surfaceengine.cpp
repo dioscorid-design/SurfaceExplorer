@@ -362,6 +362,11 @@ void SurfaceEngine::set4DLighting(bool enable)
 
 void SurfaceEngine::setScriptMode(bool active) {
     m_useScriptMode = active;
+    // Script e tubo si escludono. Qui e non solo in GLWidget::setScriptMode:
+    // il load di un record Ray Marching da script accende lo script sul motore
+    // direttamente, e il tubo del preset precedente restava acceso (lo trovava
+    // lo scenario load-order).
+    if (active) m_useTubeMode = false;
 }
 
 

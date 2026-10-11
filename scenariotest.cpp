@@ -3639,13 +3639,18 @@ void ScenarioTest::runLoadOrderScenarios()
         return vs;
     };
     struct Snapshot { QMap<QString, QString> items; QString vs, fs; };
-    auto snapshot = [&]() {
+    auto snapshot = [&](bool isNew) {
         Snapshot s;
         const bool rm = m_mw->implicitMode();
-        s.items[QStringLiteral("modalita'")] = rm ? (m_mw->m_scene.crossSectionTab ? QStringLiteral("Cross Section")
-                                                                                     : QStringLiteral("Ray Marching"))
-                                                  : QStringLiteral("parametrico");
-        s.items[QStringLiteral("linguetta Solid Curve")] = onOff(m_mw->tubesShown());
+        // NEW non cambia linguetta (scena vuota nella modalita' in cui si e',
+        // decisione dell'utente): per lui modalita' e linguetta seguono per
+        // scelta la scena precedente e non entrano nell'impronta.
+        if (!isNew) {
+            s.items[QStringLiteral("modalita'")] = rm ? (m_mw->m_scene.crossSectionTab ? QStringLiteral("Cross Section")
+                                                                                         : QStringLiteral("Ray Marching"))
+                                                      : QStringLiteral("parametrico");
+            s.items[QStringLiteral("linguetta Solid Curve")] = onOff(m_mw->tubesShown());
+        }
         s.items[QStringLiteral("tubo nel motore")] = onOff(eng->isTubeModeActive());
         s.items[QStringLiteral("tubo da script")] = onOff(eng->isTubeModeActive() && eng->isTubeFromScript());
         s.items[QStringLiteral("script nel motore")] = onOff(eng->isScriptModeActive());
@@ -3662,7 +3667,9 @@ void ScenarioTest::runLoadOrderScenarios()
         for (const auto &ls : sliders)
             if (ls.second->isEnabled()) used += ls.first;
         s.items[QStringLiteral("costanti accese")] = used.isEmpty() ? QStringLiteral("-") : used;
-        if (!rm) {
+        // Parti, vincolo e vertex shader esistono solo nel parametrico: per NEW,
+        // la cui modalita' segue la scena di prima, dipenderebbero da lei.
+        if (!rm && !isNew) {
             s.items[QStringLiteral("parti")] = QString::number(eng->getMeshParts().size());
             s.items[QStringLiteral("vincolo")] = QString::number(int(eng->getConstraintMode()));
             s.vs = vertexSource();
@@ -3685,7 +3692,7 @@ void ScenarioTest::runLoadOrderScenarios()
             const QString rel = QString::fromLatin1(k.rel);
             if (!(rel.startsWith(QLatin1String("records/")) ? loadRecord(rel) : loadSurface(rel))) continue;
         }
-        if (step > 0) results[tour[step]][tour[step - 1]] = snapshot();
+        if (step > 0) results[tour[step]][tour[step - 1]] = snapshot(!k.rel);
     }
 
     // CONFRONTO: per ogni tipo, l'impronta piu' frequente e' quella giusta.
@@ -3717,7 +3724,11 @@ void ScenarioTest::runLoadOrderScenarios()
             QStringList diff;
             for (auto d = s.items.cbegin(); d != s.items.cend(); ++d)
                 if (ref->items.value(d.key()) != d.value())
-                    diff << QStringLiteral("%1 %2 (di solito %3)").arg(d.key(), d.value(), ref->items.value(d.key()));
+                    diff << QStringLiteral("%1 %2 (di solito %3)").arg(d.key(), d.value(),
+                                                                     ref->items.value(d.key(), QStringLiteral("assente")));
+            for (auto d = ref->items.cbegin(); d != ref->items.cend(); ++d)
+                if (!s.items.contains(d.key()))
+                    diff << QStringLiteral("%1 assente (di solito %2)").arg(d.key(), d.value());
             bad << QStringLiteral("dopo %1: %2").arg(QString::fromLatin1(kinds[it.key()].name), diff.join(QStringLiteral(", ")));
             // I sorgenti, per il diff a mano.
             const QString base = m_outDir + QStringLiteral("/load-order/") + fileTag(kinds[target].name)
