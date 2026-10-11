@@ -456,7 +456,7 @@ void MainWindow::onRunScriptClicked()
     // cutout, vanno via dal corpo prima di costruire glslBody.
     std::vector<MeshPart> meshParts;
     bodyWithoutCutout = extractMeshSections(bodyWithoutCutout, &meshParts);
-    ui->glWidget->getEngine()->setMeshParts(countMeshParts(meshParts));
+    ui->glWidget->getEngine()->setMeshParts(countMeshParts(meshParts, fullText));
 
     QString glslBody;
     QTextStream stream(&bodyWithoutCutout);

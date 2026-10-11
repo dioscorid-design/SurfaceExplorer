@@ -3323,14 +3323,33 @@ bool MainWindow::meshCountUsesConstants() const
     return m_scene.meshCount.contains(constRe);
 }
 
-std::vector<MeshPart> MainWindow::countMeshParts(const std::vector<MeshPart> &sections)
+// La sorgente distingue le copie? Solo se usa `mesh`: senza, ogni copia e'
+// la stessa superficie, le N mesh si sovrappongono e un aspetto diverso per
+// mesh si mescola sullo schermo (il wireframe della mesh 2 sopra il solido
+// della mesh 1). `meshes` da solo non basta: vale uguale per tutte le copie.
+// I commenti non contano (uno script puo' parlare di "mesh" in un commento).
+static bool sourceUsesMeshIndex(const QString &source)
+{
+    static const QRegularExpression commentRe(QStringLiteral(R"(//[^\n]*|/\*.*?\*/)"),
+                                              QRegularExpression::DotMatchesEverythingOption);
+    static const QRegularExpression meshRe(QStringLiteral("\\bmesh\\b"));
+    QString code = source;
+    code.remove(commentRe);
+    return code.contains(meshRe);
+}
+
+std::vector<MeshPart> MainWindow::countMeshParts(const std::vector<MeshPart> &sections,
+                                                 const QString &source)
 {
     m_lastSectionCount = (int)sections.size();
+    m_lastSourceUsesMesh = sourceUsesMeshIndex(source);
     if (sections.size() > 1) {
         m_lastAppliedMeshCount = (int)sections.size();
         return sections;
     }
-    const int count = meshCountValue();
+    // Il campo resta com'e' scritto (lo stato e' suo, come con piu' sezioni):
+    // torna a valere appena la sorgente usa `mesh`.
+    const int count = m_lastSourceUsesMesh ? meshCountValue() : 1;
     m_lastAppliedMeshCount = count;
     if (count <= 1) return sections;
 
@@ -3354,15 +3373,22 @@ bool MainWindow::meshCountUsable() const
     if (!ui->glWidget || isSceneEmpty() || implicitMode() || editingBackground()) return false;
     // Flusso geodetico e script metrici: la mesh e' gia' pronta, non da parti.
     if (!m_metricScriptBody.trimmed().isEmpty() || ui->glWidget->isCustomMesh()) return false;
-    // Piu' sezioni //MESH_BEGIN: le mesh le dichiara lo script.
-    return m_lastSectionCount <= 1;
+    // Piu' sezioni //MESH_BEGIN: le mesh le dichiara lo script. Senza `mesh`
+    // nella sorgente le copie sarebbero identiche.
+    return m_lastSectionCount <= 1 && m_lastSourceUsesMesh;
+}
+
+int MainWindow::shownMeshCount()
+{
+    if (m_lastSectionCount > 1) return m_lastSectionCount;
+    return m_lastSourceUsesMesh ? meshCountValue() : 1;
 }
 
 void MainWindow::pushMeshCountSlider()
 {
     QSlider *s = ui->meshCountSlider;
     if (!s) return;
-    const int n = (m_lastSectionCount > 1) ? m_lastSectionCount : meshCountValue();
+    const int n = shownMeshCount();
     // Range come lo spessore dei tubi (pushTubeThickness): il massimo
     // standard, o il valore scritto se e' piu' grande; mentre lo slider si
     // trascina il range non si stringe.
@@ -3446,16 +3472,22 @@ void MainWindow::updateMeshCountControls()
         why = tr("Meshes is locked: the script declares %1 //MESH_BEGIN sections, one mesh each. "
                  "To change the count, keep a single section and use 'mesh' and 'meshes' in the script.")
                   .arg(m_lastSectionCount);
+    else if (!m_lastSourceUsesMesh)
+        why = tr("Meshes is unavailable: the surface does not use 'mesh', so every copy would be "
+                 "the same surface drawn on top of the others. Use 'mesh' in the equations or "
+                 "in the script to tell the copies apart.");
     const QString sliderWhy = (why.isEmpty() && meshCountUsesConstants())
         ? tr("The count follows the expression in the field: change the constants it uses.")
         : why;
     ui->lblMeshCount->setToolTip(why);
     ui->lineMeshCount->setToolTip(why);
     ui->meshCountSlider->setToolTip(sliderWhy);
-    // Con piu' sezioni il campo MOSTRA quante ne dichiara lo script; lo stato
-    // (m_scene.meshCount, che il Save scrive) resta il suo.
-    const QString shown = (m_lastSectionCount > 1 && !implicitMode())
-                              ? QString::number(m_lastSectionCount) : m_scene.meshCount;
+    // Con piu' sezioni il campo MOSTRA quante ne dichiara lo script, senza
+    // `mesh` nella sorgente mostra 1; lo stato (m_scene.meshCount, che il Save
+    // scrive) resta il suo.
+    const bool countOverridden = m_lastSectionCount > 1 || !m_lastSourceUsesMesh;
+    const QString shown = (countOverridden && !implicitMode())
+                              ? QString::number(shownMeshCount()) : m_scene.meshCount;
     if (ui->lineMeshCount->text() != shown && !ui->lineMeshCount->hasFocus()) {
         const QSignalBlocker blocker(ui->lineMeshCount);
         ui->lineMeshCount->setText(shown);

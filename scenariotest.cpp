@@ -5299,9 +5299,11 @@ void ScenarioTest::runMeshCountScenarios()
     m_discardOnPrompt = true;
     ui->tabModeSelector->setCurrentIndex(0);  wait(1200);
     if (!loadSurface(kTorus)) { m_discardOnPrompt = false; return; }
-    check(parts() <= 1 && ui->lineMeshCount->text() == QLatin1String("1") && ui->lineMeshCount->isEnabled()
-              && ui->meshCountSlider->isEnabled(),
-          QStringLiteral("superficie da equazioni -> Meshes 1, campo e slider accesi (campo '%1')")
+    // Una superficie che non usa `mesh`: le copie sarebbero identiche e
+    // sovrapposte (segnalato: wireframe della mesh 2 sopra il solido della 1).
+    check(parts() <= 1 && ui->lineMeshCount->text() == QLatin1String("1") && !ui->lineMeshCount->isEnabled()
+              && !ui->meshCountSlider->isEnabled() && !ui->meshCountSlider->toolTip().isEmpty(),
+          QStringLiteral("superficie senza `mesh` -> Meshes 1, campo e slider spenti col motivo (campo '%1')")
               .arg(ui->lineMeshCount->text()));
 
     // Tori annidati: il raggio cresce con `mesh`.
@@ -5310,6 +5312,8 @@ void ScenarioTest::runMeshCountScenarios()
     ui->lineZ->setPlainText(QStringLiteral("0.15*sin(v)"));
     wait(300);
     applyEquationEdit(ui->lineX);
+    check(ui->lineMeshCount->isEnabled() && ui->meshCountSlider->isEnabled(),
+          QStringLiteral("equazioni con `mesh` applicate -> campo e slider accesi"));
     const QImage one = gl->grabFramebuffer();
     setCount(QStringLiteral("3"));
     const QImage three = gl->grabFramebuffer();
@@ -5329,8 +5333,8 @@ void ScenarioTest::runMeshCountScenarios()
     const LibraryItem saved = captureSave();
     check(saved.meshCount == QLatin1String("2"), QStringLiteral("Save -> meshCount '%1'").arg(saved.meshCount));
     loadSurface(kTorus);
-    check(parts() <= 1 && ui->lineMeshCount->text() == QLatin1String("1"),
-          QStringLiteral("un'altra superficie -> Meshes di nuovo 1"));
+    check(parts() <= 1 && ui->lineMeshCount->text() == QLatin1String("1") && !ui->meshCountSlider->isEnabled(),
+          QStringLiteral("un'altra superficie -> Meshes di nuovo 1, slider spento"));
     m_mw->applyMotionExample(saved);  wait(1500);
     check(parts() == 2 && ui->lineMeshCount->text() == QLatin1String("2"),
           QStringLiteral("record riaperto -> due mesh (%1), campo '%2'").arg(parts()).arg(ui->lineMeshCount->text()));

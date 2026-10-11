@@ -387,7 +387,7 @@ void MainWindow::runSceneScript(RunOrigin origin, bool runDockOnly)
         // da Master Start perderebbe le parti dichiarate dallo script.
         std::vector<MeshPart> meshParts;
         scriptForGlsl = extractMeshSections(scriptForGlsl, &meshParts);
-        ui->glWidget->getEngine()->setMeshParts(countMeshParts(meshParts));
+        ui->glWidget->getEngine()->setMeshParts(countMeshParts(meshParts, currentScript));
     }
 
     // Ri-valida lo script corrente prima di riprendere: se contiene un
@@ -782,7 +782,8 @@ bool MainWindow::applyTubeToEngine(float uMin, float uMax, const CascadeConstant
     // riserva per le tangenti parallele.
     // Le copie del campo Meshes: una curva per copia (`mesh`), ognuna con la
     // sua direzione della sezione.
-    const std::vector<MeshPart> parts = countMeshParts({});
+    const std::vector<MeshPart> parts =
+        countMeshParts({}, QStringList{ tube.x, tube.y, tube.z, tube.p, tube.thickness }.join(QLatin1Char('\n')));
     const int tubes = std::max<int>(1, (int)parts.size());
     std::vector<SurfaceEngine::TubeCopy> copies(tubes);
     for (int k = 0; k < tubes; ++k)
@@ -987,7 +988,7 @@ bool MainWindow::applyTubeScript(const QString &fullText, const CascadeConstants
     // tutte le copie, nessuna sezione = copie sul dominio dei limiti.
     const int sectionCount = (int)parts.size();
     const bool templateHasU = hasU.value(0);
-    parts = countMeshParts(parts);
+    parts = countMeshParts(parts, fullText);
     if (sectionCount <= 1) hasU = QVector<bool>((int)parts.size(), sectionCount == 1 && templateHasU);
 
     QString glslBody;
@@ -1229,7 +1230,8 @@ void MainWindow::runSceneParametric(RunOrigin origin, bool runDockOnly,
         return;
     }
     // Le copie del campo Meshes (le equazioni le distinguono con `mesh`).
-    ui->glWidget->getEngine()->setMeshParts(countMeshParts({}));
+    ui->glWidget->getEngine()->setMeshParts(countMeshParts(
+        {}, QStringList{ rawX, rawY, rawZ, rawP, rawU, rawV, rawW }.join(QLatin1Char('\n'))));
 
     // SNAPSHOT DELL'APPLICATO: le equazioni dei campi sono appena andate a
     // schermo, quindi sono loro "l'ultimo applicato" che il commit di servizio

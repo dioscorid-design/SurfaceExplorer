@@ -2149,8 +2149,15 @@ private:
     // LA REGOLA DELLE PARTI, unica sede: senza sezioni //MESH_BEGIN, N copie
     // sul dominio corrente (followsGlobalDomain); con UNA sezione, N copie di
     // quella; con piu' sezioni comandano le sezioni e il campo e' spento.
-    std::vector<MeshPart> countMeshParts(const std::vector<MeshPart> &sections);
+    // `source` e' il testo appena applicato (equazioni, script o curva del
+    // tubo): se non usa `mesh` le copie sarebbero identiche e sovrapposte,
+    // quindi resta una mesh sola e il campo si spegne.
+    std::vector<MeshPart> countMeshParts(const std::vector<MeshPart> &sections,
+                                         const QString &source);
     bool meshCountUsable() const;
+    // Il numero di mesh che il campo e lo slider MOSTRANO: le sezioni se sono
+    // piu' d'una, 1 se la sorgente non usa `mesh`, altrimenti il campo.
+    int shownMeshCount();
     void pushMeshCountSlider();
     void commitMeshCountOnEnter();
     // Il numero nuovo a schermo: riapplica la scena com'e' (commit di servizio).
@@ -2160,6 +2167,7 @@ private:
     void updateMeshCountControls();
     int m_lastAppliedMeshCount = 1;   // copie dell'ultima applicazione
     int m_lastSectionCount = 0;       // sezioni //MESH_BEGIN della scena
+    bool m_lastSourceUsesMesh = false; // la sorgente applicata usa `mesh`
     // true se almeno una fascia ha una texture propria accesa: il modulo
     // "texture di superficie" e' attivo anche senza texture globale.
     bool anyMeshTextureActive() const;

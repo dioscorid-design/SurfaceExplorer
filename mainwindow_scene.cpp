@@ -633,6 +633,7 @@ void MainWindow::resetScriptEngineForNewScene()
         ui->glWidget->getEngine()->clearMeshParts();
         m_lastSectionCount = 0;
         m_lastAppliedMeshCount = 1;
+        m_lastSourceUsesMesh = false;
         // ...e il taglio dell'ambito "All", che altrimenti resterebbe in vigore
         // sulla superficie nuova.
         ui->glWidget->getEngine()->clearAllDomain();
@@ -3549,8 +3550,17 @@ void MainWindow::preparePresetScriptEngine(const LibraryItem &d, bool isScript)
             extractMeshSections(d.scriptCode, &meshParts);
         }
         // Le copie del campo Meshes (gia' nello stato: assignSceneTexts),
-        // prima di fondere l'aspetto salvato per ogni mesh.
-        if (!d.isImplicitMode) meshParts = countMeshParts(meshParts);
+        // prima di fondere l'aspetto salvato per ogni mesh. La sorgente in cui
+        // cercare `mesh`: lo script, oppure equazioni e curva del tubo.
+        if (!d.isImplicitMode) {
+            const EquationTexts &e = m_scene.eq;
+            const TubeTexts &t = m_scene.tube;
+            const QString meshSource = isScript ? d.scriptCode
+                : QStringList{ e.x, e.y, e.z, e.p, e.u, e.v, e.w,
+                               e.explicitU, e.explicitV, e.explicitW,
+                               t.x, t.y, t.z, t.p, t.thickness }.join(QLatin1Char('\n'));
+            meshParts = countMeshParts(meshParts, meshSource);
+        }
         ui->glWidget->getEngine()->setCutoutCodeGLSL(cutoutGlsl);
 
         // ASPETTO PER-MESH: le parti appena estratte dallo script portano solo
