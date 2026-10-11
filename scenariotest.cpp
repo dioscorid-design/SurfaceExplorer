@@ -5274,6 +5274,7 @@ void ScenarioTest::runMeshCountScenarios()
     GLWidget *gl = ui->glWidget;
     SurfaceEngine *eng = gl->getEngine();
     auto parts = [eng] { return (int)eng->getMeshParts().size(); };
+    auto click = [this](QAbstractButton *b) { b->click(); wait(200); };
     auto setCount = [&](const QString &text) {
         typeInField(ui->lineMeshCount, text);
         pressEnter(ui->lineMeshCount);
@@ -5409,6 +5410,60 @@ void ScenarioTest::runMeshCountScenarios()
             check(parts() == 3 && saved.meshParts.size() >= 9
                       && qAbs(saved.meshParts[8].colorR - f8.colorR) < 1e-4f,
                   QStringLiteral("Meshes a 3 -> il Save scrive ancora %1 aspetti").arg(saved.meshParts.size()));
+        }
+    }
+
+    // AMBITO ALL SOPRA MESH CHE EREDITANO: Calabi-Yau non porta aspetto
+    // per-mesh, quindi ogni parte segue trasparenza e colore globali, che sono
+    // proprio cio' che "All" modifica. Cambiati da All, tornando su Mesh le
+    // mesh devono essere come prima (segnalato: opaca, trasparente da All,
+    // ritorno su Mesh -> tutte trasparenti).
+    {
+        const QString kCalabi = QStringLiteral("surfaces/Parametric/Multimesh/Calabi-Yau.json");
+        if (loadSurface(kCalabi) && parts() > 1) {
+            if (m_mw->editingBackground()) click(ui->radioSurface);
+            if (!ui->radioMeshAll->isChecked()) click(ui->radioMeshAll);
+            const float alpha0 = gl->globalAlpha();
+            float r0, g0, b0;
+            gl->globalColor(r0, g0, b0);
+            ui->alphaSlider->setValue(40);  wait(300);
+            ui->sliderR->setValue(r0 > 0.5f ? 20 : 230);  wait(300);
+            const bool allChanged = qAbs(gl->globalAlpha() - 0.40f) < 1e-3f;
+            click(ui->radioMeshOne);  wait(300);
+            int alphaMoved = 0, colorMoved = 0;
+            for (const MeshPart &p : eng->getMeshParts()) {
+                const float a = p.alpha >= 0.0f ? p.alpha : gl->globalAlpha();
+                float r = p.colorR;
+                if (!p.hasCustomColor()) { float g, b; gl->globalColor(r, g, b); }
+                if (qAbs(a - alpha0) > 1e-3f) ++alphaMoved;
+                if (qAbs(r - r0) > 1e-3f) ++colorMoved;
+            }
+            check(allChanged && alphaMoved == 0 && colorMoved == 0,
+                  QStringLiteral("Calabi-Yau: trasparenza e rosso cambiati da All, ritorno su Mesh -> "
+                                 "mesh come prima (%1 alpha e %2 colori spostati su %3)")
+                      .arg(alphaMoved).arg(colorMoved).arg(parts()));
+            click(ui->radioMeshAll);  wait(300);
+            check(qAbs(gl->globalAlpha() - 0.40f) < 1e-3f,
+                  QStringLiteral("Calabi-Yau: di nuovo All -> la trasparenza di All c'e' ancora (%1)")
+                      .arg(gl->globalAlpha()));
+        }
+        // Wireframe scelto da All su mesh TRASPARENTI che ereditano: il reset
+        // dell'alpha a 1 del wireframe gira sotto bypass. La trasparenza
+        // ereditata si mette come la metterebbe un preset (bypass acceso).
+        if (loadSurface(kCalabi) && parts() > 1) {
+            if (!ui->radioMeshAll->isChecked()) click(ui->radioMeshAll);
+            gl->setMeshAppearanceBypass(true);
+            gl->setAlpha(0.5f);
+            gl->setMeshAppearanceBypass(false);
+            click(ui->radioWF);  wait(300);
+            click(ui->radioMeshOne);  wait(300);
+            int alphaMoved = 0;
+            for (const MeshPart &p : eng->getMeshParts())
+                if (qAbs((p.alpha >= 0.0f ? p.alpha : gl->globalAlpha()) - 0.5f) > 1e-3f) ++alphaMoved;
+            check(alphaMoved == 0 && gl->activeMeshEffectiveRenderMode() != 2,
+                  QStringLiteral("Calabi-Yau trasparente: wireframe da All, ritorno su Mesh -> "
+                                 "mesh solide e ancora trasparenti (%1 alpha spostati su %2, modalita' %3)")
+                      .arg(alphaMoved).arg(parts()).arg(gl->activeMeshEffectiveRenderMode()));
         }
     }
 

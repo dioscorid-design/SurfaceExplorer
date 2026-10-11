@@ -3307,6 +3307,40 @@ void GLWidget::pinInheritedRenderModes() {
     engine->syncPartAppearance();
 }
 
+// Stesso congelamento per trasparenza e colore. Il commit che ha introdotto
+// pinInheritedRenderModes riteneva che questi due non ne soffrissero, perche'
+// in "All" l'aspetto proprio e' sospeso: vero per le parti che CE L'HANNO, ma
+// quelle senza (alpha/colore negativi = eredita) disegnano il globale anche in
+// "Mesh". Caso segnalato: multi-mesh opaca, trasparenza da "All", ritorno su
+// "Mesh" -> tutte le mesh trasparenti.
+void GLWidget::pinInheritedAlphas() {
+    if (!engine) return;
+    const int n = engine->getMeshPartCount();
+    if (n <= 1) return;
+    for (int k = 0; k < n; ++k) {
+        MeshPart *p = engine->mutableMeshPart(k);
+        if (!p || p->alpha >= 0.0f) continue;
+        p->alpha = alpha;
+    }
+    engine->syncPartAppearance();
+}
+
+void GLWidget::pinInheritedColors() {
+    if (!engine) return;
+    const int n = engine->getMeshPartCount();
+    if (n <= 1) return;
+    for (int k = 0; k < n; ++k) {
+        MeshPart *p = engine->mutableMeshPart(k);
+        if (!p || p->hasCustomColor()) continue;
+        // red/green/blue, non m_uboData.color: e' la tinta che una parte senza
+        // colore proprio disegna anche con la texture globale accesa.
+        p->colorR = red;
+        p->colorG = green;
+        p->colorB = blue;
+    }
+    engine->syncPartAppearance();
+}
+
 int GLWidget::activeMeshEffectiveRenderMode() const {
     if (m_activeMeshPart < 0 || !engine) return renderMode;
     const auto &parts = engine->getMeshParts();
@@ -3391,6 +3425,11 @@ bool GLWidget::activeMeshDomain(float &uMin, float &uMax, float &vMin, float &vM
 
 void GLWidget::setColor(float r, float g, float b) {
     if (applyToActiveMeshPart([r,g,b](MeshPart &p){ p.colorR=r; p.colorG=g; p.colorB=b; })) return;
+    // Il globale e' la BASE delle parti che ereditano: spostandolo da "All" le
+    // si congela prima (vedi pinInheritedColors). Sotto bypass no: load e reset
+    // automatici devono muovere il globale senza rendere "propri" dei colori.
+    if (!m_meshAppearanceBypass && (r != red || g != green || b != blue))
+        pinInheritedColors();
     this->red = r;
     this->green = g;
     this->blue = b;
@@ -3400,6 +3439,8 @@ void GLWidget::setColor(float r, float g, float b) {
 
 void GLWidget::setAlpha(float a) {
     if (applyToActiveMeshPart([a](MeshPart &p){ p.alpha = a; })) return;
+    // Come in setColor (vedi pinInheritedAlphas).
+    if (!m_meshAppearanceBypass && a != alpha) pinInheritedAlphas();
     this->alpha = a;
     update();
 }

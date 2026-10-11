@@ -491,6 +491,12 @@ public:
     // impostato per-mesh andrebbe perso. Chi ha gia' una modalita' propria non
     // viene toccato. Vedi la nota in MainWindow::onUserRenderModeChosen.
     void pinInheritedRenderModes();
+    // Gemelle per TRASPARENZA e COLORE: stesso difetto, stessa cura. Le parti
+    // senza alpha/colore proprio (valore negativo) seguono il globale, che e'
+    // proprio cio' che "All" modifica. Le chiamano setAlpha/setColor quando il
+    // globale cambia davvero fuori dal bypass (load e reset automatici).
+    void pinInheritedAlphas();
+    void pinInheritedColors();
     // Densita' wireframe della parte selezionata (0,0 = eredita dal globale).
     void setActiveMeshWireframeDensity(int uStep, int vStep);
     void activeMeshWireframeDensity(int &uStep, int &vStep) const;

@@ -1988,6 +1988,12 @@ void MainWindow::updateRenderState()
         // periodo. Spegnendolo, il resto del load proseguiva SENZA protezione e
         // il setColor del colore globale finiva scritto sulla parte attiva.
         const bool oldBypass = ui->glWidget && ui->glWidget->meshAppearanceBypass();
+        // Il bypass salta anche il congelamento di setAlpha: va fatto qui, o le
+        // mesh trasparenti che ereditano si ritrovano opache tornando su "Mesh"
+        // (wireframe scelto da "All": la loro modalita' e' gia' stata congelata
+        // da pinInheritedRenderModes, l'alpha no). Non durante un load.
+        if (!oldBypass && ui->glWidget && ui->glWidget->globalAlpha() != 1.0f)
+            ui->glWidget->pinInheritedAlphas();
         if (ui->glWidget) ui->glWidget->setMeshAppearanceBypass(true);
         resetTransparency();
         ui->lightSlider->setValue(100);   // valueChanged aggiorna intensità e label
