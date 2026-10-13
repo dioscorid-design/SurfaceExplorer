@@ -2023,7 +2023,7 @@ void ScenarioTest::run()
     // sfondo, poi un record con lo sfondo SPENTO (ma col codice nel file), poi
     // si riaccende lo sfondo. Prima si vedeva l'immagine del primo e il Save
     // scriveva enabled true con codice vuoto: al reload, la default.
-    const QString kRoman = QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/Roman Surface.json");
+    const QString kRoman = QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/S3/Non-orientable/Roman Surface.json");
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Sfondo: immagine persa nei record (%1, poi %2) ==")
                        .arg(QString::fromLatin1(kParametricRecord), kRoman));
@@ -2740,7 +2740,7 @@ void ScenarioTest::run()
         checkTextureReset(QStringLiteral("tasto NEW dal bersaglio Surface"));
     }
     // Sfondo zoomato e ruotato dal record: la scena nuova riparte dal default.
-    if (loadRecord(QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/Scherk's Second Surface.json"))) {
+    if (loadRecord(QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/R3/Scherk's Second Surface.json"))) {
         check(qAbs(ui->glWidget->backgroundZoom() - 1.0f) > 0.5f,
               QStringLiteral("record caricato -> sfondo zoomato (zoom %1)").arg(ui->glWidget->backgroundZoom()));
         pressNew();
