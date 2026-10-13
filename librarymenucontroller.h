@@ -3,6 +3,8 @@
 
 #include <QObject>
 #include <QPoint>
+#include <QHash>
+#include <QStringList>
 
 class MainWindow;
 class QTreeWidget;
@@ -16,8 +18,26 @@ public:
     // Passiamo esplicitamente l'albero per maggiore sicurezza (meglio di sender())
     void showMenu(QTreeWidget *tree, const QPoint &pos);
 
+    // L'evidenziazione della Library resta sul preset A SCHERMO: il menu la
+    // sposta sulla voce cliccata (e' il bersaglio dei comandi) e alla chiusura
+    // torna com'era alla pressione che l'ha aperto. Va chiamata una volta per
+    // albero: osserva le pressioni sul suo viewport.
+    void watchTree(QTreeWidget *tree);
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *event) override;
+
 private:
+    // Le voci evidenziate, per percorso: dopo una ricostruzione dell'albero
+    // gli item sono nuovi e si ritrovano solo cosi'.
+    struct Highlight { QStringList paths; QString current; };
+    static Highlight highlightOf(QTreeWidget *tree);
+    static void restoreHighlight(QTreeWidget *tree, const Highlight &h);
+
     MainWindow *m_mainWindow;
+    // Presa alla pressione, PRIMA che Qt sposti la selezione sulla voce sotto
+    // il cursore; la consuma il menu che quella pressione apre.
+    QHash<QTreeWidget *, Highlight> m_pressHighlight;
 };
 
 #endif // LIBRARYMENUCONTROLLER_H

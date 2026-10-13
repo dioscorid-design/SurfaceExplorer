@@ -78,6 +78,8 @@ void MainWindow::setupLibraryDock()
 
         tree->installEventFilter(m_dragDropHandler);
         tree->viewport()->installEventFilter(m_dragDropHandler);
+        // Il menu contestuale riporta l'evidenziazione sul preset a schermo.
+        m_menuController->watchTree(tree);
     };
     initTree(ui->treeSurfaces);
     connect(ui->treeSurfaces, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint &pos){

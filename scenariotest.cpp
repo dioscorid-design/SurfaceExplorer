@@ -22,6 +22,7 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QFileInfo>
+#include <QMenu>
 #include <QMessageBox>
 #include <QRegularExpression>
 #include <QTimer>
@@ -4850,6 +4851,81 @@ void ScenarioTest::runLibraryFolderScenarios()
         check(other->isSelected() && !leaf->isSelected(),
               QStringLiteral("espansione del programma con un altro preset evidenziato -> resta quello"));
     }
+
+    // MENU CONTESTUALE: l'evidenziazione resta sul preset a schermo. Durante il
+    // menu sta sulla voce cliccata (il bersaglio dei comandi), alla chiusura
+    // torna com'era. Pressione e rilascio destri veri, poi il menu: l'ordine di
+    // Windows, il piu' sfavorevole (il rilascio su un'area vuota svuota la
+    // selezione; su macOS il menu si apre alla pressione e il rilascio va al
+    // menu). Lo chiude un timer, perche' exec() blocca.
+    if (!other) return;
+    tree->setCurrentItem(leaf);
+    wait(200);
+    auto rightClick = [&](const QPoint &pos, const QString &actionPrefix) {
+        const QPoint global = tree->viewport()->mapToGlobal(pos);
+        QMouseEvent press(QEvent::MouseButtonPress, pos, global, Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(tree->viewport(), &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, pos, global, Qt::RightButton, Qt::NoButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(tree->viewport(), &release);
+        // Stato condiviso: se il menu non si aprisse, il timer scatterebbe a
+        // funzione gia' uscita.
+        auto during = std::make_shared<QStringList>();
+        QTimer::singleShot(300, this, [this, during, actionPrefix, tree] {
+            auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+            // Su macOS un menu si chiude da solo se l'app perde il primo piano
+            // mentre il test gira: lo si dice, invece di leggere lo stato gia'
+            // ripristinato come un errore del focus.
+            if (!menu) { *during << QStringLiteral("menu non aperto (app non in primo piano?)"); return; }
+            for (QTreeWidgetItem *i : tree->selectedItems()) *during << i->text(0);
+            // L'elemento corrente durante il menu, in coda all'elenco, col grigio
+            // dipinto come sfondo (quello di Fusion non c'e' senza fuoco).
+            QTreeWidgetItem *cur = tree->currentItem();
+            *during << QStringLiteral("corrente: %1%2").arg(cur ? cur->text(0) : QStringLiteral("-"),
+                (cur && cur->background(0).style() != Qt::NoBrush) ? QStringLiteral(" (grigio)") : QString());
+            tree->grab().save(m_outDir + QStringLiteral("/library-menu-%1.png").arg(actionPrefix.isEmpty() ? QStringLiteral("open") : actionPrefix));
+            if (!actionPrefix.isEmpty())
+                for (QAction *a : menu->actions())
+                    if (a->text().startsWith(actionPrefix)) { a->trigger(); break; }
+            menu->close();
+        });
+        emit tree->customContextMenuRequested(pos);   // torna a menu chiuso
+        wait(300);
+        return *during;
+    };
+    auto onScreenOk = [&](const QString &step, const QStringList &during, const QString &wantDuring) {
+        QStringList bad;
+        if (tree->selectedItems() != QList<QTreeWidgetItem *>{ leaf })
+            bad << QStringLiteral("evidenziate %1 voci, il preset a schermo %2")
+                       .arg(tree->selectedItems().size()).arg(leaf->isSelected() ? QStringLiteral("si'") : QStringLiteral("no"));
+        if (tree->currentItem() != leaf) bad << QStringLiteral("l'elemento corrente non e' il preset a schermo");
+        if (leaf->background(0).style() != Qt::NoBrush) bad << QStringLiteral("il grigio del menu e' rimasto");
+        // Durante il menu: la voce cliccata selezionata (bersaglio dei comandi),
+        // il preset a schermo corrente (grigio).
+        QStringList want;
+        if (!wantDuring.isEmpty()) want << wantDuring;
+        want << QStringLiteral("corrente: %1 (grigio)").arg(name);
+        if (during != want)
+            bad << QStringLiteral("durante il menu [%1], atteso [%2]").arg(during.join(QStringLiteral(", ")), want.join(QStringLiteral(", ")));
+        check(bad.isEmpty(), QStringLiteral("%1 -> a menu chiuso focus su '%2'%3").arg(step, name,
+                  bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+    };
+    tree->scrollToItem(other);
+    wait(200);
+    const QPoint otherPos = tree->visualItemRect(other).center();
+    onScreenOk(QStringLiteral("tasto destro su un altro preset, menu chiuso"),
+               rightClick(otherPos, QString()), other->text(0));
+    onScreenOk(QStringLiteral("tasto destro su un altro preset, Copy"),
+               rightClick(otherPos, QStringLiteral("Copy")), other->text(0));
+    // Area vuota: rami chiusi, cosi' sotto le cartelle c'e' spazio libero.
+    tree->collapseAll();
+    wait(200);
+    const QPoint emptyPos(10, tree->viewport()->height() - 5);
+    if (tree->itemAt(emptyPos)) {
+        check(false, QStringLiteral("nessuna area vuota nell'albero delle Surfaces a rami chiusi"));
+    } else {
+        onScreenOk(QStringLiteral("tasto destro su un'area vuota"), rightClick(emptyPos, QString()), QString());
+    }
+    for (QTreeWidgetItem *p = folder; p; p = p->parent()) p->setExpanded(true);
 }
 
 void ScenarioTest::runRecordTextureScenarios()

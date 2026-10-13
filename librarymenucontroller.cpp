@@ -12,15 +12,102 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTimer> // Aggiunto per prevenire i crash su iOS/Android
+#include <QMouseEvent>
+#include <QTreeWidgetItemIterator>
 
 LibraryMenuController::LibraryMenuController(MainWindow *parent)
     : QObject(parent), m_mainWindow(parent)
 {
 }
 
+void LibraryMenuController::watchTree(QTreeWidget *tree)
+{
+    if (tree) tree->viewport()->installEventFilter(this);
+}
+
+bool LibraryMenuController::eventFilter(QObject *obj, QEvent *event)
+{
+    // Ogni pressione fotografa l'evidenziazione (anche il dito su mobile: la
+    // pressione lunga che apre il menu e' un tasto sinistro sintetizzato). Il
+    // clic sinistro semplice la scarta al rilascio: quello carica, non apre
+    // menu, e la foto resterebbe stantia per un menu aperto da tastiera.
+    // Ctrl/Cmd+clic no: su macOS puo' essere il tasto destro.
+    if (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonRelease) {
+        auto *tree = qobject_cast<QTreeWidget *>(obj->parent());
+        if (tree) {
+            auto *me = static_cast<QMouseEvent *>(event);
+            if (event->type() == QEvent::MouseButtonPress)
+                m_pressHighlight[tree] = highlightOf(tree);
+            else if (me->button() == Qt::LeftButton
+                     && !(me->modifiers() & (Qt::ControlModifier | Qt::MetaModifier)))
+                m_pressHighlight.remove(tree);
+        }
+    }
+    return QObject::eventFilter(obj, event);
+}
+
+// Percorso di una voce: le cartelle lo portano in UserRole+10, i file nel
+// tooltip (come refreshAndFocusPaths).
+static QString libraryItemPath(QTreeWidgetItem *item)
+{
+    const QVariant dir = item->data(0, Qt::UserRole + 10);
+    return dir.isValid() ? dir.toString() : item->toolTip(0);
+}
+
+LibraryMenuController::Highlight LibraryMenuController::highlightOf(QTreeWidget *tree)
+{
+    Highlight h;
+    for (QTreeWidgetItem *item : tree->selectedItems()) h.paths << libraryItemPath(item);
+    if (tree->currentItem()) h.current = libraryItemPath(tree->currentItem());
+    return h;
+}
+
+static QTreeWidgetItem *libraryItemAt(QTreeWidget *tree, const QString &path)
+{
+    if (path.isEmpty()) return nullptr;
+    for (QTreeWidgetItemIterator it(tree); *it; ++it)
+        if (libraryItemPath(*it) == path) return *it;
+    return nullptr;
+}
+
+// Sposta l'elemento CORRENTE senza toccare la selezione e senza autoscroll:
+// spostarlo fa scrollTo, che riapre i rami chiusi (stessa cautela del
+// ripristino in apertura/chiusura di una cartella).
+static void setCurrentQuietly(QTreeWidget *tree, QTreeWidgetItem *item)
+{
+    const bool autoScroll = tree->hasAutoScroll();
+    tree->setAutoScroll(false);
+    tree->selectionModel()->setCurrentIndex(item ? tree->indexFromItem(item) : QModelIndex(),
+                                            QItemSelectionModel::NoUpdate);
+    tree->setAutoScroll(autoScroll);
+}
+
+void LibraryMenuController::restoreHighlight(QTreeWidget *tree, const Highlight &h)
+{
+    QList<QTreeWidgetItem *> items;
+    for (QTreeWidgetItemIterator it(tree); *it; ++it)
+        if (h.paths.contains(libraryItemPath(*it))) items << *it;
+    // Voce sparita (cancellata, rinominata, altra libreria): resta cio' che
+    // ha deciso il comando.
+    if (!h.paths.isEmpty() && items.isEmpty()) return;
+    tree->clearSelection();
+    for (QTreeWidgetItem *item : items) item->setSelected(true);
+    setCurrentQuietly(tree, libraryItemAt(tree, h.current));
+}
+
 void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
 {
     if (!senderTree) return;
+
+    // L'EVIDENZIAZIONE DA RIMETTERE alla chiusura: quella della pressione che
+    // ha aperto il menu (Qt l'ha gia' spostata sulla voce cliccata, e qui
+    // sotto un clic sul vuoto la cancella); da tastiera, quella di adesso.
+    // Non nei rientri da ricostruzione della libreria (vedi i moti, piu'
+    // sotto): li' non c'e' un menu dell'utente da chiudere.
+    const bool keepHighlight = !m_mainWindow->libraryRebuildInProgress();
+    const Highlight before = !keepHighlight ? Highlight{}
+                           : m_pressHighlight.contains(senderTree) ? m_pressHighlight.take(senderTree)
+                                                                   : highlightOf(senderTree);
 
     QPoint localPos = pos;
     QPoint globalMenuPos = senderTree->mapToGlobal(pos);
@@ -42,6 +129,16 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     } else {
         senderTree->clearSelection();
     }
+    // Menu aperto: la SELEZIONE (blu) e' il bersaglio dei comandi, che leggono
+    // solo lei; l'elemento CORRENTE (grigio) resta sul preset a schermo, che
+    // cosi' non sparisce dall'albero finche' il menu e' aperto.
+    QTreeWidgetItem *onScreen = nullptr;
+    if (keepHighlight) {
+        const QString onScreenPath = !before.current.isEmpty() ? before.current
+                                   : before.paths.isEmpty()    ? QString() : before.paths.first();
+        onScreen = libraryItemAt(senderTree, onScreenPath);
+        if (onScreen) setCurrentQuietly(senderTree, onScreen);
+    }
 
     QList<QTreeWidgetItem*> selectedItems = senderTree->selectedItems();
     int count = selectedItems.count();
@@ -62,6 +159,21 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
         "QMenu::item:disabled { color: #6e6e6e; }"
         "QMenu::item:selected:disabled { color: #6e6e6e; background-color: #2b2b2b; }"
         );
+
+    // IL GRIGIO DEL PRESET A SCHERMO, finche' il menu e' a schermo. Fusion
+    // disegna l'elemento corrente (grigio) solo con l'albero che ha il fuoco,
+    // e il menu glielo toglie: lo si dipinge come sfondo della voce, nello
+    // stesso tono, e lo si toglie alla chiusura -- prima del comando, che puo'
+    // ricostruire l'albero (indice persistente: si toglie solo se c'e' ancora).
+    if (onScreen && !onScreen->isSelected()) {
+        const QPersistentModelIndex idx(senderTree->indexFromItem(onScreen));
+        const QBrush previous = onScreen->background(0);
+        onScreen->setBackground(0, QColor(60, 65, 72));
+        connect(contextMenu, &QMenu::aboutToHide, senderTree, [senderTree, idx, previous] {
+            if (QTreeWidgetItem *item = idx.isValid() ? senderTree->itemFromIndex(idx) : nullptr)
+                item->setBackground(0, previous);
+        });
+    }
 
     QTreeWidget* safeTree = senderTree;
     QTreeWidgetItem* safeRefItem = refItem;
@@ -524,18 +636,23 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     contextMenu->deleteLater();
 
     if (pendingAction) {
-        QTimer::singleShot(350, m_mainWindow, [safeTree, safeRefItem, pendingAction]() {
+        QTimer::singleShot(350, m_mainWindow, [safeTree, safeRefItem, pendingAction, keepHighlight, before]() {
             if (safeTree && safeRefItem) {
                 safeTree->setCurrentItem(safeRefItem);
                 safeRefItem->setSelected(true);
             }
             pendingAction();
+            if (keepHighlight) restoreHighlight(safeTree, before);
         });
+    } else if (keepHighlight) {
+        restoreHighlight(senderTree, before);
     }
 #else
     // Esecuzione standard Desktop
     contextMenu->exec(senderTree->mapToGlobal(pos));
     delete contextMenu;
+    // Il comando e' gia' stato eseguito (dentro exec).
+    if (keepHighlight) restoreHighlight(senderTree, before);
 #endif
 
     if (wasTimeAnimating) {
