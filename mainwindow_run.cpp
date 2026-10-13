@@ -1329,10 +1329,14 @@ void MainWindow::runSceneParametric(RunOrigin origin, bool runDockOnly,
     // Fuori dai commit di servizio (Run veri) le equazioni vengono dai campi e
     // la condizione e' sempre vera: comportamento invariato.
     const bool everythingApplied = !serviceCommit || mapEquationsMatchSnapshot();
-    if (!hasTimeVariable(rawEqsForT) && everythingApplied) {
+    if (!hasTimeVariable(rawEqsForT) && everythingApplied)
         m_parametricApplied = true;
-        updateMasterButtonState();
-    }
+    // SEMPRE, anche a superficie animata: e' la prima chiamata che vede la mesh
+    // (quella prima di updateSurfaceData la trova vuota dopo un load o un NEW),
+    // quindi la sola che sgancia il gate della scena vuota. Stando nel ramo
+    // statico, una superficie con 't' caricata dalla Library (Warping Torus)
+    // lasciava spenti i comandi del dock RENDERER fino a uno Stop.
+    updateMasterButtonState();
 
     ui->glWidget->update();
 }
@@ -1524,10 +1528,12 @@ void MainWindow::runSceneGeodesic(bool runDockOnly)
     // tocca di nuovo equazioni o condizioni iniziali. Questo ramo esce col
     // return qui sotto e non raggiungeva il blocco in fondo alla funzione: il
     // flag restava false e il Run del dock Equations rimaneva acceso per sempre.
-    if (!geoAnimated) {
+    if (!geoAnimated)
         m_parametricApplied = true;
-        updateMasterButtonState();
-    }
+    // SEMPRE, come nel ramo parametrico: a mesh appena costruita e' la chiamata
+    // che sgancia il gate della scena vuota. Col flusso animato la faceva solo
+    // updateGeodesicMesh, e soltanto avviando il timer (non a master fermo).
+    updateMasterButtonState();
 
     ui->glWidget->update();
 }

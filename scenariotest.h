@@ -81,11 +81,13 @@ private:
     // atteso a schermo ("" = la default).
     void checkBackground(const QString &step, const QString &expectedImage = QString());
     // I comandi della SUPERFICIE nel dock RENDERER dopo il gesto `step`: in
-    // Background spenti (modo di resa, densita', trasparenza, luce, Headlight),
-    // FOV acceso; su Surface di nuovo secondo le regole normali
+    // Background spenti (modo di resa, densita', trasparenza, luce, Headlight,
+    // FOV); su Surface di nuovo secondo le regole normali
     // (Wireframe solo in parametrico, densita' solo in wireframe, luce spenta in
     // wireframe, Headlight solo in Ray Marching).
     void checkSurfaceControls(const QString &step);
+    // Le stesse regole, come elenco dei comandi fuori posto (vuoto = tutto a posto).
+    QStringList surfaceControlsProblems();
     // Il CODICE della texture di superficie dopo il gesto `step`. Ray Marching:
     // il campo lineTexture e il motore dicono la stessa cosa, salvo
     // `pendingEdit` (campo modificato a mano, non ancora eseguito), e il Save
@@ -208,6 +210,11 @@ private:
     // Da sola: --scenario-only border.
     void runBorderScenarios();
     void runMeshCountScenarios();
+    // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run
+    // dopo un NEW devono sganciare il gate della scena vuota, cioe' lasciare
+    // accesi i comandi del dock RENDERER. Il Run lo sganciava solo per le
+    // superfici statiche. Da sola: --scenario-only animated-load.
+    void runAnimatedLoadScenarios();
     // ORDINE DEI CARICAMENTI: una scena non deve ricordare quella di prima.
     // Un giro che carica ogni tipo di scena (equazioni, script, tubi, flusso
     // geodetico, metrica, Ray Marching, Cross Section, multi-mesh, bordo, NEW)
@@ -243,6 +250,12 @@ private:
     // accendibile e' acceso e il tasto dice STOP (il suono escluso: il test lo
     // spegne). Lunga (~5 minuti): solo con --scenario-only master-records.
     void runMasterRecordsScenarios();
+    // Comandi del dock RENDERER dopo il load di OGNI preset della libreria
+    // (superfici e record): gate della scena vuota sganciato (Steps acceso) e
+    // comandi della superficie secondo le regole di checkSurfaceControls. Si
+    // annotano solo i preset fuori posto. Lunga (~10 minuti): solo con
+    // --scenario-only renderer-all[:filtro sul percorso].
+    void runRendererAllScenarios();
     // "" se checkbox ed etichetta dicono il bersaglio e lo stato della sua
     // texture, altrimenti la differenza.
     QString textureCheckboxProblem() const;

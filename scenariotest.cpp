@@ -913,6 +913,14 @@ void ScenarioTest::checkBackground(const QString &step, const QString &expectedI
 
 void ScenarioTest::checkSurfaceControls(const QString &step)
 {
+    const QStringList bad = surfaceControlsProblems();
+    check(bad.isEmpty(), QStringLiteral("%1 -> comandi superficie %2%3")
+                             .arg(step, m_mw->editingBackground() ? QStringLiteral("spenti") : QStringLiteral("accesi"),
+                                  bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+}
+
+QStringList ScenarioTest::surfaceControlsProblems()
+{
     Ui::MainWindow *ui = m_mw->ui;
     const bool onBg = m_mw->editingBackground();
     const bool rm   = ui->tabModeSelector->currentIndex() == 1;
@@ -954,10 +962,7 @@ void ScenarioTest::checkSurfaceControls(const QString &step)
     if (!light.isEmpty()) bad << light;
     const QString target = editTargetProblem();
     if (!target.isEmpty()) bad << target;
-
-    check(bad.isEmpty(), QStringLiteral("%1 -> comandi superficie %2%3")
-                             .arg(step, onBg ? QStringLiteral("spenti") : QStringLiteral("accesi"),
-                                  bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+    return bad;
 }
 
 QString ScenarioTest::presetDisplacement(const QString &rel, LibraryType type)
@@ -1753,6 +1758,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only.startsWith(QLatin1String("renderer-all"))) {
+        runRendererAllScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("reset-scene")) {
         runResetSceneScenarios();
         finish();
@@ -1780,6 +1790,11 @@ void ScenarioTest::run()
     }
     if (m_only == QLatin1String("load-order")) {
         runLoadOrderScenarios();
+        finish();
+        return;
+    }
+    if (m_only == QLatin1String("animated-load")) {
+        runAnimatedLoadScenarios();
         finish();
         return;
     }
@@ -3556,9 +3571,94 @@ void ScenarioTest::run()
     runResetButtonScenarios();
     runBorderScenarios();
     runMeshCountScenarios();
+    runAnimatedLoadScenarios();
     runLoadOrderScenarios();
 
     finish();
+}
+
+void ScenarioTest::runAnimatedLoadScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    auto click = [this](QAbstractButton *b) { b->click(); wait(200); };
+    auto stepsOn = [&] {
+        return QStringLiteral("gate %1, Steps %2")
+            .arg(onOff(m_mw->m_emptySceneGated), onOff(ui->stepSlider->isEnabled()));
+    };
+
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Superficie animata da equazioni: comandi del dock RENDERER =="));
+    m_discardOnPrompt = true;
+    ui->tabModeSelector->setCurrentIndex(0);  wait(1200);
+
+    // Per nome e non per percorso: la libreria si riordina.
+    const QStringList rels = presetsWhere([](const LibraryItem &item, bool isRecord) {
+        return !isRecord && item.name == QLatin1String("Warping Torus");
+    });
+    if (rels.isEmpty()) {
+        check(false, QStringLiteral("superficie 'Warping Torus' non trovata nella libreria"));
+    } else if (loadSurface(rels.first())) {
+        if (!ui->radioSurface->isChecked()) click(ui->radioSurface);
+        check(m_mw->isEquationModuleMoving() && !m_mw->m_emptySceneGated && ui->stepSlider->isEnabled(),
+              QStringLiteral("Warping Torus caricata, in moto -> %1").arg(stepsOn()));
+        checkSurfaceControls(QStringLiteral("Warping Torus caricata"));
+    }
+
+    // Stessa via dal NEW: scena vuota, poi equazioni con 't' e Run.
+    pressNew();
+    m_discardOnPrompt = true;
+    check(m_mw->m_emptySceneGated, QStringLiteral("NEW -> gate della scena vuota acceso"));
+    ui->lineX->setPlainText(QStringLiteral("(0.8 + 0.3*cos(v))*cos(u + t)"));
+    ui->lineY->setPlainText(QStringLiteral("(0.8 + 0.3*cos(v))*sin(u + t)"));
+    ui->lineZ->setPlainText(QStringLiteral("0.3*sin(v)"));
+    wait(300);
+    // Il NEW svuota anche il dominio, e il Run lo pretende.
+    typeInField(ui->uMinEdit, QStringLiteral("0"));
+    typeInField(ui->uMaxEdit, QStringLiteral("2*pi"));
+    typeInField(ui->vMinEdit, QStringLiteral("0"));
+    typeInField(ui->vMaxEdit, QStringLiteral("2*pi"));
+    if (ui->btnRunParametric->isEnabled()) {
+        click(ui->btnRunParametric);  wait(800);
+        check(m_mw->isEquationModuleMoving() && !m_mw->m_emptySceneGated && ui->stepSlider->isEnabled(),
+              QStringLiteral("NEW, equazioni con 't', Run -> %1").arg(stepsOn()));
+        checkSurfaceControls(QStringLiteral("NEW, equazioni con 't', Run"));
+    } else {
+        check(false, QStringLiteral("NEW, equazioni scritte -> tasto Run spento"));
+    }
+
+    // SCRIPT METRICO dal NEW (runMetricScript): la mesh la costruisce il flusso
+    // geodetico DOPO il suo primo riallineamento del master. Kerr, coi campi
+    // del preset scritti a mano: mappa, condizioni iniziali, dominio, script.
+    pressNew();
+    m_discardOnPrompt = true;
+    const QStringList kerr = presetsWhere([](const LibraryItem &item, bool isRecord) {
+        return !isRecord && item.scriptCode.contains(QLatin1String("return mat3"))
+            && QFileInfo(item.filePath).baseName() == QLatin1String("Kerr");
+    });
+    if (kerr.isEmpty()) {
+        check(false, QStringLiteral("superficie metrica 'Kerr' non trovata nella libreria"));
+    } else {
+        LibraryManager lm;
+        const LibraryItem k = lm.parseJson(m_root + QLatin1Char('/') + kerr.first(), LibraryType::Surface);
+        ui->lineX->setPlainText(k.metricMapX);  ui->lineY->setPlainText(k.metricMapY);
+        ui->lineZ->setPlainText(k.metricMapZ);  ui->lineP->setPlainText(k.metricMapP);
+        ui->lnU->setPlainText(k.geoU0);  ui->lnV->setPlainText(k.geoV0);  ui->lnW->setPlainText(k.geoW0);
+        ui->lndU->setPlainText(k.geoDU); ui->lndV->setPlainText(k.geoDV); ui->lndW->setPlainText(k.geoDW);
+        ui->lineConform->setPlainText(k.geoConform);
+        typeInField(ui->uMinEdit, QString::number(k.uMin));
+        typeInField(ui->uMaxEdit, QString::number(k.uMax));
+        typeInField(ui->vMinEdit, QString::number(k.vMin));
+        typeInField(ui->vMaxEdit, QString::number(k.vMax));
+        setScriptMode(MainWindow::ScriptModeSurface);
+        ui->txtScriptEditor->setPlainText(k.scriptCode);
+        wait(300);
+        click(ui->btnRunCurrentScript);  wait(1200);
+        check(!m_mw->isSceneEmpty() && !m_mw->m_emptySceneGated && ui->stepSlider->isEnabled(),
+              QStringLiteral("NEW, script metrico Kerr, Run -> scena %1, %2")
+                  .arg(m_mw->isSceneEmpty() ? QStringLiteral("vuota") : QStringLiteral("piena"), stepsOn()));
+        checkSurfaceControls(QStringLiteral("NEW, script metrico Kerr, Run"));
+    }
+    m_discardOnPrompt = false;
 }
 
 void ScenarioTest::runLoadOrderScenarios()
@@ -4482,6 +4582,31 @@ void ScenarioTest::runMasterRecordsScenarios()
         if (m_mw->m_audioController) m_mw->m_audioController->stopAll();
     }
     check(ok > 0, QStringLiteral("record con tutti i moduli accesi dopo il load: %1 su %2").arg(ok).arg(records.size()));
+}
+
+void ScenarioTest::runRendererAllScenarios()
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Comandi del dock RENDERER dopo il load di ogni preset =="));
+    const QString filter = m_only.section(QLatin1Char(':'), 1);
+    const QRegularExpression filterRe(filter, QRegularExpression::CaseInsensitiveOption);
+    const QStringList rels = presetsWhere([&](const LibraryItem &item, bool) {
+        return filter.isEmpty() || item.filePath.contains(filterRe);
+    });
+    int ok = 0;
+    for (const QString &rel : rels) {
+        if (!(rel.startsWith(QLatin1String("records/")) ? loadRecord(rel) : loadSurface(rel))) continue;
+        QStringList bad;
+        if (m_mw->isSceneEmpty()) bad << QStringLiteral("scena vuota");
+        if (m_mw->m_emptySceneGated || !ui->stepSlider->isEnabled())
+            bad << QStringLiteral("gate della scena vuota acceso (Steps %1)").arg(onOff(ui->stepSlider->isEnabled()));
+        bad << surfaceControlsProblems();
+        if (bad.isEmpty()) ++ok;
+        else check(false, QStringLiteral("%1 -> %2").arg(rel, bad.join(QStringLiteral("; "))));
+    }
+    check(ok == rels.size(), QStringLiteral("preset coi comandi del dock RENDERER a posto dopo il load: %1 su %2")
+                                 .arg(ok).arg(rels.size()));
 }
 
 void ScenarioTest::runLibraryRenameScenarios()

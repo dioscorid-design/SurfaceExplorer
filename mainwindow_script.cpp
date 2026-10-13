@@ -685,6 +685,9 @@ void MainWindow::runMetricScript(const QString& fullText)
     m_geoErrorType = GeoError::None;
 
     checkAndTriggerMeshUpdate();
+    // Di nuovo a mesh costruita: la chiamata qui sopra la trovava ancora vuota
+    // dopo un NEW, e il gate della scena vuota restava acceso.
+    updateMasterButtonState();
 }
 
 // Codice della SUPERFICIE da cui si deducono le sue costanti: equazione

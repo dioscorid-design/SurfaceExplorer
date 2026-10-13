@@ -21,8 +21,10 @@
 # Uso:
 #   ./ExC/Mac/Test/scenario-test.sh
 #   ./ExC/Mac/Test/scenario-test.sh --scenario-only reset-scene   una sola sezione
-#       (script-dock, texture-target, mesh-image, record-texture, library-folder,
-#        library-paste, library-rename, master-records[:filtro], reset-scene)
+#       (script-dock, texture-target, mesh-image, mesh-clocks, record-texture,
+#        library-folder, library-paste, library-rename, master-records[:filtro],
+#        renderer-all[:filtro], reset-scene, reset-button, tubes, border, meshes,
+#        animated-load, load-order)
 #   PRESETS=/altra/libreria ./ExC/Mac/Test/scenario-test.sh
 #
 # Report in build/test-reports/scenario-<data>/scenario-report.txt, stampato alla fine.
