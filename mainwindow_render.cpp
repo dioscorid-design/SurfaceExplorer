@@ -1144,9 +1144,31 @@ void MainWindow::setupRendererDock()
         ui->borderThicknessSlider->setMinimumHeight(ui->lightSlider->minimumHeight());
     }
     connect(ui->borderThicknessSlider, &QSlider::valueChanged, this, [this](int val){
-        const float t = borderThicknessFromSlider(val);
+        // La posizione e' una VISTA dello spessore: se corrisponde gia' a quello
+        // applicato (un passo fisso, qui sotto) non lo si riporta sulla curva.
+        const float cur = ui->glWidget ? ui->glWidget->borderRadius() : 0.0f;
+        const float t = (sliderFromBorderThickness(cur) == val) ? cur : borderThicknessFromSlider(val);
         if (ui->glWidget) ui->glWidget->setBorderRadius(t);
         ui->lblValBorderThickness->setText(borderThicknessText(t));
+    });
+    // Clic sulla corsa e frecce: passo fisso sul valore (borderThicknessStepped),
+    // valore esatto nel motore e nell'etichetta, slider sulla sua posizione --
+    // come l'accensione dal radio Border. Il trascinamento resta sulla curva.
+    connect(ui->borderThicknessSlider, &QAbstractSlider::actionTriggered, this, [this](int action){
+        float step = 0.0f;
+        switch (action) {
+        case QAbstractSlider::SliderPageStepAdd:   step =  0.1f;  break;
+        case QAbstractSlider::SliderPageStepSub:   step = -0.1f;  break;
+        case QAbstractSlider::SliderSingleStepAdd: step =  0.01f; break;
+        case QAbstractSlider::SliderSingleStepSub: step = -0.01f; break;
+        default: return;
+        }
+        if (!ui->glWidget) return;
+        const float t = borderThicknessStepped(ui->glWidget->borderRadius(), step);
+        ui->glWidget->setBorderRadius(t);
+        ui->lblValBorderThickness->setText(borderThicknessText(t));
+        // Durante actionTriggered Qt applica poi la posizione come valore.
+        ui->borderThicknessSlider->setSliderPosition(sliderFromBorderThickness(t));
     });
 
     connect(ui->fillLightSlider, &QSlider::valueChanged, this, [this](int val){

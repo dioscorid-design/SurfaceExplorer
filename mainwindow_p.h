@@ -209,6 +209,20 @@ inline int sliderFromBorderThickness(float t)
                               / (kBorderThicknessDisplayMax - kBorderThicknessDisplayMin));
     return 1 + qRound(f * 99.0f);
 }
+// Clic sulla corsa e frecce: passo FISSO sul valore mostrato (0.1 e 0.01), come
+// gli slider delle costanti. Il passo di Qt in posizioni, sulla curva, valeva
+// pochi centesimi vicino al minimo e quasi 2 in fondo. Scendendo ci si ferma al
+// minimo e il passo dopo spegne il bordo; da spento il primo passo lo accende al
+// minimo.
+inline float borderThicknessStepped(float t, float shownStep)
+{
+    if (t <= 0.0f) return shownStep > 0.0f ? kBorderThicknessDisplayMin * kBorderThicknessUnit : 0.0f;
+    const float cur = t / kBorderThicknessUnit;
+    float shown = qRound((cur + shownStep) * 100.0f) / 100.0f;
+    if (shown < kBorderThicknessDisplayMin)
+        shown = (cur > kBorderThicknessDisplayMin + 0.001f) ? kBorderThicknessDisplayMin : 0.0f;
+    return qMin(shown, kBorderThicknessDisplayMax) * kBorderThicknessUnit;
+}
 // Il valore mostrato nell'etichetta (scala 0.5..10), dal raggio.
 inline QString borderThicknessText(float t)
 {

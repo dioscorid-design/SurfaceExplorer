@@ -3927,6 +3927,28 @@ void ScenarioTest::runBorderScenarios()
         ui->borderThicknessSlider->setValue(0);  wait(300);
         check(gl->borderRadius() == 0.0f && ui->lblValBorderThickness->text() == QLatin1String("0.00"),
               QStringLiteral("slider a 0 -> nessun bordo"));
+        // Clic sulla corsa e frecce: passi fissi sul valore mostrato, come le
+        // costanti (sulla curva il passo di Qt in fondo valeva quasi 2).
+        auto stepTo = [&](QAbstractSlider::SliderAction a, const char *want, const QString &what) {
+            ui->borderThicknessSlider->triggerAction(a);  wait(150);
+            const QString got = ui->lblValBorderThickness->text();
+            check(got == QLatin1String(want) && qAbs(gl->borderRadius() - got.toFloat() * 0.02f) < 1e-5f,
+                  QStringLiteral("%1 -> %2 ('%3', raggio %4)").arg(what, QLatin1String(want), got).arg(gl->borderRadius()));
+        };
+        stepTo(QAbstractSlider::SliderPageStepAdd,   "0.25", QStringLiteral("bordo spento, clic sulla corsa"));
+        stepTo(QAbstractSlider::SliderPageStepAdd,   "0.35", QStringLiteral("clic sulla corsa"));
+        stepTo(QAbstractSlider::SliderSingleStepAdd, "0.36", QStringLiteral("freccia"));
+        stepTo(QAbstractSlider::SliderPageStepSub,   "0.26", QStringLiteral("clic indietro"));
+        stepTo(QAbstractSlider::SliderPageStepSub,   "0.25", QStringLiteral("clic indietro sotto il minimo"));
+        stepTo(QAbstractSlider::SliderPageStepSub,   "0.00", QStringLiteral("clic indietro dal minimo"));
+        ui->borderThicknessSlider->setValue(91);  wait(200);
+        const float before = gl->borderRadius() / 0.02f;
+        ui->borderThicknessSlider->triggerAction(QAbstractSlider::SliderPageStepAdd);  wait(150);
+        check(qAbs(gl->borderRadius() / 0.02f - before - 0.1f) < 0.006f,
+              QStringLiteral("in fondo alla corsa, clic -> +0.1 (%1 -> %2)")
+                  .arg(before, 0, 'f', 2).arg(gl->borderRadius() / 0.02f, 0, 'f', 2));
+        stepTo(QAbstractSlider::SliderToMaximum,     "10.00", QStringLiteral("fondo corsa"));
+        stepTo(QAbstractSlider::SliderPageStepAdd,   "10.00", QStringLiteral("clic oltre il massimo"));
         ui->borderThicknessSlider->setValue(50);  wait(300);
         check(torus < 0.002, QStringLiteral("toro (solo cuciture) -> bordo invisibile (pixel cambiati %1)").arg(pct(torus)));
 
