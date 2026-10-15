@@ -419,7 +419,7 @@ void ScenarioTest::runTubeScenarios()
     }
 
     // Stessa regola aprendo un RECORD e una superficie multi-mesh da script.
-    for (const char *rel : { "records/Rotations/Parametric/Solid Curves/Multi Curves/Borromean Rings Spinning.json", "records/Animations/Parametric/Solid Curves/Lissajous Layers Wave.json",
+    for (const char *rel : { "records/Rotations/Parametric/Solid Curves/Multi Curves/Borromean Rings Spinning.json",
                              "surfaces/Parametric/Surfaces/Multimesh/Hopf Tori.json" }) {
         const QString path = QString::fromLatin1(rel);
         if (!(path.startsWith(QLatin1String("records/")) ? loadRecord(path) : loadSurface(path))) continue;
@@ -430,6 +430,40 @@ void ScenarioTest::runTubeScenarios()
                   .arg(ui->lineMeshCount->text(), onOff(ui->lineMeshCount->isEnabled()),
                        onOff(ui->meshCountSlider->isEnabled())));
         m_mw->performMasterStop();
+    }
+
+    // Una sezione sola: il campo Meshes comanda le copie. Lissajous Layers
+    // Wave parte con 5 strati; a 8 l'ottavo prende il suo colore dal file.
+    {
+        const QString kWave = QStringLiteral("records/Animations/Parametric/Solid Curves/Lissajous Layers Wave.json");
+        LibraryManager lm;
+        const LibraryItem file = lm.parseJson(m_root + QLatin1Char('/') + kWave, LibraryType::Motion);
+        if (loadRecord(kWave) && file.meshParts.size() >= 8) {
+            check(gl->meshPartCount() == 5 && ui->lineMeshCount->text() == QLatin1String("5")
+                      && ui->lineMeshCount->isEnabled() && ui->meshCountSlider->isEnabled(),
+                  QStringLiteral("Lissajous Layers Wave -> 5 strati dal campo Meshes, acceso (%1 parti, campo '%2' %3, slider %4)")
+                      .arg(gl->meshPartCount()).arg(ui->lineMeshCount->text(), onOff(ui->lineMeshCount->isEnabled()),
+                                                     onOff(ui->meshCountSlider->isEnabled())));
+            const float t0 = gl->clockTimes().geom;
+            ui->meshCountSlider->setValue(8);  wait(800);
+            const MeshPart &p7 = eng->getMeshParts().back();
+            const MeshPart &f7 = file.meshParts[7];
+            check(gl->meshPartCount() == 8 && qAbs(p7.colorR - f7.colorR) < 1e-4f
+                      && qAbs(p7.colorG - f7.colorG) < 1e-4f && qAbs(p7.colorB - f7.colorB) < 1e-4f,
+                  QStringLiteral("Meshes a 8 -> otto strati, l'ottavo col suo colore del file (%1 parti)")
+                      .arg(gl->meshPartCount()));
+            // Lo slider e' un commit di servizio: l'animazione non si ferma
+            // (si fermava) e non riparte da capo.
+            const float t1 = gl->clockTimes().geom;
+            wait(400);
+            const float t2 = gl->clockTimes().geom;
+            check(gl->isSurfaceAnimating() && t1 > t0 && t2 > t1 && m_mw->m_btnStart->text() == QLatin1String("STOP"),
+                  QStringLiteral("Meshes a 8 con la fase in moto -> l'animazione prosegue (t %1 -> %2 -> %3, master %4)")
+                      .arg(t0, 0, 'f', 2).arg(t1, 0, 'f', 2).arg(t2, 0, 'f', 2).arg(masterState()));
+            gl->grabFramebuffer().save(m_outDir + QStringLiteral("/lissajous-layers-8.png"));
+            ui->meshCountSlider->setValue(5);  wait(800);
+            m_mw->performMasterStop();
+        }
     }
 
     // MASTER coi tubi da SCRIPT animati da t: la geometria e' un modulo (prima

@@ -746,9 +746,10 @@ void MainWindow::finishTubeRun(RunOrigin origin, bool runDockOnly, const QString
 {
     SurfaceEngine *engine = ui->glWidget->getEngine();
 
-    // 6. OROLOGIO: la curva con 't' anima la geometria.
+    // 6. OROLOGIO: la curva con 't' anima la geometria. Il commit di servizio
+    // la lascia com'e' (come runSceneParametric).
     const bool applyOnly = (origin == RunOrigin::ServiceCommit);
-    applyAnimationState(applyOnly ? false : hasTimeVariable(curveText), runDockOnly);
+    applyAnimationState(applyOnly ? isEquationModuleMoving() : hasTimeVariable(curveText), runDockOnly);
     updateMasterButtonState();
 
     // 7. MESH e collasso, come le superfici.
@@ -1297,8 +1298,11 @@ void MainWindow::runSceneParametric(RunOrigin origin, bool runDockOnly,
         }
     }
 
+    // Il commit di servizio lascia la geometria com'e': ferma resta ferma, in
+    // moto resta in moto (lo slider Meshes passa di qui anche ad animazione
+    // accesa, e `false` la fermava).
     const bool applyOnly = (origin == RunOrigin::ServiceCommit);
-    applyAnimationState(applyOnly ? false : hasTimeVariable(rawEqsForT), runDockOnly);
+    applyAnimationState(applyOnly ? isEquationModuleMoving() : hasTimeVariable(rawEqsForT), runDockOnly);
     updateMasterButtonState();
 
     // 4. REPAINT E VALIDAZIONE GEOMETRIA
