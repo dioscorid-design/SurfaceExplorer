@@ -6,6 +6,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 
 class LibraryManager;
 class QTreeWidget;
@@ -34,5 +35,22 @@ void selectTexture(QTreeWidget *tree, const LibraryManager &lib,
 // in scena non c'e' audio). Stessi due criteri delle texture.
 void selectSound(QTreeWidget *tree, const LibraryManager &lib,
                  const QString &searchCode, const QString &libName);
+
+// L'EVIDENZIAZIONE DI UN ALBERO, per PERCORSO: dopo una ricostruzione
+// dell'albero (un comando che sposta o rinomina file) gli item sono nuovi e si
+// ritrovano solo cosi'. La fotografano e la rimettono il menu contestuale e il
+// trascinamento, perche' resti sul preset a schermo.
+struct Highlight { QStringList paths; QString current; };
+Highlight highlightOf(QTreeWidget *tree);
+// Rimette selezione ed elemento corrente. Se nessuna delle voci c'e' piu'
+// (cancellata, rinominata, altra libreria) resta cio' che ha deciso il comando.
+void restoreHighlight(QTreeWidget *tree, const Highlight &h);
+// Percorso di una voce (le cartelle in UserRole+10, i file nel tooltip, come
+// refreshAndFocusPaths) e voce di un percorso (nullptr se non c'e').
+QString itemPath(QTreeWidgetItem *item);
+QTreeWidgetItem *itemAt(QTreeWidget *tree, const QString &path);
+// Sposta l'elemento CORRENTE senza toccare la selezione e senza autoscroll:
+// spostarlo fa scrollTo, che riapre i rami chiusi.
+void setCurrentQuietly(QTreeWidget *tree, QTreeWidgetItem *item);
 
 }

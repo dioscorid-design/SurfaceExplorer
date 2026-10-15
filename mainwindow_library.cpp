@@ -117,8 +117,9 @@ void MainWindow::setupLibraryDock()
     // scalzato e lo si rimette quando il ramo si apre o si chiude.
     // Il ripristino scatta solo se la cartella e' ancora l'intera selezione:
     // le espansioni del programma (load, refresh) arrivano con la selezione
-    // gia' sul preset nuovo, e una cartella selezionata con un clic singolo
-    // resta selezionata finche' non la si apre (serve a Copy/Cut/Paste/Delete).
+    // gia' sul preset nuovo. Il clic semplice su una cartella non la seleziona
+    // affatto (LibraryTreeWidget): qui restano i casi in cui una cartella e'
+    // finita selezionata per altre vie (tastiera, tasto destro).
     // Indici persistenti, non puntatori: se l'albero viene ricostruito
     // (refreshLibrary) diventano invalidi da soli.
     auto keepHighlightOnToggle = [this](QTreeWidget *tree) {

@@ -3,6 +3,7 @@
 #include "ui_mainwindow.h"
 #include "presetserializer.h"
 #include "libraryfileoperations.h"
+#include "librarytreefocus.h"
 
 #include <QMenu>
 #include <QFileDialog>
@@ -37,62 +38,13 @@ bool LibraryMenuController::eventFilter(QObject *obj, QEvent *event)
         if (tree) {
             auto *me = static_cast<QMouseEvent *>(event);
             if (event->type() == QEvent::MouseButtonPress)
-                m_pressHighlight[tree] = highlightOf(tree);
+                m_pressHighlight[tree] = LibraryTreeFocus::highlightOf(tree);
             else if (me->button() == Qt::LeftButton
                      && !(me->modifiers() & (Qt::ControlModifier | Qt::MetaModifier)))
                 m_pressHighlight.remove(tree);
         }
     }
     return QObject::eventFilter(obj, event);
-}
-
-// Percorso di una voce: le cartelle lo portano in UserRole+10, i file nel
-// tooltip (come refreshAndFocusPaths).
-static QString libraryItemPath(QTreeWidgetItem *item)
-{
-    const QVariant dir = item->data(0, Qt::UserRole + 10);
-    return dir.isValid() ? dir.toString() : item->toolTip(0);
-}
-
-LibraryMenuController::Highlight LibraryMenuController::highlightOf(QTreeWidget *tree)
-{
-    Highlight h;
-    for (QTreeWidgetItem *item : tree->selectedItems()) h.paths << libraryItemPath(item);
-    if (tree->currentItem()) h.current = libraryItemPath(tree->currentItem());
-    return h;
-}
-
-static QTreeWidgetItem *libraryItemAt(QTreeWidget *tree, const QString &path)
-{
-    if (path.isEmpty()) return nullptr;
-    for (QTreeWidgetItemIterator it(tree); *it; ++it)
-        if (libraryItemPath(*it) == path) return *it;
-    return nullptr;
-}
-
-// Sposta l'elemento CORRENTE senza toccare la selezione e senza autoscroll:
-// spostarlo fa scrollTo, che riapre i rami chiusi (stessa cautela del
-// ripristino in apertura/chiusura di una cartella).
-static void setCurrentQuietly(QTreeWidget *tree, QTreeWidgetItem *item)
-{
-    const bool autoScroll = tree->hasAutoScroll();
-    tree->setAutoScroll(false);
-    tree->selectionModel()->setCurrentIndex(item ? tree->indexFromItem(item) : QModelIndex(),
-                                            QItemSelectionModel::NoUpdate);
-    tree->setAutoScroll(autoScroll);
-}
-
-void LibraryMenuController::restoreHighlight(QTreeWidget *tree, const Highlight &h)
-{
-    QList<QTreeWidgetItem *> items;
-    for (QTreeWidgetItemIterator it(tree); *it; ++it)
-        if (h.paths.contains(libraryItemPath(*it))) items << *it;
-    // Voce sparita (cancellata, rinominata, altra libreria): resta cio' che
-    // ha deciso il comando.
-    if (!h.paths.isEmpty() && items.isEmpty()) return;
-    tree->clearSelection();
-    for (QTreeWidgetItem *item : items) item->setSelected(true);
-    setCurrentQuietly(tree, libraryItemAt(tree, h.current));
 }
 
 void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
@@ -105,9 +57,9 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     // Non nei rientri da ricostruzione della libreria (vedi i moti, piu'
     // sotto): li' non c'e' un menu dell'utente da chiudere.
     const bool keepHighlight = !m_mainWindow->libraryRebuildInProgress();
-    const Highlight before = !keepHighlight ? Highlight{}
+    const LibraryTreeFocus::Highlight before = !keepHighlight ? LibraryTreeFocus::Highlight{}
                            : m_pressHighlight.contains(senderTree) ? m_pressHighlight.take(senderTree)
-                                                                   : highlightOf(senderTree);
+                                                                   : LibraryTreeFocus::highlightOf(senderTree);
 
     QPoint localPos = pos;
     QPoint globalMenuPos = senderTree->mapToGlobal(pos);
@@ -136,8 +88,8 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     if (keepHighlight) {
         const QString onScreenPath = !before.current.isEmpty() ? before.current
                                    : before.paths.isEmpty()    ? QString() : before.paths.first();
-        onScreen = libraryItemAt(senderTree, onScreenPath);
-        if (onScreen) setCurrentQuietly(senderTree, onScreen);
+        onScreen = LibraryTreeFocus::itemAt(senderTree, onScreenPath);
+        if (onScreen) LibraryTreeFocus::setCurrentQuietly(senderTree, onScreen);
     }
 
     QList<QTreeWidgetItem*> selectedItems = senderTree->selectedItems();
@@ -642,17 +594,17 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                 safeRefItem->setSelected(true);
             }
             pendingAction();
-            if (keepHighlight) restoreHighlight(safeTree, before);
+            if (keepHighlight) LibraryTreeFocus::restoreHighlight(safeTree, before);
         });
     } else if (keepHighlight) {
-        restoreHighlight(senderTree, before);
+        LibraryTreeFocus::restoreHighlight(senderTree, before);
     }
 #else
     // Esecuzione standard Desktop
     contextMenu->exec(senderTree->mapToGlobal(pos));
     delete contextMenu;
     // Il comando e' gia' stato eseguito (dentro exec).
-    if (keepHighlight) restoreHighlight(senderTree, before);
+    if (keepHighlight) LibraryTreeFocus::restoreHighlight(senderTree, before);
 #endif
 
     if (wasTimeAnimating) {

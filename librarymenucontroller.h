@@ -6,6 +6,8 @@
 #include <QHash>
 #include <QStringList>
 
+#include "librarytreefocus.h"
+
 class MainWindow;
 class QTreeWidget;
 
@@ -28,16 +30,10 @@ protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
 
 private:
-    // Le voci evidenziate, per percorso: dopo una ricostruzione dell'albero
-    // gli item sono nuovi e si ritrovano solo cosi'.
-    struct Highlight { QStringList paths; QString current; };
-    static Highlight highlightOf(QTreeWidget *tree);
-    static void restoreHighlight(QTreeWidget *tree, const Highlight &h);
-
     MainWindow *m_mainWindow;
     // Presa alla pressione, PRIMA che Qt sposti la selezione sulla voce sotto
     // il cursore; la consuma il menu che quella pressione apre.
-    QHash<QTreeWidget *, Highlight> m_pressHighlight;
+    QHash<QTreeWidget *, LibraryTreeFocus::Highlight> m_pressHighlight;
 };
 
 #endif // LIBRARYMENUCONTROLLER_H

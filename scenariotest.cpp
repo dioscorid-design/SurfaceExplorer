@@ -437,7 +437,7 @@ void ScenarioTest::runTubeScenarios()
     // Wave parte con gli strati del file; a 8 l'ottavo prende il suo colore
     // dal file.
     {
-        const QString kWave = QStringLiteral("records/Animations/Parametric/Solid Curves/Lissajous Layers Wave.json");
+        const QString kWave = QStringLiteral("records/Animations/Parametric/Solid Curves/Multicurve/Lissajous Layers Wave.json");
         LibraryManager lm;
         const LibraryItem file = lm.parseJson(m_root + QLatin1Char('/') + kWave, LibraryType::Motion);
         const int layers = file.meshCount.toInt();
@@ -471,7 +471,7 @@ void ScenarioTest::runTubeScenarios()
 
     // MASTER coi tubi da SCRIPT animati da t: la geometria e' un modulo (prima
     // non lo era: con la geometria ferma il master restava su STOP).
-    if (loadRecord(QStringLiteral("records/Animations/Parametric/Solid Curves/Lissajous Layers Wave.json"))) {
+    if (loadRecord(QStringLiteral("records/Animations/Parametric/Solid Curves/Multicurve/Lissajous Layers Wave.json"))) {
         const MainWindow::MasterActivity a = m_mw->masterActivity();
         check(a.eqAvailable && a.eqRunning && m_mw->m_btnStart->text() == QLatin1String("STOP"),
               QStringLiteral("tubi da script con t -> la geometria e' un modulo in moto, master STOP (%1)").arg(masterState()));
@@ -667,7 +667,7 @@ void ScenarioTest::runTubeScenarios()
     // Wave passano vicino a cuspidi; con gli anelli uniformi in u la punta si
     // chiudeva piatta, con una tacca. Pose a tempi fissi (gli orologi li avanza
     // il test, come il recorder), con la passata e senza, in tube-cusps/<modo>/.
-    if (loadRecord(QStringLiteral("records/Animations/Parametric/Solid Curves/Lissajous Layers Wave.json"))) {
+    if (loadRecord(QStringLiteral("records/Animations/Parametric/Solid Curves/Multicurve/Lissajous Layers Wave.json"))) {
         const bool compute = gl->rhi() && gl->rhi()->isFeatureSupported(QRhi::Compute);
         check(!compute || gl->tubeFramesActive(),
               QStringLiteral("Lissajous Layers Wave -> anelli distribuiti dalla passata compute (compute %1, passata %2)")
@@ -2626,7 +2626,7 @@ void ScenarioTest::run()
     // ---------------------------------------------------------------------
     // COSTANTI DISCRETE E MINIMI (direttive "B := int(1,6);", "A := min(1.0);"
     // dello script): valgono per la scena che le dichiara, non per quella dopo.
-    const QString kLabyrinth = QStringLiteral("records/Paths/Parametric/Surface/Solid Wireframe/Clifford Labyrinth.json");
+    const QString kLabyrinth = QStringLiteral("records/Paths/Parametric/Surfaces/Solid Wireframe/Clifford Labyrinth.json");
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Costanti discrete e minimi (%1) ==").arg(kLabyrinth));
     if (loadRecord(kLabyrinth)) {
@@ -2718,7 +2718,7 @@ void ScenarioTest::run()
         // vuoti) svuotava u e v. Li riscrivevano le direttive, riapplicate a
         // ogni load; ora vale il file, e i limiti devono restare.
         if (loadRecord(QStringLiteral("records/Rotations/Parametric/Surfaces/Geodesic Flow/Black Hole/Wormhole.json"))
-            && loadRecord(QStringLiteral("records/Paths/Parametric/Surface/Solid Wireframe/Clifford Labyrinth.json"))) {
+            && loadRecord(QStringLiteral("records/Paths/Parametric/Surfaces/Solid Wireframe/Clifford Labyrinth.json"))) {
             check(ui->uMaxEdit->isEnabled() && !ui->uMaxEdit->text().isEmpty()
                       && !ui->vMaxEdit->text().isEmpty(),
                   QStringLiteral("record da script dopo uno metrico: limiti u/v presenti (u max '%1', v max '%2')")
@@ -3156,9 +3156,9 @@ void ScenarioTest::run()
     // ---------------------------------------------------------------------
     // PATH E MOTI: viste, velocita', tasti e timer, moto attivo, FOV, path
     // applicato (vedi checkMotion).
-    const QString kPath4D   = QStringLiteral("records/Paths/Parametric/Surface/Equations/S1xS1xS1/Coiled Coil.json");       // path 4D, vista Center
-    const QString kPath3D   = QStringLiteral("records/Paths/Parametric/Surface/Multimesh/Calabi-Yau Orbit.json");  // path 3D, FOV 69, spin
-    const QString kPathBoth = QStringLiteral("records/Paths/Parametric/Surface/Equations/S1xS1xS1/Cytherean Coil.json");    // path 4D + 3D + rotazioni
+    const QString kPath4D   = QStringLiteral("records/Paths/Parametric/Surfaces/Equations/S1xS1xS1/Coiled Coil.json");       // path 4D, vista Center
+    const QString kPath3D   = QStringLiteral("records/Paths/Parametric/Surfaces/Multimesh/Calabi-Yau Orbit.json");  // path 3D, FOV 69, spin
+    const QString kPathBoth = QStringLiteral("records/Paths/Parametric/Surfaces/Equations/S1xS1xS1/Cytherean Coil.json");    // path 4D + 3D + rotazioni
     const QString kRotRec   = QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/Non-orientable/Boy Surface.json");
     const QString kTorusSurf = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
     SurfaceEngine *engine = ui->glWidget->getEngine();
@@ -3634,14 +3634,14 @@ void ScenarioTest::run()
               QStringLiteral("hint di un preset di superficie, senza etichetta -> %1").arg(QString(h).replace(QLatin1Char('\n'), QLatin1String(" / "))));
     }
     // Un hint che dichiara il proprio ruolo resta com'e' (record di path).
-    if (loadRecord(QStringLiteral("records/Paths/Parametric/Surface/Tube/Clover.json"))) {
+    if (loadRecord(QStringLiteral("records/Paths/Parametric/Surfaces/Tube/Clover.json"))) {
         const QString h = m_mw->composedHintText();
         check(h.startsWith(QLatin1String("Path slider A")),
               QStringLiteral("hint del path -> %1").arg(QString(h).replace(QLatin1Char('\n'), QLatin1String(" / "))));
     }
     // Una texture dalla Library mostra il SOLO suo messaggio: quello della
     // superficie ricompariva a ogni cambio di texture.
-    if (loadRecord(QStringLiteral("records/Animations/Parametric/Solid Curves/Lissajous Layers Wave.json"))) {
+    if (loadRecord(QStringLiteral("records/Animations/Parametric/Solid Curves/Multicurve/Lissajous Layers Wave.json"))) {
         auto overlay = [&]() {
             const QLabel *l = ui->glWidget->findChild<QLabel *>(QStringLiteral("sceneHintOverlay"));
             return (l && l->isVisible()) ? l->text() : QString();
@@ -4450,7 +4450,7 @@ void ScenarioTest::runResetButtonScenarios()
     const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
     const QString kAnim  = QString::fromLatin1(kParametricRecord);                     // t, niente rotazioni
     const QString kRot   = QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/Non-orientable/Boy Surface.json");       // rotazioni
-    const QString kPath  = QStringLiteral("records/Paths/Parametric/Surface/Multimesh/Calabi-Yau Orbit.json");      // path 3D
+    const QString kPath  = QStringLiteral("records/Paths/Parametric/Surfaces/Multimesh/Calabi-Yau Orbit.json");      // path 3D
     const QString kMesh  = QStringLiteral("records/Rotations/Parametric/Surfaces/Multimesh/Hopf Tori.json");
     const QString kGeo   = QStringLiteral("records/Animations/Parametric/Surfaces/Geodesic Flow/Breathing Hyperboloid.json");
 
@@ -4955,15 +4955,39 @@ void ScenarioTest::runLibraryFolderScenarios()
     check(folder->isExpanded(), QStringLiteral("doppio clic sulla cartella -> si riapre"));
     focusOk(QStringLiteral("cartella riaperta col doppio clic"));
 
-    // Clic singolo: la cartella resta selezionata (serve a Copy/Cut/Paste/Delete),
-    // ma gli altri alberi non perdono la loro evidenziazione.
+    // Clic singolo: la cartella non prende il focus nemmeno alla pressione
+    // (prima lo prendeva e lo teneva; poi lo prendeva e lo rendeva al rilascio,
+    // un lampo), e gli altri alberi non perdono la loro evidenziazione.
     mouse(QEvent::MouseButtonPress, folder);
+    focusOk(QStringLiteral("pressione sulla cartella, prima del rilascio"));
+    {
+        // Un clic che trema di un pixel non e' un trascinamento.
+        const QPoint pos = tree->visualItemRect(folder).center() + QPoint(1, 0);
+        QMouseEvent move(QEvent::MouseMove, pos, tree->viewport()->mapToGlobal(pos), Qt::NoButton,
+                         Qt::LeftButton, Qt::NoModifier);
+        QCoreApplication::sendEvent(tree->viewport(), &move);
+    }
     mouse(QEvent::MouseButtonRelease, folder);
     wait(300);
-    check(folder->isSelected() && !leaf->isSelected(),
-          QStringLiteral("clic singolo sulla cartella -> la cartella e' selezionata"));
+    focusOk(QStringLiteral("clic singolo sulla cartella"));
     check(!tex || tex->isSelected(),
           QStringLiteral("clic singolo su una cartella delle Surfaces -> la texture resta evidenziata"));
+    // Cmd/Ctrl+clic: selezione multipla voluta, preset e cartella insieme.
+    {
+        const QPoint pos = tree->visualItemRect(folder).center();
+        QMouseEvent press(QEvent::MouseButtonPress, pos, tree->viewport()->mapToGlobal(pos), Qt::LeftButton,
+                          Qt::LeftButton, Qt::ControlModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease, pos, tree->viewport()->mapToGlobal(pos), Qt::LeftButton,
+                            Qt::NoButton, Qt::ControlModifier);
+        QCoreApplication::sendEvent(tree->viewport(), &press);
+        QCoreApplication::sendEvent(tree->viewport(), &release);
+        wait(300);
+        check(folder->isSelected() && leaf->isSelected(),
+              QStringLiteral("Cmd+clic sulla cartella -> selezione multipla, preset e cartella"));
+        tree->selectionModel()->clearSelection();
+        tree->setCurrentItem(leaf);
+        wait(200);
+    }
 
     // Tap su mobile: il press seleziona la cartella, poi onExampleItemClicked la
     // apre o la chiude (setExpanded). Qui il secondo passo e' simulato.

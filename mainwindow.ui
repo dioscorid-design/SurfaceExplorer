@@ -1869,7 +1869,7 @@ QFrame#panelBackgroundTarget QRadioButton { background: transparent; }</string>
           <number>0</number>
          </property>
          <item>
-          <widget class="QTreeWidget" name="treeSurfaces">
+          <widget class="LibraryTreeWidget" name="treeSurfaces">
            <property name="contextMenuPolicy">
             <enum>Qt::ContextMenuPolicy::CustomContextMenu</enum>
            </property>
@@ -1906,7 +1906,7 @@ QFrame#panelBackgroundTarget QRadioButton { background: transparent; }</string>
           <number>0</number>
          </property>
          <item>
-          <widget class="QTreeWidget" name="treeMotions">
+          <widget class="LibraryTreeWidget" name="treeMotions">
            <property name="contextMenuPolicy">
             <enum>Qt::ContextMenuPolicy::CustomContextMenu</enum>
            </property>
@@ -1943,7 +1943,7 @@ QFrame#panelBackgroundTarget QRadioButton { background: transparent; }</string>
           <number>0</number>
          </property>
          <item>
-          <widget class="QTreeWidget" name="treeTextures">
+          <widget class="LibraryTreeWidget" name="treeTextures">
            <property name="contextMenuPolicy">
             <enum>Qt::ContextMenuPolicy::CustomContextMenu</enum>
            </property>
@@ -1968,7 +1968,7 @@ QFrame#panelBackgroundTarget QRadioButton { background: transparent; }</string>
         </attribute>
         <layout class="QVBoxLayout" name="verticalLayout_18">
          <item>
-          <widget class="QTreeWidget" name="treeSounds">
+          <widget class="LibraryTreeWidget" name="treeSounds">
            <column>
             <property name="text">
              <string notr="true">1</string>
@@ -4018,6 +4018,11 @@ QFrame#panelBackgroundTarget QRadioButton { background: transparent; }</string>
    <extends>QWidget</extends>
    <header location="global">glwidget.h</header>
    <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>LibraryTreeWidget</class>
+   <extends>QTreeWidget</extends>
+   <header location="global">librarytreewidget.h</header>
   </customwidget>
  </customwidgets>
  <resources />

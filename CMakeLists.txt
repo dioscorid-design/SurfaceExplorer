@@ -106,6 +106,8 @@ qt_add_executable(SurfaceExplorer
     libraryfolders.h
     librarytreefocus.cpp
     librarytreefocus.h
+    librarytreewidget.cpp
+    librarytreewidget.h
 
     # --- ENGINE & PARSING ---
     surfaceengine.cpp

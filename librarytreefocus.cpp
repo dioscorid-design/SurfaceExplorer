@@ -156,3 +156,52 @@ void LibraryTreeFocus::selectSound(QTreeWidget *tree, const LibraryManager &lib,
         if (QTreeWidgetItem *hit = sndByName ? sndByName : sndByCode) focus(tree, hit);
     }
 }
+
+// Percorso di una voce: le cartelle lo portano in UserRole+10, i file nel
+// tooltip (come refreshAndFocusPaths).
+QString LibraryTreeFocus::itemPath(QTreeWidgetItem *item)
+{
+    const QVariant dir = item->data(0, Qt::UserRole + 10);
+    return dir.isValid() ? dir.toString() : item->toolTip(0);
+}
+
+LibraryTreeFocus::Highlight LibraryTreeFocus::highlightOf(QTreeWidget *tree)
+{
+    Highlight h;
+    for (QTreeWidgetItem *item : tree->selectedItems()) h.paths << itemPath(item);
+    if (tree->currentItem()) h.current = itemPath(tree->currentItem());
+    return h;
+}
+
+QTreeWidgetItem *LibraryTreeFocus::itemAt(QTreeWidget *tree, const QString &path)
+{
+    if (path.isEmpty()) return nullptr;
+    for (QTreeWidgetItemIterator it(tree); *it; ++it)
+        if (itemPath(*it) == path) return *it;
+    return nullptr;
+}
+
+// Sposta l'elemento CORRENTE senza toccare la selezione e senza autoscroll:
+// spostarlo fa scrollTo, che riapre i rami chiusi (stessa cautela del
+// ripristino in apertura/chiusura di una cartella).
+void LibraryTreeFocus::setCurrentQuietly(QTreeWidget *tree, QTreeWidgetItem *item)
+{
+    const bool autoScroll = tree->hasAutoScroll();
+    tree->setAutoScroll(false);
+    tree->selectionModel()->setCurrentIndex(item ? tree->indexFromItem(item) : QModelIndex(),
+                                            QItemSelectionModel::NoUpdate);
+    tree->setAutoScroll(autoScroll);
+}
+
+void LibraryTreeFocus::restoreHighlight(QTreeWidget *tree, const Highlight &h)
+{
+    QList<QTreeWidgetItem *> items;
+    for (QTreeWidgetItemIterator it(tree); *it; ++it)
+        if (h.paths.contains(itemPath(*it))) items << *it;
+    // Voce sparita (cancellata, rinominata, altra libreria): resta cio' che
+    // ha deciso il comando.
+    if (!h.paths.isEmpty() && items.isEmpty()) return;
+    tree->clearSelection();
+    for (QTreeWidgetItem *item : items) item->setSelected(true);
+    setCurrentQuietly(tree, itemAt(tree, h.current));
+}
