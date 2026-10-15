@@ -1084,7 +1084,7 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         branch == LibraryFolders::Branch::Textures ||
         branch == LibraryFolders::Branch::Sounds) {
         QMessageBox::warning(m_mainWindow, "Save Blocked",
-                             "Operation not allowed.\n\nStatic surfaces must reside in 'Surfaces'.\nIf you want to save the global scene (which contains this surface), use the 'Save Motion' command.");
+                             "Operation not allowed.\n\nSurfaces and solid curves must be saved in Shapes (the 'surfaces' folder).\nTo save the whole scene (which contains this surface), use Save Record.");
         return;
     }
 
@@ -2219,7 +2219,7 @@ bool PresetSerializer::saveUnsavedWorkInteractive()
 
         QMessageBox::warning(m_mainWindow, "Choose a branch",
                              "Pick one of the four library branches first:\n\n"
-                             "• Surfaces — the surface alone (no textures, no rotations)\n"
+                             "• Shapes (the 'surfaces' folder) — the surface or solid curve alone (no textures, no rotations)\n"
                              "• Textures — the texture preset alone\n"
                              "• Sounds — the sound script alone\n"
                              "• Records — the whole scene: surface, texture, rotations, camera and paths");

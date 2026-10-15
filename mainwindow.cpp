@@ -979,7 +979,10 @@ void MainWindow::setupDockLayout()
     // =========================================================================
     // --- RIORDINO SCHEDE LIBRARY (FIX DESIGNER) ---
     ui->tabWidget->clear();
-    ui->tabWidget->addTab(ui->Surface, "Surfaces");
+    // "Shapes" e non "Surfaces": il ramo tiene superfici, curve solide e forme
+    // implicite, e "Surface" e' gia' il sotto-tab del Parametrico. Solo
+    // l'etichetta: la cartella resta surfaces/, come chiavi e codice.
+    ui->tabWidget->addTab(ui->Surface, "Shapes");
     ui->tabWidget->addTab(ui->Texture, "Textures");
     ui->tabWidget->addTab(ui->Sounds, "Sounds");
     ui->tabWidget->addTab(ui->Motions, "Records");

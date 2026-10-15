@@ -506,7 +506,7 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     // Records...") e la seconda dice esplicitamente che vale per tutto
     // ("Change Library Folder..."): la differenza si vede dai nomi, senza
     // doverla scoprire per tentativi.
-    QString branchLabel = "Surfaces";
+    QString branchLabel = "Shapes";
     if (senderTree == m_mainWindow->ui->treeTextures)     branchLabel = "Textures";
     else if (senderTree == m_mainWindow->ui->treeMotions) branchLabel = "Records";
     else if (senderTree == m_mainWindow->ui->treeSounds)  branchLabel = "Sounds";

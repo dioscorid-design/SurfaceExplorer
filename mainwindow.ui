@@ -1853,7 +1853,7 @@ QFrame#panelBackgroundTarget QRadioButton { background: transparent; }</string>
        </property>
        <widget class="QWidget" name="Surface">
         <attribute name="title">
-         <string>Surfaces</string>
+         <string>Shapes</string>
         </attribute>
         <layout class="QVBoxLayout" name="verticalLayout_16">
          <property name="leftMargin">
