@@ -3458,7 +3458,7 @@ void MainWindow::applyPresetRenderAndLimits(const LibraryItem &d, bool isShell)
 
     if (editingBackground()) {
         if (m_currentScriptMode == ScriptModeTexture)
-            ui->btnRunCurrentScript->setText("Run Surface Texture");
+            ui->btnRunCurrentScript->setText("Run Shape Texture");
     }
     // Carico una nuova scena: esco dall'editing sfondo, riporto il bersaglio
     // sulla superficie, e il checkbox Texture -- etichetta e spunta -- lo

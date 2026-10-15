@@ -24,7 +24,7 @@ QString SceneHintOverlay::compose(const QString &surface, const QString &texture
 {
     // Nell'ordine in cui compaiono a schermo.
     const QList<QPair<QString, QString>> all = {
-        { QStringLiteral("Surface"),    surface.trimmed() },
+        { QStringLiteral("Shape"),      surface.trimmed() },
         { QStringLiteral("Texture"),    texture.trimmed() },
         { QStringLiteral("Border"),     border.trimmed() },
         { QStringLiteral("Background"), background.trimmed() },
@@ -41,17 +41,17 @@ QString SceneHintOverlay::compose(const QString &surface, const QString &texture
         if (!dup) shown << p;
     }
     if (shown.isEmpty()) return QString();
-    if (!labelLoneSurface && shown.size() == 1 && shown.first().first == QLatin1String("Surface"))
+    if (!labelLoneSurface && shown.size() == 1 && shown.first().first == QLatin1String("Shape"))
         return shown.first().second;
 
     // Ogni legenda dice di CHI sono i suoi slider, anche da sola: senza,
     // "Sliders / F: ..." non diceva se F agisce sulla forma, sulla texture o
     // sullo sfondo. Il ruolo si mette QUI, non nel preset: una texture della
     // Library puo' finire sulla superficie o sullo sfondo. "Sliders" diventa
-    // "Texture sliders", "Slider A: ..." "Surface slider A: ...".
+    // "Texture sliders", "Slider A: ..." "Shape slider A: ...".
     static const QRegularExpression head(QStringLiteral("^Sliders?\\b"));
     // Un hint puo' dichiarare da se' il ruolo dei suoi slider ("Path slider A:
-    // ..."): nei record di path A muove il percorso della camera, e "Surface
+    // ..."): nei record di path A muove il percorso della camera, e "Shape
     // slider" sarebbe falso. Si lascia com'e'.
     static const QRegularExpression ownRole(QStringLiteral("^\\w+ sliders?\\b"));
     QStringList lines;

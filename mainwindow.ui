@@ -142,7 +142,7 @@ QFrame#panelSurfaceTarget QRadioButton { background: transparent; }</string>
               <item>
                <widget class="QRadioButton" name="radioSurface">
                 <property name="text">
-                 <string>Surface</string>
+                 <string>Shape</string>
                 </property>
                </widget>
               </item>

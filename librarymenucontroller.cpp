@@ -184,19 +184,19 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                 int index = refItem->data(0, Qt::UserRole).toInt();
                 QString path = m_mainWindow->m_libraryManager.getSurface(index).filePath;
 
-                contextMenu->addAction("Save Surface As...", m_mainWindow, [this, path, executeAction](){
+                contextMenu->addAction("Save Shape As...", m_mainWindow, [this, path, executeAction](){
                     executeAction([this, path](){ m_mainWindow->m_presetSerializer->saveSurfaceAs(QFileInfo(path).absolutePath(), path); });
                 });
-                contextMenu->addAction("Rename Surface...", m_mainWindow, [this, refItem, executeAction](){
+                contextMenu->addAction("Rename Shape...", m_mainWindow, [this, refItem, executeAction](){
                     executeAction([this, refItem](){ m_mainWindow->renameLibraryItem(refItem); });
                 });
-                contextMenu->addAction("Copy Surface", m_mainWindow, [this, refItem, executeAction](){
+                contextMenu->addAction("Copy Shape", m_mainWindow, [this, refItem, executeAction](){
                     executeAction([this, refItem](){ m_mainWindow->m_fileOps->performCopy(refItem); });
                 });
-                contextMenu->addAction("Cut Surface", m_mainWindow, [this, refItem, executeAction](){
+                contextMenu->addAction("Cut Shape", m_mainWindow, [this, refItem, executeAction](){
                     executeAction([this, refItem](){ m_mainWindow->m_fileOps->performCut(refItem); });
                 });
-                contextMenu->addAction("Delete Surface", m_mainWindow, [this, executeAction](){
+                contextMenu->addAction("Delete Shape", m_mainWindow, [this, executeAction](){
                     executeAction([this](){ m_mainWindow->deleteSelectedExample(); });
                 });
             }
@@ -310,7 +310,7 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                     // folderPath passato anche su desktop (come Texture/Sound):
                     // il vecchio ramo senza argomento ripiegava sulla selezione
                     // corrente e, in sua assenza, su lastFolder ("ultima usata").
-                    contextMenu->addAction("Save Surface Here...", m_mainWindow, [this, folderPath, executeAction](){
+                    contextMenu->addAction("Save Shape Here...", m_mainWindow, [this, folderPath, executeAction](){
                         executeAction([this, folderPath](){ m_mainWindow->saveSurfaceToFile(folderPath); });
                     });
                 } else if (senderTree == m_mainWindow->ui->treeTextures) {
@@ -371,7 +371,7 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
         QString rootPath = QSettings().value("libraryRootPath").toString();
         if (senderTree == m_mainWindow->ui->treeSurfaces) {
             QString startDir = QSettings().value("pathSurfaces", rootPath + "/surfaces").toString();
-            contextMenu->addAction("Save New Surface...", m_mainWindow, [this, startDir, executeAction](){
+            contextMenu->addAction("Save New Shape...", m_mainWindow, [this, startDir, executeAction](){
                 executeAction([this, startDir](){ m_mainWindow->saveSurfaceToFile(startDir); });
             });
         } else if (senderTree == m_mainWindow->ui->treeTextures) {

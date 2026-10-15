@@ -21,7 +21,7 @@ void MainWindow::setupScriptDock()
 
     connect(ui->btnFlatPreview, &QPushButton::toggled, this, [this](bool checked){
         if (checked) {
-            ui->btnFlatPreview->setText("3D View");
+            ui->btnFlatPreview->setText("3D Shape");
             ui->alphaSlider->setEnabled(false); // Blocchiamo solo la trasparenza
         } else {
             updateFlatPreviewButton();

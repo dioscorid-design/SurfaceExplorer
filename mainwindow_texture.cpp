@@ -2147,7 +2147,7 @@ void MainWindow::updateFlatPreviewButton() {
     // 1. Gestione del Testo
     //
     // IL TASTO E' UN TOGGLE E IL TESTO DESCRIVE DOVE SI VA, NON DOVE SI E':
-    // in vista 3D dice "2D ..." (dove porta), in vista 2D dice "3D View" (per
+    // in vista 3D dice "2D ..." (dove porta), in vista 2D dice "3D Shape" (per
     // tornare). Quindi con la vista 2D ATTIVA il testo non si tocca: e' il
     // gestore toggled a scriverlo (~3621) ed e' l'unico che sa dove si sta
     // andando. Senza questa guardia ogni chiamata a questa funzione mentre si
@@ -2162,7 +2162,7 @@ void MainWindow::updateFlatPreviewButton() {
         } else if (editingBorder()) {
             ui->btnFlatPreview->setText("2D Border");
         } else {
-            ui->btnFlatPreview->setText("2D Surface");
+            ui->btnFlatPreview->setText("2D Texture");
         }
     }
 

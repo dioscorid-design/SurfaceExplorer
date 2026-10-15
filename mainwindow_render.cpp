@@ -200,7 +200,7 @@ void MainWindow::setupRendererDock()
                 // USCENDO da Background il dock torna a mostrare cio' che il
                 // bersaglio comanda: in ambito "Mesh" lo script della FASCIA,
                 // altrimenti la texture di superficie (shownScriptSlot).
-                ui->btnRunCurrentScript->setText("Run Surface Texture");
+                ui->btnRunCurrentScript->setText("Run Shape Texture");
                 updateScriptButtonText();
             }
 

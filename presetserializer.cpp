@@ -392,7 +392,7 @@ static bool askSceneHint(QWidget* parent, QString* hintText, const QString& what
     lay->addWidget(info);
 
     // Etichette solo quando i campi sono piu' d'uno: con uno solo sarebbero rumore.
-    if (textureHint || bgHint || borderHint) lay->addWidget(new QLabel("Surface:", &dlg));
+    if (textureHint || bgHint || borderHint) lay->addWidget(new QLabel("Shape:", &dlg));
 
     // QPlainTextEdit e non QLineEdit: il messaggio puo' andare A CAPO, e
     // showSceneHint lo rende con setTextFormat(PlainText) proprio perche' un
@@ -1056,7 +1056,7 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         }
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-        MobileSaveDialog dialog("Save Surface", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow, rootPath + "/surfaces");
+        MobileSaveDialog dialog("Save Shape", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow, rootPath + "/surfaces");
         if (dialog.exec() != QDialog::Accepted) {
             if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
             if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
@@ -1065,7 +1065,7 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
         }
         fileName = dialog.getSelectedPath();
 #else
-        fileName = getSaveFileNameWithSuffix(m_mainWindow, "Save Surface", startPath, "JSON Files (*.json)", "json");
+        fileName = getSaveFileNameWithSuffix(m_mainWindow, "Save Shape", startPath, "JSON Files (*.json)", "json");
 #endif
     }
 
@@ -1588,7 +1588,7 @@ void PresetSerializer::saveScript()
     QString fileName;
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-    QString title = isSurface ? "Save Surface Script" : (isSound ? "Save Sound Script" : "Save Texture Script");
+    QString title = isSurface ? "Save Shape Script" : (isSound ? "Save Sound Script" : "Save Texture Script");
     // Nome di default: per le texture il nome di quella caricata, altrimenti vuoto (nuovo).
     QString defaultName;
     if (!isSurface && !isSound && m_mainWindow->surfaceHasImage())
@@ -1609,7 +1609,7 @@ void PresetSerializer::saveScript()
     }
     fileName = dialog.getSelectedPath();
 #else
-    if (isSurface) fileName = getSaveFileNameWithSuffix(m_mainWindow, "Save Surface Script", currentMem, "Surface Script (*.json)", "json");
+    if (isSurface) fileName = getSaveFileNameWithSuffix(m_mainWindow, "Save Shape Script", currentMem, "Shape Script (*.json)", "json");
     else if (isSound) fileName = getSaveFileNameWithSuffix(m_mainWindow, "Save Sound Script", currentMem, "Sound Script (*.json)", "json");
     else fileName = getSaveFileNameWithSuffix(m_mainWindow, "Save Texture Script", currentMem, "Texture Script (*.json)", "json");
 #endif
@@ -1896,7 +1896,7 @@ void PresetSerializer::saveSurfaceAs(const QString &startDir, const QString &sou
     QString baseName = QFileInfo(defaultSelection).completeBaseName();
     // navFloor = radice del tipo (surfaces): Up disponibile dalle sottocartelle,
     // fermo alla radice.
-    MobileSaveDialog dialog("Save Surface As...", effStartDir, baseName, m_mainWindow,
+    MobileSaveDialog dialog("Save Shape As...", effStartDir, baseName, m_mainWindow,
                             LibraryFolders::root() + "/surfaces");
 
     if (dialog.exec() != QDialog::Accepted) {
@@ -1908,7 +1908,7 @@ void PresetSerializer::saveSurfaceAs(const QString &startDir, const QString &sou
     }
     QString savePath = dialog.getSelectedPath();
 #else
-    QString savePath = getSaveFileNameWithSuffix(m_mainWindow, "Save Surface As...", defaultSelection, "JSON Files (*.json)", "json");
+    QString savePath = getSaveFileNameWithSuffix(m_mainWindow, "Save Shape As...", defaultSelection, "JSON Files (*.json)", "json");
 #endif
 
     if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
