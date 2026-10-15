@@ -1077,10 +1077,12 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     if (!fileName.endsWith(".json", Qt::CaseInsensitive)) fileName += ".json";
 
     // --- BLOCCO VALIDAZIONE RIGIDA ---
-    QString absPath = QFileInfo(fileName).absolutePath() + "/";
-    if (absPath.contains("/records/", Qt::CaseInsensitive) ||
-        absPath.contains("/textures/", Qt::CaseInsensitive) ||
-        absPath.contains("/sounds/", Qt::CaseInsensitive)) {
+    // Il ramo per posizione (LibraryFolders::branchOf), non per nome: una
+    // sottocartella che si chiama come un altro ramo non conta.
+    const LibraryFolders::Branch branch = LibraryFolders::branchOf(QFileInfo(fileName).absolutePath());
+    if (branch == LibraryFolders::Branch::Records ||
+        branch == LibraryFolders::Branch::Textures ||
+        branch == LibraryFolders::Branch::Sounds) {
         QMessageBox::warning(m_mainWindow, "Save Blocked",
                              "Operation not allowed.\n\nStatic surfaces must reside in 'Surfaces'.\nIf you want to save the global scene (which contains this surface), use the 'Save Motion' command.");
         return;
@@ -1130,10 +1132,10 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
 
 void PresetSerializer::saveTexture(const QString &path)
 {
-    QString absPath = QFileInfo(path).absolutePath() + "/";
-    if (absPath.contains("/surfaces/", Qt::CaseInsensitive) ||
-        absPath.contains("/records/", Qt::CaseInsensitive) ||
-        absPath.contains("/sounds/", Qt::CaseInsensitive)) {
+    const LibraryFolders::Branch branch = LibraryFolders::branchOf(QFileInfo(path).absolutePath());
+    if (branch == LibraryFolders::Branch::Surfaces ||
+        branch == LibraryFolders::Branch::Records ||
+        branch == LibraryFolders::Branch::Sounds) {
         QMessageBox::warning(m_mainWindow, "Save Blocked",
                              "Operation not allowed.\n\nTexture presets must be saved exclusively in the 'Textures' folder.");
         return;
@@ -1406,10 +1408,12 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     if (!fileName.endsWith(".json", Qt::CaseInsensitive)) fileName += ".json";
 
     // --- BLOCCO VALIDAZIONE RIGIDA ---
-    QString absPath = QFileInfo(fileName).absolutePath() + "/";
-    if (absPath.contains("/surfaces/", Qt::CaseInsensitive) ||
-        absPath.contains("/textures/", Qt::CaseInsensitive) ||
-        absPath.contains("/sounds/", Qt::CaseInsensitive)) {
+    // Il ramo per posizione: col nome, records/Rotations/Parametric/Surfaces
+    // passava per il ramo delle superfici e il Save Record veniva rifiutato.
+    const LibraryFolders::Branch branch = LibraryFolders::branchOf(QFileInfo(fileName).absolutePath());
+    if (branch == LibraryFolders::Branch::Surfaces ||
+        branch == LibraryFolders::Branch::Textures ||
+        branch == LibraryFolders::Branch::Sounds) {
         QMessageBox::warning(m_mainWindow, "Save Blocked",
                              "Operation not allowed.\n\nRecord presets capture the entire scene (including the surface) and must be saved exclusively in the 'Records' folder.");
         return;
@@ -2210,11 +2214,7 @@ bool PresetSerializer::saveUnsavedWorkInteractive()
         if (savePath.isEmpty()) { resumeMotion(); return false; }
         if (!savePath.endsWith(".json", Qt::CaseInsensitive)) savePath += ".json";
 
-        const QString absDir = QFileInfo(savePath).absolutePath() + "/";
-        if (absDir.contains("/surfaces/", Qt::CaseInsensitive) ||
-            absDir.contains("/textures/", Qt::CaseInsensitive) ||
-            absDir.contains("/sounds/",   Qt::CaseInsensitive) ||
-            absDir.contains("/records/",  Qt::CaseInsensitive))
+        if (LibraryFolders::branchOf(QFileInfo(savePath).absolutePath()) != LibraryFolders::Branch::None)
             break;
 
         QMessageBox::warning(m_mainWindow, "Choose a branch",
@@ -2230,8 +2230,8 @@ bool PresetSerializer::saveUnsavedWorkInteractive()
     // Il ramo decide il formato. saveSurface/saveMotion riaprirebbero un loro
     // dialogo se ricevessero una cartella: qui il percorso e' gia' un .json,
     // quindi lo prendono cosi' com'e' e scrivono.
-    const QString absDir = QFileInfo(savePath).absolutePath() + "/";
-    if (absDir.contains("/records/", Qt::CaseInsensitive)) {
+    const LibraryFolders::Branch branch = LibraryFolders::branchOf(QFileInfo(savePath).absolutePath());
+    if (branch == LibraryFolders::Branch::Records) {
         QSettings().setValue("lastMotionDir", QFileInfo(savePath).absolutePath());
         // Esito: saveMotion/saveSurface lo alzano solo se il file e' finito su
         // disco. Un rifiuto ("Save Blocked") o un errore di scrittura lo
@@ -2240,13 +2240,13 @@ bool PresetSerializer::saveUnsavedWorkInteractive()
         saveMotion(savePath);
         return m_mainWindow->m_lastSaveSucceeded;
     }
-    if (absDir.contains("/textures/", Qt::CaseInsensitive)) {
+    if (branch == LibraryFolders::Branch::Textures) {
         QSettings().setValue("lastCustomTexDir", QFileInfo(savePath).absolutePath());
         m_mainWindow->m_lastSaveSucceeded = false;
         saveTexture(savePath);
         return m_mainWindow->m_lastSaveSucceeded;
     }
-    if (absDir.contains("/sounds/", Qt::CaseInsensitive)) {
+    if (branch == LibraryFolders::Branch::Sounds) {
         m_mainWindow->m_lastSaveSucceeded = false;
         saveSound(savePath);
         return m_mainWindow->m_lastSaveSucceeded;

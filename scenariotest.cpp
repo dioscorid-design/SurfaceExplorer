@@ -5,6 +5,7 @@
 #include "glwidget.h"
 #include "librarymanager.h"
 #include "libraryfileoperations.h"
+#include "libraryfolders.h"
 #include "presetserializer.h"
 #include "audiocontroller.h"
 #include "shadercompilelog.h"
@@ -3656,6 +3657,44 @@ void ScenarioTest::run()
               QStringLiteral("texture dalla Library -> solo il suo messaggio (load '%1', senza hint '%2', Mandelbrot '%3')")
                   .arg(flat(atLoad), flat(plain), flat(hinted)));
         if (m_mw->isAnythingMoving()) m_mw->performMasterStop();
+    }
+
+    // RAMO DI UN PERCORSO PER POSIZIONE: dopo il riordino della libreria un
+    // record sta in records/Rotations/Parametric/Surfaces/..., e il Save
+    // Record lo rifiutava ("must be saved exclusively in the 'Records'
+    // folder") perche' cercava "/surfaces/" nel percorso.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Salvataggi: il ramo dalla posizione, non dal nome =="));
+    {
+        using LibraryFolders::Branch;
+        const QString r = LibraryFolders::root();
+        const struct { QString path; Branch want; } cases[] = {
+            { r + QStringLiteral("/records/Rotations/Parametric/Surfaces/Multimesh/X.json"), Branch::Records },
+            { r + QStringLiteral("/records/Textures/Sounds"), Branch::Records },
+            { r + QStringLiteral("/surfaces/Parametric/Records/X.json"), Branch::Surfaces },
+            { r + QStringLiteral("/textures/Procedurals"), Branch::Textures },
+            { r + QStringLiteral("/sounds"), Branch::Sounds },
+            { r + QStringLiteral("/recordsX/a.json"), Branch::None },
+            { QDir::tempPath() + QStringLiteral("/surfaces/a.json"), Branch::None },
+        };
+        QStringList bad;
+        for (const auto &c : cases)
+            if (LibraryFolders::branchOf(c.path) != c.want) bad << QDir(r).relativeFilePath(c.path);
+        check(bad.isEmpty(), QStringLiteral("branchOf sui percorsi della libreria riordinata%1")
+                                 .arg(bad.isEmpty() ? QString() : QStringLiteral(": sbagliati ") + bad.join(QStringLiteral(", "))));
+
+        // Save Record vero in una cartella che si chiama "Surfaces" fuori dalla
+        // libreria: prima rifiutato per il nome, ora scritto.
+        QTemporaryDir tmp;
+        const QString recPath = tmp.path() + QStringLiteral("/records/Rotations/Parametric/Surfaces/Saved.json");
+        QDir().mkpath(QFileInfo(recPath).absolutePath());
+        const int popups = m_popupsClosed;
+        m_acceptNextDialog = true;   // la domanda sui messaggi del record
+        m_mw->m_presetSerializer->saveMotion(recPath);
+        m_acceptNextDialog = false;
+        check(QFileInfo::exists(recPath) && m_popupsClosed == popups,
+              QStringLiteral("Save Record in .../records/.../Surfaces/ -> scritto, nessun rifiuto (file %1, popup %2)")
+                  .arg(onOff(QFileInfo::exists(recPath))).arg(m_popupsClosed - popups));
     }
 
     runScriptDockScenarios();

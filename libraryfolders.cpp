@@ -102,6 +102,47 @@ QString LibraryFolders::root() {
 #endif
 }
 
+// IL RAMO DI UN PERCORSO. I salvataggi lo cercavano come SOTTOSTRINGA
+// ("/surfaces/" nel percorso, maiuscole comprese): una cartella "Surfaces"
+// dentro records/ faceva rifiutare il Save Record ("must be saved exclusively
+// in the 'Records' folder"). Qui conta dove sta il percorso: dentro quale
+// radice di ramo, la piu' profonda se piu' d'una lo contiene. Per ogni ramo
+// valgono sia la cartella scelta con Change Folder (pathSurfaces, ...) sia
+// <radice>/<ramo>: una chiave rimasta su una sottocartella non lo fa sparire.
+// Maiuscole ignorate: il disco del Mac non le distingue, e i rami storici
+// possono averle ("Surfaces").
+LibraryFolders::Branch LibraryFolders::branchOf(const QString &path)
+{
+    const QString p = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+    const QString rootDir = root();
+    struct Entry { Branch branch; const char *key; const char *name; };
+    static const Entry entries[] = {
+        { Branch::Surfaces, "pathSurfaces", "surfaces" },
+        { Branch::Textures, "pathTextures", "textures" },
+        { Branch::Sounds,   "pathSounds",   "sounds"   },
+        { Branch::Records,  "pathRecords",  "records"  },
+    };
+    QSettings settings;
+    Branch best = Branch::None;
+    qsizetype bestLen = -1;
+    for (const Entry &e : entries) {
+        QStringList dirs;
+        if (!rootDir.isEmpty()) dirs << rootDir + QLatin1Char('/') + QLatin1String(e.name);
+        const QString chosen = settings.value(QLatin1String(e.key)).toString();
+        if (!chosen.isEmpty()) dirs << chosen;
+        for (const QString &raw : dirs) {
+            const QString d = QDir::cleanPath(raw);
+            const bool inside = p.compare(d, Qt::CaseInsensitive) == 0
+                                || p.startsWith(d + QLatin1Char('/'), Qt::CaseInsensitive);
+            if (inside && d.size() > bestLen) {
+                best = e.branch;
+                bestLen = d.size();
+            }
+        }
+    }
+    return best;
+}
+
 // CARTELLA DENTRO UN SERVIZIO DI SINCRONIZZAZIONE (iCloud Drive, Dropbox...)?
 //
 // Serve a dirlo PRIMA di installarci la libreria. Una libreria che vive li'

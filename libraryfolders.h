@@ -18,6 +18,12 @@ QString root();
 // La cartella e' una radice di libreria: contiene almeno uno dei quattro rami
 // (surfaces, textures, records, sounds; anche con la maiuscola).
 bool isLibraryRoot(const QDir &dir);
+// Il ramo che contiene `path` (file o cartella), per POSIZIONE rispetto alle
+// radici dei rami -- la cartella scelta con Change Folder (pathSurfaces, ...)
+// e <radice>/<ramo> --, non per nome: una sottocartella "Surfaces" dentro
+// records/ resta records. None = fuori da tutti i rami.
+enum class Branch { None, Surfaces, Textures, Sounds, Records };
+Branch branchOf(const QString &path);
 // La cartella vive dentro iCloud Drive o un altro servizio di
 // sincronizzazione (solo macOS; altrove false).
 bool isCloudSynced(const QString &path);
