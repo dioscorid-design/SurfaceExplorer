@@ -162,8 +162,8 @@ struct UboData {
     // Adreno, vedi CLAUDE.md); lo usa solo il vertex.
     float u_meshCount;
     // SEZIONE TRASPORTATA DEI TUBI (vedi buildTubeFramePipeline): anelli della
-    // parte (numU + 1) e 1 se la passata compute ha scritto per lei la
-    // direzione della sezione in m_tubeFrameTex. Occupano due posti della
+    // parte (numU + 1) e 1 se la passata compute ha scritto per lei anelli e
+    // sezione in m_tubeFrameTex. Occupano due posti della
     // riserva _pad3: il blocco non cresce (480 byte). Dichiarati in ENTRAMBI
     // gli shader parametrici (regola Adreno, vedi CLAUDE.md); li usano il
     // vertex e il compute.
@@ -1296,20 +1296,26 @@ private:
     bool ensureUboCapacity(int partCount);
 
     // SEZIONE TRASPORTATA DEI TUBI. Una passata compute a ogni frame, prima
-    // del disegno, porta la sezione da un anello al successivo lungo la curva
-    // PROIETTATA (trasporto parallelo) e scrive la direzione di ogni anello in
-    // m_tubeFrameTex (una riga per tubo); il vertex la legge (slot 2,
-    // tubeTransportedDir in surface.vert). Il compute e' il vertex stesso
-    // ridotto a libreria di funzioni, quindi curva, rotazioni e proiezione
-    // sono le stesse del disegno. Senza compute (o RGBA32F in load/store) la
-    // texture non esiste e resta l'orientamento locale di sempre.
+    // del disegno, distribuisce gli anelli lungo la curva PROIETTATA (fitti
+    // dove la tangente gira in fretta), porta la sezione da un anello al
+    // successivo (trasporto parallelo) e scrive in m_tubeFrameTex, due texel
+    // per anello e una riga per tubo, sezione + u dell'anello e tangente; il
+    // vertex li legge (slot 2, tubeTransportedRing in surface.vert). Il compute
+    // e' il vertex stesso ridotto a libreria di funzioni, quindi curva,
+    // rotazioni e proiezione sono le stesse del disegno. Senza compute (o
+    // RGBA32F in load/store) la texture non esiste e restano gli anelli
+    // uniformi in u con l'orientamento locale di sempre.
     static constexpr int kTubeFrameMaxRings = 1024;   // = TUBE_MAX_RINGS nel compute
     static constexpr int kTubeFrameMaxParts = 64;
+    // Campioni fitti della curva per tubo, per distribuire gli anelli (=
+    // TUBE_MAX_SAMPLES nel compute: al piu' 2048 intervalli).
+    static constexpr int kTubeFrameMaxSamples = 2049;
     QRhiTexture *m_tubeFrameTex = nullptr;
     QRhiSampler *m_tubeFrameSampler = nullptr;
     // Lavoro del compute e stato fra un frame e l'altro: per ogni anello
-    // tangente, direzione locale e sezione mostrata al frame prima; in coda,
-    // per ogni tubo, partenza e angolo di chiusura. Lo stato si azzera quando
+    // tangente, direzione locale e sezione mostrata al frame prima; per ogni
+    // tubo partenza e angolo di chiusura; in coda i campioni fitti di ogni
+    // tubo (tangente e svolta cumulata). Lo stato si azzera quando
     // la pipeline viene rifatta (curva nuova) o cambiano tubi e anelli
     // (m_tubeFrameLayout): m_tubeFrameStateReset, consumato al frame dopo.
     QRhiBuffer *m_tubeFrameWork = nullptr;
@@ -1318,7 +1324,8 @@ private:
     // Passo dell'ultimo frame, da advanceClocksBy (live o REC): da qui lo
     // smorzamento degli scatti della sezione (u_tubeFrameBlend).
     float m_tubeFrameDt = 0.0f;
-    static constexpr int kTubeFrameWorkVec4 = kTubeFrameMaxParts * kTubeFrameMaxRings * 3 + kTubeFrameMaxParts * 2;
+    static constexpr int kTubeFrameWorkVec4 = kTubeFrameMaxParts * kTubeFrameMaxRings * 3 + kTubeFrameMaxParts * 2
+                                              + kTubeFrameMaxParts * kTubeFrameMaxSamples;
     QRhiShaderResourceBindings *m_tubeFrameSrb = nullptr;
     QRhiComputePipeline *m_tubeFramePipeline = nullptr;
     void createTubeFrameResources();

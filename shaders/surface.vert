@@ -91,8 +91,8 @@ layout(std140, binding = 0) uniform SceneUBO {
     float u_tubeRefZ;
     // Numero di copie (campo Meshes): `meshes` nelle equazioni e negli script.
     float u_meshCount;
-    // Sezione trasportata dei tubi: anelli della parte e 1 se la direzione
-    // della sezione e' in u_tubeFrames (tubeTransportedDir). Ultimi campi di
+    // Sezione trasportata dei tubi: anelli della parte e 1 se anelli e
+    // sezione sono in u_tubeFrames (tubeTransportedRing). Ultimi campi di
     // UboData.
     float u_tubeRings;
     float u_tubeFramesOn;
@@ -463,23 +463,59 @@ vec3 projectToScene(vec4 pRot) {
 // ogni frame: la sezione passa da un anello al successivo senza ruotare, e
 // sulle curve chiuse lo scarto si ripartisce lungo il giro. Quella locale qui
 // sotto resta il riferimento della partenza (primo anello) e la riserva.
+// ANELLI DOVE SERVONO. La stessa passata sceglie anche DOVE stanno gli
+// anelli: uniformi in u dove la curva e' tranquilla, fitti dove la tangente
+// gira in fretta (alle cuspidi la punta si chiudeva piatta, con una tacca).
+// L'anello i della griglia si disegna al parametro e con la tangente che la
+// passata gli ha dato; la texture segue quel parametro.
 #ifndef TUBE_FRAME_COMPUTE
 layout(binding = 2) uniform sampler2D u_tubeFrames;
 
-// Direzione trasportata in u: una riga per tubo (u_meshIndex), un texel per
-// anello, interpolata fra i due anelli vicini (il bordo cade anche fra due).
-vec3 tubeTransportedDir(float u) {
+// Anello in u: una riga per tubo (u_meshIndex), due texel per anello (sezione
+// + parametro dell'anello, tangente), interpolati fra i due anelli vicini (il
+// bordo cade anche fra due).
+void tubeTransportedRing(float u, out float uRing, out vec3 F, out vec3 T) {
     float last = max(ubuf.u_tubeRings - 1.0, 1.0);
     float span = ubuf.u_max - ubuf.u_min;
     float f = (abs(span) > 1.0e-12) ? clamp((u - ubuf.u_min) / span * last, 0.0, last) : 0.0;
     int i0 = int(floor(f));
     int i1 = min(i0 + 1, int(last));
     int row = int(ubuf.u_meshIndex + 0.5);
-    vec3 a = texelFetch(u_tubeFrames, ivec2(i0, row), 0).xyz;
-    vec3 b = texelFetch(u_tubeFrames, ivec2(i1, row), 0).xyz;
-    return mix(a, b, f - float(i0));
+    vec4 a = texelFetch(u_tubeFrames, ivec2(2 * i0, row), 0);
+    vec4 b = texelFetch(u_tubeFrames, ivec2(2 * i1, row), 0);
+    vec3 ta = texelFetch(u_tubeFrames, ivec2(2 * i0 + 1, row), 0).xyz;
+    vec3 tb = texelFetch(u_tubeFrames, ivec2(2 * i1 + 1, row), 0).xyz;
+    float k = f - float(i0);
+    uRing = mix(a.w, b.w, k);
+    F = mix(a.xyz, b.xyz, k);
+    T = mix(ta, tb, k);
 }
 #endif
+
+// Tangente della curva proiettata in u (e direzione 4D T4 della curva
+// ruotata): unica sede, la usano l'orientamento locale e i campioni del
+// compute che distribuiscono gli anelli.
+vec3 tubeProjectedTangent(float u, out vec4 T4) {
+    const float e = 0.001;
+    vec4 Cp = getRotatedPoint4D(u + e, 0.0);
+    vec4 Cm = getRotatedPoint4D(u - e, 0.0);
+    T4 = Cp - Cm;
+    T4 = (dot(T4, T4) > 1.0e-20) ? normalize(T4) : vec4(1.0, 0.0, 0.0, 0.0);
+    vec3 T = projectToScene(Cp) - projectToScene(Cm);
+    float lenT = length(T);
+    return (lenT > 1.0e-10) ? T / lenT : vec3(1.0, 0.0, 0.0);
+}
+
+// d riportata sul piano normale a T (unitaria); se e' quasi parallela a T, un
+// asse.
+vec3 tubeNormalTo(vec3 d, vec3 T) {
+    vec3 q = d - dot(d, T) * T;
+    if (dot(q, q) < 1.0e-8) {
+        vec3 alt = (abs(T.x) < 0.9) ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+        q = alt - dot(alt, T) * T;
+    }
+    return normalize(q);
+}
 
 // Orientamento LOCALE in u: punto, tangente proiettata Tn e direzione E1 della
 // sezione dalla direzione di riferimento. `trust` dice quanto E1 e' affidabile
@@ -492,14 +528,8 @@ void tubeLocalFrame(float u, out vec3 C, out vec3 Tn, out vec3 E1, out vec4 C4, 
     vec4 raw = getRawPositionAuto(u, 0.0);
     C4 = rotate4D(raw);
     C = projectToScene(C4);
-    vec4 Cp = getRotatedPoint4D(u + e, 0.0);
-    vec4 Cm = getRotatedPoint4D(u - e, 0.0);
-    // Direzione 4D della curva ruotata: la usa la luce 4D (tubeLight4D).
-    T4 = Cp - Cm;
-    T4 = (dot(T4, T4) > 1.0e-20) ? normalize(T4) : vec4(1.0, 0.0, 0.0, 0.0);
-    vec3 T = projectToScene(Cp) - projectToScene(Cm);
-    float lenT = length(T);
-    Tn = (lenT > 1.0e-10) ? T / lenT : vec3(1.0, 0.0, 0.0);
+    // T4: direzione 4D della curva ruotata, la usa la luce 4D (tubeLight4D).
+    Tn = tubeProjectedTangent(u, T4);
     vec4 R4 = vec4(ubuf.u_tubeRefX, ubuf.u_tubeRefY, ubuf.u_tubeRefZ, 0.0);
     vec3 R = projectToScene(rotate4D(raw + e * R4)) - C;
     E1 = R - dot(R, Tn) * Tn;
@@ -513,17 +543,26 @@ void tubeLocalFrame(float u, out vec3 C, out vec3 Tn, out vec3 E1, out vec4 C4, 
     E1 = normalize(E1);
 }
 
-void tubeSceneFrame(float u, out vec3 C, out vec3 E1, out vec3 E2, out vec4 C4, out vec4 T4) {
+// Anello del tubo per il vertice di parametro u della griglia: centro C,
+// sezione E1/E2 e il parametro uAt della curva dove l'anello sta davvero
+// (diverso da u solo con gli anelli distribuiti dalla passata compute).
+void tubeSceneFrame(float u, out vec3 C, out vec3 E1, out vec3 E2, out vec4 C4, out vec4 T4,
+                    out float uAt) {
     vec3 Tn;
     float trust;
-    tubeLocalFrame(u, C, Tn, E1, C4, T4, trust);
+    uAt = u;
 #ifndef TUBE_FRAME_COMPUTE
     if (ubuf.u_tubeFramesOn > 0.5) {
-        vec3 F = tubeTransportedDir(u);
-        F -= dot(F, Tn) * Tn;
-        if (dot(F, F) > 1.0e-8) E1 = normalize(F);
+        vec3 F, T;
+        tubeTransportedRing(u, uAt, F, T);
+        tubeLocalFrame(uAt, C, Tn, E1, C4, T4, trust);
+        if (dot(T, T) > 1.0e-8) Tn = normalize(T);
+        E1 = tubeNormalTo((dot(F, F) > 1.0e-8) ? F : E1, Tn);
+        E2 = cross(Tn, E1);
+        return;
     }
 #endif
+    tubeLocalFrame(u, C, Tn, E1, C4, T4, trust);
     E2 = cross(Tn, E1);
 }
 
@@ -532,7 +571,8 @@ void tubeSceneFrame(float u, out vec3 C, out vec3 E1, out vec3 E2, out vec4 C4, 
 vec3 tubeScenePoint(float u, float v) {
     vec3 C, E1, E2;
     vec4 C4, T4;
-    tubeSceneFrame(u, C, E1, E2, C4, T4);
+    float uAt;
+    tubeSceneFrame(u, C, E1, E2, C4, T4, uAt);
     return C + ubuf.u_tubeRadius * (cos(v) * E1 + sin(v) * E2);
 }
 
@@ -573,13 +613,17 @@ void emitTubeVertex() {
     float v = vertex.y;
     vec3 C, E1, E2;
     vec4 C4, T4;
-    tubeSceneFrame(u, C, E1, E2, C4, T4);
+    float uAt;
+    tubeSceneFrame(u, C, E1, E2, C4, T4, uAt);
     vec3 n = cos(v) * E1 + sin(v) * E2;
     vec3 pos = C + ubuf.u_tubeRadius * n;
 
     v_pos = vec3(ubuf.u_mvMatrix * vec4(pos, 1.0));
     v_normal = ubuf.u_mvMatrix * vec4(n, 0.0);
-    v_texCoord = vec2(texCoord.x, 1.0 - texCoord.y);
+    // Texture (e taglio, che rilegge u da qui) sul parametro dove l'anello sta.
+    float span = ubuf.u_max - ubuf.u_min;
+    float s = texCoord.x + ((abs(span) > 1.0e-12) ? (uAt - u) / span : 0.0);
+    v_texCoord = vec2(s, 1.0 - texCoord.y);
     tubeLight4D(C4, T4, -sin(v) * E1 + cos(v) * E2);
 
     vec4 clip = ubuf.u_mvpMatrix * vec4(pos, 1.0);

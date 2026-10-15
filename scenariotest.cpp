@@ -626,6 +626,49 @@ void ScenarioTest::runTubeScenarios()
         wait(300);
     }
 
+    // ANELLI DOVE SERVONO: mentre la fase corre, le figure di Lissajous Layers
+    // Wave passano vicino a cuspidi; con gli anelli uniformi in u la punta si
+    // chiudeva piatta, con una tacca. Pose a tempi fissi (gli orologi li avanza
+    // il test, come il recorder), con la passata e senza, in tube-cusps/<modo>/.
+    if (loadRecord(QStringLiteral("records/Animations/Parametric/Solid Curves/Lissajous Layers Wave.json"))) {
+        const bool compute = gl->rhi() && gl->rhi()->isFeatureSupported(QRhi::Compute);
+        check(!compute || gl->tubeFramesActive(),
+              QStringLiteral("Lissajous Layers Wave -> anelli distribuiti dalla passata compute (compute %1, passata %2)")
+                  .arg(onOff(compute), onOff(gl->tubeFramesActive())));
+        auto poses = [&](const QString &mode) {
+            const QString dir = m_outDir + QStringLiteral("/tube-cusps/") + mode;
+            QDir().mkpath(dir);
+            gl->setClocksDrivenByRecorder(true);
+            gl->resetTime();
+            for (int k = 0; k < 32; ++k) {
+                gl->advanceClocksBy(0.25f);
+                wait(120);
+                gl->grabFramebuffer().save(dir + QStringLiteral("/%1.png").arg(k, 2, 10, QLatin1Char('0')));
+            }
+            gl->setClocksDrivenByRecorder(false);
+        };
+        poses(QStringLiteral("adaptive"));
+        gl->releaseTubeFramePipeline();
+        gl->update();
+        poses(QStringLiteral("uniform"));
+        gl->rebuildShader();
+        wait(300);
+        if (m_mw->isAnythingMoving()) m_mw->performMasterStop();
+    }
+
+    // BORDO SU UN TUBO APERTO: cade sugli anelli estremi, che la passata
+    // lascia agli estremi del dominio. Compila la variante bordo + tubo.
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Solid Curve/Single Curves/Open Helix.json"))) {
+        const QImage before = gl->grabFramebuffer();
+        gl->setBorderRadius(0.03f);  wait(600);
+        const QImage after = gl->grabFramebuffer();
+        after.save(m_outDir + QStringLiteral("/tube-border.png"));
+        check(before != after && gl->tubeFramesActive(),
+              QStringLiteral("Open Helix col bordo -> bordo agli estremi del tubo, passata attiva (%1)")
+                  .arg(onOff(gl->tubeFramesActive())));
+        gl->setBorderRadius(0.0f);  wait(300);
+    }
+
     // UN TUBO, POI UN RECORD GEODETICO (segnalato: la superficie spariva). Le
     // equazioni geodetiche (x = U, ...) non compilano come parametriche, e il
     // tentativo fallito rimetteva il tubo nel motore: lo shader disegnava la

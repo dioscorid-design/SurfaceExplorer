@@ -262,7 +262,8 @@ void GLWidget::createTubeFrameResources()
     if (!rhi()->isFeatureSupported(QRhi::Compute)
         || !rhi()->isTextureFormatSupported(QRhiTexture::RGBA32F, QRhiTexture::UsedWithLoadStore))
         return;
-    m_tubeFrameTex = rhi()->newTexture(QRhiTexture::RGBA32F, QSize(kTubeFrameMaxRings, kTubeFrameMaxParts),
+    // Due texel per anello: sezione + u dell'anello, tangente.
+    m_tubeFrameTex = rhi()->newTexture(QRhiTexture::RGBA32F, QSize(2 * kTubeFrameMaxRings, kTubeFrameMaxParts),
                                        1, QRhiTexture::UsedWithLoadStore);
     if (!m_tubeFrameTex->create()) {
         delete m_tubeFrameTex;
@@ -328,10 +329,24 @@ void GLWidget::buildTubeFramePipeline(const QString &vertexSource)
     if (eol < 0) return;
     src.insert(eol + 1, QStringLiteral("#define TUBE_FRAME_COMPUTE\nvec4 g_tubeFramePosition;\n"));
 
-    // Un workgroup per tubo. In parallelo, per ogni anello, la tangente
-    // proiettata e la direzione locale (con la sua affidabilita'); poi un
-    // thread solo porta la sezione da un anello al successivo (proiezione sul
-    // piano normale: nessuna rotazione attorno alla tangente).
+    // Un workgroup per tubo.
+    // ANELLI DOVE SERVONO. A passo uniforme in u, vicino a una cuspide della
+    // curva proiettata (Lissajous Layers Wave, mentre la fase corre) la
+    // tangente girava fino a 150 gradi fra due anelli: i quadrilateri fra i
+    // due tagliavano la punta, piatta e con una tacca. Infittire non basta:
+    // a una cuspide vera la svolta sta tutta in un tratto piccolo a piacere.
+    // Percio' la curva si campiona fitta e ogni intervallo pesa quanto il
+    // massimo fra la sua parte di passo uniforme e la sua svolta divisa per
+    // TUBE_TURN_STEP; gli anelli vanno a pesi uguali. Dove la curva e'
+    // tranquilla la distribuzione resta uniforme in u (identica a prima); dove
+    // la tangente gira in fretta gli anelli si addensano, e dentro un
+    // intervallo la tangente dell'anello e' interpolata sulla sfera fra i due
+    // campioni: alla cuspide il centro quasi non si muove, gli anelli ruotano
+    // attorno alla punta e la chiudono con una calotta tonda.
+    // Poi, in parallelo, per ogni anello la direzione locale (con la sua
+    // affidabilita'); un thread solo porta la sezione da un anello al
+    // successivo (proiezione sul piano normale: nessuna rotazione attorno alla
+    // tangente).
     // CONTINUITA' NEL TEMPO, dallo stato dei frame precedenti (nel buffer di
     // lavoro, azzerato quando cambiano curva o anelli). Gli scatti che restano
     // col solo trasporto vengono dalla curva PROIETTATA: dove forma o scioglie
@@ -354,18 +369,24 @@ void GLWidget::buildTubeFramePipeline(const QString &vertexSource)
     src += QStringLiteral(R"(
 layout(local_size_x = 64) in;
 layout(rgba32f, binding = 1) writeonly uniform image2D u_frameOut;
-// Per tubo 3 vec4 per anello (tangente + affidabilita', direzione locale,
-// sezione mostrata al frame prima + valida), poi in coda 2 vec4 di stato per
-// tubo (partenza + valida, angolo di chiusura + valido).
+// Per tubo 3 vec4 per anello (tangente + affidabilita', direzione locale + u
+// dell'anello, sezione mostrata al frame prima + valida), poi 2 vec4 di stato
+// per tubo (partenza + valida, angolo di chiusura + valido), in coda i
+// campioni fitti di ogni tubo (tangente + svolta cumulata).
 layout(std430, binding = 2) coherent buffer TubeFrameWork { vec4 w[]; } work;
 const int TUBE_MAX_RINGS = %1;
 const int TUBE_MAX_PARTS = %2;
+const int TUBE_MAX_SAMPLES = %3;
 const float TUBE_TWO_PI = 6.28318530718;
+// Svolta massima di un anello sul successivo, dove gli anelli bastano.
+const float TUBE_TURN_STEP = 0.2618;   // 15 gradi
 shared vec3 s_first;
 shared vec3 s_last;
+shared float s_chunk[64];
 
 int tubeRingSlot(int row, int i) { return (row * TUBE_MAX_RINGS + i) * 3; }
 int tubeStateSlot(int row) { return TUBE_MAX_PARTS * TUBE_MAX_RINGS * 3 + row * 2; }
+int tubeSampleSlot(int row, int j) { return TUBE_MAX_PARTS * (TUBE_MAX_RINGS * 3 + 2) + row * TUBE_MAX_SAMPLES + j; }
 
 vec3 tubeCarry(vec3 r, vec3 T) {
     vec3 q = r - dot(r, T) * T;
@@ -373,27 +394,104 @@ vec3 tubeCarry(vec3 r, vec3 T) {
 }
 vec3 tubeTurn(vec3 r, vec3 T, float a) { return cos(a) * r + sin(a) * cross(T, r); }
 float tubeAngle(vec3 from, vec3 to, vec3 T) { return atan(dot(cross(from, to), T), dot(from, to)); }
+float tubeSpread(vec3 a, vec3 b) { return atan(length(cross(a, b)), dot(a, b)); }
+
+// Da a verso b sulla sfera, frazione f. Opposte (cuspide vera): un asse
+// qualunque perpendicolare, l'anello che gira attorno descrive la stessa sfera.
+vec3 tubeSlerp(vec3 a, vec3 b, float f) {
+    vec3 k = cross(a, b);
+    float s = length(k);
+    float ang = atan(s, dot(a, b));
+    if (ang < 1.0e-4) return normalize(mix(a, b, f));
+    if (s > 1.0e-6) {
+        k /= s;
+    } else {
+        vec3 alt = (abs(a.x) < 0.9) ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+        k = normalize(cross(a, alt));
+    }
+    return cos(f * ang) * a + sin(f * ang) * cross(k, a);
+}
 
 void main() {
     int n = int(ubuf.u_tubeRings + 0.5);
     int row = int(ubuf.u_meshIndex + 0.5);
     if (ubuf.u_tubeFramesOn < 0.5 || n < 2 || n > TUBE_MAX_RINGS || row < 0 || row >= TUBE_MAX_PARTS) return;
     float span = ubuf.u_max - ubuf.u_min;
-    for (int i = int(gl_LocalInvocationID.x); i < n; i += 64) {
-        float u = ubuf.u_min + span * float(i) / float(n - 1);
+    uint lid = gl_LocalInvocationID.x;
+
+    // 0a. Campioni fitti: sub intervalli per anello, al piu' TUBE_MAX_SAMPLES - 1.
+    int sub = clamp((TUBE_MAX_SAMPLES - 1) / (n - 1), 2, 16);
+    int m = sub * (n - 1);
+    for (int j = int(lid); j <= m; j += 64) {
+        vec4 T4;
+        work.w[tubeSampleSlot(row, j)] = vec4(tubeProjectedTangent(ubuf.u_min + span * float(j) / float(m), T4), 0.0);
+    }
+    memoryBarrierBuffer();
+    barrier();
+
+    // 0b. Peso cumulato (in .w del campione dopo): blocchi consecutivi per
+    //     thread, poi le basi dei blocchi da un thread solo.
+    int len = (m + 63) / 64;
+    int j0 = int(lid) * len;
+    int j1 = min(j0 + len, m);
+    float acc = 0.0;
+    vec3 ta = (j0 < j1) ? work.w[tubeSampleSlot(row, j0)].xyz : vec3(0.0);
+    for (int j = j0; j < j1; ++j) {
+        vec3 tb = work.w[tubeSampleSlot(row, j + 1)].xyz;
+        acc += max(1.0 / float(sub), tubeSpread(ta, tb) / TUBE_TURN_STEP);
+        ta = tb;
+    }
+    s_chunk[lid] = acc;
+    memoryBarrierShared();
+    barrier();
+    if (lid == 0u) {
+        float base = 0.0;
+        for (int k = 0; k < 64; ++k) { float c = s_chunk[k]; s_chunk[k] = base; base += c; }
+    }
+    memoryBarrierShared();
+    barrier();
+    acc = s_chunk[lid];
+    ta = (j0 < j1) ? work.w[tubeSampleSlot(row, j0)].xyz : vec3(0.0);
+    for (int j = j0; j < j1; ++j) {
+        vec3 tb = work.w[tubeSampleSlot(row, j + 1)].xyz;
+        acc += max(1.0 / float(sub), tubeSpread(ta, tb) / TUBE_TURN_STEP);
+        ta = tb;
+        work.w[tubeSampleSlot(row, j + 1)].w = acc;
+    }
+    memoryBarrierBuffer();
+    barrier();
+
+    // 0c. Anelli a pesi uguali: u e tangente di ognuno, poi la direzione
+    //     locale riportata sul piano normale a quella tangente.
+    float total = work.w[tubeSampleSlot(row, m)].w;
+    for (int i = int(lid); i < n; i += 64) {
+        float target = total * float(i) / float(n - 1);
+        int lo = 0, hi = m - 1;
+        while (lo < hi) {
+            int mid = (lo + hi + 1) / 2;
+            if (work.w[tubeSampleSlot(row, mid)].w <= target) lo = mid; else hi = mid - 1;
+        }
+        vec4 a = work.w[tubeSampleSlot(row, lo)];
+        vec4 b = work.w[tubeSampleSlot(row, lo + 1)];
+        float f = (b.w > a.w) ? clamp((target - a.w) / (b.w - a.w), 0.0, 1.0) : 0.0;
+        float u = (i == 0) ? ubuf.u_min
+                : (i == n - 1) ? ubuf.u_max
+                : ubuf.u_min + span * (float(lo) + f) / float(m);
+        vec3 T = tubeSlerp(a.xyz, b.xyz, f);
         vec3 C, Tn, E1;
         vec4 C4, T4;
         float trust;
         tubeLocalFrame(u, C, Tn, E1, C4, T4, trust);
-        work.w[tubeRingSlot(row, i)] = vec4(Tn, trust);
-        work.w[tubeRingSlot(row, i) + 1] = vec4(E1, 0.0);
+        E1 = tubeNormalTo(E1, T);
+        work.w[tubeRingSlot(row, i)] = vec4(T, trust);
+        work.w[tubeRingSlot(row, i) + 1] = vec4(E1, u);
         if (i == 0) s_first = C;
         if (i == n - 1) s_last = C;
     }
     memoryBarrierBuffer();
     memoryBarrierShared();
     barrier();
-    if (gl_LocalInvocationID.x != 0u) return;
+    if (lid != 0u) return;
 
     // 1. Partenza continua nel tempo.
     vec4 t0 = work.w[tubeRingSlot(row, 0)];
@@ -437,10 +535,11 @@ void main() {
             shown = tubeTurn(before, T, ubuf.u_tubeFrameBlend * tubeAngle(before, target, T));
         }
         work.w[tubeRingSlot(row, i) + 2] = vec4(shown, 1.0);
-        imageStore(u_frameOut, ivec2(i, row), vec4(shown, 0.0));
+        imageStore(u_frameOut, ivec2(2 * i, row), vec4(shown, work.w[tubeRingSlot(row, i) + 1].w));
+        imageStore(u_frameOut, ivec2(2 * i + 1, row), vec4(T, 0.0));
     }
 }
-)").arg(kTubeFrameMaxRings).arg(kTubeFrameMaxParts);
+)").arg(kTubeFrameMaxRings).arg(kTubeFrameMaxParts).arg(kTubeFrameMaxSamples);
 
     QShader shader;
     QString error;
