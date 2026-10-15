@@ -22,7 +22,7 @@ namespace {
 
 // Record della libreria di fabbrica usati dal test (radice/<percorso>).
 const char *kAnimatedRecord  = "records/Animations/Parametric/Surfaces/Equations/R3/Dynamic Mobius Band.json";
-const char *kMultiMeshRecord = "records/Rotations/Parametric/Surfaces/Multimesh/Hopf Tori.json";
+const char *kMultiMeshRecord = "records/Rotations/Parametric/Surfaces/Multi Meshes/Hopf Tori.json";
 
 QString num(float v) { return QString::number(v, 'f', 4); }
 

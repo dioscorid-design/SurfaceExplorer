@@ -47,7 +47,7 @@
 namespace {
 const char *kParametricRecord = "records/Animations/Parametric/Surfaces/Equations/R3/Dynamic Mobius Band.json";
 const char *kImplicitRecord   = "records/Animations/Implicit/3D/Morphing Rosette.json";
-const char *kMultiMeshRecord  = "records/Rotations/Parametric/Surfaces/Multimesh/Brieskorn-Pham (3,5).json";
+const char *kMultiMeshRecord  = "records/Rotations/Parametric/Surfaces/Multi Meshes/Brieskorn-Pham (3,5).json";
 QString onOff(bool b) { return b ? QStringLiteral("on") : QStringLiteral("off"); }
 
 // La parte GRAFICA del codice di una texture: senza l'audio che viaggia con
@@ -398,8 +398,8 @@ void ScenarioTest::runTubeScenarios()
     // I preset della libreria: un tubo per sezione, tutti chiusi (cerchi e
     // trefoli), col colore proprio di ogni tubo.
     struct TubePreset { const char *rel; int tubes; const char *png; };
-    for (const TubePreset &tp : { TubePreset{ "surfaces/Parametric/Solid Curve/Multicurves/Villarceau Circles.json", 12, "tube-script-villarceau.png" },
-                                  TubePreset{ "surfaces/Parametric/Solid Curve/Multicurves/Trefoil Trio.json", 3, "tube-script-trefoil-trio.png" } }) {
+    for (const TubePreset &tp : { TubePreset{ "surfaces/Parametric/Solid Curves/Multi Curves/Villarceau Circles.json", 12, "tube-script-villarceau.png" },
+                                  TubePreset{ "surfaces/Parametric/Solid Curves/Multi Curves/Trefoil Trio.json", 3, "tube-script-trefoil-trio.png" } }) {
         if (!loadSurface(QString::fromLatin1(tp.rel))) continue;
         const auto &copies = eng->tubeCopies();
         const bool allClosed = std::all_of(copies.begin(), copies.end(),
@@ -421,7 +421,7 @@ void ScenarioTest::runTubeScenarios()
 
     // Stessa regola aprendo un RECORD e una superficie multi-mesh da script.
     for (const char *rel : { "records/Rotations/Parametric/Solid Curves/Multi Curves/Borromean Rings Spinning.json",
-                             "surfaces/Parametric/Surfaces/Multimesh/Hopf Tori.json" }) {
+                             "surfaces/Parametric/Surfaces/Multi Meshes/Hopf Tori.json" }) {
         const QString path = QString::fromLatin1(rel);
         if (!(path.startsWith(QLatin1String("records/")) ? loadRecord(path) : loadSurface(path))) continue;
         check(ui->lineMeshCount->text() == QString::number(gl->meshPartCount()) && !ui->lineMeshCount->isEnabled()
@@ -437,7 +437,7 @@ void ScenarioTest::runTubeScenarios()
     // Wave parte con gli strati del file; a 8 l'ottavo prende il suo colore
     // dal file.
     {
-        const QString kWave = QStringLiteral("records/Animations/Parametric/Solid Curves/Multicurve/Lissajous Layers Wave.json");
+        const QString kWave = QStringLiteral("records/Animations/Parametric/Solid Curves/Multi Curves/Lissajous Layers Wave.json");
         LibraryManager lm;
         const LibraryItem file = lm.parseJson(m_root + QLatin1Char('/') + kWave, LibraryType::Motion);
         const int layers = file.meshCount.toInt();
@@ -471,7 +471,7 @@ void ScenarioTest::runTubeScenarios()
 
     // MASTER coi tubi da SCRIPT animati da t: la geometria e' un modulo (prima
     // non lo era: con la geometria ferma il master restava su STOP).
-    if (loadRecord(QStringLiteral("records/Animations/Parametric/Solid Curves/Multicurve/Lissajous Layers Wave.json"))) {
+    if (loadRecord(QStringLiteral("records/Animations/Parametric/Solid Curves/Multi Curves/Lissajous Layers Wave.json"))) {
         const MainWindow::MasterActivity a = m_mw->masterActivity();
         check(a.eqAvailable && a.eqRunning && m_mw->m_btnStart->text() == QLatin1String("STOP"),
               QStringLiteral("tubi da script con t -> la geometria e' un modulo in moto, master STOP (%1)").arg(masterState()));
@@ -525,7 +525,7 @@ void ScenarioTest::runTubeScenarios()
     // LUCE 4D sui tubi (dock 4D): Directional e Observer danno risultati
     // diversi fra loro e dalla luce normale (il tubo costruito nella scena
     // usa il suo piano tangente 4D, tubeLight4D).
-    if (loadSurface(QStringLiteral("surfaces/Parametric/Solid Curve/Single Curves/Clifford Torus Knot.json"))) {
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Solid Curves/Single Curves/Clifford Torus Knot.json"))) {
         auto changedPct = [](const QImage &a0, const QImage &b0) {
             const QImage a = a0.convertToFormat(QImage::Format_RGB32), b = b0.convertToFormat(QImage::Format_RGB32);
             if (a.size() != b.size() || a.isNull()) return 100.0;
@@ -558,7 +558,7 @@ void ScenarioTest::runTubeScenarios()
 
     // MASTER con le texture animate di piu' fasce: ogni fascia e' un orologio.
     // Fermata una sola fascia (le altre in moto) c'e' qualcosa di spento: START.
-    if (loadSurface(QStringLiteral("surfaces/Parametric/Solid Curve/Multicurves/Trefoil Trio.json"))) {
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Solid Curves/Multi Curves/Trefoil Trio.json"))) {
         if (!ui->radioMeshOne->isChecked()) { ui->radioMeshOne->click();  wait(200); }
         for (int k : { 1, 2 }) {
             ui->spinMeshSel->setValue(k);  wait(300);
@@ -667,7 +667,7 @@ void ScenarioTest::runTubeScenarios()
     // Wave passano vicino a cuspidi; con gli anelli uniformi in u la punta si
     // chiudeva piatta, con una tacca. Pose a tempi fissi (gli orologi li avanza
     // il test, come il recorder), con la passata e senza, in tube-cusps/<modo>/.
-    if (loadRecord(QStringLiteral("records/Animations/Parametric/Solid Curves/Multicurve/Lissajous Layers Wave.json"))) {
+    if (loadRecord(QStringLiteral("records/Animations/Parametric/Solid Curves/Multi Curves/Lissajous Layers Wave.json"))) {
         const bool compute = gl->rhi() && gl->rhi()->isFeatureSupported(QRhi::Compute);
         check(!compute || gl->tubeFramesActive(),
               QStringLiteral("Lissajous Layers Wave -> anelli distribuiti dalla passata compute (compute %1, passata %2)")
@@ -695,7 +695,7 @@ void ScenarioTest::runTubeScenarios()
 
     // BORDO SU UN TUBO APERTO: cade sugli anelli estremi, che la passata
     // lascia agli estremi del dominio. Compila la variante bordo + tubo.
-    if (loadSurface(QStringLiteral("surfaces/Parametric/Solid Curve/Single Curves/Open Helix.json"))) {
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Solid Curves/Single Curves/Open Helix.json"))) {
         const QImage before = gl->grabFramebuffer();
         gl->setBorderRadius(0.03f);  wait(600);
         const QImage after = gl->grabFramebuffer();
@@ -712,7 +712,7 @@ void ScenarioTest::runTubeScenarios()
     // curva al posto della mesh del flusso.
     {
         const QString kKnot = QStringLiteral("records/Rotations/Parametric/Solid Curves/Single Curves/Clifford Knot Rotating.json");
-        const QString kGeo  = QStringLiteral("records/Animations/Parametric/Surfaces/Geodesic Flow/Breathing Hyperboloid.json");
+        const QString kGeo  = QStringLiteral("records/Animations/Parametric/Surfaces/Geodesic Flows/Breathing Hyperboloid.json");
         if (loadRecord(kKnot) && eng->isTubeModeActive() && loadRecord(kGeo)) {
             wait(800);
             check(gl->isCustomMesh() && !eng->isTubeModeActive() && !m_mw->tubesShown(),
@@ -2103,7 +2103,7 @@ void ScenarioTest::run()
     // sfondo, poi un record con lo sfondo SPENTO (ma col codice nel file), poi
     // si riaccende lo sfondo. Prima si vedeva l'immagine del primo e il Save
     // scriveva enabled true con codice vuoto: al reload, la default.
-    const QString kRoman = QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/S3/Non-orientable/Roman Surface.json");
+    const QString kRoman = QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/S3/Non-orientables/Roman Surface.json");
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Sfondo: immagine persa nei record (%1, poi %2) ==")
                        .arg(QString::fromLatin1(kParametricRecord), kRoman));
@@ -2121,15 +2121,15 @@ void ScenarioTest::run()
     }
     if (loadRecord(QString::fromLatin1(kParametricRecord)))
         checkBackground(QStringLiteral("di nuovo il record con immagine"), QStringLiteral("8.png"));
-    const QString kClifford6 = QStringLiteral("records/Rotations/Parametric/Surfaces/Multimesh/Clifford 6-Tubes Rotation.json");
+    const QString kClifford6 = QStringLiteral("records/Paths/Parametric/Surfaces/Multi Meshes/Clifford 6-Tubes Rotation.json");
     if (loadRecord(kClifford6))
         checkBackground(QStringLiteral("Clifford 6-Tubes Rotation (sfondo spento)"));
 
     // ---------------------------------------------------------------------
     // IMMAGINE DI SFONDO sotto uno script: resta quella nel motore finche' lo
     // script la nomina, e se ne va quando non la nomina piu'.
-    const QString kBgProc = QStringLiteral("records/Animations/Parametric/Surfaces/Geodesic Flow/Breathing Hyperboloid.json");
-    const QString kBgMix  = QStringLiteral("records/Rotations/Parametric/Surfaces/Geodesic Flow/H3/Poincare's Slice.json");
+    const QString kBgProc = QStringLiteral("records/Animations/Parametric/Surfaces/Geodesic Flows/Breathing Hyperboloid.json");
+    const QString kBgMix  = QStringLiteral("records/Rotations/Parametric/Surfaces/Geodesic Flows/H3/Poincare's Slice.json");
     const QString kBgPlasma = QStringLiteral("textures/Procedurals/Plasma.json");
     static const QRegularExpression bgImgRe(QStringLiteral(R"(^\s*//IMG:\s*(.*)$\n?)"),
                                             QRegularExpression::MultilineOption);
@@ -2165,7 +2165,7 @@ void ScenarioTest::run()
     }
     // FORMA DELLO SFONDO (Fixed/Sphere/Cylinder/Cube): solo col bersaglio
     // Background e la texture di sfondo accesa.
-    if (loadRecord(QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/Non-orientable/Boy Surface.json"))) {
+    if (loadRecord(QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/Non-orientables/Boy Surface.json"))) {
         click(ui->radioBackground);
         if (ui->chkBoxTexture->isChecked()) click(ui->chkBoxTexture);
         check(!ui->radioBgSphere->isEnabled(),
@@ -2181,7 +2181,7 @@ void ScenarioTest::run()
     // Texture Ray Marching scelta come SFONDO: incompatibile, un avviso (il
     // popup si chiude da solo) e lo sfondo resta com'era; la superficie non si
     // tocca.
-    if (loadRecord(QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/Non-orientable/Boy Surface.json"))) {
+    if (loadRecord(QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/Non-orientables/Boy Surface.json"))) {
         click(ui->radioBackground);
         if (selectTexture(QStringLiteral("textures/Images/14.png")))
             checkBackground(QStringLiteral("immagine di sfondo dalla Library"), QStringLiteral("14.png"));
@@ -2333,7 +2333,7 @@ void ScenarioTest::run()
     // AUDIO: la scena ha UN brano. Un record che lo porta in due slot del file
     // (texture e sfondo: i Save vecchi lo scrivevano in entrambi) lo suona e lo
     // risalva una volta sola.
-    const QString kTwiceSound = QStringLiteral("records/Rotations/Parametric/Surfaces/Geodesic Flow/Black Hole/Kerr.json");
+    const QString kTwiceSound = QStringLiteral("records/Rotations/Parametric/Surfaces/Geodesic Flows/Black Holes/Kerr.json");
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Audio: un solo brano (%1) ==").arg(kTwiceSound));
     if (loadRecord(kTwiceSound)) {
@@ -2434,7 +2434,7 @@ void ScenarioTest::run()
         return m.hasMatch() ? QFileInfo(m.captured(1).trimmed()).fileName() : QString();
     };
     const QString kImageOnly   = QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/H3/Enneper.json");
-    const QString kImageScript = QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/Non-orientable/Boy Surface.json");
+    const QString kImageScript = QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/Non-orientables/Boy Surface.json");
     const QString kRmImage     = QStringLiteral("records/Paths/Implicit/3D/Schwarz P Circuit.json");
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Immagine della texture di superficie: parametrico =="));
@@ -2626,7 +2626,7 @@ void ScenarioTest::run()
     // ---------------------------------------------------------------------
     // COSTANTI DISCRETE E MINIMI (direttive "B := int(1,6);", "A := min(1.0);"
     // dello script): valgono per la scena che le dichiara, non per quella dopo.
-    const QString kLabyrinth = QStringLiteral("records/Paths/Parametric/Surfaces/Solid Wireframe/Clifford Labyrinth.json");
+    const QString kLabyrinth = QStringLiteral("records/Paths/Parametric/Surfaces/Solid Wireframes/Clifford Labyrinth.json");
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Costanti discrete e minimi (%1) ==").arg(kLabyrinth));
     if (loadRecord(kLabyrinth)) {
@@ -2652,7 +2652,7 @@ void ScenarioTest::run()
     }
     // Superficie con minimo (Octahedron Bands: A := min(0.3)), poi una
     // superficie a equazioni che usa A: il minimo non deve seguirla.
-    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Multimesh/Octahedron Bands.json"))) {
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Multi Meshes/Octahedron Bands.json"))) {
         setConstantBySlider(QStringLiteral("A"), 0.1);
         checkConstants(QStringLiteral("superficie con minimo 0.3: 0.1 torna a 0.3"), KV{ { "A", 0.3 } });
     }
@@ -2717,8 +2717,8 @@ void ScenarioTest::run()
         // metrica rigiudica i limiti, e su una superficie da script (X/Y/Z/P
         // vuoti) svuotava u e v. Li riscrivevano le direttive, riapplicate a
         // ogni load; ora vale il file, e i limiti devono restare.
-        if (loadRecord(QStringLiteral("records/Rotations/Parametric/Surfaces/Geodesic Flow/Black Hole/Wormhole.json"))
-            && loadRecord(QStringLiteral("records/Paths/Parametric/Surfaces/Solid Wireframe/Clifford Labyrinth.json"))) {
+        if (loadRecord(QStringLiteral("records/Animations/Parametric/Surfaces/Geodesic Flows/Black Holes/Wormhole.json"))
+            && loadRecord(QStringLiteral("records/Paths/Parametric/Surfaces/Solid Wireframes/Clifford Labyrinth.json"))) {
             check(ui->uMaxEdit->isEnabled() && !ui->uMaxEdit->text().isEmpty()
                       && !ui->vMaxEdit->text().isEmpty(),
                   QStringLiteral("record da script dopo uno metrico: limiti u/v presenti (u max '%1', v max '%2')")
@@ -2732,7 +2732,7 @@ void ScenarioTest::run()
     // flusso geodetico "200*A" risultava nullo e il Run dava errore.
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Costanti: valore piu' fine del passo dello slider =="));
-    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Geodesic Flow/R^3/Helicoid.json"))) {
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Geodesic Flows/R3/Helicoid.json"))) {
         ui->lineConform->setPlainText(QStringLiteral("200*A"));  wait(400);
         // Una costante scritta e non ancora eseguita resta BLOCCATA fino al Run
         // (deciso con l'utente il 2026-10-07): lo slider non muoverebbe nulla.
@@ -2862,7 +2862,7 @@ void ScenarioTest::run()
     // Ray Marching DA SCRIPT caricato dopo un Cross Section non deve restare
     // nel sotto-tab e nel ramo del motore di quello di prima.
     const QString kCrossRec  = QStringLiteral("records/Paths/Implicit/Cross Sections/T3/Morphing 3-Torus.json");
-    const QString kCrossSurf = QStringLiteral("surfaces/Implicit/Cross Section/Duocylinder.json");
+    const QString kCrossSurf = QStringLiteral("surfaces/Implicit/Cross Sections/Duocylinder.json");
     auto checkBranch = [this, ui](const QString &step, bool expectedCross) {
         const bool saved  = captureSave().usesCrossSection;
         const bool tab    = ui->subTabImplicit->currentIndex() == 1;
@@ -3128,7 +3128,7 @@ void ScenarioTest::run()
         checkEquations(QStringLiteral("dopo il Run"));
     }
     // FLUSSO GEODETICO: superficie, record, e poi una scena che non lo usa.
-    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Geodesic Flow/R^3/Helicoid.json"))) {
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Geodesic Flows/R3/Helicoid.json"))) {
         checkEquations(QStringLiteral("superficie con flusso geodetico"));
         // Punto iniziale riscritto e non eseguito, poi Invio su una costante:
         // il flusso a schermo resta quello di prima, e il Run serve ancora.
@@ -3142,11 +3142,11 @@ void ScenarioTest::run()
         applyEquationEdit(ui->lnU);
         checkEquations(QStringLiteral("flusso applicato"));
     }
-    if (loadRecord(QStringLiteral("records/Rotations/Parametric/Surfaces/Geodesic Flow/R3/Ruled Hyperboloid.json")))
+    if (loadRecord(QStringLiteral("records/Rotations/Parametric/Surfaces/Geodesic Flows/R3/Ruled Hyperboloid.json")))
         checkEquations(QStringLiteral("record con flusso geodetico"));
     if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json")))
         checkEquations(QStringLiteral("poi una superficie senza flusso"));
-    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Multimesh/Hopf Tori.json")))
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Multi Meshes/Hopf Tori.json")))
         checkEquations(QStringLiteral("poi una superficie da script"));
     if (loadRecord(QString::fromLatin1(kParametricRecord)))
         checkEquations(QStringLiteral("poi di nuovo il record a equazioni"));
@@ -3157,9 +3157,9 @@ void ScenarioTest::run()
     // PATH E MOTI: viste, velocita', tasti e timer, moto attivo, FOV, path
     // applicato (vedi checkMotion).
     const QString kPath4D   = QStringLiteral("records/Paths/Parametric/Surfaces/Equations/S1xS1xS1/Coiled Coil.json");       // path 4D, vista Center
-    const QString kPath3D   = QStringLiteral("records/Paths/Parametric/Surfaces/Multimesh/Calabi-Yau Orbit.json");  // path 3D, FOV 69, spin
+    const QString kPath3D   = QStringLiteral("records/Paths/Parametric/Surfaces/Multi Meshes/Calabi-Yau Orbit.json");  // path 3D, FOV 69, spin
     const QString kPathBoth = QStringLiteral("records/Paths/Parametric/Surfaces/Equations/S1xS1xS1/Cytherean Coil.json");    // path 4D + 3D + rotazioni
-    const QString kRotRec   = QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/Non-orientable/Boy Surface.json");
+    const QString kRotRec   = QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/Non-orientables/Boy Surface.json");
     const QString kTorusSurf = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
     SurfaceEngine *engine = ui->glWidget->getEngine();
 
@@ -3634,14 +3634,14 @@ void ScenarioTest::run()
               QStringLiteral("hint di un preset di superficie, senza etichetta -> %1").arg(QString(h).replace(QLatin1Char('\n'), QLatin1String(" / "))));
     }
     // Un hint che dichiara il proprio ruolo resta com'e' (record di path).
-    if (loadRecord(QStringLiteral("records/Paths/Parametric/Surfaces/Tube/Clover.json"))) {
+    if (loadRecord(QStringLiteral("records/Paths/Parametric/Surfaces/Tubes/Clover.json"))) {
         const QString h = m_mw->composedHintText();
         check(h.startsWith(QLatin1String("Path slider A")),
               QStringLiteral("hint del path -> %1").arg(QString(h).replace(QLatin1Char('\n'), QLatin1String(" / "))));
     }
     // Una texture dalla Library mostra il SOLO suo messaggio: quello della
     // superficie ricompariva a ogni cambio di texture.
-    if (loadRecord(QStringLiteral("records/Animations/Parametric/Solid Curves/Multicurve/Lissajous Layers Wave.json"))) {
+    if (loadRecord(QStringLiteral("records/Animations/Parametric/Solid Curves/Multi Curves/Lissajous Layers Wave.json"))) {
         auto overlay = [&]() {
             const QLabel *l = ui->glWidget->findChild<QLabel *>(QStringLiteral("sceneHintOverlay"));
             return (l && l->isVisible()) ? l->text() : QString();
@@ -3814,13 +3814,13 @@ void ScenarioTest::runLoadOrderScenarios()
         { "tubo 4D",                   "records/Rotations/Parametric/Solid Curves/Single Curves/Clifford Knot Rotating.json" },
         { "tubi da script",            "records/Rotations/Parametric/Solid Curves/Multi Curves/Borromean Rings Spinning.json" },
         { "multi-tubo",                "records/Rotations/Parametric/Solid Curves/Multi Curves/Hopf Fibers Ring Rotating.json" },
-        { "flusso geodetico",          "records/Animations/Parametric/Surfaces/Geodesic Flow/Breathing Hyperboloid.json" },
-        { "script metrico",            "records/Rotations/Parametric/Surfaces/Geodesic Flow/Black Hole/Kerr.json" },
+        { "flusso geodetico",          "records/Animations/Parametric/Surfaces/Geodesic Flows/Breathing Hyperboloid.json" },
+        { "script metrico",            "records/Rotations/Parametric/Surfaces/Geodesic Flows/Black Holes/Kerr.json" },
         { "Ray Marching",              "records/Rotations/Implicit/3D/Blobs.json" },
         { "Ray Marching script",       "records/Rotations/Implicit/3D/Ergosphere.json" },
         { "Cross Section",             "records/Animations/Implicit/Cross Sections/Duocylinder.json" },
-        { "multi-mesh a sezioni",      "surfaces/Parametric/Surfaces/Multimesh/Hopf Tori Mesh Colors.json" },
-        { "bordo",                     "surfaces/Parametric/Solid Curve/Border/Mobius.json" },
+        { "multi-mesh a sezioni",      "surfaces/Parametric/Surfaces/Multi Meshes/Hopf Tori Mesh Colors.json" },
+        { "bordo",                     "surfaces/Parametric/Surfaces/Borders/Mobius.json" },
     };
 
     m_lines.append(QString());
@@ -4449,10 +4449,10 @@ void ScenarioTest::runResetButtonScenarios()
     const float o = GLWidget::kClockOrigin;
     const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
     const QString kAnim  = QString::fromLatin1(kParametricRecord);                     // t, niente rotazioni
-    const QString kRot   = QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/Non-orientable/Boy Surface.json");       // rotazioni
-    const QString kPath  = QStringLiteral("records/Paths/Parametric/Surfaces/Multimesh/Calabi-Yau Orbit.json");      // path 3D
-    const QString kMesh  = QStringLiteral("records/Rotations/Parametric/Surfaces/Multimesh/Hopf Tori.json");
-    const QString kGeo   = QStringLiteral("records/Animations/Parametric/Surfaces/Geodesic Flow/Breathing Hyperboloid.json");
+    const QString kRot   = QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/Non-orientables/Boy Surface.json");       // rotazioni
+    const QString kPath  = QStringLiteral("records/Paths/Parametric/Surfaces/Multi Meshes/Calabi-Yau Orbit.json");      // path 3D
+    const QString kMesh  = QStringLiteral("records/Rotations/Parametric/Surfaces/Multi Meshes/Hopf Tori.json");
+    const QString kGeo   = QStringLiteral("records/Animations/Parametric/Surfaces/Geodesic Flows/Breathing Hyperboloid.json");
 
     auto sameCamera = [this, gl]() {
         return (gl->getCameraPos() - m_mw->m_startFraming.cameraPos).length() < 1e-4f;
@@ -5093,7 +5093,7 @@ void ScenarioTest::runRecordTextureScenarios()
 {
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Load di record: la texture di superficie compilata e' quella del record =="));
-    for (const char *rel : { "records/Rotations/Parametric/Surfaces/Geodesic Flow/Black Hole/Kerr Spin Animated.json", "records/Static/Oloid.json" }) {
+    for (const char *rel : { "records/Animations/Parametric/Surfaces/Geodesic Flows/Black Holes/Kerr Spin Animated.json", "records/Static/Oloid.json" }) {
         const QString r = QString::fromLatin1(rel);
         if (!loadRecord(r)) continue;
         wait(600);
@@ -5612,7 +5612,7 @@ void ScenarioTest::runMeshClockScenarios()
         for (int k : l) s << QString::number(k);
         return s.isEmpty() ? QStringLiteral("nessuna") : s.join(QLatin1Char(','));
     };
-    const QString rec = QStringLiteral("records/Rotations/Parametric/Surfaces/Multimesh/Hopf Parallel.json");
+    const QString rec = QStringLiteral("records/Rotations/Parametric/Surfaces/Multi Meshes/Hopf Parallel.json");
     const QString staticTex = QStringLiteral("textures/Procedurals/Stripes.json");
     const QString animTex = QStringLiteral("textures/Procedurals/Animated Gradient.json");
 
@@ -5858,7 +5858,7 @@ void ScenarioTest::runMeshImageScenarios()
     // RECORD SALVATI PRIMA: il tag della fascia ripete l'immagine della
     // superficie (e in una fascia porta il percorso di un altro dispositivo).
     // Non si carica nulla due volte, e l'aspetto resta quello di prima.
-    const QString oldRecord = QStringLiteral("records/Rotations/Parametric/Surfaces/Multimesh/Hopf Half Tori.json");
+    const QString oldRecord = QStringLiteral("records/Rotations/Parametric/Surfaces/Multi Meshes/Hopf Half Tori.json");
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Immagini sulle singole mesh: record salvato prima (%1) ==").arg(oldRecord));
     if (loadRecord(oldRecord)) {
@@ -6088,7 +6088,7 @@ void ScenarioTest::runMeshCountScenarios()
     // schermo. Alzando a 9 il nono toro prende il suo colore dal file;
     // riabbassando, il Save scrive ancora tutti e 9 i colori.
     {
-        const QString kHopf = QStringLiteral("surfaces/Parametric/Surfaces/Multimesh/Hopf Tori Mesh Colors.json");
+        const QString kHopf = QStringLiteral("surfaces/Parametric/Surfaces/Multi Meshes/Hopf Tori Mesh Colors.json");
         LibraryManager lm;
         const LibraryItem file = lm.parseJson(m_root + QLatin1Char('/') + kHopf, LibraryType::Surface);
         if (loadSurface(kHopf) && file.meshParts.size() >= 9) {
@@ -6114,7 +6114,7 @@ void ScenarioTest::runMeshCountScenarios()
     // mesh devono essere come prima (segnalato: opaca, trasparente da All,
     // ritorno su Mesh -> tutte trasparenti).
     {
-        const QString kCalabi = QStringLiteral("surfaces/Parametric/Surfaces/Multimesh/Calabi-Yau.json");
+        const QString kCalabi = QStringLiteral("surfaces/Parametric/Surfaces/Multi Meshes/Calabi-Yau.json");
         if (loadSurface(kCalabi) && parts() > 1) {
             if (m_mw->editingBackground()) click(ui->radioSurface);
             if (!ui->radioMeshAll->isChecked()) click(ui->radioMeshAll);
