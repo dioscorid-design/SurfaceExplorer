@@ -46,7 +46,7 @@
 namespace {
 const char *kParametricRecord = "records/Animations/Parametric/Surfaces/Equations/R3/Dynamic Mobius Band.json";
 const char *kImplicitRecord   = "records/Animations/Implicit/3D/Morphing Rosette.json";
-const char *kMultiMeshRecord  = "records/Rotations/Multimesh/Brieskorn-Pham (3,5).json";
+const char *kMultiMeshRecord  = "records/Rotations/Parametric/Surfaces/Multimesh/Brieskorn-Pham (3,5).json";
 QString onOff(bool b) { return b ? QStringLiteral("on") : QStringLiteral("off"); }
 
 // La parte GRAFICA del codice di una texture: senza l'audio che viaggia con
@@ -433,17 +433,19 @@ void ScenarioTest::runTubeScenarios()
     }
 
     // Una sezione sola: il campo Meshes comanda le copie. Lissajous Layers
-    // Wave parte con 5 strati; a 8 l'ottavo prende il suo colore dal file.
+    // Wave parte con gli strati del file; a 8 l'ottavo prende il suo colore
+    // dal file.
     {
         const QString kWave = QStringLiteral("records/Animations/Parametric/Solid Curves/Lissajous Layers Wave.json");
         LibraryManager lm;
         const LibraryItem file = lm.parseJson(m_root + QLatin1Char('/') + kWave, LibraryType::Motion);
-        if (loadRecord(kWave) && file.meshParts.size() >= 8) {
-            check(gl->meshPartCount() == 5 && ui->lineMeshCount->text() == QLatin1String("5")
+        const int layers = file.meshCount.toInt();
+        if (loadRecord(kWave) && file.meshParts.size() >= 8 && layers >= 1 && layers != 8) {
+            check(gl->meshPartCount() == layers && ui->lineMeshCount->text() == QString::number(layers)
                       && ui->lineMeshCount->isEnabled() && ui->meshCountSlider->isEnabled(),
-                  QStringLiteral("Lissajous Layers Wave -> 5 strati dal campo Meshes, acceso (%1 parti, campo '%2' %3, slider %4)")
-                      .arg(gl->meshPartCount()).arg(ui->lineMeshCount->text(), onOff(ui->lineMeshCount->isEnabled()),
-                                                     onOff(ui->meshCountSlider->isEnabled())));
+                  QStringLiteral("Lissajous Layers Wave -> %1 strati dal campo Meshes, acceso (%2 parti, campo '%3' %4, slider %5)")
+                      .arg(layers).arg(gl->meshPartCount()).arg(ui->lineMeshCount->text(), onOff(ui->lineMeshCount->isEnabled()),
+                                                                onOff(ui->meshCountSlider->isEnabled())));
             const float t0 = gl->clockTimes().geom;
             ui->meshCountSlider->setValue(8);  wait(800);
             const MeshPart &p7 = eng->getMeshParts().back();
@@ -461,7 +463,7 @@ void ScenarioTest::runTubeScenarios()
                   QStringLiteral("Meshes a 8 con la fase in moto -> l'animazione prosegue (t %1 -> %2 -> %3, master %4)")
                       .arg(t0, 0, 'f', 2).arg(t1, 0, 'f', 2).arg(t2, 0, 'f', 2).arg(masterState()));
             gl->grabFramebuffer().save(m_outDir + QStringLiteral("/lissajous-layers-8.png"));
-            ui->meshCountSlider->setValue(5);  wait(800);
+            ui->meshCountSlider->setValue(layers);  wait(800);
             m_mw->performMasterStop();
         }
     }
@@ -2118,7 +2120,7 @@ void ScenarioTest::run()
     }
     if (loadRecord(QString::fromLatin1(kParametricRecord)))
         checkBackground(QStringLiteral("di nuovo il record con immagine"), QStringLiteral("8.png"));
-    const QString kClifford6 = QStringLiteral("records/Rotations/Multimesh/Clifford 6-Tubes Rotation.json");
+    const QString kClifford6 = QStringLiteral("records/Rotations/Parametric/Surfaces/Multimesh/Clifford 6-Tubes Rotation.json");
     if (loadRecord(kClifford6))
         checkBackground(QStringLiteral("Clifford 6-Tubes Rotation (sfondo spento)"));
 
@@ -2623,7 +2625,7 @@ void ScenarioTest::run()
     // ---------------------------------------------------------------------
     // COSTANTI DISCRETE E MINIMI (direttive "B := int(1,6);", "A := min(1.0);"
     // dello script): valgono per la scena che le dichiara, non per quella dopo.
-    const QString kLabyrinth = QStringLiteral("records/Paths/Solid Wireframe/Clifford Labyrinth.json");
+    const QString kLabyrinth = QStringLiteral("records/Paths/Parametric/Surface/Solid Wireframe/Clifford Labyrinth.json");
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Costanti discrete e minimi (%1) ==").arg(kLabyrinth));
     if (loadRecord(kLabyrinth)) {
@@ -2715,7 +2717,7 @@ void ScenarioTest::run()
         // vuoti) svuotava u e v. Li riscrivevano le direttive, riapplicate a
         // ogni load; ora vale il file, e i limiti devono restare.
         if (loadRecord(QStringLiteral("records/Rotations/Parametric/Surfaces/Geodesic Flow/Black Hole/Wormhole.json"))
-            && loadRecord(QStringLiteral("records/Paths/Solid Wireframe/Clifford Labyrinth.json"))) {
+            && loadRecord(QStringLiteral("records/Paths/Parametric/Surface/Solid Wireframe/Clifford Labyrinth.json"))) {
             check(ui->uMaxEdit->isEnabled() && !ui->uMaxEdit->text().isEmpty()
                       && !ui->vMaxEdit->text().isEmpty(),
                   QStringLiteral("record da script dopo uno metrico: limiti u/v presenti (u max '%1', v max '%2')")
@@ -3154,7 +3156,7 @@ void ScenarioTest::run()
     // PATH E MOTI: viste, velocita', tasti e timer, moto attivo, FOV, path
     // applicato (vedi checkMotion).
     const QString kPath4D   = QStringLiteral("records/Paths/Parametric/Surface/Equations/S1xS1xS1/Coiled Coil.json");       // path 4D, vista Center
-    const QString kPath3D   = QStringLiteral("records/Paths/Multimesh/Calabi-Yau Orbit.json");  // path 3D, FOV 69, spin
+    const QString kPath3D   = QStringLiteral("records/Paths/Parametric/Surface/Multimesh/Calabi-Yau Orbit.json");  // path 3D, FOV 69, spin
     const QString kPathBoth = QStringLiteral("records/Paths/Parametric/Surface/Equations/S1xS1xS1/Cytherean Coil.json");    // path 4D + 3D + rotazioni
     const QString kRotRec   = QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/Non-orientable/Boy Surface.json");
     const QString kTorusSurf = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
@@ -3636,6 +3638,25 @@ void ScenarioTest::run()
         check(h.startsWith(QLatin1String("Path slider A")),
               QStringLiteral("hint del path -> %1").arg(QString(h).replace(QLatin1Char('\n'), QLatin1String(" / "))));
     }
+    // Una texture dalla Library mostra il SOLO suo messaggio: quello della
+    // superficie ricompariva a ogni cambio di texture.
+    if (loadRecord(QStringLiteral("records/Animations/Parametric/Solid Curves/Lissajous Layers Wave.json"))) {
+        auto overlay = [&]() {
+            const QLabel *l = ui->glWidget->findChild<QLabel *>(QStringLiteral("sceneHintOverlay"));
+            return (l && l->isVisible()) ? l->text() : QString();
+        };
+        const QString atLoad = overlay();
+        selectTexture(QStringLiteral("textures/Procedurals/Linear Gradient.json"));  wait(300);
+        const QString plain = overlay();
+        selectTexture(QStringLiteral("textures/Procedurals/Mandelbrot.json"));  wait(300);
+        const QString hinted = overlay();
+        auto flat = [](QString s) { return s.replace(QLatin1Char('\n'), QLatin1String(" / ")); };
+        check(atLoad.contains(QLatin1String("frequencies")) && plain.isEmpty()
+                  && hinted.startsWith(QLatin1String("Texture slider")) && !hinted.contains(QLatin1String("frequencies")),
+              QStringLiteral("texture dalla Library -> solo il suo messaggio (load '%1', senza hint '%2', Mandelbrot '%3')")
+                  .arg(flat(atLoad), flat(plain), flat(hinted)));
+        if (m_mw->isAnythingMoving()) m_mw->performMasterStop();
+    }
 
     runScriptDockScenarios();
     runTextureTargetScenarios();
@@ -3753,7 +3774,7 @@ void ScenarioTest::runLoadOrderScenarios()
         { "script parametrico",        "records/Static/Symmetrized Double Enneper.json" },
         { "tubo 4D",                   "records/Rotations/Parametric/Solid Curves/Single Curves/Clifford Knot Rotating.json" },
         { "tubi da script",            "records/Rotations/Parametric/Solid Curves/Multi Curves/Borromean Rings Spinning.json" },
-        { "multi-tubo",                "records/Rotations/Parametric/Multi Curves/Hopf Fibers Ring Rotating.json" },
+        { "multi-tubo",                "records/Rotations/Parametric/Solid Curves/Multi Curves/Hopf Fibers Ring Rotating.json" },
         { "flusso geodetico",          "records/Animations/Parametric/Surfaces/Geodesic Flow/Breathing Hyperboloid.json" },
         { "script metrico",            "records/Rotations/Parametric/Surfaces/Geodesic Flow/Black Hole/Kerr.json" },
         { "Ray Marching",              "records/Rotations/Implicit/3D/Blobs.json" },
@@ -4390,8 +4411,8 @@ void ScenarioTest::runResetButtonScenarios()
     const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
     const QString kAnim  = QString::fromLatin1(kParametricRecord);                     // t, niente rotazioni
     const QString kRot   = QStringLiteral("records/Rotations/Parametric/Surfaces/Equations/Non-orientable/Boy Surface.json");       // rotazioni
-    const QString kPath  = QStringLiteral("records/Paths/Multimesh/Calabi-Yau Orbit.json");      // path 3D
-    const QString kMesh  = QStringLiteral("records/Rotations/Multimesh/Hopf Tori.json");
+    const QString kPath  = QStringLiteral("records/Paths/Parametric/Surface/Multimesh/Calabi-Yau Orbit.json");      // path 3D
+    const QString kMesh  = QStringLiteral("records/Rotations/Parametric/Surfaces/Multimesh/Hopf Tori.json");
     const QString kGeo   = QStringLiteral("records/Animations/Parametric/Surfaces/Geodesic Flow/Breathing Hyperboloid.json");
 
     auto sameCamera = [this, gl]() {
@@ -5528,7 +5549,7 @@ void ScenarioTest::runMeshClockScenarios()
         for (int k : l) s << QString::number(k);
         return s.isEmpty() ? QStringLiteral("nessuna") : s.join(QLatin1Char(','));
     };
-    const QString rec = QStringLiteral("records/Rotations/Multimesh/Hopf Parallel.json");
+    const QString rec = QStringLiteral("records/Rotations/Parametric/Surfaces/Multimesh/Hopf Parallel.json");
     const QString staticTex = QStringLiteral("textures/Procedurals/Stripes.json");
     const QString animTex = QStringLiteral("textures/Procedurals/Animated Gradient.json");
 
@@ -5774,7 +5795,7 @@ void ScenarioTest::runMeshImageScenarios()
     // RECORD SALVATI PRIMA: il tag della fascia ripete l'immagine della
     // superficie (e in una fascia porta il percorso di un altro dispositivo).
     // Non si carica nulla due volte, e l'aspetto resta quello di prima.
-    const QString oldRecord = QStringLiteral("records/Rotations/Multimesh/Hopf Half Tori.json");
+    const QString oldRecord = QStringLiteral("records/Rotations/Parametric/Surfaces/Multimesh/Hopf Half Tori.json");
     m_lines.append(QString());
     m_lines.append(QStringLiteral("== Immagini sulle singole mesh: record salvato prima (%1) ==").arg(oldRecord));
     if (loadRecord(oldRecord)) {

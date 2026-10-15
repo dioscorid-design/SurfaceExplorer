@@ -528,8 +528,12 @@ private:
     // sospendendo per la chiamata quello della scena: serve al Sync, dove sono
     // cambiate le texture e non la scena. Non modifica nessuno dei tre testi.
     void showTextureHintsOnly(float seconds);
+    // Il messaggio della texture appena presa dalla Library, da solo, nel suo
+    // posto (texture di superficie o di fascia, sfondo, bordo); vuoto =
+    // toglie da schermo quello che c'era. Non modifica nessuno dei testi.
+    void showLoadedTextureHint(const QString &texture, const QString &background,
+                               const QString &border, float seconds);
     // Ridisegna l'overlay dalla coppia corrente senza modificare i due testi.
-    // Lo usa il caricamento di una texture, che cambia solo il proprio.
     void refreshSceneHint(float seconds);
 
 

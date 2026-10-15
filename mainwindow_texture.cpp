@@ -988,8 +988,7 @@ void MainWindow::applyLibraryTextureToBorder(const LibraryItem &data)
     // Il messaggio della voce, come per lo sfondo: anche vuoto, perche' la
     // texture di prima puo' averne lasciato uno che ora va tolto da schermo.
     gl->setBorderTextureHint(data.hintText, data.hintSeconds);
-    refreshSceneHint(data.hintText.trimmed().isEmpty() ? m_currentHintSeconds
-                                                       : data.hintSeconds);
+    showLoadedTextureHint(QString(), QString(), data.hintText, data.hintSeconds);
     // Applicare una texture e' un comando esplicito: un'animata parte subito,
     // anche a master fermo, come sulle fasce.
     m_userStoppedBorderTexClock = false;
@@ -1018,8 +1017,7 @@ void MainWindow::applyLibraryTextureToBackground(const LibraryItem &data)
     m_scene.bgTextureLibName     = data.name.trimmed();
     m_currentBgTextureHintText    = data.hintText.trimmed();
     m_currentBgTextureHintSeconds = data.hintSeconds;
-    refreshSceneHint(m_currentBgTextureHintText.isEmpty() ? m_currentHintSeconds
-                                                          : data.hintSeconds);
+    showLoadedTextureHint(QString(), m_currentBgTextureHintText, QString(), data.hintSeconds);
 
     if (data.hasCustomColors) {
         m_scene.bgTexColor1 = QColor(data.color1);
@@ -1370,12 +1368,14 @@ bool MainWindow::applyLibraryTextureParametric(const LibraryItem &data, const QS
             // "F: density of the grid").
             // A differenza del ramo globale, un hint VUOTO non cancella quello
             // in scena: lo slot e' uno per tutte le fasce, e una texture senza
-            // messaggio su una mesh non rende inutile quello di un'altra.
+            // messaggio su una mesh non rende inutile quello di un'altra. A
+            // schermo invece, come ovunque, il solo messaggio della texture
+            // presa (vuoto = via quello di prima).
             if (!data.hintText.trimmed().isEmpty()) {
                 m_currentTextureHintText    = data.hintText.trimmed();
                 m_currentTextureHintSeconds = data.hintSeconds;
-                refreshSceneHint(data.hintSeconds);
             }
+            showLoadedTextureHint(data.hintText.trimmed(), QString(), QString(), data.hintSeconds);
 
             // SLIDER DELLE COSTANTI sul codice appena applicato, come fa la
             // coda del ramo globale: la texture della fascia puo' usare una
@@ -1707,8 +1707,9 @@ void MainWindow::finishLibraryTexturePick(const LibraryItem &data)
     // messaggio della SCENA, che PresetSerializer riscrive nel preset di
     // superficie e nel record: il testo della texture ci finirebbe dentro e al
     // primo Save diventerebbe l'hint della superficie.
-    // Si aggiorna quindi la sola variabile della texture e si ridisegna
-    // l'overlay con la coppia. Anche a hint VUOTO: la texture precedente puo'
+    // Si aggiorna quindi la sola variabile della texture, e a schermo va il
+    // suo solo messaggio (showLoadedTextureHint): non quello della scena, gia'
+    // visto al caricamento. Anche a hint VUOTO: la texture precedente puo'
     // averne lasciato uno, che ora va tolto da schermo.
     m_currentTextureHintText    = data.hintText.trimmed();
     m_currentTextureHintSeconds = data.hintSeconds;
@@ -1718,8 +1719,7 @@ void MainWindow::finishLibraryTexturePick(const LibraryItem &data)
     // (vedi m_scene.textureLibName). Si scrive qui, dove si scrive l'hint:
     // stesso ciclo di vita, stessa provenienza.
     m_scene.textureLibName = data.name.trimmed();
-    refreshSceneHint(m_currentTextureHintText.isEmpty() ? m_currentHintSeconds
-                                                        : data.hintSeconds);
+    showLoadedTextureHint(m_currentTextureHintText, QString(), QString(), data.hintSeconds);
 
     // VALORI DELLE COSTANTI: una texture caricata deve apparire com'e' stata
     // salvata, non com'e' rimasta quella precedente. I preset di texture NON

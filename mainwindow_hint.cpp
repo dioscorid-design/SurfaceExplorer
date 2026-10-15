@@ -71,6 +71,21 @@ void MainWindow::showTextureHintsOnly(float seconds)
     m_currentHintText = savedScene;
 }
 
+// Texture presa dalla Library: a schermo il SOLO messaggio di quella texture.
+// Prima si ridisegnava la composizione intera, e ogni cambio di texture
+// rimetteva a schermo anche il messaggio della superficie (gia' visto al
+// caricamento della scena) e quelli delle texture rimaste uguali. Senza
+// messaggio si toglie l'overlay: la texture di prima puo' averne lasciato uno.
+void MainWindow::showLoadedTextureHint(const QString &texture, const QString &background,
+                                       const QString &border, float seconds)
+{
+    if (!ui->glWidget) return;
+    const QString text = SceneHintOverlay::compose(QString(), texture, background, border);
+    if (text.isEmpty()) { hideSceneHint(); return; }
+    if (!m_hintOverlay) m_hintOverlay = new SceneHintOverlay(ui->glWidget, this);
+    m_hintOverlay->show(text, seconds);
+}
+
 void MainWindow::showSceneHint(const QString &text, float seconds)
 {
     // Memorizzato anche se non c'e' scena da decorare: e' il messaggio del
