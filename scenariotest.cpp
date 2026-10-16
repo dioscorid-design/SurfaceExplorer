@@ -3986,6 +3986,40 @@ void ScenarioTest::runLoadOrderScenarios()
                   .arg(bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
     }
     if (m_mw->isAnythingMoving()) m_mw->performMasterStop();
+
+    // ROTAZIONE COL MOUSE DOPO IL LOAD. Il Twisted Fiber Tube aveva nel
+    // camera3D un quaternione nullo (rot_w = rot_x = rot_y = rot_z = 0): ogni
+    // trascinamento lo moltiplicava e restava nullo, l'oggetto si zoomava ma
+    // non ruotava. Ora setRotationQuat lo prende per l'identita' (e il preset
+    // ha rot_w = 1); qui anche un quaternione nullo forzato.
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/SL(2,R)/Twisted Fiber Tube.json"))) {
+        auto drag = [&]() {
+            const QPointF a(gl->width() / 2.0, gl->height() / 2.0), b = a + QPointF(60.0, 25.0);
+            QMouseEvent press(QEvent::MouseButtonPress, a, gl->mapToGlobal(a), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(gl, &press);
+            for (int i = 1; i <= 6; ++i) {
+                const QPointF p = a + (b - a) * (i / 6.0);
+                QMouseEvent move(QEvent::MouseMove, p, gl->mapToGlobal(p), Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(gl, &move);
+                wait(20);
+            }
+            QMouseEvent release(QEvent::MouseButtonRelease, b, gl->mapToGlobal(b), Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(gl, &release);
+            wait(200);
+        };
+        for (int forced = 0; forced < 2; ++forced) {
+            if (forced) gl->setRotationQuat(QQuaternion(0.0f, 0.0f, 0.0f, 0.0f));
+            const QQuaternion before = gl->getRotationQuat();
+            drag();
+            const QQuaternion after = gl->getRotationQuat();
+            const float moved = (after - before).length();
+            check(after.lengthSquared() > 0.5f && moved > 1e-3f,
+                  QStringLiteral("Twisted Fiber Tube%1 -> il trascinamento col mouse ruota l'oggetto "
+                                 "(quaternione |%2|, spostato di %3)")
+                      .arg(forced ? QStringLiteral(" con quaternione nullo forzato") : QString())
+                      .arg(after.length(), 0, 'f', 3).arg(moved, 0, 'f', 3));
+        }
+    }
     m_discardOnPrompt = false;
 }
 

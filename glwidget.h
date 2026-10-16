@@ -954,7 +954,14 @@ public:
     QQuaternion getRotationQuat() const { return m_rotationQuat; }
     // setRotationQuat imposta la rotazione "di default" (load preset / stato iniziale):
     // azzera m_userRotatedManually perche' questa NON e' una rotazione dell'utente.
-    void setRotationQuat(const QQuaternion& q) { m_rotationQuat = q; m_userRotatedManually = false; meshNeedsUpdate = true; update(); }
+    // Un quaternione nullo (rot_w = rot_x = rot_y = rot_z = 0 nel camera3D di un
+    // file: il Twisted Fiber Tube) vale l'identita': moltiplicato da ogni
+    // trascinamento restava nullo e l'oggetto non ruotava piu', si poteva solo
+    // zoomare. Gli altri restano come sono (i Save devono riscriverli uguali).
+    void setRotationQuat(const QQuaternion& q) {
+        m_rotationQuat = (q.lengthSquared() > 1e-12f) ? q : QQuaternion();
+        m_userRotatedManually = false; meshNeedsUpdate = true; update();
+    }
     // All'avvio di un path: se l'orientamento corrente e' quello di default del
     // preset/avvio (l'utente non ha ruotato a mano), lo riporta a neutro; se invece
     // l'utente ha ruotato col mouse, lo conserva.
