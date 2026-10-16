@@ -1052,7 +1052,7 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
 
         if (!startPath.endsWith(".json", Qt::CaseInsensitive)) {
             if (!startPath.endsWith("/")) startPath += "/";
-            startPath += "NewSurface.json";
+            startPath += "NewShape.json";
         }
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
@@ -1889,7 +1889,7 @@ void PresetSerializer::saveSurfaceAs(const QString &startDir, const QString &sou
     if (!QDir(effStartDir).exists())
         QDir().mkpath(effStartDir);
 
-    QString defaultSelection = effStartDir + "/NewSurface.json";
+    QString defaultSelection = effStartDir + "/NewShape.json";
     if (!sourceFilePath.isEmpty()) defaultSelection = effStartDir + "/" + QFileInfo(sourceFilePath).fileName();
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
@@ -2148,7 +2148,7 @@ void PresetSerializer::saveMotionAs(const QString &startDir, const QString &sour
 // Qui NON si sa che cosa l'utente consideri il suo lavoro: puo' essere la
 // superficie, ma anche la texture, il suono o l'intera scena con rotazioni,
 // camera e path -- che vivono SOLO nel record. Per questo il dialogo non parte
-// dal ramo delle superfici con "NewSurface" gia' scritto (era un suggerimento
+// dal ramo delle superfici con "NewShape" gia' scritto (era un suggerimento
 // sbagliato: chi aveva lavorato su texture e rotazioni le perdeva comunque,
 // perche' il ramo surfaces non le salva), ma dalla RADICE dei preset e senza
 // nome di default: la scelta del ramo -- Surfaces, Textures, Sounds, Records --
@@ -2207,7 +2207,7 @@ bool PresetSerializer::saveUnsavedWorkInteractive()
         if (dialog.exec() != QDialog::Accepted) { resumeMotion(); return false; }
         savePath = dialog.getSelectedPath();
 #else
-        // Cartella di partenza SENZA nome preselezionato: niente "NewSurface".
+        // Cartella di partenza SENZA nome preselezionato: niente "NewShape".
         savePath = getSaveFileNameWithSuffix(m_mainWindow, "Save Work", root + "/",
                                              "JSON Files (*.json)", "json");
 #endif
