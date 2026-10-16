@@ -4505,6 +4505,23 @@ void ScenarioTest::runBorderScenarios()
         click(ui->radioSurface);
     }
 
+    // TORI DI HOPF interi: cuciture in u e in v, niente bordo. La griglia e'
+    // inclinata lungo la fibra (v entra come v + u) e il test delle celle,
+    // con una soglia legata alla diagonale, lasciava le cuciture col bordo.
+    // Immagine: border-hopf-tori.png.
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Multi Meshes/Hopf Tori.json"))) {
+        click(ui->radioBorder);
+        ui->borderThicknessSlider->setValue(0);  wait(600);
+        const QImage plain = gl->grabFramebuffer();
+        ui->borderThicknessSlider->setValue(40);  wait(800);
+        const QImage withBorder = gl->grabFramebuffer();
+        withBorder.save(m_outDir + QStringLiteral("/border-hopf-tori.png"));
+        const double eff = changed(plain, withBorder);
+        check(eff < 0.0005, QStringLiteral("Hopf Tori col bordo -> nessun bordo, i tori sono chiusi (%1 dei pixel)").arg(pct(eff)));
+        ui->borderThicknessSlider->setValue(0);  wait(300);
+        click(ui->radioSurface);
+    }
+
     // LATI COPERTI su superfici chiuse, niente bordo. Oloid: i lati v = +-1 si
     // ripiegano su se' stessi (stesso punto per w e -w) e i lati w = +-2pi/3
     // sono il segmento in diagonale; Wound Sphere: v = +-pi/2 avvolgono cinque

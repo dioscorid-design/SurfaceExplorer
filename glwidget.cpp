@@ -576,7 +576,7 @@ void GLWidget::setBorderEdges(const QVector<QVector<QVector4D>> &grid, const std
                     const float L = w.length();
                     if (L > tol) minCos = std::min(minCos, QVector4D::dotProduct(w, inward) / L);
                 }
-            if (minCos >= 0.995f) break;   // stesso foglio percorso due volte
+            if (minCos >= 0.5f) break;   // stesso foglio (o percorso due volte), come nel compute
             if (t == 2) covered = true;
         }
         info[4 + side] = covered ? 1.0f : 0.0f;
@@ -865,6 +865,22 @@ void main() {
     vec2 own = (side == 0) ? vec2(f, 0.0) : (side == 1) ? vec2(f, float(GRID))
              : (side == 2) ? vec2(0.0, f) : vec2(float(GRID), f);
 
+    // STESSO FOGLIO DEL PUNTO. Una cella della sua parte che passa per il punto
+    // non lo copre se ci si arriva restando sulla superficie vicino al punto:
+    // lungo la retta del dominio dal punto al centro della cella la superficie
+    // (dalla griglia, interpolata) non si allontana piu' di R. Un intorno
+    // fisso di celle non bastava: sulla Hyperbolic Saddle, verso il lato
+    // u = 8, tanh satura e la superficie e' schiacciata in diagonale nel
+    // dominio (verso l'interno in u e insieme lungo v si resta quasi fermi), e
+    // celle a qualche passo coprivano il lato. R e' anche tre volte il margine
+    // con cui una cella si accetta (tol + 0.06 della diagonale, la curvatura
+    // fra i nodi), misurato sulla cella del punto.
+    int ci0 = clamp(int(floor(own.x + 0.5)), 0, GRID - 1);
+    int cj0 = clamp(int(floor(own.y + 0.5)), 0, GRID - 1);
+    float diagP = max(length(samples.s[gridSlot(part, ci0 + 1, cj0 + 1)] - samples.s[gridSlot(part, ci0, cj0)]),
+                      length(samples.s[gridSlot(part, ci0 + 1, cj0)] - samples.s[gridSlot(part, ci0, cj0 + 1)]));
+    float R = max(20.0 * tol, 3.0 * (tol + 0.06 * diagP));
+
     // Polo: il lato e' (quasi) un punto.
     float len = 0.0;
     for (int k = 0; k < EDGE_SAMPLES; ++k)
@@ -880,8 +896,8 @@ void main() {
             int ti = tt / TILES, tj = tt % TILES;
             for (int ci = ti * TILE; ci < ti * TILE + TILE && !found; ++ci) {
                 for (int cj = tj * TILE; cj < tj * TILE + TILE && !found; ++cj) {
-                    if (j == part && abs(float(ci) + 0.5 - own.x) < 2.5 && abs(float(cj) + 0.5 - own.y) < 2.5)
-                        continue;
+                    float du = float(ci) + 0.5 - own.x, dv = float(cj) + 0.5 - own.y;
+                    if (j == part && abs(du) < 1.5 && abs(dv) < 1.5) continue;
                     vec4 x00 = samples.s[gridSlot(j, ci, cj)];
                     vec4 x10 = samples.s[gridSlot(j, ci + 1, cj)];
                     vec4 x01 = samples.s[gridSlot(j, ci, cj + 1)];
@@ -889,14 +905,47 @@ void main() {
                     float diag = max(length(x11 - x00), length(x10 - x01));
                     float dist = min(pointTriangle(P, x00, x10, x01), pointTriangle(P, x01, x10, x11));
                     if (dist >= tol + 0.06 * diag) continue;
-                    // Direzioni dei vertici della cella, abbastanza lontani
-                    // dal lato (non quelli lungo il lato stesso).
-                    for (int c = 0; c < 4 && !found; ++c) {
+                    if (j == part) {
+                        bool same = true;
+                        for (int q = 1; q <= 16 && same; ++q) {
+                            vec2 g = own + vec2(du, dv) * (float(q) / 16.0);
+                            int gi = clamp(int(floor(g.x)), 0, GRID - 1), gj = clamp(int(floor(g.y)), 0, GRID - 1);
+                            vec2 t = clamp(g - vec2(float(gi), float(gj)), 0.0, 1.0);
+                            vec4 x = mix(mix(samples.s[gridSlot(part, gi, gj)], samples.s[gridSlot(part, gi + 1, gj)], t.x),
+                                         mix(samples.s[gridSlot(part, gi, gj + 1)], samples.s[gridSlot(part, gi + 1, gj + 1)], t.x),
+                                         t.y);
+                            same = length(x - P) < R;
+                        }
+                        if (same) continue;
+                    }
+                    // Direzioni dei vertici della cella nel piano normale al
+                    // lato, tranne quelli che vi cadono quasi sopra (i vertici
+                    // lungo il lato stesso, dove la direzione e' rumore). La
+                    // soglia e' relativa al piu' lontano dei quattro, non alla
+                    // diagonale: nei tori di Hopf v entra come v + u, la cella
+                    // e' inclinata lungo la fibra e la sua parte normale al
+                    // lato e' piccola rispetto alla diagonale -- con un quarto
+                    // della diagonale si scartavano tutti e quattro e la
+                    // cucitura restava col bordo.
+                    // Il foglio deve partire ad almeno 60 gradi dalla direzione
+                    // verso l'interno: con una soglia stretta (0.995) bastava
+                    // la curvatura dell'orlo a far "coprire" il lato dalla riga
+                    // di celle subito dentro (le fasce strette dell'Octahedron
+                    // Bands, righe a 0.005: tutto il bordo spariva). Cuciture,
+                    // giunture e pieghe stanno ben oltre (coseno da -1 a -0.2),
+                    // i cinque lembi della Wound Sphere a 72 e 144 gradi.
+                    vec4 w4[4];
+                    float L4[4];
+                    float Lmax = 0.0;
+                    for (int c = 0; c < 4; ++c) {
                         vec4 w = ((c == 0) ? x00 : (c == 1) ? x10 : (c == 2) ? x01 : x11) - P;
                         w -= dot(w, T) * T;
-                        float L = length(w);
-                        found = L > 0.25 * diag + tol && dot(w, inward) < 0.995 * L;
+                        w4[c] = w;
+                        L4[c] = length(w);
+                        Lmax = max(Lmax, L4[c]);
                     }
+                    for (int c = 0; c < 4 && !found; ++c)
+                        found = L4[c] > max(0.25 * Lmax, tol) && dot(w4[c], inward) < 0.5 * L4[c];
                 }
             }
         }
