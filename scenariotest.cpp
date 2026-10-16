@@ -4505,6 +4505,58 @@ void ScenarioTest::runBorderScenarios()
         click(ui->radioSurface);
     }
 
+    // LATI COPERTI su superfici chiuse, niente bordo. Oloid: i lati v = +-1 si
+    // ripiegano su se' stessi (stesso punto per w e -w) e i lati w = +-2pi/3
+    // sono il segmento in diagonale; Wound Sphere: v = +-pi/2 avvolgono cinque
+    // volte lo stesso cerchio. Immagini: border-oloid.png,
+    // border-wound-sphere.png.
+    for (const auto &c : { std::pair<QString, QString>{ QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Oloid.json"),
+                                                        QStringLiteral("oloid") },
+                           std::pair<QString, QString>{ QStringLiteral("surfaces/Parametric/Surfaces/Equations/S3/Wound Sphere.json"),
+                                                        QStringLiteral("wound-sphere") } }) {
+        if (!loadSurface(c.first)) continue;
+        click(ui->radioBorder);
+        ui->borderThicknessSlider->setValue(0);  wait(600);
+        const QImage plain = gl->grabFramebuffer();
+        ui->borderThicknessSlider->setValue(40);  wait(600);
+        const QImage withBorder = gl->grabFramebuffer();
+        withBorder.save(m_outDir + QStringLiteral("/border-") + c.second + QStringLiteral(".png"));
+        const double eff = changed(plain, withBorder);
+        check(eff < 0.0005, QStringLiteral("%1 col bordo -> nessun bordo, la superficie e' chiusa (%2 dei pixel)")
+                                .arg(c.second, pct(eff)));
+        ui->borderThicknessSlider->setValue(0);  wait(300);
+        click(ui->radioSurface);
+    }
+
+    // FLUSSO GEODETICO: il test dei lati coperti lo fa la CPU sulla mesh
+    // disegnata (GLWidget::setBorderEdges, riga 8 texel 1 della texture dei
+    // lati). Plucker Conoid in H3: le ultime traiettorie ripercorrono le prime,
+    // i lati u stanno dentro la superficie e si vedevano come linee che la
+    // attraversano -> nascosti; il contorno (lati v) resta. Kruskal: si disegna
+    // la fascia delle traiettorie non congelate e il bordo, che seguiva la
+    // griglia intera, restava staccato -> lati v sull'orlo della fascia, lati u
+    // cuciti. Immagini: border-geodesic-plucker.png, border-geodesic-kruskal.png.
+    for (const auto &c : { std::pair<QString, QString>{ QStringLiteral("surfaces/Parametric/Surfaces/Geodesic Flows/H3/Plucker Conoid.json"),
+                                                        QStringLiteral("plucker") },
+                           std::pair<QString, QString>{ QStringLiteral("surfaces/Parametric/Surfaces/Geodesic Flows/Black Holes/Kruskal.json"),
+                                                        QStringLiteral("kruskal") } }) {
+        if (!loadSurface(c.first)) continue;
+        click(ui->radioBorder);
+        ui->borderThicknessSlider->setValue(40);  wait(800);
+        gl->grabFramebuffer().save(m_outDir + QStringLiteral("/border-geodesic-") + c.second + QStringLiteral(".png"));
+        QString flags = QStringLiteral("nessuna texture dei lati");
+        bool ok = false;
+        if (gl->m_borderEdgeWidth > 0) {
+            const float *info = gl->m_borderEdgeData.data() + size_t(8) * gl->m_borderEdgeWidth * 4;
+            flags = QStringLiteral("%1 %2 %3 %4").arg(info[4]).arg(info[5]).arg(info[6]).arg(info[7]);
+            ok = info[4] == 0.0f && info[5] == 0.0f && info[6] == 1.0f && info[7] == 1.0f;
+        }
+        check(ok, QStringLiteral("%1 geodetico col bordo -> lati v disegnati, lati u nascosti (coperti: %2)")
+                      .arg(c.second, flags));
+        ui->borderThicknessSlider->setValue(0);  wait(300);
+        click(ui->radioSurface);
+    }
+
     // Ray Marching: il bordo non esiste, il radio si spegne e il bersaglio
     // torna su Surface.
     if (loadSurface(kTorus)) {

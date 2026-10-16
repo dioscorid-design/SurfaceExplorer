@@ -1361,7 +1361,7 @@ private:
     int m_borderEdgeWidth = 0;
     bool m_borderEdgeDirty = false;
     void createBorderEdgeResources();
-    void setBorderEdges(const QVector<QVector<QVector4D>> &grid);
+    void setBorderEdges(const QVector<QVector<QVector4D>> &grid, const std::vector<char> &drawnQuad);
     // Il bordo si puo' disegnare sulla mesh corrente: sempre sulle superfici,
     // sulla mesh custom solo se c'e' la texture dei lati.
     bool borderSupported() const { return !m_isCustomMesh || m_borderEdgeTex; }
@@ -1369,40 +1369,48 @@ private:
     // la dummy.
     QRhiShaderResourceBinding borderEdgesBinding() const;
 
-    // LATI DEL BORDO IN COMUNE FRA MESH. Con piu' parti il bordo e' quello
-    // della figura intera: un lato che combacia con lati di altre parti (le
-    // giunture fra le patch del Calabi-Yau) non si disegna. La CPU non sa
-    // valutare gli script, e nel vertex ogni punto del bordo dovrebbe valutare
-    // tutte le altre parti: una passata compute a ogni frame, prima del
-    // disegno, prova per ogni lato di ogni parte tre punti contro i lati delle
-    // altre parti, nei due versi, e scrive in m_sharedEdgeTex un texel per
-    // punto (riga = parte,
-    // colonna = lato * 3 + punto); il vertex li legge (slot 4,
-    // borderEdgeShared in surface.vert). Come i tubi, il compute e' il vertex
-    // stesso ridotto a libreria, con `mesh` preso dalla tabella delle parti
-    // (m_sharedEdgeParts: dominio e indice di ciascuna). Si costruisce al
-    // primo frame che serve (bordo acceso, almeno due parti): una superficie a
-    // mesh singola non paga la compilazione. Senza compute la texture non
-    // esiste e i lati restano tutti, come prima.
+    // LATI DEL BORDO COPERTI. Un lato del dominio non e' un bordo se un'altra
+    // parte della superficie ci passa sopra e prosegue in un'altra direzione:
+    // le cuciture, le giunture fra le patch del Calabi-Yau, i lati che si
+    // ripiegano (Oloid) o che avvolgono piu' volte la stessa curva (Wound
+    // Sphere), i poli. La CPU non sa valutare gli script, e nel vertex ogni
+    // punto del bordo dovrebbe confrontarsi con tutti i lati: una passata
+    // compute in due tempi (buildSharedEdgePipeline) campiona i lati di ogni
+    // parte in m_sharedEdgeSamples, poi per ogni lato prova tre punti e
+    // scrive in m_sharedEdgeTex un texel per punto (riga = parte, colonna =
+    // lato * 3 + punto); il vertex li legge (slot 4, borderEdgeShared in
+    // surface.vert) e, finche' la passata e' attiva, non rifa' il suo test
+    // delle cuciture. Come i tubi, il compute e' il vertex stesso ridotto a
+    // libreria, con `mesh` dalla tabella delle parti (m_sharedEdgeParts:
+    // dominio e indice di ciascuna). Si costruisce al primo frame col bordo
+    // acceso e gira solo quando la geometria cambia (m_sharedEdgeKey: costanti,
+    // tempo, parti; le rotazioni no). Senza compute la texture non esiste e
+    // resta il test del vertex (cuciture diritte e ritorte, poli).
+    // Le mesh custom (flusso geodetico) fanno lo stesso test sulla CPU, sulla
+    // mesh disegnata: vedi setBorderEdges.
     static constexpr int kSharedEdgeMaxParts = 64;
+    static constexpr int kSharedEdgeSamples = 128;   // intervalli per lato (= EDGE_SAMPLES)
     QRhiTexture *m_sharedEdgeTex = nullptr;
     QRhiSampler *m_sharedEdgeSampler = nullptr;
     QRhiBuffer *m_sharedEdgeParts = nullptr;
+    QRhiBuffer *m_sharedEdgeSamples = nullptr;
     std::vector<QVector4D> m_sharedEdgeTable;   // l'ultima tabella caricata
+    QByteArray m_sharedEdgeKey;                 // la geometria dell'ultima passata
     QRhiShaderResourceBindings *m_sharedEdgeSrb = nullptr;
     QRhiComputePipeline *m_sharedEdgePipeline = nullptr;
     // Il vertex da cui costruire il compute (vuoto se non si puo': tubo, mesh
     // custom, bordo spento) e se va ancora costruito.
     QString m_sharedEdgeSource;
     bool m_sharedEdgeSourceDirty = false;
-    // Solo per gli scenari: spegne la passata, per confrontare con tutti i lati.
+    // Solo per gli scenari: spegne la passata, per confrontare col test del vertex.
     bool m_sharedEdgesOff = false;
     void createSharedEdgeResources();
     void buildSharedEdgePipeline();
     void releaseSharedEdgePipeline();
-    // La passata gira in questo frame: bordo, almeno due parti, pipeline pronta.
+    void setSharedEdgeBindings();
+    // La passata vale in questo frame: bordo, parametrico, pipeline pronta.
     bool sharedEdgesActive();
-    // Lo slot 4 di ogni binding della superficie: i lati in comune, o la dummy.
+    // Lo slot 4 di ogni binding della superficie: i lati coperti, o la dummy.
     QRhiShaderResourceBinding sharedEdgesBinding() const;
     // Il vertex ridotto a libreria per un compute: ingressi e uscite globali,
     // main rinominato in `mainName`, gl_Position sostituita da `position`.

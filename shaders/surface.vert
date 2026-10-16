@@ -764,18 +764,25 @@ bool borderEdgeHidden(vec2 along, float fixedCoord, float opposite, float alongS
     return straight || twisted || len < tol;
 }
 
-// LATI IN COMUNE CON UN'ALTRA MESH. In una figura fatta di piu' mesh che si
-// toccano (le patch del Calabi-Yau) il bordo e' quello della figura intera:
-// un lato che combacia con lati di altre mesh e' una giuntura, come una
-// cucitura, e non si disegna. Qui ogni vertice dovrebbe valutare tutte le
-// altre mesh; lo decide invece una volta per frame la passata compute dei lati
-// in comune (GLWidget::buildSharedEdgePipeline), che per ogni lato di ogni
-// parte prova tre punti e ne scrive un texel ciascuno: il lato e' in comune
-// se TUTTI e tre cadono su un lato di un'altra
-// mesh (anche mesh diverse per punti diversi: meta' lato di una patch del
-// Calabi-Yau combacia con una patch, l'altra meta' con un'altra).
+// LATI COPERTI. Un lato su cui passa un'altra parte della superficie, che
+// prosegue in un'altra direzione, non e' un bordo: le cuciture, le giunture
+// fra le mesh (le patch del Calabi-Yau), i lati che si ripiegano su se' stessi
+// (Oloid) o avvolgono piu' volte la stessa curva (Wound Sphere), i poli.
+// Qui ogni vertice dovrebbe confrontarsi con tutti i lati; lo decide invece
+// la passata compute dei lati coperti (GLWidget::buildSharedEdgePipeline),
+// che per ogni lato di ogni parte prova tre punti e ne scrive un texel
+// ciascuno: il lato non si disegna se lo sono TUTTI e tre (anche da parti
+// diverse: meta' lato di una patch del Calabi-Yau combacia con una patch,
+// l'altra meta' con un'altra). Sulla mesh custom lo stesso test lo fa la CPU
+// sulla mesh disegnata (GLWidget::setBorderEdges), riga 8 texel 1 dei lati.
 // Lati: 0 v = v_min, 1 v = v_max (lungo u), 2 u = u_min, 3 u = u_max (lungo v).
-#if !defined(TUBE_FRAME_COMPUTE) && !defined(SHARED_EDGE_COMPUTE)
+#if defined(TUBE_FRAME_COMPUTE) || defined(SHARED_EDGE_COMPUTE)
+bool borderEdgeShared(int side) { return false; }
+#elif defined(CUSTOM_MESH)
+bool borderEdgeShared(int side) {
+    return texelFetch(u_borderEdges, ivec2(1, 8), 0)[side] > 0.5;
+}
+#else
 layout(binding = 4) uniform sampler2D u_sharedEdges;
 
 bool borderEdgeShared(int side) {
@@ -785,9 +792,18 @@ bool borderEdgeShared(int side) {
         if (texelFetch(u_sharedEdges, ivec2(side * 3 + i, row), 0).x < 0.5) return false;
     return true;
 }
-#else
-bool borderEdgeShared(int side) { return false; }
 #endif
+
+// Il lato non si disegna. Con la passata dei lati coperti attiva decide solo
+// lei, che vede anche le cuciture: il test del vertex (nove punti della
+// superficie per vertice) resta per quando manca, e sulla mesh custom.
+bool borderSideHidden(int side, vec2 along, float fixedCoord, float opposite, float alongSum,
+                      float a0, float a1) {
+#if !defined(CUSTOM_MESH)
+    if (ubuf.u_sharedEdgesOn > 0.5) return borderEdgeShared(side);
+#endif
+    return borderEdgeShared(side) || borderEdgeHidden(along, fixedCoord, opposite, alongSum, a0, a1);
+}
 
 // Campioni fissi lungo un lato per il trasporto della sezione (emitBorderVertex).
 const int BORDER_FRAME_SAMPLES = 32;
@@ -852,12 +868,10 @@ void emitBorderCorner() {
     vec2 uv = vertex.xy;
     bool atUMin = abs(uv.x - ubuf.u_min) <= abs(uv.x - ubuf.u_max);
     bool atVMin = abs(uv.y - ubuf.v_min) <= abs(uv.y - ubuf.v_max);
-    bool hideAlongU = borderEdgeHidden(vec2(1.0, 0.0), uv.y, atVMin ? ubuf.v_max : ubuf.v_min,
-                                       ubuf.u_min + ubuf.u_max, ubuf.u_min, ubuf.u_max)
-                      || borderEdgeShared(atVMin ? 0 : 1);
-    bool hideAlongV = borderEdgeHidden(vec2(0.0, 1.0), uv.x, atUMin ? ubuf.u_max : ubuf.u_min,
-                                       ubuf.v_min + ubuf.v_max, ubuf.v_min, ubuf.v_max)
-                      || borderEdgeShared(atUMin ? 2 : 3);
+    bool hideAlongU = borderSideHidden(atVMin ? 0 : 1, vec2(1.0, 0.0), uv.y, atVMin ? ubuf.v_max : ubuf.v_min,
+                                       ubuf.u_min + ubuf.u_max, ubuf.u_min, ubuf.u_max);
+    bool hideAlongV = borderSideHidden(atUMin ? 2 : 3, vec2(0.0, 1.0), uv.x, atUMin ? ubuf.u_max : ubuf.u_min,
+                                       ubuf.v_min + ubuf.v_max, ubuf.v_min, ubuf.v_max);
     if (hideAlongU && hideAlongV) {
         emitBorderHidden();
         return;
@@ -889,12 +903,11 @@ void emitBorderVertex() {
     // LATO NASCOSTO: tutti i suoi vertici fuori dal volume di clip, cosi'
     // triangoli e linee si scartano interi. Un raggio zero non bastava: i
     // triangoli spariscono, ma in wireframe le linee lungo il tubo collassano
-    // sulla cucitura e si vedono (un tratteggio sul toro). Nascosti anche i
-    // lati in comune con un'altra mesh; normal.z e' il verso dell'interno, +1
-    // sui lati al minimo del dominio.
+    // sulla cucitura e si vedono (un tratteggio sul toro). Vale per ogni lato
+    // coperto (borderSideHidden); normal.z e' il verso dell'interno, +1 sui
+    // lati al minimo del dominio.
     int side = (along.x > 0.5) ? ((normal.z > 0.0) ? 0 : 1) : ((normal.z > 0.0) ? 2 : 3);
-    if (borderEdgeHidden(along, (along.x > 0.5) ? uv.y : uv.x, texCoord.x, texCoord.y, a0, a1)
-        || borderEdgeShared(side)) {
+    if (borderSideHidden(side, along, (along.x > 0.5) ? uv.y : uv.x, texCoord.x, texCoord.y, a0, a1)) {
         emitBorderHidden();
         return;
     }

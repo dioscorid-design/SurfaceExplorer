@@ -195,14 +195,9 @@ bool GLWidget::ensureUboCapacity(int partCount)
         });
         m_tubeFrameSrb->updateResources();
     }
-    // ...e quella dei lati del bordo in comune.
+    // ...e quella dei lati del bordo coperti.
     if (m_sharedEdgeSrb) {
-        m_sharedEdgeSrb->setBindings({
-            QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
-                0, QRhiShaderResourceBinding::ComputeStage, m_ubo, sizeof(UboData)),
-            QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeTex, 0),
-            QRhiShaderResourceBinding::bufferLoad(2, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeParts)
-        });
+        setSharedEdgeBindings();
         m_sharedEdgeSrb->updateResources();
     }
 
@@ -339,21 +334,130 @@ QRhiShaderResourceBinding GLWidget::borderEdgesBinding() const
         m_borderEdgeSampler ? m_borderEdgeSampler : m_sampler);
 }
 
+// Distanza di p dal triangolo abc (4D): proiezione sul piano del triangolo,
+// o il lato piu' vicino se cade fuori.
+static float pointTriangleDistance(const QVector4D &p, const QVector4D &a, const QVector4D &b, const QVector4D &c)
+{
+    const QVector4D e0 = b - a, e1 = c - a, v = p - a;
+    const float m00 = QVector4D::dotProduct(e0, e0), m01 = QVector4D::dotProduct(e0, e1);
+    const float m11 = QVector4D::dotProduct(e1, e1);
+    const float r0 = QVector4D::dotProduct(v, e0), r1 = QVector4D::dotProduct(v, e1);
+    const float det = m00 * m11 - m01 * m01;
+    if (std::abs(det) > 1e-30f) {
+        const float s = (r0 * m11 - r1 * m01) / det;
+        const float t = (r1 * m00 - r0 * m01) / det;
+        if (s >= 0.0f && t >= 0.0f && s + t <= 1.0f) return (a + s * e0 + t * e1 - p).length();
+    }
+    auto seg = [&p](const QVector4D &x, const QVector4D &y) {
+        const QVector4D d = y - x;
+        const float L = QVector4D::dotProduct(d, d);
+        const float u = (L < 1e-30f) ? 0.0f : std::clamp(QVector4D::dotProduct(p - x, d) / L, 0.0f, 1.0f);
+        return (x + u * d - p).length();
+    };
+    return std::min({ seg(a, b), seg(b, c), seg(c, a) });
+}
+
 // Righe: 0 lato v = vMin (lungo u), 1 la riga accanto; 2 lato v = vMax, 3 la
 // riga accanto; 4 lato u = uMin (lungo v), 5 la riga accanto; 6 lato u = uMax,
-// 7 la riga accanto; 8 texel 0 = (numU, numV). La sentinella del punto morto
-// (0,0,0,0 esatto, vedi sotto in setCustomMesh) non si disegna nemmeno qui:
-// prende il punto valido piu' vicino lungo la stessa riga, altrimenti il tubo
-// del bordo partirebbe verso l'origine.
-void GLWidget::setBorderEdges(const QVector<QVector<QVector4D>> &grid)
+// 7 la riga accanto; 8 texel 0 = (numU, numV), texel 1 = i lati coperti, uno
+// per canale (1 = non si disegna, borderEdgeShared in surface.vert).
+// I LATI SONO QUELLI DELLA MESH DISEGNATA, non della griglia: setCustomMesh
+// salta i quad con punti morti o congelati, e sul Kruskal (traiettorie ferme
+// all'inizio e alla fine: si disegna la fascia j = 37..66) il bordo seguiva
+// righe della griglia lontane dalla superficie. Per ogni traiettoria si
+// prende il primo e l'ultimo punto disegnato (j0, j1); le traiettorie senza
+// punti disegnati in testa e in coda si saltano (i0, i1). Un lato lungo u
+// (righe 0-3) va da i0 a i1 sui punti j0 o j1; un lato lungo v (righe 4-7) e'
+// la traiettoria i0 o i1, da j0 a j1. La sentinella del punto morto (0,0,0,0
+// esatto) prende comunque il punto valido piu' vicino della riga.
+// LATI COPERTI, come nella passata compute delle superfici
+// (buildSharedEdgePipeline) ma sulla mesh vera, che qui c'e': un lato non e'
+// un bordo se in ciascuno dei suoi tre punti di prova passa un altro foglio
+// della mesh, lontano dal punto lungo la superficie, che vi prosegue in
+// un'altra direzione (nel piano normale al lato). Sul Plucker Conoid le
+// ultime traiettorie ripercorrono le prime: i lati u = uMin e u = uMax stanno
+// DENTRO la superficie e si vedevano come linee che la attraversano. Le
+// cuciture valgono lo stesso. Resta un bordo il lato percorso due volte
+// dallo stesso foglio: le direzioni coincidono.
+// "Lontano lungo la superficie": i punti della griglia raggiungibili dal
+// punto di prova restando entro R non contano. Un intorno in indici non
+// basta: al bordo del Plucker in H3 le geodetiche rallentano (passi di 2e-5)
+// e il punto stesso, qualche passo piu' in la', sembrava un altro foglio.
+void GLWidget::setBorderEdges(const QVector<QVector<QVector4D>> &grid, const std::vector<char> &drawnQuad)
 {
     const int numU = grid.size() - 1;
     const int numV = grid.isEmpty() ? -1 : grid[0].size() - 1;
-    if (numU < 1 || numV < 1 || numU >= kBorderEdgeMaxSamples || numV >= kBorderEdgeMaxSamples) {
+    if (numU < 1 || numV < 1 || numU >= kBorderEdgeMaxSamples || numV >= kBorderEdgeMaxSamples
+        || drawnQuad.size() != size_t(numU) * size_t(numV)) {
         m_borderEdgeData.clear();
         m_borderEdgeWidth = 0;
         return;
     }
+    auto at = [numV](int i, int j) { return size_t(i) * size_t(numV + 1) + size_t(j); };
+    auto quadDrawn = [&](int i, int j) {
+        return i >= 0 && i < numU && j >= 0 && j < numV && drawnQuad[size_t(i) * numV + j] != 0;
+    };
+    std::vector<char> drawn(size_t(numU + 1) * (numV + 1), 0);
+    for (int i = 0; i < numU; ++i)
+        for (int j = 0; j < numV; ++j)
+            if (quadDrawn(i, j))
+                drawn[at(i, j)] = drawn[at(i + 1, j)] = drawn[at(i, j + 1)] = drawn[at(i + 1, j + 1)] = 1;
+
+    std::vector<int> j0(numU + 1, -1), j1(numU + 1, -1);
+    for (int i = 0; i <= numU; ++i)
+        for (int j = 0; j <= numV; ++j)
+            if (drawn[at(i, j)]) {
+                if (j0[i] < 0) j0[i] = j;
+                j1[i] = j;
+            }
+    int i0 = 0, i1 = numU;
+    while (i0 <= numU && j0[i0] < 0) ++i0;
+    while (i1 >= 0 && j0[i1] < 0) --i1;
+    if (i0 > i1) {
+        m_borderEdgeData.clear();
+        m_borderEdgeWidth = 0;
+        return;
+    }
+    // Traiettorie senza punti disegnati fra i0 e i1: quelle della vicina.
+    for (int i = i0; i <= i1; ++i) {
+        if (j0[i] >= 0) continue;
+        int k = i - 1;
+        while (k > i0 && j0[k] < 0) --k;
+        j0[i] = j0[k];
+        j1[i] = j1[k];
+    }
+
+    // Punto del lato `side` al texel k, `depth` passi verso l'interno.
+    auto lerp = [](const QVector4D &a, const QVector4D &b, float t) { return a + (b - a) * t; };
+    auto alongTrajectory = [&](int i, float jf) {
+        const int j = std::clamp(int(std::floor(jf)), 0, numV);
+        const int jn = std::min(j + 1, numV);
+        return lerp(grid[i][j], grid[i][jn], jf - float(j));
+    };
+    auto sidePoint = [&](int side, int k, int depth) -> QVector4D {
+        if (side < 2) {
+            const float x = float(i0) + float(i1 - i0) * float(k) / float(numU);
+            const int i = std::clamp(int(std::floor(x)), i0, i1);
+            const int in = std::min(i + 1, i1);
+            auto pt = [&](int t) {
+                const int j = (side == 0) ? std::min(j0[t] + depth, j1[t]) : std::max(j1[t] - depth, j0[t]);
+                return grid[t][j];
+            };
+            return lerp(pt(i), pt(in), x - float(i));
+        }
+        const int t = (side == 2) ? std::min(i0 + depth, i1) : std::max(i1 - depth, i0);
+        return alongTrajectory(t, float(j0[t]) + float(j1[t] - j0[t]) * float(k) / float(numV));
+    };
+    // Nodo della griglia piu' vicino al texel k del lato.
+    auto sideNode = [&](int side, int k) -> std::pair<int, int> {
+        if (side < 2) {
+            const int i = std::clamp(int(std::lround(float(i0) + float(i1 - i0) * float(k) / float(numU))), i0, i1);
+            return { i, (side == 0) ? j0[i] : j1[i] };
+        }
+        const int t = (side == 2) ? i0 : i1;
+        return { t, std::clamp(int(std::lround(float(j0[t]) + float(j1[t] - j0[t]) * float(k) / float(numV))), 0, numV) };
+    };
+
     const int width = std::max(numU, numV) + 1;
     m_borderEdgeWidth = width;
     m_borderEdgeData.assign(size_t(width) * kBorderEdgeRows * 4, 0.0f);
@@ -376,17 +480,107 @@ void GLWidget::setBorderEdges(const QVector<QVector<QVector4D>> &grid)
             out[k * 4 + 3] = pts[k].w();
         }
     };
-    fillRow(0, numU + 1, [&](int i) { return grid[i][0]; });
-    fillRow(1, numU + 1, [&](int i) { return grid[i][1]; });
-    fillRow(2, numU + 1, [&](int i) { return grid[i][numV]; });
-    fillRow(3, numU + 1, [&](int i) { return grid[i][numV - 1]; });
-    fillRow(4, numV + 1, [&](int j) { return grid[0][j]; });
-    fillRow(5, numV + 1, [&](int j) { return grid[1][j]; });
-    fillRow(6, numV + 1, [&](int j) { return grid[numU][j]; });
-    fillRow(7, numV + 1, [&](int j) { return grid[numU - 1][j]; });
+    for (int side = 0; side < 4; ++side) {
+        const int count = (side < 2 ? numU : numV) + 1;
+        fillRow(2 * side, count, [&](int k) { return sidePoint(side, k, 0); });
+        fillRow(2 * side + 1, count, [&](int k) { return sidePoint(side, k, 1); });
+    }
     float *info = m_borderEdgeData.data() + size_t(8) * width * 4;
     info[0] = float(numU);
     info[1] = float(numV);
+
+    // --- Lati coperti ---
+    float scale = 1.0f;
+    for (int i = 0; i <= numU; ++i)
+        for (int j = 0; j <= numV; ++j)
+            if (drawn[at(i, j)]) {
+                const QVector4D &q = grid[i][j];
+                scale = std::max({ scale, std::abs(q.x()), std::abs(q.y()), std::abs(q.z()) });
+            }
+    const float tol = 1e-3f * scale;
+    const float reach = 20.0f * tol;
+    const size_t nodes = size_t(numU + 1) * (numV + 1);
+    // Candidati a passo `stride` (circa 20000), poi i quad attorno ai migliori.
+    const int stride = std::max(1, int(std::sqrt(double(nodes) / 20000.0)));
+    std::vector<int> ownStamp(nodes, -1);
+    int stamp = 0;
+    static const float kTestAt[3] = { 0.1834f, 0.3912f, 0.8259f };
+    for (int side = 0; side < 4; ++side) {
+        const int n = side < 2 ? numU : numV;
+        float len = 0.0f;
+        for (int k = 0; k < n; ++k) len += (sidePoint(side, k + 1, 0) - sidePoint(side, k, 0)).length();
+        bool covered = len < tol;   // polo
+        for (int t = 0; t < 3 && !covered; ++t) {
+            ++stamp;   // ogni punto di prova ha il suo intorno
+            const int k = std::clamp(int(std::lround(kTestAt[t] * n)), 0, n);
+            const QVector4D P = sidePoint(side, k, 0);
+            QVector4D T = sidePoint(side, std::min(k + 1, n), 0) - sidePoint(side, std::max(k - 1, 0), 0);
+            if (T.lengthSquared() > 1e-30f) T.normalize();
+            // Verso l'interno: il primo punto oltre R sulla stessa riga di nodi.
+            QVector4D inward;
+            for (int depth = 1; depth <= 64; ++depth) {
+                inward = sidePoint(side, k, depth) - P;
+                if (inward.length() > reach) break;
+            }
+            inward -= QVector4D::dotProduct(inward, T) * T;
+            if (inward.lengthSquared() > 1e-30f) inward.normalize();
+            // Intorno del punto lungo la superficie (al piu' 50000 nodi).
+            const auto [ni, nj] = sideNode(side, k);
+            std::vector<std::pair<int, int>> queue{ { ni, nj } };
+            ownStamp[at(ni, nj)] = stamp;
+            for (size_t q = 0; q < queue.size() && queue.size() < 50000; ++q) {
+                const auto [a, b] = queue[q];
+                const int na[4] = { a + 1, a - 1, a, a };
+                const int nb[4] = { b, b, b + 1, b - 1 };
+                for (int d = 0; d < 4; ++d) {
+                    if (na[d] < 0 || na[d] > numU || nb[d] < 0 || nb[d] > numV) continue;
+                    if (ownStamp[at(na[d], nb[d])] == stamp) continue;
+                    if ((grid[na[d]][nb[d]] - P).length() >= reach) continue;
+                    ownStamp[at(na[d], nb[d])] = stamp;
+                    queue.push_back({ na[d], nb[d] });
+                }
+            }
+            auto own = [&](int i, int j) { return ownStamp[at(i, j)] == stamp; };
+            // I nodi piu' vicini fuori dall'intorno.
+            std::vector<std::pair<float, int>> best;
+            for (int i = 0; i <= numU; i += stride)
+                for (int j = 0; j <= numV; j += stride) {
+                    if (!drawn[at(i, j)] || own(i, j)) continue;
+                    best.push_back({ (grid[i][j] - P).lengthSquared(), int(at(i, j)) });
+                }
+            const size_t keep = std::min<size_t>(8, best.size());
+            std::partial_sort(best.begin(), best.begin() + keep, best.end());
+            float bestDist = 1e30f;
+            int bi = -1, bj = -1;
+            for (size_t c = 0; c < keep; ++c) {
+                const int ci = best[c].second / (numV + 1), cj = best[c].second % (numV + 1);
+                for (int qi = ci - stride; qi < ci + stride; ++qi)
+                    for (int qj = cj - stride; qj < cj + stride; ++qj) {
+                        if (!quadDrawn(qi, qj)) continue;
+                        if (own(qi, qj) || own(qi + 1, qj) || own(qi, qj + 1) || own(qi + 1, qj + 1)) continue;
+                        const QVector4D &p0 = grid[qi][qj], &p1 = grid[qi + 1][qj];
+                        const QVector4D &p2 = grid[qi][qj + 1], &p3 = grid[qi + 1][qj + 1];
+                        const float d = std::min(pointTriangleDistance(P, p0, p1, p2),
+                                                 pointTriangleDistance(P, p2, p1, p3));
+                        if (d < bestDist) { bestDist = d; bi = qi; bj = qj; }
+                    }
+            }
+            if (bestDist >= tol) break;   // un punto scoperto: e' un bordo
+            // Il foglio che copre parte in un'altra direzione?
+            float minCos = 2.0f;
+            for (int i = std::max(0, bi - 3); i <= std::min(numU, bi + 4); ++i)
+                for (int j = std::max(0, bj - 3); j <= std::min(numV, bj + 4); ++j) {
+                    if (!drawn[at(i, j)] || own(i, j)) continue;
+                    QVector4D w = grid[i][j] - P;
+                    w -= QVector4D::dotProduct(w, T) * T;
+                    const float L = w.length();
+                    if (L > tol) minCos = std::min(minCos, QVector4D::dotProduct(w, inward) / L);
+                }
+            if (minCos >= 0.995f) break;   // stesso foglio percorso due volte
+            if (t == 2) covered = true;
+        }
+        info[4 + side] = covered ? 1.0f : 0.0f;
+    }
     m_borderEdgeDirty = true;
 }
 
@@ -408,7 +602,7 @@ QString GLWidget::vertexAsComputeLibrary(const QString &vertexSource, const QStr
 }
 
 // ==========================================================
-// LATI DEL BORDO IN COMUNE FRA MESH (vedi glwidget.h e borderEdgeShared in surface.vert)
+// LATI DEL BORDO COPERTI (vedi glwidget.h e borderEdgeShared in surface.vert)
 // ==========================================================
 
 void GLWidget::createSharedEdgeResources()
@@ -430,14 +624,20 @@ void GLWidget::createSharedEdgeResources()
     // In testa (numero di parti, 0, 0, 0), poi due vec4 per parte.
     m_sharedEdgeParts = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer,
                                          quint32(1 + 2 * kSharedEdgeMaxParts) * 16u);
-    if (!m_sharedEdgeParts->create()) {
+    // Per parte, lato e campione: il punto e il punto appena dentro (2 vec4).
+    m_sharedEdgeSamples = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer,
+                                           quint32(kSharedEdgeMaxParts * 4 * (kSharedEdgeSamples + 1) * 2) * 16u);
+    if (!m_sharedEdgeParts->create() || !m_sharedEdgeSamples->create()) {
         delete m_sharedEdgeParts;
         m_sharedEdgeParts = nullptr;
+        delete m_sharedEdgeSamples;
+        m_sharedEdgeSamples = nullptr;
         m_sharedEdgeTex->destroy();
         delete m_sharedEdgeTex;
         m_sharedEdgeTex = nullptr;
     }
     m_sharedEdgeTable.clear();
+    m_sharedEdgeKey.clear();
 }
 
 QRhiShaderResourceBinding GLWidget::sharedEdgesBinding() const
@@ -448,19 +648,31 @@ QRhiShaderResourceBinding GLWidget::sharedEdgesBinding() const
         m_sharedEdgeSampler ? m_sharedEdgeSampler : m_sampler);
 }
 
+void GLWidget::setSharedEdgeBindings()
+{
+    m_sharedEdgeSrb->setBindings({
+        QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
+            0, QRhiShaderResourceBinding::ComputeStage, m_ubo, sizeof(UboData)),
+        QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeTex, 0),
+        QRhiShaderResourceBinding::bufferLoad(2, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeParts),
+        QRhiShaderResourceBinding::bufferLoadStore(3, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeSamples)
+    });
+}
+
 void GLWidget::releaseSharedEdgePipeline()
 {
     if (m_sharedEdgePipeline) { m_sharedEdgePipeline->destroy(); delete m_sharedEdgePipeline; m_sharedEdgePipeline = nullptr; }
     if (m_sharedEdgeSrb) { m_sharedEdgeSrb->destroy(); delete m_sharedEdgeSrb; m_sharedEdgeSrb = nullptr; }
+    m_sharedEdgeKey.clear();
 }
 
 bool GLWidget::sharedEdgesActive()
 {
-    if (m_sharedEdgesOff || !m_sharedEdgeTex || !m_sharedEdgeParts || !engine || m_engineMode != ModeParametric
-        || m_borderRadius <= 0.0f || m_isCustomMesh || engine->isTubeModeActive())
+    if (m_sharedEdgesOff || !m_sharedEdgeTex || !m_sharedEdgeParts || !m_sharedEdgeSamples || !engine
+        || m_engineMode != ModeParametric || m_borderRadius <= 0.0f || m_isCustomMesh || engine->isTubeModeActive())
         return false;
     const int parts = (int)engine->getMeshParts().size();
-    if (parts < 2 || parts > kSharedEdgeMaxParts) return false;
+    if (parts < 1 || parts > kSharedEdgeMaxParts) return false;
     if (m_sharedEdgeSourceDirty) buildSharedEdgePipeline();
     return m_sharedEdgePipeline && m_sharedEdgeSrb;
 }
@@ -469,25 +681,43 @@ bool GLWidget::sharedEdgesActive()
 // tubi: la superficie, i suoi vincoli e lo script sono gli stessi del disegno.
 // L'indice `mesh` dello script non viene dal blocco UBO (il compute ne vede
 // uno solo) ma dalla tabella delle parti: cosi' una sola invocazione valuta
-// tutte le mesh.
-// Il confronto e' fra punti NON ruotati: le rotazioni 4D conservano le
-// distanze, e il risultato e' lo stesso del vertex.
-// Per ogni punto di prova del lato si cerca, su ciascun lato di ciascuna ALTRA
-// parte, il punto alla stessa frazione o a quella opposta (lato percorso al
-// contrario: nel Calabi-Yau il lato u = 0 di una patch combacia con quello di
-// un'altra con v rovesciato). Le cuciture di una parte con se stessa restano a
-// borderEdgeHidden.
+// qualunque mesh. Punti NON ruotati: le rotazioni 4D conservano le distanze
+// e gli angoli, il risultato non dipende dalla posa (e si riusa finche' la
+// geometria non cambia, m_sharedEdgeKey).
+//
+// UN LATO NON E' UN BORDO se in ciascuno dei suoi tre punti di prova passa
+// un ALTRO lato -- della stessa parte o di un'altra, anche il lato stesso
+// piu' in la' -- il cui foglio parte in una direzione DIVERSA dal proprio,
+// confrontando le due direzioni verso l'interno nel piano normale al lato.
+// Cosi' si riconoscono con un test solo:
+//  - le cuciture diritte e ritorte (toro, Moebius) e i lati in comune fra
+//    mesh (Calabi-Yau): l'altro foglio prosegue dall'altra parte;
+//  - i lati che si ripiegano su se' stessi (Oloid: v = 1 vale per w e per
+//    -w) e quelli che avvolgono piu' volte la stessa curva (Wound Sphere:
+//    v = pi/2 gira cinque volte su un cerchio, dove si incontrano cinque
+//    lembi): i fogli partono con un angolo, anche stretto (gli archi
+//    dell'Oloid sono uno spigolo vivo di 30 gradi);
+//  - i poli: il lato e' lungo meno della tolleranza.
+// Resta un bordo il lato percorso due volte dallo STESSO foglio (una
+// superficie rivestita due volte): le due direzioni coincidono.
+// Due passate. Nella prima (blocco di una parte, u_isBorder = 0) ogni lato
+// si campiona in kSharedEdgeSamples intervalli, col punto appena dentro;
+// nella seconda (blocco del bordo, u_isBorder = 1) i punti di prova si
+// confrontano con i campioni di tutti i lati, senza piu' valutare la
+// superficie: una sola chiamata allo script in tutto il compute (Mali la
+// ricopia per ogni punto di chiamata).
 // I punti di prova NON stanno a frazioni tonde (1/2, 1/3...): sui domini
 // simmetrici e' li' che cadono i punti singolari. Nel Calabi-Yau il mezzo del
 // lato u = pi/2 e' v = 0, dove z1 = 0 e si toccano tutte le patch: cos(pi/2)
 // in float vale -4e-8 e la potenza 2/n lo gonfiava a 1.3e-3, oltre la
-// tolleranza -- con n = 5 quei lati restavano disegnati. A 0.4712 lo scarto
-// torna 3e-7 (misurato in float32).
+// tolleranza. E non vicini al mezzo: il riflesso di un lato ripiegato
+// cadrebbe nell'intorno escluso del punto stesso.
 void GLWidget::buildSharedEdgePipeline()
 {
     m_sharedEdgeSourceDirty = false;
     releaseSharedEdgePipeline();
-    if (m_sharedEdgeSource.isEmpty() || !m_sharedEdgeTex || !m_sharedEdgeParts || !m_ubo) return;
+    if (m_sharedEdgeSource.isEmpty() || !m_sharedEdgeTex || !m_sharedEdgeParts || !m_sharedEdgeSamples || !m_ubo)
+        return;
 
     QString src = vertexAsComputeLibrary(m_sharedEdgeSource, QStringLiteral("SHARED_EDGE_COMPUTE"),
                                          QStringLiteral("surfaceVertexMain"), QStringLiteral("g_sharedEdgePosition"));
@@ -501,72 +731,112 @@ layout(rgba8, binding = 1) writeonly uniform image2D u_sharedOut;
 // In testa (numero di parti, 0, 0, 0); per parte (u_min, u_max, v_min, v_max)
 // e (indice della mesh, 0, 0, 0).
 layout(std430, binding = 2) readonly buffer SharedEdgeParts { vec4 p[]; } parts;
+// Per parte, lato e campione: il punto e il punto appena dentro.
+layout(std430, binding = 3) buffer SharedEdgeSamples { vec4 s[]; } samples;
 
-// Punto del lato `side` della parte `part` alla frazione f lungo il lato.
-vec4 sharedEdgePoint(int part, int side, float f) {
-    vec4 d = parts.p[1 + 2 * part];
-    g_sharedEdgeMesh = parts.p[2 + 2 * part].x;
-    float u = (side < 2) ? mix(d.x, d.y, f) : ((side == 2) ? d.x : d.y);
-    float v = (side < 2) ? ((side == 0) ? d.z : d.w) : mix(d.z, d.w, f);
-    return getRawPositionAuto(u, v);
-}
+const int EDGE_SAMPLES = %1;
+// Passo verso l'interno, in frazione del dominio.
+const float EDGE_INWARD = 0.002;
+// Frazioni del lato dei tre punti di prova (vedi buildSharedEdgePipeline).
+const float SHARED_EDGE_AT[3] = float[3](0.1834, 0.3912, 0.8259);
 
-// Frazioni del lato dei tre punti di prova: lontane da quelle tonde (vedi
-// buildSharedEdgePipeline).
-const float SHARED_EDGE_AT[3] = float[3](0.1834, 0.4712, 0.8259);
+int edgeSlot(int part, int side, int m) { return ((part * 4 + side) * (EDGE_SAMPLES + 1) + m) * 2; }
 
-// Un'invocazione per punto di prova: parte, lato (0 v = v_min, 1 v = v_max,
-// 2 u = u_min, 3 u = u_max) e punto. Una sola chiamata alla superficie nel
-// ciclo (Mali la ricopia per ogni punto di chiamata): c = -1 e' il punto stesso,
-// poi per ogni altra parte i suoi quattro lati nei due versi. Tolleranza in
-// proporzione alla distanza dall'origine: l'errore del float cresce con lei.
 void main() {
     int count = int(parts.p[0].x + 0.5);
     int id = int(gl_GlobalInvocationID.x);
+
+    if (ubuf.u_isBorder == 0) {
+        // PRIMA PASSATA: un campione del lato (0 v = v_min, 1 v = v_max,
+        // 2 u = u_min, 3 u = u_max) per invocazione, col punto appena dentro.
+        int part = id / (4 * (EDGE_SAMPLES + 1));
+        if (part >= count) return;
+        int side = (id / (EDGE_SAMPLES + 1)) % 4;
+        int m = id % (EDGE_SAMPLES + 1);
+        float f = float(m) / float(EDGE_SAMPLES);
+        vec4 d = parts.p[1 + 2 * part];
+        g_sharedEdgeMesh = parts.p[2 + 2 * part].x;
+        for (int c = 0; c < 2; ++c) {
+            float in_ = (c == 0) ? 0.0 : EDGE_INWARD;
+            float u = (side < 2) ? mix(d.x, d.y, f) : ((side == 2) ? mix(d.x, d.y, in_) : mix(d.y, d.x, in_));
+            float v = (side < 2) ? ((side == 0) ? mix(d.z, d.w, in_) : mix(d.w, d.z, in_)) : mix(d.z, d.w, f);
+            samples.s[edgeSlot(part, side, m) + c] = getRawPositionAuto(u, v);
+        }
+        return;
+    }
+
+    // SECONDA PASSATA: un punto di prova per invocazione.
     int part = id / 12;
     int side = (id / 3) % 4;
     int k = id % 3;
     if (part >= count) return;
-    float f = SHARED_EDGE_AT[k];
-    vec4 P = vec4(0.0);
-    float tol = 1.0e-3;
-    bool found = false;
-    for (int c = -1; c < count * 8 && !found; ++c) {
-        int j = (c < 0) ? part : c / 8;
-        if (c >= 0 && j == part) continue;
-        int s = (c < 0) ? side : (c / 2) % 4;
-        float g = (c >= 0 && (c % 2) == 1) ? 1.0 - f : f;
-        vec4 Q = sharedEdgePoint(j, s, g);
-        if (c < 0) {
-            P = Q;
-            tol = 1.0e-3 * max(1.0, length(P));
-        } else {
-            found = length(Q - P) < tol;
+    int mk = int(floor(SHARED_EDGE_AT[k] * float(EDGE_SAMPLES) + 0.5));
+    vec4 P = samples.s[edgeSlot(part, side, mk)];
+    vec4 T = samples.s[edgeSlot(part, side, min(mk + 1, EDGE_SAMPLES))]
+           - samples.s[edgeSlot(part, side, max(mk - 1, 0))];
+    T = (dot(T, T) > 1.0e-30) ? normalize(T) : vec4(0.0);
+    vec4 inward = samples.s[edgeSlot(part, side, mk) + 1] - P;
+    inward -= dot(inward, T) * T;
+    inward = (dot(inward, inward) > 1.0e-30) ? normalize(inward) : vec4(0.0);
+    // Tolleranza in proporzione alla distanza dall'origine: l'errore del
+    // float cresce con lei.
+    float tol = 1.0e-3 * max(1.0, length(P));
+
+    // Polo: il lato e' (quasi) un punto.
+    float len = 0.0;
+    for (int m = 0; m < EDGE_SAMPLES; ++m)
+        len += length(samples.s[edgeSlot(part, side, m + 1)] - samples.s[edgeSlot(part, side, m)]);
+    bool found = len < tol;
+
+    // Intorno escluso del punto stesso sul suo lato, in campioni.
+    const int OWN = EDGE_SAMPLES / 20 + 1;
+    for (int j = 0; j < count && !found; ++j) {
+        for (int s = 0; s < 4 && !found; ++s) {
+            vec4 a = samples.s[edgeSlot(j, s, 0)];
+            vec4 ia = samples.s[edgeSlot(j, s, 0) + 1] - a;
+            vec4 prev = a;
+            for (int m = 0; m < EDGE_SAMPLES && !found; ++m) {
+                vec4 b = samples.s[edgeSlot(j, s, m + 1)];
+                vec4 ib = samples.s[edgeSlot(j, s, m + 1) + 1] - b;
+                if (!(j == part && s == side && abs(m - mk) <= OWN)) {
+                    vec4 ab = b - a;
+                    float L2 = dot(ab, ab);
+                    float t = (L2 > 1.0e-30) ? clamp(dot(P - a, ab) / L2, 0.0, 1.0) : 0.0;
+                    // Il punto sta sul lato vero, che fra due campioni si
+                    // scosta dalla corda di circa L * angolo / 8.
+                    vec4 ba = a - prev;
+                    float turn = (L2 > 1.0e-30 && dot(ba, ba) > 1.0e-30)
+                               ? sqrt(max(0.0, 2.0 * (1.0 - dot(normalize(ab), normalize(ba))))) : 0.0;
+                    if (length(a + t * ab - P) < tol + 0.125 * sqrt(L2) * min(turn, 1.0)) {
+                        vec4 w = mix(ia, ib, t);
+                        w -= dot(w, T) * T;
+                        found = dot(w, w) > 1.0e-30 && dot(normalize(w), inward) < 0.995;
+                    }
+                }
+                prev = a;
+                a = b;
+                ia = ib;
+            }
         }
     }
     int row = int(parts.p[2 + 2 * part].x + 0.5);
     imageStore(u_sharedOut, ivec2(side * 3 + k, row), vec4(found ? 1.0 : 0.0));
 }
-)");
+)").arg(kSharedEdgeSamples);
 
     QShader shader;
     QString error;
     if (!TubeCurveSampler::bakeCompute(src, &shader, &error)) {
-        qWarning() << "Bordo: passata dei lati in comune non compilata, restano tutti i lati:" << error;
+        qWarning() << "Bordo: passata dei lati coperti non compilata, resta il test del vertex:" << error;
         return;
     }
     m_sharedEdgeSrb = rhi()->newShaderResourceBindings();
-    m_sharedEdgeSrb->setBindings({
-        QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
-            0, QRhiShaderResourceBinding::ComputeStage, m_ubo, sizeof(UboData)),
-        QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeTex, 0),
-        QRhiShaderResourceBinding::bufferLoad(2, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeParts)
-    });
+    setSharedEdgeBindings();
     m_sharedEdgePipeline = rhi()->newComputePipeline();
     m_sharedEdgePipeline->setShaderResourceBindings(m_sharedEdgeSrb);
     m_sharedEdgePipeline->setShaderStage(QRhiShaderStage(QRhiShaderStage::Compute, shader));
     if (!m_sharedEdgeSrb->create() || !m_sharedEdgePipeline->create()) {
-        qWarning() << "Bordo: pipeline dei lati in comune non creata, restano tutti i lati.";
+        qWarning() << "Bordo: pipeline dei lati coperti non creata, resta il test del vertex.";
         releaseSharedEdgePipeline();
     }
 }
@@ -2020,10 +2290,11 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             cb->endComputePass();
         }
 
-        // LATI DEL BORDO IN COMUNE: anche questa prima del disegno, a ogni
-        // frame (la geometria puo' cambiare col tempo e con le costanti), col
-        // blocco 0 per costanti, tempo e vincoli; dominio e `mesh` di ogni
-        // parte dalla tabella, ricaricata solo quando cambia.
+        // LATI DEL BORDO COPERTI (buildSharedEdgePipeline): prima del disegno,
+        // col blocco 0 per costanti, tempo e vincoli; dominio e `mesh` di ogni
+        // parte dalla tabella, ricaricata solo quando cambia. Le due passate
+        // girano solo quando cambia la geometria (m_sharedEdgeKey): le
+        // rotazioni non contano, il compute confronta punti non ruotati.
         // Si decide QUI, dopo buildPipeline, e qui si accende u_sharedEdgesOn
         // nei blocchi del bordo (scritti piu' in alto con 0): la passata nasce
         // dal vertex della pipeline, che dopo un rebuildShader si rifa' solo
@@ -2052,13 +2323,35 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                                                     table.data());
                 m_sharedEdgeTable = table;
             }
-            cb->beginComputePass(resourceUpdates);
-            resourceUpdates = nullptr;
-            cb->setComputePipeline(m_sharedEdgePipeline);
-            const QRhiCommandBuffer::DynamicOffset ofs(0, 0);
-            cb->setShaderResources(m_sharedEdgeSrb, 1, &ofs);
-            cb->dispatch((int(edgeParts.size()) * 12 + 63) / 64, 1, 1);
-            cb->endComputePass();
+            // Cio' da cui dipendono i punti dei lati, oltre allo shader (che
+            // azzera la chiave quando si rifa').
+            QByteArray key(reinterpret_cast<const char *>(table.data()), int(table.size() * sizeof(QVector4D)));
+            key.append(reinterpret_cast<const char *>(&m_uboData.mathParams), sizeof(QVector4D));
+            key.append(reinterpret_cast<const char *>(&m_uboData.mathParams2), sizeof(QVector4D));
+            key.append(reinterpret_cast<const char *>(&m_uboData.time), sizeof(float));
+            key.append(reinterpret_cast<const char *>(&m_uboData.hasExplicitW), sizeof(int));
+            key.append(reinterpret_cast<const char *>(&m_uboData.u_meshCount), sizeof(float));
+            if (key != m_sharedEdgeKey) {
+                m_sharedEdgeKey = key;
+                // Prima i campioni dei lati (blocco di una parte, u_isBorder
+                // = 0), poi i punti di prova (blocco del bordo, u_isBorder = 1).
+                // Due passate distinte: la seconda legge cio' che la prima scrive.
+                const int count = int(edgeParts.size());
+                const int sampleCount = count * 4 * (kSharedEdgeSamples + 1);
+                cb->beginComputePass(resourceUpdates);
+                resourceUpdates = nullptr;
+                cb->setComputePipeline(m_sharedEdgePipeline);
+                const QRhiCommandBuffer::DynamicOffset sampleOfs(0, 0);
+                cb->setShaderResources(m_sharedEdgeSrb, 1, &sampleOfs);
+                cb->dispatch((sampleCount + 63) / 64, 1, 1);
+                cb->endComputePass();
+                cb->beginComputePass();
+                cb->setComputePipeline(m_sharedEdgePipeline);
+                const QRhiCommandBuffer::DynamicOffset testOfs(0, quint32(edgeSlots) * m_uboBlockStride);
+                cb->setShaderResources(m_sharedEdgeSrb, 1, &testOfs);
+                cb->dispatch((count * 12 + 63) / 64, 1, 1);
+                cb->endComputePass();
+            }
         }
 
         // --- RENDER PASS ---
@@ -2444,6 +2737,11 @@ void GLWidget::releaseResources()
         m_sharedEdgeParts->destroy();
         delete m_sharedEdgeParts;
         m_sharedEdgeParts = nullptr;
+    }
+    if (m_sharedEdgeSamples) {
+        m_sharedEdgeSamples->destroy();
+        delete m_sharedEdgeSamples;
+        m_sharedEdgeSamples = nullptr;
     }
     m_sharedEdgeTable.clear();
     m_sharedEdgeSourceDirty = !m_sharedEdgeSource.isEmpty();
@@ -3478,7 +3776,8 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
         }
     }
 
-    // Costruzione Indici (Triangoli)
+    // Costruzione Indici (Triangoli). drawnQuad: i quad disegnati, per il bordo.
+    std::vector<char> drawnQuad(size_t(numU) * numV, 0);
     for (int i = 0; i < numU; ++i) {
         for (int j = 0; j < numV; ++j) {
             int p0 = i * (numV + 1) + j;
@@ -3505,6 +3804,7 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
                               (isFrozen[p3] ? 1 : 0);
             if (frozenCount >= 2) continue;
 
+            drawnQuad[size_t(i) * numV + j] = 1;
             indices.push_back(p0);
             indices.push_back(p1);
             indices.push_back(p2);
@@ -3596,8 +3896,8 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
     const bool wasTube = engine->isTubeModeActive();
     engine->setTubeMode(false);
 
-    // Lati della griglia per il bordo (lo shader non sa ricalcolarli).
-    setBorderEdges(grid);
+    // Lati della mesh disegnata per il bordo (lo shader non sa ricalcolarli).
+    setBorderEdges(grid, drawnQuad);
 
     // 3. Invia i dati al SurfaceEngine
     engine->setCustomMesh(vertices, indices, isUClosed, isVClosed);
