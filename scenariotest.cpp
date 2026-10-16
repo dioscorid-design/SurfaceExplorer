@@ -4466,6 +4466,45 @@ void ScenarioTest::runBorderScenarios()
         click(ui->radioSurface);
     }
 
+    // PIU' MESH, UN BORDO SOLO: le patch del Calabi-Yau si toccano lungo i lati
+    // u = 0 e u = pi/2 (meta' lato con una patch, meta' con un'altra, v
+    // rovesciato), e il bordo era disegnato attorno a ogni patch. Ora i lati in
+    // comune non si disegnano (passata compute dei lati in comune) e resta il
+    // contorno della figura, i lati v = +-1. Confronto con la passata spenta;
+    // immagini da guardare: border-calabi-yau.png (contorno) e
+    // border-calabi-yau-every-edge.png (tutti i lati, com'era).
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Multi Meshes/Calabi-Yau.json"))) {
+        click(ui->radioBorder);
+        ui->borderThicknessSlider->setValue(0);  wait(600);
+        const QImage plain = gl->grabFramebuffer();
+        // Il primo fotogramma col bordo appena acceso (shader e pipeline
+        // rifatti in quel frame) era quello di tutti i lati: deve essere gia'
+        // il contorno.
+        ui->borderThicknessSlider->setValue(40);
+        const QImage firstFrame = gl->grabFramebuffer();
+        wait(600);
+        const QImage outline = gl->grabFramebuffer();
+        outline.save(m_outDir + QStringLiteral("/border-calabi-yau.png"));
+        check(changed(firstFrame, outline) < 0.0005,
+              QStringLiteral("Calabi-Yau, primo fotogramma col bordo acceso -> gia' il solo contorno (diverso dai successivi: %1 dei pixel)")
+                  .arg(pct(changed(firstFrame, outline))));
+        const bool active = gl->sharedEdgesActive();
+        gl->m_sharedEdgesOff = true;
+        gl->update();  wait(600);
+        const QImage everyEdge = gl->grabFramebuffer();
+        everyEdge.save(m_outDir + QStringLiteral("/border-calabi-yau-every-edge.png"));
+        gl->m_sharedEdgesOff = false;
+        gl->update();  wait(300);
+        const double shown = changed(plain, outline);
+        const double all = changed(plain, everyEdge);
+        check(active && shown > 0.001 && shown < 0.8 * all,
+              QStringLiteral("Calabi-Yau col bordo -> solo il contorno della figura, non i lati di ogni patch "
+                             "(passata %1, contorno %2 dei pixel, tutti i lati %3)")
+                  .arg(active ? QStringLiteral("attiva") : QStringLiteral("SPENTA"), pct(shown), pct(all)));
+        ui->borderThicknessSlider->setValue(0);  wait(300);
+        click(ui->radioSurface);
+    }
+
     // Ray Marching: il bordo non esiste, il radio si spegne e il bersaglio
     // torna su Surface.
     if (loadSurface(kTorus)) {

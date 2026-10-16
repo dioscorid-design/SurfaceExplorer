@@ -98,6 +98,9 @@ layout(std140, binding = 0) uniform SceneUBO {
     float u_tubeFramesOn;
     // Smorzamento della sezione dei tubi: lo legge solo il compute.
     float u_tubeFrameBlend;
+    // 1 se u_sharedEdges e' valida in questo frame (borderEdgeShared).
+    // Ultimo campo di UboData.
+    float u_sharedEdgesOn;
 } ubuf;
 
 float sq(float x) { return x*x; }
@@ -761,6 +764,31 @@ bool borderEdgeHidden(vec2 along, float fixedCoord, float opposite, float alongS
     return straight || twisted || len < tol;
 }
 
+// LATI IN COMUNE CON UN'ALTRA MESH. In una figura fatta di piu' mesh che si
+// toccano (le patch del Calabi-Yau) il bordo e' quello della figura intera:
+// un lato che combacia con lati di altre mesh e' una giuntura, come una
+// cucitura, e non si disegna. Qui ogni vertice dovrebbe valutare tutte le
+// altre mesh; lo decide invece una volta per frame la passata compute dei lati
+// in comune (GLWidget::buildSharedEdgePipeline), che per ogni lato di ogni
+// parte prova tre punti e ne scrive un texel ciascuno: il lato e' in comune
+// se TUTTI e tre cadono su un lato di un'altra
+// mesh (anche mesh diverse per punti diversi: meta' lato di una patch del
+// Calabi-Yau combacia con una patch, l'altra meta' con un'altra).
+// Lati: 0 v = v_min, 1 v = v_max (lungo u), 2 u = u_min, 3 u = u_max (lungo v).
+#if !defined(TUBE_FRAME_COMPUTE) && !defined(SHARED_EDGE_COMPUTE)
+layout(binding = 4) uniform sampler2D u_sharedEdges;
+
+bool borderEdgeShared(int side) {
+    if (ubuf.u_sharedEdgesOn < 0.5) return false;
+    int row = int(ubuf.u_meshIndex + 0.5);
+    for (int i = 0; i < 3; ++i)
+        if (texelFetch(u_sharedEdges, ivec2(side * 3 + i, row), 0).x < 0.5) return false;
+    return true;
+}
+#else
+bool borderEdgeShared(int side) { return false; }
+#endif
+
 // Campioni fissi lungo un lato per il trasporto della sezione (emitBorderVertex).
 const int BORDER_FRAME_SAMPLES = 32;
 
@@ -808,18 +836,28 @@ vec4 borderClip(vec3 pos, vec2 uv) {
     return clip;
 }
 
-// GIUNTO D'ANGOLO (vedi SurfaceEngine::generateBorder): una sfera di raggio
-// u_borderRadius nell'angolo (u, v) del dominio, vertex.z = longitudine,
-// normal.x = latitudine. Si vede se almeno uno dei due lati che vi si
-// incontrano si vede.
+// GIUNTO D'ANGOLO (vedi SurfaceEngine::generateBorder): una sfera
+// nell'angolo (u, v) del dominio, vertex.z = longitudine, normal.x =
+// latitudine. Si vede se almeno uno dei due lati che vi si incontrano si vede.
+// Il raggio e' un po' minore di quello del tubo: il tubo e' un poligono di 24
+// lati (SurfaceEngine::kBorderRing) e le sue facce stanno a r cos(7.5 gradi) =
+// 0.991 r dall'asse. A raggio pieno i vertici della sfera bucavano le facce
+// dove il tubo PROSEGUE attraverso l'angolo -- ogni lato che si richiude su se'
+// stesso, come l'orlo dei mezzi tori di Hopf o di un cilindro -- e a ogni
+// giunzione la sfera affiorava dal tubo. A 0.98 r resta dentro; dove i lati
+// fanno un angolo riempie ancora il cuneo. Con meno lati va ridotto.
+const float BORDER_JOINT_SCALE = 0.98;
+
 void emitBorderCorner() {
     vec2 uv = vertex.xy;
     bool atUMin = abs(uv.x - ubuf.u_min) <= abs(uv.x - ubuf.u_max);
     bool atVMin = abs(uv.y - ubuf.v_min) <= abs(uv.y - ubuf.v_max);
     bool hideAlongU = borderEdgeHidden(vec2(1.0, 0.0), uv.y, atVMin ? ubuf.v_max : ubuf.v_min,
-                                       ubuf.u_min + ubuf.u_max, ubuf.u_min, ubuf.u_max);
+                                       ubuf.u_min + ubuf.u_max, ubuf.u_min, ubuf.u_max)
+                      || borderEdgeShared(atVMin ? 0 : 1);
     bool hideAlongV = borderEdgeHidden(vec2(0.0, 1.0), uv.x, atUMin ? ubuf.u_max : ubuf.u_min,
-                                       ubuf.v_min + ubuf.v_max, ubuf.v_min, ubuf.v_max);
+                                       ubuf.v_min + ubuf.v_max, ubuf.v_min, ubuf.v_max)
+                      || borderEdgeShared(atUMin ? 2 : 3);
     if (hideAlongU && hideAlongV) {
         emitBorderHidden();
         return;
@@ -827,7 +865,7 @@ void emitBorderCorner() {
     float lon = vertex.z;
     float lat = normal.x;
     vec3 n = vec3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat));
-    vec3 pos = borderScenePoint(uv.x, uv.y) + ubuf.u_borderRadius * n;
+    vec3 pos = borderScenePoint(uv.x, uv.y) + BORDER_JOINT_SCALE * ubuf.u_borderRadius * n;
     v_pos = vec3(ubuf.u_mvMatrix * vec4(pos, 1.0));
     v_normal = ubuf.u_mvMatrix * vec4(n, 0.0);
     v_texCoord = vec2(lon / 6.28318531, 0.5 - lat / 3.14159265);
@@ -851,8 +889,12 @@ void emitBorderVertex() {
     // LATO NASCOSTO: tutti i suoi vertici fuori dal volume di clip, cosi'
     // triangoli e linee si scartano interi. Un raggio zero non bastava: i
     // triangoli spariscono, ma in wireframe le linee lungo il tubo collassano
-    // sulla cucitura e si vedono (un tratteggio sul toro).
-    if (borderEdgeHidden(along, (along.x > 0.5) ? uv.y : uv.x, texCoord.x, texCoord.y, a0, a1)) {
+    // sulla cucitura e si vedono (un tratteggio sul toro). Nascosti anche i
+    // lati in comune con un'altra mesh; normal.z e' il verso dell'interno, +1
+    // sui lati al minimo del dominio.
+    int side = (along.x > 0.5) ? ((normal.z > 0.0) ? 0 : 1) : ((normal.z > 0.0) ? 2 : 3);
+    if (borderEdgeHidden(along, (along.x > 0.5) ? uv.y : uv.x, texCoord.x, texCoord.y, a0, a1)
+        || borderEdgeShared(side)) {
         emitBorderHidden();
         return;
     }

@@ -180,7 +180,8 @@ bool GLWidget::ensureUboCapacity(int partCount)
                 1, QRhiShaderResourceBinding::FragmentStage,
                 m_bindingsDynTexture ? m_bindingsDynTexture : m_dummyTexture, m_sampler),
             tubeFramesBinding(),
-            borderEdgesBinding()
+            borderEdgesBinding(),
+            sharedEdgesBinding()
         });
         m_bindingsDyn->updateResources();
     }
@@ -193,6 +194,16 @@ bool GLWidget::ensureUboCapacity(int partCount)
             QRhiShaderResourceBinding::bufferLoadStore(2, QRhiShaderResourceBinding::ComputeStage, m_tubeFrameWork)
         });
         m_tubeFrameSrb->updateResources();
+    }
+    // ...e quella dei lati del bordo in comune.
+    if (m_sharedEdgeSrb) {
+        m_sharedEdgeSrb->setBindings({
+            QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
+                0, QRhiShaderResourceBinding::ComputeStage, m_ubo, sizeof(UboData)),
+            QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeTex, 0),
+            QRhiShaderResourceBinding::bufferLoad(2, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeParts)
+        });
+        m_sharedEdgeSrb->updateResources();
     }
 
     // Anche i binding statici (sfondo flat, ray marching) puntavano al vecchio UBO.
@@ -238,7 +249,8 @@ void GLWidget::ensureDynamicBindings(QRhiTexture *tex)
         QRhiShaderResourceBinding::sampledTexture(
             1, QRhiShaderResourceBinding::FragmentStage, tex, m_sampler),
         tubeFramesBinding(),
-        borderEdgesBinding()
+        borderEdgesBinding(),
+        sharedEdgesBinding()
     });
 
     if (isNew) {
@@ -378,6 +390,187 @@ void GLWidget::setBorderEdges(const QVector<QVector<QVector4D>> &grid)
     m_borderEdgeDirty = true;
 }
 
+QString GLWidget::vertexAsComputeLibrary(const QString &vertexSource, const QString &define,
+                                         const QString &mainName, const QString &position)
+{
+    QString src = vertexSource;
+    static const QRegularExpression ioRe(QStringLiteral(R"(layout\s*\(\s*location\s*=\s*\d+\s*\)\s*(in|out)\s+)"));
+    src.remove(ioRe);
+    static const QRegularExpression mainRe(QStringLiteral(R"(\bvoid\s+main\s*\(\s*\))"));
+    src.replace(mainRe, QStringLiteral("void ") + mainName + QStringLiteral("()"));
+    src.replace(QLatin1String("gl_Position"), position);
+    const int versionAt = src.indexOf(QLatin1String("#version"));
+    const int eol = (versionAt < 0) ? -1 : src.indexOf(QLatin1Char('\n'), versionAt);
+    if (eol < 0) return QString();
+    src.insert(eol + 1, QStringLiteral("#define ") + define + QStringLiteral("\nvec4 ") + position
+                            + QStringLiteral(";\n"));
+    return src;
+}
+
+// ==========================================================
+// LATI DEL BORDO IN COMUNE FRA MESH (vedi glwidget.h e borderEdgeShared in surface.vert)
+// ==========================================================
+
+void GLWidget::createSharedEdgeResources()
+{
+    if (m_sharedEdgeTex || !rhi()) return;
+    if (!rhi()->isFeatureSupported(QRhi::Compute)
+        || !rhi()->isTextureFormatSupported(QRhiTexture::RGBA8, QRhiTexture::UsedWithLoadStore))
+        return;
+    m_sharedEdgeTex = rhi()->newTexture(QRhiTexture::RGBA8, QSize(12, kSharedEdgeMaxParts),
+                                        1, QRhiTexture::UsedWithLoadStore);
+    if (!m_sharedEdgeTex->create()) {
+        delete m_sharedEdgeTex;
+        m_sharedEdgeTex = nullptr;
+        return;
+    }
+    m_sharedEdgeSampler = rhi()->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
+                                            QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge);
+    m_sharedEdgeSampler->create();
+    // In testa (numero di parti, 0, 0, 0), poi due vec4 per parte.
+    m_sharedEdgeParts = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer,
+                                         quint32(1 + 2 * kSharedEdgeMaxParts) * 16u);
+    if (!m_sharedEdgeParts->create()) {
+        delete m_sharedEdgeParts;
+        m_sharedEdgeParts = nullptr;
+        m_sharedEdgeTex->destroy();
+        delete m_sharedEdgeTex;
+        m_sharedEdgeTex = nullptr;
+    }
+    m_sharedEdgeTable.clear();
+}
+
+QRhiShaderResourceBinding GLWidget::sharedEdgesBinding() const
+{
+    return QRhiShaderResourceBinding::sampledTexture(
+        4, QRhiShaderResourceBinding::VertexStage,
+        m_sharedEdgeTex ? m_sharedEdgeTex : m_dummyTexture,
+        m_sharedEdgeSampler ? m_sharedEdgeSampler : m_sampler);
+}
+
+void GLWidget::releaseSharedEdgePipeline()
+{
+    if (m_sharedEdgePipeline) { m_sharedEdgePipeline->destroy(); delete m_sharedEdgePipeline; m_sharedEdgePipeline = nullptr; }
+    if (m_sharedEdgeSrb) { m_sharedEdgeSrb->destroy(); delete m_sharedEdgeSrb; m_sharedEdgeSrb = nullptr; }
+}
+
+bool GLWidget::sharedEdgesActive()
+{
+    if (m_sharedEdgesOff || !m_sharedEdgeTex || !m_sharedEdgeParts || !engine || m_engineMode != ModeParametric
+        || m_borderRadius <= 0.0f || m_isCustomMesh || engine->isTubeModeActive())
+        return false;
+    const int parts = (int)engine->getMeshParts().size();
+    if (parts < 2 || parts > kSharedEdgeMaxParts) return false;
+    if (m_sharedEdgeSourceDirty) buildSharedEdgePipeline();
+    return m_sharedEdgePipeline && m_sharedEdgeSrb;
+}
+
+// Il compute e' il vertex della superficie ridotto a libreria, come quello dei
+// tubi: la superficie, i suoi vincoli e lo script sono gli stessi del disegno.
+// L'indice `mesh` dello script non viene dal blocco UBO (il compute ne vede
+// uno solo) ma dalla tabella delle parti: cosi' una sola invocazione valuta
+// tutte le mesh.
+// Il confronto e' fra punti NON ruotati: le rotazioni 4D conservano le
+// distanze, e il risultato e' lo stesso del vertex.
+// Per ogni punto di prova del lato si cerca, su ciascun lato di ciascuna ALTRA
+// parte, il punto alla stessa frazione o a quella opposta (lato percorso al
+// contrario: nel Calabi-Yau il lato u = 0 di una patch combacia con quello di
+// un'altra con v rovesciato). Le cuciture di una parte con se stessa restano a
+// borderEdgeHidden.
+// I punti di prova NON stanno a frazioni tonde (1/2, 1/3...): sui domini
+// simmetrici e' li' che cadono i punti singolari. Nel Calabi-Yau il mezzo del
+// lato u = pi/2 e' v = 0, dove z1 = 0 e si toccano tutte le patch: cos(pi/2)
+// in float vale -4e-8 e la potenza 2/n lo gonfiava a 1.3e-3, oltre la
+// tolleranza -- con n = 5 quei lati restavano disegnati. A 0.4712 lo scarto
+// torna 3e-7 (misurato in float32).
+void GLWidget::buildSharedEdgePipeline()
+{
+    m_sharedEdgeSourceDirty = false;
+    releaseSharedEdgePipeline();
+    if (m_sharedEdgeSource.isEmpty() || !m_sharedEdgeTex || !m_sharedEdgeParts || !m_ubo) return;
+
+    QString src = vertexAsComputeLibrary(m_sharedEdgeSource, QStringLiteral("SHARED_EDGE_COMPUTE"),
+                                         QStringLiteral("surfaceVertexMain"), QStringLiteral("g_sharedEdgePosition"));
+    if (src.isEmpty()) return;
+    src.replace(QLatin1String("ubuf.u_meshIndex"), QLatin1String("g_sharedEdgeMesh"));
+    const int versionAt = src.indexOf(QLatin1String("#version"));
+    src.insert(src.indexOf(QLatin1Char('\n'), versionAt) + 1, QStringLiteral("float g_sharedEdgeMesh = 0.0;\n"));
+    src += QStringLiteral(R"(
+layout(local_size_x = 64) in;
+layout(rgba8, binding = 1) writeonly uniform image2D u_sharedOut;
+// In testa (numero di parti, 0, 0, 0); per parte (u_min, u_max, v_min, v_max)
+// e (indice della mesh, 0, 0, 0).
+layout(std430, binding = 2) readonly buffer SharedEdgeParts { vec4 p[]; } parts;
+
+// Punto del lato `side` della parte `part` alla frazione f lungo il lato.
+vec4 sharedEdgePoint(int part, int side, float f) {
+    vec4 d = parts.p[1 + 2 * part];
+    g_sharedEdgeMesh = parts.p[2 + 2 * part].x;
+    float u = (side < 2) ? mix(d.x, d.y, f) : ((side == 2) ? d.x : d.y);
+    float v = (side < 2) ? ((side == 0) ? d.z : d.w) : mix(d.z, d.w, f);
+    return getRawPositionAuto(u, v);
+}
+
+// Frazioni del lato dei tre punti di prova: lontane da quelle tonde (vedi
+// buildSharedEdgePipeline).
+const float SHARED_EDGE_AT[3] = float[3](0.1834, 0.4712, 0.8259);
+
+// Un'invocazione per punto di prova: parte, lato (0 v = v_min, 1 v = v_max,
+// 2 u = u_min, 3 u = u_max) e punto. Una sola chiamata alla superficie nel
+// ciclo (Mali la ricopia per ogni punto di chiamata): c = -1 e' il punto stesso,
+// poi per ogni altra parte i suoi quattro lati nei due versi. Tolleranza in
+// proporzione alla distanza dall'origine: l'errore del float cresce con lei.
+void main() {
+    int count = int(parts.p[0].x + 0.5);
+    int id = int(gl_GlobalInvocationID.x);
+    int part = id / 12;
+    int side = (id / 3) % 4;
+    int k = id % 3;
+    if (part >= count) return;
+    float f = SHARED_EDGE_AT[k];
+    vec4 P = vec4(0.0);
+    float tol = 1.0e-3;
+    bool found = false;
+    for (int c = -1; c < count * 8 && !found; ++c) {
+        int j = (c < 0) ? part : c / 8;
+        if (c >= 0 && j == part) continue;
+        int s = (c < 0) ? side : (c / 2) % 4;
+        float g = (c >= 0 && (c % 2) == 1) ? 1.0 - f : f;
+        vec4 Q = sharedEdgePoint(j, s, g);
+        if (c < 0) {
+            P = Q;
+            tol = 1.0e-3 * max(1.0, length(P));
+        } else {
+            found = length(Q - P) < tol;
+        }
+    }
+    int row = int(parts.p[2 + 2 * part].x + 0.5);
+    imageStore(u_sharedOut, ivec2(side * 3 + k, row), vec4(found ? 1.0 : 0.0));
+}
+)");
+
+    QShader shader;
+    QString error;
+    if (!TubeCurveSampler::bakeCompute(src, &shader, &error)) {
+        qWarning() << "Bordo: passata dei lati in comune non compilata, restano tutti i lati:" << error;
+        return;
+    }
+    m_sharedEdgeSrb = rhi()->newShaderResourceBindings();
+    m_sharedEdgeSrb->setBindings({
+        QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
+            0, QRhiShaderResourceBinding::ComputeStage, m_ubo, sizeof(UboData)),
+        QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeTex, 0),
+        QRhiShaderResourceBinding::bufferLoad(2, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeParts)
+    });
+    m_sharedEdgePipeline = rhi()->newComputePipeline();
+    m_sharedEdgePipeline->setShaderResourceBindings(m_sharedEdgeSrb);
+    m_sharedEdgePipeline->setShaderStage(QRhiShaderStage(QRhiShaderStage::Compute, shader));
+    if (!m_sharedEdgeSrb->create() || !m_sharedEdgePipeline->create()) {
+        qWarning() << "Bordo: pipeline dei lati in comune non creata, restano tutti i lati.";
+        releaseSharedEdgePipeline();
+    }
+}
+
 bool GLWidget::tubeFramesActive() const
 {
     return m_tubeFramePipeline && m_tubeFrameSrb && m_tubeFrameWork && engine && m_engineMode == ModeParametric
@@ -400,16 +593,9 @@ void GLWidget::buildTubeFramePipeline(const QString &vertexSource)
     if (!m_tubeFrameTex || !m_tubeFrameWork || !m_ubo
         || !vertexSource.contains(QLatin1String("#define IS_TUBE"))) return;
 
-    QString src = vertexSource;
-    static const QRegularExpression ioRe(QStringLiteral(R"(layout\s*\(\s*location\s*=\s*\d+\s*\)\s*(in|out)\s+)"));
-    src.remove(ioRe);
-    static const QRegularExpression mainRe(QStringLiteral(R"(\bvoid\s+main\s*\(\s*\))"));
-    src.replace(mainRe, QStringLiteral("void tubeVertexMain()"));
-    src.replace(QLatin1String("gl_Position"), QLatin1String("g_tubeFramePosition"));
-    const int versionAt = src.indexOf(QLatin1String("#version"));
-    const int eol = (versionAt < 0) ? -1 : src.indexOf(QLatin1Char('\n'), versionAt);
-    if (eol < 0) return;
-    src.insert(eol + 1, QStringLiteral("#define TUBE_FRAME_COMPUTE\nvec4 g_tubeFramePosition;\n"));
+    QString src = vertexAsComputeLibrary(vertexSource, QStringLiteral("TUBE_FRAME_COMPUTE"),
+                                         QStringLiteral("tubeVertexMain"), QStringLiteral("g_tubeFramePosition"));
+    if (src.isEmpty()) return;
 
     // Un workgroup per tubo.
     // ANELLI DOVE SERVONO. A passo uniforme in u, vicino a una cuspide della
@@ -778,7 +964,8 @@ void GLWidget::syncPartImages(QRhiResourceUpdateBatch *resourceUpdates)
             QRhiShaderResourceBinding::sampledTexture(
                 1, QRhiShaderResourceBinding::FragmentStage, entry.tex, m_sampler),
             tubeFramesBinding(),
-            borderEdgesBinding()
+            borderEdgesBinding(),
+            sharedEdgesBinding()
         });
         entry.srb->create();
         m_partImages.insert(path, entry);
@@ -799,7 +986,8 @@ void GLWidget::rebindPartImages()
             QRhiShaderResourceBinding::sampledTexture(
                 1, QRhiShaderResourceBinding::FragmentStage, it->tex, m_sampler),
             tubeFramesBinding(),
-            borderEdgesBinding()
+            borderEdgesBinding(),
+            sharedEdgesBinding()
         });
         it->srb->updateResources();
     }
@@ -859,9 +1047,10 @@ void GLWidget::initialize(QRhiCommandBuffer *cb)
     // --- 3. CREAZIONE TEXTURE E BINDINGS ---
     // A. Creiamo la texture "tappabuchi" (scacchiera: serve il cb per l'upload)
     createDummyTexture(cb);
-    // Prima dei binding della superficie, che la referenziano allo slot 2.
+    // Prima dei binding della superficie, che le referenziano agli slot 2-4.
     createTubeFrameResources();
     createBorderEdgeResources();
+    createSharedEdgeResources();
 
     // B. Colleghiamo l'UBO al binding 0 e la TEXTURE al binding 1
     m_bindings = rhi()->newShaderResourceBindings();
@@ -1831,6 +2020,47 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             cb->endComputePass();
         }
 
+        // LATI DEL BORDO IN COMUNE: anche questa prima del disegno, a ogni
+        // frame (la geometria puo' cambiare col tempo e con le costanti), col
+        // blocco 0 per costanti, tempo e vincoli; dominio e `mesh` di ogni
+        // parte dalla tabella, ricaricata solo quando cambia.
+        // Si decide QUI, dopo buildPipeline, e qui si accende u_sharedEdgesOn
+        // nei blocchi del bordo (scritti piu' in alto con 0): la passata nasce
+        // dal vertex della pipeline, che dopo un rebuildShader si rifa' solo
+        // in questo punto. Decidendo coi blocchi, nel frame in cui il bordo si
+        // accende valeva ancora il vertex di prima, senza bordo: passata spenta
+        // e tutti i lati disegnati, finche' qualcosa non ridisegnava la scena.
+        const bool sharedEdges = m_borderRadius > 0.0f && sharedEdgesActive();
+        if (sharedEdges) {
+            const std::vector<MeshPart> &edgeParts = engine->getMeshParts();
+            if (!resourceUpdates) resourceUpdates = rhi()->nextResourceUpdateBatch();
+            const float on = 1.0f;
+            const int edgeSlots = std::max(1, (int)edgeParts.size());
+            for (int k = 0; k < edgeSlots; ++k)
+                resourceUpdates->updateDynamicBuffer(
+                    m_ubo, quint32((edgeSlots + k) * m_uboBlockStride + offsetof(UboData, u_sharedEdgesOn)),
+                    sizeof(float), &on);
+            std::vector<QVector4D> table;
+            table.reserve(1 + 2 * edgeParts.size());
+            table.emplace_back(float(edgeParts.size()), 0.0f, 0.0f, 0.0f);
+            for (const MeshPart &mp : edgeParts) {
+                table.emplace_back(mp.uMin, mp.uMax, mp.vMin, mp.vMax);
+                table.emplace_back(float(mp.meshIndex), 0.0f, 0.0f, 0.0f);
+            }
+            if (table != m_sharedEdgeTable) {
+                resourceUpdates->uploadStaticBuffer(m_sharedEdgeParts, 0, quint32(table.size() * sizeof(QVector4D)),
+                                                    table.data());
+                m_sharedEdgeTable = table;
+            }
+            cb->beginComputePass(resourceUpdates);
+            resourceUpdates = nullptr;
+            cb->setComputePipeline(m_sharedEdgePipeline);
+            const QRhiCommandBuffer::DynamicOffset ofs(0, 0);
+            cb->setShaderResources(m_sharedEdgeSrb, 1, &ofs);
+            cb->dispatch((int(edgeParts.size()) * 12 + 63) / 64, 1, 1);
+            cb->endComputePass();
+        }
+
         // --- RENDER PASS ---
         QColor clearColor = QColor::fromRgbF(m_bgColor.x(), m_bgColor.y(), m_bgColor.z());
         cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 }, resourceUpdates);
@@ -2199,6 +2429,24 @@ void GLWidget::render(QRhiCommandBuffer *cb)
 void GLWidget::releaseResources()
 {
     releaseTubeFramePipeline();
+    releaseSharedEdgePipeline();
+    if (m_sharedEdgeTex) {
+        m_sharedEdgeTex->destroy();
+        delete m_sharedEdgeTex;
+        m_sharedEdgeTex = nullptr;
+    }
+    if (m_sharedEdgeSampler) {
+        m_sharedEdgeSampler->destroy();
+        delete m_sharedEdgeSampler;
+        m_sharedEdgeSampler = nullptr;
+    }
+    if (m_sharedEdgeParts) {
+        m_sharedEdgeParts->destroy();
+        delete m_sharedEdgeParts;
+        m_sharedEdgeParts = nullptr;
+    }
+    m_sharedEdgeTable.clear();
+    m_sharedEdgeSourceDirty = !m_sharedEdgeSource.isEmpty();
     if (m_tubeFrameTex) {
         m_tubeFrameTex->destroy();
         delete m_tubeFrameTex;
@@ -2598,7 +2846,8 @@ static_assert(offsetof(UboData, u_meshCount) == 464, "UboData: u_meshCount fuori
 static_assert(offsetof(UboData, u_tubeRings) == 468, "UboData: u_tubeRings fuori posto");
 static_assert(offsetof(UboData, u_tubeFramesOn) == 472, "UboData: u_tubeFramesOn fuori posto");
 static_assert(offsetof(UboData, u_tubeFrameBlend) == 476, "UboData: u_tubeFrameBlend fuori posto");
-static_assert(sizeof(UboData) == 480, "UboData: dopo u_tubeFrameBlend il blocco e' di 480 byte");
+static_assert(offsetof(UboData, u_sharedEdgesOn) == 480, "UboData: u_sharedEdgesOn fuori posto");
+static_assert(sizeof(UboData) == 496, "UboData: dopo u_sharedEdgesOn (e _pad4) il blocco e' di 496 byte");
 static_assert(sizeof(UboData) % 16 == 0, "UboData: dimensione non multipla di 16 (std140)");
 
 bool GLWidget::setTubeCurve(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq,
@@ -7090,6 +7339,14 @@ void GLWidget::buildPipeline() {
     freePipe(m_wireframePipeline);
     // La passata dei tubi nasce dallo stesso vertex: va rifatta con lui.
     buildTubeFramePipeline(vsSource);
+    // Anche quella dei lati del bordo in comune, ma solo al primo frame che la
+    // usa (sharedEdgesActive): qui si sa solo da quale vertex nascera'.
+    releaseSharedEdgePipeline();
+    const bool sharedEdgeSource = vsSource.contains(QLatin1String("#define HAS_BORDER"))
+                                  && !vsSource.contains(QLatin1String("#define IS_TUBE"))
+                                  && !vsSource.contains(QLatin1String("#define CUSTOM_MESH"));
+    m_sharedEdgeSource = sharedEdgeSource ? vsSource : QString();
+    m_sharedEdgeSourceDirty = sharedEdgeSource;
 
     QRhiGraphicsPipeline::TargetBlend blend;
     blend.enable   = true;

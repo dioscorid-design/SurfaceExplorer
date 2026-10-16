@@ -246,8 +246,15 @@ public:
     // li genera tutti e quattro e lo shader appiattisce quelli che non lo sono.
     // In coda ai lati, per ogni parte, una sfera in ciascuno dei quattro angoli
     // (giunto fra due lati, normal.w = 2).
-    // Lati del poligono attorno al tubo.
-    static constexpr int kBorderRing = 12;
+    // Lati del poligono attorno al tubo. Erano 12: dove due tubi spessi si
+    // compenetrano (le fibre dei mezzi tori di Hopf che convergono) la curva
+    // d'intersezione mostrava i lati del poligono come tacche frastagliate.
+    static constexpr int kBorderRing = 24;
+    // Le linee del wireframe attorno al tubo si contano in dodicesimi di giro,
+    // i lati del poligono storico: il passo salvato nei preset (wireAround)
+    // da' le stesse linee con qualunque kBorderRing.
+    static constexpr int kBorderWireSides = 12;
+    static_assert(kBorderRing % kBorderWireSides == 0, "kBorderRing: multiplo di kBorderWireSides");
     struct BorderRange {
         int meshIndex = 0;
         int vertexOffset = 0;

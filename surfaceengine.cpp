@@ -658,7 +658,7 @@ void SurfaceEngine::buildBorderWire(int stepAlong, int stepAround)
     m_borderWireIndices.clear();
     const int ring = kBorderRing;
     const int along = std::max(1, stepAlong);
-    const int around = std::max(1, stepAround);
+    const int around = std::max(1, stepAround) * (ring / kBorderWireSides);
 
     for (BorderRange &range : m_borderRanges) {
         range.wireIndexOffset = (int)m_borderWireIndices.size();

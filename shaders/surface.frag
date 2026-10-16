@@ -90,6 +90,9 @@ layout(std140, binding = 0) uniform SceneUBO {
     float u_tubeRings;
     float u_tubeFramesOn;
     float u_tubeFrameBlend;
+    // Lati del bordo in comune con un'altra mesh: NON USATO QUI (lo legge il
+    // vertex), dichiarato per la regola Adreno. Ultimo campo di UboData.
+    float u_sharedEdgesOn;
 } ubuf;
 
 // --- PLACEHOLDER PER CODICE TEXTURE CUSTOM ---

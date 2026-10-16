@@ -174,6 +174,14 @@ struct UboData {
     // frame, quindi uguale a schermo e nel video. Ultimo posto della riserva:
     // il blocco resta di 480 byte.
     float u_tubeFrameBlend;
+    // 1 nei blocchi del BORDO quando la passata dei LATI IN COMUNE (vedi
+    // buildSharedEdgePipeline) ha scritto in questo frame quali lati di ogni
+    // parte combaciano con un lato di un'altra: il vertex non li disegna.
+    // In coda: il blocco cresce di una riga (496 byte, _pad4). Dichiarato in
+    // ENTRAMBI gli shader parametrici (regola Adreno, vedi CLAUDE.md); lo usa
+    // solo il vertex.
+    float u_sharedEdgesOn;
+    float _pad4[3];
 };
 
 class GLWidget : public QRhiWidget
@@ -603,7 +611,7 @@ public:
     static constexpr int kBorderWireAlongDefault = 8;
     static constexpr int kBorderWireAroundDefault = 2;
     static constexpr int kBorderWireAlongMax = 50;
-    static constexpr int kBorderWireAroundMax = 6;   // 12 lati: 2 linee
+    static constexpr int kBorderWireAroundMax = 6;   // in dodicesimi di giro: 2 linee
     BorderStyle borderStyle() const;
     void setBorderStyle(const BorderStyle &s);
     // TEXTURE DEL BORDO. Coordinate: lungo il lato (0..1 su ciascun lato) e
@@ -1360,6 +1368,47 @@ private:
     // Lo slot 3 di ogni binding della superficie: i lati della mesh custom, o
     // la dummy.
     QRhiShaderResourceBinding borderEdgesBinding() const;
+
+    // LATI DEL BORDO IN COMUNE FRA MESH. Con piu' parti il bordo e' quello
+    // della figura intera: un lato che combacia con lati di altre parti (le
+    // giunture fra le patch del Calabi-Yau) non si disegna. La CPU non sa
+    // valutare gli script, e nel vertex ogni punto del bordo dovrebbe valutare
+    // tutte le altre parti: una passata compute a ogni frame, prima del
+    // disegno, prova per ogni lato di ogni parte tre punti contro i lati delle
+    // altre parti, nei due versi, e scrive in m_sharedEdgeTex un texel per
+    // punto (riga = parte,
+    // colonna = lato * 3 + punto); il vertex li legge (slot 4,
+    // borderEdgeShared in surface.vert). Come i tubi, il compute e' il vertex
+    // stesso ridotto a libreria, con `mesh` preso dalla tabella delle parti
+    // (m_sharedEdgeParts: dominio e indice di ciascuna). Si costruisce al
+    // primo frame che serve (bordo acceso, almeno due parti): una superficie a
+    // mesh singola non paga la compilazione. Senza compute la texture non
+    // esiste e i lati restano tutti, come prima.
+    static constexpr int kSharedEdgeMaxParts = 64;
+    QRhiTexture *m_sharedEdgeTex = nullptr;
+    QRhiSampler *m_sharedEdgeSampler = nullptr;
+    QRhiBuffer *m_sharedEdgeParts = nullptr;
+    std::vector<QVector4D> m_sharedEdgeTable;   // l'ultima tabella caricata
+    QRhiShaderResourceBindings *m_sharedEdgeSrb = nullptr;
+    QRhiComputePipeline *m_sharedEdgePipeline = nullptr;
+    // Il vertex da cui costruire il compute (vuoto se non si puo': tubo, mesh
+    // custom, bordo spento) e se va ancora costruito.
+    QString m_sharedEdgeSource;
+    bool m_sharedEdgeSourceDirty = false;
+    // Solo per gli scenari: spegne la passata, per confrontare con tutti i lati.
+    bool m_sharedEdgesOff = false;
+    void createSharedEdgeResources();
+    void buildSharedEdgePipeline();
+    void releaseSharedEdgePipeline();
+    // La passata gira in questo frame: bordo, almeno due parti, pipeline pronta.
+    bool sharedEdgesActive();
+    // Lo slot 4 di ogni binding della superficie: i lati in comune, o la dummy.
+    QRhiShaderResourceBinding sharedEdgesBinding() const;
+    // Il vertex ridotto a libreria per un compute: ingressi e uscite globali,
+    // main rinominato in `mainName`, gl_Position sostituita da `position`.
+    // Vuoto se manca #version.
+    static QString vertexAsComputeLibrary(const QString &vertexSource, const QString &define,
+                                          const QString &mainName, const QString &position);
 
 
     // ==========================================================
