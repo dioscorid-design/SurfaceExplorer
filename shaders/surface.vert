@@ -11,6 +11,12 @@ layout(location = 1) out vec4 v_normal;
 layout(location = 2) out vec2 v_texCoord;
 layout(location = 3) out float v_light4D;
 layout(location = 4) out float v_spec4D;
+// Lato del bordo a cui appartiene il vertice (0-3), -1 per tutto il resto: il
+// fragment scarta i tratti coperti del lato (borderFragmentCovered).
+layout(location = 5) out float v_borderSide;
+// Quanto il tubo prosegue oltre l'inizio di un tratto coperto, in frazione del
+// lato: tre quarti del raggio (vedi borderFragmentCovered).
+layout(location = 6) out float v_borderReach;
 
 layout(std140, binding = 0) uniform SceneUBO {
     mat4 u_mvpMatrix;
@@ -764,33 +770,44 @@ bool borderEdgeHidden(vec2 along, float fixedCoord, float opposite, float alongS
     return straight || twisted || len < tol;
 }
 
-// LATI COPERTI. Un lato su cui passa un'altra parte della superficie, che
-// prosegue in un'altra direzione, non e' un bordo: le cuciture, le giunture
-// fra le mesh (le patch del Calabi-Yau), i lati che si ripiegano su se' stessi
-// (Oloid) o avvolgono piu' volte la stessa curva (Wound Sphere), i poli.
-// Qui ogni vertice dovrebbe confrontarsi con tutti i lati; lo decide invece
-// la passata compute dei lati coperti (GLWidget::buildSharedEdgePipeline),
-// che per ogni lato di ogni parte prova tre punti e ne scrive un texel
-// ciascuno: il lato non si disegna se lo sono TUTTI e tre (anche da parti
-// diverse: meta' lato di una patch del Calabi-Yau combacia con una patch,
-// l'altra meta' con un'altra). Sulla mesh custom lo stesso test lo fa la CPU
-// sulla mesh disegnata (GLWidget::setBorderEdges), riga 8 texel 1 dei lati.
+// LATI COPERTI. Un tratto di lato su cui passa un'altra parte della
+// superficie, che prosegue in un'altra direzione, non e' un bordo: le
+// cuciture, le giunture fra le mesh (le patch del Calabi-Yau), i lati che si
+// ripiegano su se' stessi (Oloid) o avvolgono piu' volte la stessa curva
+// (Wound Sphere), i poli, gli orli che passano dentro un'altra mesh (le fasce
+// dell'Octahedron Bands). Lo decide la passata compute dei lati coperti
+// (GLWidget::buildSharedEdgePipeline), un texel per campione del lato
+// (SHARED_EDGE_SAMPLES intervalli): qui si nasconde il lato coperto per
+// intero (tre campioni), i tratti li scarta il fragment. Un campione scoperto
+// fra due coperti conta come coperto: un punto singolare isolato (il centro
+// del Calabi-Yau) non lascia un pezzetto di tubo. Sulla mesh custom il test,
+// per lato intero, lo fa la CPU sulla mesh disegnata (GLWidget::setBorderEdges),
+// riga 8 texel 1 dei lati.
 // Lati: 0 v = v_min, 1 v = v_max (lungo u), 2 u = u_min, 3 u = u_max (lungo v).
+const int SHARED_EDGE_SAMPLES = 256;   // = GLWidget::kSharedEdgeSamples
 #if defined(TUBE_FRAME_COMPUTE) || defined(SHARED_EDGE_COMPUTE)
 bool borderEdgeShared(int side) { return false; }
+bool borderCoveredAt(int side, int m) { return false; }
 #elif defined(CUSTOM_MESH)
 bool borderEdgeShared(int side) {
     return texelFetch(u_borderEdges, ivec2(1, 8), 0)[side] > 0.5;
 }
+bool borderCoveredAt(int side, int m) { return borderEdgeShared(side); }
 #else
 layout(binding = 4) uniform sampler2D u_sharedEdges;
 
-bool borderEdgeShared(int side) {
+bool borderCoveredAt(int side, int m) {
     if (ubuf.u_sharedEdgesOn < 0.5) return false;
-    int row = int(ubuf.u_meshIndex + 0.5);
-    for (int i = 0; i < 3; ++i)
-        if (texelFetch(u_sharedEdges, ivec2(side * 3 + i, row), 0).x < 0.5) return false;
-    return true;
+    int row = int(ubuf.u_meshIndex + 0.5) * 4 + side;
+    if (texelFetch(u_sharedEdges, ivec2(m, row), 0).x > 0.5) return true;
+    return texelFetch(u_sharedEdges, ivec2(max(m - 1, 0), row), 0).x > 0.5
+        && texelFetch(u_sharedEdges, ivec2(min(m + 1, SHARED_EDGE_SAMPLES), row), 0).x > 0.5;
+}
+
+// I campioni alle frazioni 0.1834, 0.3912, 0.8259 del lato: lontane da quelle
+// tonde, dove cadono i punti singolari (vedi buildSharedEdgePipeline).
+bool borderEdgeShared(int side) {
+    return borderCoveredAt(side, 47) && borderCoveredAt(side, 100) && borderCoveredAt(side, 211);
 }
 #endif
 
@@ -868,10 +885,14 @@ void emitBorderCorner() {
     vec2 uv = vertex.xy;
     bool atUMin = abs(uv.x - ubuf.u_min) <= abs(uv.x - ubuf.u_max);
     bool atVMin = abs(uv.y - ubuf.v_min) <= abs(uv.y - ubuf.v_max);
+    // Un lato coperto anche solo vicino all'angolo (orlo che entra in
+    // un'altra mesh) non chiede il giunto.
     bool hideAlongU = borderSideHidden(atVMin ? 0 : 1, vec2(1.0, 0.0), uv.y, atVMin ? ubuf.v_max : ubuf.v_min,
-                                       ubuf.u_min + ubuf.u_max, ubuf.u_min, ubuf.u_max);
+                                       ubuf.u_min + ubuf.u_max, ubuf.u_min, ubuf.u_max)
+                      || borderCoveredAt(atVMin ? 0 : 1, atUMin ? 0 : SHARED_EDGE_SAMPLES);
     bool hideAlongV = borderSideHidden(atUMin ? 2 : 3, vec2(0.0, 1.0), uv.x, atUMin ? ubuf.u_max : ubuf.u_min,
-                                       ubuf.v_min + ubuf.v_max, ubuf.v_min, ubuf.v_max);
+                                       ubuf.v_min + ubuf.v_max, ubuf.v_min, ubuf.v_max)
+                      || borderCoveredAt(atUMin ? 2 : 3, atVMin ? 0 : SHARED_EDGE_SAMPLES);
     if (hideAlongU && hideAlongV) {
         emitBorderHidden();
         return;
@@ -1021,6 +1042,9 @@ void emitBorderVertex() {
     // superficie (seconda coordinata rovesciata, come v_texCoord di main).
     float sAlong = (abs(a1 - a0) > 1.0e-9) ? (a - a0) / (a1 - a0) : 0.0;
     v_texCoord = vec2(sAlong, 1.0 - ang / 6.28318531);
+    v_borderSide = float(side);
+    v_borderReach = (lenT > 1.0e-12 && abs(a1 - a0) > 1.0e-12)
+                  ? clamp(0.75 * r * 2.0 * e / (lenT * abs(a1 - a0)), 0.0, 0.25) : 0.0;
     v_light4D = 1.0;
     v_spec4D = 0.0;
     gl_Position = borderClip(pos, uv);
@@ -1028,6 +1052,8 @@ void emitBorderVertex() {
 #endif
 
 void main() {
+    v_borderSide = -1.0;
+    v_borderReach = 0.0;
     // --- BYPASS PER FLAT VIEW (TEXTURE PREVIEW) ---
     if (ubuf.u_isFlat != 0) {
         gl_Position = ubuf.u_mvpMatrix * vec4(vertex.xyz, 1.0);

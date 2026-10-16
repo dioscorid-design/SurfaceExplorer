@@ -1369,31 +1369,42 @@ private:
     // la dummy.
     QRhiShaderResourceBinding borderEdgesBinding() const;
 
-    // LATI DEL BORDO COPERTI. Un lato del dominio non e' un bordo se un'altra
+    // LATI DEL BORDO COPERTI. Un tratto di lato non e' un bordo se un'altra
     // parte della superficie ci passa sopra e prosegue in un'altra direzione:
     // le cuciture, le giunture fra le patch del Calabi-Yau, i lati che si
     // ripiegano (Oloid) o che avvolgono piu' volte la stessa curva (Wound
-    // Sphere), i poli. La CPU non sa valutare gli script, e nel vertex ogni
-    // punto del bordo dovrebbe confrontarsi con tutti i lati: una passata
-    // compute in due tempi (buildSharedEdgePipeline) campiona i lati di ogni
-    // parte in m_sharedEdgeSamples, poi per ogni lato prova tre punti e
-    // scrive in m_sharedEdgeTex un texel per punto (riga = parte, colonna =
-    // lato * 3 + punto); il vertex li legge (slot 4, borderEdgeShared in
-    // surface.vert) e, finche' la passata e' attiva, non rifa' il suo test
-    // delle cuciture. Come i tubi, il compute e' il vertex stesso ridotto a
+    // Sphere), i poli, e i tratti di orlo che passano DENTRO un'altra mesh (le
+    // fasce dell'Octahedron Bands dove si incrociano). La CPU non sa valutare
+    // gli script, e nel vertex ogni punto del bordo dovrebbe confrontarsi con
+    // tutta la superficie: una passata compute in tre tempi
+    // (buildSharedEdgePipeline) campiona i lati e una griglia dell'interno di
+    // ogni parte in m_sharedEdgeSamples, racchiude blocchi di celle in sfere
+    // (m_sharedEdgeTiles) e per ogni campione dei lati scrive in
+    // m_sharedEdgeTex se e' coperto (colonna = campione, riga = parte * 4 +
+    // lato). Il vertex nasconde i lati coperti per intero e, finche' la
+    // passata e' attiva, non rifa' il suo test delle cuciture; il fragment
+    // scarta i tratti coperti (slot 4, borderEdgeShared e borderFragmentCovered
+    // negli shader). Come i tubi, il compute e' il vertex stesso ridotto a
     // libreria, con `mesh` dalla tabella delle parti (m_sharedEdgeParts:
     // dominio e indice di ciascuna). Si costruisce al primo frame col bordo
     // acceso e gira solo quando la geometria cambia (m_sharedEdgeKey: costanti,
-    // tempo, parti; le rotazioni no). Senza compute la texture non esiste e
-    // resta il test del vertex (cuciture diritte e ritorte, poli).
-    // Le mesh custom (flusso geodetico) fanno lo stesso test sulla CPU, sulla
-    // mesh disegnata: vedi setBorderEdges.
+    // tempo, parti; le rotazioni no). Le tre passate leggono la fase da tre
+    // blocchi UBO propri, dopo quelli del bordo (u_isBorder = 10, 11, 12).
+    // Senza compute la texture non esiste e resta il test del vertex
+    // (cuciture diritte e ritorte, poli).
+    // Le mesh custom (flusso geodetico) fanno il test sulla CPU, per lato
+    // intero, sulla mesh disegnata: vedi setBorderEdges.
     static constexpr int kSharedEdgeMaxParts = 64;
-    static constexpr int kSharedEdgeSamples = 128;   // intervalli per lato (= EDGE_SAMPLES)
+    static constexpr int kSharedEdgeSamples = 256;    // intervalli per lato (= EDGE_SAMPLES negli shader)
+    static constexpr int kSharedEdgeGrid = 64;        // celle per lato del dominio (= GRID)
+    static constexpr int kSharedEdgeTileCells = 8;    // celle per lato di un blocco (= TILE)
+    static constexpr int kSharedEdgeTiles = (kSharedEdgeGrid / kSharedEdgeTileCells) * (kSharedEdgeGrid / kSharedEdgeTileCells);
+    static constexpr int kSharedEdgePartVec4 = 8 * (kSharedEdgeSamples + 1) + (kSharedEdgeGrid + 1) * (kSharedEdgeGrid + 1);
     QRhiTexture *m_sharedEdgeTex = nullptr;
     QRhiSampler *m_sharedEdgeSampler = nullptr;
     QRhiBuffer *m_sharedEdgeParts = nullptr;
     QRhiBuffer *m_sharedEdgeSamples = nullptr;
+    QRhiBuffer *m_sharedEdgeTiles = nullptr;
     std::vector<QVector4D> m_sharedEdgeTable;   // l'ultima tabella caricata
     QByteArray m_sharedEdgeKey;                 // la geometria dell'ultima passata
     QRhiShaderResourceBindings *m_sharedEdgeSrb = nullptr;

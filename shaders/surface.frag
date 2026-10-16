@@ -6,6 +6,9 @@ layout(location = 1) in vec4 v_normal;
 layout(location = 2) in vec2 v_texCoord;
 layout(location = 3) in float v_light4D;
 layout(location = 4) in float v_spec4D;
+// Lato del bordo (0-3), -1 per tutto il resto (vedi surface.vert).
+layout(location = 5) in float v_borderSide;
+layout(location = 6) in float v_borderReach;
 
 // --- OUTPUT ---
 layout(location = 0) out vec4 FragColor;
@@ -102,8 +105,40 @@ layout(std140, binding = 0) uniform SceneUBO {
 // Fallback: nessun taglio (retrocompatibile con ogni preset che non la definisce).
 %CUTOUT_CODE%
 
+#ifdef HAS_BORDER
+// TRATTI COPERTI DEL BORDO: dove l'orlo passa dentro un'altra mesh (le fasce
+// dell'Octahedron Bands) il tubo non si disegna. Un texel per campione del lato
+// (passata compute dei lati coperti, GLWidget::buildSharedEdgePipeline), letto
+// alla posizione del frammento lungo il lato (v_texCoord.x). Un campione
+// scoperto fra due coperti conta come coperto, come nel vertex.
+// Il tubo prosegue per tre quarti del raggio dentro il tratto coperto
+// (v_borderReach): dove due orli formano un angolo del contorno, un tubo
+// tagliato proprio sull'asse dell'altro lasciava vuoto il cuneo esterno.
+layout(binding = 4) uniform sampler2D u_sharedEdges;
+const int SHARED_EDGE_SAMPLES = 256;   // = GLWidget::kSharedEdgeSamples
+
+bool borderCoveredSample(int row, float s) {
+    int m = clamp(int(floor(s * float(SHARED_EDGE_SAMPLES) + 0.5)), 0, SHARED_EDGE_SAMPLES);
+    if (texelFetch(u_sharedEdges, ivec2(m, row), 0).x > 0.5) return true;
+    return texelFetch(u_sharedEdges, ivec2(max(m - 1, 0), row), 0).x > 0.5
+        && texelFetch(u_sharedEdges, ivec2(min(m + 1, SHARED_EDGE_SAMPLES), row), 0).x > 0.5;
+}
+
+bool borderFragmentCovered() {
+    int side = int(floor(v_borderSide + 0.5));
+    if (side < 0 || ubuf.u_sharedEdgesOn < 0.5) return false;
+    int row = int(ubuf.u_meshIndex + 0.5) * 4 + side;
+    float s = v_texCoord.x;
+    return borderCoveredSample(row, s) && borderCoveredSample(row, s - v_borderReach)
+        && borderCoveredSample(row, s + v_borderReach);
+}
+#endif
+
 // --- MAIN (LOGICA DI ILLUMINAZIONE CALIBRATA) ---
 void main() {
+#ifdef HAS_BORDER
+    if (ubuf.u_isBorder != 0 && borderFragmentCovered()) discard;
+#endif
 
     if (ubuf.u_isFlat != 0) {
         vec3 texColor = getCustomColor(v_texCoord);

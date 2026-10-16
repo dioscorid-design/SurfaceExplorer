@@ -4528,6 +4528,34 @@ void ScenarioTest::runBorderScenarios()
         click(ui->radioSurface);
     }
 
+    // TRATTI COPERTI: le tre fasce dell'Octahedron Bands si incrociano, e
+    // l'orlo di ciascuna passa dentro le altre due. Prima il bordo seguiva
+    // l'orlo di ogni fascia anche li'; ora quei tratti non si disegnano (il
+    // fragment li scarta) e resta il contorno dell'unione. Confronto col
+    // test del vertex, che vede solo i lati interi; immagini da guardare:
+    // border-octahedron-bands.png e border-octahedron-bands-every-edge.png.
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Multi Meshes/Octahedron Bands.json"))) {
+        click(ui->radioBorder);
+        ui->borderThicknessSlider->setValue(0);  wait(600);
+        const QImage plain = gl->grabFramebuffer();
+        ui->borderThicknessSlider->setValue(40);  wait(800);
+        const QImage outline = gl->grabFramebuffer();
+        outline.save(m_outDir + QStringLiteral("/border-octahedron-bands.png"));
+        gl->m_sharedEdgesOff = true;
+        gl->update();  wait(600);
+        const QImage everyEdge = gl->grabFramebuffer();
+        everyEdge.save(m_outDir + QStringLiteral("/border-octahedron-bands-every-edge.png"));
+        gl->m_sharedEdgesOff = false;
+        gl->update();  wait(300);
+        const double shown = changed(plain, outline);
+        const double all = changed(plain, everyEdge);
+        check(shown > 0.001 && shown < 0.9 * all,
+              QStringLiteral("Octahedron Bands col bordo -> niente bordo dove le fasce si incrociano "
+                             "(contorno %1 dei pixel, tutti gli orli %2)").arg(pct(shown), pct(all)));
+        ui->borderThicknessSlider->setValue(0);  wait(300);
+        click(ui->radioSurface);
+    }
+
     // FLUSSO GEODETICO: il test dei lati coperti lo fa la CPU sulla mesh
     // disegnata (GLWidget::setBorderEdges, riga 8 texel 1 della texture dei
     // lati). Plucker Conoid in H3: le ultime traiettorie ripercorrono le prime,

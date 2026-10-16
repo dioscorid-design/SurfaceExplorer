@@ -611,7 +611,8 @@ void GLWidget::createSharedEdgeResources()
     if (!rhi()->isFeatureSupported(QRhi::Compute)
         || !rhi()->isTextureFormatSupported(QRhiTexture::RGBA8, QRhiTexture::UsedWithLoadStore))
         return;
-    m_sharedEdgeTex = rhi()->newTexture(QRhiTexture::RGBA8, QSize(12, kSharedEdgeMaxParts),
+    // Un texel per campione del lato: colonna = campione, riga = parte * 4 + lato.
+    m_sharedEdgeTex = rhi()->newTexture(QRhiTexture::RGBA8, QSize(kSharedEdgeSamples + 1, 4 * kSharedEdgeMaxParts),
                                         1, QRhiTexture::UsedWithLoadStore);
     if (!m_sharedEdgeTex->create()) {
         delete m_sharedEdgeTex;
@@ -624,14 +625,20 @@ void GLWidget::createSharedEdgeResources()
     // In testa (numero di parti, 0, 0, 0), poi due vec4 per parte.
     m_sharedEdgeParts = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer,
                                          quint32(1 + 2 * kSharedEdgeMaxParts) * 16u);
-    // Per parte, lato e campione: il punto e il punto appena dentro (2 vec4).
+    // Per parte: i campioni dei lati (punto e punto appena dentro), poi la
+    // griglia dell'interno.
     m_sharedEdgeSamples = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer,
-                                           quint32(kSharedEdgeMaxParts * 4 * (kSharedEdgeSamples + 1) * 2) * 16u);
-    if (!m_sharedEdgeParts->create() || !m_sharedEdgeSamples->create()) {
+                                           quint32(kSharedEdgeMaxParts * kSharedEdgePartVec4) * 16u);
+    // Per parte e blocco di celle: centro e raggio della sfera che lo contiene.
+    m_sharedEdgeTiles = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer,
+                                         quint32(kSharedEdgeMaxParts * kSharedEdgeTiles * 2) * 16u);
+    if (!m_sharedEdgeParts->create() || !m_sharedEdgeSamples->create() || !m_sharedEdgeTiles->create()) {
         delete m_sharedEdgeParts;
         m_sharedEdgeParts = nullptr;
         delete m_sharedEdgeSamples;
         m_sharedEdgeSamples = nullptr;
+        delete m_sharedEdgeTiles;
+        m_sharedEdgeTiles = nullptr;
         m_sharedEdgeTex->destroy();
         delete m_sharedEdgeTex;
         m_sharedEdgeTex = nullptr;
@@ -642,8 +649,9 @@ void GLWidget::createSharedEdgeResources()
 
 QRhiShaderResourceBinding GLWidget::sharedEdgesBinding() const
 {
+    // Anche il fragment: scarta i tratti coperti di un lato.
     return QRhiShaderResourceBinding::sampledTexture(
-        4, QRhiShaderResourceBinding::VertexStage,
+        4, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
         m_sharedEdgeTex ? m_sharedEdgeTex : m_dummyTexture,
         m_sharedEdgeSampler ? m_sharedEdgeSampler : m_sampler);
 }
@@ -655,7 +663,8 @@ void GLWidget::setSharedEdgeBindings()
             0, QRhiShaderResourceBinding::ComputeStage, m_ubo, sizeof(UboData)),
         QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeTex, 0),
         QRhiShaderResourceBinding::bufferLoad(2, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeParts),
-        QRhiShaderResourceBinding::bufferLoadStore(3, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeSamples)
+        QRhiShaderResourceBinding::bufferLoadStore(3, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeSamples),
+        QRhiShaderResourceBinding::bufferLoadStore(4, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeTiles)
     });
 }
 
@@ -668,7 +677,7 @@ void GLWidget::releaseSharedEdgePipeline()
 
 bool GLWidget::sharedEdgesActive()
 {
-    if (m_sharedEdgesOff || !m_sharedEdgeTex || !m_sharedEdgeParts || !m_sharedEdgeSamples || !engine
+    if (m_sharedEdgesOff || !m_sharedEdgeTex || !m_sharedEdgeParts || !m_sharedEdgeSamples || !m_sharedEdgeTiles || !engine
         || m_engineMode != ModeParametric || m_borderRadius <= 0.0f || m_isCustomMesh || engine->isTubeModeActive())
         return false;
     const int parts = (int)engine->getMeshParts().size();
@@ -716,7 +725,8 @@ void GLWidget::buildSharedEdgePipeline()
 {
     m_sharedEdgeSourceDirty = false;
     releaseSharedEdgePipeline();
-    if (m_sharedEdgeSource.isEmpty() || !m_sharedEdgeTex || !m_sharedEdgeParts || !m_sharedEdgeSamples || !m_ubo)
+    if (m_sharedEdgeSource.isEmpty() || !m_sharedEdgeTex || !m_sharedEdgeParts || !m_sharedEdgeSamples
+        || !m_sharedEdgeTiles || !m_ubo)
         return;
 
     QString src = vertexAsComputeLibrary(m_sharedEdgeSource, QStringLiteral("SHARED_EDGE_COMPUTE"),
@@ -731,98 +741,170 @@ layout(rgba8, binding = 1) writeonly uniform image2D u_sharedOut;
 // In testa (numero di parti, 0, 0, 0); per parte (u_min, u_max, v_min, v_max)
 // e (indice della mesh, 0, 0, 0).
 layout(std430, binding = 2) readonly buffer SharedEdgeParts { vec4 p[]; } parts;
-// Per parte, lato e campione: il punto e il punto appena dentro.
+// Per parte: i campioni dei lati (punto, punto appena dentro), poi la griglia
+// dell'interno.
 layout(std430, binding = 3) buffer SharedEdgeSamples { vec4 s[]; } samples;
+// Per parte e blocco di celle: centro (4D) e raggio della sfera che lo contiene.
+layout(std430, binding = 4) buffer SharedEdgeTiles { vec4 t[]; } tiles;
 
-const int EDGE_SAMPLES = %1;
+const int EDGE_SAMPLES = %1;   // intervalli per lato
+const int GRID = %2;           // celle per lato del dominio
+const int TILE = %3;           // celle per lato di un blocco
+const int TILES = GRID / TILE;
+const int SIDE_VEC4 = 8 * (EDGE_SAMPLES + 1);
+const int PART_VEC4 = SIDE_VEC4 + (GRID + 1) * (GRID + 1);
 // Passo verso l'interno, in frazione del dominio.
 const float EDGE_INWARD = 0.002;
-// Frazioni del lato dei tre punti di prova (vedi buildSharedEdgePipeline).
-const float SHARED_EDGE_AT[3] = float[3](0.1834, 0.3912, 0.8259);
 
-int edgeSlot(int part, int side, int m) { return ((part * 4 + side) * (EDGE_SAMPLES + 1) + m) * 2; }
+int edgeSlot(int part, int side, int m) { return part * PART_VEC4 + (side * (EDGE_SAMPLES + 1) + m) * 2; }
+int gridSlot(int part, int i, int j) { return part * PART_VEC4 + SIDE_VEC4 + i * (GRID + 1) + j; }
+
+// Distanza di p dal triangolo abc (4D).
+float pointTriangle(vec4 p, vec4 a, vec4 b, vec4 c) {
+    vec4 e0 = b - a, e1 = c - a, v = p - a;
+    float m00 = dot(e0, e0), m01 = dot(e0, e1), m11 = dot(e1, e1);
+    float r0 = dot(v, e0), r1 = dot(v, e1);
+    float det = m00 * m11 - m01 * m01;
+    if (abs(det) > 1.0e-30) {
+        float s = (r0 * m11 - r1 * m01) / det;
+        float t = (r1 * m00 - r0 * m01) / det;
+        if (s >= 0.0 && t >= 0.0 && s + t <= 1.0) return length(a + s * e0 + t * e1 - p);
+    }
+    vec4 ab = b - a, bc = c - b, ca = a - c;
+    float ta = clamp(dot(p - a, ab) / max(dot(ab, ab), 1.0e-30), 0.0, 1.0);
+    float tb = clamp(dot(p - b, bc) / max(dot(bc, bc), 1.0e-30), 0.0, 1.0);
+    float tc = clamp(dot(p - c, ca) / max(dot(ca, ca), 1.0e-30), 0.0, 1.0);
+    return min(length(a + ta * ab - p), min(length(b + tb * bc - p), length(c + tc * ca - p)));
+}
 
 void main() {
     int count = int(parts.p[0].x + 0.5);
     int id = int(gl_GlobalInvocationID.x);
+    int phase = ubuf.u_isBorder;
 
-    if (ubuf.u_isBorder == 0) {
-        // PRIMA PASSATA: un campione del lato (0 v = v_min, 1 v = v_max,
-        // 2 u = u_min, 3 u = u_max) per invocazione, col punto appena dentro.
-        int part = id / (4 * (EDGE_SAMPLES + 1));
+    if (phase == 10) {
+        // PRIMA PASSATA: un campione per invocazione. Dei lati (0 v = v_min,
+        // 1 v = v_max, 2 u = u_min, 3 u = u_max) col punto appena dentro,
+        // o della griglia dell'interno. Una sola chiamata alla superficie.
+        int perPart = 4 * (EDGE_SAMPLES + 1) + (GRID + 1) * (GRID + 1);
+        int part = id / perPart;
         if (part >= count) return;
-        int side = (id / (EDGE_SAMPLES + 1)) % 4;
-        int m = id % (EDGE_SAMPLES + 1);
-        float f = float(m) / float(EDGE_SAMPLES);
+        int local = id % perPart;
         vec4 d = parts.p[1 + 2 * part];
         g_sharedEdgeMesh = parts.p[2 + 2 * part].x;
-        for (int c = 0; c < 2; ++c) {
-            float in_ = (c == 0) ? 0.0 : EDGE_INWARD;
-            float u = (side < 2) ? mix(d.x, d.y, f) : ((side == 2) ? mix(d.x, d.y, in_) : mix(d.y, d.x, in_));
-            float v = (side < 2) ? ((side == 0) ? mix(d.z, d.w, in_) : mix(d.w, d.z, in_)) : mix(d.z, d.w, f);
-            samples.s[edgeSlot(part, side, m) + c] = getRawPositionAuto(u, v);
+        int n = 1;
+        vec2 uv[2];
+        int slot[2];
+        if (local < 4 * (EDGE_SAMPLES + 1)) {
+            int side = local / (EDGE_SAMPLES + 1);
+            int m = local % (EDGE_SAMPLES + 1);
+            float f = float(m) / float(EDGE_SAMPLES);
+            n = 2;
+            for (int c = 0; c < 2; ++c) {
+                float in_ = (c == 0) ? 0.0 : EDGE_INWARD;
+                float u = (side < 2) ? mix(d.x, d.y, f) : ((side == 2) ? mix(d.x, d.y, in_) : mix(d.y, d.x, in_));
+                float v = (side < 2) ? ((side == 0) ? mix(d.z, d.w, in_) : mix(d.w, d.z, in_)) : mix(d.z, d.w, f);
+                uv[c] = vec2(u, v);
+                slot[c] = edgeSlot(part, side, m) + c;
+            }
+        } else {
+            int g = local - 4 * (EDGE_SAMPLES + 1);
+            int i = g / (GRID + 1);
+            int j = g % (GRID + 1);
+            uv[0] = vec2(mix(d.x, d.y, float(i) / float(GRID)), mix(d.z, d.w, float(j) / float(GRID)));
+            slot[0] = gridSlot(part, i, j);
         }
+        for (int c = 0; c < n; ++c) samples.s[slot[c]] = getRawPositionAuto(uv[c].x, uv[c].y);
         return;
     }
 
-    // SECONDA PASSATA: un punto di prova per invocazione.
-    int part = id / 12;
-    int side = (id / 3) % 4;
-    int k = id % 3;
+    if (phase == 11) {
+        // SECONDA PASSATA: la sfera di ogni blocco di TILE x TILE celle.
+        int part = id / (TILES * TILES);
+        if (part >= count) return;
+        int ti = (id / TILES) % TILES;
+        int tj = id % TILES;
+        vec4 lo = vec4(1.0e30), hi = vec4(-1.0e30);
+        for (int i = ti * TILE; i <= ti * TILE + TILE; ++i)
+            for (int j = tj * TILE; j <= tj * TILE + TILE; ++j) {
+                vec4 x = samples.s[gridSlot(part, i, j)];
+                lo = min(lo, x);
+                hi = max(hi, x);
+            }
+        vec4 c = 0.5 * (lo + hi);
+        float r = 0.0;
+        for (int i = ti * TILE; i <= ti * TILE + TILE; ++i)
+            for (int j = tj * TILE; j <= tj * TILE + TILE; ++j)
+                r = max(r, length(samples.s[gridSlot(part, i, j)] - c));
+        int slot = (part * TILES * TILES + ti * TILES + tj) * 2;
+        tiles.t[slot] = c;
+        tiles.t[slot + 1] = vec4(r, 0.0, 0.0, 0.0);
+        return;
+    }
+
+    // TERZA PASSATA: un campione del lato per invocazione. Coperto se una
+    // cella della superficie -- di un'altra parte o della stessa, lontana nel
+    // dominio -- passa per il punto e il suo foglio parte in una direzione
+    // diversa da quella del lato verso l'interno (nel piano normale al lato).
+    int part = id / (4 * (EDGE_SAMPLES + 1));
     if (part >= count) return;
-    int mk = int(floor(SHARED_EDGE_AT[k] * float(EDGE_SAMPLES) + 0.5));
-    vec4 P = samples.s[edgeSlot(part, side, mk)];
-    vec4 T = samples.s[edgeSlot(part, side, min(mk + 1, EDGE_SAMPLES))]
-           - samples.s[edgeSlot(part, side, max(mk - 1, 0))];
+    int side = (id / (EDGE_SAMPLES + 1)) % 4;
+    int m = id % (EDGE_SAMPLES + 1);
+    vec4 P = samples.s[edgeSlot(part, side, m)];
+    vec4 T = samples.s[edgeSlot(part, side, min(m + 1, EDGE_SAMPLES))]
+           - samples.s[edgeSlot(part, side, max(m - 1, 0))];
     T = (dot(T, T) > 1.0e-30) ? normalize(T) : vec4(0.0);
-    vec4 inward = samples.s[edgeSlot(part, side, mk) + 1] - P;
+    vec4 inward = samples.s[edgeSlot(part, side, m) + 1] - P;
     inward -= dot(inward, T) * T;
     inward = (dot(inward, inward) > 1.0e-30) ? normalize(inward) : vec4(0.0);
     // Tolleranza in proporzione alla distanza dall'origine: l'errore del
     // float cresce con lei.
     float tol = 1.0e-3 * max(1.0, length(P));
+    // Il punto nella griglia della sua parte, per escluderne l'intorno.
+    float f = float(m) / float(EDGE_SAMPLES) * float(GRID);
+    vec2 own = (side == 0) ? vec2(f, 0.0) : (side == 1) ? vec2(f, float(GRID))
+             : (side == 2) ? vec2(0.0, f) : vec2(float(GRID), f);
 
     // Polo: il lato e' (quasi) un punto.
     float len = 0.0;
-    for (int m = 0; m < EDGE_SAMPLES; ++m)
-        len += length(samples.s[edgeSlot(part, side, m + 1)] - samples.s[edgeSlot(part, side, m)]);
+    for (int k = 0; k < EDGE_SAMPLES; ++k)
+        len += length(samples.s[edgeSlot(part, side, k + 1)] - samples.s[edgeSlot(part, side, k)]);
     bool found = len < tol;
 
-    // Intorno escluso del punto stesso sul suo lato, in campioni.
-    const int OWN = EDGE_SAMPLES / 20 + 1;
     for (int j = 0; j < count && !found; ++j) {
-        for (int s = 0; s < 4 && !found; ++s) {
-            vec4 a = samples.s[edgeSlot(j, s, 0)];
-            vec4 ia = samples.s[edgeSlot(j, s, 0) + 1] - a;
-            vec4 prev = a;
-            for (int m = 0; m < EDGE_SAMPLES && !found; ++m) {
-                vec4 b = samples.s[edgeSlot(j, s, m + 1)];
-                vec4 ib = samples.s[edgeSlot(j, s, m + 1) + 1] - b;
-                if (!(j == part && s == side && abs(m - mk) <= OWN)) {
-                    vec4 ab = b - a;
-                    float L2 = dot(ab, ab);
-                    float t = (L2 > 1.0e-30) ? clamp(dot(P - a, ab) / L2, 0.0, 1.0) : 0.0;
-                    // Il punto sta sul lato vero, che fra due campioni si
-                    // scosta dalla corda di circa L * angolo / 8.
-                    vec4 ba = a - prev;
-                    float turn = (L2 > 1.0e-30 && dot(ba, ba) > 1.0e-30)
-                               ? sqrt(max(0.0, 2.0 * (1.0 - dot(normalize(ab), normalize(ba))))) : 0.0;
-                    if (length(a + t * ab - P) < tol + 0.125 * sqrt(L2) * min(turn, 1.0)) {
-                        vec4 w = mix(ia, ib, t);
+        for (int tt = 0; tt < TILES * TILES && !found; ++tt) {
+            int tslot = (j * TILES * TILES + tt) * 2;
+            float r = tiles.t[tslot + 1].x;
+            // Fra due nodi la superficie si scosta dalle celle: margine sul raggio.
+            if (length(P - tiles.t[tslot]) > 1.1 * r + tol) continue;
+            int ti = tt / TILES, tj = tt % TILES;
+            for (int ci = ti * TILE; ci < ti * TILE + TILE && !found; ++ci) {
+                for (int cj = tj * TILE; cj < tj * TILE + TILE && !found; ++cj) {
+                    if (j == part && abs(float(ci) + 0.5 - own.x) < 2.5 && abs(float(cj) + 0.5 - own.y) < 2.5)
+                        continue;
+                    vec4 x00 = samples.s[gridSlot(j, ci, cj)];
+                    vec4 x10 = samples.s[gridSlot(j, ci + 1, cj)];
+                    vec4 x01 = samples.s[gridSlot(j, ci, cj + 1)];
+                    vec4 x11 = samples.s[gridSlot(j, ci + 1, cj + 1)];
+                    float diag = max(length(x11 - x00), length(x10 - x01));
+                    float dist = min(pointTriangle(P, x00, x10, x01), pointTriangle(P, x01, x10, x11));
+                    if (dist >= tol + 0.06 * diag) continue;
+                    // Direzioni dei vertici della cella, abbastanza lontani
+                    // dal lato (non quelli lungo il lato stesso).
+                    for (int c = 0; c < 4 && !found; ++c) {
+                        vec4 w = ((c == 0) ? x00 : (c == 1) ? x10 : (c == 2) ? x01 : x11) - P;
                         w -= dot(w, T) * T;
-                        found = dot(w, w) > 1.0e-30 && dot(normalize(w), inward) < 0.995;
+                        float L = length(w);
+                        found = L > 0.25 * diag + tol && dot(w, inward) < 0.995 * L;
                     }
                 }
-                prev = a;
-                a = b;
-                ia = ib;
             }
         }
     }
-    int row = int(parts.p[2 + 2 * part].x + 0.5);
-    imageStore(u_sharedOut, ivec2(side * 3 + k, row), vec4(found ? 1.0 : 0.0));
+    int row = int(parts.p[2 + 2 * part].x + 0.5) * 4 + side;
+    imageStore(u_sharedOut, ivec2(m, row), vec4(found ? 1.0 : 0.0));
 }
-)").arg(kSharedEdgeSamples);
+)").arg(kSharedEdgeSamples).arg(kSharedEdgeGrid).arg(kSharedEdgeTileCells);
 
     QShader shader;
     QString error;
@@ -1737,7 +1819,8 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // Cresce l'UBO se lo script ha dichiarato piu' parti della capienza attuale.
     // ensureUboCapacity riaggancia i binding in place (senza distruggerli),
     // quindi le pipeline restano valide e non serve ricostruirle.
-    ensureUboCapacity(uboPartSlots * (borderOn ? 2 : 1));
+    // Col bordo, dopo i suoi blocchi, i tre della passata dei lati coperti.
+    ensureUboCapacity(uboPartSlots * (borderOn ? 2 : 1) + (borderOn ? 3 : 0));
     ensureDynamicBindings(m_surfaceTexture ? m_surfaceTexture : m_dummyTexture);
     // Immagini proprie delle fasce: prima dei blocchi, che ne dipendono (u_noImage).
     syncPartImages(resourceUpdates);
@@ -2333,24 +2416,32 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             key.append(reinterpret_cast<const char *>(&m_uboData.u_meshCount), sizeof(float));
             if (key != m_sharedEdgeKey) {
                 m_sharedEdgeKey = key;
-                // Prima i campioni dei lati (blocco di una parte, u_isBorder
-                // = 0), poi i punti di prova (blocco del bordo, u_isBorder = 1).
-                // Due passate distinte: la seconda legge cio' che la prima scrive.
+                // Tre passate distinte, ciascuna legge cio' che la precedente
+                // scrive: campioni (fase 10), sfere dei blocchi (11), test dei
+                // campioni dei lati (12). La fase sta nel loro blocco UBO, dopo
+                // quelli del bordo; il resto del blocco e' quello globale
+                // (costanti, tempo, vincoli).
                 const int count = int(edgeParts.size());
-                const int sampleCount = count * 4 * (kSharedEdgeSamples + 1);
-                cb->beginComputePass(resourceUpdates);
-                resourceUpdates = nullptr;
-                cb->setComputePipeline(m_sharedEdgePipeline);
-                const QRhiCommandBuffer::DynamicOffset sampleOfs(0, 0);
-                cb->setShaderResources(m_sharedEdgeSrb, 1, &sampleOfs);
-                cb->dispatch((sampleCount + 63) / 64, 1, 1);
-                cb->endComputePass();
-                cb->beginComputePass();
-                cb->setComputePipeline(m_sharedEdgePipeline);
-                const QRhiCommandBuffer::DynamicOffset testOfs(0, quint32(edgeSlots) * m_uboBlockStride);
-                cb->setShaderResources(m_sharedEdgeSrb, 1, &testOfs);
-                cb->dispatch((count * 12 + 63) / 64, 1, 1);
-                cb->endComputePass();
+                const int work[3] = {
+                    count * (4 * (kSharedEdgeSamples + 1) + (kSharedEdgeGrid + 1) * (kSharedEdgeGrid + 1)),
+                    count * kSharedEdgeTiles,
+                    count * 4 * (kSharedEdgeSamples + 1) };
+                for (int phase = 0; phase < 3; ++phase) {
+                    UboData block = m_uboData;
+                    block.u_isBorder = 10 + phase;
+                    const quint32 offset = quint32(2 * edgeSlots + phase) * m_uboBlockStride;
+                    if (!resourceUpdates) resourceUpdates = rhi()->nextResourceUpdateBatch();
+                    resourceUpdates->updateDynamicBuffer(m_ubo, offset, sizeof(UboData), &block);
+                }
+                for (int phase = 0; phase < 3; ++phase) {
+                    cb->beginComputePass(resourceUpdates);
+                    resourceUpdates = nullptr;
+                    cb->setComputePipeline(m_sharedEdgePipeline);
+                    const QRhiCommandBuffer::DynamicOffset ofs(0, quint32(2 * edgeSlots + phase) * m_uboBlockStride);
+                    cb->setShaderResources(m_sharedEdgeSrb, 1, &ofs);
+                    cb->dispatch((work[phase] + 63) / 64, 1, 1);
+                    cb->endComputePass();
+                }
             }
         }
 
@@ -2742,6 +2833,11 @@ void GLWidget::releaseResources()
         m_sharedEdgeSamples->destroy();
         delete m_sharedEdgeSamples;
         m_sharedEdgeSamples = nullptr;
+    }
+    if (m_sharedEdgeTiles) {
+        m_sharedEdgeTiles->destroy();
+        delete m_sharedEdgeTiles;
+        m_sharedEdgeTiles = nullptr;
     }
     m_sharedEdgeTable.clear();
     m_sharedEdgeSourceDirty = !m_sharedEdgeSource.isEmpty();
@@ -7478,6 +7574,11 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
 
     if (hasCutout) {
         fullSource.replace("#version 450", "#version 450\n#define HAS_CUTOUT\n");
+    }
+    // Bordo acceso: il fragment scarta i tratti coperti dei suoi lati
+    // (borderFragmentCovered), con la stessa condizione del vertex.
+    if (m_borderRadius > 0.0f && borderSupported()) {
+        fullSource.replace("#version 450", "#version 450\n#define HAS_BORDER\n");
     }
 
     if (m_isCustomMesh) {
