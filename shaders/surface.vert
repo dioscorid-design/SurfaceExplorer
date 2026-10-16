@@ -876,10 +876,48 @@ void emitBorderCorner() {
         emitBorderHidden();
         return;
     }
+    // Se si vede un lato solo e PROSEGUE liscio attraverso l'angolo -- nel suo
+    // altro capo (un lato che si richiude: l'orlo dei mezzi tori di Hopf) o,
+    // ritorto, nel capo del lato opposto (l'orlo del nastro di Moebius) -- il
+    // tubo e' continuo e la sfera non serve. Anzi: dentro il tubo, a 0.98 r
+    // contro facce a 0.991 r, da lontano la profondita' non la separava piu'
+    // dalle facce e affiorava come una mezzaluna scura. Punti: 0 l'angolo,
+    // 2 l'altro capo, 4 l'altro capo del lato opposto, ciascuno col vicino
+    // verso l'interno del lato (1, 3, 5). Una sola chiamata alla superficie
+    // nel ciclo (Mali la ricopia per ogni punto di chiamata).
+    bool oneSide = hideAlongU != hideAlongV;
+    bool alongU = !hideAlongU;
+    float aHere = alongU ? uv.x : uv.y;
+    float aThere = alongU ? (atUMin ? ubuf.u_max : ubuf.u_min) : (atVMin ? ubuf.v_max : ubuf.v_min);
+    float fixedHere = alongU ? uv.y : uv.x;
+    float fixedOpp = alongU ? (atVMin ? ubuf.v_max : ubuf.v_min) : (atUMin ? ubuf.u_max : ubuf.u_min);
+    float stepIn = 0.001 * (aThere - aHere);   // da qui verso l'altro capo
+    vec3 pts[6];
+    int count = oneSide ? 6 : 1;
+    for (int i = 0; i < count; ++i) {
+        float a = (i < 2) ? aHere + float(i) * stepIn : aThere - float(i % 2) * stepIn;
+        float c = (i < 4) ? fixedHere : fixedOpp;
+        vec2 q = alongU ? vec2(a, c) : vec2(c, a);
+        pts[i] = borderScenePoint(q.x, q.y);
+    }
+    if (oneSide) {
+        // Direzioni nel verso del lato da qui all'altro capo: arrivando
+        // all'altro capo il tubo prosegue da qui nella stessa direzione.
+        float tol = 1.0e-3 * max(1.0, length(pts[0]));
+        vec3 tHere = pts[1] - pts[0];
+        vec3 tThere = pts[2] - pts[3];
+        vec3 tOpp = pts[4] - pts[5];
+        bool straight = length(pts[2] - pts[0]) < tol && dot(tHere, tThere) > 0.99 * length(tHere) * length(tThere);
+        bool twisted = length(pts[4] - pts[0]) < tol && dot(tHere, tOpp) > 0.99 * length(tHere) * length(tOpp);
+        if (straight || twisted) {
+            emitBorderHidden();
+            return;
+        }
+    }
     float lon = vertex.z;
     float lat = normal.x;
     vec3 n = vec3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat));
-    vec3 pos = borderScenePoint(uv.x, uv.y) + BORDER_JOINT_SCALE * ubuf.u_borderRadius * n;
+    vec3 pos = pts[0] + BORDER_JOINT_SCALE * ubuf.u_borderRadius * n;
     v_pos = vec3(ubuf.u_mvMatrix * vec4(pos, 1.0));
     v_normal = ubuf.u_mvMatrix * vec4(n, 0.0);
     v_texCoord = vec2(lon / 6.28318531, 0.5 - lat / 3.14159265);
