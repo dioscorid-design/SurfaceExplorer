@@ -3820,7 +3820,7 @@ void ScenarioTest::runLoadOrderScenarios()
         { "Ray Marching script",       "records/Rotations/Implicit/3D/Ergosphere.json" },
         { "Cross Section",             "records/Animations/Implicit/Cross Sections/Duocylinder.json" },
         { "multi-mesh a sezioni",      "surfaces/Parametric/Surfaces/Multi Meshes/Hopf Tori Mesh Colors.json" },
-        { "bordo",                     "surfaces/Parametric/Surfaces/Borders/Mobius.json" },
+        { "bordo",                     "surfaces/Parametric/Solid Curves/Borders/Mobius.json" },
     };
 
     m_lines.append(QString());
@@ -4422,6 +4422,31 @@ void ScenarioTest::runBorderScenarios()
             m_mw->m_presetSerializer->captureSurfaceState(QStringLiteral("plain")));
         check(!json.contains(QStringLiteral("border")),
               QStringLiteral("Save senza bordo -> nessuna chiave \"border\""));
+    }
+
+    // ANGOLI E 4D: l'Enneper in H3 ha un dominio quadrato (quattro angoli) e
+    // w = 0.5 su tutta la superficie. Il bordo era strozzato agli angoli (i tubi
+    // dei lati finivano con una sezione piatta) e la superficie lo tagliava a
+    // tratti (lo spareggio di profondita' 4D lo faceva solo lei). Immagine da
+    // guardare: border-h3-enneper.png.
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/H3/Enneper.json"))) {
+        click(ui->radioBorder);
+        const double eff = borderEffect(60, QStringLiteral("h3-enneper"));
+        check(eff > 0.001, QStringLiteral("Enneper in H3 col bordo -> il bordo si vede (%1 dei pixel)").arg(pct(eff)));
+        ui->borderThicknessSlider->setValue(0);  wait(300);
+        click(ui->radioSurface);
+    }
+    // SEZIONE TRASPORTATA: sul bordo u = 8 della Hyperbolic Saddle la
+    // direzione verso l'interno e' quasi nulla (tanh satura) e gira di 180
+    // gradi dove cos(2v) = 0; quando l'anello la seguiva punto per punto il
+    // tubo si strozzava in quei punti. Bordo spesso per vederlo bene, immagine
+    // da guardare: border-hyperbolic-saddle.png.
+    if (loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/H2xR/Hyperbolic Saddle.json"))) {
+        click(ui->radioBorder);
+        const double eff = borderEffect(70, QStringLiteral("hyperbolic-saddle"));
+        check(eff > 0.001, QStringLiteral("Hyperbolic Saddle col bordo spesso -> il bordo si vede (%1 dei pixel)").arg(pct(eff)));
+        ui->borderThicknessSlider->setValue(0);  wait(300);
+        click(ui->radioSurface);
     }
 
     // Ray Marching: il bordo non esiste, il radio si spegne e il bersaglio

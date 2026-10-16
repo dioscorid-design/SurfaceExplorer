@@ -244,6 +244,8 @@ public:
     // CPU non sa se un lato e' davvero un bordo -- per gli script non puo'
     // valutare la superficie, e una cucitura puo' dipendere dal tempo -- quindi
     // li genera tutti e quattro e lo shader appiattisce quelli che non lo sono.
+    // In coda ai lati, per ogni parte, una sfera in ciascuno dei quattro angoli
+    // (giunto fra due lati, normal.w = 2).
     // Lati del poligono attorno al tubo.
     static constexpr int kBorderRing = 12;
     struct BorderRange {

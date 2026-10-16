@@ -651,6 +651,20 @@ vec3 borderScenePoint(float u, float v) {
     return projectToScene(getRotatedPoint4D(u, v));
 #endif
 }
+// La w 4D della figura in (u, v): la usa lo spareggio di profondita' 4D, che
+// il bordo deve fare uguale alla figura a cui sta attaccato (main() per le
+// superfici, emitTubeVertex per i tubi).
+float borderFigureW(float u, float v) {
+#ifdef IS_TUBE
+    vec3 C, E1, E2;
+    vec4 C4, T4;
+    float uAt;
+    tubeSceneFrame(u, C, E1, E2, C4, T4, uAt);
+    return C4.w;
+#else
+    return getRotatedPoint4D(u, v).w;
+#endif
+}
 
 #ifdef HAS_BORDER
 // BORDO DELLA SUPERFICIE: un tubo di raggio u_borderRadius attorno a un lato
@@ -698,11 +712,89 @@ bool borderEdgeHidden(vec2 along, float fixedCoord, float opposite, float alongS
     return straight || twisted || len < tol;
 }
 
+// Campioni fissi lungo un lato per il trasporto della sezione (emitBorderVertex).
+const int BORDER_FRAME_SAMPLES = 32;
+
+// Punto del lato: a e' la coordinata lungo il lato, fixedCoord l'altra.
+vec3 borderEdgePoint(vec2 along, float fixedCoord, float a) {
+    vec2 p = (along.x > 0.5) ? vec2(a, fixedCoord) : vec2(fixedCoord, a);
+    return borderScenePoint(p.x, p.y);
+}
+
+// Una direzione qualunque perpendicolare a t (unitario).
+vec3 borderAnyNormal(vec3 t) {
+    vec3 alt = (abs(t.x) < 0.9) ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+    return normalize(alt - t * dot(alt, t));
+}
+
+// f, perpendicolare a t0, ruotato della rotazione minima che porta t0 su t1.
+// Con t0 e t1 quasi opposti (cuspide) la rotazione non e' definita: si
+// proietta sul piano normale a t1.
+vec3 borderCarry(vec3 f, vec3 t0, vec3 t1) {
+    float c = dot(t0, t1);
+    vec3 r = (c > -0.99) ? f - dot(f, t1) / (1.0 + c) * (t0 + t1)
+                         : f - t1 * dot(f, t1);
+    return (dot(r, r) > 1.0e-12) ? normalize(r) : borderAnyNormal(t1);
+}
+
+// Vertice fuori dal volume di clip: triangoli e linee si scartano interi.
+void emitBorderHidden() {
+    v_pos = vec3(0.0);
+    v_normal = vec4(0.0, 0.0, 1.0, 0.0);
+    v_texCoord = vec2(0.0);
+    v_light4D = 1.0;
+    v_spec4D = 0.0;
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+}
+
+// Posizione finale di un vertice del bordo, col tie-break di profondita' 4D
+// della figura in (u, v). Senza, su una figura con w diverso da zero (l'Enneper
+// in H3 ha w = 0.5) la superficie veniva spostata in profondita' e il bordo no:
+// il foglio, che dentro il tubo arriva fino all'asse, ne usciva attraverso la
+// parete e lo tagliava a tratti.
+vec4 borderClip(vec3 pos, vec2 uv) {
+    vec4 clip = ubuf.u_mvpMatrix * vec4(pos, 1.0);
+    clip.z -= clamp(borderFigureW(uv.x, uv.y), -1.0, 1.0) * 0.0005 * clip.w;
+    clip += ubuf.u_dummyZero * 0.000001;
+    return clip;
+}
+
+// GIUNTO D'ANGOLO (vedi SurfaceEngine::generateBorder): una sfera di raggio
+// u_borderRadius nell'angolo (u, v) del dominio, vertex.z = longitudine,
+// normal.x = latitudine. Si vede se almeno uno dei due lati che vi si
+// incontrano si vede.
+void emitBorderCorner() {
+    vec2 uv = vertex.xy;
+    bool atUMin = abs(uv.x - ubuf.u_min) <= abs(uv.x - ubuf.u_max);
+    bool atVMin = abs(uv.y - ubuf.v_min) <= abs(uv.y - ubuf.v_max);
+    bool hideAlongU = borderEdgeHidden(vec2(1.0, 0.0), uv.y, atVMin ? ubuf.v_max : ubuf.v_min,
+                                       ubuf.u_min + ubuf.u_max, ubuf.u_min, ubuf.u_max);
+    bool hideAlongV = borderEdgeHidden(vec2(0.0, 1.0), uv.x, atUMin ? ubuf.u_max : ubuf.u_min,
+                                       ubuf.v_min + ubuf.v_max, ubuf.v_min, ubuf.v_max);
+    if (hideAlongU && hideAlongV) {
+        emitBorderHidden();
+        return;
+    }
+    float lon = vertex.z;
+    float lat = normal.x;
+    vec3 n = vec3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat));
+    vec3 pos = borderScenePoint(uv.x, uv.y) + ubuf.u_borderRadius * n;
+    v_pos = vec3(ubuf.u_mvMatrix * vec4(pos, 1.0));
+    v_normal = ubuf.u_mvMatrix * vec4(n, 0.0);
+    v_texCoord = vec2(lon / 6.28318531, 0.5 - lat / 3.14159265);
+    v_light4D = 1.0;
+    v_spec4D = 0.0;
+    gl_Position = borderClip(pos, uv);
+}
+
 void emitBorderVertex() {
+    if (normal.w > 1.5) {
+        emitBorderCorner();
+        return;
+    }
     vec2 uv = vertex.xy;
     float ang = vertex.z;
     vec2 along = normal.xy;
-    vec2 inward = vec2(along.y, along.x) * normal.z;
     float e = 0.0005;
     float a0 = (along.x > 0.5) ? ubuf.u_min : ubuf.v_min;
     float a1 = (along.x > 0.5) ? ubuf.u_max : ubuf.v_max;
@@ -712,31 +804,70 @@ void emitBorderVertex() {
     // triangoli spariscono, ma in wireframe le linee lungo il tubo collassano
     // sulla cucitura e si vedono (un tratteggio sul toro).
     if (borderEdgeHidden(along, (along.x > 0.5) ? uv.y : uv.x, texCoord.x, texCoord.y, a0, a1)) {
-        v_pos = vec3(0.0);
-        v_normal = vec4(0.0, 0.0, 1.0, 0.0);
-        v_texCoord = vec2(0.0);
-        v_light4D = 1.0;
-        v_spec4D = 0.0;
-        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        emitBorderHidden();
         return;
     }
 
     vec3 P = borderScenePoint(uv.x, uv.y);
     vec3 T = borderScenePoint(uv.x + along.x * e, uv.y + along.y * e)
            - borderScenePoint(uv.x - along.x * e, uv.y - along.y * e);
-    vec3 Q = borderScenePoint(uv.x + inward.x * e, uv.y + inward.y * e) - P;
     float lenT = length(T);
     float r = ubuf.u_borderRadius;
-
-    // Cerchio nel piano normale al lato, orientato sulla superficie: il primo
-    // asse e' la direzione verso l'interno, tolta la componente lungo il lato.
     vec3 Tn = (lenT > 1.0e-9) ? T / lenT : vec3(1.0, 0.0, 0.0);
-    vec3 E1 = Q - Tn * dot(Q, Tn);
-    if (dot(E1, E1) < 1.0e-18) {
-        vec3 alt = (abs(Tn.x) < 0.9) ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
-        E1 = alt - Tn * dot(alt, Tn);
+
+    // Cerchio nel piano normale al lato. Il suo primo asse NON segue la
+    // superficie punto per punto: la direzione verso l'interno puo' girare di
+    // 180 gradi in un tratto piu' corto di un passo della griglia (Hyperbolic
+    // Saddle a u = 8: tanh satura e la direzione e' quasi nulla dove
+    // cos(2v) = 0), e due anelli consecutivi ruotati di tanto strozzavano il
+    // tubo. Si TRASPORTA invece lungo il lato con la rotazione minima, come la
+    // sezione dei tubi: dal campione di mezzo del lato, dove vale la direzione
+    // verso l'interno, fino ai due campioni fissi attorno al vertice, poi
+    // interpolato e portato sulla sua tangente. I campioni sono gli stessi per
+    // tutti i vertici del lato, quindi anelli vicini combaciano.
+    float fixedCoord = (along.x > 0.5) ? uv.y : uv.x;
+    float a = (along.x > 0.5) ? uv.x : uv.y;
+    float H = (a1 - a0) / float(BORDER_FRAME_SAMPLES);
+    float x = (abs(H) > 1.0e-12) ? (a - a0) / H : float(BORDER_FRAME_SAMPLES / 2);
+    int k = clamp(int(floor(x)), 0, BORDER_FRAME_SAMPLES - 1);
+    float f = clamp(x - float(k), 0.0, 1.0);
+    int m = BORDER_FRAME_SAMPLES / 2;
+    int s = (k >= m) ? 1 : -1;
+    int walk = abs(((s > 0) ? k + 1 : k) - m);
+    vec3 inwardPoint = borderEdgePoint(along, fixedCoord + normal.z * e, a0 + float(m) * H);
+    vec3 Pa = vec3(0.0), Pb = vec3(0.0), Pc = vec3(0.0);
+    vec3 Tprev = vec3(1.0, 0.0, 0.0);
+    vec3 F = vec3(0.0, 1.0, 0.0);
+    vec3 Tk = Tn, Tk1 = Tn, Fk = F, Fk1 = F;
+    for (int i = 0; i <= walk + 2; ++i) {
+        // Finestra di tre campioni (dietro, centro, avanti nel verso del
+        // cammino), un solo punto nuovo per passo.
+        int j = clamp(m - s + i * s, 0, BORDER_FRAME_SAMPLES);
+        Pa = Pb;
+        Pb = Pc;
+        Pc = borderEdgePoint(along, fixedCoord, a0 + float(j) * H);
+        if (i < 2) continue;
+        int jc = m + (i - 2) * s;
+        vec3 Tj = (Pc - Pa) * float(s);
+        Tj = (dot(Tj, Tj) > 1.0e-24) ? normalize(Tj) : Tprev;
+        if (i == 2) {
+            vec3 Q = inwardPoint - Pb;
+            F = Q - Tj * dot(Q, Tj);
+            if (dot(F, F) < 1.0e-12 * max(1.0, dot(Pb, Pb))) F = borderAnyNormal(Tj);
+            F = normalize(F);
+        } else {
+            F = borderCarry(F, Tprev, Tj);
+        }
+        Tprev = Tj;
+        if (jc == k)     { Tk = Tj;  Fk = F; }
+        if (jc == k + 1) { Tk1 = Tj; Fk1 = F; }
     }
-    E1 = normalize(E1);
+    vec3 tRef = mix(Tk, Tk1, f);
+    tRef = (dot(tRef, tRef) > 1.0e-12) ? normalize(tRef) : ((f < 0.5) ? Tk : Tk1);
+    vec3 fRef = mix(Fk, Fk1, f);
+    fRef -= tRef * dot(fRef, tRef);
+    fRef = (dot(fRef, fRef) > 1.0e-12) ? normalize(fRef) : borderAnyNormal(tRef);
+    vec3 E1 = borderCarry(fRef, tRef, Tn);
     vec3 E2 = cross(Tn, E1);
     vec3 n = cos(ang) * E1 + sin(ang) * E2;
     vec3 pos = P + r * n;
@@ -746,15 +877,11 @@ void emitBorderVertex() {
     // Coordinate della texture del bordo: lungo il lato (0..1 su ciascun
     // lato della parte) e attorno al tubo (0..1), nella stessa forma della
     // superficie (seconda coordinata rovesciata, come v_texCoord di main).
-    float a  = (along.x > 0.5) ? uv.x : uv.y;
-    float s  = (abs(a1 - a0) > 1.0e-9) ? (a - a0) / (a1 - a0) : 0.0;
-    v_texCoord = vec2(s, 1.0 - ang / 6.28318531);
+    float sAlong = (abs(a1 - a0) > 1.0e-9) ? (a - a0) / (a1 - a0) : 0.0;
+    v_texCoord = vec2(sAlong, 1.0 - ang / 6.28318531);
     v_light4D = 1.0;
     v_spec4D = 0.0;
-
-    vec4 clip = ubuf.u_mvpMatrix * vec4(pos, 1.0);
-    clip += ubuf.u_dummyZero * 0.000001;
-    gl_Position = clip;
+    gl_Position = borderClip(pos, uv);
 }
 #endif
 

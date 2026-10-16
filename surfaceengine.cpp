@@ -616,6 +616,40 @@ void SurfaceEngine::generateBorder()
             }
         }
 
+        // GIUNTI D'ANGOLO. Ogni lato e' un tubo a se', chiuso da una sezione
+        // piatta perpendicolare al lato: dove due lati si incontrano ad angolo
+        // (gli spigoli di un dominio quadrato, come l'Enneper in H3) le due
+        // sezioni lasciavano un cuneo vuoto sul lato esterno, e il bordo
+        // sembrava strozzato. In ogni angolo una sfera dello stesso raggio fa da
+        // giunto. Vertici: (u, v, longitudine) e normal = (latitudine, 0, 0, 2);
+        // lo shader la nasconde se nessuno dei due lati si vede (cuciture, poli),
+        // e dove i lati proseguono lisci resta dentro il tubo.
+        const int lonSteps = ring;
+        const int latSteps = ring / 2;
+        const float corners[4][2] = { { part.uMin, part.vMin }, { part.uMax, part.vMin },
+                                      { part.uMin, part.vMax }, { part.uMax, part.vMax } };
+        for (const auto &c : corners) {
+            const int base = (int)m_borderVertices.size() - range.vertexOffset;
+            for (int j = 0; j <= latSteps; ++j) {
+                const float lat = -1.57079633f + 3.14159265f * (float)j / latSteps;
+                for (int k = 0; k <= lonSteps; ++k) {
+                    Vertex vert;
+                    vert.position = QVector4D(c[0], c[1], (float)k / lonSteps * 6.28318531f, 1.0f);
+                    vert.normal = QVector4D(lat, 0.0f, 0.0f, 2.0f);
+                    vert.texCoord = QVector2D(0.0f, 0.0f);
+                    m_borderVertices.push_back(vert);
+                }
+            }
+            for (int j = 0; j < latSteps; ++j) {
+                for (int k = 0; k < lonSteps; ++k) {
+                    const unsigned int p0 = base + j * (lonSteps + 1) + k;
+                    const unsigned int p1 = p0 + lonSteps + 1;
+                    m_borderIndices.insert(m_borderIndices.end(),
+                                           { p0, p1, p0 + 1, p0 + 1, p1, p1 + 1 });
+                }
+            }
+        }
+
         range.indexCount = (int)m_borderIndices.size() - range.indexOffset;
         m_borderRanges.push_back(range);
     }
