@@ -179,7 +179,8 @@ bool GLWidget::ensureUboCapacity(int partCount)
             QRhiShaderResourceBinding::sampledTexture(
                 1, QRhiShaderResourceBinding::FragmentStage,
                 m_bindingsDynTexture ? m_bindingsDynTexture : m_dummyTexture, m_sampler),
-            tubeFramesBinding()
+            tubeFramesBinding(),
+            borderEdgesBinding()
         });
         m_bindingsDyn->updateResources();
     }
@@ -236,7 +237,8 @@ void GLWidget::ensureDynamicBindings(QRhiTexture *tex)
             m_ubo, sizeof(UboData)),
         QRhiShaderResourceBinding::sampledTexture(
             1, QRhiShaderResourceBinding::FragmentStage, tex, m_sampler),
-        tubeFramesBinding()
+        tubeFramesBinding(),
+        borderEdgesBinding()
     });
 
     if (isNew) {
@@ -294,6 +296,86 @@ QRhiShaderResourceBinding GLWidget::tubeFramesBinding() const
         2, QRhiShaderResourceBinding::VertexStage,
         m_tubeFrameTex ? m_tubeFrameTex : m_dummyTexture,
         m_tubeFrameSampler ? m_tubeFrameSampler : m_sampler);
+}
+
+// ==========================================================
+// LATI DELLA MESH CUSTOM PER IL BORDO (vedi glwidget.h e borderRawPoint in surface.vert)
+// ==========================================================
+
+void GLWidget::createBorderEdgeResources()
+{
+    if (m_borderEdgeTex || !rhi()) return;
+    if (!rhi()->isTextureFormatSupported(QRhiTexture::RGBA32F)) return;
+    m_borderEdgeTex = rhi()->newTexture(QRhiTexture::RGBA32F, QSize(kBorderEdgeMaxSamples, kBorderEdgeRows));
+    if (!m_borderEdgeTex->create()) {
+        delete m_borderEdgeTex;
+        m_borderEdgeTex = nullptr;
+        return;
+    }
+    // Letta con texelFetch, come la texture dei tubi: niente filtro.
+    m_borderEdgeSampler = rhi()->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
+                                            QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge);
+    m_borderEdgeSampler->create();
+    m_borderEdgeDirty = !m_borderEdgeData.empty();
+}
+
+QRhiShaderResourceBinding GLWidget::borderEdgesBinding() const
+{
+    return QRhiShaderResourceBinding::sampledTexture(
+        3, QRhiShaderResourceBinding::VertexStage,
+        m_borderEdgeTex ? m_borderEdgeTex : m_dummyTexture,
+        m_borderEdgeSampler ? m_borderEdgeSampler : m_sampler);
+}
+
+// Righe: 0 lato v = vMin (lungo u), 1 la riga accanto; 2 lato v = vMax, 3 la
+// riga accanto; 4 lato u = uMin (lungo v), 5 la riga accanto; 6 lato u = uMax,
+// 7 la riga accanto; 8 texel 0 = (numU, numV). La sentinella del punto morto
+// (0,0,0,0 esatto, vedi sotto in setCustomMesh) non si disegna nemmeno qui:
+// prende il punto valido piu' vicino lungo la stessa riga, altrimenti il tubo
+// del bordo partirebbe verso l'origine.
+void GLWidget::setBorderEdges(const QVector<QVector<QVector4D>> &grid)
+{
+    const int numU = grid.size() - 1;
+    const int numV = grid.isEmpty() ? -1 : grid[0].size() - 1;
+    if (numU < 1 || numV < 1 || numU >= kBorderEdgeMaxSamples || numV >= kBorderEdgeMaxSamples) {
+        m_borderEdgeData.clear();
+        m_borderEdgeWidth = 0;
+        return;
+    }
+    const int width = std::max(numU, numV) + 1;
+    m_borderEdgeWidth = width;
+    m_borderEdgeData.assign(size_t(width) * kBorderEdgeRows * 4, 0.0f);
+    auto fillRow = [&](int row, int count, auto pointAt) {
+        std::vector<QVector4D> pts(count);
+        for (int k = 0; k < count; ++k) pts[k] = pointAt(k);
+        const QVector4D dead(0.0f, 0.0f, 0.0f, 0.0f);
+        for (int k = 0; k < count; ++k) {
+            if (pts[k] != dead) continue;
+            for (int d = 1; d < count; ++d) {
+                if (k - d >= 0 && pts[k - d] != dead) { pts[k] = pts[k - d]; break; }
+                if (k + d < count && pts[k + d] != dead) { pts[k] = pts[k + d]; break; }
+            }
+        }
+        float *out = m_borderEdgeData.data() + size_t(row) * width * 4;
+        for (int k = 0; k < count; ++k) {
+            out[k * 4 + 0] = pts[k].x();
+            out[k * 4 + 1] = pts[k].y();
+            out[k * 4 + 2] = pts[k].z();
+            out[k * 4 + 3] = pts[k].w();
+        }
+    };
+    fillRow(0, numU + 1, [&](int i) { return grid[i][0]; });
+    fillRow(1, numU + 1, [&](int i) { return grid[i][1]; });
+    fillRow(2, numU + 1, [&](int i) { return grid[i][numV]; });
+    fillRow(3, numU + 1, [&](int i) { return grid[i][numV - 1]; });
+    fillRow(4, numV + 1, [&](int j) { return grid[0][j]; });
+    fillRow(5, numV + 1, [&](int j) { return grid[1][j]; });
+    fillRow(6, numV + 1, [&](int j) { return grid[numU][j]; });
+    fillRow(7, numV + 1, [&](int j) { return grid[numU - 1][j]; });
+    float *info = m_borderEdgeData.data() + size_t(8) * width * 4;
+    info[0] = float(numU);
+    info[1] = float(numV);
+    m_borderEdgeDirty = true;
 }
 
 bool GLWidget::tubeFramesActive() const
@@ -695,7 +777,8 @@ void GLWidget::syncPartImages(QRhiResourceUpdateBatch *resourceUpdates)
                 m_ubo, sizeof(UboData)),
             QRhiShaderResourceBinding::sampledTexture(
                 1, QRhiShaderResourceBinding::FragmentStage, entry.tex, m_sampler),
-            tubeFramesBinding()
+            tubeFramesBinding(),
+            borderEdgesBinding()
         });
         entry.srb->create();
         m_partImages.insert(path, entry);
@@ -715,7 +798,8 @@ void GLWidget::rebindPartImages()
                 m_ubo, sizeof(UboData)),
             QRhiShaderResourceBinding::sampledTexture(
                 1, QRhiShaderResourceBinding::FragmentStage, it->tex, m_sampler),
-            tubeFramesBinding()
+            tubeFramesBinding(),
+            borderEdgesBinding()
         });
         it->srb->updateResources();
     }
@@ -777,6 +861,7 @@ void GLWidget::initialize(QRhiCommandBuffer *cb)
     createDummyTexture(cb);
     // Prima dei binding della superficie, che la referenziano allo slot 2.
     createTubeFrameResources();
+    createBorderEdgeResources();
 
     // B. Colleghiamo l'UBO al binding 0 e la TEXTURE al binding 1
     m_bindings = rhi()->newShaderResourceBindings();
@@ -1646,6 +1731,16 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             m_borderUploaded = false;
         }
 
+        // Lati della mesh custom per il bordo: solo la parte usata della texture.
+        if (m_borderEdgeDirty && m_borderEdgeTex && m_borderEdgeWidth > 0) {
+            QRhiTextureSubresourceUploadDescription edges(
+                m_borderEdgeData.data(), quint32(m_borderEdgeData.size() * sizeof(float)));
+            edges.setSourceSize(QSize(m_borderEdgeWidth, kBorderEdgeRows));
+            resourceUpdates->uploadTexture(m_borderEdgeTex,
+                                           QRhiTextureUploadDescription({ QRhiTextureUploadEntry(0, 0, edges) }));
+            m_borderEdgeDirty = false;
+        }
+
         // BORDO: i suoi buffer, solo quando si disegna (a raggio 0 non serve
         // caricarli; li ricarica il primo frame col bordo acceso).
         if (!m_borderUploaded && m_borderRadius > 0.0f && m_borderVbo && m_borderIbo) {
@@ -2118,6 +2213,16 @@ void GLWidget::releaseResources()
         m_tubeFrameWork->destroy();
         delete m_tubeFrameWork;
         m_tubeFrameWork = nullptr;
+    }
+    if (m_borderEdgeTex) {
+        m_borderEdgeTex->destroy();
+        delete m_borderEdgeTex;
+        m_borderEdgeTex = nullptr;
+    }
+    if (m_borderEdgeSampler) {
+        m_borderEdgeSampler->destroy();
+        delete m_borderEdgeSampler;
+        m_borderEdgeSampler = nullptr;
     }
     if (m_dummyTexture) {
         m_dummyTexture->destroy();
@@ -3241,6 +3346,9 @@ bool GLWidget::setCustomMesh(const QVector<QVector<QVector4D>>& grid, bool toler
     // e lo shader disegnava la curva al posto della superficie, che spariva.
     const bool wasTube = engine->isTubeModeActive();
     engine->setTubeMode(false);
+
+    // Lati della griglia per il bordo (lo shader non sa ricalcolarli).
+    setBorderEdges(grid);
 
     // 3. Invia i dati al SurfaceEngine
     engine->setCustomMesh(vertices, indices, isUClosed, isVClosed);
@@ -6317,9 +6425,10 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
 
     // Bordo (Border Thickness > 0): il ramo che costruisce i tubi sui lati del
     // dominio (emitBorderVertex) esiste solo con HAS_BORDER, come il CUTOUT:
-    // una superficie senza bordo compila lo shader di sempre. Mai sulla mesh
-    // custom: i suoi vertici sono posizioni, non parametri.
-    if (m_borderRadius > 0.0f && !m_isCustomMesh) {
+    // una superficie senza bordo compila lo shader di sempre. Sulla mesh
+    // custom i vertici sono posizioni, non parametri: i punti dei lati li
+    // legge dalla texture dei lati (borderSupported).
+    if (m_borderRadius > 0.0f && borderSupported()) {
         source.replace("#version 450", "#version 450\n#define HAS_BORDER\n");
     }
     // Tubo: il template lo costruisce nella scena (emitTubeVertex).
@@ -6767,7 +6876,7 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
     // rinominare a buildTextureFunction i simboli di modulo degli script
     // Shadertoy, come per le fasce: la stessa texture su superficie e bordo
     // non collide.
-    if (m_borderRadius > 0.0f && !m_borderTexCode.trimmed().isEmpty() && !m_isCustomMesh) {
+    if (m_borderRadius > 0.0f && !m_borderTexCode.trimmed().isEmpty() && borderSupported()) {
         static const QRegularExpression imgTagRe(R"(^\s*//IMG:.*$\n?)",
                                                  QRegularExpression::MultilineOption);
         QString logic = m_borderTexCode;

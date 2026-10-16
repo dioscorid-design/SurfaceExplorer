@@ -1337,6 +1337,30 @@ private:
     // o la dummy dove non c'e' (il layout deve essere lo stesso per tutte).
     QRhiShaderResourceBinding tubeFramesBinding() const;
 
+    // LATI DELLA MESH CUSTOM (flusso geodetico) PER IL BORDO. I vertici della
+    // mesh custom sono posizioni, non parametri: lo shader non sa calcolare il
+    // punto in (u, v) da cui il bordo costruisce i suoi tubi. setCustomMesh
+    // copia allora i quattro lati della griglia, ciascuno con la riga accanto
+    // verso l'interno, in m_borderEdgeTex (RGBA32F, un texel per punto, righe
+    // in kBorderEdgeRows; nell'ultima, texel 0, numU e numV della griglia), e il
+    // vertex li legge (slot 3, borderRawPoint in surface.vert). Senza RGBA32F la
+    // texture non esiste e il flusso geodetico resta senza bordo.
+    static constexpr int kBorderEdgeMaxSamples = 1024;   // griglia geodetica: al piu' 501 punti per lato
+    static constexpr int kBorderEdgeRows = 9;
+    QRhiTexture *m_borderEdgeTex = nullptr;
+    QRhiSampler *m_borderEdgeSampler = nullptr;
+    std::vector<float> m_borderEdgeData;   // larghezza m_borderEdgeWidth, kBorderEdgeRows righe
+    int m_borderEdgeWidth = 0;
+    bool m_borderEdgeDirty = false;
+    void createBorderEdgeResources();
+    void setBorderEdges(const QVector<QVector<QVector4D>> &grid);
+    // Il bordo si puo' disegnare sulla mesh corrente: sempre sulle superfici,
+    // sulla mesh custom solo se c'e' la texture dei lati.
+    bool borderSupported() const { return !m_isCustomMesh || m_borderEdgeTex; }
+    // Lo slot 3 di ogni binding della superficie: i lati della mesh custom, o
+    // la dummy.
+    QRhiShaderResourceBinding borderEdgesBinding() const;
+
 
     // ==========================================================
     // RISORSE QRHI IMPLICIT (RAY MARCHING)

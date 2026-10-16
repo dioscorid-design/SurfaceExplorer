@@ -634,6 +634,55 @@ void emitTubeVertex() {
 }
 #endif
 
+#if defined(CUSTOM_MESH) && defined(HAS_BORDER)
+// LATI DELLA MESH CUSTOM (flusso geodetico). I suoi vertici sono posizioni, e
+// il punto in (u, v) qui non si sa calcolare. GLWidget::setBorderEdges carica
+// i quattro lati della griglia, ciascuno con la riga accanto verso l'interno
+// (righe 0-7, nell'ultima numU e numV): il punto si legge dal lato piu' vicino
+// in passi di griglia, interpolato lungo il lato e verso la riga accanto. Il
+// bordo chiede solo punti sui lati o a un soffio dentro (tangente, direzione
+// verso l'interno, test delle cuciture sul lato opposto).
+layout(binding = 3) uniform sampler2D u_borderEdges;
+
+vec4 borderEdgeSample(int row, float s, float n) {
+    float x = clamp(s, 0.0, 1.0) * n;
+    int i = clamp(int(floor(x)), 0, int(n) - 1);
+    return mix(texelFetch(u_borderEdges, ivec2(i, row), 0),
+               texelFetch(u_borderEdges, ivec2(i + 1, row), 0), x - float(i));
+}
+
+vec4 borderRawPoint(float u, float v) {
+    vec4 info = texelFetch(u_borderEdges, ivec2(0, 8), 0);
+    float nU = max(info.x, 1.0);
+    float nV = max(info.y, 1.0);
+    float spanU = ubuf.u_max - ubuf.u_min;
+    float spanV = ubuf.v_max - ubuf.v_min;
+    float su = (abs(spanU) > 1.0e-12) ? (u - ubuf.u_min) / spanU : 0.0;
+    float sv = (abs(spanV) > 1.0e-12) ? (v - ubuf.v_min) / spanV : 0.0;
+    float dV0 = sv * nV;
+    float dV1 = (1.0 - sv) * nV;
+    float dU0 = su * nU;
+    float dU1 = (1.0 - su) * nU;
+    float d = min(min(dV0, dV1), min(dU0, dU1));
+    int row = 6;
+    float s = sv;
+    float n = nV;
+    if (d == dV0)      { row = 0; s = su; n = nU; }
+    else if (d == dV1) { row = 2; s = su; n = nU; }
+    else if (d == dU0) { row = 4; }
+    return mix(borderEdgeSample(row, s, n), borderEdgeSample(row + 1, s, n), clamp(d, 0.0, 1.0));
+}
+#endif
+
+// Punto (u, v) della figura nello spazio 4D ruotato, per il bordo.
+vec4 borderRotatedPoint(float u, float v) {
+#if defined(CUSTOM_MESH) && defined(HAS_BORDER)
+    return rotate4D(borderRawPoint(u, v));
+#else
+    return getRotatedPoint4D(u, v);
+#endif
+}
+
 // Punto (u, v) della figura per il bordo: nello spazio 4D ruotato per le
 // superfici (le rotazioni conservano le distanze, il test delle cuciture le
 // confronta), nella scena per i tubi, che esistono solo li'.
@@ -641,14 +690,14 @@ vec4 borderFigurePoint(float u, float v) {
 #ifdef IS_TUBE
     return vec4(tubeScenePoint(u, v), 0.0);
 #else
-    return getRotatedPoint4D(u, v);
+    return borderRotatedPoint(u, v);
 #endif
 }
 vec3 borderScenePoint(float u, float v) {
 #ifdef IS_TUBE
     return tubeScenePoint(u, v);
 #else
-    return projectToScene(getRotatedPoint4D(u, v));
+    return projectToScene(borderRotatedPoint(u, v));
 #endif
 }
 // La w 4D della figura in (u, v): la usa lo spareggio di profondita' 4D, che
@@ -662,7 +711,7 @@ float borderFigureW(float u, float v) {
     tubeSceneFrame(u, C, E1, E2, C4, T4, uAt);
     return C4.w;
 #else
-    return getRotatedPoint4D(u, v).w;
+    return borderRotatedPoint(u, v).w;
 #endif
 }
 

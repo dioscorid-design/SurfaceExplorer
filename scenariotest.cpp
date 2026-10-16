@@ -4449,6 +4449,23 @@ void ScenarioTest::runBorderScenarios()
         click(ui->radioSurface);
     }
 
+    // FLUSSO GEODETICO: la mesh e' custom (i vertici sono posizioni, lo shader
+    // non sa calcolare il punto in u, v) e il bordo non usciva. Ora i punti
+    // dei lati vengono dalla texture dei lati della griglia. Sul nastro di
+    // Moebius la cucitura ritorta resta nascosta. Immagini da guardare:
+    // border-geodesic-helicoid.png, border-geodesic-mobius.png.
+    for (const auto &geo : { std::pair<QString, QString>{ QStringLiteral("Helicoid"), QStringLiteral("helicoid") },
+                             std::pair<QString, QString>{ QStringLiteral("Mobius Strip"), QStringLiteral("mobius") } }) {
+        if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Geodesic Flows/R3/%1.json").arg(geo.first)))
+            continue;
+        click(ui->radioBorder);
+        const double eff = borderEffect(40, QStringLiteral("geodesic-") + geo.second);
+        check(eff > 0.001, QStringLiteral("flusso geodetico %1 col bordo -> il bordo si vede (%2 dei pixel)")
+                               .arg(geo.first, pct(eff)));
+        ui->borderThicknessSlider->setValue(0);  wait(300);
+        click(ui->radioSurface);
+    }
+
     // Ray Marching: il bordo non esiste, il radio si spegne e il bersaglio
     // torna su Surface.
     if (loadSurface(kTorus)) {

@@ -88,13 +88,6 @@ void SurfaceEngine::setCustomMesh(const std::vector<Vertex>& vertices, const std
     generatedVertices = vertices;
     generatedIndices = indices;
 
-    // Niente bordo sulla mesh custom: i suoi vertici sono POSIZIONI, non
-    // parametri da cui il vertex shader possa ricostruire i lati.
-    m_borderVertices.clear();
-    m_borderIndices.clear();
-    m_borderRanges.clear();
-    m_borderWireIndices.clear();
-
     // Ora rispettiamo la vera topologia della mesh geodetica
     u_is_closed = isUClosed;
     v_is_closed = isVClosed;
@@ -116,6 +109,11 @@ void SurfaceEngine::setCustomMesh(const std::vector<Vertex>& vertices, const std
     part.vClosed = isVClosed;
     part.meshIndex = 0;
     m_meshParts.push_back(part);
+
+    // Bordo sui lati del dominio, come per le superfici. I vertici della mesh
+    // custom sono POSIZIONI, non parametri: i punti dei lati il vertex shader
+    // li legge dalla texture dei lati della griglia (GLWidget::setBorderEdges).
+    generateBorder();
 }
 
 
