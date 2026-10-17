@@ -1007,13 +1007,19 @@ QStringList ScenarioTest::surfaceControlsProblems()
     const bool rm   = ui->tabModeSelector->currentIndex() == 1;
     const bool wire = !rm && ui->radioWF->isChecked();
 
+    // Radio Border spento anche su una superficie chiusa a bordo spento (la
+    // sonda dei lati coperti, GLWidget::borderAvailability).
+    GLWidget *gl = ui->glWidget;
+    const bool closed = gl->borderRadius() <= 0.0f
+                        && gl->borderAvailability() == GLWidget::BorderAvailability::None;
+
     // isEnabled() tiene conto dei contenitori: e' cio' che l'utente puo' cliccare.
     struct Want { const char *name; QWidget *w; bool on; };
     const QList<Want> wants = {
         // I tre radio del bersaglio stanno nei riquadri che il gate spegne: sono
         // la via del ritorno e devono restare cliccabili.
         { "radio Surface",      ui->radioSurface,    true },
-        { "radio Border",       ui->radioBorder,     !rm },
+        { "radio Border",       ui->radioBorder,     !rm && !closed },
         { "radio Background",   ui->radioBackground, true },
         { "Base",               ui->radioBasic,      !onBg },
         { "Phong",              ui->radioPhong,      !onBg },
