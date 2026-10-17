@@ -2033,8 +2033,19 @@ void MainWindow::updateRenderState()
     // Percio' qui si disabilitano i figli che riguardano davvero la
     // trasparenza/luce, non il groupbox.
     const bool transpUsable = (mode != 2);
-    if (ui->lblTrans)         ui->lblTrans->setEnabled(transpUsable);
-    if (ui->panelSliderTrans) ui->panelSliderTrans->setEnabled(transpUsable);
+    // Col bersaglio BORDER la trasparenza agiva sulla superficie (segnalato
+    // dall'utente, 10-17): il bordo e' sempre opaco -- si disegna per primo,
+    // con la pipeline opaca. Spenta, col perche' nel tooltip (regola dei
+    // controlli inerti); la luce no, vale per tutta la scena, bordo compreso.
+    const bool onBorder = editingBorder();
+    const bool transpOn = transpUsable && !onBorder;
+    if (ui->lblTrans)         ui->lblTrans->setEnabled(transpOn);
+    if (ui->panelSliderTrans) {
+        ui->panelSliderTrans->setEnabled(transpOn);
+        ui->panelSliderTrans->setToolTip(onBorder
+            ? tr("The border is always opaque: select Shape to change the transparency of the surface.")
+            : QString());
+    }
     if (ui->lblLight)         ui->lblLight->setEnabled(transpUsable);
     if (ui->widget_2)         ui->widget_2->setEnabled(transpUsable);
     // Il groupbox resta abilitato: lo spegnerebbe insieme al FOV.
@@ -2169,6 +2180,10 @@ void MainWindow::updateBorderControlsGate()
     if (!usable && editingBorder()) {
         setEditTarget(EditTarget::Surface);
         onColorTargetChanged();
+        // Le regole dei comandi di resa dipendono dal bersaglio (la
+        // trasparenza e' spenta col Border): si rifanno, fuori da questo giro --
+        // qui si e' gia' dentro updateRenderState, che chiama questo gate.
+        QTimer::singleShot(0, this, [this] { updateRenderState(); });
     }
 }
 

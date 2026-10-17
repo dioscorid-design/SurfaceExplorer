@@ -4131,8 +4131,16 @@ void ScenarioTest::runBorderScenarios()
         click(ui->radioWF);
         check(m_mw->editingBorder(), QStringLiteral("Wireframe col bersaglio Border -> il bersaglio resta Border"));
         click(ui->radioBasic);
+        // Trasparenza: col Border agiva sulla superficie (il bordo e' sempre
+        // opaco); spenta col perche', la luce resta. Su Shape torna.
+        const float alpha0 = gl->globalAlpha();
+        check(!ui->alphaSlider->isEnabled() && ui->panelSliderTrans->toolTip().contains(QLatin1String("opaque"))
+                  && ui->lightSlider->isEnabled(),
+              QStringLiteral("Border -> Transparency spenta col perche' nel tooltip, Light accesa"));
         ui->borderThicknessSlider->setValue(0);  wait(300);
         click(ui->radioSurface);
+        check(ui->alphaSlider->isEnabled() && ui->panelSliderTrans->toolTip().isEmpty() && gl->globalAlpha() == alpha0,
+              QStringLiteral("di nuovo Shape -> Transparency accesa, trasparenza della superficie intatta"));
     }
 
     // SUPERFICI CHIUSE (chiesto dall'utente il 10-17): ogni lato e' una
@@ -5854,6 +5862,10 @@ QString ScenarioTest::editTargetProblem() const
     if (ui->borderThicknessSlider->isEnabled() != onBorder)
         return QStringLiteral("bersaglio %1, slider Border Thickness %2")
             .arg(target, onOff(ui->borderThicknessSlider->isEnabled()));
+    // Col bersaglio Border la trasparenza e' spenta: agirebbe sulla superficie
+    // (il bordo e' sempre opaco).
+    if (onBorder && ui->alphaSlider->isEnabled())
+        return QStringLiteral("bersaglio Border, Transparency accesa (agirebbe sulla superficie)");
     // Zoom, pan e rotazione 2D (mouse in vista 2D, Save Texture) agiscono sul
     // bersaglio della vista 2D del motore: deve essere quello del dock.
     const int flat = ui->glWidget->flatViewTarget();
