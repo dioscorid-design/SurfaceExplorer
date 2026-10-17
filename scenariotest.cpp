@@ -3822,8 +3822,13 @@ void ScenarioTest::runLoadOrderScenarios()
         { "NEW",                       nullptr },
         { "equazioni",                 "surfaces/Parametric/Surfaces/Equations/R3/Torus.json" },
         // Vincolo esplicito (explicitU): dopo di lui gli script restavano in
-        // ConstraintU, con u = 0, e il Calabi-Yau usciva vuoto (10-17).
-        { "equazioni con vincolo",     "surfaces/Parametric/Surfaces/Equations/R3/Oloid.json" },
+        // ConstraintU, con u = 0, e il Calabi-Yau usciva vuoto (10-17). Con
+        // gli altri due vincoli e la composizione (defU/V/W): lo stato di
+        // giugno (Hopf, vincolo in V, poi una composizione: limiti V svuotati).
+        { "vincolo in U",              "surfaces/Parametric/Surfaces/Equations/R3/Oloid.json" },
+        { "vincolo in V",              "records/Animations/Parametric/Surfaces/Equations/S3/Hopf.json" },
+        { "vincolo in W",              "surfaces/Parametric/Surfaces/Equations/S3/Wound Sphere.json" },
+        { "composizione",              "surfaces/Parametric/Surfaces/Equations/H2xR/Hyperbolic Saddle.json" },
         { "script parametrico",        "records/Static/Symmetrized Double Enneper.json" },
         { "tubo 4D",                   "records/Rotations/Parametric/Solid Curves/Single Curves/Clifford Knot Rotating.json" },
         { "tubi da script",            "records/Rotations/Parametric/Solid Curves/Multi Curves/Borromean Rings Spinning.json" },
@@ -3932,6 +3937,25 @@ void ScenarioTest::runLoadOrderScenarios()
         return s;
     };
 
+    // LA SCENA SI DISEGNA: dopo ogni load (non NEW) una parte apprezzabile
+    // dell'immagine non e' lo sfondo. L'impronta confronta lo stato, non i
+    // pixel: uno schermo vuoto per una causa che non vi entra passerebbe.
+    // Pixel uguali a quello nell'angolo = sfondo (con un'immagine di sfondo
+    // il controllo non distingue nulla, e passa).
+    auto drawnFraction = [&]() {
+        const QImage im = gl->grabFramebuffer().convertToFormat(QImage::Format_RGB32);
+        if (im.isNull() || im.width() < 4 || im.height() < 4) return 0.0;
+        const QRgb bg = im.pixel(2, 2);
+        qint64 seen = 0, total = 0;
+        for (int y = 0; y < im.height(); y += 2) {
+            const QRgb *row = reinterpret_cast<const QRgb *>(im.constScanLine(y));
+            for (int x = 0; x < im.width(); x += 2, ++total)
+                if (row[x] != bg) ++seen;
+        }
+        return double(seen) / double(std::max<qint64>(1, total));
+    };
+    QStringList empty;
+
     // results[dopo][prima]
     std::vector<QMap<int, Snapshot>> results(n);
     m_discardOnPrompt = true;
@@ -3943,9 +3967,17 @@ void ScenarioTest::runLoadOrderScenarios()
         } else {
             const QString rel = QString::fromLatin1(k.rel);
             if (!(rel.startsWith(QLatin1String("records/")) ? loadRecord(rel) : loadSurface(rel))) continue;
+            const double drawn = drawnFraction();
+            if (drawn < 0.002)
+                empty << QStringLiteral("%1 dopo %2 (%3% dei pixel)")
+                             .arg(QString::fromLatin1(k.name),
+                                  step > 0 ? QString::fromLatin1(kinds[tour[step - 1]].name) : QStringLiteral("l'avvio"))
+                             .arg(drawn * 100.0, 0, 'f', 3);
         }
         if (step > 0) results[tour[step]][tour[step - 1]] = snapshot(!k.rel);
     }
+    check(empty.isEmpty(), QStringLiteral("ogni tipo di scena si disegna dopo ogni altro%1")
+                               .arg(empty.isEmpty() ? QString() : QStringLiteral(": scena vuota per ") + empty.join(QStringLiteral("; "))));
 
     // CONFRONTO: per ogni tipo, l'impronta piu' frequente e' quella giusta.
     QDir().mkpath(m_outDir + QStringLiteral("/load-order"));
