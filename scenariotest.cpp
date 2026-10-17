@@ -3821,6 +3821,9 @@ void ScenarioTest::runLoadOrderScenarios()
     const Kind all[] = {
         { "NEW",                       nullptr },
         { "equazioni",                 "surfaces/Parametric/Surfaces/Equations/R3/Torus.json" },
+        // Vincolo esplicito (explicitU): dopo di lui gli script restavano in
+        // ConstraintU, con u = 0, e il Calabi-Yau usciva vuoto (10-17).
+        { "equazioni con vincolo",     "surfaces/Parametric/Surfaces/Equations/R3/Oloid.json" },
         { "script parametrico",        "records/Static/Symmetrized Double Enneper.json" },
         { "tubo 4D",                   "records/Rotations/Parametric/Solid Curves/Single Curves/Clifford Knot Rotating.json" },
         { "tubi da script",            "records/Rotations/Parametric/Solid Curves/Multi Curves/Borromean Rings Spinning.json" },
@@ -4170,9 +4173,6 @@ void ScenarioTest::runBorderScenarios()
                            { "Equations/S3/Wound Sphere", false },
                            { "Equations/R3/Symmetrized Double Enneper", true },
                            { "Multi Meshes/Torus Necklace", false },
-                           // In fondo: dopo un preset a vincolo esplicito (l'Oloid
-                           // ha explicitU) uno script si carica rotto, difetto a
-                           // parte del caricamento.
                            { "Equations/R3/Oloid", false } }) {
         const QString path = QStringLiteral("surfaces/Parametric/Surfaces/%1.json").arg(QString::fromUtf8(c.first));
         if (!loadSurface(path)) continue;

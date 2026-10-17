@@ -3672,8 +3672,13 @@ void MainWindow::applyPresetScript(const LibraryItem &d, bool isShell)
         // 1. Spegne m_isCustomMesh interno e azzera le funzioni base
         ui->glWidget->setParametricEquations("0", "0", "0", "0");
 
-        // 2. Svuota la memoria delle variabili composte U, V, W
+        // 2. Svuota la memoria delle variabili composte U, V, W, e il vincolo
+        // torna quello neutro (W, equazione vuota) come nei rami a equazioni:
+        // dopo un preset a vincolo (l'Oloid ha explicitU) il motore restava in
+        // ConstraintU, il vertex dava allo script sempre u = 0 e la superficie
+        // collassava (Calabi-Yau vuoto, Symmetrized Double Enneper rotto).
         if (ui->glWidget->getEngine()) {
+            ui->glWidget->getEngine()->setConstraintMode(SurfaceEngine::ConstraintW);
             ui->glWidget->getEngine()->setExplicitU("");
             ui->glWidget->getEngine()->setExplicitV("");
             ui->glWidget->getEngine()->setExplicitW("");

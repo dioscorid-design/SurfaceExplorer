@@ -522,6 +522,10 @@ void MainWindow::onRunScriptClicked()
     if (ui->glWidget) {
         ui->glWidget->setParametricEquations("0", "0", "0", "0");
         if (ui->glWidget->getEngine()) {
+            // Anche il vincolo torna neutro (vedi il load degli script in
+            // mainwindow_scene.cpp): uno script lanciato dopo un preset a
+            // vincolo riceveva sempre u = 0.
+            ui->glWidget->getEngine()->setConstraintMode(SurfaceEngine::ConstraintW);
             ui->glWidget->getEngine()->setExplicitU("");
             ui->glWidget->getEngine()->setExplicitV("");
             ui->glWidget->getEngine()->setExplicitW("");
