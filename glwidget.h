@@ -1469,7 +1469,19 @@ private:
     int m_borderProbeSerial = 0;
     int m_borderProbeReadSerial = 0;
     std::vector<int> m_borderProbeMeshes;   // indice di mesh di ogni parte, alla lettura
-    QRhiReadbackResult m_borderProbeResult;
+    // Su una superficie animata la sonda guarda piu' istanti di t in un colpo
+    // solo (vedi render): letture e arrivi.
+    static constexpr int kBorderProbeInstants = 8;
+    static constexpr float kBorderProbeStep = 0.83f;   // passo in t, non una frazione tonda di pi
+    QRhiReadbackResult m_borderProbeResults[kBorderProbeInstants];
+    int m_borderProbeInstantsRead = 1;
+    int m_borderProbeArrived = 0;
+    // Superficie animata che si apre in qualche istante ma ora e' chiusa: si
+    // guarda l'istante corrente ogni kBorderProbeWatchMs finche' non si apre,
+    // poi Border resta acceso (scelta dell'utente, 10-17).
+    static constexpr int kBorderProbeWatchMs = 250;
+    bool m_borderProbeWatch = false;
+    QElapsedTimer m_borderProbeWatchClock;
     BorderAvailability m_borderAvailability = BorderAvailability::Unknown;
     void finishBorderProbe();
     void setBorderAvailability(BorderAvailability a);

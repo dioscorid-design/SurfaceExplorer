@@ -722,27 +722,62 @@ void GLWidget::setBorderAvailability(BorderAvailability a)
 // superficie: arrivera' la sonda della nuova.
 void GLWidget::finishBorderProbe()
 {
+    // Una chiamata per lettura: si decide quando sono arrivate tutte (piu'
+    // istanti su una superficie animata).
+    if (++m_borderProbeArrived < m_borderProbeInstantsRead) return;
     m_borderProbeReading = false;
     if (m_borderProbeReadSerial != m_borderProbeSerial) return;
-    const QByteArray &data = m_borderProbeResult.data;
-    const int bpl = data.size() / (4 * kSharedEdgeMaxParts);
-    if (bpl < (kSharedEdgeSamples + 1) * 4 || m_borderProbeMeshes.empty()) {
+    // Un istante: 1 se almeno un lato di una parte si vede, 0 se no, -1 se la
+    // lettura non e' valida.
+    auto visibleAt = [&](int i) -> int {
+        const QByteArray &data = m_borderProbeResults[i].data;
+        const int bpl = data.size() / (4 * kSharedEdgeMaxParts);
+        if (bpl < (kSharedEdgeSamples + 1) * 4 || m_borderProbeMeshes.empty()) return -1;
+        auto raw = [&](int row, int m) {
+            m = std::clamp(m, 0, kSharedEdgeSamples);
+            return quint8(data.at(row * bpl + m * 4)) > 127;
+        };
+        auto covered = [&](int row, int m) { return raw(row, m) || (raw(row, m - 1) && raw(row, m + 1)); };
+        for (int mesh : m_borderProbeMeshes) {
+            if (mesh < 0 || mesh >= kSharedEdgeMaxParts) continue;
+            for (int side = 0; side < 4; ++side) {
+                const int row = mesh * 4 + side;
+                if (!(covered(row, 47) && covered(row, 100) && covered(row, 211))) return 1;
+            }
+        }
+        return 0;
+    };
+    const int count = m_borderProbeInstantsRead;
+    bool visible = false, read = false;
+    for (int i = 0; i < count; ++i) {
+        const int v = visibleAt(i);
+        if (v < 0) continue;
+        read = true;
+        if (v > 0) visible = true;
+    }
+    if (!read) {
+        m_borderProbeWatch = false;
         setBorderAvailability(BorderAvailability::Unknown);
         return;
     }
-    auto raw = [&](int row, int m) {
-        m = std::clamp(m, 0, kSharedEdgeSamples);
-        return quint8(data.at(row * bpl + m * 4)) > 127;
-    };
-    auto covered = [&](int row, int m) { return raw(row, m) || (raw(row, m - 1) && raw(row, m + 1)); };
-    bool visible = false;
-    for (int mesh : m_borderProbeMeshes) {
-        if (mesh < 0 || mesh >= kSharedEdgeMaxParts) continue;
-        for (int side = 0; side < 4 && !visible; ++side) {
-            const int row = mesh * 4 + side;
-            visible = !(covered(row, 47) && covered(row, 100) && covered(row, 211));
+    // SUPERFICIE ANIMATA (scelta dell'utente, 10-17): sempre chiusa -> Border
+    // spento; si apre in qualche istante -> spento finche' e' chiusa, poi dalla
+    // prima apertura sempre acceso, senza lampeggi. Si sa dagli istanti della
+    // sonda (l'ultimo e' ora); finche' non si apre, la si sorveglia
+    // (m_borderProbeWatch: solo l'istante corrente, ogni kBorderProbeWatchMs).
+    if (count > 1) {
+        const bool now = visibleAt(count - 1) > 0;
+        m_borderProbeWatch = visible && !now;
+        if (m_borderProbeWatch) m_borderProbeWatchClock.restart();
+        setBorderAvailability(now ? BorderAvailability::Visible : BorderAvailability::None);
+        return;
+    }
+    if (m_borderProbeWatch) {
+        if (visible) {
+            m_borderProbeWatch = false;
+            setBorderAvailability(BorderAvailability::Visible);
         }
-        if (visible) break;
+        return;
     }
     setBorderAvailability(visible ? BorderAvailability::Visible : BorderAvailability::None);
 }
@@ -2089,8 +2124,9 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // ensureUboCapacity riaggancia i binding in place (senza distruggerli),
     // quindi le pipeline restano valide e non serve ricostruirle.
     // Nel parametrico, dopo i blocchi del bordo, i tre della passata dei lati
-    // coperti: anche a bordo spento, che la usa come sonda (borderAvailability).
-    ensureUboCapacity(m_engineMode == ModeParametric ? uboPartSlots * 2 + 3 : uboPartSlots);
+    // coperti per ogni istante della sonda: anche a bordo spento, che la usa
+    // come sonda (borderAvailability).
+    ensureUboCapacity(m_engineMode == ModeParametric ? uboPartSlots * 2 + 3 * kBorderProbeInstants : uboPartSlots);
     ensureDynamicBindings(m_surfaceTexture ? m_surfaceTexture : m_dummyTexture);
     // Immagini proprie delle fasce: prima dei blocchi, che ne dipendono (u_noImage).
     syncPartImages(resourceUpdates);
@@ -2693,25 +2729,42 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             shape.append(reinterpret_cast<const char *>(&m_uboData.mathParams2), sizeof(QVector4D));
             shape.append(reinterpret_cast<const char *>(&m_uboData.hasExplicitW), sizeof(int));
             shape.append(reinterpret_cast<const char *>(&m_uboData.u_meshCount), sizeof(float));
+            // Animata o ferma: ripartendo, la sonda riguarda piu' istanti.
+            const int animating = m_surfaceAnimating ? 1 : 0;
+            shape.append(reinterpret_cast<const char *>(&animating), sizeof(int));
             QByteArray key = shape;
             key.append(reinterpret_cast<const char *>(&m_uboData.time), sizeof(float));
             // La sonda segue la geometria anche a bordo acceso (un preset
             // salvato col bordo): li' rilegge i flag della passata che gira
             // comunque, cosi' spegnendo il bordo il dock sa gia' cosa fare.
-            bool probe = false;
+            bool probe = false, watchProbe = false;
             if (shape != m_borderProbeKey) {
                 if (shape != m_borderProbePending) {
                     // Geometria nuova: si aspetta che si fermi.
                     m_borderProbePending = shape;
                     m_borderProbeArmed = false;
+                    m_borderProbeWatch = false;
                     m_borderProbeTimer->start();
-                } else if (m_borderProbeArmed) {
+                } else if (m_borderProbeArmed && !m_borderProbeReading) {
                     m_borderProbeArmed = false;
                     m_borderProbeKey = shape;
                     probe = true;
                 }
+            } else if (m_borderProbeWatch && !m_borderProbeReading
+                       && m_borderProbeWatchClock.elapsed() >= kBorderProbeWatchMs) {
+                // Si aspetta che la superficie animata si apra: l'istante corrente.
+                m_borderProbeWatchClock.restart();
+                probe = watchProbe = true;
             }
-            const bool run = (borderOn || probe) && key != m_sharedEdgeKey;
+            // SU UNA SUPERFICIE ANIMATA la sonda guarda kBorderProbeInstants
+            // istanti di t in un colpo solo, per sapere se si apre in qualche
+            // momento (S3 Moving Plane) o resta sempre chiusa: vedi
+            // finishBorderProbe. Ogni istante coi suoi tre blocchi UBO: scritti
+            // nello stesso frame negli stessi blocchi, varrebbe l'ultimo per
+            // tutti. L'ultimo istante e' quello attuale: col bordo acceso restano
+            // i suoi flag. La sorveglianza (watchProbe) guarda solo l'attuale.
+            const int instants = (probe && !watchProbe && m_surfaceAnimating) ? kBorderProbeInstants : 1;
+            const bool run = (borderOn && key != m_sharedEdgeKey) || probe;
             if (run) {
                 m_sharedEdgeKey = key;
                 // Tre passate distinte, ciascuna legge cio' che la precedente
@@ -2724,37 +2777,47 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                     count * (4 * (kSharedEdgeSamples + 1) + (kSharedEdgeGrid + 1) * (kSharedEdgeGrid + 1)),
                     count * kSharedEdgeTiles,
                     count * 4 * (kSharedEdgeSamples + 1) };
-                for (int phase = 0; phase < 3; ++phase) {
-                    UboData block = m_uboData;
-                    block.u_isBorder = 10 + phase;
-                    const quint32 offset = quint32(2 * edgeSlots + phase) * m_uboBlockStride;
-                    if (!resourceUpdates) resourceUpdates = rhi()->nextResourceUpdateBatch();
-                    resourceUpdates->updateDynamicBuffer(m_ubo, offset, sizeof(UboData), &block);
+                if (probe) {
+                    m_borderProbeMeshes.clear();
+                    for (const MeshPart &mp : edgeParts) m_borderProbeMeshes.push_back(mp.meshIndex);
+                    m_borderProbeReadSerial = m_borderProbeSerial;
+                    m_borderProbeReading = true;
+                    m_borderProbeInstantsRead = instants;
+                    m_borderProbeArrived = 0;
                 }
-                for (int phase = 0; phase < 3; ++phase) {
-                    cb->beginComputePass(resourceUpdates);
-                    resourceUpdates = nullptr;
-                    cb->setComputePipeline(m_sharedEdgePipeline);
-                    const QRhiCommandBuffer::DynamicOffset ofs(0, quint32(2 * edgeSlots + phase) * m_uboBlockStride);
-                    cb->setShaderResources(m_sharedEdgeSrb, 1, &ofs);
-                    cb->dispatch((work[phase] + 63) / 64, 1, 1);
-                    cb->endComputePass();
+                for (int i = 0; i < instants; ++i) {
+                    for (int phase = 0; phase < 3; ++phase) {
+                        UboData block = m_uboData;
+                        block.u_isBorder = 10 + phase;
+                        block.time = m_uboData.time + float(instants - 1 - i) * kBorderProbeStep;
+                        const quint32 offset = quint32(2 * edgeSlots + 3 * i + phase) * m_uboBlockStride;
+                        if (!resourceUpdates) resourceUpdates = rhi()->nextResourceUpdateBatch();
+                        resourceUpdates->updateDynamicBuffer(m_ubo, offset, sizeof(UboData), &block);
+                    }
                 }
-            }
-            if (probe) {
-                m_borderProbeMeshes.clear();
-                for (const MeshPart &mp : edgeParts) m_borderProbeMeshes.push_back(mp.meshIndex);
-                m_borderProbeReadSerial = m_borderProbeSerial;
-                m_borderProbeReading = true;
-                QRhiResourceUpdateBatch *rb = rhi()->nextResourceUpdateBatch();
-                m_borderProbeResult = {};
-                // Il risultato arriva dentro un frame successivo: si legge fuori
-                // da render, in coda.
-                m_borderProbeResult.completed = [this] {
-                    QMetaObject::invokeMethod(this, [this] { finishBorderProbe(); }, Qt::QueuedConnection);
-                };
-                rb->readBackTexture(QRhiReadbackDescription(m_sharedEdgeTex), &m_borderProbeResult);
-                cb->resourceUpdate(rb);
+                for (int i = 0; i < instants; ++i) {
+                    for (int phase = 0; phase < 3; ++phase) {
+                        cb->beginComputePass(resourceUpdates);
+                        resourceUpdates = nullptr;
+                        cb->setComputePipeline(m_sharedEdgePipeline);
+                        const QRhiCommandBuffer::DynamicOffset ofs(
+                            0, quint32(2 * edgeSlots + 3 * i + phase) * m_uboBlockStride);
+                        cb->setShaderResources(m_sharedEdgeSrb, 1, &ofs);
+                        cb->dispatch((work[phase] + 63) / 64, 1, 1);
+                        cb->endComputePass();
+                    }
+                    if (probe) {
+                        // I flag di QUESTO istante; il risultato arriva dentro un
+                        // frame successivo e si legge fuori da render, in coda.
+                        QRhiResourceUpdateBatch *rb = rhi()->nextResourceUpdateBatch();
+                        m_borderProbeResults[i] = {};
+                        m_borderProbeResults[i].completed = [this] {
+                            QMetaObject::invokeMethod(this, [this] { finishBorderProbe(); }, Qt::QueuedConnection);
+                        };
+                        rb->readBackTexture(QRhiReadbackDescription(m_sharedEdgeTex), &m_borderProbeResults[i]);
+                        cb->resourceUpdate(rb);
+                    }
+                }
             }
             if (m_sharedEdgeReadbackRequested) {
                 m_sharedEdgeReadbackRequested = false;
@@ -8113,6 +8176,7 @@ void GLWidget::buildPipeline() {
         m_borderProbeKey.clear();
         m_borderProbePending.clear();
         m_borderProbeArmed = false;
+        m_borderProbeWatch = false;
         ++m_borderProbeSerial;
     }
 

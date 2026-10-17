@@ -4292,6 +4292,31 @@ void ScenarioTest::runBorderScenarios()
                   .arg(pct(again)));
         ui->borderThicknessSlider->setValue(0);  wait(300);
     }
+
+    // SUPERFICI ANIMATE (scelta dell'utente, 10-17): sempre chiusa -> Border
+    // spento per tutta l'animazione; si apre in qualche istante -> spento
+    // finche' e' chiusa, poi dalla prima apertura sempre acceso, senza lampeggi.
+    // La S3 Moving Plane si apre e si chiude nel tempo; un toro animato resta
+    // chiuso. Il radio si guarda per una decina di secondi: la sequenza deve
+    // essere "0...01...1" con almeno un 1, o tutta 0.
+    for (const auto &c : { std::pair<const char *, bool>{ "records/Animations/Parametric/Surfaces/Equations/S3/S3 Moving Plane.json", true },
+                           { "records/Animations/Parametric/Surfaces/Equations/H3/Torus.json", false } }) {
+        const QString rel = QString::fromLatin1(c.first);
+        if (!loadRecord(rel)) continue;
+        waitBorderProbe();
+        QString seen;
+        for (int k = 0; k < 14; ++k) {
+            seen += ui->radioBorder->isEnabled() ? QLatin1Char('1') : QLatin1Char('0');
+            wait(700);
+        }
+        static const QRegularExpression opensOnce(QStringLiteral("^0*1+$"));
+        const bool ok = c.second ? opensOnce.match(seen).hasMatch() : !seen.contains(QLatin1Char('1'));
+        check(gl->m_surfaceAnimating && ok,
+              QStringLiteral("%1, animata -> radio Border %2 (radio nel tempo %3, animata %4)")
+                  .arg(rel, c.second ? QStringLiteral("spento finche' e' chiusa, poi sempre acceso")
+                                     : QStringLiteral("sempre spento"),
+                       seen, onOff(gl->m_surfaceAnimating)));
+    }
     if (loadSurface(kSphere)) {
         waitBorderProbe();
         check(gl->borderRadius() == 0.0f && !m_mw->editingBorder(),
