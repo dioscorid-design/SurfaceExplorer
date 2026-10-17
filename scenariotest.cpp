@@ -5082,10 +5082,6 @@ void ScenarioTest::runBorderAuditScenarios()
           "v=vmin tacca: 2 tratti coperti brevi (5-5 8-13)",
           "i lati v = 0 e v = pi corrono entrambi sull'asse e nel tratto comune le due falde se ne staccano "
           "con un angolo che va da 25 a 85 gradi: sotto i 60 e' un orlo doppio, sopra una piega" },
-        { "surfaces/Parametric/Surfaces/Equations/R3/Dini's Surface.json",
-          "u=umin tacca: 1 tratti coperti brevi (5-5)",
-          "alla punta il giro accanto della spirale passa a 0.023 dal lato, sotto il margine delle celle "
-          "(lunghe 0.73 in z) e dentro il tubo stesso" },
     };
     int audited = 0, clean = 0;
     for (const QString &rel : rels) {

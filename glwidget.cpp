@@ -1087,7 +1087,16 @@ void main() {
                     vec3 near0 = pointTriangle(P, x00, x10, x01);
                     vec3 near1 = pointTriangle(P, x01, x10, x11);
                     float dist = min(near0.x, near1.x);
-                    if (dist >= tol + 0.06 * diag) continue;
+                    // Margine: la curvatura fra i nodi (0.06 della diagonale).
+                    // Sulla PROPRIA parte non oltre un quarto del passo del lato:
+                    // alla punta della Dini's Surface le celle sono lunghe 0.73 (z
+                    // va come log v) e il giro accanto della spirale, a 0.023 dal
+                    // lato, cadeva nel margine (0.045) -- una tacca nella punta.
+                    // Le cuciture e i lembi della stessa parte ci passano sopra
+                    // esattamente; fra parti diverse (patch con passi diversi) no.
+                    float margin = 0.06 * diag;
+                    if (j == part) margin = min(margin, 0.25 * edgeStep);
+                    if (dist >= tol + margin) continue;
                     // Il punto della cella piu' vicino, in celle della parte j.
                     vec2 hit = (near0.x <= near1.x) ? vec2(float(ci) + near0.y, float(cj) + near0.z)
                                                     : vec2(float(ci) + near1.y + near1.z, float(cj) + 1.0 - near1.y);

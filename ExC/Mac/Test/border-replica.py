@@ -180,7 +180,10 @@ def covered(D):
                 d1, s1, t1 = tri_dist(Pb, X00[j][None], X10[j][None], X01[j][None])
                 d2, s2, t2 = tri_dist(Pb, X01[j][None], X10[j][None], X11[j][None])
                 dist = np.minimum(d1, d2)
-                cand = dist < tol[:, None, None] + f32(0.06) * diag[j][None]
+                margin = f32(0.06) * diag[j][None]
+                if j == p:   # sulla propria parte non oltre un quarto del passo del lato
+                    margin = np.minimum(margin, f32(0.25) * step[:, None, None])
+                cand = dist < tol[:, None, None] + margin
                 cand &= ~found[:, None, None]
                 if j == p:
                     du = ci[None] + 0.5 - own[:, 0, None, None]
