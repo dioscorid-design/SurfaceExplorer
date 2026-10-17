@@ -4066,8 +4066,10 @@ void ScenarioTest::runBorderScenarios()
     };
     auto pct = [](double f) { return QString::number(f * 100.0, 'f', 3) + QLatin1Char('%'); };
 
-    // Bersaglio Border: i suoi controlli.
-    if (loadSurface(kTorus)) {
+    // Bersaglio Border: i suoi controlli, su una superficie aperta e senza
+    // bordo nel preset (sulle chiuse il radio e' spento, vedi sotto).
+    if (loadSurface(kEnneper)) {
+        waitBorderProbe();
         check(gl->borderRadius() == 0.0f && ui->radioBorder->isEnabled(),
               QStringLiteral("superficie caricata -> nessun bordo, radio Border acceso"));
         click(ui->radioBorder);
@@ -4088,8 +4090,7 @@ void ScenarioTest::runBorderScenarios()
         check(target.isEmpty(), QStringLiteral("Border -> bersaglio coerente%1")
                                     .arg(target.isEmpty() ? QString() : QStringLiteral(": ") + target));
 
-        // Toro: solo cuciture, il bordo non si vede.
-        const double torus = borderEffect(50, QStringLiteral("torus"));
+        ui->borderThicknessSlider->setValue(50);  wait(300);
         // Scala mostrata 0.25..10, raggio = valore * 0.02: 50 -> 2.64.
         check(qAbs(gl->borderRadius() - 2.6385f * 0.02f) < 1e-4f
                   && ui->lblValBorderThickness->text() == QLatin1String("2.64"),
@@ -4126,32 +4127,89 @@ void ScenarioTest::runBorderScenarios()
                   .arg(before, 0, 'f', 2).arg(gl->borderRadius() / 0.02f, 0, 'f', 2));
         stepTo(QAbstractSlider::SliderToMaximum,     "10.00", QStringLiteral("fondo corsa"));
         stepTo(QAbstractSlider::SliderPageStepAdd,   "10.00", QStringLiteral("clic oltre il massimo"));
-        ui->borderThicknessSlider->setValue(50);  wait(300);
-        check(torus < 0.002, QStringLiteral("toro (solo cuciture) -> bordo invisibile (pixel cambiati %1)").arg(pct(torus)));
-
         // Wireframe col bersaglio Border: gli slider restano sul bordo.
         click(ui->radioWF);
-        // ...e sulle cuciture del toro nemmeno il wireframe del bordo lascia
-        // linee (prima collassavano sulla cucitura: un tratteggio).
+        check(m_mw->editingBorder(), QStringLiteral("Wireframe col bersaglio Border -> il bersaglio resta Border"));
+        click(ui->radioBasic);
+        ui->borderThicknessSlider->setValue(0);  wait(300);
+        click(ui->radioSurface);
+    }
+
+    // SUPERFICI CHIUSE (chiesto dall'utente il 10-17): ogni lato e' una
+    // cucitura, un polo o giace su un'altra parte, il bordo non comparirebbe, e
+    // radio e spessore accesi sporcavano la scena senza effetto a schermo
+    // (avviso di salvataggio al cambio di record). La sonda dei lati coperti,
+    // a bordo spento, spegne il radio Border col perche' nel tooltip; sulle
+    // aperte resta acceso. Alternate, perche' fino alla sonda il radio resta
+    // com'era per la superficie di prima. Anche flussi geodetici (test sulla
+    // CPU) e multi-mesh.
+    // Superfici aperte SENZA bordo nel preset (col bordo salvato il radio resta
+    // acceso comunque, per spegnerlo).
+    for (const auto &c : { std::pair<const char *, bool>{ "Equations/R3/Torus", false },
+                           { "Equations/H3/Mobius Band", true },
+                           { "Equations/R3/Sphere", false },
+                           { "Geodesic Flows/R3/Twisted Torus Ribbon", true },
+                           { "Multi Meshes/Hopf Tori", false },
+                           { "Multi Meshes/Calabi-Yau", true },
+                           { "Equations/Non-orientables/Klein Bottle", false },
+                           { "Equations/H2xR/Hyperbolic Saddle", true },
+                           { "Equations/S3/Wound Sphere", false },
+                           { "Equations/R3/Symmetrized Double Enneper", true },
+                           { "Multi Meshes/Torus Necklace", false },
+                           // In fondo: dopo un preset a vincolo esplicito (l'Oloid
+                           // ha explicitU) uno script si carica rotto, difetto a
+                           // parte del caricamento.
+                           { "Equations/R3/Oloid", false } }) {
+        const QString path = QStringLiteral("surfaces/Parametric/Surfaces/%1.json").arg(QString::fromUtf8(c.first));
+        if (!loadSurface(path)) continue;
+        waitBorderProbe();
+        const bool on = ui->radioBorder->isEnabled();
+        const bool saysClosed = ui->radioBorder->toolTip().contains(QLatin1String("closed"));
+        check(on == c.second && saysClosed == !c.second,
+              QStringLiteral("%1 -> radio Border %2 (%3, tooltip %4)")
+                  .arg(path, c.second ? QStringLiteral("acceso, la superficie ha un bordo")
+                                      : QStringLiteral("spento, superficie chiusa"),
+                       on ? QStringLiteral("acceso") : QStringLiteral("spento"),
+                       saysClosed ? QStringLiteral("\"closed\"") : QStringLiteral("senza \"closed\"")));
+        if (!c.second) {
+            click(ui->radioBorder);
+            check(gl->borderRadius() == 0.0f && !m_mw->editingBorder(),
+                  QStringLiteral("%1, clic su Border spento -> nessun bordo, bersaglio Surface").arg(path));
+            checkDirty(QStringLiteral("%1, clic su Border spento").arg(path), false, false, false);
+        }
+    }
+
+    // Col bordo ACCESO su una superficie chiusa (un preset salvato cosi', come
+    // il Warping Torus della libreria) il radio resta cliccabile, per poterlo
+    // spegnere; spento torna grigio. E il bordo non si vede: sul toro solo
+    // cuciture, anche in wireframe (prima le linee collassavano sulla
+    // cucitura: un tratteggio); sulla sfera cucitura e due poli.
+    if (loadSurface(kTorus)) {
+        waitBorderProbe();
+        const double torus = borderEffect(50, QStringLiteral("torus"));
+        check(ui->radioBorder->isEnabled(),
+              QStringLiteral("toro col bordo acceso dallo spessore -> radio Border cliccabile, per spegnerlo"));
+        check(torus < 0.002, QStringLiteral("toro (solo cuciture) -> bordo invisibile (pixel cambiati %1)").arg(pct(torus)));
         ui->borderThicknessSlider->setValue(0);  wait(400);
         const QImage noBorder = gl->grabFramebuffer();
+        gl->setBorderRenderMode(2);
         ui->borderThicknessSlider->setValue(50);  wait(500);
         const QImage wireBorder = gl->grabFramebuffer();
         wireBorder.save(m_outDir + QStringLiteral("/border-torus-wire.png"));
         const double torusWire = changed(noBorder, wireBorder);
         check(torusWire < 0.002, QStringLiteral("toro, bordo in wireframe -> nessuna linea sulle cuciture (pixel cambiati %1)")
                                      .arg(pct(torusWire)));
-        check(m_mw->editingBorder(), QStringLiteral("Wireframe col bersaglio Border -> il bersaglio resta Border"));
-        click(ui->radioBasic);
+        gl->setBorderRenderMode(0);
+        ui->borderThicknessSlider->setValue(0);  wait(500);
+        check(!ui->radioBorder->isEnabled(), QStringLiteral("toro, bordo rispento -> radio Border di nuovo spento"));
     }
-
-    // Sfera: cucitura e due poli, nessun bordo vero.
     if (loadSurface(kSphere)) {
+        waitBorderProbe();
         check(gl->borderRadius() == 0.0f && !m_mw->editingBorder(),
               QStringLiteral("load -> bordo del preset (nessuno) e bersaglio Surface"));
-        click(ui->radioBorder);
         const double sphere = borderEffect(50, QStringLiteral("sphere"));
         check(sphere < 0.002, QStringLiteral("sfera (cucitura e poli) -> bordo invisibile (pixel cambiati %1)").arg(pct(sphere)));
+        ui->borderThicknessSlider->setValue(0);  wait(300);
     }
 
     // Nastro di Moebius: la cucitura e' RITORTA (u = 0 combacia con u = 2*pi a
@@ -4702,8 +4760,9 @@ void ScenarioTest::runBorderScenarios()
     }
 
     // Ray Marching: il bordo non esiste, il radio si spegne e il bersaglio
-    // torna su Surface.
-    if (loadSurface(kTorus)) {
+    // torna su Surface. Su una superficie aperta, dove il radio e' acceso.
+    if (loadSurface(kEnneper)) {
+        waitBorderProbe();
         click(ui->radioBorder);
         m_discardOnPrompt = true;
         ui->tabModeSelector->setCurrentIndex(1);  wait(1500);
@@ -4713,7 +4772,16 @@ void ScenarioTest::runBorderScenarios()
         m_discardOnPrompt = true;
         ui->tabModeSelector->setCurrentIndex(0);  wait(1500);
         m_discardOnPrompt = false;
-        check(ui->radioBorder->isEnabled(), QStringLiteral("di nuovo Parametric -> radio Border acceso"));
+        waitBorderProbe();
+        // Tornando, la scheda parametrica riparte dalla superficie di default
+        // (il toro, chiuso): il radio segue la sonda.
+        const GLWidget::BorderAvailability back = gl->borderAvailability();
+        check(back != GLWidget::BorderAvailability::Unknown
+                  && ui->radioBorder->isEnabled() == (back == GLWidget::BorderAvailability::Visible),
+              QStringLiteral("di nuovo Parametric -> radio Border secondo la superficie (%1, radio %2)")
+                  .arg(back == GLWidget::BorderAvailability::Visible ? QStringLiteral("aperta")
+                       : back == GLWidget::BorderAvailability::None ? QStringLiteral("chiusa") : QStringLiteral("sconosciuta"),
+                       ui->radioBorder->isEnabled() ? QStringLiteral("acceso") : QStringLiteral("spento")));
     }
 }
 
@@ -4741,12 +4809,35 @@ bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, 
     static const char *kSide[4] = { "v=vmin", "v=vmax", "u=umin", "u=umax" };
     QString tag = rel;
     tag.remove(QStringLiteral("surfaces/Parametric/")).remove(QStringLiteral(".json")).replace(QLatin1Char('/'), QLatin1Char('_'));
-    if (!ui->radioBorder->isEnabled()) {
-        *skipped = QStringLiteral("bordo non disponibile");
+    if (m_mw->implicitMode()) {
+        *skipped = QStringLiteral("ray marching, niente bordo");
         return false;
     }
-    ui->radioBorder->click();  wait(200);
+    // Prima di accendere il bordo: la sonda (GLWidget::borderAvailability) e
+    // il radio Border, spento sulle superfici chiuse. Piu' sotto si confronta
+    // con quello che il bordo fa davvero, acceso.
+    waitBorderProbe();
+    const GLWidget::BorderAvailability probe = gl->borderAvailability();
+    const bool radioOn = ui->radioBorder->isEnabled();
+    // Col bordo gia' acceso (preset salvato cosi', il Warping Torus) il radio
+    // resta cliccabile per poterlo spegnere.
+    if (probe == GLWidget::BorderAvailability::None && radioOn && gl->borderRadius() <= 0.0f)
+        *problems << QStringLiteral("superficie chiusa per la sonda ma radio Border acceso");
+    if (probe != GLWidget::BorderAvailability::None && !radioOn)
+        *problems << QStringLiteral("radio Border spento ma la sonda non dice chiusa");
+    if (radioOn) {
+        ui->radioBorder->click();  wait(200);
+    }
+    // Lo slider accende il bordo anche col radio spento: e' cio' che fa un
+    // preset salvato col bordo, e si controlla che li' non si veda nulla.
     ui->borderThicknessSlider->setValue(40);  wait(900);
+    auto probeAgrees = [&](bool anyVisible) {
+        if (probe == GLWidget::BorderAvailability::Unknown) return;
+        if ((probe == GLWidget::BorderAvailability::Visible) != anyVisible)
+            *problems << QStringLiteral("la sonda a bordo spento dice %1, il bordo acceso %2")
+                             .arg(probe == GLWidget::BorderAvailability::Visible ? QStringLiteral("aperta") : QStringLiteral("chiusa"),
+                                  anyVisible ? QStringLiteral("ha lati visibili") : QStringLiteral("non ha lati visibili"));
+    };
     gl->grabFramebuffer().save(dir + QLatin1Char('/') + tag + QStringLiteral(".png"));
     auto off = [&] {
         ui->borderThicknessSlider->setValue(0);  wait(200);
@@ -4774,7 +4865,9 @@ bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, 
             const float *q = data + (size_t(row) * width + k) * 4;
             return QVector4D(q[0], q[1], q[2], q[3]);
         };
+        bool anyVisible = false;
         for (int side = 0; side < 4; ++side) {
+            if (info[4 + side] < 0.5f) anyVisible = true;
             const int n = (side < 2 ? numU : numV);
             int straight = 0, twisted = 0;
             for (int k = 0; k <= n; ++k) {
@@ -4786,6 +4879,7 @@ bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, 
             if (std::max(straight, twisted) > (n + 1) * 9 / 10 && info[4 + side] < 0.5f)
                 *problems << QStringLiteral("%1 CUCITURA col bordo (mesh custom)").arg(QString::fromLatin1(kSide[side]));
         }
+        probeAgrees(anyVisible);
         off();
         return true;
     }
@@ -4835,6 +4929,7 @@ bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, 
         bin.write(samples.constData(), qint64(count) * partVec4 * 16);
     }
 
+    bool anyVisible = false;
     for (int p = 0; p < count; ++p) {
         const int mesh = int(table[2 + 2 * p].x() + 0.5f);
         for (int side = 0; side < 4; ++side) {
@@ -4847,6 +4942,7 @@ bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, 
             const float tol = 1e-3f * std::max(1.0f, edgeSample(p, side, N / 2).length());
             if (len < tol) continue;   // polo: coperto per intero, giusto
             const bool hidden = eff[47] && eff[100] && eff[211];
+            if (!hidden) anyVisible = true;
             int uncovered = 0;
             for (int m = 0; m <= N; ++m) uncovered += eff[m] ? 0 : 1;
             const QString where = (count > 1 ? QStringLiteral("parte %1 ").arg(p) : QString())
@@ -4899,8 +4995,25 @@ bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, 
                                  .arg(where).arg(shortRuns).arg(shown.join(QLatin1Char(' ')));
         }
     }
+    probeAgrees(anyVisible);
     off();
     return true;
+}
+
+void ScenarioTest::waitBorderProbe()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    // La sonda parte 400 ms dopo che la geometria si ferma; poi compila (la
+    // prima volta), gira e rilegge i flag in un frame successivo. Il segnale al
+    // dock va in coda: un ultimo giro di eventi.
+    for (int k = 0; k < 80; ++k) {
+        if (gl->m_isCustomMesh) break;
+        if (!gl->m_borderProbeReading && !gl->m_borderProbeArmed && !gl->m_borderProbeTimer->isActive()
+            && !gl->m_borderProbeKey.isEmpty() && gl->m_borderProbeKey == gl->m_borderProbePending)
+            break;
+        wait(50);
+    }
+    wait(100);
 }
 
 void ScenarioTest::runBorderAuditScenarios()

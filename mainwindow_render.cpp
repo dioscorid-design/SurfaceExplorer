@@ -792,6 +792,11 @@ void MainWindow::setupRendererDock()
     // ripartire tutto dal popup (equivale a un master Start).
     // QueuedConnection: il segnale parte dal thread di rendering del QRhiWidget,
     // il QMessageBox deve invece girare nel thread GUI.
+    // Superficie chiusa o aperta: la sonda dei lati coperti arriva dopo il
+    // caricamento, e il segnale puo' partire da render(): in coda.
+    connect(ui->glWidget, &GLWidget::borderAvailabilityChanged, this,
+            [this] { updateBorderControlsGate(); }, Qt::QueuedConnection);
+
     // SHADER CHE NON COMPILA: la superficie SPARISCE (buildPipeline azzera le
     // pipeline) e finora l'unica traccia era un qWarning sulla console, che
     // l'utente non vede -- restava solo lo schermo vuoto, senza spiegazione.
@@ -2141,13 +2146,25 @@ void MainWindow::updateRenderState()
 
 void MainWindow::updateBorderControlsGate()
 {
-    const bool usable = !implicitMode();
+    const bool rayMarching = implicitMode();
+    // SUPERFICIE CHIUSA (toro, sfera, tori di Hopf...): ogni lato e' una
+    // cucitura, un polo o giace su un'altra parte, e il bordo non comparirebbe.
+    // Acceso, radio e spessore non farebbero nulla a schermo ma sporcherebbero
+    // la scena (avviso di salvataggio al cambio di record). Lo dice la sonda
+    // dei lati coperti (GLWidget::borderAvailability), che arriva poco dopo il
+    // caricamento. Col bordo gia' acceso (preset salvato cosi') resta
+    // cliccabile, per poterlo spegnere.
+    GLWidget *gl = ui->glWidget;
+    const bool closed = !rayMarching && gl && gl->borderRadius() <= 0.0f
+                        && gl->borderAvailability() == GLWidget::BorderAvailability::None;
+    const bool usable = !rayMarching && !closed;
     if (ui->radioBorder) {
         ui->radioBorder->setEnabled(usable);
         // Da spento deve dire PERCHE' (regola dei controlli inerti).
-        ui->radioBorder->setToolTip(usable
-            ? tr("Edit the border: its color with the sliders below, its thickness with Border Thickness.")
-            : tr("The border follows the edges of a parametric surface: not available in ray marching."));
+        ui->radioBorder->setToolTip(usable ? tr("Edit the border: its color with the sliders below, its thickness with Border Thickness.")
+                                    : rayMarching ? tr("The border follows the edges of a parametric surface: not available in ray marching.")
+                                                  : tr("This surface is closed: every edge is a seam, a pole or lies on another "
+                                                       "part of the surface, so there is no border to draw."));
     }
     if (!usable && editingBorder()) {
         setEditTarget(EditTarget::Surface);

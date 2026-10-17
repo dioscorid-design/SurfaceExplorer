@@ -614,6 +614,16 @@ public:
     static constexpr int kBorderWireAroundMax = 6;   // in dodicesimi di giro: 2 linee
     BorderStyle borderStyle() const;
     void setBorderStyle(const BorderStyle &s);
+    // Il bordo, acceso, si vedrebbe? Su una superficie chiusa (toro, sfera,
+    // tori di Hopf, Oloid) ogni lato e' una cucitura, un polo o giace su
+    // un'altra parte: il bordo non compare, e il dock ne spegne i comandi (che
+    // altrimenti sporcherebbero la scena senza effetto). Lo dice la passata dei
+    // lati coperti, riletta come SONDA poco dopo ogni cambio di geometria
+    // (m_borderProbeKey; a bordo spento gira apposta); sulla mesh custom il test della CPU
+    // (setBorderEdges). Unknown finche' non si sa: tubo, niente compute, prima
+    // sonda non ancora arrivata. Cambiando emette borderAvailabilityChanged.
+    enum class BorderAvailability { Unknown, Visible, None };
+    BorderAvailability borderAvailability() const;
     // TEXTURE DEL BORDO. Coordinate: lungo il lato (0..1 su ciascun lato) e
     // attorno al tubo (0..1). Il codice entra nel fragment come
     // getCustomColor_border solo col bordo acceso: cambiarlo ricompila.
@@ -1130,6 +1140,10 @@ signals:
     // punto in cui le parti NASCONO copre tutti i percorsi, incluso quello degli
     // script, che non passa da checkAndTriggerMeshUpdate.
     void meshPartsChanged();
+    // borderAvailability() e' cambiata, o il bordo si e' acceso o spento: il
+    // dock riallinea il radio Border (MainWindow::updateBorderControlsGate).
+    // Puo' partire da render(): va collegato in coda (Qt::QueuedConnection).
+    void borderAvailabilityChanged();
     // Emesso quando il throughput di rendering resta basso (animazione che
     // rallenta sensibilmente) abbastanza a lungo da segnalare un carico GPU
     // eccessivo. MainWindow lo intercetta per avvisare l'utente. Vedi la logica
@@ -1441,11 +1455,30 @@ private:
     QRhiReadbackResult m_sharedEdgeFlagsResult;
     QRhiReadbackResult m_sharedEdgeSamplesResult;
     int m_sharedEdgeReadbacks = 0;
+    // SONDA (vedi borderAvailability), a bordo spento e acceso: la geometria
+    // (tabella delle parti, costanti, vincoli; il tempo no) dell'ultima sonda,
+    // quella in attesa che si fermi (m_borderProbeTimer: caricamento, slider
+    // trascinato) e, a timer scaduto, il via per il prossimo frame. La lettura
+    // dei flag e' asincrona: finishBorderProbe la scarta se nel frattempo il
+    // vertex e' cambiato (m_borderProbeSerial).
+    QByteArray m_borderProbeKey;
+    QByteArray m_borderProbePending;
+    QTimer *m_borderProbeTimer = nullptr;
+    bool m_borderProbeArmed = false;
+    bool m_borderProbeReading = false;
+    int m_borderProbeSerial = 0;
+    int m_borderProbeReadSerial = 0;
+    std::vector<int> m_borderProbeMeshes;   // indice di mesh di ogni parte, alla lettura
+    QRhiReadbackResult m_borderProbeResult;
+    BorderAvailability m_borderAvailability = BorderAvailability::Unknown;
+    void finishBorderProbe();
+    void setBorderAvailability(BorderAvailability a);
     void createSharedEdgeResources();
     void buildSharedEdgePipeline();
     void releaseSharedEdgePipeline();
     void setSharedEdgeBindings();
-    // La passata vale in questo frame: bordo, parametrico, pipeline pronta.
+    // La passata si puo' usare in questo frame: parametrico (niente tubo ne'
+    // mesh custom), pipeline pronta. Anche a bordo spento, come sonda.
     bool sharedEdgesActive();
     // Lo slot 4 di ogni binding della superficie: i lati coperti, o la dummy.
     QRhiShaderResourceBinding sharedEdgesBinding() const;

@@ -220,6 +220,9 @@ private:
     // Il preset gia' caricato col bordo acceso: difetti dei lati coperti in
     // `problems`. False se non si puo' controllare (motivo in `skipped`).
     bool auditLoadedBorder(const QString &rel, QStringList *problems, QString *skipped);
+    // Aspetta la sonda dei lati coperti dopo un caricamento (radio Border spento
+    // sulle superfici chiuse, GLWidget::borderAvailability).
+    void waitBorderProbe();
     void runMeshCountScenarios();
     // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run
     // dopo un NEW devono sganciare il gate della scena vuota, cioe' lasciare
