@@ -4224,11 +4224,11 @@ void ScenarioTest::runBorderScenarios()
         }
     }
 
-    // Col bordo ACCESO su una superficie chiusa (un preset salvato cosi', come
-    // il Warping Torus della libreria) il radio resta spento: il bordo non si
-    // vede. Sul toro solo cuciture, anche in wireframe (prima le linee
-    // collassavano sulla cucitura: un tratteggio); sulla sfera cucitura e due
-    // poli.
+    // Col bordo ACCESO su una superficie chiusa (un preset salvato cosi': il
+    // Warping Torus della libreria lo era, ripulito il 10-17) il radio resta
+    // spento: il bordo non si vede. Sul toro solo cuciture, anche in wireframe
+    // (prima le linee collassavano sulla cucitura: un tratteggio); sulla sfera
+    // cucitura e due poli.
     if (loadSurface(kTorus)) {
         waitBorderProbe();
         const double torus = borderEffect(50, QStringLiteral("torus"));
