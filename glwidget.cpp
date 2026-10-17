@@ -2753,7 +2753,9 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             if (m_borderRadius > 0.0f && m_borderRenderMode != 2 && m_indexCount > 0
                 && m_pipelineOpaque && m_borderVbo && m_borderIbo && m_borderUploaded) {
                 const int partSlots = std::max(1, (int)parts.size());
-                cb->setGraphicsPipeline(m_pipelineOpaque);
+                // La pipeline del bordo, col discard dei tratti coperti; senza,
+                // quella della superficie (bordo intero).
+                cb->setGraphicsPipeline(m_borderPipelineOpaque ? m_borderPipelineOpaque : m_pipelineOpaque);
                 cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
                 const QRhiCommandBuffer::VertexInput borderBinding(m_borderVbo, 0);
                 // Con un'immagine propria lo slot 1 e' la SUA texture.
@@ -2952,7 +2954,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             if (m_borderRadius > 0.0f && m_borderRenderMode == 2 && m_indexCount > 0
                 && m_wireframePipeline && m_borderVbo && m_borderWireIbo && m_borderUploaded) {
                 const int partSlots = std::max(1, (int)parts.size());
-                cb->setGraphicsPipeline(m_wireframePipeline);
+                cb->setGraphicsPipeline(m_borderPipelineWire ? m_borderPipelineWire : m_wireframePipeline);
                 cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
                 const QRhiCommandBuffer::VertexInput borderBinding(m_borderVbo, 0);
                 for (const SurfaceEngine::BorderRange &r : engine->getBorderRanges()) {
@@ -3160,6 +3162,14 @@ void GLWidget::releaseResources()
     if (m_pipelineTranspFront) {
         delete m_pipelineTranspFront;
         m_pipelineTranspFront = nullptr;
+    }
+    if (m_borderPipelineOpaque) {
+        delete m_borderPipelineOpaque;
+        m_borderPipelineOpaque = nullptr;
+    }
+    if (m_borderPipelineWire) {
+        delete m_borderPipelineWire;
+        m_borderPipelineWire = nullptr;
     }
     if (m_bgUbo) {
         delete m_bgUbo;
@@ -7599,7 +7609,7 @@ QString GLWidget::buildTextureFunction(const QString &customLogic, const QString
     return codeToInject;
 }
 
-QString GLWidget::createFragmentShaderSource(const QString &customLogic)
+QString GLWidget::createFragmentShaderSource(const QString &customLogic, bool forBorder)
 {
     QString fragmentTemplate = loadShaderSource(":/shaders/surface.frag");
     QString commonCode = loadShaderSource(":/shaders/common.glsl");
@@ -7782,9 +7792,11 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic)
     if (hasCutout) {
         fullSource.replace("#version 450", "#version 450\n#define HAS_CUTOUT\n");
     }
-    // Bordo acceso: il fragment scarta i tratti coperti dei suoi lati
-    // (borderFragmentCovered), con la stessa condizione del vertex.
-    if (m_borderRadius > 0.0f && borderSupported()) {
+    // Bordo acceso: il fragment DEL BORDO scarta i tratti coperti dei suoi lati
+    // (borderFragmentCovered), con la stessa condizione del vertex. Solo il
+    // suo: in quello della superficie il discard spegnerebbe lo scarto
+    // anticipato dei frammenti nascosti (vedi m_borderPipelineOpaque).
+    if (forBorder && m_borderRadius > 0.0f && borderSupported()) {
         fullSource.replace("#version 450", "#version 450\n#define HAS_BORDER\n");
     }
 
@@ -7933,6 +7945,14 @@ void GLWidget::buildPipeline() {
     // diversa, applicata piu' tardi) viene segnalato di nuovo.
     m_shaderErrorReported = false;
 
+    // Il fragment del bordo: lo stesso con HAS_BORDER (vedi
+    // m_borderPipelineOpaque). Differisce solo per il codice fisso dei tratti
+    // coperti; se non compilasse lo stesso, il bordo usa le pipeline della
+    // superficie e resta intero.
+    QShader fsBorder;
+    if (m_borderRadius > 0.0f && borderSupported())
+        fsBorder = bakeShader(createFragmentShaderSource(m_customFragmentCode, true).toUtf8(), QShader::FragmentStage);
+
     // ORA si liberano le pipeline precedenti: il rimpiazzo e' garantito, perche'
     // gli shader hanno compilato. Farlo in cima alla funzione (com'era) le
     // distruggeva anche quando il build falliva, ed e' cio' che faceva sparire
@@ -7945,6 +7965,8 @@ void GLWidget::buildPipeline() {
     freePipe(m_pipelineTranspBack);
     freePipe(m_pipelineTranspFront);
     freePipe(m_wireframePipeline);
+    freePipe(m_borderPipelineOpaque);
+    freePipe(m_borderPipelineWire);
     // La passata dei tubi nasce dallo stesso vertex: va rifatta con lui.
     buildTubeFramePipeline(vsSource);
     // Anche quella dei lati del bordo in comune, ma solo al primo frame che la
@@ -8049,6 +8071,33 @@ void GLWidget::buildPipeline() {
     if (!m_wireframePipeline->create()) {
         qWarning() << "buildPipeline: create() wireframe fallita.";
         delete m_wireframePipeline; m_wireframePipeline = nullptr;
+    }
+
+    // --- PIPELINE DEL BORDO: lo stato dell'opaca e della wireframe, col
+    // fragment del bordo ---
+    if (fsBorder.isValid()) {
+        auto borderPipe = [&](bool lines, const char *what) -> QRhiGraphicsPipeline * {
+            QRhiGraphicsPipeline *p = rhi()->newGraphicsPipeline();
+            if (lines) p->setTopology(QRhiGraphicsPipeline::Lines);
+            p->setVertexInputLayout(inputLayout);
+            p->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fsBorder } });
+            p->setSampleCount(renderTarget()->sampleCount());
+            p->setDepthTest(true);
+            p->setDepthWrite(true);
+            p->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
+            p->setCullMode(QRhiGraphicsPipeline::None);
+            p->setTargetBlends({ blend });
+            p->setShaderResourceBindings(surfaceBindings);
+            p->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+            if (!p->create()) {
+                qWarning() << "buildPipeline: create()" << what << "del bordo fallita.";
+                delete p;
+                p = nullptr;
+            }
+            return p;
+        };
+        m_borderPipelineOpaque = borderPipe(false, "opaca");
+        m_borderPipelineWire = borderPipe(true, "wireframe");
     }
 }
 

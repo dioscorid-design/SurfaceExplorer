@@ -4203,7 +4203,16 @@ void ScenarioTest::runBorderScenarios()
         const QString surfDisco = m_mw->m_scene.surfaceTextureCode;
         click(ui->radioBorder);
         selectTexture(kDisco);
+        // Orologi delle texture fermi a un istante fisso per la foto: corrono a
+        // tempo reale, e quello del bordo dall'inizio della scena, quindi
+        // l'immagine dipendeva da quanto erano durati i passi prima (le
+        // compilazioni). Cosi' si confronta fra una build e l'altra.
+        gl->setClocksDrivenByRecorder(true);
+        gl->m_timeTex = 1.0f;
+        gl->m_borderTimeTex = 1.0f;
+        gl->update();  wait(200);
         gl->grabFramebuffer().save(m_outDir + QStringLiteral("/border-texture-disco.png"));
+        gl->setClocksDrivenByRecorder(false);
         check(gl->borderTextureShown() && gl->borderTextureCode().contains(QLatin1String("mainImage"))
                   && gl->isBorderTextureAnimating()
                   && gl->borderTextureLibName() == QLatin1String("Disco Sun Vortex")
@@ -4597,6 +4606,18 @@ void ScenarioTest::runBorderScenarios()
         ui->borderThicknessSlider->setValue(40);  wait(800);
         const QImage outline = gl->grabFramebuffer();
         outline.save(m_outDir + QStringLiteral("/border-octahedron-bands.png"));
+        // Il discard dei tratti coperti sta SOLO nel fragment del bordo, con
+        // pipeline proprie: in quello della superficie spegnerebbe lo scarto
+        // anticipato dei frammenti nascosti sulle GPU a tessere.
+        const bool surfaceCut = gl->createFragmentShaderSource(gl->m_customFragmentCode).contains(QLatin1String("#define HAS_BORDER"));
+        const bool borderCut = gl->createFragmentShaderSource(gl->m_customFragmentCode, true).contains(QLatin1String("#define HAS_BORDER"));
+        check(!surfaceCut && borderCut && gl->m_borderPipelineOpaque && gl->m_borderPipelineWire,
+              QStringLiteral("bordo acceso -> discard solo nel fragment del bordo, pipeline proprie "
+                             "(superficie %1, bordo %2, pipeline %3/%4)")
+                  .arg(surfaceCut ? QStringLiteral("CON discard") : QStringLiteral("senza discard"),
+                       borderCut ? QStringLiteral("con discard") : QStringLiteral("SENZA discard"),
+                       gl->m_borderPipelineOpaque ? QStringLiteral("opaca") : QStringLiteral("NESSUNA opaca"),
+                       gl->m_borderPipelineWire ? QStringLiteral("linee") : QStringLiteral("NESSUNA a linee")));
         gl->m_sharedEdgesOff = true;
         gl->update();  wait(600);
         const QImage everyEdge = gl->grabFramebuffer();

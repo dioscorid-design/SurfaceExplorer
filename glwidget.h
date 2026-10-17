@@ -1285,6 +1285,16 @@ private:
     QRhiGraphicsPipeline *m_pipelineOpaque = nullptr;
     QRhiGraphicsPipeline *m_pipelineTranspBack = nullptr;
     QRhiGraphicsPipeline *m_pipelineTranspFront = nullptr;
+    // BORDO: pipeline proprie, opaca e a linee, con lo stato di m_pipelineOpaque
+    // e m_wireframePipeline ma col fragment del bordo (HAS_BORDER): solo lui
+    // contiene il discard dei tratti coperti. Nel fragment della superficie un
+    // discard, anche mai eseguito, spegne lo scarto anticipato dei frammenti
+    // nascosti sulle GPU a tessere (HSR di Apple, FPK di Mali, LRZ di Adreno):
+    // gli strati opachi coperti si colorano lo stesso. Nulle col bordo spento;
+    // se il loro fragment non compila, il bordo si disegna con le pipeline della
+    // superficie, senza il taglio dei tratti coperti.
+    QRhiGraphicsPipeline *m_borderPipelineOpaque = nullptr;
+    QRhiGraphicsPipeline *m_borderPipelineWire = nullptr;
 
     QRhiBuffer *m_bgUbo = nullptr;
 
@@ -1777,7 +1787,8 @@ private:
 
     // --- Shader Generation & Compilation ---
     QString createVertexShaderSource(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq);
-    QString createFragmentShaderSource(const QString &customCode);
+    // forBorder: la variante delle pipeline del bordo (m_borderPipelineOpaque).
+    QString createFragmentShaderSource(const QString &customCode, bool forBorder = false);
     // Genera UNA funzione texture procedurale col nome dato. Chiamata piu' volte
     // nello stesso shader per le texture per-mesh (getCustomColor_<k>).
     QString buildTextureFunction(const QString &customLogic, const QString &funcName);
