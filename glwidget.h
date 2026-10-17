@@ -1422,6 +1422,15 @@ private:
     bool m_sharedEdgeSourceDirty = false;
     // Solo per gli scenari: spegne la passata, per confrontare col test del vertex.
     bool m_sharedEdgesOff = false;
+    // Solo per gli scenari (border-audit): nel prossimo frame con la passata
+    // attiva si rileggono dalla GPU i flag dei lati coperti (RGBA8,
+    // kSharedEdgeSamples + 1 colonne, riga = mesh * 4 + lato) e i campioni
+    // delle parti (kSharedEdgePartVec4 vec4 per parte). Ogni lettura finita
+    // incrementa m_sharedEdgeReadbacks.
+    bool m_sharedEdgeReadbackRequested = false;
+    QRhiReadbackResult m_sharedEdgeFlagsResult;
+    QRhiReadbackResult m_sharedEdgeSamplesResult;
+    int m_sharedEdgeReadbacks = 0;
     void createSharedEdgeResources();
     void buildSharedEdgePipeline();
     void releaseSharedEdgePipeline();

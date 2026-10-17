@@ -541,10 +541,15 @@ void GLWidget::setBorderEdges(const QVector<QVector<QVector4D>> &grid, const std
                 }
             }
             auto own = [&](int i, int j) { return ownStamp[at(i, j)] == stamp; };
-            // I nodi piu' vicini fuori dall'intorno.
+            // I nodi piu' vicini fuori dall'intorno. L'ultima riga e l'ultima
+            // colonna ci sono sempre, anche fuori passo: nel Twisted Torus
+            // Ribbon la traiettoria gemella della prima (cucitura) e' la 423,
+            // e a passo 2 non si guardava mai -- il lato u = uMin restava col
+            // bordo, u = uMax (gemella la 0) no.
             std::vector<std::pair<float, int>> best;
-            for (int i = 0; i <= numU; i += stride)
-                for (int j = 0; j <= numV; j += stride) {
+            auto next = [stride](int x, int last) { return (x < last && x + stride > last) ? last : x + stride; };
+            for (int i = 0; i <= numU; i = next(i, numU))
+                for (int j = 0; j <= numV; j = next(j, numV)) {
                     if (!drawn[at(i, j)] || own(i, j)) continue;
                     best.push_back({ (grid[i][j] - P).lengthSquared(), int(at(i, j)) });
                 }
@@ -612,8 +617,9 @@ void GLWidget::createSharedEdgeResources()
         || !rhi()->isTextureFormatSupported(QRhiTexture::RGBA8, QRhiTexture::UsedWithLoadStore))
         return;
     // Un texel per campione del lato: colonna = campione, riga = parte * 4 + lato.
+    // Sorgente di copia: gli scenari ne rileggono i flag (border-audit).
     m_sharedEdgeTex = rhi()->newTexture(QRhiTexture::RGBA8, QSize(kSharedEdgeSamples + 1, 4 * kSharedEdgeMaxParts),
-                                        1, QRhiTexture::UsedWithLoadStore);
+                                        1, QRhiTexture::UsedWithLoadStore | QRhiTexture::UsedAsTransferSource);
     if (!m_sharedEdgeTex->create()) {
         delete m_sharedEdgeTex;
         m_sharedEdgeTex = nullptr;
@@ -706,9 +712,15 @@ bool GLWidget::sharedEdgesActive()
 //    v = pi/2 gira cinque volte su un cerchio, dove si incontrano cinque
 //    lembi): i fogli partono con un angolo, anche stretto (gli archi
 //    dell'Oloid sono uno spigolo vivo di 30 gradi);
-//  - i poli: il lato e' lungo meno della tolleranza.
+//  - i poli: il lato e' lungo meno della tolleranza;
+//  - le cuciture punto per punto, anche dove la superficie degenera in una
+//    linea e non c'e' un altro foglio (Cuspid Koranyi Sphere).
 // Resta un bordo il lato percorso due volte dallo STESSO foglio (una
-// superficie rivestita due volte): le due direzioni coincidono.
+// superficie rivestita due volte): le due direzioni coincidono. E resta un
+// bordo l'orlo che ATTRAVERSA un altro foglio senza giacervi (Enneper in H3,
+// Richmond): coperto e' solo il lato che giace nel foglio per un tratto.
+// Il comportamento si verifica rileggendo i flag dalla GPU su tutta la
+// libreria: --scenario-only border-audit (ScenarioTest::auditLoadedBorder).
 // Due passate. Nella prima (blocco di una parte, u_isBorder = 0) ogni lato
 // si campiona in kSharedEdgeSamples intervalli, col punto appena dentro;
 // nella seconda (blocco del bordo, u_isBorder = 1) i punti di prova si
@@ -759,8 +771,9 @@ const float EDGE_INWARD = 0.002;
 int edgeSlot(int part, int side, int m) { return part * PART_VEC4 + (side * (EDGE_SAMPLES + 1) + m) * 2; }
 int gridSlot(int part, int i, int j) { return part * PART_VEC4 + SIDE_VEC4 + i * (GRID + 1) + j; }
 
-// Distanza di p dal triangolo abc (4D).
-float pointTriangle(vec4 p, vec4 a, vec4 b, vec4 c) {
+// Distanza di p dal triangolo abc (4D) e il punto piu' vicino in coordinate
+// del triangolo: (distanza, s, t), punto = a + s (b - a) + t (c - a).
+vec3 pointTriangle(vec4 p, vec4 a, vec4 b, vec4 c) {
     vec4 e0 = b - a, e1 = c - a, v = p - a;
     float m00 = dot(e0, e0), m01 = dot(e0, e1), m11 = dot(e1, e1);
     float r0 = dot(v, e0), r1 = dot(v, e1);
@@ -768,13 +781,63 @@ float pointTriangle(vec4 p, vec4 a, vec4 b, vec4 c) {
     if (abs(det) > 1.0e-30) {
         float s = (r0 * m11 - r1 * m01) / det;
         float t = (r1 * m00 - r0 * m01) / det;
-        if (s >= 0.0 && t >= 0.0 && s + t <= 1.0) return length(a + s * e0 + t * e1 - p);
+        if (s >= 0.0 && t >= 0.0 && s + t <= 1.0) return vec3(length(a + s * e0 + t * e1 - p), s, t);
     }
     vec4 ab = b - a, bc = c - b, ca = a - c;
     float ta = clamp(dot(p - a, ab) / max(dot(ab, ab), 1.0e-30), 0.0, 1.0);
     float tb = clamp(dot(p - b, bc) / max(dot(bc, bc), 1.0e-30), 0.0, 1.0);
     float tc = clamp(dot(p - c, ca) / max(dot(ca, ca), 1.0e-30), 0.0, 1.0);
-    return min(length(a + ta * ab - p), min(length(b + tb * bc - p), length(c + tc * ca - p)));
+    vec3 best = vec3(length(a + ta * ab - p), ta, 0.0);
+    float db = length(b + tb * bc - p);
+    if (db < best.x) best = vec3(db, 1.0 - tb, tb);
+    float dc = length(c + tc * ca - p);
+    if (dc < best.x) best = vec3(dc, 0.0, 1.0 - tc);
+    return best;
+}
+
+// Punto della griglia dell'interno della parte, interpolato, alla posizione g
+// (in celle) e le sue derivate lungo i e lungo j.
+vec4 gridAt(int part, vec2 g, out vec4 di, out vec4 dj, out float diag) {
+    int gi = clamp(int(floor(g.x)), 0, GRID - 1), gj = clamp(int(floor(g.y)), 0, GRID - 1);
+    vec2 t = clamp(g - vec2(float(gi), float(gj)), 0.0, 1.0);
+    vec4 x00 = samples.s[gridSlot(part, gi, gj)];
+    vec4 x10 = samples.s[gridSlot(part, gi + 1, gj)];
+    vec4 x01 = samples.s[gridSlot(part, gi, gj + 1)];
+    vec4 x11 = samples.s[gridSlot(part, gi + 1, gj + 1)];
+    di = mix(x10 - x00, x11 - x01, t.y);
+    dj = mix(x01 - x00, x11 - x10, t.x);
+    diag = max(length(x11 - x00), length(x10 - x01));
+    return mix(mix(x00, x10, t.x), mix(x01, x11, t.x), t.y);
+}
+
+// Il campione Q di un lato giace sul foglio della parte j? Si parte dal punto
+// g della sua griglia (il punto piu' vicino a un campione accanto) e ci si
+// avvicina a Q con Gauss-Newton, senza uscire dal dominio: il foglio segue Q
+// anche dove le sue celle sono strette in una direzione (le fasce
+// dell'Octahedron Bands, attraversate di sbieco da un orlo). Margine come nella
+// ricerca delle celle; sulla parte di Q non conta il suo stesso intorno.
+bool onSheet(int j, vec2 g, vec4 Q, float margin0, bool ownPart, vec2 ownQ) {
+    float tolQ = 1.0e-3 * max(1.0, length(Q));
+    for (int it = 0; it < 6; ++it) {
+        vec4 di, dj;
+        float diag;
+        vec4 r = Q - gridAt(j, g, di, dj, diag);
+        bool within = length(r) < tolQ + max(0.06 * diag, margin0);
+        if (within && !(ownPart && abs(g.x - ownQ.x) < 1.5 && abs(g.y - ownQ.y) < 1.5)) return true;
+        float a11 = dot(di, di), a12 = dot(di, dj), a22 = dot(dj, dj);
+        float det = a11 * a22 - a12 * a12;
+        if (it == 5 || det <= 1.0e-12 * max(a11 * a22, 1.0e-30)) break;
+        vec2 d = vec2(a22 * dot(di, r) - a12 * dot(dj, r), a11 * dot(dj, r) - a12 * dot(di, r)) / det;
+        g = clamp(g + clamp(d, vec2(-16.0), vec2(16.0)), vec2(0.0), vec2(float(GRID)));
+    }
+    return false;
+}
+
+// Il campione m di un lato nella griglia della sua parte, in celle.
+vec2 ownCell(int side, int m) {
+    float f = float(m) / float(EDGE_SAMPLES) * float(GRID);
+    return (side == 0) ? vec2(f, 0.0) : (side == 1) ? vec2(f, float(GRID))
+         : (side == 2) ? vec2(0.0, f) : vec2(float(GRID), f);
 }
 
 void main() {
@@ -861,31 +924,83 @@ void main() {
     // float cresce con lei.
     float tol = 1.0e-3 * max(1.0, length(P));
     // Il punto nella griglia della sua parte, per escluderne l'intorno.
-    float f = float(m) / float(EDGE_SAMPLES) * float(GRID);
-    vec2 own = (side == 0) ? vec2(f, 0.0) : (side == 1) ? vec2(f, float(GRID))
-             : (side == 2) ? vec2(0.0, f) : vec2(float(GRID), f);
+    vec2 own = ownCell(side, m);
+    // Campioni del lato a circa una diagonale di cella prima e dopo (vedi
+    // GIACE NEL FOGLIO, sotto): passo medio del lato attorno al punto.
+    int mPrev = max(m - 1, 0), mNext = min(m + 1, EDGE_SAMPLES);
+    float edgeStep = max(length(samples.s[edgeSlot(part, side, mNext)] - samples.s[edgeSlot(part, side, mPrev)])
+                         / float(mNext - mPrev), 1.0e-30);
 
     // STESSO FOGLIO DEL PUNTO. Una cella della sua parte che passa per il punto
     // non lo copre se ci si arriva restando sulla superficie vicino al punto:
-    // lungo la retta del dominio dal punto al centro della cella la superficie
-    // (dalla griglia, interpolata) non si allontana piu' di R. Un intorno
-    // fisso di celle non bastava: sulla Hyperbolic Saddle, verso il lato
-    // u = 8, tanh satura e la superficie e' schiacciata in diagonale nel
+    // lungo la retta del dominio dal punto al punto della cella piu' vicino
+    // la superficie (dalla griglia, interpolata) non si allontana piu' di R.
+    // Un intorno fisso di celle non bastava: sulla Hyperbolic Saddle, verso il
+    // lato u = 8, tanh satura e la superficie e' schiacciata in diagonale nel
     // dominio (verso l'interno in u e insieme lungo v si resta quasi fermi), e
-    // celle a qualche passo coprivano il lato. R e' anche tre volte il margine
-    // con cui una cella si accetta (tol + 0.06 della diagonale, la curvatura
-    // fra i nodi), misurato sulla cella del punto.
+    // celle a qualche passo coprivano il lato. E non il CENTRO della cella:
+    // dove cos(2v) = 0 la cella e' alta (z va come u cos 2v) e il suo centro
+    // sta lontano, mentre il suo punto vicino al lato e' raggiungibile; col
+    // centro l'orlo u = 8 restava tratteggiato. R e' anche tre volte il
+    // margine con cui una cella si accetta (tol + 0.06 della diagonale, la
+    // curvatura fra i nodi), misurato sulla cella del punto.
     int ci0 = clamp(int(floor(own.x + 0.5)), 0, GRID - 1);
     int cj0 = clamp(int(floor(own.y + 0.5)), 0, GRID - 1);
     float diagP = max(length(samples.s[gridSlot(part, ci0 + 1, cj0 + 1)] - samples.s[gridSlot(part, ci0, cj0)]),
                       length(samples.s[gridSlot(part, ci0 + 1, cj0)] - samples.s[gridSlot(part, ci0, cj0 + 1)]));
-    float R = max(20.0 * tol, 3.0 * (tol + 0.06 * diagP));
+    // Piu' quanto la griglia stessa sbaglia il punto: dove il lato e' mal
+    // campionato dai nodi (la punta della Kuen, z come log v: la corda fra due
+    // nodi passa a 0.16 dal punto vero) la camminata usciva da R al primo passo
+    // e la punta, avvolta dal giro accanto, risultava coperta.
+    vec4 gdi, gdj;
+    float gdiag;
+    float R = max(20.0 * tol, 3.0 * (tol + 0.06 * diagP)) + length(gridAt(part, own, gdi, gdj, gdiag) - P);
 
     // Polo: il lato e' (quasi) un punto.
     float len = 0.0;
     for (int k = 0; k < EDGE_SAMPLES; ++k)
         len += length(samples.s[edgeSlot(part, side, k + 1)] - samples.s[edgeSlot(part, side, k)]);
     bool found = len < tol;
+    // CUCITURA qui e nel campione accanto: il lato coincide col lato opposto
+    // della parte, diritto (toro) o ritorto (Moebius). Le cuciture di solito
+    // le copre gia' l'altro foglio, ma dove la superficie degenera in una linea
+    // (Cuspid Koranyi Sphere: per meta' giro di v il raggio e' zero e i lati
+    // u = 0 e u = 2 pi corrono sull'asse) non c'e' un altro foglio -- i punti
+    // del giro in u coincidono, e' lo stesso -- e il tubo restava dentro la
+    // superficie, sporgendo dalle cuspidi. Il campione accanto esclude i lati
+    // che si toccano in un punto solo (sul Moebius la fine di v = -1 e'
+    // l'inizio di v = +1).
+    // Terzo caso (tw = 2): il lato ripiegato su se' stesso, il punto m
+    // coincide con N - m (Oloid: lo stesso punto per w e -w). Al centro della
+    // piega lo specchio e' il punto stesso e la ricerca delle celle lo prende
+    // per lo stesso foglio: decide il campione accanto, che deve coincidere col
+    // suo specchio (un altro campione) con l'altro foglio che parte in una
+    // direzione diversa, come nella ricerca -- un orlo percorso due volte
+    // dallo stesso foglio resta un orlo.
+    for (int tw = 0; tw < 3 && !found; ++tw) {
+        bool here = false, beside = false;
+        for (int dm = -1; dm <= 1; ++dm) {
+            int mm = m + dm;
+            if (mm < 0 || mm > EDGE_SAMPLES) continue;
+            int other = (tw == 0) ? mm : EDGE_SAMPLES - mm;
+            vec4 A = samples.s[edgeSlot(part, side, mm)];
+            vec4 B = samples.s[edgeSlot(part, (tw == 2) ? side : (side ^ 1), other)];
+            bool on = length(A - B) < 1.0e-3 * max(1.0, length(A));
+            if (dm == 0) {
+                here = on;
+                continue;
+            }
+            if (tw == 2 && on) {
+                vec4 ia = samples.s[edgeSlot(part, side, mm) + 1] - A;
+                vec4 ib = samples.s[edgeSlot(part, side, other) + 1] - B;
+                ia -= dot(ia, T) * T;
+                ib -= dot(ib, T) * T;
+                on = other != mm && dot(ia, ib) < 0.5 * length(ia) * length(ib);
+            }
+            beside = beside || on;
+        }
+        found = here && beside;
+    }
 
     for (int j = 0; j < count && !found; ++j) {
         for (int tt = 0; tt < TILES * TILES && !found; ++tt) {
@@ -903,12 +1018,17 @@ void main() {
                     vec4 x01 = samples.s[gridSlot(j, ci, cj + 1)];
                     vec4 x11 = samples.s[gridSlot(j, ci + 1, cj + 1)];
                     float diag = max(length(x11 - x00), length(x10 - x01));
-                    float dist = min(pointTriangle(P, x00, x10, x01), pointTriangle(P, x01, x10, x11));
+                    vec3 near0 = pointTriangle(P, x00, x10, x01);
+                    vec3 near1 = pointTriangle(P, x01, x10, x11);
+                    float dist = min(near0.x, near1.x);
                     if (dist >= tol + 0.06 * diag) continue;
+                    // Il punto della cella piu' vicino, in celle della parte j.
+                    vec2 hit = (near0.x <= near1.x) ? vec2(float(ci) + near0.y, float(cj) + near0.z)
+                                                    : vec2(float(ci) + near1.y + near1.z, float(cj) + 1.0 - near1.y);
                     if (j == part) {
                         bool same = true;
                         for (int q = 1; q <= 16 && same; ++q) {
-                            vec2 g = own + vec2(du, dv) * (float(q) / 16.0);
+                            vec2 g = own + (hit - own) * (float(q) / 16.0);
                             int gi = clamp(int(floor(g.x)), 0, GRID - 1), gj = clamp(int(floor(g.y)), 0, GRID - 1);
                             vec2 t = clamp(g - vec2(float(gi), float(gj)), 0.0, 1.0);
                             vec4 x = mix(mix(samples.s[gridSlot(part, gi, gj)], samples.s[gridSlot(part, gi + 1, gj)], t.x),
@@ -944,8 +1064,33 @@ void main() {
                         L4[c] = length(w);
                         Lmax = max(Lmax, L4[c]);
                     }
-                    for (int c = 0; c < 4 && !found; ++c)
-                        found = L4[c] > max(0.25 * Lmax, tol) && dot(w4[c], inward) < 0.5 * L4[c];
+                    bool apart = false;
+                    for (int c = 0; c < 4 && !apart; ++c)
+                        apart = L4[c] > max(0.25 * Lmax, tol) && dot(w4[c], inward) < 0.5 * L4[c];
+                    if (!apart) continue;
+                    // GIACE NEL FOGLIO. Un orlo che ATTRAVERSA un altro foglio
+                    // resta un orlo: coperto e' solo il lato che vi giace, almeno
+                    // da una parte del punto. Si guarda il campione del lato a
+                    // circa una diagonale di cella prima e dopo: deve stare sul
+                    // foglio della cella (onSheet). Attraversandolo con un angolo
+                    // a, a quella distanza se ne scosta di diag sin a, oltre il
+                    // margine gia' da 4-5 gradi; giacendovi, ne dista quanto la
+                    // curvatura fra i nodi, dentro il margine. Senza, ogni
+                    // incrocio lasciava una tacca nel tubo (Enneper in H3, dove
+                    // l'orlo passa a 10 gradi dentro l'altra falda; Richmond),
+                    // tanto piu' lunga quanto piu' l'incrocio era radente.
+                    // Vicino a un capo del lato il campione si ferma al capo; se
+                    // ne resta meno di mezzo k, non dice nulla: il capo puo'
+                    // essere un punto singolare per cui passano piu' fogli (i due
+                    // poli della Spiral Shell, entrambi nell'origine), e giudicato
+                    // da li' copriva i primi campioni (una tacca nell'angolo).
+                    int k = clamp(int(ceil(diag / edgeStep)), 1, 32);
+                    for (int q = 0; q < 2 && !found; ++q) {
+                        int mq = (q == 0) ? max(m - k, 0) : min(m + k, EDGE_SAMPLES);
+                        if (2 * abs(mq - m) < k) continue;
+                        found = onSheet(j, hit, samples.s[edgeSlot(part, side, mq)], 0.06 * diag,
+                                        j == part, ownCell(side, mq));
+                    }
                 }
             }
         }
@@ -2491,6 +2636,19 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                     cb->dispatch((work[phase] + 63) / 64, 1, 1);
                     cb->endComputePass();
                 }
+            }
+            if (m_sharedEdgeReadbackRequested) {
+                m_sharedEdgeReadbackRequested = false;
+                QRhiResourceUpdateBatch *rb = rhi()->nextResourceUpdateBatch();
+                m_sharedEdgeFlagsResult = {};
+                m_sharedEdgeFlagsResult.completed = [this] { ++m_sharedEdgeReadbacks; };
+                rb->readBackTexture(QRhiReadbackDescription(m_sharedEdgeTex), &m_sharedEdgeFlagsResult);
+                m_sharedEdgeSamplesResult = {};
+                m_sharedEdgeSamplesResult.completed = [this] { ++m_sharedEdgeReadbacks; };
+                rb->readBackBuffer(m_sharedEdgeSamples, 0,
+                                   quint32(edgeParts.size() * kSharedEdgePartVec4 * sizeof(QVector4D)),
+                                   &m_sharedEdgeSamplesResult);
+                cb->resourceUpdate(rb);
             }
         }
 

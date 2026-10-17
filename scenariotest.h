@@ -209,6 +209,17 @@ private:
     // Save e riapertura, nessuna chiave senza bordo; spento in Ray Marching.
     // Da sola: --scenario-only border.
     void runBorderScenarios();
+    // AUDIT DEL BORDO su ogni superficie parametrica della libreria: il bordo
+    // si accende e si rileggono dalla GPU i flag della passata dei lati coperti
+    // (GLWidget::m_sharedEdgeReadbackRequested). Lato per lato cerca i difetti
+    // che i confronti d'immagine non vedono: tratteggio, tacche dove l'orlo
+    // attraversa un altro foglio, lati nascosti per intero ma scoperti in gran
+    // parte. Restano nel report immagini e dati grezzi (border-audit/).
+    // Da sola: --scenario-only border-audit[:filtro sul percorso].
+    void runBorderAuditScenarios();
+    // Il preset gia' caricato col bordo acceso: difetti dei lati coperti in
+    // `problems`. False se non si puo' controllare (motivo in `skipped`).
+    bool auditLoadedBorder(const QString &rel, QStringList *problems, QString *skipped);
     void runMeshCountScenarios();
     // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run
     // dopo un NEW devono sganciare il gate della scena vuota, cioe' lasciare

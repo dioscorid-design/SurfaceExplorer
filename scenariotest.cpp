@@ -1864,6 +1864,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only.startsWith(QLatin1String("border-audit"))) {
+        runBorderAuditScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("meshes")) {
         runMeshCountScenarios();
         finish();
@@ -4636,6 +4641,45 @@ void ScenarioTest::runBorderScenarios()
         click(ui->radioSurface);
     }
 
+    // LATI COPERTI letti dalla GPU (auditLoadedBorder; il giro su tutta la
+    // libreria e' --scenario-only border-audit). I casi che l'hanno rotta:
+    //  - Hyperbolic Saddle (screenshot dell'utente del 10-16): orlo u = 8 a
+    //    trattini dove cos(2v) = 0 -- celle della stessa falda prese per un
+    //    altro foglio perche' il test guardava il loro centro;
+    //  - Enneper in H3, Richmond Polar: tacche dove l'orlo ATTRAVERSA l'altra
+    //    falda (a 10 gradi nell'Enneper) senza giacervi;
+    //  - Mobius Band in H3, Dini's Spiral, Hyperbolic Helicoid, Twisted Bands:
+    //    tratteggio a passo di cella;
+    //  - Torus Noise, Cuspid Koranyi Sphere: cuciture col bordo (rumore;
+    //    superficie che degenera nell'asse);
+    //  - Spiral Shell: tacche negli angoli, sui poli (entrambi nell'origine);
+    //  - Twisted Torus Ribbon (flusso geodetico, test sulla CPU): la prima
+    //    traiettoria, gemella dell'ultima, col bordo -- l'ultima colonna non
+    //    entrava mai fra i candidati;
+    // e quelli in cui il lato coperto c'e' davvero e deve restare nascosto o
+    // tagliato: Octahedron Bands, Calabi-Yau, Hopf Tori, Oloid, Wound Sphere.
+    for (const char *rel : { "Surfaces/Equations/H2xR/Hyperbolic Saddle", "Surfaces/Equations/H3/Enneper",
+                             "Surfaces/Equations/R3/Richmond Polar", "Surfaces/Equations/H3/Mobius Band",
+                             "Surfaces/Equations/R3/Dini's Spiral", "Surfaces/Equations/R3/Hyperbolic Helicoid",
+                             "Surfaces/Multi Meshes/Twisted Bands", "Surfaces/Equations/R3/Torus Noise",
+                             "Surfaces/Equations/NIL/Cuspid Koranyi Sphere", "Surfaces/Equations/R3/Spiral Shell",
+                             "Surfaces/Geodesic Flows/R3/Twisted Torus Ribbon",
+                             "Surfaces/Multi Meshes/Octahedron Bands", "Surfaces/Multi Meshes/Calabi-Yau",
+                             "Surfaces/Multi Meshes/Hopf Tori", "Surfaces/Equations/R3/Oloid",
+                             "Surfaces/Equations/S3/Wound Sphere" }) {
+        const QString path = QStringLiteral("surfaces/Parametric/%1.json").arg(QString::fromUtf8(rel));
+        if (!loadSurface(path)) continue;
+        QStringList problems;
+        QString skipped;
+        if (!auditLoadedBorder(path, &problems, &skipped)) {
+            check(false, QStringLiteral("%1: lati coperti non controllabili (%2)").arg(path, skipped));
+            continue;
+        }
+        check(problems.isEmpty(), QStringLiteral("%1 col bordo -> lati coperti senza difetti%2")
+                                      .arg(path, problems.isEmpty() ? QString()
+                                                                    : QStringLiteral(": ") + problems.join(QStringLiteral("; "))));
+    }
+
     // Ray Marching: il bordo non esiste, il radio si spegne e il bersaglio
     // torna su Surface.
     if (loadSurface(kTorus)) {
@@ -4650,6 +4694,248 @@ void ScenarioTest::runBorderScenarios()
         m_discardOnPrompt = false;
         check(ui->radioBorder->isEnabled(), QStringLiteral("di nuovo Parametric -> radio Border acceso"));
     }
+}
+
+// Difetti cercati lato per lato, sui flag DOPO il filtro degli shader (un
+// campione scoperto fra due coperti conta come coperto, borderCoveredAt):
+//  - TRATTEGGIO: su un lato disegnato, piu' tratti coperti brevi (lo
+//    screenshot dell'utente del 10-16: orli a trattini);
+//  - TACCA: un tratto coperto breve isolato su un lato disegnato, dove l'orlo
+//    attraversa un altro foglio senza giacervi;
+//  - CUCITURA COL BORDO: il lato coincide col lato opposto (controllo
+//    indipendente dalla passata) ma si disegna;
+//  - LATO PERSO: il vertex nasconde il lato intero (campioni 47, 100, 211
+//    coperti) ma buona parte dei campioni e' scoperta: un bordo vero sparisce.
+// Restano border-audit/<percorso>.png e .bin (tabella delle parti, flag e
+// campioni, per l'analisi fuori dall'app: formato qui sotto).
+bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, QString *skipped)
+{
+    Ui::MainWindow *ui = m_mw->ui;
+    GLWidget *gl = ui->glWidget;
+    const QString dir = m_outDir + QStringLiteral("/border-audit");
+    QDir().mkpath(dir);
+    constexpr int N = GLWidget::kSharedEdgeSamples;
+    constexpr int G = GLWidget::kSharedEdgeGrid;
+    constexpr int partVec4 = GLWidget::kSharedEdgePartVec4;
+    static const char *kSide[4] = { "v=vmin", "v=vmax", "u=umin", "u=umax" };
+    QString tag = rel;
+    tag.remove(QStringLiteral("surfaces/Parametric/")).remove(QStringLiteral(".json")).replace(QLatin1Char('/'), QLatin1Char('_'));
+    if (!ui->radioBorder->isEnabled()) {
+        *skipped = QStringLiteral("bordo non disponibile");
+        return false;
+    }
+    ui->radioBorder->click();  wait(200);
+    ui->borderThicknessSlider->setValue(40);  wait(900);
+    gl->grabFramebuffer().save(dir + QLatin1Char('/') + tag + QStringLiteral(".png"));
+    auto off = [&] {
+        ui->borderThicknessSlider->setValue(0);  wait(200);
+        ui->radioSurface->click();  wait(200);
+    };
+    if (gl->engine->isTubeModeActive()) {
+        *skipped = QStringLiteral("tubo, niente bordo da controllare (solo immagine)");
+        off();
+        return false;
+    }
+    if (gl->m_isCustomMesh) {
+        // Flusso geodetico: i lati coperti li decide la CPU per lato intero
+        // (GLWidget::setBorderEdges). Si controlla che un lato che coincide col
+        // lato opposto della mesh disegnata (cucitura) non resti disegnato.
+        const int width = gl->m_borderEdgeWidth;
+        if (width <= 0) {
+            *problems << QStringLiteral("mesh custom senza texture dei lati");
+            off();
+            return true;
+        }
+        const float *data = gl->m_borderEdgeData.data();
+        const float *info = data + size_t(8) * width * 4;
+        const int numU = int(info[0] + 0.5f), numV = int(info[1] + 0.5f);
+        auto pt = [&](int row, int k) {
+            const float *q = data + (size_t(row) * width + k) * 4;
+            return QVector4D(q[0], q[1], q[2], q[3]);
+        };
+        for (int side = 0; side < 4; ++side) {
+            const int n = (side < 2 ? numU : numV);
+            int straight = 0, twisted = 0;
+            for (int k = 0; k <= n; ++k) {
+                const QVector4D P = pt(2 * side, k);
+                const float t = 1e-3f * std::max(1.0f, P.length());
+                if ((pt(2 * (side ^ 1), k) - P).length() < t) ++straight;
+                if ((pt(2 * (side ^ 1), n - k) - P).length() < t) ++twisted;
+            }
+            if (std::max(straight, twisted) > (n + 1) * 9 / 10 && info[4 + side] < 0.5f)
+                *problems << QStringLiteral("%1 CUCITURA col bordo (mesh custom)").arg(QString::fromLatin1(kSide[side]));
+        }
+        off();
+        return true;
+    }
+    const int before = gl->m_sharedEdgeReadbacks;
+    gl->m_sharedEdgeReadbackRequested = true;
+    gl->update();
+    for (int k = 0; k < 40 && gl->m_sharedEdgeReadbacks < before + 2; ++k) wait(50);
+    gl->m_sharedEdgeReadbackRequested = false;
+    if (gl->m_sharedEdgeReadbacks < before + 2) {
+        *problems << QStringLiteral("passata dei lati coperti non attiva o lettura dalla GPU non arrivata");
+        off();
+        return true;
+    }
+    const QByteArray flags = gl->m_sharedEdgeFlagsResult.data;
+    const QByteArray samples = gl->m_sharedEdgeSamplesResult.data;
+    const std::vector<QVector4D> table = gl->m_sharedEdgeTable;
+    const int count = table.empty() ? 0 : int(table[0].x() + 0.5f);
+    const int height = 4 * GLWidget::kSharedEdgeMaxParts;
+    const int bpl = flags.size() / height;
+    if (count < 1 || bpl < (N + 1) * 4 || samples.size() < qsizetype(count) * partVec4 * 16) {
+        *problems << QStringLiteral("dati della GPU incompleti (parti %1, flag %2 byte, campioni %3 byte)")
+                         .arg(count).arg(flags.size()).arg(samples.size());
+        off();
+        return true;
+    }
+    const QVector4D *S = reinterpret_cast<const QVector4D *>(samples.constData());
+    auto edgeSample = [&](int part, int side, int m) { return S[part * partVec4 + (side * (N + 1) + m) * 2]; };
+    auto raw = [&](int mesh, int side, int m) {
+        return quint8(flags.at((mesh * 4 + side) * bpl + m * 4)) > 127;
+    };
+
+    // Dati grezzi: "SEBA", parti, N, G, poi per parte (dominio, mesh), per
+    // parte e lato N + 1 byte di flag, poi i campioni (partVec4 vec4 per parte).
+    QFile bin(dir + QLatin1Char('/') + tag + QStringLiteral(".bin"));
+    if (bin.open(QIODevice::WriteOnly)) {
+        const qint32 head[4] = { 0x41424553, count, N, G };
+        bin.write(reinterpret_cast<const char *>(head), sizeof(head));
+        bin.write(reinterpret_cast<const char *>(table.data() + 1), qint64(2 * count * sizeof(QVector4D)));
+        for (int p = 0; p < count; ++p) {
+            const int mesh = int(table[2 + 2 * p].x() + 0.5f);
+            for (int side = 0; side < 4; ++side) {
+                QByteArray row(N + 1, 0);
+                for (int m = 0; m <= N; ++m) row[m] = raw(mesh, side, m) ? 1 : 0;
+                bin.write(row);
+            }
+        }
+        bin.write(samples.constData(), qint64(count) * partVec4 * 16);
+    }
+
+    for (int p = 0; p < count; ++p) {
+        const int mesh = int(table[2 + 2 * p].x() + 0.5f);
+        for (int side = 0; side < 4; ++side) {
+            std::vector<char> eff(N + 1);
+            for (int m = 0; m <= N; ++m)
+                eff[m] = raw(mesh, side, m)
+                         || (raw(mesh, side, std::max(m - 1, 0)) && raw(mesh, side, std::min(m + 1, N)));
+            float len = 0.0f;
+            for (int m = 0; m < N; ++m) len += (edgeSample(p, side, m + 1) - edgeSample(p, side, m)).length();
+            const float tol = 1e-3f * std::max(1.0f, edgeSample(p, side, N / 2).length());
+            if (len < tol) continue;   // polo: coperto per intero, giusto
+            const bool hidden = eff[47] && eff[100] && eff[211];
+            int uncovered = 0;
+            for (int m = 0; m <= N; ++m) uncovered += eff[m] ? 0 : 1;
+            const QString where = (count > 1 ? QStringLiteral("parte %1 ").arg(p) : QString())
+                                  + QString::fromLatin1(kSide[side]);
+            // Controllo indipendente dalla passata: il lato coincide col lato
+            // opposto della stessa parte, diritto o ritorto (cucitura del toro,
+            // del nastro di Moebius), quasi ovunque -> non e' un bordo.
+            const int opp = side ^ 1;
+            int straight = 0, twisted = 0;
+            for (int m = 0; m <= N; ++m) {
+                const QVector4D P = edgeSample(p, side, m);
+                const float t = 1e-3f * std::max(1.0f, P.length());
+                if ((edgeSample(p, opp, m) - P).length() < t) ++straight;
+                if ((edgeSample(p, opp, N - m) - P).length() < t) ++twisted;
+            }
+            const bool seam = std::max(straight, twisted) > (N + 1) * 9 / 10;
+            if (seam && !hidden) {
+                *problems << QStringLiteral("%1 CUCITURA col bordo (coincide col lato opposto %2)")
+                                 .arg(where, straight >= twisted ? QStringLiteral("diritto") : QStringLiteral("ritorto"));
+                continue;
+            }
+            if (hidden) {
+                if (uncovered > (N + 1) / 10)
+                    *problems << QStringLiteral("%1 nascosto per intero ma scoperto al %2%")
+                                     .arg(where).arg(100 * uncovered / (N + 1));
+                continue;
+            }
+            // Tratti coperti di un lato disegnato: [inizio, fine].
+            std::vector<std::pair<int, int>> runs;
+            for (int m = 0; m <= N; ++m) {
+                if (!eff[m]) continue;
+                int e = m;
+                while (e < N && eff[e + 1]) ++e;
+                runs.push_back({ m, e });
+                m = e;
+            }
+            int shortRuns = 0;
+            QStringList shown;
+            for (const auto &r : runs) {
+                const bool atEnd = r.first == 0 || r.second == N;
+                if (!atEnd && r.second - r.first + 1 <= 8) ++shortRuns;
+                if (shown.size() < 6) shown << QStringLiteral("%1-%2").arg(r.first).arg(r.second);
+            }
+            if (shortRuns >= 3)
+                *problems << QStringLiteral("%1 TRATTEGGIO: %2 tratti coperti brevi su %3 (%4%5)")
+                                 .arg(where).arg(shortRuns).arg(runs.size()).arg(shown.join(QLatin1Char(' ')),
+                                      runs.size() > 6 ? QStringLiteral(" ...") : QString());
+            else if (shortRuns > 0)
+                *problems << QStringLiteral("%1 tacca: %2 tratti coperti brevi (%3)")
+                                 .arg(where).arg(shortRuns).arg(shown.join(QLatin1Char(' ')));
+        }
+    }
+    off();
+    return true;
+}
+
+void ScenarioTest::runBorderAuditScenarios()
+{
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Bordo: audit dei lati coperti su ogni superficie parametrica =="));
+    const QString filter = m_only.section(QLatin1Char(':'), 1);
+    const QRegularExpression filterRe(filter, QRegularExpression::CaseInsensitiveOption);
+    const QStringList rels = presetsWhere([&](const LibraryItem &item, bool isRecord) {
+        return !isRecord && !item.isImplicitMode && !item.isTube
+               && QDir::fromNativeSeparators(item.filePath).contains(QStringLiteral("/Parametric/"))
+               && (filter.isEmpty() || item.filePath.contains(filterRe));
+    });
+    // LIMITI NOTI, guardati uno per uno: l'esito ESATTO atteso e il perche'.
+    // Un altro difetto sullo stesso preset torna un errore; se sparisce, il
+    // preset passa come gli altri (e la voce va tolta da qui).
+    struct Known { const char *rel; const char *problems; const char *why; };
+    static const Known kKnown[] = {
+        { "surfaces/Parametric/Surfaces/Equations/H3/Geodesic Log Sphere.json",
+          "v=vmin tacca: 2 tratti coperti brevi (5-5 8-13)",
+          "i lati v = 0 e v = pi corrono entrambi sull'asse e nel tratto comune le due falde se ne staccano "
+          "con un angolo che va da 25 a 85 gradi: sotto i 60 e' un orlo doppio, sopra una piega" },
+        { "surfaces/Parametric/Surfaces/Equations/R3/Dini's Surface.json",
+          "u=umin tacca: 1 tratti coperti brevi (5-5)",
+          "alla punta il giro accanto della spirale passa a 0.023 dal lato, sotto il margine delle celle "
+          "(lunghe 0.73 in z) e dentro il tubo stesso" },
+    };
+    int audited = 0, clean = 0;
+    for (const QString &rel : rels) {
+        if (!loadSurface(rel)) continue;
+        QStringList problems;
+        QString skipped;
+        if (!auditLoadedBorder(rel, &problems, &skipped)) {
+            m_lines.append(QStringLiteral("    %1: %2").arg(rel, skipped));
+            continue;
+        }
+        ++audited;
+        const Known *known = nullptr;
+        for (const Known &k : kKnown)
+            if (rel == QLatin1String(k.rel)) known = &k;
+        if (known && problems.join(QStringLiteral("; ")) == QLatin1String(known->problems)) {
+            ++clean;
+            m_lines.append(QStringLiteral("    noto    %1: %2 -- %3").arg(rel, QLatin1String(known->problems),
+                                                                       QLatin1String(known->why)));
+            continue;
+        }
+        if (problems.isEmpty()) {
+            ++clean;
+            m_lines.append(QStringLiteral("    ok      %1").arg(rel));
+        } else {
+            check(false, QStringLiteral("%1 -> %2").arg(rel, problems.join(QStringLiteral("; "))));
+        }
+    }
+    check(audited > 0 && clean == audited,
+          QStringLiteral("superfici parametriche col bordo senza difetti dei lati coperti: %1 su %2 (immagini in border-audit/)")
+              .arg(clean).arg(audited));
 }
 
 void ScenarioTest::runResetButtonScenarios()
