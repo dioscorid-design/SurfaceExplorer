@@ -13,6 +13,7 @@
 #include "presetroundtrip.h"
 
 #include <algorithm>
+#include <limits>
 #include <tuple>
 #include <QApplication>
 #include <QCryptographicHash>
@@ -4827,6 +4828,40 @@ void ScenarioTest::runBorderScenarios()
         click(ui->radioSurface);
     }
 
+    // INCOLLATURA NON COPERTA, il controllo dell'audit (10-17): due semipiani
+    // (Meshes = 2) con l'orlo v = 0 in comune, a 20 gradi uno dall'altro. La
+    // passata copre l'orlo comune solo se le falde si separano di almeno 60
+    // gradi: a 20 resta disegnato lungo la piega e l'audit deve dirlo; a 90 e'
+    // coperto e l'audit tace. Nella libreria non ci sono casi cosi': senza
+    // questa prova il controllo potrebbe non vedere niente senza che ce ne
+    // accorgiamo.
+    if (loadSurface(kTorus)) {
+        for (const auto &c : { std::pair<const char *, bool>{ "0.35", true }, { "1.5708", false } }) {
+            const QString angle = QString::fromLatin1(c.first);
+            ui->lineX->setPlainText(QStringLiteral("u/3.0 - 1.0"));
+            ui->lineY->setPlainText(QStringLiteral("v/6.0*cos(%1*mesh)").arg(angle));
+            ui->lineZ->setPlainText(QStringLiteral("v/6.0*sin(%1*mesh)").arg(angle));
+            wait(300);
+            applyEquationEdit(ui->lineX);
+            typeInField(ui->lineMeshCount, QStringLiteral("2"));
+            pressEnter(ui->lineMeshCount);
+            wait(600);
+            QStringList problems;
+            QString skipped;
+            auditLoadedBorder(QStringLiteral("surfaces/Parametric/synthetic/crease-%1.json").arg(angle), &problems, &skipped);
+            const QStringList glued = problems.filter(QStringLiteral("INCOLLATURA"));
+            const bool onCrease = !glued.isEmpty()
+                && glued.filter(QStringLiteral("v=vmin")).size() == glued.size();
+            check(gl->meshPartCount() == 2 && (c.second ? onCrease : glued.isEmpty()),
+                  QStringLiteral("due semipiani incollati a %1 rad -> audit %2 (parti %3; %4)")
+                      .arg(angle, c.second ? QStringLiteral("segnala l'incollatura non coperta sull'orlo comune")
+                                           : QStringLiteral("non segnala incollature"))
+                      .arg(gl->meshPartCount())
+                      .arg(problems.isEmpty() ? QStringLiteral("nessun problema") : problems.join(QStringLiteral("; "))));
+        }
+        m_discardOnPrompt = true;
+    }
+
     // TRATTI COPERTI: le tre fasce dell'Octahedron Bands si incrociano, e
     // l'orlo di ciascuna passa dentro le altre due. Prima il bordo seguiva
     // l'orlo di ogni fascia anche li'; ora quei tratti non si disegnano (il
@@ -5106,6 +5141,38 @@ bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, 
         bin.write(samples.constData(), qint64(count) * partVec4 * 16);
     }
 
+    // Ingombro e lunghezza di ogni lato, per l'incollatura non coperta (sotto).
+    std::vector<QVector4D> boxLo(size_t(count) * 4), boxHi(size_t(count) * 4);
+    std::vector<float> sideLen(size_t(count) * 4, 0.0f);
+    for (int q = 0; q < count; ++q) {
+        for (int t = 0; t < 4; ++t) {
+            QVector4D lo = edgeSample(q, t, 0), hi = lo;
+            for (int k = 1; k <= N; ++k) {
+                const QVector4D v = edgeSample(q, t, k);
+                for (int c = 0; c < 4; ++c) {
+                    lo[c] = std::min(lo[c], v[c]);
+                    hi[c] = std::max(hi[c], v[c]);
+                }
+                sideLen[q * 4 + t] += (v - edgeSample(q, t, k - 1)).length();
+            }
+            boxLo[q * 4 + t] = lo;
+            boxHi[q * 4 + t] = hi;
+        }
+    }
+    // Distanza di P dalla polilinea del lato (q, t), saltando i segmenti
+    // skipFrom..skipTo (sullo stesso lato, il tratto attorno al campione).
+    auto chainDistance = [&](int q, int t, const QVector4D &P, int skipFrom, int skipTo) {
+        float best = std::numeric_limits<float>::max();
+        for (int k = 0; k < N; ++k) {
+            if (k >= skipFrom && k <= skipTo) continue;
+            const QVector4D a = edgeSample(q, t, k), d = edgeSample(q, t, k + 1) - a;
+            const float dd = QVector4D::dotProduct(d, d);
+            const float x = dd > 1e-30f ? std::clamp(QVector4D::dotProduct(P - a, d) / dd, 0.0f, 1.0f) : 0.0f;
+            best = std::min(best, (a + x * d - P).length());
+        }
+        return best;
+    };
+
     bool anyVisible = false;
     for (int p = 0; p < count; ++p) {
         const int mesh = int(table[2 + 2 * p].x() + 0.5f);
@@ -5173,6 +5240,61 @@ bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, 
             else if (shortRuns > 0)
                 *problems << QStringLiteral("%1 tacca: %2 tratti coperti brevi (%3)")
                                  .arg(where).arg(shortRuns).arg(shown.join(QLatin1Char(' ')));
+
+            // INCOLLATURA NON COPERTA (10-17, al posto di una regola generale
+            // nello shader): un tratto disegnato che corre su un altro orlo --
+            // un lato adiacente, lo stesso lato piu' in la', l'orlo di
+            // un'altra parte -- per piu' di 60 tolleranze. La passata copre
+            // l'incollatura col lato opposto della stessa parte a qualunque
+            // angolo, le altre solo se le falde si separano di almeno 60
+            // gradi: sotto, il bordo resta lungo una piega. Nella libreria non
+            // ce n'erano (124 preset: i contatti sui tratti disegnati stavano
+            // tutti sotto le 31 tolleranze -- punte di Kuen e Dini, un
+            // incrocio sul Calabi-Yau 3D); un preset nuovo che ci cade lo
+            // segnala l'audit, e la regola si fa su quel caso.
+            const QVector4D myLo = boxLo[p * 4 + side], myHi = boxHi[p * 4 + side];
+            const float margin = 2e-3f * std::max({ 1.0f, myLo.length(), myHi.length() });
+            for (int q = 0; q < count; ++q) {
+                for (int t = 0; t < 4; ++t) {
+                    const int e = q * 4 + t;
+                    if (sideLen[e] < 1e-3f) continue;   // polo
+                    bool far = false;
+                    for (int c = 0; c < 4 && !far; ++c)
+                        far = boxLo[e][c] > myHi[c] + margin || boxHi[e][c] < myLo[c] - margin;
+                    if (far) continue;
+                    const bool self = q == p && t == side;
+                    float arc = 0.0f, longest = 0.0f;
+                    int from = -1, bestFrom = 0, bestTo = 0;
+                    for (int m = 0; m <= N; ++m) {
+                        const QVector4D P = edgeSample(p, side, m);
+                        const float tm = 1e-3f * std::max(1.0f, P.length());
+                        const bool on = !eff[m] && chainDistance(q, t, P, self ? m - 8 : 1, self ? m + 8 : 0) < tm;
+                        if (!on) {
+                            from = -1;
+                            continue;
+                        }
+                        if (from < 0) {
+                            from = m;
+                            arc = 0.0f;
+                        } else {
+                            arc += (P - edgeSample(p, side, m - 1)).length();
+                        }
+                        if (arc > longest) {
+                            longest = arc;
+                            bestFrom = from;
+                            bestTo = m;
+                        }
+                    }
+                    if (longest > 60.0f * tol)
+                        *problems << QStringLiteral("%1 INCOLLATURA non coperta: campioni %2-%3 disegnati corrono su %4 "
+                                                    "per %5 tolleranze")
+                                         .arg(where).arg(bestFrom).arg(bestTo)
+                                         .arg(self ? QStringLiteral("se' stesso piu' in la'")
+                                                   : (count > 1 ? QStringLiteral("parte %1 ").arg(q) : QString())
+                                                         + QString::fromLatin1(kSide[t]))
+                                         .arg(qRound(longest / tol));
+                }
+            }
         }
     }
     probeAgrees(anyVisible);
