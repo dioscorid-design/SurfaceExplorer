@@ -4200,6 +4200,10 @@ void ScenarioTest::runBorderScenarios()
     // CPU) e multi-mesh.
     // Superfici aperte SENZA bordo nel preset (col bordo salvato il radio resta
     // acceso comunque, per spegnerlo).
+    // Forellini ai poli (10-17): Heisenberg e Berestovskii Sphere hanno il
+    // dominio che si ferma appena prima del polo (anello allo 0.2-0.3% del
+    // piu' grande): chiuse. Ai due lati della soglia dell'1%: le punte ad ago
+    // della Pseudosphere (3.7%) e la punta della Kuen restano orli.
     for (const auto &c : { std::pair<const char *, bool>{ "Equations/R3/Torus", false },
                            { "Equations/H3/Mobius Band", true },
                            { "Equations/R3/Sphere", false },
@@ -4211,6 +4215,11 @@ void ScenarioTest::runBorderScenarios()
                            { "Equations/S3/Wound Sphere", false },
                            { "Equations/R3/Symmetrized Double Enneper", true },
                            { "Multi Meshes/Torus Necklace", false },
+                           { "Equations/R3/Pseudosphere", true },
+                           { "Equations/NIL/Heisenberg Sphere", false },
+                           { "Equations/R3/Kuen", true },
+                           { "Equations/NIL/Berestovskii Sphere", false },
+                           { "Equations/R3/Dini's Surface", true },
                            { "Equations/R3/Oloid", false } }) {
         const QString path = QStringLiteral("surfaces/Parametric/Surfaces/%1.json").arg(QString::fromUtf8(c.first));
         if (!loadSurface(path)) continue;
@@ -4795,12 +4804,15 @@ void ScenarioTest::runBorderScenarios()
     // LATI COPERTI su superfici chiuse, niente bordo. Oloid: i lati v = +-1 si
     // ripiegano su se' stessi (stesso punto per w e -w) e i lati w = +-2pi/3
     // sono il segmento in diagonale; Wound Sphere: v = +-pi/2 avvolgono cinque
-    // volte lo stesso cerchio. Immagini: border-oloid.png,
-    // border-wound-sphere.png.
+    // volte lo stesso cerchio; Heisenberg Sphere: i lati u ai poli sono
+    // anellini di raggio 0.01 (forellini, trattati come poli). Immagini:
+    // border-oloid.png, border-wound-sphere.png, border-heisenberg-sphere.png.
     for (const auto &c : { std::pair<QString, QString>{ QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Oloid.json"),
                                                         QStringLiteral("oloid") },
                            std::pair<QString, QString>{ QStringLiteral("surfaces/Parametric/Surfaces/Equations/S3/Wound Sphere.json"),
-                                                        QStringLiteral("wound-sphere") } }) {
+                                                        QStringLiteral("wound-sphere") },
+                           std::pair<QString, QString>{ QStringLiteral("surfaces/Parametric/Surfaces/Equations/NIL/Heisenberg Sphere.json"),
+                                                        QStringLiteral("heisenberg-sphere") } }) {
         if (!loadSurface(c.first)) continue;
         click(ui->radioBorder);
         ui->borderThicknessSlider->setValue(0);  wait(600);

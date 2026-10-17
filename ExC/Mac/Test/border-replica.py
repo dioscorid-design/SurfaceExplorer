@@ -115,6 +115,7 @@ def on_sheet(grid_j, diag_j_ab, g0, Q, G, own_part, own_q):
 
 
 GLUE = os.environ.get('GLUE', '1') != '0'
+PINHOLE = os.environ.get('PINHOLE', '1') != '0'
 
 
 def seg_dist(P, L):
@@ -175,6 +176,14 @@ def covered(D):
                 on = np.array([seg_dist(E[m], opp) < tol[m] for m in range(N + 1)])
                 left = np.concatenate([[False], on[:-1]]); right = np.concatenate([on[1:], [False]])
                 found |= on & (left | right)
+            # Forellino a un polo: anello chiuso piu' corto dell'1% della riga
+            # piu' lunga della griglia parallela al lato.
+            if PINHOLE and not found.all() and np.linalg.norm(E[N] - E[0]) < tol[0]:
+                G4 = grid[p]
+                rows = (np.linalg.norm(np.diff(G4, axis=0), axis=-1).sum(0) if side < 2
+                        else np.linalg.norm(np.diff(G4, axis=1), axis=-1).sum(1))
+                if rows.max() > 100 * seglen:
+                    found[:] = True
             # Lato ripiegato su se' stesso
             rev_on = np.linalg.norm(E - E[::-1], axis=-1) < tol
             ia = Ein - E

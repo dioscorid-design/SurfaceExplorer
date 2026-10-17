@@ -1208,6 +1208,29 @@ void main() {
         }
         found = beside;
     }
+    // FORELLINO A UN POLO: il lato e' un anello chiuso piu' corto dell'1% della
+    // riga piu' lunga della griglia parallela a lui (stessa famiglia di
+    // anelli). Il dominio che si ferma appena prima di un polo singolare
+    // lasciava un anellino: Heisenberg Sphere (u da 0.005 a pi - 0.005, 0.2%),
+    // Berestovskii Sphere (v fino a 6.263, 0.3%), col bordo un puntino e il
+    // radio Border acceso su una sfera. Rispetto alla famiglia e non alla
+    // superficie: in un tubo sottile aperto gli anelli sono tutti uguali e le
+    // estremita' restano orli. Le punte ad ago della Pseudosphere (3.7%)
+    // restano col bordo. Le righe della griglia sottostimano la lunghezza:
+    // l'errore va verso "non e' un polo".
+    vec4 P0 = samples.s[edgeSlot(part, side, 0)];
+    if (!found && length(samples.s[edgeSlot(part, side, EDGE_SAMPLES)] - P0) < 1.0e-3 * max(1.0, length(P0))) {
+        bool longer = false;
+        for (int l = 0; l <= GRID && !longer; ++l) {
+            float run = 0.0;
+            for (int k = 0; k < GRID; ++k) {
+                run += (side < 2) ? length(samples.s[gridSlot(part, k + 1, l)] - samples.s[gridSlot(part, k, l)])
+                                  : length(samples.s[gridSlot(part, l, k + 1)] - samples.s[gridSlot(part, l, k)]);
+            }
+            longer = run > 100.0 * len;
+        }
+        found = longer;
+    }
 
     for (int j = 0; j < count && !found; ++j) {
         for (int tt = 0; tt < TILES * TILES && !found; ++tt) {
