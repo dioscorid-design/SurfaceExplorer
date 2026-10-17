@@ -629,9 +629,11 @@ void GLWidget::createSharedEdgeResources()
     if (!rhi()->isFeatureSupported(QRhi::Compute)
         || !rhi()->isTextureFormatSupported(QRhiTexture::RGBA8, QRhiTexture::UsedWithLoadStore))
         return;
-    // Un texel per campione del lato: colonna = campione, riga = parte * 4 + lato.
-    // Sorgente di copia: gli scenari ne rileggono i flag (border-audit).
-    m_sharedEdgeTex = rhi()->newTexture(QRhiTexture::RGBA8, QSize(kSharedEdgeSamples + 1, 4 * kSharedEdgeMaxParts),
+    // Un texel per campione del lato: colonna = campione, riga = parte * 4 + lato;
+    // l'ultima colonna (kSharedEdgeSamples + 1) dice se il lato e' coperto per
+    // intero (quinta passata). Sorgente di copia: gli scenari e la sonda ne
+    // rileggono i flag.
+    m_sharedEdgeTex = rhi()->newTexture(QRhiTexture::RGBA8, QSize(kSharedEdgeSamples + 2, 4 * kSharedEdgeMaxParts),
                                         1, QRhiTexture::UsedWithLoadStore | QRhiTexture::UsedAsTransferSource);
     if (!m_sharedEdgeTex->create()) {
         delete m_sharedEdgeTex;
@@ -649,15 +651,21 @@ void GLWidget::createSharedEdgeResources()
     m_sharedEdgeSamples = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer,
                                            quint32(kSharedEdgeMaxParts * kSharedEdgePartVec4) * 16u);
     // Per parte e blocco di celle: centro e raggio della sfera che lo contiene.
+    // Grezzi della terza passata, poi (seconda meta') ripuliti dalla quarta.
+    m_sharedEdgeRaw = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer,
+                                       quint32(2 * kSharedEdgeMaxParts * 4 * (kSharedEdgeSamples + 1)) * 4u);
     m_sharedEdgeTiles = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer,
                                          quint32(kSharedEdgeMaxParts * kSharedEdgeTiles * 2) * 16u);
-    if (!m_sharedEdgeParts->create() || !m_sharedEdgeSamples->create() || !m_sharedEdgeTiles->create()) {
+    if (!m_sharedEdgeParts->create() || !m_sharedEdgeSamples->create() || !m_sharedEdgeTiles->create()
+        || !m_sharedEdgeRaw->create()) {
         delete m_sharedEdgeParts;
         m_sharedEdgeParts = nullptr;
         delete m_sharedEdgeSamples;
         m_sharedEdgeSamples = nullptr;
         delete m_sharedEdgeTiles;
         m_sharedEdgeTiles = nullptr;
+        delete m_sharedEdgeRaw;
+        m_sharedEdgeRaw = nullptr;
         m_sharedEdgeTex->destroy();
         delete m_sharedEdgeTex;
         m_sharedEdgeTex = nullptr;
@@ -683,7 +691,8 @@ void GLWidget::setSharedEdgeBindings()
         QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeTex, 0),
         QRhiShaderResourceBinding::bufferLoad(2, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeParts),
         QRhiShaderResourceBinding::bufferLoadStore(3, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeSamples),
-        QRhiShaderResourceBinding::bufferLoadStore(4, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeTiles)
+        QRhiShaderResourceBinding::bufferLoadStore(4, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeTiles),
+        QRhiShaderResourceBinding::bufferLoadStore(5, QRhiShaderResourceBinding::ComputeStage, m_sharedEdgeRaw)
     });
 }
 
@@ -715,10 +724,9 @@ void GLWidget::setBorderAvailability(BorderAvailability a)
     emit borderAvailabilityChanged();
 }
 
-// I flag della sonda: un lato si vede se il vertex non lo nasconde per intero,
-// con la stessa regola di borderEdgeShared (campioni 47, 100, 211, col filtro
-// del campione scoperto fra due coperti). Se nessun lato di nessuna parte si
-// vede, il bordo non compare. Scartata se nel frattempo e' cambiata la
+// I flag della sonda: un lato si vede se il vertex non lo nasconde per intero
+// (la colonna del lato, come borderEdgeShared). Se nessun lato di nessuna
+// parte si vede, il bordo non compare. Scartata se nel frattempo e' cambiata la
 // superficie: arrivera' la sonda della nuova.
 void GLWidget::finishBorderProbe()
 {
@@ -732,17 +740,13 @@ void GLWidget::finishBorderProbe()
     auto visibleAt = [&](int i) -> int {
         const QByteArray &data = m_borderProbeResults[i].data;
         const int bpl = data.size() / (4 * kSharedEdgeMaxParts);
-        if (bpl < (kSharedEdgeSamples + 1) * 4 || m_borderProbeMeshes.empty()) return -1;
-        auto raw = [&](int row, int m) {
-            m = std::clamp(m, 0, kSharedEdgeSamples);
-            return quint8(data.at(row * bpl + m * 4)) > 127;
-        };
-        auto covered = [&](int row, int m) { return raw(row, m) || (raw(row, m - 1) && raw(row, m + 1)); };
+        if (bpl < (kSharedEdgeSamples + 2) * 4 || m_borderProbeMeshes.empty()) return -1;
         for (int mesh : m_borderProbeMeshes) {
             if (mesh < 0 || mesh >= kSharedEdgeMaxParts) continue;
             for (int side = 0; side < 4; ++side) {
+                // L'ultima colonna: il lato e' coperto per intero (quinta passata).
                 const int row = mesh * 4 + side;
-                if (!(covered(row, 47) && covered(row, 100) && covered(row, 211))) return 1;
+                if (quint8(data.at(row * bpl + (kSharedEdgeSamples + 1) * 4)) <= 127) return 1;
             }
         }
         return 0;
@@ -784,7 +788,8 @@ void GLWidget::finishBorderProbe()
 
 bool GLWidget::sharedEdgesActive()
 {
-    if (m_sharedEdgesOff || !m_sharedEdgeTex || !m_sharedEdgeParts || !m_sharedEdgeSamples || !m_sharedEdgeTiles || !engine
+    if (m_sharedEdgesOff || !m_sharedEdgeTex || !m_sharedEdgeParts || !m_sharedEdgeSamples || !m_sharedEdgeTiles
+        || !m_sharedEdgeRaw || !engine
         || m_engineMode != ModeParametric || m_isCustomMesh || engine->isTubeModeActive())
         return false;
     const int parts = (int)engine->getMeshParts().size();
@@ -839,7 +844,7 @@ void GLWidget::buildSharedEdgePipeline()
     m_sharedEdgeSourceDirty = false;
     releaseSharedEdgePipeline();
     if (m_sharedEdgeSource.isEmpty() || !m_sharedEdgeTex || !m_sharedEdgeParts || !m_sharedEdgeSamples
-        || !m_sharedEdgeTiles || !m_ubo)
+        || !m_sharedEdgeTiles || !m_sharedEdgeRaw || !m_ubo)
         return;
 
     QString src = vertexAsComputeLibrary(m_sharedEdgeSource, QStringLiteral("SHARED_EDGE_COMPUTE"),
@@ -859,10 +864,18 @@ layout(std430, binding = 2) readonly buffer SharedEdgeParts { vec4 p[]; } parts;
 layout(std430, binding = 3) buffer SharedEdgeSamples { vec4 s[]; } samples;
 // Per parte e blocco di celle: centro (4D) e raggio della sfera che lo contiene.
 layout(std430, binding = 4) buffer SharedEdgeTiles { vec4 t[]; } tiles;
+// I flag grezzi della terza passata: per parte e lato, uno per campione; dopo
+// RAW_HALF quelli ripuliti dalla quarta, per la quinta.
+layout(std430, binding = 5) buffer SharedEdgeRaw { float r[]; } rawFlags;
 
 const int EDGE_SAMPLES = %1;   // intervalli per lato
 const int GRID = %2;           // celle per lato del dominio
 const int TILE = %3;           // celle per lato di un blocco
+const int RAW_HALF = %4 * 4 * (EDGE_SAMPLES + 1);   // parti massime * lati * campioni
+// Un lato si nasconde per intero se coperto in ogni campione da SIDE_MARGIN a
+// EDGE_SAMPLES - SIDE_MARGIN: ai capi, vicino ai poli, restano scarti innocui
+// (la Toupie ha i capi scoperti fino a 12).
+const int SIDE_MARGIN = 16;
 const int TILES = GRID / TILE;
 const int SIDE_VEC4 = 8 * (EDGE_SAMPLES + 1);
 const int PART_VEC4 = SIDE_VEC4 + (GRID + 1) * (GRID + 1);
@@ -934,6 +947,31 @@ bool onSheet(int j, vec2 g, vec4 Q, float margin0, bool ownPart, vec2 ownQ) {
     return false;
 }
 
+// PULIZIA DEI TRATTI CORTI (quarta passata). Dove due falde si incontrano con
+// un angolo vicino alla soglia, la decisione dipende da dove cade il campione
+// nella cella della griglia: sulla S3 Moving Plane erano coperti i campioni sui
+// nodi, uno ogni quattro, e il tubo usciva a fette -- anelli che comparivano e
+// sparivano con l'animazione. Chiusura poi apertura, lungo il lato: si
+// riempiono i buchi piu' corti di SMOOTH campioni fra due coperti, poi si
+// tolgono i tratti coperti piu' corti di SMOOTH. Il bordo compare e sparisce a
+// tratti interi.
+const int SMOOTH = 6;
+bool rawAt(int base, int m) { return m >= 0 && m <= EDGE_SAMPLES && rawFlags.r[base + m] > 0.5; }
+bool closedAt(int base, int m) {
+    if (rawAt(base, m)) return true;
+    int dl = 0, dr = 0;
+    for (int a = 1; a < SMOOTH && dl == 0; ++a) if (rawAt(base, m - a)) dl = a;
+    for (int b = 1; b < SMOOTH && dr == 0; ++b) if (rawAt(base, m + b)) dr = b;
+    return dl > 0 && dr > 0 && dl + dr <= SMOOTH;
+}
+bool smoothedAt(int base, int m) {
+    if (!closedAt(base, m)) return false;
+    int n = 1;
+    for (int a = 1; a < SMOOTH && m - a >= 0 && closedAt(base, m - a); ++a) ++n;
+    for (int b = 1; b < SMOOTH && m + b <= EDGE_SAMPLES && closedAt(base, m + b); ++b) ++n;
+    return n >= SMOOTH;
+}
+
 // Il campione m di un lato nella griglia della sua parte, in celle.
 vec2 ownCell(int side, int m) {
     float f = float(m) / float(EDGE_SAMPLES) * float(GRID);
@@ -979,6 +1017,40 @@ void main() {
             slot[0] = gridSlot(part, i, j);
         }
         for (int c = 0; c < n; ++c) samples.s[slot[c]] = getRawPositionAuto(uv[c].x, uv[c].y);
+        return;
+    }
+
+    if (phase == 13) {
+        // QUARTA PASSATA: un campione del lato per invocazione, dai flag grezzi
+        // della terza ripuliti dei tratti corti (smoothedAt), nella texture.
+        int part = id / (4 * (EDGE_SAMPLES + 1));
+        if (part >= count) return;
+        int side = (id / (EDGE_SAMPLES + 1)) % 4;
+        int m = id % (EDGE_SAMPLES + 1);
+        int base = (part * 4 + side) * (EDGE_SAMPLES + 1);
+        int row = int(parts.p[2 + 2 * part].x + 0.5) * 4 + side;
+        bool covered = smoothedAt(base, m);
+        imageStore(u_sharedOut, ivec2(m, row), vec4(covered ? 1.0 : 0.0));
+        rawFlags.r[RAW_HALF + base + m] = covered ? 1.0 : 0.0;
+        return;
+    }
+
+    if (phase == 14) {
+        // QUINTA PASSATA: un lato per invocazione. Coperto per intero (il vertex
+        // lo nasconde tutto) se lo e' ogni campione ripulito fuori dai capi; se
+        // no si disegna e il fragment ne scarta i tratti coperti. Con tre
+        // campioni fissi (47, 100, 211) sulla S3 Moving Plane un lato scoperto
+        // per il 15% spariva intero, e ricompariva di colpo quando uno dei tre
+        // si scopriva.
+        int part = id / 4;
+        if (part >= count) return;
+        int side = id % 4;
+        int base = (part * 4 + side) * (EDGE_SAMPLES + 1);
+        bool all = true;
+        for (int m = SIDE_MARGIN; m <= EDGE_SAMPLES - SIDE_MARGIN && all; ++m)
+            all = rawFlags.r[RAW_HALF + base + m] > 0.5;
+        int row = int(parts.p[2 + 2 * part].x + 0.5) * 4 + side;
+        imageStore(u_sharedOut, ivec2(EDGE_SAMPLES + 1, row), vec4(all ? 1.0 : 0.0));
         return;
     }
 
@@ -1205,10 +1277,10 @@ void main() {
             }
         }
     }
-    int row = int(parts.p[2 + 2 * part].x + 0.5) * 4 + side;
-    imageStore(u_sharedOut, ivec2(m, row), vec4(found ? 1.0 : 0.0));
+    // Grezzo: la quarta passata lo ripulisce e scrive la texture.
+    rawFlags.r[(part * 4 + side) * (EDGE_SAMPLES + 1) + m] = found ? 1.0 : 0.0;
 }
-)").arg(kSharedEdgeSamples).arg(kSharedEdgeGrid).arg(kSharedEdgeTileCells);
+)").arg(kSharedEdgeSamples).arg(kSharedEdgeGrid).arg(kSharedEdgeTileCells).arg(kSharedEdgeMaxParts);
 
     QShader shader;
     QString error;
@@ -2123,10 +2195,10 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // Cresce l'UBO se lo script ha dichiarato piu' parti della capienza attuale.
     // ensureUboCapacity riaggancia i binding in place (senza distruggerli),
     // quindi le pipeline restano valide e non serve ricostruirle.
-    // Nel parametrico, dopo i blocchi del bordo, i tre della passata dei lati
-    // coperti per ogni istante della sonda: anche a bordo spento, che la usa
-    // come sonda (borderAvailability).
-    ensureUboCapacity(m_engineMode == ModeParametric ? uboPartSlots * 2 + 3 * kBorderProbeInstants : uboPartSlots);
+    // Nel parametrico, dopo i blocchi del bordo, i cinque della passata dei
+    // lati coperti per ogni istante della sonda: anche a bordo spento, che la
+    // usa come sonda (borderAvailability).
+    ensureUboCapacity(m_engineMode == ModeParametric ? uboPartSlots * 2 + 5 * kBorderProbeInstants : uboPartSlots);
     ensureDynamicBindings(m_surfaceTexture ? m_surfaceTexture : m_dummyTexture);
     // Immagini proprie delle fasce: prima dei blocchi, che ne dipendono (u_noImage).
     syncPartImages(resourceUpdates);
@@ -2759,7 +2831,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             // SU UNA SUPERFICIE ANIMATA la sonda guarda kBorderProbeInstants
             // istanti di t in un colpo solo, per sapere se si apre in qualche
             // momento (S3 Moving Plane) o resta sempre chiusa: vedi
-            // finishBorderProbe. Ogni istante coi suoi tre blocchi UBO: scritti
+            // finishBorderProbe. Ogni istante coi suoi cinque blocchi UBO: scritti
             // nello stesso frame negli stessi blocchi, varrebbe l'ultimo per
             // tutti. L'ultimo istante e' quello attuale: col bordo acceso restano
             // i suoi flag. La sorveglianza (watchProbe) guarda solo l'attuale.
@@ -2767,16 +2839,19 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             const bool run = (borderOn && key != m_sharedEdgeKey) || probe;
             if (run) {
                 m_sharedEdgeKey = key;
-                // Tre passate distinte, ciascuna legge cio' che la precedente
-                // scrive: campioni (fase 10), sfere dei blocchi (11), test dei
-                // campioni dei lati (12). La fase sta nel loro blocco UBO, dopo
-                // quelli del bordo; il resto del blocco e' quello globale
-                // (costanti, tempo, vincoli).
+                // Cinque passate distinte, ciascuna legge cio' che la
+                // precedente scrive: campioni (fase 10), sfere dei blocchi (11),
+                // test dei campioni dei lati (12), pulizia dei tratti corti
+                // (13), lati coperti per intero (14). La fase sta nel loro
+                // blocco UBO, dopo quelli del bordo; il resto del blocco e'
+                // quello globale (costanti, tempo, vincoli).
                 const int count = int(edgeParts.size());
-                const int work[3] = {
+                const int work[5] = {
                     count * (4 * (kSharedEdgeSamples + 1) + (kSharedEdgeGrid + 1) * (kSharedEdgeGrid + 1)),
                     count * kSharedEdgeTiles,
-                    count * 4 * (kSharedEdgeSamples + 1) };
+                    count * 4 * (kSharedEdgeSamples + 1),
+                    count * 4 * (kSharedEdgeSamples + 1),
+                    count * 4 };
                 if (probe) {
                     m_borderProbeMeshes.clear();
                     for (const MeshPart &mp : edgeParts) m_borderProbeMeshes.push_back(mp.meshIndex);
@@ -2786,22 +2861,22 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                     m_borderProbeArrived = 0;
                 }
                 for (int i = 0; i < instants; ++i) {
-                    for (int phase = 0; phase < 3; ++phase) {
+                    for (int phase = 0; phase < 5; ++phase) {
                         UboData block = m_uboData;
                         block.u_isBorder = 10 + phase;
                         block.time = m_uboData.time + float(instants - 1 - i) * kBorderProbeStep;
-                        const quint32 offset = quint32(2 * edgeSlots + 3 * i + phase) * m_uboBlockStride;
+                        const quint32 offset = quint32(2 * edgeSlots + 5 * i + phase) * m_uboBlockStride;
                         if (!resourceUpdates) resourceUpdates = rhi()->nextResourceUpdateBatch();
                         resourceUpdates->updateDynamicBuffer(m_ubo, offset, sizeof(UboData), &block);
                     }
                 }
                 for (int i = 0; i < instants; ++i) {
-                    for (int phase = 0; phase < 3; ++phase) {
+                    for (int phase = 0; phase < 5; ++phase) {
                         cb->beginComputePass(resourceUpdates);
                         resourceUpdates = nullptr;
                         cb->setComputePipeline(m_sharedEdgePipeline);
                         const QRhiCommandBuffer::DynamicOffset ofs(
-                            0, quint32(2 * edgeSlots + 3 * i + phase) * m_uboBlockStride);
+                            0, quint32(2 * edgeSlots + 5 * i + phase) * m_uboBlockStride);
                         cb->setShaderResources(m_sharedEdgeSrb, 1, &ofs);
                         cb->dispatch((work[phase] + 63) / 64, 1, 1);
                         cb->endComputePass();
@@ -3227,6 +3302,11 @@ void GLWidget::releaseResources()
         m_sharedEdgeSamples->destroy();
         delete m_sharedEdgeSamples;
         m_sharedEdgeSamples = nullptr;
+    }
+    if (m_sharedEdgeRaw) {
+        m_sharedEdgeRaw->destroy();
+        delete m_sharedEdgeRaw;
+        m_sharedEdgeRaw = nullptr;
     }
     if (m_sharedEdgeTiles) {
         m_sharedEdgeTiles->destroy();

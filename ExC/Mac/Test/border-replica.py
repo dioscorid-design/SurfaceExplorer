@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 #
-# border-replica.py - Replica in float32 della terza passata dei lati coperti
-# del bordo (GLWidget::buildSharedEdgePipeline, glwidget.cpp), sui dati che
-# l'audit rilegge dalla GPU.
+# border-replica.py - Replica in float32 della terza e quarta passata dei lati
+# coperti del bordo (GLWidget::buildSharedEdgePipeline, glwidget.cpp: test dei
+# campioni e pulizia dei tratti corti), sui dati che l'audit rilegge dalla GPU.
 #
 # L'audit (./ExC/Mac/Test/scenario-test.sh --scenario-only border-audit[:filtro])
 # lascia per ogni superficie border-audit/<percorso>.bin: tabella delle parti,
@@ -219,7 +219,47 @@ def covered(D):
                                       f'cella {a},{b}, distanza {dist[m, a, b]:.4g}, diagonale {diag[j, a, b]:.4g}, '
                                       f'R {R[m]:.4g}, campione vicino {mq}')
                             break
-            out[p, side] = found
+            out[p, side] = smooth(found, N)
+    return out
+
+
+SMOOTH = 6
+
+
+def smooth(raw, N):
+    """Quarta passata: chiusura (buchi < SMOOTH fra due coperti) poi apertura
+    (tratti coperti < SMOOTH tolti), lungo il lato."""
+    def raw_at(m):
+        return 0 <= m <= N and bool(raw[m])
+
+    def closed_at(m):
+        if raw_at(m):
+            return True
+        dl = dr = 0
+        for a in range(1, SMOOTH):
+            if raw_at(m - a):
+                dl = a
+                break
+        for b in range(1, SMOOTH):
+            if raw_at(m + b):
+                dr = b
+                break
+        return dl > 0 and dr > 0 and dl + dr <= SMOOTH
+
+    out = np.zeros(N + 1, bool)
+    for m in range(N + 1):
+        if not closed_at(m):
+            continue
+        n = 1
+        a = 1
+        while a < SMOOTH and m - a >= 0 and closed_at(m - a):
+            n += 1
+            a += 1
+        b = 1
+        while b < SMOOTH and m + b <= N and closed_at(m + b):
+            n += 1
+            b += 1
+        out[m] = n >= SMOOTH
     return out
 
 

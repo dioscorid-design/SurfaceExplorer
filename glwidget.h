@@ -1407,20 +1407,21 @@ private:
     // Sphere), i poli, e i tratti di orlo che passano DENTRO un'altra mesh (le
     // fasce dell'Octahedron Bands dove si incrociano). La CPU non sa valutare
     // gli script, e nel vertex ogni punto del bordo dovrebbe confrontarsi con
-    // tutta la superficie: una passata compute in tre tempi
+    // tutta la superficie: una passata compute in quattro tempi
     // (buildSharedEdgePipeline) campiona i lati e una griglia dell'interno di
     // ogni parte in m_sharedEdgeSamples, racchiude blocchi di celle in sfere
-    // (m_sharedEdgeTiles) e per ogni campione dei lati scrive in
-    // m_sharedEdgeTex se e' coperto (colonna = campione, riga = parte * 4 +
-    // lato). Il vertex nasconde i lati coperti per intero e, finche' la
+    // (m_sharedEdgeTiles), decide per ogni campione dei lati se e' coperto
+    // (m_sharedEdgeRaw) e, ripuliti i tratti corti, lo scrive in
+    // m_sharedEdgeTex (colonna = campione, riga = parte * 4 + lato). Il vertex nasconde i lati coperti per intero e, finche' la
     // passata e' attiva, non rifa' il suo test delle cuciture; il fragment
     // scarta i tratti coperti (slot 4, borderEdgeShared e borderFragmentCovered
     // negli shader). Come i tubi, il compute e' il vertex stesso ridotto a
     // libreria, con `mesh` dalla tabella delle parti (m_sharedEdgeParts:
     // dominio e indice di ciascuna). Si costruisce al primo frame col bordo
-    // acceso e gira solo quando la geometria cambia (m_sharedEdgeKey: costanti,
-    // tempo, parti; le rotazioni no). Le tre passate leggono la fase da tre
-    // blocchi UBO propri, dopo quelli del bordo (u_isBorder = 10, 11, 12).
+    // acceso o alla sonda, e gira solo quando la geometria cambia
+    // (m_sharedEdgeKey: costanti, tempo, parti; le rotazioni no). Le quattro
+    // passate leggono la fase da blocchi UBO propri, dopo quelli del bordo
+    // (u_isBorder = 10, 11, 12, 13; quattro per istante della sonda).
     // Senza compute la texture non esiste e resta il test del vertex
     // (cuciture diritte e ritorte, poli).
     // Le mesh custom (flusso geodetico) fanno il test sulla CPU, per lato
@@ -1436,6 +1437,9 @@ private:
     QRhiBuffer *m_sharedEdgeParts = nullptr;
     QRhiBuffer *m_sharedEdgeSamples = nullptr;
     QRhiBuffer *m_sharedEdgeTiles = nullptr;
+    // I flag grezzi della terza passata, uno per campione dei lati: la quarta
+    // li ripulisce (tratti corti) e scrive m_sharedEdgeTex.
+    QRhiBuffer *m_sharedEdgeRaw = nullptr;
     std::vector<QVector4D> m_sharedEdgeTable;   // l'ultima tabella caricata
     QByteArray m_sharedEdgeKey;                 // la geometria dell'ultima passata
     QRhiShaderResourceBindings *m_sharedEdgeSrb = nullptr;

@@ -778,7 +778,7 @@ bool borderEdgeHidden(vec2 along, float fixedCoord, float opposite, float alongS
 // dell'Octahedron Bands). Lo decide la passata compute dei lati coperti
 // (GLWidget::buildSharedEdgePipeline), un texel per campione del lato
 // (SHARED_EDGE_SAMPLES intervalli): qui si nasconde il lato coperto per
-// intero (tre campioni), i tratti li scarta il fragment. Un campione scoperto
+// intero (colonna del lato), i tratti li scarta il fragment. Un campione scoperto
 // fra due coperti conta come coperto: un punto singolare isolato (il centro
 // del Calabi-Yau) non lascia un pezzetto di tubo. Sulla mesh custom il test,
 // per lato intero, lo fa la CPU sulla mesh disegnata (GLWidget::setBorderEdges),
@@ -804,10 +804,13 @@ bool borderCoveredAt(int side, int m) {
         && texelFetch(u_sharedEdges, ivec2(min(m + 1, SHARED_EDGE_SAMPLES), row), 0).x > 0.5;
 }
 
-// I campioni alle frazioni 0.1834, 0.3912, 0.8259 del lato: lontane da quelle
-// tonde, dove cadono i punti singolari (vedi buildSharedEdgePipeline).
+// Il lato coperto per intero: l'ultima colonna della texture, che la quinta
+// passata scrive guardando tutti i campioni fuori dai capi. Tre campioni fissi
+// non bastavano: un lato scoperto per un tratto spariva intero.
 bool borderEdgeShared(int side) {
-    return borderCoveredAt(side, 47) && borderCoveredAt(side, 100) && borderCoveredAt(side, 211);
+    if (ubuf.u_sharedEdgesOn < 0.5) return false;
+    int row = int(ubuf.u_meshIndex + 0.5) * 4 + side;
+    return texelFetch(u_sharedEdges, ivec2(SHARED_EDGE_SAMPLES + 1, row), 0).x > 0.5;
 }
 #endif
 

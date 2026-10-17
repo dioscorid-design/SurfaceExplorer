@@ -4317,6 +4317,24 @@ void ScenarioTest::runBorderScenarios()
                                      : QStringLiteral("sempre spento"),
                        seen, onOff(gl->m_surfaceAnimating)));
     }
+
+    // Lo screenshot dell'utente (10-17): sulla S3 Moving Plane, mentre il bordo
+    // compare e scompare, il tubo usciva ad anelli (campioni coperti uno ogni
+    // quattro, sui nodi della griglia) e a pezzi (lato nascosto intero da tre
+    // campioni fissi anche se scoperto per il 15%). Col bordo acceso, in
+    // quattro istanti: niente tratteggi, tacche o lati persi.
+    if (loadRecord(QStringLiteral("records/Animations/Parametric/Surfaces/Equations/S3/S3 Moving Plane.json"))) {
+        QStringList all;
+        for (int k = 0; k < 4; ++k) {
+            QStringList problems;
+            QString skipped;
+            auditLoadedBorder(QStringLiteral("surfaces/Parametric/s3-moving-plane-%1.json").arg(k), &problems, &skipped);
+            if (!problems.isEmpty()) all << QStringLiteral("istante %1: %2").arg(k).arg(problems.join(QStringLiteral("; ")));
+            wait(900);
+        }
+        check(all.isEmpty(), QStringLiteral("S3 Moving Plane col bordo, in quattro istanti -> niente tratteggi, tacche o lati persi%1")
+                                 .arg(all.isEmpty() ? QString() : QStringLiteral(": ") + all.join(QStringLiteral(" | "))));
+    }
     if (loadSurface(kSphere)) {
         waitBorderProbe();
         check(gl->borderRadius() == 0.0f && !m_mw->editingBorder(),
@@ -4907,8 +4925,9 @@ void ScenarioTest::runBorderScenarios()
 //    attraversa un altro foglio senza giacervi;
 //  - CUCITURA COL BORDO: il lato coincide col lato opposto (controllo
 //    indipendente dalla passata) ma si disegna;
-//  - LATO PERSO: il vertex nasconde il lato intero (campioni 47, 100, 211
-//    coperti) ma buona parte dei campioni e' scoperta: un bordo vero sparisce.
+//  - LATO PERSO: il vertex nasconde il lato intero (colonna del lato) ma
+//    qualche campione lontano dai capi e' scoperto: un bordo vero sparisce
+//    (o il contrario: un lato coperto disegnato).
 // Restano border-audit/<percorso>.png e .bin (tabella delle parti, flag e
 // campioni, per l'analisi fuori dall'app: formato qui sotto).
 bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, QString *skipped)
@@ -4944,7 +4963,9 @@ bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, 
     // preset salvato col bordo, e si controlla che li' non si veda nulla.
     ui->borderThicknessSlider->setValue(40);  wait(900);
     auto probeAgrees = [&](bool anyVisible) {
-        if (probe == GLWidget::BorderAvailability::Unknown) return;
+        // Su una superficie animata la sonda guarda l'animazione intera (resta
+        // acceso dalla prima apertura): non si confronta con un istante.
+        if (probe == GLWidget::BorderAvailability::Unknown || gl->m_surfaceAnimating) return;
         if ((probe == GLWidget::BorderAvailability::Visible) != anyVisible)
             *problems << QStringLiteral("la sonda a bordo spento dice %1, il bordo acceso %2")
                              .arg(probe == GLWidget::BorderAvailability::Visible ? QStringLiteral("aperta") : QStringLiteral("chiusa"),
@@ -5011,7 +5032,7 @@ bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, 
     const int count = table.empty() ? 0 : int(table[0].x() + 0.5f);
     const int height = 4 * GLWidget::kSharedEdgeMaxParts;
     const int bpl = flags.size() / height;
-    if (count < 1 || bpl < (N + 1) * 4 || samples.size() < qsizetype(count) * partVec4 * 16) {
+    if (count < 1 || bpl < (N + 2) * 4 || samples.size() < qsizetype(count) * partVec4 * 16) {
         *problems << QStringLiteral("dati della GPU incompleti (parti %1, flag %2 byte, campioni %3 byte)")
                          .arg(count).arg(flags.size()).arg(samples.size());
         off();
@@ -5053,10 +5074,12 @@ bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, 
             for (int m = 0; m < N; ++m) len += (edgeSample(p, side, m + 1) - edgeSample(p, side, m)).length();
             const float tol = 1e-3f * std::max(1.0f, edgeSample(p, side, N / 2).length());
             if (len < tol) continue;   // polo: coperto per intero, giusto
-            const bool hidden = eff[47] && eff[100] && eff[211];
+            // Nascosto per intero dal vertex: l'ultima colonna (quinta passata).
+            const bool hidden = raw(mesh, side, N + 1);
             if (!hidden) anyVisible = true;
+            // Lontano dai capi (16 campioni, come la quinta passata).
             int uncovered = 0;
-            for (int m = 0; m <= N; ++m) uncovered += eff[m] ? 0 : 1;
+            for (int m = 16; m <= N - 16; ++m) uncovered += eff[m] ? 0 : 1;
             const QString where = (count > 1 ? QStringLiteral("parte %1 ").arg(p) : QString())
                                   + QString::fromLatin1(kSide[side]);
             // Controllo indipendente dalla passata: il lato coincide col lato
@@ -5076,12 +5099,13 @@ bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, 
                                  .arg(where, straight >= twisted ? QStringLiteral("diritto") : QStringLiteral("ritorto"));
                 continue;
             }
-            if (hidden) {
-                if (uncovered > (N + 1) / 10)
-                    *problems << QStringLiteral("%1 nascosto per intero ma scoperto al %2%")
-                                     .arg(where).arg(100 * uncovered / (N + 1));
-                continue;
-            }
+            // La colonna del lato deve dire cio' che dicono i campioni: nascosto
+            // se e solo se lontano dai capi non c'e' nulla di scoperto.
+            if (hidden != (uncovered == 0))
+                *problems << QStringLiteral("%1 %2 per intero ma %3 campioni scoperti lontano dai capi")
+                                 .arg(where, hidden ? QStringLiteral("nascosto") : QStringLiteral("disegnato"))
+                                 .arg(uncovered);
+            if (hidden) continue;
             // Tratti coperti di un lato disegnato: [inizio, fine].
             std::vector<std::pair<int, int>> runs;
             for (int m = 0; m <= N; ++m) {
@@ -5143,12 +5167,9 @@ void ScenarioTest::runBorderAuditScenarios()
     // Un altro difetto sullo stesso preset torna un errore; se sparisce, il
     // preset passa come gli altri (e la voce va tolta da qui).
     struct Known { const char *rel; const char *problems; const char *why; };
-    static const Known kKnown[] = {
-        { "surfaces/Parametric/Surfaces/Equations/H3/Geodesic Log Sphere.json",
-          "v=vmin tacca: 2 tratti coperti brevi (5-5 8-13)",
-          "i lati v = 0 e v = pi corrono entrambi sull'asse e nel tratto comune le due falde se ne staccano "
-          "con un angolo che va da 25 a 85 gradi: sotto i 60 e' un orlo doppio, sopra una piega" },
-    };
+    // Vuoto dal 10-17: la Dini's Surface (margine sulla propria parte) e la
+    // Geodesic Log Sphere (pulizia dei tratti corti) non hanno piu' difetti.
+    static const std::vector<Known> kKnown = {};
     int audited = 0, clean = 0;
     for (const QString &rel : rels) {
         if (!loadSurface(rel)) continue;
