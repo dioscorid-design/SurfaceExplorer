@@ -69,11 +69,17 @@ public:
     // Non strettamente necessario: la cache muore con l'oggetto.
     void invalidateCache();
 
+    // Chiave degli ingressi (tutti tranne il tempo) dell'ultima mesh calcolata;
+    // vuota dopo un errore. Per i test: due caricamenti dello stesso preset
+    // devono dare la stessa chiave, qualunque cosa ci fosse prima.
+    const QByteArray &lastInputsKey() const { return m_lastKey; }
+
 private:
     // Pimpl per non far entrare i tipi QRhi* nell'header (riduce il rebuild
     // cost dei file che includono solo questa intestazione).
     struct Cached;
     std::unique_ptr<Cached> m_cached;
+    QByteArray m_lastKey;
 
     QByteArray makeCacheKey(QRhi* rhi,
                             const QString& eqX, const QString& eqY, const QString& eqZ, const QString& eqP,

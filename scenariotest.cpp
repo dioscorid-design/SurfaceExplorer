@@ -3911,6 +3911,13 @@ void ScenarioTest::runLoadOrderScenarios()
         s.items[QStringLiteral("tubo da script")] = onOff(eng->isTubeModeActive() && eng->isTubeFromScript());
         s.items[QStringLiteral("script nel motore")] = onOff(eng->isScriptModeActive());
         s.items[QStringLiteral("mesh custom")] = onOff(gl->isCustomMesh());
+        // Il flusso geodetico: la mesh la calcola un calcolatore a parte, da
+        // ingressi passati per esteso (mappa, i 7 campi del flusso, metrica,
+        // limiti, passi, costanti). Senza la loro chiave un ingresso rimasto
+        // dal preset di prima darebbe una mesh sbagliata ma non vuota, e
+        // nessun'altra voce dell'impronta se ne accorgerebbe.
+        s.items[QStringLiteral("flusso geodetico")] = gl->isCustomMesh()
+            ? QString::fromLatin1(eng->geodesicFlowKey().toHex().left(10)) : QStringLiteral("-");
         s.items[QStringLiteral("cutout")] = onOff(!eng->getCutoutCodeGLSL().trimmed().isEmpty());
         s.items[QStringLiteral("bordo")] = onOff(gl->m_borderRadius > 0.0f);
         s.items[QStringLiteral("campo Meshes")] = ui->lineMeshCount->text()

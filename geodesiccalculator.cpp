@@ -453,10 +453,12 @@ QVector<QVector<QVector4D>> GeodesicCalculator::computeGeodesicFlow(
                              eqX, eqY, eqZ, eqP, eqU, eqV, eqW, eqDu, eqDv, eqDw, eqLambda, eqMetric,
                              uMin, uMax, numU, vMin, vMax, numV, constants,
                              outErrorMsg)) {
+            m_lastKey.clear();
             return {};
         }
         m_cached->key = key;
     }
+    m_lastKey = key;
 
     return executeCached(currentT);
 }

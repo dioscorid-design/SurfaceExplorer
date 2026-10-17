@@ -551,6 +551,8 @@ public:
         const QMap<QString, float>& constants,
         float currentT,
         QString* outErrorMsg = nullptr);
+    // Ingressi dell'ultima mesh geodetica (tutti tranne il tempo): per i test.
+    const QByteArray &geodesicFlowKey() const { return m_geoCalc.lastInputsKey(); }
 
     void setTime(float t);
 
