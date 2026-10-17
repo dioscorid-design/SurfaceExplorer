@@ -1007,11 +1007,10 @@ QStringList ScenarioTest::surfaceControlsProblems()
     const bool rm   = ui->tabModeSelector->currentIndex() == 1;
     const bool wire = !rm && ui->radioWF->isChecked();
 
-    // Radio Border spento anche su una superficie chiusa a bordo spento (la
+    // Radio Border spento anche su una superficie chiusa, bordo acceso o no (la
     // sonda dei lati coperti, GLWidget::borderAvailability).
     GLWidget *gl = ui->glWidget;
-    const bool closed = gl->borderRadius() <= 0.0f
-                        && gl->borderAvailability() == GLWidget::BorderAvailability::None;
+    const bool closed = gl->borderAvailability() == GLWidget::BorderAvailability::None;
 
     // isEnabled() tiene conto dei contenitori: e' cio' che l'utente puo' cliccare.
     struct Want { const char *name; QWidget *w; bool on; };
@@ -4226,15 +4225,15 @@ void ScenarioTest::runBorderScenarios()
     }
 
     // Col bordo ACCESO su una superficie chiusa (un preset salvato cosi', come
-    // il Warping Torus della libreria) il radio resta cliccabile, per poterlo
-    // spegnere; spento torna grigio. E il bordo non si vede: sul toro solo
-    // cuciture, anche in wireframe (prima le linee collassavano sulla
-    // cucitura: un tratteggio); sulla sfera cucitura e due poli.
+    // il Warping Torus della libreria) il radio resta spento: il bordo non si
+    // vede. Sul toro solo cuciture, anche in wireframe (prima le linee
+    // collassavano sulla cucitura: un tratteggio); sulla sfera cucitura e due
+    // poli.
     if (loadSurface(kTorus)) {
         waitBorderProbe();
         const double torus = borderEffect(50, QStringLiteral("torus"));
-        check(ui->radioBorder->isEnabled(),
-              QStringLiteral("toro col bordo acceso dallo spessore -> radio Border cliccabile, per spegnerlo"));
+        check(!ui->radioBorder->isEnabled(),
+              QStringLiteral("toro col bordo acceso dallo spessore -> radio Border spento, il bordo non si vede"));
         check(torus < 0.002, QStringLiteral("toro (solo cuciture) -> bordo invisibile (pixel cambiati %1)").arg(pct(torus)));
         ui->borderThicknessSlider->setValue(0);  wait(400);
         const QImage noBorder = gl->grabFramebuffer();
@@ -4247,7 +4246,51 @@ void ScenarioTest::runBorderScenarios()
                                      .arg(pct(torusWire)));
         gl->setBorderRenderMode(0);
         ui->borderThicknessSlider->setValue(0);  wait(500);
-        check(!ui->radioBorder->isEnabled(), QStringLiteral("toro, bordo rispento -> radio Border di nuovo spento"));
+        check(!ui->radioBorder->isEnabled(), QStringLiteral("toro, bordo rispento -> radio Border ancora spento"));
+    }
+
+    // IL PERCORSO DELL'UTENTE (10-17): toro chiuso; un intervallo ridotto (u
+    // max, Invio e Run) lo apre e Border si accende; acceso il bordo e richiuso il toro, il bordo
+    // sparisce e con lui il radio: bersaglio di nuovo Shape, spessore fermo al
+    // suo valore. Riaprendo il toro il bordo ricompare uguale.
+    if (loadSurface(kTorus)) {
+        waitBorderProbe();
+        check(!ui->radioBorder->isEnabled(), QStringLiteral("toro chiuso -> radio Border spento"));
+        const QString uMax0 = ui->uMaxEdit->text();
+        typeInField(ui->uMaxEdit, QStringLiteral("3.14"));
+        pressEnter(ui->uMaxEdit);
+        ui->btnRunParametric->click();  wait(800);   // a superficie ferma il limite entra col Run
+        waitBorderProbe();
+        check(ui->radioBorder->isEnabled(), QStringLiteral("toro aperto (u fino a 3.14) -> radio Border acceso"));
+        const QImage open0 = gl->grabFramebuffer();
+        click(ui->radioBorder);  wait(600);
+        const float radius = gl->borderRadius();
+        const int slider = ui->borderThicknessSlider->value();
+        const double shown = changed(open0, gl->grabFramebuffer());
+        check(m_mw->editingBorder() && radius > 0.0f && shown > 0.001,
+              QStringLiteral("toro aperto, Border -> bordo visibile (%1 dei pixel)").arg(pct(shown)));
+        typeInField(ui->uMaxEdit, uMax0);
+        pressEnter(ui->uMaxEdit);
+        ui->btnRunParametric->click();  wait(800);   // a superficie ferma il limite entra col Run
+        waitBorderProbe();
+        wait(200);   // il gate rifa' i comandi di resa in coda
+        check(!ui->radioBorder->isEnabled() && !m_mw->editingBorder() && !ui->borderThicknessSlider->isEnabled()
+                  && ui->borderThicknessSlider->value() == slider && gl->borderRadius() == radius,
+              QStringLiteral("toro richiuso col bordo acceso -> radio Border spento, bersaglio Shape, spessore "
+                             "fermo al suo valore (radio %1, bersaglio %2, slider %3 %4, raggio %5)")
+                  .arg(onOff(ui->radioBorder->isEnabled()),
+                       m_mw->editingBorder() ? QStringLiteral("Border") : QStringLiteral("Shape"),
+                       onOff(ui->borderThicknessSlider->isEnabled()))
+                  .arg(ui->borderThicknessSlider->value()).arg(gl->borderRadius()));
+        typeInField(ui->uMaxEdit, QStringLiteral("3.14"));
+        pressEnter(ui->uMaxEdit);
+        ui->btnRunParametric->click();  wait(800);   // a superficie ferma il limite entra col Run
+        waitBorderProbe();
+        const double again = changed(open0, gl->grabFramebuffer());
+        check(ui->radioBorder->isEnabled() && gl->borderRadius() == radius && again > 0.001,
+              QStringLiteral("toro riaperto -> radio Border acceso, bordo di nuovo visibile, stesso spessore (%1 dei pixel)")
+                  .arg(pct(again)));
+        ui->borderThicknessSlider->setValue(0);  wait(300);
     }
     if (loadSurface(kSphere)) {
         waitBorderProbe();
@@ -4865,9 +4908,7 @@ bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, 
     waitBorderProbe();
     const GLWidget::BorderAvailability probe = gl->borderAvailability();
     const bool radioOn = ui->radioBorder->isEnabled();
-    // Col bordo gia' acceso (preset salvato cosi', il Warping Torus) il radio
-    // resta cliccabile per poterlo spegnere.
-    if (probe == GLWidget::BorderAvailability::None && radioOn && gl->borderRadius() <= 0.0f)
+    if (probe == GLWidget::BorderAvailability::None && radioOn)
         *problems << QStringLiteral("superficie chiusa per la sonda ma radio Border acceso");
     if (probe != GLWidget::BorderAvailability::None && !radioOn)
         *problems << QStringLiteral("radio Border spento ma la sonda non dice chiusa");

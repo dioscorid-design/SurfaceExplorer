@@ -2163,10 +2163,13 @@ void MainWindow::updateBorderControlsGate()
     // Acceso, radio e spessore non farebbero nulla a schermo ma sporcherebbero
     // la scena (avviso di salvataggio al cambio di record). Lo dice la sonda
     // dei lati coperti (GLWidget::borderAvailability), che arriva poco dopo il
-    // caricamento. Col bordo gia' acceso (preset salvato cosi') resta
-    // cliccabile, per poterlo spegnere.
+    // caricamento e dopo ogni cambio di forma. Anche col bordo ACCESO (scelta
+    // dell'utente, 10-17): aperto il toro riducendo un intervallo, acceso il
+    // bordo e richiuso il toro, il bordo spariva ma Border restava attivo. Ora
+    // il radio si spegne e lo spessore resta quello, fermo: riaprendo la
+    // superficie il bordo ricompare uguale.
     GLWidget *gl = ui->glWidget;
-    const bool closed = !rayMarching && gl && gl->borderRadius() <= 0.0f
+    const bool closed = !rayMarching && gl
                         && gl->borderAvailability() == GLWidget::BorderAvailability::None;
     const bool usable = !rayMarching && !closed;
     if (ui->radioBorder) {
