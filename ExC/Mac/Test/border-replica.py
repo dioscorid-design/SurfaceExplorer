@@ -114,6 +114,16 @@ def on_sheet(grid_j, diag_j_ab, g0, Q, G, own_part, own_q):
     return False
 
 
+GLUE = os.environ.get('GLUE', '1') != '0'
+
+
+def seg_dist(P, L):
+    """Distanza di P dalla polilinea L (punti consecutivi)."""
+    a = L[:-1]; d = L[1:] - a
+    x = np.clip(((P - a) * d).sum(-1) / np.maximum((d * d).sum(-1), 1e-30), 0, 1)
+    return float(np.min(np.linalg.norm(a + x[:, None] * d - P, axis=-1)))
+
+
 def own_cell(side, f, G):
     if side == 0: return np.stack([f, np.zeros_like(f)], -1)
     if side == 1: return np.stack([f, np.full_like(f, G)], -1)
@@ -157,6 +167,12 @@ def covered(D):
             opp = edges[p, side ^ 1, :, 0]
             for B in (opp, opp[::-1]):
                 on = np.linalg.norm(E - B, axis=-1) < tol
+                left = np.concatenate([[False], on[:-1]]); right = np.concatenate([on[1:], [False]])
+                found |= on & (left | right)
+            # Incollato all'orlo opposto con uno scorrimento qualunque: il
+            # campione sta sulla polilinea del lato opposto, e cosi' un vicino.
+            if GLUE:
+                on = np.array([seg_dist(E[m], opp) < tol[m] for m in range(N + 1)])
                 left = np.concatenate([[False], on[:-1]]); right = np.concatenate([on[1:], [False]])
                 found |= on & (left | right)
             # Lato ripiegato su se' stesso

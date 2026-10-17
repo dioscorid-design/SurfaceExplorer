@@ -4296,32 +4296,57 @@ void ScenarioTest::runBorderScenarios()
     // SUPERFICI ANIMATE (scelta dell'utente, 10-17): sempre chiusa -> Border
     // spento per tutta l'animazione; si apre in qualche istante -> spento
     // finche' e' chiusa, poi dalla prima apertura sempre acceso, senza lampeggi.
-    // La S3 Moving Plane si apre e si chiude nel tempo; un toro animato resta
-    // chiuso. Il radio si guarda per una decina di secondi: la sequenza deve
-    // essere "0...01...1" con almeno un 1, o tutta 0.
-    for (const auto &c : { std::pair<const char *, bool>{ "records/Animations/Parametric/Surfaces/Equations/S3/S3 Moving Plane.json", true },
-                           { "records/Animations/Parametric/Surfaces/Equations/H3/Torus.json", false } }) {
-        const QString rel = QString::fromLatin1(c.first);
-        if (!loadRecord(rel)) continue;
+    // Un toro animato e la S3 Moving Plane restano chiusi: i due orli di
+    // quest'ultima corrono uno sull'altro, incollati con uno scorrimento che
+    // cambia nel tempo (prima della regola dell'incollatura ne usciva un bordo
+    // a frammenti, lampeggiante). Il radio si guarda per una decina di
+    // secondi: la sequenza deve essere tutta 0, o "0...01...1".
+    const auto watchRadio = [&](const QString &what, bool opens) {
         waitBorderProbe();
         QString seen;
         for (int k = 0; k < 14; ++k) {
             seen += ui->radioBorder->isEnabled() ? QLatin1Char('1') : QLatin1Char('0');
             wait(700);
         }
-        static const QRegularExpression opensOnce(QStringLiteral("^0*1+$"));
-        const bool ok = c.second ? opensOnce.match(seen).hasMatch() : !seen.contains(QLatin1Char('1'));
+        static const QRegularExpression opensOnce(QStringLiteral("^0+1+$"));
+        const bool ok = opens ? opensOnce.match(seen).hasMatch() : !seen.contains(QLatin1Char('1'));
         check(gl->m_surfaceAnimating && ok,
               QStringLiteral("%1, animata -> radio Border %2 (radio nel tempo %3, animata %4)")
-                  .arg(rel, c.second ? QStringLiteral("spento finche' e' chiusa, poi sempre acceso")
-                                     : QStringLiteral("sempre spento"),
+                  .arg(what, opens ? QStringLiteral("spento finche' e' chiusa, poi sempre acceso")
+                                   : QStringLiteral("sempre spento"),
                        seen, onOff(gl->m_surfaceAnimating)));
+    };
+    for (const char *c : { "records/Animations/Parametric/Surfaces/Equations/S3/S3 Moving Plane.json",
+                           "records/Animations/Parametric/Surfaces/Equations/H3/Torus.json" }) {
+        const QString rel = QString::fromLatin1(c);
+        if (loadRecord(rel)) watchRadio(rel, false);
+    }
+    // Una che si apre davvero, scritta qui: un toro chiuso finche' t < 3, poi
+    // l'angolo u si accorcia fino al 70% (si apre una fessura), poi torna
+    // chiuso e cosi' via. Accorciarlo e non allungarlo: un giro in piu' si
+    // sovrappone al primo e gli orli restano dentro la superficie.
+    pressNew();
+    m_discardOnPrompt = true;
+    ui->lineX->setPlainText(QStringLiteral("(0.8 + 0.3*cos(v))*cos(u*(1.0 - 0.3*max(sin(t - 3.0), 0.0)))"));
+    ui->lineY->setPlainText(QStringLiteral("(0.8 + 0.3*cos(v))*sin(u*(1.0 - 0.3*max(sin(t - 3.0), 0.0)))"));
+    ui->lineZ->setPlainText(QStringLiteral("0.3*sin(v)"));
+    wait(300);
+    typeInField(ui->uMinEdit, QStringLiteral("0"));
+    typeInField(ui->uMaxEdit, QStringLiteral("2*pi"));
+    typeInField(ui->vMinEdit, QStringLiteral("0"));
+    typeInField(ui->vMaxEdit, QStringLiteral("2*pi"));
+    if (ui->btnRunParametric->isEnabled()) {
+        click(ui->btnRunParametric);
+        watchRadio(QStringLiteral("NEW, toro che si apre per t > 3"), true);
+    } else {
+        check(false, QStringLiteral("NEW, toro che si apre scritto -> tasto Run spento"));
     }
 
     // Lo screenshot dell'utente (10-17): sulla S3 Moving Plane, mentre il bordo
     // compare e scompare, il tubo usciva ad anelli (campioni coperti uno ogni
     // quattro, sui nodi della griglia) e a pezzi (lato nascosto intero da tre
-    // campioni fissi anche se scoperto per il 15%). Col bordo acceso, in
+    // campioni fissi anche se scoperto per il 15%). Ora gli orli sono
+    // un'incollatura e restano nascosti per intero; col bordo acceso, in
     // quattro istanti: niente tratteggi, tacche o lati persi.
     if (loadRecord(QStringLiteral("records/Animations/Parametric/Surfaces/Equations/S3/S3 Moving Plane.json"))) {
         QStringList all;

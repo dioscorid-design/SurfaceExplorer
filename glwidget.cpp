@@ -972,6 +972,20 @@ bool smoothedAt(int base, int m) {
     return n >= SMOOTH;
 }
 
+// P sta sull'orlo (lato `side` della parte), cioe' sulla polilinea dei suoi
+// campioni, entro tol?
+bool onEdgeChain(int part, int side, vec4 P, float tol) {
+    vec4 a = samples.s[edgeSlot(part, side, 0)];
+    for (int k = 1; k <= EDGE_SAMPLES; ++k) {
+        vec4 b = samples.s[edgeSlot(part, side, k)];
+        vec4 d = b - a;
+        float x = clamp(dot(P - a, d) / max(dot(d, d), 1.0e-30), 0.0, 1.0);
+        if (length(a + x * d - P) < tol) return true;
+        a = b;
+    }
+    return false;
+}
+
 // Il campione m di un lato nella griglia della sua parte, in celle.
 vec2 ownCell(int side, int m) {
     float f = float(m) / float(EDGE_SAMPLES) * float(GRID);
@@ -1173,6 +1187,26 @@ void main() {
             beside = beside || on;
         }
         found = here && beside;
+    }
+    // INCOLLATO ALL'ORLO OPPOSTO con uno scorrimento qualunque: il campione e
+    // uno accanto stanno sulla polilinea del lato opposto. Due orli che corrono
+    // uno sull'altro sono un'incollatura, qualunque sia l'angolo fra le falde.
+    // Sulla S3 Moving Plane i due "poli" v = +-pi/2 sono stirati sullo stesso
+    // cerchio massimo, percorso in versi opposti e con uno scorrimento che
+    // dipende da t: la superficie e' chiusa, ma le falde vi si incontrano con
+    // un angolo che va da 180 a 0 gradi (strozzature), e con la soglia dei 60
+    // gradi ne usciva un bordo a frammenti che lampeggiava. Il campione accanto
+    // esclude i contatti in un punto (un orlo che ne attraversa un altro, la
+    // giunzione degli orli del Moebius).
+    if (!found && onEdgeChain(part, side ^ 1, P, tol)) {
+        bool beside = false;
+        for (int dm = -1; dm <= 1 && !beside; dm += 2) {
+            int mm = m + dm;
+            if (mm < 0 || mm > EDGE_SAMPLES) continue;
+            vec4 A = samples.s[edgeSlot(part, side, mm)];
+            beside = onEdgeChain(part, side ^ 1, A, 1.0e-3 * max(1.0, length(A)));
+        }
+        found = beside;
     }
 
     for (int j = 0; j < count && !found; ++j) {
