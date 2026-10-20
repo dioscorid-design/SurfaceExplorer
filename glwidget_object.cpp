@@ -54,9 +54,12 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
     m_uboData.dummyZero = QVector4D(0.0f, 0.0f, 0.0f, 0.0f);
     m_uboData.observerPos = m_observerPos;
     m_uboData.cameraPos4D = m_cameraPos4D;
-    m_uboData.omega = o.omega;
-    m_uboData.phi = o.phi;
-    m_uboData.psi = o.psi;
+    // Quelli che l'oggetto MOSTRA: per gli oggetti della scena c'e' anche la
+    // rotazione del path (vedi GLWidget::setViewRotation4D).
+    const QVector3D angles4D = shownAngles4D(o);
+    m_uboData.omega = angles4D.x();
+    m_uboData.phi = angles4D.y();
+    m_uboData.psi = angles4D.z();
 
     // 3. INVIO DEI DATI ALLA GPU
     const ClockTimes clocks = clockTimes(o);

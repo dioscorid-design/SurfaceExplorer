@@ -146,6 +146,8 @@ void MainWindow::removeSceneObject(int index)
     if (index <= 0 || index >= gl->objectCount()) return;
     const bool wasSelected = gl->selectedObject() == index;
     if (wasSelected) selectSceneObject(0);
+    // Il suo GO se ne va con lui: senza altri oggetti in rotazione il tick si ferma.
+    gl->setObjectRotating(index, false);
     gl->removeObject(index);
     m_objectSessions.erase(m_objectSessions.begin() + index);
     m_sceneObjectsChanged = true;
@@ -202,6 +204,7 @@ bool MainWindow::loadSceneFile(const QString &path)
         const QJsonArray p = o.value(QStringLiteral("position")).toArray();
         gl->setObjectPosition(QVector3D(float(p.at(0).toDouble()), float(p.at(1).toDouble()),
                                         float(p.at(2).toDouble())));
+        applyObjectMotion(o.value(QStringLiteral("motion")).toObject());
     }
     selectSceneObject(0);
     // Il momento pulito: la scena e' quella del file (come a fine load).
@@ -288,6 +291,8 @@ void MainWindow::showSelectedObject()
     updateMeshSelectorRange();
     updateMeshScopeEnabled();
     refreshRotationSpeedLabels();
+    // Il GO e' dell'oggetto: il tasto dice se ruota QUESTO.
+    if (ui->btnStart_2) ui->btnStart_2->setText(gl->isAnimating() ? "STOP" : "GO");
 
     // COSTANTI, SCRIPT, LIBRARY, PULSANTI.
     refreshConstantSliders();
@@ -426,14 +431,50 @@ void MainWindow::duplicateSceneObject(int index)
     const ObjectSession source = m_objectSessions[index];
     const QJsonObject shape = m_presetSerializer->buildSurfaceJson(source.name);
     const QVector3D pos = gl->objectPosition();
+    const QJsonObject motion = objectMotionJson();
     LibraryManager lm;
     LibraryItem copy = lm.parseJsonObject(shape, LibraryType::Surface, QString());
     copy.hintText = m_currentHintText;       // l'oggetto e' quello selezionato
     copy.hintSeconds = m_currentHintSeconds;
     addPresetAsObject(copy, source.name);
     gl->setObjectPosition(pos + QVector3D(0.5f, 0.5f, 0.0f));
+    applyObjectMotion(motion);
     m_sceneObjectsChanged = true;
     refreshObjectsUi();
+}
+
+QJsonObject MainWindow::objectMotionJson() const
+{
+    const GLWidget *gl = ui->glWidget;
+    QJsonObject speeds;
+    speeds["nutation"] = double(gl->getNutationSpeed());
+    speeds["precession"] = double(gl->getPrecessionSpeed());
+    speeds["spin"] = double(gl->getSpinSpeed());
+    speeds["omega"] = double(gl->getOmegaSpeed());
+    speeds["phi"] = double(gl->getPhiSpeed());
+    speeds["psi"] = double(gl->getPsiSpeed());
+    QJsonObject motion;
+    motion["speeds"] = speeds;
+    motion["rotating"] = gl->isAnimating();
+    return motion;
+}
+
+void MainWindow::applyObjectMotion(const QJsonObject &motion)
+{
+    GLWidget *gl = ui->glWidget;
+    const QJsonObject s = motion.value(QStringLiteral("speeds")).toObject();
+    gl->setNutationSpeed(float(s.value(QStringLiteral("nutation")).toDouble()));
+    gl->setPrecessionSpeed(float(s.value(QStringLiteral("precession")).toDouble()));
+    gl->setSpinSpeed(float(s.value(QStringLiteral("spin")).toDouble()));
+    gl->setOmegaSpeed(float(s.value(QStringLiteral("omega")).toDouble()));
+    gl->setPhiSpeed(float(s.value(QStringLiteral("phi")).toDouble()));
+    gl->setPsiSpeed(float(s.value(QStringLiteral("psi")).toDouble()));
+    // Il GO solo con qualcosa da far girare, come il tasto (onStopClicked).
+    const bool rotating = motion.value(QStringLiteral("rotating")).toBool() && hasAnyRotationSpeed();
+    if (rotating) gl->resumeMotion();
+    else gl->pauseMotion();
+    refreshRotationSpeedLabels();
+    if (ui->btnStart_2) ui->btnStart_2->setText(gl->isAnimating() ? "STOP" : "GO");
 }
 
 QString MainWindow::composedObjectsHint() const

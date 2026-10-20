@@ -246,6 +246,9 @@ struct SurfaceObject
     float omega = 0, phi = 0, psi = 0;
     float nutationSpeed = 0, precessionSpeed = 0, spinSpeed = 0;
     float omegaSpeed = 0, phiSpeed = 0, psiSpeed = 0;
+    // Il GO dell'oggetto: le sue rotazioni avanzano (alle velocita' qui sopra)
+    // a ogni tick di rotationTimer, che gira finche' almeno un oggetto ruota.
+    bool rotating = false;
 
     // ==========================================================
     // OROLOGI (geometria e texture; lo sfondo e' della vista)

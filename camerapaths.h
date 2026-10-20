@@ -50,6 +50,9 @@ public:
     // il tick applica le compensazioni -gamma/-beta RELATIVE a questa base,
     // cosi' l'orientamento accumulato dal moto GO non viene azzerato a ogni
     // Departure. Solo il PRIMO Departure 4D della sessione parte da neutro.
+    // Lo stesso per la rotazione del path che ricevono gli oggetti della scena
+    // (GLWidget::setViewRotation4D), che invece riparte SEMPRE da dov'e': gli
+    // oggetti non si raddrizzano al primo Departure, e' l'ambiente a farlo.
     void captureBase4D();
     // Il PRIMO Departure della sessione (3D o 4D) azzera la rotazione spaziale
     // di default (neutralizeDefaultRotationForPath, lo fa chi chiama); dai
@@ -80,6 +83,9 @@ private:
     float m_baseOmega = 0.0f;
     float m_basePhi = 0.0f;
     float m_basePsi = 0.0f;
+    float m_baseViewOmega = 0.0f;
+    float m_baseViewPhi = 0.0f;
+    float m_baseViewPsi = 0.0f;
     bool m_started4DOnce = false;
     bool m_anyStartedOnce = false;
 };

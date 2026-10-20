@@ -973,6 +973,7 @@ QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRu
         QJsonObject o;
         o["name"] = objectName;
         o["position"] = QJsonArray{ p.x(), p.y(), p.z() };
+        o["motion"] = m_mainWindow->objectMotionJson();
         o["shape"] = buildSurfaceJson(objectName);
         objects.append(o);
     }
@@ -1357,6 +1358,10 @@ void PresetSerializer::saveRecordOrScene(const QString &suggestedPath, bool scen
     bool wasPath4D = m_mainWindow->pathRunning(CameraPaths::Path4D);
     bool wasPath3D = m_mainWindow->pathRunning(CameraPaths::Path3D);
     bool wasTimeAnimating = false;
+    // Il moto della camera da scrivere nell'ambiente: le SUE rotazioni. Con un
+    // oggetto selezionato wasRotating e' il GO di quell'oggetto (che la scena
+    // scrive nel suo "motion").
+    const bool envRotating = scene ? m_mainWindow->ui->glWidget->isObjectRotating(0) : wasRotating;
 
     if (m_mainWindow->isAnythingMoving()) {
         wasTimeAnimating = true;
@@ -1543,7 +1548,7 @@ void PresetSerializer::saveRecordOrScene(const QString &suggestedPath, bool scen
         // "Includi il suono": includeSound resta true (comportamento classico)
     }
 
-    const MotionRunState runState{wasRotating, wasPath4D, wasPath3D};
+    const MotionRunState runState{envRotating, wasPath4D, wasPath3D};
     const QJsonObject root = scene
         ? buildSceneJson(QFileInfo(fileName).baseName(), runState, includeSound)
         : buildMotionJson(QFileInfo(fileName).baseName(), runState, includeSound);

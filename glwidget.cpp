@@ -1963,7 +1963,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         // costruzione, non per carico GPU. Saltiamo il watchdog per non dare un
         // falso avviso "il rendering rallenta" durante la registrazione.
         const bool animating = !m_isRecording &&
-                               (isAnimating() || anySurfaceAnimating || m_pathAnimating);
+                               (anyObjectRotating() || anySurfaceAnimating || m_pathAnimating);
         if (animating) {
             // Il PRIMO frame dopo l'avvio (o ri-avvio) dell'animazione non e' una
             // misura valida: l'intervallo dal frame precedente include il tempo da
@@ -2709,18 +2709,24 @@ void GLWidget::advanceRotationsBy(float dtSeconds) {
     float speedMult3D = 2.0f * ticks;
     float speedMult4D = 0.05f * ticks;
 
-    float dPrec = m_obj->precessionSpeed * speedMult3D;
-    float dNut  = m_obj->nutationSpeed   * speedMult3D;
-    float dSpin = m_obj->spinSpeed       * speedMult3D;
+    // Ogni oggetto col suo GO, alle sue velocita'.
+    for (const auto &obj : m_objects) {
+        SurfaceObject &o = *obj;
+        if (!o.rotating) continue;
 
-    if (std::abs(dPrec) > 0.0001f || std::abs(dNut) > 0.0001f || std::abs(dSpin) > 0.0001f) {
-        addObjectRotation(dPrec, dNut, dSpin);
+        float dPrec = o.precessionSpeed * speedMult3D;
+        float dNut  = o.nutationSpeed   * speedMult3D;
+        float dSpin = o.spinSpeed       * speedMult3D;
+
+        if (std::abs(dPrec) > 0.0001f || std::abs(dNut) > 0.0001f || std::abs(dSpin) > 0.0001f) {
+            addObjectRotation(o, dPrec, dNut, dSpin);
+        }
+
+        // ------------- Rotazioni 4D -----------
+        o.omega += o.omegaSpeed * speedMult4D;
+        o.phi   += o.phiSpeed   * speedMult4D;
+        o.psi   += o.psiSpeed   * speedMult4D;
     }
-
-    // ------------- Rotazioni 4D -----------
-    m_obj->omega += m_obj->omegaSpeed * speedMult4D;
-    m_obj->phi   += m_obj->phiSpeed   * speedMult4D;
-    m_obj->psi   += m_obj->psiSpeed   * speedMult4D;
 }
 
 
@@ -4987,8 +4993,25 @@ bool GLWidget::is4DActive(const SurfaceObject &o) const {
 }
 
 void GLWidget::setRotation4D(float o, float p, float ps) {
-    m_obj->omega = o; m_obj->phi = p; m_obj->psi = ps;
+    setShownAngles4D(*m_obj, o, p, ps);
     update();
+}
+
+QVector3D GLWidget::shownAngles4D(const SurfaceObject &o) const
+{
+    if (isEnvironment(o)) return QVector3D(o.omega, o.phi, o.psi);
+    return QVector3D(o.omega + m_viewOmega, o.phi + m_viewPhi, o.psi + m_viewPsi);
+}
+
+void GLWidget::setShownAngles4D(SurfaceObject &o, float omega, float phi, float psi)
+{
+    if (isEnvironment(o)) {
+        o.omega = omega; o.phi = phi; o.psi = psi;
+        return;
+    }
+    o.omega = omega - m_viewOmega;
+    o.phi = phi - m_viewPhi;
+    o.psi = psi - m_viewPsi;
 }
 
 void GLWidget::beginPathHandoff()
@@ -5260,9 +5283,10 @@ GLWidget::Orientation GLWidget::orientation() const
 {
     Orientation o;
     o.rotation = m_obj->rotationQuat;
-    o.omega = m_obj->omega;
-    o.phi = m_obj->phi;
-    o.psi = m_obj->psi;
+    const QVector3D angles = shownAngles4D(*m_obj);
+    o.omega = angles.x();
+    o.phi = angles.y();
+    o.psi = angles.z();
     o.userRotated = m_obj->userRotatedManually;
     return o;
 }
@@ -5307,9 +5331,7 @@ void GLWidget::resetOrientation(const Orientation &o)
     m_obj->spin = 0.0f;
 
     m_obj->rotationQuat = o.rotation;
-    m_obj->omega = o.omega;
-    m_obj->phi = o.phi;
-    m_obj->psi = o.psi;
+    setShownAngles4D(*m_obj, o.omega, o.phi, o.psi);
     m_obj->userRotatedManually = o.userRotated;
 
     m_obj->meshNeedsUpdate = true;
@@ -5428,7 +5450,7 @@ void GLWidget::virtualMove(MoveDir dir, float speed3D, float speed4D)
 // ANIMATION & MOTION CONTROL
 // ==========================================================
 
-void GLWidget::addObjectRotation(float dPrecession, float dNutation, float dSpin)
+void GLWidget::addObjectRotation(SurfaceObject &o, float dPrecession, float dNutation, float dSpin)
 {
     // --- ROTAZIONE BASATA SUGLI ASSI DELLO SCHERMO (Trackball Style) ---
 
@@ -5443,21 +5465,57 @@ void GLWidget::addObjectRotation(float dPrecession, float dNutation, float dSpin
 
     // 4. Applica le rotazioni: Ordine: Y * X * Z * VecchiaRotazione
     // Questo garantisce che la rotazione avvenga rispetto al punto di vista dell'osservatore
-    m_obj->rotationQuat = yRot * xRot * zRot * m_obj->rotationQuat;
+    o.rotationQuat = yRot * xRot * zRot * o.rotationQuat;
 
     // Normalizza per evitare errori di arrotondamento nel tempo
-    m_obj->rotationQuat.normalize();
+    o.rotationQuat.normalize();
 
     emit rotationChanged();
     update();
 }
 
+bool GLWidget::isObjectRotating(int index) const
+{
+    if (index < 0 || index >= int(m_objects.size())) return false;
+    return isObjectRotating(*m_objects[index]);
+}
+
+bool GLWidget::anyObjectRotating() const
+{
+    if (!rotationTimer || !rotationTimer->isActive()) return false;
+    for (const auto &obj : m_objects)
+        if (obj->rotating) return true;
+    return false;
+}
+
+// Acceso: il timer (ri)parte, come il resumeMotion di sempre. Spento: il timer
+// si ferma solo se nessun altro oggetto ruota.
+void GLWidget::setObjectRotating(int index, bool on)
+{
+    if (index < 0 || index >= int(m_objects.size()) || !rotationTimer) return;
+    m_objects[index]->rotating = on;
+    if (on) {
+        rotationTimer->start();
+        return;
+    }
+    for (const auto &obj : m_objects)
+        if (obj->rotating) return;
+    rotationTimer->stop();
+}
+
+void GLWidget::resumeObjectRotations()
+{
+    if (!rotationTimer || rotationTimer->isActive()) return;
+    for (const auto &obj : m_objects)
+        if (obj->rotating) { rotationTimer->start(); return; }
+}
+
 void GLWidget::pauseMotion() {
-    if (rotationTimer) rotationTimer->stop();
+    setObjectRotating(selectedObject(), false);
 }
 
 void GLWidget::resumeMotion() {
-    if (rotationTimer) rotationTimer->start();
+    setObjectRotating(selectedObject(), true);
 }
 
 void GLWidget::startAnimationTimer() {
@@ -5526,11 +5584,16 @@ void GLWidget::resetTextureTime(bool background) {
 }
 
 void GLWidget::resetAllClocks() {
-    if (m_obj->engine) {
-        for (MeshPart &mp : m_obj->engine->mutableMeshParts())
-            mp.timeTex = 0.0f;
+    // Di tutti gli oggetti della scena: "ricomincia da t = 0" vale per tutti.
+    for (const auto &obj : m_objects) {
+        SurfaceObject &o = *obj;
+        if (o.engine) {
+            for (MeshPart &mp : o.engine->mutableMeshParts())
+                mp.timeTex = 0.0f;
+        }
+        o.borderTimeTex = 0.0f;
+        if (&o != m_obj) { o.timeGeom = 0.0f; o.timeTex = 0.0f; }
     }
-    m_obj->borderTimeTex = 0.0f;
     resetTime();
 }
 

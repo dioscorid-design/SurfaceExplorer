@@ -1732,6 +1732,11 @@ private:
     void showObjectSelectorMenu();
     // Una copia dell'oggetto (la sua Shape com'e' ora), accanto.
     void duplicateSceneObject(int index);
+    // IL MOTO DI UN OGGETTO (2.0, tappa 4): le sei velocita' e il GO
+    // dell'oggetto selezionato. La Shape non li porta (sono del record), quindi
+    // la scena li scrive accanto alla posizione ("motion").
+    QJsonObject objectMotionJson() const;
+    void applyObjectMotion(const QJsonObject &motion);
     // Il messaggio della scena: quello dell'ambiente e, sotto, quello di ogni
     // oggetto col suo nome.
     QString composedObjectsHint() const;

@@ -329,10 +329,11 @@ public:
 
     SurfaceEngine* getEngine() const { return m_obj->engine.get(); }
     // L'AMBIENTE (oggetto 0): i path della camera sono suoi (equazioni nel suo
-    // motore) e, finche' la rotazione 4D della camera non e' separata da quella
-    // degli oggetti (tappa 2), il path 4D ne orienta la rotazione 4D. Mai il
-    // selezionato: con un altro oggetto selezionato il path resta sull'ambiente.
+    // motore) e il path 4D ne orienta la rotazione 4D come in 1.x, la camera
+    // compresa (CameraPaths::applyCamera4DAt). Mai il selezionato: con un altro
+    // oggetto selezionato il path resta sull'ambiente.
     SurfaceEngine *environmentEngine() const { return m_objects.front()->engine.get(); }
+    bool isEnvironment(const SurfaceObject &o) const { return &o == m_objects.front().get(); }
     void setEnvironmentRotation4D(float o, float p, float ps) {
         SurfaceObject &env = *m_objects.front();
         env.omega = o; env.phi = p; env.psi = ps;
@@ -341,6 +342,25 @@ public:
     float environmentOmega() const { return m_objects.front()->omega; }
     float environmentPhi() const { return m_objects.front()->phi; }
     float environmentPsi() const { return m_objects.front()->psi; }
+    // LA ROTAZIONE 4D DEL PATH PER GLI OGGETTI (2.0, tappa 2). Gli oggetti della
+    // scena hanno angoli 4D propri (preset, rotazioni, tasti del dock 4D) e il
+    // path, che gira la camera nello spazio 4D comune, li deve girare come
+    // l'ambiente: ricevono la stessa rotazione del path in questi tre angoli,
+    // che si SOMMANO ai loro (shownAngles4D). L'ambiente no: il path scrive gia'
+    // i suoi angoli, e sommarla due volte lo farebbe girare al doppio. La
+    // scrive solo CameraPaths, dal tick come dal recorder.
+    void setViewRotation4D(float o, float p, float ps) {
+        m_viewOmega = o; m_viewPhi = p; m_viewPsi = ps;
+        update();
+    }
+    QVector3D viewRotation4D() const { return QVector3D(m_viewOmega, m_viewPhi, m_viewPsi); }
+    // Gli angoli 4D che l'oggetto MOSTRA: i suoi, piu' quelli del path se non
+    // e' l'ambiente. Li leggono l'UBO, i Save e i dock (getOmega...); i setter
+    // assoluti (setRotation4D, resetOrientation) li scrivono togliendo la parte
+    // del path. Per l'ambiente sono i suoi, bit per bit: la modalita'
+    // Superficie e' quella di prima.
+    QVector3D shownAngles4D(const SurfaceObject &o) const;
+    void setShownAngles4D(SurfaceObject &o, float omega, float phi, float psi);
 
     // Equazioni parametriche attualmente COMPILATE (x, y, z, w gia' composte e
     // tradotte): le lettere delle costanti restano identificatori, quindi dicono
@@ -937,9 +957,9 @@ public:
     // incrementale (i tasti di spostamento) e non puo' ripristinare una posizione
     // salvata senza conoscere quella corrente.
     void setCrossSectionP(float p) { m_crossSectionP = p; update(); }
-    float getOmega() const { return m_obj->omega; }
-    float getPhi() const { return m_obj->phi; }
-    float getPsi() const { return m_obj->psi; }
+    float getOmega() const { return shownAngles4D(*m_obj).x(); }
+    float getPhi() const { return shownAngles4D(*m_obj).y(); }
+    float getPsi() const { return shownAngles4D(*m_obj).z(); }
 
     void setCameraPosAndDirection3D(const QVector3D& pos, const QVector3D& target, float roll);
     void setCameraFrom4DVectors(const QVector4D &pos4D, const QVector4D &target4D, const QVector4D &up4D);
@@ -1033,8 +1053,10 @@ public:
     // All'avvio di un path: se l'orientamento corrente e' quello di default del
     // preset/avvio (l'utente non ha ruotato a mano), lo riporta a neutro; se invece
     // l'utente ha ruotato col mouse, lo conserva.
+    // Dell'AMBIENTE: e' il suo path (gli oggetti restano come sono).
     void neutralizeDefaultRotationForPath() {
-        if (!m_obj->userRotatedManually) { m_obj->rotationQuat = QQuaternion(); m_obj->meshNeedsUpdate = true; update(); }
+        SurfaceObject &env = *m_objects.front();
+        if (!env.userRotatedManually) { env.rotationQuat = QQuaternion(); env.meshNeedsUpdate = true; update(); }
     }
     // Marcato dalla rotazione manuale (mouse/touch) via InputHandler.
     void markUserRotated() { m_obj->userRotatedManually = true; }
@@ -1050,12 +1072,16 @@ public:
     // ==========================================================
     // ANIMATION & MOTION CONTROL
     // ==========================================================
-    void addObjectRotation(float dPrecession, float dNutation, float dSpin);
+    void addObjectRotation(float dPrecession, float dNutation, float dSpin) {
+        addObjectRotation(*m_obj, dPrecession, dNutation, dSpin);
+    }
+    void addObjectRotation(SurfaceObject &o, float dPrecession, float dNutation, float dSpin);
     // Avanza rotazioni oggetto (prec/nut/spin) e 4D (omega/phi/psi) di
-    // dtSeconds di tempo d'animazione, alle velocita' correnti. Unica
-    // implementazione: la usa il tick live (updateRotation, dt=16ms) e il
-    // loop di registrazione (dt del frame virtuale) — niente copie della
-    // cinematica nel recorder (vedi CLAUDE.md).
+    // dtSeconds di tempo d'animazione, alle velocita' correnti, di OGNI
+    // oggetto col GO acceso (SurfaceObject::rotating). Unica implementazione:
+    // la usa il tick live (updateRotation, dt=16ms) e il loop di registrazione
+    // (dt del frame virtuale) — niente copie della cinematica nel recorder
+    // (vedi CLAUDE.md).
     void advanceRotationsBy(float dtSeconds);
     // Clock esterno (registrazione): con il flag attivo i tick live NON
     // avanzano i moti — li avanza il loop del recorder col tempo virtuale del
@@ -1077,7 +1103,22 @@ public:
     float getPhiSpeed() const { return m_obj->phiSpeed; }
     float getPsiSpeed() const { return m_obj->psiSpeed; }
 
-    bool isAnimating() const { return rotationTimer && rotationTimer->isActive(); }
+    // ROTAZIONI PER OGGETTO (2.0, tappa 4). Ogni oggetto ha il suo GO
+    // (SurfaceObject::rotating) e le sue velocita'; rotationTimer e' il tick
+    // comune e gira finche' almeno un oggetto ruota. isAnimating(), pauseMotion
+    // e resumeMotion sono quelli di sempre e agiscono sull'oggetto SELEZIONATO:
+    // con un oggetto solo coincidono col timer, come in 1.x. "Ruota" vuol dire
+    // GO acceso E timer in corsa: stopAllTimers ferma tutto senza toccare i GO,
+    // e il primo resumeMotion fa ripartire chi lo aveva acceso.
+    bool isAnimating() const { return isObjectRotating(*m_obj); }
+    bool isObjectRotating(int index) const;
+    void setObjectRotating(int index, bool on);
+    // Qualcosa da avanzare per il tick (o per il recorder): timer in corsa e
+    // almeno un GO acceso.
+    bool anyObjectRotating() const;
+    // Riparte il tick se qualche oggetto ha il GO acceso (dopo stopAllTimers:
+    // il recorder lo usa a fine dialoghi per gli oggetti non selezionati).
+    void resumeObjectRotations();
     void pauseMotion();
     void resumeMotion();
 
@@ -1540,6 +1581,11 @@ private:
     float m_cameraRoll = 0.0f;
     float m_cameraFov = 45.0f; // gradi, vedi setCameraFov()
     bool m_externalClockActive = false; // vedi setExternalClockActive()
+    // Rotazione 4D del path per gli oggetti: vedi setViewRotation4D.
+    float m_viewOmega = 0.0f, m_viewPhi = 0.0f, m_viewPsi = 0.0f;
+    bool isObjectRotating(const SurfaceObject &o) const {
+        return o.rotating && rotationTimer && rotationTimer->isActive();
+    }
 
     bool m_isPathFollowing = false;   // MODALITA' camera tangent (persiste dopo stop)
     bool m_pathAnimating = false;     // path in animazione (solo per il watchdog)

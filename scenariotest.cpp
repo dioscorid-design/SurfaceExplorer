@@ -1899,6 +1899,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("scene-motion")) {
+        runSceneMotionScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("load-order")) {
         runLoadOrderScenarios();
         finish();
@@ -3742,6 +3747,7 @@ void ScenarioTest::run()
     runStepsScenarios();
     runShapeBackgroundScenarios();
     runSceneObjectScenarios();
+    runSceneMotionScenarios();
     runAnimatedLoadScenarios();
     runLoadOrderScenarios();
 
@@ -5649,6 +5655,144 @@ void ScenarioTest::runSceneObjectScenarios()
     wait(200);
     m_mw->m_dockObjects->grab().save(m_outDir + QStringLiteral("/scene-objects-dock-ui.png"));
     m_mw->m_dockObjects->close();
+}
+
+void ScenarioTest::runSceneMotionScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Scena in moto: path 4D dell'ambiente, rotazioni dell'oggetto insieme al path =="));
+    // Ambiente col path 4D (beta = -t: la compensazione ZW cambia nel tempo) e
+    // velocita' di rotazione proprie, ferme perche' il moto e' il path.
+    if (!loadRecord(QStringLiteral("records/Paths/Parametric/Surfaces/Equations/S1xS1xS1/Cytherean Coil.json"))) return;
+    check(m_mw->pathRunning(CameraPaths::Path4D) && !gl->isObjectRotating(0),
+          QStringLiteral("ambiente: gira il path 4D, le sue rotazioni no"));
+    QString torusPath;
+    for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+        if (it.filePath.endsWith(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json")))
+            torusPath = it.filePath;
+    check(!torusPath.isEmpty(), QStringLiteral("il toro e' nella libreria"));
+    if (torusPath.isEmpty()) return;
+    m_mw->addShapeToScene(torusPath);
+    wait(500);
+    check(gl->objectCount() == 2 && gl->selectedObject() == 1 && m_mw->pathRunning(CameraPaths::Path4D),
+          QStringLiteral("Add to Scene col path in corsa: due oggetti, il path continua"));
+
+    // TAPPA 2: il path gira l'oggetto quanto l'ambiente.
+    auto close = [](float a, float b) { return std::abs(a - b) < 2e-3f; };
+    const QVector3D view1 = gl->viewRotation4D();
+    const float env1 = gl->environmentPsi();
+    const float obj1 = gl->getPsi();        // selezionato: l'oggetto
+    wait(700);
+    const QVector3D view2 = gl->viewRotation4D();
+    const float env2 = gl->environmentPsi();
+    const float obj2 = gl->getPsi();
+    check(!close(view1.z(), view2.z()),
+          QStringLiteral("il path ruota gli oggetti (psi del path %1 -> %2)").arg(view1.z()).arg(view2.z()));
+    check(close(env2 - env1, view2.z() - view1.z()) && close(obj2 - obj1, view2.z() - view1.z()),
+          QStringLiteral("ambiente e oggetto girano dello stesso angolo (%1, %2, path %3)")
+              .arg(env2 - env1).arg(obj2 - obj1).arg(view2.z() - view1.z()));
+
+    // TAPPA 4: il GO dell'oggetto non ferma il path, il path non ferma l'oggetto.
+    gl->setPrecessionSpeed(1.0f);
+    m_mw->refreshRotationSpeedLabels();
+    m_mw->onStopClicked();
+    wait(300);
+    check(gl->isObjectRotating(1) && !gl->isObjectRotating(0) && m_mw->pathRunning(CameraPaths::Path4D)
+              && m_mw->ui->btnStart_2->text() == QLatin1String("STOP"),
+          QStringLiteral("GO dell'oggetto: ruota, e il path dell'ambiente continua"));
+    check(m_mw->m_scene.lastCameraMotion == QLatin1String("path4D"),
+          QStringLiteral("il moto della camera resta il path (%1)").arg(m_mw->m_scene.lastCameraMotion));
+    const QQuaternion q1 = gl->getRotationQuat();
+    wait(500);
+    const QQuaternion q2 = gl->getRotationQuat();
+    check(!qFuzzyCompare(q1, q2), QStringLiteral("l'oggetto ruota davvero"));
+    m_mw->onDepartureClicked();   // stop
+    m_mw->onDepartureClicked();   // e di nuovo via
+    wait(200);
+    check(gl->isObjectRotating(1) && m_mw->pathRunning(CameraPaths::Path4D),
+          QStringLiteral("Departure: il path riparte, l'oggetto continua a ruotare"));
+    m_mw->selectSceneObject(0);
+    wait(200);
+    const QQuaternion envQ1 = gl->getRotationQuat();
+    check(m_mw->ui->btnStart_2->text() == QLatin1String("GO"),
+          QStringLiteral("selezionato l'ambiente: il tasto dice GO (%1)").arg(m_mw->ui->btnStart_2->text()));
+    wait(300);
+    check(qFuzzyCompare(envQ1, gl->getRotationQuat()),
+          QStringLiteral("la rotazione dell'oggetto non muove l'ambiente"));
+    // Il GO dell'AMBIENTE e' un moto della camera: ferma il path, come in 1.x.
+    m_mw->onStopClicked();
+    wait(200);
+    check(gl->isObjectRotating(0) && !m_mw->pathRunning(CameraPaths::Path4D) && gl->isObjectRotating(1),
+          QStringLiteral("GO dell'ambiente: ferma il path, l'oggetto continua"));
+    m_mw->onDepartureClicked();
+    wait(200);
+    check(!gl->isObjectRotating(0) && m_mw->pathRunning(CameraPaths::Path4D) && gl->isObjectRotating(1),
+          QStringLiteral("Departure: ferma le rotazioni dell'ambiente, non quelle dell'oggetto"));
+
+    // RECORDER: stessa funzione del tick, solo chi ha il GO acceso.
+    {
+        const bool path4D = m_mw->pathRunning(CameraPaths::Path4D);
+        if (path4D) m_mw->m_paths->stop(CameraPaths::Path4D);
+        gl->stopAllTimers();
+        check(!gl->anyObjectRotating(), QStringLiteral("stopAllTimers: niente da avanzare"));
+        gl->resumeObjectRotations();
+        check(gl->anyObjectRotating() && !gl->isObjectRotating(0),
+              QStringLiteral("resumeObjectRotations: riparte l'oggetto col GO, non l'ambiente"));
+        gl->setExternalClockActive(true);   // come nel REC: il tick e' un no-op
+        const QQuaternion envBefore = gl->getRotationQuat();   // selezionato: l'ambiente
+        m_mw->selectSceneObject(1);
+        const QQuaternion objBefore = gl->getRotationQuat();
+        gl->advanceRotationsBy(0.5f);
+        const QQuaternion objAfter = gl->getRotationQuat();
+        m_mw->selectSceneObject(0);
+        check(!qFuzzyCompare(objBefore, objAfter) && qFuzzyCompare(envBefore, gl->getRotationQuat()),
+              QStringLiteral("advanceRotationsBy: avanza l'oggetto col GO, non l'ambiente fermo"));
+        gl->setExternalClockActive(false);
+        if (path4D) m_mw->m_paths->start(CameraPaths::Path4D);
+    }
+
+    // SAVE E LOAD: il moto dell'oggetto nel suo "motion", la camera nell'ambiente.
+    PresetSerializer::MotionRunState run;
+    run.path4D = m_mw->pathRunning(CameraPaths::Path4D);
+    const QJsonObject sceneJson = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Motion Scene"), run, false);
+    const QJsonObject motion = sceneJson.value(QStringLiteral("objects")).toArray().at(0).toObject()
+                                   .value(QStringLiteral("motion")).toObject();
+    check(motion.value(QStringLiteral("rotating")).toBool()
+              && close(float(motion.value(QStringLiteral("speeds")).toObject().value(QStringLiteral("precession")).toDouble()), 1.0f),
+          QStringLiteral("scena scritta: l'oggetto ruota a velocita' 1"));
+    check(sceneJson.value(QStringLiteral("environment")).toObject().value(QStringLiteral("activeMotion")).toString()
+              == QLatin1String("path4D"),
+          QStringLiteral("scena scritta: il moto dell'ambiente e' il path 4D"));
+    const QString scenePath = m_outDir + QStringLiteral("/scene-motion.json");
+    {
+        QFile f(scenePath);
+        check(f.open(QIODevice::WriteOnly) && f.write(QJsonDocument(sceneJson).toJson()) > 0,
+              QStringLiteral("scena in moto scritta"));
+    }
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+    check(!gl->anyObjectRotating() || gl->isObjectRotating(0),
+          QStringLiteral("load normale: nessun oggetto in rotazione rimasto"));
+    check(m_mw->loadSceneFile(scenePath), QStringLiteral("loadSceneFile della scena in moto"));
+    wait(1500);
+    check(gl->objectCount() == 2 && gl->isObjectRotating(1) && m_mw->pathRunning(CameraPaths::Path4D),
+          QStringLiteral("scena ricaricata: path 4D in corsa e oggetto in rotazione"));
+    m_mw->selectSceneObject(1);
+    check(close(gl->getPrecessionSpeed(), 1.0f) && m_mw->ui->btnStart_2->text() == QLatin1String("STOP"),
+          QStringLiteral("oggetto ricaricato: velocita' %1, tasto %2").arg(gl->getPrecessionSpeed())
+              .arg(m_mw->ui->btnStart_2->text()));
+    {
+        QStringList bad;
+        for (const QString &p : { lineFieldsProblem(), rmFieldsProblem(), scriptEditorProblem(),
+                                  lightProblem(), stepsProblem() })
+            if (!p.isEmpty()) bad << p;
+        bad << surfaceControlsProblems();
+        check(bad.isEmpty(), QStringLiteral("oggetto in moto ricaricato -> dock coerenti con l'oggetto")
+                                 + (bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+    }
+    m_mw->removeSceneObject(1);
+    wait(200);
+    check(!gl->anyObjectRotating(), QStringLiteral("tolto l'oggetto: il tick delle rotazioni si ferma"));
 }
 
 void ScenarioTest::runShapeBackgroundScenarios()

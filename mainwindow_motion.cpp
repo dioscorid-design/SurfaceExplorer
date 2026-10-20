@@ -278,11 +278,12 @@ void MainWindow::stopPathAnimations()
 
 void MainWindow::stopRotationMotion()
 {
-    // Ferma il moto GO (rotazioni superficie/4D). Rispecchia il ramo "STOP" di
-    // onStopClicked, ma non tocca i timer dei path.
-    if (ui->glWidget && ui->glWidget->isAnimating()) {
-        ui->glWidget->pauseMotion();
-        if (ui->btnStart_2) ui->btnStart_2->setText("GO");
+    // Ferma il moto GO (rotazioni superficie/4D) dell'AMBIENTE, l'unico
+    // esclusivo coi path: gli oggetti della scena continuano a ruotare.
+    // Rispecchia il ramo "STOP" di onStopClicked, ma non tocca i timer dei path.
+    if (ui->glWidget && ui->glWidget->isObjectRotating(0)) {
+        ui->glWidget->setObjectRotating(0, false);
+        if (ui->btnStart_2 && ui->glWidget->selectedObject() == 0) ui->btnStart_2->setText("GO");
     }
 }
 

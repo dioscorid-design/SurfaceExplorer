@@ -65,10 +65,21 @@ void CameraPaths::resetSession()
     resetTimes();
     m_started4DOnce = false;
     m_anyStartedOnce = false;
+    // Sessione nuova: gli oggetti senza rotazione del path.
+    m_view->setViewRotation4D(0.0f, 0.0f, 0.0f);
 }
 
 void CameraPaths::captureBase4D()
 {
+    // La rotazione del path per gli oggetti riparte da dov'e', primo Departure
+    // compreso: stessa formula della base dell'ambiente qui sotto.
+    {
+        SurfaceEngine *engine = m_view->environmentEngine();
+        const QVector3D view = m_view->viewRotation4D();
+        m_baseViewOmega = view.x();
+        m_baseViewPhi   = view.y() + engine->evaluatePathGamma(m_t4D);
+        m_baseViewPsi   = view.z() + engine->evaluatePathBeta(m_t4D);
+    }
     if (!m_started4DOnce) {
         m_started4DOnce = true;
         m_baseOmega = m_basePhi = m_basePsi = 0.0f;
@@ -228,6 +239,8 @@ void CameraPaths::applyCamera4DAt(float t)
 
     // 2. Aggiorniamo la GPU (Shader)
     m_view->setEnvironmentRotation4D(rotOmega, rotPhi, rotPsi);
+    // Gli oggetti della scena: la stessa compensazione, sulla loro base.
+    m_view->setViewRotation4D(m_baseViewOmega, m_baseViewPhi - gamma, m_baseViewPsi - beta);
 
     // 3. Funzione helper per ruotare la CPU Camera
     // NB: stesso ordine dello shader (surface.vert): XW -> YW -> ZW

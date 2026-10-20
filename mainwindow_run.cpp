@@ -1615,20 +1615,26 @@ void MainWindow::onStopClicked() {
     // e il loop legge lo stato vivo a ogni frame, quindi GO/STOP entrano nel
     // video come a schermo.
     bool isRunning = ui->glWidget->isAnimating();
+    // Le rotazioni dell'AMBIENTE sono un moto della camera, come in 1.x:
+    // esclusive coi path e riavviate al load. Quelle di un oggetto della scena
+    // sono sue: girano insieme ai path e non sono il moto della camera.
+    const bool cameraMotion = ui->glWidget->selectedObject() == 0;
 
     if (isRunning) {
         ui->glWidget->pauseMotion();
-        m_userStoppedCameraMotion = true;
+        if (cameraMotion) m_userStoppedCameraMotion = true;
         if (ui->btnStart_2) ui->btnStart_2->setText("GO");
     } else {
         if (!hasAnyRotationSpeed()) return;
 
         // Mutua esclusivita': avviando GO fermiamo i due percorsi camera.
-        stopPathAnimations();
+        if (cameraMotion) stopPathAnimations();
 
         ui->glWidget->resumeMotion();
-        m_scene.lastCameraMotion = "rotation";
-        m_userStoppedCameraMotion = false;
+        if (cameraMotion) {
+            m_scene.lastCameraMotion = "rotation";
+            m_userStoppedCameraMotion = false;
+        }
         if (ui->btnStart_2) ui->btnStart_2->setText("STOP");
     }
 

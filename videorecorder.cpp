@@ -353,7 +353,7 @@ void VideoRecorder::toggleRecord()
     bool wasPath4D = m_mainWindow->pathRunning(CameraPaths::Path4D);
     bool wasPath3D = m_mainWindow->pathRunning(CameraPaths::Path3D);
     bool wasAnimating = m_mainWindow->ui->glWidget->isAnimating();
-    // NB: niente snapshot del moto GO — il loop legge isRotationMotionRunning()
+    // NB: niente snapshot del moto GO — il loop legge anyObjectRotating()
     // a ogni frame (stato vivo), cosi' GO/STOP premuti durante il REC agiscono.
 
     // Stato VERO del clock geometria, non il testo del master button: il master
@@ -392,6 +392,8 @@ void VideoRecorder::toggleRecord()
     // Helper per ripristinare lo stato
     auto restoreState = [this, wasAnimating, wasPath4D, wasPath3D, wasTimeAnimating, wasGeoAnimating, geoAnimTimer, startGeoTime]() {
         if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
+        // Gli altri oggetti col GO acceso: stopAllTimers li aveva fermati.
+        m_mainWindow->ui->glWidget->resumeObjectRotations();
         if (wasPath4D) {
             m_mainWindow->m_paths->start(CameraPaths::Path4D);
             m_mainWindow->ui->btnDeparture->setText("STOP");
@@ -572,6 +574,7 @@ void VideoRecorder::toggleRecord()
     if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
     if (wasPath3D) m_mainWindow->m_paths->start(CameraPaths::Path3D);
     if (wasAnimating) m_mainWindow->ui->glWidget->resumeMotion();
+    m_mainWindow->ui->glWidget->resumeObjectRotations();
 
     // ---> BLOCCA LO SPEGNIMENTO DELLO SCHERMO <---
 #if defined(Q_OS_IOS)
@@ -605,7 +608,7 @@ void VideoRecorder::toggleRecord()
             m_mainWindow->ui->glWidget->setSurfaceAnimating(true);
             // Qui c'era stopAllTimers(), che spegneva ANCHE rotationTimer.
             // Quel timer non e' solo un clock: e' lo STATO letto da
-            // isRotationMotionRunning(), il predicato con cui il loop decide se
+            // anyObjectRotating(), il predicato con cui il loop decide se
             // chiamare advanceRotationsBy. Spento, le rotazioni non avanzavano
             // piu' — superficie immobile nel video E a schermo — ma SOLO sui
             // preset con geometria animata (t nelle equazioni), perche' solo
@@ -861,9 +864,14 @@ void VideoRecorder::toggleRecord()
         else if (m_mainWindow->pathRunning(CameraPaths::Path3D)) {
             m_mainWindow->m_paths->advance(CameraPaths::Path3D, fpsScale3D);
         }
-        else if (m_mainWindow->isRotationMotionRunning()) {
-            // Stessa identica cinematica del tick live (advanceRotationsBy):
-            // al recorder cambia solo il dt, quello del frame virtuale.
+        // Rotazioni: lo stesso predicato del tick live (rotationTimer in corsa e
+        // almeno un GO acceso) e la stessa cinematica (advanceRotationsBy, che
+        // avanza ogni oggetto col suo GO): al recorder cambia solo il dt, quello
+        // del frame virtuale. FUORI dalla catena dei path: in una scena gli
+        // oggetti ruotano mentre la camera segue un path. Le rotazioni
+        // dell'ambiente restano esclusive coi path (onStopClicked, Departure),
+        // quindi con un oggetto solo e' la stessa scelta di prima.
+        if (m_mainWindow->ui->glWidget->anyObjectRotating()) {
             m_mainWindow->ui->glWidget->advanceRotationsBy(timeStep);
         }
 
