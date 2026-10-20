@@ -6,7 +6,8 @@
 //   prepareObjectTexture   scarico/caricamento della texture di superficie
 //   prepareObjectGeometry  pipeline e buffer (mesh, lati, bordo, wireframe)
 //   runObjectCompute       tubi e lati coperti, fuori dal render pass
-//   drawObject             il disegno nel render pass
+//   drawObject             il disegno nel render pass, in tre fasi (opachi,
+//                          trasparenti, linee) che render() fa per tutti gli oggetti
 //   drawFlatObject         l'anteprima 2D della sua texture (o di quella del bordo)
 // Tappa 1b: i blocchi sono quelli di render(), spostati cosi' come erano.
 
@@ -19,6 +20,16 @@
 
 void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *resourceUpdates)
 {
+    // UNIFORM PROPRI dell'oggetto che non cambiano a ogni frame (costanti,
+    // dominio, taglio): dai suoi campi nella copia di lavoro.
+    m_uboData.mathParams = o.mathParams;
+    m_uboData.mathParams2 = o.mathParams2;
+    m_uboData.u_min = o.uMin; m_uboData.u_max = o.uMax;
+    m_uboData.v_min = o.vMin; m_uboData.v_max = o.vMax;
+    m_uboData.x_min = o.xMin; m_uboData.x_max = o.xMax;
+    m_uboData.y_min = o.yMin; m_uboData.y_max = o.yMax;
+    m_uboData.z_min = o.zMin; m_uboData.z_max = o.zMax;
+
     // POSA DELL'OGGETTO: il modello e' suo, proiezione e vista della camera.
     QMatrix4x4 mvp;
     QMatrix4x4 mv;
@@ -28,6 +39,7 @@ void GLWidget::prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *
         mv.setToIdentity();
     } else {
         o.model.setToIdentity();
+        o.model.translate(o.position);
         o.model.rotate(o.rotationQuat);
 
         mvp = rhi()->clipSpaceCorrMatrix() * m_projection * m_view * o.model;
@@ -799,10 +811,10 @@ QRhiResourceUpdateBatch *GLWidget::runObjectCompute(SurfaceObject &o, QRhiComman
     return resourceUpdates;
 }
 
-void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &outputSize)
+void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &outputSize, DrawPhase phase)
 {
     if (o.engineMode == ModeImplicit) {
-        if (o.pipelineImplicit && m_bgVbo) {
+        if (phase == DrawPhase::Opaque && o.pipelineImplicit && m_bgVbo) {
             cb->setGraphicsPipeline(o.pipelineImplicit);
             cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
             cb->setShaderResources(o.bindings);
@@ -841,7 +853,7 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
     // parti trasparenti disegnate dopo lo lasciano vedere attraverso e
     // il wireframe ne resta occluso dove gli passa dietro. Ogni parte
     // col suo blocco di bordo (uboPartSlots + indice della parte).
-    if (o.borderRadius > 0.0f && o.borderRenderMode != 2 && o.indexCount > 0
+    if (phase == DrawPhase::Opaque && o.borderRadius > 0.0f && o.borderRenderMode != 2 && o.indexCount > 0
         && o.pipelineOpaque && o.borderVbo && o.borderIbo && o.borderUploaded) {
         const int partSlots = std::max(1, (int)parts.size());
         // La pipeline del bordo, col discard dei tratti coperti; senza,
@@ -871,7 +883,7 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
     // trasparente dietro spariva del tutto. Il solido opaco scrive
     // comunque depth, quindi il wireframe disegnato dopo resta
     // correttamente occluso da cio' che gli sta davanti.
-    if (anySolid) {
+    if (anySolid && phase != DrawPhase::Lines) {
         // Solido
         if (o.indexCount > 0 && o.vbo && o.ibo) {
             cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
@@ -930,7 +942,7 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
                 // back+front parte per parte fonderebbe la parte k+1
                 // sopra il fronte della parte k, invertendo la
                 // profondita' fra i rami (il fronte non scrive depth).
-                if (o.pipelineOpaque) {
+                if (phase == DrawPhase::Opaque && o.pipelineOpaque) {
                     cb->setGraphicsPipeline(o.pipelineOpaque);
                     for (const MeshPart *p : solidParts)
                         if (partAlpha(*p) >= 0.99f)
@@ -951,7 +963,7 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
                 for (const MeshPart *p : solidParts)
                     if (partAlpha(*p) < 0.99f) transp.push_back(p);
 
-                if (transp.size() > 1) {
+                if (phase == DrawPhase::Transparent && transp.size() > 1) {
                     const std::vector<Vertex> &verts = o.engine->getVertices();
                     const QMatrix4x4 mvNow = m_view * o.model;
                     auto depthOf = [&](const MeshPart *p) -> float {
@@ -979,7 +991,7 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
                 // Disegna solo se entrambe le pipeline di trasparenza sono
                 // valide: dopo un errore di compilazione una puo' essere
                 // nulla, e passarla a Metal causa EXC_BAD_ACCESS.
-                if (o.pipelineTranspBack && o.pipelineTranspFront) {
+                if (phase == DrawPhase::Transparent && o.pipelineTranspBack && o.pipelineTranspFront) {
                     cb->setGraphicsPipeline(o.pipelineTranspBack);
                     for (const MeshPart *p : transp)
                         drawPart(*p, p->meshIndex * o.uboBlockStride);
@@ -989,14 +1001,14 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
                         drawPart(*p, p->meshIndex * o.uboBlockStride);
                 }
             } else if (o.alpha < 0.99f) {
-                if (o.pipelineTranspBack && o.pipelineTranspFront) {
+                if (phase == DrawPhase::Transparent && o.pipelineTranspBack && o.pipelineTranspFront) {
                     cb->setGraphicsPipeline(o.pipelineTranspBack);
                     drawWhole();
                     cb->setGraphicsPipeline(o.pipelineTranspFront);
                     drawWhole();
                 }
             } else {
-                if (o.pipelineOpaque) {
+                if (phase == DrawPhase::Opaque && o.pipelineOpaque) {
                     cb->setGraphicsPipeline(o.pipelineOpaque);
                     drawWhole();
                 }
@@ -1005,7 +1017,7 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
     }
 
     // WIREFRAME, dopo il solido (vedi la nota sull'ordine sopra).
-    if (anyWireframe) {
+    if (anyWireframe && phase == DrawPhase::Lines) {
         if (o.wireframePipeline && o.wireframeIndexCount > 0) {
             cb->setGraphicsPipeline(o.wireframePipeline);
             cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
@@ -1042,7 +1054,7 @@ void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &
     // BORDO IN WIREFRAME: con la pipeline a linee, dopo il solido per
     // la stessa ragione del wireframe della superficie (scrive la
     // profondita' e non deve nascondere le parti trasparenti).
-    if (o.borderRadius > 0.0f && o.borderRenderMode == 2 && o.indexCount > 0
+    if (phase == DrawPhase::Lines && o.borderRadius > 0.0f && o.borderRenderMode == 2 && o.indexCount > 0
         && o.wireframePipeline && o.borderVbo && o.borderWireIbo && o.borderUploaded) {
         const int partSlots = std::max(1, (int)parts.size());
         cb->setGraphicsPipeline(o.borderPipelineWire ? o.borderPipelineWire : o.wireframePipeline);

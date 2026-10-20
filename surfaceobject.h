@@ -25,6 +25,8 @@
 #include <QQuaternion>
 #include <QString>
 #include <QVector2D>
+#include <QVector3D>
+#include <QVector4D>
 #include <memory>
 #include <vector>
 
@@ -113,6 +115,19 @@ struct SurfaceObject
     // Il flusso geodetico si calcola in geodesiccalculator + compute shader:
     // qui resta solo la mappa delle costanti (GLWidget::setConstants).
     QMap<QString, float> constants;
+
+    // ==========================================================
+    // UNIFORM PROPRI CHE NON CAMBIANO A OGNI FRAME
+    // ==========================================================
+    // Li scrivono i setter (costanti A..F e S, dominio u/v, taglio x/y/z del
+    // Ray Marching) e prepareObjectUniforms li copia nel blocco a ogni frame.
+    // Fino alla tappa 1c stavano solo in GLWidget::m_uboData, la copia di
+    // lavoro degli uniform, che pero' e' una per tutti gli oggetti: le costanti
+    // di uno avrebbero sovrascritto quelle dell'altro.
+    QVector4D mathParams;    // A, B, C, S
+    QVector4D mathParams2;   // D, E, F
+    float uMin = 0.0f, uMax = 0.0f, vMin = 0.0f, vMax = 0.0f;
+    float xMin = -10.0f, xMax = 10.0f, yMin = -10.0f, yMax = 10.0f, zMin = -10.0f, zMax = 10.0f;
 
     // ==========================================================
     // ASPETTO (resa, colore, luce propria, guscio, bordo)
@@ -220,6 +235,9 @@ struct SurfaceObject
     // POSA E ROTAZIONI (i moti dell'oggetto)
     // ==========================================================
     QMatrix4x4 model;
+    // POSIZIONE nella scena: il modello e' traslazione * rotazione, quindi
+    // l'oggetto ruota attorno al proprio centro. Zero = come fino alla 1.4.
+    QVector3D position;
     QQuaternion rotationQuat;
     // true se l'utente ha ruotato la superficie a mano (mouse/touch) dopo l'ultima
     // rotazione "di default" (setRotationQuat). Governa neutralizeDefaultRotationForPath.

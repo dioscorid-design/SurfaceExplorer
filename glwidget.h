@@ -227,6 +227,23 @@ public:
 
 
     // ==========================================================
+    // OGGETTI DELLA SCENA (2.0)
+    // ==========================================================
+    // L'oggetto 0 e' l'ambiente; i comandi agiscono sul selezionato.
+    int objectCount() const { return int(m_objects.size()); }
+    int selectedObject() const;
+    // Aggiunge un oggetto coi valori di partenza (le risorse GPU al suo primo
+    // frame) e ne ritorna l'indice; non lo seleziona.
+    int addObject();
+    void selectObject(int index);
+    // Toglie un oggetto, mai l'ultimo rimasto; se era il selezionato si torna
+    // all'ambiente. Le risorse GPU si liberano qualche frame dopo.
+    void removeObject(int index);
+    // Posizione dell'oggetto selezionato nella scena.
+    void setObjectPosition(const QVector3D &p);
+    QVector3D objectPosition() const { return m_obj->position; }
+
+    // ==========================================================
     // ENGINE MODES
     // ==========================================================
     // Il tipo vive nell'oggetto (surfaceobject.h): qui i nomi di sempre.
@@ -334,8 +351,8 @@ public:
     }
     // Limiti spaziali x/y/z del Ray Marching come li usa lo shader (-1000/1000
     // = nessun taglio).
-    QVector3D spaceRangeMin() const { return QVector3D(m_uboData.x_min, m_uboData.y_min, m_uboData.z_min); }
-    QVector3D spaceRangeMax() const { return QVector3D(m_uboData.x_max, m_uboData.y_max, m_uboData.z_max); }
+    QVector3D spaceRangeMin() const { return QVector3D(m_obj->xMin, m_obj->yMin, m_obj->zMin); }
+    QVector3D spaceRangeMax() const { return QVector3D(m_obj->xMax, m_obj->yMax, m_obj->zMax); }
     // Ramo attivo nel marcher: Cross Section (sezione 4D) o 3D.
     bool implicitUsesCrossSection() const { return m_obj->implicitUsesCrossSection; }
     // Riporta il marcher sul ramo 3D senza toccare le equazioni. setImplicitEquation
@@ -1205,7 +1222,10 @@ protected:
     void prepareObjectGeometry(SurfaceObject &o, QRhiResourceUpdateBatch *resourceUpdates);
     QRhiResourceUpdateBatch *runObjectCompute(SurfaceObject &o, QRhiCommandBuffer *cb,
                                               QRhiResourceUpdateBatch *resourceUpdates);
-    void drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &outputSize);
+    // Le tre fasi del disegno: render() le fa per tutti gli oggetti, una
+    // dopo l'altra (opachi, trasparenti in ordine di profondita', linee).
+    enum class DrawPhase { Opaque, Transparent, Lines };
+    void drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &outputSize, DrawPhase phase);
     void drawFlatObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &outputSize);
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
@@ -1235,6 +1255,13 @@ private:
     // agiscono i comandi e, finche' e' l'unico, quello che si disegna.
     std::vector<std::unique_ptr<SurfaceObject>> m_objects;
     SurfaceObject *m_obj = nullptr;
+    SurfaceObject *createObject();
+    // Oggetti tolti, ancora vivi per qualche frame: le letture asincrone gia'
+    // chieste (sonda del bordo) arrivano dopo e vi scrivono.
+    struct RetiredObject { std::unique_ptr<SurfaceObject> obj; int frames; };
+    std::vector<RetiredObject> m_retiredObjects;
+    static constexpr int kRetiredObjectFrames = 4;
+    void releaseRetiredObjects();
 
 
     // ==========================================================

@@ -74,38 +74,22 @@ QString loadShaderSource(const QString& path) {
 GLWidget::GLWidget(QWidget *parent)
     : QRhiWidget(parent)
 {
-    // L'unico oggetto della scena: la superficie di sempre (surfaceobject.h).
-    m_objects.push_back(std::make_unique<SurfaceObject>());
-    m_obj = m_objects.back().get();
+    // Il primo oggetto della scena, l'ambiente: la superficie di sempre.
+    m_obj = createObject();
 
+    // La copia di lavoro degli uniform: il taglio x/y/z di partenza (+-10) e'
+    // ora dell'oggetto (SurfaceObject::xMin...), come costanti e dominio.
     m_uboData = UboData();
-
-    m_uboData.x_min = -10.0f;
-    m_uboData.x_max =  10.0f;
-    m_uboData.y_min = -10.0f;
-    m_uboData.y_max =  10.0f;
-    m_uboData.z_min = -10.0f;
-    m_uboData.z_max =  10.0f;
 
     // --- 1. SETUP LOGICA APPLICATIVA E INPUT ---
     m_inputHandler = std::make_unique<InputHandler>(this);
-    m_obj->engine = std::make_unique<SurfaceEngine>();
 
     // --- 2. INIZIALIZZAZIONE VARIABILI DI STATO ---
     m_flatPan = QVector2D(0.0f, 0.0f);
     m_flatZoom = 1.0f;
     m_flatRotation = 0.0f;
-    m_obj->rotationQuat = QQuaternion();
 
     m_surfaceTimer.start();
-
-    m_obj->surfaceAnimating = false;
-
-    m_obj->textureEnabled = false;
-    m_obj->nutationSpeed = m_obj->precessionSpeed = m_obj->spinSpeed = 0.0f;
-    m_obj->omegaSpeed = m_obj->phiSpeed = m_obj->psiSpeed = 0.0f;
-    m_obj->precession = 0.0f; m_obj->nutation = 0.0f; m_obj->spin = 0.0f;
-    m_obj->red = m_obj->green = m_obj->blue = 0.5f; m_obj->alpha = 1.0f;
 
     m_cameraPos = QVector3D(0.0f, 0.0f, 4.0f);
     m_cameraYaw = 0.0f;
@@ -132,20 +116,90 @@ GLWidget::GLWidget(QWidget *parent)
 
     // In RHI, chiamare update() farà scattare automaticamente l'evento render()
     connect(m_animTimer, &QTimer::timeout, this, QOverload<>::of(&GLWidget::update));
-
-    // Sonda dei lati coperti (borderAvailability): parte quando la geometria
-    // resta ferma per un po', non al primo fotogramma del caricamento.
-    m_obj->borderProbeTimer = new QTimer(this);
-    m_obj->borderProbeTimer->setSingleShot(true);
-    m_obj->borderProbeTimer->setInterval(400);
-    connect(m_obj->borderProbeTimer, &QTimer::timeout, this, [this] {
-        m_obj->borderProbeArmed = true;
-        update();
-    });
 }
 
 GLWidget::~GLWidget()
 {
+}
+
+// ==========================================================
+// OGGETTI DELLA SCENA
+// ==========================================================
+
+// Un oggetto nuovo coi valori di partenza di sempre, in coda alla scena. Le
+// risorse GPU le crea initialize (il primo) o il suo primo frame (gli altri).
+SurfaceObject *GLWidget::createObject()
+{
+    auto obj = std::make_unique<SurfaceObject>();
+    SurfaceObject *o = obj.get();
+    o->engine = std::make_unique<SurfaceEngine>();
+    o->red = o->green = o->blue = 0.5f;
+    o->alpha = 1.0f;
+
+    // Sonda dei lati coperti (borderAvailability): parte quando la geometria
+    // resta ferma per un po', non al primo fotogramma del caricamento.
+    o->borderProbeTimer = new QTimer(this);
+    o->borderProbeTimer->setSingleShot(true);
+    o->borderProbeTimer->setInterval(400);
+    connect(o->borderProbeTimer, &QTimer::timeout, this, [this, o] {
+        o->borderProbeArmed = true;
+        update();
+    });
+    m_objects.push_back(std::move(obj));
+    return o;
+}
+
+int GLWidget::selectedObject() const
+{
+    for (int i = 0; i < int(m_objects.size()); ++i)
+        if (m_objects[i].get() == m_obj) return i;
+    return 0;
+}
+
+int GLWidget::addObject()
+{
+    createObject();
+    update();
+    return int(m_objects.size()) - 1;
+}
+
+void GLWidget::selectObject(int index)
+{
+    if (index < 0 || index >= int(m_objects.size())) return;
+    m_obj = m_objects[index].get();
+    update();
+}
+
+// Mai l'ultimo oggetto: la scena ne ha sempre almeno uno, l'ambiente. Se era
+// il selezionato, si torna all'ambiente.
+void GLWidget::removeObject(int index)
+{
+    if (index < 0 || index >= int(m_objects.size()) || m_objects.size() <= 1) return;
+    std::unique_ptr<SurfaceObject> gone = std::move(m_objects[index]);
+    m_objects.erase(m_objects.begin() + index);
+    if (m_obj == gone.get()) m_obj = m_objects.front().get();
+    gone->borderProbeTimer->stop();
+    // Le letture asincrone gia' chieste (sonda del bordo) arrivano nei frame
+    // seguenti e scrivono nell'oggetto: lo si tiene vivo ancora qualche frame.
+    m_retiredObjects.push_back({ std::move(gone), kRetiredObjectFrames });
+    update();
+}
+
+// Al frame: libera gli oggetti tolti da abbastanza frame.
+void GLWidget::releaseRetiredObjects()
+{
+    for (auto it = m_retiredObjects.begin(); it != m_retiredObjects.end();) {
+        if (--it->frames > 0 || it->obj->borderProbeReading) { ++it; continue; }
+        releaseObjectResources(*it->obj);
+        delete it->obj->borderProbeTimer;
+        it = m_retiredObjects.erase(it);
+    }
+}
+
+void GLWidget::setObjectPosition(const QVector3D &p)
+{
+    m_obj->position = p;
+    update();
 }
 
 
@@ -726,7 +780,8 @@ void GLWidget::setBorderAvailability(SurfaceObject &o, BorderAvailability a)
 {
     if (a == o.borderAvailability) return;
     o.borderAvailability = a;
-    emit borderAvailabilityChanged();
+    // Il dock riallinea il radio Border dell'oggetto SELEZIONATO.
+    if (&o == m_obj) emit borderAvailabilityChanged();
 }
 
 // I flag della sonda: un lato si vede se il vertex non lo nasconde per intero
@@ -1881,8 +1936,17 @@ void GLWidget::initObjectResources(SurfaceObject &o)
 
 void GLWidget::render(QRhiCommandBuffer *cb)
 {
-    // L'oggetto che si disegna (per ora l'unico, quello selezionato).
-    SurfaceObject &o = *m_obj;
+    // GLI OGGETTI: quelli tolti da abbastanza frame si liberano, quelli
+    // aggiunti dopo initialize hanno le risorse GPU al loro primo frame.
+    // L'oggetto 0 e' l'ambiente: lo sfondo prende i suoi uniform.
+    releaseRetiredObjects();
+    for (const auto &obj : m_objects)
+        if (!obj->ubo) initObjectResources(*obj);
+    SurfaceObject &env = *m_objects.front();
+    const bool anySurfaceAnimating = std::any_of(m_objects.begin(), m_objects.end(),
+        [](const std::unique_ptr<SurfaceObject> &obj) { return obj->surfaceAnimating; });
+    const bool anyImplicit = std::any_of(m_objects.begin(), m_objects.end(),
+        [](const std::unique_ptr<SurfaceObject> &obj) { return obj->engineMode == ModeImplicit; });
 
     // ==========================================================
     // WATCHDOG DI PERFORMANCE (avviso da rallentamento)
@@ -1899,7 +1963,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         // costruzione, non per carico GPU. Saltiamo il watchdog per non dare un
         // falso avviso "il rendering rallenta" durante la registrazione.
         const bool animating = !m_isRecording &&
-                               (isAnimating() || o.surfaceAnimating || m_pathAnimating);
+                               (isAnimating() || anySurfaceAnimating || m_pathAnimating);
         if (animating) {
             // Il PRIMO frame dopo l'avvio (o ri-avvio) dell'animazione non e' una
             // misura valida: l'intervallo dal frame precedente include il tempo da
@@ -2113,9 +2177,18 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     if (!m_clocksDrivenByRecorder) advanceClocksBy(dt);
 
     // L'OGGETTO: uniform (posa, parti, bordo) e texture.
-    prepareObjectUniforms(o, resourceUpdates);
-    prepareObjectTexture(o, resourceUpdates);
-    const ClockTimes clocks = clockTimes(o);
+    // GLI OGGETTI, prima parte: uniform (posa, parti, bordo) e texture. Gli
+    // uniform di ciascuno restano da parte: le fasi seguenti li rileggono da
+    // m_uboData, e lo sfondo copia quelli dell'ambiente.
+    std::vector<UboData> objectUbos;
+    objectUbos.reserve(m_objects.size());
+    for (const auto &obj : m_objects) {
+        prepareObjectUniforms(*obj, resourceUpdates);
+        prepareObjectTexture(*obj, resourceUpdates);
+        objectUbos.push_back(m_uboData);
+    }
+    m_uboData = objectUbos.front();
+    const ClockTimes clocks = clockTimes(env);
 
     // =========================================================================
     // GESTIONE COMUNE SFONDO 2D (Texture Upload, UBO, VBO)
@@ -2146,7 +2219,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         m_backgroundTextureNeedsUpload = false;
     }
 
-    if (m_useBackgroundTexture || m_isFlatView || o.engineMode == ModeImplicit) {
+    if (m_useBackgroundTexture || m_isFlatView || anyImplicit) {
         if (!m_bgBindings) initBackgroundShader();
 
         if (m_bgUbo) {
@@ -2234,8 +2307,15 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     }
 
     // L'OGGETTO: pipeline e buffer, poi i compute (fuori dal render pass).
-    prepareObjectGeometry(o, resourceUpdates);
-    resourceUpdates = runObjectCompute(o, cb, resourceUpdates);
+    // GLI OGGETTI, seconda parte: pipeline e buffer, poi i compute fuori dal
+    // render pass (che possono consumare il batch: se ne apre un altro).
+    for (size_t k = 0; k < m_objects.size(); ++k) {
+        SurfaceObject &o = *m_objects[k];
+        m_uboData = objectUbos[k];
+        if (!resourceUpdates) resourceUpdates = rhi()->nextResourceUpdateBatch();
+        prepareObjectGeometry(o, resourceUpdates);
+        resourceUpdates = runObjectCompute(o, cb, resourceUpdates);
+    }
 
     // --- RENDER PASS ---
     QColor clearColor = QColor::fromRgbF(m_bgColor.x(), m_bgColor.y(), m_bgColor.z());
@@ -2250,7 +2330,8 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             cb->setVertexInput(0, 1, &vbufBinding);
             cb->draw(6);
         } else {
-            drawFlatObject(o, cb, outputSize);
+            // La vista 2D edita la texture dell'oggetto selezionato.
+            drawFlatObject(*m_obj, cb, outputSize);
         }
     } else {
         if (m_useBackgroundTexture) {
@@ -2265,7 +2346,21 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             }
         }
 
-        drawObject(o, cb, outputSize);
+        // Prima gli opachi di tutti gli oggetti (scrivono la profondita'),
+        // poi i trasparenti dal piu' lontano al piu' vicino (centro
+        // dell'oggetto in vista: due oggetti compenetrati restano
+        // approssimati), infine le linee, che non devono nascondere i
+        // trasparenti. Con un oggetto solo e' l'ordine di sempre.
+        for (const auto &obj : m_objects) drawObject(*obj, cb, outputSize, DrawPhase::Opaque);
+        std::vector<SurfaceObject *> byDepth;
+        for (const auto &obj : m_objects) byDepth.push_back(obj.get());
+        if (byDepth.size() > 1) {
+            auto depthOf = [this](const SurfaceObject *s) { return (m_view * s->model).map(QVector3D()).z(); };
+            std::stable_sort(byDepth.begin(), byDepth.end(),
+                             [&](const SurfaceObject *a, const SurfaceObject *b) { return depthOf(a) < depthOf(b); });
+        }
+        for (SurfaceObject *obj : byDepth) drawObject(*obj, cb, outputSize, DrawPhase::Transparent);
+        for (const auto &obj : m_objects) drawObject(*obj, cb, outputSize, DrawPhase::Lines);
     }
 
     cb->endPass();
@@ -2274,6 +2369,11 @@ void GLWidget::render(QRhiCommandBuffer *cb)
 void GLWidget::releaseResources()
 {
     for (const auto &obj : m_objects) releaseObjectResources(*obj);
+    for (RetiredObject &r : m_retiredObjects) {
+        releaseObjectResources(*r.obj);
+        delete r.obj->borderProbeTimer;
+    }
+    m_retiredObjects.clear();
     if (m_dummyTexture) {
         m_dummyTexture->destroy();
         delete m_dummyTexture;
@@ -2890,10 +2990,10 @@ void GLWidget::detectImplicitConditioning(const QString &eqF)
 
     // Coordinate e costanti collegate per riferimento (exprtk richiede lvalue vivi).
     double x = 0.0, y = 0.0, z = 0.0, tVar = 0.0;
-    double A = m_uboData.mathParams.x(), B = m_uboData.mathParams.y();
-    double C = m_uboData.mathParams.z(), S = m_uboData.mathParams.w();
-    double D = m_uboData.mathParams2.x(), E = m_uboData.mathParams2.y();
-    double F = m_uboData.mathParams2.z();
+    double A = m_obj->mathParams.x(), B = m_obj->mathParams.y();
+    double C = m_obj->mathParams.z(), S = m_obj->mathParams.w();
+    double D = m_obj->mathParams2.x(), E = m_obj->mathParams2.y();
+    double F = m_obj->mathParams2.z();
 
     ExpressionParser parser;
     // Il campo implicito e' in x,y,z (+ eventuale t e costanti A..F,S). Aggiungiamo
@@ -2912,9 +3012,9 @@ void GLWidget::detectImplicitConditioning(const QString &eqF)
     // il bounding box UI e [-10,10]^3 (i clip box di default sono +/-1000, campionarli
     // tutti misurerebbe solo il vuoto lontano).
     const float clampR = 10.0f;
-    float bxMin = std::max(m_uboData.x_min, -clampR), bxMax = std::min(m_uboData.x_max, clampR);
-    float byMin = std::max(m_uboData.y_min, -clampR), byMax = std::min(m_uboData.y_max, clampR);
-    float bzMin = std::max(m_uboData.z_min, -clampR), bzMax = std::min(m_uboData.z_max, clampR);
+    float bxMin = std::max(m_obj->xMin, -clampR), bxMax = std::min(m_obj->xMax, clampR);
+    float byMin = std::max(m_obj->yMin, -clampR), byMax = std::min(m_obj->yMax, clampR);
+    float bzMin = std::max(m_obj->zMin, -clampR), bzMax = std::min(m_obj->zMax, clampR);
     if (bxMax <= bxMin) { bxMin = -clampR; bxMax = clampR; }
     if (byMax <= byMin) { byMin = -clampR; byMax = clampR; }
     if (bzMax <= bzMin) { bzMin = -clampR; bzMax = clampR; }
@@ -3053,8 +3153,8 @@ void GLWidget::detectImplicitConditioning(const QString &eqF)
 void GLWidget::setEquationConstants(float a, float b, float c, float d, float e, float f, float s) {
     m_obj->engine->setConstants(a, b, c, d, e, f, s);
     // Salviamo nel pacchetto UBO!
-    m_uboData.mathParams = QVector4D(a, b, c, s);
-    m_uboData.mathParams2 = QVector4D(d, e, f, 0.0f);
+    m_obj->mathParams = QVector4D(a, b, c, s);
+    m_obj->mathParams2 = QVector4D(d, e, f, 0.0f);
     m_obj->meshNeedsUpdate = true;
 
     m_obj->constants.clear();
@@ -3071,15 +3171,15 @@ void GLWidget::setEquationConstants(float a, float b, float c, float d, float e,
 
 void GLWidget::setRangeU(float min, float max) {
     if (m_obj->engine) m_obj->engine->setRangeU(min, max);
-    m_uboData.u_min = min;
-    m_uboData.u_max = max;
+    m_obj->uMin = min;
+    m_obj->uMax = max;
     m_obj->meshNeedsUpdate = true;
 }
 
 void GLWidget::setRangeV(float min, float max) {
     if (m_obj->engine) m_obj->engine->setRangeV(min, max);
-    m_uboData.v_min = min;
-    m_uboData.v_max = max;
+    m_obj->vMin = min;
+    m_obj->vMax = max;
     m_obj->meshNeedsUpdate = true;
 }
 
@@ -3090,22 +3190,22 @@ void GLWidget::setRangeW(float min, float max)
 }
 
 void GLWidget::setRangeX(float min, float max) {
-    m_uboData.x_min = min;
-    m_uboData.x_max = max;
+    m_obj->xMin = min;
+    m_obj->xMax = max;
     m_obj->meshNeedsUpdate = true;
     update();
 }
 
 void GLWidget::setRangeY(float min, float max) {
-    m_uboData.y_min = min;
-    m_uboData.y_max = max;
+    m_obj->yMin = min;
+    m_obj->yMax = max;
     m_obj->meshNeedsUpdate = true;
     update();
 }
 
 void GLWidget::setRangeZ(float min, float max) {
-    m_uboData.z_min = min;
-    m_uboData.z_max = max;
+    m_obj->zMin = min;
+    m_obj->zMax = max;
     m_obj->meshNeedsUpdate = true;
     update();
 }

@@ -233,6 +233,9 @@ private:
     // default, torna riaprendo la Shape, e una Shape senza riporta il grigio.
     // Da sola: --scenario-only shape-background.
     void runShapeBackgroundScenarios();
+    // Scena a piu' oggetti (2.0): un secondo oggetto si vede senza toccare il
+    // primo e, tolto, lascia l'immagine identica a prima.
+    void runSceneObjectScenarios();
     // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run
     // dopo un NEW devono sganciare il gate della scena vuota, cioe' lasciare
     // accesi i comandi del dock RENDERER. Il Run lo sganciava solo per le

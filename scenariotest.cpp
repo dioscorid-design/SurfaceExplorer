@@ -1890,6 +1890,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("scene-objects")) {
+        runSceneObjectScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("load-order")) {
         runLoadOrderScenarios();
         finish();
@@ -3732,6 +3737,7 @@ void ScenarioTest::run()
     runMeshCountScenarios();
     runStepsScenarios();
     runShapeBackgroundScenarios();
+    runSceneObjectScenarios();
     runAnimatedLoadScenarios();
     runLoadOrderScenarios();
 
@@ -5388,6 +5394,75 @@ void ScenarioTest::runStepsScenarios()
               QStringLiteral("Ray Marching, campo Ray Steps 400 -> slider di nuovo fino a mille (%1)")
                   .arg(ui->stepSlider->maximum()));
     }
+}
+
+void ScenarioTest::runSceneObjectScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Scena: un secondo oggetto si vede, non tocca il primo, tolto non lascia tracce =="));
+    if (!loadSurface(QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json"))) return;
+
+    // Tutto fermo come nel REC: le foto differiscono solo per gli oggetti.
+    gl->stopAllTimers();
+    gl->setClocksDrivenByRecorder(true);
+    wait(400);
+    // Frazione di pixel diversi fra due foto, nella sola fascia di colonne
+    // [x0, x1) (frazioni della larghezza).
+    auto changed = [](const QImage &a0, const QImage &b0, double x0 = 0.0, double x1 = 1.0) {
+        const QImage a = a0.convertToFormat(QImage::Format_RGB32), b = b0.convertToFormat(QImage::Format_RGB32);
+        if (a.size() != b.size()) return 1.0;
+        const int c0 = int(x0 * a.width()), c1 = int(x1 * a.width());
+        qint64 diff = 0, total = 0;
+        for (int y = 0; y < a.height(); ++y) {
+            const QRgb *pa = reinterpret_cast<const QRgb *>(a.constScanLine(y));
+            const QRgb *pb = reinterpret_cast<const QRgb *>(b.constScanLine(y));
+            for (int x = c0; x < c1; ++x, ++total)
+                if (pa[x] != pb[x]) ++diff;
+        }
+        return total ? double(diff) / double(total) : 0.0;
+    };
+    const QImage before = gl->grabFramebuffer();
+
+    // Una sfera rossa a destra del toro, con dominio, colore ed equazioni
+    // suoi: se uno di questi finisse sul toro, la meta' sinistra cambierebbe.
+    const int index = gl->addObject();
+    check(gl->objectCount() == 2 && index == 1 && gl->selectedObject() == 0,
+          QStringLiteral("addObject: due oggetti, il nuovo in coda e non selezionato"));
+    gl->selectObject(index);
+    gl->setRangeU(0.0f, 6.2831853f);
+    gl->setRangeV(0.0f, 3.1415927f);
+    gl->setColor(1.0f, 0.2f, 0.2f);
+    const bool eqOk = gl->setParametricEquations(QStringLiteral("0.6*sin(v)*cos(u)"),
+                                                 QStringLiteral("0.6*sin(v)*sin(u)"),
+                                                 QStringLiteral("0.6*cos(v)"), QStringLiteral("0"));
+    gl->setObjectPosition(QVector3D(1.6f, 0.0f, 0.0f));
+    gl->updateSurfaceData();
+    gl->selectObject(0);
+    check(eqOk && gl->selectedObject() == 0, QStringLiteral("sfera impostata sul secondo oggetto, si torna al primo"));
+    gl->grabFramebuffer();   // primo frame: le risorse del nuovo oggetto
+    wait(300);
+    const QImage with = gl->grabFramebuffer();
+    with.save(m_outDir + QStringLiteral("/scene-objects-two.png"));
+    const double all = changed(before, with);
+    const double left = changed(before, with, 0.0, 0.4);
+    check(all > 0.005, QStringLiteral("la sfera spostata si vede (%1% dei pixel cambiati)").arg(all * 100.0, 0, 'f', 2));
+    check(left == 0.0, QStringLiteral("la meta' sinistra (solo il toro) e' identica: %1% dei pixel cambiati")
+                           .arg(left * 100.0, 0, 'f', 3));
+
+    // Tolta la sfera: la scena torna quella di prima, al pixel. Le sue
+    // risorse si liberano qualche frame dopo (letture asincrone in volo).
+    gl->removeObject(index);
+    check(gl->objectCount() == 1 && gl->selectedObject() == 0,
+          QStringLiteral("removeObject: resta il solo toro, selezionato"));
+    for (int i = 0; i < 8; ++i) gl->grabFramebuffer();
+    const QImage after = gl->grabFramebuffer();
+    const double back = changed(before, after);
+    check(back == 0.0, QStringLiteral("tolta la sfera l'immagine e' identica a prima (%1% diversi)")
+                           .arg(back * 100.0, 0, 'f', 3));
+    gl->removeObject(0);
+    check(gl->objectCount() == 1, QStringLiteral("l'ultimo oggetto non si toglie"));
+    gl->setClocksDrivenByRecorder(false);
 }
 
 void ScenarioTest::runShapeBackgroundScenarios()
