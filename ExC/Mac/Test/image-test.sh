@@ -28,8 +28,10 @@
 # Report in build/test-reports/images-<data>/image-report.txt; col confronto le
 # immagini diverse in diff/ (pixel diversi in rosso). Righe:
 #   uguale / DIVERSA         confronto col riferimento
+#   rumore                   pochi pixel di 1-2 livelli (sezione dei tubi): non conta
 #   INSTABILE                due foto dello stesso giro differiscono: fuori dal confronto
-#   [differito]              un moto e' partito dopo il fermo: posa dal tempo reale
+#   DIFFERITO                un moto e' partito dopo il fermo (flusso geodetico):
+#                            posa dal tempo reale, fuori dal confronto
 
 set -euo pipefail
 

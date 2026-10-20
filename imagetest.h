@@ -19,7 +19,10 @@ class MainWindow;
 // (beginHiResCapture: non dipende dalla finestra) e seconda foto dopo una
 // pausa. Se le due foto differiscono il preset non e' fermo e il confronto
 // non vale (riga "instabile"); se un moto parte DOPO il fermo (avvio
-// differito del load) la posa dipende dal tempo reale (riga "differito").
+// differito del load: flusso geodetico) la posa dipende dal tempo reale e il
+// preset esce anche lui dal confronto (riga "differito"). Pochi pixel diversi
+// di uno o due livelli sono "rumore" (sezione dei tubi, smorzata frame dopo
+// frame): elencati, ma non fanno fallire il confronto.
 //
 //   SurfaceExplorer --image-test <radice preset> <cartella uscita>
 //                   [--compare <cartella di un giro precedente>]
@@ -28,7 +31,8 @@ class MainWindow;
 //
 // Scrive images/<preset>.png, image-report.txt e, col confronto, diff/<preset>.png
 // (i pixel diversi in rosso sull'immagine attenuata). Col confronto esce 0 se
-// ogni immagine stabile coincide col riferimento, 1 altrimenti.
+// ogni immagine confrontabile coincide col riferimento (a meno del rumore),
+// 1 altrimenti.
 class ImageTest : public QObject
 {
     Q_OBJECT
@@ -65,7 +69,10 @@ private:
     QList<Entry> m_entries;
     QStringList m_lines;
     QStringList m_popups;   // popup chiusi durante il preset corrente
-    int m_same = 0, m_different = 0, m_unstable = 0, m_deferred = 0, m_missingRef = 0;
+    int m_same = 0, m_noise = 0, m_different = 0, m_unstable = 0, m_deferred = 0, m_missingRef = 0;
+    // Soglie del rumore: frazione dei pixel (0.01% = 25 su 640x400) e scarto.
+    static constexpr double kNoisePercent = 0.01;
+    static constexpr int kNoiseDelta = 2;
 };
 
 #endif // IMAGETEST_H

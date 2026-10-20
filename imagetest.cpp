@@ -229,6 +229,9 @@ void ImageTest::shoot(const Entry &e)
     if (!stable) {
         ++m_unstable;
         line = QStringLiteral("INSTABILE       %1  (%2 pixel cambiano fra due foto)").arg(e.rel).arg(self.pixels);
+    } else if (deferred && !m_compareDir.isEmpty()) {
+        // Posa presa dal tempo reale: due giri non la ritrovano uguale.
+        line = QStringLiteral("DIFFERITO       %1  (fuori dal confronto)").arg(e.rel);
     } else if (!m_compareDir.isEmpty()) {
         const QImage ref(m_compareDir + QStringLiteral("/images/") + name);
         if (ref.isNull()) {
@@ -243,10 +246,16 @@ void ImageTest::shoot(const Entry &e)
                 ++m_same;
                 line = QStringLiteral("uguale          ") + e.rel;
             } else {
-                ++m_different;
                 const double pct = 100.0 * double(d.pixels) / double(first.width() * first.height());
-                line = QStringLiteral("DIVERSA         %1  (%2 pixel, %3%, scarto max %4)")
-                           .arg(e.rel).arg(d.pixels).arg(pct, 0, 'f', 3).arg(d.maxDelta);
+                // RUMORE: pochi pixel di uno o due livelli. E' la sezione
+                // trasportata dei tubi, smorzata frame dopo frame: dipende da
+                // quanti frame passano nell'assestamento, e gli stessi preset
+                // risultano instabili per un pixel anche nel riferimento.
+                const bool noise = pct <= kNoisePercent && d.maxDelta <= kNoiseDelta;
+                if (noise) ++m_noise; else ++m_different;
+                line = QStringLiteral("%1%2  (%3 pixel, %4%, scarto max %5)")
+                           .arg(noise ? QStringLiteral("rumore          ") : QStringLiteral("DIVERSA         "), e.rel)
+                           .arg(d.pixels).arg(pct, 0, 'f', 3).arg(d.maxDelta);
                 const QString diffPath = m_outDir + QStringLiteral("/diff/") + name;
                 QDir().mkpath(QFileInfo(diffPath).absolutePath());
                 diffImage(ref, first).save(diffPath);
@@ -258,7 +267,8 @@ void ImageTest::shoot(const Entry &e)
     }
     if (deferred) {
         ++m_deferred;
-        line += QStringLiteral("  [differito: un moto e' partito dopo il fermo, posa dal tempo reale]");
+        if (m_compareDir.isEmpty())
+            line += QStringLiteral("  [differito: un moto e' partito dopo il fermo, posa dal tempo reale]");
     }
     for (const QString &p : std::as_const(m_popups))
         line += QStringLiteral("  [popup chiuso: ") + p + QLatin1Char(']');
@@ -291,12 +301,14 @@ void ImageTest::finish()
     head << QString();
     if (!m_compareDir.isEmpty())
         head << QStringLiteral("Uguali al riferimento: %1").arg(m_same)
+             << QStringLiteral("Rumore (fino allo %1% dei pixel, scarto <= %2; non conta): %3")
+                    .arg(kNoisePercent).arg(kNoiseDelta).arg(m_noise)
              << QStringLiteral("DIVERSE: %1").arg(m_different)
              << QStringLiteral("Senza riferimento: %1").arg(m_missingRef);
     else
         head << QStringLiteral("Fotografati: %1").arg(m_same);
     head << QStringLiteral("Instabili (fuori dal confronto): %1").arg(m_unstable)
-         << QStringLiteral("Con avvio differito: %1").arg(m_deferred)
+         << QStringLiteral("Con avvio differito (fuori dal confronto): %1").arg(m_deferred)
          << QString();
 
     QFile f(m_outDir + QStringLiteral("/image-report.txt"));
