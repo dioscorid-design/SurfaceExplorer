@@ -14,8 +14,8 @@ class MainWindow;
 //
 // Per ogni preset: load con le stesse funzioni del click nell'albero, poi
 // tutto fermo con le chiamate del recorder all'avvio del REC (path,
-// rotazioni, flusso geodetico, suono; gli orologi li avanza solo chi li
-// guida da fuori, cioe' nessuno), assestamento, foto a risoluzione fissa
+// rotazioni, flusso geodetico, suono, watchdog spento; gli orologi li avanza
+// solo chi li guida da fuori, cioe' nessuno), assestamento, foto a risoluzione fissa
 // (beginHiResCapture: non dipende dalla finestra) e seconda foto dopo una
 // pausa. Se le due foto differiscono il preset non e' fermo e il confronto
 // non vale (riga "instabile"); se un moto parte DOPO il fermo (avvio

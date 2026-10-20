@@ -270,9 +270,13 @@ void ImageTest::run()
 {
     collect();
     GLWidget *gl = m_mw->ui->glWidget;
+    // Come nel REC: le catture sono lente per costruzione, e il watchdog
+    // fermerebbe le animazioni con un popup (Glass 3-Torus) a meta' preset.
+    gl->setRecordingActive(true);
     gl->beginHiResCapture(m_width, m_height);
     for (const Entry &e : std::as_const(m_entries)) shoot(e);
     gl->endHiResCapture();
+    gl->setRecordingActive(false);
     gl->setClocksDrivenByRecorder(false);
     finish();
 }
