@@ -8,6 +8,7 @@
 #include "presetroundtrip.h"
 #include "clocktest.h"
 #include "scenariotest.h"
+#include "imagetest.h"
 #endif
 
 int main(int argc, char *argv[])
@@ -135,6 +136,9 @@ int main(int argc, char *argv[])
     // Test degli scenari d'uso (--scenario-test): vedi scenariotest.h.
     if (ScenarioTest::requested(app.arguments()))
         ScenarioTest::start(&w, app.arguments());
+    // Test delle immagini dei preset (--image-test): vedi imagetest.h.
+    if (ImageTest::requested(app.arguments()))
+        ImageTest::start(&w, app.arguments());
 #endif // SE_SELF_TESTS
 #endif
 

@@ -455,10 +455,10 @@ if(APPLE AND NOT IOS)
     )
 endif()
 
-# --- TEST INTERNI (round-trip dei preset, orologi, scenari d'uso) ---
+# --- TEST INTERNI (round-trip dei preset, orologi, scenari d'uso, immagini) ---
 # Solo nelle build Debug desktop: sono la rete di sicurezza di chi sviluppa
 # (ExC/Mac/Test/*.sh li lanciano sulla build Debug) e nei binari distribuiti
-# sarebbero solo peso, piu' tre opzioni da riga di comando che nessun utente
+# sarebbero solo peso, piu' quattro opzioni da riga di comando che nessun utente
 # deve avere. Le build di rilascio restano fuori da sole: Release di Qt Creator
 # e, per l'App Store, il generatore Xcode (multi-config: CMAKE_BUILD_TYPE e'
 # vuoto). Su iOS/Android main.cpp non li ha mai chiamati.
@@ -471,6 +471,8 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID AND NOT IOS)
         clocktest.cpp
         scenariotest.h
         scenariotest.cpp
+        imagetest.h
+        imagetest.cpp
         shadercompilelog.h
     )
     target_compile_definitions(SurfaceExplorer PRIVATE SE_SELF_TESTS)
