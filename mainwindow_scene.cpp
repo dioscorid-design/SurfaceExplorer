@@ -1224,6 +1224,10 @@ void MainWindow::clearLibrarySelectionAfterReset()
 
 void MainWindow::resetScene(int index, bool loadDefaultSurface)
 {
+    // Un reset (NEW, cambio di linguetta) riscrive la scena intera: si torna al
+    // solo ambiente.
+    resetToSingleObject();
+
     // All'uscita la scena e' pulita: niente lavoro da proteggere.
     SceneCleanGuard sceneCleanGuard{this};
     discardPendingLimitEdits();
@@ -1451,10 +1455,14 @@ void MainWindow::warnSharedConstantsOnRecordLoad(const QString &recordPath)
     }, Qt::QueuedConnection);
 }
 
-void MainWindow::applySurfaceExample(LibraryItem d)
+void MainWindow::applySurfaceExample(LibraryItem d, bool asObject)
 {
-    // All'uscita la scena e' quella del file: e' il momento pulito.
-    SceneCleanGuard sceneCleanGuard{this};
+    // Un load normale riscrive la scena intera: si torna al solo ambiente.
+    if (!asObject) resetToSingleObject();
+    // All'uscita la scena e' quella del file: e' il momento pulito. Non per
+    // un oggetto aggiunto: la scena e' cambiata, non e' quella di un file.
+    std::optional<SceneCleanGuard> sceneCleanGuard;
+    if (!asObject) sceneCleanGuard.emplace(SceneCleanGuard{this});
     discardPendingLimitEdits();
 
     // LA SCENA DEL FILE, calcolata una volta: applyCommonData la assegna in
@@ -1463,7 +1471,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
 
     // La scena non e' piu' un record: caricando una SUPERFICIE l'ancora del
     // record caricato non vale piu' (vedi m_currentRecordPath).
-    m_currentRecordPath.clear();
+    if (!asObject) m_currentRecordPath.clear();
     // Ancora e messaggio dello SFONDO: li toglie forgetBackgroundTexture, piu'
     // sotto, insieme a tutto lo sfondo che questo caricamento spegne.
 
@@ -1496,18 +1504,21 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // applyMotionExample), altrimenti il preset partirebbe congelato.
     m_userStoppedGeomClock = false;
     m_userStoppedTexClock = false;
-    m_userStoppedBgClock = false;
+    if (!asObject) m_userStoppedBgClock = false;
     m_userStoppedMeshTexClock = false;
 
-    // 1. Pulizia totale
-    ui->glWidget->pauseMotion();
-    ui->glWidget->resetTransformations();
-    ui->glWidget->resetVisuals();
+    // 1. Pulizia totale. Della SCENA (moti, camera, sfondo, suono): un oggetto
+    // aggiunto non la tocca, e il suo oggetto e' appena nato, gia' pulito.
+    if (!asObject) {
+        ui->glWidget->pauseMotion();
+        ui->glWidget->resetTransformations();
+        ui->glWidget->resetVisuals();
 
-    m_audioController->stopAll();
+        m_audioController->stopAll();
 
-    if (ui->btnStart_2) ui->btnStart_2->setText("GO");
-    if (m_btnStart) m_btnStart->setText("START");
+        if (ui->btnStart_2) ui->btnStart_2->setText("GO");
+        if (m_btnStart) m_btnStart->setText("START");
+    }
 
     if (ui->glWidget) {
         ui->glWidget->setNutationSpeed(0.0f);
@@ -1534,7 +1545,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
 
     // Lo sfondo si spegne piu' sotto (setBackgroundTextureEnabled(false)): qui
     // se ne va tutto il resto, percorso dell'immagine e GPU compresi.
-    forgetBackgroundTexture();
+    if (!asObject) forgetBackgroundTexture();
 
     // Prima dell'uscita dalla modalita' metrica, che decide la sorgente della
     // superficie guardando lo script applicato.
@@ -1547,14 +1558,14 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     float defR = 0.20f, defG = 0.80f, defB = 0.20f;
     if (ui->glWidget) {
         ui->glWidget->setColor(defR, defG, defB);
-        ui->glWidget->setBackgroundColor(file.bgColor);
+        if (!asObject) ui->glWidget->setBackgroundColor(file.bgColor);
         ui->glWidget->setGlobalTextureColors(QColor::fromRgbF(defR, defG, defB), Qt::black);
     }
 
     // Alpha e luce del preset NON qui: vedi dopo updateRenderState() piu' sotto.
     // Luce di riempimento: preset senza la chiave -> 0 (il parser mette gia'
     // quel default), cioe' l'illuminazione con cui sono stati salvati.
-    setFillLightUI(d.fillLight);
+    if (!asObject) setFillLightUI(d.fillLight);   // della scena
     // Bordo: preset senza la chiave -> nessun bordo (default del parser).
     setBorderUI(borderStyleOf(d));
 
@@ -1569,7 +1580,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // 4. Reset Engine Grafico (Spegne tutte le texture)
     if (ui->glWidget) {
         applySurfaceTextureToEngine();   // intenzione spenta al punto 1 qui sopra
-        ui->glWidget->setBackgroundTextureEnabled(false);
+        if (!asObject) ui->glWidget->setBackgroundTextureEnabled(false);
 
         // Scarico effettivo della texture di superficie dalla GPU. Senza questo,
         // m_surfaceTexture caricata sulla superficie PRECEDENTE resta residente e,
@@ -1619,7 +1630,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     if (d.isImplicitMode) setCrossSectionTab(loadCrossSection);
 
     // 5. CARICAMENTO DATI (Equazioni, Colori, ecc.)
-    applyCommonData(d, file);
+    applyCommonData(d, file, asObject);
 
     // Ripristina il COLORE SUPERFICIE del preset. Sopra (riga ~5716) abbiamo
     // resettato al verde di default; senza questo blocco il colore salvato non
@@ -1754,7 +1765,8 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // a 0) e non solo quando il preset la porta: e' stato appiccicoso del motore,
     // e senza l'azzeramento esplicito una superficie caricata dopo averne
     // sezionata un'altra ereditava la p della precedente.
-    if (ui->glWidget) ui->glWidget->setCrossSectionP(d.isImplicitMode ? d.crossSectionP : 0.0f);
+    // Della scena (lo spazio 4D e' comune): un oggetto aggiunto non la sposta.
+    if (ui->glWidget && !asObject) ui->glWidget->setCrossSectionP(d.isImplicitMode ? d.crossSectionP : 0.0f);
 
     refreshRotationSpeedLabels();
 
@@ -1776,14 +1788,15 @@ void MainWindow::applySurfaceExample(LibraryItem d)
 
     bool want4D = d.hasLightingState ? d.use4DLighting : isSurface4D;
 
-    // 8. Applichiamo le impostazioni ALLA VARIABILE MEMBRO
-    m_scene.lightingMode4D = modeToApply;
+    // 8. Applichiamo le impostazioni ALLA VARIABILE MEMBRO. Il MODO della luce
+    // 4D e' della scena; l'accensione della luce 4D e' del motore dell'oggetto.
+    if (!asObject) m_scene.lightingMode4D = modeToApply;
 
     // 9. Applichiamo le impostazioni AL WIDGET GL
     if (ui->glWidget) {
         ui->glWidget->set4DLighting(want4D);
 
-        ui->glWidget->setLightingMode4D(modeToApply);
+        if (!asObject) ui->glWidget->setLightingMode4D(modeToApply);
 
         ui->glWidget->update();
     }
@@ -1796,11 +1809,12 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     case 2: btnText = "Slice Lighting"; break;
     default: btnText = "Directional Lighting"; break;
     }
-    if (ui->btnLightMode) ui->btnLightMode->setText(btnText);
+    if (ui->btnLightMode && !asObject) ui->btnLightMode->setText(btnText);
 
     update4DButtonState();
 
-    // 11. Finalizzazione
+    // 11. Finalizzazione. Proiezione, FOV e camera sono della scena.
+    if (!asObject) {
     ui->glWidget->setProjectionMode(d.projectionMode);
     // FOV UNICO: 45 e' il default, ma un preset che ne salva uno diverso lo
     // mantiene. La chiave letta e' `cameraFov` (default 45 in librarymanager);
@@ -1809,23 +1823,29 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // preset esistente perde la propria inquadratura.
     applyCameraFov(resolveSavedFov(d.cameraFov, d.fov3D, d.fov4D));
     updateProjectionButtonText();
+    }
 
-    // Ripristino intelligente della Telecamera / Rotazione 3D
+    // Ripristino intelligente della Telecamera / Rotazione 3D. La rotazione e'
+    // dell'oggetto; la camera della scena.
     if (!d.hasCamera3D) {
         // Preset vecchi (senza telecamera salvata): visuale standard inclinata
-        ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
+        if (!asObject) ui->glWidget->setCameraPos(QVector3D(0.0f, 0.0f, 4.0f));
         ui->glWidget->setRotationQuat(QQuaternion());
-        ui->glWidget->setCameraYaw(0.0f);
-        ui->glWidget->setCameraPitch(0.0f);
-        ui->glWidget->setCameraRoll(0.0f);
+        if (!asObject) {
+            ui->glWidget->setCameraYaw(0.0f);
+            ui->glWidget->setCameraPitch(0.0f);
+            ui->glWidget->setCameraRoll(0.0f);
+        }
         ui->glWidget->addObjectRotation(30.0f, 30.0f, 0.0f);
     } else {
         // Preset nuovi: ripristina SOLO l'inquadratura esatta! (Senza doppioni)
-        ui->glWidget->setCameraPos(QVector3D(d.camX, d.camY, d.camZ));
+        if (!asObject) ui->glWidget->setCameraPos(QVector3D(d.camX, d.camY, d.camZ));
         ui->glWidget->setRotationQuat(QQuaternion(d.rotW, d.rotX, d.rotY, d.rotZ));
-        ui->glWidget->setCameraYaw(d.camYaw);
-        ui->glWidget->setCameraPitch(d.camPitch);
-        ui->glWidget->setCameraRoll(d.camRoll);
+        if (!asObject) {
+            ui->glWidget->setCameraYaw(d.camYaw);
+            ui->glWidget->setCameraPitch(d.camPitch);
+            ui->glWidget->setCameraRoll(d.camRoll);
+        }
     }
 
     // Forza il ridisegno immediato con le nuove angolazioni
@@ -1834,14 +1854,14 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // 12. Il suono dello script e' gia' nel suo slot (applyCommonData, in
     // testa). AVVIO AUTOMATICO DELL'AUDIO AL CARICAMENTO:
     const QString fullLoadedText = m_scene.surfaceScriptApplied + "\n" + m_scene.surfaceTextureCode + "\n" + m_scene.bgTextureCode;
-    if (fullLoadedText.contains("//MUSIC:") || fullLoadedText.contains("//SOUND_BEGIN")) {
-        onRunSoundClicked();
+    if (!asObject && (fullLoadedText.contains("//MUSIC:") || fullLoadedText.contains("//SOUND_BEGIN"))) {
+        onRunSoundClicked();   // il suono e' della scena
     }
 
     // 13. L'editor segue gli slot appena scritti (e' la loro vista), coi tasti.
     updateScriptButtonText();
 
-    QTimer::singleShot(20, this, [this, isScript]() {
+    auto finishLimitsAndMesh = [this, isScript]() {
         if (ui->glWidget) {
             updateULimits();
             updateVLimits();
@@ -1855,13 +1875,19 @@ void MainWindow::applySurfaceExample(LibraryItem d)
                 ui->glWidget->update();
             }
         }
-    });
+    };
+    // Un oggetto aggiunto: SUBITO. Rinviato, scatterebbe sull'oggetto
+    // selezionato fra 20 ms, che caricando piu' oggetti di fila e' un altro.
+    if (asObject) finishLimitsAndMesh();
+    else          QTimer::singleShot(20, this, finishLimitsAndMesh);
 
     m_textureModified = false;
 
     // La superficie caricata diventa il RIFERIMENTO dei campi del dock 4D: da
     // qui l'utente misura di quanto si e' mosso. In coda perche'
     // setRotation4D/setCrossSectionP scrivono lo stato poco sopra.
+    // Il riferimento del dock 4D e il messaggio sono della scena.
+    if (!asObject) {
     resetNav4DBaseline();
 
     // Suggerimento d'uso ("hintText"), come in applyMotionExample: le superfici
@@ -1869,6 +1895,7 @@ void MainWindow::applySurfaceExample(LibraryItem d)
     // comparirebbe solo sui record.
     m_sceneHintFromSurfacePreset = true;
     showSceneHint(d.hintText, d.hintSeconds);
+    }
 
     // SNAPSHOT DELL'APPLICATO: da qui le equazioni a schermo sono quelle dei
     // campi del preset. applyMotionExample lo fa gia'; il load di una
@@ -2770,6 +2797,10 @@ void MainWindow::applyMotionExample(LibraryItem data)
     const MissingImageScan missingScan = scanRecordForMissingImages(data);
     warnMissingRecordImages(missingScan);
 
+    // Un record riscrive la scena intera: si torna al solo ambiente (dopo
+    // l'avviso, che deve ancora mostrare la scena di prima).
+    resetToSingleObject();
+
     // LA SCENA DEL FILE, calcolata una volta (con la scansione appena fatta):
     // applyCommonData la assegna in testa, e da qui la leggono sotto-tab e moti.
     const SceneState file = sceneFromItem(data, /*isRecord=*/true, missingScan);
@@ -3288,7 +3319,7 @@ void MainWindow::loadCrossSectionDefaultSurface()
 
 // ---- Passi di applyCommonData (la guardia del load resta a lei) ----
 
-void MainWindow::resetEngineBeforePresetLoad(const LibraryItem &d)
+void MainWindow::resetEngineBeforePresetLoad(const LibraryItem &d, bool asObject)
 {
     m_geoInitialLoad = true;
 
@@ -3298,23 +3329,24 @@ void MainWindow::resetEngineBeforePresetLoad(const LibraryItem &d)
     // taglia la texture invece di comprimerla (vedi setCustomMesh).
     if (ui->glWidget) ui->glWidget->resetGeodesicUvReference();
 
-    onStopClicked();
+    // Moti e path sono della scena: un oggetto aggiunto non li ferma.
+    if (!asObject) onStopClicked();
 
     if (m_statusLabel) {
         m_statusLabel->setStyleSheet("");
         m_statusLabel->clear();
     }
 
-    onStopClicked();
+    if (!asObject) onStopClicked();
 
-    if (pathRunning(CameraPaths::Path4D)) onDepartureClicked();
-    if (pathRunning(CameraPaths::Path3D)) onDeparture3DClicked();
+    if (!asObject && pathRunning(CameraPaths::Path4D)) onDepartureClicked();
+    if (!asObject && pathRunning(CameraPaths::Path3D)) onDeparture3DClicked();
 
     // Gli stop qui sopra passano dai tasti e alzano m_userStoppedCameraMotion,
     // ma sono stop PROGRAMMATICI di pre-caricamento: il nuovo preset/record
     // decide da solo il proprio moto (activeMotion in applyMotionExample).
     // Stesso riarmo dei flag gemelli (m_userStoppedSound & c.) al load.
-    m_userStoppedCameraMotion = false;
+    if (!asObject) m_userStoppedCameraMotion = false;
 
     // Rete di sicurezza: se un path fosse stato fermato altrove senza passare
     // dai tasti (timer già inattivo -> le due righe sopra non scattano), il
@@ -3322,11 +3354,13 @@ void MainWindow::resetEngineBeforePresetLoad(const LibraryItem &d)
     // di un preset le etichette ripartono comunque da "DEPARTURE"; se il
     // preset ha un path, l'avvio in coda ad applyMotionExample le rimette a
     // "STOP" via onDeparture(3D)Clicked.
+    if (!asObject) {
     if (ui->btnDeparture) ui->btnDeparture->setText("DEPARTURE");
     if (ui->btnDeparture3D) ui->btnDeparture3D->setText("DEPARTURE");
 
     if (m_geoAnimTimer && m_geoAnimTimer->isActive()) {
         m_geoAnimTimer->stop();
+    }
     }
 
     // Densità wireframe: se il preset la contiene (hasWireframe) ripristiniamo il numero
@@ -3423,8 +3457,12 @@ void MainWindow::resetEngineBeforePresetLoad(const LibraryItem &d)
         ui->glWidget->setUpdatesEnabled(true);
 
     // Reset Telecamera e Rotazioni 3D/4D
-    ui->glWidget->resetTransformations();
-    ui->glWidget->resetTime();
+    // Camera e orologi (anche lo sfondo) sono della scena; l'oggetto aggiunto
+    // e' appena nato, coi suoi orologi a zero.
+    if (!asObject) {
+        ui->glWidget->resetTransformations();
+        ui->glWidget->resetTime();
+    }
     ui->glWidget->setRotation4D(0.0f, 0.0f, 0.0f);
 
     // Etichette delle rotazioni: dal motore
@@ -3814,24 +3852,28 @@ void MainWindow::applyPresetEquations(const LibraryItem &d, bool isShell)
                 );
 }
 
-void MainWindow::finishPresetLoad(const LibraryItem &d, bool isScript)
+void MainWindow::finishPresetLoad(const LibraryItem &d, bool isScript, bool asObject)
 {
     // --- 5. RESET E CARICAMENTO PATH ---
 
     // Comandi dei path ai default: una superficie non li porta, un record li
     // riscrive subito dopo (applyMotionExample).
+    // Comandi, path e tempi sono della SCENA (i path nel motore dell'ambiente):
+    // un oggetto aggiunto non li tocca.
+    if (!asObject) {
     resetMotionControls();
 
     // Path 3D e 4D nel motore, dai testi assegnati in testa (m_scene.path).
     const PathTexts &pt = m_scene.path;
-    ui->glWidget->getEngine()->compilePath3DEquations(pt.x3D, pt.y3D, pt.z3D, pt.roll3D);
-    ui->glWidget->getEngine()->compilePathEquations(pt.x, pt.y, pt.z, pt.p,
+    ui->glWidget->environmentEngine()->compilePath3DEquations(pt.x3D, pt.y3D, pt.z3D, pt.roll3D);
+    ui->glWidget->environmentEngine()->compilePathEquations(pt.x, pt.y, pt.z, pt.p,
                                                     pt.alpha, pt.beta, pt.gamma);
 
     // Reset Variabili Tempo Locali
     m_paths->resetTimes();
     m_geoTime = 0.0;
     if (ui->glWidget) ui->glWidget->resetTime();
+    }
 
     updateRenderState();
     // In coda, dopo ogni altro setup: allinea etichette/range degli slider S e Steps
@@ -3868,7 +3910,7 @@ void MainWindow::finishPresetLoad(const LibraryItem &d, bool isScript)
     guardTransparencyOnImplicitLoad();
 }
 
-void MainWindow::applyCommonData(LibraryItem d, const SceneState &file)
+void MainWindow::applyCommonData(LibraryItem d, const SceneState &file, bool asObject)
 {
     // CARICAMENTO IN CORSO (m_populatingFields, vedi mainwindow.h). RAII: il
     // flag cade anche sui return anticipati piu' sotto. RIPRISTINO del valore
@@ -3883,7 +3925,7 @@ void MainWindow::applyCommonData(LibraryItem d, const SceneState &file)
         ~LoadGuard() { w->m_populatingFields = prev; }
     } loadGuard{this, wasPopulating};
 
-    resetEngineBeforePresetLoad(d);
+    resetEngineBeforePresetLoad(d, asObject);
 
     // LA SCENA DEL FILE, assegnata qui in blocco e PRIMA di ogni giudizio
     // sulle costanti (assignSceneTexts, la stessa strada del reset). Il
@@ -3911,7 +3953,14 @@ void MainWindow::applyCommonData(LibraryItem d, const SceneState &file)
     // giudicata come parametrica e le sue costanti tornavano a 1 (S a 0).
     setImplicitMode(d.isImplicitMode);
     if (!d.isImplicitMode) setCrossSectionTab(false);
-    assignSceneTexts(file);
+    if (asObject) {
+        // Solo la parte dell'oggetto: la scena (path, sfondo, suono...) resta.
+        SceneState objectOnly = m_scene;
+        static_cast<ObjectState &>(objectOnly) = file;
+        assignSceneTexts(objectOnly);
+    } else {
+        assignSceneTexts(file);
+    }
 
     // Shell/Solid: gia' nello stato (in testa, choicesFromItem).
     const bool isShell = m_scene.implicitShell;
@@ -3941,7 +3990,7 @@ void MainWindow::applyCommonData(LibraryItem d, const SceneState &file)
     if (isScript && !d.scriptCode.isEmpty()) applyPresetScript(d, isShell);
     else                                     applyPresetEquations(d, isShell);
 
-    finishPresetLoad(d, isScript);
+    finishPresetLoad(d, isScript, asObject);
 }
 
 // Scansione delle immagini mancanti di un record, PRIMA di caricarlo.

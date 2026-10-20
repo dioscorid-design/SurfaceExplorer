@@ -67,18 +67,19 @@ enum CameraPathMode {
 };
 
 // ----------------------------------------------------------
-// LA SCENA: le sedi dello stato lato MainWindow in UN valore
+// UN OGGETTO DELLA SCENA, lato interfaccia (2.0)
 // ----------------------------------------------------------
-// Ognuna e' documentata in mainwindow.h, nella sezione dei suoi setter. Riunite qui perche' il load diventi un'assegnazione, il Save la
-// sua traduzione e il reset la scena di default (punto 5 del refactoring).
-// Nel MOTORE restano, copia unica, colori/alpha/luce, MeshPart, stato 4D,
-// inquadrature e marcher.
-struct SceneState {
+// Cio' che ogni oggetto ha di suo nei dock: testi, scelte, script e texture
+// della superficie. MainWindow ne tiene uno per oggetto: quello del
+// selezionato vive dentro m_scene (SceneState ne eredita i campi, con gli
+// stessi nomi di sempre), gli altri da parte; selezionare un oggetto scambia
+// questa parte e lascia com'e' il resto della scena. La divisione fra oggetto
+// e scena l'ha decisa l'utente (2026-10-20): vedi la tabella nelle note.
+struct ObjectState {
     EquationTexts eq;         // dock Equations, lo SCRITTO (l'applicato: m_eqApplied)
     ImplicitTexts rm;         // i quattro campi Ray Marching
     ConstantTexts constants;  // costanti A..F, S (testi, anche a cascata)
     LimitTexts lim;           // dominio u/v/w e taglio x/y/z
-    PathTexts path;           // path 4D e 3D
     TubeTexts tube;           // sotto-tab Tubes: curva asse e spessore
     int steps = 100;          // Steps (parametrico) / Ray Steps (RM)
     // Numero di copie (campo Meshes del pannello Multi Mesh): un numero o
@@ -90,9 +91,36 @@ struct SceneState {
     bool crossSectionTab = false;       // sotto-tab RM 3D / Cross Section
     bool tubesTab = false;              // sotto-tab parametrico Surface / Tubes
     bool implicitShell = true;          // Shell / Solid (vista: due coppie di radio)
-    int renderMode = 0;                 // Base / Phong / Wireframe, globale
+    int renderMode = 0;                 // Base / Phong / Wireframe dell'oggetto
     bool meshScopeAll = true;           // ambito multi-mesh All / Mesh
     bool surfaceTextureState = false;   // texture di superficie accesa (intenzione)
+
+    // Dock Script: lo scritto della superficie e della sua texture,
+    // l'applicato della superficie
+    QString surfaceScriptText;
+    QString surfaceScriptApplied;
+    QString surfaceTextureScriptText;
+
+    // Texture di superficie: codice applicato e ancora della Library
+    QString surfaceTextureCode;
+    QString textureLibName;
+
+    // Costanti dichiarate dallo script: discrete ("A := int(1,6)") e minimi
+    QHash<QString, DiscreteRange> discreteConsts;
+    QHash<QString, float> minConsts;
+};
+
+// ----------------------------------------------------------
+// LA SCENA: le sedi dello stato lato MainWindow in UN valore
+// ----------------------------------------------------------
+// Ognuna e' documentata in mainwindow.h, nella sezione dei suoi setter. Riunite qui perche' il load diventi un'assegnazione, il Save la
+// sua traduzione e il reset la scena di default (punto 5 del refactoring).
+// Nel MOTORE restano, copia unica, colori/alpha/luce, MeshPart, stato 4D,
+// inquadrature e marcher.
+// Eredita la parte dell'OGGETTO SELEZIONATO (ObjectState, stessi nomi); qui
+// c'e' cio' che e' della scena intera: path e camera, sfondo, suono, luce 4D.
+struct SceneState : ObjectState {
+    PathTexts path;           // path 4D e 3D
     int lightingMode4D = 0;
 
     // Moti della camera
@@ -102,23 +130,14 @@ struct SceneState {
     int pathSpeed4D = 10;
     QString lastCameraMotion;           // ultimo moto camera avviato (Save: activeMotion)
 
-    // Dock Script: lo scritto per modulo e l'applicato della superficie
-    QString surfaceScriptText;
-    QString surfaceScriptApplied;
-    QString surfaceTextureScriptText;
+    // Dock Script: lo scritto per modulo della scena
     QString bgTextureScriptText;
     QString soundScriptText;
 
-    // Texture: codice applicato e ancore della Library
-    QString surfaceTextureCode;
+    // Sfondo e suono: codice applicato e ancore della Library
     QString bgTextureCode;
-    QString textureLibName;
     QString bgTextureLibName;
     QString soundLibName;
-
-    // Costanti dichiarate dallo script: discrete ("A := int(1,6)") e minimi
-    QHash<QString, DiscreteRange> discreteConsts;
-    QHash<QString, float> minConsts;
 
     // SFONDO: colore pieno e colori u_col1/u_col2 della sua texture (il
     // motore li consuma: setBackgroundColor, setBackgroundTexColors).

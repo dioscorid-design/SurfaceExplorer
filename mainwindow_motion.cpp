@@ -595,7 +595,7 @@ bool MainWindow::compilePath4DFromFields()
         return false;
     }
 
-    bool ok = ui->glWidget->getEngine()->compilePathEquations(eqX, eqY, eqZ, eqP, eqAlpha, eqBeta, eqGamma);
+    bool ok = ui->glWidget->environmentEngine()->compilePathEquations(eqX, eqY, eqZ, eqP, eqAlpha, eqBeta, eqGamma);
     if (!ok) {
         // Niente secondo popup se un warning di sintassi e' gia' comparso (stesso errore).
         if (!syntaxWarned)
@@ -631,7 +631,7 @@ bool MainWindow::compilePath3DFromFields()
         return false;
     }
 
-    bool ok = ui->glWidget->getEngine()->compilePath3DEquations(eqX, eqY, eqZ, eqR);
+    bool ok = ui->glWidget->environmentEngine()->compilePath3DEquations(eqX, eqY, eqZ, eqR);
     if (!ok) {
         // Niente secondo popup se l'utente e' gia' stato avvisato da un warning di
         // sintassi (es. operatori consecutivi): sarebbe lo stesso errore due volte.
@@ -923,7 +923,7 @@ void MainWindow::resetMotionControls()
     setPathSpeed4D(10);
     m_scene.lastCameraMotion.clear();
     if (ui->glWidget && ui->glWidget->getEngine())
-        ui->glWidget->getEngine()->clearPathEquations();
+        ui->glWidget->environmentEngine()->clearPathEquations();
 }
 
 void MainWindow::onToggleViewClicked()  // path 4D (pushView)

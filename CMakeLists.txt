@@ -84,6 +84,7 @@ qt_add_executable(SurfaceExplorer
     scenestate.h
     mainwindow_scene.cpp
     mainwindow_state.cpp
+    mainwindow_objects.cpp
     mainwindow_equations.cpp
     mainwindow_run.cpp
     mainwindow_motion.cpp

@@ -328,6 +328,19 @@ public:
     const QMap<QString, float>& getConstantsMap() const { return m_obj->constants; }
 
     SurfaceEngine* getEngine() const { return m_obj->engine.get(); }
+    // L'AMBIENTE (oggetto 0): i path della camera sono suoi (equazioni nel suo
+    // motore) e, finche' la rotazione 4D della camera non e' separata da quella
+    // degli oggetti (tappa 2), il path 4D ne orienta la rotazione 4D. Mai il
+    // selezionato: con un altro oggetto selezionato il path resta sull'ambiente.
+    SurfaceEngine *environmentEngine() const { return m_objects.front()->engine.get(); }
+    void setEnvironmentRotation4D(float o, float p, float ps) {
+        SurfaceObject &env = *m_objects.front();
+        env.omega = o; env.phi = p; env.psi = ps;
+        update();
+    }
+    float environmentOmega() const { return m_objects.front()->omega; }
+    float environmentPhi() const { return m_objects.front()->phi; }
+    float environmentPsi() const { return m_objects.front()->psi; }
 
     // Equazioni parametriche attualmente COMPILATE (x, y, z, w gia' composte e
     // tradotte): le lettere delle costanti restano identificatori, quindi dicono

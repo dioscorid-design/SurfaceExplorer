@@ -5463,6 +5463,84 @@ void ScenarioTest::runSceneObjectScenarios()
     gl->removeObject(0);
     check(gl->objectCount() == 1, QStringLiteral("l'ultimo oggetto non si toglie"));
     gl->setClocksDrivenByRecorder(false);
+
+    // LATO DOCK (tappa 3): una Shape caricata COME OGGETTO non tocca la scena,
+    // i dock seguono l'oggetto selezionato, e tornando a un oggetto il suo
+    // Save e' identico a prima.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Scena: una Shape come oggetto non tocca la scena, i dock seguono il selezionato =="));
+    const QString kTorus = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Torus.json");
+    const QString kSphere = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json");
+    if (!loadSurface(kTorus)) return;
+    wait(400);
+    auto dockProblems = [this](const QString &step) {
+        QStringList bad;
+        for (const QString &p : { lineFieldsProblem(), rmFieldsProblem(), scriptEditorProblem(),
+                                  lightProblem(), stepsProblem() })
+            if (!p.isEmpty()) bad << p;
+        bad << surfaceControlsProblems();
+        check(bad.isEmpty(), step + QStringLiteral(" -> dock coerenti con l'oggetto")
+                                 + (bad.isEmpty() ? QString() : QStringLiteral(": ") + bad.join(QStringLiteral("; "))));
+        checkEquations(step);
+    };
+    auto jsonDiff = [](const QJsonObject &a, const QJsonObject &b) {
+        QStringList keys;
+        for (auto it = a.begin(); it != a.end(); ++it)
+            if (b.value(it.key()) != it.value()) keys << it.key();
+        for (auto it = b.begin(); it != b.end(); ++it)
+            if (!a.contains(it.key())) keys << it.key();
+        return keys;
+    };
+    const QJsonObject torusJson = m_mw->m_presetSerializer->buildSurfaceJson(QStringLiteral("A"));
+    const GLWidget::Framing framingBefore = gl->framing();
+    const float fovBefore = gl->cameraFov();
+    const QColor bgBefore = m_mw->m_scene.bgColor;
+    const QString path4DBefore = m_mw->m_scene.path.x;
+
+    LibraryManager lm;
+    const LibraryItem sphere = lm.parseJson(m_root + QLatin1Char('/') + kSphere, LibraryType::Surface);
+    const int sphereIndex = m_mw->addPresetAsObject(sphere, QStringLiteral("Sphere"));
+    gl->setObjectPosition(QVector3D(1.6f, 0.0f, 0.0f));
+    wait(500);
+    const GLWidget::Framing framingAfter = gl->framing();
+    check(gl->objectCount() == 2 && gl->selectedObject() == sphereIndex,
+          QStringLiteral("Add to scene: due oggetti, la sfera selezionata"));
+    check(framingAfter.cameraPos == framingBefore.cameraPos && framingAfter.yaw == framingBefore.yaw
+              && framingAfter.pitch == framingBefore.pitch && framingAfter.roll == framingBefore.roll
+              && framingAfter.observerPos == framingBefore.observerPos
+              && framingAfter.crossSectionP == framingBefore.crossSectionP
+              && gl->cameraFov() == fovBefore,
+          QStringLiteral("Add to scene: camera, osservatore 4D, quota e FOV invariati"));
+    check(m_mw->m_scene.bgColor == bgBefore && m_mw->m_scene.path.x == path4DBefore,
+          QStringLiteral("Add to scene: sfondo e path della scena invariati"));
+    check(m_mw->m_scene.eq.x == sphere.x, QStringLiteral("i dock mostrano la sfera (X = %1)").arg(m_mw->m_scene.eq.x));
+    dockProblems(QStringLiteral("sfera aggiunta e selezionata"));
+    const QJsonObject sphereJson = m_mw->m_presetSerializer->buildSurfaceJson(QStringLiteral("B"));
+    gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-objects-dock.png"));
+
+    m_mw->selectSceneObject(0);
+    wait(300);
+    check(m_mw->m_scene.eq.x == torusJson.value(QStringLiteral("x")).toString(m_mw->m_scene.eq.x),
+          QStringLiteral("selezionato il toro: i dock lo mostrano"));
+    dockProblems(QStringLiteral("toro riselezionato"));
+    const QStringList torusDiff = jsonDiff(torusJson, m_mw->m_presetSerializer->buildSurfaceJson(QStringLiteral("A")));
+    check(torusDiff.isEmpty(), QStringLiteral("toro riselezionato: il Save e' identico a prima%1")
+                                   .arg(torusDiff.isEmpty() ? QString() : QStringLiteral(" (diversi: ") + torusDiff.join(QStringLiteral(", ")) + QLatin1Char(')')));
+
+    m_mw->selectSceneObject(sphereIndex);
+    wait(300);
+    dockProblems(QStringLiteral("sfera riselezionata"));
+    const QStringList sphereDiff = jsonDiff(sphereJson, m_mw->m_presetSerializer->buildSurfaceJson(QStringLiteral("B")));
+    check(sphereDiff.isEmpty(), QStringLiteral("sfera riselezionata: il Save e' identico a prima%1")
+                                    .arg(sphereDiff.isEmpty() ? QString() : QStringLiteral(" (diversi: ") + sphereDiff.join(QStringLiteral(", ")) + QLatin1Char(')')));
+
+    // Un load normale riscrive la scena intera: un oggetto solo.
+    if (loadSurface(kSphere)) {
+        wait(300);
+        check(gl->objectCount() == 1 && gl->selectedObject() == 0,
+              QStringLiteral("load di una Shape: si torna al solo ambiente"));
+        dockProblems(QStringLiteral("dopo il ritorno al solo ambiente"));
+    }
 }
 
 void ScenarioTest::runShapeBackgroundScenarios()

@@ -89,10 +89,11 @@ void CameraPaths::captureBase4D()
     // La formula usa le equazioni appena compilate dal chiamante: se i campi
     // sono cambiati durante lo Stop resta continua la rotazione (la posizione
     // segue il nuovo path, com'e' giusto).
-    SurfaceEngine *engine = m_view->getEngine();
-    m_baseOmega = m_view->getOmega();
-    m_basePhi   = m_view->getPhi() + engine->evaluatePathGamma(m_t4D);
-    m_basePsi   = m_view->getPsi() + engine->evaluatePathBeta(m_t4D);
+    // L'ambiente, non l'oggetto selezionato (vedi GLWidget::environmentEngine).
+    SurfaceEngine *engine = m_view->environmentEngine();
+    m_baseOmega = m_view->environmentOmega();
+    m_basePhi   = m_view->environmentPhi() + engine->evaluatePathGamma(m_t4D);
+    m_basePsi   = m_view->environmentPsi() + engine->evaluatePathBeta(m_t4D);
 }
 
 bool CameraPaths::takeFirstStart()
@@ -138,7 +139,7 @@ void CameraPaths::applyCamera4DAt(float t)
     // 1. SETUP BASE
     float dt = 0.01f;
 
-    SurfaceEngine* engine = m_view->getEngine();
+    SurfaceEngine* engine = m_view->environmentEngine();
 
     // 2. VALUTAZIONE POSIZIONE (la tangente serve solo in vista Tangent,
     // quindi p_prev si valuta dentro quel ramo: una eval exprtk in meno
@@ -226,7 +227,7 @@ void CameraPaths::applyCamera4DAt(float t)
     float rotPsi   = m_basePsi - beta;     // Z-W (base + fix per Beta)
 
     // 2. Aggiorniamo la GPU (Shader)
-    m_view->setRotation4D(rotOmega, rotPhi, rotPsi);
+    m_view->setEnvironmentRotation4D(rotOmega, rotPhi, rotPsi);
 
     // 3. Funzione helper per ruotare la CPU Camera
     // NB: stesso ordine dello shader (surface.vert): XW -> YW -> ZW
@@ -282,7 +283,7 @@ void CameraPaths::applyCamera3DAt(float t)
     // NB: il FOV NON si applica qui: vedi la nota in applyCamera4DAt.
     // Lo slider unico lo imposta una volta e vale per tutto.
 
-    QVector4D rawData = m_view->getEngine()->evaluatePath3DPosition(t);
+    QVector4D rawData = m_view->environmentEngine()->evaluatePath3DPosition(t);
 
     // Scala la posizione (XYZ) ma NON il rollio (W)
     QVector3D currentPos = rawData.toVector3D();
@@ -292,7 +293,7 @@ void CameraPaths::applyCamera3DAt(float t)
 
     if (m_scene.pathViewMode3D == ModeTangential) {
         float delta = 0.1f;
-        QVector4D futureData = m_view->getEngine()->evaluatePath3DPosition(t + delta);
+        QVector4D futureData = m_view->environmentEngine()->evaluatePath3DPosition(t + delta);
         target = futureData.toVector3D();
     } else {
         target = QVector3D(0, 0, 0);

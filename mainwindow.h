@@ -398,7 +398,10 @@ private slots:
     // caricamento indipendente da quante volte la libreria si ricostruisce nel
     // frattempo. Il costo e' una copia di stringhe per caricamento: irrilevante
     // rispetto a ricostruire mesh e shader.
-    void applySurfaceExample(LibraryItem data);
+    // asObject (2.0): il preset va nell'oggetto SELEZIONATO, appena creato
+    // (addPresetAsObject), e la scena non si tocca: camera, FOV, proiezione,
+    // sfondo, path, suono, luce 4D e di riempimento, quota di sezione, hint.
+    void applySurfaceExample(LibraryItem data, bool asObject = false);
     void applyMotionExample(LibraryItem data);
     void deleteSelectedExample();
     void onUndoDelete();
@@ -1466,7 +1469,7 @@ private:
     // entrambe e ne condivide il rischio (vedi il commento la' sopra).
     // `file` e' la scena del preset (sceneFromItem), calcolata una volta dal
     // chiamante: la testa la assegna a m_scene, concetto per concetto.
-    void applyCommonData(LibraryItem data, const SceneState &file);
+    void applyCommonData(LibraryItem data, const SceneState &file, bool asObject = false);
     // Shell/Solid del Ray Marching: UNICA implementazione condivisa fra i due
     // rami di load (equazione implicita e script implicito) e il reset alla
     // sfera di default. I due rami avevano il ripristino solo nel ramo
@@ -1618,6 +1621,68 @@ private:
     void setEditTarget(EditTarget target);
 
     SceneState m_scene;
+
+    // ==========================================================
+    // OGGETTI DELLA SCENA (2.0, mainwindow_objects.cpp)
+    // ==========================================================
+    // Cio' che MainWindow tiene di UN oggetto: la sua parte dei dock
+    // (ObjectState) e lo stato di lavoro che segue l'oggetto selezionato
+    // (applicato, slot delle fasce e del bordo, stop manuali degli orologi,
+    // memoria degli Steps...). Una per oggetto del GLWidget, nello stesso
+    // ordine. Quella del selezionato e' APERTA nei membri di MainWindow
+    // (m_scene e gli altri): la sua copia qui non vale finche' resta
+    // selezionato, e si riscrive quando si cambia oggetto.
+    struct ObjectSession {
+        QString name;   // il nome nell'elenco degli oggetti (dal preset)
+        ObjectState state;
+        std::optional<EquationTexts> eqApplied;
+        std::array<QString, 6> spaceLimitsApplied;
+        QString meshVisibleExpr;
+        int lastParametricSteps = 100;
+        int lastImplicitSteps = 400;
+        double lastImplicitS = 0.4;
+        float shellThicknessBeforeSolid = -1.0f;
+        bool textureModified = false;
+        bool implicitAlphaDisabled = false;
+        bool implicitWarnShown = false;
+        QString metricScriptBody;
+        QString currentTexturePresetPath;
+        QString textureHintText;
+        float textureHintSeconds = 6.0f;
+        bool userStoppedGeomClock = false;
+        bool userStoppedTexClock = false;
+        bool userStoppedMeshTexClock = false;
+        bool userStoppedBorderTexClock = false;
+        QString meshTextureScriptText, meshTextureScriptBase;
+        int meshTextureScriptPart = -1;
+        QString borderTextureScriptText, borderTextureScriptBase;
+        int surfaceOrigin = 0;   // m_surfaceOrigin: equazioni, script o entrambi
+    };
+    std::vector<ObjectSession> m_objectSessions = std::vector<ObjectSession>(1);
+    // L'oggetto selezionato: chiude la sua sessione nella copia, apre quella
+    // dell'oggetto index e ridisegna i dock (showSelectedObject). Il motore non
+    // si tocca: ogni oggetto ha gia' il suo stato nel GLWidget.
+    void selectSceneObject(int index);
+    // Un oggetto nuovo in coda (vuoto: lo riempie chi chiama, vedi il load come
+    // oggetto) e la sua sessione; non lo seleziona. Ritorna l'indice.
+    int addSceneObject(const QString &name);
+    // Toglie un oggetto, mai l'ambiente (indice 0): se era il selezionato si
+    // torna all'ambiente.
+    void removeSceneObject(int index);
+    void saveObjectSession(ObjectSession &s) const;
+    void openObjectSession(const ObjectSession &s);
+    // I dock mostrano l'oggetto selezionato: testi e scelte dallo stato,
+    // colori, luce, trasparenza, resa, bordo e rotazioni dal motore. Solo
+    // vista: nessuna scrittura nel motore che ne cambi lo stato.
+    void showSelectedObject();
+    // UNA SHAPE COME OGGETTO della scena (Add to scene): oggetto nuovo,
+    // selezionato, col preset caricato senza toccare la scena. Ritorna
+    // l'indice; l'oggetto resta selezionato.
+    int addPresetAsObject(const LibraryItem &d, const QString &name);
+    // Torna al solo ambiente (modalita' Superficie): lo chiamano i load normali
+    // e i reset, che riscrivono la scena intera.
+    void resetToSingleObject();
+    bool m_loadingAsObject = false;   // dentro addPresetAsObject
     // LA SCENA DAL FILE: cio' che il load deve lasciare in m_scene (punto 5,
     // tappa 5.3b). Non tocca la scena; legge solo il preset e, per texture e
     // suono, il disco (immagini mancanti, brani da ritrovare nella libreria).
@@ -1862,12 +1927,12 @@ private:
     // il reset: e' la sola strada per cui una scena intera entra in m_scene.
     void assignSceneTexts(const SceneState &s);
     // PASSI DI applyCommonData, nell'ordine in cui li chiama.
-    void resetEngineBeforePresetLoad(const LibraryItem &d);
+    void resetEngineBeforePresetLoad(const LibraryItem &d, bool asObject = false);
     void applyPresetRenderAndLimits(const LibraryItem &d, bool isShell);
     void preparePresetScriptEngine(const LibraryItem &d, bool isScript);
     void applyPresetScript(const LibraryItem &d, bool isShell);
     void applyPresetEquations(const LibraryItem &d, bool isShell);
-    void finishPresetLoad(const LibraryItem &d, bool isScript);
+    void finishPresetLoad(const LibraryItem &d, bool isScript, bool asObject = false);
 
     // (Scansione dell'albero texture e selezione della voce corrispondente:
     // LibraryTreeFocus::selectTexture.)
