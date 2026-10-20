@@ -23,6 +23,7 @@
 # Report in build/test-reports/clock-<data>/clock-report.txt, stampato alla fine.
 
 set -euo pipefail
+source "$(dirname "$0")/machine-load.sh"
 
 # --- root del progetto: lo script vive in ExC/Mac/Test/, la root e' tre cartelle sopra ---
 PROJECT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -50,8 +51,10 @@ mkdir -p "$OUT"
 echo "Libreria: $PRESETS"
 echo "Test in corso (l'app si apre da sola e si chiude alla fine, ~20 s)..."
 
+check_machine_load inizio
 RC=0
 "$BIN" --clock-test "$PRESETS" "$OUT" > "$OUT/app.log" 2>&1 || RC=$?
+check_machine_load fine
 
 [ -f "$OUT/clock-report.txt" ] || err "il test non ha prodotto il report (codice $RC): vedi $OUT/app.log"
 

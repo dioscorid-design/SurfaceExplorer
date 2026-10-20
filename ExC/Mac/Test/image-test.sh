@@ -34,6 +34,7 @@
 #                            posa dal tempo reale, fuori dal confronto
 
 set -euo pipefail
+source "$(dirname "$0")/machine-load.sh"
 
 PROJECT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 BIN="${BIN:-$PROJECT_DIR/build/Desktop_Qt_6_10-Debug/SurfaceExplorer.app/Contents/MacOS/SurfaceExplorer}"
@@ -91,8 +92,11 @@ if [ -n "$REF" ]; then
                 || err "configurazione fallita: vedi $REF_DIR/configure.log"
             "$CMAKE" --build "$BLD" -j8 > "$REF_DIR/build.log" 2>&1 \
                 || err "build di riferimento fallita: vedi $REF_DIR/build.log"
+            # La build stessa carica la macchina: si aspetta che il carico scenda.
+            wait_machine_load 180
         fi
         echo "Foto di riferimento ($SHA)..."
+        check_machine_load "inizio riferimento"
         RC=0
         "$REF_BIN" --image-test "$PRESETS" "$PHOTOS" "${ARGS[@]+"${ARGS[@]}"}" > "$REF_DIR/photos-$KEY.log" 2>&1 || RC=$?
         [ -f "$PHOTOS/image-report.txt" ] || err "foto di riferimento non riuscite (codice $RC): vedi $REF_DIR/photos-$KEY.log"
@@ -107,8 +111,10 @@ mkdir -p "$OUT"
 echo "Libreria: $PRESETS"
 echo "Foto in corso (l'app si apre da sola e si chiude alla fine)..."
 
+check_machine_load inizio
 RC=0
 "$BIN" --image-test "$PRESETS" "$OUT" "${COMPARE[@]+"${COMPARE[@]}"}" "${ARGS[@]+"${ARGS[@]}"}" > "$OUT/app.log" 2>&1 || RC=$?
+check_machine_load fine
 [ -f "$OUT/image-report.txt" ] || err "il test non ha prodotto il report (codice $RC): vedi $OUT/app.log"
 
 echo

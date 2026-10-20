@@ -43,6 +43,7 @@
 # riepilogo viene stampato accanto a quello nuovo.
 
 set -euo pipefail
+source "$(dirname "$0")/machine-load.sh"
 
 # --- root del progetto: lo script vive in ExC/Mac/Test/, la root e' tre cartelle sopra ---
 PROJECT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -76,6 +77,7 @@ echo "Libreria: $PRESETS"
 echo "Report:   $OUT"
 echo "Test in corso (l'app si apre da sola e si chiude alla fine)..."
 
+check_machine_load inizio
 "$BIN" --roundtrip-test "$PRESETS" "$OUT" "$@" > "$OUT/app.log" 2>&1 &
 PID=$!
 # Avanzamento ogni 20 s, dall'ultima riga di progress.log (controllo ogni 2 s,
@@ -90,6 +92,7 @@ while kill -0 "$PID" 2>/dev/null; do
 done
 RC=0
 wait "$PID" || RC=$?
+check_machine_load fine
 
 [ -f "$OUT/report.txt" ] || err "il test non ha prodotto il report (codice $RC): vedi $OUT/app.log"
 
