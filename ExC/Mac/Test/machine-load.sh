@@ -1,12 +1,18 @@
-# machine-load.sh - Carico della macchina per i test (da includere con "source").
+# machine-load.sh - Stato della macchina per i test (da includere con "source").
 #
-# Un giro con la macchina occupata (compilazioni in Xcode o Qt Creator,
-# indicizzazione di clangd dopo un cambio a un header incluso ovunque, pagine
-# pesanti nel browser) dura molto di piu' e conta ricarichi per il watchdog
-# della GPU che non sono difetti. Il 2026-10-20 la rete e' passata da ~50 a
-# ~95 minuti con lo STESSO codice, e i caricamenti parametrici multi-mesh da
-# 2 a 12 secondi: a macchina libera lo stesso binario e' tornato ai tempi di
-# prima. Gli script misurano il carico all'inizio e alla fine del giro.
+# DUE cose rallentano un giro senza che il codice c'entri (2026-10-20, rete
+# passata da ~50 a ~95 minuti con lo STESSO binario, 19 ricarichi per il
+# watchdog della GPU):
+#  1. la macchina INATTIVA: lo schermo si spegne dopo un minuto e, senza
+#     nessuno davanti, ogni caricamento che aspetta dei frame va a singhiozzo
+#     e il watchdog scambia i frame lenti per un collasso della GPU. Misurato
+#     sul campione di 52 preset: 99 s a schermo spento, 64 s tenendolo sveglio
+#     (= i tempi del 10-18, quando lo schermo era rimasto acceso). Rimedio:
+#     keep_machine_awake, un'asserzione di caffeinate che dura quanto lo script
+#     e non cambia le impostazioni di risparmio energetico;
+#  2. la macchina CARICA (compilazioni in Xcode o Qt Creator, clangd che
+#     reindicizza dopo un cambio a un header incluso ovunque): il carico si
+#     stampa all'inizio e alla fine del giro.
 
 # Soglia: i core di prestazione (sugli Apple Silicon il test gira li').
 LOAD_LIMIT="$(sysctl -n hw.perflevel0.physicalcpu 2>/dev/null || sysctl -n hw.ncpu)"
@@ -37,4 +43,11 @@ wait_machine_load() {
         sleep 5
         waited=$((waited + 5))
     done
+}
+
+# Accende lo schermo se e' spento e tiene sveglia la macchina (schermo e
+# sistema) finche' lo script che la chiama e' vivo.
+keep_machine_awake() {
+    caffeinate -u -t 2 >/dev/null 2>&1 || true
+    caffeinate -d -i -w $$ >/dev/null 2>&1 &
 }

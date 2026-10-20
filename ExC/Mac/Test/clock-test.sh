@@ -24,6 +24,7 @@
 
 set -euo pipefail
 source "$(dirname "$0")/machine-load.sh"
+keep_machine_awake
 
 # --- root del progetto: lo script vive in ExC/Mac/Test/, la root e' tre cartelle sopra ---
 PROJECT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"

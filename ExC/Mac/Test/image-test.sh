@@ -35,6 +35,7 @@
 
 set -euo pipefail
 source "$(dirname "$0")/machine-load.sh"
+keep_machine_awake
 
 PROJECT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 BIN="${BIN:-$PROJECT_DIR/build/Desktop_Qt_6_10-Debug/SurfaceExplorer.app/Contents/MacOS/SurfaceExplorer}"
