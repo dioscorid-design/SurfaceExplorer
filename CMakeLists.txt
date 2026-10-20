@@ -465,7 +465,12 @@ endif()
 # e, per l'App Store, il generatore Xcode (multi-config: CMAKE_BUILD_TYPE e'
 # vuoto). Su iOS/Android main.cpp non li ha mai chiamati.
 # SE_SELF_TESTS e' cio' che main.cpp guarda per agganciarli.
-if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID AND NOT IOS)
+# L'opzione omonima li mette anche in una build OTTIMIZZATA: e' build/Tests,
+# quella che usano gli script (piu' veloce della Debug, e separata dalle
+# cartelle Debug e Release di Qt Creator). Spenta di default: le build di
+# rilascio restano senza test.
+option(SE_SELF_TESTS "Test interni anche in una build non Debug (build/Tests)" OFF)
+if((CMAKE_BUILD_TYPE STREQUAL "Debug" OR SE_SELF_TESTS) AND NOT ANDROID AND NOT IOS)
     target_sources(SurfaceExplorer PRIVATE
         presetroundtrip.h
         presetroundtrip.cpp
@@ -475,8 +480,14 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT ANDROID AND NOT IOS)
         scenariotest.cpp
         imagetest.h
         imagetest.cpp
+        testactivity.h
+        testactivity.mm
         shadercompilelog.h
     )
+    # Fuori da Apple il .mm e' il solo ripiego vuoto: va compilato come C++.
+    if(NOT APPLE)
+        set_source_files_properties(testactivity.mm PROPERTIES LANGUAGE CXX)
+    endif()
     target_compile_definitions(SurfaceExplorer PRIVATE SE_SELF_TESTS)
 endif()
 

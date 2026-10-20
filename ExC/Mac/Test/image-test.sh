@@ -2,7 +2,7 @@
 #
 # image-test.sh - Test delle immagini dei preset (vedi imagetest.h).
 #
-# Apre l'app (build Debug), carica ogni superficie e ogni record della
+# Apre l'app (build dei test, build-tests.sh), carica ogni superficie e ogni record della
 # libreria, ferma tutto (path, rotazioni, orologi) e fa una foto a risoluzione
 # fissa. Con --ref confronta pixel per pixel con le foto fatte dal codice di un
 # commit precedente: e' la rete delle tappe che toccano il renderer, dove la
@@ -10,7 +10,7 @@
 # guardano lo stato, non i pixel).
 #
 # Il binario di riferimento si costruisce da solo: worktree del commit in
-# build/image-ref/<sha>/src, build Debug in build/image-ref/<sha>/build, foto in
+# build/image-ref/<sha>/src, build dei test in build/image-ref/<sha>/build, foto in
 # build/image-ref/<sha>/photos-<opzioni> (riusate ai giri successivi con le
 # stesse opzioni). Il commit di riferimento deve gia' contenere il test.
 # Stessa macchina, stessa GPU, stessa Qt, stessa libreria per le due serie.
@@ -38,7 +38,8 @@ source "$(dirname "$0")/machine-load.sh"
 keep_machine_awake
 
 PROJECT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
-BIN="${BIN:-$PROJECT_DIR/build/Desktop_Qt_6_10-Debug/SurfaceExplorer.app/Contents/MacOS/SurfaceExplorer}"
+# La build dei test: ottimizzata, coi test dentro (build-tests.sh).
+BIN="${BIN:-$PROJECT_DIR/build/Tests/SurfaceExplorer.app/Contents/MacOS/SurfaceExplorer}"
 PRESETS="${PRESETS:-$(cd "$PROJECT_DIR/.." && pwd)/presets}"
 REPORTS="$PROJECT_DIR/build/test-reports"
 CMAKE="${CMAKE:-$HOME/Qt/Tools/CMake/CMake.app/Contents/bin/cmake}"
@@ -57,8 +58,8 @@ while [ $# -gt 0 ]; do
 done
 
 [ -x "$BIN" ] || err "binario non trovato: $BIN
-Compila la build Debug (Qt Creator, oppure:
-  $CMAKE --build build/Desktop_Qt_6_10-Debug -j8)"
+Compila la build dei test:
+  ./ExC/Mac/Test/build-tests.sh"
 [ -d "$PRESETS/surfaces" ] || err "libreria non trovata o senza surfaces/: $PRESETS"
 
 STALE="$(find "$PROJECT_DIR" -maxdepth 1 \( -name '*.cpp' -o -name '*.h' -o -name '*.ui' \) -newer "$BIN" | head -3)"
@@ -85,14 +86,24 @@ if [ -n "$REF" ]; then
         if [ ! -x "$REF_BIN" ]; then
             [ -d "$SRC" ] || git -C "$PROJECT_DIR" worktree add --detach "$SRC" "$SHA"
             grep -q "image-test" "$SRC/main.cpp" || err "il commit $SHA non contiene ancora il test delle immagini"
-            PREFIX="$(sed -n 's/^CMAKE_PREFIX_PATH:PATH=//p' "$DEBUG_CACHE")"
-            NINJA="$(sed -n 's/^CMAKE_MAKE_PROGRAM:[A-Z]*=//p' "$DEBUG_CACHE")"
             echo "Build di riferimento ($SHA) in $BLD ..."
-            "$CMAKE" -S "$SRC" -B "$BLD" -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-                -DCMAKE_PREFIX_PATH="$PREFIX" -DCMAKE_MAKE_PROGRAM="$NINJA" > "$REF_DIR/configure.log" 2>&1 \
-                || err "configurazione fallita: vedi $REF_DIR/configure.log"
-            "$CMAKE" --build "$BLD" -j8 > "$REF_DIR/build.log" 2>&1 \
-                || err "build di riferimento fallita: vedi $REF_DIR/build.log"
+            if grep -q "option(SE_SELF_TESTS" "$SRC/CMakeLists.txt"; then
+                # Stessa configurazione della build dei test: fra Debug e
+                # Release i calcoli in virgola mobile possono differire
+                # nell'ultima cifra, e darebbero immagini "diverse" per finta.
+                "$PROJECT_DIR/ExC/Mac/Test/build-tests.sh" "$SRC" "$BLD" > "$REF_DIR/build.log" 2>&1 \
+                    || err "build di riferimento fallita: vedi $REF_DIR/build.log"
+            else
+                # Commit di prima di build/Tests: i test esistono solo in Debug.
+                echo "ATTENZIONE: $SHA non ha SE_SELF_TESTS, riferimento in Debug (possibile rumore)."
+                PREFIX="$(sed -n 's/^CMAKE_PREFIX_PATH:PATH=//p' "$DEBUG_CACHE")"
+                NINJA="$(sed -n 's/^CMAKE_MAKE_PROGRAM:[A-Z]*=//p' "$DEBUG_CACHE")"
+                "$CMAKE" -S "$SRC" -B "$BLD" -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+                    -DCMAKE_PREFIX_PATH="$PREFIX" -DCMAKE_MAKE_PROGRAM="$NINJA" > "$REF_DIR/configure.log" 2>&1 \
+                    || err "configurazione fallita: vedi $REF_DIR/configure.log"
+                "$CMAKE" --build "$BLD" -j8 > "$REF_DIR/build.log" 2>&1 \
+                    || err "build di riferimento fallita: vedi $REF_DIR/build.log"
+            fi
             # La build stessa carica la macchina: si aspetta che il carico scenda.
             wait_machine_load 180
         fi

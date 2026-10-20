@@ -1,16 +1,15 @@
 # machine-load.sh - Stato della macchina per i test (da includere con "source").
 #
-# DUE cose rallentano un giro senza che il codice c'entri (2026-10-20, rete
-# passata da ~50 a ~95 minuti con lo STESSO binario, 19 ricarichi per il
+# Cose che rallentano un giro senza che il codice c'entri (2026-10-20: rete
+# passata da ~50 a ~95 minuti con lo STESSO binario, 13-19 ricarichi per il
 # watchdog della GPU):
-#  1. la macchina INATTIVA: lo schermo si spegne dopo un minuto e, senza
-#     nessuno davanti, ogni caricamento che aspetta dei frame va a singhiozzo
-#     e il watchdog scambia i frame lenti per un collasso della GPU. Misurato
-#     sul campione di 52 preset: 99 s a schermo spento, 64 s tenendolo sveglio
-#     (= i tempi del 10-18, quando lo schermo era rimasto acceso). Rimedio:
-#     keep_machine_awake, un'asserzione di caffeinate che dura quanto lo script
-#     e non cambia le impostazioni di risparmio energetico;
-#  2. la macchina CARICA (compilazioni in Xcode o Qt Creator, clangd che
+#  1. APP NAP: senza nessuno davanti (schermo spento o bloccato) macOS ritarda
+#     i timer dell'app, cioe' le attese dei test. Campione di 52 preset: 99 s
+#     contro 62. Rimedio nell'app: beginTestActivity (testactivity.h);
+#  2. la macchina che va in STOP durante un giro lungo: keep_machine_awake
+#     tiene un'asserzione di caffeinate finche' lo script e' vivo (lo schermo
+#     invece si spegne comunque, se il Mac e' bloccato);
+#  3. la macchina CARICA (compilazioni in Xcode o Qt Creator, clangd che
 #     reindicizza dopo un cambio a un header incluso ovunque): il carico si
 #     stampa all'inizio e alla fine del giro.
 
@@ -28,7 +27,9 @@ check_machine_load() {
     if awk -v l="$load" -v m="$LOAD_LIMIT" 'BEGIN { exit !(l > m) }'; then
         printf 'ATTENZIONE (%s): macchina carica, load %s con %s core di prestazione.\n' "$1" "$load" "$LOAD_LIMIT"
         printf 'Tempi e ricarichi per watchdog di questo giro non sono confrontabili. Piu'"'"' attivi:\n'
-        ps -Ao pcpu=,comm= -r | head -5 | sed -E 's|^ *([0-9.]+) +(.*/)?([^/]+)$|  \1%  \3|'
+        # || true: head chiude il tubo e ps esce per SIGPIPE, che con
+        # "set -o pipefail" negli script fermerebbe il giro.
+        ps -Ao pcpu=,comm= -r | head -5 | sed -E 's|^ *([0-9.]+) +(.*/)?([^/]+)$|  \1%  \3|' || true
     else
         printf 'Carico della macchina (%s): %s (soglia %s)\n' "$1" "$load" "$LOAD_LIMIT"
     fi
@@ -45,9 +46,7 @@ wait_machine_load() {
     done
 }
 
-# Accende lo schermo se e' spento e tiene sveglia la macchina (schermo e
-# sistema) finche' lo script che la chiama e' vivo.
+# Niente stop del sistema finche' lo script che la chiama e' vivo.
 keep_machine_awake() {
-    caffeinate -u -t 2 >/dev/null 2>&1 || true
-    caffeinate -d -i -w $$ >/dev/null 2>&1 &
+    caffeinate -i -w $$ >/dev/null 2>&1 &
 }

@@ -2,7 +2,7 @@
 #
 # roundtrip-test.sh - Test di andata e ritorno dei preset (vedi presetroundtrip.h).
 #
-# Apre l'app (build Debug), carica da sola ogni superficie e ogni record della
+# Apre l'app (build dei test, build-tests.sh), carica da sola ogni superficie e ogni record della
 # libreria tre volte -- in ordine, al contrario e in ordine rimescolato (sempre
 # lo stesso) -- e confronta cio' che scriverebbe un Save col file, e fra i
 # passaggi (= stato rimasto dal preset caricato prima). Conta anche gli shader
@@ -48,7 +48,8 @@ keep_machine_awake
 
 # --- root del progetto: lo script vive in ExC/Mac/Test/, la root e' tre cartelle sopra ---
 PROJECT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
-BIN="${BIN:-$PROJECT_DIR/build/Desktop_Qt_6_10-Debug/SurfaceExplorer.app/Contents/MacOS/SurfaceExplorer}"
+# La build dei test: ottimizzata, coi test dentro (build-tests.sh).
+BIN="${BIN:-$PROJECT_DIR/build/Tests/SurfaceExplorer.app/Contents/MacOS/SurfaceExplorer}"
 # La libreria su cui si lavora e' C/presets, accanto al repo (NON quella dentro il repo).
 PRESETS="${PRESETS:-$(cd "$PROJECT_DIR/.." && pwd)/presets}"
 REPORTS="$PROJECT_DIR/build/test-reports"
@@ -56,8 +57,8 @@ REPORTS="$PROJECT_DIR/build/test-reports"
 err() { printf 'ERRORE: %s\n' "$*" >&2; exit 1; }
 
 [ -x "$BIN" ] || err "binario non trovato: $BIN
-Compila la build Debug (Qt Creator, oppure:
-  ~/Qt/Tools/CMake/CMake.app/Contents/bin/cmake --build build/Desktop_Qt_6_10-Debug -j8)"
+Compila la build dei test:
+  ./ExC/Mac/Test/build-tests.sh"
 [ -d "$PRESETS/surfaces" ] || err "libreria non trovata o senza surfaces/: $PRESETS"
 
 # Build stantia: un binario piu' vecchio dei sorgenti prova il codice di prima.
