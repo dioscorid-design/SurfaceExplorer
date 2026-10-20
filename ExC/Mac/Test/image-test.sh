@@ -43,7 +43,9 @@ BIN="${BIN:-$PROJECT_DIR/build/Tests/SurfaceExplorer.app/Contents/MacOS/SurfaceE
 PRESETS="${PRESETS:-$(cd "$PROJECT_DIR/.." && pwd)/presets}"
 REPORTS="$PROJECT_DIR/build/test-reports"
 CMAKE="${CMAKE:-$HOME/Qt/Tools/CMake/CMake.app/Contents/bin/cmake}"
-DEBUG_CACHE="$PROJECT_DIR/build/Desktop_Qt_6_10-Debug/CMakeCache.txt"
+# Qt e ninja: gli stessi di build-tests.sh.
+QT_PREFIX="${QT_PREFIX:-$HOME/Qt/6.10.1/macos}"
+NINJA="${NINJA:-$HOME/Qt/Tools/Ninja/ninja}"
 
 err() { printf 'ERRORE: %s\n' "$*" >&2; exit 1; }
 
@@ -96,10 +98,8 @@ if [ -n "$REF" ]; then
             else
                 # Commit di prima di build/Tests: i test esistono solo in Debug.
                 echo "ATTENZIONE: $SHA non ha SE_SELF_TESTS, riferimento in Debug (possibile rumore)."
-                PREFIX="$(sed -n 's/^CMAKE_PREFIX_PATH:PATH=//p' "$DEBUG_CACHE")"
-                NINJA="$(sed -n 's/^CMAKE_MAKE_PROGRAM:[A-Z]*=//p' "$DEBUG_CACHE")"
                 "$CMAKE" -S "$SRC" -B "$BLD" -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-                    -DCMAKE_PREFIX_PATH="$PREFIX" -DCMAKE_MAKE_PROGRAM="$NINJA" > "$REF_DIR/configure.log" 2>&1 \
+                    -DCMAKE_PREFIX_PATH="$QT_PREFIX" -DCMAKE_MAKE_PROGRAM="$NINJA" > "$REF_DIR/configure.log" 2>&1 \
                     || err "configurazione fallita: vedi $REF_DIR/configure.log"
                 "$CMAKE" --build "$BLD" -j8 > "$REF_DIR/build.log" 2>&1 \
                     || err "build di riferimento fallita: vedi $REF_DIR/build.log"
