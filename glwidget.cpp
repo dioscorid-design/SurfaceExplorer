@@ -6025,9 +6025,13 @@ void GLWidget::buildImplicitPipeline(SurfaceObject &o)
 
     o.pipelineImplicit->setSampleCount(renderTarget()->sampleCount());
 
-    // Per il Ray Marching, la profondità si calcola via matematica, non via Z-Buffer nativo
-    o.pipelineImplicit->setDepthTest(false);
-    o.pipelineImplicit->setDepthWrite(false);
+    // La profondita' la calcola lo shader (writeHitDepth, il punto colpito) e
+    // la pipeline la confronta e la scrive come per le mesh: gli oggetti di una
+    // scena si coprono per distanza, non per ordine di disegno. Lo sfondo non
+    // scrive profondita', quindi con un oggetto solo il test passa sempre.
+    o.pipelineImplicit->setDepthTest(true);
+    o.pipelineImplicit->setDepthWrite(true);
+    o.pipelineImplicit->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
     o.pipelineImplicit->setCullMode(QRhiGraphicsPipeline::None);
 
     // --- TRASPARENZA ---
@@ -6115,6 +6119,9 @@ QString GLWidget::createImplicitFragmentShader(SurfaceObject &o)
     // e questo e' solo il massimo che il campo Steps accetta. Era 1000 fisso:
     // oltre, il valore scritto non avrebbe cambiato nulla.
     templateSource.replace("%MAX_RAY_STEPS%", QString::number(kRayStepsMax));
+    // Profondita' del punto colpito (writeHitDepth): l'intervallo dell'NDC del
+    // backend, lo stesso di u_mvpMatrix (che contiene clipSpaceCorrMatrix).
+    templateSource.replace("%CLIP_Z_ZERO_TO_ONE%", rhi() && !rhi()->isClipDepthZeroToOne() ? "0" : "1");
 
     // safePow (pow sicura per basi negative) vive in common.glsl, iniettato qui sotto.
     QString commonCode = loadShaderSource(":/shaders/common.glsl");

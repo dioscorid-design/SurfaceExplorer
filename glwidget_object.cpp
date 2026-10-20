@@ -817,7 +817,13 @@ QRhiResourceUpdateBatch *GLWidget::runObjectCompute(SurfaceObject &o, QRhiComman
 void GLWidget::drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &outputSize, DrawPhase phase)
 {
     if (o.engineMode == ModeImplicit) {
-        if (phase == DrawPhase::Opaque && o.pipelineImplicit && m_bgVbo) {
+        // Opaco fra gli opachi; trasparente dopo tutti gli opachi, che cosi' si
+        // vedono attraverso (scrive comunque la profondita' della prima faccia:
+        // la trasparenza fra oggetti e' la tappa 6). Con un oggetto solo
+        // l'immagine e' la stessa nelle due fasi.
+        const bool transparent = (o.implicitIllConditioned ? 1.0f : o.alpha) < 0.999f;
+        const DrawPhase rmPhase = transparent ? DrawPhase::Transparent : DrawPhase::Opaque;
+        if (phase == rmPhase && o.pipelineImplicit && m_bgVbo) {
             cb->setGraphicsPipeline(o.pipelineImplicit);
             cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
             cb->setShaderResources(o.bindings);

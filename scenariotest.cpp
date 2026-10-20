@@ -1904,6 +1904,11 @@ void ScenarioTest::run()
         finish();
         return;
     }
+    if (m_only == QLatin1String("scene-depth")) {
+        runSceneDepthScenarios();
+        finish();
+        return;
+    }
     if (m_only == QLatin1String("load-order")) {
         runLoadOrderScenarios();
         finish();
@@ -3748,6 +3753,7 @@ void ScenarioTest::run()
     runShapeBackgroundScenarios();
     runSceneObjectScenarios();
     runSceneMotionScenarios();
+    runSceneDepthScenarios();
     runAnimatedLoadScenarios();
     runLoadOrderScenarios();
 
@@ -5793,6 +5799,108 @@ void ScenarioTest::runSceneMotionScenarios()
     m_mw->removeSceneObject(1);
     wait(200);
     check(!gl->anyObjectRotating(), QStringLiteral("tolto l'oggetto: il tick delle rotazioni si ferma"));
+}
+
+void ScenarioTest::runSceneDepthScenarios()
+{
+    GLWidget *gl = m_mw->ui->glWidget;
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Scena: ray marching e mesh si coprono per distanza =="));
+    const QString kParam = QStringLiteral("surfaces/Parametric/Surfaces/Equations/R3/Sphere.json");
+    const QString kRM = QStringLiteral("surfaces/Implicit/3D/Sphere.json");
+    auto libraryPath = [this](const QString &rel) {
+        for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+            if (it.filePath.endsWith(rel)) return it.filePath;
+        return QString();
+    };
+    // Frazione di pixel diversi (scarto > 2 su un canale) fra due foto.
+    auto diffFraction = [](const QImage &a, const QImage &b) {
+        if (a.size() != b.size() || a.isNull()) return 1.0;
+        const QImage x = a.convertToFormat(QImage::Format_RGB32);
+        const QImage y = b.convertToFormat(QImage::Format_RGB32);
+        qint64 diff = 0;
+        for (int r = 0; r < x.height(); ++r) {
+            const QRgb *p = reinterpret_cast<const QRgb *>(x.constScanLine(r));
+            const QRgb *q = reinterpret_cast<const QRgb *>(y.constScanLine(r));
+            for (int c = 0; c < x.width(); ++c)
+                if (std::abs(qRed(p[c]) - qRed(q[c])) > 2 || std::abs(qGreen(p[c]) - qGreen(q[c])) > 2
+                    || std::abs(qBlue(p[c]) - qBlue(q[c])) > 2) ++diff;
+        }
+        return double(diff) / double(qint64(x.width()) * x.height());
+    };
+    auto centerDiffers = [](const QImage &a, const QImage &b) {
+        const QPoint c(a.width() / 2, a.height() / 2);
+        const QRgb p = a.pixel(c), q = b.pixel(c);
+        return std::abs(qRed(p) - qRed(q)) > 8 || std::abs(qGreen(p) - qGreen(q)) > 8
+               || std::abs(qBlue(p) - qBlue(q)) > 8;
+    };
+
+    // Le due combinazioni: ambiente parametrico + oggetto RM, e il contrario.
+    // Sfere di raggio 1, camera in z = 4: un oggetto in z = -3 sta tutto
+    // dietro all'ambiente (piu' piccolo a schermo), in z = +2 lo copre.
+    const struct { QString env, object, label; } cases[] = {
+        { kParam, kRM, QStringLiteral("ambiente parametrico, oggetto RM") },
+        { kRM, kParam, QStringLiteral("ambiente RM, oggetto parametrico") },
+    };
+    for (const auto &cs : cases) {
+        if (!loadSurface(cs.env)) return;
+        gl->stopAllTimers();
+        gl->setClocksDrivenByRecorder(true);
+        wait(400);
+        const QImage alone = gl->grabFramebuffer();
+        const QString objectPath = libraryPath(cs.object);
+        check(!objectPath.isEmpty(), QStringLiteral("%1: la Shape dell'oggetto e' nella libreria").arg(cs.label));
+        if (objectPath.isEmpty()) return;
+        m_mw->addShapeToScene(objectPath);
+        wait(500);
+        gl->stopAllTimers();
+        // L'oggetto rosso, l'ambiente verde: il pixel centrale dice chi si vede.
+        gl->setColor(0.9f, 0.1f, 0.1f);
+        gl->setObjectPosition(QVector3D(0.0f, 0.0f, -3.0f));
+        wait(400);
+        const QImage behind = gl->grabFramebuffer();
+        const double hidden = diffFraction(alone, behind);
+        check(hidden < 0.0005, QStringLiteral("%1: l'oggetto dietro e' nascosto (%2% di pixel diversi, %3x%4 / %5x%6)")
+                                   .arg(cs.label).arg(hidden * 100.0, 0, 'f', 3)
+                                   .arg(alone.width()).arg(alone.height()).arg(behind.width()).arg(behind.height()));
+        alone.save(m_outDir + QStringLiteral("/scene-depth-%1-alone.png").arg(&cs - cases));
+        gl->setObjectPosition(QVector3D(0.0f, 0.0f, 2.0f));
+        wait(400);
+        const QImage front = gl->grabFramebuffer();
+        const QRgb mid = front.pixel(front.width() / 2, front.height() / 2);
+        check(centerDiffers(alone, front) && qRed(mid) > qGreen(mid),
+              QStringLiteral("%1: l'oggetto (rosso) davanti copre l'ambiente (centro %2)")
+                  .arg(cs.label, QColor(mid).name()));
+        behind.save(m_outDir + QStringLiteral("/scene-depth-%1-behind.png").arg(&cs - cases));
+        front.save(m_outDir + QStringLiteral("/scene-depth-%1-front.png").arg(&cs - cases));
+        gl->setClocksDrivenByRecorder(false);
+    }
+
+    // SCENA 3D O 4D: le Cross Section solo nelle 3D, la P solo nelle 4D.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Scena 3D o 4D: cosa si puo' aggiungere =="));
+    const QString k4D = QStringLiteral("surfaces/Parametric/Surfaces/Equations/H3/Ellipsoid.json");
+    const QString kCross = QStringLiteral("surfaces/Implicit/Cross Sections/Sol Sphere.json");
+    if (loadSurface(kParam)) {
+        m_lastPopup.clear();
+        m_mw->addShapeToScene(libraryPath(k4D));
+        wait(400);
+        check(!m_mw->sceneIs4D() && gl->objectCount() == 1 && m_lastPopup.contains(QLatin1String("scene"), Qt::CaseInsensitive),
+              QStringLiteral("scena 3D: un oggetto con la P e' rifiutato (%1)").arg(m_lastPopup.simplified()));
+        m_mw->addShapeToScene(libraryPath(kCross));
+        wait(800);
+        check(gl->objectCount() == 2, QStringLiteral("scena 3D: la Cross Section entra"));
+    }
+    if (loadSurface(k4D)) {
+        m_lastPopup.clear();
+        m_mw->addShapeToScene(libraryPath(kCross));
+        wait(400);
+        check(m_mw->sceneIs4D() && gl->objectCount() == 1 && m_lastPopup.contains(QLatin1String("scene"), Qt::CaseInsensitive),
+              QStringLiteral("scena 4D: la Cross Section e' rifiutata (%1)").arg(m_lastPopup.simplified()));
+        m_mw->addShapeToScene(libraryPath(kRM));
+        wait(800);
+        check(gl->objectCount() == 2, QStringLiteral("scena 4D: un oggetto 3D entra"));
+    }
 }
 
 void ScenarioTest::runShapeBackgroundScenarios()

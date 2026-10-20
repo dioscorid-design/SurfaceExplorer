@@ -154,6 +154,31 @@ void MainWindow::removeSceneObject(int index)
     refreshObjectsUi();
 }
 
+// P "4D": un'espressione, o un numero non nullo. Lo stesso criterio del tasto
+// 4D della barra di stato (update4DButtonState).
+static bool pCoordinateIs4D(QString p)
+{
+    p = p.trimmed();
+    if (p.isEmpty()) return false;
+    p.replace(QLatin1Char(','), QLatin1Char('.'));
+    bool isNumber = false;
+    const float v = p.toFloat(&isNumber);
+    return !isNumber || std::abs(v) > 0.001f;
+}
+
+// SCENA 3D O 4D (decisione dell'utente, 2026-10-20): una scena 3D contiene
+// oggetti 3D e Cross Section in ray marching, tagliate tutte dalla stessa
+// quota p; una scena 4D oggetti 3D e 4D, e niente Cross Section. La decide
+// l'ambiente: parametrico con la P 4D. Il path 4D no: anche i record delle
+// Cross Section ne hanno uno.
+bool MainWindow::sceneIs4D() const
+{
+    const ObjectState &env = ui->glWidget->selectedObject() == 0
+                                 ? static_cast<const ObjectState &>(m_scene)
+                                 : m_objectSessions[0].state;
+    return !env.implicitMode && pCoordinateIs4D(env.eq.p);
+}
+
 // ADD TO SCENE (menu delle Shapes): la Shape come oggetto della scena a
 // schermo, accanto agli altri lungo x. La posizione si regola dal dock Objects.
 void MainWindow::addShapeToScene(const QString &shapePath)
@@ -169,6 +194,21 @@ void MainWindow::addShapeToScene(const QString &shapePath)
         QMessageBox::information(this, QStringLiteral("Add to Scene"),
             QStringLiteral("Geodesic flows can be the environment of a scene (open them from the "
                            "Library), but they cannot be added as objects yet."));
+        return;
+    }
+    const bool crossSection = d->isImplicitMode && d->usesCrossSection;
+    const bool object4D = !d->isImplicitMode && (d->isTube ? pCoordinateIs4D(d->tubeP)
+                                                          : pCoordinateIs4D(d->w));
+    if (sceneIs4D() && crossSection) {
+        QMessageBox::information(this, QStringLiteral("Add to Scene"),
+            QStringLiteral("This scene is 4D (its environment has a P coordinate): cross sections "
+                           "can only be added to 3D scenes, where they are all cut by the same P."));
+        return;
+    }
+    if (!sceneIs4D() && object4D) {
+        QMessageBox::information(this, QStringLiteral("Add to Scene"),
+            QStringLiteral("This scene is 3D: objects with a P coordinate can only be added to 4D "
+                           "scenes (an environment with a P coordinate)."));
         return;
     }
     const int index = addPresetAsObject(*d, d->name);
@@ -396,7 +436,9 @@ void MainWindow::refreshObjectsUi()
         m_btnObjectSelector->setVisible(n > 1);
         const QString name = QFontMetrics(m_btnObjectSelector->font())
                                  .elidedText(nameOf(selected), Qt::ElideRight, 110);
-        m_btnObjectSelector->setText(QStringLiteral("▾ %1/%2 %3").arg(selected + 1).arg(n).arg(name));
+        // Niente simboli fuori dal font (era "▾"): il glifo di ripiego e' piu'
+        // alto, e la barra di stato cresceva di un pixel togliendolo alla grafica.
+        m_btnObjectSelector->setText(QStringLiteral("%1/%2 %3").arg(selected + 1).arg(n).arg(name));
     }
     m_refreshingObjects = false;
 }

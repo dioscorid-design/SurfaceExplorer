@@ -1736,6 +1736,8 @@ private:
     // dell'oggetto selezionato. La Shape non li porta (sono del record), quindi
     // la scena li scrive accanto alla posizione ("motion").
     QJsonObject objectMotionJson() const;
+    // La scena e' 4D se l'ambiente parametrico ha la P 4D (vedi addShapeToScene).
+    bool sceneIs4D() const;
     void applyObjectMotion(const QJsonObject &motion);
     // Il messaggio della scena: quello dell'ambiente e, sotto, quello di ogni
     // oggetto col suo nome.

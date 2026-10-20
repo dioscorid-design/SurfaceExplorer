@@ -239,6 +239,8 @@ private:
     // 2.0, tappe 2 e 4: il path 4D dell'ambiente gira anche gli oggetti, le
     // rotazioni degli oggetti corrono insieme ai path, Save/Load del moto.
     void runSceneMotionScenarios();
+    // 2.0, tappa 5: oggetti in ray marching e mesh si coprono per distanza.
+    void runSceneDepthScenarios();
     // SUPERFICIE ANIMATA DA EQUAZIONI: il load (che svuota la mesh) e il Run
     // dopo un NEW devono sganciare il gate della scena vuota, cioe' lasciare
     // accesi i comandi del dock RENDERER. Il Run lo sganciava solo per le

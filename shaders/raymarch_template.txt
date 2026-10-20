@@ -632,6 +632,22 @@ vec3 shadeSurface(vec3 pModel, vec3 rayDir, bool useInner) {
     return shadeSurface(pModel, rayDir, useInner, true);
 }
 
+// PROFONDITA' DEL PUNTO VISTO (2.0, tappa 5). Il quad del ray marching copre
+// lo schermo intero: senza questa il marcher non sapeva nulla degli altri
+// oggetti della scena, e un oggetto RM copriva o era coperto per il solo ordine
+// di disegno. Il punto colpito, proiettato con la stessa u_mvpMatrix delle
+// mesh, da' la profondita' che la pipeline confronta e scrive. Con un oggetto
+// solo il test passa sempre (lo sfondo non scrive profondita'): l'immagine e'
+// quella di prima. Chi non scarta il frammento DEVE passare di qui: una
+// gl_FragDepth scritta solo in qualche ramo e' indefinita negli altri.
+void writeHitDepth(vec3 pModel) {
+    vec4 clip = ubuf.u_mvpMatrix * vec4(pModel, 1.0);
+    float z = (abs(clip.w) > 1e-6) ? clip.z / clip.w : 1.0;
+    // NDC da [-1, 1] (OpenGL) a [0, 1]; gli altri backend sono gia' li'.
+    if (%CLIP_Z_ZERO_TO_ONE% == 0) z = z * 0.5 + 0.5;
+    gl_FragDepth = clamp(z, 0.0, 1.0);
+}
+
 void main() {
     vec2 ndc = fragCoord * 2.0 - 1.0;
     ndc.y = -ndc.y;
@@ -843,6 +859,7 @@ void main() {
         // per pixel a ogni superficie con alpha<1.
         if (aFront >= 0.999) {
             vec3 frontRGB = shadeSurface(pModel, rayDir, false);
+            writeHitDepth(pModel);
             FragColor = vec4(frontRGB, 1.0);
             return;
         }
@@ -885,6 +902,12 @@ void main() {
         // cambio-segno (marchNextLayer), affidabile a prescindere dall'anisotropia.
         vec3  pEnter;
         bool  more = marchNextLayer(rayPos, rayDir, tNear, pEnter);
+        // Nessuna faccia: niente da comporre. Prima usciva un colore ad alpha 0,
+        // che col blend lascia il pixel com'e' -- lo stesso che scartarlo; qui
+        // si scarta, perche' un colore senza superficie non ha una profondita'.
+        if (!more) { discard; return; }
+        // La profondita' e' quella della prima faccia, la piu' vicina.
+        writeHitDepth(pEnter);
         for (int f = 0; f < MAX_FACES && more; f++) {
             // --- FACCIA DI ENTRATA: la sua riflessione (shading) si compone ---
             // withAO=false: l'AO e' invisibile sotto alpha<1 + Beer-Lambert.
@@ -959,9 +982,12 @@ void main() {
         vec3 innerRGB = shadeSurface(pInner, rayDir, true);
         // compositing "over": esterna trasparente sopra interna opaca
         vec3 outRGB = mix(innerRGB, outerRGB, outerAlpha);
+        // La piu' vicina delle due: l'esterna, se il raggio l'ha colpita.
+        writeHitDepth(hit ? pModel : pInner);
         FragColor = vec4(outRGB, 1.0);
     } else if (hit) {
         // solo l'esterna trasparente, sullo sfondo
+        writeHitDepth(pModel);
         FragColor = vec4(outerRGB, outerAlpha);
     } else {
         discard;
