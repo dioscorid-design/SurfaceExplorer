@@ -416,7 +416,10 @@ public:
     // TEXTURE GLOBALE: su una multimesh in ambito All la texture e' una sola
     // su tutta la figura (triplanare, u_globalTexture), non una copia sulle
     // coordinate di ogni parte. Sulle superfici a mesh singola mai.
-    bool globalTextureActive() const;
+    bool globalTextureActive(const SurfaceObject &o) const;
+    // Sull'oggetto selezionato: per chi sta fuori da GLWidget (MainWindow,
+    // test). Dentro GLWidget si passa sempre l'oggetto in modo esplicito.
+    bool globalTextureActive() const { return globalTextureActive(*m_obj); }
     int activeMeshPart() const { return m_obj->activeMeshPart; }
     int meshPartCount() const { return m_obj->engine ? m_obj->engine->getMeshPartCount() : 0; }
 
@@ -652,10 +655,13 @@ public:
     bool borderTextureEnabled() const { return m_obj->borderTexEnabled; }
     // Disegnata davvero: bordo acceso, texture accesa e con codice, non in
     // wireframe (li' il fragment esce col colore pieno).
-    bool borderTextureShown() const {
-        return m_obj->borderRadius > 0.0f && m_obj->borderTexEnabled
-               && !m_obj->borderTexCode.trimmed().isEmpty() && m_obj->borderRenderMode != 2;
+    bool borderTextureShown(const SurfaceObject &o) const {
+        return o.borderRadius > 0.0f && o.borderTexEnabled
+               && !o.borderTexCode.trimmed().isEmpty() && o.borderRenderMode != 2;
     }
+    // Sull'oggetto selezionato: per chi sta fuori da GLWidget (MainWindow,
+    // test). Dentro GLWidget si passa sempre l'oggetto in modo esplicito.
+    bool borderTextureShown() const { return borderTextureShown(*m_obj); }
     void setBorderTexColors(const QColor &c1, const QColor &c2) { m_obj->borderTexCol1 = c1; m_obj->borderTexCol2 = c2; update(); }
     QColor borderTexColor1() const { return m_obj->borderTexCol1; }
     QColor borderTexColor2() const { return m_obj->borderTexCol2; }
@@ -888,7 +894,10 @@ public:
     // ==========================================================
     void set4DLighting(bool enable);
     void setLightingMode4D(int mode);
-    bool is4DActive() const;
+    bool is4DActive(const SurfaceObject &o) const;
+    // Sull'oggetto selezionato: per chi sta fuori da GLWidget (MainWindow,
+    // test). Dentro GLWidget si passa sempre l'oggetto in modo esplicito.
+    bool is4DActive() const { return is4DActive(*m_obj); }
 
     void setRotation4D(float o, float p, float ps);
     // Sposta la quota del piano di sezione (Cross Section). Cumulativo.
@@ -1089,6 +1098,9 @@ public:
     // (dt reale, dal render) e il loop di registrazione (dt del frame
     // virtuale): stesso contratto di advanceRotationsBy (vedi CLAUDE.md).
     void advanceClocksBy(float dt);
+    // Gli orologi di UN oggetto (geometria, texture, fasce, bordo): la parte
+    // di advanceClocksBy che si ripete per ogni oggetto.
+    void advanceObjectClocksBy(SurfaceObject &o, float dt);
     // In registrazione gli orologi li avanza SOLO il recorder, con
     // advanceClocksBy: il render non aggiunge il dt reale. Spento a fine REC,
     // lo schermo prosegue da dove il video e' arrivato.
@@ -1096,7 +1108,9 @@ public:
     // Tempo che arriva allo shader per ciascun modulo globale (il render li
     // legge da qui; servono anche al test degli orologi).
     struct ClockTimes { float geom; float tex; float bg; };
-    ClockTimes clockTimes() const;
+    ClockTimes clockTimes(const SurfaceObject &o) const;
+    // Sull'oggetto selezionato (test degli orologi).
+    ClockTimes clockTimes() const { return clockTimes(*m_obj); }
     // Mai t = 0 esatto allo shader: e' l'origine storica degli orologi (la
     // vecchia base m_manualTime partiva da qui), e uno shader che divide per t
     // non deve vedere un infinito al primo frame.
@@ -1178,6 +1192,21 @@ protected:
     void initialize(QRhiCommandBuffer *cb) override;
     void render(QRhiCommandBuffer *cb) override;
     void releaseResources() override;
+    // Le risorse GPU di UN oggetto: create da initialize (e, per gli oggetti
+    // aggiunti dopo, al loro primo frame), liberate da releaseResources.
+    void initObjectResources(SurfaceObject &o);
+    void releaseObjectResources(SurfaceObject &o);
+    // LE FASI DEL FRAME di un oggetto (glwidget_object.cpp), nell'ordine in
+    // cui render() le chiama: uniform (posa, parti, bordo), texture, pipeline
+    // e buffer, compute fuori dal render pass (restituisce il batch non
+    // consumato), disegno nel pass; drawFlatObject e' l'anteprima 2D.
+    void prepareObjectUniforms(SurfaceObject &o, QRhiResourceUpdateBatch *resourceUpdates);
+    void prepareObjectTexture(SurfaceObject &o, QRhiResourceUpdateBatch *resourceUpdates);
+    void prepareObjectGeometry(SurfaceObject &o, QRhiResourceUpdateBatch *resourceUpdates);
+    QRhiResourceUpdateBatch *runObjectCompute(SurfaceObject &o, QRhiCommandBuffer *cb,
+                                              QRhiResourceUpdateBatch *resourceUpdates);
+    void drawObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &outputSize);
+    void drawFlatObject(SurfaceObject &o, QRhiCommandBuffer *cb, const QSize &outputSize);
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
@@ -1219,14 +1248,14 @@ private:
     // ==========================================================
 
     using PartImage = SurfaceObject::PartImage;
-    void syncPartImages(QRhiResourceUpdateBatch *resourceUpdates);
-    void rebindPartImages();
-    void releasePartImages();
+    void syncPartImages(SurfaceObject &o, QRhiResourceUpdateBatch *resourceUpdates);
+    void rebindPartImages(SurfaceObject &o);
+    void releasePartImages(SurfaceObject &o);
     // La texture propria della fascia, se ne ha una caricata e l'aspetto
     // per-fascia e' in vigore (ambito Mesh); altrimenti nullptr.
-    const PartImage *partImageFor(const MeshPart &p) const;
+    const PartImage *partImageFor(const SurfaceObject &o, const MeshPart &p) const;
     // I binding con cui disegnare la fascia: i suoi, o quelli della superficie.
-    QRhiShaderResourceBindings *bindingsForPart(const MeshPart &p) const;
+    QRhiShaderResourceBindings *bindingsForPart(const SurfaceObject &o, const MeshPart &p) const;
 
     QRhiTexture *m_backgroundTexture = nullptr;
     QImage m_pendingBackgroundImage;
@@ -1266,8 +1295,8 @@ private:
     // call ne seleziona uno con un dynamic offset. Alternativa scartata: N
     // updateDynamicBuffer sullo stesso blocco, che serializzerebbe i draw.
     //
-    void ensureDynamicBindings(QRhiTexture *tex);
-    bool ensureUboCapacity(int partCount);
+    void ensureDynamicBindings(SurfaceObject &o, QRhiTexture *tex);
+    bool ensureUboCapacity(SurfaceObject &o, int partCount);
 
     // SEZIONE TRASPORTATA DEI TUBI. Una passata compute a ogni frame, prima
     // del disegno, distribuisce gli anelli lungo la curva PROIETTATA (fitti
@@ -1286,14 +1315,20 @@ private:
     static constexpr int kTubeFrameMaxSamples = 2049;
     static constexpr int kTubeFrameWorkVec4 = kTubeFrameMaxParts * kTubeFrameMaxRings * 3 + kTubeFrameMaxParts * 2
                                               + kTubeFrameMaxParts * kTubeFrameMaxSamples;
-    void createTubeFrameResources();
-    void buildTubeFramePipeline(const QString &vertexSource);
-    void releaseTubeFramePipeline();
+    void createTubeFrameResources(SurfaceObject &o);
+    void buildTubeFramePipeline(SurfaceObject &o, const QString &vertexSource);
+    void releaseTubeFramePipeline(SurfaceObject &o);
+    // Sull'oggetto selezionato: per chi sta fuori da GLWidget (MainWindow,
+    // test). Dentro GLWidget si passa sempre l'oggetto in modo esplicito.
+    void releaseTubeFramePipeline() { releaseTubeFramePipeline(*m_obj); }
     // La passata gira in questo frame: tubo a schermo e pipeline pronta.
-    bool tubeFramesActive() const;
+    bool tubeFramesActive(const SurfaceObject &o) const;
+    // Sull'oggetto selezionato: per chi sta fuori da GLWidget (MainWindow,
+    // test). Dentro GLWidget si passa sempre l'oggetto in modo esplicito.
+    bool tubeFramesActive() const { return tubeFramesActive(*m_obj); }
     // Lo slot 2 di ogni binding della superficie: la texture delle direzioni,
     // o la dummy dove non c'e' (il layout deve essere lo stesso per tutte).
-    QRhiShaderResourceBinding tubeFramesBinding() const;
+    QRhiShaderResourceBinding tubeFramesBinding(const SurfaceObject &o) const;
 
     // LATI DELLA MESH CUSTOM (flusso geodetico) PER IL BORDO. I vertici della
     // mesh custom sono posizioni, non parametri: lo shader non sa calcolare il
@@ -1305,14 +1340,14 @@ private:
     // texture non esiste e il flusso geodetico resta senza bordo.
     static constexpr int kBorderEdgeMaxSamples = 1024;   // griglia geodetica: al piu' 501 punti per lato
     static constexpr int kBorderEdgeRows = 9;
-    void createBorderEdgeResources();
+    void createBorderEdgeResources(SurfaceObject &o);
     void setBorderEdges(const QVector<QVector<QVector4D>> &grid, const std::vector<char> &drawnQuad);
     // Il bordo si puo' disegnare sulla mesh corrente: sempre sulle superfici,
     // sulla mesh custom solo se c'e' la texture dei lati.
-    bool borderSupported() const { return !m_obj->isCustomMesh || m_obj->borderEdgeTex; }
+    bool borderSupported(const SurfaceObject &o) const { return !o.isCustomMesh || o.borderEdgeTex; }
     // Lo slot 3 di ogni binding della superficie: i lati della mesh custom, o
     // la dummy.
-    QRhiShaderResourceBinding borderEdgesBinding() const;
+    QRhiShaderResourceBinding borderEdgesBinding(const SurfaceObject &o) const;
 
     // LATI DEL BORDO COPERTI. Un tratto di lato non e' un bordo se un'altra
     // parte della superficie ci passa sopra e prosegue in un'altra direzione:
@@ -1349,17 +1384,20 @@ private:
     static constexpr int kBorderProbeInstants = SurfaceObject::kBorderProbeInstants;
     static constexpr float kBorderProbeStep = SurfaceObject::kBorderProbeStep;
     static constexpr int kBorderProbeWatchMs = SurfaceObject::kBorderProbeWatchMs;
-    void finishBorderProbe();
-    void setBorderAvailability(BorderAvailability a);
-    void createSharedEdgeResources();
-    void buildSharedEdgePipeline();
-    void releaseSharedEdgePipeline();
-    void setSharedEdgeBindings();
+    void finishBorderProbe(SurfaceObject &o);
+    void setBorderAvailability(SurfaceObject &o, BorderAvailability a);
+    void createSharedEdgeResources(SurfaceObject &o);
+    void buildSharedEdgePipeline(SurfaceObject &o);
+    void releaseSharedEdgePipeline(SurfaceObject &o);
+    void setSharedEdgeBindings(SurfaceObject &o);
     // La passata si puo' usare in questo frame: parametrico (niente tubo ne'
     // mesh custom), pipeline pronta. Anche a bordo spento, come sonda.
-    bool sharedEdgesActive();
+    bool sharedEdgesActive(SurfaceObject &o);
+    // Sull'oggetto selezionato: per chi sta fuori da GLWidget (MainWindow,
+    // test). Dentro GLWidget si passa sempre l'oggetto in modo esplicito.
+    bool sharedEdgesActive() { return sharedEdgesActive(*m_obj); }
     // Lo slot 4 di ogni binding della superficie: i lati coperti, o la dummy.
-    QRhiShaderResourceBinding sharedEdgesBinding() const;
+    QRhiShaderResourceBinding sharedEdgesBinding(const SurfaceObject &o) const;
     // Il vertex ridotto a libreria per un compute: ingressi e uscite globali,
     // main rinominato in `mainName`, gl_Position sostituita da `position`.
     // Vuoto se manca #version.
@@ -1370,8 +1408,8 @@ private:
     // ==========================================================
     // RISORSE QRHI IMPLICIT (RAY MARCHING)
     // ==========================================================
-    void buildImplicitPipeline();
-    QString createImplicitFragmentShader();
+    void buildImplicitPipeline(SurfaceObject &o);
+    QString createImplicitFragmentShader(SurfaceObject &o);
     QString createBackgroundFragmentShader(bool isTextureMode, const QString &customCode);
 
 public:
@@ -1392,8 +1430,8 @@ private:
     // Modalita' con cui una parte va DISEGNATA: la sua se dichiarata, ma in
     // ambito "All" (uniform) vince sempre il globale. Punto unico, cosi' render
     // e partizione wireframe/solido non possono divergere.
-    int effectivePartRenderMode(const MeshPart &p) const {
-        return m_obj->meshAppearanceUniform ? m_obj->renderMode : p.effectiveRenderMode(m_obj->renderMode);
+    int effectivePartRenderMode(const SurfaceObject &o, const MeshPart &p) const {
+        return o.meshAppearanceUniform ? o.renderMode : p.effectiveRenderMode(o.renderMode);
     }
     // Sposta di 'delta' il passo wireframe della parte selezionata. Ritorna
     // false se non c'e' una parte attiva: il chiamante ricade sul globale.
@@ -1402,7 +1440,7 @@ private:
     // 0 = spenta: il default riproduce esattamente l'illuminazione storica.
     float m_fillLight = 0.0f;
     // Binding del bordo: quelli della sua immagine, se ne ha una caricata.
-    QRhiShaderResourceBindings *borderBindings() const;
+    QRhiShaderResourceBindings *borderBindings(const SurfaceObject &o) const;
 
 
     bool m_useBackgroundTexture = false;
@@ -1572,9 +1610,19 @@ private:
     void buildWireframeGeometry();
 
     // --- Shader Generation & Compilation ---
-    QString createVertexShaderSource(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq);
+    QString createVertexShaderSource(SurfaceObject &o, const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq);
+    // Sull'oggetto selezionato: per chi sta fuori da GLWidget (MainWindow,
+    // test). Dentro GLWidget si passa sempre l'oggetto in modo esplicito.
+    QString createVertexShaderSource(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq) {
+        return createVertexShaderSource(*m_obj, xEq, yEq, zEq, wEq);
+    }
     // forBorder: la variante delle pipeline del bordo (borderPipelineOpaque).
-    QString createFragmentShaderSource(const QString &customCode, bool forBorder = false);
+    QString createFragmentShaderSource(SurfaceObject &o, const QString &customCode, bool forBorder = false);
+    // Sull'oggetto selezionato: per chi sta fuori da GLWidget (MainWindow,
+    // test). Dentro GLWidget si passa sempre l'oggetto in modo esplicito.
+    QString createFragmentShaderSource(const QString &customCode, bool forBorder = false) {
+        return createFragmentShaderSource(*m_obj, customCode, forBorder);
+    }
     // Genera UNA funzione texture procedurale col nome dato. Chiamata piu' volte
     // nello stesso shader per le texture per-mesh (getCustomColor_<k>).
     QString buildTextureFunction(const QString &customLogic, const QString &funcName);
@@ -1593,7 +1641,7 @@ private:
                          const std::vector<SurfaceEngine::TubeCopy> &copies);
 
     // --- Pipeline & Resource Initialization ---
-    void buildPipeline();
+    void buildPipeline(SurfaceObject &o);
     void initBackgroundShader();
 
     // --- Texture Utilities ---

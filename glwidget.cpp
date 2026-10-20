@@ -161,75 +161,75 @@ GLWidget::~GLWidget()
 // buffer e' stato (ri)creato: in quel caso i binding che lo referenziano puntano
 // a memoria liberata e vanno riagganciati (stessa trappola gia' documentata per
 // surfaceTexture nel render).
-bool GLWidget::ensureUboCapacity(int partCount)
+bool GLWidget::ensureUboCapacity(SurfaceObject &o, int partCount)
 {
     if (!rhi()) return false;
 
     const int wanted = std::max(1, partCount);
-    if (m_obj->ubo && wanted <= m_obj->uboBlockCapacity) return false;
+    if (o.ubo && wanted <= o.uboBlockCapacity) return false;
 
     // Cresce con margine per non ricreare il buffer a ogni parte in piu'.
-    const int newCap = std::max(wanted, m_obj->uboBlockCapacity * 2);
+    const int newCap = std::max(wanted, o.uboBlockCapacity * 2);
 
-    if (m_obj->ubo) {
-        m_obj->ubo->destroy();
-        delete m_obj->ubo;
-        m_obj->ubo = nullptr;
+    if (o.ubo) {
+        o.ubo->destroy();
+        delete o.ubo;
+        o.ubo = nullptr;
     }
 
-    m_obj->ubo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer,
-                             m_obj->uboBlockStride * newCap);
-    m_obj->ubo->create();
-    m_obj->uboBlockCapacity = newCap;
+    o.ubo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer,
+                             o.uboBlockStride * newCap);
+    o.ubo->create();
+    o.uboBlockCapacity = newCap;
 
     // Riaggancia i binding al NUOVO buffer senza distruggere l'oggetto SRB: le
     // pipeline ne tengono il puntatore, quindi un delete+new le lascerebbe con
     // un riferimento pendente. Il layout non cambia, cambia solo la risorsa.
-    if (m_obj->bindingsDyn) {
-        m_obj->bindingsDyn->setBindings({
+    if (o.bindingsDyn) {
+        o.bindingsDyn->setBindings({
             QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
                 0,
                 QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-                m_obj->ubo, sizeof(UboData)),
+                o.ubo, sizeof(UboData)),
             QRhiShaderResourceBinding::sampledTexture(
                 1, QRhiShaderResourceBinding::FragmentStage,
-                m_obj->bindingsDynTexture ? m_obj->bindingsDynTexture : m_dummyTexture, m_sampler),
-            tubeFramesBinding(),
-            borderEdgesBinding(),
-            sharedEdgesBinding()
+                o.bindingsDynTexture ? o.bindingsDynTexture : m_dummyTexture, m_sampler),
+            tubeFramesBinding(o),
+            borderEdgesBinding(o),
+            sharedEdgesBinding(o)
         });
-        m_obj->bindingsDyn->updateResources();
+        o.bindingsDyn->updateResources();
     }
     // ...e la passata compute dei tubi, che legge gli stessi blocchi.
-    if (m_obj->tubeFrameSrb) {
-        m_obj->tubeFrameSrb->setBindings({
+    if (o.tubeFrameSrb) {
+        o.tubeFrameSrb->setBindings({
             QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
-                0, QRhiShaderResourceBinding::ComputeStage, m_obj->ubo, sizeof(UboData)),
-            QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, m_obj->tubeFrameTex, 0),
-            QRhiShaderResourceBinding::bufferLoadStore(2, QRhiShaderResourceBinding::ComputeStage, m_obj->tubeFrameWork)
+                0, QRhiShaderResourceBinding::ComputeStage, o.ubo, sizeof(UboData)),
+            QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, o.tubeFrameTex, 0),
+            QRhiShaderResourceBinding::bufferLoadStore(2, QRhiShaderResourceBinding::ComputeStage, o.tubeFrameWork)
         });
-        m_obj->tubeFrameSrb->updateResources();
+        o.tubeFrameSrb->updateResources();
     }
     // ...e quella dei lati del bordo coperti.
-    if (m_obj->sharedEdgeSrb) {
-        setSharedEdgeBindings();
-        m_obj->sharedEdgeSrb->updateResources();
+    if (o.sharedEdgeSrb) {
+        setSharedEdgeBindings(o);
+        o.sharedEdgeSrb->updateResources();
     }
 
     // Anche i binding statici (sfondo flat, ray marching) puntavano al vecchio UBO.
-    if (m_obj->bindings) {
-        m_obj->bindings->setBindings({
+    if (o.bindings) {
+        o.bindings->setBindings({
             QRhiShaderResourceBinding::uniformBuffer(
-                0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, m_obj->ubo),
+                0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, o.ubo),
             QRhiShaderResourceBinding::sampledTexture(
                 1, QRhiShaderResourceBinding::FragmentStage,
-                m_obj->surfaceTexture ? m_obj->surfaceTexture : m_dummyTexture, m_sampler)
+                o.surfaceTexture ? o.surfaceTexture : m_dummyTexture, m_sampler)
         });
-        m_obj->bindings->updateResources();
+        o.bindings->updateResources();
     }
 
     // ...e quelli delle immagini di fascia.
-    rebindPartImages();
+    rebindPartImages(o);
 
     return true;
 }
@@ -237,116 +237,116 @@ bool GLWidget::ensureUboCapacity(int partCount)
 // Binding della superficie con dynamic offset sul blocco UBO. La dimensione
 // dichiarata e' sizeof(UboData) (la finestra visibile su un blocco), non lo
 // stride fra blocchi.
-void GLWidget::ensureDynamicBindings(QRhiTexture *tex)
+void GLWidget::ensureDynamicBindings(SurfaceObject &o, QRhiTexture *tex)
 {
-    if (!rhi() || !m_obj->ubo) return;
+    if (!rhi() || !o.ubo) return;
     if (!tex) tex = m_dummyTexture;
     if (!tex || !m_sampler) return;
 
     // Niente da fare se il binding esiste gia' con la stessa texture.
-    if (m_obj->bindingsDyn && m_obj->bindingsDynTexture == tex) return;
+    if (o.bindingsDyn && o.bindingsDynTexture == tex) return;
 
-    const bool isNew = (m_obj->bindingsDyn == nullptr);
+    const bool isNew = (o.bindingsDyn == nullptr);
     if (isNew) {
-        m_obj->bindingsDyn = rhi()->newShaderResourceBindings();
+        o.bindingsDyn = rhi()->newShaderResourceBindings();
     }
 
-    m_obj->bindingsDyn->setBindings({
+    o.bindingsDyn->setBindings({
         QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
             0,
             QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-            m_obj->ubo, sizeof(UboData)),
+            o.ubo, sizeof(UboData)),
         QRhiShaderResourceBinding::sampledTexture(
             1, QRhiShaderResourceBinding::FragmentStage, tex, m_sampler),
-        tubeFramesBinding(),
-        borderEdgesBinding(),
-        sharedEdgesBinding()
+        tubeFramesBinding(o),
+        borderEdgesBinding(o),
+        sharedEdgesBinding(o)
     });
 
     if (isNew) {
-        m_obj->bindingsDyn->create();
+        o.bindingsDyn->create();
     } else {
         // IMPORTANTE: updateResources() e non create(). Le pipeline tengono il
         // PUNTATORE a questo oggetto: ricrearlo (delete + new) le lascerebbe con
         // un puntatore pendente e obbligherebbe a ricostruirle tutte. Qui il
         // layout non cambia (stessi tipi/binding), solo la risorsa allo slot 1.
-        m_obj->bindingsDyn->updateResources();
+        o.bindingsDyn->updateResources();
     }
 
-    m_obj->bindingsDynTexture = tex;
+    o.bindingsDynTexture = tex;
 }
 
 // ==========================================================
 // SEZIONE TRASPORTATA DEI TUBI (vedi glwidget.h e tubeSceneFrame in surface.vert)
 // ==========================================================
 
-void GLWidget::createTubeFrameResources()
+void GLWidget::createTubeFrameResources(SurfaceObject &o)
 {
-    if (m_obj->tubeFrameTex || !rhi()) return;
+    if (o.tubeFrameTex || !rhi()) return;
     if (!rhi()->isFeatureSupported(QRhi::Compute)
         || !rhi()->isTextureFormatSupported(QRhiTexture::RGBA32F, QRhiTexture::UsedWithLoadStore))
         return;
     // Due texel per anello: sezione + u dell'anello, tangente.
-    m_obj->tubeFrameTex = rhi()->newTexture(QRhiTexture::RGBA32F, QSize(2 * kTubeFrameMaxRings, kTubeFrameMaxParts),
+    o.tubeFrameTex = rhi()->newTexture(QRhiTexture::RGBA32F, QSize(2 * kTubeFrameMaxRings, kTubeFrameMaxParts),
                                        1, QRhiTexture::UsedWithLoadStore);
-    if (!m_obj->tubeFrameTex->create()) {
-        delete m_obj->tubeFrameTex;
-        m_obj->tubeFrameTex = nullptr;
+    if (!o.tubeFrameTex->create()) {
+        delete o.tubeFrameTex;
+        o.tubeFrameTex = nullptr;
         return;
     }
     // Texel interi letti con texelFetch: niente filtro (RGBA32F non e'
     // filtrabile ovunque, e con Linear su GLES la texture risulterebbe
     // incompleta).
-    m_obj->tubeFrameSampler = rhi()->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
+    o.tubeFrameSampler = rhi()->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
                                            QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge);
-    m_obj->tubeFrameSampler->create();
+    o.tubeFrameSampler->create();
     const quint32 workBytes = quint32(kTubeFrameWorkVec4) * 16u;
-    m_obj->tubeFrameWork = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer, workBytes);
-    if (!m_obj->tubeFrameWork->create()) {
-        delete m_obj->tubeFrameWork;
-        m_obj->tubeFrameWork = nullptr;
-        m_obj->tubeFrameTex->destroy();
-        delete m_obj->tubeFrameTex;
-        m_obj->tubeFrameTex = nullptr;
+    o.tubeFrameWork = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer, workBytes);
+    if (!o.tubeFrameWork->create()) {
+        delete o.tubeFrameWork;
+        o.tubeFrameWork = nullptr;
+        o.tubeFrameTex->destroy();
+        delete o.tubeFrameTex;
+        o.tubeFrameTex = nullptr;
     }
-    m_obj->tubeFrameStateReset = true;
+    o.tubeFrameStateReset = true;
 }
 
-QRhiShaderResourceBinding GLWidget::tubeFramesBinding() const
+QRhiShaderResourceBinding GLWidget::tubeFramesBinding(const SurfaceObject &o) const
 {
     return QRhiShaderResourceBinding::sampledTexture(
         2, QRhiShaderResourceBinding::VertexStage,
-        m_obj->tubeFrameTex ? m_obj->tubeFrameTex : m_dummyTexture,
-        m_obj->tubeFrameSampler ? m_obj->tubeFrameSampler : m_sampler);
+        o.tubeFrameTex ? o.tubeFrameTex : m_dummyTexture,
+        o.tubeFrameSampler ? o.tubeFrameSampler : m_sampler);
 }
 
 // ==========================================================
 // LATI DELLA MESH CUSTOM PER IL BORDO (vedi glwidget.h e borderRawPoint in surface.vert)
 // ==========================================================
 
-void GLWidget::createBorderEdgeResources()
+void GLWidget::createBorderEdgeResources(SurfaceObject &o)
 {
-    if (m_obj->borderEdgeTex || !rhi()) return;
+    if (o.borderEdgeTex || !rhi()) return;
     if (!rhi()->isTextureFormatSupported(QRhiTexture::RGBA32F)) return;
-    m_obj->borderEdgeTex = rhi()->newTexture(QRhiTexture::RGBA32F, QSize(kBorderEdgeMaxSamples, kBorderEdgeRows));
-    if (!m_obj->borderEdgeTex->create()) {
-        delete m_obj->borderEdgeTex;
-        m_obj->borderEdgeTex = nullptr;
+    o.borderEdgeTex = rhi()->newTexture(QRhiTexture::RGBA32F, QSize(kBorderEdgeMaxSamples, kBorderEdgeRows));
+    if (!o.borderEdgeTex->create()) {
+        delete o.borderEdgeTex;
+        o.borderEdgeTex = nullptr;
         return;
     }
     // Letta con texelFetch, come la texture dei tubi: niente filtro.
-    m_obj->borderEdgeSampler = rhi()->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
+    o.borderEdgeSampler = rhi()->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
                                             QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge);
-    m_obj->borderEdgeSampler->create();
-    m_obj->borderEdgeDirty = !m_obj->borderEdgeData.empty();
+    o.borderEdgeSampler->create();
+    o.borderEdgeDirty = !o.borderEdgeData.empty();
 }
 
-QRhiShaderResourceBinding GLWidget::borderEdgesBinding() const
+QRhiShaderResourceBinding GLWidget::borderEdgesBinding(const SurfaceObject &o) const
 {
     return QRhiShaderResourceBinding::sampledTexture(
         3, QRhiShaderResourceBinding::VertexStage,
-        m_obj->borderEdgeTex ? m_obj->borderEdgeTex : m_dummyTexture,
-        m_obj->borderEdgeSampler ? m_obj->borderEdgeSampler : m_sampler);
+        o.borderEdgeTex ? o.borderEdgeTex : m_dummyTexture,
+        o.borderEdgeSampler ? o.borderEdgeSampler : m_sampler);
 }
 
 // Distanza di p dal triangolo abc (4D): proiezione sul piano del triangolo,
@@ -628,9 +628,9 @@ QString GLWidget::vertexAsComputeLibrary(const QString &vertexSource, const QStr
 // LATI DEL BORDO COPERTI (vedi glwidget.h e borderEdgeShared in surface.vert)
 // ==========================================================
 
-void GLWidget::createSharedEdgeResources()
+void GLWidget::createSharedEdgeResources(SurfaceObject &o)
 {
-    if (m_obj->sharedEdgeTex || !rhi()) return;
+    if (o.sharedEdgeTex || !rhi()) return;
     if (!rhi()->isFeatureSupported(QRhi::Compute)
         || !rhi()->isTextureFormatSupported(QRhiTexture::RGBA8, QRhiTexture::UsedWithLoadStore))
         return;
@@ -638,74 +638,74 @@ void GLWidget::createSharedEdgeResources()
     // l'ultima colonna (kSharedEdgeSamples + 1) dice se il lato e' coperto per
     // intero (quinta passata). Sorgente di copia: gli scenari e la sonda ne
     // rileggono i flag.
-    m_obj->sharedEdgeTex = rhi()->newTexture(QRhiTexture::RGBA8, QSize(kSharedEdgeSamples + 2, 4 * kSharedEdgeMaxParts),
+    o.sharedEdgeTex = rhi()->newTexture(QRhiTexture::RGBA8, QSize(kSharedEdgeSamples + 2, 4 * kSharedEdgeMaxParts),
                                         1, QRhiTexture::UsedWithLoadStore | QRhiTexture::UsedAsTransferSource);
-    if (!m_obj->sharedEdgeTex->create()) {
-        delete m_obj->sharedEdgeTex;
-        m_obj->sharedEdgeTex = nullptr;
+    if (!o.sharedEdgeTex->create()) {
+        delete o.sharedEdgeTex;
+        o.sharedEdgeTex = nullptr;
         return;
     }
-    m_obj->sharedEdgeSampler = rhi()->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
+    o.sharedEdgeSampler = rhi()->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
                                             QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge);
-    m_obj->sharedEdgeSampler->create();
+    o.sharedEdgeSampler->create();
     // In testa (numero di parti, 0, 0, 0), poi due vec4 per parte.
-    m_obj->sharedEdgeParts = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer,
+    o.sharedEdgeParts = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer,
                                          quint32(1 + 2 * kSharedEdgeMaxParts) * 16u);
     // Per parte: i campioni dei lati (punto e punto appena dentro), poi la
     // griglia dell'interno.
-    m_obj->sharedEdgeSamples = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer,
+    o.sharedEdgeSamples = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer,
                                            quint32(kSharedEdgeMaxParts * kSharedEdgePartVec4) * 16u);
     // Per parte e blocco di celle: centro e raggio della sfera che lo contiene.
     // Grezzi della terza passata, poi (seconda meta') ripuliti dalla quarta.
-    m_obj->sharedEdgeRaw = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer,
+    o.sharedEdgeRaw = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer,
                                        quint32(2 * kSharedEdgeMaxParts * 4 * (kSharedEdgeSamples + 1)) * 4u);
-    m_obj->sharedEdgeTiles = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer,
+    o.sharedEdgeTiles = rhi()->newBuffer(QRhiBuffer::Static, QRhiBuffer::StorageBuffer,
                                          quint32(kSharedEdgeMaxParts * kSharedEdgeTiles * 2) * 16u);
-    if (!m_obj->sharedEdgeParts->create() || !m_obj->sharedEdgeSamples->create() || !m_obj->sharedEdgeTiles->create()
-        || !m_obj->sharedEdgeRaw->create()) {
-        delete m_obj->sharedEdgeParts;
-        m_obj->sharedEdgeParts = nullptr;
-        delete m_obj->sharedEdgeSamples;
-        m_obj->sharedEdgeSamples = nullptr;
-        delete m_obj->sharedEdgeTiles;
-        m_obj->sharedEdgeTiles = nullptr;
-        delete m_obj->sharedEdgeRaw;
-        m_obj->sharedEdgeRaw = nullptr;
-        m_obj->sharedEdgeTex->destroy();
-        delete m_obj->sharedEdgeTex;
-        m_obj->sharedEdgeTex = nullptr;
+    if (!o.sharedEdgeParts->create() || !o.sharedEdgeSamples->create() || !o.sharedEdgeTiles->create()
+        || !o.sharedEdgeRaw->create()) {
+        delete o.sharedEdgeParts;
+        o.sharedEdgeParts = nullptr;
+        delete o.sharedEdgeSamples;
+        o.sharedEdgeSamples = nullptr;
+        delete o.sharedEdgeTiles;
+        o.sharedEdgeTiles = nullptr;
+        delete o.sharedEdgeRaw;
+        o.sharedEdgeRaw = nullptr;
+        o.sharedEdgeTex->destroy();
+        delete o.sharedEdgeTex;
+        o.sharedEdgeTex = nullptr;
     }
-    m_obj->sharedEdgeTable.clear();
-    m_obj->sharedEdgeKey.clear();
+    o.sharedEdgeTable.clear();
+    o.sharedEdgeKey.clear();
 }
 
-QRhiShaderResourceBinding GLWidget::sharedEdgesBinding() const
+QRhiShaderResourceBinding GLWidget::sharedEdgesBinding(const SurfaceObject &o) const
 {
     // Anche il fragment: scarta i tratti coperti di un lato.
     return QRhiShaderResourceBinding::sampledTexture(
         4, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-        m_obj->sharedEdgeTex ? m_obj->sharedEdgeTex : m_dummyTexture,
-        m_obj->sharedEdgeSampler ? m_obj->sharedEdgeSampler : m_sampler);
+        o.sharedEdgeTex ? o.sharedEdgeTex : m_dummyTexture,
+        o.sharedEdgeSampler ? o.sharedEdgeSampler : m_sampler);
 }
 
-void GLWidget::setSharedEdgeBindings()
+void GLWidget::setSharedEdgeBindings(SurfaceObject &o)
 {
-    m_obj->sharedEdgeSrb->setBindings({
+    o.sharedEdgeSrb->setBindings({
         QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
-            0, QRhiShaderResourceBinding::ComputeStage, m_obj->ubo, sizeof(UboData)),
-        QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, m_obj->sharedEdgeTex, 0),
-        QRhiShaderResourceBinding::bufferLoad(2, QRhiShaderResourceBinding::ComputeStage, m_obj->sharedEdgeParts),
-        QRhiShaderResourceBinding::bufferLoadStore(3, QRhiShaderResourceBinding::ComputeStage, m_obj->sharedEdgeSamples),
-        QRhiShaderResourceBinding::bufferLoadStore(4, QRhiShaderResourceBinding::ComputeStage, m_obj->sharedEdgeTiles),
-        QRhiShaderResourceBinding::bufferLoadStore(5, QRhiShaderResourceBinding::ComputeStage, m_obj->sharedEdgeRaw)
+            0, QRhiShaderResourceBinding::ComputeStage, o.ubo, sizeof(UboData)),
+        QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, o.sharedEdgeTex, 0),
+        QRhiShaderResourceBinding::bufferLoad(2, QRhiShaderResourceBinding::ComputeStage, o.sharedEdgeParts),
+        QRhiShaderResourceBinding::bufferLoadStore(3, QRhiShaderResourceBinding::ComputeStage, o.sharedEdgeSamples),
+        QRhiShaderResourceBinding::bufferLoadStore(4, QRhiShaderResourceBinding::ComputeStage, o.sharedEdgeTiles),
+        QRhiShaderResourceBinding::bufferLoadStore(5, QRhiShaderResourceBinding::ComputeStage, o.sharedEdgeRaw)
     });
 }
 
-void GLWidget::releaseSharedEdgePipeline()
+void GLWidget::releaseSharedEdgePipeline(SurfaceObject &o)
 {
-    if (m_obj->sharedEdgePipeline) { m_obj->sharedEdgePipeline->destroy(); delete m_obj->sharedEdgePipeline; m_obj->sharedEdgePipeline = nullptr; }
-    if (m_obj->sharedEdgeSrb) { m_obj->sharedEdgeSrb->destroy(); delete m_obj->sharedEdgeSrb; m_obj->sharedEdgeSrb = nullptr; }
-    m_obj->sharedEdgeKey.clear();
+    if (o.sharedEdgePipeline) { o.sharedEdgePipeline->destroy(); delete o.sharedEdgePipeline; o.sharedEdgePipeline = nullptr; }
+    if (o.sharedEdgeSrb) { o.sharedEdgeSrb->destroy(); delete o.sharedEdgeSrb; o.sharedEdgeSrb = nullptr; }
+    o.sharedEdgeKey.clear();
 }
 
 GLWidget::BorderAvailability GLWidget::borderAvailability() const
@@ -722,10 +722,10 @@ GLWidget::BorderAvailability GLWidget::borderAvailability() const
     return m_obj->borderAvailability;
 }
 
-void GLWidget::setBorderAvailability(BorderAvailability a)
+void GLWidget::setBorderAvailability(SurfaceObject &o, BorderAvailability a)
 {
-    if (a == m_obj->borderAvailability) return;
-    m_obj->borderAvailability = a;
+    if (a == o.borderAvailability) return;
+    o.borderAvailability = a;
     emit borderAvailabilityChanged();
 }
 
@@ -733,20 +733,20 @@ void GLWidget::setBorderAvailability(BorderAvailability a)
 // (la colonna del lato, come borderEdgeShared). Se nessun lato di nessuna
 // parte si vede, il bordo non compare. Scartata se nel frattempo e' cambiata la
 // superficie: arrivera' la sonda della nuova.
-void GLWidget::finishBorderProbe()
+void GLWidget::finishBorderProbe(SurfaceObject &o)
 {
     // Una chiamata per lettura: si decide quando sono arrivate tutte (piu'
     // istanti su una superficie animata).
-    if (++m_obj->borderProbeArrived < m_obj->borderProbeInstantsRead) return;
-    m_obj->borderProbeReading = false;
-    if (m_obj->borderProbeReadSerial != m_obj->borderProbeSerial) return;
+    if (++o.borderProbeArrived < o.borderProbeInstantsRead) return;
+    o.borderProbeReading = false;
+    if (o.borderProbeReadSerial != o.borderProbeSerial) return;
     // Un istante: 1 se almeno un lato di una parte si vede, 0 se no, -1 se la
     // lettura non e' valida.
     auto visibleAt = [&](int i) -> int {
-        const QByteArray &data = m_obj->borderProbeResults[i].data;
+        const QByteArray &data = o.borderProbeResults[i].data;
         const int bpl = data.size() / (4 * kSharedEdgeMaxParts);
-        if (bpl < (kSharedEdgeSamples + 2) * 4 || m_obj->borderProbeMeshes.empty()) return -1;
-        for (int mesh : m_obj->borderProbeMeshes) {
+        if (bpl < (kSharedEdgeSamples + 2) * 4 || o.borderProbeMeshes.empty()) return -1;
+        for (int mesh : o.borderProbeMeshes) {
             if (mesh < 0 || mesh >= kSharedEdgeMaxParts) continue;
             for (int side = 0; side < 4; ++side) {
                 // L'ultima colonna: il lato e' coperto per intero (quinta passata).
@@ -756,7 +756,7 @@ void GLWidget::finishBorderProbe()
         }
         return 0;
     };
-    const int count = m_obj->borderProbeInstantsRead;
+    const int count = o.borderProbeInstantsRead;
     bool visible = false, read = false;
     for (int i = 0; i < count; ++i) {
         const int v = visibleAt(i);
@@ -765,8 +765,8 @@ void GLWidget::finishBorderProbe()
         if (v > 0) visible = true;
     }
     if (!read) {
-        m_obj->borderProbeWatch = false;
-        setBorderAvailability(BorderAvailability::Unknown);
+        o.borderProbeWatch = false;
+        setBorderAvailability(o, BorderAvailability::Unknown);
         return;
     }
     // SUPERFICIE ANIMATA (scelta dell'utente, 10-17): sempre chiusa -> Border
@@ -776,31 +776,31 @@ void GLWidget::finishBorderProbe()
     // (borderProbeWatch: solo l'istante corrente, ogni kBorderProbeWatchMs).
     if (count > 1) {
         const bool now = visibleAt(count - 1) > 0;
-        m_obj->borderProbeWatch = visible && !now;
-        if (m_obj->borderProbeWatch) m_obj->borderProbeWatchClock.restart();
-        setBorderAvailability(now ? BorderAvailability::Visible : BorderAvailability::None);
+        o.borderProbeWatch = visible && !now;
+        if (o.borderProbeWatch) o.borderProbeWatchClock.restart();
+        setBorderAvailability(o, now ? BorderAvailability::Visible : BorderAvailability::None);
         return;
     }
-    if (m_obj->borderProbeWatch) {
+    if (o.borderProbeWatch) {
         if (visible) {
-            m_obj->borderProbeWatch = false;
-            setBorderAvailability(BorderAvailability::Visible);
+            o.borderProbeWatch = false;
+            setBorderAvailability(o, BorderAvailability::Visible);
         }
         return;
     }
-    setBorderAvailability(visible ? BorderAvailability::Visible : BorderAvailability::None);
+    setBorderAvailability(o, visible ? BorderAvailability::Visible : BorderAvailability::None);
 }
 
-bool GLWidget::sharedEdgesActive()
+bool GLWidget::sharedEdgesActive(SurfaceObject &o)
 {
-    if (m_obj->sharedEdgesOff || !m_obj->sharedEdgeTex || !m_obj->sharedEdgeParts || !m_obj->sharedEdgeSamples || !m_obj->sharedEdgeTiles
-        || !m_obj->sharedEdgeRaw || !m_obj->engine
-        || m_obj->engineMode != ModeParametric || m_obj->isCustomMesh || m_obj->engine->isTubeModeActive())
+    if (o.sharedEdgesOff || !o.sharedEdgeTex || !o.sharedEdgeParts || !o.sharedEdgeSamples || !o.sharedEdgeTiles
+        || !o.sharedEdgeRaw || !o.engine
+        || o.engineMode != ModeParametric || o.isCustomMesh || o.engine->isTubeModeActive())
         return false;
-    const int parts = (int)m_obj->engine->getMeshParts().size();
+    const int parts = (int)o.engine->getMeshParts().size();
     if (parts < 1 || parts > kSharedEdgeMaxParts) return false;
-    if (m_obj->sharedEdgeSourceDirty) buildSharedEdgePipeline();
-    return m_obj->sharedEdgePipeline && m_obj->sharedEdgeSrb;
+    if (o.sharedEdgeSourceDirty) buildSharedEdgePipeline(o);
+    return o.sharedEdgePipeline && o.sharedEdgeSrb;
 }
 
 // Il compute e' il vertex della superficie ridotto a libreria, come quello dei
@@ -844,15 +844,15 @@ bool GLWidget::sharedEdgesActive()
 // in float vale -4e-8 e la potenza 2/n lo gonfiava a 1.3e-3, oltre la
 // tolleranza. E non vicini al mezzo: il riflesso di un lato ripiegato
 // cadrebbe nell'intorno escluso del punto stesso.
-void GLWidget::buildSharedEdgePipeline()
+void GLWidget::buildSharedEdgePipeline(SurfaceObject &o)
 {
-    m_obj->sharedEdgeSourceDirty = false;
-    releaseSharedEdgePipeline();
-    if (m_obj->sharedEdgeSource.isEmpty() || !m_obj->sharedEdgeTex || !m_obj->sharedEdgeParts || !m_obj->sharedEdgeSamples
-        || !m_obj->sharedEdgeTiles || !m_obj->sharedEdgeRaw || !m_obj->ubo)
+    o.sharedEdgeSourceDirty = false;
+    releaseSharedEdgePipeline(o);
+    if (o.sharedEdgeSource.isEmpty() || !o.sharedEdgeTex || !o.sharedEdgeParts || !o.sharedEdgeSamples
+        || !o.sharedEdgeTiles || !o.sharedEdgeRaw || !o.ubo)
         return;
 
-    QString src = vertexAsComputeLibrary(m_obj->sharedEdgeSource, QStringLiteral("SHARED_EDGE_COMPUTE"),
+    QString src = vertexAsComputeLibrary(o.sharedEdgeSource, QStringLiteral("SHARED_EDGE_COMPUTE"),
                                          QStringLiteral("surfaceVertexMain"), QStringLiteral("g_sharedEdgePosition"));
     if (src.isEmpty()) return;
     src.replace(QLatin1String("ubuf.u_meshIndex"), QLatin1String("g_sharedEdgeMesh"));
@@ -1350,37 +1350,37 @@ void main() {
         qWarning() << "Bordo: passata dei lati coperti non compilata, resta il test del vertex:" << error;
         return;
     }
-    m_obj->sharedEdgeSrb = rhi()->newShaderResourceBindings();
-    setSharedEdgeBindings();
-    m_obj->sharedEdgePipeline = rhi()->newComputePipeline();
-    m_obj->sharedEdgePipeline->setShaderResourceBindings(m_obj->sharedEdgeSrb);
-    m_obj->sharedEdgePipeline->setShaderStage(QRhiShaderStage(QRhiShaderStage::Compute, shader));
-    if (!m_obj->sharedEdgeSrb->create() || !m_obj->sharedEdgePipeline->create()) {
+    o.sharedEdgeSrb = rhi()->newShaderResourceBindings();
+    setSharedEdgeBindings(o);
+    o.sharedEdgePipeline = rhi()->newComputePipeline();
+    o.sharedEdgePipeline->setShaderResourceBindings(o.sharedEdgeSrb);
+    o.sharedEdgePipeline->setShaderStage(QRhiShaderStage(QRhiShaderStage::Compute, shader));
+    if (!o.sharedEdgeSrb->create() || !o.sharedEdgePipeline->create()) {
         qWarning() << "Bordo: pipeline dei lati coperti non creata, resta il test del vertex.";
-        releaseSharedEdgePipeline();
+        releaseSharedEdgePipeline(o);
     }
 }
 
-bool GLWidget::tubeFramesActive() const
+bool GLWidget::tubeFramesActive(const SurfaceObject &o) const
 {
-    return m_obj->tubeFramePipeline && m_obj->tubeFrameSrb && m_obj->tubeFrameWork && m_obj->engine && m_obj->engineMode == ModeParametric
-           && m_obj->engine->isTubeModeActive() && !m_obj->engine->isScriptModeActive() && !m_obj->isCustomMesh;
+    return o.tubeFramePipeline && o.tubeFrameSrb && o.tubeFrameWork && o.engine && o.engineMode == ModeParametric
+           && o.engine->isTubeModeActive() && !o.engine->isScriptModeActive() && !o.isCustomMesh;
 }
 
-void GLWidget::releaseTubeFramePipeline()
+void GLWidget::releaseTubeFramePipeline(SurfaceObject &o)
 {
-    if (m_obj->tubeFramePipeline) { m_obj->tubeFramePipeline->destroy(); delete m_obj->tubeFramePipeline; m_obj->tubeFramePipeline = nullptr; }
-    if (m_obj->tubeFrameSrb) { m_obj->tubeFrameSrb->destroy(); delete m_obj->tubeFrameSrb; m_obj->tubeFrameSrb = nullptr; }
+    if (o.tubeFramePipeline) { o.tubeFramePipeline->destroy(); delete o.tubeFramePipeline; o.tubeFramePipeline = nullptr; }
+    if (o.tubeFrameSrb) { o.tubeFrameSrb->destroy(); delete o.tubeFrameSrb; o.tubeFrameSrb = nullptr; }
 }
 
 // Il compute e' il vertex del tubo ridotto a libreria: ingressi e uscite
 // diventano variabili globali, main e gl_Position spariscono, e in coda va il
 // main che trasporta la sezione. Cosi' curva, rotazioni 4D e proiezione sono
 // LE STESSE del disegno, senza una seconda copia da tenere allineata.
-void GLWidget::buildTubeFramePipeline(const QString &vertexSource)
+void GLWidget::buildTubeFramePipeline(SurfaceObject &o, const QString &vertexSource)
 {
-    releaseTubeFramePipeline();
-    if (!m_obj->tubeFrameTex || !m_obj->tubeFrameWork || !m_obj->ubo
+    releaseTubeFramePipeline(o);
+    if (!o.tubeFrameTex || !o.tubeFrameWork || !o.ubo
         || !vertexSource.contains(QLatin1String("#define IS_TUBE"))) return;
 
     QString src = vertexAsComputeLibrary(vertexSource, QStringLiteral("TUBE_FRAME_COMPUTE"),
@@ -1605,21 +1605,21 @@ void main() {
         qWarning() << "Tubi: passata della sezione non compilata, resta l'orientamento locale:" << error;
         return;
     }
-    m_obj->tubeFrameSrb = rhi()->newShaderResourceBindings();
-    m_obj->tubeFrameSrb->setBindings({
+    o.tubeFrameSrb = rhi()->newShaderResourceBindings();
+    o.tubeFrameSrb->setBindings({
         QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
-            0, QRhiShaderResourceBinding::ComputeStage, m_obj->ubo, sizeof(UboData)),
-        QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, m_obj->tubeFrameTex, 0),
-        QRhiShaderResourceBinding::bufferLoadStore(2, QRhiShaderResourceBinding::ComputeStage, m_obj->tubeFrameWork)
+            0, QRhiShaderResourceBinding::ComputeStage, o.ubo, sizeof(UboData)),
+        QRhiShaderResourceBinding::imageStore(1, QRhiShaderResourceBinding::ComputeStage, o.tubeFrameTex, 0),
+        QRhiShaderResourceBinding::bufferLoadStore(2, QRhiShaderResourceBinding::ComputeStage, o.tubeFrameWork)
     });
     // Curva nuova: lo stato dei frame precedenti non le appartiene.
-    m_obj->tubeFrameStateReset = true;
-    m_obj->tubeFramePipeline = rhi()->newComputePipeline();
-    m_obj->tubeFramePipeline->setShaderResourceBindings(m_obj->tubeFrameSrb);
-    m_obj->tubeFramePipeline->setShaderStage(QRhiShaderStage(QRhiShaderStage::Compute, shader));
-    if (!m_obj->tubeFrameSrb->create() || !m_obj->tubeFramePipeline->create()) {
+    o.tubeFrameStateReset = true;
+    o.tubeFramePipeline = rhi()->newComputePipeline();
+    o.tubeFramePipeline->setShaderResourceBindings(o.tubeFrameSrb);
+    o.tubeFramePipeline->setShaderStage(QRhiShaderStage(QRhiShaderStage::Compute, shader));
+    if (!o.tubeFrameSrb->create() || !o.tubeFramePipeline->create()) {
         qWarning() << "Tubi: pipeline della sezione non creata, resta l'orientamento locale.";
-        releaseTubeFramePipeline();
+        releaseTubeFramePipeline(o);
     }
 }
 
@@ -1635,14 +1635,14 @@ QString GLWidget::imagePathInTextureCode(const QString &code)
     return m.hasMatch() ? m.captured(1).trimmed() : QString();
 }
 
-const GLWidget::PartImage *GLWidget::partImageFor(const MeshPart &p) const
+const GLWidget::PartImage *GLWidget::partImageFor(const SurfaceObject &o, const MeshPart &p) const
 {
     // In ambito "All" l'aspetto per-fascia e' sospeso: vale la superficie.
-    if (m_obj->meshAppearanceUniform || !p.hasCustomTexture) return nullptr;
+    if (o.meshAppearanceUniform || !p.hasCustomTexture) return nullptr;
     const QString path = imagePathInTextureCode(p.textureCode);
     if (path.isEmpty()) return nullptr;
-    const auto it = m_obj->partImages.constFind(path);
-    return (it != m_obj->partImages.constEnd() && it->tex && it->srb) ? &it.value() : nullptr;
+    const auto it = o.partImages.constFind(path);
+    return (it != o.partImages.constEnd() && it->tex && it->srb) ? &it.value() : nullptr;
 }
 
 // La fascia attiva ha un'immagine da campionare? La sua (nominata e non
@@ -1671,22 +1671,22 @@ QString GLWidget::meshPartLoadedImagePath(int index) const
     if (!m_obj->engine) return QString();
     const std::vector<MeshPart> &parts = m_obj->engine->getMeshParts();
     if (index < 0 || index >= (int)parts.size()) return QString();
-    return partImageFor(parts[index]) ? imagePathInTextureCode(parts[index].textureCode)
+    return partImageFor(*m_obj, parts[index]) ? imagePathInTextureCode(parts[index].textureCode)
                                       : QString();
 }
 
-QRhiShaderResourceBindings *GLWidget::bindingsForPart(const MeshPart &p) const
+QRhiShaderResourceBindings *GLWidget::bindingsForPart(const SurfaceObject &o, const MeshPart &p) const
 {
-    if (const PartImage *img = partImageFor(p)) return img->srb;
-    return m_obj->bindingsDyn ? m_obj->bindingsDyn : m_obj->bindings;
+    if (const PartImage *img = partImageFor(o, p)) return img->srb;
+    return o.bindingsDyn ? o.bindingsDyn : o.bindings;
 }
 
 // Allinea le texture GPU alle immagini nominate dalle fasce: carica quelle
 // nuove, distrugge quelle che nessuna fascia nomina piu'. Nel frame, dove le
 // risorse RHI si possono creare e distruggere.
-void GLWidget::syncPartImages(QRhiResourceUpdateBatch *resourceUpdates)
+void GLWidget::syncPartImages(SurfaceObject &o, QRhiResourceUpdateBatch *resourceUpdates)
 {
-    if (!rhi() || !m_obj->engine || !m_obj->ubo || !m_sampler) return;
+    if (!rhi() || !o.engine || !o.ubo || !m_sampler) return;
 
     // Le immagini in uso. Contano anche le fasce con la texture SPENTA: lo
     // script (e il suo tag) restano, e riaccendendola l'immagine e' gia' li'.
@@ -1696,27 +1696,27 @@ void GLWidget::syncPartImages(QRhiResourceUpdateBatch *resourceUpdates)
     // fascia ripeteva quello della superficie). Se la superficie cambia
     // immagine i percorsi non coincidono piu' e la fascia carica la propria.
     QSet<QString> used;
-    for (const MeshPart &p : m_obj->engine->getMeshParts()) {
+    for (const MeshPart &p : o.engine->getMeshParts()) {
         if (!p.hasCustomTexture) continue;
         const QString path = imagePathInTextureCode(p.textureCode);
-        if (!path.isEmpty() && path != m_obj->surfaceImagePath) used.insert(path);
+        if (!path.isEmpty() && path != o.surfaceImagePath) used.insert(path);
     }
     // L'immagine della texture del BORDO vive nella stessa cache: stessi
     // binding, e una sola copia se coincide con quella di una fascia.
-    if (m_obj->borderRadius > 0.0f) {
-        const QString path = imagePathInTextureCode(m_obj->borderTexCode);
-        if (!path.isEmpty() && path != m_obj->surfaceImagePath) used.insert(path);
+    if (o.borderRadius > 0.0f) {
+        const QString path = imagePathInTextureCode(o.borderTexCode);
+        if (!path.isEmpty() && path != o.surfaceImagePath) used.insert(path);
     }
 
-    for (auto it = m_obj->partImages.begin(); it != m_obj->partImages.end(); ) {
+    for (auto it = o.partImages.begin(); it != o.partImages.end(); ) {
         if (used.contains(it.key())) { ++it; continue; }
         if (it->srb) { it->srb->destroy(); delete it->srb; }
         if (it->tex) { it->tex->destroy(); delete it->tex; }
-        it = m_obj->partImages.erase(it);
+        it = o.partImages.erase(it);
     }
 
     for (const QString &path : used) {
-        if (m_obj->partImages.contains(path)) continue;
+        if (o.partImages.contains(path)) continue;
         PartImage entry;
         QImage img(path);
         if (img.isNull()) {
@@ -1729,7 +1729,7 @@ void GLWidget::syncPartImages(QRhiResourceUpdateBatch *resourceUpdates)
             // loadTextureFromFile.
             qWarning() << "GLWidget: immagine della fascia non caricabile:" << path;
             entry.failed = true;
-            m_obj->partImages.insert(path, entry);
+            o.partImages.insert(path, entry);
             if (QFileInfo::exists(path)) emit textureImageLoadFailed(path);
             continue;
         }
@@ -1750,46 +1750,46 @@ void GLWidget::syncPartImages(QRhiResourceUpdateBatch *resourceUpdates)
             QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
                 0,
                 QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-                m_obj->ubo, sizeof(UboData)),
+                o.ubo, sizeof(UboData)),
             QRhiShaderResourceBinding::sampledTexture(
                 1, QRhiShaderResourceBinding::FragmentStage, entry.tex, m_sampler),
-            tubeFramesBinding(),
-            borderEdgesBinding(),
-            sharedEdgesBinding()
+            tubeFramesBinding(o),
+            borderEdgesBinding(o),
+            sharedEdgesBinding(o)
         });
         entry.srb->create();
-        m_obj->partImages.insert(path, entry);
+        o.partImages.insert(path, entry);
     }
 }
 
 // L'UBO e' stato ricreato: i binding delle immagini di fascia puntavano al
 // vecchio buffer (stessa trappola di bindingsDyn in ensureUboCapacity).
-void GLWidget::rebindPartImages()
+void GLWidget::rebindPartImages(SurfaceObject &o)
 {
-    for (auto it = m_obj->partImages.begin(); it != m_obj->partImages.end(); ++it) {
+    for (auto it = o.partImages.begin(); it != o.partImages.end(); ++it) {
         if (!it->srb || !it->tex) continue;
         it->srb->setBindings({
             QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(
                 0,
                 QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-                m_obj->ubo, sizeof(UboData)),
+                o.ubo, sizeof(UboData)),
             QRhiShaderResourceBinding::sampledTexture(
                 1, QRhiShaderResourceBinding::FragmentStage, it->tex, m_sampler),
-            tubeFramesBinding(),
-            borderEdgesBinding(),
-            sharedEdgesBinding()
+            tubeFramesBinding(o),
+            borderEdgesBinding(o),
+            sharedEdgesBinding(o)
         });
         it->srb->updateResources();
     }
 }
 
-void GLWidget::releasePartImages()
+void GLWidget::releasePartImages(SurfaceObject &o)
 {
-    for (auto it = m_obj->partImages.begin(); it != m_obj->partImages.end(); ++it) {
+    for (auto it = o.partImages.begin(); it != o.partImages.end(); ++it) {
         if (it->srb) { it->srb->destroy(); delete it->srb; }
         if (it->tex) { it->tex->destroy(); delete it->tex; }
     }
-    m_obj->partImages.clear();
+    o.partImages.clear();
 }
 
 void GLWidget::initialize(QRhiCommandBuffer *cb)
@@ -1798,17 +1798,28 @@ void GLWidget::initialize(QRhiCommandBuffer *cb)
         return;
     }
 
+    // Della VISTA: la texture "tappabuchi" (scacchiera: serve il cb per
+    // l'upload) e il suo sampler, prima delle risorse degli oggetti, i cui
+    // binding la referenziano.
+    createDummyTexture(cb);
+    for (const auto &obj : m_objects) initObjectResources(*obj);
+}
+
+// Le risorse GPU di UN oggetto: UBO a blocchi, buffer di mesh, wireframe e
+// bordo, risorse dei compute (tubi, lati), binding, prima pipeline.
+void GLWidget::initObjectResources(SurfaceObject &o)
+{
     // --- 1. CREAZIONE UBO (Uniform Buffer Object) ---
     // MULTI-MESH: l'UBO non contiene piu' un blocco solo ma un ARRAY di blocchi,
     // uno per parte di mesh (i limiti u_min/u_max/v_min/v_max e u_meshIndex sono
     // per-parte). Ogni draw call seleziona il suo blocco con un dynamic offset.
     // Lo stride e' allineato secondo l'API grafica: ubufAlignment() vale 256 su
     // Metal/Vulkan, quindi NON si puo' usare sizeof(UboData) come passo.
-    m_obj->uboBlockStride = rhi()->ubufAlignment();
-    while (m_obj->uboBlockStride < sizeof(UboData)) {
-        m_obj->uboBlockStride += rhi()->ubufAlignment();
+    o.uboBlockStride = rhi()->ubufAlignment();
+    while (o.uboBlockStride < sizeof(UboData)) {
+        o.uboBlockStride += rhi()->ubufAlignment();
     }
-    ensureUboCapacity(kInitialUboBlocks);
+    ensureUboCapacity(o, kInitialUboBlocks);
 
     // --- 2. CREAZIONE VBO E IBO ---
     // In RHI è meglio pre-allocare un buffer grande per evitare di ricrearlo a ogni frame.
@@ -1816,61 +1827,63 @@ void GLWidget::initialize(QRhiCommandBuffer *cb)
     int maxVertexSize = 500000 * sizeof(Vertex);
     int maxIndexSize = 1000000 * sizeof(unsigned int);
 
-    m_obj->vbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, maxVertexSize);
-    m_obj->vbo->create();
+    o.vbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, maxVertexSize);
+    o.vbo->create();
 
-    m_obj->ibo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, maxIndexSize);
-    m_obj->ibo->create();
+    o.ibo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, maxIndexSize);
+    o.ibo->create();
 
-    m_obj->wireframeIbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, maxIndexSize);
-    m_obj->wireframeIbo->create();
+    o.wireframeIbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, maxIndexSize);
+    o.wireframeIbo->create();
 
     // Bordo: piccolo, cresce al primo upload che non ci sta.
-    m_obj->borderVbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, 65536 * sizeof(Vertex));
-    m_obj->borderVbo->create();
-    m_obj->borderIbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, 262144 * sizeof(unsigned int));
-    m_obj->borderIbo->create();
-    m_obj->borderWireIbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, 65536 * sizeof(unsigned int));
-    m_obj->borderWireIbo->create();
-    m_obj->borderUploaded = false;
+    o.borderVbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, 65536 * sizeof(Vertex));
+    o.borderVbo->create();
+    o.borderIbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, 262144 * sizeof(unsigned int));
+    o.borderIbo->create();
+    o.borderWireIbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, 65536 * sizeof(unsigned int));
+    o.borderWireIbo->create();
+    o.borderUploaded = false;
 
     // --- 3. CREAZIONE TEXTURE E BINDINGS ---
-    // A. Creiamo la texture "tappabuchi" (scacchiera: serve il cb per l'upload)
-    createDummyTexture(cb);
+    // A. La texture "tappabuchi" (m_dummyTexture) e' della vista: c'e' gia'.
     // Prima dei binding della superficie, che le referenziano agli slot 2-4.
-    createTubeFrameResources();
-    createBorderEdgeResources();
-    createSharedEdgeResources();
+    createTubeFrameResources(o);
+    createBorderEdgeResources(o);
+    createSharedEdgeResources(o);
 
     // B. Colleghiamo l'UBO al binding 0 e la TEXTURE al binding 1
-    m_obj->bindings = rhi()->newShaderResourceBindings();
-    m_obj->bindings->setBindings({
+    o.bindings = rhi()->newShaderResourceBindings();
+    o.bindings->setBindings({
         QRhiShaderResourceBinding::uniformBuffer(0,
                                                  QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage,
-                                                 m_obj->ubo),
+                                                 o.ubo),
         QRhiShaderResourceBinding::sampledTexture(1,
                                                   QRhiShaderResourceBinding::FragmentStage,
                                                   m_dummyTexture, m_sampler)
     });
-    m_obj->bindings->create();
+    o.bindings->create();
 
     // C. Binding della superficie con dynamic offset (multi-mesh). Va creato
     // PRIMA di buildPipeline(): le pipeline parametriche si costruiscono su
     // questo layout, e il layout dichiarato dalla pipeline deve combaciare con
     // quello passato a setShaderResources al draw.
-    ensureDynamicBindings(m_dummyTexture);
+    ensureDynamicBindings(o, m_dummyTexture);
 
     // Inizializzazioni di base dell'engine che avevi prima
-    if (m_obj->eqX.isEmpty()) {
-        m_obj->eqX = "sin(u)"; m_obj->eqY = "cos(u)"; m_obj->eqZ = "v"; m_obj->eqW = "0";
-        m_obj->engine->setEquations(m_obj->eqX, m_obj->eqY, m_obj->eqZ, m_obj->eqW);
+    if (o.eqX.isEmpty()) {
+        o.eqX = "sin(u)"; o.eqY = "cos(u)"; o.eqZ = "v"; o.eqW = "0";
+        o.engine->setEquations(o.eqX, o.eqY, o.eqZ, o.eqW);
     }
 
-    buildPipeline();
+    buildPipeline(o);
 }
 
 void GLWidget::render(QRhiCommandBuffer *cb)
 {
+    // L'oggetto che si disegna (per ora l'unico, quello selezionato).
+    SurfaceObject &o = *m_obj;
+
     // ==========================================================
     // WATCHDOG DI PERFORMANCE (avviso da rallentamento)
     // ==========================================================
@@ -1886,7 +1899,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         // costruzione, non per carico GPU. Saltiamo il watchdog per non dare un
         // falso avviso "il rendering rallenta" durante la registrazione.
         const bool animating = !m_isRecording &&
-                               (isAnimating() || m_obj->surfaceAnimating || m_pathAnimating);
+                               (isAnimating() || o.surfaceAnimating || m_pathAnimating);
         if (animating) {
             // Il PRIMO frame dopo l'avvio (o ri-avvio) dell'animazione non e' una
             // misura valida: l'intervallo dal frame precedente include il tempo da
@@ -2024,15 +2037,9 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     QSize outputSize = renderTarget()->pixelSize();
     float aspect = (float)outputSize.width() / (float)(outputSize.height() > 0 ? outputSize.height() : 1);
 
-    QMatrix4x4 mvp;
-    QMatrix4x4 mv;
-
     if (m_isFlatView) {
         m_projection.setToIdentity();
         m_view.setToIdentity();
-        m_obj->model.setToIdentity();
-        mvp = rhi()->clipSpaceCorrMatrix();
-        mv.setToIdentity();
     } else {
         m_projection.setToIdentity();
         // Piani near/far scalati con la distanza della camera. Un far fisso a
@@ -2088,26 +2095,9 @@ void GLWidget::render(QRhiCommandBuffer *cb)
             QVector3D up = rollMat.map(QVector3D(0.0f, 1.0f, 0.0f));
             m_view.lookAt(m_cameraPos, m_cameraPos + front, up);
         }
-
-        m_obj->model.setToIdentity();
-        m_obj->model.rotate(m_obj->rotationQuat);
-
-        mvp = rhi()->clipSpaceCorrMatrix() * m_projection * m_view * m_obj->model;
-        mv = m_view * m_obj->model;
     }
 
-    // --- 3. COMPILAZIONE UNIFORM BUFFER (UBO) ---
-    memcpy(m_uboData.mvpMatrix, mvp.constData(), 64);
-    memcpy(m_uboData.mvMatrix, mv.constData(), 64);
-    memcpy(m_uboData.mMatrix, m_obj->model.constData(), 64);
-
-    m_uboData.dummyZero = QVector4D(0.0f, 0.0f, 0.0f, 0.0f);
-    m_uboData.observerPos = m_observerPos;
-    m_uboData.cameraPos4D = m_cameraPos4D;
-    m_uboData.omega = m_obj->omega;
-    m_uboData.phi = m_obj->phi;
-    m_uboData.psi = m_obj->psi;
-
+    // OROLOGI della scena: prima degli UBO, che leggono il tempo.
     // 1. CALCOLO DEL DELTA TIME (dt) GLOBALE
     float currentRealTime = (float)m_surfaceTimer.elapsed() / 1000.0f;
     float dt = currentRealTime - m_lastRealTime;
@@ -2122,433 +2112,10 @@ void GLWidget::render(QRhiCommandBuffer *cb)
     // live e' quello di un frame, non la durata della registrazione.
     if (!m_clocksDrivenByRecorder) advanceClocksBy(dt);
 
-    // 3. INVIO DEI DATI ALLA GPU
-    const ClockTimes clocks = clockTimes();
-    m_uboData.time = clocks.geom;
-
-    // Usiamo la coordinata X di dummyZero per inviare il tempo specifico della Texture
-    m_uboData.dummyZero.setX(clocks.tex);
-
-    // .y = flag "seconda superficie interna" (Inner:= nello script ray marching).
-    // .x resta l'orologio texture; .y/.z/.w erano liberi (azzerati a inizio frame).
-    m_uboData.dummyZero.setY(m_obj->raymarchHasInner ? 1.0f : 0.0f);
-    // .z = quota del piano di sezione (Cross Section). Si riusa dummyZero invece
-    // di aggiungere un campo all'UBO: un campo nuovo andrebbe dichiarato in
-    // ENTRAMBI gli shader o Adreno rifiuta il link (vedi CLAUDE.md), e qui basta
-    // una componente gia' presente e inutilizzata.
-    m_uboData.dummyZero.setZ(m_crossSectionP);
-    m_uboData.projMode = projectionMode;
-    m_uboData.renderMode = m_obj->renderMode;
-    m_uboData.lightingMode = is4DActive() ? m_lightingMode4D : 0;
-    m_uboData.useSpecular = m_obj->isSpecularEnabled ? 1 : 0;
-
-    m_uboData.isFlat = m_isFlatView ? 1 : 0;
-    // TRASFORMAZIONE 2D GLOBALE (non il buffer di lavoro della vista 2D): e' la
-    // base di OGNI blocco parte, quindi ci va lo stato globale, o l'inquadratura
-    // che il mouse sta dando alla fascia in editing si propagherebbe a tutte le
-    // fasce che ereditano e all'ambito "All".
-    // In vista 2D sulla SUPERFICIE fa eccezione cio' che si sta editando: li' il
-    // fragment deve seguire il mouse.
-    //  - con una FASCIA selezionata ci pensa il ramo editingThisPart del loop
-    //    per-parte piu' sotto, che scrive il buffer nel blocco di quella parte;
-    //  - con una mesh SOLA (nessuna parte dichiarata) quel loop non esiste;
-    //  - in ambito "ALL" (nessuna parte attiva) nessuna parte e' "in editing",
-    //    e il quad 2D disegna col blocco 0.
-    // Negli ultimi due casi il buffer va messo QUI, o trascinare non muove nulla.
-    const bool flatEditingGlobal = m_isFlatView && m_flatViewTarget == 0
-                                   && (!m_obj->engine || m_obj->engine->getMeshPartCount() <= 1
-                                       || m_obj->activeMeshPart < 0);
-    m_uboData.zoom     = flatEditingGlobal ? m_flatZoom     : m_obj->globalTexZoom;
-    m_uboData.center   = flatEditingGlobal ? m_flatPan      : m_obj->globalTexPan;
-    m_uboData.rotation = flatEditingGlobal ? m_flatRotation : m_obj->globalTexRotation;
-
-    if (m_obj->engine) {
-        m_uboData.hasExplicitW = (!m_obj->engine->getActiveExplicitEquation().isEmpty()) ? 1 : 0;
-    } else {
-        m_uboData.hasExplicitW = 0;
-    }
-
-    m_uboData.u_raySteps = m_obj->raySteps;
-
-    if (m_obj->textureEnabled && m_obj->engineMode == ModeParametric) {
-        m_uboData.color = QVector3D(1.0f, 1.0f, 1.0f);
-    } else {
-        m_uboData.color = QVector3D(m_obj->red, m_obj->green, m_obj->blue);
-    }
-
-    // FALLBACK ANTI-SPARIZIONE: su un campo implicito mal condizionato (prodotto,
-    // es. "Chain") il ramo trasparente aggancia crossing fantasma e la superficie
-    // sparirebbe con alpha<1. Forziamo opaco: il cammino opaco (d=val/gradLen) e'
-    // affidabile. La UI disabilita comunque lo slider, ma questo e' l'ultimo baluardo
-    // indipendente da come alpha e' stato impostato (slider/preset/script).
-    m_uboData.alpha = (m_obj->engineMode == ModeImplicit && m_obj->implicitIllConditioned) ? 1.0f : m_obj->alpha;
-    m_uboData.lightIntensity = m_obj->lightIntensity;
-
-    m_uboData.col1 = QVector3D(m_obj->texRed1, m_obj->texGreen1, m_obj->texBlue1);
-    m_uboData.col2 = QVector3D(m_obj->texRed2, m_obj->texGreen2, m_obj->texBlue2);
-    m_uboData.useTexture = m_obj->textureEnabled ? 1 : 0;
-
-    // NESSUNA IMMAGINE nello slot sampler: gli script che campionano iChannel0
-    // (famiglia "Animated Images") cadono sulla scacchiera procedurale invece
-    // che sui pixel della texture tappabuchi. surfaceTexture e' la texture
-    // dell'immagine caricata: nullo = non c'e' immagine.
-    // Conta l'immagine dell'UTENTE, non "esiste una texture": generateTexture()
-    // carica la scacchiera di default per la stessa via, quindi surfaceTexture
-    // resta popolata anche senza alcuna immagine e il fallback non sarebbe mai
-    // scattato (era il motivo per cui gli slider colore sembravano inerti).
-    m_uboData.u_noImage = m_obj->surfaceImagePath.isEmpty() ? 1 : 0;
-
-    // Luce di riempimento dall'osservatore: 0 (default) = termine nullo nello
-    // shader, immagine identica a quella storica. Vedi u_fillLight in UboData.
-    m_uboData.u_fillLight = m_fillLight;
-
-    // Spessore del guscio (modalita' Shell): uniform, non entra nel sorgente
-    // dello shader, quindi cambiarlo non richiede una ricompilazione.
-    m_uboData.u_shellThickness = m_obj->shellThickness;
-
-    // Scelta del marcher (radio Ray Marching): come lo spessore, e' un uniform,
-    // quindi il cambio e' immediato senza ricompilare lo shader.
-    m_uboData.u_marcherMode = m_obj->hybridMarcher ? 1.0f : 0.0f;
-
-    // Raggio del tubo (sotto-tab Tubes): uniform anche lui, lo slider dello
-    // spessore e' immediato.
-    m_uboData.u_tubeRadius = m_obj->tubeRadius;
-    m_uboData.u_borderRadius = m_obj->borderRadius;
-    m_uboData.u_isBorder = 0;   // solo i blocchi del bordo lo accendono
-
-    // ==========================================================
-    // AGGIORNAMENTO BUFFER PRINCIPALE (multi-mesh)
-    // ==========================================================
-    // Scriviamo un blocco UBO per parte di mesh: tutto identico tranne i limiti
-    // del dominio (u_min/u_max/v_min/v_max) e u_meshIndex, che sono per-parte.
-    // Il blocco 0 resta quello "globale": lo usano lo sfondo in flat view e ogni
-    // draw che non appartiene a una parte, quindi il caso a mesh singola scrive
-    // esattamente cio' che scriveva prima.
-    const std::vector<MeshPart> &uboParts = m_obj->engine->getMeshParts();
-    const int uboPartCount = (int)uboParts.size();
-
-    // TUBO: direzione della sezione e spessore del tubo `mesh` (vedi
-    // SurfaceEngine::TubeCopy e MeshPart::tubeThickness, fattore sullo
-    // spessore del campo Thickness). Fuori dai tubi nessuno li legge.
-    // Sezione trasportata: gli anelli della parte, e se la passata compute di
-    // questo frame scrive la sua riga (entro i limiti della texture).
-    const bool tubeFrames = tubeFramesActive();
-    // Smorzamento della sezione: costante di tempo 0.1 s, indipendente dai fps.
-    const float tubeBlend = 1.0f - std::exp(-std::max(0.0f, m_obj->tubeFrameDt) / 0.1f);
-    auto applyTubeFields = [this, tubeFrames, tubeBlend](UboData &u, const MeshPart *mp, int mesh) {
-        const QVector3D r = m_obj->engine->tubeReference(mesh);
-        u.u_tubeRefX = r.x();
-        u.u_tubeRefY = r.y();
-        u.u_tubeRefZ = r.z();
-        u.u_tubeRadius = m_obj->tubeRadius * ((mp && mp->tubeThickness >= 0.0f) ? mp->tubeThickness : 1.0f);
-        const int rings = mp ? mp->numU + 1 : 0;
-        u.u_tubeRings = float(rings);
-        u.u_tubeFramesOn = (tubeFrames && rings >= 2 && rings <= kTubeFrameMaxRings
-                            && mesh >= 0 && mesh < kTubeFrameMaxParts) ? 1.0f : 0.0f;
-        u.u_tubeFrameBlend = tubeBlend;
-    };
-    applyTubeFields(m_uboData, uboParts.empty() ? nullptr : &uboParts[0], 0);
-    m_uboData.u_meshCount = (float)std::max(1, uboPartCount);
-    // Col bordo acceso i blocchi raddoppiano: dopo quelli delle parti, uno di
-    // bordo per parte (vedi sotto).
-    const bool borderOn = (m_obj->borderRadius > 0.0f && m_obj->engineMode == ModeParametric);
-    const int uboPartSlots = std::max(1, uboPartCount);
-
-    // Cresce l'UBO se lo script ha dichiarato piu' parti della capienza attuale.
-    // ensureUboCapacity riaggancia i binding in place (senza distruggerli),
-    // quindi le pipeline restano valide e non serve ricostruirle.
-    // Nel parametrico, dopo i blocchi del bordo, i cinque della passata dei
-    // lati coperti per ogni istante della sonda: anche a bordo spento, che la
-    // usa come sonda (borderAvailability).
-    ensureUboCapacity(m_obj->engineMode == ModeParametric ? uboPartSlots * 2 + 5 * kBorderProbeInstants : uboPartSlots);
-    ensureDynamicBindings(m_obj->surfaceTexture ? m_obj->surfaceTexture : m_dummyTexture);
-    // Immagini proprie delle fasce: prima dei blocchi, che ne dipendono (u_noImage).
-    syncPartImages(resourceUpdates);
-
-    if (uboPartCount <= 1) {
-        // Mesh singola: un blocco solo, come da sempre.
-        resourceUpdates->updateDynamicBuffer(m_obj->ubo, 0, sizeof(UboData), &m_uboData);
-    } else {
-        for (int k = 0; k < uboPartCount; ++k) {
-            const MeshPart &mp = uboParts[k];
-            UboData partUbo = m_uboData;
-            partUbo.u_min = mp.uMin;
-            partUbo.u_max = mp.uMax;
-            partUbo.v_min = mp.vMin;
-            partUbo.v_max = mp.vMax;
-            partUbo.u_meshIndex = (float)mp.meshIndex;
-            applyTubeFields(partUbo, &mp, mp.meshIndex);
-            partUbo.u_globalTexture = globalTextureActive() ? 1.0f : 0.0f;
-
-            // ASPETTO PER-PARTE. Un valore negativo significa "eredita dallo
-            // stato globale", che e' gia' in partUbo perche' copiato da
-            // m_uboData: percio' una parte non configurata resta identica a
-            // prima e nessun preset esistente cambia.
-            // Il colore NON si applica con una texture attiva: li' il motore
-            // forza deliberatamente ubuf.color a bianco per non sporcare le
-            // texture che portano gia' il proprio colore (vedi il ramo
-            // textureEnabled sopra), e scriverci sopra lo vanificherebbe.
-            // AMBITO "ALL" (meshAppearanceUniform): l'aspetto proprio viene
-            // IGNORATO e resta valido solo il globale, gia' in partUbo. La
-            // superficie si disegna come una sola; i valori per-parte non
-            // vengono toccati, quindi tornando su "Mesh" ricompaiono.
-            if (!m_obj->meshAppearanceUniform) {
-                // Questa parte finira' texturizzata? Serve PRIMA del colore: una
-                // parte SENZA texture deve riprendersi la propria tinta, mentre
-                // una texturizzata vuole il bianco neutro (finalRGB = color * tex).
-                //
-                // IN WIREFRAME (o Bordi) LA TEXTURE NON SI APPLICA: il fragment
-                // esce subito con `FragColor = vec4(ubuf.color, alpha)` (vedi la
-                // guardia u_renderMode 2/5 in surface.frag), quindi ubuf.color
-                // NON e' un fattore da neutralizzare ma il colore FINALE delle
-                // linee. Trattare la parte come texturizzata la disegnava col
-                // bianco neutro: mettendo il wireframe su una mesh con texture,
-                // le linee diventavano bianche e il colore proprio spariva.
-                // Stesso criterio del render (effectivePartRenderMode), cosi' le
-                // due decisioni non possono divergere.
-                const int partMode = effectivePartRenderMode(mp);
-                const bool partFlatColored = (partMode == 2 || partMode == 5);
-                const bool partTextured = mp.effectiveTextureEnabledMulti()
-                                          && !partFlatColored;
-
-                // COLORE DELLA PARTE. Il ramo globale poco sopra forza
-                // m_uboData.color a BIANCO quando la texture globale e' accesa,
-                // e ogni blocco parte da quella copia: una fascia senza texture
-                // si ritrovava quindi bianca invece che del proprio colore
-                // (o di quello globale). Il colore va soppresso solo se e'
-                // QUESTA parte ad essere texturizzata, non perche' lo e' la
-                // superficie.
-                if (!partTextured) {
-                    // Tinta piena: la propria se ce l'ha, altrimenti quella
-                    // globale REALE (red/green/blue), non il bianco neutro che
-                    // m_uboData porta quando la texture globale e' accesa.
-                    if (mp.hasCustomColor())
-                        partUbo.color = QVector3D(mp.colorR, mp.colorG, mp.colorB);
-                    else if (m_obj->textureEnabled && m_obj->engineMode == ModeParametric)
-                        partUbo.color = QVector3D(m_obj->red, m_obj->green, m_obj->blue);
-                }
-                if (mp.alpha >= 0.0f)
-                    partUbo.alpha = mp.alpha;
-                // LUCE: NON per-parte. E' l'illuminazione della scena (come la
-                // speculare) e vale per tutta la superficie, qualunque mesh sia
-                // selezionata: partUbo porta gia' il valore globale.
-                // Il campo lightIntensity resta in MeshPart per compatibilita'
-                // con i preset che lo hanno salvato -- viene letto e riscritto
-                // dalla persistenza -- ma non governa piu' il render.
-
-                // TEXTURE PROPRIA DELLA PARTE. Il codice e' gia' compilato nello
-                // shader come getCustomColor_<k> (vedi createFragmentShaderSource):
-                // qui basta accendere l'interruttore per questa parte, perche' il
-                // dispatcher sceglie la funzione da u_meshIndex.
-                //
-                // TEXTURE EFFICACE DELLA PARTE. Si scrive SEMPRE, anche quando
-                // la parte non ne ha una propria: in multi-mesh una fascia mai
-                // configurata deve restare SENZA texture, non ereditare quella
-                // globale (vedi effectiveTextureEnabledMulti). Prima qui si
-                // entrava solo con hasCustomTexture e le altre si tenevano lo
-                // useTexture globale copiato da m_uboData: applicando una
-                // texture in "All" le fasce lasciate apposta nude se la
-                // prendevano addosso.
-                partUbo.useTexture = partTextured ? 1 : 0;
-
-                // IMMAGINE PROPRIA DELLA PARTE. Se il suo script nomina
-                // un'immagine (tag //IMG:) e quella e' caricata, allo slot 1 di
-                // QUESTA draw call c'e' la sua texture (bindingsForPart), non
-                // quella della superficie: la leggono la funzione di default e
-                // gli script che campionano iChannel0. u_noImage va quindi a 0
-                // anche se la superficie non ha alcuna immagine.
-                // Nominata ma non caricabile: resta tutto com'e' in m_uboData,
-                // cioe' l'immagine della superficie se c'e', altrimenti la
-                // scacchiera di ripiego.
-                if (partImageFor(mp))
-                    partUbo.u_noImage = 0;
-
-                if (mp.hasCustomTexture) {
-
-                    // COLORE BASE A BIANCO SULLA PARTE TEXTURIZZATA.
-                    // Il fragment compone finalRGB = ubuf.color * texture: il
-                    // colore va quindi neutralizzato, o la texture esce
-                    // MOLTIPLICATA per la tinta della superficie (con un colore
-                    // scuro il risultato e' nero, e con la scacchiera meta'
-                    // celle si annullano -> la mesh sembra sparire).
-                    // Il ramo globale lo fa gia' piu' sopra, ma solo quando e'
-                    // textureEnabled GLOBALE ad essere acceso: una texture
-                    // per-mesh non passa di li'.
-                    // NB: si scrive DOPO il colore proprio della parte, cosi'
-                    // vince su di esso; il colore resta in MeshPart e ricompare
-                    // spegnendo la texture.
-                    // Stessa condizione usata per useTexture e per il colore
-                    // pieno qui sopra: il bianco neutro e la texture accesa
-                    // devono essere la STESSA decisione, o si torna al caso
-                    // "parte bianca senza texture".
-                    if (partTextured)
-                        partUbo.color = QVector3D(1.0f, 1.0f, 1.0f);
-
-                    // COLORI u_col1/u_col2 DELLA PARTE. Vivono nel blocco UBO,
-                    // quindi possono essere diversi per ogni mesh: senza questo
-                    // le parti condividevano i due slot globali e l'ultima
-                    // texture applicata riscriveva i colori di TUTTE le altre.
-                    if (mp.hasCustomTexColors()) {
-                        partUbo.col1 = QVector3D(mp.texCol1R, mp.texCol1G, mp.texCol1B);
-                        partUbo.col2 = QVector3D(mp.texCol2R, mp.texCol2G, mp.texCol2B);
-                    }
-
-                }
-
-                // ZOOM / PAN / ROTAZIONE 2D PROPRI DELLA PARTE. Stessa ragione
-                // dei colori: sono campi del blocco UBO, quindi per-parte.
-                // Senza, la trasformazione fatta col mouse in vista 2D su UNA
-                // texture veniva applicata a tutte.
-                // FUORI dal blocco hasCustomTexture: la trasformazione e' una
-                // proprieta' della PARTE, non dello script. Due fasce con LA
-                // STESSA texture devono poterla mostrare a scale diverse, e una
-                // fascia che eredita la texture globale deve avere comunque la
-                // propria inquadratura, altrimenti resta agganciata allo zoom
-                // globale e si ridimensiona insieme alle altre.
-                // In vista 2D (m_isFlatView) si edita a schermo intero la
-                // texture della SOLA parte attiva: quella deve seguire i membri
-                // globali che il mouse muove (o trascinare non muoverebbe
-                // nulla), mentre tutte le ALTRE restano ferme sulla propria.
-                const bool editingThisPart = m_isFlatView && m_flatViewTarget == 0
-                                             && (k == m_obj->activeMeshPart);
-                if (editingThisPart) {
-                    // BUFFER DI LAVORO, esplicito. Prima qui si lasciava stare,
-                    // contando sul fatto che partUbo (copia di m_uboData) gia'
-                    // portasse i membri che il mouse muove. Non e' piu' vero: in
-                    // m_uboData ora c'e' la trasformazione GLOBALE persistente,
-                    // che il mouse non tocca -- e la texture in editing restava
-                    // immobile al trascinamento.
-                    partUbo.zoom = m_flatZoom;
-                    partUbo.center = m_flatPan;
-                    partUbo.rotation = m_flatRotation;
-                } else if (mp.hasCustomTexTransform()) {
-                    partUbo.zoom = mp.texZoom;
-                    partUbo.center = QVector2D(mp.texPanX, mp.texPanY);
-                    partUbo.rotation = mp.texRotation;
-                }
-
-                // OROLOGIO DELLA PARTE (dummyZero.x = tempo letto da ogni
-                // getCustomColor_<k>). Si scrive SEMPRE, mai per ereditarieta':
-                // il tempo e' un valore che scorre e che il globale puo'
-                // congelare, quindi una parte che copiasse timeTex si
-                // congelerebbe insieme a lui e non ripartirebbe piu' da sola.
-                // Vedi la nota su timeTex in MeshPart.
-                partUbo.dummyZero.setX(kClockOrigin + mp.timeTex);
-            }
-
-            // MODALITA' PER-PARTE. Lo shader decide dal solo ubuf.u_renderMode
-            // se disegnare a colore piatto (wireframe/bordi) o illuminato:
-            // senza questa riga una mesh in wireframe con globale Phong veniva
-            // illuminata, e una mesh solida con globale wireframe usciva piatta.
-            partUbo.renderMode = effectivePartRenderMode(mp);
-
-            resourceUpdates->updateDynamicBuffer(m_obj->ubo, k * m_obj->uboBlockStride,
-                                                 sizeof(UboData), &partUbo);
-        }
-    }
-
-    // BORDO: un blocco per parte, dopo quelli delle parti (indice
-    // uboPartSlots + k). Del blocco della parte servono il dominio e
-    // u_meshIndex -- gli script scelgono la geometria leggendo `mesh` -- il
-    // resto e' del bordo: il suo colore, opaco, senza texture, e la sua
-    // modalita' (Base, Phong o Wireframe), indipendente dalla superficie.
-    if (borderOn) {
-        for (int k = 0; k < uboPartSlots; ++k) {
-            UboData borderUbo = m_uboData;
-            if (k < uboPartCount) {
-                const MeshPart &mp = uboParts[k];
-                borderUbo.u_min = mp.uMin;
-                borderUbo.u_max = mp.uMax;
-                borderUbo.v_min = mp.vMin;
-                borderUbo.v_max = mp.vMax;
-                borderUbo.u_meshIndex = (float)mp.meshIndex;
-                applyTubeFields(borderUbo, &mp, mp.meshIndex);
-            }
-            borderUbo.u_isBorder = 1;
-            borderUbo.color = QVector3D(m_obj->borderColor.redF(), m_obj->borderColor.greenF(),
-                                        m_obj->borderColor.blueF());
-            borderUbo.alpha = 1.0f;
-            // TEXTURE DEL BORDO: colore base a bianco (il fragment compone
-            // color * texture), i suoi due colori, la sua inquadratura, il suo
-            // orologio e la sua immagine, se ne ha una (altrimenti campiona
-            // quella della superficie, come una fascia senza immagine propria).
-            const bool borderTex = borderTextureShown();
-            borderUbo.useTexture = borderTex ? 1 : 0;
-            if (borderTex) borderUbo.color = QVector3D(1.0f, 1.0f, 1.0f);
-            borderUbo.col1 = QVector3D(m_obj->borderTexCol1.redF(), m_obj->borderTexCol1.greenF(), m_obj->borderTexCol1.blueF());
-            borderUbo.col2 = QVector3D(m_obj->borderTexCol2.redF(), m_obj->borderTexCol2.greenF(), m_obj->borderTexCol2.blueF());
-            borderUbo.zoom = m_obj->borderTexZoom;
-            borderUbo.center = m_obj->borderTexPan;
-            borderUbo.rotation = m_obj->borderTexRotation;
-            borderUbo.dummyZero.setX(kClockOrigin + m_obj->borderTimeTex);
-            if (borderBindings() != (m_obj->bindingsDyn ? m_obj->bindingsDyn : m_obj->bindings))
-                borderUbo.u_noImage = 0;
-            // Base / Phong / Wireframe del BORDO, non della superficie: in
-            // wireframe il fragment esce col colore pieno, in Phong accende la
-            // speculare (che altrove e' un flag unico della figura).
-            borderUbo.renderMode = m_obj->borderRenderMode;
-            borderUbo.useSpecular = (m_obj->borderRenderMode == 1) ? 1 : 0;
-            resourceUpdates->updateDynamicBuffer(m_obj->ubo, (uboPartSlots + k) * m_obj->uboBlockStride,
-                                                 sizeof(UboData), &borderUbo);
-        }
-    }
-
-    // =========================================================================
-    // SCARICO TEXTURE (Superficie) — distruzione RHI nel contesto del frame.
-    // Eseguito PRIMA dell'upload: se nello stesso giro arriva una nuova immagine,
-    // il blocco di upload sotto ricrea comunque surfaceTexture.
-    // =========================================================================
-    if (m_obj->surfaceTextureNeedsClear) {
-        if (m_obj->surfaceTexture) {
-            m_obj->surfaceTexture->destroy();
-            delete m_obj->surfaceTexture;
-            m_obj->surfaceTexture = nullptr;
-
-            // Il binding allo slot 1 puntava a surfaceTexture appena distrutta:
-            // ricolleghiamolo a m_dummyTexture (come all'init), altrimenti un frame
-            // disegnato senza re-upload leggerebbe memoria liberata.
-            if (m_obj->bindings && m_dummyTexture) {
-                m_obj->bindings->setBindings({
-                    QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, m_obj->ubo),
-                    QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_dummyTexture, m_sampler)
-                });
-                m_obj->bindings->create();
-            }
-            // Stesso problema sui binding con dynamic offset usati dalla
-            // superficie: puntavano alla texture appena distrutta.
-            ensureDynamicBindings(m_dummyTexture);
-        }
-        m_obj->surfaceTextureNeedsClear = false;
-    }
-
-    // =========================================================================
-    // GESTIONE COMUNE UPLOAD TEXTURE (Superficie)
-    // =========================================================================
-    if (m_obj->surfaceTextureNeedsUpload && !m_obj->pendingSurfaceImage.isNull()) {
-        if (m_obj->surfaceTexture) {
-            m_obj->surfaceTexture->destroy();
-            delete m_obj->surfaceTexture;
-        }
-        m_obj->surfaceTexture = rhi()->newTexture(QRhiTexture::RGBA8, m_obj->pendingSurfaceImage.size(), 1);
-        m_obj->surfaceTexture->create();
-
-        QRhiTextureSubresourceUploadDescription subresDesc(m_obj->pendingSurfaceImage.constBits(), m_obj->pendingSurfaceImage.sizeInBytes());
-        QRhiTextureUploadEntry entry(0, 0, subresDesc);
-        QRhiTextureUploadDescription uploadDesc({ entry });
-        resourceUpdates->uploadTexture(m_obj->surfaceTexture, uploadDesc);
-
-        m_obj->bindings->setBindings({
-            QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, m_obj->ubo),
-            QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage, m_obj->surfaceTexture, m_sampler)
-        });
-        m_obj->bindings->create();
-
-        // La superficie disegna dai binding con dynamic offset: senza questo
-        // aggiornamento la nuova texture non comparirebbe (resterebbe la dummy).
-        ensureDynamicBindings(m_obj->surfaceTexture);
-
-        m_obj->surfaceTextureNeedsUpload = false;
-    }
+    // L'OGGETTO: uniform (posa, parti, bordo) e texture.
+    prepareObjectUniforms(o, resourceUpdates);
+    prepareObjectTexture(o, resourceUpdates);
+    const ClockTimes clocks = clockTimes(o);
 
     // =========================================================================
     // GESTIONE COMUNE SFONDO 2D (Texture Upload, UBO, VBO)
@@ -2579,7 +2146,7 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         m_backgroundTextureNeedsUpload = false;
     }
 
-    if (m_useBackgroundTexture || m_isFlatView || m_obj->engineMode == ModeImplicit) {
+    if (m_useBackgroundTexture || m_isFlatView || o.engineMode == ModeImplicit) {
         if (!m_bgBindings) initBackgroundShader();
 
         if (m_bgUbo) {
@@ -2666,647 +2233,29 @@ void GLWidget::render(QRhiCommandBuffer *cb)
         }
     }
 
+    // L'OGGETTO: pipeline e buffer, poi i compute (fuori dal render pass).
+    prepareObjectGeometry(o, resourceUpdates);
+    resourceUpdates = runObjectCompute(o, cb, resourceUpdates);
 
-    if (m_obj->engineMode == ModeParametric) {
+    // --- RENDER PASS ---
+    QColor clearColor = QColor::fromRgbF(m_bgColor.x(), m_bgColor.y(), m_bgColor.z());
+    cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 }, resourceUpdates);
 
-        // ==========================================
-        // 1. MODALITÀ PARAMETRICA
-        // ==========================================
-        if (!m_obj->pipelineOpaque) {
-            buildPipeline();
-        }
-
-        if (m_obj->meshNeedsUpdate) {
-            const auto& vertices = m_obj->engine->getVertices();
-            const auto& indices = m_obj->engine->getIndices();
-
-            if (vertices.empty() || indices.empty()) {
-                // MESH VUOTA = NIENTE DA DISEGNARE. indexCount va azzerato:
-                // senza, conserva il conteggio della mesh PRECEDENTE mentre
-                // VBO/IBO contengono ancora i suoi dati, e il draw piu' sotto
-                // (gate `indexCount > 0`) ridisegna la superficie vecchia.
-                // Finora era latente perche' ogni percorso produceva subito
-                // un'altra mesh; serve per la scena vuota, che deve poter
-                // disegnare NIENTE di proposito.
-                m_obj->indexCount = 0;
-            } else {
-                int vSize = vertices.size() * sizeof(Vertex);
-                int iSize = indices.size() * sizeof(unsigned int);
-
-                if (m_obj->vbo->size() < vSize) {
-                    m_obj->vbo->destroy(); delete m_obj->vbo;
-                    m_obj->vbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, vSize * 1.5);
-                    m_obj->vbo->create();
-                }
-
-                if (m_obj->ibo->size() < iSize) {
-                    m_obj->ibo->destroy(); delete m_obj->ibo;
-                    m_obj->ibo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, iSize * 1.5);
-                    m_obj->ibo->create();
-                }
-
-                resourceUpdates->updateDynamicBuffer(m_obj->vbo, 0, vSize, vertices.data());
-                resourceUpdates->updateDynamicBuffer(m_obj->ibo, 0, iSize, indices.data());
-                m_obj->indexCount = indices.size();
-            }
-            m_obj->meshNeedsUpdate = false;
-            // Il bordo segue le parti appena rigenerate.
-            m_obj->borderUploaded = false;
-        }
-
-        // Lati della mesh custom per il bordo: solo la parte usata della texture.
-        if (m_obj->borderEdgeDirty && m_obj->borderEdgeTex && m_obj->borderEdgeWidth > 0) {
-            QRhiTextureSubresourceUploadDescription edges(
-                m_obj->borderEdgeData.data(), quint32(m_obj->borderEdgeData.size() * sizeof(float)));
-            edges.setSourceSize(QSize(m_obj->borderEdgeWidth, kBorderEdgeRows));
-            resourceUpdates->uploadTexture(m_obj->borderEdgeTex,
-                                           QRhiTextureUploadDescription({ QRhiTextureUploadEntry(0, 0, edges) }));
-            m_obj->borderEdgeDirty = false;
-        }
-
-        // BORDO: i suoi buffer, solo quando si disegna (a raggio 0 non serve
-        // caricarli; li ricarica il primo frame col bordo acceso).
-        if (!m_obj->borderUploaded && m_obj->borderRadius > 0.0f && m_obj->borderVbo && m_obj->borderIbo) {
-            const auto &bv = m_obj->engine->getBorderVertices();
-            const auto &bi = m_obj->engine->getBorderIndices();
-            if (!bv.empty() && !bi.empty()) {
-                const int vSize = int(bv.size() * sizeof(Vertex));
-                const int iSize = int(bi.size() * sizeof(unsigned int));
-                if (m_obj->borderVbo->size() < vSize) {
-                    m_obj->borderVbo->destroy(); delete m_obj->borderVbo;
-                    m_obj->borderVbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::VertexBuffer, vSize * 1.5);
-                    m_obj->borderVbo->create();
-                }
-                if (m_obj->borderIbo->size() < iSize) {
-                    m_obj->borderIbo->destroy(); delete m_obj->borderIbo;
-                    m_obj->borderIbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, iSize * 1.5);
-                    m_obj->borderIbo->create();
-                }
-                resourceUpdates->updateDynamicBuffer(m_obj->borderVbo, 0, vSize, bv.data());
-                resourceUpdates->updateDynamicBuffer(m_obj->borderIbo, 0, iSize, bi.data());
-
-                // Linee del wireframe, con la densita' corrente.
-                m_obj->engine->buildBorderWire(m_obj->borderWireAlong, m_obj->borderWireAround);
-                const auto &bw = m_obj->engine->getBorderWireIndices();
-                const int wSize = int(bw.size() * sizeof(unsigned int));
-                if (wSize > 0 && m_obj->borderWireIbo) {
-                    if (m_obj->borderWireIbo->size() < wSize) {
-                        m_obj->borderWireIbo->destroy(); delete m_obj->borderWireIbo;
-                        m_obj->borderWireIbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, wSize * 1.5);
-                        m_obj->borderWireIbo->create();
-                    }
-                    resourceUpdates->updateDynamicBuffer(m_obj->borderWireIbo, 0, wSize, bw.data());
-                }
-            }
-            m_obj->borderUploaded = true;
-        }
-
-        // Stesso trattamento del solido: a indici vuoti il ramo di upload non
-        // gira, quindi wireframeIndexCount/wireframeRanges resterebbero
-        // quelli della mesh precedente e le sue LINEE sopravvivrebbero alla
-        // scena vuota (il ramo wireframe ha un gate suo, non coperto da
-        // indexCount).
-        if (m_obj->wireframeNeedsUpdate && m_obj->wireframeIndices.empty()) {
-            m_obj->wireframeIndexCount = 0;
-            m_obj->wireframeRanges.clear();
-            m_obj->wireframeNeedsUpdate = false;
-        }
-
-        if (m_obj->wireframeNeedsUpdate && !m_obj->wireframeIndices.empty()) {
-            int iSize = m_obj->wireframeIndexCount * sizeof(unsigned int);
-            if (m_obj->wireframeIbo->size() < iSize) {
-                m_obj->wireframeIbo->destroy(); delete m_obj->wireframeIbo;
-                m_obj->wireframeIbo = rhi()->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::IndexBuffer, iSize * 1.5);
-                m_obj->wireframeIbo->create();
-            }
-            resourceUpdates->updateDynamicBuffer(m_obj->wireframeIbo, 0, iSize, m_obj->wireframeIndices.data());
-            m_obj->wireframeNeedsUpdate = false;
-        }
-
-        // SEZIONE TRASPORTATA DEI TUBI: prima del disegno, fuori dal render
-        // pass. La passata consuma gli aggiornamenti in coda (i blocchi UBO di
-        // questo frame), quindi il render pass parte senza.
-        if (tubeFramesActive()) {
-            // Tubi o anelli diversi: lo stato per anello non corrisponde piu'.
-            quint64 layout = m_obj->engine->getMeshParts().size();
-            for (const MeshPart &mp : m_obj->engine->getMeshParts()) layout = layout * 1000003u + quint64(mp.numU);
-            if (layout != m_obj->tubeFrameLayout) {
-                m_obj->tubeFrameLayout = layout;
-                m_obj->tubeFrameStateReset = true;
-            }
-            if (m_obj->tubeFrameStateReset) {
-                static const QByteArray zeros(kTubeFrameWorkVec4 * 16, '\0');
-                resourceUpdates->uploadStaticBuffer(m_obj->tubeFrameWork, 0, quint32(zeros.size()), zeros.constData());
-                m_obj->tubeFrameStateReset = false;
-            }
-            cb->beginComputePass(resourceUpdates);
-            resourceUpdates = nullptr;
-            cb->setComputePipeline(m_obj->tubeFramePipeline);
-            const std::vector<MeshPart> &frameParts = m_obj->engine->getMeshParts();
-            const int blocks = std::max(1, (int)frameParts.size());
-            for (int k = 0; k < blocks; ++k) {
-                // Stesso blocco dei draw: 0 per un tubo solo, k per le copie.
-                const quint32 ofsBytes = (frameParts.size() <= 1) ? 0u : quint32(k) * m_obj->uboBlockStride;
-                const QRhiCommandBuffer::DynamicOffset ofs(0, ofsBytes);
-                cb->setShaderResources(m_obj->tubeFrameSrb, 1, &ofs);
-                cb->dispatch(1, 1, 1);
-            }
-            cb->endComputePass();
-        }
-
-        // LATI DEL BORDO COPERTI (buildSharedEdgePipeline): prima del disegno,
-        // col blocco 0 per costanti, tempo e vincoli; dominio e `mesh` di ogni
-        // parte dalla tabella, ricaricata solo quando cambia. Le due passate
-        // girano solo quando cambia la geometria (sharedEdgeKey): le
-        // rotazioni non contano, il compute confronta punti non ruotati.
-        // Si decide QUI, dopo buildPipeline, e qui si accende u_sharedEdgesOn
-        // nei blocchi del bordo (scritti piu' in alto con 0): la passata nasce
-        // dal vertex della pipeline, che dopo un rebuildShader si rifa' solo
-        // in questo punto. Decidendo coi blocchi, nel frame in cui il bordo si
-        // accende valeva ancora il vertex di prima, senza bordo: passata spenta
-        // e tutti i lati disegnati, finche' qualcosa non ridisegnava la scena.
-        // A BORDO SPENTO la passata gira come SONDA (borderAvailability): una
-        // volta per geometria, quando resta ferma per borderProbeTimer, e se
-        // ne rileggono i flag per sapere se il bordo, acceso, si vedrebbe. A
-        // bordo acceso gira gia' per disegnare: la sonda ne rilegge i flag.
-        const bool borderOn = m_obj->borderRadius > 0.0f;
-        const bool edgePass = sharedEdgesActive();
-        if (!edgePass && !m_obj->isCustomMesh && m_obj->engine && !m_obj->engine->isTubeModeActive())
-            setBorderAvailability(BorderAvailability::Unknown);   // compute assente o non compilato
-        if (edgePass) {
-            const std::vector<MeshPart> &edgeParts = m_obj->engine->getMeshParts();
-            if (!resourceUpdates) resourceUpdates = rhi()->nextResourceUpdateBatch();
-            const float on = 1.0f;
-            const int edgeSlots = std::max(1, (int)edgeParts.size());
-            if (borderOn) {
-                for (int k = 0; k < edgeSlots; ++k)
-                    resourceUpdates->updateDynamicBuffer(
-                        m_obj->ubo, quint32((edgeSlots + k) * m_obj->uboBlockStride + offsetof(UboData, u_sharedEdgesOn)),
-                        sizeof(float), &on);
-            }
-            std::vector<QVector4D> table;
-            table.reserve(1 + 2 * edgeParts.size());
-            table.emplace_back(float(edgeParts.size()), 0.0f, 0.0f, 0.0f);
-            for (const MeshPart &mp : edgeParts) {
-                table.emplace_back(mp.uMin, mp.uMax, mp.vMin, mp.vMax);
-                table.emplace_back(float(mp.meshIndex), 0.0f, 0.0f, 0.0f);
-            }
-            if (table != m_obj->sharedEdgeTable) {
-                resourceUpdates->uploadStaticBuffer(m_obj->sharedEdgeParts, 0, quint32(table.size() * sizeof(QVector4D)),
-                                                    table.data());
-                m_obj->sharedEdgeTable = table;
-            }
-            // Cio' da cui dipendono i punti dei lati, oltre allo shader (che
-            // azzera la chiave quando si rifa'). La sonda guarda la forma senza
-            // il tempo: su una superficie animata girerebbe a ogni frame.
-            QByteArray shape(reinterpret_cast<const char *>(table.data()), int(table.size() * sizeof(QVector4D)));
-            shape.append(reinterpret_cast<const char *>(&m_uboData.mathParams), sizeof(QVector4D));
-            shape.append(reinterpret_cast<const char *>(&m_uboData.mathParams2), sizeof(QVector4D));
-            shape.append(reinterpret_cast<const char *>(&m_uboData.hasExplicitW), sizeof(int));
-            shape.append(reinterpret_cast<const char *>(&m_uboData.u_meshCount), sizeof(float));
-            // Animata o ferma: ripartendo, la sonda riguarda piu' istanti.
-            const int animating = m_obj->surfaceAnimating ? 1 : 0;
-            shape.append(reinterpret_cast<const char *>(&animating), sizeof(int));
-            QByteArray key = shape;
-            key.append(reinterpret_cast<const char *>(&m_uboData.time), sizeof(float));
-            // La sonda segue la geometria anche a bordo acceso (un preset
-            // salvato col bordo): li' rilegge i flag della passata che gira
-            // comunque, cosi' spegnendo il bordo il dock sa gia' cosa fare.
-            bool probe = false, watchProbe = false;
-            if (shape != m_obj->borderProbeKey) {
-                if (shape != m_obj->borderProbePending) {
-                    // Geometria nuova: si aspetta che si fermi.
-                    m_obj->borderProbePending = shape;
-                    m_obj->borderProbeArmed = false;
-                    m_obj->borderProbeWatch = false;
-                    m_obj->borderProbeTimer->start();
-                } else if (m_obj->borderProbeArmed && !m_obj->borderProbeReading) {
-                    m_obj->borderProbeArmed = false;
-                    m_obj->borderProbeKey = shape;
-                    probe = true;
-                }
-            } else if (m_obj->borderProbeWatch && !m_obj->borderProbeReading
-                       && m_obj->borderProbeWatchClock.elapsed() >= kBorderProbeWatchMs) {
-                // Si aspetta che la superficie animata si apra: l'istante corrente.
-                m_obj->borderProbeWatchClock.restart();
-                probe = watchProbe = true;
-            }
-            // SU UNA SUPERFICIE ANIMATA la sonda guarda kBorderProbeInstants
-            // istanti di t in un colpo solo, per sapere se si apre in qualche
-            // momento (S3 Moving Plane) o resta sempre chiusa: vedi
-            // finishBorderProbe. Ogni istante coi suoi cinque blocchi UBO: scritti
-            // nello stesso frame negli stessi blocchi, varrebbe l'ultimo per
-            // tutti. L'ultimo istante e' quello attuale: col bordo acceso restano
-            // i suoi flag. La sorveglianza (watchProbe) guarda solo l'attuale.
-            const int instants = (probe && !watchProbe && m_obj->surfaceAnimating) ? kBorderProbeInstants : 1;
-            const bool run = (borderOn && key != m_obj->sharedEdgeKey) || probe;
-            if (run) {
-                m_obj->sharedEdgeKey = key;
-                // Cinque passate distinte, ciascuna legge cio' che la
-                // precedente scrive: campioni (fase 10), sfere dei blocchi (11),
-                // test dei campioni dei lati (12), pulizia dei tratti corti
-                // (13), lati coperti per intero (14). La fase sta nel loro
-                // blocco UBO, dopo quelli del bordo; il resto del blocco e'
-                // quello globale (costanti, tempo, vincoli).
-                const int count = int(edgeParts.size());
-                const int work[5] = {
-                    count * (4 * (kSharedEdgeSamples + 1) + (kSharedEdgeGrid + 1) * (kSharedEdgeGrid + 1)),
-                    count * kSharedEdgeTiles,
-                    count * 4 * (kSharedEdgeSamples + 1),
-                    count * 4 * (kSharedEdgeSamples + 1),
-                    count * 4 };
-                if (probe) {
-                    m_obj->borderProbeMeshes.clear();
-                    for (const MeshPart &mp : edgeParts) m_obj->borderProbeMeshes.push_back(mp.meshIndex);
-                    m_obj->borderProbeReadSerial = m_obj->borderProbeSerial;
-                    m_obj->borderProbeReading = true;
-                    m_obj->borderProbeInstantsRead = instants;
-                    m_obj->borderProbeArrived = 0;
-                }
-                for (int i = 0; i < instants; ++i) {
-                    for (int phase = 0; phase < 5; ++phase) {
-                        UboData block = m_uboData;
-                        block.u_isBorder = 10 + phase;
-                        block.time = m_uboData.time + float(instants - 1 - i) * kBorderProbeStep;
-                        const quint32 offset = quint32(2 * edgeSlots + 5 * i + phase) * m_obj->uboBlockStride;
-                        if (!resourceUpdates) resourceUpdates = rhi()->nextResourceUpdateBatch();
-                        resourceUpdates->updateDynamicBuffer(m_obj->ubo, offset, sizeof(UboData), &block);
-                    }
-                }
-                for (int i = 0; i < instants; ++i) {
-                    for (int phase = 0; phase < 5; ++phase) {
-                        cb->beginComputePass(resourceUpdates);
-                        resourceUpdates = nullptr;
-                        cb->setComputePipeline(m_obj->sharedEdgePipeline);
-                        const QRhiCommandBuffer::DynamicOffset ofs(
-                            0, quint32(2 * edgeSlots + 5 * i + phase) * m_obj->uboBlockStride);
-                        cb->setShaderResources(m_obj->sharedEdgeSrb, 1, &ofs);
-                        cb->dispatch((work[phase] + 63) / 64, 1, 1);
-                        cb->endComputePass();
-                    }
-                    if (probe) {
-                        // I flag di QUESTO istante; il risultato arriva dentro un
-                        // frame successivo e si legge fuori da render, in coda.
-                        QRhiResourceUpdateBatch *rb = rhi()->nextResourceUpdateBatch();
-                        m_obj->borderProbeResults[i] = {};
-                        m_obj->borderProbeResults[i].completed = [this] {
-                            QMetaObject::invokeMethod(this, [this] { finishBorderProbe(); }, Qt::QueuedConnection);
-                        };
-                        rb->readBackTexture(QRhiReadbackDescription(m_obj->sharedEdgeTex), &m_obj->borderProbeResults[i]);
-                        cb->resourceUpdate(rb);
-                    }
-                }
-            }
-            if (m_obj->sharedEdgeReadbackRequested) {
-                m_obj->sharedEdgeReadbackRequested = false;
-                QRhiResourceUpdateBatch *rb = rhi()->nextResourceUpdateBatch();
-                m_obj->sharedEdgeFlagsResult = {};
-                m_obj->sharedEdgeFlagsResult.completed = [this] { ++m_obj->sharedEdgeReadbacks; };
-                rb->readBackTexture(QRhiReadbackDescription(m_obj->sharedEdgeTex), &m_obj->sharedEdgeFlagsResult);
-                m_obj->sharedEdgeSamplesResult = {};
-                m_obj->sharedEdgeSamplesResult.completed = [this] { ++m_obj->sharedEdgeReadbacks; };
-                rb->readBackBuffer(m_obj->sharedEdgeSamples, 0,
-                                   quint32(edgeParts.size() * kSharedEdgePartVec4 * sizeof(QVector4D)),
-                                   &m_obj->sharedEdgeSamplesResult);
-                cb->resourceUpdate(rb);
-            }
-        }
-        // La lettura della sonda si chiude in un frame successivo: finche' non
-        // arriva, se ne chiedono altri (una scena ferma non ne disegnerebbe).
-        if (m_obj->borderProbeReading) update();
-
-        // --- RENDER PASS ---
-        QColor clearColor = QColor::fromRgbF(m_bgColor.x(), m_bgColor.y(), m_bgColor.z());
-        cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 }, resourceUpdates);
-
-        if (m_isFlatView) {
-            if (m_flatViewTarget == 1 && m_bgPipeline && m_bgVbo) {
-                cb->setGraphicsPipeline(m_bgPipeline);
-                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-                cb->setShaderResources(m_bgBindings);
-                const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
-                cb->setVertexInput(0, 1, &vbufBinding);
-                cb->draw(6);
-            } else if (m_flatViewTarget == 2 && m_obj->borderRadius > 0.0f && m_obj->pipelineOpaque && m_bgVbo) {
-                // TEXTURE DEL BORDO in 2D: lo stesso quadrato, col blocco di
-                // uniform del bordo (u_isBorder: il fragment sceglie la sua
-                // texture; colori, inquadratura e orologio suoi) e la sua
-                // immagine. Il blocco e' quello del bordo della prima parte.
-                cb->setGraphicsPipeline(m_obj->pipelineOpaque);
-                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-                const int partSlots = std::max(1, (int)m_obj->engine->getMeshParts().size());
-                const QRhiCommandBuffer::DynamicOffset dynOfs0(0, partSlots * m_obj->uboBlockStride);
-                cb->setShaderResources(borderBindings(), 1, &dynOfs0);
-                const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
-                cb->setVertexInput(0, 1, &vbufBinding);
-                cb->draw(6);
-            } else if (m_obj->pipelineOpaque && m_bgVbo) {
-                cb->setGraphicsPipeline(m_obj->pipelineOpaque);
-                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-                // pipelineOpaque e' costruita sul layout con dynamic offset:
-                // anche questo draw (quad di anteprima, nessuna parte di mesh)
-                // deve passare un offset.
-                // MULTI-MESH: la vista 2D edita la texture della mesh SELEZIONATA,
-                // quindi deve leggere il blocco UBO di QUELLA parte. Col blocco 0
-                // fisso, u_meshIndex valeva sempre 0 e il dispatcher mostrava la
-                // texture della mesh 1 mentre il dock script mostrava quella
-                // selezionata: stesso indice, due texture diverse a schermo.
-                // L'indice va CLAMPATO agli stessi limiti che usa
-                // commitFlatTransformToActivePart, o si disegna un blocco mentre
-                // il mouse ne scrive un altro e il trascinamento sembra non
-                // funzionare (il "a tratti" storico: capita quando l'indice
-                // attivo sopravvive a una rigenerazione con meno parti).
-                // Nota: con uboPartCount <= 1 e' scritto SOLO il blocco 0, quindi
-                // qualunque altro offset leggerebbe un blocco mai aggiornato.
-                const std::vector<MeshPart> &flatParts = m_obj->engine->getMeshParts();
-                const int flatPart = (flatParts.size() > 1 && m_obj->activeMeshPart >= 0
-                                      && m_obj->activeMeshPart < (int)flatParts.size())
-                                     ? m_obj->activeMeshPart : 0;
-                const QRhiCommandBuffer::DynamicOffset dynOfs0(0, flatPart * m_obj->uboBlockStride);
-                // ...e con la SUA immagine, se ne ha una.
-                QRhiShaderResourceBindings *flatSrb = m_obj->bindingsDyn ? m_obj->bindingsDyn : m_obj->bindings;
-                if (flatParts.size() > 1 && m_obj->activeMeshPart >= 0
-                    && m_obj->activeMeshPart < (int)flatParts.size())
-                    flatSrb = bindingsForPart(flatParts[flatPart]);
-                cb->setShaderResources(flatSrb, 1, &dynOfs0);
-                const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
-                cb->setVertexInput(0, 1, &vbufBinding);
-                cb->draw(6);
-            }
+    if (m_isFlatView) {
+        if (m_flatViewTarget == 1 && m_bgPipeline && m_bgVbo) {
+            cb->setGraphicsPipeline(m_bgPipeline);
+            cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
+            cb->setShaderResources(m_bgBindings);
+            const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
+            cb->setVertexInput(0, 1, &vbufBinding);
+            cb->draw(6);
         } else {
-            if (m_useBackgroundTexture) {
-                if (!m_bgPipeline) rebuildBackgroundShader(!m_bgIsScript, m_bgScriptCode);
-                if (m_bgPipeline && m_bgVbo) {
-                    cb->setGraphicsPipeline(m_bgPipeline);
-                    cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-                    cb->setShaderResources(m_bgBindings);
-                    const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
-                    cb->setVertexInput(0, 1, &vbufBinding);
-                    cb->draw(6);
-                }
-            }
-
-            // MULTI-MESH: una draw call per parte, ognuna col proprio blocco UBO
-            // (dominio + u_meshIndex) selezionato via dynamic offset. Con una
-            // parte sola il loop fa un solo giro sul blocco 0: identico a prima.
-            QRhiShaderResourceBindings *srb = m_obj->bindingsDyn ? m_obj->bindingsDyn : m_obj->bindings;
-            const std::vector<MeshPart> &parts = m_obj->engine->getMeshParts();
-
-            // Una parte e' in wireframe se la sua modalita' EFFICACE e' 2.
-            // Con parti che ereditano tutte, questo coincide col vecchio test
-            // globale renderMode == 2.
-            auto partIsWireframe = [&](const MeshPart &p) {
-                return effectivePartRenderMode(p) == 2;
-            };
-            bool anyWireframe = (m_obj->renderMode == 2);
-            bool anySolid     = (m_obj->renderMode != 2);
-            if (parts.size() > 1) {
-                anyWireframe = false;
-                anySolid     = false;
-                for (const MeshPart &p : parts) {
-                    if (partIsWireframe(p)) anyWireframe = true;
-                    else                    anySolid = true;
-                }
-            }
-
-            // BORDO, per primo: e' opaco e scrive la profondita', quindi le
-            // parti trasparenti disegnate dopo lo lasciano vedere attraverso e
-            // il wireframe ne resta occluso dove gli passa dietro. Ogni parte
-            // col suo blocco di bordo (uboPartSlots + indice della parte).
-            if (m_obj->borderRadius > 0.0f && m_obj->borderRenderMode != 2 && m_obj->indexCount > 0
-                && m_obj->pipelineOpaque && m_obj->borderVbo && m_obj->borderIbo && m_obj->borderUploaded) {
-                const int partSlots = std::max(1, (int)parts.size());
-                // La pipeline del bordo, col discard dei tratti coperti; senza,
-                // quella della superficie (bordo intero).
-                cb->setGraphicsPipeline(m_obj->borderPipelineOpaque ? m_obj->borderPipelineOpaque : m_obj->pipelineOpaque);
-                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-                const QRhiCommandBuffer::VertexInput borderBinding(m_obj->borderVbo, 0);
-                // Con un'immagine propria lo slot 1 e' la SUA texture.
-                QRhiShaderResourceBindings *borderSrb = borderBindings();
-                for (const SurfaceEngine::BorderRange &r : m_obj->engine->getBorderRanges()) {
-                    if (r.indexCount <= 0) continue;
-                    const int slot = partSlots + std::clamp(r.meshIndex, 0, partSlots - 1);
-                    const QRhiCommandBuffer::DynamicOffset ofs(0, slot * m_obj->uboBlockStride);
-                    cb->setShaderResources(borderSrb, 1, &ofs);
-                    cb->setVertexInput(0, 1, &borderBinding, m_obj->borderIbo,
-                                       r.indexOffset * sizeof(unsigned int),
-                                       QRhiCommandBuffer::IndexUInt32);
-                    cb->drawIndexed(r.indexCount, 1, 0, r.vertexOffset);
-                }
-            }
-
-            // ORDINE: prima il SOLIDO, poi il WIREFRAME.
-            // La pipeline wireframe ha depthWrite = true (le linee devono
-            // occludersi fra loro), quindi disegnandola per PRIMA riempiva il
-            // depth buffer e le mesh solide TRASPARENTI disegnate dopo venivano
-            // scartate dal depth test: a mesh wireframe presente, una mesh
-            // trasparente dietro spariva del tutto. Il solido opaco scrive
-            // comunque depth, quindi il wireframe disegnato dopo resta
-            // correttamente occluso da cio' che gli sta davanti.
-            if (anySolid) {
-                // Solido
-                if (m_obj->indexCount > 0 && m_obj->vbo && m_obj->ibo) {
-                    cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-                    const QRhiCommandBuffer::VertexInput vbufBinding(m_obj->vbo, 0);
-
-                    // Disegna una parte con la pipeline corrente. Gli indici sono
-                    // LOCALI alla parte, quindi il rebase sui vertici passa da
-                    // vertexOffset di drawIndexed; l'offset nell'index buffer e'
-                    // in byte.
-                    auto drawPart = [&](const MeshPart &p, quint32 ubOffset) {
-                        if (p.indexCount <= 0) return;
-                        const QRhiCommandBuffer::DynamicOffset ofs(0, ubOffset);
-                        // I binding della parte: con un'immagine propria lo
-                        // slot 1 e' la SUA texture.
-                        cb->setShaderResources(bindingsForPart(p), 1, &ofs);
-                        cb->setVertexInput(0, 1, &vbufBinding, m_obj->ibo,
-                                           p.indexOffset * sizeof(unsigned int),
-                                           QRhiCommandBuffer::IndexUInt32);
-                        cb->drawIndexed(p.indexCount, 1, 0, p.vertexOffset);
-                    };
-
-                    // Mesh singola (o mesh custom senza parti): percorso storico,
-                    // un solo drawIndexed su tutto il buffer col blocco UBO 0.
-                    auto drawWhole = [&]() {
-                        const QRhiCommandBuffer::DynamicOffset ofs(0, 0);
-                        cb->setShaderResources(m_obj->bindingsDyn ? m_obj->bindingsDyn : m_obj->bindings, 1, &ofs);
-                        cb->setVertexInput(0, 1, &vbufBinding, m_obj->ibo, 0, QRhiCommandBuffer::IndexUInt32);
-                        cb->drawIndexed(m_obj->indexCount);
-                    };
-
-                    const bool multi = (parts.size() > 1);
-
-                    // Alpha EFFICACE di una parte: la sua, se dichiarata,
-                    // altrimenti quella globale. Decide se va nel gruppo
-                    // trasparente o in quello opaco.
-                    // In ambito "All" l'alpha per-parte e' sospeso: vale il
-                    // globale per tutte, o una mesh con alpha proprio finirebbe
-                    // nel gruppo sbagliato e la superficie non si comporterebbe
-                    // come una sola.
-                    auto partAlpha = [&](const MeshPart &p) {
-                        if (m_obj->meshAppearanceUniform) return m_obj->alpha;
-                        return (p.alpha >= 0.0f) ? p.alpha : m_obj->alpha;
-                    };
-                    if (multi) {
-                        // Le parti in wireframe sono gia' state disegnate dal
-                        // ramo sopra: qui vanno saltate, o comparirebbero anche
-                        // come solido (doppio disegno).
-                        std::vector<const MeshPart*> solidParts;
-                        solidParts.reserve(parts.size());
-                        for (const MeshPart &p : parts)
-                            if (!partIsWireframe(p)) solidParts.push_back(&p);
-
-                        // ORDINE: prima tutte le parti OPACHE (scrivono depth),
-                        // poi le trasparenti; e fra queste TUTTE le facce
-                        // posteriori prima di QUALSIASI faccia anteriore. Fare
-                        // back+front parte per parte fonderebbe la parte k+1
-                        // sopra il fronte della parte k, invertendo la
-                        // profondita' fra i rami (il fronte non scrive depth).
-                        if (m_obj->pipelineOpaque) {
-                            cb->setGraphicsPipeline(m_obj->pipelineOpaque);
-                            for (const MeshPart *p : solidParts)
-                                if (partAlpha(*p) >= 0.99f)
-                                    drawPart(*p, p->meshIndex * m_obj->uboBlockStride);
-                        }
-                        // TRASPARENTI ORDINATE PER PROFONDITA'.
-                        // Il blending non e' commutativo e questo ramo non scrive
-                        // depth: disegnandole nell'ordine delle PARTI vinceva
-                        // l'ultima anche se stava dietro, e con tori annidati uno
-                        // interno sembrava coprire quello esterno.
-                        // La distanza si stima sul CENTROIDE dei vertici della
-                        // parte, portato in spazio vista: e' un'approssimazione
-                        // (due superfici compenetranti non hanno un ordine
-                        // corretto) ma copre il caso dei rami annidati o
-                        // affiancati, che e' quello dei preset multi-mesh.
-                        std::vector<const MeshPart*> transp;
-                        transp.reserve(solidParts.size());
-                        for (const MeshPart *p : solidParts)
-                            if (partAlpha(*p) < 0.99f) transp.push_back(p);
-
-                        if (transp.size() > 1) {
-                            const std::vector<Vertex> &verts = m_obj->engine->getVertices();
-                            const QMatrix4x4 mvNow = m_view * m_obj->model;
-                            auto depthOf = [&](const MeshPart *p) -> float {
-                                if (p->vertexCount <= 0) return 0.0f;
-                                QVector3D c(0.0f, 0.0f, 0.0f);
-                                const int step = std::max(1, p->vertexCount / 64);
-                                int n = 0;
-                                for (int i = 0; i < p->vertexCount; i += step) {
-                                    const int idx = p->vertexOffset + i;
-                                    if (idx < 0 || idx >= (int)verts.size()) continue;
-                                    c += verts[idx].position.toVector3D();
-                                    ++n;
-                                }
-                                if (n == 0) return 0.0f;
-                                c /= float(n);
-                                // La camera guarda lungo -z: piu' NEGATIVO = piu' lontano.
-                                return mvNow.map(c).z();
-                            };
-                            std::stable_sort(transp.begin(), transp.end(),
-                                             [&](const MeshPart *a, const MeshPart *b) {
-                                                 return depthOf(a) < depthOf(b);
-                                             });
-                        }
-
-                        // Disegna solo se entrambe le pipeline di trasparenza sono
-                        // valide: dopo un errore di compilazione una puo' essere
-                        // nulla, e passarla a Metal causa EXC_BAD_ACCESS.
-                        if (m_obj->pipelineTranspBack && m_obj->pipelineTranspFront) {
-                            cb->setGraphicsPipeline(m_obj->pipelineTranspBack);
-                            for (const MeshPart *p : transp)
-                                drawPart(*p, p->meshIndex * m_obj->uboBlockStride);
-
-                            cb->setGraphicsPipeline(m_obj->pipelineTranspFront);
-                            for (const MeshPart *p : transp)
-                                drawPart(*p, p->meshIndex * m_obj->uboBlockStride);
-                        }
-                    } else if (m_obj->alpha < 0.99f) {
-                        if (m_obj->pipelineTranspBack && m_obj->pipelineTranspFront) {
-                            cb->setGraphicsPipeline(m_obj->pipelineTranspBack);
-                            drawWhole();
-                            cb->setGraphicsPipeline(m_obj->pipelineTranspFront);
-                            drawWhole();
-                        }
-                    } else {
-                        if (m_obj->pipelineOpaque) {
-                            cb->setGraphicsPipeline(m_obj->pipelineOpaque);
-                            drawWhole();
-                        }
-                    }
-                }
-            }
-
-            // WIREFRAME, dopo il solido (vedi la nota sull'ordine sopra).
-            if (anyWireframe) {
-                if (m_obj->wireframePipeline && m_obj->wireframeIndexCount > 0) {
-                    cb->setGraphicsPipeline(m_obj->wireframePipeline);
-                    cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-                    const QRhiCommandBuffer::VertexInput vbufBinding(m_obj->vbo, 0);
-
-                    if (m_obj->wireframeRanges.size() <= 1) {
-                        const QRhiCommandBuffer::DynamicOffset ofs(0, 0);
-                        cb->setShaderResources(srb, 1, &ofs);
-                        cb->setVertexInput(0, 1, &vbufBinding, m_obj->wireframeIbo, 0, QRhiCommandBuffer::IndexUInt32);
-                        cb->drawIndexed(m_obj->wireframeIndexCount);
-                    } else {
-                        for (const WireframeRange &r : m_obj->wireframeRanges) {
-                            if (r.indexCount <= 0) continue;
-                            // Salta le parti che NON sono in wireframe: i loro
-                            // indici esistono comunque nel buffer (buildWireframe
-                            // genera un range per ogni parte), ma vanno disegnate
-                            // dal ramo solido.
-                            if (r.meshIndex >= 0 && r.meshIndex < (int)parts.size()
-                                && !partIsWireframe(parts[r.meshIndex])) continue;
-                            const QRhiCommandBuffer::DynamicOffset ofs(0, r.meshIndex * m_obj->uboBlockStride);
-                            cb->setShaderResources(srb, 1, &ofs);
-                            // Gli indici del wireframe sono ASSOLUTI: l'offset
-                            // della parte si applica all'index buffer (in byte),
-                            // non ai vertici.
-                            cb->setVertexInput(0, 1, &vbufBinding, m_obj->wireframeIbo,
-                                               r.indexOffset * sizeof(unsigned int),
-                                               QRhiCommandBuffer::IndexUInt32);
-                            cb->drawIndexed(r.indexCount);
-                        }
-                    }
-                }
-            }
-
-            // BORDO IN WIREFRAME: con la pipeline a linee, dopo il solido per
-            // la stessa ragione del wireframe della superficie (scrive la
-            // profondita' e non deve nascondere le parti trasparenti).
-            if (m_obj->borderRadius > 0.0f && m_obj->borderRenderMode == 2 && m_obj->indexCount > 0
-                && m_obj->wireframePipeline && m_obj->borderVbo && m_obj->borderWireIbo && m_obj->borderUploaded) {
-                const int partSlots = std::max(1, (int)parts.size());
-                cb->setGraphicsPipeline(m_obj->borderPipelineWire ? m_obj->borderPipelineWire : m_obj->wireframePipeline);
-                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-                const QRhiCommandBuffer::VertexInput borderBinding(m_obj->borderVbo, 0);
-                for (const SurfaceEngine::BorderRange &r : m_obj->engine->getBorderRanges()) {
-                    if (r.wireIndexCount <= 0) continue;
-                    const int slot = partSlots + std::clamp(r.meshIndex, 0, partSlots - 1);
-                    const QRhiCommandBuffer::DynamicOffset ofs(0, slot * m_obj->uboBlockStride);
-                    cb->setShaderResources(srb, 1, &ofs);
-                    cb->setVertexInput(0, 1, &borderBinding, m_obj->borderWireIbo,
-                                       r.wireIndexOffset * sizeof(unsigned int),
-                                       QRhiCommandBuffer::IndexUInt32);
-                    cb->drawIndexed(r.wireIndexCount, 1, 0, r.vertexOffset);
-                }
-            }
-
+            drawFlatObject(o, cb, outputSize);
         }
-
-        cb->endPass();
-
-    } else if (m_obj->engineMode == ModeImplicit) {
-        // ==========================================
-        // MODALITÀ IMPLICITA (RAY MARCHING)
-        // ==========================================
-        if (!m_obj->pipelineImplicit) buildImplicitPipeline();
-
-        QColor clearColor = QColor::fromRgbF(m_bgColor.x(), m_bgColor.y(), m_bgColor.z());
-        cb->beginPass(renderTarget(), clearColor, { 1.0f, 0 }, resourceUpdates);
-
-        if (m_isFlatView) {
-            if (m_flatViewTarget == 1 && m_bgPipeline && m_bgVbo) {
+    } else {
+        if (m_useBackgroundTexture) {
+            if (!m_bgPipeline) rebuildBackgroundShader(!m_bgIsScript, m_bgScriptCode);
+            if (m_bgPipeline && m_bgVbo) {
                 cb->setGraphicsPipeline(m_bgPipeline);
                 cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
                 cb->setShaderResources(m_bgBindings);
@@ -3314,95 +2263,17 @@ void GLWidget::render(QRhiCommandBuffer *cb)
                 cb->setVertexInput(0, 1, &vbufBinding);
                 cb->draw(6);
             }
-        } else {
-            if (m_useBackgroundTexture) {
-                if (!m_bgPipeline) rebuildBackgroundShader(!m_bgIsScript, m_bgScriptCode);
-                if (m_bgPipeline && m_bgVbo) {
-                    cb->setGraphicsPipeline(m_bgPipeline);
-                    cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-                    cb->setShaderResources(m_bgBindings);
-                    const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
-                    cb->setVertexInput(0, 1, &vbufBinding);
-                    cb->draw(6);
-                }
-            }
-
-            if (m_obj->pipelineImplicit && m_bgVbo) {
-                cb->setGraphicsPipeline(m_obj->pipelineImplicit);
-                cb->setViewport(QRhiViewport(0, 0, outputSize.width(), outputSize.height()));
-                cb->setShaderResources(m_obj->bindings);
-
-                const QRhiCommandBuffer::VertexInput vbufBinding(m_bgVbo, 0);
-                cb->setVertexInput(0, 1, &vbufBinding);
-                cb->draw(6);
-            }
         }
 
-        cb->endPass();
+        drawObject(o, cb, outputSize);
     }
+
+    cb->endPass();
 }
 
 void GLWidget::releaseResources()
 {
-    releaseTubeFramePipeline();
-    releaseSharedEdgePipeline();
-    if (m_obj->sharedEdgeTex) {
-        m_obj->sharedEdgeTex->destroy();
-        delete m_obj->sharedEdgeTex;
-        m_obj->sharedEdgeTex = nullptr;
-    }
-    if (m_obj->sharedEdgeSampler) {
-        m_obj->sharedEdgeSampler->destroy();
-        delete m_obj->sharedEdgeSampler;
-        m_obj->sharedEdgeSampler = nullptr;
-    }
-    if (m_obj->sharedEdgeParts) {
-        m_obj->sharedEdgeParts->destroy();
-        delete m_obj->sharedEdgeParts;
-        m_obj->sharedEdgeParts = nullptr;
-    }
-    if (m_obj->sharedEdgeSamples) {
-        m_obj->sharedEdgeSamples->destroy();
-        delete m_obj->sharedEdgeSamples;
-        m_obj->sharedEdgeSamples = nullptr;
-    }
-    if (m_obj->sharedEdgeRaw) {
-        m_obj->sharedEdgeRaw->destroy();
-        delete m_obj->sharedEdgeRaw;
-        m_obj->sharedEdgeRaw = nullptr;
-    }
-    if (m_obj->sharedEdgeTiles) {
-        m_obj->sharedEdgeTiles->destroy();
-        delete m_obj->sharedEdgeTiles;
-        m_obj->sharedEdgeTiles = nullptr;
-    }
-    m_obj->sharedEdgeTable.clear();
-    m_obj->sharedEdgeSourceDirty = !m_obj->sharedEdgeSource.isEmpty();
-    if (m_obj->tubeFrameTex) {
-        m_obj->tubeFrameTex->destroy();
-        delete m_obj->tubeFrameTex;
-        m_obj->tubeFrameTex = nullptr;
-    }
-    if (m_obj->tubeFrameSampler) {
-        m_obj->tubeFrameSampler->destroy();
-        delete m_obj->tubeFrameSampler;
-        m_obj->tubeFrameSampler = nullptr;
-    }
-    if (m_obj->tubeFrameWork) {
-        m_obj->tubeFrameWork->destroy();
-        delete m_obj->tubeFrameWork;
-        m_obj->tubeFrameWork = nullptr;
-    }
-    if (m_obj->borderEdgeTex) {
-        m_obj->borderEdgeTex->destroy();
-        delete m_obj->borderEdgeTex;
-        m_obj->borderEdgeTex = nullptr;
-    }
-    if (m_obj->borderEdgeSampler) {
-        m_obj->borderEdgeSampler->destroy();
-        delete m_obj->borderEdgeSampler;
-        m_obj->borderEdgeSampler = nullptr;
-    }
+    for (const auto &obj : m_objects) releaseObjectResources(*obj);
     if (m_dummyTexture) {
         m_dummyTexture->destroy();
         delete m_dummyTexture;
@@ -3413,55 +2284,6 @@ void GLWidget::releaseResources()
         delete m_sampler;
         m_sampler = nullptr;
     }
-    if (m_obj->bindings) {
-        delete m_obj->bindings;
-        m_obj->bindings = nullptr;
-    }
-    if (m_obj->bindingsDyn) {
-        delete m_obj->bindingsDyn;
-        m_obj->bindingsDyn = nullptr;
-        m_obj->bindingsDynTexture = nullptr;
-    }
-    if (m_obj->ubo) {
-        delete m_obj->ubo;
-        m_obj->ubo = nullptr;
-        m_obj->uboBlockCapacity = 0;
-    }
-    if (m_obj->vbo) {
-        delete m_obj->vbo;
-        m_obj->vbo = nullptr;
-    }
-    if (m_obj->ibo) {
-        delete m_obj->ibo;
-        m_obj->ibo = nullptr;
-    }
-    if (m_obj->wireframeIbo) {
-        delete m_obj->wireframeIbo;
-        m_obj->wireframeIbo = nullptr;
-    }
-    if (m_obj->borderVbo) {
-        delete m_obj->borderVbo;
-        m_obj->borderVbo = nullptr;
-    }
-    if (m_obj->borderIbo) {
-        delete m_obj->borderIbo;
-        m_obj->borderIbo = nullptr;
-    }
-    if (m_obj->borderWireIbo) {
-        delete m_obj->borderWireIbo;
-        m_obj->borderWireIbo = nullptr;
-    }
-    m_obj->borderUploaded = false;
-    if (m_obj->wireframePipeline) {
-        delete m_obj->wireframePipeline;
-        m_obj->wireframePipeline = nullptr;
-    }
-    if (m_obj->surfaceTexture) {
-        m_obj->surfaceTexture->destroy();
-        delete m_obj->surfaceTexture;
-        m_obj->surfaceTexture = nullptr;
-    }
-    releasePartImages();
     if (m_bgVbo) {
         delete m_bgVbo;
         m_bgVbo = nullptr;
@@ -3479,37 +2301,150 @@ void GLWidget::releaseResources()
         delete m_backgroundTexture;
         m_backgroundTexture = nullptr;
     }
-    if (m_obj->pipelineOpaque) {
-        delete m_obj->pipelineOpaque;
-        m_obj->pipelineOpaque = nullptr;
-    }
-    if (m_obj->pipelineTranspBack) {
-        delete m_obj->pipelineTranspBack;
-        m_obj->pipelineTranspBack = nullptr;
-    }
-    if (m_obj->pipelineTranspFront) {
-        delete m_obj->pipelineTranspFront;
-        m_obj->pipelineTranspFront = nullptr;
-    }
-    if (m_obj->borderPipelineOpaque) {
-        delete m_obj->borderPipelineOpaque;
-        m_obj->borderPipelineOpaque = nullptr;
-    }
-    if (m_obj->borderPipelineWire) {
-        delete m_obj->borderPipelineWire;
-        m_obj->borderPipelineWire = nullptr;
-    }
     if (m_bgUbo) {
         delete m_bgUbo;
         m_bgUbo = nullptr;
     }
-    if (m_obj->pipelineImplicit) {
-        delete m_obj->pipelineImplicit;
-        m_obj->pipelineImplicit = nullptr;
+}
+
+// Le risorse GPU di UN oggetto (vedi initObjectResources).
+void GLWidget::releaseObjectResources(SurfaceObject &o)
+{
+    releaseTubeFramePipeline(o);
+    releaseSharedEdgePipeline(o);
+    if (o.sharedEdgeTex) {
+        o.sharedEdgeTex->destroy();
+        delete o.sharedEdgeTex;
+        o.sharedEdgeTex = nullptr;
     }
-    if (m_obj->bindingsImplicit) {
-        delete m_obj->bindingsImplicit;
-        m_obj->bindingsImplicit = nullptr;
+    if (o.sharedEdgeSampler) {
+        o.sharedEdgeSampler->destroy();
+        delete o.sharedEdgeSampler;
+        o.sharedEdgeSampler = nullptr;
+    }
+    if (o.sharedEdgeParts) {
+        o.sharedEdgeParts->destroy();
+        delete o.sharedEdgeParts;
+        o.sharedEdgeParts = nullptr;
+    }
+    if (o.sharedEdgeSamples) {
+        o.sharedEdgeSamples->destroy();
+        delete o.sharedEdgeSamples;
+        o.sharedEdgeSamples = nullptr;
+    }
+    if (o.sharedEdgeRaw) {
+        o.sharedEdgeRaw->destroy();
+        delete o.sharedEdgeRaw;
+        o.sharedEdgeRaw = nullptr;
+    }
+    if (o.sharedEdgeTiles) {
+        o.sharedEdgeTiles->destroy();
+        delete o.sharedEdgeTiles;
+        o.sharedEdgeTiles = nullptr;
+    }
+    o.sharedEdgeTable.clear();
+    o.sharedEdgeSourceDirty = !o.sharedEdgeSource.isEmpty();
+    if (o.tubeFrameTex) {
+        o.tubeFrameTex->destroy();
+        delete o.tubeFrameTex;
+        o.tubeFrameTex = nullptr;
+    }
+    if (o.tubeFrameSampler) {
+        o.tubeFrameSampler->destroy();
+        delete o.tubeFrameSampler;
+        o.tubeFrameSampler = nullptr;
+    }
+    if (o.tubeFrameWork) {
+        o.tubeFrameWork->destroy();
+        delete o.tubeFrameWork;
+        o.tubeFrameWork = nullptr;
+    }
+    if (o.borderEdgeTex) {
+        o.borderEdgeTex->destroy();
+        delete o.borderEdgeTex;
+        o.borderEdgeTex = nullptr;
+    }
+    if (o.borderEdgeSampler) {
+        o.borderEdgeSampler->destroy();
+        delete o.borderEdgeSampler;
+        o.borderEdgeSampler = nullptr;
+    }
+    if (o.bindings) {
+        delete o.bindings;
+        o.bindings = nullptr;
+    }
+    if (o.bindingsDyn) {
+        delete o.bindingsDyn;
+        o.bindingsDyn = nullptr;
+        o.bindingsDynTexture = nullptr;
+    }
+    if (o.ubo) {
+        delete o.ubo;
+        o.ubo = nullptr;
+        o.uboBlockCapacity = 0;
+    }
+    if (o.vbo) {
+        delete o.vbo;
+        o.vbo = nullptr;
+    }
+    if (o.ibo) {
+        delete o.ibo;
+        o.ibo = nullptr;
+    }
+    if (o.wireframeIbo) {
+        delete o.wireframeIbo;
+        o.wireframeIbo = nullptr;
+    }
+    if (o.borderVbo) {
+        delete o.borderVbo;
+        o.borderVbo = nullptr;
+    }
+    if (o.borderIbo) {
+        delete o.borderIbo;
+        o.borderIbo = nullptr;
+    }
+    if (o.borderWireIbo) {
+        delete o.borderWireIbo;
+        o.borderWireIbo = nullptr;
+    }
+    o.borderUploaded = false;
+    if (o.wireframePipeline) {
+        delete o.wireframePipeline;
+        o.wireframePipeline = nullptr;
+    }
+    if (o.surfaceTexture) {
+        o.surfaceTexture->destroy();
+        delete o.surfaceTexture;
+        o.surfaceTexture = nullptr;
+    }
+    releasePartImages(o);
+    if (o.pipelineOpaque) {
+        delete o.pipelineOpaque;
+        o.pipelineOpaque = nullptr;
+    }
+    if (o.pipelineTranspBack) {
+        delete o.pipelineTranspBack;
+        o.pipelineTranspBack = nullptr;
+    }
+    if (o.pipelineTranspFront) {
+        delete o.pipelineTranspFront;
+        o.pipelineTranspFront = nullptr;
+    }
+    if (o.borderPipelineOpaque) {
+        delete o.borderPipelineOpaque;
+        o.borderPipelineOpaque = nullptr;
+    }
+    if (o.borderPipelineWire) {
+        delete o.borderPipelineWire;
+        o.borderPipelineWire = nullptr;
+    }
+    if (o.pipelineImplicit) {
+        delete o.pipelineImplicit;
+        o.pipelineImplicit = nullptr;
+    }
+    if (o.bindingsImplicit) {
+        delete o.bindingsImplicit;
+        o.bindingsImplicit = nullptr;
     }
 }
 
@@ -3747,7 +2682,7 @@ bool GLWidget::setParametricEquations(const QString &xEq, const QString &yEq,
     m_obj->engine->setTubeMode(false);
 
     // 1. DRY RUN del vertex con le NUOVE equazioni prima di toccare lo stato
-    QString vsSource = createVertexShaderSource(xEq, yEq, zEq, wEq);
+    QString vsSource = createVertexShaderSource(*m_obj, xEq, yEq, zEq, wEq);
     QShaderBaker baker;
     baker.setSourceString(vsSource.toUtf8(), QShader::VertexStage);
     baker.setGeneratedShaderVariants({QShader::StandardShader});
@@ -3818,7 +2753,7 @@ bool GLWidget::applyTubeSource(const std::function<void()> &setCurve,
     m_obj->engine->setScriptMode(false);
 
     // DRY RUN del vertex, come setParametricEquations.
-    QString vsSource = createVertexShaderSource("0", "0", "0", "0");
+    QString vsSource = createVertexShaderSource(*m_obj, "0", "0", "0", "0");
     QShaderBaker baker;
     baker.setSourceString(vsSource.toUtf8(), QShader::VertexStage);
     baker.setGeneratedShaderVariants({QShader::StandardShader});
@@ -5203,9 +4138,9 @@ void GLWidget::adjustBorderWireStep(bool along, int delta) {
     update();
 }
 
-bool GLWidget::globalTextureActive() const
+bool GLWidget::globalTextureActive(const SurfaceObject &o) const
 {
-    return m_obj->meshAppearanceUniform && m_obj->engine && m_obj->engine->getMeshParts().size() > 1;
+    return o.meshAppearanceUniform && o.engine && o.engine->getMeshParts().size() > 1;
 }
 
 GLWidget::BorderStyle GLWidget::borderStyle() const {
@@ -5272,13 +4207,13 @@ bool GLWidget::borderSamplesImage() const {
     return !m_obj->surfaceImagePath.isEmpty();
 }
 
-QRhiShaderResourceBindings *GLWidget::borderBindings() const {
-    const QString path = imagePathInTextureCode(m_obj->borderTexCode);
+QRhiShaderResourceBindings *GLWidget::borderBindings(const SurfaceObject &o) const {
+    const QString path = imagePathInTextureCode(o.borderTexCode);
     if (!path.isEmpty()) {
-        const auto it = m_obj->partImages.constFind(path);
-        if (it != m_obj->partImages.constEnd() && it->tex && it->srb) return it->srb;
+        const auto it = o.partImages.constFind(path);
+        if (it != o.partImages.constEnd() && it->tex && it->srb) return it->srb;
     }
-    return m_obj->bindingsDyn ? m_obj->bindingsDyn : m_obj->bindings;
+    return o.bindingsDyn ? o.bindingsDyn : o.bindings;
 }
 
 void GLWidget::setHybridMarcher(bool on) {
@@ -5633,7 +4568,7 @@ void GLWidget::setTextureCode(const QString& code) {
     QString oldTex = m_obj->textureCode;
     m_obj->textureCode = code;
 
-    QString fsSource = createImplicitFragmentShader();
+    QString fsSource = createImplicitFragmentShader(*m_obj);
     QShaderBaker baker;
     baker.setSourceString(fsSource.toUtf8(), QShader::FragmentStage);
     baker.setGeneratedShaderVariants({QShader::StandardShader});
@@ -5673,7 +4608,7 @@ void GLWidget::setDisplacementCode(const QString& code) {
     QString oldDisp = m_obj->displacementCode;
     m_obj->displacementCode = code;
 
-    QString fsSource = createImplicitFragmentShader();
+    QString fsSource = createImplicitFragmentShader(*m_obj);
     QShaderBaker baker;
     baker.setSourceString(fsSource.toUtf8(), QShader::FragmentStage);
     baker.setGeneratedShaderVariants({QShader::StandardShader});
@@ -5947,8 +4882,8 @@ void GLWidget::setLightingMode4D(int mode) {
     update();
 }
 
-bool GLWidget::is4DActive() const {
-    return m_obj->engine && m_obj->engine->is4DLightingEnabled();
+bool GLWidget::is4DActive(const SurfaceObject &o) const {
+    return o.engine && o.engine->is4DLightingEnabled();
 }
 
 void GLWidget::setRotation4D(float o, float p, float ps) {
@@ -6530,26 +5465,31 @@ void GLWidget::setSurfaceTextureAnimating(bool animating) {
 // modulo fermato dall'utente, dal vivo come nel video. Se corrono insieme,
 // avanzano dello stesso identico dt e restano in sincrono.
 void GLWidget::advanceClocksBy(float dt) {
+    // Gli orologi di ogni oggetto, poi quello dello sfondo (della vista).
+    for (const auto &obj : m_objects) advanceObjectClocksBy(*obj, dt);
+    if (m_bgAnimating) m_timeBg += dt;
+}
+
+void GLWidget::advanceObjectClocksBy(SurfaceObject &o, float dt) {
     // Il passo del frame serve anche alla sezione dei tubi (smorzamento degli
     // scatti): preso qui, che e' il punto comune a render live e REC.
-    m_obj->tubeFrameDt = dt;
-    if (m_obj->surfaceAnimating) m_obj->timeGeom += dt;
-    if (m_obj->texAnimating)     m_obj->timeTex  += dt;
-    if (m_bgAnimating)      m_timeBg   += dt;
+    o.tubeFrameDt = dt;
+    if (o.surfaceAnimating) o.timeGeom += dt;
+    if (o.texAnimating)     o.timeTex  += dt;
 
     // OROLOGI PER-MESH DELLA TEXTURE: stesso dt dei globali, ogni parte col
     // proprio flag -- e' cio' che permette di fermarne una sola.
-    if (m_obj->engine) {
-        for (MeshPart &mp : m_obj->engine->mutableMeshParts())
+    if (o.engine) {
+        for (MeshPart &mp : o.engine->mutableMeshParts())
             if (mp.texAnimating) mp.timeTex += dt;
     }
 
     // OROLOGIO DELLA TEXTURE DEL BORDO: stesso dt, proprio flag.
-    if (m_obj->borderTexAnimating) m_obj->borderTimeTex += dt;
+    if (o.borderTexAnimating) o.borderTimeTex += dt;
 }
 
-GLWidget::ClockTimes GLWidget::clockTimes() const {
-    return { kClockOrigin + m_obj->timeGeom, kClockOrigin + m_obj->timeTex, kClockOrigin + m_timeBg };
+GLWidget::ClockTimes GLWidget::clockTimes(const SurfaceObject &o) const {
+    return { kClockOrigin + o.timeGeom, kClockOrigin + o.timeTex, kClockOrigin + m_timeBg };
 }
 
 
@@ -6629,7 +5569,7 @@ bool GLWidget::validateAndApplyParametricShader(const QString &customLogic)
     }
 
     // 1. DRY RUN FRAGMENT
-    QString fsSource = createFragmentShaderSource(customLogic);
+    QString fsSource = createFragmentShaderSource(*m_obj, customLogic);
     {
         QShaderBaker baker;
         baker.setSourceString(fsSource.toUtf8(), QShader::FragmentStage);
@@ -6676,7 +5616,7 @@ bool GLWidget::validateAndApplyImplicitShader(const QString &eqF, const QString 
     m_obj->textureCode = texCode;
     m_obj->displacementCode = dispCode;
 
-    QString fsSource = createImplicitFragmentShader();
+    QString fsSource = createImplicitFragmentShader(*m_obj);
 
     // DRY RUN
     QShaderBaker baker;
@@ -6720,7 +5660,7 @@ bool GLWidget::validateAndApplyTextureDisplacement(const QString &texCode, const
     m_obj->textureCode = texCode;
     m_obj->displacementCode = dispCode;
 
-    QString fsSource = createImplicitFragmentShader();
+    QString fsSource = createImplicitFragmentShader(*m_obj);
 
     // DRY RUN
     QShaderBaker baker;
@@ -6786,7 +5726,7 @@ bool GLWidget::validateAndApplyParametricScript(const QString &scriptCodeGLSL)
     m_obj->engine->setTubeMode(false);
 
     // Genera il vertex shader con lo script applicato
-    QString vsSource = createVertexShaderSource("0", "0", "0", "0");
+    QString vsSource = createVertexShaderSource(*m_obj, "0", "0", "0", "0");
 
     // DRY RUN: solo SPIR-V con baker locale (vedi pattern background)
     QShaderBaker baker;
@@ -6807,7 +5747,7 @@ bool GLWidget::validateAndApplyParametricScript(const QString &scriptCodeGLSL)
 
     // DRY RUN FRAGMENT: valida anche l'eventuale sezione CUTOUT (già impostata
     // nell'engine da onRunScriptClicked prima di chiamare questa funzione).
-    QString fsSource = createFragmentShaderSource(m_obj->customFragmentCode);
+    QString fsSource = createFragmentShaderSource(*m_obj, m_obj->customFragmentCode);
     QShaderBaker fragBaker;
     fragBaker.setSourceString(fsSource.toUtf8(), QShader::FragmentStage);
     fragBaker.setGeneratedShaderVariants({QShader::StandardShader});
@@ -6837,7 +5777,7 @@ bool GLWidget::validateAndApplyImplicitScript(const QString &scriptCodeGLSL)
     m_obj->engine->setScriptMode(true);
 
     // createImplicitFragmentShader() inietta lo scriptCodeGLSL appena impostato
-    QString fsSource = createImplicitFragmentShader();
+    QString fsSource = createImplicitFragmentShader(*m_obj);
 
     QShaderBaker baker;
     baker.setSourceString(fsSource.toUtf8(), QShader::FragmentStage);
@@ -6866,11 +5806,11 @@ bool GLWidget::validateAndApplyImplicitScript(const QString &scriptCodeGLSL)
 // RISORSE QRHI IMPLICIT (RAY MARCHING)
 // ==========================================================
 
-void GLWidget::buildImplicitPipeline()
+void GLWidget::buildImplicitPipeline(SurfaceObject &o)
 {
-    if (m_obj->pipelineImplicit) {
-        delete m_obj->pipelineImplicit;
-        m_obj->pipelineImplicit = nullptr;
+    if (o.pipelineImplicit) {
+        delete o.pipelineImplicit;
+        o.pipelineImplicit = nullptr;
     }
 
     // 1. Assicuriamoci che il VBO dello schermo intero esista (sfruttiamo quello del background!)
@@ -6878,8 +5818,8 @@ void GLWidget::buildImplicitPipeline()
         initBackgroundShader();
     }
 
-    m_obj->pipelineImplicit = rhi()->newGraphicsPipeline();
-    m_obj->pipelineImplicit->setTopology(QRhiGraphicsPipeline::Triangles);
+    o.pipelineImplicit = rhi()->newGraphicsPipeline();
+    o.pipelineImplicit->setTopology(QRhiGraphicsPipeline::Triangles);
 
     // 2. Diciamo alla GPU come leggere i vertici del quad
     QRhiVertexInputLayout inputLayout;
@@ -6889,7 +5829,7 @@ void GLWidget::buildImplicitPipeline()
         { 0, 1, QRhiVertexInputAttribute::Float4, offsetof(Vertex, normal) },
         { 0, 2, QRhiVertexInputAttribute::Float2, offsetof(Vertex, texCoord) }
     });
-    m_obj->pipelineImplicit->setVertexInputLayout(inputLayout);
+    o.pipelineImplicit->setVertexInputLayout(inputLayout);
 
     // 3. VERTEX SHADER (Adattato da raymarch.vert per QRhi)
     QString vsSource = "#version 450\n"
@@ -6905,27 +5845,27 @@ void GLWidget::buildImplicitPipeline()
                        "}\n";
 
     // 4. FRAGMENT SHADER: Generiamo lo shader di Ray Marching con l'equazione corrente!
-   QString fsSource = createImplicitFragmentShader();
+   QString fsSource = createImplicitFragmentShader(o);
 
     QShader vs = bakeShader(vsSource.toUtf8(), QShader::VertexStage);
     QShader fs = bakeShader(fsSource.toUtf8(), QShader::FragmentStage);
 
     if (!vs.isValid() || !fs.isValid()) {
         m_lastCompilationError = "Implicit pipeline: invalid shader stage.";
-        delete m_obj->pipelineImplicit;
-        m_obj->pipelineImplicit = nullptr;
+        delete o.pipelineImplicit;
+        o.pipelineImplicit = nullptr;
         return;
     }
 
-    m_obj->pipelineImplicit->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
-    m_obj->pipelineImplicit->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+    o.pipelineImplicit->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
+    o.pipelineImplicit->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
 
-    m_obj->pipelineImplicit->setSampleCount(renderTarget()->sampleCount());
+    o.pipelineImplicit->setSampleCount(renderTarget()->sampleCount());
 
     // Per il Ray Marching, la profondità si calcola via matematica, non via Z-Buffer nativo
-    m_obj->pipelineImplicit->setDepthTest(false);
-    m_obj->pipelineImplicit->setDepthWrite(false);
-    m_obj->pipelineImplicit->setCullMode(QRhiGraphicsPipeline::None);
+    o.pipelineImplicit->setDepthTest(false);
+    o.pipelineImplicit->setDepthWrite(false);
+    o.pipelineImplicit->setCullMode(QRhiGraphicsPipeline::None);
 
     // --- TRASPARENZA ---
     QRhiGraphicsPipeline::TargetBlend blend;
@@ -6934,15 +5874,15 @@ void GLWidget::buildImplicitPipeline()
     blend.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
     blend.srcAlpha = QRhiGraphicsPipeline::One;
     blend.dstAlpha = QRhiGraphicsPipeline::OneMinusSrcAlpha;
-    m_obj->pipelineImplicit->setTargetBlends({ blend });
+    o.pipelineImplicit->setTargetBlends({ blend });
 
     // 5. Usiamo temporaneamente i bindings standard (che contengono il tuo UBO con la telecamera)
-    m_obj->pipelineImplicit->setShaderResourceBindings(m_obj->bindings);
+    o.pipelineImplicit->setShaderResourceBindings(o.bindings);
 
-    if (!m_obj->pipelineImplicit->create()) {
+    if (!o.pipelineImplicit->create()) {
         m_lastCompilationError = "Implicit pipeline: create() failed.";
-        delete m_obj->pipelineImplicit;
-        m_obj->pipelineImplicit = nullptr;
+        delete o.pipelineImplicit;
+        o.pipelineImplicit = nullptr;
         return;
     }
 }
@@ -6952,9 +5892,9 @@ void GLWidget::buildImplicitPipeline()
 // IMPLICIT EQUATIONS STATE
 // ==========================================================
 
-QString GLWidget::createImplicitFragmentShader()
+QString GLWidget::createImplicitFragmentShader(SurfaceObject &o)
 {
-    const QString &activeEqF = m_obj->implicitUsesCrossSection ? m_obj->eqCrossSectionF : m_obj->eqImplicitF;
+    const QString &activeEqF = o.implicitUsesCrossSection ? o.eqCrossSectionF : o.eqImplicitF;
     QString safeEqF = GlslTranslator::translateEquation(activeEqF);
 
     // Per garantire la compatibilità con script stile Shadertoy:
@@ -7040,12 +5980,12 @@ QString GLWidget::createImplicitFragmentShader()
 
     // Default: nessuna seconda superficie. Lo stub ritorna 1e9 (mai colpito) e
     // il flag resta false, così il main() segue il cammino storico opaco.
-    m_obj->raymarchHasInner = false;
+    o.raymarchHasInner = false;
     QString innerExpr = "1e9";
 
     // --- INIZIO NUOVA LOGICA SCRIPT MULTI-RIGA ---
-    if (m_obj->engine->isScriptModeActive()) {
-        QString customCode = m_obj->engine->getScriptCodeGLSL();
+    if (o.engine->isScriptModeActive()) {
+        QString customCode = o.engine->getScriptCodeGLSL();
 
         // --- DIRETTIVA //INNER: (seconda superficie opaca interna) ---
         // Espressione SDF del campo interno; il resto dello script è la
@@ -7061,7 +6001,7 @@ QString GLWidget::createImplicitFragmentShader()
         if (innerMatch.hasMatch()) {
             innerExpr = innerMatch.captured(1).trimmed();
             customCode.remove(innerMatch.capturedStart(), innerMatch.capturedLength());
-            m_obj->raymarchHasInner = true;
+            o.raymarchHasInner = true;
         }
 
         // Creiamo una funzione indipendente con il codice custom (esterna).
@@ -7161,10 +6101,10 @@ QString GLWidget::createImplicitFragmentShader()
         "    x = q4.x; y = q4.y; z = q4.z;\n"
         "    float p = q4.w;\n");
     finalSource.replace("%CROSS_SECTION_P%",
-                        m_obj->implicitUsesCrossSection ? kCrossSectionRot : QString());
+                        o.implicitUsesCrossSection ? kCrossSectionRot : QString());
 
-    if (m_obj->textureEnabled) {
-        QString texCodeRemapped = m_obj->textureCode;
+    if (o.textureEnabled) {
+        QString texCodeRemapped = o.textureCode;
         texCodeRemapped.replace("ubuf.u_time", "ubuf.u_dummyZero.x");
         // COSTANTI A..F/S anche nel COLORE. Il template le dichiara come LOCALI
         // di map() (~31) e mapInner() (~75), ma questo codice finisce in
@@ -7198,7 +6138,7 @@ QString GLWidget::createImplicitFragmentShader()
         // l'interazione incrociata col dock Equations. Il blocco { } ridichiara
         // solo 't'/'iTime' (shadow): d_surf, pModel, p restano quelli esterni e
         // le assegnazioni del displacement (d_surf -= ...) li modificano davvero.
-        QString dispRemapped = m_obj->displacementCode;
+        QString dispRemapped = o.displacementCode;
         dispRemapped.replace("ubuf.u_time", "ubuf.u_dummyZero.x");   // STESSO orologio della texture
         QString dispWrap = "{\n  float t = ubuf.u_dummyZero.x;\n  float iTime = ubuf.u_dummyZero.x;\n"
                            + dispRemapped + "\n}\n";
@@ -7504,7 +6444,7 @@ void GLWidget::buildWireframeGeometry() {
 // sonda del bordo ripartita da capo).
 static const QLatin1String kBorderDefineLine("\n#define HAS_BORDER\n");
 
-QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq)
+QString GLWidget::createVertexShaderSource(SurfaceObject &o, const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq)
 {
     // 1. Carica il template
     QString vertexTemplate = loadShaderSource(":/shaders/surface.vert");
@@ -7539,7 +6479,7 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
     // Mai sulla mesh custom (stessa guardia di IS_TUBE piu' sotto): li'
     // getRawPosition restituisce il vertice del buffer, e sostituirla con la
     // curva faceva sparire la superficie.
-    if (m_obj->engine->isTubeModeActive() && !m_obj->engine->isScriptModeActive() && !m_obj->isCustomMesh) {
+    if (o.engine->isTubeModeActive() && !o.engine->isScriptModeActive() && !o.isCustomMesh) {
         // TUBO attorno alla curva C(u) = (X, Y, Z, P), sotto-tab Tubes: dalle
         // equazioni o da uno script (tubeCurveFunction). Qui getRawPosition
         // restituisce il solo punto della CURVA; il tubo lo costruisce il
@@ -7549,8 +6489,8 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
         // sorgente: gli shader parametrici enormi fanno cadere il compilatore
         // Mali.
         const QString tubeFunction =
-            tubeCurveFunction(m_obj->engine->tubeX(), m_obj->engine->tubeY(), m_obj->engine->tubeZ(), m_obj->engine->tubeP(),
-                              m_obj->engine->tubeScriptBody()) +
+            tubeCurveFunction(o.engine->tubeX(), o.engine->tubeY(), o.engine->tubeZ(), o.engine->tubeP(),
+                              o.engine->tubeScriptBody()) +
             "vec4 getRawPosition(float u, float v, float w) {\n"
             "    return sanitizePos(tubeCurve(u, 0.0, 0.0));\n"
             "}";
@@ -7566,8 +6506,8 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
         source.replace("%Z_EQ%", "0.0");
         source.replace("%W_EQ%", "0.0");
 
-    } else if (m_obj->engine->isScriptModeActive()) {
-        QString customCode = m_obj->engine->getScriptCodeGLSL();
+    } else if (o.engine->isScriptModeActive()) {
+        QString customCode = o.engine->getScriptCodeGLSL();
         if (customCode.trimmed().isEmpty()) customCode = "return vec4(0.0, 0.0, 0.0, 0.0);";
 
         // Pulizia interi anche nello script custom
@@ -7601,8 +6541,8 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
     }
 
     // --- GESTIONE VINCOLI ---
-    SurfaceEngine::ConstraintMode mode = m_obj->engine->getConstraintMode();
-    QString explicitEq = m_obj->engine->getActiveExplicitEquation();
+    SurfaceEngine::ConstraintMode mode = o.engine->getConstraintMode();
+    QString explicitEq = o.engine->getActiveExplicitEquation();
     if (explicitEq.trimmed().isEmpty()) explicitEq = "0.0";
 
     // Applica sanitize anche al vincolo
@@ -7630,7 +6570,7 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
     source.replace("%EXPLICIT_BODY%", explicitBody);
     source.replace("%CONSTRAINT_MODE%", QString::number((int)mode));
 
-    if (m_obj->isCustomMesh) {
+    if (o.isCustomMesh) {
         source.replace("#version 450", "#version 450\n#define CUSTOM_MESH\n");
     }
 
@@ -7639,11 +6579,11 @@ QString GLWidget::createVertexShaderSource(const QString &xEq, const QString &yE
     // una superficie senza bordo compila lo shader di sempre. Sulla mesh
     // custom i vertici sono posizioni, non parametri: i punti dei lati li
     // legge dalla texture dei lati (borderSupported).
-    if (m_obj->borderRadius > 0.0f && borderSupported()) {
+    if (o.borderRadius > 0.0f && borderSupported(o)) {
         source.replace(QStringLiteral("#version 450"), QStringLiteral("#version 450") + kBorderDefineLine);
     }
     // Tubo: il template lo costruisce nella scena (emitTubeVertex).
-    if (m_obj->engine->isTubeModeActive() && !m_obj->engine->isScriptModeActive() && !m_obj->isCustomMesh) {
+    if (o.engine->isTubeModeActive() && !o.engine->isScriptModeActive() && !o.isCustomMesh) {
         source.replace("#version 450", "#version 450\n#define IS_TUBE\n");
     }
 
@@ -7958,7 +6898,7 @@ QString GLWidget::buildTextureFunction(const QString &customLogic, const QString
     return codeToInject;
 }
 
-QString GLWidget::createFragmentShaderSource(const QString &customLogic, bool forBorder)
+QString GLWidget::createFragmentShaderSource(SurfaceObject &o, const QString &customLogic, bool forBorder)
 {
     QString fragmentTemplate = loadShaderSource(":/shaders/surface.frag");
     QString commonCode = loadShaderSource(":/shaders/common.glsl");
@@ -8021,11 +6961,11 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic, bool fo
     // restano nelle MeshPart e tornano passando a "Mesh", come gia' avviene per
     // colore/alpha/luce/wireframe). Percio' in All non si genera alcun
     // dispatcher e ogni parte usa getCustomColor.
-    const bool perMeshTextures = !m_obj->meshAppearanceUniform;
+    const bool perMeshTextures = !o.meshAppearanceUniform;
 
     QString globalLogic = customLogic;
-    if (globalLogic.trimmed().isEmpty() && m_obj->engine && perMeshTextures) {
-        for (const MeshPart &mp : m_obj->engine->getMeshParts()) {
+    if (globalLogic.trimmed().isEmpty() && o.engine && perMeshTextures) {
+        for (const MeshPart &mp : o.engine->getMeshParts()) {
             if (!mp.textureCode.trimmed().isEmpty()) {
                 globalLogic = QStringLiteral("return vec3(1.0);");
                 break;
@@ -8046,8 +6986,8 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic, bool fo
     // globale: una superficie che non usa la feature genera esattamente lo
     // shader di prima, dispatcher incluso ma con un solo ramo.
     QString dispatch;
-    if (m_obj->engine && perMeshTextures) {
-        const std::vector<MeshPart> &tparts = m_obj->engine->getMeshParts();
+    if (o.engine && perMeshTextures) {
+        const std::vector<MeshPart> &tparts = o.engine->getMeshParts();
         static const QRegularExpression imgTagRe(R"(^\s*//IMG:.*$\n?)",
                                                  QRegularExpression::MultilineOption);
         for (size_t k = 0; k < tparts.size(); ++k) {
@@ -8087,15 +7027,15 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic, bool fo
     // rinominare a buildTextureFunction i simboli di modulo degli script
     // Shadertoy, come per le fasce: la stessa texture su superficie e bordo
     // non collide.
-    if (m_obj->borderRadius > 0.0f && !m_obj->borderTexCode.trimmed().isEmpty() && borderSupported()) {
+    if (o.borderRadius > 0.0f && !o.borderTexCode.trimmed().isEmpty() && borderSupported(o)) {
         static const QRegularExpression imgTagRe(R"(^\s*//IMG:.*$\n?)",
                                                  QRegularExpression::MultilineOption);
-        QString logic = m_obj->borderTexCode;
+        QString logic = o.borderTexCode;
         logic.remove(imgTagRe);
         // Sola immagine: la funzione di default, che campiona lo slot 1, dove
         // il bordo ha la sua immagine.
         const bool imageOnly = logic.trimmed().isEmpty();
-        codeToInject += "\n" + buildTextureFunction(imageOnly ? QString() : m_obj->borderTexCode,
+        codeToInject += "\n" + buildTextureFunction(imageOnly ? QString() : o.borderTexCode,
                                                      QStringLiteral("getCustomColor_border"));
         codeToInject += "\nvec3 getSceneColor(vec2 in_uv) {\n"
                         "    if (ubuf.u_isBorder != 0) return getCustomColor_border(in_uv);\n"
@@ -8128,7 +7068,7 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic, bool fo
     // esiste nemmeno per le superfici senza cutout: costo zero, non solo "sempre
     // false" (misurato: senza questo #ifdef erano comunque 4 istruzioni scalari
     // extra per pixel su OGNI superficie parametrica, anche senza cutout).
-    QString cutoutBody = m_obj->engine ? m_obj->engine->getCutoutCodeGLSL() : QString();
+    QString cutoutBody = o.engine ? o.engine->getCutoutCodeGLSL() : QString();
     QString cutoutCode;
     bool hasCutout = !cutoutBody.trimmed().isEmpty();
     if (!hasCutout) {
@@ -8146,11 +7086,11 @@ QString GLWidget::createFragmentShaderSource(const QString &customLogic, bool fo
     // (borderFragmentCovered), con la stessa condizione del vertex. Solo il
     // suo: in quello della superficie il discard spegnerebbe lo scarto
     // anticipato dei frammenti nascosti (vedi borderPipelineOpaque).
-    if (forBorder && m_obj->borderRadius > 0.0f && borderSupported()) {
+    if (forBorder && o.borderRadius > 0.0f && borderSupported(o)) {
         fullSource.replace("#version 450", "#version 450\n#define HAS_BORDER\n");
     }
 
-    if (m_obj->isCustomMesh) {
+    if (o.isCustomMesh) {
         fullSource.replace("#version 450", "#version 450\n#define CUSTOM_MESH\n");
     }
 
@@ -8250,7 +7190,7 @@ QShader GLWidget::bakeShader(const QByteArray &source, QShader::Stage stage)
 
 // --- Pipeline & Resource Initialization ---
 
-void GLWidget::buildPipeline() {
+void GLWidget::buildPipeline(SurfaceObject &o) {
     // NB: le pipeline VECCHIE non si distruggono qui. Prima si compilano gli
     // shader: se non sono validi si esce lasciandole in piedi, e a schermo resta
     // l'ultima immagine buona invece del vuoto (vedi il controllo di validita').
@@ -8272,8 +7212,8 @@ void GLWidget::buildPipeline() {
     // risorse dal .qrc.
     g_lastMissingShaderResource.clear();
 
-    QString vsSource = createVertexShaderSource(m_obj->eqX, m_obj->eqY, m_obj->eqZ, m_obj->eqW);
-    QString fsSource = createFragmentShaderSource(m_obj->customFragmentCode);
+    QString vsSource = createVertexShaderSource(o, o.eqX, o.eqY, o.eqZ, o.eqW);
+    QString fsSource = createFragmentShaderSource(o, o.customFragmentCode);
     QShader vs = bakeShader(vsSource.toUtf8(), QShader::VertexStage);
     QShader fs = bakeShader(fsSource.toUtf8(), QShader::FragmentStage);
 
@@ -8313,8 +7253,8 @@ void GLWidget::buildPipeline() {
     // coperti; se non compilasse lo stesso, il bordo usa le pipeline della
     // superficie e resta intero.
     QShader fsBorder;
-    if (m_obj->borderRadius > 0.0f && borderSupported())
-        fsBorder = bakeShader(createFragmentShaderSource(m_obj->customFragmentCode, true).toUtf8(), QShader::FragmentStage);
+    if (o.borderRadius > 0.0f && borderSupported(o))
+        fsBorder = bakeShader(createFragmentShaderSource(o, o.customFragmentCode, true).toUtf8(), QShader::FragmentStage);
 
     // ORA si liberano le pipeline precedenti: il rimpiazzo e' garantito, perche'
     // gli shader hanno compilato. Farlo in cima alla funzione (com'era) le
@@ -8324,14 +7264,14 @@ void GLWidget::buildPipeline() {
     // senza delete, contando sulla pulizia in cima. Spostata quella, vanno
     // liberate qui o si perderebbero (leak a ogni rebuild).
     auto freePipe = [](QRhiGraphicsPipeline *&p){ if (p) { delete p; p = nullptr; } };
-    freePipe(m_obj->pipelineOpaque);
-    freePipe(m_obj->pipelineTranspBack);
-    freePipe(m_obj->pipelineTranspFront);
-    freePipe(m_obj->wireframePipeline);
-    freePipe(m_obj->borderPipelineOpaque);
-    freePipe(m_obj->borderPipelineWire);
+    freePipe(o.pipelineOpaque);
+    freePipe(o.pipelineTranspBack);
+    freePipe(o.pipelineTranspFront);
+    freePipe(o.wireframePipeline);
+    freePipe(o.borderPipelineOpaque);
+    freePipe(o.borderPipelineWire);
     // La passata dei tubi nasce dallo stesso vertex: va rifatta con lui.
-    buildTubeFramePipeline(vsSource);
+    buildTubeFramePipeline(o, vsSource);
     // Anche quella dei lati del bordo coperti, ma solo al primo frame che la
     // usa (sharedEdgesActive): qui si sa solo da quale vertex nascera'. Dal
     // vertex SENZA il codice del bordo: il compute usa solo la superficie, e
@@ -8343,16 +7283,16 @@ void GLWidget::buildPipeline() {
         edgeSource = vsSource;
         edgeSource.remove(kBorderDefineLine);
     }
-    if (edgeSource != m_obj->sharedEdgeSource) {
-        releaseSharedEdgePipeline();
-        m_obj->sharedEdgeSource = edgeSource;
-        m_obj->sharedEdgeSourceDirty = !edgeSource.isEmpty();
+    if (edgeSource != o.sharedEdgeSource) {
+        releaseSharedEdgePipeline(o);
+        o.sharedEdgeSource = edgeSource;
+        o.sharedEdgeSourceDirty = !edgeSource.isEmpty();
         // Superficie nuova: nuova sonda, e la lettura in corso non vale piu'.
-        m_obj->borderProbeKey.clear();
-        m_obj->borderProbePending.clear();
-        m_obj->borderProbeArmed = false;
-        m_obj->borderProbeWatch = false;
-        ++m_obj->borderProbeSerial;
+        o.borderProbeKey.clear();
+        o.borderProbePending.clear();
+        o.borderProbeArmed = false;
+        o.borderProbeWatch = false;
+        ++o.borderProbeSerial;
     }
 
     QRhiGraphicsPipeline::TargetBlend blend;
@@ -8369,85 +7309,85 @@ void GLWidget::buildPipeline() {
     // comportamento dipende dall'API grafica.
     // Nota: le pipeline dello sfondo (m_bgPipeline) e del ray marching restano
     // sul binding statico bindings, che non ha parti.
-    ensureDynamicBindings(m_obj->surfaceTexture ? m_obj->surfaceTexture : m_dummyTexture);
-    QRhiShaderResourceBindings *surfaceBindings = m_obj->bindingsDyn ? m_obj->bindingsDyn : m_obj->bindings;
+    ensureDynamicBindings(o, o.surfaceTexture ? o.surfaceTexture : m_dummyTexture);
+    QRhiShaderResourceBindings *surfaceBindings = o.bindingsDyn ? o.bindingsDyn : o.bindings;
 
     // --- 1. PIPELINE OPACO (Klein perfetta, Bordi nascosti) ---
-    m_obj->pipelineOpaque = rhi()->newGraphicsPipeline();
-    m_obj->pipelineOpaque->setVertexInputLayout(inputLayout);
-    m_obj->pipelineOpaque->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
-    m_obj->pipelineOpaque->setSampleCount(renderTarget()->sampleCount());
-    m_obj->pipelineOpaque->setDepthTest(true);
-    m_obj->pipelineOpaque->setDepthWrite(true); // SCRITTURA ATTIVA
-    m_obj->pipelineOpaque->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
-    m_obj->pipelineOpaque->setCullMode(QRhiGraphicsPipeline::None); // DISEGNA TUTTO INSIEME
-    m_obj->pipelineOpaque->setTargetBlends({ blend });
-    m_obj->pipelineOpaque->setShaderResourceBindings(surfaceBindings);
-    m_obj->pipelineOpaque->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+    o.pipelineOpaque = rhi()->newGraphicsPipeline();
+    o.pipelineOpaque->setVertexInputLayout(inputLayout);
+    o.pipelineOpaque->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
+    o.pipelineOpaque->setSampleCount(renderTarget()->sampleCount());
+    o.pipelineOpaque->setDepthTest(true);
+    o.pipelineOpaque->setDepthWrite(true); // SCRITTURA ATTIVA
+    o.pipelineOpaque->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
+    o.pipelineOpaque->setCullMode(QRhiGraphicsPipeline::None); // DISEGNA TUTTO INSIEME
+    o.pipelineOpaque->setTargetBlends({ blend });
+    o.pipelineOpaque->setShaderResourceBindings(surfaceBindings);
+    o.pipelineOpaque->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
 
-    if (!m_obj->pipelineOpaque->create()) {
+    if (!o.pipelineOpaque->create()) {
         qWarning() << "buildPipeline: create() opaque fallita.";
-        delete m_obj->pipelineOpaque; m_obj->pipelineOpaque = nullptr;
+        delete o.pipelineOpaque; o.pipelineOpaque = nullptr;
     }
 
     // --- 2. PIPELINE TRASPARENTE: FACCE POSTERIORI (Passata 1) ---
-    m_obj->pipelineTranspBack = rhi()->newGraphicsPipeline();
-    m_obj->pipelineTranspBack->setVertexInputLayout(inputLayout);
-    m_obj->pipelineTranspBack->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
-    m_obj->pipelineTranspBack->setSampleCount(renderTarget()->sampleCount());
-    m_obj->pipelineTranspBack->setDepthTest(true);
-    m_obj->pipelineTranspBack->setDepthWrite(false); // SCRITTURA SPENTA
-    m_obj->pipelineTranspBack->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
-    m_obj->pipelineTranspBack->setCullMode(QRhiGraphicsPipeline::Front); // NASCONDE IL FRONTE
-    m_obj->pipelineTranspBack->setTargetBlends({ blend });
-    m_obj->pipelineTranspBack->setShaderResourceBindings(surfaceBindings);
-    m_obj->pipelineTranspBack->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+    o.pipelineTranspBack = rhi()->newGraphicsPipeline();
+    o.pipelineTranspBack->setVertexInputLayout(inputLayout);
+    o.pipelineTranspBack->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
+    o.pipelineTranspBack->setSampleCount(renderTarget()->sampleCount());
+    o.pipelineTranspBack->setDepthTest(true);
+    o.pipelineTranspBack->setDepthWrite(false); // SCRITTURA SPENTA
+    o.pipelineTranspBack->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
+    o.pipelineTranspBack->setCullMode(QRhiGraphicsPipeline::Front); // NASCONDE IL FRONTE
+    o.pipelineTranspBack->setTargetBlends({ blend });
+    o.pipelineTranspBack->setShaderResourceBindings(surfaceBindings);
+    o.pipelineTranspBack->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
 
-    if (!m_obj->pipelineTranspBack->create()) {
+    if (!o.pipelineTranspBack->create()) {
         qWarning() << "buildPipeline: create() transpBack fallita.";
-        delete m_obj->pipelineTranspBack; m_obj->pipelineTranspBack = nullptr;
+        delete o.pipelineTranspBack; o.pipelineTranspBack = nullptr;
     }
 
     // --- 3. PIPELINE TRASPARENTE: FACCE ANTERIORI (Passata 2) ---
-    m_obj->pipelineTranspFront = rhi()->newGraphicsPipeline();
-    m_obj->pipelineTranspFront->setVertexInputLayout(inputLayout);
-    m_obj->pipelineTranspFront->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
-    m_obj->pipelineTranspFront->setSampleCount(renderTarget()->sampleCount());
-    m_obj->pipelineTranspFront->setDepthTest(true);
-    m_obj->pipelineTranspFront->setDepthWrite(false); // SCRITTURA SPENTA
-    m_obj->pipelineTranspFront->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
-    m_obj->pipelineTranspFront->setCullMode(QRhiGraphicsPipeline::Back); // NASCONDE IL RETRO
-    m_obj->pipelineTranspFront->setTargetBlends({ blend });
-    m_obj->pipelineTranspFront->setShaderResourceBindings(surfaceBindings);
-    m_obj->pipelineTranspFront->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+    o.pipelineTranspFront = rhi()->newGraphicsPipeline();
+    o.pipelineTranspFront->setVertexInputLayout(inputLayout);
+    o.pipelineTranspFront->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
+    o.pipelineTranspFront->setSampleCount(renderTarget()->sampleCount());
+    o.pipelineTranspFront->setDepthTest(true);
+    o.pipelineTranspFront->setDepthWrite(false); // SCRITTURA SPENTA
+    o.pipelineTranspFront->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
+    o.pipelineTranspFront->setCullMode(QRhiGraphicsPipeline::Back); // NASCONDE IL RETRO
+    o.pipelineTranspFront->setTargetBlends({ blend });
+    o.pipelineTranspFront->setShaderResourceBindings(surfaceBindings);
+    o.pipelineTranspFront->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
 
-    if (!m_obj->pipelineTranspFront->create()) {
+    if (!o.pipelineTranspFront->create()) {
         qWarning() << "buildPipeline: create() transpFront fallita.";
-        delete m_obj->pipelineTranspFront; m_obj->pipelineTranspFront = nullptr;
+        delete o.pipelineTranspFront; o.pipelineTranspFront = nullptr;
     }
 
     // --- PIPELINE WIREFRAME ---
-    if (m_obj->wireframePipeline) {
-        delete m_obj->wireframePipeline;
-        m_obj->wireframePipeline = nullptr;
+    if (o.wireframePipeline) {
+        delete o.wireframePipeline;
+        o.wireframePipeline = nullptr;
     }
-    m_obj->wireframePipeline = rhi()->newGraphicsPipeline();
-    m_obj->wireframePipeline->setTopology(QRhiGraphicsPipeline::Lines);
+    o.wireframePipeline = rhi()->newGraphicsPipeline();
+    o.wireframePipeline->setTopology(QRhiGraphicsPipeline::Lines);
 
     // Assegna gli stessi identici layout e shader della mesh principale
-    m_obj->wireframePipeline->setVertexInputLayout(inputLayout);
-    m_obj->wireframePipeline->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
-    m_obj->wireframePipeline->setSampleCount(renderTarget()->sampleCount());
-    m_obj->wireframePipeline->setDepthTest(true);
-    m_obj->wireframePipeline->setDepthWrite(true);
-    m_obj->wireframePipeline->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
-    m_obj->wireframePipeline->setTargetBlends({ blend });
-    m_obj->wireframePipeline->setShaderResourceBindings(surfaceBindings);
-    m_obj->wireframePipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
+    o.wireframePipeline->setVertexInputLayout(inputLayout);
+    o.wireframePipeline->setShaderStages({ { QRhiShaderStage::Vertex, vs }, { QRhiShaderStage::Fragment, fs } });
+    o.wireframePipeline->setSampleCount(renderTarget()->sampleCount());
+    o.wireframePipeline->setDepthTest(true);
+    o.wireframePipeline->setDepthWrite(true);
+    o.wireframePipeline->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
+    o.wireframePipeline->setTargetBlends({ blend });
+    o.wireframePipeline->setShaderResourceBindings(surfaceBindings);
+    o.wireframePipeline->setRenderPassDescriptor(renderTarget()->renderPassDescriptor());
 
-    if (!m_obj->wireframePipeline->create()) {
+    if (!o.wireframePipeline->create()) {
         qWarning() << "buildPipeline: create() wireframe fallita.";
-        delete m_obj->wireframePipeline; m_obj->wireframePipeline = nullptr;
+        delete o.wireframePipeline; o.wireframePipeline = nullptr;
     }
 
     // --- PIPELINE DEL BORDO: lo stato dell'opaca e della wireframe, col
@@ -8473,8 +7413,8 @@ void GLWidget::buildPipeline() {
             }
             return p;
         };
-        m_obj->borderPipelineOpaque = borderPipe(false, "opaca");
-        m_obj->borderPipelineWire = borderPipe(true, "wireframe");
+        o.borderPipelineOpaque = borderPipe(false, "opaca");
+        o.borderPipelineWire = borderPipe(true, "wireframe");
     }
 }
 

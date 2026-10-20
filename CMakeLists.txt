@@ -116,6 +116,7 @@ qt_add_executable(SurfaceExplorer
 
     # --- RENDERING & GL ---
     glwidget.cpp
+    glwidget_object.cpp
     glwidget.h
     surfaceobject.h
     geometrybuilder.cpp
