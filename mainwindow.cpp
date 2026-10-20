@@ -731,11 +731,11 @@ MainWindow::MainWindow(QWidget *parent)
         // 2. Applichiamo la compensazione SOLO ai pannelli laterali
         QList<QDockWidget*> docks = {
             ui->dockEquations, ui->dockScripts, ui->dockRenders,
-            ui->dock3D, ui->dock4D, ui->dockSurfaces
+            ui->dock3D, ui->dock4D, ui->dockSurfaces, m_dockObjects
         };
 
         for (QDockWidget* dock : docks) {
-            if (!dock->widget()) continue;
+            if (!dock || !dock->widget()) continue;
             // Il margine destro e' quello che tiene i controlli fuori dalla
             // scrollbar (vedi addScrollToDock): tocchiamo SOLO il bottom.
             QMargins m = dock->widget()->contentsMargins();
@@ -828,8 +828,10 @@ void MainWindow::setupStyling()
         //ui->dockScripts->widget(),
         ui->dock3D->widget(),
         ui->dock4D->widget(),
-        ui->dockSurfaces->widget()
+        ui->dockSurfaces->widget(),
+        m_dockObjects ? m_dockObjects->widget() : nullptr
     };
+    dockContents.removeAll(nullptr);
 
     // CHIAMATA UNICA CENTRALIZZATA
     UiStyleManager::compactForMobile(dockContents);
@@ -974,6 +976,10 @@ void MainWindow::setupStyling()
 // Disposizione dei dock e delle schede. Parte del costruttore, nell'ordine in cui la chiama.
 void MainWindow::setupDockLayout()
 {
+    // 2.0: il dock degli oggetti della scena, creato in codice (gli altri
+    // vengono dal .ui) prima che le liste qui sotto lo blocchino e aggancino.
+    setupObjectsDock();
+
     // =========================================================================
     // 3. DOCK WIDGETS & TAB LAYOUT
     // =========================================================================
@@ -1025,6 +1031,7 @@ void MainWindow::setupDockLayout()
     lockDock(ui->dock4D);
     lockDock(ui->dockScripts);
     lockDock(ui->dockSurfaces);
+    lockDock(m_dockObjects);
     // --------------------------------
 
     // Diciamo a Qt di mettere TUTTI i pannelli a DESTRA (RightDockWidgetArea)
@@ -1034,6 +1041,7 @@ void MainWindow::setupDockLayout()
     addDockWidget(Qt::RightDockWidgetArea, ui->dock4D);
     addDockWidget(Qt::RightDockWidgetArea, ui->dockScripts);
     addDockWidget(Qt::RightDockWidgetArea, ui->dockSurfaces);
+    addDockWidget(Qt::RightDockWidgetArea, m_dockObjects);
 
     // IMPILIAMO i pannelli uno sopra l'altro (Tabify)
     tabifyDockWidget(ui->dockEquations, ui->dockRenders);
@@ -1041,6 +1049,7 @@ void MainWindow::setupDockLayout()
     tabifyDockWidget(ui->dock3D, ui->dock4D);
     tabifyDockWidget(ui->dock4D, ui->dockScripts);
     tabifyDockWidget(ui->dockScripts, ui->dockSurfaces);
+    tabifyDockWidget(ui->dockSurfaces, m_dockObjects);
 
     // INVISIBILITÀ INIZIALE
     ui->dockEquations->close();
@@ -1049,6 +1058,7 @@ void MainWindow::setupDockLayout()
     ui->dock4D->close();
     ui->dockScripts->close();
     ui->dockSurfaces->close();
+    m_dockObjects->close();
 }
 
 // Azioni globali e menu. Parte del costruttore, nell'ordine in cui la chiama.
@@ -1455,6 +1465,13 @@ void MainWindow::setupStatusBar()
     ui->statusbar->addWidget(m_btnResetView);
     ui->statusbar->addWidget(m_btnProjection);
     ui->statusbar->addWidget(m_btnRec);
+    // 2.0: il selettore dell'oggetto, solo con piu' oggetti (refreshObjectsUi).
+    m_btnObjectSelector = new QPushButton(QString(), this);
+    m_btnObjectSelector->setFlat(true);
+    m_btnObjectSelector->setFont(fontBold);
+    m_btnObjectSelector->setVisible(false);
+    connect(m_btnObjectSelector, &QPushButton::clicked, this, &MainWindow::showObjectSelectorMenu);
+    ui->statusbar->addWidget(m_btnObjectSelector);
     ui->statusbar->addWidget(m_renderProgress);
     // m_statusLabel SENZA fattore di stretch: con stretch 1 rivendicava tutto
     // lo spazio residuo della barra, e i tasti dock (permanent widget, che il
@@ -1471,6 +1488,7 @@ void MainWindow::setupStatusBar()
         ui->dock4D->close();
         ui->dockScripts->close();
         ui->dockSurfaces->close();
+        m_dockObjects->close();
     };
 
     auto safeOpenDock = [this, closeAllDocks](QDockWidget* dock) {
@@ -1506,6 +1524,7 @@ void MainWindow::setupStatusBar()
         if (dock != ui->dock4D) ui->dock4D->close();
         if (dock != ui->dockScripts) ui->dockScripts->close();
         if (dock != ui->dockSurfaces) ui->dockSurfaces->close();
+        if (dock != m_dockObjects) m_dockObjects->close();
 
         // 5. SCONGELIAMO LO SCHERMO
         this->setUpdatesEnabled(true);
@@ -1581,6 +1600,13 @@ void MainWindow::setupStatusBar()
         safeOpenDock(ui->dockSurfaces);
     });
     ui->statusbar->addPermanentWidget(btnEx);
+
+    QPushButton* btnObjects = new QPushButton("Objects", this); btnObjects->setFlat(true);
+    connect(btnObjects, &QPushButton::clicked, this, [this, safeOpenDock](){
+        refreshObjectsUi();
+        safeOpenDock(m_dockObjects);
+    });
+    ui->statusbar->addPermanentWidget(btnObjects);
 
     // MOBILE: da qui in poi la barra scorre col dito. Va chiamata DOPO l'ultimo
     // addPermanentWidget - riparenta i widget gia' presenti, quindi qualsiasi
@@ -1841,6 +1867,7 @@ void MainWindow::finishStartup()
     ui->dock4D->show();        ui->dock4D->hide();
     ui->dockScripts->show();   ui->dockScripts->hide();
     ui->dockSurfaces->show();  ui->dockSurfaces->hide();
+    m_dockObjects->show();     m_dockObjects->hide();
 
     ui->dock3D->blockSignals(false);
     ui->dock4D->blockSignals(false);

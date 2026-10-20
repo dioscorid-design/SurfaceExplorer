@@ -1479,6 +1479,14 @@ void PresetSerializer::saveRecordOrScene(const QString &suggestedPath, bool scen
     // salvataggio: e' l'ultima conferma prima della scrittura.
     // Il campo dello sfondo solo se il record HA uno sfondo, o un suo messaggio
     // da poter togliere: altrimenti sarebbe un campo vuoto senza scopo.
+    // Nella scena il messaggio chiesto e' quello dell'AMBIENTE: con un oggetto
+    // selezionato m_currentHintText (e quello della texture) sarebbero i suoi.
+    // Si torna all'oggetto di prima a salvataggio fatto o annullato.
+    struct SelectionRestore {
+        MainWindow *mw; int index;
+        ~SelectionRestore() { if (index > 0) mw->selectSceneObject(index); }
+    } selectionRestore{m_mainWindow, scene ? m_mainWindow->ui->glWidget->selectedObject() : 0};
+    if (selectionRestore.index > 0) m_mainWindow->selectSceneObject(0);
     const bool hasBg = !m_mainWindow->m_scene.bgTextureCode.trimmed().isEmpty()
                        || !m_mainWindow->m_currentBgTextureHintText.isEmpty();
     // Il campo del bordo solo se il record ha una texture sul bordo (o un suo

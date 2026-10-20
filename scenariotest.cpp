@@ -22,7 +22,10 @@
 #include <QDirIterator>
 #include <QEventLoop>
 #include <QFile>
+#include <QDockWidget>
+#include <QDoubleSpinBox>
 #include <QJsonArray>
+#include <QListWidget>
 #include <QJsonDocument>
 #include <QFileInfo>
 #include <QMenu>
@@ -5612,6 +5615,40 @@ void ScenarioTest::runSceneObjectScenarios()
                                  .arg(objDiff.isEmpty() ? QString() : QStringLiteral(" (diversi: ") + objDiff.join(QStringLiteral(", ")) + QLatin1Char(')')));
     m_mw->selectSceneObject(0);
     gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-objects-loaded.png"));
+
+    // DOCK OBJECTS E SELETTORE (tappa 3, passo 4).
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Dock Objects e selettore nella barra di stato =="));
+    m_mw->refreshObjectsUi();
+    check(m_mw->m_objectList->count() == 2 && m_mw->m_objectList->currentRow() == 0,
+          QStringLiteral("elenco: ambiente e sfera, selezionato l'ambiente"));
+    check(m_mw->m_btnObjectSelector->isVisibleTo(m_mw)
+              && m_mw->m_btnObjectSelector->text().contains(QStringLiteral("1/2")),
+          QStringLiteral("selettore visibile: %1").arg(m_mw->m_btnObjectSelector->text()));
+    check(!m_mw->m_objectPos[0]->isEnabled() && !m_mw->m_btnObjectRemove->isEnabled(),
+          QStringLiteral("l'ambiente non si sposta e non si toglie"));
+    m_mw->m_objectList->setCurrentRow(1);   // come un clic sull'elenco
+    wait(300);
+    check(gl->selectedObject() == 1 && m_mw->m_objectPos[0]->isEnabled()
+              && qFuzzyCompare(float(m_mw->m_objectPos[0]->value()), spherePos.x()),
+          QStringLiteral("clic sulla sfera: selezionata, posizione X = %1").arg(m_mw->m_objectPos[0]->value()));
+    m_mw->markWholeSceneClean();
+    m_mw->m_objectPos[0]->setValue(1.2);     // come se l'utente la scrivesse
+    check(qFuzzyCompare(gl->objectPosition().x(), 1.2f) && m_mw->hasUnsavedWork(),
+          QStringLiteral("X = 1.2 dal dock: l'oggetto si sposta e la scena e' da salvare"));
+    m_mw->m_btnObjectDuplicate->click();
+    wait(400);
+    check(gl->objectCount() == 3 && m_mw->m_objectList->count() == 3,
+          QStringLiteral("Duplicate: tre oggetti nell'elenco"));
+    dockProblems(QStringLiteral("dopo Duplicate"));
+    m_mw->m_btnObjectRemove->click();
+    wait(400);
+    check(gl->objectCount() == 2 && m_mw->m_objectList->count() == 2,
+          QStringLiteral("Remove: di nuovo due oggetti"));
+    m_mw->m_dockObjects->show();
+    wait(200);
+    m_mw->m_dockObjects->grab().save(m_outDir + QStringLiteral("/scene-objects-dock-ui.png"));
+    m_mw->m_dockObjects->close();
 }
 
 void ScenarioTest::runShapeBackgroundScenarios()

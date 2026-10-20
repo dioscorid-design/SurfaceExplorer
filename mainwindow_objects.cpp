@@ -6,6 +6,10 @@
 // si tocca: ogni oggetto ha gia' il suo stato nel GLWidget.
 
 #include "mainwindow_p.h"
+#include "scenehintoverlay.h"
+
+#include <QDoubleSpinBox>
+#include <QFontMetrics>
 
 void MainWindow::saveObjectSession(ObjectSession &s) const
 {
@@ -24,6 +28,10 @@ void MainWindow::saveObjectSession(ObjectSession &s) const
     s.currentTexturePresetPath = m_currentTexturePresetPath;
     s.textureHintText = m_currentTextureHintText;
     s.textureHintSeconds = m_currentTextureHintSeconds;
+    // Il messaggio del preset e' dell'oggetto: quello dell'ambiente e' il
+    // messaggio della scena, quello di un oggetto il messaggio della sua Shape.
+    s.hintText = m_currentHintText;
+    s.hintSeconds = m_currentHintSeconds;
     s.userStoppedGeomClock = m_userStoppedGeomClock;
     s.userStoppedTexClock = m_userStoppedTexClock;
     s.userStoppedMeshTexClock = m_userStoppedMeshTexClock;
@@ -66,6 +74,8 @@ void MainWindow::openObjectSession(const ObjectSession &s)
     m_currentTexturePresetPath = s.currentTexturePresetPath;
     m_currentTextureHintText = s.textureHintText;
     m_currentTextureHintSeconds = s.textureHintSeconds;
+    m_currentHintText = s.hintText;
+    m_currentHintSeconds = s.hintSeconds;
     m_userStoppedGeomClock = s.userStoppedGeomClock;
     m_userStoppedTexClock = s.userStoppedTexClock;
     m_userStoppedMeshTexClock = s.userStoppedMeshTexClock;
@@ -95,6 +105,7 @@ void MainWindow::selectSceneObject(int index)
     gl->selectObject(index);
     openObjectSession(m_objectSessions[index]);
     showSelectedObject();
+    refreshObjectsUi();
 }
 
 int MainWindow::addSceneObject(const QString &name)
@@ -102,6 +113,7 @@ int MainWindow::addSceneObject(const QString &name)
     const int index = ui->glWidget->addObject();
     m_objectSessions.resize(index + 1);
     m_objectSessions[index].name = name;
+    refreshObjectsUi();
     return index;
 }
 
@@ -116,6 +128,10 @@ int MainWindow::addPresetAsObject(const LibraryItem &d, const QString &name)
     // al solo ambiente: toglierebbe l'oggetto che si sta riempiendo.
     const bool wasLoading = m_loadingAsObject;
     m_loadingAsObject = true;
+    // Il load ristretto all'oggetto non passa da showSceneHint: il messaggio
+    // della Shape si scrive qui, nell'oggetto selezionato.
+    m_currentHintText = d.hintText.trimmed();
+    m_currentHintSeconds = d.hintSeconds;
     applySurfaceExample(d, /*asObject=*/true);
     m_loadingAsObject = wasLoading;
     // L'oggetto e' quello del preset: pulito rispetto a se stesso. Che la
@@ -133,6 +149,7 @@ void MainWindow::removeSceneObject(int index)
     gl->removeObject(index);
     m_objectSessions.erase(m_objectSessions.begin() + index);
     m_sceneObjectsChanged = true;
+    refreshObjectsUi();
 }
 
 // ADD TO SCENE (menu delle Shapes): la Shape come oggetto della scena a
@@ -155,6 +172,7 @@ void MainWindow::addShapeToScene(const QString &shapePath)
     const int index = addPresetAsObject(*d, d->name);
     ui->glWidget->setObjectPosition(QVector3D(2.5f * float(index), 0.0f, 0.0f));
     m_sceneObjectsChanged = true;
+    refreshObjectsUi();
 }
 
 // UNA SCENA DAL FILE (PresetSerializer::buildSceneJson): l'ambiente col load
@@ -189,6 +207,9 @@ bool MainWindow::loadSceneFile(const QString &path)
     // Il momento pulito: la scena e' quella del file (come a fine load).
     markWholeSceneClean();
     captureStartPose();
+    refreshObjectsUi();
+    // Il messaggio della scena: ambiente e oggetti, ciascuno col suo nome.
+    showComposedObjectsHint();
     return true;
 }
 
@@ -218,6 +239,7 @@ void MainWindow::resetToSingleObject()
     // Un oggetto solo: niente da ricordare degli altri.
     m_sceneObjectsChanged = false;
     m_objectSessions[0].dirtyAtClose = false;
+    refreshObjectsUi();
 }
 
 void MainWindow::showSelectedObject()
@@ -279,4 +301,163 @@ void MainWindow::showSelectedObject()
 
     m_populatingFields = wasPopulating;
     gl->update();
+}
+
+// ==========================================================
+// DOCK OBJECTS E SELETTORE
+// ==========================================================
+
+void MainWindow::setupObjectsDock()
+{
+    m_dockObjects = new QDockWidget(QStringLiteral("OBJECTS"), this);
+    m_dockObjects->setObjectName(QStringLiteral("dockObjects"));
+    auto *w = new QWidget(m_dockObjects);
+    auto *lay = new QVBoxLayout(w);
+
+    auto *help = new QLabel(QStringLiteral("The environment and the objects of the scene. "
+                                           "Add objects from the Library: right-click a Shape, "
+                                           "then Add to Scene."), w);
+    help->setWordWrap(true);
+    lay->addWidget(help);
+
+    m_objectList = new QListWidget(w);
+    lay->addWidget(m_objectList, 1);
+
+    // POSIZIONE del selezionato (l'ambiente resta nell'origine: i path della
+    // camera sono suoi).
+    auto *posRow = new QHBoxLayout();
+    const char *axes[3] = { "X", "Y", "Z" };
+    for (int i = 0; i < 3; ++i) {
+        posRow->addWidget(new QLabel(QLatin1String(axes[i]), w));
+        m_objectPos[i] = new QDoubleSpinBox(w);
+        m_objectPos[i]->setRange(-100.0, 100.0);
+        m_objectPos[i]->setSingleStep(0.1);
+        m_objectPos[i]->setDecimals(2);
+        m_objectPos[i]->setLocale(QLocale::c());   // il punto, come i campi delle equazioni
+        posRow->addWidget(m_objectPos[i], 1);
+        connect(m_objectPos[i], &QDoubleSpinBox::valueChanged, this, [this](double) {
+            if (m_refreshingObjects) return;
+            ui->glWidget->setObjectPosition(QVector3D(float(m_objectPos[0]->value()),
+                                                      float(m_objectPos[1]->value()),
+                                                      float(m_objectPos[2]->value())));
+            m_sceneObjectsChanged = true;
+        });
+    }
+    lay->addLayout(posRow);
+
+    auto *btnRow = new QHBoxLayout();
+    m_btnObjectDuplicate = new QPushButton(QStringLiteral("Duplicate"), w);
+    m_btnObjectRemove = new QPushButton(QStringLiteral("Remove"), w);
+    btnRow->addWidget(m_btnObjectDuplicate);
+    btnRow->addWidget(m_btnObjectRemove);
+    lay->addLayout(btnRow);
+    m_dockObjects->setWidget(w);
+
+    connect(m_objectList, &QListWidget::currentRowChanged, this, [this](int row) {
+        if (!m_refreshingObjects && row >= 0) selectSceneObjectFromUi(row);
+    });
+    connect(m_btnObjectDuplicate, &QPushButton::clicked, this, [this]() {
+        duplicateSceneObject(ui->glWidget->selectedObject());
+    });
+    connect(m_btnObjectRemove, &QPushButton::clicked, this, [this]() {
+        removeSceneObject(ui->glWidget->selectedObject());
+    });
+}
+
+void MainWindow::refreshObjectsUi()
+{
+    if (!m_objectList || !ui->glWidget) return;
+    GLWidget *gl = ui->glWidget;
+    const int n = gl->objectCount();
+    const int selected = gl->selectedObject();
+    auto nameOf = [this](int k) {
+        const QString name = k < int(m_objectSessions.size()) ? m_objectSessions[k].name : QString();
+        return k == 0 ? QStringLiteral("Environment") + (name.isEmpty() ? QString() : QStringLiteral(" — ") + name)
+                      : (name.isEmpty() ? QStringLiteral("Object %1").arg(k) : name);
+    };
+
+    m_refreshingObjects = true;
+    m_objectList->clear();
+    for (int k = 0; k < n; ++k) m_objectList->addItem(nameOf(k));
+    m_objectList->setCurrentRow(selected);
+    const QVector3D p = gl->objectPosition();
+    for (int i = 0; i < 3; ++i) {
+        m_objectPos[i]->setValue(i == 0 ? p.x() : i == 1 ? p.y() : p.z());
+        m_objectPos[i]->setEnabled(selected > 0);
+    }
+    m_btnObjectDuplicate->setEnabled(selected > 0);
+    m_btnObjectRemove->setEnabled(selected > 0);
+    if (m_btnObjectSelector) {
+        m_btnObjectSelector->setVisible(n > 1);
+        const QString name = QFontMetrics(m_btnObjectSelector->font())
+                                 .elidedText(nameOf(selected), Qt::ElideRight, 110);
+        m_btnObjectSelector->setText(QStringLiteral("▾ %1/%2 %3").arg(selected + 1).arg(n).arg(name));
+    }
+    m_refreshingObjects = false;
+}
+
+void MainWindow::selectSceneObjectFromUi(int index)
+{
+    selectSceneObject(index);
+    refreshObjectsUi();
+    // Il suo messaggio (quali slider usa); l'ambiente quello della scena intera.
+    if (index == 0) showComposedObjectsHint();
+    else if (!m_currentHintText.isEmpty()) showSceneHint(m_currentHintText, m_currentHintSeconds);
+}
+
+void MainWindow::showObjectSelectorMenu()
+{
+    QMenu menu(this);
+    GLWidget *gl = ui->glWidget;
+    for (int k = 0; k < gl->objectCount(); ++k) {
+        QAction *a = menu.addAction(m_objectList ? m_objectList->item(k)->text() : QString::number(k));
+        a->setCheckable(true);
+        a->setChecked(k == gl->selectedObject());
+        connect(a, &QAction::triggered, this, [this, k]() { selectSceneObjectFromUi(k); });
+    }
+    menu.exec(m_btnObjectSelector->mapToGlobal(QPoint(0, 0)) - QPoint(0, menu.sizeHint().height()));
+}
+
+void MainWindow::duplicateSceneObject(int index)
+{
+    GLWidget *gl = ui->glWidget;
+    if (index <= 0 || index >= gl->objectCount()) return;
+    selectSceneObject(index);
+    const ObjectSession source = m_objectSessions[index];
+    const QJsonObject shape = m_presetSerializer->buildSurfaceJson(source.name);
+    const QVector3D pos = gl->objectPosition();
+    LibraryManager lm;
+    LibraryItem copy = lm.parseJsonObject(shape, LibraryType::Surface, QString());
+    copy.hintText = m_currentHintText;       // l'oggetto e' quello selezionato
+    copy.hintSeconds = m_currentHintSeconds;
+    addPresetAsObject(copy, source.name);
+    gl->setObjectPosition(pos + QVector3D(0.5f, 0.5f, 0.0f));
+    m_sceneObjectsChanged = true;
+    refreshObjectsUi();
+}
+
+QString MainWindow::composedObjectsHint() const
+{
+    // Il messaggio dell'oggetto selezionato e' in m_currentHintText: la sua
+    // sessione si aggiorna solo quando lo si lascia.
+    const int selected = ui->glWidget->selectedObject();
+    QStringList parts;
+    for (int k = 0; k < int(m_objectSessions.size()); ++k) {
+        const QString text = (k == selected ? m_currentHintText : m_objectSessions[k].hintText).trimmed();
+        if (text.isEmpty()) continue;
+        parts << (k == 0 ? text : m_objectSessions[k].name + QStringLiteral(": ") + text);
+    }
+    return parts.join(QStringLiteral("\n\n"));
+}
+
+// Il messaggio composto si mostra e basta: showSceneHint lo scriverebbe in
+// m_currentHintText, e al primo Save diventerebbe il messaggio dell'ambiente.
+void MainWindow::showComposedObjectsHint()
+{
+    const QString text = composedObjectsHint();
+    if (text.isEmpty() || !ui->glWidget) return;
+    if (!m_hintOverlay) m_hintOverlay = new SceneHintOverlay(ui->glWidget, this);
+    const float seconds = ui->glWidget->selectedObject() == 0 ? m_currentHintSeconds
+                                                               : m_objectSessions[0].hintSeconds;
+    m_hintOverlay->show(text, seconds);
 }

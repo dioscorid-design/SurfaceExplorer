@@ -32,6 +32,9 @@ class QRadioButton;
 class QTimer;
 class QTreeWidget;
 class QTreeWidgetItem;
+class QListWidget;
+class QDoubleSpinBox;
+class QDockWidget;
 class QAction;
 class QMenu;
 class SceneHintOverlay;
@@ -1672,6 +1675,9 @@ private:
         SceneFingerprint cleanScene, appliedSurface, cleanTexture, pickedTexture, cleanSound, pickedSound;
         bool viewTouched = false, textureViewTouched = false;
         bool dirtyAtClose = false;
+        // Il messaggio della sua Shape (hintText), mostrato alla selezione.
+        QString hintText;
+        float hintSeconds = 6.0f;
     };
     std::vector<ObjectSession> m_objectSessions = std::vector<ObjectSession>(1);
     // L'oggetto selezionato: chiude la sua sessione nella copia, apre quella
@@ -1703,6 +1709,33 @@ private:
     bool loadSceneFile(const QString &path);
     // Add to Scene (menu delle Shapes): la Shape come oggetto, accanto agli altri.
     void addShapeToScene(const QString &shapePath);
+
+    // DOCK OBJECTS (2.0): l'elenco degli oggetti della scena, la posizione del
+    // selezionato, Duplicate e Remove. Creato in codice (setupObjectsDock) e
+    // aperto dal tasto "Objects" come gli altri dock: su mobile uno alla volta.
+    QDockWidget *m_dockObjects = nullptr;
+    QListWidget *m_objectList = nullptr;
+    QDoubleSpinBox *m_objectPos[3] = { nullptr, nullptr, nullptr };
+    QPushButton *m_btnObjectDuplicate = nullptr;
+    QPushButton *m_btnObjectRemove = nullptr;
+    // IL SELETTORE COMPATTO nella barra di stato ("2/3 Sphere"): visibile solo
+    // con piu' oggetti, il clic apre l'elenco. Serve a cambiare oggetto mentre
+    // e' aperto un altro dock (su iPhone uno solo alla volta).
+    QPushButton *m_btnObjectSelector = nullptr;
+    bool m_refreshingObjects = false;   // refreshObjectsUi scrive i widget
+    void setupObjectsDock();
+    // Allinea elenco, posizione, tasti e selettore agli oggetti della scena.
+    void refreshObjectsUi();
+    // Selezione dall'interfaccia (elenco, selettore): l'oggetto e il suo
+    // messaggio; l'ambiente mostra il messaggio composto della scena.
+    void selectSceneObjectFromUi(int index);
+    void showObjectSelectorMenu();
+    // Una copia dell'oggetto (la sua Shape com'e' ora), accanto.
+    void duplicateSceneObject(int index);
+    // Il messaggio della scena: quello dell'ambiente e, sotto, quello di ogni
+    // oggetto col suo nome.
+    QString composedObjectsHint() const;
+    void showComposedObjectsHint();
     // LA SCENA DAL FILE: cio' che il load deve lasciare in m_scene (punto 5,
     // tappa 5.3b). Non tocca la scena; legge solo il preset e, per texture e
     // suono, il disco (immagini mancanti, brani da ritrovare nella libreria).
