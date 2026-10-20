@@ -21,7 +21,8 @@ enum class LibraryType {
     Surface,
     Texture,
     Motion,
-    Sound
+    Sound,
+    Scene    // 2.0: un ambiente (record) e i suoi oggetti (Shape), scenes/
 };
 
 // ==========================================================
@@ -357,6 +358,7 @@ public:
     const LibraryItem& getTexture(int index) const;
     const LibraryItem& getMotion(int index) const;
     const LibraryItem& getSound(int index) const;
+    const LibraryItem& getScene(int index) const;
 
     // Lookup per percorso file (univoco), robusto al disallineamento degli indici
     // posizionali: dopo un refresh (fsWatcher) la lista m_surfaces viene ricostruita
@@ -371,6 +373,7 @@ public:
     // ricostruita e l'ordine puo' cambiare, ma il nodo dell'albero conserva
     // l'indice VECCHIO -> si caricava un record diverso da quello cliccato.
     const LibraryItem* getMotionByPath(const QString &filePath) const;
+    const LibraryItem* getSceneByPath(const QString &filePath) const;
 
     // PRESET SALTATI perche' non materializzati su questo disco (segnaposto di
     // iCloud o di un altro file provider): leggerli bloccherebbe il thread della
@@ -394,6 +397,7 @@ private:
     QList<LibraryItem> m_textures;
     QList<LibraryItem> m_motions;
     QList<LibraryItem> m_sounds;
+    QList<LibraryItem> m_scenes;   // nome, percorso e messaggio: il resto si legge al load
 
     QStringList m_skippedDataless;   // vedi skippedDataless()
 
@@ -402,6 +406,11 @@ private:
     // ==========================================================
     QTreeWidgetItem* getOrCreateSubCategory(QTreeWidget* tree, QTreeWidgetItem* parent, const QString& name);
     LibraryItem parseJson(const QString &filePath, LibraryType type);
+public:
+    // Lo stesso parser di parseJson su un JSON gia' aperto: lo usa la scena
+    // (2.0), che contiene l'ambiente come record e gli oggetti come Shape.
+    // filePath e' quello del file che li contiene (percorsi relativi).
+    LibraryItem parseJsonObject(const QJsonObject &root, LibraryType type, const QString &filePath);
 };
 
 #endif // LIBRARYMANAGER_H

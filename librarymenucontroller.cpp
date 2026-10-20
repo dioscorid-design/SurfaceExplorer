@@ -178,12 +178,18 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
             bool isTexture = refItem->data(0, Qt::UserRole + 1).isValid();
             bool isMotion  = refItem->data(0, Qt::UserRole + 2).isValid();
             bool isSound   = refItem->data(0, Qt::UserRole + 3).isValid();
+            bool isScene   = refItem->data(0, Qt::UserRole + 4).isValid();
             bool isFolder  = refItem->data(0, Qt::UserRole + 10).isValid();
 
             if (isSurface) {
                 int index = refItem->data(0, Qt::UserRole).toInt();
                 QString path = m_mainWindow->m_libraryManager.getSurface(index).filePath;
 
+                // 2.0: la Shape come OGGETTO della scena a schermo, che resta.
+                contextMenu->addAction("Add to Scene", m_mainWindow, [this, path, executeAction](){
+                    executeAction([this, path](){ m_mainWindow->addShapeToScene(path); });
+                });
+                contextMenu->addSeparator();
                 contextMenu->addAction("Save Shape As...", m_mainWindow, [this, path, executeAction](){
                     executeAction([this, path](){ m_mainWindow->m_presetSerializer->saveSurfaceAs(QFileInfo(path).absolutePath(), path); });
                 });
@@ -279,6 +285,24 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                     executeAction([this](){ m_mainWindow->deleteSelectedExample(); });
                 });
             }
+            else if (isScene) {
+                const QString path = refItem->toolTip(0);
+                contextMenu->addAction("Save Scene As...", m_mainWindow, [this, path, executeAction](){
+                    executeAction([this, path](){ m_mainWindow->m_presetSerializer->saveScene(QFileInfo(path).absolutePath()); });
+                });
+                contextMenu->addAction("Rename Scene...", m_mainWindow, [this, refItem, executeAction](){
+                    executeAction([this, refItem](){ m_mainWindow->renameLibraryItem(refItem); });
+                });
+                contextMenu->addAction("Copy Scene", m_mainWindow, [this, refItem, executeAction](){
+                    executeAction([this, refItem](){ m_mainWindow->m_fileOps->performCopy(refItem); });
+                });
+                contextMenu->addAction("Cut Scene", m_mainWindow, [this, refItem, executeAction](){
+                    executeAction([this, refItem](){ m_mainWindow->m_fileOps->performCut(refItem); });
+                });
+                contextMenu->addAction("Delete Scene", m_mainWindow, [this, executeAction](){
+                    executeAction([this](){ m_mainWindow->deleteSelectedExample(); });
+                });
+            }
             else if (isSound) {
                 int index = refItem->data(0, Qt::UserRole + 3).toInt();
                 const LibraryItem &data = m_mainWindow->m_libraryManager.getSound(index);
@@ -325,6 +349,10 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
                 } else if (senderTree == m_mainWindow->ui->treeSounds) {
                     contextMenu->addAction("Save Sound Here...", m_mainWindow, [this, folderPath, executeAction](){
                         executeAction([this, folderPath](){ m_mainWindow->m_presetSerializer->saveSoundAs(folderPath, ""); });
+                    });
+                } else if (senderTree == m_mainWindow->ui->treeScenes) {
+                    contextMenu->addAction("Save Scene Here...", m_mainWindow, [this, folderPath, executeAction](){
+                        executeAction([this, folderPath](){ m_mainWindow->m_presetSerializer->saveScene(folderPath); });
                     });
                 }
                 contextMenu->addSeparator();
@@ -386,6 +414,11 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
             contextMenu->addAction("Save New Record...", m_mainWindow, [this, startDir, executeAction](){
                 executeAction([this, startDir](){ m_mainWindow->m_presetSerializer->saveMotion(startDir); });
             });
+        } else if (senderTree == m_mainWindow->ui->treeScenes) {
+            QString startDir = QSettings().value("pathScenes", rootPath + "/scenes").toString();
+            contextMenu->addAction("Save New Scene...", m_mainWindow, [this, startDir, executeAction](){
+                executeAction([this, startDir](){ m_mainWindow->m_presetSerializer->saveScene(startDir); });
+            });
         } else if (senderTree == m_mainWindow->ui->treeSounds) {
             contextMenu->addAction("Save New Sound...", m_mainWindow, [this, executeAction](){
                 executeAction([this](){
@@ -415,6 +448,7 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
         else if (senderTree == m_mainWindow->ui->treeMotions)  destRoot = QSettings().value("pathRecords",  rootPath + "/records").toString();
         else if (senderTree == m_mainWindow->ui->treeSounds)   destRoot = QSettings().value("pathSounds",   rootPath + "/sounds").toString();
         else if (senderTree == m_mainWindow->ui->treeTextures) destRoot = QSettings().value("pathTextures", rootPath + "/textures").toString();
+        else if (senderTree == m_mainWindow->ui->treeScenes)   destRoot = QSettings().value("pathScenes",   rootPath + "/scenes").toString();
 
         if (!m_mainWindow->m_cutFilePaths.isEmpty()) {
             contextMenu->addAction(QString("Paste %1 Item(s)").arg(m_mainWindow->m_cutFilePaths.count()), m_mainWindow, [this, destRoot, executeAction](){
@@ -462,6 +496,7 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
     if (senderTree == m_mainWindow->ui->treeTextures)     branchLabel = "Textures";
     else if (senderTree == m_mainWindow->ui->treeMotions) branchLabel = "Records";
     else if (senderTree == m_mainWindow->ui->treeSounds)  branchLabel = "Sounds";
+    else if (senderTree == m_mainWindow->ui->treeScenes)  branchLabel = "Scenes";
 
     // Nascondiamo l'apertura cartella Workspace su Mobile per evitare problemi di file system
     contextMenu->addAction(QString("Change Folder for %1...").arg(branchLabel), m_mainWindow,
@@ -476,6 +511,7 @@ void LibraryMenuController::showMenu(QTreeWidget *senderTree, const QPoint &pos)
             if (senderTree == m_mainWindow->ui->treeTextures) { key = "pathTextures"; currentPath = settings.value(key, rootPath + "/Textures").toString(); }
             else if (senderTree == m_mainWindow->ui->treeMotions) { key = "pathRecords"; currentPath = settings.value(key, rootPath + "/records").toString(); }
             else if (senderTree == m_mainWindow->ui->treeSounds) { key = "pathSounds"; currentPath = settings.value(key, rootPath + "/Sounds").toString(); }
+            else if (senderTree == m_mainWindow->ui->treeScenes) { key = "pathScenes"; currentPath = settings.value(key, rootPath + "/scenes").toString(); }
             else { key = "pathSurfaces"; currentPath = settings.value(key, rootPath + "/Surfaces").toString(); }
 
             QString dir = QFileDialog::getExistingDirectory(m_mainWindow, "Select Workspace Folder", currentPath);

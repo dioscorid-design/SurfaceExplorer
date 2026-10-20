@@ -19,6 +19,8 @@ public:
     void saveSurface(const QString &suggestedPath = "");
     void saveTexture(const QString &path);
     void saveMotion(const QString &suggestedPath = "");
+    // 2.0: la scena (ambiente + oggetti) in scenes/, stesso Save dei record.
+    void saveScene(const QString &suggestedPath = "");
     void saveSoundAs(const QString &startDir, const QString &sourceFilePath = "");
     void saveSound(const QString &filePath);
     void saveScript();
@@ -46,6 +48,8 @@ public:
     QJsonObject buildSurfaceJson(const QString &name);
     QJsonObject buildMotionJson(const QString &name, const MotionRunState &run,
                                 bool includeSound);
+    QJsonObject buildSceneJson(const QString &name, const MotionRunState &run,
+                               bool includeSound);
 
     // Lo stato della scena fotografato in un LibraryItem, cio' che i due
     // build*Json traducono con LibraryManager::toJson (tappa 2 dello "stato
@@ -55,6 +59,7 @@ public:
                                    bool includeSound);
 
 private:
+    void saveRecordOrScene(const QString &suggestedPath, bool scene);
     // Scrive i sei limiti parametrici in `limits`: sempre la chiave numerica
     // (uMin/uMax/...), piu' la gemella "...Expr" con il testo grezzo quando
     // l'utente ha scritto una formula anziche' un numero. Per il Save degli

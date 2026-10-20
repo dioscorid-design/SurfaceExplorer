@@ -1925,6 +1925,43 @@ QFrame#panelBackgroundTarget QRadioButton { background: transparent; }</string>
          </item>
         </layout>
        </widget>
+       <widget class="QWidget" name="Scenes">
+        <attribute name="title">
+         <string>Scenes</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="verticalLayout_scenes">
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <item>
+          <widget class="LibraryTreeWidget" name="treeScenes">
+           <property name="contextMenuPolicy">
+            <enum>Qt::ContextMenuPolicy::CustomContextMenu</enum>
+           </property>
+           <property name="selectionMode">
+            <enum>QAbstractItemView::SelectionMode::ExtendedSelection</enum>
+           </property>
+           <attribute name="headerVisible">
+            <bool>false</bool>
+           </attribute>
+           <column>
+            <property name="text">
+             <string notr="true">1</string>
+            </property>
+           </column>
+          </widget>
+         </item>
+        </layout>
+       </widget>
        <widget class="QWidget" name="Texture">
         <attribute name="title">
          <string>Textures</string>

@@ -265,6 +265,21 @@ void MainWindow::absorbChangesSince(const SceneFingerprint &before)
 // Le chiavi che fanno uscire l'avviso, col nome della parte che difendono.
 QStringList MainWindow::unsavedKeys() const
 {
+    QStringList out = objectUnsavedKeys();
+    // SCENA A PIU' OGGETTI (2.0): gli oggetti aggiunti/tolti/spostati, e gli
+    // altri oggetti lasciati modificati (il selezionato lo dice il confronto).
+    if (m_sceneObjectsChanged) out << QStringLiteral("scena:(oggetti della scena)");
+    if (ui->glWidget) {
+        const int selected = ui->glWidget->selectedObject();
+        for (int k = 0; k < int(m_objectSessions.size()); ++k)
+            if (k != selected && m_objectSessions[k].dirtyAtClose)
+                out << QStringLiteral("scena:(oggetto ") + m_objectSessions[k].name + QLatin1Char(')');
+    }
+    return out;
+}
+
+QStringList MainWindow::objectUnsavedKeys() const
+{
     QStringList out;
     const SceneFingerprint fp = sceneFingerprint();
     QSet<QString> keys;

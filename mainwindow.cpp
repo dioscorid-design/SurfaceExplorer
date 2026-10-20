@@ -986,16 +986,20 @@ void MainWindow::setupDockLayout()
     ui->tabWidget->addTab(ui->Texture, "Textures");
     ui->tabWidget->addTab(ui->Sounds, "Sounds");
     ui->tabWidget->addTab(ui->Motions, "Records");
+    // 2.0: le scene (ambiente + oggetti), cartella scenes/.
+    ui->tabWidget->addTab(ui->Scenes, "Scenes");
     ui->tabWidget->setCurrentIndex(0);
     // Niente frecce di scorrimento sui tab Library: il cambio si fa cliccando
     // la linguetta.
     if (ui->tabWidget->tabBar())
         ui->tabWidget->tabBar()->setUsesScrollButtons(false);
-    // Tab a piena larghezza: 4 tab su un dock bloccato a 400px. min-width fissa
-    // (come il dockEquations, che funziona) tarata sui 400: ~76px/tab riempie
-    // la barra. Col CSS globale setExpanding e' ignorato, la min-width no.
+    // Tab a piena larghezza: 5 tab su un dock bloccato a 400px. min-width fissa
+    // (come il dockEquations, che funziona) tarata sui 400: 58px + 2x8 di
+    // padding + bordo = ~76px/tab riempie la barra senza sforare (con 4 tab
+    // erano 76px di min-width). Col CSS globale setExpanding e' ignorato, la
+    // min-width no.
     ui->tabWidget->setStyleSheet(
-        "QTabBar::tab { min-width: 76px; padding: 5px 10px; }");
+        "QTabBar::tab { min-width: 58px; padding: 5px 8px; }");
 
     UiStyleManager::setupDockScroll(ui->dockEquations, true);
     UiStyleManager::setupDockScroll(ui->dockRenders, true);
@@ -1667,6 +1671,7 @@ void MainWindow::finishStartup()
             settings.remove("pathSurfaces");
             settings.remove("pathTextures");
             settings.remove("pathRecords");
+            settings.remove("pathScenes");
             settings.remove("pathSounds");
         }
     }

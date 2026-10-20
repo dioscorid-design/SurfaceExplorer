@@ -1231,6 +1231,16 @@ private:
     // Le chiavi che rendono sporchi scena e moduli ("scena:colors/alpha"...):
     // per i test e per la diagnosi.
     QStringList unsavedKeys() const;
+    // La parte di unsavedKeys che riguarda l'OGGETTO SELEZIONATO (con la
+    // scena che lui vede): il confronto delle impronte di sempre. Il resto
+    // (2.0) sono gli oggetti aggiunti/tolti/spostati e gli altri oggetti
+    // lasciati modificati (ObjectSession::dirtyAtClose).
+    QStringList objectUnsavedKeys() const;
+    // Scena salvata o caricata: ogni oggetto torna pulito (lo si seleziona
+    // per fotografarlo), e gli oggetti non risultano piu' cambiati.
+    void markWholeSceneClean();
+    // Oggetti aggiunti, tolti o spostati dall'ultimo momento pulito.
+    bool m_sceneObjectsChanged = false;
     // Cambi che NON sono lavoro dell'utente (il checkbox che mostra/nasconde la
     // texture, la trasparenza tolta dal watchdog): cio' che cambia mentre la
     // guardia e' viva entra anche nei riferimenti puliti, cosi' una scena pulita
@@ -1657,6 +1667,11 @@ private:
         int meshTextureScriptPart = -1;
         QString borderTextureScriptText, borderTextureScriptBase;
         int surfaceOrigin = 0;   // m_surfaceOrigin: equazioni, script o entrambi
+        // LAVORO NON SALVATO dell'oggetto: le sue impronte pulite (vedi
+        // markSceneClean) e, alla chiusura della sessione, se era modificato.
+        SceneFingerprint cleanScene, appliedSurface, cleanTexture, pickedTexture, cleanSound, pickedSound;
+        bool viewTouched = false, textureViewTouched = false;
+        bool dirtyAtClose = false;
     };
     std::vector<ObjectSession> m_objectSessions = std::vector<ObjectSession>(1);
     // L'oggetto selezionato: chiude la sua sessione nella copia, apre quella
@@ -1683,6 +1698,11 @@ private:
     // e i reset, che riscrivono la scena intera.
     void resetToSingleObject();
     bool m_loadingAsObject = false;   // dentro addPresetAsObject
+    // Una scena dalla linguetta Scenes: ambiente e oggetti (vedi il formato in
+    // PresetSerializer::buildSceneJson). False se il file non e' una scena.
+    bool loadSceneFile(const QString &path);
+    // Add to Scene (menu delle Shapes): la Shape come oggetto, accanto agli altri.
+    void addShapeToScene(const QString &shapePath);
     // LA SCENA DAL FILE: cio' che il load deve lasciare in m_scene (punto 5,
     // tappa 5.3b). Non tocca la scena; legge solo il preset e, per texture e
     // suono, il disco (immagini mancanti, brani da ritrovare nella libreria).

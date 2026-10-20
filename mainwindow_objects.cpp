@@ -34,6 +34,19 @@ void MainWindow::saveObjectSession(ObjectSession &s) const
     s.borderTextureScriptText = m_borderTextureScriptText;
     s.borderTextureScriptBase = m_borderTextureScriptBase;
     s.surfaceOrigin = int(m_surfaceOrigin);
+    s.cleanScene = m_cleanScene;
+    s.appliedSurface = m_appliedSurface;
+    s.cleanTexture = m_cleanTexture;
+    s.pickedTexture = m_pickedTexture;
+    s.cleanSound = m_cleanSound;
+    s.pickedSound = m_pickedSound;
+    s.viewTouched = m_viewTouched;
+    s.textureViewTouched = m_textureViewTouched;
+    // Si chiude modificato? Le modifiche di un oggetto non selezionato non
+    // cambiano finche' non lo si riapre: basta ricordarlo qui.
+    s.dirtyAtClose = false;
+    for (const QString &k : objectUnsavedKeys())
+        if (k.startsWith(QLatin1String("scena:"))) { s.dirtyAtClose = true; break; }
 }
 
 void MainWindow::openObjectSession(const ObjectSession &s)
@@ -63,6 +76,14 @@ void MainWindow::openObjectSession(const ObjectSession &s)
     m_borderTextureScriptText = s.borderTextureScriptText;
     m_borderTextureScriptBase = s.borderTextureScriptBase;
     m_surfaceOrigin = static_cast<decltype(m_surfaceOrigin)>(s.surfaceOrigin);
+    m_cleanScene = s.cleanScene;
+    m_appliedSurface = s.appliedSurface;
+    m_cleanTexture = s.cleanTexture;
+    m_pickedTexture = s.pickedTexture;
+    m_cleanSound = s.cleanSound;
+    m_pickedSound = s.pickedSound;
+    m_viewTouched = s.viewTouched;
+    m_textureViewTouched = s.textureViewTouched;
 }
 
 void MainWindow::selectSceneObject(int index)
@@ -97,6 +118,9 @@ int MainWindow::addPresetAsObject(const LibraryItem &d, const QString &name)
     m_loadingAsObject = true;
     applySurfaceExample(d, /*asObject=*/true);
     m_loadingAsObject = wasLoading;
+    // L'oggetto e' quello del preset: pulito rispetto a se stesso. Che la
+    // SCENA sia cambiata lo dice chi lo aggiunge (m_sceneObjectsChanged).
+    markSceneClean();
     return index;
 }
 
@@ -108,6 +132,79 @@ void MainWindow::removeSceneObject(int index)
     if (wasSelected) selectSceneObject(0);
     gl->removeObject(index);
     m_objectSessions.erase(m_objectSessions.begin() + index);
+    m_sceneObjectsChanged = true;
+}
+
+// ADD TO SCENE (menu delle Shapes): la Shape come oggetto della scena a
+// schermo, accanto agli altri lungo x. La posizione si regola dal dock Objects.
+void MainWindow::addShapeToScene(const QString &shapePath)
+{
+    const LibraryItem *d = m_libraryManager.getSurfaceByPath(shapePath);
+    if (!d || d->name.isEmpty()) return;
+    // FLUSSO GEODETICO: per ora solo come ambiente. Il suo tempo e il suo timer
+    // stanno ancora in MainWindow (m_geoTime, m_geoAnimTimer), uno per tutti.
+    static const QRegularExpression kMetricReturnRe(R"(\breturn\s+mat3\s*\()");
+    const bool geodesic = !d->geoU0.trimmed().isEmpty() || !d->geoDU.trimmed().isEmpty()
+                          || d->scriptCode.contains(kMetricReturnRe);
+    if (geodesic) {
+        QMessageBox::information(this, QStringLiteral("Add to Scene"),
+            QStringLiteral("Geodesic flows can be the environment of a scene (open them from the "
+                           "Library), but they cannot be added as objects yet."));
+        return;
+    }
+    const int index = addPresetAsObject(*d, d->name);
+    ui->glWidget->setObjectPosition(QVector3D(2.5f * float(index), 0.0f, 0.0f));
+    m_sceneObjectsChanged = true;
+}
+
+// UNA SCENA DAL FILE (PresetSerializer::buildSceneJson): l'ambiente col load
+// dei record, poi ogni oggetto col load di una Shape come oggetto, nella sua
+// posizione. Alla fine e' selezionato l'ambiente, e la scena e' "pulita".
+bool MainWindow::loadSceneFile(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) return false;
+    const QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+    file.close();
+    if (root.value(QStringLiteral("type")).toString() != QLatin1String("scene")) return false;
+
+    LibraryManager lm;
+    const LibraryItem env = lm.parseJsonObject(root.value(QStringLiteral("environment")).toObject(),
+                                               LibraryType::Motion, path);
+    if (env.name.isEmpty()) return false;
+    applyMotionExample(env);   // torna al solo ambiente e lo carica
+
+    GLWidget *gl = ui->glWidget;
+    for (const QJsonValue &v : root.value(QStringLiteral("objects")).toArray()) {
+        const QJsonObject o = v.toObject();
+        const LibraryItem shape = lm.parseJsonObject(o.value(QStringLiteral("shape")).toObject(),
+                                                     LibraryType::Surface, path);
+        if (shape.name.isEmpty()) continue;
+        addPresetAsObject(shape, o.value(QStringLiteral("name")).toString(shape.name));
+        const QJsonArray p = o.value(QStringLiteral("position")).toArray();
+        gl->setObjectPosition(QVector3D(float(p.at(0).toDouble()), float(p.at(1).toDouble()),
+                                        float(p.at(2).toDouble())));
+    }
+    selectSceneObject(0);
+    // Il momento pulito: la scena e' quella del file (come a fine load).
+    markWholeSceneClean();
+    captureStartPose();
+    return true;
+}
+
+void MainWindow::markWholeSceneClean()
+{
+    GLWidget *gl = ui->glWidget;
+    const int selected = gl->selectedObject();
+    for (int k = 0; k < gl->objectCount(); ++k) {
+        if (k == selected) continue;
+        selectSceneObject(k);
+        markSceneClean();
+    }
+    selectSceneObject(selected);
+    markSceneClean();
+    for (ObjectSession &s : m_objectSessions) s.dirtyAtClose = false;
+    m_sceneObjectsChanged = false;
 }
 
 // Torna alla scena di un oggetto solo, l'ambiente (modalita' Superficie):
@@ -118,6 +215,9 @@ void MainWindow::resetToSingleObject()
     if (gl->objectCount() <= 1 || m_loadingAsObject) return;
     selectSceneObject(0);
     while (gl->objectCount() > 1) removeSceneObject(gl->objectCount() - 1);
+    // Un oggetto solo: niente da ricordare degli altri.
+    m_sceneObjectsChanged = false;
+    m_objectSessions[0].dirtyAtClose = false;
 }
 
 void MainWindow::showSelectedObject()

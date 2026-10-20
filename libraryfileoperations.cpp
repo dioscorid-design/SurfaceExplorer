@@ -218,6 +218,8 @@ void LibraryFileOperations::performPasteExample(const QString &destDirOverride)
         }
         else if (currentItem && currentItem->data(0, Qt::UserRole + 2).isValid()) {
             destDir = QFileInfo(m_mainWindow->m_libraryManager.getMotion(currentItem->data(0, Qt::UserRole + 2).toInt()).filePath).absolutePath();
+        }        else if (currentItem && currentItem->data(0, Qt::UserRole + 4).isValid()) {
+            destDir = QFileInfo(currentItem->toolTip(0)).absolutePath();   // una scena
         }
     }
 
@@ -225,7 +227,10 @@ void LibraryFileOperations::performPasteExample(const QString &destDirOverride)
         QString rootPath = settings.value("libraryRootPath").toString();
         QString firstFile = m_mainWindow->m_cutFilePaths.first();
 
-        if (firstFile.contains("records", Qt::CaseInsensitive) || firstFile.contains("record", Qt::CaseInsensitive)
+        // 2.0: le scene prima dei record ("scenes" non contiene "record").
+        if (firstFile.contains("/scenes/", Qt::CaseInsensitive)) {
+            destDir = settings.value("pathScenes", rootPath + "/scenes").toString();
+        } else if (firstFile.contains("records", Qt::CaseInsensitive) || firstFile.contains("record", Qt::CaseInsensitive)
             || firstFile.contains("motions", Qt::CaseInsensitive) || firstFile.contains("motion", Qt::CaseInsensitive)) {
             // I Record (ex "Motion") stanno in pathRecords -> .../records; il vecchio
             // ramo cercava solo "motion" e usava pathMotions, cosi' un path .../records
@@ -453,6 +458,7 @@ void LibraryFileOperations::deleteSelected()
         else if (!m_mainWindow->ui->treeTextures->selectedItems().isEmpty()) targetTree = m_mainWindow->ui->treeTextures;
         else if (!m_mainWindow->ui->treeMotions->selectedItems().isEmpty()) targetTree = m_mainWindow->ui->treeMotions;
         else if (!m_mainWindow->ui->treeSounds->selectedItems().isEmpty()) targetTree = m_mainWindow->ui->treeSounds;
+        else if (!m_mainWindow->ui->treeScenes->selectedItems().isEmpty()) targetTree = m_mainWindow->ui->treeScenes;
     }
 
     if (!targetTree) return;
@@ -472,6 +478,7 @@ void LibraryFileOperations::deleteSelected()
         else if (item->data(0, Qt::UserRole + 1).isValid()) filesToDelete.append({item->data(0, Qt::UserRole + 1).toInt(), LibraryType::Texture});
         else if (item->data(0, Qt::UserRole + 2).isValid()) filesToDelete.append({item->data(0, Qt::UserRole + 2).toInt(), LibraryType::Motion});
         else if (item->data(0, Qt::UserRole + 3).isValid()) filesToDelete.append({item->data(0, Qt::UserRole + 3).toInt(), LibraryType::Sound});
+        else if (item->data(0, Qt::UserRole + 4).isValid()) filesToDelete.append({item->data(0, Qt::UserRole + 4).toInt(), LibraryType::Scene});
         else if (item->data(0, Qt::UserRole + 10).isValid()) {
             physicalFoldersToDelete.append(QDir::cleanPath(item->data(0, Qt::UserRole + 10).toString()));
         }

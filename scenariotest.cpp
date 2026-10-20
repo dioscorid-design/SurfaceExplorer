@@ -22,6 +22,7 @@
 #include <QDirIterator>
 #include <QEventLoop>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QFileInfo>
 #include <QMenu>
@@ -5541,6 +5542,76 @@ void ScenarioTest::runSceneObjectScenarios()
               QStringLiteral("load di una Shape: si torna al solo ambiente"));
         dockProblems(QStringLiteral("dopo il ritorno al solo ambiente"));
     }
+
+    // LINGUETTA SCENES (tappa 3, passo 3): Add to Scene dal menu, Save della
+    // scena, lavoro non salvato per oggetto, Load che ricostruisce tutto.
+    m_lines.append(QString());
+    m_lines.append(QStringLiteral("== Scene: Add to Scene, Save e Load, lavoro non salvato per oggetto =="));
+    if (!loadSurface(kTorus)) return;
+    wait(400);
+    // La Shape come la vede l'albero (stesso percorso del menu Add to Scene).
+    QString spherePath;
+    for (const LibraryItem &it : m_mw->m_libraryManager.m_surfaces)
+        if (it.filePath.endsWith(kSphere)) spherePath = it.filePath;
+    check(!spherePath.isEmpty(), QStringLiteral("la sfera e' nella libreria"));
+    if (spherePath.isEmpty()) return;
+    check(!m_mw->hasUnsavedWork(), QStringLiteral("toro appena caricato: niente da salvare"));
+    m_mw->addShapeToScene(spherePath);
+    wait(500);
+    check(gl->objectCount() == 2 && m_mw->hasUnsavedWork(),
+          QStringLiteral("Add to Scene: due oggetti, e la scena e' da salvare"));
+    const QVector3D spherePos = gl->objectPosition();
+
+    // Il Save della scena (stesso JSON del menu), su un file del report.
+    PresetSerializer::MotionRunState run;
+    const QJsonObject sceneJson = m_mw->m_presetSerializer->buildSceneJson(QStringLiteral("Test Scene"), run, false);
+    const QString scenePath = m_outDir + QStringLiteral("/scene-objects.json");
+    {
+        QFile f(scenePath);
+        check(f.open(QIODevice::WriteOnly) && f.write(QJsonDocument(sceneJson).toJson()) > 0,
+              QStringLiteral("scena scritta: ambiente + %1 oggetto")
+                  .arg(sceneJson.value(QStringLiteral("objects")).toArray().size()));
+    }
+    m_mw->markWholeSceneClean();
+    check(!m_mw->hasUnsavedWork(), QStringLiteral("scena salvata: niente da salvare"));
+    m_mw->selectSceneObject(1);
+    wait(200);
+    m_mw->selectSceneObject(0);
+    wait(200);
+    check(!m_mw->hasUnsavedWork(), QStringLiteral("cambiare oggetto selezionato non e' lavoro da salvare: %1")
+                                       .arg(m_mw->unsavedKeys().join(QStringLiteral(", "))));
+    const QJsonObject envBefore = m_mw->m_presetSerializer->buildSurfaceJson(QStringLiteral("E"));
+    m_mw->selectSceneObject(1);
+    const QJsonObject objBefore = m_mw->m_presetSerializer->buildSurfaceJson(QStringLiteral("O"));
+    // Una modifica all'oggetto, poi via di li': la scena resta da salvare.
+    gl->setColor(0.9f, 0.1f, 0.1f);
+    m_mw->selectSceneObject(0);
+    wait(200);
+    check(m_mw->hasUnsavedWork(), QStringLiteral("oggetto modificato e lasciato: la scena e' da salvare"));
+    gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-objects-saved.png"));
+
+    // Load: prima un oggetto solo, poi la scena dal file.
+    if (!loadSurface(kSphere)) return;
+    wait(300);
+    check(m_mw->loadSceneFile(scenePath), QStringLiteral("loadSceneFile: il file e' una scena"));
+    wait(600);
+    check(gl->objectCount() == 2 && gl->selectedObject() == 0,
+          QStringLiteral("scena caricata: due oggetti, selezionato l'ambiente"));
+    check(!m_mw->hasUnsavedWork(), QStringLiteral("scena caricata: niente da salvare: %1")
+                                       .arg(m_mw->unsavedKeys().join(QStringLiteral(", "))));
+    dockProblems(QStringLiteral("scena caricata, ambiente"));
+    const QStringList envDiff = jsonDiff(envBefore, m_mw->m_presetSerializer->buildSurfaceJson(QStringLiteral("E")));
+    check(envDiff.isEmpty(), QStringLiteral("ambiente ricaricato: Save identico%1")
+                                 .arg(envDiff.isEmpty() ? QString() : QStringLiteral(" (diversi: ") + envDiff.join(QStringLiteral(", ")) + QLatin1Char(')')));
+    m_mw->selectSceneObject(1);
+    wait(300);
+    dockProblems(QStringLiteral("scena caricata, oggetto"));
+    check(gl->objectPosition() == spherePos, QStringLiteral("oggetto ricaricato nella sua posizione"));
+    const QStringList objDiff = jsonDiff(objBefore, m_mw->m_presetSerializer->buildSurfaceJson(QStringLiteral("O")));
+    check(objDiff.isEmpty(), QStringLiteral("oggetto ricaricato: Save identico%1")
+                                 .arg(objDiff.isEmpty() ? QString() : QStringLiteral(" (diversi: ") + objDiff.join(QStringLiteral(", ")) + QLatin1Char(')')));
+    m_mw->selectSceneObject(0);
+    gl->grabFramebuffer().save(m_outDir + QStringLiteral("/scene-objects-loaded.png"));
 }
 
 void ScenarioTest::runShapeBackgroundScenarios()

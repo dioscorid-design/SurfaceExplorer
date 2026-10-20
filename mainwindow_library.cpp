@@ -109,6 +109,14 @@ void MainWindow::setupLibraryDock()
     });
     connect(ui->treeSounds, &QTreeWidget::itemClicked, this, &MainWindow::onSoundItemClicked);
 
+    // 2.0: le SCENE (ambiente + oggetti), come i record.
+    initTree(ui->treeScenes);
+    connect(ui->treeScenes, &QTreeWidget::customContextMenuRequested, this, [this](const QPoint &pos){
+        if (!ui->treeScenes->itemAt(pos)) { ui->treeScenes->clearSelection(); ui->treeScenes->setCurrentItem(nullptr); }
+        m_menuController->showMenu(ui->treeScenes, pos);
+    });
+    connect(ui->treeScenes, &QTreeWidget::itemClicked, this, &MainWindow::onExampleItemClicked);
+
     // APRIRE O CHIUDERE UNA CARTELLA NON SPOSTA L'EVIDENZIAZIONE. Il clic sulla
     // RIGA di una cartella (tap su mobile, doppio clic su desktop; solo la
     // freccetta non seleziona) passa prima da Qt, che sposta la selezione sulla
@@ -162,7 +170,7 @@ void MainWindow::setupLibraryDock()
         connect(tree, &QTreeWidget::itemExpanded, this, restore);
         connect(tree, &QTreeWidget::itemCollapsed, this, restore);
     };
-    for (QTreeWidget *tree : { ui->treeSurfaces, ui->treeTextures, ui->treeMotions, ui->treeSounds })
+    for (QTreeWidget *tree : { ui->treeSurfaces, ui->treeTextures, ui->treeMotions, ui->treeSounds, ui->treeScenes })
         keepHighlightOnToggle(tree);
 
     connect(ui->btnSyncLibrary, &QPushButton::clicked, this, &MainWindow::onSyncPresetsClicked);
@@ -188,7 +196,7 @@ void MainWindow::setupLibraryDock()
 
 bool MainWindow::confirmLibraryClick(QTreeWidget *src, QTreeWidgetItem *item)
 {
-    const bool replacesScene = (src == ui->treeSurfaces || src == ui->treeMotions);
+    const bool replacesScene = (src == ui->treeSurfaces || src == ui->treeMotions || src == ui->treeScenes);
     // Solo le FOGLIE caricano qualcosa: sulle cartelle il click apre il ramo
     // e non tocca la scena, quindi non deve chiedere nulla.
     const bool isLeaf = (item && item->childCount() == 0);
@@ -266,7 +274,7 @@ bool MainWindow::confirmLibraryClick(QTreeWidget *src, QTreeWidgetItem *item)
 void MainWindow::clearOtherLibraryTrees(QTreeWidget *src)
 {
     if (src == ui->treeSurfaces) {
-        for (QTreeWidget *tree : { ui->treeTextures, ui->treeMotions, ui->treeSounds }) {
+        for (QTreeWidget *tree : { ui->treeTextures, ui->treeMotions, ui->treeSounds, ui->treeScenes }) {
             if (tree) {
                 bool b = tree->blockSignals(true);
                 tree->clearSelection();
@@ -274,11 +282,14 @@ void MainWindow::clearOtherLibraryTrees(QTreeWidget *src)
                 tree->blockSignals(b);
             }
         }
-    } else if (src == ui->treeMotions && ui->treeSurfaces) {
-        bool b = ui->treeSurfaces->blockSignals(true);
-        ui->treeSurfaces->clearSelection();
-        ui->treeSurfaces->setCurrentItem(nullptr);
-        ui->treeSurfaces->blockSignals(b);
+    } else if ((src == ui->treeMotions || src == ui->treeScenes) && ui->treeSurfaces) {
+        // Record e scene sostituiscono la superficie (e l'uno l'altra).
+        for (QTreeWidget *tree : { ui->treeSurfaces, src == ui->treeMotions ? ui->treeScenes : ui->treeMotions }) {
+            bool b = tree->blockSignals(true);
+            tree->clearSelection();
+            tree->setCurrentItem(nullptr);
+            tree->blockSignals(b);
+        }
     }
 }
 
@@ -680,6 +691,20 @@ void MainWindow::onExampleItemClicked(QTreeWidgetItem *item, int column)
         }
         return;
     }
+
+    // ==========================================
+    // 4. SCENE (2.0): ambiente + oggetti
+    // ==========================================
+    if (item->data(0, Qt::UserRole + 4).isValid()) {
+        // Per percorso, come i record (l'indice e' fragile dopo un refresh).
+        const QString nodePath = item->toolTip(0);
+        const LibraryItem *byPath = nodePath.isEmpty() ? nullptr
+                                    : m_libraryManager.getSceneByPath(nodePath);
+        const LibraryItem &data = byPath ? *byPath
+                                         : m_libraryManager.getScene(item->data(0, Qt::UserRole + 4).toInt());
+        if (!data.name.isEmpty()) loadSceneFile(data.filePath);
+        return;
+    }
 }
 
 void MainWindow::deleteSelectedExample() {
@@ -808,6 +833,7 @@ void MainWindow::onAddRepositoryClicked(bool wasRotating, bool wasPath4D,
     settings.remove("pathSurfaces");
     settings.remove("pathTextures");
     settings.remove("pathRecords");
+    settings.remove("pathScenes");
     settings.remove("pathSounds");
 
     // NON setupDefaultFolders(): creerebbe i quattro rami dentro la cartella
@@ -869,6 +895,7 @@ void MainWindow::onCreateFolderClicked()
 
         if (currentTab == ui->Texture) basePath = settings.value("pathTextures", rootPath + "/textures").toString();
         else if (currentTab == ui->Motions) basePath = settings.value("pathRecords", rootPath + "/records").toString();
+        else if (currentTab == ui->Scenes) basePath = settings.value("pathScenes", rootPath + "/scenes").toString();
         else if (currentTab->objectName().contains("Sound", Qt::CaseInsensitive)) basePath = settings.value("pathSounds", rootPath + "/sounds").toString();
         else basePath = settings.value("pathSurfaces", rootPath + "/surfaces").toString();
     }
@@ -950,7 +977,7 @@ void MainWindow::refreshAndFocusPaths(const QStringList &paths)
     for (const QString &p : paths) wanted.insert(QDir::cleanPath(p));
     if (wanted.isEmpty()) return;
     bool focused = false;
-    for (QTreeWidget *tree : { ui->treeSurfaces, ui->treeTextures, ui->treeMotions, ui->treeSounds }) {
+    for (QTreeWidget *tree : { ui->treeSurfaces, ui->treeTextures, ui->treeMotions, ui->treeSounds, ui->treeScenes }) {
         bool cleared = false;
         for (QTreeWidgetItemIterator it(tree); *it; ++it) {
             const QVariant dir = (*it)->data(0, Qt::UserRole + 10);
@@ -1034,6 +1061,7 @@ void MainWindow::onSyncPresetsClicked()
     settings.remove("pathTextures");
     settings.remove("pathMotions");
     settings.remove("pathRecords");
+    settings.remove("pathScenes");
     settings.remove("pathSounds");
 
     // 2. PERCORSO DINAMICO (La chiave per iOS!)
@@ -1067,16 +1095,19 @@ void MainWindow::onSyncPresetsClicked()
     QString pathTex  = rootPath + "/textures";
     QString pathRec  = rootPath + "/records";
     QString pathSnd  = rootPath + "/sounds";
+    QString pathScn  = rootPath + "/scenes";
 
     settings.setValue("pathSurfaces", pathSurf);
     settings.setValue("pathTextures", pathTex);
     settings.setValue("pathRecords", pathRec);
     settings.setValue("pathSounds", pathSnd);
+    settings.setValue("pathScenes", pathScn);
 
     // 4. CREAZIONE FISICA CARTELLE
     QDir().mkpath(pathSurf);
     QDir().mkpath(pathTex);
     QDir().mkpath(pathRec);
+    QDir().mkpath(pathScn);
     QDir().mkpath(pathSnd);
 
     // 5. ESTRAZIONE RICORSIVA
@@ -1491,6 +1522,7 @@ void MainWindow::setupDefaultFolders()
     settings.remove("pathTextures");
     settings.remove("pathMotions");
     settings.remove("pathRecords");
+    settings.remove("pathScenes");
     settings.remove("pathSounds");
     settings.remove("repoPathsSurfaces");
     settings.remove("repoPathsTextures");
@@ -1527,6 +1559,7 @@ void MainWindow::refreshRepositories()
     ui->treeTextures->blockSignals(true);
     ui->treeMotions->blockSignals(true);
     ui->treeSounds->blockSignals(true);
+    ui->treeScenes->blockSignals(true);
 
     // 1. LAMBDA AVANZATA: Ricostruisce il percorso completo dell'albero (es. "Cartella/MioFile")
     auto getItemPath = [](QTreeWidgetItem* item) -> QString {
@@ -1540,8 +1573,8 @@ void MainWindow::refreshRepositories()
     };
 
     // 2. SALVATAGGIO STATO ESPANSIONE E SELEZIONE (Ora basato sul percorso univoco)
-    QSet<QString> expSurfaces, expTextures, expMotions, expSounds;
-    QSet<QString> selSurfaces, selTextures, selMotions, selSounds;
+    QSet<QString> expSurfaces, expTextures, expMotions, expSounds, expScenes;
+    QSet<QString> selSurfaces, selTextures, selMotions, selSounds, selScenes;
 
     auto saveState = [&](QTreeWidget* tree, QSet<QString>& expSet, QSet<QString>& selSet) {
         QTreeWidgetItemIterator it(tree);
@@ -1557,23 +1590,27 @@ void MainWindow::refreshRepositories()
     saveState(ui->treeTextures, expTextures, selTextures);
     saveState(ui->treeMotions, expMotions, selMotions);
     saveState(ui->treeSounds, expSounds, selSounds);
+    saveState(ui->treeScenes, expScenes, selScenes);
 
     // 3. SALVATAGGIO POSIZIONE BARRE DI SCORRIMENTO (Impedisce il salto visivo)
     int scrollSurfaces = ui->treeSurfaces->verticalScrollBar()->value();
     int scrollTextures = ui->treeTextures->verticalScrollBar()->value();
     int scrollMotions  = ui->treeMotions->verticalScrollBar()->value();
     int scrollSounds   = ui->treeSounds->verticalScrollBar()->value();
+    int scrollScenes   = ui->treeScenes->verticalScrollBar()->value();
 
     // 4. PULIZIA SICURA
     ui->treeSurfaces->clearSelection();
     ui->treeTextures->clearSelection();
     ui->treeMotions->clearSelection();
     ui->treeSounds->clearSelection();
+    ui->treeScenes->clearSelection();
 
     ui->treeSurfaces->clear();
     ui->treeTextures->clear();
     ui->treeMotions->clear();
     ui->treeSounds->clear();
+    ui->treeScenes->clear();
     m_libraryManager.clear();
     // Gli item appena distrutti: il puntatore all'ultimo preset caricato
     // resterebbe pendente (QTreeWidgetItem non e' un QObject, niente QPointer
@@ -1593,6 +1630,7 @@ void MainWindow::refreshRepositories()
     QString pathTex  = settings.value("pathTextures", rootPath + "/textures").toString();
     QString pathRec  = settings.value("pathRecords",  rootPath + "/records").toString();
     QString pathSnd  = settings.value("pathSounds",   rootPath + "/sounds").toString();
+    QString pathScn  = settings.value("pathScenes",   rootPath + "/scenes").toString();
 
     // Riapre l'accesso alla radice PRIMA di leggere i rami: sotto sandbox, senza
     // questo, i quattro exists() qui sotto sono tutti falsi (il percorso viene
@@ -1605,6 +1643,9 @@ void MainWindow::refreshRepositories()
     if (QDir(pathTex).exists())  m_libraryManager.loadFromDirectory(pathTex,  ui->treeTextures, LibraryType::Texture);
     if (QDir(pathRec).exists())  m_libraryManager.loadFromDirectory(pathRec,  ui->treeMotions,  LibraryType::Motion);
     if (QDir(pathSnd).exists())  m_libraryManager.loadFromDirectory(pathSnd,  ui->treeSounds,   LibraryType::Sound);
+    // 2.0: le scene. La cartella nasce qui se manca (librerie della 1.x).
+    if (!rootPath.isEmpty() && QDir(rootPath).exists() && !QDir(pathScn).exists()) QDir().mkpath(pathScn);
+    if (QDir(pathScn).exists())  m_libraryManager.loadFromDirectory(pathScn,  ui->treeScenes,   LibraryType::Scene);
 
     // PRESET SOLO IN CLOUD: dirlo, invece di mostrare una libreria incompleta.
     // Sono i file che loadFromDirectory ha saltato perche' non materializzati su
@@ -1659,18 +1700,21 @@ void MainWindow::refreshRepositories()
     restoreState(ui->treeTextures, expTextures, selTextures);
     restoreState(ui->treeMotions, expMotions, selMotions);
     restoreState(ui->treeSounds, expSounds, selSounds);
+    restoreState(ui->treeScenes, expScenes, selScenes);
 
     // 7. RIPRISTINO BARRE DI SCORRIMENTO
     ui->treeSurfaces->verticalScrollBar()->setValue(scrollSurfaces);
     ui->treeTextures->verticalScrollBar()->setValue(scrollTextures);
     ui->treeMotions->verticalScrollBar()->setValue(scrollMotions);
     ui->treeSounds->verticalScrollBar()->setValue(scrollSounds);
+    ui->treeScenes->verticalScrollBar()->setValue(scrollScenes);
 
     // 8. RIATTIVIAMO I SEGNALI
     ui->treeSurfaces->blockSignals(false);
     ui->treeTextures->blockSignals(false);
     ui->treeMotions->blockSignals(false);
     ui->treeSounds->blockSignals(false);
+    ui->treeScenes->blockSignals(false);
 
     if (m_fsWatcher) m_fsWatcher->blockSignals(false);
 
@@ -1796,6 +1840,7 @@ void MainWindow::updateWatcherPaths()
     // mai osservata, quindi un record salvato in radice non innescava il refresh.
     addDirsToWatcher(settings.value("pathRecords", rootPath + "/records").toString());
     addDirsToWatcher(settings.value("pathSounds", rootPath + "/sounds").toString());
+    addDirsToWatcher(settings.value("pathScenes", rootPath + "/scenes").toString());
 }
 
 
@@ -1819,6 +1864,9 @@ QTreeWidgetItem* MainWindow::getCurrentLibraryItem() {
     }
     else if (currentTab->objectName().contains("Sound", Qt::CaseInsensitive)) {
         if (!ui->treeSounds->selectedItems().isEmpty()) return ui->treeSounds->selectedItems().first();
+    }
+    else if (currentTab == ui->Scenes) {
+        if (!ui->treeScenes->selectedItems().isEmpty()) return ui->treeScenes->selectedItems().first();
     }
     return nullptr;
 }

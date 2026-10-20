@@ -43,6 +43,7 @@ bool LibraryDragDropHandler::eventFilter(QObject *obj, QEvent *event)
             if (tree == m_mainWindow->ui->treeTextures) treeRootPath = settings.value("pathTextures", rootPath + "/textures").toString();
             else if (tree == m_mainWindow->ui->treeMotions) treeRootPath = settings.value("pathRecords", rootPath + "/records").toString();
             else if (tree == m_mainWindow->ui->treeSounds) treeRootPath = settings.value("pathSounds", rootPath + "/sounds").toString();
+            else if (tree == m_mainWindow->ui->treeScenes) treeRootPath = settings.value("pathScenes", rootPath + "/scenes").toString();
             else treeRootPath = settings.value("pathSurfaces", rootPath + "/surfaces").toString();
 
             auto getTargetDirectory = [&](QTreeWidgetItem *item) -> QString {

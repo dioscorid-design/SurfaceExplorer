@@ -121,6 +121,7 @@ LibraryFolders::Branch LibraryFolders::branchOf(const QString &path)
         { Branch::Textures, "pathTextures", "textures" },
         { Branch::Sounds,   "pathSounds",   "sounds"   },
         { Branch::Records,  "pathRecords",  "records"  },
+        { Branch::Scenes,   "pathScenes",   "scenes"   },
     };
     QSettings settings;
     Branch best = Branch::None;
@@ -199,7 +200,7 @@ bool LibraryFolders::isLibraryRoot(const QDir &dir)
     const QStringList entries = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
     static const QStringList branches = {
         QStringLiteral("surfaces"), QStringLiteral("textures"),
-        QStringLiteral("records"),  QStringLiteral("sounds")
+        QStringLiteral("records"),  QStringLiteral("sounds"),   QStringLiteral("scenes")
     };
     for (const QString &entry : entries) {
         if (branches.contains(entry.toLower())) return true;

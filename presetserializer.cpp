@@ -948,6 +948,39 @@ QJsonObject PresetSerializer::buildSurfaceJson(const QString &name)
     return LibraryManager::toJson(captureSurfaceState(name));
 }
 
+// LA SCENA (2.0): l'ambiente com'e' nel Save Record, poi ogni oggetto col
+// nome, la posizione e la COPIA COMPLETA della sua Shape (deciso
+// dall'utente: la scena non dipende dai file della Library). Per fotografare
+// un oggetto lo si seleziona: i dock e il motore lo mostrano com'e', e lo
+// stesso buildSurfaceJson del Save Shape lo traduce. Alla fine si torna
+// all'oggetto che era selezionato.
+QJsonObject PresetSerializer::buildSceneJson(const QString &name, const MotionRunState &run,
+                                             bool includeSound)
+{
+    GLWidget *gl = m_mainWindow->ui->glWidget;
+    const int selected = gl->selectedObject();
+    m_mainWindow->selectSceneObject(0);
+    QJsonObject scene;
+    scene["type"] = "scene";
+    scene["formatVersion"] = 1;
+    scene["name"] = name;
+    scene["environment"] = buildMotionJson(name, run, includeSound);
+    QJsonArray objects;
+    for (int k = 1; k < gl->objectCount(); ++k) {
+        m_mainWindow->selectSceneObject(k);
+        const QString objectName = m_mainWindow->m_objectSessions[k].name;
+        const QVector3D p = gl->objectPosition();
+        QJsonObject o;
+        o["name"] = objectName;
+        o["position"] = QJsonArray{ p.x(), p.y(), p.z() };
+        o["shape"] = buildSurfaceJson(objectName);
+        objects.append(o);
+    }
+    scene["objects"] = objects;
+    m_mainWindow->selectSceneObject(selected);
+    return scene;
+}
+
 QJsonObject PresetSerializer::buildMotionJson(const QString &name, const MotionRunState &run,
                                               bool includeSound)
 {
@@ -1084,7 +1117,8 @@ void PresetSerializer::saveSurface(const QString &suggestedPath)
     const LibraryFolders::Branch branch = LibraryFolders::branchOf(QFileInfo(fileName).absolutePath());
     if (branch == LibraryFolders::Branch::Records ||
         branch == LibraryFolders::Branch::Textures ||
-        branch == LibraryFolders::Branch::Sounds) {
+        branch == LibraryFolders::Branch::Sounds ||
+        branch == LibraryFolders::Branch::Scenes) {
         QMessageBox::warning(m_mainWindow, "Save Blocked",
                              "Operation not allowed.\n\nSurfaces and solid curves must be saved in Shapes (the 'surfaces' folder).\nTo save the whole scene (which contains this surface), use Save Record.");
         return;
@@ -1137,7 +1171,8 @@ void PresetSerializer::saveTexture(const QString &path)
     const LibraryFolders::Branch branch = LibraryFolders::branchOf(QFileInfo(path).absolutePath());
     if (branch == LibraryFolders::Branch::Surfaces ||
         branch == LibraryFolders::Branch::Records ||
-        branch == LibraryFolders::Branch::Sounds) {
+        branch == LibraryFolders::Branch::Sounds ||
+        branch == LibraryFolders::Branch::Scenes) {
         QMessageBox::warning(m_mainWindow, "Save Blocked",
                              "Operation not allowed.\n\nTexture presets must be saved exclusively in the 'Textures' folder.");
         return;
@@ -1303,6 +1338,21 @@ void PresetSerializer::saveTexture(const QString &path)
 
 void PresetSerializer::saveMotion(const QString &suggestedPath)
 {
+    saveRecordOrScene(suggestedPath, /*scene=*/false);
+}
+
+void PresetSerializer::saveScene(const QString &suggestedPath)
+{
+    saveRecordOrScene(suggestedPath, /*scene=*/true);
+}
+
+// Record e scena (2.0) hanno lo stesso Save: cambiano cartella, ramo
+// ammesso, titoli e JSON (la scena e' l'ambiente come record + gli oggetti).
+void PresetSerializer::saveRecordOrScene(const QString &suggestedPath, bool scene)
+{
+    const QString branchDir = scene ? QStringLiteral("scenes") : QStringLiteral("records");
+    const QString lastDirKey = scene ? QStringLiteral("lastSceneDir") : QStringLiteral("lastMotionDir");
+    const QString title = scene ? QStringLiteral("Save Scene") : QStringLiteral("Save Record");
     bool wasRotating = m_mainWindow->ui->glWidget->isAnimating();
     bool wasPath4D = m_mainWindow->pathRunning(CameraPaths::Path4D);
     bool wasPath3D = m_mainWindow->pathRunning(CameraPaths::Path3D);
@@ -1319,7 +1369,7 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     if (wasPath3D) m_mainWindow->m_paths->stop(CameraPaths::Path3D);
 
     QSettings settings;
-    QString lastDir = settings.value("lastMotionDir", settings.value("lastFolder", QDir::homePath()).toString()).toString();
+    QString lastDir = settings.value(lastDirKey, settings.value("lastFolder", QDir::homePath()).toString()).toString();
 
     QString fileName;
     if (!suggestedPath.isEmpty() && suggestedPath.endsWith(".json", Qt::CaseInsensitive)) {
@@ -1327,7 +1377,7 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     } else {
         QString startPath = suggestedPath;
 
-        const QString recordsRoot = LibraryFolders::root() + "/records";
+        const QString recordsRoot = LibraryFolders::root() + "/" + branchDir;
 
         if (!isUsableStartDir(startPath)) {
             QTreeWidgetItem *selItem = m_mainWindow->getCurrentLibraryItem();
@@ -1377,11 +1427,11 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
 
         if (!startPath.endsWith(".json", Qt::CaseInsensitive)) {
             if (!startPath.endsWith("/")) startPath += "/";
-            startPath += "NewMotion.json";
+            startPath += scene ? "NewScene.json" : "NewMotion.json";
         }
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_IOS)
-        MobileSaveDialog dialog("Save Record", QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow, LibraryFolders::root() + "/records");
+        MobileSaveDialog dialog(title, QFileInfo(startPath).absolutePath(), QFileInfo(startPath).completeBaseName(), m_mainWindow, LibraryFolders::root() + "/" + branchDir);
         if (dialog.exec() != QDialog::Accepted) {
             if (wasRotating) m_mainWindow->ui->glWidget->resumeMotion();
             if (wasPath4D) m_mainWindow->m_paths->start(CameraPaths::Path4D);
@@ -1415,9 +1465,11 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     const LibraryFolders::Branch branch = LibraryFolders::branchOf(QFileInfo(fileName).absolutePath());
     if (branch == LibraryFolders::Branch::Surfaces ||
         branch == LibraryFolders::Branch::Textures ||
-        branch == LibraryFolders::Branch::Sounds) {
-        QMessageBox::warning(m_mainWindow, "Save Blocked",
-                             "Operation not allowed.\n\nRecord presets capture the entire scene (including the surface) and must be saved exclusively in the 'Records' folder.");
+        branch == LibraryFolders::Branch::Sounds ||
+        branch == (scene ? LibraryFolders::Branch::Records : LibraryFolders::Branch::Scenes)) {
+        QMessageBox::warning(m_mainWindow, "Save Blocked", scene
+            ? "Operation not allowed.\n\nScenes (environment and objects) must be saved exclusively in the 'Scenes' folder."
+            : "Operation not allowed.\n\nRecord presets capture the entire scene (including the surface) and must be saved exclusively in the 'Records' folder.");
         return;
     }
 
@@ -1436,7 +1488,7 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
     QString borderHint = hintGl ? hintGl->borderTextureHint() : QString();
     const bool hasBorderTex = hintGl && (!hintGl->borderTextureCode().trimmed().isEmpty()
                                          || !borderHint.isEmpty());
-    if (!askSceneHint(m_mainWindow, &m_mainWindow->m_currentHintText, "record",
+    if (!askSceneHint(m_mainWindow, &m_mainWindow->m_currentHintText, scene ? "scene" : "record",
                       &m_mainWindow->m_currentTextureHintText,
                       hasBg ? &m_mainWindow->m_currentBgTextureHintText : nullptr,
                       hasBorderTex ? &borderHint : nullptr))
@@ -1445,7 +1497,7 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         hintGl->setBorderTextureHint(borderHint, hintGl->borderTextureHintSeconds());
 
     QString saveFolder = QFileInfo(fileName).absolutePath();
-    settings.setValue("lastMotionDir", saveFolder);
+    settings.setValue(lastDirKey, saveFolder);
 
     // Salvataggio SENZA suono: se il record ha un audio associato ma al momento
     // del Save l'audio e' stoppato (ne' synth ne' player attivi), l'utente puo'
@@ -1457,9 +1509,10 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         && !m_mainWindow->m_audioController->isPlaying()) {
         QMessageBox box(m_mainWindow);
         box.setIcon(QMessageBox::Question);
-        box.setWindowTitle("Save Record");
+        box.setWindowTitle(title);
         box.setText("The sound is stopped.");
-        box.setInformativeText("Do you want to save the record without sound?");
+        box.setInformativeText(scene ? "Do you want to save the scene without sound?"
+                                     : "Do you want to save the record without sound?");
         QPushButton *withoutBtn = box.addButton("Save without sound", QMessageBox::AcceptRole);
         QPushButton *withBtn    = box.addButton("Keep the sound", QMessageBox::ActionRole);
         box.addButton(QMessageBox::Cancel);
@@ -1482,9 +1535,10 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         // "Includi il suono": includeSound resta true (comportamento classico)
     }
 
-    const QJsonObject root = buildMotionJson(QFileInfo(fileName).baseName(),
-                                             MotionRunState{wasRotating, wasPath4D, wasPath3D},
-                                             includeSound);
+    const MotionRunState runState{wasRotating, wasPath4D, wasPath3D};
+    const QJsonObject root = scene
+        ? buildSceneJson(QFileInfo(fileName).baseName(), runState, includeSound)
+        : buildMotionJson(QFileInfo(fileName).baseName(), runState, includeSound);
 
     if (m_mainWindow->m_fileOps) {
         m_mainWindow->m_fileOps->backupBeforeOverwrite(fileName);
@@ -1509,11 +1563,14 @@ void PresetSerializer::saveMotion(const QString &suggestedPath)
         // anche il lavoro dei moduli. Dichiarando pulita la sola scena l'avviso
         // sarebbe ricomparso subito dopo per una texture gia' salvata dentro il
         // record.
-        m_mainWindow->markSceneClean();
+        // La scena salvata: tutti gli oggetti puliti. Il record: come sempre.
+        if (scene) m_mainWindow->markWholeSceneClean();
+        else       m_mainWindow->markSceneClean();
         m_mainWindow->m_lastSaveSucceeded = true;
 
-        QTimer::singleShot(100, m_mainWindow, [this, fileName]() {
-            m_mainWindow->refreshAndSelectPreset(m_mainWindow->ui->treeMotions, fileName);
+        QTimer::singleShot(100, m_mainWindow, [this, fileName, scene]() {
+            m_mainWindow->refreshAndSelectPreset(scene ? m_mainWindow->ui->treeScenes
+                                                       : m_mainWindow->ui->treeMotions, fileName);
         });
     }
 }
@@ -2191,7 +2248,8 @@ bool PresetSerializer::saveUnsavedWorkInteractive()
     // radice semivuota e il ramo che serve non e' nemmeno raggiungibile (prima
     // scrittura su iOS: il container puo' non averli ancora).
     for (const QString &branch : { QStringLiteral("surfaces"), QStringLiteral("textures"),
-                                   QStringLiteral("sounds"),   QStringLiteral("records") }) {
+                                   QStringLiteral("sounds"),   QStringLiteral("records"),
+                                   QStringLiteral("scenes") }) {
         if (!QDir(root + "/" + branch).exists()) QDir().mkpath(root + "/" + branch);
     }
 
@@ -2220,11 +2278,12 @@ bool PresetSerializer::saveUnsavedWorkInteractive()
             break;
 
         QMessageBox::warning(m_mainWindow, "Choose a branch",
-                             "Pick one of the four library branches first:\n\n"
+                             "Pick one of the library branches first:\n\n"
                              "• Shapes (the 'surfaces' folder) — the surface or solid curve alone (no textures, no rotations)\n"
                              "• Textures — the texture preset alone\n"
                              "• Sounds — the sound script alone\n"
-                             "• Records — the whole scene: surface, texture, rotations, camera and paths");
+                             "• Records — the whole scene: surface, texture, rotations, camera and paths\n"
+                             "• Scenes — the environment and the objects added to it");
     }
 
     resumeMotion();
@@ -2240,6 +2299,12 @@ bool PresetSerializer::saveUnsavedWorkInteractive()
         // lasciano a false, e il chiamante sospende l'azione distruttiva.
         m_mainWindow->m_lastSaveSucceeded = false;
         saveMotion(savePath);
+        return m_mainWindow->m_lastSaveSucceeded;
+    }
+    if (branch == LibraryFolders::Branch::Scenes) {
+        QSettings().setValue("lastSceneDir", QFileInfo(savePath).absolutePath());
+        m_mainWindow->m_lastSaveSucceeded = false;
+        saveScene(savePath);
         return m_mainWindow->m_lastSaveSucceeded;
     }
     if (branch == LibraryFolders::Branch::Textures) {

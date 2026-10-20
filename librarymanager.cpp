@@ -327,6 +327,7 @@ void LibraryManager::clear()
     m_textures.clear();
     m_motions.clear();
     m_sounds.clear();
+    m_scenes.clear();
     // Senza questo si accumulerebbe a ogni refresh: refreshRepositories chiama
     // clear() e poi ricarica i quattro rami, quindi il conteggio mostrato
     // all'utente crescerebbe a ogni giro sugli stessi file.
@@ -355,6 +356,18 @@ const LibraryItem* LibraryManager::getMotionByPath(const QString &filePath) cons
 const LibraryItem& LibraryManager::getTexture(int index) const {
     if (index >= 0 && index < m_textures.size()) return m_textures[index];
     static LibraryItem dummy; return dummy;
+}
+
+const LibraryItem& LibraryManager::getScene(int index) const {
+    if (index >= 0 && index < m_scenes.size()) return m_scenes[index];
+    static LibraryItem dummy; return dummy;
+}
+
+const LibraryItem* LibraryManager::getSceneByPath(const QString &filePath) const {
+    for (const LibraryItem &it : m_scenes) {
+        if (it.filePath == filePath) return &it;
+    }
+    return nullptr;
 }
 
 const LibraryItem& LibraryManager::getMotion(int index) const {
@@ -447,6 +460,7 @@ void LibraryManager::loadFromDirectory(const QString &dirPath, QTreeWidget *tree
         else if (type == LibraryType::Texture) targetList = &m_textures;
         else if (type == LibraryType::Motion) targetList = &m_motions;
         else if (type == LibraryType::Sound) targetList = &m_sounds;
+        else if (type == LibraryType::Scene) targetList = &m_scenes;
 
         bool alreadyLoaded = false;
         for (const auto &item : *targetList) {
@@ -509,6 +523,7 @@ void LibraryManager::loadFromDirectory(const QString &dirPath, QTreeWidget *tree
             else if (type == LibraryType::Texture) roleOffset = 1;
             else if (type == LibraryType::Motion) roleOffset = 2;
             else if (type == LibraryType::Sound) roleOffset = 3;
+            else if (type == LibraryType::Scene) roleOffset = 4;
 
             fileItem->setData(0, Qt::UserRole + roleOffset, listIndex);
 
@@ -530,6 +545,7 @@ void LibraryManager::loadFromDirectory(const QString &dirPath, QTreeWidget *tree
             else if (type == LibraryType::Texture) roleOffset = 1;
             else if (type == LibraryType::Motion) roleOffset = 2;
             else if (type == LibraryType::Sound) roleOffset = 3;
+            else if (type == LibraryType::Scene) roleOffset = 4;
 
             fileItem->setData(0, Qt::UserRole + roleOffset, listIndex);
             tree->addTopLevelItem(fileItem);
@@ -576,8 +592,25 @@ LibraryItem LibraryManager::parseJson(const QString &filePath, LibraryType type)
     file.close();
 
     if (doc.isNull()) return d;
-    QJsonObject root = doc.object();
+    return parseJsonObject(doc.object(), type, filePath);
+}
+
+LibraryItem LibraryManager::parseJsonObject(const QJsonObject &root, LibraryType type, const QString &filePath)
+{
+    LibraryItem d;
+    d.filePath = filePath;
+    d.type = type;
+    d.name = QFileInfo(filePath).baseName();
     QString jsonType = root["type"].toString();
+
+    // --- SCENA (2.0): nell'albero bastano nome e messaggio; ambiente e
+    // oggetti li legge il load (MainWindow::loadSceneFile).
+    if (type == LibraryType::Scene) {
+        if (jsonType != "scene") { d.name = ""; return d; }
+        const QJsonObject env = root["environment"].toObject();
+        d.hintText = env["hintText"].toString();
+        return d;
+    }
 
     // --- MOTION PARSING ---
     if (type == LibraryType::Motion) {
@@ -858,6 +891,7 @@ DeletionBackup LibraryManager::softDelete(int index, LibraryType type)
     else if (type == LibraryType::Texture) targetList = &m_textures;
     else if (type == LibraryType::Motion) targetList = &m_motions;
     else if (type == LibraryType::Sound) targetList = &m_sounds;
+    else if (type == LibraryType::Scene) targetList = &m_scenes;
 
     // Controlli di sicurezza standard
     if (!targetList || index < 0 || index >= targetList->size()) return backup;
@@ -914,6 +948,7 @@ bool LibraryManager::restore(const DeletionBackup &backup)
         else if (backup.data.type == LibraryType::Texture) m_textures.append(backup.data);
         else if (backup.data.type == LibraryType::Motion) m_motions.append(backup.data);
         else if (backup.data.type == LibraryType::Sound) m_sounds.append(backup.data);
+        else if (backup.data.type == LibraryType::Scene) m_scenes.append(backup.data);
         return true;
     }
     return false;
