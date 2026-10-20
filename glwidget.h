@@ -3,6 +3,7 @@
 
 #include "surfaceengine.h"
 #include "geometrybuilder.h"   // WireframeRange (intervalli per parte di mesh)
+#include "surfaceobject.h"     // i dati di un oggetto della scena
 
 #include <QWidget>
 #include <QRhiWidget>
@@ -106,7 +107,7 @@ struct UboData {
     // ENTRAMBI gli shader parametrici, vedi CLAUDE.md.
     // Gli offset di questa struct combaciano con il blocco SceneUBO degli shader:
     // verificato che u_min=372, z_max=416, u_meshIndex=420.
-    // Lo spazio fra i blocchi NON e' sizeof(UboData): il passo e' m_uboBlockStride,
+    // Lo spazio fra i blocchi NON e' sizeof(UboData): il passo e' uboBlockStride,
     // ricavato da QRhi::ubufAlignment() (256 su Metal/Vulkan), quindi ogni blocco
     // e' comunque allineato come richiede l'API.
 
@@ -163,7 +164,7 @@ struct UboData {
     float u_meshCount;
     // SEZIONE TRASPORTATA DEI TUBI (vedi buildTubeFramePipeline): anelli della
     // parte (numU + 1) e 1 se la passata compute ha scritto per lei anelli e
-    // sezione in m_tubeFrameTex. Occupano due posti della
+    // sezione in tubeFrameTex. Occupano due posti della
     // riserva _pad3: il blocco non cresce (480 byte). Dichiarati in ENTRAMBI
     // gli shader parametrici (regola Adreno, vedi CLAUDE.md); li usano il
     // vertex e il compute.
@@ -202,7 +203,7 @@ public:
 
     QRhi* getRhi() { return rhi(); }
     // La mesh e' gia' fatta di posizioni (flusso geodetico), non da parti.
-    bool isCustomMesh() const { return m_isCustomMesh; }
+    bool isCustomMesh() const { return m_obj->isCustomMesh; }
 
     // ==========================================================
     // ENUMS & CONSTANTS
@@ -228,30 +229,30 @@ public:
     // ==========================================================
     // ENGINE MODES
     // ==========================================================
-    enum EngineMode {
-        ModeParametric = 0,
-        ModeImplicit   = 1
-    };
+    // Il tipo vive nell'oggetto (surfaceobject.h): qui i nomi di sempre.
+    using EngineMode = SurfaceObject::EngineMode;
+    static constexpr EngineMode ModeParametric = SurfaceObject::ModeParametric;
+    static constexpr EngineMode ModeImplicit = SurfaceObject::ModeImplicit;
 
     void setEngineMode(EngineMode mode);
-    EngineMode getEngineMode() const { return m_engineMode; }
+    EngineMode getEngineMode() const { return m_obj->engineMode; }
 
     // true se il campo implicito corrente e' a prodotto/mal condizionato (es. "Chain"):
     // con alpha<1 sparisce. Su TUTTE le piattaforme la UI disabilita lo slider e il
-    // render forza opaco. Vedi m_implicitIllConditioned.
-    bool isImplicitIllConditioned() const { return m_implicitIllConditioned; }
+    // render forza opaco. Vedi implicitIllConditioned.
+    bool isImplicitIllConditioned() const { return m_obj->implicitIllConditioned; }
     // Azzera il flag per gli script impliciti (GLSL grezzo non valutabile su CPU):
     // il ramo di load che applica lo script via setScriptCodeGLSL non passa da
     // validateAndApplyImplicitScript, che lo azzererebbe. Vedi il chiamante.
-    void clearImplicitIllConditioned() { m_implicitIllConditioned = false; }
+    void clearImplicitIllConditioned() { m_obj->implicitIllConditioned = false; }
 
     // SOLO ANDROID: true se la trasparenza di questa superficie implicita potrebbe
     // degradare (superficie triplamente periodica come Gyroid, o QUALSIASI script RM
     // non valutabile su CPU) per via del budget facce ridotto su Android. A differenza
     // di isImplicitIllConditioned NON blocca e NON forza opaco: lo slider resta usabile,
     // la UI mostra solo un popup di avviso al primo tocco. Sempre false su desktop/iOS.
-    bool implicitTransparencyMayDegrade() const { return m_implicitTransparencyWarn; }
-    void setImplicitTransparencyWarn(bool w) { m_implicitTransparencyWarn = w; }
+    bool implicitTransparencyMayDegrade() const { return m_obj->implicitTransparencyWarn; }
+    void setImplicitTransparencyWarn(bool w) { m_obj->implicitTransparencyWarn = w; }
 
 
     // ==========================================================
@@ -296,7 +297,7 @@ public:
     static constexpr int kRayStepsMax = 5000;
 #endif
     void setRaySteps(int steps);
-    int raySteps() const { return m_raySteps; }
+    int raySteps() const { return m_obj->raySteps; }
     // uMin/uMax/vMin/vMax: il DOMINIO su cui la griglia e' stata integrata. Serve
     // ad ancorare le coordinate texture al dominio invece che agli indici di
     // griglia: senza, restringere l'intervallo ri-stira la texture sulla
@@ -307,36 +308,36 @@ public:
                        float uMax = std::numeric_limits<float>::quiet_NaN(),
                        float vMin = std::numeric_limits<float>::quiet_NaN(),
                        float vMax = std::numeric_limits<float>::quiet_NaN());
-    const QMap<QString, float>& getConstantsMap() const { return m_constants; }
+    const QMap<QString, float>& getConstantsMap() const { return m_obj->constants; }
 
-    SurfaceEngine* getEngine() const { return engine.get(); }
+    SurfaceEngine* getEngine() const { return m_obj->engine.get(); }
 
     // Equazioni parametriche attualmente COMPILATE (x, y, z, w gia' composte e
     // tradotte): le lettere delle costanti restano identificatori, quindi dicono
     // quali costanti usa la superficie a schermo.
     QString parametricEquationsApplied() const
     {
-        return m_eqX + QLatin1Char(' ') + m_eqY + QLatin1Char(' ') + m_eqZ + QLatin1Char(' ') + m_eqW;
+        return m_obj->eqX + QLatin1Char(' ') + m_obj->eqY + QLatin1Char(' ') + m_obj->eqZ + QLatin1Char(' ') + m_obj->eqW;
     }
 
     // Campo implicito attualmente compilato nel ray marcher.
-    QString implicitEquation() const { return m_eqImplicitF; }
+    QString implicitEquation() const { return m_obj->eqImplicitF; }
 
     // Equazione APPLICATA del ramo davvero attivo nel marcher: nel Cross Section
-    // il campo compilato e' m_eqCrossSectionF, e implicitEquation() (che torna
+    // il campo compilato e' eqCrossSectionF, e implicitEquation() (che torna
     // sempre quella del sotto-tab 3D) descriverebbe una superficie che a schermo
     // non c'e'. Serve a chi deve giudicare lo STATO della scena e non puo'
     // leggere i campi UI, che possono contenere testo non ancora confermato
     // (vedi MainWindow::isSceneEmpty).
     QString activeImplicitEquation() const {
-        return m_implicitUsesCrossSection ? m_eqCrossSectionF : m_eqImplicitF;
+        return m_obj->implicitUsesCrossSection ? m_obj->eqCrossSectionF : m_obj->eqImplicitF;
     }
     // Limiti spaziali x/y/z del Ray Marching come li usa lo shader (-1000/1000
     // = nessun taglio).
     QVector3D spaceRangeMin() const { return QVector3D(m_uboData.x_min, m_uboData.y_min, m_uboData.z_min); }
     QVector3D spaceRangeMax() const { return QVector3D(m_uboData.x_max, m_uboData.y_max, m_uboData.z_max); }
     // Ramo attivo nel marcher: Cross Section (sezione 4D) o 3D.
-    bool implicitUsesCrossSection() const { return m_implicitUsesCrossSection; }
+    bool implicitUsesCrossSection() const { return m_obj->implicitUsesCrossSection; }
     // Riporta il marcher sul ramo 3D senza toccare le equazioni. setImplicitEquation
     // lo fa per le superfici a equazione; quelle DA SCRIPT non passano di li', e
     // dopo un Cross Section il ramo restava il suo.
@@ -356,12 +357,12 @@ public:
     // resetWireframeDensity() piu' a monte nel reset -- lo ripopola con le
     // linee della superficie che stiamo buttando via, e a schermo restano.
     void clearSceneGeometry() {
-        if (engine) engine->clear();
-        m_wireframeIndices.clear();
-        m_wireframeRanges.clear();
-        m_wireframeIndexCount = 0;
-        meshNeedsUpdate = true;
-        wireframeNeedsUpdate = true;
+        if (m_obj->engine) m_obj->engine->clear();
+        m_obj->wireframeIndices.clear();
+        m_obj->wireframeRanges.clear();
+        m_obj->wireframeIndexCount = 0;
+        m_obj->meshNeedsUpdate = true;
+        m_obj->wireframeNeedsUpdate = true;
         update();
     }
     void resetVisuals();
@@ -398,8 +399,8 @@ public:
     // AUTOMATICI del motore (es. il ripristino di alpha/luce quando si entra in
     // wireframe) devono agire sullo stato GLOBALE, non essere scambiati per una
     // scelta dell'utente su quella parte. Vedi MeshAppearanceBypass.
-    void setMeshAppearanceBypass(bool on) { m_meshAppearanceBypass = on; }
-    bool meshAppearanceBypass() const { return m_meshAppearanceBypass; }
+    void setMeshAppearanceBypass(bool on) { m_obj->meshAppearanceBypass = on; }
+    bool meshAppearanceBypass() const { return m_obj->meshAppearanceBypass; }
     // AMBITO "ALL": la superficie si comporta come UNA SOLA. L'aspetto proprio
     // delle parti viene IGNORATO dal render (non cancellato), quindi colore,
     // trasparenza, luce e wireframe globali valgono per tutte. Tornando su
@@ -411,33 +412,33 @@ public:
     // createFragmentShaderSource). Definita nel .cpp: rebuildShader non e'
     // visibile a questo punto dell'header.
     void setMeshAppearanceUniform(bool on);
-    bool meshAppearanceUniform() const { return m_meshAppearanceUniform; }
+    bool meshAppearanceUniform() const { return m_obj->meshAppearanceUniform; }
     // TEXTURE GLOBALE: su una multimesh in ambito All la texture e' una sola
     // su tutta la figura (triplanare, u_globalTexture), non una copia sulle
     // coordinate di ogni parte. Sulle superfici a mesh singola mai.
     bool globalTextureActive() const;
-    int activeMeshPart() const { return m_activeMeshPart; }
-    int meshPartCount() const { return engine ? engine->getMeshPartCount() : 0; }
+    int activeMeshPart() const { return m_obj->activeMeshPart; }
+    int meshPartCount() const { return m_obj->engine ? m_obj->engine->getMeshPartCount() : 0; }
 
     void setGlobalRenderMode(int mode);
     // Modalita' di rendering GLOBALE (0=Base, 1=Phong, 2=Wireframe). E' la fonte
     // di verita' per cio' che una parte "eredita": i radio dell'interfaccia NON
     // lo sono, perche' mostrano la modalita' della mesh selezionata.
-    int globalRenderMode() const { return renderMode; }
+    int globalRenderMode() const { return m_obj->renderMode; }
     // Colore GLOBALE della superficie, come globalRenderMode: e' quello che una
     // parte SENZA colore proprio sta mostrando, e quindi quello che i controlli
     // devono visualizzare quando si seleziona una mesh che eredita.
-    void globalColor(float &r, float &g, float &b) const { r = red; g = green; b = blue; }
+    void globalColor(float &r, float &g, float &b) const { r = m_obj->red; g = m_obj->green; b = m_obj->blue; }
     // Trasparenza e luce GLOBALI, stessa logica: sono i valori in vigore in
     // ambito "All" e quelli che una parte senza valore proprio eredita.
-    float globalAlpha() const { return alpha; }
-    float globalLightIntensity() const { return m_lightIntensity; }
+    float globalAlpha() const { return m_obj->alpha; }
+    float globalLightIntensity() const { return m_obj->lightIntensity; }
     // COLORI u_col1/u_col2 della texture di SUPERFICIE. Sono i due slot globali,
     // che il ramo per-mesh non tocca mai: sono l'unica memoria di questi colori
     // (MainWindow::surfaceTexColor li legge da qui per i picker, il Save del
     // record li scrive) e quelli che eredita una fascia senza colori propri.
-    QColor globalTexColor1() const { return QColor::fromRgbF(texRed1, texGreen1, texBlue1); }
-    QColor globalTexColor2() const { return QColor::fromRgbF(texRed2, texGreen2, texBlue2); }
+    QColor globalTexColor1() const { return QColor::fromRgbF(m_obj->texRed1, m_obj->texGreen1, m_obj->texBlue1); }
+    QColor globalTexColor2() const { return QColor::fromRgbF(m_obj->texRed2, m_obj->texGreen2, m_obj->texBlue2); }
     // COMANDO esplicito dell'utente sulla mesh selezionata: e' l'UNICA via che
     // scrive una modalita' PROPRIA su una parte. setGlobalRenderMode() (chiamata da
     // updateRenderState a ogni cambio tab/proiezione/load) resta invece sempre
@@ -556,7 +557,7 @@ public:
     // incoerenti (min >= max), cosi' il chiamante sa che non ha applicato.
     bool setActiveMeshDomain(float uMin, float uMax, float vMin, float vMax);
     // Gemelli per l'ambito "All": il dominio vale per tutte le mesh insieme e
-    // SOSPENDE quelli per-parte senza cancellarli (come m_meshAppearanceUniform
+    // SOSPENDE quelli per-parte senza cancellarli (come meshAppearanceUniform
     // fa per colore e texture). Vedi SurfaceEngine::setAllDomain.
     bool setAllMeshDomain(float uMin, float uMax, float vMin, float vMax);
     bool allMeshDomain(float &uMin, float &uMax, float &vMin, float &vMax) const;
@@ -575,31 +576,31 @@ public:
     // Spessore del guscio (modalita' Shell). Vedi u_shellThickness in UboData.
     // Serve un rebuildShader? No: e' un uniform, non entra nel sorgente.
     void setShellThickness(float v);
-    float shellThickness() const { return m_shellThickness; }
+    float shellThickness() const { return m_obj->shellThickness; }
     // MARCHER del ray marching: false = sphere tracing storico, true = ibrido
     // (elimina le saldature sulle equazioni di grado alto, vedi u_marcherMode).
     // E' un uniform: cambiarlo NON richiede di ricompilare lo shader.
     void setHybridMarcher(bool on);
-    bool hybridMarcher() const { return m_hybridMarcher; }
+    bool hybridMarcher() const { return m_obj->hybridMarcher; }
     // RAGGIO DEL TUBO (u_tubeRadius): un uniform, quindi lo slider dello
     // spessore agisce senza ricompilare lo shader.
-    void setTubeRadius(float r) { m_tubeRadius = r; update(); }
-    float tubeRadius() const { return m_tubeRadius; }
+    void setTubeRadius(float r) { m_obj->tubeRadius = r; update(); }
+    float tubeRadius() const { return m_obj->tubeRadius; }
     // BORDO DELLA SUPERFICIE (parametrico): tubi attorno ai lati del dominio,
     // raggio in unita' di scena, 0 = nessun bordo. Il raggio e' un uniform
     // (u_borderRadius), ma il codice del bordo esiste nello shader solo con
     // HAS_BORDER: si ricompila soltanto passando da 0 a un valore e viceversa.
     void setBorderRadius(float r);
-    float borderRadius() const { return m_borderRadius; }
-    void setBorderColor(const QColor &c) { m_borderColor = c; update(); }
-    QColor borderColor() const { return m_borderColor; }
+    float borderRadius() const { return m_obj->borderRadius; }
+    void setBorderColor(const QColor &c) { m_obj->borderColor = c; update(); }
+    QColor borderColor() const { return m_obj->borderColor; }
     // Aspetto PROPRIO del bordo, indipendente da quello della superficie: Base
     // (0), Phong (1) o Wireframe (2), e in wireframe la densita' delle linee
     // (un anello ogni wireAlong punti lungo il lato, una linea lungo il tubo
     // ogni wireAround lati del poligono). Il bordo ha il suo blocco di uniform,
     // quindi anche Base/Phong sono suoi, non della scena.
     void setBorderRenderMode(int mode);
-    int borderRenderMode() const { return m_borderRenderMode; }
+    int borderRenderMode() const { return m_obj->borderRenderMode; }
     // Tasti Density u (lungo il lato) e Density v (attorno al tubo) col
     // bersaglio Border: delta < 0 = piu' fitto.
     void adjustBorderWireStep(bool along, int delta);
@@ -626,8 +627,8 @@ public:
         QString texHint;
         float texHintSeconds = 6.0f;
     };
-    static constexpr int kBorderWireAlongDefault = 8;
-    static constexpr int kBorderWireAroundDefault = 2;
+    static constexpr int kBorderWireAlongDefault = SurfaceObject::kBorderWireAlongDefault;
+    static constexpr int kBorderWireAroundDefault = SurfaceObject::kBorderWireAroundDefault;
     static constexpr int kBorderWireAlongMax = 50;
     static constexpr int kBorderWireAroundMax = 6;   // in dodicesimi di giro: 2 linee
     BorderStyle borderStyle() const;
@@ -637,40 +638,40 @@ public:
     // un'altra parte: il bordo non compare, e il dock ne spegne i comandi (che
     // altrimenti sporcherebbero la scena senza effetto). Lo dice la passata dei
     // lati coperti, riletta come SONDA poco dopo ogni cambio di geometria
-    // (m_borderProbeKey; a bordo spento gira apposta); sulla mesh custom il test della CPU
+    // (borderProbeKey; a bordo spento gira apposta); sulla mesh custom il test della CPU
     // (setBorderEdges). Unknown finche' non si sa: tubo, niente compute, prima
     // sonda non ancora arrivata. Cambiando emette borderAvailabilityChanged.
-    enum class BorderAvailability { Unknown, Visible, None };
+    using BorderAvailability = SurfaceObject::BorderAvailability;
     BorderAvailability borderAvailability() const;
     // TEXTURE DEL BORDO. Coordinate: lungo il lato (0..1 su ciascun lato) e
     // attorno al tubo (0..1). Il codice entra nel fragment come
     // getCustomColor_border solo col bordo acceso: cambiarlo ricompila.
     void setBorderTexture(const QString &code, bool enabled);
-    void setBorderTextureEnabled(bool on) { m_borderTexEnabled = on; update(); }
-    QString borderTextureCode() const { return m_borderTexCode; }
-    bool borderTextureEnabled() const { return m_borderTexEnabled; }
+    void setBorderTextureEnabled(bool on) { m_obj->borderTexEnabled = on; update(); }
+    QString borderTextureCode() const { return m_obj->borderTexCode; }
+    bool borderTextureEnabled() const { return m_obj->borderTexEnabled; }
     // Disegnata davvero: bordo acceso, texture accesa e con codice, non in
     // wireframe (li' il fragment esce col colore pieno).
     bool borderTextureShown() const {
-        return m_borderRadius > 0.0f && m_borderTexEnabled
-               && !m_borderTexCode.trimmed().isEmpty() && m_borderRenderMode != 2;
+        return m_obj->borderRadius > 0.0f && m_obj->borderTexEnabled
+               && !m_obj->borderTexCode.trimmed().isEmpty() && m_obj->borderRenderMode != 2;
     }
-    void setBorderTexColors(const QColor &c1, const QColor &c2) { m_borderTexCol1 = c1; m_borderTexCol2 = c2; update(); }
-    QColor borderTexColor1() const { return m_borderTexCol1; }
-    QColor borderTexColor2() const { return m_borderTexCol2; }
+    void setBorderTexColors(const QColor &c1, const QColor &c2) { m_obj->borderTexCol1 = c1; m_obj->borderTexCol2 = c2; update(); }
+    QColor borderTexColor1() const { return m_obj->borderTexCol1; }
+    QColor borderTexColor2() const { return m_obj->borderTexCol2; }
     void setBorderTexTransform(float zoom, const QVector2D &pan, float rotation) {
-        m_borderTexZoom = zoom; m_borderTexPan = pan; m_borderTexRotation = rotation; update();
+        m_obj->borderTexZoom = zoom; m_obj->borderTexPan = pan; m_obj->borderTexRotation = rotation; update();
     }
-    void setBorderTextureLibName(const QString &n) { m_borderTexLibName = n; }
-    QString borderTextureLibName() const { return m_borderTexLibName; }
+    void setBorderTextureLibName(const QString &n) { m_obj->borderTexLibName = n; }
+    QString borderTextureLibName() const { return m_obj->borderTexLibName; }
     void setBorderTextureHint(const QString &text, float seconds) {
-        m_borderTexHint = text.trimmed(); m_borderTexHintSeconds = seconds;
+        m_obj->borderTexHint = text.trimmed(); m_obj->borderTexHintSeconds = seconds;
     }
-    QString borderTextureHint() const { return m_borderTexHint; }
-    float borderTextureHintSeconds() const { return m_borderTexHintSeconds; }
+    QString borderTextureHint() const { return m_obj->borderTexHint; }
+    float borderTextureHintSeconds() const { return m_obj->borderTexHintSeconds; }
     // Orologio proprio, avanzato da advanceClocksBy come gli altri.
     void setBorderTextureAnimating(bool on);
-    bool isBorderTextureAnimating() const { return m_borderTexAnimating; }
+    bool isBorderTextureAnimating() const { return m_obj->borderTexAnimating; }
     // Il bordo ha un'immagine da campionare: la sua, o in mancanza quella
     // della superficie (senza nessuna delle due c'e' la scacchiera di ripiego).
     bool borderSamplesImage() const;
@@ -685,8 +686,8 @@ public:
     void resetWireframeDensity();
     // Densità wireframe corrente (passi di campionamento U/V). Serializzata nei preset
     // per riprodurre a schermo lo stesso numero di linee al reload.
-    int getWireframeUStep() const { return wfStepU; }
-    int getWireframeVStep() const { return wfStepV; }
+    int getWireframeUStep() const { return m_obj->wfStepU; }
+    int getWireframeVStep() const { return m_obj->wfStepV; }
     void setWireframeDensity(int uStep, int vStep);
     // Ricostruisce la geometria delle linee. Serve dopo aver scritto densita'
     // per-parte (che cambiano gli indici, non un uniform), p.es. al load di un
@@ -710,18 +711,18 @@ public:
     // Displacement RM attualmente applicato: la UI lo legge PRIMA di un apply per
     // capire se lo sta introducendo/cambiando (guardia trasparenza mobile: il
     // displacement gira dentro map() e col ramo trasparente il costo esplode).
-    QString currentDisplacementCode() const { return m_displacementCode; }
+    QString currentDisplacementCode() const { return m_obj->displacementCode; }
     // Texture RM attualmente applicata. Serve a ricommittare lo shader senza
     // perderla: validateAndApplyImplicitShader prende equazione, texture e
     // displacement insieme, quindi chi ricommitta la sola equazione (es. il load
     // di una superficie Cross Section) deve poter ripassare le altre due com'erano.
-    QString currentTextureCode() const { return m_textureCode; }
+    QString currentTextureCode() const { return m_obj->textureCode; }
     // Texture PARAMETRICA globale attualmente compilata nel fragment. E' il
     // canale gemello di currentTextureCode() per l'altro modo: i due non si
     // leggono mai a vicenda, e vederli affiancati e' l'unico modo di accorgersi
     // che uno dei due e' rimasto indietro (vedi la sonda SE_TEX_PROBE).
-    QString currentParametricTextureCode() const { return m_customFragmentCode; }
-    float getSurfaceScale() const { return m_surfaceScale; }
+    QString currentParametricTextureCode() const { return m_obj->customFragmentCode; }
+    float getSurfaceScale() const { return m_obj->surfaceScale; }
     void rebuildShader();
 
 
@@ -757,7 +758,7 @@ public:
     // Gemello per la texture di SUPERFICIE: il file dell'immagine dell'utente
     // caricata nel sampler, vuoto se non ce n'e' (scacchiera generata o
     // niente). E' cio' che il tag //IMG: del Save deve dire.
-    QString surfaceImagePath() const { return m_surfaceImagePath; }
+    QString surfaceImagePath() const { return m_obj->surfaceImagePath; }
     bool backgroundIsScript() const { return m_bgIsScript; }
     void setBackgroundTextureEnabled(bool enabled);
     bool isBackgroundTextureEnabled() const { return m_useBackgroundTexture; }
@@ -791,7 +792,7 @@ public:
     int backgroundSkyMode() const { return m_bgSkyMode; }
     // Stato GLOBALE della texture di superficie (quello che le parti senza
     // texture propria ereditano).
-    bool isTextureEnabled() const { return m_textureEnabled; }
+    bool isTextureEnabled() const { return m_obj->textureEnabled; }
     void loadBackgroundScript(const QString &scriptCode);
 
     void setTextureCode(const QString& code);
@@ -856,17 +857,17 @@ public:
     // una fascia contiene l'inquadratura di QUELLA. Il preset deve invece salvare
     // quella della superficie, o riaprendolo l'ultima fascia toccata imporrebbe
     // il proprio zoom a tutte le altre.
-    float globalTexZoom() const { return m_globalTexZoom; }
-    float globalTexRotation() const { return m_globalTexRotation; }
-    QVector2D globalTexPan() const { return m_globalTexPan; }
+    float globalTexZoom() const { return m_obj->globalTexZoom; }
+    float globalTexRotation() const { return m_obj->globalTexRotation; }
+    QVector2D globalTexPan() const { return m_obj->globalTexPan; }
     void setGlobalTexTransform(float zoom, const QVector2D &pan, float rotation) {
-        m_globalTexZoom = zoom;
-        m_globalTexPan = pan;
-        m_globalTexRotation = rotation;
+        m_obj->globalTexZoom = zoom;
+        m_obj->globalTexPan = pan;
+        m_obj->globalTexRotation = rotation;
         // In ambito "All" il buffer di lavoro E' la trasformazione globale:
         // tenerli allineati evita che il load di un preset lasci la vista 2D
         // sull'inquadratura precedente.
-        if (m_activeMeshPart < 0) {
+        if (m_obj->activeMeshPart < 0) {
             m_flatZoom = zoom;
             m_flatPan = pan;
             m_flatRotation = rotation;
@@ -897,9 +898,9 @@ public:
     // incrementale (i tasti di spostamento) e non puo' ripristinare una posizione
     // salvata senza conoscere quella corrente.
     void setCrossSectionP(float p) { m_crossSectionP = p; update(); }
-    float getOmega() const { return omega; }
-    float getPhi() const { return phi; }
-    float getPsi() const { return psi; }
+    float getOmega() const { return m_obj->omega; }
+    float getPhi() const { return m_obj->phi; }
+    float getPsi() const { return m_obj->psi; }
 
     void setCameraPosAndDirection3D(const QVector3D& pos, const QVector3D& target, float roll);
     void setCameraFrom4DVectors(const QVector4D &pos4D, const QVector4D &target4D, const QVector4D &up4D);
@@ -970,41 +971,41 @@ public:
     // basta aver usato un path, fermarlo, avviare le rotazioni e salvare.
     float getEffectiveCameraYaw() const;
     float getEffectiveCameraPitch() const;
-    void setCameraPos(const QVector3D& pos) { m_cameraPos = pos; meshNeedsUpdate = true; update(); }
-    void setCameraYaw(float y) { m_cameraYaw = y; meshNeedsUpdate = true; update(); }
-    void setCameraPitch(float p) { m_cameraPitch = p; meshNeedsUpdate = true; update(); }
-    void setCameraRoll(float r) { m_cameraRoll = r; meshNeedsUpdate = true; update(); }
+    void setCameraPos(const QVector3D& pos) { m_cameraPos = pos; m_obj->meshNeedsUpdate = true; update(); }
+    void setCameraYaw(float y) { m_cameraYaw = y; m_obj->meshNeedsUpdate = true; update(); }
+    void setCameraPitch(float p) { m_cameraPitch = p; m_obj->meshNeedsUpdate = true; update(); }
+    void setCameraRoll(float r) { m_cameraRoll = r; m_obj->meshNeedsUpdate = true; update(); }
     // Attiva/disattiva la soppressione del watchdog di performance durante
     // l'esportazione video (vedi m_isRecording). Chiamato dal VideoRecorder.
     // Al ritorno live (on=false) riarma lo STATO DI MISURA del watchdog per non
     // scambiare il transitorio di ripristino export per un rallentamento reale.
     void setRecordingActive(bool on);
-    QQuaternion getRotationQuat() const { return m_rotationQuat; }
+    QQuaternion getRotationQuat() const { return m_obj->rotationQuat; }
     // setRotationQuat imposta la rotazione "di default" (load preset / stato iniziale):
-    // azzera m_userRotatedManually perche' questa NON e' una rotazione dell'utente.
+    // azzera userRotatedManually perche' questa NON e' una rotazione dell'utente.
     // Un quaternione nullo (rot_w = rot_x = rot_y = rot_z = 0 nel camera3D di un
     // file: il Twisted Fiber Tube) vale l'identita': moltiplicato da ogni
     // trascinamento restava nullo e l'oggetto non ruotava piu', si poteva solo
     // zoomare. Gli altri restano come sono (i Save devono riscriverli uguali).
     void setRotationQuat(const QQuaternion& q) {
-        m_rotationQuat = (q.lengthSquared() > 1e-12f) ? q : QQuaternion();
-        m_userRotatedManually = false; meshNeedsUpdate = true; update();
+        m_obj->rotationQuat = (q.lengthSquared() > 1e-12f) ? q : QQuaternion();
+        m_obj->userRotatedManually = false; m_obj->meshNeedsUpdate = true; update();
     }
     // All'avvio di un path: se l'orientamento corrente e' quello di default del
     // preset/avvio (l'utente non ha ruotato a mano), lo riporta a neutro; se invece
     // l'utente ha ruotato col mouse, lo conserva.
     void neutralizeDefaultRotationForPath() {
-        if (!m_userRotatedManually) { m_rotationQuat = QQuaternion(); meshNeedsUpdate = true; update(); }
+        if (!m_obj->userRotatedManually) { m_obj->rotationQuat = QQuaternion(); m_obj->meshNeedsUpdate = true; update(); }
     }
     // Marcato dalla rotazione manuale (mouse/touch) via InputHandler.
-    void markUserRotated() { m_userRotatedManually = true; }
+    void markUserRotated() { m_obj->userRotatedManually = true; }
     float getObserverPos4D() const { return m_observerPos.w(); }
     // Posizione COMPLETA dell'osservatore 4D. I tasti X/Y/Z/P del dock 4D la
     // scrivono in modalita' parametrica (in Ray Marching X/Y/Z sono spenti e P
     // muove invece la quota della sezione, m_crossSectionP): serve al readout
     // numerico del dock, che deve mostrare il valore giusto in ENTRAMBI i modi.
     QVector4D observerPos() const { return m_observerPos; }
-    void setObserverPos4D(float pos) { m_observerPos.setW(pos); m_cameraPos4D.setW(pos); meshNeedsUpdate = true; update(); }
+    void setObserverPos4D(float pos) { m_observerPos.setW(pos); m_cameraPos4D.setW(pos); m_obj->meshNeedsUpdate = true; update(); }
 
 
     // ==========================================================
@@ -1023,19 +1024,19 @@ public:
     // sincero), cosi' bottoni, mutua esclusivita' e handler dei moti
     // funzionano normalmente anche durante il REC.
     void setExternalClockActive(bool on) { m_externalClockActive = on; }
-    void setNutationSpeed(float v) { nutationSpeed = v; }
-    void setPrecessionSpeed(float v) { precessionSpeed = v; }
-    void setSpinSpeed(float v) { spinSpeed = v; }
-    void setOmegaSpeed(float v) { omegaSpeed = v; }
-    void setPhiSpeed(float v) { phiSpeed = v; }
-    void setPsiSpeed(float v) { psiSpeed = v; }
+    void setNutationSpeed(float v) { m_obj->nutationSpeed = v; }
+    void setPrecessionSpeed(float v) { m_obj->precessionSpeed = v; }
+    void setSpinSpeed(float v) { m_obj->spinSpeed = v; }
+    void setOmegaSpeed(float v) { m_obj->omegaSpeed = v; }
+    void setPhiSpeed(float v) { m_obj->phiSpeed = v; }
+    void setPsiSpeed(float v) { m_obj->psiSpeed = v; }
 
-    float getNutationSpeed() const { return nutationSpeed; }
-    float getPrecessionSpeed() const { return precessionSpeed; }
-    float getSpinSpeed() const { return spinSpeed; }
-    float getOmegaSpeed() const { return omegaSpeed; }
-    float getPhiSpeed() const { return phiSpeed; }
-    float getPsiSpeed() const { return psiSpeed; }
+    float getNutationSpeed() const { return m_obj->nutationSpeed; }
+    float getPrecessionSpeed() const { return m_obj->precessionSpeed; }
+    float getSpinSpeed() const { return m_obj->spinSpeed; }
+    float getOmegaSpeed() const { return m_obj->omegaSpeed; }
+    float getPhiSpeed() const { return m_obj->phiSpeed; }
+    float getPsiSpeed() const { return m_obj->psiSpeed; }
 
     bool isAnimating() const { return rotationTimer && rotationTimer->isActive(); }
     void pauseMotion();
@@ -1075,12 +1076,12 @@ public:
     // che gira riparte dall'inizio, cio' che e' fermo resta fermo a t = 0.
     void resetAllClocks();
     void setSurfaceAnimating(bool animating);
-    bool isSurfaceAnimating() const { return m_surfaceAnimating; }
+    bool isSurfaceAnimating() const { return m_obj->surfaceAnimating; }
 
     void setBackgroundTextureAnimating(bool animating);
     void setSurfaceTextureAnimating(bool animating);
     bool isBackgroundTextureAnimating() const { return m_bgAnimating; }
-    bool isSurfaceTextureAnimating() const { return m_texAnimating; }
+    bool isSurfaceTextureAnimating() const { return m_obj->texAnimating; }
 
     // OROLOGI DI ANIMAZIONE (geometria, texture, sfondo, texture per-mesh).
     // Ognuno E' il tempo che il suo modulo mostra, e avanza solo col proprio
@@ -1190,7 +1191,7 @@ public slots:
     // GEODESIC FLOW CALCULATIONS
     // ==========================================================
 
-    void setConstants(const QMap<QString, float>& constants) { m_constants = constants; }
+    void setConstants(const QMap<QString, float>& constants) { m_obj->constants = constants; }
 
 private slots:
     void updateRotation();
@@ -1199,59 +1200,25 @@ private:
     // ==========================================================
     // CORE ARCHITECTURE
     // ==========================================================
-    std::unique_ptr<SurfaceEngine> engine;
     std::unique_ptr<InputHandler> m_inputHandler;
+    // GLI OGGETTI DELLA SCENA (surfaceobject.h). Per ora uno solo, la
+    // superficie di sempre, creato dal costruttore. m_obj e' quello su cui
+    // agiscono i comandi e, finche' e' l'unico, quello che si disegna.
+    std::vector<std::unique_ptr<SurfaceObject>> m_objects;
+    SurfaceObject *m_obj = nullptr;
 
 
     // ==========================================================
     // ENGINE STATE & REFACTORING
     // ==========================================================
-    EngineMode m_engineMode = ModeParametric;
 
-    // Campo implicito "mal condizionato": equazioni a PRODOTTO di piu' fattori
-    // (es. preset "Chain" = -(f1*f2*...*f6)) hanno un range dinamico enorme
-    // (~1e9) e cambiano segno per PARITA' del prodotto anche lontano da ogni
-    // superficie reale. Il ramo trasparente (marchNextLayer) rileva le facce col
-    // cambio di segno GREZZO del campo, quindi aggancia questi crossing FANTASMA
-    // e il compositing esce con alpha~0 -> la superficie SPARISCE con alpha<1.
-    // Il ramo OPACO usa d=val/gradLen e non ne soffre. Quando questo flag e' true
-    // forziamo alpha=1.0 (fallback a opaco) e la UI disabilita lo slider alpha.
-    // Rilevato empiricamente campionando il campo su CPU in setImplicitEquation:
-    // NON e' un'euristica sulla stringa (un legittimo (x)*(y) non lo attiva).
-    bool m_implicitIllConditioned = false;
-    // SOLO ANDROID: avviso (non blocco) per la trasparenza che potrebbe degradare.
-    // Sempre false su desktop/iOS. Vedi implicitTransparencyMayDegrade().
-    bool m_implicitTransparencyWarn = false;
     void detectImplicitConditioning(const QString &eqF);
 
     // ==========================================================
     // TEXTURE
     // ==========================================================
-    QRhiTexture *m_surfaceTexture = nullptr;
-    // Percorso dell'immagine dell'utente in m_surfaceTexture (loadTextureFromFile);
-    // vuoto se non ce n'e'. NON basta guardare m_surfaceTexture != nullptr:
-    // MainWindow::generateTexture() ci mette anche la scacchiera di default,
-    // disegnata su CPU, che e' un fallback e non un'immagine. Non vuoto governa
-    // u_noImage, cioe' se gli script che campionano iChannel0 cadono sulla
-    // scacchiera procedurale (colori vivi da u_col1/u_col2) o leggono la
-    // texture. Era un bool: il percorso dice anche QUALE immagine e' a schermo
-    // (vedi surfaceImagePath).
-    QString m_surfaceImagePath;
 
-    // IMMAGINI PROPRIE DELLE FASCE (multi-mesh, ambito Mesh). L'immagine di una
-    // fascia e' quella nominata dal tag //IMG: nel suo script (textureCode),
-    // come per la texture di superficie. Ogni fascia e' gia' una draw call col
-    // suo blocco UBO: per darle un'immagine sua basta legarle, allo slot 1, la
-    // sua texture al posto di quella della superficie -- stesso layout, nessun
-    // campo nuovo nel blocco uniforme, nessuna pipeline in piu'.
-    // Una texture per PERCORSO: la stessa immagine su piu' fasce si carica una
-    // volta sola. Si creano e si distruggono nel frame (syncPartImages).
-    struct PartImage {
-        QRhiTexture *tex = nullptr;
-        QRhiShaderResourceBindings *srb = nullptr;
-        bool failed = false;   // file illeggibile: non si riprova a ogni frame
-    };
-    QHash<QString, PartImage> m_partImages;
+    using PartImage = SurfaceObject::PartImage;
     void syncPartImages(QRhiResourceUpdateBatch *resourceUpdates);
     void rebindPartImages();
     void releasePartImages();
@@ -1260,13 +1227,6 @@ private:
     const PartImage *partImageFor(const MeshPart &p) const;
     // I binding con cui disegnare la fascia: i suoi, o quelli della superficie.
     QRhiShaderResourceBindings *bindingsForPart(const MeshPart &p) const;
-    QImage m_pendingSurfaceImage;
-    bool m_surfaceTextureNeedsUpload = false;
-    // Richiesta di scarico della texture di superficie dalla GPU: la distruzione
-    // dell'oggetto RHI va fatta DENTRO il render loop (non sul thread GUI), come
-    // per l'upload. Senza questo, una texture caricata resta residente e ricompare
-    // stantia cambiando superficie o riaccendendo il checkbox.
-    bool m_surfaceTextureNeedsClear = false;
 
     QRhiTexture *m_backgroundTexture = nullptr;
     QImage m_pendingBackgroundImage;
@@ -1275,19 +1235,13 @@ private:
     QRhiGraphicsPipeline *m_bgPipeline = nullptr;
     QRhiShaderResourceBindings *m_bgBindings = nullptr;
     bool m_bgVboUploaded = false;
-    QString m_customFragmentCode;
     QString m_bgScriptCode;
 
-    QString m_textureCode;
-    QString m_displacementCode;
 
 
     // ==========================================================
     // RISORSE QRHI
     // ==========================================================
-    QRhiBuffer *m_vbo = nullptr;
-    QRhiBuffer *m_ibo = nullptr;
-    QRhiBuffer *m_ubo = nullptr;
 
     // Avviso di shader non compilato gia' emesso: impedisce la RAFFICA di popup.
     // buildPipeline puo' fallire a ogni frame, e il popup desktop e' modale
@@ -1297,36 +1251,8 @@ private:
     QRhiTexture *m_dummyTexture = nullptr;
     QRhiSampler *m_sampler = nullptr;
 
-    QRhiShaderResourceBindings *m_bindings = nullptr;
 
-    QRhiBuffer *m_wireframeIbo = nullptr;
-    // Bordo: buffer a parte, riempiti insieme alla mesh (vedi
-    // SurfaceEngine::generateBorder).
-    QRhiBuffer *m_borderVbo = nullptr;
-    QRhiBuffer *m_borderIbo = nullptr;
-    QRhiBuffer *m_borderWireIbo = nullptr;
-    bool m_borderUploaded = false;
-    QRhiGraphicsPipeline *m_wireframePipeline = nullptr;
-    std::vector<unsigned int> m_wireframeIndices;
-    bool wireframeNeedsUpdate = true;
-    int m_wireframeIndexCount = 0;
-    // Un intervallo per parte di mesh: il wireframe condivide il VBO della
-    // superficie (indici assoluti) ma gli uniform del dominio sono per-parte.
-    std::vector<WireframeRange> m_wireframeRanges;
 
-    QRhiGraphicsPipeline *m_pipelineOpaque = nullptr;
-    QRhiGraphicsPipeline *m_pipelineTranspBack = nullptr;
-    QRhiGraphicsPipeline *m_pipelineTranspFront = nullptr;
-    // BORDO: pipeline proprie, opaca e a linee, con lo stato di m_pipelineOpaque
-    // e m_wireframePipeline ma col fragment del bordo (HAS_BORDER): solo lui
-    // contiene il discard dei tratti coperti. Nel fragment della superficie un
-    // discard, anche mai eseguito, spegne lo scarto anticipato dei frammenti
-    // nascosti sulle GPU a tessere (HSR di Apple, FPK di Mali, LRZ di Adreno):
-    // gli strati opachi coperti si colorano lo stesso. Nulle col bordo spento;
-    // se il loro fragment non compila, il bordo si disegna con le pipeline della
-    // superficie, senza il taglio dei tratti coperti.
-    QRhiGraphicsPipeline *m_borderPipelineOpaque = nullptr;
-    QRhiGraphicsPipeline *m_borderPipelineWire = nullptr;
 
     QRhiBuffer *m_bgUbo = nullptr;
 
@@ -1340,22 +1266,13 @@ private:
     // call ne seleziona uno con un dynamic offset. Alternativa scartata: N
     // updateDynamicBuffer sullo stesso blocco, che serializzerebbe i draw.
     //
-    // m_uboBlockStride e' allineato con QRhi::ubufAlignment(): NON e'
-    // sizeof(UboData) (su Metal/Vulkan l'allineamento minimo puo' essere 256).
-    quint32 m_uboBlockStride = 0;
-    int m_uboBlockCapacity = 0;   // quante parti entrano nel buffer attuale
-    // Binding con dynamic offset per la superficie multi-parte. Restano separati
-    // da m_bindings: quello serve ai percorsi che disegnano a offset 0 (sfondo
-    // flat, ray marching) e non deve cambiare comportamento.
-    QRhiShaderResourceBindings *m_bindingsDyn = nullptr;
-    QRhiTexture *m_bindingsDynTexture = nullptr;  // texture con cui e' stato creato
     void ensureDynamicBindings(QRhiTexture *tex);
     bool ensureUboCapacity(int partCount);
 
     // SEZIONE TRASPORTATA DEI TUBI. Una passata compute a ogni frame, prima
     // del disegno, distribuisce gli anelli lungo la curva PROIETTATA (fitti
     // dove la tangente gira in fretta), porta la sezione da un anello al
-    // successivo (trasporto parallelo) e scrive in m_tubeFrameTex, due texel
+    // successivo (trasporto parallelo) e scrive in tubeFrameTex, due texel
     // per anello e una riga per tubo, sezione + u dell'anello e tangente; il
     // vertex li legge (slot 2, tubeTransportedRing in surface.vert). Il compute
     // e' il vertex stesso ridotto a libreria di funzioni, quindi curva,
@@ -1367,24 +1284,8 @@ private:
     // Campioni fitti della curva per tubo, per distribuire gli anelli (=
     // TUBE_MAX_SAMPLES nel compute: al piu' 2048 intervalli).
     static constexpr int kTubeFrameMaxSamples = 2049;
-    QRhiTexture *m_tubeFrameTex = nullptr;
-    QRhiSampler *m_tubeFrameSampler = nullptr;
-    // Lavoro del compute e stato fra un frame e l'altro: per ogni anello
-    // tangente, direzione locale e sezione mostrata al frame prima; per ogni
-    // tubo partenza e angolo di chiusura; in coda i campioni fitti di ogni
-    // tubo (tangente e svolta cumulata). Lo stato si azzera quando
-    // la pipeline viene rifatta (curva nuova) o cambiano tubi e anelli
-    // (m_tubeFrameLayout): m_tubeFrameStateReset, consumato al frame dopo.
-    QRhiBuffer *m_tubeFrameWork = nullptr;
-    bool m_tubeFrameStateReset = true;
-    quint64 m_tubeFrameLayout = 0;
-    // Passo dell'ultimo frame, da advanceClocksBy (live o REC): da qui lo
-    // smorzamento degli scatti della sezione (u_tubeFrameBlend).
-    float m_tubeFrameDt = 0.0f;
     static constexpr int kTubeFrameWorkVec4 = kTubeFrameMaxParts * kTubeFrameMaxRings * 3 + kTubeFrameMaxParts * 2
                                               + kTubeFrameMaxParts * kTubeFrameMaxSamples;
-    QRhiShaderResourceBindings *m_tubeFrameSrb = nullptr;
-    QRhiComputePipeline *m_tubeFramePipeline = nullptr;
     void createTubeFrameResources();
     void buildTubeFramePipeline(const QString &vertexSource);
     void releaseTubeFramePipeline();
@@ -1398,22 +1299,17 @@ private:
     // mesh custom sono posizioni, non parametri: lo shader non sa calcolare il
     // punto in (u, v) da cui il bordo costruisce i suoi tubi. setCustomMesh
     // copia allora i quattro lati della griglia, ciascuno con la riga accanto
-    // verso l'interno, in m_borderEdgeTex (RGBA32F, un texel per punto, righe
+    // verso l'interno, in borderEdgeTex (RGBA32F, un texel per punto, righe
     // in kBorderEdgeRows; nell'ultima, texel 0, numU e numV della griglia), e il
     // vertex li legge (slot 3, borderRawPoint in surface.vert). Senza RGBA32F la
     // texture non esiste e il flusso geodetico resta senza bordo.
     static constexpr int kBorderEdgeMaxSamples = 1024;   // griglia geodetica: al piu' 501 punti per lato
     static constexpr int kBorderEdgeRows = 9;
-    QRhiTexture *m_borderEdgeTex = nullptr;
-    QRhiSampler *m_borderEdgeSampler = nullptr;
-    std::vector<float> m_borderEdgeData;   // larghezza m_borderEdgeWidth, kBorderEdgeRows righe
-    int m_borderEdgeWidth = 0;
-    bool m_borderEdgeDirty = false;
     void createBorderEdgeResources();
     void setBorderEdges(const QVector<QVector<QVector4D>> &grid, const std::vector<char> &drawnQuad);
     // Il bordo si puo' disegnare sulla mesh corrente: sempre sulle superfici,
     // sulla mesh custom solo se c'e' la texture dei lati.
-    bool borderSupported() const { return !m_isCustomMesh || m_borderEdgeTex; }
+    bool borderSupported() const { return !m_obj->isCustomMesh || m_obj->borderEdgeTex; }
     // Lo slot 3 di ogni binding della superficie: i lati della mesh custom, o
     // la dummy.
     QRhiShaderResourceBinding borderEdgesBinding() const;
@@ -1427,17 +1323,17 @@ private:
     // gli script, e nel vertex ogni punto del bordo dovrebbe confrontarsi con
     // tutta la superficie: una passata compute in quattro tempi
     // (buildSharedEdgePipeline) campiona i lati e una griglia dell'interno di
-    // ogni parte in m_sharedEdgeSamples, racchiude blocchi di celle in sfere
-    // (m_sharedEdgeTiles), decide per ogni campione dei lati se e' coperto
-    // (m_sharedEdgeRaw) e, ripuliti i tratti corti, lo scrive in
-    // m_sharedEdgeTex (colonna = campione, riga = parte * 4 + lato). Il vertex nasconde i lati coperti per intero e, finche' la
+    // ogni parte in sharedEdgeSamples, racchiude blocchi di celle in sfere
+    // (sharedEdgeTiles), decide per ogni campione dei lati se e' coperto
+    // (sharedEdgeRaw) e, ripuliti i tratti corti, lo scrive in
+    // sharedEdgeTex (colonna = campione, riga = parte * 4 + lato). Il vertex nasconde i lati coperti per intero e, finche' la
     // passata e' attiva, non rifa' il suo test delle cuciture; il fragment
     // scarta i tratti coperti (slot 4, borderEdgeShared e borderFragmentCovered
     // negli shader). Come i tubi, il compute e' il vertex stesso ridotto a
-    // libreria, con `mesh` dalla tabella delle parti (m_sharedEdgeParts:
+    // libreria, con `mesh` dalla tabella delle parti (sharedEdgeParts:
     // dominio e indice di ciascuna). Si costruisce al primo frame col bordo
     // acceso o alla sonda, e gira solo quando la geometria cambia
-    // (m_sharedEdgeKey: costanti, tempo, parti; le rotazioni no). Le quattro
+    // (sharedEdgeKey: costanti, tempo, parti; le rotazioni no). Le quattro
     // passate leggono la fase da blocchi UBO propri, dopo quelli del bordo
     // (u_isBorder = 10, 11, 12, 13; quattro per istante della sonda).
     // Senza compute la texture non esiste e resta il test del vertex
@@ -1450,61 +1346,9 @@ private:
     static constexpr int kSharedEdgeTileCells = 8;    // celle per lato di un blocco (= TILE)
     static constexpr int kSharedEdgeTiles = (kSharedEdgeGrid / kSharedEdgeTileCells) * (kSharedEdgeGrid / kSharedEdgeTileCells);
     static constexpr int kSharedEdgePartVec4 = 8 * (kSharedEdgeSamples + 1) + (kSharedEdgeGrid + 1) * (kSharedEdgeGrid + 1);
-    QRhiTexture *m_sharedEdgeTex = nullptr;
-    QRhiSampler *m_sharedEdgeSampler = nullptr;
-    QRhiBuffer *m_sharedEdgeParts = nullptr;
-    QRhiBuffer *m_sharedEdgeSamples = nullptr;
-    QRhiBuffer *m_sharedEdgeTiles = nullptr;
-    // I flag grezzi della terza passata, uno per campione dei lati: la quarta
-    // li ripulisce (tratti corti) e scrive m_sharedEdgeTex.
-    QRhiBuffer *m_sharedEdgeRaw = nullptr;
-    std::vector<QVector4D> m_sharedEdgeTable;   // l'ultima tabella caricata
-    QByteArray m_sharedEdgeKey;                 // la geometria dell'ultima passata
-    QRhiShaderResourceBindings *m_sharedEdgeSrb = nullptr;
-    QRhiComputePipeline *m_sharedEdgePipeline = nullptr;
-    // Il vertex da cui costruire il compute (vuoto se non si puo': tubo, mesh
-    // custom, bordo spento) e se va ancora costruito.
-    QString m_sharedEdgeSource;
-    bool m_sharedEdgeSourceDirty = false;
-    // Solo per gli scenari: spegne la passata, per confrontare col test del vertex.
-    bool m_sharedEdgesOff = false;
-    // Solo per gli scenari (border-audit): nel prossimo frame con la passata
-    // attiva si rileggono dalla GPU i flag dei lati coperti (RGBA8,
-    // kSharedEdgeSamples + 1 colonne, riga = mesh * 4 + lato) e i campioni
-    // delle parti (kSharedEdgePartVec4 vec4 per parte). Ogni lettura finita
-    // incrementa m_sharedEdgeReadbacks.
-    bool m_sharedEdgeReadbackRequested = false;
-    QRhiReadbackResult m_sharedEdgeFlagsResult;
-    QRhiReadbackResult m_sharedEdgeSamplesResult;
-    int m_sharedEdgeReadbacks = 0;
-    // SONDA (vedi borderAvailability), a bordo spento e acceso: la geometria
-    // (tabella delle parti, costanti, vincoli; il tempo no) dell'ultima sonda,
-    // quella in attesa che si fermi (m_borderProbeTimer: caricamento, slider
-    // trascinato) e, a timer scaduto, il via per il prossimo frame. La lettura
-    // dei flag e' asincrona: finishBorderProbe la scarta se nel frattempo il
-    // vertex e' cambiato (m_borderProbeSerial).
-    QByteArray m_borderProbeKey;
-    QByteArray m_borderProbePending;
-    QTimer *m_borderProbeTimer = nullptr;
-    bool m_borderProbeArmed = false;
-    bool m_borderProbeReading = false;
-    int m_borderProbeSerial = 0;
-    int m_borderProbeReadSerial = 0;
-    std::vector<int> m_borderProbeMeshes;   // indice di mesh di ogni parte, alla lettura
-    // Su una superficie animata la sonda guarda piu' istanti di t in un colpo
-    // solo (vedi render): letture e arrivi.
-    static constexpr int kBorderProbeInstants = 8;
-    static constexpr float kBorderProbeStep = 0.83f;   // passo in t, non una frazione tonda di pi
-    QRhiReadbackResult m_borderProbeResults[kBorderProbeInstants];
-    int m_borderProbeInstantsRead = 1;
-    int m_borderProbeArrived = 0;
-    // Superficie animata che si apre in qualche istante ma ora e' chiusa: si
-    // guarda l'istante corrente ogni kBorderProbeWatchMs finche' non si apre,
-    // poi Border resta acceso (scelta dell'utente, 10-17).
-    static constexpr int kBorderProbeWatchMs = 250;
-    bool m_borderProbeWatch = false;
-    QElapsedTimer m_borderProbeWatchClock;
-    BorderAvailability m_borderAvailability = BorderAvailability::Unknown;
+    static constexpr int kBorderProbeInstants = SurfaceObject::kBorderProbeInstants;
+    static constexpr float kBorderProbeStep = SurfaceObject::kBorderProbeStep;
+    static constexpr int kBorderProbeWatchMs = SurfaceObject::kBorderProbeWatchMs;
     void finishBorderProbe();
     void setBorderAvailability(BorderAvailability a);
     void createSharedEdgeResources();
@@ -1527,32 +1371,8 @@ private:
     // RISORSE QRHI IMPLICIT (RAY MARCHING)
     // ==========================================================
     void buildImplicitPipeline();
-    QRhiGraphicsPipeline *m_pipelineImplicit = nullptr;
-    QRhiShaderResourceBindings *m_bindingsImplicit = nullptr;
-
-
-    // ==========================================================
-    // MATHEMATICAL & GEOMETRY STATE
-    // ==========================================================
-    QString m_eqX, m_eqY, m_eqZ, m_eqW;
-    bool meshNeedsUpdate = true;
-    int m_indexCount = 0;
-    int wfStepU = 4;
-    int wfStepV = 4;
-    int m_raySteps = 100;
-    float m_surfaceScale = 2.0f;
-    bool m_isCustomMesh = false;
-
-    // DOMINIO DI RIFERIMENTO delle coordinate texture della mesh geodetica.
-    // Le texCoord sono la frazione di QUESTO dominio, non dell'intervallo
-    // corrente: e' cio' che tiene la texture ancorata alla geometria quando si
-    // restringe l'intervallo (la si vede TAGLIATA, non compressa). Fissato al
-    // primo calcolo dopo un load/reset (m_uvRefValid=false) e tenuto fermo
-    // finche' non se ne carica un altro, cosi' il preset conserva l'aspetto con
-    // cui e' stato salvato.
-    bool  m_uvRefValid = false;
-    float m_uvRefUMin = 0.0f, m_uvRefUSpan = 1.0f;
-    float m_uvRefVMin = 0.0f, m_uvRefVSpan = 1.0f;
+    QString createImplicitFragmentShader();
+    QString createBackgroundFragmentShader(bool isTextureMode, const QString &customCode);
 
 public:
     // Riarma il dominio di riferimento delle texCoord geodetiche: il prossimo
@@ -1560,109 +1380,30 @@ public:
     // stabiliscono un nuovo "stato di partenza" -- load di preset/record e
     // reset di modalita' -- MAI un semplice cambio di limiti, che e' proprio il
     // caso in cui il riferimento deve restare fermo.
-    void resetGeodesicUvReference() { m_uvRefValid = false; }
+    void resetGeodesicUvReference() { m_obj->uvRefValid = false; }
 
 private:
 
 
     // ==========================================================
-    // IMPLICIT EQUATIONS STATE
-    // ==========================================================
-    QString m_eqImplicitF = "x*x + y*y + z*z - 1.0";
-    // Equazione a 4 variabili (x,y,z,p) del sotto-tab Cross Section. Stato
-    // separato da m_eqImplicitF: i due sotto-tab (3D / Cross Section) non si
-    // sovrascrivono a vicenda. p e' la quarta coordinata del punto nel
-    // riferimento della superficie, ricavata applicando la rotazione 4D INVERSA
-    // al punto (x,y,z,0) della camera — vedi createImplicitFragmentShader().
-    // Default: 3-toro T^3 (toro-di-tori, S=x^2+y^2+z^2+A^2, M=S+p^2+B^2-C^2),
-    // A=raggio esterno, B=raggio intermedio, C=raggio tubo. A p=0 NON si
-    // riduce al toro 2D standard: e' proprio l'oggetto 4D nel suo riferimento.
-    // DEVE combaciare con kT3Equation in MainWindow::loadCrossSectionDefaultSurface
-    // (fattore di scala compreso): sono due copie della stessa equazione, e una
-    // che resta indietro e' un default incoerente con cio' che l'utente vede.
-    QString m_eqCrossSectionF =
-        "0.5*(((x*x+y*y+z*z+p*p+A*A+B*B-C*C)^2 + 4*(A*A-B*B)*(x*x+y*y) - 4*B*B*(z*z+A*A))^2 "
-        "- 16*A*A*(x*x+y*y)*(x*x+y*y+z*z+p*p+A*A-B*B-C*C)^2)";
-    // Quale delle due equazioni sopra e' quella attiva nello shader compilato.
-    bool m_implicitUsesCrossSection = false;
-
-    QString createImplicitFragmentShader();
-    QString createBackgroundFragmentShader(bool isTextureMode, const QString &customCode);
-
-
-    // ==========================================================
-    // GEODESIC FLOW STATE
-    // ==========================================================
-    // Il flusso geodetico si calcola in geodesiccalculator + compute shader:
-    // qui resta solo la mappa delle costanti. (Undici campi relitto di una
-    // vecchia versione rimossi in 2026-08: nessuno li leggeva piu'.)
-    QMap<QString, float> m_constants;
-
-
-    // ==========================================================
     // RENDERING & TEXTURE STATE
     // ==========================================================
-    int renderMode = 0;
-    // Indice della mesh su cui agiscono i controlli di aspetto; -1 = "All"
-    // (stato globale). Vedi setActiveMeshPart.
-    int m_activeMeshPart = -1;
-    bool m_meshAppearanceBypass = false;
-    // Vero in ambito "All": l'aspetto per-parte e' SOSPESO (ignorato dal render,
-    // non cancellato), cosi' la superficie si disegna come una sola e i valori
-    // per-mesh restano disponibili per quando si torna su "Mesh".
-    bool m_meshAppearanceUniform = false;
     bool applyToActiveMeshPart(const std::function<void(MeshPart&)> &fn);
     // Modalita' con cui una parte va DISEGNATA: la sua se dichiarata, ma in
     // ambito "All" (uniform) vince sempre il globale. Punto unico, cosi' render
     // e partizione wireframe/solido non possono divergere.
     int effectivePartRenderMode(const MeshPart &p) const {
-        return m_meshAppearanceUniform ? renderMode : p.effectiveRenderMode(renderMode);
+        return m_obj->meshAppearanceUniform ? m_obj->renderMode : p.effectiveRenderMode(m_obj->renderMode);
     }
     // Sposta di 'delta' il passo wireframe della parte selezionata. Ritorna
     // false se non c'e' una parte attiva: il chiamante ricade sul globale.
     bool adjustActiveWireframeStep(bool isU, int delta);
-    // True quando lo script ray marching definisce la direttiva Inner:=
-    // (seconda superficie opaca interna, es. orizzonte di Kerr). Settato in
-    // createImplicitFragmentShader() e inviato alla GPU via u_dummyZero.y.
-    bool m_raymarchHasInner = false;
-    bool m_textureEnabled = false;
-    bool m_isSpecularEnabled = false;
-    float alpha = 0.5f;
-    float red = 1, green = 1, blue = 1;
-    float m_lightIntensity = 1.0f;
+    // Luce di riempimento (headlight): della vista, comune a tutti gli oggetti.
     // 0 = spenta: il default riproduce esattamente l'illuminazione storica.
     float m_fillLight = 0.0f;
-    // 0.005 = il guscio storico della sfera unitaria (dove |grad| = 2).
-    float m_shellThickness = 0.005f;
-    // MARCHER: false = sphere tracing storico. Default conservativo, cosi' ogni
-    // superficie che non chiede esplicitamente l'ibrido si disegna come sempre
-    // (i record 3D esistenti, che con l'ibrido mostravano difetti sui bordi).
-    // Il T^3 del Cross Section lo accende da loadCrossSectionDefaultSurface, e i
-    // preset lo portano nella chiave "hybridMarcher".
-    bool m_hybridMarcher = false;
-    float m_tubeRadius = 0.1f;
-    float m_borderRadius = 0.0f;
-    QColor m_borderColor = QColor::fromRgbF(1.0f, 1.0f, 1.0f);
-    int m_borderRenderMode = 0;
-    int m_borderWireAlong = kBorderWireAlongDefault;
-    int m_borderWireAround = kBorderWireAroundDefault;
-    QString m_borderTexCode;
-    bool m_borderTexEnabled = false;
-    QColor m_borderTexCol1 = QColor::fromRgbF(0.20f, 0.80f, 0.20f);
-    QColor m_borderTexCol2 = QColor(Qt::black);
-    float m_borderTexZoom = 1.0f;
-    QVector2D m_borderTexPan = QVector2D(0.0f, 0.0f);
-    float m_borderTexRotation = 0.0f;
-    QString m_borderTexLibName;
-    QString m_borderTexHint;
-    float m_borderTexHintSeconds = 6.0f;
-    bool m_borderTexAnimating = false;
-    float m_borderTimeTex = 0.0f;
     // Binding del bordo: quelli della sua immagine, se ne ha una caricata.
     QRhiShaderResourceBindings *borderBindings() const;
 
-    float texRed1 = 1.0f, texGreen1 = 1.0f, texBlue1 = 1.0f;
-    float texRed2 = 0.0f, texGreen2 = 0.0f, texBlue2 = 0.0f;
 
     bool m_useBackgroundTexture = false;
     int m_bgSkyMode = BgFixed;      // vedi setBackgroundSkyMode
@@ -1687,20 +1428,10 @@ private:
     int m_flatViewTarget = 0;
     // BUFFER DI LAVORO della vista 2D: e' cio' che il mouse muove e cio' che il
     // fragment legge per la parte in editing. NON e' la trasformazione globale:
-    // vedi m_globalTexZoom/Pan/Rotation qui sotto.
+    // vedi globalTexZoom/Pan/Rotation qui sotto.
     float m_flatZoom = 1.0f;
     float m_flatRotation = 0.0f;
     QVector2D m_flatPan;
-    // TRASFORMAZIONE 2D GLOBALE della texture di superficie (ambito "All", e
-    // valore ereditato dalle parti che non ne hanno una propria).
-    // Vive separata dai tre membri qui sopra perche' quelli fanno DUE lavori:
-    // sono il buffer che il mouse muove in vista 2D, e finivano anche in
-    // m_uboData come stato globale. Manipolando la texture di UNA mesh li si
-    // sovrascriveva, e la trasformazione globale -- insieme a quella di ogni
-    // fascia che la eredita -- veniva trascinata dietro.
-    float m_globalTexZoom = 1.0f;
-    float m_globalTexRotation = 0.0f;
-    QVector2D m_globalTexPan;
     // Inquadratura e colori della texture di SFONDO: unica, non per-parte.
     // Finche' nessuno scrive i colori lo sfondo usa quelli della superficie.
     float m_bgZoom = 1.0f;
@@ -1715,11 +1446,6 @@ private:
     // ==========================================================
     QMatrix4x4 m_projection;
     QMatrix4x4 m_view;
-    QMatrix4x4 m_model;
-    QQuaternion m_rotationQuat;
-    // true se l'utente ha ruotato la superficie a mano (mouse/touch) dopo l'ultima
-    // rotazione "di default" (setRotationQuat). Governa neutralizeDefaultRotationForPath.
-    bool m_userRotatedManually = false;
 
     QVector3D m_cameraPos;
     QVector4D m_cameraPos4D = QVector4D(0.0f, 0.0f, 4.0f, 4.0f);
@@ -1797,30 +1523,23 @@ private:
     bool m_wasAnimating = false;         // stato anim. al frame precedente: per saltare
                                          // il primo frame dopo lo start (transitorio)
 
-    bool m_surfaceAnimating = false;
 
-    float nutation = 0, precession = 0, spin = 0;
-    float omega = 0, phi = 0, psi = 0;
-    float nutationSpeed = 0, precessionSpeed = 0, spinSpeed = 0;
-    float omegaSpeed = 0, phiSpeed = 0, psiSpeed = 0;
 
     QVector3D m_lastValidUp{0.0f, 1.0f, 0.0f};
     bool m_isFirstPathRun{true};
 
     float m_lastRealTime = 0.0f;
-    // Orologi dei tre moduli globali: ciascuno E' il tempo mostrato (piu'
-    // kClockOrigin). Nessuna base comune: prima c'era m_manualTime, sommata a
-    // tutti, con due sorgenti incompatibili (elapsed reale allo stop, tempo del
-    // recorder in REC). Nel video il tempo del recorder entrava due volte
-    // (velocita' doppia, partenza da zero) e ogni stop/start dell'orologio
-    // faceva saltare avanti le animazioni.
-    float m_timeGeom = 0.0f;
-    float m_timeTex = 0.0f;
+    // Orologio dello SFONDO, della vista; quelli di geometria e texture sono
+    // dell'oggetto (SurfaceObject::timeGeom, timeTex). Ciascun orologio E' il
+    // tempo mostrato (piu' kClockOrigin). Nessuna base comune: prima c'era
+    // m_manualTime, sommata a tutti, con due sorgenti incompatibili (elapsed
+    // reale allo stop, tempo del recorder in REC). Nel video il tempo del
+    // recorder entrava due volte (velocita' doppia, partenza da zero) e ogni
+    // stop/start dell'orologio faceva saltare avanti le animazioni.
     float m_timeBg = 0.0f;
     bool  m_clocksDrivenByRecorder = false;   // vedi setClocksDrivenByRecorder
 
     bool m_bgAnimating = false;
-    bool m_texAnimating = false;
 
 
     // ==========================================================
@@ -1854,7 +1573,7 @@ private:
 
     // --- Shader Generation & Compilation ---
     QString createVertexShaderSource(const QString &xEq, const QString &yEq, const QString &zEq, const QString &wEq);
-    // forBorder: la variante delle pipeline del bordo (m_borderPipelineOpaque).
+    // forBorder: la variante delle pipeline del bordo (borderPipelineOpaque).
     QString createFragmentShaderSource(const QString &customCode, bool forBorder = false);
     // Genera UNA funzione texture procedurale col nome dato. Chiamata piu' volte
     // nello stesso shader per le texture per-mesh (getCustomColor_<k>).

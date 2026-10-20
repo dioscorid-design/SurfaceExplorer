@@ -3896,7 +3896,7 @@ void ScenarioTest::runLoadOrderScenarios()
         return QString::fromLatin1(QCryptographicHash::hash(src.toUtf8(), QCryptographicHash::Md5).toHex().left(10));
     };
     auto vertexSource = [&]() {
-        QString vs = gl->createVertexShaderSource(gl->m_eqX, gl->m_eqY, gl->m_eqZ, gl->m_eqW);
+        QString vs = gl->createVertexShaderSource(gl->m_obj->eqX, gl->m_obj->eqY, gl->m_obj->eqZ, gl->m_obj->eqW);
         if (gl->isCustomMesh()) {
             // Sulla mesh custom il ramo #else di getRawPosition non si compila:
             // ci restano le equazioni della superficie di prima, innocue.
@@ -3932,7 +3932,7 @@ void ScenarioTest::runLoadOrderScenarios()
         s.items[QStringLiteral("flusso geodetico")] = gl->isCustomMesh()
             ? QString::fromLatin1(eng->geodesicFlowKey().toHex().left(10)) : QStringLiteral("-");
         s.items[QStringLiteral("cutout")] = onOff(!eng->getCutoutCodeGLSL().trimmed().isEmpty());
-        s.items[QStringLiteral("bordo")] = onOff(gl->m_borderRadius > 0.0f);
+        s.items[QStringLiteral("bordo")] = onOff(gl->m_obj->borderRadius > 0.0f);
         s.items[QStringLiteral("campo Meshes")] = ui->lineMeshCount->text()
             + (ui->lineMeshCount->isEnabled() ? QStringLiteral(" acceso") : QStringLiteral(" spento"));
         s.items[QStringLiteral("ambito")] = m_mw->meshScopeAll() ? QStringLiteral("All") : QStringLiteral("Mesh");
@@ -3951,7 +3951,7 @@ void ScenarioTest::runLoadOrderScenarios()
             s.vs = vertexSource();
             s.items[QStringLiteral("vertex shader")] = shaderHash(s.vs);
         }
-        s.fs = gl->createFragmentShaderSource(gl->m_customFragmentCode);
+        s.fs = gl->createFragmentShaderSource(gl->m_obj->customFragmentCode);
         s.items[QStringLiteral("fragment shader")] = shaderHash(s.fs);
         return s;
     };
@@ -4339,11 +4339,11 @@ void ScenarioTest::runBorderScenarios()
         }
         static const QRegularExpression opensOnce(QStringLiteral("^0+1+$"));
         const bool ok = opens ? opensOnce.match(seen).hasMatch() : !seen.contains(QLatin1Char('1'));
-        check(gl->m_surfaceAnimating && ok,
+        check(gl->m_obj->surfaceAnimating && ok,
               QStringLiteral("%1, animata -> radio Border %2 (radio nel tempo %3, animata %4)")
                   .arg(what, opens ? QStringLiteral("spento finche' e' chiusa, poi sempre acceso")
                                    : QStringLiteral("sempre spento"),
-                       seen, onOff(gl->m_surfaceAnimating)));
+                       seen, onOff(gl->m_obj->surfaceAnimating)));
     };
     for (const char *c : { "records/Animations/Parametric/Surfaces/Equations/S3/S3 Moving Plane.json",
                            "records/Animations/Parametric/Surfaces/Equations/H3/Torus.json" }) {
@@ -4452,8 +4452,8 @@ void ScenarioTest::runBorderScenarios()
         // l'immagine dipendeva da quanto erano durati i passi prima (le
         // compilazioni). Cosi' si confronta fra una build e l'altra.
         gl->setClocksDrivenByRecorder(true);
-        gl->m_timeTex = 1.0f;
-        gl->m_borderTimeTex = 1.0f;
+        gl->m_obj->timeTex = 1.0f;
+        gl->m_obj->borderTimeTex = 1.0f;
         gl->update();  wait(200);
         gl->grabFramebuffer().save(m_outDir + QStringLiteral("/border-texture-disco.png"));
         gl->setClocksDrivenByRecorder(false);
@@ -4781,11 +4781,11 @@ void ScenarioTest::runBorderScenarios()
               QStringLiteral("Calabi-Yau, primo fotogramma col bordo acceso -> gia' il solo contorno (diverso dai successivi: %1 dei pixel)")
                   .arg(pct(changed(firstFrame, outline))));
         const bool active = gl->sharedEdgesActive();
-        gl->m_sharedEdgesOff = true;
+        gl->m_obj->sharedEdgesOff = true;
         gl->update();  wait(600);
         const QImage everyEdge = gl->grabFramebuffer();
         everyEdge.save(m_outDir + QStringLiteral("/border-calabi-yau-every-edge.png"));
-        gl->m_sharedEdgesOff = false;
+        gl->m_obj->sharedEdgesOff = false;
         gl->update();  wait(300);
         const double shown = changed(plain, outline);
         const double all = changed(plain, everyEdge);
@@ -4890,20 +4890,20 @@ void ScenarioTest::runBorderScenarios()
         // Il discard dei tratti coperti sta SOLO nel fragment del bordo, con
         // pipeline proprie: in quello della superficie spegnerebbe lo scarto
         // anticipato dei frammenti nascosti sulle GPU a tessere.
-        const bool surfaceCut = gl->createFragmentShaderSource(gl->m_customFragmentCode).contains(QLatin1String("#define HAS_BORDER"));
-        const bool borderCut = gl->createFragmentShaderSource(gl->m_customFragmentCode, true).contains(QLatin1String("#define HAS_BORDER"));
-        check(!surfaceCut && borderCut && gl->m_borderPipelineOpaque && gl->m_borderPipelineWire,
+        const bool surfaceCut = gl->createFragmentShaderSource(gl->m_obj->customFragmentCode).contains(QLatin1String("#define HAS_BORDER"));
+        const bool borderCut = gl->createFragmentShaderSource(gl->m_obj->customFragmentCode, true).contains(QLatin1String("#define HAS_BORDER"));
+        check(!surfaceCut && borderCut && gl->m_obj->borderPipelineOpaque && gl->m_obj->borderPipelineWire,
               QStringLiteral("bordo acceso -> discard solo nel fragment del bordo, pipeline proprie "
                              "(superficie %1, bordo %2, pipeline %3/%4)")
                   .arg(surfaceCut ? QStringLiteral("CON discard") : QStringLiteral("senza discard"),
                        borderCut ? QStringLiteral("con discard") : QStringLiteral("SENZA discard"),
-                       gl->m_borderPipelineOpaque ? QStringLiteral("opaca") : QStringLiteral("NESSUNA opaca"),
-                       gl->m_borderPipelineWire ? QStringLiteral("linee") : QStringLiteral("NESSUNA a linee")));
-        gl->m_sharedEdgesOff = true;
+                       gl->m_obj->borderPipelineOpaque ? QStringLiteral("opaca") : QStringLiteral("NESSUNA opaca"),
+                       gl->m_obj->borderPipelineWire ? QStringLiteral("linee") : QStringLiteral("NESSUNA a linee")));
+        gl->m_obj->sharedEdgesOff = true;
         gl->update();  wait(600);
         const QImage everyEdge = gl->grabFramebuffer();
         everyEdge.save(m_outDir + QStringLiteral("/border-octahedron-bands-every-edge.png"));
-        gl->m_sharedEdgesOff = false;
+        gl->m_obj->sharedEdgesOff = false;
         gl->update();  wait(300);
         const double shown = changed(plain, outline);
         const double all = changed(plain, everyEdge);
@@ -4932,8 +4932,8 @@ void ScenarioTest::runBorderScenarios()
         gl->grabFramebuffer().save(m_outDir + QStringLiteral("/border-geodesic-") + c.second + QStringLiteral(".png"));
         QString flags = QStringLiteral("nessuna texture dei lati");
         bool ok = false;
-        if (gl->m_borderEdgeWidth > 0) {
-            const float *info = gl->m_borderEdgeData.data() + size_t(8) * gl->m_borderEdgeWidth * 4;
+        if (gl->m_obj->borderEdgeWidth > 0) {
+            const float *info = gl->m_obj->borderEdgeData.data() + size_t(8) * gl->m_obj->borderEdgeWidth * 4;
             flags = QStringLiteral("%1 %2 %3 %4").arg(info[4]).arg(info[5]).arg(info[6]).arg(info[7]);
             ok = info[4] == 0.0f && info[5] == 0.0f && info[6] == 1.0f && info[7] == 1.0f;
         }
@@ -5056,7 +5056,7 @@ bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, 
     auto probeAgrees = [&](bool anyVisible) {
         // Su una superficie animata la sonda guarda l'animazione intera (resta
         // acceso dalla prima apertura): non si confronta con un istante.
-        if (probe == GLWidget::BorderAvailability::Unknown || gl->m_surfaceAnimating) return;
+        if (probe == GLWidget::BorderAvailability::Unknown || gl->m_obj->surfaceAnimating) return;
         if ((probe == GLWidget::BorderAvailability::Visible) != anyVisible)
             *problems << QStringLiteral("la sonda a bordo spento dice %1, il bordo acceso %2")
                              .arg(probe == GLWidget::BorderAvailability::Visible ? QStringLiteral("aperta") : QStringLiteral("chiusa"),
@@ -5067,22 +5067,22 @@ bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, 
         ui->borderThicknessSlider->setValue(0);  wait(200);
         ui->radioSurface->click();  wait(200);
     };
-    if (gl->engine->isTubeModeActive()) {
+    if (gl->m_obj->engine->isTubeModeActive()) {
         *skipped = QStringLiteral("tubo, niente bordo da controllare (solo immagine)");
         off();
         return false;
     }
-    if (gl->m_isCustomMesh) {
+    if (gl->m_obj->isCustomMesh) {
         // Flusso geodetico: i lati coperti li decide la CPU per lato intero
         // (GLWidget::setBorderEdges). Si controlla che un lato che coincide col
         // lato opposto della mesh disegnata (cucitura) non resti disegnato.
-        const int width = gl->m_borderEdgeWidth;
+        const int width = gl->m_obj->borderEdgeWidth;
         if (width <= 0) {
             *problems << QStringLiteral("mesh custom senza texture dei lati");
             off();
             return true;
         }
-        const float *data = gl->m_borderEdgeData.data();
+        const float *data = gl->m_obj->borderEdgeData.data();
         const float *info = data + size_t(8) * width * 4;
         const int numU = int(info[0] + 0.5f), numV = int(info[1] + 0.5f);
         auto pt = [&](int row, int k) {
@@ -5107,19 +5107,19 @@ bool ScenarioTest::auditLoadedBorder(const QString &rel, QStringList *problems, 
         off();
         return true;
     }
-    const int before = gl->m_sharedEdgeReadbacks;
-    gl->m_sharedEdgeReadbackRequested = true;
+    const int before = gl->m_obj->sharedEdgeReadbacks;
+    gl->m_obj->sharedEdgeReadbackRequested = true;
     gl->update();
-    for (int k = 0; k < 40 && gl->m_sharedEdgeReadbacks < before + 2; ++k) wait(50);
-    gl->m_sharedEdgeReadbackRequested = false;
-    if (gl->m_sharedEdgeReadbacks < before + 2) {
+    for (int k = 0; k < 40 && gl->m_obj->sharedEdgeReadbacks < before + 2; ++k) wait(50);
+    gl->m_obj->sharedEdgeReadbackRequested = false;
+    if (gl->m_obj->sharedEdgeReadbacks < before + 2) {
         *problems << QStringLiteral("passata dei lati coperti non attiva o lettura dalla GPU non arrivata");
         off();
         return true;
     }
-    const QByteArray flags = gl->m_sharedEdgeFlagsResult.data;
-    const QByteArray samples = gl->m_sharedEdgeSamplesResult.data;
-    const std::vector<QVector4D> table = gl->m_sharedEdgeTable;
+    const QByteArray flags = gl->m_obj->sharedEdgeFlagsResult.data;
+    const QByteArray samples = gl->m_obj->sharedEdgeSamplesResult.data;
+    const std::vector<QVector4D> table = gl->m_obj->sharedEdgeTable;
     const int count = table.empty() ? 0 : int(table[0].x() + 0.5f);
     const int height = 4 * GLWidget::kSharedEdgeMaxParts;
     const int bpl = flags.size() / height;
@@ -5321,9 +5321,9 @@ void ScenarioTest::waitBorderProbe()
     // prima volta), gira e rilegge i flag in un frame successivo. Il segnale al
     // dock va in coda: un ultimo giro di eventi.
     for (int k = 0; k < 80; ++k) {
-        if (gl->m_isCustomMesh) break;
-        if (!gl->m_borderProbeReading && !gl->m_borderProbeArmed && !gl->m_borderProbeTimer->isActive()
-            && !gl->m_borderProbeKey.isEmpty() && gl->m_borderProbeKey == gl->m_borderProbePending)
+        if (gl->m_obj->isCustomMesh) break;
+        if (!gl->m_obj->borderProbeReading && !gl->m_obj->borderProbeArmed && !gl->m_obj->borderProbeTimer->isActive()
+            && !gl->m_obj->borderProbeKey.isEmpty() && gl->m_obj->borderProbeKey == gl->m_obj->borderProbePending)
             break;
         wait(50);
     }
@@ -5376,11 +5376,11 @@ void ScenarioTest::runStepsScenarios()
     }
     if (loadRecord(QString::fromLatin1(kImplicitRecord))) {
         typeSteps(QStringLiteral("1500"));
-        check(m_mw->m_scene.steps == 1500 && ui->stepSlider->maximum() == 1500 && gl->m_raySteps == 1500,
+        check(m_mw->m_scene.steps == 1500 && ui->stepSlider->maximum() == 1500 && gl->m_obj->raySteps == 1500,
               QStringLiteral("Ray Marching, campo Ray Steps 1500 -> slider allargato, motore a 1500 (%1, %2)")
-                  .arg(m_mw->m_scene.steps).arg(gl->m_raySteps));
+                  .arg(m_mw->m_scene.steps).arg(gl->m_obj->raySteps));
         typeSteps(QStringLiteral("999999"));
-        check(m_mw->m_scene.steps == GLWidget::kRayStepsMax && gl->m_raySteps == GLWidget::kRayStepsMax,
+        check(m_mw->m_scene.steps == GLWidget::kRayStepsMax && gl->m_obj->raySteps == GLWidget::kRayStepsMax,
               QStringLiteral("Ray Marching, campo Ray Steps 999999 -> il tetto del ciclo %1 (%2)")
                   .arg(GLWidget::kRayStepsMax).arg(m_mw->m_scene.steps));
         typeSteps(QStringLiteral("400"));
